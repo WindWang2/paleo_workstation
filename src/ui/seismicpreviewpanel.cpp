@@ -1,22 +1,33 @@
 #include "seismicpreviewpanel.h"
 
+#include "../io/segyreader.h"
 #include "../linkage/seismicmaplink.h"
 #include "../linkage/selectioncontext.h"
 
 #include <QGraphicsLineItem>
 #include <QGraphicsPathItem>
+#include <QGraphicsPixmapItem>
 #include <QGraphicsScene>
 #include <QGraphicsSimpleTextItem>
 #include <QGraphicsView>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QImage>
 #include <QLabel>
 #include <QListWidget>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPixmap>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
 #include <QtMath>
+
+struct SeismicLineData
+{
+  QVector<SegyTrace> traces;
+  int samplesPerTrace = 0;
+  float sampleIntervalUs = 0.0f;
+};
 
 // ---------------------------------------------------------------------------
 // Scene scaffold: a rounded-rect plot card, asset label top-left, a TWT axis,
@@ -174,6 +185,50 @@ void SeismicPreviewPanel::addSeismicAsset(const QString &id, const QString &labe
   rebuildList();
 }
 
+void SeismicPreviewPanel::loadLineFromFile(const QString &assetId, const QString &segyPath)
+{
+  if (assetId.isEmpty() || segyPath.isEmpty())
+    return;
+
+  SegyReader reader;
+  QString err;
+  if (!reader.open(segyPath, &err))
+  {
+    qWarning("SeismicPreviewPanel::loadLineFromFile: failed to open '%s': %s",
+             qPrintable(segyPath), qPrintable(err));
+    return;
+  }
+
+  auto data = std::make_shared<SeismicLineData>();
+  data->traces = reader.traces();
+  data->samplesPerTrace = reader.samplesPerTrace();
+  data->sampleIntervalUs = reader.sampleIntervalUs();
+
+  m_lineTraces.insert(assetId, data);
+
+  if (!hasAsset(assetId))
+  {
+    addSeismicAsset(assetId, assetId);
+  }
+
+  if (m_currentId.isEmpty() || m_currentId == assetId)
+  {
+    if (m_list)
+    {
+      const QSignalBlocker blocker(m_list);
+      for (int i = 0; i < m_list->count(); ++i)
+      {
+        if (m_list->item(i)->data(Qt::UserRole).toString() == assetId)
+        {
+          m_list->setCurrentRow(i);
+          break;
+        }
+      }
+    }
+    updatePreview(assetId);
+  }
+}
+
 void SeismicPreviewPanel::rebuildList()
 {
   if (!m_list)
@@ -298,73 +353,219 @@ void SeismicPreviewPanel::updatePreview(const QString &assetId)
   }
 
   // Title: line label + asset id + honest "stub" note.
-  auto *title = sceneText(m_scene, label, 9, kText);
-  title->setPos(l, t - 4);
-  auto *sub = sceneText(m_scene,
-                        tr("%1 — 预览占位，道数据待接入").arg(assetId),
-                        8, kTextMuted);
-  sub->setPos(l + title->boundingRect().width() + 12, t - 2);
+  auto it = m_lineTraces.constFind(assetId);
+  const bool hasRealData = (it != m_lineTraces.constEnd() && it.value() &&
+                            !it.value()->traces.isEmpty() &&
+                            it.value()->samplesPerTrace > 0);
 
-  // TWT axis (left): 0/500/1000 ms.
-  const qreal axisX = l + 2;
-  m_scene->addLine(axisX, kBaselineY, axisX, b - 4, QPen(kTextMuted, 1.0));
-  const int twtMs[] = {0, 500, 1000};
-  for (int i = 0; i < 3; ++i)
+  if (hasRealData)
   {
-    const qreal y = kBaselineY + i * (b - 4 - kBaselineY) / 2.0;
-    m_scene->addLine(axisX - 4, y, axisX, y, QPen(kTextMuted, 1.0));
-    auto *tl = sceneText(m_scene, QString::number(twtMs[i]), 8, kTextMuted);
-    const QRectF tb = tl->boundingRect();
-    tl->setPos(axisX - 6 - tb.width(), y - tb.height() / 2.0);
+    const auto &lineData = *(it.value());
+    const auto &traces = lineData.traces;
+    const int traceCount = traces.size();
+    const int samplesPerTrace = lineData.samplesPerTrace;
+
+    // =========================================================================
+    // Design Decision: Variable Density (VD / 变密度) Profile vs. Wiggle Trace
+    // =========================================================================
+    // Variable Density (VD) raster rendering is selected over traditional
+    // wiggle-trace / variable-area (WT/VA) polylines for three core reasons:
+    // 1. Rendering Performance & Scalability: A real seismic profile contains hundreds
+    //    to thousands of traces, each with thousands of sample points. Rendering
+    //    wiggle traces with QPainterPath polylines and filled polygon loops creates
+    //    tens of thousands of scene items / path nodes, causing significant UI
+    //    framerate drops and memory bloat during pan/zoom. In contrast, VD renders
+    //    the entire section into a single QImage / QGraphicsPixmapItem with O(1)
+    //    scene complexity and hardware-accelerated raster blits.
+    // 2. Information Density & 2D Overview: In a compact preview panel (640x360),
+    //    adjacent wiggle traces heavily overlap, creating illegible black ink
+    //    saturation ("trace clutter"). Grayscale VD provides high dynamic range
+    //    visualization of continuous impedance reflectors, stratigraphic unconformities,
+    //    and fault offsets across the full section width.
+    // 3. DESIGN.md Compliance: Conforms to the Paleo Workbench design system's
+    //    restrained aesthetic (order, density, and professional GIS utility without
+    //    decorative visual clutter).
+    // =========================================================================
+
+    // Title: line label
+    auto *title = sceneText(m_scene, label, 9, kText);
+    title->setPos(l, t - 4);
+
+    // Calculate total duration in ms
+    const float dtUs = (lineData.sampleIntervalUs > 0.0f) ? lineData.sampleIntervalUs : 2000.0f;
+    const double totalMs = static_cast<double>(samplesPerTrace) * dtUs / 1000.0;
+    const int totalMsInt = static_cast<int>(std::round(totalMs));
+
+    // Caption text: e.g. %1 — %2 traces × %3 samples (%4 ms)
+    auto *sub = sceneText(m_scene,
+                          tr("%1 — %2 traces × %3 samples (%4 ms)")
+                            .arg(assetId)
+                            .arg(traceCount)
+                            .arg(samplesPerTrace)
+                            .arg(totalMsInt),
+                          8, kTextMuted);
+    sub->setPos(l + title->boundingRect().width() + 12, t - 2);
+
+    // TWT axis (left): actual time labels based on samples * dt / 1000 ms
+    const qreal axisX = l + 2;
+    m_scene->addLine(axisX, kBaselineY, axisX, b - 4, QPen(kTextMuted, 1.0));
+    const int twtTicks[3] = {
+      0,
+      static_cast<int>(std::round(totalMs * 0.5)),
+      totalMsInt
+    };
+    for (int i = 0; i < 3; ++i)
+    {
+      const qreal y = kBaselineY + i * (b - 4 - kBaselineY) / 2.0;
+      m_scene->addLine(axisX - 4, y, axisX, y, QPen(kTextMuted, 1.0));
+      auto *tl = sceneText(m_scene, QString::number(twtTicks[i]), 8, kTextMuted);
+      const QRectF tb = tl->boundingRect();
+      tl->setPos(axisX - 6 - tb.width(), y - tb.height() / 2.0);
+    }
+    auto *axisCap = sceneText(m_scene, tr("TWT(ms)"), 8, kTextMuted);
+    axisCap->setPos(l - kAxisW + 4, t - 4);
+
+    // Plot area rect: QRectF(l + 8, kBaselineY, r - l - 16, b - 4 - kBaselineY)
+    const QRectF plotRect(l + 8, kBaselineY, r - l - 16, b - 4 - kBaselineY);
+
+    // Find amplitude extrema for symmetric normalization
+    float maxAbs = 0.0f;
+    for (const auto &tr : traces)
+    {
+      for (float s : tr.samples)
+      {
+        float a = qAbs(s);
+        if (a > maxAbs)
+          maxAbs = a;
+      }
+    }
+
+    // Build QImage for Variable Density profile (width = traceCount, height = samplesPerTrace)
+    QImage img(traceCount, samplesPerTrace, QImage::Format_RGB32);
+    for (int y = 0; y < samplesPerTrace; ++y)
+    {
+      QRgb *scanLine = reinterpret_cast<QRgb *>(img.scanLine(y));
+      for (int x = 0; x < traceCount; ++x)
+      {
+        const auto &smps = traces[x].samples;
+        const float s = (y < smps.size()) ? smps[y] : 0.0f;
+        float norm = (maxAbs > 1e-6f) ? (s / maxAbs) : 0.0f;
+        norm = qBound(-1.0f, norm, 1.0f);
+        // Map 0 -> mid-gray 128, positive -> dark, negative -> light
+        const int gray = qBound(0, static_cast<int>(128.0f - norm * 127.0f + 0.5f), 255);
+        scanLine[x] = qRgb(gray, gray, gray);
+      }
+    }
+
+    // Add QGraphicsPixmapItem to scene, scaled to the plot area
+    if (plotRect.width() > 0 && plotRect.height() > 0 && img.width() > 0 && img.height() > 0)
+    {
+      QPixmap pixmap = QPixmap::fromImage(img).scaled(
+          plotRect.size().toSize(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+      auto *pixItem = m_scene->addPixmap(pixmap);
+      pixItem->setPos(plotRect.topLeft());
+    }
+
+    // Border around plot area
+    m_scene->addRect(plotRect, QPen(kBorder, 1.0));
+
+    // Baseline (the line's surface datum at top of section)
+    m_scene->addLine(plotRect.left(), kBaselineY, plotRect.right(), kBaselineY,
+                     QPen(kText, 1.2));
+
+    // Real CDP tick marks at top with actual CDP numbers from trace.cdp
+    const int numTicks = qMin(traceCount, 8);
+    const int step = (numTicks > 1) ? (traceCount - 1) / (numTicks - 1) : 1;
+    for (int i = 0; i < traceCount; i += (step > 0 ? step : 1))
+    {
+      const qreal u = (traceCount > 1) ? (static_cast<qreal>(i) / (traceCount - 1)) : 0.5;
+      const qreal x = plotRect.left() + u * plotRect.width();
+      m_scene->addLine(x, kBaselineY - 4, x, kBaselineY, QPen(kTextMuted, 1.0));
+      auto *cl = sceneText(m_scene, QString::number(traces[i].cdp), 8, kTextMuted);
+      cl->setPos(x - cl->boundingRect().width() / 2.0, kBaselineY - 16);
+    }
+    if (traceCount > 1 && ((traceCount - 1) % step != 0))
+    {
+      const int i = traceCount - 1;
+      const qreal x = plotRect.right();
+      m_scene->addLine(x, kBaselineY - 4, x, kBaselineY, QPen(kTextMuted, 1.0));
+      auto *cl = sceneText(m_scene, QString::number(traces[i].cdp), 8, kTextMuted);
+      cl->setPos(x - cl->boundingRect().width() / 2.0, kBaselineY - 16);
+    }
+    auto *cdpCap = sceneText(m_scene, tr("CDP"), 8, kTextMuted);
+    cdpCap->setPos(plotRect.left() - 24, kBaselineY - 16);
   }
-  auto *axisCap = sceneText(m_scene, tr("TWT(ms)"), 8, kTextMuted);
-  axisCap->setPos(l - kAxisW + 4, t - 4);
-
-  // Baseline (the line's surface datum) + CDP ticks + wiggle glyphs.
-  m_scene->addLine(l + 8, kBaselineY, r - 8, kBaselineY, QPen(kText, 1.2));
-
-  const quint32 seed = qHash(assetId);
-  const double p1 = static_cast<double>(seed % 628) / 100.0;
-  const double p2 = static_cast<double>((seed >> 8) % 314) / 100.0;
-
-  int cdp = 0;
-  for (qreal x = l + 12; x <= r - 10; x += kTickEvery, ++cdp)
+  else
   {
-    const bool major = (cdp % 5 == 0);
-    m_scene->addLine(x, kBaselineY, x, kBaselineY + (major ? 8 : 4),
-                     QPen(kTextMuted, 1.0));
+    // Title: line label + asset id + honest "stub" note.
+    auto *title = sceneText(m_scene, label, 9, kText);
+    title->setPos(l, t - 4);
+    auto *sub = sceneText(m_scene,
+                          tr("%1 — 预览占位，道数据待接入").arg(assetId),
+                          8, kTextMuted);
+    sub->setPos(l + title->boundingRect().width() + 12, t - 2);
 
-    // Per-tick wiggle glyph hanging off the baseline — the section stub.
-    QPainterPath glyph;
-    glyph.moveTo(x, kBaselineY);
-    for (qreal dy = 0; dy <= kGlyphLen; dy += 2.0)
-      glyph.lineTo(x + 3.0 * qSin(dy / kGlyphLen * 3 * kPi + p1), kBaselineY + dy);
-    m_scene->addPath(glyph, QPen(kText, 0.8));
-
-    if (major)
+    // TWT axis (left): 0/500/1000 ms.
+    const qreal axisX = l + 2;
+    m_scene->addLine(axisX, kBaselineY, axisX, b - 4, QPen(kTextMuted, 1.0));
+    const int twtMs[] = {0, 500, 1000};
+    for (int i = 0; i < 3; ++i)
     {
-      auto *cl = sceneText(m_scene, QString::number(cdp * 50), 8, kTextMuted);
-      cl->setPos(x - cl->boundingRect().width() / 2.0, kBaselineY + 10);
+      const qreal y = kBaselineY + i * (b - 4 - kBaselineY) / 2.0;
+      m_scene->addLine(axisX - 4, y, axisX, y, QPen(kTextMuted, 1.0));
+      auto *tl = sceneText(m_scene, QString::number(twtMs[i]), 8, kTextMuted);
+      const QRectF tb = tl->boundingRect();
+      tl->setPos(axisX - 6 - tb.width(), y - tb.height() / 2.0);
     }
+    auto *axisCap = sceneText(m_scene, tr("TWT(ms)"), 8, kTextMuted);
+    axisCap->setPos(l - kAxisW + 4, t - 4);
+
+    // Baseline (the line's surface datum) + CDP ticks + wiggle glyphs.
+    m_scene->addLine(l + 8, kBaselineY, r - 8, kBaselineY, QPen(kText, 1.2));
+
+    const quint32 seed = qHash(assetId);
+    const double p1 = static_cast<double>(seed % 628) / 100.0;
+    const double p2 = static_cast<double>((seed >> 8) % 314) / 100.0;
+
+    int cdp = 0;
+    for (qreal x = l + 12; x <= r - 10; x += kTickEvery, ++cdp)
+    {
+      const bool major = (cdp % 5 == 0);
+      m_scene->addLine(x, kBaselineY, x, kBaselineY + (major ? 8 : 4),
+                       QPen(kTextMuted, 1.0));
+
+      // Per-tick wiggle glyph hanging off the baseline — the section stub.
+      QPainterPath glyph;
+      glyph.moveTo(x, kBaselineY);
+      for (qreal dy = 0; dy <= kGlyphLen; dy += 2.0)
+        glyph.lineTo(x + 3.0 * qSin(dy / kGlyphLen * 3 * kPi + p1), kBaselineY + dy);
+      m_scene->addPath(glyph, QPen(kText, 0.8));
+
+      if (major)
+      {
+        auto *cl = sceneText(m_scene, QString::number(cdp * 50), 8, kTextMuted);
+        cl->setPos(x - cl->boundingRect().width() / 2.0, kBaselineY + 10);
+      }
+    }
+
+    // Baseline profile + faint horizon bands below — deterministic per asset.
+    const qreal span = r - 8 - (l + 8);
+    auto band = [&](qreal bandY, qreal amp, double f1, double f2, const QPen &pen) {
+      QPainterPath path;
+      path.moveTo(l + 8, bandY);
+      for (qreal dx = 0; dx <= span; dx += 3.0)
+      {
+        const qreal u = dx / span;
+        const qreal y = bandY
+            + amp * (0.62 * qSin(u * f1 * 2 * kPi + p1)
+                   + 0.38 * qSin(u * f2 * 2 * kPi + p2))
+                  * qSin(u * kPi); // taper to zero at the edges
+        path.lineTo(l + 8 + dx, y);
+      }
+      m_scene->addPath(path, pen);
+    };
+    band(kBaselineY + 74.0, 12.0, 3.0, 7.0, QPen(kText, 1.3));                 // profile
+    band(kBaselineY + 128.0, 8.0, 4.0, 9.0, QPen(kTextMuted, 1.0, Qt::DashLine)); // horizon
+    band(kBaselineY + 178.0, 10.0, 5.0, 11.0, QPen(kTextMuted, 1.0, Qt::DashLine));
   }
-
-  // Baseline profile + faint horizon bands below — deterministic per asset.
-  const qreal span = r - 8 - (l + 8);
-  auto band = [&](qreal bandY, qreal amp, double f1, double f2, const QPen &pen) {
-    QPainterPath path;
-    path.moveTo(l + 8, bandY);
-    for (qreal dx = 0; dx <= span; dx += 3.0)
-    {
-      const qreal u = dx / span;
-      const qreal y = bandY
-          + amp * (0.62 * qSin(u * f1 * 2 * kPi + p1)
-                 + 0.38 * qSin(u * f2 * 2 * kPi + p2))
-                * qSin(u * kPi); // taper to zero at the edges
-      path.lineTo(l + 8 + dx, y);
-    }
-    m_scene->addPath(path, pen);
-  };
-  band(kBaselineY + 74.0, 12.0, 3.0, 7.0, QPen(kText, 1.3));                 // profile
-  band(kBaselineY + 128.0, 8.0, 4.0, 9.0, QPen(kTextMuted, 1.0, Qt::DashLine)); // horizon
-  band(kBaselineY + 178.0, 10.0, 5.0, 11.0, QPen(kTextMuted, 1.0, Qt::DashLine));
 }

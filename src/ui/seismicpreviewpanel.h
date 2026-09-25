@@ -1,9 +1,11 @@
 #pragma once
+#include <QHash>
 #include <QPair>
 #include <QString>
 #include <QStringList>
 #include <QVector>
 #include <QWidget>
+#include <memory>
 
 // ui/ — SeismicPreviewPanel: 地震剖面预览 (seismic section preview) scaffold.
 //
@@ -36,6 +38,7 @@ class QGraphicsView;
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
+struct SeismicLineData;
 
 class SeismicPreviewPanel : public QWidget
 {
@@ -46,6 +49,10 @@ class SeismicPreviewPanel : public QWidget
     // (id, label) pairs in list order; replaces the list wholesale.
     void setSeismicAssets(const QVector<QPair<QString, QString>> &assets);
     void addSeismicAsset(const QString &id, const QString &label);
+
+    // Loads SEG-Y traces from file for the given asset id.
+    // Parses traces, registers the asset if new, and updates preview if current or idle.
+    void loadLineFromFile(const QString &assetId, const QString &segyPath);
 
     int assetCount() const { return static_cast<int>(m_assets.size()); }
     QString currentAsset() const { return m_currentId; } // previewed line id
@@ -68,6 +75,7 @@ class SeismicPreviewPanel : public QWidget
     SeismicMapLink *m_link = nullptr;
     SelectionContext *m_ctx = nullptr;
     QVector<QPair<QString, QString>> m_assets;    // (id, label), list order
+    QHash<QString, std::shared_ptr<SeismicLineData>> m_lineTraces;
     QString m_currentId;
     QListWidget *m_list = nullptr;
     QGraphicsView *m_view = nullptr;

@@ -8,11 +8,17 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QToolButton>
+#include <QDockWidget>
 
 #include "../src/app/appcontext.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
+#include "../src/qgis/qgiscanvascontroller.h"
+
+#include <qgsproject.h>
+#include <qgsmapcanvas.h>
+#include <qgsrectangle.h>
 
 #include <qgslayertreeview.h>
 #include <qgslayertreemodel.h>
@@ -35,6 +41,9 @@ class TestUiShell : public QObject
     void initTestCase()
     {
       QVERIFY2(m_ctx->ready(), "AppContext failed to bring up QgisRuntime");
+      // QSettings persists across runs in its temp path — start every run
+      // with a clean slate (lastPage must not leak into startupThenCanvas).
+      QSettings(QStringLiteral("paleo"), QStringLiteral("paleo")).clear();
       QVERIFY(m_ctx->canvasCtl() && m_ctx->projectSvc() && m_ctx->layerSvc() &&
               m_ctx->toolSvc() && m_ctx->selection() && m_ctx->store() &&
               m_ctx->manifest() && m_ctx->processingSvc() && m_ctx->editingSvc() &&
@@ -184,6 +193,76 @@ class TestUiShell : public QObject
           hasSubmenu |= (a->menu() != nullptr);
         QVERIFY(hasSubmenu);
       }
+    }
+
+    // Window state roundtrip: geometry + last page persist via QSettings;
+    // canvas extent persists inside the .qgz custom properties.
+    void windowStateAndExtentPersist()
+    {
+      // Geometry/state bytes: offscreen has no real window manager — Qt clamps
+      // and repositions freely, so literal pos/size asserts are platform-bound.
+      // Our contract: non-empty distinct blobs persisted; restore accepted;
+      // dock visibility (a saveState payload) actually round-trips.
+      m_win->show();
+      auto *leftDock = m_win->findChild<QDockWidget *>(QStringLiteral("layerTreeDock"));
+      QVERIFY(leftDock);
+      leftDock->hide();
+      QTest::qWait(10);
+      m_win->showPage(QStringLiteral("constraint"));
+      m_win->saveWindowState();
+      leftDock->show(); // don't leak hidden-dock state into later tests
+
+      QSettings s2(QStringLiteral("paleo"), QStringLiteral("paleo"));
+      const QByteArray geom = s2.value(QStringLiteral("windowGeometry")).toByteArray();
+      const QByteArray state = s2.value(QStringLiteral("windowState")).toByteArray();
+      QVERIFY2(!geom.isEmpty(), "saveWindowState must persist geometry bytes");
+      QVERIFY2(!state.isEmpty(), "saveWindowState must persist dock-state bytes");
+
+      PaleoMainWindow win2(m_ctx->canvasCtl(), m_ctx->projectSvc(),
+                           m_ctx->layerSvc(), m_ctx->toolSvc(), m_ctx->selection());
+      QVERIFY2(win2.restoreGeometry(geom), "restoreGeometry rejected stored bytes");
+      QVERIFY2(win2.restoreState(state), "restoreState rejected stored bytes");
+      win2.show();
+      QTest::qWait(10);
+      auto *leftDock2 = win2.findChild<QDockWidget *>(QStringLiteral("layerTreeDock"));
+      QVERIFY(leftDock2);
+      QVERIFY(!leftDock2->isVisible()); // saveState round-trip: dock stays hidden
+
+      QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
+      QCOMPARE(s.value(QStringLiteral("lastPage")).toString(),
+               QStringLiteral("constraint"));
+
+      // Canvas extent → .qgz custom property. setExtent adjusts to the canvas
+      // aspect ratio, so compare against the *actual* extent, not the request.
+      m_ctx->canvasCtl()->canvas()->setExtent(QgsRectangle(10.5, 20.5, 110.5, 90.5));
+      const QgsRectangle saved = m_ctx->canvasCtl()->canvas()->extent();
+      m_win->saveCanvasExtent();
+      bool ok = false;
+      const QString raw = m_ctx->projectSvc()->project()->readEntry(
+          QStringLiteral("paleo"), QStringLiteral("canvasExtent"), QString(), &ok);
+      QVERIFY(ok);
+      const QStringList parts = raw.split(QLatin1Char(','));
+      QCOMPARE(parts.size(), 4);
+      QVERIFY2(qAbs(parts.at(0).toDouble() - saved.xMinimum()) < 0.01 &&
+               qAbs(parts.at(3).toDouble() - saved.yMaximum()) < 0.01,
+               qPrintable(raw));
+
+      // Reopen path: dirty extent → restore pulls the stored one back
+      // (aspect-adjusted again, so verify the center is preserved).
+      m_ctx->canvasCtl()->canvas()->setExtent(QgsRectangle(0, 0, 1, 1));
+      m_win->restoreCanvasExtent();
+      const QgsRectangle got = m_ctx->canvasCtl()->canvas()->extent();
+      QVERIFY2(qAbs(got.center().x() - saved.center().x()) < 0.01 &&
+               qAbs(got.center().y() - saved.center().y()) < 0.01,
+               qPrintable(got.toString()));
+
+      // Malformed/absent payload → no crash, extent untouched.
+      m_ctx->projectSvc()->project()->writeEntry(
+          QStringLiteral("paleo"), QStringLiteral("canvasExtent"),
+          QStringLiteral("bogus"));
+      const QgsRectangle before = m_ctx->canvasCtl()->canvas()->extent();
+      m_win->restoreCanvasExtent();
+      QCOMPARE(m_ctx->canvasCtl()->canvas()->extent(), before);
     }
 };
 

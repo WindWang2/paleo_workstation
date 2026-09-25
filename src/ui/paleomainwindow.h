@@ -18,6 +18,7 @@ class DataImportService;
 class SeismicMapLink;
 class QgisProcessingService;
 class PaleoProjectStore;
+class QCloseEvent;
 
 // ui/ — PaleoMainWindow: the five-page workflow shell (§42).
 // Anatomy: left = layer tree dock; center = canvas (+ startup page stacked under);
@@ -40,6 +41,13 @@ class PaleoMainWindow : public QMainWindow
     void showStartup();            // first-run: recent projects + new/open
     void onProjectOpened();        // called after project opens: swap startup->workspace
 
+    // §42 shell persistence — geometry/dock layout/last page in QSettings;
+    // canvas extent is per-project and lives inside the .qgz (paleo props).
+    void saveWindowState();
+    void restoreWindowState();
+    void saveCanvasExtent();       // write current canvas extent into the project
+    void restoreCanvasExtent();    // apply stored extent after project opens
+
     // Swap right-dock placeholder panels for the real page panels (§42.2),
     // bound to the workflow orchestrators. Call after AppContext assembly.
     void attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
@@ -48,6 +56,9 @@ class PaleoMainWindow : public QMainWindow
                          SeismicMapLink *seismicLink = nullptr,
                          QgisProcessingService *procSvc = nullptr,
                          PaleoProjectStore *store = nullptr);
+
+  protected:
+    void closeEvent(QCloseEvent *event) override;
 
   private:
     void buildShell();

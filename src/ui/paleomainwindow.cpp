@@ -32,8 +32,10 @@
 #include <qgslocator.h>
 #include <qgsvectorlayer.h>
 #include <qgspointxy.h>
+#include <qgsrectangle.h>
 
 #include <QApplication>
+#include <QCloseEvent>
 #include <QDir>
 #include <QDockWidget>
 #include <QFileDialog>
@@ -164,6 +166,7 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
             [this](const QString &) { onProjectOpened(); });
 
   showStartup(); // §42.1: first-run lands on the startup page
+  restoreWindowState();
 }
 
 void PaleoMainWindow::buildShell()
@@ -403,8 +406,80 @@ void PaleoMainWindow::onProjectOpened()
     }
   }
 
-  // Workflow lands on 数据管理 — first step of the chain.
-  showPage(kPageIds.first());
+  restoreCanvasExtent(); // per-project display state from the .qgz
+
+  // Workflow lands on the last-used page when the session was persisted,
+  // otherwise on 数据管理 — first step of the chain.
+  const QString last = QSettings(QStringLiteral("paleo"), QStringLiteral("paleo"))
+                           .value(QStringLiteral("lastPage")).toString();
+  showPage(kPageIds.contains(last) ? last : kPageIds.first());
+}
+
+void PaleoMainWindow::closeEvent(QCloseEvent *event)
+{
+  saveWindowState();
+  QMainWindow::closeEvent(event);
+}
+
+void PaleoMainWindow::saveWindowState()
+{
+  QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
+  s.setValue(QStringLiteral("windowGeometry"), saveGeometry());
+  s.setValue(QStringLiteral("windowState"), saveState());
+  s.setValue(QStringLiteral("lastPage"), m_currentPage);
+}
+
+void PaleoMainWindow::restoreWindowState()
+{
+  QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
+  const QByteArray geom = s.value(QStringLiteral("windowGeometry")).toByteArray();
+  if (!geom.isEmpty())
+    restoreGeometry(geom);
+  const QByteArray state = s.value(QStringLiteral("windowState")).toByteArray();
+  if (!state.isEmpty())
+    restoreState(state);
+  // Page restore happens in onProjectOpened (a page without a project is empty).
+}
+
+void PaleoMainWindow::saveCanvasExtent()
+{
+  if (!m_canvasCtl || !m_projectSvc || m_projectSvc->projectPath().isEmpty())
+    return;
+  QgsMapCanvas *cv = m_canvasCtl->canvas();
+  const QgsRectangle e = cv->extent();
+  if (e.isEmpty())
+    return;
+  const QString encoded = QStringLiteral("%1,%2,%3,%4")
+                              .arg(e.xMinimum()).arg(e.yMinimum())
+                              .arg(e.xMaximum()).arg(e.yMaximum());
+  m_projectSvc->project()->writeEntry(QStringLiteral("paleo"),
+                                      QStringLiteral("canvasExtent"), encoded);
+}
+
+void PaleoMainWindow::restoreCanvasExtent()
+{
+  if (!m_canvasCtl || !m_projectSvc || !m_projectSvc->project())
+    return;
+  bool ok = false;
+  const QString raw = m_projectSvc->project()->readEntry(
+      QStringLiteral("paleo"), QStringLiteral("canvasExtent"), QString(), &ok);
+  if (!ok)
+    return;
+  const QStringList parts = raw.split(QLatin1Char(','));
+  if (parts.size() != 4)
+    return;
+  bool conv[4] = {false, false, false, false};
+  const double xmin = parts.at(0).toDouble(&conv[0]);
+  const double ymin = parts.at(1).toDouble(&conv[1]);
+  const double xmax = parts.at(2).toDouble(&conv[2]);
+  const double ymax = parts.at(3).toDouble(&conv[3]);
+  if (!conv[0] || !conv[1] || !conv[2] || !conv[3])
+    return;
+  const QgsRectangle e(xmin, ymin, xmax, ymax);
+  if (e.isEmpty())
+    return;
+  m_canvasCtl->canvas()->setExtent(e);
+  m_canvasCtl->canvas()->refresh();
 }
 
 void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
@@ -625,6 +700,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
         const auto res = store->saveAll(
             [] { return PaleoProjectStore::WriteResult{true, QString()}; },
             [this] {
+              saveCanvasExtent(); // display state travels inside the .qgz
               const bool ok = m_projectSvc->writeProject();
               return PaleoProjectStore::WriteResult{
                   ok, ok ? QString() : m_projectSvc->lastErrors().join(QLatin1Char(';'))};

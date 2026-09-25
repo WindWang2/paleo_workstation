@@ -48,6 +48,7 @@ bool WebViewPanel::setUrl(const QUrl &url)
   if (!url.isValid() || url.isEmpty())
   {
     m_lastError = tr("无效的 URL");
+    showFallback(m_lastError); // visible feedback, not a silent no-op
     emit loadFailed(m_lastError);
     return false;
   }

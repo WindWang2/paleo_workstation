@@ -30,6 +30,7 @@
 #include "../catalog/datacatalog.h"
 #include "horizonchipbar.h"
 #include "layoutdesignershell.h"
+#include "webviewpanel.h"
 #include "edittools/editingtoolbar.h"
 #include "../qgis/qgislayoutservice.h"
 #include "../qgis/qgiseditingservice.h"
@@ -322,6 +323,74 @@ void PaleoMainWindow::buildShell()
   bottomTabs->addTab(tasks, QStringLiteral("任务"));
   m_bottomDock->setWidget(bottomTabs);
   addDockWidget(Qt::BottomDockWidgetArea, m_bottomDock);
+
+  // ---- web shell dock (goal/webui-host): embed already-built web services.
+  // Hidden by default; the WebViewPanel inside is lazily constructed on first
+  // show / first URL submit, so app startup never pays QtWebEngineProcess
+  // cost (the panel itself lazily instantiates QWebEngineView on setUrl).
+  auto *webDock = new QDockWidget(tr("Web 服务"), this);
+  webDock->setObjectName(QStringLiteral("webServiceDock"));
+  auto *webHost = new QWidget(webDock);
+  webHost->setObjectName(QStringLiteral("webServiceHost"));
+  auto *webLay = new QVBoxLayout(webHost);
+  webLay->setContentsMargins(8, 8, 8, 8); // spacing.sm panel padding
+  webLay->setSpacing(4);                  // spacing.xs between bar and view
+  auto *addrRow = new QHBoxLayout;
+  addrRow->setSpacing(4);
+  auto *addrEdit = new QLineEdit(webHost);
+  addrEdit->setObjectName(QStringLiteral("webAddressEdit"));
+  addrEdit->setAccessibleName(tr("Web 服务地址"));
+  addrEdit->setPlaceholderText(tr("http:// 或 https:// 服务地址"));
+  addrEdit->setClearButtonEnabled(true);
+  auto *addrOpen = new QPushButton(tr("打开"), webHost);
+  addrOpen->setObjectName(QStringLiteral("webOpenButton"));
+  addrRow->addWidget(addrEdit, 1);
+  addrRow->addWidget(addrOpen);
+  webLay->addLayout(addrRow);
+  webDock->setWidget(webHost);
+  addDockWidget(Qt::RightDockWidgetArea, webDock);
+  webDock->hide(); // toggle via the top-bar button below
+
+  // The panel below the address row is created on first dock show or first
+  // URL submit — whichever comes first.
+  const auto ensureWebPanel = [webHost, webLay]() -> WebViewPanel * {
+    auto *panel = webHost->findChild<WebViewPanel *>(QStringLiteral("webViewPanel"));
+    if (!panel)
+    {
+      panel = new WebViewPanel(webHost);
+      panel->setObjectName(QStringLiteral("webViewPanel"));
+      webLay->addWidget(panel, 1);
+    }
+    return panel;
+  };
+  connect(webDock, &QDockWidget::visibilityChanged, this,
+          [ensureWebPanel](bool visible) {
+            if (visible)
+              ensureWebPanel();
+          });
+  const auto openWebUrl = [this, addrEdit, ensureWebPanel] {
+    QString text = addrEdit->text().trimmed();
+    if (text.isEmpty())
+      return;
+    // Shell for already-running services: bare host[:port]/host/path → http.
+    if (!text.contains(QStringLiteral("://")))
+      text.prepend(QStringLiteral("http://"));
+    WebViewPanel *panel = ensureWebPanel();
+    if (!panel->setUrl(QUrl(text)) && !panel->lastError().isEmpty())
+      QgsMessageLog::logMessage(panel->lastError(), QStringLiteral("Paleo"),
+                              Qgis::MessageLevel::Warning);
+  };
+  connect(addrOpen, &QPushButton::clicked, this, openWebUrl);
+  connect(addrEdit, &QLineEdit::returnPressed, this, openWebUrl);
+
+  // Toggle entry on the top bar — same action-button pattern as
+  // 处理算法/图件设计 (the shell has no 视图 menu). toggleViewAction keeps
+  // the button in sync when the dock is closed via its title-bar ✕.
+  auto *webToggle = new QToolButton(topWidget);
+  webToggle->setObjectName(QStringLiteral("webServiceButton"));
+  webToggle->setDefaultAction(webDock->toggleViewAction());
+  webToggle->setAccessibleName(tr("Web 服务面板"));
+  topLay->addWidget(webToggle);
 
   // ---- status bar: active horizon + provider count ----
   auto *horizonLabel = new QLabel(this);

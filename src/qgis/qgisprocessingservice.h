@@ -27,6 +27,10 @@ class QgisProcessingService : public QObject
     // List available paleo:* algorithm ids.
     QStringList paleoAlgorithmIds() const;
 
+    // All registered algorithm ids ("provider:alg"), sorted — for algorithm
+    // pickers that need the full Processing registry, not just paleo:*.
+    QStringList algorithmIds() const;
+
     // ---- Native Processing algorithm dialog (QGIS 4.2 widget-based API) ----
     //
     // QGIS 4.2 replaced the old QgsProcessingAlgorithmDialogBase with

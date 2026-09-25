@@ -12,6 +12,7 @@
 #include "../linkage/seismicmaplink.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../metadata/layermanifest.h"
+#include "../qgis/manifestprojection.h"
 #include "../io/dataimportservice.h"
 #include "../workflow/workflows.h"
 
@@ -117,10 +118,33 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             const QString metaPath = manifestPathFor(qgzPath);
             m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
 
+            // §37 recovery: the SQLite manifest is authoritative, but the .qgz
+            // carries an embedded copy of the declared set. Rehydrate ONLY when
+            // the store file does not exist — a .qgz moved/shared without its
+            // sidecar must not lose its layer set, while an existing store
+            // (even a deliberately emptied one) is never overwritten.
+            const bool metaExisted = QFileInfo::exists(metaPath);
+
             *m_manifest = LayerManifest(metaPath); // rebind in place
             QString err;
             if (!m_manifest->open(&err))
               qWarning() << "AppContext: failed to open layer manifest" << metaPath << err;
+
+            if (!metaExisted)
+            {
+              const QVector<LayerDeclaration> embedded =
+                  ManifestProjection::extractDeclarations(m_projectSvc->project());
+              for (const LayerDeclaration &d : embedded)
+              {
+                LayerDeclaration copy = d;
+                copy.instantiated = false; // runtime flag — layer service decides
+                if (!m_manifest->upsert(copy, &err))
+                  qWarning() << "AppContext: manifest rehydrate failed for" << d.layerId << err;
+              }
+              if (!embedded.isEmpty())
+                qInfo() << "AppContext: manifest store missing — restored"
+                        << embedded.size() << "declarations from .qgz projection";
+            }
 
             m_styleSvc->setStylesRoot(fi.absoluteDir().filePath(QStringLiteral("styles")));
             m_import->setProjectDir(fi.absolutePath());

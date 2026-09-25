@@ -538,6 +538,20 @@ QStringList QgisProcessingService::paleoAlgorithmIds() const
   return ids;
 }
 
+QStringList QgisProcessingService::algorithmIds() const
+{
+  QStringList ids;
+  QgsProcessingRegistry *reg = QgsApplication::processingRegistry();
+  if (!reg)
+    return ids;
+  const QList<const QgsProcessingAlgorithm *> algs = reg->algorithms();
+  for (const QgsProcessingAlgorithm *alg : algs)
+    ids << alg->id();
+  ids.removeDuplicates();
+  ids.sort();
+  return ids;
+}
+
 QWidget *QgisProcessingService::createAlgorithmDialog(const QString &algId,
                                                       const QVariantMap &presetParams,
                                                       QWidget *parent, QString *error)

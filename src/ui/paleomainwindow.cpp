@@ -9,6 +9,7 @@
 #include "../workflow/workflows.h"
 #include "../io/dataimportservice.h"
 #include "../linkage/seismicmaplink.h"
+#include "../qgis/qgisprocessingservice.h"
 #include "pages/pagepanels.h"
 #include "constraintdrawcontroller.h"
 #include "correlationpanel.h"
@@ -31,7 +32,10 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
+#include <QMap>
+#include <QMenu>
 #include <QPushButton>
+#include <QToolButton>
 #include <QSettings>
 #include <QStackedLayout>
 #include <QStackedWidget>
@@ -371,7 +375,8 @@ void PaleoMainWindow::onProjectOpened()
 
 void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                                       CompositionWorkflow *compose, ValidationWorkflow *validate,
-                                      DataImportService *importSvc, SeismicMapLink *seismicLink)
+                                      DataImportService *importSvc, SeismicMapLink *seismicLink,
+                                      QgisProcessingService *procSvc)
 {
   auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost"));
   auto *stack = host ? static_cast<QStackedLayout *>(host->layout()) : nullptr;
@@ -499,6 +504,53 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
               if (m_canvasCtl)
                 m_canvasCtl->zoomToLayer(layerId);
             });
+  }
+
+  // Processing entry point on the top bar: paleo:* algorithms first-class,
+  // the full registry grouped under per-provider submenus. Each item opens
+  // the native QGIS algorithm dialog (non-blocking, offscreen-safe).
+  if (procSvc)
+  {
+    if (auto *topBar = findChild<QWidget *>(QStringLiteral("workflowTopBar")))
+    {
+      auto *btn = new QToolButton(topBar);
+      btn->setObjectName(QStringLiteral("processingButton"));
+      btn->setText(tr("处理算法"));
+      btn->setAccessibleName(tr("处理算法选择"));
+      btn->setPopupMode(QToolButton::InstantPopup);
+      auto *menu = new QMenu(btn);
+
+      for (const QString &id : procSvc->paleoAlgorithmIds())
+        menu->addAction(id, this,
+                        [this, procSvc, id]() {
+                          QString err;
+                          if (!procSvc->showAlgorithmDialog(id, QVariantMap(), this, &err))
+                            QgsMessageLog::logMessage(err, QStringLiteral("Paleo"),
+                                                      Qgis::MessageLevel::Warning);
+                        });
+
+      QMap<QString, QMenu *> providerMenus;
+      for (const QString &id : procSvc->algorithmIds())
+      {
+        if (id.startsWith(QStringLiteral("paleo:")))
+          continue;
+        const QString provider = id.section(QLatin1Char(':'), 0, 0);
+        QMenu *&sub = providerMenus[provider];
+        if (!sub)
+          sub = menu->addMenu(provider);
+        const QString algName = id.section(QLatin1Char(':'), 1);
+        sub->addAction(algName.isEmpty() ? id : algName, this,
+                       [this, procSvc, id]() {
+                         QString err;
+                         if (!procSvc->showAlgorithmDialog(id, QVariantMap(), this, &err))
+                           QgsMessageLog::logMessage(err, QStringLiteral("Paleo"),
+                                                     Qgis::MessageLevel::Warning);
+                       });
+      }
+
+      btn->setMenu(menu);
+      topBar->layout()->addWidget(btn);
+    }
   }
 
   // Re-sync visible page index with current tab.

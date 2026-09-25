@@ -4,12 +4,15 @@
 #include <QStackedWidget>
 #include <QStackedLayout>
 #include <QListWidget>
+#include <QMenu>
 #include <QPushButton>
 #include <QSettings>
+#include <QToolButton>
 
 #include "../src/app/appcontext.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "../src/qgis/qgisprocessingservice.h"
 
 #include <qgslayertreeview.h>
 #include <qgslayertreemodel.h>
@@ -130,6 +133,52 @@ class TestUiShell : public QObject
       QVERIFY(recent);
       QVERIFY(recent->count() >= 1);
       QCOMPARE(recent->item(0)->data(Qt::UserRole).toString(), path);
+    }
+
+    // Processing entry point: attachWorkflows with the processing service adds
+    // a top-bar "处理算法" button whose menu surfaces the paleo:* algorithms
+    // (full-registry ids live in per-provider submenus).
+    void processingButtonSurfacesAlgorithms()
+    {
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                             m_ctx->compositionWf(), m_ctx->validationWf(),
+                             m_ctx->importSvc(), m_ctx->seismicLink(),
+                             m_ctx->processingSvc());
+
+      auto *btn = m_win->findChild<QToolButton *>(QStringLiteral("processingButton"));
+      QVERIFY(btn);
+      QVERIFY(btn->menu());
+
+      QStringList flat;
+      const auto walk = [&flat](QMenu *menu, auto &&self) -> void {
+        for (QAction *a : menu->actions())
+        {
+          if (a->menu())
+            self(a->menu(), self);
+          else
+            flat << a->text();
+        }
+      };
+      walk(btn->menu(), walk);
+
+      QVERIFY(flat.contains(QStringLiteral("paleo:paleo_constraint_idw")));
+      QVERIFY(flat.contains(QStringLiteral("paleo:paleo_facies_fusion")));
+      QVERIFY(flat.contains(QStringLiteral("paleo:paleo_geological_smoothing")));
+
+      // Provider submenus exist for non-paleo algorithms (registry-dependent:
+      // only assert when the registry actually exposes others).
+      const QStringList all = m_ctx->processingSvc()->algorithmIds();
+      QStringList nonPaleo;
+      for (const QString &id : all)
+        if (!id.startsWith(QStringLiteral("paleo:")))
+          nonPaleo << id;
+      if (!nonPaleo.isEmpty())
+      {
+        bool hasSubmenu = false;
+        for (QAction *a : btn->menu()->actions())
+          hasSubmenu |= (a->menu() != nullptr);
+        QVERIFY(hasSubmenu);
+      }
     }
 };
 

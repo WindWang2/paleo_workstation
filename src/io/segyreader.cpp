@@ -219,15 +219,16 @@ bool SegyReader::open(const QString &path, QString *error)
       delayMs = static_cast<double>(beI16(trHdr + 108)); // 字节 109-110
     }
 
-    // survey 坐标（角点）：道头偏移 180/184 的整数米（plan §2）。比例因子
-    // （偏移 70）为 0 或 1 都按原值取整数；正值乘、负值除。
+    // survey 坐标（角点）：Source X/Y 整数米（0 基偏移 72/76，1 基字节 73/77）。
+    // plan 文本曾写 180/184（CDP X/Y）——本文件那两个字恒为 0，实测角点
+    // 坐标在 72/76。比例因子（偏移 70）为 0 或 1 都按原值取整数；正值乘、负值除。
     const qint16 scal = beI16(trHdr + 70);
     const double coordScale =
         (scal == 0 || scal == 1) ? 1.0
                                  : (scal > 0 ? static_cast<double>(scal)
                                              : 1.0 / -static_cast<double>(scal));
-    const double cx = static_cast<double>(beI32(trHdr + 180)) * coordScale;
-    const double cy = static_cast<double>(beI32(trHdr + 184)) * coordScale;
+    const double cx = static_cast<double>(beI32(trHdr + 72)) * coordScale;
+    const double cy = static_cast<double>(beI32(trHdr + 76)) * coordScale;
 
     if (ordinalIndex)
     {

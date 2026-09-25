@@ -26,7 +26,7 @@ private slots:
 
 private:
   // 复刻真工区结构的合成件：偏移 188/192 恒为 0，inline 走道号索引——
-  // field record @8 = base+l、CDP @20 = cdpBase+p、坐标 @180/184 = (p*20, l*40)、
+  // field record @8 = base+l、CDP @20 = cdpBase+p、坐标 @72/76(Source X/Y) = (p*20, l*40)、
   // 二进制头字节 13-14 = 每条 inline 道数（真文件 = 641）。
   static bool writeOrdinalSegy(const QString &path, int traces, int perLine,
                                qint32 frecBase, qint32 cdpBase,
@@ -51,8 +51,8 @@ private:
       const qint32 cdp = (i == breakTrace) ? breakCdp : cdpBase + p;
       qToBigEndian<qint32>(cdp, reinterpret_cast<uchar *>(th.data()) + 20);
       qToBigEndian<qint16>(1, reinterpret_cast<uchar *>(th.data()) + 70); // 坐标比例因子
-      qToBigEndian<qint32>(p * 20, reinterpret_cast<uchar *>(th.data()) + 180);
-      qToBigEndian<qint32>(l * 40, reinterpret_cast<uchar *>(th.data()) + 184);
+      qToBigEndian<qint32>(p * 20, reinterpret_cast<uchar *>(th.data()) + 72);
+      qToBigEndian<qint32>(l * 40, reinterpret_cast<uchar *>(th.data()) + 76);
       qToBigEndian<qint16>(64, reinterpret_cast<uchar *>(th.data()) + 114);
       qToBigEndian<qint16>(2000, reinterpret_cast<uchar *>(th.data()) + 116);
       f.write(th);

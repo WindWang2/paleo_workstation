@@ -171,6 +171,12 @@ void TestSmokeRealdata::importsWholeWorkarea()
   QCOMPARE(survey.xlineMin, 4165.0);
   QCOMPARE(survey.xlineMax, 4805.0);
   QCOMPARE(survey.sampleIntervalUs, 2000.0);
+  // 四角冻结（plan §2 实测值：Source X/Y 偏移 72/76）
+  QCOMPARE(survey.corners.size(), 4);
+  QCOMPARE(survey.corners.at(0), qMakePair(0.0, 0.0));       // (inlMin,xlMin)
+  QCOMPARE(survey.corners.at(1), qMakePair(12793.0, 0.0));   // (inlMin,xlMax)
+  QCOMPARE(survey.corners.at(2), qMakePair(12793.0, 16406.0)); // (inlMax,xlMax)
+  QCOMPARE(survey.corners.at(3), qMakePair(0.0, 16406.0));     // (inlMax,xlMin)
 
   // SEG-Y 测线级：解码一条 inline（约 641 道 × 901 样点）
   for (const CatalogAsset &a : cat->assets())

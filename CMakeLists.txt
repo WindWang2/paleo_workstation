@@ -29,7 +29,33 @@ add_executable(paleo_selfcheck src/selfcheck/main.cpp)
 target_link_libraries(paleo_selfcheck PRIVATE paleo_qgis_iface)
 target_compile_definitions(paleo_selfcheck PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
 
+# ---- P0 spine library ----
+add_library(paleo_core STATIC
+  src/qgis/qgisruntime.cpp
+  src/qgis/qgisprojectservice.cpp
+  src/qgis/qgislayerservice.cpp
+  src/qgis/qgiscanvascontroller.cpp
+  src/metadata/paleoprojectstore.cpp
+  src/metadata/layermanifest.cpp
+  src/services/toolavailability.cpp
+)
+target_link_libraries(paleo_core PUBLIC paleo_qgis_iface)
+target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
+
 enable_testing()
+
+function(add_paleo_test name)
+  add_executable(${name} tests/${name}.cpp)
+  target_link_libraries(${name} PRIVATE paleo_core Qt6::Test)
+  target_compile_definitions(${name} PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
+  add_test(NAME ${name} COMMAND ${name})
+  set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endfunction()
+
+add_paleo_test(tst_runtime)
+add_paleo_test(tst_projectsvc)
+add_paleo_test(tst_layerservice)
+add_paleo_test(tst_canvas_tools)
 
 add_executable(tst_boot tests/tst_boot.cpp)
 target_link_libraries(tst_boot PRIVATE paleo_qgis_iface Qt6::Test)

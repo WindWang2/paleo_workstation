@@ -1285,7 +1285,7 @@ Facies Polygon Layer (可编辑)
 
 **Phase 0 — go/no-go 三个 spike（E3 已定 + 工程评审 D3/D7 修订，先于 P0）**：
 
-0. **Vendor 策略对比（DX 评审 D7 新增，~1 天，先于 spike 1）**："vendor" 是打包约束而非构建方法约束——比较两路：(a) 源码 superbuild（ExternalProject，裁剪可控）；(b) 二进制 vendoring（Qt6 官方二进制经 aqt、Windows OSGeo4W `qgis-dev`、Ubuntu qgis.org `libqgis-dev`+deps、ONNX Runtime 官方 release；下载+SHA256 校验脚本）。评估维度：4.2.x 精确 pin 可用性、ABI 配对成本、LGPL 动态链接合规、TTHW、CI 复杂度、裁剪需求。**若二进制路可行 → TTHW 降至 ~10min，spike 1 用其二跑验收；否则按原计划 ExternalProject。** 产出 = 一页对比结论 + 选定路线的依据记录。
+0. **Vendor 策略对比（DX 评审 D7 + ET0 已决 → `docs/phase0/et0-vendor-comparison.md`）**：评估完成，**批准 binary vendoring（混合源）**——Windows = OSGeo4W `qgis`+`qgis-devel-4.2.x`+dep 闭包（URL/SHA512 pin）；Linux = qgis.org deb 闭包（`libqgis-dev`+依赖，发行版钉 resolute/trixie）解包进 vendor prefix；ONNX Runtime = 官方 GitHub release（自建 SHA256）。**Linux 宿主 floor = Debian 13/Ubuntu 25.04+ 级 glibc**（QGIS 4.x 需 Qt≥6.6，qgis.org 不为更老发行版出包）——产品约束已接受。Windows ABI 钉 MSVC v14x + /MD；Qt 用 vendor 同源（OSGeo4W qt6-devel / distro qt6-base-dev）。**回退条款**：`apt-get download libqgis-dev=4.2.*` 验证失败或须支持老宿主 → ExternalProject superbuild-on-oldest-target。
 1. **Vendor boot spike**：vendored QGIS 在进程内启动。**验收标准（二值判定）**：目标平台矩阵 = Linux x86_64 + Windows x86_64（最低集）；通过 = `QgsApplication` 初始化返回 + provider registry 非空 + `srs.db`/`proj.db`/`GDAL_DATA` 解析成功 + `QgsMapCanvas` 渲染一个 GPKG 图层且输出像素非纯色 + 无阻塞对话框。产出：vendor superbuild 骨架（ExternalProject/构建 flags/依赖清单）、**初始化顺序文档**（env vars → prefixPath → QgsApplication 构造次序，即 P0 boot 规范）、启动自检（§38 第一实例）、CI headless 模式（`QT_QPA_PLATFORM=offscreen`）。**Windows leg 环境**：本机 POSIX 工具链（bootstrap.sh）默认 Linux；Windows 验收在 CI runner（windows-latest + MSVC）上跑，本地 Windows 开发用 git-bash 兼容层或 `paleo-dev.ps1` 对等脚本（spike 交付物之一）。**本地开发机基线**：Linux x86_64、8 核、≥60GB 空闲磁盘 —— TTHW ≤2h 预算以此为准，Windows CI 另计。
 2. **算法封装 spike**：一个 `QgsProcessingAlgorithm` 子类封装 `GDALPolygonize` 跑通——证明 C++-only 算法路径成立。
 3. **AI 运行时 mini-spike（工程评审 D7 新增）**：候选运行时（默认 ONNX Runtime）编入 vendor 树，进程内跑一个 toy 模型——使 §40 "运行时由 Phase 0 钉定"成为实证而非假设。
@@ -1296,7 +1296,7 @@ Facies Polygon Layer (可编辑)
 
 **Vendor 依赖清单（评审补全 + DX 评审追加）**：除 QGIS/GDAL/PROJ/GEOS/Qt 外，实际牵连 QCA、QtKeychain、libspatialindex、exiv2、libzip（.qgz 是 zip）、libxml2、sqlite3/spatialite、**OpenSSL**（QCA 默认 provider 与 Qt Network HTTPS 需要），及运行时数据文件（proj.db、GDAL data、srs.db、SVG symbols、Qt platform/imageformat 插件）。**Qt 子模块清单**须在 manifest 中枚举（qtbase/qttools/svg/imageformats 等），禁止 qt-everywhere 整块编译（直接爆 2h 预算）；Linux 端需 X11/GL dev 头文件（qtbase 依赖）。裁剪开关（WITH_3D/WITH_MESH/WITH_PDAL 等）在 Phase 0 决定。**manifest 对每个源包/二进制 pin SHA256**——TTHW 不依赖上游 URL 存活。Qt 为 LGPL：**必须动态链接或提供可重链目标文件**——写入 vendor manifest 一条即可满足。
 
-**App-only 功能审计（P0 前置任务）**：逐一对照 §29 P0 所需编辑/布局能力，标注每项位于 qgis_gui 还是 src/app，后者列入自研清单，成本前置可见。
+**App-only 功能审计（ET9 已完成 → `docs/phase0/et9-app-only-audit.md`，release-4_2 @ 53d73a8f）**：结论比预期乐观——4.x 中 `src/app` 构建为 `libqgis_app` 共享库且有 `APP_EXPORT`，但**头文件不安装、无 CMake export config，属非支持链接目标**，仍按源码移植对待。关键事实：①Processing 执行 UI（`QgsProcessingAlgorithmWidgetBase`/batch/toolbox/wrappers）4.x 已全部入 gui——**零移植**；②图层属性对话框、高级数字化面板、QgsMapToolCapture、map tips、devtools 均已在 gui；③唯一深度纠缠项 = `QgsLayoutDesignerDialog`（5k 行、32 处 QgisApp 引用），但 gui 层的 `QgsLayoutDesignerInterface` 就是为自研外壳嵌入设计——D12「嵌完整设计器」落为「实现该接口+组装 gui 部件的自研 designer shell」，成本中高但路径是官方意图；④`QgsVertexEditor` 0 QgisApp 依赖为意外之喜，vertex tool 9 处引用可 shim；⑤24 个 shape 工具、16 个 decorations、11 个 locator filter 均为薄移植（各 ~100-250 行）。
 
 ## 40. 护城河组件最小契约（外部评审新增，E6/E7）
 
@@ -1364,7 +1364,7 @@ Facies Polygon Layer (可编辑)
 
 ### 44.1 TTHW 目标与魔法时刻（DX2/DX3）
 
-- **TTHW 目标**：干净机器 clone 之后**仅一条人工命令** `./paleo-dev bootstrap` —— 它跑 vendor 构建/下载，尾部自动执行 `selfcheck` 收尾输出全绿。**≤2h 无人值守**（基线机：Linux x86_64、8 核、≥60GB 空闲磁盘；Windows 走 CI runner 另计）。「干净机器」= 发行版 + 编译工具链已装（preflight 兜底）。编译耗时是依赖树的物理下限；DX 杠杆压在「人工步骤 = 1」与「失败可诊断」上。
+- **TTHW 目标**：干净机器 clone 之后**仅一条人工命令** `./paleo-dev bootstrap` —— 它跑 vendor 下载+解包（binary 路线；回退为源码构建），尾部自动执行 `selfcheck` 收尾输出全绿。**binary 路 ~10min；superbuild 回退 ≤2h**（基线机：Linux x86_64、glibc≥2.41 级发行版、8 核、磁盘 binary 路 ≥15GB / superbuild 路 ≥60GB；Windows 走 CI runner 另计）。「干净机器」= 发行版 + 编译工具链已装（preflight 兜底）。编译耗时是依赖树的物理下限；DX 杠杆压在「人工步骤 = 1」与「失败可诊断」上。
 - **Magical moment**：`selfcheck` 不止输出 checklist，还把一个 GPKG 图层（repo 内自带的最小 fixture，见 ET12）离屏渲染到 `vendor/logs/map.png` —— 工程师亲眼看到一张真地图。该 PNG 同时充当：§39 spike 验收证据（非均匀像素断言）、CI artifact、视觉确认。
 - selfcheck checklist 输出格式：`✓ providers=N ✓ srs.db loaded ✓ GPKG layer loaded ✓ rendered → <path>`，并打印各阶段耗时。
 
@@ -1385,8 +1385,8 @@ repo 根单一可发现入口脚本（薄壳转发，不遮蔽底层工具；逃
 
 ### 44.3 Bootstrap 预检与可恢复契约
 
-- `paleo-dev bootstrap`（内部转发至 vendor 构建）先做 **preflight**：磁盘 **≥60GB 空闲**、cmake ≥ 最低版本、编译器版本、ninja、pkg-config、**flex+bison**（QGIS 表达式/SQL parser 生成必需，漏装=首个必爆）、nasm/python（依赖需要时）、OpenSSL 头文件、Linux 端 X11/GL dev 头、网络可达性 —— 失败项逐项输出「问题 + 原因 + 修复命令」后退出，不允许编译一半才爆。
-- **断点续编**：由 ExternalProject 自带 stamp 目录机制负责（`ninja` 增量语义天然断点续编）——bootstrap 内部 = preflight → `cmake` 配置 → `cmake --build` → selfcheck；**不手写 `.done` 标记**（会与 CMake stamp 打架）。`clean-vendor <dep>` = 删该 dep 的 stamp+build 子目录即可触发单 dep 重编。
+- `paleo-dev bootstrap` 先做 **preflight**（随路线分档）：通用 = 磁盘空闲（binary ≥15GB / superbuild ≥60GB）、cmake ≥ 最低版本、编译器（Linux GCC14+/Windows MSVC v143 /MD）、ninja、pkg-config、OpenSSL 头文件、Linux 端 X11/GL dev 头、**glibc ≥ 2.41 检查**（binary 路必需）、网络可达性；superbuild 回退路追加 = flex+bison、nasm/python。失败项逐项输出「问题 + 原因 + 修复命令」后退出，不允许进行到一半才爆。
+- **断点续跑**：binary 路 = 已下载+校验过的包跳过（URL/SHA256 清单为幂等依据）；superbuild 回退路 = ExternalProject stamp 目录（`ninja` 天然增量）。**不手写 `.done` 标记**。`clean-vendor <dep>` = 删该 dep 的 vendor 子目录（binary）或 stamp+build 子目录（superbuild）即可触发单项重建。
 - 构建日志统一落 `vendor/logs/<dep>.log`；失败时 bootstrap 尾部输出最后 40 行 + 完整日志路径。
 
 ### 44.4 文档面（Pass 4）

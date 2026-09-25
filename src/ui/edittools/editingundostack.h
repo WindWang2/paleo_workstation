@@ -1,5 +1,6 @@
 #pragma once
 #include <QObject>
+#include <QPointer>
 #include <QString>
 
 class QgsVectorLayer;
@@ -38,7 +39,9 @@ class PaleoUndoStack : public QObject
     // Returns false (and emits switchRefused) when \a layer is non-null,
     // differs from the watched layer, and the watched stack canUndo().
     bool setLayer( QgsVectorLayer *layer );
-    QgsVectorLayer *layer() const { return mLayer; }
+    // out-of-line: QPointer's conversion operator needs the complete type,
+    // which this header deliberately only forward-declares
+    QgsVectorLayer *layer() const;
 
     // Undo/redo the last edit command group on the watched layer. No-ops
     // when detached or when the native stack cannot step.
@@ -58,6 +61,8 @@ class PaleoUndoStack : public QObject
   private:
     void detach();
 
-    QgsVectorLayer *mLayer = nullptr; // not owned
-    QUndoStack *mStack = nullptr;     // not owned (mLayer->undoStack())
+    // QPointer (not a raw pointer): QGIS layers routinely die on foreign
+    // stacks (project teardown, tests) — reads after that must see nullptr.
+    QPointer<QgsVectorLayer> mLayer;        // not owned
+    QUndoStack *mStack = nullptr;           // not owned (mLayer->undoStack())
 };

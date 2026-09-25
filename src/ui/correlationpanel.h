@@ -3,32 +3,51 @@
 #include <QList>
 #include <QPair>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include <QWidget>
 
-// ui/ — WellCorrelationPanel: 连井剖面 (well correlation section) scaffold.
-//
-// The constraint page's linked sub-panel: an ordered strip of well-log
-// column placeholders tied to map selection through SelectionContext
-// (§41.3). P1 scope = data model + scene scaffold only — real log-track
-// rendering is deferred. Pure Qt Widgets: no Qgs* types appear here (§25),
-// the panel emits intents (wellClicked/wellDoubleClicked) and follows
-// selectionChanged broadcasts whose origin isn't "correlation" (its own
-// echo guard — future producers broadcast under that origin).
+#include "correlation/horizonmarkers.h"
 
-class QGraphicsScene;
-class QGraphicsPathItem;
-class QGraphicsView;
+#include <functional>
+
+// ui/ — WellCorrelationPanel: 连井剖面 (well correlation section).
+//
+// The constraint page's linked sub-panel: an ordered strip of well columns
+// tied to map selection through SelectionContext (§41.3). Each column
+// hosts any number of curve tracks (side-by-side strips sharing one
+// section depth axis); curve bodies render through QgsLineChartPlot inside
+// CorrelationTrack — the panel never hand-builds polylines. Section chrome
+// (depth ruler, horizon correlation lines) is composed here: the ruler is
+// painted by the view's background/foreground passes (NOT a scene item, so
+// the scene's top-level items remain exactly the well columns — the click
+// resolution and test scaffolding depend on that), while horizon lines
+// live under a chrome parent item created only when markers are visible.
+//
+// The panel emits intents (wellClicked/wellDoubleClicked) and follows
+// selectionChanged broadcasts whose origin isn't "correlation" (echo
+// guard). Pure Qt Widgets chrome + QGIS plot rendering for curve bodies.
 class QLabel;
+class QGraphicsPathItem;
+class QGraphicsRectItem;
+class QGraphicsScene;
+class QGraphicsView;
 class SelectionContext;
+class CorrelationWellColumn;
+class CurveBrowser;
+class DepthRuler;
+class HorizonMarkerSet;
+struct LasCurve;
 
 class WellCorrelationPanel : public QWidget
 {
   Q_OBJECT
   public:
     explicit WellCorrelationPanel(SelectionContext *ctx, QWidget *parent = nullptr);
+    ~WellCorrelationPanel() override;
 
-    // (id, name) pairs in section order; re-layouts the scene.
+    // (id, name) pairs in section order; re-layouts the scene. Track sets
+    // of wells that survive the replacement are kept.
     void setWells(const QList<QPair<QString, QString>> &wells);
     int wellCount() const { return m_wells.size(); }
     QString wellAt(int index) const;          // well id at section position
@@ -36,44 +55,74 @@ class WellCorrelationPanel : public QWidget
     void reorder(int from, int to);           // QList::move semantics (drag-reorder equivalent)
     bool isWellHighlighted(const QString &wellId) const;
 
-    // --- log curves ---------------------------------------------------------
-    // Real log rendering on top of the column scaffold: depths/values are
-    // parallel sample arrays and NaN breaks the polyline into segments. All
-    // columns share one depth axis — the global min/max depth across every
-    // provided curve — so tracks stay depth-registered. Re-layouts the scene.
+    // --- log curves (compat single-curve API) --------------------------------
+    // Replaces the well's whole track set with this ONE track. depths and
+    // values are parallel sample arrays; NaN breaks the curve into series.
+    // All columns share one depth axis — the global min/max depth across
+    // every track and every horizon pick — so tracks stay depth-registered.
     void setWellCurves(const QString &wellId, const QVector<float> &depths,
                        const QVector<float> &values,
                        const QString &curveName = QString());
     void clearWellCurves();
-    bool hasCurves() const { return !m_curves.isEmpty(); }
-    int curveItemCount(const QString &wellId) const; // rendered curve path items
+    bool hasCurves() const { return !m_columns.isEmpty() && anyTracks(); }
+    int curveItemCount(const QString &wellId) const; // rendered track pixmap items
 
-    // Pull DEPT + `curveMnemonic` from a LAS file (io/LasParser) and feed
-    // setWellCurves(). False on parse failure or an unknown mnemonic.
+    // Pull DEPT + `curveMnemonic` from a LAS file (io/LasParser), feed the
+    // browser listing and add/replace that well's track for the mnemonic.
+    // False on parse failure or an unknown mnemonic.
     bool loadWellLas(const QString &wellId, const QString &lasPath,
                      const QString &curveMnemonic);
+
+    // --- multi-track ----------------------------------------------------------
+    bool addWellTrack(const QString &wellId, const QString &mnemonic,
+                      const QString &unit, const QVector<float> &depths,
+                      const QVector<float> &values);
+    bool removeWellTrack(const QString &wellId, const QString &mnemonic);
+    QStringList wellTrackMnemonics(const QString &wellId) const;
+
+    // --- LAS curve browser ------------------------------------------------------
+    // Parses `lasPath` and populates the browser listing for `wellId`
+    // (no tracks added). False on parse failure.
+    bool setLasForWell(const QString &wellId, const QString &lasPath);
+    CurveBrowser *curveBrowser() const { return m_browser; }
+
+    // --- horizon correlation lines + flatten ------------------------------------
+    HorizonMarkerSet *markers() const { return m_markers; }
+    // Manifest-declared horizons (horizon=* declarations) seed the marker
+    // set; SelectionContext's activeHorizon emphasizes the matching line.
+    void setManifestHorizons(const QStringList &names);
+    void setFlattenMarker(const QString &name);  // {} = off
+    bool isFlattened() const;
+
+    // --- depth ruler --------------------------------------------------------------
+    DepthRuler *ruler() const { return m_ruler; }
 
   signals:
     void wellClicked(const QString &wellId);
     void wellDoubleClicked(const QString &wellId);
 
   private:
-    struct WellCurve
-    {
-      QVector<float> depths;                  // parallel to values
-      QVector<float> values;
-      QString name;                           // mnemonic — caption under the title
-    };
-
-    void rebuildScene();
+    bool anyTracks() const;
+    void rebuildScene();                        // selective: keeps chrome + marker items
+    void relayoutMarkers();                     // rebuild marker lines for current geoms
+    void computeDepthAxis();                    // display-space window incl. flatten offsets
     void applySelection(const QStringList &ids);
-    void addCurveItems(QGraphicsPathItem *column, const WellCurve &curve,
-                       float depthMin, float depthSpan);
+
+    qreal yForDepth(float displayDepth) const;  // display-space axis mapping
+    float depthAtY(qreal y) const;
 
     SelectionContext *m_ctx = nullptr;
-    QList<QPair<QString, QString>> m_wells;   // (id, name), section order
-    QHash<QString, WellCurve> m_curves;       // well id → log curve samples
-    QGraphicsView *m_view = nullptr;
-    QGraphicsScene *m_scene = nullptr;        // CorrelationScene, defined in .cpp
+    QList<QPair<QString, QString>> m_wells;     // (id, name), section order
+    QHash<QString, CorrelationWellColumn *> m_columns;      // id → column
+    QHash<QString, QList<LasCurve>> m_lasByWell;            // id → last parsed LAS
+    QList<QGraphicsPathItem *> m_columnItems;              // current scene columns
+    QList<HorizonMarkerSet::ColumnGeom> m_lastGeoms;        // geoms matching m_columnItems
+    QGraphicsRectItem *m_chrome = nullptr;     // marker parent; only while markers visible
+    HorizonMarkerSet *m_markers = nullptr;
+    DepthRuler *m_ruler = nullptr;             // view-painted, never a scene item
+    CurveBrowser *m_browser = nullptr;
+    QGraphicsView *m_view = nullptr;           // CorrelationScene/CorrelationView in .cpp
+    QGraphicsScene *m_scene = nullptr;
     QLabel *m_emptyLabel = nullptr;
+    float m_axisMin = 0.0f, m_axisMax = 100.0f; // shared display-space depth window
 };

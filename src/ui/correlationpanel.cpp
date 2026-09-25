@@ -3,54 +3,46 @@
 #include "../linkage/selectioncontext.h"
 #include "../io/lasparser.h"
 
-#include <QGraphicsLineItem>
+#include "correlation/correlationwellcolumn.h"
+#include "correlation/curvebrowser.h"
+#include "correlation/depthruler.h"
+
 #include <QGraphicsPathItem>
-#include <QGraphicsPixmapItem>
+#include <QGraphicsRectItem>
 #include <QGraphicsScene>
 #include <QGraphicsSceneMouseEvent>
-#include <QGraphicsSimpleTextItem>
 #include <QGraphicsView>
 #include <QGridLayout>
-#include <QImage>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
-#include <QPainterPath>
-#include <QPixmap>
+#include <QPen>
 #include <QSet>
-
-#include <qgsfillsymbol.h>
-#include <qgslinechartplot.h>
-#include <qgslinesymbol.h>
-#include <qgsmargins.h>
-#include <qgsmarkersymbol.h>
-#include <qgsplot.h>
-#include <qgsrendercontext.h>
-#include <qgstextformat.h>
+#include <QWheelEvent>
 
 #include <cmath>
+#include <limits>
 
 // ---------------------------------------------------------------------------
-// Scene scaffold: one rounded-rect placeholder column per well (~120px wide,
-// full strip height), name label on top, horizon tick near the bottom.
-// Colors come from DESIGN.md tokens: surface fill, border stroke, primary for
+// Scene/view scaffold. Columns are the ONLY top-level scene items — the
+// depth ruler paints through the view's background/foreground passes and
+// horizon lines parent under a chrome rect that exists only while markers
+// are visible, so click resolution (parent-chain walk to the well-id data
+// role) and the column-count scaffolding stay exact.
+// Colors follow DESIGN.md tokens: surface fill, border stroke, primary for
 // the selected state, text/text-muted for labels.
 // ---------------------------------------------------------------------------
 namespace
 {
-  constexpr int kWellIdRole = 0;    // QGraphicsItem::data key → well id
-  constexpr int kHighlightRole = 1; // QGraphicsItem::data key → bool
-  constexpr int kCurveRole = 2;     // QGraphicsItem::data key → owning well id (curve items)
+  constexpr qreal kColumnGap     = 16.0; // spacing.md
+  constexpr qreal kMargin        = 12.0;
+  constexpr qreal kLabelBand     = 24.0;
+  constexpr qreal kSceneHeight   = 380.0;
+  constexpr qreal kRulerWidth    = 46.0;
+  constexpr qreal kHeaderDragBand = 24.0; // column header height = drag affordance
+  constexpr qreal kDragThreshold  = 6.0;  // px before a press becomes a reorder drag
+  constexpr int   kBrowserWidth   = 232;
 
-  constexpr qreal kColumnWidth = 120.0;
-  constexpr qreal kColumnGap   = 16.0; // spacing.md
-  constexpr qreal kMargin      = 12.0;
-  constexpr qreal kLabelBand   = 24.0;
-  constexpr qreal kSceneHeight = 380.0;
-  constexpr qreal kTickLift    = 24.0; // horizon tick sits this far above the bottom edge
-  constexpr qreal kRadius      = 4.0;  // rounded.sm
-  constexpr qreal kCurvePad    = 8.0;  // curve inset from column side edges, matches tick
-
-  const QColor kSurface(QStringLiteral("#FFFFFF"));
   const QColor kSurfaceAlt(QStringLiteral("#EDF1F5"));
   const QColor kBorder(QStringLiteral("#DFE5EC"));
   const QColor kPrimary(QStringLiteral("#1B73D0"));
@@ -62,19 +54,36 @@ namespace
     return highlighted ? QPen(kPrimary, 2.0) : QPen(kBorder, 1.0);
   }
 
-  // Scene subclass detects which column a click landed on during normal
-  // dispatch — the same path a viewport mouse event takes, so tests exercise
-  // it by clicking the viewport (or sending the scene event directly).
+  // Click/double-click intents (QListWidget semantics: every press reports
+  // a click) + header-band drag reorder: pressing a column's header band
+  // and dragging past the threshold slides that column horizontally; on
+  // release the drop index is derived from the column centers and routed
+  // to reorder() with QList::move semantics.
   class CorrelationScene : public QGraphicsScene
   {
     public:
       using QGraphicsScene::QGraphicsScene;
       std::function<void(const QString &)> clicked;
       std::function<void(const QString &)> doubleClicked;
+      std::function<void(int, int)> reorderRequested;
 
     protected:
       void mousePressEvent(QGraphicsSceneMouseEvent *e) override
       {
+        m_press = e->scenePos();
+        m_dragColumn = nullptr;
+        m_dragIndex = -1;
+        m_dragging = false;
+        if (e->button() == Qt::LeftButton)
+        {
+          QGraphicsItem *col = columnItemAt(e->scenePos());
+          if (col && e->scenePos().y() <= col->sceneBoundingRect().top() + kHeaderDragBand)
+          {
+            m_dragColumn = col; // header press: potential reorder drag
+            m_dragIndex = indexByX(col);
+            m_dragOrigin = col->pos();
+          }
+        }
         QGraphicsScene::mousePressEvent(e);
         if (clicked && e->button() == Qt::LeftButton)
         {
@@ -83,6 +92,43 @@ namespace
             clicked(id);
         }
       }
+
+      void mouseMoveEvent(QGraphicsSceneMouseEvent *e) override
+      {
+        if (m_dragColumn && m_dragIndex >= 0)
+        {
+          const qreal dx = e->scenePos().x() - m_press.x();
+          if (!m_dragging && std::abs(dx) > kDragThreshold)
+            m_dragging = true;
+          if (m_dragging)
+            m_dragColumn->setPos(m_dragOrigin + QPointF(dx, 0)); // horizontal only
+        }
+        QGraphicsScene::mouseMoveEvent(e);
+      }
+
+      void mouseReleaseEvent(QGraphicsSceneMouseEvent *e) override
+      {
+        if (m_dragging && m_dragColumn && m_dragIndex >= 0 && reorderRequested)
+        {
+          // Drop index: how many OTHER columns sit left of the dragged
+          // column's center — matches QList::move insertion semantics.
+          const qreal cx = m_dragColumn->sceneBoundingRect().center().x();
+          int target = 0;
+          for (QGraphicsItem *it : items())
+          {
+            if (it == m_dragColumn || !it->data(CorrelationItemRoles::WellId).isValid())
+              continue;
+            if (it->sceneBoundingRect().center().x() < cx)
+              ++target;
+          }
+          reorderRequested(m_dragIndex, target);
+        }
+        m_dragColumn = nullptr;
+        m_dragIndex = -1;
+        m_dragging = false;
+        QGraphicsScene::mouseReleaseEvent(e);
+      }
+
       void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *e) override
       {
         QGraphicsScene::mouseDoubleClickEvent(e);
@@ -100,17 +146,114 @@ namespace
       }
 
     private:
-      // Children (label, tick) resolve to their parent column.
-      QString columnIdAt(const QPointF &pos) const
+      // Children (labels, tracks) resolve to their parent column.
+      QGraphicsItem *columnItemAt(const QPointF &pos) const
       {
         for (QGraphicsItem *it : items(pos))
           for (QGraphicsItem *c = it; c; c = c->parentItem())
+            if (c->data(CorrelationItemRoles::WellId).isValid())
+              return c;
+        return nullptr;
+      }
+
+      QString columnIdAt(const QPointF &pos) const
+      {
+        const QGraphicsItem *col = columnItemAt(pos);
+        return col ? col->data(CorrelationItemRoles::WellId).toString() : QString();
+      }
+
+      int indexByX(QGraphicsItem *col) const
+      {
+        int idx = 0;
+        for (QGraphicsItem *it : items())
+        {
+          if (it == col || !it->data(CorrelationItemRoles::WellId).isValid())
+            continue;
+          if (it->sceneBoundingRect().center().x() < col->sceneBoundingRect().center().x())
+            ++idx;
+        }
+        return idx;
+      }
+
+      QPointF m_press;
+      QPointF m_dragOrigin;
+      QGraphicsItem *m_dragColumn = nullptr;
+      int m_dragIndex = -1;
+      bool m_dragging = false;
+  };
+
+  // Depth ruler host: ticks/labels paint in the foreground pass, grid lines
+  // in the background pass (below the columns), both in scene coordinates
+  // so the ruler stays glued to the data. The visible depth window — not
+  // the full axis — drives tick selection, so Ctrl+wheel vertical zoom
+  // re-nices the ticks ("follows view zoom").
+  class CorrelationView : public QGraphicsView
+  {
+    public:
+      CorrelationView(QGraphicsScene *scene, QWidget *parent)
+        : QGraphicsView(scene, parent) {}
+
+      DepthRuler *ruler = nullptr;
+      bool rulerEnabled = false;
+      qreal rulerTop = 0.0;                       // scene y of the ruler strip top
+      float axisMin = 0.0f, axisMax = 100.0f;
+      std::function<float(qreal)> depthOfY;
+
+      void wheelEvent(QWheelEvent *e) override
+      {
+        if (e->modifiers() & Qt::ControlModifier)
+        {
+          const qreal f = e->angleDelta().y() > 0 ? 1.15 : 1.0 / 1.15;
+          const qreal cur = transform().m22();
+          if ((f > 1.0 && cur < 20.0) || (f < 1.0 && cur > 0.25))
           {
-            const QVariant v = c->data(kWellIdRole);
-            if (v.isValid())
-              return v.toString();
+            setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
+            scale(1.0, f);
           }
-        return {};
+          e->accept();
+          return;
+        }
+        QGraphicsView::wheelEvent(e);
+      }
+
+      void drawBackground(QPainter *p, const QRectF &rect) override
+      {
+        QGraphicsView::drawBackground(p, rect);
+        paintRuler(p, rect, true);
+      }
+
+      void drawForeground(QPainter *p, const QRectF &rect) override
+      {
+        paintRuler(p, rect, false);
+      }
+
+    private:
+      void paintRuler(QPainter *p, const QRectF &rect, bool gridPass)
+      {
+        if (!ruler || !rulerEnabled || !depthOfY)
+          return;
+
+        // Tick window = currently visible depth span (clamped to the axis).
+        float lo = axisMin, hi = axisMax;
+        if (viewport()->width() > 1)
+        {
+          const QRectF vis = mapToScene(viewport()->rect()).boundingRect();
+          lo = qMax(axisMin, depthOfY(vis.top()));
+          hi = qMin(axisMax, depthOfY(vis.bottom()));
+        }
+        if (hi > lo + 1e-4f)
+          ruler->setRange(lo, hi);
+
+        const QRectF bb = ruler->boundingRect();
+        const double labelW = bb.width() - ruler->gridWidth();
+        p->save();
+        p->translate(0.0, rulerTop);
+        const QRectF zone = gridPass
+            ? QRectF(labelW, bb.top(), ruler->gridWidth(), bb.height())
+            : QRectF(0.0, bb.top(), labelW, bb.height());
+        p->setClipRect(zone.intersected(rect.translated(0, -rulerTop)));
+        ruler->paint(p, nullptr, nullptr);
+        p->restore();
       }
   };
 } // namespace
@@ -118,34 +261,50 @@ namespace
 WellCorrelationPanel::WellCorrelationPanel(SelectionContext *ctx, QWidget *parent)
   : QWidget(parent), m_ctx(ctx)
 {
-  auto *lay = new QGridLayout(this);
-  lay->setContentsMargins(0, 0, 0, 0);
-  lay->setSpacing(0);
+  m_markers = new HorizonMarkerSet(this);
+  m_ruler = new DepthRuler(); // view-painted; never inserted into the scene
+  m_browser = new CurveBrowser(this);
 
   auto *scene = new CorrelationScene(this);
   scene->clicked = [this](const QString &id) { emit wellClicked(id); };
   scene->doubleClicked = [this](const QString &id) { emit wellDoubleClicked(id); };
+  scene->reorderRequested = [this](int from, int to) { reorder(from, to); };
   m_scene = scene;
 
-  m_view = new QGraphicsView(scene, this);
-  m_view->setObjectName(QStringLiteral("correlationView"));
-  m_view->setAccessibleName(tr("连井剖面"));
-  m_view->setFrameShape(QFrame::NoFrame);
-  m_view->setRenderHint(QPainter::Antialiasing);
-  m_view->setBackgroundBrush(kSurfaceAlt);
-  m_view->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  m_view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  lay->addWidget(m_view, 0, 0);
+  auto *view = new CorrelationView(scene, this);
+  view->setObjectName(QStringLiteral("correlationView"));
+  view->setAccessibleName(tr("连井剖面"));
+  view->setFrameShape(QFrame::NoFrame);
+  view->setRenderHint(QPainter::Antialiasing);
+  view->setBackgroundBrush(kSurfaceAlt);
+  view->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  view->ruler = m_ruler;
+  view->rulerTop = kLabelBand;
+  view->depthOfY = [this](qreal y) { return depthAtY(y); };
+  m_view = view;
 
-  // §42.4 empty state — guidance text overlaid on the strip area; stacked in
-  // the same grid cell so it never shifts the view's geometry.
+  // §42.4 empty state — guidance text overlaid on the strip area; stacked
+  // in the same grid cell so it never shifts the view's geometry.
+  auto *grid = new QGridLayout;
+  grid->setContentsMargins(0, 0, 0, 0);
+  grid->setSpacing(0);
+  grid->addWidget(m_view, 0, 0);
   m_emptyLabel = new QLabel(tr("选择井以构建剖面"), this);
   m_emptyLabel->setObjectName(QStringLiteral("emptyLabel"));
   m_emptyLabel->setAlignment(Qt::AlignCenter);
   m_emptyLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
   m_emptyLabel->setStyleSheet(QStringLiteral("color: %1;").arg(kTextMuted.name()));
-  lay->addWidget(m_emptyLabel, 0, 0);
+  grid->addWidget(m_emptyLabel, 0, 0);
   m_emptyLabel->setVisible(true);
+
+  // Section strip + LAS curve browser on the right.
+  auto *hbox = new QHBoxLayout(this);
+  hbox->setContentsMargins(0, 0, 0, 0);
+  hbox->setSpacing(0);
+  hbox->addLayout(grid, 1);
+  m_browser->setFixedWidth(kBrowserWidth);
+  hbox->addWidget(m_browser);
 
   if (m_ctx)
   {
@@ -154,12 +313,84 @@ WellCorrelationPanel::WellCorrelationPanel(SelectionContext *ctx, QWidget *paren
               if (origin != QLatin1String("correlation")) // own echo — skip
                 applySelection(ids);
             });
+    // Active horizon emphasizes the matching correlation line.
+    connect(m_ctx, &SelectionContext::activeHorizonChanged, this,
+            [this](const QString &) { relayoutMarkers(); });
   }
+
+  // Browser checkboxes drive the well's track set.
+  connect(m_browser, &CurveBrowser::mnemonicToggled, this,
+          [this](const QString &wellId, const QString &mnemonic, bool on) {
+            const QList<LasCurve> curves = m_lasByWell.value(wellId);
+            if (!on)
+            {
+              removeWellTrack(wellId, mnemonic);
+              return;
+            }
+            for (const LasCurve &c : curves)
+              if (c.name.compare(mnemonic, Qt::CaseInsensitive) == 0)
+              {
+                const LasCurve &depthCurve = curves.first(); // ~C column 0 = DEPT
+                QVector<float> depths(depthCurve.values.size());
+                for (qsizetype i = 0; i < depthCurve.values.size(); ++i)
+                  depths[i] = static_cast<float>(depthCurve.values.at(i));
+                QVector<float> values(c.values.size());
+                for (qsizetype i = 0; i < c.values.size(); ++i)
+                  values[i] = static_cast<float>(c.values.at(i));
+                addWellTrack(wellId, c.name, c.unit, depths, values);
+                return;
+              }
+          });
+
+  // Pick moved (drag or programmatic): relayout keeps the marker drag
+  // grabber alive (rebuildScene never clears the chrome layer).
+  connect(m_markers, &HorizonMarkerSet::markerDepthChanged, this,
+          [this](const QString &, const QString &, float) { rebuildScene(); });
+}
+
+WellCorrelationPanel::~WellCorrelationPanel()
+{
+  qDeleteAll(m_columns);
+  delete m_ruler;
 }
 
 void WellCorrelationPanel::setWells(const QList<QPair<QString, QString>> &wells)
 {
   m_wells = wells;
+
+  QSet<QString> ids;
+  for (const auto &w : wells)
+    ids.insert(w.first);
+
+  for (auto it = m_columns.begin(); it != m_columns.end();)
+  {
+    if (!ids.contains(it.key()))
+    {
+      delete it.value();
+      it = m_columns.erase(it);
+    }
+    else
+      ++it;
+  }
+
+  for (const auto &w : wells)
+  {
+    CorrelationWellColumn *col = m_columns.value(w.first);
+    if (col && col->wellName() != w.second)
+    {
+      // Display name changed: rebuild the column object, carrying tracks.
+      auto *nc = new CorrelationWellColumn(w.first, w.second);
+      for (const QString &mn : col->mnemonics())
+        nc->addTrack(*col->track(mn));
+      delete col;
+      m_columns.insert(w.first, nc);
+    }
+    else if (!col)
+    {
+      m_columns.insert(w.first, new CorrelationWellColumn(w.first, w.second));
+    }
+  }
+
   rebuildScene();
   if (m_ctx) // selection may predate the wells — honor current state
     applySelection(m_ctx->selectedIds());
@@ -187,21 +418,36 @@ bool WellCorrelationPanel::isWellHighlighted(const QString &wellId) const
   const auto items = m_scene->items();
   for (QGraphicsItem *it : items)
   {
-    const QVariant id = it->data(kWellIdRole);
+    const QVariant id = it->data(CorrelationItemRoles::WellId);
     if (id.isValid() && id.toString() == wellId)
-      return it->data(kHighlightRole).toBool();
+      return it->data(CorrelationItemRoles::Highlight).toBool();
   }
+  return false;
+}
+
+bool WellCorrelationPanel::anyTracks() const
+{
+  for (CorrelationWellColumn *col : m_columns)
+    if (col->trackCount() > 0)
+      return true;
   return false;
 }
 
 void WellCorrelationPanel::setWellCurves(const QString &wellId, const QVector<float> &depths,
                                          const QVector<float> &values, const QString &curveName)
 {
+  CorrelationWellColumn *col = m_columns.value(wellId);
+  if (!col)
+    return;
+  col->clearTracks(); // compat semantics: the well's set becomes this ONE track
   const qsizetype n = qMin(depths.size(), values.size());
-  if (wellId.isEmpty() || n == 0)
-    m_curves.remove(wellId); // empty input clears the well's curve
-  else
-    m_curves.insert(wellId, {depths.first(n), values.first(n), curveName});
+  if (!wellId.isEmpty() && n > 0)
+  {
+    // Legacy callers may pass no curveName; tracks key on mnemonic, so an
+    // anonymous curve gets the neutral fallback "LOG".
+    const QString mnem = curveName.isEmpty() ? QStringLiteral("LOG") : curveName;
+    col->addTrack(CorrelationTrack(mnem, QString(), depths.first(n), values.first(n)));
+  }
 
   rebuildScene();
   if (m_ctx) // rebuild resets pens — restore selection state like reorder()
@@ -210,7 +456,8 @@ void WellCorrelationPanel::setWellCurves(const QString &wellId, const QVector<fl
 
 void WellCorrelationPanel::clearWellCurves()
 {
-  m_curves.clear();
+  for (CorrelationWellColumn *col : m_columns)
+    col->clearTracks();
   rebuildScene();
   if (m_ctx)
     applySelection(m_ctx->selectedIds());
@@ -223,9 +470,55 @@ int WellCorrelationPanel::curveItemCount(const QString &wellId) const
   int count = 0;
   const auto items = m_scene->items();
   for (QGraphicsItem *it : items)
-    if (it->data(kCurveRole).isValid() && it->data(kCurveRole).toString() == wellId)
+    if (it->data(CorrelationItemRoles::CurveOwner).isValid() &&
+        it->data(CorrelationItemRoles::CurveOwner).toString() == wellId)
       ++count;
   return count;
+}
+
+bool WellCorrelationPanel::addWellTrack(const QString &wellId, const QString &mnemonic,
+                                        const QString &unit, const QVector<float> &depths,
+                                        const QVector<float> &values)
+{
+  CorrelationWellColumn *col = m_columns.value(wellId);
+  if (!col || wellId.isEmpty() || mnemonic.isEmpty())
+    return false;
+  const qsizetype n = qMin(depths.size(), values.size());
+  if (n < 1)
+    return false;
+  col->addTrack(CorrelationTrack(mnemonic, unit, depths.first(n), values.first(n)));
+  rebuildScene();
+  if (m_ctx)
+    applySelection(m_ctx->selectedIds());
+  return true;
+}
+
+bool WellCorrelationPanel::removeWellTrack(const QString &wellId, const QString &mnemonic)
+{
+  CorrelationWellColumn *col = m_columns.value(wellId);
+  if (!col || !col->removeTrack(mnemonic))
+    return false;
+  rebuildScene();
+  if (m_ctx)
+    applySelection(m_ctx->selectedIds());
+  return true;
+}
+
+QStringList WellCorrelationPanel::wellTrackMnemonics(const QString &wellId) const
+{
+  const CorrelationWellColumn *col = m_columns.value(wellId);
+  return col ? col->mnemonics() : QStringList();
+}
+
+bool WellCorrelationPanel::setLasForWell(const QString &wellId, const QString &lasPath)
+{
+  QStringList names;
+  QList<LasCurve> curves;
+  if (!LasParser::parse(lasPath, names, curves) || curves.isEmpty())
+    return false;
+  m_lasByWell.insert(wellId, curves);
+  m_browser->setCurves(wellId, curves);
+  return true;
 }
 
 bool WellCorrelationPanel::loadWellLas(const QString &wellId, const QString &lasPath,
@@ -247,9 +540,11 @@ bool WellCorrelationPanel::loadWellLas(const QString &wellId, const QString &las
   if (idx < 0)
     return false;
 
+  m_lasByWell.insert(wellId, curves);
+  m_browser->setCurves(wellId, curves);
+
   const LasCurve &depthCurve = curves.first(); // ~C column 0 is the DEPT index
   const LasCurve &valueCurve = curves.at(idx);
-
   QVector<float> depths(depthCurve.values.size());
   for (qsizetype i = 0; i < depthCurve.values.size(); ++i)
     depths[i] = static_cast<float>(depthCurve.values.at(i));
@@ -257,216 +552,187 @@ bool WellCorrelationPanel::loadWellLas(const QString &wellId, const QString &las
   for (qsizetype i = 0; i < valueCurve.values.size(); ++i)
     values[i] = static_cast<float>(valueCurve.values.at(i));
 
-  setWellCurves(wellId, depths, values, valueCurve.name);
+  addWellTrack(wellId, valueCurve.name, valueCurve.unit, depths, values);
+  m_browser->setChecked(valueCurve.name, true); // reflect state (idempotent when already on)
   return true;
 }
 
-// Log tracks are drawn by QGIS's own plot renderer (Qgs2DXyPlot), not
-// hand-built polylines — the plot engine owns axis scaling, the shared
-// depth axis lands in its y range, and each contiguous run of finite
-// samples becomes one QgsXyPlotSeries so NULL gaps stay gaps in the
-// rendered track. The plot renders into a per-column QImage which is
-// placed as a mouse-transparent pixmap child of the column item, so
-// clicks still resolve to the well through the parent chain.
-void WellCorrelationPanel::addCurveItems(QGraphicsPathItem *column, const WellCurve &curve,
-                                         float depthMin, float depthSpan)
+void WellCorrelationPanel::setManifestHorizons(const QStringList &names)
 {
-  const QRectF band = column->path().boundingRect();
-  const qreal x0 = band.x() + kCurvePad;
-  const qreal w = band.width() - 2.0 * kCurvePad;
-  const QString id = column->data(kWellIdRole).toString();
-
-  // Split samples into contiguous finite runs → one series per run.
-  const qsizetype n = qMin(curve.depths.size(), curve.values.size());
-  QgsPlotData data; // owns the series once added
-  bool any = false;
-  float vMin = 0.0f, vMax = 0.0f;
-  const auto flushRun = [&](QList<std::pair<double, double>> &pts) {
-    if (pts.size() < 2)
-    {
-      pts.clear();
-      return; // a lone sample draws no line — skip it
-    }
-    auto *s = new QgsXyPlotSeries();
-    s->setName(curve.name);
-    s->setData(pts);
-    data.addSeries(s); // takes ownership
-    pts.clear();
-  };
-  QList<std::pair<double, double>> run;
-  for (qsizetype i = 0; i < n; ++i)
-  {
-    const float d = curve.depths.at(i);
-    const float v = curve.values.at(i);
-    if (!std::isfinite(d) || !std::isfinite(v))
-    {
-      flushRun(run);
-      continue;
-    }
-    if (!any) { vMin = vMax = v; any = true; }
-    else { vMin = qMin(vMin, v); vMax = qMax(vMax, v); }
-    // x = value, y = -depth: Qgs2DXyPlot's y axis grows upward, and a well
-    // track wants depth growing downward — negating depth flips it with no
-    // axis-inversion API (none exists on QgsPlotAxis in 4.2).
-    run.append({static_cast<double>(v), -static_cast<double>(d)});
-  }
-  flushRun(run);
-  if (!any || data.series().isEmpty())
-    return;
-
-  // Render target: the column band below the title strip. NB in QGIS 4.2's
-  // standalone (non-layout) render path, Qgs2DPlot::setSize is consumed in
-  // painter units — so we pass pixels, not millimeters.
-  const int pxW = qMax(8, static_cast<int>(w));
-  const int pxH = qMax(8, static_cast<int>(band.height()));
-  QImage img(QSize(pxW, pxH), QImage::Format_ARGB32_Premultiplied);
-  img.fill(Qt::transparent);
-
-  QgsLineChartPlot plot;
-  plot.setSize(QSizeF(pxW, pxH));
-  plot.setMargins(QgsMargins());                      // tracks fill the column
-  plot.setXMinimum(vMin);
-  plot.setXMaximum(qMax(vMax, vMin + 1e-6));          // flat curves still render
-  const double yMin = -static_cast<double>(depthMin + depthSpan);
-  const double yMax = -static_cast<double>(depthMin);
-  plot.setYMinimum(yMin);
-  plot.setYMaximum(qMax(yMax, yMin + 1e-6));
-
-  // Compact track look: transparent chart chrome, invisible grid lines,
-  // ~0-size axis text + huge label interval → interiorPlotArea reserves
-  // almost no axis space, so the curve spans the whole column.
-  QVariantMap noFill;
-  noFill.insert(QStringLiteral("color"), QStringLiteral("0,0,0,0"));
-  noFill.insert(QStringLiteral("outline_style"), QStringLiteral("no"));
-  plot.setChartBackgroundSymbol(QgsFillSymbol::createSimple(noFill).release());
-  plot.setChartBorderSymbol(QgsFillSymbol::createSimple(noFill).release());
-  const auto invisibleLine = [] {
-    QVariantMap m;
-    m.insert(QStringLiteral("color"), QStringLiteral("0,0,0,0"));
-    return QgsLineSymbol::createSimple(m).release(); // plot takes ownership
-  };
-  plot.xAxis().setGridMajorSymbol(invisibleLine());
-  plot.xAxis().setGridMinorSymbol(invisibleLine());
-  plot.yAxis().setGridMajorSymbol(invisibleLine());
-  plot.yAxis().setGridMinorSymbol(invisibleLine());
-  QgsTextFormat tiny;
-  tiny.setSize(0.5); // shrinks the reserved axis-label space to ~nothing
-  plot.xAxis().setTextFormat(tiny);
-  plot.yAxis().setTextFormat(tiny);
-  plot.xAxis().setLabelInterval(1e30);
-  plot.yAxis().setLabelInterval(1e30);
-
-  // Design-token ink: muted track stroke, no point markers.
-  plot.setLineSymbolAt(0, QgsLineSymbol::createSimple(
-      QVariantMap{{QStringLiteral("color"), kTextMuted.name()},
-                  {QStringLiteral("width"), QStringLiteral("0.8")}}).release());
-  plot.setMarkerSymbolAt(0, QgsMarkerSymbol::createSimple(
-      QVariantMap{{QStringLiteral("color"), QStringLiteral("0,0,0,0")},
-                  {QStringLiteral("outline_color"), QStringLiteral("0,0,0,0")}}).release());
-
-  QRect interior;
-  {
-    QPainter p(&img);
-    QgsRenderContext rc = QgsRenderContext::fromQPainter(&p);
-    QgsPlotRenderContext pc;
-    // Axis decoration space is computed off the render context — query the
-    // real content rect so the curve crop fills the column exactly.
-    interior = plot.interiorPlotArea(rc, pc, data).toAlignedRect()
-               .intersected(img.rect());
-    plot.render(rc, pc, data);
-  }
-
-  const QImage cropped = interior.isEmpty() ? img : img.copy(interior);
-  if (cropped.isNull())
-    return;
-  auto *item = new QGraphicsPixmapItem(QPixmap::fromImage(cropped), column);
-  // Stretch the content crop across the full band when the axis reservation
-  // was nonzero — tracks are always full-height in the column.
-  item->setOffset(x0, band.y());
-  if (cropped.size() != img.size())
-  {
-    const qreal sx = w / cropped.width();
-    const qreal sy = band.height() / cropped.height();
-    item->setScale(1.0);
-    item->setTransform(QTransform::fromScale(sx, sy));
-  }
-  item->setData(kCurveRole, id);
-  item->setAcceptedMouseButtons(Qt::NoButton); // never intercept well clicks
+  m_markers->setManifestHorizons(names);
+  rebuildScene();
 }
 
-void WellCorrelationPanel::rebuildScene()
+void WellCorrelationPanel::setFlattenMarker(const QString &name)
 {
-  m_scene->clear();
-  m_emptyLabel->setVisible(m_wells.isEmpty());
+  m_markers->setFlattenMarker(name);
+  rebuildScene();
+}
 
-  const int n = m_wells.size();
-  const qreal width = kMargin * 2 + n * kColumnWidth + (n > 0 ? (n - 1) * kColumnGap : 0);
-  m_scene->setSceneRect(0, 0, width, kSceneHeight);
+bool WellCorrelationPanel::isFlattened() const
+{
+  return m_markers->isFlattened();
+}
 
-  // Shared depth axis: global min/max depth across every provided curve so
-  // all columns stay depth-registered (a shallow track occupies only the
-  // top of its column). depthSpan < 0 marks "no axis" → nothing drawn.
-  float depthMin = 0.0f, depthSpan = -1.0f;
+// Depth axis = the display-space window: every track sample and every
+// horizon pick shifted by its well's flatten offset, so flattened markers
+// (display depth 0) stay inside the section and unflattened wells keep
+// absolute depths.
+void WellCorrelationPanel::computeDepthAxis()
+{
+  float lo = std::numeric_limits<float>::infinity();
+  float hi = -lo;
+  for (const auto &w : m_wells)
   {
-    bool have = false;
-    float depthMax = 0.0f;
-    for (const WellCurve &c : m_curves)
-      for (const float d : c.depths)
-        if (std::isfinite(d))
-        {
-          if (!have) { depthMin = depthMax = d; have = true; }
-          else { depthMin = qMin(depthMin, d); depthMax = qMax(depthMax, d); }
-        }
-    if (have)
-      depthSpan = depthMax - depthMin;
-  }
-
-  const qreal colH = kSceneHeight - kLabelBand - kMargin;
-  const qreal tickY = kSceneHeight - kMargin - kTickLift;
-  for (int i = 0; i < n; ++i)
-  {
-    const qreal x = kMargin + i * (kColumnWidth + kColumnGap);
-
-    QPainterPath path;
-    path.addRoundedRect(QRectF(x, kLabelBand, kColumnWidth, colH), kRadius, kRadius);
-    auto *column = m_scene->addPath(path, columnPen(false), QBrush(kSurface));
-    column->setData(kWellIdRole, m_wells.at(i).first);
-    column->setData(kHighlightRole, false);
-
-    // Well name centered above the column.
-    auto *label = new QGraphicsSimpleTextItem(m_wells.at(i).second, column);
-    QFont f = label->font();
-    f.setPointSize(9); // body token
-    label->setFont(f);
-    label->setBrush(kText);
-    const QRectF lb = label->boundingRect();
-    label->setPos(x + (kColumnWidth - lb.width()) / 2.0,
-                  kLabelBand - lb.height() - 2.0);
-
-    // Horizon tick placeholder near the bottom edge (activeHorizon binding
-    // arrives with real log rendering).
-    auto *tick = new QGraphicsLineItem(x + 8, tickY, x + kColumnWidth - 8, tickY, column);
-    QPen tickPen(kTextMuted, 1.0, Qt::DashLine);
-    tick->setPen(tickPen);
-
-    // Real log curve, when one was provided for this well.
-    const auto cit = m_curves.constFind(m_wells.at(i).first);
-    if (cit != m_curves.constEnd() && depthSpan >= 0.0f)
-    {
-      addCurveItems(column, *cit, depthMin, depthSpan);
-
-      // Curve mnemonic as a small caption under the well title.
-      if (!cit->name.isEmpty())
+    const QString id = w.first;
+    const float off = m_markers->displayOffset(id);
+    const CorrelationWellColumn *col = m_columns.value(id);
+    if (col)
+      for (const QString &mn : col->mnemonics())
       {
-        auto *cl = new QGraphicsSimpleTextItem(cit->name, column);
-        QFont cf = cl->font();
-        cf.setPointSize(8); // caption token
-        cl->setFont(cf);
-        cl->setBrush(kTextMuted);
-        const QRectF cb = cl->boundingRect();
-        cl->setPos(x + (kColumnWidth - cb.width()) / 2.0, kLabelBand + 2.0);
+        const CorrelationTrack *t = col->track(mn);
+        for (const float d : t->depths())
+          if (std::isfinite(d))
+          {
+            lo = qMin(lo, d - off);
+            hi = qMax(hi, d - off);
+          }
+      }
+    for (const QString &name : m_markers->markerNames())
+    {
+      const float p = m_markers->wellDepth(name, id);
+      if (std::isfinite(p))
+      {
+        lo = qMin(lo, p - off);
+        hi = qMax(hi, p - off);
       }
     }
+  }
+  if (lo > hi)
+  {
+    m_axisMin = 0.0f;
+    m_axisMax = 100.0f;
+  }
+  else
+  {
+    m_axisMin = lo;
+    m_axisMax = qMax(hi, lo + 1e-3f);
+  }
+}
+
+qreal WellCorrelationPanel::yForDepth(float displayDepth) const
+{
+  const qreal bodyH = kSceneHeight - kLabelBand - kMargin;
+  const float span = m_axisMax - m_axisMin;
+  return kLabelBand + static_cast<qreal>(displayDepth - m_axisMin) / span * bodyH;
+}
+
+float WellCorrelationPanel::depthAtY(qreal y) const
+{
+  const qreal bodyH = kSceneHeight - kLabelBand - kMargin;
+  const float span = m_axisMax - m_axisMin;
+  return static_cast<float>(m_axisMin + (y - kLabelBand) / bodyH * span);
+}
+
+// Selective relayout: old column items are deleted (children follow), the
+// chrome layer and marker items survive — HorizonMarkerSet::rebuild
+// self-cleans its lines by role scan and preserves the drag grabber, so
+// mid-drag relayouts (markerDepthChanged) never kill an in-flight drag.
+void WellCorrelationPanel::rebuildScene()
+{
+  m_emptyLabel->setVisible(m_wells.isEmpty());
+
+  for (QGraphicsPathItem *it : m_columnItems)
+  {
+    m_scene->removeItem(it);
+    delete it;
+  }
+  m_columnItems.clear();
+
+  computeDepthAxis();
+
+  const qreal bodyH = kSceneHeight - kLabelBand - kMargin;
+  QSet<QString> selected;
+  if (m_ctx)
+  {
+    const QStringList ids = m_ctx->selectedIds(); // one temporary, valid iterator pair
+    selected = QSet<QString>(ids.begin(), ids.end());
+  }
+
+  qreal x = kRulerWidth + kMargin;
+  QList<HorizonMarkerSet::ColumnGeom> geoms;
+  for (const auto &w : m_wells)
+  {
+    CorrelationWellColumn *col = m_columns.value(w.first);
+    if (!col)
+      continue;
+    col->setHeaderHeight(kLabelBand);
+    const float off = m_markers->displayOffset(w.first);
+    QGraphicsPathItem *item = col->rebuild(m_scene, QPointF(x, kLabelBand), bodyH,
+                                           m_axisMin, m_axisMax, selected.contains(w.first), off);
+    m_columnItems.append(item);
+    geoms.append({w.first, QRectF(x, kLabelBand, col->width(), bodyH)});
+    x += col->width() + kColumnGap;
+  }
+  m_lastGeoms = geoms;
+
+  const qreal sceneW = m_wells.isEmpty() ? 200.0 : x - kColumnGap + kMargin;
+  m_scene->setSceneRect(0, 0, sceneW, kSceneHeight);
+
+  // Ruler: full-axis ticks by default; the view narrows the window to the
+  // visible span when zoomed. Grid spans the section width.
+  m_ruler->setHeight(bodyH);
+  m_ruler->setRange(m_axisMin, m_axisMax);
+  m_ruler->setGridWidth(qMax(0.0, sceneW - kRulerWidth - kMargin));
+  auto *view = static_cast<CorrelationView *>(m_view);
+  view->axisMin = m_axisMin;
+  view->axisMax = m_axisMax;
+  view->rulerEnabled = !m_wells.isEmpty();
+  view->viewport()->update();
+
+  relayoutMarkers();
+}
+
+void WellCorrelationPanel::relayoutMarkers()
+{
+  bool anyPicked = false;
+  if (!m_wells.isEmpty())
+    for (const QString &name : m_markers->markerNames())
+      if (!m_markers->wellsPicked(name).isEmpty())
+      {
+        anyPicked = true;
+        break;
+      }
+
+  if (anyPicked)
+  {
+    if (!m_chrome)
+    {
+      // Invisible, non-interactive parent above the columns: marker lines
+      // must not resolve as columns (no well-id role) but stay top-most.
+      m_chrome = m_scene->addRect(QRectF(0, 0, 1, 1), QPen(Qt::NoPen), QBrush(Qt::NoBrush));
+      m_chrome->setAcceptedMouseButtons(Qt::NoButton);
+      m_chrome->setZValue(50.0);
+    }
+    m_chrome->setRect(m_scene->sceneRect().adjusted(-2.0, -2.0, 2.0, 2.0));
+    m_markers->rebuild(m_scene, m_chrome, m_lastGeoms,
+                       [this](float d) { return yForDepth(d); },
+                       [this](qreal y) { return depthAtY(y); },
+                       true, m_ctx ? m_ctx->activeHorizon() : QString());
+  }
+  else
+  {
+    if (m_chrome)
+    {
+      m_scene->removeItem(m_chrome);
+      delete m_chrome; // marker items (children) follow
+      m_chrome = nullptr;
+    }
+    // Still run the role-scan cleanup so orphaned lines die with the wells.
+    m_markers->rebuild(m_scene, nullptr, {},
+                       [this](float d) { return yForDepth(d); },
+                       [this](qreal y) { return depthAtY(y); },
+                       false, QString());
   }
 }
 
@@ -476,12 +742,12 @@ void WellCorrelationPanel::applySelection(const QStringList &ids)
   const auto items = m_scene->items();
   for (QGraphicsItem *it : items)
   {
-    if (!it->data(kWellIdRole).isValid())
-      continue; // label/tick children carry no id
-    const bool on = selected.contains(it->data(kWellIdRole).toString());
-    if (it->data(kHighlightRole).toBool() == on)
+    if (!it->data(CorrelationItemRoles::WellId).isValid())
+      continue; // label/track children carry no id
+    const bool on = selected.contains(it->data(CorrelationItemRoles::WellId).toString());
+    if (it->data(CorrelationItemRoles::Highlight).toBool() == on)
       continue;
-    it->setData(kHighlightRole, on);
+    it->setData(CorrelationItemRoles::Highlight, on);
     static_cast<QGraphicsPathItem *>(it)->setPen(columnPen(on));
   }
 }

@@ -47,6 +47,7 @@ add_library(paleo_core STATIC
   src/linkage/selectioncontext.cpp
   src/linkage/wellmaplink.cpp
   src/algorithms/paleoalgorithms.cpp
+  src/algorithms/faciespolygonize.cpp
   src/workflow/workflows.cpp
   src/ui/paleomainwindow.cpp
   src/ui/pages/pagepanels.cpp

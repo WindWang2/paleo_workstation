@@ -58,9 +58,11 @@ class ComposePage : public QWidget
   Q_OBJECT
   public:
     ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWidget *parent = nullptr);
-    void refreshFactors();                       // re-list declared factor.* layers
+    void refreshFactors();                       // re-list declared factor.* layers and facies rasters
   signals:
     void fuseRequested(const QStringList &factorLayerIds);
+    // rasterLayerId is a declared raster; minArea/simplifyTolerance are map units.
+    void polygonizeRequested(const QString &rasterLayerId, double minArea, double simplifyTolerance);
 };
 
 // ④验证 — run button + issues table + locate intent.

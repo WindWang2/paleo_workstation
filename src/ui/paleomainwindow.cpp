@@ -614,6 +614,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
             });
   }
   if (compose && composePage)
+  {
     connect(composePage, &ComposePage::fuseRequested, this,
             [this, compose, composePage](const QStringList &factorIds) {
               QString err;
@@ -621,6 +622,19 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
               if (compose->fuseFactors(horizon, factorIds, &err))
                 composePage->refreshFactors();
             });
+    connect(composePage, &ComposePage::polygonizeRequested, this,
+            [this, compose, composePage](const QString &rasterId, double minArea, double simplify) {
+              QString err;
+              const QString horizon = m_selection ? m_selection->activeHorizon() : QString();
+              QVariantMap params;
+              params.insert(QStringLiteral("MIN_AREA"), minArea);
+              params.insert(QStringLiteral("SIMPLIFY"), simplify);
+              if (compose->deriveFaciesPolygons(horizon, rasterId, params, &err))
+                composePage->refreshFactors();
+              else if (!err.isEmpty())
+                QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+            });
+  }
   if (validate && validatePage)
   {
     connect(validatePage, &ValidatePage::locateRequested, this,

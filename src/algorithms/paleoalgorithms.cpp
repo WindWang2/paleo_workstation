@@ -790,4 +790,5 @@ void PaleoProvider::loadAlgorithms()
   addAlgorithm( new FaciesFusionAlgorithm() );
   addAlgorithm( new GeologicalSmoothingAlgorithm() );
   addAlgorithm( new IsopachAlgorithm() );
+  addAlgorithm( new FaciesPolygonizeAlgorithm() );
 }

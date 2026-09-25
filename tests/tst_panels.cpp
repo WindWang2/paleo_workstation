@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QApplication>
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -256,6 +257,61 @@ class TestPanels : public QObject
       QCOMPARE(spy.count(), 1);
       QCOMPARE(spy.first().at(0).toStringList(),
                QStringList{QStringLiteral("factor.T1.f0")});
+    }
+
+    void composePage_polygonizeEmitsSelection()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      LayerManifest manifest(dir.filePath(QStringLiteral("m.sqlite")));
+      QVERIFY(manifest.open());
+      LayerDeclaration composite;
+      composite.layerId = QStringLiteral("composite.T1");
+      composite.horizon = QStringLiteral("T1");
+      composite.type = QStringLiteral("raster");
+      composite.source = QStringLiteral("memory|composite");
+      composite.group = QStringLiteral("03_Composite");
+      QVERIFY(manifest.upsert(composite));
+      LayerDeclaration factor;
+      factor.layerId = QStringLiteral("factor.T1.f0");
+      factor.horizon = QStringLiteral("T1");
+      factor.type = QStringLiteral("raster");
+      factor.source = QStringLiteral("memory|f");
+      factor.group = QStringLiteral("04_SingleFactor");
+      QVERIFY(manifest.upsert(factor));
+
+      QgisLayerService layers(nullptr, &manifest);
+      ComposePage page(nullptr, &layers);
+      auto *combo = page.findChild<QComboBox *>(QStringLiteral("faciesRasterCombo"));
+      QVERIFY(combo);
+      QCOMPARE(combo->count(), 1);
+      QCOMPARE(combo->currentData().toString(), QStringLiteral("composite.T1"));
+
+      auto *minArea = page.findChild<QDoubleSpinBox *>(QStringLiteral("minAreaSpin"));
+      auto *simplify = page.findChild<QDoubleSpinBox *>(QStringLiteral("simplifySpin"));
+      QVERIFY(minArea && simplify);
+      minArea->setValue(2.5);
+      simplify->setValue(0.25);
+
+      QSignalSpy spy(&page, &ComposePage::polygonizeRequested);
+      page.findChild<QPushButton *>(QStringLiteral("polygonizeButton"))->click();
+      QCOMPARE(spy.count(), 1);
+      QCOMPARE(spy.first().at(0).toString(), QStringLiteral("composite.T1"));
+      QCOMPARE(spy.first().at(1).toDouble(), 2.5);
+      QCOMPARE(spy.first().at(2).toDouble(), 0.25);
+    }
+
+    void composePage_polygonizeEmptyExplains()
+    {
+      ComposePage page(nullptr, nullptr);
+      QSignalSpy spy(&page, &ComposePage::polygonizeRequested);
+      auto *btn = page.findChild<QPushButton *>(QStringLiteral("polygonizeButton"));
+      QVERIFY(btn);
+      btn->click();
+      QCOMPARE(spy.count(), 0);
+      auto *status = page.findChild<QLabel *>(QStringLiteral("statusLabel"));
+      QVERIFY(status);
+      QVERIFY(status->text().contains(QStringLiteral("栅格")));
     }
 
     // ---- ValidatePage ----

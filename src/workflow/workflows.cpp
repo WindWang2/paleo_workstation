@@ -10,10 +10,19 @@
 #include <QDir>
 #include <QFile>
 #include <QHash>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSet>
 #include <QVariantList>
 
+#include <qgscoordinatereferencesystem.h>
 #include <qgsmaplayer.h>
+
+#include <gdal.h>
+#include <cpl_conv.h>
+
+#include <cmath>
 
 // ---------------------------------------------------------------------------
 // workflows.h fixes the public shape of these classes and declares no data
@@ -108,6 +117,12 @@ namespace
         QStringLiteral( "paleo_%1_%2_%3.tif" ).arg( tag, horizon, stamp() ) );
   }
 
+  QString tempVectorPath( const QString &tag, const QString &horizon )
+  {
+    return QDir::temp().filePath(
+        QStringLiteral( "paleo_%1_%2_%3.gpkg" ).arg( tag, horizon, stamp() ) );
+  }
+
   // OUTPUT is the conventional destination key; fall back to the first
   // string-valued result so algorithms with differently named destinations
   // still declare their product.
@@ -148,6 +163,130 @@ namespace
       return false;
     return true;
   }
+#if PALEO_HAVE_ORT
+  // Place an ONNX float tensor on a north-up grid. Explicit rows/cols win;
+  // otherwise a squeezed 2D output shape is used, and a scalar becomes 1×1.
+  bool resolveOnnxGrid( const QVector<float> &values, const QVector<int64_t> &outShape,
+                        const QVariantMap &params, int &rows, int &cols, QString *error )
+  {
+    const int n = values.size();
+    if ( n <= 0 )
+    {
+      setError( error, QObject::tr( "ONNX output is empty" ) );
+      return false;
+    }
+    const bool hasRows = params.contains( QStringLiteral( "rows" ) );
+    const bool hasCols = params.contains( QStringLiteral( "cols" ) );
+    if ( hasRows || hasCols )
+    {
+      rows = params.value( QStringLiteral( "rows" ) ).toInt();
+      cols = params.value( QStringLiteral( "cols" ) ).toInt();
+      if ( rows <= 0 || cols <= 0 || static_cast<qint64>( rows ) * cols != n )
+      {
+        setError( error, QObject::tr( "ONNX output length %1 does not match rows*cols (%2×%3)" )
+                            .arg( n )
+                            .arg( rows )
+                            .arg( cols ) );
+        return false;
+      }
+      return true;
+    }
+    QVector<qint64> dims;
+    for ( qint64 d : outShape )
+    {
+      if ( d == 1 && dims.isEmpty() )
+        continue;
+      dims.append( d );
+    }
+    while ( dims.size() > 2 && dims.last() == 1 )
+      dims.removeLast();
+    if ( dims.size() == 2 && dims[0] > 0 && dims[1] > 0 && dims[0] * dims[1] == n )
+    {
+      rows = static_cast<int>( dims[0] );
+      cols = static_cast<int>( dims[1] );
+      return true;
+    }
+    if ( n == 1 )
+    {
+      rows = 1;
+      cols = 1;
+      return true;
+    }
+    setError( error, QObject::tr( "ONNX output has %1 values and no 2D shape; pass rows and cols" ).arg( n ) );
+    return false;
+  }
+
+  QString writeOnnxRaster( const QString &path, const QVector<float> &values, int rows, int cols,
+                          const QVariantMap &params, const QString &model,
+                          const QVector<int64_t> &outShape, QString *error )
+  {
+    const double cell = params.value( QStringLiteral( "cellSize" ), 1.0 ).toDouble();
+    if ( !( cell > 0.0 ) || !std::isfinite( cell ) )
+    {
+      setError( error, QObject::tr( "cellSize must be > 0" ) );
+      return QString();
+    }
+    const double xmin = params.value( QStringLiteral( "xmin" ), 0.0 ).toDouble();
+    const double ymax = params.contains( QStringLiteral( "ymax" ) )
+                            ? params.value( QStringLiteral( "ymax" ) ).toDouble()
+                            : rows * cell;
+    double gt[6] = { xmin, cell, 0.0, ymax, 0.0, -cell };
+
+    GDALAllRegister();
+    GDALDriverH drv = GDALGetDriverByName( "GTiff" );
+    if ( !drv )
+    {
+      setError( error, QObject::tr( "GTiff driver is not available" ) );
+      return QString();
+    }
+    if ( QFile::exists( path ) )
+      QFile::remove( path );
+    GDALDatasetH ds = GDALCreate( drv, path.toUtf8().constData(), cols, rows, 1, GDT_Float32, nullptr );
+    if ( !ds )
+    {
+      setError( error, QObject::tr( "cannot create prediction raster %1" ).arg( path ) );
+      return QString();
+    }
+    GDALSetGeoTransform( ds, gt );
+    const QString auth = params.value( QStringLiteral( "crs" ) ).toString();
+    if ( !auth.isEmpty() )
+    {
+      const QgsCoordinateReferenceSystem crs( auth );
+      if ( crs.isValid() )
+      {
+        const QByteArray wkt = crs.toWkt( Qgis::CrsWktVariant::Wkt1Gdal ).toUtf8();
+        GDALSetProjection( ds, wkt.constData() );
+      }
+    }
+    GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+    GDALSetRasterNoDataValue( band, -9999.0 );
+    if ( GDALRasterIO( band, GF_Write, 0, 0, cols, rows, const_cast<float *>( values.constData() ),
+                       cols, rows, GDT_Float32, 0, 0 ) != CE_None )
+    {
+      GDALClose( ds );
+      QFile::remove( path );
+      setError( error, QObject::tr( "failed to write prediction raster %1" ).arg( path ) );
+      return QString();
+    }
+
+    QJsonObject prov;
+    prov.insert( QStringLiteral( "model" ), model );
+    prov.insert( QStringLiteral( "rows" ), rows );
+    prov.insert( QStringLiteral( "cols" ), cols );
+    prov.insert( QStringLiteral( "cell_size" ), cell );
+    prov.insert( QStringLiteral( "xmin" ), xmin );
+    prov.insert( QStringLiteral( "ymax" ), ymax );
+    QJsonArray shapeJson;
+    for ( qint64 d : outShape )
+      shapeJson.append( static_cast<double>( d ) );
+    prov.insert( QStringLiteral( "output_shape" ), shapeJson );
+    const QByteArray json = QJsonDocument( prov ).toJson( QJsonDocument::Compact );
+    GDALSetMetadataItem( ds, "PALEO_MODEL", model.toUtf8().constData(), nullptr );
+    GDALSetMetadataItem( ds, "PALEO_PROVENANCE", json.constData(), nullptr );
+    GDALClose( ds );
+    return path;
+  }
+#endif
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -228,26 +367,35 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
     if ( inputName.isEmpty() )
       inputName = QStringLiteral( "x" );
 
-    const QVector<float> out = onnx->run( inputName, input, shape, error );
-    if ( out.isEmpty() )
+    const OnnxTensor tensor = onnx->runTensor( inputName, input, shape, error );
+    if ( tensor.values.isEmpty() )
       return fail( ( error && !error->isEmpty() )
                        ? *error
                        : tr( "ONNX model '%1' produced no output" ).arg( model ) );
 
-    // Declare via the same QgisLayerService path Processing results use; the
-    // memory pseudo-source encodes the output floats for inspection until
-    // real ONNX output materialization lands (same trick as constraints WKT).
-    QStringList encoded;
-    encoded.reserve( out.size() );
-    for ( const float v : out )
-      encoded << QString::number( static_cast<double>( v ), 'g', 7 );
+    int rows = 0;
+    int cols = 0;
+    if ( !resolveOnnxGrid( tensor.values, tensor.shape, params, rows, cols, error ) )
+    {
+      return fail( ( error && !error->isEmpty() )
+                       ? *error
+                       : tr( "cannot place ONNX output on a grid" ) );
+    }
+    const QString outPath = writeOnnxRaster(
+        tempRasterPath( QStringLiteral( "onnx" ), horizon ), tensor.values, rows, cols, params,
+        model, tensor.shape, error );
+    if ( outPath.isEmpty() )
+    {
+      return fail( ( error && !error->isEmpty() )
+                       ? *error
+                       : tr( "failed to write ONNX prediction raster" ) );
+    }
 
     LayerDeclaration decl;
     decl.layerId = QStringLiteral( "pred.%1.onnx.%2" ).arg( horizon, model );
     decl.horizon = horizon;
-    decl.type = QStringLiteral( "vector" );
-    decl.source = QStringLiteral( "memory|onnx|%1|%2" )
-                      .arg( model, encoded.join( QLatin1Char( ',' ) ) );
+    decl.type = QStringLiteral( "raster" );
+    decl.source = outPath;
     decl.group = QStringLiteral( "03_Predict" );
     if ( !layers->declare( decl, error ) )
       return fail( ( error && !error->isEmpty() )
@@ -634,6 +782,100 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
     return false;
 
   emit compositionDone( horizon, decl.layerId );
+  return true;
+}
+
+bool CompositionWorkflow::deriveFaciesPolygons( const QString &horizon, const QString &rasterLayerId,
+                                               const QVariantMap &params, QString *error )
+{
+  const auto fail = [this, &horizon, error]( const QString &msg ) {
+    setError( error, msg );
+    emit faciesPolygonsFailed( horizon, msg );
+    return false;
+  };
+
+  QgisProcessingService *proc = procOf( this );
+  QgisLayerService *layers = layersOf( this );
+  if ( !proc || !layers )
+    return fail( tr( "composition workflow is not bound to services" ) );
+  if ( rasterLayerId.isEmpty() )
+    return fail( tr( "no raster layer supplied for facies polygons" ) );
+
+  QString declHorizon;
+  bool found = false;
+  for ( const LayerDeclaration &d : layers->declared() )
+  {
+    if ( d.layerId == rasterLayerId )
+    {
+      declHorizon = d.horizon;
+      found = true;
+      break;
+    }
+  }
+  if ( !found )
+    return fail( tr( "raster layer '%1' is not declared" ).arg( rasterLayerId ) );
+
+  const QString h = !declHorizon.isEmpty() ? declHorizon : horizon;
+  if ( h.isEmpty() )
+    return fail( tr( "cannot derive facies polygons without a horizon" ) );
+
+  QgsMapLayer *raster = layers->instantiate( rasterLayerId, error );
+  if ( !raster )
+  {
+    return fail( ( error && !error->isEmpty() )
+                     ? *error
+                     : tr( "failed to instantiate raster '%1'" ).arg( rasterLayerId ) );
+  }
+
+  QVariantMap alg;
+  alg.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( raster ) );
+  alg.insert( QStringLiteral( "OUTPUT" ), tempVectorPath( QStringLiteral( "facies" ), h ) );
+  const QStringList forwarded = {
+      QStringLiteral( "MIN_AREA" ), QStringLiteral( "SIMPLIFY" ),
+      QStringLiteral( "SNAP_TOLERANCE" ), QStringLiteral( "ANGLE_TOLERANCE" ) };
+  for ( const QString &key : forwarded )
+  {
+    if ( params.contains( key ) )
+      alg.insert( key, params.value( key ) );
+  }
+  const QString constraintId = params.value( QStringLiteral( "CONSTRAINT_LAYER" ) ).toString();
+  if ( !constraintId.isEmpty() )
+  {
+    QgsMapLayer *constraints = layers->instantiate( constraintId, error );
+    if ( !constraints )
+    {
+      return fail( ( error && !error->isEmpty() )
+                       ? *error
+                       : tr( "failed to instantiate constraints '%1'" ).arg( constraintId ) );
+    }
+    alg.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( constraints ) );
+  }
+
+  const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_facies_polygonize" ), alg, error );
+  if ( results.isEmpty() )
+  {
+    return fail( ( error && !error->isEmpty() )
+                     ? *error
+                     : tr( "facies polygonize produced no results" ) );
+  }
+  const QString outPath = outputPathOf( results );
+  if ( outPath.isEmpty() )
+    return fail( tr( "facies polygonize returned no output path" ) );
+
+  LayerDeclaration decl;
+  decl.layerId = QStringLiteral( "facies.%1" ).arg( h );
+  decl.horizon = h;
+  decl.type = QStringLiteral( "vector" );
+  decl.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( outPath );
+  decl.group = QStringLiteral( "05_PaleoMap" );
+  if ( !layers->declare( decl, error ) )
+  {
+    return fail( ( error && !error->isEmpty() )
+                     ? *error
+                     : tr( "failed to declare facies layer '%1'" ).arg( decl.layerId ) );
+  }
+
+  emit faciesPolygonsReady( h, decl.layerId );
   return true;
 }
 

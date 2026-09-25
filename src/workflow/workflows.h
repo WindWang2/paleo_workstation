@@ -67,8 +67,17 @@ class CompositionWorkflow : public QObject
   public:
     explicit CompositionWorkflow(QgisProcessingService *proc, QgisLayerService *layers, QObject *parent = nullptr);
     bool fuseFactors(const QString &horizon, const QStringList &factorLayerIds, QString *error = nullptr);
+
+    // §36 — classified/fused raster → editable facies polygons.
+    // Declares vector layer "facies.<horizon>" in group 05_PaleoMap.
+    // params: MIN_AREA, SIMPLIFY, SNAP_TOLERANCE, ANGLE_TOLERANCE, CONSTRAINT_LAYER (layer id).
+    // The raster declaration's horizon wins when it is set.
+    bool deriveFaciesPolygons(const QString &horizon, const QString &rasterLayerId,
+                              const QVariantMap &params = QVariantMap(), QString *error = nullptr);
   signals:
     void compositionDone(const QString &horizon, const QString &resultLayerId);
+    void faciesPolygonsReady(const QString &horizon, const QString &layerId);
+    void faciesPolygonsFailed(const QString &horizon, const QString &error);
 };
 
 // ④验证 — run cross-horizon validation rules; instantiate layers on demand.

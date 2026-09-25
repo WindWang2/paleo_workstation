@@ -6,6 +6,7 @@
 #include "../../domain/types.h"          // ValidationIssue fields
 
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
@@ -165,6 +166,23 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   nameEdit->setText(QStringLiteral("x"));
   paramsLay->addWidget(nameEdit);
 
+  paramsLay->addWidget(caption(tr("输出栅格（可空，按模型形状）"), paramsArea));
+  auto *rowsEdit = new QLineEdit(paramsArea);
+  rowsEdit->setObjectName(QStringLiteral("onnxRowsEdit"));
+  rowsEdit->setPlaceholderText(tr("行数"));
+  rowsEdit->setAccessibleName(tr("预测栅格行数"));
+  paramsLay->addWidget(rowsEdit);
+  auto *colsEdit = new QLineEdit(paramsArea);
+  colsEdit->setObjectName(QStringLiteral("onnxColsEdit"));
+  colsEdit->setPlaceholderText(tr("列数"));
+  colsEdit->setAccessibleName(tr("预测栅格列数"));
+  paramsLay->addWidget(colsEdit);
+  auto *cellEdit = new QLineEdit(paramsArea);
+  cellEdit->setObjectName(QStringLiteral("onnxCellEdit"));
+  cellEdit->setPlaceholderText(tr("像元大小，默认 1"));
+  cellEdit->setAccessibleName(tr("预测栅格像元大小"));
+  paramsLay->addWidget(cellEdit);
+
   paramsArea->hide();
   lay->addWidget(paramsArea);
 
@@ -245,6 +263,9 @@ QVariantMap PredictPage::parseInputParams()
   auto *inputEdit = child<QLineEdit>(this, "onnxInputEdit");
   auto *shapeEdit = child<QLineEdit>(this, "onnxShapeEdit");
   auto *nameEdit = child<QLineEdit>(this, "onnxInputNameEdit");
+  auto *rowsEdit = child<QLineEdit>(this, "onnxRowsEdit");
+  auto *colsEdit = child<QLineEdit>(this, "onnxColsEdit");
+  auto *cellEdit = child<QLineEdit>(this, "onnxCellEdit");
 
   if (!inputEdit || !shapeEdit || !nameEdit)
     return {};
@@ -313,6 +334,35 @@ QVariantMap PredictPage::parseInputParams()
   params.insert(QStringLiteral("input"), inList);
   params.insert(QStringLiteral("shape"), shapeList);
   params.insert(QStringLiteral("inputName"), nameStr);
+
+  const auto fail = [status](const QString &msg) {
+    if (status)
+      status->setText(msg);
+    return QVariantMap();
+  };
+  const QString rowsText = rowsEdit ? rowsEdit->text().trimmed() : QString();
+  const QString colsText = colsEdit ? colsEdit->text().trimmed() : QString();
+  if (rowsText.isEmpty() != colsText.isEmpty())
+    return fail(tr("行数和列数需要同时填写"));
+  if (!rowsText.isEmpty())
+  {
+    bool rowOk = false;
+    bool colOk = false;
+    const int rows = rowsText.toInt(&rowOk);
+    const int cols = colsText.toInt(&colOk);
+    if (!rowOk || !colOk || rows <= 0 || cols <= 0)
+      return fail(tr("行数和列数必须是正整数"));
+    params.insert(QStringLiteral("rows"), rows);
+    params.insert(QStringLiteral("cols"), cols);
+  }
+  if (cellEdit && !cellEdit->text().trimmed().isEmpty())
+  {
+    bool ok = false;
+    const double cell = cellEdit->text().trimmed().toDouble(&ok);
+    if (!ok || !(cell > 0.0))
+      return fail(tr("像元大小必须是正数"));
+    params.insert(QStringLiteral("cellSize"), cell);
+  }
   return params;
 }
 
@@ -409,15 +459,62 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
     emit fuseRequested(ids);
   });
 
+  lay->addWidget(caption(tr("沉积相面"), this));
+  auto *rasterCombo = new QComboBox(this);
+  rasterCombo->setObjectName(QStringLiteral("faciesRasterCombo"));
+  rasterCombo->setAccessibleName(tr("待转面的栅格"));
+  lay->addWidget(rasterCombo);
+
+  auto *minArea = new QDoubleSpinBox(this);
+  minArea->setObjectName(QStringLiteral("minAreaSpin"));
+  minArea->setAccessibleName(tr("碎屑面积阈值"));
+  minArea->setDecimals(4);
+  minArea->setRange(0.0, 1.0e9);
+  minArea->setSingleStep(1.0);
+  minArea->setPrefix(tr("最小面积 "));
+  lay->addWidget(minArea);
+
+  auto *simplify = new QDoubleSpinBox(this);
+  simplify->setObjectName(QStringLiteral("simplifySpin"));
+  simplify->setAccessibleName(tr("边界简化容差"));
+  simplify->setDecimals(4);
+  simplify->setRange(0.0, 1.0e9);
+  simplify->setSingleStep(1.0);
+  simplify->setPrefix(tr("简化容差 "));
+  lay->addWidget(simplify);
+
+  auto *polygonize = new QPushButton(tr("转为相多边形"), this);
+  polygonize->setObjectName(QStringLiteral("polygonizeButton"));
+  polygonize->setAccessibleName(tr("转为相多边形"));
+  lay->addWidget(polygonize);
+  connect(polygonize, &QPushButton::clicked, this, [this, rasterCombo, minArea, simplify] {
+    const QString layerId = rasterCombo->currentData().toString();
+    if (layerId.isEmpty())
+    {
+      if (auto *status = child<QLabel>(this, "statusLabel"))
+        status->setText(tr("还没有可转面的栅格 — 先运行预测或合成编图"));
+      return;
+    }
+    emit polygonizeRequested(layerId, minArea->value(), simplify->value());
+  });
+
   auto *status = new QLabel(this);
   status->setObjectName(QStringLiteral("statusLabel"));
   status->setWordWrap(true);
   lay->addWidget(status);
   if (wf)
+  {
     connect(wf, &CompositionWorkflow::compositionDone, status,
             [status](const QString &h, const QString &layerId) {
               status->setText(tr("合成完成：%1 → %2").arg(h, layerId));
             });
+    connect(wf, &CompositionWorkflow::faciesPolygonsReady, status,
+            [status](const QString &h, const QString &layerId) {
+              status->setText(tr("相多边形完成：%1 → %2").arg(h, layerId));
+            });
+    connect(wf, &CompositionWorkflow::faciesPolygonsFailed, status,
+            [status](const QString &, const QString &error) { status->setText(error); });
+  }
 
   refreshFactors();
 }
@@ -441,6 +538,31 @@ void ComposePage::refreshFactors()
     it->setFlags(it->flags() | Qt::ItemIsUserCheckable);
     it->setCheckState(Qt::Unchecked);
   }
+
+  auto *combo = child<QComboBox>(this, "faciesRasterCombo");
+  if (!combo)
+    return;
+  const QString previous = combo->currentData().toString();
+  combo->clear();
+  if (!layers)
+    return;
+  for (const LayerDeclaration &d : layers->declared())
+  {
+    const bool raster = d.type.compare(QLatin1String("raster"), Qt::CaseInsensitive) == 0;
+    const bool groupOk = d.group == QLatin1String("03_Composite") ||
+                         d.group == QLatin1String("01_Prediction") ||
+                         d.group == QLatin1String("02_Prediction") ||
+                         d.group == QLatin1String("03_Predict");
+    const bool idOk = d.layerId.startsWith(QLatin1String("composite.")) ||
+                      d.layerId.startsWith(QLatin1String("pred.")) ||
+                      d.layerId.startsWith(QLatin1String("predict."));
+    if (!raster || (!groupOk && !idOk))
+      continue;
+    combo->addItem(d.layerId, d.layerId);
+  }
+  const int keep = combo->findData(previous);
+  if (keep >= 0)
+    combo->setCurrentIndex(keep);
 }
 
 // ---------------------------------------------------------------------------

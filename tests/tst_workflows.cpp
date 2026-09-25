@@ -6,7 +6,10 @@
 #include <qgsapplication.h>
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
+#include <qgsfeature.h>
+#include <qgsfeatureiterator.h>
 #include <qgsrasterlayer.h>
+#include <qgsvectorlayer.h>
 
 #include <gdal.h>
 #include <cpl_conv.h>
@@ -407,6 +410,50 @@ private slots:
     for ( const ValidationIssue &v : again )
       QVERIFY( v.code != QStringLiteral( "SRC_MISSING" ) && v.code != QStringLiteral( "BUSY" ) );
     QCOMPARE( spy.count(), 2 );
+  }
+
+  // A classified raster becomes an editable facies-polygon layer on the manifest.
+  void faciesPolygonsDeclaredFromRaster()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+    const QVector<float> px = { 1, 1, 2, 2 };
+    const QString path = makeRaster( f.dir.filePath( QStringLiteral( "coded.tif" ) ), 2, 2, px );
+    QVERIFY( !path.isEmpty() );
+
+    QString err;
+    QVERIFY2( f.layers.declare( decl( QStringLiteral( "composite.T1" ), QStringLiteral( "T1" ),
+                                      QStringLiteral( "raster" ), path,
+                                      QStringLiteral( "03_Composite" ) ), &err ),
+              qPrintable( err ) );
+
+    CompositionWorkflow wf( &f.proc, &f.layers );
+    QSignalSpy ready( &wf, &CompositionWorkflow::faciesPolygonsReady );
+    QSignalSpy failed( &wf, &CompositionWorkflow::faciesPolygonsFailed );
+    QVERIFY2( wf.deriveFaciesPolygons( QStringLiteral( "T1" ), QStringLiteral( "composite.T1" ),
+                                       QVariantMap(), &err ),
+              qPrintable( err ) );
+    QCOMPARE( failed.count(), 0 );
+    QCOMPARE( ready.count(), 1 );
+    QCOMPARE( ready.at( 0 ).at( 1 ).toString(), QStringLiteral( "facies.T1" ) );
+
+    const LayerDeclaration *d = findDecl( f.layers, QStringLiteral( "facies.T1" ) );
+    QVERIFY( d != nullptr );
+    QCOMPARE( d->type, QStringLiteral( "vector" ) );
+    QCOMPARE( d->group, QStringLiteral( "05_PaleoMap" ) );
+    QCOMPARE( d->horizon, QStringLiteral( "T1" ) );
+    const QString gpkg = d->source.section( QLatin1Char( '|' ), 0, 0 );
+    QVERIFY2( QFile::exists( gpkg ), qPrintable( d->source ) );
+
+    QgsVectorLayer vl( d->source, QStringLiteral( "faces" ), QStringLiteral( "ogr" ) );
+    QVERIFY2( vl.isValid(), qPrintable( vl.error().message() ) );
+    int n = 0;
+    QgsFeature feat;
+    QgsFeatureIterator it = vl.getFeatures();
+    while ( it.nextFeature( feat ) )
+      ++n;
+    QCOMPARE( n, 2 );
+    delete d;
   }
 };
 

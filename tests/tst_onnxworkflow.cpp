@@ -206,12 +206,44 @@ private slots:
     const LayerDeclaration *d = findDecl( f.layers, QStringLiteral( "pred.T1.onnx.toy" ) );
     QVERIFY( d != nullptr );
     QCOMPARE( d->horizon, QStringLiteral( "T1" ) );
-    QCOMPARE( d->type, QStringLiteral( "vector" ) );
+    QCOMPARE( d->type, QStringLiteral( "raster" ) );
     QCOMPARE( d->group, QStringLiteral( "03_Predict" ) );
-    // Memory pseudo-source encodes the output floats (toy: 2.0 -> 42.0).
-    QVERIFY2( d->source.startsWith( QStringLiteral( "memory" ) ), qPrintable( d->source ) );
-    QVERIFY2( d->source.contains( QStringLiteral( "42" ) ), qPrintable( d->source ) );
+    QVERIFY2( QFile::exists( d->source ), qPrintable( d->source ) );
+    QVERIFY( !d->source.startsWith( QStringLiteral( "memory" ) ) );
+    GDALDatasetH ds = GDALOpen( d->source.toUtf8().constData(), GA_ReadOnly );
+    QVERIFY2( ds != nullptr, qPrintable( d->source ) );
+    QCOMPARE( GDALGetRasterXSize( ds ), 1 );
+    QCOMPARE( GDALGetRasterYSize( ds ), 1 );
+    float px = 0.0f;
+    QVERIFY( GDALRasterIO( GDALGetRasterBand( ds, 1 ), GF_Read, 0, 0, 1, 1, &px, 1, 1,
+                           GDT_Float32, 0, 0 ) == CE_None );
+    QCOMPARE( px, 42.0f );
+    const char *modelItem = GDALGetMetadataItem( ds, "PALEO_MODEL", nullptr );
+    QCOMPARE( QString::fromUtf8( modelItem ? modelItem : "" ), QStringLiteral( "toy" ) );
+    GDALClose( ds );
     delete d;
+  }
+
+  // rows*cols that do not match the tensor length fail before a layer is declared.
+  void onnxGridShapeMismatchFails()
+  {
+    if ( !PaleoOnnxService::runtimeAvailable() )
+      QSKIP( "libonnxruntime not found under vendor/onnxruntime" );
+    Fixture f;
+    if ( initFixture( f ).isEmpty() )
+      QSKIP( "spikes/onnx/toy.onnx not locatable" );
+
+    PredictionWorkflow wf( &f.proc, &f.layers );
+    wf.setOnnxService( &f.onnx );
+    QVariantMap params;
+    params.insert( QStringLiteral( "input" ), QVariantList{ 2.0 } );
+    params.insert( QStringLiteral( "shape" ), QVariantList{ QVariant::fromValue<qint64>( 1 ) } );
+    params.insert( QStringLiteral( "rows" ), 2 );
+    params.insert( QStringLiteral( "cols" ), 2 );
+    QString err;
+    QVERIFY( !wf.runPrediction( QStringLiteral( "T1" ), QStringLiteral( "onnx:toy" ), params, &err ) );
+    QVERIFY2( err.contains( QStringLiteral( "rows" ) ), qPrintable( err ) );
+    QVERIFY( findDecl( f.layers, QStringLiteral( "pred.T1.onnx.toy" ) ) == nullptr );
   }
 
   // "onnx:ghost" — no such file under the model root → failed signal + false.

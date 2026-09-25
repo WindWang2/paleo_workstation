@@ -7,6 +7,12 @@
 // ai/ — PaleoOnnxService wraps the vendored ONNX Runtime C++ API (ET4 spike
 // proven: onnxruntime-linux-x64-1.30.0 under vendor/onnxruntime).
 // In-process inference only; model files pinned per-horizon under models/.
+// First output of an in-process inference. `values` is empty on failure.
+struct OnnxTensor {
+  QVector<float> values;
+  QVector<int64_t> shape;
+};
+
 class PaleoOnnxService : public QObject
 {
   Q_OBJECT
@@ -23,6 +29,10 @@ class PaleoOnnxService : public QObject
     // Deterministic: same input → same output (spike verified 2.0 → 42.0).
     QVector<float> run(const QString &inputName, const QVector<float> &input,
                        const QVector<int64_t> &shape, QString *error = nullptr);
+
+    // Same as run(), plus the output tensor's shape so callers can write a grid.
+    OnnxTensor runTensor(const QString &inputName, const QVector<float> &input,
+                         const QVector<int64_t> &shape, QString *error = nullptr);
 
     static QString vendorRuntimeDir();              // vendor/onnxruntime resolved path
     static bool runtimeAvailable();                 // libonnxruntime found in vendor tree

@@ -79,6 +79,26 @@ class IsopachAlgorithm : public QgsProcessingAlgorithm
                                  QgsProcessingFeedback *feedback) override;
 };
 
+// FaciesPolygonize — §36 raster → editable facies polygons.
+// Recode → drop sub-threshold parts on the grid → GDALPolygonize → dissolve →
+// GEOS coverage simplify (each shared edge once) → boundary-graph rebuild so
+// both faces reference the same arc → optional constraint conflation.
+// Params: INPUT (raster), MIN_AREA, SIMPLIFY, SNAP_TOLERANCE, ANGLE_TOLERANCE,
+//         CONSTRAINTS (optional lines/polygons/points), OUTPUT (vector).
+class FaciesPolygonizeAlgorithm : public QgsProcessingAlgorithm
+{
+  public:
+    QString name() const override { return QStringLiteral("paleo_facies_polygonize"); }
+    QString displayName() const override { return QStringLiteral("Paleo: Facies polygons"); }
+    QString group() const override { return QStringLiteral("Composition"); }
+    QString groupId() const override { return QStringLiteral("composition"); }
+    QString shortHelpString() const override;
+    FaciesPolygonizeAlgorithm *createInstance() const override { return new FaciesPolygonizeAlgorithm(); }
+    void initAlgorithm(const QVariantMap &configuration = QVariantMap()) override;
+    QVariantMap processAlgorithm(const QVariantMap &parameters, QgsProcessingContext &context,
+                                 QgsProcessingFeedback *feedback) override;
+};
+
 // Production provider — replaces the spikes provider for real algorithms.
 class PaleoProvider : public QgsProcessingProvider
 {

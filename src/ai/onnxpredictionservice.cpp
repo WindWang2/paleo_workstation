@@ -6,6 +6,7 @@
 #include <QFileInfo>
 
 #include <cstring>
+#include <vector>
 
 #include <onnxruntime_cxx_api.h>
 
@@ -118,7 +119,13 @@ QString PaleoOnnxService::loadedModel() const
 QVector<float> PaleoOnnxService::run( const QString &inputName, const QVector<float> &input,
                                       const QVector<int64_t> &shape, QString *error )
 {
-  const auto fail = [this, error]( const QString &msg ) -> QVector<float> {
+  return runTensor( inputName, input, shape, error ).values;
+}
+
+OnnxTensor PaleoOnnxService::runTensor( const QString &inputName, const QVector<float> &input,
+                                        const QVector<int64_t> &shape, QString *error )
+{
+  const auto fail = [this, error]( const QString &msg ) -> OnnxTensor {
     if ( error )
       *error = msg;
     emit inferenceFailed( m_loaded, msg );
@@ -157,8 +164,13 @@ QVector<float> PaleoOnnxService::run( const QString &inputName, const QVector<fl
       return fail( tr( "Output tensor is not float32" ) );
     const size_t n = info.GetElementCount();
     const float *data = outputs[0].GetTensorData<float>();
-    QVector<float> result( static_cast<qsizetype>( n ) );
-    std::memcpy( result.data(), data, n * sizeof( float ) );
+    OnnxTensor result;
+    result.values.resize( static_cast<qsizetype>( n ) );
+    std::memcpy( result.values.data(), data, n * sizeof( float ) );
+    const std::vector<int64_t> dims = info.GetShape();
+    result.shape.reserve( static_cast<qsizetype>( dims.size() ) );
+    for ( int64_t d : dims )
+      result.shape.append( d );
     return result;
   }
   catch ( const Ort::Exception &e )

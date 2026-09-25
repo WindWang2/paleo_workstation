@@ -8,8 +8,11 @@
 #include "../linkage/selectioncontext.h"
 #include "../workflow/workflows.h"
 #include "../io/dataimportservice.h"
+#include "../linkage/seismicmaplink.h"
 #include "pages/pagepanels.h"
 #include "constraintdrawcontroller.h"
+#include "correlationpanel.h"
+#include "seismicpreviewpanel.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
@@ -366,7 +369,7 @@ void PaleoMainWindow::onProjectOpened()
 
 void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                                       CompositionWorkflow *compose, ValidationWorkflow *validate,
-                                      DataImportService *importSvc)
+                                      DataImportService *importSvc, SeismicMapLink *seismicLink)
 {
   auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost"));
   auto *stack = host ? static_cast<QStackedLayout *>(host->layout()) : nullptr;
@@ -393,6 +396,25 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   stack->addWidget(composePage);
   stack->addWidget(validatePage);
 
+  // 地震预览 + 连井剖面 — bottom-dock tabs fed by the import pipeline.
+  SeismicPreviewPanel *seismicPanel = nullptr;
+  WellCorrelationPanel *corrPanel = nullptr;
+  if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
+  {
+    if (seismicLink)
+    {
+      seismicPanel = new SeismicPreviewPanel(seismicLink, bottomTabs);
+      seismicPanel->setObjectName(QStringLiteral("seismicPreviewPanel"));
+      bottomTabs->addTab(seismicPanel, QStringLiteral("地震"));
+    }
+    if (m_selection)
+    {
+      corrPanel = new WellCorrelationPanel(m_selection, bottomTabs);
+      corrPanel->setObjectName(QStringLiteral("correlationPanel"));
+      bottomTabs->addTab(corrPanel, QStringLiteral("连井剖面"));
+    }
+  }
+
   // Panel intents → workflows / selection. Params stay minimal for the shell
   // milestone — full parameter dialogs are per-panel follow-up work.
   if (importSvc && dataPage)
@@ -410,6 +432,19 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
               if (assetId.isEmpty())
                 QgsMessageLog::logMessage(tr("Import failed: %1").arg(err),
                                         QStringLiteral("Paleo"), Qgis::Critical);
+            });
+    // Imported assets feed the bottom-dock panels.
+    connect(importSvc, &DataImportService::imported, this,
+            [importSvc, seismicPanel, corrPanel](const QString &kind, const QString &assetId, const QString &) {
+              if (seismicPanel && kind == QLatin1String("seismic"))
+                seismicPanel->addSeismicAsset(assetId, importSvc->assetSource(assetId));
+              if (corrPanel && kind == QLatin1String("wells"))
+              {
+                QList<QPair<QString, QString>> wells;
+                for (const QString &id : importSvc->assets(QStringLiteral("wells")))
+                  wells.append({id, importSvc->assetSource(id)});
+                corrPanel->setWells(wells);
+              }
             });
 
   if (pred && predictPage)

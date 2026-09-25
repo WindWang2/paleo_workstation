@@ -61,6 +61,7 @@ add_library(paleo_core STATIC
   src/io/dataimportservice.cpp
   src/io/lasparser.cpp
   src/ui/constraintdrawcontroller.cpp
+  src/ui/seismicpreviewpanel.cpp
 )
 target_link_libraries(paleo_core PUBLIC paleo_qgis_iface ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
@@ -112,6 +113,8 @@ add_paleo_test(tst_decorations)
 add_paleo_test(tst_manifestproj)
 add_paleo_test(tst_import)
 add_paleo_test(tst_drawctl)
+add_paleo_test(tst_seismicpanel)
+add_paleo_test(tst_procdialog)
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx)
   set_tests_properties(tst_onnx PROPERTIES ENVIRONMENT

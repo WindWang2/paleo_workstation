@@ -13,6 +13,7 @@ class QgisEditingService;
 class QgisStyleService;
 class ToolAvailabilityService;
 class SelectionContext;
+class SeismicMapLink;
 class PaleoProjectStore;
 class LayerManifest;
 class DataImportService;
@@ -37,6 +38,7 @@ class AppContext : public QObject
     QgisStyleService *styleSvc() const { return m_styleSvc; }
     ToolAvailabilityService *toolSvc() const { return m_toolSvc; }
     SelectionContext *selection() const { return m_selection; }
+    SeismicMapLink *seismicLink() const { return m_seismicLink; }
     PaleoProjectStore *store() const { return m_store; }
     LayerManifest *manifest() const { return m_manifest; }
     DataImportService *importSvc() const { return m_import; }
@@ -55,6 +57,7 @@ class AppContext : public QObject
     QgisStyleService *m_styleSvc = nullptr;
     ToolAvailabilityService *m_toolSvc = nullptr;
     SelectionContext *m_selection = nullptr;
+    SeismicMapLink *m_seismicLink = nullptr;
     PaleoProjectStore *m_store = nullptr;
     LayerManifest *m_manifest = nullptr;
     DataImportService *m_import = nullptr;

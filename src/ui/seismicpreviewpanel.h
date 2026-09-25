@@ -1,0 +1,76 @@
+#pragma once
+#include <QPair>
+#include <QString>
+#include <QStringList>
+#include <QVector>
+#include <QWidget>
+
+// ui/ — SeismicPreviewPanel: 地震剖面预览 (seismic section preview) scaffold.
+//
+// The data page's linked sub-panel (§42.x): a seismic-line list on the left,
+// a QGraphicsView stub on the right rendering a baseline profile + CDP tick
+// marks + the line label for the selected asset. Real trace rendering is a
+// later milestone — until then the scene is a visible placeholder, never
+// blank (§42.4: the empty state is a guidance label over the preview).
+//
+// Selection contract (§41.3): SeismicMapLink owns no public selection API —
+// its entry point for foreign picks is the private onContextSelection()
+// slot fed by the SelectionContext it was constructed with (direction B).
+// The panel therefore behaves like every other producer: it broadcasts line
+// picks on that context under origin "seismicpanel", and skips broadcasts
+// carrying its own origin when they come back around (the WellCorrelationPanel
+// echo-guard pattern). The context is resolved from the link by, in order:
+//   1. dynamic property "paleo.seismic.ctx" (QObject*) on the link — the
+//      documented binding, same idiom as pagepanels' kLayersProp;
+//   2. a SelectionContext that is the link's parent;
+//   3. a SelectionContext child of the link, or found under the link's parent.
+// When no context is reachable the panel still emits seismicSelected and
+// invokes the link's onContextSelection slot directly, so the layer pick
+// lands even in degraded wiring.
+// Pure Qt Widgets: no Qgs* types appear in the public API (§25).
+
+class SeismicMapLink;
+class SelectionContext;
+class QGraphicsScene;
+class QGraphicsView;
+class QLabel;
+class QListWidget;
+class QListWidgetItem;
+
+class SeismicPreviewPanel : public QWidget
+{
+  Q_OBJECT
+  public:
+    explicit SeismicPreviewPanel(SeismicMapLink *link, QWidget *parent = nullptr);
+
+    // (id, label) pairs in list order; replaces the list wholesale.
+    void setSeismicAssets(const QVector<QPair<QString, QString>> &assets);
+    void addSeismicAsset(const QString &id, const QString &label);
+
+    int assetCount() const { return static_cast<int>(m_assets.size()); }
+    QString currentAsset() const { return m_currentId; } // previewed line id
+
+  signals:
+    void seismicSelected(const QString &assetId);
+
+  protected slots:
+    // Re-renders the preview scene for a line id (empty → idle scaffold).
+    void updatePreview(const QString &assetId);
+
+  private:
+    SelectionContext *context();                  // lazy resolve + connect
+    void rebuildList();
+    void onListSelection(QListWidgetItem *current);
+    void applyExternalSelection(const QStringList &ids);
+    bool hasAsset(const QString &id) const;
+    QString assetLabel(const QString &id) const;  // "" when id unknown
+
+    SeismicMapLink *m_link = nullptr;
+    SelectionContext *m_ctx = nullptr;
+    QVector<QPair<QString, QString>> m_assets;    // (id, label), list order
+    QString m_currentId;
+    QListWidget *m_list = nullptr;
+    QGraphicsView *m_view = nullptr;
+    QGraphicsScene *m_scene = nullptr;
+    QLabel *m_emptyLabel = nullptr;
+};

@@ -15,6 +15,7 @@ class ConstraintWorkflow;
 class CompositionWorkflow;
 class ValidationWorkflow;
 class DataImportService;
+class SeismicMapLink;
 
 // ui/ — PaleoMainWindow: the five-page workflow shell (§42).
 // Anatomy: left = layer tree dock; center = canvas (+ startup page stacked under);
@@ -41,7 +42,8 @@ class PaleoMainWindow : public QMainWindow
     // bound to the workflow orchestrators. Call after AppContext assembly.
     void attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                          CompositionWorkflow *compose, ValidationWorkflow *validate,
-                         DataImportService *importSvc = nullptr);
+                         DataImportService *importSvc = nullptr,
+                         SeismicMapLink *seismicLink = nullptr);
 
   private:
     void buildShell();

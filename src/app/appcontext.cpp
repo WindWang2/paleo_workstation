@@ -9,6 +9,7 @@
 #include "../qgis/qgisstyleservice.h"
 #include "../services/toolavailability.h"
 #include "../linkage/selectioncontext.h"
+#include "../linkage/seismicmaplink.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../metadata/layermanifest.h"
 #include "../io/dataimportservice.h"
@@ -94,6 +95,14 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_styleSvc = new QgisStyleService(this);
   m_toolSvc = new ToolAvailabilityService(m_store, this);
   m_selection = new SelectionContext(this);
+
+  // 地震—地图联动: binds the selection context to the canvas. Forcing canvas()
+  // here materializes the widget early; the main window reparents it into the
+  // center stack. The dynamic property publishes the context so UI panels
+  // (SeismicPreviewPanel) can resolve it without a ctx getter on the link.
+  m_seismicLink = new SeismicMapLink(m_canvasCtl->canvas(), m_selection, this);
+  m_seismicLink->setProperty("paleo.seismic.ctx",
+                             QVariant::fromValue<QObject *>(m_selection));
 
   // Workflow orchestrators — thin bindings over the services above.
   m_predictionWf = new PredictionWorkflow(m_procSvc, m_layerSvc, this);

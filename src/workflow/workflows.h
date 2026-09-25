@@ -1,0 +1,67 @@
+#pragma once
+#include <QObject>
+#include <QString>
+#include <QStringList>
+#include <QVariantMap>
+#include "../domain/types.h"
+
+class QgisProcessingService;
+class QgisLayerService;
+class SelectionContext;
+class PaleoProjectStore;
+struct ValidationIssue;
+
+// workflow/ — thin orchestrators binding UI actions to services/algorithms.
+// They never touch Qgs* directly beyond type names; heavy work runs via
+// QgisProcessingService (temp-then-merge) and layer declaration via
+// QgisLayerService.
+
+// ①智能预测 — run a prediction algorithm for a horizon, declare result layer.
+class PredictionWorkflow : public QObject
+{
+  Q_OBJECT
+  public:
+    explicit PredictionWorkflow(QgisProcessingService *proc, QgisLayerService *layers, QObject *parent = nullptr);
+    bool runPrediction(const QString &horizon, const QString &algorithmId, const QVariantMap &params, QString *error = nullptr);
+  signals:
+    void predictionDone(const QString &horizon, const QString &resultLayerId);
+    void predictionFailed(const QString &horizon, const QString &error);
+};
+
+// ②约束与单因素 — ingest drawn constraint geometries + run ConstraintIDW.
+class ConstraintWorkflow : public QObject
+{
+  Q_OBJECT
+  public:
+    explicit ConstraintWorkflow(QgisProcessingService *proc, QgisLayerService *layers, QObject *parent = nullptr);
+    bool addConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode, QString *error = nullptr);
+    bool runConstraintIDW(const QString &horizon, const QString &pointsLayerId, const QString &field,
+                          double cellSize, QString *error = nullptr);
+  signals:
+    void constraintAdded(const QString &constraintId);
+    void factorDone(const QString &horizon, const QString &resultLayerId);
+};
+
+// ③综合编图 — fuse declared single-factor rasters into composite facies layer.
+class CompositionWorkflow : public QObject
+{
+  Q_OBJECT
+  public:
+    explicit CompositionWorkflow(QgisProcessingService *proc, QgisLayerService *layers, QObject *parent = nullptr);
+    bool fuseFactors(const QString &horizon, const QStringList &factorLayerIds, QString *error = nullptr);
+  signals:
+    void compositionDone(const QString &horizon, const QString &resultLayerId);
+};
+
+// ④验证 — run cross-horizon validation rules; instantiate layers on demand.
+class ValidationWorkflow : public QObject
+{
+  Q_OBJECT
+  public:
+    explicit ValidationWorkflow(QgisLayerService *layers, PaleoProjectStore *store, QObject *parent = nullptr);
+    // Checks: duplicate horizon names, declared-layer source missing on disk,
+    // busy-layer conflicts. Returns issue list (may be empty = clean).
+    QList<ValidationIssue> validate();
+  signals:
+    void validationDone(int issueCount);
+};

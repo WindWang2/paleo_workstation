@@ -46,6 +46,9 @@ add_library(paleo_core STATIC
   src/linkage/selectioncontext.cpp
   src/linkage/wellmaplink.cpp
   src/algorithms/paleoalgorithms.cpp
+  src/workflow/workflows.cpp
+  src/ui/paleomainwindow.cpp
+  src/app/appcontext.cpp
 )
 target_link_libraries(paleo_core PUBLIC paleo_qgis_iface ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
@@ -68,6 +71,12 @@ add_paleo_test(tst_domain)
 add_paleo_test(tst_linkage)
 add_paleo_test(tst_algorithms)
 add_paleo_test(tst_services2)
+add_paleo_test(tst_workflows)
+add_paleo_test(tst_ui)
+
+# ---- application ----
+add_executable(paleo src/app/main.cpp)
+target_link_libraries(paleo PRIVATE paleo_core)
 
 add_executable(tst_boot tests/tst_boot.cpp)
 target_link_libraries(tst_boot PRIVATE paleo_qgis_iface Qt6::Test)

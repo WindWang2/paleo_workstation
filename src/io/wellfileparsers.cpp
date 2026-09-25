@@ -28,10 +28,20 @@ namespace
   }
 } // namespace
 
+// plan §3：井口文件带 UTF-8 BOM；U+FEFF 不是空白，trimmed() 去不掉。
+// 若首行是表头/数据行，BOM 会粘上第一个 token（井名失配），统一先剥。
+static QString withoutBom(const QByteArray &text)
+{
+  QString s = QString::fromUtf8(text);
+  if (s.startsWith(u'\uFEFF'))
+    s.remove(0, 1);
+  return s;
+}
+
 QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text)
 {
   QVector<WellHeadRecord> rows;
-  const QString data = QString::fromUtf8(text);
+  const QString data = withoutBom(text);
   for (const QString &rawLine : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
                                             Qt::SkipEmptyParts))
   {
@@ -59,7 +69,7 @@ QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text)
 QVector<WellTopRecord> parseWellTopsText(const QByteArray &text)
 {
   QVector<WellTopRecord> tops;
-  const QString data = QString::fromUtf8(text);
+  const QString data = withoutBom(text);
   for (const QString &rawLine : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
                                             Qt::SkipEmptyParts))
   {
@@ -96,7 +106,7 @@ QVector<WellTopRecord> parseWellTopsText(const QByteArray &text)
 TimeDepthTable parseTimeDepthText(const QByteArray &text)
 {
   TimeDepthTable table;
-  const QString data = QString::fromUtf8(text);
+  const QString data = withoutBom(text);
   for (const QString &rawLine : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
                                             Qt::SkipEmptyParts))
   {

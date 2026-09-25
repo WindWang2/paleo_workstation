@@ -20,6 +20,7 @@ private slots:
   void parsesWellHead();
   void parsesWellTops();
   void parsesTimeDepth();
+  void bomOnFirstDataLineIsStripped();
   void readsLasWellInfo();
 
 private:
@@ -150,6 +151,29 @@ void TestProjectParsers::parsesTimeDepth()
   QCOMPARE(td.rows.front().timeMs, 380.0);
   QVERIFY(td.rows.front().tvd > 0);
   QVERIFY(td.rows.front().md > 0);
+}
+
+void TestProjectParsers::bomOnFirstDataLineIsStripped()
+{
+  // plan §3：BOM 若粘在首行数据/表头的第一个 token 上，井名会失配——
+  // 三个解析入口都必须先剥 U+FEFF（trimmed() 不去它）。
+  QByteArray bombed = QByteArray::fromHex("efbbbf") +
+                      QByteArrayLiteral("A9 1000.0 2000.0 5.0 1500.0\n");
+  const QVector<WellHeadRecord> rows = parseWellHeadText(bombed);
+  QCOMPARE(rows.size(), 1);
+  QCOMPARE(rows.first().name, QStringLiteral("A9"));
+
+  const QVector<WellTopRecord> tops = parseWellTopsText(
+      QByteArray::fromHex("efbbbf") +
+      QByteArrayLiteral("A9 D61 1800.5\n"));
+  QCOMPARE(tops.size(), 1);
+  QCOMPARE(tops.first().wellName, QStringLiteral("A9"));
+
+  const TimeDepthTable td = parseTimeDepthText(
+      QByteArray::fromHex("efbbbf") +
+      QByteArrayLiteral("400.0 500.0 510.0 600.0\n"));
+  QCOMPARE(td.rows.size(), 1);
+  QCOMPARE(td.rows.first().timeMs, 400.0);
 }
 
 void TestProjectParsers::readsLasWellInfo()

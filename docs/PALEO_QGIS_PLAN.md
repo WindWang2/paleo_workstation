@@ -1203,15 +1203,16 @@ Paleo Workbench 专注：
    - 影响：构建系统需提供 vendored 工具链产物；QGIS prefix path、provider 路径、proj db 路径全部指向 vendor 目录内相对路径。
 3. **许可证不构成约束。** 产品本身遵循 GPL，与 vendored QGIS（GPLv2+）兼容；无需商业许可隔离设计，但仍在 vendor manifest 中登记各库许可证备查。
 
-## 33. 自动化测试策略（评审新增）
+## 33. 自动化测试策略（评审新增；工程评审 D6 补框架）
 
-§30 的验收场景为手工端到端流程，不足以保护集成层。新增测试策略：
+§30 的验收场景为手工端到端流程，不足以保护集成层。**测试框架 = Qt Test (QTest) + CTest**（随 vendored Qt 零新增依赖；QSignalSpy 覆盖信号断言；QGIS 自身 C++ 测试同框架）。新增测试策略：
 
 - **集成层单元测试**：`QgisProjectService` / `QgisLayerService` 等 service 的契约测试——图层增删、透明度、顺序、CRS 变更后 `QgsProject` 状态与 UI 一致（对应 §5 的五类历史 bug，每类一个回归测试）。
 - **算法测试**：Paleo 约束插值、相融合等 `QgsProcessingAlgorithm` 走 QGIS 算法测试模式（固定输入 fixture → 断言输出 raster/vector 的统计量与空间范围）。
 - **渲染回归**：相图样式（`.qml`）、Layout 模板输出做 render-comparison 测试（参考 QGIS 自身的 `QgsRenderChecker` 思路），防止 vendor 升级后出图漂移。
 - **拓扑正确性**：相界编辑后的公共边界一致性测试——移动共享顶点，断言两侧 polygon 几何保持重合。
 - **Golden fixture 工区**：一个小型 project_area（含井、震、分层）作为所有测试与 §30 冒烟验收的固定输入。
+- **脊线专项（工程评审）**：① 懒加载 save/restore 往返测试——声明清单→保存→重开→占位节点完整、按需实例化正确；② gpkg 写串行化并发测试——后台任务写 + 编辑提交并发触发，断言无 SQLITE_BUSY、结果完整；③ vendor boot 测试走 CI headless（offscreen）。
 - **Vendor 升级门禁**：升级 QGIS vendor 版本时，以上测试套件全量运行；`QgisCompatibility` 层的 API 适配改动必须伴随测试通过。
 
 ## 34. 统一 Undo / 编辑会话模型（评审新增）
@@ -1231,6 +1232,7 @@ Paleo Workbench 专注：
 - **每个被禁用的工具必须能解释原因**：tooltip/状态提示说明"为什么不可用 + 需要什么条件"（如"选择层位后可运行预测"）。禁用但无解释的按钮会被用户当成 bug。
 - **硬门控只用于真前置条件**（无层位 → 无法预测；无数据 → 无法插值）。非硬性的工作流建议用**警示**而非禁用（如"未做井验证仍可导出，但导出记录标记未验证"）。
 - `ToolAvailabilityService` 除可用性外返回 `reason` 字符串，UI 统一渲染。
+- **按图层任务锁（工程评审 D8）**：服务维护 per-layer busy map（task → 写入图层集）；编辑工具对忙图层返回 reason "图层正被任务 N 写入"。任务须在注册时声明写出图层集——替代全局"有任务则禁编辑"的粗粒度门控。
 
 ## 36. 沉积相 Raster→Vector 派生管线（评审新增，D9；E5 修订为边界图方案）
 
@@ -1260,11 +1262,13 @@ Facies Polygon Layer (可编辑)
 - 每步参数进 provenance（阈值、容差、输入版本）。
 - 步骤 7 的 conflation 是定制算法（边界弧的部分几何替换），属护城河组件，见 §40。
 
-## 37. 按层位懒加载（评审新增，D10）
+## 37. 按层位懒加载（评审新增，D10；工程评审 D4/D10 修订）
 
 - 一个工区一个 `.qgz` 不变；但**只有当前活动层位组的图层实例化**，其他层位在 Layer Tree 中显示为占位节点，切换时按需加载。
+- **声明式清单机制（D4）**：Paleo metadata 持有全量图层声明（id/层位/类型/数据源/样式引用）；`Paleo LayerTree Adapter` 把声明投影进 Layer Tree；**保存时 .qgz 由声明集写出，而非实例化集**——未实例化图层序列化为占位引用，下次打开按需解析。manifest 同时供资源树使用。这是脊线设计决策：lazy instantiation 永远不可能丢层。
 - `Paleo LayerTree Adapter` 的契约从第一天按懒加载设计：layer 节点 ≠ 已实例化 `QgsMapLayer`。
-- 内存/打开时间目标随层位数线性而非随总图层数线性。
+- **跨层位验证（D10）**：验证任务读声明清单，按层位 instantiate-on-demand、用后释放；实例化图层进入 §35 per-layer busy map，验证写操作走 §41 序列化写队列——懒加载不变式在验证路径上同样成立。
+- 内存/打开时间目标随层位数线性而非随总图层数线性（量化预算见 §41.6）。
 
 ## 38. 诊断与可观测性（评审新增，D11；同时关闭 Section 2 的 error-surface 关键缺口）
 
@@ -1279,13 +1283,14 @@ Facies Polygon Layer (可编辑)
 
 **Embed vs Plugin 决策（E2 已定）**：维持 embed 架构（qgis_core/gui/analysis 嵌入自有 Qt6 shell），不采用"完整 QGIS + C++ 插件"路线——理由：五页工作流 UX 无法在 QGIS dock 外壳中成立，差异化在地质语义不在编辑器复用。代价已确认：`src/app` 层功能（高级数字化面板、顶点编辑器、形状数字化工具、布局设计器 chrome、Processing 对话框）需自研。
 
-**Phase 0 — go/no-go 两个 spike（E3 已定，先于 P0）**：
-1. **Vendor boot spike**：vendored QGIS 在进程内启动——`QgsApplication` 初始化、provider/proj.db/srs.db/GDAL_DATA 路径解析、`QgsMapCanvas` 渲染一个 GPKG 图层，跑通目标平台矩阵。产出：vendor superbuild 骨架（ExternalProject/构建 flags/依赖清单）、启动自检（§38 错误呈现契约的第一实例）。
+**Phase 0 — go/no-go 三个 spike（E3 已定 + 工程评审 D3/D7 修订，先于 P0）**：
+1. **Vendor boot spike**：vendored QGIS 在进程内启动。**验收标准（二值判定）**：目标平台矩阵 = Linux x86_64 + Windows x86_64（最低集）；通过 = `QgsApplication` 初始化返回 + provider registry 非空 + `srs.db`/`proj.db`/`GDAL_DATA` 解析成功 + `QgsMapCanvas` 渲染一个 GPKG 图层且输出像素非纯色 + 无阻塞对话框。产出：vendor superbuild 骨架（ExternalProject/构建 flags/依赖清单）、**初始化顺序文档**（env vars → prefixPath → QgsApplication 构造次序，即 P0 boot 规范）、启动自检（§38 第一实例）、CI headless 模式（`QT_QPA_PLATFORM=offscreen`）。
 2. **算法封装 spike**：一个 `QgsProcessingAlgorithm` 子类封装 `GDALPolygonize` 跑通——证明 C++-only 算法路径成立。
+3. **AI 运行时 mini-spike（工程评审 D7 新增）**：候选运行时（默认 ONNX Runtime）编入 vendor 树，进程内跑一个 toy 模型——使 §40 "运行时由 Phase 0 钉定"成为实证而非假设。
 
-两个 spike 任一失败 → 架构层重新评估，不进入 P0。
+三个 spike 任一失败 → 架构层重新评估，不进入 P0。
 
-**QGIS 版本钉（E4 已定）**：QGIS 4.x + Qt6，4.2 LTR 发布后切到 LTR 跟踪。已知风险记录在案：4.x 为 pre-LTR 主版本，API churn 由 §27 兼容层吸收，vendor 升级纪律强制（§33 vendor gate）。
+**QGIS 版本钉（E4 + 工程评审事实修正）**：QGIS 4.2 LTR 已发布（4.2.0, 2026-07-03；当前 4.2.2）——**钉死 4.2.x LTR**，不再是"发布后切换"的预期姿态；原"pre-LTR churn 风险"缓解为正常的 LTR 点升级跟踪。API 适配仍走 §27 兼容层，vendor 升级纪律不变（§33 vendor gate）。
 
 **Vendor 依赖清单（评审补全）**：除 QGIS/GDAL/PROJ/GEOS/Qt 外，实际牵连 QCA、QtKeychain、libspatialindex、exiv2、libzip（.qgz 是 zip）、libxml2、sqlite3/spatialite，及运行时数据文件（proj.db、GDAL data、srs.db、SVG symbols、Qt platform/imageformat 插件）。裁剪开关（WITH_3D/WITH_MESH/WITH_PDAL 等）在 Phase 0 决定。Qt 为 LGPL：**必须动态链接或提供可重链目标文件**——写入 vendor manifest 一条即可满足。
 
@@ -1304,11 +1309,11 @@ Facies Polygon Layer (可编辑)
 ## 41. 正确性规则补充（外部评审新增，E8 批量）
 
 1. **Raw 不可变强制执行**：导入层加载即 `setReadOnly(true)` + 编辑工具门控双重保护，不只是文档约定。
-2. **project.gpkg 写策略**：启用 WAL；写操作走单一写入器串行化（后台 QgsTask 与编辑提交不得并发写同一 gpkg，防 SQLITE_BUSY）；每次写前保留上一次备份副本。
+2. **project.gpkg/.qgz 写契约**（工程评审 D5 细化）：启用 WAL；**`PaleoProjectStore` 为唯一写汇聚点**——所有 gpkg 写（QgsTask 输出、编辑提交、metadata 写）进入其串行写队列；写次序 = gpkg commit → .qgz 备份 → .qgz 原子写（临时文件+rename）。.qgz 写失败不破坏 gpkg 权威数据态（显示态可再生）；.qgz 同样受备份保护（zip 中途损坏即工程文件损坏）。
 3. **SelectionContext 防抖**：广播链（map→well→seismic→map）设 re-entrancy 守卫 + 去抖，禁止 ping-pong 选择风暴。
 4. **facies_boundaries 派生规则**：boundary 表永远由 facies_polygons 派生（单一几何事实源），禁止双写漂移；boundary 类型语义沿用 TODOS P2。
 5. **reason 字符串 i18n**：服务层可解释性字符串从第一天走 Qt 翻译机制（tr()/qsTr()），不写死中文。
-6. **最小 NFR**：工区规模假设（井数 ~10²、层位 ~10¹、栅格 ~10⁷ cell/层）、画布刷新预算（交互操作 <100ms、整图重渲 <2s）、工程打开时间预算——§37 懒加载目标以此可验证。
+6. **最小 NFR**（工程评审 D9 量化）：工区规模假设（井数 ~10²、层位 ~10¹、栅格 ~10⁷ cell/层）、画布刷新预算（交互操作 <100ms、整图重渲 <2s）。**补充**：>50MB 派生栅格写出时必须建 GDAL overviews（GDALAddo）；工程打开 ≤10s（10 层位 golden fixture）；`PaleoTaskManager` 并发重任务上限 `max(2, cores/4)`；派生栅格默认 cell size = 工区范围/2048（可按图层覆盖）。数字在 Phase 0 实测后可校准。
 7. **保存/发布语义**（工程评审任务）：`保存版本`（gpkg 提交+版本记录）、`发布`（导出 result/ 快照）、`Published` 状态三者关系及"发布后能否再编辑"需在工程评审定义状态机。
 
 ## 42. UX 与交互规范（设计评审新增，D2–D14；视觉 tokens 以 DESIGN.md 为准）
@@ -1336,6 +1341,19 @@ Facies Polygon Layer (可编辑)
 14. 应用级"减少动画"设置（Qt 无 OS 级 prefers-reduced-motion）：开启后 §1.1 动画全部替换为即时切换。
 15. 快捷键表：Ctrl+K 定位器、各页 F1–F5 直达、Esc 取消当前 MapTool；完整表随工程评审定稿。
 16. **对比度**：`text-muted` 已调整为 `#5D6E80`（在 surface 与 surface-alt 上均 ≥4.5:1）；语义色永远与文本/图标配对，不做唯一状态载体。
+
+## 43. 工程评审任务清单（/plan-eng-review 2026-09-25，Phase 0 + P0 脊线）
+
+- [ ] **ET1 (P1)** — vendor superbuild：ExternalProject 骨架 + 依赖清单 + 裁剪开关；产出可复现 vendor 树。（验证：两平台构建通过）
+- [ ] **ET2 (P1)** — Vendor boot spike：按 §39 二值验收跑通 Linux+Windows；交付 init 顺序文档与启动自检。（验证：canvas 渲染非纯色像素断言，offscreen CI）
+- [ ] **ET3 (P1)** — GDALPolygonize `QgsProcessingAlgorithm` 封装 spike。（验证：算法注册表可见 + 小栅格 polygonize 输出）
+- [ ] **ET4 (P1)** — AI 运行时 mini-spike：ONNX Runtime 入 vendor 树 + toy .onnx 进程内推理。（验证：推理返回确定输出）
+- [ ] **ET5 (P1)** — 脊线四服务：QgisRuntime / QgisProjectService / QgisLayerService / QgisCanvasController + PaleoProjectStore 写队列（§41.2）。（验证：§33 脊线测试）
+- [ ] **ET6 (P1)** — 声明式图层清单 + LayerTree Adapter 占位投影 + save/restore 往返（§37）。（验证：往返测试）
+- [ ] **ET7 (P1)** — ToolAvailabilityService per-layer busy map（§35）+ §42.2 每页面板清单表。
+- [ ] **ET8 (P2)** — QTest+CTest harness 骨架 + golden fixture 工区 + 5 类历史 bug 回归测试（§33.1）。
+- [ ] **ET9 (P2)** — app-only 功能审计表（qgis_gui vs src/app：布局设计器/顶点编辑/数字化面板/画布装饰逐项标注）。
+- [ ] **ET10 (P2)** — 性能用例：overviews 构建、打开预算、并发上限（§41.6 数字）。
 
 ## NOT in scope（本次评审决议）
 
@@ -1383,6 +1401,17 @@ Facies Polygon Layer (可编辑)
 | DR12 | 编图 composer | 嵌完整 QgsLayout 设计器（app-only 成本注记） → §42.8 | 用户选择 A |
 | DR13 | 层位 chip 溢出 | 滚动+溢出弹层 → §42.9 | 用户选择 A |
 | DR14 | Undo 可见性 | 会话级撤销+历史面板 → §42.10 | 用户选择 A |
+| ER1 | 工程评审单元 | Phase 0 + P0 脊线深审；P1/P2 契约级 | 用户选择 A |
+| ER2 | qgis/ 层结构 | 4 服务脊线+具名 stub，非 14 服务齐建 | 用户选择 B |
+| ER3 | Phase 0 spike 验收 | 二值判定标准 + init 顺序文档 + 平台矩阵 → §39 | 用户选择 A |
+| ER4 | 懒加载↔qgz 机制 | 声明式清单为事实源 → §37 | 用户选择 A |
+| ER5 | 写路径 | PaleoProjectStore 串行队列 + gpkg→qgz 次序 → §41.2 | 用户选择 A |
+| ER6 | C++ 测试框架 | QTest+CTest → §33 | 用户选择 A |
+| ER7 | AI 运行时 | Phase 0 第三 mini-spike → §39 | 用户选择 A |
+| ER8 | 按图层任务锁 | per-layer busy map → §35 | 用户选择 A |
+| ER9 | NFR 量化 | overviews/打开预算/并发上限/cell size → §41.6 | 用户选择 A |
+| ER10 | 跨层位验证 | instantiate-on-demand → §37 | 用户选择 A |
+| ER11 | QGIS 4.2 LTR 已发布 | 事实修正 → §39（钉 4.2.x） | 证据：version.qgis.org |
 
 ## 外部评审说明
 
@@ -1394,11 +1423,11 @@ Codex 外部评审因网络故障超时（5 分钟上限，websocket TLS 失败�
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | clean | SELECTIVE EXPANSION；D1–D11+E1–E8 全裁定；§33–41 采纳；Phase 0 spikes 为 P0 前置门 |
 | Outside Review | codex via `/plan-ceo-review` | Independent 2nd opinion | 1 | unavailable | Codex 网络超时；native fallback completed（meta-finding+9 组发现已裁定），不计外部覆盖 |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | — | 待运行 |
-| Design Review | `/plan-design-review` | UI/UX gaps | 1 | issues_open→resolved | 6/10 → 9/10；13 项决策采纳 → §42 + DESIGN.md tokens |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | issues_open→resolved | Phase0+P0 脊线评审；8 发现全部采纳 → §33/35/37/39/41；QGIS 4.2 LTR 事实修正 |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | clean | 6/10 → 9/10；13 项决策采纳 → §42 + DESIGN.md tokens |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | 待运行 |
 
-- **OUTSIDE COVERAGE:** codex（plan phase）= unavailable（TLS/超时）；claude-code（design phase）= skipped（用户 D6 选择跳过）。无完成的外部评审记录。
-- **VERDICT:** CEO CLEARED + DESIGN CLEARED（9/10，0 未决）。Eng review required —— Phase 0 双 spike（vendor boot + GDALPolygonize 封装）为 P0 前置 go/no-go 门。
+- **OUTSIDE COVERAGE:** codex（plan phase）= unavailable（TLS/超时）；claude-code（design phase）= skipped；eng-phase outside voice = unavailable（native fallback 300s 限时超时）。无完成的外部评审记录。
+- **VERDICT:** CEO CLEARED + DESIGN CLEARED（9/10）+ ENG REVIEWED（8 发现全采纳，0 未决）。可进入 Phase 0 实现 —— 三 spike（vendor boot / GDALPolygonize 封装 / AI 运行时）为 P0 前置 go/no-go 门。
 
 NO UNRESOLVED DECISIONS

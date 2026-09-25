@@ -251,7 +251,8 @@ private slots:
     QCOMPARE(links.front().role, QStringLiteral("time_depth"));
   }
 
-  // 双候选 → 每候选一条 unresolved 链接，不新建井、不并井。
+  // 双候选 → 一条 unresolved 链接：实体 id 留空、备注写两个规范化井名，
+  // 不新建井、不并井、不再生成 aux-unresolved 辅助实体（§3 修订）。
   void ambiguousWellNameYieldsUnresolvedLinks()
   {
     QTemporaryDir tmp;
@@ -273,16 +274,222 @@ private slots:
     DataCatalog *cat = svc.catalog();
     // 没有新建井
     QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
+    // 旧的 aux-unresolved 兜底已移除
+    QVERIFY(cat->entities(QStringLiteral("auxiliary")).isEmpty());
     const QVector<EntityAssetLink> links = cat->linksForAsset(assetId);
+    QCOMPARE(links.size(), 1);
+    QVERIFY(links.front().unresolved);
+    QVERIFY(links.front().entityId.isEmpty());
+    QCOMPARE(links.front().entityType, QStringLiteral("well"));
+    QCOMPARE(links.front().role, QStringLiteral("well_log"));
+    // 备注记两个规范化井名（附实体 id 消歧）
+    QVERIFY(links.front().note.contains(QStringLiteral("x1")));
+    QVERIFY(links.front().note.contains(QStringLiteral("x2")));
+    QVERIFY(links.front().note.contains(QStringLiteral("well-X1")));
+    QVERIFY(links.front().note.contains(QStringLiteral("well-X2")));
+
+    // 空实体 id + 备注都能过 catalog.json 往返
+    DataCatalog reloaded;
+    QVERIFY(reloaded.open(projectDir));
+    const auto rl = reloaded.linksForAsset(assetId);
+    QCOMPARE(rl.size(), 1);
+    QVERIFY(rl.front().unresolved);
+    QVERIFY(rl.front().entityId.isEmpty());
+    QCOMPARE(rl.front().note, links.front().note);
+  }
+
+  // 零匹配（~W 名与文件名主名都落空）→ 资产保留、一条 unresolved 链接、
+  // 实体 id 留空、备注记未匹配井名；不建井不建 aux（§3 修订）。
+  void unmatchedWellLogLeavesUnresolvedLink()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithSingleWell(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString lasPath = tmp.filePath(QStringLiteral("Ghost.Las"));
+    QVERIFY(writeFile(lasPath, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. Ghost9 : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+
+    QString err;
+    const QString assetId = svc.importProjectFile(lasPath, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+    DataCatalog *cat = svc.catalog();
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 1);     // 只有预置 A1
+    QVERIFY(cat->entities(QStringLiteral("auxiliary")).isEmpty()); // 无 aux-unresolved
+    const auto links = cat->linksForAsset(assetId);
+    QCOMPARE(links.size(), 1);
+    QVERIFY(links.front().unresolved);
+    QVERIFY(links.front().entityId.isEmpty());
+    QCOMPARE(links.front().entityType, QStringLiteral("well"));
+    QVERIFY(links.front().note.contains(QStringLiteral("ghost9"))); // ~W 名
+    QVERIFY(links.front().note.contains(QStringLiteral("ghost")));  // 文件名主名
+
+    DataCatalog reloaded;
+    QVERIFY(reloaded.open(projectDir));
+    const auto rl = reloaded.linksForAsset(assetId);
+    QCOMPARE(rl.size(), 1);
+    QVERIFY(rl.front().unresolved);
+    QVERIFY(rl.front().entityId.isEmpty());
+    QCOMPARE(rl.front().note, links.front().note);
+  }
+
+  // 多井分层文件：能解析的井名挂接；未匹配井名也各留一条 unresolved 链接
+  //（实体 id 留空、备注记名），不再静默丢掉或挂 aux（§3 修订）。
+  void topsFileLeavesUnmatchedNamesUnresolved()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithSingleWell(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString dir = tmp.filePath(QString::fromUtf8("井分层"));
+    QVERIFY(QDir().mkpath(dir));
+    const QString topsPath = QDir(dir).filePath(QStringLiteral("tops_mixed.dat"));
+    QVERIFY(writeFile(topsPath, QByteArrayLiteral(
+        "#WellTops File From SMI\n"
+        "#WellName    Name         MD\n"
+        "A1           D61          2148.000\n"
+        "Ghost9       D61          2150.000\n")));
+
+    QString err;
+    const QString assetId = svc.importProjectFile(topsPath, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+    DataCatalog *cat = svc.catalog();
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 1);
+    const auto links = cat->linksForAsset(assetId);
     QCOMPARE(links.size(), 2);
-    QStringList ids;
+    bool sawResolved = false, sawUnresolved = false;
     for (const EntityAssetLink &l : links)
     {
-      QVERIFY(l.unresolved);
-      ids.append(l.entityId);
+      QCOMPARE(l.role, QStringLiteral("tops"));
+      QCOMPARE(l.entityType, QStringLiteral("well"));
+      if (!l.unresolved)
+      {
+        QCOMPARE(l.entityId, QStringLiteral("well-A1"));
+        sawResolved = true;
+      }
+      else
+      {
+        QVERIFY(l.entityId.isEmpty());
+        QVERIFY(l.note.contains(QStringLiteral("ghost9")));
+        sawUnresolved = true;
+      }
     }
-    ids.sort();
-    QCOMPARE(ids, QStringList({QStringLiteral("well-X1"), QStringLiteral("well-X2")}));
+    QVERIFY(sawResolved && sawUnresolved);
+  }
+
+  // 井口行恰好匹配一口已有井 → 挂 well_head，不另建井（§3）。
+  void wellHeadRowMatchingExistingWellDoesNotDuplicate()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithSingleWell(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString dir = tmp.filePath(QString::fromUtf8("井位"));
+    QVERIFY(QDir().mkpath(dir));
+    const QString whPath = QDir(dir).filePath(QStringLiteral("heads.dat"));
+    QVERIFY(writeFile(whPath, QByteArrayLiteral(
+        "#WellHead File From SMI\n"
+        "#Name      X     Y     KB    TotalDepth\n"
+        "A-1        100.0 200.0 0.0   2000.0\n"   // 规范化 a1 → 命中已有 well-A1
+        "B9         300.0 400.0 0.0   2100.0\n"))); // 无匹配 → 新建
+
+    QString err;
+    const QString assetId = svc.importProjectFile(whPath, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+    DataCatalog *cat = svc.catalog();
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2); // A1 + 新建 B9
+    const auto links = cat->linksForAsset(assetId);
+    QCOMPARE(links.size(), 2);
+    QStringList linked;
+    for (const EntityAssetLink &l : links)
+    {
+      QCOMPARE(l.role, QStringLiteral("well_head"));
+      QVERIFY(!l.unresolved);
+      linked.append(l.entityId);
+    }
+    linked.sort();
+    QCOMPARE(linked, QStringList({QStringLiteral("well-A1"), QStringLiteral("well-B9")}));
+    QCOMPARE(cat->entityById(QStringLiteral("well-A1")).name, QStringLiteral("A1"));
+  }
+
+  // 井口文件内同一规范化井名出现两行 → 两行都 unresolved，不建井（§3）。
+  void wellHeadDuplicateNormalizedNameStaysUnresolved()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString dir = tmp.filePath(QString::fromUtf8("井位"));
+    QVERIFY(QDir().mkpath(dir));
+    const QString whPath = QDir(dir).filePath(QStringLiteral("heads.dat"));
+    QVERIFY(writeFile(whPath, QByteArrayLiteral(
+        "#WellHead File From SMI\n"
+        "#Name      X     Y     KB    TotalDepth\n"
+        "X9         100.0 200.0 0.0   2000.0\n"
+        "X-9        110.0 210.0 0.0   2000.0\n"))); // 与 X9 规范化同名
+
+    QString err;
+    const QString assetId = svc.importProjectFile(whPath, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+    DataCatalog *cat = svc.catalog();
+    QVERIFY(cat->entities(QStringLiteral("well")).isEmpty());
+    const auto links = cat->linksForAsset(assetId);
+    QCOMPARE(links.size(), 2);
+    for (const EntityAssetLink &l : links)
+    {
+      QCOMPARE(l.role, QStringLiteral("well_head"));
+      QVERIFY(l.unresolved);
+      QVERIFY(l.entityId.isEmpty());
+      QVERIFY(l.note.contains(QStringLiteral("x9")));
+    }
+  }
+
+  // 井口行同时匹配两口已有井 → 标 unresolved，实体 id 留空，不新建不合并（§3）。
+  void wellHeadRowMatchingTwoWellsStaysUnresolved()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithAliasWells(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString dir = tmp.filePath(QString::fromUtf8("井位"));
+    QVERIFY(QDir().mkpath(dir));
+    const QString whPath = QDir(dir).filePath(QStringLiteral("heads.dat"));
+    QVERIFY(writeFile(whPath, QByteArrayLiteral(
+        "#WellHead File From SMI\n"
+        "#Name      X     Y     KB    TotalDepth\n"
+        "dup        100.0 200.0 0.0   2000.0\n")));
+
+    QString err;
+    const QString assetId = svc.importProjectFile(whPath, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+    DataCatalog *cat = svc.catalog();
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
+    const auto links = cat->linksForAsset(assetId);
+    QCOMPARE(links.size(), 1);
+    QVERIFY(links.front().unresolved);
+    QVERIFY(links.front().entityId.isEmpty());
+    QVERIFY(links.front().note.contains(QStringLiteral("x1")));
+    QVERIFY(links.front().note.contains(QStringLiteral("x2")));
   }
 
   // D61 → RAW + DERIVED 栅格（父版本指向 RAW）+ 图层声明；authid 非 4326；

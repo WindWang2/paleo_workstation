@@ -79,7 +79,6 @@ class DataImportService : public QObject
     };
     WellBind resolveWell(const QString &name) const;
 
-    bool ensureAuxUnresolved(QString *entityId, QString *error);
     bool storeManagedRaw(const QString &sourcePath, const QString &assetId,
                          const QString &versionId, QString *relPathOut, QString *shaOut,
                          QString *error);

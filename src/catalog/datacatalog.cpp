@@ -102,6 +102,7 @@ namespace
     o.insert(QStringLiteral("role"), l.role);
     o.insert(QStringLiteral("is_primary"), l.isPrimary);
     o.insert(QStringLiteral("unresolved"), l.unresolved);
+    o.insert(QStringLiteral("note"), l.note);
     return o;
   }
 
@@ -114,6 +115,7 @@ namespace
     l.role = o.value(QStringLiteral("role")).toString();
     l.isPrimary = o.value(QStringLiteral("is_primary")).toBool(true);
     l.unresolved = o.value(QStringLiteral("unresolved")).toBool(false);
+    l.note = o.value(QStringLiteral("note")).toString();
     return l;
   }
 
@@ -300,9 +302,15 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
 
 bool DataCatalog::addLink(const EntityAssetLink &l, QString *error)
 {
-  if (l.entityId.isEmpty() || l.assetId.isEmpty())
+  // §3 修订：未决链接实体 id 留空（资产保留、不建不并）；已决链接仍必须有实体 id。
+  if (l.assetId.isEmpty())
   {
-    setError(error, QStringLiteral("link needs entity and asset ids"));
+    setError(error, QStringLiteral("link needs an asset id"));
+    return false;
+  }
+  if (l.entityId.isEmpty() && !l.unresolved)
+  {
+    setError(error, QStringLiteral("resolved link needs an entity id"));
     return false;
   }
   m_links.append(l);

@@ -35,12 +35,20 @@ add_library(paleo_core STATIC
   src/qgis/qgisprojectservice.cpp
   src/qgis/qgislayerservice.cpp
   src/qgis/qgiscanvascontroller.cpp
+  src/qgis/qgiseditingservice.cpp
+  src/qgis/qgisprocessingservice.cpp
+  src/qgis/qgisstyleservice.cpp
+  src/qgis/qgislayoutservice.cpp
   src/metadata/paleoprojectstore.cpp
   src/metadata/layermanifest.cpp
   src/services/toolavailability.cpp
+  src/domain/types.cpp
+  src/linkage/selectioncontext.cpp
+  src/linkage/wellmaplink.cpp
+  src/algorithms/paleoalgorithms.cpp
 )
-target_link_libraries(paleo_core PUBLIC paleo_qgis_iface)
-target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(paleo_core PUBLIC paleo_qgis_iface ${GDAL_LIB})
+target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
 
 enable_testing()
 
@@ -56,6 +64,10 @@ add_paleo_test(tst_runtime)
 add_paleo_test(tst_projectsvc)
 add_paleo_test(tst_layerservice)
 add_paleo_test(tst_canvas_tools)
+add_paleo_test(tst_domain)
+add_paleo_test(tst_linkage)
+add_paleo_test(tst_algorithms)
+add_paleo_test(tst_services2)
 
 add_executable(tst_boot tests/tst_boot.cpp)
 target_link_libraries(tst_boot PRIVATE paleo_qgis_iface Qt6::Test)

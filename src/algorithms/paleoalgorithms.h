@@ -1,0 +1,68 @@
+#pragma once
+#include <qgsprocessingalgorithm.h>
+#include <qgsprocessingprovider.h>
+
+// algorithms/ — production Paleo Processing algorithms (C++ only, no Python).
+// Registered on PaleoProvider (id "paleo"), distinct from the spikes provider.
+
+// ConstraintIDW: IDW interpolation of point z-values honoring constraint
+// line geometries as soft barriers — distance measured around barriers.
+// Params: INPUT (points, z-field), CONSTRAINTS (lines), FACIES_CODE (int),
+//         CELL_SIZE (double), OUTPUT (raster destination).
+class ConstraintIDWAlgorithm : public QgsProcessingAlgorithm
+{
+  public:
+    QString name() const override { return QStringLiteral("paleo_constraint_idw"); }
+    QString displayName() const override { return QStringLiteral("Paleo: Constraint IDW"); }
+    QString group() const override { return QStringLiteral("Single factor"); }
+    QString groupId() const override { return QStringLiteral("singlefactor"); }
+    QString shortHelpString() const override;
+    ConstraintIDWAlgorithm *createInstance() const override { return new ConstraintIDWAlgorithm(); }
+    void initAlgorithm(const QVariantMap &configuration = QVariantMap()) override;
+    QVariantMap processAlgorithm(const QVariantMap &parameters, QgsProcessingContext &context,
+                                 QgsProcessingFeedback *feedback) override;
+};
+
+// FaciesFusion: fuse N single-facies rasters into one coded facies raster.
+// Priority order = parameter order; cell takes value of highest-priority
+// raster whose cell is non-null/nonzero.
+// Params: INPUTS (multiple rasters), OUTPUT.
+class FaciesFusionAlgorithm : public QgsProcessingAlgorithm
+{
+  public:
+    QString name() const override { return QStringLiteral("paleo_facies_fusion"); }
+    QString displayName() const override { return QStringLiteral("Paleo: Facies Fusion"); }
+    QString group() const override { return QStringLiteral("Composition"); }
+    QString groupId() const override { return QStringLiteral("composition"); }
+    QString shortHelpString() const override;
+    FaciesFusionAlgorithm *createInstance() const override { return new FaciesFusionAlgorithm(); }
+    void initAlgorithm(const QVariantMap &configuration = QVariantMap()) override;
+    QVariantMap processAlgorithm(const QVariantMap &parameters, QgsProcessingContext &context,
+                                 QgsProcessingFeedback *feedback) override;
+};
+
+// GeologicalSmoothing: majority-filter a coded raster (mode in 3x3 window),
+// preserving coded values (no interpolation across facies codes).
+// Params: INPUT (raster), PASSES (int), OUTPUT.
+class GeologicalSmoothingAlgorithm : public QgsProcessingAlgorithm
+{
+  public:
+    QString name() const override { return QStringLiteral("paleo_geological_smoothing"); }
+    QString displayName() const override { return QStringLiteral("Paleo: Geological Smoothing"); }
+    QString group() const override { return QStringLiteral("Composition"); }
+    QString groupId() const override { return QStringLiteral("composition"); }
+    QString shortHelpString() const override;
+    GeologicalSmoothingAlgorithm *createInstance() const override { return new GeologicalSmoothingAlgorithm(); }
+    void initAlgorithm(const QVariantMap &configuration = QVariantMap()) override;
+    QVariantMap processAlgorithm(const QVariantMap &parameters, QgsProcessingContext &context,
+                                 QgsProcessingFeedback *feedback) override;
+};
+
+// Production provider — replaces the spikes provider for real algorithms.
+class PaleoProvider : public QgsProcessingProvider
+{
+  public:
+    QString id() const override { return QStringLiteral("paleo"); }
+    QString name() const override { return QStringLiteral("Paleo Workbench"); }
+    void loadAlgorithms() override;
+};

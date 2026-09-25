@@ -1292,6 +1292,12 @@ Facies Polygon Layer (可编辑)
 
 三个 spike 任一失败 → 架构层重新评估，不进入 P0。**App-only 审计表（ET9）与 vendor 策略对比（spike-0）同为 go/no-go 输入**——go/no-go 决定建立在主导自研成本已知的基上，而不是事后才量。
 
+**Spike 实测结果（2026-09-25，Arch Linux x86_64, qgis 4.2.2-1 系统包, qt6 6.11.2, gdal 3.13, glibc 2.44, gcc 16.2, c++20）**：
+- spike 1 **PASS**：`paleo_selfcheck` 全绿——QgsApplication init、providers=34、srs.db、fixture.gpkg 2 features、渲染非均匀像素断言、`vendor/logs/map.png` 400×300。`tst_boot` QTest 全过（102ms）。注意：QGIS 4.2 头文件要求 **C++20**。
+- spike 2 **PASS**：`PaleoProcessingProvider`+`PaleoPolygonizeAlgorithm`（`spikes/polygonize/`）经 `QgsProcessingRegistry::addProvider` 注册（**4.x 已移除 `addAlgorithm` 直挂**），GDALPolygonize 4×4 栅格→≥2 多边形，`tst_polygonize` PASS。
+- spike 3 **PASS**：ONNX Runtime 1.30.0 官方 release vendored（`vendor/onnxruntime/`, sha256 pinned in `vendor/manifest.json`, glibc floor 2.28）；`ort_check` 进程内 toy 推理 2.0→42.0 确定性输出。AI 运行时选定 **ONNX Runtime**。
+- Windows leg 未实测（按设计走 CI runner）；Linux leg 二值验收全过 → **可进 P0**。
+
 **QGIS 版本钉（E4 + 工程评审事实修正）**：QGIS 4.2 LTR 已发布（4.2.0, 2026-07-03；当前 4.2.2）——**钉死 4.2.x LTR**，不再是"发布后切换"的预期姿态；原"pre-LTR churn 风险"缓解为正常的 LTR 点升级跟踪。API 适配仍走 §27 兼容层，vendor 升级纪律不变（§33 vendor gate）。
 
 **Vendor 依赖清单（评审补全 + DX 评审追加）**：除 QGIS/GDAL/PROJ/GEOS/Qt 外，实际牵连 QCA、QtKeychain、libspatialindex、exiv2、libzip（.qgz 是 zip）、libxml2、sqlite3/spatialite、**OpenSSL**（QCA 默认 provider 与 Qt Network HTTPS 需要），及运行时数据文件（proj.db、GDAL data、srs.db、SVG symbols、Qt platform/imageformat 插件）。**Qt 子模块清单**须在 manifest 中枚举（qtbase/qttools/svg/imageformats 等），禁止 qt-everywhere 整块编译（直接爆 2h 预算）；Linux 端需 X11/GL dev 头文件（qtbase 依赖）。裁剪开关（WITH_3D/WITH_MESH/WITH_PDAL 等）在 Phase 0 决定。**manifest 对每个源包/二进制 pin SHA256**——TTHW 不依赖上游 URL 存活。Qt 为 LGPL：**必须动态链接或提供可重链目标文件**——写入 vendor manifest 一条即可满足。
@@ -1346,17 +1352,21 @@ Facies Polygon Layer (可编辑)
 
 ## 43. 工程评审任务清单（/plan-eng-review 2026-09-25，Phase 0 + P0 脊线）
 
-- [ ] **ET0 (P1)** — vendor 策略对比评估（§39 spike-0）：binary vendoring vs ExternalProject 源码 superbuild；~1 天，先于 ET1。（验证：对比结论页 + 选定路线依据）
-- [ ] **ET1 (P1)** — vendor 构建实现：按 ET0 选定路线产出可复现 vendor 树（源码路 = ExternalProject 骨架 + 依赖清单 + 裁剪开关；二进制路 = 下载+SHA256 校验脚本）。即 §39 spike-1 的 vendor 骨架产出，同一交付物不重复计。（验证：两平台构建通过）
-- [ ] **ET2 (P1)** — Vendor boot spike：按 §39 二值验收跑通 Linux+Windows；交付 init 顺序文档与启动自检。（验证：canvas 渲染非纯色像素断言，offscreen CI）
-- [ ] **ET3 (P1)** — GDALPolygonize `QgsProcessingAlgorithm` 封装 spike。（验证：算法注册表可见 + 小栅格 polygonize 输出）
-- [ ] **ET4 (P1)** — AI 运行时 mini-spike：ONNX Runtime 入 vendor 树 + toy .onnx 进程内推理。（验证：推理返回确定输出）
+- [x] **ET0 (P1)** — vendor 策略对比（§39 spike-0）→ `docs/phase0/et0-vendor-comparison.md`，批准 binary vendoring（Linux 宿主 floor glibc≥2.41 已接受）
+- [ ] **ET1 (P1)** — vendor 构建实现：binary 路下载+SHA256 校验脚本产出可复现 vendor 树。**partial**：`vendor/bootstrap.sh` 已含 preflight + ORT 下载 + 系统包检测；qgis.org deb 闭包提取未实现（本机 pacman 已装，无需求触发；非 Arch 开发机/发行版打包时需要）。
+- [x] **ET2 (P1)** — Vendor boot spike **PASS（Linux leg）**：`paleo_selfcheck` 全绿 + `tst_boot` QTest 通过（init/providers=34/srs.db/渲染非均匀像素/map.png）；init 顺序文档 = src/selfcheck/main.cpp + BUILDING.md。Windows leg 待 CI runner。
+- [x] **ET3 (P1)** — GDALPolygonize `QgsProcessingAlgorithm` 封装 spike **PASS**：`PaleoProcessingProvider` 注册路径（4.x 无 addAlgorithm 直挂），`tst_polygonize` 通过。
+- [x] **ET4 (P1)** — AI 运行时 mini-spike **PASS** → **选定 ONNX Runtime 1.30.0**（vendored，sha256 pinned）；`spikes/onnx/ort_check` 推理 2.0→42.0 确定性。
 - [ ] **ET5 (P1)** — 脊线四服务：QgisRuntime / QgisProjectService / QgisLayerService / QgisCanvasController + PaleoProjectStore 写队列（§41.2）。（验证：§33 脊线测试）
 - [ ] **ET6 (P1)** — 声明式图层清单 + LayerTree Adapter 占位投影 + save/restore 往返（§37）。（验证：往返测试）
 - [ ] **ET7 (P1)** — ToolAvailabilityService per-layer busy map（§35）+ §42.2 每页面板清单表。
-- [ ] **ET8 (P2)** — QTest+CTest harness 骨架 + golden fixture 工区 + 5 类历史 bug 回归测试（§33.1）。
-- [ ] **ET9 (P1, Phase 0)** — app-only 功能审计表（qgis_gui vs src/app：布局设计器/顶点编辑/数字化面板/画布装饰逐项标注）；纯源码阅读，无构建依赖，是 go/no-go 的成本输入。
+- [x] **ET8 (P2)** — **partial**：QTest+CTest harness 骨架就位（`paleo-dev test` + offscreen + 2 测试）；golden fixture 工区与 5 类回归测试待 P0。
+- [x] **ET9 (P1, Phase 0)** — app-only 功能审计表 → `docs/phase0/et9-app-only-audit.md`（结论：Processing UI/图层属性已在 gui 零移植；layout designer 走 QgsLayoutDesignerInterface 自研 shell；vertex editor/shape tools/decorations/locator filters 薄移植）。
 - [ ] **ET10 (P2)** — 性能用例：overviews 构建、打开预算、并发上限（§41.6 数字）。
+- [x] **ET11 (P1)** — `paleo-dev bootstrap`（preflight 含 glibc floor/磁盘/工具链 + 幂等 vendor 获取 + 尾跑 selfcheck）。
+- [x] **ET12 (P1)** — `paleo-dev` 五 verb 入口 + `testdata/fixture.gpkg` 内置最小 fixture + `map.png` 渲染产出。
+- [x] **ET13 (P2)** — README.md + BUILDING.md（平台矩阵/依赖/常见失败表/升级流程/实测值）。
+- [x] **ET14 (P2)** — 增量构建实测：依赖已装时 3 目标 <1min；记录于 BUILDING.md。
 
 ## 44. 开发者体验（DX）规格（/plan-devex-review 2026-09-25，DX POLISH 模式）
 

@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# paleo-dev — unified dev entry (§44.2). Thin wrapper: verbs delegate to cmake/ninja/ctest.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+BUILD_DIR=build
+usage() { sed -n '3,12p' "$0"; exit "${1:-0}"; }
+# verbs:
+#   bootstrap    preflight -> vendor fetch/build -> selfcheck (the one-command TTHW path)
+#   build        incremental build
+#   test         QT_QPA_PLATFORM=offscreen ctest
+#   selfcheck    provider/srs.db/render check -> vendor/logs/map.png
+#   clean-vendor [dep]   remove vendored dep (all if no arg)
+
+verb=${1:-}; shift || true
+case "$verb" in
+  bootstrap)
+    bash vendor/bootstrap.sh "$@"
+    ;;
+  build)
+    cmake -S . -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+    cmake --build "$BUILD_DIR" "$@"
+    ;;
+  test)
+    QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure "$@"
+    ;;
+  selfcheck)
+    mkdir -p vendor/logs
+    QT_QPA_PLATFORM=offscreen "$BUILD_DIR/paleo_selfcheck" "$@"
+    ;;
+  clean-vendor)
+    dep=${1:-}
+    if [ -z "$dep" ]; then rm -rf vendor/build vendor/prefix; echo "vendor build tree cleared (archives kept)";
+    else rm -rf "vendor/build/$dep" "vendor/prefix/$dep"; echo "vendor/$dep cleared"; fi
+    ;;
+  --help|-h|""|help) usage ;;
+  *) echo "unknown verb: $verb" >&2; usage 1 ;;
+esac

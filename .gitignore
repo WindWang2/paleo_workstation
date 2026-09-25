@@ -1,0 +1,7 @@
+build/
+vendor/onnxruntime/
+vendor/prefix/
+vendor/build/
+vendor/logs/
+vendor/ort.tgz
+*.o

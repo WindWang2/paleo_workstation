@@ -1510,6 +1510,6 @@ Codex 外部评审因网络故障超时（5 分钟上限，websocket TLS 失败�
 | DX Review | `/plan-devex-review` | Developer experience gaps | 1 | issues_open→resolved | 3/10→7/10；内部构建栈 DX；TTHW=1命令+≤2h；map.png 魔法时刻；paleo-dev 入口；§44+ET0/ET9/ET11–14；native 迟交 9 发现全裁定（DX6/DX7 + 7 项规格修正） |
 
 - **OUTSIDE COVERAGE:** codex（plan phase）= unavailable（TLS/超时）；claude-code（design phase）= skipped；eng-phase = unavailable（native fallback 300s 超时）；dx-phase = unavailable（native fallback 300s 超时；其子代理迟交结果——9 项发现已裁定采纳，但为同 harness 非独立覆盖，不计外部评审）。无完成的外部评审记录。
-- **VERDICT:** CEO CLEARED + DESIGN CLEARED（9/10）+ ENG REVIEWED（8 发现全采纳）+ DX REVIEWED（5 决策全采纳，0 未决）。可进入 Phase 0 实现 —— 三 spike 为 P0 前置 go/no-go 门；ET11/12 使 TTHW 目标可验收。
+- **VERDICT:** CEO CLEARED + DESIGN CLEARED（9/10）+ ENG REVIEWED（8 发现全采纳）+ DX REVIEWED（7 决策全采纳，0 未决）。可进入 Phase 0 实现 —— 三 spike 为 P0 前置 go/no-go 门；ET11/12 使 TTHW 目标可验收。
 
 NO UNRESOLVED DECISIONS

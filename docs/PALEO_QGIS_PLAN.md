@@ -1311,10 +1311,39 @@ Facies Polygon Layer (可编辑)
 6. **最小 NFR**：工区规模假设（井数 ~10²、层位 ~10¹、栅格 ~10⁷ cell/层）、画布刷新预算（交互操作 <100ms、整图重渲 <2s）、工程打开时间预算——§37 懒加载目标以此可验证。
 7. **保存/发布语义**（工程评审任务）：`保存版本`（gpkg 提交+版本记录）、`发布`（导出 result/ 快照）、`Published` 状态三者关系及"发布后能否再编辑"需在工程评审定义状态机。
 
+## 42. UX 与交互规范（设计评审新增，D2–D14；视觉 tokens 以 DESIGN.md 为准）
+
+**信息架构**
+1. **启动页（D2）**：首次/无工程打开时显示 `QStackedWidget` 启动页——最近工程列表 + `新建工程`/`打开工程` + 示例数据集入口；加载工程后进入主窗口态。
+2. **每页面板清单（D3）**：工程评审前补一张 5 页 × {左面板, 中央, 右 dock, 底部 tab, 默认可见性} 表；连井剖面属 约束与单因素 页 canvas 下方 dock，地震剖面预览属 数据管理 页——防止面板跨页泄漏。
+3. **QgsLocator 域过滤器（D4）**：除 QGIS 原生 layers/actions/features 外，注册井名、层位、验证问题编号三个 `QgsLocatorFilter`——命中即跳转地图/记录。
+
+**交互状态**
+4. **FEATURE×状态表（D5）**：对 12 个核心特性（资源树、图层树、画布、导入、预测、约束插值、连井剖面、编图、验证表、任务 tab、日志 tab、状态栏）各定义 LOADING/EMPTY/ERROR/SUCCESS/PARTIAL 五种可见状态；空态 = 温暖文案 + 主动作按钮 + 上下文（如资源树空 → "还没有井数据 → [导入井数据]"），禁止空白面板。
+5. **峰终时刻（D6）**：预测任务完成 → canvas 自动缩放至结果范围 + 图层短暂高亮 + 任务 tab 出现"查看结果"跳转行；发布 → 确认对话框展示版本号 + 打包内容 + 输出路径。克制、专业、可验证，不做庆祝动画。
+
+**组件决策**
+6. **图标（D7）**：GIS 动作用 vendored QGIS 图标集；域名词（井/地震线/层位等 ~15–20 个）绘制同笔画风格 16px 自定义集；禁止多来源图标混用。
+7. **导入（D11）**：LAS/SEG-Y 导入用模态 `QWizard`（文件→字段映射→CRS→预览→确认），对齐 QGIS 对话框惯例。
+8. **编图 composer（D12）**：嵌入完整 QgsLayout 设计器。**注意**：`QgsLayoutDesignerDialog` 位于 QGIS `src/app`（非 qgis_gui）——与画布装饰同属 §39 app-only 审计清单，实现成本按源码内嵌计，不是免费控件。
+9. **层位 chip 溢出（D13）**：chip 条可横向滚动 + `»` 溢出弹层（全量 checklist + 过滤框），保持原型观感并支持 30+ 层位。
+10. **Undo 可见性（D14）**：Ctrl+Z/Y 作用于当前画布编辑会话（跨层操作原子撤销）；编辑菜单提供"编辑历史"面板按会话列条目，兼作编辑审计。
+
+**可达性与窗口规则（D10）**
+11. 最小窗口 1280×800；低于此宽 dock 自动折叠为 tab。
+12. Tab 序 = 阅读序（canvas→左→右→底部→状态栏）；所有自定义控件设 `accessibleName`/`accessibleDescription`。
+13. 焦点环 = `focus-ring` token（2px primary 描边），禁用文本 = `text-disabled`，占位 = `placeholder`——禁用控件仍须 §35 reason tooltip。
+14. 应用级"减少动画"设置（Qt 无 OS 级 prefers-reduced-motion）：开启后 §1.1 动画全部替换为即时切换。
+15. 快捷键表：Ctrl+K 定位器、各页 F1–F5 直达、Esc 取消当前 MapTool；完整表随工程评审定稿。
+16. **对比度**：`text-muted` 已调整为 `#5D6E80`（在 surface 与 surface-alt 上均 ≥4.5:1）；语义色永远与文本/图标配对，不做唯一状态载体。
+
 ## NOT in scope（本次评审决议）
 
 - **License/vendor 合规章节** — 用户确认产品遵循 GPL，vendored QGIS 兼容，无需专章。（D3）
 - **多 realization / 不确定性支持** — 推迟至 TODOS.md（P2）。保留要求：`DataAsset` 与 `facies_polygon` schema 预留可空 `realization_id` 字段，避免日后 schema 迁移。（D6）
+- **暗色模式** — DESIGN.md 已定 token 结构支持，V1 不交付。（设计评审）
+- **简化版编图 composer** — 字段试用后再评估；先嵌完整 QgsLayout 设计器。（D12）
+- **庆祝式动画/品牌化视觉** — 工具调性为克制专业；峰终时刻只做"结果可见"处理。（D6）
 
 ## 评审决策台账（Decision Ledger）
 
@@ -1341,6 +1370,19 @@ Facies Polygon Layer (可编辑)
 | E6 | 护城河算法只有标签 | 最小契约 → §40 | 用户选择 A |
 | E7 | AI 推理运行时黑盒 | 契约先定+Phase0 钉运行时 → §40 | 用户选择 A |
 | E8 | 7 项正确性规则批量 | 全部采纳 → §41 | 用户选择 A |
+| DR2 | 首次运行/空工程体验 | 启动页（最近工程+新建/打开） → §42.1 | 用户选择 B |
+| DR3 | 每页面板清单 | 采纳 → §42.2 | 用户选择 A |
+| DR4 | 定位器搜索范围 | 域过滤器（井/层位/问题） → §42.3 | 用户选择 A |
+| DR5 | 特性级状态表 | 采纳 → §42.4 | 用户选择 A |
+| DR6 | 峰终时刻处理 | 克制+结果可见 → §42.5 | 用户选择 A |
+| DR7 | 图标策略 | QGIS 集+自定义域集 → §42.6 | 用户选择 A |
+| DR8 | 状态 tokens | 采纳 → DESIGN.md | 用户选择 A |
+| DR9 | text-muted 对比度 | 调深为 #5D6E80 → DESIGN.md | 用户选择 A |
+| DR10 | a11y/窗口规则块 | 采纳 → §42.11–15 | 用户选择 A |
+| DR11 | 导入 UX | 模态 QWizard → §42.7 | 用户选择 A |
+| DR12 | 编图 composer | 嵌完整 QgsLayout 设计器（app-only 成本注记） → §42.8 | 用户选择 A |
+| DR13 | 层位 chip 溢出 | 滚动+溢出弹层 → §42.9 | 用户选择 A |
+| DR14 | Undo 可见性 | 会话级撤销+历史面板 → §42.10 | 用户选择 A |
 
 ## 外部评审说明
 
@@ -1348,23 +1390,15 @@ Codex 外部评审因网络故障超时（5 分钟上限，websocket TLS 失败�
 
 ## GSTACK REVIEW REPORT
 
-**Skill:** /plan-ceo-review | **Mode:** SELECTIVE EXPANSION | **Date:** 2026-09-25 | **Branch:** master
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | clean | SELECTIVE EXPANSION；D1–D11+E1–E8 全裁定；§33–41 采纳；Phase 0 spikes 为 P0 前置门 |
+| Outside Review | codex via `/plan-ceo-review` | Independent 2nd opinion | 1 | unavailable | Codex 网络超时；native fallback completed（meta-finding+9 组发现已裁定），不计外部覆盖 |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | — | 待运行 |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | issues_open→resolved | 6/10 → 9/10；13 项决策采纳 → §42 + DESIGN.md tokens |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | 待运行 |
 
-### Review summary
-- 11 节深度评审完成（架构/错误营救/安全/数据流/代码质量/测试/性能/可观测性/部署/长期/UX）。
-- 决策台账：D1–D11 + E1–E8 全部经用户裁定；SELECTIVE EXPANSION 模式为推荐默认（用户两次以约束作答）。
-- 采纳新增：§33 测试策略、§34 undo/编辑会话、§35 门控可解释性、§36 派生管线（E5 修订为边界图方案）、§37 懒加载、§38 诊断、§39 greenfield+Phase 0、§40 护城河契约、§41 正确性规则。
-- 推迟：多 realization（P2）、相界类型语义（P2）；工程评审待办见 TODOS.md P1。
+- **OUTSIDE COVERAGE:** codex（plan phase）= unavailable（TLS/超时）；claude-code（design phase）= skipped（用户 D6 选择跳过）。无完成的外部评审记录。
+- **VERDICT:** CEO CLEARED + DESIGN CLEARED（9/10，0 未决）。Eng review required —— Phase 0 双 spike（vendor boot + GDALPolygonize 封装）为 P0 前置 go/no-go 门。
 
-### Coverage
-- outside review: **unavailable** — Codex CLI 网络故障（TLS handshake eof ×5 + HTTPS fallback 超时），5 分钟上限。不计入外部覆盖。
-- native fallback: completed（subagent_explore, fresh context）——产出 meta-finding（空仓库 vs 重构表述）及 9 组发现，全部经用户裁定。
-- spec-review loop: unavailable（本会话无 subagent dispatch 用于该循环；native fallback 为不同机制）。
-
-### Residual risks（写入工程评审）
-- Vendor build 依赖树广度（QCA/QtKeychain/spatialindex/libzip/srs.db/Qt plugins）待 Phase 0 实测。
-- `qgis:*` provider 算法同为 Python 实现——native 可用算法清单待逐项审计。
-- 护城河算法为一段式契约，工程实现规格未定。
-
-### Verdict
-**计划可进入工程评审（/plan-eng-review）**，前提：Phase 0 两个 spike 作为 P0 前置 go/no-go 门。
+NO UNRESOLVED DECISIONS

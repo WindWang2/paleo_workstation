@@ -10,7 +10,10 @@ colors:
   surface-alt: "#EDF1F5"      # 窗口底色、标题栏
   border: "#DFE5EC"           # 面板分割、卡片描边
   text: "#24303E"
-  text-muted: "#6B7A8C"
+  text-muted: "#5D6E80"          # 深于原型灰 —— 在 surface-alt 上亦满足 4.5:1 对比度
+  text-disabled: "#9AA7B4"       # 禁用文本/图标（非活跃组件，WCAG 豁免）
+  focus-ring: "#1B73D0"          # = primary；键盘焦点 2px 描边，不用 Fusion 虚线框
+  placeholder: "#5D6E80"         # = text-muted；输入占位与次级说明
   accent: "#1B73D0"           # = primary；交互色不做装饰用
   success: "#43A047"          # 验证通过
   warning: "#F29900"          # 待复核

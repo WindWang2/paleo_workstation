@@ -43,3 +43,8 @@
 - 目标平台矩阵（OS × 架构）钉定。
 - AI 推理运行时选型输出（ONNX Runtime / libtorch / 其他）。
 - app-only 功能审计清单（qgis_gui vs src/app 逐能力标注）。
+
+## P3 — 设计评审递延（from /plan-design-review, 2026-09-25）
+
+- **暗色模式**：DESIGN.md token 结构已支持；需重配全部语义色并验证 canvas 符号在暗底可读性。触发条件：V1 完成且用户提出需求。
+- **简化版编图 composer**：仅图例/比例尺/指北针/图签的聚焦 UI，替代完整 QgsLayout 设计器（D12 的兜底方案）。触发条件：V1 编图页实测显示完整设计器过载。工作量级：月级（重复 src/app 代码），勿投机先建。

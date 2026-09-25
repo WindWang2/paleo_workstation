@@ -646,6 +646,141 @@ QVariantMap GeologicalSmoothingAlgorithm::processAlgorithm( const QVariantMap &p
 }
 
 // ---------------------------------------------------------------------------
+// IsopachAlgorithm
+// ---------------------------------------------------------------------------
+
+QString IsopachAlgorithm::shortHelpString() const
+{
+  return QStringLiteral(
+    "Cell-wise thickness: OUTPUT = INPUT_TOP - INPUT_BASE over two structural "
+    "surface rasters sharing the same grid (dimensions + geotransform). Cells "
+    "where either input is nodata become nodata. With NEGATIVE_TO_NODATA the "
+    "inverted-thickness cells (base above top) are masked to nodata instead of "
+    "emitting negative thickness." );
+}
+
+void IsopachAlgorithm::initAlgorithm( const QVariantMap & )
+{
+  addParameter( new QgsProcessingParameterRasterLayer(
+      QStringLiteral( "INPUT_TOP" ), QStringLiteral( "Top structural surface" ) ) );
+  addParameter( new QgsProcessingParameterRasterLayer(
+      QStringLiteral( "INPUT_BASE" ), QStringLiteral( "Base structural surface" ) ) );
+  addParameter( new QgsProcessingParameterBoolean(
+      QStringLiteral( "NEGATIVE_TO_NODATA" ),
+      QStringLiteral( "Mask inverted thickness (base above top) to nodata" ), false ) );
+  addParameter( new QgsProcessingParameterRasterDestination(
+      QStringLiteral( "OUTPUT" ), QStringLiteral( "Thickness (isopach) raster" ) ) );
+}
+
+QVariantMap IsopachAlgorithm::processAlgorithm( const QVariantMap &parameters,
+                                                QgsProcessingContext &context,
+                                                QgsProcessingFeedback *feedback )
+{
+  QgsRasterLayer *topLayer = parameterAsRasterLayer( parameters, QStringLiteral( "INPUT_TOP" ), context );
+  QgsRasterLayer *baseLayer = parameterAsRasterLayer( parameters, QStringLiteral( "INPUT_BASE" ), context );
+  if ( !topLayer )
+    throw QgsProcessingException( invalidSourceError( parameters, QStringLiteral( "INPUT_TOP" ) ) );
+  if ( !baseLayer )
+    throw QgsProcessingException( invalidSourceError( parameters, QStringLiteral( "INPUT_BASE" ) ) );
+
+  const bool negToNodata = parameterAsBool( parameters, QStringLiteral( "NEGATIVE_TO_NODATA" ), context );
+  const QString outPath = parameterAsOutputLayer( parameters, QStringLiteral( "OUTPUT" ), context );
+  if ( outPath.isEmpty() )
+    throw QgsProcessingException( QStringLiteral( "Invalid OUTPUT raster destination" ) );
+
+  GDALDatasetH topDs = openRaster( topLayer );
+  GDALDatasetH baseDs = openRaster( baseLayer );
+  auto closeInputs = [&] {
+    if ( topDs ) GDALClose( topDs );
+    if ( baseDs ) GDALClose( baseDs );
+  };
+  if ( !topDs || !baseDs )
+  {
+    closeInputs();
+    throw QgsProcessingException( QStringLiteral( "GDAL cannot open one of the input rasters" ) );
+  }
+  if ( GDALGetRasterCount( topDs ) < 1 || GDALGetRasterCount( baseDs ) < 1 )
+  {
+    closeInputs();
+    throw QgsProcessingException( QStringLiteral( "Input raster has no band" ) );
+  }
+
+  GDALRasterBandH topBand = GDALGetRasterBand( topDs, 1 );
+  GDALRasterBandH baseBand = GDALGetRasterBand( baseDs, 1 );
+  const GridInfo grid = gridOf( topDs );
+  if ( !sameGrid( grid, gridOf( baseDs ) ) )
+  {
+    closeInputs();
+    throw QgsProcessingException(
+        QStringLiteral( "INPUT_BASE grid does not match INPUT_TOP "
+                        "(same extent and cell size required)" ) );
+  }
+  bool topNodataOk = false, baseNodataOk = false;
+  double topNodata = 0, baseNodata = 0;
+  bandNodata( topBand, topNodataOk, topNodata );
+  bandNodata( baseBand, baseNodataOk, baseNodata );
+
+  const double outNodata = topNodataOk ? topNodata : static_cast<double>( PALEO_NODATA );
+  GDALDatasetH outDs = createFloatRaster( outPath, grid.cols, grid.rows, grid.gt,
+                                          topLayer->crs(), outNodata );
+  if ( !outDs )
+  {
+    closeInputs();
+    throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );
+  }
+  GDALRasterBandH outBand = GDALGetRasterBand( outDs, 1 );
+
+  QVector<float> topRow( grid.cols ), baseRow( grid.cols ), outRow( grid.cols );
+  for ( int r = 0; r < grid.rows; ++r )
+  {
+    if ( feedback && feedback->isCanceled() )
+    {
+      GDALClose( outDs );
+      closeInputs();
+      throw QgsProcessingException( QStringLiteral( "Canceled" ) );
+    }
+    if ( GDALRasterIO( topBand, GF_Read, 0, r, grid.cols, 1, topRow.data(),
+                       grid.cols, 1, GDT_Float32, 0, 0 ) != CE_None ||
+         GDALRasterIO( baseBand, GF_Read, 0, r, grid.cols, 1, baseRow.data(),
+                       grid.cols, 1, GDT_Float32, 0, 0 ) != CE_None )
+    {
+      GDALClose( outDs );
+      closeInputs();
+      throw QgsProcessingException( QStringLiteral( "GDAL read failed at row %1" ).arg( r ) );
+    }
+    for ( int c = 0; c < grid.cols; ++c )
+    {
+      const float t = topRow[c], b = baseRow[c];
+      if ( isNoData( t, topNodataOk, topNodata ) || isNoData( b, baseNodataOk, baseNodata ) )
+      {
+        outRow[c] = static_cast<float>( outNodata );
+        continue;
+      }
+      const float thickness = t - b;
+      outRow[c] = ( negToNodata && thickness < 0.0f )
+                      ? static_cast<float>( outNodata )
+                      : thickness;
+    }
+    if ( GDALRasterIO( outBand, GF_Write, 0, r, grid.cols, 1, outRow.data(),
+                       grid.cols, 1, GDT_Float32, 0, 0 ) != CE_None )
+    {
+      GDALClose( outDs );
+      closeInputs();
+      throw QgsProcessingException( QStringLiteral( "GDAL write failed at row %1" ).arg( r ) );
+    }
+    if ( feedback )
+      feedback->setProgress( 100.0 * static_cast<double>( r + 1 ) / grid.rows );
+  }
+
+  closeInputs();
+  GDALClose( outDs );
+
+  QVariantMap out;
+  out.insert( QStringLiteral( "OUTPUT" ), outPath );
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // PaleoProvider
 // ---------------------------------------------------------------------------
 
@@ -654,4 +789,5 @@ void PaleoProvider::loadAlgorithms()
   addAlgorithm( new ConstraintIDWAlgorithm() );
   addAlgorithm( new FaciesFusionAlgorithm() );
   addAlgorithm( new GeologicalSmoothingAlgorithm() );
+  addAlgorithm( new IsopachAlgorithm() );
 }

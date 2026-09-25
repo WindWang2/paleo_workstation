@@ -58,6 +58,27 @@ class GeologicalSmoothingAlgorithm : public QgsProcessingAlgorithm
                                  QgsProcessingFeedback *feedback) override;
 };
 
+// IsopachAlgorithm: thickness = top − base over two structural surface rasters.
+// Where either input is nodata the output is nodata; a NEGATIVE_TO_NODATA flag
+// optionally clamps inverted (base above top) cells to nodata — inverted
+// thickness usually signals overlapping/mispicked surfaces rather than real
+// negative thickness.
+// Params: INPUT_TOP, INPUT_BASE (rasters, same grid), NEGATIVE_TO_NODATA (bool),
+//         OUTPUT (raster destination).
+class IsopachAlgorithm : public QgsProcessingAlgorithm
+{
+  public:
+    QString name() const override { return QStringLiteral("paleo_isopach"); }
+    QString displayName() const override { return QStringLiteral("Paleo: Isopach (thickness)"); }
+    QString group() const override { return QStringLiteral("Single factor"); }
+    QString groupId() const override { return QStringLiteral("singlefactor"); }
+    QString shortHelpString() const override;
+    IsopachAlgorithm *createInstance() const override { return new IsopachAlgorithm(); }
+    void initAlgorithm(const QVariantMap &configuration = QVariantMap()) override;
+    QVariantMap processAlgorithm(const QVariantMap &parameters, QgsProcessingContext &context,
+                                 QgsProcessingFeedback *feedback) override;
+};
+
 // Production provider — replaces the spikes provider for real algorithms.
 class PaleoProvider : public QgsProcessingProvider
 {

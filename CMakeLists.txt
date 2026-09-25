@@ -41,6 +41,7 @@ add_library(paleo_core STATIC
   src/qgis/qgislayoutservice.cpp
   src/metadata/paleoprojectstore.cpp
   src/metadata/layermanifest.cpp
+  src/metadata/releasestore.cpp
   src/services/toolavailability.cpp
   src/domain/types.cpp
   src/linkage/selectioncontext.cpp
@@ -116,6 +117,7 @@ add_paleo_test(tst_drawctl)
 add_paleo_test(tst_seismicpanel)
 add_paleo_test(tst_procdialog)
 add_paleo_test(tst_rehydrate)
+add_paleo_test(tst_release)
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx)
   add_paleo_test(tst_onnxworkflow)

@@ -72,6 +72,8 @@ private slots:
         QStringLiteral( "paleo:paleo_facies_fusion" ) ) != nullptr );
     QVERIFY( QgsApplication::processingRegistry()->algorithmById(
         QStringLiteral( "paleo:paleo_geological_smoothing" ) ) != nullptr );
+    QVERIFY( QgsApplication::processingRegistry()->algorithmById(
+        QStringLiteral( "paleo:paleo_isopach" ) ) != nullptr );
   }
 
   // IDW over 3 points; assert weighted-average values at known cell centers.
@@ -257,6 +259,85 @@ private slots:
                 qPrintable( QStringLiteral( "cell %1 = %2" ).arg( i ).arg( px[i] ) ) );
 
     delete rl;
+  }
+
+  // top - base cell-wise; nodata propagates; NEGATIVE_TO_NODATA masks
+  // inverted cells; grid mismatch fails.
+  void isopach()
+  {
+    const QVector<float> top = { 100, 200, 300,
+                                 150, 250, 50,
+                                 10,  20,  30 };
+    const QVector<float> base = { 50,  150, 250,
+                                  100, 300, -9999, // (1,1) inverted; (1,2) nodata
+                                  5,   10,  15 };
+    const QString pTop = makeRaster( QStringLiteral( "top.tif" ), 3, 3, top );
+    const QString pBase = makeRaster( QStringLiteral( "base.tif" ), 3, 3, base, true, -9999.0 );
+    QVERIFY( !pTop.isEmpty() && !pBase.isEmpty() );
+
+    auto *rTop = new QgsRasterLayer( pTop, QStringLiteral( "top" ), QStringLiteral( "gdal" ) );
+    auto *rBase = new QgsRasterLayer( pBase, QStringLiteral( "base" ), QStringLiteral( "gdal" ) );
+    QVERIFY( rTop->isValid() && rBase->isValid() );
+
+    QgsProcessingContext ctx;
+    QgsProcessingFeedback fb;
+
+    // Default: raw subtraction — inverted cell stays negative.
+    const QString outPath = mDir.filePath( QStringLiteral( "iso.tif" ) );
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT_TOP" ), QVariant::fromValue( rTop ) );
+    params.insert( QStringLiteral( "INPUT_BASE" ), QVariant::fromValue( rBase ) );
+    params.insert( QStringLiteral( "OUTPUT" ), outPath );
+    const QVariantMap res = QgsApplication::processingRegistry()
+                                ->algorithmById( QStringLiteral( "paleo:paleo_isopach" ) )
+                                ->run( params, ctx, &fb );
+    QVERIFY( !res.isEmpty() );
+
+    int w = 0, h = 0;
+    QVector<float> px;
+    QVERIFY( readRaster( outPath, w, h, px ) );
+    QCOMPARE( w, 3 );
+    QCOMPARE( h, 3 );
+    const QVector<float> want = { 50, 50, 50,
+                                  50, -50, -9999, // inverted kept; nodata propagates
+                                  5,  10, 15 };
+    for ( int i = 0; i < 9; ++i )
+      QVERIFY2( px[i] == want[i],
+                qPrintable( QStringLiteral( "cell %1: got %2 want %3" )
+                                .arg( i ).arg( px[i] ).arg( want[i] ) ) );
+
+    // NEGATIVE_TO_NODATA masks the inverted cell.
+    const QString outPath2 = mDir.filePath( QStringLiteral( "iso_mask.tif" ) );
+    QVariantMap params2 = params;
+    params2.insert( QStringLiteral( "NEGATIVE_TO_NODATA" ), true );
+    params2.insert( QStringLiteral( "OUTPUT" ), outPath2 );
+    const QVariantMap res2 = QgsApplication::processingRegistry()
+                                 ->algorithmById( QStringLiteral( "paleo:paleo_isopach" ) )
+                                 ->run( params2, ctx, &fb );
+    QVERIFY( !res2.isEmpty() );
+    QVector<float> px2;
+    QVERIFY( readRaster( outPath2, w, h, px2 ) );
+    QVERIFY2( px2[4] == -9999.0f,
+              qPrintable( QStringLiteral( "inverted cell should be nodata, got %1" ).arg( px2[4] ) ) );
+    QVERIFY2( px2[0] == 50.0f, "valid thickness unchanged" );
+
+    // Grid mismatch → algorithm run fails (exception inside run surfaces as
+    // empty results map or thrown QgsProcessingException handled by run()).
+    const QVector<float> odd( 2 * 2, 1.0f );
+    const QString pOdd = makeRaster( QStringLiteral( "odd.tif" ), 2, 2, odd );
+    auto *rOdd = new QgsRasterLayer( pOdd, QStringLiteral( "odd" ), QStringLiteral( "gdal" ) );
+    QVERIFY( rOdd->isValid() );
+    QVariantMap params3 = params;
+    params3.insert( QStringLiteral( "INPUT_BASE" ), QVariant::fromValue( rOdd ) );
+    params3.insert( QStringLiteral( "OUTPUT" ), mDir.filePath( QStringLiteral( "iso_bad.tif" ) ) );
+    const QVariantMap res3 = QgsApplication::processingRegistry()
+                                 ->algorithmById( QStringLiteral( "paleo:paleo_isopach" ) )
+                                 ->run( params3, ctx, &fb );
+    QVERIFY( res3.isEmpty() || !QFile::exists( params3.value( "OUTPUT" ).toString() ) );
+
+    delete rOdd;
+    delete rTop;
+    delete rBase;
   }
 };
 

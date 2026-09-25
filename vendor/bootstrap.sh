@@ -32,9 +32,8 @@ if pacman -Q qgis 2>/dev/null | grep -qE 'qgis 4\.2\.'; then
 elif [ -d vendor/prefix/qgis ]; then
   note "vendor/prefix/qgis present — skipping fetch (idempotent)"
 else
-  echo "  !! qgis system package absent — deb-closure fetch not yet implemented;"
-  echo "     on Debian>=13/Ubuntu>=25.04: apt-get download libqgis-dev=4.2.* + deps, extract to vendor/prefix/"
-  echo "     see docs/phase0/et0-vendor-comparison.md"
+  echo "  qgis system package absent — deb-closure fetch (ET1):"
+  bash vendor/fetch-deps.sh
 fi
 
 # ONNX Runtime: always vendored (no distro guarantee of dev headers).

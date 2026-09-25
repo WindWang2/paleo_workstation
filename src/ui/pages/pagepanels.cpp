@@ -208,11 +208,20 @@ ConstraintPage::ConstraintPage(ConstraintWorkflow *wf, QWidget *parent)
   spin->setAccessibleName(tr("相代码"));
   lay->addWidget(spin);
 
-  auto *draw = new QPushButton(tr("绘制约束线"), this);
+  // Shape picker feeds ConstraintDrawController::startCapture's tool choice.
+  auto *shape = new QComboBox(this);
+  shape->setObjectName(QStringLiteral("shapeCombo"));
+  shape->addItem(tr("约束线"), QStringLiteral("line"));
+  shape->addItem(tr("约束多边形"), QStringLiteral("polygon"));
+  shape->addItem(tr("约束矩形"), QStringLiteral("rect"));
+  lay->addWidget(shape);
+
+  auto *draw = new QPushButton(tr("绘制约束"), this);
   draw->setObjectName(QStringLiteral("drawButton"));
   lay->addWidget(draw);
-  connect(draw, &QPushButton::clicked, this, [this, horizons, spin] {
-    emit drawConstraintRequested(horizons->currentText(), spin->value());
+  connect(draw, &QPushButton::clicked, this, [this, horizons, shape, spin] {
+    emit drawConstraintRequested(horizons->currentText(),
+                                 shape->currentData().toString(), spin->value());
   });
 
   auto *idw = new QPushButton(tr("插值"), this);

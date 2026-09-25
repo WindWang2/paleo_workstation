@@ -138,7 +138,8 @@ class TestPanels : public QObject
       page.findChild<QPushButton *>(QStringLiteral("drawButton"))->click();
       QCOMPARE(drawSpy.count(), 1);
       QCOMPARE(drawSpy.first().at(0).toString(), QStringLiteral("T1"));
-      QCOMPARE(drawSpy.first().at(1).toInt(), 5);
+      QCOMPARE(drawSpy.first().at(1).toString(), QStringLiteral("line")); // default shape
+      QCOMPARE(drawSpy.first().at(2).toInt(), 5);
 
       QSignalSpy idwSpy(&page, &ConstraintPage::runIdwRequested);
       page.findChild<QPushButton *>(QStringLiteral("runIdwButton"))->click();

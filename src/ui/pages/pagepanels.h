@@ -45,7 +45,7 @@ class ConstraintPage : public QWidget
   public:
     ConstraintPage(ConstraintWorkflow *wf, QWidget *parent = nullptr);
   signals:
-    void drawConstraintRequested(const QString &horizon, int faciesCode);
+    void drawConstraintRequested(const QString &horizon, const QString &shape, int faciesCode);
     void runIdwRequested(const QString &horizon);
 };
 

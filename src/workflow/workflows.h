@@ -34,7 +34,8 @@ class ConstraintWorkflow : public QObject
   Q_OBJECT
   public:
     explicit ConstraintWorkflow(QgisProcessingService *proc, QgisLayerService *layers, QObject *parent = nullptr);
-    bool addConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode, QString *error = nullptr);
+    bool addConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
+                       QString *error = nullptr, QString *constraintIdOut = nullptr);
     bool runConstraintIDW(const QString &horizon, const QString &pointsLayerId, const QString &field,
                           double cellSize, QString *error = nullptr);
   signals:

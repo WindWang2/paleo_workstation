@@ -9,6 +9,7 @@
 #include "../workflow/workflows.h"
 #include "../io/dataimportservice.h"
 #include "pages/pagepanels.h"
+#include "constraintdrawcontroller.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
@@ -420,6 +421,19 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
 
   if (constraint && constraintPage)
   {
+    // 约束页端到端: 绘制请求 → 画布上的捕获工具 → workflow 提交 (§42).
+    if (m_canvasCtl)
+    {
+      auto *drawCtl = new ConstraintDrawController(m_canvasCtl, constraint, this);
+      connect(constraintPage, &ConstraintPage::drawConstraintRequested, drawCtl,
+              [drawCtl](const QString &horizon, const QString &shape, int faciesCode) {
+                drawCtl->startCapture(horizon, shape, faciesCode);
+              });
+      connect(drawCtl, &ConstraintDrawController::captureFailed, this,
+              [](const QString &err) {
+                QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+              });
+    }
     connect(constraintPage, &ConstraintPage::runIdwRequested, this,
             [this, constraint](const QString &horizon) {
               QString err;

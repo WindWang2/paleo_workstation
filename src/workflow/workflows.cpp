@@ -185,7 +185,8 @@ ConstraintWorkflow::ConstraintWorkflow( QgisProcessingService *proc, QgisLayerSe
 }
 
 bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &wkt,
-                                        const QString &type, int faciesCode, QString *error )
+                                        const QString &type, int faciesCode, QString *error,
+                                        QString *constraintIdOut )
 {
   QgisLayerService *layers = layersOf( this );
   if ( !layers )
@@ -238,6 +239,8 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
   }
 
   setProperty( kConstraintsProp, constraints );
+  if ( constraintIdOut )
+    *constraintIdOut = c.id;
   emit constraintAdded( c.id );
   return true;
 }

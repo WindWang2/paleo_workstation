@@ -17,6 +17,8 @@ private slots:
   void normalizesWellName();
   void resolvesWellByNameAndAlias();
   void ambiguousNameYieldsBothCandidates();
+  void unresolvedLinkRoundTripsWithEmptyEntityId();
+  void resolvedLinkStillNeedsEntityId();
   void currentVersionPicksHighestNumber();
   void managedPathLayout();
 };
@@ -90,7 +92,91 @@ void TestCatalog::roundTripsThroughJson()
   QCOMPARE(links.size(), 1);
   QCOMPARE(links.front().role, QStringLiteral("well_log"));
   QVERIFY(!links.front().unresolved);
+  QVERIFY(links.front().note.isEmpty());
   QVERIFY(reloaded.catalogRevision() >= 4);
+}
+
+// §3 修订：未决链接实体 id 留空 + note 字段，catalog.json 能往返；
+// 老 catalog 没有 note 键时读为为空。
+void TestCatalog::unresolvedLinkRoundTripsWithEmptyEntityId()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path()));
+    CatalogAsset asset;
+    asset.id = QStringLiteral("ast-1");
+    asset.type = QStringLiteral("well_log");
+    asset.format = QStringLiteral("las");
+    asset.displayName = QStringLiteral("dup.Las");
+    QVERIFY(cat.addAsset(asset));
+
+    EntityAssetLink link;
+    link.entityType = QStringLiteral("well");
+    // entityId 留空：addLink 只在 unresolved=true 时放行
+    link.assetId = asset.id;
+    link.role = QStringLiteral("well_log");
+    link.unresolved = true;
+    link.note = QStringLiteral("候选: x1(well-X1), x2(well-X2)");
+    QVERIFY(cat.addLink(link));
+  }
+
+  DataCatalog reloaded;
+  QVERIFY(reloaded.open(dir.path()));
+  const auto links = reloaded.linksForAsset(QStringLiteral("ast-1"));
+  QCOMPARE(links.size(), 1);
+  QVERIFY(links.front().unresolved);
+  QVERIFY(links.front().entityId.isEmpty());
+  QCOMPARE(links.front().role, QStringLiteral("well_log"));
+  QCOMPARE(links.front().note, QStringLiteral("候选: x1(well-X1), x2(well-X2)"));
+
+  // 旧版 catalog.json 不含 note 键 → 读为为空（前向兼容）。
+  QTemporaryDir dir2;
+  QVERIFY(dir2.isValid());
+  QVERIFY(QDir().mkpath(dir2.filePath(QStringLiteral("artifacts/metadata"))));
+  QFile f(dir2.filePath(QStringLiteral("artifacts/metadata/catalog.json")));
+  QVERIFY(f.open(QIODevice::WriteOnly));
+  f.write(QByteArrayLiteral(
+      "{\"schema_version\":1,\"catalog_revision\":1,"
+      "\"entity_asset_links\":[{\"entity_type\":\"well\",\"asset_id\":\"ast-1\","
+      "\"role\":\"well_log\",\"is_primary\":true,\"unresolved\":true}]}"));
+  f.close();
+  DataCatalog legacy;
+  QVERIFY(legacy.open(dir2.path()));
+  const auto legacyLinks = legacy.linksForAsset(QStringLiteral("ast-1"));
+  QCOMPARE(legacyLinks.size(), 1);
+  QVERIFY(legacyLinks.front().unresolved);
+  QVERIFY(legacyLinks.front().entityId.isEmpty());
+  QVERIFY(legacyLinks.front().note.isEmpty());
+}
+
+// 已决链接仍拒绝空实体 id；未决链接也必须有资产 id。
+void TestCatalog::resolvedLinkStillNeedsEntityId()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogAsset asset;
+  asset.id = QStringLiteral("ast-1");
+  asset.type = QStringLiteral("well_log");
+  QVERIFY(cat.addAsset(asset));
+
+  QString err;
+  EntityAssetLink link;
+  link.entityType = QStringLiteral("well");
+  link.assetId = asset.id;
+  link.role = QStringLiteral("well_log");
+  QVERIFY(!cat.addLink(link, &err));
+  QVERIFY(!err.isEmpty());
+  QVERIFY(cat.links().isEmpty());
+
+  link.unresolved = true;
+  link.assetId.clear();
+  QVERIFY(!cat.addLink(link, &err));
+  QVERIFY(!err.isEmpty());
+  QVERIFY(cat.links().isEmpty());
 }
 
 void TestCatalog::normalizesWellName()

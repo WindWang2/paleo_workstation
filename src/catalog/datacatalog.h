@@ -41,11 +41,12 @@ struct CatalogEntity
 struct EntityAssetLink
 {
   QString entityType;
-  QString entityId;
+  QString entityId;     // unresolved 链接允许为空（§3：资产保留、实体留空、不新建不合并）
   QString assetId;
   QString role;         // well_head | well_log | tops | time_depth | horizon | seismic_volume | reference
   bool isPrimary = true;
   bool unresolved = false;
+  QString note;         // 未决备注：双候选记两个规范化井名；零匹配记未匹配名
 };
 
 struct CatalogAsset
@@ -102,7 +103,8 @@ class DataCatalog : public QObject
 
     // 身份解析 §3：井名比较前去首尾空白、连字符、空格，忽略大小写。
     // 返回按此规范化后命中的全部井 id——0/1/2+ 个候选由调用方分别处置
-    // （恰好一个挂接；零个再走文件名主名；仍零或两个→unresolved，不建井不并井）。
+    // （恰好一个挂接；零个再走文件名主名；仍零或两个→unresolved，实体 id 留空、
+    // 备注记名，不建井不并井）。
     static QString normalizeWellName(const QString &name);
     QStringList wellsMatchingName(const QString &name) const;
 

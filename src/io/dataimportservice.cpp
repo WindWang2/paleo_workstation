@@ -67,6 +67,32 @@ namespace
       return QString();
     return QString::fromUtf8(f.readAll());
   }
+
+  // 未决链接备注（§3 修订）：双候选记两个规范化井名（附实体 id 消歧）；
+  // 零匹配记规范化的未匹配井名。
+  QString candidatesNote(const DataCatalog *cat, const QStringList &candidateIds)
+  {
+    QStringList parts;
+    for (const QString &id : candidateIds)
+    {
+      const CatalogEntity e = cat->entityById(id);
+      const QString name = e.name.isEmpty() ? id : DataCatalog::normalizeWellName(e.name);
+      parts.append(QStringLiteral("%1(%2)").arg(name, id));
+    }
+    return QStringLiteral("候选: ") + parts.join(QStringLiteral(", "));
+  }
+
+  QString unmatchedNameNote(const QStringList &triedNames)
+  {
+    QStringList norm;
+    for (const QString &n : triedNames)
+    {
+      const QString nn = DataCatalog::normalizeWellName(n);
+      if (!nn.isEmpty() && !norm.contains(nn))
+        norm.append(nn);
+    }
+    return QStringLiteral("未匹配井名: ") + norm.join(QStringLiteral(", "));
+  }
 } // namespace
 
 DataImportService::DataImportService(QgisLayerService *layers, PaleoProjectStore *store,
@@ -125,22 +151,6 @@ DataImportService::WellBind DataImportService::resolveWell(const QString &name) 
   b.unresolved = true;
   b.candidates = ids; // 0 个或 2+ 个
   return b;
-}
-
-bool DataImportService::ensureAuxUnresolved(QString *entityId, QString *error)
-{
-  const QString id = QStringLiteral("aux-unresolved");
-  if (!m_catalog->hasEntity(id))
-  {
-    CatalogEntity aux;
-    aux.id = id;
-    aux.entityType = QStringLiteral("auxiliary");
-    aux.name = QStringLiteral("未解析数据");
-    if (!m_catalog->addEntity(aux, error))
-      return false;
-  }
-  *entityId = id;
-  return true;
 }
 
 bool DataImportService::storeManagedRaw(const QString &sourcePath, const QString &assetId,
@@ -291,11 +301,47 @@ QString DataImportService::importProjectFile(const QString &sourcePath, const Im
     const QVector<WellHeadRecord> rows = parseWellHeadText(f.readAll());
     if (rows.isEmpty())
       return fail(QStringLiteral("no well head rows in %1").arg(sourcePath));
+    // §3：井口是建井来源，但同文件里同一规范化井名出现两行、或一行同时匹配
+    // 两口已有井 → 该行标 unresolved（实体 id 留空、备注记名），不新建不合并；
+    // 恰好匹配一口已有井时挂 well_head，不另建井。
+    QHash<QString, int> normRowCount;
+    for (const WellHeadRecord &r : rows)
+      normRowCount[DataCatalog::normalizeWellName(r.name)] += 1;
     for (const WellHeadRecord &r : rows)
     {
-      const QString wid = QStringLiteral("well-%1").arg(r.name);
-      if (!m_catalog->hasEntity(wid))
+      const QString norm = DataCatalog::normalizeWellName(r.name);
+      EntityAssetLink link;
+      link.entityType = QStringLiteral("well");
+      link.assetId = assetId;
+      link.role = QStringLiteral("well_head");
+      if (normRowCount.value(norm) >= 2)
       {
+        link.unresolved = true;
+        link.note = QStringLiteral("井口重名: %1").arg(norm);
+        if (!m_catalog->addLink(link, error))
+          return fail(*error);
+        continue;
+      }
+      const QStringList matches = m_catalog->wellsMatchingName(r.name);
+      if (matches.size() >= 2)
+      {
+        link.unresolved = true;
+        link.note = candidatesNote(m_catalog, matches);
+        if (!m_catalog->addLink(link, error))
+          return fail(*error);
+        continue;
+      }
+      QString wid;
+      if (matches.size() == 1)
+      {
+        wid = matches.front(); // 已有井：直接挂，不另建
+      }
+      else
+      {
+        wid = QStringLiteral("well-%1").arg(r.name);
+        // id 被别的规范化名占用（罕见）→ 让位于序号 id。
+        if (m_catalog->hasEntity(wid))
+          wid = m_catalog->nextEntityId(QStringLiteral("well"));
         CatalogEntity w;
         w.id = wid;
         w.entityType = QStringLiteral("well");
@@ -310,11 +356,7 @@ QString DataImportService::importProjectFile(const QString &sourcePath, const Im
         if (!m_catalog->addEntity(w, error))
           return fail(*error);
       }
-      EntityAssetLink link;
-      link.entityType = QStringLiteral("well");
       link.entityId = wid;
-      link.assetId = assetId;
-      link.role = QStringLiteral("well_head");
       link.isPrimary = true;
       if (!m_catalog->addLink(link, error))
         return fail(*error);
@@ -326,9 +368,14 @@ QString DataImportService::importProjectFile(const QString &sourcePath, const Im
     QString wellName, uwi;
     if (cls.format == QLatin1String("las"))
       LasParser::readWellInfo(sourcePath, wellName, uwi);
+    QStringList tried{wellName};
     WellBind bind = resolveWell(wellName);
     if (bind.unresolved && bind.candidates.isEmpty())
+    {
       bind = resolveWell(stem); // A1.Las → A1
+      tried.append(stem);
+    }
+    // §3 修订：未决也是一条链接——实体 id 留空，备注记候选或未匹配名。
     EntityAssetLink link;
     link.entityType = QStringLiteral("well");
     link.assetId = assetId;
@@ -337,31 +384,16 @@ QString DataImportService::importProjectFile(const QString &sourcePath, const Im
     {
       link.entityId = bind.entityId;
       link.isPrimary = true;
-      if (!m_catalog->addLink(link, error))
-        return fail(*error);
-    }
-    else if (bind.candidates.size() >= 2)
-    {
-      // 双候选：每个候选一条 unresolved 链接，不并井（§3）。
-      link.unresolved = true;
-      for (const QString &cand : bind.candidates)
-      {
-        link.entityId = cand;
-        if (!m_catalog->addLink(link, error))
-          return fail(*error);
-      }
     }
     else
     {
-      QString auxId;
-      if (!ensureAuxUnresolved(&auxId, error))
-        return fail(*error);
-      link.entityType = QStringLiteral("auxiliary");
-      link.entityId = auxId;
       link.unresolved = true;
-      if (!m_catalog->addLink(link, error))
-        return fail(*error);
+      link.note = bind.candidates.size() >= 2
+                      ? candidatesNote(m_catalog, bind.candidates)
+                      : unmatchedNameNote(tried);
     }
+    if (!m_catalog->addLink(link, error))
+      return fail(*error);
   }
   else if (cls.type == QLatin1String("well_stratification") ||
            cls.type == QLatin1String("time_depth"))
@@ -392,12 +424,17 @@ QString DataImportService::importProjectFile(const QString &sourcePath, const Im
     const QString role = cls.type == QLatin1String("well_stratification")
                              ? QStringLiteral("tops")
                              : QStringLiteral("time_depth");
-    bool anyLinked = false;
+    // §3 修订：每个井名一条链接；未决链接实体 id 留空，备注记候选或未匹配名，
+    // 不新建井、不合并、不再挂辅助实体。
     for (const QString &n : names)
     {
+      QStringList tried{n};
       WellBind bind = resolveWell(n);
       if (bind.unresolved && bind.candidates.isEmpty() && names.size() == 1)
+      {
         bind = resolveWell(stem); // 单井文件的文件名主名回退
+        tried.append(stem);
+      }
       EntityAssetLink link;
       link.entityType = QStringLiteral("well");
       link.assetId = assetId;
@@ -406,34 +443,14 @@ QString DataImportService::importProjectFile(const QString &sourcePath, const Im
       {
         link.entityId = bind.entityId;
         link.isPrimary = true;
-        if (!m_catalog->addLink(link, error))
-          return fail(*error);
-        anyLinked = true;
       }
-      else if (bind.candidates.size() >= 2)
+      else
       {
         link.unresolved = true;
-        for (const QString &cand : bind.candidates)
-        {
-          link.entityId = cand;
-          if (!m_catalog->addLink(link, error))
-            return fail(*error);
-        }
-        anyLinked = true;
+        link.note = bind.candidates.size() >= 2
+                        ? candidatesNote(m_catalog, bind.candidates)
+                        : unmatchedNameNote(tried);
       }
-    }
-    if (!anyLinked)
-    {
-      // 零匹配：一条 unresolved 挂辅助实体，不新建井。
-      EntityAssetLink link;
-      QString auxId;
-      if (!ensureAuxUnresolved(&auxId, error))
-        return fail(*error);
-      link.entityType = QStringLiteral("auxiliary");
-      link.entityId = auxId;
-      link.assetId = assetId;
-      link.role = role;
-      link.unresolved = true;
       if (!m_catalog->addLink(link, error))
         return fail(*error);
     }

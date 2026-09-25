@@ -49,6 +49,9 @@ add_library(paleo_core STATIC
   src/workflow/workflows.cpp
   src/ui/paleomainwindow.cpp
   src/ui/pages/pagepanels.cpp
+  src/ui/locator/paleolocatorfilters.cpp
+  src/ui/layoutdesignershell.cpp
+  src/ui/maptools/paleomaptools.cpp
   src/app/appcontext.cpp
   src/linkage/seismicmaplink.cpp
 )
@@ -94,6 +97,9 @@ add_paleo_test(tst_workflows)
 add_paleo_test(tst_ui)
 add_paleo_test(tst_panels)
 add_paleo_test(tst_perf)
+add_paleo_test(tst_locator)
+add_paleo_test(tst_layoutshell)
+add_paleo_test(tst_maptools)
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx)
   set_tests_properties(tst_onnx PROPERTIES ENVIRONMENT

@@ -1355,6 +1355,78 @@ Facies Polygon Layer (可编辑)
 - [ ] **ET9 (P2)** — app-only 功能审计表（qgis_gui vs src/app：布局设计器/顶点编辑/数字化面板/画布装饰逐项标注）。
 - [ ] **ET10 (P2)** — 性能用例：overviews 构建、打开预算、并发上限（§41.6 数字）。
 
+## 44. 开发者体验（DX）规格（/plan-devex-review 2026-09-25，DX POLISH 模式）
+
+目标开发者 = 本项目内部工程师（单人/1-2 人小团队）。本产品的「开发者面」是构建与迭代环境本身 —— vendored QGIS superbuild 是全项目最大 DX 风险面。无公共 SDK/API/社区维度（Pass 7 按设计不适用）。
+
+### 44.1 TTHW 目标与魔法时刻（DX2/DX3）
+
+- **TTHW 目标**：干净机器 clone → `./vendor/bootstrap.sh` 完成 → `./paleo-dev selfcheck` 全绿。**一条人工命令 + ≤2h 无人值守编译**。编译耗时是依赖树的物理下限；DX 杠杆压在「人工步骤 = 1」与「失败可诊断」上。
+- **Magical moment**：`selfcheck` 不止输出 checklist，还把一个 GPKG 图层离屏渲染到 `vendor/logs/selfcheck.png` —— 工程师亲眼看到一张真地图。该 PNG 同时充当：§39 spike 验收证据（非均匀像素断言）、CI artifact、视觉确认。
+- selfcheck checklist 输出格式：`✓ providers=N ✓ srs.db loaded ✓ GPKG layer loaded ✓ rendered → <path>`，并打印各阶段耗时。
+
+### 44.2 统一开发入口 `./paleo-dev`（DX5）
+
+repo 根单一可发现入口脚本（薄壳转发，不遮蔽底层工具；逃生舱 = 直接调 cmake/ninja/ctest）：
+
+```
+./paleo-dev bootstrap   # = vendor/bootstrap.sh 转发
+./paleo-dev build       # 增量构建（ninja + ccache + qgis_core/gui/analysis UNITY_BUILD 默认开）
+./paleo-dev test        # QT_QPA_PLATFORM=offscreen ctest，本地/CI 同一路径
+./paleo-dev selfcheck   # §44.1 自检 + map.png
+./paleo-dev clean-vendor# 清 vendor 构建缓存（保留下载源包）
+./paleo-dev --help      # 列出全部 verb
+```
+
+`paleo-dev` 集中管理易忘环境变量（`QT_QPA_PLATFORM`、vendor prefix、`LD_LIBRARY_PATH`），避免本地/CI 漂移。
+
+### 44.3 Bootstrap 预检与可恢复契约
+
+- `vendor/bootstrap.sh` 先做 **preflight**：磁盘空间、cmake ≥ 最低版本、编译器版本、ninja、nasm/python（依赖需要时）、网络可达性 —— 失败项逐项输出「问题 + 原因 + 修复命令」后退出，不允许编译一半才爆。
+- **断点续编**：依赖按目录粒度标记（`vendor/.done/<dep>-<ver>`），失败重跑只编未完成项，不整树重来。
+- 构建日志统一落 `vendor/logs/<dep>.log`；失败时 bootstrap 尾部输出最后 40 行 + 完整日志路径。
+
+### 44.4 文档面（Pass 4）
+
+- `README.md`：面向人类工程师的 quickstart —— 3 行（clone → bootstrap → selfcheck），平台矩阵，指向 BUILDING.md。现有 `AGENTS.md`/`CLAUDE.md` 是 agent 路由，不替代人类入口文档。
+- `BUILDING.md`：平台 × 版本矩阵、依赖清单（Phase 0 产物回填）、常见失败表（每个失败模式：现象/原因/修复）、如何从干净状态重建。
+
+### 44.5 升级路径（Pass 5）
+
+依赖版本 manifest 是 Phase 0 交付物；补充升级流程契约：bump 依赖版本 = 改 manifest 一处 → `paleo-dev clean-vendor <dep>` → 重编 → selfcheck。QGIS 4.2.x patch bump 预期无人值守完成；minor/LTR 换线按 §39 重新跑三 spike 做 go/no-go。
+
+### 44.6 迭代环境（Pass 6）
+
+- `CMAKE_EXPORT_COMPILE_COMMANDS=ON` 默认开 → clangd/IDE 即插即用。
+- 增量构建预算：改动单个 app 源文件 → 链接完成 ≤ 60s（P0 脊线代码量下）。
+- 渲染测试统一 `QT_QPA_PLATFORM=offscreen`（经 `paleo-dev test`），headless CI 无需 X。
+
+### 44.7 DX 度量（Pass 8）
+
+- selfcheck 输出各阶段耗时（vendor 编译不计入日常指标）。
+- bootstrap 失败时保留完整日志于 `vendor/logs/`；CI 将其作为 artifact 上传。
+- 不测遥测 —— 内部单人项目，度量只服务于「本次构建为什么慢/为什么挂」。
+
+### 44.8 DX Journey Map（修正后）
+
+```
+STAGE          | DEV DOES                          | STATUS
+---------------|-----------------------------------|--------------------------
+1. Discover    | clone → README quickstart          | fixed (§44.4)
+2. Install     | ./vendor/bootstrap.sh (preflight+续编) | fixed (§44.3)
+3. Hello World | ./paleo-dev selfcheck → map.png    | fixed (§44.1)
+4. Real usage  | paleo-dev build/test，增量≤60s      | fixed (§44.2/44.6)
+5. Debug       | 失败输出 问题+原因+修复+log 路径     | fixed (§44.3)
+6. Upgrade     | manifest 一处 bump → clean-vendor → selfcheck | fixed (§44.5)
+```
+
+### 44.9 DX 交付物清单（并入工程任务）
+
+- ET11 (P1) — `vendor/bootstrap.sh`：preflight + 断点续编 + 失败诊断输出（§44.3）。验证：干净容器跑通。
+- ET12 (P1) — `paleo-dev` 入口脚本 + `selfcheck` verb 含 map.png 渲染（§44.1/44.2）。验证：selfcheck 全绿且 PNG 非均匀像素。
+- ET13 (P2) — `README.md` + `BUILDING.md`（§44.4）。验证：按文档在无先验机器走通 TTHW。
+- ET14 (P2) — 增量构建预算检查：单文件改动增量 ≤60s 记录进 BUILDING.md 实测值（§44.6）。
+
 ## NOT in scope（本次评审决议）
 
 - **License/vendor 合规章节** — 用户确认产品遵循 GPL，vendored QGIS 兼容，无需专章。（D3）
@@ -1412,6 +1484,11 @@ Facies Polygon Layer (可编辑)
 | ER9 | NFR 量化 | overviews/打开预算/并发上限/cell size → §41.6 | 用户选择 A |
 | ER10 | 跨层位验证 | instantiate-on-demand → §37 | 用户选择 A |
 | ER11 | QGIS 4.2 LTR 已发布 | 事实修正 → §39（钉 4.2.x） | 证据：version.qgis.org |
+| DX1 | 目标开发者 persona | 内部单人/小团队工程师 → §44 | 用户选择 A |
+| DX2 | TTHW 目标 | 1 命令 + ≤2h 无人值守 → §44.1 | 用户选择 B |
+| DX3 | Magical moment | selfcheck checklist + map.png → §44.1 | 用户选择 A |
+| DX4 | 评审模式 | DX POLISH | 用户选择 B |
+| DX5 | 开发入口 | `./paleo-dev` 统一入口 → §44.2 | 用户选择 A |
 
 ## 外部评审说明
 
@@ -1425,9 +1502,9 @@ Codex 外部评审因网络故障超时（5 分钟上限，websocket TLS 失败�
 | Outside Review | codex via `/plan-ceo-review` | Independent 2nd opinion | 1 | unavailable | Codex 网络超时；native fallback completed（meta-finding+9 组发现已裁定），不计外部覆盖 |
 | Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | issues_open→resolved | Phase0+P0 脊线评审；8 发现全部采纳 → §33/35/37/39/41；QGIS 4.2 LTR 事实修正 |
 | Design Review | `/plan-design-review` | UI/UX gaps | 1 | clean | 6/10 → 9/10；13 项决策采纳 → §42 + DESIGN.md tokens |
-| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | 待运行 |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 1 | issues_open→resolved | 3/10→7/10；内部构建栈 DX；TTHW=1命令+≤2h无人值守；map.png 魔法时刻；paleo-dev 入口；§44+ET11–14 |
 
-- **OUTSIDE COVERAGE:** codex（plan phase）= unavailable（TLS/超时）；claude-code（design phase）= skipped；eng-phase outside voice = unavailable（native fallback 300s 限时超时）。无完成的外部评审记录。
-- **VERDICT:** CEO CLEARED + DESIGN CLEARED（9/10）+ ENG REVIEWED（8 发现全采纳，0 未决）。可进入 Phase 0 实现 —— 三 spike（vendor boot / GDALPolygonize 封装 / AI 运行时）为 P0 前置 go/no-go 门。
+- **OUTSIDE COVERAGE:** codex（plan phase）= unavailable（TLS/超时）；claude-code（design phase）= skipped；eng-phase outside voice = unavailable（native fallback 300s 限时超时）；dx-phase outside voice = unavailable（native fallback 300s 限时超时）。无完成的外部评审记录。
+- **VERDICT:** CEO CLEARED + DESIGN CLEARED（9/10）+ ENG REVIEWED（8 发现全采纳）+ DX REVIEWED（5 决策全采纳，0 未决）。可进入 Phase 0 实现 —— 三 spike 为 P0 前置 go/no-go 门；ET11/12 使 TTHW 目标可验收。
 
 NO UNRESOLVED DECISIONS

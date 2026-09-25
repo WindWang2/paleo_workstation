@@ -42,6 +42,7 @@ class DataPreviewTabs : public QWidget
   private:
     QWidget *buildContent(const QString &assetId, QString *titleOut, QString *wellEntityOut,
                           QString *horizonLayerOut);
+    void rebuildAssetTab(const QString &assetId); // 文档 PDF 转换完成后重建内容
     void focusWellIfNeeded(const QString &assetId, QWidget *page);
 
     DataImportService *m_svc = nullptr;

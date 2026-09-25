@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test Sql Xml Concurrent Svg PrintSupport Network SerialPort Positioning UiTools OpenGLWidgets WebEngineWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test Sql Xml Concurrent Svg PrintSupport Network SerialPort Positioning UiTools OpenGLWidgets WebEngineWidgets Pdf PdfWidgets)
 
 # QGIS: distro packages ship no cmake config — locate manually (vendor prefix later overrides these)
 find_path(QGIS_INCLUDE_DIR qgsapplication.h PATHS ${QGIS_PREFIX}/include/qgis /usr/include/qgis REQUIRED)
@@ -19,7 +19,7 @@ find_library(GDAL_LIB gdal PATHS ${QGIS_PREFIX}/lib /usr/lib REQUIRED)
 add_library(paleo_qgis_iface INTERFACE)
 target_include_directories(paleo_qgis_iface INTERFACE ${QGIS_INCLUDE_DIR})
 target_link_libraries(paleo_qgis_iface INTERFACE ${QGIS_CORE_LIB} ${QGIS_GUI_LIB} ${QGIS_ANALYSIS_LIB}
-  Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Xml Qt6::Sql Qt6::Concurrent Qt6::Svg Qt6::PrintSupport Qt6::Network Qt6::SerialPort Qt6::Positioning Qt6::UiTools Qt6::OpenGLWidgets Qt6::WebEngineWidgets)
+  Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Xml Qt6::Sql Qt6::Concurrent Qt6::Svg Qt6::PrintSupport Qt6::Network Qt6::SerialPort Qt6::Positioning Qt6::UiTools Qt6::OpenGLWidgets Qt6::WebEngineWidgets Qt6::Pdf Qt6::PdfWidgets)
 
 # GPKG fixture is generated at configure time (committed binary is the fallback copy)
 find_program(OGR2OGR ogr2ogr)

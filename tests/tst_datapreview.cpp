@@ -13,6 +13,8 @@
 
 #include <QComboBox>
 #include <QLabel>
+#include <QPdfDocument>
+#include <QPdfView>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QTabWidget>
@@ -81,6 +83,9 @@ private slots:
   void horizonTabOffersShowOnMap();
   void everyTypeOpensContent();
   void topsTimeColumnStaysBlank();
+  void document_pdfRendersInTab();
+  void document_stubbedConverterYieldsDerived();
+  void document_converterMissingFailsHonest();
 
 private:
   // 共享一次导入的夹具集（每个测试自建栈，互不污染）。
@@ -273,6 +278,135 @@ void TestDataPreview::topsTimeColumnStaysBlank()
     QVERIFY(timeItem);
     QVERIFY2(timeItem->text().isEmpty(), qPrintable(timeItem->text()));
   }
+}
+
+void TestDataPreview::document_pdfRendersInTab()
+{
+  // PDF 原件不经转换：直接进 QPdfView，catalog 里仍只有 RAW 版本。
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+  QString err;
+  const QString pdfId = st->importSvc->importProjectFile(
+      fixture(QStringLiteral("tiny.pdf")), &err);
+  QVERIFY2(!pdfId.isEmpty(), qPrintable(err));
+
+  st->preview->openAsset(pdfId);
+  auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+  QVERIFY(tabs);
+  auto *view = tabs->widget(tabs->currentIndex())
+                   ->findChild<QPdfView *>(QStringLiteral("pdfView"));
+  QVERIFY2(view, "pdf document should render in QPdfView, not degrade");
+  QVERIFY(view->document());
+  QCOMPARE(view->document()->status(), QPdfDocument::Status::Ready);
+  QCOMPARE(view->document()->pageCount(), 1);
+  QCOMPARE(st->importSvc->catalog()->versionsForAsset(pdfId).size(), 1);
+}
+
+void TestDataPreview::document_stubbedConverterYieldsDerived()
+{
+  // stub 转换器（不依赖真 soffice）：把 tiny.pdf 复制为 <stem>.pdf，
+  // 走完 DERIVED 登记 + 信号 → 标签重建 → pdfView 的全链路。
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+
+  const QString docPath = tmp.filePath(QStringLiteral("report.docx"));
+  {
+    QFile f(docPath);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("not a real docx — the stub converter ignores content");
+  }
+  const QString stub = tmp.filePath(QStringLiteral("fake_soffice.sh"));
+  {
+    QFile s(stub);
+    QVERIFY(s.open(QIODevice::WriteOnly));
+    s.write(QStringLiteral("#!/bin/sh\n"
+                           "outdir=\"\"; src=\"\"\n"
+                           "while [ $# -gt 0 ]; do\n"
+                           "  if [ \"$1\" = \"--outdir\" ]; then outdir=\"$2\"; shift 2\n"
+                           "  else src=\"$1\"; shift; fi\n"
+                           "done\n"
+                           "base=$(basename \"$src\"); base=\"${base%.*}\"\n"
+                           "cp \"%1\" \"$outdir/$base.pdf\"\n")
+                .arg(fixture(QStringLiteral("tiny.pdf")))
+                .toUtf8());
+  }
+  QFile::setPermissions(stub, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                  QFileDevice::ExeOwner | QFileDevice::ReadGroup |
+                                  QFileDevice::ReadOther);
+  st->importSvc->setDocumentConverterProgram(stub);
+
+  QString err;
+  const QString docId = st->importSvc->importProjectFile(docPath, &err);
+  QVERIFY2(!docId.isEmpty(), qPrintable(err));
+
+  QSignalSpy readySpy(st->importSvc.get(), &DataImportService::documentPdfReady);
+  QSignalSpy failSpy(st->importSvc.get(), &DataImportService::documentPdfFailed);
+  st->preview->openAsset(docId);
+  QCOMPARE(st->importSvc->documentPdfState(docId), DataImportService::DocPdfState::Pending);
+
+  QTRY_VERIFY_WITH_TIMEOUT(readySpy.count() >= 1, 15000);
+  QCOMPARE(failSpy.count(), 0);
+  QCOMPARE(st->importSvc->documentPdfState(docId), DataImportService::DocPdfState::Ready);
+
+  // DERIVED 版本登记：父=RAW、受管、sha256 已算、文件在盘。
+  const auto versions = st->importSvc->catalog()->versionsForAsset(docId);
+  QCOMPARE(versions.size(), 2);
+  QString rawId;
+  CatalogVersion derived;
+  for (const CatalogVersion &v : versions)
+  {
+    if (v.stage == QLatin1String("RAW"))
+      rawId = v.id;
+    if (v.stage == QLatin1String("DERIVED"))
+      derived = v;
+  }
+  QVERIFY(!rawId.isEmpty());
+  QVERIFY(!derived.id.isEmpty());
+  QVERIFY(derived.fileName.endsWith(QStringLiteral(".pdf")));
+  QVERIFY(!derived.sha256.isEmpty());
+  QVERIFY(derived.managed);
+  QVERIFY(derived.parentVersionIds.contains(rawId));
+  QVERIFY(QFile::exists(st->importSvc->documentPdfPath(docId)));
+
+  // 信号驱动的标签重建后，pdfView 就位。
+  auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+  auto *view = tabs->widget(tabs->currentIndex())
+                   ->findChild<QPdfView *>(QStringLiteral("pdfView"));
+  QVERIFY2(view, "converted pdf should render after rebuild");
+  QCOMPARE(view->document()->status(), QPdfDocument::Status::Ready);
+}
+
+void TestDataPreview::document_converterMissingFailsHonest()
+{
+  // 无转换器：Failed 态如实报「找不到 LibreOffice」，标签保留降级面。
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+  st->importSvc->setDocumentConverterProgram(QString()); // 强制不可用
+
+  const QString docPath = tmp.filePath(QStringLiteral("report.pptx"));
+  {
+    QFile f(docPath);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("fake");
+  }
+  QString err;
+  const QString docId = st->importSvc->importProjectFile(docPath, &err);
+  QVERIFY(!docId.isEmpty());
+
+  QSignalSpy failSpy(st->importSvc.get(), &DataImportService::documentPdfFailed);
+  st->preview->openAsset(docId);
+  QCOMPARE(failSpy.count(), 1);
+  QCOMPARE(st->importSvc->documentPdfState(docId), DataImportService::DocPdfState::Failed);
+  QVERIFY(st->importSvc->documentPdfError(docId).contains(QStringLiteral("LibreOffice")));
+
+  auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+  QWidget *page = tabs->widget(tabs->currentIndex());
+  auto *state = page->findChild<QLabel *>(QStringLiteral("stateText"));
+  QVERIFY(state && state->text().contains(QStringLiteral("无 PDF 预览")));
+  QVERIFY(page->findChildren<QPushButton *>().size() >= 1); // 用系统程序打开
 }
 
 int main(int argc, char *argv[])

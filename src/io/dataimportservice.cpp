@@ -17,7 +17,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QProcess>
 #include <QSet>
+#include <QStandardPaths>
 
 #include <cstdio>
 
@@ -76,10 +78,30 @@ DataImportService::DataImportService(QgisLayerService *layers, PaleoProjectStore
 {
 }
 
-DataImportService::~DataImportService() = default;
+DataImportService::~DataImportService()
+{
+  if (m_pdfProc)
+  {
+    m_pdfProc->kill();
+    m_pdfProc->waitForFinished(2000);
+  }
+}
 
 void DataImportService::setProjectDir(const QString &dir)
 {
+  // 工程切换时丢弃在途/排队转换——它们写向旧工程目录，且状态随之失效。
+  if (m_pdfProc)
+  {
+    m_pdfProc->disconnect(this);
+    m_pdfProc->kill();
+    m_pdfProc->deleteLater();
+    m_pdfProc = nullptr;
+  }
+  m_pdfQueue.clear();
+  m_pdfCurrent.clear();
+  m_pdfPending.clear();
+  m_pdfErrors.clear();
+
   m_projectDir = dir;
   QString err;
   if (!m_catalog->open(dir, &err))
@@ -590,12 +612,197 @@ QString DataImportService::importFile(const QString &kind, const QString &source
 
 QString DataImportService::absolutePath(const QString &assetId) const
 {
-  const CatalogVersion v = m_catalog->currentVersion(assetId);
+  return absolutePathForVersion(m_catalog->currentVersion(assetId));
+}
+
+QString DataImportService::absolutePathForVersion(const CatalogVersion &v) const
+{
   if (v.path.isEmpty())
     return QString();
   if (!v.managed)
     return v.path;
   return QDir(m_projectDir).absoluteFilePath(v.path);
+}
+
+// ---------------------------------------------------------------------------
+// 文档 PDF 预览：doc/docx/ppt/pptx 经 LibreOffice headless 转 PDF，落受管
+// DERIVED 版本（parent=RAW），预览标签页用 QtPdf 渲染。原件仍是规范来源；
+// 转换失败/无 soffice 如实 Failed，UI 降级为「用系统程序打开」。
+// ---------------------------------------------------------------------------
+
+void DataImportService::resolveDocumentConverter()
+{
+  if (m_converterResolved)
+    return;
+  m_converter = QStandardPaths::findExecutable(QStringLiteral("soffice"));
+  if (m_converter.isEmpty())
+    m_converter = QStandardPaths::findExecutable(QStringLiteral("libreoffice"));
+  m_converterResolved = true;
+}
+
+void DataImportService::setDocumentConverterProgram(const QString &program)
+{
+  m_converter = program;
+  m_converterResolved = true;
+}
+
+DataImportService::DocPdfState
+DataImportService::documentPdfState(const QString &assetId) const
+{
+  for (const CatalogVersion &v : m_catalog->versionsForAsset(assetId))
+    if (v.stage == QLatin1String("DERIVED") &&
+        v.fileName.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive))
+      return DocPdfState::Ready;
+  if (m_pdfPending.contains(assetId))
+    return DocPdfState::Pending;
+  if (m_pdfErrors.contains(assetId))
+    return DocPdfState::Failed;
+  return DocPdfState::None;
+}
+
+QString DataImportService::documentPdfPath(const QString &assetId) const
+{
+  for (const CatalogVersion &v : m_catalog->versionsForAsset(assetId))
+    if (v.stage == QLatin1String("DERIVED") &&
+        v.fileName.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive))
+      return absolutePathForVersion(v);
+  return QString();
+}
+
+QString DataImportService::documentPdfError(const QString &assetId) const
+{
+  return m_pdfErrors.value(assetId);
+}
+
+void DataImportService::ensureDocumentPdf(const QString &assetId)
+{
+  if (documentPdfState(assetId) != DocPdfState::None)
+    return;
+
+  const auto failNow = [this, &assetId](const QString &msg) {
+    m_pdfErrors.insert(assetId, msg);
+    emit documentPdfFailed(assetId, msg);
+  };
+
+  resolveDocumentConverter();
+  if (m_converter.isEmpty())
+    return failNow(tr("找不到 LibreOffice（soffice）——无法生成 PDF 预览"));
+
+  QString rawAbs, rawVersionId;
+  for (const CatalogVersion &v : m_catalog->versionsForAsset(assetId))
+    if (v.stage == QLatin1String("RAW"))
+    {
+      rawAbs = absolutePathForVersion(v);
+      rawVersionId = v.id;
+      break;
+    }
+  if (rawAbs.isEmpty() || !QFile::exists(rawAbs))
+    return failNow(tr("原始文件缺失，无法转换"));
+
+  m_pdfPending.insert(assetId);
+  m_pdfQueue.append(assetId);
+  startNextDocumentPdf();
+}
+
+void DataImportService::startNextDocumentPdf()
+{
+  if (m_pdfProc || m_pdfQueue.isEmpty())
+    return;
+
+  m_pdfCurrent = m_pdfQueue.takeFirst();
+  m_pdfCurrentVersionId = m_catalog->nextVersionId();
+
+  QString rawAbs;
+  for (const CatalogVersion &v : m_catalog->versionsForAsset(m_pdfCurrent))
+    if (v.stage == QLatin1String("RAW"))
+    {
+      rawAbs = absolutePathForVersion(v);
+      m_pdfRawVersionId = v.id;
+      break;
+    }
+
+  const QString relDir = QStringLiteral("artifacts/derived/%1/%2")
+                             .arg(m_pdfCurrent, m_pdfCurrentVersionId);
+  const QString outDir = QDir(m_projectDir).absoluteFilePath(relDir);
+  if (!QDir().mkpath(outDir))
+    return finishDocumentPdf(-1);
+  m_pdfOutFile = outDir + QLatin1Char('/') +
+                 QFileInfo(rawAbs).completeBaseName() + QStringLiteral(".pdf");
+
+  // 独立 UserInstallation：避开 LibreOffice 单实例 profile 锁。
+  const QString profile = QStringLiteral("-env:UserInstallation=file://") +
+                          QDir::temp().filePath(QStringLiteral("paleo-lo-profile"));
+
+  m_pdfProc = new QProcess(this);
+  connect(m_pdfProc, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+          this, [this](int code, QProcess::ExitStatus status) {
+            finishDocumentPdf(status == QProcess::NormalExit ? code : -1);
+          });
+  m_pdfProc->start(m_converter,
+                   {QStringLiteral("--headless"), QStringLiteral("--norestore"),
+                    profile, QStringLiteral("--convert-to"), QStringLiteral("pdf"),
+                    QStringLiteral("--outdir"), outDir, rawAbs});
+}
+
+void DataImportService::finishDocumentPdf(int exitCode)
+{
+  const QString assetId = m_pdfCurrent;
+  QString err;
+  bool ok = false;
+
+  if (exitCode == 0 && QFile::exists(m_pdfOutFile))
+  {
+    QFile f(m_pdfOutFile);
+    if (f.open(QIODevice::ReadOnly))
+    {
+      QCryptographicHash hash(QCryptographicHash::Sha256);
+      hash.addData(&f);
+      f.close();
+      QFile::setPermissions(m_pdfOutFile, QFileDevice::ReadOwner |
+                                              QFileDevice::ReadUser |
+                                              QFileDevice::ReadGroup |
+                                              QFileDevice::ReadOther);
+
+      CatalogVersion d;
+      d.id = m_pdfCurrentVersionId;
+      d.assetId = assetId;
+      d.stage = QStringLiteral("DERIVED");
+      d.versionNumber = m_catalog->currentVersion(assetId).versionNumber + 1;
+      d.managed = true;
+      d.path = QStringLiteral("artifacts/derived/%1/%2/%3")
+                   .arg(assetId, m_pdfCurrentVersionId, QFileInfo(m_pdfOutFile).fileName());
+      d.sourceUri = m_converter;
+      d.sha256 = QString::fromLatin1(hash.result().toHex());
+      d.fileName = QFileInfo(m_pdfOutFile).fileName();
+      d.parentVersionIds = QStringList{m_pdfRawVersionId};
+      d.extra.insert(QStringLiteral("generator"), QStringLiteral("libreoffice"));
+      ok = m_catalog->addVersion(d, &err);
+    }
+    else
+      err = f.errorString();
+  }
+  else
+    err = m_pdfProc ? QString::fromLocal8Bit(m_pdfProc->readAllStandardError()).trimmed()
+                    : tr("无法创建输出目录");
+  if (err.isEmpty() && !ok)
+    err = tr("soffice 退出码 %1，未产出 PDF").arg(exitCode);
+
+  if (m_pdfProc)
+  {
+    m_pdfProc->deleteLater();
+    m_pdfProc = nullptr;
+  }
+  m_pdfCurrent.clear();
+  m_pdfPending.remove(assetId);
+
+  if (ok)
+    emit documentPdfReady(assetId);
+  else
+  {
+    m_pdfErrors.insert(assetId, err);
+    emit documentPdfFailed(assetId, err);
+  }
+  startNextDocumentPdf();
 }
 
 QStringList DataImportService::assets(const QString &type) const

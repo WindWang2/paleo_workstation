@@ -17,6 +17,8 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QPainter>
+#include <QPdfDocument>
+#include <QPdfView>
 #include <QPixmap>
 #include <QPushButton>
 #include <QScrollArea>
@@ -252,7 +254,16 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
 
 void DataPreviewTabs::setImportService(DataImportService *svc)
 {
+  if (m_svc)
+    disconnect(m_svc, nullptr, this, nullptr);
   m_svc = svc;
+  if (!m_svc)
+    return;
+  // 文档 PDF 转换完成/失败 → 重建该资产标签（「转换中」→ 预览或降级面）。
+  connect(m_svc, &DataImportService::documentPdfReady, this,
+          [this](const QString &assetId) { rebuildAssetTab(assetId); });
+  connect(m_svc, &DataImportService::documentPdfFailed, this,
+          [this](const QString &assetId, const QString &) { rebuildAssetTab(assetId); });
 }
 
 int DataPreviewTabs::tabCount() const
@@ -311,6 +322,32 @@ void DataPreviewTabs::focusWellIfNeeded(const QString &assetId, QWidget *page)
     }
 }
 
+void DataPreviewTabs::rebuildAssetTab(const QString &assetId)
+{
+  QWidget *page = m_pageOfAsset.value(assetId);
+  if (!page)
+    return;
+  auto *pageLay = qobject_cast<QVBoxLayout *>(page->layout());
+  if (!pageLay)
+    return;
+  while (QLayoutItem *it = pageLay->takeAt(0))
+  {
+    if (QWidget *w = it->widget())
+      w->deleteLater();
+    delete it;
+  }
+  QString title, wellEntity, horizonLayer;
+  QWidget *content = buildContent(assetId, &title, &wellEntity, &horizonLayer);
+  pageLay->addWidget(content ? content : stateLabel(tr("无法生成预览"), page), 1);
+  const int idx = m_tabs->indexOf(page);
+  if (idx >= 0 && !title.isEmpty())
+    m_tabs->setTabText(idx, title);
+  if (!horizonLayer.isEmpty())
+    if (auto *btn = page->findChild<QPushButton *>(QStringLiteral("showOnMapBtn")))
+      connect(btn, &QPushButton::clicked, this,
+              [this, horizonLayer] { emit showHorizonOnMapRequested(horizonLayer); });
+}
+
 void DataPreviewTabs::openAsset(const QString &assetId)
 {
   if (!m_svc || assetId.isEmpty())
@@ -352,7 +389,16 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QString *titleOut
   if (asset.id.isEmpty())
     return nullptr;
   const CatalogVersion v = cat->currentVersion(assetId);
-  const QString abs = m_svc->absolutePath(assetId);
+  QString abs = m_svc->absolutePath(assetId);
+  // 文档资产：RAW 原件是规范来源——currentVersion 可能已指向 DERIVED
+  // PDF 转换件，缺失检查与「用系统程序打开」必须锚在原件上。
+  if (asset.type == QLatin1String("document"))
+    for (const CatalogVersion &cv : cat->versionsForAsset(assetId))
+      if (cv.stage == QLatin1String("RAW"))
+      {
+        abs = m_svc->absolutePathForVersion(cv);
+        break;
+      }
   if (titleOut)
     *titleOut = asset.displayName;
 
@@ -661,7 +707,51 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QString *titleOut
     connect(btn, &QPushButton::clicked, host,
             [abs] { QDesktopServices::openUrl(QUrl::fromLocalFile(abs)); });
     lay->addWidget(btn, 0, Qt::AlignLeft);
-    lay->addStretch(1);
+
+    // PDF 预览：pdf 原件直接渲染；office 格式经 soffice → DERIVED 懒转换。
+    QString pdfAbs;
+    if (asset.format == QLatin1String("pdf"))
+      pdfAbs = abs;
+    else if (m_svc)
+    {
+      m_svc->ensureDocumentPdf(assetId);
+      switch (m_svc->documentPdfState(assetId))
+      {
+        case DataImportService::DocPdfState::Ready:
+          pdfAbs = m_svc->documentPdfPath(assetId);
+          break;
+        case DataImportService::DocPdfState::Failed:
+          lay->addWidget(
+              stateLabel(tr("无 PDF 预览：%1").arg(m_svc->documentPdfError(assetId)),
+                         host),
+              1);
+          break;
+        default: // Pending（None 不可达——ensure 刚入队或已记失败）
+          lay->addWidget(stateLabel(tr("正在转换为 PDF 预览…"), host), 1);
+          break;
+      }
+    }
+    else
+      lay->addWidget(stateLabel(tr("无法生成 PDF 预览"), host), 1);
+
+    if (!pdfAbs.isEmpty())
+    {
+      auto *doc = new QPdfDocument(host);
+      if (doc->load(pdfAbs) == QPdfDocument::Error::None)
+      {
+        auto *view = new QPdfView(host);
+        view->setObjectName(QStringLiteral("pdfView"));
+        view->setDocument(doc);
+        view->setPageMode(QPdfView::PageMode::MultiPage);
+        lay->addWidget(view, 1);
+        if (asset.format != QLatin1String("pdf"))
+          lay->addWidget(
+              caption8(tr("预览为 PDF 转换件；原件经「用系统程序打开」"), host));
+      }
+      else
+        lay->addWidget(
+            stateLabel(tr("PDF 转换件无法加载\n%1").arg(pdfAbs), host), 1);
+    }
     return host;
   }
 

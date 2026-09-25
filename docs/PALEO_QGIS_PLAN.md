@@ -1188,3 +1188,183 @@ Paleo Workbench 专注：
 "Paleo Workbench 是建立在 QGIS GIS Engine 之上的古地理专业解释与编图系统。"
 
 我认为这才是当前这套 C++ + QGIS Vendor 架构最合理的长期定位。尤其是截图中的图层管理、物源线/展布线编辑、单因素插值、综合相图编辑、图件整饰以及验证定位，都非常适合建立在 QGIS 的现有能力之上，而不应该再重复造 GIS 基础设施。
+
+---
+
+## 32. CEO 评审补充约束（2026-09-25 /plan-ceo-review 决议）
+
+以下约束在评审中由用户确认，作为全局前提：
+
+1. **C++ only，不内嵌 Python。** Vendor 不包含 PyQGIS 运行时。
+   - 影响：QGIS Processing 中 `gdal:*` provider 算法（contour、rasterize、polygonize、gdal grid 等）是 Python 实现，在 C++-only vendor 下不可用。
+   - 决议：`native:*` C++ 算法（含 `native:idwinterpolation`、`native:tininterpolation`、fix geometries、snap geometries 等）正常走 Processing；GDAL 系能力由集成层直接调用 GDAL C++ API 封装为 `QgsProcessingAlgorithm` 子类实现，不引入 Python。
+   - 待验证项：逐个确认 §10–12 所列每个算法在 `native` provider 下有 C++ 实现；缺的（如 raster contour）走 GDAL C++（`GDALContourGenerate` 等）。
+2. **所有依赖库尽量 vendor。** QGIS / GDAL / PROJ / GEOS / Qt 均随产品打包，不依赖系统安装版本。
+   - 影响：构建系统需提供 vendored 工具链产物；QGIS prefix path、provider 路径、proj db 路径全部指向 vendor 目录内相对路径。
+3. **许可证不构成约束。** 产品本身遵循 GPL，与 vendored QGIS（GPLv2+）兼容；无需商业许可隔离设计，但仍在 vendor manifest 中登记各库许可证备查。
+
+## 33. 自动化测试策略（评审新增）
+
+§30 的验收场景为手工端到端流程，不足以保护集成层。新增测试策略：
+
+- **集成层单元测试**：`QgisProjectService` / `QgisLayerService` 等 service 的契约测试——图层增删、透明度、顺序、CRS 变更后 `QgsProject` 状态与 UI 一致（对应 §5 的五类历史 bug，每类一个回归测试）。
+- **算法测试**：Paleo 约束插值、相融合等 `QgsProcessingAlgorithm` 走 QGIS 算法测试模式（固定输入 fixture → 断言输出 raster/vector 的统计量与空间范围）。
+- **渲染回归**：相图样式（`.qml`）、Layout 模板输出做 render-comparison 测试（参考 QGIS 自身的 `QgsRenderChecker` 思路），防止 vendor 升级后出图漂移。
+- **拓扑正确性**：相界编辑后的公共边界一致性测试——移动共享顶点，断言两侧 polygon 几何保持重合。
+- **Golden fixture 工区**：一个小型 project_area（含井、震、分层）作为所有测试与 §30 冒烟验收的固定输入。
+- **Vendor 升级门禁**：升级 QGIS vendor 版本时，以上测试套件全量运行；`QgisCompatibility` 层的 API 适配改动必须伴随测试通过。
+
+## 34. 统一 Undo / 编辑会话模型（评审新增）
+
+文档同时存在 QGIS 图层编辑 undo 栈与 Paleo 版本体系，需明确桥接语义：
+
+- **会话级撤销**：进入"编辑物源线/编辑相界"等编辑会话后，所有顶点/要素修改进入该 `QgsVectorLayer` 的 undo 栈，Ctrl+Z 在会话内有效。
+- **版本提交边界**：「保存版本」= 编辑会话 commit → Paleo 版本号递增 + provenance 记录；commit 后 undo 栈清空，**undo 不可跨越版本边界**。
+- **放弃会话**：roll back buffer，不产生新版本。
+- **版本回退**：回退到历史版本 = 从该版本重新检出为新的 working 副本（衍生新分支版本），而不是 undo 回放。
+- UI 语义：工具栏撤销只作用于当前未提交编辑；版本历史面板只作用于已提交版本。两者视觉分离，避免"undo 到上一个版本"的误解。
+
+## 35. 工作流门控的可解释性（评审新增，D8）
+
+§22 的硬门控保留，但补充约定：
+
+- **每个被禁用的工具必须能解释原因**：tooltip/状态提示说明"为什么不可用 + 需要什么条件"（如"选择层位后可运行预测"）。禁用但无解释的按钮会被用户当成 bug。
+- **硬门控只用于真前置条件**（无层位 → 无法预测；无数据 → 无法插值）。非硬性的工作流建议用**警示**而非禁用（如"未做井验证仍可导出，但导出记录标记未验证"）。
+- `ToolAvailabilityService` 除可用性外返回 `reason` 字符串，UI 统一渲染。
+
+## 36. 沉积相 Raster→Vector 派生管线（评审新增，D9；E5 修订为边界图方案）
+
+§13 "综合形成初始沉积相 → 转为 Facies Polygon" 的管线规格。
+
+**关键修正（E5）**：逐要素 smooth/simplify 会在公共边界上重新引入缝隙/重叠，步骤 6 的"缝隙/重叠=0"在逐要素方案下不可达成；QGIS native 无 coverage-preserving generalize（该能力在 GRASS provider，C++-only 不可用）。因此管线以**共享边界弧（boundary graph）**为简化对象：
+
+```
+预测/融合 Raster
+   ↓ 1. 分类重编码 (facies_code 离散化)
+离散分类 Raster
+   ↓ 2. Polygonize (GDAL C++ GDALPolygonize，封装为 QgsProcessingAlgorithm)
+初始 Polygon 要素
+   ↓ 3. Dissolve by facies_code
+   ↓ 4. 构建边界图：提取共享边界弧 (arc) + 结点；polygon = 弧序列引用
+   ↓ 5. 弧级平滑/简化：每条弧只简化一次，两侧 polygon 共用结果（保拓扑）
+   ↓ 6. 碎屑剔除（逐 part，post-dissolve）：面积 < 阈值的 part 并入最大相邻相
+   ↓ 7. 约束要素修正（conflation）：边界弧向物源线/展布线/控制点吸附对齐
+   ↓ 8. 由边界图重建 polygon，拓扑检查（缝隙/重叠 = 0）
+Facies Polygon Layer (可编辑)
+```
+
+质量契约（写入验收）：
+- 无面积小于阈值的碎屑 part（阈值按 part 判定，dissolve 后检查）；
+- 相邻相区公共边界**由构造保证重合**（同一弧），而非事后断言；
+- 无未解释的空洞；
+- 每步参数进 provenance（阈值、容差、输入版本）。
+- 步骤 7 的 conflation 是定制算法（边界弧的部分几何替换），属护城河组件，见 §40。
+
+## 37. 按层位懒加载（评审新增，D10）
+
+- 一个工区一个 `.qgz` 不变；但**只有当前活动层位组的图层实例化**，其他层位在 Layer Tree 中显示为占位节点，切换时按需加载。
+- `Paleo LayerTree Adapter` 的契约从第一天按懒加载设计：layer 节点 ≠ 已实例化 `QgsMapLayer`。
+- 内存/打开时间目标随层位数线性而非随总图层数线性。
+
+## 38. 诊断与可观测性（评审新增，D11；同时关闭 Section 2 的 error-surface 关键缺口）
+
+- **运行操作日志**：每次算法/任务/导出运行记录一条结构化日志——输入（id/hash）、参数、时长、输出 id、结果状态。与 provenance 互补：provenance 记"数据血缘"，操作日志记"代码做了什么"。
+- **错误呈现契约**：错误分级与去向统一——任务级错误进任务条目+日志页；阻断性错误（工程打不开、保存失败）模态提示；可恢复降级走状态栏。任何错误不得静默。
+- **会话诊断包**：一键导出（日志 + 工程状态 + 版本元数据 + vendor 版本），用于现场问题回溯。
+- **崩溃报告**：是否上报/如何上报（本地转储 or 回传）留作实现期决定，记录在 TODOS。
+
+## 39. Greenfield 定位修正与 Phase 0（外部评审新增，E1/E3/E4/E2）
+
+**仓库事实核查（E1 已定）**：本仓库当前仅有 docs/、TODOS.md、CLAUDE.md、`原型/` 设计稿 PNG——**无既有代码**。原稿中"现有 C++ 专业组件""不要再次大规模重做 UI"等表述作废：测井曲线、地震剖面、五页 UI 均为**新建项**，原型图仅作设计意图参照。本项目是 greenfield-on-QGIS，不是迁移。
+
+**Embed vs Plugin 决策（E2 已定）**：维持 embed 架构（qgis_core/gui/analysis 嵌入自有 Qt6 shell），不采用"完整 QGIS + C++ 插件"路线——理由：五页工作流 UX 无法在 QGIS dock 外壳中成立，差异化在地质语义不在编辑器复用。代价已确认：`src/app` 层功能（高级数字化面板、顶点编辑器、形状数字化工具、布局设计器 chrome、Processing 对话框）需自研。
+
+**Phase 0 — go/no-go 两个 spike（E3 已定，先于 P0）**：
+1. **Vendor boot spike**：vendored QGIS 在进程内启动——`QgsApplication` 初始化、provider/proj.db/srs.db/GDAL_DATA 路径解析、`QgsMapCanvas` 渲染一个 GPKG 图层，跑通目标平台矩阵。产出：vendor superbuild 骨架（ExternalProject/构建 flags/依赖清单）、启动自检（§38 错误呈现契约的第一实例）。
+2. **算法封装 spike**：一个 `QgsProcessingAlgorithm` 子类封装 `GDALPolygonize` 跑通——证明 C++-only 算法路径成立。
+
+两个 spike 任一失败 → 架构层重新评估，不进入 P0。
+
+**QGIS 版本钉（E4 已定）**：QGIS 4.x + Qt6，4.2 LTR 发布后切到 LTR 跟踪。已知风险记录在案：4.x 为 pre-LTR 主版本，API churn 由 §27 兼容层吸收，vendor 升级纪律强制（§33 vendor gate）。
+
+**Vendor 依赖清单（评审补全）**：除 QGIS/GDAL/PROJ/GEOS/Qt 外，实际牵连 QCA、QtKeychain、libspatialindex、exiv2、libzip（.qgz 是 zip）、libxml2、sqlite3/spatialite，及运行时数据文件（proj.db、GDAL data、srs.db、SVG symbols、Qt platform/imageformat 插件）。裁剪开关（WITH_3D/WITH_MESH/WITH_PDAL 等）在 Phase 0 决定。Qt 为 LGPL：**必须动态链接或提供可重链目标文件**——写入 vendor manifest 一条即可满足。
+
+**App-only 功能审计（P0 前置任务）**：逐一对照 §29 P0 所需编辑/布局能力，标注每项位于 qgis_gui 还是 src/app，后者列入自研清单，成本前置可见。
+
+## 40. 护城河组件最小契约（外部评审新增，E6/E7）
+
+以下为一段式契约，完整算法规格留给工程评审：
+
+- **FaciesFusion（相融合）**：输入 = 预测栅格 + 单因素栅格组 + 约束要素（物源线/展布线/控制点）+ 相序规则表；计算 = 以约束要素为硬边界/加权场，对候选相按规则表+证据权重逐像元裁定（规则优先于权重，权重缺省取预测置信度）；输出 = 离散 facies_code 栅格 + 置信度栅格。置信度沿 provenance 记录每个像元的裁定依据。
+- **ConstraintIDW（约束插值）**：输入 = 井点值 + 约束线/点（断层、边界、控制点）；计算 = IDW 基础上按约束要素做屏障/方向各向异性修正（跨越物源线的距离按障碍惩罚）；输出 = 连续栅格。屏障语义与方向场参数为待工程评审细化项。
+- **边界 conflation（§36 步骤 7）**：输入 = 边界弧集 + 约束要素；计算 = 弧与约束要素的空间关联判定（距离/角度阈值），命中段用约束几何替换弧段，未命中段保留；输出 = 修正后边界图。阈值与关联规则进 provenance。
+- **SeismicMapLink（井-震-图联动）**：输入 = GeoSelectionContext（well/层位/深度）；计算 = depth↔TWT 需速度模型（作为工区级 DataAsset，缺省用常速近似并标注），map↔地震剖面定位需 line-geometry↔CDP 映射服务；输出 = 各视图的目标定位参数。**速度模型与 CDP 映射为新建依赖**，此前"现有组件"表述作废（E1）。
+- **AI 智能预测（E7 已定契约）**：目标 = **进程内、vendored 推理运行时、模型作为版本化 DataAsset**；运行时选型（ONNX Runtime / libtorch / 其他）由 Phase 0 vendor spike 结果钉定；模型版本与预测输出一并进 provenance。输入=工区数据（井+地震+层位），输出=相概率/预测栅格。离线可用为硬要求（野外工区场景），排除服务端推理。
+
+## 41. 正确性规则补充（外部评审新增，E8 批量）
+
+1. **Raw 不可变强制执行**：导入层加载即 `setReadOnly(true)` + 编辑工具门控双重保护，不只是文档约定。
+2. **project.gpkg 写策略**：启用 WAL；写操作走单一写入器串行化（后台 QgsTask 与编辑提交不得并发写同一 gpkg，防 SQLITE_BUSY）；每次写前保留上一次备份副本。
+3. **SelectionContext 防抖**：广播链（map→well→seismic→map）设 re-entrancy 守卫 + 去抖，禁止 ping-pong 选择风暴。
+4. **facies_boundaries 派生规则**：boundary 表永远由 facies_polygons 派生（单一几何事实源），禁止双写漂移；boundary 类型语义沿用 TODOS P2。
+5. **reason 字符串 i18n**：服务层可解释性字符串从第一天走 Qt 翻译机制（tr()/qsTr()），不写死中文。
+6. **最小 NFR**：工区规模假设（井数 ~10²、层位 ~10¹、栅格 ~10⁷ cell/层）、画布刷新预算（交互操作 <100ms、整图重渲 <2s）、工程打开时间预算——§37 懒加载目标以此可验证。
+7. **保存/发布语义**（工程评审任务）：`保存版本`（gpkg 提交+版本记录）、`发布`（导出 result/ 快照）、`Published` 状态三者关系及"发布后能否再编辑"需在工程评审定义状态机。
+
+## NOT in scope（本次评审决议）
+
+- **License/vendor 合规章节** — 用户确认产品遵循 GPL，vendored QGIS 兼容，无需专章。（D3）
+- **多 realization / 不确定性支持** — 推迟至 TODOS.md（P2）。保留要求：`DataAsset` 与 `facies_polygon` schema 预留可空 `realization_id` 字段，避免日后 schema 迁移。（D6）
+
+## 评审决策台账（Decision Ledger）
+
+| ID | 议题 | 结论 | 依据 |
+|----|------|------|------|
+| D1 | 项目 CLAUDE.md 加 skill 路由 | 采纳 A | 用户选择 |
+| D2 | 评审模式 | SELECTIVE EXPANSION | 用户两次以约束作答未选模式，按推荐默认；可随时切换 |
+| D2a | 不使用 Python QGIS | 已确认约束 | 用户明确："C++ 的版本" |
+| D2b | 所有依赖尽量 vendor | 已确认约束 | 用户明确 |
+| D3 | License 合规章节 | 跳过 | 用户："软件就是遵循 GPL" |
+| D4 | 自动化测试策略 | 采纳 → §33 | 用户选择 A |
+| D5 | 统一 Undo/编辑会话模型 | 采纳 → §34 | 用户选择 A |
+| D6 | 多 realization | 推迟 → TODOS.md P2 | 用户选择 B |
+| D7 | 修订后计划+CEO摘要 | 批准 | 用户选择 A |
+| D8 | 门控可解释性 | 采纳 → §35 | 用户选择 A |
+| D9 | Raster→Vector 派生管线 | 采纳 → §36 | 用户选择 A |
+| D10 | 按层位懒加载 | 采纳 → §37 | 用户选择 A |
+| D11 | 诊断与可观测性 | 采纳 → §38 | 用户选择 A |
+| E1 | 仓库为空，无既有代码 | Greenfield 重定位 → §39 | 用户确认 |
+| E2 | Embed vs 完整QGIS插件 | 维持 embed + app-only 审计 → §39 | 用户选择 A |
+| E3 | Phase 0 go/no-go spikes | 采纳 → §39 | 用户选择 A |
+| E4 | QGIS 版本 | 4.x + Qt6，跟踪 4.2 LTR → §39 | 用户选择 A |
+| E5 | §36 逐要素简化破拓扑契约 | 改边界图方案 → §36 | 用户选择 A |
+| E6 | 护城河算法只有标签 | 最小契约 → §40 | 用户选择 A |
+| E7 | AI 推理运行时黑盒 | 契约先定+Phase0 钉运行时 → §40 | 用户选择 A |
+| E8 | 7 项正确性规则批量 | 全部采纳 → §41 | 用户选择 A |
+
+## 外部评审说明
+
+Codex 外部评审因网络故障超时（5 分钟上限，websocket TLS 失败）——**outside coverage 记录为 unavailable，不计入外部模型覆盖**。按工作流启用 native fallback（同 harness 新上下文子代理），其发现已全部经用户裁定（E1–E8）。该 fallback 结果不构成独立模型审查。
+
+## GSTACK REVIEW REPORT
+
+**Skill:** /plan-ceo-review | **Mode:** SELECTIVE EXPANSION | **Date:** 2026-09-25 | **Branch:** master
+
+### Review summary
+- 11 节深度评审完成（架构/错误营救/安全/数据流/代码质量/测试/性能/可观测性/部署/长期/UX）。
+- 决策台账：D1–D11 + E1–E8 全部经用户裁定；SELECTIVE EXPANSION 模式为推荐默认（用户两次以约束作答）。
+- 采纳新增：§33 测试策略、§34 undo/编辑会话、§35 门控可解释性、§36 派生管线（E5 修订为边界图方案）、§37 懒加载、§38 诊断、§39 greenfield+Phase 0、§40 护城河契约、§41 正确性规则。
+- 推迟：多 realization（P2）、相界类型语义（P2）；工程评审待办见 TODOS.md P1。
+
+### Coverage
+- outside review: **unavailable** — Codex CLI 网络故障（TLS handshake eof ×5 + HTTPS fallback 超时），5 分钟上限。不计入外部覆盖。
+- native fallback: completed（subagent_explore, fresh context）——产出 meta-finding（空仓库 vs 重构表述）及 9 组发现，全部经用户裁定。
+- spec-review loop: unavailable（本会话无 subagent dispatch 用于该循环；native fallback 为不同机制）。
+
+### Residual risks（写入工程评审）
+- Vendor build 依赖树广度（QCA/QtKeychain/spatialindex/libzip/srs.db/Qt plugins）待 Phase 0 实测。
+- `qgis:*` provider 算法同为 Python 实现——native 可用算法清单待逐项审计。
+- 护城河算法为一段式契约，工程实现规格未定。
+
+### Verdict
+**计划可进入工程评审（/plan-eng-review）**，前提：Phase 0 两个 spike 作为 P0 前置 go/no-go 门。

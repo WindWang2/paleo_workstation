@@ -13,6 +13,11 @@
 // the instance once it exists.
 int main(int argc, char *argv[])
 {
+  // Required by QtWebEngine when a process also owns OpenGL-backed widgets
+  // (QGIS map canvas). Must precede the QApplication/QgsApplication ctor,
+  // which lives inside QgisRuntime::initialize().
+  QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+
   const QString qgisPrefix =
       argc > 1 ? QString::fromLocal8Bit(argv[1]) : QStringLiteral("/usr");
 

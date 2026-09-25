@@ -1,0 +1,52 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vendor dependencies
+        run: ./paleo-dev bootstrap
+      - name: Build
+        run: ./paleo-dev build
+      - name: Test (headless)
+        env:
+          QT_QPA_PLATFORM: offscreen
+          LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
+        run: ./paleo-dev test
+      - name: Selfcheck
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ./paleo-dev selfcheck
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selfcheck-linux
+          path: vendor/logs/
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vendor dependencies (OSGeo4W route per docs/phase0/et0-vendor-comparison.md)
+        shell: pwsh
+        run: ./paleo-dev.ps1 bootstrap
+      - name: Build (MSVC + vendored QGIS)
+        shell: pwsh
+        run: ./paleo-dev.ps1 build
+      - name: Test (headless)
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ./paleo-dev.ps1 test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selfcheck-windows
+          path: vendor/logs/

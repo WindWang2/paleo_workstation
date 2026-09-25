@@ -52,6 +52,9 @@ add_library(paleo_core STATIC
   src/ui/locator/paleolocatorfilters.cpp
   src/ui/layoutdesignershell.cpp
   src/ui/maptools/paleomaptools.cpp
+  src/ui/correlationpanel.cpp
+  src/ui/decorations/paleodecorations.cpp
+  src/ui/vertexeditorshim.cpp
   src/app/appcontext.cpp
   src/linkage/seismicmaplink.cpp
 )
@@ -100,6 +103,8 @@ add_paleo_test(tst_perf)
 add_paleo_test(tst_locator)
 add_paleo_test(tst_layoutshell)
 add_paleo_test(tst_maptools)
+add_paleo_test(tst_correlation)
+add_paleo_test(tst_decorations)
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx)
   set_tests_properties(tst_onnx PROPERTIES ENVIRONMENT

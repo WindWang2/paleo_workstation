@@ -1070,7 +1070,7 @@ class TestHorizonMarkers : public QObject
     {
         for (QGraphicsItem *it : s->items())
             if (it->data(CorrelationItemRoles::HorizonMarker).toString() == marker
-                && it->data(CorrelationItemRoles::WellId).toString() == wellId)
+                && it->data(CorrelationItemRoles::MarkerWellId).toString() == wellId)
                 if (auto *l = qgraphicsitem_cast<QGraphicsLineItem *>(it))
                     return l;
         return nullptr;
@@ -1248,8 +1248,9 @@ class TestHorizonMarkers : public QObject
         QCOMPARE(w2line->line().x2(), 150.0);
         QCOMPARE(w1line->data(CorrelationItemRoles::HorizonMarker).toString(),
                  QStringLiteral("M"));
-        QCOMPARE(w1line->data(CorrelationItemRoles::WellId).toString(),
+        QCOMPARE(w1line->data(CorrelationItemRoles::MarkerWellId).toString(),
                  QStringLiteral("W1"));
+        QVERIFY(!w1line->data(CorrelationItemRoles::WellId).isValid());
 
         // Unflattened: same picks, different ys — depth-registered per well.
         set.setFlattenMarker(QString());
@@ -2003,7 +2004,8 @@ class TestCorrPanelFull : public QObject
     {
       if (auto *s = sceneOf(panel))
         for (QGraphicsItem *it : s->items())
-          if (it->data(CorrelationItemRoles::WellId).toString() == wellId)
+          if (!it->data(CorrelationItemRoles::HorizonMarker).isValid()
+              && it->data(CorrelationItemRoles::WellId).toString() == wellId)
             return it;
       return nullptr;
     }

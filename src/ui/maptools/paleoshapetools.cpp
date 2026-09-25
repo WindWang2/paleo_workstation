@@ -22,6 +22,13 @@
 
 namespace
 {
+QgsCoordinateTransformContext layerTransformContext(const QgsMapLayer *layer)
+{
+  if (layer && layer->project())
+    return layer->project()->transformContext();
+  return QgsProject::instance()->transformContext();
+}
+
 // QgsMapToolAdvancedDigitizing assertions require a non-null CAD dock widget.
 // Fabricate a canvas-owned dock when the embedder does not inject a shared one.
 QgsAdvancedDigitizingDockWidget *resolveCadDock( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *given )
@@ -88,7 +95,7 @@ void PaleoDrawPointTool::pointCaptured( const QgsPoint &point )
     {
       try
       {
-        canvasPt.transform( QgsCoordinateTransform( layerCrs, canvasCrs, QgsProject::instance()->transformContext() ) );
+        canvasPt.transform( QgsCoordinateTransform( layerCrs, canvasCrs, layerTransformContext(vlayer) ) );
       }
       catch ( QgsCsException & )
       {
@@ -171,7 +178,7 @@ void PaleoDrawCircleTool::emitCircle( const QgsPointXY *eventRadiusPoint )
     {
       try
       {
-        canvasCurve->transform( QgsCoordinateTransform( layerCrs, canvasCrs, QgsProject::instance()->transformContext() ) );
+        canvasCurve->transform( QgsCoordinateTransform( layerCrs, canvasCrs, layerTransformContext(vlayer) ) );
       }
       catch ( QgsCsException & )
       {
@@ -285,7 +292,7 @@ void PaleoDrawEllipseTool::emitEllipse( const QgsPointXY *eventAxis2Point )
     {
       try
       {
-        canvasCurve->transform( QgsCoordinateTransform( layerCrs, canvasCrs, QgsProject::instance()->transformContext() ) );
+        canvasCurve->transform( QgsCoordinateTransform( layerCrs, canvasCrs, layerTransformContext(vlayer) ) );
       }
       catch ( QgsCsException & )
       {

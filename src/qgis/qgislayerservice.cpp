@@ -94,6 +94,7 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
     return nullptr;
   }
   layer.release();
+  added->setCustomProperty(QStringLiteral("paleoLayerId"), decl->layerId);
 
   m_instances.insert(layerId, added);
   emit layerInstantiated(layerId);
@@ -113,9 +114,13 @@ int QgisLayerService::instantiateHorizon(const QString &horizon)
 void QgisLayerService::releaseHorizon(const QString &horizon)
 {
   // Exact horizon match only: horizon-agnostic ('') declarations are not owned
-  // by any horizon and survive the switch.
+  // by any horizon and survive the switch. A failed read must not look like
+  // "this horizon declares nothing" and drop live layers.
+  QVector<LayerDeclaration> decls;
+  if (!m_manifest->readAll(&decls, nullptr))
+    return;
+
   QStringList toRelease;
-  const QVector<LayerDeclaration> decls = m_manifest->all();
   for (const LayerDeclaration &d : decls)
     if (d.horizon == horizon && m_instances.contains(d.layerId))
       toRelease.append(d.layerId);
@@ -130,6 +135,16 @@ void QgisLayerService::releaseHorizon(const QString &horizon)
   emit horizonReleased(horizon);
 }
 
+bool QgisLayerService::tryDeclared(QVector<LayerDeclaration> *out, QString *error) const
+{
+  if (!m_manifest)
+  {
+    setError(error, QStringLiteral("layer service has no manifest"));
+    return false;
+  }
+  return m_manifest->readAll(out, error);
+}
+
 QgsMapLayer *QgisLayerService::layer(const QString &layerId) const
 {
   return m_instances.value(layerId);
@@ -142,7 +157,10 @@ bool QgisLayerService::isInstantiated(const QString &layerId) const
 
 void QgisLayerService::setActiveHorizon(const QString &horizon)
 {
-  const QVector<LayerDeclaration> decls = m_manifest->all();
+  QVector<LayerDeclaration> decls;
+  if (!m_manifest->readAll(&decls, nullptr))
+    return; // keep every instantiated layer; an empty read is not authoritative
+
   QHash<QString, QString> horizonOf;
   horizonOf.reserve(decls.size());
   for (const LayerDeclaration &d : decls)

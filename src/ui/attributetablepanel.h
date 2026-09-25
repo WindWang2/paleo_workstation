@@ -3,8 +3,11 @@
 #include <QString>
 #include <functional>
 
+class QgsAttributeTableFilterModel;
+class QgsAttributeTableModel;
 class QgsMapCanvas;
 class QgsVectorLayer;
+class QgsVectorLayerCache;
 
 // ui/ — AttributeTablePanel: QGIS-native attribute table (QgsAttributeTableView
 // over QgsVectorLayerCache + QgsAttributeTableModel + filter model) for any
@@ -25,6 +28,11 @@ class AttributeTablePanel : public QWidget
     QString currentLayerId() const;
 
   private:
+    void clearTable();
+
     QgsMapCanvas *m_canvas;
     std::function<QgsVectorLayer *(const QString &)> m_layerProvider;
+    QgsVectorLayerCache *m_cache = nullptr;
+    QgsAttributeTableModel *m_model = nullptr;
+    QgsAttributeTableFilterModel *m_filter = nullptr;
 };

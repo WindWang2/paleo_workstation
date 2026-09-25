@@ -11,6 +11,15 @@ namespace
     if (error)
       *error = text;
   }
+
+  // Validation and tool gating key layers by manifest id. QgsMapLayer::id()
+  // is a generated "name_uuid" and never matches. Layers instantiated by
+  // QgisLayerService stamp paleoLayerId; bare test layers keep layer->id().
+  QString busyKey(const QgsVectorLayer *layer)
+  {
+    const QString stamped = layer->customProperty(QStringLiteral("paleoLayerId")).toString();
+    return stamped.isEmpty() ? layer->id() : stamped;
+  }
 } // namespace
 
 // qgis/ — QgisEditingService wraps QgsVectorLayer edit sessions.
@@ -42,7 +51,7 @@ bool QgisEditingService::beginEdit(QgsVectorLayer *layer, QString *error)
     return false;
   }
 
-  m_store->markLayerBusy(layer->id(), QStringLiteral("edit"), tr("editing in progress"));
+  m_store->markLayerBusy(busyKey(layer), QStringLiteral("edit"), tr("editing in progress"));
   emit editStarted(layer->id());
   return true;
 }
@@ -69,7 +78,7 @@ bool QgisEditingService::commitEdit(QgsVectorLayer *layer, QString *error)
 
   // Freed on success AND on failure: a stale busy mark would gate the layer
   // out of every tool permanently ("editing in progress" must not stick).
-  m_store->markLayerFree(layer->id());
+  m_store->markLayerFree(busyKey(layer));
 
   if (!res.ok)
   {
@@ -86,7 +95,7 @@ bool QgisEditingService::rollbackEdit(QgsVectorLayer *layer)
     return false;
 
   const bool ok = layer->rollBack();
-  m_store->markLayerFree(layer->id()); // freed regardless of rollBack outcome
+  m_store->markLayerFree(busyKey(layer)); // freed regardless of rollBack outcome
   if (ok)
     emit editRolledBack(layer->id());
   return ok;

@@ -27,6 +27,7 @@
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
+#include <qgsmaplayer.h>
 #include <qgslayertree.h>
 #include <qgslayertreemodel.h>
 #include <qgslayertreeview.h>
@@ -41,6 +42,8 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDir>
+#include <QDoubleSpinBox>
+#include <QLineEdit>
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -608,9 +611,64 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
               });
     }
     connect(constraintPage, &ConstraintPage::runIdwRequested, this,
-            [this, constraint](const QString &horizon) {
+            [this, constraint, constraintPage](const QString &horizon) {
+              auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
+              const auto fail = [status](const QString &msg) {
+                if (status)
+                  status->setText(msg);
+                QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+              };
+
+              QString field = QStringLiteral("z");
+              if (auto *edit = constraintPage->findChild<QLineEdit *>(QStringLiteral("idwField")))
+              {
+                const QString typed = edit->text().trimmed();
+                if (!typed.isEmpty())
+                  field = typed;
+              }
+              double cellSize = 1.0;
+              if (auto *spin = constraintPage->findChild<QDoubleSpinBox *>(QStringLiteral("idwCellSize")))
+                cellSize = spin->value();
+
+              QString pointsId;
+              if (!m_layerSvc)
+              {
+                fail(tr("图层服务未就绪"));
+                return;
+              }
+              QVector<LayerDeclaration> decls;
+              QString readErr;
+              if (!m_layerSvc->tryDeclared(&decls, &readErr))
+              {
+                fail(readErr.isEmpty() ? tr("无法读取图层清单") : readErr);
+                return;
+              }
+              QString agnostic;
+              for (const LayerDeclaration &d : decls)
+              {
+                if (d.type.compare(QStringLiteral("vector"), Qt::CaseInsensitive) != 0)
+                  continue;
+                if (!d.layerId.startsWith(QStringLiteral("wells")))
+                  continue;
+                if (d.horizon == horizon)
+                {
+                  pointsId = d.layerId;
+                  break;
+                }
+                if (agnostic.isEmpty() && d.horizon.isEmpty())
+                  agnostic = d.layerId;
+              }
+              if (pointsId.isEmpty())
+                pointsId = agnostic;
+              if (pointsId.isEmpty())
+              {
+                fail(tr("层位 %1 没有井点图层").arg(horizon));
+                return;
+              }
+
               QString err;
-              constraint->runConstraintIDW(horizon, QString(), QString(), 0.0, &err);
+              if (!constraint->runConstraintIDW(horizon, pointsId, field, cellSize, &err))
+                fail(err.isEmpty() ? tr("约束插值失败") : err);
             });
   }
   if (compose && composePage)
@@ -865,9 +923,21 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     editTb->setObjectName(QStringLiteral("editingToolbar"));
     if (editSvc)
       editTb->setEditingService(editSvc);
+    if (m_projectSvc)
+      editTb->setProject(m_projectSvc->project());
     editTb->refreshFromProject();
-    connect(m_projectSvc, &QgisProjectService::projectOpened, editTb,
-            [editTb](const QString &) { editTb->refreshFromProject(); });
+    if (m_projectSvc)
+    {
+      connect(m_projectSvc, &QgisProjectService::projectOpened, editTb,
+              [editTb](const QString &) { editTb->refreshFromProject(); });
+      if (QgsProject *proj = m_projectSvc->project())
+      {
+        connect(proj, &QgsProject::layersAdded, editTb,
+                [editTb](const QList<QgsMapLayer *> &) { editTb->refreshFromProject(); });
+        connect(proj, &QgsProject::layersRemoved, editTb,
+                [editTb](const QStringList &) { editTb->refreshFromProject(); });
+      }
+    }
     auto *editDock = new QDockWidget(tr("编辑"), this);
     editDock->setObjectName(QStringLiteral("editToolbarDock"));
     editDock->setWidget(editTb);

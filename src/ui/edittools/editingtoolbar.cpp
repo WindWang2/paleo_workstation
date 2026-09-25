@@ -260,9 +260,15 @@ void PaleoEditingToolbar::setLayers( const QList<QgsVectorLayer *> &layers )
   updateActionStates();
 }
 
+void PaleoEditingToolbar::setProject( QgsProject *project )
+{
+  mProject = project;
+}
+
 void PaleoEditingToolbar::refreshFromProject()
 {
-  setLayers( QgsProject::instance()->layers<QgsVectorLayer *>() );
+  QgsProject *project = mProject ? mProject.data() : QgsProject::instance();
+  setLayers( project ? project->layers<QgsVectorLayer *>() : QList<QgsVectorLayer *>() );
 }
 
 void PaleoEditingToolbar::setLayerFilter( LayerFilter filter )
@@ -288,6 +294,17 @@ void PaleoEditingToolbar::setCurrentLayer( QgsVectorLayer *layer )
     return; // clearing the selection is the combo's business (empty list)
   if ( comboIndexForLayer( mLayerCombo, layer ) < 0 )
     return; // must be a listed candidate — unlisted layers are ignored
+
+  // An armed session still owns its layer even when the undo stack is empty
+  // (tool selected, no geometry yet). Moving the watcher now would let the
+  // next startEditing() roll the old layer back.
+  if ( mEditLayer && mEditLayer != layer && mEditLayer->isEditable() )
+  {
+    emit editRefused( tr( "先保存或取消图层 %1 的编辑，再切换图层" ).arg( mEditLayer->name() ) );
+    selectComboLayer( mLayerCombo, mEditLayer );
+    updateActionStates();
+    return;
+  }
 
   if ( mUndoStack->layer() != layer && !mUndoStack->setLayer( layer ) )
   {
@@ -633,17 +650,10 @@ bool PaleoEditingToolbar::startEditing()
     return false; // foreign session: never adopted silently
   }
 
-  if ( mEditLayer && mEditLayer->isEditable() )
+  if ( mEditLayer && mEditLayer->isEditable() && mEditLayer != target )
   {
-    // Single-edit-layer discipline: the combo gate guarantees the previous
-    // session has a clean stack here — close it before opening the next one.
-    QgsVectorLayer *old = mEditLayer;
-    if ( mEditingService )
-      mEditingService->rollbackEdit( old );
-    else
-      old->rollBack();
-    mEditLayer = nullptr;
-    emit editingStopped( old->id(), false );
+    emit editRefused( tr( "先保存或取消图层 %1 的编辑，再编辑其他图层" ).arg( mEditLayer->name() ) );
+    return false;
   }
 
   QString err;

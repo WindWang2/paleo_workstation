@@ -22,15 +22,16 @@ namespace
     });
   }
 
-  void ensureField(OGRLayerH layer, const char *name, OGRFieldType type)
+  bool ensureField(OGRLayerH layer, const char *name, OGRFieldType type)
   {
     OGRFeatureDefnH layerDefn = OGR_L_GetLayerDefn(layer);
-    if (OGR_FD_GetFieldIndex(layerDefn, name) < 0)
-    {
-      OGRFieldDefnH fldDef = OGR_Fld_Create(name, type);
-      OGR_L_CreateField(layer, fldDef, TRUE);
-      OGR_Fld_Destroy(fldDef);
-    }
+    if (OGR_FD_GetFieldIndex(layerDefn, name) >= 0)
+      return true;
+    OGRFieldDefnH fldDef = OGR_Fld_Create(name, type);
+    const OGRErr err = OGR_L_CreateField(layer, fldDef, TRUE);
+    OGR_Fld_Destroy(fldDef);
+    return err == OGRERR_NONE
+           && OGR_FD_GetFieldIndex(OGR_L_GetLayerDefn(layer), name) >= 0;
   }
 } // namespace
 
@@ -122,11 +123,17 @@ bool ConstraintStore::append(const QString &horizon, const QString &id, const QS
       }
     }
 
-    ensureField(layer, "id", OFTString);
-    ensureField(layer, "horizon", OFTString);
-    ensureField(layer, "type", OFTString);
-    ensureField(layer, "facies_code", OFTInteger);
-    ensureField(layer, "weight", OFTReal);
+    if (!ensureField(layer, "id", OFTString)
+        || !ensureField(layer, "horizon", OFTString)
+        || !ensureField(layer, "type", OFTString)
+        || !ensureField(layer, "facies_code", OFTInteger)
+        || !ensureField(layer, "weight", OFTReal))
+    {
+      OGR_G_DestroyGeometry(geom);
+      GDALClose(ds);
+      return {false, QStringLiteral("Failed to create constraint fields: %1")
+                     .arg(QString::fromUtf8(CPLGetLastErrorMsg()))};
+    }
 
     OGRFeatureDefnH layerDefn = OGR_L_GetLayerDefn(layer);
     OGRFeatureH feat = OGR_F_Create(layerDefn);
@@ -297,13 +304,14 @@ bool ConstraintStore::remove(const QString &id, QString *error)
                                  GDAL_OF_UPDATE | GDAL_OF_VECTOR,
                                  nullptr, nullptr, nullptr);
     if (!ds)
-      return {true, QString()};
+      return {false, QStringLiteral("Failed to open constraint GeoPackage: %1")
+                     .arg(QString::fromUtf8(CPLGetLastErrorMsg()))};
 
     OGRLayerH layer = GDALDatasetGetLayerByName(ds, "constraints");
     if (!layer)
     {
       GDALClose(ds);
-      return {true, QString()};
+      return {false, QStringLiteral("Constraint layer is missing")};
     }
 
     OGRFeatureDefnH layerDefn = OGR_L_GetLayerDefn(layer);
@@ -311,7 +319,7 @@ bool ConstraintStore::remove(const QString &id, QString *error)
     if (idIdx < 0)
     {
       GDALClose(ds);
-      return {true, QString()};
+      return {false, QStringLiteral("Constraint layer has no id field")};
     }
 
     std::vector<GIntBig> fidsToDelete;
@@ -332,7 +340,9 @@ bool ConstraintStore::remove(const QString &id, QString *error)
       const OGRErr delErr = OGR_L_DeleteFeature(layer, fid);
       if (delErr != OGRERR_NONE)
       {
-        // Ignore or continue deleting remaining matching features
+        GDALClose(ds);
+        return {false, QStringLiteral("Failed to delete constraint feature: %1")
+                       .arg(QString::fromUtf8(CPLGetLastErrorMsg()))};
       }
     }
 

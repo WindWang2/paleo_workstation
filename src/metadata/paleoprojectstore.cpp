@@ -4,6 +4,8 @@
 #include <QFile>
 #include <QMutexLocker>
 
+#include <cstdio>
+
 // §41.2 — sole write choke point for project.gpkg / metadata.sqlite / .qgz.
 //
 // Serialization mechanism: m_writeMutex is held for the whole duration of each
@@ -69,10 +71,18 @@ PaleoProjectStore::WriteResult PaleoProjectStore::saveAll( const std::function<W
       if ( !m_qgzPath.isEmpty() && QFile::exists( m_qgzPath ) )
       {
         const QString bakPath = m_qgzPath + QStringLiteral( ".bak" );
-        QFile::remove( bakPath );
-        if ( !QFile::copy( m_qgzPath, bakPath ) )
+        const QString bakTmp = bakPath + QStringLiteral( ".tmp" );
+        QFile::remove( bakTmp );
+        if ( !QFile::copy( m_qgzPath, bakTmp ) )
         {
           result = { false, tr( "Failed to back up %1 to %2" ).arg( m_qgzPath, bakPath ) };
+          pending.append( { true, m_qgzPath, result.error } );
+        }
+        else if ( ::rename( QFile::encodeName( bakTmp ).constData(),
+                            QFile::encodeName( bakPath ).constData() ) != 0 )
+        {
+          QFile::remove( bakTmp );
+          result = { false, tr( "Failed to replace backup %1" ).arg( bakPath ) };
           pending.append( { true, m_qgzPath, result.error } );
         }
       }

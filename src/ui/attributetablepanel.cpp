@@ -62,6 +62,24 @@ void AttributeTablePanel::setLayerIds(const QStringList &ids)
     picker->setCurrentIndex(idx);
 }
 
+void AttributeTablePanel::clearTable()
+{
+  auto *view = findChild<QgsAttributeTableView *>(QStringLiteral("attrView"));
+  if (view)
+  {
+    // Drop the view's first-layer selection manager before the model goes
+    // away. setModel() keeps that manager forever if it is already set.
+    view->setModel(nullptr);
+    view->setFeatureSelectionManager(nullptr);
+  }
+  delete m_filter;
+  m_filter = nullptr;
+  delete m_model;
+  m_model = nullptr;
+  delete m_cache;
+  m_cache = nullptr;
+}
+
 void AttributeTablePanel::showLayer(const QString &layerId)
 {
   auto *picker = findChild<QComboBox *>(QStringLiteral("attrLayerPicker"));
@@ -77,7 +95,7 @@ void AttributeTablePanel::showLayer(const QString &layerId)
   QgsVectorLayer *vl = m_layerProvider ? m_layerProvider(layerId) : nullptr;
   if (!vl)
   {
-    view->setModel(nullptr);
+    clearTable();
     if (hint)
     {
       hint->setText(QStringLiteral("（图层未实例化或非矢量层：%1）").arg(layerId));
@@ -86,15 +104,13 @@ void AttributeTablePanel::showLayer(const QString &layerId)
     return;
   }
 
-  // Fresh cache + model chain per switch; parents keep them alive and old
-  // chains die with their model's parent (the view takes over the filter
-  // model in setModel per SIP_TRANSFERTHIS in the header annotation).
-  auto *cache = new QgsVectorLayerCache(vl, vl->featureCount() > 0
-                                              ? static_cast<int>(vl->featureCount()) : 1, view);
-  auto *model = new QgsAttributeTableModel(cache, view);
-  model->loadLayer();
-  auto *filter = new QgsAttributeTableFilterModel(m_canvas, model, view);
-  view->setModel(filter);
+  clearTable();
+  m_cache = new QgsVectorLayerCache(vl, vl->featureCount() > 0
+                                          ? static_cast<int>(vl->featureCount()) : 1, view);
+  m_model = new QgsAttributeTableModel(m_cache, view);
+  m_model->loadLayer();
+  m_filter = new QgsAttributeTableFilterModel(m_canvas, m_model, view);
+  view->setModel(m_filter);
   if (hint)
     hint->setVisible(false);
 }

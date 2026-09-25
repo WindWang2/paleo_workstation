@@ -7,6 +7,8 @@
 #include <QWidget>
 #include <functional>
 
+class QgsProject;
+
 class QgsProcessingContext;
 class QgsProcessingFeedback;
 class PaleoProjectStore;
@@ -20,6 +22,10 @@ class QgisProcessingService : public QObject
   Q_OBJECT
   public:
     explicit QgisProcessingService(PaleoProjectStore *store, QObject *parent = nullptr);
+
+    // Algorithm dialogs and output layers enumerate this project. Null falls
+    // back to QgsProject::instance() for tests that use the singleton.
+    void setProject(QgsProject *project);
 
     // Synchronous run (tests + small tasks). Returns algorithm outputs map.
     QVariantMap run(const QString &algorithmId, const QVariantMap &parameters, QString *error = nullptr);
@@ -62,5 +68,6 @@ class QgisProcessingService : public QObject
 
   private:
     PaleoProjectStore *m_store;
+    QPointer<QgsProject> m_project;
     QPointer<QWidget> m_lastDialog;
 };

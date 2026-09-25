@@ -22,6 +22,7 @@ class WellLocatorFilter : public QgsLocatorFilter
     QString displayName() const override { return tr("井位"); }
     Priority priority() const override { return Highest; }
     QString prefix() const override { return QStringLiteral("w"); }
+    QgsLocatorFilter::Flags flags() const override { return FlagFast; }
     WellLocatorFilter *clone() const override { return new WellLocatorFilter(m_provider, m_canvas); }
     void fetchResults(const QString &string, const QgsLocatorContext &context,
                       QgsFeedback *feedback) override;
@@ -42,6 +43,7 @@ class HorizonLocatorFilter : public QgsLocatorFilter
     QString name() const override { return QStringLiteral("paleo_horizons"); }
     QString displayName() const override { return tr("层位"); }
     QString prefix() const override { return QStringLiteral("h"); }
+    QgsLocatorFilter::Flags flags() const override { return FlagFast; }
     HorizonLocatorFilter *clone() const override { return new HorizonLocatorFilter(m_provider, m_activate); }
     void fetchResults(const QString &string, const QgsLocatorContext &context,
                       QgsFeedback *feedback) override;
@@ -63,6 +65,7 @@ class IssueLocatorFilter : public QgsLocatorFilter
     QString name() const override { return QStringLiteral("paleo_issues"); }
     QString displayName() const override { return tr("验证问题"); }
     QString prefix() const override { return QStringLiteral("i"); }
+    QgsLocatorFilter::Flags flags() const override { return FlagFast; }
     IssueLocatorFilter *clone() const override { return new IssueLocatorFilter(m_provider, m_locate); }
     void fetchResults(const QString &string, const QgsLocatorContext &context,
                       QgsFeedback *feedback) override;

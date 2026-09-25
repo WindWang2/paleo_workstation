@@ -22,6 +22,8 @@
 #include <QSet>
 #include <QDebug>
 
+#include <qgsmaplayer.h>
+
 // Composition root. QgisRuntime::initialize() must run before any Qgs*
 // construction (it owns the QgsApplication), so it is the very first thing the
 // ctor does; everything else hangs off `this` as a QObject child and dies in
@@ -92,7 +94,11 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_import = new DataImportService(m_layerSvc, m_store, this);
 
   m_canvasCtl = new QgisCanvasController(this);
+  m_canvasCtl->setLayerResolver([this](const QString &layerId) -> QgsMapLayer * {
+    return m_layerSvc ? m_layerSvc->instantiate(layerId, nullptr) : nullptr;
+  });
   m_procSvc = new QgisProcessingService(m_store, this);
+  m_procSvc->setProject(m_projectSvc->project());
   m_editSvc = new QgisEditingService(m_store, this);
   m_styleSvc = new QgisStyleService(this);
   m_toolSvc = new ToolAvailabilityService(m_store, this);

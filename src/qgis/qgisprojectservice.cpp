@@ -7,6 +7,8 @@
 
 #include <qgsproject.h>
 
+#include <cstdio>
+
 // P0 spine service — owns a QgsProject per service instance. We deliberately
 // use `new QgsProject()` rather than the QgsProject::instance() singleton:
 // the singleton is global mutable state shared with any other QGIS consumer in
@@ -121,16 +123,14 @@ bool QgisProjectService::writeProject()
   // authoritative path now that the content is safely on disk.
   m_project->setFileName( m_path );
 
-  if ( !QFile::rename( tmpPath, m_path ) )
+  // QFile::rename refuses to overwrite an existing destination (Qt 6.11,
+  // including Linux). POSIX rename(2) replaces it atomically. Never unlink
+  // the live .qgz first: a crash in that window deletes the project.
+  if ( ::rename( QFile::encodeName( tmpPath ).constData(),
+                 QFile::encodeName( m_path ).constData() ) != 0 )
   {
-    // POSIX rename(2) replaces the target atomically, but some platforms
-    // refuse to overwrite an existing destination — drop it and retry.
-    QFile::remove( m_path );
-    if ( !QFile::rename( tmpPath, m_path ) )
-    {
-      m_errors << tr( "Failed to replace project file %1 with %2" ).arg( m_path, tmpPath );
-      return false;
-    }
+    m_errors << tr( "Failed to replace project file %1 with %2" ).arg( m_path, tmpPath );
+    return false;
   }
 
   emit projectWritten( m_path );

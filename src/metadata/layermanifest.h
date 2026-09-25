@@ -26,7 +26,9 @@ class LayerManifest
     bool open(QString *error = nullptr);       // creates schema if absent
     bool upsert(const LayerDeclaration &decl, QString *error = nullptr);
     bool remove(const QString &layerId, QString *error = nullptr);
-    QVector<LayerDeclaration> all() const;                       // full declared set
+    QVector<LayerDeclaration> all() const;                       // full declared set; empty on failure
+    // False on open/query failure. Empty success is a zero-length vector.
+    bool readAll(QVector<LayerDeclaration> *out, QString *error = nullptr) const;
     QVector<LayerDeclaration> forHorizon(const QString &h) const;
     QStringList horizons() const;
 

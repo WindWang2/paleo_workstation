@@ -144,7 +144,8 @@ namespace
                   wrapper->customProperties()
                           .value(QStringLiteral("OPEN_AFTER_RUNNING"))
                           .toBool()
-                      ? QgsProject::instance()
+                      ? (m_context && m_context->project() ? m_context->project()
+                                                        : QgsProject::instance())
                       : nullptr;
               value = QVariant::fromValue(def);
             }
@@ -207,7 +208,10 @@ namespace
         QgsProcessingParametersWidget::initWidgets();
 
         QgsProcessingParameterWidgetContext widgetContext;
-        widgetContext.setProject(QgsProject::instance());
+        QgsProject *widgetProject = (m_context && m_context->project())
+                                        ? m_context->project()
+                                        : QgsProject::instance();
+        widgetContext.setProject(widgetProject);
         widgetContext.registerProcessingContextGenerator(this);
         if (m_dialog && m_dialog->messageBar())
           widgetContext.setMessageBar(m_dialog->messageBar());
@@ -298,16 +302,18 @@ namespace
       // WidgetFlag::NoDocking the widget is always hosted in a standalone
       // top-level dialog created by QgsDockableWidgetHelper.
       explicit PaleoAlgorithmWidget(QgsProcessingAlgorithm *algorithm,
-                                    QMainWindow *parentWindow)
+                                    QMainWindow *parentWindow,
+                                    QgsProject *project)
         : QgsProcessingAlgorithmWidgetBase(
               parentWindow, QgsProcessingAlgorithmWidgetBase::WidgetMode::Single,
               QgsProcessingAlgorithmWidgetBase::WidgetFlag::NoDocking,
               Qgis::DockableWidgetInitialState::ForceDialog)
       {
-        if (QgsProject *project = QgsProject::instance())
+        QgsProject *resolved = project ? project : QgsProject::instance();
+        if (resolved)
         {
-          m_context.setProject(project);
-          m_context.setTransformContext(project->transformContext());
+          m_context.setProject(resolved);
+          m_context.setTransformContext(resolved->transformContext());
         }
         setAlgorithm(algorithm);
         auto *panel = new PaleoAlgorithmParametersPanel(algorithm, this, &m_context);
@@ -444,6 +450,11 @@ QgisProcessingService::QgisProcessingService(PaleoProjectStore *store, QObject *
   QgsProcessingRegistry *reg = QgsApplication::processingRegistry();
   if (reg && !reg->providerById(QStringLiteral("paleo")))
     reg->addProvider(new PaleoProvider());
+}
+
+void QgisProcessingService::setProject(QgsProject *project)
+{
+  m_project = project;
 }
 
 QVariantMap QgisProcessingService::run(const QString &algorithmId, const QVariantMap &parameters, QString *error)
@@ -591,7 +602,7 @@ QWidget *QgisProcessingService::createAlgorithmDialog(const QString &algId,
   // nullptr is legal: QgsDockableWidgetHelper then creates a free-standing
   // top-level QDialog (WidgetFlag::NoDocking forces dialog mode).
   auto *widget =
-      new PaleoAlgorithmWidget(instance.release(), qobject_cast<QMainWindow *>(parent));
+      new PaleoAlgorithmWidget(instance.release(), qobject_cast<QMainWindow *>(parent), m_project);
   if (!presetParams.isEmpty())
     widget->setParameters(presetParams);
 

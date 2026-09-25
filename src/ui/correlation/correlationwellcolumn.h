@@ -34,6 +34,7 @@ namespace CorrelationItemRoles
   constexpr int CurveOwner = 2;    // track pixmap item → owning well id
   constexpr int TrackMnemonic = 3; // track pixmap item → mnemonic
   constexpr int HorizonMarker = 4; // marker line item → marker name
+  constexpr int MarkerWellId = 5;  // marker line → well id (not a column)
 }
 
 class CorrelationWellColumn

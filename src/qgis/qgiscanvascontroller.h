@@ -3,8 +3,10 @@
 #include <QString>
 #include <QStringList>
 #include <QHash>
+#include <functional>
 
 class QgsMapCanvas;
+class QgsMapLayer;
 class QgsMapTool;
 class QWidget;
 
@@ -23,7 +25,11 @@ class QgisCanvasController : public QObject
     void deactivateTool();                        // Esc path
 
     void zoomToFullExtent();
-    void zoomToLayer(const QString &layerId);     // via QgisLayerService lookup (wired in app)
+    // Resolves a manifest layer id to the service-owned QgsMapLayer.
+    // Null keeps the QgsProject::instance() fallback used by tests.
+    using LayerResolver = std::function<QgsMapLayer *(const QString &layerId)>;
+    void setLayerResolver(LayerResolver resolver);
+    void zoomToLayer(const QString &layerId);
 
     // Selection broadcast guard (§41.3): while a broadcast is in flight, incoming
     // selection echoes are swallowed; a coalesced re-broadcast fires at settle.
@@ -38,4 +44,5 @@ class QgisCanvasController : public QObject
     QgsMapCanvas *m_canvas = nullptr;
     QgsMapTool *m_tool = nullptr;
     bool m_broadcasting = false;
+    LayerResolver m_layerResolver;
 };

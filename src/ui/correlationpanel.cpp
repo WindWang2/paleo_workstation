@@ -43,6 +43,18 @@ namespace
   constexpr qreal kDragThreshold  = 6.0;  // px before a press becomes a reorder drag
   constexpr int   kBrowserWidth   = 232;
 
+  // Columns are placed at y = kLabelBand and paint a header of the same
+  // height, so the shared depth body starts one header lower.
+  qreal depthBodyTop() { return kLabelBand + kLabelBand; }
+  qreal depthBodyHeight() { return kSceneHeight - depthBodyTop() - kMargin; }
+
+  bool isWellColumnItem(const QGraphicsItem *it)
+  {
+    return it
+        && it->data(CorrelationItemRoles::WellId).isValid()
+        && !it->data(CorrelationItemRoles::HorizonMarker).isValid();
+  }
+
   const QColor kSurfaceAlt(QStringLiteral("#EDF1F5"));
   const QColor kBorder(QStringLiteral("#DFE5EC"));
   const QColor kPrimary(QStringLiteral("#1B73D0"));
@@ -116,7 +128,7 @@ namespace
           int target = 0;
           for (QGraphicsItem *it : items())
           {
-            if (it == m_dragColumn || !it->data(CorrelationItemRoles::WellId).isValid())
+            if (it == m_dragColumn || !isWellColumnItem(it))
               continue;
             if (it->sceneBoundingRect().center().x() < cx)
               ++target;
@@ -151,7 +163,7 @@ namespace
       {
         for (QGraphicsItem *it : items(pos))
           for (QGraphicsItem *c = it; c; c = c->parentItem())
-            if (c->data(CorrelationItemRoles::WellId).isValid())
+            if (isWellColumnItem(c))
               return c;
         return nullptr;
       }
@@ -167,7 +179,7 @@ namespace
         int idx = 0;
         for (QGraphicsItem *it : items())
         {
-          if (it == col || !it->data(CorrelationItemRoles::WellId).isValid())
+          if (it == col || !isWellColumnItem(it))
             continue;
           if (it->sceneBoundingRect().center().x() < col->sceneBoundingRect().center().x())
             ++idx;
@@ -280,7 +292,7 @@ WellCorrelationPanel::WellCorrelationPanel(SelectionContext *ctx, QWidget *paren
   view->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   view->ruler = m_ruler;
-  view->rulerTop = kLabelBand;
+  view->rulerTop = depthBodyTop();
   view->depthOfY = [this](qreal y) { return depthAtY(y); };
   m_view = view;
 
@@ -418,8 +430,9 @@ bool WellCorrelationPanel::isWellHighlighted(const QString &wellId) const
   const auto items = m_scene->items();
   for (QGraphicsItem *it : items)
   {
-    const QVariant id = it->data(CorrelationItemRoles::WellId);
-    if (id.isValid() && id.toString() == wellId)
+    if (!isWellColumnItem(it))
+      continue;
+    if (it->data(CorrelationItemRoles::WellId).toString() == wellId)
       return it->data(CorrelationItemRoles::Highlight).toBool();
   }
   return false;
@@ -622,16 +635,16 @@ void WellCorrelationPanel::computeDepthAxis()
 
 qreal WellCorrelationPanel::yForDepth(float displayDepth) const
 {
-  const qreal bodyH = kSceneHeight - kLabelBand - kMargin;
+  const qreal bodyH = depthBodyHeight();
   const float span = m_axisMax - m_axisMin;
-  return kLabelBand + static_cast<qreal>(displayDepth - m_axisMin) / span * bodyH;
+  return depthBodyTop() + static_cast<qreal>(displayDepth - m_axisMin) / span * bodyH;
 }
 
 float WellCorrelationPanel::depthAtY(qreal y) const
 {
-  const qreal bodyH = kSceneHeight - kLabelBand - kMargin;
+  const qreal bodyH = depthBodyHeight();
   const float span = m_axisMax - m_axisMin;
-  return static_cast<float>(m_axisMin + (y - kLabelBand) / bodyH * span);
+  return static_cast<float>(m_axisMin + (y - depthBodyTop()) / bodyH * span);
 }
 
 // Selective relayout: old column items are deleted (children follow), the
@@ -651,7 +664,7 @@ void WellCorrelationPanel::rebuildScene()
 
   computeDepthAxis();
 
-  const qreal bodyH = kSceneHeight - kLabelBand - kMargin;
+  const qreal bodyH = depthBodyHeight();
   QSet<QString> selected;
   if (m_ctx)
   {
@@ -671,7 +684,7 @@ void WellCorrelationPanel::rebuildScene()
     QGraphicsPathItem *item = col->rebuild(m_scene, QPointF(x, kLabelBand), bodyH,
                                            m_axisMin, m_axisMax, selected.contains(w.first), off);
     m_columnItems.append(item);
-    geoms.append({w.first, QRectF(x, kLabelBand, col->width(), bodyH)});
+    geoms.append({w.first, QRectF(x, depthBodyTop(), col->width(), bodyH)});
     x += col->width() + kColumnGap;
   }
   m_lastGeoms = geoms;
@@ -742,12 +755,15 @@ void WellCorrelationPanel::applySelection(const QStringList &ids)
   const auto items = m_scene->items();
   for (QGraphicsItem *it : items)
   {
-    if (!it->data(CorrelationItemRoles::WellId).isValid())
-      continue; // label/track children carry no id
+    if (!isWellColumnItem(it))
+      continue; // labels, tracks, and horizon lines are not columns
+    auto *column = qgraphicsitem_cast<QGraphicsPathItem *>(it);
+    if (!column)
+      continue;
     const bool on = selected.contains(it->data(CorrelationItemRoles::WellId).toString());
     if (it->data(CorrelationItemRoles::Highlight).toBool() == on)
       continue;
     it->setData(CorrelationItemRoles::Highlight, on);
-    static_cast<QGraphicsPathItem *>(it)->setPen(columnPen(on));
+    column->setPen(columnPen(on));
   }
 }

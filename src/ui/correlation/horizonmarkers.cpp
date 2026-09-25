@@ -366,7 +366,7 @@ void HorizonMarkerSet::rebuild(QGraphicsScene *scene, QGraphicsItem *parent,
       MarkerLineItem *line = nullptr;
       if (grabber && !grabberReused
           && grabber->data(CorrelationItemRoles::HorizonMarker).toString() == m.name
-          && grabber->data(CorrelationItemRoles::WellId).toString() == g.wellId)
+          && grabber->data(CorrelationItemRoles::MarkerWellId).toString() == g.wellId)
       {
         // The line mid-drag: keep this exact item (and its grab). Only
         // our lines accept buttons among role-carrying items, so the
@@ -384,7 +384,7 @@ void HorizonMarkerSet::rebuild(QGraphicsScene *scene, QGraphicsItem *parent,
         if (!host)
           scene->addItem(line);
         line->setData(CorrelationItemRoles::HorizonMarker, m.name);
-        line->setData(CorrelationItemRoles::WellId, g.wellId);
+        line->setData(CorrelationItemRoles::MarkerWellId, g.wellId);
       }
       const QRectF r = rectInHost(g.rect);
       const qreal y = yInHost(sceneY);

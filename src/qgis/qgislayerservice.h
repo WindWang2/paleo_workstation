@@ -19,6 +19,9 @@ class QgisLayerService : public QObject
 
     bool declare(const LayerDeclaration &decl, QString *error = nullptr);
     QVector<LayerDeclaration> declared() const { return m_manifest->all(); }
+    // False when the manifest cannot be read. Callers must not treat that as
+    // an empty declaration set.
+    bool tryDeclared(QVector<LayerDeclaration> *out, QString *error = nullptr) const;
 
     // Returns instantiated layer, creating it from its declaration if needed. nullptr + error on failure.
     QgsMapLayer *instantiate(const QString &layerId, QString *error = nullptr);

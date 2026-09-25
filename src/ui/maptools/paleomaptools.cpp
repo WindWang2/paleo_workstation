@@ -22,6 +22,13 @@
 
 namespace
 {
+QgsCoordinateTransformContext layerTransformContext(const QgsMapLayer *layer)
+{
+  if (layer && layer->project())
+    return layer->project()->transformContext();
+  return QgsProject::instance()->transformContext();
+}
+
 // QgsMapToolAdvancedDigitizing's ctor Q_ASSERTs a non-null dock and
 // activate()/canvasReleaseEvent() dereference it unconditionally — fabricate a
 // canvas-owned dock when the embedder does not inject a shared one.
@@ -89,7 +96,7 @@ void PaleoDrawConstraintTool::lineCaptured( const QgsCurve *line )
     {
       try
       {
-        canvasCurve->transform( QgsCoordinateTransform( layerCrs, canvasCrs, QgsProject::instance()->transformContext() ) );
+        canvasCurve->transform( QgsCoordinateTransform( layerCrs, canvasCrs, layerTransformContext(vlayer) ) );
       }
       catch ( QgsCsException & )
       {
@@ -184,7 +191,7 @@ void PaleoDrawPolygonTool::polygonCaptured( const QgsCurvePolygon *polygon )
     {
       try
       {
-        canvasPolygon->transform( QgsCoordinateTransform( layerCrs, canvasCrs, QgsProject::instance()->transformContext() ) );
+        canvasPolygon->transform( QgsCoordinateTransform( layerCrs, canvasCrs, layerTransformContext(vlayer) ) );
       }
       catch ( QgsCsException & )
       {
@@ -296,7 +303,7 @@ void PaleoDrawRectTool::emitRectangle( const QgsPointXY *eventCorner )
     {
       try
       {
-        canvasCurve->transform( QgsCoordinateTransform( layerCrs, canvasCrs, QgsProject::instance()->transformContext() ) );
+        canvasCurve->transform( QgsCoordinateTransform( layerCrs, canvasCrs, layerTransformContext(vlayer) ) );
       }
       catch ( QgsCsException & )
       {

@@ -1,4 +1,5 @@
 #pragma once
+#include <QPointer>
 #include <QWidget>
 #include <QString>
 #include <QList>
@@ -8,6 +9,7 @@
 #include "editingundostack.h"
 
 class QgsMapCanvas;
+class QgsProject;
 class QgsVectorLayer;
 class QToolBar;
 class QComboBox;
@@ -49,7 +51,10 @@ class PaleoEditingToolbar : public QWidget
     // Candidate layers (host-driven; order preserved). Re-renders the combo;
     // keeps the current selection when the layer is still listed.
     void setLayers( const QList<QgsVectorLayer *> &layers );
-    // Convenience: candidates := project vector layers (QgsProject::instance).
+    // Project whose vector layers refreshFromProject() lists. Null falls
+    // back to QgsProject::instance() so tests that own the singleton keep
+    // working. The application passes QgisProjectService::project().
+    void setProject( QgsProject *project );
     void refreshFromProject();
 
     // Business-linkage hook: only layers passing the filter are listed /
@@ -140,4 +145,5 @@ class PaleoEditingToolbar : public QWidget
     QAction *mActionRedo = nullptr;
     class QgsMapTool *mActiveEditTool = nullptr; // installed tool, not owned
     std::unique_ptr<PaleoUndoStack> mUndoStack;
+    QPointer<QgsProject> mProject;
 };

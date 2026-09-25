@@ -15,6 +15,7 @@
 #include <qgspointxy.h>
 #include <qgsrectangle.h>
 #include <qgscoordinatereferencesystem.h>
+#include <qgscoordinatetransform.h>
 
 #include <gdal.h>
 #include <cpl_conv.h>
@@ -201,8 +202,8 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
       const QVariant zv = f.attribute( fieldIdx );
       bool ok = false;
       const double z = zv.toDouble( &ok );
-      if ( !ok )
-        continue; // skip non-numeric z values rather than fail the whole run
+      if ( !ok || !std::isfinite( z ) )
+        continue; // skip non-numeric and NaN/Inf rather than poison the grid
       samples.push_back( { p.x(), p.y(), z } );
     }
   }
@@ -223,12 +224,36 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
     if ( constraints )
     {
       QVector<QgsGeometry> geoms;
+      const QgsCoordinateReferenceSystem from = constraints->sourceCrs();
+      const QgsCoordinateReferenceSystem to = source->sourceCrs();
+      std::unique_ptr<QgsCoordinateTransform> xform;
+      if ( from.isValid() && to.isValid() && from != to )
+      {
+        try
+        {
+          xform = std::make_unique<QgsCoordinateTransform>( from, to, context.transformContext() );
+        }
+        catch ( const QgsCsException &e )
+        {
+          throw QgsProcessingException(
+              QStringLiteral( "Cannot transform constraints into the well CRS: %1" ).arg( e.what() ) );
+        }
+      }
       QgsFeatureIterator cit = constraints->getFeatures( QgsFeatureRequest() );
       QgsFeature cf;
       while ( cit.nextFeature( cf ) )
       {
-        if ( cf.hasGeometry() && !cf.geometry().isEmpty() )
-          geoms.append( cf.geometry() );
+        if ( !cf.hasGeometry() || cf.geometry().isEmpty() )
+          continue;
+        QgsGeometry g = cf.geometry();
+        if ( xform )
+        {
+          const Qgis::GeometryOperationResult tr = g.transform( *xform );
+          if ( tr != Qgis::GeometryOperationResult::Success )
+            throw QgsProcessingException(
+                QStringLiteral( "Constraint geometry failed to transform into the well CRS" ) );
+        }
+        geoms.append( g );
       }
       if ( geoms.size() == 1 )
         hull = geoms.at( 0 ).convexHull();
@@ -240,10 +265,14 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
                           QgsWkbTypes::geometryType( hull.wkbType() ) == Qgis::GeometryType::Polygon;
 
   // ---- output grid ----------------------------------------------------------
-  // Input extent + 10% margin on every side (uniform scale x1.2 about center).
-  QgsRectangle extent = source->sourceExtent().scaled( 1.2 );
-  if ( extent.isEmpty() || extent.width() < 0 || extent.height() < 0 )
-    extent = source->sourceExtent(); // degenerate CRS extents fall back raw
+  // 10% margin on every side. A zero-width axis (collinear or single wells)
+  // still gets one cell of padding so the wells land inside the grid instead
+  // of collapsing the whole extent.
+  const QgsRectangle raw = source->sourceExtent();
+  const double xPad = raw.width() > 0.0 ? raw.width() * 0.1 : cellSize;
+  const double yPad = raw.height() > 0.0 ? raw.height() * 0.1 : cellSize;
+  QgsRectangle extent( raw.xMinimum() - xPad, raw.yMinimum() - yPad,
+                       raw.xMaximum() + xPad, raw.yMaximum() + yPad );
   const int nCols = std::max( 1, static_cast<int>( std::ceil( extent.width() / cellSize ) ) );
   const int nRows = std::max( 1, static_cast<int>( std::ceil( extent.height() / cellSize ) ) );
 

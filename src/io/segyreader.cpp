@@ -120,6 +120,9 @@ bool SegyReader::open(const QString &path, QString *error)
     return false;
   }
 
+  int maxNs = 0;
+  int intervalUs = binDt;
+
   while (offset < fileSize)
   {
     if (fileSize - offset < 240)
@@ -146,6 +149,10 @@ bool SegyReader::open(const QString &path, QString *error)
     }
 
     const int ns = (traceNs > 0) ? traceNs : binNs;
+    if (ns > maxNs)
+      maxNs = ns;
+    if (intervalUs <= 0 && traceDt > 0)
+      intervalUs = traceDt;
     if (ns <= 0)
     {
       if (error)
@@ -202,7 +209,7 @@ bool SegyReader::open(const QString &path, QString *error)
     return false;
   }
 
-  m_samplesPerTrace = binNs;
-  m_sampleIntervalUs = static_cast<float>(binDt);
+  m_samplesPerTrace = maxNs > 0 ? maxNs : binNs;
+  m_sampleIntervalUs = static_cast<float>(intervalUs);
   return true;
 }

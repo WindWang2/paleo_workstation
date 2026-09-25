@@ -410,6 +410,20 @@ ConstraintPage::ConstraintPage(ConstraintWorkflow *wf, QWidget *parent)
                                  shape->currentData().toString(), spin->value());
   });
 
+  auto *field = new QLineEdit(QStringLiteral("z"), this);
+  field->setObjectName(QStringLiteral("idwField"));
+  field->setPlaceholderText(tr("井属性字段"));
+  field->setAccessibleName(tr("插值字段"));
+  lay->addWidget(field);
+
+  auto *cell = new QDoubleSpinBox(this);
+  cell->setObjectName(QStringLiteral("idwCellSize"));
+  cell->setRange(0.0001, 1.0e9);
+  cell->setDecimals(4);
+  cell->setValue(1.0);
+  cell->setAccessibleName(tr("像元大小"));
+  lay->addWidget(cell);
+
   auto *idw = new QPushButton(tr("插值"), this);
   idw->setObjectName(QStringLiteral("runIdwButton"));
   lay->addWidget(idw);

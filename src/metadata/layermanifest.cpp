@@ -140,18 +140,33 @@ bool LayerManifest::remove(const QString &layerId, QString *error)
   return true;
 }
 
-QVector<LayerDeclaration> LayerManifest::all() const
+bool LayerManifest::readAll(QVector<LayerDeclaration> *out, QString *error) const
 {
-  QVector<LayerDeclaration> out;
-  if (!ensureOpen(m_dbPath, nullptr))
-    return out;
+  if (!out)
+  {
+    setError(error, QStringLiteral("readAll requires an output vector"));
+    return false;
+  }
+  out->clear();
+  if (!ensureOpen(m_dbPath, error))
+    return false;
 
   QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
   if (!q.exec(QStringLiteral("SELECT ") + kColumns +
               QStringLiteral(" FROM layer_declarations ORDER BY layer_id")))
-    return out;
+  {
+    setError(error, q.lastError().text());
+    return false;
+  }
   while (q.next())
-    out.append(rowToDecl(q));
+    out->append(rowToDecl(q));
+  return true;
+}
+
+QVector<LayerDeclaration> LayerManifest::all() const
+{
+  QVector<LayerDeclaration> out;
+  readAll(&out, nullptr);
   return out;
 }
 

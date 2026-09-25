@@ -86,12 +86,21 @@ void QgisCanvasController::zoomToFullExtent()
     m_canvas->zoomToFullExtent();
 }
 
+void QgisCanvasController::setLayerResolver( LayerResolver resolver )
+{
+  m_layerResolver = std::move( resolver );
+}
+
 void QgisCanvasController::zoomToLayer( const QString &layerId )
 {
   if ( !m_canvas )
     return;
-  // QgisLayerService instances are owned by QgsProject — resolve there.
-  QgsMapLayer *l = QgsProject::instance()->mapLayer( layerId );
+  // Production layers live on QgisProjectService's QgsProject and are keyed
+  // by manifest id, which is not QgsMapLayer::id(). The app installs a resolver
+  // that goes through QgisLayerService. The singleton remains a test fallback.
+  QgsMapLayer *l = m_layerResolver ? m_layerResolver( layerId ) : nullptr;
+  if ( !l )
+    l = QgsProject::instance()->mapLayer( layerId );
   if ( !l )
     return;
   const QgsRectangle ext = l->extent();

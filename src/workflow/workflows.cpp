@@ -22,6 +22,7 @@
 #include <gdal.h>
 #include <cpl_conv.h>
 
+#include <algorithm>
 #include <cmath>
 
 // ---------------------------------------------------------------------------
@@ -684,6 +685,21 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
     setError( error, tr( "constraint workflow is not bound to services" ) );
     return false;
   }
+  if ( pointsLayerId.isEmpty() )
+  {
+    setError( error, tr( "没有井点图层" ) );
+    return false;
+  }
+  if ( field.isEmpty() )
+  {
+    setError( error, tr( "插值字段为空" ) );
+    return false;
+  }
+  if ( !( cellSize > 0.0 ) )
+  {
+    setError( error, tr( "像元大小必须是正数" ) );
+    return false;
+  }
 
   // INPUT is a QgsProcessingParameterFeatureSource: it accepts a QgsMapLayer*
   // variant, so resolve the declared points layer through the layer service.
@@ -696,6 +712,31 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
   params.insert( QStringLiteral( "FIELD" ), field );
   params.insert( QStringLiteral( "CELL_SIZE" ), cellSize );
   params.insert( QStringLiteral( "OUTPUT" ), tempRasterPath( QStringLiteral( "idw" ), horizon ) );
+
+  QVector<LayerDeclaration> declared;
+  QString manifestErr;
+  if ( !layers->tryDeclared( &declared, &manifestErr ) )
+  {
+    setError( error, manifestErr.isEmpty() ? tr( "无法读取图层清单" ) : manifestErr );
+    return false;
+  }
+  const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( horizon );
+  const bool hasConstraints = std::any_of(
+      declared.cbegin(), declared.cend(),
+      [&constraintLayerId]( const LayerDeclaration &d ) { return d.layerId == constraintLayerId; } );
+  if ( hasConstraints )
+  {
+    QString constraintErr;
+    QgsMapLayer *constraints = layers->instantiate( constraintLayerId, &constraintErr );
+    if ( !constraints )
+    {
+      setError( error, constraintErr.isEmpty()
+                           ? tr( "无法加载约束图层 %1" ).arg( constraintLayerId )
+                           : constraintErr );
+      return false;
+    }
+    params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( constraints ) );
+  }
 
   const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_constraint_idw" ), params, error );
   if ( results.isEmpty() )

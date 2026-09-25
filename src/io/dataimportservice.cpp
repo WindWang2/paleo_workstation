@@ -11,6 +11,8 @@
 #include <QFile>
 #include <QFileInfo>
 
+#include <cstdio>
+
 // ---------------------------------------------------------------------------
 // §41.2 — ingest contract:
 //   validate source → copy to <project>/data/<kind>/<basename> through the
@@ -64,10 +66,32 @@ QString DataImportService::importFile(const QString &kind, const QString &source
   if (sourcePath.isEmpty() || !QFile::exists(sourcePath))
     return fail(QStringLiteral("source file does not exist: %1").arg(sourcePath));
 
+  QVector<LayerDeclaration> existing;
+  QString manifestErr;
+  if (!m_layers->tryDeclared(&existing, &manifestErr))
+    return fail(manifestErr.isEmpty() ? QStringLiteral("cannot read layer manifest") : manifestErr);
+  int maxSeq = m_seq;
+  for (const LayerDeclaration &d : existing)
+  {
+    const int dot = d.layerId.lastIndexOf(QLatin1Char('.'));
+    if (dot < 0)
+      continue;
+    bool ok = false;
+    const int n = d.layerId.mid(dot + 1).toInt(&ok);
+    if (ok)
+      maxSeq = qMax(maxSeq, n);
+  }
+  m_seq = maxSeq;
+
+  const int seq = ++m_seq;
+  const QString assetId = QStringLiteral("%1-%2").arg(kind).arg(seq);
+  const QString layerId = QStringLiteral("%1.%2").arg(kind).arg(seq);
+
   const QString relPath = QStringLiteral("data/%1/%2").arg(kind, QFileInfo(sourcePath).fileName());
   const QString dst = QDir(m_projectDir).absoluteFilePath(relPath); // project-absolute
 
-  // Serialized copy — UI never mutates the project tree directly.
+  // Copy to a sibling partial, then POSIX-rename over the destination.
+  // A failed copy leaves any existing file in place.
   const PaleoProjectStore::WriteResult wr =
       m_store->enqueueWrite([sourcePath, dst]() -> PaleoProjectStore::WriteResult {
         if (QFileInfo(sourcePath).absoluteFilePath() == QFileInfo(dst).absoluteFilePath())
@@ -75,18 +99,26 @@ QString DataImportService::importFile(const QString &kind, const QString &source
         const QDir dir = QFileInfo(dst).absoluteDir();
         if (!dir.exists() && !dir.mkpath(QStringLiteral(".")))
           return {false, QStringLiteral("cannot create directory %1").arg(dir.absolutePath())};
-        if (QFile::exists(dst) && !QFile::remove(dst))
-          return {false, QStringLiteral("cannot replace existing %1").arg(dst)};
-        if (!QFile::copy(sourcePath, dst))
+        const QString partial = dst + QStringLiteral(".partial");
+        QFile::remove(partial);
+        if (!QFile::copy(sourcePath, partial))
+        {
+          QFile::remove(partial);
           return {false, QStringLiteral("failed to copy %1 to %2").arg(sourcePath, dst)};
+        }
+        if (::rename(QFile::encodeName(partial).constData(),
+                     QFile::encodeName(dst).constData()) != 0)
+        {
+          QFile::remove(partial);
+          return {false, QStringLiteral("failed to replace %1").arg(dst)};
+        }
         return {true, QString()};
       });
   if (!wr.ok)
+  {
+    --m_seq;
     return fail(wr.error.isEmpty() ? QStringLiteral("copy into project failed") : wr.error);
-
-  const int seq = ++m_seq;
-  const QString assetId = QStringLiteral("%1-%2").arg(kind).arg(seq);
-  const QString layerId = QStringLiteral("%1.%2").arg(kind).arg(seq);
+  }
 
   LayerDeclaration decl;
   decl.layerId = layerId;

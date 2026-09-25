@@ -2,6 +2,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
 #include <QSpinBox>
@@ -91,22 +92,96 @@ class TestPanels : public QObject
     {
       PredictPage page(nullptr, nullptr);
       page.setHorizons({QStringLiteral("T1"), QStringLiteral("T2")});
-      page.setAlgorithms({QStringLiteral("alg.krige"), QStringLiteral("alg.idw")});
+      page.setAlgorithms({QStringLiteral("paleo:x"), QStringLiteral("onnx:toy")});
 
       auto *hc = page.findChild<QComboBox *>(QStringLiteral("horizonCombo"));
       auto *ac = page.findChild<QComboBox *>(QStringLiteral("algoCombo"));
       QVERIFY(hc && ac);
       QCOMPARE(hc->count(), 2);
       QCOMPARE(ac->count(), 2);
+      QCOMPARE(hc->itemText(0), QStringLiteral("T1"));
       QCOMPARE(hc->itemText(1), QStringLiteral("T2"));
 
-      hc->setCurrentIndex(1);
+      QCOMPARE(ac->itemData(0).toString(), QStringLiteral("paleo:x"));
+      QCOMPARE(ac->itemData(1).toString(), QStringLiteral("onnx:toy"));
+      QCOMPARE(ac->itemText(0), QStringLiteral("paleo:x"));
+      QCOMPARE(ac->itemText(1), QStringLiteral("toy (ONNX)"));
+
+      auto *paramsArea = page.findChild<QWidget *>(QStringLiteral("onnxParamsArea"));
+      QVERIFY(paramsArea);
+
+      auto *inputEdit = page.findChild<QLineEdit *>(QStringLiteral("onnxInputEdit"));
+      if (!inputEdit)
+        inputEdit = page.findChild<QLineEdit *>(QStringLiteral("inputEdit"));
+      auto *shapeEdit = page.findChild<QLineEdit *>(QStringLiteral("onnxShapeEdit"));
+      if (!shapeEdit)
+        shapeEdit = page.findChild<QLineEdit *>(QStringLiteral("shapeEdit"));
+      auto *nameEdit = page.findChild<QLineEdit *>(QStringLiteral("onnxInputNameEdit"));
+      if (!nameEdit)
+        nameEdit = page.findChild<QLineEdit *>(QStringLiteral("inputNameEdit"));
+
+      QVERIFY(inputEdit);
+      QVERIFY(shapeEdit);
+      QVERIFY(nameEdit);
+
+      // Check params area visibility when switching algorithms
       ac->setCurrentIndex(1);
+      emit ac->activated(1);
+      QVERIFY(!paramsArea->isHidden());
+
+      ac->setCurrentIndex(0);
+      emit ac->activated(0);
+      QVERIFY(paramsArea->isHidden());
+
+      ac->setCurrentIndex(1);
+      emit ac->activated(1);
+      QVERIFY(!paramsArea->isHidden());
+
+      // Valid ONNX run with parameters
+      hc->setCurrentIndex(0); // "T1"
+      inputEdit->setText(QStringLiteral("2.0"));
+      shapeEdit->setText(QStringLiteral("1"));
+      nameEdit->setText(QStringLiteral("x"));
+
       QSignalSpy spy(&page, &PredictPage::runRequested);
-      page.findChild<QPushButton *>(QStringLiteral("runButton"))->click();
+      auto *runBtn = page.findChild<QPushButton *>(QStringLiteral("runButton"));
+      QVERIFY(runBtn);
+      runBtn->click();
+
       QCOMPARE(spy.count(), 1);
-      QCOMPARE(spy.first().at(0).toString(), QStringLiteral("T2"));
-      QCOMPARE(spy.first().at(1).toString(), QStringLiteral("alg.idw"));
+      QCOMPARE(spy.first().at(0).toString(), QStringLiteral("T1"));
+      QCOMPARE(spy.first().at(1).toString(), QStringLiteral("onnx:toy"));
+
+      const QVariantMap params = spy.first().at(2).toMap();
+      const QVariantList inputList = params.value(QStringLiteral("input")).toList();
+      QCOMPARE(inputList.size(), 1);
+      QCOMPARE(inputList.at(0).toFloat(), 2.0f);
+
+      const QVariantList shapeList = params.value(QStringLiteral("shape")).toList();
+      QCOMPARE(shapeList.size(), 1);
+      QCOMPARE(shapeList.at(0).toLongLong(), qint64(1));
+
+      QCOMPARE(params.value(QStringLiteral("inputName")).toString(), QStringLiteral("x"));
+
+      // Invalid input should not emit runRequested and should show status error
+      inputEdit->setText(QStringLiteral("abc"));
+      spy.clear();
+      runBtn->click();
+      QCOMPARE(spy.count(), 0);
+
+      auto *status = page.findChild<QLabel *>(QStringLiteral("statusLabel"));
+      QVERIFY(status);
+      QVERIFY(!status->text().isEmpty());
+
+      // Paleo run should emit with empty params map
+      ac->setCurrentIndex(0);
+      emit ac->activated(0);
+      spy.clear();
+      runBtn->click();
+      QCOMPARE(spy.count(), 1);
+      QCOMPARE(spy.first().at(0).toString(), QStringLiteral("T1"));
+      QCOMPARE(spy.first().at(1).toString(), QStringLiteral("paleo:x"));
+      QVERIFY(spy.first().at(2).toMap().isEmpty());
     }
 
     void predictPage_statusShowsWorkflowFailure()

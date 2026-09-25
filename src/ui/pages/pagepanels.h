@@ -35,7 +35,10 @@ class PredictPage : public QWidget
     void setHorizons(const QStringList &horizons);
     void setAlgorithms(const QStringList &algIds);
   signals:
-    void runRequested(const QString &horizon, const QString &algorithmId);
+    void runRequested(const QString &horizon, const QString &algorithmId, const QVariantMap &params);
+
+  private:
+    QVariantMap parseInputParams();
 };
 
 // ②约束与单因素 — constraint list + run-IDW row.

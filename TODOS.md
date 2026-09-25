@@ -1,5 +1,17 @@
 # TODOS — paleo_workstation
 
+## P3 — catalog.sqlite 查询索引（deferred from /autoplan SELECTIVE EXPANSION, 2026-09-25）
+
+- **What:** 由 `catalog.json` 重建 `catalog.sqlite`，作为资产、版本、关联的查询索引。
+- **Why:** ADR 0056 把 sqlite 定义为可重建索引，避免打开工程时扫 JSON。
+- **Pros:** 资产变多后列表和校验不用每次解析整份 catalog。
+- **Cons:** 20 口井的第一段用 JSON 就够；提前做会多一个必须和 catalog.json 对齐的存储。
+- **Context:** `docs/PROJECT_AREA_PLAN.md` 第 3 节。触发条件：资产数量或列表查询变慢。
+- **Effort:** human: M / CC: S
+- **Priority:** P3
+- **Depends on:** catalog.json 受管 RAW 已能往返
+
+
 ## P2 — 多 realization / 不确定性支持（deferred from CEO review D6, 2026-09-25)
 
 - **What:** 每层位存 N 个预测 realization，派生置信度面，同一 canvas 切换 realization。

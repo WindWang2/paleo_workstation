@@ -10,6 +10,10 @@ class SelectionContext;
 class QTabBar;
 class QDockWidget;
 class QStackedWidget;
+class PredictionWorkflow;
+class ConstraintWorkflow;
+class CompositionWorkflow;
+class ValidationWorkflow;
 
 // ui/ — PaleoMainWindow: the five-page workflow shell (§42).
 // Anatomy: left = layer tree dock; center = canvas (+ startup page stacked under);
@@ -31,6 +35,11 @@ class PaleoMainWindow : public QMainWindow
     QString currentPage() const { return m_currentPage; }
     void showStartup();            // first-run: recent projects + new/open
     void onProjectOpened();        // called after project opens: swap startup->workspace
+
+    // Swap right-dock placeholder panels for the real page panels (§42.2),
+    // bound to the workflow orchestrators. Call after AppContext assembly.
+    void attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
+                         CompositionWorkflow *compose, ValidationWorkflow *validate);
 
   private:
     void buildShell();

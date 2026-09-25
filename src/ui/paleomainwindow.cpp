@@ -6,6 +6,8 @@
 #include "../qgis/qgisruntime.h"
 #include "../services/toolavailability.h"
 #include "../linkage/selectioncontext.h"
+#include "../workflow/workflows.h"
+#include "pages/pagepanels.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
@@ -357,4 +359,71 @@ void PaleoMainWindow::onProjectOpened()
 
   // Workflow lands on 数据管理 — first step of the chain.
   showPage(kPageIds.first());
+}
+
+void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
+                                      CompositionWorkflow *compose, ValidationWorkflow *validate)
+{
+  auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost"));
+  auto *stack = host ? static_cast<QStackedLayout *>(host->layout()) : nullptr;
+  if (!stack)
+    return;
+
+  // Replace placeholders in page order (data, predict, constraint, compose, validate).
+  while (stack->count() > 0)
+  {
+    QLayoutItem *item = stack->takeAt(0);
+    if (item->widget())
+      item->widget()->deleteLater();
+    delete item;
+  }
+
+  auto *dataPage = new DataPage(host);
+  auto *predictPage = new PredictPage(pred, m_layerSvc, host);
+  auto *constraintPage = new ConstraintPage(constraint, host);
+  auto *composePage = new ComposePage(compose, m_layerSvc, host);
+  auto *validatePage = new ValidatePage(validate, host);
+  stack->addWidget(dataPage);
+  stack->addWidget(predictPage);
+  stack->addWidget(constraintPage);
+  stack->addWidget(composePage);
+  stack->addWidget(validatePage);
+
+  // Panel intents → workflows / selection. Params stay minimal for the shell
+  // milestone — full parameter dialogs are per-panel follow-up work.
+  if (pred && predictPage)
+    connect(predictPage, &PredictPage::runRequested, this,
+            [this, pred](const QString &horizon, const QString &algId) {
+              QString err;
+              pred->runPrediction(horizon, algId, QVariantMap(), &err);
+            });
+
+  if (constraint && constraintPage)
+  {
+    connect(constraintPage, &ConstraintPage::runIdwRequested, this,
+            [this, constraint](const QString &horizon) {
+              QString err;
+              constraint->runConstraintIDW(horizon, QString(), QString(), 0.0, &err);
+            });
+  }
+  if (compose && composePage)
+    connect(composePage, &ComposePage::fuseRequested, this,
+            [this, compose, composePage](const QStringList &factorIds) {
+              QString err;
+              const QString horizon = m_selection ? m_selection->activeHorizon() : QString();
+              if (compose->fuseFactors(horizon, factorIds, &err))
+                composePage->refreshFactors();
+            });
+  if (validate && validatePage)
+  {
+    connect(validatePage, &ValidatePage::locateRequested, this,
+            [this](const QString &layerId, const QString &) {
+              if (m_canvasCtl)
+                m_canvasCtl->zoomToLayer(layerId);
+            });
+  }
+
+  // Re-sync visible page index with current tab.
+  const int idx = kPageIds.indexOf(m_currentPage);
+  stack->setCurrentIndex(idx >= 0 ? idx : 0);
 }

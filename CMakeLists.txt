@@ -48,10 +48,29 @@ add_library(paleo_core STATIC
   src/algorithms/paleoalgorithms.cpp
   src/workflow/workflows.cpp
   src/ui/paleomainwindow.cpp
+  src/ui/pages/pagepanels.cpp
   src/app/appcontext.cpp
+  src/linkage/seismicmaplink.cpp
 )
 target_link_libraries(paleo_core PUBLIC paleo_qgis_iface ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
+
+# ONNX Runtime (vendored; spike ET4). The shipped cmake config assumes lib64/ — we use lib/.
+find_path(ORT_INCLUDE onnxruntime_cxx_api.h PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/include)
+find_library(ORT_LIB onnxruntime PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib)
+if(ORT_INCLUDE AND ORT_LIB)
+  set(PALEO_HAVE_ORT TRUE)
+  add_library(ort_vendored SHARED IMPORTED)
+  set_target_properties(ort_vendored PROPERTIES IMPORTED_LOCATION ${ORT_LIB}
+    INTERFACE_INCLUDE_DIRECTORIES ${ORT_INCLUDE})
+  target_sources(paleo_core PRIVATE src/ai/onnxpredictionservice.cpp)
+  target_link_libraries(paleo_core PUBLIC ort_vendored)
+  target_compile_definitions(paleo_core PUBLIC PALEO_HAVE_ORT=1)
+  set(CMAKE_BUILD_RPATH "${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
+else()
+  set(PALEO_HAVE_ORT FALSE)
+  message(STATUS "onnxruntime not vendored — ai/ service excluded (run ./paleo-dev bootstrap)")
+endif()
 
 enable_testing()
 
@@ -73,6 +92,13 @@ add_paleo_test(tst_algorithms)
 add_paleo_test(tst_services2)
 add_paleo_test(tst_workflows)
 add_paleo_test(tst_ui)
+add_paleo_test(tst_panels)
+add_paleo_test(tst_perf)
+if(PALEO_HAVE_ORT)
+  add_paleo_test(tst_onnx)
+  set_tests_properties(tst_onnx PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;LD_LIBRARY_PATH=${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
+endif()
 
 # ---- application ----
 add_executable(paleo src/app/main.cpp)

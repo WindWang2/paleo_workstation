@@ -11,6 +11,7 @@
 #include "../linkage/selectioncontext.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../metadata/layermanifest.h"
+#include "../workflow/workflows.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -86,6 +87,12 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_styleSvc = new QgisStyleService(this);
   m_toolSvc = new ToolAvailabilityService(m_store, this);
   m_selection = new SelectionContext(this);
+
+  // Workflow orchestrators — thin bindings over the services above.
+  m_predictionWf = new PredictionWorkflow(m_procSvc, m_layerSvc, this);
+  m_constraintWf = new ConstraintWorkflow(m_procSvc, m_layerSvc, this);
+  m_compositionWf = new CompositionWorkflow(m_procSvc, m_layerSvc, this);
+  m_validationWf = new ValidationWorkflow(m_layerSvc, m_store, this);
 
   // ensureManifest-on-open: first point a per-project path is derivable.
   connect(m_projectSvc, &QgisProjectService::projectOpened, this,

@@ -15,6 +15,10 @@ class ToolAvailabilityService;
 class SelectionContext;
 class PaleoProjectStore;
 class LayerManifest;
+class PredictionWorkflow;
+class ConstraintWorkflow;
+class CompositionWorkflow;
+class ValidationWorkflow;
 
 class AppContext : public QObject
 {
@@ -34,6 +38,10 @@ class AppContext : public QObject
     SelectionContext *selection() const { return m_selection; }
     PaleoProjectStore *store() const { return m_store; }
     LayerManifest *manifest() const { return m_manifest; }
+    PredictionWorkflow *predictionWf() const { return m_predictionWf; }
+    ConstraintWorkflow *constraintWf() const { return m_constraintWf; }
+    CompositionWorkflow *compositionWf() const { return m_compositionWf; }
+    ValidationWorkflow *validationWf() const { return m_validationWf; }
 
   private:
     bool m_ready = false;
@@ -47,4 +55,8 @@ class AppContext : public QObject
     SelectionContext *m_selection = nullptr;
     PaleoProjectStore *m_store = nullptr;
     LayerManifest *m_manifest = nullptr;
+    PredictionWorkflow *m_predictionWf = nullptr;
+    ConstraintWorkflow *m_constraintWf = nullptr;
+    CompositionWorkflow *m_compositionWf = nullptr;
+    ValidationWorkflow *m_validationWf = nullptr;
 };

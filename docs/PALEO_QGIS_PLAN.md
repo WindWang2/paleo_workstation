@@ -1362,7 +1362,7 @@ Facies Polygon Layer (可编辑)
 - [x] **ET7 (P1)** — ToolAvailabilityService per-layer busy map **DONE**（taskId—reason 契约，tst_canvas_tools 6/6 绿）；§42.2 面板清单表属文档项
 - [x] **ET8 (P2)** — **partial**：QTest+CTest harness 骨架就位（`paleo-dev test` + offscreen + 2 测试）；golden fixture 工区与 5 类回归测试待 P0。
 - [x] **ET9 (P1, Phase 0)** — app-only 功能审计表 → `docs/phase0/et9-app-only-audit.md`（结论：Processing UI/图层属性已在 gui 零移植；layout designer 走 QgsLayoutDesignerInterface 自研 shell；vertex editor/shape tools/decorations/locator filters 薄移植）。
-- [ ] **ET10 (P2)** — 性能用例：overviews 构建、打开预算、并发上限（§41.6 数字）。
+- [x] **ET10 (P2)** — 性能用例 **DONE**（tst_perf 6/6：project open 18ms vs 10s 预算；并发上限=max(2,cores/4)；GDALBuildOverviews 路径验证；默认像元=工区/2048→0.0049° on golden）
 - [x] **ET11 (P1)** — `paleo-dev bootstrap`（preflight 含 glibc floor/磁盘/工具链 + 幂等 vendor 获取 + 尾跑 selfcheck）。
 - [x] **ET12 (P1)** — `paleo-dev` 五 verb 入口 + `testdata/fixture.gpkg` 内置最小 fixture + `map.png` 渲染产出。
 - [x] **ET13 (P2)** — README.md + BUILDING.md（平台矩阵/依赖/常见失败表/升级流程/实测值）。

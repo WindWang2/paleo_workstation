@@ -20,6 +20,8 @@
 #include "constraintdrawcontroller.h"
 #include "correlationpanel.h"
 #include "seismicpreviewpanel.h"
+#include "datapreview/datapreviewtabs.h"
+#include "../catalog/datacatalog.h"
 #include "layoutdesignershell.h"
 #include "edittools/editingtoolbar.h"
 #include "../qgis/qgislayoutservice.h"
@@ -542,8 +544,36 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   // Panel intents → workflows / selection. Params stay minimal for the shell
   // milestone — full parameter dialogs are per-panel follow-up work.
   if (importSvc && dataPage)
+  {
+    // §3/§4 数据契约接线：数据页绑定导入服务，资产表跟 catalog 走，
+    // 列表选中在页内预览标签打开（确认入库后才开标签）。
+    dataPage->setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(importSvc));
+    connect(importSvc->catalog(), &DataCatalog::changed, this,
+            [dataPage]() { QMetaObject::invokeMethod(dataPage, "refreshAssetTable"); });
+    dataPage->refreshAssetTable();
+    DataPreviewTabs *preview = dataPage->findChild<DataPreviewTabs *>(QStringLiteral("dataPreview"));
+    if (preview)
+    {
+      preview->setImportService(importSvc);
+      connect(dataPage, &DataPage::assetActivated, preview, &DataPreviewTabs::openAsset);
+      // well_head 预览选中 → 地图高亮该井（§4；Direction B 经 SelectionContext）。
+      if (m_selection)
+        connect(preview, &DataPreviewTabs::wellSelected, this,
+                [this](const QString &wellEntityId) {
+                  m_selection->setSelection({wellEntityId}, QStringLiteral("datapreview"));
+                });
+      // horizon 预览「在地图上显示」→ 实例化派生栅格（§4）。
+      if (m_layerSvc)
+        connect(preview, &DataPreviewTabs::showHorizonOnMapRequested, this,
+                [this](const QString &layerId) {
+                  QString err;
+                  if (!m_layerSvc->instantiate(layerId, &err))
+                    QgsMessageLog::logMessage(tr("Show on map failed: %1").arg(err),
+                                              QStringLiteral("Paleo"), Qgis::Critical);
+                });
+    }
     connect(dataPage, &DataPage::importRequested, this,
-            [this, importSvc](const QString &kind) {
+            [this, importSvc, preview](const QString &kind) {
               const QString path = QFileDialog::getOpenFileName(
                   this, tr("Import %1").arg(kind), QString(),
                   kind == QLatin1String("seismic")
@@ -557,24 +587,29 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 QgsMessageLog::logMessage(tr("Import failed: %1").arg(err),
                                         QStringLiteral("Paleo"), Qgis::Critical);
             });
-    // Imported assets feed the bottom-dock panels.
+  }
+    // Imported assets feed the bottom-dock panels and the data-page preview
+    // (§4: the preview tab opens only after the import is confirmed).
+    DataPreviewTabs *previewForImport = dataPage
+        ? dataPage->findChild<DataPreviewTabs *>(QStringLiteral("dataPreview"))
+        : nullptr;
     connect(importSvc, &DataImportService::imported, this,
-            [this, importSvc, seismicPanel, corrPanel](const QString &kind, const QString &assetId, const QString &) {
+            [this, importSvc, seismicPanel, corrPanel, previewForImport](const QString &kind, const QString &assetId, const QString &) {
+              if (previewForImport)
+                previewForImport->openAsset(assetId);
               if (seismicPanel && kind == QLatin1String("seismic"))
               {
                 const QString src = importSvc->assetSource(assetId);
-                const QString abs = QDir(m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
-                                                      : QString()).absoluteFilePath(src);
                 if (src.endsWith(QLatin1String(".sgy"), Qt::CaseInsensitive) ||
                     src.endsWith(QLatin1String(".segy"), Qt::CaseInsensitive))
-                  seismicPanel->loadLineFromFile(assetId, abs); // real SEG-Y traces
+                  seismicPanel->loadLineFromFile(assetId, src); // one-line decode (§7)
                 else
                   seismicPanel->addSeismicAsset(assetId, src);
               }
-              if (corrPanel && kind == QLatin1String("wells"))
+              if (corrPanel && kind == QLatin1String("well_log"))
               {
                 QList<QPair<QString, QString>> wells;
-                for (const QString &id : importSvc->assets(QStringLiteral("wells")))
+                for (const QString &id : importSvc->assets(QStringLiteral("well_log")))
                   wells.append({id, importSvc->assetSource(id)});
                 corrPanel->setWells(wells);
                 // LAS imports pull the GR curve into the column when present.

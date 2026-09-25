@@ -1,0 +1,1 @@
+{"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"相": "三角洲前缘", "亚相": "河口坝", "微相": "远砂坝"}, "geometry": {"type": "Point", "coordinates": [110.1, 22.3]}}, {"type": "Feature", "properties": {"相": "滨浅湖", "亚相": "滩坝", "微相": "滩砂"}, "geometry": {"type": "Point", "coordinates": [112.7, 25.9]}}]}

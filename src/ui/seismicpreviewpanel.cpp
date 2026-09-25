@@ -200,7 +200,14 @@ void SeismicPreviewPanel::loadLineFromFile(const QString &assetId, const QString
   }
 
   auto data = std::make_shared<SeismicLineData>();
-  data->traces = reader.traces();
+  // §2/§7：底 dock 预览同样只解码一条测线（首条 inline），不再全量 readAll。
+  const QVector<qint32> inlines = reader.inlineNumbers();
+  QVector<SegyTrace> line;
+  if (!inlines.isEmpty())
+    reader.readInline(inlines.front(), &line, &err);
+  if (line.isEmpty())
+    line = reader.traces(); // 无 inline 头的退化文件兜底（小文件）
+  data->traces = line;
   data->samplesPerTrace = reader.samplesPerTrace();
   data->sampleIntervalUs = reader.sampleIntervalUs();
 

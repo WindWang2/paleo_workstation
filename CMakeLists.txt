@@ -85,6 +85,13 @@ add_library(paleo_core STATIC
   src/ui/layout/layoutexportactions.cpp
   src/ui/layout/layouttemplates.cpp
   src/ui/layout/layoutundostack.cpp
+  # ---- wave/data-foundation (keep contiguous for parallel-package merges) ----
+  src/catalog/datacatalog.cpp                    # entity/link/asset/version + catalog.json
+  src/io/projectclassifier.cpp                   # §3 path/extension classifier + xml sniff
+  src/io/wellfileparsers.cpp                     # well head / tops / TD text parsers
+  src/io/horizonbinner.cpp                       # horizon scatter -> binned time raster
+  src/io/timedeptool.cpp                         # TVD/MD -> TIME(ms) interpolation
+  src/ui/datapreview/datapreviewtabs.cpp         # §4 data-page preview tabs
 )
 target_link_libraries(paleo_core PUBLIC paleo_qgis_iface ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
@@ -154,6 +161,24 @@ add_paleo_test(tst_layoutitempanel)
 add_paleo_test(tst_layoutexport)
 add_paleo_test(tst_layoutundo)
 add_paleo_test(tst_layoutdesigner_full)
+# ---- wave/data-foundation ----
+add_paleo_test(tst_catalog)
+add_paleo_test(tst_projectparsers)
+target_compile_definitions(tst_projectparsers PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_horizonbinner)
+target_compile_definitions(tst_horizonbinner PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_segy_lines)
+target_compile_definitions(tst_segy_lines PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_timedeptool)
+target_compile_definitions(tst_import PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_datapreview)
+target_compile_definitions(tst_datapreview PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_smoke_realdata) # real-data smoke; skips unless PALEO_REAL_PROJECT_AREA is set
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx)
   add_paleo_test(tst_onnxworkflow)

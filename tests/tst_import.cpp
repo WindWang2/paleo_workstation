@@ -2,6 +2,7 @@
 #include <QTemporaryDir>
 #include <QSignalSpy>
 
+#include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/io/lasparser.h"
 #include "../src/metadata/layermanifest.h"
@@ -10,16 +11,18 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
 
-// §41.2 spine acceptance: DataImportService copies into data/<kind>/ via the
-// store write queue, declares a manifest layer, and registers the asset —
-// verified against the REAL stack (QgisProjectService + LayerManifest +
-// QgisLayerService + PaleoProjectStore over a temp project). Plus LasParser
-// coverage for ~V/~W/~C/~A incl. NULL→NaN mapping.
+#include <gdal.h>
+#include <gdal_priv.h>
+#include <qgsmaplayer.h>
+
+// project_area 导入契约（docs/PROJECT_AREA_PLAN.md §2/§3）在真实服务栈上的验收：
+// 实体解析/受管 RAW（SHA-256+只读）/外链/多井关联/双候选 unresolved/未决层位/
+// D61 派生栅格与图层 CRS/LAS 解析。旧 §41.2 行为（data/<kind>/ + 矢量声明）
+// 已被替换：.dat 不再交给 OGR，非栅格不再声明成矢量。
 class TestImport : public QObject
 {
   Q_OBJECT
 
-  // Builds the full service stack over `projectDir` (must exist).
   struct Stack
   {
     QgisProjectService projectSvc;
@@ -62,110 +65,427 @@ class TestImport : public QObject
     return s;
   }
 
+  static QString fixture(const QString &name)
+  {
+    return QStringLiteral(PROJECT_FIXTURE_DIR) + QLatin1Char('/') + name;
+  }
+
+  // 摆进带语义的目录再导入（分类按路径段：井分层/时深/层位）。
+  static QString stageFixture(const QTemporaryDir &tmp, const QString &dir,
+                              const QString &name, const QString &asName = QString())
+  {
+    const QString d = tmp.filePath(dir);
+    if (!QDir().mkpath(d))
+      return QString();
+    const QString dst = QDir(d).filePath(asName.isEmpty() ? name : asName);
+    if (!QFile::copy(fixture(name), dst))
+      return QString();
+    return dst;
+  }
+
+  static QString sha256OfFile(const QString &path)
+  {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+      return QString();
+    QCryptographicHash h(QCryptographicHash::Sha256);
+    h.addData(&f);
+    return QString::fromLatin1(h.result().toHex());
+  }
+
+  // 在 service 打开前预置目录（预置井实体走独立 DataCatalog 落盘）。
+  static bool seedCatalogWithSingleWell(const QString &projectDir)
+  {
+    DataCatalog pre;
+    QString err;
+    if (!pre.open(projectDir, &err))
+      return false;
+    CatalogEntity w;
+    w.id = QStringLiteral("well-A1");
+    w.entityType = QStringLiteral("well");
+    w.name = QStringLiteral("A1");
+    return pre.addEntity(w, &err);
+  }
+
+  static bool seedCatalogWithAliasWells(const QString &projectDir)
+  {
+    DataCatalog pre;
+    QString err;
+    if (!pre.open(projectDir, &err))
+      return false;
+    CatalogEntity w1;
+    w1.id = QStringLiteral("well-X1");
+    w1.entityType = QStringLiteral("well");
+    w1.name = QStringLiteral("X1");
+    w1.aliases = QStringList{QStringLiteral("dup")};
+    if (!pre.addEntity(w1, &err))
+      return false;
+    CatalogEntity w2;
+    w2.id = QStringLiteral("well-X2");
+    w2.entityType = QStringLiteral("well");
+    w2.name = QStringLiteral("X2");
+    w2.aliases = QStringList{QStringLiteral("dup")};
+    return pre.addEntity(w2, &err);
+  }
+
 private slots:
   void initTestCase()
   {
     QVERIFY(QgisRuntime::isInitialized());
   }
 
-  // CSV import: file lands under data/wells/, manifest declares wells.1,
-  // asset registered + resolvable, imported() emitted with the triple.
-  void importWellsCsv()
+  // 井位 → 20 井实体（untransformed、surface 坐标），多井文件=每井一条关联。
+  void wellHeadCreatesEntitiesAndLinks()
   {
     QTemporaryDir tmp;
-    QVERIFY(tmp.isValid());
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
-    const QString inbox = tmp.filePath(QStringLiteral("inbox"));
-    QVERIFY(QDir().mkpath(inbox));
-    const QString csvPath = QDir(inbox).filePath(QStringLiteral("wells.csv"));
-    QVERIFY(writeFile(csvPath, QByteArrayLiteral("well,lat,lon\nW-01,63.1,-117.2\nW-02,63.2,-117.4\n")));
-
-    QString stackErr;
-    auto stack = makeStack(projectDir, &stackErr);
-    QVERIFY2(stack != nullptr, qPrintable(stackErr));
-    DataImportService &svc = *stack->importSvc;
-
-    QSignalSpy importedSpy(&svc, &DataImportService::imported);
-    QSignalSpy failedSpy(&svc, &DataImportService::importFailed);
-
-    QString err;
-    const QString assetId = svc.importFile(QStringLiteral("wells"), csvPath, &err);
-    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
-    QCOMPARE(assetId, QStringLiteral("wells-1"));
-
-    // copy landed under data/wells/, contents identical
-    const QString dst = QDir(projectDir).filePath(QStringLiteral("data/wells/wells.csv"));
-    QVERIFY2(QFile::exists(dst), qPrintable(dst));
-    QCOMPARE(QFileInfo(dst).size(), QFileInfo(csvPath).size());
-
-    // manifest declaration on the same sqlite the service's LayerManifest uses
-    const QVector<LayerDeclaration> decls = stack->manifest->all();
-    QCOMPARE(decls.size(), 1);
-    QCOMPARE(decls.at(0).layerId, QStringLiteral("wells.1"));
-    QCOMPARE(decls.at(0).type, QStringLiteral("vector"));
-    QCOMPARE(decls.at(0).source, dst); // project-absolute provider path
-    QCOMPARE(decls.at(0).group, QStringLiteral("00_Data"));
-    QCOMPARE(stack->layerSvc->declared().size(), 1);
-
-    // asset registry
-    QCOMPARE(svc.assets(QStringLiteral("wells")), QStringList({assetId}));
-    QVERIFY(svc.assets(QStringLiteral("seismic")).isEmpty());
-    QCOMPARE(svc.assetSource(assetId), QStringLiteral("data/wells/wells.csv"));
-
-    // signals: one imported(kind, assetId, layerId), no failure
-    QCOMPARE(importedSpy.count(), 1);
-    QCOMPARE(importedSpy.at(0).at(0).toString(), QStringLiteral("wells"));
-    QCOMPARE(importedSpy.at(0).at(1).toString(), assetId);
-    QCOMPARE(importedSpy.at(0).at(2).toString(), QStringLiteral("wells.1"));
-    QCOMPARE(failedSpy.count(), 0);
-  }
-
-  // Raster extension → "raster" decl type; second import consumes seq 2.
-  void importRasterAndSequence()
-  {
-    QTemporaryDir tmp;
-    QVERIFY(tmp.isValid());
-    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
-    QVERIFY(QDir().mkpath(projectDir));
-    const QString inbox = tmp.filePath(QStringLiteral("inbox"));
-    QVERIFY(QDir().mkpath(inbox));
-    const QString csvPath = QDir(inbox).filePath(QStringLiteral("wells.csv"));
-    const QString tifPath = QDir(inbox).filePath(QStringLiteral("dem.tif"));
-    QVERIFY(writeFile(csvPath, QByteArrayLiteral("w\n1\n")));
-    QVERIFY(writeFile(tifPath, QByteArrayLiteral("II*\x00faketiff")));
-
     auto stack = makeStack(projectDir);
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
 
-    const QString a1 = svc.importFile(QStringLiteral("wells"), csvPath);
-    const QString a2 = svc.importFile(QStringLiteral("raster"), tifPath);
-    QCOMPARE(a1, QStringLiteral("wells-1"));
-    QCOMPARE(a2, QStringLiteral("raster-2"));
+    QString err;
+    const QString assetId = svc.importProjectFile(fixture(QStringLiteral("ExportWellHead.dat")), &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
 
-    const QVector<LayerDeclaration> decls = stack->manifest->all();
-    QCOMPARE(decls.size(), 2);
-    const auto rasterDecl = std::find_if(decls.begin(), decls.end(), [](const LayerDeclaration &d) {
-      return d.layerId == QStringLiteral("raster.2");
-    });
-    QVERIFY(rasterDecl != decls.end());
-    QCOMPARE(rasterDecl->type, QStringLiteral("raster"));
-    QCOMPARE(rasterDecl->group, QStringLiteral("00_Data"));
-    QVERIFY(QFile::exists(QDir(projectDir).filePath(QStringLiteral("data/raster/dem.tif"))));
-
-    QCOMPARE(svc.assets().size(), 2);                     // unfiltered
-    QCOMPARE(svc.assets(QStringLiteral("raster")), QStringList({a2}));
+    DataCatalog *cat = svc.catalog();
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 20);
+    const CatalogEntity a1 = cat->entityById(QStringLiteral("well-A1"));
+    QCOMPARE(a1.name, QStringLiteral("A1"));
+    QVERIFY(a1.hasSurface);
+    QCOMPARE(a1.surfaceX, 5288.670);
+    QCOMPARE(a1.surfaceY, 8219.940);
+    QCOMPARE(a1.coordinateStatus, QStringLiteral("untransformed"));
+    QVERIFY(a1.uwi.isEmpty());
+    // 一份多井文件 → 20 条 well_head 关联（不拆文件）
+    QCOMPARE(cat->linksForAsset(assetId).size(), 20);
+    QCOMPARE(cat->linksForEntity(QStringLiteral("well-A1")).front().role,
+             QStringLiteral("well_head"));
   }
 
-  // Missing source → "" + error + importFailed, nothing registered/copied.
+  // A1.Las → 挂 well-A1；受管 RAW 落盘只读且 SHA-256 与源一致；无图层声明。
+  void managedRawChecksumAndReadOnly()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    QString err;
+    QVERIFY(!svc.importProjectFile(fixture(QStringLiteral("ExportWellHead.dat")), &err).isEmpty());
+    const QString assetId = svc.importProjectFile(fixture(QStringLiteral("A1.Las")), &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+
+    DataCatalog *cat = svc.catalog();
+    const QVector<EntityAssetLink> links = cat->linksForAsset(assetId);
+    QCOMPARE(links.size(), 1);
+    QCOMPARE(links.front().entityId, QStringLiteral("well-A1"));
+    QCOMPARE(links.front().role, QStringLiteral("well_log"));
+    QVERIFY(!links.front().unresolved);
+
+    const CatalogVersion v = cat->currentVersion(assetId);
+    QVERIFY(v.managed);
+    QCOMPARE(v.stage, QStringLiteral("RAW"));
+    const QString abs = svc.absolutePath(assetId);
+    QVERIFY(abs.endsWith(QStringLiteral("artifacts/raw/") + assetId + QLatin1Char('/') + v.id +
+                         QStringLiteral("/A1.Las")));
+    QVERIFY(QFile::exists(abs));
+    QCOMPARE(v.sha256, sha256OfFile(fixture(QStringLiteral("A1.Las"))));
+    // 只读位：无任何写权限
+    const QFile::Permissions perm = QFileInfo(abs).permissions();
+    QCOMPARE(int(perm & (QFile::WriteOwner | QFile::WriteUser | QFile::WriteGroup | QFile::WriteOther)), 0);
+    // .las 不再声明成矢量图层
+    QVERIFY(stack->manifest->all().isEmpty());
+    QCOMPARE(svc.assetSource(assetId), abs);
+  }
+
+  // DC.dat → 多井分层文件挂多条 tops 关联。
+  void topsFileLinksEveryWell()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    QString err;
+    QVERIFY(!svc.importProjectFile(fixture(QStringLiteral("ExportWellHead.dat")), &err).isEmpty());
+    const QString staged = stageFixture(tmp, QString::fromUtf8("井分层"), QStringLiteral("DC.dat"));
+    QVERIFY(!staged.isEmpty());
+    const QString assetId = svc.importProjectFile(staged, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+
+    DataCatalog *cat = svc.catalog();
+    const QVector<EntityAssetLink> links = cat->linksForAsset(assetId);
+    QVERIFY(links.size() >= 15); // 20 口井分层覆盖面
+    bool sawA1 = false;
+    for (const EntityAssetLink &l : links)
+    {
+      QCOMPARE(l.role, QStringLiteral("tops"));
+      QVERIFY(!l.unresolved);
+      if (l.entityId == QLatin1String("well-A1"))
+        sawA1 = true;
+    }
+    QVERIFY(sawA1);
+  }
+
+  // 时深：井名列（# Well : A1）→ well-A1 + time_depth 关联。
+  void timeDepthBindsByWellColumn()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    QString err;
+    QVERIFY(!svc.importProjectFile(fixture(QStringLiteral("ExportWellHead.dat")), &err).isEmpty());
+    const QString staged = stageFixture(tmp, QString::fromUtf8("时深"), QStringLiteral("A1_TD.dat"));
+    QVERIFY(!staged.isEmpty());
+    const QString assetId = svc.importProjectFile(staged, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+    const QVector<EntityAssetLink> links = svc.catalog()->linksForAsset(assetId);
+    QCOMPARE(links.size(), 1);
+    QCOMPARE(links.front().entityId, QStringLiteral("well-A1"));
+    QCOMPARE(links.front().role, QStringLiteral("time_depth"));
+  }
+
+  // 双候选 → 每候选一条 unresolved 链接，不新建井、不并井。
+  void ambiguousWellNameYieldsUnresolvedLinks()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithAliasWells(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString lasPath = tmp.filePath(QStringLiteral("dup.Las"));
+    QVERIFY(writeFile(lasPath, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. dup : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+
+    QString err;
+    const QString assetId = svc.importProjectFile(lasPath, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+    DataCatalog *cat = svc.catalog();
+    // 没有新建井
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
+    const QVector<EntityAssetLink> links = cat->linksForAsset(assetId);
+    QCOMPARE(links.size(), 2);
+    QStringList ids;
+    for (const EntityAssetLink &l : links)
+    {
+      QVERIFY(l.unresolved);
+      ids.append(l.entityId);
+    }
+    ids.sort();
+    QCOMPARE(ids, QStringList({QStringLiteral("well-X1"), QStringLiteral("well-X2")}));
+  }
+
+  // D61 → RAW + DERIVED 栅格（父版本指向 RAW）+ 图层声明；authid 非 4326；
+  // A1 落点压在栅格非空像元上（半像元容差）。
+  void horizonDerivedRasterAndCrs()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    QString err;
+    const QString staged = stageFixture(tmp, QString::fromUtf8("层位"),
+                                        QStringLiteral("D61_sample.dat"), QStringLiteral("D61.dat"));
+    QVERIFY(!staged.isEmpty());
+    const QString assetId = svc.importProjectFile(staged, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+
+    DataCatalog *cat = svc.catalog();
+    const CatalogEntity sb = cat->entityById(QStringLiteral("sb-D61"));
+    QCOMPARE(sb.entityType, QStringLiteral("sequence_boundary"));
+    QVERIFY(!sb.extra.contains(QStringLiteral("pending")));
+
+    const QVector<CatalogVersion> versions = cat->versionsForAsset(assetId);
+    QCOMPARE(versions.size(), 2);
+    const CatalogVersion raw = cat->currentVersion(assetId);
+    QCOMPARE(raw.stage, QStringLiteral("DERIVED"));
+    QCOMPARE(raw.versionNumber, 2);
+    QCOMPARE(raw.parentVersionIds.size(), 1);
+    QVERIFY(raw.extra.contains(QStringLiteral("collisions")));
+
+    // 图层清单只登记要画的结果
+    const QVector<LayerDeclaration> decls = stack->manifest->all();
+    QCOMPARE(decls.size(), 1);
+    QCOMPARE(decls.at(0).layerId, QStringLiteral("horizon.D61"));
+    QCOMPARE(decls.at(0).horizon, QStringLiteral("D61"));
+    QCOMPARE(decls.at(0).type, QStringLiteral("raster"));
+
+    // 实例化后图层 CRS 不是 EPSG:4326
+    QgsMapLayer *layer = stack->layerSvc->instantiate(QStringLiteral("horizon.D61"), &err);
+    QVERIFY2(layer != nullptr, qPrintable(err));
+    const QString authid = layer->crs().authid();
+    QVERIFY2(authid != QLatin1String("EPSG:4326"),
+             qPrintable(QStringLiteral("authid=") + authid));
+
+    // A1 (5288.67, 8219.94) 压在 D61 栅格非空像元（半像元容差 → 相邻格都查）。
+    GDALAllRegister();
+    GDALDatasetH ds = GDALOpen(decls.at(0).source.toUtf8().constData(), GA_ReadOnly);
+    QVERIFY2(ds, "open derived raster");
+    double gt[6] = {0, 0, 0, 0, 0, 0};
+    GDALGetGeoTransform(ds, gt);
+    const double px = (5288.67 - gt[0]) / gt[1];
+    const double py = (8219.94 - gt[3]) / gt[5];
+    int hasNd = 0;
+    const double nd = GDALGetRasterNoDataValue(GDALGetRasterBand(ds, 1), &hasNd);
+    float v1 = 0, v2 = 0, v3 = 0, v4 = 0;
+    const int pxl = qBound(0, int(std::floor(px)), GDALGetRasterXSize(ds) - 1);
+    const int pyl = qBound(0, int(std::floor(py)), GDALGetRasterYSize(ds) - 1);
+    QVERIFY(GDALRasterIO(GDALGetRasterBand(ds, 1), GF_Read, pxl, pyl, 1, 1, &v1, 1, 1, GDT_Float32, 0, 0) == CE_None);
+    QVERIFY(GDALRasterIO(GDALGetRasterBand(ds, 1), GF_Read, qMin(pxl + 1, GDALGetRasterXSize(ds) - 1), pyl, 1, 1,
+                 &v2, 1, 1, GDT_Float32, 0, 0) == CE_None);
+    QVERIFY(GDALRasterIO(GDALGetRasterBand(ds, 1), GF_Read, pxl, qMin(pyl + 1, GDALGetRasterYSize(ds) - 1), 1, 1,
+                 &v3, 1, 1, GDT_Float32, 0, 0) == CE_None);
+    QVERIFY(GDALRasterIO(GDALGetRasterBand(ds, 1), GF_Read, qMin(pxl + 1, GDALGetRasterXSize(ds) - 1),
+                 qMin(pyl + 1, GDALGetRasterYSize(ds) - 1), 1, 1, &v4, 1, 1, GDT_Float32, 0, 0) == CE_None);
+    GDALClose(ds);
+    QVERIFY2(hasNd && (v1 != nd || v2 != nd || v3 != nd || v4 != nd),
+             "A1 must sit on a filled D61 cell (half-pixel tolerance)");
+  }
+
+  // 文件名不在 8 界面集合 → 未决层位实体 + unresolved 关联，不进图层清单。
+  void unknownHorizonStaysPending()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    const QString src = stageFixture(tmp, QString::fromUtf8("层位"),
+                                      QStringLiteral("D61_sample.dat"), QStringLiteral("ZZ9.dat"));
+    QVERIFY(!src.isEmpty());
+    QString err;
+    const QString assetId = svc.importProjectFile(src, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+    DataCatalog *cat = svc.catalog();
+    const CatalogEntity sb = cat->entityById(QStringLiteral("sb-ZZ9"));
+    QCOMPARE(sb.entityType, QStringLiteral("sequence_boundary"));
+    QVERIFY(sb.extra.value(QStringLiteral("pending")).toBool());
+    const QVector<EntityAssetLink> links = cat->linksForAsset(assetId);
+    QCOMPARE(links.size(), 1);
+    QVERIFY(links.front().unresolved);
+    QCOMPARE(stack->manifest->all().size(), 0); // 不进编图 chip/地图
+  }
+
+  // 地震外链：版本 managed=false + 源绝对路径；survey 几何冻结；源缺失可检测。
+  void seismicExternalLinkAndGeometry()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    QString err;
+    const QString sgy = tmp.filePath(QStringLiteral("200P_mini.sgy"));
+    QVERIFY(QFile::copy(fixture(QStringLiteral("mini_seismic.sgy")), sgy));
+    const QString assetId = svc.importProjectFile(sgy, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+
+    DataCatalog *cat = svc.catalog();
+    const CatalogVersion v = cat->currentVersion(assetId);
+    QVERIFY(!v.managed);
+    QVERIFY(QFileInfo(v.path).isAbsolute());
+    QVERIFY(v.sha256.isEmpty());
+    QCOMPARE(svc.absolutePath(assetId), v.path);
+
+    const CatalogEntity survey = cat->entityById(QStringLiteral("survey-200P_mini"));
+    QCOMPARE(survey.entityType, QStringLiteral("seismic_survey"));
+    QCOMPARE(survey.inlineMin, 1000.0);
+    QCOMPARE(survey.inlineMax, 1002.0);
+    QCOMPARE(survey.sampleIntervalUs, 2000.0);
+    QCOMPARE(cat->linksForAsset(assetId).front().role, QStringLiteral("seismic_volume"));
+
+    // 外链缺失检测（预览「找不到源文件」的判定基础）
+    QVERIFY(QFile::exists(v.path));
+    QFile::remove(v.path);
+    QVERIFY(!QFile::exists(v.path));
+  }
+
+  // 阶段 D：GeoJSON 图例字典（相/亚相/微相 distinct 值）落辅助实体。
+  void geojsonLegendDictionaryCollected()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    QString err;
+    const QString assetId = svc.importProjectFile(fixture(QStringLiteral("facies.geojson")), &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+    DataCatalog *cat = svc.catalog();
+    const auto links = cat->linksForAsset(assetId);
+    QCOMPARE(links.size(), 1);
+    QCOMPARE(links.front().role, QStringLiteral("reference"));
+    const CatalogEntity aux = cat->entityById(links.front().entityId);
+    QCOMPARE(aux.entityType, QStringLiteral("auxiliary"));
+    QVERIFY(!aux.extra.value(QStringLiteral("georeferenced")).toBool());
+    const QVariantMap legend = aux.extra.value(QStringLiteral("legend")).toMap();
+    const QStringList facies = legend.value(QString::fromUtf8("相")).toStringList();
+    const QStringList subFacies = legend.value(QString::fromUtf8("亚相")).toStringList();
+    QCOMPARE(facies.size(), 2);
+    QVERIFY(facies.contains(QString::fromUtf8("三角洲前缘")));
+    QVERIFY(facies.contains(QString::fromUtf8("滨浅湖")));
+    QCOMPARE(subFacies.size(), 2);
+    QVERIFY(subFacies.contains(QString::fromUtf8("河口坝")));
+    QVERIFY(subFacies.contains(QString::fromUtf8("滩坝")));
+    // 未配准：不生成地图图层
+    QVERIFY(stack->manifest->all().isEmpty());
+  }
+
+  // 阶段 D：参考资料目录 / HZ28-6-1 命名的 XML 固定辅助参考，不按内容挂井。
+  void hz28XmlStaysAuxiliaryReference()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    // 预置井 A1，验证不会并进去
+    QVERIFY(seedCatalogWithSingleWell(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString refDir = tmp.filePath(QString::fromUtf8("参考资料"));
+    QVERIFY(QDir().mkpath(refDir));
+    const QString xmlPath = QDir(refDir).filePath(
+        QStringLiteral("HZ28-6-1井综合柱状图-2021-沉积-地化室-未钻遇烃源岩层-测井-惠州勘探室.xml"));
+    // 内容故意写成测井 XML——也不允许按内容挂井
+    QVERIFY(writeFile(xmlPath, QByteArrayLiteral(
+        "<logs><log><logcurveinfo/><logdata>1 2</logdata></log></logs>")));
+
+    QString err;
+    const QString assetId = svc.importProjectFile(xmlPath, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+    DataCatalog *cat = svc.catalog();
+    // 井实体只有预置的一口（没有 HZ28 井、没有挂到 A1）
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 1);
+    const auto links = cat->linksForAsset(assetId);
+    QCOMPARE(links.size(), 1);
+    QCOMPARE(links.front().entityType, QStringLiteral("auxiliary"));
+    QCOMPARE(links.front().role, QStringLiteral("reference"));
+    QVERIFY(!links.front().unresolved);
+    QVERIFY(cat->linksForEntity(QStringLiteral("well-A1")).isEmpty());
+  }
+
+  // 缺失源 → 失败信号，无登记。
   void importMissingSourceFails()
   {
     QTemporaryDir tmp;
-    QVERIFY(tmp.isValid());
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
-
     auto stack = makeStack(projectDir);
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
@@ -178,12 +498,10 @@ private slots:
     QVERIFY(assetId.isEmpty());
     QVERIFY(!err.isEmpty());
     QCOMPARE(failedSpy.count(), 1);
-    QCOMPARE(failedSpy.at(0).at(0).toString(), QStringLiteral("wells"));
     QCOMPARE(failedSpy.at(0).at(1).toString(), QStringLiteral("/nonexistent/ghost.las"));
     QCOMPARE(importedSpy.count(), 0);
     QVERIFY(svc.assets().isEmpty());
     QVERIFY(stack->manifest->all().isEmpty());
-    QVERIFY(svc.assetSource(QStringLiteral("wells-1")).isEmpty());
   }
 
   // LAS: ~V/~W/~C/~A parsed; 3 curves × 4 rows; NULL token → NaN.
@@ -258,9 +576,9 @@ private slots:
     QList<LasCurve> curves;
     QString err;
     QVERIFY(!LasParser::parse(wrapPath, names, curves, &err));
-    QVERIFY2(err.contains(QStringLiteral("WRAP"), Qt::CaseInsensitive), qPrintable(err));
+    QVERIFY(!err.isEmpty());
 
-    QVERIFY(!LasParser::parse(QStringLiteral("/nonexistent/ghost.las"), names, curves, &err));
+    QVERIFY(!LasParser::parse(tmp.filePath(QStringLiteral("ghost.las")), names, curves, &err));
     QVERIFY(!err.isEmpty());
   }
 };

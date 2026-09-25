@@ -16,14 +16,19 @@ class ValidationWorkflow;
 class QgisLayerService;
 class PaleoOnnxService;
 
-// 数据管理 — asset import intents + asset table placeholder.
+// 数据管理 — asset import intents + asset table + 页内预览标签（§4）。
+// 服务经动态属性 "paleo.page.importsvc"（QObject* → DataImportService）绑定，
+// 由 mainwindow 接线处设置；catalog 变更后调用 refreshAssetTable() 刷新列表。
 class DataPage : public QWidget
 {
   Q_OBJECT
   public:
     explicit DataPage(QWidget *parent = nullptr);
+  public slots:
+    void refreshAssetTable();                     // 从 catalog 资产重建资产表
   signals:
     void importRequested(const QString &kind);  // "wells" | "seismic" | "boundary"
+    void assetActivated(const QString &assetId); // 列表选中 → 预览标签打开
 };
 
 // ①智能预测 — horizon + algorithm selection, run button, status.

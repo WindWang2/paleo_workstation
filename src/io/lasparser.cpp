@@ -172,3 +172,45 @@ bool LasParser::parse(const QString &path, QStringList &curveNames,
   curves = cols;
   return true;
 }
+
+bool LasParser::readWellInfo(const QString &path, QString &wellName, QString &uwi, QString *error)
+{
+  wellName.clear();
+  uwi.clear();
+
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+  {
+    setError(error, QStringLiteral("cannot open %1").arg(path));
+    return false;
+  }
+
+  // 只需 ~W 段的 WELL/UWI item——读到 ~C 即止。
+  bool inWell = false;
+  QTextStream in(&f);
+  while (!in.atEnd())
+  {
+    const QString line = in.readLine().trimmed();
+    if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
+      continue;
+    if (line.startsWith(QLatin1Char('~')))
+    {
+      const QChar code = line.size() > 1 ? line.at(1).toUpper() : QChar();
+      if (code == QLatin1Char('W'))
+        inWell = true;
+      else if (inWell)
+        break; // 离开 ~W，身份字段已收齐
+      continue;
+    }
+    if (!inWell)
+      continue;
+    LasItem it;
+    if (!parseItemLine(line, it))
+      continue;
+    if (it.mnem == QStringLiteral("WELL") && wellName.isEmpty())
+      wellName = it.value;
+    else if (it.mnem == QStringLiteral("UWI") && uwi.isEmpty())
+      uwi = it.value;
+  }
+  return true;
+}

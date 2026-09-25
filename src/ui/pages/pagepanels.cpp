@@ -1,5 +1,8 @@
 #include "pagepanels.h"
 
+#include "../../catalog/datacatalog.h"
+#include "../../io/dataimportservice.h"
+#include "../datapreview/datapreviewtabs.h"
 #include "../../workflow/workflows.h"    // signal names + ValidationWorkflow::validate
 #include "../../qgis/qgislayerservice.h" // declared() — forward-declares Qgs*, none included
 #include "../../metadata/layermanifest.h" // LayerDeclaration fields
@@ -121,6 +124,47 @@ DataPage::DataPage(QWidget *parent)
   table->horizontalHeader()->setStretchLastSection(true);
   refreshAssetEmptyState(table);
   lay->addWidget(table, 1);
+
+  // §4 页内预览标签（普通 QTabWidget，dock 面板样式；只在数据管理页出现）。
+  auto *preview = new DataPreviewTabs(this);
+  preview->setObjectName(QStringLiteral("dataPreview"));
+  lay->addWidget(caption(tr("预览"), this));
+  lay->addWidget(preview, 2);
+
+  // 列表选中一条资产 → 预览标签（重选聚焦语义由 DataPreviewTabs 实现）。
+  connect(table, &QTableWidget::itemSelectionChanged, this, [this, table]() {
+    const QList<QTableWidgetItem *> sel = table->selectedItems();
+    if (sel.isEmpty())
+      return;
+    const QString assetId = sel.front()->data(Qt::UserRole).toString();
+    if (!assetId.isEmpty())
+      emit assetActivated(assetId);
+  });
+}
+
+void DataPage::refreshAssetTable()
+{
+  auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
+  if (!table)
+    return;
+  auto *svc = qobject_cast<DataImportService *>(property("paleo.page.importsvc").value<QObject *>());
+  if (!svc)
+    return;
+  const QVector<CatalogAsset> assets = svc->catalog()->assets();
+  table->setRowCount(0);
+  for (const CatalogAsset &a : assets)
+  {
+    const int r = table->rowCount();
+    table->insertRow(r);
+    auto *nameItem = new QTableWidgetItem(a.displayName);
+    nameItem->setData(Qt::UserRole, a.id);
+    table->setItem(r, 0, nameItem);
+    table->setItem(r, 1, new QTableWidgetItem(a.type));
+    const CatalogVersion v = svc->catalog()->currentVersion(a.id);
+    table->setItem(r, 2, new QTableWidgetItem(v.managed ? tr("受管")
+                                                        : tr("外部链接 %1").arg(v.path)));
+  }
+  refreshAssetEmptyState(table);
 }
 
 // ---------------------------------------------------------------------------

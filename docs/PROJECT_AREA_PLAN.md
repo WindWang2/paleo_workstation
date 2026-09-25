@@ -38,7 +38,7 @@
 |---|---|
 | 工程可能把 JSON 里的 EPSG:4326 写成图层 CRS | 图层 CRS 是无基准工程坐标，单位米，authid 留空，不能反投到 EPSG:4326。JSON 里的 EPSG:4326 只留在源标签上 |
 | `DataImportService` 把非 tif/img 都声明成矢量 | 按第 3 节的分类、实体和受管复制导入。`.dat` 不再交给 OGR |
-| `SegyReader::open` 对文件 `readAll()`，样本全部进内存 | 按道偏移索引，不在界面线程上做。只解码一条 inline 或 crossline。本文件实测 1012709244 字节、901 样点、2 ms、format 1、道距 3844、263451 道。道头偏移 188 的 inline 和偏移 192（SEG-Y 1-based 字节 193）的 crossline 都是 0。CDP 在偏移 20，每 641 道从 4165 排到 4805。源坐标道 0 为 (0,0)，道 640 为 (12793,0)，末道为 (12793,16406)。索引：inline = 1315 + 道号/641，crossline = 该道 CDP。道数、CDP 顺序、角点有一项对不上就停止并显示读到的数，不改去扫别的字节。界面并排写出期望值和读到的值 |
+| `SegyReader::open` 对文件 `readAll()`，样本全部进内存 | 按道偏移索引，不在界面线程上做。只解码一条 inline 或 crossline。本文件实测 1012709244 字节、901 样点、2 ms、format 1、道距 3844、263451 道。道头偏移 188 的 inline 和偏移 192（SEG-Y 1-based 字节 193）的 crossline 都是 0。CDP 在偏移 20，每 641 道从 4165 排到 4805。源坐标道 0 为 (0,0)，道 640 为 (12793,0)，末道为 (12793,16406)。索引：inline = 1315 + 道号/641，crossline = 该道 CDP。道数、CDP 顺序、角点有一项对不上就停止并显示读到的数，不改去扫别的字节。删掉 `SegyReader::open` 在偏移 188 不变时改读偏移 8 和 20 的回退。本文件偏移 188 全是 0，CDP 在偏移 20 会变化，那条回退会盖掉按道号算出的 inline。角点用道头偏移 180 和 184 的整数米；比例因子 0 或 1 都表示用这个整数。对不上就并排写出期望值和读到的值 |
 | 层位若变成点要素，一张图 26 万个点 | 按文件头的 411×641 网格装箱成时间栅格，空道为 nodata |
 | 时深转换若用常速 | 只用该井 TD 表做线性插值。没有 TD 的井标「无时深表」，不使用常速 |
 | ONNX 结果可以落成 1×1 栅格 | 接到本工区时使用 D61 的 geotransform。挤成二维后不是 411×641 就失败，不写栅格，预测页写「结果不是 411×641，没有写入栅格」，并写出实际行列数 |
@@ -60,13 +60,13 @@ LAS 2.0 解析和 SEG-Y 的 IBM 浮点解码保留。扩展名忽略大小写，
 
 文件不是井。一口井在本计划里只存 id、规范化井名、surface_x/y、KB、TD 和 coordinate_status。不建 UWI 列，也不建别名列。地震体是一条 `SeismicSurvey`，打开时从道头冻结角点、inline/crossline 范围、采样间隔和起始时间。每个层序界面是一个地质实体。扫描图、PPT、PDF 和未配准 GeoJSON 是辅助实体。
 
-关联写在 `entity_asset_links`，字段是实体类型、实体 id、资产 id、角色、是否主版本、是否未决。角色用已有名字：`well_head`、`well_log`、`tops`、`time_depth`、`horizon`、`seismic_volume`、`reference`。表里的 input 和 reference 是资产角色，关联角色是这一列。关系不从标签推断。井名比较前去掉首尾空白、连字符和空格，并忽略大小写。井口文件带 UTF-8 BOM。列是 Name、X、Y、KB、TotalDepth、BottomX、BottomY、WellType。TotalDepth 记为 TD。BottomX、BottomY、WellType 留在井上。没有 UWI。匹配键是规范化井名。井口文件是建井来源：规范化后的井名还没有已有井，就新建一口井并挂 `well_head`。井口文件里同一个规范化名字出现两行，或这一行同时匹配两口已有井，该行标 `unresolved`，不新建，也不合并。测井、分层和时深不新建井。它们先用 LAS `~W` 的 WELL 或文件中的井名列匹配已有井；零个匹配再用文件名主名（`A1.Las` → A1）。仍然零个，或两个已有井都匹配，资产仍然保留，链接标 `unresolved`，实体 id 留空，不新建井，也不合并。两个候选时，链接备注写下两个规范化井名。井口行恰好匹配一口已有井时，挂上 `well_head`，不另建井。SHA-256 已经入库时不新建版本。若未决关联这时能按规范化井名挂上，可以补这一条主关联，不合并两口井。界面说明字节已在库，并说明这次有没有补上关联。SHA-256 是新的才追加不可变版本，该角色只保留这一条主关联。层位文件 `D61.dat` 挂到层序界面 D61。文件名不在 C3、C6、D53、D61、D62、D63、D71、D72 里时，建未决层位实体，不进编图 chip。
+关联写在 `entity_asset_links`，字段是实体类型、实体 id、资产 id、角色、是否主版本、是否未决。角色用已有名字：`well_head`、`well_log`、`tops`、`time_depth`、`horizon`、`seismic_volume`、`reference`。表里的 input 和 reference 是资产角色，关联角色是这一列。关系不从标签推断。井名比较前去掉首尾空白、连字符和空格，并忽略大小写。井口文件带 UTF-8 BOM。读表头前去掉 U+FEFF。`trimmed()` 去不掉它。列是 Name、X、Y、KB、TotalDepth、BottomX、BottomY、WellType。TotalDepth 记为 TD。BottomX、BottomY、WellType 不新增井表列。井口预览从这份井口资产的行里读。没有 UWI。匹配键是规范化井名。井口文件是建井来源：规范化后的井名还没有已有井，就新建一口井并挂 `well_head`。井口文件里同一个规范化名字出现两行，或这一行同时匹配两口已有井，该行标 `unresolved`，不新建，也不合并。测井、分层和时深不新建井。它们先用 LAS `~W` 的 WELL 或文件中的井名列匹配已有井；零个匹配再用文件名主名（`A1.Las` → A1）。仍然零个，或两个已有井都匹配，资产仍然保留，链接标 `unresolved`，实体 id 留空，不新建井，也不合并。现有 `DataCatalog::addLink` 会拒绝空的实体 id。放行空实体 id，并增加备注字段，`catalog.json` 能往返。两个候选时，链接备注写下两个规范化井名。井口行恰好匹配一口已有井时，挂上 `well_head`，不另建井。SHA-256 已经入库时不新建版本。若未决关联这时能按规范化井名挂上，可以补这一条主关联，不合并两口井。界面说明字节已在库，并说明这次有没有补上关联。SHA-256 是新的才追加不可变版本，该角色只保留这一条主关联。层位文件 `D61.dat` 挂到层序界面 D61。文件名不在 C3、C6、D53、D61、D62、D63、D71、D72 里时，建未决层位实体，不进编图 chip。
 
 `井位/ExportWellHead.dat` 和 `井分层/DC.dat` 各是一份多井文件，各登记为一个资产。每个井名一条关联，指向同一资产。多井文件不拆成 20 份。每口井的过滤留在该预览标签自己的「井」下拉框里，不跟另一张标签走。
 
-井保存 `surface_x/y` 和 `coordinate_status`：`ok`、`untransformed`、`invalid`、`missing`。本工区 20 口井都是 `untransformed`。在出现真正的投影参数之前不写 `project_x/y`，地图读 `surface_x/y`。图层 CRS、工程 CRS 和画布 CRS 都是无基准的工程坐标，单位米，authid 留空，不能反投到 EPSG:4326。不用 `+proj=eqc`，因为它会把局部米悄悄变成经纬度。
+井保存 `surface_x/y` 和 `coordinate_status`：`ok`、`untransformed`、`invalid`、`missing`。本工区 20 口井都是 `untransformed`。在出现真正的投影参数之前不写 `project_x/y`，地图读 `surface_x/y`。图层 CRS、工程 CRS 和画布 CRS 都是无基准的工程坐标，单位米，authid 留空，不能反投到 EPSG:4326。不用 `+proj=eqc`。现有 `DataCatalog::localGridCrsProj()` 就是 `+proj=eqc +ellps=WGS84 +units=m +no_defs`，会把局部米反投到 EPSG:4326。删掉这串。图层、工程和画布共用一个无大地基准的工程米坐标。`mapUnits` 是米，authid 为空，`isGeographic` 为假，转到 EPSG:4326 必须失败。
 
-`catalog.json` 是资产生命周期的唯一主存储，也是这一阶段的查询源。写入走工程写队列，先临时文件再改名。`asset_id`、`version_id`、`filename` 各只占一段路径，不允许斜杠和 `..`。受管路径是 `{stage}/{asset_id}/{version_id}/{filename}`。逻辑阶段仍是 `RAW`、`DERIVED`、`INTERMEDIATE`、`OUTPUT`。目录段用小写，跟现有 DataCatalog 一致。catalog.json 在工程目录的 `artifacts/metadata/catalog.json`。默认导入是受管 RAW：边复制边算 SHA-256，落盘后只读。用户明确选择链接外部时不复制；966 MB 的 SEG-Y 走外部链接。由层位文件装箱得到的时间栅格是 DERIVED，父版本指向该 RAW。`catalog.sqlite` 不在本计划的实现里。触发条件写在 `TODOS.md` 的「P3 — catalog.sqlite 查询索引」：catalog.json 能往返并且列表查询变慢。现有图层清单只登记要画进 QGIS 的结果，不兼任文件目录。
+`catalog.json` 是资产生命周期的唯一主存储，也是这一阶段的查询源。写入走工程写队列，先临时文件再改名。`asset_id`、`version_id`、`filename` 各只占一段路径，不允许斜杠、`..`、换行、NUL 和其他控制字符。文件夹导入只收普通文件，不跟随指向所选目录之外的符号链接。一行失败不中断其余文件。受管路径是 `{stage}/{asset_id}/{version_id}/{filename}`。逻辑阶段仍是 `RAW`、`DERIVED`、`INTERMEDIATE`、`OUTPUT`。目录段用小写，跟现有 DataCatalog 一致。catalog.json 在工程目录的 `artifacts/metadata/catalog.json`。默认导入是受管 RAW：边复制边算 SHA-256，落盘后只读。用户明确选择链接外部时不复制；966 MB 的 SEG-Y 走外部链接。链接时流式计算 SHA-256。打开时摘要不一致就写「源文件与入库时的 SHA-256 不一致」，不解码。由层位文件装箱得到的时间栅格是 DERIVED，父版本指向该 RAW。`catalog.sqlite` 不在本计划的实现里。触发条件写在 `TODOS.md` 的「P3 — catalog.sqlite 查询索引」：catalog.json 能往返并且列表查询变慢。现有图层清单只登记要画进 QGIS 的结果，不兼任文件目录。
 
 分类沿用 `paleo-merged-main/libs/ingest/src/classifier.cpp`：
 
@@ -87,7 +87,7 @@ LAS 2.0 解析和 SEG-Y 的 IBM 浮点解码保留。扩展名忽略大小写，
 
 D61 栅格只使用层位文件头，不另设一套范围。网格 411×641。P1（inline 1315，crossline 4165）= (0, 0)，P2（1315，4805）= (12793, 0)，P3（1725，4805）= (12793, 16406)。X 随 crossline 增加，Y 随 inline 增加。像元 `dx = 12793/640` 米，`dy = 16406/410` 米。北向上的 geotransform 六个系数是 (0, dx, 0, 16406, 0, -dy)。原点是左上角像元的外角，不是像元中心。层位点按列号、行号写入该像元。残差和 IDW 用像元中心，中心比节点向网格内侧偏半个像元。本计划不改这组原点。空道 nodata 为 -9999。列号 = crossline - 4165，行号 = 1725 - inline。越界的点不写入，只计入拒绝数。同一像元多点时按文件顺序保留最后一点，并在栅格元数据里记下碰撞次数。A1 的 D61 TVD 是 1935 m，D62 TVD 是 1971 m。A1 (5288.67, 8219.94) 落在这个网格内，验收用这个精确坐标，容差半个像元。
 
-时深转换只用 TD 表。分层的 TVD 对 TD 的 TVD 列线性插值得到 TIME(ms)。该井 TVD 为空时改用 MD 对 TD 的 MD 列。-99999 不参加插值。20 口井都有 TD 文件。若某口井没有 TD 表，剖面上标井名和「无时深表」，不使用常速。`docs/PALEO_QGIS_PLAN.md` 里缺省常速的写法不用于这套工区。深度落在 TD 表可用样点的范围之外时不外推，该层标「超出时深表」，不进入残差。用来查找的那一列不是严格递增，或去掉 -99999 之后不足两个有限样点时，这口井标「时深表无序」或「无时深表」：不是严格递增用前者，样点不足两个用后者。两种都不插值。
+时深转换只用 TD 表。分层的 TVD 对 TD 的 TVD 列线性插值得到 TIME(ms)。该井 TVD 为空时改用 MD 对 TD 的 MD 列。-99999 不参加插值。20 口井都有 TD 文件。若某口井没有 TD 表，剖面上标井名和「无时深表」，不使用常速。`docs/PALEO_QGIS_PLAN.md` 里缺省常速的写法不用于这套工区。深度落在 TD 表可用样点的范围之外时不外推，该层标「超出时深表」，不进入残差。用来查找的那一列不是严格递增，或去掉 -99999 之后不足两个有限样点时，这口井标「时深表无序」或「无时深表」：不是严格递增用前者，样点不足两个用后者。两种都不插值。现有 `TimeDepthTool::interpolateTimeMs` 会按深度排序，并在范围外夹到端点。改成按文件顺序、不排序、不夹取。剖面和残差共用这一个结果。同步改 `tst_timedeptool`。
 
 井在剖面上的位置、最近层位采样和残差都用该层分层点的 X、Y。分层点没有坐标时才退回井口。井口和分层点相差超过一个像元时，剖面上标出这个偏移。第一段默认打开的测线是 A1 对应的那条 inline。
 
@@ -95,7 +95,7 @@ D61 栅格只使用层位文件头，不另设一套范围。网格 411×641。P
 
 预览只出现在数据管理页，不泄漏到预测、约束、编图、验证。顶部工作流标签栏仍然是唯一的签名元素。预览用页内普通的 `QTabWidget`，样式走 `DESIGN.md` 的 dock 面板，不用工作流标签的蓝色下划线。
 
-布局：右侧 dock 仍放导入和资产表。地图留在中央。`DataPreviewTabs` 现在嵌在右侧 dock 的资产表下面。本计划把它移到地图下方的中央列，只在数据管理页出现。没有打开的标签时，这里只有一行次级文字，颜色 #5D6E80，字号 9pt：「还没有打开的预览 — 在列表中选择一条数据」。第一个标签打开后，地图和预览用竖向 QSplitter 分开。预览一开始约占中央列高度的三分之一，可以拖。预测、约束、编图、验证不放这根分割，也不放预览标签。底部 dock 继续是日志、任务、连井剖面。单线地震只出现在数据页的预览标签里。底部 dock 不再同时放一条地震预览，避免两处剖面。
+布局：右侧 dock 仍放导入和资产表。地图留在中央。`DataPreviewTabs` 现在嵌在右侧 dock 的资产表下面。本计划把它移到地图下方的中央列，只在数据管理页出现。没有打开的标签时，这里只有一行次级文字，颜色 #5D6E80，字号 9pt：「还没有打开的预览 — 在列表中选择一条数据」。第一个标签打开后，地图和预览用竖向 QSplitter 分开。预览一开始约占中央列高度的三分之一，可以拖。预测、约束、编图、验证不放这根分割，也不放预览标签。底部 dock 继续放日志、任务、连井剖面，已有的发布和属性页保留。单线地震只出现在数据页的预览标签里。底部不再同时放一条地震预览。验证行的双击不再调用底部地震页。离开数据页时藏起预览分割条，不另造一块地图。
 
 从列表选中一条资产时，已有同资产标签就切过去，否则新开一个可关闭标签。关掉标签就取消读取。离开数据页只隐藏预览，不拆掉。索引、LAS 解析、层位装箱和单条解码不在界面线程上做。超过 1 秒的进度出现在底部「任务」页，超过 10 秒按已读字节线性估计剩余时间。标签关掉之后晚到的结果丢弃。
 
@@ -103,9 +103,9 @@ D61 栅格只使用层位文件头，不另设一套范围。网格 411×641。P
 
 多井文件（井口表、DC.dat）每个预览标签自带一个标为「井」的下拉框，只列出挂到这份资产上的井。下拉框不改其他标签里已选的井。还没选井时，正文是「先选择一口井」，不是空表。选中后标题写成「DC.dat · A1」。打开 A1 的 LAS 只聚焦 LAS 标签，不改已经打开的分层标签。
 
-资产表列是名称、类型、关联。关联显示井名，或警告标签「未决」。标签用浅底 #FFF4E0，字用 #F29900，并且始终带「未决」二字。tooltip 写出两个规范化井名。参考资产显示「参考」。没有合并动作。未决行上有一个井下拉框，列出已有井，默认空。「挂到这口井」只有选中一口之后才可点。确认时同时写出资产名和井名。这一步可以撤销：撤销只把关联改回未决，不删除仍被别的关联用着的井。同一角色的旧版本可以用「将此版本设为主版本」，不复制字节。名称的 tooltip 保留受管或外部路径。
+资产表列是名称、类型、关联。关联显示井名，或警告标签「未决」。标签用浅底 #FFF4E0，字用 #24303E，边用 #F29900，并且始终带「未决」二字。tooltip 写出两个规范化井名。参考资产显示「参考」。没有合并动作。未决行上有一个井下拉框，列出已有井，默认空。「挂到这口井」只有选中一口之后才可点。确认时同时写出资产名和井名。这一步可以撤销：撤销只把关联改回未决，不删除仍被别的关联用着的井。同一角色的旧版本可以用「将此版本设为主版本」，不复制字节。名称的 tooltip 保留受管或外部路径。
 
-数据页在现有「导入井数据」「导入地震数据」「导入边界数据」旁边增加「导入工区文件夹」。单文件按钮仍选一个文件，确认后只打开这一条的标签。文件夹按钮选 `project_area` 目录。下一步是分类表：路径、类型、实体、未决或失败。不让用户重排列。确认前可以改这一行的类型，规范化匹配键照常显示。参考资料目录里的 XML 默认显示为参考，要按井解析必须在表里改类型。预览步只显示口数、井名和失败数，不展开层位散点，也不解地震道。确认步的三个数只按这张表计，然后只打开井口标签。失败：文件没有落盘，原因是读写、解析或路径不合法，行上写原因和「重试」。未决：资产已保存，实体 id 为空；tooltip 用「无匹配」「两个候选: 名字, 名字」或「井口重名」。入库：写成了一条主关联。确认文案仍是「入库 n，未决 n，失败 n」。其余资产等列表点击。SMI 文本的列是固定的，向导展示识别出的列。同一 SHA-256 在确认步写「字节已在库」，以及「已补上关联」或「没有新的关联」，然后聚焦已有标签，不新开第二个。CRS 步不是坐标系下拉框。正文是「局部工程坐标，单位米。源文件里的 EPSG:4326 只是标签，不会画到地图上。」不能改成会反算到经纬度的 CRS。与 `docs/PALEO_QGIS_PLAN.md` §42.7 的 CRS 选择器冲突时，以这句和空 authid 为准。状态栏用同一事实加一条次级文字：「工程坐标 · 米 · 未投影」，颜色 #5D6E80，不用警告色。这 20 口井都是这个状态。`invalid` 写「坐标无效」，`missing` 写「没有坐标」，仍用 #5D6E80。
+数据页在现有「导入井数据」「导入地震数据」「导入边界数据」旁边增加「导入工区文件夹」。单文件按钮仍选一个文件，确认后只打开这一条的标签。文件夹按钮选 `project_area` 目录。一次确认里先处理井口行，再关联测井、分层、时深和层位。LAS 排在井口文件前面时，A1 仍然得到四条主关联。下一步是分类表：路径、类型、实体、未决或失败。不让用户重排列。确认前可以改这一行的类型，规范化匹配键照常显示。HZ28-6-1 这一行的类型不能改，始终是参考。同目录其他 XML 默认显示为参考；改成井之后如果对不上 A1–A20，保持未决，不用文件名去挂井。预览步只显示口数、井名和失败数，不展开层位散点，也不解地震道。确认步的三个数只按这张表计，然后只打开井口标签。失败：文件没有落盘，原因是读写、解析或路径不合法，行上写原因和「重试」。未决：资产已保存，实体 id 为空；tooltip 用「无匹配」「两个候选: 名字, 名字」或「井口重名」。入库：写成了一条主关联。确认文案仍是「入库 n，未决 n，失败 n」。其余资产等列表点击。SMI 文本的列是固定的，向导展示识别出的列。同一 SHA-256 在确认步写「字节已在库」，以及「已补上关联」或「没有新的关联」，然后聚焦已有标签，不新开第二个。CRS 步不是坐标系下拉框。正文是「局部工程坐标，单位米。源文件里的 EPSG:4326 只是标签，不会画到地图上。」不能改成会反算到经纬度的 CRS。与 `docs/PALEO_QGIS_PLAN.md` §42.7 的 CRS 选择器冲突时，以这句和空 authid 为准。状态栏用同一事实加一条次级文字：「工程坐标 · 米 · 未投影」，颜色 #5D6E80，不用警告色。这 20 口井都是这个状态。`invalid` 写「坐标无效」，`missing` 写「没有坐标」，仍用 #5D6E80。
 
 | 资产类型 | 标签里显示什么 |
 |---|---|
@@ -156,9 +156,9 @@ D61 栅格只使用层位文件头，不另设一套范围。网格 411×641。P
 ### 阶段 C — 只编 D61
 
 - 结构面是 D61 时间栅格。
-- 单因素先算井上 D61 到 D62 的厚度，厚度用已经装箱的 D62 与 D61 时间栅格相减，得到双程时间等厚。一口井要同时有 D61 和 D62 的 TVD，才提供间隔速度，不把 MD 厚度混进同一张栅格。缺 D61 或 D62 的 TVD，或两层时深插值有一层没有数值，这口井不提供样本，并写明原因。井上 dt_ms 是 D62 时间减 D61 时间，单位毫秒，双程，时间来自时深表而不是层位栅格。Vint = (TVD_D62 − TVD_D61) / (dt_ms / 2000)，单位 m/s。栅格上等厚米数 = isochron_ms / 2000 × 该像元的 Vint。等厚若就用这口井自己的 dt_ms，米数等于两层 TVD 之差。A1 的插值约 16.23 ms，对应 36 m，只核对公式，不是栅格像元的期望值。IDW 插的是 Vint，power 为 2，权重与 `paleo:paleo_constraint_idw` 相同。测试用一对已知数按这个式子算期望米数，采样在 D61 像元中心，不用它默认的外扩网格，不传约束线。能提供样本的井不足 3 口时不写假曲面。约束页面板写「厚度样本不足以成面」。一口都没有时，同一面板写「没有厚度样本」。这两句不弹对话框。同一面板列出每口井的 D61 TVD、D62 TVD、间隔速度或原因。像元中心落在这些井的分层点凸包之外时为 nodata -9999。只有层位栅格缺失时，才退回对井点厚度本身做 IDW。正常图层名是「D61–D62 等厚（米）」。值是米，名称里不再写时间。这条退回才用「井点厚度（米，无层位栅格）」。砂地比、距井距离、屏障距离本计划不做。
+- 单因素先算井上 D61 到 D62 的厚度，厚度用已经装箱的 D62 与 D61 时间栅格相减，得到双程时间等厚。一口井要同时有 D61 和 D62 的 TVD，才提供间隔速度，不把 MD 厚度混进同一张栅格。缺 D61 或 D62 的 TVD，或两层时深插值有一层没有数值，这口井不提供样本，并写明原因。井上 dt_ms 是 D62 时间减 D61 时间，单位毫秒，双程，时间来自时深表而不是层位栅格。Vint = (TVD_D62 − TVD_D61) / (dt_ms / 2000)，单位 m/s。栅格上等厚米数 = isochron_ms / 2000 × 该像元的 Vint。等厚若就用这口井自己的 dt_ms，米数等于两层 TVD 之差。A1 的插值约 16.23 ms，对应 36 m，只核对公式，不是栅格像元的期望值。IDW 插的是 Vint，power 为 2，权重与 `paleo:paleo_constraint_idw` 相同。测试用一对已知数按这个式子算期望米数，采样在 D61 像元中心，不用它默认的外扩网格，不传约束线。能提供样本的井不足 3 口时不写假曲面。约束页面板写「厚度样本不足以成面」。一口都没有时，同一面板写「没有厚度样本」。这两句不弹对话框。同一面板列出每口井的 D61 TVD、D62 TVD、间隔速度或原因。像元中心落在这些井的分层点凸包之外时为 nodata -9999。现有 `MappingWorkflow::runThicknessChain` 用井点 TVD 差做 IDW，再调用相多边形。本计划的等厚不走这条路径，也不调用 `deriveFaciesPolygons`。D62 与 D61 的尺寸、geotransform 或 nodata 不一致就不写等厚。dt_ms 小于或等于 0，或 TVD 差不是正数，这口井不提供样本。控制点的凸包如果不是有面积的多边形，按不足 3 口处理，不写栅格。只有层位栅格缺失时，才退回对井点厚度本身做 IDW。正常图层名是「D61–D62 等厚（米）」。值是米，名称里不再写时间。这条退回才用「井点厚度（米，无层位栅格）」。砂地比、距井距离、屏障距离本计划不做。
 - 厚度栅格不是相编码。`paleo:paleo_facies_polygonize` 只吃整数相编码栅格，空值为 -9999。本文件夹没有这样的栅格，参考 GeoJSON 也不在这个网格上，所以不从厚度栅格造相，也不新设厚度分档。已有的优先级融合只接受已经带相编码的栅格，输入顺序就是优先级。两张或以上才融合，一张时直接多边形化，一张都没有时，编图页写「没有相编码栅格，这一工区不从厚度生成相」，并且不调用融合。这不是第 6 节排除的相序规则融合。
-- 验证项是井上 D61 时间（由 TD 表得到）减去 D61 栅格在井位处的时间。残差保留符号。绝对值大于 10 ms 成为一条问题。没有算出时间的井列出原因，不算一条数值残差。采样取分层点最近的像元中心。点落在测网外超过半个像元时列出「井位不在测网内」，不算数值残差。该像元是 nodata 时列出「井位落在空道」，不算数值残差。验证页已有的问题表，在这次 D61 残差里使用列：井名、残差或原因、阈值。20 口井都在，不只有超限的井。标签用 DESIGN.md 的状态色，并且带字：通过用 #43A047，超过阈值用 #F29900，未计算用 #5D6E80。表头计数「n 口超过 10 ms」。还没跑时表为空，面板写「还没有计算 D61 残差」，旁边是现有的「运行验证」。「井位落在空道」和「井位不在测网内」是警告行，不是数值 0。双击留在验证页，不新建预览标签栏。这一行已经能看见井名、带符号的残差或原因、10 ms 阈值。共享地图移到该井。底部 dock 先切到已有的「连井剖面」，再滚到该分层。按钮「在数据页看这条剖面」才离开验证页：切到数据管理，聚焦数据页地震标签，并按阶段 B 解码或滚到这一条。验证页不新增标签。
+- 验证项是井上 D61 时间（由 TD 表得到）减去 D61 栅格在井位处的时间。残差保留符号。绝对值大于 10 ms 成为一条问题。没有 D61 分层的井写「无 D61 分层」，仍然占一行。没有算出时间的井列出原因，不算一条数值残差。绝对值等于 10 ms 记为通过。采样用包含该点的像元，左闭右开。x 等于 12793 算最后一列，y 等于 0 算最后一行。落在这个像元矩形之外列出「井位不在测网内」，不算数值残差。该像元是 nodata 时列出「井位落在空道」，不算数值残差。验证页已有的问题表，在这次 D61 残差里使用列：井名、残差或原因、阈值。20 口井都在，不只有超限的井。标签用 DESIGN.md 的状态色，并且带字：通过用 #43A047，超过阈值用 #F29900，未计算用 #5D6E80。表头计数「n 口超过 10 ms」。还没跑时表为空，面板写「还没有计算 D61 残差」，旁边是现有的「运行验证」。「井位落在空道」和「井位不在测网内」是警告行，不是数值 0。双击留在验证页，不新建预览标签栏。这一行已经能看见井名、带符号的残差或原因、10 ms 阈值。共享地图移到该井。底部 dock 先切到已有的「连井剖面」，再滚到该分层。按钮「在数据页看这条剖面」才离开验证页：切到数据管理，聚焦数据页地震标签，并按阶段 B 解码或滚到这一条。验证页不新增标签。
 - 「导出 D61 图件」用现有布局填一张模板再写 PDF，不把用户放在空白版面上。图上有标题「D61 厚度」、井名、米制图例、不画 nodata、比例尺、指北针，以及「工程坐标 · 米 · 未投影」。成功和失败都用对话框。成功写出路径和 SHA-256。失败写「导出失败」、原因和「重试」。图内仍含井位和厚度栅格。相多边形进 PDF 只在 `paleo:paleo_facies_polygonize` 已经跑过相编码栅格之后。`paleo.json` 里的 mock 多边形和参考 GeoJSON 不进 PDF。
 
 完成标准：凡有可用 D61 时间的井都有一条时间残差；其中一口井走完「问题 → 地图、连井、地震剖面」；PDF 已导出。相多边形出现在 PDF 里只在相编码栅格已经多边形化之后。
@@ -174,7 +174,7 @@ D61 栅格只使用层位文件头，不另设一套范围。网格 411×641。P
 
 - 编图 chip 只有 C3、C6、D53、D61、D62、D63、D71、D72。切换沿用已有的按层位懒加载。
 - 井分层里其余名字只出现在连井。
-- 8 个层序界面的 chip 切换属于本阶段。版本用现有 ReleaseStore。保存调用 createRelease，快照不可改。现有 CREATE TABLE IF NOT EXISTS 不会给旧库加列。打开时若缺列，用 ALTER TABLE 增加可空列 published INTEGER 默认 0、pdf_asset_id TEXT、pdf_sha256 TEXT。旧行读成未发布，不回写。保存和发布是两个按钮。发布另开确认，列出版本、PDF 名和井数。每口井都有残差或原因，并且这份 PDF 已经在快照里，发布才可点。缺任何一条时按钮禁用。tooltip 写缺的口数和下一步：先在验证页运行验证，或先导出 PDF。缺哪些井以验证表为准。八个 chip 不挡住发布。没有栅格的 chip 禁用，tooltip 是「还没有这个层位的栅格」。已发布的行标「已发布」，不更新。下一次保存标成新版本，不写成在改这一行。不单独再开一段产品。
+- 8 个层序界面的 chip 切换属于本阶段。编图页现有的发布按钮走 `MapVersionStore`，不走底部 `ReleaseStore`。只在这一条门上记下 D61 的 PDF 资产 id、SHA-256，以及 20 口井的残差或原因。`ReleaseStore` 仍只做清单快照，不成为第二道发布门。导出登记一个 OUTPUT 资产，不改已经冻结的版本行。下一次保存把该资产 id 和 SHA-256 抄进新的未发布版本。发布只读这一行。旧的 `map_versions` 和 `releases` 行读成未发布，不回写。缺 PDF 时 tooltip 写「导出 PDF 后再保存」。保存和发布是两个按钮。发布另开确认，列出版本、PDF 名和井数。每口井都有残差或原因，并且这份 PDF 已经在快照里，发布才可点。缺任何一条时按钮禁用。tooltip 写缺的口数和下一步：先在验证页运行验证，或先导出 PDF。缺哪些井以验证表为准。八个 chip 不挡住发布。没有栅格的 chip 禁用，tooltip 是「还没有这个层位的栅格」。已发布的行标「已发布」，不更新。下一次保存标成新版本，不写成在改这一行。不单独再开一段产品。
 
 ## 6. 本计划不做
 
@@ -200,7 +200,7 @@ D61 栅格只使用层位文件头，不另设一套范围。网格 411×641。P
 
 阶段 C 的残差要等这三样对齐之后再算。
 
-测试：分类、单井匹配、两候选未决、多井分层文件产生多条关联、D61 装箱的 geotransform 和 nodata、复制 LAS 的 SHA-256、缺失外部路径、再次点选聚焦已有标签、打开 SEG-Y 时内存不随文件大小线性增长、图层 authid 为空。为本工区写出的 ONNX 栅格使用同一套 D61 geotransform，且不是 1×1，这是行为约束的测试，不是第一段交付物。井口恰好匹配一口已有井时不新建井。相同 SHA-256 再次导入不增加第二条主关联。TD 超出范围标「超出时深表」且不外推。时深表无序标「时深表无序」。缺 D62 的井不提供厚度样本。LAS 的 -99999 不绘制。失败文案是「读取失败」。`A1.Las` 能分类为测井。道头范围不对时不解码。加载文案含「正在读取」和文件名。相同 SHA-256 再次导入不新建版本，只允许补上已能匹配的未决关联。不足两个 TD 样点标「无时深表」。残差用最近像元中心，空道不是数值残差，绝对值大于 10 ms 才成为问题。手工：A1 在 (5288.67, 8219.94)，容差半个像元，压在 D61 栅格上。界面：文件夹确认只打开井口标签；未决行显示「未决」；多井标签在选井前显示「先选择一口井」，并且选择另一条资产不改这个井；发布在缺残差或缺 PDF 时禁用，tooltip 写出原因。
+测试：分类、单井匹配、两候选未决、多井分层文件产生多条关联、D61 装箱的 geotransform 和 nodata、复制 LAS 的 SHA-256、缺失外部路径、再次点选聚焦已有标签、打开 SEG-Y 时内存不随文件大小线性增长、图层 authid 为空。为本工区写出的 ONNX 栅格使用同一套 D61 geotransform，且不是 1×1，这是行为约束的测试，不是第一段交付物。井口恰好匹配一口已有井时不新建井。相同 SHA-256 再次导入不增加第二条主关联。TD 超出范围标「超出时深表」且不外推。时深表无序标「时深表无序」。缺 D62 的井不提供厚度样本。LAS 的 -99999 不绘制。失败文案是「读取失败」。`A1.Las` 能分类为测井。道头范围不对时不解码。加载文案含「正在读取」和文件名。相同 SHA-256 再次导入不新建版本，只允许补上已能匹配的未决关联。不足两个 TD 样点标「无时深表」。残差用包含该点的像元，空道不是数值残差，绝对值大于 10 ms 才成为问题。手工：A1 在 (5288.67, 8219.94)，容差半个像元，压在 D61 栅格上。界面：文件夹确认只打开井口标签；未决行显示「未决」；多井标签在选井前显示「先选择一口井」，并且选择另一条资产不改这个井；发布在缺残差或缺 PDF 时禁用，tooltip 写出原因。
 
 <!-- autoplan-accepted:ceo -->
 - Work coordinates are a local meter grid. EPSG:4326 stays a label and is not written onto map layers. While `coordinate_status=untransformed`, the map reads `surface_x/y` and does not write `project_x/y`. Layer, project, and canvas CRS are an engineering meter CRS with an empty authid and no transform to EPSG:4326. Do not use +proj=eqc.
@@ -249,6 +249,19 @@ D61 栅格只使用层位文件头，不另设一套范围。网格 411×641。P
 - A disabled Publish tooltip states the missing count and the next action: run validation, or export the PDF. The well names stay on the validation table. An ONNX shape failure includes the actual dimensions. Where PALEO_QGIS_PLAN §42.7 shows a CRS picker, this plan's CRS sentence and empty authid replace it.
 - Verify: the thickness test uses the formula above on a synthetic pair; folder confirm counts match the three definitions; a multi-well tab does not follow another asset; double-click does not leave 验证; the seismic button does; old release rows read back unpublished.
 <!-- /autoplan-accepted:dx -->
+
+<!-- autoplan-accepted:eng -->
+- Replace DataCatalog::localGridCrsProj. The engineering CRS has metre axes, no geodetic datum, an empty authid, and no QgsCoordinateTransform to EPSG:4326. Delete the +proj=eqc string in the same change.
+- Delete SegyReader::open's fallback from header offset 188 to offsets 8 and 20. Inline for this file stays 1315 plus trace index over 641. Corners are the integer metres at offsets 180 and 184. A mismatch shows expected and actual and does not scan other bytes.
+- TimeDepthTool::interpolateTimeMs keeps file order, does not sort, and does not clamp outside the range. The section post and the residual share one result: a value, 无时深表, too few samples, 时深表无序, or 超出时深表. Update tst_timedeptool in the same change.
+- MappingWorkflow::runThicknessChain is not the D61 thickness path. Do not call deriveFaciesPolygons on that raster. Refuse the isochron when D62 does not match D61's dimensions, geotransform, and nodata. A non-positive dt_ms or TVD difference contributes no sample. A hull that is not a polygon with area uses the same panel sentence as fewer than three wells and writes no raster.
+- Residual sampling uses the containing cell with half-open bounds. x equal to 12793 is the last column and y equal to 0 is the last row. Outside that rectangle is 「井位不在测网内」. Absolute residual equal to 10 ms is 通过. A well with no D61 top is a row 「无 D61 分层」.
+- DataCatalog::addLink accepts an empty entity id and stores a note. 「挂到这口井」 fills that id and clears the note in one save. Folder confirm links well-head rows before logs, tops, and TD, so A1 still gets four primary links when the LAS path is listed first. Strip U+FEFF before the well-head header. HZ28-6-1's type cannot be changed.
+- The mapping-page publish button stays on MapVersionStore. ReleaseStore remains a manifest snapshot and is not a second gate. Export registers an OUTPUT asset and does not edit a frozen version. The next save copies the PDF asset id and SHA-256 into a new unpublished version. Publish reads that row, which also holds a residual or a reason for every well. Old rows load unpublished.
+- The external SEG-Y stores a streamed SHA-256. A mismatch shows 「源文件与入库时的 SHA-256 不一致」 and does not decode. Path segments reject control characters. Folder import reads regular files, does not follow a symlink outside the chosen root, and one bad file does not stop the walk.
+- The preview splitter hides when the user leaves the data page. Validation double-click does not call the bottom-dock seismic panel. Existing publish and attribute bottom tabs stay. The unresolved tag uses #24303E on #FFF4E0 with a #F29900 border.
+- Verify in the phase that changes the behavior, not inside tst_import, tst_segy, tst_segy_lines, or tst_datapreview: LAS-before-well-head still binds A1; TD is not clamped; containing-cell corners; dt_ms <= 0; D62 grid mismatch; polygonize is not called from thickness; engineering CRS has no transform to EPSG:4326; the offset-8 fallback does not run; old version rows stay unpublished.
+<!-- /autoplan-accepted:eng -->
 ## Review record
 <!-- autoplan-baseline-edits:ceo {"sourceSha256":"330407813dc71e3f6e877663b8e7e4fe02398d8aca5238f6e3fb849495b44a4f","replacements":[{"oldText":"# project_area 开发计划\n\n日期：2026-09-25。\n\n验收数据是 `/home/kevin/projects/paleo_project/data/project_area`（约 1.4 GB）。目标是用这套工区走通一层古地理编图：井、层位、地震在同一局部坐标里对齐，D61 能编成可编辑的相多边形并导出。\n\n架构仍以 `docs/PALEO_QGIS_PLAN.md` 为准：QGIS 负责渲染、图层、CRS、编辑和布局，Paleo 负责地质对象和导入。界面仍是现有五页壳，视觉以 `DESIGN.md` 为准。\n\n多源数据管理只取 `paleo-merged-main` 的对象和导入规则（ADR 0056 资产目录、ADR 0059 工区—实体—资产、`libs/ingest` 的分类器与 SMI 井分层解析）。不迁移它的导航树、功能区、井位散点页和概览面板。\n\n编图目标层位是数据里的 **D61**。C6 的层位点是齐的，井分层里只有 12/20 口井有 C6。\n\n## 1. 数据事实\n\n工作坐标是局部直角、单位米，范围大约 `x 0–12800`、`y 0–16400`。层位文件头写明 `Projection: Local Rectangular`、`Units: meters`。`project_area.paleo.json` 把 CRS 标成 `EPSG:4326`，井的 `coordinate_status` 是 `untransformed`。这套数不能按经纬度绘制。\n\n| 来源 | 规模 | 对开发的含义 |\n|---|---|---|\n| `井位/ExportWellHead.dat` | 20 口，A1–A20 | 井名、X、Y、KB、TD。A1 在 (5288.67, 8219.94) |\n| `井曲线/*.Las` | 20 个，各约 2 MB | LAS 2.0。曲线 DEPT、AC、DEN、GR 及 `_S`。NULL 为 -99999 |\n| `井分层/DC.dat` | 516 行 | 井名、层名、MD、TVD。Time(ms) 全部是 -99999 |\n| `时深/TD/*.dat` | 20 口井 | TIME(ms)、TVDSS、TVD、MD。depth↔TWT 用这张表 |\n| `层位/*.dat` | 8 个，各约 26.3 万点 | x、y、z(ms)、Inline、Crossline。网格 411×641。Inline 1315–1725，Crossline 4165–4805 |\n| 层序 | 8 个界面 | C3、C6、D53、D61、D62、D63、D71、D72。体系域字段是 LST/TST/HST，没有对应数据 |\n| `地震体/200P_seismic.sgy` | 966 MB，约 263451 道 | 三维体。901 样点，2 ms，IBM 浮点（format 1）。道数与层位网格一致 |\n| `参考相图/*.geojson` | 相 50、亚相 188、微相 397 | 经纬度约 105–125°E、20–40°N，`period=J3`。与局部测网不是同一空间 |\n| `参考资料/` | PNG、PPTX、PDF、XML | 扫描相图、构造图、单井图、编图规范、HZ28-6-1 柱状图。没有地理配准 |\n\n`paleo.json` 里有一条 D61 的 mock 预测，多边形用的是局部米坐标。参考 GeoJSON 不能叠到这张图上。\n\n## 2. 已有代码里要改的行为\n\n下面这些已经写进本仓库，接到 `project_area` 时会错。改这些行为，不另起产品。\n\n| 现况 | 改成 |\n|---|---|\n| 工程可能把 JSON 里的 EPSG:4326 写成图层 CRS | `coordinate` 仍是 CRS 权威。工作坐标记为局部测网、米。4326 只留作标签，不参与绘制 |\n| `DataImportService` 把非 tif/img 都声明成矢量 | 按第 3 节的分类、实体和受管复制导入。`.dat` 不再交给 OGR |\n| `SegyReader::open` 对文件 `readAll()`，样本全部进内存 | 按道偏移索引。只解码一条 inline 或 crossline。补上 crossline 道头（默认字节 193） |\n| 层位若变成点要素，一张图 26 万个点 | 按文件头的 411×641 网格装箱成时间栅格，空道为 nodata |\n| 时深转换若用常速 | 先用该井 TD 表。没有 TD 的井才用常速，并在剖面上标明 |\n| ONNX 结果可以落成 1×1 栅格 | 接到本工区时，范围是测网 `0–12793 × 0–16406`，层位是 D61 |\n| 参考 GeoJSON 若按矢量图层打开 | 入库为未配准辅助资产，不生成地图图层 |\n\nLAS 2.0 解析和 SEG-Y 的 IBM 浮点解码保留。相多边形算法 `paleo:paleo_facies_polygonize`、连井面板、布局导出保留，本计划只给它们接上这套数。\n\n## 3. 数据管理契约\n\n对象链：\n\n```\n工区\n └─ 地质实体或辅助实体\n      └─ 显式关联（角色、是否主版本、是否未决）\n           └─ 数据资产\n                └─ 不可变版本（RAW / DERIVED / INTERMEDIATE / OUTPUT）\n```\n\n文件不是井。一口井是稳定 id、井名、UWI 和别名。地震体是一条 `SeismicSurvey`，打开时从道头冻结角点、inline/crossline 范围、采样间隔和起始时间。每个层序界面是一个地质实体。扫描图、PPT、PDF 和未配准 GeoJSON 是辅助实体。\n\n关联写在 `entity_asset_links`，字段是实体类型、实体 id、资产 id、角色、是否主版本、是否未决。角色用已有名字：`well_head`、`well_log`、`tops`、`time_depth`、`horizon`、`seismic_volume`。关系不从标签推断。同名冲突不合并，链接标 `unresolved`。身份顺序是已有 id、UWI、规范化井名、别名。文件名不作身份。测井曲线先读 LAS `~W` 的 WELL。对得上已有井就挂上；对不上再用文件名主名（`A1.Las` → A1）。仍对不上就建未决链接，不新建一口同名井。时深和分层用文件里的井名列，规则相同。层位文件 `D61.dat` 挂到层序界面 D61；文件名不在 8 个层序界面里时，建未决层位实体，不进编图 chip。\n\n井同时保存原始 `surface_x/y` 和 `project_x/y`，以及 `coordinate_status`：`ok`、`untransformed`、`invalid`、`missing`。本工区 20 口井都是 `untransformed`。地图用局部坐标绘制，状态保持未变换，直到出现真正的投影参数。\n\n`catalog.json` 是资产生命周期的主存储。受管文件路径是 `{stage}/{asset_id}/{version_id}/{filename}`。默认导入是受管 RAW：边复制边算 SHA-256，落盘后只读。用户明确选择链接外部时不复制；966 MB 的 SEG-Y 走外部链接。由层位文件装箱得到的时间栅格是 DERIVED，父版本指向该 RAW。`catalog.json` 在 20 口井的规模上直接当查询源。`catalog.sqlite` 仍定义为可重建索引，但不进第一段实现；等资产数量或查询变慢再补。现有图层清单只登记要画进 QGIS 的结果，不兼任文件目录。\n\n分类沿用 `paleo-merged-main/libs/ingest/src/classifier.cpp`：\n\n| 路径或扩展名 | 类型 | 资产角色 |\n|---|---|---|\n| `井位/`，或文件名含 wellhead | `well_head` | input |\n| `井分层/` | `well_stratification` | input |\n| `时深/`，或路径段 `td` | `time_depth` | input |\n| `层位/` | `horizon` | input |\n| `.las` | `well_log` | input |\n| `.sgy` / `.segy` | `seismic` | input |\n| `.geojson` | `geojson` | input，未配准则不进地图 |\n| `.pdf` `.ppt` `.pptx` `.doc` `.docx` | `document` | reference |\n| `.png` `.jpg` `.tif` | `image_reference` | reference |\n| `.xml` | 再看内容 | 井口或测井；判不出则作参考 |\n\n井分层解析与 `parse_well_tops_text` 一致：`#` 行跳过，列是井名、层名、MD、X、Y、Z、TVD、Time(ms)。\n\n## 4. 数据页用标签页预览\n\n预览只出现在数据管理页，不泄漏到预测、约束、编图、验证。顶部工作流标签栏仍然是唯一的签名元素。预览用页内普通的 `QTabWidget`，样式走 `DESIGN.md` 的 dock 面板，不用工作流标签的蓝色下划线。\n\n布局：右侧仍是资产列表。地图留在中央。列表下方或地图下方放预览标签栏，只在数据管理页可见。从列表选中一条资产时，若已有同资产标签则切过去，否则新开一个可关闭标签。\n\n空态文案是「还没有打开的预览 — 在列表中选择一条数据」。复制或解析还在进行时，标签显示「正在读取」和文件名，不显示半份曲线。失败时标签内给出原因和文件名，不留白面板。外部链接的文件如果路径不存在，地震或文档标签写「找不到源文件」和那条路径。\n\n| 资产类型 | 标签里显示什么 |\n|---|---|\n| `well_log` | 单井曲线。默认 GR，可换 AC、DEN。用现有单道绘制，不把多井连井面板搬进这个标签 |\n| `well_stratification` | 该井的分层表：层名、MD、TVD。Time 列为空就显示空，不填假时间 |\n| `time_depth` | 该井的 TIME–TVD 曲线 |\n| `well_head` | 井名、X、Y、KB、TD、`coordinate_status`。选中时地图同时高亮该井 |\n| `horizon` | 网格尺寸、Z 的单位和范围、派生栅格是否已生成。提供「在地图上显示」。标签内不画 26 万个点 |\n| `seismic` | 现有地震预览。标签内选择一条 inline 或 crossline，只解码这一条 |\n| `image_reference` | 按面板宽度缩放的图片 |\n| `document` | 文件名、类型，以及「用系统程序打开」。这一阶段不做 PDF 内嵌翻页 |\n| `geojson` | 要素个数、坐标范围、相名字段。未配准时标明不加入地图 |\n\n导入向导最后一步的确认预览仍是向导里的一步。确认入库之后，才在数据页打开对应标签。\n\n## 5. 分阶段计划\n\n每段都用 `project_area` 里的文件验收。966 MB 的 SEG-Y 和 8 个层位点文本不提交进本仓库。测试夹具是从中切出的一条 inline、一口井的 LAS/TD，以及 D61 栅格。\n\n### 阶段 A — 实体、受管原文和预览标签\n\n导入 `project_area` 后：\n\n- A1 有四条主关联：井口、LAS、分层、时深。受管副本只读，SHA-256 与源文件一致。\n- D61 有层位关联。派生时间栅格登记到图层清单，能在地图上打开。\n- A1 落在 (5288.67, 8219.94) 附近，并压在 D61 栅格上。\n- 图层 CRS 不是 EPSG:4326。井的 `coordinate_status` 仍是 `untransformed`。\n- 在数据页依次打开 A1 的井口、LAS、分层、时深和 D61 层位，得到五个可关闭标签，来回切换不丢内容。LAS 标签能看到 GR。分层表里 Time 为空。D61 标签能把派生栅格显示到地图上。\n\n这一阶段不读地震道样本。地震资产可以出现在列表里，打开标签时说明剖面在下一阶段才可用。\n\n### 阶段 B — 一条地震剖面\n\n- SEG-Y 建立 inline/crossline 到文件偏移的索引，不把体读进内存。\n- 打开地震资产时使用数据页上的地震标签。标签内选择一条 inline 或 crossline，只解码这一条（约 411 或 641 道，901 样点，2 ms）。\n- A1 的 D61 分层用 TD 表换成毫秒，标到这条剖面上。没有 TD 的井用常速，并标注。\n- 验收夹具是这一条 inline，不是整个 `.sgy`。切换到 A1 的时深标签再切回地震标签，剖面仍在。\n\n### 阶段 C — 只编 D61\n\n- 结构面是 D61 时间栅格。\n- 单因素先算井上 D61 到 D62 的 TVD 厚度，再在测网网格上做现有的约束 IDW。IDW 仍按凸包裁剪。砂地比、距井距离、屏障距离不在本阶段。\n- 预测或融合栅格使用测网范围。相多边形走已有的 `paleo:paleo_facies_polygonize`。\n- 验证项是井上 D61 时间（由 TD 表得到）与 D61 栅格在井位处的差。超过阈值成为一条问题。点开后地图缩放到该井，连井滚到该分层，地震滚到对应测线和时间。\n- 布局导出一张含井位和相多边形的 PDF。\n\n完成标准：20 口井里凡有 D61 分层的井都有一条时间残差；其中一口井走完「问题 → 三视图」。\n\n### 阶段 D — 辅助资料\n\n- PNG、PPTX、PDF 作为 `document` 或 `image_reference` 受管入库，角色 `reference`，挂到辅助实体。在数据页打开后各自成为一个标签：图片直接显示，文档提供「用系统程序打开」。\n- 三份 GeoJSON 入库并标明未配准，不生成地图图层。标签里能看到要素个数和相名。相、亚相、微相名称收成图例字典。\n- HZ28-6-1 的 XML 不并进 A1–A20。打开它时标签标明这是参考资料，不写成 A1 的曲线。\n- 完成后，地图上的井和 D61 位置与阶段 A 相同。\n\n### 阶段 E — 八个层位，然后才是版本状态机\n\n- 编图 chip 只有 C3、C6、D53、D61、D62、D63、D71、D72。切换沿用已有的按层位懒加载。\n- 井分层里其余名字只出现在连井。\n- D61 能保存并导出之后，再实现「保存版本 / 发布 / Published」。在那之前不为状态机单开一段。\n\n## 6. 本计划不做\n\n- 把参考 GeoJSON 或扫描相图配准到局部测网。\n- 地震体渲染、任意测线、三维相机。`geo3d_workspace.json` 不迁。\n- 体系域 LST/TST/HST。\n- 砂地比、距井距离、TIN、等值线、屏障 IDW、相序规则融合、多 realization、相界地质类型、暗色模式。\n- 把 SEG-Y 全本或层位点文本提交进本仓库。\n- `paleo-merged-main` 的数据管理界面。\n\n## 7. 第一段实现\n\n阶段 A 的最小切片和阶段 B 的一条剖面一起做：\n\n1. 局部测网 CRS，不写 4326。\n2. A1 的井实体，以及井口、LAS、分层、时深四条主关联和只读 RAW。\n3. D61 层位实体、其 RAW，以及父版本指向该 RAW 的时间栅格。\n4. `200P_seismic.sgy` 外部链接，抽出一条 inline。\n5. 用 A1 的 TD 表把 D61 标到这条剖面上。\n6. 数据页预览标签栏：至少能同时打开 A1 的 GR、A1 的时深和这一条地震剖面，三个标签互不覆盖。\n\n阶段 C 的残差要等这三样对齐之后再算。\n","newText":"# project_area 开发计划\n\n日期：2026-09-25。\n\n验收数据是 `/home/kevin/projects/paleo_project/data/project_area`（约 1.4 GB）。目标是用这套工区走通一层古地理编图：井、层位、地震在同一局部坐标里对齐，D61 的厚度和井震残差能导出。相多边形只在已有相编码栅格时导出，不从厚度栅格生成。\n\n架构仍以 `docs/PALEO_QGIS_PLAN.md` 为准：QGIS 负责渲染、图层、CRS、编辑和布局，Paleo 负责地质对象和导入。界面仍是现有五页壳，视觉以 `DESIGN.md` 为准。\n\n多源数据管理只取 `paleo-merged-main` 的对象和导入规则（ADR 0056 资产目录、ADR 0059 工区—实体—资产、`libs/ingest` 的分类器与 SMI 井分层解析）。不迁移它的导航树、功能区、井位散点页和概览面板。\n\n编图目标层位是数据里的 **D61**。C6 的层位点是齐的，井分层里只有 12/20 口井有 C6。\n\n## 1. 数据事实\n\n工作坐标是局部直角、单位米，范围大约 `x 0–12800`、`y 0–16400`。层位文件头写明 `Projection: Local Rectangular`、`Units: meters`。`project_area.paleo.json` 把 CRS 标成 `EPSG:4326`，井的 `coordinate_status` 是 `untransformed`。这套数不能按经纬度绘制。\n\n| 来源 | 规模 | 对开发的含义 |\n|---|---|---|\n| `井位/ExportWellHead.dat` | 20 口，A1–A20 | 井名、X、Y、KB、TD。A1 在 (5288.67, 8219.94) |\n| `井曲线/*.Las` | 20 个，各约 2 MB | LAS 2.0。曲线 DEPT、AC、DEN、GR 及 `_S`。NULL 为 -99999 |\n| `井分层/DC.dat` | 516 行 | 表头是井名、层名、MD、X、Y、Z、TVD、Time(ms)。Time(ms) 全部是 -99999。缺 X、Y、Z 时忽略这三列，不把文件判为解析失败 |\n| `时深/TD/*.dat` | 20 口井 | TIME(ms)、TVDSS、TVD、MD。depth↔TWT 用这张表 |\n| `层位/*.dat` | 8 个，各约 26.3 万点 | x、y、z(ms)、Inline、Crossline。网格 411×641。Inline 1315–1725，Crossline 4165–4805 |\n| 层序 | 8 个界面 | C3、C6、D53、D61、D62、D63、D71、D72。体系域字段是 LST/TST/HST，没有对应数据 |\n| `地震体/200P_seismic.sgy` | 966 MB，约 263451 道 | 三维体。901 样点，2 ms，IBM 浮点（format 1）。道数与层位网格一致 |\n| `参考相图/*.geojson` | 相 50、亚相 188、微相 397 | 经纬度约 105–125°E、20–40°N，`period=J3`。与局部测网不是同一空间 |\n| `参考资料/` | PNG、PPTX、PDF、XML | 扫描相图、构造图、单井图、编图规范、HZ28-6-1 柱状图。没有地理配准 |\n\n`paleo.json` 里有一条 D61 的 mock 预测，多边形用的是局部米坐标。参考 GeoJSON 不能叠到这张图上。\n\n## 2. 已有代码里要改的行为\n\n下面这些已经写进本仓库，接到 `project_area` 时会错。改这些行为，不另起产品。\n\n| 现况 | 改成 |\n|---|---|\n| 工程可能把 JSON 里的 EPSG:4326 写成图层 CRS | 图层 CRS 是无基准工程坐标，单位米，authid 留空，不能反投到 EPSG:4326。JSON 里的 EPSG:4326 只留在源标签上 |\n| `DataImportService` 把非 tif/img 都声明成矢量 | 按第 3 节的分类、实体和受管复制导入。`.dat` 不再交给 OGR |\n| `SegyReader::open` 对文件 `readAll()`，样本全部进内存 | 按道偏移索引，不在界面线程上做。只解码一条 inline 或 crossline。本文件实测 1012709244 字节、901 样点、2 ms、format 1、道距 3844、263451 道。道头偏移 188 的 inline 和偏移 192（SEG-Y 1-based 字节 193）的 crossline 都是 0。CDP 在偏移 20，每 641 道从 4165 排到 4805。源坐标道 0 为 (0,0)，道 640 为 (12793,0)，末道为 (12793,16406)。索引：inline = 1315 + 道号/641，crossline = 该道 CDP。道数、CDP 顺序、角点有一项对不上就停止并显示读到的数，不改去扫别的字节 |\n| 层位若变成点要素，一张图 26 万个点 | 按文件头的 411×641 网格装箱成时间栅格，空道为 nodata |\n| 时深转换若用常速 | 只用该井 TD 表做线性插值。没有 TD 的井标「无时深表」，不使用常速 |\n| ONNX 结果可以落成 1×1 栅格 | 接到本工区时使用 D61 的 geotransform。挤成二维后不是 411×641 就失败，不写栅格 |\n| 参考 GeoJSON 若按矢量图层打开 | 入库为未配准辅助资产，不生成地图图层 |\n\nLAS 2.0 解析和 SEG-Y 的 IBM 浮点解码保留。扩展名忽略大小写，`A1.Las` 也按测井分类。连井面板和布局导出保留，并接到这套工区。相多边形算法保留，只接收相编码栅格，不接收厚度栅格。\n\n## 3. 数据管理契约\n\n对象链：\n\n```\n工区\n └─ 地质实体或辅助实体\n      └─ 显式关联（角色、是否主版本、是否未决）\n           └─ 数据资产\n                └─ 不可变版本（RAW / DERIVED / INTERMEDIATE / OUTPUT）\n```\n\n文件不是井。一口井在本计划里只存 id、规范化井名、surface_x/y、KB、TD 和 coordinate_status。不建 UWI 列，也不建别名列。地震体是一条 `SeismicSurvey`，打开时从道头冻结角点、inline/crossline 范围、采样间隔和起始时间。每个层序界面是一个地质实体。扫描图、PPT、PDF 和未配准 GeoJSON 是辅助实体。\n\n关联写在 `entity_asset_links`，字段是实体类型、实体 id、资产 id、角色、是否主版本、是否未决。角色用已有名字：`well_head`、`well_log`、`tops`、`time_depth`、`horizon`、`seismic_volume`、`reference`。表里的 input 和 reference 是资产角色，关联角色是这一列。关系不从标签推断。井名比较前去掉首尾空白、连字符和空格，并忽略大小写。井口文件带 UTF-8 BOM。列是 Name、X、Y、KB、TotalDepth、BottomX、BottomY、WellType。TotalDepth 记为 TD。BottomX、BottomY、WellType 留在井上。没有 UWI。匹配键是规范化井名。井口文件是建井来源：规范化后的井名还没有已有井，就新建一口井并挂 `well_head`。井口文件里同一个规范化名字出现两行，或这一行同时匹配两口已有井，该行标 `unresolved`，不新建，也不合并。测井、分层和时深不新建井。它们先用 LAS `~W` 的 WELL 或文件中的井名列匹配已有井；零个匹配再用文件名主名（`A1.Las` → A1）。仍然零个，或两个已有井都匹配，资产仍然保留，链接标 `unresolved`，实体 id 留空，不新建井，也不合并。两个候选时，链接备注写下两个规范化井名。井口行恰好匹配一口已有井时，挂上 `well_head`，不另建井。SHA-256 已经入库时不新建版本。若未决关联这时能按规范化井名挂上，可以补这一条主关联，不合并两口井。界面说明字节已在库，并说明这次有没有补上关联。SHA-256 是新的才追加不可变版本，该角色只保留这一条主关联。层位文件 `D61.dat` 挂到层序界面 D61。文件名不在 C3、C6、D53、D61、D62、D63、D71、D72 里时，建未决层位实体，不进编图 chip。\n\n`井位/ExportWellHead.dat` 和 `井分层/DC.dat` 各是一份多井文件，各登记为一个资产。每个井名一条关联，指向同一资产。预览标签按当前选中的井过滤，不把文件拆成 20 份。\n\n井保存 `surface_x/y` 和 `coordinate_status`：`ok`、`untransformed`、`invalid`、`missing`。本工区 20 口井都是 `untransformed`。在出现真正的投影参数之前不写 `project_x/y`，地图读 `surface_x/y`。图层 CRS、工程 CRS 和画布 CRS 都是无基准的工程坐标，单位米，authid 留空，不能反投到 EPSG:4326。不用 `+proj=eqc`，因为它会把局部米悄悄变成经纬度。\n\n`catalog.json` 是资产生命周期的唯一主存储，也是这一阶段的查询源。写入走工程写队列，先临时文件再改名。`asset_id`、`version_id`、`filename` 各只占一段路径，不允许斜杠和 `..`。受管路径是 `{stage}/{asset_id}/{version_id}/{filename}`，`stage` 就是 `RAW`、`DERIVED`、`INTERMEDIATE` 或 `OUTPUT`。默认导入是受管 RAW：边复制边算 SHA-256，落盘后只读。用户明确选择链接外部时不复制；966 MB 的 SEG-Y 走外部链接。由层位文件装箱得到的时间栅格是 DERIVED，父版本指向该 RAW。`catalog.sqlite` 不在本计划的实现里。触发条件写在 `TODOS.md` 的「P3 — catalog.sqlite 查询索引」：catalog.json 能往返并且列表查询变慢。现有图层清单只登记要画进 QGIS 的结果，不兼任文件目录。\n\n分类沿用 `paleo-merged-main/libs/ingest/src/classifier.cpp`：\n\n| 路径或扩展名 | 类型 | 资产角色 |\n|---|---|---|\n| `井位/`，或文件名含 wellhead | `well_head` | input |\n| `井分层/` | `well_stratification` | input |\n| `时深/`，或路径段 `td` | `time_depth` | input |\n| `层位/` | `horizon` | input |\n| `.las`，扩展名忽略大小写 | `well_log` | input |\n| `.sgy` / `.segy` | `seismic` | input |\n| `.geojson` | `geojson` | input，未配准则不进地图 |\n| `.pdf` `.ppt` `.pptx` `.doc` `.docx` | `document` | reference |\n| `.png` `.jpg`，以及没有地理变换的 `.tif` | `image_reference` | reference |\n| `.xml` | 再看内容 | 井口或测井；判不出则作参考。`参考资料/` 里 HZ28-6-1 的 XML 固定为辅助参考，不挂到 A1–A20 |\n\n井分层解析与 `parse_well_tops_text` 一致：`#` 行跳过，列是井名、层名、MD、X、Y、Z、TVD、Time(ms)。值为 -99999 的时间、TVD 或 MD 视为空，不参加计算。\n\nD61 栅格只使用层位文件头，不另设一套范围。网格 411×641。P1（inline 1315，crossline 4165）= (0, 0)，P2（1315，4805）= (12793, 0)，P3（1725，4805）= (12793, 16406)。X 随 crossline 增加，Y 随 inline 增加。像元 `dx = 12793/640` 米，`dy = 16406/410` 米。北向上的 geotransform 是原点 x=0、y=16406，列方向 `dx`，行方向 `-dy`。空道 nodata 为 -9999。列号 = crossline - 4165，行号 = 1725 - inline。越界的点不写入，只计入拒绝数。同一像元多点时按文件顺序保留最后一点，并在栅格元数据里记下碰撞次数。A1 的 D61 TVD 是 1935 m，D62 TVD 是 1971 m。A1 (5288.67, 8219.94) 落在这个网格内，验收用这个精确坐标，容差半个像元。\n\n时深转换只用 TD 表。分层的 TVD 对 TD 的 TVD 列线性插值得到 TIME(ms)。该井 TVD 为空时改用 MD 对 TD 的 MD 列。-99999 不参加插值。20 口井都有 TD 文件。若某口井没有 TD 表，剖面上标井名和「无时深表」，不使用常速。`docs/PALEO_QGIS_PLAN.md` 里缺省常速的写法不用于这套工区。深度落在 TD 表可用样点的范围之外时不外推，该层标「超出时深表」，不进入残差。用来查找的那一列不是严格递增，或去掉 -99999 之后不足两个有限样点时，这口井标「时深表无序」或「无时深表」：不是严格递增用前者，样点不足两个用后者。两种都不插值。\n\n井在剖面上的位置、最近层位采样和残差都用该层分层点的 X、Y。分层点没有坐标时才退回井口。井口和分层点相差超过一个像元时，剖面上标出这个偏移。第一段默认打开的测线是 A1 对应的那条 inline。\n\n## 4. 数据页用标签页预览\n\n预览只出现在数据管理页，不泄漏到预测、约束、编图、验证。顶部工作流标签栏仍然是唯一的签名元素。预览用页内普通的 `QTabWidget`，样式走 `DESIGN.md` 的 dock 面板，不用工作流标签的蓝色下划线。\n\n布局：右侧仍是资产列表。地图留在中央。预览标签栏放在地图下方，只在数据管理页可见。从列表选中一条资产时，若已有同资产标签则切过去，否则新开一个可关闭标签。多井文件的标签按当前井过滤。当前井只有在选中资产的关联恰好解析到一口井时才改变。否则已经打开的多井标签保持原过滤。\n\n空态文案是「还没有打开的预览 — 在列表中选择一条数据」。复制或解析还在进行时，标签显示「正在读取」和文件名，不显示半份曲线。索引、LAS 解析、层位装箱和单条解码不在界面线程上做。关掉标签就取消。离开数据页只隐藏预览，不拆掉。多井文件旁边有一口井的选择；只有选中资产恰好关联一口井时才自动改这口井。失败时标签写「读取失败」、原因和文件名，不留白面板。任何外部链接的源文件不存在时，该标签写「找不到源文件」和那条路径。\n\n导入确认仍用 `docs/PALEO_QGIS_PLAN.md` §42.7 的向导（文件、字段、CRS、预览、确认）。SMI 文本的列是固定的，向导展示识别出的列，不让用户重排。确认入库之后，才在数据页打开对应标签。这一阶段向导的 CRS 步展示无基准工程坐标，单位米，不提供 EPSG:4326，authid 留空，不能改成会反算到经纬度的 CRS。\n\n| 资产类型 | 标签里显示什么 |\n|---|---|\n| `well_log` | 单井曲线。默认 GR，可换 AC、DEN。用现有单道绘制，曲线值 -99999 是空样，不绘制。不把多井连井面板搬进这个标签 |\n| `well_stratification` | 该井的分层表：层名、MD、TVD。Time 列为空就显示空，不填假时间 |\n| `time_depth` | 该井的 TIME–TVD 曲线 |\n| `well_head` | 井名、X、Y、KB、TD、`coordinate_status`。选中时地图同时高亮该井 |\n| `horizon` | 网格尺寸、Z 的单位和范围、派生栅格是否已生成。提供「在地图上显示」。标签内不画 26 万个点 |\n| `seismic` | 现有地震预览。标签内选择一条 inline 或 crossline，只解码这一条 |\n| `image_reference` | 按面板宽度缩放的图片 |\n| `document` | 文件名、类型，以及用本地文件 URL 打开。这一阶段不做 PDF 内嵌翻页 |\n| `geojson` | 要素个数、坐标范围、相名字段。未配准时标明不加入地图 |\n\n## 5. 分阶段计划\n\n每段都用 `project_area` 里的文件验收。966 MB 的 SEG-Y 和 8 个层位点文本不提交进本仓库。测试夹具是从中切出的一条 inline、一口井的 LAS/TD，以及 D61 栅格。\n\n### 阶段 A — 实体、受管原文和预览标签\n\n导入 `project_area` 后：\n\n- A1 有四条主关联：井口、LAS、分层、时深。受管副本只读，SHA-256 与源文件一致。\n- D61 有层位关联。派生时间栅格登记到图层清单，能在地图上打开。\n- A1 落在 (5288.67, 8219.94)，容差半个像元，并压在 D61 栅格上。\n- 图层、工程和画布都是无基准工程坐标，单位米，authid 为空，不能反投到 EPSG:4326。井的 `coordinate_status` 仍是 `untransformed`。\n- 在数据页依次打开 A1 的井口、LAS、分层、时深和 D61 层位，得到五个可关闭标签，来回切换不丢内容。LAS 标签能看到 GR。分层表里 Time 为空。D61 标签能把派生栅格显示到地图上。\n\n第一段实现把阶段 A 和阶段 B 一起交付，地震标签解码一条测线。\n\n### 阶段 B — 一条地震剖面\n\n- SEG-Y 建立 inline/crossline 到文件偏移的索引，不把体读进内存。\n- 打开地震资产时使用数据页上的地震标签。标签内选择一条 inline 或 crossline，只解码这一条（约 411 或 641 道，901 样点，2 ms）。\n- A1 的 D61 分层按第 3 节的 TVD 插值换成毫秒，标到 A1 所在的那条 inline 上。插值没有得到数值时，剖面上标第 3 节选出的原因：「无时深表」、「超出时深表」或「时深表无序」。只有得到数值时才标时间。\n- 验收夹具是这一条 inline，不是整个 `.sgy`。切换到 A1 的时深标签再切回地震标签，剖面仍在。\n\n### 阶段 C — 只编 D61\n\n- 结构面是 D61 时间栅格。\n- 单因素先算井上 D61 到 D62 的厚度，厚度用已经装箱的 D62 与 D61 时间栅格相减，得到双程时间等厚。井上只用两口都有 TVD 的厚度做标定，不把 MD 厚度混进同一张栅格。缺 TVD 的井不提供样本，并写明原因。时间等厚换成米时，用这些井的间隔速度做 power 为 2 的 IDW，权重与 `paleo:paleo_constraint_idw` 相同，采样在 D61 像元中心，不用它默认的外扩网格，不传约束线。能提供样本的井不足 3 口时不写假曲面，界面写「厚度样本不足以成面」。一口都没有时写「没有厚度样本」。像元中心落在这些井的分层点凸包之外时为 nodata -9999。只有层位栅格缺失时，才退回对井点厚度本身做 IDW。砂地比、距井距离、屏障距离本计划不做。\n- 厚度栅格不是相编码。`paleo:paleo_facies_polygonize` 只吃整数相编码栅格，空值为 -9999。本文件夹没有这样的栅格，参考 GeoJSON 也不在这个网格上，所以不从厚度栅格造相，也不新设厚度分档。已有的优先级融合只接受已经带相编码的栅格，输入顺序就是优先级。两张或以上才融合，一张时直接多边形化，一张都没有时界面写「没有相编码栅格」并且不调用融合。这不是第 6 节排除的相序规则融合。\n- 验证项是井上 D61 时间（由 TD 表得到）减去 D61 栅格在井位处的时间。残差保留符号。绝对值大于 10 ms 成为一条问题。没有算出时间的井列出原因，不算一条数值残差。采样取分层点最近的像元中心。点落在测网外超过半个像元时列出「井位不在测网内」，不算数值残差。该像元是 nodata 时列出「井位落在空道」，不算数值残差。问题字段是井名、带符号的残差或原因、以及 10 ms 阈值。点开问题留在验证页，不新建预览标签栏。共享地图移到该井，已有连井面板滚到该分层。地震视图已经打开时滚到对应测线和时间。还没打开时，按阶段 B 解码这一条，放进数据页已有的地震标签，验证页不新增标签。\n- 布局导出一张 PDF，含井位和厚度栅格。相多边形进 PDF 只在 `paleo:paleo_facies_polygonize` 已经跑过相编码栅格之后。`paleo.json` 里的 mock 多边形和参考 GeoJSON 不进 PDF。\n\n完成标准：凡有可用 D61 时间的井都有一条时间残差；其中一口井走完「问题 → 地图、连井、地震剖面」；PDF 已导出。相多边形出现在 PDF 里只在相编码栅格已经多边形化之后。\n\n### 阶段 D — 辅助资料\n\n- PNG、PPTX、PDF 作为 `document` 或 `image_reference` 受管入库，角色 `reference`，挂到辅助实体。在数据页打开后各自成为一个标签：图片直接显示，文档用 QDesktopServices 打开本地文件 URL，不拼 shell。\n- 三份 GeoJSON 入库并标明未配准，不生成地图图层。标签里能看到要素个数和相名。\n- 文档、未配准图片、未配准 GeoJSON，以及 `参考资料/` 里 HZ28-6-1 的 XML，都挂到辅助实体，关联角色是 `reference`。这份 XML 不按内容去挂井，也不并进 A1–A20。其他 XML 用 QXmlStreamReader 区分井口或测井，不解析 DTD，不取外部实体。\n- 完成后，地图上的井和 D61 位置与阶段 A 相同。\n\n### 阶段 E — 八个层位，然后才是版本状态机\n\n- 编图 chip 只有 C3、C6、D53、D61、D62、D63、D71、D72。切换沿用已有的按层位懒加载。\n- 井分层里其余名字只出现在连井。\n- 8 个层序界面的 chip 切换属于本阶段。版本用现有 ReleaseStore。保存调用 createRelease，快照不可改。ReleaseStore 增加 published 标记，并记下 D61 PDF 的资产 id 和 SHA-256。发布要求这份快照里有该 PDF，并且每口井的残差或原因已经写入。八个 chip 不挡住发布。已发布的行不更新。下一次保存是新的 release。不单独再开一段产品。\n\n## 6. 本计划不做\n\n- 把参考 GeoJSON 或扫描相图配准到局部测网。\n- 地震体渲染、任意测线、三维相机。`geo3d_workspace.json` 不迁。\n- 体系域 LST/TST/HST。\n- 砂地比、距井距离、TIN、等值线、屏障 IDW、相序规则融合、多 realization、相界地质类型、暗色模式。\n- 把 SEG-Y 全本或层位点文本提交进本仓库。\n- `paleo-merged-main` 的数据管理界面。\n\n## 7. 第一段实现\n\n阶段 A 的最小切片和阶段 B 的一条剖面一起做：\n\n1. 局部测网 CRS，不写 4326。\n2. A1 的井实体，以及井口、LAS、分层、时深四条主关联和只读 RAW。\n3. D61 层位实体、其 RAW，以及父版本指向该 RAW 的时间栅格。\n4. `200P_seismic.sgy` 外部链接，抽出一条 inline。\n5. 用 A1 的 TD 表把 D61 标到这条剖面上。\n6. 数据页预览标签栏：至少能同时打开 A1 的 GR、A1 的时深和这一条地震剖面，三个标签互不覆盖。阶段 A 的井口、分层和 D61 三个标签同时仍在，地震标签是第六个。\n\n阶段 C 的残差要等这三样对齐之后再算。\n\n测试：分类、单井匹配、两候选未决、多井分层文件产生多条关联、D61 装箱的 geotransform 和 nodata、复制 LAS 的 SHA-256、缺失外部路径、再次点选聚焦已有标签、打开 SEG-Y 时内存不随文件大小线性增长、图层 authid 为空。为本工区写出的 ONNX 栅格使用同一套 D61 geotransform，且不是 1×1，这是行为约束的测试，不是第一段交付物。井口恰好匹配一口已有井时不新建井。相同 SHA-256 再次导入不增加第二条主关联。TD 超出范围标「超出时深表」且不外推。时深表无序标「时深表无序」。缺 D62 的井不提供厚度样本。LAS 的 -99999 不绘制。失败文案是「读取失败」。`A1.Las` 能分类为测井。道头范围不对时不解码。加载文案含「正在读取」和文件名。相同 SHA-256 再次导入不新建版本，只允许补上已能匹配的未决关联。不足两个 TD 样点标「无时深表」。残差用最近像元中心，空道不是数值残差，绝对值大于 10 ms 才成为问题。手工：A1 在 (5288.67, 8219.94)，容差半个像元，压在 D61 栅格上。\n"}]} -->
 
@@ -340,6 +353,10 @@ Spec review launch 1 scored 5/10 on an export that predates the geotransform, th
 | 27 | DX | Split 失败 and 未决 | Mechanical | P5 explicit | The confirm counts were not decidable. Stored-but-unmatched is 未决. Not stored is 失败. | One bucket for every problem |
 | 28 | DX | Keep the geotransform origin | Taste | P3 pragmatic | The accepted coefficients stay the outer corner. Centers are half a pixel inside. Shifting the origin would move A1. | Move the origin onto the nodes |
 | 29 | DX | No SEG-Y byte-map editor in this plan | Mechanical | P3 pragmatic | This file's inline header is zero on purpose. The next volume can add an override later. | A header-map dialog in the first slice |
+| 30 | Eng | Delete the eqc CRS string | Mechanical | P5 explicit | localGridCrsProj is +proj=eqc +ellps=WGS84. An empty authid does not stop the inverse. | Keep eqc and hope authid stays empty |
+| 31 | Eng | One publish gate on MapVersionStore | Mechanical | P4 DRY | The mapping 发布 button does not call ReleaseStore. A second gate would not disable that button. | Add published columns only on releases |
+| 32 | Eng | Containing cell, not nearest center | Taste | P5 explicit | A node on the pixel corner is equidistant from four centers. Half-open bounds make the corner test stable. | Keep nearest-center and an unnamed tie-break |
+| 33 | Eng | Do not call runThicknessChain for this isochore | Mechanical | P5 explicit | That function IDWs a TVD difference and then polygonizes. The plan already forbids both. | Leave the button on the old chain |
 
 ### 0I. Build order
 
@@ -802,3 +819,167 @@ jq is not installed. DX task JSONL was not written.
 | Product type | desktop workstation | desktop workstation |
 | Mode | DX POLISH | DX POLISH |
 | Overall | 4/10 | 6/10 |
+<!-- autoplan-baseline-edits:eng {"sourceSha256":"8e10b77d387cb362866e8eed542c838f571e8414815b197ac146354259a37a36","replacements":[{"oldText":"不用 `+proj=eqc`，因为它会把局部米悄悄变成经纬度。","newText":"不用 `+proj=eqc`。现有 `DataCatalog::localGridCrsProj()` 就是 `+proj=eqc +ellps=WGS84 +units=m +no_defs`，会把局部米反投到 EPSG:4326。删掉这串。图层、工程和画布共用一个无大地基准的工程米坐标。`mapUnits` 是米，authid 为空，`isGeographic` 为假，转到 EPSG:4326 必须失败。"},{"oldText":"不改去扫别的字节。界面并排写出期望值和读到的值","newText":"不改去扫别的字节。删掉 `SegyReader::open` 在偏移 188 不变时改读偏移 8 和 20 的回退。本文件偏移 188 全是 0，CDP 在偏移 20 会变化，那条回退会盖掉按道号算出的 inline。角点用道头偏移 180 和 184 的整数米；比例因子 0 或 1 都表示用这个整数。对不上就并排写出期望值和读到的值"},{"oldText":"井口文件带 UTF-8 BOM。","newText":"井口文件带 UTF-8 BOM。读表头前去掉 U+FEFF。`trimmed()` 去不掉它。"},{"oldText":"BottomX、BottomY、WellType 留在井上。","newText":"BottomX、BottomY、WellType 不新增井表列。井口预览从这份井口资产的行里读。"},{"oldText":"资产仍然保留，链接标 `unresolved`，实体 id 留空，不新建井，也不合并。","newText":"资产仍然保留，链接标 `unresolved`，实体 id 留空，不新建井，也不合并。现有 `DataCatalog::addLink` 会拒绝空的实体 id。放行空实体 id，并增加备注字段，`catalog.json` 能往返。"},{"oldText":"不允许斜杠和 `..`。","newText":"不允许斜杠、`..`、换行、NUL 和其他控制字符。文件夹导入只收普通文件，不跟随指向所选目录之外的符号链接。一行失败不中断其余文件。"},{"oldText":"966 MB 的 SEG-Y 走外部链接。","newText":"966 MB 的 SEG-Y 走外部链接。链接时流式计算 SHA-256。打开时摘要不一致就写「源文件与入库时的 SHA-256 不一致」，不解码。"},{"oldText":"文件夹按钮选 `project_area` 目录。","newText":"文件夹按钮选 `project_area` 目录。一次确认里先处理井口行，再关联测井、分层、时深和层位。LAS 排在井口文件前面时，A1 仍然得到四条主关联。"},{"oldText":"参考资料目录里的 XML 默认显示为参考，要按井解析必须在表里改类型。","newText":"HZ28-6-1 这一行的类型不能改，始终是参考。同目录其他 XML 默认显示为参考；改成井之后如果对不上 A1–A20，保持未决，不用文件名去挂井。"},{"oldText":"底部 dock 继续是日志、任务、连井剖面。单线地震只出现在数据页的预览标签里。底部 dock 不再同时放一条地震预览，避免两处剖面。","newText":"底部 dock 继续放日志、任务、连井剖面，已有的发布和属性页保留。单线地震只出现在数据页的预览标签里。底部不再同时放一条地震预览。验证行的双击不再调用底部地震页。离开数据页时藏起预览分割条，不另造一块地图。"},{"oldText":"标签用浅底 #FFF4E0，字用 #F29900，并且始终带「未决」二字。","newText":"标签用浅底 #FFF4E0，字用 #24303E，边用 #F29900，并且始终带「未决」二字。"},{"oldText":"两种都不插值。","newText":"两种都不插值。现有 `TimeDepthTool::interpolateTimeMs` 会按深度排序，并在范围外夹到端点。改成按文件顺序、不排序、不夹取。剖面和残差共用这一个结果。同步改 `tst_timedeptool`。"},{"oldText":"只有层位栅格缺失时，才退回对井点厚度本身做 IDW。","newText":"现有 `MappingWorkflow::runThicknessChain` 用井点 TVD 差做 IDW，再调用相多边形。本计划的等厚不走这条路径，也不调用 `deriveFaciesPolygons`。D62 与 D61 的尺寸、geotransform 或 nodata 不一致就不写等厚。dt_ms 小于或等于 0，或 TVD 差不是正数，这口井不提供样本。控制点的凸包如果不是有面积的多边形，按不足 3 口处理，不写栅格。只有层位栅格缺失时，才退回对井点厚度本身做 IDW。"},{"oldText":"采样取分层点最近的像元中心。点落在测网外超过半个像元时列出「井位不在测网内」","newText":"采样用包含该点的像元，左闭右开。x 等于 12793 算最后一列，y 等于 0 算最后一行。落在这个像元矩形之外列出「井位不在测网内」"},{"oldText":"没有算出时间的井列出原因，不算一条数值残差。","newText":"没有 D61 分层的井写「无 D61 分层」，仍然占一行。没有算出时间的井列出原因，不算一条数值残差。绝对值等于 10 ms 记为通过。"},{"oldText":"版本用现有 ReleaseStore。保存调用 createRelease，快照不可改。现有 CREATE TABLE IF NOT EXISTS 不会给旧库加列。打开时若缺列，用 ALTER TABLE 增加可空列 published INTEGER 默认 0、pdf_asset_id TEXT、pdf_sha256 TEXT。旧行读成未发布，不回写。","newText":"编图页现有的发布按钮走 `MapVersionStore`，不走底部 `ReleaseStore`。只在这一条门上记下 D61 的 PDF 资产 id、SHA-256，以及 20 口井的残差或原因。`ReleaseStore` 仍只做清单快照，不成为第二道发布门。导出登记一个 OUTPUT 资产，不改已经冻结的版本行。下一次保存把该资产 id 和 SHA-256 抄进新的未发布版本。发布只读这一行。旧的 `map_versions` 和 `releases` 行读成未发布，不回写。缺 PDF 时 tooltip 写「导出 PDF 后再保存」。"},{"oldText":"残差用最近像元中心，空道不是数值残差","newText":"残差用包含该点的像元，空道不是数值残差"}]} -->
+<!-- autoplan-accepted:eng -->
+- Replace DataCatalog::localGridCrsProj. The engineering CRS has metre axes, no geodetic datum, an empty authid, and no QgsCoordinateTransform to EPSG:4326. Delete the +proj=eqc string in the same change.
+- Delete SegyReader::open's fallback from header offset 188 to offsets 8 and 20. Inline for this file stays 1315 plus trace index over 641. Corners are the integer metres at offsets 180 and 184. A mismatch shows expected and actual and does not scan other bytes.
+- TimeDepthTool::interpolateTimeMs keeps file order, does not sort, and does not clamp outside the range. The section post and the residual share one result: a value, 无时深表, too few samples, 时深表无序, or 超出时深表. Update tst_timedeptool in the same change.
+- MappingWorkflow::runThicknessChain is not the D61 thickness path. Do not call deriveFaciesPolygons on that raster. Refuse the isochron when D62 does not match D61's dimensions, geotransform, and nodata. A non-positive dt_ms or TVD difference contributes no sample. A hull that is not a polygon with area uses the same panel sentence as fewer than three wells and writes no raster.
+- Residual sampling uses the containing cell with half-open bounds. x equal to 12793 is the last column and y equal to 0 is the last row. Outside that rectangle is 「井位不在测网内」. Absolute residual equal to 10 ms is 通过. A well with no D61 top is a row 「无 D61 分层」.
+- DataCatalog::addLink accepts an empty entity id and stores a note. 「挂到这口井」 fills that id and clears the note in one save. Folder confirm links well-head rows before logs, tops, and TD, so A1 still gets four primary links when the LAS path is listed first. Strip U+FEFF before the well-head header. HZ28-6-1's type cannot be changed.
+- The mapping-page publish button stays on MapVersionStore. ReleaseStore remains a manifest snapshot and is not a second gate. Export registers an OUTPUT asset and does not edit a frozen version. The next save copies the PDF asset id and SHA-256 into a new unpublished version. Publish reads that row, which also holds a residual or a reason for every well. Old rows load unpublished.
+- The external SEG-Y stores a streamed SHA-256. A mismatch shows 「源文件与入库时的 SHA-256 不一致」 and does not decode. Path segments reject control characters. Folder import reads regular files, does not follow a symlink outside the chosen root, and one bad file does not stop the walk.
+- The preview splitter hides when the user leaves the data page. Validation double-click does not call the bottom-dock seismic panel. Existing publish and attribute bottom tabs stay. The unresolved tag uses #24303E on #FFF4E0 with a #F29900 border.
+- Verify in the phase that changes the behavior, not inside tst_import, tst_segy, tst_segy_lines, or tst_datapreview: LAS-before-well-head still binds A1; TD is not clamped; containing-cell corners; dt_ms <= 0; D62 grid mismatch; polygonize is not called from thickness; engineering CRS has no transform to EPSG:4326; the offset-8 fallback does not run; old version rows stay unpublished.
+<!-- /autoplan-accepted:eng -->
+
+### Eng review
+
+Scope gate: plan mode, auto-selected B, reviewing docs/PROJECT_AREA_PLAN.md. Scope is not reduced. Phases C, D, and E stay. The file count is above eight. The arrangement stays the existing modules: catalog, SEG-Y reader, time-depth tool, mapping workflow, and the version store the publish button already calls.
+
+Outside review: unavailable. Codex `gpt-6-astra` returns HTTP 400. Consensus is N/A.
+
+Native review completed. First line `INPUT: eng 23b621ec3b1e679e20588f83b96a0bfce91ce4632143794e387448f0e8468a39`. The code checks below are from that pass and were re-read in this session.
+
+```
+ENG DUAL VOICES — CONSENSUS TABLE:
+  Dimension                           Claude  Codex  Consensus
+  1. Architecture sound?               no      —      N/A
+  2. Test coverage sufficient?         no      —      N/A
+  3. Performance risks addressed?      partial —      N/A
+  4. Security threats covered?         partial —      N/A
+  5. Error paths handled?              partial —      N/A
+  6. Deployment risk manageable?       yes     —      N/A
+```
+
+#### Architecture
+
+`DataCatalog::localGridCrsProj` returns `+proj=eqc +ellps=WGS84 +units=m +no_defs` (`datacatalog.h`). Horizon GeoTIFFs already embed it (`horizonbinner.cpp`). The plan forbids that string. The replacement is one engineering metre CRS with no datum.
+
+`MappingWorkflow::runThicknessChain` builds a TVD difference, calls constraint IDW, then `deriveFaciesPolygons` (`mappingworkflow.cpp`). That is the opposite of the thickness contract. The button must stop using that chain for D61.
+
+`SegyReader::open` moves inline to offset 8 and crossline to offset 20 when offset 188 does not vary (`segyreader.cpp` around the `fieldVaries(8)` branch). This file's inline word is 0 and CDP at offset 20 varies, so the fallback would replace the trace/641 inline. Delete that branch.
+
+`TimeDepthTool::interpolateTimeMs` sorts keys and returns the end sample outside the range (`timedeptool.cpp`). The plan's 「超出时深表」 and 「时深表无序」 cannot appear through that function. One unordered, unclamped result serves the section and the residual.
+
+`DataCatalog::addLink` rejects an empty entity id (`datacatalog.cpp`). The unresolved row needs that empty id and a note.
+
+The mapping-page publish path is `MapVersionStore`. `ReleaseStore` is a separate `releases` table. One gate, on the store the button already calls.
+
+```
+catalog.json / DataCatalog
+    ├── EntityAssetLink (empty entity id + note allowed)
+    ├── RAW/DERIVED files, stage directory lowercased
+    └── external SEG-Y + streamed SHA-256
+SegyReader::open  -- no offset 8/20 fallback
+    └── one inline into the data-page tab
+TimeDepthTool     -- file order, no clamp
+    ├── section post
+    └── residual row for every well
+D61/D62 rasters -- horizonbinner geotransform, containing cell
+    └── thickness metres, not runThicknessChain
+MapVersionStore -- PDF asset id, SHA-256, residual list
+    └── 发布 reads that row
+ReleaseStore -- manifest snapshot only
+```
+
+#### Code quality
+
+The thickness button and the plan describe two algorithms. Keeping both and switching with a flag would hide the old polygonize call. Remove that call from this work area's thickness action. Confidence 9/10, `mappingworkflow.cpp` `deriveFaciesPolygons`.
+
+`WellHeadRecord` does not need BottomX columns. The preview reads those cells from the well-head asset. Confidence 8/10.
+
+#### Tests
+
+Existing `tst_timedeptool` locks the clamp. `tst_mapping` locks the TVD-difference chain if it calls `runThicknessChain`. Those expectations change in the same commit as the behavior. New cases stay out of `tst_import`, `tst_segy`, `tst_segy_lines`, and `tst_datapreview`. The test plan file lists the flows.
+
+```
+CODE PATHS                                      USER FLOWS
+[+] SegyReader::open                            [+] Folder import
+  ├── [GAP] no offset 8/20 fallback               ├── [GAP] LAS before well-head still binds A1
+  └── [★★ TESTED] one-line decode exists          └── [GAP] one bad file does not stop the walk
+[+] TimeDepthTool                               [+] Validation
+  ├── [★★ TESTED] clamp (must change)             ├── [GAP] 20 rows including 无 D61 分层
+  └── [GAP] out of range is not a value          └── [GAP] double-click does not decode seismic
+[+] runThicknessChain                           [+] Publish
+  └── [GAP] not used for this isochore            ├── [GAP] old rows stay unpublished
+                                                  └── [GAP] export does not edit a frozen row
+COVERAGE: existing slice tests stay; the new geology is uncovered until the phase that changes it.
+```
+
+#### Performance
+
+SEG-Y open already seeks past samples. The plan's memory check is bytes read for the index plus one line, not resident set size. Catalog writes stay on the single write queue. No new network path.
+
+#### Failure modes
+
+- Replaced external SEG-Y: mismatch string, no decode. Test the hash.
+- TD outside range: reason, not a clamped time. Test it. Critical if the old helper remains, because the user would see a time the plan says not to invent.
+- Thickness button still polygonizes: user gets facies from metres. Critical until `runThicknessChain` is off that button.
+- Publish on the wrong table: the button stays enabled. Critical until one store owns the gate.
+
+#### NOT in scope
+
+- A SEG-Y byte-map editor.
+- A second map canvas.
+- Deleting the attribute or publish bottom tabs.
+- Phone layout.
+- Windows.
+
+#### What already exists
+
+- `horizonbinner.cpp` geotransform `(0, dx, 0, 16406, 0, -dy)`.
+- `testdata/project_area` and `PROJECT_FIXTURE_DIR`.
+- `./paleo-dev test`.
+- `MapVersionStore` publish messages and `ReleaseStore::createRelease`.
+
+Sequential implementation. The catalog, the SEG-Y reader, the time-depth tool, and the mapping button share types. They land in that order, not in parallel worktrees.
+
+#### Eng tasks
+
+- [ ] **T13 (P1, human: ~4h / CC: ~20min)** — CRS — Replace localGridCrsProj and assert no transform to EPSG:4326.
+  - Surfaced by: Eng architecture — eqc string is live
+  - Files: src/catalog/datacatalog.h, src/io/horizonbinner.cpp
+  - Verify: QgsCoordinateTransform to EPSG:4326 fails; authid empty
+- [ ] **T14 (P1, human: ~4h / CC: ~30min)** — SEG-Y fallback — Delete the offset 8/20 branch before the range check.
+  - Surfaced by: Eng — this file would take that branch
+  - Files: src/io/segyreader.cpp, tests/tst_segy.cpp
+  - Verify: inline word 0 and varying CDP still uses 1315 + trace/641
+- [ ] **T15 (P1, human: ~1d / CC: ~40min)** — thickness path — Stop runThicknessChain from IDW-then-polygonize for this isochore.
+  - Surfaced by: Eng — mappingworkflow.cpp calls deriveFaciesPolygons
+  - Files: src/workflow/mappingworkflow.cpp, tests
+  - Verify: a metre raster is not passed to polygonize; D62 grid mismatch writes nothing
+- [ ] **T16 (P1, human: ~4h / CC: ~20min)** — one publish gate — Store the PDF id, SHA-256, and residual rows on the MapVersionStore row the button reads.
+  - Surfaced by: Eng — ReleaseStore is not that button
+  - Files: src/metadata/mapversionstore.cpp, src/ui/paleomainwindow.cpp
+  - Verify: old rows load unpublished; export does not edit a frozen row
+
+jq is not installed. Eng task JSONL was not written.
+
+### Eng completion
+
+- Step 0: scope accepted as-is. No features cut.
+- Architecture: 6 issues written into the plan
+- Code quality: 2
+- Test review: diagram above, gaps listed in the test plan file
+- Performance: 1, bytes-read bound already in section 7
+- Failure modes: 3 critical until T13–T16 land
+- Outside voice: unavailable
+- Parallelization: sequential
+- Unresolved decisions in this review: 0. The containing-cell rule is a taste item for the final gate.
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 native | issues_open | T1–T5 written into the plan; 17 audit rows; the phase-D/publish cut declined, C–E stay |
+| Outside Review | codex (gpt-6-astra) | Independent 2nd opinion | 0 | unavailable | HTTP 400 model_unusable in every phase; one-line fix GSTACK_CODEX_MODEL |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 native | issues_open | architecture 6, code quality 2, test gaps in the test-plan file, performance 1; 3 critical failure modes until T13–T16 land |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 native | issues_open | 10 issues; overall 3/10 → 8/10 |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 1 native | issues_open | 13 issues; overall 4/10 → 6/10 |
+
+- **Approval:** APPROVED — /autoplan Final Approval Gate option A (approve as-is), 2026-09-26. All 7 taste choices accepted as recommended (10 ms cutoff; horizon isochron scaled by well TVD velocity; preview at one third; validation double-click stays on 验证; geotransform origin at the outer corner; containing-cell residual sampling; engineering CRS with the eqc string deleted). The single-voice challenge to cut phase D and the publish machine was declined per the user's standing direction; phases C–E stay.
+- **OUTSIDE COVERAGE:** Codex (gpt-6-astra) was preflighted in all four phases and returned HTTP 400 model_unusable; outside status unavailable everywhere. Consensus is N/A for every phase. One-line fix: GSTACK_CODEX_MODEL=<supported-model>.
+- **VERDICT:** CEO + DESIGN + DX + ENG CLEARED — plan APPROVED, ready to implement T1–T16 in the recorded order (catalog, SEG-Y reader, time-depth tool, mapping workflow, version store).
+
+NO UNRESOLVED DECISIONS

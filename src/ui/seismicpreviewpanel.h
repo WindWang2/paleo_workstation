@@ -57,6 +57,15 @@ class SeismicPreviewPanel : public QWidget
     int assetCount() const { return static_cast<int>(m_assets.size()); }
     QString currentAsset() const { return m_currentId; } // previewed line id
 
+    // --- 三视图联动（wave/mapping-pipeline 阶段C 本链路新增）--------------------
+    // 滚到某测线某时间：记录目标（经 lastGoto* 暴露）；当前预览有剖面时
+    // 视图同步滚动到该时间在剖面上的纵向位置（无剖面/无测线数据时只记
+    // 目标，不造假画面）。阶段B 的一条 inline 解码落地后，测线号会用于
+    // 选择对应剖面资产。
+    void gotoLine(int inlineNo, double timeMs);
+    int lastGotoInline() const { return m_gotoInline; }
+    double lastGotoTimeMs() const { return m_gotoTimeMs; }
+
   signals:
     void seismicSelected(const QString &assetId);
 
@@ -81,4 +90,6 @@ class SeismicPreviewPanel : public QWidget
     QGraphicsView *m_view = nullptr;
     QGraphicsScene *m_scene = nullptr;
     QLabel *m_emptyLabel = nullptr;
+    int m_gotoInline = -1;                       // 三视图联动最近一次 goto 目标
+    double m_gotoTimeMs = qQNaN();
 };

@@ -14,6 +14,10 @@ class PredictionWorkflow;
 class ConstraintWorkflow;
 class CompositionWorkflow;
 class ValidationWorkflow;
+class MappingWorkflow;
+class MapVersionController;
+class MapVersionStore;
+class ProjectDataFacade;
 class DataImportService;
 class SeismicMapLink;
 class QgisProcessingService;
@@ -60,6 +64,11 @@ class PaleoMainWindow : public QMainWindow
                          PaleoProjectStore *store = nullptr,
                          QgisEditingService *editSvc = nullptr,
                          QgisLayoutService *layoutSvc = nullptr);
+
+    // wave/mapping-pipeline 阶段C+E：编图链 / 层位图导出 / 版本状态机接到
+    // ③编图页。独立于 attachWorkflows，避免动其签名。Call after attachWorkflows.
+    void attachMapping(MappingWorkflow *mapping, MapVersionController *versions,
+                       MapVersionStore *versionStore, ProjectDataFacade *projectData);
 
   protected:
     void closeEvent(QCloseEvent *event) override;

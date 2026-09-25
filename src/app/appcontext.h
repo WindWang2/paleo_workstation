@@ -22,6 +22,10 @@ class PredictionWorkflow;
 class ConstraintWorkflow;
 class CompositionWorkflow;
 class ValidationWorkflow;
+class ProjectDataFacade;
+class MappingWorkflow;
+class MapVersionStore;
+class MapVersionController;
 
 class AppContext : public QObject
 {
@@ -49,6 +53,12 @@ class AppContext : public QObject
     CompositionWorkflow *compositionWf() const { return m_compositionWf; }
     ValidationWorkflow *validationWf() const { return m_validationWf; }
 
+    // wave/mapping-pipeline 阶段C+E：读侧门面 / D61 编图链 / 版本状态机。
+    ProjectDataFacade *projectData() const { return m_projectData; }
+    MappingWorkflow *mappingWf() const { return m_mappingWf; }
+    MapVersionStore *versionStore() const { return m_versionStore; }
+    MapVersionController *versionCtl() const { return m_versionCtl; }
+
   private:
     bool m_ready = false;
     QgisProjectService *m_projectSvc = nullptr;
@@ -68,4 +78,8 @@ class AppContext : public QObject
     ConstraintWorkflow *m_constraintWf = nullptr;
     CompositionWorkflow *m_compositionWf = nullptr;
     ValidationWorkflow *m_validationWf = nullptr;
+    ProjectDataFacade *m_projectData = nullptr;
+    MappingWorkflow *m_mappingWf = nullptr;
+    MapVersionStore *m_versionStore = nullptr;
+    MapVersionController *m_versionCtl = nullptr;
 };

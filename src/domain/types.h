@@ -53,6 +53,11 @@ struct ValidationIssue {
   QString layerId;     // manifest layer id, "" if n/a
   QString horizon;
   QString wktLocation; // optional locate target
+  // wave/mapping-pipeline — 时间残差问题的机器载荷：wellId 定位到井，
+  // details 携带 well_x/well_y/inline/time_ms/raster_ms/residual_ms。
+  // fromMap 缺省可空（旧记录前向兼容）。
+  QString wellId;
+  QVariantMap details;
   QVariantMap toMap() const;
   static ValidationIssue fromMap(const QVariantMap &m);
 };

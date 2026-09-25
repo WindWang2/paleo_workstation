@@ -104,7 +104,7 @@ DataAsset DataAsset::fromMap( const QVariantMap &m )
 
 QVariantMap ValidationIssue::toMap() const
 {
-  return {
+  QVariantMap m = {
     { QStringLiteral( "severity" ),     static_cast<int>( severity ) },
     { QStringLiteral( "code" ),         code },
     { QStringLiteral( "message" ),      message },
@@ -112,6 +112,11 @@ QVariantMap ValidationIssue::toMap() const
     { QStringLiteral( "horizon" ),      horizon },
     { QStringLiteral( "wkt_location" ), wktLocation },
   };
+  if ( !wellId.isEmpty() ) // mapping-pipeline fields stay optional for old rows
+    m.insert( QStringLiteral( "well_id" ), wellId );
+  if ( !details.isEmpty() )
+    m.insert( QStringLiteral( "details" ), details );
+  return m;
 }
 
 ValidationIssue ValidationIssue::fromMap( const QVariantMap &m )
@@ -126,6 +131,8 @@ ValidationIssue ValidationIssue::fromMap( const QVariantMap &m )
   v.layerId     = m.value( QStringLiteral( "layer_id" ) ).toString();
   v.horizon     = m.value( QStringLiteral( "horizon" ) ).toString();
   v.wktLocation = m.value( QStringLiteral( "wkt_location" ) ).toString();
+  v.wellId      = m.value( QStringLiteral( "well_id" ) ).toString();
+  v.details     = m.value( QStringLiteral( "details" ) ).toMap();
   return v;
 }
 

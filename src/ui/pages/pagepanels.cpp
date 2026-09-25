@@ -500,6 +500,35 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   setProperty(kLayersProp, QVariant::fromValue(static_cast<QObject *>(layers)));
 
   auto *lay = panelLayout(this);
+
+  // ---- wave/mapping-pipeline 阶段C+E：D61 编图链 / 导出 / 版本按钮块 ----
+  lay->addWidget(caption(tr("编图链（厚度→IDW→转相面）"), this));
+  auto *chain = new QPushButton(tr("运行编图链"), this);
+  chain->setObjectName(QStringLiteral("thicknessChainButton"));
+  chain->setAccessibleName(tr("运行编图链"));
+  connect(chain, &QPushButton::clicked, this, [this] { emit thicknessChainRequested(); });
+  lay->addWidget(chain);
+
+  auto *exportPdf = new QPushButton(tr("导出层位图 PDF"), this);
+  exportPdf->setObjectName(QStringLiteral("exportPdfButton"));
+  exportPdf->setAccessibleName(tr("导出层位图 PDF"));
+  connect(exportPdf, &QPushButton::clicked, this, [this] { emit exportPdfRequested(); });
+  lay->addWidget(exportPdf);
+
+  auto *saveVersion = new QPushButton(tr("保存版本"), this);
+  saveVersion->setObjectName(QStringLiteral("saveVersionButton"));
+  saveVersion->setAccessibleName(tr("保存版本"));
+  connect(saveVersion, &QPushButton::clicked, this, [this] { emit saveVersionRequested(); });
+  lay->addWidget(saveVersion);
+
+  auto *publish = new QPushButton(tr("发布"), this);
+  publish->setObjectName(QStringLiteral("publishButton"));
+  publish->setAccessibleName(tr("发布"));
+  publish->setEnabled(false); // 发布门：PDF 能导出之后再暴露（shell 开闸）
+  connect(publish, &QPushButton::clicked, this, [this] { emit publishRequested(); });
+  lay->addWidget(publish);
+  lay->addSpacing(16); // spacing.md between groups
+
   lay->addWidget(caption(tr("单因素图层"), this));
   auto *list = new QListWidget(this);
   list->setObjectName(QStringLiteral("factorList"));
@@ -577,6 +606,12 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   refreshFactors();
 }
 
+void ComposePage::setPublishEnabled(bool enabled)
+{
+  if (auto *btn = child<QPushButton>(this, "publishButton"))
+    btn->setEnabled(enabled);
+}
+
 void ComposePage::refreshFactors()
 {
   auto *list = child<QListWidget>(this, "factorList");
@@ -650,7 +685,8 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
     auto *first = table->item(it->row(), 0); // issue data lives on column 0
     if (first)
       emit locateRequested(first->data(Qt::UserRole).toString(),
-                           first->data(Qt::UserRole + 1).toString());
+                           first->data(Qt::UserRole + 1).toString(),
+                           first->data(Qt::UserRole + 2).toMap());
   });
 
   auto *status = new QLabel(this);
@@ -680,6 +716,13 @@ void ValidatePage::populate()
     sev->setForeground(severityColor(v.severity));
     sev->setData(Qt::UserRole, v.layerId);       // locate intent reads these
     sev->setData(Qt::UserRole + 1, v.wktLocation);
+    // 三视图联动载荷：wellId/horizon/inline/time_ms（非残差问题不含井字段）。
+    QVariantMap payload = v.details;
+    if (!v.wellId.isEmpty())
+      payload.insert(QStringLiteral("wellId"), v.wellId);
+    if (!v.horizon.isEmpty())
+      payload.insert(QStringLiteral("horizon"), v.horizon);
+    sev->setData(Qt::UserRole + 2, payload);
     sev->setFlags(sev->flags() & ~Qt::ItemIsEditable);
     table->setItem(row, 0, sev);
     auto *code = new QTableWidgetItem(v.code);

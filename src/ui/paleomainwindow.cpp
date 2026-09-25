@@ -9,9 +9,15 @@
 #include "../workflow/workflows.h"
 #include "../io/dataimportservice.h"
 #include "../linkage/seismicmaplink.h"
+#include "../linkage/threewaylocator.h"
 #include "../qgis/qgisprocessingservice.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../metadata/layermanifest.h"
+#include "../metadata/mapversionstore.h"
+#include "../services/projectdata.h"
+#include "../workflow/mappingworkflow.h"
+#include "../workflow/mapexport.h"
+#include "../workflow/mapversioncontroller.h"
 #include "locator/paleolocatorfilters.h"
 #include "releasepanel.h"
 #include "taskpanel.h"
@@ -22,6 +28,7 @@
 #include "seismicpreviewpanel.h"
 #include "datapreview/datapreviewtabs.h"
 #include "../catalog/datacatalog.h"
+#include "horizonchipbar.h"
 #include "layoutdesignershell.h"
 #include "edittools/editingtoolbar.h"
 #include "../qgis/qgislayoutservice.h"
@@ -209,6 +216,13 @@ void PaleoMainWindow::buildShell()
   auto *topLay = new QHBoxLayout(topWidget);
   topLay->setContentsMargins(12, 6, 12, 0);
   topLay->addWidget(m_workflowTabs);
+
+  // ---- 层位 chip 条（阶段E）：固定 8 界面，切换 = activeHorizon + 懒加载 ----
+  auto *chips = new HorizonChipBar(m_selection, m_layerSvc, topWidget);
+  chips->setObjectName(QStringLiteral("horizonChips"));
+  chips->setAccessibleName(QStringLiteral("层位切换"));
+  topLay->addSpacing(16); // spacing.md between groups
+  topLay->addWidget(chips);
   topLay->addStretch(1);
 
   // ---- center: startup page stacked under the canvas ----
@@ -730,11 +744,10 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   }
   if (validate && validatePage)
   {
-    connect(validatePage, &ValidatePage::locateRequested, this,
-            [this](const QString &layerId, const QString &) {
-              if (m_canvasCtl)
-                m_canvasCtl->zoomToLayer(layerId);
-            });
+    // 问题 → 三视图联动（阶段C）：地图缩放（原有）+ 连井滚到井/分层 +
+    // 地震滚到测线/时间。缺面板的字段自动跳过（threewaylocator.h）。
+    auto *threeWay = new ThreeWayLocator(m_canvasCtl, corrPanel, seismicPanel, this);
+    threeWay->attach(validatePage);
   }
 
   // ---- top bar: domain locator + save ----
@@ -1016,4 +1029,132 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   // Re-sync visible page index with current tab.
   const int idx = kPageIds.indexOf(m_currentPage);
   stack->setCurrentIndex(idx >= 0 ? idx : 0);
+}
+
+// ---------------------------------------------------------------------------
+// wave/mapping-pipeline 阶段C+E — 编图链 / 层位图导出 / 版本状态机接线
+// ---------------------------------------------------------------------------
+void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionController *versions,
+                                    MapVersionStore *versionStore, ProjectDataFacade *projectData)
+{
+  auto *composePage = findChild<ComposePage *>();
+  if (!composePage || !mapping || !versions)
+    return;
+
+  const auto status = [composePage](const QString &text) {
+    if (auto *label = composePage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+      label->setText(text);
+  };
+  const auto activeHorizon = [this]() -> QString {
+    return m_selection ? m_selection->activeHorizon() : QString();
+  };
+
+  // 链路状态文案走 statusLabel（成功/失败都落页面，再进日志）。
+  connect(mapping, &MappingWorkflow::chainDone, this,
+          [this, composePage, status](const QString &h, const QString &layerId) {
+            status(tr("编图链完成：%1 → %2").arg(h, layerId));
+            composePage->refreshFactors();
+          });
+  connect(mapping, &MappingWorkflow::chainFailed, this,
+          [status](const QString &, const QString &error) { status(error); });
+
+  // 「选 D61 → 算厚度 → IDW → 转相面」：层位来自 chip 的 activeHorizon。
+  connect(composePage, &ComposePage::thicknessChainRequested, this,
+          [this, mapping, activeHorizon, status]() {
+            const QString h = activeHorizon();
+            if (h.isEmpty())
+            {
+              status(tr("先在顶部 chip 选择层位（本阶段目标 D61）"));
+              return;
+            }
+            QString err;
+            if (!mapping->runThicknessChain(h, &err))
+              QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+          });
+
+  // 层位图 PDF：导出成功 → 登记布局产物 → 发布门开闸（阶段E）。
+  connect(composePage, &ComposePage::exportPdfRequested, this,
+          [this, versions, versionStore, activeHorizon, status]() {
+            const QString h = activeHorizon();
+            if (h.isEmpty() || !m_layerSvc)
+            {
+              status(tr("先在顶部 chip 选择层位再导出"));
+              return;
+            }
+            const QString projectDir = m_projectSvc
+                                           ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
+                                           : QDir::temp().absolutePath();
+            const QString target = QDir(projectDir).filePath(
+                QStringLiteral("%1_map.pdf").arg(h));
+            QString err;
+            const QString pdf = exportHorizonMapPdf(m_layerSvc, h, target, &err);
+            if (pdf.isEmpty())
+            {
+              status(err);
+              QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+              return;
+            }
+            status(tr("层位图已导出：%1").arg(pdf));
+            if (versionStore)
+            {
+              QString productErr;
+              if (versionStore->recordLayoutProduct(h, pdf, &productErr))
+              {
+                // 发布入口在 PDF 能导出之后再暴露。
+                if (auto *page = findChild<ComposePage *>())
+                  page->setPublishEnabled(true);
+              }
+              else
+                QgsMessageLog::logMessage(productErr, QStringLiteral("Paleo"),
+                                          Qgis::MessageLevel::Warning);
+            }
+          });
+
+  // 保存版本：commit + 版本号递增（undo 清空在 controller 内，§1223）。
+  connect(composePage, &ComposePage::saveVersionRequested, this,
+          [versions, activeHorizon, status]() {
+            const QString h = activeHorizon();
+            if (h.isEmpty())
+            {
+              status(tr("先选择层位再保存版本"));
+              return;
+            }
+            QVariantMap provenance;
+            provenance.insert(QStringLiteral("saved_from"),
+                              QStringLiteral("compose_page"));
+            QString err;
+            const MapVersion v = versions->saveVersion(h, provenance, &err);
+            if (v.version > 0)
+              status(tr("已保存版本：%1 v%2").arg(h).arg(v.version));
+            else
+              status(err.isEmpty() ? tr("保存版本失败") : err);
+          });
+
+  connect(composePage, &ComposePage::publishRequested, this,
+          [versions, activeHorizon, status]( ) {
+            const QString h = activeHorizon();
+            if (h.isEmpty())
+            {
+              status(tr("先选择层位再发布"));
+              return;
+            }
+            QString err;
+            const QString dir = versions->publish(h, &err);
+            if (!dir.isEmpty())
+              status(tr("已发布：%1 → %2").arg(h, dir));
+            else
+              status(err.isEmpty() ? tr("发布失败") : err);
+          });
+
+  // 工程打开时按已登记的布局产物恢复发布门状态。
+  if (m_projectSvc && versionStore)
+  {
+    connect(m_projectSvc, &QgisProjectService::projectOpened, this,
+            [this, versionStore]() {
+              const QString h = m_selection ? m_selection->activeHorizon() : QString();
+              if (auto *page = findChild<ComposePage *>())
+                page->setPublishEnabled(!h.isEmpty() && versionStore->hasLayoutProduct(h));
+            });
+  }
+  Q_UNUSED(projectData); // 门面已由 AppContext 绑进 mapping/validation 工作流
 }

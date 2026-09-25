@@ -1,0 +1,245 @@
+#include "projectdata.h"
+
+#include "../catalog/datacatalog.h"
+#include "../io/wellfileparsers.h"
+#include "../metadata/layermanifest.h"
+
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+
+#include <gdal.h>
+#include <algorithm>
+
+// ---------------------------------------------------------------------------
+// ProjectDataFacade — DataCatalog/解析器/LayerManifest 之上的读侧适配层。
+// 纯 Qt/GDAL：无 Qgs* 类型（§25），编图链可从域层代码直接消费。
+// ---------------------------------------------------------------------------
+
+ProjectDataFacade::ProjectDataFacade(QObject *parent)
+  : QObject(parent)
+{
+}
+
+ProjectDataFacade::~ProjectDataFacade()
+{
+  // m_catalog 为自有子对象时随 QObject 父子关系销毁，这里无需手工释放。
+}
+
+bool ProjectDataFacade::setProjectDir(const QString &projectDir)
+{
+  m_lastError.clear();
+  if (m_ownsCatalog && m_catalog)
+    m_catalog->deleteLater();
+  m_catalog = nullptr;
+  m_ownsCatalog = false;
+  m_projectDirOverride.clear();
+
+  auto *catalog = new DataCatalog(this);
+  QString err;
+  if (!catalog->open(projectDir, &err))
+  {
+    m_lastError = tr("无法打开工区目录的 catalog：%1（%2）").arg(projectDir, err);
+    delete catalog;
+    return false;
+  }
+  m_catalog = catalog;
+  m_ownsCatalog = true;
+  return true;
+}
+
+void ProjectDataFacade::setCatalog(DataCatalog *catalog, const QString &projectDir)
+{
+  if (m_ownsCatalog && m_catalog)
+    m_catalog->deleteLater();
+  m_catalog = catalog;
+  m_ownsCatalog = false;
+  m_projectDirOverride = projectDir;
+}
+
+void ProjectDataFacade::setManifest(LayerManifest *manifest)
+{
+  m_manifest = manifest;
+}
+
+QString ProjectDataFacade::projectDir() const
+{
+  if (!m_projectDirOverride.isEmpty())
+    return m_projectDirOverride;
+  if (!m_catalog)
+    return QString();
+  // catalogPath = <projectDir>/artifacts/metadata/catalog.json
+  const QString path = m_catalog->catalogPath();
+  QDir dir(QFileInfo(path).absolutePath()); // .../artifacts/metadata
+  dir.cdUp();                               // .../artifacts
+  dir.cdUp();                               // .../<projectDir>
+  return dir.absolutePath();
+}
+
+QVector<ProjectWell> ProjectDataFacade::wells() const
+{
+  QVector<ProjectWell> out;
+  if (!m_catalog)
+    return out;
+  for (const CatalogEntity &e : m_catalog->entities(QStringLiteral("well")))
+  {
+    ProjectWell w;
+    w.id = e.id;
+    w.name = e.name;
+    w.surfaceX = e.surfaceX;
+    w.surfaceY = e.surfaceY;
+    w.coordinateStatus = e.coordinateStatus;
+    if (!w.id.isEmpty())
+      out.append(w);
+  }
+  return out;
+}
+
+QString ProjectDataFacade::assetFilePathFor(const QString &wellId, const QString &role) const
+{
+  if (!m_catalog)
+    return QString();
+
+  QString assetId;
+  for (const EntityAssetLink &l : m_catalog->linksForEntity(wellId))
+  {
+    if (l.role != role || l.unresolved || !l.isPrimary)
+      continue;
+    assetId = l.assetId;
+    break;
+  }
+  if (assetId.isEmpty())
+    return QString();
+
+  const CatalogVersion v = m_catalog->currentVersion(assetId);
+  if (v.id.isEmpty())
+    return QString();
+  const QDir base(projectDir());
+  return v.path.isEmpty() ? QString()
+                          : (QDir::isAbsolutePath(v.path) ? v.path : base.absoluteFilePath(v.path));
+}
+
+QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId) const
+{
+  QVector<WellTop> out;
+  const QString path = assetFilePathFor(wellId, QStringLiteral("tops"));
+  if (path.isEmpty() || !QFile::exists(path))
+    return out;
+
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly))
+    return out;
+  const QByteArray text = f.readAll();
+  f.close();
+
+  // 井名按 catalog 的规范化规则匹配（连字符/空格/大小写不敏感）。
+  QString wellName;
+  if (m_catalog)
+  {
+    const CatalogEntity e = m_catalog->entityById(wellId);
+    wellName = e.name;
+  }
+  const QString normalized = m_catalog ? DataCatalog::normalizeWellName(wellName) : wellName;
+
+  for (const WellTopRecord &r : parseWellTopsText(text))
+  {
+    if (DataCatalog::normalizeWellName(r.wellName) != normalized)
+      continue;
+    WellTop top;
+    top.horizon = r.topName;
+    if (top.horizon.isEmpty())
+      continue;
+    top.md = r.hasMd ? r.md : qQNaN();
+    top.tvd = r.hasTvd ? r.tvd : qQNaN();
+    out.append(top);
+  }
+  return out;
+}
+
+QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const
+{
+  QVector<TdSample> out;
+  const QString path = assetFilePathFor(wellId, QStringLiteral("time_depth"));
+  if (path.isEmpty() || !QFile::exists(path))
+    return out;
+
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly))
+    return out;
+  const TimeDepthTable table = parseTimeDepthText(f.readAll());
+  f.close();
+
+  for (const TdRow &row : table.rows)
+  {
+    TdSample s;
+    s.timeMs = row.timeMs;
+    s.tvd = row.hasTvd ? row.tvd : row.tvdss;
+    out.append(s);
+  }
+  std::sort(out.begin(), out.end(),
+            [](const TdSample &a, const TdSample &b) { return a.timeMs < b.timeMs; });
+  return out;
+}
+
+HorizonRasterInfo ProjectDataFacade::horizonRasterDecl(const QString &horizon) const
+{
+  HorizonRasterInfo info;
+  if (!m_manifest)
+    return info;
+
+  // Prefer the "horizon." declaration id; otherwise the first declared
+  // raster bound to this horizon.
+  const QVector<LayerDeclaration> decls = m_manifest->all();
+  QString source;
+  for (const LayerDeclaration &d : decls)
+  {
+    if (d.horizon != horizon)
+      continue;
+    if (d.type.compare(QStringLiteral("raster"), Qt::CaseInsensitive) != 0)
+      continue;
+    if (source.isEmpty() || d.layerId.startsWith(QLatin1String("horizon.")))
+    {
+      info.layerId = d.layerId;
+      source = d.source;
+      if (d.layerId.startsWith(QLatin1String("horizon.")))
+        break;
+    }
+  }
+  if (source.isEmpty())
+    return info;
+
+  const QString path = source.section(QLatin1Char('|'), 0, 0);
+  if (!QFile::exists(path))
+  {
+    m_lastError = tr("层位 %1 的时间栅格文件不存在：%2").arg(horizon, path);
+    return info;
+  }
+
+  GDALAllRegister();
+  GDALDatasetH ds = GDALOpen(path.toUtf8().constData(), GA_ReadOnly);
+  if (!ds)
+  {
+    m_lastError = tr("无法打开层位 %1 的时间栅格：%2").arg(horizon, path);
+    return info;
+  }
+  double gt[6] = {0, 0, 0, 0, 0, 0};
+  GDALGetGeoTransform(ds, gt);
+  info.cols = GDALGetRasterXSize(ds);
+  info.rows = GDALGetRasterYSize(ds);
+  info.cellSize = gt[1];
+  info.xmin = gt[0];
+  info.xmax = gt[0] + gt[1] * info.cols;
+  info.ymax = gt[3];
+  info.ymin = gt[3] + gt[5] * info.rows;
+  const char *inlineMin = GDALGetMetadataItem(ds, "PALEO_INLINE_MIN", nullptr);
+  const char *inlineMax = GDALGetMetadataItem(ds, "PALEO_INLINE_MAX", nullptr);
+  if (inlineMin)
+    info.inlineMin = QByteArray(inlineMin).toInt();
+  if (inlineMax)
+    info.inlineMax = QByteArray(inlineMax).toInt();
+  GDALClose(ds);
+
+  info.path = path;
+  info.valid = info.rows > 0 && info.cols > 0 && info.cellSize > 0.0;
+  return info;
+}

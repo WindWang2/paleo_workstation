@@ -186,6 +186,22 @@ if(PALEO_HAVE_ORT)
     "QT_QPA_PLATFORM=offscreen;LD_LIBRARY_PATH=${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()
 
+# ---- wave/mapping-pipeline (阶段C+E 编图链路) ----
+target_sources(paleo_core PRIVATE
+  src/services/projectdata.cpp                    # 读侧门面（catalog.json + LayerManifest）
+  src/workflow/mappingworkflow.cpp                # 厚度→约束IDW→相多边形链路 + 时间残差
+  src/workflow/mapexport.cpp                      # 层位图 PDF 导出（井位+相多边形）
+  src/linkage/threewaylocator.cpp                 # 问题→三视图联动
+  src/ui/horizonchipbar.cpp                       # 8层位chip条（阶段E）
+  src/metadata/mapversionstore.cpp                # 版本/发布状态机落表（meta sqlite）
+  src/workflow/mapversioncontroller.cpp           # 保存版本/发布编排（§41.7/§1223）
+)
+add_paleo_test(tst_projectdata)
+add_paleo_test(tst_mapping)
+add_paleo_test(tst_threeway)
+add_paleo_test(tst_chips)
+add_paleo_test(tst_versions)
+
 # ---- application ----
 add_executable(paleo src/app/main.cpp)
 target_link_libraries(paleo PRIVATE paleo_core)

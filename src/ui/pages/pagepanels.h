@@ -64,10 +64,23 @@ class ComposePage : public QWidget
   public:
     ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWidget *parent = nullptr);
     void refreshFactors();                       // re-list declared factor.* layers and facies rasters
+
+    // wave/mapping-pipeline 阶段E — 发布门：层位 PDF 能导出之前「发布」保持
+    // 禁用（shell 在导出成功后调 setPublishEnabled(true)）。
+    void setPublishEnabled(bool enabled);
+
   signals:
     void fuseRequested(const QStringList &factorLayerIds);
     // rasterLayerId is a declared raster; minArea/simplifyTolerance are map units.
     void polygonizeRequested(const QString &rasterLayerId, double minArea, double simplifyTolerance);
+    // wave/mapping-pipeline 阶段C — D61 编图链（厚度→IDW→转相面）；层位由
+    // shell 从 activeHorizon 解析（chip 选择）。链路状态文案走 statusLabel。
+    void thicknessChainRequested();
+    // 层位图 PDF 导出（井位 + 相多边形）；成功后 shell 登记布局产物。
+    void exportPdfRequested();
+    // 阶段E — 保存版本 / 发布（发布受 setPublishEnabled 门控）。
+    void saveVersionRequested();
+    void publishRequested();
 };
 
 // ④验证 — run button + issues table + locate intent.
@@ -78,5 +91,9 @@ class ValidatePage : public QWidget
     ValidatePage(ValidationWorkflow *wf, QWidget *parent = nullptr);
     void populate();                              // run validate(), fill table
   signals:
-    void locateRequested(const QString &layerId, const QString &wktLocation);
+    // wave/mapping-pipeline：payload 携带三视图联动所需的机器字段（来自
+    // ValidationIssue::wellId + details）：wellId、horizon、inline、time_ms
+    // 等；非残差问题 payload 为空表。layerId 仍用于地图缩放。
+    void locateRequested(const QString &layerId, const QString &wktLocation,
+                         const QVariantMap &payload);
 };

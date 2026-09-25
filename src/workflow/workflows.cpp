@@ -1,10 +1,13 @@
 #include "workflows.h"
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header; symbol refs are PALEO_HAVE_ORT-guarded
+#include "../domain/mappinghorizons.h"
 #include "../io/constraintstore.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
+#include "../services/projectdata.h"
+#include "mappingworkflow.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -931,6 +934,16 @@ ValidationWorkflow::ValidationWorkflow( QgisLayerService *layers, PaleoProjectSt
   setProperty( kStoreProp, QVariant::fromValue( static_cast<QObject *>( store ) ) );
 }
 
+void ValidationWorkflow::setProjectData( ProjectDataFacade *projectData )
+{
+  setProperty( "paleo.wf.projectdata", QVariant::fromValue( static_cast<QObject *>( projectData ) ) );
+}
+
+void ValidationWorkflow::setResidualThresholdMs( double thresholdMs )
+{
+  setProperty( "paleo.wf.residualThresholdMs", thresholdMs );
+}
+
 QList<ValidationIssue> ValidationWorkflow::validate()
 {
   QList<ValidationIssue> issues;
@@ -1003,6 +1016,15 @@ QList<ValidationIssue> ValidationWorkflow::validate()
         issues.append( v );
       }
     }
+  }
+
+  // (d) 井上时间残差（wave/mapping-pipeline 阶段C）— 门面绑定后，对每个
+  // 编图层位跑 TD 插值 vs DERIVED 栅格采样检查；无栅格的层位静默不适用。
+  if ( auto *pd = qobject_cast<ProjectDataFacade *>( property( "paleo.wf.projectdata" ).value<QObject *>() ) )
+  {
+    const double threshold = property( "paleo.wf.residualThresholdMs" ).toDouble();
+    for ( const QString &h : mappingHorizons() )
+      issues.append( computeTimeResiduals( pd, h, threshold > 0.0 ? threshold : 1.0 ) );
   }
 
   emit validationDone( issues.size() );

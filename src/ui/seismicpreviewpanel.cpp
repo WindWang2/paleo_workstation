@@ -576,3 +576,31 @@ void SeismicPreviewPanel::updatePreview(const QString &assetId)
     band(kBaselineY + 178.0, 10.0, 5.0, 11.0, QPen(kTextMuted, 1.0, Qt::DashLine));
   }
 }
+
+// ---------------------------------------------------------------------------
+// 三视图联动（wave/mapping-pipeline 阶段C 本链路新增）
+// ---------------------------------------------------------------------------
+void SeismicPreviewPanel::gotoLine(int inlineNo, double timeMs)
+{
+  m_gotoInline = inlineNo;
+  m_gotoTimeMs = timeMs;
+
+  // Scroll the live preview to the time position when the current asset has
+  // decoded traces; otherwise the recorded target is the whole action (no
+  // fabricated picture). Time axis mapping mirrors updatePreview's TWT axis
+  // (0ms → kBaselineY, totalMs → b-4, linear).
+  const auto it = m_lineTraces.constFind(m_currentId);
+  if (it == m_lineTraces.constEnd() || !it.value() || it.value()->traces.isEmpty())
+    return;
+  const SeismicLineData &line = *it.value();
+  const float dtUs = (line.sampleIntervalUs > 0.0f) ? line.sampleIntervalUs : 2000.0f;
+  const double totalMs = static_cast<double>(line.samplesPerTrace) * dtUs / 1000.0;
+  if (totalMs <= 0.0)
+    return;
+
+  const qreal l = kMargin + kAxisW;
+  const qreal b = kSceneH - kMargin;
+  const double frac = qBound(0.0, timeMs / totalMs, 1.0);
+  const qreal y = kBaselineY + frac * (b - 4 - kBaselineY);
+  m_view->centerOn((l + kSceneW - kMargin) / 2.0, y);
+}

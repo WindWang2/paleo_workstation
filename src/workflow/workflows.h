@@ -12,6 +12,7 @@ class SelectionContext;
 class PaleoProjectStore;
 class PaleoOnnxService;
 class ConstraintStore;
+class ProjectDataFacade;
 struct ValidationIssue;
 
 // workflow/ — thin orchestrators binding UI actions to services/algorithms.
@@ -89,6 +90,13 @@ class ValidationWorkflow : public QObject
     // Checks: duplicate horizon names, declared-layer source missing on disk,
     // busy-layer conflicts. Returns issue list (may be empty = clean).
     QList<ValidationIssue> validate();
+
+    // wave/mapping-pipeline — 绑定读侧门面后，validate() 增加井上时间残差
+    // 检查（TD 插值 vs 层位 DERIVED 栅格；见 mappingworkflow.h）。
+    void setProjectData(ProjectDataFacade *projectData);
+    // 残差起评阈值（ms）。默认 1.0 = 半样点间隔（2ms 采样）。
+    void setResidualThresholdMs(double thresholdMs);
+
   signals:
     void validationDone(int issueCount);
 };

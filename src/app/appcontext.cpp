@@ -16,8 +16,13 @@
 #include "../io/dataimportservice.h"
 #include "../qgis/qgislayoutservice.h"
 #include "../workflow/workflows.h"
+#include "../services/projectdata.h"
+#include "../workflow/mappingworkflow.h"
+#include "../metadata/mapversionstore.h"
+#include "../workflow/mapversioncontroller.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QSet>
 #include <QDebug>
@@ -123,6 +128,17 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_compositionWf = new CompositionWorkflow(m_procSvc, m_layerSvc, this);
   m_validationWf = new ValidationWorkflow(m_layerSvc, m_store, this);
 
+  // wave/mapping-pipeline 阶段C+E — 读侧门面 / D61 编图链 / 版本状态机。
+  // catalog.json 由数据底座包落位；这里只在工程目录里发现它时绑定（未合
+  // 并期间手工放置合成 catalog 亦可驱动整条链）。版本存储与 LayerManifest
+  // 同库（meta sqlite），路径在 projectOpened 时原地重绑。
+  m_projectData = new ProjectDataFacade(this);
+  m_mappingWf = new MappingWorkflow(m_constraintWf, m_compositionWf, m_layerSvc, this);
+  m_mappingWf->setProjectData(m_projectData);
+  m_validationWf->setProjectData(m_projectData); // validate() 增加时间残差
+  m_versionStore = new MapVersionStore(QString());
+  m_versionCtl = new MapVersionController(m_versionStore, m_layerSvc, this);
+
   // ensureManifest-on-open: first point a per-project path is derivable.
   connect(m_projectSvc, &QgisProjectService::projectOpened, this,
           [this](const QString &qgzPath) {
@@ -160,6 +176,17 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 
             m_styleSvc->setStylesRoot(fi.absoluteDir().filePath(QStringLiteral("styles")));
             m_import->setProjectDir(fi.absolutePath());
+
+            // wave/mapping-pipeline：版本存储重绑到本工程 meta 库；读侧门面
+            // 接上数据底座的 catalog（<工程目录>/artifacts/metadata/catalog.json）。
+            *m_versionStore = MapVersionStore(metaPath);
+            QString versionErr;
+            if (!m_versionStore->open(&versionErr))
+              qWarning() << "AppContext: map version store open failed" << metaPath << versionErr;
+            QString facadeErr;
+            if (!m_projectData->setProjectDir(fi.absolutePath()))
+              qWarning() << "AppContext: project data facade:" << m_projectData->lastError();
+            m_projectData->setManifest(m_manifest);
           });
 }
 
@@ -175,6 +202,8 @@ AppContext::~AppContext()
 
   delete m_manifest; // not a QObject — plain path-holding value type
   m_manifest = nullptr;
+  delete m_versionStore; // same idiom as the manifest (wave/mapping-pipeline)
+  m_versionStore = nullptr;
 
   if (s_runtimeOwners.remove(this))
     QgisRuntime::shutdown();

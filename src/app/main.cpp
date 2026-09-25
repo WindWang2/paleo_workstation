@@ -30,6 +30,8 @@ int main(int argc, char *argv[])
                          ctx.compositionWf(), ctx.validationWf(), ctx.importSvc(),
                          ctx.seismicLink(), ctx.processingSvc(), ctx.store(),
                          ctx.editingSvc(), ctx.layoutSvc());
+  window.attachMapping(ctx.mappingWf(), ctx.versionCtl(), ctx.versionStore(),
+                       ctx.projectData());
   window.show();
 
   // The QgsApplication built by the runtime is the live QApplication instance.

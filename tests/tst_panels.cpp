@@ -231,6 +231,37 @@ class TestPanels : public QObject
       QCOMPARE(page.findChild<QListWidget *>(QStringLiteral("factorList"))->count(), 0);
     }
 
+    // wave/mapping-pipeline 阶段C+E — 编图链/导出/版本按钮块 + 发布门。
+    void composePage_mappingChainButtonsAndPublishGate()
+    {
+      ComposePage page(nullptr, nullptr);
+
+      QSignalSpy chainSpy(&page, &ComposePage::thicknessChainRequested);
+      QSignalSpy exportSpy(&page, &ComposePage::exportPdfRequested);
+      QSignalSpy saveSpy(&page, &ComposePage::saveVersionRequested);
+      QSignalSpy publishSpy(&page, &ComposePage::publishRequested);
+
+      page.findChild<QPushButton *>(QStringLiteral("thicknessChainButton"))->click();
+      page.findChild<QPushButton *>(QStringLiteral("exportPdfButton"))->click();
+      page.findChild<QPushButton *>(QStringLiteral("saveVersionButton"))->click();
+      QCOMPARE(chainSpy.count(), 1);
+      QCOMPARE(exportSpy.count(), 1);
+      QCOMPARE(saveSpy.count(), 1);
+
+      // 发布门：PDF 能导出之前禁用（不发信号），setPublishEnabled 开闸。
+      auto *publish = page.findChild<QPushButton *>(QStringLiteral("publishButton"));
+      QVERIFY(publish != nullptr);
+      QVERIFY(!publish->isEnabled());
+      publish->click();
+      QCOMPARE(publishSpy.count(), 0);
+      page.setPublishEnabled(true);
+      QVERIFY(publish->isEnabled());
+      publish->click();
+      QCOMPARE(publishSpy.count(), 1);
+      page.setPublishEnabled(false);
+      QVERIFY(!publish->isEnabled());
+    }
+
     void composePage_listsOnlySingleFactorGroup()
     {
       QTemporaryDir dir;
@@ -354,6 +385,10 @@ class TestPanels : public QObject
       QCOMPARE(spy.count(), 1);
       QCOMPARE(spy.first().at(0).toString(), QStringLiteral("predict.T1.gone"));
       QCOMPARE(spy.first().at(1).toString(), QString()); // no wktLocation
+      // wave/mapping-pipeline：非残差问题载荷为空表（三视图只做地图缩放）。
+      const QVariantMap payload = spy.first().at(2).toMap();
+      QVERIFY(!payload.contains(QStringLiteral("wellId")));
+      QVERIFY(!payload.contains(QStringLiteral("inline")));
     }
 };
 

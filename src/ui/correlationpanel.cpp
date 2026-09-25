@@ -767,3 +767,37 @@ void WellCorrelationPanel::applySelection(const QStringList &ids)
     column->setPen(columnPen(on));
   }
 }
+
+// ---------------------------------------------------------------------------
+// 三视图联动（wave/mapping-pipeline 阶段C 本链路新增）
+// ---------------------------------------------------------------------------
+void WellCorrelationPanel::scrollToWellTop(const QString &wellId, const QString &horizon)
+{
+  m_scrollWell = wellId;
+  m_scrollHorizon = horizon;
+
+  // Resolve the well's column rect; unknown well → target recorded, view kept.
+  QRectF geom;
+  for (const HorizonMarkerSet::ColumnGeom &g : m_lastGeoms)
+  {
+    if (g.wellId == wellId)
+    {
+      geom = g.rect;
+      break;
+    }
+  }
+  if (geom.isNull())
+    return;
+
+  const qreal x = geom.center().x();
+  qreal y = geom.center().y();
+  const float pick = m_markers->wellDepth(horizon, wellId);
+  if (!qIsNaN(pick))
+  {
+    // Pick line renders at the DISPLAY depth (flatten offset applies).
+    const qreal pickY = yForDepth(m_markers->displayDepth(wellId, pick));
+    if (pickY >= depthBodyTop() && pickY <= depthBodyTop() + geom.height())
+      y = pickY;
+  }
+  m_view->centerOn(x, y);
+}

@@ -94,6 +94,14 @@ class WellCorrelationPanel : public QWidget
     void setFlattenMarker(const QString &name);  // {} = off
     bool isFlattened() const;
 
+    // --- 三视图联动（wave/mapping-pipeline 阶段C 本链路新增）--------------------
+    // 滚动到某井某分层：水平居中该井柱；该井在此层位有 pick 时垂直也
+    // 居中该 pick 线，否则居中柱体。未知井/层位仍记录目标（供状态断言
+    // 与后续联动），视图不动。目标经 lastScroll* 暴露。
+    void scrollToWellTop(const QString &wellId, const QString &horizon);
+    QString lastScrollWell() const { return m_scrollWell; }
+    QString lastScrollHorizon() const { return m_scrollHorizon; }
+
     // --- depth ruler --------------------------------------------------------------
     DepthRuler *ruler() const { return m_ruler; }
 
@@ -125,4 +133,5 @@ class WellCorrelationPanel : public QWidget
     QGraphicsScene *m_scene = nullptr;
     QLabel *m_emptyLabel = nullptr;
     float m_axisMin = 0.0f, m_axisMax = 100.0f; // shared display-space depth window
+    QString m_scrollWell, m_scrollHorizon;      // 三视图联动最近一次滚动目标
 };

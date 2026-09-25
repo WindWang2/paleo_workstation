@@ -6,8 +6,8 @@
 
 #include "../../io/lasparser.h"
 
-class QListWidget;
-class QListWidgetItem;
+class QLabel;
+class QTreeWidget;
 class QTreeWidgetItem;
 
 // ui/correlation/ — CurveBrowser: LAS curve browser panel.
@@ -37,7 +37,8 @@ class CurveBrowser : public QWidget
     bool isChecked(const QString &mnemonic) const;
 
     // Programmatic check (tests / restore-after-relist). Emits
-    // mnemonicToggled exactly like a user click.
+    // mnemonicToggled exactly like a user click. Re-asserting the state a
+    // row already has is a silent no-op; an unknown mnemonic likewise.
     void setChecked(const QString &mnemonic, bool on);
 
   signals:
@@ -47,9 +48,12 @@ class CurveBrowser : public QWidget
     void mnemonicToggled(const QString &wellId, const QString &mnemonic, bool on);
 
   private:
-    void onItemChanged(QListWidgetItem *item);
+    void onItemChanged(QTreeWidgetItem *item, int column);
+    QTreeWidgetItem *itemFor(const QString &mnemonic) const;
 
     QString m_wellId;
-    QListWidget *m_list = nullptr;
+    QTreeWidget *m_list = nullptr;
+    QLabel *m_wellLabel = nullptr;    // "井：W1" — checks act on this well
+    QLabel *m_emptyLabel = nullptr;   // §42.4 guidance when no curves
     int m_rows = 0;
 };

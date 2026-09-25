@@ -36,6 +36,9 @@ class QgisLayerService : public QObject
   signals:
     void layerInstantiated(const QString &layerId);
     void horizonReleased(const QString &horizon);
+    // Emitted after a declaration lands in the manifest; consumers listing
+    // declared layers (e.g. ComposePage) refresh off this.
+    void layerDeclared(const QString &layerId);
 
   private:
     QgisProjectService *m_projectSvc;

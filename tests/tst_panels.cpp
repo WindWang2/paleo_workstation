@@ -345,6 +345,40 @@ class TestPanels : public QObject
       QVERIFY(status->text().contains(QStringLiteral("栅格")));
     }
 
+    // A raster declared after the page exists lands in the combo via
+    // layerDeclared — no manual refreshFactors() needed.
+    void composePage_faciesComboTracksNewDeclarations()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      LayerManifest manifest(dir.filePath(QStringLiteral("m.sqlite")));
+      QVERIFY(manifest.open());
+      QgisLayerService layers(nullptr, &manifest);
+      ComposePage page(nullptr, &layers);
+      auto *combo = page.findChild<QComboBox *>(QStringLiteral("faciesRasterCombo"));
+      QVERIFY(combo);
+      QCOMPARE(combo->count(), 0);
+
+      LayerDeclaration raster;
+      raster.layerId = QStringLiteral("pred.T1.onnx.toy");
+      raster.horizon = QStringLiteral("T1");
+      raster.type = QStringLiteral("raster");
+      raster.source = QStringLiteral("memory|onnx");
+      raster.group = QStringLiteral("03_Predict");
+      QVERIFY(layers.declare(raster));
+      QCOMPARE(combo->count(), 1);
+      QCOMPARE(combo->currentData().toString(), QStringLiteral("pred.T1.onnx.toy"));
+
+      LayerDeclaration vector;
+      vector.layerId = QStringLiteral("wells.T1");
+      vector.horizon = QStringLiteral("T1");
+      vector.type = QStringLiteral("vector");
+      vector.source = QStringLiteral("memory|w");
+      vector.group = QStringLiteral("00_Data");
+      QVERIFY(layers.declare(vector));
+      QCOMPARE(combo->count(), 1); // non-raster stays out
+    }
+
     // ---- ValidatePage ----
     void validatePage_nullWorkflowIsSafe()
     {

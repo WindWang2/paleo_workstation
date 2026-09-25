@@ -602,6 +602,11 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
     connect(wf, &CompositionWorkflow::faciesPolygonsFailed, status,
             [status](const QString &, const QString &error) { status->setText(error); });
   }
+  // A raster declared after this page exists (e.g. a fresh ONNX prediction)
+  // still lands in the combo; the declaration set is the source of truth.
+  if (layers)
+    connect(layers, &QgisLayerService::layerDeclared, this,
+            [this](const QString &) { refreshFactors(); });
 
   refreshFactors();
 }

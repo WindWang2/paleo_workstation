@@ -41,7 +41,10 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
     setError(error, QStringLiteral("cannot declare a layer with an empty layerId"));
     return false;
   }
-  return m_manifest->upsert(decl, error);
+  if (!m_manifest->upsert(decl, error))
+    return false;
+  emit layerDeclared(decl.layerId);
+  return true;
 }
 
 QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *error)

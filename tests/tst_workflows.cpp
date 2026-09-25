@@ -455,6 +455,26 @@ private slots:
     QCOMPARE( n, 2 );
     delete d;
   }
+
+  // A manifest that cannot be read reports the read failure — the empty
+  // declaration set is not authoritative, so "not declared" must not fire.
+  void faciesPolygonsManifestReadFailure()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+    // Manifest path under a regular file: ensureOpen cannot mkpath through it.
+    QFile blocker( f.dir.filePath( QStringLiteral( "blocker" ) ) );
+    QVERIFY( blocker.open( QIODevice::WriteOnly ) );
+    blocker.close();
+    LayerManifest broken( f.dir.filePath( QStringLiteral( "blocker/m.sqlite" ) ) );
+    QgisLayerService brokenLayers( nullptr, &broken );
+    CompositionWorkflow wf( &f.proc, &brokenLayers );
+    QString err;
+    QVERIFY( !wf.deriveFaciesPolygons( QStringLiteral( "T1" ), QStringLiteral( "composite.T1" ),
+                                       QVariantMap(), &err ) );
+    QVERIFY( !err.isEmpty() );
+    QVERIFY2( !err.contains( QStringLiteral( "is not declared" ) ), qPrintable( err ) );
+  }
 };
 
 int main( int argc, char *argv[] )

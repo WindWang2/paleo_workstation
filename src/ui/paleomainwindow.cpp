@@ -14,6 +14,8 @@
 #include "../metadata/layermanifest.h"
 #include "locator/paleolocatorfilters.h"
 #include "releasepanel.h"
+#include "taskpanel.h"
+#include "attributetablepanel.h"
 #include "pages/pagepanels.h"
 #include "constraintdrawcontroller.h"
 #include "correlationpanel.h"
@@ -29,6 +31,7 @@
 #include <qgslocatorwidget.h>
 #include <qgslocator.h>
 #include <qgsvectorlayer.h>
+#include <qgspointxy.h>
 
 #include <QApplication>
 #include <QDir>
@@ -307,6 +310,29 @@ void PaleoMainWindow::buildShell()
                              .arg(QgisRuntime::isInitialized() ? QgisRuntime::providerCount() : 0));
   statusBar()->addPermanentWidget(horizonLabel);
   statusBar()->addPermanentWidget(providerLabel);
+
+  // Canvas-fed status readouts (the dedicated QGIS statusbar coordinate/scale
+  // widgets are app-only in 4.2 — plain labels fed by canvas signals instead).
+  if (m_canvasCtl)
+  {
+    QgsMapCanvas *cv = m_canvasCtl->canvas();
+    auto *coordLabel = new QLabel(this);
+    coordLabel->setObjectName(QStringLiteral("statusCoords"));
+    auto *scaleLabel = new QLabel(this);
+    scaleLabel->setObjectName(QStringLiteral("statusScale"));
+    connect(cv, &QgsMapCanvas::xyCoordinates, this,
+            [coordLabel](const QgsPointXY &p) {
+              coordLabel->setText(QStringLiteral("%1, %2").arg(p.x()).arg(p.y()));
+            });
+    auto updateScale = [scaleLabel, cv] {
+      scaleLabel->setText(QStringLiteral("1:%1").arg(static_cast<qlonglong>(cv->scale())));
+    };
+    connect(cv, &QgsMapCanvas::scaleChanged, this, [updateScale](double) { updateScale(); });
+    connect(cv, &QgsMapCanvas::extentsChanged, this, updateScale);
+    updateScale();
+    statusBar()->addPermanentWidget(coordLabel);
+    statusBar()->addPermanentWidget(scaleLabel);
+  }
   if (m_selection)
     connect(m_selection, &SelectionContext::activeHorizonChanged, horizonLabel,
             [horizonLabel, horizonText](const QString &h) { horizonLabel->setText(horizonText(h)); });
@@ -631,6 +657,51 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
       connect(m_projectSvc, &QgisProjectService::projectOpened, releasePanel,
               &ReleasePanel::refresh);
       bottomTabs->addTab(releasePanel, QStringLiteral("发布"));
+    }
+
+  // Task panel replaces the placeholder in the 任务 tab (index 1); attribute
+  // table joins as its own tab, fed by the instantiated-layer set.
+  if (store)
+    if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
+    {
+      const int idx = bottomTabs->indexOf(
+          bottomTabs->findChild<QTextEdit *>(QStringLiteral("tasksPlaceholder")));
+      auto *taskPanel = new TaskPanel(store, bottomTabs);
+      if (idx >= 0)
+      {
+        QWidget *old = bottomTabs->widget(idx);
+        bottomTabs->removeTab(idx);
+        delete old;
+        bottomTabs->insertTab(idx, taskPanel, QStringLiteral("任务"));
+      }
+      else
+        bottomTabs->addTab(taskPanel, QStringLiteral("任务"));
+
+      if (m_layerSvc && m_canvasCtl)
+      {
+        auto *attrPanel = new AttributeTablePanel(
+            m_canvasCtl->canvas(),
+            [this](const QString &layerId) -> QgsVectorLayer * {
+              QgsMapLayer *l = m_layerSvc->layer(layerId);
+              if (!l)
+                l = m_layerSvc->instantiate(layerId);
+              return qobject_cast<QgsVectorLayer *>(l);
+            },
+            bottomTabs);
+        attrPanel->setObjectName(QStringLiteral("attributeTablePanel"));
+        auto refreshIds = [this, attrPanel] {
+          QStringList ids;
+          for (const LayerDeclaration &d : m_layerSvc->declared())
+            ids << d.layerId;
+          attrPanel->setLayerIds(ids);
+        };
+        refreshIds();
+        connect(m_layerSvc, &QgisLayerService::layerInstantiated, this,
+                [refreshIds](const QString &) { refreshIds(); });
+        connect(m_projectSvc, &QgisProjectService::projectOpened, this,
+                [refreshIds](const QString &) { refreshIds(); });
+        bottomTabs->addTab(attrPanel, QStringLiteral("属性表"));
+      }
     }
 
   // Processing entry point on the top bar: paleo:* algorithms first-class,

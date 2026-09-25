@@ -124,3 +124,13 @@ bool PaleoProjectStore::layerBusy( const QString &layerId, QString *reason ) con
     *reason = QStringLiteral( "%1 — %2" ).arg( it->first, it->second ); // "taskId — reason"
   return true;
 }
+
+QVector<PaleoProjectStore::BusyEntry> PaleoProjectStore::busyLayers() const
+{
+  QMutexLocker locker( &m_busyMutex );
+  QVector<BusyEntry> out;
+  out.reserve( m_busy.size() );
+  for ( auto it = m_busy.constBegin(); it != m_busy.constEnd(); ++it )
+    out.append( { it.key(), it->first, it->second } );
+  return out;
+}

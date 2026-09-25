@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QPair>
 #include <QString>
+#include <QVector>
 #include <functional>
 #include <atomic>
 
@@ -38,6 +39,9 @@ class PaleoProjectStore : public QObject
     void markLayerBusy(const QString &layerId, const QString &taskId, const QString &reason);
     void markLayerFree(const QString &layerId);
     bool layerBusy(const QString &layerId, QString *reason = nullptr) const;
+
+    struct BusyEntry { QString layerId; QString taskId; QString reason; };
+    QVector<BusyEntry> busyLayers() const; // snapshot for UI (task panel)
 
   signals:
     void writeCompleted(const QString &target);

@@ -95,8 +95,15 @@ bool QgisProjectService::writeProject()
   // without the declared set would silently drop uninstantiated layers.
   if ( m_declarationProvider )
   {
+    QVector<LayerDeclaration> decls;
+    QString providerError;
+    if ( !m_declarationProvider( &decls, &providerError ) )
+    {
+      m_errors << tr( "Failed to read manifest declarations: %1" ).arg( providerError );
+      return false;
+    }
     QString embedError;
-    if ( !ManifestProjection::embedDeclarations( m_project, m_declarationProvider(), &embedError ) )
+    if ( !ManifestProjection::embedDeclarations( m_project, decls, &embedError ) )
     {
       m_errors << tr( "Failed to embed manifest declarations: %1" ).arg( embedError );
       return false;
@@ -142,7 +149,7 @@ QString QgisProjectService::projectPath() const
   return m_path;
 }
 
-void QgisProjectService::setDeclarationProvider( const std::function<QVector<LayerDeclaration>()> &provider )
+void QgisProjectService::setDeclarationProvider( const std::function<bool( QVector<LayerDeclaration> *, QString * )> &provider )
 {
   m_declarationProvider = provider;
 }

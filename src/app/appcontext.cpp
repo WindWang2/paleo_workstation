@@ -94,7 +94,10 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 
   // §37: every project write embeds the full declared layer set so
   // uninstantiated declarations survive the .qgz projection.
-  m_projectSvc->setDeclarationProvider([this]() { return m_layerSvc->declared(); });
+  m_projectSvc->setDeclarationProvider(
+      [this](QVector<LayerDeclaration> *out, QString *error) {
+        return m_layerSvc->tryDeclared(out, error);
+      });
 
   m_import = new DataImportService(m_layerSvc, m_store, this);
 

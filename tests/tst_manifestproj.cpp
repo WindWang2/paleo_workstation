@@ -123,7 +123,9 @@ private slots:
       QCOMPARE( declared.size(), 3 );
 
       // The hook: writes embed whatever the provider returns at write time.
-      svc.setDeclarationProvider( [&layerSvc]() { return layerSvc.declared(); } );
+      svc.setDeclarationProvider( [&layerSvc]( QVector<LayerDeclaration> *out, QString *error ) {
+        return layerSvc.tryDeclared( out, error );
+      } );
 
       // Only T1 is materialized; facies.T2 stays declaration-only.
       QCOMPARE( layerSvc.instantiateHorizon( QStringLiteral( "T1" ) ), 2 );
@@ -164,7 +166,9 @@ private slots:
     {
       QgisProjectService svc;
       // Provider set before createProject exercises the very first write too.
-      svc.setDeclarationProvider( [&manifest]() { return manifest.all(); } );
+      svc.setDeclarationProvider( [&manifest]( QVector<LayerDeclaration> *out, QString *error ) {
+        return manifest.readAll( out, error );
+      } );
       QVERIFY2( svc.createProject( qgzPath ),
                 qPrintable( svc.lastErrors().join( ';' ) ) );
       QVERIFY2( svc.writeProject(), qPrintable( svc.lastErrors().join( ';' ) ) );
@@ -243,6 +247,30 @@ private slots:
     QCOMPARE( got.first().styleRef, QStringLiteral( "styles/facies.T1.qml" ) );
     QCOMPARE( got.first().group, QStringLiteral( "04_SingleFactor" ) );
     QCOMPARE( got.first().instantiated, false );
+  }
+
+  // A provider that fails must fail the write — an empty declaration set is
+  // not a valid substitute and would silently drop the manifest.
+  void providerFailureFailsWrite()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const QString qgzPath = dir.filePath( QStringLiteral( "fail.qgz" ) );
+
+    {
+      QgisProjectService svc;
+      QVERIFY2( svc.createProject( qgzPath ),
+                qPrintable( svc.lastErrors().join( ';' ) ) );
+      svc.setDeclarationProvider(
+          []( QVector<LayerDeclaration> *, QString *error ) {
+            if ( error ) *error = QStringLiteral( "manifest db is corrupt" );
+            return false;
+          } );
+      QVERIFY( !svc.writeProject() );
+      QVERIFY( !svc.lastErrors().isEmpty() );
+      QVERIFY( svc.lastErrors().join( ';' ).contains(
+          QStringLiteral( "manifest declarations" ) ) );
+    }
   }
 };
 

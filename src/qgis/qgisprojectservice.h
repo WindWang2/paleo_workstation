@@ -31,7 +31,10 @@ class QgisProjectService : public QObject
     // declared set into the .qgz (ManifestProjection custom property) so the
     // saved file describes all declarations, not just instantiated layers.
     // Wire e.g. to QgisLayerService::declared() / LayerManifest::all().
-    void setDeclarationProvider(const std::function<QVector<LayerDeclaration>()> &provider);
+    // Provider must report read failure (false + error) — an empty set would
+    // otherwise be indistinguishable from a legitimately empty manifest and
+    // silently drop every declaration on write.
+    void setDeclarationProvider(const std::function<bool(QVector<LayerDeclaration> *, QString *)> &provider);
 
   signals:
     void projectOpened(const QString &path);
@@ -41,5 +44,5 @@ class QgisProjectService : public QObject
     QgsProject *m_project = nullptr;
     QString m_path;
     QStringList m_errors;
-    std::function<QVector<LayerDeclaration>()> m_declarationProvider;
+    std::function<bool(QVector<LayerDeclaration> *, QString *)> m_declarationProvider;
 };

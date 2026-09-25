@@ -784,7 +784,16 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
       // Horizons filter: manifest horizon set → activate + materialize.
       HorizonLocatorFilter::HorizonListProvider horizonProvider = [this]() {
         QStringList hs;
-        for (const LayerDeclaration &d : m_layerSvc->declared())
+        QVector<LayerDeclaration> declared;
+        QString manifestErr;
+        if (!m_layerSvc || !m_layerSvc->tryDeclared(&declared, &manifestErr))
+        {
+          QgsMessageLog::logMessage(tr("Horizon locator: manifest read failed: %1")
+                                        .arg(manifestErr),
+                                    QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+          return hs;
+        }
+        for (const LayerDeclaration &d : declared)
           if (!d.horizon.isEmpty() && !hs.contains(d.horizon))
             hs << d.horizon;
         hs.sort();
@@ -860,7 +869,15 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
       releasePanel->setObjectName(QStringLiteral("releasePanel"));
       releasePanel->setProviders(
           [store]() { return store->metaDbPath(); },
-          [this]() { return m_layerSvc ? m_layerSvc->declared() : QVector<LayerDeclaration>(); });
+          [this]() {
+            QVector<LayerDeclaration> declared;
+            QString manifestErr;
+            if (m_layerSvc && !m_layerSvc->tryDeclared(&declared, &manifestErr))
+              QgsMessageLog::logMessage(tr("Release panel: manifest read failed: %1")
+                                          .arg(manifestErr),
+                                      QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+            return declared;
+          });
       connect(releasePanel, &ReleasePanel::statusMessage, this,
               [](const QString &msg) {
                 QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Info);
@@ -901,8 +918,17 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
             bottomTabs);
         attrPanel->setObjectName(QStringLiteral("attributeTablePanel"));
         auto refreshIds = [this, attrPanel] {
+          QVector<LayerDeclaration> declared;
+          QString manifestErr;
+          if (!m_layerSvc->tryDeclared(&declared, &manifestErr))
+          {
+            QgsMessageLog::logMessage(tr("Attribute panel: manifest read failed: %1")
+                                          .arg(manifestErr),
+                                      QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+            return; // keep the existing layer list instead of blanking it
+          }
           QStringList ids;
-          for (const LayerDeclaration &d : m_layerSvc->declared())
+          for (const LayerDeclaration &d : declared)
             ids << d.layerId;
           attrPanel->setLayerIds(ids);
         };

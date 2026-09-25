@@ -475,6 +475,26 @@ private slots:
     QVERIFY( !err.isEmpty() );
     QVERIFY2( !err.contains( QStringLiteral( "is not declared" ) ), qPrintable( err ) );
   }
+
+  // An unreadable manifest must surface as a validation finding — a corrupt
+  // store must not validate as "no issues".
+  void validateReportsManifestReadFailure()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+    QFile blocker( f.dir.filePath( QStringLiteral( "blocker" ) ) );
+    QVERIFY( blocker.open( QIODevice::WriteOnly ) );
+    blocker.close();
+    LayerManifest broken( f.dir.filePath( QStringLiteral( "blocker/m.sqlite" ) ) );
+    QgisLayerService brokenLayers( nullptr, &broken );
+    ValidationWorkflow wf( &brokenLayers, &f.store );
+    const QList<ValidationIssue> issues = wf.validate();
+    bool saw = false;
+    for ( const ValidationIssue &v : issues )
+      if ( v.code == QLatin1String( "MANIFEST_READ_FAILED" ) )
+        saw = v.severity == ValidationIssue::Error;
+    QVERIFY( saw );
+  }
 };
 
 int main( int argc, char *argv[] )

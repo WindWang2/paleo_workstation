@@ -954,7 +954,21 @@ QList<ValidationIssue> ValidationWorkflow::validate()
   QList<ValidationIssue> issues;
   QgisLayerService *layers = layersOf( this );
   PaleoProjectStore *store = storeOf( this );
-  const QVector<LayerDeclaration> decls = layers ? layers->declared() : QVector<LayerDeclaration>();
+  QVector<LayerDeclaration> decls;
+  if ( layers )
+  {
+    QString manifestErr;
+    if ( !layers->tryDeclared( &decls, &manifestErr ) )
+    {
+      // Manifest unreadable is a finding, not a clean bill — otherwise a
+      // corrupt store validates as "no issues".
+      ValidationIssue v;
+      v.severity = ValidationIssue::Error;
+      v.code = QStringLiteral( "MANIFEST_READ_FAILED" );
+      v.message = manifestErr.isEmpty() ? tr( "无法读取图层清单" ) : manifestErr;
+      issues.append( v );
+    }
+  }
 
   // (a) declared raster/vector layers whose file source is missing on disk.
   for ( const LayerDeclaration &d : decls )

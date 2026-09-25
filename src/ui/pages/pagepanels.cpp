@@ -622,12 +622,15 @@ void ComposePage::refreshFactors()
   auto *list = child<QListWidget>(this, "factorList");
   if (!list)
     return;
-  list->clear();
   auto *layers = qobject_cast<QgisLayerService *>(
       property(kLayersProp).value<QObject *>());
-  if (!layers)
+  // Manifest read failure keeps current content — an empty declaration set
+  // here would silently blank the page.
+  QVector<LayerDeclaration> declared;
+  if (!layers || !layers->tryDeclared(&declared))
     return;
-  for (const LayerDeclaration &d : layers->declared())
+  list->clear();
+  for (const LayerDeclaration &d : declared)
   {
     if (d.group != QLatin1String("04_SingleFactor"))
       continue;
@@ -642,9 +645,7 @@ void ComposePage::refreshFactors()
     return;
   const QString previous = combo->currentData().toString();
   combo->clear();
-  if (!layers)
-    return;
-  for (const LayerDeclaration &d : layers->declared())
+  for (const LayerDeclaration &d : declared)
   {
     const bool raster = d.type.compare(QLatin1String("raster"), Qt::CaseInsensitive) == 0;
     const bool groupOk = d.group == QLatin1String("03_Composite") ||

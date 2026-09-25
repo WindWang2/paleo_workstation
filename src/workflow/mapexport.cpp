@@ -58,8 +58,13 @@ QString exportHorizonMapPdf( QgisLayerService *layers, const QString &horizon,
   const QString wellsId = QStringLiteral( "wells.thickness.%1" ).arg( horizon );
   const QString rasterId = QStringLiteral( "horizon.%1.derived" ).arg( horizon );
 
+  QVector<LayerDeclaration> declared;
+  QString manifestErr;
+  if ( !layers->tryDeclared( &declared, &manifestErr ) )
+    return fail( manifestErr.isEmpty() ? QObject::tr( "无法读取图层清单" ) : manifestErr );
+
   QString faciesSource, rasterSource;
-  for ( const LayerDeclaration &d : layers->declared() )
+  for ( const LayerDeclaration &d : declared )
   {
     if ( d.layerId == faciesId )
       faciesSource = d.source;

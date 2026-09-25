@@ -28,7 +28,10 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
   // undo 不跨版本边界。栅格图层无编辑缓冲，跳过。
   if ( m_layers )
   {
-    for ( const LayerDeclaration &d : m_layers->declared() )
+    QVector<LayerDeclaration> declared;
+    if ( !m_layers->tryDeclared( &declared, error ) )
+      return MapVersion(); // 清单读失败时不得在未提交编辑的情况下出版本
+    for ( const LayerDeclaration &d : declared )
     {
       if ( d.horizon != horizon )
         continue;
@@ -64,8 +67,10 @@ QString MapVersionController::publish( const QString &horizon, QString *error )
       *error = tr( "未绑定版本存储" );
     return QString();
   }
-  const QString dir = m_store->publish(
-      horizon, m_layers ? m_layers->declared() : QVector<LayerDeclaration>(), error );
+  QVector<LayerDeclaration> declared;
+  if ( m_layers && !m_layers->tryDeclared( &declared, error ) )
+    return QString(); // 清单读失败时不得发布空快照
+  const QString dir = m_store->publish( horizon, declared, error );
   if ( !dir.isEmpty() )
     emit published( horizon, m_store->latest( horizon ).version, dir );
   return dir;

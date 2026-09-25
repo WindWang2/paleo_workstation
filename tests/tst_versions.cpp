@@ -140,6 +140,26 @@ class TestVersions : public QObject
         QCOMPARE( reopened.versions( QStringLiteral( "D61" ) ).size(), 2 );
     }
 
+    // 清单读失败 → saveVersion/publish 都失败，不出版本、不发空快照。
+    void manifestReadFailureFailsVersionOps()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+        QFile blocker( f.dir.filePath( QStringLiteral( "blocker" ) ) );
+        QVERIFY( blocker.open( QIODevice::WriteOnly ) );
+        blocker.close();
+        LayerManifest broken( f.dir.filePath( QStringLiteral( "blocker/m.sqlite" ) ) );
+        QgisLayerService brokenLayers( nullptr, &broken );
+        MapVersionController ctl( &f.versions, &brokenLayers );
+        QString err;
+        const MapVersion v = ctl.saveVersion( QStringLiteral( "D61" ), QVariantMap(), &err );
+        QVERIFY( v.version <= 0 );
+        QVERIFY( !err.isEmpty() );
+        err.clear();
+        QVERIFY( ctl.publish( QStringLiteral( "D61" ), &err ).isEmpty() );
+        QVERIFY( !err.isEmpty() );
+    }
+
     void publishGateSnapshotAndImmutability()
     {
         Fixture f;

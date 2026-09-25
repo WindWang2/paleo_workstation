@@ -1357,9 +1357,9 @@ Facies Polygon Layer (可编辑)
 - [x] **ET2 (P1)** — Vendor boot spike **PASS（Linux leg）**：`paleo_selfcheck` 全绿 + `tst_boot` QTest 通过（init/providers=34/srs.db/渲染非均匀像素/map.png）；init 顺序文档 = src/selfcheck/main.cpp + BUILDING.md。Windows leg 待 CI runner。
 - [x] **ET3 (P1)** — GDALPolygonize `QgsProcessingAlgorithm` 封装 spike **PASS**：`PaleoProcessingProvider` 注册路径（4.x 无 addAlgorithm 直挂），`tst_polygonize` 通过。
 - [x] **ET4 (P1)** — AI 运行时 mini-spike **PASS** → **选定 ONNX Runtime 1.30.0**（vendored，sha256 pinned）；`spikes/onnx/ort_check` 推理 2.0→42.0 确定性。
-- [ ] **ET5 (P1)** — 脊线四服务：QgisRuntime / QgisProjectService / QgisLayerService / QgisCanvasController + PaleoProjectStore 写队列（§41.2）。（验证：§33 脊线测试）
-- [ ] **ET6 (P1)** — 声明式图层清单 + LayerTree Adapter 占位投影 + save/restore 往返（§37）。（验证：往返测试）
-- [ ] **ET7 (P1)** — ToolAvailabilityService per-layer busy map（§35）+ §42.2 每页面板清单表。
+- [x] **ET5 (P1)** — 脊线四服务 + PaleoProjectStore 写队列 **DONE**（`paleo_core` 库；tst_runtime 8/8 + tst_projectsvc 4/4 绿；saveAll 次序 gpkg→bak→qgz 实测）
+- [x] **ET6 (P1)** — 声明式图层清单 **DONE**（LayerManifest→project.sqlite；instantiateHorizon/setActiveHorizon 懒实例化 + 往返测试 tst_layerservice 绿）；LayerTree Adapter 占位投影 UI 挂接待 P1 界面层
+- [x] **ET7 (P1)** — ToolAvailabilityService per-layer busy map **DONE**（taskId—reason 契约，tst_canvas_tools 6/6 绿）；§42.2 面板清单表属文档项
 - [x] **ET8 (P2)** — **partial**：QTest+CTest harness 骨架就位（`paleo-dev test` + offscreen + 2 测试）；golden fixture 工区与 5 类回归测试待 P0。
 - [x] **ET9 (P1, Phase 0)** — app-only 功能审计表 → `docs/phase0/et9-app-only-audit.md`（结论：Processing UI/图层属性已在 gui 零移植；layout designer 走 QgsLayoutDesignerInterface 自研 shell；vertex editor/shape tools/decorations/locator filters 薄移植）。
 - [ ] **ET10 (P2)** — 性能用例：overviews 构建、打开预算、并发上限（§41.6 数字）。

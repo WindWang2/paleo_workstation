@@ -10,6 +10,10 @@
 #include "../io/dataimportservice.h"
 #include "../linkage/seismicmaplink.h"
 #include "../qgis/qgisprocessingservice.h"
+#include "../metadata/paleoprojectstore.h"
+#include "../metadata/layermanifest.h"
+#include "locator/paleolocatorfilters.h"
+#include "releasepanel.h"
 #include "pages/pagepanels.h"
 #include "constraintdrawcontroller.h"
 #include "correlationpanel.h"
@@ -22,6 +26,9 @@
 #include <qgslayertreeview.h>
 #include <qgsmessagelog.h>
 #include <qgsmessagelogviewer.h>
+#include <qgslocatorwidget.h>
+#include <qgslocator.h>
+#include <qgsvectorlayer.h>
 
 #include <QApplication>
 #include <QDir>
@@ -35,6 +42,7 @@
 #include <QMap>
 #include <QMenu>
 #include <QPushButton>
+#include <QShortcut>
 #include <QToolButton>
 #include <QSettings>
 #include <QStackedLayout>
@@ -376,7 +384,7 @@ void PaleoMainWindow::onProjectOpened()
 void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                                       CompositionWorkflow *compose, ValidationWorkflow *validate,
                                       DataImportService *importSvc, SeismicMapLink *seismicLink,
-                                      QgisProcessingService *procSvc)
+                                      QgisProcessingService *procSvc, PaleoProjectStore *store)
 {
   auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost"));
   auto *stack = host ? static_cast<QStackedLayout *>(host->layout()) : nullptr;
@@ -505,6 +513,125 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 m_canvasCtl->zoomToLayer(layerId);
             });
   }
+
+  // ---- top bar: domain locator + save ----
+  if (auto *topBar = findChild<QWidget *>(QStringLiteral("workflowTopBar")))
+  {
+    if (m_layerSvc && m_selection && m_canvasCtl)
+    {
+      auto *locatorWidget = new QgsLocatorWidget(topBar);
+      locatorWidget->setObjectName(QStringLiteral("paleoLocator"));
+      locatorWidget->setMapCanvas(m_canvasCtl->canvas());
+      locatorWidget->setPlaceholderText(tr("搜索井位/层位/问题…"));
+      locatorWidget->setMinimumWidth(220);
+
+      // Wells filter: resolve the declared "wells" layer lazily (instantiate
+      // on demand — the search must not force materialization at open time).
+      WellLocatorFilter::WellLayerProvider wellProvider = [this]() {
+        QPair<QgsVectorLayer *, QString> out{nullptr, QString()};
+        QgsMapLayer *l = m_layerSvc->layer(QStringLiteral("wells"));
+        if (!l)
+          l = m_layerSvc->instantiate(QStringLiteral("wells"));
+        auto *vl = qobject_cast<QgsVectorLayer *>(l);
+        if (!vl)
+          return out;
+        const int nameIdx = vl->fields().lookupField(QStringLiteral("name"));
+        out.first = vl;
+        out.second = nameIdx >= 0 ? QStringLiteral("name")
+                                  : (vl->fields().isEmpty() ? QString()
+                                                            : vl->fields().at(0).name());
+        return out;
+      };
+      locatorWidget->locator()->registerFilter(
+          new WellLocatorFilter(wellProvider, m_canvasCtl->canvas()));
+
+      // Horizons filter: manifest horizon set → activate + materialize.
+      HorizonLocatorFilter::HorizonListProvider horizonProvider = [this]() {
+        QStringList hs;
+        for (const LayerDeclaration &d : m_layerSvc->declared())
+          if (!d.horizon.isEmpty() && !hs.contains(d.horizon))
+            hs << d.horizon;
+        hs.sort();
+        return hs;
+      };
+      HorizonLocatorFilter::ActivateFn activate = [this](const QString &h) {
+        if (m_selection)
+          m_selection->setActiveHorizon(h);
+        if (m_layerSvc)
+          m_layerSvc->setActiveHorizon(h);
+      };
+      locatorWidget->locator()->registerFilter(
+          new HorizonLocatorFilter(horizonProvider, activate));
+
+      // Issues filter: provider is an empty list until the validation workflow
+      // exposes its issue store; wiring the intent is still useful now.
+      IssueLocatorFilter::IssueProvider issueProvider = []() {
+        return QList<IssueLocatorFilter::IssueRef>();
+      };
+      IssueLocatorFilter::LocateFn locate = [this](const IssueLocatorFilter::IssueRef &ref) {
+        if (m_canvasCtl && !ref.layerId.isEmpty())
+          m_canvasCtl->zoomToLayer(ref.layerId);
+      };
+      locatorWidget->locator()->registerFilter(
+          new IssueLocatorFilter(issueProvider, locate));
+
+      topBar->layout()->addWidget(locatorWidget);
+      auto *focus = new QShortcut(QKeySequence(QStringLiteral("Ctrl+K")), this);
+      connect(focus, &QShortcut::activated, locatorWidget,
+              [locatorWidget] { locatorWidget->search(QString()); });
+    }
+
+    if (store && m_projectSvc)
+    {
+      auto *saveBtn = new QToolButton(topBar);
+      saveBtn->setObjectName(QStringLiteral("saveButton"));
+      saveBtn->setText(tr("保存"));
+      saveBtn->setAccessibleName(tr("保存工程"));
+      // §41.2 ordering through the write queue: gpkg commit (no-op until edit
+      // buffers report dirty state) then the atomic .qgz write.
+      auto saveFn = [this, store]() {
+        if (m_projectSvc->projectPath().isEmpty())
+        {
+          QgsMessageLog::logMessage(tr("无打开工程 — 无法保存"),
+                                  QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+          return;
+        }
+        const auto res = store->saveAll(
+            [] { return PaleoProjectStore::WriteResult{true, QString()}; },
+            [this] {
+              const bool ok = m_projectSvc->writeProject();
+              return PaleoProjectStore::WriteResult{
+                  ok, ok ? QString() : m_projectSvc->lastErrors().join(QLatin1Char(';'))};
+            });
+        QgsMessageLog::logMessage(
+            res.ok ? tr("工程已保存") : tr("保存失败：%1").arg(res.error),
+            QStringLiteral("Paleo"),
+            res.ok ? Qgis::MessageLevel::Info : Qgis::MessageLevel::Critical);
+      };
+      connect(saveBtn, &QToolButton::clicked, this, saveFn);
+      auto *saveShortcut = new QShortcut(QKeySequence::Save, this);
+      connect(saveShortcut, &QShortcut::activated, this, saveFn);
+      topBar->layout()->addWidget(saveBtn);
+    }
+  }
+
+  // Release management tab in the bottom dock.
+  if (store)
+    if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
+    {
+      auto *releasePanel = new ReleasePanel(bottomTabs);
+      releasePanel->setObjectName(QStringLiteral("releasePanel"));
+      releasePanel->setProviders(
+          [store]() { return store->metaDbPath(); },
+          [this]() { return m_layerSvc ? m_layerSvc->declared() : QVector<LayerDeclaration>(); });
+      connect(releasePanel, &ReleasePanel::statusMessage, this,
+              [](const QString &msg) {
+                QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Info);
+              });
+      connect(m_projectSvc, &QgisProjectService::projectOpened, releasePanel,
+              &ReleasePanel::refresh);
+      bottomTabs->addTab(releasePanel, QStringLiteral("发布"));
+    }
 
   // Processing entry point on the top bar: paleo:* algorithms first-class,
   // the full registry grouped under per-provider submenus. Each item opens

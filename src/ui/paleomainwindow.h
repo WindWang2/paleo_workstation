@@ -17,6 +17,7 @@ class ValidationWorkflow;
 class DataImportService;
 class SeismicMapLink;
 class QgisProcessingService;
+class PaleoProjectStore;
 
 // ui/ — PaleoMainWindow: the five-page workflow shell (§42).
 // Anatomy: left = layer tree dock; center = canvas (+ startup page stacked under);
@@ -45,7 +46,8 @@ class PaleoMainWindow : public QMainWindow
                          CompositionWorkflow *compose, ValidationWorkflow *validate,
                          DataImportService *importSvc = nullptr,
                          SeismicMapLink *seismicLink = nullptr,
-                         QgisProcessingService *procSvc = nullptr);
+                         QgisProcessingService *procSvc = nullptr,
+                         PaleoProjectStore *store = nullptr);
 
   private:
     void buildShell();

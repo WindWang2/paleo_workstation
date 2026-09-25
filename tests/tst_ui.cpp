@@ -143,11 +143,16 @@ class TestUiShell : public QObject
       m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
                              m_ctx->compositionWf(), m_ctx->validationWf(),
                              m_ctx->importSvc(), m_ctx->seismicLink(),
-                             m_ctx->processingSvc());
+                             m_ctx->processingSvc(), m_ctx->store());
 
       auto *btn = m_win->findChild<QToolButton *>(QStringLiteral("processingButton"));
       QVERIFY(btn);
       QVERIFY(btn->menu());
+
+      // Top-bar companion controls wired by the same call.
+      QVERIFY(m_win->findChild<QWidget *>(QStringLiteral("paleoLocator")));
+      QVERIFY(m_win->findChild<QToolButton *>(QStringLiteral("saveButton")));
+      QVERIFY(m_win->findChild<QWidget *>(QStringLiteral("releasePanel")));
 
       QStringList flat;
       const auto walk = [&flat](QMenu *menu, auto &&self) -> void {

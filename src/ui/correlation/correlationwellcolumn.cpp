@@ -218,18 +218,29 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
         pm->setData(CorrelationItemRoles::TrackMnemonic, t.mnemonic());
       }
 
-      // Track caption ("GR · GAPI"; exactly the mnemonic when unitless),
-      // 8pt label token, at the top of its strip — child of the column item
-      // (legacy tests locate it via text-child walks on the column).
-      auto *cap = new QGraphicsSimpleTextItem(t.caption(), column);
+      // Track caption: the MNEMONIC as its own text item (legacy tests walk
+      // text children for exactly "GR"), with the unit as a smaller sibling
+      // beside it — both 8pt label token, top of the strip, children of the
+      // column item.
+      auto *cap = new QGraphicsSimpleTextItem(t.mnemonic(), column);
       QFont cf = cap->font();
       cf.setPointSize(8);
       cap->setFont(cf);
       cap->setBrush(QColor(QStringLiteral("#5D6E80")));
       const QRectF cb = cap->boundingRect();
-      const qreal capX = stripX + (m_trackWidth - cb.width()) / 2.0;
+      const qreal unitGap = t.unit().isEmpty() ? 0.0 : cb.width() + 3.0;
+      const qreal capX = stripX + (m_trackWidth - cb.width() - unitGap) / 2.0;
       cap->setPos(qMax(topLeft.x(), qMin(capX, topLeft.x() + width() - cb.width())),
                   bodyTop + 2.0);
+      if (!t.unit().isEmpty())
+      {
+        auto *uc = new QGraphicsSimpleTextItem(t.unit(), column);
+        QFont uf = uc->font();
+        uf.setPointSize(7);
+        uc->setFont(uf);
+        uc->setBrush(QColor(QStringLiteral("#9AA7B4"))); // text-disabled as a soft unit tag
+        uc->setPos(cap->x() + cb.width() + 3.0, bodyTop + 2.5);
+      }
 
       // 1px border-token separator before every track but the first.
       if (i > 0)

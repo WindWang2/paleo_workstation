@@ -178,20 +178,24 @@ class TestCorrWellColumn : public QObject
       }
       QVERIFY(headerFound);
 
-      // N caption children (one per track) + 1 header = 3 text children.
-      QCOMPARE(texts.size(), 3);
+      // N caption children (one per track) + 1 header + 1 unit tag = 4.
+      // Lead adjudication: the mnemonic renders as its OWN text item
+      // (legacy tests walk text children for exactly "GR") and the unit
+      // becomes a smaller sibling tag.
+      QCOMPARE(texts.size(), 4);
       const auto hasCaption = [&texts](const QString &s) {
         for (const auto *t : texts)
           if (t->text() == s)
             return true;
         return false;
       };
-      QVERIFY(hasCaption(QStringLiteral("GR · GAPI")));
+      QVERIFY(hasCaption(QStringLiteral("GR")));  // mnemonic-only caption item
+      QVERIFY(hasCaption(QStringLiteral("GAPI"))); // unit as its own 7pt tag
       QVERIFY(hasCaption(QStringLiteral("RHOB"))); // exactly the mnemonic, no unit
       for (const auto *t : texts)
-        if (t->text() != QStringLiteral("井1"))
+        if (t->text() != QStringLiteral("井1") && t->text() != QStringLiteral("GAPI"))
         {
-          QCOMPARE(t->font().pointSize(), 8);
+          QCOMPARE(t->font().pointSize(), 8); // mnemonic captions: label token
           QCOMPARE(t->brush().color(), QColor(QStringLiteral("#5D6E80")));
         }
 
@@ -355,7 +359,7 @@ class TestCorrWellColumn : public QObject
       QCOMPARE(lineChildren(column).size(), 1);          // separator still drawn
       bool grCaption = false;
       for (const auto *t : textChildren(column))
-        if (t->text() == QStringLiteral("GR · GAPI"))
+        if (t->text() == QStringLiteral("GR"))
           grCaption = true;
       QVERIFY(grCaption);
       if (renderableTracks(col, qRound(col.trackWidth()), 300, 1000.f, 2000.f) == 0)

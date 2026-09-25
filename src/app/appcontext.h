@@ -17,6 +17,7 @@ class SeismicMapLink;
 class PaleoProjectStore;
 class LayerManifest;
 class DataImportService;
+class QgisLayoutService;
 class PredictionWorkflow;
 class ConstraintWorkflow;
 class CompositionWorkflow;
@@ -42,6 +43,7 @@ class AppContext : public QObject
     PaleoProjectStore *store() const { return m_store; }
     LayerManifest *manifest() const { return m_manifest; }
     DataImportService *importSvc() const { return m_import; }
+    QgisLayoutService *layoutSvc() const { return m_layoutSvc; }
     PredictionWorkflow *predictionWf() const { return m_predictionWf; }
     ConstraintWorkflow *constraintWf() const { return m_constraintWf; }
     CompositionWorkflow *compositionWf() const { return m_compositionWf; }
@@ -61,6 +63,7 @@ class AppContext : public QObject
     PaleoProjectStore *m_store = nullptr;
     LayerManifest *m_manifest = nullptr;
     DataImportService *m_import = nullptr;
+    QgisLayoutService *m_layoutSvc = nullptr;
     PredictionWorkflow *m_predictionWf = nullptr;
     ConstraintWorkflow *m_constraintWf = nullptr;
     CompositionWorkflow *m_compositionWf = nullptr;

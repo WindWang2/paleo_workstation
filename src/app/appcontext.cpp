@@ -14,6 +14,7 @@
 #include "../metadata/layermanifest.h"
 #include "../qgis/manifestprojection.h"
 #include "../io/dataimportservice.h"
+#include "../qgis/qgislayoutservice.h"
 #include "../workflow/workflows.h"
 
 #include <QDir>
@@ -106,8 +107,13 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
                              QVariant::fromValue<QObject *>(m_selection));
 
   // Workflow orchestrators — thin bindings over the services above.
+  // Layout service rides the service-owned QgsProject (eager — valid already).
+  m_layoutSvc = new QgisLayoutService(m_projectSvc->project(), this);
+
+  // Workflow orchestrators — thin bindings over the services above.
   m_predictionWf = new PredictionWorkflow(m_procSvc, m_layerSvc, this);
   m_constraintWf = new ConstraintWorkflow(m_procSvc, m_layerSvc, this);
+  m_constraintWf->setStore(m_store); // GeoPackage constraint persistence (wave/constraint-gpkg)
   m_compositionWf = new CompositionWorkflow(m_procSvc, m_layerSvc, this);
   m_validationWf = new ValidationWorkflow(m_layerSvc, m_store, this);
 

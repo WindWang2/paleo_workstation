@@ -3,6 +3,7 @@
 #include "../qgis/qgiscanvascontroller.h"
 #include "../workflow/workflows.h"
 #include "maptools/paleomaptools.h"
+#include "maptools/paleoshapetools.h"
 
 #include <qgsadvanceddigitizingdockwidget.h>
 #include <qgsmapcanvas.h>
@@ -44,6 +45,12 @@ void ConstraintDrawController::startCapture( const QString &horizon,
     m_tool = new PaleoDrawRectTool( canvas, m_cadDock );
   else if ( shape == QLatin1String( "line" ) )
     m_tool = new PaleoDrawConstraintTool( canvas, m_cadDock );
+  else if ( shape == QLatin1String( "point" ) )
+    m_tool = new PaleoDrawPointTool( canvas, m_cadDock );
+  else if ( shape == QLatin1String( "circle" ) )
+    m_tool = new PaleoDrawCircleTool( canvas, m_cadDock );
+  else if ( shape == QLatin1String( "ellipse" ) )
+    m_tool = new PaleoDrawEllipseTool( canvas, m_cadDock );
   else
   {
     emit captureFailed( tr( "unknown constraint shape '%1'" ).arg( shape ) );

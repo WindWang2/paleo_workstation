@@ -66,6 +66,24 @@ add_library(paleo_core STATIC
   src/ui/releasepanel.cpp
   src/ui/taskpanel.cpp
   src/ui/attributetablepanel.cpp
+  # ---- merged worktree waves ----
+  src/io/segyreader.cpp                          # wave/segy
+  src/io/constraintstore.cpp                     # wave/constraint-gpkg
+  src/ui/maptools/paleoshapetools.cpp            # wave/shapetools
+  src/ui/edittools/editingtools.cpp              # wave/edit-tools
+  src/ui/edittools/editingundostack.cpp
+  src/ui/edittools/vertexeditortools.cpp
+  src/ui/edittools/editingtoolbar.cpp
+  src/ui/correlation/correlationtrack.cpp        # wave/correlation
+  src/ui/correlation/correlationwellcolumn.cpp
+  src/ui/correlation/curvebrowser.cpp
+  src/ui/correlation/depthruler.cpp
+  src/ui/correlation/horizonmarkers.cpp
+  src/ui/layout/layoutitempalette.cpp            # wave/layout-designer
+  src/ui/layout/layoutitempanel.cpp
+  src/ui/layout/layoutexportactions.cpp
+  src/ui/layout/layouttemplates.cpp
+  src/ui/layout/layoutundostack.cpp
 )
 target_link_libraries(paleo_core PUBLIC paleo_qgis_iface ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
@@ -124,6 +142,17 @@ add_paleo_test(tst_release)
 add_paleo_test(tst_releasepanel)
 add_paleo_test(tst_taskpanel)
 add_paleo_test(tst_attrpanel)
+# ---- merged worktree waves ----
+add_paleo_test(tst_segy)
+add_paleo_test(tst_constraintstore)
+add_paleo_test(tst_shapetools)
+add_paleo_test(tst_edittools)
+add_paleo_test(tst_correlation_full)
+add_paleo_test(tst_layoutpalette)
+add_paleo_test(tst_layoutitempanel)
+add_paleo_test(tst_layoutexport)
+add_paleo_test(tst_layoutundo)
+add_paleo_test(tst_layoutdesigner_full)
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx)
   add_paleo_test(tst_onnxworkflow)

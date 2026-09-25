@@ -17,6 +17,8 @@ class ValidationWorkflow;
 class DataImportService;
 class SeismicMapLink;
 class QgisProcessingService;
+class QgisLayoutService;
+class QgisEditingService;
 class PaleoProjectStore;
 class QCloseEvent;
 
@@ -55,7 +57,9 @@ class PaleoMainWindow : public QMainWindow
                          DataImportService *importSvc = nullptr,
                          SeismicMapLink *seismicLink = nullptr,
                          QgisProcessingService *procSvc = nullptr,
-                         PaleoProjectStore *store = nullptr);
+                         PaleoProjectStore *store = nullptr,
+                         QgisEditingService *editSvc = nullptr,
+                         QgisLayoutService *layoutSvc = nullptr);
 
   protected:
     void closeEvent(QCloseEvent *event) override;

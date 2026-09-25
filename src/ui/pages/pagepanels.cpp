@@ -347,6 +347,9 @@ ConstraintPage::ConstraintPage(ConstraintWorkflow *wf, QWidget *parent)
   shape->addItem(tr("约束线"), QStringLiteral("line"));
   shape->addItem(tr("约束多边形"), QStringLiteral("polygon"));
   shape->addItem(tr("约束矩形"), QStringLiteral("rect"));
+  shape->addItem(tr("约束点"), QStringLiteral("point"));
+  shape->addItem(tr("约束圆"), QStringLiteral("circle"));
+  shape->addItem(tr("约束椭圆"), QStringLiteral("ellipse"));
   lay->addWidget(shape);
 
   auto *draw = new QPushButton(tr("绘制约束"), this);

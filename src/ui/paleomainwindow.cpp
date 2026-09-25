@@ -20,6 +20,10 @@
 #include "constraintdrawcontroller.h"
 #include "correlationpanel.h"
 #include "seismicpreviewpanel.h"
+#include "layoutdesignershell.h"
+#include "edittools/editingtoolbar.h"
+#include "../qgis/qgislayoutservice.h"
+#include "../qgis/qgiseditingservice.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
@@ -485,7 +489,8 @@ void PaleoMainWindow::restoreCanvasExtent()
 void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                                       CompositionWorkflow *compose, ValidationWorkflow *validate,
                                       DataImportService *importSvc, SeismicMapLink *seismicLink,
-                                      QgisProcessingService *procSvc, PaleoProjectStore *store)
+                                      QgisProcessingService *procSvc, PaleoProjectStore *store,
+                                      QgisEditingService *editSvc, QgisLayoutService *layoutSvc)
 {
   auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost"));
   auto *stack = host ? static_cast<QStackedLayout *>(host->layout()) : nullptr;
@@ -553,7 +558,16 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     connect(importSvc, &DataImportService::imported, this,
             [this, importSvc, seismicPanel, corrPanel](const QString &kind, const QString &assetId, const QString &) {
               if (seismicPanel && kind == QLatin1String("seismic"))
-                seismicPanel->addSeismicAsset(assetId, importSvc->assetSource(assetId));
+              {
+                const QString src = importSvc->assetSource(assetId);
+                const QString abs = QDir(m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
+                                                      : QString()).absoluteFilePath(src);
+                if (src.endsWith(QLatin1String(".sgy"), Qt::CaseInsensitive) ||
+                    src.endsWith(QLatin1String(".segy"), Qt::CaseInsensitive))
+                  seismicPanel->loadLineFromFile(assetId, abs); // real SEG-Y traces
+                else
+                  seismicPanel->addSeismicAsset(assetId, src);
+              }
               if (corrPanel && kind == QLatin1String("wells"))
               {
                 QList<QPair<QString, QString>> wells;
@@ -572,9 +586,10 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
 
   if (pred && predictPage)
     connect(predictPage, &PredictPage::runRequested, this,
-            [this, pred](const QString &horizon, const QString &algId) {
+            [this, pred](const QString &horizon, const QString &algId,
+                         const QVariantMap &params) {
               QString err;
-              pred->runPrediction(horizon, algId, QVariantMap(), &err);
+              pred->runPrediction(horizon, algId, params, &err);
             });
 
   if (constraint && constraintPage)
@@ -826,6 +841,58 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
       topBar->layout()->addWidget(btn);
     }
   }
+
+  // 编辑 toolbar dock (wave/edit-tools): hosts the digitizing toolset —
+  // add/reshape/move/delete + vertex editing routed through the editing
+  // service; undo/redo follows the selected layer.
+  if (m_canvasCtl)
+  {
+    auto *editTb = new PaleoEditingToolbar(m_canvasCtl->canvas(), this);
+    editTb->setObjectName(QStringLiteral("editingToolbar"));
+    if (editSvc)
+      editTb->setEditingService(editSvc);
+    editTb->refreshFromProject();
+    connect(m_projectSvc, &QgisProjectService::projectOpened, editTb,
+            [editTb](const QString &) { editTb->refreshFromProject(); });
+    auto *editDock = new QDockWidget(tr("编辑"), this);
+    editDock->setObjectName(QStringLiteral("editToolbarDock"));
+    editDock->setWidget(editTb);
+    addDockWidget(Qt::TopDockWidgetArea, editDock);
+  }
+
+  // 图件设计 entry (wave/layout-designer): create a print layout via the
+  // layout service and open the designer shell dialog non-modally.
+  if (layoutSvc)
+    if (auto *topBar = findChild<QWidget *>(QStringLiteral("workflowTopBar")))
+    {
+      auto *designerBtn = new QToolButton(topBar);
+      designerBtn->setObjectName(QStringLiteral("designerButton"));
+      designerBtn->setText(tr("图件设计"));
+      designerBtn->setAccessibleName(tr("打开图件设计器"));
+      connect(designerBtn, &QToolButton::clicked, this, [this, layoutSvc] {
+        if (m_projectSvc->projectPath().isEmpty())
+        {
+          QgsMessageLog::logMessage(tr("无打开工程 — 无法创建布局"),
+                                  QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+          return;
+        }
+        static int s_layoutSeq = 0;
+        QString err;
+        QgsLayout *layout = layoutSvc->createLayout(
+            tr("布局 %1").arg(++s_layoutSeq), &err);
+        if (!layout)
+        {
+          QgsMessageLog::logMessage(tr("创建布局失败：%1").arg(err),
+                                  QStringLiteral("Paleo"), Qgis::MessageLevel::Critical);
+          return;
+        }
+        auto *shell = new PaleoLayoutDesignerShell(layout, this);
+        shell->setAttribute(Qt::WA_DeleteOnClose);
+        shell->setModal(false);
+        shell->show();
+      });
+      topBar->layout()->addWidget(designerBtn);
+    }
 
   // Re-sync visible page index with current tab.
   const int idx = kPageIds.indexOf(m_currentPage);

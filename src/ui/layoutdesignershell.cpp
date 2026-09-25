@@ -1,10 +1,10 @@
 #include "layoutdesignershell.h"
 
-#include "layoutexportactions.h"
-#include "layoutitempalette.h"
-#include "layoutitempanel.h"
-#include "layouttemplates.h"
-#include "layoutundostack.h"
+#include "layout/layoutexportactions.h"
+#include "layout/layoutitempalette.h"
+#include "layout/layoutitempanel.h"
+#include "layout/layouttemplates.h"
+#include "layout/layoutundostack.h"
 
 #include <QAction>
 #include <QDialog>

@@ -15,6 +15,7 @@ class ToolAvailabilityService;
 class SelectionContext;
 class PaleoProjectStore;
 class LayerManifest;
+class DataImportService;
 class PredictionWorkflow;
 class ConstraintWorkflow;
 class CompositionWorkflow;
@@ -38,6 +39,7 @@ class AppContext : public QObject
     SelectionContext *selection() const { return m_selection; }
     PaleoProjectStore *store() const { return m_store; }
     LayerManifest *manifest() const { return m_manifest; }
+    DataImportService *importSvc() const { return m_import; }
     PredictionWorkflow *predictionWf() const { return m_predictionWf; }
     ConstraintWorkflow *constraintWf() const { return m_constraintWf; }
     CompositionWorkflow *compositionWf() const { return m_compositionWf; }
@@ -55,6 +57,7 @@ class AppContext : public QObject
     SelectionContext *m_selection = nullptr;
     PaleoProjectStore *m_store = nullptr;
     LayerManifest *m_manifest = nullptr;
+    DataImportService *m_import = nullptr;
     PredictionWorkflow *m_predictionWf = nullptr;
     ConstraintWorkflow *m_constraintWf = nullptr;
     CompositionWorkflow *m_compositionWf = nullptr;

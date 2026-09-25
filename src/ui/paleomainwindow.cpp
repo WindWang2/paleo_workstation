@@ -7,6 +7,7 @@
 #include "../services/toolavailability.h"
 #include "../linkage/selectioncontext.h"
 #include "../workflow/workflows.h"
+#include "../io/dataimportservice.h"
 #include "pages/pagepanels.h"
 
 #include <qgsmapcanvas.h>
@@ -14,6 +15,7 @@
 #include <qgslayertree.h>
 #include <qgslayertreemodel.h>
 #include <qgslayertreeview.h>
+#include <qgsmessagelog.h>
 #include <qgsmessagelogviewer.h>
 
 #include <QApplication>
@@ -362,7 +364,8 @@ void PaleoMainWindow::onProjectOpened()
 }
 
 void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
-                                      CompositionWorkflow *compose, ValidationWorkflow *validate)
+                                      CompositionWorkflow *compose, ValidationWorkflow *validate,
+                                      DataImportService *importSvc)
 {
   auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost"));
   auto *stack = host ? static_cast<QStackedLayout *>(host->layout()) : nullptr;
@@ -391,6 +394,23 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
 
   // Panel intents → workflows / selection. Params stay minimal for the shell
   // milestone — full parameter dialogs are per-panel follow-up work.
+  if (importSvc && dataPage)
+    connect(dataPage, &DataPage::importRequested, this,
+            [this, importSvc](const QString &kind) {
+              const QString path = QFileDialog::getOpenFileName(
+                  this, tr("Import %1").arg(kind), QString(),
+                  kind == QLatin1String("seismic")
+                      ? tr("Seismic/vector files (*.sgy *.segy *.las *.csv *.gpkg *.shp);;All files (*)")
+                      : tr("Vector/log files (*.las *.csv *.gpkg *.shp *.tif *.img);;All files (*)"));
+              if (path.isEmpty())
+                return;
+              QString err;
+              const QString assetId = importSvc->importFile(kind, path, &err);
+              if (assetId.isEmpty())
+                QgsMessageLog::logMessage(tr("Import failed: %1").arg(err),
+                                        QStringLiteral("Paleo"), Qgis::Critical);
+            });
+
   if (pred && predictPage)
     connect(predictPage, &PredictPage::runRequested, this,
             [this, pred](const QString &horizon, const QString &algId) {

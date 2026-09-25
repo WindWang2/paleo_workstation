@@ -1,0 +1,28 @@
+#pragma once
+#include <QList>
+#include <QString>
+#include <QStringList>
+#include <QVector>
+
+// io/ — minimal LAS 2.x well-log parser (pure Qt, no QGIS dependency).
+// Handles the CWLS sections ~V (version/wrap), ~W (well info — the NULL item
+// drives NaN mapping), ~C (curve definitions in column order) and ~A (ASCII
+// data rows). The first ~C curve is the DEPT index channel.
+struct LasCurve
+{
+  QString name;             // mnemonic, e.g. "DEPT"
+  QString unit;             // e.g. "M"
+  QString descr;            // description text after ':'
+  QVector<double> values;   // one entry per ~A data row; NULL tokens -> NaN
+};
+
+class LasParser
+{
+  public:
+    // Reads `path`. On success returns true with curveNames + curves filled;
+    // every curve's values vector has the same length (the row count) and
+    // curves[0] is the depth index. On failure returns false and sets *error
+    // when non-null. Wrap mode (WRAP YES) is not supported.
+    static bool parse(const QString &path, QStringList &curveNames,
+                      QList<LasCurve> &curves, QString *error = nullptr);
+};

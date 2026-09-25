@@ -27,7 +27,7 @@ int main(int argc, char *argv[])
   PaleoMainWindow window(ctx.canvasCtl(), ctx.projectSvc(), ctx.layerSvc(),
                          ctx.toolSvc(), ctx.selection());
   window.attachWorkflows(ctx.predictionWf(), ctx.constraintWf(),
-                         ctx.compositionWf(), ctx.validationWf());
+                         ctx.compositionWf(), ctx.validationWf(), ctx.importSvc());
   window.show();
 
   // The QgsApplication built by the runtime is the live QApplication instance.

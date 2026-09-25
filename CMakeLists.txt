@@ -57,6 +57,9 @@ add_library(paleo_core STATIC
   src/ui/vertexeditorshim.cpp
   src/app/appcontext.cpp
   src/linkage/seismicmaplink.cpp
+  src/qgis/manifestprojection.cpp
+  src/io/dataimportservice.cpp
+  src/io/lasparser.cpp
 )
 target_link_libraries(paleo_core PUBLIC paleo_qgis_iface ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
@@ -105,6 +108,8 @@ add_paleo_test(tst_layoutshell)
 add_paleo_test(tst_maptools)
 add_paleo_test(tst_correlation)
 add_paleo_test(tst_decorations)
+add_paleo_test(tst_manifestproj)
+add_paleo_test(tst_import)
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx)
   set_tests_properties(tst_onnx PROPERTIES ENVIRONMENT

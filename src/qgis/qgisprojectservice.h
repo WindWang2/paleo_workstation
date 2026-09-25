@@ -2,6 +2,10 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QVector>
+#include <functional>
+
+#include "../metadata/layermanifest.h"
 
 class QgsProject;
 
@@ -23,6 +27,12 @@ class QgisProjectService : public QObject
     QString projectPath() const;
     QStringList lastErrors() const { return m_errors; }
 
+    // §37 projection hook: when set, writeProject() embeds the provider's
+    // declared set into the .qgz (ManifestProjection custom property) so the
+    // saved file describes all declarations, not just instantiated layers.
+    // Wire e.g. to QgisLayerService::declared() / LayerManifest::all().
+    void setDeclarationProvider(const std::function<QVector<LayerDeclaration>()> &provider);
+
   signals:
     void projectOpened(const QString &path);
     void projectWritten(const QString &path);
@@ -31,4 +41,5 @@ class QgisProjectService : public QObject
     QgsProject *m_project = nullptr;
     QString m_path;
     QStringList m_errors;
+    std::function<QVector<LayerDeclaration>()> m_declarationProvider;
 };

@@ -14,6 +14,7 @@ class PredictionWorkflow;
 class ConstraintWorkflow;
 class CompositionWorkflow;
 class ValidationWorkflow;
+class DataImportService;
 
 // ui/ — PaleoMainWindow: the five-page workflow shell (§42).
 // Anatomy: left = layer tree dock; center = canvas (+ startup page stacked under);
@@ -39,7 +40,8 @@ class PaleoMainWindow : public QMainWindow
     // Swap right-dock placeholder panels for the real page panels (§42.2),
     // bound to the workflow orchestrators. Call after AppContext assembly.
     void attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
-                         CompositionWorkflow *compose, ValidationWorkflow *validate);
+                         CompositionWorkflow *compose, ValidationWorkflow *validate,
+                         DataImportService *importSvc = nullptr);
 
   private:
     void buildShell();

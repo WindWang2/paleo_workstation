@@ -1,5 +1,7 @@
 #include "qgisprojectservice.h"
 
+#include "manifestprojection.h"
+
 #include <QFile>
 #include <QFileInfo>
 
@@ -85,6 +87,20 @@ bool QgisProjectService::writeProject()
     return false;
   }
 
+  // §37: mirror the manifest's declared set into project custom properties so
+  // the .qgz is a projection of ALL declarations — QgsProject::write() only
+  // persists instantiated layers. An embed failure fails the write: saving
+  // without the declared set would silently drop uninstantiated layers.
+  if ( m_declarationProvider )
+  {
+    QString embedError;
+    if ( !ManifestProjection::embedDeclarations( m_project, m_declarationProvider(), &embedError ) )
+    {
+      m_errors << tr( "Failed to embed manifest declarations: %1" ).arg( embedError );
+      return false;
+    }
+  }
+
   // Temp file lives in the same directory (required for atomic rename across
   // filesystems) and MUST keep the same suffix: QgsProject::write() picks the
   // zip (.qgz) vs xml (.qgs) storage backend from the filename extension.
@@ -124,4 +140,9 @@ bool QgisProjectService::writeProject()
 QString QgisProjectService::projectPath() const
 {
   return m_path;
+}
+
+void QgisProjectService::setDeclarationProvider( const std::function<QVector<LayerDeclaration>()> &provider )
+{
+  m_declarationProvider = provider;
 }

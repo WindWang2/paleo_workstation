@@ -11,6 +11,7 @@
 #include "../linkage/selectioncontext.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../metadata/layermanifest.h"
+#include "../io/dataimportservice.h"
 #include "../workflow/workflows.h"
 
 #include <QDir>
@@ -81,6 +82,12 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_manifest = new LayerManifest(QString());
   m_layerSvc = new QgisLayerService(m_projectSvc, m_manifest, this);
 
+  // §37: every project write embeds the full declared layer set so
+  // uninstantiated declarations survive the .qgz projection.
+  m_projectSvc->setDeclarationProvider([this]() { return m_layerSvc->declared(); });
+
+  m_import = new DataImportService(m_layerSvc, m_store, this);
+
   m_canvasCtl = new QgisCanvasController(this);
   m_procSvc = new QgisProcessingService(m_store, this);
   m_editSvc = new QgisEditingService(m_store, this);
@@ -107,6 +114,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               qWarning() << "AppContext: failed to open layer manifest" << metaPath << err;
 
             m_styleSvc->setStylesRoot(fi.absoluteDir().filePath(QStringLiteral("styles")));
+            m_import->setProjectDir(fi.absolutePath());
           });
 }
 

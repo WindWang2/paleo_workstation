@@ -5,9 +5,13 @@
 #include <QString>
 #include <qgslayoutdesignerinterface.h>
 
+class QAction;
 class QDockWidget;
+class QLabel;
 class QMenu;
 class QMenuBar;
+class QSpinBox;
+class QStatusBar;
 class QToolBar;
 class QgsFeature;
 class QgsLayout;
@@ -18,20 +22,36 @@ class QgsLayoutViewTool;
 class QgsMasterLayoutInterface;
 class QgsMessageBar;
 class PaleoLayoutDesignerShell;
+class PaleoLayoutExportActions;
+class PaleoLayoutItemPanel;
+class PaleoLayoutItemPalette;
+class PaleoLayoutTemplates;
+class PaleoLayoutUndoStack;
 
 // ui/ — PaleoLayoutDesignerShell: bespoke designer host per ET9 audit.
 // QGIS 4.x puts QgsLayoutDesignerInterface in qgis_gui precisely so embedders
 // can host the designer widgets without src/app. This shell implements the
 // interface surface minimally and hosts the gui-side view/ruler widgets.
-// The full chrome (item properties docks, atlas tools) is assembled
-// incrementally — P1 ships: view canvas + rulers + menus/toolbars + undo +
-// save/close; item docks land behind usage data.
 //
 // Structure mirrors upstream: like QgsAppLayoutDesignerInterface wrapping
 // QgsLayoutDesignerDialog, PaleoShellDesignerInterface is a QObject adapter
 // implementing QgsLayoutDesignerInterface over the PaleoLayoutDesignerShell
 // dialog (two QObject bases on one class is not viable — moc requires a
 // single QObject base).
+//
+// Subtask E composition (menu bar has EXACTLY four top-level menus):
+//   &File     export PNG/PDF/SVG, template save/load + built-in page setups,
+//             Close
+//   &Items    add-element actions sourced from the palette's GUI-registry
+//             metadata ids (same interactive path as the palette buttons),
+//             plus the page-properties entry
+//   &Layout   page navigation, an &Edit submenu (undo/redo via
+//             PaleoLayoutUndoStack), a &View submenu (rulers + zoom), and the
+//             &Atlas / &Report interface submenus
+//   &Settings reserved
+// The interface's seven menu accessors return real QMenus: layoutMenu() /
+// itemsMenu() / settingsMenu() are the top-level ones, editMenu() / viewMenu()
+// / atlasMenu() / reportMenu() are the Layout menu's submenus.
 
 class PaleoShellDesignerInterface : public QgsLayoutDesignerInterface
 {
@@ -101,7 +121,10 @@ class PaleoLayoutDesignerShell : public QDialog
     void setAtlasFeature( const QgsFeature &feature );
     void showItemOptions( QgsLayoutItem *item, bool bringPanelToFront = true );
 
-    // Menus — lazily created, real QMenu instances hosted in a QMenuBar.
+    // Menus — lazily created, real QMenu instances hosted in a QMenuBar whose
+    // top level is exactly File / Items / Layout / Settings. layoutMenu(),
+    // itemsMenu() and settingsMenu() ARE the Layout / Items / Settings top
+    // level menus; the other accessors return Layout's submenus.
     QMenu *layoutMenu();
     QMenu *editMenu();
     QMenu *viewMenu();
@@ -109,6 +132,9 @@ class PaleoLayoutDesignerShell : public QDialog
     QMenu *atlasMenu();
     QMenu *reportMenu();
     QMenu *settingsMenu();
+
+    //! The (non-interface) File top-level menu: export + template entries.
+    QMenu *fileMenu();
 
     // Toolbars — lazily created, real QToolBar instances in a toolbar row.
     QToolBar *layoutToolbar();
@@ -123,26 +149,52 @@ class PaleoLayoutDesignerShell : public QDialog
     // Standard tools — backed by real QgsLayoutViewTool instances.
     void activateTool( QgsLayoutDesignerInterface::StandardTool tool );
 
-    // No export pipeline yet — always nullptr.
-    QgsLayoutDesignerInterface::ExportResults *lastExportResults() const { return nullptr; }
+    // Null until the first successful export through the shell's export
+    // actions (the interface contract allows null when nothing was exported).
+    QgsLayoutDesignerInterface::ExportResults *lastExportResults() const { return m_lastExportResults; }
 
   public slots:
     void showRulers( bool visible );
 
   private:
+    void buildChrome();
+    void buildFileMenu();
+    void buildItemsMenu();
+    void buildLayoutMenu();
+    void connectLayoutSync();
+    void updatePageNavigator();
+    void gotoPage( int page );       //!< 0-based
+    void openPageProperties();
+    void refreshPanelAfterUndoRedo();
+
     QMenu *menuFor( QPointer<QMenu> &member, const QString &title );
+    QMenu *submenuFor( QPointer<QMenu> &member, QMenu *parent, const QString &title );
     QToolBar *toolBarFor( QPointer<QToolBar> &member, const QString &objectName );
 
     QgsLayout *m_layout = nullptr;
     PaleoShellDesignerInterface *m_iface = nullptr;
 
+    // --- subtask A/B/C/D components ----------------------------------------
+    PaleoLayoutItemPalette *m_palette = nullptr;      // left element palette
+    PaleoLayoutItemPanel *m_itemPanel = nullptr;      // right properties host
+    PaleoLayoutExportActions *m_exportActions = nullptr;
+    PaleoLayoutTemplates *m_templates = nullptr;
+    PaleoLayoutUndoStack *m_undoStack = nullptr;
+
     QgsLayoutView *m_view = nullptr;
     QgsMessageBar *m_messageBar = nullptr;
+    QStatusBar *m_statusBar = nullptr;
+
+    QLabel *m_pageLabel = nullptr;
+    QSpinBox *m_pageSpin = nullptr;
+    QAction *m_prevPageAction = nullptr;
+    QAction *m_nextPageAction = nullptr;
 
     QMenuBar *m_menuBar = nullptr;
     QWidget *m_toolBarRow = nullptr;
     QWidget *m_dockArea = nullptr;
 
+    QPointer<QMenu> m_fileMenu;
     QPointer<QMenu> m_layoutMenu;
     QPointer<QMenu> m_editMenu;
     QPointer<QMenu> m_viewMenu;
@@ -164,4 +216,6 @@ class PaleoLayoutDesignerShell : public QDialog
 
     QList<QPointer<QDockWidget>> m_extraDocks;
     bool m_atlasPreviewEnabled = false;
+
+    QgsLayoutDesignerInterface::ExportResults *m_lastExportResults = nullptr;
 };

@@ -1,6 +1,7 @@
 #include "workflows.h"
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header; symbol refs are PALEO_HAVE_ORT-guarded
+#include "../io/constraintstore.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
@@ -46,9 +47,36 @@ namespace
     return qobject_cast<QgisLayerService *>( wf->property( kLayersProp ).value<QObject *>() );
   }
 
+  const char kConstraintStoreProp[]      = "paleo.wf.constraintstore";      // void* (ConstraintStore*)
+  const char kOwnedConstraintStoreProp[] = "paleo.wf.owned_constraintstore"; // void* (ConstraintStore*)
+
   PaleoProjectStore *storeOf( const QObject *wf )
   {
     return qobject_cast<PaleoProjectStore *>( wf->property( kStoreProp ).value<QObject *>() );
+  }
+
+  ConstraintStore *constraintStoreOf( const QObject *wf )
+  {
+    QVariant v = wf->property( kConstraintStoreProp );
+    if ( v.isValid() && v.value<void *>() )
+      return static_cast<ConstraintStore *>( v.value<void *>() );
+
+    PaleoProjectStore *store = storeOf( wf );
+    if ( store && !store->gpkgPath().isEmpty() )
+    {
+      QVariant ov = wf->property( kOwnedConstraintStoreProp );
+      if ( ov.isValid() && ov.value<void *>() )
+      {
+        auto *owned = static_cast<ConstraintStore *>( ov.value<void *>() );
+        if ( owned->gpkgPath() == store->gpkgPath() )
+          return owned;
+        delete owned;
+      }
+      auto *owned = new ConstraintStore( store->gpkgPath(), store );
+      const_cast<QObject *>( wf )->setProperty( kOwnedConstraintStoreProp, QVariant::fromValue( static_cast<void *>( owned ) ) );
+      return owned;
+    }
+    return nullptr;
   }
 
 #if PALEO_HAVE_ORT
@@ -297,6 +325,26 @@ ConstraintWorkflow::ConstraintWorkflow( QgisProcessingService *proc, QgisLayerSe
   : QObject( parent )
 {
   bindProcessing( this, proc, layers );
+  connect( this, &QObject::destroyed, [this]() {
+    QVariant ov = property( kOwnedConstraintStoreProp );
+    if ( ov.isValid() && ov.value<void *>() )
+      delete static_cast<ConstraintStore *>( ov.value<void *>() );
+  } );
+}
+
+void ConstraintWorkflow::setConstraintStore( ConstraintStore *store )
+{
+  setProperty( kConstraintStoreProp, QVariant::fromValue( static_cast<void *>( store ) ) );
+}
+
+void ConstraintWorkflow::setStore( PaleoProjectStore *store )
+{
+  setProperty( kStoreProp, QVariant::fromValue( static_cast<QObject *>( store ) ) );
+}
+
+ConstraintStore *ConstraintWorkflow::constraintStore() const
+{
+  return constraintStoreOf( this );
 }
 
 bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &wkt,
@@ -324,14 +372,44 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
   c.wkt = wkt;
   c.targetFaciesCode = faciesCode;
 
+  ConstraintStore *cs = constraintStoreOf( this );
+  if ( cs )
+  {
+    if ( !cs->append( horizon, c.id, wkt, type, faciesCode, error ) )
+      return false;
+
+    QVariantList constraints = property( kConstraintsProp ).toList();
+    QVariantMap rec = c.toMap();
+    rec.insert( QStringLiteral( "horizon" ), horizon );
+    rec.insert( QStringLiteral( "facies_code" ), faciesCode );
+    constraints.append( rec );
+
+    LayerDeclaration decl;
+    decl.layerId = QStringLiteral( "constraints.%1" ).arg( horizon );
+    decl.horizon = horizon;
+    decl.type = QStringLiteral( "vector" );
+    decl.source = QStringLiteral( "%1|layername=constraints|subset=horizon='%2'" )
+                      .arg( cs->gpkgPath(), horizon );
+    decl.group = QStringLiteral( "02_Constraints" );
+    if ( !layers->declare( decl, error ) )
+    {
+      cs->remove( c.id );
+      return false;
+    }
+
+    setProperty( kConstraintsProp, constraints );
+    if ( constraintIdOut )
+      *constraintIdOut = c.id;
+    emit constraintAdded( c.id );
+    return true;
+  }
+
+  // Fallback when no store is configured (preserves memory-layer compatibility)
   QVariantList constraints = property( kConstraintsProp ).toList();
   QVariantMap rec = c.toMap();
-  rec.insert( QStringLiteral( "horizon" ), horizon ); // Constraint has no horizon field — tag it here.
+  rec.insert( QStringLiteral( "horizon" ), horizon );
   constraints.append( rec );
 
-  // Persist as a per-horizon constraints layer declaration. The memory
-  // pseudo-source embeds the accumulated WKT payloads so the geometry set
-  // round-trips through the manifest until real constraint storage lands.
   QStringList wkts;
   for ( const QVariant &v : constraints )
   {
@@ -348,7 +426,7 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
   decl.group = QStringLiteral( "02_Constraints" );
   if ( !layers->declare( decl, error ) )
   {
-    constraints.removeLast(); // keep the in-memory list consistent with the manifest
+    constraints.removeLast();
     setProperty( kConstraintsProp, constraints );
     return false;
   }
@@ -358,6 +436,94 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
     *constraintIdOut = c.id;
   emit constraintAdded( c.id );
   return true;
+}
+
+QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon )
+{
+  ConstraintStore *cs = constraintStoreOf( this );
+  if ( !cs )
+  {
+    QVariantList list = property( kConstraintsProp ).toList();
+    QVector<QVariantMap> res;
+    for ( const QVariant &v : list )
+    {
+      const QVariantMap m = v.toMap();
+      if ( horizon.isEmpty() || m.value( QStringLiteral( "horizon" ) ).toString() == horizon )
+        res.append( m );
+    }
+    return res;
+  }
+
+  QVector<QVariantMap> loaded = cs->load( horizon );
+
+  QVariantList constraints = property( kConstraintsProp ).toList();
+  if ( horizon.isEmpty() )
+  {
+    constraints.clear();
+  }
+  else
+  {
+    for ( int i = constraints.size() - 1; i >= 0; --i )
+    {
+      if ( constraints.at( i ).toMap().value( QStringLiteral( "horizon" ) ).toString() == horizon )
+        constraints.removeAt( i );
+    }
+  }
+
+  int maxSeq = property( kSeqProp ).toInt();
+  for ( const QVariantMap &rec : loaded )
+  {
+    constraints.append( rec );
+    const QString id = rec.value( QStringLiteral( "id" ) ).toString();
+    if ( id.startsWith( QStringLiteral( "c-" ) ) )
+    {
+      bool ok = false;
+      int num = id.mid( 2 ).toInt( &ok );
+      if ( ok && num > maxSeq )
+        maxSeq = num;
+    }
+  }
+  setProperty( kConstraintsProp, constraints );
+  setProperty( kSeqProp, maxSeq );
+
+  QgisLayerService *layers = layersOf( this );
+  if ( layers && !loaded.isEmpty() )
+  {
+    if ( !horizon.isEmpty() )
+    {
+      LayerDeclaration decl;
+      decl.layerId = QStringLiteral( "constraints.%1" ).arg( horizon );
+      decl.horizon = horizon;
+      decl.type = QStringLiteral( "vector" );
+      decl.source = QStringLiteral( "%1|layername=constraints|subset=horizon='%2'" )
+                        .arg( cs->gpkgPath(), horizon );
+      decl.group = QStringLiteral( "02_Constraints" );
+      layers->declare( decl );
+    }
+    else
+    {
+      QSet<QString> horizons;
+      for ( const QVariantMap &rec : loaded )
+      {
+        const QString h = rec.value( QStringLiteral( "horizon" ) ).toString();
+        if ( !h.isEmpty() )
+          horizons.insert( h );
+      }
+      for ( const QString &h : horizons )
+      {
+        LayerDeclaration decl;
+        decl.layerId = QStringLiteral( "constraints.%1" ).arg( h );
+        decl.horizon = h;
+        decl.type = QStringLiteral( "vector" );
+        decl.source = QStringLiteral( "%1|layername=constraints|subset=horizon='%2'" )
+                          .arg( cs->gpkgPath(), h );
+        decl.group = QStringLiteral( "02_Constraints" );
+        layers->declare( decl );
+      }
+    }
+  }
+
+  return loaded;
 }
 
 bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString &pointsLayerId,

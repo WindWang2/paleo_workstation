@@ -3,6 +3,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
+#include <QVector>
 #include "../domain/types.h"
 
 class QgisProcessingService;
@@ -10,6 +11,7 @@ class QgisLayerService;
 class SelectionContext;
 class PaleoProjectStore;
 class PaleoOnnxService;
+class ConstraintStore;
 struct ValidationIssue;
 
 // workflow/ — thin orchestrators binding UI actions to services/algorithms.
@@ -44,8 +46,13 @@ class ConstraintWorkflow : public QObject
   Q_OBJECT
   public:
     explicit ConstraintWorkflow(QgisProcessingService *proc, QgisLayerService *layers, QObject *parent = nullptr);
+    void setConstraintStore(ConstraintStore *store);
+    void setStore(PaleoProjectStore *store);
+    ConstraintStore *constraintStore() const;
+
     bool addConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
                        QString *error = nullptr, QString *constraintIdOut = nullptr);
+    QVector<QVariantMap> loadConstraints(const QString &horizon = QString());
     bool runConstraintIDW(const QString &horizon, const QString &pointsLayerId, const QString &field,
                           double cellSize, QString *error = nullptr);
   signals:

@@ -1,5 +1,6 @@
 #include "workflows.h"
 
+#include "../ai/onnxpredictionservice.h" // ORT-free header; symbol refs are PALEO_HAVE_ORT-guarded
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
@@ -24,6 +25,7 @@ namespace
 {
   const char kProcProp[]        = "paleo.wf.proc";        // QObject* (QgisProcessingService)
   const char kLayersProp[]      = "paleo.wf.layers";      // QObject* (QgisLayerService)
+  const char kOnnxProp[]        = "paleo.wf.onnx";        // QObject* (PaleoOnnxService)
   const char kStoreProp[]       = "paleo.wf.store";       // QObject* (PaleoProjectStore)
   const char kConstraintsProp[] = "paleo.wf.constraints"; // QVariantList of QVariantMap (Constraint::toMap + "horizon")
   const char kSeqProp[]         = "paleo.wf.seq";         // int — constraint id sequence
@@ -48,6 +50,15 @@ namespace
   {
     return qobject_cast<PaleoProjectStore *>( wf->property( kStoreProp ).value<QObject *>() );
   }
+
+#if PALEO_HAVE_ORT
+  // PaleoOnnxService methods exist only when the vendored runtime is linked;
+  // every call site below is guarded the same way so !ORT builds still link.
+  PaleoOnnxService *onnxOf( const QObject *wf )
+  {
+    return qobject_cast<PaleoOnnxService *>( wf->property( kOnnxProp ).value<QObject *>() );
+  }
+#endif
 
   void bindProcessing( QObject *wf, QgisProcessingService *proc, QgisLayerService *layers )
   {
@@ -121,9 +132,113 @@ PredictionWorkflow::PredictionWorkflow( QgisProcessingService *proc, QgisLayerSe
   bindProcessing( this, proc, layers );
 }
 
+void PredictionWorkflow::setOnnxService( PaleoOnnxService *onnx )
+{
+  setProperty( kOnnxProp, QVariant::fromValue( static_cast<QObject *>( onnx ) ) );
+}
+
+QStringList PredictionWorkflow::availableAlgorithms() const
+{
+  QStringList ids;
+  if ( const QgisProcessingService *proc = procOf( this ) )
+    ids = proc->paleoAlgorithmIds();
+#if PALEO_HAVE_ORT
+  if ( const PaleoOnnxService *onnx = onnxOf( this ) )
+    for ( const QString &model : onnx->availableModels() )
+      ids << QStringLiteral( "onnx:%1" ).arg( model );
+#endif
+  return ids;
+}
+
 bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &algorithmId,
                                         const QVariantMap &params, QString *error )
 {
+#if PALEO_HAVE_ORT
+  // "onnx:<model>" dispatches to PaleoOnnxService; every other id falls
+  // through to the Processing-registry path below untouched.
+  if ( algorithmId.startsWith( QLatin1String( "onnx:" ) ) )
+  {
+    const QString model = algorithmId.mid( 5 );
+    QgisLayerService *layers = layersOf( this );
+    PaleoOnnxService *onnx = onnxOf( this );
+
+    const auto fail = [this, &horizon, error]( const QString &msg ) {
+      setError( error, msg );
+      emit predictionFailed( horizon, msg );
+      return false;
+    };
+    if ( !layers )
+      return fail( tr( "prediction workflow is not bound to a layer service" ) );
+    if ( !onnx )
+      return fail( tr( "no ONNX service bound; cannot run '%1'" ).arg( algorithmId ) );
+    if ( model.isEmpty() )
+      return fail( tr( "onnx algorithm id '%1' carries no model name" ).arg( algorithmId ) );
+    if ( onnx->loadedModel() != model && !onnx->loadModel( model, error ) )
+      return fail( ( error && !error->isEmpty() )
+                       ? *error
+                       : tr( "failed to load ONNX model '%1'" ).arg( model ) );
+
+    // params-derived tensors; defaults keep toy-model runs trivial:
+    // input {0}, shape {1}, inputName "x".
+    QVector<float> input;
+    const QVariantList inVals = params.value( QStringLiteral( "input" ) ).toList();
+    if ( inVals.isEmpty() )
+      input.append( 0.0f );
+    else
+      for ( const QVariant &v : inVals )
+        input.append( v.toFloat() );
+
+    QVector<int64_t> shape;
+    const QVariantList shapeVals = params.value( QStringLiteral( "shape" ) ).toList();
+    if ( shapeVals.isEmpty() )
+      shape.append( 1 );
+    else
+      for ( const QVariant &v : shapeVals )
+        shape.append( static_cast<int64_t>( v.toLongLong() ) );
+
+    QString inputName = params.value( QStringLiteral( "inputName" ) ).toString();
+    if ( inputName.isEmpty() )
+      inputName = QStringLiteral( "x" );
+
+    const QVector<float> out = onnx->run( inputName, input, shape, error );
+    if ( out.isEmpty() )
+      return fail( ( error && !error->isEmpty() )
+                       ? *error
+                       : tr( "ONNX model '%1' produced no output" ).arg( model ) );
+
+    // Declare via the same QgisLayerService path Processing results use; the
+    // memory pseudo-source encodes the output floats for inspection until
+    // real ONNX output materialization lands (same trick as constraints WKT).
+    QStringList encoded;
+    encoded.reserve( out.size() );
+    for ( const float v : out )
+      encoded << QString::number( static_cast<double>( v ), 'g', 7 );
+
+    LayerDeclaration decl;
+    decl.layerId = QStringLiteral( "pred.%1.onnx.%2" ).arg( horizon, model );
+    decl.horizon = horizon;
+    decl.type = QStringLiteral( "vector" );
+    decl.source = QStringLiteral( "memory|onnx|%1|%2" )
+                      .arg( model, encoded.join( QLatin1Char( ',' ) ) );
+    decl.group = QStringLiteral( "03_Predict" );
+    if ( !layers->declare( decl, error ) )
+      return fail( ( error && !error->isEmpty() )
+                       ? *error
+                       : tr( "failed to declare result layer '%1'" ).arg( decl.layerId ) );
+
+    emit predictionDone( horizon, decl.layerId );
+    return true;
+  }
+#else
+  if ( algorithmId.startsWith( QLatin1String( "onnx:" ) ) )
+  {
+    const QString msg = tr( "cannot run '%1': this build lacks ONNX Runtime" ).arg( algorithmId );
+    setError( error, msg );
+    emit predictionFailed( horizon, msg );
+    return false;
+  }
+#endif
+
   QgisProcessingService *proc = procOf( this );
   QgisLayerService *layers = layersOf( this );
   if ( !proc || !layers )

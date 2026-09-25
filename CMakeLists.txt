@@ -117,7 +117,8 @@ add_paleo_test(tst_seismicpanel)
 add_paleo_test(tst_procdialog)
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx)
-  set_tests_properties(tst_onnx PROPERTIES ENVIRONMENT
+  add_paleo_test(tst_onnxworkflow)
+  set_tests_properties(tst_onnx tst_onnxworkflow PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;LD_LIBRARY_PATH=${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()
 

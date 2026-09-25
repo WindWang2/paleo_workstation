@@ -23,8 +23,10 @@
 #include <qgsmessagelogviewer.h>
 
 #include <QApplication>
+#include <QDir>
 #include <QDockWidget>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -435,7 +437,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
             });
     // Imported assets feed the bottom-dock panels.
     connect(importSvc, &DataImportService::imported, this,
-            [importSvc, seismicPanel, corrPanel](const QString &kind, const QString &assetId, const QString &) {
+            [this, importSvc, seismicPanel, corrPanel](const QString &kind, const QString &assetId, const QString &) {
               if (seismicPanel && kind == QLatin1String("seismic"))
                 seismicPanel->addSeismicAsset(assetId, importSvc->assetSource(assetId));
               if (corrPanel && kind == QLatin1String("wells"))
@@ -444,6 +446,13 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 for (const QString &id : importSvc->assets(QStringLiteral("wells")))
                   wells.append({id, importSvc->assetSource(id)});
                 corrPanel->setWells(wells);
+                // LAS imports pull the GR curve into the column when present.
+                const QString src = importSvc->assetSource(assetId);
+                if (src.endsWith(QLatin1String(".las"), Qt::CaseInsensitive))
+                  corrPanel->loadWellLas(assetId,
+                                         QDir(m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
+                                                           : QString()).absoluteFilePath(src),
+                                         QStringLiteral("GR"));
               }
             });
 

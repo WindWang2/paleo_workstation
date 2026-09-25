@@ -9,6 +9,7 @@ class QgisProcessingService;
 class QgisLayerService;
 class SelectionContext;
 class PaleoProjectStore;
+class PaleoOnnxService;
 struct ValidationIssue;
 
 // workflow/ — thin orchestrators binding UI actions to services/algorithms.
@@ -22,6 +23,15 @@ class PredictionWorkflow : public QObject
   Q_OBJECT
   public:
     explicit PredictionWorkflow(QgisProcessingService *proc, QgisLayerService *layers, QObject *parent = nullptr);
+
+    // Binds the ONNX inference service. Each model under its root is exposed
+    // as an "onnx:<model>" algorithm id routed through PaleoOnnxService
+    // instead of the Processing registry (no-op hook when built without ORT).
+    void setOnnxService(PaleoOnnxService *onnx);
+    // Runnable algorithm ids: "paleo:*" from the Processing registry plus
+    // "onnx:<model>" per PaleoOnnxService::availableModels().
+    QStringList availableAlgorithms() const;
+
     bool runPrediction(const QString &horizon, const QString &algorithmId, const QVariantMap &params, QString *error = nullptr);
   signals:
     void predictionDone(const QString &horizon, const QString &resultLayerId);

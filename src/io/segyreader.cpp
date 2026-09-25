@@ -133,8 +133,11 @@ bool SegyReader::open(const QString &path, QString *error)
   }
   m_firstTraceOffset = offset;
 
-  // inline/crossline 道头位置探测：先按标准字节 189/193；该位置读出来在首段
-  // 道里完全不变时，再试本工区体使用的 9/21（inline=field record、crossline=CDP）。
+  // inline/crossline 道头固定为标准位（plan §2）：偏移 188/192（SEG-Y 1-based
+  // 字节 189/193）。本工区文件偏移 188 恒为 0——该字在首段不变时按道号索引：
+  //   inline = base + 道号/N（N = 一条 inline 的道数），crossline = 该道 CDP
+  //   （偏移 20）。不回退去读偏移 8/20；道数、CDP 顺序、角点对不上就停止，
+  //   并排报出期望值和读到的值。
   const qint64 traceStride = 240 + static_cast<qint64>(m_samplesPerTrace) * 4;
   const int probeCount = qMin<qint64>(4096, (fileSize - offset) / traceStride);
   auto fieldVaries = [&](int fieldOff) -> bool {
@@ -157,21 +160,16 @@ bool SegyReader::open(const QString &path, QString *error)
     }
     return varies;
   };
-  int inlineOff = 188, xlineOff = 192; // 标准位（plan：crossline 默认字节 193）
-  if (!fieldVaries(inlineOff))
-  {
-    // 9/21 也无变化时维持标准位（旧合成件 lineNo 全 0 的回退语义不变）。
-    if (fieldVaries(8) || fieldVaries(20))
-    {
-      inlineOff = 8;
-      xlineOff = 20;
-    }
-  }
+  const bool ordinalIndex = !fieldVaries(188);
+  const int binEnsTraces = beI16(bin + 12); // 二进制头字节 13-14：每条 inline 道数
 
   // 索引道：只读 240 字节道头；样本区用 seek 跳过——打开内存不随体增长。
   uchar trHdr[240];
   bool sawTrace = false;
   double delayMs = 0.0;
+  qint32 firstLineWord = 0; // ordinal 模式：偏移 188 的恒定值（inline 起点兜底）
+  qint32 firstFieldRec = 0; // ordinal 模式：首道 field record（偏移 8）= inline 起点
+  QVector<double> ordX, ordY; // ordinal 模式的坐标序列（一致性校验 + 角点）
   while (offset + 240 <= fileSize)
   {
     if (!file.seek(offset) || file.read(reinterpret_cast<char *>(trHdr), 240) != 240)
@@ -215,42 +213,80 @@ bool SegyReader::open(const QString &path, QString *error)
 
     IndexEntry e;
     e.offset = offset;
-    e.inlineNo = beI32(trHdr + inlineOff); // 探测出的 inline 字节位
-    e.xlineNo = beI32(trHdr + xlineOff);  // crossline 字节位
     if (!sawTrace)
     {
       sawTrace = true;
       delayMs = static_cast<double>(beI16(trHdr + 108)); // 字节 109-110
     }
 
-    // survey 几何冻结：范围 + 四角 (x,y)（CDP 坐标，字节 181-188）。
-    const double cx = static_cast<double>(beI32(trHdr + 180));
-    const double cy = static_cast<double>(beI32(trHdr + 184));
-    if (m_index.isEmpty())
+    // survey 坐标（角点）：道头偏移 180/184 的整数米（plan §2）。比例因子
+    // （偏移 70）为 0 或 1 都按原值取整数；正值乘、负值除。
+    const qint16 scal = beI16(trHdr + 70);
+    const double coordScale =
+        (scal == 0 || scal == 1) ? 1.0
+                                 : (scal > 0 ? static_cast<double>(scal)
+                                             : 1.0 / -static_cast<double>(scal));
+    const double cx = static_cast<double>(beI32(trHdr + 180)) * coordScale;
+    const double cy = static_cast<double>(beI32(trHdr + 184)) * coordScale;
+
+    if (ordinalIndex)
     {
-      m_geometry.inlineMin = m_geometry.inlineMax = e.inlineNo;
-      m_geometry.xlineMin = m_geometry.xlineMax = e.xlineNo;
-      m_geometry.cornerX[0] = m_geometry.cornerX[1] = m_geometry.cornerX[2] = m_geometry.cornerX[3] = cx;
-      m_geometry.cornerY[0] = m_geometry.cornerY[1] = m_geometry.cornerY[2] = m_geometry.cornerY[3] = cy;
+      // 探测段内偏移 188 不变才进这条路；半路再变说明探测段不代表全文件，
+      // 按 plan 报出期望值和读到的值后停止，不改读别的字节。
+      const qint32 lineWord = beI32(trHdr + 188);
+      if (m_index.isEmpty())
+      {
+        firstLineWord = lineWord;
+        firstFieldRec = beI32(trHdr + 8); // 道号索引的 inline 起点（本文件 1315）
+      }
+      else if (lineWord != firstLineWord)
+      {
+        if (error)
+          *error = QStringLiteral("inline word at trace-header offset 188 must stay constant for "
+                                  "ordinal indexing: expected %1, read %2 at trace %3")
+                       .arg(firstLineWord)
+                       .arg(lineWord)
+                       .arg(m_index.size());
+        m_index.clear();
+        return false;
+      }
+      e.inlineNo = 0;                 // 占位：收尾统一按道号赋值
+      e.xlineNo = beI32(trHdr + 20); // crossline = 该道 CDP（plan §2）
+      ordX.append(cx);
+      ordY.append(cy);
     }
     else
     {
-      if (e.inlineNo < m_geometry.inlineMin)
-        m_geometry.inlineMin = e.inlineNo;
-      if (e.inlineNo > m_geometry.inlineMax)
-        m_geometry.inlineMax = e.inlineNo;
-      if (e.xlineNo < m_geometry.xlineMin)
-        m_geometry.xlineMin = e.xlineNo;
-      if (e.xlineNo > m_geometry.xlineMax)
-        m_geometry.xlineMax = e.xlineNo;
+      e.inlineNo = beI32(trHdr + 188); // 标准 inline 字节位（1-based 字节 189）
+      e.xlineNo = beI32(trHdr + 192); // 标准 crossline 字节位（1-based 字节 193）
+
+      // survey 几何冻结：范围 + 四角 (x,y)。
+      if (m_index.isEmpty())
+      {
+        m_geometry.inlineMin = m_geometry.inlineMax = e.inlineNo;
+        m_geometry.xlineMin = m_geometry.xlineMax = e.xlineNo;
+        m_geometry.cornerX[0] = m_geometry.cornerX[1] = m_geometry.cornerX[2] = m_geometry.cornerX[3] = cx;
+        m_geometry.cornerY[0] = m_geometry.cornerY[1] = m_geometry.cornerY[2] = m_geometry.cornerY[3] = cy;
+      }
+      else
+      {
+        if (e.inlineNo < m_geometry.inlineMin)
+          m_geometry.inlineMin = e.inlineNo;
+        if (e.inlineNo > m_geometry.inlineMax)
+          m_geometry.inlineMax = e.inlineNo;
+        if (e.xlineNo < m_geometry.xlineMin)
+          m_geometry.xlineMin = e.xlineNo;
+        if (e.xlineNo > m_geometry.xlineMax)
+          m_geometry.xlineMax = e.xlineNo;
+      }
+      // 四角 slot：(inlMin,xlMin)=0 (inlMin,xlMax)=1 (inlMax,xlMax)=2 (inlMax,xlMin)=3。
+      // 中点二分近似——对整齐测网（inline/xline 单调）即精确四角。
+      const bool iLo = e.inlineNo * 2 <= m_geometry.inlineMin + m_geometry.inlineMax;
+      const bool xLo = e.xlineNo * 2 <= m_geometry.xlineMin + m_geometry.xlineMax;
+      const int slot = iLo ? (xLo ? 0 : 1) : (xLo ? 3 : 2);
+      m_geometry.cornerX[slot] = cx;
+      m_geometry.cornerY[slot] = cy;
     }
-    // 四角 slot：(inlMin,xlMin)=0 (inlMin,xlMax)=1 (inlMax,xlMax)=2 (inlMax,xlMin)=3。
-    // 中点二分近似——对整齐测网（inline/xline 单调）即精确四角。
-    const bool iLo = e.inlineNo * 2 <= m_geometry.inlineMin + m_geometry.inlineMax;
-    const bool xLo = e.xlineNo * 2 <= m_geometry.xlineMin + m_geometry.xlineMax;
-    const int slot = iLo ? (xLo ? 0 : 1) : (xLo ? 3 : 2);
-    m_geometry.cornerX[slot] = cx;
-    m_geometry.cornerY[slot] = cy;
 
     m_index.append(e);
     offset += 240 + static_cast<qint64>(ns) * 4;
@@ -260,6 +296,117 @@ bool SegyReader::open(const QString &path, QString *error)
     if (error)
       *error = QStringLiteral("File contains 0 traces");
     return false;
+  }
+
+  if (ordinalIndex)
+  {
+    // 偏移 188 全程不变 → 按道号索引（plan §2）：inline = base + 道号/N，
+    // crossline = 该道 CDP。道数、CDP 顺序、角点对不上就报数停止。
+    const int n = m_index.size();
+
+    // N = 一条 inline 的道数：CDP 序列首次回落处；全程不回落 → 全文件一条线。
+    int perLine = n;
+    for (int i = 1; i < n; ++i)
+    {
+      if (m_index.at(i).xlineNo < m_index.at(i - 1).xlineNo)
+      {
+        perLine = i;
+        break;
+      }
+    }
+    // 二进制头字节 13-14 声明的每条 inline 道数若与 CDP 回落不符 → 对不上。
+    if (binEnsTraces > 0 && binEnsTraces != perLine)
+    {
+      if (error)
+        *error = QStringLiteral("traces-per-inline mismatch: binary header declares %1, CDP order gives %2")
+                     .arg(binEnsTraces)
+                     .arg(perLine);
+      m_index.clear();
+      return false;
+    }
+    // 道数：总道数必须是每条 inline 道数的整数倍（残线属截断）。
+    if (n % perLine != 0)
+    {
+      if (error)
+        *error = QStringLiteral("trace count mismatch: expected a multiple of %1 traces per inline, read %2 traces")
+                     .arg(perLine)
+                     .arg(n);
+      m_index.clear();
+      return false;
+    }
+    // CDP 顺序：后续每条线必须重复第一条线的 CDP 序列。
+    for (int i = perLine; i < n; ++i)
+    {
+      if (m_index.at(i).xlineNo != m_index.at(i - perLine).xlineNo)
+      {
+        if (error)
+          *error = QStringLiteral("CDP order mismatch at trace %1: expected %2 (first line at same position), read %3")
+                       .arg(i)
+                       .arg(m_index.at(i - perLine).xlineNo)
+                       .arg(m_index.at(i).xlineNo);
+        m_index.clear();
+        return false;
+      }
+    }
+    // 角点一致性：线内 x 不减、随线号 y 不减（整齐测网的结构校验）。
+    for (int i = 1; i < n; ++i)
+    {
+      if (i % perLine != 0 && ordX.at(i) < ordX.at(i - 1))
+      {
+        if (error)
+          *error = QStringLiteral("corner coordinate mismatch at trace %1: expected x >= %2, read %3")
+                       .arg(i)
+                       .arg(ordX.at(i - 1))
+                       .arg(ordX.at(i));
+        m_index.clear();
+        return false;
+      }
+      if (i >= perLine && ordY.at(i) < ordY.at(i - perLine))
+      {
+        if (error)
+          *error = QStringLiteral("corner coordinate mismatch at trace %1: expected y >= %2, read %3")
+                       .arg(i)
+                       .arg(ordY.at(i - perLine))
+                       .arg(ordY.at(i));
+        m_index.clear();
+        return false;
+      }
+    }
+
+    // inline = base + 道号/N：base 取首道 field record（本文件 = 1315），
+    // field record 为空时退回偏移 188 的恒定值。
+    const qint32 base = firstFieldRec != 0 ? firstFieldRec : firstLineWord;
+    const int lines = n / perLine;
+    for (int i = 0; i < n; ++i)
+      m_index[i].inlineNo = base + i / perLine;
+
+    m_geometry.inlineMin = base;
+    m_geometry.inlineMax = base + lines - 1;
+    m_geometry.xlineMin = m_index.first().xlineNo;
+    m_geometry.xlineMax = m_index.first().xlineNo;
+    for (int i = 0; i < n; ++i)
+    {
+      if (m_index.at(i).xlineNo < m_geometry.xlineMin)
+        m_geometry.xlineMin = m_index.at(i).xlineNo;
+      if (m_index.at(i).xlineNo > m_geometry.xlineMax)
+        m_geometry.xlineMax = m_index.at(i).xlineNo;
+    }
+    // 四角 = 四条极端道的坐标（整齐网格上即精确角点）：先在线内找
+    // xlMin/xlMax 的位置，再取首末两条线的对应道。
+    // slot：(inlMin,xlMin)=0 (inlMin,xlMax)=1 (inlMax,xlMax)=2 (inlMax,xlMin)=3。
+    int jMin = 0, jMax = 0;
+    for (int j = 1; j < perLine; ++j)
+    {
+      if (m_index.at(j).xlineNo < m_index.at(jMin).xlineNo)
+        jMin = j;
+      if (m_index.at(j).xlineNo > m_index.at(jMax).xlineNo)
+        jMax = j;
+    }
+    const int lastLine = n - perLine;
+    m_geometry.cornerX[0] = ordX.at(jMin);             m_geometry.cornerY[0] = ordY.at(jMin);
+    m_geometry.cornerX[1] = ordX.at(jMax);             m_geometry.cornerY[1] = ordY.at(jMax);
+    m_geometry.cornerX[2] = ordX.at(lastLine + jMax);  m_geometry.cornerY[2] = ordY.at(lastLine + jMax);
+    m_geometry.cornerX[3] = ordX.at(lastLine + jMin);  m_geometry.cornerY[3] = ordY.at(lastLine + jMin);
   }
   m_geometry.startTimeMs = delayMs;
 

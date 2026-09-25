@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QtEndian>
 
 #include "../src/io/segyreader.h"
 
@@ -19,8 +20,47 @@ private slots:
   void geometryFrozenFromHeaders();
   void missingLineFails();
   void openMemoryDoesNotScaleWithVolume();
+  void ordinalIndexingWhenLineWordConstant();
+  void ordinalIndexCdpOrderMismatchFails();
+  void ordinalIndexTraceCountMismatchFails();
 
 private:
+  // 复刻真工区结构的合成件：偏移 188/192 恒为 0，inline 走道号索引——
+  // field record @8 = base+l、CDP @20 = cdpBase+p、坐标 @180/184 = (p*20, l*40)、
+  // 二进制头字节 13-14 = 每条 inline 道数（真文件 = 641）。
+  static bool writeOrdinalSegy(const QString &path, int traces, int perLine,
+                               qint32 frecBase, qint32 cdpBase,
+                               int breakTrace = -1, qint32 breakCdp = 0)
+  {
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly))
+      return false;
+    f.write(QByteArray(3200, ' '));
+    QByteArray bh(400, 0);
+    qToBigEndian<qint16>(perLine, reinterpret_cast<uchar *>(bh.data()) + 12); // 字节 13-14
+    qToBigEndian<qint16>(2000, reinterpret_cast<uchar *>(bh.data()) + 16);
+    qToBigEndian<qint16>(64, reinterpret_cast<uchar *>(bh.data()) + 20);
+    qToBigEndian<qint16>(5, reinterpret_cast<uchar *>(bh.data()) + 24); // IEEE
+    f.write(bh);
+    for (int i = 0; i < traces; ++i)
+    {
+      const int l = i / perLine, p = i % perLine;
+      QByteArray th(240, 0);
+      qToBigEndian<qint32>(i + 1, reinterpret_cast<uchar *>(th.data()) + 0);
+      qToBigEndian<qint32>(frecBase + l, reinterpret_cast<uchar *>(th.data()) + 8);
+      const qint32 cdp = (i == breakTrace) ? breakCdp : cdpBase + p;
+      qToBigEndian<qint32>(cdp, reinterpret_cast<uchar *>(th.data()) + 20);
+      qToBigEndian<qint16>(1, reinterpret_cast<uchar *>(th.data()) + 70); // 坐标比例因子
+      qToBigEndian<qint32>(p * 20, reinterpret_cast<uchar *>(th.data()) + 180);
+      qToBigEndian<qint32>(l * 40, reinterpret_cast<uchar *>(th.data()) + 184);
+      qToBigEndian<qint16>(64, reinterpret_cast<uchar *>(th.data()) + 114);
+      qToBigEndian<qint16>(2000, reinterpret_cast<uchar *>(th.data()) + 116);
+      f.write(th);
+      f.write(QByteArray(64 * 4, 0));
+    }
+    return true;
+  }
+
   QString fixture() const
   {
     return QStringLiteral(PROJECT_FIXTURE_DIR) + QStringLiteral("/mini_seismic.sgy");
@@ -168,6 +208,82 @@ void TestSegyLines::openMemoryDoesNotScaleWithVolume()
     QCOMPARE(line.size(), nXl);
     QCOMPARE(line.front().samples.size(), ns);
   }
+}
+
+void TestSegyLines::ordinalIndexingWhenLineWordConstant()
+{
+  // 真工区 200P 的结构缩影：偏移 188 恒 0 → 按道号索引
+  // inline = 1315 + 道号/4，crossline = 该道 CDP（plan §2）。
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QStringLiteral("ordinal.sgy"));
+  QVERIFY(writeOrdinalSegy(path, 3 * 4, 4, 1315, 4165));
+
+  SegyReader r;
+  QString err;
+  QVERIFY2(r.open(path, &err), qPrintable(err));
+  QCOMPARE(r.traceCount(), 12);
+  QCOMPARE(r.inlineNumbers(), QVector<qint32>({1315, 1316, 1317}));
+  QCOMPARE(r.crosslineNumbers(), QVector<qint32>({4165, 4166, 4167, 4168}));
+
+  QVector<SegyTrace> line;
+  QVERIFY2(r.readInline(1316, &line, &err), qPrintable(err));
+  QCOMPARE(line.size(), 4);
+  for (int i = 0; i < line.size(); ++i)
+  {
+    QCOMPARE(line.at(i).lineNo, 1316);
+    QCOMPARE(line.at(i).xlineNo, 4165 + i); // 按 crossline 升序
+  }
+  QVector<SegyTrace> xl;
+  QVERIFY2(r.readCrossline(4166, &xl, &err), qPrintable(err));
+  QCOMPARE(xl.size(), 3);
+  for (int i = 0; i < xl.size(); ++i)
+    QCOMPARE(xl.at(i).lineNo, 1315 + i); // 按 inline 升序
+
+  const SegyGeometry g = r.geometry();
+  QCOMPARE(g.inlineMin, 1315);
+  QCOMPARE(g.inlineMax, 1317);
+  QCOMPARE(g.xlineMin, 4165);
+  QCOMPARE(g.xlineMax, 4168);
+  // 四角 = 四条极端道的坐标：(inlMin,xlMin)(inlMin,xlMax)(inlMax,xlMax)(inlMax,xlMin)
+  QCOMPARE(g.cornerX[0], 0.0);
+  QCOMPARE(g.cornerY[0], 0.0);
+  QCOMPARE(g.cornerX[1], 60.0);
+  QCOMPARE(g.cornerY[1], 0.0);
+  QCOMPARE(g.cornerX[2], 60.0);
+  QCOMPARE(g.cornerY[2], 80.0);
+  QCOMPARE(g.cornerX[3], 0.0);
+  QCOMPARE(g.cornerY[3], 80.0);
+}
+
+void TestSegyLines::ordinalIndexCdpOrderMismatchFails()
+{
+  // CDP 顺序对不上（第 6 道应为 4167，读到 9999）→ 停止并报出两值。
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QStringLiteral("cdp_bad.sgy"));
+  QVERIFY(writeOrdinalSegy(path, 3 * 4, 4, 1315, 4165, 6, 9999));
+
+  SegyReader r;
+  QString err;
+  QVERIFY(!r.open(path, &err));
+  QVERIFY2(err.contains(QStringLiteral("4167")) && err.contains(QStringLiteral("9999")),
+           qPrintable(err));
+}
+
+void TestSegyLines::ordinalIndexTraceCountMismatchFails()
+{
+  // 道数对不上：CDP 每 3 道回落，总道数 5 不是整数倍 → 停止并报数。
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QStringLiteral("count_bad.sgy"));
+  QVERIFY(writeOrdinalSegy(path, 5, 3, 1315, 4165));
+
+  SegyReader r;
+  QString err;
+  QVERIFY(!r.open(path, &err));
+  QVERIFY2(err.contains(QStringLiteral("5")) && err.contains(QStringLiteral("3")),
+           qPrintable(err));
 }
 
 QTEST_MAIN(TestSegyLines)

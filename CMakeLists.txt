@@ -38,6 +38,11 @@ find_library(GDAL_LIB gdal HINTS
 
 add_library(paleo_qgis_iface INTERFACE)
 target_include_directories(paleo_qgis_iface INTERFACE ${QGIS_INCLUDE_DIR})
+if(QGIS_PREFIX)
+  # OSGeo4W installs SQLite, GDAL, GEOS and other public QGIS header
+  # dependencies in the prefix's shared include directory.
+  target_include_directories(paleo_qgis_iface INTERFACE "${QGIS_PREFIX}/include")
+endif()
 target_link_libraries(paleo_qgis_iface INTERFACE ${QGIS_CORE_LIB} ${QGIS_GUI_LIB} ${QGIS_ANALYSIS_LIB}
   Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Xml Qt6::Sql Qt6::Concurrent Qt6::Svg Qt6::PrintSupport Qt6::Network Qt6::SerialPort Qt6::Positioning Qt6::UiTools Qt6::OpenGLWidgets Qt6::Pdf Qt6::PdfWidgets)
 if(TARGET Qt6::WebEngineWidgets)

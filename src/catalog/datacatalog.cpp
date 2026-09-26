@@ -7,8 +7,11 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QHash>
 #include <QSaveFile>
+#include <QSet>
 
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -102,6 +105,7 @@ namespace
     o.insert(QStringLiteral("role"), l.role);
     o.insert(QStringLiteral("is_primary"), l.isPrimary);
     o.insert(QStringLiteral("unresolved"), l.unresolved);
+    o.insert(QStringLiteral("ordinal"), l.ordinal); // 恒写——与上游 C++ 落盘约定一致
     o.insert(QStringLiteral("note"), l.note);
     return o;
   }
@@ -115,6 +119,7 @@ namespace
     l.role = o.value(QStringLiteral("role")).toString();
     l.isPrimary = o.value(QStringLiteral("is_primary")).toBool(true);
     l.unresolved = o.value(QStringLiteral("unresolved")).toBool(false);
+    l.ordinal = o.value(QStringLiteral("ordinal")).toInt(0); // 旧 catalog 无键 → 0
     l.note = o.value(QStringLiteral("note")).toString();
     return l;
   }
@@ -504,10 +509,23 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
     if (ok && n > 0)
       m_versionSeq = qMax(m_versionSeq, n);
   }
+  // 快照：staleness 标记与版本追加在同一原子写里同进同退——save 失败
+  // 不留「版本回滚了但 stale 标记还在」的半截内存态（与 addLink 同一纪律）。
+  const QVector<CatalogVersion> previousVersions = m_versions;
   m_versions.append(v);
+  // B 包 staleness-lite：新版本入库 = 同资产 versionNumber 更低的旧版本被
+  // 取代（supersede）——其下游闭包中的 DERIVED 版本输入失效，随本次
+  // addVersion 同一原子写落 extra["stale"]/["staleReason"]，不二次落盘。
+  QStringList superseded;
+  for (const CatalogVersion &old : m_versions)
+    if (old.assetId == v.assetId && old.versionNumber < v.versionNumber)
+      superseded.append(old.id);
+  for (const QString &pid : superseded)
+    markStaleDownstreamOf(
+        pid, QStringLiteral("上游版本 %1 已被同资产新版本 %2 取代").arg(pid, v.id));
   if (save(error))
     return true;
-  m_versions.removeLast();
+  m_versions = previousVersions;
   return false;
 }
 
@@ -813,6 +831,13 @@ QVector<EntityAssetLink> DataCatalog::linksForEntity(const QString &entityId) co
   for (const EntityAssetLink &l : m_links)
     if (l.entityId == entityId)
       out.append(l);
+  // B 包：同 (entity,role) 成员按 ordinal 升序展示。stable_sort 只按 ordinal
+  // 排——不同角色间的相对序保持入库序；旧数据 ordinal 全 0 时输出与排序前
+  // 完全一致，对既有消费方零扰动。
+  std::stable_sort(out.begin(), out.end(),
+                   [](const EntityAssetLink &a, const EntityAssetLink &b) {
+                     return a.ordinal < b.ordinal;
+                   });
   return out;
 }
 
@@ -837,6 +862,88 @@ QVector<EntityAssetLink> DataCatalog::linksForAsset(const QString &assetId) cons
 QVector<EntityAssetLink> DataCatalog::links() const
 {
   return m_links;
+}
+
+QVector<CatalogVersion> DataCatalog::downstreamClosure(const QString &versionId) const
+{
+  QVector<CatalogVersion> out;
+  if (versionId.isEmpty())
+    return out;
+  // BFS：frontier 逐个版本反查「谁把它列进 parentVersionIds」。seen 先放种子
+  // ——环（A→B→A）里种子不作为「自己的下游」进结果，也保证遍历终止。
+  // 结果序 = BFS 发现序（frontier 序 × m_versions 表序），确定性。
+  QSet<QString> seen;
+  seen.insert(versionId);
+  QStringList frontier{versionId};
+  for (int head = 0; head < frontier.size(); ++head)
+  {
+    // 值拷贝：frontier.append 可能重分配 QList 存储，引用会悬垂。
+    const QString cur = frontier.at(head);
+    for (const CatalogVersion &v : m_versions)
+    {
+      if (seen.contains(v.id) || !v.parentVersionIds.contains(cur))
+        continue;
+      seen.insert(v.id);
+      frontier.append(v.id);
+      out.append(v);
+    }
+  }
+  return out;
+}
+
+int DataCatalog::markStaleDownstreamOf(const QString &versionId, const QString &reason)
+{
+  const QVector<CatalogVersion> downstream = downstreamClosure(versionId);
+  QHash<QString, int> indexOf;
+  indexOf.reserve(m_versions.size());
+  for (int i = 0; i < m_versions.size(); ++i)
+    indexOf.insert(m_versions[i].id, i);
+  int changed = 0;
+  for (const CatalogVersion &d : downstream)
+  {
+    // staleness-lite：只标 DERIVED 产物。闭包里的 INTERMEDIATE/OUTPUT 等
+    // 参与溯源穿透（DERIVED 的祖先可以是任意阶段），但自身不记 stale。
+    if (d.stage != QLatin1String("DERIVED"))
+      continue;
+    const int i = indexOf.value(d.id, -1);
+    if (i < 0)
+      continue; // 闭包快照自洽——防御性跳过
+    CatalogVersion &m = m_versions[i];
+    if (m.extra.value(QStringLiteral("stale")).toBool() &&
+        m.extra.value(QStringLiteral("staleReason")).toString() == reason)
+      continue; // 同一标记已在——不算变更（幂等，不空涨 revision）
+    m.extra.insert(QStringLiteral("stale"), true);
+    m.extra.insert(QStringLiteral("staleReason"), reason);
+    ++changed;
+  }
+  return changed;
+}
+
+bool DataCatalog::markDownstreamStale(const QString &versionId, const QString &reason,
+                                      QString *error)
+{
+  if (!ensureOpen(error))
+    return false;
+  if (versionId.isEmpty())
+  {
+    setError(error, QStringLiteral("cannot mark downstream of an empty version id"));
+    return false;
+  }
+  if (versionById(versionId).id.isEmpty())
+  {
+    setError(error,
+             QStringLiteral("cannot mark downstream of unknown version: %1").arg(versionId));
+    return false;
+  }
+  const QString why =
+      reason.isEmpty() ? QStringLiteral("上游版本源已失效") : reason;
+  const QVector<CatalogVersion> previousVersions = m_versions;
+  if (markStaleDownstreamOf(versionId, why) == 0)
+    return true; // 无下游或标记未变——不落盘、不空涨 revision
+  if (save(error))
+    return true;
+  m_versions = previousVersions; // 与 addLink 同一纪律：落盘失败回滚内存
+  return false;
 }
 
 QString DataCatalog::normalizeWellName(const QString &name)

@@ -199,6 +199,7 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   m_versions.clear();
   m_links.clear();
   m_assetSeq = m_versionSeq = 0;
+  m_roles = RoleRegistry::defaults();
 
   const auto fail = [&](const QString &msg) {
     setError(error, msg);
@@ -208,6 +209,21 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
 
   if (m_dir.isEmpty())
     return fail(QStringLiteral("project directory is empty"));
+
+  // A 包角色词表：<projectDir>/project_area.json 的 roles 节做工程级覆盖；
+  // 缺文件/解析失败/roles 非对象 → 静默留 defaults()。词表不是数据底座，
+  // 缺它绝不阻塞工程打开（catalog.json 的成败不受影响）。
+  QFile areaFile(m_dir + QStringLiteral("/project_area.json"));
+  if (areaFile.open(QIODevice::ReadOnly))
+  {
+    const QJsonDocument areaDoc = QJsonDocument::fromJson(areaFile.readAll());
+    if (areaDoc.isObject())
+    {
+      const QJsonValue roles = areaDoc.object().value(QStringLiteral("roles"));
+      if (roles.isObject())
+        m_roles = RoleRegistry::fromJson(roles.toObject());
+    }
+  }
 
   QFile f(catalogPath());
   if (!f.exists())

@@ -1085,4 +1085,10 @@ Second `/autoplan` pass. Pass 1 approved the plan pre-implementation; this pass 
 
 **REVIEW LOG:** pass 2 run 2026-09-26; reviewers: spec×1, design×2, dx×1, eng×2 (6 subagents) + inline CEO analysis; artifacts `autoplan-ceo-jUNQhI`, `autoplan-design-t0tR1p`, `autoplan-dx-X3unPM`, `autoplan-eng-k3lfjP`; methodologies `ceo-3CGA7C`, `design-CUgus6`, `dx-qaWNBF`, `eng-zT7FfC`. T1–T16 annotated as landed/partial with commit refs. Decision Audit Trail extended rows 34–46.
 
+### Pass-2 approval (2026-09-26)
+
+- **APPROVED** at the final gate: implement T17–T22 (all P1) and T23–T33; D1/D2 async IO + task progress bar → **implement**; D6/D7/D8/D11 UX expansions → **all accepted**; taste batch → accept defaults: keep 「跳过」 fourth count (D3), undo restores demoted primary + note (D4), retyped-to-well_head rows rejoin phase-1 ordering (D5), publish hard-gate acknowledged as deliberate override of PALEO_QGIS_PLAN warn-not-disable guidance (D9), publish gate adds a minimum numeric-residual count (D10), strip `uwi`/`aliases` legacy fields (D12), WebEngineWidgets becomes an optional build dep (D14), ONNX gains one end-to-end fixture inference (D15). D13 QgsTaskManagerWidget deferred (custom TaskPanel gets progress instead, lands with D1).
+- Thickness layer title pinned: 「D61–D62 等厚（米）」(L172/L250 normative; L241 时间等厚 superseded).
+- Residual sampling: containing cell, half-open (L174/L264 normative; L227 nearest-center + "otherwise decode" superseded).
+
 **VERDICT:** Implementation substantially faithful to plan (~88% weighted across phases); 6 P1 engineering tasks and the D1/D2 threading decision stand between current state and full plan conformance. Plan text contains 7 superseded/contradictory passages documented as errata rather than rewritten.

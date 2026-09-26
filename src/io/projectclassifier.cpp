@@ -1,4 +1,5 @@
 #include "projectclassifier.h"
+#include "arearules.h"
 #include "wellfileparsers.h"
 
 #include <QDir>
@@ -23,14 +24,6 @@ namespace
       parts.append(lowerAscii(p));
     return parts;
   }
-
-  bool containsAny(const QString &text, std::initializer_list<const char *> needles)
-  {
-    for (const char *n : needles)
-      if (text.contains(QString::fromUtf8(n)))
-        return true;
-    return false;
-  }
 } // namespace
 
 ProjectClassification classifyProjectPath(const QString &path)
@@ -50,22 +43,29 @@ ProjectClassification classifyProjectPath(const QString &path)
     return make(QStringLiteral("geojson"), ext, QStringLiteral("input"));
   if (ext == QLatin1String("dat"))
   {
-    // 精确段 "td" 或段含 时深；段含 层位 / 井分层 / 井位；文件名含 wellhead。
-    for (const QString &p : parts)
+    // 目录段规则经 AreaRules（默认 = 原中文目录名表：时深(td)/层位/井分层/
+    // 井位 + 文件名 wellhead；第二工区经 project_area.json 换表，见
+    // docs/AREA_PARAMETERS.md）。规则按表序先中先得；段/文件名大小写不敏感。
+    const AreaRules::ClassifierRules rules = AreaRules::active().classifier;
+    for (const AreaRules::DatPathRule &rule : rules.datPathRules)
     {
-      if (p == QLatin1String("td") || p.contains(QString::fromUtf8("时深")))
-        return make(QStringLiteral("time_depth"), ext, QStringLiteral("input"));
+      for (const QString &p : parts)
+      {
+        const bool exact = std::any_of(rule.exactSegments.begin(), rule.exactSegments.end(),
+                                       [&p](const QString &s) {
+                                         return p.compare(s, Qt::CaseInsensitive) == 0;
+                                       });
+        const bool keyword = std::any_of(rule.segmentKeywords.begin(), rule.segmentKeywords.end(),
+                                         [&p](const QString &k) {
+                                           return p.contains(k, Qt::CaseInsensitive);
+                                         });
+        if (exact || keyword)
+          return make(rule.type, ext, QStringLiteral("input"));
+      }
+      for (const QString &k : rule.filenameKeywords)
+        if (name.contains(k, Qt::CaseInsensitive))
+          return make(rule.type, ext, QStringLiteral("input"));
     }
-    for (const QString &p : parts)
-      if (p.contains(QString::fromUtf8("层位")))
-        return make(QStringLiteral("horizon"), ext, QStringLiteral("input"));
-    for (const QString &p : parts)
-      if (p.contains(QString::fromUtf8("井分层")))
-        return make(QStringLiteral("well_stratification"), ext, QStringLiteral("input"));
-    if (containsAny(name, {"wellhead", "well_head"}) ||
-        std::any_of(parts.begin(), parts.end(),
-                    [](const QString &p) { return p.contains(QString::fromUtf8("井位")); }))
-      return make(QStringLiteral("well_head"), ext, QStringLiteral("input"));
     return make(QStringLiteral("tabular"), ext, QStringLiteral("input"));
   }
   if (ext == QLatin1String("pdf") || ext == QLatin1String("ppt") ||
@@ -117,15 +117,25 @@ bool isClassifierType(const QString &type)
 bool isFixedAuxiliaryPath(const QString &path)
 {
   // T22：只锁 HZ28-6-1 命名文件；「参考资料」整目录锁定已拆成
-  // isDefaultReferencePath（默认显示「参考」，可改）。
-  return QFileInfo(path).completeBaseName().contains(QStringLiteral("HZ28-6-1"));
+  // isDefaultReferencePath（默认显示「参考」，可改）。钉死值经 AreaRules
+  // （本工区默认 HZ28-6-1；空串 = 显式无固定辅助）。
+  const QString stem = AreaRules::active().classifier.fixedAuxiliaryNameStem;
+  if (stem.isEmpty())
+    return false;
+  return QFileInfo(path).completeBaseName().contains(stem);
 }
 
 bool isDefaultReferencePath(const QString &path)
 {
+  // 目录段名经 AreaRules（本工区默认「参考资料」；原文精确匹配，不小写化——
+  // 中文名无大小写，英文目录名保持字面）。
+  const QStringList names = AreaRules::active().classifier.referenceDirNames;
+  if (names.isEmpty())
+    return false;
   const QStringList parts = QFileInfo(path).absolutePath().split(QLatin1Char('/'));
   for (const QString &p : parts)
-    if (p == QString::fromUtf8("参考资料"))
+    if (std::any_of(names.begin(), names.end(),
+                    [&p](const QString &n) { return p == n; }))
       return true;
   return false;
 }

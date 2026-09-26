@@ -110,6 +110,7 @@ DataPage::DataPage(QWidget *parent)
     {"importWells", QT_TR_NOOP("导入井数据"), "wells"},
     {"importSeismic", QT_TR_NOOP("导入地震数据"), "seismic"},
     {"importBoundary", QT_TR_NOOP("导入边界数据"), "boundary"},
+    {"importFolder", QT_TR_NOOP("导入工区文件夹"), "folder"},
   };
   for (const auto &spec : kImports)
   {

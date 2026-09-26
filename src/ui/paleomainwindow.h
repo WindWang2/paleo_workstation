@@ -84,6 +84,9 @@ class PaleoMainWindow : public QMainWindow
     // 预览分栏（§4 预览壳）：数据页地图在上预览在下；预览空态收成一行
     // 次级文字，首个标签打开时展开到约三分之一高度。
     void applyPreviewSplit();
+    // 「导入工区文件夹」：分类确认表（可改类型）→ 两阶段导入 → 计数汇总，
+    // 确认后只打开井口标签（§3/autoplan-design）。
+    void runFolderImport(DataImportService *svc);
 
     QgisCanvasController *m_canvasCtl;
     QgisProjectService *m_projectSvc;
@@ -103,5 +106,6 @@ class PaleoMainWindow : public QMainWindow
     QDockWidget *m_leftDock = nullptr;
     QDockWidget *m_rightDock = nullptr;
     QDockWidget *m_bottomDock = nullptr;
+    bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     QString m_currentPage;
 };

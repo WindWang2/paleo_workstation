@@ -62,6 +62,7 @@ class TestPanels : public QObject
         {QStringLiteral("importWells"), QStringLiteral("wells")},
         {QStringLiteral("importSeismic"), QStringLiteral("seismic")},
         {QStringLiteral("importBoundary"), QStringLiteral("boundary")},
+        {QStringLiteral("importFolder"), QStringLiteral("folder")},
       };
       for (auto it = cases.constBegin(); it != cases.constEnd(); ++it)
       {

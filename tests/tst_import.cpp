@@ -1131,6 +1131,63 @@ private slots:
     QCOMPARE(rows.front().path, aFile);
   }
 
+  // 确认表后端：previewFolder 与 importFolder 同一枚举/行序（按行索引对齐），
+  // typeOverrides 把行重定向到用户改过的类型（forceType 落进资产类型）。
+  void folderPreviewMatchesImportOrderAndOverridesApply()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+    using Outcome = DataImportService::FolderRowResult::Outcome;
+
+    const QString root = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
+    QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井分层"))));
+    QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井位/heads.dat")),
+        QByteArrayLiteral("#WellHead File From SMI\n#Name X Y KB TD\n"
+                          "A1  1.0  2.0  0.0  2000.0\n")));
+    const QString topsPath =
+        QDir(root).filePath(QString::fromUtf8("井分层/tops.dat"));
+    QVERIFY(writeFile(topsPath,
+        QByteArrayLiteral("#WellTops File From SMI\n#WellName  Name  MD\n"
+                          "A1       D61   2148.0\n")));
+
+    QString err;
+    const auto preview = svc.previewFolder(root, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(preview.size(), 2);
+    // 与 importFolder 同一行序：well_head 先行。
+    QVERIFY(preview.at(0).path.endsWith(QString::fromUtf8("井位/heads.dat")));
+    QCOMPARE(preview.at(0).classifiedType, QStringLiteral("well_head"));
+    QCOMPARE(preview.at(1).path, topsPath);
+    QCOMPARE(preview.at(1).classifiedType,
+             QStringLiteral("well_stratification"));
+    QVERIFY(!preview.at(0).skipped && !preview.at(1).skipped);
+
+    // 确认表「改类型」：tops.dat 改成 document → 不再走 tops 解析，
+    // 落辅助实体 + reference 链接；行结果 classifiedType 反映新类型。
+    QMap<QString, QString> overrides;
+    overrides.insert(topsPath, QStringLiteral("document"));
+    const auto rows = svc.importFolder(root, &err, overrides);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(rows.size(), 2);
+    QCOMPARE(rows.at(0).path, preview.at(0).path); // 行序对齐预览
+    QCOMPARE(rows.at(1).path, preview.at(1).path);
+    QCOMPARE(rows.at(0).outcome, Outcome::Imported);
+    QCOMPARE(rows.at(1).outcome, Outcome::Imported);
+    QCOMPARE(rows.at(1).classifiedType, QStringLiteral("document"));
+
+    bool sawDoc = false;
+    for (const CatalogAsset &a : cat->assets())
+      if (a.type == QLatin1String("document"))
+        sawDoc = true;
+    QVERIFY(sawDoc);
+  }
+
   // 可选真数据：PALEO_REAL_PROJECT_AREA 跑一次 importFolder——井口先行后
   // A1 仍得四条主关联；无 Failed 行（与 tst_smoke_realdata 同一门禁变量）。
   void folderImportRealAreaSmoke()

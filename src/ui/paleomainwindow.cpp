@@ -72,6 +72,11 @@
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabBar>
+#include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QHeaderView>
+#include <QTableWidget>
 #include <QTabWidget>
 #include <QTextEdit>
 #include <QVBoxLayout>
@@ -543,6 +548,187 @@ void PaleoMainWindow::applyPreviewSplit()
   m_centerSplit->setSizes({qMax(0, total - hint), hint});
 }
 
+void PaleoMainWindow::runFolderImport(DataImportService *svc)
+{
+  if (!svc)
+    return;
+  const QString dir =
+      QFileDialog::getExistingDirectory(this, tr("导入工区文件夹"));
+  if (dir.isEmpty())
+    return;
+
+  QString err;
+  const auto preview = svc->previewFolder(dir, &err);
+  if (preview.isEmpty())
+  {
+    QMessageBox::warning(this, tr("导入工区文件夹"),
+                         err.isEmpty() ? tr("目录里没有可导入的文件") : err);
+    return;
+  }
+
+  // 可选类型集：分类器输出的九类 + unknown/auxiliary 兜底，确认时可改行。
+  static const QStringList kTypes = {
+      QStringLiteral("well_head"),        QStringLiteral("well_log"),
+      QStringLiteral("tops"),             QStringLiteral("time_depth"),
+      QStringLiteral("horizon"),          QStringLiteral("seismic"),
+      QStringLiteral("document"),         QStringLiteral("image_reference"),
+      QStringLiteral("geojson"),          QStringLiteral("auxiliary"),
+      QStringLiteral("unknown")};
+
+  QDialog dlg(this);
+  dlg.setObjectName(QStringLiteral("folderImportDialog"));
+  dlg.setWindowTitle(tr("导入工区文件夹 — %1").arg(dir));
+  dlg.resize(760, 420);
+  auto *lay = new QVBoxLayout(&dlg);
+  auto *hint = new QLabel(tr("确认每个文件的类型（可改）后导入；井口文件会先入库。"),
+                        &dlg);
+  hint->setWordWrap(true);
+  lay->addWidget(hint);
+  auto *table = new QTableWidget(0, 4, &dlg);
+  table->setObjectName(QStringLiteral("folderTable"));
+  table->setHorizontalHeaderLabels(
+      {tr("路径"), tr("类型"), tr("实体"), tr("结果")});
+  table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+  table->horizontalHeader()->setStretchLastSection(true);
+  table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  lay->addWidget(table);
+
+  const QDir root(dir);
+  QVector<QComboBox *> combos;
+  combos.reserve(preview.size());
+  for (const auto &row : preview)
+  {
+    const int r = table->rowCount();
+    table->insertRow(r);
+    auto *pathItem =
+        new QTableWidgetItem(root.relativeFilePath(row.path));
+    pathItem->setToolTip(row.path);
+    pathItem->setData(Qt::UserRole, row.path);
+    table->setItem(r, 0, pathItem);
+    table->setItem(r, 1, new QTableWidgetItem);
+    table->setItem(r, 2, new QTableWidgetItem);
+    table->setItem(r, 3, new QTableWidgetItem);
+
+    const bool skipped = row.skipped;
+    auto *combo = new QComboBox(&dlg);
+    combo->addItems(kTypes);
+    combo->setCurrentText(row.classifiedType.isEmpty()
+                              ? QStringLiteral("unknown")
+                              : row.classifiedType);
+    combo->setEnabled(!skipped);
+    combo->setObjectName(QStringLiteral("folderType%1").arg(r));
+    table->setCellWidget(r, 1, combo);
+    combos << combo;
+    if (skipped)
+    {
+      table->item(r, 3)->setText(tr("跳过：%1").arg(row.skipReason));
+      for (int c = 0; c < 4; ++c)
+        table->item(r, c)->setFlags(table->item(r, c)->flags() &
+                                    ~Qt::ItemIsEnabled);
+    }
+  }
+
+  auto *summary = new QLabel(&dlg);
+  summary->setObjectName(QStringLiteral("folderSummary"));
+  summary->setWordWrap(true);
+  summary->hide();
+  lay->addWidget(summary);
+  auto *buttons = new QDialogButtonBox(&dlg);
+  auto *confirm = buttons->addButton(tr("确认导入"), QDialogButtonBox::AcceptRole);
+  auto *cancel = buttons->addButton(tr("取消"), QDialogButtonBox::RejectRole);
+  QObject::connect(cancel, &QAbstractButton::clicked, &dlg, &QDialog::reject);
+  QObject::connect(confirm, &QAbstractButton::clicked, &dlg, [&] {
+    QMap<QString, QString> overrides;
+    for (int r = 0; r < combos.size(); ++r)
+    {
+      if (!combos[r]->isEnabled())
+        continue; // 跳过行不参与导入，改动也不成 override
+      const QString path =
+          table->item(r, 0)->data(Qt::UserRole).toString();
+      const QString t = combos[r]->currentText();
+      if (t != preview[r].classifiedType)
+        overrides.insert(path, t);
+    }
+    QString importErr;
+    m_folderImportActive = true;
+    const auto results = svc->importFolder(dir, &importErr, overrides);
+    m_folderImportActive = false;
+
+    if (results.isEmpty() && !importErr.isEmpty())
+    {
+      QMessageBox::warning(&dlg, tr("导入工区文件夹"), importErr);
+      return;
+    }
+
+    int imported = 0, unresolved = 0, failed = 0, skipped = 0;
+    QString wellHeadAssetId;
+    for (int r = 0; r < results.size(); ++r)
+    {
+      const auto &res = results[r];
+      using Outcome = DataImportService::FolderRowResult::Outcome;
+      QString outcomeText;
+      switch (res.outcome)
+      {
+      case Outcome::Imported:
+        ++imported;
+        outcomeText = tr("已入库");
+        break;
+      case Outcome::Unresolved:
+        ++unresolved;
+        outcomeText = tr("未决");
+        break;
+      case Outcome::Failed:
+        ++failed;
+        outcomeText = tr("失败");
+        break;
+      case Outcome::Skipped:
+        ++skipped;
+        outcomeText = tr("跳过");
+        break;
+      }
+      table->item(r, 2)->setText(res.entityName);
+      table->item(r, 3)->setText(res.message.isEmpty()
+                                     ? outcomeText
+                                     : tr("%1：%2").arg(outcomeText, res.message));
+      if (res.outcome == Outcome::Imported &&
+          res.classifiedType == QLatin1String("well_head") &&
+          wellHeadAssetId.isEmpty())
+      {
+        // 找回刚入库的井口资产：按文件名在 catalog 里定位。
+        if (auto *cat = svc->catalog())
+          for (const auto &a : cat->assets())
+            if (a.type == QLatin1String("well_head") &&
+                QFileInfo(res.path).fileName() ==
+                    cat->currentVersion(a.id).fileName)
+              wellHeadAssetId = a.id;
+      }
+    }
+    QString text = tr("入库 %1，未决 %2，失败 %3")
+                       .arg(imported)
+                       .arg(unresolved)
+                       .arg(failed);
+    if (skipped > 0)
+      text += tr("，跳过 %1").arg(skipped);
+    summary->setText(text);
+    summary->show();
+    // 结果留在表里给用户过目；确认后关闭对话框并只开井口标签。
+    confirm->setEnabled(false);
+    for (auto *c : combos)
+      c->setEnabled(false);
+    cancel->setText(tr("关闭"));
+    if (!wellHeadAssetId.isEmpty())
+      QMetaObject::invokeMethod(
+          this,
+          [this, wellHeadAssetId] {
+            if (m_previewTabs)
+              m_previewTabs->openAsset(wellHeadAssetId);
+          },
+          Qt::QueuedConnection);
+  });
+  lay->addWidget(buttons);
+  dlg.exec();
+}
+
 void PaleoMainWindow::showStartup()
 {
   m_currentPage = QStringLiteral("startup");
@@ -730,6 +916,11 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     }
     connect(dataPage, &DataPage::importRequested, this,
             [this, importSvc, preview](const QString &kind) {
+              if (kind == QLatin1String("folder"))
+              {
+                runFolderImport(importSvc);
+                return;
+              }
               const QString path = QFileDialog::getOpenFileName(
                   this, tr("Import %1").arg(kind), QString(),
                   kind == QLatin1String("seismic")
@@ -750,7 +941,8 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     DataPreviewTabs *previewForImport = m_previewTabs;
     connect(importSvc, &DataImportService::imported, this,
             [this, importSvc, corrPanel, previewForImport](const QString &kind, const QString &assetId, const QString &) {
-              if (previewForImport)
+              // 文件夹导入期间不逐文件开标签——确认后只开井口标签（§4）。
+              if (previewForImport && !m_folderImportActive)
                 previewForImport->openAsset(assetId);
               if (corrPanel && kind == QLatin1String("well_log"))
               {

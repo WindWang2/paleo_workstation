@@ -26,6 +26,7 @@ class DataImportService : public QObject
     struct ImportOptions
     {
       bool linkExternal = false; // 用户明确选择「链接外部」才不复制；SEG-Y 一律外链
+      QString forceType;         // 非空 → 跳过分类器结果改用此类型（确认表「改类型」）
     };
 
     DataImportService(QgisLayerService *layers, PaleoProjectStore *store, QObject *parent = nullptr);
@@ -73,6 +74,20 @@ class DataImportService : public QObject
       QString message;         // 失败原因 / 未决备注 / dedup「字节已在库」文案
     };
     QVector<FolderRowResult> importFolder(const QString &dirPath, QString *error = nullptr);
+    // typeOverrides：确认表里用户改过类型的行——key 是源路径，value 是目标类型。
+    QVector<FolderRowResult> importFolder(const QString &dirPath, QString *error,
+                                          const QMap<QString, QString> &typeOverrides);
+
+    // 确认表预览：与 importFolder 同一枚举/分类口径，只列行不导入。
+    // skipped=true 的行是软链逃逸/非普通文件（预览里灰显、不可改类型）。
+    struct FolderPreviewRow
+    {
+      QString path;
+      QString classifiedType;
+      bool skipped = false;
+      QString skipReason;
+    };
+    QVector<FolderPreviewRow> previewFolder(const QString &dirPath, QString *error = nullptr);
 
     // 旧签名（mainwindow importRequested 接线）：kind 仅用于信号，不再决定行为。
     QString importFile(const QString &kind, const QString &sourcePath, QString *error = nullptr);

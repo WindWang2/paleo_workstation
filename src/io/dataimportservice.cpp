@@ -309,7 +309,10 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
       fi.suffix().compare(QStringLiteral("xml"), Qt::CaseInsensitive) == 0
           ? readFileOrEmpty(sourcePath).toUtf8()
           : QByteArray();
-  const ProjectClassification cls = classifyProjectImport(sourcePath, xmlContent);
+  ProjectClassification cls = classifyProjectImport(sourcePath, xmlContent);
+  // 确认表「改类型」：forceType 覆盖分类器结果（其余分类字段保留）。
+  if (!options.forceType.isEmpty())
+    cls.type = options.forceType;
   const QString stem = fi.completeBaseName();
 
   const QString assetId = m_catalog->nextAssetId();
@@ -695,8 +698,176 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
 // 的井集解析。单行失败只落行、不中断；逃出所选根目录的符号链接与非普通文
 // 件标 Skipped。dedup（AlreadyStored）记 Imported，message 留「字节已在库」。
 // ---------------------------------------------------------------------------
+namespace
+{
+  struct FolderCand
+  {
+    QString path;
+    QString classifiedType;
+    bool wellHeadPhase = false;
+  };
+
+  void appendFolderSkip( QVector<DataImportService::FolderRowResult> *skipped,
+                         const QString &path, const QString &msg )
+  {
+    DataImportService::FolderRowResult row;
+    row.path = path;
+    row.classifiedType = classifyProjectPath( path ).type;
+    row.outcome = DataImportService::FolderRowResult::Outcome::Skipped;
+    row.message = msg;
+    skipped->append( row );
+  }
+
+  // 与 importFolder/previewFolder 共用的枚举：校验目录、守卫工程子树、
+  // 递归收普通文件并按分类器归类（.xml 看内容判定）。
+  bool collectFolderCandidates( const QString &dirPath, const QString &projectDir,
+                                QVector<FolderCand> *candidates,
+                                QVector<DataImportService::FolderRowResult> *skipped,
+                                QString *error )
+  {
+    candidates->clear();
+    skipped->clear();
+    const QFileInfo dirInfo( dirPath );
+    if ( dirPath.isEmpty() || !dirInfo.isDir() )
+    {
+      setError( error, QStringLiteral( "找不到目录: %1" ).arg( dirPath ) );
+      return false;
+    }
+    const QString rootCanon = dirInfo.canonicalFilePath();
+    if ( rootCanon.isEmpty() )
+    {
+      setError( error, QStringLiteral( "无法解析目录: %1" ).arg( dirPath ) );
+      return false;
+    }
+    const QString rootPrefix = rootCanon + QLatin1Char( '/' );
+    // 工程目录自身（或其内部目录）不能当导入源——不能把 catalog/artifacts 扫回来。
+    const QString projectCanon = QFileInfo( projectDir ).canonicalFilePath();
+    const QString projectPrefix =
+        projectCanon.isEmpty() ? QString() : projectCanon + QLatin1Char( '/' );
+    if ( !projectCanon.isEmpty() &&
+         ( rootCanon == projectCanon || rootCanon.startsWith( projectPrefix ) ) )
+    {
+      setError( error, QStringLiteral( "不能把工程目录自身选作导入源: %1" ).arg( dirPath ) );
+      return false;
+    }
+
+    // 迭代器不带 FollowSymlinks：目录符号链接天然不下钻；文件符号链接用
+    // canonical 判定是否逃出所选根目录（落在根内的按普通文件处理，link 路径
+    // 作为 sourceUri 留底）。不带 Hidden：.preview_cache 之类不进表。
+    // AllEntries|System：fifo/socket/悬空链接也要收进来——它们各落一行 Skipped。
+    QDirIterator it( dirInfo.absoluteFilePath(),
+                     QDir::AllEntries | QDir::System | QDir::NoDotAndDotDot,
+                     QDirIterator::Subdirectories );
+    while ( it.hasNext() )
+    {
+      const QString path = it.next();
+      const QFileInfo fi = it.fileInfo();
+      const QString canon = fi.canonicalFilePath();
+      // 被选目录包住工程目录时：工程产物子树不是源数据，跳过且不出行。
+      if ( !projectPrefix.isEmpty() && !canon.isEmpty() && canon.startsWith( projectPrefix ) )
+        continue;
+
+      if ( fi.isSymLink() &&
+           ( canon.isEmpty() || ( !canon.startsWith( rootPrefix ) && canon != rootCanon ) ) )
+      {
+        appendFolderSkip( skipped, path,
+                          canon.isEmpty() ? QStringLiteral( "悬空符号链接，已跳过" )
+                                          : QStringLiteral( "符号链接指向所选目录之外，已跳过" ) );
+        continue;
+      }
+      if ( fi.isDir() )
+        continue; // 目录只用来下钻，自身不成行
+      if ( !fi.isFile() )
+      {
+        appendFolderSkip( skipped, path, QStringLiteral( "不是普通文件，已跳过" ) );
+        continue;
+      }
+
+      // 与 importProjectFileEx 同一分类口径：.xml 要看内容判定。
+      const QByteArray xml =
+          QFileInfo( path ).suffix().compare( QLatin1String( "xml" ), Qt::CaseInsensitive ) == 0
+              ? readFileOrEmpty( path ).toUtf8()
+              : QByteArray();
+      const ProjectClassification cls = classifyProjectImport( path, xml );
+      FolderCand c;
+      c.path = path;
+      c.classifiedType = cls.type;
+      // §3：参考资料目录 / HZ28-6-1 XML 固定辅助参考——不进井口阶段。
+      c.wellHeadPhase =
+          cls.type == QLatin1String( "well_head" ) && !isFixedAuxiliaryPath( path );
+      candidates->append( c );
+    }
+
+    if ( candidates->isEmpty() && skipped->isEmpty() )
+    {
+      setError( error, QStringLiteral( "目录里没有可导入的文件: %1" ).arg( dirPath ) );
+      return false;
+    }
+    return true;
+  }
+
+  // 与 importFolder 相同的行序：阶段 1 全部 well_head（井建齐）、阶段 2 其余，
+  // 各阶段内按路径排序——previewFolder 与 importFolder 必须用同一序，确认表
+  // 才能按行索引对齐预览行与结果行。
+  QVector<FolderCand> orderFolderCandidates( const QVector<FolderCand> &candidates )
+  {
+    QVector<FolderCand> ordered;
+    for ( int phase = 0; phase < 2; ++phase )
+    {
+      QVector<FolderCand> bucket;
+      for ( const FolderCand &c : candidates )
+        if ( ( phase == 0 ) == c.wellHeadPhase )
+          bucket.append( c );
+      std::sort( bucket.begin(), bucket.end(),
+                 []( const FolderCand &a, const FolderCand &b ) { return a.path < b.path; } );
+      ordered += bucket;
+    }
+    return ordered;
+  }
+} // namespace
+
+QVector<DataImportService::FolderPreviewRow>
+DataImportService::previewFolder(const QString &dirPath, QString *error)
+{
+  QVector<FolderPreviewRow> rows;
+  if (error)
+    error->clear();
+  QVector<FolderCand> cands;
+  QVector<FolderRowResult> skipped;
+  if (!collectFolderCandidates(dirPath, m_projectDir, &cands, &skipped, error))
+    return rows;
+  for (const FolderCand &c : orderFolderCandidates(cands))
+  {
+    FolderPreviewRow r;
+    r.path = c.path;
+    r.classifiedType = c.classifiedType;
+    rows.append(r);
+  }
+  std::sort(skipped.begin(), skipped.end(),
+            [](const FolderRowResult &a, const FolderRowResult &b) {
+              return a.path < b.path;
+            });
+  for (const FolderRowResult &s : skipped)
+  {
+    FolderPreviewRow r;
+    r.path = s.path;
+    r.classifiedType = s.classifiedType;
+    r.skipped = true;
+    r.skipReason = s.message;
+    rows.append(r);
+  }
+  return rows;
+}
+
 QVector<DataImportService::FolderRowResult>
 DataImportService::importFolder(const QString &dirPath, QString *error)
+{
+  return importFolder(dirPath, error, QMap<QString, QString>{});
+}
+
+QVector<DataImportService::FolderRowResult>
+DataImportService::importFolder(const QString &dirPath, QString *error,
+                                const QMap<QString, QString> &typeOverrides)
 {
   QVector<FolderRowResult> rows;
   if (error)
@@ -711,121 +882,24 @@ DataImportService::importFolder(const QString &dirPath, QString *error)
     setError(error, QStringLiteral("project dir is not set"));
     return rows;
   }
-  const QFileInfo dirInfo(dirPath);
-  if (dirPath.isEmpty() || !dirInfo.isDir())
-  {
-    setError(error, QStringLiteral("找不到目录: %1").arg(dirPath));
-    return rows;
-  }
-  const QString rootCanon = dirInfo.canonicalFilePath();
-  if (rootCanon.isEmpty())
-  {
-    setError(error, QStringLiteral("无法解析目录: %1").arg(dirPath));
-    return rows;
-  }
-  const QString rootPrefix = rootCanon + QLatin1Char('/');
-  // 工程目录自身（或其内部目录）不能当导入源——不能把 catalog/artifacts 扫回来。
-  const QString projectCanon = QFileInfo(m_projectDir).canonicalFilePath();
-  const QString projectPrefix =
-      projectCanon.isEmpty() ? QString() : projectCanon + QLatin1Char('/');
-  if (!projectCanon.isEmpty() &&
-      (rootCanon == projectCanon || rootCanon.startsWith(projectPrefix)))
-  {
-    setError(error, QStringLiteral("不能把工程目录自身选作导入源: %1").arg(dirPath));
-    return rows;
-  }
 
-  struct Candidate
-  {
-    QString path;
-    QString classifiedType;
-    bool wellHeadPhase = false;
-  };
-  QVector<Candidate> candidates;
+  QVector<FolderCand> candidates;
   QVector<FolderRowResult> skipped;
-
-  const auto skippedRow = [&skipped](const QString &path, const QString &msg) {
-    FolderRowResult row;
-    row.path = path;
-    row.classifiedType = classifyProjectPath(path).type;
-    row.outcome = FolderRowResult::Outcome::Skipped;
-    row.message = msg;
-    skipped.append(row);
-  };
-
-  // 迭代器不带 FollowSymlinks：目录符号链接天然不下钻；文件符号链接用
-  // canonical 判定是否逃出所选根目录（落在根内的按普通文件处理，link 路径
-  // 作为 sourceUri 留底）。不带 Hidden：.preview_cache 之类不进表。
-  // AllEntries|System：fifo/socket/悬空链接也要收进来——它们各落一行 Skipped。
-  QDirIterator it(dirInfo.absoluteFilePath(),
-                  QDir::AllEntries | QDir::System | QDir::NoDotAndDotDot,
-                  QDirIterator::Subdirectories);
-  while (it.hasNext())
-  {
-    const QString path = it.next();
-    const QFileInfo fi = it.fileInfo();
-    const QString canon = fi.canonicalFilePath();
-    // 被选目录包住工程目录时：工程产物子树不是源数据，跳过且不出行。
-    if (!projectPrefix.isEmpty() && !canon.isEmpty() && canon.startsWith(projectPrefix))
-      continue;
-
-    if (fi.isSymLink() &&
-        (canon.isEmpty() || (!canon.startsWith(rootPrefix) && canon != rootCanon)))
-    {
-      skippedRow(path, canon.isEmpty()
-                           ? QStringLiteral("悬空符号链接，已跳过")
-                           : QStringLiteral("符号链接指向所选目录之外，已跳过"));
-      continue;
-    }
-    if (fi.isDir())
-      continue; // 目录只用来下钻，自身不成行
-    if (!fi.isFile())
-    {
-      skippedRow(path, QStringLiteral("不是普通文件，已跳过"));
-      continue;
-    }
-
-    // 与 importProjectFileEx 同一分类口径：.xml 要看内容判定。
-    const QByteArray xml =
-        QFileInfo(path).suffix().compare(QLatin1String("xml"), Qt::CaseInsensitive) == 0
-            ? readFileOrEmpty(path).toUtf8()
-            : QByteArray();
-    const ProjectClassification cls = classifyProjectImport(path, xml);
-    Candidate c;
-    c.path = path;
-    c.classifiedType = cls.type;
-    // §3：参考资料目录 / HZ28-6-1 XML 固定辅助参考——不进井口阶段。
-    c.wellHeadPhase =
-        cls.type == QLatin1String("well_head") && !isFixedAuxiliaryPath(path);
-    candidates.append(c);
-  }
-
-  if (candidates.isEmpty() && skipped.isEmpty())
-  {
-    setError(error, QStringLiteral("目录里没有可导入的文件: %1").arg(dirPath));
+  if (!collectFolderCandidates(dirPath, m_projectDir, &candidates, &skipped, error))
     return rows;
-  }
 
   // 阶段 1：全部 well_head（井建齐）；阶段 2：其余文件对已齐的井集解析。
-  QVector<Candidate> ordered;
-  for (int phase = 0; phase < 2; ++phase)
-  {
-    QVector<Candidate> bucket;
-    for (const Candidate &c : candidates)
-      if ((phase == 0) == c.wellHeadPhase)
-        bucket.append(c);
-    std::sort(bucket.begin(), bucket.end(),
-              [](const Candidate &a, const Candidate &b) { return a.path < b.path; });
-    ordered += bucket;
-  }
+  const QVector<FolderCand> ordered = orderFolderCandidates(candidates);
 
-  for (const Candidate &c : ordered)
+  for (const FolderCand &c : ordered)
   {
     FolderRowResult row;
     row.path = c.path;
-    row.classifiedType = c.classifiedType;
+    row.classifiedType = typeOverrides.value(c.path, c.classifiedType);
+    ImportOptions opts;
+    opts.forceType = typeOverrides.value(c.path);
     QString ferr;
-    const ImportResult res = importProjectFileEx(c.path, ImportOptions{}, &ferr);
+    const ImportResult res = importProjectFileEx(c.path, opts, &ferr);
     row.message = res.message.isEmpty() ? ferr : res.message;
     if (res.outcome == ImportOutcome::Failed || res.assetId.isEmpty())
     {

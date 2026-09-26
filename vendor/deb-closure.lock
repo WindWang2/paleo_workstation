@@ -850,6 +850,7 @@
 'http://archive.ubuntu.com/ubuntu/pool/universe/q/qt6-webengine/qml6-module-qtwebengine_6.10.2%2bdfsg-1_amd64.deb' qml6-module-qtwebengine_6.10.2+dfsg-1_amd64.deb 53020 SHA256:e969a3a67b03ac09d30640117b0d5287108cf949cbbe096d3653610eb0655a46
 'http://archive.ubuntu.com/ubuntu/pool/universe/q/qt6-base/qt6-gtk-platformtheme_6.10.2%2bdfsg-7_amd64.deb' qt6-gtk-platformtheme_6.10.2+dfsg-7_amd64.deb 96424 SHA256:d39c4a1dbdd6eb823957cd3a5c9d1b862e48fa5ee7cc299bd91b84c79dcdc15c
 'http://archive.ubuntu.com/ubuntu/pool/universe/q/qt6-webengine/qt6-pdf-dev_6.10.2%2bdfsg-1_amd64.deb' qt6-pdf-dev_6.10.2+dfsg-1_amd64.deb 63482 SHA256:b23cf2932a338ad63cf443360f6b04e580b959e8a94f5503a28fe84ac8fa527a
+'http://archive.ubuntu.com/ubuntu/pool/universe/q/qt6-serialport/qt6-serialport-dev_6.10.2-1_amd64.deb' qt6-serialport-dev_6.10.2-1_amd64.deb 17618 SHA256:9f5edd567db15e7b914c00cd89cdc7941f9a1df2fe285ad3c165db213bd36c07
 'http://archive.ubuntu.com/ubuntu/pool/universe/q/qt6-translations/qt6-translations-l10n_6.10.2-1_all.deb' qt6-translations-l10n_6.10.2-1_all.deb 2026828 SHA256:636699356af2227431ae48f26e47691946885e50522282ac3bcc38fee9d1d9da
 'http://archive.ubuntu.com/ubuntu/pool/universe/q/qt6-wayland/qt6-wayland_6.10.2-4_amd64.deb' qt6-wayland_6.10.2-4_amd64.deb 105536 SHA256:6b3f1f30475e1fd29a6b60f8d272d6e9df432b3d254eeb3531578a3b80aaf35f
 'http://archive.ubuntu.com/ubuntu/pool/universe/q/qt6-webchannel/qt6-webchannel-dev_6.10.2-1_amd64.deb' qt6-webchannel-dev_6.10.2-1_amd64.deb 21210 SHA256:e5c7d817c3976d331542af86e1814da0715390bc21a0ad48beb0ab931f6809fc

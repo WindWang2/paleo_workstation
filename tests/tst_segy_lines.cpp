@@ -5,8 +5,9 @@
 
 #include "../src/io/segyreader.h"
 
-#include <sys/stat.h>
+#if defined(Q_OS_UNIX)
 #include <unistd.h>
+#endif
 
 // plan §7 测线级 SEG-Y：打开只索引道头（内存不随体增长）、
 // 单 inline/crossline 按需解码、survey 几何冻结、crossline 道头字节 193。
@@ -73,6 +74,7 @@ private:
   }
   static qulonglong residentBytes()
   {
+#if defined(Q_OS_UNIX)
     QFile f(QStringLiteral("/proc/self/statm"));
     if (!f.open(QIODevice::ReadOnly))
       return 0;
@@ -82,6 +84,9 @@ private:
     bool ok = false;
     const qulonglong pages = t.at(1).toULongLong(&ok);
     return ok ? pages * static_cast<qulonglong>(sysconf(_SC_PAGESIZE)) : 0;
+#else
+    return 0; // RSS assertion is Linux-specific; trace indexing still runs.
+#endif
   }
 };
 
@@ -198,11 +203,14 @@ void TestSegyLines::openMemoryDoesNotScaleWithVolume()
     QVERIFY2(r.open(path, &err), qPrintable(err));
     QCOMPARE(r.traceCount(), nInl * nXl);
     const qulonglong rssAfter = residentBytes();
-    QVERIFY2(rssAfter >= rssBefore, "rss sanity");
-    const qulonglong growth = rssAfter - rssBefore;
-    QVERIFY2(growth < 3ULL * 1024 * 1024,
-             qPrintable(QStringLiteral("open() grew RSS by %1 MB; sample payload is %2 MB")
-                            .arg(growth / (1024 * 1024)).arg(sampleTotal / (1024 * 1024))));
+    if (rssBefore > 0 && rssAfter > 0)
+    {
+      QVERIFY2(rssAfter >= rssBefore, "rss sanity");
+      const qulonglong growth = rssAfter - rssBefore;
+      QVERIFY2(growth < 3ULL * 1024 * 1024,
+               qPrintable(QStringLiteral("open() grew RSS by %1 MB; sample payload is %2 MB")
+                              .arg(growth / (1024 * 1024)).arg(sampleTotal / (1024 * 1024))));
+    }
     // 单线解码规模符合预期（10 道 × 1024 样本）。
     QVector<SegyTrace> line;
     QVERIFY(r.readInline(1100, &line, &err));

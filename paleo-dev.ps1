@@ -66,7 +66,7 @@ switch ($Verb) {
     New-Item -ItemType Directory -Force $osgeo, $cache | Out-Null
     $setupArgs = @('-q', '-A', '-k', '-n', '-N', '-d', '-O', '-s', $pin.site,
                    '-R', ('"' + $osgeo + '"'), '-l', ('"' + $cache + '"'),
-                   '-P', 'qgis,qgis-devel,qt6-devel,gdal-devel,proj-devel,geos-devel')
+                   '-P', 'qgis,qgis-devel,qgis-devel-deps,qt6-devel,qt6-oci,gdal-devel,proj-devel,geos-devel')
     # The installer detaches when invoked directly; wait for the entire setup
     # process tree before inspecting installed.db or configuring CMake.
     $setupProcess = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru
@@ -80,6 +80,7 @@ switch ($Verb) {
     foreach ($required in @('apps\qgis\include\qgsapplication.h',
                            'apps\qgis\lib\qgis_core.lib',
                            'apps\qt6\lib\cmake\Qt6\Qt6Config.cmake',
+                           'apps\qt6\plugins\sqldrivers\qsqloci.dll',
                            'include\gdal.h', 'lib\gdal.lib')) {
       if (-not (Test-Path (Join-Path $osgeo $required))) { throw "OSGeo4W closure missing $required" }
     }

@@ -217,3 +217,9 @@ target_link_libraries(tst_polygonize PRIVATE paleo_qgis_iface Qt6::Test ${GDAL_L
 target_include_directories(tst_polygonize PRIVATE ${GDAL_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/spikes/polygonize)
 add_test(NAME polygonize COMMAND tst_polygonize)
 set_tests_properties(polygonize PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# ---- wave3/model-hardening (数据模型与测试基建加固) ----
+target_sources(paleo_core PRIVATE
+  src/metadata/metastore.cpp                         # project.sqlite user_version 门
+)
+add_paleo_test(tst_metastore)      # sqlite user_version：新库采纳/遗留升级/未来拒开

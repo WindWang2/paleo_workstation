@@ -1,4 +1,5 @@
 #include "releasestore.h"
+#include "metastore.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -53,6 +54,9 @@ namespace
         setError(error, db.lastError().text());
         return false;
       }
+      // 共享 schema 门（docs/SCHEMA_MIGRATION.md）：建表之前执行。
+      if (!MetaStore::ensureUserVersion(db, error))
+        return false;
     }
     QSqlQuery schema(db);
     if (!schema.exec(QStringLiteral(

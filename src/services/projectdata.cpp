@@ -150,6 +150,14 @@ QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId) const
       continue;
     top.md = r.hasMd ? r.md : qQNaN();
     top.tvd = r.hasTvd ? r.tvd : qQNaN();
+    // 分层点坐标：tops 文件的 X/Y 列。WellTopRecord 无 hasX/hasY——解析器
+    // 只在列存在且非 -99999 时填值，缺省留 0；(0,0) 对真实分层点是退化值，
+    // 按无坐标处理（NaN），编图链退到井口坐标。
+    if (r.x != 0.0 || r.y != 0.0)
+    {
+      top.x = r.x;
+      top.y = r.y;
+    }
     out.append(top);
   }
   return out;

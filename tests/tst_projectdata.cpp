@@ -174,6 +174,10 @@ class TestProjectData : public QObject
         QCOMPARE( tops.at( 1 ).horizon, QStringLiteral( "D61" ) );
         QVERIFY( qAbs( tops.at( 1 ).tvd - 2125.0 ) < 0.01 );
         QVERIFY( qAbs( tops.at( 1 ).md - 2148.0 ) < 0.01 );
+        // 分层点坐标（tops 文件 X/Y 列）进 WellTop.x/y（autoplan §5C：
+        // 厚度凸包/残差采样都优先用它而不是井口）。
+        QVERIFY( qAbs( tops.at( 1 ).x - 5288.67 ) < 0.01 );
+        QVERIFY( qAbs( tops.at( 1 ).y - 8219.94 ) < 0.01 );
 
         const QVector<TdSample> td = pd.tdTableFor( QStringLiteral( "well-1" ) );
         QCOMPARE( td.size(), 4 );

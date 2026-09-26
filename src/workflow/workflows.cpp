@@ -1,7 +1,6 @@
 #include "workflows.h"
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header; symbol refs are PALEO_HAVE_ORT-guarded
-#include "../domain/mappinghorizons.h"
 #include "../io/constraintstore.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/qgislayerservice.h"
@@ -949,6 +948,11 @@ void ValidationWorkflow::setResidualThresholdMs( double thresholdMs )
   setProperty( "paleo.wf.residualThresholdMs", thresholdMs );
 }
 
+QVariantList ValidationWorkflow::lastResidualRows() const
+{
+  return property( "paleo.wf.residualRows" ).toList();
+}
+
 QList<ValidationIssue> ValidationWorkflow::validate()
 {
   QList<ValidationIssue> issues;
@@ -1037,13 +1041,75 @@ QList<ValidationIssue> ValidationWorkflow::validate()
     }
   }
 
-  // (d) 井上时间残差（wave/mapping-pipeline 阶段C）— 门面绑定后，对每个
-  // 编图层位跑 TD 插值 vs DERIVED 栅格采样检查；无栅格的层位静默不适用。
-  if ( auto *pd = qobject_cast<ProjectDataFacade *>( property( "paleo.wf.projectdata" ).value<QObject *>() ) )
+  // (d) 井上 D61 时间残差（autoplan §5C）— 只评 D61。每口井一行（验证页残差
+  // 表渲染源，存 paleo.wf.residualRows）；|r|>阈值 → TIME_RESIDUAL 问题。
+  // 默认阈值 10 ms；非数值行（无分层/TD 原因/不在测网内/落在空道）不成问题。
   {
-    const double threshold = property( "paleo.wf.residualThresholdMs" ).toDouble();
-    for ( const QString &h : mappingHorizons() )
-      issues.append( computeTimeResiduals( pd, h, threshold > 0.0 ? threshold : 1.0 ) );
+    QVariantList rowMaps;
+    if ( auto *pd = qobject_cast<ProjectDataFacade *>( property( "paleo.wf.projectdata" ).value<QObject *>() ) )
+    {
+      const double prop = property( "paleo.wf.residualThresholdMs" ).toDouble();
+      const double threshold = prop > 0.0 ? prop : 10.0;
+      const QList<TimeResidualRow> rows =
+          computeTimeResiduals( pd, QStringLiteral( "D61" ), threshold );
+      // 残差行所属栅格图层（问题行的地图缩放目标）。
+      const QString rasterLayerId =
+          pd->horizonRasterDecl( QStringLiteral( "D61" ) ).layerId;
+      for ( const TimeResidualRow &row : rows )
+      {
+        QVariantMap m;
+        m.insert( QStringLiteral( "well_id" ), row.wellId );
+        m.insert( QStringLiteral( "well_name" ), row.wellName );
+        m.insert( QStringLiteral( "threshold_ms" ), threshold );
+        m.insert( QStringLiteral( "reason" ), row.reason );
+        if ( std::isfinite( row.x ) )
+          m.insert( QStringLiteral( "x" ), row.x );
+        if ( std::isfinite( row.y ) )
+          m.insert( QStringLiteral( "y" ), row.y );
+        if ( std::isfinite( row.timeMs ) )
+          m.insert( QStringLiteral( "time_ms" ), row.timeMs );
+        if ( std::isfinite( row.rasterMs ) )
+          m.insert( QStringLiteral( "raster_ms" ), row.rasterMs );
+        if ( std::isfinite( row.residualMs ) )
+          m.insert( QStringLiteral( "residual_ms" ), row.residualMs );
+        m.insert( QStringLiteral( "inline" ), row.inlineNo );
+        const char *status = row.status == TimeResidualRow::Status::Pass       ? "pass"
+                             : row.status == TimeResidualRow::Status::Exceeds  ? "exceed"
+                             : row.status == TimeResidualRow::Status::Warn     ? "warn"
+                                                                               : "na";
+        m.insert( QStringLiteral( "status" ), QString::fromLatin1( status ) );
+        rowMaps.append( m );
+
+        if ( row.status != TimeResidualRow::Status::Exceeds )
+          continue;
+        ValidationIssue v;
+        v.severity = ValidationIssue::Warning;
+        v.code = QStringLiteral( "TIME_RESIDUAL" );
+        QString inlineText;
+        if ( row.inlineNo >= 0 )
+          inlineText = tr( "，目标测线 %1" ).arg( row.inlineNo );
+        v.message = tr( "井 %1 %2 时间残差 %3ms（井 %4ms vs 栅格 %5ms%6）" )
+                        .arg( row.wellName, QStringLiteral( "D61" ) )
+                        .arg( row.residualMs, 0, 'f', 1 )
+                        .arg( row.timeMs, 0, 'f', 1 )
+                        .arg( row.rasterMs, 0, 'f', 1 )
+                        .arg( inlineText );
+        v.horizon = QStringLiteral( "D61" );
+        v.wellId = row.wellId;
+        if ( std::isfinite( row.x ) && std::isfinite( row.y ) )
+          v.wktLocation = QStringLiteral( "POINT(%1 %2)" ).arg( row.x ).arg( row.y );
+        v.details.insert( QStringLiteral( "well_name" ), row.wellName );
+        v.details.insert( QStringLiteral( "well_x" ), row.x );
+        v.details.insert( QStringLiteral( "well_y" ), row.y );
+        v.details.insert( QStringLiteral( "inline" ), row.inlineNo );
+        v.details.insert( QStringLiteral( "time_ms" ), row.timeMs );
+        v.details.insert( QStringLiteral( "raster_ms" ), row.rasterMs );
+        v.details.insert( QStringLiteral( "residual_ms" ), row.residualMs );
+        v.layerId = rasterLayerId;
+        issues.append( v );
+      }
+    }
+    setProperty( "paleo.wf.residualRows", rowMaps );
   }
 
   emit validationDone( issues.size() );

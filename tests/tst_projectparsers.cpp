@@ -207,11 +207,10 @@ void TestProjectParsers::bomOnFirstDataLineIsStripped()
 
 void TestProjectParsers::readsLasWellInfo()
 {
-  QString well, uwi;
+  QString well;
   QString err;
-  QVERIFY(LasParser::readWellInfo(fixture(QStringLiteral("A1.Las")), well, uwi, &err));
+  QVERIFY(LasParser::readWellInfo(fixture(QStringLiteral("A1.Las")), well, &err));
   QCOMPARE(well, QStringLiteral("A1"));
-  QVERIFY(uwi.isEmpty()); // 该文件 UWI 为空
 }
 
 QTEST_MAIN(TestProjectParsers)

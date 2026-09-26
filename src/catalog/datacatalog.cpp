@@ -51,8 +51,6 @@ namespace
     o.insert(QStringLiteral("id"), e.id);
     o.insert(QStringLiteral("entity_type"), e.entityType);
     o.insert(QStringLiteral("name"), e.name);
-    o.insert(QStringLiteral("uwi"), e.uwi);
-    o.insert(QStringLiteral("aliases"), QJsonArray::fromStringList(e.aliases));
     o.insert(QStringLiteral("surface_x"), e.surfaceX);
     o.insert(QStringLiteral("surface_y"), e.surfaceY);
     o.insert(QStringLiteral("has_surface"), e.hasSurface);
@@ -77,9 +75,7 @@ namespace
     e.id = o.value(QStringLiteral("id")).toString();
     e.entityType = o.value(QStringLiteral("entity_type")).toString();
     e.name = o.value(QStringLiteral("name")).toString();
-    e.uwi = o.value(QStringLiteral("uwi")).toString();
-    for (const auto &v : o.value(QStringLiteral("aliases")).toArray())
-      e.aliases.append(v.toString());
+    // D12：旧 catalog 的 "uwi"/"aliases" 键不读不报错——留在这里被静默丢弃。
     e.surfaceX = o.value(QStringLiteral("surface_x")).toDouble();
     e.surfaceY = o.value(QStringLiteral("surface_y")).toDouble();
     e.hasSurface = o.value(QStringLiteral("has_surface")).toBool();
@@ -807,18 +803,9 @@ QStringList DataCatalog::wellsMatchingName(const QString &name) const
   {
     if (e.entityType != QStringLiteral("well"))
       continue;
-    if (normalizeWellName(e.name) == needle ||
-        (!e.uwi.isEmpty() && e.uwi.compare(name, Qt::CaseInsensitive) == 0))
-    {
+    // D12：井身份只走规范化 name——uwi/别名匹配已随字段一并剥离。
+    if (normalizeWellName(e.name) == needle)
       out.append(e.id);
-      continue;
-    }
-    for (const QString &alias : e.aliases)
-      if (normalizeWellName(alias) == needle)
-      {
-        out.append(e.id);
-        break;
-      }
   }
   return out;
 }

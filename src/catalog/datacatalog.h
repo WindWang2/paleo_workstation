@@ -11,17 +11,17 @@
 // catalog.json 是本阶段唯一主存储和查询源（ADR 0056 的 C++ 最小面；
 // catalog.sqlite 按计划递延，TODOS P3）。关系从不由标签推断——链接显式落表。
 //
-// 实体类型：well（稳定 id+井名+UWI+别名）、seismic_survey（打开时从道头冻结
+// 实体类型：well（稳定 id+井名）、seismic_survey（打开时从道头冻结
 // 角点/inline/crossline 范围/采样间隔/起始时间）、sequence_boundary（层序界面）、
 // auxiliary（扫描图、文档、未配准 GeoJSON 等辅助资料）。
+// D12（pass-2）：uwi/aliases 遗留字段已剥离——井身份只走 name；旧 catalog
+// 里的 "uwi"/"aliases" 键装载时静默忽略，不回写。
 
 struct CatalogEntity
 {
   QString id;
   QString entityType;   // "well" | "seismic_survey" | "sequence_boundary" | "auxiliary"
   QString name;
-  QString uwi;          // wells only
-  QStringList aliases;
 
   // §3 井坐标：surface_x/y 是原始坐标（本工区=局部测网米），在真投影参数出现前
   // 地图一直读它；project_x/y 仅 coordinate_status=="ok" 时才写。

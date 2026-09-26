@@ -236,3 +236,17 @@ target_link_libraries(tst_polygonize PRIVATE paleo_qgis_iface Qt6::Test ${GDAL_L
 target_include_directories(tst_polygonize PRIVATE ${GDAL_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/spikes/polygonize)
 add_test(NAME polygonize COMMAND tst_polygonize)
 set_tests_properties(polygonize PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# ---- wave3/model-hardening (数据模型与测试基建加固) ----
+target_sources(paleo_core PRIVATE
+  src/metadata/metastore.cpp                         # project.sqlite user_version 门
+  src/metadata/projectlock.cpp                       # 两实例同开一工程的写互斥（QLockFile）
+)
+add_paleo_test(tst_metastore)      # sqlite user_version：新库采纳/遗留升级/未来拒开
+add_paleo_test(tst_segy_fixture)   # 合成最小 SEG-Y 夹具：索引/单线/角点/范围门
+target_compile_definitions(tst_segy_fixture PRIVATE
+  TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
+add_paleo_test(tst_algorithm_harness)  # AlgorithmTestBase harness + ≥3 算法用例
+add_paleo_test(tst_perfbudget)     # 非 UI 性能预算：工程打开/folder 枚举/save 200 版本
+target_compile_definitions(tst_perfbudget PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")

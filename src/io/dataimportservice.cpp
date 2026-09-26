@@ -455,23 +455,17 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
   else if (cls.type == QLatin1String("well_log") && !fixedAux)
   {
     // LAS 先读 ~W 的 WELL；XML 测井/读不到时用文件名主名。
-    QString wellName, uwi;
+    // （D12：UWI 回退已随 uwi/aliases 字段剥离——井身份只走 name。）
+    QString wellName;
     if (cls.format == QLatin1String("las"))
-      LasParser::readWellInfo(sourcePath, wellName, uwi);
+      LasParser::readWellInfo(sourcePath, wellName);
     QStringList tried{wellName};
     WellBind bind = resolveWell(wellName);
     if (bind.unresolved && bind.candidates.isEmpty())
     {
-      if (!uwi.isEmpty())
-      {
-        bind = resolveWell(uwi);
-        tried.append(uwi);
-      }
+      bind = resolveWell(stem); // A1.Las → A1
       if (bind.unresolved && bind.candidates.isEmpty())
-      {
-        bind = resolveWell(stem); // A1.Las → A1
         tried.append(stem);
-      }
     }
     // §3 修订：未决也是一条链接——实体 id 留空，备注记候选或未匹配名。
     EntityAssetLink link;
@@ -1112,10 +1106,10 @@ int DataImportService::attachResolvableLinks(const CatalogAsset &asset,
   QVector<QStringList> namesPerLink;
   if (asset.type == QLatin1String("well_log"))
   {
-    QString wellName, uwi;
+    QString wellName;
     if (asset.format == QLatin1String("las"))
-      LasParser::readWellInfo(sourcePath, wellName, uwi);
-    namesPerLink.append({wellName, uwi, stem}); // ~W WELL → UWI → 文件名主名
+      LasParser::readWellInfo(sourcePath, wellName);
+    namesPerLink.append({wellName, stem}); // ~W WELL → 文件名主名（D12：UWI 层已删）
   }
   else if (asset.type == QLatin1String("well_stratification"))
   {

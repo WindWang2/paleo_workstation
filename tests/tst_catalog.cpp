@@ -15,7 +15,7 @@ class TestCatalog : public QObject
 private slots:
   void roundTripsThroughJson();
   void normalizesWellName();
-  void resolvesWellByNameAndAlias();
+  void resolvesWellByName();
   void ambiguousNameYieldsBothCandidates();
   void unresolvedLinkRoundTripsWithEmptyEntityId();
   void resolvedLinkStillNeedsEntityId();
@@ -34,6 +34,9 @@ private slots:
   void unresolvedLinksIsTheExplicitAccessor();    // T33/row35
   void batchSaveCoalescesWrites();                // T33/row37
   void unsafeManagedPathSkippedOnLoad();          // T33
+  // ---- D12（pass-2）：uwi/aliases 遗留字段剥离 ----
+  void legacyCatalogFieldsIgnoredAndNotRewritten();
+  void newEntitySerializationOmitsLegacyKeys();
 };
 
 void TestCatalog::roundTripsThroughJson()
@@ -205,8 +208,9 @@ void TestCatalog::normalizesWellName()
            QStringLiteral("hz2861"));
 }
 
-void TestCatalog::resolvesWellByNameAndAlias()
+void TestCatalog::resolvesWellByName()
 {
+  // D12 后身份只走 name（规范化比较）；uwi/aliases 不再参与解析。
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
   DataCatalog cat;
@@ -222,11 +226,10 @@ void TestCatalog::resolvesWellByNameAndAlias()
   a2.id = QStringLiteral("well-A2");
   a2.entityType = QStringLiteral("well");
   a2.name = QStringLiteral("A2");
-  a2.aliases = QStringList{QStringLiteral("Well-Two")};
   QVERIFY(cat.addEntity(a2));
 
   QCOMPARE(cat.wellsMatchingName(QStringLiteral("a1")), QStringList{QStringLiteral("well-A1")});
-  QCOMPARE(cat.wellsMatchingName(QStringLiteral("well-two")),
+  QCOMPARE(cat.wellsMatchingName(QStringLiteral(" a-2 ")),
            QStringList{QStringLiteral("well-A2")});
   QVERIFY(cat.wellsMatchingName(QStringLiteral("A3")).isEmpty());
 }
@@ -238,21 +241,20 @@ void TestCatalog::ambiguousNameYieldsBothCandidates()
   DataCatalog cat;
   QVERIFY(cat.open(dir.path()));
 
+  // 同名两井（D12 前靠共享别名构造的歧义，现在直接同名）。
   CatalogEntity w1;
   w1.id = QStringLiteral("well-W1");
   w1.entityType = QStringLiteral("well");
-  w1.name = QStringLiteral("W1");
-  w1.aliases = QStringList{QStringLiteral("duplicate")};
+  w1.name = QStringLiteral("dup");
   QVERIFY(cat.addEntity(w1));
   CatalogEntity w2;
   w2.id = QStringLiteral("well-W2");
   w2.entityType = QStringLiteral("well");
-  w2.name = QStringLiteral("W2");
-  w2.aliases = QStringList{QStringLiteral("duplicate")};
+  w2.name = QStringLiteral("dup");
   QVERIFY(cat.addEntity(w2));
 
   // 双候选必须原样返回两个 id——调用方据此写 unresolved 链接，不并井。
-  const QStringList cands = cat.wellsMatchingName(QStringLiteral("duplicate"));
+  const QStringList cands = cat.wellsMatchingName(QStringLiteral("DUP"));
   QCOMPARE(cands.size(), 2);
   QVERIFY(cands.contains(QStringLiteral("well-W1")));
   QVERIFY(cands.contains(QStringLiteral("well-W2")));
@@ -836,6 +838,76 @@ void TestCatalog::unsafeManagedPathSkippedOnLoad()
   QCOMPARE(versions.front().id, QStringLiteral("ver-1"));
   // 序号恢复只看装进内存的版本——ver-2/ver-3 被拒不占序号。
   QCOMPARE(cat.nextVersionId(), QStringLiteral("ver-2"));
+}
+
+// D12：旧版 catalog 携带 uwi/aliases 键——打开不报错（键被忽略），井身份
+// 只认 name；任何一次落盘后文件里不再出现这两个键（不回写）。
+void TestCatalog::legacyCatalogFieldsIgnoredAndNotRewritten()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(QDir().mkpath(dir.filePath(QStringLiteral("artifacts/metadata"))));
+  QFile f(dir.filePath(QStringLiteral("artifacts/metadata/catalog.json")));
+  QVERIFY(f.open(QIODevice::WriteOnly));
+  f.write(QByteArrayLiteral(
+      "{\"schema_version\":1,\"catalog_revision\":1,"
+      "\"entities\":[{\"id\":\"well-A1\",\"entity_type\":\"well\",\"name\":\"A1\","
+      "\"uwi\":\"1005288123400\",\"aliases\":[\"Well-One\",\"A-1\"],"
+      "\"coordinate_status\":\"missing\"}],"
+      "\"assets\":[],\"versions\":[],\"entity_asset_links\":[]}"));
+  f.close();
+
+  DataCatalog cat;
+  QString err;
+  QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+
+  // uwi/aliases 不再是解析键：按 uwi、按旧别名都找不到井；按 name 找得到。
+  QVERIFY(cat.wellsMatchingName(QStringLiteral("1005288123400")).isEmpty());
+  QVERIFY(cat.wellsMatchingName(QStringLiteral("Well-One")).isEmpty());
+  QCOMPARE(cat.wellsMatchingName(QStringLiteral("a-1")),
+           QStringList{QStringLiteral("well-A1")});
+  QCOMPARE(cat.entities(QStringLiteral("well")).size(), 1);
+
+  // 触发一次落盘（addAsset），回读原始 JSON：两键消失。
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-1");
+  a.type = QStringLiteral("well_log");
+  QVERIFY(cat.addAsset(a));
+  QFile rf(cat.catalogPath());
+  QVERIFY(rf.open(QIODevice::ReadOnly));
+  const QByteArray raw = rf.readAll();
+  rf.close();
+  QVERIFY(!raw.contains(QByteArrayLiteral("\"uwi\"")));
+  QVERIFY(!raw.contains(QByteArrayLiteral("\"aliases\"")));
+  QVERIFY(raw.contains(QByteArrayLiteral("\"name\""))); // 实体本身仍在
+
+  // 重开轮转后的文件仍然健康（.bak 是旧内容，catalog.json 是新 schema）。
+  DataCatalog cat2;
+  QVERIFY2(cat2.open(dir.path(), &err), qPrintable(err));
+  QCOMPARE(cat2.entities(QStringLiteral("well")).size(), 1);
+}
+
+// D12：新建实体序列化不含 uwi/aliases 两键。
+void TestCatalog::newEntitySerializationOmitsLegacyKeys()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+
+  CatalogEntity well;
+  well.id = QStringLiteral("well-A1");
+  well.entityType = QStringLiteral("well");
+  well.name = QStringLiteral("A1");
+  well.coordinateStatus = QStringLiteral("missing");
+  QVERIFY(cat.addEntity(well));
+
+  QFile rf(cat.catalogPath());
+  QVERIFY(rf.open(QIODevice::ReadOnly));
+  const QByteArray raw = rf.readAll();
+  rf.close();
+  QVERIFY(!raw.contains(QByteArrayLiteral("\"uwi\"")));
+  QVERIFY(!raw.contains(QByteArrayLiteral("\"aliases\"")));
 }
 
 QTEST_MAIN(TestCatalog)

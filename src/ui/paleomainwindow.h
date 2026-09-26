@@ -39,6 +39,7 @@ class QgisLayoutService;
 class QgisEditingService;
 class PaleoProjectStore;
 class PaleoTaskService;
+class PaleoDecorationManager;
 class QCloseEvent;
 
 // ui/ — PaleoMainWindow: the five-page workflow shell (§42).
@@ -131,6 +132,11 @@ class PaleoMainWindow : public QMainWindow
     // 「导入工区文件夹」：分类确认表（可改类型）→ 两阶段导入 → 计数汇总，
     // 确认后只打开井口标签（§3/autoplan-design）。
     void runFolderImport(DataImportService *svc);
+    // D11 临时配准：手工仿射 → DERIVED GeoJSON 版本登记 → 「临时配准 · 名」
+    // 矢量图层实例化 + 画布水印；失败走状态栏文案，不弹框。
+    void applyProvisionalRegistration(DataImportService *svc,
+                                      const QString &assetId,
+                                      const QVariantMap &params);
 
     QgisCanvasController *m_canvasCtl;
     QgisProjectService *m_projectSvc;
@@ -154,5 +160,7 @@ class PaleoMainWindow : public QMainWindow
     QDockWidget *m_bottomDock = nullptr;
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
+    PaleoDecorationManager *m_decorMgr = nullptr; // D11 临时配准水印等画布装饰
+    int m_provisionalLayers = 0;   // 已上图的临时配准图层数（>0 → 水印）
     QString m_currentPage;
 };

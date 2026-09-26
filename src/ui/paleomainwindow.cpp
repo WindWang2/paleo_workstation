@@ -35,6 +35,8 @@
 #include "../qgis/qgislayoutservice.h"
 #include "../qgis/qgiseditingservice.h"
 #include "../services/paleotaskservice.h"
+#include "../io/geojsonaffine.h"
+#include "decorations/paleodecorations.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
@@ -49,6 +51,11 @@
 #include <qgsvectorlayer.h>
 #include <qgspointxy.h>
 #include <qgsrectangle.h>
+#include <qgsfillsymbol.h>
+#include <qgslinesymbol.h>
+#include <qgsmarkersymbol.h>
+#include <qgssinglesymbolrenderer.h>
+#include <qgswkbtypes.h>
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -272,6 +279,11 @@ void PaleoMainWindow::buildShell()
   m_centerSplit->setStretchFactor(1, 1);
   wsLay->addWidget(m_centerSplit);
   m_centerStack->addWidget(workspace); // index 1
+
+  // 画布装饰管理器（D11 临时配准水印等）：parent 到 canvas，renderComplete
+  // 自连；各项默认关，按需 setEnabled。
+  if (m_canvasCtl && m_canvasCtl->canvas())
+    m_decorMgr = new PaleoDecorationManager(m_canvasCtl->canvas(), this);
 
   // 预览空态/首标签的分栏高度（普通 QTabWidget 的 currentChanged 覆盖
   // 0→1 与 1→0 两个迁移；加页时发 0，最后关页发 -1）。
@@ -1179,6 +1191,11 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     {
       preview->setImportService(importSvc);
       preview->setTaskService(taskSvc); // D1：剖面索引/解码异步化（nullptr 时保持同步）
+      // D11 临时配准：GeoJSON 标签手工仿射 → DERIVED + 水印图层。
+      connect(preview, &DataPreviewTabs::provisionalRegistrationRequested, this,
+              [this, importSvc](const QString &assetId, const QVariantMap &params) {
+                applyProvisionalRegistration(importSvc, assetId, params);
+              });
       connect(dataPage, &DataPage::assetActivated, preview, &DataPreviewTabs::openAsset);
       // well_head 预览选中 → 地图高亮该井（§4；Direction B 经 SelectionContext）。
       if (m_selection)
@@ -1950,4 +1967,151 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
     connect(m_projectSvc, &QgisProjectService::projectOpened, this,
             [refreshPublishGate]() { refreshPublishGate(); });
   refreshPublishGate(); // 初始态：缺什么写什么，按钮禁用
+}
+
+// ---------------------------------------------------------------------------
+// D11 临时配准（手工仿射 → DERIVED + 水印图层）
+// ---------------------------------------------------------------------------
+void PaleoMainWindow::applyProvisionalRegistration(DataImportService *svc,
+                                                   const QString &assetId,
+                                                   const QVariantMap &params)
+{
+  const auto fail = [this](const QString &why) {
+    const QString text = tr("临时配准失败：%1").arg(why);
+    if (statusBar())
+      statusBar()->showMessage(text, 8000);
+    QgsMessageLog::logMessage(text, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+  };
+
+  DataCatalog *cat = svc ? svc->catalog() : nullptr;
+  if (!cat || !m_layerSvc)
+  {
+    fail(tr("目录或图层服务未就绪"));
+    return;
+  }
+  const CatalogVersion src = cat->currentVersion(assetId);
+  if (src.id.isEmpty())
+  {
+    fail(tr("资产没有可用版本"));
+    return;
+  }
+  const QString srcAbs = svc->absolutePathForVersion(src);
+  if (srcAbs.isEmpty() || !QFile::exists(srcAbs))
+  {
+    fail(tr("找不到源文件 %1").arg(srcAbs));
+    return;
+  }
+
+  // 工程目录：catalogPath() = <projectDir>/artifacts/metadata/catalog.json。
+  const QDir projectDir = QFileInfo(cat->catalogPath())
+                              .absoluteDir()
+                              .absoluteFilePath(QStringLiteral("../.."));
+  const QString verId = cat->nextVersionId();
+  const QString relDir = QStringLiteral("artifacts/derived/%1/%2").arg(assetId, verId);
+  const QString outDir = projectDir.absoluteFilePath(relDir);
+  if (!QDir().mkpath(outDir))
+  {
+    fail(tr("派生目录创建失败"));
+    return;
+  }
+  const QString outName =
+      QFileInfo(src.fileName).completeBaseName() + QStringLiteral(".provisional.geojson");
+  const QString outAbs = QDir(outDir).filePath(outName);
+
+  GeoAffineParams p;
+  p.tx = params.value(QStringLiteral("tx")).toDouble();
+  p.ty = params.value(QStringLiteral("ty")).toDouble();
+  p.sx = params.value(QStringLiteral("sx"), 1.0).toDouble();
+  p.sy = params.value(QStringLiteral("sy"), 1.0).toDouble();
+  p.rotDeg = params.value(QStringLiteral("rotDeg")).toDouble();
+
+  QString terr;
+  int featureCount = 0;
+  double bounds[4] = {0, 0, 0, 0};
+  if (!geoAffineTransformFile(srcAbs, outAbs, p, &terr, &featureCount, bounds))
+  {
+    fail(terr);
+    return;
+  }
+  QFile::setPermissions(outAbs, QFileDevice::ReadOwner | QFileDevice::ReadUser |
+                                    QFileDevice::ReadGroup | QFileDevice::ReadOther);
+
+  CatalogVersion d;
+  d.id = verId;
+  d.assetId = assetId;
+  d.stage = QStringLiteral("DERIVED");
+  d.versionNumber = src.versionNumber + 1;
+  d.managed = true;
+  d.path = relDir + QLatin1Char('/') + outName;
+  d.sourceUri = srcAbs;
+  d.sha256 = DataCatalog::sha256FileHex(outAbs, &terr);
+  d.fileName = outName;
+  d.parentVersionIds = QStringList{src.id};
+  d.extra.insert(QStringLiteral("provisional"), true);
+  d.extra.insert(QStringLiteral("affine"), geoAffineToMap(p));
+  QString verr;
+  if (!cat->addVersion(d, &verr))
+  {
+    fail(verr);
+    return;
+  }
+
+  // 「临时配准 · 名」矢量图层：告警橙描边虚线——与正式图层视觉隔离。
+  LayerDeclaration decl;
+  decl.layerId = QStringLiteral("provisional.%1").arg(assetId);
+  decl.type = QStringLiteral("vector");
+  decl.source = outAbs;
+  decl.group = QStringLiteral("00_Data");
+  decl.title = tr("临时配准 · %1").arg(cat->assetById(assetId).displayName);
+  QString derr;
+  if (!m_layerSvc->declare(decl, &derr))
+  {
+    fail(derr);
+    return;
+  }
+  QgsMapLayer *ml = m_layerSvc->instantiate(decl.layerId, &derr);
+  auto *vl = qobject_cast<QgsVectorLayer *>(ml);
+  if (!vl)
+  {
+    fail(derr.isEmpty() ? tr("图层实例化失败") : derr);
+    return;
+  }
+  QVariantMap symProps;
+  symProps.insert(QStringLiteral("color"), QStringLiteral("242,153,0,60"));      // warning 25%
+  symProps.insert(QStringLiteral("outline_color"), QStringLiteral("#F29900"));
+  symProps.insert(QStringLiteral("outline_width"), QStringLiteral("0.8"));
+  symProps.insert(QStringLiteral("outline_style"), QStringLiteral("dash"));
+  QgsSymbol *sym = nullptr;
+  switch (vl->geometryType())
+  {
+    case Qgis::GeometryType::Line:
+      symProps.remove(QStringLiteral("color"));
+      symProps.insert(QStringLiteral("line_color"), QStringLiteral("#F29900"));
+      symProps.insert(QStringLiteral("line_width"), QStringLiteral("0.8"));
+      symProps.insert(QStringLiteral("line_style"), QStringLiteral("dash"));
+      sym = QgsLineSymbol::createSimple(symProps).release();
+      break;
+    case Qgis::GeometryType::Point:
+      symProps.insert(QStringLiteral("name"), QStringLiteral("triangle"));
+      symProps.insert(QStringLiteral("size"), QStringLiteral("4"));
+      sym = QgsMarkerSymbol::createSimple(symProps).release();
+      break;
+    default:
+      sym = QgsFillSymbol::createSimple(symProps).release();
+      break;
+  }
+  if (sym)
+    vl->setRenderer(new QgsSingleSymbolRenderer(sym));
+
+  ++m_provisionalLayers;
+  if (m_decorMgr)
+    m_decorMgr->setWatermarkEnabled(true); // 有临时配准图层期间一直压水印
+  if (m_canvasCtl)
+    m_canvasCtl->zoomToLayer(decl.layerId);
+  if (statusBar())
+    statusBar()->showMessage(
+        tr("临时配准已上图：%1 · %2 个要素（手工仿射，非权威坐标）")
+            .arg(decl.title)
+            .arg(featureCount),
+        8000);
 }

@@ -90,6 +90,7 @@ add_library(paleo_core STATIC
   src/io/wellfileparsers.cpp                     # well head / tops / TD text parsers
   src/io/horizonbinner.cpp                       # horizon scatter -> binned time raster
   src/io/timedeptool.cpp                         # TVD/MD -> TIME(ms) interpolation
+  src/io/geojsonaffine.cpp                       # D11 临时配准（手工仿射）
   src/ui/datapreview/datapreviewtabs.cpp         # §4 data-page preview tabs
   src/ui/webviewpanel.cpp                        # embedded web shell (lazy, degradable)
 )

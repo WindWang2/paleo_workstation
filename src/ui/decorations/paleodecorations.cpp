@@ -187,6 +187,38 @@ void PaleoGridDecoration::render( const QgsMapSettings &mapSettings, QgsRenderCo
   painter->restore();
 }
 
+// ---------------------------------------------------------------- watermark
+
+void PaleoWatermarkDecoration::render( const QgsMapSettings &mapSettings, QgsRenderContext &context )
+{
+  Q_UNUSED( mapSettings )
+  QPainter *painter = context.painter();
+  if ( !painter || !painter->device() || mText.isEmpty() )
+    return;
+
+  // 顶中胶囊：warning #F29900 底 + 白字——与 DESIGN 的状态用色一致；水印只
+  // 在临时配准图层存在期间绘制，平时不出现。
+  QFont font = painter->font();
+  font.setPointSizeF( 9.0 );
+  font.setBold( true );
+  painter->setFont( font );
+  const QFontMetricsF fm( font );
+  const qreal textW = fm.horizontalAdvance( mText );
+  const qreal pillW = textW + 20;
+  const qreal pillH = fm.height() + 8;
+  const qreal x = ( painter->device()->width() - pillW ) / 2.0;
+  const qreal y = 10;
+
+  painter->save();
+  painter->setRenderHint( QPainter::Antialiasing, true );
+  painter->setPen( Qt::NoPen );
+  painter->setBrush( QColor( 242, 153, 0, 200 ) ); // warning #F29900 @ ~78%
+  painter->drawRoundedRect( QRectF( x, y, pillW, pillH ), pillH / 2.0, pillH / 2.0 );
+  painter->setPen( QColor( 255, 255, 255 ) );
+  painter->drawText( QRectF( x, y, pillW, pillH ), Qt::AlignCenter, mText );
+  painter->restore();
+}
+
 // ----------------------------------------------------------------- manager
 
 PaleoDecorationManager::PaleoDecorationManager( QgsMapCanvas *canvas, QObject *parent )
@@ -195,6 +227,7 @@ PaleoDecorationManager::PaleoDecorationManager( QgsMapCanvas *canvas, QObject *p
   , mScaleBar( std::make_unique<PaleoScaleBarDecoration>() )
   , mNorthArrow( std::make_unique<PaleoNorthArrowDecoration>() )
   , mGrid( std::make_unique<PaleoGridDecoration>() )
+  , mWatermark( std::make_unique<PaleoWatermarkDecoration>() )
 {
   // QGIS 4.x has no QgsMapCanvas::addDecorationItem — decorations paint from
   // the post-render hook, same as libqgis_app's QgsDecorationItem.
@@ -226,6 +259,21 @@ void PaleoDecorationManager::setGridEnabled( bool enabled )
   mCanvas->refresh();
 }
 
+void PaleoDecorationManager::setWatermarkEnabled( bool enabled )
+{
+  if ( mWatermarkEnabled == enabled )
+    return;
+  mWatermarkEnabled = enabled;
+  mCanvas->refresh();
+}
+
+void PaleoDecorationManager::setWatermarkText( const QString &text )
+{
+  mWatermark->setText( text );
+  if ( mWatermarkEnabled )
+    mCanvas->refresh();
+}
+
 QList<QgsMapDecoration *> PaleoDecorationManager::decorationItems() const
 {
   QList<QgsMapDecoration *> items;
@@ -236,6 +284,8 @@ QList<QgsMapDecoration *> PaleoDecorationManager::decorationItems() const
     items << mScaleBar.get();
   if ( mNorthArrowEnabled )
     items << mNorthArrow.get();
+  if ( mWatermarkEnabled )
+    items << mWatermark.get();
   return items;
 }
 

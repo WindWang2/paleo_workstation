@@ -10,6 +10,7 @@
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
+#include "../src/io/geojsonaffine.h"
 #include "../src/io/lasparser.h"
 #include "../src/io/projectclassifier.h"
 #include "../src/metadata/layermanifest.h"
@@ -868,6 +869,75 @@ private slots:
     QVERIFY(subFacies.contains(QString::fromUtf8("滩坝")));
     // 未配准：不生成地图图层
     QVERIFY(stack->manifest->all().isEmpty());
+  }
+
+  // D11 手工仿射：变换只动 position 前两分量，属性原样；平移+缩放+旋转
+  // 顺序（缩放→旋转→平移）按公式校验；输出带 paleo_provisional_affine。
+  void geoAffineTransformProducesDerivedCopy()
+  {
+    QTemporaryDir tmp;
+    const QString in = tmp.filePath(QStringLiteral("in.geojson"));
+    {
+      QFile f(in);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write(R"({"type":"FeatureCollection","features":[
+        {"type":"Feature","properties":{"相":"滩坝"},
+         "geometry":{"type":"Polygon","coordinates":[[[0,0],[100,0],[100,50],[0,0]]]}},
+        {"type":"Feature","properties":{"相":"河口坝"},
+         "geometry":{"type":"Point","coordinates":[10,20,7]}}]})");
+      f.close();
+    }
+
+    double b[4];
+    QString err;
+    QVERIFY2(geoJsonBounds(in, b, &err), qPrintable(err));
+    QCOMPARE(b[0], 0.0);
+    QCOMPARE(b[2], 100.0);
+    QCOMPARE(b[1], 0.0);
+    QCOMPARE(b[3], 50.0);
+
+    // 单点公式：sx=2, sy=3, rot=90°, tx=1000, ty=2000
+    // (10,20) → scale (20,60) → rot90 (-60,20) → +t (940,2020)
+    double ox, oy;
+    GeoAffineParams p{1000.0, 2000.0, 2.0, 3.0, 90.0};
+    geoAffineApply(p, 10.0, 20.0, &ox, &oy);
+    QVERIFY(qAbs(ox - 940.0) < 1e-9 && qAbs(oy - 2020.0) < 1e-9);
+
+    const QString out = tmp.filePath(QStringLiteral("out.geojson"));
+    int feats = 0;
+    double db[4];
+    QVERIFY2(geoAffineTransformFile(in, out, p, &err, &feats, db), qPrintable(err));
+    QCOMPARE(feats, 2);
+    // 变换后 bbox：x' = -3y+1000 ∈ [850,1000]，y' = 2x+2000 ∈ [2000,2200]
+    QVERIFY(qAbs(db[0] - 850.0) < 1e-6 && qAbs(db[2] - 1000.0) < 1e-6);
+    QVERIFY(qAbs(db[1] - 2000.0) < 1e-6 && qAbs(db[3] - 2200.0) < 1e-6);
+
+    QFile rf(out);
+    QVERIFY(rf.open(QIODevice::ReadOnly));
+    const QJsonDocument doc = QJsonDocument::fromJson(rf.readAll());
+    QVERIFY(doc.isObject());
+    const QJsonObject root = doc.object();
+    QVERIFY(root.contains(QStringLiteral("paleo_provisional_affine")));
+    const QJsonArray feats2 = root.value(QStringLiteral("features")).toArray();
+    QCOMPARE(feats2.size(), 2);
+    // 属性原样 + Point 的第三分量（高程）不动。
+    QCOMPARE(feats2.at(0).toObject().value(QStringLiteral("properties"))
+                 .toObject().value(QString::fromUtf8("相")).toString(),
+             QString::fromUtf8("滩坝"));
+    const QJsonArray pt = feats2.at(1).toObject().value(QStringLiteral("geometry"))
+                              .toObject().value(QStringLiteral("coordinates")).toArray();
+    QCOMPARE(pt.size(), 3);
+    QCOMPARE(pt.at(2).toDouble(), 7.0);
+    // 空要素集拒绝
+    const QString empty = tmp.filePath(QStringLiteral("empty.geojson"));
+    {
+      QFile f(empty);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write(R"({"type":"FeatureCollection","features":[]})");
+    }
+    QVERIFY(!geoAffineTransformFile(empty, out + QStringLiteral("x"), p, &err));
+    // 坏文件拒绝
+    QVERIFY(!geoAffineTransformFile(out + QStringLiteral("none"), out, p, &err));
   }
 
   // 阶段 D：参考资料目录 / HZ28-6-1 命名的 XML 固定辅助参考，不按内容挂井。

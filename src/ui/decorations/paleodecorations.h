@@ -51,6 +51,20 @@ class PaleoGridDecoration : public QgsMapDecoration
     void render( const QgsMapSettings &mapSettings, QgsRenderContext &context ) override;
 };
 
+// D11 临时配准水印：手工仿射的 GeoJSON 上图期间，画布右上压一条半透明
+// 「临时配准 · 手工仿射」角标（DESIGN warning #F29900）——与正式图层做
+// 视觉隔离，不把临时配准读成权威数据。
+class PaleoWatermarkDecoration : public QgsMapDecoration
+{
+  public:
+    PaleoWatermarkDecoration() { setDisplayName( QStringLiteral( "Watermark" ) ); }
+    void setText( const QString &text ) { mText = text; }
+    QString text() const { return mText; }
+    void render( const QgsMapSettings &mapSettings, QgsRenderContext &context ) override;
+  private:
+    QString mText = QStringLiteral( "临时配准 · 手工仿射" );
+};
+
 // Toggles decoration overlays on a QgsMapCanvas. Parented to the canvas by
 // default; paintDecorations() is the slot wired to renderComplete and is also
 // directly callable for offscreen paint checks.
@@ -63,10 +77,13 @@ class PaleoDecorationManager : public QObject
     void setScaleBarEnabled( bool enabled );
     void setNorthArrowEnabled( bool enabled );
     void setGridEnabled( bool enabled );
+    void setWatermarkEnabled( bool enabled );
+    void setWatermarkText( const QString &text );
 
     bool isScaleBarEnabled() const { return mScaleBarEnabled; }
     bool isNorthArrowEnabled() const { return mNorthArrowEnabled; }
     bool isGridEnabled() const { return mGridEnabled; }
+    bool isWatermarkEnabled() const { return mWatermarkEnabled; }
 
     // Currently-enabled decorations, in paint order.
     QList<QgsMapDecoration *> decorationItems() const;
@@ -85,8 +102,10 @@ class PaleoDecorationManager : public QObject
     std::unique_ptr<PaleoScaleBarDecoration> mScaleBar;
     std::unique_ptr<PaleoNorthArrowDecoration> mNorthArrow;
     std::unique_ptr<PaleoGridDecoration> mGrid;
+    std::unique_ptr<PaleoWatermarkDecoration> mWatermark;
 
     bool mScaleBarEnabled = false;
     bool mNorthArrowEnabled = false;
     bool mGridEnabled = false;
+    bool mWatermarkEnabled = false;
 };

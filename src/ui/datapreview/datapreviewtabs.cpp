@@ -2,6 +2,7 @@
 
 #include "../../catalog/datacatalog.h"
 #include "../../io/dataimportservice.h"
+#include "../../io/geojsonaffine.h"
 #include "../../io/lasparser.h"
 #include "../../io/segyreader.h"
 #include "../../io/timedeptool.h"
@@ -10,6 +11,10 @@
 
 #include <QComboBox>
 #include <QCryptographicHash>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDoubleSpinBox>
+#include <QFormLayout>
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QDesktopServices>
@@ -1320,6 +1325,108 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     body->setWordWrap(true);
     lay->addWidget(body);
     lay->addWidget(warnLabel(tr("经纬度，与本测网不是同一空间"), host)); // §4
+
+    // D11 临时配准入口：手工仿射把这份 GeoJSON 拉到工程测网。产物是
+    // DERIVED 版本 + 「临时配准」水印图层，不改原 RAW。
+    auto *regBtn = new QPushButton(tr("临时配准（手工仿射）…"), host);
+    regBtn->setObjectName(QStringLiteral("provisionalRegisterButton"));
+    regBtn->setAccessibleName(tr("临时配准"));
+    regBtn->setToolTip(tr("手工输入仿射参数，把 GeoJSON 变换到工程局部测网"));
+    connect(regBtn, &QPushButton::clicked, this, [this, assetId, abs]() {
+      double srcB[4];
+      QString berr;
+      if (!geoJsonBounds(abs, srcB, &berr))
+      {
+        warnLabel(tr("读不出坐标范围：%1").arg(berr), m_tabs);
+        return;
+      }
+
+      QDialog dlg(this);
+      dlg.setWindowTitle(tr("临时配准（手工仿射）"));
+      auto *form = new QFormLayout(&dlg);
+      auto *srcLbl = new QLabel(
+          tr("源坐标范围：X %1–%2 · Y %3–%4")
+              .arg(QString::number(srcB[0], 'f', 2), QString::number(srcB[2], 'f', 2),
+                   QString::number(srcB[1], 'f', 2), QString::number(srcB[3], 'f', 2)),
+          &dlg);
+      srcLbl->setWordWrap(true);
+      form->addRow(srcLbl);
+      auto *gridHint = new QLabel(
+          tr("目标：工程局部测网（约 X 0–12800 · Y 0–16400，单位米）"), &dlg);
+      gridHint->setWordWrap(true);
+      gridHint->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+      form->addRow(gridHint);
+
+      auto *tx = new QDoubleSpinBox(&dlg);
+      auto *ty = new QDoubleSpinBox(&dlg);
+      auto *sx = new QDoubleSpinBox(&dlg);
+      auto *sy = new QDoubleSpinBox(&dlg);
+      auto *rot = new QDoubleSpinBox(&dlg);
+      for (auto *s : {tx, ty})
+      {
+        s->setRange(-1e9, 1e9);
+        s->setDecimals(2);
+        s->setSingleStep(1000.0);
+      }
+      for (auto *s : {sx, sy})
+      {
+        s->setRange(1e-6, 1e6);
+        s->setDecimals(6);
+        s->setValue(1.0);
+      }
+      rot->setRange(-360.0, 360.0);
+      rot->setDecimals(2);
+      form->addRow(tr("平移 X（米）"), tx);
+      form->addRow(tr("平移 Y（米）"), ty);
+      form->addRow(tr("缩放 X"), sx);
+      form->addRow(tr("缩放 Y"), sy);
+      form->addRow(tr("旋转（度）"), rot);
+
+      auto *dstLbl = new QLabel(&dlg);
+      dstLbl->setObjectName(QStringLiteral("affineDstBounds"));
+      dstLbl->setWordWrap(true);
+      dstLbl->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+      form->addRow(dstLbl);
+      const auto refreshDst = [srcB, tx, ty, sx, sy, rot, dstLbl]() {
+        GeoAffineParams p{tx->value(), ty->value(), sx->value(), sy->value(),
+                          rot->value()};
+        double lo[2] = {1e30, 1e30}, hi[2] = {-1e30, -1e30};
+        for (int i = 0; i < 4; ++i)
+        {
+          double ox, oy;
+          geoAffineApply(p, srcB[i % 2 == 0 ? 0 : 2], srcB[i < 2 ? 1 : 3], &ox, &oy);
+          lo[0] = qMin(lo[0], ox);
+          hi[0] = qMax(hi[0], ox);
+          lo[1] = qMin(lo[1], oy);
+          hi[1] = qMax(hi[1], oy);
+        }
+        dstLbl->setText(tr("变换后范围：X %1–%2 · Y %3–%4")
+                            .arg(QString::number(lo[0], 'f', 1),
+                                 QString::number(hi[0], 'f', 1),
+                                 QString::number(lo[1], 'f', 1),
+                                 QString::number(hi[1], 'f', 1)));
+      };
+      for (auto *s : {tx, ty, sx, sy, rot})
+        connect(s, qOverload<double>(&QDoubleSpinBox::valueChanged), dstLbl, refreshDst);
+      refreshDst();
+
+      auto *buttons = new QDialogButtonBox(
+          QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+      buttons->button(QDialogButtonBox::Ok)->setText(tr("登记为临时配准"));
+      form->addRow(buttons);
+      connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+      connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+      if (dlg.exec() != QDialog::Accepted)
+        return;
+
+      emit provisionalRegistrationRequested(
+          assetId, {{QStringLiteral("tx"), tx->value()},
+                    {QStringLiteral("ty"), ty->value()},
+                    {QStringLiteral("sx"), sx->value()},
+                    {QStringLiteral("sy"), sy->value()},
+                    {QStringLiteral("rotDeg"), rot->value()}});
+    });
+    lay->addWidget(regBtn);
     lay->addStretch(1);
     return host;
   }

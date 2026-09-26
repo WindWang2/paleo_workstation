@@ -294,6 +294,12 @@ void TestDataPreview::everyTypeOpensContent()
     if (l->text().contains(QStringLiteral("经纬度，与本测网不是同一空间")))
       sawSpace = true;
   QVERIFY2(sawSpace, "geojson tab must carry the CRS-mismatch caption");
+  // D11：GeoJSON 标签带「临时配准（手工仿射）…」入口，确认后走
+  // provisionalRegistrationRequested（对话框壳层测试不点）。
+  auto *regBtn = tabs->widget(tabs->currentIndex())
+                     ->findChild<QPushButton *>(
+                         QStringLiteral("provisionalRegisterButton"));
+  QVERIFY2(regBtn, "geojson tab needs the provisional-registration entry");
   QCOMPARE(st->preview->tabCount(), 9);
 }
 

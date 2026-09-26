@@ -63,6 +63,10 @@ class DataPreviewTabs : public QWidget
     // D7：角落「最大化预览/还原预览」切换——分栏尺寸归 shell（PaleoMainWindow
     // 持有 splitter），这里只报意图。
     void previewMaximizeToggled(bool maximized);
+    // D11 临时配准：GeoJSON 标签「临时配准（手工仿射）…」确认后发射。
+    // params 携带 tx/ty/sx/sy/rotDeg；DERIVED 登记、图层实例化与水印由壳办。
+    void provisionalRegistrationRequested(const QString &assetId,
+                                          const QVariantMap &params);
 
   private:
     QWidget *buildContent(const QString &assetId, QWidget *page);

@@ -31,6 +31,7 @@ class TestDecorations : public QObject
     void enabledFlagsRoundtrip();
     void decorationsPaintPixels();
     void disabledDecorationPaintsNothing();
+    void watermarkPaintsWhenEnabled();
     void vertexShimDockLifecycle();
     void vertexShimAutoShow();
 
@@ -130,6 +131,33 @@ void TestDecorations::disabledDecorationPaintsNothing()
   QCoreApplication::processEvents();
 
   PaleoDecorationManager mgr( &canvas );
+  QCOMPARE( paintAndCount( canvas, mgr ), 0 );
+}
+
+// D11：临时配准水印——关闭时零像素；开启后顶中胶囊画到画布上；
+// setWatermarkText 改名后仍能绘制（不清使能态）。
+void TestDecorations::watermarkPaintsWhenEnabled()
+{
+  QgsMapCanvas canvas;
+  canvas.resize( 640, 480 );
+  canvas.setExtent( QgsRectangle( 0, 0, 1000, 800 ) );
+  canvas.refresh();
+  QCoreApplication::processEvents();
+
+  PaleoDecorationManager mgr( &canvas );
+  QVERIFY( !mgr.isWatermarkEnabled() );
+  QCOMPARE( paintAndCount( canvas, mgr ), 0 );
+
+  mgr.setWatermarkEnabled( true );
+  QVERIFY( mgr.isWatermarkEnabled() );
+  QCOMPARE( mgr.decorationItems().size(), 1 );
+  QVERIFY( paintAndCount( canvas, mgr ) > 0 );
+
+  mgr.setWatermarkText( QStringLiteral( "临时配准 · 测试图层" ) );
+  QVERIFY( paintAndCount( canvas, mgr ) > 0 );
+
+  mgr.setWatermarkEnabled( false );
+  QCOMPARE( mgr.decorationItems().size(), 0 );
   QCOMPARE( paintAndCount( canvas, mgr ), 0 );
 }
 

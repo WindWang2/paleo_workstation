@@ -9,6 +9,12 @@
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
+#include "../src/ui/datapreview/datapreviewtabs.h"
+
+#include <QComboBox>
+#include <QLabel>
+#include <QPushButton>
+#include <QSpinBox>
 
 // wave4/runtime-resilience：外链源文件「重新定位」恢复路径（TODOS P3 autoplan
 // pass-2 递延项）。场景：RAW 外链版本（managed=false，SEG-Y 一律外链）源文件
@@ -63,6 +69,11 @@ private slots:
   void managedVersionIsNotRelocatable();
   void newPathInsideProjectStaysExternal();
   void missingNewPathIsRefused();
+  // UI 面（offscreen）：死胡同按钮存在性 + 重定位成功重建 / 拒解留痕。
+  void missingExternalShowsRelocateButton();
+  void managedMissingShowsNoRelocateButton();
+  void relocateViaTabsRebuildsPreview();
+  void relocateViaTabsMismatchKeepsDeadEndThenRecovers();
 
 private:
   // 搭一台外链地震资产：源从 tmp 里导入（SEG-Y 一律外链），返回 (assetId, verId, 源路径)。
@@ -231,6 +242,95 @@ void TestRelocate::missingNewPathIsRefused()
       ex.versionId, tmp.filePath(QStringLiteral("nope/vol.sgy")), &err);
   QVERIFY(r.isEmpty());
   QVERIFY2(err.contains(QStringLiteral("找不到")), qPrintable(err));
+}
+
+void TestRelocate::missingExternalShowsRelocateButton()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+  const External ex = makeExternal(*st->importSvc, tmp);
+  QVERIFY(!ex.assetId.isEmpty());
+  QFile::remove(ex.source);
+
+  DataPreviewTabs pv;
+  pv.setImportService(st->importSvc.get());
+  pv.openAsset(ex.assetId);
+  QVERIFY(pv.isMissingSourceState(ex.assetId));
+  auto *btn = pv.findChild<QPushButton *>(QStringLiteral("relocateBtn"));
+  QVERIFY2(btn, "外链缺失态必须给「重新定位文件…」出口");
+  QVERIFY(!btn->isHidden());
+  QCOMPARE(btn->text(), QStringLiteral("重新定位文件…"));
+}
+
+void TestRelocate::managedMissingShowsNoRelocateButton()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+  QString err;
+  const QString assetId =
+      st->importSvc->importProjectFile(fixture(QStringLiteral("tiny.png")), &err);
+  QVERIFY(!assetId.isEmpty());
+  QFile::remove(st->importSvc->absolutePath(assetId)); // 受管副本消失
+
+  DataPreviewTabs pv;
+  pv.setImportService(st->importSvc.get());
+  pv.openAsset(assetId);
+  QVERIFY(pv.isMissingSourceState(assetId));
+  QVERIFY2(!pv.findChild<QPushButton *>(QStringLiteral("relocateBtn")),
+           "受管缺失不是重定位能解的死胡同——不给按钮");
+}
+
+void TestRelocate::relocateViaTabsRebuildsPreview()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+  const External ex = makeExternal(*st->importSvc, tmp);
+  QVERIFY(!ex.assetId.isEmpty());
+  const QString moved = tmp.filePath(QStringLiteral("elsewhere/vol.sgy"));
+  QVERIFY(QDir().mkpath(QFileInfo(moved).absolutePath()));
+  QVERIFY(QFile::rename(ex.source, moved));
+
+  DataPreviewTabs pv;
+  pv.setImportService(st->importSvc.get());
+  pv.openAsset(ex.assetId);
+  QVERIFY(pv.isMissingSourceState(ex.assetId));
+  QVERIFY(pv.relocateMissingSourceWith(ex.assetId, ex.versionId, moved));
+  // 死胡同解除、真预览加载：地震标签的测线控件就位。
+  QVERIFY(!pv.isMissingSourceState(ex.assetId));
+  QVERIFY(pv.findChild<QComboBox *>(QStringLiteral("lineMode")));
+  QVERIFY(pv.findChild<QSpinBox *>(QStringLiteral("lineSpin")));
+}
+
+void TestRelocate::relocateViaTabsMismatchKeepsDeadEndThenRecovers()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+  const External ex = makeExternal(*st->importSvc, tmp);
+  QVERIFY(!ex.assetId.isEmpty());
+  const QString dir = tmp.filePath(QStringLiteral("elsewhere"));
+  QVERIFY(QDir().mkpath(dir));
+  const QString wrong = QDir(dir).filePath(QStringLiteral("wrong.sgy"));
+  QFile::copy(fixture(QStringLiteral("A1.Las")), wrong); // 内容不符的候选
+  const QString right = QDir(dir).filePath(QStringLiteral("vol.sgy"));
+  QVERIFY(QFile::rename(ex.source, right));
+
+  DataPreviewTabs pv;
+  pv.setImportService(st->importSvc.get());
+  pv.openAsset(ex.assetId);
+  QVERIFY(pv.isMissingSourceState(ex.assetId));
+  // 先挑错文件：拒解，错误写到死胡同面上，按钮仍在。
+  QVERIFY(!pv.relocateMissingSourceWith(ex.assetId, ex.versionId, wrong));
+  QVERIFY(pv.isMissingSourceState(ex.assetId));
+  auto *lbl = pv.findChild<QLabel *>(QStringLiteral("stateText"));
+  QVERIFY(lbl && lbl->text().contains(QStringLiteral("不符")));
+  QVERIFY(pv.findChild<QPushButton *>(QStringLiteral("relocateBtn")));
+  // 再挑对文件：恢复。
+  QVERIFY(pv.relocateMissingSourceWith(ex.assetId, ex.versionId, right));
+  QVERIFY(!pv.isMissingSourceState(ex.assetId));
 }
 
 int main(int argc, char *argv[])

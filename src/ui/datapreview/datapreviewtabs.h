@@ -63,6 +63,12 @@ class DataPreviewTabs : public QWidget
     void closeAssetTab(const QString &assetId);
     bool isMissingSourceState(const QString &assetId) const; // 外链缺失态（测试/诊断）
 
+    // wave4：外链「重新定位文件…」按钮的动作面（对话框只产出 pickedPath，
+    // 这里是可测的执行半边）。成功 → 该标签重建、真预览加载；失败 → 错误
+    // 如实写到死胡同面上（保留「找不到源文件」前缀与按钮，可换文件再试）。
+    bool relocateMissingSourceWith(const QString &assetId, const QString &versionId,
+                                   const QString &pickedPath);
+
   signals:
     // well_head 标签被选中/聚焦时，地图高亮该井（§4）。
     void wellSelected(const QString &wellEntityId);

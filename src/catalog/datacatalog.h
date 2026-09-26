@@ -138,12 +138,21 @@ class DataCatalog : public QObject
     QString nextVersionId();
     QString nextEntityId(const QString &prefix);
 
-    // 局部测网 CRS（§3）：工作坐标=局部直角米。自定义工程坐标，
-    // authid 不落 EPSG:4326（4326 只留作标签）。PROJ 9 的 eqc 必须带椭球，
-    // 计划字面串 "+proj=eqc +units=m +no_defs" 补 +ellps=WGS84（本地网格，
-    // 椭球不影响米制工作坐标）。
-    static QString localGridCrsProj()
-    { return QStringLiteral("+proj=eqc +ellps=WGS84 +units=m +no_defs"); }
+    // 局部测网 CRS（§3 / PROJECT_AREA_PLAN autoplan-eng）：工作坐标=局部直角米。
+    // WKT2 ENGCRS：EDATUM 是工程基准，不带大地基准——因此 authid 为空、
+    // isGeographic 为假、mapUnits 为米，且不存在到 EPSG:4326 的
+    // QgsCoordinateTransform（PROJ 对无基准 CRS 造不出坐标操作，transform
+    // isValid()==false）。禁用任何 +proj=eqc：eqc 必须带椭球，椭球意味着
+    // 大地基准，会把局部米反投成经纬度。4326 只留在源标签上。
+    static QString localGridCrsWkt()
+    {
+      return QStringLiteral(
+          "ENGCRS[\"Paleo local engineering grid\","
+          "EDATUM[\"Local engineering datum\"],"
+          "CS[Cartesian,2],"
+          "AXIS[\"easting\",east,ORDER[1],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]],"
+          "AXIS[\"northing\",north,ORDER[2],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]]]");
+    }
 
   signals:
     void changed();      // 任一变更落盘后发射（UI 刷新资产表用）

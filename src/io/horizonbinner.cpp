@@ -187,13 +187,17 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
   GDALSetGeoTransform(ds, gt);
   GDALSetRasterNoDataValue(GDALGetRasterBand(ds, 1), kNoData);
 
-  // 局部直角米测网（§3）——自定义工程坐标，非 EPSG:4326。
+  // 局部直角米测网（§3）——无大地基准的 ENGCRS，非 EPSG:4326。GDAL 接受该
+  // WKT 并以 LOCAL_CS 落盘；SetFromUserInput 失败时宁可让 GeoTIFF SRS 留空，
+  // 也绝不把局部米写成经纬度。
   OGRSpatialReference srs;
-  srs.SetFromUserInput(DataCatalog::localGridCrsProj().toUtf8().constData());
-  char *wkt = nullptr;
-  srs.exportToWkt(&wkt);
-  GDALSetProjection(ds, wkt);
-  CPLFree(wkt);
+  if (srs.SetFromUserInput(DataCatalog::localGridCrsWkt().toUtf8().constData()) == OGRERR_NONE)
+  {
+    char *wkt = nullptr;
+    if (srs.exportToWkt(&wkt) == OGRERR_NONE && wkt)
+      GDALSetProjection(ds, wkt);
+    CPLFree(wkt);
+  }
 
   const CPLErr err = GDALRasterIO(GDALGetRasterBand(ds, 1), GF_Write, 0, 0, b.cols, b.rows,
                                   const_cast<float *>(b.z.constData()), b.cols, b.rows, GDT_Float32,

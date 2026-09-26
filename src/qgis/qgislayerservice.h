@@ -41,6 +41,13 @@ class QgisLayerService : public QObject
     void layerDeclared(const QString &layerId);
 
   private:
+    // The project owns every instantiated layer; project teardown (clear/read)
+    // and direct layer removal delete them out from under the cache. These
+    // hooks keep m_instances pointer-true so instantiate() never returns a
+    // dangling layer (§37 spine discipline — raw pointers, project-owned).
+    void purgeDanglingInstances();
+    void trackInstance(const QString &layerId, QgsMapLayer *layer);
+
     QgisProjectService *m_projectSvc;
     LayerManifest *m_manifest;
     QHash<QString, QgsMapLayer *> m_instances; // layerId -> layer (owned by QgsProject)

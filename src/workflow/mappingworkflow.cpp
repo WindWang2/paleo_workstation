@@ -1,5 +1,6 @@
 #include "mappingworkflow.h"
 
+#include "../catalog/datacatalog.h"
 #include "../domain/mappinghorizons.h"
 #include "../io/timedeptool.h"
 #include "../io/wellfileparsers.h"
@@ -178,6 +179,15 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
     }
     QJsonObject fc;
     fc.insert( QStringLiteral( "type" ), QStringLiteral( "FeatureCollection" ) );
+    // 厚度点坐标是局部测网米——GeoJSON 按 RFC 7946 默认 WGS84，OGR 会把它读成
+    // EPSG:4326。OGR 仍识别旧式 "crs" 成员：写入无基准工程网格 WKT，
+    // 图层随源落到工程坐标，不经任何基准变换。
+    QJsonObject crsProps;
+    crsProps.insert( QStringLiteral( "name" ), DataCatalog::localGridCrsWkt() );
+    QJsonObject crsMember;
+    crsMember.insert( QStringLiteral( "type" ), QStringLiteral( "name" ) );
+    crsMember.insert( QStringLiteral( "properties" ), crsProps );
+    fc.insert( QStringLiteral( "crs" ), crsMember );
     fc.insert( QStringLiteral( "features" ), features );
 
     QFile f( pointsPath );

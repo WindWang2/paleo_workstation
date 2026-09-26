@@ -30,7 +30,7 @@ class QgisProjectService : public QObject
     // §37 projection hook: when set, writeProject() embeds the provider's
     // declared set into the .qgz (ManifestProjection custom property) so the
     // saved file describes all declarations, not just instantiated layers.
-    // Wire e.g. to QgisLayerService::declared() / LayerManifest::all().
+    // Wire e.g. to QgisLayerService::tryDeclared() / LayerManifest::readAll().
     // Provider must report read failure (false + error) — an empty set would
     // otherwise be indistinguishable from a legitimately empty manifest and
     // silently drop every declaration on write.

@@ -265,6 +265,46 @@ class TestProjectData : public QObject
         QVERIFY( !broken.lastError().isEmpty() );
         QCOMPARE( broken.wells().size(), 0 );
     }
+    // data/entity-view 接缝：EntityView + 下游闭包直通 facade——DataPage
+    // （p5a）消费的稳定出口。catalog 未开 → 如实空视图，不编造槽位。
+    void entityViewAndClosurePassthrough()
+    {
+        QTemporaryDir dir;
+        DataCatalog catalog;
+        QVERIFY( catalog.open( dir.path() ) );
+        QVERIFY( buildCatalog( catalog, QDir( dir.path() ) ) );
+
+        ProjectDataFacade pd;
+        pd.setCatalog( &catalog, dir.path() );
+
+        const EntityView v = pd.entityView( QStringLiteral( "well-1" ) );
+        QCOMPARE( v.entity.id, QStringLiteral( "well-1" ) );
+        QVERIFY( !v.roleSlots.isEmpty() ); // 词表全角色枚举（含空槽）
+        bool topsHasPrimary = false;
+        for ( const RoleSlot &s : v.roleSlots )
+            if ( s.def.role == QLatin1String( "tops" ) &&
+                 !s.primary.assetId.isEmpty() )
+                topsHasPrimary = true;
+        QVERIFY( topsHasPrimary );
+
+        // 下游闭包：往 tops 版本（ver-1）下挂一条 DERIVED → 闭包可达。
+        CatalogVersion der;
+        der.id = QStringLiteral( "ver-der" );
+        der.assetId = QStringLiteral( "ast-1" );
+        der.stage = QStringLiteral( "DERIVED" );
+        der.parentVersionIds = { QStringLiteral( "ver-1" ) };
+        QVERIFY( catalog.addVersion( der ) );
+        const QVector<CatalogVersion> down =
+            pd.downstreamClosureOf( QStringLiteral( "ver-1" ) );
+        QCOMPARE( down.size(), 1 );
+        QCOMPARE( down.front().id, QStringLiteral( "ver-der" ) );
+        QVERIFY( pd.downstreamClosureOf( QStringLiteral( "ver-nope" ) ).isEmpty() );
+
+        // catalog 未开的裸 facade：如实空视图/空闭包。
+        ProjectDataFacade bare;
+        QVERIFY( bare.entityView( QStringLiteral( "well-1" ) ).entity.id.isEmpty() );
+        QVERIFY( bare.downstreamClosureOf( QStringLiteral( "ver-1" ) ).isEmpty() );
+    }
 };
 
 int main( int argc, char *argv[] )

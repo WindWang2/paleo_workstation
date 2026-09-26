@@ -279,3 +279,18 @@ HorizonRasterInfo ProjectDataFacade::horizonRasterDecl(const QString &horizon) c
   info.valid = info.rows > 0 && info.cols > 0 && info.cellSize > 0.0;
   return info;
 }
+
+EntityView ProjectDataFacade::entityView(const QString &entityId) const
+{
+  if (!m_catalog || !m_catalog->isOpen())
+    return EntityView();
+  return entityDataView(*m_catalog, entityId);
+}
+
+QVector<CatalogVersion> ProjectDataFacade::downstreamClosureOf(
+    const QString &versionId) const
+{
+  if (!m_catalog || !m_catalog->isOpen())
+    return {};
+  return m_catalog->downstreamClosure(versionId);
+}

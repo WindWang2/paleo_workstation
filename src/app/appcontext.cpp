@@ -200,6 +200,10 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
                   QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
             }
 
+            // complete 记档是幂等重入凭证、只增不减——打开路径顺带封顶清理
+            // （默认留 32 条）。未完成记档不清理，上面已如实上报。
+            m_store->pruneCommitJournal();
+
             // §37 recovery: the SQLite manifest is authoritative, but the .qgz
             // carries an embedded copy of the declared set. Rehydrate ONLY when
             // the store file does not exist — a .qgz moved/shared without its

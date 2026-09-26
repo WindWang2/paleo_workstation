@@ -16,7 +16,7 @@
 | link.ordinal + primary 不变量 | 无 ordinal | **B 包**：catalog 字段+排序 | ✅ 已合并 `6e34d9d` |
 | EntityDataView（角色槽视图） | `linksForEntity` 原始面 | **B 包**：`src/catalog/entityview.*` | ✅ 已合并 `6e34d9d`；⏳ DataPage 接线=wave-5 p5a |
 | staleness/downstream 闭包 | 无 | **B 包**：catalog 查询+extra 标记 | ✅ 已合并 `6e34d9d`；⏳ 预览/发布门接线=wave-5 p5b |
-| CommitCoordinator（journal+幂等+三段提交） | `PaleoProjectStore::saveAll` 已有序写队列 | **D 包**：journal-lite+幂等 op | ✅ 已合并 `12aa9b1`（`commitAll`/`recoverCommitJournal`） |
+| CommitCoordinator（journal+幂等+三段提交） | `PaleoProjectStore::saveAll` 已有序写队列 | **D 包**：journal-lite+幂等 op | ✅ 已合并 `12aa9b1`（`commitAll`/`recoverCommitJournal`）；⏳ 生产调用点待接线（见下） |
 | role 词表强制 | 无 | wave-5 p5c：诊断不硬拦 | ⏳ 外包中 |
 | working-copy / trash / typed RunPort | 无 | **defer**（规模不符，派生链短） | 递延 |
 
@@ -133,3 +133,23 @@ A（独立新增）→ C（dataimportservice 接缝）→ D（paleoprojectstore 
 
 每包：新增 QtTest 用例 + `ctest` 全绿（基线 61/61 + 新增数）。
 真数据 smoke（`tst_import`/`tst_smoke_realdata`）在 C 包必跑。
+
+## 合并后接缝（本会话追加，2026-09-27）
+
+四包落地后仍开着的接线口——下一波（wave-5 已在跑 p5a/b/c）之外的显式缝：
+
+- **`commitAll` 尚无生产调用方**。保存按钮走 `store->saveAll(gpkgCommit,
+  writeQgz)`（`paleomainwindow.cpp` save 连接，不 journal）。接线方案：
+  saveAll 内部改走 commitAll（opId 每次保存生成，complete 记档靠
+  `pruneCommitJournal` 封顶）；或把 catalog 提交并进 saveAll 的单元链。
+  journal 阶段名按单元语义映射（unit1=gpkgCommit 记 catalog_done 是
+  「第一存储单元完成」的位置语义——接线时若嫌误导可参数化阶段名）。
+  **已落地辅助**：`pruneCommitJournal()`（complete 记档封顶，未完成/损坏
+  永不删）+ `projectOpened` 里顺带调用——接线前记档只增不减的债先封。
+- **`EntityView`/`downstreamClosure` 已进 `ProjectDataFacade`**：
+  `entityView(entityId)` / `downstreamClosureOf(versionId)` 直通
+  （catalog 未开 → 如实空）。DataPage（p5a）与派生链（p5b）可以消费
+  facade 而不直接摸 catalog。
+- **放弃项（如实记录）**：曾考虑给 `buildIngestPlan` 加「推断角色↔词表」
+  note 标记——`roleForType` 只产词表内角色、`project_area.json` 的 roles
+  覆盖是增量补丁不能删内置，标记路径不可达 = 死代码，不做。

@@ -287,6 +287,32 @@ QVector<PaleoProjectStore::CommitOp> PaleoProjectStore::recoverCommitJournal() c
   return out;
 }
 
+int PaleoProjectStore::pruneCommitJournal( int keepComplete )
+{
+  const QString dir = commitJournalDir();
+  if ( dir.isEmpty() )
+    return 0;
+  QMutexLocker locker( &m_writeMutex );
+  // complete 记档按 mtime 新→旧排；超出 keepComplete 的旧档删除。
+  const QFileInfoList entries = QDir( dir ).entryInfoList(
+      QStringList{ QStringLiteral( "*.json" ) }, QDir::Files, QDir::Time );
+  int kept = 0, removed = 0;
+  for ( const QFileInfo &fi : entries )
+  {
+    const CommitOp op = readCommitJournal( fi.absoluteFilePath() );
+    if ( op.stage != kStageComplete )
+      continue; // 未完成/损坏记档永不清理——恢复上报面
+    if ( kept >= keepComplete )
+    {
+      if ( QFile::remove( fi.absoluteFilePath() ) )
+        ++removed;
+    }
+    else
+      ++kept;
+  }
+  return removed;
+}
+
 PaleoProjectStore::WriteResult PaleoProjectStore::commitAll(
     const QString &opId, const QString &inputDigest,
     const std::function<WriteResult()> &catalogCommit,

@@ -355,6 +355,41 @@ private slots:
     QCOMPARE( calls, 0 );
     QVERIFY( unbound.recoverCommitJournal().isEmpty() );
   }
+
+  void journalPruneCapsComplete()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    PaleoProjectStore *store = makeStore( this, dir.path() );
+
+    const auto okUnit = []() -> PaleoProjectStore::WriteResult { return ok(); };
+    for ( int i = 0; i < 5; ++i )
+      QVERIFY( store->commitAll( QStringLiteral( "op-%1" ).arg( i ),
+                                 QStringLiteral( "d" ), okUnit, okUnit ).ok );
+    // qgz 单元失败 → 记档停在 catalog_done：未完成面，清理不得碰它。
+    const auto failUnit = []() -> PaleoProjectStore::WriteResult {
+      return fail( QStringLiteral( "x" ) );
+    };
+    QVERIFY( !store->commitAll( QStringLiteral( "op-stuck" ),
+                                QStringLiteral( "d" ), okUnit, failUnit ).ok );
+
+    const QString jdir = store->commitJournalDir();
+    QCOMPARE( store->pruneCommitJournal( 2 ), 3 );
+    QCOMPARE( QDir( jdir ).entryList(
+                  QStringList{ QStringLiteral( "*.json" ) }, QDir::Files ).size(), 3 );
+
+    // keepComplete=0：complete 全清，op-stuck（未完成）仍必须保留上报。
+    QCOMPARE( store->pruneCommitJournal( 0 ), 2 );
+    QVERIFY( QFile::exists( jdir + QStringLiteral( "/op-stuck.json" ) ) );
+    const QVector<PaleoProjectStore::CommitOp> unfinished =
+        store->recoverCommitJournal();
+    QCOMPARE( unfinished.size(), 1 );
+    QCOMPARE( unfinished.front().opId, QStringLiteral( "op-stuck" ) );
+
+    // 无 journal 目录 / 未绑工程：如实回 0，不崩。
+    PaleoProjectStore bare;
+    QCOMPARE( bare.pruneCommitJournal(), 0 );
+  }
 };
 
 QTEST_MAIN( TestCommitCoord )

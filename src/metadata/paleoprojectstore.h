@@ -69,6 +69,12 @@ class PaleoProjectStore : public QObject
     // 由 .qgz 路径推导，meta 路径兜底；都未设 → 空串）。
     QString commitJournalDir() const;
 
+    // journal 封顶清理：complete 记档是幂等重入凭证、只增不减——按文件修改
+    // 时间保留最新 keepComplete 条、其余删除；未完成（含 corrupt）记档永不
+    // 清理，始终留给 recoverCommitJournal 上报。返回删除条数；目录不存在
+    // 或锁不住时如实回 0（清理失败不阻塞打开路径）。
+    int pruneCommitJournal(int keepComplete = 32);
+
     // Per-layer busy registry shared with ToolAvailabilityService (§35).
     void markLayerBusy(const QString &layerId, const QString &taskId, const QString &reason);
     void markLayerFree(const QString &layerId);

@@ -3,7 +3,8 @@
 #include <QString>
 #include <QVector>
 
-class DataCatalog;
+#include "../catalog/entityview.h"
+
 class LayerManifest;
 
 // services/ — ProjectDataFacade: the READ side of the project_area data
@@ -88,6 +89,13 @@ class ProjectDataFacade : public QObject
     HorizonRasterInfo horizonRasterDecl(const QString &horizon) const;
 
     QString lastError() const { return m_lastError; }
+
+    // EntityView 查询面直通（data/entity-view）：注册表全角色槽 + primary/成员/
+    // 未决分桶 + 下游产物 + 悬空源诊断——DataPage 与派生链消费的稳定出口。
+    // catalog 未开/实体未知 → 如实空视图（entity.id 为空），不编造槽位。
+    EntityView entityView(const QString &entityId) const;
+    // 版本下游闭包（parentVersionIds 反查 BFS）：重派生影响面评估用。
+    QVector<CatalogVersion> downstreamClosureOf(const QString &versionId) const;
 
   private:
     // 主关联（primary、非 unresolved）最新版本的绝对路径；空 = 无该角色关联。

@@ -6,6 +6,7 @@
 class DataImportService;
 class QLabel;
 class QTabWidget;
+struct CatalogAsset;
 
 // ui/datapreview — 数据页页内预览标签栏（docs/PROJECT_AREA_PLAN.md §4）。
 // 普通 QTabWidget（可关闭标签），样式走 DESIGN.md dock 面板，不用工作流
@@ -13,9 +14,11 @@ class QTabWidget;
 //
 // 状态文案（§4）：
 //   空态   「还没有打开的预览 — 在列表中选择一条数据」
-//   读取中 「正在读取」+文件名
-//   失败   原因+文件名；外链缺失 「找不到源文件」+路径
-// 重选已开资产聚焦已有标签；切换不丢内容（每资产一个常驻页）。
+//   读取中 「正在读取」+文件名（同步读取前置状态，不做线程）
+//   失败   「读取失败」+原因+文件名+「重试」；外链缺失 「找不到源文件」+路径
+// 标题：「文件名 · 井名」/「文件名 · 测线」；无过滤时只有文件名。
+// 多井资产（井口表、DC.dat、TD）每标签自带「井」下拉框，只列已决链接的井；
+// 未选井时正文是「先选择一口井」。重选已开资产聚焦已有标签，不改它已选的井。
 class DataPreviewTabs : public QWidget
 {
   Q_OBJECT
@@ -40,13 +43,24 @@ class DataPreviewTabs : public QWidget
     void showHorizonOnMapRequested(const QString &layerId);
 
   private:
-    QWidget *buildContent(const QString &assetId, QString *titleOut, QString *wellEntityOut,
-                          QString *horizonLayerOut);
-    void rebuildAssetTab(const QString &assetId); // 文档 PDF 转换完成后重建内容
+    QWidget *buildContent(const QString &assetId, QWidget *page);
+    void rebuildAssetTab(const QString &assetId); // 「重试」/PDF 转换完成后重建内容
     void focusWellIfNeeded(const QString &assetId, QWidget *page);
+    void updateTabTitle(const QString &assetId); // 文件名 + 过滤后缀（井/测线）
+    // 井过滤型正文（well_head / well_stratification / time_depth）：
+    // wellName 为空 → 「先选择一口井」占位；否则按该井过滤渲染。
+    QWidget *buildWellBody(const CatalogAsset &asset, const QString &absPath,
+                           const QString &wellEntityId, const QString &wellName,
+                           QWidget *parent);
+    // 「读取失败」+原因+文件名+「重试」（重试=重建该标签）。
+    QWidget *failureState(const QString &assetId, const QString &reason, QWidget *parent);
+    // 「正在读取」+文件名 标签（同步读取前置；buildContent 完成后隐藏）。
+    QLabel *loadingLabel(const QString &fileName, QWidget *parent);
 
     DataImportService *m_svc = nullptr;
     QTabWidget *m_tabs = nullptr;
     QLabel *m_emptyLabel = nullptr;
     QHash<QString, QWidget *> m_pageOfAsset;
+    QHash<QString, QString> m_wellEntityOfAsset; // assetId → 该标签已选井（多井下拉框）
+    QHash<QString, QString> m_titleSuffixOfAsset; // assetId → 「 · 井名」/「 · IL1315」
 };

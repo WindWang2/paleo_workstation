@@ -61,6 +61,16 @@ QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text)
     if (!xOk || !yOk || !tdOk)
       continue;
     Q_UNUSED(kbOk);
+    // 可选列：BottomX BottomY WellType（-99999/缺列 → has* false / 空串）。
+    if (t.size() >= 7)
+    {
+      if (parseColumn(t.at(5), &r.bottomX))
+        r.hasBottomX = true;
+      if (parseColumn(t.at(6), &r.bottomY))
+        r.hasBottomY = true;
+    }
+    if (t.size() >= 8)
+      r.wellType = t.at(7);
     rows.append(r);
   }
   return rows;
@@ -88,9 +98,15 @@ QVector<WellTopRecord> parseWellTopsText(const QByteArray &text)
     {
       double v = 0;
       if (parseColumn(t.at(3), &v))
+      {
         r.x = v;
+        r.hasX = true;
+      }
       if (parseColumn(t.at(4), &v))
+      {
         r.y = v;
+        r.hasY = true;
+      }
       if (parseColumn(t.at(5), &v))
         r.z = v;
     }

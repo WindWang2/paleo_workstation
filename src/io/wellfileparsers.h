@@ -11,6 +11,9 @@ struct WellHeadRecord
 {
   QString name;
   double x = 0.0, y = 0.0, kb = 0.0, td = 0.0;
+  double bottomX = 0.0, bottomY = 0.0; // 井底坐标；-99999/缺列 → has* 为 false
+  bool hasBottomX = false, hasBottomY = false;
+  QString wellType;                    // 井型代码原样透传（缺列为空串）
 };
 QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text);
 
@@ -21,7 +24,7 @@ struct WellTopRecord
   QString wellName;
   QString topName;
   double md = 0.0, x = 0.0, y = 0.0, z = 0.0, tvd = 0.0, timeMs = 0.0;
-  bool hasMd = false, hasTvd = false, hasTime = false;
+  bool hasMd = false, hasX = false, hasY = false, hasTvd = false, hasTime = false;
 };
 QVector<WellTopRecord> parseWellTopsText(const QByteArray &text);
 

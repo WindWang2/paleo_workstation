@@ -2,6 +2,11 @@
 #include <QTemporaryDir>
 #include <QSignalSpy>
 
+#include <algorithm>
+#if defined(Q_OS_UNIX)
+#include <sys/stat.h> // mkfifo（文件夹导入的「非普通文件」行）
+#endif
+
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/io/lasparser.h"
@@ -919,6 +924,268 @@ private slots:
     QCOMPARE(importedSpy.count(), 0);
     QVERIFY(svc.assets().isEmpty());
     QVERIFY(stack->manifest->all().isEmpty());
+  }
+
+  // 「导入工区文件夹」（§3 + autoplan-eng/dx）：递归收普通文件（分类依赖
+  // 井位/井分层/时深 路径段）；井口行先处理——LAS 文件名排在井口前面也照
+  // 常挂到 A1；逃逸符号链接与非普通文件标 Skipped；单行失败不中断；
+  // dedup 行报「字节已在库」。
+  void folderImportWellHeadsFirstAndIsolatesFailures()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+    using Outcome = DataImportService::FolderRowResult::Outcome;
+
+    const QString root = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
+    QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井分层"))));
+    QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("时深/TD"))));
+
+    // 文件名排在最前的 LAS：证明井口先行是两阶段而非按名序。
+    const QString lasPath = QDir(root).filePath(QStringLiteral("0A1.Las"));
+    QVERIFY(writeFile(lasPath, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+    // 幽灵 LAS → 未决行（~W 名与文件名主名都落空），不建井。
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("ghost.las")), QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. Ghost9 : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+    // 同井第二份 LAS：它的主关联把 0A1.Las 的降级——降级≠未决，行仍算入库。
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("zzA1b.las")), QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n101.0\n")));
+    // 井位（带 BOM 同真文件）：heads.dat 建 A1+B2；empty.dat 只有注释 → 行失败。
+    QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井位/heads.dat")),
+        QByteArrayLiteral("\xEF\xBB\xBF#WellHead File From SMI\n"
+                          "#Name      X     Y     KB    TotalDepth\n"
+                          "A1           1.0   2.0   0.0   2000.0\n"
+                          "B2           3.0   4.0   0.0   2100.0\n")));
+    QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井位/empty.dat")),
+                      QByteArrayLiteral("#WellHead File From SMI\n# no rows\n")));
+    // tops：A1 已决 + Ghost9 未决 → 单行入库（主关联已写）+ 未决备注。
+    QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井分层/tops.dat")),
+        QByteArrayLiteral("#WellTops File From SMI\n#WellName  Name  MD\n"
+                          "A1       D61   2148.0\n"
+                          "Ghost9   D61   2150.0\n")));
+    // 时深在 TD 二级子目录——证明递归下钻而不止一层。
+    QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("时深/TD/a1.dat")),
+        QByteArrayLiteral("#TimeDepth File From SMI\n# Well : A1\n"
+                          "#TIME  TVDSS    TVD      MD\n"
+                          "380.0  -252.6   252.6   252.6\n"
+                          "382.0  -260.7   260.7   260.7\n")));
+
+    // 逃逸符号链接 → Skipped；根内符号链接 → 正常走（dedup 命中）。
+    const QString outside = tmp.filePath(QStringLiteral("outside.las"));
+    QVERIFY(writeFile(outside, QByteArrayLiteral("x")));
+    QVERIFY(QFile::link(outside, QDir(root).filePath(QStringLiteral("escape.las"))));
+    QVERIFY(QFile::link(lasPath, QDir(root).filePath(QStringLiteral("mirror.Las"))));
+
+    // 非普通文件（fifo）→ Skipped 行。
+    bool madeFifo = false;
+#if defined(Q_OS_UNIX)
+    const QString fifoPath = QDir(root).filePath(QStringLiteral("pipe.sock"));
+    madeFifo = ::mkfifo(QFile::encodeName(fifoPath).constData(), 0600) == 0;
+#endif
+
+    QString err;
+    const QVector<DataImportService::FolderRowResult> rows = svc.importFolder(root, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(rows.size(), 9 + (madeFifo ? 1 : 0));
+
+    const auto expectPath = [&rows](int i, const QString &suffix) {
+      QVERIFY2(rows.at(i).path.endsWith(suffix),
+               qPrintable(QStringLiteral("row %1 = %2, want *%3")
+                              .arg(i).arg(rows.at(i).path, suffix)));
+    };
+
+    // 阶段 1：两个 well_head 行在最前（井位 内按路径排序：empty < heads）。
+    expectPath(0, QString::fromUtf8("井位/empty.dat"));
+    QCOMPARE(rows.at(0).classifiedType, QStringLiteral("well_head"));
+    QCOMPARE(rows.at(0).outcome, Outcome::Failed);
+    QVERIFY(rows.at(0).message.contains(QStringLiteral("no well head rows")));
+    QVERIFY(rows.at(0).entityName.isEmpty());
+
+    expectPath(1, QString::fromUtf8("井位/heads.dat"));
+    QCOMPARE(rows.at(1).classifiedType, QStringLiteral("well_head"));
+    QCOMPARE(rows.at(1).outcome, Outcome::Imported);
+    QVERIFY(rows.at(1).entityName.contains(QStringLiteral("A1")));
+    QVERIFY(rows.at(1).entityName.contains(QStringLiteral("B2")));
+
+    // 阶段 2（路径排序）：0A1.Las、ghost.las、mirror.Las、井分层、时深/TD。
+    expectPath(2, QStringLiteral("0A1.Las"));
+    QCOMPARE(rows.at(2).classifiedType, QStringLiteral("well_log"));
+    QCOMPARE(rows.at(2).outcome, Outcome::Imported); // 井口已先行 → 照常挂上
+    QCOMPARE(rows.at(2).entityName, QStringLiteral("A1"));
+
+    expectPath(3, QStringLiteral("ghost.las"));
+    QCOMPARE(rows.at(3).outcome, Outcome::Unresolved);
+    QVERIFY(rows.at(3).entityName.isEmpty());
+    QVERIFY(rows.at(3).message.contains(QStringLiteral("ghost9")));
+
+    expectPath(4, QStringLiteral("mirror.Las")); // 根内符号链接 → 处理且 dedup
+    QCOMPARE(rows.at(4).outcome, Outcome::Imported);
+    QVERIFY(rows.at(4).message.contains(QStringLiteral("字节已在库")));
+
+    expectPath(5, QStringLiteral("zzA1b.las")); // 同井第二份 LAS → 入库
+    QCOMPARE(rows.at(5).outcome, Outcome::Imported);
+    QCOMPARE(rows.at(5).entityName, QStringLiteral("A1"));
+
+    expectPath(6, QString::fromUtf8("井分层/tops.dat"));
+    QCOMPARE(rows.at(6).classifiedType, QStringLiteral("well_stratification"));
+    QCOMPARE(rows.at(6).outcome, Outcome::Imported); // 有主关联写出 → 入库
+    QVERIFY(rows.at(6).entityName.contains(QStringLiteral("A1")));
+    QVERIFY(rows.at(6).message.contains(QStringLiteral("ghost9"))); // 附未决备注
+
+    expectPath(7, QString::fromUtf8("时深/TD/a1.dat"));
+    QCOMPARE(rows.at(7).classifiedType, QStringLiteral("time_depth"));
+    QCOMPARE(rows.at(7).outcome, Outcome::Imported);
+    QCOMPARE(rows.at(7).entityName, QStringLiteral("A1"));
+
+    // Skipped 行缀在最后（按路径排序）：escape.las 先于 pipe.sock。
+    expectPath(8, QStringLiteral("escape.las"));
+    QCOMPARE(rows.at(8).outcome, Outcome::Skipped);
+    QVERIFY(rows.at(8).message.contains(QStringLiteral("符号链接")));
+    QVERIFY(rows.at(8).message.contains(QStringLiteral("之外")));
+    if (madeFifo)
+    {
+      expectPath(9, QStringLiteral("pipe.sock"));
+      QCOMPARE(rows.at(9).outcome, Outcome::Skipped);
+      QVERIFY(rows.at(9).message.contains(QStringLiteral("普通文件")));
+    }
+
+    // 顺序不变式：所有 well_head 行都排在所有非井口行前面。
+    int lastHead = -1, firstOther = rows.size();
+    for (int i = 0; i < rows.size(); ++i)
+    {
+      if (rows.at(i).outcome == Outcome::Skipped)
+        continue;
+      if (rows.at(i).classifiedType == QLatin1String("well_head"))
+        lastHead = i;
+      else if (firstOther == rows.size())
+        firstOther = i;
+    }
+    QVERIFY(lastHead >= 0 && lastHead < firstOther);
+
+    // catalog：A1+B2 两口井（ghost 不建井）；A1 恰好四条主关联（autoplan
+    // 「LAS 排前仍得四条主关联」）；空井口失败行不留链接；0A1.Las 的
+    // well_log 关联被 zzA1b.las 降级——同一角色只留一条主关联。
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
+    QVERIFY(cat->hasEntity(QStringLiteral("well-B2")));
+    QStringList roles;
+    int logLinks = 0;
+    for (const EntityAssetLink &l : cat->linksForEntity(QStringLiteral("well-A1")))
+    {
+      if (l.isPrimary && !l.unresolved)
+        roles.append(l.role);
+      if (l.role == QLatin1String("well_log"))
+        ++logLinks;
+    }
+    QCOMPARE(logLinks, 2); // 两条 well_log 链接，一条已降级
+    std::sort(roles.begin(), roles.end());
+    QCOMPARE(roles, QStringList({QStringLiteral("time_depth"), QStringLiteral("tops"),
+                                 QStringLiteral("well_head"), QStringLiteral("well_log")}));
+    QCOMPARE(cat->assets().size(), 7); // ghost/empty 也各占一份资产；mirror/escape/fifo 无
+    QCOMPARE(cat->links().size(), 8);  // 2 井口 + 2 tops + 2 LAS + 1 ghost + 1 TD
+  }
+
+  // 文件夹入口的目录级失败：不存在/是文件/空目录/选中了工程目录自身。
+  void folderImportRejectsBadRoots()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    QString err;
+    QVERIFY(svc.importFolder(tmp.filePath(QStringLiteral("nonexistent")), &err).isEmpty());
+    QVERIFY(!err.isEmpty());
+
+    const QString aFile = tmp.filePath(QStringLiteral("a.las"));
+    QVERIFY(writeFile(aFile, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A9 : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+    QVERIFY(svc.importFolder(aFile, &err).isEmpty());
+    QVERIFY(!err.isEmpty());
+
+    const QString emptyDir = tmp.filePath(QStringLiteral("empty"));
+    QVERIFY(QDir().mkpath(emptyDir));
+    QVERIFY(svc.importFolder(emptyDir, &err).isEmpty());
+    QVERIFY(!err.isEmpty());
+
+    // 工程目录自身（或内部目录）不能当导入源。
+    QVERIFY(svc.importFolder(projectDir, &err).isEmpty());
+    QVERIFY(!err.isEmpty());
+
+    // 包住工程目录的上级目录：工程产物子树不出行，只收外面的普通文件。
+    const QVector<DataImportService::FolderRowResult> rows =
+        svc.importFolder(tmp.path(), &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(rows.size(), 1);
+    QCOMPARE(rows.front().path, aFile);
+  }
+
+  // 可选真数据：PALEO_REAL_PROJECT_AREA 跑一次 importFolder——井口先行后
+  // A1 仍得四条主关联；无 Failed 行（与 tst_smoke_realdata 同一门禁变量）。
+  void folderImportRealAreaSmoke()
+  {
+    const QString src = qEnvironmentVariable("PALEO_REAL_PROJECT_AREA");
+    if (src.isEmpty() || !QDir(src).exists())
+      QSKIP("PALEO_REAL_PROJECT_AREA not set — folder real-data smoke skipped");
+
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    QString err;
+    QElapsedTimer timer;
+    timer.start();
+    const QVector<DataImportService::FolderRowResult> rows = svc.importFolder(src, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QVERIFY(rows.size() >= 60); // 60 个数据文件 + 旧产物/工作区 json 参考行
+
+    int nImported = 0, nUnresolved = 0, nFailed = 0, nSkipped = 0;
+    bool sawWellHead = false, sawSeismic = false;
+    for (const DataImportService::FolderRowResult &r : rows)
+    {
+      switch (r.outcome)
+      {
+        case DataImportService::FolderRowResult::Outcome::Imported: ++nImported; break;
+        case DataImportService::FolderRowResult::Outcome::Unresolved: ++nUnresolved; break;
+        case DataImportService::FolderRowResult::Outcome::Failed:
+          ++nFailed;
+          qWarning("FOLDER FAIL %s: %s", qPrintable(r.path), qPrintable(r.message));
+          break;
+        case DataImportService::FolderRowResult::Outcome::Skipped: ++nSkipped; break;
+      }
+      sawWellHead = sawWellHead || r.classifiedType == QLatin1String("well_head");
+      sawSeismic = sawSeismic || r.classifiedType == QLatin1String("seismic");
+    }
+    qWarning("FOLDER SMOKE %lld ms: %d rows — 入库 %d, 未决 %d, 失败 %d, 跳过 %d",
+             timer.elapsed(), rows.size(), nImported, nUnresolved, nFailed, nSkipped);
+    QCOMPARE(nFailed, 0);
+    QVERIFY(sawWellHead && sawSeismic);
+
+    DataCatalog *cat = svc.catalog();
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 20);
+    QCOMPARE(cat->entities(QStringLiteral("sequence_boundary")).size(), 8);
+    QCOMPARE(cat->entities(QStringLiteral("seismic_survey")).size(), 1);
+    QStringList roles;
+    for (const EntityAssetLink &l : cat->linksForEntity(QStringLiteral("well-A1")))
+      if (l.isPrimary && !l.unresolved)
+        roles.append(l.role);
+    std::sort(roles.begin(), roles.end());
+    QCOMPARE(roles, QStringList({QStringLiteral("time_depth"), QStringLiteral("tops"),
+                                 QStringLiteral("well_head"), QStringLiteral("well_log")}));
   }
 
   // LAS: ~V/~W/~C/~A parsed; 3 curves × 4 rows; NULL token → NaN.

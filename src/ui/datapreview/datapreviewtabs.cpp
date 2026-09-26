@@ -1,6 +1,7 @@
 #include "datapreviewtabs.h"
 
 #include "../paleotheme.h" // DESIGN.md token 出口（mono 数字面共用）
+#include "../paleoicons.h" // 角落最大化/还原自绘图标
 
 #include "../../catalog/datacatalog.h"
 #include "../../io/dataimportservice.h"
@@ -449,8 +450,12 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   maxBtn->setText(tr("最大化预览"));
   maxBtn->setAccessibleName(tr("最大化预览"));
   maxBtn->setToolTip(tr("预览占满地图区"));
+  // QGIS 主题没有最大化/还原语义——PaleoIcons 自绘，随勾选态切换。
+  maxBtn->setIcon(PaleoIcons::maximize());
+  maxBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   connect(maxBtn, &QToolButton::toggled, this, [this, maxBtn](bool on) {
     maxBtn->setText(on ? tr("还原预览") : tr("最大化预览"));
+    maxBtn->setIcon(on ? PaleoIcons::restore() : PaleoIcons::maximize());
     maxBtn->setToolTip(on ? tr("恢复地图/预览分栏") : tr("预览占满地图区"));
     emit previewMaximizeToggled(on);
   });

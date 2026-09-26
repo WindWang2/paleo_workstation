@@ -1,6 +1,7 @@
 #include "paleomainwindow.h"
 
 #include "paleotheme.h" // T32：焦点环/mono 数字面 token 出口
+#include "paleoicons.h" // ribbon 图标：QGIS 主题直取 + 自绘补缺
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
@@ -285,13 +286,6 @@ void PaleoMainWindow::buildShell()
   auto *topLay = new QHBoxLayout(topWidget);
   topLay->setContentsMargins(12, 6, 12, 0);
   topLay->addWidget(m_workflowTabs);
-
-  // ---- 层位 chip 条（阶段E）：固定 8 界面，切换 = activeHorizon + 懒加载 ----
-  auto *chips = new HorizonChipBar(m_selection, m_layerSvc, topWidget);
-  chips->setObjectName(QStringLiteral("horizonChips"));
-  chips->setAccessibleName(QStringLiteral("层位切换"));
-  topLay->addSpacing(16); // spacing.md between groups
-  topLay->addWidget(chips);
   topLay->addStretch(1);
 
   // ---- center: startup page stacked under the map+preview workspace ----
@@ -401,6 +395,22 @@ void PaleoMainWindow::buildShell()
   clay->setContentsMargins(0, 0, 0, 0);
   clay->setSpacing(0);
   clay->addWidget(topWidget);
+
+  // ---- 层位 chip 条（阶段E）+ 右侧动作钮：ribbon 之下、画布之上
+  // （DESIGN.md 结构层）。chips 独占左侧，Web 服务/搜索/保存/处理算法/
+  // 图件设计等按钮追加在本行右侧——编号工作流标签行从此不被挤压出滚动态。
+  // 切换 = activeHorizon + 懒加载。----
+  auto *chipsRow = new QWidget(central);
+  chipsRow->setObjectName(QStringLiteral("ribbonActionRow"));
+  auto *chipsLay = new QHBoxLayout(chipsRow);
+  chipsLay->setContentsMargins(12, 2, 12, 4);
+  auto *chips = new HorizonChipBar(m_selection, m_layerSvc, chipsRow);
+  chips->setObjectName(QStringLiteral("horizonChips"));
+  chips->setAccessibleName(QStringLiteral("层位切换"));
+  chipsLay->addWidget(chips);
+  chipsLay->addStretch(1);
+  clay->addWidget(chipsRow);
+
   clay->addWidget(m_centerStack, 1);
   setCentralWidget(central);
 
@@ -544,7 +554,10 @@ void PaleoMainWindow::buildShell()
   webToggle->setObjectName(QStringLiteral("webServiceButton"));
   webToggle->setDefaultAction(webDock->toggleViewAction());
   webToggle->setAccessibleName(tr("Web 服务面板"));
-  topLay->addWidget(webToggle);
+  webDock->toggleViewAction()->setIcon(
+      PaleoIcons::qgisTheme(QStringLiteral("mActionAddWmsLayer.svg")));
+  webToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  chipsRow->layout()->addWidget(webToggle);
 
   // ---- status bar: active horizon + provider count ----
   auto *horizonLabel = new QLabel(this);
@@ -1689,8 +1702,8 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
             [this](int) { if (m_refreshPublishGate) m_refreshPublishGate(); });
   }
 
-  // ---- top bar: domain locator + save ----
-  if (auto *topBar = findChild<QWidget *>(QStringLiteral("workflowTopBar")))
+  // ---- action row (chips 条右侧): domain locator + save ----
+  if (auto *topBar = findChild<QWidget *>(QStringLiteral("ribbonActionRow")))
   {
     if (m_layerSvc && m_selection && m_canvasCtl)
     {
@@ -1764,6 +1777,8 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
       saveBtn->setObjectName(QStringLiteral("saveButton"));
       saveBtn->setText(tr("保存"));
       saveBtn->setAccessibleName(tr("保存工程"));
+      saveBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionFileSave.svg")));
+      saveBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
       // §41.2 ordering through the write queue: gpkg commit (no-op until edit
       // buffers report dirty state) then the atomic .qgz write.
       auto saveFn = [this, store]() {
@@ -1878,12 +1893,14 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   // the native QGIS algorithm dialog (non-blocking, offscreen-safe).
   if (procSvc)
   {
-    if (auto *topBar = findChild<QWidget *>(QStringLiteral("workflowTopBar")))
+    if (auto *topBar = findChild<QWidget *>(QStringLiteral("ribbonActionRow")))
     {
       auto *btn = new QToolButton(topBar);
       btn->setObjectName(QStringLiteral("processingButton"));
       btn->setText(tr("处理算法"));
       btn->setAccessibleName(tr("处理算法选择"));
+      btn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("processingAlgorithm.svg")));
+      btn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
       btn->setPopupMode(QToolButton::InstantPopup);
       auto *menu = new QMenu(btn);
 
@@ -1953,12 +1970,14 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   // 图件设计 entry (wave/layout-designer): create a print layout via the
   // layout service and open the designer shell dialog non-modally.
   if (layoutSvc)
-    if (auto *topBar = findChild<QWidget *>(QStringLiteral("workflowTopBar")))
+    if (auto *topBar = findChild<QWidget *>(QStringLiteral("ribbonActionRow")))
     {
       auto *designerBtn = new QToolButton(topBar);
       designerBtn->setObjectName(QStringLiteral("designerButton"));
       designerBtn->setText(tr("图件设计"));
       designerBtn->setAccessibleName(tr("打开图件设计器"));
+      designerBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionNewLayout.svg")));
+      designerBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
       connect(designerBtn, &QToolButton::clicked, this, [this, layoutSvc] {
         if (m_projectSvc->projectPath().isEmpty())
         {

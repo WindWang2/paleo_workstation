@@ -9,6 +9,7 @@
 #include <QMenu>
 #include <QPushButton>
 #include <QSettings>
+#include <QToolBar>
 #include <QToolButton>
 #include <QSignalSpy>
 #include <QDockWidget>
@@ -16,6 +17,7 @@
 #include "../src/app/appcontext.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
+#include "../src/ui/edittools/editingtoolbar.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgislayerservice.h"
@@ -228,6 +230,60 @@ class TestUiShell : public QObject
           hasSubmenu |= (a->menu() != nullptr);
         QVERIFY(hasSubmenu);
       }
+    }
+
+    // ribbon 图标整理：编辑条全部动作挂 vendor QGIS 主题图标且
+    // icon-over-text（DESIGN.md ribbon-button）；顶部动作钮 icon-beside-
+    // text；chips 独占 ribbon 之下一行（horizonChips 的父链落在
+    // ribbonActionRow，不再与工作流标签挤同一行）。
+    // 注：attachWorkflows 非幂等——重复调用重复建 dock/按钮，且二次调用后
+    // 后续用例会段错误（实测验证）。因此本用例沿用「attachWorkflows 已在
+    // 前面的用例跑过」惯例：editingToolbar 缺席才补调（单跑路径），在套件
+    // 内复用既有接线。designerButton 需要 layoutSvc 参数，套件内前面的
+    // attachWorkflows 没传它 → 存在则断言、缺席不硬要。
+    void ribbonButtonsCarryIcons()
+    {
+      if (!m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+        m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                               m_ctx->compositionWf(), m_ctx->validationWf(),
+                               m_ctx->importSvc(), m_ctx->seismicLink(),
+                               m_ctx->processingSvc(), m_ctx->store(),
+                               m_ctx->editingSvc(), m_ctx->layoutSvc(),
+                               m_ctx->taskSvc());
+
+      auto *editTb = m_win->findChild<PaleoEditingToolbar *>(
+          QStringLiteral("editingToolbar"));
+      QVERIFY(editTb);
+      QCOMPARE(editTb->toolBar()->toolButtonStyle(), Qt::ToolButtonTextUnderIcon);
+      const QList<QAction *> editActions = {
+          editTb->actionSelect(),   editTb->actionAddFeature(),
+          editTb->actionAddPoint(), editTb->actionAddLine(),
+          editTb->actionAddPolygon(), editTb->actionReshape(),
+          editTb->actionMove(),     editTb->actionDeleteFeatures(),
+          editTb->actionVertexEdit(), editTb->actionSave(),
+          editTb->actionCancel(),   editTb->actionUndo(),
+          editTb->actionRedo()};
+      for (QAction *a : editActions)
+        QVERIFY2(a && !a->icon().isNull(),
+                 qPrintable(QStringLiteral("edit action lacks icon: %1").arg(a->text())));
+
+      for (const char *name :
+           {"saveButton", "processingButton", "webServiceButton"})
+      {
+        auto *btn = m_win->findChild<QToolButton *>(QLatin1String(name));
+        QVERIFY2(btn, name);
+        QVERIFY2(!btn->icon().isNull(), name);
+      }
+      // designerButton 需要带 layoutSvc 的 attachWorkflows——套件内缺席则跳过。
+      if (auto *d = m_win->findChild<QToolButton *>(QStringLiteral("designerButton")))
+        QVERIFY(!d->icon().isNull());
+
+      auto *chipsRow =
+          m_win->findChild<QWidget *>(QStringLiteral("ribbonActionRow"));
+      QVERIFY(chipsRow);
+      auto *chips =
+          chipsRow->findChild<QWidget *>(QStringLiteral("horizonChips"));
+      QVERIFY2(chips, "horizon chips must live on the dedicated action row");
     }
 
     // T29「在地图上显示」shell 接线：意图 → 实例化 + zoomToLayer + ~400ms

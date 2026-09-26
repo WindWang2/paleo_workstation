@@ -143,6 +143,11 @@ target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCL
 # on every platform. Registered by PaleoTheme::ensureApplicationFonts().
 target_sources(paleo_core PRIVATE src/ui/paleotheme.cpp resources/paleo_fonts.qrc)
 
+# ---- ui/ribbon-icons ----
+# ribbon 图标出口：QGIS default 主题 svg（qrc，安装路径无关）优先；
+# QGIS 缺语义的（预览最大化/还原）QPainter 自绘，DESIGN.md text token 色。
+target_sources(paleo_core PRIVATE src/ui/paleoicons.cpp)
+
 # ONNX Runtime (vendored; spike ET4). The shipped cmake config assumes lib64/ — we use lib/.
 find_path(ORT_INCLUDE onnxruntime_cxx_api.h PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/include)
 find_library(ORT_LIB onnxruntime PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib)

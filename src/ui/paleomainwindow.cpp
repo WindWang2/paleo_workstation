@@ -1174,17 +1174,10 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
       locatorWidget->locator()->registerFilter(
           new HorizonLocatorFilter(horizonProvider, activate));
 
-      // Issues filter: provider is an empty list until the validation workflow
-      // exposes its issue store; wiring the intent is still useful now.
-      IssueLocatorFilter::IssueProvider issueProvider = []() {
-        return QList<IssueLocatorFilter::IssueRef>();
-      };
-      IssueLocatorFilter::LocateFn locate = [this](const IssueLocatorFilter::IssueRef &ref) {
-        if (m_canvasCtl && !ref.layerId.isEmpty())
-          m_canvasCtl->zoomToLayer(ref.layerId);
-      };
-      locatorWidget->locator()->registerFilter(
-          new IssueLocatorFilter(issueProvider, locate));
+      // Note: no IssueLocatorFilter registration — the validation workflow
+      // keeps no queryable issue store, so the filter could only ever sit on
+      // a permanently-empty provider. Issue navigation lives on the
+      // validation page's issueTable → ThreeWayLocator path instead.
 
       topBar->layout()->addWidget(locatorWidget);
       auto *focus = new QShortcut(QKeySequence(QStringLiteral("Ctrl+K")), this);

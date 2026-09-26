@@ -28,7 +28,7 @@ class QgisCanvasController : public QObject
 
     void zoomToFullExtent();
     // Resolves a manifest layer id to the service-owned QgsMapLayer.
-    // Null keeps the QgsProject::instance() fallback used by tests.
+    // No QgsProject::instance() fallback — unset/null resolution is a no-op.
     using LayerResolver = std::function<QgsMapLayer *(const QString &layerId)>;
     void setLayerResolver(LayerResolver resolver);
     void zoomToLayer(const QString &layerId);

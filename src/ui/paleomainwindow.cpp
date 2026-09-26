@@ -782,6 +782,19 @@ void PaleoMainWindow::populateFolderConfirmTable(
       for (int c = 0; c < 4; ++c)
         table->item(r, c)->setFlags(table->item(r, c)->flags() & ~Qt::ItemIsEnabled);
     }
+    else
+    {
+      // C 包 IngestPlan：plan 期决策逐行可见——重复→跳过 / 重复→新版本；
+      // 未决行不在此预写（保持既有口径：结果列导入后才写「未决」）。
+      const QString decisionText =
+          row.decision == QLatin1String("skip")
+              ? tr("重复→跳过")
+              : row.decision == QLatin1String("as_new_version")
+                    ? tr("重复→新版本")
+                    : QString();
+      if (!decisionText.isEmpty())
+        table->item(r, 3)->setText(decisionText);
+    }
   }
 }
 

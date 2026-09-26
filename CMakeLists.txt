@@ -131,6 +131,8 @@ add_library(paleo_core STATIC
   src/io/geojsonaffine.cpp                       # D11 临时配准（手工仿射）
   src/ui/datapreview/datapreviewtabs.cpp         # §4 data-page preview tabs
   src/ui/webviewpanel.cpp                        # embedded web shell (lazy, degradable)
+  # ---- package C: ingest-plan (three-phase folder import) ----
+  src/io/ingestplan.cpp                          # C 包：纯 plan + 幂等执行器
 )
 target_link_libraries(paleo_core PUBLIC paleo_qgis_iface ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})

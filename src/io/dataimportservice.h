@@ -17,6 +17,7 @@
 class QgisLayerService;
 class PaleoProjectStore;
 class QProcess;
+struct PlannedItem; // io/ingestplan.h（前向声明——C 包 plan 项按引用传）
 
 // io/ — DataImportService 按 project_area 数据契约（docs/PROJECT_AREA_PLAN.md §3）
 // 导入外部文件：分类 → 解析元数据 → 解析/创建实体 → 受管 RAW 复制（边复制边算
@@ -105,14 +106,23 @@ class DataImportService : public QObject
 
     // 确认表预览：与 importFolder 同一枚举/分类口径，只列行不导入。
     // skipped=true 的行是软链逃逸/非普通文件（预览里灰显、不可改类型）。
+    // decision 是 plan 期决策（"skip"=重复→跳过 等），确认表逐行显示。
     struct FolderPreviewRow
     {
       QString path;
       QString classifiedType;
+      QString decision;          // accept | skip | as_new_version（plan 期）
       bool skipped = false;
       QString skipReason;
     };
     QVector<FolderPreviewRow> previewFolder(const QString &dirPath, QString *error = nullptr);
+
+    // ---- C 包 IngestPlan 执行面（docs/DATA_FABRIC_ADOPTION.md）----
+    // 执行单条 plan 项——executeIngestPlan 逐项调它；确认表「重试」合成的
+    // 单项也走这里。decision==skip 或 (path,sha) 已注册 → Skipped 行；
+    // as_new_version 有意绕过幂等检查（同字节重登记交内部 dedup：AlreadyStored
+    // + 补挂）。返回与 importFolder 相同口径的行结果。
+    FolderRowResult executePlannedItem(const PlannedItem &item, QString *error = nullptr);
 
     // 旧签名（mainwindow importRequested 接线）：kind 仅用于信号，不再决定行为。
     QString importFile(const QString &kind, const QString &sourcePath, QString *error = nullptr);
@@ -193,6 +203,17 @@ class DataImportService : public QObject
                                 const QString &effectiveType);
 
     WellBind resolveWell(const QString &name) const;
+
+    // 单文件导入实体（plan 化前的 importProjectFileEx 主体——分类→dedup→
+    // 受管 RAW/外链→实体解析→关联，语义原样未动）。由单文件 wrapper 与
+    // executePlannedItem 调用。
+    ImportResult importOneFile(const QString &sourcePath, const ImportOptions &options,
+                               QString *error);
+
+    // shp 族成员补齐：把主件之外的成员拷进指定受管版本目录（幂等——已存在
+    // 跳过；外链版本不拷，源目录本是一族）。失败成员名附进 *messageOut。
+    void copyBundleMembersIntoVersion(const PlannedItem &item, const QString &versionId,
+                                      QString *messageOut);
 
     bool storeManagedRaw(const QString &sourcePath, const QString &assetId,
                          const QString &versionId, QString *relPathOut, QString *shaOut,

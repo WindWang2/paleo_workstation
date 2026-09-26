@@ -4,6 +4,11 @@
 #include <QString>
 
 #ifdef Q_OS_WIN
+// windows.h defines max as a function-like macro; it silently rewrites std::max
+// inside any QGIS header included after this one (C2589 on MSVC).
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #else
 #include <cstdio>

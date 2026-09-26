@@ -7,6 +7,12 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON) # wave3/ux-consistency: vendored fonts qrc
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# windows.h defines max as a function-like macro; it rewrites std::max inside
+# QGIS headers (C2589 on MSVC) whenever a Windows header reaches a TU first.
+if(MSVC)
+  add_compile_definitions(NOMINMAX)
+endif()
+
 if(NOT QGIS_PREFIX AND DEFINED ENV{QGIS_PREFIX_PATH})
   set(QGIS_PREFIX "$ENV{QGIS_PREFIX_PATH}")
 endif()

@@ -1,5 +1,6 @@
 #include "appcontext.h"
 
+#include "../ai/onnxpredictionservice.h" // ORT-free header; instantiation is PALEO_HAVE_ORT-guarded
 #include "../qgis/qgisruntime.h"
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
@@ -128,6 +129,14 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 
   // Workflow orchestrators — thin bindings over the services above.
   m_predictionWf = new PredictionWorkflow(m_procSvc, m_layerSvc, this);
+#if PALEO_HAVE_ORT
+  // onnx:* 算法由 PaleoOnnxService 提供（ET4 spike 产物）。恒绑定：没有运行
+  // 库或 models/ 里没有模型时服务自己如实报告——availableModels() 为空，
+  // onnx:* 就不出现在 availableAlgorithms() 里。模型根在 projectOpened 时
+  // 指向 <工程目录>/models。
+  m_onnxSvc = new PaleoOnnxService(this);
+  m_predictionWf->setOnnxService(m_onnxSvc);
+#endif
   m_constraintWf = new ConstraintWorkflow(m_procSvc, m_layerSvc, this);
   m_constraintWf->setStore(m_store); // GeoPackage constraint persistence (wave/constraint-gpkg)
   m_compositionWf = new CompositionWorkflow(m_procSvc, m_layerSvc, this);
@@ -182,6 +191,11 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 
             m_styleSvc->setStylesRoot(fi.absoluteDir().filePath(QStringLiteral("styles")));
             m_import->setProjectDir(fi.absolutePath());
+#if PALEO_HAVE_ORT
+            // onnx:* 模型按层位钉在 <工程目录>/models/*.onnx。
+            if (m_onnxSvc)
+              m_onnxSvc->setModelRoot(fi.absoluteDir().filePath(QStringLiteral("models")));
+#endif
 
             // wave/mapping-pipeline：版本存储重绑到本工程 meta 库；读侧门面
             // 接上数据底座的 catalog（<工程目录>/artifacts/metadata/catalog.json）。

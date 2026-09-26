@@ -1,6 +1,7 @@
 #include "workflows.h"
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header; symbol refs are PALEO_HAVE_ORT-guarded
+#include "../catalog/datacatalog.h"      // localGridCrsWkt — ONNX 栅格落在局部测网
 #include "../io/constraintstore.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/qgislayerservice.h"
@@ -22,10 +23,12 @@
 #include <qgsmaplayer.h>
 
 #include <gdal.h>
+#include <ogr_spatialref.h>
 #include <cpl_conv.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 // ---------------------------------------------------------------------------
 // workflows.h fixes the public shape of these classes and declares no data
@@ -167,74 +170,109 @@ namespace
     return true;
   }
 #if PALEO_HAVE_ORT
-  // Place an ONNX float tensor on a north-up grid. Explicit rows/cols win;
-  // otherwise a squeezed 2D output shape is used, and a scalar becomes 1×1.
-  bool resolveOnnxGrid( const QVector<float> &values, const QVector<int64_t> &outShape,
-                        const QVariantMap &params, int &rows, int &cols, QString *error )
+  // project_area 工区网格（PROJECT_AREA_PLAN §3 + autoplan eng trap）：ONNX 结果
+  // 落在 D61 的 411×641 栅格上，北向上 geotransform (0, 12793/640, 0, 16406, 0,
+  // -16406/410)。清单里已声明的 horizon.D61* 栅格优先提供 geotransform 与 SRS，
+  // 读不到时用这组常量；行列数硬要求恒为 411×641（plan §1：不是就失败）。
+  constexpr int kOnnxGridRows = 411;
+  constexpr int kOnnxGridCols = 641;
+
+  struct OnnxAreaGrid
   {
-    const int n = values.size();
+    // (xmin, dx, 0, ymax, 0, -dy) — 原点是左上角像元的外角。
+    double gt[6] = { 0.0, 12793.0 / 640.0, 0.0, 16406.0, 0.0, -16406.0 / 410.0 };
+    QString projection; // 声明的 D61 栅格自身 SRS（可读时优先于参数/常量）
+    bool fromDecl = false;
+  };
+
+  // 从图层清单取 horizon.D61* 栅格声明的网格几何；声明缺失或文件不可读时
+  // 保持常量（常量本来就是同一套 D61 geotransform）。
+  OnnxAreaGrid onnxAreaGrid( const QgisLayerService *layers )
+  {
+    OnnxAreaGrid grid;
+    if ( !layers )
+      return grid;
+    QString source;
+    for ( const LayerDeclaration &d : layers->declared() )
+    {
+      if ( !d.layerId.startsWith( QLatin1String( "horizon.D61" ) ) ||
+           d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) != 0 )
+        continue;
+      source = d.source;
+      break;
+    }
+    if ( source.isEmpty() )
+      return grid;
+    const QString path = source.section( QLatin1Char( '|' ), 0, 0 );
+    if ( path.isEmpty() || !QFile::exists( path ) )
+      return grid;
+    GDALAllRegister();
+    GDALDatasetH ds = GDALOpen( path.toUtf8().constData(), GA_ReadOnly );
+    if ( !ds )
+      return grid;
+    double gt[6] = { 0, 0, 0, 0, 0, 0 };
+    if ( GDALGetGeoTransform( ds, gt ) == CE_None )
+    {
+      std::memcpy( grid.gt, gt, sizeof( gt ) );
+      grid.fromDecl = true;
+    }
+    const char *proj = GDALGetProjectionRef( ds );
+    if ( proj && *proj )
+      grid.projection = QString::fromUtf8( proj );
+    GDALClose( ds );
+    return grid;
+  }
+
+  // 挤成二维（去掉全部长度-1 维）后必须正好是工区网格 411×641，否则不写栅格、
+  // 不登记图层——plan 钉死的文案，附实际行列数（标量/点结果同样拒绝）。
+  bool resolveOnnxGrid( const QVector<float> &values, const QVector<int64_t> &outShape,
+                        int &rows, int &cols, QString *error )
+  {
+    const qsizetype n = values.size();
     if ( n <= 0 )
     {
       setError( error, QObject::tr( "ONNX output is empty" ) );
       return false;
     }
-    const bool hasRows = params.contains( QStringLiteral( "rows" ) );
-    const bool hasCols = params.contains( QStringLiteral( "cols" ) );
-    if ( hasRows || hasCols )
-    {
-      rows = params.value( QStringLiteral( "rows" ) ).toInt();
-      cols = params.value( QStringLiteral( "cols" ) ).toInt();
-      if ( rows <= 0 || cols <= 0 || static_cast<qint64>( rows ) * cols != n )
-      {
-        setError( error, QObject::tr( "ONNX output length %1 does not match rows*cols (%2×%3)" )
-                            .arg( n )
-                            .arg( rows )
-                            .arg( cols ) );
-        return false;
-      }
-      return true;
-    }
     QVector<qint64> dims;
     for ( qint64 d : outShape )
     {
-      if ( d == 1 && dims.isEmpty() )
-        continue;
-      dims.append( d );
+      if ( d != 1 )
+        dims.append( d );
     }
-    while ( dims.size() > 2 && dims.last() == 1 )
-      dims.removeLast();
-    if ( dims.size() == 2 && dims[0] > 0 && dims[1] > 0 && dims[0] * dims[1] == n )
+    // 标量（shape [] 或全 1）按 1×1 报告实际行列数。
+    QStringList parts;
+    for ( qint64 d : dims )
+      parts << QString::number( d );
+    const QString actual = parts.isEmpty() && n == 1 ? QStringLiteral( "1×1" )
+                                                     : parts.join( QStringLiteral( "×" ) );
+    if ( dims.size() == 2 && dims[0] > 0 && dims[1] > 0 &&
+         dims[0] * dims[1] == static_cast<qint64>( n ) )
     {
       rows = static_cast<int>( dims[0] );
       cols = static_cast<int>( dims[1] );
-      return true;
     }
-    if ( n == 1 )
+    else
     {
-      rows = 1;
-      cols = 1;
-      return true;
+      rows = ( n == 1 ) ? 1 : 0;
+      cols = ( n == 1 ) ? 1 : 0;
     }
-    setError( error, QObject::tr( "ONNX output has %1 values and no 2D shape; pass rows and cols" ).arg( n ) );
-    return false;
+    if ( rows != kOnnxGridRows || cols != kOnnxGridCols )
+    {
+      setError( error, QObject::tr( "结果不是 411×641，没有写入栅格（实际 %1）" )
+                           .arg( actual.isEmpty() ? QString::number( n ) : actual ) );
+      return false;
+    }
+    return true;
   }
 
+  // 把通过门禁的 411×641 结果写成 Float32 GeoTIFF，geotransform/SRS 用
+  // OnnxAreaGrid（D61 声明优先，否则 §3 常量 + 局部测网 CRS）。
   QString writeOnnxRaster( const QString &path, const QVector<float> &values, int rows, int cols,
-                          const QVariantMap &params, const QString &model,
-                          const QVector<int64_t> &outShape, QString *error )
+                          const OnnxAreaGrid &grid, const QVariantMap &params,
+                          const QString &model, const QVector<int64_t> &outShape,
+                          QString *error )
   {
-    const double cell = params.value( QStringLiteral( "cellSize" ), 1.0 ).toDouble();
-    if ( !( cell > 0.0 ) || !std::isfinite( cell ) )
-    {
-      setError( error, QObject::tr( "cellSize must be > 0" ) );
-      return QString();
-    }
-    const double xmin = params.value( QStringLiteral( "xmin" ), 0.0 ).toDouble();
-    const double ymax = params.contains( QStringLiteral( "ymax" ) )
-                            ? params.value( QStringLiteral( "ymax" ) ).toDouble()
-                            : rows * cell;
-    double gt[6] = { xmin, cell, 0.0, ymax, 0.0, -cell };
-
     GDALAllRegister();
     GDALDriverH drv = GDALGetDriverByName( "GTiff" );
     if ( !drv )
@@ -250,7 +288,11 @@ namespace
       setError( error, QObject::tr( "cannot create prediction raster %1" ).arg( path ) );
       return QString();
     }
+    double gt[6];
+    std::memcpy( gt, grid.gt, sizeof( gt ) );
     GDALSetGeoTransform( ds, gt );
+    // SRS 优先级：显式参数 > D61 栅格自身投影 > 局部测网 CRS（与 horizonbinner
+    // 一致；绝不把局部米写成经纬度）。
     const QString auth = params.value( QStringLiteral( "crs" ) ).toString();
     if ( !auth.isEmpty() )
     {
@@ -259,6 +301,21 @@ namespace
       {
         const QByteArray wkt = crs.toWkt( Qgis::CrsWktVariant::Wkt1Gdal ).toUtf8();
         GDALSetProjection( ds, wkt.constData() );
+      }
+    }
+    else if ( !grid.projection.isEmpty() )
+    {
+      GDALSetProjection( ds, grid.projection.toUtf8().constData() );
+    }
+    else
+    {
+      OGRSpatialReference srs;
+      if ( srs.SetFromUserInput( DataCatalog::localGridCrsWkt().toUtf8().constData() ) == OGRERR_NONE )
+      {
+        char *wkt = nullptr;
+        if ( srs.exportToWkt( &wkt ) == OGRERR_NONE && wkt )
+          GDALSetProjection( ds, wkt );
+        CPLFree( wkt );
       }
     }
     GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
@@ -276,9 +333,12 @@ namespace
     prov.insert( QStringLiteral( "model" ), model );
     prov.insert( QStringLiteral( "rows" ), rows );
     prov.insert( QStringLiteral( "cols" ), cols );
-    prov.insert( QStringLiteral( "cell_size" ), cell );
-    prov.insert( QStringLiteral( "xmin" ), xmin );
-    prov.insert( QStringLiteral( "ymax" ), ymax );
+    prov.insert( QStringLiteral( "geotransform_source" ),
+                 grid.fromDecl ? QStringLiteral( "horizon.D61" ) : QStringLiteral( "project_area" ) );
+    QJsonArray gtJson;
+    for ( int i = 0; i < 6; ++i )
+      gtJson.append( gt[i] );
+    prov.insert( QStringLiteral( "geotransform" ), gtJson );
     QJsonArray shapeJson;
     for ( qint64 d : outShape )
       shapeJson.append( static_cast<double>( d ) );
@@ -376,17 +436,20 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
                        ? *error
                        : tr( "ONNX model '%1' produced no output" ).arg( model ) );
 
+    // 网格门禁（plan §1 trap）：输出挤成二维后必须是工区网格 411×641，否则
+    // 不写栅格、不登记图层。geotransform 由 horizon.D61* 声明提供，缺省常量。
+    const OnnxAreaGrid grid = onnxAreaGrid( layers );
     int rows = 0;
     int cols = 0;
-    if ( !resolveOnnxGrid( tensor.values, tensor.shape, params, rows, cols, error ) )
+    if ( !resolveOnnxGrid( tensor.values, tensor.shape, rows, cols, error ) )
     {
       return fail( ( error && !error->isEmpty() )
                        ? *error
                        : tr( "cannot place ONNX output on a grid" ) );
     }
     const QString outPath = writeOnnxRaster(
-        tempRasterPath( QStringLiteral( "onnx" ), horizon ), tensor.values, rows, cols, params,
-        model, tensor.shape, error );
+        tempRasterPath( QStringLiteral( "onnx" ), horizon ), tensor.values, rows, cols, grid,
+        params, model, tensor.shape, error );
     if ( outPath.isEmpty() )
     {
       return fail( ( error && !error->isEmpty() )

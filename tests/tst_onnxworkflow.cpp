@@ -27,8 +27,14 @@
 // "onnx:<model>" algorithm ids next to the registry's "paleo:*" set, and a
 // run declares a "pred.<horizon>.onnx.<model>" layer through the same
 // QgisLayerService::declare path Processing results use. Real service stack
-// on one temp dir; the toy graph (y = x + 40.0) is copied into the fixture's
-// own model root so the test is hermetic.
+// on one temp dir; the spike graphs (y = x + 40.0 as scalar / 411×641 / 2×2)
+// are copied into the fixture's own model root so the test is hermetic.
+//
+// PROJECT_AREA_PLAN trap gate: a squeezed output that is not the D61 work-area
+// grid (411×641) is refused — nothing written, nothing declared — with the
+// pinned text 「结果不是 411×641，没有写入栅格」 plus the actual dims. Passing
+// rasters carry the declared horizon.D61* geotransform, else the plan
+// constants (0, 12793/640, 0, 16406, 0, -16406/410).
 class TestOnnxWorkflow : public QObject
 {
   Q_OBJECT
@@ -89,10 +95,17 @@ private:
     if ( src.isEmpty() )
       return QString();
     const QString modelDir = f.dir.filePath( QStringLiteral( "models" ) );
-    if ( !QDir().mkpath( modelDir ) ||
-         !QFile::copy( src + QStringLiteral( "/toy.onnx" ),
-                       modelDir + QStringLiteral( "/toy.onnx" ) ) )
+    if ( !QDir().mkpath( modelDir ) )
       return QString();
+    for ( const QString &name : { QStringLiteral( "toy.onnx" ),
+                                  QStringLiteral( "grid.onnx" ),
+                                  QStringLiteral( "tile2x2.onnx" ) } )
+    {
+      if ( !QFile::exists( src + QLatin1Char( '/' ) + name ) ||
+           !QFile::copy( src + QLatin1Char( '/' ) + name,
+                         modelDir + QLatin1Char( '/' ) + name ) )
+        return QString();
+    }
     f.onnx.setModelRoot( modelDir );
     return modelDir;
   }
@@ -107,14 +120,16 @@ private:
   }
 
   // Write a w x h Float32 GTiff; returns "" on failure (tst_workflows pattern).
-  static QString makeRaster( const QString &path, int w, int h, const QVector<float> &px )
+  // gt6 overrides the default north-up 1m geotransform when given.
+  static QString makeRaster( const QString &path, int w, int h, const QVector<float> &px,
+                             const double *gt6 = nullptr )
   {
     GDALDriverH drv = GDALGetDriverByName( "GTiff" );
     GDALDatasetH ds = GDALCreate( drv, path.toUtf8().constData(), w, h, 1, GDT_Float32, nullptr );
     if ( !ds )
       return QString();
-    const double gt[6] = { 0.0, 1.0, 0.0, static_cast<double>( h ), 0.0, -1.0 };
-    GDALSetGeoTransform( ds, const_cast<double *>( gt ) );
+    const double fallback[6] = { 0.0, 1.0, 0.0, static_cast<double>( h ), 0.0, -1.0 };
+    GDALSetGeoTransform( ds, const_cast<double *>( gt6 ? gt6 : fallback ) );
     GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
     GDALSetRasterNoDataValue( band, -9999.0 );
     const CPLErr err = GDALRasterIO( band, GF_Write, 0, 0, w, h, const_cast<float *>( px.constData() ),
@@ -175,7 +190,8 @@ private slots:
     QVERIFY( !ids.contains( QStringLiteral( "onnx:" ) ) );
   }
 
-  // onnx:toy end to end: load + infer + declare "pred.T1.onnx.toy".
+  // onnx:grid end to end: 411×641 输出落在 D61 geotransform 上并登记
+  // "pred.T1.onnx.grid"。标量输入 2.0 经 Expand+Add 广播出全部 42.0。
   void onnxPredictionRunsAndDeclares()
   {
     if ( !PaleoOnnxService::runtimeAvailable() )
@@ -183,7 +199,7 @@ private slots:
 
     Fixture f;
     if ( initFixture( f ).isEmpty() )
-      QSKIP( "spikes/onnx/toy.onnx not locatable" );
+      QSKIP( "spikes/onnx models not locatable" );
 
     PredictionWorkflow wf( &f.proc, &f.layers );
     wf.setOnnxService( &f.onnx );
@@ -196,14 +212,14 @@ private slots:
     params.insert( QStringLiteral( "inputName" ), QStringLiteral( "x" ) );
 
     QString err;
-    QVERIFY2( wf.runPrediction( QStringLiteral( "T1" ), QStringLiteral( "onnx:toy" ),
+    QVERIFY2( wf.runPrediction( QStringLiteral( "T1" ), QStringLiteral( "onnx:grid" ),
                                 params, &err ), qPrintable( err ) );
     QCOMPARE( failSpy.count(), 0 );
     QCOMPARE( doneSpy.count(), 1 );
     QCOMPARE( doneSpy.at( 0 ).at( 0 ).toString(), QStringLiteral( "T1" ) );
-    QCOMPARE( doneSpy.at( 0 ).at( 1 ).toString(), QStringLiteral( "pred.T1.onnx.toy" ) );
+    QCOMPARE( doneSpy.at( 0 ).at( 1 ).toString(), QStringLiteral( "pred.T1.onnx.grid" ) );
 
-    const LayerDeclaration *d = findDecl( f.layers, QStringLiteral( "pred.T1.onnx.toy" ) );
+    const LayerDeclaration *d = findDecl( f.layers, QStringLiteral( "pred.T1.onnx.grid" ) );
     QVERIFY( d != nullptr );
     QCOMPARE( d->horizon, QStringLiteral( "T1" ) );
     QCOMPARE( d->type, QStringLiteral( "raster" ) );
@@ -212,38 +228,126 @@ private slots:
     QVERIFY( !d->source.startsWith( QStringLiteral( "memory" ) ) );
     GDALDatasetH ds = GDALOpen( d->source.toUtf8().constData(), GA_ReadOnly );
     QVERIFY2( ds != nullptr, qPrintable( d->source ) );
-    QCOMPARE( GDALGetRasterXSize( ds ), 1 );
-    QCOMPARE( GDALGetRasterYSize( ds ), 1 );
+    QCOMPARE( GDALGetRasterXSize( ds ), 641 );
+    QCOMPARE( GDALGetRasterYSize( ds ), 411 );
+    // 没有 horizon.D61* 声明时用 plan §3 常量：(0, 12793/640, 0, 16406, 0, -16406/410)
+    double gt[6] = { 0, 0, 0, 0, 0, 0 };
+    QCOMPARE( GDALGetGeoTransform( ds, gt ), CE_None );
+    QVERIFY2( qAbs( gt[0] - 0.0 ) < 1e-9, qPrintable( QString::number( gt[0] ) ) );
+    QVERIFY2( qAbs( gt[1] - 12793.0 / 640.0 ) < 1e-9, qPrintable( QString::number( gt[1] ) ) );
+    QVERIFY2( qAbs( gt[2] - 0.0 ) < 1e-9, qPrintable( QString::number( gt[2] ) ) );
+    QVERIFY2( qAbs( gt[3] - 16406.0 ) < 1e-9, qPrintable( QString::number( gt[3] ) ) );
+    QVERIFY2( qAbs( gt[4] - 0.0 ) < 1e-9, qPrintable( QString::number( gt[4] ) ) );
+    QVERIFY2( qAbs( gt[5] - ( -16406.0 / 410.0 ) ) < 1e-9, qPrintable( QString::number( gt[5] ) ) );
     float px = 0.0f;
     QVERIFY( GDALRasterIO( GDALGetRasterBand( ds, 1 ), GF_Read, 0, 0, 1, 1, &px, 1, 1,
                            GDT_Float32, 0, 0 ) == CE_None );
     QCOMPARE( px, 42.0f );
     const char *modelItem = GDALGetMetadataItem( ds, "PALEO_MODEL", nullptr );
-    QCOMPARE( QString::fromUtf8( modelItem ? modelItem : "" ), QStringLiteral( "toy" ) );
+    QCOMPARE( QString::fromUtf8( modelItem ? modelItem : "" ), QStringLiteral( "grid" ) );
     GDALClose( ds );
     delete d;
   }
 
-  // rows*cols that do not match the tensor length fail before a layer is declared.
-  void onnxGridShapeMismatchFails()
+  // 已声明的 horizon.D61* 栅格优先提供 geotransform（plan §3：ONNX 栅格用同
+  // 一套 D61 geotransform）。声明的栅格本身的尺寸不影响 411×641 门禁。
+  void onnxDeclaredD61GeotransformWins()
+  {
+    if ( !PaleoOnnxService::runtimeAvailable() )
+      QSKIP( "libonnxruntime not found under vendor/onnxruntime" );
+
+    Fixture f;
+    if ( initFixture( f ).isEmpty() )
+      QSKIP( "spikes/onnx models not locatable" );
+
+    const double d61gt[6] = { 123.0, 2.5, 0.0, 4567.0, 0.0, -2.5 };
+    const QString d61Path = makeRaster( f.dir.filePath( QStringLiteral( "d61.tif" ) ), 4, 3,
+                                        QVector<float>( 12, 7.0f ), d61gt );
+    QVERIFY( !d61Path.isEmpty() );
+    QString err;
+    QVERIFY2( f.layers.declare( decl( QStringLiteral( "horizon.D61" ), QStringLiteral( "D61" ),
+                                    QStringLiteral( "raster" ), d61Path ), &err ),
+              qPrintable( err ) );
+
+    PredictionWorkflow wf( &f.proc, &f.layers );
+    wf.setOnnxService( &f.onnx );
+
+    QVariantMap params;
+    params.insert( QStringLiteral( "input" ), QVariantList{ 2.0 } );
+    params.insert( QStringLiteral( "shape" ), QVariantList{ QVariant::fromValue<qint64>( 1 ) } );
+    params.insert( QStringLiteral( "inputName" ), QStringLiteral( "x" ) );
+
+    QVERIFY2( wf.runPrediction( QStringLiteral( "T1" ), QStringLiteral( "onnx:grid" ),
+                                params, &err ), qPrintable( err ) );
+
+    const LayerDeclaration *d = findDecl( f.layers, QStringLiteral( "pred.T1.onnx.grid" ) );
+    QVERIFY( d != nullptr );
+    GDALDatasetH ds = GDALOpen( d->source.toUtf8().constData(), GA_ReadOnly );
+    QVERIFY2( ds != nullptr, qPrintable( d->source ) );
+    QCOMPARE( GDALGetRasterXSize( ds ), 641 );
+    QCOMPARE( GDALGetRasterYSize( ds ), 411 );
+    double gt[6] = { 0, 0, 0, 0, 0, 0 };
+    QCOMPARE( GDALGetGeoTransform( ds, gt ), CE_None );
+    for ( int i = 0; i < 6; ++i )
+      QVERIFY2( qAbs( gt[i] - d61gt[i] ) < 1e-9,
+                qPrintable( QStringLiteral( "gt[%1]: %2 != %3" ).arg( i ).arg( gt[i] ).arg( d61gt[i] ) ) );
+    GDALClose( ds );
+    delete d;
+  }
+
+  // plan trap：标量/点输出不得落成 1×1 栅格——拒绝并写出钉死的文案与实际行列数。
+  void onnxScalarOutputRefused()
+  {
+    if ( !PaleoOnnxService::runtimeAvailable() )
+      QSKIP( "libonnxruntime not found under vendor/onnxruntime" );
+
+    Fixture f;
+    if ( initFixture( f ).isEmpty() )
+      QSKIP( "spikes/onnx models not locatable" );
+
+    PredictionWorkflow wf( &f.proc, &f.layers );
+    wf.setOnnxService( &f.onnx );
+    QSignalSpy doneSpy( &wf, &PredictionWorkflow::predictionDone );
+    QSignalSpy failSpy( &wf, &PredictionWorkflow::predictionFailed );
+
+    QVariantMap params;
+    params.insert( QStringLiteral( "input" ), QVariantList{ 2.0 } );
+    params.insert( QStringLiteral( "shape" ), QVariantList{ QVariant::fromValue<qint64>( 1 ) } );
+    params.insert( QStringLiteral( "inputName" ), QStringLiteral( "x" ) );
+
+    QString err;
+    QVERIFY( !wf.runPrediction( QStringLiteral( "T1" ), QStringLiteral( "onnx:toy" ),
+                                params, &err ) );
+    QCOMPARE( err, QStringLiteral( "结果不是 411×641，没有写入栅格（实际 1×1）" ) );
+    QCOMPARE( doneSpy.count(), 0 );
+    QCOMPARE( failSpy.count(), 1 );
+    QCOMPARE( failSpy.at( 0 ).at( 0 ).toString(), QStringLiteral( "T1" ) );
+    QCOMPARE( failSpy.at( 0 ).at( 1 ).toString(), err );
+    QVERIFY( findDecl( f.layers, QStringLiteral( "pred.T1.onnx.toy" ) ) == nullptr );
+  }
+
+  // 非 411×641 的二维输出同样拒绝（tile2x2 → 2×2）；params 里的 rows/cols
+  // 不再能绕过门禁。
+  void onnxNonGridShapeRefused()
   {
     if ( !PaleoOnnxService::runtimeAvailable() )
       QSKIP( "libonnxruntime not found under vendor/onnxruntime" );
     Fixture f;
     if ( initFixture( f ).isEmpty() )
-      QSKIP( "spikes/onnx/toy.onnx not locatable" );
+      QSKIP( "spikes/onnx models not locatable" );
 
     PredictionWorkflow wf( &f.proc, &f.layers );
     wf.setOnnxService( &f.onnx );
     QVariantMap params;
     params.insert( QStringLiteral( "input" ), QVariantList{ 2.0 } );
     params.insert( QStringLiteral( "shape" ), QVariantList{ QVariant::fromValue<qint64>( 1 ) } );
-    params.insert( QStringLiteral( "rows" ), 2 );
-    params.insert( QStringLiteral( "cols" ), 2 );
+    params.insert( QStringLiteral( "rows" ), 411 ); // 故意填门禁值也不行——形状说了算
+    params.insert( QStringLiteral( "cols" ), 641 );
     QString err;
-    QVERIFY( !wf.runPrediction( QStringLiteral( "T1" ), QStringLiteral( "onnx:toy" ), params, &err ) );
-    QVERIFY2( err.contains( QStringLiteral( "rows" ) ), qPrintable( err ) );
-    QVERIFY( findDecl( f.layers, QStringLiteral( "pred.T1.onnx.toy" ) ) == nullptr );
+    QVERIFY( !wf.runPrediction( QStringLiteral( "T1" ), QStringLiteral( "onnx:tile2x2" ),
+                              params, &err ) );
+    QCOMPARE( err, QStringLiteral( "结果不是 411×641，没有写入栅格（实际 2×2）" ) );
+    QVERIFY( findDecl( f.layers, QStringLiteral( "pred.T1.onnx.tile2x2" ) ) == nullptr );
   }
 
   // "onnx:ghost" — no such file under the model root → failed signal + false.

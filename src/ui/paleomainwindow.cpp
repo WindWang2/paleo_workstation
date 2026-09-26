@@ -2030,7 +2030,7 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
   // 发布门（§177/§260）：版本行上的 PDF 资产 id + 逐井残差摘要完整性共同
   // 决定按钮状态；tooltip 写缺的那条。导出成功 / 保存 / 发布 / 验证跑完 /
   // 工程打开后都重算 —— 门是「当前状态」而不是一次性开关。
-  const auto refreshPublishGate = [this, versionStore, projectData]() {
+  const auto refreshPublishGate = [this, versionStore, projectData, catalog]() {
     auto *page = findChild<ComposePage *>();
     if (!page)
       return;
@@ -2044,6 +2044,14 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
     MapVersionStore::residualSummaryComplete(summary, &covered, &total);
     page->setPublishState(!v.pdfAssetId.isEmpty(), covered, total);
     page->setVersionState(v.version, v.state == QLatin1String("Published"));
+    // B 包 staleness-lite advisory：目标工程里有过时下游产物 → 发布按钮
+    // tooltip 如实列出（可见但不阻断——enable 态仍由 setPublishState 决定）。
+    const QString advisory = MapVersionController::stalePublishAdvisory(catalog);
+    if (!advisory.isEmpty())
+      if (auto *btn = page->findChild<QPushButton *>(QStringLiteral("publishButton")))
+        btn->setToolTip(btn->toolTip().isEmpty()
+                            ? advisory
+                            : btn->toolTip() + QLatin1Char('\n') + advisory);
   };
   m_refreshPublishGate = refreshPublishGate;
 
@@ -2164,10 +2172,11 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
           });
 
   // 发布：确认对话列版本号 / PDF 文件名 / 覆盖井数（§177），确认后把
-  // 逐井残差摘要随发布冻结进版本行。
+  // 逐井残差摘要随发布冻结进版本行。B 包 staleness-lite：有过时下游产物
+  // 时确认文案如实列出（advisory——不阻断，Ok/Cancel 照常由人决断）。
   connect(composePage, &ComposePage::publishRequested, this,
-          [this, versions, versionStore, projectData, composePage, activeHorizon, status,
-           refreshPublishGate]() {
+          [this, versions, versionStore, projectData, catalog, composePage,
+           activeHorizon, status, refreshPublishGate]() {
             const QString h = activeHorizon();
             if (h.isEmpty())
             {
@@ -2182,6 +2191,8 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
             const QString pdfName =
                 QFileInfo(versionStore ? versionStore->latestLayoutProduct(h) : QString())
                     .fileName();
+            const QString advisory =
+                MapVersionController::stalePublishAdvisory(catalog);
             const auto choice = QMessageBox::question(
                 this, tr("发布版本"),
                 tr("发布 %1 v%2？\n\nPDF：%3\n覆盖井数：%4/%5\n\n发布后快照只读，"
@@ -2190,7 +2201,10 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
                     .arg(v.version)
                     .arg(pdfName.isEmpty() ? tr("（未登记）") : pdfName)
                     .arg(covered < 0 ? 0 : covered)
-                    .arg(total < 0 ? 0 : total),
+                    .arg(total < 0 ? 0 : total)
+                    + (advisory.isEmpty()
+                           ? QString()
+                           : QStringLiteral("\n\n注意：") + advisory),
                 QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel);
             if (choice != QMessageBox::Ok)
               return;

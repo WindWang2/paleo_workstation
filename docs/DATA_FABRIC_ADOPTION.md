@@ -14,10 +14,10 @@
 | RoleRegistry（角色词表唯一权威） | `EntityAssetLink.role` 自由字符串 | **A 包**：`src/catalog/roleregistry.*` | ✅ 已合并 `d2bcaf1`（`roleRegistry()`，工程可覆盖） |
 | IngestPlan 三段式（plan→confirm→execute） | folderRows+确认框，plan 内嵌执行 | **C 包**：`src/io/ingestplan.*` 拆分 | ✅ 已合并 `6d1f3cb`（`buildIngestPlan`/`executeIngestPlan`） |
 | link.ordinal + primary 不变量 | 无 ordinal | **B 包**：catalog 字段+排序 | ✅ 已合并 `6e34d9d` |
-| EntityDataView（角色槽视图） | `linksForEntity` 原始面 | **B 包**：`src/catalog/entityview.*` | ✅ 已合并 `6e34d9d`；⏳ DataPage 接线=wave-5 p5a |
-| staleness/downstream 闭包 | 无 | **B 包**：catalog 查询+extra 标记 | ✅ 已合并 `6e34d9d`；⏳ 预览/发布门接线=wave-5 p5b |
+| EntityDataView（角色槽视图） | `linksForEntity` 原始面 | **B 包**：`src/catalog/entityview.*` | ✅ `6e34d9d`；✅ DataPage 接线已落地（p5a `036e583`，+ `ProjectDataFacade::entityView` 直通 `0f0c5b2`） |
+| staleness/downstream 闭包 | 无 | **B 包**：catalog 查询+extra 标记 | ✅ `6e34d9d`；✅ 预览 sha 失配→`markDownstreamStale` + 发布门 advisory + 「过时」徽标（p5b `c79b95d`） |
 | CommitCoordinator（journal+幂等+三段提交） | `PaleoProjectStore::saveAll` 已有序写队列 | **D 包**：journal-lite+幂等 op | ✅ 已合并 `12aa9b1`（`commitAll`/`recoverCommitJournal`）；⏳ 生产调用点待接线（见下） |
-| role 词表强制 | 无 | wave-5 p5c：诊断不硬拦 | ⏳ 外包中 |
+| role 词表校验 | 无 | wave-5 p5c：诊断不硬拦 | ✅ `2607c68`——未知角色如实落 note 标记 + `invalidRoleLinks()` 诊断面，不拒收；`attachWorkflows` 幂等化（`m_workflowsAttached` 守卫，存量崩溃债清账） |
 | working-copy / trash / typed RunPort | 无 | **defer**（规模不符，派生链短） | 递延 |
 
 ## A 包 — RoleRegistry（`data/role-registry`）
@@ -148,8 +148,9 @@ A（独立新增）→ C（dataimportservice 接缝）→ D（paleoprojectstore 
   永不删）+ `projectOpened` 里顺带调用——接线前记档只增不减的债先封。
 - **`EntityView`/`downstreamClosure` 已进 `ProjectDataFacade`**：
   `entityView(entityId)` / `downstreamClosureOf(versionId)` 直通
-  （catalog 未开 → 如实空）。DataPage（p5a）与派生链（p5b）可以消费
-  facade 而不直接摸 catalog。
+  （catalog 未开 → 如实空）。wave-5 已落地：DataPage 角色槽视图（p5a）
+  + 预览 stale 链路（p5b）+ 词表诊断/`attachWorkflows` 幂等（p5c）。
+  **仍开着的唯一接缝**：`commitAll` 生产调用点（上行）。
 - **放弃项（如实记录）**：曾考虑给 `buildIngestPlan` 加「推断角色↔词表」
   note 标记——`roleForType` 只产词表内角色、`project_area.json` 的 roles
   覆盖是增量补丁不能删内置，标记路径不可达 = 死代码，不做。

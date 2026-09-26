@@ -182,6 +182,8 @@ add_paleo_test(tst_webviewpanel)   # offscreen: engine unavailable → fallback,
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx)
   add_paleo_test(tst_onnxworkflow)
+  target_compile_definitions(tst_onnxworkflow PRIVATE
+    PROJECT_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
   set_tests_properties(tst_onnx tst_onnxworkflow PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;LD_LIBRARY_PATH=${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()

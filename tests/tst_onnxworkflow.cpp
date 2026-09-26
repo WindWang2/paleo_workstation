@@ -196,6 +196,71 @@ private slots:
     QVERIFY( !ids.contains( QStringLiteral( "onnx:" ) ) );
   }
 
+  // D15（pass-2 批准）：端到端 fixture 推理冒烟——模型夹具来自 testdata/onnx
+  // （工程内受管夹具，不再依赖 spikes/ 布局）。真 ORT 会话 → PredictionWorkflow
+  // → 411×641 GeoTIFF；只证明差异化路径可用：断言尺寸、非空、有限值比例 100%，
+  // 不做精度断言。产物按 T26 落 artifacts/derived。
+  void onnxEndToEndFixtureSmokeFromTestdata()
+  {
+    if ( !PaleoOnnxService::runtimeAvailable() )
+      QSKIP( "libonnxruntime not found under vendor/onnxruntime" );
+#ifdef PROJECT_TESTDATA_DIR
+    const QString fixtureModel = QStringLiteral( PROJECT_TESTDATA_DIR ) +
+                                 QStringLiteral( "/onnx/grid.onnx" );
+    if ( !QFile::exists( fixtureModel ) )
+      QSKIP( "testdata/onnx/grid.onnx not present" );
+
+    Fixture f;
+    if ( !f.dir.isValid() || !f.catalog.open( f.dir.path() ) ||
+         !f.projectSvc.createProject( f.dir.filePath( QStringLiteral( "proj.qgz" ) ) ) ||
+         !f.manifest.open() )
+      QSKIP( "fixture setup failed" );
+    const QString modelDir = f.dir.filePath( QStringLiteral( "models" ) );
+    QVERIFY( QDir().mkpath( modelDir ) );
+    QVERIFY( QFile::copy( fixtureModel, modelDir + QLatin1Char( '/' ) +
+                                            QStringLiteral( "grid.onnx" ) ) );
+    f.onnx.setModelRoot( modelDir );
+
+    PredictionWorkflow wf( &f.proc, &f.layers );
+    wf.setOnnxService( &f.onnx );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+
+    QVariantMap params;
+    params.insert( QStringLiteral( "input" ), QVariantList{ 2.0f } );
+    params.insert( QStringLiteral( "shape" ), QVariantList{ QVariant::fromValue<qint64>( 1 ) } );
+    params.insert( QStringLiteral( "inputName" ), QStringLiteral( "x" ) );
+    QString err;
+    QVERIFY2( wf.runPrediction( QStringLiteral( "D61" ), QStringLiteral( "onnx:grid" ),
+                                params, &err ),
+              qPrintable( err ) );
+
+    const LayerDeclaration *d = findDecl( f.layers, QStringLiteral( "pred.D61.onnx.grid" ) );
+    QVERIFY2( d != nullptr, "prediction layer not declared" );
+    QVERIFY( d->source.contains( QStringLiteral( "artifacts/derived/" ) ) );
+
+    GDALDatasetH ds = GDALOpen( d->source.toUtf8().constData(), GA_ReadOnly );
+    QVERIFY2( ds != nullptr, qPrintable( d->source ) );
+    QCOMPARE( GDALGetRasterXSize( ds ), 641 );
+    QCOMPARE( GDALGetRasterYSize( ds ), 411 );
+    GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+    QVector<float> px( 411 * 641 );
+    QCOMPARE( GDALRasterIO( band, GF_Read, 0, 0, 641, 411, px.data(), 641, 411,
+                            GDT_Float32, 0, 0 ),
+              CE_None );
+    int finite = 0;
+    for ( float v : px )
+      if ( std::isfinite( v ) )
+        ++finite;
+    // 非空 + 有限值比例：全格有限（toy 语义是常值广播，非有限即异常）。
+    QVERIFY2( finite > 0, "raster is empty" );
+    QCOMPARE( finite, 411 * 641 );
+    GDALClose( ds );
+    delete d;
+#else
+    QSKIP( "PROJECT_TESTDATA_DIR not defined" );
+#endif
+  }
+
   // onnx:grid end to end: 411×641 输出落在 D61 geotransform 上并登记
   // "pred.T1.onnx.grid"。标量输入 2.0 经 Expand+Add 广播出全部 42.0。
   void onnxPredictionRunsAndDeclares()

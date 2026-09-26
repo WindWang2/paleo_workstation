@@ -303,3 +303,6 @@ target_sources(paleo_core PRIVATE
   src/catalog/roleregistry.cpp                      # RoleDef/RoleRegistry 内置词表 + project_area.json roles 覆盖
 )
 add_paleo_test(tst_roles)
+
+# ---- data/commit-coord（D 包：journal + 幂等有序提交） ----
+add_paleo_test(tst_commitcoord)    # commitAll 记档生命周期/幂等重入/崩溃恢复/catalog→qgz 顺序

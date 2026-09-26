@@ -19,6 +19,7 @@ private slots:
   void classifiesXmlByContent();
   void parsesWellHead();
   void parsesWellHeadOptionalColumns();
+  void rejectsInvalidWellHeadRequiredColumns();
   void parsesWellTops();
   void parsesTimeDepth();
   void bomOnFirstDataLineIsStripped();
@@ -139,6 +140,19 @@ void TestProjectParsers::parsesWellHeadOptionalColumns()
   QVERIFY(!nul.first().hasBottomX);
   QVERIFY(!nul.first().hasBottomY);
   QCOMPARE(nul.first().wellType, QStringLiteral("3"));
+}
+
+void TestProjectParsers::rejectsInvalidWellHeadRequiredColumns()
+{
+  const QVector<WellHeadRecord> rows = parseWellHeadText(
+      QByteArrayLiteral("good 1 2 3 4\n"
+                        "bad_kb 1 2 missing 4\n"
+                        "missing_x -99999 2 3 4\n"
+                        "missing_y 1 -99999 3 4\n"
+                        "missing_td 1 2 3 -99999\n"
+                        "infinite_x inf 2 3 4\n"));
+  QCOMPARE(rows.size(), 1);
+  QCOMPARE(rows.first().name, QStringLiteral("good"));
 }
 
 void TestProjectParsers::parsesWellTops()

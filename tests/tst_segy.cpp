@@ -57,6 +57,7 @@ struct SyntheticSegyConfig
   int formatCode = 5;      // 1 = IBM fp32, 5 = IEEE fp32
   int revNum = 0x0100;     // 0x0000 = rev0, 0x0100 = rev1
   int extHeaders = 0;      // count of 3200-byte extended text headers
+  bool endText = true;     // final record marker when extHeaders is -1
   qint32 binLineNo = 1001; // binary header line number
   qint16 binDt = 2000;     // sample interval in microseconds (2000 us)
   qint16 binNs = 64;       // samples per trace
@@ -96,11 +97,13 @@ QByteArray buildSyntheticSegy(const SyntheticSegyConfig &cfg)
   out.append(binHdr);
 
   // 3. Extended text headers (if any)
-  for (int e = 0; e < cfg.extHeaders; ++e)
+  for (int e = 0; e < (cfg.extHeaders == -1 ? 2 : cfg.extHeaders); ++e)
   {
     QByteArray extHdr(3200, ' ');
     const char *extBanner = "C01 EXTENDED TEXT HEADER";
     std::memcpy(extHdr.data(), extBanner, std::strlen(extBanner));
+    if (cfg.extHeaders == -1 && e == 1 && cfg.endText)
+      std::memcpy(extHdr.data() + 80, "((SEG: EndText))", 16);
     out.append(extHdr);
   }
 
@@ -378,6 +381,24 @@ class TestSegy : public QObject
       QVERIFY2(reader.open(path, &error), qPrintable(error));
       QCOMPARE(reader.traceCount(), 3);
       QCOMPARE(reader.traces()[0].lineNo, 8008);
+    }
+
+    void variableExtendedTextHeadersSkipped()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      SyntheticSegyConfig cfg;
+      cfg.extHeaders = -1;
+      const QString path = dir.filePath(QStringLiteral("endtext.sgy"));
+      QVERIFY(writeSegyFile(path, buildSyntheticSegy(cfg)));
+      SegyReader reader;
+      QString error;
+      QVERIFY2(reader.open(path, &error), qPrintable(error));
+      QCOMPARE(reader.traceCount(), cfg.traceCount);
+      cfg.endText = false;
+      QVERIFY(writeSegyFile(path, buildSyntheticSegy(cfg)));
+      QVERIFY(!reader.open(path, &error));
+      QVERIFY(error.contains(QStringLiteral("EndText")));
     }
 
     // c) Truncated file handling:

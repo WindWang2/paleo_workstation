@@ -117,9 +117,7 @@ QString ProjectDataFacade::assetFilePathFor(const QString &wellId, const QString
   const CatalogVersion v = m_catalog->currentVersion(assetId);
   if (v.id.isEmpty())
     return QString();
-  const QDir base(projectDir());
-  return v.path.isEmpty() ? QString()
-                          : (QDir::isAbsolutePath(v.path) ? v.path : base.absoluteFilePath(v.path));
+  return DataCatalog::resolvedVersionPath(projectDir(), v);
 }
 
 QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId) const

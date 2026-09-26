@@ -942,7 +942,7 @@ class TestMapping : public QObject
         QVERIFY( a1->residualMs > 0.0 );
         QVERIFY( qAbs( a1->residualMs - 215.57 ) < 1.0 );
         QVERIFY( qAbs( a1->x - 300.0 ) < 0.01 ); // 分层 X/Y 优先
-        QCOMPARE( a1->inlineNo, 1438 );
+        QCOMPARE( a1->inlineNo, 1520 ); // inline follows Y; X follows crossline
 
         const TimeResidualRow *a6 = rowFor( QStringLiteral( "A6" ) );
         QVERIFY( a6 );
@@ -958,6 +958,7 @@ class TestMapping : public QObject
         const TimeResidualRow *a5 = rowFor( QStringLiteral( "A5" ) );
         QVERIFY( a5 );
         QCOMPARE( a5->status, TimeResidualRow::Status::Pass );
+        QCOMPARE( a5->inlineNo, a6->inlineNo ); // same Y, different X
 
         const TimeResidualRow *a3 = rowFor( QStringLiteral( "A3" ) );
         QVERIFY( a3 );
@@ -1007,7 +1008,7 @@ class TestMapping : public QObject
             {
                 residualIssue = &v;
                 QVERIFY( v.wktLocation.contains( QStringLiteral( "POINT(300" ) ) );
-                QCOMPARE( v.details.value( QStringLiteral( "inline" ) ).toInt(), 1438 );
+                QCOMPARE( v.details.value( QStringLiteral( "inline" ) ).toInt(), 1520 );
             }
         }
         QCOMPARE( nExceeds, 2 ); // A1 + A6
@@ -1016,7 +1017,37 @@ class TestMapping : public QObject
         // 序列化往返保留新增字段。
         const ValidationIssue roundtrip = ValidationIssue::fromMap( residualIssue->toMap() );
         QCOMPARE( roundtrip.wellId, QStringLiteral( "well-1" ) );
-        QCOMPARE( roundtrip.details.value( QStringLiteral( "inline" ) ).toInt(), 1438 );
+        QCOMPARE( roundtrip.details.value( QStringLiteral( "inline" ) ).toInt(), 1520 );
+
+        // A deviated top occupies a different raster cell from its wellhead.
+        // The publish summary must agree with the validation sample point.
+        const QString topsPath = f.dir.filePath( QStringLiteral( "raw/ast-1/ver-1/DC.dat" ) );
+        QFile topFile( topsPath );
+        QVERIFY( topFile.open( QIODevice::ReadOnly ) );
+        QString shifted = QString::fromUtf8( topFile.readAll() );
+        topFile.close();
+        QVERIFY( shifted.contains( QStringLiteral( "A1           D61          2148.000     300.000" ) ) );
+        shifted.replace( QStringLiteral( "A1           D61          2148.000     300.000" ),
+                         QStringLiteral( "A1           D61          2148.000     900.000" ) );
+        QVERIFY( writeText( topsPath, shifted ) );
+        const QList<TimeResidualRow> shiftedRows =
+            computeTimeResiduals( &f.pd, QStringLiteral( "D61" ), 10.0 );
+        const QJsonObject summary = QJsonDocument::fromJson(
+            MapVersionController::residualSummaryJson( &f.pd, QStringLiteral( "D61" ) ).toUtf8() ).object();
+        bool foundShiftedA1 = false;
+        for ( const QJsonValue &value : summary.value( QStringLiteral( "rows" ) ).toArray() )
+        {
+            const QJsonObject row = value.toObject();
+            if ( row.value( QStringLiteral( "well_id" ) ).toString() != QStringLiteral( "well-1" ) )
+                continue;
+            foundShiftedA1 = true;
+            QCOMPARE( row.value( QStringLiteral( "kind" ) ).toString(), QStringLiteral( "residual" ) );
+            for ( const TimeResidualRow &validation : shiftedRows )
+                if ( validation.wellId == QStringLiteral( "well-1" ) )
+                    QVERIFY( qAbs( row.value( QStringLiteral( "residual_ms" ) ).toDouble()
+                                   - validation.residualMs ) < 0.01 );
+        }
+        QVERIFY( foundShiftedA1 );
     }
 
     // 采样边界（autoplan §5C）：井位恰在外边界 → 归末像元；网外/空道是

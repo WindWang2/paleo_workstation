@@ -253,9 +253,13 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   for (const auto &v : root.value(QStringLiteral("versions")).toArray())
   {
     const CatalogVersion cv = versionFromJson(v.toObject());
-    // 段校验（fileName/stage/受管 path）：坏段版本如实跳过且不写回，
-    // 不静默沿用——与 addVersion 同一校验面（audit row 36/T33）。
-    const QString badSeg = unsafeVersionSegmentReason(cv);
+    // 段校验（fileName/stage/受管 path）与 resolvedVersionPath 根包含检查：
+    // 坏段版本如实跳过且不写回，不静默沿用——与 addVersion 同一校验面
+    // （audit row 36/T33；resolvedVersionPath 另挡符号链接与越界绝对路径）。
+    QString badSeg = unsafeVersionSegmentReason(cv);
+    if (badSeg.isEmpty() && cv.managed && !cv.path.isEmpty() &&
+        resolvedVersionPath(m_dir, cv).isEmpty())
+      badSeg = QStringLiteral("managed path escapes project root: %1").arg(cv.path);
     if (!badSeg.isEmpty())
     {
       qWarning("catalog: skipping version %s with unsafe path segment: %s",
@@ -470,6 +474,11 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
         setError(error, QStringLiteral("unsafe managed path segment: %1").arg(seg));
         return false;
       }
+    if (resolvedVersionPath(m_dir, v).isEmpty())
+    {
+      setError(error, QStringLiteral("unsafe managed path: %1").arg(v.path));
+      return false;
+    }
   }
   // T17：显式给的 "ver-N" 也推进序号——不然 addVersion("ver-9") 之后
   // nextVersionId() 还会发 ver-9（被 dup 检查挡下报错）而不是发 ver-10。
@@ -617,8 +626,40 @@ CatalogVersion DataCatalog::versionBySha256(const QString &sha256) const
     return CatalogVersion();
   for (const CatalogVersion &v : m_versions)
     if (v.sha256.compare(sha256, Qt::CaseInsensitive) == 0)
-      return v;
+    {
+      const QString path = resolvedVersionPath(m_dir, v);
+      if (path.isEmpty() || !QFileInfo(path).isFile()) continue;
+      if (sha256FileHex(path).compare(sha256, Qt::CaseInsensitive) == 0)
+        return v;
+    }
   return CatalogVersion();
+}
+
+QString DataCatalog::resolvedVersionPath(const QString &projectDir, const CatalogVersion &version)
+{
+  if (version.path.isEmpty()) return QString();
+  if (!version.managed) return version.path;
+  if (QDir::isAbsolutePath(version.path) || version.path.contains(QLatin1Char('\\')))
+    return QString();
+  const QStringList segments = version.path.split(QLatin1Char('/'));
+  for (const QString &segment : segments)
+    if (!isSafePathSegment(segment)) return QString();
+
+  const QString root = QFileInfo(projectDir).canonicalFilePath();
+  if (root.isEmpty()) return QString();
+  QString current = root;
+  for (const QString &segment : segments)
+  {
+    current = QDir(current).filePath(segment);
+    const QFileInfo info(current);
+    if (info.isSymbolicLink()) return QString();
+    if (info.exists())
+    {
+      const QString canonical = info.canonicalFilePath();
+      if (!canonical.startsWith(root + QDir::separator())) return QString();
+    }
+  }
+  return current;
 }
 
 QString DataCatalog::sha256FileHex(const QString &path, QString *error)
@@ -822,12 +863,18 @@ QString DataCatalog::managedPath(const QString &stage, const QString &assetId,
 
 QString DataCatalog::nextAssetId()
 {
-  return QStringLiteral("ast-%1").arg(++m_assetSeq);
+  QString id;
+  do { id = QStringLiteral("ast-%1").arg(++m_assetSeq); }
+  while (!assetById(id).id.isEmpty());
+  return id;
 }
 
 QString DataCatalog::nextVersionId()
 {
-  return QStringLiteral("ver-%1").arg(++m_versionSeq);
+  QString id;
+  do { id = QStringLiteral("ver-%1").arg(++m_versionSeq); }
+  while (!versionById(id).id.isEmpty());
+  return id;
 }
 
 QString DataCatalog::nextEntityId(const QString &prefix)

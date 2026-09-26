@@ -53,14 +53,12 @@ QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text)
       continue;
     WellHeadRecord r;
     r.name = t.at(0);
-    bool xOk = false, yOk = false, kbOk = false, tdOk = false;
-    r.x = t.at(1).toDouble(&xOk);
-    r.y = t.at(2).toDouble(&yOk);
-    r.kb = t.at(3).toDouble(&kbOk);
-    r.td = t.at(4).toDouble(&tdOk);
-    if (!xOk || !yOk || !tdOk)
+    // All five columns are required.  Use the same finite/sentinel rules as
+    // the optional columns below so a missing coordinate is never marked as
+    // a valid surface position by the importer.
+    if (!parseColumn(t.at(1), &r.x) || !parseColumn(t.at(2), &r.y) ||
+        !parseColumn(t.at(3), &r.kb) || !parseColumn(t.at(4), &r.td))
       continue;
-    Q_UNUSED(kbOk);
     // 可选列：BottomX BottomY WellType（-99999/缺列 → has* false / 空串）。
     if (t.size() >= 7)
     {

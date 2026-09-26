@@ -846,7 +846,8 @@ QList<TimeResidualRow> computeTimeResiduals( const ProjectDataFacade *projectDat
   if ( !ds )
     return rows;
 
-  const bool hasInline = raster.inlineMin >= 0 && raster.inlineMax > raster.inlineMin;
+  const bool hasInline = raster.inlineMin >= 0 && raster.inlineMax > raster.inlineMin &&
+                         raster.ymax > raster.ymin;
   for ( const ProjectWell &well : projectData->wells() )
   {
     TimeResidualRow row;
@@ -902,7 +903,7 @@ QList<TimeResidualRow> computeTimeResiduals( const ProjectDataFacade *projectDat
                                                           : TimeResidualRow::Status::Pass;
     if ( hasInline )
       row.inlineNo = static_cast<int>( std::lround(
-          raster.inlineMin + ( row.x - raster.xmin ) / ( raster.xmax - raster.xmin ) *
+          raster.inlineMin + ( row.y - raster.ymin ) / ( raster.ymax - raster.ymin ) *
                                  ( raster.inlineMax - raster.inlineMin ) ) );
     rows.append( row );
   }

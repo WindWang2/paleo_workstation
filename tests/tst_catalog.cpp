@@ -2,6 +2,8 @@
 #include <QTemporaryDir>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QFile>
+#include <QDir>
 
 #include "../src/catalog/datacatalog.h"
 
@@ -23,6 +25,8 @@ private slots:
   void managedPathLayout();
   void unsafePathSegmentsRejected();
   void versionBySha256FindsStored();
+  void managedPathRejectsSymlinksAndTraversal();
+  void managedCatalogLoadRejectsEscape();
   void addLinkDemotesPreviousPrimaryForSameRole();
   void attachLinkResolvesUnresolvedAndDemotes();
   // ---- pass 2：T17/T20/T33 ----
@@ -368,17 +372,91 @@ void TestCatalog::versionBySha256FindsStored()
   a.id = QStringLiteral("ast-1");
   a.type = QStringLiteral("document");
   QVERIFY(cat.addAsset(a));
+  QFile stored(dir.filePath(QStringLiteral("stored.dat")));
+  QVERIFY(stored.open(QIODevice::WriteOnly));
+  QCOMPARE(stored.write("valid bytes"), qint64(11));
+  stored.close();
+  const QString digest = DataCatalog::sha256FileHex(stored.fileName());
   CatalogVersion v;
   v.id = QStringLiteral("ver-1");
   v.assetId = QStringLiteral("ast-1");
   v.stage = QStringLiteral("RAW");
-  v.sha256 = QStringLiteral("abc123");
+  v.managed = true;
+  v.path = QStringLiteral("stored.dat");
+  v.sha256 = digest;
   QVERIFY(cat.addVersion(v));
 
-  QCOMPARE(cat.versionBySha256(QStringLiteral("abc123")).id, QStringLiteral("ver-1"));
-  QCOMPARE(cat.versionBySha256(QStringLiteral("ABC123")).id, QStringLiteral("ver-1"));
+  QCOMPARE(cat.versionBySha256(digest).id, QStringLiteral("ver-1"));
+  QCOMPARE(cat.versionBySha256(digest.toUpper()).id, QStringLiteral("ver-1"));
   QVERIFY(cat.versionBySha256(QStringLiteral("zzz")).id.isEmpty());
   QVERIFY(cat.versionBySha256(QString()).id.isEmpty()); // 空 sha 永不命中
+  QVERIFY(stored.remove());
+  QVERIFY(cat.versionBySha256(digest).id.isEmpty());
+}
+
+void TestCatalog::managedPathRejectsSymlinksAndTraversal()
+{
+  QTemporaryDir project;
+  QTemporaryDir outside;
+  QVERIFY(project.isValid() && outside.isValid());
+  CatalogVersion version;
+  version.managed = true;
+  version.path = QStringLiteral("artifacts/raw/file.dat");
+  QVERIFY(!DataCatalog::resolvedVersionPath(project.path(), version).isEmpty());
+  version.path = QStringLiteral("artifacts/../outside.dat");
+  QVERIFY(DataCatalog::resolvedVersionPath(project.path(), version).isEmpty());
+  version.path = QStringLiteral("/tmp/outside.dat");
+  QVERIFY(DataCatalog::resolvedVersionPath(project.path(), version).isEmpty());
+  QVERIFY(QDir(project.path()).mkpath(QStringLiteral("artifacts")));
+  const QString link = project.filePath(QStringLiteral("artifacts/raw"));
+  QVERIFY(QFile::link(outside.path(), link));
+  version.path = QStringLiteral("artifacts/raw/file.dat");
+  QVERIFY(DataCatalog::resolvedVersionPath(project.path(), version).isEmpty());
+}
+
+void TestCatalog::managedCatalogLoadRejectsEscape()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog catalog;
+  QVERIFY(catalog.open(dir.path()));
+  CatalogAsset asset;
+  asset.id = QStringLiteral("ast-1");
+  QVERIFY(catalog.addAsset(asset));
+  CatalogVersion version;
+  version.id = QStringLiteral("ver-1");
+  version.assetId = asset.id;
+  version.managed = true;
+  version.path = QStringLiteral("artifacts/raw/ast-1/ver-1/file.dat");
+  QVERIFY(catalog.addVersion(version));
+  QFile file(catalog.catalogPath());
+  QVERIFY(file.open(QIODevice::ReadOnly));
+  QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+  file.close();
+  QJsonArray versions = root.value(QStringLiteral("versions")).toArray();
+  QJsonObject bad = versions.at(0).toObject();
+  bad.insert(QStringLiteral("path"), QStringLiteral("../../outside.dat"));
+  versions[0] = bad;
+  root.insert(QStringLiteral("versions"), versions);
+  QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  file.write(QJsonDocument(root).toJson());
+  file.close();
+  DataCatalog reloaded;
+  QString error;
+  // 坏段版本如实跳过且不写回：装载照常成功，越界版本不进内存（audit row 36/T33）。
+  QVERIFY(reloaded.open(dir.path(), &error));
+  QVERIFY(error.isEmpty());
+  QVERIFY(reloaded.versionsForAsset(asset.id).isEmpty());
+  QJsonObject reloadedRoot;
+  {
+    QFile check(catalog.catalogPath());
+    QVERIFY(check.open(QIODevice::ReadOnly));
+    reloadedRoot = QJsonDocument::fromJson(check.readAll()).object();
+    check.close();
+  }
+  QCOMPARE(reloadedRoot.value(QStringLiteral("versions")).toArray().at(0).toObject()
+               .value(QStringLiteral("path")).toString(),
+           QStringLiteral("../../outside.dat"));
 }
 
 // §3：新的已决主关联入库后，同一 (entityType, entityId, role) 的旧主关联降级——

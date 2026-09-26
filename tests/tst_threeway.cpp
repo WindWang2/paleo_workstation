@@ -235,7 +235,7 @@ class TestThreeWay : public QObject
         const QVariantMap payload = args.at( 2 ).toMap();
         QCOMPARE( payload.value( QStringLiteral( "wellId" ) ).toString(), QStringLiteral( "well-1" ) );
         QCOMPARE( payload.value( QStringLiteral( "horizon" ) ).toString(), QStringLiteral( "D61" ) );
-        QCOMPARE( payload.value( QStringLiteral( "inline" ) ).toInt(), 1438 );
+        QCOMPARE( payload.value( QStringLiteral( "inline" ) ).toInt(), 1520 );
 
         // ① 地图点目标已记录（payload well_x=300, well_y=400——画布为空只
         // 记目标不缩放）；② 底栏已切到连井面板且滚到该井该分层。

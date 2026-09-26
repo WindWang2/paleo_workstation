@@ -1,0 +1,10 @@
+# Ubuntu 26.04 (resolute) QGIS 4.2.x development closure.
+qgis
+qgis-providers
+libqgis-dev
+qt6-base-dev
+qt6-webengine-dev
+qt6-pdf-dev
+libgdal-dev
+libproj-dev
+libgeos-dev

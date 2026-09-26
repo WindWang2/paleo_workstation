@@ -23,7 +23,7 @@ int main(int argc, char *argv[])
 {
   QElapsedTimer total; total.start();
   QgsApplication app(argc, argv, false);
-  app.setPrefixPath(QStringLiteral("/usr"), true);
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true);
   app.initQgis();
 
   std::printf("paleo selfcheck\n");

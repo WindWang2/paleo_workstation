@@ -329,7 +329,7 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
     if ( sha256Out )
       *sha256Out = sha;
     if ( managedPathOut )
-      *managedPathOut = QDir( projectDir ).absoluteFilePath( existing.path );
+      *managedPathOut = DataCatalog::resolvedVersionPath( projectDir, existing );
     return existing.assetId;
   }
 
@@ -344,7 +344,12 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
   if ( relDir.isEmpty() )
     return fail( QObject::tr( "受管路径段不合法（output/%1/%2）" ).arg( assetId, versionId ) );
   const QString relPath = QStringLiteral( "artifacts/" ) + relDir;
-  const QString dst = QDir( projectDir ).absoluteFilePath( relPath );
+  CatalogVersion pending;
+  pending.managed = true;
+  pending.path = relPath;
+  const QString dst = DataCatalog::resolvedVersionPath( projectDir, pending );
+  if ( dst.isEmpty() )
+    return fail( QObject::tr( "unsafe managed destination: %1" ).arg( relPath ) );
   const QDir dir = QFileInfo( dst ).absoluteDir();
   if ( !dir.exists() && !dir.mkpath( QStringLiteral( "." ) ) )
     return fail( QObject::tr( "cannot create directory %1" ).arg( dir.absolutePath() ) );

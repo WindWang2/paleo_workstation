@@ -484,6 +484,94 @@ class TestMapping : public QObject
         QCOMPARE( roundtrip.details.value( QStringLiteral( "inline" ) ).toInt(), 1438 );
     }
 
+    // MD 兜底（plan §3）：分层 TVD 空（-99999）→ 用 MD 对 TD 的 MD 列。
+    // A4 的 D61 分层只有 MD=2050；其 TD 表 TVD 列全 -99999、MD 列单调增。
+    // 走 MD 列插值得 2050ms，与栅格 ~2001.4ms 差 >1ms → TIME_RESIDUAL；
+    // 若误走 TVD 列（或不兜底）则查不出时间，这条问题不会出现。
+    void timeResidualMdFallback()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+        const QString tif = makeRaster( f.dir.filePath( QStringLiteral( "d61.tif" ) ) );
+        QVERIFY( !tif.isEmpty() );
+
+        CatalogEntity e;
+        e.id = QStringLiteral( "well-4" );
+        e.entityType = QStringLiteral( "well" );
+        e.name = QStringLiteral( "A4" );
+        e.surfaceX = 600.0;
+        e.surfaceY = 400.0;
+        e.hasSurface = true;
+        e.coordinateStatus = QStringLiteral( "untransformed" );
+        QVERIFY( f.catalog.addEntity( e ) );
+
+        auto addFile = [&f]( const QString &assetId, const QString &type,
+                             const QString &verId, const QString &fileName,
+                             const QString &text, const QString &role ) {
+            CatalogAsset a;
+            a.id = assetId;
+            a.type = type;
+            a.format = QStringLiteral( "dat" );
+            a.displayName = fileName;
+            if ( !f.catalog.addAsset( a ) )
+                return false;
+            CatalogVersion v;
+            v.id = verId;
+            v.assetId = a.id;
+            v.stage = QStringLiteral( "RAW" );
+            v.path = DataCatalog::managedPath( QStringLiteral( "raw" ), a.id, v.id, fileName );
+            if ( !f.catalog.addVersion( v ) )
+                return false;
+            EntityAssetLink l;
+            l.entityType = QStringLiteral( "well" );
+            l.entityId = QStringLiteral( "well-4" );
+            l.assetId = a.id;
+            l.role = role;
+            l.isPrimary = true;
+            l.unresolved = false;
+            return f.catalog.addLink( l ) && writeText( f.dir.filePath( v.path ), text );
+        };
+        // A4 分层：D61 只有 MD（TVD/Time 皆 -99999 → tvd=NaN，md=2050）。
+        QVERIFY( addFile( QStringLiteral( "ast-4" ), QStringLiteral( "well_stratification" ),
+                          QStringLiteral( "ver-4" ), QStringLiteral( "DC4.dat" ),
+                          QStringLiteral( "#WellTops File From SMI\n"
+                                          "A4 D61 2050.000 600.000 400.000 -99999.000 -99999.000 -99999.000\n" ),
+                          QStringLiteral( "tops" ) ) );
+        // A4 时深：TVD 列全哨兵，MD 列 2000/2100 单调增 → 2050 → 2050ms。
+        QVERIFY( addFile( QStringLiteral( "ast-5" ), QStringLiteral( "time_depth" ),
+                          QStringLiteral( "ver-5" ), QStringLiteral( "A4_TD.dat" ),
+                          QStringLiteral( "#TimeDepth File From SMI\n# Well : A4\n"
+                                          "#TIME            TVDSS            TVD            MD\n"
+                                          "2000.000          -2000.000        -99999.000       2000.000\n"
+                                          "2100.000          -2100.000        -99999.000       2100.000\n" ),
+                          QStringLiteral( "time_depth" ) ) );
+
+        f.pd.setCatalog( &f.catalog, f.dir.path() );
+        f.pd.setManifest( &f.manifest );
+        LayerDeclaration rasterDecl;
+        rasterDecl.layerId = QStringLiteral( "horizon.D61.derived" );
+        rasterDecl.horizon = QStringLiteral( "D61" );
+        rasterDecl.type = QStringLiteral( "raster" );
+        rasterDecl.source = tif;
+        rasterDecl.group = QStringLiteral( "00_Horizon" );
+        QString err;
+        QVERIFY2( f.layers.declare( rasterDecl, &err ), qPrintable( err ) );
+
+        const QList<ValidationIssue> issues =
+            computeTimeResiduals( &f.pd, QStringLiteral( "D61" ), 1.0 );
+        int a4Rows = 0;
+        for ( const ValidationIssue &v : issues )
+        {
+            if ( v.wellId != QLatin1String( "well-4" ) )
+                continue;
+            ++a4Rows;
+            QCOMPARE( v.code, QStringLiteral( "TIME_RESIDUAL" ) );
+            // MD 列插值 2050ms vs 栅格 2001.4ms（col6,row4）→ ~48.6ms
+            QVERIFY( qAbs( v.details.value( QStringLiteral( "time_ms" ) ).toDouble() - 2050.0 ) < 0.5 );
+        }
+        QCOMPARE( a4Rows, 1 );
+    }
+
     // 布局导出：跑完链路后导一张含井位 + 相多边形的 D61 PDF。
     void exportPdfWritesD61Map()
     {

@@ -27,26 +27,32 @@ namespace
       *error = text;
   }
 
-  // TD 表 TVD→TIME(ms)：走数据底座的 TimeDepthTool（分段线性，区间外取
-  // 最近端点——与剖面标层同一语义）。空表/无有效行返回 NaN。
-  double timeForTvd( const QVector<TdSample> &td, double tvd )
+  // TD 表 → TIME(ms)：走数据底座的 TimeDepthTool（plan §3：文件顺序、不排序、
+  // 不外推）。分层 TVD 有效时查 TVD 列；TVD 空（-99999）改用 MD 对 MD 列。
+  // TdResult.status 区分 无时深表/超出时深表/时深表无序，文案经
+  // TimeDepthTool::reasonText() 取——剖面标层与残差共用这一个结果。
+  TimeDepthTool::TdResult timeForTop( const QVector<TdSample> &td, const WellTop &top )
   {
+    TimeDepthTool::TdResult none; // status=NoTable
     if ( td.isEmpty() )
-      return qQNaN();
+      return none;
     TimeDepthTable table;
     table.rows.reserve( td.size() );
     for ( const TdSample &s : td )
     {
       TdRow row;
       row.timeMs = s.timeMs;
-      row.tvdss = s.tvd;
       row.tvd = s.tvd;
-      row.hasTvd = true;
+      row.md = s.md;
+      row.hasTvd = !qIsNaN( s.tvd ); // NaN 透传 -99999/缺列 → 不进插值
+      row.hasMd = !qIsNaN( s.md );
       table.rows.append( row );
     }
-    bool ok = false;
-    const double t = TimeDepthTool::interpolateTimeMs( table, tvd, /*useMd=*/false, &ok );
-    return ok ? t : qQNaN();
+    if ( !qIsNaN( top.tvd ) )
+      return TimeDepthTool::interpolateTimeMs( table, top.tvd, /*useMd=*/false );
+    if ( !qIsNaN( top.md ) ) // 分层 TVD 空 → MD 对 TD 的 MD 列兜底（plan §3）
+      return TimeDepthTool::interpolateTimeMs( table, top.md, /*useMd=*/true );
+    return none; // 分层两个深度都没有 → 按无时深表处理
   }
 } // namespace
 
@@ -255,12 +261,14 @@ QList<ValidationIssue> computeTimeResiduals( const ProjectDataFacade *projectDat
   const bool hasInline = raster.inlineMin >= 0 && raster.inlineMax > raster.inlineMin;
   for ( const ProjectWell &well : projectData->wells() )
   {
-    double tvd = qQNaN();
-    for ( const WellTop &top : projectData->topsFor( well.id ) )
+    const QVector<WellTop> tops = projectData->topsFor( well.id );
+    const WellTop *pick = nullptr;
+    for ( const WellTop &top : tops )
       if ( top.horizon == horizon )
-        tvd = top.tvd;
-    if ( qIsNaN( tvd ) )
-      continue; // 该井没有此层位分层 → 无残差可评
+        pick = &top;
+    // 该井没有此层位分层，或分层 TVD/MD 皆空 → 无残差可评。
+    if ( !pick || ( qIsNaN( pick->tvd ) && qIsNaN( pick->md ) ) )
+      continue;
 
     const QVector<TdSample> td = projectData->tdTableFor( well.id );
     if ( td.isEmpty() )
@@ -276,10 +284,14 @@ QList<ValidationIssue> computeTimeResiduals( const ProjectDataFacade *projectDat
       continue;
     }
 
-    const double wellTimeMs = timeForTvd( td, tvd );
+    const TimeDepthTool::TdResult tdResult = timeForTop( td, *pick );
     const double rasterMs = sampleRasterAt( ds, well.surfaceX, well.surfaceY );
-    if ( qIsNaN( wellTimeMs ) || qIsNaN( rasterMs ) )
-      continue; // 井位无栅格采样（如凸包外）→ 不评，不造数
+    // TD 不给出值（无时深表/超出时深表/时深表无序，见 tdResult.status 与
+    // TimeDepthTool::reasonText()）或井位无栅格采样（如凸包外）→ 不评，不造数。
+    if ( !tdResult.ok() || qIsNaN( rasterMs ) )
+      continue;
+
+    const double wellTimeMs = tdResult.timeMs;
 
     const double residual = wellTimeMs - rasterMs;
     if ( std::abs( residual ) <= thresholdMs )

@@ -9,7 +9,6 @@
 #include <QFileInfo>
 
 #include <gdal.h>
-#include <algorithm>
 
 // ---------------------------------------------------------------------------
 // ProjectDataFacade — DataCatalog/解析器/LayerManifest 之上的读侧适配层。
@@ -169,15 +168,16 @@ QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const
   const TimeDepthTable table = parseTimeDepthText(f.readAll());
   f.close();
 
+  // 行保持文件顺序，不排序（PROJECT_AREA_PLAN §3）：单调性判定归
+  // TimeDepthTool；-99999/缺列以 NaN 透传，由插值端剔除，这里不做取舍。
   for (const TdRow &row : table.rows)
   {
     TdSample s;
     s.timeMs = row.timeMs;
-    s.tvd = row.hasTvd ? row.tvd : row.tvdss;
+    s.tvd = row.hasTvd ? row.tvd : qQNaN();
+    s.md = row.hasMd ? row.md : qQNaN();
     out.append(s);
   }
-  std::sort(out.begin(), out.end(),
-            [](const TdSample &a, const TdSample &b) { return a.timeMs < b.timeMs; });
   return out;
 }
 

@@ -1,10 +1,9 @@
 #include "timedeptool.h"
 
-#include <limits>
-
 namespace
 {
-  // 取参与插值的 (key, time) 对：key=TVD 或 MD（-99999/缺列剔除），行按 key 升序。
+  // 取参与插值的 (key, time) 对：key=TVD 或 MD；-99999/缺列的行剔除。
+  // 保持文件顺序——不排序（PROJECT_AREA_PLAN §3）。
   struct KtRow
   {
     double key = 0.0, t = 0.0;
@@ -15,33 +14,41 @@ namespace
     rows.reserve(td.rows.size());
     for (const TdRow &r : td.rows)
     {
-      const double key = useMd ? (r.hasMd ? r.md : -1.0) : (r.hasTvd ? r.tvd : -1.0);
-      if (key < 0.0) // 缺列或 -99999
+      if (useMd ? !r.hasMd : !r.hasTvd) // 缺列或 -99999 → 不进插值
         continue;
-      rows.append({key, r.timeMs});
+      rows.append({useMd ? r.md : r.tvd, r.timeMs});
     }
-    std::sort(rows.begin(), rows.end(),
-              [](const KtRow &a, const KtRow &b) { return a.key < b.key; });
     return rows;
   }
 } // namespace
 
 namespace TimeDepthTool
 {
-  double interpolateTimeMs(const TimeDepthTable &td, double depth, bool useMd, bool *ok)
+  TdResult interpolateTimeMs(const TimeDepthTable &td, double depth, bool useMd)
   {
     const QVector<KtRow> rows = collectKeys(td, useMd);
-    if (ok)
-      *ok = false;
-    if (rows.isEmpty())
-      return 0.0;
-
-    if (ok)
-      *ok = true;
-    if (depth <= rows.front().key)
-      return rows.front().t; // 浅端外推
-    if (depth >= rows.back().key)
-      return rows.back().t; // 深端外推
+    TdResult out;
+    if (rows.size() < 2) // 可用样点不足两个 → 无时深表
+    {
+      out.status = TdStatus::NoTable;
+      return out;
+    }
+    // 查找列必须按文件顺序严格递增；否则不插值 → 时深表无序。
+    for (int i = 1; i < rows.size(); ++i)
+    {
+      if (!(rows.at(i).key > rows.at(i - 1).key))
+      {
+        out.status = TdStatus::NonMonotonic;
+        return out;
+      }
+    }
+    // 范围之外不夹取、不外推（NaN 深度也走这里）→ 超出时深表。
+    if (!(depth >= rows.first().key && depth <= rows.last().key))
+    {
+      out.status = TdStatus::OutOfRange;
+      return out;
+    }
+    // 文件顺序相邻两样点间线性插值（首末样点本身经 f=0/1 命中）。
     for (int i = 1; i < rows.size(); ++i)
     {
       if (rows.at(i).key >= depth)
@@ -49,9 +56,29 @@ namespace TimeDepthTool
         const KtRow &a = rows.at(i - 1);
         const KtRow &b = rows.at(i);
         const double f = (depth - a.key) / (b.key - a.key);
-        return a.t + f * (b.t - a.t);
+        out.timeMs = a.t + f * (b.t - a.t);
+        out.status = TdStatus::Ok;
+        return out;
       }
     }
-    return rows.back().t;
+    out.timeMs = rows.last().t; // depth==末样点时上面 f=1 已命中，此为兜底
+    out.status = TdStatus::Ok;
+    return out;
+  }
+
+  QString reasonText(TdStatus status)
+  {
+    switch (status)
+    {
+      case TdStatus::Ok:
+        return QString();
+      case TdStatus::NoTable:
+        return QStringLiteral("无时深表");
+      case TdStatus::OutOfRange:
+        return QStringLiteral("超出时深表");
+      case TdStatus::NonMonotonic:
+        return QStringLiteral("时深表无序");
+    }
+    return QString();
   }
 } // namespace TimeDepthTool

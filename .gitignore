@@ -2,6 +2,7 @@ build/
 vendor/onnxruntime
 vendor/prefix/
 vendor/build/
+vendor/superbuild/prefix/
 vendor/logs/
 vendor/ort.tgz
 *.o

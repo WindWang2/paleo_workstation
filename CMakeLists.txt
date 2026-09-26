@@ -325,3 +325,12 @@ add_paleo_test(tst_crashreport)
 add_paleo_test(tst_relocate)
 target_compile_definitions(tst_relocate PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+
+# ---- wave4/area-parametrization ----
+# AreaRules：工程级参数 seam——层序界面名单 / 分类器目录规则 / SEG-Y 道号索引
+# 约定 / ONNX 期望网格（TODOS「第二工区参数化接缝」）。默认 = 本工区内置值，
+# 工程目录 project_area.json 可覆盖（docs/AREA_PARAMETERS.md）。
+target_sources(paleo_core PRIVATE
+  src/io/arearules.cpp                           # 参数装载 + 进程级 active 快照
+)
+add_paleo_test(tst_arearules)     # 默认等价 / 自定义生效 / 坏 JSON 拒用

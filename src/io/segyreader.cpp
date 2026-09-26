@@ -1,5 +1,7 @@
 #include "segyreader.h"
 
+#include "arearules.h"
+
 #include <QFile>
 #include <QtEndian>
 #include <algorithm>
@@ -191,6 +193,9 @@ bool SegyReader::open(const QString &path, QString *error,
   //   inline = base + 道号/N（N = 一条 inline 的道数），crossline = 该道 CDP
   //   （偏移 20）。不回退去读偏移 8/20；道数、CDP 顺序、角点对不上就停止，
   //   并排报出期望值和读到的值。
+  // 道头偏移经 AreaRules（segy 道号索引约定；第二工区方言经 project_area.json
+  // 覆盖，见 docs/AREA_PARAMETERS.md）——open() 开始取一份快照，全程一致。
+  const AreaRules::SegyIndexing sidx = AreaRules::active().segy;
   auto fieldVaries = [&](int fieldOff) -> bool {
     qint32 first = 0;
     bool haveFirst = false, varies = false;
@@ -216,7 +221,7 @@ bool SegyReader::open(const QString &path, QString *error,
     }
     return varies;
   };
-  const bool ordinalIndex = !fieldVaries(188);
+  const bool ordinalIndex = !fieldVaries(sidx.inlineWordOffset);
   const int binEnsTraces = beI16(bin + 12); // 二进制头字节 13-14：每条 inline 道数
 
   // 索引道：只读 240 字节道头；样本区用 seek 跳过——打开内存不随体增长。
@@ -301,34 +306,35 @@ bool SegyReader::open(const QString &path, QString *error,
 
     if (ordinalIndex)
     {
-      // 探测段内偏移 188 不变才进这条路；半路再变说明探测段不代表全文件，
-      // 按 plan 报出期望值和读到的值后停止，不改读别的字节。
-      const qint32 lineWord = beI32(trHdr + 188);
+      // 探测段内 inline 字（约定偏移）不变才进这条路；半路再变说明探测段不
+      // 代表全文件，按 plan 报出期望值和读到的值后停止，不改读别的字节。
+      const qint32 lineWord = beI32(trHdr + sidx.inlineWordOffset);
       if (m_index.isEmpty())
       {
         firstLineWord = lineWord;
-        firstFieldRec = beI32(trHdr + 8); // 道号索引的 inline 起点（本文件 1315）
+        firstFieldRec = beI32(trHdr + sidx.fieldRecordOffset); // 道号索引的 inline 起点（本文件 1315）
       }
       else if (lineWord != firstLineWord)
       {
         if (error)
-          *error = QStringLiteral("inline word at trace-header offset 188 must stay constant for "
+          *error = QStringLiteral("inline word at trace-header offset %4 must stay constant for "
                                   "ordinal indexing: expected %1, read %2 at trace %3")
                        .arg(firstLineWord)
                        .arg(lineWord)
-                       .arg(m_index.size());
+                       .arg(m_index.size())
+                       .arg(sidx.inlineWordOffset);
         m_index.clear();
         return false;
       }
       e.inlineNo = 0;                 // 占位：收尾统一按道号赋值
-      e.xlineNo = beI32(trHdr + 20); // crossline = 该道 CDP（plan §2）
+      e.xlineNo = beI32(trHdr + sidx.cdpXlineOffset); // crossline = 该道 CDP（plan §2）
       ordX.append(cx);
       ordY.append(cy);
     }
     else
     {
-      e.inlineNo = beI32(trHdr + 188); // 标准 inline 字节位（1-based 字节 189）
-      e.xlineNo = beI32(trHdr + 192); // 标准 crossline 字节位（1-based 字节 193）
+      e.inlineNo = beI32(trHdr + sidx.inlineWordOffset);    // 标准 inline 字节位（1-based 字节 189）
+      e.xlineNo = beI32(trHdr + sidx.crosslineWordOffset); // 标准 crossline 字节位（1-based 字节 193）
 
       // survey 几何冻结：范围 + 四角 (x,y)。
       if (m_index.isEmpty())

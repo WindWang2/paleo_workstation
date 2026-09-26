@@ -1,5 +1,41 @@
 # BUILDING
 
+## 快速开始与 TTHW（plan §44.1）
+
+```bash
+./paleo-dev bootstrap   # preflight + 依赖 vendor（binary 路）
+./paleo-dev build       # 配置 + 构建
+./paleo-dev test        # QT_QPA_PLATFORM=offscreen 全套测试
+```
+
+- **TTHW 目标：vendor 引导完成后，首次绿色测试 2–5 分钟**（configure+build+
+  ctest，8 核基线机；当前全套 62 测试实测 ~48s，余量给增量编译）。
+- 引导本身（一次性）：binary 路 ~10min（OSGeo4W / deb 闭包 / onnxruntime
+  pin）；superbuild 回退路 ≤2h、磁盘 ≥60GB——仅在 binary 路不可用时启用
+  （`vendor/superbuild/README.md` 回退条款）。
+- 本机已装 QGIS 4.2.x 开发包（如 Arch `qgis 4.2.2`）时 bootstrap 短路 QGIS
+  腿，只剩 onnxruntime 下载。
+
+## QGIS prefix 解析顺序（CMakeLists.txt:16 起）
+
+主构建不写死 QGIS 位置，按序解析：
+
+1. `QGIS_PREFIX` CMake 变量；未给则读环境 **`QGIS_PREFIX_PATH`**；
+2. 命中后把它（及 `<prefix>/apps/qt6`，OSGeo4W 布局）前置进
+   `CMAKE_PREFIX_PATH`，再在 `<prefix>/apps/qgis/include`、
+   `<prefix>/include/qgis`、`<prefix>/usr/include/qgis` 等布局里找
+   `qgsapplication.h` 与 `-lqgis_{core,gui,analysis}`；
+3. 都没给 → 系统路径（`/usr/include/qgis`、`/usr/lib`）。
+
+vendor 路径对照：
+
+| 来源 | QGIS_PREFIX_PATH | 由谁准备 |
+|---|---|---|
+| 发行版系统包（Arch 等） | 不需要（系统路径即可） | 发行版包管理器 |
+| qgis.org deb 闭包 | `<repo>/vendor/prefix/usr` | `./vendor/fetch-deps.sh`（lock 锁 SHA256） |
+| OSGeo4W（Windows CI） | bootstrap 注入（`apps/qgis` 布局） | `./paleo-dev.ps1 bootstrap` |
+| superbuild（回退，未启用） | `<repo>/vendor/superbuild/prefix` | `vendor/superbuild/`（见其 README） |
+
 ## 平台 × 版本矩阵
 
 | 平台 | 状态 | 依赖来源 |
@@ -32,3 +68,6 @@ Debian 闭包升级时，在目标发行版且已配置 QGIS 官方 apt 源的�
 - `tst_boot`：init+providers+srs.db+渲染 非均匀像素断言 — PASS（102ms）
 - `tst_polygonize`：provider 注册+GDALPolygonize C++ 路径 — PASS
 - `spikes/onnx/ort_check`：进程内 toy 推理 2.0→42.0 — PASS
+- 全套 ctest（wave4 起 62 测试，offscreen）：~48s（TTHW 预算内）；设
+  `PALEO_REAL_PROJECT_AREA` 跑真数据档时全套 ~110–130s（wave3 实测
+  109.3s/133.1s）

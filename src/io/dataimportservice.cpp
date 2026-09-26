@@ -4,6 +4,7 @@
 #include "../metadata/layermanifest.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/qgislayerservice.h"
+#include "arearules.h"
 #include "horizonbinner.h"
 #include "ingestplan.h"
 #include "lasparser.h"
@@ -20,7 +21,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
-#include <QSet>
 #include <QStandardPaths>
 
 #include <algorithm>
@@ -42,14 +42,11 @@ namespace
       *error = text;
   }
 
-  // 编图层序界面集合（plan §3/§5E）。
+  // 编图层序界面集合（plan §3/§5E）。名单经 AreaRules（本工区默认
+  // C3/C6/D53/D61/D62/D63/D71/D72；第二工区经 project_area.json 换名单）。
   bool isKnownSequenceBoundary(const QString &stem)
   {
-    static const QSet<QString> kBoundaries{
-        QStringLiteral("C3"),  QStringLiteral("C6"),  QStringLiteral("D53"),
-        QStringLiteral("D61"), QStringLiteral("D62"), QStringLiteral("D63"),
-        QStringLiteral("D71"), QStringLiteral("D72")};
-    return kBoundaries.contains(stem.toUpper());
+    return AreaRules::active().sequenceBoundaries.contains(stem.toUpper());
   }
 
   // 阶段 D 固定辅助规则：isFixedAuxiliaryPath（HZ28-6-1 命名文件）在

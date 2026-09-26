@@ -4,6 +4,7 @@ project(paleo_workbench CXX)
 set(CMAKE_CXX_STANDARD 20) # QGIS 4.2 headers require C++20 (defaulted operator==)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON) # wave3/ux-consistency: vendored fonts qrc
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test Sql Xml Concurrent Svg PrintSupport Network SerialPort Positioning UiTools OpenGLWidgets WebEngineWidgets Pdf PdfWidgets)
@@ -96,6 +97,12 @@ add_library(paleo_core STATIC
 target_link_libraries(paleo_core PUBLIC paleo_qgis_iface ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
 
+# ---- wave3/ux-consistency ----
+# DESIGN.md typography: vendored fonts (Noto Sans SC + JetBrains Mono) travel
+# inside the binary so UI text and render-regression baselines are identical
+# on every platform. Registered by PaleoTheme::ensureApplicationFonts().
+target_sources(paleo_core PRIVATE src/ui/paleotheme.cpp resources/paleo_fonts.qrc)
+
 # ONNX Runtime (vendored; spike ET4). The shipped cmake config assumes lib64/ — we use lib/.
 find_path(ORT_INCLUDE onnxruntime_cxx_api.h PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/include)
 find_library(ORT_LIB onnxruntime PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib)
@@ -179,6 +186,9 @@ target_compile_definitions(tst_datapreview PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_smoke_realdata) # real-data smoke; skips unless PALEO_REAL_PROJECT_AREA is set
 add_paleo_test(tst_webviewpanel)   # offscreen: engine unavailable → fallback, host survives
+# ---- wave3/ux-consistency ----
+# (fonts qrc + theme singleton live in paleo_core below; UI-domain tests here)
+add_paleo_test(tst_uxtheme)
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx)
   add_paleo_test(tst_onnxworkflow)

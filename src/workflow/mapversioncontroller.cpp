@@ -13,6 +13,7 @@
 #include <gdal.h>
 
 #include <cmath>
+#include <limits>
 
 #include <qgsmaplayer.h>
 #include <qgsvectorlayer.h>
@@ -59,15 +60,47 @@ namespace
     Value,   // 采到数值
   };
 
-  // 包含像元采样（左闭右开：x==xmax 归最后一列）——与残差检查的采样同口径，
-  // 但区分「不在测网内」与「空道」两种原因。
+  // 井/分层的采样点：分层 X/Y 优先，缺省退井口——与 mappingworkflow.cpp
+  // pickSamplePoint 同一份逻辑（T25：发布门与验证表必须采同一个点）。
+  void pickSamplePointForWell( const ProjectWell &well, const WellTop *top,
+                               double *x, double *y )
+  {
+    if ( top && std::isfinite( top->x ) && std::isfinite( top->y ) )
+    {
+      *x = top->x;
+      *y = top->y;
+    }
+    else
+    {
+      *x = well.surfaceX;
+      *y = well.surfaceY;
+    }
+  }
+
+  // 包含像元采样（左闭右开；恰在外边界归末像元，1 ULP 容差）——与
+  // mappingworkflow.cpp sampleRasterAt 同一套算法，逐行对齐勿分叉：
+  // 发布门残差必须与验证表同口径（T25），仅返回值分支命名不同。
   CellSample sampleCellAt( GDALDatasetH ds, double x, double y, double *value )
   {
+    if ( !std::isfinite( x ) || !std::isfinite( y ) )
+      return CellSample::Outside;
     double gt[6] = { 0, 0, 0, 0, 0, 0 };
     GDALGetGeoTransform( ds, gt );
-    const int col = static_cast<int>( std::floor( ( x - gt[0] ) / gt[1] ) );
-    const int row = static_cast<int>( std::floor( ( gt[3] - y ) / -gt[5] ) );
-    if ( col < 0 || row < 0 || col >= GDALGetRasterXSize( ds ) || row >= GDALGetRasterYSize( ds ) )
+    const int cols = GDALGetRasterXSize( ds );
+    const int rows = GDALGetRasterYSize( ds );
+    int col = static_cast<int>( std::floor( ( x - gt[0] ) / gt[1] ) );
+    int row = static_cast<int>( std::floor( ( y - gt[3] ) / gt[5] ) );
+    const double xmax = gt[0] + gt[1] * cols;
+    const double ymin = gt[3] + gt[5] * rows;
+    const double ulpX =
+        std::nextafter( xmax, std::numeric_limits<double>::infinity() ) - xmax;
+    const double ulpY =
+        std::nextafter( ymin, std::numeric_limits<double>::infinity() ) - ymin;
+    if ( col == cols && qAbs( x - xmax ) <= ulpX )
+      col = cols - 1; // 恰在外边界 → 最后一列
+    if ( row == rows && qAbs( y - ymin ) <= ulpY )
+      row = rows - 1; // 恰在外边界 → 最后一行
+    if ( col < 0 || row < 0 || col >= cols || row >= rows )
       return CellSample::Outside;
     GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
     float v = 0.0f;
@@ -75,7 +108,7 @@ namespace
       return CellSample::Nodata;
     int hasNodata = 0;
     const double nodata = GDALGetRasterNoDataValue( band, &hasNodata );
-    if ( hasNodata && qAbs( static_cast<double>( v ) - nodata ) < 1e-6 )
+    if ( std::isnan( v ) || ( hasNodata && qAbs( static_cast<double>( v ) - nodata ) < 1e-6 ) )
       return CellSample::Nodata;
     if ( value )
       *value = v;
@@ -214,8 +247,11 @@ QString MapVersionController::residualSummaryJson( const ProjectDataFacade *pd,
         }
         else
         {
+          // T25：与验证表同一点——分层 X/Y 优先，井口兜底（不是永远井口）。
+          double sx = well.surfaceX, sy = well.surfaceY;
+          pickSamplePointForWell( well, pick, &sx, &sy );
           double rasterMs = qQNaN();
-          const CellSample cell = sampleCellAt( ds, well.surfaceX, well.surfaceY, &rasterMs );
+          const CellSample cell = sampleCellAt( ds, sx, sy, &rasterMs );
           switch ( cell )
           {
             case CellSample::Outside:

@@ -141,11 +141,14 @@ TimeDepthTable parseTimeDepthText(const QByteArray &text)
     if (t.size() < 4) // TIME TVDSS TVD MD
       continue;
     TdRow row;
-    bool tOk = false, sOk = false;
-    row.timeMs = t.at(0).toDouble(&tOk);
+    bool sOk = false;
     row.tvdss = t.at(1).toDouble(&sOk);
-    if (!tOk || !sOk || !std::isfinite(row.timeMs) || !std::isfinite(row.tvdss) ||
-        row.timeMs <= kNullSentinel + 0.5)
+    // 参与规则（audit #39/T18）：TIME(ms) 命中 -99999/非数值/非有限的行
+    // 整行不进时深表——否则 sentinel 时间值会混进插值污染标定。TVDSS 只
+    // 要求可解析且有限（它不是查找列，-99999 不逐行）；TVD/MD 列沿用
+    // -99999→空。
+    if (!sOk || !std::isfinite(row.tvdss) || !parseColumn(t.at(0), &row.timeMs) ||
+        !std::isfinite(row.timeMs))
       continue;
     if (parseColumn(t.at(2), &row.tvd))
       row.hasTvd = true;

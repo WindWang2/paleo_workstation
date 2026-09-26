@@ -18,7 +18,9 @@ private slots:
   void parsesHeader();
   void binsSamplePoints();
   void countsCollisions();
+  void rejectsMalformedHeaders();
   void writesGeoTiffWithGeotransform();
+  void writesPaleoSurveyMetadata();
 
 private:
   QString fixturePath() const
@@ -103,6 +105,63 @@ void TestHorizonBinner::countsCollisions()
   QCOMPARE(b.z.at(1 * 2 + 1), -9999.0f);
 }
 
+// T21：P1/P2/P3 是网格几何唯一来源——缺角/非数值/与 Grid_size 不自洽/
+// 退化（零像元尺寸）都必须拒绝装箱，而不是拿 0 坐标照样产栅格。
+void TestHorizonBinner::rejectsMalformedHeaders()
+{
+  const QByteArray head = QByteArray(
+      "# Grid_size:2x2# Survey(Inline,Crossline,x,y)\n"
+      "# P1:      100,      200,     0.00000,     0.00000\n"
+      "# P2:      100,      201,    10.00000,     0.00000\n"
+      "# P3:      101,      201,    10.00000,    10.00000\n"
+      "# Z_units: ms\n");
+  QString err;
+  BinnedHorizon b;
+  QVERIFY(binHorizon(head + "0.0 0.0 111.0 100 200\n", &b, &err));
+
+  // 缺 P3 → 拒绝。
+  QVERIFY(!binHorizon(
+      "# Grid_size:2x2\n"
+      "# P1:      100,      200,     0.00000,     0.00000\n"
+      "# P2:      100,      201,    10.00000,     0.00000\n"
+      "0.0 0.0 111.0 100 200\n",
+      &b, &err));
+  QVERIFY2(err.contains(QStringLiteral("P1-P3")), qPrintable(err));
+
+  // P 行字段非数值 → 拒绝。
+  err.clear();
+  QVERIFY(!binHorizon(
+      "# Grid_size:2x2\n"
+      "# P1:      100,      200,     0.00000,     0.00000\n"
+      "# P2:      100,      201,    abcdefgh,     0.00000\n"
+      "# P3:      101,      201,    10.00000,    10.00000\n"
+      "0.0 0.0 111.0 100 200\n",
+      &b, &err));
+  QVERIFY2(err.contains(QStringLiteral("P1-P3")), qPrintable(err));
+
+  // 号域与 Grid_size 不自洽（3x3 但角点只跨 1）→ 拒绝。
+  err.clear();
+  QVERIFY(!binHorizon(
+      "# Grid_size:3x3\n"
+      "# P1:      100,      200,     0.00000,     0.00000\n"
+      "# P2:      100,      201,    10.00000,     0.00000\n"
+      "# P3:      101,      201,    10.00000,    10.00000\n"
+      "0.0 0.0 111.0 100 200\n",
+      &b, &err));
+  QVERIFY2(err.contains(QStringLiteral("Grid_size")), qPrintable(err));
+
+  // 退化几何：P2.x 不大于 P1.x → dx=0 → 拒绝。
+  err.clear();
+  QVERIFY(!binHorizon(
+      "# Grid_size:2x2\n"
+      "# P1:      100,      200,     0.00000,     0.00000\n"
+      "# P2:      100,      201,     0.00000,     0.00000\n"
+      "# P3:      101,      201,    10.00000,    10.00000\n"
+      "0.0 0.0 111.0 100 200\n",
+      &b, &err));
+  QVERIFY2(err.contains(QStringLiteral("degenerate")), qPrintable(err));
+}
+
 void TestHorizonBinner::writesGeoTiffWithGeotransform()
 {
   BinnedHorizon b;
@@ -135,6 +194,64 @@ void TestHorizonBinner::writesGeoTiffWithGeotransform()
   const char *proj = GDALGetProjectionRef(ds);
   QVERIFY2(proj && *proj, "tif must carry the local-grid CRS");
   QVERIFY2(!QByteArray(proj).contains("4326"), "CRS must not be EPSG:4326");
+  GDALClose(ds);
+}
+
+// T21/audit #38：产线写出的 GeoTIFF 必须自带 PALEO_INLINE_*/XLINE_*
+// （验证残差行→地震剖面导航的测线号域就靠它；此前只在测试里手工注入）。
+// DT/T0 来自 SEG-Y、散点文本没有——给了才写，不给绝不编值。
+void TestHorizonBinner::writesPaleoSurveyMetadata()
+{
+  BinnedHorizon b;
+  QString err;
+  QVERIFY(binHorizon(readFile(fixturePath()), &b, &err));
+  QCOMPARE(b.inlineMin, 1315);
+  QCOMPARE(b.inlineMax, 1725);
+  QCOMPARE(b.xlineMin, 4165);
+  QCOMPARE(b.xlineMax, 4805);
+
+  QTemporaryDir dir;
+  const QString tif = dir.path() + QStringLiteral("/d61.tif");
+  QVERIFY(writeHorizonGeoTiff(b, tif, &err));
+
+  GDALAllRegister();
+  GDALDatasetH ds = GDALOpen(tif.toUtf8().constData(), GA_ReadOnly);
+  QVERIFY2(ds, "cannot reopen written tif");
+  QCOMPARE(QByteArray(GDALGetMetadataItem(ds, "PALEO_INLINE_MIN", nullptr)),
+           QByteArray("1315"));
+  QCOMPARE(QByteArray(GDALGetMetadataItem(ds, "PALEO_INLINE_MAX", nullptr)),
+           QByteArray("1725"));
+  QCOMPARE(QByteArray(GDALGetMetadataItem(ds, "PALEO_XLINE_MIN", nullptr)),
+           QByteArray("4165"));
+  QCOMPARE(QByteArray(GDALGetMetadataItem(ds, "PALEO_XLINE_MAX", nullptr)),
+           QByteArray("4805"));
+  // 散点文本不含采样参数 → 默认不写（nullptr），不编 0。
+  QVERIFY(GDALGetMetadataItem(ds, "PALEO_DT_MS", nullptr) == nullptr);
+  QVERIFY(GDALGetMetadataItem(ds, "PALEO_T0_MS", nullptr) == nullptr);
+  // 装箱计数随栅格落盘（T21「bin counts」）。
+  QCOMPARE(QByteArray(GDALGetMetadataItem(ds, "PALEO_FILLED_CELLS", nullptr))
+               .toInt(),
+           b.filledCells);
+  QCOMPARE(QByteArray(GDALGetMetadataItem(ds, "PALEO_COLLISIONS", nullptr))
+               .toInt(),
+           b.collisions);
+  QCOMPARE(QByteArray(GDALGetMetadataItem(ds, "PALEO_REJECTED", nullptr))
+               .toInt(),
+           b.rejected);
+  GDALClose(ds);
+
+  // 调用方真的拿到 SEG-Y 采样参数时才落这两个键。
+  BinnedHorizon withSeis = b;
+  withSeis.dtMs = 2.0;
+  withSeis.t0Ms = 0.0;
+  const QString tif2 = dir.path() + QStringLiteral("/d61_dt.tif");
+  QVERIFY(writeHorizonGeoTiff(withSeis, tif2, &err));
+  ds = GDALOpen(tif2.toUtf8().constData(), GA_ReadOnly);
+  QVERIFY(ds);
+  QCOMPARE(QByteArray(GDALGetMetadataItem(ds, "PALEO_DT_MS", nullptr)),
+           QByteArray("2"));
+  QCOMPARE(QByteArray(GDALGetMetadataItem(ds, "PALEO_T0_MS", nullptr)),
+           QByteArray("0"));
   GDALClose(ds);
 }
 

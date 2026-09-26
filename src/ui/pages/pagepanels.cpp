@@ -1027,6 +1027,17 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
   resTable->verticalHeader()->setVisible(false);
   resTable->horizontalHeader()->setStretchLastSection(true);
   lay->addWidget(resTable, 1);
+  // T24：残差行双击与问题行同一条 locateRequested——列 0 上挂
+  // layerId/WKT/payload（populate 写入），三视图按同一载荷联动。
+  connect(resTable, &QTableWidget::itemDoubleClicked, this, [this, resTable](QTableWidgetItem *it) {
+    if (!it)
+      return;
+    auto *first = resTable->item(it->row(), 0);
+    if (first)
+      emit locateRequested(first->data(Qt::UserRole).toString(),
+                           first->data(Qt::UserRole + 1).toString(),
+                           first->data(Qt::UserRole + 2).toMap());
+  });
 
   auto *table = new QTableWidget(0, 4, this);
   table->setObjectName(QStringLiteral("issueTable"));
@@ -1045,34 +1056,37 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
                            first->data(Qt::UserRole + 2).toMap());
   });
 
-  // 「在数据页看这条剖面」（预览壳重排）：问题行的载荷里带 inline 测线号
-  // 才可用；点击把整份 payload 原样发给 shell（切数据页+聚焦该测线）。
+  // 「在数据页看这条剖面」（预览壳重排）：问题行/残差行的载荷里带 inline
+  // 测线号才可用；点击把整份 payload 原样发给 shell（切数据页+聚焦该测线）。
+  // 两张表共用一颗钮——armed 载荷记在按钮属性上，最近一次选中的表生效。
   auto *openSection = new QPushButton(tr("在数据页看这条剖面"), this);
   openSection->setObjectName(QStringLiteral("openSeismicSectionButton"));
   openSection->setAccessibleName(tr("在数据页看这条剖面"));
   openSection->setEnabled(false);
   lay->addWidget(openSection);
-  const auto sectionPayloadAt = [table]() -> QVariantMap {
-    int row = table->currentRow();
-    if (row < 0)
-    {
-      const QList<QTableWidgetItem *> sel = table->selectedItems();
-      if (!sel.isEmpty())
-        row = sel.front()->row();
-    }
-    auto *first = row >= 0 ? table->item(row, 0) : nullptr;
-    return first ? first->data(Qt::UserRole + 2).toMap() : QVariantMap();
-  };
   const auto hasSection = [](const QVariantMap &p) {
     return p.value(QStringLiteral("inline"), -1).toInt() >= 0;
   };
+  const auto armSectionFrom = [openSection, hasSection](QTableWidget *src) {
+    int row = src ? src->currentRow() : -1;
+    if (row < 0 && src)
+    {
+      const QList<QTableWidgetItem *> sel = src->selectedItems();
+      if (!sel.isEmpty())
+        row = sel.front()->row();
+    }
+    auto *first = (src && row >= 0) ? src->item(row, 0) : nullptr;
+    const QVariantMap p = first ? first->data(Qt::UserRole + 2).toMap() : QVariantMap();
+    openSection->setProperty("armedPayload", p);
+    openSection->setEnabled(hasSection(p));
+  };
   connect(table, &QTableWidget::itemSelectionChanged, openSection,
-          [sectionPayloadAt, hasSection, openSection]() {
-            openSection->setEnabled(hasSection(sectionPayloadAt()));
-          });
+          [armSectionFrom, table]() { armSectionFrom(table); });
+  connect(resTable, &QTableWidget::itemSelectionChanged, openSection,
+          [armSectionFrom, resTable]() { armSectionFrom(resTable); });
   connect(openSection, &QPushButton::clicked, this,
-          [this, sectionPayloadAt, hasSection]() {
-            const QVariantMap p = sectionPayloadAt();
+          [this, openSection, hasSection]() {
+            const QVariantMap p = openSection->property("armedPayload").toMap();
             if (hasSection(p))
               emit seismicSectionRequested(p);
           });
@@ -1132,8 +1146,16 @@ void ValidatePage::populate()
   const QVariantList rows = wf->lastResidualRows();
   if (rows.isEmpty())
   {
+    // 空残差表两种含义要分清（T25）：D61 栅格缺失/打不开时工作流会
+    // 发 RASTER_MISSING 问题——摘要行复述它的原因，不冒充「没跑过」。
+    QString rasterReason;
+    for (const ValidationIssue &v : issues)
+      if (v.code == QLatin1String("RASTER_MISSING"))
+        rasterReason = v.message;
     if (resSummary)
-      resSummary->setText(tr("还没有计算 D61 残差"));
+      resSummary->setText(rasterReason.isEmpty()
+                              ? tr("还没有计算 D61 残差")
+                              : rasterReason);
     return;
   }
   const double thr = rows.first().toMap()
@@ -1175,6 +1197,31 @@ void ValidatePage::populate()
                                     m.value(QStringLiteral("residual_ms")).toDouble(), 0, 'f', 1)
                               : tr("%1 · %2").arg(word, m.value(QStringLiteral("reason")).toString());
     auto *name = new QTableWidgetItem(m.value(QStringLiteral("well_name")).toString());
+    // T24：残差行与问题行共用三视图联动载荷——列 0 挂 layerId/POINT WKT/
+    // payload（wellId/horizon/well_x/well_y/inline/time_ms）。采样点是分层
+    // X/Y（缺省井口），缺坐标的行不填 (0,0)（threewaylocator 只认成对字段）。
+    name->setData(Qt::UserRole, m.value(QStringLiteral("layer_id")).toString());
+    const bool hasXY = m.contains(QStringLiteral("x")) && m.contains(QStringLiteral("y"));
+    if (hasXY)
+      name->setData(Qt::UserRole + 1,
+                    QStringLiteral("POINT(%1 %2)")
+                        .arg(m.value(QStringLiteral("x")).toDouble())
+                        .arg(m.value(QStringLiteral("y")).toDouble()));
+    QVariantMap payload;
+    payload.insert(QStringLiteral("wellId"), m.value(QStringLiteral("well_id")).toString());
+    payload.insert(QStringLiteral("horizon"), m.value(QStringLiteral("horizon")).toString());
+    payload.insert(QStringLiteral("well_name"), m.value(QStringLiteral("well_name")).toString());
+    payload.insert(QStringLiteral("inline"), m.value(QStringLiteral("inline"), -1).toInt());
+    if (hasXY)
+    {
+      payload.insert(QStringLiteral("well_x"), m.value(QStringLiteral("x")));
+      payload.insert(QStringLiteral("well_y"), m.value(QStringLiteral("y")));
+    }
+    if (m.contains(QStringLiteral("time_ms")))
+      payload.insert(QStringLiteral("time_ms"), m.value(QStringLiteral("time_ms")));
+    if (m.contains(QStringLiteral("residual_ms")))
+      payload.insert(QStringLiteral("residual_ms"), m.value(QStringLiteral("residual_ms")));
+    name->setData(Qt::UserRole + 2, payload);
     auto *val = new QTableWidgetItem(value);
     val->setForeground(color);
     auto *thrItem = new QTableWidgetItem(tr("%1 ms").arg(thr, 0, 'f', 0));

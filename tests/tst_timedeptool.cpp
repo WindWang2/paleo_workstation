@@ -15,6 +15,7 @@ private slots:
   void keepsFileOrderNoSorting();
   void fallsBackToMdColumn();
   void skipsSentinelRows();
+  void skipsSentinelTimeRows();
   void nonMonotonicColumnFails();
   void outOfRangeNeverClamps();
   void tooFewSamplesIsNoTable();
@@ -104,6 +105,43 @@ void TestTimeDepthTool::skipsSentinelRows()
       "160 -160 -99999 170\n"
       "200 -200 200 210\n");
   QVERIFY(TimeDepthTool::interpolateTimeMs(sparse, 150.0, false).ok());
+}
+
+// T18/audit #39：TIME(ms)==-99999 的行在解析期整行丢弃——不参与插值、
+// 不占样点数。漏掉它的话 (key=150, time=-99999) 会进插值把标定污染成
+// 负几万毫秒，而不是干净的深度↔时间线性关系。
+void TestTimeDepthTool::skipsSentinelTimeRows()
+{
+  const TimeDepthTable td = fromText(
+      "# Well : A1\n"
+      "100 -100 100 100\n"
+      "-99999 -99999 150 150\n" // TIME 哨兵：整行不进表（TVD/MD 一并丢）
+      "200 -200 200 210\n");
+  QCOMPARE(td.rows.size(), 2);
+  const TimeDepthTool::TdResult r = TimeDepthTool::interpolateTimeMs(td, 175.0, false);
+  QVERIFY2(r.ok(), "sentinel-time row must not enter interpolation");
+  QCOMPARE(r.timeMs, 175.0); // 若参与 → (150,-99999) 插出 ≈ -49899.5
+
+  // 哨兵行剔除后才数样点：滤完只剩 1 行 → 无时深表。
+  const TimeDepthTable starved = fromText(
+      "# Well : A1\n"
+      "100 -100 100 100\n"
+      "-99999 -99999 200 200\n");
+  QCOMPARE(starved.rows.size(), 1);
+  QCOMPARE(TimeDepthTool::interpolateTimeMs(starved, 150.0, false).status,
+           TimeDepthTool::TdStatus::NoTable);
+
+  // 兜底：不经解析、手工构造的表（工作流从 TdSample 回填的路径）同样滤。
+  TimeDepthTable manual;
+  TdRow a, bad, b;
+  a.timeMs = 100.0; a.tvd = 100.0; a.hasTvd = true;
+  bad.timeMs = -99999.0; bad.tvd = 150.0; bad.hasTvd = true;
+  b.timeMs = 200.0; b.tvd = 200.0; b.hasTvd = true;
+  manual.rows = {a, bad, b};
+  const TimeDepthTool::TdResult rm =
+      TimeDepthTool::interpolateTimeMs(manual, 175.0, false);
+  QVERIFY(rm.ok());
+  QCOMPARE(rm.timeMs, 175.0);
 }
 
 void TestTimeDepthTool::nonMonotonicColumnFails()

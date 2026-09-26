@@ -2,6 +2,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
@@ -21,6 +24,7 @@
 #include "../src/domain/mappinghorizons.h"
 #include "../src/domain/types.h"
 #include "../src/metadata/layermanifest.h"
+#include "../src/metadata/mapversionstore.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
@@ -29,6 +33,7 @@
 #include "../src/services/projectdata.h"
 #include "../src/workflow/mappingworkflow.h"
 #include "../src/workflow/mapexport.h"
+#include "../src/workflow/mapversioncontroller.h"
 #include "../src/workflow/workflows.h"
 
 // wave/mapping-pipeline 阶段C — 只编 D61（autoplan §5C 新口径）：
@@ -432,6 +437,78 @@ class TestMapping : public QObject
         return isoMs / 2000.0 * ( vsum / wsum );
     }
 
+    // 造井实体 + D61 分层（分层 X/Y 可与井口不同）+ 恒等斜率 TD
+    // （TIME=TVD，1ms/1m）——发布门/验证口径对比用。
+    static bool addWellWithOffsetTop( Fixture &f, int seq, const QString &name,
+                                      double sx, double sy, double topX,
+                                      double topY, double tvd )
+    {
+        const QString id = QStringLiteral( "well-x%1" ).arg( seq );
+        CatalogEntity e;
+        e.id = id;
+        e.entityType = QStringLiteral( "well" );
+        e.name = name;
+        e.surfaceX = sx;
+        e.surfaceY = sy;
+        e.hasSurface = true;
+        e.coordinateStatus = QStringLiteral( "untransformed" );
+        if ( !f.catalog.addEntity( e ) )
+            return false;
+        const QString astT = QStringLiteral( "ast-x%1t" ).arg( seq );
+        const QString astD = QStringLiteral( "ast-x%1d" ).arg( seq );
+        const QString verT = QStringLiteral( "ver-x%1t" ).arg( seq );
+        const QString verD = QStringLiteral( "ver-x%1d" ).arg( seq );
+        auto add = [&]( const QString &assetId, const QString &verId,
+                        const QString &type, const QString &file,
+                        const QString &text, const QString &role ) {
+            CatalogAsset a;
+            a.id = assetId;
+            a.type = type;
+            a.format = QStringLiteral( "dat" );
+            a.displayName = file;
+            if ( !f.catalog.addAsset( a ) )
+                return false;
+            CatalogVersion v;
+            v.id = verId;
+            v.assetId = a.id;
+            v.stage = QStringLiteral( "RAW" );
+            v.path = DataCatalog::managedPath( QStringLiteral( "raw" ), a.id,
+                                               v.id, file );
+            if ( !f.catalog.addVersion( v ) )
+                return false;
+            EntityAssetLink l;
+            l.entityType = QStringLiteral( "well" );
+            l.entityId = id;
+            l.assetId = a.id;
+            l.role = role;
+            l.isPrimary = true;
+            return f.catalog.addLink( l ) &&
+                   writeText( f.dir.filePath( v.path ), text );
+        };
+        // tops 列：WellName Name MD X Y Z TVD Time —— X/Y 写分层点（≠井口）。
+        const QString tops = QStringLiteral(
+            "#WellTops File From SMI\n%1 D61 %2 %3 %4 %5 %5 -99999.000\n" )
+            .arg( name )
+            .arg( tvd, 0, 'f', 3 )
+            .arg( topX, 0, 'f', 3 )
+            .arg( topY, 0, 'f', 3 )
+            .arg( tvd, 0, 'f', 3 );
+        const QString td = QStringLiteral(
+            "#TimeDepth File From SMI\n# Well : %1\n"
+            "%2 -%3 %3 %3\n%4 -%5 %5 %5\n" )
+            .arg( name )
+            .arg( tvd, 0, 'f', 3 )
+            .arg( tvd, 0, 'f', 3 )
+            .arg( tvd + 100.0, 0, 'f', 3 )
+            .arg( tvd + 100.0, 0, 'f', 3 );
+        return add( astT, verT, QStringLiteral( "well_stratification" ),
+                    QStringLiteral( "DCX%1.dat" ).arg( seq ), tops,
+                    QStringLiteral( "tops" ) ) &&
+               add( astD, verD, QStringLiteral( "time_depth" ),
+                    QStringLiteral( "AX%1_TD.dat" ).arg( seq ), td,
+                    QStringLiteral( "time_depth" ) );
+    }
+
     // 阶段C 厚度链：等厚 = (D62−D61)/2000 × IDW²(Vint)，逐像元写在 D61
     // 既有网格上（不扩界），贡献井凸包外 −9999，约束线不参与，不转相面。
     void thicknessRasterIsIsochronTimesIdwVint()
@@ -518,6 +595,68 @@ class TestMapping : public QObject
         QVERIFY2( wells != nullptr, "井点层未声明" );
         QVERIFY( QFile::exists( wells->source ) );
         delete wells;
+    }
+
+    // T19/audit #35：D62 早于等于 D61（isochron ≤ 0）的像元写 nodata——按格
+    // 逐判，同幅上正等时区照常出厚度（不是整幅失败）。D61 常值 2200；
+    // D62 左半 2100（isochron −100 → nodata）、右半 2300（+100 → 厚度）。
+    void thicknessNegativeIsochronIsNodata()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+        const QString d61 = makeConstRaster( f.dir.filePath( QStringLiteral( "d61.tif" ) ), 2200.0f );
+        QVERIFY( !d61.isEmpty() );
+        const QString d62 = f.dir.filePath( QStringLiteral( "d62.tif" ) );
+        {
+            GDALAllRegister();
+            GDALDriverH drv = GDALGetDriverByName( "GTiff" );
+            GDALDatasetH ds = GDALCreate( drv, d62.toUtf8().constData(), 10, 8, 1,
+                                        GDT_Float32, nullptr );
+            QVERIFY( ds );
+            const double gt[6] = { 0.0, 100.0, 0.0, 800.0, 0.0, -100.0 };
+            GDALSetGeoTransform( ds, const_cast<double *>( gt ) );
+            QVector<float> px( 80, 2300.0f );
+            for ( int r = 0; r < 8; ++r )
+                for ( int c = 0; c < 5; ++c )
+                    px[r * 10 + c] = 2100.0f; // 左半：基面早于层位
+            GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+            GDALSetRasterNoDataValue( band, -9999.0 );
+            QCOMPARE( GDALRasterIO( band, GF_Write, 0, 0, 10, 8,
+                                    const_cast<float *>( px.constData() ), 10, 8,
+                                    GDT_Float32, 0, 0 ),
+                      CE_None );
+            GDALClose( ds );
+        }
+        f.pd.setCatalog( &f.catalog, f.dir.path() );
+        f.pd.setManifest( &f.manifest );
+        f.mapping.setProjectData( &f.pd );
+
+        QString err;
+        for ( const QString &h : { QStringLiteral( "D61" ), QStringLiteral( "D62" ) } )
+        {
+            LayerDeclaration rasterDecl;
+            rasterDecl.layerId = QStringLiteral( "horizon.%1.derived" ).arg( h );
+            rasterDecl.horizon = h;
+            rasterDecl.type = QStringLiteral( "raster" );
+            rasterDecl.source = h == QLatin1String( "D61" ) ? d61 : d62;
+            QVERIFY2( f.layers.declare( rasterDecl, &err ), qPrintable( err ) );
+        }
+
+        QVERIFY2( f.mapping.runThicknessChain( QStringLiteral( "D61" ), &err ),
+                  qPrintable( err ) );
+        const LayerDeclaration *thick =
+            findDecl( f.layers, QStringLiteral( "factor.D61.idw" ) );
+        QVERIFY2( thick != nullptr, "等厚图层未声明" );
+
+        // (400,500) 凸包内但 col4 → isochron −100ms → nodata，不写成负厚度。
+        QVERIFY( qIsNaN( sampleAt( thick->source, 400.0, 500.0 ) ) );
+        // (550,650) 凸包内 col5 → isochron +100ms → 照常出厚度（同口径公式）。
+        const double pos = sampleAt( thick->source, 550.0, 650.0 );
+        QVERIFY2( !qIsNaN( pos ), "正等时像元应照常出厚度" );
+        QVERIFY( qAbs( pos - expectedIsochronThickness( 100.0, 550.0, 650.0 ) ) < 0.5 );
+        // 凸包外照旧 nodata。
+        QVERIFY( qIsNaN( sampleAt( thick->source, 50.0, 50.0 ) ) );
+        delete thick;
     }
 
     // D61/D62 网格不一致 → 不写等厚，错误文案如实说明。
@@ -700,6 +839,16 @@ class TestMapping : public QObject
         vw.setResidualThresholdMs( 10.0 );
         const QList<ValidationIssue> all = vw.validate();
         QCOMPARE( vw.lastResidualRows().size(), 6 );
+        // T24：残差行须带联动定位所需的 layer_id/horizon/inline（验证页双击
+        // 残差行 → 地图/连井/剖面同一条 locateRequested 载荷）。
+        const QVariantMap firstRow = vw.lastResidualRows().first().toMap();
+        QCOMPARE( firstRow.value( QStringLiteral( "layer_id" ) ).toString(),
+                  QStringLiteral( "horizon.D61.derived" ) );
+        QCOMPARE( firstRow.value( QStringLiteral( "horizon" ) ).toString(),
+                  QStringLiteral( "D61" ) );
+        QVERIFY( firstRow.contains( QStringLiteral( "well_id" ) ) &&
+                 firstRow.contains( QStringLiteral( "inline" ) ) &&
+                 firstRow.contains( QStringLiteral( "x" ) ) );
         int nExceeds = 0;
         const ValidationIssue *residualIssue = nullptr;
         for ( const ValidationIssue &v : all )
@@ -868,6 +1017,142 @@ class TestMapping : public QObject
         QVERIFY( a10 );
         QCOMPARE( a10->status, TimeResidualRow::Status::Warn );
         QCOMPARE( a10->reason, QStringLiteral( "井位落在空道" ) );
+    }
+
+    // T25：发布门残差（residualSummaryJson）与验证表（computeTimeResiduals）
+    // 同口径——采样点取分层 X/Y（井口兜底）、同一包含像元规则、同一符号
+    // （井时间 − 栅格时间）。AX 井口在网外 (−50,−50) 但分层点在 (300,400)
+    // 网内：旧口径采井口必判「井位不在测网内」，新口径必须出数值残差，
+    // 且与验证表逐井对齐。
+    void publishGateResidualMatchesValidation()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+        const QString tif = makeRaster( f.dir.filePath( QStringLiteral( "d61.tif" ) ) );
+        QVERIFY( !tif.isEmpty() );
+        QVERIFY( addWellWithOffsetTop( f, 1, QStringLiteral( "AX" ),
+                                       -50.0, -50.0, 300.0, 400.0, 2000.0 ) );
+        f.pd.setCatalog( &f.catalog, f.dir.path() );
+        f.pd.setManifest( &f.manifest );
+        LayerDeclaration rasterDecl;
+        rasterDecl.layerId = QStringLiteral( "horizon.D61.derived" );
+        rasterDecl.horizon = QStringLiteral( "D61" );
+        rasterDecl.type = QStringLiteral( "raster" );
+        rasterDecl.source = tif;
+        QString err;
+        QVERIFY2( f.layers.declare( rasterDecl, &err ), qPrintable( err ) );
+
+        MapVersionStore versions( f.dir.filePath( QStringLiteral( "versions.sqlite" ) ) );
+        QVERIFY2( versions.open( &err ), qPrintable( err ) );
+        MapVersionController ctl( &versions, &f.layers );
+        const QJsonObject summary = QJsonDocument::fromJson(
+            ctl.residualSummaryJson( &f.pd, QStringLiteral( "D61" ) ).toUtf8() )
+            .object();
+        QCOMPARE( summary.value( QStringLiteral( "wells_total" ) ).toInt(), 7 );
+        QCOMPARE( summary.value( QStringLiteral( "covered" ) ).toInt(), 7 );
+        QVERIFY( summary.value( QStringLiteral( "missing" ) ).toArray().isEmpty() );
+
+        const QList<TimeResidualRow> rows =
+            computeTimeResiduals( &f.pd, QStringLiteral( "D61" ), 10.0 );
+        QCOMPARE( rows.size(), 7 );
+        const QJsonArray gateRows =
+            summary.value( QStringLiteral( "rows" ) ).toArray();
+        QCOMPARE( gateRows.size(), rows.size() );
+        for ( const TimeResidualRow &row : rows )
+        {
+            QJsonObject gr;
+            for ( const auto &v : gateRows )
+                if ( v.toObject().value( QStringLiteral( "well_id" ) ).toString() ==
+                     row.wellId )
+                    gr = v.toObject();
+            QVERIFY2( !gr.isEmpty(), qPrintable( row.wellId ) );
+            if ( std::isfinite( row.residualMs ) )
+            {
+                // 数值残差逐井一致（同一采样点 × 同一公式）。
+                QCOMPARE( gr.value( QStringLiteral( "kind" ) ).toString(),
+                          QStringLiteral( "residual" ) );
+                QVERIFY( qAbs( gr.value( QStringLiteral( "residual_ms" ) )
+                                         .toDouble() -
+                               row.residualMs ) < 0.001 );
+            }
+            else
+            {
+                QCOMPARE( gr.value( QStringLiteral( "kind" ) ).toString(),
+                          QStringLiteral( "reason" ) );
+                // 原因文案同口径（TD 码/无分层/网外/空道共用一份措辞）。
+                QCOMPARE( gr.value( QStringLiteral( "reason" ) ).toString(),
+                          row.reason );
+            }
+        }
+        // AX 是分层点采样的判别井：采分层点 → kind=residual、r ≈ −1.1ms；
+        // 误采井口（−50,−50）→ 网外 reason（旧发布门行为）。
+        const TimeResidualRow *ax = nullptr;
+        for ( const TimeResidualRow &r : rows )
+            if ( r.wellName == QLatin1String( "AX" ) )
+                ax = &r;
+        QVERIFY( ax );
+        QVERIFY( std::isfinite( ax->residualMs ) );
+        for ( const auto &v : gateRows )
+            if ( v.toObject().value( QStringLiteral( "name" ) ).toString() ==
+                 QLatin1String( "AX" ) )
+            {
+                QCOMPARE( v.toObject().value( QStringLiteral( "kind" ) ).toString(),
+                          QStringLiteral( "residual" ) );
+                QVERIFY( qAbs( v.toObject()
+                                   .value( QStringLiteral( "residual_ms" ) )
+                                   .toDouble() -
+                               ax->residualMs ) < 0.001 );
+            }
+    }
+
+    // T25：D61 栅格缺失/打不开 → validate() 发 RASTER_MISSING 问题（原因
+    // 「层位 D61 还没有时间栅格」），不让验证页把「没跑成」显示成「还没计算」；
+    // 发布门摘要同口径：有分层+TD 的井进 missing[]。
+    void residualMissingRasterIsExplicitIssue()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+        f.pd.setCatalog( &f.catalog, f.dir.path() );
+        f.pd.setManifest( &f.manifest );
+        // 故意不声明任何 D61 栅格。
+
+        ValidationWorkflow vw( &f.layers, &f.store );
+        vw.setProjectData( &f.pd );
+        const QList<ValidationIssue> issues = vw.validate();
+        bool found = false;
+        for ( const ValidationIssue &v : issues )
+        {
+            if ( v.code != QLatin1String( "RASTER_MISSING" ) )
+                continue;
+            found = true;
+            QCOMPARE( v.severity, ValidationIssue::Warning );
+            QCOMPARE( v.horizon, QStringLiteral( "D61" ) );
+            QCOMPARE( v.message, QStringLiteral( "层位 D61 还没有时间栅格" ) );
+        }
+        QVERIFY2( found, "缺失的 D61 栅格必须发 RASTER_MISSING 问题" );
+        QVERIFY( vw.lastResidualRows().isEmpty() );
+
+        // 残差行也被清成空表对应的「没跑成」语义——发布门摘要同样写明。
+        MapVersionStore versions( f.dir.filePath( QStringLiteral( "versions.sqlite" ) ) );
+        QString err;
+        QVERIFY2( versions.open( &err ), qPrintable( err ) );
+        MapVersionController ctl( &versions, &f.layers );
+        const QJsonObject s = QJsonDocument::fromJson(
+            ctl.residualSummaryJson( &f.pd, QStringLiteral( "D61" ) ).toUtf8() )
+            .object();
+        QCOMPARE( s.value( QStringLiteral( "wells_total" ) ).toInt(), 6 );
+        const QJsonArray missing =
+            s.value( QStringLiteral( "missing" ) ).toArray();
+        QCOMPARE( missing.size(), 4 ); // A1/A2/A5/A6 有分层+TD，缺的是栅格
+        QVERIFY( s.value( QStringLiteral( "covered" ) ).toInt() < 6 );
+        for ( const auto &v : s.value( QStringLiteral( "rows" ) ).toArray() )
+        {
+            const QJsonObject r = v.toObject();
+            if ( r.value( QStringLiteral( "name" ) ).toString() ==
+                 QLatin1String( "A1" ) )
+                QCOMPARE( r.value( QStringLiteral( "reason" ) ).toString(),
+                          QStringLiteral( "层位 D61 还没有时间栅格" ) );
+        }
     }
 
     // MD 兜底（plan §3）：分层 TVD 空（-99999）→ 用 MD 对 TD 的 MD 列。

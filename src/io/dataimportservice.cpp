@@ -134,8 +134,14 @@ void DataImportService::setProjectDir(const QString &dir)
   m_catalogReady = false;
   QString err;
   m_catalogReady = m_catalog->open(dir, &err);
+  // T20a：记错误面 + 发信号——catalog 已进入拒绝写入态，后续 mutator
+  // 都如实失败。状态栏/消息区接线归 paleomainwindow。
+  m_catalogOpenError = m_catalogReady ? QString() : err;
   if (!m_catalogReady)
+  {
     qWarning("DataImportService: catalog open failed: %s", qPrintable(err));
+    emit catalogOpenFailed(err);
+  }
 }
 
 DataImportService::WellBind DataImportService::resolveWell(const QString &name) const
@@ -278,8 +284,12 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
     return fail(QStringLiteral("import service is not fully wired"));
   if (m_projectDir.isEmpty())
     return fail(QStringLiteral("project dir is not set"));
+  // T20a：catalog 拒绝写入时提前如实失败——不等算完 SHA/复制完字节才撞墙。
   if (!m_catalogReady)
-    return fail(QStringLiteral("project catalog is not available; refusing to import"));
+    return fail(QStringLiteral("catalog 拒绝写入：%1")
+                    .arg(m_catalogOpenError.isEmpty()
+                             ? QStringLiteral("catalog 打开失败")
+                             : m_catalogOpenError));
   if (sourcePath.isEmpty() || !QFile::exists(sourcePath))
     return fail(QStringLiteral("找不到源文件: %1").arg(sourcePath));
 
@@ -721,6 +731,7 @@ namespace
   struct FolderCand
   {
     QString path;
+    QString canon;          // 枚举时刻的 canonicalFilePath——TOCTOU 复核基准
     QString classifiedType;
     bool wellHeadPhase = false;
   };
@@ -801,14 +812,28 @@ namespace
         continue;
       }
 
+      const QString candCanon = fi.canonicalFilePath();
+
       // 与 importProjectFileEx 同一分类口径：.xml 要看内容判定。
-      const QByteArray xml =
-          QFileInfo( path ).suffix().compare( QLatin1String( "xml" ), Qt::CaseInsensitive ) == 0
-              ? readFileOrEmpty( path ).toUtf8()
-              : QByteArray();
+      QByteArray xml;
+      if ( QFileInfo( path ).suffix().compare( QLatin1String( "xml" ), Qt::CaseInsensitive ) == 0 )
+      {
+        // T33 符号链接 TOCTOU 复核：上面 containment 判定用的是枚举时刻
+        // stat；读字节前重取 canonical——目标被改指向（或已非普通文件）就
+        // 如实跳过，不读逃出根目录的内容。
+        const QFileInfo recheck( path );
+        if ( !recheck.isFile() || recheck.canonicalFilePath() != candCanon )
+        {
+          appendFolderSkip( skipped, path,
+                            QStringLiteral( "符号链接目标在枚举后已变化，已跳过" ) );
+          continue;
+        }
+        xml = readFileOrEmpty( path ).toUtf8();
+      }
       const ProjectClassification cls = classifyProjectImport( path, xml );
       FolderCand c;
       c.path = path;
+      c.canon = candCanon;
       c.classifiedType = cls.type;
       // §3：参考资料目录 / HZ28-6-1 XML 固定辅助参考——不进井口阶段。
       c.wellHeadPhase =
@@ -909,11 +934,27 @@ DataImportService::importFolder(const QString &dirPath, QString *error,
   // 阶段 1：全部 well_head（井建齐）；阶段 2：其余文件对已齐的井集解析。
   const QVector<FolderCand> ordered = orderFolderCandidates(candidates);
 
+  // T33/audit row 37：整个文件夹导入并成一个落盘批次——每行 ~5 次全量
+  // JSON 序列化收敛成一次 save() + 一次 changed()；中途崩溃不留
+  // 「资产已落盘、链接没落盘」的半截 catalog。
+  DataCatalog::BatchSave batch(m_catalog);
+
   for (const FolderCand &c : ordered)
   {
     FolderRowResult row;
     row.path = c.path;
     row.classifiedType = typeOverrides.value(c.path, c.classifiedType);
+    // T33 符号链接 TOCTOU 终验：真正读字节的是 importProjectFileEx 里的
+    // open/hash/copy——入它之前再核一次：路径仍解析到枚举时判定的同一
+    // canonical、仍是普通文件；被改指向的链接/被换掉的文件如实跳过。
+    const QFileInfo now( c.path );
+    if ( !now.isFile() || now.canonicalFilePath() != c.canon )
+    {
+      row.outcome = FolderRowResult::Outcome::Skipped;
+      row.message = QStringLiteral( "文件在导入前已变化（符号链接改指向或不再是普通文件），已跳过" );
+      rows.append( row );
+      continue;
+    }
     ImportOptions opts;
     opts.forceType = typeOverrides.value(c.path);
     QString ferr;
@@ -965,6 +1006,15 @@ DataImportService::importFolder(const QString &dirPath, QString *error,
               return a.path < b.path;
             });
   rows += skipped;
+
+  // 批次结算：落盘失败如实写 error（行里的 Imported 结局不变——内存态
+  // 已是入库态；磁盘没写成功要 surfaced，不能静默）。
+  QString berr;
+  if (!batch.flush(&berr))
+  {
+    qWarning("importFolder: catalog batch save failed: %s", qPrintable(berr));
+    setError(error, berr.isEmpty() ? QStringLiteral("catalog batch save failed") : berr);
+  }
   return rows;
 }
 
@@ -1037,6 +1087,9 @@ int DataImportService::attachResolvableLinks(const CatalogAsset &asset,
     return 0; // seismic/horizon/auxiliary：实体在入库时已确定，dedup 不补井关联。
 
   const QVector<EntityAssetLink> links = m_catalog->links(); // 快照（attachLink 不增删）
+  // T33：一次 dedup 可能连挂多条链接——并入批次（嵌套在 importFolder 的
+  // 外层批次里也安全，深度计数）。
+  DataCatalog::BatchSave batch(m_catalog);
   int nameIdx = 0, attached = 0;
   for (int i = 0; i < links.size() && nameIdx < namesPerLink.size(); ++i)
   {
@@ -1075,6 +1128,10 @@ int DataImportService::attachResolvableLinks(const CatalogAsset &asset,
     }
     ++attached;
   }
+  // 批次结算：落盘失败如实透给调用方（dedup 路径只记 qWarning，不中断）。
+  QString berr;
+  if (!batch.flush(&berr) && !berr.isEmpty())
+    setError(error, berr);
   return attached;
 }
 

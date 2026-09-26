@@ -81,8 +81,31 @@ class DataCatalog : public QObject
     // 打开（或初始化）<projectDir>/artifacts/metadata/catalog.json。
     bool open(const QString &projectDir, QString *error = nullptr);
     bool isOpen() const { return m_isOpen; }
+    // 拒绝写入态：open() 失败、或从未成功 open 过 → true。mutator 一律
+    // return false + error，不落盘不改内存——绝不让空 catalog 覆盖坏文件
+    // （audit row 36，§9 回滚语义）。
+    bool refusesWrites() const { return !m_isOpen; }
+    QString openError() const { return m_openError; } // open() 失败原因（无则空）
     QString catalogPath() const { return m_dir + QStringLiteral("/artifacts/metadata/catalog.json"); }
     int catalogRevision() const { return m_revision; }
+
+    // 批量写作用域（audit row 37 / T33）：构造期间 mutator 只做校验+内存变更，
+    // save() 被挂起；析构（或显式 flush）落一次盘、发一次 changed()。
+    // 文件夹导入 ~5N 次全量序列化因此收敛成一次；中途崩溃不留「资产入库但
+    // 链接没落盘」的半截状态。嵌套安全（深度计数）。析构 flush 失败只记
+    // qWarning——需要错误面的调用方请自己调 flush()。
+    class BatchSave
+    {
+      public:
+        explicit BatchSave(DataCatalog *catalog);
+        ~BatchSave();
+        BatchSave(const BatchSave &) = delete;
+        BatchSave &operator=(const BatchSave &) = delete;
+        bool flush(QString *error = nullptr); // 立即结算一次；幂等
+      private:
+        DataCatalog *m_catalog = nullptr;
+        bool m_done = false;
+    };
 
     // 变更：每次落盘（原子写：temp + rename），revision 单调递增。
     bool addEntity(const CatalogEntity &e, QString *error = nullptr);
@@ -130,9 +153,12 @@ class DataCatalog : public QObject
     QVector<CatalogVersion> versionsForAsset(const QString &assetId) const;
     CatalogVersion versionById(const QString &id) const;
     CatalogVersion currentVersion(const QString &assetId) const; // 最高 versionNumber
+    // 空 entityId 是调用方 bug（audit row 35）：如实返回空集，不再静默命中
+    // 全部未决链接。要未决集合请用 unresolvedLinks()。
     QVector<EntityAssetLink> linksForEntity(const QString &entityId) const;
     QVector<EntityAssetLink> linksForAsset(const QString &assetId) const;
     QVector<EntityAssetLink> links() const;
+    QVector<EntityAssetLink> unresolvedLinks() const; // unresolved==true 的全部链接
 
     // 身份解析 §3：井名比较前去首尾空白、连字符、空格，忽略大小写。
     // 返回按此规范化后命中的全部井 id——0/1/2+ 个候选由调用方分别处置
@@ -179,8 +205,13 @@ class DataCatalog : public QObject
   private:
     bool ensureOpen(QString *error) const;
     bool save(QString *error = nullptr);
+    void beginBatch();
+    bool endBatch(QString *error = nullptr);
     QString m_dir;
     bool m_isOpen = false;
+    QString m_openError;         // 最近一次 open() 失败原因（成功后清空）
+    int m_batchDepth = 0;        // >0 时 save() 挂起（BatchSave）
+    bool m_batchDirty = false;   // 挂起期间有过变更 → endBatch 落一次盘
     int m_revision = 0;
     QVector<CatalogEntity> m_entities;
     QVector<CatalogAsset> m_assets;

@@ -9,15 +9,16 @@
 
 ## 对方语义 → 我方落点
 
-| 对方件 | 我方现状 | 采纳 |
-|---|---|---|
-| RoleRegistry（角色词表唯一权威） | `EntityAssetLink.role` 自由字符串 | **A 包**：`src/catalog/roleregistry.*` |
-| IngestPlan 三段式（plan→confirm→execute） | folderRows+确认框，plan 内嵌执行 | **C 包**：`src/io/ingestplan.*` 拆分 |
-| link.ordinal + primary 不变量 | 无 ordinal | **B 包**：catalog 字段+排序 |
-| EntityDataView（角色槽视图） | `linksForEntity` 原始面 | **B 包**：`src/catalog/entityview.*` |
-| staleness/downstream 闭包 | 无 | **B 包**：catalog 查询+extra 标记 |
-| CommitCoordinator（journal+幂等+三段提交） | `PaleoProjectStore::saveAll` 已有序写队列 | **D 包**：journal-lite+幂等 op |
-| working-copy / trash / typed RunPort | 无 | **defer**（规模不符，派生链短） |
+| 对方件 | 我方现状 | 采纳 | 状态（2026-09-27） |
+|---|---|---|---|
+| RoleRegistry（角色词表唯一权威） | `EntityAssetLink.role` 自由字符串 | **A 包**：`src/catalog/roleregistry.*` | ✅ 已合并 `d2bcaf1`（`roleRegistry()`，工程可覆盖） |
+| IngestPlan 三段式（plan→confirm→execute） | folderRows+确认框，plan 内嵌执行 | **C 包**：`src/io/ingestplan.*` 拆分 | ✅ 已合并 `6d1f3cb`（`buildIngestPlan`/`executeIngestPlan`） |
+| link.ordinal + primary 不变量 | 无 ordinal | **B 包**：catalog 字段+排序 | ✅ 已合并 `6e34d9d` |
+| EntityDataView（角色槽视图） | `linksForEntity` 原始面 | **B 包**：`src/catalog/entityview.*` | ✅ 已合并 `6e34d9d`；⏳ DataPage 接线=wave-5 p5a |
+| staleness/downstream 闭包 | 无 | **B 包**：catalog 查询+extra 标记 | ✅ 已合并 `6e34d9d`；⏳ 预览/发布门接线=wave-5 p5b |
+| CommitCoordinator（journal+幂等+三段提交） | `PaleoProjectStore::saveAll` 已有序写队列 | **D 包**：journal-lite+幂等 op | ✅ 已合并 `12aa9b1`（`commitAll`/`recoverCommitJournal`） |
+| role 词表强制 | 无 | wave-5 p5c：诊断不硬拦 | ⏳ 外包中 |
+| working-copy / trash / typed RunPort | 无 | **defer**（规模不符，派生链短） | 递延 |
 
 ## A 包 — RoleRegistry（`data/role-registry`）
 

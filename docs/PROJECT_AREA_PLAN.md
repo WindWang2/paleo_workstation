@@ -1049,22 +1049,24 @@ Second `/autoplan` pass. Pass 1 approved the plan pre-implementation; this pass 
 - [x] **T17 (P1)** Restore `m_versionSeq` on reload and reject duplicate version ids in `addVersion` — plus the symmetric fix: explicit `ver-N`/`ast-N` ids advance `m_versionSeq`/`m_assetSeq` so `nextVersionId()`/`nextAssetId()` never reissue (`versionSeqRestoredAfterReload`, `duplicateVersionIdRejected`, publish-path regression in `tst_mapping`).
 - [x] **T18 (P1)** Sentinel-filter TD rows with `TIME(ms) == -99999` at parse and again at the interpolation boundary; non-finite numeric values are rejected (`wellfileparsers.cpp`, `timedeptool.cpp`).
 - [x] **T19 (P1)** `isochronMs <= 0` or non-finite → nodata in the thickness raster; reject non-finite/invalid output thickness too (`mappingworkflow.cpp`).
-- [~] **T20 (P1)** Refuse imports after catalog-open failure (`refusesWrites()`/`m_catalogReady` + per-mutator `ensureOpen`), schema-version gate (missing key = current version; explicit mismatch refuses), QSaveFile atomic write + `.bak` rotation — **landed** (`refusesWritesAfterFailedOpen`, `rotatesBakAndVerifiesWrite`, `refusesUnsupportedSchemaVersion`). Remaining: wire `catalogOpenFailed` to a statusbar/message surface (signal emitted, no UI sink yet).
+- [x] **T20 (P1)** Refuse imports after catalog-open failure (`refusesWrites()`/`m_catalogReady` + per-mutator `ensureOpen`), schema-version gate (missing key = current version; explicit mismatch refuses), QSaveFile atomic write + `.bak` rotation — **landed** (`refusesWritesAfterFailedOpen`, `rotatesBakAndVerifiesWrite`, `refusesUnsupportedSchemaVersion`). 余项（catalogOpenFailed 状态栏红胶囊 + 导入禁用 + 恢复）已由 wave-3 ux-consistency 落地（`statusCatalogError`，merge `f79945a`）。
 - [x] **T21 (P1)** `writeHorizonGeoTiff` stores inline/xline ranges and bin counts as GDAL metadata; validate P1/P2/P3 presence, numeric geometry, and agreement with `Grid_size` before binning (`horizonbinner.cpp`).
 - [x] **T22 (P1)** Folder confirm: classifier-vocabulary combos (label↔type via item data, `tabular` present, `tops` absent), HZ28-6-1 rows locked, 「参考资料」 dir defaults `reference` but editable, valid-type-only overrides, per-row 「重试」 via `importFolderRow`, CRS sentence in both dialogs, four-count summary kept (D3).
-- **T23 (P2)** Cache `SegyReader`+SHA verify per asset (one open/index/hash per asset, not per line change); then evaluate worker-thread index/decode/binning/import per §4 — **see unresolved D1**.
+- [x] **T23 (P2)** Cache `SegyReader`+SHA verify per asset (one open/index/hash per asset, not per line change); then evaluate worker-thread index/decode/binning/import per §4 — **landed via D1a** (`9ed4abd`: per-asset reader cache + 每会话 SHA 复验一次；worker 线程化由 D1 一并覆盖)。
 - [x] **T24 (P2)** `residualTable` double-click emits `locateRequested` with the same layerId/WKT/payload shape as issue rows; the section button arms from whichever table was selected last (`armedPayload` property).
 - [x] **T25 (P2)** `residualSummaryJson` samples via `pickSamplePointForWell` (top XY, wellhead fallback) with the same containing-cell/1-ULP rules as the validation table; missing raster emits a `RASTER_MISSING` issue the summary row echoes.
-- **T26 (P2)** Derived rasters → `artifacts/derived/` + DERIVED catalog versions (thickness, ONNX, processing outputs).
-- [~] **T27 (P2)** Status-bar copy 「工程坐标 · 米 · 未投影」 + zh validation messages (SRC_MISSING/DUP_HORIZON/BUSY) — **landed**. Remaining: status tags as capsules per DESIGN.md, neutral 未计算 capsule, localized `coordinate_status` strings.
-- **T28 (P2)** Attach/primary actions re-keyed by link identity (assetId+role), not `links()` index; confirm strip survives `changed()`; decide-then-implement undo restore (demoted primary + note).
-- **T29 (P2)** 「在地图上显示」 two-way sync with layer visibility + zoom + flash spec (~300–500 ms).
+- [x] **T26 (P2)** Derived rasters → `artifacts/derived/` + DERIVED catalog versions (thickness, ONNX, processing outputs) — **landed wave-3 derived-publish** (`tst_derivedassets`; `/tmp` 死链清零，merge `72dc070`)。
+- [x] **T27 (P2)** Status-bar copy 「工程坐标 · 米 · 未投影」 + zh validation messages (SRC_MISSING/DUP_HORIZON/BUSY) — **landed**；余项（status 胶囊、中性「未计算」、coordinate_status 中文化）已由 wave-3 ux-consistency 落地（merge `f79945a`）。
+- [x] **T28 (P2)** Attach/primary actions re-keyed by link identity (assetId+role), not `links()` index; confirm strip survives `changed()`; undo restore (demoted primary + note) — **landed wave-3 ux-consistency**（merge `f79945a`；会话内 undo，跨 reload 持久化由 D4 决定保持会话域）。
+- [x] **T29 (P2)** 「在地图上显示」 two-way sync with layer visibility + zoom + flash — **landed wave-3 ux-consistency**（`flashHorizonLayer` + `visibilityChanged` 双向同步；合并接缝修复 `175db2a`：图层树节点 `paleo.visSync` 属性去重替代 lambda+UniqueConnection）。
 - [x] **T30 (P2)** Retire `SeismicPreviewPanel` (class + test + CMake) — audit row 34; also removed the `paleo.seismic.ctx` property and dead `IssueLocatorFilter`/`zoomToLayer` fallback registration.
-- **T31 (P3)** Empty states for asset table/map/layer tree; unresolved multi-well tab dead-end copy + pointer to 挂到这口井; 「查看未决」 post-confirm filter.
-- **T32 (P3)** Font registration (Noto Sans SC + JetBrains Mono vendored), 2px #1B73D0 focus ring, Mono 9pt on all numeric surfaces, accessible-name coverage on ReleasePanel/AttributeTablePanel/import buttons/folder table; tab overflow policy.
+- [x] **T31 (P3)** Empty states for asset table/map/layer tree; unresolved multi-well tab dead-end copy + pointer to 挂到这口井; 「查看未决」 post-confirm filter — **landed wave-3 ux-consistency**（`setUnresolvedFilter` + 空态，merge `f79945a`）。
+- [x] **T32 (P3)** Font registration (Noto Sans SC + JetBrains Mono vendored), 2px #1B73D0 focus ring, Mono 9pt on all numeric surfaces, accessible-name coverage, tab overflow policy — **landed wave-3 ux-consistency**（merge `f79945a`）。
 - [x] **T33 (P3)** `DataCatalog::BatchSave` coalesces folder import and dedup-attach saves (one `save()`+`changed()` per batch, nested-safe); `linksForEntity("")` → empty + `unresolvedLinks()`; `unsafeVersionSegmentReason` skips bad-segment versions on load; symlink canonical re-check both at enumeration and again before bytes are read (`batchSaveCoalescesWrites`, `unresolvedLinksIsTheExplicitAccessor`, `unsafeManagedPathSkippedOnLoad`).
 
 ### Unresolved decisions (gate)
+
+**All fifteen resolved** at the pass-2 approval (below); landing waves annotated inline.
 
 - **D1 — Async IO (plan §4 clause unmet):** implement worker-thread index/decode/binning/import now (M+ effort, satisfies 「正在建立道索引」 observability + enables 任务 progress), or formally amend §4 to defer with trigger (real-machine freeze measurement). CEO recommendation: measure first on real machine, then decide scope — but the plan text must be amended either way since code currently contradicts it.
 - **D2 — 任务页 progress bar (1s bar / 10s byte-linear ETA):** same disposition as D1 — coupled; if async lands, implement; if deferred, strike the clauses.
@@ -1119,3 +1121,27 @@ Landed on `master` (`545f1ad` … `8a65531`): verification `ctest` **54/54**; re
 Notable seam fixes inside the wave: `QThreadPool::global()`→`globalInstance()`, `std::atomic_bool` for Qt 6, worker-thread `QVERIFY` misuse removed, `QgsMarkerSymbol::createSimple` unique_ptr ownership, Qt 6 `selectRow` replacement semantics, position-level GeoJSON coordinate arrays (Point/MultiPoint) were being skipped by the recursive transform — caught by the new test.
 
 Remaining per approval: Wave-3 — D4 undo restore, D10 minimum numeric residuals in publish gate, D12 strip `uwi`/`aliases`, D14 optional WebEngine dep, D15 end-to-end ONNX fixture inference; T26 derived rasters → `artifacts/derived/` + DERIVED versions (partially served by D11's own derived registration), T27/T28–T29/T31–T32 remainder; T23 largely superseded by D1a's per-asset reader/SHA cache.
+
+### Wave-3 implementation record (2026-09-27, 三 PR 并入 master)
+
+`72dc070` derived-publish（PR #13）、`82dff27` model-hardening（PR #14）、`f79945a` ux-consistency（PR #15）、接缝修复 `175db2a`；随后 codex 评审修复 PR #12（`c908e1e`，36 文件：managed 路径越界/符号链接、EBCDIC EndText、变长道、inline↔Y 轴修正、Windows CI + deb 锁定）。
+
+落地：D4 undo 跨 reload 恢复降级 primary + note；D10 发布门最小数值残差数；D12 剥 `uwi`/`aliases`（旧 catalog 键装载时静默忽略）；D14 WebEngineWidgets 可选依赖；D15 ONNX 端到端 fixture 推理；D13 显式递延（自定义 TaskPanel 拿进度，记偏差）；T26 `artifacts/derived/` + DERIVED 登记 + `/tmp` 死链清零；T27 胶囊/未计算/coordinate_status 中文化；T28 链接身份重键 + confirm strip 存活；T29 双向同步 + flash；T31 空态 + 「查看未决」过滤；T32 vendor 字体 + 焦点环 + mono 数字面 + accessible-name；T20 余项 statusCatalogError 胶囊；速度模型 + line-geometry↔CDP；schema 迁移；SEG-Y 合成 fixture；算法 harness；算法 + CRS 审计文档；渲染钉死（vendor 字体 + 显式浅色 palette）。验证：`ctest` 61/61 + 真数据 smoke 双绿。
+
+### Wave-4 implementation record（2026-09-27，两 PR 并入 master）
+
+`2c1c8e1` runtime-resilience（PR #17）：§38 崩溃报告按本地优先落地——致命信号 fd 落盘 + `.running` 脏退出检测 + 非模态重启提示 + `docs/CRASH_REPORTING.md`；「重新定位文件」恢复路径——`relocateVersionSource` 流式 SHA-256 复验、不一致拒解、同 SHA 追加外链版本（版本不可变模型），预览死胡同挂入口。
+
+`8fc7bb2` area-parametrization（PR #16）：`AreaRules` 工程级参数 seam——8 层序界面名单/分类器目录规则/SEG-Y 道号索引四偏移（188/192/8/20）/411×641 ONNX 门全部经 `project_area.json` 可覆盖（默认=本工区值，语义逐分支等价）；Phase-0 收口——vendor superbuild 骨架、`PLATFORM_MATRIX`、`APP_ONLY_AUDIT`、`BUILDING.md` TTHW。验证：`ctest` 67/67；真数据回归 A1=36.223053 m 与 wave-3 基线逐字节一致。
+
+### Data-fabric 采纳波次 + ribbon（2026-09-27，四包 + 一分支并入 master）
+
+语义参考 `paleo_project/main`（data-fabric-v11 契约），只采纳数据管理/流转、不采纳 UI；全部锚在工程生命周期（无工程不导入不落盘；catalog→.qgz 同一写队列）。`docs/DATA_FABRIC_ADOPTION.md` 是采纳规格。
+
+- **RoleRegistry**（`f7f64eb`→`d2bcaf1`）：工程作用域角色词表（9 井 + 7 测网角色，`project_area.json` `roles` 覆盖，`catalog.roleRegistry()`）；`maxCount=0` 统一——单 primary 约束由 catalog 链接不变量承载。
+- **commit-coord-lite**（`cb57b53`→`12aa9b1`）：`PaleoProjectStore::commitAll(opId,digest,catalogCommit,qgzWrite)`——journal 先于执行、阶段推进（queued→catalog_done→qgz_done→complete）、complete 重入 no-op、中道崩殂只报告不重放（`recoverCommitJournal` 挂 projectOpened）。
+- **EntityView + ordinal + staleness**（`bbea533`→`6e34d9d`）：`EntityAssetLink.ordinal` 持久化排序；`entityDataView` 角色槽（registry 全角色枚举、primary/members/unresolved 分桶、derivedProducts、missingSources）；`downstreamClosure` BFS 闭包；`addVersion` 同一原子写标下游 `extra["stale"]`。
+- **IngestPlan 三段式**（`a74ab1a`→`6d1f3cb`）：`buildIngestPlan` 纯函数（扫描→分类→shp 族归组→身份匹配→≤200MB sha 去重→primary 建议，歧义恒未决不猜）；`executeIngestPlan` 幂等执行（path+sha 已注册即跳过→续跑天然）；单文件/文件夹同语义；确认表「重复→跳过/新版本」决策列。真数据 116 行含 1.01 GB SEG-Y 全绿。
+- **ribbon-icons**（`a99a42a`→`0615050`）：`PaleoIcons` 出口（`QgsApplication::getThemeIcon` qrc 直取 + QPainter 自绘补缺）；编辑条 icon-over-text、chips 独占 `ribbonActionRow`、动作钮 icon-beside-text、预览角落钮自绘图标。
+
+Deferred as designed: working-copy 编辑会话、trash/retention/pin、typed RunPort（派生链短，扁平 parentVersionIds 够用）、catalog.sqlite（TODOS P3 触发条件未满足）。待接线接缝：EntityView→DataPage、`markDownstreamStale`→预览 sha 失配、发布门 stale advisory、addLink 词表强制——wave-5（p5a/p5b/p5c）覆盖。存量债：`attachWorkflows` 非幂等（p5c 修）、计时类用例负载敏感（环境性）。

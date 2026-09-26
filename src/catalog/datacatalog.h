@@ -6,6 +6,8 @@
 #include <QVariantMap>
 #include <QVector>
 
+#include "roleregistry.h"
+
 // catalog/ — project_area 数据底座（docs/PROJECT_AREA_PLAN.md §3）。
 // 对象链：实体 → 显式关联(entity_asset_links) → 数据资产 → 不可变版本。
 // catalog.json 是本阶段唯一主存储和查询源（ADR 0056 的 C++ 最小面；
@@ -88,6 +90,12 @@ class DataCatalog : public QObject
     QString openError() const { return m_openError; } // open() 失败原因（无则空）
     QString catalogPath() const { return m_dir + QStringLiteral("/artifacts/metadata/catalog.json"); }
     int catalogRevision() const { return m_revision; }
+
+    // 工程角色词表（DATA_FABRIC_ADOPTION A 包）：open() 时读
+    // <projectDir>/project_area.json 的 roles 节覆盖内置词表；缺文件/坏 JSON
+    // → defaults()，永不计入 open 失败。只查不管——角色准入与实体视图归
+    // 后续包，addLink 不查表。
+    const RoleRegistry &roleRegistry() const { return m_roles; }
 
     // 批量写作用域（audit row 37 / T33）：构造期间 mutator 只做校验+内存变更，
     // save() 被挂起；析构（或显式 flush）落一次盘、发一次 changed()。
@@ -221,4 +229,5 @@ class DataCatalog : public QObject
     QVector<CatalogVersion> m_versions;
     QVector<EntityAssetLink> m_links;
     int m_assetSeq = 0, m_versionSeq = 0;
+    RoleRegistry m_roles;            // 见 roleRegistry()——open() 时装载
 };

@@ -297,3 +297,9 @@ add_paleo_test(tst_algorithm_harness)  # AlgorithmTestBase harness + ≥3 算法
 add_paleo_test(tst_perfbudget)     # 非 UI 性能预算：工程打开/folder 枚举/save 200 版本
 target_compile_definitions(tst_perfbudget PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+
+# ---- data/role-registry (A 包：工程作用域角色词表) ----
+target_sources(paleo_core PRIVATE
+  src/catalog/roleregistry.cpp                      # RoleDef/RoleRegistry 内置词表 + project_area.json roles 覆盖
+)
+add_paleo_test(tst_roles)

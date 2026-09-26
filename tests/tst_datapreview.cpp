@@ -103,6 +103,8 @@ private slots:
   void document_pdfRendersInTab();
   void document_stubbedConverterYieldsDerived();
   void document_converterMissingFailsHonest();
+  void coordinateStatusMappingIsChinese();
+  void unresolvedMultiWellTabShowsDeadEnd();
 
 private:
   // 共享一次导入的夹具集（每个测试自建栈，互不污染）。
@@ -235,10 +237,24 @@ void TestDataPreview::horizonTabOffersShowOnMap()
   QWidget *page = tabs->widget(tabs->currentIndex());
   auto *btn = page->findChild<QPushButton *>(QStringLiteral("showOnMapBtn"));
   QVERIFY2(btn, "horizon tab must offer show-on-map");
+  // T29：按钮带 layerId 身份（双向同步按它寻址）。
+  QCOMPARE(btn->property("layerId").toString(), QStringLiteral("horizon.D61"));
   btn->click();
   QCOMPARE(spy.count(), 1);
   QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("horizon.D61"));
-  QCOMPARE(btn->text(), QStringLiteral("已在地图上")); // §4：点下去后按钮改名
+  // 点击只发意图——按钮态由 shell 回调（显示成功/可见性变化）驱动。
+  QCOMPARE(btn->text(), QStringLiteral("在地图上显示"));
+
+  // 双向同步（T29）：shell 报告已在地图上 → 按钮改名；图层树隐藏 → 跟随回退。
+  st->preview->setHorizonOnMap(QStringLiteral("horizon.D61"), true);
+  QCOMPARE(btn->text(), QStringLiteral("已在地图上"));
+  QVERIFY(btn->property("onMap").toBool());
+  st->preview->setHorizonOnMap(QStringLiteral("horizon.D61"), false);
+  QCOMPARE(btn->text(), QStringLiteral("在地图上显示"));
+  QVERIFY(!btn->property("onMap").toBool());
+  // 其它 layerId 不误伤。
+  st->preview->setHorizonOnMap(QStringLiteral("horizon.D62"), true);
+  QCOMPARE(btn->text(), QStringLiteral("在地图上显示"));
 }
 
 void TestDataPreview::everyTypeOpensContent()
@@ -479,6 +495,7 @@ void TestDataPreview::wellHeadShowsBottomAndTypeColumns()
   combo->setCurrentIndex(combo->findText(QStringLiteral("A1")));
 
   bool sawBottomX = false, sawBottomY = false, sawType = false, sawStatus = false;
+  bool sawStatusText = false;
   QLabel *monoValue = nullptr;
   for (QLabel *l : page->findChildren<QLabel *>())
   {
@@ -489,15 +506,98 @@ void TestDataPreview::wellHeadShowsBottomAndTypeColumns()
       sawBottomY = true;
     if (t == QStringLiteral("WellType"))
       sawType = true;
-    if (t == QStringLiteral("coordinate_status"))
+    if (t == QString::fromUtf8("坐标状态")) // T27 中文化
       sawStatus = true;
+    if (t == QString::fromUtf8("工程坐标 · 米 · 未投影")) // untransformed → 状态栏同句
+    {
+      sawStatusText = true;
+      QVERIFY(l->styleSheet().contains(QStringLiteral("#5D6E80"))); // 计划：仍 text-muted
+    }
     if (t == QStringLiteral("5288.67"))
       monoValue = l;
   }
-  QVERIFY(sawBottomX && sawBottomY && sawType && sawStatus);
+  QVERIFY(sawBottomX && sawBottomY && sawType && sawStatus && sawStatusText);
   QVERIFY2(monoValue, "A1 的 BottomX/X 值 5288.67 必须显示");
   QVERIFY(monoValue->font().families().contains(QStringLiteral("JetBrains Mono")));
   QVERIFY(monoValue->alignment() & Qt::AlignRight);
+}
+
+// T27：coordinate_status 枚举显示串中文化（§4 计划文案；未知/空按没有坐标）。
+void TestDataPreview::coordinateStatusMappingIsChinese()
+{
+  QCOMPARE(DataPreviewTabs::coordinateStatusText(QStringLiteral("ok")),
+           QString::fromUtf8("坐标有效"));
+  QCOMPARE(DataPreviewTabs::coordinateStatusText(QStringLiteral("untransformed")),
+           QString::fromUtf8("工程坐标 · 米 · 未投影"));
+  QCOMPARE(DataPreviewTabs::coordinateStatusText(QStringLiteral("invalid")),
+           QString::fromUtf8("坐标无效"));
+  QCOMPARE(DataPreviewTabs::coordinateStatusText(QStringLiteral("missing")),
+           QString::fromUtf8("没有坐标"));
+  QCOMPARE(DataPreviewTabs::coordinateStatusText(QString()),
+           QString::fromUtf8("没有坐标"));
+}
+
+// T31 死胡同：未决资产的多井 tab 无井可挂时给「挂到这口井」入口说明；
+// 工程里一口井都没有时指向导入——都不留空白页。
+void TestDataPreview::unresolvedMultiWellTabShowsDeadEnd()
+{
+  // 场景一：工程有井（A1），但这个 tops 资产未决（井名 Z9 不匹配）。
+  {
+    QTemporaryDir tmp;
+    auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+    QVERIFY(st != nullptr);
+    QString err;
+    QVERIFY(!st->importSvc->importProjectFile(
+                 fixture(QStringLiteral("ExportWellHead.dat")), &err)
+                 .isEmpty()); // 建 A1
+    const QString topsDir = tmp.filePath(QString::fromUtf8("井分层"));
+    QDir().mkpath(topsDir);
+    const QString topsPath = QDir(topsDir).filePath(QStringLiteral("Z9.dat"));
+    {
+      QFile f(topsPath);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("#WellTops File From SMI\n"
+              "#WellName    Name         MD           X            Y            Z            TVD          Time(ms)    \n"
+              "Z9           A            942.500      1000.0       2000.0       -942.500     942.500      -99999.000  \n");
+    }
+    const QString z9 = st->importSvc->importProjectFile(topsPath, &err);
+    QVERIFY2(!z9.isEmpty(), qPrintable(err));
+
+    st->preview->openAsset(z9);
+    auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+    QWidget *page = tabs->widget(tabs->currentIndex());
+    auto *deadEnd = page->findChild<QLabel *>(QStringLiteral("deadEndText"));
+    QVERIFY2(deadEnd, "unresolved multi-well tab must explain the dead end");
+    QVERIFY(deadEnd->text().contains(QString::fromUtf8("还没有挂到任何井")));
+    QVERIFY(deadEnd->text().contains(QString::fromUtf8("挂到这口井")));
+  }
+
+  // 场景二：工程里一口井都没有 → 指向导入工区文件夹。
+  {
+    QTemporaryDir tmp;
+    auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+    QVERIFY(st != nullptr);
+    const QString topsDir = tmp.filePath(QString::fromUtf8("井分层"));
+    QDir().mkpath(topsDir);
+    const QString topsPath = QDir(topsDir).filePath(QStringLiteral("Z9.dat"));
+    {
+      QFile f(topsPath);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("#WellTops File From SMI\n"
+              "#WellName    Name         MD           X            Y            Z            TVD          Time(ms)    \n"
+              "Z9           A            942.500      1000.0       2000.0       -942.500     942.500      -99999.000  \n");
+    }
+    QString err;
+    const QString z9 = st->importSvc->importProjectFile(topsPath, &err);
+    QVERIFY2(!z9.isEmpty(), qPrintable(err));
+    st->preview->openAsset(z9);
+    auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+    QWidget *page = tabs->widget(tabs->currentIndex());
+    auto *deadEnd = page->findChild<QLabel *>(QStringLiteral("deadEndText"));
+    QVERIFY(deadEnd);
+    QVERIFY(deadEnd->text().contains(QString::fromUtf8("还没有井")));
+    QVERIFY(deadEnd->text().contains(QString::fromUtf8("导入工区文件夹")));
+  }
 }
 
 // §4：LAS 约定曲线 GR/AC/DEN 缺了就给禁用项，tooltip「这条曲线不在文件里」。

@@ -1,6 +1,7 @@
 #include "appcontext.h"
 #include "../io/dataimportservice.h" // catalog() — attachMapping 的 OUTPUT 登记
 #include "../ui/paleomainwindow.h"
+#include "../ui/paleotheme.h" // T32：启动注册 vendor 字体 + 正文字体
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -29,6 +30,11 @@ int main(int argc, char *argv[])
                  qPrintable(qgisPrefix));
     return 1;
   }
+
+  // T32：vendor 字体启动注册（缺失时 PaleoTheme 内如实告警降级），并把应用
+  // 默认字体钉到 DESIGN.md body token（Noto Sans SC 9pt）。
+  PaleoTheme::ensureApplicationFonts();
+  QApplication::setFont(PaleoTheme::bodyFont());
 
   PaleoMainWindow window(ctx.canvasCtl(), ctx.projectSvc(), ctx.layerSvc(),
                          ctx.toolSvc(), ctx.selection());

@@ -24,12 +24,16 @@ AttributeTablePanel::AttributeTablePanel(
   , m_layerProvider(std::move(layerProvider))
 {
   setObjectName(QStringLiteral("attributeTablePanel"));
+  // T32 a11y：面板/选择器/表各自报名。
+  setAccessibleName(QStringLiteral("属性表面板"));
+  setAccessibleDescription(QStringLiteral("查看所选图层的要素属性表"));
   auto *lay = new QVBoxLayout(this);
   lay->setContentsMargins(6, 6, 6, 6);
   lay->setSpacing(4);
 
   auto *picker = new QComboBox(this);
   picker->setObjectName(QStringLiteral("attrLayerPicker"));
+  picker->setAccessibleName(QStringLiteral("属性表图层选择"));
   lay->addWidget(picker);
 
   auto *hint = new QLabel(QStringLiteral("（选择图层查看属性表）"), this);
@@ -38,6 +42,7 @@ AttributeTablePanel::AttributeTablePanel(
 
   auto *view = new QgsAttributeTableView(this);
   view->setObjectName(QStringLiteral("attrView"));
+  view->setAccessibleName(QStringLiteral("属性表"));
   lay->addWidget(view, 1);
 
   connect(picker, &QComboBox::activated, this,

@@ -23,6 +23,10 @@ ReleasePanel::ReleasePanel(QWidget *parent)
   : QWidget(parent)
 {
   setObjectName(QStringLiteral("releasePanel"));
+  // T32 a11y：屏幕阅读器面（面板/列表/动作各自报名）。
+  setAccessibleName(QStringLiteral("发布管理面板"));
+  setAccessibleDescription(
+      QStringLiteral("管理地图发布：创建发布快照、比较两个版本的图层差异"));
   auto *lay = new QVBoxLayout(this);
   lay->setContentsMargins(8, 8, 8, 8);
 
@@ -35,6 +39,7 @@ ReleasePanel::ReleasePanel(QWidget *parent)
   // Release list: id / name / created / layers.
   auto *list = new QTreeWidget(this);
   list->setObjectName(QStringLiteral("releaseList"));
+  list->setAccessibleName(QStringLiteral("发布列表"));
   list->setHeaderLabels({QStringLiteral("ID"), QStringLiteral("名称"),
                          QStringLiteral("时间"), QStringLiteral("图层数")});
   list->setRootIsDecorated(false);
@@ -54,6 +59,7 @@ ReleasePanel::ReleasePanel(QWidget *parent)
 
   auto *createBtn = new QPushButton(QStringLiteral("创建发布（快照当前清单）"), this);
   createBtn->setObjectName(QStringLiteral("createReleaseButton"));
+  createBtn->setAccessibleName(QStringLiteral("创建发布"));
   lay->addWidget(createBtn);
 
   // Diff section: pick A/B, show added/removed/changed.

@@ -1,0 +1,9 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+  <qresource prefix="/paleo">
+    <file>fonts/NotoSansSC-Regular.otf</file>
+    <file>fonts/NotoSansSC-Bold.otf</file>
+    <file>fonts/JetBrainsMono-Regular.ttf</file>
+    <file>fonts/JetBrainsMono-Bold.ttf</file>
+  </qresource>
+</RCC>

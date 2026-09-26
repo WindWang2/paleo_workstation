@@ -1,5 +1,7 @@
 #include "datapreviewtabs.h"
 
+#include "../paleotheme.h" // DESIGN.md token 出口（mono 数字面共用）
+
 #include "../../catalog/datacatalog.h"
 #include "../../io/dataimportservice.h"
 #include "../../io/geojsonaffine.h"
@@ -80,10 +82,7 @@ namespace
   // DESIGN.md mono：数值/坐标/深度一律 JetBrains Mono 9pt tnum。
   QFont monoFont()
   {
-    QFont f;
-    f.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("monospace")});
-    f.setPointSize(9);
-    return f;
+    return PaleoTheme::monoFont(); // wave3/ux-consistency：共用注册/vendor 路径
   }
 
   QLabel *valueLabel(const QString &text, QWidget *parent, bool mono = false)
@@ -379,6 +378,31 @@ static bool externalShaMatches(const QString &absPath, const QString &expected,
   return true;
 }
 
+// T27 中文化：coordinate_status 枚举 → §4 计划文案。untransformed 用与
+// 状态栏/PDF 页脚同一句「工程坐标 · 米 · 未投影」；invalid/missing 用
+// 「坐标无效」「没有坐标」，仍 text-muted（#5D6E80）。
+QString DataPreviewTabs::coordinateStatusText(const QString &status)
+{
+  if (status == QLatin1String("ok"))
+    return tr("坐标有效");
+  if (status == QLatin1String("untransformed"))
+    return tr("工程坐标 · 米 · 未投影");
+  if (status == QLatin1String("invalid"))
+    return tr("坐标无效");
+  return tr("没有坐标"); // missing / 空 / 未知
+}
+
+void DataPreviewTabs::setHorizonOnMap(const QString &layerId, bool on)
+{
+  // T29 双向同步：所有绑到该 layerId 的「在地图上显示」按钮跟随图层可见性。
+  for (QPushButton *btn : findChildren<QPushButton *>(QStringLiteral("showOnMapBtn")))
+    if (btn->property("layerId").toString() == layerId)
+    {
+      btn->setProperty("onMap", on);
+      btn->setText(on ? tr("已在地图上") : tr("在地图上显示"));
+    }
+}
+
 DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   : QWidget(parent)
 {
@@ -389,6 +413,7 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   m_tabs = new QTabWidget(this);
   m_tabs->setObjectName(QStringLiteral("dataPreviewTabs"));
   m_tabs->setTabsClosable(true);
+  m_tabs->setUsesScrollButtons(true); // T32：标签超宽滚动，不挤压
   m_tabs->setAccessibleName(tr("预览"));
   // dock 面板样式（DESIGN.md）：无工作流蓝下划线，安静边框。
   m_tabs->setStyleSheet(QStringLiteral(
@@ -798,6 +823,21 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       lay->addWidget(buildWellBody(asset, abs, wellId, wells.front().second, host), 1);
       return host;
     }
+    // T31 死胡同文案：多井 tab 无井可挂（下拉会是空的）时不留空白页——
+    // 工程没井指向导入；资产未决指向数据页「挂到这口井」入口。
+    if (wells.isEmpty())
+    {
+      auto *deadEnd = stateLabel(
+          cat->entities(QStringLiteral("well")).isEmpty()
+              ? tr("工程里还没有井 — 先导入工区文件夹（井位表会建立井）")
+              : tr("这个资产还没有挂到任何井 — 在数据页资产表的「未决」行，"
+                   "用「挂到这口井」把它挂上"),
+          host);
+      deadEnd->setObjectName(QStringLiteral("deadEndText"));
+      lay->addWidget(deadEnd, 1);
+      return host;
+    }
+
     // 多井文件（井口表、DC.dat、多井 TD）或未决资产：每标签自带「井」下拉框，
     // 只列已决链接的井；默认未选 → 正文「先选择一口井」。
     auto *bar = new QWidget(host);
@@ -894,10 +934,14 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       auto *p = warnLabel(pendingNote, host);
       lay->addWidget(p);
     }
-    // 「在地图上显示」（§4）：无派生栅格时禁用并给出原因 tooltip；
-    // 点下去缩放（经已有信号实例化栅格）并把按钮改成「已在地图上」。
+    // 「在地图上显示」（§4/T29）：无派生栅格时禁用并给出原因 tooltip；点击
+    // 发意图（shell 实例化+缩放+闪烁后回调 setHorizonOnMap 置「已在地图上」；
+    // 图层树里关掉可见性时同样回调置回）。
     auto *btn = new QPushButton(tr("在地图上显示"), host);
     btn->setObjectName(QStringLiteral("showOnMapBtn"));
+    btn->setAccessibleName(tr("在地图上显示层位 %1").arg(sb.name.isEmpty()
+                                                              ? asset.displayName
+                                                              : sb.name));
     if (derived.id.isEmpty() || sb.name.isEmpty())
     {
       btn->setEnabled(false);
@@ -906,9 +950,9 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     else
     {
       const QString layerId = QStringLiteral("horizon.%1").arg(sb.name);
-      connect(btn, &QPushButton::clicked, this, [this, btn, layerId]() {
+      btn->setProperty("layerId", layerId); // T29：双向同步按 layerId 寻址
+      connect(btn, &QPushButton::clicked, this, [this, layerId]() {
         emit showHorizonOnMapRequested(layerId);
-        btn->setText(tr("已在地图上"));
       });
     }
     lay->addWidget(btn, 0, Qt::AlignLeft);
@@ -1560,12 +1604,16 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
     auto *grid = new QVBoxLayout(info);
     grid->setContentsMargins(0, 0, 0, 0);
     grid->setSpacing(4);
-    const auto addRow = [&](const QString &k, const QString &val, bool mono = false) {
+    const auto addRow = [&](const QString &k, const QString &val, bool mono = false,
+                            bool muted = false) {
       auto *row = new QWidget(info);
       auto *rl = new QHBoxLayout(row);
       rl->setContentsMargins(0, 0, 0, 0);
       rl->addWidget(caption8(k, row));
-      rl->addWidget(valueLabel(val, row, mono), 1);
+      auto *v = valueLabel(val, row, mono);
+      if (muted)
+        v->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+      rl->addWidget(v, 1);
       grid->addWidget(row);
     };
     // 预览按当前井过滤（多井井位文件；井名规范化后比较）
@@ -1597,7 +1645,8 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
         wellEntityId.isEmpty()
             ? QString()
             : m_svc->catalog()->entityById(wellEntityId).coordinateStatus;
-    addRow(tr("coordinate_status"), status);
+    // T27：坐标状态行中文化 + text-muted（计划 §4：这些状态仍用 #5D6E80）。
+    addRow(tr("坐标状态"), coordinateStatusText(status), false, true);
     hl->addWidget(info);
     hl->addWidget(caption8(tr("选中时地图同时高亮该井"), holder));
     hl->addStretch(1);

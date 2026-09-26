@@ -18,6 +18,7 @@ class QgisProjectService;
 class QgisLayerService;
 class ToolAvailabilityService;
 class SelectionContext;
+class QgsMapLayer;
 class QTabBar;
 class QDockWidget;
 class QStackedWidget;
@@ -137,6 +138,11 @@ class PaleoMainWindow : public QMainWindow
     void applyProvisionalRegistration(DataImportService *svc,
                                       const QString &assetId,
                                       const QVariantMap &params);
+    // T29 闪烁定位：图层范围上盖一条主色半透明橡皮带，100ms 一闪 ×4
+    // （共 400ms，spec ~300–500ms）后自毁。只动橡皮带不动图层可见性——
+    // 不与「在地图上显示」的双向同步打架。测试经 "horizonFlashActive"
+    // 属性断言起止。
+    void flashHorizonLayer(QgsMapLayer *layer);
 
     QgisCanvasController *m_canvasCtl;
     QgisProjectService *m_projectSvc;

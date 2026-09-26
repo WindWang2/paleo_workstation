@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QToolButton>
+#include <QSignalSpy>
 #include <QDockWidget>
 
 #include "../src/app/appcontext.h"
@@ -17,13 +18,19 @@
 #include "../src/ui/datapreview/datapreviewtabs.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
+#include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgiscanvascontroller.h"
+#include "../src/metadata/layermanifest.h"
+#include <QTimer>
 
 #include <qgsproject.h>
 #include <qgsmapcanvas.h>
 #include <qgsrectangle.h>
 
 #include <qgslayertreeview.h>
+#include <qgslayertree.h>
+#include <qgsmaplayer.h>
+#include <qgsvectorlayer.h>
 #include <qgslayertreemodel.h>
 
 // App-shell acceptance (§42): the five-page workflow chrome over the P0 spine.
@@ -66,6 +73,26 @@ class TestUiShell : public QObject
     {
       QVERIFY(m_win->minimumWidth() >= 1280);
       QVERIFY(m_win->minimumHeight() >= 800);
+    }
+
+    // T32：全局焦点环进主窗样式表（2px #1B73D0）；工作流标签溢出走滚动
+    // 按钮；状态栏坐标/比例尺是 JetBrains Mono 9pt 数字面。
+    void focusRingScrollButtonsAndStatusMono()
+    {
+      QVERIFY2(m_win->styleSheet().contains(QStringLiteral("2px solid #1B73D0")),
+               "window stylesheet must carry the DESIGN.md focus ring");
+      QVERIFY(m_win->styleSheet().contains(QStringLiteral("QLineEdit:focus")));
+      QVERIFY(m_win->styleSheet().contains(QStringLiteral("QTableView:focus")));
+
+      auto *tabs = m_win->findChild<QTabBar *>(QStringLiteral("workflowTabs"));
+      QVERIFY(tabs && tabs->usesScrollButtons());
+
+      auto *coords = m_win->findChild<QLabel *>(QStringLiteral("statusCoords"));
+      auto *scale = m_win->findChild<QLabel *>(QStringLiteral("statusScale"));
+      QVERIFY(coords && scale);
+      QVERIFY(coords->font().families().contains(QStringLiteral("JetBrains Mono")));
+      QVERIFY(scale->font().families().contains(QStringLiteral("JetBrains Mono")));
+      QCOMPARE(coords->font().pointSize(), 9);
     }
 
     // §42 workflow chain: 数据管理/①预测/②约束/③编图/④验证
@@ -165,6 +192,11 @@ class TestUiShell : public QObject
       QVERIFY(m_win->findChild<QWidget *>(QStringLiteral("paleoLocator")));
       QVERIFY(m_win->findChild<QToolButton *>(QStringLiteral("saveButton")));
       QVERIFY(m_win->findChild<QWidget *>(QStringLiteral("releasePanel")));
+      // T32 a11y：发布面板与发布列表报名。
+      auto *release = m_win->findChild<QWidget *>(QStringLiteral("releasePanel"));
+      QVERIFY(!release->accessibleName().isEmpty());
+      auto *releaseList = m_win->findChild<QWidget *>(QStringLiteral("releaseList"));
+      QVERIFY(releaseList && !releaseList->accessibleName().isEmpty());
 
       QStringList flat;
       const auto walk = [&flat](QMenu *menu, auto &&self) -> void {
@@ -196,6 +228,130 @@ class TestUiShell : public QObject
           hasSubmenu |= (a->menu() != nullptr);
         QVERIFY(hasSubmenu);
       }
+    }
+
+    // T29「在地图上显示」shell 接线：意图 → 实例化 + zoomToLayer + ~400ms
+    // 闪烁（horizonFlashActive 起止）+ visibilityChanged 双向同步不崩。
+    void showOnMapZoomsAndFlashes()
+    {
+      // 自建一个活着的工程：manifest 随 projectOpened 绑到本测试的临时目录
+      // （早前测试的临时工程目录已销毁，manifest 会变只读）。
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      QVERIFY2(m_ctx->projectSvc()->createProject(
+                   dir.filePath(QStringLiteral("proj.qgz"))),
+               "need a live project for manifest writes");
+
+      // 声明一个可实例化的 horizon 图层（gpkg 面要素），把画布拉到远处。
+      LayerDeclaration d;
+      d.layerId = QStringLiteral("horizon.D61");
+      d.horizon = QStringLiteral("D61");
+      d.type = QStringLiteral("vector"); // instantiate 按类型建层：gpkg 是矢量
+      d.source = QStringLiteral(FIXTURE_GPKG) + QStringLiteral("|layername=basin");
+      d.group = QStringLiteral("03_Composite");
+      QString declErr;
+      QVERIFY2(m_ctx->layerSvc()->declare(d, &declErr), qPrintable(declErr));
+
+      m_ctx->canvasCtl()->canvas()->setExtent(QgsRectangle(0, 0, 1, 1));
+      const QgsRectangle before = m_ctx->canvasCtl()->canvas()->extent();
+
+      auto *preview = m_win->findChild<QWidget *>(QStringLiteral("dataPreview"));
+      QVERIFY(preview);
+      // 经元系统发数据页预览的意图信号（attachWorkflows 已接线）。
+      QVERIFY(QMetaObject::invokeMethod(
+          preview, "showHorizonOnMapRequested",
+          Q_ARG(QString, QStringLiteral("horizon.D61"))));
+      QTest::qWait(50); // zoom + flash 启动
+
+      // 缩放生效：画布范围离开了 1×1（向图层范围移动）。
+      const QgsRectangle after = m_ctx->canvasCtl()->canvas()->extent();
+      QVERIFY2(after != before, "zoomToLayer must move the canvas extent");
+
+      // 闪烁窗口内 active；~600ms 后结束。
+      QVERIFY(m_win->property("horizonFlashActive").toBool());
+      auto *timer = m_win->findChild<QTimer *>(QStringLiteral("horizonFlashTimer"));
+      QVERIFY(timer);
+      QTest::qWait(600);
+      QVERIFY(!m_win->property("horizonFlashActive").toBool());
+
+      // 双向同步通路：图层树勾选/取消（QGIS 4 语义）不崩——按钮态由预览
+      // 侧测试覆盖（setHorizonOnMap 断言）。
+      QgsMapLayer *layer = m_ctx->layerSvc()->layer(QStringLiteral("horizon.D61"));
+      QVERIFY(layer);
+      QgsLayerTreeLayer *node = m_ctx->projectSvc()->project()
+                                    ->layerTreeRoot()
+                                    ->findLayer(layer->id());
+      QVERIFY(node);
+      node->setItemVisibilityChecked(false);
+      node->setItemVisibilityChecked(true);
+      QTest::qWait(10);
+
+      // 不把图层泄漏给后续用例（空态测试断言 mapLayers().isEmpty()）。
+      m_ctx->projectSvc()->project()->removeMapLayer(layer->id());
+    }
+
+    // T20 恢复链路：坏 catalog → 告警 + 导入禁用；重开好工程（AppContext
+    // 在 projectOpened 里同步重设 projectDir）→ 告警收起、导入放开。
+    void catalogErrorRecoversOnReopen()
+    {
+      QTemporaryDir bad;
+      QVERIFY(bad.isValid());
+      const QString metaDir =
+          QDir(bad.path()).filePath(QStringLiteral("artifacts/metadata"));
+      QVERIFY(QDir().mkpath(metaDir));
+      {
+        QFile f(QDir(metaDir).filePath(QStringLiteral("catalog.json")));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("{ not json");
+      }
+      DataImportService *svc = m_ctx->importSvc();
+      QSignalSpy spy(svc, &DataImportService::catalogOpenFailed);
+      svc->setProjectDir(bad.path());
+      QCOMPARE(spy.count(), 1);
+
+      auto *label = m_win->findChild<QLabel *>(QStringLiteral("statusCatalogError"));
+      QVERIFY(label && label->isVisibleTo(m_win));
+      QVERIFY(!m_win->findChild<QPushButton *>(QStringLiteral("importWells"))
+                   ->isEnabled());
+
+      QTemporaryDir good;
+      QVERIFY(good.isValid());
+      QVERIFY2(m_ctx->projectSvc()->createProject(
+                   good.filePath(QStringLiteral("ok.qgz"))),
+               "reopen a healthy project");
+      QVERIFY(!label->isVisibleTo(m_win));
+      QVERIFY(m_win->findChild<QPushButton *>(QStringLiteral("importWells"))
+                  ->isEnabled());
+    }
+
+    // ---- T31 空态：地图/图层树没有图层时给居中指引 ----
+    void mapAndLayerTreeEmptyStates()
+    {
+      // offscreen 未 show：isVisible 受祖先链影响，用显式隐藏标记断言。
+      auto *mapEmpty = m_win->findChild<QLabel *>(QStringLiteral("mapEmptyState"));
+      auto *treeEmpty = m_win->findChild<QLabel *>(QStringLiteral("layerTreeEmptyState"));
+      QVERIFY(mapEmpty && treeEmpty);
+      QVERIFY2(mapEmpty->text().contains(QString::fromUtf8("还没有图层")),
+               "guidance must name the next step");
+      QVERIFY(treeEmpty->text().contains(QString::fromUtf8("图层树是空的")));
+
+      // 当前工程（projectOpenWiresLayerTree 建的 temp 工程）没有图层 → 露出。
+      QgsProject *proj = m_ctx->projectSvc()->project();
+      QVERIFY(proj);
+      QVERIFY(proj->mapLayers().isEmpty());
+      QVERIFY(!mapEmpty->isHidden());
+      QVERIFY(!treeEmpty->isHidden());
+
+      // 加一层 → 两个空态都收起；删掉 → 回来。
+      auto *vl = new QgsVectorLayer(QStringLiteral("Point"), QStringLiteral("临时井"),
+                                    QStringLiteral("memory"));
+      QVERIFY(vl->isValid());
+      proj->addMapLayer(vl);
+      QVERIFY(mapEmpty->isHidden());
+      QVERIFY(treeEmpty->isHidden());
+      proj->removeMapLayer(vl->id());
+      QVERIFY(!mapEmpty->isHidden());
+      QVERIFY(!treeEmpty->isHidden());
     }
 
     // Window state roundtrip: geometry + last page persist via QSettings;

@@ -4,9 +4,14 @@ project(paleo_workbench CXX)
 set(CMAKE_CXX_STANDARD 20) # QGIS 4.2 headers require C++20 (defaulted operator==)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON) # wave3/ux-consistency: vendored fonts qrc
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test Sql Xml Concurrent Svg PrintSupport Network SerialPort Positioning UiTools OpenGLWidgets WebEngineWidgets Pdf PdfWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test Sql Xml Concurrent Svg PrintSupport Network SerialPort Positioning UiTools OpenGLWidgets Pdf PdfWidgets)
+# ---- wave3/ux-consistency D14 ----
+# WebEngineWidgets is optional: without it WebViewPanel compiles its
+# external-browser fallback and the build must still succeed.
+find_package(Qt6 QUIET COMPONENTS WebEngineWidgets)
 
 # QGIS: distro packages ship no cmake config — locate manually (vendor prefix later overrides these)
 find_path(QGIS_INCLUDE_DIR qgsapplication.h PATHS ${QGIS_PREFIX}/include/qgis /usr/include/qgis REQUIRED)
@@ -19,7 +24,14 @@ find_library(GDAL_LIB gdal PATHS ${QGIS_PREFIX}/lib /usr/lib REQUIRED)
 add_library(paleo_qgis_iface INTERFACE)
 target_include_directories(paleo_qgis_iface INTERFACE ${QGIS_INCLUDE_DIR})
 target_link_libraries(paleo_qgis_iface INTERFACE ${QGIS_CORE_LIB} ${QGIS_GUI_LIB} ${QGIS_ANALYSIS_LIB}
-  Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Xml Qt6::Sql Qt6::Concurrent Qt6::Svg Qt6::PrintSupport Qt6::Network Qt6::SerialPort Qt6::Positioning Qt6::UiTools Qt6::OpenGLWidgets Qt6::WebEngineWidgets Qt6::Pdf Qt6::PdfWidgets)
+  Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Xml Qt6::Sql Qt6::Concurrent Qt6::Svg Qt6::PrintSupport Qt6::Network Qt6::SerialPort Qt6::Positioning Qt6::UiTools Qt6::OpenGLWidgets Qt6::Pdf Qt6::PdfWidgets)
+if(TARGET Qt6::WebEngineWidgets)
+  target_link_libraries(paleo_qgis_iface INTERFACE Qt6::WebEngineWidgets)
+  target_compile_definitions(paleo_qgis_iface INTERFACE PALEO_HAVE_WEBENGINE=1)
+  message(STATUS "Qt6 WebEngineWidgets found — embedded web shell enabled")
+else()
+  message(STATUS "Qt6 WebEngineWidgets NOT found — WebViewPanel degrades to the external browser")
+endif()
 
 # GPKG fixture is generated at configure time (committed binary is the fallback copy)
 find_program(OGR2OGR ogr2ogr)
@@ -96,6 +108,12 @@ add_library(paleo_core STATIC
 )
 target_link_libraries(paleo_core PUBLIC paleo_qgis_iface ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
+
+# ---- wave3/ux-consistency ----
+# DESIGN.md typography: vendored fonts (Noto Sans SC + JetBrains Mono) travel
+# inside the binary so UI text and render-regression baselines are identical
+# on every platform. Registered by PaleoTheme::ensureApplicationFonts().
+target_sources(paleo_core PRIVATE src/ui/paleotheme.cpp resources/paleo_fonts.qrc)
 
 # ONNX Runtime (vendored; spike ET4). The shipped cmake config assumes lib64/ — we use lib/.
 find_path(ORT_INCLUDE onnxruntime_cxx_api.h PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/include)
@@ -180,6 +198,9 @@ target_compile_definitions(tst_datapreview PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_smoke_realdata) # real-data smoke; skips unless PALEO_REAL_PROJECT_AREA is set
 add_paleo_test(tst_webviewpanel)   # offscreen: engine unavailable → fallback, host survives
+# ---- wave3/ux-consistency ----
+# (fonts qrc + theme singleton live in paleo_core below; UI-domain tests here)
+add_paleo_test(tst_uxtheme)
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx)
   add_paleo_test(tst_onnxworkflow)

@@ -1,5 +1,7 @@
 #include "paleomainwindow.h"
 
+#include "paleotheme.h" // T32：焦点环/mono 数字面 token 出口
+
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgislayerservice.h"
@@ -56,6 +58,8 @@
 #include <qgsmarkersymbol.h>
 #include <qgssinglesymbolrenderer.h>
 #include <qgswkbtypes.h>
+#include <qgsrubberband.h>
+#include <qgsgeometry.h>
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -74,6 +78,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QShortcut>
+#include <QTimer>
 #include <QSplitter>
 #include <QToolButton>
 #include <QSettings>
@@ -186,6 +191,42 @@ namespace
     lay->addLayout(btnRow);
     return page;
   }
+// T31 空态标签：宿主（地图画布/图层树）resize 时保持居中；白底半透明卡片
+// 承载（DESIGN.md 画布装饰约定），文案永远带下一步动作指引。
+class EmptyStateLabel : public QLabel
+{
+  public:
+    EmptyStateLabel(const QString &text, QWidget *host) : QLabel(text, host)
+    {
+      setAlignment(Qt::AlignCenter);
+      setWordWrap(true);
+      setStyleSheet(QStringLiteral(
+          "background: rgba(255,255,255,0.9); color: #5D6E80; padding: 12px 16px;"
+          "border: 1px solid #DFE5EC; border-radius: 8px;"));
+      host->installEventFilter(this);
+      recenter(host->size());
+    }
+
+  protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override
+    {
+      if (ev->type() == QEvent::Resize)
+        if (auto *w = qobject_cast<QWidget *>(obj))
+          recenter(w->size());
+      return QLabel::eventFilter(obj, ev);
+    }
+
+  private:
+    void recenter(const QSize &host)
+    {
+      const int maxW = qMax(160, host.width() - 24);
+      if (width() > maxW || height() > host.height())
+        resize(maxW, qMax(40, heightForWidth(maxW)));
+      adjustSize();
+      move(qMax(0, (host.width() - width()) / 2),
+           qMax(0, (host.height() - height()) / 2));
+    }
+};
 } // namespace
 
 PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
@@ -226,6 +267,8 @@ void PaleoMainWindow::buildShell()
   m_workflowTabs->setObjectName(QStringLiteral("workflowTabs"));
   m_workflowTabs->setExpanding(false);
   m_workflowTabs->setDrawBase(false);
+  // T32 tab 溢出策略：超宽走滚动按钮（Qt 默认即此，显式钉住防样式/平台漂移）。
+  m_workflowTabs->setUsesScrollButtons(true);
   m_workflowTabs->setAccessibleName(QStringLiteral("工作流步骤"));
   for (int i = 0; i < kPageIds.size(); ++i)
   {
@@ -304,6 +347,17 @@ void PaleoMainWindow::buildShell()
             applyPreviewSplit();
           });
 
+  // ---- T31 空态：地图没有图层时画布上的居中指引 ----
+  EmptyStateLabel *mapEmpty = nullptr;
+  if (m_canvasCtl)
+  {
+    mapEmpty = new EmptyStateLabel(
+        QStringLiteral("地图上还没有图层 — 先导入工区文件夹，或在①预测页运行预测"),
+        m_canvasCtl->canvas());
+    mapEmpty->setObjectName(QStringLiteral("mapEmptyState"));
+    mapEmpty->raise();
+  }
+
   // Startup-page actions: dialogs only exist when a real platform is present;
   // offscreen the buttons exist but stay inert (no modal QFileDialog).
   if (auto *openBtn = startup->findChild<QPushButton *>(QStringLiteral("openProjectButton")))
@@ -353,6 +407,7 @@ void PaleoMainWindow::buildShell()
   // ---- left dock: layer tree on the project's declared tree ----
   m_leftDock = new QDockWidget(QStringLiteral("图层"), this);
   m_leftDock->setObjectName(QStringLiteral("layerTreeDock"));
+  EmptyStateLabel *treeEmpty = nullptr;
   if (m_projectSvc && m_projectSvc->project() && m_projectSvc->project()->layerTreeRoot())
   {
     auto *treeView = new QgsLayerTreeView(m_leftDock);
@@ -363,12 +418,34 @@ void PaleoMainWindow::buildShell()
     treeModel->setFlag(QgsLayerTreeModel::AllowNodeChangeVisibility);
     treeView->setModel(treeModel);
     m_leftDock->setWidget(treeView);
+    // T31：图层树空态——工程没有图层时给指引，不留一棵空树。
+    treeEmpty = new EmptyStateLabel(
+        QStringLiteral("图层树是空的 — 导入数据后图层会出现在这里"), treeView);
+    treeEmpty->setObjectName(QStringLiteral("layerTreeEmptyState"));
+    treeEmpty->raise();
   }
   else
   {
     m_leftDock->setWidget(new QLabel(QStringLiteral("未打开工程"), m_leftDock));
   }
   addDockWidget(Qt::LeftDockWidgetArea, m_leftDock);
+
+  // 图层增删驱动两个空态（T31）：图层集为空 → 露出指引；否则收起。
+  if (QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr)
+  {
+    const auto updateEmptyStates = [proj, mapEmpty, treeEmpty]() {
+      const bool empty = proj->mapLayers().isEmpty();
+      if (mapEmpty)
+        mapEmpty->setVisible(empty);
+      if (treeEmpty)
+        treeEmpty->setVisible(empty);
+    };
+    updateEmptyStates();
+    connect(proj, &QgsProject::layersAdded, this,
+            [updateEmptyStates](const QList<QgsMapLayer *> &) { updateEmptyStates(); });
+    connect(proj, &QgsProject::layersRemoved, this,
+            [updateEmptyStates](const QStringList &) { updateEmptyStates(); });
+  }
 
   // ---- right dock: per-page panel stack (placeholders until §42.2 lands) ----
   m_rightDock = new QDockWidget(QStringLiteral("页面面板"), this);
@@ -490,8 +567,10 @@ void PaleoMainWindow::buildShell()
     QgsMapCanvas *cv = m_canvasCtl->canvas();
     auto *coordLabel = new QLabel(this);
     coordLabel->setObjectName(QStringLiteral("statusCoords"));
+    coordLabel->setFont(PaleoTheme::monoFont()); // T32：坐标读数是数字面
     auto *scaleLabel = new QLabel(this);
     scaleLabel->setObjectName(QStringLiteral("statusScale"));
+    scaleLabel->setFont(PaleoTheme::monoFont()); // T32：比例尺读数是数字面
     connect(cv, &QgsMapCanvas::xyCoordinates, this,
             [coordLabel](const QgsPointXY &p) {
               coordLabel->setText(QStringLiteral("%1, %2").arg(p.x()).arg(p.y()));
@@ -519,13 +598,15 @@ void PaleoMainWindow::buildShell()
             [horizonLabel, horizonText](const QString &h) { horizonLabel->setText(horizonText(h)); });
 
   // DESIGN.md tokens on shell chrome only — no custom painting.
+  // T32：拼上全局 2px #1B73D0 键盘焦点环（替代 Fusion 虚线框）。
   setStyleSheet(QStringLiteral(
       "QMainWindow { background: #EDF1F5; }"
       "QTabBar#workflowTabs::tab { color: #5D6E80; padding: 8px 18px; }"
       "QTabBar#workflowTabs::tab:selected { color: #1B73D0; border-bottom: 2px solid #1B73D0; }"
       "QTabBar#workflowTabs::tab:hover { color: #24303E; background: #EDF1F5; }"
       "QDockWidget::title { background: #EDF1F5; color: #24303E; padding: 6px 10px; }"
-      "QStatusBar { background: #EDF1F5; color: #5D6E80; }"));
+      "QStatusBar { background: #EDF1F5; color: #5D6E80; }") +
+      PaleoTheme::focusRingStyleSheet());
 }
 
 void PaleoMainWindow::showPage(const QString &pageId)
@@ -821,6 +902,10 @@ void PaleoMainWindow::buildFolderConfirmDialog(
 
   auto *table = new QTableWidget(0, 4, dlg);
   table->setObjectName(QStringLiteral("folderTable"));
+  // T32 a11y：文件夹确认表报名 + 说明（每行可改类型、锁死行只读）。
+  table->setAccessibleName(tr("文件夹导入确认表"));
+  table->setAccessibleDescription(
+      tr("列出所选文件夹里的每个文件：确认或修改类型后导入，井口文件先入库"));
   table->setHorizontalHeaderLabels({tr("路径"), tr("类型"), tr("实体"), tr("结果")});
   table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
   table->horizontalHeader()->setStretchLastSection(true);
@@ -840,6 +925,22 @@ void PaleoMainWindow::buildFolderConfirmDialog(
   auto *confirm = buttons->addButton(tr("确认导入"), QDialogButtonBox::AcceptRole);
   confirm->setObjectName(QStringLiteral("folderConfirmButton"));
   auto *cancel = buttons->addButton(tr("取消"), QDialogButtonBox::RejectRole);
+  // T31「查看未决」：导入完成后出现——把数据页资产表过滤到未决行，直接
+  // 指向「挂到这口井」的挂接入口（不留「导完了然后呢」的断头路）。
+  auto *showUnresolved =
+      buttons->addButton(tr("查看未决"), QDialogButtonBox::ActionRole);
+  showUnresolved->setObjectName(QStringLiteral("folderShowUnresolvedButton"));
+  showUnresolved->setVisible(false);
+  showUnresolved->setAccessibleName(tr("查看未决资产"));
+  QObject::connect(showUnresolved, &QAbstractButton::clicked, dlg, [dlg, self]() {
+    if (self)
+    {
+      self->showPage(QStringLiteral("data"));
+      if (auto *page = self->findChild<DataPage *>())
+        page->setUnresolvedFilter(true);
+    }
+    dlg->accept();
+  });
   QObject::connect(cancel, &QAbstractButton::clicked, dlg, &QDialog::reject);
 
   // 对话框 exec 在 build 返回之后——行结果/重试回调的生存期挂到 shared 状态，
@@ -880,17 +981,18 @@ void PaleoMainWindow::buildFolderConfirmDialog(
   };
 
   QObject::connect(confirm, &QAbstractButton::clicked, dlg,
-                   [dlg, svc, dir, table, summary, confirm, cancel, combos, preview,
-                    results, retryCb, self]() {
+                   [dlg, svc, dir, table, summary, confirm, cancel, showUnresolved,
+                    combos, preview, results, retryCb, self]() {
     const QMap<QString, QString> overrides =
         collectFolderTypeOverrides(table, preview, combos);
     confirm->setEnabled(false); // 确认只走一遍（异步在途也一样）
 
     // 导入结果回表——同步路径与任务终态共用（在 GUI 线程执行）。
     const auto applyResults =
-        [dlg, svc, table, summary, confirm, cancel, combos, preview, results,
-         retryCb, self](const QVector<DataImportService::FolderRowResult> &res,
-                        const QString &importErr) {
+        [dlg, svc, table, summary, confirm, cancel, showUnresolved, combos,
+         preview, results, retryCb,
+         self](const QVector<DataImportService::FolderRowResult> &res,
+               const QString &importErr) {
       if (res.isEmpty() && !importErr.isEmpty())
       {
         QMessageBox::warning(dlg, tr("导入工区文件夹"), importErr);
@@ -930,6 +1032,12 @@ void PaleoMainWindow::buildFolderConfirmDialog(
       }
       summary->setText(folderImportSummaryText(*results));
       summary->show();
+      // 有未决行才露「查看未决」入口（T31）。
+      bool anyUnresolved = false;
+      for (const auto &rowRes : *results)
+        if (rowRes.outcome == Outcome::Unresolved)
+          anyUnresolved = true;
+      showUnresolved->setVisible(anyUnresolved);
       // 结果留在表里给用户过目；仍失败的行保留下拉（可换类型再点「重试」），
       // 其余行锁定。
       for (int r = 0; r < combos.size(); ++r)
@@ -1011,6 +1119,37 @@ void PaleoMainWindow::runFolderImport(DataImportService *svc)
   QDialog dlg(this);
   buildFolderConfirmDialog(&dlg, svc, dir, preview, this);
   dlg.exec();
+}
+
+void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
+{
+  if (!m_canvasCtl || !layer)
+    return;
+  QgsMapCanvas *cv = m_canvasCtl->canvas();
+  // 闪烁定位（T29 spec ~300–500ms）：#1B73D0 半透明多边形橡皮带盖住图层
+  // 范围，100ms 一闪 ×4 后自毁。交互蓝只做交互反馈，不做常驻装饰
+  // （DESIGN.md：交互色不兼装饰）。
+  auto *band = new QgsRubberBand(cv, Qgis::GeometryType::Polygon);
+  band->setToGeometry(QgsGeometry::fromRect(layer->extent()),
+                      qobject_cast<QgsVectorLayer *>(layer));
+  band->setColor(QColor(27, 115, 208, 60)); // #1B73D0 @ ~24% 填充透明度
+  band->setStrokeColor(QColor(QStringLiteral("#1B73D0")));
+  band->setWidth(2);
+  setProperty("horizonFlashActive", true);
+  auto *timer = new QTimer(this);
+  timer->setObjectName(QStringLiteral("horizonFlashTimer"));
+  int blinks = 4;
+  connect(timer, &QTimer::timeout, this, [this, timer, band, blinks]() mutable {
+    band->setVisible(band->isVisible() ? false : true);
+    if (--blinks <= 0)
+    {
+      timer->stop();
+      timer->deleteLater();
+      delete band; // 画布条目直接删——不在信号发送者栈上
+      setProperty("horizonFlashActive", false);
+    }
+  });
+  timer->start(100);
 }
 
 void PaleoMainWindow::showStartup()
@@ -1186,6 +1325,47 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
               [dataPage](const QStringList &ids, const QString &) {
                 dataPage->selectAssetsForEntities(ids);
               });
+
+    // ---- T20 余项：catalogOpenFailed 的状态栏露出 ----
+    // 常驻红胶囊（DESIGN.md error token）写打开失败原因；恢复（工程重开且
+    // catalog 打开成功）前，数据页的导入类动作保持禁用——失败的 catalog 拒
+    // 绝写入，导入必然失败，不给用户一个假入口。
+    auto *catalogError =
+        PaleoTheme::capsuleLabel(QString(), PaleoTheme::CapsuleKind::Error, this);
+    catalogError->setObjectName(QStringLiteral("statusCatalogError"));
+    catalogError->hide();
+    statusBar()->addPermanentWidget(catalogError);
+    const auto setImportsEnabled = [this](bool enabled) {
+      for (const char *name : {"importWells", "importSeismic", "importBoundary",
+                               "importFolder"})
+        if (auto *btn = findChild<QPushButton *>(QLatin1String(name)))
+        {
+          btn->setEnabled(enabled);
+          if (!enabled)
+            btn->setToolTip(tr("数据目录打开失败 — 导入暂不可用（见状态栏）"));
+          else
+            btn->setToolTip(QString());
+        }
+    };
+    connect(importSvc, &DataImportService::catalogOpenFailed, this,
+            [catalogError, setImportsEnabled](const QString &error) {
+              catalogError->setText(tr("数据目录打开失败：%1").arg(error));
+              catalogError->show();
+              setImportsEnabled(false);
+            });
+    // 恢复：projectOpened 后（AppContext 已同步重设 projectDir）错误清空 →
+    // 收告警、放开导入。
+    if (m_projectSvc)
+      connect(m_projectSvc, &QgisProjectService::projectOpened, this,
+              [importSvc, catalogError, setImportsEnabled](const QString &) {
+                if (importSvc->catalogOpenError().isEmpty())
+                {
+                  catalogError->hide();
+                  setImportsEnabled(true);
+                }
+                else
+                  setImportsEnabled(false); // 换了个工程仍然失败 → 保持禁用
+              });
     DataPreviewTabs *preview = m_previewTabs;
     if (preview)
     {
@@ -1203,14 +1383,41 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 [this](const QString &wellEntityId) {
                   m_selection->setSelection({wellEntityId}, QStringLiteral("datapreview"));
                 });
-      // horizon 预览「在地图上显示」→ 实例化派生栅格（§4）。
+      // horizon 预览「在地图上显示」（§4/T29 双向同步）：实例化派生栅格 →
+      // 缩放到该图层 → 闪烁定位 ~400ms → 勾上图层树节点 → 按钮置「已在
+      // 地图上」；图层树里取消勾选时按钮态跟随（node visibilityChanged，
+      // QGIS 4：可见性归图层树管，不在 QgsMapLayer 上）。
       if (m_layerSvc)
         connect(preview, &DataPreviewTabs::showHorizonOnMapRequested, this,
-                [this](const QString &layerId) {
+                [this, preview](const QString &layerId) {
                   QString err;
-                  if (!m_layerSvc->instantiate(layerId, &err))
+                  QgsMapLayer *layer = m_layerSvc->instantiate(layerId, &err);
+                  if (!layer)
+                  {
                     QgsMessageLog::logMessage(tr("Show on map failed: %1").arg(err),
                                               QStringLiteral("Paleo"), Qgis::Critical);
+                    return;
+                  }
+                  if (m_canvasCtl)
+                  {
+                    m_canvasCtl->zoomToLayer(layerId);
+                    flashHorizonLayer(layer);
+                  }
+                  QgsProject *proj =
+                      m_projectSvc ? m_projectSvc->project() : nullptr;
+                  if (QgsLayerTreeLayer *node =
+                          proj ? proj->layerTreeRoot()->findLayer(layer->id())
+                               : nullptr)
+                  {
+                    node->setItemVisibilityChecked(true); // 显示意图（可能已在）
+                    connect(node, &QgsLayerTreeNode::visibilityChanged, this,
+                            [preview, layerId](QgsLayerTreeNode *n) {
+                              preview->setHorizonOnMap(layerId,
+                                                       n->itemVisibilityChecked());
+                            },
+                            Qt::UniqueConnection);
+                  }
+                  preview->setHorizonOnMap(layerId, true);
                 });
     }
     connect(dataPage, &DataPage::importRequested, this,

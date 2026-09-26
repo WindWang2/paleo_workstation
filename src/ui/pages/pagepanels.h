@@ -31,6 +31,8 @@ class DataPage : public QWidget
     // 对应的资产行（滚动到首个命中行）。行选中照走 assetActivated → 预览
     // 打开，与手点同一通路；未决链接不算命中。无命中不改当前选中。
     void selectAssetsForEntities(const QStringList &entityIds);
+    // T31「查看未决」：把资产表过滤到仍有未决链接的行；off 清除过滤。
+    void setUnresolvedFilter(bool on);
   signals:
     void importRequested(const QString &kind);  // "wells" | "seismic" | "boundary"
     void assetActivated(const QString &assetId); // 列表选中 → 预览标签打开
@@ -114,6 +116,10 @@ class ValidatePage : public QWidget
   public:
     ValidatePage(ValidationWorkflow *wf, QWidget *parent = nullptr);
     void populate();                              // run validate(), fill table
+    // 残差表渲染（populate 复用）：行 map 契约 well_name/status/residual_ms/
+    // reason/threshold_ms…。独立成静态面供测试直灌（workflow 无注入点时
+    // validate() 会清空 residualRows 属性）。
+    static void fillResidualTable(class QTableWidget *table, const QVariantList &rows);
   signals:
     // wave/mapping-pipeline：payload 携带三视图联动所需的机器字段（来自
     // ValidationIssue::wellId + details）：wellId、horizon、inline、time_ms

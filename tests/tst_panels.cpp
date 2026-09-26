@@ -105,6 +105,10 @@ class TestPanels : public QObject
       {
         auto *btn = page.findChild<QPushButton *>(it.key());
         QVERIFY2(btn, qPrintable(it.key()));
+        // T32 a11y：每个导入入口都有 accessibleName + 非空描述。
+        QVERIFY2(!btn->accessibleName().isEmpty(),
+                 qPrintable(it.key() + QStringLiteral(" needs accessibleName")));
+        QVERIFY(!btn->accessibleDescription().isEmpty());
         spy.clear();
         btn->click();
         QCOMPARE(spy.count(), 1);
@@ -252,6 +256,268 @@ class TestPanels : public QObject
       QVERIFY(cat->links().at(1).isPrimary);
       // 刷新后角色互换：ast-1 成了非主旧版本，它的行拿到同一个按钮。
       QVERIFY(table->findChild<QPushButton *>(QStringLiteral("setPrimaryButton")));
+    }
+
+    // ---- T28：链接身份寻址 + undo 跨 reload 恢复 ----
+
+    // 撤销跨 open() 存活：attach 降级了 ast-1 的主关联并清了 note；新会话
+    // （新 svc + 新 DataPage，同一工程目录）里撤销条仍在，点击后降级的
+    // primary 恢复、note 回到未决徽标（D4）。
+    void dataPage_undoRestoresDemotedPrimaryAndNoteAcrossReload()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      {
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataCatalog *cat = svc.catalog();
+        CatalogEntity well;
+        well.id = QStringLiteral("well-1");
+        well.entityType = QStringLiteral("well");
+        well.name = QStringLiteral("A1");
+        QVERIFY(cat->addEntity(well));
+        for (const char *id : {"ast-1", "ast-2"})
+        {
+          CatalogAsset a;
+          a.id = QString::fromLatin1(id);
+          a.type = QStringLiteral("well_log");
+          a.displayName = a.id + QStringLiteral(".las");
+          QVERIFY(cat->addAsset(a));
+        }
+        EntityAssetLink primary;
+        primary.entityType = QStringLiteral("well");
+        primary.entityId = well.id;
+        primary.assetId = QStringLiteral("ast-1");
+        primary.role = QStringLiteral("well_log");
+        primary.isPrimary = true;
+        QVERIFY(cat->addLink(primary));
+        EntityAssetLink pending = primary;
+        pending.assetId = QStringLiteral("ast-2");
+        pending.entityId.clear();
+        pending.isPrimary = true;
+        pending.unresolved = true;
+        pending.note = QStringLiteral("未匹配井名: Z9");
+        QVERIFY(cat->addLink(pending));
+
+        DataPage page;
+        page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+        page.refreshAssetTable();
+        auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+        QVERIFY(table);
+        auto *combo = table->findChild<QComboBox *>(QStringLiteral("resolveEntityCombo"));
+        auto *attach = table->findChild<QPushButton *>(QStringLiteral("attachLinkButton"));
+        QVERIFY(combo && attach);
+        combo->setCurrentIndex(1); // A1
+        attach->click();
+        table->findChild<QPushButton *>(QStringLiteral("attachConfirmButton"))->click();
+
+        // attach 后：ast-2 成主关联，ast-1 被降级，note 被清（catalog 语义）。
+        const auto links1 = cat->links();
+        QCOMPARE(links1.size(), 2);
+        bool sawAst2Primary = false, sawAst1Demoted = false;
+        for (const EntityAssetLink &l : links1)
+        {
+          if (l.assetId == QLatin1String("ast-2"))
+          {
+            QVERIFY(!l.unresolved);
+            QVERIFY(l.isPrimary);
+            sawAst2Primary = true;
+          }
+          if (l.assetId == QLatin1String("ast-1"))
+          {
+            QVERIFY(!l.isPrimary); // 降级
+            sawAst1Demoted = true;
+          }
+        }
+        QVERIFY(sawAst2Primary && sawAst1Demoted);
+      } // svc 析构——会话状态全部消失
+
+      // 新会话：同工程目录重新打开。撤销入口靠 vault 存活。
+      DataImportService svc2(nullptr, nullptr);
+      svc2.setProjectDir(dir.path());
+      DataCatalog *cat2 = svc2.catalog();
+      DataPage page2;
+      page2.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc2));
+      page2.refreshAssetTable();
+      auto *table2 = page2.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      auto *undo = table2->findChild<QPushButton *>(QStringLiteral("undoAttachButton"));
+      QVERIFY2(undo, "undo entry must survive an open() reload (project-scoped vault)");
+
+      undo->click();
+      bool sawRestoredPrimary = false, sawUnresolved = false;
+      for (const EntityAssetLink &l : cat2->links())
+      {
+        if (l.assetId == QLatin1String("ast-2"))
+        {
+          QVERIFY2(l.unresolved, "undo must return the link to unresolved");
+          sawUnresolved = true;
+        }
+        if (l.assetId == QLatin1String("ast-1"))
+        {
+          QVERIFY2(l.isPrimary, "undo must restore the demoted primary (D4)");
+          sawRestoredPrimary = true;
+        }
+      }
+      QVERIFY(sawUnresolved && sawRestoredPrimary);
+      // note 在 UI 层恢复显示（catalog 无 note 写回 API——A 包接缝）。
+      auto *badge = table2->findChild<QLabel *>(QStringLiteral("unresolvedBadge"));
+      QVERIFY(badge);
+      QCOMPARE(badge->toolTip(), QStringLiteral("未匹配井名: Z9"));
+      // 记录已消费：撤销入口消失。
+      QVERIFY(!table2->findChild<QPushButton *>(QStringLiteral("undoAttachButton")));
+    }
+
+    // 交错变更不串线：刷新建好转钮后，外部挂接另一条链接 + 整表重建，
+    // 本行动作仍按 (assetId, role) 命中自己的链接（T28 身份寻址）。
+    void dataPage_actionsHitOwnLinkAfterInterleavedChanges()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+      for (const char *wid : {"well-1", "well-2"})
+      {
+        CatalogEntity w;
+        w.id = QString::fromLatin1(wid);
+        w.entityType = QStringLiteral("well");
+        w.name = w.id == QLatin1String("well-1") ? QStringLiteral("A1")
+                                                  : QStringLiteral("A2");
+        QVERIFY(cat->addEntity(w));
+      }
+      for (const char *id : {"ast-1", "ast-2"})
+      {
+        CatalogAsset a;
+        a.id = QString::fromLatin1(id);
+        a.type = QStringLiteral("well_log");
+        a.displayName = a.id + QStringLiteral(".las");
+        QVERIFY(cat->addAsset(a));
+        EntityAssetLink l;
+        l.entityType = QStringLiteral("well");
+        l.assetId = a.id;
+        l.role = QStringLiteral("well_log");
+        l.unresolved = true;
+        QVERIFY(cat->addLink(l));
+      }
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      page.refreshAssetTable();
+      auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      QCOMPARE(table->rowCount(), 2);
+
+      // 外部变更（模拟后台 dedup 挂接 ast-1 → A1）+ changed() 式整表重建。
+      QCOMPARE(cat->attachLink(0, QStringLiteral("well-1")), true);
+      page.refreshAssetTable();
+
+      // ast-1 行已决（无控件）；ast-2 行仍可挂——按钮是表里唯一那个。
+      auto *combo = table->findChild<QComboBox *>(QStringLiteral("resolveEntityCombo"));
+      auto *attach = table->findChild<QPushButton *>(QStringLiteral("attachLinkButton"));
+      QVERIFY(combo && attach);
+      combo->setCurrentIndex(combo->findData(QStringLiteral("well-2"))); // A2
+      attach->click();
+      table->findChild<QPushButton *>(QStringLiteral("attachConfirmButton"))->click();
+
+      for (const EntityAssetLink &l : cat->links())
+      {
+        if (l.assetId == QLatin1String("ast-1"))
+        {
+          QCOMPARE(l.entityId, QStringLiteral("well-1")); // 外部挂接不被扰动
+          QVERIFY(l.isPrimary);
+        }
+        if (l.assetId == QLatin1String("ast-2"))
+        {
+          QVERIFY(!l.unresolved);
+          QCOMPARE(l.entityId, QStringLiteral("well-2")); // 命中自己的链接
+          QVERIFY(l.isPrimary);
+        }
+      }
+    }
+
+    // 确认条在 changed() 整表重建后仍存活：待确认状态落在页面属性上，
+    // 重建时恢复同一条确认（文本 + 当前页），确认照常生效。
+    void dataPage_confirmStripSurvivesRefresh()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+      CatalogEntity well;
+      well.id = QStringLiteral("well-1");
+      well.entityType = QStringLiteral("well");
+      well.name = QStringLiteral("A1");
+      QVERIFY(cat->addEntity(well));
+      CatalogAsset a;
+      a.id = QStringLiteral("ast-1");
+      a.type = QStringLiteral("well_log");
+      a.displayName = QStringLiteral("A1.las");
+      QVERIFY(cat->addAsset(a));
+      EntityAssetLink l;
+      l.entityType = QStringLiteral("well");
+      l.assetId = a.id;
+      l.role = QStringLiteral("well_log");
+      l.unresolved = true;
+      QVERIFY(cat->addLink(l));
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      page.refreshAssetTable();
+      auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      auto *combo = table->findChild<QComboBox *>(QStringLiteral("resolveEntityCombo"));
+      combo->setCurrentIndex(1);
+      table->findChild<QPushButton *>(QStringLiteral("attachLinkButton"))->click();
+
+      // changed() → 整表重建（这里直接驱动同一入口）。
+      page.refreshAssetTable();
+      table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      auto *confirmText = table->findChild<QLabel *>(QStringLiteral("attachConfirmText"));
+      QVERIFY2(confirmText && confirmText->isVisibleTo(table),
+               "confirm strip must survive a catalog-changed rebuild");
+      QVERIFY(confirmText->text().contains(QStringLiteral("A1.las")));
+      QVERIFY(confirmText->text().contains(QStringLiteral("A1")));
+
+      // 确认仍生效。
+      table->findChild<QPushButton *>(QStringLiteral("attachConfirmButton"))->click();
+      QVERIFY(!cat->links().at(0).unresolved);
+      QCOMPARE(cat->links().at(0).entityId, QStringLiteral("well-1"));
+    }
+
+    // ---- T20 余项：catalogOpenFailed 状态栏露出 ----
+    // 注入打开失败（坏 catalog.json）→ 状态栏红胶囊（DESIGN.md error token）
+    // 常驻显示原因 + 数据页导入按钮禁用。
+    void mainWindow_catalogOpenFailureSurfacesInStatusbar()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      const QString metaDir = QDir(dir.path()).filePath(QStringLiteral("artifacts/metadata"));
+      QVERIFY(QDir().mkpath(metaDir));
+      QVERIFY(writeFile(QDir(metaDir).filePath(QStringLiteral("catalog.json")),
+                        QByteArrayLiteral("{ not json")));
+
+      QSettings(QStringLiteral("paleo"), QStringLiteral("paleo")).clear();
+      PaleoMainWindow win(nullptr, nullptr, nullptr, nullptr, nullptr);
+      DataImportService svc(nullptr, nullptr);
+      win.attachWorkflows(nullptr, nullptr, nullptr, nullptr, &svc);
+
+      auto *label = win.findChild<QLabel *>(QStringLiteral("statusCatalogError"));
+      QVERIFY2(label, "statusbar must own a catalog-error capsule");
+      QVERIFY(label->styleSheet().contains(QStringLiteral("#FDEBEB"))); // errorBg
+      QVERIFY(label->styleSheet().contains(QStringLiteral("#E53935"))); // error 字
+      QVERIFY(!label->isVisibleTo(&win));
+
+      QSignalSpy spy(&svc, &DataImportService::catalogOpenFailed);
+      svc.setProjectDir(dir.path()); // open() 失败 → 信号
+      QCOMPARE(spy.count(), 1);
+      QVERIFY(label->isVisibleTo(&win));
+      QVERIFY(label->text().contains(QString::fromUtf8("数据目录打开失败")));
+      for (const char *name : {"importWells", "importSeismic", "importBoundary",
+                               "importFolder"})
+      {
+        auto *btn = win.findChild<QPushButton *>(QLatin1String(name));
+        QVERIFY2(btn && !btn->isEnabled(), name);
+        QVERIFY2(!btn->toolTip().isEmpty(), "禁用必须带 reason tooltip（§35）");
+      }
     }
 
     // D6 地图→表：实体 id → 选中其已决关联的资产行（未决不算命中；首个命中
@@ -716,6 +982,231 @@ class TestPanels : public QObject
       QCOMPARE(sectionSpy.count(), 0);
     }
 
+    // ---- T27 胶囊化：状态文字 = DESIGN.md status-tag（浅底深字），不再
+    // setForeground 彩色裸文字。级别列胶囊；残差列胶囊+mono 数字面。----
+    void validatePage_severityAndResidualCapsules()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      LayerManifest manifest(dir.filePath(QStringLiteral("m.sqlite")));
+      LayerDeclaration d;
+      d.layerId = QStringLiteral("predict.T1.gone");
+      d.horizon = QStringLiteral("T1");
+      d.type = QStringLiteral("raster");
+      d.source = dir.filePath(QStringLiteral("missing.tif"));
+      d.group = QStringLiteral("01_Prediction");
+      QVERIFY(manifest.upsert(d));
+      QgisLayerService layers(nullptr, &manifest);
+      ValidationWorkflow wf(&layers, nullptr);
+
+      ValidatePage page(&wf);
+      page.populate();
+      auto *issueTable = page.findChild<QTableWidget *>(QStringLiteral("issueTable"));
+      QVERIFY(issueTable);
+      QCOMPARE(issueTable->rowCount(), 1);
+      // SRC_MISSING 是错误级：胶囊就是级别列的 cellWidget，token = errorBg。
+      auto *sevCapsule = qobject_cast<QLabel *>(issueTable->cellWidget(0, 0));
+      QVERIFY2(sevCapsule && sevCapsule->objectName() == QStringLiteral("statusCapsule"),
+               "severity cell must carry a capsule label");
+      QCOMPARE(sevCapsule->text(), QStringLiteral("错误"));
+      QVERIFY(sevCapsule->styleSheet().contains(QStringLiteral("#FDEBEB")));
+      QVERIFY(sevCapsule->styleSheet().contains(QStringLiteral("#E53935")));
+      QVERIFY(sevCapsule->styleSheet().contains(QStringLiteral("border-radius")));
+      // 级别 item 不再持彩色裸文字。
+      QVERIFY(issueTable->item(0, 0)->text().isEmpty());
+      QVERIFY(!issueTable->item(0, 0)->foreground().color().isValid()
+              || issueTable->item(0, 0)->foreground() == QBrush());
+
+      // 残差表：注入 pass / exceed / 未计算 三行，胶囊 token 逐行断言。
+      QVariantList rows;
+      QVariantMap pass;
+      pass.insert(QStringLiteral("well_name"), QStringLiteral("A1"));
+      pass.insert(QStringLiteral("status"), QStringLiteral("pass"));
+      pass.insert(QStringLiteral("residual_ms"), 3.2);
+      pass.insert(QStringLiteral("threshold_ms"), 10.0);
+      rows.append(pass);
+      QVariantMap exceed;
+      exceed.insert(QStringLiteral("well_name"), QStringLiteral("A2"));
+      exceed.insert(QStringLiteral("status"), QStringLiteral("exceed"));
+      exceed.insert(QStringLiteral("residual_ms"), 22.5);
+      rows.append(exceed);
+      QVariantMap none;
+      none.insert(QStringLiteral("well_name"), QStringLiteral("A3"));
+      none.insert(QStringLiteral("status"), QStringLiteral("no_raster"));
+      none.insert(QStringLiteral("reason"), QStringLiteral("没有 D61 栅格"));
+      rows.append(none);
+      wf.setProperty("paleo.wf.residualRows", rows);
+      // populate() 内部 validate() 会清空 residualRows 属性（无 ProjectData
+      // 门面时）——渲染面用静态助手直灌行（与 populate 同一渲染代码路径）。
+      auto *resTable = page.findChild<QTableWidget *>(QStringLiteral("residualTable"));
+      QVERIFY(resTable);
+      ValidatePage::fillResidualTable(resTable, rows);
+      QCOMPARE(resTable->rowCount(), 3);
+
+      const auto capsuleAt = [resTable](int r) {
+        return resTable->cellWidget(r, 1)
+            ->findChild<QLabel *>(QStringLiteral("statusCapsule"));
+      }; // 残差列 cellWidget 是 HBox 容器，胶囊是它的子标签
+      QCOMPARE(capsuleAt(0)->text(), QStringLiteral("通过"));
+      QVERIFY(capsuleAt(0)->styleSheet().contains(QStringLiteral("#E8F5E9"))); // successBg
+      QCOMPARE(capsuleAt(1)->text(), QStringLiteral("超过阈值"));
+      QVERIFY(capsuleAt(1)->styleSheet().contains(QStringLiteral("#FFF4E0"))); // warningBg
+      // 中性「未计算」胶囊：surface-alt 底 + text-muted 字（无语义色）。
+      QCOMPARE(capsuleAt(2)->text(), QStringLiteral("未计算"));
+      QVERIFY(capsuleAt(2)->styleSheet().contains(QStringLiteral("#EDF1F5")));
+      QVERIFY(capsuleAt(2)->styleSheet().contains(QStringLiteral("#5D6E80")));
+
+      // 数值面 JetBrains Mono 9pt：残差数字 + 阈值列。
+      auto *cell0 = resTable->cellWidget(0, 1);
+      bool sawMonoValue = false;
+      for (QLabel *l : cell0->findChildren<QLabel *>())
+        if (l->text().contains(QStringLiteral("3.2")))
+        {
+          sawMonoValue = l->font().families().contains(QStringLiteral("JetBrains Mono"));
+          QCOMPARE(l->font().pointSize(), 9);
+        }
+      QVERIFY2(sawMonoValue, "residual number must render in JetBrains Mono 9pt");
+      QVERIFY(resTable->item(0, 2)->font()
+                  .families()
+                  .contains(QStringLiteral("JetBrains Mono"))); // 阈值列
+    }
+
+    // T27：版本状态标签胶囊化——已发布绿 / 编辑中橙 / 无版本中性。
+    void composePage_versionStateCapsule()
+    {
+      ComposePage page(nullptr, nullptr);
+      auto *state = page.findChild<QLabel *>(QStringLiteral("publishStateLabel"));
+      QVERIFY(state);
+      page.setVersionState(2, true);
+      QVERIFY(state->styleSheet().contains(QStringLiteral("#E8F5E9")));
+      page.setVersionState(3, false);
+      QVERIFY(state->styleSheet().contains(QStringLiteral("#FFF4E0")));
+      page.setVersionState(0, false);
+      QVERIFY(state->styleSheet().contains(QStringLiteral("#EDF1F5"))); // 未计算
+    }
+
+    // ---- T31 空态 / 未决过滤 ----
+
+    // 空资产表：居中提示 + 下一步动作指引（点名「导入工区文件夹」）。
+    void dataPage_emptyStateIsCenteredGuidance()
+    {
+      DataPage page;
+      auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      QVERIFY(table);
+      QCOMPARE(table->rowCount(), 1);
+      auto *it = table->item(0, 0);
+      QVERIFY(it);
+      QVERIFY(it->text().contains(QString::fromUtf8("还没有数据资产")));
+      QVERIFY2(it->text().contains(QString::fromUtf8("导入工区文件夹")),
+               "empty state must name the next concrete step");
+      QVERIFY(it->textAlignment() & Qt::AlignHCenter); // T31 居中
+    }
+
+    // 「查看未决」过滤：只留有未决链接的行；过滤条 + 清除过滤恢复全表。
+    void dataPage_unresolvedFilterNarrowsRows()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+      CatalogEntity well;
+      well.id = QStringLiteral("well-1");
+      well.entityType = QStringLiteral("well");
+      well.name = QStringLiteral("A1");
+      QVERIFY(cat->addEntity(well));
+      CatalogAsset resolved, pending;
+      resolved.id = QStringLiteral("ast-1");
+      resolved.type = QStringLiteral("well_log");
+      resolved.displayName = QStringLiteral("A1.las");
+      QVERIFY(cat->addAsset(resolved));
+      pending.id = QStringLiteral("ast-2");
+      pending.type = QStringLiteral("well_log");
+      pending.displayName = QStringLiteral("Z9.las");
+      QVERIFY(cat->addAsset(pending));
+      EntityAssetLink ok, un;
+      ok.entityType = QStringLiteral("well");
+      ok.entityId = well.id;
+      ok.assetId = resolved.id;
+      ok.role = QStringLiteral("well_log");
+      QVERIFY(cat->addLink(ok));
+      un.entityType = QStringLiteral("well");
+      un.assetId = pending.id;
+      un.role = QStringLiteral("well_log");
+      un.unresolved = true;
+      QVERIFY(cat->addLink(un));
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      page.refreshAssetTable();
+      auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      QCOMPARE(table->rowCount(), 2);
+      QVERIFY(page.findChild<QWidget *>(QStringLiteral("unresolvedFilterBar"))->isHidden());
+
+      page.setUnresolvedFilter(true);
+      QCOMPARE(table->rowCount(), 1);
+      QCOMPARE(table->item(0, 0)->text(), QStringLiteral("Z9.las"));
+      QVERIFY(!page.findChild<QWidget *>(QStringLiteral("unresolvedFilterBar"))->isHidden());
+
+      // 清除过滤恢复全表。
+      page.findChild<QPushButton *>(QStringLiteral("clearUnresolvedFilterButton"))->click();
+      QCOMPARE(table->rowCount(), 2);
+      QVERIFY(page.findChild<QWidget *>(QStringLiteral("unresolvedFilterBar"))->isHidden());
+
+      // 过滤开着而没有未决资产：给「没有未决资产」空态，不是空白表。
+      QVERIFY(cat->attachLink(1, QStringLiteral("well-1"))); // ast-2 也挂上 → 全部已决
+      page.setUnresolvedFilter(true);
+      QCOMPARE(table->rowCount(), 1);
+      QVERIFY(table->item(0, 0)->text().contains(QString::fromUtf8("没有未决资产")));
+    }
+
+    // 文件夹确认完成后的「查看未决」：露出的条件（有未决行）+ 点击切数据页
+    // 并把资产表过滤到未决行。
+    void folderConfirm_showUnresolvedFiltersAssetTable()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+      QVERIFY(QDir().mkpath(projectDir));
+      const QString root = tmp.filePath(QStringLiteral("area"));
+      QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
+      QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井位/heads.dat")),
+          QByteArrayLiteral("#WellHead File From SMI\n#Name X Y KB TD\n"
+                            "A1  1.0  2.0  0.0  2000.0\n")));
+      // Z9.las 引用不存在的井 → 未决行。
+      QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("Z9.las")),
+                        QByteArrayLiteral("~Well\nWELL. Z9 : WELL\n~A DEPT\n1.0\n")));
+
+      FolderStack st(tmp.filePath(QStringLiteral("m.sqlite")), projectDir);
+      QString err;
+      const auto preview = st.svc.previewFolder(root, &err);
+      QVERIFY2(err.isEmpty(), qPrintable(err));
+      QCOMPARE(preview.size(), 2);
+
+      QSettings(QStringLiteral("paleo"), QStringLiteral("paleo")).clear();
+      PaleoMainWindow win(nullptr, nullptr, nullptr, nullptr, nullptr);
+      win.attachWorkflows(nullptr, nullptr, nullptr, nullptr, &st.svc);
+      QDialog dlg;
+      PaleoMainWindow::buildFolderConfirmDialog(&dlg, &st.svc, root, preview, &win);
+      auto *showUnresolved =
+          dlg.findChild<QPushButton *>(QStringLiteral("folderShowUnresolvedButton"));
+      QVERIFY(showUnresolved);
+      QVERIFY(!showUnresolved->isVisibleTo(&dlg)); // 导入前不出现
+
+      dlg.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"))->click();
+      QVERIFY(showUnresolved->isVisibleTo(&dlg)); // 有未决行 → 露出
+
+      showUnresolved->click();
+      QCOMPARE(win.currentPage(), QStringLiteral("data"));
+      auto *page = win.findChild<DataPage *>();
+      QVERIFY(page);
+      auto *table = page->findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      QVERIFY(table);
+      QCOMPARE(table->rowCount(), 1); // 只有 Z9 那条未决资产
+      QVERIFY(table->item(0, 0)->text().contains(QStringLiteral("Z9")));
+      QVERIFY(!page->findChild<QWidget *>(QStringLiteral("unresolvedFilterBar"))->isHidden());
+    }
+
     // ---- T22 文件夹导入确认表（PaleoMainWindow 静态面）----
     // 只调静态助手，不实例化主窗——栈上只要一个非空的 layer/store 就能让
     // DataImportService 真实走导入（LayerManifest 指临时 sqlite）。
@@ -898,6 +1389,9 @@ class TestPanels : public QObject
       auto *confirm =
           dlg.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"));
       QVERIFY(table && summary && confirm);
+      // T32 a11y：确认表报名。
+      QVERIFY(!table->accessibleName().isEmpty());
+      QVERIFY(!table->accessibleDescription().isEmpty());
       const int rBad = tableRowForPath(table, QStringLiteral("bad.dat"));
       const int rGood = tableRowForPath(table, QStringLiteral("good.dat"));
       const int rLock = tableRowForPath(table, QStringLiteral("locked.las"));

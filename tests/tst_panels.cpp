@@ -469,7 +469,18 @@ class TestPanels : public QObject
       QSignalSpy saveSpy(&page, &ComposePage::saveVersionRequested);
       QSignalSpy publishSpy(&page, &ComposePage::publishRequested);
 
-      page.findChild<QPushButton *>(QStringLiteral("thicknessChainButton"))->click();
+      // D8 触发门：未选层位禁用且写明原因；setThicknessHorizon 命名+开闸。
+      auto *chain = page.findChild<QPushButton *>(QStringLiteral("thicknessChainButton"));
+      QVERIFY(chain != nullptr);
+      QVERIFY(!chain->isEnabled());
+      QCOMPARE(chain->toolTip(), QStringLiteral("先在顶部层位 chip 选择层位"));
+      chain->click();
+      QCOMPARE(chainSpy.count(), 0); // 禁用态不触发
+      page.setThicknessHorizon(QStringLiteral("D61"));
+      QVERIFY(chain->isEnabled());
+      QCOMPARE(chain->text(), QStringLiteral("生成 D61 等厚图"));
+
+      chain->click();
       page.findChild<QPushButton *>(QStringLiteral("exportPdfButton"))->click();
       page.findChild<QPushButton *>(QStringLiteral("saveVersionButton"))->click();
       QCOMPARE(chainSpy.count(), 1);

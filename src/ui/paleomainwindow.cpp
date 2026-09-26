@@ -1809,6 +1809,12 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
               QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
           });
 
+  // D8 使能态：无层位时按钮禁用（tooltip 写原因）；chip 切换即时联动命名。
+  composePage->setThicknessHorizon(activeHorizon());
+  if (m_selection)
+    connect(m_selection, &SelectionContext::activeHorizonChanged, composePage,
+            &ComposePage::setThicknessHorizon);
+
   // 层位图 PDF（阶段C+E）：导出 → catalog OUTPUT 资产登记 → 布局产物记录 →
   // 发布门重算。失败弹「导出失败 + 原因 + 重试」；成功弹路径 + SHA-256。
   connect(composePage, &ComposePage::exportPdfRequested, this,

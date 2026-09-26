@@ -820,9 +820,13 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
 
   // ---- wave/mapping-pipeline 阶段C+E：D61 编图链 / 导出 / 版本按钮块 ----
   lay->addWidget(caption(tr("编图链（等时差 × 层间速度 → 等厚图）"), this));
-  auto *chain = new QPushButton(tr("运行编图链"), this);
+  // D8 厚度触发：命名「生成 <层位> 等厚图」，未选层位禁用并写原因；使能态
+  // 由壳经 setThicknessHorizon 跟 activeHorizon 联动。
+  auto *chain = new QPushButton(tr("生成等厚图"), this);
   chain->setObjectName(QStringLiteral("thicknessChainButton"));
-  chain->setAccessibleName(tr("运行编图链"));
+  chain->setEnabled(false);
+  chain->setToolTip(tr("先在顶部层位 chip 选择层位"));
+  chain->setAccessibleName(tr("生成等厚图"));
   connect(chain, &QPushButton::clicked, this, [this] { emit thicknessChainRequested(); });
   lay->addWidget(chain);
 
@@ -988,6 +992,20 @@ void ComposePage::setVersionState(int version, bool published)
                                 : tr("编辑中 · v%1").arg(version));
   if (auto *save = child<QPushButton>(this, "saveVersionButton"))
     save->setText(published ? tr("保存新版本") : tr("保存版本"));
+}
+
+void ComposePage::setThicknessHorizon(const QString &horizon)
+{
+  auto *chain = child<QPushButton>(this, "thicknessChainButton");
+  if (!chain)
+    return;
+  chain->setEnabled(!horizon.isEmpty());
+  chain->setText(horizon.isEmpty() ? tr("生成等厚图")
+                                  : tr("生成 %1 等厚图").arg(horizon));
+  chain->setAccessibleName(chain->text());
+  chain->setToolTip(horizon.isEmpty()
+                        ? tr("先在顶部层位 chip 选择层位")
+                        : tr("等时差（双向 ms）× 层间速度 IDW → 厚度栅格"));
 }
 
 void ComposePage::refreshFactors()

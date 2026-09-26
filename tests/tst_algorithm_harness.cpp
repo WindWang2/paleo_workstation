@@ -33,6 +33,73 @@ private slots:
     GDALAllRegister();
   }
 
+  // 审计基线（docs/ALGORITHM_AUDIT.md §1）：C++-only 应用（不加载 Python
+  // provider）在系统 QGIS 4.2.2 上的 Processing 面分两层——
+  //   ① 未注册的：native/3d/pdal 不会自动进 registry（QGIS 4 须显式
+  //      addProvider），gdal:/qgis:/grass: 在本发行版是 Python 实现，
+  //      C++-only 进程永远拿不到（libqgis_analysis 无 C++ GDAL provider）；
+  //   ② 显式注册后可用的：QgsNativeAlgorithms（qgis_analysis，纯 C++），
+  //      343 个 native:* 算法——审计的替代路径全部以此为准。
+  void providerSurfaceContract()
+  {
+    auto *reg = QgsApplication::processingRegistry();
+    QVERIFY( reg->providerById( QStringLiteral( "paleo" ) ) != nullptr );
+
+    // ① 现状：QgsApplication::initQgis() 不自动注册任何 processing provider。
+    QVERIFY( reg->providerById( QStringLiteral( "native" ) ) == nullptr );
+    QVERIFY( reg->providerById( QStringLiteral( "gdal" ) ) == nullptr );
+    QVERIFY( reg->providerById( QStringLiteral( "qgis" ) ) == nullptr );
+    QVERIFY( reg->providerById( QStringLiteral( "grass" ) ) == nullptr );
+
+    // ② 一行注册 QgsNativeAlgorithms 后，native 面可用（审计建议可行性实证）。
+    AlgorithmTestBase::ensureNativeAlgorithms();
+    QVERIFY( reg->providerById( QStringLiteral( "native" ) ) != nullptr );
+
+    // native 面上审计关心的替代算法确实可解析（C++ 实现）。
+    const QStringList nativeAvailable = {
+        QStringLiteral( "native:distancematrix" ),
+        QStringLiteral( "native:distancetonearesthub" ),
+        QStringLiteral( "native:zonalstatistics" ),
+        QStringLiteral( "native:polygonize" )};
+    for ( const QString &id : nativeAvailable )
+      QVERIFY2( reg->algorithmById( id ) != nullptr, qPrintable( id ) );
+
+    // 审计确认的缺口：这些 ID 注册了 native 后仍然解析不到——它们在
+    // Python-only provider 里（gdal:*/qgis:*），或 QGIS4 已移除/改名。
+    const QStringList notInApp = {
+        QStringLiteral( "gdal:contour" ),
+        QStringLiteral( "gdal:grid" ),
+        QStringLiteral( "gdal:proximity" ),
+        QStringLiteral( "qgis:idwinterpolation" ),
+        QStringLiteral( "qgis:tininterpolation" ),
+        QStringLiteral( "native:rastercalculator" )};
+    for ( const QString &id : notInApp )
+      QVERIFY2( reg->algorithmById( id ) == nullptr, qPrintable( id ) );
+
+    // native:* 不只是能解析——headless 真能跑（距最近 hub 连线，最小用例；
+    // QGIS4 参数名：INPUT/HUBS/FIELD/UNIT/OUTPUT_LINES）。
+    auto *hubs = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "hubs" ), { { QgsPointXY( 0, 0 ), 1.0 } } );
+    auto *pts = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "pts" ), { { QgsPointXY( 3, 4 ), 0.0 } } );
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( pts ) );
+    params.insert( QStringLiteral( "HUBS" ), QVariant::fromValue( hubs ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "UNIT" ), 0 ); // meters
+    const QString out = mDir.filePath( QStringLiteral( "hublines.gpkg" ) );
+    params.insert( QStringLiteral( "OUTPUT_LINES" ), out );
+    params.insert( QStringLiteral( "OUTPUT_POINTS" ),
+                   QStringLiteral( "memory:hubpoints" ) ); // 双 sink：点输出丢弃
+    QString log;
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "native:distancetonearesthub" ), params, &log ).isEmpty(),
+              qPrintable( log ) );
+    QCOMPARE( AlgorithmTestBase::featureCount( out ), 1 );
+    delete hubs;
+    delete pts;
+  }
+
   // 1) IDW：同一输入连跑两次，输出逐像元一致（tol=0）；顺带校验一个
   //    已知中心的值（harness.makeRaster/readRaster 同时被本案覆盖）。
   void constraintIdwDeterministicRerun()

@@ -13,8 +13,10 @@
 #include <cpl_conv.h>
 
 #include <qgsapplication.h>
+#include <qgsexception.h>
 #include <qgsfeature.h>
 #include <qgsgeometry.h>
+#include <qgsnativealgorithms.h>
 #include <qgspointxy.h>
 #include <qgsprocessingalgorithm.h>
 #include <qgsprocessingcontext.h>
@@ -92,6 +94,16 @@ class AlgorithmTestBase
         QgsApplication::processingRegistry()->addProvider( new PaleoProvider() );
     }
 
+    // 幂等注册 QGIS 原生 C++ provider（"native"，QgsNativeAlgorithms——
+    // qgis_analysis 库，无需 Python）。QGIS 4 的 initQgis() 不会自动注册
+    // 任何 processing provider；要用 native:* 算法（距井距离/hub、
+    // zonal statistics 等）必须先调这个（docs/ALGORITHM_AUDIT.md §1）。
+    static void ensureNativeAlgorithms()
+    {
+      if ( !QgsApplication::processingRegistry()->providerById( QStringLiteral( "native" ) ) )
+        QgsApplication::processingRegistry()->addProvider( new QgsNativeAlgorithms() );
+    }
+
     // ---- run ----
 
     // 按 id 调算法（如 "paleo:paleo_isopach"）。算法抛出的 QgsProcessingException
@@ -111,22 +123,43 @@ class AlgorithmTestBase
       }
       QgsProcessingContext ctx;
       QgsProcessingFeedback fb;
+      bool ok = false;
+      QVariantMap res;
       try
       {
-        return alg->run( params, ctx, &fb );
+        // catchExceptions=false：失败以 QgsProcessingException 抛出——比
+        // 静默空 map 好断言；run() 内部自带 prepare/runPrepared/postProcess。
+        res = alg->run( params, ctx, &fb, &ok, QVariantMap(), false );
+      }
+      catch ( const QgsException &e )
+      {
+        if ( log )
+          *log = QStringLiteral( "%1 failed: %2" ).arg( algorithmId, e.what() );
+        return {};
       }
       catch ( const std::exception &e )
       {
         if ( log )
-          *log = QStringLiteral( "%1 threw: %2" ).arg( algorithmId, QString::fromUtf8( e.what() ) );
+          *log = QStringLiteral( "%1 failed: %2" )
+                     .arg( algorithmId, QString::fromUtf8( e.what() ) );
         return {};
       }
       catch ( ... )
       {
         if ( log )
-          *log = QStringLiteral( "%1 threw an unknown exception" ).arg( algorithmId );
+          *log = QStringLiteral( "%1 failed with an unknown exception" ).arg( algorithmId );
         return {};
       }
+      if ( !ok )
+      {
+        if ( log )
+          *log = QStringLiteral( "%1 failed without an exception: %2" )
+                     .arg( algorithmId,
+                           fb.textLog().isEmpty() ? QStringLiteral( "(no feedback text)" )
+                                                  : fb.textLog() );
+        return {};
+      }
+      return res;
     }
 
     // ---- raster IO ----

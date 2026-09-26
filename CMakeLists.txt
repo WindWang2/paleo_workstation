@@ -305,3 +305,6 @@ target_sources(paleo_core PRIVATE
   src/services/crashreport.cpp                  # 致命信号 fd 落盘 + .running 会话旗标 + 重启提示文案
 )
 add_paleo_test(tst_crashreport)
+add_paleo_test(tst_relocate)
+target_compile_definitions(tst_relocate PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")

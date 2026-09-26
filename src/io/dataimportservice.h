@@ -142,6 +142,17 @@ class DataImportService : public QObject
     QStringList assets(const QString &type = QString()) const;   // asset ids（按分类类型过滤）
     QString assetSource(const QString &assetId) const;           // 当前版本路径（外链绝对）
 
+    // ---- wave4/runtime-resilience：外链源重定位（TODOS P3 恢复路径）----
+    // RAW 外链版本（managed=false）源文件被移动/重命名后的恢复入口。流式重算
+    // 新文件 SHA-256，与该版本入库时留底一致才接受：一致 → 追加一条指向新
+    // 路径的同内容外链版本记录（版本不可变，不覆盖旧记录；extra.relocatedFrom
+    // 留血统），持久化进 catalog.json，currentVersion 从此解析到新路径；
+    // 不一致 → 拒绝，error 写明「文件内容与原版本不符」，catalog 不动。
+    // 新路径落在工程目录内也仍按 external 记（不升级为 managed）。
+    // 返回新版本 id；同一文件已在原位（幂等）回原 id；失败回空串 + *error。
+    QString relocateVersionSource(const QString &versionId, const QString &newPath,
+                                  QString *error = nullptr);
+
   signals:
     void imported(const QString &kind, const QString &assetId, const QString &layerId);
     void importFailed(const QString &kind, const QString &path, const QString &error);

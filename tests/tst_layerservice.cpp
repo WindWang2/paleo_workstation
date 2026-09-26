@@ -16,20 +16,6 @@
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 
-// ---------------------------------------------------------------------------
-// Local shim: qgisprojectservice.cpp is owned by another workstream and may not
-// be linked into this test yet. Marked weak so the real implementation wins at
-// link time once both land in the same target. Returning nullptr exercises the
-// service's documented fallback to QgsProject::instance().
-// ---------------------------------------------------------------------------
-#if defined(__GNUC__)
-__attribute__((weak))
-#endif
-QgsProject *QgisProjectService::project() const
-{
-  return nullptr;
-}
-
 // Fixture path: prefer the build-provided define, else derive from this file's
 // location so standalone g++ builds work too.
 static QString fixtureGpkg()

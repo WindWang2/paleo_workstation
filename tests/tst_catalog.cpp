@@ -21,6 +21,10 @@ private slots:
   void resolvedLinkStillNeedsEntityId();
   void currentVersionPicksHighestNumber();
   void managedPathLayout();
+  void unsafePathSegmentsRejected();
+  void versionBySha256FindsStored();
+  void addLinkDemotesPreviousPrimaryForSameRole();
+  void attachLinkResolvesUnresolvedAndDemotes();
 };
 
 void TestCatalog::roundTripsThroughJson()
@@ -282,6 +286,191 @@ void TestCatalog::managedPathLayout()
   QCOMPARE(p, QStringLiteral("raw/ast-7/ver-2/D61.dat"));
   // catalog.json lives under artifacts/metadata/ next to the project dir.
   QVERIFY(cat.catalogPath().endsWith(QStringLiteral("artifacts/metadata/catalog.json")));
+}
+
+// §3 路径卫生：受管路径段拒绝空段、"."、含 ".."、斜杠/反斜杠、换行、NUL 及
+// 其他控制字符；managedPath 拒绝产出坏路径，addVersion 拒绝落坏段。
+void TestCatalog::unsafePathSegmentsRejected()
+{
+  QVERIFY(DataCatalog::isSafePathSegment(QStringLiteral("D61.dat")));
+  QVERIFY(DataCatalog::isSafePathSegment(QStringLiteral("A1.Las")));
+  QVERIFY(DataCatalog::isSafePathSegment(QString::fromUtf8("层位.dat")));
+  QVERIFY(DataCatalog::isSafePathSegment(QStringLiteral("a b.dat"))); // 空格允许
+
+  QVERIFY(!DataCatalog::isSafePathSegment(QString()));
+  QVERIFY(!DataCatalog::isSafePathSegment(QStringLiteral(".")));
+  QVERIFY(!DataCatalog::isSafePathSegment(QStringLiteral("..")));
+  QVERIFY(!DataCatalog::isSafePathSegment(QStringLiteral("..x")));
+  QVERIFY(!DataCatalog::isSafePathSegment(QStringLiteral("a..b")));
+  QVERIFY(!DataCatalog::isSafePathSegment(QStringLiteral("a/b")));
+  QVERIFY(!DataCatalog::isSafePathSegment(QStringLiteral("a\\b")));
+  QVERIFY(!DataCatalog::isSafePathSegment(QStringLiteral("a\nb")));
+  QVERIFY(!DataCatalog::isSafePathSegment(QStringLiteral("a\tb")));
+  QVERIFY(!DataCatalog::isSafePathSegment(QStringLiteral("a") + QChar(0) + QStringLiteral("b")));
+  QVERIFY(!DataCatalog::isSafePathSegment(QString(QChar(0x1F))));
+
+  // managedPath 任一段非法 → 空串（不产出坏路径）
+  QVERIFY(DataCatalog::managedPath(QStringLiteral("raw"), QStringLiteral("ast-1"),
+                                   QStringLiteral("ver-1"), QStringLiteral("a\nb.dat")).isEmpty());
+  QVERIFY(DataCatalog::managedPath(QStringLiteral("raw"), QStringLiteral(".."),
+                                   QStringLiteral("ver-1"), QStringLiteral("f.dat")).isEmpty());
+  QCOMPARE(DataCatalog::managedPath(QStringLiteral("raw"), QStringLiteral("ast-1"),
+                                    QStringLiteral("ver-1"), QStringLiteral("f.dat")),
+           QStringLiteral("raw/ast-1/ver-1/f.dat"));
+
+  // addVersion 拒绝坏 fileName / 受管 path 坏段；外链绝对 path 不查段。
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  QString err;
+  CatalogVersion v;
+  v.id = QStringLiteral("ver-1");
+  v.assetId = QStringLiteral("ast-1");
+  v.stage = QStringLiteral("RAW");
+  v.fileName = QStringLiteral("a\nb.dat");
+  QVERIFY(!cat.addVersion(v, &err));
+  QVERIFY(!err.isEmpty());
+  v.fileName = QStringLiteral("ok.dat");
+  v.managed = true;
+  v.path = QStringLiteral("raw/ast-1/../evil.dat");
+  QVERIFY(!cat.addVersion(v, &err));
+  QVERIFY(!err.isEmpty());
+  QVERIFY(cat.versionsForAsset(QStringLiteral("ast-1")).isEmpty());
+  v.managed = false;
+  v.path = QStringLiteral("/abs/path/f.dat");
+  QVERIFY(cat.addVersion(v, &err));
+}
+
+// §3 dedup 查询：同一 SHA-256 命中的版本能被找回（大小写不敏感）。
+void TestCatalog::versionBySha256FindsStored()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogVersion v;
+  v.id = QStringLiteral("ver-1");
+  v.assetId = QStringLiteral("ast-1");
+  v.stage = QStringLiteral("RAW");
+  v.sha256 = QStringLiteral("abc123");
+  QVERIFY(cat.addVersion(v));
+
+  QCOMPARE(cat.versionBySha256(QStringLiteral("abc123")).id, QStringLiteral("ver-1"));
+  QCOMPARE(cat.versionBySha256(QStringLiteral("ABC123")).id, QStringLiteral("ver-1"));
+  QVERIFY(cat.versionBySha256(QStringLiteral("zzz")).id.isEmpty());
+  QVERIFY(cat.versionBySha256(QString()).id.isEmpty()); // 空 sha 永不命中
+}
+
+// §3：新的已决主关联入库后，同一 (entityType, entityId, role) 的旧主关联降级——
+// 同一角色只留一条主关联；不同角色/实体不受影响，未决链接不参与。
+void TestCatalog::addLinkDemotesPreviousPrimaryForSameRole()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogEntity w;
+  w.id = QStringLiteral("well-A1");
+  w.entityType = QStringLiteral("well");
+  w.name = QStringLiteral("A1");
+  QVERIFY(cat.addEntity(w));
+  for (const QString &id : {QStringLiteral("ast-1"), QStringLiteral("ast-2")})
+  {
+    CatalogAsset a;
+    a.id = id;
+    a.type = QStringLiteral("well_log");
+    QVERIFY(cat.addAsset(a));
+  }
+
+  const auto addWellLink = [&cat](const QString &assetId, const QString &role) {
+    EntityAssetLink l;
+    l.entityType = QStringLiteral("well");
+    l.entityId = QStringLiteral("well-A1");
+    l.assetId = assetId;
+    l.role = role;
+    l.isPrimary = true;
+    return cat.addLink(l);
+  };
+  QVERIFY(addWellLink(QStringLiteral("ast-1"), QStringLiteral("well_log")));
+  QVERIFY(addWellLink(QStringLiteral("ast-2"), QStringLiteral("well_log"))); // 顶替
+  QVERIFY(addWellLink(QStringLiteral("ast-1"), QStringLiteral("tops")));      // 不同角色不动
+
+  const auto links = cat.linksForEntity(QStringLiteral("well-A1"));
+  QCOMPARE(links.size(), 3);
+  int primaryLogs = 0;
+  for (const EntityAssetLink &l : links)
+  {
+    if (l.role == QLatin1String("well_log"))
+    {
+      // 旧资产的那条被降级，新资产的仍是主关联
+      QCOMPARE(l.isPrimary, l.assetId == QLatin1String("ast-2"));
+      if (l.isPrimary)
+        ++primaryLogs;
+    }
+    else
+      QVERIFY(l.isPrimary); // tops 关联不受影响
+  }
+  QCOMPARE(primaryLogs, 1);
+}
+
+// §3 dedup 补挂：attachLink 把未决链接挂到实体——置已决、清备注、升主，
+// 并降级同实体同角色的其他主关联。已决链接/坏下标/空实体拒绝。
+void TestCatalog::attachLinkResolvesUnresolvedAndDemotes()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogEntity w;
+  w.id = QStringLiteral("well-G9");
+  w.entityType = QStringLiteral("well");
+  w.name = QStringLiteral("G9");
+  QVERIFY(cat.addEntity(w));
+  for (const QString &id : {QStringLiteral("ast-1"), QStringLiteral("ast-2")})
+  {
+    CatalogAsset a;
+    a.id = id;
+    a.type = QStringLiteral("well_log");
+    QVERIFY(cat.addAsset(a));
+  }
+
+  EntityAssetLink pending;
+  pending.entityType = QStringLiteral("well");
+  pending.assetId = QStringLiteral("ast-1");
+  pending.role = QStringLiteral("well_log");
+  pending.unresolved = true;
+  pending.note = QStringLiteral("未匹配井名: g9");
+  QVERIFY(cat.addLink(pending));
+
+  EntityAssetLink other;
+  other.entityType = QStringLiteral("well");
+  other.entityId = QStringLiteral("well-G9");
+  other.assetId = QStringLiteral("ast-2");
+  other.role = QStringLiteral("well_log");
+  other.isPrimary = true;
+  QVERIFY(cat.addLink(other));
+
+  QString err;
+  QVERIFY(!cat.attachLink(99, QStringLiteral("well-G9"), &err)); // 越界
+  QVERIFY(!cat.attachLink(1, QString(), &err));                  // 空实体 id
+  QVERIFY(cat.attachLink(0, QStringLiteral("well-G9"), &err));
+
+  const auto links = cat.links();
+  QCOMPARE(links.size(), 2);
+  QVERIFY(!links.at(0).unresolved);
+  QCOMPARE(links.at(0).entityId, QStringLiteral("well-G9"));
+  QVERIFY(links.at(0).isPrimary);
+  QVERIFY(links.at(0).note.isEmpty());
+  QVERIFY(!links.at(1).isPrimary); // 同实体同角色的旧主关联降级
+
+  QVERIFY(!cat.attachLink(0, QStringLiteral("well-G9"), &err)); // 已决不能再挂
+
+  // 往返后仍是已决
+  DataCatalog reloaded;
+  QVERIFY(reloaded.open(dir.path()));
+  QVERIFY(!reloaded.links().at(0).unresolved);
+  QCOMPARE(reloaded.links().at(0).entityId, QStringLiteral("well-G9"));
 }
 
 QTEST_MAIN(TestCatalog)

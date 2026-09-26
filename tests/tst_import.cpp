@@ -605,7 +605,9 @@ private slots:
     const CatalogVersion v = cat->currentVersion(assetId);
     QVERIFY(!v.managed);
     QVERIFY(QFileInfo(v.path).isAbsolute());
-    QVERIFY(v.sha256.isEmpty());
+    // §3：外链也留入库时 SHA-256（流式算的源文件摘要），打开时照它校验。
+    QCOMPARE(v.sha256, sha256OfFile(sgy));
+    QVERIFY(cat->verifyExternalVersionSha(v));
     QCOMPARE(svc.absolutePath(assetId), v.path);
 
     const CatalogEntity survey = cat->entityById(QStringLiteral("survey-200P_mini"));
@@ -619,6 +621,214 @@ private slots:
     QVERIFY(QFile::exists(v.path));
     QFile::remove(v.path);
     QVERIFY(!QFile::exists(v.path));
+  }
+
+  // §3 外链篡改：源文件字节变了 → 打开时 SHA-256 校验失败、报固定文案，不解码。
+  void externalShaMismatchBlocksOpen()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    QString err;
+    const QString sgy = tmp.filePath(QStringLiteral("vol.sgy"));
+    QVERIFY(QFile::copy(fixture(QStringLiteral("mini_seismic.sgy")), sgy));
+    const QString assetId = svc.importProjectFile(sgy, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+
+    DataCatalog *cat = svc.catalog();
+    const CatalogVersion v = cat->currentVersion(assetId);
+    QVERIFY(!v.managed);
+    QVERIFY(cat->verifyExternalVersionSha(v)); // 未动过 → 校验通过
+
+    // 尾部加一个字节 → 摘要变了
+    QFile f(sgy);
+    QVERIFY(f.open(QIODevice::Append));
+    QCOMPARE(f.write("X"), 1);
+    f.close();
+    QString verr;
+    QVERIFY(!cat->verifyExternalVersionSha(v, &verr));
+    QCOMPARE(verr, QStringLiteral("源文件与入库时的 SHA-256 不一致"));
+  }
+
+  // §3 dedup：同一 SHA-256 再导入 → 不新建资产/版本/主关联，报「字节已在库」。
+  void sameShaReimportDoesNotDuplicate()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    QString err;
+    QVERIFY(!svc.importProjectFile(fixture(QStringLiteral("ExportWellHead.dat")), &err).isEmpty());
+    const QString assetId = svc.importProjectFile(fixture(QStringLiteral("A1.Las")), &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+
+    DataCatalog *cat = svc.catalog();
+    const int assetCount = cat->assets().size();
+    int versionCount = 0;
+    for (const CatalogAsset &a : cat->assets())
+      versionCount += cat->versionsForAsset(a.id).size();
+
+    const DataImportService::ImportResult res =
+        svc.importProjectFileEx(fixture(QStringLiteral("A1.Las")), &err);
+    QVERIFY2(res.outcome == DataImportService::ImportOutcome::AlreadyStored,
+             qPrintable(res.message));
+    QCOMPARE(res.assetId, assetId); // 指回已存在资产
+    QVERIFY(!res.linkAttached);
+    QVERIFY(res.message.contains(QStringLiteral("字节已在库")));
+    QVERIFY(res.message.contains(QStringLiteral("没有新的关联")));
+
+    QCOMPARE(cat->assets().size(), assetCount); // 没有新资产
+    int versionCount2 = 0;
+    for (const CatalogAsset &a : cat->assets())
+      versionCount2 += cat->versionsForAsset(a.id).size();
+    QCOMPARE(versionCount2, versionCount); // 没有新版本
+
+    // A1 的 well_log 仍只有一条主关联——没有第二条。
+    int primaryLogs = 0, totalLogs = 0;
+    for (const EntityAssetLink &l : cat->linksForEntity(QStringLiteral("well-A1")))
+      if (l.role == QLatin1String("well_log"))
+      {
+        ++totalLogs;
+        if (l.isPrimary)
+          ++primaryLogs;
+      }
+    QCOMPARE(totalLogs, 1);
+    QCOMPARE(primaryLogs, 1);
+  }
+
+  // §3 dedup 补挂：入库时未决的链接，在该井出现后重导同一文件 → 补一条主关联。
+  void reimportAttachesNowResolvableLink()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithSingleWell(projectDir)); // 只有 A1
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString lasPath = tmp.filePath(QStringLiteral("Ghost.Las"));
+    QVERIFY(writeFile(lasPath, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. Ghost9 : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+
+    QString err;
+    const QString assetId = svc.importProjectFile(lasPath, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+    DataCatalog *cat = svc.catalog();
+    QVERIFY(cat->linksForAsset(assetId).front().unresolved);
+    const int unresolvedBefore = cat->links().size();
+
+    // Ghost9 井后出现 → 再导同一文件：dedup 命中且补上关联。
+    CatalogEntity w;
+    w.id = QStringLiteral("well-Ghost9");
+    w.entityType = QStringLiteral("well");
+    w.name = QStringLiteral("Ghost9");
+    QVERIFY(cat->addEntity(w, &err));
+
+    const DataImportService::ImportResult res = svc.importProjectFileEx(lasPath, &err);
+    QVERIFY(res.outcome == DataImportService::ImportOutcome::AlreadyStored);
+    QCOMPARE(res.assetId, assetId);
+    QVERIFY(res.linkAttached);
+    QVERIFY(res.message.contains(QStringLiteral("字节已在库")));
+    QVERIFY(res.message.contains(QStringLiteral("已补上关联")));
+
+    QCOMPARE(cat->links().size(), unresolvedBefore); // 没有新增链接
+    const auto links = cat->linksForAsset(assetId);
+    QCOMPARE(links.size(), 1);
+    QVERIFY(!links.front().unresolved);
+    QCOMPARE(links.front().entityId, QStringLiteral("well-Ghost9"));
+    QVERIFY(links.front().isPrimary);
+    QVERIFY(links.front().note.isEmpty());
+    // catalog.json 往返后仍在
+    DataCatalog reloaded;
+    QVERIFY(reloaded.open(projectDir, &err));
+    QCOMPARE(reloaded.linksForAsset(assetId).front().entityId, QStringLiteral("well-Ghost9"));
+  }
+
+  // §3：新 SHA-256 追加不可变版本/新资产——同井同角色的旧主关联降级，
+  // 同一角色只留一条主关联。
+  void newShaVersionDemotesPreviousPrimaryLink()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    QString err;
+    QVERIFY(!svc.importProjectFile(fixture(QStringLiteral("ExportWellHead.dat")), &err).isEmpty());
+    const QString oldAsset = svc.importProjectFile(fixture(QStringLiteral("A1.Las")), &err);
+    QVERIFY2(!oldAsset.isEmpty(), qPrintable(err));
+
+    // 同井新字节 → 新资产 + 新主关联
+    const QString v2 = tmp.filePath(QStringLiteral("A1_v2.las"));
+    QVERIFY(QFile::copy(fixture(QStringLiteral("A1.Las")), v2));
+    {
+      QFile f(v2);
+      QVERIFY(f.open(QIODevice::Append));
+      QCOMPARE(f.write("\n"), 1);
+    }
+    const QString newAsset = svc.importProjectFile(v2, &err);
+    QVERIFY2(!newAsset.isEmpty(), qPrintable(err));
+    QVERIFY(newAsset != oldAsset);
+
+    DataCatalog *cat = svc.catalog();
+    int primaryLogs = 0;
+    QString primaryAsset;
+    for (const EntityAssetLink &l : cat->linksForEntity(QStringLiteral("well-A1")))
+    {
+      if (l.role != QLatin1String("well_log"))
+        continue;
+      if (l.isPrimary)
+      {
+        ++primaryLogs;
+        primaryAsset = l.assetId;
+      }
+    }
+    QCOMPARE(primaryLogs, 1);              // 同一角色只留一条主关联
+    QCOMPARE(primaryAsset, newAsset);      // 且是新的那份
+  }
+
+  // §3 路径卫生：文件名含换行/控制字符或 ".." → 这一行如实失败，不入库。
+  void unsafeFileNameRejected()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    // 换行
+    const QString nl = tmp.filePath(QStringLiteral("bad\nname.las"));
+    QVERIFY(writeFile(nl, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A9 : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n1\n")));
+    QString err;
+    QVERIFY(svc.importProjectFile(nl, &err).isEmpty());
+    QVERIFY(!err.isEmpty());
+    QVERIFY(err.contains(QStringLiteral("路径段")));
+
+    // 控制字符（Tab）
+    const QString tab = tmp.filePath(QStringLiteral("bad\tname.las"));
+    QVERIFY(writeFile(tab, QByteArrayLiteral("x")));
+    QVERIFY(svc.importProjectFile(tab, &err).isEmpty());
+    QVERIFY(!err.isEmpty());
+
+    // ".."
+    const QString dd = tmp.filePath(QStringLiteral("..evil.las"));
+    QVERIFY(writeFile(dd, QByteArrayLiteral("x")));
+    QVERIFY(svc.importProjectFile(dd, &err).isEmpty());
+    QVERIFY(!err.isEmpty());
+
+    QVERIFY(svc.assets().isEmpty()); // 一个都没登记
+    QVERIFY(stack->manifest->all().isEmpty());
   }
 
   // 阶段 D：GeoJSON 图例字典（相/亚相/微相 distinct 值）落辅助实体。

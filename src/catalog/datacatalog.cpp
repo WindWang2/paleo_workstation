@@ -1,5 +1,6 @@
 #include "datacatalog.h"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -296,6 +297,28 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
     setError(error, QStringLiteral("version id or asset id is empty"));
     return false;
   }
+  // §3：fileName 与受管 path 的每一段都必须是合法路径段——catalog 不落坏段。
+  // （外链 path 是文件系统绝对路径，含分隔符属正常，不查；空 path 表示未落位，
+  // 交给调用方兜底。）
+  if (!v.fileName.isEmpty() && !isSafePathSegment(v.fileName))
+  {
+    setError(error, QStringLiteral("unsafe path segment in version file name: %1").arg(v.fileName));
+    return false;
+  }
+  if (!v.stage.isEmpty() && !isSafePathSegment(v.stage))
+  {
+    setError(error, QStringLiteral("unsafe path segment in version stage: %1").arg(v.stage));
+    return false;
+  }
+  if (v.managed && !v.path.isEmpty())
+  {
+    for (const QString &seg : v.path.split(QLatin1Char('/')))
+      if (!isSafePathSegment(seg))
+      {
+        setError(error, QStringLiteral("unsafe managed path segment: %1").arg(seg));
+        return false;
+      }
+  }
   m_versions.append(v);
   return save(error);
 }
@@ -314,7 +337,115 @@ bool DataCatalog::addLink(const EntityAssetLink &l, QString *error)
     return false;
   }
   m_links.append(l);
+  // §3：新的已决主关联入库后，同一 (entityType, entityId, role) 只保留这一条
+  // 主关联——同角色旧主关联（例如同井同角色的旧版本资产）降级为非主。
+  if (l.isPrimary && !l.unresolved)
+    for (int i = 0; i < m_links.size() - 1; ++i)
+      if (m_links[i].isPrimary && !m_links[i].unresolved &&
+          m_links[i].entityType == l.entityType && m_links[i].entityId == l.entityId &&
+          m_links[i].role == l.role)
+        m_links[i].isPrimary = false;
   return save(error);
+}
+
+bool DataCatalog::attachLink(int index, const QString &entityId, QString *error)
+{
+  if (index < 0 || index >= m_links.size())
+  {
+    setError(error, QStringLiteral("link index out of range: %1").arg(index));
+    return false;
+  }
+  EntityAssetLink &l = m_links[index];
+  if (!l.unresolved)
+  {
+    setError(error, QStringLiteral("link %1 is not unresolved").arg(index));
+    return false;
+  }
+  if (entityId.isEmpty())
+  {
+    setError(error, QStringLiteral("attach needs an entity id"));
+    return false;
+  }
+  l.entityId = entityId;
+  l.unresolved = false;
+  l.isPrimary = true;
+  l.note.clear();
+  // 与 addLink 同一不变量：同一 (entityType, entityId, role) 只留这一条主关联。
+  for (int i = 0; i < m_links.size(); ++i)
+    if (i != index && m_links[i].isPrimary && !m_links[i].unresolved &&
+        m_links[i].entityType == l.entityType && m_links[i].entityId == entityId &&
+        m_links[i].role == l.role)
+      m_links[i].isPrimary = false;
+  return save(error);
+}
+
+CatalogVersion DataCatalog::versionBySha256(const QString &sha256) const
+{
+  if (sha256.isEmpty())
+    return CatalogVersion();
+  for (const CatalogVersion &v : m_versions)
+    if (v.sha256.compare(sha256, Qt::CaseInsensitive) == 0)
+      return v;
+  return CatalogVersion();
+}
+
+QString DataCatalog::sha256FileHex(const QString &path, QString *error)
+{
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly))
+  {
+    setError(error, QStringLiteral("cannot read %1").arg(path));
+    return QString();
+  }
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  char buf[1 << 20];
+  qint64 n = 0;
+  while ((n = f.read(buf, sizeof(buf))) > 0)
+    hash.addData(QByteArrayView(buf, static_cast<qsizetype>(n)));
+  if (n < 0)
+  {
+    setError(error, QStringLiteral("read error on %1").arg(path));
+    return QString();
+  }
+  return QString::fromLatin1(hash.result().toHex());
+}
+
+bool DataCatalog::verifyExternalVersionSha(const CatalogVersion &v, QString *error) const
+{
+  // 受管版本（自己写入的副本）与未留底的外链（旧 catalog）无从校验。
+  if (v.managed || v.sha256.isEmpty())
+    return true;
+  QString herr;
+  const QString current = sha256FileHex(v.path, &herr); // 外链 path 是绝对路径
+  if (current.isEmpty())
+  {
+    setError(error, herr.isEmpty() ? QStringLiteral("cannot read %1").arg(v.path) : herr);
+    return false;
+  }
+  if (current.compare(v.sha256, Qt::CaseInsensitive) != 0)
+  {
+    setError(error, QStringLiteral("源文件与入库时的 SHA-256 不一致"));
+    return false;
+  }
+  return true;
+}
+
+bool DataCatalog::isSafePathSegment(const QString &segment)
+{
+  // §3：一段路径拒绝空段、"."、任何含 ".." 的段、斜杠/反斜杠、NUL 与控制字符
+  //（含换行、回车、Tab、DEL）。
+  if (segment.isEmpty() || segment == QLatin1Char('.') ||
+      segment.contains(QLatin1String("..")))
+    return false;
+  for (const QChar c : segment)
+  {
+    if (c == QLatin1Char('/') || c == QLatin1Char('\\'))
+      return false;
+    const ushort u = c.unicode();
+    if (u < 0x20 || u == 0x7F)
+      return false;
+  }
+  return true;
 }
 
 bool DataCatalog::hasEntity(const QString &id) const
@@ -446,6 +577,10 @@ QStringList DataCatalog::wellsMatchingName(const QString &name) const
 QString DataCatalog::managedPath(const QString &stage, const QString &assetId,
                                  const QString &versionId, const QString &fileName)
 {
+  // §3：任一段不是合法路径段就回空串——catalog 拒绝产出坏路径。
+  if (!isSafePathSegment(stage) || !isSafePathSegment(assetId) ||
+      !isSafePathSegment(versionId) || !isSafePathSegment(fileName))
+    return QString();
   return QStringLiteral("%1/%2/%3/%4").arg(stage.toLower(), assetId, versionId, fileName);
 }
 

@@ -475,13 +475,14 @@ class TestMapping : public QObject
         QCOMPARE( doneSpy.count(), 1 );
         QCOMPARE( doneSpy.at( 0 ).at( 0 ).toString(), QStringLiteral( "D61" ) );
         QCOMPARE( doneSpy.at( 0 ).at( 1 ).toString(),
-                  QStringLiteral( "D61–D62 等厚（米）" ) );
+                  QStringLiteral( "factor.D61.idw" ) );
 
         // --- 等厚栅格：声明 + 落盘；网格必须是 D61 网格本身 -----------------
         const LayerDeclaration *thick =
-            findDecl( f.layers, QStringLiteral( "D61–D62 等厚（米）" ) );
+            findDecl( f.layers, QStringLiteral( "factor.D61.idw" ) );
         QVERIFY2( thick != nullptr, "等厚图层未声明" );
         QCOMPARE( thick->type, QStringLiteral( "raster" ) );
+        QCOMPARE( thick->title, QStringLiteral( "D61–D62 等厚（米）" ) );
         QCOMPARE( thick->horizon, QStringLiteral( "D61" ) );
         QVERIFY( QFile::exists( thick->source ) );
 
@@ -510,10 +511,13 @@ class TestMapping : public QObject
         QVERIFY( qIsNaN( sampleAt( thick->source, 950.0, 750.0 ) ) );
         delete thick;
 
-        // 不产相多边形、不产旧式井点/系数层。
+        // 不产相多边形；井点层 wells.thickness 是 PDF 井位/井名的数据源，应在。
         QVERIFY( findDecl( f.layers, QStringLiteral( "facies.D61" ) ) == nullptr );
-        QVERIFY( findDecl( f.layers, QStringLiteral( "wells.thickness.D61" ) ) == nullptr );
-        QVERIFY( findDecl( f.layers, QStringLiteral( "factor.D61.idw" ) ) == nullptr );
+        const LayerDeclaration *wells =
+            findDecl( f.layers, QStringLiteral( "wells.thickness.D61" ) );
+        QVERIFY2( wells != nullptr, "井点层未声明" );
+        QVERIFY( QFile::exists( wells->source ) );
+        delete wells;
     }
 
     // D61/D62 网格不一致 → 不写等厚，错误文案如实说明。
@@ -544,7 +548,7 @@ class TestMapping : public QObject
         QVERIFY( !f.mapping.runThicknessChain( QStringLiteral( "D61" ), &err ) );
         QVERIFY( err.contains( QStringLiteral( "不一致" ) ) );
         QCOMPARE( failSpy.count(), 1 );
-        QVERIFY( findDecl( f.layers, QStringLiteral( "D61–D62 等厚（米）" ) ) == nullptr );
+        QVERIFY( findDecl( f.layers, QStringLiteral( "factor.D61.idw" ) ) == nullptr );
     }
 
     // 层位栅格缺失 → 退回井点厚度 IDW，层名「井点厚度（米，无层位栅格）」。
@@ -560,9 +564,10 @@ class TestMapping : public QObject
         QVERIFY2( f.mapping.runThicknessChain( QStringLiteral( "D61" ), &err ),
                   qPrintable( err ) );
         const LayerDeclaration *d =
-            findDecl( f.layers, QStringLiteral( "井点厚度（米，无层位栅格）" ) );
+            findDecl( f.layers, QStringLiteral( "factor.D61.idw" ) );
         QVERIFY2( d != nullptr, "退回层未声明" );
         QCOMPARE( d->type, QStringLiteral( "raster" ) );
+        QCOMPARE( d->title, QStringLiteral( "井点厚度（米，无层位栅格）" ) );
         QVERIFY( QFile::exists( d->source ) );
         // 凸包内 (500,600)：井点厚度 IDW² → 55–100m 之间的插值。
         const double near = sampleAt( d->source, 500.0, 600.0 );
@@ -988,6 +993,20 @@ class TestMapping : public QObject
         faciesDecl.source = f.dir.filePath( QStringLiteral( "cons.geojson" ) );
         faciesDecl.group = QStringLiteral( "05_PaleoMap" );
         QVERIFY2( f.layers.declare( faciesDecl, &err ), qPrintable( err ) );
+
+        // 厚度栅格声明（chain 产出的 factor.<h>.idw 契约 id）——本测试只验
+        // 布局结构，不跑编图链。
+        const QString thickTif = makeConstRaster(
+            f.dir.filePath( QStringLiteral( "thickness.tif" ) ), 36.0f );
+        QVERIFY( !thickTif.isEmpty() );
+        LayerDeclaration thickDecl;
+        thickDecl.layerId = QStringLiteral( "factor.D61.idw" );
+        thickDecl.horizon = QStringLiteral( "D61" );
+        thickDecl.type = QStringLiteral( "raster" );
+        thickDecl.source = thickTif;
+        thickDecl.group = QStringLiteral( "04_SingleFactor" );
+        thickDecl.title = QStringLiteral( "D61–D62 等厚（米）" );
+        QVERIFY2( f.layers.declare( thickDecl, &err ), qPrintable( err ) );
 
         // 阶段E — 布局结构（§162/§233）：标题「D61 厚度」+ 地图项（厚度
         // 栅格垫底，井位/相面在上）+ 米制图例 + 比例尺 + 指北针 + CRS 说明。

@@ -14,6 +14,10 @@
 #include <QFile>
 #include <QVariantMap>
 
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+
 #include <gdal.h>
 #include <ogr_spatialref.h>
 #include <cpl_conv.h>
@@ -263,11 +267,12 @@ namespace
     return true;
   }
 
-  QString tempRasterPath( const QString &tag, const QString &horizon )
+  QString tempRasterPath( const QString &tag, const QString &horizon,
+                          const QString &ext = QStringLiteral( ".tif" ) )
   {
     const QString stamp = QDateTime::currentDateTimeUtc().toString( QStringLiteral( "yyyyMMdd-hhmmss-zzz" ) );
     return QDir::temp().filePath(
-        QStringLiteral( "paleo_%1_%2_%3.tif" ).arg( tag, horizon, stamp ) );
+        QStringLiteral( "paleo_%1_%2_%3%4" ).arg( tag, horizon, stamp, ext ) );
   }
 
   // 井/分层的采样点：分层 X/Y 优先，缺省退井口。
@@ -339,6 +344,53 @@ namespace
     m.insert( QStringLiteral( "contributing" ), s.contributing );
     m.insert( QStringLiteral( "reason" ), s.reason );
     return m;
+  }
+
+  // 厚度样本井点层（wells.thickness.<h>）——PDF 上的井位/井名标注源。
+  // GeoJSON 内嵌 "crs" 成员写工程米制 WKT（OGR 仍认 legacy crs 写法），
+  // 不落到 4326 假设。只写有坐标的井；贡献井带 thickness_m 属性。
+  bool writeThicknessWellsGeoJson( const QVector<ThicknessSample> &samples,
+                                   const QString &path, QString *error )
+  {
+    QJsonArray feats;
+    for ( const ThicknessSample &s : samples )
+    {
+      if ( !std::isfinite( s.x ) || !std::isfinite( s.y ) )
+        continue;
+      QJsonObject props;
+      props.insert( QStringLiteral( "well_name" ), s.wellName );
+      if ( s.contributing && std::isfinite( s.thickness ) )
+        props.insert( QStringLiteral( "thickness_m" ), s.thickness );
+      QJsonObject geom;
+      geom.insert( QStringLiteral( "type" ), QStringLiteral( "Point" ) );
+      geom.insert( QStringLiteral( "coordinates" ), QJsonArray{ s.x, s.y } );
+      QJsonObject f;
+      f.insert( QStringLiteral( "type" ), QStringLiteral( "Feature" ) );
+      f.insert( QStringLiteral( "properties" ), props );
+      f.insert( QStringLiteral( "geometry" ), geom );
+      feats.append( f );
+    }
+    if ( feats.isEmpty() )
+      return true; // 没有可定位的井——不写空文件，也不算失败
+
+    QJsonObject root;
+    root.insert( QStringLiteral( "type" ), QStringLiteral( "FeatureCollection" ) );
+    QJsonObject crsProps;
+    crsProps.insert( QStringLiteral( "name" ), DataCatalog::localGridCrsWkt() );
+    QJsonObject crs;
+    crs.insert( QStringLiteral( "type" ), QStringLiteral( "name" ) );
+    crs.insert( QStringLiteral( "properties" ), crsProps );
+    root.insert( QStringLiteral( "crs" ), crs );
+    root.insert( QStringLiteral( "features" ), feats );
+
+    QFile file( path );
+    if ( !file.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
+    {
+      setError( error, QObject::tr( "井点 GeoJSON 写入失败：%1" ).arg( path ) );
+      return false;
+    }
+    file.write( QJsonDocument( root ).toJson( QJsonDocument::Compact ) );
+    return true;
   }
 } // namespace
 
@@ -503,6 +555,32 @@ QString MappingWorkflow::thicknessSampleMessage() const
   return property( "paleo.thickness.message" ).toString();
 }
 
+void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
+                                                  const QVector<ThicknessSample> &samples )
+{
+  const QString path = tempRasterPath( QStringLiteral( "thickness_wells" ), horizon,
+                                       QStringLiteral( ".geojson" ) );
+  QString writeErr;
+  if ( !writeThicknessWellsGeoJson( samples, path, &writeErr ) )
+  {
+    qWarning() << "thickness wells layer write failed:" << writeErr;
+    return;
+  }
+  if ( !QFile::exists( path ) )
+    return; // 没有可定位的井
+
+  LayerDeclaration decl;
+  decl.layerId = QStringLiteral( "wells.thickness.%1" ).arg( horizon );
+  decl.horizon = horizon;
+  decl.type = QStringLiteral( "vector" );
+  decl.source = path;
+  decl.group = QStringLiteral( "04_SingleFactor" );
+  decl.title = tr( "厚度井位" );
+  QString declErr;
+  if ( !m_layers->declare( decl, &declErr ) )
+    qWarning() << "thickness wells layer declare failed:" << declErr;
+}
+
 // ---------------------------------------------------------------------------
 // 编图链（autoplan §5C 新语义）
 // ---------------------------------------------------------------------------
@@ -608,14 +686,16 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
       return fail( error ? *error : tr( "井点厚度栅格写入失败" ) );
 
     LayerDeclaration decl;
-    decl.layerId = QStringLiteral( "井点厚度（米，无层位栅格）" );
+    decl.layerId = QStringLiteral( "factor.%1.idw" ).arg( horizon );
     decl.horizon = horizon;
     decl.type = QStringLiteral( "raster" );
     decl.source = outPath;
     decl.group = QStringLiteral( "04_SingleFactor" );
+    decl.title = QStringLiteral( "井点厚度（米，无层位栅格）" );
     if ( !m_layers->declare( decl, error ) )
       return fail( error ? *error : tr( "无法声明井点厚度图层" ) );
 
+    declareThicknessWellsLayer( horizon, samples );
     emit chainDone( horizon, decl.layerId );
     return true;
   }
@@ -666,14 +746,16 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
     return fail( error ? *error : tr( "等厚栅格写入失败" ) );
 
   LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "%1–%2 等厚（米）" ).arg( horizon, base );
+  decl.layerId = QStringLiteral( "factor.%1.idw" ).arg( horizon );
   decl.horizon = horizon;
   decl.type = QStringLiteral( "raster" );
   decl.source = outPath;
   decl.group = QStringLiteral( "04_SingleFactor" );
+  decl.title = QStringLiteral( "%1–%2 等厚（米）" ).arg( horizon, base );
   if ( !m_layers->declare( decl, error ) )
     return fail( error ? *error : tr( "无法声明等厚图层" ) );
 
+  declareThicknessWellsLayer( horizon, samples );
   // 厚度栅格不是相编码——不调用 deriveFaciesPolygons（autoplan §5C）。
   emit chainDone( horizon, decl.layerId );
   return true;

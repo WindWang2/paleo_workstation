@@ -143,6 +143,8 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
     return nullptr;
   }
   layer.release();
+  if (!decl->title.isEmpty())
+    added->setName(decl->title); // 显示名优先 title，机器名仍在 paleoLayerId
   added->setCustomProperty(QStringLiteral("paleoLayerId"), decl->layerId);
 
   trackInstance(layerId, added);

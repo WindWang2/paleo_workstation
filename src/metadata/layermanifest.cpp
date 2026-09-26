@@ -24,7 +24,7 @@ namespace
       *error = text;
   }
 
-  const QString kColumns = QStringLiteral("layer_id,horizon,type,source,style_ref,grp");
+  const QString kColumns = QStringLiteral("layer_id,horizon,type,source,style_ref,grp,title");
 
   // Lazily opens the connection and guarantees the schema. Lets every public
   // method work even if the caller skipped open().
@@ -64,10 +64,26 @@ namespace
                                     "type TEXT,"
                                     "source TEXT,"
                                     "style_ref TEXT,"
-                                    "grp TEXT)")))
+                                    "grp TEXT,"
+                                    "title TEXT)")))
     {
       setError(error, schema.lastError().text());
       return false;
+    }
+    // 老库没有 title 列——按需补列，旧行 title 为 NULL（显示退回 layerId）。
+    QSqlQuery cols(db);
+    if (cols.exec(QStringLiteral("PRAGMA table_info(layer_declarations)")))
+    {
+      bool hasTitle = false;
+      while (cols.next())
+        if (cols.value(1).toString() == QLatin1String("title"))
+          hasTitle = true;
+      if (!hasTitle &&
+          !schema.exec(QStringLiteral("ALTER TABLE layer_declarations ADD COLUMN title TEXT")))
+      {
+        setError(error, schema.lastError().text());
+        return false;
+      }
     }
     return true;
   }
@@ -81,6 +97,7 @@ namespace
     d.source = q.value(3).toString();
     d.styleRef = q.value(4).toString();
     d.group = q.value(5).toString();
+    d.title = q.value(6).toString();
     d.instantiated = false; // runtime-only flag — never read back as true
     return d;
   }
@@ -109,13 +126,14 @@ bool LayerManifest::upsert(const LayerDeclaration &decl, QString *error)
     // 'instantiated' is intentionally not written: schema has no column for it.
   QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
   q.prepare(QStringLiteral("INSERT OR REPLACE INTO layer_declarations(") + kColumns +
-            QStringLiteral(") VALUES(?,?,?,?,?,?)"));
+            QStringLiteral(") VALUES(?,?,?,?,?,?,?)"));
   q.addBindValue(decl.layerId);
   q.addBindValue(decl.horizon);
   q.addBindValue(decl.type);
   q.addBindValue(decl.source);
   q.addBindValue(decl.styleRef);
   q.addBindValue(decl.group);
+  q.addBindValue(decl.title);
   if (!q.exec())
   {
     setError(error, q.lastError().text());

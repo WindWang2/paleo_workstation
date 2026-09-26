@@ -26,6 +26,8 @@ namespace
     o.insert( QStringLiteral( "source" ), d.source );
     o.insert( QStringLiteral( "styleRef" ), d.styleRef );
     o.insert( QStringLiteral( "group" ), d.group );
+    if ( !d.title.isEmpty() )
+      o.insert( QStringLiteral( "title" ), d.title );
     // 'instantiated' deliberately omitted — runtime-only state (§37).
     return o;
   }
@@ -39,6 +41,7 @@ namespace
     d.source = o.value( QStringLiteral( "source" ) ).toString();
     d.styleRef = o.value( QStringLiteral( "styleRef" ) ).toString();
     d.group = o.value( QStringLiteral( "group" ) ).toString();
+    d.title = o.value( QStringLiteral( "title" ) ).toString();
     d.instantiated = false;
     return d;
   }

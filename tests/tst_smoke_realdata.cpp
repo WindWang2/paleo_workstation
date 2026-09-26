@@ -259,9 +259,10 @@ void TestSmokeRealdata::importsWholeWorkarea()
     bool sawThick = false, sawFacies = false;
     for (const LayerDeclaration &d : layerSvc.declared())
     {
-      if (d.layerId == QStringLiteral("D61–D62 等厚（米）"))
+      if (d.layerId == QStringLiteral("factor.D61.idw"))
       {
         QCOMPARE(d.type, QStringLiteral("raster"));
+        QCOMPARE(d.title, QStringLiteral("D61–D62 等厚（米）"));
         QVERIFY(QFile::exists(d.source));
         sawThick = true;
 

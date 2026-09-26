@@ -91,6 +91,10 @@ class MappingWorkflow : public QObject
   private:
     void publishThicknessSamples( const QVector<ThicknessSample> &samples,
                                   const QString &message );
+    // wells.thickness.<h> 井点图层：厚度样本的井位/井名（PDF 标注与图面定位用）。
+    // 声明失败不失败链路——厚度栅格本身已经产出；只记警告。
+    void declareThicknessWellsLayer( const QString &horizon,
+                                     const QVector<ThicknessSample> &samples );
 
     ConstraintWorkflow *m_constraints = nullptr;
     CompositionWorkflow *m_compose = nullptr;

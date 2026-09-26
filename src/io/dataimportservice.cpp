@@ -5,6 +5,7 @@
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/qgislayerservice.h"
 #include "horizonbinner.h"
+#include "ingestplan.h"
 #include "lasparser.h"
 #include "projectclassifier.h"
 #include "segyreader.h"
@@ -263,9 +264,38 @@ DataImportService::importProjectFileEx(const QString &sourcePath, QString *error
   return importProjectFileEx(sourcePath, ImportOptions{}, error);
 }
 
+// C 包三段式入口（docs/DATA_FABRIC_ADOPTION.md）：单文件也先立 1 项 plan——
+// 同一 buildIngestPlan（分类/身份/plan 期 dedup 标记全走），重复项的
+// duplicateOfVersionId 如实标上。显式单文件导入的语义是「仍导入」：这里不走
+// 执行器的 skip/幂等分支，同字节结局由内部 dedup 消化（AlreadyStored+补挂，
+// 与既有测试同口径）。plan 不适用时（服务未接线/文件不存在/目录源）原路进
+// importOneFile——错误与 importFailed 信号口径不变。
 DataImportService::ImportResult
 DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOptions &options,
                                        QString *error)
+{
+  if (m_catalog && m_catalogReady && !sourcePath.isEmpty() &&
+      QFileInfo(sourcePath).isFile())
+  {
+    const IngestPlan plan =
+        catInvoke([&] { return buildIngestPlan(sourcePath, *m_catalog); });
+    if (!plan.items.isEmpty())
+    {
+      const PlannedItem &item = plan.items.constFirst();
+      ImportOptions eff = options;
+      if (eff.forceType.isEmpty())
+        eff.forceType = item.type; // 生效类型取 plan 分类（与内部同口径）
+      return importOneFile(item.path, eff, error);
+    }
+  }
+  return importOneFile(sourcePath, options, error);
+}
+
+// 单文件导入实体——plan 化前的 importProjectFileEx 主体：分类 → dedup →
+// 受管 RAW 复制/外链 → 实体解析 → 关联，语义原样未动。
+DataImportService::ImportResult
+DataImportService::importOneFile(const QString &sourcePath, const ImportOptions &options,
+                                 QString *error)
 {
   QString internalError;
   if (!error)
@@ -815,161 +845,10 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
 // 的井集解析。单行失败只落行、不中断；逃出所选根目录的符号链接与非普通文
 // 件标 Skipped。dedup（AlreadyStored）记 Imported，message 留「字节已在库」。
 // ---------------------------------------------------------------------------
-namespace
-{
-  struct FolderCand
-  {
-    QString path;
-    QString canon;          // 枚举时刻的 canonicalFilePath——TOCTOU 复核基准
-    QString classifiedType; // 分类器原类型（覆盖前的）；阶段归属看生效类型
-  };
-
-  void appendFolderSkip( QVector<DataImportService::FolderRowResult> *skipped,
-                         const QString &path, const QString &msg )
-  {
-    DataImportService::FolderRowResult row;
-    row.path = path;
-    row.classifiedType = classifyProjectPath( path ).type;
-    row.outcome = DataImportService::FolderRowResult::Outcome::Skipped;
-    row.message = msg;
-    skipped->append( row );
-  }
-
-  // 行的生效类型：覆盖表里有合法类型用覆盖，否则用分类器结果。
-  // 非法 override（不在分类器词表里的字符串）忽略——不落进资产类型。
-  QString effectiveFolderType(const FolderCand &c,
-                              const QMap<QString, QString> &overrides)
-  {
-    const QString o = overrides.value(c.path);
-    return isClassifierType(o) ? o : c.classifiedType;
-  }
-
-  // 与 importFolder/previewFolder 共用的枚举：校验目录、守卫工程子树、
-  // 递归收普通文件并按分类器归类（.xml 看内容判定）。
-  bool collectFolderCandidates( const QString &dirPath, const QString &projectDir,
-                                QVector<FolderCand> *candidates,
-                                QVector<DataImportService::FolderRowResult> *skipped,
-                                QString *error )
-  {
-    candidates->clear();
-    skipped->clear();
-    const QFileInfo dirInfo( dirPath );
-    if ( dirPath.isEmpty() || !dirInfo.isDir() )
-    {
-      setError( error, QStringLiteral( "找不到目录: %1" ).arg( dirPath ) );
-      return false;
-    }
-    const QString rootCanon = dirInfo.canonicalFilePath();
-    if ( rootCanon.isEmpty() )
-    {
-      setError( error, QStringLiteral( "无法解析目录: %1" ).arg( dirPath ) );
-      return false;
-    }
-    const QString rootPrefix = rootCanon + QLatin1Char( '/' );
-    // 工程目录自身（或其内部目录）不能当导入源——不能把 catalog/artifacts 扫回来。
-    const QString projectCanon = QFileInfo( projectDir ).canonicalFilePath();
-    const QString projectPrefix =
-        projectCanon.isEmpty() ? QString() : projectCanon + QLatin1Char( '/' );
-    if ( !projectCanon.isEmpty() &&
-         ( rootCanon == projectCanon || rootCanon.startsWith( projectPrefix ) ) )
-    {
-      setError( error, QStringLiteral( "不能把工程目录自身选作导入源: %1" ).arg( dirPath ) );
-      return false;
-    }
-
-    // 迭代器不带 FollowSymlinks：目录符号链接天然不下钻；文件符号链接用
-    // canonical 判定是否逃出所选根目录（落在根内的按普通文件处理，link 路径
-    // 作为 sourceUri 留底）。不带 Hidden：.preview_cache 之类不进表。
-    // AllEntries|System：fifo/socket/悬空链接也要收进来——它们各落一行 Skipped。
-    QDirIterator it( dirInfo.absoluteFilePath(),
-                     QDir::AllEntries | QDir::System | QDir::NoDotAndDotDot,
-                     QDirIterator::Subdirectories );
-    while ( it.hasNext() )
-    {
-      const QString path = it.next();
-      const QFileInfo fi = it.fileInfo();
-      const QString canon = fi.canonicalFilePath();
-      // 被选目录包住工程目录时：工程产物子树不是源数据，跳过且不出行。
-      if ( !projectPrefix.isEmpty() && !canon.isEmpty() && canon.startsWith( projectPrefix ) )
-        continue;
-
-      if ( fi.isSymLink() &&
-           ( canon.isEmpty() || ( !canon.startsWith( rootPrefix ) && canon != rootCanon ) ) )
-      {
-        appendFolderSkip( skipped, path,
-                          canon.isEmpty() ? QStringLiteral( "悬空符号链接，已跳过" )
-                                          : QStringLiteral( "符号链接指向所选目录之外，已跳过" ) );
-        continue;
-      }
-      if ( fi.isDir() )
-        continue; // 目录只用来下钻，自身不成行
-      if ( !fi.isFile() )
-      {
-        appendFolderSkip( skipped, path, QStringLiteral( "不是普通文件，已跳过" ) );
-        continue;
-      }
-
-      const QString candCanon = fi.canonicalFilePath();
-
-      // 与 importProjectFileEx 同一分类口径：.xml 要看内容判定。
-      QByteArray xml;
-      if ( QFileInfo( path ).suffix().compare( QLatin1String( "xml" ), Qt::CaseInsensitive ) == 0 )
-      {
-        // T33 符号链接 TOCTOU 复核：上面 containment 判定用的是枚举时刻
-        // stat；读字节前重取 canonical——目标被改指向（或已非普通文件）就
-        // 如实跳过，不读逃出根目录的内容。
-        const QFileInfo recheck( path );
-        if ( !recheck.isFile() || recheck.canonicalFilePath() != candCanon )
-        {
-          appendFolderSkip( skipped, path,
-                            QStringLiteral( "符号链接目标在枚举后已变化，已跳过" ) );
-          continue;
-        }
-        xml = readFileOrEmpty( path ).toUtf8();
-      }
-      const ProjectClassification cls = classifyProjectImport( path, xml );
-      FolderCand c;
-      c.path = path;
-      c.canon = candCanon;
-      c.classifiedType = cls.type;
-      candidates->append( c );
-    }
-
-    if ( candidates->isEmpty() && skipped->isEmpty() )
-    {
-      setError( error, QStringLiteral( "目录里没有可导入的文件: %1" ).arg( dirPath ) );
-      return false;
-    }
-    return true;
-  }
-
-  // 与 importFolder 相同的行序：阶段 1 全部 well_head（井建齐）、阶段 2 其余，
-  // 各阶段内按路径排序——previewFolder 与 importFolder 必须用同一序，确认表
-  // 才能按行索引对齐预览行与结果行。
-  // D5：阶段划分按「生效类型」（覆盖后）——用户在确认表把一行改成
-  // well_head，它就回阶段 1，井建得够早，排前的阶段 2 行仍能挂上。
-  QVector<FolderCand> orderFolderCandidates( const QVector<FolderCand> &candidates,
-                                             const QMap<QString, QString> &overrides = {} )
-  {
-    QVector<FolderCand> ordered;
-    for ( int phase = 0; phase < 2; ++phase )
-    {
-      QVector<FolderCand> bucket;
-      for ( const FolderCand &c : candidates )
-      {
-        const bool phase0 = effectiveFolderType(c, overrides) ==
-                                QLatin1String("well_head") &&
-                            !isFixedAuxiliaryPath(c.path);
-        if ( ( phase == 0 ) == phase0 )
-          bucket.append( c );
-      }
-      std::sort( bucket.begin(), bucket.end(),
-                 []( const FolderCand &a, const FolderCand &b ) { return a.path < b.path; } );
-      ordered += bucket;
-    }
-    return ordered;
-  }
-} // namespace
+// 文件夹枚举/分类/shp 归组/身份匹配/去重/两阶段排序已并入 C 包 plan 构建器
+// （io/ingestplan.cpp 的 buildIngestPlan）——previewFolder 与 importFolder
+// 共用同一份 plan，确认表逐行看到的就是将要执行的决策。
+// ---------------------------------------------------------------------------
 
 QVector<DataImportService::FolderPreviewRow>
 DataImportService::previewFolder(const QString &dirPath, QString *error)
@@ -977,28 +856,37 @@ DataImportService::previewFolder(const QString &dirPath, QString *error)
   QVector<FolderPreviewRow> rows;
   if (error)
     error->clear();
-  QVector<FolderCand> cands;
-  QVector<FolderRowResult> skipped;
-  if (!collectFolderCandidates(dirPath, m_projectDir, &cands, &skipped, error))
+  if (dirPath.isEmpty() || !QFileInfo(dirPath).isDir())
+  {
+    setError(error, QStringLiteral("找不到目录: %1").arg(dirPath));
     return rows;
-  for (const FolderCand &c : orderFolderCandidates(cands))
+  }
+  // C 包：预览即 plan——catalog 只读纯函数，经 catInvoke 回它自己的线程构建
+  // （扫描/分类/族归组/身份匹配/去重/主建议）。行序 = 执行序。
+  const IngestPlan plan =
+      catInvoke([&] { return buildIngestPlan(dirPath, *m_catalog); });
+  if (plan.items.isEmpty() && plan.skipped.isEmpty())
+  {
+    setError(error, plan.issues.isEmpty()
+                        ? QStringLiteral("目录里没有可导入的文件: %1").arg(dirPath)
+                        : plan.issues.join(QStringLiteral("\n")));
+    return rows;
+  }
+  for (const PlannedItem &item : plan.items)
   {
     FolderPreviewRow r;
-    r.path = c.path;
-    r.classifiedType = c.classifiedType;
+    r.path = item.path;
+    r.classifiedType = item.type;
+    r.decision = item.decision; // plan 期决策（重复→跳过等）随行进确认表
     rows.append(r);
   }
-  std::sort(skipped.begin(), skipped.end(),
-            [](const FolderRowResult &a, const FolderRowResult &b) {
-              return a.path < b.path;
-            });
-  for (const FolderRowResult &s : skipped)
+  for (const PlannedItem &s : plan.skipped)
   {
     FolderPreviewRow r;
     r.path = s.path;
-    r.classifiedType = s.classifiedType;
+    r.classifiedType = s.type;
     r.skipped = true;
-    r.skipReason = s.message;
+    r.skipReason = s.note;
     rows.append(r);
   }
   return rows;
@@ -1030,91 +918,111 @@ DataImportService::importFolder(
     return rows;
   }
 
-  QVector<FolderCand> candidates;
-  QVector<FolderRowResult> skipped;
-  if (!collectFolderCandidates(dirPath, m_projectDir, &candidates, &skipped, error))
+  if (dirPath.isEmpty() || !QFileInfo(dirPath).isDir())
+  {
+    setError(error, QStringLiteral("找不到目录: %1").arg(dirPath));
     return rows;
-
-  // 阶段 1：全部 well_head（井建齐）；阶段 2：其余文件对已齐的井集解析。
-  // D5：阶段归属按生效类型（覆盖后）算——改成 well_head 的行回阶段 1。
-  const QVector<FolderCand> ordered = orderFolderCandidates(candidates, typeOverrides);
-
-  // T33/audit row 37：整个文件夹导入并成一个落盘批次——每行 ~5 次全量
-  // JSON 序列化收敛成一次 save() + 一次 changed()；中途崩溃不留
-  // 「资产已落盘、链接没落盘」的半截 catalog。
-  // BatchSave 的 RAII 摸 catalog 私有态——构造/析构都 marshal 回 GUI 线程；
-  // 期间的逐行 catalog 操作经 catInvoke 排队执行，save() 被批次挂起不变。
-  auto *batch =
-      catInvoke([&] { return new DataCatalog::BatchSave(m_catalog); });
-
-  bool cancelled = false;
-  int doneCount = 0;
-  for (const FolderCand &c : ordered)
-  {
-    // T33 符号链接 TOCTOU 终验：真正读字节的是 importProjectFileEx 里的
-    // open/hash/copy——入它之前再核一次：路径仍解析到枚举时判定的同一
-    // canonical、仍是普通文件；被改指向的链接/被换掉的文件如实跳过。
-    const QFileInfo now( c.path );
-    if ( !now.isFile() || now.canonicalFilePath() != c.canon )
-    {
-      FolderRowResult row;
-      row.path = c.path;
-      row.classifiedType = effectiveFolderType(c, typeOverrides);
-      row.outcome = FolderRowResult::Outcome::Skipped;
-      row.message = QStringLiteral( "文件在导入前已变化（符号链接改指向或不再是普通文件），已跳过" );
-      rows.append( row );
-    }
-    else
-      rows.append(folderRowFor(c.path, c.classifiedType,
-                               effectiveFolderType(c, typeOverrides)));
-    ++doneCount;
-    if (progress && !progress(doneCount, static_cast<int>(ordered.size()), c.path))
-    {
-      cancelled = true;
-      break; // 协作取消：已处理的行保留，未处理的不再动
-    }
   }
 
-  std::sort(skipped.begin(), skipped.end(),
-            [](const FolderRowResult &a, const FolderRowResult &b) {
-              return a.path < b.path;
-            });
-  rows += skipped;
-
-  // 批次结算：析构即 flush——marshal 回 GUI 线程销毁（落盘失败如实写 error；
-  // 行里的 Imported 结局不变——内存态已是入库态，磁盘没写成功要 surfaced）。
-  QString berr;
-  const bool flushed = catInvoke([&] {
-    const bool ok = batch->flush(&berr);
-    delete batch;
-    return ok;
-  });
-  if (!flushed)
+  // C 包三段式：buildIngestPlan 是 catalog 只读纯函数——经 catInvoke 回
+  // catalog 所在线程整体构建（扫描/分类/shp 归组/身份匹配/去重/主建议）。
+  // 阶段 1 全部 well_head（井建齐）、阶段 2 其余——序在 builder 里已排好。
+  IngestPlan plan = catInvoke([&] { return buildIngestPlan(dirPath, *m_catalog); });
+  if (plan.items.isEmpty() && plan.skipped.isEmpty())
   {
-    qWarning("importFolder: catalog batch save failed: %s", qPrintable(berr));
-    setError(error, berr.isEmpty() ? QStringLiteral("catalog batch save failed") : berr);
+    setError(error, plan.issues.isEmpty()
+                        ? QStringLiteral("目录里没有可导入的文件: %1").arg(dirPath)
+                        : plan.issues.join(QStringLiteral("\n")));
+    return rows;
   }
-  if (cancelled)
-    setError(error, QStringLiteral("已取消（已入库的行保留）"));
-  return rows;
+
+  // 确认表「改类型」：合法 override 并进 item.type（生效类型）；非法 override
+  // 忽略——不落进资产类型。D5：阶段归属按生效类型算——改成 well_head 的行
+  // 回阶段 1，井建得够早排前的阶段 2 行仍能挂上。
+  bool retype = false;
+  for (PlannedItem &item : plan.items)
+  {
+    const QString o = typeOverrides.value(item.path);
+    if (isClassifierType(o) && o != item.type)
+    {
+      item.type = o;
+      retype = true;
+    }
+  }
+  if (retype)
+    orderIngestPlanItems(plan.items);
+
+  // 执行面：executeIngestPlan 逐项 executePlannedItem + BatchSave 一次落盘 +
+  // progress 协作取消。幂等——decision==skip 或 (path,sha) 已注册的项不再
+  // 登记；重跑同目录每行 Skipped、目录零增量。
+  return executeIngestPlan(plan, *this, progress, error);
 }
 
 // ---------------------------------------------------------------------------
-// T22：单行导入 → 确认表行结果（importFolder 每行与「重试」共用同一口径）。
-// FolderRowResult::classifiedType 记生效类型（覆盖后），与确认表显示一致。
+// C 包执行面：单条 plan 项 → 行结果（executeIngestPlan 逐项调它；确认表
+// 「重试」经 folderRowFor 合成的单项也走这里）。FolderRowResult::
+// classifiedType 记生效类型（override 已并进 item.type），与确认表显示一致。
 // ---------------------------------------------------------------------------
 DataImportService::FolderRowResult
-DataImportService::folderRowFor(const QString &path, const QString &classifiedType,
-                                const QString &effectiveType)
+DataImportService::executePlannedItem(const PlannedItem &item, QString *error)
 {
+  if (error)
+    error->clear();
   FolderRowResult row;
-  row.path = path;
-  row.classifiedType = effectiveType;
-  ImportOptions opts;
-  if (effectiveType != classifiedType)
-    opts.forceType = effectiveType; // 只在生效类型不同于分类器结果时下传
+  row.path = item.path;
+  row.classifiedType = item.type;
+
+  // T33 符号链接 TOCTOU 终验：真正读字节的是 importOneFile 里的 open/hash/
+  // copy——入它之前再核一次：路径仍解析到枚举时判定的同一 canonical、仍是
+  // 普通文件；被改指向的链接/被换掉的文件如实跳过。
+  if (!item.canonicalPath.isEmpty())
+  {
+    const QFileInfo now(item.path);
+    if (!now.isFile() || now.canonicalFilePath() != item.canonicalPath)
+    {
+      row.outcome = FolderRowResult::Outcome::Skipped;
+      row.message = QStringLiteral(
+          "文件在导入前已变化（符号链接改指向或不再是普通文件），已跳过");
+      return row;
+    }
+  }
+
+  if (item.decision == QLatin1String("skip"))
+  {
+    row.outcome = FolderRowResult::Outcome::Skipped;
+    row.message = !item.duplicateOfVersionId.isEmpty()
+                      ? QStringLiteral("重复→跳过")
+                      : (item.note.isEmpty() ? QStringLiteral("已跳过")
+                                             : item.note);
+    // shp 族补齐：重复跳过的族顺带把缺的成员拷进已注册版本目录（幂等修复）。
+    if (!item.members.isEmpty() && !item.duplicateOfVersionId.isEmpty())
+      copyBundleMembersIntoVersion(item, item.duplicateOfVersionId, &row.message);
+    return row;
+  }
+
+  // 幂等：同一（源路径, sha256）已注册 → 不再导入。as_new_version 有意绕过
+  // ——显式「仍导入」的同字节结局交内部 dedup（AlreadyStored + 补挂）。
+  // 路径按字符串口径比对（不解析符号链接）：link 路径≠目标路径，mirror 文件
+  // 仍走 dedup 结局行，与旧行为一致。
+  if (!item.sha256.isEmpty() && item.decision != QLatin1String("as_new_version"))
+  {
+    const CatalogVersion hit =
+        catInvoke([&] { return m_catalog->versionBySha256(item.sha256); });
+    if (!hit.id.isEmpty() &&
+        QDir::cleanPath(hit.sourceUri) == QDir::cleanPath(item.path))
+    {
+      row.outcome = FolderRowResult::Outcome::Skipped;
+      row.message = QStringLiteral("已在库，幂等跳过");
+      if (!item.members.isEmpty())
+        copyBundleMembersIntoVersion(item, hit.id, &row.message);
+      return row;
+    }
+  }
+
   QString ferr;
-  const ImportResult res = importProjectFileEx(path, opts, &ferr);
+  ImportOptions opts;
+  opts.forceType = item.type; // 恒下传——与分类器同值时是无害同值
+  const ImportResult res = importOneFile(item.path, opts, &ferr);
   row.message = res.message.isEmpty() ? ferr : res.message;
   if (res.outcome == ImportOutcome::Failed || res.assetId.isEmpty())
   {
@@ -1155,7 +1063,72 @@ DataImportService::folderRowFor(const QString &path, const QString &classifiedTy
                       ? notes.join(QStringLiteral("；"))
                       : row.message + QStringLiteral("；") +
                             notes.join(QStringLiteral("；"));
+
+  // shp 族：主件入库成功后把其余成员拷进同一受管 RAW 版本目录（外链版本的
+  // 成员本就在源目录相邻，copyBundleMembersIntoVersion 自己不拷）。
+  if (!item.members.isEmpty() && res.outcome == ImportOutcome::Imported)
+  {
+    const CatalogVersion raw = catInvoke([&] {
+      for (const CatalogVersion &v : m_catalog->versionsForAsset(res.assetId))
+        if (v.stage == QLatin1String("RAW") && v.managed)
+          return v;
+      return CatalogVersion{};
+    });
+    copyBundleMembersIntoVersion(item, raw.id, &row.message);
+  }
   return row;
+}
+
+// shp 族成员落位：把 members 里除主件外的文件拷进指定受管版本目录。
+// 幂等——已存在同名成员跳过（受管文件只读，不覆盖）；失败成员名附进
+// *messageOut。非受管版本（外链）不拷：成员文件本就在源目录与主件相邻。
+void DataImportService::copyBundleMembersIntoVersion(const PlannedItem &item,
+                                                     const QString &versionId,
+                                                     QString *messageOut)
+{
+  if (item.members.size() < 2 || versionId.isEmpty())
+    return;
+  const CatalogVersion v =
+      catInvoke([&] { return m_catalog->versionById(versionId); });
+  if (v.id.isEmpty() || !v.managed)
+    return;
+  const QString abs = DataCatalog::resolvedVersionPath(m_projectDir, v);
+  if (abs.isEmpty())
+    return;
+  const QDir dir = QFileInfo(abs).absoluteDir();
+  QStringList failed;
+  for (const QString &member : item.members)
+  {
+    if (QDir::cleanPath(member) == QDir::cleanPath(item.path))
+      continue; // 主件已是版本文件本体
+    const QString dst = dir.filePath(QFileInfo(member).fileName());
+    if (QFileInfo::exists(dst))
+      continue; // 幂等：已在位不重拷
+    if (!QFile::copy(member, dst))
+      failed.append(QFileInfo(member).fileName());
+    else
+      QFile::setPermissions(dst, QFileDevice::ReadOwner | QFileDevice::ReadUser |
+                                 QFileDevice::ReadGroup | QFileDevice::ReadOther);
+  }
+  if (!failed.isEmpty() && messageOut)
+    *messageOut += (messageOut->isEmpty() ? QString() : QStringLiteral("；")) +
+                   QStringLiteral("族成员复制失败: ") +
+                   failed.join(QStringLiteral(", "));
+}
+
+// 「重试」/兼容入口合成 1 项：决策恒 as_new_version——显式单文件导入的语义
+// 是「仍导入」，同字节结局由内部 dedup 消化（AlreadyStored + 补挂），
+// registered-check 对它不生效。
+DataImportService::FolderRowResult
+DataImportService::folderRowFor(const QString &path, const QString &classifiedType,
+                                const QString &effectiveType)
+{
+  Q_UNUSED(classifiedType); // 生效类型已含 override 口径，分类器原值不再用
+  PlannedItem item;
+  item.path = path;
+  item.type = effectiveType;
+  item.decision = QStringLiteral("as_new_version");
+  return executePlannedItem(item, nullptr);
 }
 
 DataImportService::FolderRowResult
@@ -1164,7 +1137,7 @@ DataImportService::importFolderRow(const QString &sourcePath, const QString &for
 {
   if (error)
     error->clear();
-  // 与 collectFolderCandidates 同一分类口径：.xml 要看内容判定。
+  // 与 plan 枚举同一分类口径：.xml 要看内容判定。
   const QByteArray xml =
       QFileInfo(sourcePath).suffix().compare(QLatin1String("xml"), Qt::CaseInsensitive) == 0
           ? readFileOrEmpty(sourcePath).toUtf8()

@@ -11,6 +11,7 @@
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/io/geojsonaffine.h"
+#include "../src/io/ingestplan.h"
 #include "../src/io/lasparser.h"
 #include "../src/io/projectclassifier.h"
 #include "../src/metadata/layermanifest.h"
@@ -1746,6 +1747,305 @@ private slots:
 
     QVERIFY(!LasParser::parse(tmp.filePath(QStringLiteral("ghost.las")), names, curves, &err));
     QVERIFY(!err.isEmpty());
+  }
+
+  // ======================= C 包：IngestPlan 三段式 =======================
+
+  // plan 期 sha 去重：已注册字节的项标 duplicateOfVersionId + decision=skip；
+  // preview 行带出同一决策（确认表「重复→跳过」的数据源）；执行端跳过、
+  // catalog 零增量。
+  void planDedupMarksDuplicateAndDecidesSkip()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    using Outcome = DataImportService::FolderRowResult::Outcome;
+
+    QString err;
+    QVERIFY(!svc.importProjectFile(fixture(QStringLiteral("ExportWellHead.dat")), &err).isEmpty());
+    QVERIFY(!svc.importProjectFile(fixture(QStringLiteral("A1.Las")), &err).isEmpty());
+
+    const QString root = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(root));
+    const QString copyPath = QDir(root).filePath(QStringLiteral("A1_copy.las"));
+    QVERIFY(QFile::copy(fixture(QStringLiteral("A1.Las")), copyPath));
+
+    DataCatalog *cat = svc.catalog();
+    const IngestPlan plan = buildIngestPlan(root, *cat);
+    QVERIFY(plan.issues.isEmpty());
+    QCOMPARE(plan.items.size(), 1);
+    const PlannedItem &item = plan.items.constFirst();
+    QCOMPARE(item.entityId, QStringLiteral("well-A1")); // 身份已决 + 重复标记并存
+    QVERIFY(!item.duplicateOfVersionId.isEmpty());
+    QCOMPARE(item.decision, QStringLiteral("skip"));
+    QCOMPARE(plan.duplicateCount(), 1);
+    QCOMPARE(plan.unresolvedCount(), 0);
+
+    // 预览行把 plan 期决策带给确认表（UI 显示「重复→跳过」）。
+    const auto preview = svc.previewFolder(root, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(preview.size(), 1);
+    QCOMPARE(preview.at(0).decision, QStringLiteral("skip"));
+
+    const int assetCount = cat->assets().size();
+    const int linkCount = cat->links().size();
+    const auto rows = executeIngestPlan(plan, svc, {}, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(rows.size(), 1);
+    QCOMPARE(rows.at(0).outcome, Outcome::Skipped);
+    QVERIFY(rows.at(0).message.contains(QString::fromUtf8("重复")));
+    QCOMPARE(cat->assets().size(), assetCount); // 零增量
+    QCOMPARE(cat->links().size(), linkCount);
+  }
+
+  // 幂等重跑：同一目录二次 importFolder → plan 全标 skip，行全 Skipped，
+  // 资产/版本/链接/实体计数一条不增（不重复登记）。
+  void folderPlanRerunRegistersNothingTwice()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+    using Outcome = DataImportService::FolderRowResult::Outcome;
+
+    const QString root = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
+    QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井位/heads.dat")),
+        QByteArrayLiteral("#WellHead File From SMI\n#Name X Y KB TD\n"
+                          "A1  1.0  2.0  0.0  2000.0\n")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("a1.las")),
+        QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n"
+                          "~Well\nWELL. A1 : WELL\n~Curve\nDEPT.M :\n"
+                          "~A DEPT\n100.0\n")));
+
+    QString err;
+    const auto rows1 = svc.importFolder(root, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(rows1.size(), 2);
+    for (const auto &r : rows1)
+      QCOMPARE(r.outcome, Outcome::Imported);
+
+    int versionCount = 0;
+    for (const CatalogAsset &a : cat->assets())
+      versionCount += cat->versionsForAsset(a.id).size();
+    const int assetCount = cat->assets().size();
+    const int linkCount = cat->links().size();
+    const int wellCount = cat->entities(QStringLiteral("well")).size();
+
+    const auto rows2 = svc.importFolder(root, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(rows2.size(), 2);
+    for (const auto &r : rows2)
+    {
+      QCOMPARE(r.outcome, Outcome::Skipped); // plan 标重复 → 决策 skip → 跳过
+      QVERIFY(r.message.contains(QString::fromUtf8("重复")));
+    }
+    QCOMPARE(cat->assets().size(), assetCount);
+    QCOMPARE(cat->links().size(), linkCount);
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), wellCount);
+    int versionCount2 = 0;
+    for (const CatalogAsset &a : cat->assets())
+      versionCount2 += cat->versionsForAsset(a.id).size();
+    QCOMPARE(versionCount2, versionCount);
+  }
+
+  // shp 族归组：同主名 .shp/.shx/.dbf/.prj → 单个 PlannedItem（members 收
+  // 全组）；散件不归组。执行把整族拷进同一受管 RAW 版本目录。
+  void shapefileFamilyGroupsIntoOneItem()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+    using Outcome = DataImportService::FolderRowResult::Outcome;
+
+    const QString root = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(root));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("f.shp")), QByteArrayLiteral("shp-bytes")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("f.shx")), QByteArrayLiteral("shx-bytes")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("f.dbf")), QByteArrayLiteral("dbf-bytes")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("f.prj")), QByteArrayLiteral("prj-bytes")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("loose.dbf")), QByteArrayLiteral("other"))); // 无族散件
+
+    const IngestPlan plan = buildIngestPlan(root, *cat);
+    QCOMPARE(plan.items.size(), 2); // f 族一项 + loose.dbf 一项
+    const PlannedItem *fam = nullptr;
+    for (const PlannedItem &it : plan.items)
+      if (it.path.endsWith(QLatin1String("f.shp")))
+        fam = &it;
+    QVERIFY(fam != nullptr);
+    QCOMPARE(fam->members.size(), 4);
+    QVERIFY(fam->members.contains(QDir(root).filePath(QStringLiteral("f.shp"))));
+    QVERIFY(fam->members.contains(QDir(root).filePath(QStringLiteral("f.shx"))));
+    QVERIFY(fam->members.contains(QDir(root).filePath(QStringLiteral("f.dbf"))));
+    QVERIFY(fam->members.contains(QDir(root).filePath(QStringLiteral("f.prj"))));
+
+    QString err;
+    const auto rows = executeIngestPlan(plan, svc, {}, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(rows.size(), 2);
+    const auto famRow = std::find_if(rows.begin(), rows.end(), [](const auto &r) {
+      return r.path.endsWith(QLatin1String("f.shp"));
+    });
+    QVERIFY(famRow != rows.end());
+    QCOMPARE(famRow->outcome, Outcome::Imported);
+
+    // 整族进同一受管版本目录。
+    QString famAsset;
+    for (const CatalogAsset &a : cat->assets())
+      if (a.displayName == QLatin1String("f.shp"))
+        famAsset = a.id;
+    QVERIFY(!famAsset.isEmpty());
+    const CatalogVersion v = cat->currentVersion(famAsset);
+    QVERIFY(v.managed);
+    const QString dir = QFileInfo(svc.absolutePathForVersion(v)).absolutePath();
+    QVERIFY(QFileInfo::exists(QDir(dir).filePath(QStringLiteral("f.shp"))));
+    QVERIFY(QFileInfo::exists(QDir(dir).filePath(QStringLiteral("f.shx"))));
+    QVERIFY(QFileInfo::exists(QDir(dir).filePath(QStringLiteral("f.dbf"))));
+    QVERIFY(QFileInfo::exists(QDir(dir).filePath(QStringLiteral("f.prj"))));
+  }
+
+  // 单文件入口走同一 planner：已注册文件标 duplicateOfVersionId +
+  // decision=skip；importProjectFileEx 的「仍导入」语义不变——dedup 结局
+  // AlreadyStored + 指回已存在资产。
+  void singleFileImportBuildsOneItemPlan()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+
+    QString err;
+    QVERIFY(!svc.importProjectFile(fixture(QStringLiteral("ExportWellHead.dat")), &err).isEmpty());
+    const QString assetId = svc.importProjectFile(fixture(QStringLiteral("A1.Las")), &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+
+    const IngestPlan plan = buildIngestPlan(fixture(QStringLiteral("A1.Las")), *cat);
+    QCOMPARE(plan.items.size(), 1);
+    const PlannedItem &item = plan.items.constFirst();
+    QCOMPARE(item.type, QStringLiteral("well_log"));
+    QCOMPARE(item.entityId, QStringLiteral("well-A1")); // plan 期身份匹配
+    QVERIFY(!item.duplicateOfVersionId.isEmpty());
+    QCOMPARE(item.decision, QStringLiteral("skip"));
+
+    // 显式单文件导入的语义是「仍导入」——内部 dedup 消化同字节结局。
+    const DataImportService::ImportResult res =
+        svc.importProjectFileEx(fixture(QStringLiteral("A1.Las")), &err);
+    QCOMPARE(res.outcome, DataImportService::ImportOutcome::AlreadyStored);
+    QCOMPARE(res.assetId, assetId);
+  }
+
+  // 歧义井名：plan 期标 entityAmbiguous、entityId 留空，不猜；执行后未决
+  // 链接照旧（实体 id 空 + 备注双候选），不建井不并井。
+  void planAmbiguityStaysUnresolved()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithAliasWells(projectDir)); // 两口同名 "dup" 井
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+    using Outcome = DataImportService::FolderRowResult::Outcome;
+
+    const QString root = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(root));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("dup.Las")),
+        QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n"
+                          "~Well\nWELL. dup : WELL\n~Curve\nDEPT.M :\n"
+                          "~A DEPT\n100.0\n")));
+
+    const IngestPlan plan = buildIngestPlan(root, *cat);
+    QCOMPARE(plan.items.size(), 1);
+    const PlannedItem &item = plan.items.constFirst();
+    QVERIFY(item.entityAmbiguous);
+    QVERIFY(item.entityId.isEmpty()); // 不猜
+    QCOMPARE(plan.unresolvedCount(), 1);
+
+    QString err;
+    const auto rows = executeIngestPlan(plan, svc, {}, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(rows.size(), 1);
+    QCOMPARE(rows.at(0).outcome, Outcome::Unresolved);
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2); // 不建井
+    QString dupAsset;
+    for (const CatalogAsset &a : cat->assets())
+      if (a.displayName == QLatin1String("dup.Las"))
+        dupAsset = a.id;
+    QVERIFY(!dupAsset.isEmpty());
+    const auto links = cat->linksForAsset(dupAsset);
+    QCOMPARE(links.size(), 1);
+    QVERIFY(links.front().unresolved);
+    QVERIFY(links.front().entityId.isEmpty());
+    QVERIFY(links.front().note.contains(QStringLiteral("well-X1")));
+    QVERIFY(links.front().note.contains(QStringLiteral("well-X2")));
+  }
+
+  // buildIngestPlan 纯函数：catalog 不动——revision/实体/资产/链接/版本计数
+  // 与 catalog.json 落盘字节在构建前后完全一致。
+  void buildIngestPlanLeavesCatalogUntouched()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+
+    QString err;
+    QVERIFY(!svc.importProjectFile(fixture(QStringLiteral("ExportWellHead.dat")), &err).isEmpty());
+    QVERIFY(!svc.importProjectFile(fixture(QStringLiteral("A1.Las")), &err).isEmpty());
+
+    const QString root = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(root));
+    QVERIFY(QFile::copy(fixture(QStringLiteral("A1.Las")),
+                        QDir(root).filePath(QStringLiteral("dup.las"))));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("new.las")),
+        QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n"
+                          "~Well\nWELL. A1 : WELL\n~Curve\nDEPT.M :\n"
+                          "~A DEPT\n101.0\n")));
+
+    const int rev = cat->catalogRevision();
+    const int assetCount = cat->assets().size();
+    const int linkCount = cat->links().size();
+    const int entityCount = cat->entities().size();
+    int versionCount = 0;
+    for (const CatalogAsset &a : cat->assets())
+      versionCount += cat->versionsForAsset(a.id).size();
+    QFile json(cat->catalogPath());
+    QVERIFY(json.open(QIODevice::ReadOnly));
+    const QByteArray jsonBefore = json.readAll();
+    json.close();
+
+    const IngestPlan plan = buildIngestPlan(root, *cat);
+    QCOMPARE(plan.items.size(), 2);
+    QCOMPARE(plan.duplicateCount(), 1); // dup.las 命中已注册字节
+
+    QCOMPARE(cat->catalogRevision(), rev);
+    QCOMPARE(cat->assets().size(), assetCount);
+    QCOMPARE(cat->links().size(), linkCount);
+    QCOMPARE(cat->entities().size(), entityCount);
+    int versionCount2 = 0;
+    for (const CatalogAsset &a : cat->assets())
+      versionCount2 += cat->versionsForAsset(a.id).size();
+    QCOMPARE(versionCount2, versionCount);
+    QVERIFY(json.open(QIODevice::ReadOnly));
+    QCOMPARE(json.readAll(), jsonBefore); // 没落盘
+    json.close();
   }
 };
 

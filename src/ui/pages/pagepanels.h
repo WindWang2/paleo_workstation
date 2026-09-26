@@ -27,9 +27,16 @@ class DataPage : public QWidget
     explicit DataPage(QWidget *parent = nullptr);
   public slots:
     void refreshAssetTable();                     // 从 catalog 资产重建资产表
+    // p5a（data/view-wiring）：当前选中实体的角色槽数据视图重取——
+    // entityDataView()（B 包纯查询门面）按角色词表枚举 (实体,角色) 槽、
+    // 下游 DERIVED 产物与悬空血缘诊断。当前实体由 selectAssetsForEntities
+    // 记录（D6 地图点选通路）；catalog.changed() → refreshAssetTable() 的
+    // 主窗口接线里一并重取（纯查询，不写 catalog）。
+    void refreshEntityView();
     // D6 地图→表联动：实体 id 集合（画布点选井）→ 选中这些实体已决关联
     // 对应的资产行（滚动到首个命中行）。行选中照走 assetActivated → 预览
     // 打开，与手点同一通路；未决链接不算命中。无命中不改当前选中。
+    // 首个选中 id 同时驱动实体角色槽视图（p5a）。
     void selectAssetsForEntities(const QStringList &entityIds);
     // T31「查看未决」：把资产表过滤到仍有未决链接的行；off 清除过滤。
     void setUnresolvedFilter(bool on);

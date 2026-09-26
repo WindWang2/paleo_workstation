@@ -1489,6 +1489,362 @@ class TestPanels : public QObject
       QCOMPARE(PaleoMainWindow::folderImportSummaryText(rows),
                QString::fromUtf8("入库 1，未决 1，失败 1"));
     }
+
+    // ---- p5a：EntityView facade → DataPage 角色槽数据视图 ----
+    // entityDataView（B 包纯查询门面）接进数据页：实体选中（D6 通路
+    // selectAssetsForEntities）→ 按词表序枚举角色槽（含空槽「缺失」占位）；
+    // primary=资产名+版本号、members 按 ordinal、unresolved 落名；下游
+    // DERIVED 产物 + stale「过时」标记；missingSources 诊断行；空态不崩不猜。
+
+    // 角色槽渲染：well 词表 9 槽全枚举（词表序），井头主关联带版本号，
+    // 测井成员按 ordinal 序（非入库序），未决链接落到对应槽位。
+    void dataPage_entityViewRoleSlotsRender()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+      CatalogEntity well;
+      well.id = QStringLiteral("well-1");
+      well.entityType = QStringLiteral("well");
+      well.name = QStringLiteral("A1");
+      QVERIFY(cat->addEntity(well));
+      auto addAsset = [cat](const QString &id, const QString &name) {
+        CatalogAsset a;
+        a.id = id;
+        a.type = QStringLiteral("well_log");
+        a.displayName = name;
+        return cat->addAsset(a);
+      };
+      QVERIFY(addAsset(QStringLiteral("ast-head"), QStringLiteral("A1.dat")));
+      QVERIFY(addAsset(QStringLiteral("ast-main"), QStringLiteral("A1_main.las")));
+      QVERIFY(addAsset(QStringLiteral("ast-old"), QStringLiteral("A1_old.las")));
+      QVERIFY(addAsset(QStringLiteral("ast-mid"), QStringLiteral("A1_mid.las")));
+      QVERIFY(addAsset(QStringLiteral("ast-pend"), QStringLiteral("A1x.las")));
+      CatalogVersion head;
+      head.id = QStringLiteral("ver-h1");
+      head.assetId = QStringLiteral("ast-head");
+      head.stage = QStringLiteral("RAW");
+      head.versionNumber = 3; // 版本号是 currentVersion 的，不是恒 v1
+      QVERIFY(cat->addVersion(head));
+      auto link = [&well](const QString &asset, const QString &role, int ordinal,
+                          bool primary, bool unresolved) {
+        EntityAssetLink l;
+        l.entityType = QStringLiteral("well");
+        l.entityId = well.id; // 未决链接也带实体 id（上游歧义链接约定）
+        l.assetId = asset;
+        l.role = role;
+        l.isPrimary = primary;
+        l.unresolved = unresolved;
+        l.ordinal = ordinal;
+        return l;
+      };
+      QVERIFY(cat->addLink(link(QStringLiteral("ast-head"),
+                                QStringLiteral("well_head"), 0, true, false)));
+      QVERIFY(cat->addLink(link(QStringLiteral("ast-main"),
+                                QStringLiteral("well_log"), 0, true, false)));
+      QVERIFY(cat->addLink(link(QStringLiteral("ast-old"),
+                                QStringLiteral("well_log"), 5, false, false)));
+      QVERIFY(cat->addLink(link(QStringLiteral("ast-mid"),
+                                QStringLiteral("well_log"), 1, false, false)));
+      EntityAssetLink pend = link(QStringLiteral("ast-pend"),
+                                  QStringLiteral("well_log"), 0, false, true);
+      pend.note = QStringLiteral("未匹配井名: A1x");
+      QVERIFY(cat->addLink(pend));
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      page.selectAssetsForEntities({QStringLiteral("well-1")});
+      auto *roleTable = page.findChild<QTableWidget *>(QStringLiteral("entityRoleTable"));
+      QVERIFY2(roleTable, "entity selection must render a role-slot table");
+      auto *header = page.findChild<QLabel *>(QStringLiteral("entityViewHeader"));
+      QVERIFY(header);
+      QVERIFY(header->text().contains(QStringLiteral("A1")));
+
+      // 词表序 9 槽全枚举：井头打头、其他收尾。
+      QCOMPARE(roleTable->rowCount(), 9);
+      QCOMPARE(roleTable->item(0, 0)->text(), QString::fromUtf8("井身/井位"));
+      QCOMPARE(roleTable->item(1, 0)->text(), QString::fromUtf8("测井曲线"));
+      QCOMPARE(roleTable->item(8, 0)->text(), QString::fromUtf8("其他"));
+
+      // 井头槽：primary = 资产名 + 当前版本号（v3，非字面 v1）。
+      const QString headPrimary = roleTable->item(0, 1)->text();
+      QVERIFY(headPrimary.contains(QStringLiteral("A1.dat")));
+      QVERIFY(headPrimary.contains(QStringLiteral("v3")));
+
+      // 测井槽：primary=主曲线；成员按 ordinal（mid(1) 在 old(5) 前，与入库
+      // 序相反）；未决资产名落到未决列。
+      const QString logPrimary = roleTable->item(1, 1)->text();
+      QVERIFY(logPrimary.contains(QStringLiteral("A1_main.las")));
+      QCOMPARE(roleTable->item(1, 2)->text(),
+               QStringLiteral("A1_mid.las、A1_old.las"));
+      QCOMPARE(roleTable->item(1, 3)->text(), QStringLiteral("A1x.las"));
+
+      // 空槽（trajectory 等）：「缺失」占位 + 灰字克制样式（upstream
+      // missing-source 可见性原则），不是空白行也不是凭空消失。
+      const QString trajPrimary = roleTable->item(2, 1)->text();
+      QCOMPARE(trajPrimary, QString::fromUtf8("缺失"));
+      QCOMPARE(roleTable->item(2, 2)->text(), QStringLiteral("—"));
+      QCOMPARE(roleTable->item(2, 3)->text(), QStringLiteral("—"));
+      QVERIFY(roleTable->item(2, 1)->foreground().color().name()
+                  .compare(QStringLiteral("#5d6e80"), Qt::CaseInsensitive) == 0);
+    }
+
+    // 派生产物表：下游 DERIVED 版本列 displayName + vN；父版本被更高
+    // versionNumber 取代 → extra["stale"] → 「过时」胶囊（B 包标记）。
+    void dataPage_entityViewDerivedProductsAndStale()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+      CatalogEntity well;
+      well.id = QStringLiteral("well-1");
+      well.entityType = QStringLiteral("well");
+      well.name = QStringLiteral("A1");
+      QVERIFY(cat->addEntity(well));
+      for (const char *aid : {"ast-raw", "ast-d1", "ast-d2"})
+      {
+        CatalogAsset a;
+        a.id = QString::fromLatin1(aid);
+        a.type = QStringLiteral("generic");
+        a.displayName = QString::fromLatin1(aid) + QStringLiteral(".grd");
+        QVERIFY(cat->addAsset(a));
+      }
+      EntityAssetLink l;
+      l.entityType = QStringLiteral("well");
+      l.entityId = well.id;
+      l.assetId = QStringLiteral("ast-raw");
+      l.role = QStringLiteral("well_log");
+      QVERIFY(cat->addLink(l));
+      CatalogVersion r1;
+      r1.id = QStringLiteral("ver-r1");
+      r1.assetId = QStringLiteral("ast-raw");
+      r1.versionNumber = 1;
+      QVERIFY(cat->addVersion(r1));
+      CatalogVersion d1;
+      d1.id = QStringLiteral("ver-d1");
+      d1.assetId = QStringLiteral("ast-d1");
+      d1.stage = QStringLiteral("DERIVED");
+      d1.versionNumber = 2;
+      d1.parentVersionIds = {QStringLiteral("ver-r1")};
+      QVERIFY(cat->addVersion(d1));
+      CatalogVersion d2;
+      d2.id = QStringLiteral("ver-d2");
+      d2.assetId = QStringLiteral("ast-d2");
+      d2.stage = QStringLiteral("DERIVED");
+      d2.versionNumber = 1;
+      d2.parentVersionIds = {QStringLiteral("ver-r1")};
+      QVERIFY(cat->addVersion(d2));
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      page.selectAssetsForEntities({QStringLiteral("well-1")});
+      auto *derived = page.findChild<QTableWidget *>(QStringLiteral("derivedProductsTable"));
+      QVERIFY2(derived, "entity view must list downstream DERIVED products");
+      QCOMPARE(derived->rowCount(), 2);
+      const auto rowForName = [derived](const QString &name) {
+        for (int r = 0; r < derived->rowCount(); ++r)
+          if (derived->item(r, 0)->text().contains(name))
+            return r;
+        return -1;
+      };
+      const int r1row = rowForName(QStringLiteral("ast-d1.grd"));
+      const int r2row = rowForName(QStringLiteral("ast-d2.grd"));
+      QVERIFY(r1row >= 0 && r2row >= 0);
+      QCOMPARE(derived->item(r1row, 1)->text(), QStringLiteral("v2"));
+      QCOMPARE(derived->item(r2row, 1)->text(), QStringLiteral("v1"));
+      // 尚无 stale：状态列是灰字占位，不是「过时」。
+      QVERIFY(!derived->cellWidget(r1row, 2));
+
+      // 父版本被取代 → 下游 DERIVED 全标 stale；changed() 通路（此处直接
+      // 驱动 refreshAssetTable——mainwindow 把 changed() 接到它）重取后过时。
+      CatalogVersion r2 = r1;
+      r2.id = QStringLiteral("ver-r2");
+      r2.versionNumber = 2;
+      QVERIFY(cat->addVersion(r2));
+      page.refreshAssetTable();
+      for (int r : {r1row, r2row})
+      {
+        auto *cap = qobject_cast<QLabel *>(derived->cellWidget(r, 2));
+        QVERIFY2(cap, "stale derived product must carry a status capsule");
+        QCOMPARE(cap->text(), QString::fromUtf8("过时"));
+      }
+    }
+
+    // missingSources 非空 → 诊断行如实列出悬空的 parentVersionId。
+    void dataPage_entityViewMissingSources()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+      CatalogEntity well;
+      well.id = QStringLiteral("well-1");
+      well.entityType = QStringLiteral("well");
+      well.name = QStringLiteral("A1");
+      QVERIFY(cat->addEntity(well));
+      for (const char *aid : {"ast-raw", "ast-d"})
+      {
+        CatalogAsset a;
+        a.id = QString::fromLatin1(aid);
+        a.type = QStringLiteral("generic");
+        a.displayName = QString::fromLatin1(aid) + QStringLiteral(".dat");
+        QVERIFY(cat->addAsset(a));
+      }
+      EntityAssetLink l;
+      l.entityType = QStringLiteral("well");
+      l.entityId = well.id;
+      l.assetId = QStringLiteral("ast-raw");
+      l.role = QStringLiteral("well_log");
+      QVERIFY(cat->addLink(l));
+      CatalogVersion raw;
+      raw.id = QStringLiteral("ver-r1");
+      raw.assetId = QStringLiteral("ast-raw");
+      QVERIFY(cat->addVersion(raw));
+      CatalogVersion d;
+      d.id = QStringLiteral("ver-d1");
+      d.assetId = QStringLiteral("ast-d");
+      d.stage = QStringLiteral("DERIVED");
+      d.parentVersionIds = {QStringLiteral("ver-r1")}; // 先干净血缘
+      QVERIFY(cat->addVersion(d));
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      page.selectAssetsForEntities({QStringLiteral("well-1")});
+      auto *missing = page.findChild<QLabel *>(QStringLiteral("missingSourcesLabel"));
+      QVERIFY2(missing, "dangling parentVersionIds must surface a diagnosis line");
+      QVERIFY(!missing->isVisibleTo(&page));
+
+      // 出现悬空引用（新 DERIVED 版本声明了不存在的父版本）→ 诊断行出现。
+      CatalogAsset ghostAsset;
+      ghostAsset.id = QStringLiteral("ast-d2");
+      ghostAsset.type = QStringLiteral("generic");
+      ghostAsset.displayName = QStringLiteral("ast-d2.dat");
+      QVERIFY(cat->addAsset(ghostAsset));
+      CatalogVersion d2;
+      d2.id = QStringLiteral("ver-d2");
+      d2.assetId = QStringLiteral("ast-d2");
+      d2.stage = QStringLiteral("DERIVED");
+      d2.parentVersionIds = {QStringLiteral("ver-r1"), QStringLiteral("ver-ghost")};
+      QVERIFY(cat->addVersion(d2));
+      page.refreshAssetTable();
+      QVERIFY(missing->isVisibleTo(&page));
+      QVERIFY(missing->text().contains(QStringLiteral("ver-ghost")));
+    }
+
+    // 空态：未绑导入服务 / catalog 未开 / 未选实体 / 未知 entityId——
+    // 各自如实提示，不崩、不编造槽位。
+    void dataPage_entityViewEmptyStates()
+    {
+      // 未绑服务：选中动作本身安全，视图区给空态提示。
+      {
+        DataPage page;
+        page.selectAssetsForEntities({QStringLiteral("well-1")});
+        auto *hint = page.findChild<QLabel *>(QStringLiteral("entityViewEmptyLabel"));
+        QVERIFY2(hint, "unbound page must still own an empty-state label");
+        QVERIFY(hint->isVisibleTo(&page));
+        QVERIFY(!hint->text().isEmpty());
+        QVERIFY(!page.findChild<QTableWidget *>(QStringLiteral("entityRoleTable"))
+                     ->isVisibleTo(&page));
+      }
+      // 服务在但 catalog 未开（未设工程目录）。
+      {
+        DataImportService svc(nullptr, nullptr);
+        DataPage page;
+        page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+        page.selectAssetsForEntities({QStringLiteral("well-1")});
+        auto *hint = page.findChild<QLabel *>(QStringLiteral("entityViewEmptyLabel"));
+        QVERIFY(hint->isVisibleTo(&page));
+        QVERIFY(hint->text().contains(QString::fromUtf8("工程还没打开")));
+      }
+      // catalog 开了但未选实体：指引下一步（地图点选）。
+      {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataPage page;
+        page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+        page.refreshAssetTable();
+        auto *hint = page.findChild<QLabel *>(QStringLiteral("entityViewEmptyLabel"));
+        QVERIFY(hint->isVisibleTo(&page));
+        QVERIFY(hint->text().contains(QString::fromUtf8("地图")));
+      }
+      // 未知实体：如实说不在目录，带原 id，不猜。
+      {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataPage page;
+        page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+        page.selectAssetsForEntities({QStringLiteral("well-nope")});
+        auto *hint = page.findChild<QLabel *>(QStringLiteral("entityViewEmptyLabel"));
+        QVERIFY(hint->isVisibleTo(&page));
+        QVERIFY(hint->text().contains(QStringLiteral("well-nope")));
+      }
+    }
+
+    // changed() 重取：挂接后 catalog 变了，refreshAssetTable（mainwindow 的
+    // changed() 接线目标）重取实体视图，无需重新选择；纯查询不涨 revision。
+    void dataPage_entityViewRefetchesAfterCatalogChange()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+      CatalogEntity well;
+      well.id = QStringLiteral("well-1");
+      well.entityType = QStringLiteral("well");
+      well.name = QStringLiteral("A1");
+      QVERIFY(cat->addEntity(well));
+      for (const char *aid : {"ast-main", "ast-pend"})
+      {
+        CatalogAsset a;
+        a.id = QString::fromLatin1(aid);
+        a.type = QStringLiteral("well_log");
+        a.displayName = QString::fromLatin1(aid) + QStringLiteral(".las");
+        QVERIFY(cat->addAsset(a));
+      }
+      EntityAssetLink main;
+      main.entityType = QStringLiteral("well");
+      main.entityId = well.id;
+      main.assetId = QStringLiteral("ast-main");
+      main.role = QStringLiteral("well_log");
+      main.isPrimary = true;
+      QVERIFY(cat->addLink(main));
+      EntityAssetLink pend = main;
+      pend.assetId = QStringLiteral("ast-pend");
+      pend.isPrimary = false;
+      pend.unresolved = true; // entityId 指向本实体的未决链接（上游约定）
+      QVERIFY(cat->addLink(pend));
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      page.selectAssetsForEntities({QStringLiteral("well-1")});
+      auto *roleTable = page.findChild<QTableWidget *>(QStringLiteral("entityRoleTable"));
+      QVERIFY(roleTable);
+      // 渲染本身是纯查询：revision 不动。
+      const int revBefore = cat->catalogRevision();
+      page.refreshAssetTable();
+      QCOMPARE(cat->catalogRevision(), revBefore);
+      QVERIFY(roleTable->item(1, 1)->text().contains(QStringLiteral("ast-main")));
+      QVERIFY(roleTable->item(1, 3)->text().contains(QStringLiteral("ast-pend")));
+
+      // 挂接待定链接（catalog 变更）→ changed() 通路重取：新主关联是
+      // ast-pend，旧主关联落成员桶，未决列清空。
+      QVERIFY(cat->attachLink(1, QStringLiteral("well-1")));
+      page.refreshAssetTable();
+      QVERIFY(roleTable->item(1, 1)->text().contains(QStringLiteral("pend")));
+      QVERIFY(roleTable->item(1, 2)->text().contains(QStringLiteral("main")));
+      QVERIFY(roleTable->item(1, 3)->text().isEmpty()
+              || roleTable->item(1, 3)->text() == QStringLiteral("—"));
+    }
 };
 
 int main(int argc, char *argv[])

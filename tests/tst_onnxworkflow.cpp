@@ -15,6 +15,7 @@
 #include <cpl_conv.h>
 
 #include "../src/ai/onnxpredictionservice.h"
+#include "../src/catalog/datacatalog.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/qgislayerservice.h"
@@ -42,10 +43,12 @@ class TestOnnxWorkflow : public QObject
 private:
   // Declaration order matters: `dir` must precede `manifest` (its path feeds
   // the ctor), `projectSvc` precedes `layers`/`proc`, and `onnx` is rebound to
-  // the fixture-local model root by initFixture.
+  // the fixture-local model root by initFixture. T26：catalog 进 fixture——
+  // ONNX 预测栅格落 artifacts/derived 并登记 DERIVED 版本。
   struct Fixture
   {
     QTemporaryDir dir;
+    DataCatalog catalog;
     QgisProjectService projectSvc;
     PaleoProjectStore store;
     LayerManifest manifest{ dir.filePath( QStringLiteral( "project.sqlite" ) ) };
@@ -85,6 +88,8 @@ private:
   QString initFixture( Fixture &f )
   {
     if ( !f.dir.isValid() )
+      return QString();
+    if ( !f.catalog.open( f.dir.path() ) )
       return QString();
     if ( !f.projectSvc.createProject( f.dir.filePath( QStringLiteral( "proj.qgz" ) ) ) )
       return QString();
@@ -183,6 +188,7 @@ private slots:
     QVERIFY( !registryOnly.contains( QStringLiteral( "onnx:toy" ) ) );
 
     wf.setOnnxService( &f.onnx );
+    wf.setCatalog( &f.catalog, f.dir.path() ); // T26
     const QStringList ids = wf.availableAlgorithms();
     QVERIFY( ids.contains( QStringLiteral( "paleo:paleo_geological_smoothing" ) ) );
     QVERIFY2( ids.contains( QStringLiteral( "onnx:toy" ) ),
@@ -203,6 +209,7 @@ private slots:
 
     PredictionWorkflow wf( &f.proc, &f.layers );
     wf.setOnnxService( &f.onnx );
+    wf.setCatalog( &f.catalog, f.dir.path() ); // T26
     QSignalSpy doneSpy( &wf, &PredictionWorkflow::predictionDone );
     QSignalSpy failSpy( &wf, &PredictionWorkflow::predictionFailed );
 
@@ -226,6 +233,19 @@ private slots:
     QCOMPARE( d->group, QStringLiteral( "03_Predict" ) );
     QVERIFY2( QFile::exists( d->source ), qPrintable( d->source ) );
     QVERIFY( !d->source.startsWith( QStringLiteral( "memory" ) ) );
+    // T26：预测栅格落 artifacts/derived 并登记 DERIVED 版本（不进 QDir::temp）。
+    QVERIFY2( d->source.contains( QStringLiteral( "artifacts/derived/" ) ),
+              qPrintable( d->source ) );
+    bool onnxRegistered = false;
+    for ( const CatalogAsset &a : f.catalog.assets() )
+    {
+      if ( a.type != QLatin1String( "onnx_prediction" ) )
+        continue;
+      for ( const CatalogVersion &v : f.catalog.versionsForAsset( a.id ) )
+        if ( d->source.endsWith( QLatin1Char( '/' ) + v.fileName ) && d->source.contains( v.id ) )
+          onnxRegistered = !v.sha256.isEmpty();
+    }
+    QVERIFY2( onnxRegistered, "ONNX raster has no DERIVED catalog version" );
     GDALDatasetH ds = GDALOpen( d->source.toUtf8().constData(), GA_ReadOnly );
     QVERIFY2( ds != nullptr, qPrintable( d->source ) );
     QCOMPARE( GDALGetRasterXSize( ds ), 641 );
@@ -271,6 +291,7 @@ private slots:
 
     PredictionWorkflow wf( &f.proc, &f.layers );
     wf.setOnnxService( &f.onnx );
+    wf.setCatalog( &f.catalog, f.dir.path() ); // T26
 
     QVariantMap params;
     params.insert( QStringLiteral( "input" ), QVariantList{ 2.0 } );
@@ -307,6 +328,7 @@ private slots:
 
     PredictionWorkflow wf( &f.proc, &f.layers );
     wf.setOnnxService( &f.onnx );
+    wf.setCatalog( &f.catalog, f.dir.path() ); // T26
     QSignalSpy doneSpy( &wf, &PredictionWorkflow::predictionDone );
     QSignalSpy failSpy( &wf, &PredictionWorkflow::predictionFailed );
 
@@ -338,6 +360,7 @@ private slots:
 
     PredictionWorkflow wf( &f.proc, &f.layers );
     wf.setOnnxService( &f.onnx );
+    wf.setCatalog( &f.catalog, f.dir.path() ); // T26
     QVariantMap params;
     params.insert( QStringLiteral( "input" ), QVariantList{ 2.0 } );
     params.insert( QStringLiteral( "shape" ), QVariantList{ QVariant::fromValue<qint64>( 1 ) } );
@@ -360,6 +383,7 @@ private slots:
 
     PredictionWorkflow wf( &f.proc, &f.layers );
     wf.setOnnxService( &f.onnx );
+    wf.setCatalog( &f.catalog, f.dir.path() ); // T26
     QSignalSpy doneSpy( &wf, &PredictionWorkflow::predictionDone );
     QSignalSpy failSpy( &wf, &PredictionWorkflow::predictionFailed );
 
@@ -395,7 +419,8 @@ private slots:
     QVERIFY2( input != nullptr, qPrintable( err ) );
 
     PredictionWorkflow wf( &f.proc, &f.layers );
-    wf.setOnnxService( &f.onnx ); // bound, but must stay out of the way
+    wf.setOnnxService( &f.onnx );
+    wf.setCatalog( &f.catalog, f.dir.path() ); // T26 // bound, but must stay out of the way
     QSignalSpy doneSpy( &wf, &PredictionWorkflow::predictionDone );
     QSignalSpy failSpy( &wf, &PredictionWorkflow::predictionFailed );
 

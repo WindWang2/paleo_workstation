@@ -7,6 +7,7 @@
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
 #include "../services/projectdata.h"
+#include "derivedassets.h"
 #include "mappingworkflow.h"
 
 #include <QDateTime>
@@ -45,6 +46,8 @@ namespace
   const char kStoreProp[]       = "paleo.wf.store";       // QObject* (PaleoProjectStore)
   const char kConstraintsProp[] = "paleo.wf.constraints"; // QVariantList of QVariantMap (Constraint::toMap + "horizon")
   const char kSeqProp[]         = "paleo.wf.seq";         // int — constraint id sequence
+  const char kCatalogProp[]     = "paleo.wf.catalog";     // QObject* (DataCatalog) — T26 派生产物登记
+  const char kProjectDirProp[]  = "paleo.wf.projectdir";  // QString — 受管 artifacts/ 根
 
   void setError( QString *error, const QString &text )
   {
@@ -109,24 +112,22 @@ namespace
     wf->setProperty( kLayersProp, QVariant::fromValue( static_cast<QObject *>( layers ) ) );
   }
 
+  // T26：三个写出产物的 workflow 共享的登记通道（动态属性，见文件头注释）。
+  DerivedAssetRegistrar derivedRegistrarOf( const QObject *wf, QString *error )
+  {
+    DataCatalog *catalog = PaleoWorkflowDerivedCatalog( wf );
+    if ( !catalog )
+    {
+      setError( error, QObject::tr( "工作流未绑定数据目录（catalog）——派生产物无法登记到工程" ) );
+      return DerivedAssetRegistrar();
+    }
+    return DerivedAssetRegistrar( catalog, PaleoWorkflowDerivedProjectDir( wf ) );
+  }
+
   // Compact UTC timestamp — makes result layer ids unique per run.
   QString stamp()
   {
     return QDateTime::currentDateTimeUtc().toString( QStringLiteral( "yyyyMMdd-hhmmss-zzz" ) );
-  }
-
-  // Unpinned processing destinations land in the system temp dir; the merge
-  // step (PaleoProjectStore write queue) promotes them into the project later.
-  QString tempRasterPath( const QString &tag, const QString &horizon )
-  {
-    return QDir::temp().filePath(
-        QStringLiteral( "paleo_%1_%2_%3.tif" ).arg( tag, horizon, stamp() ) );
-  }
-
-  QString tempVectorPath( const QString &tag, const QString &horizon )
-  {
-    return QDir::temp().filePath(
-        QStringLiteral( "paleo_%1_%2_%3.gpkg" ).arg( tag, horizon, stamp() ) );
   }
 
   // OUTPUT is the conventional destination key; fall back to the first
@@ -182,6 +183,7 @@ namespace
     // (xmin, dx, 0, ymax, 0, -dy) — 原点是左上角像元的外角。
     double gt[6] = { 0.0, 12793.0 / 640.0, 0.0, 16406.0, 0.0, -16406.0 / 410.0 };
     QString projection; // 声明的 D61 栅格自身 SRS（可读时优先于参数/常量）
+    QString sourcePath; // 提供几何的 D61 栅格文件（DERIVED 父版本溯源用）
     bool fromDecl = false;
   };
 
@@ -215,6 +217,7 @@ namespace
     {
       std::memcpy( grid.gt, gt, sizeof( gt ) );
       grid.fromDecl = true;
+      grid.sourcePath = path;
     }
     const char *proj = GDALGetProjectionRef( ds );
     if ( proj && *proj )
@@ -352,6 +355,24 @@ namespace
 #endif
 } // namespace
 
+// T26：三个写出产物的 workflow 共享的派生产物登记通道（workflows.h 声明）。
+void PaleoWorkflowBindDerivedCatalog( QObject *workflow, DataCatalog *catalog,
+                                      const QString &projectDir )
+{
+  workflow->setProperty( kCatalogProp, QVariant::fromValue( static_cast<QObject *>( catalog ) ) );
+  workflow->setProperty( kProjectDirProp, projectDir );
+}
+
+DataCatalog *PaleoWorkflowDerivedCatalog( const QObject *workflow )
+{
+  return qobject_cast<DataCatalog *>( workflow->property( kCatalogProp ).value<QObject *>() );
+}
+
+QString PaleoWorkflowDerivedProjectDir( const QObject *workflow )
+{
+  return workflow->property( kProjectDirProp ).toString();
+}
+
 // ---------------------------------------------------------------------------
 // PredictionWorkflow — ①智能预测
 // ---------------------------------------------------------------------------
@@ -360,6 +381,11 @@ PredictionWorkflow::PredictionWorkflow( QgisProcessingService *proc, QgisLayerSe
   : QObject( parent )
 {
   bindProcessing( this, proc, layers );
+}
+
+void PredictionWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDir )
+{
+  PaleoWorkflowBindDerivedCatalog( this, catalog, projectDir );
 }
 
 void PredictionWorkflow::setOnnxService( PaleoOnnxService *onnx )
@@ -447,21 +473,46 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
                        ? *error
                        : tr( "cannot place ONNX output on a grid" ) );
     }
+    // T26：预测栅格落 artifacts/derived + DERIVED 版本（父版本 = 提供 D61
+    // geotransform 的时间栅格版本，可溯源时）。
+    QString regErr;
+    DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
+    if ( !registrar.isBound() )
+      return fail( regErr );
+    const DerivedStaging st = registrar.stage(
+        QStringLiteral( "onnx_prediction" ), tr( "%1 onnx %2 预测" ).arg( horizon, model ),
+        QStringLiteral( "ONNX_%1_%2.tif" ).arg( horizon, model ), &regErr );
+    if ( !st.isValid() )
+      return fail( regErr );
     const QString outPath = writeOnnxRaster(
-        tempRasterPath( QStringLiteral( "onnx" ), horizon ), tensor.values, rows, cols, grid,
-        params, model, tensor.shape, error );
+        st.absolutePath, tensor.values, rows, cols, grid, params, model, tensor.shape, error );
     if ( outPath.isEmpty() )
     {
       return fail( ( error && !error->isEmpty() )
                        ? *error
                        : tr( "failed to write ONNX prediction raster" ) );
     }
+    QVariantMap onnxExtra;
+    onnxExtra.insert( QStringLiteral( "model" ), model );
+    onnxExtra.insert( QStringLiteral( "rows" ), rows );
+    onnxExtra.insert( QStringLiteral( "cols" ), cols );
+    onnxExtra.insert( QStringLiteral( "geotransform_source" ),
+                      grid.fromDecl ? QStringLiteral( "horizon.D61" )
+                                    : QStringLiteral( "project_area" ) );
+    const QStringList onnxParents = grid.fromDecl && !grid.sourcePath.isEmpty()
+                                        ? registrar.parentVersionIdsFor( QStringList{ grid.sourcePath } )
+                                        : QStringList();
+    QString commitErr;
+    if ( !registrar.commitExternal( st, outPath, onnxParents,
+                                    QStringLiteral( "onnxworkflow/%1" ).arg( model ), onnxExtra,
+                                    &commitErr ) )
+      return fail( commitErr );
 
     LayerDeclaration decl;
     decl.layerId = QStringLiteral( "pred.%1.onnx.%2" ).arg( horizon, model );
     decl.horizon = horizon;
     decl.type = QStringLiteral( "raster" );
-    decl.source = outPath;
+    decl.source = st.absolutePath;
     decl.group = QStringLiteral( "03_Predict" );
     if ( !layers->declare( decl, error ) )
       return fail( ( error && !error->isEmpty() )
@@ -491,7 +542,29 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
     return false;
   }
 
-  const QVariantMap results = proc->run( algorithmId, params, error );
+  // T26：未钉 OUTPUT 的 Processing 结果会落进程临时池（退出即删）——预测产物
+  // 同样先 stage 到 artifacts/derived，再作为 DERIVED 版本登记。
+  QString regErr;
+  DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
+  if ( !registrar.isBound() )
+  {
+    setError( error, regErr );
+    emit predictionFailed( horizon, regErr );
+    return false;
+  }
+  const DerivedStaging st = registrar.stage(
+      QStringLiteral( "prediction_raster" ), tr( "%1 %2 预测" ).arg( horizon, algorithmId ),
+      QStringLiteral( "PREDICT_%1.tif" ).arg( horizon ), &regErr );
+  if ( !st.isValid() )
+  {
+    setError( error, regErr );
+    emit predictionFailed( horizon, regErr );
+    return false;
+  }
+  QVariantMap runParams = params;
+  runParams.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
+
+  const QVariantMap results = proc->run( algorithmId, runParams, error );
   if ( results.isEmpty() )
   {
     QString msg = tr( "prediction algorithm '%1' produced no results" ).arg( algorithmId );
@@ -511,12 +584,29 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
     emit predictionFailed( horizon, msg );
     return false;
   }
+  // 父版本 = 预测输入图层（文件源可溯源时）。
+  QStringList parentPaths;
+  if ( const QgsMapLayer *input = params.value( QStringLiteral( "INPUT" ) ).value<QgsMapLayer *>() )
+  {
+    const QString src = input->source().section( QLatin1Char( '|' ), 0, 0 );
+    if ( isFileBackedSource( src ) )
+      parentPaths.append( src );
+  }
+  QString commitErr;
+  if ( !registrar.commitExternal( st, outPath, registrar.parentVersionIdsFor( parentPaths ),
+                                  QStringLiteral( "predictionworkflow/%1" ).arg( algorithmId ), {},
+                                  &commitErr ) )
+  {
+    setError( error, commitErr );
+    emit predictionFailed( horizon, commitErr );
+    return false;
+  }
 
   LayerDeclaration decl;
   decl.layerId = QStringLiteral( "predict.%1.%2" ).arg( horizon, stamp() );
   decl.horizon = horizon;
   decl.type = QStringLiteral( "raster" );
-  decl.source = outPath;
+  decl.source = st.absolutePath;
   decl.group = QStringLiteral( "01_Prediction" );
   if ( !layers->declare( decl, error ) )
   {
@@ -549,6 +639,11 @@ ConstraintWorkflow::ConstraintWorkflow( QgisProcessingService *proc, QgisLayerSe
 void ConstraintWorkflow::setConstraintStore( ConstraintStore *store )
 {
   setProperty( kConstraintStoreProp, QVariant::fromValue( static_cast<void *>( store ) ) );
+}
+
+void ConstraintWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDir )
+{
+  PaleoWorkflowBindDerivedCatalog( this, catalog, projectDir );
 }
 
 void ConstraintWorkflow::setStore( PaleoProjectStore *store )
@@ -772,11 +867,30 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
   if ( !points )
     return false;
 
+  // T26：IDW 单因素栅格落 artifacts/derived + DERIVED 版本（父版本 = 井点图层
+  // 与约束图层的文件源版本）。
+  QString regErr;
+  DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
+  if ( !registrar.isBound() )
+  {
+    setError( error, regErr );
+    return false;
+  }
+  const DerivedStaging st = registrar.stage(
+      QStringLiteral( "constraint_idw_raster" ), tr( "%1 约束 IDW" ).arg( horizon ),
+      QStringLiteral( "IDW_%1.tif" ).arg( horizon ), &regErr );
+  if ( !st.isValid() )
+  {
+    setError( error, regErr );
+    return false;
+  }
+  QStringList parentPaths{ points->source().section( QLatin1Char( '|' ), 0, 0 ) };
+
   QVariantMap params;
   params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( points ) );
   params.insert( QStringLiteral( "FIELD" ), field );
   params.insert( QStringLiteral( "CELL_SIZE" ), cellSize );
-  params.insert( QStringLiteral( "OUTPUT" ), tempRasterPath( QStringLiteral( "idw" ), horizon ) );
+  params.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
 
   QVector<LayerDeclaration> declared;
   QString manifestErr;
@@ -801,6 +915,7 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
       return false;
     }
     params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( constraints ) );
+    parentPaths.append( constraints->source().section( QLatin1Char( '|' ), 0, 0 ) );
   }
 
   const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_constraint_idw" ), params, error );
@@ -813,12 +928,24 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
     setError( error, tr( "constraint IDW returned no output path" ) );
     return false;
   }
+  QVariantMap idwExtra;
+  idwExtra.insert( QStringLiteral( "field" ), field );
+  idwExtra.insert( QStringLiteral( "cell_size" ), cellSize );
+  idwExtra.insert( QStringLiteral( "constrained" ), hasConstraints );
+  QString commitErr;
+  if ( !registrar.commitExternal( st, outPath, registrar.parentVersionIdsFor( parentPaths ),
+                                  QStringLiteral( "paleo:paleo_constraint_idw" ), idwExtra,
+                                  &commitErr ) )
+  {
+    setError( error, commitErr );
+    return false;
+  }
 
   LayerDeclaration decl;
   decl.layerId = QStringLiteral( "factor.%1.idw" ).arg( horizon );
   decl.horizon = horizon;
   decl.type = QStringLiteral( "raster" );
-  decl.source = outPath;
+  decl.source = st.absolutePath;
   decl.group = QStringLiteral( "04_SingleFactor" );
   if ( !layers->declare( decl, error ) )
     return false;
@@ -835,6 +962,11 @@ CompositionWorkflow::CompositionWorkflow( QgisProcessingService *proc, QgisLayer
   : QObject( parent )
 {
   bindProcessing( this, proc, layers );
+}
+
+void CompositionWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDir )
+{
+  PaleoWorkflowBindDerivedCatalog( this, catalog, projectDir );
 }
 
 bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList &factorLayerIds,
@@ -855,17 +987,36 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
 
   QVariantList inputs;
   inputs.reserve( factorLayerIds.size() );
+  QStringList parentPaths;
   for ( const QString &layerId : factorLayerIds )
   {
     QgsMapLayer *layer = layers->instantiate( layerId, error );
     if ( !layer )
       return false;
     inputs.append( QVariant::fromValue( layer ) );
+    parentPaths.append( layer->source().section( QLatin1Char( '|' ), 0, 0 ) );
+  }
+
+  // T26：融合栅格落 artifacts/derived + DERIVED 版本（父版本 = 各单因素栅格）。
+  QString regErr;
+  DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
+  if ( !registrar.isBound() )
+  {
+    setError( error, regErr );
+    return false;
+  }
+  const DerivedStaging st = registrar.stage(
+      QStringLiteral( "facies_fusion_raster" ), tr( "%1 相融合" ).arg( horizon ),
+      QStringLiteral( "FUSION_%1.tif" ).arg( horizon ), &regErr );
+  if ( !st.isValid() )
+  {
+    setError( error, regErr );
+    return false;
   }
 
   QVariantMap params;
   params.insert( QStringLiteral( "INPUTS" ), inputs );
-  params.insert( QStringLiteral( "OUTPUT" ), tempRasterPath( QStringLiteral( "fusion" ), horizon ) );
+  params.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
 
   const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_facies_fusion" ), params, error );
   if ( results.isEmpty() )
@@ -877,12 +1028,22 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
     setError( error, tr( "facies fusion returned no output path" ) );
     return false;
   }
+  QVariantMap fusionExtra;
+  fusionExtra.insert( QStringLiteral( "factors" ), factorLayerIds );
+  QString commitErr;
+  if ( !registrar.commitExternal( st, outPath, registrar.parentVersionIdsFor( parentPaths ),
+                                  QStringLiteral( "paleo:paleo_facies_fusion" ), fusionExtra,
+                                  &commitErr ) )
+  {
+    setError( error, commitErr );
+    return false;
+  }
 
   LayerDeclaration decl;
   decl.layerId = QStringLiteral( "composite.%1" ).arg( horizon );
   decl.horizon = horizon;
   decl.type = QStringLiteral( "raster" );
-  decl.source = outPath;
+  decl.source = st.absolutePath;
   decl.group = QStringLiteral( "03_Composite" );
   if ( !layers->declare( decl, error ) )
     return false;
@@ -938,9 +1099,22 @@ bool CompositionWorkflow::deriveFaciesPolygons( const QString &horizon, const QS
                      : tr( "failed to instantiate raster '%1'" ).arg( rasterLayerId ) );
   }
 
+  // T26：相多边形 gpkg 落 artifacts/derived + DERIVED 版本（父版本 = 被多边形
+  // 化的栅格与约束图层的文件源版本）。
+  QString regErr;
+  DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
+  if ( !registrar.isBound() )
+    return fail( regErr );
+  const DerivedStaging st = registrar.stage(
+      QStringLiteral( "facies_polygons" ), tr( "%1 相多边形" ).arg( h ),
+      QStringLiteral( "FACIES_%1.gpkg" ).arg( h ), &regErr );
+  if ( !st.isValid() )
+    return fail( regErr );
+  QStringList parentPaths{ raster->source().section( QLatin1Char( '|' ), 0, 0 ) };
+
   QVariantMap alg;
   alg.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( raster ) );
-  alg.insert( QStringLiteral( "OUTPUT" ), tempVectorPath( QStringLiteral( "facies" ), h ) );
+  alg.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
   const QStringList forwarded = {
       QStringLiteral( "MIN_AREA" ), QStringLiteral( "SIMPLIFY" ),
       QStringLiteral( "SNAP_TOLERANCE" ), QStringLiteral( "ANGLE_TOLERANCE" ) };
@@ -960,6 +1134,7 @@ bool CompositionWorkflow::deriveFaciesPolygons( const QString &horizon, const QS
                        : tr( "failed to instantiate constraints '%1'" ).arg( constraintId ) );
     }
     alg.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( constraints ) );
+    parentPaths.append( constraints->source().section( QLatin1Char( '|' ), 0, 0 ) );
   }
 
   const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_facies_polygonize" ), alg, error );
@@ -972,12 +1147,20 @@ bool CompositionWorkflow::deriveFaciesPolygons( const QString &horizon, const QS
   const QString outPath = outputPathOf( results );
   if ( outPath.isEmpty() )
     return fail( tr( "facies polygonize returned no output path" ) );
+  QVariantMap faciesExtra;
+  faciesExtra.insert( QStringLiteral( "raster_layer" ), rasterLayerId );
+  faciesExtra.insert( QStringLiteral( "constrained" ), !constraintId.isEmpty() );
+  QString commitErr;
+  if ( !registrar.commitExternal( st, outPath, registrar.parentVersionIdsFor( parentPaths ),
+                                  QStringLiteral( "paleo:paleo_facies_polygonize" ), faciesExtra,
+                                  &commitErr ) )
+    return fail( commitErr );
 
   LayerDeclaration decl;
   decl.layerId = QStringLiteral( "facies.%1" ).arg( h );
   decl.horizon = h;
   decl.type = QStringLiteral( "vector" );
-  decl.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( outPath );
+  decl.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( st.absolutePath );
   decl.group = QStringLiteral( "05_PaleoMap" );
   if ( !layers->declare( decl, error ) )
   {

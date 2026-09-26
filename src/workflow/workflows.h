@@ -13,12 +13,22 @@ class PaleoProjectStore;
 class PaleoOnnxService;
 class ConstraintStore;
 class ProjectDataFacade;
+class DataCatalog;
 struct ValidationIssue;
 
 // workflow/ — thin orchestrators binding UI actions to services/algorithms.
 // They never touch Qgs* directly beyond type names; heavy work runs via
 // QgisProcessingService (temp-then-merge) and layer declaration via
 // QgisLayerService.
+
+// T26（wave3/derived-publish）：派生产物登记通道。三个写出产物的 workflow
+// （预测/约束IDW/融合+相多边形）共享这一个绑定语义：catalog 必须是工程唯一
+// 写实例，产物落 artifacts/derived/{asset}/{version}/ 并登记 DERIVED 版本。
+// 未绑定 catalog 时这些写出路径拒绝执行（不再退回 QDir::temp()）。
+void PaleoWorkflowBindDerivedCatalog(QObject *workflow, DataCatalog *catalog,
+                                     const QString &projectDir);
+DataCatalog *PaleoWorkflowDerivedCatalog(const QObject *workflow);
+QString PaleoWorkflowDerivedProjectDir(const QObject *workflow);
 
 // ①智能预测 — run a prediction algorithm for a horizon, declare result layer.
 class PredictionWorkflow : public QObject
@@ -34,6 +44,9 @@ class PredictionWorkflow : public QObject
     // Runnable algorithm ids: "paleo:*" from the Processing registry plus
     // "onnx:<model>" per PaleoOnnxService::availableModels().
     QStringList availableAlgorithms() const;
+
+    // T26：预测产物的登记通道（见 PaleoWorkflowBindDerivedCatalog）。
+    void setCatalog(DataCatalog *catalog, const QString &projectDir);
 
     bool runPrediction(const QString &horizon, const QString &algorithmId, const QVariantMap &params, QString *error = nullptr);
   signals:
@@ -51,6 +64,9 @@ class ConstraintWorkflow : public QObject
     void setStore(PaleoProjectStore *store);
     ConstraintStore *constraintStore() const;
 
+    // T26：IDW 单因素栅格的登记通道（见 PaleoWorkflowBindDerivedCatalog）。
+    void setCatalog(DataCatalog *catalog, const QString &projectDir);
+
     bool addConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
                        QString *error = nullptr, QString *constraintIdOut = nullptr);
     QVector<QVariantMap> loadConstraints(const QString &horizon = QString());
@@ -67,6 +83,10 @@ class CompositionWorkflow : public QObject
   Q_OBJECT
   public:
     explicit CompositionWorkflow(QgisProcessingService *proc, QgisLayerService *layers, QObject *parent = nullptr);
+
+    // T26：融合栅格与相多边形的登记通道（见 PaleoWorkflowBindDerivedCatalog）。
+    void setCatalog(DataCatalog *catalog, const QString &projectDir);
+
     bool fuseFactors(const QString &horizon, const QStringList &factorLayerIds, QString *error = nullptr);
 
     // §36 — classified/fused raster → editable facies polygons.

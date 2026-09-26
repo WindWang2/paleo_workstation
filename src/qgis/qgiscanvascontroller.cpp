@@ -1,9 +1,15 @@
 #include "qgiscanvascontroller.h"
 
+#include "qgisprojectservice.h"
+#include "../catalog/datacatalog.h"
+
 #include <qgsmapcanvas.h>
 #include <qgsmaptool.h>
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
+#include <qgslayertree.h>
+#include <qgslayertreemapcanvasbridge.h>
+#include <qgscoordinatereferencesystem.h>
 #include <qgsrectangle.h>
 
 #include <QColor>
@@ -32,6 +38,8 @@ QgisCanvasController::QgisCanvasController( QObject *parent )
 QgisCanvasController::~QgisCanvasController()
 {
   s_guards.remove( this );
+  delete m_bridge;      // references the canvas — die before it
+  m_bridge = nullptr;   // the destroyed() hook below re-runs on delete m_canvas
   // The canvas is created parentless; if it was embedded in a widget that died,
   // the destroyed() hook below already nulled m_canvas — no double delete.
   delete m_canvas;
@@ -46,9 +54,73 @@ QgsMapCanvas *QgisCanvasController::canvas()
     m_canvas->setCanvasColor( QColor( QStringLiteral( "#FFFFFF" ) ) ); // DESIGN.md colors.surface
     // If an embedding widget parents the canvas and outlives/destroys it,
     // drop the dangling pointer before ~QgisCanvasController runs.
-    connect( m_canvas, &QObject::destroyed, this, [this] { m_canvas = nullptr; } );
+    connect( m_canvas, &QObject::destroyed, this, [this] {
+      m_canvas = nullptr;
+      delete m_bridge;   // holds a canvas pointer — must not outlive it
+      m_bridge = nullptr;
+    } );
+    bindProject();
   }
   return m_canvas;
+}
+
+void QgisCanvasController::applyLocalCrs( QgsProject *project )
+{
+  if ( !project )
+    return;
+  // §3 / PROJECT_AREA_PLAN: layers, project and canvas share ONE datum-free
+  // engineering meter CRS — never an implied EPSG:4326. Pinned on every open:
+  // a .qgz read() can carry whatever CRS the file was saved with.
+  const QgsCoordinateReferenceSystem local =
+      QgsCoordinateReferenceSystem::fromWkt( DataCatalog::localGridCrsWkt() );
+  if ( !local.isValid() )
+    return;
+  project->setCrs( local );
+  if ( m_canvas )
+    m_canvas->setDestinationCrs( local );
+}
+
+void QgisCanvasController::bindProject()
+{
+  if ( !m_canvas )
+    return;
+
+  // Production layers live on QgisProjectService's QgsProject, not the
+  // singleton. The composition root parents every service to AppContext, so
+  // the service resolves as a sibling through the parent chain; a bare
+  // controller (tests) falls back to QgsProject::instance(), matching the
+  // layer service's documented fallback.
+  QgisProjectService *svc = nullptr;
+  for ( QObject *p = parent(); p && !svc; p = p->parent() )
+    svc = p->findChild<QgisProjectService *>();
+  QgsProject *proj = svc ? svc->project() : nullptr;
+  if ( !proj )
+    proj = QgsProject::instance();
+  if ( !proj )
+    return;
+
+  // Pin the engineering CRS BEFORE creating the bridge: the bridge snapshots
+  // first-layer CRS state at construction and on the first setCanvasLayers.
+  applyLocalCrs( proj );
+  m_canvas->setProject( proj ); // canvas-scoped lookups resolve against this project
+
+  // The bridge watches the layer tree and defers canvas-layer updates onto the
+  // event loop — lazily instantiated layers appear live, released/removed ones
+  // disappear, and project clear/read wipes the set. No manual setLayers needed.
+  delete m_bridge;
+  m_bridge = new QgsLayerTreeMapCanvasBridge( proj->layerTreeRoot(), m_canvas, this );
+
+  if ( svc )
+    connect( svc, &QgisProjectService::projectOpened, this, [this, svc] {
+      QgsProject *p = svc->project();
+      applyLocalCrs( p );
+      // Rebind defensively: read() may rebuild the tree under the bridge.
+      if ( p && m_canvas )
+      {
+        delete m_bridge;
+        m_bridge = new QgsLayerTreeMapCanvasBridge( p->layerTreeRoot(), m_canvas, this );
+      }
+    } );
 }
 
 void QgisCanvasController::setMapTool( QgsMapTool *tool )

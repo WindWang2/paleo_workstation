@@ -8,6 +8,8 @@
 class QgsMapCanvas;
 class QgsMapLayer;
 class QgsMapTool;
+class QgsLayerTreeMapCanvasBridge;
+class QgsProject;
 class QWidget;
 
 // P0 spine service — owns the QgsMapCanvas and map-tool lifecycle.
@@ -41,7 +43,13 @@ class QgisCanvasController : public QObject
     void selectionBroadcast(const QStringList &featureIds, const QString &origin);
 
   private:
+    // Attach a QgsLayerTreeMapCanvasBridge between the canvas and the resolved
+    // project tree, and pin the datum-free engineering CRS on project + canvas.
+    void bindProject();
+    void applyLocalCrs(QgsProject *project);
+
     QgsMapCanvas *m_canvas = nullptr;
+    QgsLayerTreeMapCanvasBridge *m_bridge = nullptr;
     QgsMapTool *m_tool = nullptr;
     bool m_broadcasting = false;
     LayerResolver m_layerResolver;

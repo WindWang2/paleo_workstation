@@ -93,7 +93,9 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_layerSvc = new QgisLayerService(m_projectSvc, m_manifest, this);
 
   // §37: every project write embeds the full declared layer set so
-  // uninstantiated declarations survive the .qgz projection.
+  // uninstantiated declarations survive the .qgz projection. The provider is
+  // the error-reporting tryDeclared — a manifest read failure fails the write
+  // instead of silently embedding an empty declaration set.
   m_projectSvc->setDeclarationProvider(
       [this](QVector<LayerDeclaration> *out, QString *error) {
         return m_layerSvc->tryDeclared(out, error);

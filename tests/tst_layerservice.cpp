@@ -2,11 +2,17 @@
 #include <QTemporaryDir>
 
 #include <qgsapplication.h>
+#include <qgscoordinatereferencesystem.h>
+#include <qgscoordinatetransform.h>
+#include <qgsmapcanvas.h>
 #include <qgsmaplayer.h>
+#include <qgsmapsettings.h>
 #include <qgsproject.h>
 #include <qgsvectorlayer.h>
 
+#include "../src/catalog/datacatalog.h"
 #include "../src/metadata/layermanifest.h"
+#include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 
@@ -205,6 +211,114 @@ private slots:
       QCOMPARE(f.group, QStringLiteral("04_SingleFactor"));
       QCOMPARE(f.instantiated, false);
     }
+  }
+
+  // (e) project->clear() deletes layers out from under the service — the
+  // m_instances cache must purge so re-instantiate returns a fresh live layer
+  // (review: dangling m_instances crash).
+  void projectClearPurgesInstances()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+    QVERIFY(manifest.open());
+    QgisLayerService svc(nullptr, &manifest);
+    QVERIFY(svc.declare(decl(QStringLiteral("facies.T1"), QStringLiteral("T1"))));
+
+    QgsMapLayer *first = svc.instantiate(QStringLiteral("facies.T1"));
+    QVERIFY(first);
+    QVERIFY(first->isValid());
+    QVERIFY(svc.isInstantiated(QStringLiteral("facies.T1")));
+
+    // clear() deletes every layer — cached pointers must die with them.
+    QgsProject::instance()->clear();
+    QVERIFY(!svc.isInstantiated(QStringLiteral("facies.T1")));
+    QVERIFY(svc.layer(QStringLiteral("facies.T1")) == nullptr);
+
+    // Re-instantiate must hand back a live layer, never the stale pointer.
+    // (A recycled heap address is legal — what matters is validity, and that
+    // the layer is actually registered in the project.)
+    QString err;
+    QgsMapLayer *second = svc.instantiate(QStringLiteral("facies.T1"), &err);
+    QVERIFY2(second && second->isValid(), qPrintable(err));
+    QVERIFY(QgsProject::instance()->mapLayers().values().contains(second));
+    QCOMPARE(svc.layer(QStringLiteral("facies.T1")), second);
+  }
+
+  // (f) canvas bound to the project: instantiate() lands on
+  // mapSettings().layers(), release removes it (review: canvas never bound).
+  void canvasTracksInstantiatedLayers()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+    QVERIFY(manifest.open());
+    QgisLayerService svc(nullptr, &manifest);
+    QVERIFY(svc.declare(decl(QStringLiteral("facies.T1"), QStringLiteral("T1"))));
+
+    // Bare controller — no sibling QgisProjectService — binds the
+    // QgsProject::instance() fallback, same project the service writes to.
+    QgisCanvasController ctl;
+    QgsMapCanvas *canvas = ctl.canvas();
+    QVERIFY(canvas);
+
+    QVERIFY(svc.instantiate(QStringLiteral("facies.T1")));
+    // QgsLayerTreeMapCanvasBridge defers its layer-set sync onto the event
+    // loop — wait for it rather than asserting on the pending state.
+    QTRY_VERIFY(canvas->mapSettings().layers().contains(
+        svc.layer(QStringLiteral("facies.T1"))));
+
+    // Canvas destination CRS is the pinned datum-free engineering grid —
+    // not the fixture layer's EPSG:4326.
+    const QgsCoordinateReferenceSystem dest = canvas->mapSettings().destinationCrs();
+    QVERIFY(dest.isValid());
+    QVERIFY2(dest.authid().isEmpty(), qPrintable(dest.authid()));
+    QVERIFY(!dest.isGeographic());
+
+    svc.releaseHorizon(QStringLiteral("T1"));
+    QTRY_VERIFY(canvas->mapSettings().layers().isEmpty());
+  }
+
+  // (g) local grid CRS is a datum-free engineering CRS (PROJECT_AREA_PLAN
+  // autoplan-eng): metre axes, empty authid, non-geographic, and NO
+  // QgsCoordinateTransform path to EPSG:4326.
+  void localGridCrsIsDatumFreeEngineering()
+  {
+    const QgsCoordinateReferenceSystem local =
+        QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+    QVERIFY2(local.isValid(), "local grid WKT must parse into a valid CRS");
+    QVERIFY2(local.authid().isEmpty(), qPrintable(local.authid()));
+    QVERIFY(!local.isGeographic());
+    QCOMPARE(local.mapUnits(), Qgis::DistanceUnit::Meters);
+
+    QgsCoordinateTransform toWgs(local,
+                                 QgsCoordinateReferenceSystem(QStringLiteral("EPSG:4326")),
+                                 QgsProject::instance());
+    QVERIFY2(!toWgs.isValid(),
+             "engineering CRS must NOT transform to EPSG:4326");
+  }
+
+  // (h) manifest read failure must surface as a READ failure, not the
+  // misleading "no layer declaration" (review: error text misattribution).
+  void instantiateReportsManifestReadFailure()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    // A manifest path rooted under a regular FILE can never open its sqlite.
+    const QString blocker = tmp.filePath(QStringLiteral("blocker"));
+    {
+      QFile f(blocker);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("x");
+    }
+    LayerManifest manifest(blocker + QStringLiteral("/project.sqlite"));
+    QgisLayerService svc(nullptr, &manifest);
+
+    QString err;
+    QVERIFY(svc.instantiate(QStringLiteral("facies.T1"), &err) == nullptr);
+    QVERIFY2(!err.isEmpty(), "a manifest read failure must produce an error");
+    QVERIFY2(!err.contains(QStringLiteral("no layer declaration")),
+             qPrintable(err));
   }
 };
 

@@ -188,8 +188,17 @@ HorizonRasterInfo ProjectDataFacade::horizonRasterDecl(const QString &horizon) c
     return info;
 
   // Prefer the "horizon." declaration id; otherwise the first declared
-  // raster bound to this horizon.
-  const QVector<LayerDeclaration> decls = m_manifest->all();
+  // raster bound to this horizon. A manifest read failure is a read failure —
+  // surface it via m_lastError instead of letting it masquerade as
+  // "no raster declared for this horizon".
+  QVector<LayerDeclaration> decls;
+  QString readErr;
+  if (!m_manifest->readAll(&decls, &readErr))
+  {
+    m_lastError = tr("无法读取图层清单（层位 %1 栅格声明）：%2")
+                      .arg(horizon, readErr.isEmpty() ? tr("未知错误") : readErr);
+    return info;
+  }
   QString source;
   for (const LayerDeclaration &d : decls)
   {

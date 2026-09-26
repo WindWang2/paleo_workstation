@@ -63,6 +63,7 @@
 #include <QListWidget>
 #include <QMap>
 #include <QMenu>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QShortcut>
 #include <QToolButton>
@@ -246,8 +247,13 @@ void PaleoMainWindow::buildShell()
         return;
       const QString p = QFileDialog::getOpenFileName(
           this, QStringLiteral("打开工程"), QString(), QStringLiteral("Paleo 工程 (*.qgz *.qgs)"));
-      if (!p.isEmpty())
-        m_projectSvc->openProject(p); // projectOpened -> onProjectOpened()
+      if (p.isEmpty())
+        return;
+      // §38 blocking-error contract: a failed open surfaces as a dialog, not
+      // a silent no-op on the startup page.
+      if (!m_projectSvc->openProject(p))
+        QMessageBox::critical(this, QStringLiteral("打开工程失败"),
+                              m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
   if (auto *newBtn = startup->findChild<QPushButton *>(QStringLiteral("newProjectButton")))
     connect(newBtn, &QPushButton::clicked, this, [this] {
@@ -255,14 +261,20 @@ void PaleoMainWindow::buildShell()
         return;
       const QString p = QFileDialog::getSaveFileName(
           this, QStringLiteral("新建工程"), QString(), QStringLiteral("Paleo 工程 (*.qgz)"));
-      if (!p.isEmpty())
-        m_projectSvc->createProject(p);
+      if (p.isEmpty())
+        return;
+      if (!m_projectSvc->createProject(p))
+        QMessageBox::critical(this, QStringLiteral("新建工程失败"),
+                              m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
   if (auto *list = startup->findChild<QListWidget *>(QStringLiteral("recentProjectsList")))
     connect(list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
       const QString p = item ? item->data(Qt::UserRole).toString() : QString();
-      if (!p.isEmpty() && m_projectSvc)
-        m_projectSvc->openProject(p);
+      if (p.isEmpty() || !m_projectSvc)
+        return;
+      if (!m_projectSvc->openProject(p))
+        QMessageBox::critical(this, QStringLiteral("打开工程失败"),
+                              m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
 
   auto *central = new QWidget(this);

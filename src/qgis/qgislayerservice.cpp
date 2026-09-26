@@ -32,6 +32,32 @@ QgisLayerService::QgisLayerService(QgisProjectService *projectSvc, LayerManifest
   , m_projectSvc(projectSvc)
   , m_manifest(manifest)
 {
+  // m_instances caches raw QgsMapLayer* owned by the project. QgsProject
+  // clear()/read() and any removeMapLayer() path delete layers without asking —
+  // every removal signal drops the corresponding cache entries so the hash can
+  // never go dangling (instantiate() would otherwise hand out freed pointers).
+  QgsProject *proj = resolveProject(m_projectSvc);
+  if (proj)
+  {
+    connect(proj, &QgsProject::cleared, this, [this] { m_instances.clear(); });
+    connect(proj, &QgsProject::layersRemoved, this,
+            [this](const QStringList &removedIds) {
+              for (auto it = m_instances.begin(); it != m_instances.end();)
+              {
+                // layersRemoved fires before the layers are deleted — id() is
+                // still readable here; destroyed() covers the rest.
+                if (removedIds.contains(it.value()->id()))
+                  it = m_instances.erase(it);
+                else
+                  ++it;
+              }
+            });
+  }
+  // openProject()/createProject() swap the layer set wholesale (read() clears
+  // first, but be explicit): drop every entry not still registered.
+  if (m_projectSvc)
+    connect(m_projectSvc, &QgisProjectService::projectOpened, this,
+            [this] { purgeDanglingInstances(); });
 }
 
 bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
@@ -50,9 +76,29 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
 QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *error)
 {
   if (QgsMapLayer *existing = m_instances.value(layerId))
-    return existing;
+  {
+    // Paranoia guard: compare pointer identity against the project's live set
+    // without dereferencing — a layer destroyed between signal deliveries must
+    // never be handed back as live.
+    QgsProject *proj = resolveProject(m_projectSvc);
+    const auto live = proj ? proj->mapLayers().values() : QList<QgsMapLayer *>();
+    if (live.contains(existing))
+      return existing;
+    m_instances.remove(layerId); // stale entry — fall through and re-create
+  }
 
-  const QVector<LayerDeclaration> decls = m_manifest->all();
+  // A manifest read failure is a READ failure, not "no declaration" — report
+  // the store error so callers don't misdiagnose a corrupt/unreadable manifest
+  // as an undeclared layer.
+  QVector<LayerDeclaration> decls;
+  QString readError;
+  if (!m_manifest->readAll(&decls, &readError))
+  {
+    setError(error, readError.isEmpty()
+                        ? QStringLiteral("failed to read layer manifest")
+                        : QStringLiteral("failed to read layer manifest: %1").arg(readError));
+    return nullptr;
+  }
   const LayerDeclaration *decl = nullptr;
   for (const LayerDeclaration &d : decls)
   {
@@ -99,7 +145,7 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   layer.release();
   added->setCustomProperty(QStringLiteral("paleoLayerId"), decl->layerId);
 
-  m_instances.insert(layerId, added);
+  trackInstance(layerId, added);
   emit layerInstantiated(layerId);
   return added;
 }
@@ -146,6 +192,31 @@ bool QgisLayerService::tryDeclared(QVector<LayerDeclaration> *out, QString *erro
     return false;
   }
   return m_manifest->readAll(out, error);
+}
+
+void QgisLayerService::trackInstance(const QString &layerId, QgsMapLayer *layer)
+{
+  m_instances.insert(layerId, layer);
+  // The project owns the layer — if it is destroyed by ANY path (clear(),
+  // removeMapLayer(), an external consumer), the cache entry dies with it.
+  connect(layer, &QObject::destroyed, this, [this, layerId] {
+    m_instances.remove(layerId);
+  });
+}
+
+void QgisLayerService::purgeDanglingInstances()
+{
+  QgsProject *proj = resolveProject(m_projectSvc);
+  const QList<QgsMapLayer *> live = proj ? proj->mapLayers().values()
+                                         : QList<QgsMapLayer *>();
+  for (auto it = m_instances.begin(); it != m_instances.end();)
+  {
+    // Pointer comparison only — entries may dangle and must not be dereferenced.
+    if (!live.contains(it.value()))
+      it = m_instances.erase(it);
+    else
+      ++it;
+  }
 }
 
 QgsMapLayer *QgisLayerService::layer(const QString &layerId) const

@@ -2,8 +2,18 @@
 #include <QHash>
 #include <QString>
 #include <QVector>
+#include <functional>
 
 class QFile;
+
+// 长 IO 钩子（wave2 D1：索引/解码跑在任务池上）：progress(done,total) 报
+// 字节/条目进度（worker 侧节流，~每 8MB 或每 64 道一次）；cancel() 返回真
+// 即中止，函数照常返回 false、error 记 "cancelled"——任务层据此判 Cancelled。
+struct SegyOptions
+{
+  std::function<void(qint64 done, qint64 total)> progress;
+  std::function<bool()> cancel;
+};
 
 // io/ — SEG-Y rev0/1 测线级读取器（plan §2/§7）。
 // open() 只做道头索引：沿文件顺序逐道读 240 字节道头，冻结 survey 几何
@@ -36,8 +46,9 @@ class SegyReader
   public:
     SegyReader() = default;
 
-    // 索引式打开：只读道头，不读样本。
-    bool open(const QString &path, QString *error = nullptr);
+    // 索引式打开：只读道头，不读样本。opts 可传进度/取消钩子（D1 异步）。
+    bool open(const QString &path, QString *error = nullptr,
+              const SegyOptions *opts = nullptr);
 
     static bool open(const QString &path, SegyReader &reader, QString *error = nullptr)
     {
@@ -51,13 +62,15 @@ class SegyReader
     QString filePath() const { return m_path; }
 
     // 全量解码（兼容小文件路径；每次调用重新解码，调用方负责规模）。
-    QVector<SegyTrace> traces() const;
+    QVector<SegyTrace> traces(const SegyOptions *opts = nullptr) const;
 
     // ---- 测线级 ----
     QVector<qint32> inlineNumbers() const;    // 升序去重
     QVector<qint32> crosslineNumbers() const; // 升序去重
-    bool readInline(qint32 inlineNo, QVector<SegyTrace> *out, QString *error = nullptr) const;
-    bool readCrossline(qint32 xlineNo, QVector<SegyTrace> *out, QString *error = nullptr) const;
+    bool readInline(qint32 inlineNo, QVector<SegyTrace> *out,
+                    QString *error = nullptr, const SegyOptions *opts = nullptr) const;
+    bool readCrossline(qint32 xlineNo, QVector<SegyTrace> *out,
+                       QString *error = nullptr, const SegyOptions *opts = nullptr) const;
 
   private:
     struct IndexEntry
@@ -68,7 +81,8 @@ class SegyReader
     };
 
     bool decodeTrace(QFile &file, const IndexEntry &e, SegyTrace *out) const;
-    QVector<SegyTrace> readByIndexList(const QVector<int> &idxs) const;
+    QVector<SegyTrace> readByIndexList(const QVector<int> &idxs,
+                                     const SegyOptions *opts = nullptr) const;
 
     QString m_path;
     int m_samplesPerTrace = 0;

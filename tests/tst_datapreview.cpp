@@ -9,6 +9,7 @@
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
+#include "../src/services/paleotaskservice.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
 
 #include <QComboBox>
@@ -95,6 +96,7 @@ private slots:
   void timeDepthEmptyShowsNoTable();
   void horizonShowsRejectedAndCollisions();
   void seismicTabLabelsAndTieMarker();
+  void seismicDecodeRunsThroughTaskService();
   void seismicTieShowsReasonWithoutTd();
   void seismicDefaultsToTieWellInline();
   void tamperedExternalSourceShowsShaMismatch();
@@ -672,6 +674,41 @@ void TestDataPreview::seismicTabLabelsAndTieMarker()
   QVERIFY(tie->text().contains(QStringLiteral("ms")));
   // 标题「文件名 · 测线」（本夹具井位在测网外 → 落回最小 inline）。
   QCOMPARE(tabs->tabText(tabs->currentIndex()), QStringLiteral("vol.sgy · IL1000"));
+}
+
+// D1：接了任务服务 → 索引/SHA/解码走任务池；完成后标题带测线后缀；
+// 换测线派发新任务（索引缓存命中不再重建）。
+void TestDataPreview::seismicDecodeRunsThroughTaskService()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+  PaleoProjectStore taskStore;
+  PaleoTaskService taskSvc(&taskStore);
+  st->preview->setTaskService(&taskSvc);
+
+  const Imported ids = importAll(*st, tmp);
+  QVERIFY(!ids.sgy.isEmpty());
+  st->preview->openAsset(ids.sgy);
+  auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+  QWidget *page = tabs->widget(tabs->currentIndex());
+
+  // 解码任务注册进任务服务并跑成功。
+  QTRY_VERIFY_WITH_TIMEOUT(!taskSvc.tasks().isEmpty(), 3000);
+  PaleoTask *t1 = taskSvc.tasks().first();
+  QTRY_COMPARE_WITH_TIMEOUT(t1->state(), PaleoTask::State::Succeeded, 5000);
+  QCOMPARE(tabs->tabText(tabs->currentIndex()),
+           QStringLiteral("vol.sgy · IL1000"));
+  auto *no = page->findChild<QSpinBox *>(QStringLiteral("lineSpin"));
+  QVERIFY(no);
+
+  // 换测线 → 第二个任务（索引缓存命中，不再 open 全文件）。
+  no->setValue(1001);
+  QTRY_VERIFY_WITH_TIMEOUT(taskSvc.tasks().size() >= 2, 3000);
+  PaleoTask *t2 = taskSvc.tasks().at(1);
+  QTRY_COMPARE_WITH_TIMEOUT(t2->state(), PaleoTask::State::Succeeded, 5000);
+  QCOMPARE(tabs->tabText(tabs->currentIndex()),
+           QStringLiteral("vol.sgy · IL1001"));
 }
 
 // §4：没有 TD 表 → 标定写原因「无时深表」，绝不造时间。

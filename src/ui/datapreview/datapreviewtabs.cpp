@@ -6,8 +6,11 @@
 #include "../../io/segyreader.h"
 #include "../../io/timedeptool.h"
 #include "../../io/wellfileparsers.h"
+#include "../../services/paleotaskservice.h"
 
 #include <QComboBox>
+#include <QCryptographicHash>
+#include <QFileInfo>
 #include <QHeaderView>
 #include <QDesktopServices>
 #include <QFile>
@@ -318,6 +321,58 @@ namespace
   }
 } // namespace
 
+// D1：外链 SHA-256 复验——与 DataCatalog::verifyExternalVersionSha 同语义的
+// 分块哈希，但可报字节进度并可协作取消（异步解码路径用；服务侧无此钩子）。
+static bool externalShaMatches(const QString &absPath, const QString &expected,
+                               PaleoTask *task, QString *error)
+{
+  QFile f(absPath);
+  if (!f.open(QIODevice::ReadOnly))
+  {
+    if (error)
+      *error = QStringLiteral("无法读取源文件：%1").arg(absPath);
+    return false;
+  }
+  const qint64 total = f.size();
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  char buf[1 << 20];
+  qint64 done = 0;
+  int sinceReport = 0;
+  for (;;)
+  {
+    const qint64 n = f.read(buf, sizeof(buf));
+    if (n < 0)
+    {
+      if (error)
+        *error = QStringLiteral("读取源文件失败：%1").arg(absPath);
+      return false;
+    }
+    if (n == 0)
+      break;
+    hash.addData(QByteArrayView(buf, static_cast<qsizetype>(n)));
+    done += n;
+    if (task && ++sinceReport >= 16) // ~16MB 粒度上报
+    {
+      sinceReport = 0;
+      task->reportBytes(done, total);
+      if (task->cancelRequested())
+      {
+        if (error)
+          *error = QStringLiteral("cancelled");
+        return false;
+      }
+    }
+  }
+  if (QString::fromLatin1(hash.result().toHex())
+          .compare(expected, Qt::CaseInsensitive) != 0)
+  {
+    if (error)
+      *error = QStringLiteral("源文件与入库时的 SHA-256 不一致");
+    return false;
+  }
+  return true;
+}
+
 DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   : QWidget(parent)
 {
@@ -366,6 +421,11 @@ void DataPreviewTabs::setImportService(DataImportService *svc)
           [this](const QString &assetId, const QString &) { rebuildAssetTab(assetId); });
 }
 
+void DataPreviewTabs::setTaskService(PaleoTaskService *svc)
+{
+  m_taskSvc = svc;
+}
+
 int DataPreviewTabs::tabCount() const
 {
   return m_tabs->count();
@@ -393,6 +453,14 @@ void DataPreviewTabs::closeAssetTab(const QString &assetId)
   m_pageOfAsset.remove(assetId);
   m_wellEntityOfAsset.remove(assetId);
   m_titleSuffixOfAsset.remove(assetId);
+  // D1：标签关掉即释放该资产的索引缓存（持有文件句柄级状态）与世代号；
+  // 进行中的解码任务请求取消——结果没人等了。
+  m_segyReaders.remove(assetId);
+  m_decodeSeq.remove(assetId);
+  m_shaVerified.remove(assetId);
+  if (auto *t = m_decodeTask.value(assetId).data(); t && t->running())
+    t->requestCancel();
+  m_decodeTask.remove(assetId);
   page->setParent(nullptr); // 摘出子树再推迟删除，关闭后 findChild 不再命中
   page->deleteLater();
   if (m_tabs->count() == 0)
@@ -623,7 +691,12 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 
   // 外链完整性（§3）：入库时留过 SHA-256 的源文件被改过就不再解码——
   // 正文如实写「源文件与入库时的 SHA-256 不一致」。
-  if (!sourceVersion.managed && !sourceVersion.sha256.isEmpty())
+  // D1：地震资产接了任务服务时把这道哈希移交异步解码任务——体量大不该堵
+  // 住建标签；其它资产类型文件小，保留同步门（会话已验过的资产直接跳过）。
+  const bool deferShaToTask =
+      m_taskSvc && asset.type == QLatin1String("seismic");
+  if (!sourceVersion.managed && !sourceVersion.sha256.isEmpty() &&
+      !m_shaVerified.value(assetId) && !deferShaToTask)
   {
     QString verr;
     if (!cat->verifyExternalVersionSha(sourceVersion, &verr))
@@ -631,6 +704,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       lay->addWidget(stateLabel(verr, host), 1);
       return host;
     }
+    m_shaVerified.insert(assetId, true);
   }
 
   if (asset.type == QLatin1String("well_log") && !auxOnly)
@@ -961,8 +1035,6 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     const auto decode = [this, assetId, abs, survey, mode, no, panel, tieCaption, v,
                          haveTieTop, tie, tieWellName]() {
       panel->clearImage(); // 换测线先清掉上一张剖面（§4）
-      // 「正在建立道索引」：索引/解码仍同步进行——套上禁用态+tooltip+立绘，
-      // 状态钩子就位但不引入线程。
       const QString idxTip = tr("正在建立道索引");
       mode->setEnabled(false);
       no->setEnabled(false);
@@ -974,46 +1046,112 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         mode->setToolTip(QString());
         no->setToolTip(QString());
       };
-      // §3：外链源在入库时留过 SHA-256——每次解码前照它再验一遍（文件可能在
-      // 标签打开后被改动）。不一致就只写原因，不解码。
-      if (!v.managed && !v.sha256.isEmpty() && m_svc)
-      {
-        QString verr;
-        if (!m_svc->catalog()->verifyExternalVersionSha(v, &verr))
-        {
-          panel->setError(verr);
-          restore();
-          return;
-        }
-      }
-      SegyReader r;
-      QString err;
-      if (!r.open(abs, &err))
-      {
-        // 解码失败如实写原因（§4），不装成灰 1×1。
-        panel->setError(err.isEmpty() ? tr("无法打开文件") : err);
-        restore();
-        return;
-      }
-      QVector<SegyTrace> line;
       const bool isInline = mode->currentData().toString() == QLatin1String("inline");
-      const bool ok = isInline ? r.readInline(no->value(), &line, &err)
-                               : r.readCrossline(no->value(), &line, &err);
-      if (!ok)
+      const int lineNo = no->value();
+
+      // D1：新解码请求取消同资产仍在跑的任务——其结果反正按世代号丢弃。
+      const int seq = ++m_decodeSeq[assetId];
+      if (auto *old = m_decodeTask.value(assetId).data();
+          old && old->running())
+        old->requestCancel();
+
+      // worker 产出（跨线程交接，GUI 只读 finished 后的快照）。
+      struct DecodeOut
       {
-        panel->setError(err.isEmpty() ? tr("无法解码测线") : err);
+        std::shared_ptr<SegyReader> opened; // worker 新建索引时填（回填缓存）
+        QVector<SegyTrace> line;
+        float sampleIntervalUs = 0.0f;
+        double startTimeMs = 0.0;
+      };
+      auto out = std::make_shared<DecodeOut>();
+      const std::shared_ptr<SegyReader> cachedReader = m_segyReaders.value(assetId);
+      const bool needSha =
+          !v.managed && !v.sha256.isEmpty() && !m_shaVerified.value(assetId);
+      const QString sha = v.sha256;
+
+      // T23+D1：索引/SHA 每资产一次（缓存命中即跳过）；道索引与测线解码
+      // 在任务池执行并回报字节进度/ETA；任务可协作取消。
+      const auto work = [abs, isInline, lineNo, needSha, sha, cachedReader,
+                         out](PaleoTask *t) -> QString {
+        std::shared_ptr<SegyReader> reader = cachedReader;
+        SegyOptions opts;
+        if (t)
+        {
+          opts.progress = [t](qint64 d, qint64 tot) { t->reportBytes(d, tot); };
+          opts.cancel = [t]() { return t->cancelRequested(); };
+        }
+        if (!reader)
+        {
+          // §3：外链源入库时留过 SHA-256——解码前照它再验一遍（文件可能在
+          // 标签打开后被改动）。不一致就只写原因，不解码。
+          if (needSha)
+          {
+            QString serr;
+            if (!externalShaMatches(abs, sha, t, &serr))
+              return (t && t->cancelRequested()) ? QString() : serr;
+          }
+          reader = std::make_shared<SegyReader>();
+          QString err;
+          if (!reader->open(abs, &err, &opts))
+            return (t && t->cancelRequested())
+                       ? QString()
+                       : (err.isEmpty() ? QStringLiteral("无法打开文件") : err);
+          out->opened = reader;
+        }
+        QString err;
+        const bool ok =
+            isInline ? reader->readInline(lineNo, &out->line, &err, &opts)
+                     : reader->readCrossline(lineNo, &out->line, &err, &opts);
+        if (!ok && !(t && t->cancelRequested()))
+          return err.isEmpty() ? QStringLiteral("无法解码测线") : err;
+        out->sampleIntervalUs = reader->sampleIntervalUs();
+        out->startTimeMs = reader->geometry().startTimeMs;
+        return QString();
+      };
+
+      const auto apply = [this, assetId, seq, isInline, lineNo, out, panel,
+                          mode, no, tieCaption, haveTieTop, tie,
+                          restore](PaleoTask::State st, const QString &errText) {
+        if (seq != m_decodeSeq.value(assetId))
+          return; // 陈旧结果丢弃：更新一代 decode 已接管控件
+        if (st == PaleoTask::State::Succeeded)
+        {
+          if (out->opened)
+            m_segyReaders.insert(assetId, out->opened);
+          m_shaVerified.insert(assetId, true);
+          panel->setTraces(out->line, out->sampleIntervalUs, out->startTimeMs);
+          if (haveTieTop && tie.ok())
+            panel->setTieMarker(tieCaption->text(), tie.timeMs);
+          // 标题后缀：「文件名 · IL1315」/「文件名 · XL4165」（§4）。
+          m_titleSuffixOfAsset[assetId] =
+              (isInline ? QStringLiteral("IL") : QStringLiteral("XL")) +
+              QString::number(lineNo);
+          updateTabTitle(assetId);
+        }
+        else if (st == PaleoTask::State::Failed)
+          // 解码失败如实写原因（§4），不装成灰 1×1。
+          panel->setError(errText.isEmpty() ? tr("无法解码测线") : errText);
+        else
+          panel->setError(tr("已取消"));
         restore();
-        return;
+      };
+
+      if (m_taskSvc)
+      {
+        auto *task = m_taskSvc->start(
+            tr("解码剖面 %1").arg(QFileInfo(abs).fileName()), work);
+        m_decodeTask[assetId] = task;
+        connect(task, &PaleoTask::finished, panel,
+                [apply, task]() { apply(task->state(), task->errorText()); });
       }
-      panel->setTraces(line, r.sampleIntervalUs(), r.geometry().startTimeMs);
-      if (haveTieTop && tie.ok())
-        panel->setTieMarker(tieCaption->text(), tie.timeMs);
-      // 标题后缀：「文件名 · IL1315」/「文件名 · XL4165」（§4）。
-      m_titleSuffixOfAsset[assetId] =
-          (isInline ? QStringLiteral("IL") : QStringLiteral("XL")) +
-          QString::number(no->value());
-      updateTabTitle(assetId);
-      restore();
+      else
+      {
+        // 无任务服务（测试/小环境）：同步旧路径，行为与接线前一致。
+        const QString err = work(nullptr);
+        apply(err.isEmpty() ? PaleoTask::State::Succeeded
+                            : PaleoTask::State::Failed,
+              err);
+      }
     };
     connect(mode, &QComboBox::currentIndexChanged, host, [mode, no, survey, decode]() {
       const bool isInline = mode->currentData().toString() == QLatin1String("inline");

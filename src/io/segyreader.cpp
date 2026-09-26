@@ -39,7 +39,8 @@ qint16 beI16(const uchar *p)
 }
 } // namespace
 
-bool SegyReader::open(const QString &path, QString *error)
+bool SegyReader::open(const QString &path, QString *error,
+                      const SegyOptions *opts)
 {
   m_index.clear();
   m_byInline.clear();
@@ -172,6 +173,19 @@ bool SegyReader::open(const QString &path, QString *error)
   QVector<double> ordX, ordY; // ordinal 模式的坐标序列（一致性校验 + 角点）
   while (offset + 240 <= fileSize)
   {
+    // D1 进度/取消：每 128 道 ≈ 数百 KB–数 MB 一次，任务面板据此画进度条。
+    if (opts && (m_index.size() % 128) == 0)
+    {
+      if (opts->cancel && opts->cancel())
+      {
+        if (error)
+          *error = QStringLiteral("cancelled");
+        m_index.clear();
+        return false;
+      }
+      if (opts->progress)
+        opts->progress(offset, fileSize);
+    }
     if (!file.seek(offset) || file.read(reinterpret_cast<char *>(trHdr), 240) != 240)
     {
       if (error)
@@ -471,29 +485,39 @@ bool SegyReader::decodeTrace(QFile &file, const IndexEntry &e, SegyTrace *out) c
   return true;
 }
 
-QVector<SegyTrace> SegyReader::readByIndexList(const QVector<int> &idxs) const
+QVector<SegyTrace> SegyReader::readByIndexList(const QVector<int> &idxs,
+                                             const SegyOptions *opts) const
 {
   QVector<SegyTrace> out;
   QFile file(m_path);
   if (!file.open(QIODevice::ReadOnly))
     return out;
   out.reserve(idxs.size());
+  int n = 0;
   for (int i : idxs)
   {
+    if (opts && (n % 64) == 0)
+    {
+      if (opts->cancel && opts->cancel())
+        return out; // 调用方把空/部分结果按取消处理
+      if (opts->progress)
+        opts->progress(n, idxs.size());
+    }
     SegyTrace t;
     if (decodeTrace(file, m_index.at(i), &t))
       out.append(t);
+    ++n;
   }
   return out;
 }
 
-QVector<SegyTrace> SegyReader::traces() const
+QVector<SegyTrace> SegyReader::traces(const SegyOptions *opts) const
 {
   QVector<int> all;
   all.reserve(m_index.size());
   for (int i = 0; i < m_index.size(); ++i)
     all.append(i);
-  return readByIndexList(all);
+  return readByIndexList(all, opts);
 }
 
 QVector<qint32> SegyReader::inlineNumbers() const
@@ -510,7 +534,8 @@ QVector<qint32> SegyReader::crosslineNumbers() const
   return out;
 }
 
-bool SegyReader::readInline(qint32 inlineNo, QVector<SegyTrace> *out, QString *error) const
+bool SegyReader::readInline(qint32 inlineNo, QVector<SegyTrace> *out,
+                            QString *error, const SegyOptions *opts) const
 {
   if (!m_byInline.contains(inlineNo))
   {
@@ -518,11 +543,12 @@ bool SegyReader::readInline(qint32 inlineNo, QVector<SegyTrace> *out, QString *e
       *error = QStringLiteral("inline %1 not present in %2").arg(inlineNo).arg(m_path);
     return false;
   }
-  *out = readByIndexList(m_byInline.value(inlineNo));
-  return !out->isEmpty();
+  *out = readByIndexList(m_byInline.value(inlineNo), opts);
+  return !out->isEmpty() || (opts && opts->cancel && opts->cancel());
 }
 
-bool SegyReader::readCrossline(qint32 xlineNo, QVector<SegyTrace> *out, QString *error) const
+bool SegyReader::readCrossline(qint32 xlineNo, QVector<SegyTrace> *out,
+                               QString *error, const SegyOptions *opts) const
 {
   if (!m_byXline.contains(xlineNo))
   {
@@ -530,6 +556,6 @@ bool SegyReader::readCrossline(qint32 xlineNo, QVector<SegyTrace> *out, QString 
       *error = QStringLiteral("crossline %1 not present in %2").arg(xlineNo).arg(m_path);
     return false;
   }
-  *out = readByIndexList(m_byXline.value(xlineNo));
-  return !out->isEmpty();
+  *out = readByIndexList(m_byXline.value(xlineNo), opts);
+  return !out->isEmpty() || (opts && opts->cancel && opts->cancel());
 }

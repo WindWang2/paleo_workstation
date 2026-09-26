@@ -1100,6 +1100,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     if (preview)
     {
       preview->setImportService(importSvc);
+      preview->setTaskService(taskSvc); // D1：剖面索引/解码异步化（nullptr 时保持同步）
       connect(dataPage, &DataPage::assetActivated, preview, &DataPreviewTabs::openAsset);
       // well_head 预览选中 → 地图高亮该井（§4；Direction B 经 SelectionContext）。
       if (m_selection)

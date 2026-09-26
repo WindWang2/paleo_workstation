@@ -1,12 +1,17 @@
 #pragma once
 #include <QHash>
+#include <QPointer>
 #include <QString>
 #include <QWidget>
+#include <memory>
 
 class DataImportService;
+class PaleoTaskService;
+class PaleoTask;
 class QLabel;
 class QTabWidget;
 struct CatalogAsset;
+class SegyReader;
 
 // ui/datapreview — 数据页页内预览标签栏（docs/PROJECT_AREA_PLAN.md §4）。
 // 普通 QTabWidget（可关闭标签），样式走 DESIGN.md dock 面板，不用工作流
@@ -27,6 +32,12 @@ class DataPreviewTabs : public QWidget
 
     // 服务绑定（mainwindow 接线处调用；为空时 openAsset 显示空态）。
     void setImportService(DataImportService *svc);
+
+    // 任务服务（wave2 D1）：接上后地震标签的「索引+SHA 复验+测线解码」进
+    // 任务池异步执行（任务页有进度条/ETA/取消）；不接线保持同步旧行为
+    //（小夹具测试环境用）。异步模式下索引按 assetId 缓存——换测线只重解码
+    // 该线，不再整文件重建（T23）。
+    void setTaskService(PaleoTaskService *svc);
 
     // 从资产列表选中一条资产：已有标签则聚焦，否则新开一个可关闭标签。
     void openAsset(const QString &assetId);
@@ -66,9 +77,16 @@ class DataPreviewTabs : public QWidget
     QLabel *loadingLabel(const QString &fileName, QWidget *parent);
 
     DataImportService *m_svc = nullptr;
+    PaleoTaskService *m_taskSvc = nullptr;
     QTabWidget *m_tabs = nullptr;
     QLabel *m_emptyLabel = nullptr;
     QHash<QString, QWidget *> m_pageOfAsset;
     QHash<QString, QString> m_wellEntityOfAsset; // assetId → 该标签已选井（多井下拉框）
     QHash<QString, QString> m_titleSuffixOfAsset; // assetId → 「 · 井名」/「 · IL1315」
+    // D1 异步解码：按资产的索引缓存（每资产只 open/SHA 一次）、世代号
+    //（陈旧结果丢弃）、进行中任务指针（新解码请求取消旧任务）。
+    QHash<QString, std::shared_ptr<SegyReader>> m_segyReaders;
+    QHash<QString, int> m_decodeSeq;
+    QHash<QString, QPointer<PaleoTask>> m_decodeTask;
+    QHash<QString, bool> m_shaVerified; // assetId → 本会话已过 SHA 复验（不重复哈希）
 };

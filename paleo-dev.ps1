@@ -64,8 +64,13 @@ switch ($Verb) {
     $osgeo = Join-Path $Vendor 'osgeo4w'
     $cache = Join-Path $Vendor 'cache\osgeo4w'
     New-Item -ItemType Directory -Force $osgeo, $cache | Out-Null
-    & $setup -q -A -k -n -N -d -O -s $pin.site -R $osgeo -l $cache -P 'qgis,qgis-devel,qt6-devel,gdal-devel,proj-devel,geos-devel'
-    if ($LASTEXITCODE -ne 0) { throw "OSGeo4W setup failed: $LASTEXITCODE" }
+    $setupArgs = @('-q', '-A', '-k', '-n', '-N', '-d', '-O', '-s', $pin.site,
+                   '-R', ('"' + $osgeo + '"'), '-l', ('"' + $cache + '"'),
+                   '-P', 'qgis,qgis-devel,qt6-devel,gdal-devel,proj-devel,geos-devel')
+    # The installer detaches when invoked directly; wait for the entire setup
+    # process tree before inspecting installed.db or configuring CMake.
+    $setupProcess = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru
+    if ($setupProcess.ExitCode -ne 0) { throw "OSGeo4W setup failed: $($setupProcess.ExitCode)" }
     $installedDb = Join-Path $osgeo 'etc\setup\installed.db'
     if (-not (Test-Path $installedDb) -or
         -not (Select-String -Path $installedDb -Pattern '^qgis\s+qgis-4\.2\.' -Quiet) -or

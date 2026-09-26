@@ -28,6 +28,9 @@ class HorizonChipBar : public QWidget
 
   private:
     void applyActive(const QString &horizon);
+    // 阶段E — 无栅格声明的层位 chip 禁用（「这一阶段还没有这个层位的栅格」），
+    // layerDeclared 后重算；可用性以 LayerManifest 的 raster 声明为准。
+    void applyAvailability();
     SelectionContext *m_selection = nullptr;
     QgisLayerService *m_layers = nullptr;
 };

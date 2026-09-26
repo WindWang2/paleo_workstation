@@ -2,6 +2,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 
 #include <qgsapplication.h>
@@ -156,8 +158,26 @@ class TestVersions : public QObject
         QVERIFY( v.version <= 0 );
         QVERIFY( !err.isEmpty() );
         err.clear();
-        QVERIFY( ctl.publish( QStringLiteral( "D61" ), &err ).isEmpty() );
+        QVERIFY( ctl.publish( QStringLiteral( "D61" ), QString(), &err ).isEmpty() );
         QVERIFY( !err.isEmpty() );
+    }
+
+    // 残差摘要完整性判定 — 发布门与按钮 tooltip 共用这一份口径。
+    void residualSummaryCompleteness()
+    {
+        int covered = -1, total = -1;
+        QVERIFY( !MapVersionStore::residualSummaryComplete( QString(), &covered, &total ) );
+        QVERIFY( !MapVersionStore::residualSummaryComplete(
+            QStringLiteral( R"({"wells_total":3,"covered":2,"missing":[]})" ),
+            &covered, &total ) );
+        QCOMPARE( total, 3 );
+        QCOMPARE( covered, 2 );
+        QVERIFY( !MapVersionStore::residualSummaryComplete(
+            QStringLiteral( R"({"wells_total":3,"covered":3,"missing":["A3"]})" ) ) );
+        QVERIFY( !MapVersionStore::residualSummaryComplete(
+            QStringLiteral( R"({"wells_total":0,"covered":0,"missing":[]})" ) ) ); // 无井不算覆盖
+        QVERIFY( MapVersionStore::residualSummaryComplete(
+            QStringLiteral( R"({"wells_total":3,"covered":3,"missing":[]})" ) ) );
     }
 
     void publishGateSnapshotAndImmutability()
@@ -169,6 +189,15 @@ class TestVersions : public QObject
         const QString pdf = makePdf( f.dir.filePath( QStringLiteral( "D61_map.pdf" ) ) );
         QVERIFY( !pdf.isEmpty() );
 
+        // 完整残差摘要 = 每口井都有残差或原因（3 井：2 残差 + 1 原因）。
+        const QString completeSummary = QStringLiteral(
+            R"({"wells_total":3,"covered":3,"missing":[],"rows":)"
+            R"([{"well_id":"well-1","name":"A1","kind":"residual","residual_ms":12.3},)"
+            R"({"well_id":"well-2","name":"A2","kind":"reason","reason":"无 D61 分层"},)"
+            R"({"well_id":"well-3","name":"A3","kind":"residual","residual_ms":-4.2}]})" );
+        const QString incompleteSummary = QStringLiteral(
+            R"({"wells_total":3,"covered":2,"missing":["A3"],"rows":[]})" );
+
         LayerDeclaration decl;
         decl.layerId = QStringLiteral( "facies.D61" );
         decl.horizon = QStringLiteral( "D61" );
@@ -178,24 +207,53 @@ class TestVersions : public QObject
         QString err;
         QVERIFY2( f.layers.declare( decl, &err ), qPrintable( err ) );
 
-        // 发布门前置：无版本 / 无布局产物 → 干净失败。
-        QVERIFY( f.controller.publish( QStringLiteral( "D61" ), &err ).isEmpty() );
+        // 门检 1：无版本 → 拒。
+        QVERIFY( f.controller.publish( QStringLiteral( "D61" ), completeSummary, &err ).isEmpty() );
         QVERIFY( !err.isEmpty() );
         QVERIFY2( f.controller.saveVersion( QStringLiteral( "D61" ), QVariantMap(), &err ).version == 1,
                   qPrintable( err ) );
-        err.clear();
-        QVERIFY( f.controller.publish( QStringLiteral( "D61" ), &err ).isEmpty() );
-        QVERIFY( err.contains( QStringLiteral( "布局产物" ) ) );
 
-        // 记录布局产物后发布成功：result/ 快照存在且只读。
-        QVERIFY2( f.versions.recordLayoutProduct( QStringLiteral( "D61" ), pdf, &err ),
+        // 门检 2：版本行上没有 PDF 资产 → 拒（先查 PDF 再查残差）。
+        err.clear();
+        QVERIFY( f.controller.publish( QStringLiteral( "D61" ), completeSummary, &err ).isEmpty() );
+        QVERIFY( err.contains( QStringLiteral( "PDF" ) ) );
+
+        // 登记产物后还须保存版本 —— 行上的 PDF 引用靠 saveVersion 继承，
+        // 光登记不改已存在的版本行。
+        QVERIFY2( f.versions.recordLayoutProduct( QStringLiteral( "D61" ), pdf,
+                                                  QStringLiteral( "ast-pdf-1" ),
+                                                  QStringLiteral( "deadbeefcafe" ), &err ),
                   qPrintable( err ) );
         QVERIFY( f.versions.hasLayoutProduct( QStringLiteral( "D61" ) ) );
+        QCOMPARE( f.versions.latestLayoutProduct( QStringLiteral( "D61" ) ), pdf );
         err.clear();
-        const QString snap1 = f.controller.publish( QStringLiteral( "D61" ), &err );
+        QVERIFY( f.controller.publish( QStringLiteral( "D61" ), completeSummary, &err ).isEmpty() );
+        QVERIFY( err.contains( QStringLiteral( "PDF" ) ) );
+
+        // 门检 3：残差覆盖不全 → 拒（写明缺几口井 + 下一步）。
+        QVERIFY2( f.controller.saveVersion( QStringLiteral( "D61" ), QVariantMap(), &err ).version == 2,
+                  qPrintable( err ) );
+        {
+            const MapVersion v2 = f.versions.latest( QStringLiteral( "D61" ) );
+            QCOMPARE( v2.pdfAssetId, QStringLiteral( "ast-pdf-1" ) ); // save 继承了产物引用
+            QCOMPARE( v2.pdfSha256, QStringLiteral( "deadbeefcafe" ) );
+        }
+        err.clear();
+        QVERIFY( f.controller.publish( QStringLiteral( "D61" ), incompleteSummary, &err ).isEmpty() );
+        QVERIFY( err.contains( QStringLiteral( "先在验证页运行验证" ) ) );
+
+        // 完整摘要 → 发布成功：result/ 快照存在且只读；摘要冻结进版本行。
+        err.clear();
+        const QString snap1 =
+            f.controller.publish( QStringLiteral( "D61" ), completeSummary, &err );
         QVERIFY2( !snap1.isEmpty(), qPrintable( err ) );
         QVERIFY( QFileInfo( snap1 ).isDir() );
-        QVERIFY( snap1.contains( QStringLiteral( "result/D61/v1" ) ) );
+        QVERIFY( snap1.contains( QStringLiteral( "result/D61/v2" ) ) );
+        {
+            const MapVersion pub = f.versions.latest( QStringLiteral( "D61" ) );
+            QCOMPARE( pub.state, QStringLiteral( "Published" ) );
+            QCOMPARE( pub.residualSummary, completeSummary );
+        }
 
         // 快照内容：facies gpkg 拷贝 + 布局 PDF，全部只读。
         const QStringList entries = QDir( snap1 ).entryList( QDir::Files );
@@ -213,10 +271,10 @@ class TestVersions : public QObject
 
         // 已发布再发布 → 拒绝（先保存新版本）。
         err.clear();
-        QVERIFY( f.controller.publish( QStringLiteral( "D61" ), &err ).isEmpty() );
+        QVERIFY( f.controller.publish( QStringLiteral( "D61" ), completeSummary, &err ).isEmpty() );
         QVERIFY( err.contains( QStringLiteral( "已发布" ) ) );
 
-        // 继续编辑产生下一版本；发布 v2，v1 快照原样保留。
+        // 继续编辑产生下一版本；发布 v3，v2 快照原样保留。
         const QByteArray v1PdfBytes = [] ( const QString &dir ) {
             QFile pf( QDir( dir ).filePath( QDir( dir ).entryList( { QStringLiteral( "*.pdf" ) }, QDir::Files ).first() ) );
             pf.open( QIODevice::ReadOnly );
@@ -225,13 +283,17 @@ class TestVersions : public QObject
             return b;
         }( snap1 );
 
-        QVERIFY2( f.controller.saveVersion( QStringLiteral( "D61" ), QVariantMap(), &err ).version == 2,
+        QVERIFY2( f.controller.saveVersion( QStringLiteral( "D61" ), QVariantMap(), &err ).version == 3,
                   qPrintable( err ) );
         QVERIFY( !f.versions.isPublished( QStringLiteral( "D61" ) ) ); // 新版本回到 Editing
+        // 版本 3 也继承了 PDF 产物引用（asset id + sha 抄行进新版本行）。
+        QCOMPARE( f.versions.latest( QStringLiteral( "D61" ) ).pdfAssetId,
+                  QStringLiteral( "ast-pdf-1" ) );
         err.clear();
-        const QString snap2 = f.controller.publish( QStringLiteral( "D61" ), &err );
+        const QString snap2 =
+            f.controller.publish( QStringLiteral( "D61" ), completeSummary, &err );
         QVERIFY2( !snap2.isEmpty(), qPrintable( err ) );
-        QVERIFY( snap2.contains( QStringLiteral( "result/D61/v2" ) ) );
+        QVERIFY( snap2.contains( QStringLiteral( "result/D61/v3" ) ) );
 
         // v1 快照未被回写：PDF 内容不变且仍只读。
         QFile pf1( QDir( snap1 ).filePath( QDir( snap1 ).entryList( { QStringLiteral( "*.pdf" ) }, QDir::Files ).first() ) );
@@ -239,6 +301,58 @@ class TestVersions : public QObject
         QCOMPARE( pf1.readAll(), v1PdfBytes );
         pf1.close();
         QVERIFY( !QFileInfo( pf1.fileName() ).isWritable() );
+    }
+
+    // 旧 schema 库（无 pdf_asset_id/pdf_sha256/residual_summary 列）：
+    // open() 逐列补建；旧行读成未发布（state 归一 Editing），且读/升级本身
+    // 不回写旧行（§177/§260 前向兼容纪律）。
+    void oldSchemaRowsLoadUnpublished()
+    {
+        QTemporaryDir dir;
+        QVERIFY( dir.isValid() );
+        const QString dbPath = dir.filePath( QStringLiteral( "old.sqlite" ) );
+        const QString conn = QStringLiteral( "old_schema_seed" );
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase( QStringLiteral( "QSQLITE" ), conn );
+            db.setDatabaseName( dbPath );
+            QVERIFY( db.open() );
+            QSqlQuery q( db );
+            QVERIFY( q.exec( QStringLiteral(
+                "CREATE TABLE map_versions(id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                "horizon TEXT NOT NULL,version INTEGER NOT NULL,"
+                "provenance TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'Editing',"
+                "published_path TEXT,created_utc TEXT NOT NULL)" ) ) );
+            QVERIFY( q.exec( QStringLiteral(
+                "INSERT INTO map_versions(horizon,version,provenance,state,published_path,created_utc)"
+                " VALUES('D61',1,'{}','Published','result/D61/v1','2020-01-01T00:00:00Z')" ) ) );
+        }
+        QSqlDatabase::removeDatabase( conn );
+
+        MapVersionStore store( dbPath );
+        QString err;
+        QVERIFY2( store.open( &err ), qPrintable( err ) );
+        const MapVersion v = store.latest( QStringLiteral( "D61" ) );
+        QCOMPARE( v.version, 1 );
+        QCOMPARE( v.state, QStringLiteral( "Editing" ) ); // 无 PDF 资产 → 读成未发布
+        QVERIFY( v.pdfAssetId.isEmpty() );
+        QVERIFY( v.pdfSha256.isEmpty() );
+        QVERIFY( v.residualSummary.isEmpty() );
+        QCOMPARE( v.publishedPath, QStringLiteral( "result/D61/v1" ) ); // 行未被回写
+        QVERIFY( !store.isPublished( QStringLiteral( "D61" ) ) );
+
+        // 升级/读取不得回写旧行：raw state 仍是 Published。
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase( QStringLiteral( "QSQLITE" ), conn );
+            db.setDatabaseName( dbPath );
+            QVERIFY( db.open() );
+            QSqlQuery q( db );
+            QVERIFY( q.exec( QStringLiteral(
+                "SELECT state,pdf_asset_id FROM map_versions WHERE horizon='D61'" ) ) );
+            QVERIFY( q.next() );
+            QCOMPARE( q.value( 0 ).toString(), QStringLiteral( "Published" ) );
+            QVERIFY( q.value( 1 ).isNull() ); // 新列补上但旧行保持 NULL
+        }
+        QSqlDatabase::removeDatabase( conn );
     }
 };
 

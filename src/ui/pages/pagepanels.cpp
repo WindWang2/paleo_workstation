@@ -525,8 +525,16 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   publish->setObjectName(QStringLiteral("publishButton"));
   publish->setAccessibleName(tr("发布"));
   publish->setEnabled(false); // 发布门：PDF 能导出之后再暴露（shell 开闸）
+  publish->setToolTip(tr("导出 PDF 后再保存")); // 门控原因（阶段E：PDF 先行）
   connect(publish, &QPushButton::clicked, this, [this] { emit publishRequested(); });
   lay->addWidget(publish);
+
+  // 版本状态标注（已发布 / 编辑中 / 无版本），跟着 shell 的发布门刷新走。
+  auto *publishState = new QLabel(this);
+  publishState->setObjectName(QStringLiteral("publishStateLabel"));
+  publishState->setAccessibleName(tr("版本发布状态"));
+  publishState->setWordWrap(true);
+  lay->addWidget(publishState);
   lay->addSpacing(16); // spacing.md between groups
 
   lay->addWidget(caption(tr("单因素图层"), this));
@@ -613,8 +621,37 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
 
 void ComposePage::setPublishEnabled(bool enabled)
 {
-  if (auto *btn = child<QPushButton>(this, "publishButton"))
-    btn->setEnabled(enabled);
+  setPublishState(enabled, -1, -1); // 旧调用形态：不带残差评估
+}
+
+void ComposePage::setPublishState(bool hasPdf, int covered, int total)
+{
+  auto *btn = child<QPushButton>(this, "publishButton");
+  if (!btn)
+    return;
+  // covered<0 = 调用方没评估残差 → 不拿残差卡门；其余情形须 total>0 且全
+  // 覆盖（每口井都有残差或原因，§177）。
+  const bool residualsOk = covered < 0 || (total > 0 && covered == total);
+  btn->setEnabled(hasPdf && residualsOk);
+  QString tip;
+  if (!hasPdf)
+    tip = tr("导出 PDF 后再保存");
+  else if (!residualsOk)
+    tip = total > 0 ? tr("还有 %1/%2 口井没有残差或原因 — 先在验证页运行验证")
+                        .arg(total - covered)
+                        .arg(total)
+                    : tr("先在验证页运行验证");
+  btn->setToolTip(tip);
+}
+
+void ComposePage::setVersionState(int version, bool published)
+{
+  if (auto *label = child<QLabel>(this, "publishStateLabel"))
+    label->setText(version <= 0 ? tr("还没有保存的版本")
+                   : published  ? tr("已发布 · v%1").arg(version)
+                                : tr("编辑中 · v%1").arg(version));
+  if (auto *save = child<QPushButton>(this, "saveVersionButton"))
+    save->setText(published ? tr("保存新版本") : tr("保存版本"));
 }
 
 void ComposePage::refreshFactors()

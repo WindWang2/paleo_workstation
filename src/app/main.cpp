@@ -1,4 +1,5 @@
 #include "appcontext.h"
+#include "../io/dataimportservice.h" // catalog() — attachMapping 的 OUTPUT 登记
 #include "../ui/paleomainwindow.h"
 
 #include <QApplication>
@@ -36,7 +37,8 @@ int main(int argc, char *argv[])
                          ctx.seismicLink(), ctx.processingSvc(), ctx.store(),
                          ctx.editingSvc(), ctx.layoutSvc());
   window.attachMapping(ctx.mappingWf(), ctx.versionCtl(), ctx.versionStore(),
-                       ctx.projectData());
+                       ctx.projectData(),
+                       ctx.importSvc() ? ctx.importSvc()->catalog() : nullptr);
   window.show();
 
   // The QgsApplication built by the runtime is the live QApplication instance.

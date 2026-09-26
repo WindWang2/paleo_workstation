@@ -4,6 +4,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -19,6 +22,31 @@ namespace
   {
     if ( error )
       *error = text;
+  }
+
+  // 逐列补建：PRAGMA table_info 查缺 → ALTER TABLE ADD COLUMN（可空列）。
+  // CREATE TABLE IF NOT EXISTS 对既有表不加列，新 schema 靠这里前向升级。
+  bool ensureColumn( QSqlDatabase &db, const QString &table, const QString &name,
+                     const QString &type, QString *error )
+  {
+    QSqlQuery info( db );
+    if ( !info.exec( QStringLiteral( "PRAGMA table_info(%1)" ).arg( table ) ) )
+    {
+      setError( error, info.lastError().text() );
+      return false;
+    }
+    while ( info.next() )
+      if ( info.value( 1 ).toString() == name )
+        return true; // 已有该列
+    info.finish();
+    QSqlQuery alter( db );
+    if ( !alter.exec( QStringLiteral( "ALTER TABLE %1 ADD COLUMN %2 %3" )
+                          .arg( table, name, type ) ) )
+    {
+      setError( error, alter.lastError().text() );
+      return false;
+    }
+    return true;
   }
 
   // Lazily opens the connection and guarantees both tables (idempotent,
@@ -58,7 +86,10 @@ namespace
                                        "provenance TEXT NOT NULL,"
                                        "state TEXT NOT NULL DEFAULT 'Editing',"
                                        "published_path TEXT,"
-                                       "created_utc TEXT NOT NULL)" ) ) )
+                                       "created_utc TEXT NOT NULL,"
+                                       "pdf_asset_id TEXT,"
+                                       "pdf_sha256 TEXT,"
+                                       "residual_summary TEXT)" ) ) )
     {
       setError( error, schema.lastError().text() );
       return false;
@@ -68,11 +99,24 @@ namespace
                                        "horizon TEXT NOT NULL,"
                                        "kind TEXT NOT NULL,"
                                        "path TEXT NOT NULL,"
-                                       "created_utc TEXT NOT NULL)" ) ) )
+                                       "created_utc TEXT NOT NULL,"
+                                       "asset_id TEXT,"
+                                       "sha256 TEXT)" ) ) )
     {
       setError( error, schema.lastError().text() );
       return false;
     }
+    // 既有库补列（旧行一律 NULL → 读侧归一为未发布，不回写）。
+    for ( const auto &col : { QStringLiteral( "pdf_asset_id" ),
+                              QStringLiteral( "pdf_sha256" ),
+                              QStringLiteral( "residual_summary" ) } )
+      if ( !ensureColumn( db, QStringLiteral( "map_versions" ), col,
+                          QStringLiteral( "TEXT" ), error ) )
+        return false;
+    for ( const auto &col : { QStringLiteral( "asset_id" ), QStringLiteral( "sha256" ) } )
+      if ( !ensureColumn( db, QStringLiteral( "map_products" ), col,
+                          QStringLiteral( "TEXT" ), error ) )
+        return false;
     return true;
   }
 
@@ -83,9 +127,17 @@ namespace
     v.horizon = q.value( 1 ).toString();
     v.version = q.value( 2 ).toInt();
     v.provenance = q.value( 3 ).toString();
-    v.state = q.value( 4 ).toString();
+    const QString rawState = q.value( 4 ).toString();
     v.publishedPath = q.value( 5 ).toString();
     v.createdUtc = q.value( 6 ).toString();
+    v.pdfAssetId = q.value( 7 ).toString();
+    v.pdfSha256 = q.value( 8 ).toString();
+    v.residualSummary = q.value( 9 ).toString();
+    // 旧 schema 行（pdf_asset_id 为空）读成未发布，不回写（§177/§260）——
+    // 新语义的 Published 必然带 PDF 资产 id，缺 id 的历史行不是有效发布。
+    v.state = ( rawState == QLatin1String( "Published" ) && !v.pdfAssetId.isEmpty() )
+                  ? QStringLiteral( "Published" )
+                  : QStringLiteral( "Editing" );
     return v;
   }
 
@@ -115,6 +167,10 @@ namespace
     name.replace( QLatin1Char( '.' ), QLatin1Char( '_' ) );
     return name;
   }
+
+  const char kSelectCols[] =
+      "id,horizon,version,provenance,state,published_path,created_utc,"
+      "pdf_asset_id,pdf_sha256,residual_summary";
 } // namespace
 
 MapVersionStore::MapVersionStore( const QString &metaSqlitePath )
@@ -137,8 +193,8 @@ MapVersion MapVersionStore::latest( const QString &horizon ) const
   if ( !ensureOpen( m_dbPath, nullptr ) )
     return MapVersion();
   QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
-  q.prepare( QStringLiteral( "SELECT id,horizon,version,provenance,state,published_path,created_utc"
-                             " FROM map_versions WHERE horizon=? ORDER BY version DESC LIMIT 1" ) );
+  q.prepare( QStringLiteral( "SELECT " ) + QLatin1String( kSelectCols ) +
+             QStringLiteral( " FROM map_versions WHERE horizon=? ORDER BY version DESC LIMIT 1" ) );
   q.addBindValue( horizon );
   if ( !q.exec() || !q.next() )
     return MapVersion();
@@ -151,8 +207,8 @@ QVector<MapVersion> MapVersionStore::versions( const QString &horizon ) const
   if ( !ensureOpen( m_dbPath, nullptr ) )
     return out;
   QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
-  q.prepare( QStringLiteral( "SELECT id,horizon,version,provenance,state,published_path,created_utc"
-                             " FROM map_versions WHERE horizon=? ORDER BY version" ) );
+  q.prepare( QStringLiteral( "SELECT " ) + QLatin1String( kSelectCols ) +
+             QStringLiteral( " FROM map_versions WHERE horizon=? ORDER BY version" ) );
   q.addBindValue( horizon );
   if ( !q.exec() )
     return out;
@@ -167,14 +223,34 @@ MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &
   if ( !ensureOpen( m_dbPath, error ) )
     return MapVersion();
 
-  QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
-  q.prepare( QStringLiteral( "INSERT INTO map_versions(horizon,version,provenance,state,created_utc)"
-                             " VALUES(?,?,?,'Editing',?)"
+  QSqlDatabase db = QSqlDatabase::database( connectionNameFor( m_dbPath ) );
+
+  // 最近一次登记的 PDF 产物引用（asset_id + sha256）抄进新版本行；
+  // 导出不改已冻结的版本行——下一次保存才继承产物引用（§260）。
+  QString pdfAssetId, pdfSha256;
+  {
+    QSqlQuery prod( db );
+    prod.prepare( QStringLiteral( "SELECT asset_id,sha256 FROM map_products"
+                                  " WHERE horizon=? AND kind='pdf' ORDER BY id DESC LIMIT 1" ) );
+    prod.addBindValue( horizon );
+    if ( prod.exec() && prod.next() )
+    {
+      pdfAssetId = prod.value( 0 ).toString();
+      pdfSha256 = prod.value( 1 ).toString();
+    }
+  }
+
+  QSqlQuery q( db );
+  q.prepare( QStringLiteral( "INSERT INTO map_versions(horizon,version,provenance,state,"
+                             "created_utc,pdf_asset_id,pdf_sha256)"
+                             " VALUES(?,?,?,'Editing',?,?,?)"
                              " RETURNING id" ) );
   q.addBindValue( horizon );
   q.addBindValue( latest( horizon ).version + 1 );
   q.addBindValue( provenanceJson );
   q.addBindValue( nowUtc() );
+  q.addBindValue( pdfAssetId.isEmpty() ? QVariant() : QVariant( pdfAssetId ) );
+  q.addBindValue( pdfSha256.isEmpty() ? QVariant() : QVariant( pdfSha256 ) );
   if ( !q.exec() || !q.next() )
   {
     setError( error, q.lastError().text() );
@@ -183,9 +259,9 @@ MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &
   const int id = q.value( 0 ).toInt();
   q.finish();
 
-  QSqlQuery sel( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
-  sel.prepare( QStringLiteral( "SELECT id,horizon,version,provenance,state,published_path,created_utc"
-                               " FROM map_versions WHERE id=?" ) );
+  QSqlQuery sel( db );
+  sel.prepare( QStringLiteral( "SELECT " ) + QLatin1String( kSelectCols ) +
+               QStringLiteral( " FROM map_versions WHERE id=?" ) );
   sel.addBindValue( id );
   if ( !sel.exec() || !sel.next() )
   {
@@ -196,16 +272,19 @@ MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &
 }
 
 bool MapVersionStore::recordLayoutProduct( const QString &horizon, const QString &pdfPath,
+                                           const QString &assetId, const QString &sha256,
                                            QString *error )
 {
   if ( !ensureOpen( m_dbPath, error ) )
     return false;
   QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
-  q.prepare( QStringLiteral( "INSERT INTO map_products(horizon,kind,path,created_utc)"
-                             " VALUES(?,'pdf',?,?)" ) );
+  q.prepare( QStringLiteral( "INSERT INTO map_products(horizon,kind,path,created_utc,asset_id,sha256)"
+                             " VALUES(?,'pdf',?,?,?,?)" ) );
   q.addBindValue( horizon );
   q.addBindValue( pdfPath );
   q.addBindValue( nowUtc() );
+  q.addBindValue( assetId.isEmpty() ? QVariant() : QVariant( assetId ) );
+  q.addBindValue( sha256.isEmpty() ? QVariant() : QVariant( sha256 ) );
   if ( !q.exec() )
   {
     setError( error, q.lastError().text() );
@@ -226,8 +305,40 @@ bool MapVersionStore::hasLayoutProduct( const QString &horizon ) const
   return q.value( 0 ).toInt() > 0;
 }
 
+QString MapVersionStore::latestLayoutProduct( const QString &horizon ) const
+{
+  if ( !ensureOpen( m_dbPath, nullptr ) )
+    return QString();
+  QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
+  q.prepare( QStringLiteral( "SELECT path FROM map_products"
+                             " WHERE horizon=? AND kind='pdf' ORDER BY id DESC LIMIT 1" ) );
+  q.addBindValue( horizon );
+  if ( !q.exec() || !q.next() )
+    return QString();
+  return q.value( 0 ).toString();
+}
+
+bool MapVersionStore::residualSummaryComplete( const QString &summaryJson,
+                                               int *covered, int *total )
+{
+  int cov = -1, tot = -1, missing = -1;
+  const QJsonDocument doc = QJsonDocument::fromJson( summaryJson.toUtf8() );
+  if ( doc.isObject() )
+  {
+    const QJsonObject o = doc.object();
+    tot = o.value( QLatin1String( "wells_total" ) ).toInt( -1 );
+    cov = o.value( QLatin1String( "covered" ) ).toInt( -1 );
+    missing = o.value( QLatin1String( "missing" ) ).toArray().size();
+  }
+  if ( covered )
+    *covered = cov;
+  if ( total )
+    *total = tot;
+  return tot > 0 && cov == tot && missing == 0;
+}
+
 QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDeclaration> &decls,
-                                  QString *error )
+                                  const QString &residualSummary, QString *error )
 {
   if ( !ensureOpen( m_dbPath, error ) )
     return QString();
@@ -243,9 +354,24 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
     setError( error, QStringLiteral( "层位 %1 当前版本已发布 — 保存新版本后再发布" ).arg( horizon ) );
     return QString();
   }
-  if ( !hasLayoutProduct( horizon ) )
+  // 发布只读版本行（§260）：PDF 资产 id+SHA-256 必须由 recordLayoutProduct
+  // 登记、再经 saveVersion 抄进本行；行上没有 = 没走「导出→保存」。
+  if ( latestV.pdfAssetId.isEmpty() || latestV.pdfSha256.isEmpty() )
   {
-    setError( error, QStringLiteral( "层位 %1 还没有布局产物（PDF）— 先完成图件导出" ).arg( horizon ) );
+    setError( error, QStringLiteral( "层位 %1 的当前版本没有 PDF 资产记录 — 导出 PDF 后再保存" )
+                         .arg( horizon ) );
+    return QString();
+  }
+  // 每口井都要有残差或原因（§177）；缺多少口写进错误文案。
+  int covered = -1, total = -1;
+  if ( !residualSummaryComplete( residualSummary, &covered, &total ) )
+  {
+    const QString missingText =
+        ( total > 0 && covered >= 0 )
+            ? QStringLiteral( "还有 %1/%2 口井没有残差或原因" ).arg( total - covered ).arg( total )
+            : QStringLiteral( "还没有残差摘要" );
+    setError( error, QStringLiteral( "层位 %1 %2 — 先在验证页运行验证" )
+                         .arg( horizon, missingText ) );
     return QString();
   }
 
@@ -275,11 +401,15 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
       return QString();
   }
 
-  // 布局产物（PDF）快照。
+  // 布局产物（PDF）快照：版本行绑定的 OUTPUT 资产必须进快照（「这份 PDF
+  // 已经在快照里」）；没有资产归属的旧产物行一并带上。
   {
+    bool boundCopied = false;
     QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
-    q.prepare( QStringLiteral( "SELECT path FROM map_products WHERE horizon=? AND kind='pdf'" ) );
+    q.prepare( QStringLiteral( "SELECT path,asset_id FROM map_products"
+                               " WHERE horizon=? AND kind='pdf' AND (asset_id=? OR asset_id IS NULL)" ) );
     q.addBindValue( horizon );
+    q.addBindValue( latestV.pdfAssetId );
     if ( !q.exec() )
     {
       setError( error, q.lastError().text() );
@@ -288,17 +418,34 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
     while ( q.next() )
     {
       const QString pdf = q.value( 0 ).toString();
+      const bool isBound = q.value( 1 ).toString() == latestV.pdfAssetId;
       if ( !QFile::exists( pdf ) )
+      {
+        if ( isBound )
+        {
+          setError( error, QStringLiteral( "发布的 PDF 文件已丢失：%1" ).arg( pdf ) );
+          return QString();
+        }
         continue;
+      }
       if ( !copyReadOnly( pdf, QDir( snapDir ).filePath( QFileInfo( pdf ).fileName() ), error ) )
         return QString();
+      if ( isBound )
+        boundCopied = true;
+    }
+    if ( !boundCopied )
+    {
+      setError( error, QStringLiteral( "版本行绑定的 PDF 资产 %1 不在产物表里" )
+                           .arg( latestV.pdfAssetId ) );
+      return QString();
     }
   }
 
   QSqlQuery up( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
-  up.prepare( QStringLiteral( "UPDATE map_versions SET state='Published', published_path=?"
-                              " WHERE id=?" ) );
+  up.prepare( QStringLiteral( "UPDATE map_versions SET state='Published', published_path=?,"
+                              " residual_summary=? WHERE id=?" ) );
   up.addBindValue( snapDir );
+  up.addBindValue( residualSummary );
   up.addBindValue( latestV.id );
   if ( !up.exec() )
   {

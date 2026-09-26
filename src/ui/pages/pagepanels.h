@@ -68,6 +68,13 @@ class ComposePage : public QWidget
     // wave/mapping-pipeline 阶段E — 发布门：层位 PDF 能导出之前「发布」保持
     // 禁用（shell 在导出成功后调 setPublishEnabled(true)）。
     void setPublishEnabled(bool enabled);
+    // 阶段E 完整发布门（§177/§260）：PDF 资产已落到版本行 + 每口井都有残差
+    // 或原因，两条都满足才放闸；缺哪条写进 tooltip（covered<0 = 调用方未
+    // 评估残差，退化为旧 setPublishEnabled 语义）。
+    void setPublishState(bool hasPdf, int covered, int total);
+    // 版本状态标注（还没有版本 / 编辑中·vN / 已发布·vN）；已发布后「保存版本」
+    // 按钮改叫「保存新版本」——下一次保存产生新版本，不回写已发布快照。
+    void setVersionState(int version, bool published);
 
   signals:
     void fuseRequested(const QStringList &factorLayerIds);

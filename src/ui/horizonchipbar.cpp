@@ -4,6 +4,7 @@
 #include "../linkage/selectioncontext.h"
 #include "../qgis/qgislayerservice.h"
 
+#include <QSet>
 #include <QToolButton>
 #include <QHBoxLayout>
 
@@ -51,6 +52,10 @@ HorizonChipBar::HorizonChipBar( SelectionContext *selection, QgisLayerService *l
              [this]( const QString &h ) { applyActive( h ); } );
     applyActive( m_selection->activeHorizon() );
   }
+  if ( m_layers )
+    connect( m_layers, &QgisLayerService::layerDeclared, this,
+             [this]( const QString & ) { applyAvailability(); } );
+  applyAvailability();
 }
 
 QStringList HorizonChipBar::chipNames() const
@@ -74,4 +79,23 @@ void HorizonChipBar::applyActive( const QString &horizon )
 {
   for ( QToolButton *chip : findChildren<QToolButton *>() )
     chip->setChecked( chip->text() == horizon ); // 集合外层位不点亮任何 chip
+}
+
+void HorizonChipBar::applyAvailability()
+{
+  // 有栅格声明的层位才可点（horizon.<h>.* / factor.<h>.idw 都算——按层位名 +
+  // type=raster 判定）；没有的层位这一阶段还没有它的栅格。清单读不出来同样
+  // 关闸（发布链路的保守方向：缺数据不放开入口）。
+  QSet<QString> available;
+  QVector<LayerDeclaration> declared;
+  if ( m_layers && m_layers->tryDeclared( &declared ) )
+    for ( const LayerDeclaration &d : declared )
+      if ( d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) == 0 )
+        available.insert( d.horizon );
+  for ( QToolButton *chip : findChildren<QToolButton *>() )
+  {
+    const bool ok = available.contains( chip->text() );
+    chip->setEnabled( ok );
+    chip->setToolTip( ok ? QString() : tr( "这一阶段还没有这个层位的栅格" ) );
+  }
 }

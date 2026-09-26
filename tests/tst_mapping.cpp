@@ -9,6 +9,13 @@
 #include <cpl_conv.h>
 
 #include <qgsproject.h>
+#include <qgslayout.h>
+#include <qgsprintlayout.h>
+#include <qgslayoutitemlabel.h>
+#include <qgslayoutitemlegend.h>
+#include <qgslayoutitemmap.h>
+#include <qgslayoutitempicture.h>
+#include <qgslayoutitemscalebar.h>
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/domain/mappinghorizons.h"
@@ -602,8 +609,35 @@ class TestMapping : public QObject
 
         QVERIFY2( f.mapping.runThicknessChain( QStringLiteral( "D61" ), &err ), qPrintable( err ) );
 
+        // 阶段E — 布局结构（§162/§233）：标题「D61 厚度」+ 地图项（厚度
+        // 栅格垫底，井位/相面在上）+ 米制图例 + 比例尺 + 指北针 + CRS 说明。
+        {
+            QString layoutErr;
+            QgsPrintLayout *layout =
+                buildHorizonMapLayout( &f.layers, &f.projectSvc, QStringLiteral( "D61" ),
+                                       &layoutErr );
+            QVERIFY2( layout != nullptr, qPrintable( layoutErr ) );
+            QCOMPARE( layout->project(), f.projectSvc.project() ); // 服务工程，非单例
+
+            auto *title = qobject_cast<QgsLayoutItemLabel *>( layout->itemById( "title" ) );
+            QVERIFY2( title != nullptr, "title item missing" );
+            QCOMPARE( title->text(), QStringLiteral( "D61 厚度" ) );
+            QVERIFY( layout->itemById( QStringLiteral( "legend" ) ) != nullptr );
+            QVERIFY( layout->itemById( QStringLiteral( "scalebar" ) ) != nullptr );
+            QVERIFY( layout->itemById( QStringLiteral( "northArrow" ) ) != nullptr );
+            auto *crs =
+                qobject_cast<QgsLayoutItemLabel *>( layout->itemById( "crsCaption" ) );
+            QVERIFY2( crs != nullptr, "crs caption missing" );
+            QCOMPARE( crs->text(), QStringLiteral( "工程坐标 · 米 · 未投影" ) );
+            auto *map = qobject_cast<QgsLayoutItemMap *>( layout->itemById( "map" ) );
+            QVERIFY2( map != nullptr, "map item missing" );
+            QVERIFY( !map->layers().isEmpty() );
+            delete layout;
+        }
+
         const QString pdf = f.dir.filePath( QStringLiteral( "D61_map.pdf" ) );
-        const QString out = exportHorizonMapPdf( &f.layers, QStringLiteral( "D61" ), pdf, &err );
+        const QString out =
+            exportHorizonMapPdf( &f.layers, &f.projectSvc, QStringLiteral( "D61" ), pdf, &err );
         QVERIFY2( !out.isEmpty(), qPrintable( err ) );
         QVERIFY( QFile::exists( out ) );
         QFile pf( out );
@@ -612,11 +646,40 @@ class TestMapping : public QObject
         QCOMPARE( pf.read( 4 ), QByteArray( "%PDF", 4 ) );
         pf.close();
 
-        // 无 facies.<h> 声明 → 干净失败。
-        QVERIFY( exportHorizonMapPdf( &f.layers, QStringLiteral( "D62" ),
+        // 无厚度栅格（factor.<h>.idw）声明 → 干净失败。
+        QVERIFY( exportHorizonMapPdf( &f.layers, &f.projectSvc, QStringLiteral( "D62" ),
                                       f.dir.filePath( QStringLiteral( "x.pdf" ) ), &err )
                      .isEmpty() );
         QVERIFY( !err.isEmpty() );
+
+        // 阶段E — PDF → catalog OUTPUT 受管资产：SHA-256 与受管路径带出；
+        // 同 SHA-256 重复登记走 dedup 复用，不新增资产。
+        {
+            QString sha, managed, regErr;
+            const QString assetId = registerMapPdfAsset(
+                &f.catalog, f.dir.path(), out, &sha, &managed, &regErr );
+            QVERIFY2( !assetId.isEmpty(), qPrintable( regErr ) );
+            QVERIFY( !sha.isEmpty() );
+            QVERIFY( !managed.isEmpty() && QFile::exists( managed ) );
+            QVERIFY( managed.contains( QStringLiteral( "artifacts/output/" ) ) );
+            QVERIFY( !QFileInfo( managed ).isWritable() ); // 受管副本只读
+            // fixture 手工种过 ast-1.. 号（assetById 返回首个匹配，id 可能与
+            // 运行时分配的号相撞）—— 断言按 id+format 扫一遍资产表。
+            bool pdfAssetFound = false;
+            for ( const CatalogAsset &a : f.catalog.assets() )
+              if ( a.id == assetId && a.format == QStringLiteral( "pdf" ) )
+                pdfAssetFound = true;
+            QVERIFY2( pdfAssetFound, "registered OUTPUT asset missing from catalog" );
+            const CatalogVersion ver = f.catalog.versionBySha256( sha );
+            QVERIFY( !ver.id.isEmpty() );
+            QCOMPARE( ver.stage, QStringLiteral( "OUTPUT" ) );
+            QCOMPARE( ver.assetId, assetId );
+
+            const int assetCount = f.catalog.assets().size();
+            QCOMPARE( registerMapPdfAsset( &f.catalog, f.dir.path(), out ),
+                      assetId ); // dedup：同文件再登记复用同资产
+            QCOMPARE( f.catalog.assets().size(), assetCount );
+        }
     }
 };
 

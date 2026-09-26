@@ -252,6 +252,7 @@ class TestPanels : public QObject
       auto *publish = page.findChild<QPushButton *>(QStringLiteral("publishButton"));
       QVERIFY(publish != nullptr);
       QVERIFY(!publish->isEnabled());
+      QCOMPARE(publish->toolTip(), QStringLiteral("导出 PDF 后再保存")); // 缺 PDF
       publish->click();
       QCOMPARE(publishSpy.count(), 0);
       page.setPublishEnabled(true);
@@ -260,6 +261,47 @@ class TestPanels : public QObject
       QCOMPARE(publishSpy.count(), 1);
       page.setPublishEnabled(false);
       QVERIFY(!publish->isEnabled());
+    }
+
+    // 阶段E 完整发布门：hasPdf + 逐井残差覆盖两条都要满足；tooltip 指认缺项。
+    void composePage_publishStateTooltips()
+    {
+      ComposePage page(nullptr, nullptr);
+      auto *publish = page.findChild<QPushButton *>(QStringLiteral("publishButton"));
+      auto *state = page.findChild<QLabel *>(QStringLiteral("publishStateLabel"));
+      auto *save = page.findChild<QPushButton *>(QStringLiteral("saveVersionButton"));
+      QVERIFY(publish != nullptr && state != nullptr && save != nullptr);
+
+      // 缺 PDF（残差已齐也救不了）。
+      page.setPublishState(false, 3, 3);
+      QVERIFY(!publish->isEnabled());
+      QCOMPARE(publish->toolTip(), QStringLiteral("导出 PDF 后再保存"));
+
+      // 有 PDF 但残差覆盖不全 → 禁 + 计数 tooltip。
+      page.setPublishState(true, 2, 3);
+      QVERIFY(!publish->isEnabled());
+      QCOMPARE(publish->toolTip(),
+               QStringLiteral("还有 1/3 口井没有残差或原因 — 先在验证页运行验证"));
+
+      // 未跑验证（0/0）→ 禁 + 运行验证提示。
+      page.setPublishState(true, 0, 0);
+      QVERIFY(!publish->isEnabled());
+      QCOMPARE(publish->toolTip(), QStringLiteral("先在验证页运行验证"));
+
+      // 两条都齐 → 放闸，tooltip 清空。
+      page.setPublishState(true, 3, 3);
+      QVERIFY(publish->isEnabled());
+      QVERIFY(publish->toolTip().isEmpty());
+
+      // 版本状态标注：已发布 → 文案 + 「保存新版本」；下一版回到编辑中。
+      page.setVersionState(2, true);
+      QCOMPARE(state->text(), QStringLiteral("已发布 · v2"));
+      QCOMPARE(save->text(), QStringLiteral("保存新版本"));
+      page.setVersionState(3, false);
+      QCOMPARE(state->text(), QStringLiteral("编辑中 · v3"));
+      QCOMPARE(save->text(), QStringLiteral("保存版本"));
+      page.setVersionState(0, false);
+      QCOMPARE(state->text(), QStringLiteral("还没有保存的版本"));
     }
 
     void composePage_listsOnlySingleFactorGroup()

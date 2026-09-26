@@ -104,9 +104,19 @@ switch ($Verb) {
     $env:QT_QPA_PLATFORM = 'offscreen'
     $logDir = Join-Path $Vendor 'logs'
     New-Item -ItemType Directory -Force $logDir | Out-Null
-    ctest --test-dir $Build --output-on-failure 2>&1 |
-      Tee-Object -FilePath (Join-Path $logDir 'ctest.log')
-    if ($LASTEXITCODE -ne 0) { throw 'CTest failed' }
+    $log = Join-Path $logDir 'ctest.log'
+    ctest --test-dir $Build --output-on-failure 2>&1 | Tee-Object -FilePath $log
+    if ($LASTEXITCODE -ne 0) {
+      # ctest 的 --output-on-failure 在 Windows runner 上回收不到子进程
+      # 输出；失败测试逐个直跑，QtTest 的 FAIL/Loc 行直落日志。
+      $names = & ctest --test-dir $Build --rerun-failed -N 2>$null |
+        ForEach-Object { if ($_ -match 'Test\s+#\d+:\s+(\S+)') { $Matches[1] } }
+      foreach ($n in $names) {
+        "=== $n (direct run) ===" | Add-Content -Path $log
+        & (Join-Path $Build "$n.exe") 2>&1 | Add-Content -Path $log
+      }
+      throw 'CTest failed'
+    }
   }
   'selfcheck' {
     Enter-VendorEnvironment

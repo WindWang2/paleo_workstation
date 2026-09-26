@@ -4,6 +4,7 @@
 #include "../catalog/datacatalog.h"      // localGridCrsWkt — ONNX 栅格落在局部测网
 #include "../io/constraintstore.h"
 #include "../metadata/paleoprojectstore.h"
+#include "../qgis/qgiseditingservice.h" // 拓扑提交门（geometryCommitError）
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
 #include "../services/projectdata.h"
@@ -21,6 +22,7 @@
 #include <QVariantList>
 
 #include <qgscoordinatereferencesystem.h>
+#include <qgsgeometry.h>
 #include <qgsmaplayer.h>
 
 #include <gdal.h>
@@ -669,6 +671,15 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
   if ( wkt.trimmed().isEmpty() )
   {
     setError( error, tr( "constraint geometry WKT is empty" ) );
+    return false;
+  }
+  // 拓扑提交门（QGIS_NATIVE_ADOPTION）：约束几何进 IDW 掩膜前经原生验证
+  // ——自相交多边形会让掩膜语义失真，如实拒收不静默修形。
+  if ( const QString geomErr = QgisEditingService::geometryCommitError(
+           QgsGeometry::fromWkt( wkt ), tr( "constraint geometry" ) );
+       !geomErr.isEmpty() )
+  {
+    setError( error, geomErr );
     return false;
   }
 

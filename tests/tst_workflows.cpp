@@ -281,6 +281,43 @@ private slots:
     QCOMPARE( spy.count(), 3 );
   }
 
+  // QGIS_NATIVE_ADOPTION：约束几何经原生 QgsGeometryValidator 拓扑门——
+  // 自相交蝴蝶结多边形如实拒收（id 不消耗、constraintAdded 不发），
+  // 合法多边形照常通过。
+  void addConstraintRejectsInvalidGeometry()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+
+    ConstraintWorkflow wf( &f.proc, &f.layers );
+    QSignalSpy spy( &wf, &ConstraintWorkflow::constraintAdded );
+
+    QString err;
+    const QString bowtie = QStringLiteral( "POLYGON((0 0, 2 2, 2 0, 0 2, 0 0))" );
+    QVERIFY2( !wf.addConstraint( QStringLiteral( "T1" ), bowtie,
+                                 QStringLiteral( "polygon" ), 3, &err ),
+              "self-intersecting ring must not enter the constraint store" );
+    QVERIFY( !err.isEmpty() );
+    QVERIFY( err.contains( QLatin1String( "invalid" ) ) );
+    QCOMPARE( spy.count(), 0 );
+
+    // 合法几何照常（同一 horizon，id 从 c-1 起——拒绝不消耗序号）。
+    QVERIFY2( wf.addConstraint( QStringLiteral( "T1" ),
+                                QStringLiteral( "POLYGON((0 0, 4 0, 4 4, 0 4, 0 0))" ),
+                                QStringLiteral( "polygon" ), 3, &err ),
+              qPrintable( err ) );
+    QCOMPARE( spy.count(), 1 );
+    QCOMPARE( spy.at( 0 ).at( 0 ).toString(), QStringLiteral( "c-1" ) );
+
+    // 空但合法的退化几何（空多边形）也如实放行——空 ≠ 拓扑违例；
+    // 「空 WKT」这一档由上面的 trimmed-empty 检查承载。
+    QVERIFY2( wf.addConstraint( QStringLiteral( "T1" ),
+                                QStringLiteral( "POLYGON EMPTY" ),
+                                QStringLiteral( "polygon" ), 3, &err ),
+              qPrintable( err ) );
+    QCOMPARE( spy.count(), 2 );
+  }
+
   // ②b runConstraintIDW: resolves the declared points layer, declares factor.
   void constraintIdwDeclaresFactor()
   {

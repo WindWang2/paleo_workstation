@@ -11,6 +11,7 @@
 #include <qgslayertreemapcanvasbridge.h>
 #include <qgscoordinatereferencesystem.h>
 #include <qgsrectangle.h>
+#include <qgssnappingutils.h>
 
 #include <QColor>
 #include <QWidget>
@@ -45,6 +46,18 @@ QgisCanvasController::~QgisCanvasController()
   delete m_canvas;
 }
 
+QgsSnappingConfig QgisCanvasController::nativeSnappingConfig()
+{
+  QgsSnappingConfig cfg;
+  cfg.setEnabled( true );
+  cfg.setMode( Qgis::SnappingMode::AllLayers );           // 全图层捕捉（编图工位默认）
+  cfg.setTypeFlag( Qgis::SnappingType::Vertex |
+                   Qgis::SnappingType::Segment ); // 顶点+边
+  cfg.setTolerance( 10.0 );
+  cfg.setUnits( Qgis::MapToolUnit::Pixels );               // 屏幕像素容差
+  return cfg;
+}
+
 QgsMapCanvas *QgisCanvasController::canvas()
 {
   if ( !m_canvas )
@@ -52,6 +65,9 @@ QgsMapCanvas *QgisCanvasController::canvas()
     m_canvas = new QgsMapCanvas( nullptr ); // parentless; embedder may reparent
     m_canvas->enableAntiAliasing( true );
     m_canvas->setCanvasColor( QColor( QStringLiteral( "#FFFFFF" ) ) ); // DESIGN.md colors.surface
+    // 捕捉原生启用（QGIS_NATIVE_ADOPTION）：QgsMapToolCapture/编辑工具经
+    // canvas->snappingUtils() 自动拾取配置——这里是唯一接线点。
+    m_canvas->snappingUtils()->setConfig( nativeSnappingConfig() );
     // If an embedding widget parents the canvas and outlives/destroys it,
     // drop the dangling pointer before ~QgisCanvasController runs.
     connect( m_canvas, &QObject::destroyed, this, [this] {

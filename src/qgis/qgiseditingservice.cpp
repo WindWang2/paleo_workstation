@@ -2,6 +2,8 @@
 
 #include "../metadata/paleoprojectstore.h"
 
+#include <qgsgeometry.h>
+#include <qgsgeometryvalidator.h>
 #include <qgsvectorlayer.h>
 
 namespace
@@ -104,4 +106,24 @@ bool QgisEditingService::rollbackEdit(QgsVectorLayer *layer)
 bool QgisEditingService::isEditing(QgsVectorLayer *layer) const
 {
   return layer && layer->isEditable();
+}
+
+QString QgisEditingService::geometryCommitError( const QgsGeometry &geometry,
+                                                 const QString &what )
+{
+  if ( geometry.isNull() )
+    return tr( "%1 is empty" ).arg( what );
+  // 原生验证器（QgisInternal 引擎，与 QGIS app 的「检查几何有效性」同源）。
+  // 空几何（如点要素未成形前的空 QgsGeometry）在 native 语义里不是非法——
+  // isNull 已在上面如实体指认；这里只管拓扑违例。
+  QVector<QgsGeometry::Error> errors;
+  QgsGeometryValidator::validateGeometry( geometry, errors );
+  if ( errors.isEmpty() )
+    return QString();
+  const QgsGeometry::Error &first = errors.constFirst();
+  QString where;
+  const QgsPointXY w = first.where();
+  if ( !std::isnan( w.x() ) )
+    where = tr( " at (%1, %2)" ).arg( w.x(), 0, 'f', 2 ).arg( w.y(), 0, 'f', 2 );
+  return tr( "%1 is invalid: %2%3" ).arg( what, first.what(), where );
 }

@@ -5,6 +5,8 @@
 #include <QHash>
 #include <functional>
 
+#include <qgssnappingconfig.h>
+
 class QgsMapCanvas;
 class QgsMapLayer;
 class QgsMapTool;
@@ -22,6 +24,11 @@ class QgisCanvasController : public QObject
     ~QgisCanvasController() override;
 
     QgsMapCanvas *canvas();                       // created lazily; QWidget* for embedding
+    // 捕捉原生配置（docs/QGIS_NATIVE_ADOPTION.md）：enabled + AllLayers +
+    // VertexAndSegment + 10px。canvas() 创建时装到 snappingUtils；工程打开
+    // 时再镜像进 project->setSnappingConfig（随 .qgz 持久化）——capture 与
+    // 编辑工具经 QgsMapCanvas::snappingUtils() 原生拾取，工具零改动。
+    static QgsSnappingConfig nativeSnappingConfig();
     void setMapTool(QgsMapTool *tool);            // deactivates previous
     QgsMapTool *activeTool() const;
     void deactivateTool();                        // Esc path

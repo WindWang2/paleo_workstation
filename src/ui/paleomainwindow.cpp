@@ -47,6 +47,7 @@
 #include <qgslayertree.h>
 #include <qgslayertreemodel.h>
 #include <qgslayertreeview.h>
+#include <qgslayertreeviewdefaultactions.h>
 #include <qgsmessagelog.h>
 #include <qgsmessagelogviewer.h>
 #include <qgslocatorwidget.h>
@@ -427,6 +428,27 @@ void PaleoMainWindow::buildShell()
     treeModel->setFlag(QgsLayerTreeModel::AllowNodeRename);
     treeModel->setFlag(QgsLayerTreeModel::AllowNodeChangeVisibility);
     treeView->setModel(treeModel);
+    // 图层树默认动作（QGIS_NATIVE_ADOPTION）：QgsLayerTreeViewDefaultActions
+    // 在 gui 已安装——用它组右键菜单；QgsLayerTreeViewMenuProvider 是
+    // app-only（头不安装），不链接。
+    if (QgsMapCanvas *cv = m_canvasCtl ? m_canvasCtl->canvas() : nullptr)
+    {
+      auto *treeActions = new QgsLayerTreeViewDefaultActions(treeView);
+      auto *treeMenu = new QMenu(treeView);
+      treeMenu->addAction(
+          treeActions->actionZoomToLayers(cv, treeMenu));
+      treeMenu->addAction(
+          treeActions->actionZoomToSelection(cv, treeMenu));
+      treeMenu->addAction(treeActions->actionShowFeatureCount(treeMenu));
+      treeMenu->addSeparator();
+      treeMenu->addAction(treeActions->actionRenameGroupOrLayer(treeMenu));
+      treeMenu->addAction(treeActions->actionRemoveGroupOrLayer(treeMenu));
+      treeView->setContextMenuPolicy(Qt::CustomContextMenu);
+      connect(treeView, &QWidget::customContextMenuRequested, treeMenu,
+              [treeView, treeMenu](const QPoint &p) {
+                treeMenu->popup(treeView->viewport()->mapToGlobal(p));
+              });
+    }
     m_leftDock->setWidget(treeView);
     // T31：图层树空态——工程没有图层时给指引，不留一棵空树。
     treeEmpty = new EmptyStateLabel(
@@ -1209,6 +1231,12 @@ void PaleoMainWindow::onProjectOpened()
       }
     }
   }
+
+  // 捕捉配置镜像进工程（QGIS_NATIVE_ADOPTION）：随 .qgz 持久化；画布侧
+  // 配置在 canvas() 创建时已装到 snappingUtils（同一 nativeSnappingConfig）。
+  if (m_projectSvc && m_projectSvc->project())
+    m_projectSvc->project()->setSnappingConfig(
+        QgisCanvasController::nativeSnappingConfig());
 
   restoreCanvasExtent(); // per-project display state from the .qgz
 

@@ -6,6 +6,7 @@
 #include <qgsmaptoolpan.h>
 #include <qgsmapsettings.h>
 #include <qgsrectangle.h>
+#include <qgssnappingutils.h>
 
 #include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/services/toolavailability.h"
@@ -18,6 +19,7 @@ class TestCanvasTools : public QObject
   Q_OBJECT
 private slots:
   void canvasIsUsableOffscreen();
+  void nativeSnappingEnabled();
   void mapToolRoundtrip();
   void broadcastGuardCoalesces();
   void toolGating();
@@ -39,6 +41,21 @@ void TestCanvasTools::canvasIsUsableOffscreen()
   QVERIFY( c->scale() > 0 );
 
   ctl.zoomToFullExtent(); // no layers → must not crash or wedge
+}
+
+// QGIS_NATIVE_ADOPTION：画布创建即装原生捕捉配置（QgsMapToolCapture/编辑
+// 工具经 snappingUtils 自动拾取——钉死配置防回归成「捕捉零配置」）。
+void TestCanvasTools::nativeSnappingEnabled()
+{
+  QgisCanvasController ctl;
+  QgsMapCanvas *c = ctl.canvas();
+  QVERIFY( c );
+  const QgsSnappingConfig cfg = c->snappingUtils()->config();
+  QVERIFY( cfg.enabled() );
+  QCOMPARE( cfg.mode(), Qgis::SnappingMode::AllLayers );
+  QVERIFY( cfg.typeFlag().testFlag( Qgis::SnappingType::Vertex ) );
+  QCOMPARE( cfg.tolerance(), 10.0 );
+  QCOMPARE( cfg.units(), Qgis::MapToolUnit::Pixels );
 }
 
 // (b) setMapTool/deactivateTool roundtrip

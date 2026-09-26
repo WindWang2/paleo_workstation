@@ -59,6 +59,7 @@
 #include <qgsvectorlayer.h>
 #include <qgsvectorlayereditbuffer.h>
 
+#include "qgis/qgiseditingservice.h"
 #include "ui/edittools/editingtoolbar.h"
 #include "ui/edittools/editingtools.h"
 #include "ui/edittools/editingundostack.h"
@@ -158,6 +159,7 @@ class TestEditTools : public QObject
     void moveEscCancelsDragAndIdleAborts();
     void deleteEscAndEmptySelectionWarns();
     void vertexEscCancelsDragAndIdleAborts();
+    void geometryCommitGateValidatesNatively();
     void warnOnlyRefusalsDontAbort();
 
     // +) shared signal contract across the five tools
@@ -1514,6 +1516,39 @@ void TestEditTools::vertexEscCancelsDragAndIdleAborts()
 
   canvas.unsetMapTool( &tool );
   layer.rollBack();
+}
+
+// QGIS_NATIVE_ADOPTION：拓扑提交门 = 原生 QgsGeometryValidator——合法几何
+// 回空，蝴蝶结自相交环给出错误文本+坐标，null 几何如实报 empty。
+void TestEditTools::geometryCommitGateValidatesNatively()
+{
+  // 合法几何 → 空错误串。
+  QVERIFY( QgisEditingService::geometryCommitError(
+               QgsGeometry::fromWkt( QStringLiteral( "POLYGON((0 0, 4 0, 4 4, 0 4, 0 0))" ) ),
+               QStringLiteral( "geom" ) )
+               .isEmpty() );
+  QVERIFY( QgisEditingService::geometryCommitError(
+               QgsGeometry::fromWkt( QStringLiteral( "POINT(1 2)" ) ),
+               QStringLiteral( "geom" ) )
+               .isEmpty() );
+
+  // 蝴蝶结自相交 → 错误文本带位置信息；含 what 主语。
+  const QString bowErr = QgisEditingService::geometryCommitError(
+      QgsGeometry::fromWkt( QStringLiteral( "POLYGON((0 0, 2 2, 2 0, 0 2, 0 0))" ) ),
+      QStringLiteral( "drawn feature" ) );
+  QVERIFY( !bowErr.isEmpty() );
+  QVERIFY( bowErr.contains( QLatin1String( "drawn feature" ) ) );
+  QVERIFY( bowErr.contains( QLatin1String( "invalid" ) ) );
+
+  // null 几何如实报 empty——与「拓扑违例」区分。
+  QVERIFY( !QgisEditingService::geometryCommitError( QgsGeometry(),
+                                                   QStringLiteral( "geom" ) )
+               .isEmpty() );
+  // 空但合法的退化几何（POLYGON EMPTY）放行——空 ≠ 拓扑违例。
+  QVERIFY( QgisEditingService::geometryCommitError(
+               QgsGeometry::fromWkt( QStringLiteral( "POLYGON EMPTY" ) ),
+               QStringLiteral( "geom" ) )
+               .isEmpty() );
 }
 
 void TestEditTools::warnOnlyRefusalsDontAbort()

@@ -1,5 +1,7 @@
 #include "editingtools.h"
 
+#include "../../qgis/qgiseditingservice.h"
+
 #include <memory>
 #include <utility>
 
@@ -161,6 +163,16 @@ bool PaleoAddFeatureTool::commitFeature( QgsGeometry geometry )
     emit messageEmitted( vl ? tr( "Cannot add feature: %1 is not editable" ).arg( vl->name() )
                             : tr( "Cannot add feature: no target layer" ),
                          Qgis::MessageLevel::Warning );
+    return false;
+  }
+
+  // 拓扑提交门（QGIS_NATIVE_ADOPTION）：非法几何（自相交环等）如实拒入
+  // edit buffer——原生 QgsGeometryValidator 错误文本，不静默修形。
+  const QString geomErr =
+      QgisEditingService::geometryCommitError( geometry, tr( "drawn feature" ) );
+  if ( !geomErr.isEmpty() )
+  {
+    emit messageEmitted( geomErr, Qgis::MessageLevel::Warning );
     return false;
   }
 

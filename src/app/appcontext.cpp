@@ -32,6 +32,7 @@
 #include <QDebug>
 
 #include <qgsmaplayer.h>
+#include <qgsmessagelog.h>
 #include <qgsvectorlayer.h>
 #include <qgsmarkersymbol.h>
 #include <qgssinglesymbolrenderer.h>
@@ -180,6 +181,23 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             const QFileInfo fi(qgzPath);
             const QString metaPath = manifestPathFor(qgzPath);
             m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
+
+            // data/commit-coord：提交 journal 恢复扫描。上次 commitAll 若在
+            // catalog→qgz 写序中途崩溃会留下未 complete 的记档；如实上报
+            // （qWarning + QGIS 消息日志 → 状态面），绝不自动重放——记档
+            // 摘要不足以证明重跑安全，操作者重新保存即以同 opId 续跑。
+            const QVector<PaleoProjectStore::CommitOp> unfinishedCommits =
+                m_store->recoverCommitJournal();
+            for (const PaleoProjectStore::CommitOp &op : unfinishedCommits)
+            {
+              qWarning() << "AppContext: unfinished commit op" << op.opId
+                         << "at stage" << op.stage;
+              QgsMessageLog::logMessage(
+                  tr("检测到未完成的提交 %1（阶段：%2）——上次保存可能中途崩溃，"
+                     "请检查数据后重新保存")
+                      .arg(op.opId, op.stage),
+                  QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+            }
 
             // §37 recovery: the SQLite manifest is authoritative, but the .qgz
             // carries an embedded copy of the declared set. Rehydrate ONLY when

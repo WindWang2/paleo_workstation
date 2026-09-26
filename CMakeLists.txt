@@ -297,3 +297,6 @@ add_paleo_test(tst_algorithm_harness)  # AlgorithmTestBase harness + ≥3 算法
 add_paleo_test(tst_perfbudget)     # 非 UI 性能预算：工程打开/folder 枚举/save 200 版本
 target_compile_definitions(tst_perfbudget PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+
+# ---- data/commit-coord（D 包：journal + 幂等有序提交） ----
+add_paleo_test(tst_commitcoord)    # commitAll 记档生命周期/幂等重入/崩溃恢复/catalog→qgz 顺序

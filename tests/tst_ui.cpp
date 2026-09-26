@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QToolButton>
+#include <QSignalSpy>
 #include <QDockWidget>
 
 #include "../src/app/appcontext.h"
@@ -286,6 +287,40 @@ class TestUiShell : public QObject
 
       // 不把图层泄漏给后续用例（空态测试断言 mapLayers().isEmpty()）。
       m_ctx->projectSvc()->project()->removeMapLayer(layer->id());
+    }
+
+    // T20 恢复链路：坏 catalog → 告警 + 导入禁用；重开好工程（AppContext
+    // 在 projectOpened 里同步重设 projectDir）→ 告警收起、导入放开。
+    void catalogErrorRecoversOnReopen()
+    {
+      QTemporaryDir bad;
+      QVERIFY(bad.isValid());
+      const QString metaDir =
+          QDir(bad.path()).filePath(QStringLiteral("artifacts/metadata"));
+      QVERIFY(QDir().mkpath(metaDir));
+      {
+        QFile f(QDir(metaDir).filePath(QStringLiteral("catalog.json")));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("{ not json");
+      }
+      DataImportService *svc = m_ctx->importSvc();
+      QSignalSpy spy(svc, &DataImportService::catalogOpenFailed);
+      svc->setProjectDir(bad.path());
+      QCOMPARE(spy.count(), 1);
+
+      auto *label = m_win->findChild<QLabel *>(QStringLiteral("statusCatalogError"));
+      QVERIFY(label && label->isVisibleTo(m_win));
+      QVERIFY(!m_win->findChild<QPushButton *>(QStringLiteral("importWells"))
+                   ->isEnabled());
+
+      QTemporaryDir good;
+      QVERIFY(good.isValid());
+      QVERIFY2(m_ctx->projectSvc()->createProject(
+                   good.filePath(QStringLiteral("ok.qgz"))),
+               "reopen a healthy project");
+      QVERIFY(!label->isVisibleTo(m_win));
+      QVERIFY(m_win->findChild<QPushButton *>(QStringLiteral("importWells"))
+                  ->isEnabled());
     }
 
     // ---- T31 空态：地图/图层树没有图层时给居中指引 ----

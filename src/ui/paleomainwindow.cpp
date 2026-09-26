@@ -1233,6 +1233,47 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     connect(importSvc->catalog(), &DataCatalog::changed, this,
             [dataPage]() { QMetaObject::invokeMethod(dataPage, "refreshAssetTable"); });
     dataPage->refreshAssetTable();
+
+    // ---- T20 余项：catalogOpenFailed 的状态栏露出 ----
+    // 常驻红胶囊（DESIGN.md error token）写打开失败原因；恢复（工程重开且
+    // catalog 打开成功）前，数据页的导入类动作保持禁用——失败的 catalog 拒
+    // 绝写入，导入必然失败，不给用户一个假入口。
+    auto *catalogError =
+        PaleoTheme::capsuleLabel(QString(), PaleoTheme::CapsuleKind::Error, this);
+    catalogError->setObjectName(QStringLiteral("statusCatalogError"));
+    catalogError->hide();
+    statusBar()->addPermanentWidget(catalogError);
+    const auto setImportsEnabled = [this](bool enabled) {
+      for (const char *name : {"importWells", "importSeismic", "importBoundary",
+                               "importFolder"})
+        if (auto *btn = findChild<QPushButton *>(QLatin1String(name)))
+        {
+          btn->setEnabled(enabled);
+          if (!enabled)
+            btn->setToolTip(tr("数据目录打开失败 — 导入暂不可用（见状态栏）"));
+          else
+            btn->setToolTip(QString());
+        }
+    };
+    connect(importSvc, &DataImportService::catalogOpenFailed, this,
+            [catalogError, setImportsEnabled](const QString &error) {
+              catalogError->setText(tr("数据目录打开失败：%1").arg(error));
+              catalogError->show();
+              setImportsEnabled(false);
+            });
+    // 恢复：projectOpened 后（AppContext 已同步重设 projectDir）错误清空 →
+    // 收告警、放开导入。
+    if (m_projectSvc)
+      connect(m_projectSvc, &QgisProjectService::projectOpened, this,
+              [importSvc, catalogError, setImportsEnabled](const QString &) {
+                if (importSvc->catalogOpenError().isEmpty())
+                {
+                  catalogError->hide();
+                  setImportsEnabled(true);
+                }
+                else
+                  setImportsEnabled(false); // 换了个工程仍然失败 → 保持禁用
+              });
     DataPreviewTabs *preview = m_previewTabs;
     if (preview)
     {

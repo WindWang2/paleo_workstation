@@ -483,6 +483,43 @@ class TestPanels : public QObject
       QCOMPARE(cat->links().at(0).entityId, QStringLiteral("well-1"));
     }
 
+    // ---- T20 余项：catalogOpenFailed 状态栏露出 ----
+    // 注入打开失败（坏 catalog.json）→ 状态栏红胶囊（DESIGN.md error token）
+    // 常驻显示原因 + 数据页导入按钮禁用。
+    void mainWindow_catalogOpenFailureSurfacesInStatusbar()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      const QString metaDir = QDir(dir.path()).filePath(QStringLiteral("artifacts/metadata"));
+      QVERIFY(QDir().mkpath(metaDir));
+      QVERIFY(writeFile(QDir(metaDir).filePath(QStringLiteral("catalog.json")),
+                        QByteArrayLiteral("{ not json")));
+
+      QSettings(QStringLiteral("paleo"), QStringLiteral("paleo")).clear();
+      PaleoMainWindow win(nullptr, nullptr, nullptr, nullptr, nullptr);
+      DataImportService svc(nullptr, nullptr);
+      win.attachWorkflows(nullptr, nullptr, nullptr, nullptr, &svc);
+
+      auto *label = win.findChild<QLabel *>(QStringLiteral("statusCatalogError"));
+      QVERIFY2(label, "statusbar must own a catalog-error capsule");
+      QVERIFY(label->styleSheet().contains(QStringLiteral("#FDEBEB"))); // errorBg
+      QVERIFY(label->styleSheet().contains(QStringLiteral("#E53935"))); // error 字
+      QVERIFY(!label->isVisibleTo(&win));
+
+      QSignalSpy spy(&svc, &DataImportService::catalogOpenFailed);
+      svc.setProjectDir(dir.path()); // open() 失败 → 信号
+      QCOMPARE(spy.count(), 1);
+      QVERIFY(label->isVisibleTo(&win));
+      QVERIFY(label->text().contains(QString::fromUtf8("数据目录打开失败")));
+      for (const char *name : {"importWells", "importSeismic", "importBoundary",
+                               "importFolder"})
+      {
+        auto *btn = win.findChild<QPushButton *>(QLatin1String(name));
+        QVERIFY2(btn && !btn->isEnabled(), name);
+        QVERIFY2(!btn->toolTip().isEmpty(), "禁用必须带 reason tooltip（§35）");
+      }
+    }
+
     // ---- PredictPage ----
     void predictPage_combosAndRun()
     {

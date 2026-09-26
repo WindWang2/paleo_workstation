@@ -102,6 +102,7 @@ private slots:
   void document_stubbedConverterYieldsDerived();
   void document_converterMissingFailsHonest();
   void coordinateStatusMappingIsChinese();
+  void unresolvedMultiWellTabShowsDeadEnd();
 
 private:
   // 共享一次导入的夹具集（每个测试自建栈，互不污染）。
@@ -512,6 +513,69 @@ void TestDataPreview::coordinateStatusMappingIsChinese()
            QString::fromUtf8("没有坐标"));
   QCOMPARE(DataPreviewTabs::coordinateStatusText(QString()),
            QString::fromUtf8("没有坐标"));
+}
+
+// T31 死胡同：未决资产的多井 tab 无井可挂时给「挂到这口井」入口说明；
+// 工程里一口井都没有时指向导入——都不留空白页。
+void TestDataPreview::unresolvedMultiWellTabShowsDeadEnd()
+{
+  // 场景一：工程有井（A1），但这个 tops 资产未决（井名 Z9 不匹配）。
+  {
+    QTemporaryDir tmp;
+    auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+    QVERIFY(st != nullptr);
+    QString err;
+    QVERIFY(!st->importSvc->importProjectFile(
+                 fixture(QStringLiteral("ExportWellHead.dat")), &err)
+                 .isEmpty()); // 建 A1
+    const QString topsDir = tmp.filePath(QString::fromUtf8("井分层"));
+    QDir().mkpath(topsDir);
+    const QString topsPath = QDir(topsDir).filePath(QStringLiteral("Z9.dat"));
+    {
+      QFile f(topsPath);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("#WellTops File From SMI\n"
+              "#WellName    Name         MD           X            Y            Z            TVD          Time(ms)    \n"
+              "Z9           A            942.500      1000.0       2000.0       -942.500     942.500      -99999.000  \n");
+    }
+    const QString z9 = st->importSvc->importProjectFile(topsPath, &err);
+    QVERIFY2(!z9.isEmpty(), qPrintable(err));
+
+    st->preview->openAsset(z9);
+    auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+    QWidget *page = tabs->widget(tabs->currentIndex());
+    auto *deadEnd = page->findChild<QLabel *>(QStringLiteral("deadEndText"));
+    QVERIFY2(deadEnd, "unresolved multi-well tab must explain the dead end");
+    QVERIFY(deadEnd->text().contains(QString::fromUtf8("还没有挂到任何井")));
+    QVERIFY(deadEnd->text().contains(QString::fromUtf8("挂到这口井")));
+  }
+
+  // 场景二：工程里一口井都没有 → 指向导入工区文件夹。
+  {
+    QTemporaryDir tmp;
+    auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+    QVERIFY(st != nullptr);
+    const QString topsDir = tmp.filePath(QString::fromUtf8("井分层"));
+    QDir().mkpath(topsDir);
+    const QString topsPath = QDir(topsDir).filePath(QStringLiteral("Z9.dat"));
+    {
+      QFile f(topsPath);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("#WellTops File From SMI\n"
+              "#WellName    Name         MD           X            Y            Z            TVD          Time(ms)    \n"
+              "Z9           A            942.500      1000.0       2000.0       -942.500     942.500      -99999.000  \n");
+    }
+    QString err;
+    const QString z9 = st->importSvc->importProjectFile(topsPath, &err);
+    QVERIFY2(!z9.isEmpty(), qPrintable(err));
+    st->preview->openAsset(z9);
+    auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+    QWidget *page = tabs->widget(tabs->currentIndex());
+    auto *deadEnd = page->findChild<QLabel *>(QStringLiteral("deadEndText"));
+    QVERIFY(deadEnd);
+    QVERIFY(deadEnd->text().contains(QString::fromUtf8("还没有井")));
+    QVERIFY(deadEnd->text().contains(QString::fromUtf8("导入工区文件夹")));
+  }
 }
 
 // §4：LAS 约定曲线 GR/AC/DEN 缺了就给禁用项，tooltip「这条曲线不在文件里」。

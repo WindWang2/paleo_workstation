@@ -746,6 +746,128 @@ class TestPanels : public QObject
       QVERIFY(state->styleSheet().contains(QStringLiteral("#EDF1F5"))); // 未计算
     }
 
+    // ---- T31 空态 / 未决过滤 ----
+
+    // 空资产表：居中提示 + 下一步动作指引（点名「导入工区文件夹」）。
+    void dataPage_emptyStateIsCenteredGuidance()
+    {
+      DataPage page;
+      auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      QVERIFY(table);
+      QCOMPARE(table->rowCount(), 1);
+      auto *it = table->item(0, 0);
+      QVERIFY(it);
+      QVERIFY(it->text().contains(QString::fromUtf8("还没有数据资产")));
+      QVERIFY2(it->text().contains(QString::fromUtf8("导入工区文件夹")),
+               "empty state must name the next concrete step");
+      QVERIFY(it->textAlignment() & Qt::AlignHCenter); // T31 居中
+    }
+
+    // 「查看未决」过滤：只留有未决链接的行；过滤条 + 清除过滤恢复全表。
+    void dataPage_unresolvedFilterNarrowsRows()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+      CatalogEntity well;
+      well.id = QStringLiteral("well-1");
+      well.entityType = QStringLiteral("well");
+      well.name = QStringLiteral("A1");
+      QVERIFY(cat->addEntity(well));
+      CatalogAsset resolved, pending;
+      resolved.id = QStringLiteral("ast-1");
+      resolved.type = QStringLiteral("well_log");
+      resolved.displayName = QStringLiteral("A1.las");
+      QVERIFY(cat->addAsset(resolved));
+      pending.id = QStringLiteral("ast-2");
+      pending.type = QStringLiteral("well_log");
+      pending.displayName = QStringLiteral("Z9.las");
+      QVERIFY(cat->addAsset(pending));
+      EntityAssetLink ok, un;
+      ok.entityType = QStringLiteral("well");
+      ok.entityId = well.id;
+      ok.assetId = resolved.id;
+      ok.role = QStringLiteral("well_log");
+      QVERIFY(cat->addLink(ok));
+      un.entityType = QStringLiteral("well");
+      un.assetId = pending.id;
+      un.role = QStringLiteral("well_log");
+      un.unresolved = true;
+      QVERIFY(cat->addLink(un));
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      page.refreshAssetTable();
+      auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      QCOMPARE(table->rowCount(), 2);
+      QVERIFY(page.findChild<QWidget *>(QStringLiteral("unresolvedFilterBar"))->isHidden());
+
+      page.setUnresolvedFilter(true);
+      QCOMPARE(table->rowCount(), 1);
+      QCOMPARE(table->item(0, 0)->text(), QStringLiteral("Z9.las"));
+      QVERIFY(!page.findChild<QWidget *>(QStringLiteral("unresolvedFilterBar"))->isHidden());
+
+      // 清除过滤恢复全表。
+      page.findChild<QPushButton *>(QStringLiteral("clearUnresolvedFilterButton"))->click();
+      QCOMPARE(table->rowCount(), 2);
+      QVERIFY(page.findChild<QWidget *>(QStringLiteral("unresolvedFilterBar"))->isHidden());
+
+      // 过滤开着而没有未决资产：给「没有未决资产」空态，不是空白表。
+      QVERIFY(cat->attachLink(1, QStringLiteral("well-1"))); // ast-2 也挂上 → 全部已决
+      page.setUnresolvedFilter(true);
+      QCOMPARE(table->rowCount(), 1);
+      QVERIFY(table->item(0, 0)->text().contains(QString::fromUtf8("没有未决资产")));
+    }
+
+    // 文件夹确认完成后的「查看未决」：露出的条件（有未决行）+ 点击切数据页
+    // 并把资产表过滤到未决行。
+    void folderConfirm_showUnresolvedFiltersAssetTable()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+      QVERIFY(QDir().mkpath(projectDir));
+      const QString root = tmp.filePath(QStringLiteral("area"));
+      QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
+      QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井位/heads.dat")),
+          QByteArrayLiteral("#WellHead File From SMI\n#Name X Y KB TD\n"
+                            "A1  1.0  2.0  0.0  2000.0\n")));
+      // Z9.las 引用不存在的井 → 未决行。
+      QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("Z9.las")),
+                        QByteArrayLiteral("~Well\nWELL. Z9 : WELL\n~A DEPT\n1.0\n")));
+
+      FolderStack st(tmp.filePath(QStringLiteral("m.sqlite")), projectDir);
+      QString err;
+      const auto preview = st.svc.previewFolder(root, &err);
+      QVERIFY2(err.isEmpty(), qPrintable(err));
+      QCOMPARE(preview.size(), 2);
+
+      QSettings(QStringLiteral("paleo"), QStringLiteral("paleo")).clear();
+      PaleoMainWindow win(nullptr, nullptr, nullptr, nullptr, nullptr);
+      win.attachWorkflows(nullptr, nullptr, nullptr, nullptr, &st.svc);
+      QDialog dlg;
+      PaleoMainWindow::buildFolderConfirmDialog(&dlg, &st.svc, root, preview, &win);
+      auto *showUnresolved =
+          dlg.findChild<QPushButton *>(QStringLiteral("folderShowUnresolvedButton"));
+      QVERIFY(showUnresolved);
+      QVERIFY(!showUnresolved->isVisibleTo(&dlg)); // 导入前不出现
+
+      dlg.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"))->click();
+      QVERIFY(showUnresolved->isVisibleTo(&dlg)); // 有未决行 → 露出
+
+      showUnresolved->click();
+      QCOMPARE(win.currentPage(), QStringLiteral("data"));
+      auto *page = win.findChild<DataPage *>();
+      QVERIFY(page);
+      auto *table = page->findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      QVERIFY(table);
+      QCOMPARE(table->rowCount(), 1); // 只有 Z9 那条未决资产
+      QVERIFY(table->item(0, 0)->text().contains(QStringLiteral("Z9")));
+      QVERIFY(!page->findChild<QWidget *>(QStringLiteral("unresolvedFilterBar"))->isHidden());
+    }
+
     // ---- T22 文件夹导入确认表（PaleoMainWindow 静态面）----
     // 只调静态助手，不实例化主窗——栈上只要一个非空的 layer/store 就能让
     // DataImportService 真实走导入（LayerManifest 指临时 sqlite）。

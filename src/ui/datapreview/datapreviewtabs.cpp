@@ -717,6 +717,21 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       lay->addWidget(buildWellBody(asset, abs, wellId, wells.front().second, host), 1);
       return host;
     }
+    // T31 死胡同文案：多井 tab 无井可挂（下拉会是空的）时不留空白页——
+    // 工程没井指向导入；资产未决指向数据页「挂到这口井」入口。
+    if (wells.isEmpty())
+    {
+      auto *deadEnd = stateLabel(
+          cat->entities(QStringLiteral("well")).isEmpty()
+              ? tr("工程里还没有井 — 先导入工区文件夹（井位表会建立井）")
+              : tr("这个资产还没有挂到任何井 — 在数据页资产表的「未决」行，"
+                   "用「挂到这口井」把它挂上"),
+          host);
+      deadEnd->setObjectName(QStringLiteral("deadEndText"));
+      lay->addWidget(deadEnd, 1);
+      return host;
+    }
+
     // 多井文件（井口表、DC.dat、多井 TD）或未决资产：每标签自带「井」下拉框，
     // 只列已决链接的井；默认未选 → 正文「先选择一口井」。
     auto *bar = new QWidget(host);

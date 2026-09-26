@@ -27,6 +27,8 @@ class DataPage : public QWidget
     explicit DataPage(QWidget *parent = nullptr);
   public slots:
     void refreshAssetTable();                     // 从 catalog 资产重建资产表
+    // T31「查看未决」：把资产表过滤到仍有未决链接的行；off 清除过滤。
+    void setUnresolvedFilter(bool on);
   signals:
     void importRequested(const QString &kind);  // "wells" | "seismic" | "boundary"
     void assetActivated(const QString &assetId); // 列表选中 → 预览标签打开

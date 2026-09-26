@@ -23,6 +23,7 @@
 #include <qgsrectangle.h>
 
 #include <qgslayertreeview.h>
+#include <qgsvectorlayer.h>
 #include <qgslayertreemodel.h>
 
 // App-shell acceptance (§42): the five-page workflow chrome over the P0 spine.
@@ -195,6 +196,36 @@ class TestUiShell : public QObject
           hasSubmenu |= (a->menu() != nullptr);
         QVERIFY(hasSubmenu);
       }
+    }
+
+    // ---- T31 空态：地图/图层树没有图层时给居中指引 ----
+    void mapAndLayerTreeEmptyStates()
+    {
+      // offscreen 未 show：isVisible 受祖先链影响，用显式隐藏标记断言。
+      auto *mapEmpty = m_win->findChild<QLabel *>(QStringLiteral("mapEmptyState"));
+      auto *treeEmpty = m_win->findChild<QLabel *>(QStringLiteral("layerTreeEmptyState"));
+      QVERIFY(mapEmpty && treeEmpty);
+      QVERIFY2(mapEmpty->text().contains(QString::fromUtf8("还没有图层")),
+               "guidance must name the next step");
+      QVERIFY(treeEmpty->text().contains(QString::fromUtf8("图层树是空的")));
+
+      // 当前工程（projectOpenWiresLayerTree 建的 temp 工程）没有图层 → 露出。
+      QgsProject *proj = m_ctx->projectSvc()->project();
+      QVERIFY(proj);
+      QVERIFY(proj->mapLayers().isEmpty());
+      QVERIFY(!mapEmpty->isHidden());
+      QVERIFY(!treeEmpty->isHidden());
+
+      // 加一层 → 两个空态都收起；删掉 → 回来。
+      auto *vl = new QgsVectorLayer(QStringLiteral("Point"), QStringLiteral("临时井"),
+                                    QStringLiteral("memory"));
+      QVERIFY(vl->isValid());
+      proj->addMapLayer(vl);
+      QVERIFY(mapEmpty->isHidden());
+      QVERIFY(treeEmpty->isHidden());
+      proj->removeMapLayer(vl->id());
+      QVERIFY(!mapEmpty->isHidden());
+      QVERIFY(!treeEmpty->isHidden());
     }
 
     // Window state roundtrip: geometry + last page persist via QSettings;

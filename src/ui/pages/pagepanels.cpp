@@ -62,16 +62,20 @@ namespace
     return root->findChild<T *>(QLatin1String(name));
   }
 
-  // §42.4: an empty asset table shows a guidance row — never a blank panel.
-  void refreshAssetEmptyState(QTableWidget *t)
+  // §42.4/T31: an empty asset table shows a centered guidance row — never a
+  // blank panel. Copy names the next concrete step (导入工区文件夹 first).
+  void refreshAssetEmptyState(QTableWidget *t, const QString &text)
   {
     if (t->rowCount() > 0)
       return;
     t->insertRow(0);
-    auto *it = new QTableWidgetItem(
-        DataPage::tr("还没有数据资产 — 通过上方「数据导入」添加井、地震或边界数据"));
+    auto *it = new QTableWidgetItem(text.isEmpty()
+                                        ? DataPage::tr("还没有数据资产 — 先导入工区文件夹，"
+                                                       "或用上方按钮导入单个文件")
+                                        : text);
     it->setFlags(Qt::NoItemFlags);
     it->setForeground(QColor(QStringLiteral("#5D6E80"))); // text-muted
+    it->setTextAlignment(Qt::AlignCenter);                // T31 居中提示
     t->setItem(0, 0, it);
     t->setSpan(0, 0, 1, t->columnCount());
   }
@@ -137,6 +141,23 @@ DataPage::DataPage(QWidget *parent)
 
   lay->addSpacing(16); // spacing.md between groups
   lay->addWidget(caption(tr("资产"), this));
+  // T31「查看未决」过滤条：过滤开启时露出一行，带「清除过滤」。
+  auto *filterBar = new QWidget(this);
+  filterBar->setObjectName(QStringLiteral("unresolvedFilterBar"));
+  filterBar->hide();
+  auto *fl = new QHBoxLayout(filterBar);
+  fl->setContentsMargins(0, 0, 0, 0);
+  fl->setSpacing(4);
+  auto *filterText = new QLabel(tr("只显示未决资产"), filterBar);
+  filterText->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+  fl->addWidget(filterText);
+  auto *clearBtn = new QPushButton(tr("清除过滤"), filterBar);
+  clearBtn->setObjectName(QStringLiteral("clearUnresolvedFilterButton"));
+  clearBtn->setFlat(true);
+  fl->addWidget(clearBtn);
+  fl->addStretch(1);
+  connect(clearBtn, &QPushButton::clicked, this, [this]() { setUnresolvedFilter(false); });
+  lay->addWidget(filterBar);
   auto *table = new QTableWidget(0, 3, this);
   table->setObjectName(QStringLiteral("assetTable"));
   table->setAccessibleName(tr("资产列表"));
@@ -145,7 +166,7 @@ DataPage::DataPage(QWidget *parent)
   table->setHorizontalHeaderLabels({tr("名称"), tr("类型"), tr("关联")});
   table->verticalHeader()->setVisible(false);
   table->horizontalHeader()->setStretchLastSection(true);
-  refreshAssetEmptyState(table);
+  refreshAssetEmptyState(table, QString());
   lay->addWidget(table, 1);
 
   // 列表选中一条资产 → 中央预览标签（预览部件由 shell 持有，重选聚焦语义
@@ -186,8 +207,23 @@ void DataPage::refreshAssetTable()
       w->deleteLater();
     }
   table->setRowCount(0);
+  // T31「查看未决」：过滤开启时只留仍有未决链接的资产行。
+  const bool unresolvedOnly =
+      property("paleo.page.filterUnresolved").toBool();
   for (const CatalogAsset &a : cat->assets())
   {
+    if (unresolvedOnly)
+    {
+      bool anyUnresolved = false;
+      for (const EntityAssetLink &l : allLinks)
+        if (l.assetId == a.id && l.unresolved)
+        {
+          anyUnresolved = true;
+          break;
+        }
+      if (!anyUnresolved)
+        continue;
+    }
     const int r = table->rowCount();
     table->insertRow(r);
     auto *nameItem = new QTableWidgetItem(a.displayName);
@@ -426,7 +462,16 @@ void DataPage::refreshAssetTable()
     bl->addStretch(1);
     table->setCellWidget(r, 2, cell);
   }
-  refreshAssetEmptyState(table);
+  refreshAssetEmptyState(
+      table, unresolvedOnly ? tr("没有未决资产 — 全部资产都已挂接") : QString());
+}
+
+void DataPage::setUnresolvedFilter(bool on)
+{
+  setProperty("paleo.page.filterUnresolved", on);
+  if (auto *bar = findChild<QWidget *>(QStringLiteral("unresolvedFilterBar")))
+    bar->setVisible(on);
+  refreshAssetTable();
 }
 
 // ---------------------------------------------------------------------------

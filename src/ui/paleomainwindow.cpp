@@ -177,6 +177,42 @@ namespace
     lay->addLayout(btnRow);
     return page;
   }
+// T31 空态标签：宿主（地图画布/图层树）resize 时保持居中；白底半透明卡片
+// 承载（DESIGN.md 画布装饰约定），文案永远带下一步动作指引。
+class EmptyStateLabel : public QLabel
+{
+  public:
+    EmptyStateLabel(const QString &text, QWidget *host) : QLabel(text, host)
+    {
+      setAlignment(Qt::AlignCenter);
+      setWordWrap(true);
+      setStyleSheet(QStringLiteral(
+          "background: rgba(255,255,255,0.9); color: #5D6E80; padding: 12px 16px;"
+          "border: 1px solid #DFE5EC; border-radius: 8px;"));
+      host->installEventFilter(this);
+      recenter(host->size());
+    }
+
+  protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override
+    {
+      if (ev->type() == QEvent::Resize)
+        if (auto *w = qobject_cast<QWidget *>(obj))
+          recenter(w->size());
+      return QLabel::eventFilter(obj, ev);
+    }
+
+  private:
+    void recenter(const QSize &host)
+    {
+      const int maxW = qMax(160, host.width() - 24);
+      if (width() > maxW || height() > host.height())
+        resize(maxW, qMax(40, heightForWidth(maxW)));
+      adjustSize();
+      move(qMax(0, (host.width() - width()) / 2),
+           qMax(0, (host.height() - height()) / 2));
+    }
+};
 } // namespace
 
 PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
@@ -277,6 +313,17 @@ void PaleoMainWindow::buildShell()
     connect(inner, &QTabWidget::currentChanged, this,
             [this](int) { applyPreviewSplit(); });
 
+  // ---- T31 空态：地图没有图层时画布上的居中指引 ----
+  EmptyStateLabel *mapEmpty = nullptr;
+  if (m_canvasCtl)
+  {
+    mapEmpty = new EmptyStateLabel(
+        QStringLiteral("地图上还没有图层 — 先导入工区文件夹，或在①预测页运行预测"),
+        m_canvasCtl->canvas());
+    mapEmpty->setObjectName(QStringLiteral("mapEmptyState"));
+    mapEmpty->raise();
+  }
+
   // Startup-page actions: dialogs only exist when a real platform is present;
   // offscreen the buttons exist but stay inert (no modal QFileDialog).
   if (auto *openBtn = startup->findChild<QPushButton *>(QStringLiteral("openProjectButton")))
@@ -326,6 +373,7 @@ void PaleoMainWindow::buildShell()
   // ---- left dock: layer tree on the project's declared tree ----
   m_leftDock = new QDockWidget(QStringLiteral("图层"), this);
   m_leftDock->setObjectName(QStringLiteral("layerTreeDock"));
+  EmptyStateLabel *treeEmpty = nullptr;
   if (m_projectSvc && m_projectSvc->project() && m_projectSvc->project()->layerTreeRoot())
   {
     auto *treeView = new QgsLayerTreeView(m_leftDock);
@@ -336,12 +384,34 @@ void PaleoMainWindow::buildShell()
     treeModel->setFlag(QgsLayerTreeModel::AllowNodeChangeVisibility);
     treeView->setModel(treeModel);
     m_leftDock->setWidget(treeView);
+    // T31：图层树空态——工程没有图层时给指引，不留一棵空树。
+    treeEmpty = new EmptyStateLabel(
+        QStringLiteral("图层树是空的 — 导入数据后图层会出现在这里"), treeView);
+    treeEmpty->setObjectName(QStringLiteral("layerTreeEmptyState"));
+    treeEmpty->raise();
   }
   else
   {
     m_leftDock->setWidget(new QLabel(QStringLiteral("未打开工程"), m_leftDock));
   }
   addDockWidget(Qt::LeftDockWidgetArea, m_leftDock);
+
+  // 图层增删驱动两个空态（T31）：图层集为空 → 露出指引；否则收起。
+  if (QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr)
+  {
+    const auto updateEmptyStates = [proj, mapEmpty, treeEmpty]() {
+      const bool empty = proj->mapLayers().isEmpty();
+      if (mapEmpty)
+        mapEmpty->setVisible(empty);
+      if (treeEmpty)
+        treeEmpty->setVisible(empty);
+    };
+    updateEmptyStates();
+    connect(proj, &QgsProject::layersAdded, this,
+            [updateEmptyStates](const QList<QgsMapLayer *> &) { updateEmptyStates(); });
+    connect(proj, &QgsProject::layersRemoved, this,
+            [updateEmptyStates](const QStringList &) { updateEmptyStates(); });
+  }
 
   // ---- right dock: per-page panel stack (placeholders until §42.2 lands) ----
   m_rightDock = new QDockWidget(QStringLiteral("页面面板"), this);
@@ -799,6 +869,22 @@ void PaleoMainWindow::buildFolderConfirmDialog(
   auto *confirm = buttons->addButton(tr("确认导入"), QDialogButtonBox::AcceptRole);
   confirm->setObjectName(QStringLiteral("folderConfirmButton"));
   auto *cancel = buttons->addButton(tr("取消"), QDialogButtonBox::RejectRole);
+  // T31「查看未决」：导入完成后出现——把数据页资产表过滤到未决行，直接
+  // 指向「挂到这口井」的挂接入口（不留「导完了然后呢」的断头路）。
+  auto *showUnresolved =
+      buttons->addButton(tr("查看未决"), QDialogButtonBox::ActionRole);
+  showUnresolved->setObjectName(QStringLiteral("folderShowUnresolvedButton"));
+  showUnresolved->setVisible(false);
+  showUnresolved->setAccessibleName(tr("查看未决资产"));
+  QObject::connect(showUnresolved, &QAbstractButton::clicked, dlg, [dlg, self]() {
+    if (self)
+    {
+      self->showPage(QStringLiteral("data"));
+      if (auto *page = self->findChild<DataPage *>())
+        page->setUnresolvedFilter(true);
+    }
+    dlg->accept();
+  });
   QObject::connect(cancel, &QAbstractButton::clicked, dlg, &QDialog::reject);
 
   // 对话框 exec 在 build 返回之后——行结果/重试回调的生存期挂到 shared 状态，
@@ -839,8 +925,8 @@ void PaleoMainWindow::buildFolderConfirmDialog(
   };
 
   QObject::connect(confirm, &QAbstractButton::clicked, dlg,
-                   [dlg, svc, dir, table, summary, confirm, cancel, combos, preview,
-                    results, retryCb, self]() {
+                   [dlg, svc, dir, table, summary, confirm, cancel, showUnresolved,
+                    combos, preview, results, retryCb, self]() {
     const QMap<QString, QString> overrides =
         collectFolderTypeOverrides(table, preview, combos);
     QString importErr;
@@ -888,6 +974,12 @@ void PaleoMainWindow::buildFolderConfirmDialog(
     }
     summary->setText(folderImportSummaryText(*results));
     summary->show();
+    // 有未决行才露「查看未决」入口（T31）。
+    bool anyUnresolved = false;
+    for (const auto &rowRes : *results)
+      if (rowRes.outcome == Outcome::Unresolved)
+        anyUnresolved = true;
+    showUnresolved->setVisible(anyUnresolved);
     // 结果留在表里给用户过目；仍失败的行保留下拉（可换类型再点「重试」），
     // 其余行锁定。确认按钮只走一遍。
     confirm->setEnabled(false);

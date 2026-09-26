@@ -226,3 +226,4 @@ add_paleo_test(tst_metastore)      # sqlite user_version：新库采纳/遗留�
 add_paleo_test(tst_segy_fixture)   # 合成最小 SEG-Y 夹具：索引/单线/角点/范围门
 target_compile_definitions(tst_segy_fixture PRIVATE
   TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
+add_paleo_test(tst_algorithm_harness)  # AlgorithmTestBase harness + ≥3 算法用例

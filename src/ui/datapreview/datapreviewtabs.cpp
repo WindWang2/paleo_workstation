@@ -1,5 +1,7 @@
 #include "datapreviewtabs.h"
 
+#include "../paleotheme.h" // DESIGN.md token 出口（mono 数字面共用）
+
 #include "../../catalog/datacatalog.h"
 #include "../../io/dataimportservice.h"
 #include "../../io/lasparser.h"
@@ -71,10 +73,7 @@ namespace
   // DESIGN.md mono：数值/坐标/深度一律 JetBrains Mono 9pt tnum。
   QFont monoFont()
   {
-    QFont f;
-    f.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("monospace")});
-    f.setPointSize(9);
-    return f;
+    return PaleoTheme::monoFont(); // wave3/ux-consistency：共用注册/vendor 路径
   }
 
   QLabel *valueLabel(const QString &text, QWidget *parent, bool mono = false)
@@ -317,6 +316,20 @@ namespace
     *maxY = qMax(*maxY, y);
   }
 } // namespace
+
+// T27 中文化：coordinate_status 枚举 → §4 计划文案。untransformed 用与
+// 状态栏/PDF 页脚同一句「工程坐标 · 米 · 未投影」；invalid/missing 用
+// 「坐标无效」「没有坐标」，仍 text-muted（#5D6E80）。
+QString DataPreviewTabs::coordinateStatusText(const QString &status)
+{
+  if (status == QLatin1String("ok"))
+    return tr("坐标有效");
+  if (status == QLatin1String("untransformed"))
+    return tr("工程坐标 · 米 · 未投影");
+  if (status == QLatin1String("invalid"))
+    return tr("坐标无效");
+  return tr("没有坐标"); // missing / 空 / 未知
+}
 
 DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   : QWidget(parent)
@@ -1300,12 +1313,16 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
     auto *grid = new QVBoxLayout(info);
     grid->setContentsMargins(0, 0, 0, 0);
     grid->setSpacing(4);
-    const auto addRow = [&](const QString &k, const QString &val, bool mono = false) {
+    const auto addRow = [&](const QString &k, const QString &val, bool mono = false,
+                            bool muted = false) {
       auto *row = new QWidget(info);
       auto *rl = new QHBoxLayout(row);
       rl->setContentsMargins(0, 0, 0, 0);
       rl->addWidget(caption8(k, row));
-      rl->addWidget(valueLabel(val, row, mono), 1);
+      auto *v = valueLabel(val, row, mono);
+      if (muted)
+        v->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+      rl->addWidget(v, 1);
       grid->addWidget(row);
     };
     // 预览按当前井过滤（多井井位文件；井名规范化后比较）
@@ -1337,7 +1354,8 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
         wellEntityId.isEmpty()
             ? QString()
             : m_svc->catalog()->entityById(wellEntityId).coordinateStatus;
-    addRow(tr("coordinate_status"), status);
+    // T27：坐标状态行中文化 + text-muted（计划 §4：这些状态仍用 #5D6E80）。
+    addRow(tr("坐标状态"), coordinateStatusText(status), false, true);
     hl->addWidget(info);
     hl->addWidget(caption8(tr("选中时地图同时高亮该井"), holder));
     hl->addStretch(1);

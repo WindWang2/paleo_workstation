@@ -1,5 +1,7 @@
 #include "pagepanels.h"
 
+#include "../paleotheme.h" // DESIGN.md token 出口：胶囊/mono 数字面
+
 #include "../../ai/onnxpredictionservice.h" // ORT-free header; runtimeAvailable 调用受 PALEO_HAVE_ORT 保护
 #include "../../catalog/datacatalog.h"
 #include "../../io/dataimportservice.h"
@@ -85,15 +87,27 @@ namespace
     }
   }
 
-  // Semantic colors pair with the severity text, never stand alone (§42.16).
-  QColor severityColor(ValidationIssue::Severity s)
+  // T27 胶囊化：级别/状态文字走 DESIGN.md status-tag（浅底深字胶囊），
+  // 不再用 setForeground 彩色裸文字（对比度 2.3–3.3:1 不达标）。
+  // 信息是中性事实（不占语义色）；错误/警告走各自语义 token。
+  PaleoTheme::CapsuleKind severityCapsule(ValidationIssue::Severity s)
   {
     switch (s)
     {
-      case ValidationIssue::Info:  return QColor(QStringLiteral("#1B73D0")); // primary
-      case ValidationIssue::Error: return QColor(QStringLiteral("#E53935")); // error
-      default:                     return QColor(QStringLiteral("#F29900")); // warning
+      case ValidationIssue::Error: return PaleoTheme::CapsuleKind::Error;
+      case ValidationIssue::Warning: return PaleoTheme::CapsuleKind::Warning;
+      case ValidationIssue::Info: // fall through
+      default: return PaleoTheme::CapsuleKind::Neutral;
     }
+  }
+
+  PaleoTheme::CapsuleKind residualCapsule(const QString &status)
+  {
+    if (status == QLatin1String("pass"))
+      return PaleoTheme::CapsuleKind::Success;
+    if (status == QLatin1String("exceed") || status == QLatin1String("warn"))
+      return PaleoTheme::CapsuleKind::Warning;
+    return PaleoTheme::CapsuleKind::Neutral; // 未计算
   }
 } // namespace
 
@@ -945,9 +959,16 @@ void ComposePage::setPublishState(bool hasPdf, int covered, int total)
 void ComposePage::setVersionState(int version, bool published)
 {
   if (auto *label = child<QLabel>(this, "publishStateLabel"))
+  {
+    // T27：版本状态胶囊——已发布=绿、编辑中=橙、无版本=中性「未计算」类。
     label->setText(version <= 0 ? tr("还没有保存的版本")
                    : published  ? tr("已发布 · v%1").arg(version)
                                 : tr("编辑中 · v%1").arg(version));
+    label->setStyleSheet(PaleoTheme::capsuleStyleSheet(
+        version <= 0 ? PaleoTheme::CapsuleKind::Neutral
+                     : (published ? PaleoTheme::CapsuleKind::Success
+                                  : PaleoTheme::CapsuleKind::Warning)));
+  }
   if (auto *save = child<QPushButton>(this, "saveVersionButton"))
     save->setText(published ? tr("保存新版本") : tr("保存版本"));
 }
@@ -1114,8 +1135,7 @@ void ValidatePage::populate()
   {
     const int row = table->rowCount();
     table->insertRow(row);
-    auto *sev = new QTableWidgetItem(severityText(v.severity));
-    sev->setForeground(severityColor(v.severity));
+    auto *sev = new QTableWidgetItem(); // 级别文字进胶囊控件（T27）
     sev->setData(Qt::UserRole, v.layerId);       // locate intent reads these
     sev->setData(Qt::UserRole + 1, v.wktLocation);
     // 三视图联动载荷：wellId/horizon/inline/time_ms（非残差问题不含井字段）。
@@ -1127,6 +1147,9 @@ void ValidatePage::populate()
     sev->setData(Qt::UserRole + 2, payload);
     sev->setFlags(sev->flags() & ~Qt::ItemIsEditable);
     table->setItem(row, 0, sev);
+    table->setCellWidget(row, 0,
+                         PaleoTheme::capsuleLabel(severityText(v.severity),
+                                                  severityCapsule(v.severity), table));
     auto *code = new QTableWidgetItem(v.code);
     auto *msg = new QTableWidgetItem(v.message);
     auto *layer = new QTableWidgetItem(v.layerId);
@@ -1158,44 +1181,43 @@ void ValidatePage::populate()
                               : rasterReason);
     return;
   }
+  fillResidualTable(resTable, rows);
+  if (resSummary)
+  {
+    int nExceed = 0;
+    for (const QVariant &v : rows)
+      if (v.toMap().value(QStringLiteral("status")).toString() == QLatin1String("exceed"))
+        ++nExceed;
+    const double thr = rows.first().toMap()
+                           .value(QStringLiteral("threshold_ms"), 10.0)
+                           .toDouble();
+    resSummary->setText(tr("%1 口超过 %2 ms").arg(nExceed).arg(thr, 0, 'f', 0));
+  }
+}
+
+void ValidatePage::fillResidualTable(QTableWidget *resTable, const QVariantList &rows)
+{
+  if (!resTable || rows.isEmpty())
+    return;
   const double thr = rows.first().toMap()
                          .value(QStringLiteral("threshold_ms"), 10.0)
                          .toDouble();
-  int nExceed = 0;
   for (const QVariant &v : rows)
   {
     const QVariantMap m = v.toMap();
     const QString status = m.value(QStringLiteral("status")).toString();
-    if (status == QLatin1String("exceed"))
-      ++nExceed;
     const int r = resTable->rowCount();
     resTable->insertRow(r);
     QString word;
-    QColor color;
     if (status == QLatin1String("pass"))
-    {
       word = tr("通过");
-      color = QColor(QStringLiteral("#43A047")); // success
-    }
     else if (status == QLatin1String("exceed"))
-    {
       word = tr("超过阈值");
-      color = QColor(QStringLiteral("#F29900")); // warning
-    }
     else if (status == QLatin1String("warn"))
-    {
       word = tr("警告");
-      color = QColor(QStringLiteral("#F29900")); // 警告行，不算数值残差
-    }
     else
-    {
-      word = tr("未计算");
-      color = QColor(QStringLiteral("#5D6E80")); // text-muted
-    }
-    const QString value = m.contains(QStringLiteral("residual_ms"))
-                              ? tr("%1 %2 ms").arg(word).arg(
-                                    m.value(QStringLiteral("residual_ms")).toDouble(), 0, 'f', 1)
-                              : tr("%1 · %2").arg(word, m.value(QStringLiteral("reason")).toString());
+      word = tr("未计算"); // 中性胶囊：无栅格/未跑，不占语义色
+    const double residualMs = m.value(QStringLiteral("residual_ms")).toDouble();
     auto *name = new QTableWidgetItem(m.value(QStringLiteral("well_name")).toString());
     // T24：残差行与问题行共用三视图联动载荷——列 0 挂 layerId/POINT WKT/
     // payload（wellId/horizon/well_x/well_y/inline/time_ms）。采样点是分层
@@ -1222,15 +1244,37 @@ void ValidatePage::populate()
     if (m.contains(QStringLiteral("residual_ms")))
       payload.insert(QStringLiteral("residual_ms"), m.value(QStringLiteral("residual_ms")));
     name->setData(Qt::UserRole + 2, payload);
-    auto *val = new QTableWidgetItem(value);
-    val->setForeground(color);
+    auto *val = new QTableWidgetItem(); // 文本进胶囊+mono 值控件（T27/T32）
+    // 状态胶囊 + 数值 mono 面：残差数字右对齐等宽（DESIGN.md mono token）。
+    auto *cell = new QWidget(resTable);
+    auto *hl = new QHBoxLayout(cell);
+    hl->setContentsMargins(4, 1, 4, 1);
+    hl->setSpacing(4);
+    hl->addWidget(PaleoTheme::capsuleLabel(word, residualCapsule(status), cell));
+    if (m.contains(QStringLiteral("residual_ms")))
+    {
+      auto *num = new QLabel(tr("%1 ms").arg(residualMs, 0, 'f', 1), cell);
+      num->setFont(PaleoTheme::monoFont());
+      num->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+      num->setStyleSheet(QStringLiteral("color: #24303E;"));
+      hl->addWidget(num);
+    }
+    else if (!m.value(QStringLiteral("reason")).toString().isEmpty())
+    {
+      auto *reason = new QLabel(m.value(QStringLiteral("reason")).toString(), cell);
+      reason->setWordWrap(true);
+      reason->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+      hl->addWidget(reason, 1);
+    }
+    hl->addStretch(1);
     auto *thrItem = new QTableWidgetItem(tr("%1 ms").arg(thr, 0, 'f', 0));
+    thrItem->setFont(PaleoTheme::monoFont()); // 阈值列也是数字面
+    thrItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
     for (auto *it : {name, val, thrItem})
       it->setFlags(it->flags() & ~Qt::ItemIsEditable);
     resTable->setItem(r, 0, name);
     resTable->setItem(r, 1, val);
     resTable->setItem(r, 2, thrItem);
+    resTable->setCellWidget(r, 1, cell);
   }
-  if (resSummary)
-    resSummary->setText(tr("%1 口超过 %2 ms").arg(nExceed).arg(thr, 0, 'f', 0));
 }

@@ -643,6 +643,109 @@ class TestPanels : public QObject
       QCOMPARE(sectionSpy.count(), 0);
     }
 
+    // ---- T27 胶囊化：状态文字 = DESIGN.md status-tag（浅底深字），不再
+    // setForeground 彩色裸文字。级别列胶囊；残差列胶囊+mono 数字面。----
+    void validatePage_severityAndResidualCapsules()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      LayerManifest manifest(dir.filePath(QStringLiteral("m.sqlite")));
+      LayerDeclaration d;
+      d.layerId = QStringLiteral("predict.T1.gone");
+      d.horizon = QStringLiteral("T1");
+      d.type = QStringLiteral("raster");
+      d.source = dir.filePath(QStringLiteral("missing.tif"));
+      d.group = QStringLiteral("01_Prediction");
+      QVERIFY(manifest.upsert(d));
+      QgisLayerService layers(nullptr, &manifest);
+      ValidationWorkflow wf(&layers, nullptr);
+
+      ValidatePage page(&wf);
+      page.populate();
+      auto *issueTable = page.findChild<QTableWidget *>(QStringLiteral("issueTable"));
+      QVERIFY(issueTable);
+      QCOMPARE(issueTable->rowCount(), 1);
+      // SRC_MISSING 是错误级：胶囊就是级别列的 cellWidget，token = errorBg。
+      auto *sevCapsule = qobject_cast<QLabel *>(issueTable->cellWidget(0, 0));
+      QVERIFY2(sevCapsule && sevCapsule->objectName() == QStringLiteral("statusCapsule"),
+               "severity cell must carry a capsule label");
+      QCOMPARE(sevCapsule->text(), QStringLiteral("错误"));
+      QVERIFY(sevCapsule->styleSheet().contains(QStringLiteral("#FDEBEB")));
+      QVERIFY(sevCapsule->styleSheet().contains(QStringLiteral("#E53935")));
+      QVERIFY(sevCapsule->styleSheet().contains(QStringLiteral("border-radius")));
+      // 级别 item 不再持彩色裸文字。
+      QVERIFY(issueTable->item(0, 0)->text().isEmpty());
+      QVERIFY(!issueTable->item(0, 0)->foreground().color().isValid()
+              || issueTable->item(0, 0)->foreground() == QBrush());
+
+      // 残差表：注入 pass / exceed / 未计算 三行，胶囊 token 逐行断言。
+      QVariantList rows;
+      QVariantMap pass;
+      pass.insert(QStringLiteral("well_name"), QStringLiteral("A1"));
+      pass.insert(QStringLiteral("status"), QStringLiteral("pass"));
+      pass.insert(QStringLiteral("residual_ms"), 3.2);
+      pass.insert(QStringLiteral("threshold_ms"), 10.0);
+      rows.append(pass);
+      QVariantMap exceed;
+      exceed.insert(QStringLiteral("well_name"), QStringLiteral("A2"));
+      exceed.insert(QStringLiteral("status"), QStringLiteral("exceed"));
+      exceed.insert(QStringLiteral("residual_ms"), 22.5);
+      rows.append(exceed);
+      QVariantMap none;
+      none.insert(QStringLiteral("well_name"), QStringLiteral("A3"));
+      none.insert(QStringLiteral("status"), QStringLiteral("no_raster"));
+      none.insert(QStringLiteral("reason"), QStringLiteral("没有 D61 栅格"));
+      rows.append(none);
+      wf.setProperty("paleo.wf.residualRows", rows);
+      // populate() 内部 validate() 会清空 residualRows 属性（无 ProjectData
+      // 门面时）——渲染面用静态助手直灌行（与 populate 同一渲染代码路径）。
+      auto *resTable = page.findChild<QTableWidget *>(QStringLiteral("residualTable"));
+      QVERIFY(resTable);
+      ValidatePage::fillResidualTable(resTable, rows);
+      QCOMPARE(resTable->rowCount(), 3);
+
+      const auto capsuleAt = [resTable](int r) {
+        return resTable->cellWidget(r, 1)
+            ->findChild<QLabel *>(QStringLiteral("statusCapsule"));
+      }; // 残差列 cellWidget 是 HBox 容器，胶囊是它的子标签
+      QCOMPARE(capsuleAt(0)->text(), QStringLiteral("通过"));
+      QVERIFY(capsuleAt(0)->styleSheet().contains(QStringLiteral("#E8F5E9"))); // successBg
+      QCOMPARE(capsuleAt(1)->text(), QStringLiteral("超过阈值"));
+      QVERIFY(capsuleAt(1)->styleSheet().contains(QStringLiteral("#FFF4E0"))); // warningBg
+      // 中性「未计算」胶囊：surface-alt 底 + text-muted 字（无语义色）。
+      QCOMPARE(capsuleAt(2)->text(), QStringLiteral("未计算"));
+      QVERIFY(capsuleAt(2)->styleSheet().contains(QStringLiteral("#EDF1F5")));
+      QVERIFY(capsuleAt(2)->styleSheet().contains(QStringLiteral("#5D6E80")));
+
+      // 数值面 JetBrains Mono 9pt：残差数字 + 阈值列。
+      auto *cell0 = resTable->cellWidget(0, 1);
+      bool sawMonoValue = false;
+      for (QLabel *l : cell0->findChildren<QLabel *>())
+        if (l->text().contains(QStringLiteral("3.2")))
+        {
+          sawMonoValue = l->font().families().contains(QStringLiteral("JetBrains Mono"));
+          QCOMPARE(l->font().pointSize(), 9);
+        }
+      QVERIFY2(sawMonoValue, "residual number must render in JetBrains Mono 9pt");
+      QVERIFY(resTable->item(0, 2)->font()
+                  .families()
+                  .contains(QStringLiteral("JetBrains Mono"))); // 阈值列
+    }
+
+    // T27：版本状态标签胶囊化——已发布绿 / 编辑中橙 / 无版本中性。
+    void composePage_versionStateCapsule()
+    {
+      ComposePage page(nullptr, nullptr);
+      auto *state = page.findChild<QLabel *>(QStringLiteral("publishStateLabel"));
+      QVERIFY(state);
+      page.setVersionState(2, true);
+      QVERIFY(state->styleSheet().contains(QStringLiteral("#E8F5E9")));
+      page.setVersionState(3, false);
+      QVERIFY(state->styleSheet().contains(QStringLiteral("#FFF4E0")));
+      page.setVersionState(0, false);
+      QVERIFY(state->styleSheet().contains(QStringLiteral("#EDF1F5"))); // 未计算
+    }
+
     // ---- T22 文件夹导入确认表（PaleoMainWindow 静态面）----
     // 只调静态助手，不实例化主窗——栈上只要一个非空的 layer/store 就能让
     // DataImportService 真实走导入（LayerManifest 指临时 sqlite）。

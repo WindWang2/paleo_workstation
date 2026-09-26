@@ -101,6 +101,7 @@ private slots:
   void document_pdfRendersInTab();
   void document_stubbedConverterYieldsDerived();
   void document_converterMissingFailsHonest();
+  void coordinateStatusMappingIsChinese();
 
 private:
   // 共享一次导入的夹具集（每个测试自建栈，互不污染）。
@@ -471,6 +472,7 @@ void TestDataPreview::wellHeadShowsBottomAndTypeColumns()
   combo->setCurrentIndex(combo->findText(QStringLiteral("A1")));
 
   bool sawBottomX = false, sawBottomY = false, sawType = false, sawStatus = false;
+  bool sawStatusText = false;
   QLabel *monoValue = nullptr;
   for (QLabel *l : page->findChildren<QLabel *>())
   {
@@ -481,15 +483,35 @@ void TestDataPreview::wellHeadShowsBottomAndTypeColumns()
       sawBottomY = true;
     if (t == QStringLiteral("WellType"))
       sawType = true;
-    if (t == QStringLiteral("coordinate_status"))
+    if (t == QString::fromUtf8("坐标状态")) // T27 中文化
       sawStatus = true;
+    if (t == QString::fromUtf8("工程坐标 · 米 · 未投影")) // untransformed → 状态栏同句
+    {
+      sawStatusText = true;
+      QVERIFY(l->styleSheet().contains(QStringLiteral("#5D6E80"))); // 计划：仍 text-muted
+    }
     if (t == QStringLiteral("5288.67"))
       monoValue = l;
   }
-  QVERIFY(sawBottomX && sawBottomY && sawType && sawStatus);
+  QVERIFY(sawBottomX && sawBottomY && sawType && sawStatus && sawStatusText);
   QVERIFY2(monoValue, "A1 的 BottomX/X 值 5288.67 必须显示");
   QVERIFY(monoValue->font().families().contains(QStringLiteral("JetBrains Mono")));
   QVERIFY(monoValue->alignment() & Qt::AlignRight);
+}
+
+// T27：coordinate_status 枚举显示串中文化（§4 计划文案；未知/空按没有坐标）。
+void TestDataPreview::coordinateStatusMappingIsChinese()
+{
+  QCOMPARE(DataPreviewTabs::coordinateStatusText(QStringLiteral("ok")),
+           QString::fromUtf8("坐标有效"));
+  QCOMPARE(DataPreviewTabs::coordinateStatusText(QStringLiteral("untransformed")),
+           QString::fromUtf8("工程坐标 · 米 · 未投影"));
+  QCOMPARE(DataPreviewTabs::coordinateStatusText(QStringLiteral("invalid")),
+           QString::fromUtf8("坐标无效"));
+  QCOMPARE(DataPreviewTabs::coordinateStatusText(QStringLiteral("missing")),
+           QString::fromUtf8("没有坐标"));
+  QCOMPARE(DataPreviewTabs::coordinateStatusText(QString()),
+           QString::fromUtf8("没有坐标"));
 }
 
 // §4：LAS 约定曲线 GR/AC/DEN 缺了就给禁用项，tooltip「这条曲线不在文件里」。

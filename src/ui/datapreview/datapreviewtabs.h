@@ -25,6 +25,10 @@ class DataPreviewTabs : public QWidget
   public:
     explicit DataPreviewTabs(QWidget *parent = nullptr);
 
+    // T27 中文化：coordinate_status 枚举显示串（ok/untransformed/invalid/
+    // missing → 中文，§4 文案）。未知/空按「没有坐标」。
+    static QString coordinateStatusText(const QString &status);
+
     // 服务绑定（mainwindow 接线处调用；为空时 openAsset 显示空态）。
     void setImportService(DataImportService *svc);
 

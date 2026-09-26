@@ -70,6 +70,13 @@ class MapVersionStore
     static bool residualSummaryComplete(const QString &summaryJson,
                                         int *covered = nullptr, int *total = nullptr);
 
+    // D10（pass-2 批准，L1077「≥15/20 numeric」）：发布门数值残差下限——
+    // 完备（每井有残差或原因）之外，rows[] 里 kind=="residual" 的数值行还得
+    // 够数。真工区 20 井对应绝对 15；小工区按同一比例 3/4 向下取整、至少 1 口
+    // （避免绝对值把小工程永久卡在门外）。numericResidualCount：数值行计数。
+    static int requiredNumericResiduals(int wellsTotal);
+    static int numericResidualCount(const QString &summaryJson);
+
     // 发布：要求有版本、未处于 Published、版本行上有 pdf_asset_id+pdf_sha256
     // （发布只读这一行）、且 residualSummary 完整（每口井都有残差或原因；
     // 空串/非完整 JSON → 拒绝并写明缺几口井）。把 decls 中该层位的文件图层

@@ -13,6 +13,7 @@ class ConstraintWorkflow;
 class CompositionWorkflow;
 class QgisLayerService;
 class ProjectDataFacade;
+class DataCatalog;
 struct ValidationIssue;
 
 // workflow/mappingworkflow — 阶段C「只编 D61」的链路编排（PROJECT_AREA_PLAN §5C
@@ -63,6 +64,11 @@ class MappingWorkflow : public QObject
 
     void setProjectData( ProjectDataFacade *projectData );
 
+    // T26：厚度链派生产物（等厚栅格 / wells.thickness GeoJSON）的登记通道。
+    // catalog 必须是工程里唯一的写实例（app 里由 DataImportService 持有）；
+    // 未绑定时 runThicknessChain 拒绝运行——不再落 QDir::temp() 死链。
+    void setCatalog( DataCatalog *catalog, const QString &projectDir );
+
     // 逐井厚度样本：层位与基面的 TVD + TD 插值时间 → Vint（或原因）。
     // 每口井都有一行；缺分层/缺 TVD/TD 失败/dt≤0/TVD 差≤0 都写明 reason。
     QVector<ThicknessSample> computeThicknessSamples( const QString &horizon,
@@ -100,6 +106,8 @@ class MappingWorkflow : public QObject
     CompositionWorkflow *m_compose = nullptr;
     QgisLayerService *m_layers = nullptr;
     ProjectDataFacade *m_projectData = nullptr;
+    DataCatalog *m_catalog = nullptr; // 派生产物登记（T26）；不持有
+    QString m_projectDir;             // 工程目录（受管 artifacts/ 根）
 };
 
 // 阶段C验证 — 井上 D61 时间残差（PROJECT_AREA_PLAN §5C autoplan 口径）。

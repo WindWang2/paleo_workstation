@@ -7,6 +7,7 @@
 #include "../metadata/layermanifest.h"
 #include "../qgis/qgislayerservice.h"
 #include "../services/projectdata.h"
+#include "derivedassets.h"
 #include "workflows.h"
 
 #include <QDateTime>
@@ -268,14 +269,6 @@ namespace
     return true;
   }
 
-  QString tempRasterPath( const QString &tag, const QString &horizon,
-                          const QString &ext = QStringLiteral( ".tif" ) )
-  {
-    const QString stamp = QDateTime::currentDateTimeUtc().toString( QStringLiteral( "yyyyMMdd-hhmmss-zzz" ) );
-    return QDir::temp().filePath(
-        QStringLiteral( "paleo_%1_%2_%3%4" ).arg( tag, horizon, stamp, ext ) );
-  }
-
   // 井/分层的采样点：分层 X/Y 优先，缺省退井口。
   void pickSamplePoint( const ProjectWell &well, const WellTop *top, double *x, double *y )
   {
@@ -413,6 +406,12 @@ MappingWorkflow::MappingWorkflow( ConstraintWorkflow *constraints, CompositionWo
 void MappingWorkflow::setProjectData( ProjectDataFacade *projectData )
 {
   m_projectData = projectData;
+}
+
+void MappingWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDir )
+{
+  m_catalog = catalog;
+  m_projectDir = projectDir;
 }
 
 // ---------------------------------------------------------------------------
@@ -565,22 +564,35 @@ QString MappingWorkflow::thicknessSampleMessage() const
 void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
                                                   const QVector<ThicknessSample> &samples )
 {
-  const QString path = tempRasterPath( QStringLiteral( "thickness_wells" ), horizon,
-                                       QStringLiteral( ".geojson" ) );
+  if ( !m_catalog )
+    return; // 无登记通道：链路主栅格已产出，井点层按旧语义只跳过（见调用序）
+  DerivedAssetRegistrar registrar( m_catalog, m_projectDir );
+  const DerivedStaging st = registrar.stage(
+      QStringLiteral( "thickness_wells" ), tr( "%1 厚度井位" ).arg( horizon ),
+      QStringLiteral( "WELLS_THICKNESS_%1.geojson" ).arg( horizon ) );
+  if ( !st.isValid() )
+  {
+    qWarning() << "thickness wells layer staging failed";
+    return;
+  }
   QString writeErr;
-  if ( !writeThicknessWellsGeoJson( samples, path, &writeErr ) )
+  if ( !writeThicknessWellsGeoJson( samples, st.absolutePath, &writeErr ) )
   {
     qWarning() << "thickness wells layer write failed:" << writeErr;
     return;
   }
-  if ( !QFile::exists( path ) )
+  if ( !QFile::exists( st.absolutePath ) )
     return; // 没有可定位的井
+  QString commitErr;
+  if ( !registrar.commit( st, {}, QStringLiteral( "mappingworkflow/thickness_wells" ),
+                          {}, &commitErr ) )
+    qWarning() << "thickness wells version registration failed:" << commitErr;
 
   LayerDeclaration decl;
   decl.layerId = QStringLiteral( "wells.thickness.%1" ).arg( horizon );
   decl.horizon = horizon;
   decl.type = QStringLiteral( "vector" );
-  decl.source = path;
+  decl.source = st.absolutePath;
   decl.group = QStringLiteral( "04_SingleFactor" );
   decl.title = tr( "厚度井位" );
   QString declErr;
@@ -604,6 +616,9 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
     return fail( tr( "未绑定项目数据（读侧门面）" ) );
   if ( !m_constraints || !m_compose || !m_layers )
     return fail( tr( "编图工作流未绑定服务" ) );
+  if ( !m_catalog )
+    return fail( tr( "编图链未绑定数据目录（catalog）——派生产物无法登记到工程" ) );
+  DerivedAssetRegistrar registrar( m_catalog, m_projectDir );
 
   const QString base = baseHorizonFor( horizon );
   if ( base.isEmpty() )
@@ -688,15 +703,30 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
         px[r * cols + c] = static_cast<float>( idwPower2Points( pts, cx, cy ) );
       }
 
-    const QString outPath = tempRasterPath( QStringLiteral( "thickness_fallback" ), horizon );
-    if ( !writeFloatRaster( outPath, cols, rows, gt, px, error ) )
+    // 退回路径产物同样登记（无栅格输入 → 无父版本；井点 tops 是间接来源）。
+    QString stageErr;
+    const DerivedStaging st = registrar.stage(
+        QStringLiteral( "thickness_raster" ), tr( "%1 井点厚度" ).arg( horizon ),
+        QStringLiteral( "THICKNESS_%1_IDW.tif" ).arg( horizon ), &stageErr );
+    if ( !st.isValid() )
+      return fail( stageErr );
+    if ( !writeFloatRaster( st.absolutePath, cols, rows, gt, px, error ) )
       return fail( error ? *error : tr( "井点厚度栅格写入失败" ) );
+    QVariantMap fallbackExtra;
+    fallbackExtra.insert( QStringLiteral( "mode" ), QStringLiteral( "wellpoint_idw" ) );
+    fallbackExtra.insert( QStringLiteral( "rows" ), rows );
+    fallbackExtra.insert( QStringLiteral( "cols" ), cols );
+    fallbackExtra.insert( QStringLiteral( "wells" ), pts.size() );
+    QString commitErr;
+    if ( !registrar.commit( st, {}, QStringLiteral( "mappingworkflow/thickness_fallback" ),
+                            fallbackExtra, &commitErr ) )
+      return fail( commitErr );
 
     LayerDeclaration decl;
     decl.layerId = QStringLiteral( "factor.%1.idw" ).arg( horizon );
     decl.horizon = horizon;
     decl.type = QStringLiteral( "raster" );
-    decl.source = outPath;
+    decl.source = st.absolutePath;
     decl.group = QStringLiteral( "04_SingleFactor" );
     decl.title = QStringLiteral( "井点厚度（米，无层位栅格）" );
     if ( !m_layers->declare( decl, error ) )
@@ -758,15 +788,33 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
     }
   }
 
-  const QString outPath = tempRasterPath( QStringLiteral( "thickness" ), horizon );
-  if ( !writeFloatRaster( outPath, cols, rows, gTop.gt, px, error ) )
+  // 主产物：等厚栅格落 artifacts/derived + DERIVED 版本（T26），父版本 =
+  // D61/D62 时间栅格版本（provenance：这份厚度由哪两版栅格算出）。
+  QString stageErr;
+  const DerivedStaging st = registrar.stage(
+      QStringLiteral( "thickness_raster" ), tr( "%1–%2 等厚" ).arg( horizon, base ),
+      QStringLiteral( "THICKNESS_%1.tif" ).arg( horizon ), &stageErr );
+  if ( !st.isValid() )
+    return fail( stageErr );
+  if ( !writeFloatRaster( st.absolutePath, cols, rows, gTop.gt, px, error ) )
     return fail( error ? *error : tr( "等厚栅格写入失败" ) );
+  QVariantMap extra;
+  extra.insert( QStringLiteral( "rows" ), rows );
+  extra.insert( QStringLiteral( "cols" ), cols );
+  extra.insert( QStringLiteral( "base_horizon" ), base );
+  extra.insert( QStringLiteral( "contributing_wells" ), contributing.size() );
+  const QStringList parents = registrar.parentVersionIdsFor(
+      QStringList{ rasterTop.path, rasterBase.path } );
+  QString commitErr;
+  if ( !registrar.commit( st, parents, QStringLiteral( "mappingworkflow/thickness" ),
+                          extra, &commitErr ) )
+    return fail( commitErr );
 
   LayerDeclaration decl;
   decl.layerId = QStringLiteral( "factor.%1.idw" ).arg( horizon );
   decl.horizon = horizon;
   decl.type = QStringLiteral( "raster" );
-  decl.source = outPath;
+  decl.source = st.absolutePath;
   decl.group = QStringLiteral( "04_SingleFactor" );
   decl.title = QStringLiteral( "%1–%2 等厚（米）" ).arg( horizon, base );
   if ( !m_layers->declare( decl, error ) )

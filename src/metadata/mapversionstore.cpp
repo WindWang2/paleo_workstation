@@ -337,6 +337,26 @@ bool MapVersionStore::residualSummaryComplete( const QString &summaryJson,
   return tot > 0 && cov == tot && missing == 0;
 }
 
+int MapVersionStore::requiredNumericResiduals( int wellsTotal )
+{
+  if ( wellsTotal <= 0 )
+    return 0;
+  return qMax( 1, wellsTotal * 3 / 4 );
+}
+
+int MapVersionStore::numericResidualCount( const QString &summaryJson )
+{
+  const QJsonDocument doc = QJsonDocument::fromJson( summaryJson.toUtf8() );
+  if ( !doc.isObject() )
+    return 0;
+  int n = 0;
+  const QJsonArray rows = doc.object().value( QLatin1String( "rows" ) ).toArray();
+  for ( const QJsonValue &v : rows )
+    if ( v.toObject().value( QLatin1String( "kind" ) ).toString() == QLatin1String( "residual" ) )
+      ++n;
+  return n;
+}
+
 QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDeclaration> &decls,
                                   const QString &residualSummary, QString *error )
 {
@@ -373,6 +393,21 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
     setError( error, QStringLiteral( "层位 %1 %2 — 先在验证页运行验证" )
                          .arg( horizon, missingText ) );
     return QString();
+  }
+  // D10：数值残差下限——完备性只保证「行或原因」，发布还要够数量的数值行
+  // （15/20 口径；差多少写进文案）。
+  {
+    const int numericCount = numericResidualCount( residualSummary );
+    const int required = requiredNumericResiduals( total );
+    if ( numericCount < required )
+    {
+      setError( error, QStringLiteral( "层位 %1 数值残差只有 %2/%3 口（发布需 ≥%4）"
+                                      " — 先在验证页运行验证，补齐井分层/时深/测网覆盖" )
+                           .arg( horizon )
+                           .arg( QString::number( numericCount ), QString::number( total ),
+                                 QString::number( required ) ) );
+      return QString();
+    }
   }
 
   // result/<horizon>/v<N>/ 挨着工程 meta 库（工程目录的 result/）。

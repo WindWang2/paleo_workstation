@@ -180,6 +180,88 @@ class TestVersions : public QObject
             QStringLiteral( R"({"wells_total":3,"covered":3,"missing":[]})" ) ) );
     }
 
+    // D10（PROJECT_AREA_PLAN L1077 批准「≥15/20 numeric」）：数值残差行数下限。
+    // 参数换算：真工区 20 井 → 绝对 15；小工区按同一比例 3/4 向下取整、至少
+    // 1 口（既有 3 井 2 数值的通过用例不受影响）。数值行 = rows[].kind=="residual"。
+    void numericResidualFloorArithmetic()
+    {
+        QCOMPARE( MapVersionStore::requiredNumericResiduals( 20 ), 15 ); // 15/20 批准口径
+        QCOMPARE( MapVersionStore::requiredNumericResiduals( 3 ), 2 );  // 3/4 向下取整
+        QCOMPARE( MapVersionStore::requiredNumericResiduals( 4 ), 3 );
+        QCOMPARE( MapVersionStore::requiredNumericResiduals( 1 ), 1 );  // 至少 1 口
+        QCOMPARE( MapVersionStore::requiredNumericResiduals( 0 ), 0 );  // 无井由完备性检查拒
+        QCOMPARE( MapVersionStore::numericResidualCount(
+                      QStringLiteral( R"({"wells_total":20,"covered":20,"missing":[],"rows":)"
+                                      R"([{"kind":"residual","residual_ms":1.0},)"
+                                      R"({"kind":"reason","reason":"x"},)"
+                                      R"({"kind":"residual","residual_ms":-2.0}]})" ) ),
+                  2 );
+        QCOMPARE( MapVersionStore::numericResidualCount( QString() ), 0 );
+        QCOMPARE( MapVersionStore::numericResidualCount(
+                      QStringLiteral( R"({"wells_total":2,"covered":2,"missing":[]})" ) ),
+                  0 );
+    }
+
+    // D10 发布门：20 井 14 数值 → 拒（写明差几口）；15 数值 → 放行。
+    void publishGateNumericResidualFloor()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+        const QString gpkg = makeFaciesGpkg( f.dir.filePath( QStringLiteral( "facies.gpkg" ) ) );
+        QVERIFY( !gpkg.isEmpty() );
+        const QString pdf = makePdf( f.dir.filePath( QStringLiteral( "D61_map.pdf" ) ) );
+        QVERIFY( !pdf.isEmpty() );
+
+        // 20 口井的完整摘要：前 numeric 口数值，其余 reason（完备但数值不足）。
+        const auto summaryWith = []( int numeric ) {
+            QString rows;
+            for ( int i = 0; i < 20; ++i )
+            {
+                if ( i > 0 )
+                    rows += QLatin1Char( ',' );
+                if ( i < numeric )
+                    rows += QStringLiteral( R"({"well_id":"w%1","name":"W%1","kind":"residual","residual_ms":%2})" )
+                                .arg( i )
+                                .arg( i % 2 ? 3.5 : -1.25 );
+                else
+                    rows += QStringLiteral( R"({"well_id":"w%1","name":"W%1","kind":"reason","reason":"无时深表"})" )
+                                .arg( i );
+            }
+            return QStringLiteral( R"({"wells_total":20,"covered":20,"missing":[],"rows":[%1]})" ).arg( rows );
+        };
+
+        LayerDeclaration decl;
+        decl.layerId = QStringLiteral( "facies.D61" );
+        decl.horizon = QStringLiteral( "D61" );
+        decl.type = QStringLiteral( "vector" );
+        decl.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( gpkg );
+        decl.group = QStringLiteral( "05_PaleoMap" );
+        QString err;
+        QVERIFY2( f.layers.declare( decl, &err ), qPrintable( err ) );
+        QVERIFY2( f.versions.recordLayoutProduct( QStringLiteral( "D61" ), pdf,
+                                                  QStringLiteral( "ast-pdf-2" ),
+                                                  QStringLiteral( "cafebabe" ), &err ),
+                  qPrintable( err ) );
+        QVERIFY2( f.controller.saveVersion( QStringLiteral( "D61" ), QVariantMap(), &err ).version == 1,
+                  qPrintable( err ) );
+
+        // 14/20 数值 → 拒；原因可读：写明数值残差、实况与门槛。
+        err.clear();
+        QVERIFY( f.controller.publish( QStringLiteral( "D61" ), summaryWith( 14 ), &err ).isEmpty() );
+        QVERIFY2( !err.isEmpty(), "insufficient numeric residuals must refuse" );
+        QVERIFY( err.contains( QStringLiteral( "数值残差" ) ) );
+        QVERIFY( err.contains( QStringLiteral( "14" ) ) );
+        QVERIFY( err.contains( QStringLiteral( "15" ) ) );
+        QVERIFY( !f.versions.isPublished( QStringLiteral( "D61" ) ) );
+
+        // 15/20 数值 → 放行（快照落盘）。
+        err.clear();
+        const QString snap =
+            f.controller.publish( QStringLiteral( "D61" ), summaryWith( 15 ), &err );
+        QVERIFY2( !snap.isEmpty(), qPrintable( err ) );
+        QVERIFY( f.versions.isPublished( QStringLiteral( "D61" ) ) );
+    }
+
     void publishGateSnapshotAndImmutability()
     {
         Fixture f;

@@ -1,5 +1,5 @@
 build/
-vendor/onnxruntime/
+vendor/onnxruntime
 vendor/prefix/
 vendor/build/
 vendor/logs/

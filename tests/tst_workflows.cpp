@@ -14,6 +14,7 @@
 #include <gdal.h>
 #include <cpl_conv.h>
 
+#include "../src/catalog/datacatalog.h"
 #include "../src/domain/types.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
@@ -35,9 +36,12 @@ private:
   // Full real-service stack on one temp dir. Declaration order matters:
   // `dir` must precede `manifest` (its path feeds the ctor), and `projectSvc`
   // must precede `layers`/`proc` for the pointer bindings.
+  // T26（wave3/derived-publish）：catalog 进 fixture——四个写出产物的路径
+  // 都要求绑定，产物落 artifacts/derived 并登记 DERIVED 版本。
   struct Fixture
   {
     QTemporaryDir dir;
+    DataCatalog catalog;
     QgisProjectService projectSvc;
     PaleoProjectStore store;
     LayerManifest manifest{ dir.filePath( QStringLiteral( "project.sqlite" ) ) };
@@ -49,11 +53,31 @@ private:
   {
     if ( !f.dir.isValid() )
       return false;
+    if ( !f.catalog.open( f.dir.path() ) )
+      return false;
     if ( !f.projectSvc.createProject( f.dir.filePath( QStringLiteral( "proj.qgz" ) ) ) )
       return false;
     if ( !f.manifest.open() )
       return false;
     return true;
+  }
+
+  // T26 断言助手：声明的图层源在 artifacts/derived 下，且 catalog 里有该资产
+  // 类型指向此文件的 DERIVED 版本（sha 非空）。
+  static bool derivedVersionRegistered( DataCatalog &catalog, const QString &assetType,
+                                        const QString &absolutePath )
+  {
+    for ( const CatalogAsset &a : catalog.assets() )
+    {
+      if ( a.type != assetType )
+        continue;
+      for ( const CatalogVersion &v : catalog.versionsForAsset( a.id ) )
+        if ( absolutePath.contains( QStringLiteral( "artifacts/derived/" ) ) &&
+             absolutePath.endsWith( QLatin1Char( '/' ) + v.fileName ) &&
+             absolutePath.contains( v.id ) && !v.sha256.isEmpty() )
+          return true;
+    }
+    return false;
   }
 
   // Write a w x h Float32 GTiff; returns "" on failure (same pattern as
@@ -153,6 +177,7 @@ private slots:
     QVERIFY2( input != nullptr, qPrintable( err ) );
 
     PredictionWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() ); // T26
     QSignalSpy doneSpy( &wf, &PredictionWorkflow::predictionDone );
     QSignalSpy failSpy( &wf, &PredictionWorkflow::predictionFailed );
 
@@ -176,6 +201,11 @@ private slots:
     QCOMPARE( d->type, QStringLiteral( "raster" ) );
     QCOMPARE( d->group, QStringLiteral( "01_Prediction" ) );
     QVERIFY2( QFile::exists( d->source ), qPrintable( d->source ) );
+    // T26：产物在 artifacts/derived 下并登记 DERIVED 版本（不再进进程临时池）。
+    QVERIFY2( d->source.contains( QStringLiteral( "artifacts/derived/" ) ),
+              qPrintable( d->source ) );
+    QVERIFY2( derivedVersionRegistered( f.catalog, QStringLiteral( "prediction_raster" ), d->source ),
+              qPrintable( d->source ) );
 
     // Declared source loads back as a valid raster layer.
     QVERIFY( f.layers.instantiate( resultId ) != nullptr );
@@ -265,6 +295,7 @@ private slots:
                                     QStringLiteral( "vector" ), ptsPath ), &err ), qPrintable( err ) );
 
     ConstraintWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() ); // T26
     QSignalSpy spy( &wf, &ConstraintWorkflow::factorDone );
 
     QVERIFY2( wf.runConstraintIDW( QStringLiteral( "T1" ), QStringLiteral( "points.T1" ),
@@ -277,6 +308,10 @@ private slots:
     QVERIFY( d != nullptr );
     QCOMPARE( d->type, QStringLiteral( "raster" ) );
     QVERIFY2( QFile::exists( d->source ), qPrintable( d->source ) );
+    QVERIFY2( d->source.contains( QStringLiteral( "artifacts/derived/" ) ),
+              qPrintable( d->source ) );
+    QVERIFY2( derivedVersionRegistered( f.catalog, QStringLiteral( "constraint_idw_raster" ), d->source ),
+              qPrintable( d->source ) );
     QVERIFY( f.layers.instantiate( d->layerId ) != nullptr );
     delete d;
 
@@ -312,6 +347,7 @@ private slots:
                                      QStringLiteral( "04_SingleFactor" ) ), &err ) );
 
     CompositionWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() ); // T26
     QSignalSpy spy( &wf, &CompositionWorkflow::compositionDone );
 
     QVERIFY2( wf.fuseFactors( QStringLiteral( "T1" ),
@@ -326,6 +362,10 @@ private slots:
     QCOMPARE( d->type, QStringLiteral( "raster" ) );
     QCOMPARE( d->group, QStringLiteral( "03_Composite" ) );
     QVERIFY2( QFile::exists( d->source ), qPrintable( d->source ) );
+    QVERIFY2( d->source.contains( QStringLiteral( "artifacts/derived/" ) ),
+              qPrintable( d->source ) );
+    QVERIFY2( derivedVersionRegistered( f.catalog, QStringLiteral( "facies_fusion_raster" ), d->source ),
+              qPrintable( d->source ) );
 
     QgsMapLayer *composite = f.layers.instantiate( d->layerId );
     QVERIFY( composite != nullptr );
@@ -428,6 +468,7 @@ private slots:
               qPrintable( err ) );
 
     CompositionWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() ); // T26
     QSignalSpy ready( &wf, &CompositionWorkflow::faciesPolygonsReady );
     QSignalSpy failed( &wf, &CompositionWorkflow::faciesPolygonsFailed );
     QVERIFY2( wf.deriveFaciesPolygons( QStringLiteral( "T1" ), QStringLiteral( "composite.T1" ),
@@ -444,6 +485,9 @@ private slots:
     QCOMPARE( d->horizon, QStringLiteral( "T1" ) );
     const QString gpkg = d->source.section( QLatin1Char( '|' ), 0, 0 );
     QVERIFY2( QFile::exists( gpkg ), qPrintable( d->source ) );
+    QVERIFY2( gpkg.contains( QStringLiteral( "artifacts/derived/" ) ), qPrintable( gpkg ) );
+    QVERIFY2( derivedVersionRegistered( f.catalog, QStringLiteral( "facies_polygons" ), gpkg ),
+              qPrintable( gpkg ) );
 
     QgsVectorLayer vl( d->source, QStringLiteral( "faces" ), QStringLiteral( "ogr" ) );
     QVERIFY2( vl.isValid(), qPrintable( vl.error().message() ) );

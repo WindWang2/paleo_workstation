@@ -183,6 +183,8 @@ add_paleo_test(tst_webviewpanel)   # offscreen: engine unavailable → fallback,
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx)
   add_paleo_test(tst_onnxworkflow)
+  target_compile_definitions(tst_onnxworkflow PRIVATE
+    PROJECT_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
   set_tests_properties(tst_onnx tst_onnxworkflow PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;LD_LIBRARY_PATH=${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()
@@ -208,6 +210,16 @@ add_paleo_test(tst_taskservice)
 add_paleo_test(tst_threeway)
 add_paleo_test(tst_chips)
 add_paleo_test(tst_versions)
+
+# ---- wave3/derived-publish (T26/D10/D15 + §40 速度模型与 CDP 映射) ----
+target_sources(paleo_core PRIVATE
+  src/workflow/derivedassets.cpp                  # 派生产物落 artifacts/derived + DERIVED 版本登记
+  src/services/seismicmapping.cpp                 # 测网几何↔inline/xline/CDP + 井 TD 速度桥
+)
+add_paleo_test(tst_derivedassets)
+add_paleo_test(tst_seismicmapping)
+target_compile_definitions(tst_seismicmapping PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 
 # ---- application ----
 add_executable(paleo src/app/main.cpp)

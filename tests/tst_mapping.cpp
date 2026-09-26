@@ -6,6 +6,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSignalSpy>
+
+#include <tuple>>
 #include <QTemporaryDir>
 
 #include <gdal.h>
@@ -77,6 +79,8 @@ class TestMapping : public QObject
             store.setProjectPaths( dir.filePath( QStringLiteral( "proj.qgz" ) ),
                                    dir.filePath( QStringLiteral( "proj.gpkg" ) ),
                                    dir.filePath( QStringLiteral( "meta.sqlite" ) ) );
+            // T26：厚度链的派生产物登记走 fixture 自己的 catalog（工程目录 = 临时目录）。
+            mapping.setCatalog( &catalog, dir.path() );
             return true;
         }
     };
@@ -595,6 +599,146 @@ class TestMapping : public QObject
         QVERIFY2( wells != nullptr, "井点层未声明" );
         QVERIFY( QFile::exists( wells->source ) );
         delete wells;
+    }
+
+    // T26（wave3/derived-publish）：厚度链产物落 <工程>/artifacts/derived/ 并登记
+    // DERIVED catalog 版本——父版本 = D61/D62 时间栅格版本，sha256 可复验，重跑
+    // 进同一资产的下一版本；重启（重开 catalog）后路径仍是活文件。
+    void thicknessOutputsAreRegisteredDerivedVersions()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+
+        // 把 D61/D62 时间栅格放进 catalog 受管路径并登记版本（父版本 provenance 源）。
+        const QString d61Rel = QStringLiteral( "artifacts/derived/ast-d61/ver-d61/D61.tif" );
+        const QString d62Rel = QStringLiteral( "artifacts/derived/ast-d62/ver-d62/D62.tif" );
+        const QString d61Abs = f.dir.filePath( d61Rel );
+        const QString d62Abs = f.dir.filePath( d62Rel );
+        QVERIFY( QDir().mkpath( QFileInfo( d61Abs ).absolutePath() ) );
+        QVERIFY( QDir().mkpath( QFileInfo( d62Abs ).absolutePath() ) );
+        QVERIFY( !makeConstRaster( d61Abs, 2200.0f ).isEmpty() );
+        QVERIFY( !makeConstRaster( d62Abs, 2300.0f ).isEmpty() );
+        for ( const auto &[astId, verId, rel] :
+              { std::tuple{ QStringLiteral( "ast-d61" ), QStringLiteral( "ver-d61" ), d61Rel },
+                std::tuple{ QStringLiteral( "ast-d62" ), QStringLiteral( "ver-d62" ), d62Rel } } )
+        {
+            CatalogAsset a;
+            a.id = astId;
+            a.type = QStringLiteral( "horizon" );
+            a.format = QStringLiteral( "tif" );
+            a.displayName = astId;
+            QVERIFY( f.catalog.addAsset( a ) );
+            CatalogVersion v;
+            v.id = verId;
+            v.assetId = a.id;
+            v.stage = QStringLiteral( "DERIVED" );
+            v.versionNumber = 1;
+            v.path = rel;
+            v.fileName = QStringLiteral( "D61.tif" );
+            QString hashErr;
+            v.sha256 = DataCatalog::sha256FileHex( f.dir.filePath( rel ), &hashErr );
+            QVERIFY2( !v.sha256.isEmpty(), qPrintable( hashErr ) );
+            QVERIFY( f.catalog.addVersion( v ) );
+        }
+
+        f.pd.setCatalog( &f.catalog, f.dir.path() );
+        f.pd.setManifest( &f.manifest );
+        f.mapping.setProjectData( &f.pd );
+
+        QString err;
+        for ( const QString &h : { QStringLiteral( "D61" ), QStringLiteral( "D62" ) } )
+        {
+            LayerDeclaration rasterDecl;
+            rasterDecl.layerId = QStringLiteral( "horizon.%1.derived" ).arg( h );
+            rasterDecl.horizon = h;
+            rasterDecl.type = QStringLiteral( "raster" );
+            rasterDecl.source = h == QLatin1String( "D61" ) ? d61Abs : d62Abs;
+            QVERIFY2( f.layers.declare( rasterDecl, &err ), qPrintable( err ) );
+        }
+
+        QVERIFY2( f.mapping.runThicknessChain( QStringLiteral( "D61" ), &err ),
+                  qPrintable( err ) );
+
+        const LayerDeclaration *thick =
+            findDecl( f.layers, QStringLiteral( "factor.D61.idw" ) );
+        QVERIFY2( thick != nullptr, "等厚图层未声明" );
+        // 声明源在工程受管目录下（不是 /tmp）。
+        QVERIFY2( thick->source.startsWith(
+                      f.dir.filePath( QStringLiteral( "artifacts/derived/" ) ) ),
+                  qPrintable( thick->source ) );
+
+        // catalog 里能查到 DERIVED 版本：sha 可复验、父版本 = 两张时间栅格版本。
+        QString thicknessVersionId;
+        for ( const CatalogAsset &a : f.catalog.assets() )
+        {
+            if ( a.type != QLatin1String( "thickness_raster" ) )
+                continue;
+            for ( const CatalogVersion &v : f.catalog.versionsForAsset( a.id ) )
+            {
+                const QString resolved = f.dir.filePath( v.path );
+                if ( resolved == thick->source )
+                {
+                    thicknessVersionId = v.id;
+                    QCOMPARE( v.stage, QStringLiteral( "DERIVED" ) );
+                    QCOMPARE( v.versionNumber, 1 );
+                    QStringList expectedParents{ QStringLiteral( "ver-d61" ),
+                                                 QStringLiteral( "ver-d62" ) };
+                    QCOMPARE( v.parentVersionIds, expectedParents );
+                    QString hashErr;
+                    QCOMPARE( v.sha256,
+                              DataCatalog::sha256FileHex( resolved, &hashErr ) );
+                }
+            }
+        }
+        QVERIFY2( !thicknessVersionId.isEmpty(), "厚度栅格未登记 DERIVED 版本" );
+
+        // 井点层（wells.thickness）同样受管 + 登记。
+        const LayerDeclaration *wells =
+            findDecl( f.layers, QStringLiteral( "wells.thickness.D61" ) );
+        QVERIFY2( wells != nullptr, "井点层未声明" );
+        QVERIFY( wells->source.startsWith(
+            f.dir.filePath( QStringLiteral( "artifacts/derived/" ) ) ) );
+        bool wellsVersionRegistered = false;
+        for ( const CatalogAsset &a : f.catalog.assets() )
+        {
+            if ( a.type != QLatin1String( "thickness_wells" ) )
+                continue;
+            for ( const CatalogVersion &v : f.catalog.versionsForAsset( a.id ) )
+                if ( f.dir.filePath( v.path ) == wells->source )
+                    wellsVersionRegistered = !v.sha256.isEmpty();
+        }
+        QVERIFY( wellsVersionRegistered );
+        delete thick;
+        delete wells;
+
+        // 重跑 → 同一资产的版本 2（重算不覆盖历史版本）。
+        QVERIFY2( f.mapping.runThicknessChain( QStringLiteral( "D61" ), &err ),
+                  qPrintable( err ) );
+        const LayerDeclaration *thick2 =
+            findDecl( f.layers, QStringLiteral( "factor.D61.idw" ) );
+        QVERIFY( thick2 != nullptr );
+        bool sawVersion2 = false;
+        for ( const CatalogAsset &a : f.catalog.assets() )
+        {
+            if ( a.type != QLatin1String( "thickness_raster" ) )
+                continue;
+            for ( const CatalogVersion &v : f.catalog.versionsForAsset( a.id ) )
+                if ( f.dir.filePath( v.path ) == thick2->source && v.versionNumber == 2 )
+                    sawVersion2 = true;
+        }
+        QVERIFY( sawVersion2 );
+        delete thick2;
+
+        // 重启存活：新会话重开同一工程目录的 catalog，版本路径仍是活文件且 sha 一致。
+        DataCatalog reopened;
+        QString reopenErr;
+        QVERIFY2( reopened.open( f.dir.path(), &reopenErr ), qPrintable( reopenErr ) );
+        const CatalogVersion v = reopened.versionById( thicknessVersionId );
+        QVERIFY( !v.id.isEmpty() );
+        const QString resolved = f.dir.filePath( v.path );
+        QVERIFY2( QFile::exists( resolved ), qPrintable( resolved ) );
+        QString hashErr;
+        QCOMPARE( reopened.sha256FileHex( resolved, &hashErr ), v.sha256 );
     }
 
     // T19/audit #35：D62 早于等于 D61（isochron ≤ 0）的像元写 nodata——按格

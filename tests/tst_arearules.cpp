@@ -4,6 +4,7 @@
 
 #include "../src/io/arearules.h"
 #include "../src/io/projectclassifier.h"
+#include "../src/io/segyreader.h"
 
 // wave4/area-parametrization：工程级参数 seam 的行为等价性测试（TODOS
 // 「第二工区参数化接缝」）。四类钉死值（层序界面名单 / 分类器目录规则 /
@@ -21,13 +22,86 @@ private slots:
   void defaultClassifierBehaviorUnchanged();
   void missingConfigFallsBackToDefaults();
   void customConfigTakesEffect();
+  void customSegyOffsetsDriveIndexing();
   void badJsonIsRefused();
   void resetRestoresDefaults();
 
 private:
   static void writeConfig(const QString &dir, const QByteArray &json);
   static bool sameRules(const AreaRules::Rules &a, const AreaRules::Rules &b);
+  static void putBe16(QByteArray &b, int off, qint16 v);
+  static void putBe32(QByteArray &b, int off, qint32 v);
+  // 2 inline × 3 道的方言体（4 样点 IEEE）：inline 字恒 0（道号序）、field
+  // record = inlineBase、CDP 序列 11..13，全部落在传入约定的偏移上。
+  static QByteArray makeOrdinalSegy(const AreaRules::SegyIndexing &idx, qint32 inlineBase);
+  // 标准位直读体：inline 字随线变化（触发非道号序路径）。
+  static QByteArray makeStandardSegy(const AreaRules::SegyIndexing &idx, qint32 inlineBase);
 };
+
+void TestAreaRules::putBe16(QByteArray &b, int off, qint16 v)
+{
+  const quint16 u = quint16(v);
+  b[off] = char(u >> 8);
+  b[off + 1] = char(u & 0xff);
+}
+
+void TestAreaRules::putBe32(QByteArray &b, int off, qint32 v)
+{
+  const quint32 u = quint32(v);
+  b[off] = char(u >> 24);
+  b[off + 1] = char(u >> 16);
+  b[off + 2] = char(u >> 8);
+  b[off + 3] = char(u & 0xff);
+}
+
+QByteArray TestAreaRules::makeOrdinalSegy(const AreaRules::SegyIndexing &idx, qint32 inlineBase)
+{
+  QByteArray bytes(3600, '\0');
+  constexpr int kBin = 3200; // 3200 文本头之后才是二进制头
+  putBe16(bytes, kBin + 12, 3);  // 二进制头 13-14：每条 inline 道数
+  putBe16(bytes, kBin + 16, 2);  // 采样间隔 μs
+  putBe16(bytes, kBin + 20, 4);  // 样点/道
+  putBe16(bytes, kBin + 24, 5);  // IEEE
+  putBe16(bytes, kBin + 304, 0); // 无扩展文本头
+  for (int i = 0; i < 2; ++i)
+  {
+    for (int j = 0; j < 3; ++j)
+    {
+      QByteArray th(240, '\0');
+      putBe32(th, 4, inlineBase);            // field record = inline 起点
+      putBe32(th, 36, 11 + j);               // CDP（备用：标准体不读）
+      putBe32(th, 72, j * 100);              // Source X
+      putBe32(th, 76, i * 50);               // Source Y
+      putBe16(th, 108, 0);                   // 延迟
+      putBe16(th, 114, 4);                   // 道样点
+      putBe32(th, idx.inlineWordOffset, 0);  // inline 字恒 0 → 道号序
+      putBe32(th, idx.cdpXlineOffset, 11 + j);
+      bytes.append(th);
+      QByteArray smp(16, '\0');
+      for (int k = 0; k < 4; ++k)
+        putBe32(smp, k * 4, qint32(k + 1));
+      bytes.append(smp);
+    }
+  }
+  return bytes;
+}
+
+QByteArray TestAreaRules::makeStandardSegy(const AreaRules::SegyIndexing &idx, qint32 inlineBase)
+{
+  QByteArray bytes = makeOrdinalSegy(idx, inlineBase);
+  // 把 inline 字改成随线变化（标准直读路径），crossline 字写线内位置。
+  const qint64 trace0 = 3600;
+  for (int i = 0; i < 2; ++i)
+  {
+    for (int j = 0; j < 3; ++j)
+    {
+      const qint64 hOff = trace0 + (i * 3 + j) * (240 + 16);
+      putBe32(bytes, int(hOff) + idx.inlineWordOffset, inlineBase + i);
+      putBe32(bytes, int(hOff) + idx.crosslineWordOffset, 11 + j);
+    }
+  }
+  return bytes;
+}
 
 void TestAreaRules::writeConfig(const QString &dir, const QByteArray &json)
 {
@@ -213,6 +287,69 @@ void TestAreaRules::customConfigTakesEffect()
 
 // 坏 JSON 拒用：语法错 / 类型错 / 未知键 / 越界偏移 / 非法 schema_version
 // 都要报错，active 不被污染（不静默回退也不带病采纳）。
+// SEG-Y 道号索引约定经 AreaRules 生效：方言体（inline 字 180 恒 0、CDP 在
+// 偏移 36、field record 在偏移 4）只有配了对应偏移才索引得动；默认约定在
+// 默认偏移上找不到 CDP 序列（声明 3 道/线 vs 全文件一条线）→ 如实报错。
+// 标准直读路径同样按约定偏移取字（inline 字随线变化时）。
+void TestAreaRules::customSegyOffsetsDriveIndexing()
+{
+  // {inlineWordOffset, crosslineWordOffset, fieldRecordOffset, cdpXlineOffset}
+  const AreaRules::SegyIndexing custom{180, 184, 4, 36};
+  QTemporaryDir dir;
+  QFile ordinal(dir.path() + QStringLiteral("/ordinal.sgy"));
+  QVERIFY(ordinal.open(QIODevice::WriteOnly));
+  ordinal.write(makeOrdinalSegy(custom, 500));
+  ordinal.close();
+  QFile standard(dir.path() + QStringLiteral("/standard.sgy"));
+  QVERIFY(standard.open(QIODevice::WriteOnly));
+  standard.write(makeStandardSegy(custom, 500));
+  standard.close();
+
+  // 默认约定读不了这个方言体。
+  {
+    SegyReader r;
+    QString err;
+    QVERIFY2(!r.open(ordinal.fileName(), &err), qPrintable(err));
+    QVERIFY(err.contains(QStringLiteral("traces-per-inline mismatch")));
+  }
+
+  QTemporaryDir cfgDir;
+  writeConfig(cfgDir.path(), QByteArrayLiteral(
+      "{\"segy_indexing\": {\"inline_word_offset\": 180, \"crossline_word_offset\": 184,"
+      " \"field_record_offset\": 4, \"cdp_xline_offset\": 36}}"));
+  AreaRules::setProjectDir(cfgDir.path());
+  QVERIFY(AreaRules::lastError().isEmpty());
+
+  // 道号序：inline = field-record base(500) + 道号/3，crossline = CDP。
+  {
+    SegyReader r;
+    QString err;
+    QVERIFY2(r.open(ordinal.fileName(), &err), qPrintable(err));
+    QCOMPARE(r.traceCount(), 6);
+    const SegyGeometry g = r.geometry();
+    QCOMPARE(g.inlineMin, 500);
+    QCOMPARE(g.inlineMax, 501);
+    QCOMPARE(g.xlineMin, 11);
+    QCOMPARE(g.xlineMax, 13);
+    QCOMPARE(r.inlineNumbers(), (QVector<qint32>{500, 501}));
+    QCOMPARE(r.crosslineNumbers(), (QVector<qint32>{11, 12, 13}));
+  }
+
+  // 标准直读：inline/crossline 字都在约定偏移上（180/184）。
+  {
+    SegyReader r;
+    QString err;
+    QVERIFY2(r.open(standard.fileName(), &err), qPrintable(err));
+    const SegyGeometry g = r.geometry();
+    QCOMPARE(g.inlineMin, 500);
+    QCOMPARE(g.inlineMax, 501);
+    QCOMPARE(g.xlineMin, 11);
+    QCOMPARE(g.xlineMax, 13);
+  }
+
+  AreaRules::reset();
+}
+
 void TestAreaRules::badJsonIsRefused()
 {
   struct Case

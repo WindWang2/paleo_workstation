@@ -303,3 +303,9 @@ target_sources(paleo_core PRIVATE
   src/catalog/roleregistry.cpp                      # RoleDef/RoleRegistry 内置词表 + project_area.json roles 覆盖
 )
 add_paleo_test(tst_roles)
+
+# ---- data/entity-view (B 包：实体视图 + link ordinal + staleness-lite) ----
+target_sources(paleo_core PRIVATE
+  src/catalog/entityview.cpp                        # RoleSlot/EntityView 纯查询门面（derivedProducts/missingSources 诊断）
+)
+add_paleo_test(tst_entityview)

@@ -48,6 +48,7 @@ struct EntityAssetLink
   QString role;         // well_head | well_log | tops | time_depth | horizon | seismic_volume | reference
   bool isPrimary = true;
   bool unresolved = false;
+  int ordinal = 0;      // B 包：同 (entity,role) 成员内业务序（如多 LAS 加载顺序）
   QString note;         // 未决备注：双候选记两个规范化井名；零匹配记未匹配名
 };
 
@@ -171,6 +172,22 @@ class DataCatalog : public QObject
     QVector<EntityAssetLink> links() const;
     QVector<EntityAssetLink> unresolvedLinks() const; // unresolved==true 的全部链接
 
+    // ---- B 包：下游闭包与 staleness-lite（DATA_FABRIC_ADOPTION；上游
+    // impact/entity_views 的裁剪面） ----
+
+    // parentVersionIds 反查全闭包：versionId 的全部下游版本（BFS，环安全，
+    // 不含种子本身）。空 id → 空集；未知 id 如实回空集（下游按链接表存在性
+    // 判定，种子是否在库不影响边扫描）。
+    QVector<CatalogVersion> downstreamClosure(const QString &versionId) const;
+
+    // 下游失效标记（staleness-lite）：versionId 下游闭包中的 DERIVED 版本
+    // 记 extra["stale"]=true + extra["staleReason"]=reason（reason 空 →
+    // 通用原因）。供预览/校验路径在外链 verifyExternalVersionSha 失配后调用——
+    // 「父版本源字节变了 ⇒ 下游产物过期」。空/未知 versionId → false+error；
+    // 无下游或标记未变 → true 不落盘（不空涨 revision）。
+    bool markDownstreamStale(const QString &versionId, const QString &reason,
+                             QString *error = nullptr);
+
     // 身份解析 §3：井名比较前去首尾空白、连字符、空格，忽略大小写。
     // 返回按此规范化后命中的全部井 id——0/1/2+ 个候选由调用方分别处置
     // （恰好一个挂接；零个再走文件名主名；仍零或两个→unresolved，实体 id 留空、
@@ -218,6 +235,9 @@ class DataCatalog : public QObject
     bool save(QString *error = nullptr);
     void beginBatch();
     bool endBatch(QString *error = nullptr);
+    // markDownstreamStale/addVersion 共用的内存段标记：只写 m_versions，
+    // 不落盘；返回实际改动的版本数（已是同一标记的不计）。
+    int markStaleDownstreamOf(const QString &versionId, const QString &reason);
     QString m_dir;
     bool m_isOpen = false;
     QString m_openError;         // 最近一次 open() 失败原因（成功后清空）

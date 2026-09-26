@@ -151,5 +151,6 @@ class PaleoMainWindow : public QMainWindow
     QDockWidget *m_rightDock = nullptr;
     QDockWidget *m_bottomDock = nullptr;
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
+    PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
     QString m_currentPage;
 };

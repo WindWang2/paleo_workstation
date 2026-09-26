@@ -34,6 +34,7 @@
 #include "edittools/editingtoolbar.h"
 #include "../qgis/qgislayoutservice.h"
 #include "../qgis/qgiseditingservice.h"
+#include "../services/paleotaskservice.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
@@ -82,6 +83,7 @@
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QTextEdit>
+#include <QPointer>
 #include <QVBoxLayout>
 
 #include <memory>
@@ -843,67 +845,108 @@ void PaleoMainWindow::buildFolderConfirmDialog(
                     results, retryCb, self]() {
     const QMap<QString, QString> overrides =
         collectFolderTypeOverrides(table, preview, combos);
+    confirm->setEnabled(false); // 确认只走一遍（异步在途也一样）
+
+    // 导入结果回表——同步路径与任务终态共用（在 GUI 线程执行）。
+    const auto applyResults =
+        [dlg, svc, table, summary, confirm, cancel, combos, preview, results,
+         retryCb, self](const QVector<DataImportService::FolderRowResult> &res,
+                        const QString &importErr) {
+      if (res.isEmpty() && !importErr.isEmpty())
+      {
+        QMessageBox::warning(dlg, tr("导入工区文件夹"), importErr);
+        confirm->setEnabled(true); // 整体失败可重试
+        return;
+      }
+      // D5：结果序按生效类型两阶段排——改过类型的行可能换阶段，按「路径」
+      // 回行而不是按索引；results 与表行同序存放，供重试回写与汇总重算。
+      results->fill(DataImportService::FolderRowResult{}, preview.size());
+      using Outcome = DataImportService::FolderRowResult::Outcome;
+      QString wellHeadAssetId;
+      for (const DataImportService::FolderRowResult &rowRes : res)
+      {
+        int r = -1;
+        for (int i = 0; i < preview.size(); ++i)
+          if (preview.at(i).path == rowRes.path)
+          {
+            r = i;
+            break;
+          }
+        if (r < 0)
+          continue;
+        (*results)[r] = rowRes;
+        writeFolderRowResult(table, r, rowRes, retryCb);
+        if (rowRes.outcome == Outcome::Imported &&
+            rowRes.classifiedType == QLatin1String("well_head") &&
+            wellHeadAssetId.isEmpty())
+        {
+          // 找回刚入库的井口资产：按文件名在 catalog 里定位。
+          if (auto *cat = svc->catalog())
+            for (const auto &a : cat->assets())
+              if (a.type == QLatin1String("well_head") &&
+                  QFileInfo(rowRes.path).fileName() ==
+                      cat->currentVersion(a.id).fileName)
+                wellHeadAssetId = a.id;
+        }
+      }
+      summary->setText(folderImportSummaryText(*results));
+      summary->show();
+      // 结果留在表里给用户过目；仍失败的行保留下拉（可换类型再点「重试」），
+      // 其余行锁定。
+      for (int r = 0; r < combos.size(); ++r)
+        if (r >= results->size() ||
+            results->at(r).outcome != Outcome::Failed)
+          combos[r]->setEnabled(false);
+      cancel->setText(tr("关闭"));
+      if (self && !wellHeadAssetId.isEmpty())
+        QMetaObject::invokeMethod(
+            self,
+            [self, wellHeadAssetId] {
+              if (self->m_previewTabs)
+                self->m_previewTabs->openAsset(wellHeadAssetId);
+            },
+            Qt::QueuedConnection);
+    };
+
+    // D1b：任务池在场 → 整个文件夹导入（含 LAS 解析/层位装箱/SEG-Y 索引）
+    // 跑 worker 线程，行进度回报到任务页；catalog 操作经服务内 marshal 回
+    // GUI。worker 的 imported 信号排队顺序先于 finished——槽里抑制标签的
+    // 标志在终态回调复位，不会漏开逐文件标签。对话框中途关闭 → 结果弃置
+    // （catalog 状态已入库，可重开表看）。
+    if (self && self->m_taskSvc)
+    {
+      self->m_folderImportActive = true;
+      auto outRows = std::make_shared<QVector<DataImportService::FolderRowResult>>();
+      auto outErr = std::make_shared<QString>();
+      QPointer<QDialog> guard(dlg);
+      PaleoTask *task = self->m_taskSvc->start(
+          tr("导入工区文件夹"),
+          [svc, dir, overrides, outRows, outErr](PaleoTask *t) -> QString {
+            *outRows = svc->importFolder(
+                dir, outErr.get(), overrides,
+                [t](int done, int total, const QString &p) {
+                  t->reportBytes(done, total);
+                  t->reportDetail(p);
+                  return !t->cancelRequested();
+                });
+            return *outErr;
+          });
+      QObject::connect(task, &PaleoTask::finished, self,
+                       [self, guard, applyResults, outRows, outErr] {
+                         self->m_folderImportActive = false;
+                         if (guard)
+                           applyResults(*outRows, *outErr);
+                       });
+      return;
+    }
+
     QString importErr;
     if (self)
       self->m_folderImportActive = true;
     const auto res = svc->importFolder(dir, &importErr, overrides);
     if (self)
       self->m_folderImportActive = false;
-
-    if (res.isEmpty() && !importErr.isEmpty())
-    {
-      QMessageBox::warning(dlg, tr("导入工区文件夹"), importErr);
-      return;
-    }
-    // D5：结果序按生效类型两阶段排——改过类型的行可能换阶段，按「路径」
-    // 回行而不是按索引；results 与表行同序存放，供重试回写与汇总重算。
-    results->fill(DataImportService::FolderRowResult{}, preview.size());
-    using Outcome = DataImportService::FolderRowResult::Outcome;
-    QString wellHeadAssetId;
-    for (const DataImportService::FolderRowResult &rowRes : res)
-    {
-      int r = -1;
-      for (int i = 0; i < preview.size(); ++i)
-        if (preview.at(i).path == rowRes.path)
-        {
-          r = i;
-          break;
-        }
-      if (r < 0)
-        continue;
-      (*results)[r] = rowRes;
-      writeFolderRowResult(table, r, rowRes, retryCb);
-      if (rowRes.outcome == Outcome::Imported &&
-          rowRes.classifiedType == QLatin1String("well_head") &&
-          wellHeadAssetId.isEmpty())
-      {
-        // 找回刚入库的井口资产：按文件名在 catalog 里定位。
-        if (auto *cat = svc->catalog())
-          for (const auto &a : cat->assets())
-            if (a.type == QLatin1String("well_head") &&
-                QFileInfo(rowRes.path).fileName() ==
-                    cat->currentVersion(a.id).fileName)
-              wellHeadAssetId = a.id;
-      }
-    }
-    summary->setText(folderImportSummaryText(*results));
-    summary->show();
-    // 结果留在表里给用户过目；仍失败的行保留下拉（可换类型再点「重试」），
-    // 其余行锁定。确认按钮只走一遍。
-    confirm->setEnabled(false);
-    for (int r = 0; r < combos.size(); ++r)
-      if (r >= results->size() ||
-          results->at(r).outcome != Outcome::Failed)
-        combos[r]->setEnabled(false);
-    cancel->setText(tr("关闭"));
-    if (self && !wellHeadAssetId.isEmpty())
-      QMetaObject::invokeMethod(
-          self,
-          [self, wellHeadAssetId] {
-            if (self->m_previewTabs)
-              self->m_previewTabs->openAsset(wellHeadAssetId);
-          },
-          Qt::QueuedConnection);
+    applyResults(res, importErr);
   });
   lay->addWidget(buttons);
 }
@@ -1050,6 +1093,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   auto *stack = host ? static_cast<QStackedLayout *>(host->layout()) : nullptr;
   if (!stack)
     return;
+  m_taskSvc = taskSvc; // D1b：导入任务池（nullptr 时保持同步旧路径）
 
   // Replace placeholders in page order (data, predict, constraint, compose, validate).
   while (stack->count() > 0)
@@ -1159,6 +1203,27 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 cl->addWidget(bb);
                 if (confirmDlg.exec() != QDialog::Accepted)
                   return;
+              }
+              // D1b：LAS 解析/SEG-Y 索引等大文件在任务池跑——无任务服务时保持
+              // 同步旧路径。imported 信号照常排队回 GUI（预览标签在终态后开）。
+              if (m_taskSvc)
+              {
+                auto outErr = std::make_shared<QString>();
+                auto outId = std::make_shared<QString>();
+                PaleoTask *task = m_taskSvc->start(
+                    tr("导入 %1").arg(kind),
+                    [importSvc, kind, path, outId, outErr](PaleoTask *) -> QString {
+                      *outId = importSvc->importFile(kind, path, outErr.get());
+                      return outId->isEmpty() ? *outErr : QString();
+                    });
+                QObject::connect(task, &PaleoTask::finished, this,
+                                 [this, outId, outErr] {
+                                   if (outId->isEmpty())
+                                     QgsMessageLog::logMessage(
+                                         tr("Import failed: %1").arg(*outErr),
+                                         QStringLiteral("Paleo"), Qgis::Critical);
+                                 });
+                return;
               }
               QString err;
               const QString assetId = importSvc->importFile(kind, path, &err);

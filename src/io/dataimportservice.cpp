@@ -145,7 +145,8 @@ DataImportService::WellBind DataImportService::resolveWell(const QString &name) 
     b.unresolved = true;
     return b;
   }
-  const QStringList ids = m_catalog->wellsMatchingName(name);
+  const QStringList ids =
+      catInvoke([&] { return m_catalog->wellsMatchingName(name); });
   if (ids.size() == 1)
   {
     b.entityId = ids.front();
@@ -301,12 +302,16 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
 
   // §3 dedup：同一 SHA-256 已在库 → 不新建资产/版本/主关联；只把现在恰好能
   // 匹配到一口井的未决关联补挂上（不建井、不并井）。
-  const CatalogVersion existing = m_catalog->versionBySha256(sourceSha);
+  const CatalogVersion existing =
+      catInvoke([&] { return m_catalog->versionBySha256(sourceSha); });
   if (!existing.id.isEmpty())
   {
-    const CatalogAsset existingAsset = m_catalog->assetById(existing.assetId);
+    const CatalogAsset existingAsset =
+        catInvoke([&] { return m_catalog->assetById(existing.assetId); });
     QString aerr;
-    const int attached = attachResolvableLinks(existingAsset, sourcePath, &aerr);
+    // 整个补挂过程 marshal 回 GUI 一次执行（内部原生访问 catalog）。
+    const int attached = catInvoke(
+        [&] { return attachResolvableLinks(existingAsset, sourcePath, &aerr); });
     if (!aerr.isEmpty())
       qWarning("import dedup attach: %s", qPrintable(aerr));
     const QString msg =
@@ -328,15 +333,15 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
     cls.type = options.forceType;
   const QString stem = fi.completeBaseName();
 
-  const QString assetId = m_catalog->nextAssetId();
-  const QString versionId = m_catalog->nextVersionId();
+  const QString assetId = catInvoke([&] { return m_catalog->nextAssetId(); });
+  const QString versionId = catInvoke([&] { return m_catalog->nextVersionId(); });
 
   CatalogAsset asset;
   asset.id = assetId;
   asset.type = cls.type;
   asset.format = cls.format;
   asset.displayName = fi.fileName();
-  if (!m_catalog->addAsset(asset, error))
+  if (!catInvoke([&] { return m_catalog->addAsset(asset, error); }))
     return fail(*error);
 
   CatalogVersion version;
@@ -364,7 +369,7 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
     version.path = relPath;
     version.sha256 = sha;
   }
-  if (!m_catalog->addVersion(version, error))
+  if (!catInvoke([&] { return m_catalog->addVersion(version, error); }))
     return fail(*error);
 
   // ---- 实体解析与关联（角色沿用已有名字）----
@@ -401,16 +406,17 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
       {
         link.unresolved = true;
         link.note = QStringLiteral("井口重名: %1").arg(norm);
-        if (!m_catalog->addLink(link, error))
+        if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
           return fail(*error);
         continue;
       }
-      const QStringList matches = m_catalog->wellsMatchingName(r.name);
+      const QStringList matches =
+          catInvoke([&] { return m_catalog->wellsMatchingName(r.name); });
       if (matches.size() >= 2)
       {
         link.unresolved = true;
-        link.note = candidatesNote(m_catalog, matches);
-        if (!m_catalog->addLink(link, error))
+        link.note = catInvoke([&] { return candidatesNote(m_catalog, matches); });
+        if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
           return fail(*error);
         continue;
       }
@@ -423,8 +429,9 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
       {
         wid = QStringLiteral("well-%1").arg(r.name);
         // id 被别的规范化名占用（罕见）→ 让位于序号 id。
-        if (m_catalog->hasEntity(wid))
-          wid = m_catalog->nextEntityId(QStringLiteral("well"));
+        if (catInvoke([&] { return m_catalog->hasEntity(wid); }))
+          wid = catInvoke(
+              [&] { return m_catalog->nextEntityId(QStringLiteral("well")); });
         CatalogEntity w;
         w.id = wid;
         w.entityType = QStringLiteral("well");
@@ -436,12 +443,12 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
         w.td = r.td;
         // 局部测网坐标：真投影参数出现前保持未变换（plan §3）。
         w.coordinateStatus = QStringLiteral("untransformed");
-        if (!m_catalog->addEntity(w, error))
+        if (!catInvoke([&] { return m_catalog->addEntity(w, error); }))
           return fail(*error);
       }
       link.entityId = wid;
       link.isPrimary = true;
-      if (!m_catalog->addLink(link, error))
+      if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
         return fail(*error);
     }
   }
@@ -480,10 +487,12 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
     {
       link.unresolved = true;
       link.note = bind.candidates.size() >= 2
-                      ? candidatesNote(m_catalog, bind.candidates)
+                      ? catInvoke([&] {
+                          return candidatesNote(m_catalog, bind.candidates);
+                        })
                       : unmatchedNameNote(tried);
     }
-    if (!m_catalog->addLink(link, error))
+    if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
       return fail(*error);
   }
   else if (cls.type == QLatin1String("well_stratification") ||
@@ -539,10 +548,12 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
       {
         link.unresolved = true;
         link.note = bind.candidates.size() >= 2
-                        ? candidatesNote(m_catalog, bind.candidates)
+                        ? catInvoke([&] {
+                            return candidatesNote(m_catalog, bind.candidates);
+                          })
                         : unmatchedNameNote(tried);
       }
-      if (!m_catalog->addLink(link, error))
+      if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
         return fail(*error);
     }
   }
@@ -550,7 +561,7 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
   {
     const bool known = isKnownSequenceBoundary(stem);
     const QString sbId = QStringLiteral("sb-%1").arg(stem.toUpper());
-    if (!m_catalog->hasEntity(sbId))
+    if (!catInvoke([&] { return m_catalog->hasEntity(sbId); }))
     {
       CatalogEntity sb;
       sb.id = sbId;
@@ -558,7 +569,7 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
       sb.name = stem.toUpper();
       if (!known)
         sb.extra.insert(QStringLiteral("pending"), true); // 未决层位，不进编图 chip
-      if (!m_catalog->addEntity(sb, error))
+      if (!catInvoke([&] { return m_catalog->addEntity(sb, error); }))
         return fail(*error);
     }
     EntityAssetLink link;
@@ -568,7 +579,7 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
     link.role = QStringLiteral("horizon");
     link.isPrimary = true;
     link.unresolved = !known;
-    if (!m_catalog->addLink(link, error))
+    if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
       return fail(*error);
 
     // 已知界面：装箱派生时间栅格（DERIVED，父版本=RAW）并登记图层清单。
@@ -581,7 +592,8 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
       if (!binHorizon(f.readAll(), &binned, error))
         return fail(*error);
 
-      const QString derivedVersionId = m_catalog->nextVersionId();
+      const QString derivedVersionId =
+          catInvoke([&] { return m_catalog->nextVersionId(); });
       const QString tifName = stem.toUpper() + QStringLiteral(".tif");
       const QString derivedRel = DataCatalog::managedPath(QStringLiteral("derived"), assetId,
                                                           derivedVersionId, tifName);
@@ -612,7 +624,7 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
       derived.extra.insert(QStringLiteral("z_min"), binned.zMin);
       derived.extra.insert(QStringLiteral("z_max"), binned.zMax);
       derived.extra.insert(QStringLiteral("filled_cells"), binned.filledCells);
-      if (!m_catalog->addVersion(derived, error))
+      if (!catInvoke([&] { return m_catalog->addVersion(derived, error); }))
         return fail(*error);
 
       // 图层清单只登记要画的结果（§2）：北向上时间栅格 + 局部测网 CRS。
@@ -623,7 +635,8 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
       decl.source = tifPath;
       decl.group = QStringLiteral("00_Data");
       QString derr;
-      if (!m_layers->declare(decl, &derr))
+      // declare 写 layer manifest（sqlite）——marshal 回 GUI 线程执行。
+      if (!catInvoke([&] { return m_layers->declare(decl, &derr); }))
         return fail(derr.isEmpty() ? QStringLiteral("manifest declare failed") : derr);
       manifestLayerId = decl.layerId;
     }
@@ -637,7 +650,7 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
       return fail(serr);
     const SegyGeometry g = reader.geometry();
     const QString surveyId = QStringLiteral("survey-%1").arg(stem);
-    if (!m_catalog->hasEntity(surveyId))
+    if (!catInvoke([&] { return m_catalog->hasEntity(surveyId); }))
     {
       CatalogEntity s;
       s.id = surveyId;
@@ -651,7 +664,7 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
       s.startTimeMs = g.startTimeMs;
       for (int i = 0; i < 4; ++i)
         s.corners.append({g.cornerX[i], g.cornerY[i]});
-      if (!m_catalog->addEntity(s, error))
+      if (!catInvoke([&] { return m_catalog->addEntity(s, error); }))
         return fail(*error);
     }
     EntityAssetLink link;
@@ -660,13 +673,14 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
     link.assetId = assetId;
     link.role = QStringLiteral("seismic_volume");
     link.isPrimary = true;
-    if (!m_catalog->addLink(link, error))
+    if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
       return fail(*error);
   }
   else
   {
     // document / image_reference / geojson / unknown / 参考资料 XML：辅助实体 + reference。
-    const QString auxId = m_catalog->nextEntityId(QStringLiteral("aux"));
+    const QString auxId =
+        catInvoke([&] { return m_catalog->nextEntityId(QStringLiteral("aux")); });
     CatalogEntity aux;
     aux.id = auxId;
     aux.entityType = QStringLiteral("auxiliary");
@@ -698,7 +712,7 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
         aux.extra.insert(QStringLiteral("legend"), legend);
       }
     }
-    if (!m_catalog->addEntity(aux, error))
+    if (!catInvoke([&] { return m_catalog->addEntity(aux, error); }))
       return fail(*error);
     EntityAssetLink link;
     link.entityType = QStringLiteral("auxiliary");
@@ -706,7 +720,7 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
     link.assetId = assetId;
     link.role = auxRefRole;
     link.isPrimary = true;
-    if (!m_catalog->addLink(link, error))
+    if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
       return fail(*error);
   }
 
@@ -912,12 +926,14 @@ DataImportService::previewFolder(const QString &dirPath, QString *error)
 QVector<DataImportService::FolderRowResult>
 DataImportService::importFolder(const QString &dirPath, QString *error)
 {
-  return importFolder(dirPath, error, QMap<QString, QString>{});
+  return importFolder(dirPath, error, QMap<QString, QString>{}, {});
 }
 
 QVector<DataImportService::FolderRowResult>
-DataImportService::importFolder(const QString &dirPath, QString *error,
-                                const QMap<QString, QString> &typeOverrides)
+DataImportService::importFolder(
+    const QString &dirPath, QString *error,
+    const QMap<QString, QString> &typeOverrides,
+    const std::function<bool(int, int, const QString &)> &progress)
 {
   QVector<FolderRowResult> rows;
   if (error)
@@ -945,8 +961,13 @@ DataImportService::importFolder(const QString &dirPath, QString *error,
   // T33/audit row 37：整个文件夹导入并成一个落盘批次——每行 ~5 次全量
   // JSON 序列化收敛成一次 save() + 一次 changed()；中途崩溃不留
   // 「资产已落盘、链接没落盘」的半截 catalog。
-  DataCatalog::BatchSave batch(m_catalog);
+  // BatchSave 的 RAII 摸 catalog 私有态——构造/析构都 marshal 回 GUI 线程；
+  // 期间的逐行 catalog 操作经 catInvoke 排队执行，save() 被批次挂起不变。
+  auto *batch =
+      catInvoke([&] { return new DataCatalog::BatchSave(m_catalog); });
 
+  bool cancelled = false;
+  int doneCount = 0;
   for (const FolderCand &c : ordered)
   {
     // T33 符号链接 TOCTOU 终验：真正读字节的是 importProjectFileEx 里的
@@ -961,10 +982,16 @@ DataImportService::importFolder(const QString &dirPath, QString *error,
       row.outcome = FolderRowResult::Outcome::Skipped;
       row.message = QStringLiteral( "文件在导入前已变化（符号链接改指向或不再是普通文件），已跳过" );
       rows.append( row );
-      continue;
     }
-    rows.append(folderRowFor(c.path, c.classifiedType,
-                             effectiveFolderType(c, typeOverrides)));
+    else
+      rows.append(folderRowFor(c.path, c.classifiedType,
+                               effectiveFolderType(c, typeOverrides)));
+    ++doneCount;
+    if (progress && !progress(doneCount, static_cast<int>(ordered.size()), c.path))
+    {
+      cancelled = true;
+      break; // 协作取消：已处理的行保留，未处理的不再动
+    }
   }
 
   std::sort(skipped.begin(), skipped.end(),
@@ -973,14 +1000,21 @@ DataImportService::importFolder(const QString &dirPath, QString *error,
             });
   rows += skipped;
 
-  // 批次结算：落盘失败如实写 error（行里的 Imported 结局不变——内存态
-  // 已是入库态；磁盘没写成功要 surfaced，不能静默）。
+  // 批次结算：析构即 flush——marshal 回 GUI 线程销毁（落盘失败如实写 error；
+  // 行里的 Imported 结局不变——内存态已是入库态，磁盘没写成功要 surfaced）。
   QString berr;
-  if (!batch.flush(&berr))
+  const bool flushed = catInvoke([&] {
+    const bool ok = batch->flush(&berr);
+    delete batch;
+    return ok;
+  });
+  if (!flushed)
   {
     qWarning("importFolder: catalog batch save failed: %s", qPrintable(berr));
     setError(error, berr.isEmpty() ? QStringLiteral("catalog batch save failed") : berr);
   }
+  if (cancelled)
+    setError(error, QStringLiteral("已取消（已入库的行保留）"));
   return rows;
 }
 
@@ -1015,20 +1049,22 @@ DataImportService::folderRowFor(const QString &path, const QString &classifiedTy
   QStringList names;
   QStringList notes;
   int resolved = 0;
-  for (const EntityAssetLink &l : m_catalog->linksForAsset(res.assetId))
-  {
-    if (l.unresolved)
+  catInvoke([&] {
+    for (const EntityAssetLink &l : m_catalog->linksForAsset(res.assetId))
     {
-      if (!l.note.isEmpty() && !notes.contains(l.note))
-        notes.append(l.note);
-      continue;
+      if (l.unresolved)
+      {
+        if (!l.note.isEmpty() && !notes.contains(l.note))
+          notes.append(l.note);
+        continue;
+      }
+      ++resolved;
+      const CatalogEntity e = m_catalog->entityById(l.entityId);
+      const QString n = e.name.isEmpty() ? l.entityId : e.name;
+      if (!n.isEmpty() && !names.contains(n))
+        names.append(n);
     }
-    ++resolved;
-    const CatalogEntity e = m_catalog->entityById(l.entityId);
-    const QString n = e.name.isEmpty() ? l.entityId : e.name;
-    if (!n.isEmpty() && !names.contains(n))
-      names.append(n);
-  }
+  });
   row.entityName = names.join(QStringLiteral(", "));
   row.outcome = res.outcome == ImportOutcome::Imported && resolved == 0
                     ? FolderRowResult::Outcome::Unresolved

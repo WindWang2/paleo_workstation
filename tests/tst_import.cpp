@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QSignalSpy>
+#include <QThreadPool>
 
 #include <algorithm>
 #if defined(Q_OS_UNIX)
@@ -1095,6 +1096,82 @@ private slots:
   }
 
   // 文件夹入口的目录级失败：不存在/是文件/空目录/选中了工程目录自身。
+  // D1b/D2：importFolder 整个在 worker 线程执行——catalog 读写经 catInvoke
+  // marshal 回 GUI 线程；progress 回调按行推进 + 返回 false 协作取消。
+  // 主线程跑事件泵（与 PaleoTaskService 的生产形态一致）才有 marshal 通路。
+  void folderImportFromWorkerThreadMarshalsCatalog()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString root = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("0A1.Las")), QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+    QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井位/heads.dat")),
+        QByteArrayLiteral("#WellHead File From SMI\n"
+                          "#Name      X     Y     KB    TotalDepth\n"
+                          "A1           1.0   2.0   0.0   2000.0\n"
+                          "B2           3.0   4.0   0.0   2100.0\n")));
+
+    const auto runOnWorker =
+        [&](const std::function<bool(int, int, const QString &)> &progress)
+        -> std::tuple<QVector<DataImportService::FolderRowResult>, QString, bool> {
+      QVector<DataImportService::FolderRowResult> rows;
+      QString err;
+      std::atomic_bool finished{false};
+      QThreadPool::globalInstance()->start([&] {
+        rows = svc.importFolder(root, &err, QMap<QString, QString>{}, progress);
+        finished = true;
+      });
+      QElapsedTimer clock;
+      clock.start();
+      while (!finished && clock.elapsed() < 60000)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+      return {rows, err, finished.load()};
+    };
+
+    // 全量：两行都入库，progress 递增到 total，实体在 GUI 线程建成。
+    QVector<int> progressSeen;
+    QVector<int> totalsSeen;
+    auto [rows, err, done1] = runOnWorker(
+        [&](int done, int total, const QString &) {
+          progressSeen.append(done);
+          totalsSeen.append(total);
+          return true;
+        });
+    QVERIFY2(done1, "worker importFolder did not finish (marshal deadlock?)");
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(totalsSeen, QVector<int>({2, 2}));
+    QCOMPARE(rows.size(), 2);
+    QCOMPARE(progressSeen, QVector<int>({1, 2}));
+    using Outcome = DataImportService::FolderRowResult::Outcome;
+    for (const auto &r : rows)
+      QCOMPARE(r.outcome, Outcome::Imported);
+    DataCatalog *cat = svc.catalog();
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2); // A1 + B2
+    // LAS 行挂到 A1（井口先行建实体的两阶段语义在 worker 线程同样成立）。
+    const auto lasRow = std::find_if(rows.begin(), rows.end(), [](const auto &r) {
+      return r.path.endsWith(QLatin1String("0A1.Las"));
+    });
+    QVERIFY(lasRow != rows.end());
+    QCOMPARE(lasRow->entityName, QStringLiteral("A1"));
+
+    // 协作取消：首行回调返回 false 即中止——已处理的行保留，err 记「已取消」。
+    int calls = 0;
+    auto [rows2, err2, done2] = runOnWorker(
+        [&](int, int, const QString &) { ++calls; return false; });
+    QVERIFY2(done2, "cancel run did not finish");
+    QCOMPARE(calls, 1);
+    QCOMPARE(rows2.size(), 1); // dedup 行（AlreadyStored→Imported 口径）仍在结果里
+    QVERIFY(err2.contains(QStringLiteral("已取消")));
+  }
+
   void folderImportRejectsBadRoots()
   {
     QTemporaryDir tmp;

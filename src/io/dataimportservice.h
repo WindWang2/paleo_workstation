@@ -7,13 +7,16 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <functional>
+#include <type_traits>
+#include <utility>
+#include <QMetaObject>
+#include <QThread>
+#include "../catalog/datacatalog.h" // catInvoke 模板需完整类型（thread()/invokeMethod）
 
 class QgisLayerService;
 class PaleoProjectStore;
-class DataCatalog;
 class QProcess;
-struct CatalogAsset;
-struct CatalogVersion;
 
 // io/ — DataImportService 按 project_area 数据契约（docs/PROJECT_AREA_PLAN.md §3）
 // 导入外部文件：分类 → 解析元数据 → 解析/创建实体 → 受管 RAW 复制（边复制边算
@@ -84,8 +87,14 @@ class DataImportService : public QObject
     // typeOverrides：确认表里用户改过类型的行——key 是源路径，value 是目标类型。
     // 只认分类器词表内的类型（projectClassifierTypes()）；非法值忽略，行按
     // 分类器原类型处理。阶段划分按生效类型算——改成 well_head 的行回阶段 1（D5）。
-    QVector<FolderRowResult> importFolder(const QString &dirPath, QString *error,
-                                          const QMap<QString, QString> &typeOverrides);
+    // progress（可选）：每处理完一行回调一次 (done, total, 该行路径)——在
+    // 执行线程上直调；返回 false = 协作取消（返回已处理的行 + error 记
+    // 「已取消」）。异步调用方把它接 PaleoTask::reportBytes + cancelRequested。
+    QVector<FolderRowResult> importFolder(
+        const QString &dirPath, QString *error,
+        const QMap<QString, QString> &typeOverrides,
+        const std::function<bool(int done, int total, const QString &path)> &progress =
+            {});
 
     // 单行重导（确认表「重试」）：forceType 口径同 typeOverrides 的单值
     // （空=按分类器；非法值忽略）。返回与 importFolder 相同口径的行结果；
@@ -142,6 +151,36 @@ class DataImportService : public QObject
     void documentPdfFailed(const QString &assetId, const QString &error);
 
   private:
+    // 线程规则（D1b/D1c 异步导入）：import* 系列可在 worker 线程执行——内部
+    // 对 catalog 的每一次读写经 catInvoke marshal 回 catalog 所在线程（GUI）。
+    // GUI 线程调用 = 直调零成本；worker 线程 = BlockingQueuedConnection 排队
+    // 执行并等结果。catalog 因此永远只被它自己的线程触碰——GUI 侧其他调用点
+    // 不用改。对 m_layers（同在 GUI 线程）的 declare 也走它。
+    template <typename Fn> auto catInvoke(Fn &&fn) const
+    {
+      using R = std::invoke_result_t<Fn>;
+      if (QThread::currentThread() == m_catalog->thread())
+      {
+        if constexpr (std::is_void_v<R>)
+        {
+          fn();
+          return;
+        }
+        else
+          return fn();
+      }
+      if constexpr (std::is_void_v<R>)
+        QMetaObject::invokeMethod(m_catalog, std::forward<Fn>(fn),
+                                  Qt::BlockingQueuedConnection);
+      else
+      {
+        R result{};
+        QMetaObject::invokeMethod(m_catalog, [&result, &fn] { result = fn(); },
+                                  Qt::BlockingQueuedConnection);
+        return result;
+      }
+    }
+
     struct WellBind
     {
       QString entityId;   // 恰好一个匹配

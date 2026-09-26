@@ -12,9 +12,15 @@
 
 #include <QComboBox>
 #include <QDebug>
+#include <QDir>
 #include <QDoubleSpinBox>
+#include <QFile>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -113,6 +119,143 @@ namespace
       return PaleoTheme::CapsuleKind::Warning;
     return PaleoTheme::CapsuleKind::Neutral; // 未计算
   }
+
+  // ---- T28：链接身份寻址 + undo 库 -----------------------------------------
+  // 动作（挂接/撤销/设为主版本）按 (assetId, role[, entityId]) 链接身份在
+  // 点击时刻重扫 links()，不用刷新时捕获的行下标——open() 重建或任何
+  // 中途变更后仍命中同一条链接。
+  int indexOfLink(DataCatalog *cat, const QString &assetId, const QString &role,
+                  const QString &entityId)
+  {
+    const QVector<EntityAssetLink> ls = cat->links();
+    for (int i = 0; i < ls.size(); ++i)
+    {
+      const EntityAssetLink &l = ls.at(i);
+      if (l.assetId != assetId || l.role != role)
+        continue;
+      if (entityId.isEmpty())
+      {
+        if (l.unresolved)
+          return i; // 未决链接：entityId 空
+      }
+      else if (!l.unresolved && l.entityId == entityId)
+        return i;
+    }
+    return -1;
+  }
+
+  // undo 记录：attach 时落档，撤销时消费。跨 open() 持久（随工程的
+  // sidecar .paleo/undo_stack.json——catalog 无 note 写回 API（A 包接缝），
+  // note 在 UI 层保管：撤销后未决徽标 tooltip 从 note 记忆恢复显示）。
+  struct UndoRecord
+  {
+    QString assetId, entityId, role, entityType, note;
+    // 被 attach 降级的前主关联（D4：撤销恢复降级 primary）；空 = 没有。
+    QString demotedAssetId, demotedEntityId, demotedRole, demotedEntityType;
+    bool isValid() const
+    {
+      return !assetId.isEmpty() && !entityId.isEmpty() && !role.isEmpty();
+    }
+  };
+
+  QString undoVaultPath(DataCatalog *cat)
+  {
+    const QString cp = cat ? cat->catalogPath() : QString();
+    if (cp.isEmpty() || !cat->isOpen())
+      return QString();
+    // catalog 在 <projectDir>/artifacts/metadata/ → 退两级到工程目录。
+    const QString projectDir = QFileInfo(QFileInfo(cp).dir().absolutePath())
+                                   .dir()
+                                   .absolutePath();
+    return QDir(projectDir).filePath(QStringLiteral(".paleo/undo_stack.json"));
+  }
+
+  // 副作用清洗：attach 的目标链接已不在（被外部改掉/新会话没有这条挂接）
+  // → 记录作废剔除；note 记忆只留仍未决链接能用的。
+  QVector<UndoRecord> loadUndoVault(DataCatalog *cat, QHash<QString, QString> *notesOut)
+  {
+    QVector<UndoRecord> records;
+    const QString path = undoVaultPath(cat);
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+      return records;
+    const QJsonObject root =
+        QJsonDocument::fromJson(f.readAll()).object();
+    for (const QJsonValue &v : root.value(QStringLiteral("undo")).toArray())
+    {
+      const QJsonObject o = v.toObject();
+      UndoRecord r;
+      r.assetId = o.value(QStringLiteral("asset_id")).toString();
+      r.entityId = o.value(QStringLiteral("entity_id")).toString();
+      r.role = o.value(QStringLiteral("role")).toString();
+      r.entityType = o.value(QStringLiteral("entity_type")).toString();
+      r.note = o.value(QStringLiteral("note")).toString();
+      const QJsonObject d = o.value(QStringLiteral("demoted")).toObject();
+      r.demotedAssetId = d.value(QStringLiteral("asset_id")).toString();
+      r.demotedEntityId = d.value(QStringLiteral("entity_id")).toString();
+      r.demotedRole = d.value(QStringLiteral("role")).toString();
+      r.demotedEntityType = d.value(QStringLiteral("entity_type")).toString();
+      if (r.isValid() && indexOfLink(cat, r.assetId, r.role, r.entityId) >= 0)
+        records.append(r); // 链接仍在（已决到同一实体）→ 撤销入口有效
+    }
+    if (notesOut)
+      for (const QJsonValue &v : root.value(QStringLiteral("notes")).toArray())
+      {
+        const QJsonObject o = v.toObject();
+        const QString key = o.value(QStringLiteral("asset_id")).toString() +
+                            QLatin1Char('|') + o.value(QStringLiteral("role")).toString();
+        notesOut->insert(key, o.value(QStringLiteral("note")).toString());
+      }
+    return records;
+  }
+
+  void saveUndoVault(DataCatalog *cat, const QVector<UndoRecord> &records,
+                     const QHash<QString, QString> &notes)
+  {
+    const QString path = undoVaultPath(cat);
+    if (path.isEmpty())
+      return;
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QJsonObject root;
+    QJsonArray arr;
+    for (const UndoRecord &r : records)
+    {
+      QJsonObject o;
+      o.insert(QStringLiteral("asset_id"), r.assetId);
+      o.insert(QStringLiteral("entity_id"), r.entityId);
+      o.insert(QStringLiteral("role"), r.role);
+      o.insert(QStringLiteral("entity_type"), r.entityType);
+      o.insert(QStringLiteral("note"), r.note);
+      if (!r.demotedAssetId.isEmpty())
+      {
+        QJsonObject d;
+        d.insert(QStringLiteral("asset_id"), r.demotedAssetId);
+        d.insert(QStringLiteral("entity_id"), r.demotedEntityId);
+        d.insert(QStringLiteral("role"), r.demotedRole);
+        d.insert(QStringLiteral("entity_type"), r.demotedEntityType);
+        o.insert(QStringLiteral("demoted"), d);
+      }
+      arr.append(o);
+    }
+    root.insert(QStringLiteral("undo"), arr);
+    QJsonArray noteArr;
+    for (auto it = notes.constBegin(); it != notes.constEnd(); ++it)
+    {
+      const int sep = it.key().indexOf(QLatin1Char('|'));
+      QJsonObject o;
+      o.insert(QStringLiteral("asset_id"), it.key().left(sep));
+      o.insert(QStringLiteral("role"), it.key().mid(sep + 1));
+      o.insert(QStringLiteral("note"), it.value());
+      noteArr.append(o);
+    }
+    root.insert(QStringLiteral("notes"), noteArr);
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly))
+      f.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    // 写失败只在日志说明——undo 是增强面，不阻塞挂接本身。
+    else
+      qWarning() << "DataPage undo vault write failed:" << path;
+  }
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -199,10 +342,14 @@ void DataPage::refreshAssetTable()
     return;
   DataCatalog *cat = svc->catalog();
   const QVector<EntityAssetLink> allLinks = cat->links();
-  // 本会话从本页手动挂上的链接 {asset_id, entity_id, role} —— 撤销入口只认
-  // 这些（不碰导入期就已决的链接）。
-  const QVariantList sessionAttach =
-      property("paleo.page.sessionAttach").toList();
+  // T28 undo 库：attach 落档（含被降级的前主关联 + 挂前 note），撤销消费；
+  // note 记忆独立长存（撤销后未决徽标 tooltip 从这里恢复——catalog 无 note
+  // 写回 API，A 包接缝，UI 层保管）。随工程 sidecar 持久，跨 open() 存活。
+  QHash<QString, QString> noteMemory;
+  QVector<UndoRecord> undoRecords = loadUndoVault(cat, &noteMemory);
+  // 确认条存活（T28）：changed() 刷新重建表时，未决的确认状态从这恢复。
+  const QVariantMap pendingConfirm =
+      property("paleo.page.pendingConfirm").toMap();
 
   // Qt 清行不删单元格控件（setRowCount(0)/removeCellWidget 都只摘不删，
   // 控件会活成表内孤儿）——摘出父子树再 deleteLater：刷新可能正被这行
@@ -248,10 +395,10 @@ void DataPage::refreshAssetTable()
     QStringList parts;    // item 文本（控件行也保留，便于检索与断言）
     QStringList resolved; // 控件行回显的实体名/「参考」
     QStringList notes;    // 未决备注（徽标 tooltip：候选名在这里）
-    int unresolvedIdx = -1; // links() 序：本资产第一条未决链接
-    int undoableIdx = -1;   // links() 序：本会话挂上、可撤销的那条
-    QString undoableTarget; // 撤销按钮 tooltip 的实体名
-    int promotableIdx = -1; // links() 序：已决非主链接（「设为主版本」）
+    // 身份而非下标（T28）：动作在点击时刻按这些键重扫 links()。
+    QString unresolvedRole, unresolvedEntityType; // 本资产第一条未决链接的身份
+    const UndoRecord *undoRecord = nullptr;       // 本资产可撤销的挂接记录
+    QString promotableRole, promotableEntityId;   // 已决非主链接（「设为主版本」）
     for (int i = 0; i < allLinks.size(); ++i)
     {
       const EntityAssetLink &l = allLinks.at(i);
@@ -259,8 +406,11 @@ void DataPage::refreshAssetTable()
         continue;
       if (l.unresolved)
       {
-        if (unresolvedIdx < 0)
-          unresolvedIdx = i;
+        if (unresolvedRole.isEmpty())
+        {
+          unresolvedRole = l.role;
+          unresolvedEntityType = l.entityType;
+        }
         if (!parts.contains(QStringLiteral("未决")))
           parts << tr("未决");
         if (!l.note.isEmpty())
@@ -283,29 +433,25 @@ void DataPage::refreshAssetTable()
         parts << nm;
         resolved << nm;
       }
-      if (!l.isPrimary && promotableIdx < 0)
-        promotableIdx = i;
-      if (undoableIdx < 0)
-        for (const QVariant &pv : sessionAttach)
-        {
-          const QVariantMap m = pv.toMap();
-          if (m.value(QStringLiteral("asset_id")).toString() == l.assetId &&
-              m.value(QStringLiteral("entity_id")).toString() == l.entityId &&
-              m.value(QStringLiteral("role")).toString() == l.role)
-          {
-            undoableIdx = i;
-            undoableTarget = nm;
-            break;
-          }
-        }
+      if (!l.isPrimary && promotableRole.isEmpty())
+      {
+        promotableRole = l.role;
+        promotableEntityId = l.entityId;
+      }
     }
+    for (const UndoRecord &rec : undoRecords)
+      if (rec.assetId == a.id)
+      {
+        undoRecord = &rec;
+        break;
+      }
 
     auto *assoc = new QTableWidgetItem(parts.join(QStringLiteral("、")));
     if (!notes.isEmpty())
       assoc->setToolTip(notes.join(QStringLiteral("\n")));
     table->setItem(r, 2, assoc);
 
-    if (unresolvedIdx < 0 && undoableIdx < 0 && promotableIdx < 0)
+    if (unresolvedRole.isEmpty() && !undoRecord && promotableRole.isEmpty())
       continue; // 纯已决文本行——不需要单元格控件
 
     // 控件单元格：[已决名…] [未决徽标+实体下拉+挂接] [撤销] [设为主版本]。
@@ -324,25 +470,33 @@ void DataPage::refreshAssetTable()
       bl->addWidget(names);
     }
 
-    if (unresolvedIdx >= 0)
+    if (!unresolvedRole.isEmpty())
     {
-      const EntityAssetLink link = allLinks.at(unresolvedIdx);
+      const QString noteKey = a.id + QLatin1Char('|') + unresolvedRole;
+      const QString badgeNote = [cat, &noteMemory, &noteKey]() {
+        for (const EntityAssetLink &l : cat->linksForAsset(
+                 noteKey.section(QLatin1Char('|'), 0, 0)))
+          if (l.role == noteKey.section(QLatin1Char('|'), 1) && l.unresolved &&
+              !l.note.isEmpty())
+            return l.note; // catalog 里的 note 优先
+        return noteMemory.value(noteKey, QString()); // T28：撤销后从记忆恢复
+      }();
       auto *badge = new QLabel(tr("未决"), browse);
       badge->setObjectName(QStringLiteral("unresolvedBadge"));
       // §4 未决徽标：bg #FFF4E0 / text #24303E / border #F29900（DESIGN.md）。
       badge->setStyleSheet(QStringLiteral(
           "background: #FFF4E0; color: #24303E; border: 1px solid #F29900;"
           "border-radius: 3px; padding: 0 6px;"));
-      badge->setToolTip(link.note.isEmpty() ? tr("未决关联") : link.note);
+      badge->setToolTip(badgeNote.isEmpty() ? tr("未决关联") : badgeNote);
       bl->addWidget(badge);
 
       // 下拉框：全量同类实体（井→全部井实体），默认空（哨兵项）。
       auto *combo = new QComboBox(browse);
       combo->setObjectName(QStringLiteral("resolveEntityCombo"));
       combo->setAccessibleName(tr("挂到实体"));
-      const bool isWell = link.entityType == QLatin1String("well");
+      const bool isWell = unresolvedEntityType == QLatin1String("well");
       combo->addItem(isWell ? tr("（选择井）") : tr("（选择实体）"), QString());
-      for (const CatalogEntity &e : cat->entities(link.entityType))
+      for (const CatalogEntity &e : cat->entities(unresolvedEntityType))
         combo->addItem(e.name.isEmpty() ? e.id : e.name, e.id);
       combo->setCurrentIndex(0);
       combo->setMinimumWidth(72);
@@ -377,90 +531,158 @@ void DataPage::refreshAssetTable()
       stack->addWidget(confirmStrip);
       stack->setCurrentWidget(browse);
 
-      connect(attach, &QPushButton::clicked, this,
-              [stack, confirmStrip, confirmText, combo, displayName = a.displayName]() {
-                if (combo->currentData().toString().isEmpty())
-                  return;
-                confirmText->setText(
-                    tr("把「%1」挂到「%2」？").arg(displayName, combo->currentText()));
-                stack->setCurrentWidget(confirmStrip);
-              });
-      connect(cancel, &QPushButton::clicked, this,
-              [stack, browse]() { stack->setCurrentWidget(browse); });
+      // 确认状态落在页面属性上（T28）：changed() 触发的整表重建会从这里
+      // 恢复确认条——用户不会被一次后台刷新打断。
+      const auto armConfirm = [this, confirmText, stack, confirmStrip, combo,
+                               displayName = a.displayName, assetId = a.id]() {
+        const QString eid = combo->currentData().toString();
+        if (eid.isEmpty())
+          return;
+        const QString ename = combo->currentText();
+        QVariantMap pc;
+        pc.insert(QStringLiteral("asset_id"), assetId);
+        pc.insert(QStringLiteral("entity_id"), eid);
+        pc.insert(QStringLiteral("entity_name"), ename);
+        setProperty("paleo.page.pendingConfirm", pc);
+        confirmText->setText(
+            tr("把「%1」挂到「%2」？").arg(displayName, ename));
+        stack->setCurrentWidget(confirmStrip);
+      };
+      connect(attach, &QPushButton::clicked, this, armConfirm);
+      const auto clearPending = [this]() {
+        setProperty("paleo.page.pendingConfirm", QVariantMap());
+      };
+      connect(cancel, &QPushButton::clicked, this, [this, stack, browse, clearPending]() {
+        clearPending();
+        stack->setCurrentWidget(browse);
+      });
       connect(ok, &QPushButton::clicked, this,
-              [this, cat, assetId = a.id, linkIndex = unresolvedIdx, combo]() {
+              [this, cat, assetId = a.id, role = unresolvedRole, combo, clearPending]() {
+                clearPending();
                 const QString eid = combo->currentData().toString();
-                const QVector<EntityAssetLink> ls = cat->links();
-                if (eid.isEmpty() || linkIndex < 0 || linkIndex >= ls.size())
+                // 身份寻址（T28）：点击时刻重扫——刷新与点击之间 links()
+                // 变过也命中本资产的这条未决链接。
+                const int idx = indexOfLink(cat, assetId, role, QString());
+                if (eid.isEmpty() || idx < 0)
                   return;
-                const QString role = ls.at(linkIndex).role;
+                const QVector<EntityAssetLink> ls = cat->links();
+                const EntityAssetLink link = ls.at(idx);
+                // 被降级的前主关联（撤销时恢复，D4）：同（实体,角色）当前主链。
+                UndoRecord rec;
+                rec.assetId = assetId;
+                rec.entityId = eid;
+                rec.role = role;
+                rec.entityType = link.entityType;
+                rec.note = link.note; // 挂前 note（attachLink 会清）
+                for (int i = 0; i < ls.size(); ++i)
+                  if (i != idx && ls.at(i).isPrimary && !ls.at(i).unresolved &&
+                      ls.at(i).entityType == link.entityType &&
+                      ls.at(i).entityId == eid && ls.at(i).role == role)
+                  {
+                    rec.demotedAssetId = ls.at(i).assetId;
+                    rec.demotedEntityId = ls.at(i).entityId;
+                    rec.demotedRole = ls.at(i).role;
+                    rec.demotedEntityType = ls.at(i).entityType;
+                    break;
+                  }
                 QString err;
-                if (!cat->attachLink(linkIndex, eid, &err))
+                if (!cat->attachLink(idx, eid, &err))
                 {
                   qWarning() << "DataPage attachLink failed:" << err;
                   refreshAssetTable();
                   return;
                 }
-                // 记入会话挂接 —— 刷新后这行给「撤销」。
-                QVariantList sa =
-                    property("paleo.page.sessionAttach").toList();
-                QVariantMap rec;
-                rec.insert(QStringLiteral("asset_id"), assetId);
-                rec.insert(QStringLiteral("entity_id"), eid);
-                rec.insert(QStringLiteral("role"), role);
-                sa.append(rec);
-                setProperty("paleo.page.sessionAttach", sa);
+                // undo 落档 + note 记忆（跨 open() 持久；从盘上状态续写——
+                // 处理器运行时刷新局部早没了）。
+                QHash<QString, QString> notes;
+                QVector<UndoRecord> records = loadUndoVault(cat, &notes);
+                records.append(rec);
+                if (!rec.note.isEmpty())
+                  notes.insert(assetId + QLatin1Char('|') + role, rec.note);
+                saveUndoVault(cat, records, notes);
                 refreshAssetTable();
               });
+
+      // 刷新后恢复确认条（pendingConfirm 仍指向本资产的未决链接）。
+      if (pendingConfirm.value(QStringLiteral("asset_id")).toString() == a.id &&
+          pendingConfirm.value(QStringLiteral("entity_id")).toString().isEmpty() == false)
+      {
+        const QString pendEid =
+            pendingConfirm.value(QStringLiteral("entity_id")).toString();
+        const int comboIdx = combo->findData(pendEid);
+        if (comboIdx >= 0 && indexOfLink(cat, a.id, unresolvedRole, QString()) >= 0)
+        {
+          combo->setCurrentIndex(comboIdx);
+          confirmText->setText(tr("把「%1」挂到「%2」？")
+                                   .arg(a.displayName,
+                                        pendingConfirm.value(QStringLiteral("entity_name"))
+                                            .toString()));
+          stack->setCurrentWidget(confirmStrip);
+        }
+        else
+          clearPending();
+      }
     }
     else
       stack->addWidget(browse);
 
-    if (undoableIdx >= 0)
+    if (undoRecord)
     {
       auto *undo = new QPushButton(tr("撤销"), browse);
       undo->setObjectName(QStringLiteral("undoAttachButton"));
-      if (!undoableTarget.isEmpty())
-        undo->setToolTip(tr("撤回对「%1」的挂接（回到未决）").arg(undoableTarget));
-      connect(undo, &QPushButton::clicked, this, [this, cat, linkIndex = undoableIdx]() {
-        const QVector<EntityAssetLink> ls = cat->links();
-        if (linkIndex < 0 || linkIndex >= ls.size())
-          return;
-        const EntityAssetLink target = ls.at(linkIndex); // 改回未决前先留底
-        QString err;
-        if (!cat->setLinkUnresolved(linkIndex, &err))
-        {
-          qWarning() << "DataPage setLinkUnresolved failed:" << err;
-          refreshAssetTable();
-          return;
-        }
-        QVariantList sa =
-            property("paleo.page.sessionAttach").toList();
-        for (int i = sa.size() - 1; i >= 0; --i)
-        {
-          const QVariantMap m = sa.at(i).toMap();
-          if (m.value(QStringLiteral("asset_id")).toString() == target.assetId &&
-              m.value(QStringLiteral("entity_id")).toString() == target.entityId &&
-              m.value(QStringLiteral("role")).toString() == target.role)
-            sa.removeAt(i);
-        }
-        setProperty("paleo.page.sessionAttach", sa);
-        refreshAssetTable();
-      });
+      const CatalogEntity e = cat->entityById(undoRecord->entityId);
+      const QString target = e.name.isEmpty() ? undoRecord->entityId : e.name;
+      undo->setToolTip(tr("撤回对「%1」的挂接（回到未决）").arg(target));
+      connect(undo, &QPushButton::clicked, this,
+              [this, cat, assetId = undoRecord->assetId, entityId = undoRecord->entityId,
+               role = undoRecord->role, demotedAssetId = undoRecord->demotedAssetId,
+               demotedEntityId = undoRecord->demotedEntityId,
+               demotedRole = undoRecord->demotedRole]() {
+                // 身份寻址（T28）：撤销的是这条挂接，不是某个行号。
+                const int idx = indexOfLink(cat, assetId, role, entityId);
+                QString err;
+                if (idx < 0 || !cat->setLinkUnresolved(idx, &err))
+                {
+                  qWarning() << "DataPage setLinkUnresolved failed:" << err;
+                  refreshAssetTable();
+                  return;
+                }
+                // D4：恢复被降级的前主关联（同井同角色换回旧主链）。
+                if (!demotedAssetId.isEmpty())
+                {
+                  const int pIdx = indexOfLink(cat, demotedAssetId, demotedRole,
+                                               demotedEntityId);
+                  if (pIdx >= 0 && !cat->setLinkPrimary(pIdx, &err))
+                    qWarning() << "DataPage restore demoted primary failed:" << err;
+                }
+                // note 记忆保留（撤销后的未决徽标 tooltip 用），undo 记录消费
+                // （vault 从盘上续读——刷新局部不进处理器）。
+                QHash<QString, QString> notes;
+                QVector<UndoRecord> records = loadUndoVault(cat, &notes);
+                for (int i = 0; i < records.size(); ++i)
+                  if (records.at(i).assetId == assetId &&
+                      records.at(i).entityId == entityId &&
+                      records.at(i).role == role)
+                    records.removeAt(i--);
+                saveUndoVault(cat, records, notes);
+                refreshAssetTable();
+              });
       bl->addWidget(undo);
     }
 
-    if (promotableIdx >= 0)
+    if (!promotableRole.isEmpty())
     {
       // 「将此版本设为主版本」：同（实体,角色）的旧版本资产可拿回主关联——
-      // 只动链接的 isPrimary 标志，不复制版本字节（§4）。
+      // 只动链接的 isPrimary 标志，不复制版本字节（§4）。身份寻址（T28）。
       auto *primary = new QPushButton(tr("设为主版本"), browse);
       primary->setObjectName(QStringLiteral("setPrimaryButton"));
       primary->setToolTip(tr("同角色旧版本 — 把这条关联设为主关联"));
       connect(primary, &QPushButton::clicked, this,
-              [this, cat, linkIndex = promotableIdx]() {
+              [this, cat, assetId = a.id, role = promotableRole,
+               eid = promotableEntityId]() {
+                const int idx = indexOfLink(cat, assetId, role, eid);
                 QString err;
-                if (!cat->setLinkPrimary(linkIndex, &err))
+                if (idx < 0 || !cat->setLinkPrimary(idx, &err))
                   qWarning() << "DataPage setLinkPrimary failed:" << err;
                 refreshAssetTable();
               });

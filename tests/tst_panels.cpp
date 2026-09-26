@@ -258,6 +258,231 @@ class TestPanels : public QObject
       QVERIFY(table->findChild<QPushButton *>(QStringLiteral("setPrimaryButton")));
     }
 
+    // ---- T28：链接身份寻址 + undo 跨 reload 恢复 ----
+
+    // 撤销跨 open() 存活：attach 降级了 ast-1 的主关联并清了 note；新会话
+    // （新 svc + 新 DataPage，同一工程目录）里撤销条仍在，点击后降级的
+    // primary 恢复、note 回到未决徽标（D4）。
+    void dataPage_undoRestoresDemotedPrimaryAndNoteAcrossReload()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      {
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataCatalog *cat = svc.catalog();
+        CatalogEntity well;
+        well.id = QStringLiteral("well-1");
+        well.entityType = QStringLiteral("well");
+        well.name = QStringLiteral("A1");
+        QVERIFY(cat->addEntity(well));
+        for (const char *id : {"ast-1", "ast-2"})
+        {
+          CatalogAsset a;
+          a.id = QString::fromLatin1(id);
+          a.type = QStringLiteral("well_log");
+          a.displayName = a.id + QStringLiteral(".las");
+          QVERIFY(cat->addAsset(a));
+        }
+        EntityAssetLink primary;
+        primary.entityType = QStringLiteral("well");
+        primary.entityId = well.id;
+        primary.assetId = QStringLiteral("ast-1");
+        primary.role = QStringLiteral("well_log");
+        primary.isPrimary = true;
+        QVERIFY(cat->addLink(primary));
+        EntityAssetLink pending = primary;
+        pending.assetId = QStringLiteral("ast-2");
+        pending.entityId.clear();
+        pending.isPrimary = true;
+        pending.unresolved = true;
+        pending.note = QStringLiteral("未匹配井名: Z9");
+        QVERIFY(cat->addLink(pending));
+
+        DataPage page;
+        page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+        page.refreshAssetTable();
+        auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+        QVERIFY(table);
+        auto *combo = table->findChild<QComboBox *>(QStringLiteral("resolveEntityCombo"));
+        auto *attach = table->findChild<QPushButton *>(QStringLiteral("attachLinkButton"));
+        QVERIFY(combo && attach);
+        combo->setCurrentIndex(1); // A1
+        attach->click();
+        table->findChild<QPushButton *>(QStringLiteral("attachConfirmButton"))->click();
+
+        // attach 后：ast-2 成主关联，ast-1 被降级，note 被清（catalog 语义）。
+        const auto links1 = cat->links();
+        QCOMPARE(links1.size(), 2);
+        bool sawAst2Primary = false, sawAst1Demoted = false;
+        for (const EntityAssetLink &l : links1)
+        {
+          if (l.assetId == QLatin1String("ast-2"))
+          {
+            QVERIFY(!l.unresolved);
+            QVERIFY(l.isPrimary);
+            sawAst2Primary = true;
+          }
+          if (l.assetId == QLatin1String("ast-1"))
+          {
+            QVERIFY(!l.isPrimary); // 降级
+            sawAst1Demoted = true;
+          }
+        }
+        QVERIFY(sawAst2Primary && sawAst1Demoted);
+      } // svc 析构——会话状态全部消失
+
+      // 新会话：同工程目录重新打开。撤销入口靠 vault 存活。
+      DataImportService svc2(nullptr, nullptr);
+      svc2.setProjectDir(dir.path());
+      DataCatalog *cat2 = svc2.catalog();
+      DataPage page2;
+      page2.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc2));
+      page2.refreshAssetTable();
+      auto *table2 = page2.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      auto *undo = table2->findChild<QPushButton *>(QStringLiteral("undoAttachButton"));
+      QVERIFY2(undo, "undo entry must survive an open() reload (project-scoped vault)");
+
+      undo->click();
+      bool sawRestoredPrimary = false, sawUnresolved = false;
+      for (const EntityAssetLink &l : cat2->links())
+      {
+        if (l.assetId == QLatin1String("ast-2"))
+        {
+          QVERIFY2(l.unresolved, "undo must return the link to unresolved");
+          sawUnresolved = true;
+        }
+        if (l.assetId == QLatin1String("ast-1"))
+        {
+          QVERIFY2(l.isPrimary, "undo must restore the demoted primary (D4)");
+          sawRestoredPrimary = true;
+        }
+      }
+      QVERIFY(sawUnresolved && sawRestoredPrimary);
+      // note 在 UI 层恢复显示（catalog 无 note 写回 API——A 包接缝）。
+      auto *badge = table2->findChild<QLabel *>(QStringLiteral("unresolvedBadge"));
+      QVERIFY(badge);
+      QCOMPARE(badge->toolTip(), QStringLiteral("未匹配井名: Z9"));
+      // 记录已消费：撤销入口消失。
+      QVERIFY(!table2->findChild<QPushButton *>(QStringLiteral("undoAttachButton")));
+    }
+
+    // 交错变更不串线：刷新建好转钮后，外部挂接另一条链接 + 整表重建，
+    // 本行动作仍按 (assetId, role) 命中自己的链接（T28 身份寻址）。
+    void dataPage_actionsHitOwnLinkAfterInterleavedChanges()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+      for (const char *wid : {"well-1", "well-2"})
+      {
+        CatalogEntity w;
+        w.id = QString::fromLatin1(wid);
+        w.entityType = QStringLiteral("well");
+        w.name = w.id == QLatin1String("well-1") ? QStringLiteral("A1")
+                                                  : QStringLiteral("A2");
+        QVERIFY(cat->addEntity(w));
+      }
+      for (const char *id : {"ast-1", "ast-2"})
+      {
+        CatalogAsset a;
+        a.id = QString::fromLatin1(id);
+        a.type = QStringLiteral("well_log");
+        a.displayName = a.id + QStringLiteral(".las");
+        QVERIFY(cat->addAsset(a));
+        EntityAssetLink l;
+        l.entityType = QStringLiteral("well");
+        l.assetId = a.id;
+        l.role = QStringLiteral("well_log");
+        l.unresolved = true;
+        QVERIFY(cat->addLink(l));
+      }
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      page.refreshAssetTable();
+      auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      QCOMPARE(table->rowCount(), 2);
+
+      // 外部变更（模拟后台 dedup 挂接 ast-1 → A1）+ changed() 式整表重建。
+      QCOMPARE(cat->attachLink(0, QStringLiteral("well-1")), true);
+      page.refreshAssetTable();
+
+      // ast-1 行已决（无控件）；ast-2 行仍可挂——按钮是表里唯一那个。
+      auto *combo = table->findChild<QComboBox *>(QStringLiteral("resolveEntityCombo"));
+      auto *attach = table->findChild<QPushButton *>(QStringLiteral("attachLinkButton"));
+      QVERIFY(combo && attach);
+      combo->setCurrentIndex(combo->findData(QStringLiteral("well-2"))); // A2
+      attach->click();
+      table->findChild<QPushButton *>(QStringLiteral("attachConfirmButton"))->click();
+
+      for (const EntityAssetLink &l : cat->links())
+      {
+        if (l.assetId == QLatin1String("ast-1"))
+        {
+          QCOMPARE(l.entityId, QStringLiteral("well-1")); // 外部挂接不被扰动
+          QVERIFY(l.isPrimary);
+        }
+        if (l.assetId == QLatin1String("ast-2"))
+        {
+          QVERIFY(!l.unresolved);
+          QCOMPARE(l.entityId, QStringLiteral("well-2")); // 命中自己的链接
+          QVERIFY(l.isPrimary);
+        }
+      }
+    }
+
+    // 确认条在 changed() 整表重建后仍存活：待确认状态落在页面属性上，
+    // 重建时恢复同一条确认（文本 + 当前页），确认照常生效。
+    void dataPage_confirmStripSurvivesRefresh()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+      CatalogEntity well;
+      well.id = QStringLiteral("well-1");
+      well.entityType = QStringLiteral("well");
+      well.name = QStringLiteral("A1");
+      QVERIFY(cat->addEntity(well));
+      CatalogAsset a;
+      a.id = QStringLiteral("ast-1");
+      a.type = QStringLiteral("well_log");
+      a.displayName = QStringLiteral("A1.las");
+      QVERIFY(cat->addAsset(a));
+      EntityAssetLink l;
+      l.entityType = QStringLiteral("well");
+      l.assetId = a.id;
+      l.role = QStringLiteral("well_log");
+      l.unresolved = true;
+      QVERIFY(cat->addLink(l));
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      page.refreshAssetTable();
+      auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      auto *combo = table->findChild<QComboBox *>(QStringLiteral("resolveEntityCombo"));
+      combo->setCurrentIndex(1);
+      table->findChild<QPushButton *>(QStringLiteral("attachLinkButton"))->click();
+
+      // changed() → 整表重建（这里直接驱动同一入口）。
+      page.refreshAssetTable();
+      table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      auto *confirmText = table->findChild<QLabel *>(QStringLiteral("attachConfirmText"));
+      QVERIFY2(confirmText && confirmText->isVisibleTo(table),
+               "confirm strip must survive a catalog-changed rebuild");
+      QVERIFY(confirmText->text().contains(QStringLiteral("A1.las")));
+      QVERIFY(confirmText->text().contains(QStringLiteral("A1")));
+
+      // 确认仍生效。
+      table->findChild<QPushButton *>(QStringLiteral("attachConfirmButton"))->click();
+      QVERIFY(!cat->links().at(0).unresolved);
+      QCOMPARE(cat->links().at(0).entityId, QStringLiteral("well-1"));
+    }
+
     // ---- PredictPage ----
     void predictPage_combosAndRun()
     {

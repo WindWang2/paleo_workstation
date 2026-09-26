@@ -3,14 +3,15 @@
 #include "../../ai/onnxpredictionservice.h" // ORT-free header; runtimeAvailable 调用受 PALEO_HAVE_ORT 保护
 #include "../../catalog/datacatalog.h"
 #include "../../io/dataimportservice.h"
-#include "../datapreview/datapreviewtabs.h"
 #include "../../workflow/workflows.h"    // signal names + ValidationWorkflow::validate
 #include "../../qgis/qgislayerservice.h" // declared() — forward-declares Qgs*, none included
 #include "../../metadata/layermanifest.h" // LayerDeclaration fields
 #include "../../domain/types.h"          // ValidationIssue fields
 
 #include <QComboBox>
+#include <QDebug>
 #include <QDoubleSpinBox>
+#include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
@@ -18,6 +19,7 @@
 #include <QPushButton>
 #include <QShowEvent>
 #include <QSpinBox>
+#include <QStackedLayout>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
@@ -123,19 +125,16 @@ DataPage::DataPage(QWidget *parent)
   auto *table = new QTableWidget(0, 3, this);
   table->setObjectName(QStringLiteral("assetTable"));
   table->setAccessibleName(tr("资产列表"));
-  table->setHorizontalHeaderLabels({tr("名称"), tr("类型"), tr("来源")});
+  // §4 预览壳重排：预览移到共享地图下方（不再挂右栏）；第三列由「来源」改为
+  // 「关联」——已决链接写实体名、未决给「未决」徽标+挂接控件、参考资产写「参考」。
+  table->setHorizontalHeaderLabels({tr("名称"), tr("类型"), tr("关联")});
   table->verticalHeader()->setVisible(false);
   table->horizontalHeader()->setStretchLastSection(true);
   refreshAssetEmptyState(table);
   lay->addWidget(table, 1);
 
-  // §4 页内预览标签（普通 QTabWidget，dock 面板样式；只在数据管理页出现）。
-  auto *preview = new DataPreviewTabs(this);
-  preview->setObjectName(QStringLiteral("dataPreview"));
-  lay->addWidget(caption(tr("预览"), this));
-  lay->addWidget(preview, 2);
-
-  // 列表选中一条资产 → 预览标签（重选聚焦语义由 DataPreviewTabs 实现）。
+  // 列表选中一条资产 → 中央预览标签（预览部件由 shell 持有，重选聚焦语义
+  // 由 DataPreviewTabs 实现）。
   connect(table, &QTableWidget::itemSelectionChanged, this, [this, table]() {
     const QList<QTableWidgetItem *> sel = table->selectedItems();
     if (sel.isEmpty())
@@ -154,19 +153,263 @@ void DataPage::refreshAssetTable()
   auto *svc = qobject_cast<DataImportService *>(property("paleo.page.importsvc").value<QObject *>());
   if (!svc)
     return;
-  const QVector<CatalogAsset> assets = svc->catalog()->assets();
+  DataCatalog *cat = svc->catalog();
+  const QVector<EntityAssetLink> allLinks = cat->links();
+  // 本会话从本页手动挂上的链接 {asset_id, entity_id, role} —— 撤销入口只认
+  // 这些（不碰导入期就已决的链接）。
+  const QVariantList sessionAttach =
+      property("paleo.page.sessionAttach").toList();
+
+  // Qt 清行不删单元格控件（setRowCount(0)/removeCellWidget 都只摘不删，
+  // 控件会活成表内孤儿）——摘出父子树再 deleteLater：刷新可能正被这行
+  // 自己的按钮 clicked 触发，同步 delete 会在发件者栈上自杀。
+  for (int r = 0; r < table->rowCount(); ++r)
+    if (QWidget *w = table->cellWidget(r, 2))
+    {
+      table->removeCellWidget(r, 2);
+      w->setParent(nullptr);
+      w->deleteLater();
+    }
   table->setRowCount(0);
-  for (const CatalogAsset &a : assets)
+  for (const CatalogAsset &a : cat->assets())
   {
     const int r = table->rowCount();
     table->insertRow(r);
     auto *nameItem = new QTableWidgetItem(a.displayName);
     nameItem->setData(Qt::UserRole, a.id);
+    // 「来源」并入名称 tooltip：受管相对路径 / 外链绝对路径（§4）。
+    const CatalogVersion v = cat->currentVersion(a.id);
+    if (!v.id.isEmpty())
+      nameItem->setToolTip(v.managed ? tr("受管 %1").arg(v.path)
+                                     : tr("外部链接 %1").arg(v.path));
     table->setItem(r, 0, nameItem);
     table->setItem(r, 1, new QTableWidgetItem(a.type));
-    const CatalogVersion v = svc->catalog()->currentVersion(a.id);
-    table->setItem(r, 2, new QTableWidgetItem(v.managed ? tr("受管")
-                                                        : tr("外部链接 %1").arg(v.path)));
+
+    // ---- 关联列 ----------------------------------------------------------
+    QStringList parts;    // item 文本（控件行也保留，便于检索与断言）
+    QStringList resolved; // 控件行回显的实体名/「参考」
+    QStringList notes;    // 未决备注（徽标 tooltip：候选名在这里）
+    int unresolvedIdx = -1; // links() 序：本资产第一条未决链接
+    int undoableIdx = -1;   // links() 序：本会话挂上、可撤销的那条
+    QString undoableTarget; // 撤销按钮 tooltip 的实体名
+    int promotableIdx = -1; // links() 序：已决非主链接（「设为主版本」）
+    for (int i = 0; i < allLinks.size(); ++i)
+    {
+      const EntityAssetLink &l = allLinks.at(i);
+      if (l.assetId != a.id)
+        continue;
+      if (l.unresolved)
+      {
+        if (unresolvedIdx < 0)
+          unresolvedIdx = i;
+        if (!parts.contains(QStringLiteral("未决")))
+          parts << tr("未决");
+        if (!l.note.isEmpty())
+          notes << l.note;
+        continue;
+      }
+      if (l.role == QLatin1String("reference"))
+      {
+        if (!parts.contains(QStringLiteral("参考")))
+        {
+          parts << tr("参考");
+          resolved << tr("参考");
+        }
+        continue;
+      }
+      const CatalogEntity e = cat->entityById(l.entityId);
+      const QString nm = e.name.isEmpty() ? l.entityId : e.name;
+      if (!nm.isEmpty() && !parts.contains(nm))
+      {
+        parts << nm;
+        resolved << nm;
+      }
+      if (!l.isPrimary && promotableIdx < 0)
+        promotableIdx = i;
+      if (undoableIdx < 0)
+        for (const QVariant &pv : sessionAttach)
+        {
+          const QVariantMap m = pv.toMap();
+          if (m.value(QStringLiteral("asset_id")).toString() == l.assetId &&
+              m.value(QStringLiteral("entity_id")).toString() == l.entityId &&
+              m.value(QStringLiteral("role")).toString() == l.role)
+          {
+            undoableIdx = i;
+            undoableTarget = nm;
+            break;
+          }
+        }
+    }
+
+    auto *assoc = new QTableWidgetItem(parts.join(QStringLiteral("、")));
+    if (!notes.isEmpty())
+      assoc->setToolTip(notes.join(QStringLiteral("\n")));
+    table->setItem(r, 2, assoc);
+
+    if (unresolvedIdx < 0 && undoableIdx < 0 && promotableIdx < 0)
+      continue; // 纯已决文本行——不需要单元格控件
+
+    // 控件单元格：[已决名…] [未决徽标+实体下拉+挂接] [撤销] [设为主版本]。
+    // 「挂到这口井」走页内确认条（同时写出资产名和实体名），不弹模态框。
+    auto *cell = new QWidget(table);
+    auto *stack = new QStackedLayout(cell);
+    stack->setContentsMargins(0, 0, 0, 0);
+    auto *browse = new QWidget(cell);
+    auto *bl = new QHBoxLayout(browse);
+    bl->setContentsMargins(4, 1, 4, 1);
+    bl->setSpacing(4);
+    if (!resolved.isEmpty())
+    {
+      auto *names = new QLabel(resolved.join(QStringLiteral("、")), browse);
+      names->setStyleSheet(QStringLiteral("color: #24303E;"));
+      bl->addWidget(names);
+    }
+
+    if (unresolvedIdx >= 0)
+    {
+      const EntityAssetLink link = allLinks.at(unresolvedIdx);
+      auto *badge = new QLabel(tr("未决"), browse);
+      badge->setObjectName(QStringLiteral("unresolvedBadge"));
+      // §4 未决徽标：bg #FFF4E0 / text #24303E / border #F29900（DESIGN.md）。
+      badge->setStyleSheet(QStringLiteral(
+          "background: #FFF4E0; color: #24303E; border: 1px solid #F29900;"
+          "border-radius: 3px; padding: 0 6px;"));
+      badge->setToolTip(link.note.isEmpty() ? tr("未决关联") : link.note);
+      bl->addWidget(badge);
+
+      // 下拉框：全量同类实体（井→全部井实体），默认空（哨兵项）。
+      auto *combo = new QComboBox(browse);
+      combo->setObjectName(QStringLiteral("resolveEntityCombo"));
+      combo->setAccessibleName(tr("挂到实体"));
+      const bool isWell = link.entityType == QLatin1String("well");
+      combo->addItem(isWell ? tr("（选择井）") : tr("（选择实体）"), QString());
+      for (const CatalogEntity &e : cat->entities(link.entityType))
+        combo->addItem(e.name.isEmpty() ? e.id : e.name, e.id);
+      combo->setCurrentIndex(0);
+      combo->setMinimumWidth(72);
+      bl->addWidget(combo, 1);
+
+      auto *attach = new QPushButton(isWell ? tr("挂到这口井") : tr("挂接关联"), browse);
+      attach->setObjectName(QStringLiteral("attachLinkButton"));
+      attach->setEnabled(false); // 选到实体才放闸
+      if (combo->count() <= 1)
+        attach->setToolTip(tr("工程里还没有可挂的实体"));
+      connect(combo, &QComboBox::currentIndexChanged, attach, [combo, attach](int) {
+        attach->setEnabled(!combo->currentData().toString().isEmpty());
+      });
+      bl->addWidget(attach);
+
+      // 确认条：资产名 + 选中的实体名同时写出（§4），不弹模态对话框。
+      auto *confirmStrip = new QWidget(cell);
+      auto *cf = new QHBoxLayout(confirmStrip);
+      cf->setContentsMargins(4, 1, 4, 1);
+      cf->setSpacing(4);
+      auto *confirmText = new QLabel(confirmStrip);
+      confirmText->setObjectName(QStringLiteral("attachConfirmText"));
+      confirmText->setWordWrap(true);
+      cf->addWidget(confirmText, 1);
+      auto *ok = new QPushButton(tr("确认"), confirmStrip);
+      ok->setObjectName(QStringLiteral("attachConfirmButton"));
+      auto *cancel = new QPushButton(tr("取消"), confirmStrip);
+      cancel->setObjectName(QStringLiteral("attachCancelButton"));
+      cf->addWidget(ok);
+      cf->addWidget(cancel);
+      stack->addWidget(browse);
+      stack->addWidget(confirmStrip);
+      stack->setCurrentWidget(browse);
+
+      connect(attach, &QPushButton::clicked, this,
+              [stack, confirmStrip, confirmText, combo, displayName = a.displayName]() {
+                if (combo->currentData().toString().isEmpty())
+                  return;
+                confirmText->setText(
+                    tr("把「%1」挂到「%2」？").arg(displayName, combo->currentText()));
+                stack->setCurrentWidget(confirmStrip);
+              });
+      connect(cancel, &QPushButton::clicked, this,
+              [stack, browse]() { stack->setCurrentWidget(browse); });
+      connect(ok, &QPushButton::clicked, this,
+              [this, cat, assetId = a.id, linkIndex = unresolvedIdx, combo]() {
+                const QString eid = combo->currentData().toString();
+                const QVector<EntityAssetLink> ls = cat->links();
+                if (eid.isEmpty() || linkIndex < 0 || linkIndex >= ls.size())
+                  return;
+                const QString role = ls.at(linkIndex).role;
+                QString err;
+                if (!cat->attachLink(linkIndex, eid, &err))
+                {
+                  qWarning() << "DataPage attachLink failed:" << err;
+                  refreshAssetTable();
+                  return;
+                }
+                // 记入会话挂接 —— 刷新后这行给「撤销」。
+                QVariantList sa =
+                    property("paleo.page.sessionAttach").toList();
+                QVariantMap rec;
+                rec.insert(QStringLiteral("asset_id"), assetId);
+                rec.insert(QStringLiteral("entity_id"), eid);
+                rec.insert(QStringLiteral("role"), role);
+                sa.append(rec);
+                setProperty("paleo.page.sessionAttach", sa);
+                refreshAssetTable();
+              });
+    }
+    else
+      stack->addWidget(browse);
+
+    if (undoableIdx >= 0)
+    {
+      auto *undo = new QPushButton(tr("撤销"), browse);
+      undo->setObjectName(QStringLiteral("undoAttachButton"));
+      if (!undoableTarget.isEmpty())
+        undo->setToolTip(tr("撤回对「%1」的挂接（回到未决）").arg(undoableTarget));
+      connect(undo, &QPushButton::clicked, this, [this, cat, linkIndex = undoableIdx]() {
+        const QVector<EntityAssetLink> ls = cat->links();
+        if (linkIndex < 0 || linkIndex >= ls.size())
+          return;
+        const EntityAssetLink target = ls.at(linkIndex); // 改回未决前先留底
+        QString err;
+        if (!cat->setLinkUnresolved(linkIndex, &err))
+        {
+          qWarning() << "DataPage setLinkUnresolved failed:" << err;
+          refreshAssetTable();
+          return;
+        }
+        QVariantList sa =
+            property("paleo.page.sessionAttach").toList();
+        for (int i = sa.size() - 1; i >= 0; --i)
+        {
+          const QVariantMap m = sa.at(i).toMap();
+          if (m.value(QStringLiteral("asset_id")).toString() == target.assetId &&
+              m.value(QStringLiteral("entity_id")).toString() == target.entityId &&
+              m.value(QStringLiteral("role")).toString() == target.role)
+            sa.removeAt(i);
+        }
+        setProperty("paleo.page.sessionAttach", sa);
+        refreshAssetTable();
+      });
+      bl->addWidget(undo);
+    }
+
+    if (promotableIdx >= 0)
+    {
+      // 「将此版本设为主版本」：同（实体,角色）的旧版本资产可拿回主关联——
+      // 只动链接的 isPrimary 标志，不复制版本字节（§4）。
+      auto *primary = new QPushButton(tr("设为主版本"), browse);
+      primary->setObjectName(QStringLiteral("setPrimaryButton"));
+      primary->setToolTip(tr("同角色旧版本 — 把这条关联设为主关联"));
+      connect(primary, &QPushButton::clicked, this,
+              [this, cat, linkIndex = promotableIdx]() {
+                QString err;
+                if (!cat->setLinkPrimary(linkIndex, &err))
+                  qWarning() << "DataPage setLinkPrimary failed:" << err;
+                refreshAssetTable();
+              });
+      bl->addWidget(primary);
+    }
+
+    bl->addStretch(1);
+    table->setCellWidget(r, 2, cell);
   }
   refreshAssetEmptyState(table);
 }
@@ -800,6 +1043,38 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
                            first->data(Qt::UserRole + 1).toString(),
                            first->data(Qt::UserRole + 2).toMap());
   });
+
+  // 「在数据页看这条剖面」（预览壳重排）：问题行的载荷里带 inline 测线号
+  // 才可用；点击把整份 payload 原样发给 shell（切数据页+聚焦该测线）。
+  auto *openSection = new QPushButton(tr("在数据页看这条剖面"), this);
+  openSection->setObjectName(QStringLiteral("openSeismicSectionButton"));
+  openSection->setAccessibleName(tr("在数据页看这条剖面"));
+  openSection->setEnabled(false);
+  lay->addWidget(openSection);
+  const auto sectionPayloadAt = [table]() -> QVariantMap {
+    int row = table->currentRow();
+    if (row < 0)
+    {
+      const QList<QTableWidgetItem *> sel = table->selectedItems();
+      if (!sel.isEmpty())
+        row = sel.front()->row();
+    }
+    auto *first = row >= 0 ? table->item(row, 0) : nullptr;
+    return first ? first->data(Qt::UserRole + 2).toMap() : QVariantMap();
+  };
+  const auto hasSection = [](const QVariantMap &p) {
+    return p.value(QStringLiteral("inline"), -1).toInt() >= 0;
+  };
+  connect(table, &QTableWidget::itemSelectionChanged, openSection,
+          [sectionPayloadAt, hasSection, openSection]() {
+            openSection->setEnabled(hasSection(sectionPayloadAt()));
+          });
+  connect(openSection, &QPushButton::clicked, this,
+          [this, sectionPayloadAt, hasSection]() {
+            const QVariantMap p = sectionPayloadAt();
+            if (hasSection(p))
+              emit seismicSectionRequested(p);
+          });
 
   auto *status = new QLabel(this);
   status->setObjectName(QStringLiteral("statusLabel"));

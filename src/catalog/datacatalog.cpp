@@ -8,6 +8,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+#include <cmath>
+
 namespace
 {
   const int kSchemaVersion = 1;
@@ -379,6 +381,51 @@ bool DataCatalog::attachLink(int index, const QString &entityId, QString *error)
   return save(error);
 }
 
+bool DataCatalog::setLinkUnresolved(int index, QString *error)
+{
+  if (index < 0 || index >= m_links.size())
+  {
+    setError(error, QStringLiteral("link index out of range: %1").arg(index));
+    return false;
+  }
+  EntityAssetLink &l = m_links[index];
+  if (l.unresolved)
+  {
+    setError(error, QStringLiteral("link %1 is already unresolved").arg(index));
+    return false;
+  }
+  // 回退未决：实体 id 清空、不再持主关联。资产与被共享的井实体保留（§3）。
+  l.entityId.clear();
+  l.unresolved = true;
+  l.isPrimary = false;
+  l.note.clear();
+  return save(error);
+}
+
+bool DataCatalog::setLinkPrimary(int index, QString *error)
+{
+  if (index < 0 || index >= m_links.size())
+  {
+    setError(error, QStringLiteral("link index out of range: %1").arg(index));
+    return false;
+  }
+  EntityAssetLink &l = m_links[index];
+  if (l.unresolved || l.entityId.isEmpty())
+  {
+    setError(error, QStringLiteral("link %1 is not a resolved link").arg(index));
+    return false;
+  }
+  l.isPrimary = true;
+  // 与 addLink/attachLink 同一不变量：同一 (entityType, entityId, role) 只留
+  // 这一条主关联——同井同角色的旧版本资产降级为非主，不复制字节。
+  for (int i = 0; i < m_links.size(); ++i)
+    if (i != index && m_links[i].isPrimary && !m_links[i].unresolved &&
+        m_links[i].entityType == l.entityType && m_links[i].entityId == l.entityId &&
+        m_links[i].role == l.role)
+      m_links[i].isPrimary = false;
+  return save(error);
+}
+
 CatalogVersion DataCatalog::versionBySha256(const QString &sha256) const
 {
   if (sha256.isEmpty())
@@ -607,4 +654,52 @@ QString DataCatalog::nextEntityId(const QString &prefix)
       max = qMax(max, n);
   }
   return QStringLiteral("%1-%2").arg(prefix).arg(max + 1);
+}
+
+bool DataCatalog::writeWellsGeoJson(const QString &path, QString *error) const
+{
+  // §4 井位图层数据源：只写有 surface 坐标且坐标有限的井；坐标是原始
+  // surface_x/y（局部测网米），真投影参数出现前地图一直读它。
+  QJsonArray feats;
+  for (const CatalogEntity &e : m_entities)
+  {
+    if (e.entityType != QLatin1String("well") || !e.hasSurface)
+      continue;
+    if (!std::isfinite(e.surfaceX) || !std::isfinite(e.surfaceY))
+      continue;
+    QJsonObject props;
+    props.insert(QStringLiteral("id"), e.id);
+    props.insert(QStringLiteral("name"), e.name);
+    props.insert(QStringLiteral("coordinate_status"), e.coordinateStatus);
+    QJsonObject geom;
+    geom.insert(QStringLiteral("type"), QStringLiteral("Point"));
+    geom.insert(QStringLiteral("coordinates"), QJsonArray{e.surfaceX, e.surfaceY});
+    QJsonObject f;
+    f.insert(QStringLiteral("type"), QStringLiteral("Feature"));
+    f.insert(QStringLiteral("properties"), props);
+    f.insert(QStringLiteral("geometry"), geom);
+    feats.append(f);
+  }
+  if (feats.isEmpty())
+    return true; // 没有可定位的井——不写空文件，也不算失败
+
+  QJsonObject root;
+  root.insert(QStringLiteral("type"), QStringLiteral("FeatureCollection"));
+  QJsonObject crsProps;
+  crsProps.insert(QStringLiteral("name"), localGridCrsWkt());
+  QJsonObject crs;
+  crs.insert(QStringLiteral("type"), QStringLiteral("name"));
+  crs.insert(QStringLiteral("properties"), crsProps);
+  root.insert(QStringLiteral("crs"), crs);
+  root.insert(QStringLiteral("features"), feats);
+
+  QDir().mkpath(QFileInfo(path).absolutePath());
+  QFile file(path);
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    setError(error, tr("井点 GeoJSON 写入失败：%1").arg(path));
+    return false;
+  }
+  file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+  return true;
 }

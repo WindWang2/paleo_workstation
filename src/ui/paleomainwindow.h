@@ -11,6 +11,8 @@ class SelectionContext;
 class QTabBar;
 class QDockWidget;
 class QStackedWidget;
+class QSplitter;
+class DataPreviewTabs;
 class PredictionWorkflow;
 class ConstraintWorkflow;
 class CompositionWorkflow;
@@ -79,6 +81,9 @@ class PaleoMainWindow : public QMainWindow
 
   private:
     void buildShell();
+    // 预览分栏（§4 预览壳）：数据页地图在上预览在下；预览空态收成一行
+    // 次级文字，首个标签打开时展开到约三分之一高度。
+    void applyPreviewSplit();
 
     QgisCanvasController *m_canvasCtl;
     QgisProjectService *m_projectSvc;
@@ -91,7 +96,10 @@ class PaleoMainWindow : public QMainWindow
     std::function<void()> m_refreshPublishGate;
 
     QTabBar *m_workflowTabs = nullptr;
-    QStackedWidget *m_centerStack = nullptr;   // page0=startup, page1=canvas
+    QStackedWidget *m_centerStack = nullptr;   // page0=startup, page1=map+preview
+    QSplitter *m_centerSplit = nullptr;        // 地图 / 预览 竖向分栏（§4）
+    DataPreviewTabs *m_previewTabs = nullptr;  // 分栏下格——只在数据管理页可见
+    bool m_previewExpanded = false;            // 首个标签打开后已给过 1/3
     QDockWidget *m_leftDock = nullptr;
     QDockWidget *m_rightDock = nullptr;
     QDockWidget *m_bottomDock = nullptr;

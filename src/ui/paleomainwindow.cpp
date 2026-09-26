@@ -25,7 +25,6 @@
 #include "pages/pagepanels.h"
 #include "constraintdrawcontroller.h"
 #include "correlationpanel.h"
-#include "seismicpreviewpanel.h"
 #include "datapreview/datapreviewtabs.h"
 #include "../catalog/datacatalog.h"
 #include "horizonchipbar.h"
@@ -66,6 +65,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QShortcut>
+#include <QSplitter>
 #include <QToolButton>
 #include <QSettings>
 #include <QStackedLayout>
@@ -227,17 +227,40 @@ void PaleoMainWindow::buildShell()
   topLay->addWidget(chips);
   topLay->addStretch(1);
 
-  // ---- center: startup page stacked under the canvas ----
+  // ---- center: startup page stacked under the map+preview workspace ----
   m_centerStack = new QStackedWidget(this);
   m_centerStack->setObjectName(QStringLiteral("centerStack"));
 
   QWidget *startup = makeStartupPage();
   m_centerStack->addWidget(startup); // index 0
 
+  // §4 预览壳重排：工作区是竖向 QSplitter——共享地图在上、数据预览在下
+  // （预览只在数据管理页可见；空态收成一行次级文字，用户可拖分栏）。
+  auto *workspace = new QWidget(m_centerStack);
+  auto *wsLay = new QVBoxLayout(workspace);
+  wsLay->setContentsMargins(0, 0, 0, 0);
+  wsLay->setSpacing(0);
+  m_centerSplit = new QSplitter(Qt::Vertical, workspace);
+  m_centerSplit->setObjectName(QStringLiteral("mapPreviewSplit"));
+  m_centerSplit->setChildrenCollapsible(false);
   if (m_canvasCtl)
-    m_centerStack->addWidget(m_canvasCtl->canvas()); // index 1 — reparents the parentless canvas
+    m_centerSplit->addWidget(m_canvasCtl->canvas()); // reparents the parentless canvas
   else
-    m_centerStack->addWidget(new QWidget(m_centerStack));
+    m_centerSplit->addWidget(new QWidget(m_centerSplit));
+  m_previewTabs = new DataPreviewTabs(m_centerSplit);
+  m_previewTabs->setObjectName(QStringLiteral("dataPreview"));
+  m_previewTabs->setMinimumHeight(0); // 空态要能收成一行
+  m_centerSplit->addWidget(m_previewTabs);
+  m_centerSplit->setStretchFactor(0, 2); // 初始 ≈ 地图 2/3 · 预览 1/3
+  m_centerSplit->setStretchFactor(1, 1);
+  wsLay->addWidget(m_centerSplit);
+  m_centerStack->addWidget(workspace); // index 1
+
+  // 预览空态/首标签的分栏高度（普通 QTabWidget 的 currentChanged 覆盖
+  // 0→1 与 1→0 两个迁移；加页时发 0，最后关页发 -1）。
+  if (auto *inner = m_previewTabs->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs")))
+    connect(inner, &QTabWidget::currentChanged, this,
+            [this](int) { applyPreviewSplit(); });
 
   // Startup-page actions: dialogs only exist when a real platform is present;
   // offscreen the buttons exist but stay inert (no modal QFileDialog).
@@ -439,6 +462,15 @@ void PaleoMainWindow::buildShell()
     updateScale();
     statusBar()->addPermanentWidget(coordLabel);
     statusBar()->addPermanentWidget(scaleLabel);
+
+    // §4 预览壳：坐标读数旁标明坐标系——局部工程网格米，不是经纬度
+    // （DESIGN.md 状态文字 #5D6E80，与状态栏其余次级文案同色）。
+    auto *crsLabel = new QLabel(this);
+    crsLabel->setObjectName(QStringLiteral("statusCrs"));
+    crsLabel->setText(QStringLiteral("工程网格 · 局部米"));
+    crsLabel->setToolTip(QStringLiteral("坐标为工程网格局部米，非经纬度"));
+    crsLabel->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+    statusBar()->addPermanentWidget(crsLabel);
   }
   if (m_selection)
     connect(m_selection, &SelectionContext::activeHorizonChanged, horizonLabel,
@@ -476,6 +508,39 @@ void PaleoMainWindow::showPage(const QString &pageId)
   if (m_centerStack && m_centerStack->currentIndex() == 0 && m_projectSvc &&
       !m_projectSvc->projectPath().isEmpty())
     m_centerStack->setCurrentIndex(1);
+
+  // §4 预览壳重排：预览分栏只在数据管理页显示；其余页藏下格、地图吃满。
+  if (m_previewTabs)
+    m_previewTabs->setVisible(pageId == QLatin1String("data"));
+  applyPreviewSplit();
+}
+
+void PaleoMainWindow::applyPreviewSplit()
+{
+  if (!m_centerSplit || !m_previewTabs)
+    return;
+  const int total = m_centerSplit->height();
+  if (total <= 0 || !m_previewTabs->isVisible())
+    return; // 预览藏着的页（或未布局时）：尺寸让给地图，不动分栏
+
+  const auto *inner =
+      m_previewTabs->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+  const int tabs = inner ? inner->count() : m_previewTabs->tabCount();
+  if (tabs > 0)
+  {
+    // 有标签：首个标签出现时给 ≈ 三分之一；之后由用户拖分栏，不再触碰。
+    if (!m_previewExpanded)
+    {
+      m_previewExpanded = true;
+      m_centerSplit->setSizes({qMax(1, total * 2 / 3), qMax(1, total / 3)});
+    }
+    return;
+  }
+
+  m_previewExpanded = false;
+  // 空态只留「预览为空」那行次级文字的高度（≈28px），不再给 1/3。
+  const int hint = qMax(24, m_previewTabs->sizeHint().height());
+  m_centerSplit->setSizes({qMax(0, total - hint), hint});
 }
 
 void PaleoMainWindow::showStartup()
@@ -617,17 +682,13 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   stack->addWidget(composePage);
   stack->addWidget(validatePage);
 
-  // 地震预览 + 连井剖面 — bottom-dock tabs fed by the import pipeline.
-  SeismicPreviewPanel *seismicPanel = nullptr;
+  // 连井剖面 — bottom-dock tab fed by the import pipeline。地震底栏预览
+  // 已随 §4 预览壳重排移除（测线预览由数据页预览壳承担，见
+  // seismicSectionRequested 接线）；seismicLink 暂留签名内兼容调用方。
+  Q_UNUSED(seismicLink);
   WellCorrelationPanel *corrPanel = nullptr;
   if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
   {
-    if (seismicLink)
-    {
-      seismicPanel = new SeismicPreviewPanel(seismicLink, bottomTabs);
-      seismicPanel->setObjectName(QStringLiteral("seismicPreviewPanel"));
-      bottomTabs->addTab(seismicPanel, QStringLiteral("地震"));
-    }
     if (m_selection)
     {
       corrPanel = new WellCorrelationPanel(m_selection, bottomTabs);
@@ -641,12 +702,12 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   if (importSvc && dataPage)
   {
     // §3/§4 数据契约接线：数据页绑定导入服务，资产表跟 catalog 走，
-    // 列表选中在页内预览标签打开（确认入库后才开标签）。
+    // 列表选中在中央预览标签（地图下方分栏）打开（确认入库后才开标签）。
     dataPage->setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(importSvc));
     connect(importSvc->catalog(), &DataCatalog::changed, this,
             [dataPage]() { QMetaObject::invokeMethod(dataPage, "refreshAssetTable"); });
     dataPage->refreshAssetTable();
-    DataPreviewTabs *preview = dataPage->findChild<DataPreviewTabs *>(QStringLiteral("dataPreview"));
+    DataPreviewTabs *preview = m_previewTabs;
     if (preview)
     {
       preview->setImportService(importSvc);
@@ -683,24 +744,14 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                                         QStringLiteral("Paleo"), Qgis::Critical);
             });
   }
-    // Imported assets feed the bottom-dock panels and the data-page preview
-    // (§4: the preview tab opens only after the import is confirmed).
-    DataPreviewTabs *previewForImport = dataPage
-        ? dataPage->findChild<DataPreviewTabs *>(QStringLiteral("dataPreview"))
-        : nullptr;
+    // Imported assets feed the bottom-dock correlation panel and the central
+    // preview tabs (§4: the preview tab opens only after the import is
+    // confirmed; 地震预览不再走底栏面板，预览壳直接按资产渲染测线控件)。
+    DataPreviewTabs *previewForImport = m_previewTabs;
     connect(importSvc, &DataImportService::imported, this,
-            [this, importSvc, seismicPanel, corrPanel, previewForImport](const QString &kind, const QString &assetId, const QString &) {
+            [this, importSvc, corrPanel, previewForImport](const QString &kind, const QString &assetId, const QString &) {
               if (previewForImport)
                 previewForImport->openAsset(assetId);
-              if (seismicPanel && kind == QLatin1String("seismic"))
-              {
-                const QString src = importSvc->assetSource(assetId);
-                if (src.endsWith(QLatin1String(".sgy"), Qt::CaseInsensitive) ||
-                    src.endsWith(QLatin1String(".segy"), Qt::CaseInsensitive))
-                  seismicPanel->loadLineFromFile(assetId, src); // one-line decode (§7)
-                else
-                  seismicPanel->addSeismicAsset(assetId, src);
-              }
               if (corrPanel && kind == QLatin1String("well_log"))
               {
                 QList<QPair<QString, QString>> wells;
@@ -825,10 +876,48 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   }
   if (validate && validatePage)
   {
-    // 问题 → 三视图联动（阶段C）：地图缩放（原有）+ 连井滚到井/分层 +
-    // 地震滚到测线/时间。缺面板的字段自动跳过（threewaylocator.h）。
-    auto *threeWay = new ThreeWayLocator(m_canvasCtl, corrPanel, seismicPanel, this);
+    // 问题 → 地图/连井联动（阶段C，预览壳重排）：地图移到井点 + 连井滚到
+    // 井/分层；地震测线不再走底栏 gotoLine，由「在数据页看这条剖面」显式
+    // 切页打开（threewaylocator.h）。缺面板的字段自动跳过。
+    auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
+    auto *threeWay = new ThreeWayLocator(m_canvasCtl, corrPanel, bottomTabs, this);
     threeWay->attach(validatePage);
+    // 「在数据页看这条剖面」：切到数据管理页（预览分栏随之可见），打开/
+    // 聚焦地震资产标签并把测线拨到载荷里的 inline/time_ms。载荷没有
+    // asset_id——测线号落在哪个 survey 的 inline 范围就开它的链接资产
+    // （主关联优先）；一条地震资产都没有就不跳页，不造假定位。
+    connect(validatePage, &ValidatePage::seismicSectionRequested, this,
+            [this, importSvc](const QVariantMap &payload) {
+              if (!m_previewTabs || !importSvc)
+                return;
+              const int line = payload.value(QStringLiteral("inline"), -1).toInt();
+              if (line < 0)
+                return;
+              const double timeMs =
+                  payload.value(QStringLiteral("time_ms"), -1.0).toDouble();
+              DataCatalog *cat = importSvc->catalog();
+              QString assetId, firstSeismic;
+              for (const EntityAssetLink &l : cat->links())
+              {
+                if (l.unresolved || l.role != QLatin1String("seismic_volume") ||
+                    l.assetId.isEmpty())
+                  continue;
+                if (firstSeismic.isEmpty())
+                  firstSeismic = l.assetId;
+                const CatalogEntity s = cat->entityById(l.entityId);
+                if (s.entityType == QLatin1String("seismic_survey") &&
+                    line >= s.inlineMin && line <= s.inlineMax &&
+                    (assetId.isEmpty() || l.isPrimary))
+                  assetId = l.assetId;
+              }
+              if (assetId.isEmpty())
+                assetId = firstSeismic;
+              if (assetId.isEmpty())
+                return;
+              showPage(QStringLiteral("data"));
+              m_previewTabs->openSeismicLine(
+                  assetId, QStringLiteral("inline"), line, timeMs);
+            });
     // 阶段E 发布门：验证跑完 → 重算逐井残差覆盖（attachMapping 装的钩子，
     // 未装则无事发生）。
     connect(validate, &ValidationWorkflow::validationDone, this,

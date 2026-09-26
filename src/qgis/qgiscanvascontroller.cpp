@@ -182,6 +182,19 @@ void QgisCanvasController::zoomToLayer( const QString &layerId )
   m_canvas->refresh();
 }
 
+void QgisCanvasController::zoomToPoint( double x, double y )
+{
+  if ( !m_canvas )
+    return;
+  // 保留当前视野宽高（用户选好的比例尺），视野无效时给一个 ~1km 的
+  // 工程网格窗口 —— 坐标是局部米，任何投影换算都不参与（§3）。
+  QgsRectangle e = m_canvas->extent();
+  const double hw = ( e.isEmpty() || e.width() <= 0.0 ) ? 500.0 : e.width() / 2.0;
+  const double hh = ( e.isEmpty() || e.height() <= 0.0 ) ? 500.0 : e.height() / 2.0;
+  m_canvas->setExtent( QgsRectangle( x - hw, y - hh, x + hw, y + hh ) );
+  m_canvas->refresh();
+}
+
 void QgisCanvasController::beginSelectionBroadcast()
 {
   BroadcastGuard &g = s_guards[this];

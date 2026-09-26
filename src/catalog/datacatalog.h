@@ -94,6 +94,18 @@ class DataCatalog : public QObject
     // 只保留一条主关联。index 越界 / 链接已决 / entityId 为空 → false。
     bool attachLink(int index, const QString &entityId, QString *error = nullptr);
 
+    // attachLink 的撤销面（资产表「未决」行的会话内回退，§4）：links() 序第
+    // index 条已决链接改回未决——entityId 清空、unresolved=true、isPrimary 降级、
+    // 备注清空。资产与被共享的井实体都保留（未决不是删除）。index 越界或链接
+    // 本来就是未决 → false。
+    bool setLinkUnresolved(int index, QString *error = nullptr);
+
+    // 「将此版本设为主版本」（§4）：links() 序第 index 条已决链接提升为同角色
+    // 主关联——本链接 isPrimary=true，同一 (entityType, entityId, role) 下的
+    // 其他主关联降级（与 addLink/attachLink 同一不变量）。只动链接标志，
+    // 不复制版本字节。index 越界 / 链接未决或实体 id 为空 → false。
+    bool setLinkPrimary(int index, QString *error = nullptr);
+
     // SHA-256 已在库（dedup，§3）：返回第一个匹配版本；sha 为空或无匹配回空版本。
     CatalogVersion versionBySha256(const QString &sha256) const;
 
@@ -137,6 +149,12 @@ class DataCatalog : public QObject
     QString nextAssetId();
     QString nextVersionId();
     QString nextEntityId(const QString &prefix);
+
+    // 井位快照（§4 地图高亮）：实体表里有 surface 坐标的井写成点要素
+    // GeoJSON（properties: id/name/coordinate_status，legacy "crs" 成员写
+    // 工程米制 WKT——OGR 认它，不落到 4326）。没有可定位的井时不写文件、
+    // 返回 true（与 wells.thickness 同一约定）；写盘失败 → false + error。
+    bool writeWellsGeoJson(const QString &path, QString *error = nullptr) const;
 
     // 局部测网 CRS（§3 / PROJECT_AREA_PLAN autoplan-eng）：工作坐标=局部直角米。
     // WKT2 ENGCRS：EDATUM 是工程基准，不带大地基准——因此 authid 为空、

@@ -11,6 +11,8 @@
 #include "../services/toolavailability.h"
 #include "../linkage/selectioncontext.h"
 #include "../linkage/seismicmaplink.h"
+#include "../linkage/wellmaplink.h"
+#include "../catalog/datacatalog.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../metadata/layermanifest.h"
 #include "../qgis/manifestprojection.h"
@@ -29,6 +31,7 @@
 #include <QDebug>
 
 #include <qgsmaplayer.h>
+#include <qgsvectorlayer.h>
 
 // Composition root. QgisRuntime::initialize() must run before any Qgs*
 // construction (it owns the QgsApplication), so it is the very first thing the
@@ -123,6 +126,15 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_seismicLink->setProperty("paleo.seismic.ctx",
                              QVariant::fromValue<QObject *>(m_selection));
 
+  // 井—地图联动（§31，预览壳重排接入）：与地震同一模式——画布拾取 ⇄
+  // SelectionContext。wells 图层在项目打开时由 catalog 井点 GeoJSON
+  // 声明/实例化后绑定（refreshWellsLayer），图层对象出现前链接静默空转。
+  m_wellLink = new WellMapLink(m_canvasCtl->canvas(), m_selection, this);
+  // catalog 每次变更（井新增/井口重挂/关联撤销）都重写井点 GeoJSON 并
+  // 刷新图层——稳定指针（catalog 由 importSvc 持有，open 原地重绑）。
+  connect(m_import->catalog(), &DataCatalog::changed, this,
+          [this] { refreshWellsLayer(); });
+
   // Workflow orchestrators — thin bindings over the services above.
   // Layout service rides the service-owned QgsProject (eager — valid already).
   m_layoutSvc = new QgisLayoutService(m_projectSvc->project(), this);
@@ -207,7 +219,59 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             if (!m_projectData->setProjectDir(fi.absolutePath()))
               qWarning() << "AppContext: project data facade:" << m_projectData->lastError();
             m_projectData->setManifest(m_manifest);
+
+            // §4 井位图层（预览壳重排）：catalog 已随 setProjectDir 打开——
+            // 井点写 GeoJSON、声明「wells」、实例化后绑给 WellMapLink。
+            m_projectDir = fi.absolutePath();
+            refreshWellsLayer();
           });
+}
+
+void AppContext::refreshWellsLayer()
+{
+  if (m_projectDir.isEmpty() || !m_import || !m_layerSvc)
+    return;
+  DataCatalog *cat = m_import->catalog();
+  if (!cat)
+    return;
+
+  // catalog 井实体（有 surface 坐标者）→ artifacts/layers/wells.geojson。
+  // 坐标是工程网格局部米（writeWellsGeoJson 写同一 WKT，不投 4326）。
+  const QString wellsPath = QDir(m_projectDir).filePath(
+      QStringLiteral("artifacts/layers/wells.geojson"));
+  QString werr;
+  if (!cat->writeWellsGeoJson(wellsPath, &werr))
+  {
+    qWarning() << "AppContext: wells geojson write failed:" << werr;
+    return;
+  }
+  if (!QFile::exists(wellsPath))
+    return; // 没有可定位的井——不声明空图层（与 writeWellsGeoJson 同一约定）
+
+  LayerDeclaration decl;
+  decl.layerId = QStringLiteral("wells");
+  decl.type = QStringLiteral("vector");
+  decl.source = wellsPath;
+  decl.group = QStringLiteral("00_Data");
+  decl.title = tr("井位");
+  QString derr;
+  if (!m_layerSvc->declare(decl, &derr)) // upsert——重复声明安全
+  {
+    qWarning() << "AppContext: wells layer declare failed:" << derr;
+    return;
+  }
+  QString ierr;
+  auto *layer = qobject_cast<QgsVectorLayer *>(
+      m_layerSvc->instantiate(QStringLiteral("wells"), &ierr));
+  if (!layer)
+  {
+    qWarning() << "AppContext: wells layer instantiate failed:" << ierr;
+    return;
+  }
+  layer->reload();         // 文件可能刚被重写——数据源重读要素
+  layer->triggerRepaint();
+  if (m_wellLink)
+    m_wellLink->setWellLayer(layer, QStringLiteral("id"));
 }
 
 AppContext::~AppContext()

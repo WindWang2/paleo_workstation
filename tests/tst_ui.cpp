@@ -1,6 +1,8 @@
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QLabel>
 #include <QTabBar>
+#include <QSplitter>
 #include <QStackedWidget>
 #include <QStackedLayout>
 #include <QListWidget>
@@ -263,6 +265,44 @@ class TestUiShell : public QObject
       const QgsRectangle before = m_ctx->canvasCtl()->canvas()->extent();
       m_win->restoreCanvasExtent();
       QCOMPARE(m_ctx->canvasCtl()->canvas()->extent(), before);
+    }
+
+    // §4 预览壳重排：中央工作区是「地图在上、预览在下」的竖向分栏；预览
+    // 只在数据管理页可见，其余四页隐藏；底栏不再挂地震预览标签（连井
+    // 剖面面板保留），状态栏标工程网格坐标系。
+    void previewSplitterShell()
+    {
+      auto *split = m_win->findChild<QSplitter *>(QStringLiteral("mapPreviewSplit"));
+      QVERIFY(split);
+      QCOMPARE(split->orientation(), Qt::Vertical);
+      QVERIFY(split->count() >= 1); // 画布可能被前面用例的 win2 借走——结构断言不依赖它
+      auto *preview = m_win->findChild<QWidget *>(QStringLiteral("dataPreview"));
+      QVERIFY(preview);
+      QCOMPARE(split->indexOf(preview), split->count() - 1); // 预览总是分栏最后一格
+      // 预览部件只有这一个（从右 dock 挪出后没有第二处宿主）。
+      QCOMPARE(m_win->findChildren<QWidget *>(QStringLiteral("dataPreview")).size(), 1);
+
+      // attachWorkflows 已在前面的用例跑过：底栏不能再有地震预览。
+      QVERIFY(!m_win->findChild<QWidget *>(QStringLiteral("seismicPreviewPanel")));
+      QVERIFY(m_win->findChild<QWidget *>(QStringLiteral("correlationPanel")));
+
+      // 预览可见性跟页走：isHidden() 反映显式隐藏标记（offscreen 窗口
+      // 可能没 show，isVisible 受祖先链影响不可用）。
+      m_win->showPage(QStringLiteral("data"));
+      QVERIFY(!preview->isHidden());
+      for (const QString &p : {QStringLiteral("predict"), QStringLiteral("constraint"),
+                               QStringLiteral("compose"), QStringLiteral("validate")})
+      {
+        m_win->showPage(p);
+        QVERIFY2(preview->isHidden(), qPrintable(p));
+      }
+      m_win->showPage(QStringLiteral("data"));
+      QVERIFY(!preview->isHidden());
+
+      // 状态栏工程坐标系标注（§4：局部工程网格米，不是经纬度）。
+      auto *crs = m_win->findChild<QLabel *>(QStringLiteral("statusCrs"));
+      QVERIFY(crs);
+      QVERIFY(crs->text().contains(QStringLiteral("工程网格")));
     }
 };
 

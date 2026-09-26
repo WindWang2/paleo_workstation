@@ -33,6 +33,11 @@
 
 #include <qgsmaplayer.h>
 #include <qgsvectorlayer.h>
+#include <qgsmarkersymbol.h>
+#include <qgssinglesymbolrenderer.h>
+#include <qgspallabeling.h>
+#include <qgsvectorlayerlabeling.h>
+#include <qgstextformat.h>
 
 // Composition root. QgisRuntime::initialize() must run before any Qgs*
 // construction (it owns the QgsApplication), so it is the very first thing the
@@ -133,8 +138,10 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_wellLink = new WellMapLink(m_canvasCtl->canvas(), m_selection, this);
   // catalog 每次变更（井新增/井口重挂/关联撤销）都重写井点 GeoJSON 并
   // 刷新图层——稳定指针（catalog 由 importSvc 持有，open 原地重绑）。
+  // D6：导入使井点范围变大时 zoom-to-content（无关变更只重写同一份
+  // geojson，范围不变不抢视野）。
   connect(m_import->catalog(), &DataCatalog::changed, this,
-          [this] { refreshWellsLayer(); });
+          [this] { refreshWellsLayer(true); });
 
   // Workflow orchestrators — thin bindings over the services above.
   // Layout service rides the service-owned QgsProject (eager — valid already).
@@ -224,11 +231,41 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             // §4 井位图层（预览壳重排）：catalog 已随 setProjectDir 打开——
             // 井点写 GeoJSON、声明「wells」、实例化后绑给 WellMapLink。
             m_projectDir = fi.absolutePath();
-            refreshWellsLayer();
+            refreshWellsLayer(false); // 打开时视野归 .qgz 恢复态，不抢
           });
 }
 
-void AppContext::refreshWellsLayer()
+namespace
+{
+  // D6 井点符号 + 井名标注：程序化样式（GeoJSON 图层每次 instantiate 是
+  // 新对象，样式随对象重赋）。深色圆点白描边 = DESIGN.md text/surface；
+  // 标注字段是 writeWellsGeoJson 写出的 "name"（不是 wells.thickness 的
+  // "well_name"——那是编图导出层的另一约定）。
+  void applyWellLayerStyle(QgsVectorLayer *layer)
+  {
+    QVariantMap props;
+    props.insert(QStringLiteral("name"), QStringLiteral("circle"));
+    props.insert(QStringLiteral("color"), QStringLiteral("#24303E"));
+    props.insert(QStringLiteral("outline_color"), QStringLiteral("#FFFFFF"));
+    props.insert(QStringLiteral("outline_width"), QStringLiteral("0.4"));
+    props.insert(QStringLiteral("size"), QStringLiteral("3"));
+    layer->setRenderer(
+        new QgsSingleSymbolRenderer(QgsMarkerSymbol::createSimple(props).release()));
+
+    QgsPalLayerSettings lbl;
+    lbl.fieldName = QStringLiteral("name");
+    lbl.isExpression = false;
+    QgsTextFormat fmt;
+    fmt.setSize(9.0);
+    fmt.setSizeUnit(Qgis::RenderUnit::Points);
+    fmt.setColor(QColor(QStringLiteral("#24303E")));
+    lbl.setFormat(fmt);
+    layer->setLabeling(new QgsVectorLayerSimpleLabeling(lbl));
+    layer->setLabelsEnabled(true);
+  }
+} // namespace
+
+void AppContext::refreshWellsLayer(bool zoomOnGrowth)
 {
   if (m_projectDir.isEmpty() || !m_import || !m_layerSvc)
     return;
@@ -270,9 +307,20 @@ void AppContext::refreshWellsLayer()
     return;
   }
   layer->reload();         // 文件可能刚被重写——数据源重读要素
+  applyWellLayerStyle(layer);
   layer->triggerRepaint();
   if (m_wellLink)
     m_wellLink->setWellLayer(layer, QStringLiteral("id"));
+
+  // D6 zoom-to-content：井点范围实际变化（导入/补挂出新井）才把视野拉到
+  // wells 层——无关 catalog 变更重写同一 geojson，extent 不变不打扰用户。
+  const QgsRectangle ext = layer->extent();
+  if (ext != m_lastWellsExtent)
+  {
+    m_lastWellsExtent = ext;
+    if (zoomOnGrowth && !ext.isEmpty() && m_canvasCtl)
+      m_canvasCtl->zoomToLayer(QStringLiteral("wells"));
+  }
 }
 
 AppContext::~AppContext()

@@ -27,6 +27,10 @@ class DataPage : public QWidget
     explicit DataPage(QWidget *parent = nullptr);
   public slots:
     void refreshAssetTable();                     // 从 catalog 资产重建资产表
+    // D6 地图→表联动：实体 id 集合（画布点选井）→ 选中这些实体已决关联
+    // 对应的资产行（滚动到首个命中行）。行选中照走 assetActivated → 预览
+    // 打开，与手点同一通路；未决链接不算命中。无命中不改当前选中。
+    void selectAssetsForEntities(const QStringList &entityIds);
   signals:
     void importRequested(const QString &kind);  // "wells" | "seismic" | "boundary"
     void assetActivated(const QString &assetId); // 列表选中 → 预览标签打开

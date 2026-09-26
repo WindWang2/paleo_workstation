@@ -121,6 +121,10 @@ class PaleoSelectTool : public QgsMapTool
       // carried by the band; a click without drag yields an empty rect that
       // simply matches nothing (same behavior as QGIS's rectangle select).
       QRect rect = QRect( mPressPos, e->pixelPoint() ).normalized();
+      // D6 点选：零尺寸按 ±4 设备像素膨胀成小矩形——单击也能拾取点要素
+      // （井位层地图→表联动靠这条路径把 fid 送进 selectionChanged）。
+      if ( rect.width() < 1 && rect.height() < 1 )
+        rect.adjust( -4, -4, 4, 4 );
       QgsMapToolSelectUtils::setRubberBand( canvas(), rect, mRubberBand );
 
       QgsVectorLayer *vl = qobject_cast<QgsVectorLayer *>( canvas()->currentLayer() );

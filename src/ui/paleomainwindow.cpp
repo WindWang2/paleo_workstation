@@ -1140,6 +1140,13 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     connect(importSvc->catalog(), &DataCatalog::changed, this,
             [dataPage]() { QMetaObject::invokeMethod(dataPage, "refreshAssetTable"); });
     dataPage->refreshAssetTable();
+    // D6 地图→表联动：画布上拾取的实体（WellMapLink → ctx）→ 资产表选中
+    // 其已决关联的行；选中走同一条 assetActivated → 预览照开。
+    if (m_selection)
+      connect(m_selection, &SelectionContext::selectionChanged, dataPage,
+              [dataPage](const QStringList &ids, const QString &) {
+                dataPage->selectAssetsForEntities(ids);
+              });
     DataPreviewTabs *preview = m_previewTabs;
     if (preview)
     {

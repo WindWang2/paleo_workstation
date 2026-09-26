@@ -1,6 +1,7 @@
 #pragma once
 #include <QObject>
 #include <QString>
+#include <qgsrectangle.h>
 
 // app/ — AppContext wires the service graph together (composition root).
 // Construct once in main(); owns all services; PaleoMainWindow receives them.
@@ -76,7 +77,10 @@ class AppContext : public QObject
     // §4 井位图层：catalog 井点 → artifacts/layers/wells.geojson → manifest
     // 声明「wells」→ 实例化 → 绑给 m_wellLink。工程打开与 catalog 每次
     // 变更时调用；没有可定位井时不声明空图层。
-    void refreshWellsLayer();
+    // D6：zoomOnGrowth 为真（catalog 变更路径）且井点范围实际变大时
+    // zoom-to-content——无关联导入只重写同一份 geojson，范围不变不抢视野；
+    // 工程打开路径传 false，让位于 .qgz 里恢复的视野。
+    void refreshWellsLayer(bool zoomOnGrowth);
 
     bool m_ready = false;
     QgisProjectService *m_projectSvc = nullptr;
@@ -91,6 +95,7 @@ class AppContext : public QObject
     SeismicMapLink *m_seismicLink = nullptr;
     WellMapLink *m_wellLink = nullptr;
     QString m_projectDir; // wells.geojson 输出根（projectOpened 时设置）
+    QgsRectangle m_lastWellsExtent; // D6 zoom：上次井点范围（空 = 尚无井点）
     PaleoProjectStore *m_store = nullptr;
     LayerManifest *m_manifest = nullptr;
     DataImportService *m_import = nullptr;

@@ -17,6 +17,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
+#include <QSet>
 #include <QShowEvent>
 #include <QSpinBox>
 #include <QStackedLayout>
@@ -413,6 +414,43 @@ void DataPage::refreshAssetTable()
     table->setCellWidget(r, 2, cell);
   }
   refreshAssetEmptyState(table);
+}
+
+void DataPage::selectAssetsForEntities(const QStringList &entityIds)
+{
+  auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
+  auto *svc = qobject_cast<DataImportService *>(
+      property("paleo.page.importsvc").value<QObject *>());
+  if (!table || !svc || entityIds.isEmpty())
+    return;
+  // 实体 → 已决关联资产集合（未决链接实体 id 为空，天然不命中）。
+  QSet<QString> wanted;
+  for (const QString &eid : entityIds)
+    for (const EntityAssetLink &l : svc->catalog()->linksForEntity(eid))
+      if (!l.unresolved)
+        wanted.insert(l.assetId);
+  if (wanted.isEmpty())
+    return;
+  // 一次应用整份选中（QTableView::selectRow 是单点替换语义，逐行调会互相
+  // 顶掉）；选中变化照发 itemSelectionChanged → assetActivated 首个命中行。
+  QItemSelection sel;
+  QTableWidgetItem *firstHit = nullptr;
+  for (int r = 0; r < table->rowCount(); ++r)
+  {
+    QTableWidgetItem *it = table->item(r, 0);
+    if (!it || !wanted.contains(it->data(Qt::UserRole).toString()))
+      continue;
+    sel.select(table->model()->index(r, 0),
+               table->model()->index(r, table->columnCount() - 1));
+    if (!firstHit)
+      firstHit = it;
+  }
+  if (sel.isEmpty())
+    return;
+  table->selectionModel()->select(
+      sel, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+  if (firstHit)
+    table->scrollToItem(firstHit);
 }
 
 // ---------------------------------------------------------------------------

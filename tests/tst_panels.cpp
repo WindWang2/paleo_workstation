@@ -254,6 +254,68 @@ class TestPanels : public QObject
       QVERIFY(table->findChild<QPushButton *>(QStringLiteral("setPrimaryButton")));
     }
 
+    // D6 地图→表：实体 id → 选中其已决关联的资产行（未决不算命中；首个命中
+    // 行发 assetActivated，与手点同通路）。
+    void dataPage_mapSelectionSelectsLinkedAssetRows()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+      CatalogEntity well;
+      well.id = QStringLiteral("well-1");
+      well.entityType = QStringLiteral("well");
+      well.name = QStringLiteral("A1");
+      QVERIFY(cat->addEntity(well));
+      for (const char *id : {"ast-1", "ast-2", "ast-3"})
+      {
+        CatalogAsset a;
+        a.id = QString::fromLatin1(id);
+        a.type = QStringLiteral("well_log");
+        a.displayName = a.id + QStringLiteral(".las");
+        QVERIFY(cat->addAsset(a));
+      }
+      EntityAssetLink l1;
+      l1.entityType = QStringLiteral("well");
+      l1.entityId = well.id;
+      l1.assetId = QStringLiteral("ast-1");
+      l1.role = QStringLiteral("well_log");
+      l1.isPrimary = true;
+      QVERIFY(cat->addLink(l1));
+      EntityAssetLink l2 = l1;
+      l2.assetId = QStringLiteral("ast-3");
+      l2.isPrimary = false;
+      QVERIFY(cat->addLink(l2));
+      EntityAssetLink l3;
+      l3.entityType = QStringLiteral("well");
+      l3.assetId = QStringLiteral("ast-2");
+      l3.role = QStringLiteral("well_log");
+      l3.unresolved = true; // 未决链接不命中
+      QVERIFY(cat->addLink(l3));
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      page.refreshAssetTable();
+      auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      QCOMPARE(table->rowCount(), 3);
+      QSignalSpy spy(&page, &DataPage::assetActivated);
+
+      page.selectAssetsForEntities({QStringLiteral("well-1")});
+      const auto sel = table->selectionModel()->selectedRows();
+      QCOMPARE(sel.size(), 2); // ast-1 + ast-3（同一口井的两条已决链接）
+      QCOMPARE(spy.count(), 1);
+      const QString activated = spy.at(0).at(0).toString();
+      QVERIFY(activated == QStringLiteral("ast-1") || activated == QStringLiteral("ast-3"));
+
+      // 无命中实体不动当前选中；空 id 集不动作。
+      table->clearSelection();
+      spy.clear();
+      page.selectAssetsForEntities({QStringLiteral("well-nope")});
+      QVERIFY(table->selectionModel()->selectedRows().isEmpty());
+      QCOMPARE(spy.count(), 0);
+    }
+
     // ---- PredictPage ----
     void predictPage_combosAndRun()
     {

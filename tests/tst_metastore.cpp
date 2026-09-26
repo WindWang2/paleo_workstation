@@ -7,6 +7,7 @@
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/mapversionstore.h"
 #include "../src/metadata/metastore.h"
+#include "../src/metadata/projectlock.h"
 
 // wave3/model-hardening — metadata/project.sqlite 的 PRAGMA user_version 门
 // （docs/SCHEMA_MIGRATION.md 最小落地）。三个 store（LayerManifest /
@@ -199,6 +200,47 @@ private slots:
     QString err;
     QVERIFY2(second.open(&err), qPrintable(err));
     QCOMPARE(rawUserVersion(dbPath), MetaStore::kUserVersion);
+  }
+
+  // ---- 并发：两实例同开一工程的写互斥（docs/SCHEMA_MIGRATION.md §6）----
+
+  // 第二实例取锁必须失败，且错误带持有者信息（pid/主机/程序名）。
+  void projectLockSecondInstanceRefused()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ProjectDirLock a(dir.path());
+    QString err;
+    QVERIFY2(a.tryLock(&err), qPrintable(err));
+    QVERIFY(a.isHeld());
+    QVERIFY(QFile::exists(a.lockPath()));
+
+    ProjectDirLock b(dir.path());
+    QString err2;
+    QVERIFY(!b.tryLock(&err2));
+    QVERIFY2(!err2.isEmpty(), "refusal must carry an explanation");
+    QVERIFY(err2.contains(QStringLiteral("pid")));
+    QVERIFY(!b.isHeld());
+
+    // 首锁仍持有且解锁后路径可复用。
+    QVERIFY(a.isHeld());
+  }
+
+  // 解锁后可重取；不同工程目录互不影响。
+  void projectLockUnlockAndIndependence()
+  {
+    QTemporaryDir dirA, dirB;
+    QVERIFY(dirA.isValid() && dirB.isValid());
+    {
+      ProjectDirLock a(dirA.path());
+      QVERIFY(a.tryLock());
+      ProjectDirLock b(dirB.path());
+      QVERIFY(b.tryLock()); // 不同工程目录同时可写
+    } // 两个锁析构释放
+
+    ProjectDirLock again(dirA.path());
+    QString err;
+    QVERIFY2(again.tryLock(&err), qPrintable(err)); // 解锁后可重取
   }
 };
 

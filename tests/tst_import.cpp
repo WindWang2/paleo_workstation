@@ -113,6 +113,7 @@ class TestImport : public QObject
     return pre.addEntity(w, &err);
   }
 
+  // D12：歧义改用同名两井构造（uwi/aliases 字段已剥离）。
   static bool seedCatalogWithAliasWells(const QString &projectDir)
   {
     DataCatalog pre;
@@ -122,15 +123,13 @@ class TestImport : public QObject
     CatalogEntity w1;
     w1.id = QStringLiteral("well-X1");
     w1.entityType = QStringLiteral("well");
-    w1.name = QStringLiteral("X1");
-    w1.aliases = QStringList{QStringLiteral("dup")};
+    w1.name = QStringLiteral("dup");
     if (!pre.addEntity(w1, &err))
       return false;
     CatalogEntity w2;
     w2.id = QStringLiteral("well-X2");
     w2.entityType = QStringLiteral("well");
-    w2.name = QStringLiteral("X2");
-    w2.aliases = QStringList{QStringLiteral("dup")};
+    w2.name = QStringLiteral("dup");
     return pre.addEntity(w2, &err);
   }
 
@@ -162,7 +161,6 @@ private slots:
     QCOMPARE(a1.surfaceX, 5288.670);
     QCOMPARE(a1.surfaceY, 8219.940);
     QCOMPARE(a1.coordinateStatus, QStringLiteral("untransformed"));
-    QVERIFY(a1.uwi.isEmpty());
     // 一份多井文件 → 20 条 well_head 关联（不拆文件）
     QCOMPARE(cat->linksForAsset(assetId).size(), 20);
     QCOMPARE(cat->linksForEntity(QStringLiteral("well-A1")).front().role,
@@ -288,9 +286,7 @@ private slots:
     QVERIFY(links.front().entityId.isEmpty());
     QCOMPARE(links.front().entityType, QStringLiteral("well"));
     QCOMPARE(links.front().role, QStringLiteral("well_log"));
-    // 备注记两个规范化井名（附实体 id 消歧）
-    QVERIFY(links.front().note.contains(QStringLiteral("x1")));
-    QVERIFY(links.front().note.contains(QStringLiteral("x2")));
+    // 备注记两个候选（D12：同名井，靠实体 id 消歧）
     QVERIFY(links.front().note.contains(QStringLiteral("well-X1")));
     QVERIFY(links.front().note.contains(QStringLiteral("well-X2")));
 
@@ -494,8 +490,9 @@ private slots:
     QCOMPARE(links.size(), 1);
     QVERIFY(links.front().unresolved);
     QVERIFY(links.front().entityId.isEmpty());
-    QVERIFY(links.front().note.contains(QStringLiteral("x1")));
-    QVERIFY(links.front().note.contains(QStringLiteral("x2")));
+    // D12：同名双候选——备注靠实体 id 消歧
+    QVERIFY(links.front().note.contains(QStringLiteral("well-X1")));
+    QVERIFY(links.front().note.contains(QStringLiteral("well-X2")));
   }
 
   // D61 → RAW + DERIVED 栅格（父版本指向 RAW）+ 图层声明；authid 非 4326；

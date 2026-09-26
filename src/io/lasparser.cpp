@@ -173,10 +173,9 @@ bool LasParser::parse(const QString &path, QStringList &curveNames,
   return true;
 }
 
-bool LasParser::readWellInfo(const QString &path, QString &wellName, QString &uwi, QString *error)
+bool LasParser::readWellInfo(const QString &path, QString &wellName, QString *error)
 {
   wellName.clear();
-  uwi.clear();
 
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
@@ -185,7 +184,7 @@ bool LasParser::readWellInfo(const QString &path, QString &wellName, QString &uw
     return false;
   }
 
-  // 只需 ~W 段的 WELL/UWI item——读到 ~C 即止。
+  // 只需 ~W 段的 WELL item——读到 ~C 即止。
   bool inWell = false;
   QTextStream in(&f);
   while (!in.atEnd())
@@ -209,8 +208,6 @@ bool LasParser::readWellInfo(const QString &path, QString &wellName, QString &uw
       continue;
     if (it.mnem == QStringLiteral("WELL") && wellName.isEmpty())
       wellName = it.value;
-    else if (it.mnem == QStringLiteral("UWI") && uwi.isEmpty())
-      uwi = it.value;
   }
   return true;
 }

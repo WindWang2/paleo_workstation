@@ -27,6 +27,7 @@ class LasParser
                       QList<LasCurve> &curves, QString *error = nullptr);
 
     // §3 绑定规则：测井先读 ~W 的 WELL（身份不取文件名）。只扫 ~V/~W 段。
-    static bool readWellInfo(const QString &path, QString &wellName, QString &uwi,
+    // D12：不再返回 UWI——井身份只走 name，uwi/aliases 字段已从实体模型剥离。
+    static bool readWellInfo(const QString &path, QString &wellName,
                              QString *error = nullptr);
 };

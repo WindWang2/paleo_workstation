@@ -169,10 +169,10 @@ void QgisCanvasController::zoomToLayer( const QString &layerId )
     return;
   // Production layers live on QgisProjectService's QgsProject and are keyed
   // by manifest id, which is not QgsMapLayer::id(). The app installs a resolver
-  // that goes through QgisLayerService. The singleton remains a test fallback.
+  // that goes through QgisLayerService — deliberately no QgsProject::instance()
+  // fallback: a manifest id must never resolve against the singleton, and a
+  // bare controller (tests) simply no-ops.
   QgsMapLayer *l = m_layerResolver ? m_layerResolver( layerId ) : nullptr;
-  if ( !l )
-    l = QgsProject::instance()->mapLayer( layerId );
   if ( !l )
     return;
   const QgsRectangle ext = l->extent();

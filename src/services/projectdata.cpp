@@ -197,8 +197,9 @@ HorizonRasterInfo ProjectDataFacade::horizonRasterDecl(const QString &horizon) c
   if (!m_manifest)
     return info;
 
-  // Prefer the "horizon." declaration id; otherwise the first declared
-  // raster bound to this horizon. A manifest read failure is a read failure —
+  // Prefer the exact "horizon.<H>" declaration id, then any "horizon."-
+  // prefixed id, otherwise the first declared raster bound to this horizon.
+  // A manifest read failure is a read failure —
   // surface it via m_lastError instead of letting it masquerade as
   // "no raster declared for this horizon".
   QVector<LayerDeclaration> decls;
@@ -209,21 +210,39 @@ HorizonRasterInfo ProjectDataFacade::horizonRasterDecl(const QString &horizon) c
                       .arg(horizon, readErr.isEmpty() ? tr("未知错误") : readErr);
     return info;
   }
-  QString source;
+  // Deterministic order when several rasters bind one horizon: the exact
+  // canonical id ("horizon.<H>" — what DataImportService declares for the
+  // derived grid) beats a bare "horizon."-prefixed id, which beats any other
+  // raster decl for the horizon. The loose prefix alone would resolve a
+  // raw-plus-derived pair in manifest row order.
+  const QString exactId = QStringLiteral("horizon.") + horizon;
+  QString anyId, anySrc, prefId, prefSrc;
   for (const LayerDeclaration &d : decls)
   {
     if (d.horizon != horizon)
       continue;
     if (d.type.compare(QStringLiteral("raster"), Qt::CaseInsensitive) != 0)
       continue;
-    if (source.isEmpty() || d.layerId.startsWith(QLatin1String("horizon.")))
+    if (d.layerId == exactId)
     {
-      info.layerId = d.layerId;
-      source = d.source;
-      if (d.layerId.startsWith(QLatin1String("horizon.")))
-        break;
+      anyId = d.layerId;
+      anySrc = d.source;
+      prefId.clear(); // canonical id is definitive — stop scanning
+      break;
+    }
+    if (anyId.isEmpty())
+    {
+      anyId = d.layerId;
+      anySrc = d.source;
+    }
+    if (prefId.isEmpty() && d.layerId.startsWith(QLatin1String("horizon.")))
+    {
+      prefId = d.layerId;
+      prefSrc = d.source;
     }
   }
+  info.layerId = prefId.isEmpty() ? anyId : prefId;
+  const QString source = prefId.isEmpty() ? anySrc : prefSrc;
   if (source.isEmpty())
     return info;
 

@@ -24,7 +24,6 @@
 #include "../src/services/projectdata.h"
 #include "../src/ui/correlationpanel.h"
 #include "../src/ui/pages/pagepanels.h"
-#include "../src/ui/seismicpreviewpanel.h"
 #include "../src/workflow/workflows.h"
 
 // wave/mapping-pipeline 阶段C —「问题 → 三视图」（预览壳重排后地图/连井）：
@@ -365,26 +364,17 @@ class TestThreeWay : public QObject
                   QStringLiteral( "well-1" ) );
     }
 
-    // 面板新 API 的独立行为：未知井只记目标不滚动；已知井滚到 pick 线。
+    // 连井面板新 API 的独立行为：未知井只记目标不滚动（ SeismicPreviewPanel
+    // 已随 T30 退役——测线跳转走「在数据页看这条剖面」，不再有 gotoLine ）。
     void panelScrollApis()
     {
         SelectionContext ctx;
         WellCorrelationPanel wellPanel( &ctx );
-        SeismicPreviewPanel seismicPanel( nullptr );
 
         // Empty panel: scroll target still recorded.
         wellPanel.scrollToWellTop( QStringLiteral( "well-X" ), QStringLiteral( "D61" ) );
         QCOMPARE( wellPanel.lastScrollWell(), QStringLiteral( "well-X" ) );
         QCOMPARE( wellPanel.lastScrollHorizon(), QStringLiteral( "D61" ) );
-
-        seismicPanel.gotoLine( 1500, 2050.0 );
-        QCOMPARE( seismicPanel.lastGotoInline(), 1500 );
-        QVERIFY( qAbs( seismicPanel.lastGotoTimeMs() - 2050.0 ) < 0.01 );
-
-        // gotoLine without a loaded section keeps the target, no crash.
-        seismicPanel.gotoLine( -1, qQNaN() );
-        QCOMPARE( seismicPanel.lastGotoInline(), -1 );
-        QVERIFY( qIsNaN( seismicPanel.lastGotoTimeMs() ) );
     }
 };
 

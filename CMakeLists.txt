@@ -63,7 +63,6 @@ add_library(paleo_core STATIC
   src/io/dataimportservice.cpp
   src/io/lasparser.cpp
   src/ui/constraintdrawcontroller.cpp
-  src/ui/seismicpreviewpanel.cpp
   src/ui/releasepanel.cpp
   src/ui/taskpanel.cpp
   src/ui/attributetablepanel.cpp
@@ -144,7 +143,6 @@ add_paleo_test(tst_decorations)
 add_paleo_test(tst_manifestproj)
 add_paleo_test(tst_import)
 add_paleo_test(tst_drawctl)
-add_paleo_test(tst_seismicpanel)
 add_paleo_test(tst_procdialog)
 add_paleo_test(tst_rehydrate)
 add_paleo_test(tst_release)

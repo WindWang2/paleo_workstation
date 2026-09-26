@@ -26,7 +26,8 @@ class LayerManifest;
 //   wells()          → type=="well" 实体（surface 坐标 + coordinate_status）
 //   topsFor(id)      → 该井主 tops 版本文件里的分层（WellTop.horizon=层名）
 //   tdTableFor(id)   → 该井主 time_depth 版本文件（文件顺序，不排序）
-//   horizonRasterDecl(h) → LayerManifest 首个 raster 声明（优先 "horizon." id）
+//   horizonRasterDecl(h) → LayerManifest raster 声明（优先精确 id
+//     "horizon.<h>"，再退 "horizon." 前缀，最后任何绑到该层位的 raster）
 struct ProjectWell
 {
   QString id;                 // stable entity id, e.g. "well-1"

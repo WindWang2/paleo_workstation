@@ -120,11 +120,10 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 
   // 地震—地图联动: binds the selection context to the canvas. Forcing canvas()
   // here materializes the widget early; the main window reparents it into the
-  // center stack. The dynamic property publishes the context so UI panels
-  // (SeismicPreviewPanel) can resolve it without a ctx getter on the link.
+  // center stack. The link holds the context via its constructor — the
+  // "paleo.seismic.ctx" dynamic property existed for SeismicPreviewPanel,
+  // which is retired (T30); nothing else reads it.
   m_seismicLink = new SeismicMapLink(m_canvasCtl->canvas(), m_selection, this);
-  m_seismicLink->setProperty("paleo.seismic.ctx",
-                             QVariant::fromValue<QObject *>(m_selection));
 
   // 井—地图联动（§31，预览壳重排接入）：与地震同一模式——画布拾取 ⇄
   // SelectionContext。wells 图层在项目打开时由 catalog 井点 GeoJSON

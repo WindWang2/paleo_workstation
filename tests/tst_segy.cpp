@@ -1,20 +1,13 @@
 #include <QApplication>
 #include <QByteArray>
 #include <QFile>
-#include <QGraphicsItem>
-#include <QGraphicsPixmapItem>
-#include <QGraphicsScene>
-#include <QGraphicsSimpleTextItem>
-#include <QGraphicsView>
 #include <QTemporaryDir>
 #include <QtEndian>
 #include <QtTest>
 #include <cmath>
-#include <concepts>
 #include <cstring>
 
 #include "../src/io/segyreader.h"
-#include "../src/ui/seismicpreviewpanel.h"
 
 // ---------------------------------------------------------------------------
 // Synthetic SEG-Y generator for testing
@@ -178,11 +171,6 @@ bool writeSegyFile(const QString &filePath, const QByteArray &bytes)
     return false;
   return file.write(bytes) == bytes.size();
 }
-
-template <typename T>
-concept HasLoadLineFromFile = requires(T &panel, const QString &id, const QString &path) {
-  panel.loadLineFromFile(id, path);
-};
 } // namespace
 
 class TestSegy : public QObject
@@ -505,59 +493,9 @@ class TestSegy : public QObject
       QVERIFY(!errCorruptNs.isEmpty());
     }
 
-    // e) Panel loadLineFromFile integration test:
-    //    instantiate SeismicPreviewPanel(nullptr), call loadLineFromFile, verify currentAsset is set,
-    //    verify scene has real rendered content (e.g. QGraphicsPixmapItem from variable density render, and no stub text).
-    void panelLoadLineFromFileIntegration()
-    {
-      if constexpr (HasLoadLineFromFile<SeismicPreviewPanel>)
-      {
-        QTemporaryDir dir;
-        QVERIFY(dir.isValid());
-        const QString segyPath = dir.filePath(QStringLiteral("panel_test.sgy"));
-
-        SyntheticSegyConfig cfg;
-        cfg.formatCode = 5;
-        cfg.traceCount = 3;
-        cfg.binNs = 64;
-        cfg.binDt = 2000;
-        QVERIFY(writeSegyFile(segyPath, buildSyntheticSegy(cfg)));
-
-        SeismicPreviewPanel panel(nullptr);
-        panel.loadLineFromFile(QStringLiteral("TEST_ASSET_1"), segyPath);
-
-        QCOMPARE(panel.currentAsset(), QStringLiteral("TEST_ASSET_1"));
-
-        auto *view = panel.findChild<QGraphicsView *>(QStringLiteral("seismicPreview"));
-        QVERIFY(view);
-        auto *scene = view->scene();
-        QVERIFY(scene);
-
-        bool hasPixmap = false;
-        bool hasStubText = false;
-        for (QGraphicsItem *item : scene->items())
-        {
-          if (qgraphicsitem_cast<QGraphicsPixmapItem *>(item))
-            hasPixmap = true;
-          if (auto *textItem = qgraphicsitem_cast<QGraphicsSimpleTextItem *>(item))
-          {
-            const QString t = textItem->text();
-            if (t.contains(QStringLiteral("STUB"), Qt::CaseInsensitive) ||
-                t.contains(QStringLiteral("未加载剖面")))
-            {
-              hasStubText = true;
-            }
-          }
-        }
-
-        QVERIFY2(hasPixmap, "Expected real rendered QGraphicsPixmapItem from variable density render");
-        QVERIFY2(!hasStubText, "Expected no placeholder/stub text in rendered scene");
-      }
-      else
-      {
-        QSKIP("SeismicPreviewPanel::loadLineFromFile is not yet implemented");
-      }
-    }
+    // e) SeismicPreviewPanel::loadLineFromFile integration test removed with
+    //    T30 — the panel is retired; single-line preview + SHA verify live on
+    //    the data-page preview tabs (datapreviewtabs).
 };
 
 int main(int argc, char *argv[])

@@ -18,6 +18,40 @@ namespace
 {
   const int kSchemaVersion = 1;
 
+  // wave/data-integrity：role 词表诊断标记。addLink/attachLink 把诊断写进
+  // note 尾部，invalidRoleLinks() 按标记扫描——诊断因此随 catalog.json
+  // round-trip，重开工程后诊断面仍可查。
+  const QString kUnknownRoleMark = QStringLiteral("未知角色: ");
+  const QString kRoleTypeMismatchMark = QStringLiteral("角色与实体类型不符: ");
+
+  // 诚实降级：role 不在词表、或实体类型不在该 role 的 entityTypes——不拦
+  // 不丢不改词（词表是工程自定义的，project_area.json 可扩；硬拦会把合法
+  // 自定义挡在旧二进制外），只产出诊断文本（无违例回空）。
+  // 空 entityType（调用方未给）或词表未声明挂接域（自定义角色可省
+  // entity_types）无从核对，不诊断。
+  QString roleDiagnosis(const EntityAssetLink &l, const RoleRegistry &roles)
+  {
+    const RoleDef *def = roles.find(l.role);
+    if (!def)
+      return kUnknownRoleMark + l.role;
+    if (!l.entityType.isEmpty() && !def->entityTypes.isEmpty() &&
+        !def->entityTypes.contains(l.entityType))
+      return kRoleTypeMismatchMark +
+             QStringLiteral("%1 于 %2").arg(l.role, l.entityType);
+    return QString();
+  }
+
+  // 把诊断追加到 note 尾部（已有 note 用「；」连接）并 qWarning 一次。
+  void annotateRoleDiagnostics(EntityAssetLink &l, const RoleRegistry &roles)
+  {
+    const QString diagnosis = roleDiagnosis(l, roles);
+    if (diagnosis.isEmpty())
+      return;
+    l.note = l.note.isEmpty() ? diagnosis
+                              : l.note + QStringLiteral("；") + diagnosis;
+    qWarning() << "catalog:" << diagnosis;
+  }
+
   void setError(QString *error, const QString &text)
   {
     if (error)
@@ -545,14 +579,18 @@ bool DataCatalog::addLink(const EntityAssetLink &l, QString *error)
     return false;
   }
   const QVector<EntityAssetLink> previousLinks = m_links;
-  m_links.append(l);
+  // 词表诊断先落 note（诚实降级——不拒收，见 invalidRoleLinks()）。
+  EntityAssetLink stored = l;
+  annotateRoleDiagnostics(stored, m_roles);
+  m_links.append(stored);
   // §3：新的已决主关联入库后，同一 (entityType, entityId, role) 只保留这一条
   // 主关联——同角色旧主关联（例如同井同角色的旧版本资产）降级为非主。
-  if (l.isPrimary && !l.unresolved)
+  if (stored.isPrimary && !stored.unresolved)
     for (int i = 0; i < m_links.size() - 1; ++i)
       if (m_links[i].isPrimary && !m_links[i].unresolved &&
-          m_links[i].entityType == l.entityType && m_links[i].entityId == l.entityId &&
-          m_links[i].role == l.role)
+          m_links[i].entityType == stored.entityType &&
+          m_links[i].entityId == stored.entityId &&
+          m_links[i].role == stored.role)
         m_links[i].isPrimary = false;
   if (save(error))
     return true;
@@ -585,6 +623,9 @@ bool DataCatalog::attachLink(int index, const QString &entityId, QString *error)
   l.unresolved = false;
   l.isPrimary = true;
   l.note.clear();
+  // 决议清空 note 后词表诊断重下——role 词表违例不因挂上实体而消失
+  // （诚实降级，见 invalidRoleLinks()）。
+  annotateRoleDiagnostics(l, m_roles);
   // 与 addLink 同一不变量：同一 (entityType, entityId, role) 只留这一条主关联。
   for (int i = 0; i < m_links.size(); ++i)
     if (i != index && m_links[i].isPrimary && !m_links[i].unresolved &&
@@ -652,6 +693,19 @@ bool DataCatalog::setLinkPrimary(int index, QString *error)
     return true;
   m_links = previousLinks;
   return false;
+}
+
+// ---- wave/data-integrity：role 词表违例诊断面 ----
+// 带「未知角色: / 角色与实体类型不符: 」note 标记的链接（addLink/attachLink
+// 的诚实降级写入）。按标记扫描 note：诊断随 catalog.json round-trip，重开
+// 后仍可查；词表内的干净链接（含普通未决备注）不在其中。
+QVector<EntityAssetLink> DataCatalog::invalidRoleLinks() const
+{
+  QVector<EntityAssetLink> out;
+  for (const EntityAssetLink &l : m_links)
+    if (l.note.contains(kUnknownRoleMark) || l.note.contains(kRoleTypeMismatchMark))
+      out.append(l);
+  return out;
 }
 
 CatalogVersion DataCatalog::versionBySha256(const QString &sha256) const

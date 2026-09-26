@@ -41,6 +41,12 @@ private slots:
   // ---- D12（pass-2）：uwi/aliases 遗留字段剥离 ----
   void legacyCatalogFieldsIgnoredAndNotRewritten();
   void newEntitySerializationOmitsLegacyKeys();
+  // ---- wave/data-integrity：role 词表强制（诚实降级而非硬拦） ----
+  void unknownRoleLinkStillWrittenButDiagnosed();
+  void unknownRoleDiagnosticJoinsExistingNote();
+  void roleEntityTypeMismatchDiagnosedNotBlocked();
+  void attachLinkReappliesRoleDiagnostics();
+  void knownRoleLinksStayOutOfInvalidSet();
 };
 
 void TestCatalog::roundTripsThroughJson()
@@ -986,6 +992,183 @@ void TestCatalog::newEntitySerializationOmitsLegacyKeys()
   rf.close();
   QVERIFY(!raw.contains(QByteArrayLiteral("\"uwi\"")));
   QVERIFY(!raw.contains(QByteArrayLiteral("\"aliases\"")));
+}
+
+namespace
+{
+  // qWarning 计数（词表诊断「每次违例告警一次」的断言用）：测试进程单线程，
+  // 文件内静态计数器够用。
+  int g_warningCount = 0;
+  void countWarnings(QtMsgType type, const QMessageLogContext &, const QString &)
+  {
+    if (type == QtMsgType::QtWarningMsg)
+      ++g_warningCount;
+  }
+}
+
+// wave/data-integrity：未知角色不硬拦——链接照常写入（不丢数据）、role 原样
+// 保留（不静默改词），note 追加「未知角色: <role>」诊断并 qWarning 一次；
+// invalidRoleLinks() 可查；诊断随 catalog.json round-trip。
+void TestCatalog::unknownRoleLinkStillWrittenButDiagnosed()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path()));
+    CatalogAsset a;
+    a.id = QStringLiteral("ast-1");
+    a.type = QStringLiteral("well_log");
+    QVERIFY(cat.addAsset(a));
+
+    const int warningsBefore = g_warningCount;
+    const auto oldHandler = qInstallMessageHandler(countWarnings);
+    EntityAssetLink l;
+    l.entityType = QStringLiteral("well");
+    l.entityId = QStringLiteral("well-A1");
+    l.assetId = a.id;
+    l.role = QStringLiteral("mystery_role");
+    QString err;
+    QVERIFY2(cat.addLink(l, &err), qPrintable(err)); // 词表外自定义：不拒收
+    qInstallMessageHandler(oldHandler);
+    QCOMPARE(g_warningCount - warningsBefore, 1); // 告警恰好一次
+
+    const auto links = cat.links();
+    QCOMPARE(links.size(), 1);
+    QCOMPARE(links.front().role, QStringLiteral("mystery_role")); // 不改词
+    QCOMPARE(links.front().note, QStringLiteral("未知角色: mystery_role"));
+    QCOMPARE(cat.invalidRoleLinks().size(), 1);
+    QCOMPARE(cat.invalidRoleLinks().front().assetId, QStringLiteral("ast-1"));
+  }
+  // 诊断活在 note 里 → 重开后仍然可查（诊断面跨会话存活）。
+  DataCatalog reloaded;
+  QVERIFY(reloaded.open(dir.path()));
+  QCOMPARE(reloaded.invalidRoleLinks().size(), 1);
+  QCOMPARE(reloaded.links().front().note, QStringLiteral("未知角色: mystery_role"));
+}
+
+// 已有 note 的未决链接拿到词表诊断：用「；」连接，不覆盖既有备注。
+void TestCatalog::unknownRoleDiagnosticJoinsExistingNote()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-1");
+  a.type = QStringLiteral("well_log");
+  QVERIFY(cat.addAsset(a));
+
+  EntityAssetLink l;
+  l.entityType = QStringLiteral("well");
+  l.assetId = a.id;
+  l.role = QStringLiteral("mystery");
+  l.unresolved = true;
+  l.note = QStringLiteral("未匹配井名: g9");
+  QVERIFY(cat.addLink(l));
+  QCOMPARE(cat.links().front().note,
+           QStringLiteral("未匹配井名: g9；未知角色: mystery"));
+}
+
+// 已知角色 + 实体类型不在词表 entityTypes 里：同样只诊断不拦（写入保留，
+// note 记「角色与实体类型不符」）。
+void TestCatalog::roleEntityTypeMismatchDiagnosedNotBlocked()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-1");
+  a.type = QStringLiteral("horizon");
+  QVERIFY(cat.addAsset(a));
+
+  EntityAssetLink l;
+  l.entityType = QStringLiteral("seismic_survey"); // well_log 词表只许 well
+  l.entityId = QStringLiteral("svy-1");
+  l.assetId = a.id;
+  l.role = QStringLiteral("well_log");
+  QString err;
+  QVERIFY2(cat.addLink(l, &err), qPrintable(err));
+  QCOMPARE(cat.links().size(), 1);
+  QCOMPARE(cat.links().front().role, QStringLiteral("well_log"));
+  QVERIFY(cat.links().front().note.contains(
+      QStringLiteral("角色与实体类型不符: well_log 于 seismic_survey")));
+  QCOMPARE(cat.invalidRoleLinks().size(), 1);
+}
+
+// attachLink 决议时 note 被清——词表诊断须重下：未知角色的链接决议后诊断
+// 仍在（不因决议而消失），已知角色的链接决议后 note 干净、不进诊断集。
+void TestCatalog::attachLinkReappliesRoleDiagnostics()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogAsset a1;
+  a1.id = QStringLiteral("ast-1");
+  a1.type = QStringLiteral("well_log");
+  QVERIFY(cat.addAsset(a1));
+  CatalogAsset a2;
+  a2.id = QStringLiteral("ast-2");
+  a2.type = QStringLiteral("well_log");
+  QVERIFY(cat.addAsset(a2));
+
+  EntityAssetLink mystery;
+  mystery.entityType = QStringLiteral("well");
+  mystery.assetId = a1.id;
+  mystery.role = QStringLiteral("mystery");
+  mystery.unresolved = true;
+  mystery.note = QStringLiteral("未匹配井名: g9");
+  QVERIFY(cat.addLink(mystery));
+
+  EntityAssetLink normal = mystery;
+  normal.assetId = a2.id;
+  normal.role = QStringLiteral("well_log");
+  QVERIFY(cat.addLink(normal));
+
+  QString err;
+  QVERIFY(cat.attachLink(0, QStringLiteral("well-A1"), &err));
+  QCOMPARE(cat.links().at(0).note, QStringLiteral("未知角色: mystery")); // 候选备注清、诊断重下
+  QVERIFY(cat.attachLink(1, QStringLiteral("well-A1"), &err));
+  QVERIFY(cat.links().at(1).note.isEmpty());
+
+  const auto invalid = cat.invalidRoleLinks();
+  QCOMPARE(invalid.size(), 1);
+  QCOMPARE(invalid.front().assetId, QStringLiteral("ast-1"));
+}
+
+// 词表内的干净链接不进诊断集：未决备注（候选/未匹配名）不是词表违例，
+// invalidRoleLinks() 只收带词表诊断标记的链接。
+void TestCatalog::knownRoleLinksStayOutOfInvalidSet()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-1");
+  a.type = QStringLiteral("well_log");
+  QVERIFY(cat.addAsset(a));
+
+  EntityAssetLink resolved;
+  resolved.entityType = QStringLiteral("well");
+  resolved.entityId = QStringLiteral("well-A1");
+  resolved.assetId = a.id;
+  resolved.role = QStringLiteral("well_log");
+  QVERIFY(cat.addLink(resolved));
+
+  EntityAssetLink pending = resolved;
+  pending.entityId.clear();
+  pending.unresolved = true;
+  pending.isPrimary = false;
+  pending.note = QStringLiteral("候选: x1(well-X1), x2(well-X2)");
+  QVERIFY(cat.addLink(pending));
+
+  QCOMPARE(cat.links().size(), 2);
+  QVERIFY(cat.invalidRoleLinks().isEmpty());
+  QVERIFY(cat.links().at(0).note.isEmpty());
+  QCOMPARE(cat.links().at(1).note, QStringLiteral("候选: x1(well-X1), x2(well-X2)"));
 }
 
 QTEST_MAIN(TestCatalog)

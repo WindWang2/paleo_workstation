@@ -581,6 +581,50 @@ class TestUiShell : public QObject
       QVERIFY(!maxBtn->isChecked());
       QVERIFY(split->sizes().at(1) <= qMax(28, preview->sizeHint().height() + 8));
     }
+
+    // wave/data-integrity：attachWorkflows 幂等——同一窗口二次调用不得重复
+    // 建 dock/连接/崩溃（旧行为：重复建 correlationPanel/editToolbarDock/
+    // processingButton 等 + 叠加信号连接，二次调用后后续用例段错误）。
+    // 直接证据：连续两次调用后 dock 总数与逐对象名单不翻倍、右栏页数不变，
+    // 且页切换照常不崩。单跑本用例（首次 attach）与套件内（第二次触达）
+    // 都必须过——这正是原 bug 的表现面。
+    void attachWorkflowsIsIdempotent()
+    {
+      const auto attachAll = [this] {
+        m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                               m_ctx->compositionWf(), m_ctx->validationWf(),
+                               m_ctx->importSvc(), m_ctx->seismicLink(),
+                               m_ctx->processingSvc(), m_ctx->store(),
+                               m_ctx->editingSvc(), m_ctx->layoutSvc(),
+                               m_ctx->taskSvc());
+      };
+      attachAll(); // 套件路径里前面用例已 attach 过——幂等语义下这次是空操作
+
+      const int docksAfterFirst = m_win->findChildren<QDockWidget *>().size();
+      const auto namedCount = [this](const char *name) {
+        return m_win->findChildren<QWidget *>(QLatin1String(name)).size();
+      };
+      for (const char *name : {"correlationPanel", "editingToolbar", "editToolbarDock",
+                               "releasePanel", "attributeTablePanel", "processingButton",
+                               "statusCatalogError"})
+        QCOMPARE(namedCount(name), 1);
+      auto *host = m_win->findChild<QWidget *>(QStringLiteral("rightPanelHost"));
+      QVERIFY(host);
+      QCOMPARE(static_cast<QStackedLayout *>(host->layout())->count(), 5);
+
+      attachAll(); // 二次调用：必须早退——不翻倍、不叠加连接、不崩。
+
+      QCOMPARE(m_win->findChildren<QDockWidget *>().size(), docksAfterFirst);
+      for (const char *name : {"correlationPanel", "editingToolbar", "editToolbarDock",
+                               "releasePanel", "attributeTablePanel", "processingButton",
+                               "statusCatalogError"})
+        QCOMPARE(namedCount(name), 1);
+      QCOMPARE(static_cast<QStackedLayout *>(host->layout())->count(), 5);
+
+      // 不崩的直接证据：二次调用后窗口照常响应页切换。
+      m_win->showPage(QStringLiteral("data"));
+      QCOMPARE(m_win->currentPage(), QStringLiteral("data"));
+    }
 };
 
 int main(int argc, char *argv[])

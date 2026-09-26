@@ -14,6 +14,7 @@ class QgisStyleService;
 class ToolAvailabilityService;
 class SelectionContext;
 class SeismicMapLink;
+class WellMapLink;
 class PaleoProjectStore;
 class LayerManifest;
 class DataImportService;
@@ -44,6 +45,9 @@ class AppContext : public QObject
     ToolAvailabilityService *toolSvc() const { return m_toolSvc; }
     SelectionContext *selection() const { return m_selection; }
     SeismicMapLink *seismicLink() const { return m_seismicLink; }
+    // 井—地图联动（§31，预览壳重排接入）：画布拾取 ⇄ SelectionContext；
+    // wells 图层在项目打开后由 catalog 井点生成。
+    WellMapLink *wellLink() const { return m_wellLink; }
     PaleoProjectStore *store() const { return m_store; }
     LayerManifest *manifest() const { return m_manifest; }
     DataImportService *importSvc() const { return m_import; }
@@ -60,6 +64,11 @@ class AppContext : public QObject
     MapVersionController *versionCtl() const { return m_versionCtl; }
 
   private:
+    // §4 井位图层：catalog 井点 → artifacts/layers/wells.geojson → manifest
+    // 声明「wells」→ 实例化 → 绑给 m_wellLink。工程打开与 catalog 每次
+    // 变更时调用；没有可定位井时不声明空图层。
+    void refreshWellsLayer();
+
     bool m_ready = false;
     QgisProjectService *m_projectSvc = nullptr;
     QgisLayerService *m_layerSvc = nullptr;
@@ -70,6 +79,8 @@ class AppContext : public QObject
     ToolAvailabilityService *m_toolSvc = nullptr;
     SelectionContext *m_selection = nullptr;
     SeismicMapLink *m_seismicLink = nullptr;
+    WellMapLink *m_wellLink = nullptr;
+    QString m_projectDir; // wells.geojson 输出根（projectOpened 时设置）
     PaleoProjectStore *m_store = nullptr;
     LayerManifest *m_manifest = nullptr;
     DataImportService *m_import = nullptr;

@@ -16,7 +16,8 @@ class ValidationWorkflow;
 class QgisLayerService;
 class PaleoOnnxService;
 
-// 数据管理 — asset import intents + asset table + 页内预览标签（§4）。
+// 数据管理 — asset import intents + asset table（§4 预览壳重排：页内预览
+// 已挪到主区地图下方的竖向分栏，右 dock 只留导入按钮与资产表）。
 // 服务经动态属性 "paleo.page.importsvc"（QObject* → DataImportService）绑定，
 // 由 mainwindow 接线处设置；catalog 变更后调用 refreshAssetTable() 刷新列表。
 class DataPage : public QWidget
@@ -112,4 +113,7 @@ class ValidatePage : public QWidget
     // 等；非残差问题 payload 为空表。layerId 仍用于地图缩放。
     void locateRequested(const QString &layerId, const QString &wktLocation,
                          const QVariantMap &payload);
+    // 「在数据页看这条剖面」（预览壳重排）：payload 同 locateRequested——
+    // inline 是目标测线号、time_ms 是目标时间。shell 负责换页+打开剖面标签。
+    void seismicSectionRequested(const QVariantMap &payload);
 };

@@ -31,6 +31,14 @@ class DataPreviewTabs : public QWidget
     // 从资产列表选中一条资产：已有标签则聚焦，否则新开一个可关闭标签。
     void openAsset(const QString &assetId);
 
+    // 验证页「在数据页看这条剖面」（预览壳重排 §4）：打开/聚焦地震资产
+    // 标签并把测线控件（lineMode/lineSpin）拨到 kind+line——控件自己的
+    // decode 链路负责换测线，不在此处解析。kind: "inline"|"crossline"。
+    // timeMs 当前只透传记录——剖面已有的 D61 标定线就是同一时间轴标注，
+    // 不在剖面上另画第二条线。非地震资产/无测线控件时静默返回。
+    void openSeismicLine(const QString &assetId, const QString &kind,
+                        int line, double timeMs);
+
     int tabCount() const;
     QString assetIdAt(int index) const;   // "" 越界
     void closeAssetTab(const QString &assetId);

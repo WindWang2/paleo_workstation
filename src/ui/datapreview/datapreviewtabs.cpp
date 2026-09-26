@@ -538,6 +538,27 @@ void DataPreviewTabs::openAsset(const QString &assetId)
   focusWellIfNeeded(assetId, page);
 }
 
+void DataPreviewTabs::openSeismicLine(const QString &assetId, const QString &kind,
+                                      int line, double timeMs)
+{
+  openAsset(assetId); // §4 重选语义：已有标签聚焦，否则新开
+  QWidget *page = m_pageOfAsset.value(assetId);
+  if (!page)
+    return;
+  auto *mode = page->findChild<QComboBox *>(QStringLiteral("lineMode"));
+  auto *no = page->findChild<QSpinBox *>(QStringLiteral("lineSpin"));
+  if (!mode || !no)
+    return; // 非地震标签（或地震正文未建出来）——不造假测线控件
+  const int want = mode->findData(
+      kind == QLatin1String("crossline") ? QStringLiteral("crossline")
+                                         : QStringLiteral("inline"));
+  if (want >= 0 && mode->currentIndex() != want)
+    mode->setCurrentIndex(want); // currentIndexChanged → 该控件链路上的 decode
+  if (no->value() != line)
+    no->setValue(line); // valueChanged → decode 目标测线
+  Q_UNUSED(timeMs); // 目标时间的标注由剖面自身的 D61 标定线承担（§4/阶段B）
+}
+
 QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 {
   Q_UNUSED(page);

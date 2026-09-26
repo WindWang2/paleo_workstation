@@ -32,6 +32,10 @@ class QgisCanvasController : public QObject
     using LayerResolver = std::function<QgsMapLayer *(const QString &layerId)>;
     void setLayerResolver(LayerResolver resolver);
     void zoomToLayer(const QString &layerId);
+    // 把视野中心移到工程网格点 (x,y)（局部米）：保留当前视野宽高，
+    // 视野为空时落一个 ~1km 的窗口。验证问题定位用它——井点坐标直接
+    // 可用时绝不整幅栅格缩放（§4 预览壳重排）。
+    void zoomToPoint(double x, double y);
 
     // Selection broadcast guard (§41.3): while a broadcast is in flight, incoming
     // selection echoes are swallowed; a coalesced re-broadcast fires at settle.

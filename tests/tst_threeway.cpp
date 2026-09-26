@@ -2,6 +2,7 @@
 #include <QDir>
 #include <QSignalSpy>
 #include <QTableWidget>
+#include <QTabWidget>
 #include <QTemporaryDir>
 
 #include <gdal.h>
@@ -25,11 +26,11 @@
 #include "../src/ui/seismicpreviewpanel.h"
 #include "../src/workflow/workflows.h"
 
-// wave/mapping-pipeline 阶段C —「问题 → 三视图」：
+// wave/mapping-pipeline 阶段C —「问题 → 三视图」（预览壳重排后地图/连井）：
 // ValidatePage 双击残差问题 → locateRequested(layerId, wkt, payload) →
-// ThreeWayLocator 驱动连井面板 scrollToWellTop + 地震面板 gotoLine
-// （两个面板的新滚动 API 用状态断言）；地图缩放走 canvas（offscreen 下
-// 画布指针为空，跳过不炸）。
+// ThreeWayLocator ① 记录/移地图到井点（payload well_x/well_y，画布为空时
+// 只记目标）② 底栏切到「连井剖面」+ scrollToWellTop。地震面板不再参与
+// ——底栏地震标签已移除，测线跳转走「在数据页看这条剖面」。
 
 class TestThreeWay : public QObject
 {
@@ -172,14 +173,19 @@ class TestThreeWay : public QObject
 
         // Panels: real widgets, offscreen.
         SelectionContext ctx;
+        // 预览壳重排：底栏 QTabWidget 挂连井面板（地震标签已移除）。
+        // bottomTabs 先声明——addTab 会把面板 reparent 进去，栈析构倒序保证
+        // 面板先死、自动脱离父子表，tabs 析构时不再二次 delete。
+        QTabWidget bottomTabs;
         WellCorrelationPanel wellPanel( &ctx );
         wellPanel.setWells( { { QStringLiteral( "well-1" ), QStringLiteral( "A1" ) } } );
         wellPanel.setManifestHorizons( { QStringLiteral( "D61" ) } );
         wellPanel.markers()->setWellDepth( QStringLiteral( "D61" ),
                                            QStringLiteral( "well-1" ), 2125.0f );
-        SeismicPreviewPanel seismicPanel( nullptr );
+        // 画布为空 → zoomToPoint 跳过但井点目标仍被记录（lastMapPoint）。
+        bottomTabs.addTab( &wellPanel, QStringLiteral( "连井剖面" ) );
 
-        ThreeWayLocator locator( nullptr, &wellPanel, &seismicPanel ); // 画布为空 → 跳过地图
+        ThreeWayLocator locator( nullptr, &wellPanel, &bottomTabs );
         locator.attach( &page );
 
         QSignalSpy spy( &page, &ValidatePage::locateRequested );
@@ -211,19 +217,21 @@ class TestThreeWay : public QObject
         QCOMPARE( payload.value( QStringLiteral( "horizon" ) ).toString(), QStringLiteral( "D61" ) );
         QCOMPARE( payload.value( QStringLiteral( "inline" ) ).toInt(), 1438 );
 
-        // Two panels received the locate (new scroll APIs, state assertion).
+        // ① 地图点目标已记录（payload well_x=300, well_y=400——画布为空只
+        // 记目标不缩放）；② 底栏已切到连井面板且滚到该井该分层。
+        QVERIFY( locator.hasMapPoint() );
+        QCOMPARE( locator.lastMapPoint(), QPointF( 300.0, 400.0 ) );
+        QCOMPARE( bottomTabs.currentWidget(), static_cast<QWidget *>( &wellPanel ) );
         QCOMPARE( wellPanel.lastScrollWell(), QStringLiteral( "well-1" ) );
         QCOMPARE( wellPanel.lastScrollHorizon(), QStringLiteral( "D61" ) );
-        QCOMPARE( seismicPanel.lastGotoInline(), 1438 );
-        QVERIFY( qAbs( seismicPanel.lastGotoTimeMs() - 2216.67 ) < 0.5 );
 
         // Non-residual issue (no wellId/inline) → only recorded targets stay
         // untouched: direct locate() with empty payload must not move panels.
         const QString keepWell = wellPanel.lastScrollWell();
-        const int keepInline = seismicPanel.lastGotoInline();
+        const QPointF keepPoint = locator.lastMapPoint();
         locator.locate( QStringLiteral( "some.layer" ), QString(), QVariantMap() );
         QCOMPARE( wellPanel.lastScrollWell(), keepWell );
-        QCOMPARE( seismicPanel.lastGotoInline(), keepInline );
+        QCOMPARE( locator.lastMapPoint(), keepPoint );
     }
 
     // 面板新 API 的独立行为：未知井只记目标不滚动；已知井滚到 pick 线。

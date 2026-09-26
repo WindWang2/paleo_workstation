@@ -14,6 +14,8 @@
 #include "../src/workflow/workflows.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/metadata/layermanifest.h"
+#include "../src/io/dataimportservice.h"
+#include "../src/catalog/datacatalog.h"
 
 // §42.2 right-dock page panels. Panels emit intents only (§25: no Qgs* in
 // ui/pages) — the tests bind them to workflows/services constructed over a
@@ -80,12 +82,138 @@ class TestPanels : public QObject
       QCOMPARE(table->columnCount(), 3);
       QCOMPARE(table->horizontalHeaderItem(0)->text(), QStringLiteral("名称"));
       QCOMPARE(table->horizontalHeaderItem(1)->text(), QStringLiteral("类型"));
-      QCOMPARE(table->horizontalHeaderItem(2)->text(), QStringLiteral("来源"));
+      QCOMPARE(table->horizontalHeaderItem(2)->text(), QStringLiteral("关联"));
       // §42.4: an empty table shows a disabled guidance row, never a blank panel.
       QCOMPARE(table->rowCount(), 1);
       QVERIFY(table->item(0, 0));
       QVERIFY(!(table->item(0, 0)->flags() & Qt::ItemIsEnabled));
       QVERIFY(!table->item(0, 0)->text().isEmpty());
+    }
+
+    // §4 预览壳重排：资产表「关联」列——未决链接给「未决」徽标 + 井下拉 +
+    // 页内确认条（资产名+实体名同时写出）；确认挂接后出现「撤销」，撤销回到
+    // 未决（撤销只认本会话从本页挂上的链接）。
+    void dataPage_unresolvedAttachConfirmUndo()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+      CatalogEntity well;
+      well.id = QStringLiteral("well-1");
+      well.entityType = QStringLiteral("well");
+      well.name = QStringLiteral("A1");
+      QVERIFY(cat->addEntity(well));
+      CatalogAsset asset;
+      asset.id = QStringLiteral("ast-1");
+      asset.type = QStringLiteral("well_log");
+      asset.displayName = QStringLiteral("A1.las");
+      QVERIFY(cat->addAsset(asset));
+      EntityAssetLink link;
+      link.entityType = QStringLiteral("well");
+      link.assetId = asset.id;
+      link.role = QStringLiteral("well_log");
+      link.unresolved = true;
+      link.note = QStringLiteral("未匹配井名: A1x");
+      QVERIFY(cat->addLink(link));
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      page.refreshAssetTable();
+      auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      QVERIFY(table);
+      QCOMPARE(table->rowCount(), 1);
+      QCOMPARE(table->item(0, 2)->text(), QStringLiteral("未决"));
+
+      auto *badge = table->findChild<QLabel *>(QStringLiteral("unresolvedBadge"));
+      QVERIFY(badge);
+      QVERIFY(badge->styleSheet().contains(QStringLiteral("#FFF4E0")));
+      QCOMPARE(badge->toolTip(), QStringLiteral("未匹配井名: A1x"));
+
+      auto *combo = table->findChild<QComboBox *>(QStringLiteral("resolveEntityCombo"));
+      auto *attach = table->findChild<QPushButton *>(QStringLiteral("attachLinkButton"));
+      QVERIFY(combo && attach);
+      QVERIFY(!attach->isEnabled()); // 哨兵「（选择井）」未选实体
+      QCOMPARE(combo->count(), 2);
+      QCOMPARE(combo->itemText(1), QStringLiteral("A1"));
+      combo->setCurrentIndex(1);
+      QVERIFY(attach->isEnabled());
+      attach->click();
+
+      // 页内确认条同时写出资产名和实体名——不弹模态框。
+      auto *confirmText = table->findChild<QLabel *>(QStringLiteral("attachConfirmText"));
+      QVERIFY(confirmText);
+      QVERIFY(confirmText->text().contains(QStringLiteral("A1.las")));
+      QVERIFY(confirmText->text().contains(QStringLiteral("A1")));
+      table->findChild<QPushButton *>(QStringLiteral("attachConfirmButton"))->click();
+
+      // 已决：实体名进关联列，链接成为主关联；「撤销」入口出现。
+      QCOMPARE(table->item(0, 2)->text(), QStringLiteral("A1"));
+      QCOMPARE(cat->links().size(), 1);
+      QVERIFY(!cat->links().at(0).unresolved);
+      QVERIFY(cat->links().at(0).isPrimary);
+      QCOMPARE(cat->links().at(0).entityId, QStringLiteral("well-1"));
+      auto *undo = table->findChild<QPushButton *>(QStringLiteral("undoAttachButton"));
+      QVERIFY(undo);
+      QVERIFY(!table->findChild<QLabel *>(QStringLiteral("unresolvedBadge")));
+
+      // 撤销 → 回到未决徽标 + 挂接控件。
+      undo->click();
+      QVERIFY(cat->links().at(0).unresolved);
+      QVERIFY(cat->links().at(0).entityId.isEmpty());
+      QCOMPARE(table->item(0, 2)->text(), QStringLiteral("未决"));
+      QVERIFY(table->findChild<QLabel *>(QStringLiteral("unresolvedBadge")));
+      QVERIFY(!table->findChild<QPushButton *>(QStringLiteral("undoAttachButton")));
+    }
+
+    // 「设为主版本」：同井同角色的两条已决链接，非主那条给按钮；点击后主
+    // 关联换到该资产（不变量：同 (entityType,entityId,role) 只留一条主）。
+    void dataPage_setPrimaryLink()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+      CatalogEntity well;
+      well.id = QStringLiteral("well-1");
+      well.entityType = QStringLiteral("well");
+      well.name = QStringLiteral("A1");
+      QVERIFY(cat->addEntity(well));
+      for (const char *id : {"ast-1", "ast-2"})
+      {
+        CatalogAsset a;
+        a.id = QString::fromLatin1(id);
+        a.type = QStringLiteral("well_log");
+        a.displayName = a.id + QStringLiteral(".las");
+        QVERIFY(cat->addAsset(a));
+      }
+      EntityAssetLink l1;
+      l1.entityType = QStringLiteral("well");
+      l1.entityId = well.id;
+      l1.assetId = QStringLiteral("ast-1");
+      l1.role = QStringLiteral("well_log");
+      l1.isPrimary = true;
+      QVERIFY(cat->addLink(l1));
+      EntityAssetLink l2 = l1;
+      l2.assetId = QStringLiteral("ast-2");
+      l2.isPrimary = false; // 旧版本——同角色非主链接
+      QVERIFY(cat->addLink(l2));
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      page.refreshAssetTable();
+      auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      QCOMPARE(table->rowCount(), 2);
+      // ast-1 是主链接行（纯文本无控件）；ast-2 行有「设为主版本」。
+      auto *primary = table->findChild<QPushButton *>(QStringLiteral("setPrimaryButton"));
+      QVERIFY(primary);
+      primary->click();
+      QVERIFY(!cat->links().at(0).isPrimary);
+      QVERIFY(cat->links().at(1).isPrimary);
+      // 刷新后角色互换：ast-1 成了非主旧版本，它的行拿到同一个按钮。
+      QVERIFY(table->findChild<QPushButton *>(QStringLiteral("setPrimaryButton")));
     }
 
     // ---- PredictPage ----
@@ -465,6 +593,16 @@ class TestPanels : public QObject
       const QVariantMap payload = spy.first().at(2).toMap();
       QVERIFY(!payload.contains(QStringLiteral("wellId")));
       QVERIFY(!payload.contains(QStringLiteral("inline")));
+
+      // 「在数据页看这条剖面」（预览壳重排）：无 inline 测线号的问题行
+      // 不让跳页——按钮禁用，点击不发 seismicSectionRequested。
+      auto *openSection =
+          page.findChild<QPushButton *>(QStringLiteral("openSeismicSectionButton"));
+      QVERIFY(openSection);
+      QVERIFY(!openSection->isEnabled());
+      QSignalSpy sectionSpy(&page, &ValidatePage::seismicSectionRequested);
+      openSection->click();
+      QCOMPARE(sectionSpy.count(), 0);
     }
 };
 

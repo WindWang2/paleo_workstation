@@ -134,13 +134,16 @@ class TestProjectData : public QObject
                                                tdVer.id, QStringLiteral( "A1_TD.dat" ) );
         if ( !catalog.addVersion( tdVer ) )
             return false;
+        // 行故意倒序、末尾一行 -99999：门面按文件顺序交付、不排序
+        // （PROJECT_AREA_PLAN §3），哨兵以 NaN 透传，留给 TimeDepthTool 判。
         const QString tdText = QStringLiteral(
             "#TimeDepth File From SMI\n"
             "# Well : A1\n"
             "#TIME            TVDSS            TVD            MD\n"
-            "2000.000          -1800.000         1800.000         1800.000\n"
+            "2400.000          -2400.000         2400.000         2400.000\n"
             "2200.000          -2100.000         2100.000         2100.000\n"
-            "2400.000          -2400.000         2400.000         2400.000\n" );
+            "2000.000          -1800.000         1800.000         1800.000\n"
+            "2500.000          -99999.000        -99999.000       -99999.000\n" );
         if ( !writeText( dir.filePath( tdVer.path ), tdText ) )
             return false;
         return link( QStringLiteral( "well-1" ), tdAsset.id, QStringLiteral( "time_depth" ) );
@@ -173,9 +176,18 @@ class TestProjectData : public QObject
         QVERIFY( qAbs( tops.at( 1 ).md - 2148.0 ) < 0.01 );
 
         const QVector<TdSample> td = pd.tdTableFor( QStringLiteral( "well-1" ) );
-        QCOMPARE( td.size(), 3 );
+        QCOMPARE( td.size(), 4 );
+        // 文件顺序交付：按 TIME 排序会排成 2000/2200/2400/2500，这里第一条
+        // 必须是文件首行 2400。TVD 与 MD 两列都带上（MD 兜底要用）。
+        QVERIFY( qAbs( td.at( 0 ).timeMs - 2400.0 ) < 0.01 );
+        QVERIFY( qAbs( td.at( 0 ).tvd - 2400.0 ) < 0.01 );
+        QVERIFY( qAbs( td.at( 0 ).md - 2400.0 ) < 0.01 );
         QVERIFY( qAbs( td.at( 1 ).timeMs - 2200.0 ) < 0.01 );
-        QVERIFY( qAbs( td.at( 1 ).tvd - 2100.0 ) < 0.01 );
+        QVERIFY( qAbs( td.at( 2 ).timeMs - 2000.0 ) < 0.01 );
+        // -99999 行：时间保留，深度以 NaN 透传（插值端剔除，不进排序检查）。
+        QVERIFY( qAbs( td.at( 3 ).timeMs - 2500.0 ) < 0.01 );
+        QVERIFY( qIsNaN( td.at( 3 ).tvd ) );
+        QVERIFY( qIsNaN( td.at( 3 ).md ) );
 
         // No time_depth link → empty, not fabricated.
         QCOMPARE( pd.tdTableFor( QStringLiteral( "well-3" ) ).size(), 0 );

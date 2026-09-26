@@ -1,12 +1,37 @@
 #pragma once
 #include "wellfileparsers.h"
 
-// io/ — 时深工具（plan §10）：TVD 对 TD 表 TVD 列线性插值得 TIME(ms)；
-// 井 TVD 空则用 MD 对 MD 列；-99999 的行不进插值。
-// 区间外外推最近端点值（剖面上标层需要闭合解），无可用行则失败。
+// io/ — 时深工具（PROJECT_AREA_PLAN §3 autoplan）：TVD 对 TD 表 TVD 列线性插值
+// 得 TIME(ms)；井分层 TVD 空时用 MD 对 MD 列。契约：
+//   · 行保持文件顺序——不排序、不夹取、不外推；
+//   · -99999/缺列的行不进插值（在单调性与样点数检查之前剔除）；
+//   · 查找列（TVD 或 MD）必须按文件顺序严格递增 → 否则 NonMonotonic「时深表无序」；
+//   · 可用样点不足两个 → NoTable「无时深表」；
+//   · 深度落在 [首可用样点, 末可用样点] 之外 → OutOfRange「超出时深表」，
+//     绝不返回端点值；
+//   · 范围内 → 文件顺序相邻两样点间线性插值 → Ok + ms。
+// 剖面标层与时间残差共用这一个结果：要么值，要么原因（reasonText 取中文文案）。
 namespace TimeDepthTool
 {
-  // depth→time(ms)。useMd=false 走 TVD 列（井 TVD 有效时的首选）；
-  // useMd=true 走 MD 列（井 TVD 空的兜底）。
-  double interpolateTimeMs(const TimeDepthTable &td, double depth, bool useMd, bool *ok = nullptr);
+  enum class TdStatus
+  {
+    Ok,           // 插值成功，timeMs 有效
+    NoTable,      // 无时深表（无 TD 行，或剔除 -99999 后不足两个可用样点）
+    OutOfRange,   // 超出时深表（深度在可用样点范围之外，不外推）
+    NonMonotonic, // 时深表无序（查找列未按文件顺序严格递增）
+  };
+
+  struct TdResult
+  {
+    double timeMs = qQNaN();              // 仅 status==Ok 时有效
+    TdStatus status = TdStatus::NoTable;
+    bool ok() const { return status == TdStatus::Ok; }
+  };
+
+  // depth→time(ms)。useMd=false 查 TVD 列（井分层 TVD 有效时的首选）；
+  // useMd=true 查 MD 列（分层 TVD 空的兜底）。失败原因见 status/reasonText。
+  TdResult interpolateTimeMs(const TimeDepthTable &td, double depth, bool useMd);
+
+  // 原因文案：Ok → 空串；否则「无时深表」「超出时深表」「时深表无序」之一。
+  QString reasonText(TdStatus status);
 } // namespace TimeDepthTool

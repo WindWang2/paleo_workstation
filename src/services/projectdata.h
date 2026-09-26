@@ -25,7 +25,7 @@ class LayerManifest;
 // 接口契约（两包接缝，主版本 wave/mapping-pipeline）：
 //   wells()          → type=="well" 实体（surface 坐标 + coordinate_status）
 //   topsFor(id)      → 该井主 tops 版本文件里的分层（WellTop.horizon=层名）
-//   tdTableFor(id)   → 该井主 time_depth 版本文件（按 TIME 升序）
+//   tdTableFor(id)   → 该井主 time_depth 版本文件（文件顺序，不排序）
 //   horizonRasterDecl(h) → LayerManifest 首个 raster 声明（优先 "horizon." id）
 struct ProjectWell
 {
@@ -46,7 +46,8 @@ struct WellTop
 struct TdSample
 {
   double timeMs = 0.0;        // two-way time, milliseconds
-  double tvd = 0.0;           // true vertical depth, meters (无 TVD 列时用 TVDSS)
+  double tvd = qQNaN();       // true vertical depth, meters (NaN = -99999/缺列)
+  double md = qQNaN();        // measured depth, meters (NaN = -99999/缺列)
 };
 
 struct HorizonRasterInfo

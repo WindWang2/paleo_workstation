@@ -1050,7 +1050,7 @@ QList<ValidationIssue> ValidationWorkflow::validate()
       ValidationIssue v;
       v.severity = ValidationIssue::Error;
       v.code = QStringLiteral( "SRC_MISSING" );
-      v.message = tr( "declared layer '%1' source is missing on disk: %2" ).arg( d.layerId, base );
+      v.message = tr( "已声明图层 %1 的源文件在磁盘上不存在：%2" ).arg( d.layerId, base );
       v.layerId = d.layerId;
       v.horizon = d.horizon;
       issues.append( v );
@@ -1079,7 +1079,7 @@ QList<ValidationIssue> ValidationWorkflow::validate()
       ValidationIssue v;
       v.severity = ValidationIssue::Warning;
       v.code = QStringLiteral( "DUP_HORIZON" );
-      v.message = tr( "horizon names collide: %1" ).arg( names.join( QStringLiteral( " / " ) ) );
+      v.message = tr( "层位名冲突（归一化后相同）：%1" ).arg( names.join( QStringLiteral( " / " ) ) );
       v.horizon = names.first();
       issues.append( v );
     }
@@ -1096,7 +1096,7 @@ QList<ValidationIssue> ValidationWorkflow::validate()
         ValidationIssue v;
         v.severity = ValidationIssue::Info;
         v.code = QStringLiteral( "BUSY" );
-        v.message = tr( "layer '%1' is busy: %2" ).arg( d.layerId, reason );
+        v.message = tr( "图层 %1 正忙：%2" ).arg( d.layerId, reason );
         v.layerId = d.layerId;
         v.horizon = d.horizon;
         issues.append( v );
@@ -1115,14 +1115,34 @@ QList<ValidationIssue> ValidationWorkflow::validate()
       const double threshold = prop > 0.0 ? prop : 10.0;
       const QList<TimeResidualRow> rows =
           computeTimeResiduals( pd, QStringLiteral( "D61" ), threshold );
-      // 残差行所属栅格图层（问题行的地图缩放目标）。
-      const QString rasterLayerId =
-          pd->horizonRasterDecl( QStringLiteral( "D61" ) ).layerId;
+      // 残差行所属栅格图层（问题行/残差行的地图缩放目标与联动 layerId）。
+      const HorizonRasterInfo rasterInfo =
+          pd->horizonRasterDecl( QStringLiteral( "D61" ) );
+      const QString rasterLayerId = rasterInfo.layerId;
+      // T25：有井但一行残差都没有 → 栅格没声明或打不开，残差检查其实没跑成；
+      // 发 RASTER_MISSING 让问题表/摘要行说清原因，不和「还没计算」混为一谈。
+      // 声明在而文件缺/打不开时复述底座原因（lastError），不写「还没有」。
+      if ( rows.isEmpty() && !pd->wells().isEmpty() )
+      {
+        ValidationIssue v;
+        v.severity = ValidationIssue::Warning;
+        v.code = QStringLiteral( "RASTER_MISSING" );
+        v.message = rasterLayerId.isEmpty()
+                        ? tr( "层位 %1 还没有时间栅格" ).arg( QStringLiteral( "D61" ) )
+                        : ( pd->lastError().isEmpty()
+                                ? tr( "层位 %1 的时间栅格不可用" ).arg( QStringLiteral( "D61" ) )
+                                : pd->lastError() );
+        v.horizon = QStringLiteral( "D61" );
+        v.layerId = rasterLayerId;
+        issues.append( v );
+      }
       for ( const TimeResidualRow &row : rows )
       {
         QVariantMap m;
         m.insert( QStringLiteral( "well_id" ), row.wellId );
         m.insert( QStringLiteral( "well_name" ), row.wellName );
+        m.insert( QStringLiteral( "horizon" ), QStringLiteral( "D61" ) );
+        m.insert( QStringLiteral( "layer_id" ), rasterLayerId );
         m.insert( QStringLiteral( "threshold_ms" ), threshold );
         m.insert( QStringLiteral( "reason" ), row.reason );
         if ( std::isfinite( row.x ) )

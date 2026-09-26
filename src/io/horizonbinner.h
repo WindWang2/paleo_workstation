@@ -2,6 +2,7 @@
 #include <QByteArray>
 #include <QString>
 #include <QVector>
+#include <QtGlobal> // qQNaN
 
 // io/ — 层位散点 → 装箱时间栅格（plan §2/§3：一张图不画 26 万个点）。
 // 网格几何从层位文件头冻结：Grid_size、P1/P2/P3（inline,crossline,x,y）、Z 单位。
@@ -27,7 +28,14 @@ struct BinnedHorizon
   double zMin = 0, zMax = 0;
   int filledCells = 0;
   bool hasInlineRange = false, hasXlineRange = false;
+  // 测网 inline/crossline 范围（来自层位头 P1 + Grid_size 跨度）——
+  // 写进 GeoTIFF 的 PALEO_INLINE_*/PALEO_XLINE_*，验证→地震剖面导航
+  // 依赖它（audit #38/T21）。装箱语义下恒有值。
   int inlineMin = 0, inlineMax = 0, xlineMin = 0, xlineMax = 0;
+  // 地震采样间隔/起始时间（ms）：来自 SEG-Y，散点文本里没有——只在调用方
+  // 实际拿到时才写 PALEO_DT_MS/PALEO_T0_MS，不编值（T21「as available」）。
+  double dtMs = qQNaN();
+  double t0Ms = qQNaN();
 };
 
 // 从 '# Grid_size:411x641' / '# P1: ...' / '# Z_units: ms' 行取参数。
@@ -36,5 +44,7 @@ bool parseHorizonHeader(const QByteArray &text, HorizonHeader *out, QString *err
 // 装箱：行=inline-p1Inline（0..rows-1），列=crossline-p1Xline。
 bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error = nullptr);
 
-// 写北向上 Float32 GeoTIFF（geotransform/nodata/局部测网 CRS）。
+// 写北向上 Float32 GeoTIFF（geotransform/nodata/局部测网 CRS）+ PALEO_INLINE_*/
+// PALEO_XLINE_* 测网号域 + PALEO_FILLED_CELLS/COLLISIONS/REJECTED 装箱计数
+// （T21：验证→地震剖面导航靠号域）；dtMs/t0Ms 有限时另写 PALEO_DT_MS/T0_MS。
 bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QString *error = nullptr);

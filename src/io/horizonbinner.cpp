@@ -146,6 +146,28 @@ bool parseHorizonHeader(const QByteArray &text, HorizonHeader *out, QString *err
     setError(error, QStringLiteral("horizon header P1/P2/P3 do not match Grid_size"));
     return false;
   }
+  // 角点号域须与 Grid_size 自洽：inline 跨度=行数−1、xline 跨度=列数−1，
+  // 且 P1 是 (min inline, min xline) 原点角——binHorizon 的行/列式依赖它。
+  const int inMin = qMin(h.p1Inline, qMin(h.p2Inline, h.p3Inline));
+  const int inMax = qMax(h.p1Inline, qMax(h.p2Inline, h.p3Inline));
+  const int xlMin = qMin(h.p1Xline, qMin(h.p2Xline, h.p3Xline));
+  const int xlMax = qMax(h.p1Xline, qMax(h.p2Xline, h.p3Xline));
+  if (inMax - inMin != h.gridRows - 1 || xlMax - xlMin != h.gridCols - 1 ||
+      h.p1Inline != inMin || h.p1Xline != xlMin)
+  {
+    setError(error,
+             QStringLiteral("horizon P-corner survey range disagrees with Grid_size"));
+    return false;
+  }
+  // 数值几何：坐标有限，x 随 xline、y 随 inline 单调增（本工区约定），
+  // 像元尺寸由此非零——dx=0/dy=0 的退化网格不该落盘。
+  if (!std::isfinite(h.p1x) || !std::isfinite(h.p1y) || !std::isfinite(h.p2x) ||
+      !std::isfinite(h.p2y) || !std::isfinite(h.p3x) || !std::isfinite(h.p3y) ||
+      h.p2x <= h.p1x || h.p3y <= h.p2y)
+  {
+    setError(error, QStringLiteral("horizon P-corner geometry is degenerate"));
+    return false;
+  }
   if (out)
     *out = h;
   return true;
@@ -269,6 +291,13 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
     const QByteArray encoded = QByteArray::number(value);
     return GDALSetMetadataItem(ds, key, encoded.constData(), nullptr) == CE_None;
   };
+  const auto setDblMetadata = [ds](const char *key, double value) {
+    const QByteArray encoded = QByteArray::number(value);
+    return GDALSetMetadataItem(ds, key, encoded.constData(), nullptr) == CE_None;
+  };
+  // T21/audit #38：测网号域与装箱计数写进栅格元数据——验证残差行要由
+  // PALEO_INLINE_* 把采样点 x 反算成 inline 去开剖面。PALEO_DT_MS/PALEO_T0_MS
+  // 来自 SEG-Y、散点文本里没有，只在调用方给了有限值时才写，不编值。
   if ((b.hasInlineRange &&
        (!setIntMetadata("PALEO_INLINE_MIN", b.inlineMin) ||
         !setIntMetadata("PALEO_INLINE_MAX", b.inlineMax))) ||
@@ -277,7 +306,9 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
         !setIntMetadata("PALEO_XLINE_MAX", b.xlineMax))) ||
       !setIntMetadata("PALEO_COLLISIONS", b.collisions) ||
       !setIntMetadata("PALEO_REJECTED", b.rejected) ||
-      !setIntMetadata("PALEO_FILLED_CELLS", b.filledCells))
+      !setIntMetadata("PALEO_FILLED_CELLS", b.filledCells) ||
+      (std::isfinite(b.dtMs) && !setDblMetadata("PALEO_DT_MS", b.dtMs)) ||
+      (std::isfinite(b.t0Ms) && !setDblMetadata("PALEO_T0_MS", b.t0Ms)))
   {
     const QString detail = QString::fromUtf8(CPLGetLastErrorMsg());
     GDALClose(ds);

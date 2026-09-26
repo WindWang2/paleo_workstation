@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace
 {
@@ -312,9 +313,15 @@ namespace
     int row = static_cast<int>( std::floor( ( y - gt[3] ) / gt[5] ) );
     const double xmax = gt[0] + gt[1] * cols;
     const double ymin = gt[3] + gt[5] * rows;
-    if ( col == cols && x == xmax )
+    // 恰在外边界 → 末像元。不取逐位相等：调用方若由 xmin+cols*dx 反推
+    // xmax，浮点可能差 1 ULP——按 1 ULP 容差归边（audit #35 附注）。
+    const double ulpX =
+        std::nextafter( xmax, std::numeric_limits<double>::infinity() ) - xmax;
+    const double ulpY =
+        std::nextafter( ymin, std::numeric_limits<double>::infinity() ) - ymin;
+    if ( col == cols && qAbs( x - xmax ) <= ulpX )
       col = cols - 1; // 恰在外边界 → 最后一列
-    if ( row == rows && y == ymin )
+    if ( row == rows && qAbs( y - ymin ) <= ulpY )
       row = rows - 1; // 恰在外边界 → 最后一行
     if ( col < 0 || row < 0 || col >= cols || row >= rows )
       return SampleOutcome::Outside;

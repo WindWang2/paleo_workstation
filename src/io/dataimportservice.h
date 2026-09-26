@@ -6,6 +6,7 @@
 #include <QSet>
 #include <QString>
 #include <QStringList>
+#include <QVector>
 
 class QgisLayerService;
 class PaleoProjectStore;
@@ -53,6 +54,25 @@ class DataImportService : public QObject
     ImportResult importProjectFileEx(const QString &sourcePath, QString *error = nullptr);
     ImportResult importProjectFileEx(const QString &sourcePath, const ImportOptions &options,
                                      QString *error = nullptr);
+
+    // ---- 文件夹导入（§3/autoplan：「导入工区文件夹」的后端半边）----
+    // 递归走所选目录（分类依赖 井位/井分层/时深/层位 路径段——真工区文件全在
+    // 子目录里，时深还在 TD 二级子目录）。只收普通文件：目录只下钻不出行，
+    // fifo/socket 等非普通文件和指向所选根目录之外的符号链接标 Skipped；
+    // 一行失败不中断其余文件。隐藏文件（.preview_cache 之类）不进表。
+    // 两阶段：先处理全部 well_head 行（井建齐），其余文件再对已齐的井集解
+    // 析——LAS 排序在井口前也照常挂到 A1。返回行按处理序排：well_head 行在
+    // 前、其余行随后（各按路径排序）、Skipped 行缀在最后。
+    struct FolderRowResult
+    {
+      QString path;            // 源路径（所选目录内）
+      QString classifiedType;  // 分类器类型（well_head/well_log/tops/...）
+      QString entityName;      // 已解析实体名；多个主关联用 ", " 连接；未决/失败为空
+      enum class Outcome { Imported, Unresolved, Failed, Skipped };
+      Outcome outcome = Outcome::Skipped;
+      QString message;         // 失败原因 / 未决备注 / dedup「字节已在库」文案
+    };
+    QVector<FolderRowResult> importFolder(const QString &dirPath, QString *error = nullptr);
 
     // 旧签名（mainwindow importRequested 接线）：kind 仅用于信号，不再决定行为。
     QString importFile(const QString &kind, const QString &sourcePath, QString *error = nullptr);

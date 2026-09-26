@@ -297,3 +297,11 @@ add_paleo_test(tst_algorithm_harness)  # AlgorithmTestBase harness + ≥3 算法
 add_paleo_test(tst_perfbudget)     # 非 UI 性能预算：工程打开/folder 枚举/save 200 版本
 target_compile_definitions(tst_perfbudget PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+
+# ---- wave4/runtime-resilience ----
+# 崩溃本地转储（§38 留白按本地优先落地）+ 外链源重定位恢复路径。
+# 新增源与测试集中在此块；并行包合并冲突时保留双方行。
+target_sources(paleo_core PRIVATE
+  src/services/crashreport.cpp                  # 致命信号 fd 落盘 + .running 会话旗标 + 重启提示文案
+)
+add_paleo_test(tst_crashreport)

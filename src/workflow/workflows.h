@@ -91,11 +91,15 @@ class ValidationWorkflow : public QObject
     // busy-layer conflicts. Returns issue list (may be empty = clean).
     QList<ValidationIssue> validate();
 
-    // wave/mapping-pipeline — 绑定读侧门面后，validate() 增加井上时间残差
-    // 检查（TD 插值 vs 层位 DERIVED 栅格；见 mappingworkflow.h）。
+    // wave/mapping-pipeline — 绑定读侧门面后，validate() 增加 D61 井上时间残差
+    // 检查（TD 插值 vs 层位 DERIVED 栅格；见 mappingworkflow.h）。残差只评 D61。
     void setProjectData(ProjectDataFacade *projectData);
-    // 残差起评阈值（ms）。默认 1.0 = 半样点间隔（2ms 采样）。
+    // 残差起评阈值（ms）。默认 10.0（autoplan §5C：|r|<=10 通过，>10 成问题）。
     void setResidualThresholdMs(double thresholdMs);
+    // 最近一次 validate() 的 D61 逐井残差行（验证页残差表数据源）。
+    // 元素为 QVariantMap：well_id/well_name/status/residual_ms/reason/
+    // threshold_ms/x/y/inline/time_ms/raster_ms。未跑过或无门面 → 空表。
+    QVariantList lastResidualRows() const;
 
   signals:
     void validationDone(int issueCount);

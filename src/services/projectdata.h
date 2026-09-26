@@ -41,6 +41,8 @@ struct WellTop
   QString horizon;            // boundary name as picked, e.g. "D61"
   double md = qQNaN();        // measured depth, meters (NaN = -99999/缺列)
   double tvd = qQNaN();       // true vertical depth, meters
+  double x = qQNaN();         // 分层点 X/Y（tops 文件 X/Y 列；NaN = 无坐标）
+  double y = qQNaN();
 };
 
 struct TdSample

@@ -141,6 +141,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_mappingWf = new MappingWorkflow(m_constraintWf, m_compositionWf, m_layerSvc, this);
   m_mappingWf->setProjectData(m_projectData);
   m_validationWf->setProjectData(m_projectData); // validate() 增加时间残差
+  m_validationWf->setResidualThresholdMs(10.0);  // autoplan §5C：D61 残差阈值 10 ms
   m_versionStore = new MapVersionStore(QString());
   m_versionCtl = new MapVersionController(m_versionStore, m_layerSvc, this);
 

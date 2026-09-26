@@ -21,6 +21,7 @@
 
 #include <QDir>
 #include <QElapsedTimer>
+#include <QSet>
 #include <algorithm>
 
 // 真数据导入冒烟（验收：打开 project_area 目录跑一次导入，数据不提交）。
@@ -197,8 +198,9 @@ void TestSmokeRealdata::importsWholeWorkarea()
     QCOMPARE(line.front().samples.size(), 901);
   }
 
-  // ---- 端到端编图链（plan §5C）：刚导入的真 catalog → 门面 → 厚度 → IDW
-  // → 相多边形 → 时间残差。这是「走通一层古地理编图」的产品级验收。 ----
+  // ---- 端到端编图链（plan §5C autoplan 口径）：刚导入的真 catalog → 门面
+  // → 逐井层间速度样本 → 等时差栅格 × IDW²(Vint) → 「D61–D62 等厚（米）」→
+  // D61 逐井时间残差。本链不产相多边形——这是阶段C 的产品级验收。 ----
   QgisProcessingService proc(&store);
   ConstraintWorkflow constraints(&proc, &layerSvc);
   CompositionWorkflow compose(&proc, &layerSvc);
@@ -223,43 +225,107 @@ void TestSmokeRealdata::importsWholeWorkarea()
     QCOMPARE(ri.rows, 411);
   }
 
-  // 厚度：D61→D62 逐井；缺任一口分层的井跳过，不造假厚度。
-  int skipped = -1;
+  // 厚度样本：D61→D62 逐井层间速度；缺任一口分层/TVD/TD 时间的井带原因行，
+  // 不造假样本（autoplan §5C）。
   QString err;
-  const QVector<ThicknessPoint> pts =
-      mapping.computeThickness(QStringLiteral("D61"), QStringLiteral("D62"), &skipped, &err);
-  QVERIFY2(!pts.isEmpty(), qPrintable(err));
-  QVERIFY2(pts.size() + skipped == 20, qPrintable(QStringLiteral("pts=%1 skipped=%2")
-                                                    .arg(pts.size()).arg(skipped)));
-  for (const ThicknessPoint &p : pts)
-    QVERIFY(p.thickness > 0.0); // D62 在 D61 之下 → 厚度为正
-  qWarning("SMOKE thickness: %d wells contribute, %d skipped", pts.size(), skipped);
+  const QVector<ThicknessSample> samples =
+      mapping.computeThicknessSamples(QStringLiteral("D61"), QStringLiteral("D62"), &err);
+  QCOMPARE(samples.size(), 20); // 每口井一行
+  int contributing = 0;
+  QSet<QString> rowWells;
+  for (const ThicknessSample &s : samples)
+  {
+    rowWells.insert(s.wellId);
+    if (s.contributing)
+    {
+      QVERIFY(s.vint > 0.0);     // 层间速度为正（D62 在 D61 之下）
+      QVERIFY(s.dtMs > 0.0);
+      ++contributing;
+    }
+    else
+    {
+      QVERIFY2(!s.reason.isEmpty(),
+               qPrintable(QStringLiteral("%1 不贡献却没写原因").arg(s.wellName)));
+    }
+  }
+  QCOMPARE(rowWells.size(), 20);
+  QVERIFY2(contributing >= 3, "真工区至少 3 口贡献井才能成面");
+  qWarning("SMOKE thickness: %d/20 wells contribute Vint", contributing);
 
-  // 完整链：厚度点层 → 约束 IDW → 相多边形。
+  // 完整链（新语义）：D62−D61 等时差 × IDW²(Vint) → 「D61–D62 等厚（米）」，
+  // 写在 D61 网格上；绝不产相多边形。
   QVERIFY2(mapping.runThicknessChain(QStringLiteral("D61"), &err), qPrintable(err));
   {
-    bool sawFacies = false;
+    bool sawThick = false, sawFacies = false;
     for (const LayerDeclaration &d : layerSvc.declared())
-      if (d.layerId == QLatin1String("facies.D61") && d.type == QLatin1String("vector"))
+    {
+      if (d.layerId == QStringLiteral("D61–D62 等厚（米）"))
       {
-        sawFacies = QFile::exists(d.source.section(QLatin1Char('|'), 0, 0));
-        qWarning("SMOKE facies.D61 source: %s", qPrintable(d.source));
+        QCOMPARE(d.type, QStringLiteral("raster"));
+        QVERIFY(QFile::exists(d.source));
+        sawThick = true;
+
+        // 网格必须就是 D61 网格（641×411，不扩界）。
+        GDALAllRegister();
+        GDALDatasetH ds = GDALOpen(d.source.toUtf8().constData(), GA_ReadOnly);
+        QVERIFY2(ds, "open thickness raster");
+        QCOMPARE(GDALGetRasterXSize(ds), 641);
+        QCOMPARE(GDALGetRasterYSize(ds), 411);
+        // A1 (5288.67, 8219.94) 在贡献井凸包内 → 正值米数（≈A1 处 36m 量级）。
+        double gt[6] = {0, 0, 0, 0, 0, 0};
+        GDALGetGeoTransform(ds, gt);
+        const int px = int((5288.67 - gt[0]) / gt[1]);
+        const int py = int((gt[3] - 8219.94) / -gt[5]);
+        float v = 0;
+        QVERIFY(GDALRasterIO(GDALGetRasterBand(ds, 1), GF_Read, px, py, 1, 1,
+                             &v, 1, 1, GDT_Float32, 0, 0) == CE_None);
+        qWarning("SMOKE thickness at A1 pixel(%d,%d) = %f m", px, py, v);
+        QVERIFY2(v > 0.0 && v < 500.0, "A1 处等厚应为正值米数");
+        GDALClose(ds);
       }
-    QVERIFY(sawFacies);
+      if (d.layerId == QLatin1String("facies.D61"))
+        sawFacies = true;
+    }
+    QVERIFY2(sawThick, "厚度栅格未声明");
+    QVERIFY2(!sawFacies, "厚度链不得声明 facies.D61（厚度栅格不是相编码）");
   }
 
-  // 时间残差：20 口井都有 TD 表 → 不应出现 NO_TD_TABLE；残差量只记日志
-  //（数值属数据事实，不设阈值断言）。
-  const QList<ValidationIssue> residual =
-      computeTimeResiduals(&facade, QStringLiteral("D61"), 1.0);
-  int nResidual = 0;
-  for (const ValidationIssue &v : residual)
+  // 时间残差（10ms 阈值）：每口井一行，共 20 行；全部 20 口井有 TD + D61
+  // 分层 → 不应有「无时深表」「无 D61 分层」行。残差量只记日志不设断言。
+  const QList<TimeResidualRow> residual =
+      computeTimeResiduals(&facade, QStringLiteral("D61"), 10.0);
+  QCOMPARE(residual.size(), 20);
+  int nPass = 0, nExceeds = 0, nWarn = 0, nNa = 0;
+  QSet<QString> residualWells;
+  for (const TimeResidualRow &r : residual)
   {
-    QVERIFY(v.code != QLatin1String("NO_TD_TABLE"));
-    if (v.code == QLatin1String("TIME_RESIDUAL"))
-      ++nResidual;
+    residualWells.insert(r.wellId);
+    switch (r.status)
+    {
+      case TimeResidualRow::Status::Pass: ++nPass; break;
+      case TimeResidualRow::Status::Exceeds: ++nExceeds; break;
+      case TimeResidualRow::Status::Warn: ++nWarn; break;
+      case TimeResidualRow::Status::NotComputed: ++nNa; break;
+    }
   }
-  qWarning("SMOKE time residuals: %d wells flagged", nResidual);
+  QCOMPARE(residualWells.size(), 20);
+  qWarning("SMOKE D61 residuals @10ms: %d pass, %d exceed, %d warn, %d na",
+           nPass, nExceeds, nWarn, nNa);
+  for (const TimeResidualRow &r : residual)
+    if (!r.reason.isEmpty())
+      qWarning("SMOKE   %s: %s", qPrintable(r.wellName), qPrintable(r.reason));
+
+  // ValidationWorkflow 集成：validate() 的残差表同样 20 行。
+  ValidationWorkflow vw(&layerSvc, &store);
+  vw.setProjectData(&facade);
+  vw.setResidualThresholdMs(10.0);
+  const QList<ValidationIssue> allIssues = vw.validate();
+  QCOMPARE(vw.lastResidualRows().size(), 20);
+  int issueResiduals = 0;
+  for (const ValidationIssue &v : allIssues)
+    if (v.code == QLatin1String("TIME_RESIDUAL"))
+      ++issueResiduals;
+  qWarning("SMOKE validation: %d TIME_RESIDUAL issues", issueResiduals);
 }
 
 int main(int argc, char *argv[])

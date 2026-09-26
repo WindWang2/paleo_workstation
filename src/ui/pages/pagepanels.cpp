@@ -15,9 +15,12 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
+#include <QShowEvent>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 // ---------------------------------------------------------------------------
 // pagepanels.h fixes the public shape of these classes and declares no data
@@ -480,8 +483,29 @@ ConstraintPage::ConstraintPage(ConstraintWorkflow *wf, QWidget *parent)
   status->setWordWrap(true);
   lay->addWidget(status);
 
+  // ---- 阶段C 厚度样本表（autoplan §5C）-------------------------------------
+  // 逐井：井名 / D61 TVD / D62 TVD / 层间速度或原因。行表由 MappingWorkflow
+  // 镜像到 ConstraintWorkflow 的 paleo.thickness.* 动态属性；不足样本的两句
+  // （「厚度样本不足以成面」/「没有厚度样本」）渲染在 thicknessHint，不弹框。
+  lay->addSpacing(16); // spacing.md
+  lay->addWidget(caption(tr("D61→D62 厚度样本"), this));
+  auto *thTable = new QTableWidget(0, 4, this);
+  thTable->setObjectName(QStringLiteral("thicknessTable"));
+  thTable->setAccessibleName(tr("厚度样本表"));
+  thTable->setHorizontalHeaderLabels(
+      {tr("井名"), tr("D61 TVD"), tr("D62 TVD"), tr("层间速度或原因")});
+  thTable->verticalHeader()->setVisible(false);
+  thTable->horizontalHeader()->setStretchLastSection(true);
+  lay->addWidget(thTable, 1);
+  auto *thHint = new QLabel(this);
+  thHint->setObjectName(QStringLiteral("thicknessHint"));
+  thHint->setWordWrap(true);
+  thHint->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+  lay->addWidget(thHint);
+
   if (wf) // workflow feedback lands on the status label
   {
+    setProperty(kWfProp, QVariant::fromValue(static_cast<QObject *>(wf)));
     connect(wf, &ConstraintWorkflow::constraintAdded, status,
             [status](const QString &id) { status->setText(tr("已添加约束 %1").arg(id)); });
     connect(wf, &ConstraintWorkflow::factorDone, status,
@@ -489,6 +513,55 @@ ConstraintPage::ConstraintPage(ConstraintWorkflow *wf, QWidget *parent)
               status->setText(tr("单因素完成：%1 → %2").arg(h, layerId));
             });
   }
+}
+
+void ConstraintPage::showEvent(QShowEvent *event)
+{
+  QWidget::showEvent(event);
+  refreshThicknessSamples();
+}
+
+void ConstraintPage::refreshThicknessSamples()
+{
+  auto *table = child<QTableWidget>(this, "thicknessTable");
+  auto *hint = child<QLabel>(this, "thicknessHint");
+  if (!table)
+    return;
+  auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
+  const QVariantList rows =
+      wf ? wf->property("paleo.thickness.samples").toList() : QVariantList();
+  const QString message =
+      wf ? wf->property("paleo.thickness.message").toString() : QString();
+
+  table->setRowCount(0);
+  for (const QVariant &v : rows)
+  {
+    const QVariantMap m = v.toMap();
+    const int r = table->rowCount();
+    table->insertRow(r);
+    auto *name = new QTableWidgetItem(m.value(QStringLiteral("well_name")).toString());
+    const QString tvdTop = m.contains(QStringLiteral("tvd_top"))
+                               ? QString::number(m.value(QStringLiteral("tvd_top")).toDouble(), 'f', 1)
+                               : QStringLiteral("—");
+    const QString tvdBase = m.contains(QStringLiteral("tvd_base"))
+                                ? QString::number(m.value(QStringLiteral("tvd_base")).toDouble(), 'f', 1)
+                                : QStringLiteral("—");
+    // 贡献井 → 层间速度（m/s）；否则 → 原因文案。
+    const QString last = m.value(QStringLiteral("contributing")).toBool()
+                             ? tr("%1 m/s").arg(m.value(QStringLiteral("vint")).toDouble(), 0, 'f', 0)
+                             : m.value(QStringLiteral("reason")).toString();
+    auto *itTop = new QTableWidgetItem(tvdTop);
+    auto *itBase = new QTableWidgetItem(tvdBase);
+    auto *itV = new QTableWidgetItem(last);
+    for (auto *it : {name, itTop, itBase, itV})
+      it->setFlags(it->flags() & ~Qt::ItemIsEditable);
+    table->setItem(r, 0, name);
+    table->setItem(r, 1, itTop);
+    table->setItem(r, 2, itBase);
+    table->setItem(r, 3, itV);
+  }
+  if (hint)
+    hint->setText(message);
 }
 
 // ---------------------------------------------------------------------------
@@ -502,7 +575,7 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   auto *lay = panelLayout(this);
 
   // ---- wave/mapping-pipeline 阶段C+E：D61 编图链 / 导出 / 版本按钮块 ----
-  lay->addWidget(caption(tr("编图链（厚度→IDW→转相面）"), this));
+  lay->addWidget(caption(tr("编图链（等时差 × 层间速度 → 等厚图）"), this));
   auto *chain = new QPushButton(tr("运行编图链"), this);
   chain->setObjectName(QStringLiteral("thicknessChainButton"));
   chain->setAccessibleName(tr("运行编图链"));
@@ -583,6 +656,25 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
       return;
     }
     emit polygonizeRequested(layerId, minArea->value(), simplify->value());
+  });
+  // autoplan §5C：厚度栅格不是相编码；工程里没有相编码栅格时明确说明，
+  // 而不是笼统的「还没有可转面的栅格」。
+  connect(polygonize, &QPushButton::clicked, this, [this, rasterCombo] {
+    if (!rasterCombo->currentData().toString().isEmpty())
+      return;
+    auto *status = child<QLabel>(this, "statusLabel");
+    auto *layers = qobject_cast<QgisLayerService *>(
+        property(kLayersProp).value<QObject *>());
+    QVector<LayerDeclaration> declared;
+    if (status && layers && layers->tryDeclared(&declared))
+    {
+      const bool anyRaster = std::any_of(
+          declared.cbegin(), declared.cend(), [](const LayerDeclaration &d) {
+            return d.type.compare(QLatin1String("raster"), Qt::CaseInsensitive) == 0;
+          });
+      if (anyRaster)
+        status->setText(tr("没有相编码栅格，这一工区不从厚度生成相"));
+    }
   });
 
   auto *status = new QLabel(this);
@@ -678,6 +770,21 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
   lay->addWidget(run);
   connect(run, &QPushButton::clicked, this, [this] { populate(); });
 
+  // autoplan §5C：D61 残差表 —— 每口井一行（井名/残差或原因/阈值），
+  // 状态字+颜色（通过 #43A047 / 超过阈值 #F29900 / 未计算 #5D6E80）。
+  // 计数行在表头；还没跑时面板写「还没有计算 D61 残差」。
+  auto *resSummary = new QLabel(tr("还没有计算 D61 残差"), this);
+  resSummary->setObjectName(QStringLiteral("residualSummaryLabel"));
+  lay->addWidget(resSummary);
+  lay->addWidget(caption(tr("D61 时间残差"), this));
+  auto *resTable = new QTableWidget(0, 3, this);
+  resTable->setObjectName(QStringLiteral("residualTable"));
+  resTable->setAccessibleName(tr("D61 残差表"));
+  resTable->setHorizontalHeaderLabels({tr("井名"), tr("残差或原因"), tr("阈值")});
+  resTable->verticalHeader()->setVisible(false);
+  resTable->horizontalHeader()->setStretchLastSection(true);
+  lay->addWidget(resTable, 1);
+
   auto *table = new QTableWidget(0, 4, this);
   table->setObjectName(QStringLiteral("issueTable"));
   table->setAccessibleName(tr("验证问题列表"));
@@ -740,4 +847,68 @@ void ValidatePage::populate()
     table->setItem(row, 2, msg);
     table->setItem(row, 3, layer);
   }
+
+  // ---- D61 逐井残差表（autoplan §5C）--------------------------------------
+  auto *resTable = child<QTableWidget>(this, "residualTable");
+  auto *resSummary = child<QLabel>(this, "residualSummaryLabel");
+  if (!resTable)
+    return;
+  resTable->setRowCount(0);
+  const QVariantList rows = wf->lastResidualRows();
+  if (rows.isEmpty())
+  {
+    if (resSummary)
+      resSummary->setText(tr("还没有计算 D61 残差"));
+    return;
+  }
+  const double thr = rows.first().toMap()
+                         .value(QStringLiteral("threshold_ms"), 10.0)
+                         .toDouble();
+  int nExceed = 0;
+  for (const QVariant &v : rows)
+  {
+    const QVariantMap m = v.toMap();
+    const QString status = m.value(QStringLiteral("status")).toString();
+    if (status == QLatin1String("exceed"))
+      ++nExceed;
+    const int r = resTable->rowCount();
+    resTable->insertRow(r);
+    QString word;
+    QColor color;
+    if (status == QLatin1String("pass"))
+    {
+      word = tr("通过");
+      color = QColor(QStringLiteral("#43A047")); // success
+    }
+    else if (status == QLatin1String("exceed"))
+    {
+      word = tr("超过阈值");
+      color = QColor(QStringLiteral("#F29900")); // warning
+    }
+    else if (status == QLatin1String("warn"))
+    {
+      word = tr("警告");
+      color = QColor(QStringLiteral("#F29900")); // 警告行，不算数值残差
+    }
+    else
+    {
+      word = tr("未计算");
+      color = QColor(QStringLiteral("#5D6E80")); // text-muted
+    }
+    const QString value = m.contains(QStringLiteral("residual_ms"))
+                              ? tr("%1 %2 ms").arg(word).arg(
+                                    m.value(QStringLiteral("residual_ms")).toDouble(), 0, 'f', 1)
+                              : tr("%1 · %2").arg(word, m.value(QStringLiteral("reason")).toString());
+    auto *name = new QTableWidgetItem(m.value(QStringLiteral("well_name")).toString());
+    auto *val = new QTableWidgetItem(value);
+    val->setForeground(color);
+    auto *thrItem = new QTableWidgetItem(tr("%1 ms").arg(thr, 0, 'f', 0));
+    for (auto *it : {name, val, thrItem})
+      it->setFlags(it->flags() & ~Qt::ItemIsEditable);
+    resTable->setItem(r, 0, name);
+    resTable->setItem(r, 1, val);
+    resTable->setItem(r, 2, thrItem);
+  }
+  if (resSummary)
+    resSummary->setText(tr("%1 口超过 %2 ms").arg(nExceed).arg(thr, 0, 'f', 0));
 }

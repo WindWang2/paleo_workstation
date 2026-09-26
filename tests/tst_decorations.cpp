@@ -2,6 +2,8 @@
 #include <QDockWidget>
 #include <QImage>
 #include <QPainter>
+#include <QApplication>
+#include <QFontInfo>
 #include <QWidget>
 
 #include <qgsapplication.h>
@@ -13,6 +15,7 @@
 
 #include "../src/ui/decorations/paleodecorations.h"
 #include "../src/ui/vertexeditorshim.h"
+#include "../src/ui/paleotheme.h" // 渲染稳定化：vendor 字体 + Fusion 钉死
 
 // ET9 deliverable: canvas decorations (scale bar / north arrow / grid) and the
 // vertex-editor dock shim. Upstream QgsDecorationItem / QgsDecorationScaleBar /
@@ -27,6 +30,35 @@ class TestDecorations : public QObject
   Q_OBJECT
 
   private slots:
+    // 渲染回归稳定化（TODOS P1 / wave3）：装 vendor 字体并钉 Fusion——
+    // 消除跨平台字体替换与平台样式差异带来的像素噪点（假失败）。
+    void initTestCase()
+    {
+      PaleoTheme::pinRenderEnvironment();
+      const QFontInfo info(qApp->font());
+      QVERIFY2(info.family() == QStringLiteral("Noto Sans SC"),
+               qPrintable(QStringLiteral("app font must resolve to the vendored "
+                                         "family, got: ") + info.family()));
+    }
+
+    // 同帧双渲染逐字节一致（字体钉住后文本基线可复现的前提）。
+    void pinnedRenderIsDeterministic()
+    {
+      QgsMapCanvas canvas;
+      PaleoDecorationManager mgr( &canvas );
+      mgr.setScaleBarEnabled( true );
+      mgr.setGridEnabled( true );
+      const auto render = [&canvas, &mgr] {
+        QImage img( canvas.size(), QImage::Format_ARGB32_Premultiplied );
+        img.fill( Qt::white );
+        QPainter p( &img );
+        mgr.paintDecorations( &p );
+        p.end();
+        return img;
+      };
+      QCOMPARE( render(), render() );
+    }
+
     void togglesChangeItemCount();
     void enabledFlagsRoundtrip();
     void decorationsPaintPixels();

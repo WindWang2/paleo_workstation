@@ -6,6 +6,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
+#include "../src/ui/paleotheme.h" // 渲染稳定化：vendor 字体钉死
 #include "../src/ui/layout/layoutexportactions.h"
 #include "../src/ui/layout/layouttemplates.h"
 #include "../src/qgis/qgisruntime.h"
@@ -35,6 +36,9 @@ class TestLayoutExport : public QObject
     Q_OBJECT
 
   private slots:
+    // 渲染回归稳定化（wave3）：PDF 文本走 vendor 字体，跨平台可比。
+    void initTestCase() { PaleoTheme::pinRenderEnvironment(); }
+
     void actionsAndBuiltinMetadata()
     {
       PaleoLayoutExportActions exports;

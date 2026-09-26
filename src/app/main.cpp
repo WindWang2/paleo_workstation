@@ -32,10 +32,9 @@ int main(int argc, char *argv[])
     return 1;
   }
 
-  // T32：vendor 字体启动注册（缺失时 PaleoTheme 内如实告警降级），并把应用
-  // 默认字体钉到 DESIGN.md body token（Noto Sans SC 9pt）。
-  PaleoTheme::ensureApplicationFonts();
-  QApplication::setFont(PaleoTheme::bodyFont());
+  // T32 + 浅色默认主题：vendor 字体注册（缺失时 PaleoTheme 内如实告警降级）、
+  // DESIGN.md 浅色 palette 钉死——不跟随系统深色模式。
+  PaleoTheme::applyLightTheme();
 
   PaleoMainWindow window(ctx.canvasCtl(), ctx.projectSvc(), ctx.layerSvc(),
                          ctx.toolSvc(), ctx.selection());

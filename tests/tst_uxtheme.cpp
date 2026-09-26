@@ -5,6 +5,7 @@
 #include <QImage>
 #include <QLabel>
 #include <QPainter>
+#include <QPalette>
 #include <QStyle>
 #include <QStyleFactory>
 
@@ -127,6 +128,34 @@ class TestUxTheme : public QObject
       const QImage a = render();
       const QImage b = render();
       QCOMPARE(a, b); // QImage operator== 逐像素
+    }
+
+    // 默认浅色主题：applyLightTheme 钉死 DESIGN.md 浅色 palette——系统
+    // 深色模式下 Window/Base 仍为浅色、WindowText/Text 仍为深色，三组
+    // （Active/Inactive/Disabled）显式写齐，不允许系统 palette 泄漏。
+    void lightThemePaletteIsExplicit()
+    {
+      PaleoTheme::applyLightTheme();
+      QCOMPARE(qApp->style()->objectName().compare(QLatin1String("Fusion"),
+                                                   Qt::CaseInsensitive),
+               0);
+      QCOMPARE(qApp->font().pointSize(), PaleoTheme::kBodyPt);
+
+      for (const auto group : {QPalette::Active, QPalette::Inactive,
+                               QPalette::Disabled})
+      {
+        const QPalette p = qApp->palette();
+        QVERIFY2(p.color(group, QPalette::Window).lightness() > 200,
+                 "Window must stay light under a dark system palette");
+        QVERIFY2(p.color(group, QPalette::Base).lightness() > 200,
+                 "Base must stay light under a dark system palette");
+        QVERIFY2(p.color(group, QPalette::WindowText).lightness() < 120,
+                 "WindowText must stay dark");
+        QVERIFY2(p.color(group, QPalette::Text).lightness() < 120,
+                 "Text must stay dark");
+        QVERIFY2(p.color(group, QPalette::ButtonText).lightness() < 120,
+                 "ButtonText must stay dark");
+      }
     }
 };
 

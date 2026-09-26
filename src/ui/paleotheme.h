@@ -40,7 +40,12 @@ namespace PaleoTheme
   // 存枚举 int（测试可断言），居中对齐，样式走 capsuleStyleSheet。
   QLabel *capsuleLabel(const QString &text, CapsuleKind kind, QWidget *parent);
 
-  // 渲染回归稳定化（TODOS P1）：vendor 字体 + Fusion 风格钉死，消除跨平台
-  // 字体替换/平台样式差异带来的截图噪点。测试 initTestCase 调用。
+  // 应用默认浅色主题（DESIGN.md 是浅色规范）：Fusion + 显式浅色 QPalette
+  // + vendor 字体 + body 字体——不跟随系统深色模式，平台差异全部钉死。
+  // main() 在窗口创建前调用一次。
+  void applyLightTheme();
+
+  // 渲染回归稳定化（TODOS P1）：vendor 字体 + Fusion + 浅色 palette 钉死，
+  // 消除跨平台字体替换/平台样式差异带来的截图噪点。测试 initTestCase 调用。
   void pinRenderEnvironment();
 } // namespace PaleoTheme

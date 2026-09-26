@@ -4,6 +4,7 @@
 #include <QFontDatabase>
 #include <QLabel>
 #include <QApplication>
+#include <QPalette>
 #include <QStyleFactory>
 
 // qrc 对象住在静态库 paleo_core 里——链接器不会自动拉入无引用的目标文件，
@@ -122,13 +123,54 @@ namespace PaleoTheme
     return l;
   }
 
-  void pinRenderEnvironment()
+  // DESIGN.md 浅色 token 的 QPalette 落地：surface/surface-alt/text/
+  // text-muted/primary。显式写 Active+Inactive+Disabled 三组——不写的组
+  // 会继承系统 palette（暗色系统里浅色面板上出浅色字）。
+  QPalette designLightPalette()
   {
-    // 渲染回归（TODOS P1）：跨平台噪点 = 字体替换 + 平台样式差异。钉住：
-    // ① vendor 字体（缺失时 ensureApplicationFonts 已如实告警降级）；
-    // ② Fusion 风格（Qt 自带、各平台一致）；③ 应用字体 = body token。
+    const QColor surface(QStringLiteral("#FFFFFF"));
+    const QColor surfaceAlt(QStringLiteral("#EDF1F5"));
+    const QColor text(QStringLiteral("#24303E"));
+    const QColor muted(QStringLiteral("#5D6E80"));
+    const QColor primary(QStringLiteral("#1B73D0"));
+
+    QPalette p;
+    const auto set = [&p](QPalette::ColorRole role, const QColor &active,
+                          const QColor &disabled) {
+      p.setColor(QPalette::Active, role, active);
+      p.setColor(QPalette::Inactive, role, active);
+      p.setColor(QPalette::Disabled, role, disabled);
+    };
+    set(QPalette::Window, surface, surface);
+    set(QPalette::WindowText, text, muted);
+    set(QPalette::Base, surface, surface);
+    set(QPalette::AlternateBase, surfaceAlt, surfaceAlt);
+    set(QPalette::Text, text, muted);
+    set(QPalette::Button, surfaceAlt, surfaceAlt);
+    set(QPalette::ButtonText, text, muted);
+    set(QPalette::ToolTipBase, surface, surface);
+    set(QPalette::ToolTipText, text, muted);
+    set(QPalette::PlaceholderText, muted, muted);
+    set(QPalette::Highlight, primary, primary.darker(115));
+    set(QPalette::HighlightedText, surface, surface);
+    set(QPalette::Link, primary, muted);
+    set(QPalette::LinkVisited, primary.darker(110), muted);
+    set(QPalette::BrightText, QColor(QStringLiteral("#E53935")), muted);
+    return p;
+  }
+
+  void applyLightTheme()
+  {
     ensureApplicationFonts();
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    QApplication::setPalette(designLightPalette());
     QApplication::setFont(bodyFont());
+  }
+
+  void pinRenderEnvironment()
+  {
+    // 渲染回归（TODOS P1）：跨平台噪点 = 字体替换 + 平台样式 + palette 差异。
+    // 与应用同一条路径钉死（Fusion + 浅色 palette + vendor 字体）。
+    applyLightTheme();
   }
 } // namespace PaleoTheme

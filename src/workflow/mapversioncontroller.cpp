@@ -2,6 +2,7 @@
 
 #include "../io/timedeptool.h"
 #include "../io/wellfileparsers.h"
+#include "../catalog/datacatalog.h"
 #include "../metadata/layermanifest.h"
 #include "../qgis/qgislayerservice.h"
 #include "../services/projectdata.h"
@@ -279,4 +280,30 @@ QString MapVersionController::residualSummaryJson( const ProjectDataFacade *pd,
   summary.insert( QStringLiteral( "missing" ), missing );
   summary.insert( QStringLiteral( "rows" ), rows );
   return QString::fromUtf8( QJsonDocument( summary ).toJson( QJsonDocument::Compact ) );
+}
+
+// B 包 staleness-lite：发布门 advisory 的数据口径——遍历资产的全部版本，
+// 只数 stage==DERIVED 且 extra["stale"] 为真的（RAW/INTERMEDIATE 不计；
+// OUTPUT 是发布产物本身，不在「下游待重算」语义里）。只读，绝不改 catalog。
+int MapVersionController::staleDerivedCount( const DataCatalog *catalog )
+{
+  if ( !catalog || !catalog->isOpen() )
+    return 0;
+  int stale = 0;
+  for ( const CatalogAsset &a : catalog->assets() )
+    for ( const CatalogVersion &v : catalog->versionsForAsset( a.id ) )
+      if ( v.stage == QLatin1String( "DERIVED" ) &&
+           v.extra.value( QStringLiteral( "stale" ) ).toBool() )
+        ++stale;
+  return stale;
+}
+
+QString MapVersionController::stalePublishAdvisory( const DataCatalog *catalog )
+{
+  const int stale = staleDerivedCount( catalog );
+  if ( stale <= 0 )
+    return QString();
+  // advisory 文案（规格定稿）：如实计数 + 明确不阻断——可见但不拦发布。
+  return QObject::tr( "存在过时下游产物（%1 个）——不阻断本次发布，请确认后继续" )
+      .arg( stale );
 }

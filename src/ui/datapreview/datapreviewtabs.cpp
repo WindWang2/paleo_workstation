@@ -338,8 +338,10 @@ namespace
 
 // D1：外链 SHA-256 复验——与 DataCatalog::verifyExternalVersionSha 同语义的
 // 分块哈希，但可报字节进度并可协作取消（异步解码路径用；服务侧无此钩子）。
+// mismatched（可选出参）只在「摘要与入库值不符」时置真——读取失败/取消
+// 不是源被改的证据，调用方据此区分要不要标下游过时。
 static bool externalShaMatches(const QString &absPath, const QString &expected,
-                               PaleoTask *task, QString *error)
+                               PaleoTask *task, QString *error, bool *mismatched = nullptr)
 {
   QFile f(absPath);
   if (!f.open(QIODevice::ReadOnly))
@@ -385,6 +387,8 @@ static bool externalShaMatches(const QString &absPath, const QString &expected,
   {
     if (error)
       *error = QStringLiteral("源文件与入库时的 SHA-256 不一致");
+    if (mismatched)
+      *mismatched = true;
     return false;
   }
   return true;
@@ -472,6 +476,8 @@ void DataPreviewTabs::setImportService(DataImportService *svc)
 {
   if (m_svc)
     disconnect(m_svc, nullptr, this, nullptr);
+  if (m_catalogForTitles)
+    disconnect(m_catalogForTitles, nullptr, this, nullptr);
   m_svc = svc;
   if (!m_svc)
     return;
@@ -480,6 +486,15 @@ void DataPreviewTabs::setImportService(DataImportService *svc)
           [this](const QString &assetId) { rebuildAssetTab(assetId); });
   connect(m_svc, &DataImportService::documentPdfFailed, this,
           [this](const QString &assetId, const QString &) { rebuildAssetTab(assetId); });
+  // B 包 staleness-lite：stale 标记可能来自其它标签的 sha 复验或上游版本
+  // 取代——catalog 任一变更后重算已开标签的「过时」徽标（GUI 线程直连，
+  // 不必重建标签）。换绑服务时先断旧 catalog（上面已断）。
+  m_catalogForTitles = m_svc->catalog();
+  if (m_catalogForTitles)
+    connect(m_catalogForTitles, &DataCatalog::changed, this, [this]() {
+      for (auto it = m_pageOfAsset.constBegin(); it != m_pageOfAsset.constEnd(); ++it)
+        updateTabTitle(it.key());
+    });
 }
 
 void DataPreviewTabs::setTaskService(PaleoTaskService *svc)
@@ -626,6 +641,12 @@ void DataPreviewTabs::updateTabTitle(const QString &assetId)
   const QString suffix = m_titleSuffixOfAsset.value(assetId);
   if (!suffix.isEmpty())
     title += QStringLiteral(" · ") + suffix;
+  // B 包 staleness-lite：资产当前版本被标 stale（上游 sha 失配/被取代）→
+  // 标题带「过时」徽标——下游产物过期在数据页如实可见。
+  if (m_svc && m_svc->catalog()->currentVersion(assetId)
+                   .extra.value(QStringLiteral("stale"))
+                   .toBool())
+    title += QStringLiteral(" · ") + tr("过时");
   m_tabs->setTabText(idx, title);
 }
 
@@ -801,6 +822,14 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     QString verr;
     if (!cat->verifyExternalVersionSha(sourceVersion, &verr))
     {
+      // B 包 staleness-lite：外链源字节与入库时不一致 ⇒ 下游闭包里的
+      // DERIVED 产物输入失效，如实标过时（幂等；GUI 线程直调，与 catalog
+      // 线程纪律一致）。标记失败只记日志——复验拒解码的门不受影响。
+      QString markErr;
+      if (!cat->markDownstreamStale(sourceVersion.id,
+                                    QStringLiteral("上游外链版本 sha 校验失败"),
+                                    &markErr))
+        qWarning() << "markDownstreamStale:" << markErr;
       lay->addWidget(stateLabel(verr, host), 1);
       return host;
     }
@@ -1187,11 +1216,15 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       const bool needSha =
           !v.managed && !v.sha256.isEmpty() && !m_shaVerified.value(assetId);
       const QString sha = v.sha256;
+      // B 包 staleness-lite：sha 是否失配由 worker 判定（bool 经 shared_ptr
+      // 交接），回 GUI 线程再碰 catalog——下游标记的线程纪律与库内一致。
+      const QString staleSeedId = v.id;
+      const auto shaMismatch = std::make_shared<bool>(false);
 
       // T23+D1：索引/SHA 每资产一次（缓存命中即跳过）；道索引与测线解码
       // 在任务池执行并回报字节进度/ETA；任务可协作取消。
       const auto work = [abs, isInline, lineNo, needSha, sha, cachedReader,
-                         out](PaleoTask *t) -> QString {
+                         out, shaMismatch](PaleoTask *t) -> QString {
         std::shared_ptr<SegyReader> reader = cachedReader;
         SegyOptions opts;
         if (t)
@@ -1206,7 +1239,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
           if (needSha)
           {
             QString serr;
-            if (!externalShaMatches(abs, sha, t, &serr))
+            if (!externalShaMatches(abs, sha, t, &serr, shaMismatch.get()))
               return (t && t->cancelRequested()) ? QString() : serr;
           }
           reader = std::make_shared<SegyReader>();
@@ -1229,8 +1262,9 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       };
 
       const auto apply = [this, assetId, seq, isInline, lineNo, out, panel,
-                          mode, no, tieCaption, haveTieTop, tie,
-                          restore](PaleoTask::State st, const QString &errText) {
+                          mode, no, tieCaption, haveTieTop, tie, restore,
+                          staleSeedId, shaMismatch](PaleoTask::State st,
+                                                    const QString &errText) {
         if (seq != m_decodeSeq.value(assetId))
           return; // 陈旧结果丢弃：更新一代 decode 已接管控件
         if (st == PaleoTask::State::Succeeded)
@@ -1248,8 +1282,20 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
           updateTabTitle(assetId);
         }
         else if (st == PaleoTask::State::Failed)
+        {
+          // sha 失配（worker 判定）：下游 DERIVED 如实标过时——GUI 线程
+          // 直调、幂等；读取失败/取消/纯解码失败不产标（非源被改的证据）。
+          if (*shaMismatch && !staleSeedId.isEmpty() && m_svc)
+          {
+            QString markErr;
+            if (!m_svc->catalog()->markDownstreamStale(
+                    staleSeedId,
+                    QStringLiteral("上游外链版本 sha 校验失败"), &markErr))
+              qWarning() << "markDownstreamStale:" << markErr;
+          }
           // 解码失败如实写原因（§4），不装成灰 1×1。
           panel->setError(errText.isEmpty() ? tr("无法解码测线") : errText);
+        }
         else
           panel->setError(tr("已取消"));
         restore();

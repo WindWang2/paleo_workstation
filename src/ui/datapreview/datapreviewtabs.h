@@ -8,6 +8,7 @@
 class DataImportService;
 class PaleoTaskService;
 class PaleoTask;
+class DataCatalog;
 class QLabel;
 class QTabWidget;
 struct CatalogAsset;
@@ -97,9 +98,12 @@ class DataPreviewTabs : public QWidget
     // 「正在读取」+文件名 标签（同步读取前置；buildContent 完成后隐藏）。
     QLabel *loadingLabel(const QString &fileName, QWidget *parent);
 
-    DataImportService *m_svc = nullptr;
-    PaleoTaskService *m_taskSvc = nullptr;
-    QTabWidget *m_tabs = nullptr;
+  DataImportService *m_svc = nullptr;
+  PaleoTaskService *m_taskSvc = nullptr;
+  // 「过时」徽标刷新接线（B 包 staleness-lite）：当前服务 catalog 的
+  // changed() → 重算已开标签标题。换绑服务时先断开（见 setImportService）。
+  DataCatalog *m_catalogForTitles = nullptr;
+  QTabWidget *m_tabs = nullptr;
     QLabel *m_emptyLabel = nullptr;
     QHash<QString, QWidget *> m_pageOfAsset;
     QHash<QString, QString> m_wellEntityOfAsset; // assetId → 该标签已选井（多井下拉框）

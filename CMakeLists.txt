@@ -339,3 +339,10 @@ target_sources(paleo_core PRIVATE
   src/io/arearules.cpp                           # 参数装载 + 进程级 active 快照
 )
 add_paleo_test(tst_arearules)     # 默认等价 / 自定义生效 / 坏 JSON 拒用
+
+# ---- data/staleness (p5b：staleness 链路接线 + 发布门 advisory) ----
+# 预览侧 sha 失配产标（markDownstreamStale）、发布门 stale 计数 advisory、
+# 数据页「过时」徽标。catalog 内部语义在 tst_entityview；此处测两端接线。
+add_paleo_test(tst_staleness)
+target_compile_definitions(tst_staleness PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")

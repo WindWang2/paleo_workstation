@@ -7,6 +7,7 @@
 
 class QgisLayerService;
 class ProjectDataFacade;
+class DataCatalog;
 
 // workflow/mapversioncontroller — 「保存版本 / 发布 / Published」的编排
 // （wave/mapping-pipeline 阶段E；PALEO_QGIS_PLAN §41.7 + §1223 最小语义 +
@@ -43,6 +44,15 @@ class MapVersionController : public QObject
     // MapVersionStore::residualSummaryComplete —— 发布门与按钮 tooltip 共用。
     static QString residualSummaryJson( const ProjectDataFacade *projectData,
                                         const QString &horizon );
+
+    // B 包 staleness-lite — 发布门 advisory（DATA_FABRIC_ADOPTION）：只读评估，
+    // 目标工程 catalog 内带 extra["stale"] 的 DERIVED 版本计数与提示文案。
+    // 不阻断发布、不自动修复——advisory 只要求可见（发布面板/确认文案）。
+    // catalog 为空（未开工程）→ 0 / 空文案，不假装有评估。
+    static int staleDerivedCount( const DataCatalog *catalog );
+    // 0 → 空串（确认文案不加行）；N>0 → 「存在过时下游产物（N 个）——
+    // 不阻断本次发布」。
+    static QString stalePublishAdvisory( const DataCatalog *catalog );
 
   signals:
     void versionSaved( const QString &horizon, int version );

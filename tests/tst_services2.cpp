@@ -21,20 +21,6 @@
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisstyleservice.h"
 
-// ---------------------------------------------------------------------------
-// Local shim: algorithms/paleoalgorithms.cpp is owned by another workstream and
-// may not be linked into this test yet. Marked weak so the real implementation
-// wins at link time once both land in the same target. An empty body registers
-// the provider with no algorithms — the run() tests below use native:* algs.
-// (Same weak-shim pattern as tst_layerservice.cpp's QgisProjectService::project.)
-// ---------------------------------------------------------------------------
-#if defined(__GNUC__)
-__attribute__((weak))
-#endif
-void PaleoProvider::loadAlgorithms()
-{
-}
-
 // Wave-2 services acceptance:
 //  - editing sessions mark the layer busy in PaleoProjectStore ("edit" task,
 //    "editing in progress" reason) and free it on commit AND on rollback/failure;

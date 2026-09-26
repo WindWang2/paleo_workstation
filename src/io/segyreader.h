@@ -3,6 +3,7 @@
 #include <QString>
 #include <QVector>
 #include <functional>
+#include <limits>
 
 class QFile;
 
@@ -28,6 +29,8 @@ struct SegyTrace
   qint32 xlineNo = 0;  // crossline（道头字节 193，默认）
   QVector<float> samples;
   qint64 tracl = 0;
+  float sampleIntervalUs = 0.0f;
+  double startTimeMs = std::numeric_limits<double>::quiet_NaN();
 };
 
 struct SegyGeometry

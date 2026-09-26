@@ -706,6 +706,76 @@ private slots:
     QCOMPARE(primaryLogs, 1);
   }
 
+  void missingManagedRawCanBeReimported()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    QString err;
+    QVERIFY(!svc.importProjectFile(fixture(QStringLiteral("ExportWellHead.dat")), &err).isEmpty());
+    const QString firstId = svc.importProjectFile(fixture(QStringLiteral("A1.Las")), &err);
+    QVERIFY2(!firstId.isEmpty(), qPrintable(err));
+    const QString oldPath = svc.absolutePath(firstId);
+    QVERIFY(QFile::remove(oldPath));
+    const DataImportService::ImportResult retry =
+        svc.importProjectFileEx(fixture(QStringLiteral("A1.Las")), &err);
+    QCOMPARE(retry.outcome, DataImportService::ImportOutcome::Imported);
+    QVERIFY(retry.assetId != firstId);
+    const QString recovered = svc.absolutePath(retry.assetId);
+    QVERIFY(QFileInfo::exists(recovered));
+    QCOMPARE(sha256OfFile(recovered), sha256OfFile(fixture(QStringLiteral("A1.Las"))));
+  }
+
+  void missingDerivedHorizonCanBeRebuilt()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    const QString source = stageFixture(tmp, QString::fromUtf8("层位"),
+                                        QStringLiteral("D61_sample.dat"), QStringLiteral("D61.dat"));
+    QVERIFY(!source.isEmpty());
+    DataImportService &svc = *stack->importSvc;
+    QString err;
+    const QString assetId = svc.importProjectFile(source, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+    const CatalogVersion oldDerived = svc.catalog()->currentVersion(assetId);
+    QVERIFY(QFile::remove(svc.absolutePathForVersion(oldDerived)));
+    const DataImportService::ImportResult retry = svc.importProjectFileEx(source, &err);
+    QCOMPARE(retry.outcome, DataImportService::ImportOutcome::AlreadyStored);
+    QCOMPARE(retry.assetId, assetId);
+    const CatalogVersion rebuilt = svc.catalog()->currentVersion(assetId);
+    QVERIFY(rebuilt.id != oldDerived.id);
+    QVERIFY(QFileInfo::exists(svc.absolutePathForVersion(rebuilt)));
+    const QVector<LayerDeclaration> declared = stack->manifest->all();
+    QVERIFY(std::any_of(declared.cbegin(), declared.cend(), [&](const LayerDeclaration &d) {
+      return d.layerId == QStringLiteral("horizon.D61") &&
+             d.source == svc.absolutePathForVersion(rebuilt);
+    }));
+  }
+
+  void managedImportRejectsSymlinkedDestination()
+  {
+    QTemporaryDir tmp;
+    QTemporaryDir outside;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    const QString parent = QDir(projectDir).filePath(QStringLiteral("artifacts/raw/ast-1"));
+    QVERIFY(QDir().mkpath(parent));
+    QVERIFY(QFile::link(outside.path(), QDir(parent).filePath(QStringLiteral("ver-1"))));
+    QString error;
+    const DataImportService::ImportResult result =
+        stack->importSvc->importProjectFileEx(fixture(QStringLiteral("A1.Las")), &error);
+    QCOMPARE(result.outcome, DataImportService::ImportOutcome::Failed);
+    QVERIFY(!QFileInfo::exists(outside.filePath(QStringLiteral("A1.Las"))));
+  }
+
   // §3 dedup 补挂：入库时未决的链接，在该井出现后重导同一文件 → 补一条主关联。
   void reimportAttachesNowResolvableLink()
   {

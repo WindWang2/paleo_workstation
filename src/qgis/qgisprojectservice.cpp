@@ -1,6 +1,7 @@
 #include "qgisprojectservice.h"
 
 #include "manifestprojection.h"
+#include "../metadata/atomicfile.h"
 
 #include <QFile>
 #include <QFileInfo>
@@ -133,8 +134,7 @@ bool QgisProjectService::writeProject()
   // QFile::rename refuses to overwrite an existing destination (Qt 6.11,
   // including Linux). POSIX rename(2) replaces it atomically. Never unlink
   // the live .qgz first: a crash in that window deletes the project.
-  if ( ::rename( QFile::encodeName( tmpPath ).constData(),
-                 QFile::encodeName( m_path ).constData() ) != 0 )
+  if ( !paleoReplaceFile( tmpPath, m_path ) )
   {
     m_errors << tr( "Failed to replace project file %1 with %2" ).arg( m_path, tmpPath );
     return false;

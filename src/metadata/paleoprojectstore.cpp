@@ -1,5 +1,6 @@
 #include <QHash> // must precede the header: m_busy is a QHash member (fwd-decl only there)
 #include "paleoprojectstore.h"
+#include "atomicfile.h"
 
 #include <QFile>
 #include <QMutexLocker>
@@ -78,8 +79,7 @@ PaleoProjectStore::WriteResult PaleoProjectStore::saveAll( const std::function<W
           result = { false, tr( "Failed to back up %1 to %2" ).arg( m_qgzPath, bakPath ) };
           pending.append( { true, m_qgzPath, result.error } );
         }
-        else if ( ::rename( QFile::encodeName( bakTmp ).constData(),
-                            QFile::encodeName( bakPath ).constData() ) != 0 )
+        else if ( !paleoReplaceFile( bakTmp, bakPath ) )
         {
           QFile::remove( bakTmp );
           result = { false, tr( "Failed to replace backup %1" ).arg( bakPath ) };

@@ -21,7 +21,8 @@ int main(int argc, char *argv[])
   QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
 
   const QString qgisPrefix =
-      argc > 1 ? QString::fromLocal8Bit(argv[1]) : QStringLiteral("/usr");
+      argc > 1 ? QString::fromLocal8Bit(argv[1])
+               : qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr"));
 
   AppContext ctx(qgisPrefix); // brings up QgsApplication + wires all services
   if (!ctx.ready())

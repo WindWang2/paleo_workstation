@@ -1,5 +1,8 @@
 name: ci
 
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: 2
+
 on:
   push:
     branches: [main, master]
@@ -8,9 +11,18 @@ on:
 
 jobs:
   linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
+      - name: Install QGIS 4.2 development packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl gnupg
+          sudo install -d -m 755 /etc/apt/keyrings
+          sudo curl -fsSL https://download.qgis.org/downloads/qgis-archive-keyring.gpg -o /etc/apt/keyrings/qgis-archive-keyring.gpg
+          printf 'Types: deb\nURIs: https://qgis.org/debian\nSuites: resolute\nArchitectures: amd64\nComponents: main\nSigned-By: /etc/apt/keyrings/qgis-archive-keyring.gpg\n' | sudo tee /etc/apt/sources.list.d/qgis.sources
+          sudo apt-get update
+          sudo apt-get install -y qgis qgis-providers libqgis-dev qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev qt6-webengine-dev qt6-pdf-dev libgdal-dev libproj-dev libgeos-dev
       - name: Vendor dependencies
         run: ./paleo-dev bootstrap
       - name: Build

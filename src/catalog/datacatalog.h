@@ -132,6 +132,9 @@ class DataCatalog : public QObject
 
     // SHA-256 已在库（dedup，§3）：返回第一个匹配版本；sha 为空或无匹配回空版本。
     CatalogVersion versionBySha256(const QString &sha256) const;
+    // Returns an empty path for an unsafe managed path, including symlinked
+    // ancestors. External links retain their absolute source path.
+    static QString resolvedVersionPath(const QString &projectDir, const CatalogVersion &version);
 
     // 外链版本打开校验（§3）：managed==false 且入库时留有 sha256 的版本，
     // 流式重算源文件摘要比对。不一致 → error=「源文件与入库时的 SHA-256 不一致」，

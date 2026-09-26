@@ -177,11 +177,24 @@ bool DataImportService::storeManagedRaw(const QString &sourcePath, const QString
     return false;
   }
   const QString relPath = QStringLiteral("artifacts/") + relDir;
-  const QString dst = QDir(m_projectDir).absoluteFilePath(relPath);
+  CatalogVersion pending;
+  pending.managed = true;
+  pending.path = relPath;
+  const QString dst = DataCatalog::resolvedVersionPath(m_projectDir, pending);
+  if (dst.isEmpty())
+  {
+    setError(error, QStringLiteral("unsafe managed destination: %1").arg(relPath));
+    return false;
+  }
   const QDir dir = QFileInfo(dst).absoluteDir();
   if (!dir.exists() && !dir.mkpath(QStringLiteral(".")))
   {
     setError(error, QStringLiteral("cannot create directory %1").arg(dir.absolutePath()));
+    return false;
+  }
+  if (DataCatalog::resolvedVersionPath(m_projectDir, pending).isEmpty())
+  {
+    setError(error, QStringLiteral("unsafe managed destination: %1").arg(relPath));
     return false;
   }
 
@@ -194,7 +207,9 @@ bool DataImportService::storeManagedRaw(const QString &sourcePath, const QString
     setError(error, QStringLiteral("cannot write %1").arg(partial));
     return false;
   }
-  char buf[1 << 20];
+  // 64KB chunks: a 1MB stack buffer overflows the default Windows thread
+  // stack when the import runs on the QTest main thread.
+  char buf[64 << 10];
   qint64 n = 0;
   while ((n = src.read(buf, sizeof(buf))) > 0)
   {
@@ -301,13 +316,80 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
     return fail(shaErr.isEmpty() ? QStringLiteral("cannot hash %1").arg(sourcePath) : shaErr);
 
   // §3 dedup：同一 SHA-256 已在库 → 不新建资产/版本/主关联；只把现在恰好能
-  // 匹配到一口井的未决关联补挂上（不建井、不并井）。
+  // 匹配到一口井的未决关联补挂上（不建井、不并井）。versionBySha256 只认
+  // 文件仍在且重哈希一致的版本——受管文件丢失/被改的旧条目不再冒充命中，
+  // 重导据此走全新导入（issue #5）。
   const CatalogVersion existing =
       catInvoke([&] { return m_catalog->versionBySha256(sourceSha); });
   if (!existing.id.isEmpty())
   {
     const CatalogAsset existingAsset =
         catInvoke([&] { return m_catalog->assetById(existing.assetId); });
+    if (existingAsset.type == QLatin1String("horizon"))
+    {
+      const QString horizon = QFileInfo(existing.fileName.isEmpty() ? sourcePath : existing.fileName)
+                                  .completeBaseName().toUpper();
+      if (isKnownSequenceBoundary(horizon))
+      {
+        CatalogVersion derived;
+        const QVector<CatalogVersion> siblings =
+            catInvoke([&] { return m_catalog->versionsForAsset(existing.assetId); });
+        for (const CatalogVersion &v : siblings)
+          if (v.stage.compare(QStringLiteral("DERIVED"), Qt::CaseInsensitive) == 0 &&
+              v.parentVersionIds.contains(existing.id) &&
+              QFileInfo::exists(DataCatalog::resolvedVersionPath(m_projectDir, v)))
+          {
+            derived = v;
+            break;
+          }
+        if (derived.id.isEmpty())
+        {
+          QFile source(sourcePath);
+          if (!source.open(QIODevice::ReadOnly))
+            return fail(QStringLiteral("cannot read %1").arg(sourcePath));
+          BinnedHorizon binned;
+          if (!binHorizon(source.readAll(), &binned, error))
+            return fail(error ? *error : QStringLiteral("horizon binning failed"));
+          derived.id = catInvoke([&] { return m_catalog->nextVersionId(); });
+          derived.assetId = existing.assetId;
+          derived.stage = QStringLiteral("DERIVED");
+          derived.versionNumber =
+              catInvoke([&] { return m_catalog->currentVersion(existing.assetId).versionNumber; }) + 1;
+          derived.managed = true;
+          derived.fileName = horizon + QStringLiteral(".tif");
+          derived.path = QStringLiteral("artifacts/") + DataCatalog::managedPath(
+              QStringLiteral("derived"), existing.assetId, derived.id, derived.fileName);
+          derived.sourceUri = sourcePath;
+          derived.parentVersionIds = QStringList{existing.id};
+          derived.extra.insert(QStringLiteral("collisions"), binned.collisions);
+          derived.extra.insert(QStringLiteral("rejected"), binned.rejected);
+          derived.extra.insert(QStringLiteral("grid_rows"), binned.rows);
+          derived.extra.insert(QStringLiteral("grid_cols"), binned.cols);
+          derived.extra.insert(QStringLiteral("z_units"), QStringLiteral("ms"));
+          derived.extra.insert(QStringLiteral("z_min"), binned.zMin);
+          derived.extra.insert(QStringLiteral("z_max"), binned.zMax);
+          derived.extra.insert(QStringLiteral("filled_cells"), binned.filledCells);
+          const QString dst = DataCatalog::resolvedVersionPath(m_projectDir, derived);
+          if (dst.isEmpty())
+            return fail(QStringLiteral("unsafe managed destination: %1").arg(derived.path));
+          if (!writeHorizonGeoTiff(binned, dst, error))
+            return fail(error ? *error : QStringLiteral("horizon raster write failed"));
+          QFile::setPermissions(dst, QFileDevice::ReadOwner | QFileDevice::ReadUser |
+                                     QFileDevice::ReadGroup | QFileDevice::ReadOther);
+          if (!catInvoke([&] { return m_catalog->addVersion(derived, error); }))
+            return fail(error ? *error : QStringLiteral("catalog addVersion failed"));
+        }
+        LayerDeclaration decl;
+        decl.layerId = QStringLiteral("horizon.%1").arg(horizon);
+        decl.horizon = horizon;
+        decl.type = QStringLiteral("raster");
+        decl.source = DataCatalog::resolvedVersionPath(m_projectDir, derived);
+        decl.group = QStringLiteral("00_Data");
+        QString derr;
+        if (!catInvoke([&] { return m_layers->declare(decl, &derr); }))
+          return fail(derr.isEmpty() ? QStringLiteral("manifest declare failed") : derr);
+      }
+    }
     QString aerr;
     // 整个补挂过程 marshal 回 GUI 一次执行（内部原生访问 catalog）。
     const int attached = catInvoke(
@@ -594,7 +676,12 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
       if (derivedRel.isEmpty())
         return fail(QStringLiteral("派生文件名不是合法路径段: %1").arg(tifName));
       const QString relPath = QStringLiteral("artifacts/") + derivedRel;
-      const QString tifPath = QDir(m_projectDir).absoluteFilePath(relPath);
+      CatalogVersion pending;
+      pending.managed = true;
+      pending.path = relPath;
+      const QString tifPath = DataCatalog::resolvedVersionPath(m_projectDir, pending);
+      if (tifPath.isEmpty())
+        return fail(QStringLiteral("unsafe managed destination: %1").arg(relPath));
       if (!writeHorizonGeoTiff(binned, tifPath, error))
         return fail(*error);
       QFile::setPermissions(tifPath, QFileDevice::ReadOwner | QFileDevice::ReadUser |
@@ -1225,7 +1312,7 @@ QString DataImportService::absolutePathForVersion(const CatalogVersion &v) const
     return QString();
   if (!v.managed)
     return v.path;
-  return QDir(m_projectDir).absoluteFilePath(v.path);
+  return DataCatalog::resolvedVersionPath(m_projectDir, v);
 }
 
 // ---------------------------------------------------------------------------

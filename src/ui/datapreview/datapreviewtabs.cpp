@@ -7,6 +7,7 @@
 #include "../../io/geojsonaffine.h"
 #include "../../io/lasparser.h"
 #include "../../io/segyreader.h"
+#include "../../io/segysectiongrid.h"
 #include "../../io/timedeptool.h"
 #include "../../io/wellfileparsers.h"
 #include "../../services/paleotaskservice.h"
@@ -201,10 +202,16 @@ namespace
     SectionPanel(QWidget *parent = nullptr) : QWidget(parent) { setMinimumSize(320, 260); }
     void setTraces(const QVector<SegyTrace> &traces, float dtUs, double t0Ms)
     {
+      if (traces.isEmpty())
+      {
+        clearImage();
+        return;
+      }
       const int w = qMax(1, traces.size());
-      const int h = traces.isEmpty() ? 1 : qMax(1, traces.front().samples.size());
+      const SegySectionGrid grid = SegySectionGrid::forTraces(traces, dtUs, t0Ms);
+      const int h = grid.rows;
       m_img = QImage(w, h, QImage::Format_Grayscale8);
-      m_img.fill(255);
+      m_img.fill(128);
       float amp = 1e-6f;
       for (const SegyTrace &t : traces)
         for (float s : t.samples)
@@ -214,19 +221,20 @@ namespace
         const SegyTrace &t = traces.at(x);
         for (int y = 0; y < h; ++y)
         {
-          const int sy = qBound(0, y, t.samples.size() - 1);
-          const float v = t.samples.at(sy) / amp;
+          float sample = 0.0f;
+          if (!grid.sampleAt(t, y, dtUs, t0Ms, &sample)) continue;
+          const float v = sample / amp;
           const int g = qRound((v * 0.5f + 0.5f) * 255.0f);
           m_img.setPixel(x, y, static_cast<uchar>(g));
         }
       }
-      m_t0Ms = t0Ms;
-      m_dtMs = dtUs / 1000.0;
+      m_t0Ms = grid.startMs;
+      m_dtMs = grid.stepMs;
       m_caption = QObject::tr("%1 道 · %2 样点 · %3 ms 采样 · t0 = %4 ms")
                       .arg(traces.size())
-                      .arg(traces.isEmpty() ? 0 : traces.front().samples.size())
-                      .arg(dtUs / 1000.0f, 0, 'f', 1)
-                      .arg(t0Ms, 0, 'f', 1);
+                      .arg(grid.rows)
+                      .arg(grid.stepMs, 0, 'f', 1)
+                      .arg(grid.startMs, 0, 'f', 1);
       update();
     }
     bool hasImage() const { return !m_img.isNull(); }
@@ -340,7 +348,9 @@ static bool externalShaMatches(const QString &absPath, const QString &expected,
   }
   const qint64 total = f.size();
   QCryptographicHash hash(QCryptographicHash::Sha256);
-  char buf[1 << 20];
+  // 64KB chunks: a 1MB stack buffer overflows the default Windows thread
+  // stack when the preview runs on the QTest main thread.
+  char buf[64 << 10];
   qint64 done = 0;
   int sinceReport = 0;
   for (;;)

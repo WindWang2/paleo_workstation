@@ -5,8 +5,9 @@
 
 #include "../src/io/segyreader.h"
 
-#include <sys/stat.h>
+#if defined(Q_OS_UNIX)
 #include <unistd.h>
+#endif
 
 // plan §7 测线级 SEG-Y：打开只索引道头（内存不随体增长）、
 // 单 inline/crossline 按需解码、survey 几何冻结、crossline 道头字节 193。
@@ -23,6 +24,7 @@ private slots:
   void ordinalIndexingWhenLineWordConstant();
   void ordinalIndexCdpOrderMismatchFails();
   void ordinalIndexTraceCountMismatchFails();
+  void variableTraceLengthsKeepOrdinalIndex();
 
 private:
   // 复刻真工区结构的合成件：偏移 188/192 恒为 0，inline 走道号索引——
@@ -72,6 +74,7 @@ private:
   }
   static qulonglong residentBytes()
   {
+#if defined(Q_OS_UNIX)
     QFile f(QStringLiteral("/proc/self/statm"));
     if (!f.open(QIODevice::ReadOnly))
       return 0;
@@ -81,6 +84,9 @@ private:
     bool ok = false;
     const qulonglong pages = t.at(1).toULongLong(&ok);
     return ok ? pages * static_cast<qulonglong>(sysconf(_SC_PAGESIZE)) : 0;
+#else
+    return 0; // RSS assertion is Linux-specific; trace indexing still runs.
+#endif
   }
 };
 
@@ -197,11 +203,14 @@ void TestSegyLines::openMemoryDoesNotScaleWithVolume()
     QVERIFY2(r.open(path, &err), qPrintable(err));
     QCOMPARE(r.traceCount(), nInl * nXl);
     const qulonglong rssAfter = residentBytes();
-    QVERIFY2(rssAfter >= rssBefore, "rss sanity");
-    const qulonglong growth = rssAfter - rssBefore;
-    QVERIFY2(growth < 3ULL * 1024 * 1024,
-             qPrintable(QStringLiteral("open() grew RSS by %1 MB; sample payload is %2 MB")
-                            .arg(growth / (1024 * 1024)).arg(sampleTotal / (1024 * 1024))));
+    if (rssBefore > 0 && rssAfter > 0)
+    {
+      QVERIFY2(rssAfter >= rssBefore, "rss sanity");
+      const qulonglong growth = rssAfter - rssBefore;
+      QVERIFY2(growth < 3ULL * 1024 * 1024,
+               qPrintable(QStringLiteral("open() grew RSS by %1 MB; sample payload is %2 MB")
+                              .arg(growth / (1024 * 1024)).arg(sampleTotal / (1024 * 1024))));
+    }
     // 单线解码规模符合预期（10 道 × 1024 样本）。
     QVector<SegyTrace> line;
     QVERIFY(r.readInline(1100, &line, &err));
@@ -284,6 +293,45 @@ void TestSegyLines::ordinalIndexTraceCountMismatchFails()
   QVERIFY(!r.open(path, &err));
   QVERIFY2(err.contains(QStringLiteral("5")) && err.contains(QStringLiteral("3")),
            qPrintable(err));
+}
+
+void TestSegyLines::variableTraceLengthsKeepOrdinalIndex()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QFile file(dir.filePath(QStringLiteral("variable.sgy")));
+  QVERIFY(file.open(QIODevice::WriteOnly));
+  file.write(QByteArray(3200, ' '));
+  QByteArray binary(400, 0);
+  qToBigEndian<qint16>(2, reinterpret_cast<uchar *>(binary.data() + 12));
+  qToBigEndian<qint16>(2000, reinterpret_cast<uchar *>(binary.data() + 16));
+  qToBigEndian<qint16>(4, reinterpret_cast<uchar *>(binary.data() + 20));
+  qToBigEndian<qint16>(5, reinterpret_cast<uchar *>(binary.data() + 24));
+  file.write(binary);
+  for (int i = 0; i < 4; ++i)
+  {
+    QByteArray header(240, 0);
+    qToBigEndian<qint32>(1315 + i / 2, reinterpret_cast<uchar *>(header.data() + 8));
+    qToBigEndian<qint32>(4165 + i % 2, reinterpret_cast<uchar *>(header.data() + 20));
+    qToBigEndian<qint32>((i % 2) * 20, reinterpret_cast<uchar *>(header.data() + 72));
+    qToBigEndian<qint32>((i / 2) * 40, reinterpret_cast<uchar *>(header.data() + 76));
+    qToBigEndian<qint16>(i % 2 ? 5 : 3, reinterpret_cast<uchar *>(header.data() + 114));
+    qToBigEndian<qint16>(i % 2 ? 4000 : 2000, reinterpret_cast<uchar *>(header.data() + 116));
+    file.write(header);
+    file.write(QByteArray((i % 2 ? 5 : 3) * 4, 0));
+  }
+  file.close();
+
+  SegyReader reader;
+  QString error;
+  QVERIFY2(reader.open(file.fileName(), &error), qPrintable(error));
+  QCOMPARE(reader.inlineNumbers(), QVector<qint32>({1315, 1316}));
+  QVector<SegyTrace> traces;
+  QVERIFY(reader.readInline(1315, &traces, &error));
+  QCOMPARE(traces.size(), 2);
+  QCOMPARE(traces.at(0).samples.size(), 3);
+  QCOMPARE(traces.at(1).samples.size(), 5);
+  QCOMPARE(traces.at(1).sampleIntervalUs, 4000.0f);
 }
 
 QTEST_MAIN(TestSegyLines)

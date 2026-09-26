@@ -40,7 +40,8 @@ bool QgisRuntime::initialize( const QString &prefixPath )
   static char *s_argv[] = { s_appName, nullptr };
 
   s_app = new QgsApplication( s_argc, s_argv, /*GUIenabled=*/false );
-  QgsApplication::setPrefixPath( prefixPath, /*useDefaultPaths=*/true );
+  QgsApplication::setPrefixPath( qEnvironmentVariable( "QGIS_PREFIX_PATH", prefixPath ),
+                                 /*useDefaultPaths=*/true );
   QgsApplication::initQgis();
   return true;
 }

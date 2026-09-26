@@ -37,6 +37,32 @@ qint16 beI16(const uchar *p)
 {
   return qFromBigEndian<qint16>(p);
 }
+
+bool isEndTextRecord(const QByteArray &record)
+{
+  const QByteArray marker = QByteArrayLiteral("((SEG: ENDTEXT))");
+  if (record.toUpper().contains(marker))
+    return true;
+  // SEG-Y textual headers may be encoded in EBCDIC. Decode only the bytes
+  // needed for the EndText marker; other bytes cannot accidentally match it.
+  QByteArray ascii;
+  ascii.reserve(record.size());
+  for (unsigned char ch : record)
+  {
+    if (ch >= 0xc1 && ch <= 0xc9) ascii.append('A' + ch - 0xc1);
+    else if (ch >= 0xd1 && ch <= 0xd9) ascii.append('J' + ch - 0xd1);
+    else if (ch >= 0xe2 && ch <= 0xe9) ascii.append('S' + ch - 0xe2);
+    else if (ch >= 0x81 && ch <= 0x89) ascii.append('A' + ch - 0x81);
+    else if (ch >= 0x91 && ch <= 0x99) ascii.append('J' + ch - 0x91);
+    else if (ch >= 0xa2 && ch <= 0xa9) ascii.append('S' + ch - 0xa2);
+    else if (ch == 0x4d) ascii.append('(');
+    else if (ch == 0x5d) ascii.append(')');
+    else if (ch == 0x7a) ascii.append(':');
+    else if (ch == 0x40) ascii.append(' ');
+    else ascii.append('?');
+  }
+  return ascii.contains(marker);
+}
 } // namespace
 
 bool SegyReader::open(const QString &path, QString *error,
@@ -117,9 +143,35 @@ bool SegyReader::open(const QString &path, QString *error,
   m_samplesPerTrace = binNs;
   m_sampleIntervalUs = static_cast<float>(binDt > 0 ? binDt : 0);
 
-  qint64 offset = 3600 + static_cast<qint64>(extHeaders) * 3200;
-  if (extHeaders < 0)
-    offset = 3600;
+  qint64 offset = 3600;
+  if (extHeaders < -1)
+  {
+    if (error) *error = QStringLiteral("Invalid extended textual header count %1").arg(extHeaders);
+    return false;
+  }
+  if (extHeaders == -1)
+  {
+    bool foundEnd = false;
+    while (offset + 3200 <= fileSize)
+    {
+      if (!file.seek(offset)) break;
+      const QByteArray record = file.read(3200);
+      if (record.size() != 3200) break;
+      offset += 3200;
+      if (isEndTextRecord(record))
+      {
+        foundEnd = true;
+        break;
+      }
+    }
+    if (!foundEnd)
+    {
+      if (error) *error = QStringLiteral("Extended textual headers have no SEG EndText record");
+      return false;
+    }
+  }
+  else
+    offset += static_cast<qint64>(extHeaders) * 3200;
   if (offset > fileSize)
   {
     if (error)
@@ -139,15 +191,14 @@ bool SegyReader::open(const QString &path, QString *error,
   //   inline = base + 道号/N（N = 一条 inline 的道数），crossline = 该道 CDP
   //   （偏移 20）。不回退去读偏移 8/20；道数、CDP 顺序、角点对不上就停止，
   //   并排报出期望值和读到的值。
-  const qint64 traceStride = 240 + static_cast<qint64>(m_samplesPerTrace) * 4;
-  const int probeCount = qMin<qint64>(4096, (fileSize - offset) / traceStride);
   auto fieldVaries = [&](int fieldOff) -> bool {
     qint32 first = 0;
     bool haveFirst = false, varies = false;
     uchar h[240];
-    for (int i = 0; i < probeCount && !varies; ++i)
+    qint64 probeOffset = offset;
+    for (int i = 0; i < 4096 && !varies && probeOffset + 240 <= fileSize; ++i)
     {
-      if (!file.seek(offset + static_cast<qint64>(i) * traceStride) ||
+      if (!file.seek(probeOffset) ||
           file.read(reinterpret_cast<char *>(h), 240) != 240)
         return false;
       const qint32 v = beI32(h + fieldOff);
@@ -158,6 +209,10 @@ bool SegyReader::open(const QString &path, QString *error,
       }
       else if (v != first)
         varies = true;
+      const qint16 traceNs = beI16(h + 114);
+      if (traceNs < 0) break; // the main indexing pass reports the corruption
+      const int ns = traceNs > 0 ? traceNs : binNs;
+      probeOffset += 240 + static_cast<qint64>(ns) * 4;
     }
     return varies;
   };
@@ -464,6 +519,9 @@ bool SegyReader::decodeTrace(QFile &file, const IndexEntry &e, SegyTrace *out) c
   t.cdp = beI32(trHdr + 20);
   t.lineNo = e.inlineNo != 0 ? e.inlineNo : m_binLineNo;
   t.xlineNo = e.xlineNo;
+  const qint16 traceDt = beI16(trHdr + 116);
+  t.sampleIntervalUs = traceDt > 0 ? traceDt : m_sampleIntervalUs;
+  t.startTimeMs = beI16(trHdr + 108);
   t.samples.resize(ns);
   const uchar *p = reinterpret_cast<const uchar *>(raw.constData());
   if (m_formatCode == 5)

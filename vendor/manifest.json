@@ -1,7 +1,15 @@
 {
   "schema": 1,
-  "notes": "Phase 0 vendor manifest. sha256 is self-recorded at fetch time (ORT publishes no checksum sidecar). Bump dep version = edit this file + re-fetch. See docs/PALEO_QGIS_PLAN.md §39/ET1.",
+  "notes": "ONNX Runtime archive and OSGeo4W installer pins. The Ubuntu 26.04 QGIS package closure is pinned separately in deb-closure.lock. See docs/PALEO_QGIS_PLAN.md §39/ET1.",
   "deps": {
+    "osgeo4w": {
+      "platform": "windows-x64",
+      "site": "https://download.osgeo.org/osgeo4w/v2",
+      "installer_url": "https://download.osgeo.org/osgeo4w/v2/osgeo4w-setup.exe",
+      "installer_sha256": "6746638d273334ffae3f813ce964023c5655fdf33eb82bd4ce1a97340c684798",
+      "qgis_family": "4.2.x",
+      "packages": ["qgis", "qgis-devel", "qgis-devel-deps", "qt6-devel", "qt6-oci", "gdal-devel", "proj-devel", "geos-devel", "sqlite3-devel"]
+    },
     "onnxruntime": {
       "version": "1.30.0",
       "upstream_commit": "f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7",

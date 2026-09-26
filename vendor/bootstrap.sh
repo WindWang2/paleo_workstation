@@ -21,19 +21,22 @@ glibc=$(ldd --version | grep -oE '[0-9]+\.[0-9]+$' | head -1)
 [ "$(printf '%s\n2.41\n' "$glibc" | sort -V | head -1)" = "2.41" ] || \
   fail "glibc $glibc < 2.41 (binary vendoring floor)" "use ExternalProject superbuild route or newer distro"
 free_gb=$(df -BG --output=avail . | tail -1 | tr -dc 0-9)
-[ "${free_gb:-0}" -ge 15 ] || fail "disk ${free_gb}GB < 15GB" "free space (binary route needs ~10GB; superbuild 60GB)"
 echo "  PASS toolchain (cmake $cmake_ver, glibc $glibc, ${free_gb}GB free)"
 
 echo "== vendor deps =="
 # QGIS+GDAL+Qt6: prefer exact-pin system packages when present (Arch: pacman qgis==4.2.x);
 # otherwise extract qgis.org deb closure into vendor/prefix (resolute/trixie pinned).
-if pacman -Q qgis 2>/dev/null | grep -qE 'qgis 4\.2\.'; then
-  note "qgis 4.2.x already installed system-wide — dev machine provisioned, vendoring skipped (dist/CI path still uses manifest fetch)"
-elif [ -d vendor/prefix/qgis ]; then
-  note "vendor/prefix/qgis present — skipping fetch (idempotent)"
+if { pacman -Q qgis 2>/dev/null | grep -qE 'qgis 4\.2\.'; } || \
+   { command -v dpkg-query >/dev/null && dpkg-query -W -f='${Version}' qgis 2>/dev/null | grep -qE '^([0-9]+:)?4\.2\.' && [ -f /usr/include/qgis/qgsapplication.h ]; }; then
+  note "qgis 4.2.x development files already installed system-wide"
+elif [ -f vendor/prefix/usr/include/qgis/qgsapplication.h ]; then
+  export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
+  note "vendored QGIS prefix present at $QGIS_PREFIX_PATH"
 else
   echo "  qgis system package absent — deb-closure fetch (ET1):"
+  [ "${free_gb:-0}" -ge 15 ] || fail "disk ${free_gb}GB < 15GB" "free space for the vendored QGIS closure"
   bash vendor/fetch-deps.sh
+  export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
 fi
 
 # ONNX Runtime: always vendored (no distro guarantee of dev headers).

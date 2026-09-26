@@ -7,6 +7,19 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON) # wave3/ux-consistency: vendored fonts qrc
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# windows.h defines max as a function-like macro; it rewrites std::max inside
+# QGIS headers (C2589 on MSVC) whenever a Windows header reaches a TU first.
+if(MSVC)
+  add_compile_definitions(NOMINMAX)
+endif()
+
+if(NOT QGIS_PREFIX AND DEFINED ENV{QGIS_PREFIX_PATH})
+  set(QGIS_PREFIX "$ENV{QGIS_PREFIX_PATH}")
+endif()
+if(QGIS_PREFIX)
+  list(PREPEND CMAKE_PREFIX_PATH "${QGIS_PREFIX}" "${QGIS_PREFIX}/apps/qt6")
+endif()
+
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test Sql Xml Concurrent Svg PrintSupport Network SerialPort Positioning UiTools OpenGLWidgets Pdf PdfWidgets)
 # ---- wave3/ux-consistency D14 ----
 # WebEngineWidgets is optional: without it WebViewPanel compiles its
@@ -14,15 +27,28 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test Sql Xml Concurrent Sv
 find_package(Qt6 QUIET COMPONENTS WebEngineWidgets)
 
 # QGIS: distro packages ship no cmake config — locate manually (vendor prefix later overrides these)
-find_path(QGIS_INCLUDE_DIR qgsapplication.h PATHS ${QGIS_PREFIX}/include/qgis /usr/include/qgis REQUIRED)
-find_library(QGIS_CORE_LIB qgis_core PATHS ${QGIS_PREFIX}/lib /usr/lib REQUIRED)
-find_library(QGIS_GUI_LIB qgis_gui PATHS ${QGIS_PREFIX}/lib /usr/lib REQUIRED)
-find_library(QGIS_ANALYSIS_LIB qgis_analysis PATHS ${QGIS_PREFIX}/lib /usr/lib REQUIRED)
-find_path(GDAL_INCLUDE_DIR gdal.h PATHS /usr/include /usr/include/gdal ${QGIS_PREFIX}/include REQUIRED)
-find_library(GDAL_LIB gdal PATHS ${QGIS_PREFIX}/lib /usr/lib REQUIRED)
+find_path(QGIS_INCLUDE_DIR qgsapplication.h HINTS
+  "${QGIS_PREFIX}/apps/qgis/include" "${QGIS_PREFIX}/include/qgis"
+  "${QGIS_PREFIX}/usr/include/qgis" PATHS /usr/include/qgis REQUIRED)
+find_library(QGIS_CORE_LIB qgis_core HINTS
+  "${QGIS_PREFIX}/apps/qgis/lib" "${QGIS_PREFIX}/lib" "${QGIS_PREFIX}/usr/lib" PATHS /usr/lib REQUIRED)
+find_library(QGIS_GUI_LIB qgis_gui HINTS
+  "${QGIS_PREFIX}/apps/qgis/lib" "${QGIS_PREFIX}/lib" "${QGIS_PREFIX}/usr/lib" PATHS /usr/lib REQUIRED)
+find_library(QGIS_ANALYSIS_LIB qgis_analysis HINTS
+  "${QGIS_PREFIX}/apps/qgis/lib" "${QGIS_PREFIX}/lib" "${QGIS_PREFIX}/usr/lib" PATHS /usr/lib REQUIRED)
+find_path(GDAL_INCLUDE_DIR gdal.h HINTS
+  "${QGIS_PREFIX}/include" "${QGIS_PREFIX}/include/gdal" "${QGIS_PREFIX}/usr/include/gdal"
+  PATHS /usr/include /usr/include/gdal REQUIRED)
+find_library(GDAL_LIB gdal HINTS
+  "${QGIS_PREFIX}/lib" "${QGIS_PREFIX}/usr/lib" PATHS /usr/lib REQUIRED)
 
 add_library(paleo_qgis_iface INTERFACE)
 target_include_directories(paleo_qgis_iface INTERFACE ${QGIS_INCLUDE_DIR})
+if(QGIS_PREFIX)
+  # OSGeo4W installs SQLite, GDAL, GEOS and other public QGIS header
+  # dependencies in the prefix's shared include directory.
+  target_include_directories(paleo_qgis_iface INTERFACE "${QGIS_PREFIX}/include")
+endif()
 target_link_libraries(paleo_qgis_iface INTERFACE ${QGIS_CORE_LIB} ${QGIS_GUI_LIB} ${QGIS_ANALYSIS_LIB}
   Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Xml Qt6::Sql Qt6::Concurrent Qt6::Svg Qt6::PrintSupport Qt6::Network Qt6::SerialPort Qt6::Positioning Qt6::UiTools Qt6::OpenGLWidgets Qt6::Pdf Qt6::PdfWidgets)
 if(TARGET Qt6::WebEngineWidgets)

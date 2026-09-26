@@ -376,6 +376,7 @@ Spec review launch 1 scored 5/10 on an export that predates the geotransform, th
 | 44 | ENG2 | Derived rasters go to `artifacts/derived/` with catalog DERIVED versions | Mechanical | P1 completeness | `/tmp` outputs dead-link after reboot and bypass version lineage. | Keep `QDir::temp()` outputs |
 | 45 | DESIGN2 | Status tags render as DESIGN.md capsules, not colored text | Mechanical | P5 explicit | `setForeground` yields ~2.3–3.3:1 contrast at 9pt; the 未决 capsule already follows the token pattern. | Keep colored text |
 | 46 | DESIGN2 | Status-bar copy 「工程坐标 · 米 · 未投影」 + CRS sentence in folder confirm | Mechanical | P5 explicit | Shipped 「工程网格 · 局部米」 drifts from the contracted sentence that the PDF already prints. | Keep current copy |
+| 47 | ENG2-impl | Wave-1 rebase onto `ce746b3` keeps HEAD's stricter primitives | Mechanical | P4 DRY | `ce746b3` (WindWang2) already landed ver-N restore, schema gate, QSaveFile atomic write, TD sentinel, isochron guards, `PALEO_INLINE_*`; branch work rebased on it so only unique deltas layer on top (BatchSave, `.bak`, unresolvedLinks, catalogOpenFailed, TOCTOU, load-time segment skip, residual nav, RASTER_MISSING, top-XY gate). | Keep both implementations and pick per hunk ad hoc |
 
 ### 0I. Build order
 
@@ -1045,23 +1046,23 @@ Second `/autoplan` pass. Pass 1 approved the plan pre-implementation; this pass 
 
 ### New implementation tasks (pass 2, prioritized)
 
-- [~] **T17 (P1)** Restore `m_versionSeq` on reload and reject duplicate version ids in `addVersion` (implemented; reload regression test remains).
+- [x] **T17 (P1)** Restore `m_versionSeq` on reload and reject duplicate version ids in `addVersion` — plus the symmetric fix: explicit `ver-N`/`ast-N` ids advance `m_versionSeq`/`m_assetSeq` so `nextVersionId()`/`nextAssetId()` never reissue (`versionSeqRestoredAfterReload`, `duplicateVersionIdRejected`, publish-path regression in `tst_mapping`).
 - [x] **T18 (P1)** Sentinel-filter TD rows with `TIME(ms) == -99999` at parse and again at the interpolation boundary; non-finite numeric values are rejected (`wellfileparsers.cpp`, `timedeptool.cpp`).
 - [x] **T19 (P1)** `isochronMs <= 0` or non-finite → nodata in the thickness raster; reject non-finite/invalid output thickness too (`mappingworkflow.cpp`).
-- [~] **T20 (P1)** Refuse imports after catalog-open failure, gate schema version, and atomically preserve the last good catalog on short writes (implemented); `.bak` rotation and an explicit UI error remain.
+- [~] **T20 (P1)** Refuse imports after catalog-open failure (`refusesWrites()`/`m_catalogReady` + per-mutator `ensureOpen`), schema-version gate (missing key = current version; explicit mismatch refuses), QSaveFile atomic write + `.bak` rotation — **landed** (`refusesWritesAfterFailedOpen`, `rotatesBakAndVerifiesWrite`, `refusesUnsupportedSchemaVersion`). Remaining: wire `catalogOpenFailed` to a statusbar/message surface (signal emitted, no UI sink yet).
 - [x] **T21 (P1)** `writeHorizonGeoTiff` stores inline/xline ranges and bin counts as GDAL metadata; validate P1/P2/P3 presence, numeric geometry, and agreement with `Grid_size` before binning (`horizonbinner.cpp`).
-- **T22 (P1)** Folder confirm: fix `kTypes` vocabulary (`well_stratification`, `tabular`, label↔type mapping), lock the type combo on fixed-auxiliary rows, emit overrides only for valid changed types, add per-row 「重试」, add CRS-sentence step.
+- [x] **T22 (P1)** Folder confirm: classifier-vocabulary combos (label↔type via item data, `tabular` present, `tops` absent), HZ28-6-1 rows locked, 「参考资料」 dir defaults `reference` but editable, valid-type-only overrides, per-row 「重试」 via `importFolderRow`, CRS sentence in both dialogs, four-count summary kept (D3).
 - **T23 (P2)** Cache `SegyReader`+SHA verify per asset (one open/index/hash per asset, not per line change); then evaluate worker-thread index/decode/binning/import per §4 — **see unresolved D1**.
-- **T24 (P2)** Wire `residualTable` double-click→`locateRequested` + 「在数据页看这条剖面」 enablement on residual rows.
-- **T25 (P2)** `residualSummaryJson` samples via `pickSamplePoint` semantics (top XY, wellhead fallback); emit a reason row when the D61 raster is missing.
+- [x] **T24 (P2)** `residualTable` double-click emits `locateRequested` with the same layerId/WKT/payload shape as issue rows; the section button arms from whichever table was selected last (`armedPayload` property).
+- [x] **T25 (P2)** `residualSummaryJson` samples via `pickSamplePointForWell` (top XY, wellhead fallback) with the same containing-cell/1-ULP rules as the validation table; missing raster emits a `RASTER_MISSING` issue the summary row echoes.
 - **T26 (P2)** Derived rasters → `artifacts/derived/` + DERIVED catalog versions (thickness, ONNX, processing outputs).
-- **T27 (P2)** Status tags as capsules per DESIGN.md; add neutral 未计算 capsule; fix status-bar copy; localize `coordinate_status` (「坐标无效」/「没有坐标」); zh for validation messages.
+- [~] **T27 (P2)** Status-bar copy 「工程坐标 · 米 · 未投影」 + zh validation messages (SRC_MISSING/DUP_HORIZON/BUSY) — **landed**. Remaining: status tags as capsules per DESIGN.md, neutral 未计算 capsule, localized `coordinate_status` strings.
 - **T28 (P2)** Attach/primary actions re-keyed by link identity (assetId+role), not `links()` index; confirm strip survives `changed()`; decide-then-implement undo restore (demoted primary + note).
 - **T29 (P2)** 「在地图上显示」 two-way sync with layer visibility + zoom + flash spec (~300–500 ms).
-- **T30 (P2)** Retire `SeismicPreviewPanel` (class + test + CMake) — audit row 34.
+- [x] **T30 (P2)** Retire `SeismicPreviewPanel` (class + test + CMake) — audit row 34; also removed the `paleo.seismic.ctx` property and dead `IssueLocatorFilter`/`zoomToLayer` fallback registration.
 - **T31 (P3)** Empty states for asset table/map/layer tree; unresolved multi-well tab dead-end copy + pointer to 挂到这口井; 「查看未决」 post-confirm filter.
 - **T32 (P3)** Font registration (Noto Sans SC + JetBrains Mono vendored), 2px #1B73D0 focus ring, Mono 9pt on all numeric surfaces, accessible-name coverage on ReleasePanel/AttributeTablePanel/import buttons/folder table; tab overflow policy.
-- **T33 (P3)** catalog batch-write scope (one save per folder import); `linksForEntity("")` → `unresolvedLinks()`; validate path segments on load (hand-edited catalog); symlink TOCTOU re-check at open.
+- [x] **T33 (P3)** `DataCatalog::BatchSave` coalesces folder import and dedup-attach saves (one `save()`+`changed()` per batch, nested-safe); `linksForEntity("")` → empty + `unresolvedLinks()`; `unsafeVersionSegmentReason` skips bad-segment versions on load; symlink canonical re-check both at enumeration and again before bytes are read (`batchSaveCoalescesWrites`, `unresolvedLinksIsTheExplicitAccessor`, `unsafeManagedPathSkippedOnLoad`).
 
 ### Unresolved decisions (gate)
 
@@ -1092,3 +1093,13 @@ Second `/autoplan` pass. Pass 1 approved the plan pre-implementation; this pass 
 - Residual sampling: containing cell, half-open (L174/L264 normative; L227 nearest-center + "otherwise decode" superseded).
 
 **VERDICT:** Implementation substantially faithful to plan (~88% weighted across phases); 6 P1 engineering tasks and the D1/D2 threading decision stand between current state and full plan conformance. Plan text contains 7 superseded/contradictory passages documented as errata rather than rewritten.
+
+### Pass-2 Wave-1 implementation record (2026-09-27)
+
+Merged into `master` (`ce746b3` → `61cdb0d`): `b52114e` catalog durability, `0e4010c` mapping/validation, `f4b7335` folder confirmation UI, `1af8d1e` panel retirement, `61cdb0d` seam fixes. Verification: `ctest` **53/53**; real-data smoke (`PALEO_REAL_PROJECT_AREA`, 1.4 GB): `tst_import` + `tst_smoke_realdata` both pass (60 files / 113 folder rows / 0 failures).
+
+Landed: T17–T22 (T20 pending only the statusbar sink for `catalogOpenFailed`), T24, T25, T30, T33; D3 (fourth 「跳过」 count kept) and D5 (retyped `well_head` rows rejoin phase 1 via `effectiveFolderType`) exercised by tests.
+
+Merge seam notes: `ce746b3` had already landed T17/T18/T19/T20-core/T21 with stricter primitives (`ensureOpen`, `QSaveFile`, per-field P-row errors); the branch work was rebased onto it and only unique deltas layered — `BatchSave`, `.bak` rotation, `unresolvedLinks()`, `m_openError`/`catalogOpenFailed`, load-time bad-segment skip, symlink TOCTOU canon re-check, residual-table navigation payloads, `RASTER_MISSING`, publish-gate top-XY sampling, folder-UI vocabulary/lock/retry/CRS sentence. Integration also fixed `addAsset("ast-N")` not advancing `m_assetSeq` (same bug class as T17).
+
+Remaining per approval: Wave-2 D1/D2 async IO + task-page progress (SEG-Y index, SHA hash, LAS parse, horizon binning, single-line decode; progress+ETA, stale-result discard); UX expansions D6 well overlays / D7 preview budget / D8 thickness trigger / D11 provisional GeoJSON affine registration; Wave-3 D4 undo restore, D10 minimum numeric residuals in publish gate, D12 strip `uwi`/`aliases`, D14 optional WebEngine dep, D15 end-to-end ONNX fixture inference; T23 per-asset SEG-Y reader/SHA cache, T26 derived rasters → `artifacts/derived/` + DERIVED versions, T27 capsule/未计算/coordinate_status 中文 remainder, T28–T29, T31–T32.

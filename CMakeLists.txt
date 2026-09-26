@@ -227,3 +227,6 @@ add_paleo_test(tst_segy_fixture)   # 合成最小 SEG-Y 夹具：索引/单线/�
 target_compile_definitions(tst_segy_fixture PRIVATE
   TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
 add_paleo_test(tst_algorithm_harness)  # AlgorithmTestBase harness + ≥3 算法用例
+add_paleo_test(tst_perfbudget)     # 非 UI 性能预算：工程打开/folder 枚举/save 200 版本
+target_compile_definitions(tst_perfbudget PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")

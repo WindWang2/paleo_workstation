@@ -1410,12 +1410,17 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                                : nullptr)
                   {
                     node->setItemVisibilityChecked(true); // 显示意图（可能已在）
-                    connect(node, &QgsLayerTreeNode::visibilityChanged, this,
-                            [preview, layerId](QgsLayerTreeNode *n) {
-                              preview->setHorizonOnMap(layerId,
-                                                       n->itemVisibilityChecked());
-                            },
-                            Qt::UniqueConnection);
+                    // 重复点击同一图层不叠加 connect：节点属性作去重标记
+                    // （UniqueConnection 只支持成员函数槽，lambda 不可用）。
+                    if (!node->property("paleo.visSync").toBool())
+                    {
+                      node->setProperty("paleo.visSync", true);
+                      connect(node, &QgsLayerTreeNode::visibilityChanged, preview,
+                              [preview, layerId](QgsLayerTreeNode *n) {
+                                preview->setHorizonOnMap(
+                                    layerId, n->itemVisibilityChecked());
+                              });
+                    }
                   }
                   preview->setHorizonOnMap(layerId, true);
                 });

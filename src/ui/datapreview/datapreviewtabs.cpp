@@ -17,6 +17,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QFileInfo>
 #include <QHeaderView>
@@ -534,6 +535,30 @@ bool DataPreviewTabs::isMissingSourceState(const QString &assetId) const
   return lbl && lbl->text().contains(tr("找不到源文件"));
 }
 
+bool DataPreviewTabs::relocateMissingSourceWith(const QString &assetId,
+                                                const QString &versionId,
+                                                const QString &pickedPath)
+{
+  // wave4：把死胡同接到 relocateVersionSource——内容一致才重接（服务层拒解
+  // SHA 不一致的候选文件，不静默换源）。失败保留「找不到源文件」状态与按钮，
+  // 错误就地可见，可换文件再试；成功清掉本会话的 SHA 已验缓存（新路径要在
+  // 重建时重新过 §3 校验门）并重建标签加载真预览。
+  if (!m_svc || assetId.isEmpty())
+    return false;
+  QString err;
+  const QString newVer = m_svc->relocateVersionSource(versionId, pickedPath, &err);
+  if (newVer.isEmpty())
+  {
+    QWidget *page = m_pageOfAsset.value(assetId);
+    if (auto *lbl = page ? page->findChild<QLabel *>(QStringLiteral("stateText")) : nullptr)
+      lbl->setText(tr("找不到源文件\n重新定位失败：%1").arg(err));
+    return false;
+  }
+  m_shaVerified.remove(assetId);
+  rebuildAssetTab(assetId);
+  return true;
+}
+
 QLabel *DataPreviewTabs::loadingLabel(const QString &fileName, QWidget *parent)
 {
   // §4 读取中态：「正在读取」+文件名。读取仍是同步的——标签先就位并立即
@@ -737,10 +762,25 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   lay->setContentsMargins(0, 0, 0, 0);
   lay->setSpacing(6);
 
-  // 外链/受管缺失态（§4：「找不到源文件」+路径）
+  // 外链/受管缺失态（§4：「找不到源文件」+路径）。外链版本（wave4）多给一个
+  // 「重新定位文件…」出口——服务层流式 SHA-256 复验，内容一致才重接，不一致
+  // 如实拒绝；受管文件缺失不是这条恢复路径能解的，不给按钮、只留文案。
   if (abs.isEmpty() || !QFile::exists(abs))
   {
     lay->addWidget(stateLabel(tr("找不到源文件\n%1").arg(abs.isEmpty() ? v.path : abs), host), 1);
+    if (!sourceVersion.managed && m_svc)
+    {
+      auto *btn = new QPushButton(tr("重新定位文件…"), host);
+      btn->setObjectName(QStringLiteral("relocateBtn"));
+      const QString versionId = sourceVersion.id;
+      connect(btn, &QPushButton::clicked, host, [this, assetId, versionId] {
+        const QString picked = QFileDialog::getOpenFileName(
+            this, tr("重新定位源文件"), QString(), QString());
+        if (!picked.isEmpty())
+          relocateMissingSourceWith(assetId, versionId, picked);
+      });
+      lay->addWidget(btn, 0, Qt::AlignHCenter);
+    }
     return host;
   }
 

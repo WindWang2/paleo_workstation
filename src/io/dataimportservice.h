@@ -82,8 +82,17 @@ class DataImportService : public QObject
     };
     QVector<FolderRowResult> importFolder(const QString &dirPath, QString *error = nullptr);
     // typeOverrides：确认表里用户改过类型的行——key 是源路径，value 是目标类型。
+    // 只认分类器词表内的类型（projectClassifierTypes()）；非法值忽略，行按
+    // 分类器原类型处理。阶段划分按生效类型算——改成 well_head 的行回阶段 1（D5）。
     QVector<FolderRowResult> importFolder(const QString &dirPath, QString *error,
                                           const QMap<QString, QString> &typeOverrides);
+
+    // 单行重导（确认表「重试」）：forceType 口径同 typeOverrides 的单值
+    // （空=按分类器；非法值忽略）。返回与 importFolder 相同口径的行结果；
+    // 失败时 *error 带行 message。
+    FolderRowResult importFolderRow(const QString &sourcePath,
+                                    const QString &forceType = QString(),
+                                    QString *error = nullptr);
 
     // 确认表预览：与 importFolder 同一枚举/分类口径，只列行不导入。
     // skipped=true 的行是软链逃逸/非普通文件（预览里灰显、不可改类型）。
@@ -139,6 +148,11 @@ class DataImportService : public QObject
       bool unresolved = false;
       QStringList candidates; // 0/2+ 候选时的集合
     };
+    // 单行导入 → FolderRowResult（importFolder 每行与「重试」共用口径）：
+    // effectiveType 与 classifiedType 不同时经 forceType 下传。
+    FolderRowResult folderRowFor(const QString &path, const QString &classifiedType,
+                                const QString &effectiveType);
+
     WellBind resolveWell(const QString &name) const;
 
     bool storeManagedRaw(const QString &sourcePath, const QString &assetId,

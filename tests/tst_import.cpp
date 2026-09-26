@@ -10,6 +10,7 @@
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/io/lasparser.h"
+#include "../src/io/projectclassifier.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/qgislayerservice.h"
@@ -1186,6 +1187,216 @@ private slots:
       if (a.type == QLatin1String("document"))
         sawDoc = true;
     QVERIFY(sawDoc);
+  }
+
+  // T22/D5：改成 well_head 的行按生效类型回阶段 1——井建得够早，同一批里
+  // 排在它后面的行照常挂到刚建的井。同时验证 importFolder 结果行序 = 生效
+  // 类型序（override 后行序不再等于预览序，UI 按路径回行）。
+  void folderImportRetypedWellHeadRejoinsPhaseOne()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+    using Outcome = DataImportService::FolderRowResult::Outcome;
+
+    const QString root = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(root));
+    // 路径段没有任何语义 → 分类器落 tabular；内容却是合法井口表。
+    const QString headsPath = QDir(root).filePath(QStringLiteral("zheads.dat"));
+    QVERIFY(writeFile(headsPath, QByteArrayLiteral(
+        "#WellHead File From SMI\n#Name X Y KB TD\n"
+        "B2  3.0  4.0  0.0  2100.0\n")));
+    // LAS 按文件名排在 zheads.dat 前；不管顺序如何它是阶段 2，能不能挂上
+    // 取决于 zheads.dat 是不是阶段 1。
+    const QString lasPath = QDir(root).filePath(QStringLiteral("a.las"));
+    QVERIFY(writeFile(lasPath, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. B2 : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+
+    QString err;
+    const auto preview = svc.previewFolder(root, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(preview.size(), 2);
+    QCOMPARE(preview.at(0).path, lasPath); // 预览按分类器类型：两都行阶段 2，按路径排
+    QCOMPARE(preview.at(1).classifiedType, QStringLiteral("tabular"));
+
+    QMap<QString, QString> overrides;
+    overrides.insert(headsPath, QStringLiteral("well_head"));
+    const auto rows = svc.importFolder(root, &err, overrides);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(rows.size(), 2);
+
+    // 生效类型 = well_head → 回阶段 1：井口行在最前，LAS 随后并挂到 B2。
+    QCOMPARE(rows.at(0).path, headsPath);
+    QCOMPARE(rows.at(0).classifiedType, QStringLiteral("well_head"));
+    QCOMPARE(rows.at(0).outcome, Outcome::Imported);
+    QVERIFY(rows.at(0).entityName.contains(QStringLiteral("B2")));
+    QCOMPARE(rows.at(1).path, lasPath);
+    QCOMPARE(rows.at(1).classifiedType, QStringLiteral("well_log"));
+    QCOMPARE(rows.at(1).outcome, Outcome::Imported);
+    QCOMPARE(rows.at(1).entityName, QStringLiteral("B2"));
+
+    QVERIFY(cat->hasEntity(QStringLiteral("well-B2")));
+    int wellLogLinks = 0;
+    for (const EntityAssetLink &l : cat->linksForEntity(QStringLiteral("well-B2")))
+      if (l.role == QLatin1String("well_log") && l.isPrimary && !l.unresolved)
+        ++wellLogLinks;
+    QCOMPARE(wellLogLinks, 1);
+  }
+
+  // T22：override 只认分类器词表内的类型——非法值忽略，行按分类器原类型走；
+  // 词表本身含 tabular/reference，不含 tops/auxiliary（角色名/兜底名不是类型）。
+  void folderImportIgnoresInvalidOverrideType()
+  {
+    QVERIFY(!projectClassifierTypes().contains(QStringLiteral("tops")));
+    QVERIFY(!projectClassifierTypes().contains(QStringLiteral("auxiliary")));
+    QVERIFY(projectClassifierTypes().contains(QStringLiteral("well_stratification")));
+    QVERIFY(projectClassifierTypes().contains(QStringLiteral("tabular")));
+    QVERIFY(projectClassifierTypes().contains(QStringLiteral("reference")));
+    QVERIFY(isClassifierType(QStringLiteral("well_log")));
+    QVERIFY(!isClassifierType(QStringLiteral("not_a_type")));
+
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+    using Outcome = DataImportService::FolderRowResult::Outcome;
+
+    const QString root = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井分层"))));
+    const QString topsPath = QDir(root).filePath(QString::fromUtf8("井分层/tops.dat"));
+    QVERIFY(writeFile(topsPath, QByteArrayLiteral(
+        "#WellTops File From SMI\n#WellName  Name  MD\n"
+        "A1       D61   2148.0\n")));
+
+    QString err;
+    QMap<QString, QString> overrides;
+    overrides.insert(topsPath, QStringLiteral("not_a_type")); // 非法 → 忽略
+    const auto rows = svc.importFolder(root, &err, overrides);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(rows.size(), 1);
+    QCOMPARE(rows.at(0).classifiedType, QStringLiteral("well_stratification"));
+    QCOMPARE(rows.at(0).outcome, Outcome::Unresolved); // 无井 → 未决链接
+    for (const CatalogAsset &a : cat->assets())
+      QVERIFY(a.type != QLatin1String("not_a_type"));
+  }
+
+  // T22：固定辅助收窄到 HZ28-6-1 命名文件——「参考资料」目录内其他 XML 的
+  // override 送达后端：改成 well_log → 照常按井解析（对不上 A1 保持未决），
+  // 不再被整目录锁成参考；HZ28-6-1 自身给 override 也无效，仍落辅助参考。
+  void folderImportReferenceDirXmlOverrideReachesBackend()
+  {
+    QVERIFY(!isFixedAuxiliaryPath(QString::fromUtf8("/a/参考资料/other.xml")));
+    QVERIFY(isFixedAuxiliaryPath(QString::fromUtf8("/a/b/HZ28-6-1测井.xml")));
+    QVERIFY(isDefaultReferencePath(QString::fromUtf8("/a/参考资料/doc.pdf")));
+    QVERIFY(!isDefaultReferencePath(QString::fromUtf8("/a/普通/doc.pdf")));
+
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithSingleWell(projectDir)); // 预置 well-A1
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+    using Outcome = DataImportService::FolderRowResult::Outcome;
+
+    const QString root = tmp.filePath(QStringLiteral("area"));
+    const QString refDir = QDir(root).filePath(QString::fromUtf8("参考资料"));
+    QVERIFY(QDir().mkpath(refDir));
+    const QByteArray logXml(
+        "<logs><log><logcurveinfo/><logdata>1 2</logdata></log></logs>");
+    const QByteArray logXml2(
+        "<logs><log><logcurveinfo/><logdata>3 4</logdata></log></logs>");
+    const QString otherPath = QDir(refDir).filePath(QStringLiteral("other.xml"));
+    const QString hz28Path = QDir(refDir).filePath(QStringLiteral("HZ28-6-1综合.xml"));
+    QVERIFY(writeFile(otherPath, logXml));
+    QVERIFY(writeFile(hz28Path, logXml2)); // 不同字节——避免 dedup 互相吞掉
+
+    QString err;
+    QMap<QString, QString> overrides;
+    overrides.insert(otherPath, QStringLiteral("well_log"));   // 参考→测井
+    overrides.insert(hz28Path, QStringLiteral("well_head"));   // 锁住行：覆盖无效
+    const auto rows = svc.importFolder(root, &err, overrides);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(rows.size(), 2);
+
+    // other.xml：override 生效——没有辅助实体，按 well 侧留未决链接。
+    QString otherAsset, hz28Asset;
+    for (const CatalogAsset &a : cat->assets())
+    {
+      if (a.displayName == QStringLiteral("other.xml"))
+        otherAsset = a.id;
+      if (a.displayName == QStringLiteral("HZ28-6-1综合.xml"))
+        hz28Asset = a.id;
+    }
+    QVERIFY(!otherAsset.isEmpty() && !hz28Asset.isEmpty());
+    const auto otherLinks = cat->linksForAsset(otherAsset);
+    QCOMPARE(otherLinks.size(), 1);
+    QCOMPARE(otherLinks.front().entityType, QStringLiteral("well"));
+    QVERIFY(otherLinks.front().unresolved);       // 「改成井之后如果对不上…保持未决」
+    QVERIFY(otherLinks.front().entityId.isEmpty());
+    const auto hz28Links = cat->linksForAsset(hz28Asset);
+    QCOMPARE(hz28Links.size(), 1);
+    QCOMPARE(hz28Links.front().entityType, QStringLiteral("auxiliary"));
+    QCOMPARE(hz28Links.front().role, QStringLiteral("reference"));
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 1); // 只有预置 A1
+    QCOMPARE(cat->entities(QStringLiteral("auxiliary")).size(), 1); // 仅 HZ28
+
+    for (const auto &r : rows)
+      QCOMPARE(r.outcome, r.path == otherPath ? Outcome::Unresolved : Outcome::Imported);
+  }
+
+  // T22：确认表「重试」的后端入口——单行按当前（覆盖）类型重导，行结果口径
+  // 与 importFolder 相同；修文件后再导成功；非法 forceType 忽略。
+  void importFolderRowReimportsSingleFile()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    using Outcome = DataImportService::FolderRowResult::Outcome;
+
+    const QString dir = tmp.filePath(QString::fromUtf8("井位"));
+    QVERIFY(QDir().mkpath(dir));
+    const QString headsPath = QDir(dir).filePath(QStringLiteral("heads.dat"));
+    QVERIFY(writeFile(headsPath,
+                      QByteArrayLiteral("#WellHead File From SMI\n# no rows\n")));
+
+    QString err;
+    DataImportService::FolderRowResult row =
+        svc.importFolderRow(headsPath, QString(), &err);
+    QCOMPARE(row.outcome, Outcome::Failed);
+    QVERIFY(!err.isEmpty());
+    QVERIFY(row.message.contains(QStringLiteral("no well head rows")));
+    QCOMPARE(row.classifiedType, QStringLiteral("well_head"));
+
+    // 修好文件再重导：入库 + 实体名，error 清空。
+    QVERIFY(writeFile(headsPath, QByteArrayLiteral(
+        "#WellHead File From SMI\n#Name X Y KB TD\n"
+        "A1  1.0  2.0  0.0  2000.0\n")));
+    row = svc.importFolderRow(headsPath, QString(), &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(row.outcome, Outcome::Imported);
+    QVERIFY(row.entityName.contains(QStringLiteral("A1")));
+
+    // forceType 口径同 importFolder 覆盖：合法值改类型，非法值忽略。
+    const QString miscPath = tmp.filePath(QStringLiteral("misc.dat"));
+    QVERIFY(writeFile(miscPath, QByteArrayLiteral("a,b\n1,2\n")));
+    row = svc.importFolderRow(miscPath, QStringLiteral("document"), &err);
+    QCOMPARE(row.classifiedType, QStringLiteral("document"));
+    QCOMPARE(row.outcome, Outcome::Imported); // document → 辅助实体参考关联
+    row = svc.importFolderRow(miscPath, QStringLiteral("bogus_type"), &err);
+    QCOMPARE(row.classifiedType, QStringLiteral("tabular")); // 非法 → 分类器原类型
   }
 
   // 可选真数据：PALEO_REAL_PROJECT_AREA 跑一次 importFolder——井口先行后

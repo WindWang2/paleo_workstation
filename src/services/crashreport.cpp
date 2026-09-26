@@ -236,10 +236,8 @@ bool writeReportFd(int sig)
     const int fd = openReport(path.data);
     if (fd < 0)
     {
-#if !defined(Q_OS_WIN)
-      if (errno == EEXIST) // 同秒已有报告 → 加后缀再试
+      if (errno == EEXIST) // 同秒已有报告 → 加后缀再试（MSVC CRT 同样定义 EEXIST）
         continue;
-#endif
       return false; // 目录没了/不可写：尽力而为到此为止
     }
 

@@ -50,6 +50,8 @@
 #include <qgsvectorlayer.h>
 #include <qgspointxy.h>
 #include <qgsrectangle.h>
+#include <qgsrubberband.h>
+#include <qgsgeometry.h>
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -68,6 +70,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QShortcut>
+#include <QTimer>
 #include <QSplitter>
 #include <QToolButton>
 #include <QSettings>
@@ -1035,6 +1038,37 @@ void PaleoMainWindow::runFolderImport(DataImportService *svc)
   dlg.exec();
 }
 
+void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
+{
+  if (!m_canvasCtl || !layer)
+    return;
+  QgsMapCanvas *cv = m_canvasCtl->canvas();
+  // 闪烁定位（T29 spec ~300–500ms）：#1B73D0 半透明多边形橡皮带盖住图层
+  // 范围，100ms 一闪 ×4 后自毁。交互蓝只做交互反馈，不做常驻装饰
+  // （DESIGN.md：交互色不兼装饰）。
+  auto *band = new QgsRubberBand(cv, Qgis::GeometryType::Polygon);
+  band->setToGeometry(QgsGeometry::fromRect(layer->extent()),
+                      qobject_cast<QgsVectorLayer *>(layer));
+  band->setColor(QColor(27, 115, 208, 60)); // #1B73D0 @ ~24% 填充透明度
+  band->setStrokeColor(QColor(QStringLiteral("#1B73D0")));
+  band->setWidth(2);
+  setProperty("horizonFlashActive", true);
+  auto *timer = new QTimer(this);
+  timer->setObjectName(QStringLiteral("horizonFlashTimer"));
+  int blinks = 4;
+  connect(timer, &QTimer::timeout, this, [this, timer, band, blinks]() mutable {
+    band->setVisible(band->isVisible() ? false : true);
+    if (--blinks <= 0)
+    {
+      timer->stop();
+      timer->deleteLater();
+      delete band; // 画布条目直接删——不在信号发送者栈上
+      setProperty("horizonFlashActive", false);
+    }
+  });
+  timer->start(100);
+}
+
 void PaleoMainWindow::showStartup()
 {
   m_currentPage = QStringLiteral("startup");
@@ -1210,14 +1244,41 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 [this](const QString &wellEntityId) {
                   m_selection->setSelection({wellEntityId}, QStringLiteral("datapreview"));
                 });
-      // horizon 预览「在地图上显示」→ 实例化派生栅格（§4）。
+      // horizon 预览「在地图上显示」（§4/T29 双向同步）：实例化派生栅格 →
+      // 缩放到该图层 → 闪烁定位 ~400ms → 勾上图层树节点 → 按钮置「已在
+      // 地图上」；图层树里取消勾选时按钮态跟随（node visibilityChanged，
+      // QGIS 4：可见性归图层树管，不在 QgsMapLayer 上）。
       if (m_layerSvc)
         connect(preview, &DataPreviewTabs::showHorizonOnMapRequested, this,
-                [this](const QString &layerId) {
+                [this, preview](const QString &layerId) {
                   QString err;
-                  if (!m_layerSvc->instantiate(layerId, &err))
+                  QgsMapLayer *layer = m_layerSvc->instantiate(layerId, &err);
+                  if (!layer)
+                  {
                     QgsMessageLog::logMessage(tr("Show on map failed: %1").arg(err),
                                               QStringLiteral("Paleo"), Qgis::Critical);
+                    return;
+                  }
+                  if (m_canvasCtl)
+                  {
+                    m_canvasCtl->zoomToLayer(layerId);
+                    flashHorizonLayer(layer);
+                  }
+                  QgsProject *proj =
+                      m_projectSvc ? m_projectSvc->project() : nullptr;
+                  if (QgsLayerTreeLayer *node =
+                          proj ? proj->layerTreeRoot()->findLayer(layer->id())
+                               : nullptr)
+                  {
+                    node->setItemVisibilityChecked(true); // 显示意图（可能已在）
+                    connect(node, &QgsLayerTreeNode::visibilityChanged, this,
+                            [preview, layerId](QgsLayerTreeNode *n) {
+                              preview->setHorizonOnMap(layerId,
+                                                       n->itemVisibilityChecked());
+                            },
+                            Qt::UniqueConnection);
+                  }
+                  preview->setHorizonOnMap(layerId, true);
                 });
     }
     connect(dataPage, &DataPage::importRequested, this,

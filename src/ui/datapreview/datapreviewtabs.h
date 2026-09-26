@@ -29,6 +29,10 @@ class DataPreviewTabs : public QWidget
     // missing → 中文，§4 文案）。未知/空按「没有坐标」。
     static QString coordinateStatusText(const QString &status);
 
+    // T29 双向同步：图层可见性 → 「在地图上显示」按钮态。shell 在图层
+    // visibilityChanged / 显示成功时调用；on=true 按钮写「已在地图上」。
+    void setHorizonOnMap(const QString &layerId, bool on);
+
     // 服务绑定（mainwindow 接线处调用；为空时 openAsset 显示空态）。
     void setImportService(DataImportService *svc);
 

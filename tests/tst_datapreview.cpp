@@ -235,10 +235,24 @@ void TestDataPreview::horizonTabOffersShowOnMap()
   QWidget *page = tabs->widget(tabs->currentIndex());
   auto *btn = page->findChild<QPushButton *>(QStringLiteral("showOnMapBtn"));
   QVERIFY2(btn, "horizon tab must offer show-on-map");
+  // T29：按钮带 layerId 身份（双向同步按它寻址）。
+  QCOMPARE(btn->property("layerId").toString(), QStringLiteral("horizon.D61"));
   btn->click();
   QCOMPARE(spy.count(), 1);
   QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("horizon.D61"));
-  QCOMPARE(btn->text(), QStringLiteral("已在地图上")); // §4：点下去后按钮改名
+  // 点击只发意图——按钮态由 shell 回调（显示成功/可见性变化）驱动。
+  QCOMPARE(btn->text(), QStringLiteral("在地图上显示"));
+
+  // 双向同步（T29）：shell 报告已在地图上 → 按钮改名；图层树隐藏 → 跟随回退。
+  st->preview->setHorizonOnMap(QStringLiteral("horizon.D61"), true);
+  QCOMPARE(btn->text(), QStringLiteral("已在地图上"));
+  QVERIFY(btn->property("onMap").toBool());
+  st->preview->setHorizonOnMap(QStringLiteral("horizon.D61"), false);
+  QCOMPARE(btn->text(), QStringLiteral("在地图上显示"));
+  QVERIFY(!btn->property("onMap").toBool());
+  // 其它 layerId 不误伤。
+  st->preview->setHorizonOnMap(QStringLiteral("horizon.D62"), true);
+  QCOMPARE(btn->text(), QStringLiteral("在地图上显示"));
 }
 
 void TestDataPreview::everyTypeOpensContent()

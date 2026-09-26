@@ -16,13 +16,18 @@
 #include "../src/ui/paleomainwindow.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
+#include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgiscanvascontroller.h"
+#include "../src/metadata/layermanifest.h"
+#include <QTimer>
 
 #include <qgsproject.h>
 #include <qgsmapcanvas.h>
 #include <qgsrectangle.h>
 
 #include <qgslayertreeview.h>
+#include <qgslayertree.h>
+#include <qgsmaplayer.h>
 #include <qgsvectorlayer.h>
 #include <qgslayertreemodel.h>
 
@@ -221,6 +226,66 @@ class TestUiShell : public QObject
           hasSubmenu |= (a->menu() != nullptr);
         QVERIFY(hasSubmenu);
       }
+    }
+
+    // T29「在地图上显示」shell 接线：意图 → 实例化 + zoomToLayer + ~400ms
+    // 闪烁（horizonFlashActive 起止）+ visibilityChanged 双向同步不崩。
+    void showOnMapZoomsAndFlashes()
+    {
+      // 自建一个活着的工程：manifest 随 projectOpened 绑到本测试的临时目录
+      // （早前测试的临时工程目录已销毁，manifest 会变只读）。
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      QVERIFY2(m_ctx->projectSvc()->createProject(
+                   dir.filePath(QStringLiteral("proj.qgz"))),
+               "need a live project for manifest writes");
+
+      // 声明一个可实例化的 horizon 图层（gpkg 面要素），把画布拉到远处。
+      LayerDeclaration d;
+      d.layerId = QStringLiteral("horizon.D61");
+      d.horizon = QStringLiteral("D61");
+      d.type = QStringLiteral("vector"); // instantiate 按类型建层：gpkg 是矢量
+      d.source = QStringLiteral(FIXTURE_GPKG) + QStringLiteral("|layername=basin");
+      d.group = QStringLiteral("03_Composite");
+      QString declErr;
+      QVERIFY2(m_ctx->layerSvc()->declare(d, &declErr), qPrintable(declErr));
+
+      m_ctx->canvasCtl()->canvas()->setExtent(QgsRectangle(0, 0, 1, 1));
+      const QgsRectangle before = m_ctx->canvasCtl()->canvas()->extent();
+
+      auto *preview = m_win->findChild<QWidget *>(QStringLiteral("dataPreview"));
+      QVERIFY(preview);
+      // 经元系统发数据页预览的意图信号（attachWorkflows 已接线）。
+      QVERIFY(QMetaObject::invokeMethod(
+          preview, "showHorizonOnMapRequested",
+          Q_ARG(QString, QStringLiteral("horizon.D61"))));
+      QTest::qWait(50); // zoom + flash 启动
+
+      // 缩放生效：画布范围离开了 1×1（向图层范围移动）。
+      const QgsRectangle after = m_ctx->canvasCtl()->canvas()->extent();
+      QVERIFY2(after != before, "zoomToLayer must move the canvas extent");
+
+      // 闪烁窗口内 active；~600ms 后结束。
+      QVERIFY(m_win->property("horizonFlashActive").toBool());
+      auto *timer = m_win->findChild<QTimer *>(QStringLiteral("horizonFlashTimer"));
+      QVERIFY(timer);
+      QTest::qWait(600);
+      QVERIFY(!m_win->property("horizonFlashActive").toBool());
+
+      // 双向同步通路：图层树勾选/取消（QGIS 4 语义）不崩——按钮态由预览
+      // 侧测试覆盖（setHorizonOnMap 断言）。
+      QgsMapLayer *layer = m_ctx->layerSvc()->layer(QStringLiteral("horizon.D61"));
+      QVERIFY(layer);
+      QgsLayerTreeLayer *node = m_ctx->projectSvc()->project()
+                                    ->layerTreeRoot()
+                                    ->findLayer(layer->id());
+      QVERIFY(node);
+      node->setItemVisibilityChecked(false);
+      node->setItemVisibilityChecked(true);
+      QTest::qWait(10);
+
+      // 不把图层泄漏给后续用例（空态测试断言 mapLayers().isEmpty()）。
+      m_ctx->projectSvc()->project()->removeMapLayer(layer->id());
     }
 
     // ---- T31 空态：地图/图层树没有图层时给居中指引 ----

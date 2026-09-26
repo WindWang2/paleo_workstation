@@ -331,6 +331,17 @@ QString DataPreviewTabs::coordinateStatusText(const QString &status)
   return tr("没有坐标"); // missing / 空 / 未知
 }
 
+void DataPreviewTabs::setHorizonOnMap(const QString &layerId, bool on)
+{
+  // T29 双向同步：所有绑到该 layerId 的「在地图上显示」按钮跟随图层可见性。
+  for (QPushButton *btn : findChildren<QPushButton *>(QStringLiteral("showOnMapBtn")))
+    if (btn->property("layerId").toString() == layerId)
+    {
+      btn->setProperty("onMap", on);
+      btn->setText(on ? tr("已在地图上") : tr("在地图上显示"));
+    }
+}
+
 DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   : QWidget(parent)
 {
@@ -829,10 +840,14 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       auto *p = warnLabel(pendingNote, host);
       lay->addWidget(p);
     }
-    // 「在地图上显示」（§4）：无派生栅格时禁用并给出原因 tooltip；
-    // 点下去缩放（经已有信号实例化栅格）并把按钮改成「已在地图上」。
+    // 「在地图上显示」（§4/T29）：无派生栅格时禁用并给出原因 tooltip；点击
+    // 发意图（shell 实例化+缩放+闪烁后回调 setHorizonOnMap 置「已在地图上」；
+    // 图层树里关掉可见性时同样回调置回）。
     auto *btn = new QPushButton(tr("在地图上显示"), host);
     btn->setObjectName(QStringLiteral("showOnMapBtn"));
+    btn->setAccessibleName(tr("在地图上显示层位 %1").arg(sb.name.isEmpty()
+                                                              ? asset.displayName
+                                                              : sb.name));
     if (derived.id.isEmpty() || sb.name.isEmpty())
     {
       btn->setEnabled(false);
@@ -841,9 +856,9 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     else
     {
       const QString layerId = QStringLiteral("horizon.%1").arg(sb.name);
-      connect(btn, &QPushButton::clicked, this, [this, btn, layerId]() {
+      btn->setProperty("layerId", layerId); // T29：双向同步按 layerId 寻址
+      connect(btn, &QPushButton::clicked, this, [this, layerId]() {
         emit showHorizonOnMapRequested(layerId);
-        btn->setText(tr("已在地图上"));
       });
     }
     lay->addWidget(btn, 0, Qt::AlignLeft);

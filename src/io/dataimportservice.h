@@ -152,6 +152,7 @@ class DataImportService : public QObject
     PaleoProjectStore *m_store;
     QString m_projectDir;
     DataCatalog *m_catalog = nullptr;
+    bool m_catalogReady = false;
 
     QString m_converter;            // "" 未解析/不可用
     bool m_converterResolved = false;

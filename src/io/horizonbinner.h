@@ -12,6 +12,7 @@ struct HorizonHeader
   int p1Inline = 0, p1Xline = 0; double p1x = 0, p1y = 0;
   int p2Inline = 0, p2Xline = 0; double p2x = 0, p2y = 0;
   int p3Inline = 0, p3Xline = 0; double p3x = 0, p3y = 0;
+  bool hasP1 = false, hasP2 = false, hasP3 = false;
   QString zUnits;
 };
 
@@ -25,6 +26,8 @@ struct BinnedHorizon
   double originX = 0, originY = 0; // 北向上左上角
   double zMin = 0, zMax = 0;
   int filledCells = 0;
+  bool hasInlineRange = false, hasXlineRange = false;
+  int inlineMin = 0, inlineMax = 0, xlineMin = 0, xlineMax = 0;
 };
 
 // 从 '# Grid_size:411x641' / '# P1: ...' / '# Z_units: ms' 行取参数。

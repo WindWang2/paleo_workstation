@@ -5,7 +5,7 @@
 ## Quickstart
 
 ```bash
-git clone <repo> && cd paleo_workstation
+git clone https://github.com/WindWang2/paleo_workstation.git && cd paleo_workstation
 ./paleo-dev bootstrap    # preflight -> vendor deps -> selfcheck（尾跑，输出 map.png）
 ```
 

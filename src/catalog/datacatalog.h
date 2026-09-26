@@ -80,6 +80,7 @@ class DataCatalog : public QObject
 
     // 打开（或初始化）<projectDir>/artifacts/metadata/catalog.json。
     bool open(const QString &projectDir, QString *error = nullptr);
+    bool isOpen() const { return m_isOpen; }
     QString catalogPath() const { return m_dir + QStringLiteral("/artifacts/metadata/catalog.json"); }
     int catalogRevision() const { return m_revision; }
 
@@ -176,8 +177,10 @@ class DataCatalog : public QObject
     void changed();      // 任一变更落盘后发射（UI 刷新资产表用）
 
   private:
+    bool ensureOpen(QString *error) const;
     bool save(QString *error = nullptr);
     QString m_dir;
+    bool m_isOpen = false;
     int m_revision = 0;
     QVector<CatalogEntity> m_entities;
     QVector<CatalogAsset> m_assets;

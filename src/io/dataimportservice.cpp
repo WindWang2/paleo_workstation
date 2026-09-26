@@ -131,8 +131,10 @@ void DataImportService::setProjectDir(const QString &dir)
   m_pdfErrors.clear();
 
   m_projectDir = dir;
+  m_catalogReady = false;
   QString err;
-  if (!m_catalog->open(dir, &err))
+  m_catalogReady = m_catalog->open(dir, &err);
+  if (!m_catalogReady)
     qWarning("DataImportService: catalog open failed: %s", qPrintable(err));
 }
 
@@ -250,6 +252,12 @@ DataImportService::ImportResult
 DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOptions &options,
                                        QString *error)
 {
+  QString internalError;
+  if (!error)
+    error = &internalError;
+  else
+    error->clear();
+
   ImportResult res;
   const auto fail = [&](const QString &msg) -> ImportResult {
     setError(error, msg);
@@ -270,6 +278,8 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
     return fail(QStringLiteral("import service is not fully wired"));
   if (m_projectDir.isEmpty())
     return fail(QStringLiteral("project dir is not set"));
+  if (!m_catalogReady)
+    return fail(QStringLiteral("project catalog is not available; refusing to import"));
   if (sourcePath.isEmpty() || !QFile::exists(sourcePath))
     return fail(QStringLiteral("找不到源文件: %1").arg(sourcePath));
 
@@ -441,8 +451,16 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
     WellBind bind = resolveWell(wellName);
     if (bind.unresolved && bind.candidates.isEmpty())
     {
-      bind = resolveWell(stem); // A1.Las → A1
-      tried.append(stem);
+      if (!uwi.isEmpty())
+      {
+        bind = resolveWell(uwi);
+        tried.append(uwi);
+      }
+      if (bind.unresolved && bind.candidates.isEmpty())
+      {
+        bind = resolveWell(stem); // A1.Las → A1
+        tried.append(stem);
+      }
     }
     // §3 修订：未决也是一条链接——实体 id 留空，备注记候选或未匹配名。
     EntityAssetLink link;
@@ -969,7 +987,7 @@ int DataImportService::attachResolvableLinks(const CatalogAsset &asset,
     QString wellName, uwi;
     if (asset.format == QLatin1String("las"))
       LasParser::readWellInfo(sourcePath, wellName, uwi);
-    namesPerLink.append({wellName, stem}); // ~W WELL → 文件名主名（同导入顺序）
+    namesPerLink.append({wellName, uwi, stem}); // ~W WELL → UWI → 文件名主名
   }
   else if (asset.type == QLatin1String("well_stratification"))
   {

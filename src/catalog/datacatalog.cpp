@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSaveFile>
 
 #include <cmath>
 
@@ -164,9 +165,18 @@ DataCatalog::DataCatalog(QObject *parent)
 {
 }
 
+bool DataCatalog::ensureOpen(QString *error) const
+{
+  if (m_isOpen)
+    return true;
+  setError(error, QStringLiteral("catalog is not open"));
+  return false;
+}
+
 bool DataCatalog::open(const QString &projectDir, QString *error)
 {
-  m_dir = projectDir;
+  m_isOpen = false;
+  m_dir = projectDir.trimmed().isEmpty() ? QString() : projectDir;
   m_revision = 0;
   m_entities.clear();
   m_assets.clear();
@@ -174,9 +184,21 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   m_links.clear();
   m_assetSeq = m_versionSeq = 0;
 
+  if (m_dir.isEmpty())
+  {
+    setError(error, QStringLiteral("project directory is empty"));
+    return false;
+  }
+
   QFile f(catalogPath());
   if (!f.exists())
-    return save(error); // 初始化空 catalog（schema_version + revision 0）
+  {
+    m_isOpen = true;
+    if (save(error))
+      return true;
+    m_isOpen = false;
+    return false;
+  }
 
   if (!f.open(QIODevice::ReadOnly))
   {
@@ -191,6 +213,11 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
     return false;
   }
   const QJsonObject root = doc.object();
+  if (root.value(QStringLiteral("schema_version")).toInt(-1) != kSchemaVersion)
+  {
+    setError(error, QStringLiteral("unsupported catalog schema in %1").arg(catalogPath()));
+    return false;
+  }
   m_revision = root.value(QStringLiteral("catalog_revision")).toInt();
   for (const auto &v : root.value(QStringLiteral("entities")).toArray())
     m_entities.append(entityFromJson(v.toObject()));
@@ -212,17 +239,20 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
     const CatalogVersion cv = versionFromJson(v.toObject());
     m_versions.append(cv);
     bool ok = false;
-    const int n = QString(cv.id).mid(4).toInt(); // "ver-N"
-    if (ok)
+    const int n = cv.id.startsWith(QStringLiteral("ver-")) ? cv.id.mid(4).toInt(&ok) : 0;
+    if (ok && n > 0)
       m_versionSeq = qMax(m_versionSeq, n);
   }
   for (const auto &v : root.value(QStringLiteral("entity_asset_links")).toArray())
     m_links.append(linkFromJson(v.toObject()));
+  m_isOpen = true;
   return true;
 }
 
 bool DataCatalog::save(QString *error)
 {
+  if (!ensureOpen(error))
+    return false;
   const QDir dir = QFileInfo(catalogPath()).dir();
   if (!dir.exists() && !dir.mkpath(QStringLiteral(".")))
   {
@@ -232,7 +262,8 @@ bool DataCatalog::save(QString *error)
 
   QJsonObject root;
   root.insert(QStringLiteral("schema_version"), kSchemaVersion);
-  root.insert(QStringLiteral("catalog_revision"), ++m_revision);
+  const int nextRevision = m_revision + 1;
+  root.insert(QStringLiteral("catalog_revision"), nextRevision);
   QJsonArray ents, asts, vers, lnks;
   for (const CatalogEntity &e : m_entities) ents.append(entityToJson(e));
   for (const CatalogAsset &a : m_assets)
@@ -251,52 +282,82 @@ bool DataCatalog::save(QString *error)
   root.insert(QStringLiteral("versions"), vers);
   root.insert(QStringLiteral("entity_asset_links"), lnks);
 
-  // 原子写：temp + rename（§41.2 惯例）。
-  const QString tmp = catalogPath() + QStringLiteral(".partial");
-  QFile f(tmp);
+  // QSaveFile writes beside the destination and replaces it only after a full
+  // successful write, preserving the last good catalog on short writes.
+  QSaveFile f(catalogPath());
+  f.setDirectWriteFallback(false);
   if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
   {
-    setError(error, QStringLiteral("cannot write %1").arg(tmp));
+    setError(error, QStringLiteral("cannot write %1: %2").arg(catalogPath(), f.errorString()));
     return false;
   }
-  f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-  f.close();
-  if (::rename(QFile::encodeName(tmp).constData(), QFile::encodeName(catalogPath()).constData()) != 0)
+  const QByteArray bytes = QJsonDocument(root).toJson(QJsonDocument::Indented);
+  if (f.write(bytes) != bytes.size())
   {
-    setError(error, QStringLiteral("cannot replace %1").arg(catalogPath()));
+    const QString detail = f.errorString();
+    f.cancelWriting();
+    setError(error, QStringLiteral("short write to %1: %2").arg(catalogPath(), detail));
     return false;
   }
+  if (!f.commit())
+  {
+    setError(error, QStringLiteral("cannot replace %1: %2").arg(catalogPath(), f.errorString()));
+    return false;
+  }
+  m_revision = nextRevision;
   emit changed();
   return true;
 }
 
 bool DataCatalog::addEntity(const CatalogEntity &e, QString *error)
 {
+  if (!ensureOpen(error))
+    return false;
   if (e.id.isEmpty() || hasEntity(e.id))
   {
     setError(error, QStringLiteral("entity id empty or duplicate: %1").arg(e.id));
     return false;
   }
   m_entities.append(e);
-  return save(error);
+  if (save(error))
+    return true;
+  m_entities.removeLast();
+  return false;
 }
 
 bool DataCatalog::addAsset(const CatalogAsset &a, QString *error)
 {
-  if (a.id.isEmpty())
+  if (!ensureOpen(error))
+    return false;
+  if (a.id.isEmpty() || !assetById(a.id).id.isEmpty())
   {
-    setError(error, QStringLiteral("asset id is empty"));
+    setError(error, QStringLiteral("asset id is empty or duplicate: %1").arg(a.id));
     return false;
   }
   m_assets.append(a);
-  return save(error);
+  if (save(error))
+    return true;
+  m_assets.removeLast();
+  return false;
 }
 
 bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
 {
+  if (!ensureOpen(error))
+    return false;
   if (v.id.isEmpty() || v.assetId.isEmpty())
   {
     setError(error, QStringLiteral("version id or asset id is empty"));
+    return false;
+  }
+  if (!versionById(v.id).id.isEmpty())
+  {
+    setError(error, QStringLiteral("duplicate version id: %1").arg(v.id));
+    return false;
+  }
+  if (assetById(v.assetId).id.isEmpty())
+  {
+    setError(error, QStringLiteral("version references unknown asset: %1").arg(v.assetId));
     return false;
   }
   // §3：fileName 与受管 path 的每一段都必须是合法路径段——catalog 不落坏段。
@@ -322,11 +383,16 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
       }
   }
   m_versions.append(v);
-  return save(error);
+  if (save(error))
+    return true;
+  m_versions.removeLast();
+  return false;
 }
 
 bool DataCatalog::addLink(const EntityAssetLink &l, QString *error)
 {
+  if (!ensureOpen(error))
+    return false;
   // §3 修订：未决链接实体 id 留空（资产保留、不建不并）；已决链接仍必须有实体 id。
   if (l.assetId.isEmpty())
   {
@@ -338,6 +404,7 @@ bool DataCatalog::addLink(const EntityAssetLink &l, QString *error)
     setError(error, QStringLiteral("resolved link needs an entity id"));
     return false;
   }
+  const QVector<EntityAssetLink> previousLinks = m_links;
   m_links.append(l);
   // §3：新的已决主关联入库后，同一 (entityType, entityId, role) 只保留这一条
   // 主关联——同角色旧主关联（例如同井同角色的旧版本资产）降级为非主。
@@ -347,16 +414,22 @@ bool DataCatalog::addLink(const EntityAssetLink &l, QString *error)
           m_links[i].entityType == l.entityType && m_links[i].entityId == l.entityId &&
           m_links[i].role == l.role)
         m_links[i].isPrimary = false;
-  return save(error);
+  if (save(error))
+    return true;
+  m_links = previousLinks;
+  return false;
 }
 
 bool DataCatalog::attachLink(int index, const QString &entityId, QString *error)
 {
+  if (!ensureOpen(error))
+    return false;
   if (index < 0 || index >= m_links.size())
   {
     setError(error, QStringLiteral("link index out of range: %1").arg(index));
     return false;
   }
+  const QVector<EntityAssetLink> previousLinks = m_links;
   EntityAssetLink &l = m_links[index];
   if (!l.unresolved)
   {
@@ -378,16 +451,22 @@ bool DataCatalog::attachLink(int index, const QString &entityId, QString *error)
         m_links[i].entityType == l.entityType && m_links[i].entityId == entityId &&
         m_links[i].role == l.role)
       m_links[i].isPrimary = false;
-  return save(error);
+  if (save(error))
+    return true;
+  m_links = previousLinks;
+  return false;
 }
 
 bool DataCatalog::setLinkUnresolved(int index, QString *error)
 {
+  if (!ensureOpen(error))
+    return false;
   if (index < 0 || index >= m_links.size())
   {
     setError(error, QStringLiteral("link index out of range: %1").arg(index));
     return false;
   }
+  const QVector<EntityAssetLink> previousLinks = m_links;
   EntityAssetLink &l = m_links[index];
   if (l.unresolved)
   {
@@ -399,16 +478,22 @@ bool DataCatalog::setLinkUnresolved(int index, QString *error)
   l.unresolved = true;
   l.isPrimary = false;
   l.note.clear();
-  return save(error);
+  if (save(error))
+    return true;
+  m_links = previousLinks;
+  return false;
 }
 
 bool DataCatalog::setLinkPrimary(int index, QString *error)
 {
+  if (!ensureOpen(error))
+    return false;
   if (index < 0 || index >= m_links.size())
   {
     setError(error, QStringLiteral("link index out of range: %1").arg(index));
     return false;
   }
+  const QVector<EntityAssetLink> previousLinks = m_links;
   EntityAssetLink &l = m_links[index];
   if (l.unresolved || l.entityId.isEmpty())
   {
@@ -423,7 +508,10 @@ bool DataCatalog::setLinkPrimary(int index, QString *error)
         m_links[i].entityType == l.entityType && m_links[i].entityId == l.entityId &&
         m_links[i].role == l.role)
       m_links[i].isPrimary = false;
-  return save(error);
+  if (save(error))
+    return true;
+  m_links = previousLinks;
+  return false;
 }
 
 CatalogVersion DataCatalog::versionBySha256(const QString &sha256) const

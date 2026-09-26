@@ -1045,11 +1045,11 @@ Second `/autoplan` pass. Pass 1 approved the plan pre-implementation; this pass 
 
 ### New implementation tasks (pass 2, prioritized)
 
-- **T17 (P1)** `datacatalog.cpp:215` `toInt(&ok)` restore `m_versionSeq` + duplicate-id guard in `addVersion` + reload regression test.
-- **T18 (P1)** Sentinel-filter TD rows with `TIME(ms) == -99999` at parse (`wellfileparsers.cpp:145`); interpolation input = filtered set.
-- **T19 (P1)** `isochronMs <= 0` → nodata in thickness raster.
-- **T20 (P1)** `catalog->open` failure → refuse mutations + user-visible error; `schema_version` gate on load; `.bak` rotation + check `write()`/`close()` before rename (`save()`).
-- **T21 (P1)** Write `PALEO_INLINE_MIN/MAX` (+XLINE/DT/T0 as available) in `writeHorizonGeoTiff`; unblocks validation→seismic navigation.
+- [~] **T17 (P1)** Restore `m_versionSeq` on reload and reject duplicate version ids in `addVersion` (implemented; reload regression test remains).
+- [x] **T18 (P1)** Sentinel-filter TD rows with `TIME(ms) == -99999` at parse and again at the interpolation boundary; non-finite numeric values are rejected (`wellfileparsers.cpp`, `timedeptool.cpp`).
+- [x] **T19 (P1)** `isochronMs <= 0` or non-finite → nodata in the thickness raster; reject non-finite/invalid output thickness too (`mappingworkflow.cpp`).
+- [~] **T20 (P1)** Refuse imports after catalog-open failure, gate schema version, and atomically preserve the last good catalog on short writes (implemented); `.bak` rotation and an explicit UI error remain.
+- [x] **T21 (P1)** `writeHorizonGeoTiff` stores inline/xline ranges and bin counts as GDAL metadata; validate P1/P2/P3 presence, numeric geometry, and agreement with `Grid_size` before binning (`horizonbinner.cpp`).
 - **T22 (P1)** Folder confirm: fix `kTypes` vocabulary (`well_stratification`, `tabular`, label↔type mapping), lock the type combo on fixed-auxiliary rows, emit overrides only for valid changed types, add per-row 「重试」, add CRS-sentence step.
 - **T23 (P2)** Cache `SegyReader`+SHA verify per asset (one open/index/hash per asset, not per line change); then evaluate worker-thread index/decode/binning/import per §4 — **see unresolved D1**.
 - **T24 (P2)** Wire `residualTable` double-click→`locateRequested` + 「在数据页看这条剖面」 enablement on residual rows.

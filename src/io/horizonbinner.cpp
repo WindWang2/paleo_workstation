@@ -24,12 +24,34 @@ namespace
       *error = text;
   }
 
-  double grabDouble(const QString &line, int index)
+  bool grabDouble(const QString &line, int index, double *out)
   {
     // P 行是逗号分隔："# P1:      1315,      4165,     0.00000,     0.00000"
     const QStringList t = QString(line).replace(QLatin1Char(','), QLatin1Char(' '))
                           .split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
-    return index < t.size() ? t.at(index).toDouble() : 0.0;
+    if (index >= t.size())
+      return false;
+    bool ok = false;
+    const double value = t.at(index).toDouble(&ok);
+    if (!ok || !std::isfinite(value))
+      return false;
+    *out = value;
+    return true;
+  }
+
+  bool grabInt(const QString &line, int index, int *out)
+  {
+    const QStringList t = QString(line).replace(QLatin1Char(','), QLatin1Char(' '))
+                          .split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    if (index >= t.size())
+      return false;
+    bool ok = false;
+    const double value = t.at(index).toDouble(&ok);
+    if (!ok || !std::isfinite(value) || std::trunc(value) != value ||
+        value < std::numeric_limits<int>::min() || value > std::numeric_limits<int>::max())
+      return false;
+    *out = static_cast<int>(value);
+    return true;
   }
 } // namespace
 
@@ -51,40 +73,77 @@ bool parseHorizonHeader(const QByteArray &text, HorizonHeader *out, QString *err
       const auto m = re.match(rest);
       if (m.hasMatch())
       {
-        h.gridRows = m.captured(1).toInt();
-        h.gridCols = m.captured(2).toInt();
+        bool rowsOk = false, colsOk = false;
+        h.gridRows = m.captured(1).toInt(&rowsOk);
+        h.gridCols = m.captured(2).toInt(&colsOk);
+        if (!rowsOk || !colsOk)
+        {
+          setError(error, QStringLiteral("horizon header has invalid Grid_size"));
+          return false;
+        }
       }
     }
     else if (line.startsWith(QStringLiteral("# P1:"), Qt::CaseInsensitive))
     {
       // 归一化后 token：[0]='#' [1]="P1:" [2]=inline [3]=xline [4]=x [5]=y
-      h.p1Inline = qRound(grabDouble(line, 2));
-      h.p1Xline = qRound(grabDouble(line, 3));
-      h.p1x = grabDouble(line, 4);
-      h.p1y = grabDouble(line, 5);
+      if (!grabInt(line, 2, &h.p1Inline) || !grabInt(line, 3, &h.p1Xline) ||
+          !grabDouble(line, 4, &h.p1x) || !grabDouble(line, 5, &h.p1y))
+      {
+        setError(error, QStringLiteral("horizon header has invalid P1 geometry"));
+        return false;
+      }
+      h.hasP1 = true;
     }
     else if (line.startsWith(QStringLiteral("# P2:"), Qt::CaseInsensitive))
     {
-      h.p2Inline = qRound(grabDouble(line, 2));
-      h.p2Xline = qRound(grabDouble(line, 3));
-      h.p2x = grabDouble(line, 4);
-      h.p2y = grabDouble(line, 5);
+      if (!grabInt(line, 2, &h.p2Inline) || !grabInt(line, 3, &h.p2Xline) ||
+          !grabDouble(line, 4, &h.p2x) || !grabDouble(line, 5, &h.p2y))
+      {
+        setError(error, QStringLiteral("horizon header has invalid P2 geometry"));
+        return false;
+      }
+      h.hasP2 = true;
     }
     else if (line.startsWith(QStringLiteral("# P3:"), Qt::CaseInsensitive))
     {
-      h.p3Inline = qRound(grabDouble(line, 2));
-      h.p3Xline = qRound(grabDouble(line, 3));
-      h.p3x = grabDouble(line, 4);
-      h.p3y = grabDouble(line, 5);
+      if (!grabInt(line, 2, &h.p3Inline) || !grabInt(line, 3, &h.p3Xline) ||
+          !grabDouble(line, 4, &h.p3x) || !grabDouble(line, 5, &h.p3y))
+      {
+        setError(error, QStringLiteral("horizon header has invalid P3 geometry"));
+        return false;
+      }
+      h.hasP3 = true;
     }
     else if (line.startsWith(QStringLiteral("# Z_units:"), Qt::CaseInsensitive))
     {
       h.zUnits = line.mid(10).trimmed();
     }
   }
-  if (h.gridRows <= 0 || h.gridCols <= 0)
+  if (h.gridRows < 2 || h.gridCols < 2)
   {
-    setError(error, QStringLiteral("horizon header lacks Grid_size"));
+    setError(error, QStringLiteral("horizon header requires Grid_size of at least 2x2"));
+    return false;
+  }
+  const qint64 inlineMax = static_cast<qint64>(h.p1Inline) + h.gridRows - 1;
+  const qint64 xlineMax = static_cast<qint64>(h.p1Xline) + h.gridCols - 1;
+  const qint64 cellCount = static_cast<qint64>(h.gridRows) * h.gridCols;
+  if (inlineMax > std::numeric_limits<int>::max() ||
+      xlineMax > std::numeric_limits<int>::max() || cellCount > std::numeric_limits<int>::max())
+  {
+    setError(error, QStringLiteral("horizon Grid_size or line range exceeds supported limits"));
+    return false;
+  }
+  if (!h.hasP1 || !h.hasP2 || !h.hasP3)
+  {
+    setError(error, QStringLiteral("horizon header lacks P1/P2/P3 geometry"));
+    return false;
+  }
+  if (h.p1Inline != h.p2Inline || h.p2Xline != h.p3Xline ||
+      h.p3Inline != h.p1Inline + h.gridRows - 1 ||
+      h.p2Xline != h.p1Xline + h.gridCols - 1 ||
+      h.p2x == h.p1x || h.p3y == h.p2y)
+  {
+    setError(error, QStringLiteral("horizon header P1/P2/P3 do not match Grid_size"));
     return false;
   }
   if (out)
@@ -101,14 +160,30 @@ bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error)
   BinnedHorizon b;
   b.rows = h.gridRows;
   b.cols = h.gridCols;
-  b.z.fill(kNoData, b.rows * b.cols);
+  const int cellCount = static_cast<int>(static_cast<qint64>(b.rows) * b.cols);
   b.dx = (h.p2x - h.p1x) / (h.gridCols - 1);
   b.dy = (h.p3y - h.p2y) / (h.gridRows - 1);
-  // 北向上：像元 (0,0) 在左上=最大 y；行号随 inline 增加而 y 减小。
   b.originX = h.p1x;
   b.originY = h.p1y + (h.gridRows - 1) * b.dy;
+  if (!(b.dx > 0.0) || !(b.dy > 0.0) || !std::isfinite(b.dx) || !std::isfinite(b.dy) ||
+      !std::isfinite(b.originX) || !std::isfinite(b.originY))
+  {
+    setError(error, QStringLiteral("horizon header has invalid grid spacing"));
+    return false;
+  }
+  b.z.fill(kNoData, cellCount);
+  if (h.hasP1)
+  {
+    b.hasInlineRange = true;
+    b.inlineMin = h.p1Inline;
+    b.inlineMax = h.p1Inline + h.gridRows - 1;
+    b.hasXlineRange = true;
+    b.xlineMin = h.p1Xline;
+    b.xlineMax = h.p1Xline + h.gridCols - 1;
+  }
+  // 北向上：像元 (0,0) 在左上=最大 y；行号随 inline 增加而 y 减小。
 
-  QVector<bool> filled(b.rows * b.cols, false);
+  QVector<bool> filled(cellCount, false);
 
   const QString data = QString::fromUtf8(text);
   for (const QString &raw : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
@@ -124,7 +199,7 @@ bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error)
     const int inl = t.at(3).toInt(&okInl);
     const int xl = t.at(4).toInt(&okXl);
     const float z = t.at(2).toFloat(&okZ);
-    if (!okInl || !okXl || !okZ)
+    if (!okInl || !okXl || !okZ || !std::isfinite(z) || z == kNoData)
       continue;
     // 北向上：行 0 是最大 y（inline 最大侧）；inline=p1Inline 落在末行。
     const int row = (h.gridRows - 1) - (inl - h.p1Inline);
@@ -189,6 +264,27 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
   double gt[6] = {b.originX, b.dx, 0.0, b.originY, 0.0, -b.dy};
   GDALSetGeoTransform(ds, gt);
   GDALSetRasterNoDataValue(GDALGetRasterBand(ds, 1), kNoData);
+
+  const auto setIntMetadata = [ds](const char *key, int value) {
+    const QByteArray encoded = QByteArray::number(value);
+    return GDALSetMetadataItem(ds, key, encoded.constData(), nullptr) == CE_None;
+  };
+  if ((b.hasInlineRange &&
+       (!setIntMetadata("PALEO_INLINE_MIN", b.inlineMin) ||
+        !setIntMetadata("PALEO_INLINE_MAX", b.inlineMax))) ||
+      (b.hasXlineRange &&
+       (!setIntMetadata("PALEO_XLINE_MIN", b.xlineMin) ||
+        !setIntMetadata("PALEO_XLINE_MAX", b.xlineMax))) ||
+      !setIntMetadata("PALEO_COLLISIONS", b.collisions) ||
+      !setIntMetadata("PALEO_REJECTED", b.rejected) ||
+      !setIntMetadata("PALEO_FILLED_CELLS", b.filledCells))
+  {
+    const QString detail = QString::fromUtf8(CPLGetLastErrorMsg());
+    GDALClose(ds);
+    setError(error, QStringLiteral("cannot write raster metadata for %1%2")
+                         .arg(destPath, detail.isEmpty() ? QString() : QStringLiteral(": ") + detail));
+    return false;
+  }
 
   // 局部直角米测网（§3）——无大地基准的 ENGCRS，非 EPSG:4326。GDAL 接受该
   // WKT 并以 LOCAL_CS 落盘；SetFromUserInput 失败时宁可让 GeoTIFF SRS 留空，

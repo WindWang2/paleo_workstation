@@ -24,6 +24,7 @@ class PaleoOnnxService : public QObject
     QStringList availableModels() const;            // *.onnx basenames
     bool loadModel(const QString &name, QString *error = nullptr);
     QString loadedModel() const;
+    bool isModelLoaded(const QString &name) const;
 
     // Toy/general inference: named input float tensor in -> first output float tensor out.
     // Deterministic: same input → same output (spike verified 2.0 → 42.0).
@@ -42,7 +43,9 @@ class PaleoOnnxService : public QObject
     void inferenceFailed(const QString &model, const QString &error);
 
   private:
+    QString normalizedModelPath(const QString &name) const;
     QString m_modelRoot;
     QString m_loaded;
+    QString m_loadedPath;
     void *m_session = nullptr;                      // Ort::Session* opaque (header stays ORT-free)
 };

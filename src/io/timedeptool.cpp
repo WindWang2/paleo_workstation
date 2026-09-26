@@ -1,7 +1,11 @@
 #include "timedeptool.h"
 
+#include <cmath>
+
 namespace
 {
+  constexpr double kNullSentinel = -99999.0;
+
   // 取参与插值的 (key, time) 对：key=TVD 或 MD；-99999/缺列的行剔除。
   // 保持文件顺序——不排序（PROJECT_AREA_PLAN §3）。
   struct KtRow
@@ -14,7 +18,8 @@ namespace
     rows.reserve(td.rows.size());
     for (const TdRow &r : td.rows)
     {
-      if (useMd ? !r.hasMd : !r.hasTvd) // 缺列或 -99999 → 不进插值
+      if ((useMd ? !r.hasMd : !r.hasTvd) || !std::isfinite(r.timeMs) ||
+          r.timeMs <= kNullSentinel + 0.5) // 缺列、非有限值或 -99999 → 不进插值
         continue;
       rows.append({useMd ? r.md : r.tvd, r.timeMs});
     }

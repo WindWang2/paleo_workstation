@@ -52,7 +52,33 @@ PaleoOnnxService::~PaleoOnnxService()
 
 void PaleoOnnxService::setModelRoot( const QString &dir )
 {
-  m_modelRoot = dir;
+  QString nextRoot;
+  if ( !dir.trimmed().isEmpty() )
+  {
+    const QFileInfo rootInfo( dir );
+    const QString canonical = rootInfo.canonicalFilePath();
+    nextRoot = QDir::cleanPath( canonical.isEmpty() ? rootInfo.absoluteFilePath() : canonical );
+  }
+  if ( nextRoot == m_modelRoot )
+    return;
+
+  // A session belongs to one project's model directory. Drop it as soon as
+  // that directory changes, even when the next project has a same-named model.
+  delete static_cast<Ort::Session *>( m_session );
+  m_session = nullptr;
+  m_loaded.clear();
+  m_loadedPath.clear();
+  m_modelRoot = nextRoot;
+}
+
+QString PaleoOnnxService::normalizedModelPath( const QString &name ) const
+{
+  QString file = name;
+  if ( !file.endsWith( QLatin1String( ".onnx" ) ) )
+    file += QLatin1String( ".onnx" );
+  const QFileInfo modelInfo( QDir( m_modelRoot ).absoluteFilePath( file ) );
+  const QString canonical = modelInfo.canonicalFilePath();
+  return QDir::cleanPath( canonical.isEmpty() ? modelInfo.absoluteFilePath() : canonical );
 }
 
 QStringList PaleoOnnxService::availableModels() const
@@ -76,7 +102,7 @@ bool PaleoOnnxService::loadModel( const QString &name, QString *error )
   QString file = name;
   if ( !file.endsWith( QLatin1String( ".onnx" ) ) )
     file += QLatin1String( ".onnx" );
-  const QString path = QDir( m_modelRoot ).absoluteFilePath( file );
+  const QString path = normalizedModelPath( name );
   if ( !QFileInfo::exists( path ) )
   {
     if ( error )
@@ -95,6 +121,7 @@ bool PaleoOnnxService::loadModel( const QString &name, QString *error )
     delete static_cast<Ort::Session *>( m_session );
     m_session = session;
     m_loaded = QFileInfo( file ).completeBaseName();
+    m_loadedPath = path;
     emit modelLoaded( m_loaded );
     return true;
   }
@@ -114,6 +141,14 @@ bool PaleoOnnxService::loadModel( const QString &name, QString *error )
 QString PaleoOnnxService::loadedModel() const
 {
   return m_loaded;
+}
+
+bool PaleoOnnxService::isModelLoaded( const QString &name ) const
+{
+  if ( !m_session || m_loadedPath.isEmpty() )
+    return false;
+  const QString path = normalizedModelPath( name );
+  return QFileInfo::exists( path ) && path == m_loadedPath;
 }
 
 QVector<float> PaleoOnnxService::run( const QString &inputName, const QVector<float> &input,

@@ -730,14 +730,24 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
       const float tBase = gBase.px[idx];
       if ( isNodata( tTop, gTop ) || isNodata( tBase, gBase ) )
         continue;
+      if ( !std::isfinite( tTop ) || !std::isfinite( tBase ) )
+        continue;
       const double cx = gTop.gt[0] + ( c + 0.5 ) * gTop.gt[1];
       if ( !hullContains( hull, cx, cy ) )
         continue; // 凸包外 → -9999
       const double isochronMs = static_cast<double>( tBase ) - tTop;
+      if ( !( isochronMs > 0.0 ) || !std::isfinite( isochronMs ) )
+        continue; // 非正或非有限时差不是有效等厚样点 → nodata
       const double vint = idwPower2( contributing, cx, cy );
-      if ( qIsNaN( vint ) )
+      if ( !std::isfinite( vint ) )
         continue;
-      px[idx] = static_cast<float>( isochronMs / 2000.0 * vint );
+      const double thicknessM = isochronMs / 2000.0 * vint;
+      if ( !( thicknessM > 0.0 ) || !std::isfinite( thicknessM ) )
+        continue;
+      const float thicknessValue = static_cast<float>( thicknessM );
+      if ( !( thicknessValue > 0.0f ) || !std::isfinite( thicknessValue ) )
+        continue;
+      px[idx] = thicknessValue;
     }
   }
 

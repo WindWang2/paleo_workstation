@@ -45,9 +45,18 @@ switch ($Verb) {
     & (Join-Path $Build 'paleo_selfcheck.exe')
   }
   'clean-vendor' {
-    if (-not $Arg) { throw "clean-vendor needs a dep name (e.g. onnxruntime)" }
-    $target = Join-Path $Vendor $Arg
-    if (Test-Path $target) { Remove-Item -Recurse -Force $target; Write-Host "removed $target" }
+    if (-not $Arg) {
+      foreach ($TargetPath in @((Join-Path $Vendor 'build'), (Join-Path $Vendor 'prefix'), (Join-Path $Vendor 'onnxruntime'))) {
+        if (Test-Path $TargetPath) { Remove-Item -Recurse -Force $TargetPath }
+      }
+      Write-Host "vendor build tree cleared (archives kept)"
+    } else {
+      if ($Arg -notmatch '^[A-Za-z0-9._-]+$' -or $Arg -in @('.', '..')) {
+        throw "invalid vendor dependency name '$Arg'"
+      }
+      $target = if ($Arg -eq 'onnxruntime') { Join-Path $Vendor 'onnxruntime' } else { Join-Path $Vendor $Arg }
+      if (Test-Path $target) { Remove-Item -Recurse -Force $target; Write-Host "removed $target" }
+    }
   }
   default { throw "unknown verb '$Verb' — bootstrap|build|test|selfcheck|clean-vendor" }
 }

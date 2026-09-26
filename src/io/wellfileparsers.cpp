@@ -21,7 +21,7 @@ namespace
   {
     bool ok = false;
     const double v = token.toDouble(&ok);
-    if (!ok || v <= kNullSentinel + 0.5) // 命中 -99999（及更小的哨兵邻域）
+    if (!ok || !std::isfinite(v) || v <= kNullSentinel + 0.5) // 非有限值或命中 -99999 哨兵邻域
       return false;
     *out = v;
     return true;
@@ -144,7 +144,8 @@ TimeDepthTable parseTimeDepthText(const QByteArray &text)
     bool tOk = false, sOk = false;
     row.timeMs = t.at(0).toDouble(&tOk);
     row.tvdss = t.at(1).toDouble(&sOk);
-    if (!tOk || !sOk)
+    if (!tOk || !sOk || !std::isfinite(row.timeMs) || !std::isfinite(row.tvdss) ||
+        row.timeMs <= kNullSentinel + 0.5)
       continue;
     if (parseColumn(t.at(2), &row.tvd))
       row.hasTvd = true;

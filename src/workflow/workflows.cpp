@@ -403,7 +403,7 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
       return fail( tr( "no ONNX service bound; cannot run '%1'" ).arg( algorithmId ) );
     if ( model.isEmpty() )
       return fail( tr( "onnx algorithm id '%1' carries no model name" ).arg( algorithmId ) );
-    if ( onnx->loadedModel() != model && !onnx->loadModel( model, error ) )
+    if ( !onnx->isModelLoaded( model ) && !onnx->loadModel( model, error ) )
       return fail( ( error && !error->isEmpty() )
                        ? *error
                        : tr( "failed to load ONNX model '%1'" ).arg( model ) );

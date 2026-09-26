@@ -348,7 +348,9 @@ static bool externalShaMatches(const QString &absPath, const QString &expected,
   }
   const qint64 total = f.size();
   QCryptographicHash hash(QCryptographicHash::Sha256);
-  char buf[1 << 20];
+  // 64KB chunks: a 1MB stack buffer overflows the default Windows thread
+  // stack when the preview runs on the QTest main thread.
+  char buf[64 << 10];
   qint64 done = 0;
   int sinceReport = 0;
   for (;;)

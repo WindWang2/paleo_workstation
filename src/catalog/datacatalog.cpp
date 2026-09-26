@@ -671,7 +671,9 @@ QString DataCatalog::sha256FileHex(const QString &path, QString *error)
     return QString();
   }
   QCryptographicHash hash(QCryptographicHash::Sha256);
-  char buf[1 << 20];
+  // 64KB chunks: a 1MB stack buffer overflows the default Windows thread
+  // stack when this runs on the QTest main thread.
+  char buf[64 << 10];
   qint64 n = 0;
   while ((n = f.read(buf, sizeof(buf))) > 0)
     hash.addData(QByteArrayView(buf, static_cast<qsizetype>(n)));

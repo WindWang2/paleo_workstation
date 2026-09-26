@@ -102,7 +102,10 @@ switch ($Verb) {
   'test' {
     Enter-VendorEnvironment
     $env:QT_QPA_PLATFORM = 'offscreen'
-    ctest --test-dir $Build --output-on-failure
+    $logDir = Join-Path $Vendor 'logs'
+    New-Item -ItemType Directory -Force $logDir | Out-Null
+    ctest --test-dir $Build --output-on-failure 2>&1 |
+      Tee-Object -FilePath (Join-Path $logDir 'ctest.log')
     if ($LASTEXITCODE -ne 0) { throw 'CTest failed' }
   }
   'selfcheck' {

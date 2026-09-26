@@ -207,7 +207,9 @@ bool DataImportService::storeManagedRaw(const QString &sourcePath, const QString
     setError(error, QStringLiteral("cannot write %1").arg(partial));
     return false;
   }
-  char buf[1 << 20];
+  // 64KB chunks: a 1MB stack buffer overflows the default Windows thread
+  // stack when the import runs on the QTest main thread.
+  char buf[64 << 10];
   qint64 n = 0;
   while ((n = src.read(buf, sizeof(buf))) > 0)
   {

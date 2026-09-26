@@ -278,6 +278,19 @@ void PaleoMainWindow::buildShell()
   if (auto *inner = m_previewTabs->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs")))
     connect(inner, &QTabWidget::currentChanged, this,
             [this](int) { applyPreviewSplit(); });
+  // D7 最大化/还原：最大化前存用户分栏尺寸；还原恢复（无记录按 60% 预算）。
+  connect(m_previewTabs, &DataPreviewTabs::previewMaximizeToggled, this,
+          [this](bool on) {
+            m_previewMaximized = on;
+            if (on)
+              m_preMaxSplitSizes = m_centerSplit ? m_centerSplit->sizes() : QList<int>{};
+            else if (m_centerSplit && !m_preMaxSplitSizes.isEmpty())
+            {
+              m_centerSplit->setSizes(m_preMaxSplitSizes);
+              m_previewExpanded = true; // 已给过预算，不再触碰用户尺寸
+            }
+            applyPreviewSplit();
+          });
 
   // Startup-page actions: dialogs only exist when a real platform is present;
   // offscreen the buttons exist but stay inert (no modal QFileDialog).
@@ -534,7 +547,7 @@ void PaleoMainWindow::showPage(const QString &pageId)
 
 void PaleoMainWindow::applyPreviewSplit()
 {
-  if (!m_centerSplit || !m_previewTabs)
+  if (!m_centerSplit || !m_previewTabs || m_centerSplit->count() < 2)
     return;
   const int total = m_centerSplit->height();
   if (total <= 0 || !m_previewTabs->isVisible())
@@ -545,16 +558,30 @@ void PaleoMainWindow::applyPreviewSplit()
   const int tabs = inner ? inner->count() : m_previewTabs->tabCount();
   if (tabs > 0)
   {
-    // 有标签：首个标签出现时给 ≈ 三分之一；之后由用户拖分栏，不再触碰。
+    // D7 最大化态：地图只留 64px 壳，预览拿走其余；「还原预览」走
+    // previewMaximizeToggled(false) 恢复 m_preMaxSplitSizes。
+    if (m_previewMaximized)
+    {
+      const int mapFloor = qMin(64, qMax(1, total / 10));
+      m_centerSplit->setSizes({mapFloor, qMax(1, total - mapFloor)});
+      return;
+    }
+    // D7 高度预算：首个标签出现时给预览 ≥60%；之后由用户拖分栏，不再触碰。
     if (!m_previewExpanded)
     {
       m_previewExpanded = true;
-      m_centerSplit->setSizes({qMax(1, total * 2 / 3), qMax(1, total / 3)});
+      m_centerSplit->setSizes({qMax(1, total * 2 / 5), qMax(1, total * 3 / 5)});
     }
     return;
   }
 
   m_previewExpanded = false;
+  // 空态：最大化/保存的尺寸一并复位——角落钮随 tabs 隐藏，下次重开按预算走。
+  m_preMaxSplitSizes.clear();
+  m_previewMaximized = false;
+  if (auto *maxBtn =
+          m_previewTabs->findChild<QToolButton *>(QStringLiteral("previewMaxButton")))
+    maxBtn->setChecked(false);
   // 空态只留「预览为空」那行次级文字的高度（≈28px），不再给 1/3。
   const int hint = qMax(24, m_previewTabs->sizeHint().height());
   m_centerSplit->setSizes({qMax(0, total - hint), hint});

@@ -60,6 +60,9 @@ class DataPreviewTabs : public QWidget
     void wellSelected(const QString &wellEntityId);
     // horizon 标签「在地图上显示」按钮（§4）。
     void showHorizonOnMapRequested(const QString &layerId);
+    // D7：角落「最大化预览/还原预览」切换——分栏尺寸归 shell（PaleoMainWindow
+    // 持有 splitter），这里只报意图。
+    void previewMaximizeToggled(bool maximized);
 
   private:
     QWidget *buildContent(const QString &assetId, QWidget *page);

@@ -28,6 +28,7 @@
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QStandardItemModel>
+#include <QToolButton>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QUrl>
@@ -399,6 +400,20 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
     if (index >= 0)
       focusWellIfNeeded(assetIdAt(index), m_tabs->widget(index));
   });
+  // D7 最大化 affordance：右上角 checkable 钮，切换时只发意图信号——实际
+  // 分栏尺寸由 shell 决定。空态时 tabs 隐藏，按钮随之隐藏。
+  auto *maxBtn = new QToolButton(m_tabs);
+  maxBtn->setObjectName(QStringLiteral("previewMaxButton"));
+  maxBtn->setCheckable(true);
+  maxBtn->setText(tr("最大化预览"));
+  maxBtn->setAccessibleName(tr("最大化预览"));
+  maxBtn->setToolTip(tr("预览占满地图区"));
+  connect(maxBtn, &QToolButton::toggled, this, [this, maxBtn](bool on) {
+    maxBtn->setText(on ? tr("还原预览") : tr("最大化预览"));
+    maxBtn->setToolTip(on ? tr("恢复地图/预览分栏") : tr("预览占满地图区"));
+    emit previewMaximizeToggled(on);
+  });
+  m_tabs->setCornerWidget(maxBtn, Qt::TopRightCorner);
   lay->addWidget(m_tabs);
 
   m_emptyLabel = stateLabel(tr("还没有打开的预览 — 在列表中选择一条数据"), this);

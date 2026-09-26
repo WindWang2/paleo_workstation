@@ -14,6 +14,7 @@
 
 #include "../src/app/appcontext.h"
 #include "../src/ui/paleomainwindow.h"
+#include "../src/ui/datapreview/datapreviewtabs.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgiscanvascontroller.h"
@@ -303,6 +304,70 @@ class TestUiShell : public QObject
       auto *crs = m_win->findChild<QLabel *>(QStringLiteral("statusCrs"));
       QVERIFY(crs);
       QCOMPARE(crs->text(), QStringLiteral("工程坐标 · 米 · 未投影"));
+    }
+
+    // D7：预览高度预算——首个标签给 ≥60%；角落「最大化预览」把地图压到
+    // ≤64px 壳，「还原」回用户尺寸；空态（关全部标签）复位最大化与预算。
+    void previewSplitterBudgetAndMaximize()
+    {
+      // 自给自足：分栏尺寸断言要求窗口已布局（单跑本用例时前面的用例不会先 show）。
+      m_win->resize(1280, 860);
+      m_win->show();
+      // 无工程时 showPage 不离开启动页——布局断言需要工作区页为当前页。
+      if (auto *centerStack =
+              m_win->findChild<QStackedWidget *>(QStringLiteral("centerStack")))
+        centerStack->setCurrentIndex(1);
+      m_win->showPage(QStringLiteral("data"));
+      QTest::qWait(30);
+      auto *split = m_win->findChild<QSplitter *>(QStringLiteral("mapPreviewSplit"));
+      auto *preview = m_win->findChild<DataPreviewTabs *>(QStringLiteral("dataPreview"));
+      QVERIFY(split && preview);
+      auto *inner = preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+      auto *maxBtn = preview->findChild<QToolButton *>(QStringLiteral("previewMaxButton"));
+      QVERIFY(inner && maxBtn);
+      QVERIFY(maxBtn->isCheckable());
+      QCOMPARE(maxBtn->text(), QStringLiteral("最大化预览"));
+
+      // 画布可能被前面的用例借走——预览不是分栏第一格时尺寸才有意义；
+      // 缺上格就补个占位件（splitter 按位置分尺寸，与画布无关）。
+      if (split->indexOf(preview) == 0)
+        split->insertWidget(0, new QWidget);
+      QCOMPARE(split->indexOf(preview), 1);
+
+      // 测试壳未开工程（importSvc==nullptr → openAsset 不建页）；直接给
+      // 内层 tabWidget 加页——currentChanged 0→1 同样驱动 applyPreviewSplit。
+      inner->addTab(new QLabel(QStringLiteral("x")), QStringLiteral("t"));
+      QCOMPARE(inner->count(), 1);
+      QTest::qWait(20); // applyPreviewSplit 借 currentChanged 后事件链
+      const int total = split->sizes().at(0) + split->sizes().at(1);
+      QVERIFY2(total > 0, "split not laid out");
+      QVERIFY2(split->sizes().at(1) >= total * 3 / 5 - 2,
+               qPrintable(QStringLiteral("preview %1 of %2")
+                              .arg(split->sizes().at(1)).arg(total)));
+
+      // 最大化：预览 ≥80%（地图被压到自身最小高度壳——QgsMapCanvas
+      // minimumSizeHint≈70px 会比 64 预算略高），按钮文案翻面。
+      const int mapBudget = split->sizes().at(0);
+      maxBtn->setChecked(true);
+      QTest::qWait(20);
+      QVERIFY(split->sizes().at(1) >= total * 4 / 5 - 2);
+      QVERIFY(split->sizes().at(0) < mapBudget);
+      QVERIFY(split->sizes().at(0) <=
+              qMax(70, split->widget(0)->minimumSizeHint().height()));
+      QCOMPARE(maxBtn->text(), QStringLiteral("还原预览"));
+
+      // 还原：预览回到 ~60%（还原的是最大化前的预算尺寸）。
+      maxBtn->setChecked(false);
+      QTest::qWait(20);
+      QVERIFY(split->sizes().at(1) >= total * 3 / 5 - 2);
+      QVERIFY(split->sizes().at(0) > 64);
+
+      // 关掉最后一个标签 → 空态收成一行，最大化态复位。
+      inner->removeTab(0);
+      QTest::qWait(20);
+      QCOMPARE(inner->count(), 0);
+      QVERIFY(!maxBtn->isChecked());
+      QVERIFY(split->sizes().at(1) <= qMax(28, preview->sizeHint().height() + 8));
     }
 };
 

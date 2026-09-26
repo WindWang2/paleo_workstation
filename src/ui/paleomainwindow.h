@@ -146,7 +146,9 @@ class PaleoMainWindow : public QMainWindow
     QStackedWidget *m_centerStack = nullptr;   // page0=startup, page1=map+preview
     QSplitter *m_centerSplit = nullptr;        // 地图 / 预览 竖向分栏（§4）
     DataPreviewTabs *m_previewTabs = nullptr;  // 分栏下格——只在数据管理页可见
-    bool m_previewExpanded = false;            // 首个标签打开后已给过 1/3
+    bool m_previewExpanded = false;            // 首个标签打开后已给过 60%（D7 预算）
+    bool m_previewMaximized = false;           // D7：预览最大化态（地图留 64px）
+    QList<int> m_preMaxSplitSizes;             // 最大化前的分栏尺寸（还原用）
     QDockWidget *m_leftDock = nullptr;
     QDockWidget *m_rightDock = nullptr;
     QDockWidget *m_bottomDock = nullptr;

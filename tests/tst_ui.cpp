@@ -68,6 +68,26 @@ class TestUiShell : public QObject
       QVERIFY(m_win->minimumHeight() >= 800);
     }
 
+    // T32：全局焦点环进主窗样式表（2px #1B73D0）；工作流标签溢出走滚动
+    // 按钮；状态栏坐标/比例尺是 JetBrains Mono 9pt 数字面。
+    void focusRingScrollButtonsAndStatusMono()
+    {
+      QVERIFY2(m_win->styleSheet().contains(QStringLiteral("2px solid #1B73D0")),
+               "window stylesheet must carry the DESIGN.md focus ring");
+      QVERIFY(m_win->styleSheet().contains(QStringLiteral("QLineEdit:focus")));
+      QVERIFY(m_win->styleSheet().contains(QStringLiteral("QTableView:focus")));
+
+      auto *tabs = m_win->findChild<QTabBar *>(QStringLiteral("workflowTabs"));
+      QVERIFY(tabs && tabs->usesScrollButtons());
+
+      auto *coords = m_win->findChild<QLabel *>(QStringLiteral("statusCoords"));
+      auto *scale = m_win->findChild<QLabel *>(QStringLiteral("statusScale"));
+      QVERIFY(coords && scale);
+      QVERIFY(coords->font().families().contains(QStringLiteral("JetBrains Mono")));
+      QVERIFY(scale->font().families().contains(QStringLiteral("JetBrains Mono")));
+      QCOMPARE(coords->font().pointSize(), 9);
+    }
+
     // §42 workflow chain: 数据管理/①预测/②约束/③编图/④验证
     void workflowTabBarHasFiveTabs()
     {
@@ -165,6 +185,11 @@ class TestUiShell : public QObject
       QVERIFY(m_win->findChild<QWidget *>(QStringLiteral("paleoLocator")));
       QVERIFY(m_win->findChild<QToolButton *>(QStringLiteral("saveButton")));
       QVERIFY(m_win->findChild<QWidget *>(QStringLiteral("releasePanel")));
+      // T32 a11y：发布面板与发布列表报名。
+      auto *release = m_win->findChild<QWidget *>(QStringLiteral("releasePanel"));
+      QVERIFY(!release->accessibleName().isEmpty());
+      auto *releaseList = m_win->findChild<QWidget *>(QStringLiteral("releaseList"));
+      QVERIFY(releaseList && !releaseList->accessibleName().isEmpty());
 
       QStringList flat;
       const auto walk = [&flat](QMenu *menu, auto &&self) -> void {

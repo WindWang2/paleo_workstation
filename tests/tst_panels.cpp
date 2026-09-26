@@ -105,6 +105,10 @@ class TestPanels : public QObject
       {
         auto *btn = page.findChild<QPushButton *>(it.key());
         QVERIFY2(btn, qPrintable(it.key()));
+        // T32 a11y：每个导入入口都有 accessibleName + 非空描述。
+        QVERIFY2(!btn->accessibleName().isEmpty(),
+                 qPrintable(it.key() + QStringLiteral(" needs accessibleName")));
+        QVERIFY(!btn->accessibleDescription().isEmpty());
         spy.clear();
         btn->click();
         QCOMPARE(spy.count(), 1);
@@ -1050,6 +1054,9 @@ class TestPanels : public QObject
       auto *confirm =
           dlg.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"));
       QVERIFY(table && summary && confirm);
+      // T32 a11y：确认表报名。
+      QVERIFY(!table->accessibleName().isEmpty());
+      QVERIFY(!table->accessibleDescription().isEmpty());
       const int rBad = tableRowForPath(table, QStringLiteral("bad.dat"));
       const int rGood = tableRowForPath(table, QStringLiteral("good.dat"));
       const int rLock = tableRowForPath(table, QStringLiteral("locked.las"));

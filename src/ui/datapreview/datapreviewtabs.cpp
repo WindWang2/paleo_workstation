@@ -341,6 +341,7 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   m_tabs = new QTabWidget(this);
   m_tabs->setObjectName(QStringLiteral("dataPreviewTabs"));
   m_tabs->setTabsClosable(true);
+  m_tabs->setUsesScrollButtons(true); // T32：标签超宽滚动，不挤压
   m_tabs->setAccessibleName(tr("预览"));
   // dock 面板样式（DESIGN.md）：无工作流蓝下划线，安静边框。
   m_tabs->setStyleSheet(QStringLiteral(

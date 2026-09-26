@@ -124,16 +124,24 @@ DataPage::DataPage(QWidget *parent)
   auto *lay = panelLayout(this);
 
   lay->addWidget(caption(tr("数据导入"), this));
-  const struct { const char *name; const char *text; const char *kind; } kImports[] = {
-    {"importWells", QT_TR_NOOP("导入井数据"), "wells"},
-    {"importSeismic", QT_TR_NOOP("导入地震数据"), "seismic"},
-    {"importBoundary", QT_TR_NOOP("导入边界数据"), "boundary"},
-    {"importFolder", QT_TR_NOOP("导入工区文件夹"), "folder"},
+  const struct { const char *name; const char *text; const char *kind; const char *desc; }
+      kImports[] = {
+    {"importWells", QT_TR_NOOP("导入井数据"), "wells",
+     QT_TR_NOOP("选择单个井位/测井/分层文件入库")},
+    {"importSeismic", QT_TR_NOOP("导入地震数据"), "seismic",
+     QT_TR_NOOP("选择 SEG-Y 等地震数据文件入库")},
+    {"importBoundary", QT_TR_NOOP("导入边界数据"), "boundary",
+     QT_TR_NOOP("选择边界矢量文件入库")},
+    {"importFolder", QT_TR_NOOP("导入工区文件夹"), "folder",
+     QT_TR_NOOP("选择工区目录：确认每个文件的类型后整目录入库")},
   };
   for (const auto &spec : kImports)
   {
     auto *btn = new QPushButton(tr(spec.text), this);
     btn->setObjectName(QLatin1String(spec.name));
+    // T32 a11y：导入入口各自报名（屏幕阅读器不读图标猜测）。
+    btn->setAccessibleName(tr(spec.text));
+    btn->setAccessibleDescription(tr(spec.desc));
     connect(btn, &QPushButton::clicked, this,
             [this, kind = QLatin1String(spec.kind)] { emit importRequested(kind); });
     lay->addWidget(btn);

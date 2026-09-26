@@ -1,5 +1,7 @@
 #include "paleomainwindow.h"
 
+#include "paleotheme.h" // T32：焦点环/mono 数字面 token 出口
+
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgislayerservice.h"
@@ -253,6 +255,8 @@ void PaleoMainWindow::buildShell()
   m_workflowTabs->setObjectName(QStringLiteral("workflowTabs"));
   m_workflowTabs->setExpanding(false);
   m_workflowTabs->setDrawBase(false);
+  // T32 tab 溢出策略：超宽走滚动按钮（Qt 默认即此，显式钉住防样式/平台漂移）。
+  m_workflowTabs->setUsesScrollButtons(true);
   m_workflowTabs->setAccessibleName(QStringLiteral("工作流步骤"));
   for (int i = 0; i < kPageIds.size(); ++i)
   {
@@ -533,8 +537,10 @@ void PaleoMainWindow::buildShell()
     QgsMapCanvas *cv = m_canvasCtl->canvas();
     auto *coordLabel = new QLabel(this);
     coordLabel->setObjectName(QStringLiteral("statusCoords"));
+    coordLabel->setFont(PaleoTheme::monoFont()); // T32：坐标读数是数字面
     auto *scaleLabel = new QLabel(this);
     scaleLabel->setObjectName(QStringLiteral("statusScale"));
+    scaleLabel->setFont(PaleoTheme::monoFont()); // T32：比例尺读数是数字面
     connect(cv, &QgsMapCanvas::xyCoordinates, this,
             [coordLabel](const QgsPointXY &p) {
               coordLabel->setText(QStringLiteral("%1, %2").arg(p.x()).arg(p.y()));
@@ -562,13 +568,15 @@ void PaleoMainWindow::buildShell()
             [horizonLabel, horizonText](const QString &h) { horizonLabel->setText(horizonText(h)); });
 
   // DESIGN.md tokens on shell chrome only — no custom painting.
+  // T32：拼上全局 2px #1B73D0 键盘焦点环（替代 Fusion 虚线框）。
   setStyleSheet(QStringLiteral(
       "QMainWindow { background: #EDF1F5; }"
       "QTabBar#workflowTabs::tab { color: #5D6E80; padding: 8px 18px; }"
       "QTabBar#workflowTabs::tab:selected { color: #1B73D0; border-bottom: 2px solid #1B73D0; }"
       "QTabBar#workflowTabs::tab:hover { color: #24303E; background: #EDF1F5; }"
       "QDockWidget::title { background: #EDF1F5; color: #24303E; padding: 6px 10px; }"
-      "QStatusBar { background: #EDF1F5; color: #5D6E80; }"));
+      "QStatusBar { background: #EDF1F5; color: #5D6E80; }") +
+      PaleoTheme::focusRingStyleSheet());
 }
 
 void PaleoMainWindow::showPage(const QString &pageId)
@@ -850,6 +858,10 @@ void PaleoMainWindow::buildFolderConfirmDialog(
 
   auto *table = new QTableWidget(0, 4, dlg);
   table->setObjectName(QStringLiteral("folderTable"));
+  // T32 a11y：文件夹确认表报名 + 说明（每行可改类型、锁死行只读）。
+  table->setAccessibleName(tr("文件夹导入确认表"));
+  table->setAccessibleDescription(
+      tr("列出所选文件夹里的每个文件：确认或修改类型后导入，井口文件先入库"));
   table->setHorizontalHeaderLabels({tr("路径"), tr("类型"), tr("实体"), tr("结果")});
   table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
   table->horizontalHeader()->setStretchLastSection(true);

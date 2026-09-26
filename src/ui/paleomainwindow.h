@@ -166,6 +166,11 @@ class PaleoMainWindow : public QMainWindow
     QDockWidget *m_bottomDock = nullptr;
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
+    // attachWorkflows 幂等守卫：该函数每次执行都清栈重建右栏页面、给底栏/
+    // 状态栏加面板并往服务对象上叠信号连接，二次执行会重复建 dock/按钮并
+    // 遗留悬空引用（后续用例段错误）。测试套件会二次触达同一窗口——
+    // 入口早退，见 attachWorkflows 注释。
+    bool m_workflowsAttached = false;
     PaleoDecorationManager *m_decorMgr = nullptr; // D11 临时配准水印等画布装饰
     int m_provisionalLayers = 0;   // 已上图的临时配准图层数（>0 → 水印）
     QString m_currentPage;

@@ -1293,6 +1293,16 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                                       QgisEditingService *editSvc, QgisLayoutService *layoutSvc,
                                       PaleoTaskService *taskSvc)
 {
+  // 幂等守卫：本函数不是增量接线，而是整建——清空右栏页面栈重建、往
+  // bottomTabs/状态栏加面板（correlationPanel、releasePanel、任务/属性表、
+  // statusCatalogError…）、在 topBar 建按钮（processingButton、designerButton…）
+  // 并往 importSvc/preview/pages 上叠信号连接。同一窗口二次执行会重复建
+  // dock/按钮（各对象双份），且旧页面 deleteLater 后残留的信号捕获会悬空，
+  // 后续用例段错误。测试套件会二次触达同一窗口（tst_ui 单跑用例的补调
+  // 路径 + attachWorkflowsIsIdempotent 直证），因此首次完整接线后早退；
+  // rightPanelHost 缺席的早退不算完成，不置位。
+  if (m_workflowsAttached)
+    return;
   auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost"));
   auto *stack = host ? static_cast<QStackedLayout *>(host->layout()) : nullptr;
   if (!stack)
@@ -2006,6 +2016,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   // Re-sync visible page index with current tab.
   const int idx = kPageIds.indexOf(m_currentPage);
   stack->setCurrentIndex(idx >= 0 ? idx : 0);
+  m_workflowsAttached = true; // 走到末尾才算接线完成（幂等守卫置位）
 }
 
 // ---------------------------------------------------------------------------

@@ -94,9 +94,15 @@ class DataCatalog : public QObject
 
     // 工程角色词表（DATA_FABRIC_ADOPTION A 包）：open() 时读
     // <projectDir>/project_area.json 的 roles 节覆盖内置词表；缺文件/坏 JSON
-    // → defaults()，永不计入 open 失败。只查不管——角色准入与实体视图归
-    // 后续包，addLink 不查表。
+    // → defaults()，永不计入 open 失败。addLink/attachLink 收 role 时经
+    // isKnown 校验——诚实降级而非硬拦（词表是工程自定义的，project_area.json
+    // 可扩；硬拦会把合法自定义挡在旧二进制外），见 invalidRoleLinks()。
     const RoleRegistry &roleRegistry() const { return m_roles; }
+
+    // 词表违例链接集（诊断面）：addLink/attachLink 写入的「未知角色」与
+    // 「角色与实体类型不符」链接——扫描 note 诊断标记，随 catalog.json
+    // round-trip，重开后仍可查。词表内的链接不在其中。
+    QVector<EntityAssetLink> invalidRoleLinks() const;
 
     // 批量写作用域（audit row 37 / T33）：构造期间 mutator 只做校验+内存变更，
     // save() 被挂起；析构（或显式 flush）落一次盘、发一次 changed()。

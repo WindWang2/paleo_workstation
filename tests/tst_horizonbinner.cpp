@@ -126,7 +126,7 @@ void TestHorizonBinner::rejectsMalformedHeaders()
       "# P2:      100,      201,    10.00000,     0.00000\n"
       "0.0 0.0 111.0 100 200\n",
       &b, &err));
-  QVERIFY2(err.contains(QStringLiteral("P1-P3")), qPrintable(err));
+  QVERIFY2(err.contains(QStringLiteral("lacks P1/P2/P3")), qPrintable(err));
 
   // P 行字段非数值 → 拒绝。
   err.clear();
@@ -137,7 +137,7 @@ void TestHorizonBinner::rejectsMalformedHeaders()
       "# P3:      101,      201,    10.00000,    10.00000\n"
       "0.0 0.0 111.0 100 200\n",
       &b, &err));
-  QVERIFY2(err.contains(QStringLiteral("P1-P3")), qPrintable(err));
+  QVERIFY2(err.contains(QStringLiteral("invalid P2 geometry")), qPrintable(err));
 
   // 号域与 Grid_size 不自洽（3x3 但角点只跨 1）→ 拒绝。
   err.clear();
@@ -159,7 +159,7 @@ void TestHorizonBinner::rejectsMalformedHeaders()
       "# P3:      101,      201,    10.00000,    10.00000\n"
       "0.0 0.0 111.0 100 200\n",
       &b, &err));
-  QVERIFY2(err.contains(QStringLiteral("degenerate")), qPrintable(err));
+  QVERIFY2(err.contains(QStringLiteral("do not match Grid_size")), qPrintable(err));
 }
 
 void TestHorizonBinner::writesGeoTiffWithGeotransform()

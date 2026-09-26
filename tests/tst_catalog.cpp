@@ -333,6 +333,10 @@ void TestCatalog::unsafePathSegmentsRejected()
   DataCatalog cat;
   QVERIFY(cat.open(dir.path()));
   QString err;
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-1");
+  a.type = QStringLiteral("document");
+  QVERIFY(cat.addAsset(a));
   CatalogVersion v;
   v.id = QStringLiteral("ver-1");
   v.assetId = QStringLiteral("ast-1");
@@ -358,6 +362,10 @@ void TestCatalog::versionBySha256FindsStored()
   QVERIFY(dir.isValid());
   DataCatalog cat;
   QVERIFY(cat.open(dir.path()));
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-1");
+  a.type = QStringLiteral("document");
+  QVERIFY(cat.addAsset(a));
   CatalogVersion v;
   v.id = QStringLiteral("ver-1");
   v.assetId = QStringLiteral("ast-1");
@@ -535,6 +543,10 @@ void TestCatalog::duplicateVersionIdRejected()
   QVERIFY(dir.isValid());
   DataCatalog cat;
   QVERIFY(cat.open(dir.path()));
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-1");
+  a.type = QStringLiteral("document");
+  QVERIFY(cat.addAsset(a));
   CatalogVersion v;
   v.id = QStringLiteral("ver-1");
   v.assetId = QStringLiteral("ast-1");
@@ -574,7 +586,7 @@ void TestCatalog::refusesUnsupportedSchemaVersion()
   DataCatalog cat;
   QString err;
   QVERIFY(!cat.open(dir.path(), &err));
-  QVERIFY(err.contains(QStringLiteral("unsupported catalog version")));
+  QVERIFY(err.contains(QStringLiteral("unsupported catalog schema")));
   QVERIFY(cat.refusesWrites());
   QVERIFY(!cat.openError().isEmpty());
   // 拒绝写入态：mutator 全拒，坏 catalog 不会被空内容覆盖。

@@ -233,7 +233,10 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   if (pe.error != QJsonParseError::NoError || !doc.isObject())
     return fail(QStringLiteral("corrupt catalog %1: %2").arg(catalogPath(), pe.errorString()));
   const QJsonObject root = doc.object();
-  if (root.value(QStringLiteral("schema_version")).toInt(-1) != kSchemaVersion)
+  // T20b：缺键按当前版本处理（旧 catalog 照常打开）；显式写了且不等于
+  // kSchemaVersion（无论新旧）→ 如实拒绝，不读不写。
+  const QString schemaKey = QStringLiteral("schema_version");
+  if (root.contains(schemaKey) && root.value(schemaKey).toInt() != kSchemaVersion)
     return fail(QStringLiteral("unsupported catalog schema in %1").arg(catalogPath()));
   m_revision = root.value(QStringLiteral("catalog_revision")).toInt();
   for (const auto &v : root.value(QStringLiteral("entities")).toArray())
@@ -416,6 +419,13 @@ bool DataCatalog::addAsset(const CatalogAsset &a, QString *error)
   {
     setError(error, QStringLiteral("asset id is empty or duplicate: %1").arg(a.id));
     return false;
+  }
+  // T17 同型：显式给的 "ast-N" 也推进序号——否则 nextAssetId() 回发已用 id。
+  {
+    bool ok = false;
+    const int n = a.id.startsWith(QStringLiteral("ast-")) ? a.id.mid(4).toInt(&ok) : 0;
+    if (ok && n > 0)
+      m_assetSeq = qMax(m_assetSeq, n);
   }
   m_assets.append(a);
   if (save(error))

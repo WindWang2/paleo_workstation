@@ -202,6 +202,12 @@ add_paleo_test(tst_threeway)
 add_paleo_test(tst_chips)
 add_paleo_test(tst_versions)
 
+# ---- wave3/derived-publish (T26/D10/D15 + §40 速度模型与 CDP 映射) ----
+target_sources(paleo_core PRIVATE
+  src/workflow/derivedassets.cpp                  # 派生产物落 artifacts/derived + DERIVED 版本登记
+)
+add_paleo_test(tst_derivedassets)
+
 # ---- application ----
 add_executable(paleo src/app/main.cpp)
 target_link_libraries(paleo PRIVATE paleo_core)

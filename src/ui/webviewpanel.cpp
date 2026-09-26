@@ -7,8 +7,10 @@
 #include <QStackedLayout>
 #include <QVBoxLayout>
 
+#if PALEO_HAVE_WEBENGINE
 #include <QWebEnginePage>
 #include <QWebEngineView>
+#endif
 
 // DESIGN.md tokens: status/fallback text uses text-muted #5D6E80.
 static const char kMutedStyle[] = "color: #5D6E80;";
@@ -62,9 +64,11 @@ bool WebViewPanel::setUrl(const QUrl &url)
     return false;
   }
 
+#if PALEO_HAVE_WEBENGINE
   m_engine->setUrl(url);
   if (auto *stack = qobject_cast<QStackedLayout *>(layout()))
     stack->setCurrentWidget(m_engine);
+#endif
   return true;
 }
 
@@ -73,6 +77,13 @@ bool WebViewPanel::ensureEngine(QString *error)
   if (m_engine)
     return true;
 
+#if !PALEO_HAVE_WEBENGINE
+  // D14：构建期就没有 Qt WebEngine —— 走既有降级面（外部浏览器兜底），
+  // 不碰任何 QtWebEngine 类。首查先于平台检查：错因如实说构建形态。
+  if (error)
+    *error = tr("本构建未启用内嵌浏览器（缺少 Qt WebEngine 组件）");
+  return false;
+#else
   // Headless/offscreen (ctest, CI) cannot host a Chromium compositor — fail
   // deterministically before touching QtWebEngine classes.
   const QString platform = QGuiApplication::platformName();
@@ -101,6 +112,7 @@ bool WebViewPanel::ensureEngine(QString *error)
             emit loadFailed(reason);
           });
   return true;
+#endif // PALEO_HAVE_WEBENGINE
 }
 
 void WebViewPanel::showFallback(const QString &reason)

@@ -6,3 +6,4 @@ vendor/logs/
 vendor/ort.tgz
 *.o
 symbology-style.db
+build-nowebengine/

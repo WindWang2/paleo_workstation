@@ -1043,7 +1043,8 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                                       CompositionWorkflow *compose, ValidationWorkflow *validate,
                                       DataImportService *importSvc, SeismicMapLink *seismicLink,
                                       QgisProcessingService *procSvc, PaleoProjectStore *store,
-                                      QgisEditingService *editSvc, QgisLayoutService *layoutSvc)
+                                      QgisEditingService *editSvc, QgisLayoutService *layoutSvc,
+                                      PaleoTaskService *taskSvc)
 {
   auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost"));
   auto *stack = host ? static_cast<QStackedLayout *>(host->layout()) : nullptr;
@@ -1483,7 +1484,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     {
       const int idx = bottomTabs->indexOf(
           bottomTabs->findChild<QTextEdit *>(QStringLiteral("tasksPlaceholder")));
-      auto *taskPanel = new TaskPanel(store, bottomTabs);
+      auto *taskPanel = new TaskPanel(store, taskSvc, bottomTabs);
       if (idx >= 0)
       {
         QWidget *old = bottomTabs->widget(idx);

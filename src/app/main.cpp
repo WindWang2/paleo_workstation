@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
   window.attachWorkflows(ctx.predictionWf(), ctx.constraintWf(),
                          ctx.compositionWf(), ctx.validationWf(), ctx.importSvc(),
                          ctx.seismicLink(), ctx.processingSvc(), ctx.store(),
-                         ctx.editingSvc(), ctx.layoutSvc());
+                         ctx.editingSvc(), ctx.layoutSvc(), ctx.taskSvc());
   window.attachMapping(ctx.mappingWf(), ctx.versionCtl(), ctx.versionStore(),
                        ctx.projectData(),
                        ctx.importSvc() ? ctx.importSvc()->catalog() : nullptr);

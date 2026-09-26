@@ -9,6 +9,7 @@
 #include "../qgis/qgiseditingservice.h"
 #include "../qgis/qgisstyleservice.h"
 #include "../services/toolavailability.h"
+#include "../services/paleotaskservice.h"
 #include "../linkage/selectioncontext.h"
 #include "../linkage/seismicmaplink.h"
 #include "../linkage/wellmaplink.h"
@@ -89,6 +90,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   }
 
   m_store = new PaleoProjectStore(this);
+  m_taskSvc = new PaleoTaskService(m_store, this);
   m_projectSvc = new QgisProjectService(this);
 
   // Deferred binding: constructed un-opened on an empty path; rebound (same

@@ -198,6 +198,12 @@ target_sources(paleo_core PRIVATE
 )
 add_paleo_test(tst_projectdata)
 add_paleo_test(tst_mapping)
+
+# ---- wave2 async-ux (D1/D2 异步任务框架 + 任务页进度条) ----
+target_sources(paleo_core PRIVATE
+  src/services/paleotaskservice.cpp               # D1/D2 异步任务注册+池化执行+字节进度+10s ETA+协作取消
+)
+add_paleo_test(tst_taskservice)
 add_paleo_test(tst_threeway)
 add_paleo_test(tst_chips)
 add_paleo_test(tst_versions)

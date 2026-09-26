@@ -38,6 +38,7 @@ class QgisProcessingService;
 class QgisLayoutService;
 class QgisEditingService;
 class PaleoProjectStore;
+class PaleoTaskService;
 class QCloseEvent;
 
 // ui/ — PaleoMainWindow: the five-page workflow shell (§42).
@@ -77,7 +78,8 @@ class PaleoMainWindow : public QMainWindow
                          QgisProcessingService *procSvc = nullptr,
                          PaleoProjectStore *store = nullptr,
                          QgisEditingService *editSvc = nullptr,
-                         QgisLayoutService *layoutSvc = nullptr);
+                         QgisLayoutService *layoutSvc = nullptr,
+                         PaleoTaskService *taskSvc = nullptr);
 
     // wave/mapping-pipeline 阶段C+E：编图链 / 层位图导出 / 版本状态机接到
     // ③编图页。独立于 attachWorkflows，避免动其签名。Call after attachWorkflows.

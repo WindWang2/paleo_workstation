@@ -28,6 +28,7 @@ class ProjectDataFacade;
 class MappingWorkflow;
 class MapVersionStore;
 class MapVersionController;
+class PaleoTaskService;
 
 class AppContext : public QObject
 {
@@ -67,6 +68,10 @@ class AppContext : public QObject
     MapVersionStore *versionStore() const { return m_versionStore; }
     MapVersionController *versionCtl() const { return m_versionCtl; }
 
+    // pass-2 D1/D2：异步任务注册中心（QThreadPool 执行 + 字节进度 + 10s 窗口
+    // ETA + 协作取消），任务页轮询它渲染进度条；长 IO 经它上 worker。
+    PaleoTaskService *taskSvc() const { return m_taskSvc; }
+
   private:
     // §4 井位图层：catalog 井点 → artifacts/layers/wells.geojson → manifest
     // 声明「wells」→ 实例化 → 绑给 m_wellLink。工程打开与 catalog 每次
@@ -98,4 +103,5 @@ class AppContext : public QObject
     MappingWorkflow *m_mappingWf = nullptr;
     MapVersionStore *m_versionStore = nullptr;
     MapVersionController *m_versionCtl = nullptr;
+    PaleoTaskService *m_taskSvc = nullptr;
 };

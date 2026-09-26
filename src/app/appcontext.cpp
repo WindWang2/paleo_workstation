@@ -202,6 +202,18 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 
             m_styleSvc->setStylesRoot(fi.absoluteDir().filePath(QStringLiteral("styles")));
             m_import->setProjectDir(fi.absolutePath());
+
+            // T26（wave3/derived-publish）：四个写出派生产物的 workflow 绑上
+            // importSvc 持有的同一 catalog 实例（catalog.json 整文件重写，两
+            // 个实例交错写会互相覆盖）——厚度/预测/IDW/融合/相多边形从此落
+            // artifacts/derived/ 并登记 DERIVED 版本，不再有 /tmp 死链。
+            if (DataCatalog *derivedCatalog = m_import->catalog())
+            {
+              m_mappingWf->setCatalog(derivedCatalog, fi.absolutePath());
+              m_predictionWf->setCatalog(derivedCatalog, fi.absolutePath());
+              m_constraintWf->setCatalog(derivedCatalog, fi.absolutePath());
+              m_compositionWf->setCatalog(derivedCatalog, fi.absolutePath());
+            }
 #if PALEO_HAVE_ORT
             // onnx:* 模型按层位钉在 <工程目录>/models/*.onnx。
             if (m_onnxSvc)

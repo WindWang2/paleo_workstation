@@ -209,6 +209,8 @@ void TestSmokeRealdata::importsWholeWorkarea()
   facade.setCatalog(cat, projectDir); // 复用导入期已开的 catalog（不接管）
   facade.setManifest(&manifest);
   mapping.setProjectData(&facade);
+  // T26：厚度链产物落 <projectDir>/artifacts/derived + DERIVED 版本登记。
+  mapping.setCatalog(cat, projectDir);
 
   // 门面读侧：20 口井，A1 的分层含 D61/D62，D61 栅格几何可解析。
   QCOMPARE(facade.wells().size(), 20);
@@ -264,6 +266,9 @@ void TestSmokeRealdata::importsWholeWorkarea()
         QCOMPARE(d.type, QStringLiteral("raster"));
         QCOMPARE(d.title, QStringLiteral("D61–D62 等厚（米）"));
         QVERIFY(QFile::exists(d.source));
+        // T26：产物在工程受管目录（不是系统临时目录）。
+        QVERIFY2(d.source.contains("/artifacts/derived/"),
+                 qPrintable(d.source));
         sawThick = true;
 
         // 网格必须就是 D61 网格（641×411，不扩界）。
@@ -282,6 +287,9 @@ void TestSmokeRealdata::importsWholeWorkarea()
                              &v, 1, 1, GDT_Float32, 0, 0) == CE_None);
         qWarning("SMOKE thickness at A1 pixel(%d,%d) = %f m", px, py, v);
         QVERIFY2(v > 0.0 && v < 500.0, "A1 处等厚应为正值米数");
+        // 基线钉住：历史基线 36.22m（autoplan 验收口径），劣化即红。
+        QVERIFY2(qAbs(double(v) - 36.22) < 1.0,
+                 qPrintable(QString("A1 thickness drifted from 36.22m: %1").arg(v)));
         GDALClose(ds);
       }
       if (d.layerId == QLatin1String("facies.D61"))

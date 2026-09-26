@@ -10,6 +10,7 @@
 #include "../qgis/qgisstyleservice.h"
 #include "../services/toolavailability.h"
 #include "../services/paleotaskservice.h"
+#include "../services/crashreport.h" // wave4：projectOpened → 报告头工程路径
 #include "../linkage/selectioncontext.h"
 #include "../linkage/seismicmaplink.h"
 #include "../linkage/wellmaplink.h"
@@ -211,6 +212,9 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 
             m_styleSvc->setStylesRoot(fi.absoluteDir().filePath(QStringLiteral("styles")));
             m_import->setProjectDir(fi.absolutePath());
+            // wave4/崩溃报告：报告头的「当前工程路径」随工程打开更新（落点
+            // 不变——AppData 下，脏退出检测要求先于工程存在）。
+            CrashReport::setProjectContext(fi.absolutePath());
 
             // T26（wave3/derived-publish）：四个写出派生产物的 workflow 绑上
             // importSvc 持有的同一 catalog 实例（catalog.json 整文件重写，两

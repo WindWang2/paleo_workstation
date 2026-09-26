@@ -21,10 +21,12 @@ class QgisEditingService;
 //
 // Shape (per DESIGN.md): a plain QWidget hosting one QToolBar + a layer
 // combo + an edit-state label. NOT a dock, NOT modal — a floating tool
-// window the shell can reparent. Chrome stays native QToolBar/QToolButton
-// with text actions (repo has no icon assets); 4px button spacing (spacing
-// xs), Noto Sans SC via the app font, no second signature element. Disabled
-// actions carry a reason tooltip (§35 discipline).
+// window the shell can reparent. Chrome stays native QToolBar/QToolButton,
+// icon-over-text (ribbon-button spec); icons come from the vendored QGIS
+// default theme via PaleoIcons::qgisTheme (qrc-resolved, no repo assets),
+// falling back to text when a name resolves empty. 4px button spacing
+// (spacing xs), Noto Sans SC via the app font, no second signature element.
+// Disabled actions carry a reason tooltip (§35 discipline).
 //
 // Layer list: host-driven — setLayers() feeds candidates (or
 // refreshFromProject() pulls every project vector layer). Only layers

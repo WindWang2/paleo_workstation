@@ -30,6 +30,7 @@
 #include <qgsvectorlayer.h>
 
 #include "../../qgis/qgiseditingservice.h"
+#include "../paleoicons.h"
 #include "editingtools.h"
 #include "vertexeditortools.h"
 
@@ -333,8 +334,10 @@ bool PaleoEditingToolbar::isEditing() const
 void PaleoEditingToolbar::buildUi()
 {
   mToolBar = new QToolBar( this );
-  // No icon assets exist yet (header contract) — text-only native buttons.
-  mToolBar->setToolButtonStyle( Qt::ToolButtonTextOnly );
+  // DESIGN.md ribbon-button：icon-over-text。图标 = vendor QGIS default
+  // 主题 svg（qrc 解析，安装路径无关）；QGIS 缺的语义走 PaleoIcons 自绘。
+  mToolBar->setToolButtonStyle( Qt::ToolButtonTextUnderIcon );
+  mToolBar->setIconSize( QSize( 18, 18 ) ); // 9pt 正文的密度比，非 QGIS 24px
   if ( QLayout *toolLayout = mToolBar->layout() )
     toolLayout->setSpacing( 4 ); // spacing xs (DESIGN.md toolbar button gap)
 
@@ -342,66 +345,78 @@ void PaleoEditingToolbar::buildUi()
   mLayerCombo->setPlaceholderText( tr( "选择可编辑图层" ) );
   mStateLabel = new QLabel( this );
 
-  auto newToolAction = [this]( const QString &text, const QString &hint ) -> QAction * {
-    QAction *a = new QAction( text, this );
+  auto newToolAction = [this]( const QString &text, const QString &hint,
+                               const QString &iconName ) -> QAction * {
+    QAction *a = new QAction( PaleoIcons::qgisTheme( iconName ), text, this );
     a->setProperty( "hint", hint ); // restored on re-enable (§35 tooltip cycling)
     a->setToolTip( hint );
     a->setCheckable( true );
     mToolBar->addAction( a );
     return a;
   };
-  auto newPlainAction = [this]( const QString &text, const QString &hint ) -> QAction * {
-    QAction *a = new QAction( text, this );
+  auto newPlainAction = [this]( const QString &text, const QString &hint,
+                                const QString &iconName ) -> QAction * {
+    QAction *a = new QAction( PaleoIcons::qgisTheme( iconName ), text, this );
     a->setProperty( "hint", hint );
     a->setToolTip( hint );
     mToolBar->addAction( a );
     return a;
   };
 
-  mActionSelect = newToolAction( tr( "选择" ), tr( "框选要素（Shift 追加 / Ctrl 去除）" ) );
+  mActionSelect = newToolAction( tr( "选择" ), tr( "框选要素（Shift 追加 / Ctrl 去除）" ),
+                                 QStringLiteral( "mActionSelectRectangle.svg" ) );
 
   // Add-feature entry: one native QToolButton with a menu of the three capture
   // modes (点/线/面). The children are the checkable group members; the parent
   // action only hosts the affordance — InstantPopup keeps the semantics plain.
-  mActionAddFeature = new QAction( tr( "添加" ), this );
+  mActionAddFeature = new QAction( PaleoIcons::qgisTheme( QStringLiteral( "mActionAdd.svg" ) ),
+                                   tr( "添加" ), this );
   const QString addHint = tr( "添加要素：点 / 线 / 面" );
   mActionAddFeature->setProperty( "hint", addHint );
   mActionAddFeature->setToolTip( addHint );
   QMenu *addMenu = new QMenu( mToolBar );
-  mActionAddPoint = new QAction( tr( "添加点" ), this );
-  mActionAddPoint->setProperty( "hint", tr( "在当前图层添加点要素" ) );
-  mActionAddPoint->setToolTip( mActionAddPoint->property( "hint" ).toString() );
-  mActionAddPoint->setCheckable( true );
-  addMenu->addAction( mActionAddPoint );
-  mActionAddLine = new QAction( tr( "添加线" ), this );
-  mActionAddLine->setProperty( "hint", tr( "在当前图层添加线要素" ) );
-  mActionAddLine->setToolTip( mActionAddLine->property( "hint" ).toString() );
-  mActionAddLine->setCheckable( true );
-  addMenu->addAction( mActionAddLine );
-  mActionAddPolygon = new QAction( tr( "添加面" ), this );
-  mActionAddPolygon->setProperty( "hint", tr( "在当前图层添加面要素" ) );
-  mActionAddPolygon->setToolTip( mActionAddPolygon->property( "hint" ).toString() );
-  mActionAddPolygon->setCheckable( true );
-  addMenu->addAction( mActionAddPolygon );
+  auto newCaptureAction = [this, addMenu]( const QString &text, const QString &hint,
+                                         const QString &iconName ) -> QAction * {
+    QAction *a = new QAction( PaleoIcons::qgisTheme( iconName ), text, this );
+    a->setProperty( "hint", hint );
+    a->setToolTip( hint );
+    a->setCheckable( true );
+    addMenu->addAction( a );
+    return a;
+  };
+  mActionAddPoint = newCaptureAction( tr( "添加点" ), tr( "在当前图层添加点要素" ),
+                                      QStringLiteral( "mActionCapturePoint.svg" ) );
+  mActionAddLine = newCaptureAction( tr( "添加线" ), tr( "在当前图层添加线要素" ),
+                                     QStringLiteral( "mActionCaptureLine.svg" ) );
+  mActionAddPolygon = newCaptureAction( tr( "添加面" ), tr( "在当前图层添加面要素" ),
+                                        QStringLiteral( "mActionCapturePolygon.svg" ) );
   QToolButton *addButton = new QToolButton( mToolBar );
   addButton->setDefaultAction( mActionAddFeature );
   addButton->setMenu( addMenu );
   addButton->setPopupMode( QToolButton::InstantPopup );
-  addButton->setToolButtonStyle( Qt::ToolButtonTextOnly );
+  addButton->setToolButtonStyle( Qt::ToolButtonTextUnderIcon );
   mToolBar->addWidget( addButton );
 
-  mActionReshape = newToolAction( tr( "整形" ), tr( "沿画线重构所选要素的几何" ) );
-  mActionMove = newToolAction( tr( "移动" ), tr( "拖动移动所选要素" ) );
-  mActionDeleteFeatures = newToolAction( tr( "删除" ), tr( "删除所选要素" ) );
-  mActionVertexEdit = newToolAction( tr( "节点" ), tr( "编辑所选要素的节点" ) );
+  mActionReshape = newToolAction( tr( "整形" ), tr( "沿画线重构所选要素的几何" ),
+                                  QStringLiteral( "mActionReshape.svg" ) );
+  mActionMove = newToolAction( tr( "移动" ), tr( "拖动移动所选要素" ),
+                               QStringLiteral( "mActionMoveFeature.svg" ) );
+  mActionDeleteFeatures = newToolAction( tr( "删除" ), tr( "删除所选要素" ),
+                                         QStringLiteral( "mActionDeleteSelected.svg" ) );
+  mActionVertexEdit = newToolAction( tr( "节点" ), tr( "编辑所选要素的节点" ),
+                                     QStringLiteral( "mActionVertexTool.svg" ) );
 
   mToolBar->addSeparator();
-  mActionSave = newPlainAction( tr( "保存" ), tr( "提交当前图层的编辑" ) );
-  mActionCancel = newPlainAction( tr( "取消" ), tr( "放弃当前图层的编辑" ) );
+  mActionSave = newPlainAction( tr( "保存" ), tr( "提交当前图层的编辑" ),
+                                QStringLiteral( "mActionSaveEdits.svg" ) );
+  mActionCancel = newPlainAction( tr( "取消" ), tr( "放弃当前图层的编辑" ),
+                                  QStringLiteral( "mActionCancelEdits.svg" ) );
 
   mToolBar->addSeparator();
-  mActionUndo = newPlainAction( tr( "撤销" ), tr( "撤销上一步编辑" ) );
-  mActionRedo = newPlainAction( tr( "重做" ), tr( "重做被撤销的编辑" ) );
+  mActionUndo = newPlainAction( tr( "撤销" ), tr( "撤销上一步编辑" ),
+                                QStringLiteral( "mActionUndo.svg" ) );
+  mActionRedo = newPlainAction( tr( "重做" ), tr( "重做被撤销的编辑" ),
+                                QStringLiteral( "mActionRedo.svg" ) );
 
   // Exclusive checkable group: select + the capture modes + the edit tools.
   QActionGroup *toolGroup = new QActionGroup( this );

@@ -96,3 +96,36 @@ ProjectClassification classifyProjectImport(const QString &path, const QByteArra
   }
   return classifyProjectPath(path);
 }
+
+QStringList projectClassifierTypes()
+{
+  // 与 classifyProjectPath/classifyProjectImport 的输出对齐（确认表词表）；
+  // "reference" 是确认表伪类型，其余全部可由分类器产出。
+  return {QStringLiteral("well_head"),        QStringLiteral("well_log"),
+          QStringLiteral("well_stratification"), QStringLiteral("time_depth"),
+          QStringLiteral("horizon"),          QStringLiteral("seismic"),
+          QStringLiteral("tabular"),          QStringLiteral("geojson"),
+          QStringLiteral("document"),         QStringLiteral("image_reference"),
+          QStringLiteral("reference"),        QStringLiteral("unknown")};
+}
+
+bool isClassifierType(const QString &type)
+{
+  return projectClassifierTypes().contains(type);
+}
+
+bool isFixedAuxiliaryPath(const QString &path)
+{
+  // T22：只锁 HZ28-6-1 命名文件；「参考资料」整目录锁定已拆成
+  // isDefaultReferencePath（默认显示「参考」，可改）。
+  return QFileInfo(path).completeBaseName().contains(QStringLiteral("HZ28-6-1"));
+}
+
+bool isDefaultReferencePath(const QString &path)
+{
+  const QStringList parts = QFileInfo(path).absolutePath().split(QLatin1Char('/'));
+  for (const QString &p : parts)
+    if (p == QString::fromUtf8("参考资料"))
+      return true;
+  return false;
+}

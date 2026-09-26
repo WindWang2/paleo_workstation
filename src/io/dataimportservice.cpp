@@ -51,16 +51,9 @@ namespace
     return kBoundaries.contains(stem.toUpper());
   }
 
-  // 阶段 D 固定规则：参考资料目录 / HZ28-6-1 命名的 XML 一律作辅助参考，
-  // 不按内容挂井、不并进 A1–A20。
-  bool isFixedAuxiliaryPath(const QString &path)
-  {
-    const QStringList parts = QFileInfo(path).absolutePath().split(QLatin1Char('/'));
-    for (const QString &p : parts)
-      if (p == QString::fromUtf8("参考资料"))
-        return true;
-    return QFileInfo(path).completeBaseName().contains(QStringLiteral("HZ28-6-1"));
-  }
+  // 阶段 D 固定辅助规则：isFixedAuxiliaryPath（HZ28-6-1 命名文件）在
+  // projectclassifier.cpp——T22 起只锁这一个文件；「参考资料」目录段的
+  // 默认「参考」展示归确认表（isDefaultReferencePath），改动成 override。
 
   QString readFileOrEmpty(const QString &path)
   {
@@ -367,7 +360,8 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
   // ---- 实体解析与关联（角色沿用已有名字）----
   const QString auxRefRole = QStringLiteral("reference");
   QString manifestLayerId;
-  // 阶段 D：参考资料目录 / HZ28-6-1 命名的井类内容 XML 仍固定作辅助参考。
+  // 阶段 D：HZ28-6-1 命名的井类内容 XML 固定作辅助参考——override 也不理
+  // （T22 收窄：「参考资料」目录内其他文件的默认「参考」由确认表给，可改）。
   const bool fixedAux = isFixedAuxiliaryPath(sourcePath) &&
                         (cls.type == QLatin1String("well_head") ||
                          cls.type == QLatin1String("well_log"));
@@ -721,8 +715,7 @@ namespace
   struct FolderCand
   {
     QString path;
-    QString classifiedType;
-    bool wellHeadPhase = false;
+    QString classifiedType; // 分类器原类型（覆盖前的）；阶段归属看生效类型
   };
 
   void appendFolderSkip( QVector<DataImportService::FolderRowResult> *skipped,
@@ -734,6 +727,15 @@ namespace
     row.outcome = DataImportService::FolderRowResult::Outcome::Skipped;
     row.message = msg;
     skipped->append( row );
+  }
+
+  // 行的生效类型：覆盖表里有合法类型用覆盖，否则用分类器结果。
+  // 非法 override（不在分类器词表里的字符串）忽略——不落进资产类型。
+  QString effectiveFolderType(const FolderCand &c,
+                              const QMap<QString, QString> &overrides)
+  {
+    const QString o = overrides.value(c.path);
+    return isClassifierType(o) ? o : c.classifiedType;
   }
 
   // 与 importFolder/previewFolder 共用的枚举：校验目录、守卫工程子树、
@@ -810,9 +812,6 @@ namespace
       FolderCand c;
       c.path = path;
       c.classifiedType = cls.type;
-      // §3：参考资料目录 / HZ28-6-1 XML 固定辅助参考——不进井口阶段。
-      c.wellHeadPhase =
-          cls.type == QLatin1String( "well_head" ) && !isFixedAuxiliaryPath( path );
       candidates->append( c );
     }
 
@@ -827,15 +826,23 @@ namespace
   // 与 importFolder 相同的行序：阶段 1 全部 well_head（井建齐）、阶段 2 其余，
   // 各阶段内按路径排序——previewFolder 与 importFolder 必须用同一序，确认表
   // 才能按行索引对齐预览行与结果行。
-  QVector<FolderCand> orderFolderCandidates( const QVector<FolderCand> &candidates )
+  // D5：阶段划分按「生效类型」（覆盖后）——用户在确认表把一行改成
+  // well_head，它就回阶段 1，井建得够早，排前的阶段 2 行仍能挂上。
+  QVector<FolderCand> orderFolderCandidates( const QVector<FolderCand> &candidates,
+                                             const QMap<QString, QString> &overrides = {} )
   {
     QVector<FolderCand> ordered;
     for ( int phase = 0; phase < 2; ++phase )
     {
       QVector<FolderCand> bucket;
       for ( const FolderCand &c : candidates )
-        if ( ( phase == 0 ) == c.wellHeadPhase )
+      {
+        const bool phase0 = effectiveFolderType(c, overrides) ==
+                                QLatin1String("well_head") &&
+                            !isFixedAuxiliaryPath(c.path);
+        if ( ( phase == 0 ) == phase0 )
           bucket.append( c );
+      }
       std::sort( bucket.begin(), bucket.end(),
                  []( const FolderCand &a, const FolderCand &b ) { return a.path < b.path; } );
       ordered += bucket;
@@ -907,58 +914,12 @@ DataImportService::importFolder(const QString &dirPath, QString *error,
     return rows;
 
   // 阶段 1：全部 well_head（井建齐）；阶段 2：其余文件对已齐的井集解析。
-  const QVector<FolderCand> ordered = orderFolderCandidates(candidates);
+  // D5：阶段归属按生效类型（覆盖后）算——改成 well_head 的行回阶段 1。
+  const QVector<FolderCand> ordered = orderFolderCandidates(candidates, typeOverrides);
 
   for (const FolderCand &c : ordered)
-  {
-    FolderRowResult row;
-    row.path = c.path;
-    row.classifiedType = typeOverrides.value(c.path, c.classifiedType);
-    ImportOptions opts;
-    opts.forceType = typeOverrides.value(c.path);
-    QString ferr;
-    const ImportResult res = importProjectFileEx(c.path, opts, &ferr);
-    row.message = res.message.isEmpty() ? ferr : res.message;
-    if (res.outcome == ImportOutcome::Failed || res.assetId.isEmpty())
-    {
-      row.outcome = FolderRowResult::Outcome::Failed;
-      if (row.message.isEmpty())
-        row.message = QStringLiteral("导入失败");
-      rows.append(row);
-      continue;
-    }
-
-    // 确认表口径（autoplan-dx）：未决=资产已存但实体 id 全空（没有任何已决
-    // 关联——被同批新主关联降级的旧关联实体 id 仍非空，不算未决）；入库=写
-    // 成了主关联；dedup 命中也记 Imported（message 已是「字节已在库」）。
-    QStringList names;
-    QStringList notes;
-    int resolved = 0;
-    for (const EntityAssetLink &l : m_catalog->linksForAsset(res.assetId))
-    {
-      if (l.unresolved)
-      {
-        if (!l.note.isEmpty() && !notes.contains(l.note))
-          notes.append(l.note);
-        continue;
-      }
-      ++resolved;
-      const CatalogEntity e = m_catalog->entityById(l.entityId);
-      const QString n = e.name.isEmpty() ? l.entityId : e.name;
-      if (!n.isEmpty() && !names.contains(n))
-        names.append(n);
-    }
-    row.entityName = names.join(QStringLiteral(", "));
-    row.outcome = res.outcome == ImportOutcome::Imported && resolved == 0
-                      ? FolderRowResult::Outcome::Unresolved
-                      : FolderRowResult::Outcome::Imported;
-    if (!notes.isEmpty())
-      row.message = row.message.isEmpty()
-                        ? notes.join(QStringLiteral("；"))
-                        : row.message + QStringLiteral("；") +
-                              notes.join(QStringLiteral("；"));
-    rows.append(row);
-  }
+    rows.append(folderRowFor(c.path, c.classifiedType,
+                             effectiveFolderType(c, typeOverrides)));
 
   std::sort(skipped.begin(), skipped.end(),
             [](const FolderRowResult &a, const FolderRowResult &b) {
@@ -966,6 +927,82 @@ DataImportService::importFolder(const QString &dirPath, QString *error,
             });
   rows += skipped;
   return rows;
+}
+
+// ---------------------------------------------------------------------------
+// T22：单行导入 → 确认表行结果（importFolder 每行与「重试」共用同一口径）。
+// FolderRowResult::classifiedType 记生效类型（覆盖后），与确认表显示一致。
+// ---------------------------------------------------------------------------
+DataImportService::FolderRowResult
+DataImportService::folderRowFor(const QString &path, const QString &classifiedType,
+                                const QString &effectiveType)
+{
+  FolderRowResult row;
+  row.path = path;
+  row.classifiedType = effectiveType;
+  ImportOptions opts;
+  if (effectiveType != classifiedType)
+    opts.forceType = effectiveType; // 只在生效类型不同于分类器结果时下传
+  QString ferr;
+  const ImportResult res = importProjectFileEx(path, opts, &ferr);
+  row.message = res.message.isEmpty() ? ferr : res.message;
+  if (res.outcome == ImportOutcome::Failed || res.assetId.isEmpty())
+  {
+    row.outcome = FolderRowResult::Outcome::Failed;
+    if (row.message.isEmpty())
+      row.message = QStringLiteral("导入失败");
+    return row;
+  }
+
+  // 确认表口径（autoplan-dx）：未决=资产已存但实体 id 全空（没有任何已决
+  // 关联——被同批新主关联降级的旧关联实体 id 仍非空，不算未决）；入库=写
+  // 成了主关联；dedup 命中也记 Imported（message 已是「字节已在库」）。
+  QStringList names;
+  QStringList notes;
+  int resolved = 0;
+  for (const EntityAssetLink &l : m_catalog->linksForAsset(res.assetId))
+  {
+    if (l.unresolved)
+    {
+      if (!l.note.isEmpty() && !notes.contains(l.note))
+        notes.append(l.note);
+      continue;
+    }
+    ++resolved;
+    const CatalogEntity e = m_catalog->entityById(l.entityId);
+    const QString n = e.name.isEmpty() ? l.entityId : e.name;
+    if (!n.isEmpty() && !names.contains(n))
+      names.append(n);
+  }
+  row.entityName = names.join(QStringLiteral(", "));
+  row.outcome = res.outcome == ImportOutcome::Imported && resolved == 0
+                    ? FolderRowResult::Outcome::Unresolved
+                    : FolderRowResult::Outcome::Imported;
+  if (!notes.isEmpty())
+    row.message = row.message.isEmpty()
+                      ? notes.join(QStringLiteral("；"))
+                      : row.message + QStringLiteral("；") +
+                            notes.join(QStringLiteral("；"));
+  return row;
+}
+
+DataImportService::FolderRowResult
+DataImportService::importFolderRow(const QString &sourcePath, const QString &forceType,
+                                   QString *error)
+{
+  if (error)
+    error->clear();
+  // 与 collectFolderCandidates 同一分类口径：.xml 要看内容判定。
+  const QByteArray xml =
+      QFileInfo(sourcePath).suffix().compare(QLatin1String("xml"), Qt::CaseInsensitive) == 0
+          ? readFileOrEmpty(sourcePath).toUtf8()
+          : QByteArray();
+  const QString classified = classifyProjectImport(sourcePath, xml).type;
+  const QString eff = isClassifierType(forceType) ? forceType : classified;
+  const FolderRowResult row = folderRowFor(sourcePath, classified, eff);
+  if (row.outcome == FolderRowResult::Outcome::Failed)
+    setError(error, row.message); // 成功路径不写 error（同 importFolder）
+  return row;
 }
 
 // ---------------------------------------------------------------------------

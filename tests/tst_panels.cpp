@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QApplication>
 #include <QComboBox>
+#include <QDialog>
 #include <QDoubleSpinBox>
 #include <QLabel>
 #include <QLineEdit>
@@ -11,10 +12,13 @@
 #include <QTemporaryDir>
 
 #include "../src/ui/pages/pagepanels.h"
+#include "../src/ui/paleomainwindow.h"
 #include "../src/workflow/workflows.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/metadata/layermanifest.h"
+#include "../src/metadata/paleoprojectstore.h"
 #include "../src/io/dataimportservice.h"
+#include "../src/io/projectclassifier.h"
 #include "../src/catalog/datacatalog.h"
 
 // §42.2 right-dock page panels. Panels emit intents only (§25: no Qgs* in
@@ -50,6 +54,39 @@ class TestPanels : public QObject
         d.group = QStringLiteral("02_Constraints");
         QVERIFY2(m->upsert(d), qPrintable(d.layerId));
       }
+    }
+
+    // T22 文件夹确认表测试栈：layer/store 只需非空（m_store 仅判空，
+    // m_layers 仅层位分支用），不需要 QgisRuntime。
+    struct FolderStack
+    {
+      LayerManifest manifest;
+      QgisLayerService layers;
+      PaleoProjectStore store;
+      DataImportService svc;
+      FolderStack(const QString &manifestPath, const QString &projectDir)
+        : manifest(manifestPath), layers(nullptr, &manifest), svc(&layers, &store)
+      {
+        manifest.open();
+        svc.setProjectDir(projectDir);
+      }
+    };
+
+    static bool writeFile(const QString &path, const QByteArray &content)
+    {
+      QFile f(path);
+      if (!f.open(QIODevice::WriteOnly))
+        return false;
+      f.write(content);
+      return true;
+    }
+
+    static int tableRowForPath(const QTableWidget *t, const QString &suffix)
+    {
+      for (int r = 0; r < t->rowCount(); ++r)
+        if (t->item(r, 0)->data(Qt::UserRole).toString().endsWith(suffix))
+          return r;
+      return -1;
     }
 
   private slots:
@@ -604,6 +641,286 @@ class TestPanels : public QObject
       QSignalSpy sectionSpy(&page, &ValidatePage::seismicSectionRequested);
       openSection->click();
       QCOMPARE(sectionSpy.count(), 0);
+    }
+
+    // ---- T22 文件夹导入确认表（PaleoMainWindow 静态面）----
+    // 只调静态助手，不实例化主窗——栈上只要一个非空的 layer/store 就能让
+    // DataImportService 真实走导入（LayerManifest 指临时 sqlite）。
+
+    // 词表 = 分类器实际输出集：无「tops」（角色名不是类型）、有「tabular」
+    // （未匹配 .dat 的真实类型）；label↔type 经 item data 绑定，不靠显示文
+    // 本反推——旧版 setCurrentText("tabular") 静默失败错停在 well_head。
+    void folderConfirm_typeVocabularyAndMapping()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+      QVERIFY(QDir().mkpath(projectDir));
+      const QString root = tmp.filePath(QStringLiteral("area"));
+      QVERIFY(QDir().mkpath(root));
+      QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("a.las")),
+          QByteArrayLiteral("~Well\nWELL. A9 : WELL\n~A DEPT\n1.0\n")));
+      QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("x.dat")),
+                        QByteArrayLiteral("a,b\n1,2\n"))); // 无路径段语义 → tabular
+
+      FolderStack st(tmp.filePath(QStringLiteral("m.sqlite")), projectDir);
+      QString err;
+      const auto preview = st.svc.previewFolder(root, &err);
+      QVERIFY2(err.isEmpty(), qPrintable(err));
+      QCOMPARE(preview.size(), 2);
+
+      QTableWidget table(0, 4);
+      QVector<QComboBox *> combos;
+      PaleoMainWindow::populateFolderConfirmTable(&table, root, preview, &combos);
+      QCOMPARE(combos.size(), 2);
+
+      const QStringList vocab = projectClassifierTypes();
+      QVERIFY(!vocab.contains(QStringLiteral("tops")));
+      QVERIFY(vocab.contains(QStringLiteral("tabular")));
+      QVERIFY(vocab.contains(QStringLiteral("reference")));
+      QVERIFY(vocab.contains(QStringLiteral("well_stratification")));
+      for (auto *c : combos)
+      {
+        QCOMPARE(c->count(), vocab.size());
+        for (int i = 0; i < c->count(); ++i)
+          QCOMPARE(c->itemData(i).toString(), vocab.at(i)); // type 存 item data
+        QCOMPARE(c->itemText(vocab.indexOf(QStringLiteral("well_stratification"))),
+                 QString::fromUtf8("井分层")); // 显示标签是中文，不等于类型 id
+      }
+      QCOMPARE(combos.at(0)->currentData().toString(), QStringLiteral("well_log"));
+      QCOMPARE(combos.at(1)->currentData().toString(), QStringLiteral("tabular"));
+
+      // 未改动的行不发 override；改成 document 才出现在覆盖表里。
+      QVERIFY(PaleoMainWindow::collectFolderTypeOverrides(&table, preview, combos)
+                  .isEmpty());
+      combos.at(1)->setCurrentIndex(vocab.indexOf(QStringLiteral("document")));
+      const auto ov =
+          PaleoMainWindow::collectFolderTypeOverrides(&table, preview, combos);
+      QCOMPARE(ov.size(), 1);
+      QCOMPARE(ov.value(preview.at(1).path), QStringLiteral("document"));
+    }
+
+    // 固定辅助锁：HZ28-6-1 命名行禁用下拉 + tooltip；「参考资料」目录内其他
+    // XML 默认显示「参考」但可改——override 照常进收集表。pdf 显示真实类型。
+    void folderConfirm_fixedAuxiliaryLockAndReferenceDefault()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+      QVERIFY(QDir().mkpath(projectDir));
+      const QString root = tmp.filePath(QStringLiteral("area"));
+      QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
+      QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("参考资料"))));
+      const QByteArray logXml(
+          "<logs><log><logcurveinfo/><logdata>1 2</logdata></log></logs>");
+      QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("参考资料/HZ28-6-1测井.xml")),
+                        logXml));
+      QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("参考资料/other.xml")),
+                        logXml));
+      QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("参考资料/spec.pdf")),
+                        QByteArrayLiteral("%PDF-1.4 fake")));
+      QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井位/heads.dat")),
+          QByteArrayLiteral("#WellHead File From SMI\n#Name X Y KB TD\n"
+                            "A1  1.0  2.0  0.0  2000.0\n")));
+
+      FolderStack st(tmp.filePath(QStringLiteral("m.sqlite")), projectDir);
+      QString err;
+      const auto preview = st.svc.previewFolder(root, &err);
+      QVERIFY2(err.isEmpty(), qPrintable(err));
+      QCOMPARE(preview.size(), 4);
+      QCOMPARE(preview.at(0).classifiedType, QStringLiteral("well_head")); // 阶段 1 先行
+
+      QTableWidget table(0, 4);
+      QVector<QComboBox *> combos;
+      PaleoMainWindow::populateFolderConfirmTable(&table, root, preview, &combos);
+      QCOMPARE(combos.size(), 4);
+
+      const int rHz = tableRowForPath(&table, QStringLiteral("HZ28-6-1测井.xml"));
+      const int rOther = tableRowForPath(&table, QStringLiteral("other.xml"));
+      const int rSpec = tableRowForPath(&table, QStringLiteral("spec.pdf"));
+      const int rHeads = tableRowForPath(&table, QStringLiteral("heads.dat"));
+      QVERIFY(rHz >= 0 && rOther >= 0 && rSpec >= 0 && rHeads == 0);
+
+      // HZ28：锁定 + 固定「参考」。
+      QVERIFY(!combos.at(rHz)->isEnabled());
+      QCOMPARE(combos.at(rHz)->currentData().toString(), QStringLiteral("reference"));
+      QVERIFY(combos.at(rHz)->toolTip().contains(QString::fromUtf8("该文件固定为参考资料")));
+      // other.xml：默认「参考」，可改。
+      QVERIFY(combos.at(rOther)->isEnabled());
+      QCOMPARE(combos.at(rOther)->currentData().toString(), QStringLiteral("reference"));
+      // spec.pdf / heads.dat：真实类型。
+      QCOMPARE(combos.at(rSpec)->currentData().toString(), QStringLiteral("document"));
+      QCOMPARE(combos.at(rHeads)->currentData().toString(), QStringLiteral("well_head"));
+
+      // 收集：other.xml 的「参考」默认值与分类器原类型不同 → 成 override；
+      // HZ28 行禁用 → 不发 override。
+      auto ov = PaleoMainWindow::collectFolderTypeOverrides(&table, preview, combos);
+      QCOMPARE(ov.value(preview.at(rOther).path), QStringLiteral("reference"));
+      QVERIFY(!ov.contains(preview.at(rHz).path));
+      QVERIFY(!ov.contains(preview.at(rSpec).path));
+      QVERIFY(!ov.contains(preview.at(rHeads).path));
+      QVERIFY(ov.contains(preview.at(rOther).path));
+      const int ovSize = ov.size();
+
+      // 改成井类（≠分类器原类型 well_log）→ override 送达收集表（后端不再
+      // 整目录锁参考）；选回 well_log（=原类型）→ 不发覆盖，后端按原类型走。
+      const QStringList vocab = projectClassifierTypes();
+      combos.at(rOther)->setCurrentIndex(vocab.indexOf(QStringLiteral("well_head")));
+      ov = PaleoMainWindow::collectFolderTypeOverrides(&table, preview, combos);
+      QCOMPARE(ov.value(preview.at(rOther).path), QStringLiteral("well_head"));
+      QCOMPARE(ov.size(), ovSize);
+      combos.at(rOther)->setCurrentIndex(vocab.indexOf(QStringLiteral("well_log")));
+      ov = PaleoMainWindow::collectFolderTypeOverrides(&table, preview, combos);
+      QVERIFY(!ov.contains(preview.at(rOther).path)); // 同原类型 → 不成 override
+      QCOMPARE(ov.size(), ovSize - 1);
+    }
+
+    // 确认导入 → 结果行 + 汇总；失败行挂「重试」——按当前下拉类型重导单行，
+    // 行与汇总一起更新。仍失败的回挂重试按钮；内容级失败行重导命中 dedup
+    // （字节已在库）也如实记行。
+    void folderConfirm_importSummaryAndRowRetry()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+      QVERIFY(QDir().mkpath(projectDir));
+      const QString root = tmp.filePath(QStringLiteral("area"));
+      QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
+      // bad.dat：井口表只有注释 → 入库后解析失败（RAW 已落库，重导命中 dedup）。
+      const QString badPath =
+          QDir(root).filePath(QString::fromUtf8("井位/bad.dat"));
+      QVERIFY(writeFile(badPath,
+                        QByteArrayLiteral("#WellHead File From SMI\n# no rows\n")));
+      QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井位/good.dat")),
+          QByteArrayLiteral("#WellHead File From SMI\n#Name X Y KB TD\n"
+                            "A1  1.0  2.0  0.0  2000.0\n")));
+      // locked.las / nodat.dat：读不了 → 入库前就失败，重导留 Failed。
+      const QString lockedPath = QDir(root).filePath(QStringLiteral("locked.las"));
+      const QString nodatPath = QDir(root).filePath(QStringLiteral("nodat.dat"));
+      QVERIFY(writeFile(lockedPath, QByteArrayLiteral(
+          "~Well\nWELL. A1 : WELL\n~A DEPT\n1.0\n")));
+      QVERIFY(writeFile(nodatPath, QByteArrayLiteral("a,b\n1,2\n")));
+      QVERIFY(QFile::setPermissions(lockedPath, QFileDevice::Permissions()));
+      QVERIFY(QFile::setPermissions(nodatPath, QFileDevice::Permissions()));
+
+      FolderStack st(tmp.filePath(QStringLiteral("m.sqlite")), projectDir);
+      QString err;
+      const auto preview = st.svc.previewFolder(root, &err);
+      QVERIFY2(err.isEmpty(), qPrintable(err));
+      QCOMPARE(preview.size(), 4);
+
+      QDialog dlg;
+      PaleoMainWindow::buildFolderConfirmDialog(&dlg, &st.svc, root, preview,
+                                                nullptr);
+      // CRS 契约句：只读一行，挂在确认表上方。
+      auto *crsNote = dlg.findChild<QLabel *>(QStringLiteral("folderCrsNote"));
+      QVERIFY(crsNote);
+      QCOMPARE(crsNote->text(),
+               QString::fromUtf8(
+                   "局部工程坐标，单位米。源文件里的 EPSG:4326 只是标签，不会画到地图上。"));
+      QVERIFY(!(crsNote->textInteractionFlags() & Qt::TextEditable));
+
+      auto *table = dlg.findChild<QTableWidget *>(QStringLiteral("folderTable"));
+      auto *summary = dlg.findChild<QLabel *>(QStringLiteral("folderSummary"));
+      auto *confirm =
+          dlg.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"));
+      QVERIFY(table && summary && confirm);
+      const int rBad = tableRowForPath(table, QStringLiteral("bad.dat"));
+      const int rGood = tableRowForPath(table, QStringLiteral("good.dat"));
+      const int rLock = tableRowForPath(table, QStringLiteral("locked.las"));
+      const int rNodat = tableRowForPath(table, QStringLiteral("nodat.dat"));
+      QVERIFY(rBad >= 0 && rGood >= 0 && rLock >= 0 && rNodat >= 0);
+
+      confirm->click();
+      QVERIFY(!confirm->isEnabled());
+      QVERIFY(table->item(rBad, 3)->text().contains(QString::fromUtf8("失败")));
+      QVERIFY(table->item(rLock, 3)->text().contains(QString::fromUtf8("失败")));
+      QVERIFY(table->item(rNodat, 3)->text().contains(QString::fromUtf8("失败")));
+      QVERIFY(table->item(rGood, 3)->text().contains(QString::fromUtf8("已入库")));
+      QCOMPARE(summary->text(),
+               QString::fromUtf8("入库 1，未决 0，失败 3"));
+      QCOMPARE(dlg.findChildren<QPushButton *>(
+                   QStringLiteral("folderRetry")).size(), 3);
+
+      // locked.las 仍不可读 → 重试仍失败，按钮回挂。
+      auto *lockCombo =
+          table->findChild<QComboBox *>(QStringLiteral("folderType%1").arg(rLock));
+      QVERIFY(lockCombo && lockCombo->isEnabled()); // 失败行保留下拉可换类型
+      auto *retryCell = static_cast<QWidget *>(table->cellWidget(rLock, 3));
+      QVERIFY(retryCell);
+      auto *retry = retryCell->findChild<QPushButton *>(QStringLiteral("folderRetry"));
+      QVERIFY(retry);
+      retry->click();
+      QVERIFY(table->item(rLock, 3)->text().contains(QString::fromUtf8("失败")));
+      QVERIFY(dlg.findChild<QPushButton *>(QStringLiteral("folderRetry")));
+
+      // 修好文件 → 重试入库并挂到 A1（井口先行建的）。
+      QVERIFY(QFile::setPermissions(lockedPath,
+          QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser |
+          QFileDevice::ReadGroup | QFileDevice::ReadOther));
+      retry = static_cast<QWidget *>(table->cellWidget(rLock, 3))
+                  ->findChild<QPushButton *>(QStringLiteral("folderRetry"));
+      QVERIFY(retry);
+      retry->click();
+      QVERIFY(table->item(rLock, 3)->text().contains(QString::fromUtf8("已入库")));
+      QCOMPARE(table->item(rLock, 2)->text(), QStringLiteral("A1"));
+      QVERIFY(!lockCombo->isEnabled()); // 行不再失败 → 收掉改类型入口
+      QVERIFY(!table->cellWidget(rLock, 3));
+
+      // nodat.dat 换成 document 再重试：按当前下拉类型重导。
+      auto *nodatCombo =
+          table->findChild<QComboBox *>(QStringLiteral("folderType%1").arg(rNodat));
+      QVERIFY(nodatCombo && nodatCombo->isEnabled());
+      nodatCombo->setCurrentIndex(
+          projectClassifierTypes().indexOf(QStringLiteral("document")));
+      QVERIFY(QFile::setPermissions(nodatPath,
+          QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser |
+          QFileDevice::ReadGroup | QFileDevice::ReadOther));
+      static_cast<QWidget *>(table->cellWidget(rNodat, 3))
+          ->findChild<QPushButton *>(QStringLiteral("folderRetry"))
+          ->click();
+      QVERIFY(table->item(rNodat, 3)->text().contains(QString::fromUtf8("已入库")));
+
+      // bad.dat 原样重试：字节已在库（dedup 如实记行），按钮消失。
+      retry = static_cast<QWidget *>(table->cellWidget(rBad, 3))
+                  ->findChild<QPushButton *>(QStringLiteral("folderRetry"));
+      QVERIFY(retry);
+      retry->click();
+      QVERIFY(table->item(rBad, 3)->text().contains(QString::fromUtf8("已入库")));
+      QVERIFY(table->item(rBad, 3)->text().contains(
+          QString::fromUtf8("字节已在库")));
+
+      QVERIFY(dlg.findChildren<QPushButton *>(
+                  QStringLiteral("folderRetry")).isEmpty());
+      QCOMPARE(summary->text(),
+               QString::fromUtf8("入库 4，未决 0，失败 0"));
+
+      // 后端资产类型跟着走 document（重试用的是当前下拉值）。
+      bool sawDoc = false;
+      for (const CatalogAsset &a : st.svc.catalog()->assets())
+        if (a.displayName == QLatin1String("nodat.dat"))
+        {
+          sawDoc = true;
+          QCOMPARE(a.type, QStringLiteral("document"));
+        }
+      QVERIFY(sawDoc);
+    }
+
+    // 汇总函数口径（D3）：四种结局计数，跳过只在 >0 时列第四项。
+    void folderSummary_countsAllFourOutcomes()
+    {
+      using R = DataImportService::FolderRowResult;
+      using Outcome = DataImportService::FolderRowResult::Outcome;
+      QVector<R> rows(4);
+      rows[0].outcome = Outcome::Imported;
+      rows[1].outcome = Outcome::Unresolved;
+      rows[2].outcome = Outcome::Failed;
+      rows[3].outcome = Outcome::Skipped;
+      QCOMPARE(PaleoMainWindow::folderImportSummaryText(rows),
+               QString::fromUtf8("入库 1，未决 1，失败 1，跳过 1"));
+      rows.removeLast();
+      QCOMPARE(PaleoMainWindow::folderImportSummaryText(rows),
+               QString::fromUtf8("入库 1，未决 1，失败 1"));
     }
 };
 

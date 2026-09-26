@@ -1,7 +1,17 @@
 #pragma once
 #include <QMainWindow>
 #include <QString>
+#include <QStringList>
+#include <QMap>
+#include <QVector>
 #include <functional>
+
+#include "../io/dataimportservice.h"   // FolderPreviewRow / FolderRowResult（T22 静态面）
+
+class QComboBox;
+class QDialog;
+class QLabel;
+class QTableWidget;
 
 class QgisCanvasController;
 class QgisProjectService;
@@ -75,6 +85,38 @@ class PaleoMainWindow : public QMainWindow
     void attachMapping(MappingWorkflow *mapping, MapVersionController *versions,
                        MapVersionStore *versionStore, ProjectDataFacade *projectData,
                        DataCatalog *catalog = nullptr);
+
+    // ---- T22 文件夹确认表（静态面，tst_panels 直接驱动；runFolderImport 只
+    // 负责选目录 + exec）----
+    // 类型下拉的稳定 label↔type 映射：label 只管显示，type 存 Qt::UserRole，
+    // 永不靠显示文本反推。词表 = 分类器实际输出集（含 tabular，无「tops」——
+    // 那是关联角色）+ reference 伪类型。
+    static QString folderTypeLabel(const QString &type);
+    // 行默认显示类型：HZ28-6-1 固定辅助 → 「参考」；「参考资料」目录内井类/
+    // 未判内容默认「参考」（可改）；其余行显示分类器原类型。
+    static QString folderRowDisplayType(const QString &path, const QString &classifiedType);
+    // 建确认表行（锁定行禁用下拉 + tooltip、跳过行灰显）；combosOut 收每行下拉。
+    static void populateFolderConfirmTable(
+        QTableWidget *table, const QString &rootDir,
+        const QVector<DataImportService::FolderPreviewRow> &rows,
+        QVector<QComboBox *> *combosOut);
+    // 覆盖收集：只看启用行；选中映射类型合法且不同于分类器原类型才成 override。
+    static QMap<QString, QString> collectFolderTypeOverrides(
+        const QTableWidget *table, const QVector<DataImportService::FolderPreviewRow> &rows,
+        const QVector<QComboBox *> &combos);
+    // 行结果写回（实体列 + 结果列）；Failed 且给了 onRetry → 结果列挂「重试」按钮。
+    static void writeFolderRowResult(QTableWidget *table, int row,
+                                     const DataImportService::FolderRowResult &res,
+                                     const std::function<void(int)> &onRetry);
+    // 汇总文案：「入库 n，未决 n，失败 n（，跳过 n）」——D3 保留第四计数。
+    static QString folderImportSummaryText(
+        const QVector<DataImportService::FolderRowResult> &rows);
+    // 确认对话框整体搭建（类型表 + CRS 说明句 + 确认/取消 + 行重试接线）。
+    // self 可为空（测试）；非空时用于文件夹导入期的预览抑制与井口标签打开。
+    static void buildFolderConfirmDialog(
+        QDialog *dlg, DataImportService *svc, const QString &dir,
+        const QVector<DataImportService::FolderPreviewRow> &preview,
+        PaleoMainWindow *self);
 
   protected:
     void closeEvent(QCloseEvent *event) override;

@@ -299,10 +299,10 @@ class TestUiShell : public QObject
       m_win->showPage(QStringLiteral("data"));
       QVERIFY(!preview->isHidden());
 
-      // 状态栏工程坐标系标注（§4：局部工程网格米，不是经纬度）。
+      // 状态栏工程坐标系标注（T22：与 PDF 页脚同一句「工程坐标 · 米 · 未投影」）。
       auto *crs = m_win->findChild<QLabel *>(QStringLiteral("statusCrs"));
       QVERIFY(crs);
-      QVERIFY(crs->text().contains(QStringLiteral("工程网格")));
+      QCOMPARE(crs->text(), QStringLiteral("工程坐标 · 米 · 未投影"));
     }
 };
 

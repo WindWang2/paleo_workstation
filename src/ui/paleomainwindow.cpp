@@ -8,6 +8,7 @@
 #include "../linkage/selectioncontext.h"
 #include "../workflow/workflows.h"
 #include "../io/dataimportservice.h"
+#include "../io/projectclassifier.h"
 #include "../linkage/seismicmaplink.h"
 #include "../linkage/threewaylocator.h"
 #include "../qgis/qgisprocessingservice.h"
@@ -75,11 +76,15 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QHash>
 #include <QHeaderView>
+#include <QSet>
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QTextEdit>
 #include <QVBoxLayout>
+
+#include <memory>
 
 // §42 shell: five-page workflow chain on top, layer tree left, page panel
 // right, log/tasks bottom, startup page stacked under the canvas. The header
@@ -100,6 +105,11 @@ namespace
   {
     return QGuiApplication::platformName() == QLatin1String("offscreen");
   }
+
+  // T22/§3 契约句：工区导入统一展示的 CRS 说明（文件夹确认表 + 单文件
+  // 导入确认都只读挂这句）。状态栏短句另行，与 PDF 页脚同一文案。
+  const QString kEngineeringCrsSentence = QStringLiteral(
+      "局部工程坐标，单位米。源文件里的 EPSG:4326 只是标签，不会画到地图上。");
 
   QStringList readRecentProjects()
   {
@@ -468,12 +478,12 @@ void PaleoMainWindow::buildShell()
     statusBar()->addPermanentWidget(coordLabel);
     statusBar()->addPermanentWidget(scaleLabel);
 
-    // §4 预览壳：坐标读数旁标明坐标系——局部工程网格米，不是经纬度
-    // （DESIGN.md 状态文字 #5D6E80，与状态栏其余次级文案同色）。
+    // §4 预览壳：坐标读数旁标明坐标系——与 PDF 页脚（mapexport.cpp）同一句
+    // 「工程坐标 · 米 · 未投影」（DESIGN.md 状态文字 #5D6E80，次级文案同色）。
     auto *crsLabel = new QLabel(this);
     crsLabel->setObjectName(QStringLiteral("statusCrs"));
-    crsLabel->setText(QStringLiteral("工程网格 · 局部米"));
-    crsLabel->setToolTip(QStringLiteral("坐标为工程网格局部米，非经纬度"));
+    crsLabel->setText(QStringLiteral("工程坐标 · 米 · 未投影"));
+    crsLabel->setToolTip(QStringLiteral("局部工程坐标，单位米，未投影 — 不是经纬度"));
     crsLabel->setStyleSheet(QStringLiteral("color: #5D6E80;"));
     statusBar()->addPermanentWidget(crsLabel);
   }
@@ -548,6 +558,356 @@ void PaleoMainWindow::applyPreviewSplit()
   m_centerSplit->setSizes({qMax(0, total - hint), hint});
 }
 
+// ---------------------------------------------------------------------------
+// T22 文件夹导入确认表：类型下拉从分类器词表构建（label↔type 稳定映射，
+// type 存 Qt::UserRole——不靠显示文本反推）；HZ28-6-1 行锁定为参考；
+// 「参考资料」目录内井类/未判内容默认显示「参考」（可改，成 override 送达
+// 后端）；覆盖只收「合法且不同于分类器原类型」的行；Failed 行给「重试」。
+// ---------------------------------------------------------------------------
+
+QString PaleoMainWindow::folderTypeLabel(const QString &type)
+{
+  static const QHash<QString, QString> kLabels = {
+      {QStringLiteral("well_head"), QStringLiteral("井口")},
+      {QStringLiteral("well_log"), QStringLiteral("测井")},
+      {QStringLiteral("well_stratification"), QStringLiteral("井分层")},
+      {QStringLiteral("time_depth"), QStringLiteral("时深")},
+      {QStringLiteral("horizon"), QStringLiteral("层位")},
+      {QStringLiteral("seismic"), QStringLiteral("地震")},
+      {QStringLiteral("tabular"), QStringLiteral("表格")},
+      {QStringLiteral("geojson"), QStringLiteral("GeoJSON")},
+      {QStringLiteral("document"), QStringLiteral("文档")},
+      {QStringLiteral("image_reference"), QStringLiteral("图像")},
+      {QStringLiteral("reference"), QStringLiteral("参考资料")},
+      {QStringLiteral("unknown"), QStringLiteral("未知")}};
+  return kLabels.value(type, type); // 词表外类型裸显 id（type 仍存 item data）
+}
+
+QString PaleoMainWindow::folderRowDisplayType(const QString &path,
+                                              const QString &classifiedType)
+{
+  if (isFixedAuxiliaryPath(path))
+    return QStringLiteral("reference"); // HZ28-6-1：固定参考（下拉同时锁死）
+  if (isDefaultReferencePath(path))
+  {
+    // 「参考资料」目录内，分类到井类/未判内容的行默认显示「参考」——确认不改
+    // 也作为 override=reference 送达后端，保持阶段 D 语义。document/
+    // image_reference/geojson/seismic/horizon 等显示真实类型：它们本来就走
+    // 辅助实体，且类型名驱动预览分支（document → PDF 预览）。
+    static const QSet<QString> kWellish = {QStringLiteral("well_head"),
+                                           QStringLiteral("well_log"),
+                                           QStringLiteral("unknown")};
+    if (kWellish.contains(classifiedType))
+      return QStringLiteral("reference");
+  }
+  return classifiedType.isEmpty() ? QStringLiteral("unknown") : classifiedType;
+}
+
+void PaleoMainWindow::populateFolderConfirmTable(
+    QTableWidget *table, const QString &rootDir,
+    const QVector<DataImportService::FolderPreviewRow> &rows,
+    QVector<QComboBox *> *combosOut)
+{
+  const QDir root(rootDir);
+  const QStringList vocab = projectClassifierTypes();
+  table->setRowCount(0);
+  if (combosOut)
+  {
+    combosOut->clear();
+    combosOut->reserve(rows.size());
+  }
+  for (const DataImportService::FolderPreviewRow &row : rows)
+  {
+    const int r = table->rowCount();
+    table->insertRow(r);
+    auto *pathItem = new QTableWidgetItem(root.relativeFilePath(row.path));
+    pathItem->setToolTip(row.path);
+    pathItem->setData(Qt::UserRole, row.path);
+    table->setItem(r, 0, pathItem);
+    table->setItem(r, 1, new QTableWidgetItem);
+    table->setItem(r, 2, new QTableWidgetItem);
+    table->setItem(r, 3, new QTableWidgetItem);
+
+    auto *combo = new QComboBox(table);
+    combo->setObjectName(QStringLiteral("folderType%1").arg(r));
+    for (const QString &t : vocab)
+      combo->addItem(folderTypeLabel(t), t); // type 存 data，不靠文本反推
+    // 分类器给了词表外类型（未来扩展）→ 追加一项保住真实类型可选。
+    if (!row.classifiedType.isEmpty() && !vocab.contains(row.classifiedType))
+      combo->addItem(row.classifiedType, row.classifiedType);
+    const QString disp = folderRowDisplayType(row.path, row.classifiedType);
+    int idx = combo->findData(disp);
+    if (idx < 0)
+      idx = combo->findData(QStringLiteral("unknown"));
+    if (idx >= 0)
+      combo->setCurrentIndex(idx);
+
+    // 锁定优先级：HZ28-6-1 固定参考（改不动）；跳过行同样禁改。
+    const bool locked = isFixedAuxiliaryPath(row.path);
+    if (row.skipped || locked)
+      combo->setEnabled(false);
+    if (locked)
+    {
+      combo->setToolTip(tr("该文件固定为参考资料"));
+      pathItem->setToolTip(tr("%1\n该文件固定为参考资料").arg(row.path));
+    }
+    table->setCellWidget(r, 1, combo);
+    if (combosOut)
+      combosOut->append(combo);
+    if (row.skipped)
+    {
+      table->item(r, 3)->setText(tr("跳过：%1").arg(row.skipReason));
+      for (int c = 0; c < 4; ++c)
+        table->item(r, c)->setFlags(table->item(r, c)->flags() & ~Qt::ItemIsEnabled);
+    }
+  }
+}
+
+QMap<QString, QString> PaleoMainWindow::collectFolderTypeOverrides(
+    const QTableWidget *table, const QVector<DataImportService::FolderPreviewRow> &rows,
+    const QVector<QComboBox *> &combos)
+{
+  QMap<QString, QString> overrides;
+  for (int r = 0; r < combos.size() && r < rows.size(); ++r)
+  {
+    if (!combos[r] || !combos[r]->isEnabled())
+      continue; // 跳过行/锁定行不参与导入，改动也不成 override
+    const QString t = combos[r]->currentData().toString(); // item data，非显示文本
+    const QString path = table->item(r, 0)->data(Qt::UserRole).toString();
+    // 只在「合法类型」且「不同于分类器原类型」时发 override——这样不动
+    // 下拉/保持默认的行不发出多余覆盖（参考资料默认「参考」属有意覆盖）。
+    if (isClassifierType(t) && t != rows.at(r).classifiedType)
+      overrides.insert(path, t);
+  }
+  return overrides;
+}
+
+void PaleoMainWindow::writeFolderRowResult(
+    QTableWidget *table, int row, const DataImportService::FolderRowResult &res,
+    const std::function<void(int)> &onRetry)
+{
+  using Outcome = DataImportService::FolderRowResult::Outcome;
+  QString outcomeText;
+  switch (res.outcome)
+  {
+  case Outcome::Imported:
+    outcomeText = tr("已入库");
+    break;
+  case Outcome::Unresolved:
+    outcomeText = tr("未决");
+    break;
+  case Outcome::Failed:
+    outcomeText = tr("失败");
+    break;
+  case Outcome::Skipped:
+    outcomeText = tr("跳过");
+    break;
+  }
+  const QString text =
+      res.message.isEmpty() ? outcomeText : tr("%1：%2").arg(outcomeText, res.message);
+  table->item(row, 2)->setText(res.entityName);
+  // 清掉旧的重试控件——removeCellWidget 只摘不删，控件会活成表内孤儿。
+  if (QWidget *old = table->cellWidget(row, 3))
+  {
+    table->removeCellWidget(row, 3);
+    old->setParent(nullptr);
+    old->deleteLater();
+  }
+  table->item(row, 3)->setText(text);
+  if (res.outcome == Outcome::Failed && onRetry)
+  {
+    // 失败行的「重试」：按当前下拉类型只重导这一行。
+    auto *cell = new QWidget(table);
+    auto *hl = new QHBoxLayout(cell);
+    hl->setContentsMargins(4, 0, 4, 0);
+    auto *msg = new QLabel(text, cell);
+    msg->setWordWrap(true);
+    auto *retry = new QPushButton(tr("重试"), cell);
+    retry->setObjectName(QStringLiteral("folderRetry"));
+    retry->setAccessibleName(tr("重试导入 %1").arg(table->item(row, 0)->text()));
+    hl->addWidget(msg, 1);
+    hl->addWidget(retry, 0);
+    QObject::connect(retry, &QPushButton::clicked, table,
+                     [onRetry, row] { onRetry(row); });
+    table->setCellWidget(row, 3, cell);
+  }
+}
+
+QString PaleoMainWindow::folderImportSummaryText(
+    const QVector<DataImportService::FolderRowResult> &rows)
+{
+  using Outcome = DataImportService::FolderRowResult::Outcome;
+  int imported = 0, unresolved = 0, failed = 0, skipped = 0;
+  for (const auto &res : rows)
+    switch (res.outcome)
+    {
+    case Outcome::Imported:
+      ++imported;
+      break;
+    case Outcome::Unresolved:
+      ++unresolved;
+      break;
+    case Outcome::Failed:
+      ++failed;
+      break;
+    case Outcome::Skipped:
+      ++skipped;
+      break;
+    }
+  QString text = tr("入库 %1，未决 %2，失败 %3").arg(imported).arg(unresolved).arg(failed);
+  if (skipped > 0) // D3：「跳过」保留为第四计数（符号链接/非普通文件如实报）
+    text += tr("，跳过 %1").arg(skipped);
+  return text;
+}
+
+void PaleoMainWindow::buildFolderConfirmDialog(
+    QDialog *dlg, DataImportService *svc, const QString &dir,
+    const QVector<DataImportService::FolderPreviewRow> &preview, PaleoMainWindow *self)
+{
+  dlg->setObjectName(QStringLiteral("folderImportDialog"));
+  dlg->setWindowTitle(tr("导入工区文件夹 — %1").arg(dir));
+  dlg->resize(760, 420);
+  auto *lay = new QVBoxLayout(dlg);
+  auto *hint = new QLabel(tr("确认每个文件的类型（可改）后导入；井口文件会先入库。"), dlg);
+  hint->setWordWrap(true);
+  lay->addWidget(hint);
+  // T22：CRS 契约句——只读一行，挂在确认表上方。
+  auto *crsNote = new QLabel(kEngineeringCrsSentence, dlg);
+  crsNote->setObjectName(QStringLiteral("folderCrsNote"));
+  crsNote->setWordWrap(true);
+  crsNote->setStyleSheet(QStringLiteral("color: #5D6E80;")); // DESIGN.md text-muted
+  lay->addWidget(crsNote);
+
+  auto *table = new QTableWidget(0, 4, dlg);
+  table->setObjectName(QStringLiteral("folderTable"));
+  table->setHorizontalHeaderLabels({tr("路径"), tr("类型"), tr("实体"), tr("结果")});
+  table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+  table->horizontalHeader()->setStretchLastSection(true);
+  table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  lay->addWidget(table);
+
+  QVector<QComboBox *> combos;
+  populateFolderConfirmTable(table, dir, preview, &combos);
+
+  auto *summary = new QLabel(dlg);
+  summary->setObjectName(QStringLiteral("folderSummary"));
+  summary->setWordWrap(true);
+  summary->hide();
+  lay->addWidget(summary);
+
+  auto *buttons = new QDialogButtonBox(dlg);
+  auto *confirm = buttons->addButton(tr("确认导入"), QDialogButtonBox::AcceptRole);
+  confirm->setObjectName(QStringLiteral("folderConfirmButton"));
+  auto *cancel = buttons->addButton(tr("取消"), QDialogButtonBox::RejectRole);
+  QObject::connect(cancel, &QAbstractButton::clicked, dlg, &QDialog::reject);
+
+  // 对话框 exec 在 build 返回之后——行结果/重试回调的生存期挂到 shared 状态，
+  // 不捕局部引用。
+  auto results = std::make_shared<QVector<DataImportService::FolderRowResult>>();
+  auto retryFn = std::make_shared<std::function<void(int)>>();
+  const std::function<void(int)> retryCb =
+      [retryFn](int r) { if (*retryFn) (*retryFn)(r); };
+
+  // 行重试：只重导这一行的文件，类型取当前下拉值（合法且不同于分类器原类
+  // 型才成 override；锁定/灰显行不带覆盖）。
+  *retryFn = [retryFn, retryCb, svc, table, summary, combos, preview, results,
+              self](int r) {
+    if (r < 0 || r >= preview.size() || r >= results->size())
+      return;
+    const QString path = table->item(r, 0)->data(Qt::UserRole).toString();
+    QString force;
+    if (combos.value(r) && combos[r]->isEnabled())
+    {
+      const QString t = combos[r]->currentData().toString();
+      if (isClassifierType(t) && t != preview.at(r).classifiedType)
+        force = t;
+    }
+    if (self)
+      self->m_folderImportActive = true;
+    QString rerr;
+    const DataImportService::FolderRowResult rowRes =
+        svc->importFolderRow(path, force, &rerr);
+    if (self)
+      self->m_folderImportActive = false;
+    (*results)[r] = rowRes;
+    writeFolderRowResult(table, r, rowRes, retryCb); // 仍失败 → 重试按钮回挂
+    // 行不再是失败：收掉改类型入口；仍失败的保留下拉（可换类型再试）。
+    if (rowRes.outcome != DataImportService::FolderRowResult::Outcome::Failed &&
+        combos.value(r))
+      combos[r]->setEnabled(false);
+    summary->setText(folderImportSummaryText(*results));
+  };
+
+  QObject::connect(confirm, &QAbstractButton::clicked, dlg,
+                   [dlg, svc, dir, table, summary, confirm, cancel, combos, preview,
+                    results, retryCb, self]() {
+    const QMap<QString, QString> overrides =
+        collectFolderTypeOverrides(table, preview, combos);
+    QString importErr;
+    if (self)
+      self->m_folderImportActive = true;
+    const auto res = svc->importFolder(dir, &importErr, overrides);
+    if (self)
+      self->m_folderImportActive = false;
+
+    if (res.isEmpty() && !importErr.isEmpty())
+    {
+      QMessageBox::warning(dlg, tr("导入工区文件夹"), importErr);
+      return;
+    }
+    // D5：结果序按生效类型两阶段排——改过类型的行可能换阶段，按「路径」
+    // 回行而不是按索引；results 与表行同序存放，供重试回写与汇总重算。
+    results->fill(DataImportService::FolderRowResult{}, preview.size());
+    using Outcome = DataImportService::FolderRowResult::Outcome;
+    QString wellHeadAssetId;
+    for (const DataImportService::FolderRowResult &rowRes : res)
+    {
+      int r = -1;
+      for (int i = 0; i < preview.size(); ++i)
+        if (preview.at(i).path == rowRes.path)
+        {
+          r = i;
+          break;
+        }
+      if (r < 0)
+        continue;
+      (*results)[r] = rowRes;
+      writeFolderRowResult(table, r, rowRes, retryCb);
+      if (rowRes.outcome == Outcome::Imported &&
+          rowRes.classifiedType == QLatin1String("well_head") &&
+          wellHeadAssetId.isEmpty())
+      {
+        // 找回刚入库的井口资产：按文件名在 catalog 里定位。
+        if (auto *cat = svc->catalog())
+          for (const auto &a : cat->assets())
+            if (a.type == QLatin1String("well_head") &&
+                QFileInfo(rowRes.path).fileName() ==
+                    cat->currentVersion(a.id).fileName)
+              wellHeadAssetId = a.id;
+      }
+    }
+    summary->setText(folderImportSummaryText(*results));
+    summary->show();
+    // 结果留在表里给用户过目；仍失败的行保留下拉（可换类型再点「重试」），
+    // 其余行锁定。确认按钮只走一遍。
+    confirm->setEnabled(false);
+    for (int r = 0; r < combos.size(); ++r)
+      if (r >= results->size() ||
+          results->at(r).outcome != Outcome::Failed)
+        combos[r]->setEnabled(false);
+    cancel->setText(tr("关闭"));
+    if (self && !wellHeadAssetId.isEmpty())
+      QMetaObject::invokeMethod(
+          self,
+          [self, wellHeadAssetId] {
+            if (self->m_previewTabs)
+              self->m_previewTabs->openAsset(wellHeadAssetId);
+          },
+          Qt::QueuedConnection);
+  });
+  lay->addWidget(buttons);
+}
+
 void PaleoMainWindow::runFolderImport(DataImportService *svc)
 {
   if (!svc)
@@ -566,166 +926,8 @@ void PaleoMainWindow::runFolderImport(DataImportService *svc)
     return;
   }
 
-  // 可选类型集：分类器输出的九类 + unknown/auxiliary 兜底，确认时可改行。
-  static const QStringList kTypes = {
-      QStringLiteral("well_head"),        QStringLiteral("well_log"),
-      QStringLiteral("tops"),             QStringLiteral("time_depth"),
-      QStringLiteral("horizon"),          QStringLiteral("seismic"),
-      QStringLiteral("document"),         QStringLiteral("image_reference"),
-      QStringLiteral("geojson"),          QStringLiteral("auxiliary"),
-      QStringLiteral("unknown")};
-
   QDialog dlg(this);
-  dlg.setObjectName(QStringLiteral("folderImportDialog"));
-  dlg.setWindowTitle(tr("导入工区文件夹 — %1").arg(dir));
-  dlg.resize(760, 420);
-  auto *lay = new QVBoxLayout(&dlg);
-  auto *hint = new QLabel(tr("确认每个文件的类型（可改）后导入；井口文件会先入库。"),
-                        &dlg);
-  hint->setWordWrap(true);
-  lay->addWidget(hint);
-  auto *table = new QTableWidget(0, 4, &dlg);
-  table->setObjectName(QStringLiteral("folderTable"));
-  table->setHorizontalHeaderLabels(
-      {tr("路径"), tr("类型"), tr("实体"), tr("结果")});
-  table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-  table->horizontalHeader()->setStretchLastSection(true);
-  table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-  lay->addWidget(table);
-
-  const QDir root(dir);
-  QVector<QComboBox *> combos;
-  combos.reserve(preview.size());
-  for (const auto &row : preview)
-  {
-    const int r = table->rowCount();
-    table->insertRow(r);
-    auto *pathItem =
-        new QTableWidgetItem(root.relativeFilePath(row.path));
-    pathItem->setToolTip(row.path);
-    pathItem->setData(Qt::UserRole, row.path);
-    table->setItem(r, 0, pathItem);
-    table->setItem(r, 1, new QTableWidgetItem);
-    table->setItem(r, 2, new QTableWidgetItem);
-    table->setItem(r, 3, new QTableWidgetItem);
-
-    const bool skipped = row.skipped;
-    auto *combo = new QComboBox(&dlg);
-    combo->addItems(kTypes);
-    combo->setCurrentText(row.classifiedType.isEmpty()
-                              ? QStringLiteral("unknown")
-                              : row.classifiedType);
-    combo->setEnabled(!skipped);
-    combo->setObjectName(QStringLiteral("folderType%1").arg(r));
-    table->setCellWidget(r, 1, combo);
-    combos << combo;
-    if (skipped)
-    {
-      table->item(r, 3)->setText(tr("跳过：%1").arg(row.skipReason));
-      for (int c = 0; c < 4; ++c)
-        table->item(r, c)->setFlags(table->item(r, c)->flags() &
-                                    ~Qt::ItemIsEnabled);
-    }
-  }
-
-  auto *summary = new QLabel(&dlg);
-  summary->setObjectName(QStringLiteral("folderSummary"));
-  summary->setWordWrap(true);
-  summary->hide();
-  lay->addWidget(summary);
-  auto *buttons = new QDialogButtonBox(&dlg);
-  auto *confirm = buttons->addButton(tr("确认导入"), QDialogButtonBox::AcceptRole);
-  auto *cancel = buttons->addButton(tr("取消"), QDialogButtonBox::RejectRole);
-  QObject::connect(cancel, &QAbstractButton::clicked, &dlg, &QDialog::reject);
-  QObject::connect(confirm, &QAbstractButton::clicked, &dlg, [&] {
-    QMap<QString, QString> overrides;
-    for (int r = 0; r < combos.size(); ++r)
-    {
-      if (!combos[r]->isEnabled())
-        continue; // 跳过行不参与导入，改动也不成 override
-      const QString path =
-          table->item(r, 0)->data(Qt::UserRole).toString();
-      const QString t = combos[r]->currentText();
-      if (t != preview[r].classifiedType)
-        overrides.insert(path, t);
-    }
-    QString importErr;
-    m_folderImportActive = true;
-    const auto results = svc->importFolder(dir, &importErr, overrides);
-    m_folderImportActive = false;
-
-    if (results.isEmpty() && !importErr.isEmpty())
-    {
-      QMessageBox::warning(&dlg, tr("导入工区文件夹"), importErr);
-      return;
-    }
-
-    int imported = 0, unresolved = 0, failed = 0, skipped = 0;
-    QString wellHeadAssetId;
-    for (int r = 0; r < results.size(); ++r)
-    {
-      const auto &res = results[r];
-      using Outcome = DataImportService::FolderRowResult::Outcome;
-      QString outcomeText;
-      switch (res.outcome)
-      {
-      case Outcome::Imported:
-        ++imported;
-        outcomeText = tr("已入库");
-        break;
-      case Outcome::Unresolved:
-        ++unresolved;
-        outcomeText = tr("未决");
-        break;
-      case Outcome::Failed:
-        ++failed;
-        outcomeText = tr("失败");
-        break;
-      case Outcome::Skipped:
-        ++skipped;
-        outcomeText = tr("跳过");
-        break;
-      }
-      table->item(r, 2)->setText(res.entityName);
-      table->item(r, 3)->setText(res.message.isEmpty()
-                                     ? outcomeText
-                                     : tr("%1：%2").arg(outcomeText, res.message));
-      if (res.outcome == Outcome::Imported &&
-          res.classifiedType == QLatin1String("well_head") &&
-          wellHeadAssetId.isEmpty())
-      {
-        // 找回刚入库的井口资产：按文件名在 catalog 里定位。
-        if (auto *cat = svc->catalog())
-          for (const auto &a : cat->assets())
-            if (a.type == QLatin1String("well_head") &&
-                QFileInfo(res.path).fileName() ==
-                    cat->currentVersion(a.id).fileName)
-              wellHeadAssetId = a.id;
-      }
-    }
-    QString text = tr("入库 %1，未决 %2，失败 %3")
-                       .arg(imported)
-                       .arg(unresolved)
-                       .arg(failed);
-    if (skipped > 0)
-      text += tr("，跳过 %1").arg(skipped);
-    summary->setText(text);
-    summary->show();
-    // 结果留在表里给用户过目；确认后关闭对话框并只开井口标签。
-    confirm->setEnabled(false);
-    for (auto *c : combos)
-      c->setEnabled(false);
-    cancel->setText(tr("关闭"));
-    if (!wellHeadAssetId.isEmpty())
-      QMetaObject::invokeMethod(
-          this,
-          [this, wellHeadAssetId] {
-            if (m_previewTabs)
-              m_previewTabs->openAsset(wellHeadAssetId);
-          },
-          Qt::QueuedConnection);
-  });
-  lay->addWidget(buttons);
+  buildFolderConfirmDialog(&dlg, svc, dir, preview, this);
   dlg.exec();
 }
 
@@ -928,6 +1130,34 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                       : tr("Vector/log files (*.las *.csv *.gpkg *.shp *.tif *.img);;All files (*)"));
               if (path.isEmpty())
                 return;
+              // T22：单文件导入同样展示 CRS 契约句（确认一步，含识别类型）。
+              {
+                QDialog confirmDlg(this);
+                confirmDlg.setObjectName(QStringLiteral("singleImportDialog"));
+                confirmDlg.setWindowTitle(tr("导入数据"));
+                auto *cl = new QVBoxLayout(&confirmDlg);
+                const QString recogType = classifyProjectImport(path).type;
+                auto *fileLabel = new QLabel(
+                    tr("文件：%1\n识别类型：%2").arg(path, folderTypeLabel(recogType)),
+                    &confirmDlg);
+                fileLabel->setWordWrap(true);
+                cl->addWidget(fileLabel);
+                auto *crsNote = new QLabel(kEngineeringCrsSentence, &confirmDlg);
+                crsNote->setObjectName(QStringLiteral("singleImportCrsNote"));
+                crsNote->setWordWrap(true);
+                crsNote->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+                cl->addWidget(crsNote);
+                auto *bb = new QDialogButtonBox(&confirmDlg);
+                bb->addButton(tr("导入"), QDialogButtonBox::AcceptRole);
+                bb->addButton(tr("取消"), QDialogButtonBox::RejectRole);
+                QObject::connect(bb, &QDialogButtonBox::accepted, &confirmDlg,
+                                 &QDialog::accept);
+                QObject::connect(bb, &QDialogButtonBox::rejected, &confirmDlg,
+                                 &QDialog::reject);
+                cl->addWidget(bb);
+                if (confirmDlg.exec() != QDialog::Accepted)
+                  return;
+              }
               QString err;
               const QString assetId = importSvc->importFile(kind, path, &err);
               if (assetId.isEmpty())

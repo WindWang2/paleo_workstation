@@ -25,6 +25,15 @@ private slots:
   void versionBySha256FindsStored();
   void addLinkDemotesPreviousPrimaryForSameRole();
   void attachLinkResolvesUnresolvedAndDemotes();
+  // ---- pass 2：T17/T20/T33 ----
+  void versionSeqRestoredAfterReload();           // T17
+  void duplicateVersionIdRejected();              // T17
+  void refusesUnsupportedSchemaVersion();         // T20b
+  void rotatesBakAndVerifiesWrite();              // T20c
+  void refusesWritesAfterFailedOpen();            // T20a
+  void unresolvedLinksIsTheExplicitAccessor();    // T33/row35
+  void batchSaveCoalescesWrites();                // T33/row37
+  void unsafeManagedPathSkippedOnLoad();          // T33
 };
 
 void TestCatalog::roundTripsThroughJson()
@@ -471,6 +480,350 @@ void TestCatalog::attachLinkResolvesUnresolvedAndDemotes()
   QVERIFY(reloaded.open(dir.path()));
   QVERIFY(!reloaded.links().at(0).unresolved);
   QCOMPARE(reloaded.links().at(0).entityId, QStringLiteral("well-G9"));
+}
+
+// ---------------------------------------------------------------------------
+// pass 2 回归：T17 ver-N 序号恢复 + 版本 id 唯一性；T20 耐久性（拒绝写入态、
+// schema_version 闸门、.bak 轮换）；T33 unresolvedLinks()/批量写/装载段校验。
+// ---------------------------------------------------------------------------
+
+// T17：重开 catalog 后 m_versionSeq 必须恢复——再 addVersion 拿到的是下一个
+// 未用 ver-N，绝不回发已用 id（否则两个版本同 id，versionById 语义全毁）。
+void TestCatalog::versionSeqRestoredAfterReload()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path()));
+    CatalogAsset a;
+    a.id = QStringLiteral("ast-1");
+    a.type = QStringLiteral("well_log");
+    QVERIFY(cat.addAsset(a));
+    for (int n = 1; n <= 3; ++n)
+    {
+      CatalogVersion v;
+      v.id = QStringLiteral("ver-%1").arg(n);
+      v.assetId = a.id;
+      v.stage = QStringLiteral("RAW");
+      v.fileName = QStringLiteral("f.dat");
+      QVERIFY(cat.addVersion(v));
+    }
+  }
+
+  DataCatalog reloaded;
+  QVERIFY(reloaded.open(dir.path()));
+  const QString nextId = reloaded.nextVersionId();
+  // 唯一性断言：新 id 不在已装载版本里；ver-4 说明序号恢复生效（bug 时是 ver-1）。
+  for (const CatalogVersion &v : reloaded.versionsForAsset(QStringLiteral("ast-1")))
+    QVERIFY(v.id != nextId);
+  QCOMPARE(nextId, QStringLiteral("ver-4"));
+
+  CatalogVersion v;
+  v.id = nextId;
+  v.assetId = QStringLiteral("ast-1");
+  v.stage = QStringLiteral("RAW");
+  v.fileName = QStringLiteral("f.dat");
+  QVERIFY(reloaded.addVersion(v));
+  QCOMPARE(reloaded.versionsForAsset(QStringLiteral("ast-1")).size(), 4);
+}
+
+// T17：显式重复 id 也要拒——不依赖 nextVersionId 的分配路径同样受约束。
+void TestCatalog::duplicateVersionIdRejected()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogVersion v;
+  v.id = QStringLiteral("ver-1");
+  v.assetId = QStringLiteral("ast-1");
+  v.stage = QStringLiteral("RAW");
+  v.fileName = QStringLiteral("f.dat");
+  QVERIFY(cat.addVersion(v));
+
+  QString err;
+  CatalogVersion dup = v;
+  QVERIFY(!cat.addVersion(dup, &err));
+  QVERIFY(err.contains(QStringLiteral("duplicate")));
+  QCOMPARE(cat.versionsForAsset(QStringLiteral("ast-1")).size(), 1);
+
+  // 手工指定 "ver-9" 后序号随动——下一次分配不再回发已用 id。
+  v.id = QStringLiteral("ver-9");
+  QVERIFY(cat.addVersion(v));
+  QCOMPARE(cat.nextVersionId(), QStringLiteral("ver-10"));
+}
+
+// T20b：schema_version 比 kSchemaVersion 新 → 如实拒绝（不读不写）；
+// 缺键按 1 处理，旧 catalog 照常打开。
+void TestCatalog::refusesUnsupportedSchemaVersion()
+{
+  const auto writeCatalog = [](const QString &dirPath, const QByteArray &json) {
+    QVERIFY(QDir().mkpath(dirPath + QStringLiteral("/artifacts/metadata")));
+    QFile f(dirPath + QStringLiteral("/artifacts/metadata/catalog.json"));
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(json);
+    f.close();
+  };
+
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  writeCatalog(dir.path(), QByteArrayLiteral(
+      "{\"schema_version\":999,\"catalog_revision\":7,\"entities\":[],"
+      "\"assets\":[],\"versions\":[],\"entity_asset_links\":[]}"));
+  DataCatalog cat;
+  QString err;
+  QVERIFY(!cat.open(dir.path(), &err));
+  QVERIFY(err.contains(QStringLiteral("unsupported catalog version")));
+  QVERIFY(cat.refusesWrites());
+  QVERIFY(!cat.openError().isEmpty());
+  // 拒绝写入态：mutator 全拒，坏 catalog 不会被空内容覆盖。
+  CatalogEntity e;
+  e.id = QStringLiteral("well-X");
+  e.entityType = QStringLiteral("well");
+  QVERIFY(!cat.addEntity(e, &err));
+  QVERIFY(!err.isEmpty());
+  QVERIFY(cat.entities().isEmpty());
+
+  // 缺 schema_version 键 = 版本 1（旧格式）——正常打开。
+  QTemporaryDir legacy;
+  QVERIFY(legacy.isValid());
+  writeCatalog(legacy.path(), QByteArrayLiteral(
+      "{\"catalog_revision\":3,\"entities\":[],\"assets\":[],"
+      "\"versions\":[],\"entity_asset_links\":[]}"));
+  DataCatalog legacyCat;
+  QVERIFY2(legacyCat.open(legacy.path(), &err), qPrintable(err));
+  QVERIFY(!legacyCat.refusesWrites());
+  QVERIFY(legacyCat.addEntity(e, &err));
+}
+
+// T20c：每次 save 前把现有 catalog.json 轮转成 .bak——§9 回滚句有可恢复对象。
+void TestCatalog::rotatesBakAndVerifiesWrite()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString catalogFile =
+      dir.filePath(QStringLiteral("artifacts/metadata/catalog.json"));
+  const QString bakFile = catalogFile + QStringLiteral(".bak");
+
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path())); // 初次建 catalog：没有旧文件可轮转
+  QVERIFY(QFile::exists(catalogFile));
+  QVERIFY(!QFile::exists(bakFile));
+
+  CatalogEntity w;
+  w.id = QStringLiteral("well-A1");
+  w.entityType = QStringLiteral("well");
+  QVERIFY(cat.addEntity(w)); // save → 轮转空 catalog 进 .bak
+
+  QVERIFY(QFile::exists(bakFile));
+  QFile bak(bakFile);
+  QVERIFY(bak.open(QIODevice::ReadOnly));
+  const QJsonObject bakRoot = QJsonDocument::fromJson(bak.readAll()).object();
+  QCOMPARE(bakRoot.value(QStringLiteral("schema_version")).toInt(), 1);
+  QVERIFY(bakRoot.value(QStringLiteral("entities")).toArray().isEmpty());
+
+  QFile cur(catalogFile);
+  QVERIFY(cur.open(QIODevice::ReadOnly));
+  const QJsonObject curRoot = QJsonDocument::fromJson(cur.readAll()).object();
+  QCOMPARE(curRoot.value(QStringLiteral("entities")).toArray().size(), 1);
+  // .bak 是上一版：revision 严格小于当前。
+  QVERIFY(bakRoot.value(QStringLiteral("catalog_revision")).toInt() <
+          curRoot.value(QStringLiteral("catalog_revision")).toInt());
+}
+
+// T20a：catalog.json 损坏 → open 失败进拒绝写入态；所有 mutator 如实失败，
+// 磁盘上的坏文件原样保留（不被空 catalog 覆盖）；重开正常目录可恢复。
+void TestCatalog::refusesWritesAfterFailedOpen()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(QDir().mkpath(dir.filePath(QStringLiteral("artifacts/metadata"))));
+  const QString catalogFile =
+      dir.filePath(QStringLiteral("artifacts/metadata/catalog.json"));
+  QFile f(catalogFile);
+  QVERIFY(f.open(QIODevice::WriteOnly));
+  f.write(QByteArrayLiteral("{ not json at all !!!"));
+  f.close();
+  const QByteArray corruptBytes = [&]() {
+    QFile r(catalogFile);
+    if (!r.open(QIODevice::ReadOnly))
+      return QByteArray();
+    return r.readAll();
+  }();
+  QVERIFY(!corruptBytes.isEmpty());
+
+  DataCatalog cat;
+  QVERIFY(cat.refusesWrites()); // 从未成功 open 过的 catalog 同样拒绝写入
+  QString err;
+  QVERIFY(!cat.open(dir.path(), &err));
+  QVERIFY(err.contains(QStringLiteral("corrupt catalog")));
+  QVERIFY(cat.refusesWrites());
+  QCOMPARE(cat.openError(), err);
+
+  CatalogEntity e;
+  e.id = QStringLiteral("well-A1");
+  e.entityType = QStringLiteral("well");
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-1");
+  CatalogVersion v;
+  v.id = QStringLiteral("ver-1");
+  v.assetId = a.id;
+  v.fileName = QStringLiteral("f.dat");
+  EntityAssetLink l;
+  l.entityType = QStringLiteral("well");
+  l.assetId = a.id;
+  l.unresolved = true;
+  QVERIFY(!cat.addEntity(e, &err));
+  QVERIFY(!err.isEmpty());
+  QVERIFY(!cat.addAsset(a, &err));
+  QVERIFY(!cat.addVersion(v, &err));
+  QVERIFY(!cat.addLink(l, &err));
+  QVERIFY(!cat.attachLink(0, QStringLiteral("well-A1"), &err));
+  QVERIFY(!cat.setLinkUnresolved(0, &err));
+  QVERIFY(!cat.setLinkPrimary(0, &err));
+  QVERIFY(cat.entities().isEmpty()); // 内存态也没被假变更污染
+
+  // 关键不变量：坏文件字节原样在盘上——§9 回滚/人工修复还有救。
+  QFile check(catalogFile);
+  QVERIFY(check.open(QIODevice::ReadOnly));
+  QCOMPARE(check.readAll(), corruptBytes);
+
+  // 同一个对象重开一个好目录 → 拒绝态解除，正常读写。
+  QTemporaryDir good;
+  QVERIFY(good.isValid());
+  QVERIFY2(cat.open(good.path(), &err), qPrintable(err));
+  QVERIFY(!cat.refusesWrites());
+  QVERIFY(cat.openError().isEmpty());
+  QVERIFY(cat.addEntity(e, &err));
+}
+
+// T33 / audit row 35：未决集合用显式 unresolvedLinks()；linksForEntity("")
+// 不再静默命中全部未决链接——如实回空。
+void TestCatalog::unresolvedLinksIsTheExplicitAccessor()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+
+  CatalogEntity w;
+  w.id = QStringLiteral("well-A1");
+  w.entityType = QStringLiteral("well");
+  QVERIFY(cat.addEntity(w));
+  for (const QString &id : {QStringLiteral("ast-1"), QStringLiteral("ast-2")})
+  {
+    CatalogAsset a;
+    a.id = id;
+    a.type = QStringLiteral("well_log");
+    QVERIFY(cat.addAsset(a));
+  }
+
+  EntityAssetLink resolved;
+  resolved.entityType = QStringLiteral("well");
+  resolved.entityId = w.id;
+  resolved.assetId = QStringLiteral("ast-1");
+  resolved.role = QStringLiteral("well_log");
+  QVERIFY(cat.addLink(resolved));
+
+  EntityAssetLink pending = resolved;
+  pending.entityId.clear();
+  pending.assetId = QStringLiteral("ast-2");
+  pending.unresolved = true;
+  pending.isPrimary = false;
+  pending.note = QStringLiteral("未匹配井名: zz");
+  QVERIFY(cat.addLink(pending));
+
+  const auto unresolved = cat.unresolvedLinks();
+  QCOMPARE(unresolved.size(), 1);
+  QCOMPARE(unresolved.front().assetId, QStringLiteral("ast-2"));
+  QVERIFY(unresolved.front().unresolved);
+
+  // 守卫空 id：空 entityId 返回空集，不等于未决集合。
+  QVERIFY(cat.linksForEntity(QString()).isEmpty());
+  QCOMPARE(cat.linksForEntity(w.id).size(), 1);
+}
+
+// T33 / audit row 37：BatchSave 作用域内 mutator 不落盘；作用域末一次
+// save() + 一次 changed()；数据照常入库可重载。
+void TestCatalog::batchSaveCoalescesWrites()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  QSignalSpy spy(&cat, &DataCatalog::changed);
+
+  const QString catalogFile =
+      dir.filePath(QStringLiteral("artifacts/metadata/catalog.json"));
+  const qint64 sizeBefore = QFileInfo(catalogFile).size();
+
+  {
+    DataCatalog::BatchSave batch(&cat);
+    CatalogEntity w;
+    w.id = QStringLiteral("well-A1");
+    w.entityType = QStringLiteral("well");
+    QVERIFY(cat.addEntity(w));
+    CatalogAsset a;
+    a.id = QStringLiteral("ast-1");
+    a.type = QStringLiteral("well_log");
+    QVERIFY(cat.addAsset(a));
+    EntityAssetLink l;
+    l.entityType = QStringLiteral("well");
+    l.entityId = w.id;
+    l.assetId = a.id;
+    l.role = QStringLiteral("well_log");
+    QVERIFY(cat.addLink(l));
+    // 挂起期间：changed() 未发、磁盘未动；内存读侧可见变更。
+    QCOMPARE(spy.count(), 0);
+    QCOMPARE(QFileInfo(catalogFile).size(), sizeBefore);
+    QCOMPARE(cat.entities().size(), 1);
+    QString ferr;
+    QVERIFY(batch.flush(&ferr)); // 显式结算一次
+    QCOMPARE(spy.count(), 1);
+  } // 析构幂等——不再多发 changed()
+
+  QCOMPARE(spy.count(), 1);
+  DataCatalog reloaded;
+  QVERIFY(reloaded.open(dir.path()));
+  QCOMPARE(reloaded.entities().size(), 1);
+  QCOMPARE(reloaded.links().size(), 1);
+}
+
+// T33：手改的 catalog 携带 '..' 受管路径——装载时如实跳过该版本（log+skip），
+// 不装进内存、不写回磁盘；干净版本不受影响。
+void TestCatalog::unsafeManagedPathSkippedOnLoad()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(QDir().mkpath(dir.filePath(QStringLiteral("artifacts/metadata"))));
+  QFile f(dir.filePath(QStringLiteral("artifacts/metadata/catalog.json")));
+  QVERIFY(f.open(QIODevice::WriteOnly));
+  f.write(QByteArrayLiteral(
+      "{\"schema_version\":1,\"catalog_revision\":1,\"entities\":[],"
+      "\"assets\":[{\"id\":\"ast-1\",\"type\":\"well_log\",\"format\":\"las\","
+      "\"display_name\":\"A1.Las\"}],"
+      "\"versions\":["
+      "{\"id\":\"ver-1\",\"asset_id\":\"ast-1\",\"stage\":\"RAW\","
+      "\"version_number\":1,\"managed\":true,"
+      "\"path\":\"raw/ast-1/ver-1/A1.Las\",\"file_name\":\"A1.Las\"},"
+      "{\"id\":\"ver-2\",\"asset_id\":\"ast-1\",\"stage\":\"RAW\","
+      "\"version_number\":2,\"managed\":true,"
+      "\"path\":\"raw/ast-1/../../outside/evil.dat\",\"file_name\":\"evil.dat\"},"
+      "{\"id\":\"ver-3\",\"asset_id\":\"ast-1\",\"stage\":\"RAW\","
+      "\"version_number\":3,\"managed\":true,"
+      "\"path\":\"raw/ast-1/ver-3/ok.dat\",\"file_name\":\"..\"}"
+      "],\"entity_asset_links\":[]}"));
+  f.close();
+
+  DataCatalog cat;
+  QString err;
+  QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+  const auto versions = cat.versionsForAsset(QStringLiteral("ast-1"));
+  QCOMPARE(versions.size(), 1); // ver-2 的 '..' 段、ver-3 的坏 fileName 都被跳过
+  QCOMPARE(versions.front().id, QStringLiteral("ver-1"));
+  // 序号恢复只看装进内存的版本——ver-2/ver-3 被拒不占序号。
+  QCOMPARE(cat.nextVersionId(), QStringLiteral("ver-2"));
 }
 
 QTEST_MAIN(TestCatalog)

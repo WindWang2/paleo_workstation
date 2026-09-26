@@ -34,6 +34,13 @@ class DataImportService : public QObject
 
     void setProjectDir(const QString &dir);   // where the project lives
 
+    // T20a：catalog 打开失败面（audit row 36）。setProjectDir 里 open() 失败 →
+    // 发 catalogOpenFailed + 记 catalogOpenError()；此后 catalog 处于拒绝写入
+    // 态（catalog()->refusesWrites()），每个 mutator/导入都如实失败，不会拿
+    // 空 catalog 覆盖坏文件。
+    QString catalogOpenError() const { return m_catalogOpenError; }
+    bool catalogWritable() const { return m_catalog && m_catalogReady; }
+
     // 导入结果（§3 dedup）：outcome 区分新建入库与「字节已在库」；
     // linkAttached 记 dedup 时是否补上了之前未决的主关联；message 是 UI 文案
     // （「字节已在库 · 已补上关联」/「字节已在库 · 没有新的关联」）。
@@ -120,6 +127,8 @@ class DataImportService : public QObject
   signals:
     void imported(const QString &kind, const QString &assetId, const QString &layerId);
     void importFailed(const QString &kind, const QString &path, const QString &error);
+    // setProjectDir 里 catalog open 失败即发；成功打开后 catalogOpenError() 清空。
+    void catalogOpenFailed(const QString &error);
     void documentPdfReady(const QString &assetId);
     void documentPdfFailed(const QString &assetId, const QString &error);
 
@@ -153,6 +162,7 @@ class DataImportService : public QObject
     QString m_projectDir;
     DataCatalog *m_catalog = nullptr;
     bool m_catalogReady = false;
+    QString m_catalogOpenError;   // 最近一次 catalog open 失败原因（成功则空）
 
     QString m_converter;            // "" 未解析/不可用
     bool m_converterResolved = false;

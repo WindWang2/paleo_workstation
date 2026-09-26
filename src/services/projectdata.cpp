@@ -98,6 +98,10 @@ QString ProjectDataFacade::assetFilePathFor(const QString &wellId, const QString
 {
   if (!m_catalog)
     return QString();
+  // audit row 35：linksForEntity 空 id 只回空集（未决集合归 unresolvedLinks()）
+  // ——空 wellId 提前返回，不发出歧义查询。
+  if (wellId.isEmpty())
+    return QString();
 
   QString assetId;
   for (const EntityAssetLink &l : m_catalog->linksForEntity(wellId))

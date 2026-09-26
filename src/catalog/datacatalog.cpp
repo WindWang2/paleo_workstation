@@ -158,6 +158,23 @@ namespace
     v.extra = o.value(QStringLiteral("extra")).toObject().toVariantMap();
     return v;
   }
+
+  // §3 段校验（addVersion 与 catalog 装载共用）：fileName/stage/受管 path 的
+  // 每一段都须过 DataCatalog::isSafePathSegment；返回出问题的那段描述，
+  // 干净版本回空串。（外链 path 是文件系统绝对路径，含分隔符属正常，不查；
+  // 空 path 表示未落位，交给调用方兜底。）
+  QString unsafeVersionSegmentReason(const CatalogVersion &v)
+  {
+    if (!v.fileName.isEmpty() && !DataCatalog::isSafePathSegment(v.fileName))
+      return QStringLiteral("file name: %1").arg(v.fileName);
+    if (!v.stage.isEmpty() && !DataCatalog::isSafePathSegment(v.stage))
+      return QStringLiteral("stage: %1").arg(v.stage);
+    if (v.managed && !v.path.isEmpty())
+      for (const QString &seg : v.path.split(QLatin1Char('/')))
+        if (!DataCatalog::isSafePathSegment(seg))
+          return QStringLiteral("managed path segment: %1").arg(seg);
+    return QString();
+  }
 } // namespace
 
 DataCatalog::DataCatalog(QObject *parent)
@@ -176,6 +193,9 @@ bool DataCatalog::ensureOpen(QString *error) const
 bool DataCatalog::open(const QString &projectDir, QString *error)
 {
   m_isOpen = false;
+  m_openError.clear();
+  m_batchDepth = 0;
+  m_batchDirty = false;
   m_dir = projectDir.trimmed().isEmpty() ? QString() : projectDir;
   m_revision = 0;
   m_entities.clear();
@@ -184,40 +204,37 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   m_links.clear();
   m_assetSeq = m_versionSeq = 0;
 
-  if (m_dir.isEmpty())
-  {
-    setError(error, QStringLiteral("project directory is empty"));
+  const auto fail = [&](const QString &msg) {
+    setError(error, msg);
+    m_openError = msg; // 拒绝写入态的原因留存——openError() 供 UI 展示
     return false;
-  }
+  };
+
+  if (m_dir.isEmpty())
+    return fail(QStringLiteral("project directory is empty"));
 
   QFile f(catalogPath());
   if (!f.exists())
   {
+    // 初始化空 catalog（schema_version + revision 0）。落盘失败同样进
+    // 拒绝写入态——否则后续 mutator 会拿内存态反复尝试覆盖。
+    QString serr;
     m_isOpen = true;
-    if (save(error))
+    if (save(&serr))
       return true;
     m_isOpen = false;
-    return false;
+    return fail(serr.isEmpty() ? QStringLiteral("cannot initialize catalog") : serr);
   }
 
   if (!f.open(QIODevice::ReadOnly))
-  {
-    setError(error, QStringLiteral("cannot open catalog %1").arg(catalogPath()));
-    return false;
-  }
+    return fail(QStringLiteral("cannot open catalog %1").arg(catalogPath()));
   QJsonParseError pe;
   const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &pe);
   if (pe.error != QJsonParseError::NoError || !doc.isObject())
-  {
-    setError(error, QStringLiteral("corrupt catalog %1: %2").arg(catalogPath(), pe.errorString()));
-    return false;
-  }
+    return fail(QStringLiteral("corrupt catalog %1: %2").arg(catalogPath(), pe.errorString()));
   const QJsonObject root = doc.object();
   if (root.value(QStringLiteral("schema_version")).toInt(-1) != kSchemaVersion)
-  {
-    setError(error, QStringLiteral("unsupported catalog schema in %1").arg(catalogPath()));
-    return false;
-  }
+    return fail(QStringLiteral("unsupported catalog schema in %1").arg(catalogPath()));
   m_revision = root.value(QStringLiteral("catalog_revision")).toInt();
   for (const auto &v : root.value(QStringLiteral("entities")).toArray())
     m_entities.append(entityFromJson(v.toObject()));
@@ -237,6 +254,15 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   for (const auto &v : root.value(QStringLiteral("versions")).toArray())
   {
     const CatalogVersion cv = versionFromJson(v.toObject());
+    // 段校验（fileName/stage/受管 path）：坏段版本如实跳过且不写回，
+    // 不静默沿用——与 addVersion 同一校验面（audit row 36/T33）。
+    const QString badSeg = unsafeVersionSegmentReason(cv);
+    if (!badSeg.isEmpty())
+    {
+      qWarning("catalog: skipping version %s with unsafe path segment: %s",
+               qPrintable(cv.id), qPrintable(badSeg));
+      continue;
+    }
     m_versions.append(cv);
     bool ok = false;
     const int n = cv.id.startsWith(QStringLiteral("ver-")) ? cv.id.mid(4).toInt(&ok) : 0;
@@ -253,6 +279,12 @@ bool DataCatalog::save(QString *error)
 {
   if (!ensureOpen(error))
     return false;
+  // 批量作用域内：只记脏、不落盘——endBatch 统一结算（audit row 37）。
+  if (m_batchDepth > 0)
+  {
+    m_batchDirty = true;
+    return true;
+  }
   const QDir dir = QFileInfo(catalogPath()).dir();
   if (!dir.exists() && !dir.mkpath(QStringLiteral(".")))
   {
@@ -291,6 +323,20 @@ bool DataCatalog::save(QString *error)
     setError(error, QStringLiteral("cannot write %1: %2").arg(catalogPath(), f.errorString()));
     return false;
   }
+  // §9 回滚：替换前把现存 catalog 轮转一份 .bak——QSaveFile 防写一半，
+  // .bak 防「写成功了但内容是错的」需要一个上一代可回退。
+  const QString bak = catalogPath() + QStringLiteral(".bak");
+  if (QFile::exists(bak) && !QFile::remove(bak))
+  {
+    setError(error, QStringLiteral("cannot rotate %1").arg(bak));
+    return false;
+  }
+  if (QFile::exists(catalogPath()) && !QFile::copy(catalogPath(), bak))
+  {
+    setError(error, QStringLiteral("cannot rotate %1 to %2").arg(catalogPath(), bak));
+    return false;
+  }
+
   const QByteArray bytes = QJsonDocument(root).toJson(QJsonDocument::Indented);
   if (f.write(bytes) != bytes.size())
   {
@@ -307,6 +353,43 @@ bool DataCatalog::save(QString *error)
   m_revision = nextRevision;
   emit changed();
   return true;
+}
+
+void DataCatalog::beginBatch()
+{
+  ++m_batchDepth;
+}
+
+bool DataCatalog::endBatch(QString *error)
+{
+  if (m_batchDepth <= 0)
+    return true; // 配对失衡由调用方栈结构保证，不 noisy
+  if (--m_batchDepth > 0)
+    return true; // 嵌套批次：只有最外层结算
+  if (!m_batchDirty)
+    return true;
+  m_batchDirty = false;
+  return save(error);
+}
+
+DataCatalog::BatchSave::BatchSave(DataCatalog *catalog)
+  : m_catalog(catalog)
+{
+  if (m_catalog)
+    m_catalog->beginBatch();
+}
+
+DataCatalog::BatchSave::~BatchSave()
+{
+  flush();
+}
+
+bool DataCatalog::BatchSave::flush(QString *error)
+{
+  if (m_done || !m_catalog)
+    return true;
+  m_done = true;
+  return m_catalog->endBatch(error);
 }
 
 bool DataCatalog::addEntity(const CatalogEntity &e, QString *error)
@@ -381,6 +464,14 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
         setError(error, QStringLiteral("unsafe managed path segment: %1").arg(seg));
         return false;
       }
+  }
+  // T17：显式给的 "ver-N" 也推进序号——不然 addVersion("ver-9") 之后
+  // nextVersionId() 还会发 ver-9（被 dup 检查挡下报错）而不是发 ver-10。
+  {
+    bool ok = false;
+    const int n = v.id.startsWith(QStringLiteral("ver-")) ? v.id.mid(4).toInt(&ok) : 0;
+    if (ok && n > 0)
+      m_versionSeq = qMax(m_versionSeq, n);
   }
   m_versions.append(v);
   if (save(error))
@@ -649,9 +740,22 @@ CatalogVersion DataCatalog::currentVersion(const QString &assetId) const
 
 QVector<EntityAssetLink> DataCatalog::linksForEntity(const QString &entityId) const
 {
+  // audit row 35：空 id 不等于「全部未决链接」——未决集合走 unresolvedLinks()；
+  // 这里如实返回空集，不然调用方拿空串查询会静默命中全部未决链接。
+  if (entityId.isEmpty())
+    return {};
   QVector<EntityAssetLink> out;
   for (const EntityAssetLink &l : m_links)
     if (l.entityId == entityId)
+      out.append(l);
+  return out;
+}
+
+QVector<EntityAssetLink> DataCatalog::unresolvedLinks() const
+{
+  QVector<EntityAssetLink> out;
+  for (const EntityAssetLink &l : m_links)
+    if (l.unresolved)
       out.append(l);
   return out;
 }

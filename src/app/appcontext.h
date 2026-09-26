@@ -12,6 +12,7 @@ class QgisProcessingService;
 class QgisEditingService;
 class QgisStyleService;
 class ToolAvailabilityService;
+class PaleoOnnxService;
 class SelectionContext;
 class SeismicMapLink;
 class PaleoProjectStore;
@@ -42,6 +43,9 @@ class AppContext : public QObject
     QgisEditingService *editingSvc() const { return m_editSvc; }
     QgisStyleService *styleSvc() const { return m_styleSvc; }
     ToolAvailabilityService *toolSvc() const { return m_toolSvc; }
+    // ONNX 推理服务（PALEO_HAVE_ORT 构建下恒实例化并绑到 predictionWf；
+    // 运行库/模型缺失由服务自身如实报告，!ORT 构建恒为 nullptr）。
+    PaleoOnnxService *onnxSvc() const { return m_onnxSvc; }
     SelectionContext *selection() const { return m_selection; }
     SeismicMapLink *seismicLink() const { return m_seismicLink; }
     PaleoProjectStore *store() const { return m_store; }
@@ -68,6 +72,7 @@ class AppContext : public QObject
     QgisEditingService *m_editSvc = nullptr;
     QgisStyleService *m_styleSvc = nullptr;
     ToolAvailabilityService *m_toolSvc = nullptr;
+    PaleoOnnxService *m_onnxSvc = nullptr;
     SelectionContext *m_selection = nullptr;
     SeismicMapLink *m_seismicLink = nullptr;
     PaleoProjectStore *m_store = nullptr;

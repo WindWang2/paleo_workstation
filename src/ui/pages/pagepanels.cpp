@@ -1,5 +1,6 @@
 #include "pagepanels.h"
 
+#include "../../ai/onnxpredictionservice.h" // ORT-free header; runtimeAvailable 调用受 PALEO_HAVE_ORT 保护
 #include "../../catalog/datacatalog.h"
 #include "../../io/dataimportservice.h"
 #include "../datapreview/datapreviewtabs.h"
@@ -213,22 +214,9 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   nameEdit->setText(QStringLiteral("x"));
   paramsLay->addWidget(nameEdit);
 
-  paramsLay->addWidget(caption(tr("输出栅格（可空，按模型形状）"), paramsArea));
-  auto *rowsEdit = new QLineEdit(paramsArea);
-  rowsEdit->setObjectName(QStringLiteral("onnxRowsEdit"));
-  rowsEdit->setPlaceholderText(tr("行数"));
-  rowsEdit->setAccessibleName(tr("预测栅格行数"));
-  paramsLay->addWidget(rowsEdit);
-  auto *colsEdit = new QLineEdit(paramsArea);
-  colsEdit->setObjectName(QStringLiteral("onnxColsEdit"));
-  colsEdit->setPlaceholderText(tr("列数"));
-  colsEdit->setAccessibleName(tr("预测栅格列数"));
-  paramsLay->addWidget(colsEdit);
-  auto *cellEdit = new QLineEdit(paramsArea);
-  cellEdit->setObjectName(QStringLiteral("onnxCellEdit"));
-  cellEdit->setPlaceholderText(tr("像元大小，默认 1"));
-  cellEdit->setAccessibleName(tr("预测栅格像元大小"));
-  paramsLay->addWidget(cellEdit);
+  // 输出网格是工区合同（PROJECT_AREA_PLAN §3）：D61 栅格 411×641 与同一套
+  // geotransform，行/列/像元不可配——结果不是 411×641 时 workflow 拒绝写盘。
+  paramsLay->addWidget(caption(tr("输出固定为 D61 工区网格 411×641"), paramsArea));
 
   paramsArea->hide();
   lay->addWidget(paramsArea);
@@ -271,6 +259,12 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
             });
     connect(wf, &PredictionWorkflow::predictionFailed, status,
             [status](const QString &, const QString &error) { status->setText(error); });
+#if PALEO_HAVE_ORT
+    // 诚实可用性：服务恒绑定，但运行库缺失时 onnx:* 不会出现在算法列表里；
+    // 在这里写明原因，而不是静默少列。
+    if (!PaleoOnnxService::runtimeAvailable())
+      status->setText(tr("ONNX 运行时不可用（vendor/onnxruntime 缺少运行库）"));
+#endif
   }
   Q_UNUSED(layers); // reserved: shell lists horizons from the layer service
 }
@@ -310,9 +304,6 @@ QVariantMap PredictPage::parseInputParams()
   auto *inputEdit = child<QLineEdit>(this, "onnxInputEdit");
   auto *shapeEdit = child<QLineEdit>(this, "onnxShapeEdit");
   auto *nameEdit = child<QLineEdit>(this, "onnxInputNameEdit");
-  auto *rowsEdit = child<QLineEdit>(this, "onnxRowsEdit");
-  auto *colsEdit = child<QLineEdit>(this, "onnxColsEdit");
-  auto *cellEdit = child<QLineEdit>(this, "onnxCellEdit");
 
   if (!inputEdit || !shapeEdit || !nameEdit)
     return {};
@@ -381,35 +372,6 @@ QVariantMap PredictPage::parseInputParams()
   params.insert(QStringLiteral("input"), inList);
   params.insert(QStringLiteral("shape"), shapeList);
   params.insert(QStringLiteral("inputName"), nameStr);
-
-  const auto fail = [status](const QString &msg) {
-    if (status)
-      status->setText(msg);
-    return QVariantMap();
-  };
-  const QString rowsText = rowsEdit ? rowsEdit->text().trimmed() : QString();
-  const QString colsText = colsEdit ? colsEdit->text().trimmed() : QString();
-  if (rowsText.isEmpty() != colsText.isEmpty())
-    return fail(tr("行数和列数需要同时填写"));
-  if (!rowsText.isEmpty())
-  {
-    bool rowOk = false;
-    bool colOk = false;
-    const int rows = rowsText.toInt(&rowOk);
-    const int cols = colsText.toInt(&colOk);
-    if (!rowOk || !colOk || rows <= 0 || cols <= 0)
-      return fail(tr("行数和列数必须是正整数"));
-    params.insert(QStringLiteral("rows"), rows);
-    params.insert(QStringLiteral("cols"), cols);
-  }
-  if (cellEdit && !cellEdit->text().trimmed().isEmpty())
-  {
-    bool ok = false;
-    const double cell = cellEdit->text().trimmed().toDouble(&ok);
-    if (!ok || !(cell > 0.0))
-      return fail(tr("像元大小必须是正数"));
-    params.insert(QStringLiteral("cellSize"), cell);
-  }
   return params;
 }
 

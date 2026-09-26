@@ -83,6 +83,7 @@ private slots:
   void horizonTabOffersShowOnMap();
   void everyTypeOpensContent();
   void topsTimeColumnStaysBlank();
+  void tamperedExternalSourceShowsShaMismatch();
   void document_pdfRendersInTab();
   void document_stubbedConverterYieldsDerived();
   void document_converterMissingFailsHonest();
@@ -278,6 +279,38 @@ void TestDataPreview::topsTimeColumnStaysBlank()
     QVERIFY(timeItem);
     QVERIFY2(timeItem->text().isEmpty(), qPrintable(timeItem->text()));
   }
+}
+
+// §3：外链源在入库后被动过 → 标签页如实写「源文件与入库时的 SHA-256 不一致」，
+// 不给解码入口（没有测线选择器，没有剖面）。
+void TestDataPreview::tamperedExternalSourceShowsShaMismatch()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+  const QString sgy = tmp.filePath(QStringLiteral("vol.sgy"));
+  QVERIFY(QFile::copy(fixture(QStringLiteral("mini_seismic.sgy")), sgy));
+  QString err;
+  const QString assetId = st->importSvc->importProjectFile(sgy, &err);
+  QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+  const CatalogVersion v = st->importSvc->catalog()->currentVersion(assetId);
+  QVERIFY(!v.managed);
+  QVERIFY(!v.sha256.isEmpty());
+
+  QFile f(sgy);
+  QVERIFY(f.open(QIODevice::Append));
+  QCOMPARE(f.write("X"), 1);
+  f.close();
+
+  st->preview->openAsset(assetId);
+  auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+  QVERIFY(tabs);
+  QWidget *page = tabs->widget(tabs->currentIndex());
+  QVERIFY(page);
+  auto *state = page->findChild<QLabel *>(QStringLiteral("stateText"));
+  QVERIFY2(state, "sha-mismatch tab must show the honest state line");
+  QCOMPARE(state->text(), QStringLiteral("源文件与入库时的 SHA-256 不一致"));
+  QVERIFY(!page->findChild<QSpinBox *>()); // 不解码
 }
 
 void TestDataPreview::document_pdfRendersInTab()

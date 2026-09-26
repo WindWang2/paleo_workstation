@@ -66,7 +66,7 @@ struct CatalogVersion
   bool managed = true;  // false = 外部链接（SEG-Y 966MB 走这条）
   QString path;         // 受管：工程相对 {stage}/{asset_id}/{version_id}/{filename}；外链：绝对路径
   QString sourceUri;    // 导入源
-  QString sha256;       // 受管副本校验和；外链为空
+  QString sha256;       // 受管副本校验和；外链 = 入库时源文件的 SHA-256（§3：打开时校验）
   QString fileName;
   QStringList parentVersionIds; // DERIVED → 源 RAW 版本
   QVariantMap extra;    // 如装箱栅格的碰撞计数
@@ -89,6 +89,26 @@ class DataCatalog : public QObject
     bool addVersion(const CatalogVersion &v, QString *error = nullptr);
     bool addLink(const EntityAssetLink &l, QString *error = nullptr);
 
+    // 把 links() 序中第 index 条未决链接挂到 entityId：置已决、清备注、成为主关联。
+    // 同一 (entityType, entityId, role) 下的其他主关联同时降级——§3：同一角色
+    // 只保留一条主关联。index 越界 / 链接已决 / entityId 为空 → false。
+    bool attachLink(int index, const QString &entityId, QString *error = nullptr);
+
+    // SHA-256 已在库（dedup，§3）：返回第一个匹配版本；sha 为空或无匹配回空版本。
+    CatalogVersion versionBySha256(const QString &sha256) const;
+
+    // 外链版本打开校验（§3）：managed==false 且入库时留有 sha256 的版本，
+    // 流式重算源文件摘要比对。不一致 → error=「源文件与入库时的 SHA-256 不一致」，
+    // 调用方不得解码。受管版本或未留底的外链不校验（恒 true）。
+    bool verifyExternalVersionSha(const CatalogVersion &version, QString *error = nullptr) const;
+
+    // 流式计算文件 SHA-256（导入与外链校验共用）；失败回空串 + error。
+    static QString sha256FileHex(const QString &path, QString *error = nullptr);
+
+    // 受管路径段合法性（§3）：非空、不是 "." 或含 ".."、不含 /、\\、NUL 与
+    // 其他控制字符。任一不满足即非法段。
+    static bool isSafePathSegment(const QString &segment);
+
     bool hasEntity(const QString &id) const;
     QVector<CatalogEntity> entities(const QString &entityType = QString()) const;
     CatalogEntity entityById(const QString &id) const;
@@ -109,6 +129,7 @@ class DataCatalog : public QObject
     QStringList wellsMatchingName(const QString &name) const;
 
     // 受管路径 {stage}/{asset_id}/{version_id}/{filename}。
+    // 任一段不是合法路径段（isSafePathSegment）时回空串——catalog 不产出坏路径。
     static QString managedPath(const QString &stage, const QString &assetId,
                                const QString &versionId, const QString &fileName);
 

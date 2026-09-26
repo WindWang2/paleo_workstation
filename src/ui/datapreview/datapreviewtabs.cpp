@@ -174,6 +174,13 @@ namespace
       update();
     }
     bool hasImage() const { return !m_img.isNull(); }
+    // 解码入口的失败面（如外链 SHA-256 不一致）：清图并写出原因，不装成剖面。
+    void setError(const QString &text)
+    {
+      m_img = QImage();
+      m_error = text;
+      update();
+    }
 
   protected:
     void paintEvent(QPaintEvent *) override
@@ -183,7 +190,8 @@ namespace
       if (m_img.isNull())
       {
         p.setPen(QColor(QStringLiteral("#5D6E80")));
-        p.drawText(rect(), Qt::AlignCenter, QObject::tr("尚未解码剖面"));
+        p.drawText(rect(), Qt::AlignCenter,
+                   m_error.isEmpty() ? QObject::tr("尚未解码剖面") : m_error);
         return;
       }
       const QRect dst = rect().adjusted(6, 22, -6, -20);
@@ -198,6 +206,7 @@ namespace
   private:
     QImage m_img;
     QString m_caption;
+    QString m_error;
   };
 
   void walkCoords(const QJsonArray &arr, double *minX, double *minY, double *maxX, double *maxY)
@@ -389,13 +398,15 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QString *titleOut
   if (asset.id.isEmpty())
     return nullptr;
   const CatalogVersion v = cat->currentVersion(assetId);
-  QString abs = m_svc->absolutePath(assetId);
+  CatalogVersion sourceVersion = v; // abs 实际对应的版本（文档标签锚回 RAW 原件）
+  QString abs = m_svc->absolutePathForVersion(v);
   // 文档资产：RAW 原件是规范来源——currentVersion 可能已指向 DERIVED
   // PDF 转换件，缺失检查与「用系统程序打开」必须锚在原件上。
   if (asset.type == QLatin1String("document"))
     for (const CatalogVersion &cv : cat->versionsForAsset(assetId))
       if (cv.stage == QLatin1String("RAW"))
       {
+        sourceVersion = cv;
         abs = m_svc->absolutePathForVersion(cv);
         break;
       }
@@ -426,6 +437,18 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QString *titleOut
   {
     lay->addWidget(stateLabel(tr("找不到源文件\n%1").arg(abs.isEmpty() ? v.path : abs), host), 1);
     return host;
+  }
+
+  // 外链完整性（§3）：入库时留过 SHA-256 的源文件被改过就不再解码——
+  // 正文如实写「源文件与入库时的 SHA-256 不一致」。
+  if (!sourceVersion.managed && !sourceVersion.sha256.isEmpty())
+  {
+    QString verr;
+    if (!cat->verifyExternalVersionSha(sourceVersion, &verr))
+    {
+      lay->addWidget(stateLabel(verr, host), 1);
+      return host;
+    }
   }
 
   const QString wellName =
@@ -640,7 +663,18 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QString *titleOut
     auto *no = new QSpinBox(bar);
     no->setRange(static_cast<int>(survey.inlineMin), static_cast<int>(qMax(survey.inlineMax, survey.inlineMin)));
     auto *panel = new SectionPanel(host);
-    const auto decode = [this, abs, survey, mode, no, panel]() {
+    const auto decode = [this, abs, survey, mode, no, panel, v]() {
+      // §3：外链源在入库时留过 SHA-256——每次解码前照它再验一遍（文件可能在
+      // 标签打开后被改动）。不一致就只写原因，不解码。
+      if (!v.managed && !v.sha256.isEmpty() && m_svc)
+      {
+        QString verr;
+        if (!m_svc->catalog()->verifyExternalVersionSha(v, &verr))
+        {
+          panel->setError(verr);
+          return;
+        }
+      }
       SegyReader r;
       QString err;
       if (!r.open(abs, &err))

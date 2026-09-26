@@ -33,6 +33,7 @@
 
 class SeismicMapLink;
 class SelectionContext;
+class DataCatalog;
 class QGraphicsScene;
 class QGraphicsView;
 class QLabel;
@@ -52,7 +53,14 @@ class SeismicPreviewPanel : public QWidget
 
     // Loads SEG-Y traces from file for the given asset id.
     // Parses traces, registers the asset if new, and updates preview if current or idle.
+    // §3：若经 setCatalog 挂了目录且该资产的外链版本留有入库 SHA-256，
+    // 打开前先验摘要——不一致就不解码（warning 如实记原因）。
     void loadLineFromFile(const QString &assetId, const QString &segyPath);
+
+    // 外链 SHA-256 校验来源（§3）。空 = 不校验（兼容无 catalog 的旧接线）。
+    // 注意：paleomainwindow 目前还没接这个 setter——面板在校验上就位的接线
+    // 留给后续改动；单测可注入 catalog 走通校验路径。
+    void setCatalog(const DataCatalog *cat) { m_catalog = cat; }
 
     int assetCount() const { return static_cast<int>(m_assets.size()); }
     QString currentAsset() const { return m_currentId; } // previewed line id
@@ -83,6 +91,7 @@ class SeismicPreviewPanel : public QWidget
 
     SeismicMapLink *m_link = nullptr;
     SelectionContext *m_ctx = nullptr;
+    const DataCatalog *m_catalog = nullptr; // 外链 SHA-256 校验（§3；可空）
     QVector<QPair<QString, QString>> m_assets;    // (id, label), list order
     QHash<QString, std::shared_ptr<SeismicLineData>> m_lineTraces;
     QString m_currentId;

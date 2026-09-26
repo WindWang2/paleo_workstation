@@ -1,5 +1,6 @@
 #include "seismicpreviewpanel.h"
 
+#include "../catalog/datacatalog.h"
 #include "../io/segyreader.h"
 #include "../linkage/seismicmaplink.h"
 #include "../linkage/selectioncontext.h"
@@ -189,6 +190,19 @@ void SeismicPreviewPanel::loadLineFromFile(const QString &assetId, const QString
 {
   if (assetId.isEmpty() || segyPath.isEmpty())
     return;
+
+  // §3：外链版本入库时留有 SHA-256——源文件被改过就不解码，如实记原因。
+  if (m_catalog)
+  {
+    const CatalogVersion v = m_catalog->currentVersion(assetId);
+    QString verr;
+    if (!m_catalog->verifyExternalVersionSha(v, &verr))
+    {
+      qWarning("SeismicPreviewPanel::loadLineFromFile: '%s': %s",
+               qPrintable(segyPath), qPrintable(verr));
+      return;
+    }
+  }
 
   SegyReader reader;
   QString err;

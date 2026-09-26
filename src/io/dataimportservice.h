@@ -11,6 +11,7 @@ class QgisLayerService;
 class PaleoProjectStore;
 class DataCatalog;
 class QProcess;
+struct CatalogAsset;
 struct CatalogVersion;
 
 // io/ — DataImportService 按 project_area 数据契约（docs/PROJECT_AREA_PLAN.md §3）
@@ -31,10 +32,27 @@ class DataImportService : public QObject
 
     void setProjectDir(const QString &dir);   // where the project lives
 
+    // 导入结果（§3 dedup）：outcome 区分新建入库与「字节已在库」；
+    // linkAttached 记 dedup 时是否补上了之前未决的主关联；message 是 UI 文案
+    // （「字节已在库 · 已补上关联」/「字节已在库 · 没有新的关联」）。
+    enum class ImportOutcome { Failed, Imported, AlreadyStored };
+    struct ImportResult
+    {
+      QString assetId;                      // Imported=新资产；AlreadyStored=已存在资产
+      ImportOutcome outcome = ImportOutcome::Failed;
+      bool linkAttached = false;
+      QString message;
+    };
+
     // 新契约入口。返回资产 id；失败返回空串并设置 *error。
+    // （dedup 命中时返回已存在资产 id——用 importProjectFileEx 区分两种结局。）
     QString importProjectFile(const QString &sourcePath, QString *error = nullptr);
     QString importProjectFile(const QString &sourcePath, const ImportOptions &options,
                               QString *error = nullptr);
+    // 带完整结果的入口：dedup（AlreadyStored）不新建资产/版本/主关联。
+    ImportResult importProjectFileEx(const QString &sourcePath, QString *error = nullptr);
+    ImportResult importProjectFileEx(const QString &sourcePath, const ImportOptions &options,
+                                     QString *error = nullptr);
 
     // 旧签名（mainwindow importRequested 接线）：kind 仅用于信号，不再决定行为。
     QString importFile(const QString &kind, const QString &sourcePath, QString *error = nullptr);
@@ -82,6 +100,12 @@ class DataImportService : public QObject
     bool storeManagedRaw(const QString &sourcePath, const QString &assetId,
                          const QString &versionId, QString *relPathOut, QString *shaOut,
                          QString *error);
+
+    // dedup 补挂（§3）：同一 SHA-256 再导入时，按原导入的井名解析顺序重试
+    // asset 的未决链接——现在恰好匹配一口井的挂上去（同名仍多候选/零匹配不动）。
+    // 返回补挂条数。
+    int attachResolvableLinks(const CatalogAsset &asset, const QString &sourcePath,
+                              QString *error = nullptr);
 
     // 文档 PDF 转换：LibreOffice 单实例在共享 UserInstallation 下不可靠，
     // 一律串行（队列）。soffice 把输出写到 --outdir/<stem>.pdf。

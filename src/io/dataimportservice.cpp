@@ -164,8 +164,15 @@ bool DataImportService::storeManagedRaw(const QString &sourcePath, const QString
     return false;
   }
   const QString fileName = QFileInfo(sourcePath).fileName();
-  const QString relPath = QStringLiteral("artifacts/") +
-                          DataCatalog::managedPath(QStringLiteral("raw"), assetId, versionId, fileName);
+  // §3：文件名必须是一段合法路径段（import 入口已拦，这里再兜底）。
+  const QString relDir =
+      DataCatalog::managedPath(QStringLiteral("raw"), assetId, versionId, fileName);
+  if (relDir.isEmpty())
+  {
+    setError(error, QStringLiteral("文件名不是合法路径段: %1").arg(fileName));
+    return false;
+  }
+  const QString relPath = QStringLiteral("artifacts/") + relDir;
   const QString dst = QDir(m_projectDir).absoluteFilePath(relPath);
   const QDir dir = QFileInfo(dst).absoluteDir();
   if (!dir.exists() && !dir.mkpath(QStringLiteral(".")))
@@ -227,10 +234,34 @@ QString DataImportService::importProjectFile(const QString &sourcePath, QString 
 QString DataImportService::importProjectFile(const QString &sourcePath, const ImportOptions &options,
                                              QString *error)
 {
-  const auto fail = [&](const QString &msg) -> QString {
+  // 兼容签名：dedup 命中也返回（已存在的）资产 id——分辨结局用 importProjectFileEx。
+  return importProjectFileEx(sourcePath, options, error).assetId;
+}
+
+DataImportService::ImportResult
+DataImportService::importProjectFileEx(const QString &sourcePath, QString *error)
+{
+  return importProjectFileEx(sourcePath, ImportOptions{}, error);
+}
+
+DataImportService::ImportResult
+DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOptions &options,
+                                       QString *error)
+{
+  ImportResult res;
+  const auto fail = [&](const QString &msg) -> ImportResult {
     setError(error, msg);
     emit importFailed(QString(), sourcePath, msg);
-    return QString();
+    res.outcome = ImportOutcome::Failed;
+    res.message = msg;
+    return res;
+  };
+  const auto done = [&](ImportOutcome outcome, const QString &assetId,
+                        const QString &message = QString()) -> ImportResult {
+    res.outcome = outcome;
+    res.assetId = assetId;
+    res.message = message;
+    return res;
   };
 
   if (!m_layers || !m_store)
@@ -241,6 +272,37 @@ QString DataImportService::importProjectFile(const QString &sourcePath, const Im
     return fail(QStringLiteral("找不到源文件: %1").arg(sourcePath));
 
   const QFileInfo fi(sourcePath);
+
+  // §3 路径卫生：文件名本身必须是一段合法路径段——否则受管路径和 displayName
+  // 都带病。坏文件名让这一行如实失败，不进 catalog。
+  if (!DataCatalog::isSafePathSegment(fi.fileName()))
+    return fail(QStringLiteral("文件名不是合法路径段: %1").arg(fi.fileName()));
+
+  // 流式算一遍源文件 SHA-256：dedup 查询与外链入库留底共用这一趟。
+  QString shaErr;
+  const QString sourceSha = DataCatalog::sha256FileHex(sourcePath, &shaErr);
+  if (sourceSha.isEmpty())
+    return fail(shaErr.isEmpty() ? QStringLiteral("cannot hash %1").arg(sourcePath) : shaErr);
+
+  // §3 dedup：同一 SHA-256 已在库 → 不新建资产/版本/主关联；只把现在恰好能
+  // 匹配到一口井的未决关联补挂上（不建井、不并井）。
+  const CatalogVersion existing = m_catalog->versionBySha256(sourceSha);
+  if (!existing.id.isEmpty())
+  {
+    const CatalogAsset existingAsset = m_catalog->assetById(existing.assetId);
+    QString aerr;
+    const int attached = attachResolvableLinks(existingAsset, sourcePath, &aerr);
+    if (!aerr.isEmpty())
+      qWarning("import dedup attach: %s", qPrintable(aerr));
+    const QString msg =
+        QStringLiteral("字节已在库 · %1")
+            .arg(attached > 0 ? QStringLiteral("已补上关联")
+                              : QStringLiteral("没有新的关联"));
+    qInfo("import: %s — %s", qPrintable(msg), qPrintable(sourcePath));
+    res.linkAttached = attached > 0;
+    emit imported(existingAsset.type, existing.assetId, QString()); // 聚焦已有资产
+    return done(ImportOutcome::AlreadyStored, existing.assetId, msg);
+  }
   const QByteArray xmlContent =
       fi.suffix().compare(QStringLiteral("xml"), Qt::CaseInsensitive) == 0
           ? readFileOrEmpty(sourcePath).toUtf8()
@@ -273,6 +335,8 @@ QString DataImportService::importProjectFile(const QString &sourcePath, const Im
   {
     version.managed = false;
     version.path = fi.absoluteFilePath();
+    // §3：外链也留入库时 SHA-256（上面流式算好的同一趟），打开时照它校验。
+    version.sha256 = sourceSha;
   }
   else
   {
@@ -491,10 +555,12 @@ QString DataImportService::importProjectFile(const QString &sourcePath, const Im
         return fail(*error);
 
       const QString derivedVersionId = m_catalog->nextVersionId();
-      const QString relPath = QStringLiteral("artifacts/") +
-                              DataCatalog::managedPath(QStringLiteral("derived"), assetId,
-                                                       derivedVersionId,
-                                                       stem.toUpper() + QStringLiteral(".tif"));
+      const QString tifName = stem.toUpper() + QStringLiteral(".tif");
+      const QString derivedRel = DataCatalog::managedPath(QStringLiteral("derived"), assetId,
+                                                          derivedVersionId, tifName);
+      if (derivedRel.isEmpty())
+        return fail(QStringLiteral("派生文件名不是合法路径段: %1").arg(tifName));
+      const QString relPath = QStringLiteral("artifacts/") + derivedRel;
       const QString tifPath = QDir(m_projectDir).absoluteFilePath(relPath);
       if (!writeHorizonGeoTiff(binned, tifPath, error))
         return fail(*error);
@@ -617,7 +683,117 @@ QString DataImportService::importProjectFile(const QString &sourcePath, const Im
   }
 
   emit imported(cls.type, assetId, manifestLayerId);
-  return assetId;
+  return done(ImportOutcome::Imported, assetId);
+}
+
+// ---------------------------------------------------------------------------
+// §3 dedup 补挂：同一 SHA-256 再导入时不新建资产/版本；只把「现在恰好匹配
+// 一口井」的未决链接挂上去。名称来源与原导入各分支一致——SHA-256 相同 ⇒
+// 解析出的井名与顺序一致，未决链接按 links() 序与之一一配对。不建井、不并井。
+// ---------------------------------------------------------------------------
+int DataImportService::attachResolvableLinks(const CatalogAsset &asset,
+                                             const QString &sourcePath, QString *error)
+{
+  if (asset.id.isEmpty())
+    return 0;
+  const QString stem = QFileInfo(sourcePath).completeBaseName();
+
+  // 每条（同资产、well 型）链接按创建序对应一组按序尝试的井名。
+  QVector<QStringList> namesPerLink;
+  if (asset.type == QLatin1String("well_log"))
+  {
+    QString wellName, uwi;
+    if (asset.format == QLatin1String("las"))
+      LasParser::readWellInfo(sourcePath, wellName, uwi);
+    namesPerLink.append({wellName, stem}); // ~W WELL → 文件名主名（同导入顺序）
+  }
+  else if (asset.type == QLatin1String("well_stratification"))
+  {
+    QFile f(sourcePath);
+    if (!f.open(QIODevice::ReadOnly))
+    {
+      setError(error, QStringLiteral("cannot read %1").arg(sourcePath));
+      return 0;
+    }
+    QStringList names;
+    for (const WellTopRecord &t : parseWellTopsText(f.readAll()))
+      if (!names.contains(t.wellName))
+        names.append(t.wellName);
+    for (const QString &n : names)
+      namesPerLink.append(names.size() == 1 ? QStringList{n, stem} : QStringList{n});
+  }
+  else if (asset.type == QLatin1String("time_depth"))
+  {
+    QFile f(sourcePath);
+    if (!f.open(QIODevice::ReadOnly))
+    {
+      setError(error, QStringLiteral("cannot read %1").arg(sourcePath));
+      return 0;
+    }
+    const TimeDepthTable td = parseTimeDepthText(f.readAll());
+    namesPerLink.append({td.wellName.isEmpty() ? stem : td.wellName, stem});
+  }
+  else if (asset.type == QLatin1String("well_head"))
+  {
+    QFile f(sourcePath);
+    if (!f.open(QIODevice::ReadOnly))
+    {
+      setError(error, QStringLiteral("cannot read %1").arg(sourcePath));
+      return 0;
+    }
+    const QVector<WellHeadRecord> rows = parseWellHeadText(f.readAll());
+    QHash<QString, int> normRowCount;
+    for (const WellHeadRecord &r : rows)
+      normRowCount[DataCatalog::normalizeWellName(r.name)] += 1;
+    for (const WellHeadRecord &r : rows)
+      // 文件内规范化重名的行在原导入就是「井口重名」未决——仍歧义，不补挂。
+      namesPerLink.append(normRowCount.value(DataCatalog::normalizeWellName(r.name)) >= 2
+                              ? QStringList{}
+                              : QStringList{r.name});
+  }
+  else
+    return 0; // seismic/horizon/auxiliary：实体在入库时已确定，dedup 不补井关联。
+
+  const QVector<EntityAssetLink> links = m_catalog->links(); // 快照（attachLink 不增删）
+  int nameIdx = 0, attached = 0;
+  for (int i = 0; i < links.size() && nameIdx < namesPerLink.size(); ++i)
+  {
+    const EntityAssetLink &l = links.at(i);
+    if (l.assetId != asset.id || l.entityType != QLatin1String("well"))
+      continue;
+    const QStringList tried = namesPerLink.at(nameIdx++);
+    if (!l.unresolved)
+      continue;
+    QString target;
+    for (const QString &n : tried)
+    {
+      const QStringList ids = m_catalog->wellsMatchingName(n);
+      if (ids.size() == 1)
+      {
+        target = ids.front();
+        break;
+      }
+      if (!ids.isEmpty())
+        break; // 2+ 候选仍不决——与导入同一判据（不试下一个名字）
+    }
+    if (target.isEmpty())
+      continue;
+    // 该 (well, role) 已有已决主关联 → 没有新的关联可补。
+    bool hasPrimary = false;
+    for (const EntityAssetLink &o : m_catalog->linksForEntity(target))
+      if (o.role == l.role && o.isPrimary && !o.unresolved)
+        hasPrimary = true;
+    if (hasPrimary)
+      continue;
+    QString aerr;
+    if (!m_catalog->attachLink(i, target, &aerr))
+    {
+      setError(error, aerr);
+      continue;
+    }
+    ++attached;
+  }
+  return attached;
 }
 
 QString DataImportService::importFile(const QString &kind, const QString &sourcePath, QString *error)

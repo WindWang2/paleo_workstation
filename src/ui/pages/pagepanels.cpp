@@ -4,6 +4,7 @@
 
 #include "../../ai/onnxpredictionservice.h" // ORT-free header; runtimeAvailable 调用受 PALEO_HAVE_ORT 保护
 #include "../../catalog/datacatalog.h"
+#include "../../catalog/entityview.h" // p5a：entityDataView 角色槽门面（纯查询）
 #include "../../io/dataimportservice.h"
 #include "../../workflow/workflows.h"    // signal names + ValidationWorkflow::validate
 #include "../../qgis/qgislayerservice.h" // declared() — forward-declares Qgs*, none included
@@ -85,6 +86,16 @@ namespace
     it->setTextAlignment(Qt::AlignCenter);                // T31 居中提示
     t->setItem(0, 0, it);
     t->setSpan(0, 0, 1, t->columnCount());
+  }
+
+  // p5a 实体视图占位格（「缺失」/「—」）：缺源可见但样式克制（upstream
+  // missing-source 原则——空角色如实显示为缺失槽位，灰字、不可交互）。
+  QTableWidgetItem *mutedCell(const QString &text)
+  {
+    auto *it = new QTableWidgetItem(text);
+    it->setFlags(Qt::NoItemFlags);
+    it->setForeground(QColor(QStringLiteral("#5D6E80"))); // text-muted
+    return it;
   }
 
   QString severityText(ValidationIssue::Severity s)
@@ -321,6 +332,50 @@ DataPage::DataPage(QWidget *parent)
   refreshAssetEmptyState(table, QString());
   lay->addWidget(table, 1);
 
+  // ---- p5a：实体角色槽数据视图（entityDataView facade，B 包接线） ----
+  // 实体选中（D6 地图点选 → selectAssetsForEntities）后按角色词表枚举
+  // (实体,角色) 槽：主关联/成员/未决 + 空「缺失」槽位；下游 DERIVED 产物
+  // 与悬空血缘诊断。纯查询；catalog.changed() → refreshAssetTable() 重取。
+  lay->addSpacing(16); // spacing.md between groups
+  lay->addWidget(caption(tr("实体数据视图"), this));
+  auto *viewEmpty = new QLabel(this);
+  viewEmpty->setObjectName(QStringLiteral("entityViewEmptyLabel"));
+  viewEmpty->setWordWrap(true);
+  viewEmpty->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+  lay->addWidget(viewEmpty);
+  auto *viewContent = new QWidget(this);
+  viewContent->setObjectName(QStringLiteral("entityViewContent"));
+  auto *vcl = new QVBoxLayout(viewContent);
+  vcl->setContentsMargins(0, 0, 0, 0);
+  vcl->setSpacing(4);
+  auto *entityHeader = new QLabel(viewContent);
+  entityHeader->setObjectName(QStringLiteral("entityViewHeader"));
+  entityHeader->setStyleSheet(QStringLiteral("color: #24303E;")); // text-primary
+  vcl->addWidget(entityHeader);
+  auto *roleTable = new QTableWidget(0, 4, viewContent);
+  roleTable->setObjectName(QStringLiteral("entityRoleTable"));
+  roleTable->setAccessibleName(tr("实体角色槽"));
+  roleTable->setHorizontalHeaderLabels(
+      {tr("角色"), tr("主关联"), tr("其他成员"), tr("未决")});
+  roleTable->verticalHeader()->setVisible(false);
+  roleTable->horizontalHeader()->setStretchLastSection(true);
+  vcl->addWidget(roleTable, 1);
+  vcl->addWidget(caption(tr("下游派生产物"), viewContent));
+  auto *derivedTable = new QTableWidget(0, 3, viewContent);
+  derivedTable->setObjectName(QStringLiteral("derivedProductsTable"));
+  derivedTable->setAccessibleName(tr("下游派生产物"));
+  derivedTable->setHorizontalHeaderLabels({tr("产物"), tr("版本"), tr("状态")});
+  derivedTable->verticalHeader()->setVisible(false);
+  derivedTable->horizontalHeader()->setStretchLastSection(true);
+  vcl->addWidget(derivedTable);
+  auto *missing = new QLabel(viewContent);
+  missing->setObjectName(QStringLiteral("missingSourcesLabel"));
+  missing->setWordWrap(true);
+  missing->hide(); // 悬空血缘诊断只在 missingSources 非空时出现
+  vcl->addWidget(missing);
+  lay->addWidget(viewContent, 1);
+  refreshEntityView(); // 初始空态（未选实体）：指引行，不留白板
+
   // 列表选中一条资产 → 中央预览标签（预览部件由 shell 持有，重选聚焦语义
   // 由 DataPreviewTabs 实现）。
   connect(table, &QTableWidget::itemSelectionChanged, this, [this, table]() {
@@ -335,6 +390,7 @@ DataPage::DataPage(QWidget *parent)
 
 void DataPage::refreshAssetTable()
 {
+  refreshEntityView(); // p5a：catalog.changed() 接到本槽——实体视图一并重取
   auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
   if (!table)
     return;
@@ -697,6 +753,156 @@ void DataPage::refreshAssetTable()
       table, unresolvedOnly ? tr("没有未决资产 — 全部资产都已挂接") : QString());
 }
 
+// p5a：当前选中实体的角色槽数据视图。entityDataView 是纯查询门面——这里
+// 同样只读 catalog（assetById/currentVersion 解析展示名与版本号），不写
+// 任何东西；页面刷新统一走 catalog.changed() → refreshAssetTable() → 本槽。
+void DataPage::refreshEntityView()
+{
+  auto *content = findChild<QWidget *>(QStringLiteral("entityViewContent"));
+  auto *empty = findChild<QLabel *>(QStringLiteral("entityViewEmptyLabel"));
+  auto *header = findChild<QLabel *>(QStringLiteral("entityViewHeader"));
+  auto *roleTable = findChild<QTableWidget *>(QStringLiteral("entityRoleTable"));
+  auto *derived = findChild<QTableWidget *>(QStringLiteral("derivedProductsTable"));
+  auto *missing = findChild<QLabel *>(QStringLiteral("missingSourcesLabel"));
+  if (!content || !empty || !header || !roleTable || !derived || !missing)
+    return;
+
+  auto *svc = qobject_cast<DataImportService *>(
+      property("paleo.page.importsvc").value<QObject *>());
+  DataCatalog *cat = svc ? svc->catalog() : nullptr;
+  const QString entityId = property("paleo.page.entityId").toString();
+
+  EntityView view;
+  if (cat && cat->isOpen() && !entityId.isEmpty())
+    view = entityDataView(*cat, entityId);
+
+  // 空态：三因如实体指认（不崩不猜）——工程未开 / 未选实体 / 实体不在目录。
+  if (view.entity.id.isEmpty())
+  {
+    if (!cat || !cat->isOpen())
+      empty->setText(tr("工程还没打开 — 打开工程后在地图上点选实体，"
+                        "这里显示它的角色槽数据全貌"));
+    else if (entityId.isEmpty())
+      empty->setText(tr("在地图上点选实体（如井），这里按角色词表显示"
+                        "它的数据全貌与派生产物"));
+    else
+      empty->setText(tr("所选实体不在目录中：%1").arg(entityId));
+    empty->setVisible(true);
+    content->setVisible(false);
+    return;
+  }
+
+  empty->setVisible(false);
+  content->setVisible(true);
+  header->setText(view.entity.name.isEmpty() ? view.entity.id : view.entity.name);
+
+  // ---- 角色槽表：词表序全枚举，空槽「缺失」占位（克制灰字） ----
+  roleTable->setRowCount(0);
+  for (const RoleSlot &slot : view.roleSlots)
+  {
+    const int r = roleTable->rowCount();
+    roleTable->insertRow(r);
+    const bool slotEmpty = slot.primary.assetId.isEmpty() && slot.members.isEmpty() &&
+                           slot.unresolved.isEmpty();
+    auto *roleItem = new QTableWidgetItem(
+        slot.def.display.isEmpty() ? slot.def.role : slot.def.display);
+    roleItem->setFlags(roleItem->flags() & ~Qt::ItemIsEditable);
+    if (slotEmpty)
+      roleItem->setForeground(QColor(QStringLiteral("#5D6E80"))); // 空槽灰字
+    roleTable->setItem(r, 0, roleItem);
+
+    if (!slot.primary.assetId.isEmpty())
+    {
+      const CatalogAsset pa = cat->assetById(slot.primary.assetId);
+      QString primary = pa.displayName.isEmpty() ? slot.primary.assetId : pa.displayName;
+      const CatalogVersion pv = cat->currentVersion(slot.primary.assetId);
+      if (!pv.id.isEmpty())
+        primary += tr(" v%1").arg(pv.versionNumber);
+      auto *it = new QTableWidgetItem(primary);
+      it->setFlags(it->flags() & ~Qt::ItemIsEditable);
+      roleTable->setItem(r, 1, it);
+    }
+    else
+      roleTable->setItem(r, 1, mutedCell(slotEmpty ? tr("缺失") : QStringLiteral("—")));
+
+    QStringList memberNames, pendingNames, pendingNotes;
+    for (const EntityAssetLink &m : slot.members)
+    {
+      const CatalogAsset a = cat->assetById(m.assetId);
+      memberNames << (a.displayName.isEmpty() ? m.assetId : a.displayName);
+    }
+    for (const EntityAssetLink &u : slot.unresolved)
+    {
+      const CatalogAsset a = cat->assetById(u.assetId);
+      pendingNames << (a.displayName.isEmpty() ? u.assetId : a.displayName);
+      if (!u.note.isEmpty())
+        pendingNotes << u.note;
+    }
+    auto *membersItem = memberNames.isEmpty()
+                            ? mutedCell(QStringLiteral("—"))
+                            : new QTableWidgetItem(memberNames.join(QStringLiteral("、")));
+    if (!memberNames.isEmpty())
+      membersItem->setFlags(membersItem->flags() & ~Qt::ItemIsEditable);
+    roleTable->setItem(r, 2, membersItem);
+    if (pendingNames.isEmpty())
+      roleTable->setItem(r, 3, mutedCell(QStringLiteral("—")));
+    else
+    {
+      auto *it = new QTableWidgetItem(pendingNames.join(QStringLiteral("、")));
+      it->setFlags(it->flags() & ~Qt::ItemIsEditable);
+      if (!pendingNotes.isEmpty())
+        it->setToolTip(pendingNotes.join(QStringLiteral("\n"))); // 候选名在徽标同款位置
+      roleTable->setItem(r, 3, it);
+    }
+  }
+
+  // ---- 派生产物表：displayName + vN（mono 数字面）+ stale「过时」胶囊 ----
+  // 清行不删单元格控件（同资产表的 Qt 行为）——先摘出父子树再 deleteLater。
+  for (int r = 0; r < derived->rowCount(); ++r)
+    if (QWidget *w = derived->cellWidget(r, 2))
+    {
+      derived->removeCellWidget(r, 2);
+      w->setParent(nullptr);
+      w->deleteLater();
+    }
+  derived->setRowCount(0);
+  for (const CatalogVersion &v : view.derivedProducts)
+  {
+    const int r = derived->rowCount();
+    derived->insertRow(r);
+    const CatalogAsset a = cat->assetById(v.assetId);
+    const QString name = !a.displayName.isEmpty() ? a.displayName
+                         : !v.fileName.isEmpty()  ? v.fileName
+                                                  : v.id;
+    auto *nameItem = new QTableWidgetItem(name);
+    nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
+    derived->setItem(r, 0, nameItem);
+    auto *ver = new QTableWidgetItem(tr("v%1").arg(v.versionNumber));
+    ver->setFont(PaleoTheme::monoFont());
+    ver->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    derived->setItem(r, 1, ver);
+    // B 包 staleness-lite：extra["stale"] → 「过时」警告胶囊；否则灰字占位。
+    if (v.extra.value(QStringLiteral("stale")).toBool())
+      derived->setCellWidget(
+          r, 2, PaleoTheme::capsuleLabel(tr("过时"), PaleoTheme::CapsuleKind::Warning,
+                                         derived));
+    else
+      derived->setItem(r, 2, mutedCell(QStringLiteral("—")));
+  }
+
+  // ---- 悬空血缘诊断：missingSources 非空才出现，如实列 id ----
+  if (view.missingSources.isEmpty())
+    missing->hide();
+  else
+  {
+    missing->setText(tr("血缘诊断：缺失源版本 %1")
+                         .arg(view.missingSources.join(QStringLiteral("、"))));
+    missing->setStyleSheet(
+        PaleoTheme::capsuleStyleSheet(PaleoTheme::CapsuleKind::Warning));
+    missing->show();
+  }
+}
+
 void DataPage::setUnresolvedFilter(bool on)
 {
   setProperty("paleo.page.filterUnresolved", on);
@@ -707,6 +913,10 @@ void DataPage::setUnresolvedFilter(bool on)
 
 void DataPage::selectAssetsForEntities(const QStringList &entityIds)
 {
+  // p5a：首个选中 id 驱动实体角色槽视图；空选择清回空态（地图取消点选）。
+  setProperty("paleo.page.entityId",
+              entityIds.isEmpty() ? QString() : entityIds.front());
+  refreshEntityView();
   auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
   auto *svc = qobject_cast<DataImportService *>(
       property("paleo.page.importsvc").value<QObject *>());

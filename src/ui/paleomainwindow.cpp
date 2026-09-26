@@ -829,6 +829,10 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     // 地震滚到测线/时间。缺面板的字段自动跳过（threewaylocator.h）。
     auto *threeWay = new ThreeWayLocator(m_canvasCtl, corrPanel, seismicPanel, this);
     threeWay->attach(validatePage);
+    // 阶段E 发布门：验证跑完 → 重算逐井残差覆盖（attachMapping 装的钩子，
+    // 未装则无事发生）。
+    connect(validate, &ValidationWorkflow::validationDone, this,
+            [this](int) { if (m_refreshPublishGate) m_refreshPublishGate(); });
   }
 
   // ---- top bar: domain locator + save ----
@@ -1142,7 +1146,8 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
 // wave/mapping-pipeline 阶段C+E — 编图链 / 层位图导出 / 版本状态机接线
 // ---------------------------------------------------------------------------
 void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionController *versions,
-                                    MapVersionStore *versionStore, ProjectDataFacade *projectData)
+                                    MapVersionStore *versionStore, ProjectDataFacade *projectData,
+                                    DataCatalog *catalog)
 {
   auto *composePage = findChild<ComposePage *>();
   if (!composePage || !mapping || !versions)
@@ -1155,6 +1160,26 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
   const auto activeHorizon = [this]() -> QString {
     return m_selection ? m_selection->activeHorizon() : QString();
   };
+
+  // 发布门（§177/§260）：版本行上的 PDF 资产 id + 逐井残差摘要完整性共同
+  // 决定按钮状态；tooltip 写缺的那条。导出成功 / 保存 / 发布 / 验证跑完 /
+  // 工程打开后都重算 —— 门是「当前状态」而不是一次性开关。
+  const auto refreshPublishGate = [this, versionStore, projectData]() {
+    auto *page = findChild<ComposePage *>();
+    if (!page)
+      return;
+    const QString h = m_selection ? m_selection->activeHorizon() : QString();
+    const MapVersion v = (versionStore && !h.isEmpty()) ? versionStore->latest(h)
+                                                       : MapVersion();
+    const QString summary = h.isEmpty()
+        ? QString()
+        : MapVersionController::residualSummaryJson(projectData, h);
+    int covered = -1, total = -1;
+    MapVersionStore::residualSummaryComplete(summary, &covered, &total);
+    page->setPublishState(!v.pdfAssetId.isEmpty(), covered, total);
+    page->setVersionState(v.version, v.state == QLatin1String("Published"));
+  };
+  m_refreshPublishGate = refreshPublishGate;
 
   // 链路状态文案走 statusLabel（成功/失败都落页面，再进日志）。
   connect(mapping, &MappingWorkflow::chainDone, this,
@@ -1179,9 +1204,11 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
               QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
           });
 
-  // 层位图 PDF：导出成功 → 登记布局产物 → 发布门开闸（阶段E）。
+  // 层位图 PDF（阶段C+E）：导出 → catalog OUTPUT 资产登记 → 布局产物记录 →
+  // 发布门重算。失败弹「导出失败 + 原因 + 重试」；成功弹路径 + SHA-256。
   connect(composePage, &ComposePage::exportPdfRequested, this,
-          [this, versions, versionStore, activeHorizon, status]() {
+          [this, versionStore, projectData, catalog, activeHorizon, status,
+           refreshPublishGate]() {
             const QString h = activeHorizon();
             if (h.isEmpty() || !m_layerSvc)
             {
@@ -1193,33 +1220,56 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
                                            : QDir::temp().absolutePath();
             const QString target = QDir(projectDir).filePath(
                 QStringLiteral("%1_map.pdf").arg(h));
-            QString err;
-            const QString pdf = exportHorizonMapPdf(m_layerSvc, h, target, &err);
-            if (pdf.isEmpty())
+            QString pdf;
+            while (true) // 失败 → 重试 / 取消（§215：导出失败要写原因）
             {
-              status(err);
+              QString err;
+              pdf = exportHorizonMapPdf(m_layerSvc, m_projectSvc, h, target, &err);
+              if (!pdf.isEmpty())
+                break;
               QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+              const auto choice = QMessageBox::warning(
+                  this, tr("导出失败"),
+                  tr("%1\n\n导出目标：%2").arg(err, target),
+                  QMessageBox::Retry | QMessageBox::Cancel, QMessageBox::Retry);
+              if (choice != QMessageBox::Retry)
+              {
+                status(err);
+                return;
+              }
+            }
+
+            // 阶段E：登记 catalog OUTPUT 受管资产 —— 登记失败的导出不算完成
+            // （发布门要求的是「已登记的 PDF」，不是「写出过文件」）。
+            QString sha, managedPath, regErr;
+            const QString assetId =
+                registerMapPdfAsset(catalog, projectDir, pdf, &sha, &managedPath, &regErr);
+            if (assetId.isEmpty())
+            {
+              status(regErr.isEmpty() ? tr("PDF 资产登记失败") : regErr);
+              QgsMessageLog::logMessage(regErr, QStringLiteral("Paleo"),
+                                        Qgis::MessageLevel::Warning);
               return;
             }
-            status(tr("层位图已导出：%1").arg(pdf));
             if (versionStore)
             {
               QString productErr;
-              if (versionStore->recordLayoutProduct(h, pdf, &productErr))
-              {
-                // 发布入口在 PDF 能导出之后再暴露。
-                if (auto *page = findChild<ComposePage *>())
-                  page->setPublishEnabled(true);
-              }
-              else
+              const QString recorded = managedPath.isEmpty() ? pdf : managedPath;
+              if (!versionStore->recordLayoutProduct(h, recorded, assetId, sha, &productErr))
                 QgsMessageLog::logMessage(productErr, QStringLiteral("Paleo"),
                                           Qgis::MessageLevel::Warning);
             }
+            status(tr("层位图已导出：%1").arg(pdf));
+            QMessageBox::information(this, tr("导出成功"),
+                                     tr("已导出层位图：\n%1\n\nSHA-256：%2")
+                                         .arg(pdf, sha));
+            refreshPublishGate();
           });
 
-  // 保存版本：commit + 版本号递增（undo 清空在 controller 内，§1223）。
+  // 保存版本：commit + 版本号递增（undo 清空在 controller 内，§1223）；
+  // 新版本行继承最近登记的 PDF 产物引用 —— 保存后发布门可能开闸。
   connect(composePage, &ComposePage::saveVersionRequested, this,
-          [versions, activeHorizon, status]() {
+          [versions, composePage, activeHorizon, status, refreshPublishGate]() {
             const QString h = activeHorizon();
             if (h.isEmpty())
             {
@@ -1232,36 +1282,61 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
             QString err;
             const MapVersion v = versions->saveVersion(h, provenance, &err);
             if (v.version > 0)
+            {
               status(tr("已保存版本：%1 v%2").arg(h).arg(v.version));
+              composePage->setVersionState(v.version, false);
+            }
             else
               status(err.isEmpty() ? tr("保存版本失败") : err);
+            refreshPublishGate();
           });
 
+  // 发布：确认对话列版本号 / PDF 文件名 / 覆盖井数（§177），确认后把
+  // 逐井残差摘要随发布冻结进版本行。
   connect(composePage, &ComposePage::publishRequested, this,
-          [versions, activeHorizon, status]( ) {
+          [this, versions, versionStore, projectData, composePage, activeHorizon, status,
+           refreshPublishGate]() {
             const QString h = activeHorizon();
             if (h.isEmpty())
             {
               status(tr("先选择层位再发布"));
               return;
             }
+            const QString summary =
+                MapVersionController::residualSummaryJson(projectData, h);
+            int covered = -1, total = -1;
+            MapVersionStore::residualSummaryComplete(summary, &covered, &total);
+            const MapVersion v = versionStore ? versionStore->latest(h) : MapVersion();
+            const QString pdfName =
+                QFileInfo(versionStore ? versionStore->latestLayoutProduct(h) : QString())
+                    .fileName();
+            const auto choice = QMessageBox::question(
+                this, tr("发布版本"),
+                tr("发布 %1 v%2？\n\nPDF：%3\n覆盖井数：%4/%5\n\n发布后快照只读，"
+                   "继续编辑请保存新版本。")
+                    .arg(h)
+                    .arg(v.version)
+                    .arg(pdfName.isEmpty() ? tr("（未登记）") : pdfName)
+                    .arg(covered < 0 ? 0 : covered)
+                    .arg(total < 0 ? 0 : total),
+                QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel);
+            if (choice != QMessageBox::Ok)
+              return;
             QString err;
-            const QString dir = versions->publish(h, &err);
+            const QString dir = versions->publish(h, summary, &err);
             if (!dir.isEmpty())
-              status(tr("已发布：%1 → %2").arg(h, dir));
+            {
+              status(tr("已发布：%1 v%2 → %3").arg(h).arg(v.version).arg(dir));
+              composePage->setVersionState(v.version, true);
+            }
             else
               status(err.isEmpty() ? tr("发布失败") : err);
+            refreshPublishGate();
           });
 
-  // 工程打开时按已登记的布局产物恢复发布门状态。
-  if (m_projectSvc && versionStore)
-  {
+  // 工程打开时恢复发布门状态（版本行的 PDF 资产 + 残差覆盖重算）。
+  if (m_projectSvc)
     connect(m_projectSvc, &QgisProjectService::projectOpened, this,
-            [this, versionStore]() {
-              const QString h = m_selection ? m_selection->activeHorizon() : QString();
-              if (auto *page = findChild<ComposePage *>())
-                page->setPublishEnabled(!h.isEmpty() && versionStore->hasLayoutProduct(h));
-            });
-  }
-  Q_UNUSED(projectData); // 门面已由 AppContext 绑进 mapping/validation 工作流
+            [refreshPublishGate]() { refreshPublishGate(); });
+  refreshPublishGate(); // 初始态：缺什么写什么，按钮禁用
 }

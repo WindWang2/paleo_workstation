@@ -48,6 +48,16 @@ class TestChips : public QObject
         QVERIFY( layers.instantiate( QStringLiteral( "facies.D62" ) ) != nullptr );
         QVERIFY( layers.isInstantiated( QStringLiteral( "facies.D62" ) ) );
 
+        // 阶段E 可用性门：D61 chip 要有栅格声明才可点（E4）。
+        LayerDeclaration d61;
+        d61.layerId = QStringLiteral( "horizon.D61.derived" );
+        d61.horizon = QStringLiteral( "D61" );
+        d61.type = QStringLiteral( "raster" );
+        d61.source = dir.filePath( QStringLiteral( "d61.tif" ) ); // 声明即可
+        d61.group = QStringLiteral( "00_Horizon" );
+        QString declErr;
+        QVERIFY2( layers.declare( d61, &declErr ), qPrintable( declErr ) );
+
         HorizonChipBar bar( &ctx, &layers );
         QCOMPARE( bar.chipNames(), mappingHorizons() );
         QCOMPARE( bar.chipNames().size(), 8 );
@@ -80,6 +90,60 @@ class TestChips : public QObject
         for ( const QString &h : mappingHorizons() )
             QVERIFY( !bar.isChipActive( h ) );
         QCOMPARE( bar.chipNames(), before );
+    }
+
+    // 阶段E — 无栅格声明的层位 chip 禁用 + 固定原因 tooltip；
+    // 声明补上（layerDeclared）后放闸、可选中，已点亮状态不受影响。
+    void chipDisabledUntilRasterDeclared()
+    {
+        QTemporaryDir dir;
+        QVERIFY( dir.isValid() );
+        QgisProjectService projectSvc;
+        QVERIFY( projectSvc.createProject( dir.filePath( QStringLiteral( "proj.qgz" ) ) ) );
+        LayerManifest manifest{ dir.filePath( QStringLiteral( "m.sqlite" ) ) };
+        QVERIFY( manifest.open() );
+        QgisLayerService layers{ &projectSvc, &manifest };
+        SelectionContext ctx;
+
+        HorizonChipBar bar( &ctx, &layers );
+        // 空清单 → 全部禁用 + 同一句 tooltip。
+        for ( const QString &h : mappingHorizons() )
+        {
+            auto *chip = bar.findChild<QToolButton *>( QStringLiteral( "chip_%1" ).arg( h ) );
+            QVERIFY2( chip != nullptr, qPrintable( h ) );
+            QVERIFY2( !chip->isEnabled(), qPrintable( h ) );
+            QCOMPARE( chip->toolTip(), QStringLiteral( "这一阶段还没有这个层位的栅格" ) );
+        }
+        // 禁用的 chip 点不动 —— 不改 activeHorizon。
+        auto *d61 = bar.findChild<QToolButton *>( QStringLiteral( "chip_D61" ) );
+        d61->click();
+        QVERIFY( ctx.activeHorizon().isEmpty() );
+
+        // 声明 D61 栅格（声明本身即可，文件物化与否不影响可用性）。
+        LayerDeclaration d;
+        d.layerId = QStringLiteral( "horizon.D61.derived" );
+        d.horizon = QStringLiteral( "D61" );
+        d.type = QStringLiteral( "raster" );
+        d.source = dir.filePath( QStringLiteral( "d61.tif" ) );
+        d.group = QStringLiteral( "00_Horizon" );
+        QString err;
+        QVERIFY2( layers.declare( d, &err ), qPrintable( err ) ); // emit layerDeclared → 重算
+
+        QVERIFY( d61->isEnabled() );
+        QVERIFY( d61->toolTip().isEmpty() );
+        for ( const QString &h : mappingHorizons() )
+        {
+            if ( h == QLatin1String( "D61" ) )
+                continue;
+            auto *chip = bar.findChild<QToolButton *>( QStringLiteral( "chip_%1" ).arg( h ) );
+            QVERIFY2( !chip->isEnabled(), qPrintable( h ) );
+            QCOMPARE( chip->toolTip(), QStringLiteral( "这一阶段还没有这个层位的栅格" ) );
+        }
+
+        // 放闸的 chip 保留原有 activeHorizon 行为。
+        d61->click();
+        QCOMPARE( ctx.activeHorizon(), QStringLiteral( "D61" ) );
+        QVERIFY( bar.isChipActive( QStringLiteral( "D61" ) ) );
     }
 };
 

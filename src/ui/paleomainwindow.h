@@ -1,6 +1,7 @@
 #pragma once
 #include <QMainWindow>
 #include <QString>
+#include <functional>
 
 class QgisCanvasController;
 class QgisProjectService;
@@ -18,6 +19,7 @@ class MappingWorkflow;
 class MapVersionController;
 class MapVersionStore;
 class ProjectDataFacade;
+class DataCatalog;
 class DataImportService;
 class SeismicMapLink;
 class QgisProcessingService;
@@ -67,8 +69,10 @@ class PaleoMainWindow : public QMainWindow
 
     // wave/mapping-pipeline 阶段C+E：编图链 / 层位图导出 / 版本状态机接到
     // ③编图页。独立于 attachWorkflows，避免动其签名。Call after attachWorkflows.
+    // catalog 用于导出产物登记（OUTPUT 资产，发布门的前提）。
     void attachMapping(MappingWorkflow *mapping, MapVersionController *versions,
-                       MapVersionStore *versionStore, ProjectDataFacade *projectData);
+                       MapVersionStore *versionStore, ProjectDataFacade *projectData,
+                       DataCatalog *catalog = nullptr);
 
   protected:
     void closeEvent(QCloseEvent *event) override;
@@ -81,6 +85,10 @@ class PaleoMainWindow : public QMainWindow
     QgisLayerService *m_layerSvc;
     ToolAvailabilityService *m_tools;
     SelectionContext *m_selection;
+
+    // 阶段E 发布门重算钩子：attachMapping 安装，attachWorkflows 的
+    // validationDone 连接在验证跑完后调它（残差覆盖是门的一条腿）。
+    std::function<void()> m_refreshPublishGate;
 
     QTabBar *m_workflowTabs = nullptr;
     QStackedWidget *m_centerStack = nullptr;   // page0=startup, page1=canvas

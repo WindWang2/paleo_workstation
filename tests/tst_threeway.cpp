@@ -75,7 +75,7 @@ class TestThreeWay : public QObject
     }
 
     // 井 well-1「A1」(300,400)：D61 分层（TVD 2125）+ TD（TVD 1800..2400 →
-    // 2000..2400ms）→ 残差 +215ms 超限、inline=1438。
+    // 2000..2400ms）→ 残差 +215ms 超限、inline=1520（按 Y 轴推导）。
     static bool buildWellCatalog( DataCatalog &catalog, const QDir &d )
     {
         if ( !d.mkpath( QStringLiteral( "raw/ast-1/ver-1" ) ) )
@@ -274,14 +274,14 @@ class TestThreeWay : public QObject
                   QStringLiteral( "well-1" ) );
         QCOMPARE( rpayload.value( QStringLiteral( "horizon" ) ).toString(),
                   QStringLiteral( "D61" ) );
-        QCOMPARE( rpayload.value( QStringLiteral( "inline" ) ).toInt(), 1438 );
+        QCOMPARE( rpayload.value( QStringLiteral( "inline" ) ).toInt(), 1520 );
         QVERIFY( rpayload.contains( QStringLiteral( "time_ms" ) ) );
         QCOMPARE( locator.lastMapPoint(), QPointF( 300.0, 400.0 ) );
         QCOMPARE( wellPanel.lastScrollWell(), QStringLiteral( "well-1" ) );
         QCOMPARE( wellPanel.lastScrollHorizon(), QStringLiteral( "D61" ) );
 
         // 选中残差行 → inline 可解 →「在数据页看这条剖面」可用；点击把整份
-        // 载荷发给 shell（inline=1438 + time_ms）。
+        // 载荷发给 shell（inline=1520 + time_ms）。
         auto *openSection = page.findChild<QPushButton *>(
             QStringLiteral( "openSeismicSectionButton" ) );
         QVERIFY( openSection != nullptr );
@@ -292,7 +292,7 @@ class TestThreeWay : public QObject
         openSection->click();
         QCOMPARE( sectionSpy.count(), 1 );
         const QVariantMap sp = sectionSpy.at( 0 ).at( 0 ).toMap();
-        QCOMPARE( sp.value( QStringLiteral( "inline" ) ).toInt(), 1438 );
+        QCOMPARE( sp.value( QStringLiteral( "inline" ) ).toInt(), 1520 );
         QCOMPARE( sp.value( QStringLiteral( "wellId" ) ).toString(),
                   QStringLiteral( "well-1" ) );
 

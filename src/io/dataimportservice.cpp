@@ -314,16 +314,12 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
     return fail(shaErr.isEmpty() ? QStringLiteral("cannot hash %1").arg(sourcePath) : shaErr);
 
   // §3 dedup：同一 SHA-256 已在库 → 不新建资产/版本/主关联；只把现在恰好能
-  // 匹配到一口井的未决关联补挂上（不建井、不并井）。
+  // 匹配到一口井的未决关联补挂上（不建井、不并井）。versionBySha256 只认
+  // 文件仍在且重哈希一致的版本——受管文件丢失/被改的旧条目不再冒充命中，
+  // 重导据此走全新导入（issue #5）。
   const CatalogVersion existing =
       catInvoke([&] { return m_catalog->versionBySha256(sourceSha); });
-  // An interrupted first import can leave only RAW metadata behind. A retry
-  // must run the type-specific import path again instead of treating that
-  // orphan as a completed asset.
-  const bool orphanRaw =
-      !existing.id.isEmpty() &&
-      catInvoke([&] { return m_catalog->linksForAsset(existing.assetId).isEmpty(); });
-  if (!existing.id.isEmpty() && !orphanRaw)
+  if (!existing.id.isEmpty())
   {
     const CatalogAsset existingAsset =
         catInvoke([&] { return m_catalog->assetById(existing.assetId); });

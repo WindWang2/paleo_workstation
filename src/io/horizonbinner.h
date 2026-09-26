@@ -20,6 +20,7 @@ struct BinnedHorizon
   int rows = 0, cols = 0;
   QVector<float> z;      // row-major（行=inline 升序），nodata=-9999
   int collisions = 0;    // 同像元多点：保留最后一点，计数进元数据
+  int rejected = 0;      // 越界点不写入，只计入拒绝数（plan §3）
   double dx = 0, dy = 0; // 像元尺寸（米）
   double originX = 0, originY = 0; // 北向上左上角
   double zMin = 0, zMax = 0;

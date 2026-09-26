@@ -130,7 +130,10 @@ bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error)
     const int row = (h.gridRows - 1) - (inl - h.p1Inline);
     const int col = xl - h.p1Xline;
     if (row < 0 || row >= b.rows || col < 0 || col >= b.cols)
+    {
+      ++b.rejected; // 越界的点不写入，只计入拒绝数（§3）
       continue;
+    }
     const int idx = row * b.cols + col;
     if (filled.at(idx))
       ++b.collisions; // 同像元多点：保留最后一点（下方覆盖）

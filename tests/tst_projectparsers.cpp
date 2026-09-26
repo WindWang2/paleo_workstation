@@ -18,6 +18,7 @@ private slots:
   void classifiesEachCategory();
   void classifiesXmlByContent();
   void parsesWellHead();
+  void parsesWellHeadOptionalColumns();
   void parsesWellTops();
   void parsesTimeDepth();
   void bomOnFirstDataLineIsStripped();
@@ -112,6 +113,32 @@ void TestProjectParsers::parsesWellHead()
   QCOMPARE(a1->x, 5288.670);
   QCOMPARE(a1->y, 8219.940);
   QCOMPARE(a1->td, 2160.0);
+  // §4 补列：BottomX BottomY WellType（SMI 列序 Name X Y KB TotalDepth BottomX BottomY WellType）
+  QVERIFY(a1->hasBottomX);
+  QVERIFY(a1->hasBottomY);
+  QCOMPARE(a1->bottomX, 5288.670);
+  QCOMPARE(a1->bottomY, 8219.940);
+  QCOMPARE(a1->wellType, QStringLiteral("0"));
+}
+
+void TestProjectParsers::parsesWellHeadOptionalColumns()
+{
+  // 缺 BottomX/BottomY/WellType 列的行仍解析；has* 为 false、wellType 为空。
+  const QVector<WellHeadRecord> rows = parseWellHeadText(
+      QByteArrayLiteral("B2 1000.5 2000.5 4.0 1600.0\n"));
+  QCOMPARE(rows.size(), 1);
+  QCOMPARE(rows.first().name, QStringLiteral("B2"));
+  QVERIFY(!rows.first().hasBottomX);
+  QVERIFY(!rows.first().hasBottomY);
+  QVERIFY(rows.first().wellType.isEmpty());
+
+  // -99999 井底坐标 → 视为空（不进显示）。
+  const QVector<WellHeadRecord> nul = parseWellHeadText(
+      QByteArrayLiteral("B3 1.0 2.0 0.0 900.0 -99999 -99999 3\n"));
+  QCOMPARE(nul.size(), 1);
+  QVERIFY(!nul.first().hasBottomX);
+  QVERIFY(!nul.first().hasBottomY);
+  QCOMPARE(nul.first().wellType, QStringLiteral("3"));
 }
 
 void TestProjectParsers::parsesWellTops()
@@ -136,7 +163,9 @@ void TestProjectParsers::parsesWellTops()
   QVERIFY(a1d61->md > 0);
   QVERIFY(!a1d61->hasTime);
   QVERIFY(a1d61->hasTvd);
-  // 列序：井名 层名 MD X Y Z TVD Time(ms)
+  // 列序：井名 层名 MD X Y Z TVD Time(ms)；X/Y 现在带 has* 标记（§4 分层表列）
+  QVERIFY(a1d61->hasX);
+  QVERIFY(a1d61->hasY);
   QCOMPARE(a1d61->x, 5288.670);
   QCOMPARE(a1d61->y, 8219.940);
 }

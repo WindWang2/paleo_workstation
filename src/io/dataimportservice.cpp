@@ -578,6 +578,7 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
       derived.fileName = stem.toUpper() + QStringLiteral(".tif");
       derived.parentVersionIds = QStringList{versionId};
       derived.extra.insert(QStringLiteral("collisions"), binned.collisions);
+      derived.extra.insert(QStringLiteral("rejected"), binned.rejected);
       derived.extra.insert(QStringLiteral("grid_rows"), binned.rows);
       derived.extra.insert(QStringLiteral("grid_cols"), binned.cols);
       derived.extra.insert(QStringLiteral("z_units"), QStringLiteral("ms"));

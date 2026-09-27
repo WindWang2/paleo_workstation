@@ -669,6 +669,35 @@ class TestUiShell : public QObject
       delete pan;
     }
 
+    // 数据页是列表面（用户裁决）：中央区画布整格藏掉，预览/表格吃满；
+    // 编图链页画布恢复。预览分栏显隐沿用旧约（预览只在数据页）。
+    void dataPageHidesCanvasForLists()
+    {
+      auto *split = m_win->findChild<QSplitter *>(QStringLiteral("mapPreviewSplit"));
+      auto *preview = m_win->findChild<DataPreviewTabs *>(QStringLiteral("dataPreview"));
+      QVERIFY(split && preview);
+      // 画布可能被先前用例借走：此时分栏只有预览一格，上格断言不适用。
+      QWidget *mapW = (split->count() > 1) ? split->widget(0) : nullptr;
+      QVERIFY2(!mapW || mapW != preview, "preview unexpectedly in top slot");
+
+      m_win->showPage(QStringLiteral("data"));
+      if (mapW)
+        QVERIFY(mapW->isHidden()); // 列表面：画布格藏掉
+      QVERIFY(!preview->isHidden());
+
+      for (const QString &p : {QStringLiteral("predict"), QStringLiteral("constraint"),
+                               QStringLiteral("compose"), QStringLiteral("validate")})
+      {
+        m_win->showPage(p);
+        if (mapW)
+          QVERIFY2(!mapW->isHidden(), qPrintable(p));
+        QVERIFY2(preview->isHidden(), qPrintable(p));
+      }
+      m_win->showPage(QStringLiteral("data"));
+      if (mapW)
+        QVERIFY(mapW->isHidden());
+    }
+
     // 面板管理（右键 dock 标题栏 = 顶栏「面板」钮）：createPopupMenu
     // 列出全部 dock 的 toggleViewAction；编辑条是 ribbon 行内控件，
     // 页作用域归 showPage——不在可关清单里。

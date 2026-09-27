@@ -809,12 +809,21 @@ void PaleoMainWindow::showPage(const QString &pageId)
   // 页作用域工具面：编辑 dock 只在编图链页可见。落到非编辑页时停用活动
   // 画布工具——各工具 deactivate() 统一发 abort 信号，约束捕获/编辑会话
   // 经 owner 的 abort 路径拆台（等价 §42.15 的 Esc），不会把笔挂到
-  // 数据页画布上。画布本体保留：数据页的井位上图+图→表联动只读展示。
+  // 数据页画布上。
   const bool editingPage = kEditingToolPages.contains(pageId);
   if (auto *tb = findChild<QWidget *>(QStringLiteral("editingToolbar")))
     tb->setVisible(editingPage);
   if (!editingPage && m_canvasCtl)
     m_canvasCtl->deactivateTool();
+
+  // 数据管理页是列表面：中央区预览/表格吃满，地图画布整格藏掉
+  // （编图链页恢复）。井上图层状态不受影响——去编图链页照常看图。
+  // 上格按「不是预览」判定而非钉死 widget(0)：测试夹具可能把画布借走，
+  // 那时预览会落到 0 位——绝不能藏预览自己。
+  if (m_centerSplit && m_centerSplit->count() > 0)
+    if (QWidget *mapW = m_centerSplit->widget(0))
+      if (mapW != m_previewTabs)
+        mapW->setVisible(pageId != QLatin1String("data"));
 
   applyPreviewSplit();
 }

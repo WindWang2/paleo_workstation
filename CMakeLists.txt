@@ -425,3 +425,16 @@ add_paleo_test(tst_arearules)     # 默认等价 / 自定义生效 / 坏 JSON �
 add_paleo_test(tst_staleness)
 target_compile_definitions(tst_staleness PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+
+# ---- wave/layer-platform (图层平台：三编图页共用底座) ----
+# 图层树面板 + 属性对话框 + 页面档案服务（QgsMapThemeCollection 封装）+
+# 档案工具条。QgsLayerTree/主题是唯一图层可见性状态源，Paleo 只做业务接线。
+target_sources(paleo_core PRIVATE
+  src/qgis/qgislayerprofile.cpp                   # 页面档案：QgsMapThemeCollection 封装 + 组档案表
+  src/ui/layers/layertreepanel.cpp                # 图层树面板（工具条+筛选+全量右键+indicator）
+  src/ui/layers/layerpropertiesdialog.cpp         # 原生属性壳 + Paleo 业务页 + 样式预设
+  src/ui/layers/layerprofilebar.cpp               # 档案工具条（主题下拉/保存/管理）
+)
+add_paleo_test(tst_layerplatform)     # 档案应用/主题往返 .qgz/生命周期/层位时序
+add_paleo_test(tst_layertreepanel)    # 筛选/组级显隐/复制图层/objectName 兼容
+add_paleo_test(tst_layerproperties)   # 矢量/栅格/缺源三类 + 业务页字段

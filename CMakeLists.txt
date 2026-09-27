@@ -355,6 +355,9 @@ target_compile_definitions(tst_seismicmapping PRIVATE
 add_executable(paleo src/app/main.cpp)
 target_link_libraries(paleo PRIVATE paleo_core)
 
+add_executable(paleo_seismic_demo tools/seismic_showcase.cpp)
+target_link_libraries(paleo_seismic_demo PRIVATE paleo_core)
+
 add_executable(tst_boot tests/tst_boot.cpp)
 target_link_libraries(tst_boot PRIVATE paleo_qgis_iface Qt6::Test)
 target_compile_definitions(tst_boot PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")

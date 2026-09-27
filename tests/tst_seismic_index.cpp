@@ -107,7 +107,7 @@ private slots:
 
     // 50 inlines x 20 crosslines = 1000 traces for cancellation test
     largeFilePath_ = tempDir_.filePath(QStringLiteral("test_grid_1000.sgy"));
-    QVERIFY(writeSyntheticVolume(largeFilePath_, 1, 50, 1, 20));
+    QVERIFY(writeSyntheticVolume(largeFilePath_, 1, 100, 1, 100));
   }
 
   void cleanupTestCase()
@@ -235,9 +235,6 @@ private slots:
         [](bool, seismic::SgyIndexPtr, const QString &) {});
 
     QVERIFY(task != nullptr);
-
-    // Give the worker thread a microsecond to launch
-    QThread::msleep(2);
 
     cancelTimer.start();
     task->requestCancel();

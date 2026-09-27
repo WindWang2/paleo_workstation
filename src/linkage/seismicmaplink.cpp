@@ -1,8 +1,11 @@
 #include "seismicmaplink.h"
-
+#include "seismicsectiontool.h"
 #include "selectioncontext.h"
+#include "ui/seismicsection/seismicsectiondockwidget.h"
+#include "domain/seismic/sgyvolume.h"
 
 #include <QSignalBlocker>
+#include <cmath>
 
 #include <qgsfeature.h>
 #include <qgsfeatureiterator.h>
@@ -10,21 +13,7 @@
 #include <qgsfields.h>
 #include <qgsmapcanvas.h>
 #include <qgsvectorlayer.h>
-
-// §40 SeismicMapLink — well–seismic–map linkage, seismic leg.
-//
-// Direction A (layer -> ctx): hooked on the layer's own selectionChanged —
-// it fires for canvas picks and any other selection source, and reports the
-// delta while ctx wants the full state, so selectedFeatureIds() is read as
-// authoritative. fids resolve to line ids through m_idField, then broadcast
-// with origin "canvas". The ctx->broadcasting() check swallows the signal
-// emitted by our own direction-B apply mid-broadcast.
-//
-// Direction B (ctx -> layer): foreign origins re-select matching features.
-// QSignalBlocker on the layer is the reentrancy guard: selectByIds()'s
-// selectionChanged cannot re-enter ctx, so the classic A->B->A ping-pong
-// never starts. triggerRepaint() restores the visual update the blocker
-// suppressed (the canvas relies on layer->selectionChanged to repaint).
+#include <qgsvertexmarker.h>
 
 SeismicMapLink::SeismicMapLink(QgsMapCanvas *canvas, SelectionContext *ctx, QObject *parent)
   : QObject(parent), m_canvas(canvas), m_ctx(ctx)
@@ -34,12 +23,18 @@ SeismicMapLink::SeismicMapLink(QgsMapCanvas *canvas, SelectionContext *ctx, QObj
             this, &SeismicMapLink::onContextSelection);
 }
 
+SeismicMapLink::~SeismicMapLink()
+{
+  delete m_cursorMarker;
+  delete m_tool;
+}
+
 void SeismicMapLink::setSeismicLayer(QgsVectorLayer *lineLayer, const QString &idField)
 {
   if (m_layer == lineLayer && m_idField == idField)
     return;
   if (m_layer)
-    disconnect(m_layer, nullptr, this, nullptr); // drop direction-A hook on old layer
+    disconnect(m_layer, nullptr, this, nullptr);
 
   m_layer = lineLayer;
   m_idField = idField;
@@ -51,7 +46,7 @@ void SeismicMapLink::setSeismicLayer(QgsVectorLayer *lineLayer, const QString &i
             if (!m_ctx || !m_layer)
               return;
             if (m_ctx->broadcasting())
-              return; // echo of a direction-B apply still in flight — swallow
+              return;
             const int idx = m_layer->fields().indexOf(m_idField);
             if (idx < 0)
               return;
@@ -77,16 +72,95 @@ void SeismicMapLink::setSeismicLayer(QgsVectorLayer *lineLayer, const QString &i
           });
 }
 
+void SeismicMapLink::attachSectionDock(seismic::SeismicSectionDockWidget *dock)
+{
+  m_sectionDock = dock;
+  if (!m_sectionDock || !m_sectionDock->canvas())
+    return;
+
+  connect(m_sectionDock->canvas(), &seismic::SeismicSectionCanvas::traceHovered,
+          this, &SeismicMapLink::onSectionTraceHovered);
+  connect(m_sectionDock->canvas(), &seismic::SeismicSectionCanvas::traceClicked,
+          this, &SeismicMapLink::onSectionTraceClicked);
+}
+
+void SeismicMapLink::setGridGeometry(const SurveyGridGeometry &geom)
+{
+  m_gridGeom = geom;
+}
+
+void SeismicMapLink::setActiveVolume(std::shared_ptr<const seismic::SgyVolume> volume)
+{
+  m_volume = volume;
+}
+
+void SeismicMapLink::activateSectionCaptureTool()
+{
+  if (!m_canvas)
+    return;
+
+  if (!m_tool)
+  {
+    m_tool = new SeismicSectionTool(m_canvas);
+    connect(m_tool, &SeismicSectionTool::sectionPathCaptured,
+            this, &SeismicMapLink::onSectionPathCaptured);
+  }
+  m_canvas->setMapTool(m_tool);
+}
+
+void SeismicMapLink::triggerSectionFromMapPolyline(const QVector<QgsPointXY> &mapPoints, const QString &title)
+{
+  if (mapPoints.size() < 2)
+  {
+    emit sectionExtractedFromMap(false, tr("折线至少需要两个点"));
+    return;
+  }
+
+  if (!m_volume || !m_gridGeom.valid)
+  {
+    emit sectionExtractedFromMap(false, tr("未加载有效地震体或测网几何"));
+    return;
+  }
+
+  std::vector<glm::ivec2> pathPoints;
+  std::vector<glm::dvec2> mapPolyline;
+  for (const auto &pt : mapPoints)
+  {
+    int inl = 0, xl = 0;
+    QString reason;
+    if (m_gridGeom.xyToInlineXline(pt.x(), pt.y(), &inl, &xl, &reason))
+    {
+      pathPoints.push_back({inl, xl});
+      mapPolyline.push_back({pt.x(), pt.y()});
+    }
+  }
+
+  if (pathPoints.size() < 2)
+  {
+    emit sectionExtractedFromMap(false, tr("拾取的折线点位于地震工区有效范围外"));
+    return;
+  }
+
+  if (m_sectionDock)
+  {
+    const QString sectionTitle = title.isEmpty() ? tr("地图折线剖面") : title;
+    m_sectionDock->extractSectionFromVolumeAsync(m_volume, pathPoints, sectionTitle, mapPolyline);
+    m_sectionDock->show();
+    m_sectionDock->raise();
+  }
+
+  emit sectionExtractedFromMap(true, QString());
+}
+
 void SeismicMapLink::onContextSelection(const QStringList &ids, const QString &origin)
 {
   if (!m_layer || origin == QLatin1String("canvas"))
-    return; // nothing to sync, or our own broadcast coming back around
+    return;
 
   const int idx = m_layer->fields().indexOf(m_idField);
   if (idx < 0)
     return;
 
-  // Resolve line ids -> feature ids via the id-field index.
   QgsFeatureIds fids;
   QgsFeatureRequest req;
   req.setSubsetOfAttributes(QgsAttributeList{idx});
@@ -98,8 +172,52 @@ void SeismicMapLink::onContextSelection(const QStringList &ids, const QString &o
       fids.insert(f.id());
 
   {
-    const QSignalBlocker blocker(m_layer); // reentrancy guard — no echo into ctx
+    const QSignalBlocker blocker(m_layer);
     m_layer->selectByIds(fids);
   }
   m_layer->triggerRepaint();
+}
+
+void SeismicMapLink::onSectionTraceHovered(
+    int, double, double, float, double mapX, double mapY)
+{
+  if (!m_canvas)
+    return;
+
+  if (std::abs(mapX) < 1e-4 && std::abs(mapY) < 1e-4)
+  {
+    if (m_cursorMarker)
+      m_cursorMarker->hide();
+    return;
+  }
+
+  if (!m_cursorMarker)
+  {
+    m_cursorMarker = new QgsVertexMarker(m_canvas);
+    m_cursorMarker->setIconType(QgsVertexMarker::ICON_CROSS);
+    m_cursorMarker->setColor(QColor(QStringLiteral("#1B73D0")));
+    m_cursorMarker->setIconSize(14);
+    m_cursorMarker->setPenWidth(2);
+  }
+
+  m_cursorMarker->setCenter(QgsPointXY(mapX, mapY));
+  m_cursorMarker->show();
+}
+
+void SeismicMapLink::onSectionTraceClicked(
+    int, double, double, float, double mapX, double mapY)
+{
+  if (!m_canvas)
+    return;
+
+  if (std::abs(mapX) > 1e-4 || std::abs(mapY) > 1e-4)
+  {
+    m_canvas->setCenter(QgsPointXY(mapX, mapY));
+    m_canvas->refresh();
+  }
+}
+
+void SeismicMapLink::onSectionPathCaptured(const QVector<QgsPointXY> &points)
+{
+  triggerSectionFromMapPolyline(points, tr("地图拾取任意剖面"));
 }

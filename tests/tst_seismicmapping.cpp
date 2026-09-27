@@ -6,6 +6,10 @@
 #include "../src/io/timedeptool.h"
 #include "../src/io/wellfileparsers.h"
 #include "../src/services/seismicmapping.h"
+#include "../src/linkage/seismicmaplink.h"
+#include "../src/linkage/selectioncontext.h"
+#include "../src/ui/seismicsection/seismicsectiondockwidget.h"
+#include <qgsmapcanvas.h>
 
 // wave3/derived-publish — §40 SeismicMapLink 的两个新建依赖（E1 决议）：
 //   · SurveyGridGeometry：P1/P2/P3 测网仿射，map XY ↔ (inline, crossline)；
@@ -276,6 +280,54 @@ private slots:
       QCOMPARE( model.depthForTwt( QStringLiteral( "w" ), 100.0 ).status,
                 TimeDepthTool::TdStatus::NoTable );
     }
+  }
+
+  void seismicMapLinkAttachDockAndHoverSync()
+  {
+    QgsMapCanvas canvas;
+    canvas.resize(800, 600);
+    canvas.setExtent(QgsRectangle(0.0, 0.0, 15000.0, 20000.0));
+
+    SelectionContext ctx;
+    SeismicMapLink link(&canvas, &ctx);
+
+    seismic::SeismicSectionDockWidget dock;
+    link.attachSectionDock(&dock);
+    QCOMPARE(link.sectionDock(), &dock);
+
+    // Simulate trace hover with map coordinates (5288.67, 8219.94)
+    emit dock.canvas()->traceHovered(10, 800.0, 1000.0, 0.5f, 5288.67, 8219.94);
+
+    // Click recenters canvas
+    emit dock.canvas()->traceClicked(10, 800.0, 1000.0, 0.5f, 5288.67, 8219.94);
+    QVERIFY(qAbs(canvas.center().x() - 5288.67) < 1e-3);
+    QVERIFY(qAbs(canvas.center().y() - 8219.94) < 1e-3);
+  }
+
+  void seismicMapLinkPolylineTriggerValidation()
+  {
+    QgsMapCanvas canvas;
+    SelectionContext ctx;
+    SeismicMapLink link(&canvas, &ctx);
+
+    seismic::SeismicSectionDockWidget dock;
+    link.attachSectionDock(&dock);
+
+    // Set grid geometry
+    const SurveyGridGeometry g = SurveyGridGeometry::fromHorizonHeader(realD61Header());
+    link.setGridGeometry(g);
+
+    QSignalSpy extractSpy(&link, &SeismicMapLink::sectionExtractedFromMap);
+
+    // Single point -> rejected
+    link.triggerSectionFromMapPolyline({QgsPointXY(100.0, 100.0)});
+    QCOMPARE(extractSpy.count(), 1);
+    QCOMPARE(extractSpy.takeFirst().at(0).toBool(), false);
+
+    // Points outside grid -> rejected
+    link.triggerSectionFromMapPolyline({QgsPointXY(-5000.0, -5000.0), QgsPointXY(-6000.0, -6000.0)});
+    QCOMPARE(extractSpy.count(), 1);
+    QCOMPARE(extractSpy.takeFirst().at(0).toBool(), false);
   }
 };
 

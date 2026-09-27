@@ -1783,10 +1783,11 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   stack->addWidget(composePage);
   stack->addWidget(validatePage);
 
-  // 连井剖面 — bottom-dock tab fed by the import pipeline。地震底栏预览
-  // 已随 §4 预览壳重排移除（测线预览由数据页预览壳承担，见
-  // seismicSectionRequested 接线）；seismicLink 暂留签名内兼容调用方。
-  Q_UNUSED(seismicLink);
+  // Phase 5: 井-震-图联动 (SeismicMapLink) 接线
+  if (seismicLink && m_seismicSectionDock)
+  {
+    seismicLink->attachSectionDock(m_seismicSectionDock);
+  }
   WellCorrelationPanel *corrPanel = nullptr;
   if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
   {

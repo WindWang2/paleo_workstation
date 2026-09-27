@@ -120,6 +120,7 @@ add_library(paleo_core STATIC
   src/ui/vertexeditorshim.cpp
   src/app/appcontext.cpp
   src/linkage/seismicmaplink.cpp
+  src/linkage/seismicsectiontool.cpp
   src/qgis/manifestprojection.cpp
   src/io/dataimportservice.cpp
   src/io/lasparser.cpp
@@ -159,6 +160,7 @@ add_library(paleo_core STATIC
   src/ui/wellcomposite/wellcompositecanvas.cpp
   src/ui/wellcomposite/wellcompositepanel.cpp
   src/ui/wellcomposite/curveconfigdialog.cpp
+  src/ui/wellcomposite/wellpositionlegendwidget.cpp
   src/io/wellcompositexml.cpp
   # ---- package C: ingest-plan (three-phase folder import) ----
   src/io/ingestplan.cpp                          # C 包：纯 plan + 幂等执行器

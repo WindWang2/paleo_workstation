@@ -451,7 +451,7 @@ void PaleoMainWindow::buildShell()
   setCentralWidget(m_centerStack);
 
   // ---- left dock: layer tree on the project's declared tree ----
-  m_leftDock = new QDockWidget(QStringLiteral("图层"), this);
+  m_leftDock = new PaleoDockWidget(QStringLiteral("图层"), this);
   m_leftDock->setObjectName(QStringLiteral("layerTreeDock"));
   EmptyStateLabel *treeEmpty = nullptr;
   if (m_projectSvc && m_projectSvc->project() && m_projectSvc->project()->layerTreeRoot())
@@ -532,7 +532,7 @@ void PaleoMainWindow::buildShell()
   addDockWidget(Qt::RightDockWidgetArea, m_rightDock);
 
   // ---- bottom dock: log + tasks tabs ----
-  m_bottomDock = new QDockWidget(QStringLiteral("日志 / 任务"), this);
+  m_bottomDock = new PaleoDockWidget(QStringLiteral("日志 / 任务"), this);
   m_bottomDock->setObjectName(QStringLiteral("bottomDock"));
   auto *bottomTabs = new QTabWidget(m_bottomDock);
   bottomTabs->setObjectName(QStringLiteral("bottomTabs"));
@@ -545,6 +545,8 @@ void PaleoMainWindow::buildShell()
   bottomTabs->addTab(tasks, QStringLiteral("任务"));
   m_bottomDock->setWidget(bottomTabs);
   addDockWidget(Qt::BottomDockWidgetArea, m_bottomDock);
+  m_bottomDock->setUserWantsVisible(false);
+  m_bottomDock->setProgrammaticVisible(false);
 
   // ---- web shell dock (goal/webui-host): embed already-built web services.
   // Hidden by default; the WebViewPanel inside is lazily constructed on first
@@ -851,6 +853,23 @@ void PaleoMainWindow::showPage(const QString &pageId)
     m_workspaceStack->setCurrentIndex(pageId == QLatin1String("data") ? 1 : 0);
   if (m_previewTabs)
     m_previewTabs->setVisible(pageId == QLatin1String("data"));
+
+  // 数据页面纯三栏布局（数据导航树 | 预览可视化 | 属性面板），不要图层树与底部的横向面板（日志/任务等）。
+  // 离开数据页面切到编图页面时，恢复用户期望的图层树与底栏状态。
+  if (pageId == QLatin1String("data"))
+  {
+    if (m_leftDock)
+      m_leftDock->setProgrammaticVisible(false);
+    if (m_bottomDock)
+      m_bottomDock->setProgrammaticVisible(false);
+  }
+  else
+  {
+    if (m_leftDock && m_leftDock->userWantsVisible())
+      m_leftDock->setProgrammaticVisible(true);
+    if (m_bottomDock && m_bottomDock->userWantsVisible())
+      m_bottomDock->setProgrammaticVisible(true);
+  }
 
 
   // 页作用域工具面：编辑命令组只在编图链三页的 ribbon 里。落到非编辑页

@@ -19,8 +19,36 @@ class QgisLayerService;
 class ToolAvailabilityService;
 class SelectionContext;
 class QgsMapLayer;
-class QTabBar;
-class QDockWidget;
+#include <QDockWidget>
+
+class PaleoDockWidget : public QDockWidget
+{
+  Q_OBJECT
+public:
+  using QDockWidget::QDockWidget;
+
+  bool userWantsVisible() const { return m_userWantsVisible; }
+  void setUserWantsVisible(bool v) { m_userWantsVisible = v; }
+
+  void setProgrammaticVisible(bool v)
+  {
+    m_programmatic = true;
+    setVisible(v);
+    m_programmatic = false;
+  }
+
+  void setVisible(bool visible) override
+  {
+    if (!m_programmatic)
+      m_userWantsVisible = visible;
+    QDockWidget::setVisible(visible);
+  }
+
+private:
+  bool m_programmatic = false;
+  bool m_userWantsVisible = true;
+};
+
 class QStackedWidget;
 class QSplitter;
 class DataPreviewTabs;
@@ -201,9 +229,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     bool m_previewExpanded = false;            // 首个标签打开后已给过 60%（D7 预算）
     bool m_previewMaximized = false;           // D7：预览最大化态（列表留一行壳）
     QList<int> m_preMaxSplitSizes;             // 最大化前的分栏尺寸（还原用）
-    QDockWidget *m_leftDock = nullptr;
+    PaleoDockWidget *m_leftDock = nullptr;
     QDockWidget *m_rightDock = nullptr;
-    QDockWidget *m_bottomDock = nullptr;
+    PaleoDockWidget *m_bottomDock = nullptr;
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
     DataImportService *m_importSvc = nullptr; // attachWorkflows 注入；启动页「从工区文件夹新建」用

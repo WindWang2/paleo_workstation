@@ -759,8 +759,8 @@ void PaleoMainWindow::showPage(const QString &pageId)
   // 经 owner 的 abort 路径拆台（等价 §42.15 的 Esc），不会把笔挂到
   // 数据页画布上。画布本体保留：数据页的井位上图+图→表联动只读展示。
   const bool editingPage = kEditingToolPages.contains(pageId);
-  if (auto *dock = findChild<QDockWidget *>(QStringLiteral("editToolbarDock")))
-    dock->setVisible(editingPage);
+  if (auto *tb = findChild<QWidget *>(QStringLiteral("editingToolbar")))
+    tb->setVisible(editingPage);
   if (!editingPage && m_canvasCtl)
     m_canvasCtl->deactivateTool();
 
@@ -2156,9 +2156,12 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     }
   }
 
-  // 编辑 toolbar dock (wave/edit-tools): hosts the digitizing toolset —
+  // 编辑 toolbar (wave/edit-tools): hosts the digitizing toolset —
   // add/reshape/move/delete + vertex editing routed through the editing
-  // service; undo/redo follows the selected layer.
+  // service; undo/redo follows the selected layer. 归属 ribbon 体：插在
+  // ribbonActionRow 之下、中央工作区之上——编图工具跟着页签走，不能压在
+  // 页签行上面（TopDockWidgetArea 会越过整个中央件）。页作用域显隐仍由
+  // showPage 的 kEditingToolPages 驱动（无 toggle 入口）。
   if (m_canvasCtl)
   {
     auto *editTb = new PaleoEditingToolbar(m_canvasCtl->canvas(), this);
@@ -2180,13 +2183,14 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 [editTb](const QStringList &) { editTb->refreshFromProject(); });
       }
     }
-    auto *editDock = new QDockWidget(tr("编辑"), this);
-    editDock->setObjectName(QStringLiteral("editToolbarDock"));
-    editDock->setWidget(editTb);
-    addDockWidget(Qt::TopDockWidgetArea, editDock);
-    // 页作用域：dock 无 toggle 入口，可见性完全由 showPage 驱动——
-    // 建 dock 时按当前页落初值（startup/数据页一律隐藏）。
-    editDock->setVisible(kEditingToolPages.contains(m_currentPage));
+    if (auto *vl =
+            qobject_cast<QVBoxLayout *>(m_centerStack->parentWidget()->layout()))
+      vl->insertWidget(vl->indexOf(m_centerStack), editTb); // ribbon 之下、画布之上
+    else
+      editTb->setParent(this); // 布局兜底：不可见孤儿也比丢失强
+    // 页作用域：可见性完全由 showPage 驱动——建条时按当前页落初值
+    //（startup/数据页一律隐藏）。
+    editTb->setVisible(kEditingToolPages.contains(m_currentPage));
   }
 
   // 图件设计 entry (wave/layout-designer): create a print layout via the

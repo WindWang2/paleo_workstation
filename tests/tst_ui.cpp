@@ -584,7 +584,7 @@ class TestUiShell : public QObject
     }
 
     // wave/data-integrity：attachWorkflows 幂等——同一窗口二次调用不得重复
-    // 建 dock/连接/崩溃（旧行为：重复建 correlationPanel/editToolbarDock/
+    // 建 dock/连接/崩溃（旧行为：重复建 correlationPanel/editingToolbar/
     // processingButton 等 + 叠加信号连接，二次调用后后续用例段错误）。
     // 直接证据：连续两次调用后 dock 总数与逐对象名单不翻倍、右栏页数不变，
     // 且页切换照常不崩。单跑本用例（首次 attach）与套件内（第二次触达）
@@ -605,7 +605,7 @@ class TestUiShell : public QObject
       const auto namedCount = [this](const char *name) {
         return m_win->findChildren<QWidget *>(QLatin1String(name)).size();
       };
-      for (const char *name : {"correlationPanel", "editingToolbar", "editToolbarDock",
+      for (const char *name : {"correlationPanel", "editingToolbar",
                                "releasePanel", "attributeTablePanel", "processingButton",
                                "statusCatalogError"})
         QCOMPARE(namedCount(name), 1);
@@ -616,7 +616,7 @@ class TestUiShell : public QObject
       attachAll(); // 二次调用：必须早退——不翻倍、不叠加连接、不崩。
 
       QCOMPARE(m_win->findChildren<QDockWidget *>().size(), docksAfterFirst);
-      for (const char *name : {"correlationPanel", "editingToolbar", "editToolbarDock",
+      for (const char *name : {"correlationPanel", "editingToolbar",
                                "releasePanel", "attributeTablePanel", "processingButton",
                                "statusCatalogError"})
         QCOMPARE(namedCount(name), 1);
@@ -639,20 +639,24 @@ class TestUiShell : public QObject
                              m_ctx->processingSvc(), m_ctx->store(),
                              m_ctx->editingSvc(), m_ctx->layoutSvc(),
                              m_ctx->taskSvc());
-      auto *dock = m_win->findChild<QDockWidget *>(QStringLiteral("editToolbarDock"));
-      QVERIFY(dock);
+      auto *tb = m_win->findChild<QWidget *>(QStringLiteral("editingToolbar"));
+      QVERIFY(tb);
+      // 归属 ribbon 体：不再有 dock 包装——编辑条是中央列里的一行，
+      // 在 ribbonActionRow 之下、centerStack 之上。
+      QVERIFY(!m_win->findChild<QDockWidget *>(QStringLiteral("editToolbarDock")));
+      QVERIFY(tb->parentWidget() == m_win->centralWidget());
 
       // isHidden() 惯例同预览用例：offscreen 窗口未 show 时 isVisible 不可用。
       for (const QString &p : {QStringLiteral("data"), QStringLiteral("validate")})
       {
         m_win->showPage(p);
-        QVERIFY2(dock->isHidden(), qPrintable(p));
+        QVERIFY2(tb->isHidden(), qPrintable(p));
       }
       for (const QString &p : {QStringLiteral("predict"), QStringLiteral("constraint"),
                                QStringLiteral("compose")})
       {
         m_win->showPage(p);
-        QVERIFY2(!dock->isHidden(), qPrintable(p));
+        QVERIFY2(!tb->isHidden(), qPrintable(p));
       }
 
       // 活动工具随页停用：借原生 QgsMapToolPan 当活动工具，落数据页后

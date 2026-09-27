@@ -79,6 +79,14 @@
 - **第二工区参数化接缝**：~~外置 seam~~ 已落地——`AreaRules`（层序名单/分类器目录规则/SEG-Y 四偏移/ONNX 网格门，经 `project_area.json` 覆盖，默认=本工区值；`docs/AREA_PARAMETERS.md`，wave-4 `8fc7bb2`）。**遗留**：真接第二个工区时按该文档走通一遍验证 seam 完备性。触发条件：接入第二个工区。Effort: M / Priority: P3
 - **Onto 层位/边界文件的命名规范**：文件名不在 8 个层序界面时产未决层位实体、不进编图 chip——属已交付行为；名单经 `AreaRules.sequenceBoundaries` 可配（wave-4），命名规范文档化随第二工区处理。触发条件：新层序命名。Effort: S / Priority: P4
 
+## P3 — UI 分层收口递延（from /autoplan docs/UI_LAYER_PLAN.md, 2026-09-27）
+
+- **clang-tidy include-order CI**：分层检查器只管方向不管序；include 排序规范化递延。触发条件：分层落地后代码风格再收一轮。Effort: S / Priority: P3
+- **`DataImportService` using 别名删除**：`FolderPreviewRow`/`FolderRowResult` 解嵌套后保留源码兼容别名一期（保护 tst_import 22 处用点）；二期删除别名、调用点全改 `domain/importrows.h`。触发条件：W2 落地后的下个迭代。Effort: S / Priority: P3 / Depends on: UI_LAYER_PLAN W2
+- **大 LAS 同步 `lasAt` 的 UI 线程延迟悬崖**：correlation 侧按路径同步解析保留现状 UX；大文件会阻塞 GUI 线程（现状已存在，分层不恶化）。触发条件：实测大 LAS 连井剖面卡顿。Effort: M / Priority: P3
+- **文件夹导入扫描期进度 UX**：本轮只定「忙碌光标 + 状态栏一行」契约；真进度条（文件计数/ETA）递延。触发条件：大文件夹导入实测等待过长。Effort: S / Priority: P3
+- **include 级护栏的调用级补强**：单一 `paleo_core` 静态库下 `check_layering.py` 只挡 include 挡不住「不带 include 直接 new」；若要挡需 clang 插件或拆库。触发条件：发现绕过 include 的违规实例。Effort: M / Priority: P4
+
 ## Completed
 
 - **2026-09-26 · project_area 数据底座 + D61 编图链**（p1/p2 双包并入 master）：catalog 实体/资产/版本/显式关联 + SHA-256 受管 RAW；分类器与井口/分层/时深解析；D61 装箱时间栅格；SEG-Y 道索引单测线解码；9 类数据页预览；读侧 facade、D61→D62 厚度→凸包约束 IDW→相多边形；TD 残差验证、三视图联动、PDF 导出、8 层位 chip、版本状态机。`424e185` `f3d9b83` `c994d21`

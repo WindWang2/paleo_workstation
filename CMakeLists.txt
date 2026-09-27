@@ -142,6 +142,11 @@ add_library(paleo_core STATIC
   src/io/geojsonaffine.cpp                       # D11 临时配准（手工仿射）
   src/ui/datapreview/datapreviewtabs.cpp         # §4 data-page preview tabs
   src/ui/webviewpanel.cpp                        # embedded web shell (lazy, degradable)
+  # ---- wave/wellcomposite (ResFormStar multi-track composite column) ----
+  src/ui/wellcomposite/wellcompositetrack.cpp
+  src/ui/wellcomposite/wellcompositecanvas.cpp
+  src/ui/wellcomposite/wellcompositepanel.cpp
+  src/io/wellcompositexml.cpp
   # ---- package C: ingest-plan (three-phase folder import) ----
   src/io/ingestplan.cpp                          # C 包：纯 plan + 幂等执行器
 )
@@ -243,6 +248,7 @@ target_compile_definitions(tst_import PRIVATE
 add_paleo_test(tst_datapreview)
 target_compile_definitions(tst_datapreview PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_wellcomposite)
 add_paleo_test(tst_smoke_realdata) # real-data smoke; skips unless PALEO_REAL_PROJECT_AREA is set
 add_paleo_test(tst_webviewpanel)   # offscreen: engine unavailable → fallback, host survives
 # ---- wave3/ux-consistency ----

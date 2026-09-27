@@ -13,6 +13,7 @@
 #include "../../io/timedeptool.h"
 #include "../../io/wellfileparsers.h"
 #include "../../services/paleotaskservice.h"
+#include "../wellcomposite/wellcompositepanel.h"
 
 #include <QComboBox>
 #include <QCryptographicHash>
@@ -2398,6 +2399,18 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     if (asset.displayName.contains(QStringLiteral("HZ28-6-1")) ||
         auxName.contains(QStringLiteral("HZ28-6-1")))
       lay->addWidget(warnLabel(tr("不对应 A1–A20"), host));
+
+    if (abs.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive))
+    {
+      auto *compositePanel = new WellComposite::WellCompositePanel(host);
+      compositePanel->setObjectName(QStringLiteral("wellCompositePanel"));
+      if (compositePanel->loadComprehensiveXml(abs))
+      {
+        lay->addWidget(compositePanel, 1);
+        return host;
+      }
+      delete compositePanel;
+    }
     lay->addStretch(1);
     return host;
   }

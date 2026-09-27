@@ -129,6 +129,25 @@ class CompositionWorkflow : public QObject
     // The raster declaration's horizon wins when it is set.
     bool deriveFaciesPolygons(const QString &horizon, const QString &rasterLayerId,
                               const QVariantMap &params = QVariantMap(), QString *error = nullptr);
+
+    // ---- m2(C)：相属性回写（编辑态页「相属性」区的落库侧）----
+    // 页面拿不到选中要素 id——这里按图层当前选中集解析（无选中 → 拒绝）。
+    // attrs 携 facies_code(int)/facies_type/comment；写入走图层 edit buffer
+    // （beginEditCommand/changeAttributeValue/endEditCommand，QGIS 4.2 命令
+    // 组在 QgsMapLayer 上）；facies_type/comment 字段缺则先补建。变更留在
+    // 编辑会话里（随编辑条「保存」提交 / 取消回滚）——不在这里绕过单写者
+    // 纪律直接 commit。
+    bool saveFaciesAttributes(const QString &layerId, const QVariantMap &attrs,
+                              QString *error = nullptr);
+
+    // m2(C)：把派生只读的相界 gpkg 备成可编辑工作副本并重指声明。
+    // deriveFaciesPolygons 的产物按 T26 纪律 chmod 只读（catalog DERIVED
+    // 版本不可变），而相界编辑需要可写面：源文件只读时复制到
+    // <projectDir>/artifacts/layers/facies/<layerId>.gpkg（可写），manifest
+    // 同 id 重指——只读原件留在 artifacts/derived 作 catalog provenance，
+    // sha 不动。源本就可写或非文件源 → 原样返回 layerId；失败 → 空串 +
+    // *error。重跑 derive 后再进编辑会用新派生文件重新铺工作副本。
+    QString prepareFaciesForEditing(const QString &layerId, QString *error = nullptr);
   signals:
     void compositionDone(const QString &horizon, const QString &resultLayerId);
     void faciesPolygonsReady(const QString &horizon, const QString &layerId);

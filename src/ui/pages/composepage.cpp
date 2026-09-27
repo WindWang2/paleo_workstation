@@ -10,14 +10,33 @@
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QVBoxLayout>
 
 #include <algorithm>
 
 using namespace PaleoPanel;
+
+namespace
+{
+  // m2(C)：相属性编辑目标层（动态属性存态——页面类按惯例不持数据成员）。
+  constexpr const char kFaciesTargetProp[] = "paleo.page.faciesTarget";
+
+  bool isRaster(const LayerDeclaration &d)
+  {
+    return d.type.compare(QLatin1String("raster"), Qt::CaseInsensitive) == 0;
+  }
+  bool inGroup(const LayerDeclaration &d, const char *group)
+  {
+    return d.group == QLatin1String(group) ||
+           d.group.startsWith(QLatin1String(group) + QLatin1Char('/'));
+  }
+} // namespace
 
 // 层：视图
 // ---------------------------------------------------------------------------
@@ -48,6 +67,14 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   connect(exportPdf, &QPushButton::clicked, this, [this] { emit exportPdfRequested(); });
   lay->addWidget(exportPdf);
 
+  // m2(C)：在布局设计器中打开本页版面（导出用的同一主题版面）。
+  auto *openDesigner = new QPushButton(tr("在布局设计器中打开"), this);
+  openDesigner->setObjectName(QStringLiteral("openDesignerButton"));
+  openDesigner->setAccessibleName(tr("在布局设计器中打开"));
+  connect(openDesigner, &QPushButton::clicked, this,
+          [this] { emit layoutDesignerRequested(); });
+  lay->addWidget(openDesigner);
+
   auto *saveVersion = new QPushButton(tr("保存版本"), this);
   saveVersion->setObjectName(QStringLiteral("saveVersionButton"));
   saveVersion->setAccessibleName(tr("保存版本"));
@@ -75,6 +102,29 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   list->setObjectName(QStringLiteral("factorList"));
   list->setAccessibleName(tr("单因素图层列表"));
   lay->addWidget(list, 1);
+
+  // m2(C)：全选/清空小工具行（融合清单勾选收集的批量入口）。
+  {
+    auto *row = new QHBoxLayout();
+    auto *selectAll = new QPushButton(tr("全选"), this);
+    selectAll->setObjectName(QStringLiteral("factorSelectAllButton"));
+    selectAll->setAccessibleName(tr("全选因素"));
+    connect(selectAll, &QPushButton::clicked, this, [this, list] {
+      for (int i = 0; i < list->count(); ++i)
+        list->item(i)->setCheckState(Qt::Checked);
+    });
+    auto *clearAll = new QPushButton(tr("清空"), this);
+    clearAll->setObjectName(QStringLiteral("factorClearButton"));
+    clearAll->setAccessibleName(tr("清空勾选"));
+    connect(clearAll, &QPushButton::clicked, this, [this, list] {
+      for (int i = 0; i < list->count(); ++i)
+        list->item(i)->setCheckState(Qt::Unchecked);
+    });
+    row->addWidget(selectAll);
+    row->addWidget(clearAll);
+    row->addStretch(1);
+    lay->addLayout(row);
+  }
 
   auto *fuse = new QPushButton(tr("合成编图"), this);
   fuse->setObjectName(QStringLiteral("fuseButton"));
@@ -144,6 +194,95 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
         status->setText(tr("没有相编码栅格，这一工区不从厚度生成相"));
     }
   });
+
+  // ---- m2(C)：相属性区（矢量化产物要素的三字段编辑 → 保存意图信号）----
+  lay->addSpacing(16); // spacing.md between groups
+  auto *attrSection = new CollapsibleSection(tr("相属性"), this);
+  attrSection->setObjectName(QStringLiteral("faciesAttrArea"));
+  {
+    QVBoxLayout *al = attrSection->containerLayout();
+    auto *target = new QLabel(attrSection);
+    target->setObjectName(QStringLiteral("faciesTargetLabel"));
+    target->setWordWrap(true);
+    al->addWidget(target);
+
+    auto *code = new QLineEdit(attrSection);
+    code->setObjectName(QStringLiteral("faciesCodeEdit"));
+    code->setAccessibleName(tr("相代码"));
+    code->setPlaceholderText(tr("相代码（整数）"));
+    al->addWidget(code);
+
+    auto *faciesType = new QLineEdit(attrSection);
+    faciesType->setObjectName(QStringLiteral("faciesTypeEdit"));
+    faciesType->setAccessibleName(tr("相类型"));
+    faciesType->setPlaceholderText(tr("相类型（如 辫状河三角洲）"));
+    al->addWidget(faciesType);
+
+    auto *comment = new QLineEdit(attrSection);
+    comment->setObjectName(QStringLiteral("faciesCommentEdit"));
+    comment->setAccessibleName(tr("相备注"));
+    comment->setPlaceholderText(tr("备注"));
+    al->addWidget(comment);
+
+    auto *save = new QPushButton(tr("保存相属性"), attrSection);
+    save->setObjectName(QStringLiteral("faciesAttrSaveButton"));
+    save->setAccessibleName(tr("保存相属性"));
+    save->setEnabled(false);
+    save->setToolTip(tr("先矢量化生成相界图层"));
+    connect(save, &QPushButton::clicked, this, [this, code, faciesType, comment] {
+      const QString layerId = property(kFaciesTargetProp).toString();
+      const QString codeText = code->text().trimmed();
+      auto *status = child<QLabel>(this, "statusLabel");
+      if (layerId.isEmpty())
+      {
+        if (status)
+          status->setText(tr("还没有相属性目标层 — 先「转为相多边形」"));
+        return;
+      }
+      if (!codeText.isEmpty())
+      {
+        bool ok = false;
+        codeText.toInt(&ok);
+        if (!ok)
+        {
+          if (status)
+            status->setText(tr("相代码须是整数：%1").arg(codeText));
+          return;
+        }
+      }
+      QVariantMap attrs;
+      if (!codeText.isEmpty())
+        attrs.insert(QStringLiteral("facies_code"), QVariant(codeText.toInt()));
+      if (!faciesType->text().trimmed().isEmpty())
+        attrs.insert(QStringLiteral("facies_type"), faciesType->text().trimmed());
+      if (!comment->text().trimmed().isEmpty())
+        attrs.insert(QStringLiteral("comment"), comment->text().trimmed());
+      emit faciesAttributesSaveRequested(layerId, attrs);
+      if (status)
+        status->setText(tr("已提交相属性：%1（图层当前选中要素）").arg(layerId));
+    });
+    al->addWidget(save);
+  }
+  lay->addWidget(attrSection);
+
+  // ---- m2(C)：参考图区（06_Reference 组声明图层勾选叠加）----
+  lay->addSpacing(16); // spacing.md between groups
+  auto *refSection = new CollapsibleSection(tr("参考图"), this);
+  refSection->setObjectName(QStringLiteral("referenceArea"));
+  {
+    QVBoxLayout *rl = refSection->containerLayout();
+    auto *refs = new QListWidget(refSection);
+    refs->setObjectName(QStringLiteral("referenceList"));
+    refs->setAccessibleName(tr("参考图图层列表"));
+    connect(refs, &QListWidget::itemChanged, this, [this](QListWidgetItem *item) {
+      if (!item)
+        return;
+      emit referenceVisibilityRequested(item->data(Qt::UserRole).toString(),
+                                        item->checkState() == Qt::Checked);
+    });
+    rl->addWidget(refs);
+  }
+  lay->addWidget(refSection);
 
   auto *status = new QLabel(this);
   status->setObjectName(QStringLiteral("statusLabel"));
@@ -232,6 +371,25 @@ void ComposePage::setThicknessHorizon(const QString &horizon)
                         : tr("等时差（双向 ms）× 层间速度 IDW → 厚度栅格"));
 }
 
+void ComposePage::setFaciesEditTarget(const QString &layerId)
+{
+  setProperty(kFaciesTargetProp, layerId);
+  updateFaciesTargetUi(layerId);
+}
+
+void ComposePage::updateFaciesTargetUi(const QString &layerId)
+{
+  if (auto *label = child<QLabel>(this, "faciesTargetLabel"))
+    label->setText(layerId.isEmpty()
+                       ? tr("尚未矢量化相界图层 — 先「转为相多边形」")
+                       : tr("目标层：%1（保存图层当前选中要素）").arg(layerId));
+  if (auto *btn = child<QPushButton>(this, "faciesAttrSaveButton"))
+  {
+    btn->setEnabled(!layerId.isEmpty());
+    btn->setToolTip(layerId.isEmpty() ? tr("先矢量化生成相界图层") : QString());
+  }
+}
+
 void ComposePage::refreshFactors()
 {
   auto *list = child<QListWidget>(this, "factorList");
@@ -247,7 +405,9 @@ void ComposePage::refreshFactors()
   list->clear();
   for (const LayerDeclaration &d : declared)
   {
-    if (d.group != QLatin1String("04_SingleFactor"))
+    // m2(C)：融合输入只认栅格因素——B 的 contours.*（矢量，子组或平组）
+    // 不是融合输入。
+    if (!inGroup(d, "04_SingleFactor") || !isRaster(d))
       continue;
     auto *it = new QListWidgetItem(d.layerId, list);
     it->setData(Qt::UserRole, d.layerId);
@@ -256,25 +416,58 @@ void ComposePage::refreshFactors()
   }
 
   auto *combo = child<QComboBox>(this, "faciesRasterCombo");
-  if (!combo)
-    return;
-  const QString previous = combo->currentData().toString();
-  combo->clear();
-  for (const LayerDeclaration &d : declared)
+  if (combo)
   {
-    const bool raster = d.type.compare(QLatin1String("raster"), Qt::CaseInsensitive) == 0;
-    const bool groupOk = d.group == QLatin1String("03_Composite") ||
-                         d.group == QLatin1String("01_Prediction") ||
-                         d.group == QLatin1String("02_Prediction") ||
-                         d.group == QLatin1String("03_Predict");
-    const bool idOk = d.layerId.startsWith(QLatin1String("composite.")) ||
-                      d.layerId.startsWith(QLatin1String("pred.")) ||
-                      d.layerId.startsWith(QLatin1String("predict."));
-    if (!raster || (!groupOk && !idOk))
-      continue;
-    combo->addItem(d.layerId, d.layerId);
+    const QString previous = combo->currentData().toString();
+    combo->clear();
+    for (const LayerDeclaration &d : declared)
+    {
+      const bool raster = isRaster(d);
+      const bool groupOk = d.group == QLatin1String("03_Composite") ||
+                           d.group == QLatin1String("01_Prediction") ||
+                           d.group == QLatin1String("02_Prediction") ||
+                           d.group == QLatin1String("03_Predict");
+      const bool idOk = d.layerId.startsWith(QLatin1String("composite.")) ||
+                        d.layerId.startsWith(QLatin1String("pred.")) ||
+                        d.layerId.startsWith(QLatin1String("predict."));
+      if (!raster || (!groupOk && !idOk))
+        continue;
+      combo->addItem(d.layerId, d.layerId);
+    }
+    const int keep = combo->findData(previous);
+    if (keep >= 0)
+      combo->setCurrentIndex(keep);
   }
-  const int keep = combo->findData(previous);
-  if (keep >= 0)
-    combo->setCurrentIndex(keep);
+
+  // m2(C)：参考图清单（06_Reference 组声明图层；子组同前缀规则）。
+  if (auto *refs = child<QListWidget>(this, "referenceList"))
+  {
+    const QSignalBlocker block(refs); // populate 阶段不发可见性意图
+    refs->clear();
+    for (const LayerDeclaration &d : declared)
+    {
+      if (!inGroup(d, "06_Reference"))
+        continue;
+      auto *it = new QListWidgetItem(d.title.isEmpty() ? d.layerId : d.title, refs);
+      it->setToolTip(d.layerId);
+      it->setData(Qt::UserRole, d.layerId);
+      it->setFlags(it->flags() | Qt::ItemIsUserCheckable);
+      it->setCheckState(Qt::Unchecked);
+    }
+  }
+
+  // m2(C)：相属性目标层——显式指名（壳 setFaciesEditTarget）优先；声明里
+  // 唯一的 facies.* 矢量层兜底自动采纳（独立于壳也能用）。
+  QStringList faciesDecls;
+  for (const LayerDeclaration &d : declared)
+    if (inGroup(d, "05_PaleoMap") &&
+        d.layerId.startsWith(QLatin1String("facies.")) && !isRaster(d))
+      faciesDecls << d.layerId;
+  const QString explicitTarget = property(kFaciesTargetProp).toString();
+  QString target;
+  if (faciesDecls.contains(explicitTarget))
+    target = explicitTarget;
+  else if (faciesDecls.size() == 1)
+    target = faciesDecls.first();
+  updateFaciesTargetUi(target);
 }

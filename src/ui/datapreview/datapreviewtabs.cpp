@@ -32,11 +32,14 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QPainter>
+#include <QMouseEvent>
 #include <QPdfDocument>
 #include <QPdfView>
 #include <QPixmap>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScrollBar>
+#include <QSet>
 #include <QSpinBox>
 #include <QStandardItemModel>
 #include <QToolButton>
@@ -44,6 +47,7 @@
 #include <QTableWidget>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 
 #include <cmath>
 #include <limits>
@@ -107,94 +111,681 @@ namespace
     it->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
   }
 
-  // 单道曲线（§4：现有单道绘制风格，不搬连井面板）。y=深度向下，NaN 断线。
+  static QColor pickCurveColor(const QString &name, int index)
+  {
+    const QString upper = name.toUpper();
+    if (upper == QLatin1String("GR") || upper.startsWith(QLatin1String("GR_")))
+      return QColor(QStringLiteral("#2E7D32")); // Forest Green (Standard Gamma Ray)
+    if (upper == QLatin1String("AC") || upper.startsWith(QLatin1String("AC_")) || upper == QLatin1String("DT"))
+      return QColor(QStringLiteral("#0288D1")); // Cyan/Light Blue (Acoustic Sonic)
+    if (upper == QLatin1String("DEN") || upper.startsWith(QLatin1String("DEN_")) || upper == QLatin1String("RHOB"))
+      return QColor(QStringLiteral("#D32F2F")); // Red (Bulk Density)
+    if (upper == QLatin1String("CNL") || upper == QLatin1String("NPHI"))
+      return QColor(QStringLiteral("#E65100")); // Orange (Neutron Porosity)
+    if (upper.startsWith(QLatin1String("RT")) || upper.startsWith(QLatin1String("RD")) || upper.startsWith(QLatin1String("LLD")))
+      return QColor(QStringLiteral("#7B1FA2")); // Purple (Deep Resistivity)
+    if (upper == QLatin1String("SP"))
+      return QColor(QStringLiteral("#00796B")); // Teal (Spontaneous Potential)
+    if (upper.startsWith(QLatin1String("CAL")))
+      return QColor(QStringLiteral("#455A64")); // Slate (Caliper)
+
+    static const QStringList kPalette{
+      QStringLiteral("#1B73D0"),
+      QStringLiteral("#E65100"),
+      QStringLiteral("#7B1FA2"),
+      QStringLiteral("#00838F"),
+      QStringLiteral("#C2185B"),
+      QStringLiteral("#5D6E80"),
+      QStringLiteral("#F57C00"),
+      QStringLiteral("#388E3C")
+    };
+    return QColor(kPalette.at(index % kPalette.size()));
+  }
+
+  struct CurveData
+  {
+    QString name;
+    QString unit;
+    QColor color;
+    QVector<QPointF> pts; // (x = value, y = depth)
+    QPair<double, double> vRange{0, 1};
+    bool visible = true;
+    double hoverValue = std::numeric_limits<double>::quiet_NaN();
+  };
+
+  // 测井道曲线面板：支持多曲线叠合、深度缩放、拖拽平移、标尺与光标读数
   class CurvePanel : public QWidget
   {
   public:
-    CurvePanel(QWidget *parent = nullptr) : QWidget(parent) { setMinimumSize(260, 320); }
-    // 空态文案按资产类型给（§4：time_depth → 「无时深表」，LAS → 「这条曲线没有有效样点」）。
+    explicit CurvePanel(QWidget *parent = nullptr) : QWidget(parent)
+    {
+      setMinimumSize(280, 320);
+      setMouseTracking(true);
+      m_vScroll = new QScrollBar(Qt::Vertical, this);
+      m_vScroll->setVisible(false);
+      connect(m_vScroll, &QScrollBar::valueChanged, this, [this](int val) {
+        if (m_updatingScroll || m_zoomFactor <= 1.0)
+          return;
+        const double totalSpan = m_dRange.second - m_dRange.first;
+        const double visibleSpan = totalSpan / m_zoomFactor;
+        const double maxScroll = m_dRange.second - visibleSpan;
+        if (maxScroll <= m_dRange.first)
+          return;
+        const int maxVal = m_vScroll->maximum();
+        const double frac = maxVal > 0 ? static_cast<double>(val) / maxVal : 0.0;
+        m_scrollDepth = m_dRange.first + frac * (maxScroll - m_dRange.first);
+        update();
+      });
+    }
+
     void setEmptyText(const QString &text)
     {
       m_emptyText = text;
       update();
     }
-    void setCurve(const QString &name, const QString &unit, const QVector<double> &values,
-                  const QVector<double> &depths)
+
+    void clearCurves()
     {
-      m_name = name;
-      m_unit = unit;
-      m_pts.clear();
-      double vMin = std::numeric_limits<double>::max(), vMax = std::numeric_limits<double>::lowest();
-      double dMin = std::numeric_limits<double>::max(), dMax = std::numeric_limits<double>::lowest();
-      for (int i = 0; i < qMin(values.size(), depths.size()); ++i)
-      {
-        if (std::isnan(values.at(i)) || std::isnan(depths.at(i)))
-          continue;
-        m_pts.append(QPointF(values.at(i), depths.at(i)));
-        vMin = qMin(vMin, values.at(i));
-        vMax = qMax(vMax, values.at(i));
-        dMin = qMin(dMin, depths.at(i));
-        dMax = qMax(dMax, depths.at(i));
-      }
-      if (m_pts.isEmpty())
-      {
-        update();
-        return;
-      }
-      m_vRange = {vMin == vMax ? vMin - 1.0 : vMin, vMax == vMin ? vMax + 1.0 : vMax};
-      m_dRange = {dMin, dMax};
+      m_curves.clear();
+      m_dRange = {0, 1};
+      m_scrollDepth = 0.0;
+      m_zoomFactor = 1.0;
+      updateScrollBar();
       update();
     }
-    int pointCount() const { return m_pts.size(); }
+
+    void addCurve(const QString &name, const QString &unit,
+                  const QVector<double> &values, const QVector<double> &depths,
+                  const QColor &color, bool visible = true)
+    {
+      CurveData cd;
+      cd.name = name;
+      cd.unit = unit;
+      cd.color = color;
+      cd.visible = visible;
+
+      double vMin = std::numeric_limits<double>::max(), vMax = std::numeric_limits<double>::lowest();
+      double dMin = m_curves.isEmpty() ? std::numeric_limits<double>::max() : m_dRange.first;
+      double dMax = m_curves.isEmpty() ? std::numeric_limits<double>::lowest() : m_dRange.second;
+
+      const int n = qMin(values.size(), depths.size());
+      for (int i = 0; i < n; ++i)
+      {
+        const double v = values.at(i);
+        const double d = depths.at(i);
+        if (std::isnan(v) || std::isnan(d) || v <= -9999.0)
+          continue;
+        cd.pts.append(QPointF(v, d));
+        vMin = qMin(vMin, v);
+        vMax = qMax(vMax, v);
+        dMin = qMin(dMin, d);
+        dMax = qMax(dMax, d);
+      }
+
+      if (!cd.pts.isEmpty())
+      {
+        cd.vRange = {vMin == vMax ? vMin - 1.0 : vMin, vMax == vMin ? vMax + 1.0 : vMax};
+        m_dRange = {dMin, dMax};
+        m_scrollDepth = m_dRange.first;
+      }
+      m_curves.append(cd);
+      updateScrollBar();
+      update();
+    }
+
+    // 单道兼容接口（time_depth 或旧代码调用）
+    void setCurve(const QString &name, const QString &unit,
+                  const QVector<double> &values, const QVector<double> &depths)
+    {
+      clearCurves();
+      addCurve(name, unit, values, depths, QColor(QStringLiteral("#1B73D0")), true);
+    }
+
+    void setCurveVisible(const QString &name, bool visible)
+    {
+      for (CurveData &c : m_curves)
+      {
+        if (c.name.compare(name, Qt::CaseInsensitive) == 0)
+        {
+          c.visible = visible;
+          break;
+        }
+      }
+      update();
+    }
+
+    bool isCurveVisible(const QString &name) const
+    {
+      for (const CurveData &c : m_curves)
+        if (c.name.compare(name, Qt::CaseInsensitive) == 0)
+          return c.visible;
+      return false;
+    }
+
+    int pointCount() const
+    {
+      int count = 0;
+      for (const CurveData &c : m_curves)
+        count += c.pts.size();
+      return count;
+    }
+
+    double zoomFactor() const { return m_zoomFactor; }
+
+    void setZoom(double z, double anchorDepth = -1.0)
+    {
+      const double clampedZ = qBound(1.0, z, 50.0);
+      if (qFuzzyCompare(clampedZ, m_zoomFactor) && anchorDepth < 0)
+        return;
+
+      const double totalSpan = m_dRange.second - m_dRange.first;
+      if (totalSpan <= 0)
+        return;
+
+      const double oldSpan = totalSpan / m_zoomFactor;
+      const double newSpan = totalSpan / clampedZ;
+
+      if (anchorDepth < 0)
+        anchorDepth = m_scrollDepth + oldSpan * 0.5;
+
+      const double anchorFrac = oldSpan > 0 ? (anchorDepth - m_scrollDepth) / oldSpan : 0.5;
+      m_scrollDepth = anchorDepth - anchorFrac * newSpan;
+      m_zoomFactor = clampedZ;
+
+      const double maxScroll = m_dRange.second - newSpan;
+      m_scrollDepth = qBound(m_dRange.first, m_scrollDepth, qMax(m_dRange.first, maxScroll));
+
+      updateScrollBar();
+      update();
+      if (onZoomChanged)
+        onZoomChanged(m_zoomFactor);
+    }
+
+    void zoomIn() { setZoom(m_zoomFactor * 1.5); }
+    void zoomOut() { setZoom(m_zoomFactor / 1.5); }
+    void resetZoom() { setZoom(1.0); }
+
+    std::function<void(double)> onZoomChanged;
+    std::function<void(double depth, const QString &info)> onHoverChanged;
+
+    double depthAtY(int y) const
+    {
+      const QRect pRect = plotRect();
+      if (pRect.height() <= 0)
+        return m_dRange.first;
+      const double visibleSpan = (m_dRange.second - m_dRange.first) / m_zoomFactor;
+      const double frac = static_cast<double>(y - pRect.top()) / pRect.height();
+      return m_scrollDepth + frac * visibleSpan;
+    }
+
+    int yAtDepth(double d) const
+    {
+      const QRect pRect = plotRect();
+      if (pRect.height() <= 0)
+        return 0;
+      const double visibleSpan = (m_dRange.second - m_dRange.first) / m_zoomFactor;
+      if (visibleSpan <= 0)
+        return pRect.top();
+      const double frac = (d - m_scrollDepth) / visibleSpan;
+      return pRect.top() + qRound(frac * pRect.height());
+    }
+
+    int calculateHeaderHeight() const
+    {
+      int visibleCount = 0;
+      for (const CurveData &c : m_curves)
+        if (c.visible) visibleCount++;
+      if (visibleCount <= 2)
+        return 28;
+      if (visibleCount <= 4)
+        return 46;
+      return 64;
+    }
+
+    QRect plotRect() const
+    {
+      const int kRulerW = 50;
+      const int headerH = calculateHeaderHeight();
+      const int scrollW = (m_zoomFactor > 1.0) ? 14 : 0;
+      return QRect(kRulerW, headerH, qMax(20, width() - kRulerW - scrollW - 6),
+                   qMax(20, height() - headerH - 8));
+    }
 
   protected:
+    void updateScrollBar()
+    {
+      if (!m_vScroll)
+        return;
+      const QRect pRect = plotRect();
+      m_vScroll->setGeometry(width() - 14, pRect.top(), 14, pRect.height());
+
+      if (m_zoomFactor <= 1.0)
+      {
+        m_vScroll->setVisible(false);
+        return;
+      }
+      m_vScroll->setVisible(true);
+
+      const double totalSpan = m_dRange.second - m_dRange.first;
+      const double visibleSpan = totalSpan / m_zoomFactor;
+      const double maxScroll = m_dRange.second - visibleSpan;
+
+      m_updatingScroll = true;
+      const int kRange = 10000;
+      const int pageStep = qMax(1, qRound(kRange / m_zoomFactor));
+      m_vScroll->setRange(0, kRange - pageStep);
+      m_vScroll->setPageStep(pageStep);
+      const double frac = (maxScroll > m_dRange.first)
+                              ? (m_scrollDepth - m_dRange.first) / (maxScroll - m_dRange.first)
+                              : 0.0;
+      m_vScroll->setValue(qRound(frac * (kRange - pageStep)));
+      m_updatingScroll = false;
+    }
+
+    void updateHoverValues()
+    {
+      for (CurveData &c : m_curves)
+      {
+        if (!c.visible || c.pts.isEmpty() || std::isnan(m_hoverDepth))
+        {
+          c.hoverValue = std::numeric_limits<double>::quiet_NaN();
+          continue;
+        }
+
+        auto it = std::lower_bound(c.pts.begin(), c.pts.end(), m_hoverDepth,
+                                   [](const QPointF &pt, double d) { return pt.y() < d; });
+        if (it == c.pts.end())
+        {
+          c.hoverValue = c.pts.last().x();
+        }
+        else if (it == c.pts.begin())
+        {
+          c.hoverValue = c.pts.first().x();
+        }
+        else
+        {
+          const QPointF &p0 = *(it - 1);
+          const QPointF &p1 = *it;
+          if (qAbs(p1.y() - p0.y()) > 1e-4)
+          {
+            const double t = (m_hoverDepth - p0.y()) / (p1.y() - p0.y());
+            c.hoverValue = p0.x() + t * (p1.x() - p0.x());
+          }
+          else
+          {
+            c.hoverValue = p1.x();
+          }
+        }
+      }
+      if (onHoverChanged)
+      {
+        if (std::isnan(m_hoverDepth))
+        {
+          onHoverChanged(-1.0, QString());
+        }
+        else
+        {
+          QString info = QString::asprintf("MD: %.1f m", m_hoverDepth);
+          for (const CurveData &c : m_curves)
+          {
+            if (c.visible && !std::isnan(c.hoverValue))
+            {
+              info += QStringLiteral(" | ") + c.name + QString::asprintf(": %.2f", c.hoverValue);
+              if (!c.unit.isEmpty())
+                info += QStringLiteral(" ") + c.unit;
+            }
+          }
+          onHoverChanged(m_hoverDepth, info);
+        }
+      }
+    }
+
+    void mousePressEvent(QMouseEvent *e) override
+    {
+      const QRect pRect = plotRect();
+      if (e->button() == Qt::LeftButton || e->button() == Qt::MiddleButton)
+      {
+        if (m_zoomFactor > 1.0 && pRect.contains(e->pos()))
+        {
+          m_dragging = true;
+          m_dragStartY = e->pos().y();
+          m_dragStartScrollDepth = m_scrollDepth;
+          setCursor(Qt::ClosedHandCursor);
+        }
+      }
+    }
+
+    void mouseMoveEvent(QMouseEvent *e) override
+    {
+      const QRect pRect = plotRect();
+      if (pRect.contains(e->pos()))
+      {
+        m_hoverDepth = depthAtY(e->pos().y());
+        updateHoverValues();
+      }
+      else
+      {
+        m_hoverDepth = std::numeric_limits<double>::quiet_NaN();
+      }
+
+      if (m_dragging)
+      {
+        const double totalSpan = m_dRange.second - m_dRange.first;
+        const double visibleSpan = totalSpan / m_zoomFactor;
+        const double dy = e->pos().y() - m_dragStartY;
+        const double dDepth = (dy / static_cast<double>(pRect.height())) * visibleSpan;
+        const double maxScroll = m_dRange.second - visibleSpan;
+        m_scrollDepth = qBound(m_dRange.first, m_dragStartScrollDepth - dDepth, qMax(m_dRange.first, maxScroll));
+        updateScrollBar();
+        update();
+      }
+      else
+      {
+        if (m_zoomFactor > 1.0 && pRect.contains(e->pos()))
+          setCursor(Qt::OpenHandCursor);
+        else
+          unsetCursor();
+        update();
+      }
+    }
+
+    void mouseReleaseEvent(QMouseEvent *) override
+    {
+      if (m_dragging)
+      {
+        m_dragging = false;
+        if (m_zoomFactor > 1.0 && plotRect().contains(mapFromGlobal(QCursor::pos())))
+          setCursor(Qt::OpenHandCursor);
+        else
+          unsetCursor();
+      }
+    }
+
+    void mouseDoubleClickEvent(QMouseEvent *e) override
+    {
+      if (plotRect().contains(e->pos()))
+      {
+        resetZoom();
+      }
+    }
+
+    void wheelEvent(QWheelEvent *e) override
+    {
+      const QRect pRect = plotRect();
+      if (!pRect.contains(e->position().toPoint()))
+      {
+        e->ignore();
+        return;
+      }
+
+      if (e->modifiers() & Qt::ControlModifier)
+      {
+        const double f = e->angleDelta().y() > 0 ? 1.25 : 1.0 / 1.25;
+        setZoom(m_zoomFactor * f, depthAtY(e->position().y()));
+        e->accept();
+        return;
+      }
+
+      if (m_zoomFactor > 1.0)
+      {
+        const double totalSpan = m_dRange.second - m_dRange.first;
+        const double visibleSpan = totalSpan / m_zoomFactor;
+        const double step = visibleSpan * 0.12 * (e->angleDelta().y() > 0 ? -1.0 : 1.0);
+        const double maxScroll = m_dRange.second - visibleSpan;
+        m_scrollDepth = qBound(m_dRange.first, m_scrollDepth + step, qMax(m_dRange.first, maxScroll));
+        updateScrollBar();
+        update();
+        e->accept();
+        return;
+      }
+
+      e->ignore();
+    }
+
+    void leaveEvent(QEvent *) override
+    {
+      m_hoverDepth = std::numeric_limits<double>::quiet_NaN();
+      for (CurveData &c : m_curves)
+        c.hoverValue = std::numeric_limits<double>::quiet_NaN();
+      unsetCursor();
+      update();
+      if (onHoverChanged)
+        onHoverChanged(-1.0, QString());
+    }
+
+    void resizeEvent(QResizeEvent *) override
+    {
+      updateScrollBar();
+    }
+
+    void drawHeader(QPainter &p, const QRect &pRect)
+    {
+      const int headerTop = 4;
+      int curX = pRect.left() + 4;
+      int curY = headerTop;
+      const int rowHeight = 18;
+
+      QFont fName = font();
+      fName.setPointSize(8);
+      fName.setBold(true);
+
+      QFont fMono = PaleoTheme::monoFont();
+      fMono.setPointSize(8);
+
+      for (const CurveData &c : m_curves)
+      {
+        if (!c.visible)
+          continue;
+
+        // Sample line
+        p.setPen(QPen(c.color, 2.5, Qt::SolidLine, Qt::RoundCap));
+        p.drawLine(curX, curY + rowHeight / 2, curX + 12, curY + rowHeight / 2);
+        curX += 16;
+
+        // Curve Name
+        p.setFont(fName);
+        p.setPen(c.color);
+        const QString nameStr = c.name;
+        p.drawText(curX, curY + rowHeight - 4, nameStr);
+        curX += fontMetrics().horizontalAdvance(nameStr) + 4;
+
+        // Scale range & unit: e.g. "0–150 API"
+        p.setFont(fMono);
+        p.setPen(QColor(QStringLiteral("#5D6E80")));
+        QString scaleStr;
+        if (!std::isnan(c.hoverValue))
+        {
+          scaleStr = QString::asprintf(": %.1f", c.hoverValue);
+          if (!c.unit.isEmpty())
+            scaleStr += QStringLiteral(" ") + c.unit;
+          scaleStr += QString::asprintf(" (%.0f–%.0f)", c.vRange.first, c.vRange.second);
+        }
+        else
+        {
+          scaleStr = QString::asprintf("[%.0f–%.0f", c.vRange.first, c.vRange.second);
+          if (!c.unit.isEmpty())
+            scaleStr += QStringLiteral(" ") + c.unit;
+          scaleStr += QStringLiteral("]");
+        }
+
+        p.drawText(curX, curY + rowHeight - 4, scaleStr);
+        curX += QFontMetrics(fMono).horizontalAdvance(scaleStr) + 12;
+
+        if (curX > pRect.right() - 80)
+        {
+          curX = pRect.left() + 4;
+          curY += rowHeight;
+        }
+      }
+    }
+
     void paintEvent(QPaintEvent *) override
     {
       QPainter p(this);
+      p.setRenderHint(QPainter::Antialiasing, true);
+
       p.fillRect(rect(), Qt::white);
-      const QRect plot = rect().adjusted(48, 26, -12, -32);
+
+      const QRect pRect = plotRect();
+      const int kRulerW = pRect.left();
+
+      // Draw ruler background
+      const QRect rulerRect(0, pRect.top(), kRulerW, pRect.height());
+      p.fillRect(rulerRect, QColor(QStringLiteral("#F8FAFC")));
       p.setPen(QColor(QStringLiteral("#DFE5EC")));
-      p.drawRect(plot);
+      p.drawLine(kRulerW, pRect.top(), kRulerW, pRect.bottom());
+
+      // Ruler title "MD (m)"
+      QFont fCaption = font();
+      fCaption.setPointSize(8);
+      p.setFont(fCaption);
       p.setPen(QColor(QStringLiteral("#5D6E80")));
-      QFont f = p.font();
-      f.setPointSize(8);
-      p.setFont(f);
-      p.drawText(rect().adjusted(48, 4, -12, -18), Qt::AlignLeft,
-                 m_name + (m_unit.isEmpty() ? QString() : QStringLiteral(" · ") + m_unit));
-      if (m_pts.isEmpty())
+      p.drawText(QRect(2, 4, kRulerW - 4, pRect.top() - 4), Qt::AlignCenter | Qt::AlignVCenter,
+                 QStringLiteral("MD (m)"));
+
+      p.drawRect(pRect);
+
+      int totalPoints = 0;
+      int visibleCurves = 0;
+      for (const CurveData &c : m_curves)
       {
-        p.drawText(plot, Qt::AlignCenter, m_emptyText);
+        totalPoints += c.pts.size();
+        if (c.visible)
+          visibleCurves++;
+      }
+
+      if (totalPoints == 0)
+      {
+        p.setPen(QColor(QStringLiteral("#5D6E80")));
+        p.drawText(pRect, Qt::AlignCenter, m_emptyText);
         return;
       }
-      const auto mapX = [&](double v) {
-        return plot.left() + (v - m_vRange.first) / (m_vRange.second - m_vRange.first) * plot.width();
-      };
-      const auto mapY = [&](double d) {
-        return plot.bottom() -
-               (d - m_dRange.first) / (m_dRange.second - m_dRange.first) * plot.height();
-      };
-      p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.4));
-      bool first = true;
-      QPointF prev;
-      for (const QPointF &pt : m_pts)
+
+      if (visibleCurves == 0)
       {
-        const QPointF mapped(mapX(pt.x()), mapY(pt.y()));
-        if (!first)
-          p.drawLine(prev, mapped);
-        prev = mapped;
-        first = false;
+        p.setPen(QColor(QStringLiteral("#5D6E80")));
+        p.drawText(pRect, Qt::AlignCenter, tr("未勾选任何曲线 — 在上方选择要显示的曲线"));
+        return;
       }
-      p.drawText(QRect(0, plot.top() - 2, 44, 20), Qt::AlignRight,
-                 QString::number(m_dRange.first, 'f', 0));
-      p.drawText(QRect(0, rect().bottom() - 26, 44, 20), Qt::AlignRight,
-                 QString::number(m_dRange.second, 'f', 0));
+
+      const double totalSpan = m_dRange.second - m_dRange.first;
+      const double visibleSpan = (totalSpan > 0 && m_zoomFactor >= 1.0)
+                                     ? totalSpan / m_zoomFactor
+                                     : 1.0;
+      const double dTop = m_scrollDepth;
+      const double dBottom = m_scrollDepth + visibleSpan;
+
+      const int targetTicks = qBound(4, pRect.height() / 45, 12);
+      const double rawInterval = visibleSpan / targetTicks;
+      double niceInterval = 100.0;
+      const double intervals[] = {0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0};
+      for (double iv : intervals)
+      {
+        niceInterval = iv;
+        if (iv >= rawInterval)
+          break;
+      }
+
+      const double firstTick = std::ceil(dTop / niceInterval) * niceInterval;
+      QFont fMono = PaleoTheme::monoFont();
+      fMono.setPointSize(8);
+
+      p.setFont(fMono);
+      for (double d = firstTick; d <= dBottom; d += niceInterval)
+      {
+        const int y = yAtDepth(d);
+        if (y < pRect.top() || y > pRect.bottom())
+          continue;
+
+        p.setPen(QColor(QStringLiteral("#9AA7B4")));
+        p.drawLine(kRulerW - 5, y, kRulerW, y);
+
+        p.setPen(QPen(QColor(QStringLiteral("#F0F4F8")), 1, Qt::DashLine));
+        p.drawLine(pRect.left(), y, pRect.right(), y);
+
+        p.setPen(QColor(QStringLiteral("#5D6E80")));
+        const QString dText = QString::number(d, 'f', (niceInterval < 1.0 ? 1 : 0));
+        p.drawText(QRect(2, y - 8, kRulerW - 9, 16), Qt::AlignRight | Qt::AlignVCenter, dText);
+      }
+
+      p.setPen(QPen(QColor(QStringLiteral("#F0F4F8")), 1, Qt::DotLine));
+      for (int i = 1; i <= 3; ++i)
+      {
+        const int vx = pRect.left() + (pRect.width() * i) / 4;
+        p.drawLine(vx, pRect.top(), vx, pRect.bottom());
+      }
+
+      p.setClipRect(pRect);
+      for (const CurveData &c : m_curves)
+      {
+        if (!c.visible || c.pts.isEmpty())
+          continue;
+
+        const double vSpan = c.vRange.second - c.vRange.first;
+        if (vSpan <= 0)
+          continue;
+
+        const auto mapX = [&](double v) {
+          const double f = (v - c.vRange.first) / vSpan;
+          return pRect.left() + f * pRect.width();
+        };
+
+        p.setPen(QPen(c.color, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+
+        bool first = true;
+        QPointF prev;
+        for (const QPointF &pt : c.pts)
+        {
+          const double v = pt.x();
+          const double d = pt.y();
+
+          if (d < dTop - niceInterval || d > dBottom + niceInterval)
+          {
+            first = true;
+            continue;
+          }
+
+          const QPointF mapped(mapX(v), yAtDepth(d));
+          if (!first)
+            p.drawLine(prev, mapped);
+          prev = mapped;
+          first = false;
+        }
+      }
+      p.setClipping(false);
+
+      drawHeader(p, pRect);
+
+      if (!std::isnan(m_hoverDepth) && pRect.contains(mapFromGlobal(QCursor::pos())))
+      {
+        const int hy = yAtDepth(m_hoverDepth);
+        if (hy >= pRect.top() && hy <= pRect.bottom())
+        {
+          p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1, Qt::DashLine));
+          p.drawLine(pRect.left(), hy, pRect.right(), hy);
+
+          const QString hText = QString::number(m_hoverDepth, 'f', 1);
+          p.setFont(fMono);
+          const QRect badgeRect(2, hy - 8, kRulerW - 4, 16);
+          p.fillRect(badgeRect, QColor(QStringLiteral("#24303E")));
+          p.setPen(Qt::white);
+          p.drawText(badgeRect, Qt::AlignCenter, hText);
+        }
+      }
     }
 
   private:
-    QString m_name, m_unit;
+    QVector<CurveData> m_curves;
+    QPair<double, double> m_dRange{0, 1};
+    double m_zoomFactor = 1.0;
+    double m_scrollDepth = 0.0;
+    QScrollBar *m_vScroll = nullptr;
+    bool m_updatingScroll = false;
+    double m_hoverDepth = std::numeric_limits<double>::quiet_NaN();
+    bool m_dragging = false;
+    int m_dragStartY = 0;
+    double m_dragStartScrollDepth = 0.0;
     QString m_emptyText = QObject::tr("无有效采样");
-    QVector<QPointF> m_pts;
-    QPair<double, double> m_vRange{0, 1}, m_dRange{0, 1};
   };
 
   // 地震剖面：一条 inline/crossline 的变密度灰度渲染（§4/§7：只解码这一条）。
@@ -882,12 +1473,21 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       return host;
     }
     auto *panel = new CurvePanel(host);
+    panel->setObjectName(QStringLiteral("curvePanel"));
     panel->setEmptyText(tr("这条曲线没有有效样点")); // §4：整条 -99999 → 不绘制
-    auto *combo = new QComboBox(host);
+
+    // 1. 顶部控制栏（主选曲线 + 预设 + 缩放控制）
+    auto *topBar = new QWidget(host);
+    auto *topLay = new QHBoxLayout(topBar);
+    topLay->setContentsMargins(0, 0, 0, 0);
+    topLay->setSpacing(6);
+
+    auto *combo = new QComboBox(topBar);
     combo->setObjectName(QStringLiteral("curveCombo"));
     combo->setAccessibleName(tr("曲线"));
     for (int i = 1; i < names.size(); ++i) // curves[0] 是深度道
       combo->addItem(names.at(i), i); // userData = curves 下标（禁用项不受序号偏移影响）
+
     // §4：约定的 GR/AC/DEN 缺了就给禁用项，tooltip 写「这条曲线不在文件里」。
     static const QStringList kExpected{QStringLiteral("GR"), QStringLiteral("AC"),
                                        QStringLiteral("DEN")};
@@ -901,20 +1501,181 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         if (model && model->item(j))
           model->item(j)->setEnabled(false);
       }
+
     const int def = combo->findText(QStringLiteral("GR"));
     if (def >= 0 && combo->itemData(def).toInt() > 0) // 禁用项不当作默认曲线
       combo->setCurrentIndex(def);
-    const auto apply = [panel, combo, names, curves]() {
+
+    // 深度缩放按钮组
+    auto *btnZoomOut = new QToolButton(topBar);
+    btnZoomOut->setText(QStringLiteral("−"));
+    btnZoomOut->setToolTip(tr("缩小深度 (Ctrl+滚轮向下)"));
+    btnZoomOut->setStyleSheet(QStringLiteral("QToolButton { font-weight: bold; min-width: 24px; min-height: 22px; }"));
+
+    auto *lblZoom = new QLabel(QStringLiteral("100%"), topBar);
+    lblZoom->setFont(monoFont());
+    lblZoom->setStyleSheet(QStringLiteral("color: #5D6E80; min-width: 44px;"));
+    lblZoom->setAlignment(Qt::AlignCenter);
+
+    auto *btnZoomIn = new QToolButton(topBar);
+    btnZoomIn->setText(QStringLiteral("+"));
+    btnZoomIn->setToolTip(tr("放大深度 (Ctrl+滚轮向上)"));
+    btnZoomIn->setStyleSheet(QStringLiteral("QToolButton { font-weight: bold; min-width: 24px; min-height: 22px; }"));
+
+    auto *btnZoomReset = new QToolButton(topBar);
+    btnZoomReset->setText(tr("1:1 适应"));
+    btnZoomReset->setToolTip(tr("重置为全井深 (双击图道重置)"));
+    btnZoomReset->setStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 6px; }"));
+
+    // 曲线快速预设按钮
+    auto *btnSelectDefault = new QToolButton(topBar);
+    btnSelectDefault->setText(tr("常规(GR/AC/DEN)"));
+    btnSelectDefault->setToolTip(tr("显示三孔隙/常规测井曲线"));
+    btnSelectDefault->setStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 6px; }"));
+
+    auto *btnSelectAll = new QToolButton(topBar);
+    btnSelectAll->setText(tr("全选"));
+    btnSelectAll->setToolTip(tr("同时显示所有曲线"));
+    btnSelectAll->setStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 6px; }"));
+
+    auto *btnClear = new QToolButton(topBar);
+    btnClear->setText(tr("仅主选"));
+    btnClear->setToolTip(tr("仅显示当前下拉框选中的单根曲线"));
+    btnClear->setStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 6px; }"));
+
+    topLay->addWidget(caption8(tr("主选曲线:"), topBar));
+    topLay->addWidget(combo);
+    topLay->addSpacing(8);
+    topLay->addWidget(btnSelectDefault);
+    topLay->addWidget(btnSelectAll);
+    topLay->addWidget(btnClear);
+    topLay->addStretch(1);
+    topLay->addWidget(caption8(tr("深度缩放:"), topBar));
+    topLay->addWidget(btnZoomOut);
+    topLay->addWidget(lblZoom);
+    topLay->addWidget(btnZoomIn);
+    topLay->addWidget(btnZoomReset);
+
+    // 初始显示曲线集合（默认优先显示 GR/AC/DEN 常规三孔隙）
+    QSet<QString> defaultShown;
+    if (combo->findText(QStringLiteral("GR")) >= 0 && combo->itemData(combo->findText(QStringLiteral("GR"))).toInt() > 0)
+      defaultShown.insert(QStringLiteral("GR"));
+    if (combo->findText(QStringLiteral("AC")) >= 0 && combo->itemData(combo->findText(QStringLiteral("AC"))).toInt() > 0)
+      defaultShown.insert(QStringLiteral("AC"));
+    if (combo->findText(QStringLiteral("DEN")) >= 0 && combo->itemData(combo->findText(QStringLiteral("DEN"))).toInt() > 0)
+      defaultShown.insert(QStringLiteral("DEN"));
+    if (defaultShown.isEmpty() && names.size() > 1)
+      defaultShown.insert(names.at(1));
+
+    // 添加所有曲线数据至面板
+    for (int i = 1; i < names.size(); ++i)
+    {
+      const QString &cname = names.at(i);
+      const QColor col = pickCurveColor(cname, i - 1);
+      panel->addCurve(cname, curves.at(i).unit, curves.at(i).values,
+                      curves.at(0).values, col, defaultShown.contains(cname));
+    }
+
+    // 2. 曲线多选 Chips 栏（横向滚动条，支持单击自由切换各曲线可见性）
+    auto *chipScroll = new QScrollArea(host);
+    chipScroll->setWidgetResizable(true);
+    chipScroll->setFixedHeight(32);
+    chipScroll->setFrameShape(QFrame::NoFrame);
+    chipScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    chipScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    chipScroll->setStyleSheet(QStringLiteral("QScrollArea { background: transparent; border: none; }"));
+
+    auto *chipContainer = new QWidget(chipScroll);
+    chipContainer->setStyleSheet(QStringLiteral("background: transparent;"));
+    auto *chipLay = new QHBoxLayout(chipContainer);
+    chipLay->setContentsMargins(0, 0, 0, 0);
+    chipLay->setSpacing(6);
+    chipLay->addWidget(caption8(tr("多曲线叠合:"), chipContainer));
+
+    auto chipMap = std::make_shared<QHash<QString, QToolButton *>>();
+    for (int i = 1; i < names.size(); ++i)
+    {
+      const QString &cname = names.at(i);
+      const QColor col = pickCurveColor(cname, i - 1);
+      auto *chip = new QToolButton(chipContainer);
+      chip->setText(cname);
+      chip->setCheckable(true);
+      const bool isChecked = defaultShown.contains(cname);
+      chip->setChecked(isChecked);
+      chip->setToolTip(QStringLiteral("%1 (%2)").arg(cname, curves.at(i).unit));
+
+      const QString styleOn = QStringLiteral(
+          "QToolButton { background: #FFFFFF; border: 1.5px solid %1; border-radius: 9px; "
+          "color: %1; font-weight: bold; padding: 1px 7px; font-size: 8pt; }"
+          "QToolButton:hover { background: #EDF1F5; }").arg(col.name());
+      const QString styleOff = QStringLiteral(
+          "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 9px; "
+          "color: #5D6E80; padding: 1px 7px; font-size: 8pt; }"
+          "QToolButton:hover { background: #EDF1F5; border-color: #9AA7B4; }");
+
+      chip->setStyleSheet(isChecked ? styleOn : styleOff);
+
+      connect(chip, &QToolButton::toggled, host, [panel, chip, cname, styleOn, styleOff](bool on) {
+        panel->setCurveVisible(cname, on);
+        chip->setStyleSheet(on ? styleOn : styleOff);
+      });
+
+      (*chipMap)[cname] = chip;
+      chipLay->addWidget(chip);
+    }
+    chipLay->addStretch(1);
+    chipScroll->setWidget(chipContainer);
+
+    // 缩放接线
+    connect(btnZoomIn, &QToolButton::clicked, host, [panel]() { panel->zoomIn(); });
+    connect(btnZoomOut, &QToolButton::clicked, host, [panel]() { panel->zoomOut(); });
+    connect(btnZoomReset, &QToolButton::clicked, host, [panel]() { panel->resetZoom(); });
+    panel->onZoomChanged = [lblZoom](double z) {
+      lblZoom->setText(QStringLiteral("%1%").arg(qRound(z * 100)));
+    };
+
+    // 主选下拉框变更时，自动确保该曲线被勾选显示
+    connect(combo, &QComboBox::currentIndexChanged, host, [panel, combo, names, chipMap]() {
       const int ci = combo->currentData().toInt();
       if (ci <= 0 || ci >= names.size())
         return;
-      panel->setCurve(names.at(ci), curves.at(ci).unit, curves.at(ci).values,
-                      curves.at(0).values);
-    };
-    connect(combo, &QComboBox::currentIndexChanged, host, apply);
-    apply();
-    lay->addWidget(caption8(tr("曲线（GR 可切换）"), host));
-    lay->addWidget(combo);
+      const QString selName = names.at(ci);
+      if (chipMap->contains(selName))
+      {
+        auto *btn = chipMap->value(selName);
+        if (!btn->isChecked())
+          btn->setChecked(true);
+      }
+    });
+
+    // 预设按钮事件
+    connect(btnSelectAll, &QToolButton::clicked, host, [chipMap]() {
+      for (auto *b : *chipMap)
+        if (!b->isChecked()) b->setChecked(true);
+    });
+
+    connect(btnSelectDefault, &QToolButton::clicked, host, [chipMap, defaultShown]() {
+      for (auto it = chipMap->begin(); it != chipMap->end(); ++it)
+      {
+        const bool on = defaultShown.contains(it.key());
+        if (it.value()->isChecked() != on)
+          it.value()->setChecked(on);
+      }
+    });
+
+    connect(btnClear, &QToolButton::clicked, host, [combo, names, chipMap]() {
+      const int ci = combo->currentData().toInt();
+      const QString activeName = (ci > 0 && ci < names.size()) ? names.at(ci) : QString();
+      for (auto it = chipMap->begin(); it != chipMap->end(); ++it)
+      {
+        const bool on = (it.key() == activeName);
+        if (it.value()->isChecked() != on)
+          it.value()->setChecked(on);
+      }
+    });
+
+    lay->addWidget(topBar);
+    lay->addWidget(chipScroll);
     lay->addWidget(panel, 1);
     return host;
   }

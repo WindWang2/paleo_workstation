@@ -21,6 +21,7 @@
 #include <QStandardItemModel>
 #include <QTabWidget>
 #include <QTableWidget>
+#include <QToolButton>
 #include <QtEndian>
 
 // plan §4 数据页预览标签：重选聚焦、可关闭、空态/失败/外链缺失文案、
@@ -105,6 +106,7 @@ private slots:
   void document_converterMissingFailsHonest();
   void coordinateStatusMappingIsChinese();
   void unresolvedMultiWellTabShowsDeadEnd();
+  void lasMultiCurveAndZooming();
 
 private:
   // 共享一次导入的夹具集（每个测试自建栈，互不污染）。
@@ -1074,6 +1076,88 @@ void TestDataPreview::document_converterMissingFailsHonest()
   auto *state = page->findChild<QLabel *>(QStringLiteral("stateText"));
   QVERIFY(state && state->text().contains(QStringLiteral("无 PDF 预览")));
   QVERIFY(page->findChildren<QPushButton *>().size() >= 1); // 用系统程序打开
+}
+
+void TestDataPreview::lasMultiCurveAndZooming()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+  const Imported ids = importAll(*st, tmp);
+  QVERIFY(!ids.las.isEmpty());
+
+  st->preview->openAsset(ids.las);
+  auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+  QVERIFY(tabs);
+  QWidget *page = tabs->widget(tabs->currentIndex());
+  QVERIFY(page);
+
+  auto *panel = page->findChild<QWidget *>(QStringLiteral("curvePanel"));
+  QVERIFY2(panel, "well_log preview must provide curvePanel");
+
+  // Check chips:
+  const QList<QToolButton *> buttons = page->findChildren<QToolButton *>();
+  QToolButton *btnGR = nullptr;
+  QToolButton *btnAC = nullptr;
+  QToolButton *btnDEN = nullptr;
+  QToolButton *btnBoZuK = nullptr;
+  QToolButton *btnZoomIn = nullptr;
+  QToolButton *btnZoomOut = nullptr;
+  QToolButton *btnZoomReset = nullptr;
+  QToolButton *btnAll = nullptr;
+  QToolButton *btnDefault = nullptr;
+
+  for (auto *b : buttons)
+  {
+    if (b->text() == QStringLiteral("GR")) btnGR = b;
+    else if (b->text() == QStringLiteral("AC")) btnAC = b;
+    else if (b->text() == QStringLiteral("DEN")) btnDEN = b;
+    else if (b->text().compare(QStringLiteral("BoZuK"), Qt::CaseInsensitive) == 0) btnBoZuK = b;
+    else if (b->text() == QStringLiteral("+")) btnZoomIn = b;
+    else if (b->text() == QStringLiteral("−")) btnZoomOut = b;
+    else if (b->text() == QStringLiteral("1:1 适应")) btnZoomReset = b;
+    else if (b->text() == QStringLiteral("全选")) btnAll = b;
+    else if (b->text().contains(QStringLiteral("常规"))) btnDefault = b;
+  }
+
+  QVERIFY(btnGR && btnGR->isChecked());
+  QVERIFY(btnAC && btnAC->isChecked());
+  QVERIFY(btnDEN && btnDEN->isChecked());
+  QVERIFY(btnBoZuK && !btnBoZuK->isChecked());
+
+  // Test toggling BoZuK on
+  btnBoZuK->click();
+  QVERIFY(btnBoZuK->isChecked());
+
+  // Test Zoom In
+  QVERIFY(btnZoomIn && btnZoomReset);
+  btnZoomIn->click();
+  QLabel *lblZoom = nullptr;
+  for (auto *lbl : page->findChildren<QLabel *>())
+    if (lbl->text().endsWith(QLatin1Char('%')))
+      lblZoom = lbl;
+  QVERIFY(lblZoom);
+  QCOMPARE(lblZoom->text(), QStringLiteral("150%"));
+
+  // Test Reset Zoom
+  btnZoomReset->click();
+  QCOMPARE(lblZoom->text(), QStringLiteral("100%"));
+
+  // Test All preset
+  QVERIFY(btnAll);
+  btnAll->click();
+  QVERIFY(btnGR->isChecked());
+  QVERIFY(btnAC->isChecked());
+  QVERIFY(btnDEN->isChecked());
+  QVERIFY(btnBoZuK->isChecked());
+
+  // Test Default preset
+  QVERIFY(btnDefault);
+  btnDefault->click();
+  QVERIFY(btnGR->isChecked());
+  QVERIFY(btnAC->isChecked());
+  QVERIFY(btnDEN->isChecked());
+  QVERIFY(!btnBoZuK->isChecked());
 }
 
 int main(int argc, char *argv[])

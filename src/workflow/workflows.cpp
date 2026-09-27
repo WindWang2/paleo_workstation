@@ -525,11 +525,20 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
     decl.horizon = horizon;
     decl.type = QStringLiteral( "raster" );
     decl.source = st.absolutePath;
-    decl.group = QStringLiteral( "03_Predict" );
+    decl.group = QStringLiteral( "03_Predict" ); // 历史分组保持（m2(A)）
+    decl.title = tr( "%1 onnx %2 预测" ).arg( horizon, model );
     if ( !layers->declare( decl, error ) )
       return fail( ( error && !error->isEmpty() )
                        ? *error
                        : tr( "failed to declare result layer '%1'" ).arg( decl.layerId ) );
+
+    // m2(A) 3b：算法无置信度输出 → 不声明伴生层（见
+    // confidenceCompanionAvailable 调查注释；接入真实置信度后在此声明
+    // confidence.<horizon>，group "02_Prediction"，带色标 styleRef）。
+    if ( confidenceCompanionAvailable( algorithmId ) )
+    {
+      // 当前恒不可达——留作真实置信度输出的声明接入点，禁止造假数据填充。
+    }
 
     emit predictionDone( horizon, decl.layerId );
     return true;
@@ -615,11 +624,15 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
   }
 
   LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "predict.%1.%2" ).arg( horizon, stamp() );
+  // m2(A)：稳定结果 id——同一 horizon+algorithmId 重跑复用同一 layerId
+  // （manifest INSERT OR REPLACE upsert，清单不新增重复行）； tst_workflows
+  // 既有断言 startsWith("predict.<h>.") 由稳定段继续满足。
+  decl.layerId = QStringLiteral( "predict.%1.%2" ).arg( horizon, stableResultSuffix( algorithmId ) );
   decl.horizon = horizon;
   decl.type = QStringLiteral( "raster" );
   decl.source = st.absolutePath;
-  decl.group = QStringLiteral( "01_Prediction" );
+  decl.group = QStringLiteral( "01_Prediction" ); // 历史分组保持（m2(A)：新声明面才用 02_Prediction）
+  decl.title = tr( "%1 %2 预测" ).arg( horizon, algorithmId );
   if ( !layers->declare( decl, error ) )
   {
     emit predictionFailed( horizon,
@@ -629,8 +642,38 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
     return false;
   }
 
+  // m2(A) 3b：算法无置信度输出 → 不声明伴生层（confidenceCompanionAvailable
+  // 对当前算法栈恒 false，见 workflows.h 上的调查注释）。真实置信度通道接入
+  // 后在此声明 confidence.<horizon>：group "02_Prediction"、type raster、
+  // styleRef 指向置信度色标——禁止常量假栅格冒充。
+  if ( confidenceCompanionAvailable( algorithmId ) )
+  {
+    // 当前恒不可达——留作真实置信度输出的声明接入点。
+  }
+
   emit predictionDone( horizon, decl.layerId );
   return true;
+}
+
+QString PredictionWorkflow::stableResultSuffix( const QString &algorithmId )
+{
+  // algorithmId 净化为 id 片段（"paleo:paleo_geological_smoothing" →
+  // "paleo.paleo_geological_smoothing"）：不同 provider 同名算法不会互相
+  // 挤占同一 layerId。
+  QString s = algorithmId;
+  s.replace( QLatin1Char( ':' ), QLatin1Char( '.' ) );
+  return s;
+}
+
+bool PredictionWorkflow::confidenceCompanionAvailable( const QString &algorithmId )
+{
+  // 置信度调查结论（2026-09-27，m2(A) 3b）：onnxpredictionservice.cpp 的
+  // runTensor 只读 session 首个输出 tensor（GetOutputCount() 仅作下限检查），
+  // 没有第二输出/方差通道可取；paleo_* 五个算法（smoothing/IDW/fusion/
+  // isopach/polygonize）都是确定性单输出栅格算法。→ 没有真实置信度数据可
+  // 落盘，返回 false（调用侧据此跳过 confidence.<horizon> 声明）。
+  Q_UNUSED( algorithmId );
+  return false;
 }
 
 // ---------------------------------------------------------------------------

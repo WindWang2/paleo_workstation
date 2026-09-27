@@ -330,6 +330,7 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   for (const auto &v : root.value(QStringLiteral("entity_asset_links")).toArray())
     m_links.append(linkFromJson(v.toObject()));
   m_isOpen = true;
+  emit changed();
   return true;
 }
 

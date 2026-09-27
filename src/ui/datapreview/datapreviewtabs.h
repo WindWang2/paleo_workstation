@@ -50,6 +50,8 @@ class DataPreviewTabs : public QWidget
 
     // 从资产列表选中一条资产：已有标签则聚焦，否则新开一个可关闭标签。
     void openAsset(const QString &assetId);
+    // 打开指定资产并选定特定井（如 DC.dat 多井分层表或井口表预选该井）
+    void openAssetForWell(const QString &assetId, const QString &wellId);
 
     // 验证页「在数据页看这条剖面」（预览壳重排 §4）：打开/聚焦地震资产
     // 标签并把测线控件（lineMode/lineSpin）拨到 kind+line——控件自己的

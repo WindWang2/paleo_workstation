@@ -713,6 +713,31 @@ void DataPreviewTabs::openAsset(const QString &assetId)
   focusWellIfNeeded(assetId, page);
 }
 
+void DataPreviewTabs::openAssetForWell(const QString &assetId, const QString &wellId)
+{
+  if (!m_svc || assetId.isEmpty())
+    return;
+  if (!wellId.isEmpty())
+  {
+    m_wellEntityOfAsset[assetId] = wellId;
+    if (m_svc->catalog())
+      m_titleSuffixOfAsset[assetId] = m_svc->catalog()->entityById(wellId).name;
+  }
+  openAsset(assetId);
+  QWidget *page = m_pageOfAsset.value(assetId);
+  if (page)
+  {
+    if (auto *combo = page->findChild<QComboBox *>(QStringLiteral("wellCombo")))
+    {
+      const int idx = combo->findData(wellId);
+      if (idx >= 0 && combo->currentIndex() != idx)
+        combo->setCurrentIndex(idx);
+    }
+    updateTabTitle(assetId);
+    focusWellIfNeeded(assetId, page);
+  }
+}
+
 void DataPreviewTabs::openSeismicLine(const QString &assetId, const QString &kind,
                                       int line, double timeMs)
 {

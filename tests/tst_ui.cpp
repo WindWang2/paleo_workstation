@@ -488,14 +488,14 @@ class TestUiShell : public QObject
       QCOMPARE(m_ctx->canvasCtl()->canvas()->extent(), before);
     }
 
-    // §4 预览壳重排：中央工作区在数据页是「数据列表在上、预览在下」的竖向分栏；预览
+    // §4 预览壳重排：中央工作区在数据页是「数据列表在左、预览在右」的横向分栏；预览
     // 只在数据管理页可见，其余四页隐藏；底栏不再挂地震预览标签（连井
     // 剖面面板保留），状态栏标工程网格坐标系。
     void previewSplitterShell()
     {
       auto *split = m_win->findChild<QSplitter *>(QStringLiteral("dataListPreviewSplit"));
       QVERIFY(split);
-      QCOMPARE(split->orientation(), Qt::Vertical);
+      QCOMPARE(split->orientation(), Qt::Horizontal);
       QVERIFY(split->count() >= 1);
       auto *preview = m_win->findChild<QWidget *>(QStringLiteral("dataPreview"));
       QVERIFY(preview);
@@ -526,7 +526,7 @@ class TestUiShell : public QObject
       QCOMPARE(crs->text(), QStringLiteral("工程坐标 · 米 · 未投影"));
     }
 
-    // D7：预览高度预算——首个标签给 ≥60%；角落「最大化预览」把数据列表压到
+    // D7：预览高度/宽度预算——首个标签给 ≥60%；角落「最大化预览」把数据列表压到
     // ≤64px 壳，「还原」回用户尺寸；空态（关全部标签）复位最大化与预算。
     void previewSplitterBudgetAndMaximize()
     {
@@ -563,13 +563,16 @@ class TestUiShell : public QObject
                qPrintable(QStringLiteral("preview %1 of %2")
                               .arg(split->sizes().at(1)).arg(total)));
 
-      // 最大化：预览 ≥75%（数据列表被压到自身最小高度壳），按钮文案翻面。
+      // 最大化：预览 ≥75%（数据列表被压到自身最小尺寸壳），按钮文案翻面。
       const int mapBudget = split->sizes().at(0);
       maxBtn->setChecked(true);
       QTest::qWait(20);
       QVERIFY(split->sizes().at(0) < mapBudget);
-      QVERIFY(split->sizes().at(0) <= qMax(160, split->widget(0)->minimumSizeHint().height()));
-      QVERIFY(split->sizes().at(1) >= total - split->widget(0)->minimumSizeHint().height() - 2);
+      const int floor = (split->orientation() == Qt::Horizontal)
+                            ? split->widget(0)->minimumSizeHint().width()
+                            : split->widget(0)->minimumSizeHint().height();
+      QVERIFY(split->sizes().at(0) <= qMax(160, floor));
+      QVERIFY(split->sizes().at(1) >= total - qMax(160, floor) - 2);
       QCOMPARE(maxBtn->text(), QStringLiteral("还原预览"));
 
       // 还原：预览回到 ~60%（还原的是最大化前的预算尺寸）。
@@ -578,12 +581,15 @@ class TestUiShell : public QObject
       QVERIFY(split->sizes().at(1) >= total * 3 / 5 - 2);
       QVERIFY(split->sizes().at(0) > 64);
 
-      // 关掉最后一个标签 → 空态收成一行，最大化态复位。
+      // 关掉最后一个标签 → 空态收成一行（竖向）或展示空态底纹（横向），最大化态复位。
       inner->removeTab(0);
       QTest::qWait(20);
       QCOMPARE(inner->count(), 0);
       QVERIFY(!maxBtn->isChecked());
-      QVERIFY(split->sizes().at(1) <= qMax(28, preview->sizeHint().height() + 8));
+      if (split->orientation() == Qt::Vertical)
+        QVERIFY(split->sizes().at(1) <= qMax(28, preview->sizeHint().height() + 8));
+      else
+        QVERIFY(split->sizes().at(1) > 0);
     }
 
     // wave/data-integrity：attachWorkflows 幂等——同一窗口二次调用不得重复

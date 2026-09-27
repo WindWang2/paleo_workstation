@@ -13,6 +13,7 @@
 #include "../../metadata/layermanifest.h" // LayerDeclaration fields
 #include "../../domain/types.h"          // ValidationIssue fields
 
+#include <QButtonGroup>
 #include <QComboBox>
 #include <QDebug>
 #include <QDir>
@@ -33,7 +34,11 @@
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QStackedLayout>
+#include <QStackedWidget>
 #include <QTableWidget>
+#include <QToolButton>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -279,12 +284,14 @@ namespace
 DataPage::DataPage(QWidget *parent)
   : QWidget(parent)
 {
+  setMinimumWidth(0);
   auto *lay = panelLayout(this);
 
   // 三段各自成件（objectName 见头文件），壳按 ribbon 布局重新安放。
   const auto section = [this](const char *name) {
     auto *w = new QWidget(this);
     w->setObjectName(QLatin1String(name));
+    w->setMinimumWidth(0);
     auto *l = new QVBoxLayout(w);
     l->setContentsMargins(0, 0, 0, 0);
     l->setSpacing(8);
@@ -325,25 +332,49 @@ DataPage::DataPage(QWidget *parent)
 
   // 列表面表头：标题 + 搜索 + 类型筛选 + 计数（原型「数据列表」）。
   auto *header = new QWidget(listSection);
+  header->setMinimumWidth(0);
   auto *hl = new QHBoxLayout(header);
   hl->setContentsMargins(0, 0, 0, 0);
-  hl->setSpacing(8);
+  hl->setSpacing(4);
   hl->addWidget(caption(tr("数据列表"), header));
   auto *search = new QLineEdit(header);
   search->setObjectName(QStringLiteral("assetSearchEdit"));
   search->setPlaceholderText(tr("搜索名称、类型、关联井"));
   search->setAccessibleName(tr("搜索数据"));
   search->setClearButtonEnabled(true);
+  search->setMinimumWidth(30);
   hl->addWidget(search, 1);
   auto *typeFilter = new QComboBox(header);
   typeFilter->setObjectName(QStringLiteral("assetTypeFilter"));
   typeFilter->setAccessibleName(tr("按类型筛选"));
   typeFilter->addItem(tr("所有类型"), QString());
+  typeFilter->setMinimumWidth(40);
+  typeFilter->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+  typeFilter->setMinimumContentsLength(4);
   hl->addWidget(typeFilter);
   auto *count = new QLabel(header);
   count->setObjectName(QStringLiteral("assetCountLabel"));
   count->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+  count->setMinimumWidth(0);
   hl->addWidget(count);
+
+  auto *btnGroup = new QButtonGroup(header);
+  auto *treeBtn = new QToolButton(header);
+  treeBtn->setObjectName(QStringLiteral("treeViewButton"));
+  treeBtn->setText(tr("树形"));
+  treeBtn->setCheckable(true);
+  treeBtn->setChecked(true);
+  treeBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 6px;"));
+  auto *tableBtn = new QToolButton(header);
+  tableBtn->setObjectName(QStringLiteral("listViewButton"));
+  tableBtn->setText(tr("列表"));
+  tableBtn->setCheckable(true);
+  tableBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 6px;"));
+  btnGroup->addButton(treeBtn, 0);
+  btnGroup->addButton(tableBtn, 1);
+  hl->addWidget(treeBtn);
+  hl->addWidget(tableBtn);
+
   listLay->addWidget(header);
   connect(search, &QLineEdit::textChanged, this, [this] { applyListFilter(); });
   connect(typeFilter, &QComboBox::currentIndexChanged, this, [this] { applyListFilter(); });
@@ -365,17 +396,122 @@ DataPage::DataPage(QWidget *parent)
   fl->addStretch(1);
   connect(clearBtn, &QPushButton::clicked, this, [this]() { setUnresolvedFilter(false); });
   listLay->addWidget(filterBar);
-  auto *table = new QTableWidget(0, 3, listSection);
+
+  m_viewStack = new QStackedWidget(listSection);
+  m_viewStack->setObjectName(QStringLiteral("dataViewStack"));
+  m_viewStack->setMinimumWidth(0);
+
+  m_tree = new QTreeWidget(m_viewStack);
+  m_tree->setObjectName(QStringLiteral("dataTree"));
+  m_tree->setAccessibleName(tr("数据列表树"));
+  m_tree->setMinimumWidth(0);
+  m_tree->header()->setMinimumSectionSize(20);
+  m_tree->setHeaderLabels({tr("数据导航"), tr("类型 / 描述")});
+  m_tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+  m_tree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+  m_tree->setAnimated(true);
+  m_tree->setAlternatingRowColors(true);
+  m_tree->setStyleSheet(QStringLiteral("QTreeWidget::item { padding: 3px 0; }"));
+
+  connect(btnGroup, &QButtonGroup::idClicked, this, [this](int id) {
+    if (m_viewStack)
+      m_viewStack->setCurrentIndex(id);
+  });
+
+  auto *table = new QTableWidget(0, 3, m_viewStack);
   table->setObjectName(QStringLiteral("assetTable"));
   table->setAccessibleName(tr("资产列表"));
+  table->setMinimumWidth(0);
+  table->horizontalHeader()->setMinimumSectionSize(20);
   // §4 预览壳重排：预览移到共享地图下方（不再挂右栏）；第三列由「来源」改为
   // 「关联」——已决链接写实体名、未决给「未决」徽标+挂接控件、参考资产写「参考」。
   table->setHorizontalHeaderLabels({tr("名称"), tr("类型"), tr("关联")});
   table->verticalHeader()->setVisible(false);
   table->horizontalHeader()->setStretchLastSection(true);
   refreshAssetEmptyState(table, QString());
-  listLay->addWidget(table, 1);
+
+  m_viewStack->addWidget(m_tree);  // 0: 树形
+  m_viewStack->addWidget(table);   // 1: 列表
+  listLay->addWidget(m_viewStack, 1);
   lay->addWidget(listSection, 1);
+
+  connect(m_tree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *item, int) {
+    if (!item)
+      return;
+    const QString assetId = item->data(0, Qt::UserRole).toString();
+    const QString wellId = item->data(0, Qt::UserRole + 1).toString();
+    const QString nodeType = item->data(0, Qt::UserRole + 2).toString();
+    const QString lineMode = item->data(0, Qt::UserRole + 3).toString();
+
+    if (nodeType == QLatin1String("seismic_line"))
+    {
+      emit seismicLineActivated(assetId, lineMode);
+      return;
+    }
+    if (!wellId.isEmpty() && !assetId.isEmpty())
+    {
+      emit assetWellActivated(assetId, wellId);
+      emit assetActivated(assetId);
+      return;
+    }
+    if (!assetId.isEmpty())
+    {
+      emit assetActivated(assetId);
+      return;
+    }
+    if (nodeType == QLatin1String("well"))
+    {
+      item->setExpanded(!item->isExpanded());
+      // 双击井节点：打开第一条关联资产（如 A1.Las 测井曲线或井位）
+      for (int i = 0; i < item->childCount(); ++i)
+      {
+        QTreeWidgetItem *child = item->child(i);
+        const QString cid = child->data(0, Qt::UserRole).toString();
+        if (!cid.isEmpty())
+        {
+          emit assetWellActivated(cid, wellId);
+          emit assetActivated(cid);
+          break;
+        }
+      }
+    }
+    else
+    {
+      item->setExpanded(!item->isExpanded());
+    }
+  });
+
+  connect(m_tree, &QTreeWidget::itemSelectionChanged, this, [this]() {
+    if (!m_tree)
+      return;
+    const QList<QTreeWidgetItem *> sel = m_tree->selectedItems();
+    if (sel.isEmpty())
+      return;
+    QTreeWidgetItem *item = sel.front();
+    const QString wellId = item->data(0, Qt::UserRole + 1).toString();
+    if (!wellId.isEmpty())
+    {
+      selectAssetsForEntities({wellId});
+      emit wellSelected(wellId);
+    }
+    const QString assetId = item->data(0, Qt::UserRole).toString();
+    if (!assetId.isEmpty())
+    {
+      auto *tbl = findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      if (tbl)
+      {
+        for (int r = 0; r < tbl->rowCount(); ++r)
+        {
+          if (tbl->item(r, 0) && tbl->item(r, 0)->data(Qt::UserRole).toString() == assetId)
+          {
+            const QSignalBlocker b(tbl);
+            tbl->setCurrentCell(r, 0);
+            break;
+          }
+        }
+      }
+    }
+  });
 
   // ---- p5a：实体角色槽数据视图（entityDataView facade，B 包接线） ----
   // 实体选中（D6 地图点选 → selectAssetsForEntities）后按角色词表枚举
@@ -815,7 +951,243 @@ void DataPage::refreshAssetTable()
       typeFilter->addItem(t, t);
     typeFilter->setCurrentIndex(qMax(0, typeFilter->findData(keep)));
   }
+  refreshAssetTree();
   applyListFilter();
+}
+
+namespace
+{
+  bool naturalNameSort(const QString &na, const QString &nb)
+  {
+    int ia = 0, ib = 0;
+    while (ia < na.size() && !na.at(ia).isDigit()) ++ia;
+    while (ib < nb.size() && !nb.at(ib).isDigit()) ++ib;
+    const QString preA = na.left(ia);
+    const QString preB = nb.left(ib);
+    if (preA != preB)
+      return preA < preB;
+    bool okA = false, okB = false;
+    const int numA = na.mid(ia).toInt(&okA);
+    const int numB = nb.mid(ib).toInt(&okB);
+    if (okA && okB)
+      return numA < numB;
+    return na < nb;
+  }
+} // namespace
+
+void DataPage::refreshAssetTree()
+{
+  if (!m_tree)
+    return;
+  m_tree->clear();
+  auto *svc = qobject_cast<DataImportService *>(property("paleo.page.importsvc").value<QObject *>());
+  if (!svc)
+    return;
+  DataCatalog *cat = svc->catalog();
+  if (!cat)
+    return;
+
+  // 1. 井 (Wells)
+  QVector<CatalogEntity> wells = cat->entities(QStringLiteral("well"));
+  std::sort(wells.begin(), wells.end(), [](const CatalogEntity &a, const CatalogEntity &b) {
+    return naturalNameSort(a.name, b.name);
+  });
+  auto *wellRoot = new QTreeWidgetItem(m_tree);
+  wellRoot->setText(0, tr("井 (%1)").arg(wells.size()));
+  wellRoot->setText(1, tr("井位 / 测井曲线 / 分层 / 时深"));
+  wellRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+  wellRoot->setExpanded(true);
+
+  for (const CatalogEntity &w : wells)
+  {
+    auto *wellItem = new QTreeWidgetItem(wellRoot);
+    wellItem->setText(0, w.name);
+    wellItem->setData(0, Qt::UserRole + 1, w.id);
+    wellItem->setData(0, Qt::UserRole + 2, QStringLiteral("well"));
+    if (w.hasSurface)
+      wellItem->setText(1, QStringLiteral("X: %1, Y: %2").arg(QString::number(w.surfaceX, 'f', 1)).arg(QString::number(w.surfaceY, 'f', 1)));
+
+    // 获取该井所有关联资产并按角色序排：测井曲线 -> 井分层 -> 时深关系 -> 井身/井位
+    const QVector<EntityAssetLink> wLinks = cat->linksForEntity(w.id);
+    const auto roleOrder = [](const QString &r) {
+      if (r == QLatin1String("well_log")) return 0;
+      if (r == QLatin1String("tops")) return 1;
+      if (r == QLatin1String("time_depth")) return 2;
+      if (r == QLatin1String("well_head")) return 3;
+      return 4;
+    };
+    QVector<EntityAssetLink> sortedLinks = wLinks;
+    std::sort(sortedLinks.begin(), sortedLinks.end(), [roleOrder](const EntityAssetLink &a, const EntityAssetLink &b) {
+      return roleOrder(a.role) < roleOrder(b.role);
+    });
+
+    for (const EntityAssetLink &l : sortedLinks)
+    {
+      const CatalogAsset a = cat->assetById(l.assetId);
+      if (a.id.isEmpty())
+        continue;
+      auto *sub = new QTreeWidgetItem(wellItem);
+      sub->setData(0, Qt::UserRole, a.id);
+      sub->setData(0, Qt::UserRole + 1, w.id);
+      sub->setData(0, Qt::UserRole + 2, l.role);
+
+      QString roleDisplay = l.role;
+      QString detailDisplay;
+      if (l.role == QLatin1String("well_log"))
+      {
+        roleDisplay = tr("测井曲线");
+        detailDisplay = a.displayName;
+      }
+      else if (l.role == QLatin1String("tops"))
+      {
+        roleDisplay = tr("井分层");
+        detailDisplay = a.displayName;
+      }
+      else if (l.role == QLatin1String("time_depth"))
+      {
+        roleDisplay = tr("时深关系");
+        detailDisplay = a.displayName;
+      }
+      else if (l.role == QLatin1String("well_head"))
+      {
+        roleDisplay = tr("井身/井位");
+        detailDisplay = a.displayName;
+      }
+      sub->setText(0, QStringLiteral("%1 (%2)").arg(a.displayName, roleDisplay));
+      sub->setText(1, detailDisplay);
+      if (l.unresolved)
+      {
+        sub->setForeground(0, QColor(QStringLiteral("#F29900")));
+        sub->setText(1, tr("未决关联"));
+      }
+    }
+  }
+
+  // 2. 地震 (Seismic)
+  QList<CatalogAsset> seisAssets;
+  for (const CatalogAsset &a : cat->assets())
+    if (a.type == QLatin1String("seismic"))
+      seisAssets.append(a);
+  auto *seismicRoot = new QTreeWidgetItem(m_tree);
+  seismicRoot->setText(0, tr("地震 (%1)").arg(seisAssets.size()));
+  seismicRoot->setText(1, tr("三维地震数据体"));
+  seismicRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+  seismicRoot->setExpanded(true);
+
+  const QVector<CatalogEntity> surveys = cat->entities(QStringLiteral("seismic_survey"));
+  CatalogEntity survey;
+  if (!surveys.isEmpty())
+    survey = surveys.front();
+
+  for (const CatalogAsset &a : seisAssets)
+  {
+    auto *seisItem = new QTreeWidgetItem(seismicRoot);
+    seisItem->setText(0, a.displayName);
+    seisItem->setData(0, Qt::UserRole, a.id);
+    seisItem->setData(0, Qt::UserRole + 2, QStringLiteral("seismic_volume"));
+    if (!survey.id.isEmpty() && survey.inlineMax > survey.inlineMin)
+    {
+      seisItem->setText(1, QStringLiteral("Inline %1–%2 · Xline %3–%4 · %5ms")
+          .arg(int(survey.inlineMin)).arg(int(survey.inlineMax))
+          .arg(int(survey.xlineMin)).arg(int(survey.xlineMax))
+          .arg(survey.sampleIntervalUs / 1000.0, 0, 'f', 1));
+      
+      auto *inl = new QTreeWidgetItem(seisItem);
+      inl->setText(0, tr("Inline 剖面 (主测线 %1–%2)").arg(int(survey.inlineMin)).arg(int(survey.inlineMax)));
+      inl->setText(1, tr("双击预览剖面"));
+      inl->setData(0, Qt::UserRole, a.id);
+      inl->setData(0, Qt::UserRole + 2, QStringLiteral("seismic_line"));
+      inl->setData(0, Qt::UserRole + 3, QStringLiteral("inline"));
+
+      auto *xl = new QTreeWidgetItem(seisItem);
+      xl->setText(0, tr("Crossline 剖面 (联络线 %1–%2)").arg(int(survey.xlineMin)).arg(int(survey.xlineMax)));
+      xl->setText(1, tr("双击预览剖面"));
+      xl->setData(0, Qt::UserRole, a.id);
+      xl->setData(0, Qt::UserRole + 2, QStringLiteral("seismic_line"));
+      xl->setData(0, Qt::UserRole + 3, QStringLiteral("crossline"));
+      seisItem->setExpanded(true);
+    }
+    else
+    {
+      seisItem->setText(1, tr("SEG-Y 地震数据"));
+    }
+  }
+
+  // 3. 层位 (Horizons)
+  QList<CatalogAsset> horAssets;
+  for (const CatalogAsset &a : cat->assets())
+    if (a.type == QLatin1String("horizon"))
+      horAssets.append(a);
+  std::sort(horAssets.begin(), horAssets.end(), [](const CatalogAsset &a, const CatalogAsset &b) {
+    return naturalNameSort(a.displayName, b.displayName);
+  });
+  auto *horRoot = new QTreeWidgetItem(m_tree);
+  horRoot->setText(0, tr("层位 (%1)").arg(horAssets.size()));
+  horRoot->setText(1, tr("解释层位数据"));
+  horRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+  horRoot->setExpanded(true);
+
+  for (const CatalogAsset &a : horAssets)
+  {
+    auto *hItem = new QTreeWidgetItem(horRoot);
+    hItem->setText(0, a.displayName);
+    hItem->setData(0, Qt::UserRole, a.id);
+    hItem->setData(0, Qt::UserRole + 2, QStringLiteral("horizon"));
+    if (a.displayName.contains(QStringLiteral("D61")))
+      hItem->setText(1, tr("目标层位 · 411×641 网格"));
+    else
+      hItem->setText(1, tr("层位网格"));
+  }
+
+  // 4. 辅助资料 (Auxiliary)
+  QList<CatalogAsset> auxAssets;
+  for (const CatalogAsset &a : cat->assets())
+  {
+    if (a.type == QLatin1String("boundary") || a.type == QLatin1String("auxiliary") ||
+        a.type == QLatin1String("document") || a.type == QLatin1String("reference") ||
+        a.displayName.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive))
+      auxAssets.append(a);
+  }
+  std::sort(auxAssets.begin(), auxAssets.end(), [](const CatalogAsset &a, const CatalogAsset &b) {
+    return naturalNameSort(a.displayName, b.displayName);
+  });
+  auto *auxRoot = new QTreeWidgetItem(m_tree);
+  auxRoot->setText(0, tr("辅助资料 (%1)").arg(auxAssets.size()));
+  auxRoot->setText(1, tr("参考相图 / 文档 / 图片"));
+  auxRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+  auxRoot->setExpanded(true);
+
+  auto *faciesBranch = new QTreeWidgetItem(auxRoot);
+  faciesBranch->setText(0, tr("参考相图"));
+  faciesBranch->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+  faciesBranch->setExpanded(true);
+
+  auto *docBranch = new QTreeWidgetItem(auxRoot);
+  docBranch->setText(0, tr("参考资料"));
+  docBranch->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+  docBranch->setExpanded(true);
+
+  for (const CatalogAsset &a : auxAssets)
+  {
+    const bool isGeo = a.displayName.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive) || a.type == QLatin1String("boundary");
+    QTreeWidgetItem *parent = isGeo ? faciesBranch : docBranch;
+    auto *it = new QTreeWidgetItem(parent);
+    it->setText(0, a.displayName);
+    it->setData(0, Qt::UserRole, a.id);
+    it->setData(0, Qt::UserRole + 2, QStringLiteral("auxiliary"));
+    if (isGeo)
+      it->setText(1, tr("GeoJSON 矢量相图"));
+    else if (a.displayName.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive))
+      it->setText(1, tr("PDF 文档"));
+    else if (a.displayName.endsWith(QLatin1String(".pptx"), Qt::CaseInsensitive))
+      it->setText(1, tr("PPT 演示文稿"));
+    else if (a.displayName.endsWith(QLatin1String(".png"), Qt::CaseInsensitive))
+      it->setText(1, tr("图像"));
+    else if (a.displayName.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive))
+      it->setText(1, tr("XML 数据表"));
+    else
+      it->setText(1, a.type);
+  }
 }
 
 void DataPage::applyListFilter()
@@ -854,6 +1226,60 @@ void DataPage::applyListFilter()
   if (auto *count = findChild<QLabel *>(QStringLiteral("assetCountLabel")))
     count->setText(shown == total ? tr("共 %1 条").arg(total)
                                   : tr("显示 %1 / 共 %2 条").arg(shown).arg(total));
+
+  // 树形视图过滤
+  if (m_tree)
+  {
+    const bool filtering = !needle.isEmpty() || !type.isEmpty();
+    for (int i = 0; i < m_tree->topLevelItemCount(); ++i)
+    {
+      QTreeWidgetItem *catItem = m_tree->topLevelItem(i);
+      bool catVisible = false;
+      for (int j = 0; j < catItem->childCount(); ++j)
+      {
+        QTreeWidgetItem *subItem = catItem->child(j);
+        bool subVisible = false;
+        if (subItem->childCount() > 0)
+        {
+          for (int k = 0; k < subItem->childCount(); ++k)
+          {
+            QTreeWidgetItem *leaf = subItem->child(k);
+            const bool leafMatch = (needle.isEmpty() || leaf->text(0).contains(needle, Qt::CaseInsensitive) || leaf->text(1).contains(needle, Qt::CaseInsensitive));
+            leaf->setHidden(!leafMatch);
+            if (leafMatch)
+              subVisible = true;
+          }
+          const bool subSelfMatch = (needle.isEmpty() || subItem->text(0).contains(needle, Qt::CaseInsensitive) || subItem->text(1).contains(needle, Qt::CaseInsensitive));
+          if (subSelfMatch)
+          {
+            subVisible = true;
+            for (int k = 0; k < subItem->childCount(); ++k)
+              subItem->child(k)->setHidden(false);
+          }
+        }
+        else
+        {
+          subVisible = (needle.isEmpty() || subItem->text(0).contains(needle, Qt::CaseInsensitive) || subItem->text(1).contains(needle, Qt::CaseInsensitive));
+        }
+        subItem->setHidden(!subVisible);
+        if (subVisible)
+        {
+          catVisible = true;
+          if (filtering)
+            subItem->setExpanded(true);
+        }
+      }
+      catItem->setHidden(!catVisible);
+      if (filtering && catVisible)
+        catItem->setExpanded(true);
+      else if (!filtering)
+      {
+        catItem->setExpanded(true);
+        for (int j = 0; j < catItem->childCount(); ++j)
+          catItem->child(j)->setExpanded(false);
+      }
+    }
+  }
 }
 
 // p5a：当前选中实体的角色槽数据视图。entityDataView 是纯查询门面——这里

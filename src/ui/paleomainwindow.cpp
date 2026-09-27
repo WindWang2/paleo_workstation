@@ -337,14 +337,14 @@ void PaleoMainWindow::buildShell()
     canvasLay->addStretch(1);
   m_workspaceStack->addWidget(canvasPane); // 0
 
-  // §4 预览壳：数据列表在上、预览在下；预览空态收成一行次级文字，首个
-  // 标签打开时给预览 60%（D7），用户可拖分栏。
-  m_centerSplit = new QSplitter(Qt::Vertical, m_workspaceStack);
+  // §4 预览壳：数据管理区左侧数据列表树、右侧预览标签页；双击树节点在右侧打开预览（D7）。
+  m_centerSplit = new QSplitter(Qt::Horizontal, m_workspaceStack);
   m_centerSplit->setObjectName(QStringLiteral("dataListPreviewSplit"));
   m_centerSplit->setChildrenCollapsible(false);
   m_dataListHost = new QWidget(m_centerSplit);
   m_dataListHost->setObjectName(QStringLiteral("dataListPanel"));
   m_dataListHost->setAccessibleName(QStringLiteral("数据列表"));
+  m_dataListHost->setMinimumWidth(0);
   m_dataListHost->setMinimumHeight(0);
   auto *listHostLay = new QVBoxLayout(m_dataListHost);
   listHostLay->setContentsMargins(0, 0, 0, 0);
@@ -352,9 +352,10 @@ void PaleoMainWindow::buildShell()
   m_previewTabs = new DataPreviewTabs(m_centerSplit);
   m_previewTabs->setObjectName(QStringLiteral("dataPreview"));
   m_previewTabs->setAccessibleName(QStringLiteral("数据预览"));
-  m_previewTabs->setMinimumHeight(0); // 空态要能收成一行
+  m_previewTabs->setMinimumWidth(0);
+  m_previewTabs->setMinimumHeight(0);
   m_centerSplit->addWidget(m_previewTabs);
-  m_centerSplit->setStretchFactor(0, 1);
+  m_centerSplit->setStretchFactor(0, 0);
   m_centerSplit->setStretchFactor(1, 1);
   m_workspaceStack->addWidget(m_centerSplit); // 1
   m_centerStack->addWidget(m_workspaceStack); // index 1
@@ -864,7 +865,8 @@ void PaleoMainWindow::applyPreviewSplit()
 {
   if (!m_centerSplit || !m_previewTabs || m_centerSplit->count() < 2)
     return;
-  const int total = m_centerSplit->height();
+  const bool isHoriz = (m_centerSplit->orientation() == Qt::Horizontal);
+  const int total = isHoriz ? m_centerSplit->width() : m_centerSplit->height();
   if (total <= 0 || !m_previewTabs->isVisible())
     return; // 预览藏着的页（或未布局时）：尺寸让给地图，不动分栏
 
@@ -873,7 +875,7 @@ void PaleoMainWindow::applyPreviewSplit()
   const int tabs = inner ? inner->count() : m_previewTabs->tabCount();
   if (tabs > 0)
   {
-    // D7 最大化态：数据列表只留 64px 壳（splitter 会按列表最小高度兜底），
+    // D7 最大化态：数据列表只留 64px 壳（splitter 会按列表最小尺寸兜底），
     // 预览拿走其余；「还原预览」走 previewMaximizeToggled(false) 恢复
     // m_preMaxSplitSizes。
     if (m_previewMaximized)
@@ -882,11 +884,19 @@ void PaleoMainWindow::applyPreviewSplit()
       m_centerSplit->setSizes({listFloor, qMax(1, total - listFloor)});
       return;
     }
-    // D7 高度预算：首个标签出现时给预览 ≥60%；之后由用户拖分栏，不再触碰。
+    // D7 预算：首个标签出现时给预览 ≥60%；之后由用户拖分栏，不再触碰。
     if (!m_previewExpanded)
     {
       m_previewExpanded = true;
-      m_centerSplit->setSizes({qMax(1, total * 2 / 5), qMax(1, total * 3 / 5)});
+      if (isHoriz)
+      {
+        const int leftSize = qMax(1, total * 2 / 5);
+        m_centerSplit->setSizes({leftSize, qMax(1, total - leftSize)});
+      }
+      else
+      {
+        m_centerSplit->setSizes({qMax(1, total * 2 / 5), qMax(1, total * 3 / 5)});
+      }
     }
     return;
   }
@@ -898,9 +908,17 @@ void PaleoMainWindow::applyPreviewSplit()
   if (auto *maxBtn =
           m_previewTabs->findChild<QToolButton *>(QStringLiteral("previewMaxButton")))
     maxBtn->setChecked(false);
-  // 空态只留「预览为空」那行次级文字的高度（≈28px），不再给 1/3。
-  const int hint = qMax(24, m_previewTabs->sizeHint().height());
-  m_centerSplit->setSizes({qMax(0, total - hint), hint});
+  if (isHoriz)
+  {
+    const int leftSize = qMin(380, qMax(260, total * 2 / 5));
+    m_centerSplit->setSizes({leftSize, qMax(1, total - leftSize)});
+  }
+  else
+  {
+    // 垂直模式空态只留「预览为空」那行次级文字的高度（≈28px），不再给 1/3。
+    const int hint = qMax(24, m_previewTabs->sizeHint().height());
+    m_centerSplit->setSizes({qMax(0, total - hint), hint});
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1800,7 +1818,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     // 收告警、放开导入。
     if (m_projectSvc)
       connect(m_projectSvc, &QgisProjectService::projectOpened, this,
-              [importSvc, catalogError, setImportsEnabled](const QString &) {
+              [dataPage, importSvc, catalogError, setImportsEnabled](const QString &) {
                 if (importSvc->catalogOpenError().isEmpty())
                 {
                   catalogError->hide();
@@ -1808,6 +1826,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 }
                 else
                   setImportsEnabled(false); // 换了个工程仍然失败 → 保持禁用
+                dataPage->refreshAssetTable();
               });
     DataPreviewTabs *preview = m_previewTabs;
     if (preview)
@@ -1820,12 +1839,23 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 applyProvisionalRegistration(importSvc, assetId, params);
               });
       connect(dataPage, &DataPage::assetActivated, preview, &DataPreviewTabs::openAsset);
-      // well_head 预览选中 → 地图高亮该井（§4；Direction B 经 SelectionContext）。
+      connect(dataPage, &DataPage::assetWellActivated, preview, &DataPreviewTabs::openAssetForWell);
+      connect(dataPage, &DataPage::seismicLineActivated, preview,
+              [preview](const QString &aid, const QString &mode) {
+                preview->openSeismicLine(aid, mode, 0, 0.0);
+              });
+      // well_head 预览 / 井树选中 → 地图高亮该井（§4；Direction B 经 SelectionContext）。
       if (m_selection)
+      {
+        connect(dataPage, &DataPage::wellSelected, this,
+                [this](const QString &wellEntityId) {
+                  m_selection->setSelection({wellEntityId}, QStringLiteral("datatree"));
+                });
         connect(preview, &DataPreviewTabs::wellSelected, this,
                 [this](const QString &wellEntityId) {
                   m_selection->setSelection({wellEntityId}, QStringLiteral("datapreview"));
                 });
+      }
       // horizon 预览「在地图上显示」（§4/T29 双向同步）：实例化派生栅格 →
       // 缩放到该图层 → 闪烁定位 ~400ms → 勾上图层树节点 → 按钮置「已在
       // 地图上」；图层树里取消勾选时按钮态跟随（node visibilityChanged，

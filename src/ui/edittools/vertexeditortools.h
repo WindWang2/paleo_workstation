@@ -1,3 +1,4 @@
+// 层：视图
 #pragma once
 #include <qgsmaptooledit.h>
 #include <QString>

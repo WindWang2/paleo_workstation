@@ -1,3 +1,4 @@
+// 层：组装根
 #include "appcontext.h"
 #include "../io/dataimportservice.h" // catalog() — attachMapping 的 OUTPUT 登记
 #include "../services/crashreport.h" // wave4：启动早期装崩溃处理器 + 脏退出提示

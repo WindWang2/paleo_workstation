@@ -2,7 +2,7 @@
 #include <QFile>
 #include <QTemporaryDir>
 
-#include "../src/io/projectclassifier.h"
+#include "../src/domain/projectclassifier.h"
 #include "../src/io/wellfileparsers.h"
 #include "../src/io/lasparser.h"
 

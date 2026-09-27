@@ -1,14 +1,15 @@
+// 层：数据
 #include "dataimportservice.h"
 
 #include "../catalog/datacatalog.h"
 #include "../metadata/layermanifest.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/qgislayerservice.h"
-#include "arearules.h"
+#include "../domain/arearules.h"
 #include "horizonbinner.h"
 #include "ingestplan.h"
 #include "lasparser.h"
-#include "projectclassifier.h"
+#include "../domain/projectclassifier.h"
 #include "segyreader.h"
 #include "wellfileparsers.h"
 
@@ -869,12 +870,40 @@ DataImportService::previewFolder(const QString &dirPath, QString *error)
                         : plan.issues.join(QStringLiteral("\n")));
     return rows;
   }
+  // 确认表显示语义在预览期算好（domain/importrows.h）：行显示类型、可改
+  // 与否、类型词表——视图纯渲染，不回查分类器谓词。
+  const QStringList vocab = projectClassifierTypes(); // 「reference」伪类型含在内
+  const auto fillDisplay = [&vocab](FolderPreviewRow &r) {
+    // 行默认显示类型：HZ28-6-1 固定辅助 → 「参考」；「参考资料」目录内井类/
+    // 未判内容默认「参考」（可改）；其余行显示分类器原类型。
+    QString disp = r.classifiedType;
+    if (isFixedAuxiliaryPath(r.path))
+      disp = QStringLiteral("reference");
+    else if (isDefaultReferencePath(r.path))
+    {
+      // document/image_reference/geojson/seismic/horizon 等显示真实类型——
+      // 它们本来就走辅助实体，且类型名驱动预览分支（document → PDF 预览）。
+      static const QSet<QString> kWellish = {QStringLiteral("well_head"),
+                                             QStringLiteral("well_log"),
+                                             QStringLiteral("unknown")};
+      if (kWellish.contains(r.classifiedType))
+        disp = QStringLiteral("reference");
+    }
+    if (disp.isEmpty())
+      disp = QStringLiteral("unknown");
+    r.displayType = disp;
+    r.typeVocab = vocab;
+    if (!r.classifiedType.isEmpty() && !vocab.contains(r.classifiedType))
+      r.typeVocab.append(r.classifiedType); // 词表外类型（未来扩展）保住可选
+    r.typeEditable = !r.skipped && !isFixedAuxiliaryPath(r.path);
+  };
   for (const PlannedItem &item : plan.items)
   {
     FolderPreviewRow r;
     r.path = item.path;
     r.classifiedType = item.type;
     r.decision = item.decision; // plan 期决策（重复→跳过等）随行进确认表
+    fillDisplay(r);
     rows.append(r);
   }
   for (const PlannedItem &s : plan.skipped)
@@ -884,6 +913,7 @@ DataImportService::previewFolder(const QString &dirPath, QString *error)
     r.classifiedType = s.type;
     r.skipped = true;
     r.skipReason = s.note;
+    fillDisplay(r);
     rows.append(r);
   }
   return rows;

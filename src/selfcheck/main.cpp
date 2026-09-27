@@ -1,3 +1,4 @@
+// 层：测试壳
 // paleo selfcheck — §44.1: checklist + rendered map.png prove the vendored QGIS stack is alive.
 // Each line: PASS/FAIL with cause+fix hint on failure (§44.3 error contract).
 #include <qgsapplication.h>

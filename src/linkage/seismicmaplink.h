@@ -1,9 +1,12 @@
+// 层：功能
 #pragma once
 #include <QObject>
 #include <QString>
 #include <QStringList>
 #include <QVector>
 #include <memory>
+#include <vector>
+#include <glm/glm.hpp>
 #include <qgspointxy.h>
 
 #include "../services/seismicmapping.h"
@@ -15,7 +18,6 @@ class QgsVertexMarker;
 class SeismicSectionTool;
 
 namespace seismic {
-class SeismicSectionDockWidget;
 class SgyVolume;
 }
 
@@ -33,10 +35,9 @@ class SeismicMapLink : public QObject
     void setSeismicLayer(QgsVectorLayer *lineLayer, const QString &idField = QStringLiteral("line_id"));
     QgsVectorLayer *seismicLayer() const { return m_layer; }
 
-    // Section dock attachment & cross-view cursor sync
-    void attachSectionDock(seismic::SeismicSectionDockWidget *dock);
-    seismic::SeismicSectionDockWidget *sectionDock() const { return m_sectionDock; }
-
+    // 剖面跨视图联动（W3b）：linkage 不持有 ui 控件——壳把剖面画布的
+    // traceHovered/traceClicked 连到下面的槽，把 sectionVolumeChanged 连到
+    // 剖面控件的 setVolume。连接前先取 activeVolume() 做一次初始推送。
     void setGridGeometry(const SurveyGridGeometry &geom);
     SurveyGridGeometry gridGeometry() const { return m_gridGeom; }
 
@@ -50,13 +51,22 @@ class SeismicMapLink : public QObject
     // Polyline trigger
     void triggerSectionFromMapPolyline(const QVector<QgsPointXY> &mapPoints, const QString &title = QString());
 
+    // 剖面画布信号入口——由壳侧 connect（签名与剖面画布信号一致）。
+    void onSectionTraceHovered(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
+    void onSectionTraceClicked(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
+
   signals:
     void sectionExtractedFromMap(bool success, const QString &message);
+    // 当前活动地震体变化——壳连给剖面控件的 setVolume。
+    void sectionVolumeChanged(std::shared_ptr<const seismic::SgyVolume> volume);
+    // 地图折线剖面意图——壳连给剖面 dock：extractSectionFromVolumeAsync +
+    // show/raise（linkage 不碰 ui 控件）。glm 向量按值传，直连同线程即可。
+    void sectionExtractRequested(std::shared_ptr<const seismic::SgyVolume> volume,
+                                 std::vector<glm::ivec2> pathPoints, QString title,
+                                 std::vector<glm::dvec2> mapPolyline);
 
   private slots:
     void onContextSelection(const QStringList &ids, const QString &origin);
-    void onSectionTraceHovered(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
-    void onSectionTraceClicked(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
     void onSectionPathCaptured(const QVector<QgsPointXY> &points);
 
   private:
@@ -65,7 +75,6 @@ class SeismicMapLink : public QObject
     QgsVectorLayer *m_layer = nullptr;
     QString m_idField;
 
-    seismic::SeismicSectionDockWidget *m_sectionDock = nullptr;
     QgsVertexMarker *m_cursorMarker = nullptr;
     SurveyGridGeometry m_gridGeom;
     std::shared_ptr<const seismic::SgyVolume> m_volume;

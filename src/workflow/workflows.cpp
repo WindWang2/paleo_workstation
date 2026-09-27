@@ -1,9 +1,10 @@
+// 层：功能
 #include "workflows.h"
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header; symbol refs are PALEO_HAVE_ORT-guarded
 #include "../catalog/datacatalog.h"      // localGridCrsWkt — ONNX 栅格落在局部测网
 #include "../io/constraintstore.h"
-#include "../io/arearules.h"
+#include "../domain/arearules.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/qgiseditingservice.h" // 拓扑提交门（geometryCommitError）
 #include "../qgis/qgislayerservice.h"

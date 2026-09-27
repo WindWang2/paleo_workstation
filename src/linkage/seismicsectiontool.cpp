@@ -1,3 +1,4 @@
+// 层：功能
 #include "seismicsectiontool.h"
 
 #include <qgsmapcanvas.h>

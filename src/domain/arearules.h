@@ -1,9 +1,10 @@
+// 层：数据
 #pragma once
 #include <QString>
 #include <QStringList>
 #include <QVector>
 
-// io/ — 工程级参数 seam（wave4/area-parametrization，TODOS「第二工区参数化接缝」）。
+// domain/ — 工程级参数 seam（wave4/area-parametrization，TODOS「第二工区参数化接缝」）。
 // 本工区（project_area）的钉死值统一从这里读；默认值 = master 当前行为，
 // 逐字节一致。四类参数：
 //   1. 层序界面名单 —— dataimportservice.cpp isKnownSequenceBoundary（plan §1：

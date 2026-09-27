@@ -1,3 +1,4 @@
+// 层：数据
 #pragma once
 #include <QHash>
 #include <QList>
@@ -13,6 +14,7 @@
 #include <QMetaObject>
 #include <QThread>
 #include "../catalog/datacatalog.h" // catInvoke 模板需完整类型（thread()/invokeMethod）
+#include "../domain/importrows.h"   // FolderPreviewRow / FolderRowResult（domain 瞬态 DTO）
 
 class QgisLayerService;
 class PaleoProjectStore;
@@ -75,15 +77,9 @@ class DataImportService : public QObject
     // 两阶段：先处理全部 well_head 行（井建齐），其余文件再对已齐的井集解
     // 析——LAS 排序在井口前也照常挂到 A1。返回行按处理序排：well_head 行在
     // 前、其余行随后（各按路径排序）、Skipped 行缀在最后。
-    struct FolderRowResult
-    {
-      QString path;            // 源路径（所选目录内）
-      QString classifiedType;  // 分类器类型（well_head/well_log/tops/...）
-      QString entityName;      // 已解析实体名；多个主关联用 ", " 连接；未决/失败为空
-      enum class Outcome { Imported, Unresolved, Failed, Skipped };
-      Outcome outcome = Outcome::Skipped;
-      QString message;         // 失败原因 / 未决备注 / dedup「字节已在库」文案
-    };
+    // FolderRowResult/FolderPreviewRow 已解嵌套到 domain/importrows.h——
+    // 兼容别名保留一期（UI 确认表与工作流按裸类型名使用；删除递延 TODOS）。
+    using FolderRowResult = ::FolderRowResult;
     QVector<FolderRowResult> importFolder(const QString &dirPath, QString *error = nullptr);
     // typeOverrides：确认表里用户改过类型的行——key 是源路径，value 是目标类型。
     // 只认分类器词表内的类型（projectClassifierTypes()）；非法值忽略，行按
@@ -107,14 +103,8 @@ class DataImportService : public QObject
     // 确认表预览：与 importFolder 同一枚举/分类口径，只列行不导入。
     // skipped=true 的行是软链逃逸/非普通文件（预览里灰显、不可改类型）。
     // decision 是 plan 期决策（"skip"=重复→跳过 等），确认表逐行显示。
-    struct FolderPreviewRow
-    {
-      QString path;
-      QString classifiedType;
-      QString decision;          // accept | skip | as_new_version（plan 期）
-      bool skipped = false;
-      QString skipReason;
-    };
+    // displayType/typeEditable/typeVocab 已在预览期按分类器谓词回填。
+    using FolderPreviewRow = ::FolderPreviewRow;
     QVector<FolderPreviewRow> previewFolder(const QString &dirPath, QString *error = nullptr);
 
     // ---- C 包 IngestPlan 执行面（docs/DATA_FABRIC_ADOPTION.md）----

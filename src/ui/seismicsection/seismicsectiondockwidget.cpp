@@ -1,3 +1,4 @@
+// 层：视图
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 
 #include <QHBoxLayout>

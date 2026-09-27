@@ -1,8 +1,9 @@
+// 层：数据
 #pragma once
 #include <QString>
 #include <QStringList>
 
-#include "../io/arearules.h"
+#include "arearules.h"
 
 // domain/ — 阶段E 的编图层位集合（docs/PROJECT_AREA_PLAN.md §1、§5E）。
 // 名单是工程级参数（AreaRules::active().sequenceBoundaries，工程目录

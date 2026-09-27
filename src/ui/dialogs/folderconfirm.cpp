@@ -1,0 +1,439 @@
+// 层：视图
+#include "folderconfirm.h"
+
+#include "../../domain/projectclassifier.h" // 分类词表/固定辅助谓词（domain 纯函数）
+
+#include <memory>
+
+#include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDir>
+#include <QFileInfo>
+#include <QPointer>
+#include <QHBoxLayout>
+#include <QHeaderView>
+#include <QLabel>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QTableWidget>
+#include <QVBoxLayout>
+
+namespace PaleoFolderConfirm
+{
+
+QString folderTypeLabel(const QString &type)
+{
+  static const QHash<QString, QString> kLabels = {
+      {QStringLiteral("well_head"), QStringLiteral("井口")},
+      {QStringLiteral("well_log"), QStringLiteral("测井")},
+      {QStringLiteral("well_stratification"), QStringLiteral("井分层")},
+      {QStringLiteral("time_depth"), QStringLiteral("时深")},
+      {QStringLiteral("horizon"), QStringLiteral("层位")},
+      {QStringLiteral("seismic"), QStringLiteral("地震")},
+      {QStringLiteral("tabular"), QStringLiteral("表格")},
+      {QStringLiteral("geojson"), QStringLiteral("GeoJSON")},
+      {QStringLiteral("document"), QStringLiteral("文档")},
+      {QStringLiteral("image_reference"), QStringLiteral("图像")},
+      {QStringLiteral("reference"), QStringLiteral("参考资料")},
+      {QStringLiteral("unknown"), QStringLiteral("未知")}};
+  return kLabels.value(type, type); // 词表外类型裸显 id（type 仍存 item data）
+}
+
+QString folderRowDisplayType(const QString &path, const QString &classifiedType)
+{
+  if (isFixedAuxiliaryPath(path))
+    return QStringLiteral("reference"); // HZ28-6-1：固定参考（下拉同时锁死）
+  if (isDefaultReferencePath(path))
+  {
+    // 「参考资料」目录内，分类到井类/未判内容的行默认显示「参考」——确认不改
+    // 也作为 override=reference 送达后端，保持阶段 D 语义。document/
+    // image_reference/geojson/seismic/horizon 等显示真实类型：它们本来就走
+    // 辅助实体，且类型名驱动预览分支（document → PDF 预览）。
+    static const QSet<QString> kWellish = {QStringLiteral("well_head"),
+                                           QStringLiteral("well_log"),
+                                           QStringLiteral("unknown")};
+    if (kWellish.contains(classifiedType))
+      return QStringLiteral("reference");
+  }
+  return classifiedType.isEmpty() ? QStringLiteral("unknown") : classifiedType;
+}
+
+QString engineeringCrsSentence()
+{
+  // T22/§3 契约句：工区导入统一展示的 CRS 说明（文件夹确认表 + 单文件
+  // 导入确认都只读挂这句）。状态栏短句另行，与 PDF 页脚同一文案。
+  return QStringLiteral(
+      "局部工程坐标，单位米。源文件里的 EPSG:4326 只是标签，不会画到地图上。");
+}
+
+void populateFolderConfirmTable(QTableWidget *table, const QString &rootDir,
+                                const QVector<FolderPreviewRow> &rows,
+                                QVector<QComboBox *> *combosOut)
+{
+  const QDir root(rootDir);
+  const QStringList vocab = projectClassifierTypes();
+  table->setRowCount(0);
+  if (combosOut)
+  {
+    combosOut->clear();
+    combosOut->reserve(rows.size());
+  }
+  for (const FolderPreviewRow &row : rows)
+  {
+    const int r = table->rowCount();
+    table->insertRow(r);
+    auto *pathItem = new QTableWidgetItem(root.relativeFilePath(row.path));
+    pathItem->setToolTip(row.path);
+    pathItem->setData(Qt::UserRole, row.path);
+    table->setItem(r, 0, pathItem);
+    table->setItem(r, 1, new QTableWidgetItem);
+    table->setItem(r, 2, new QTableWidgetItem);
+    table->setItem(r, 3, new QTableWidgetItem);
+
+    auto *combo = new QComboBox(table);
+    combo->setObjectName(QStringLiteral("folderType%1").arg(r));
+    for (const QString &t : vocab)
+      combo->addItem(folderTypeLabel(t), t); // type 存 data，不靠文本反推
+    // 分类器给了词表外类型（未来扩展）→ 追加一项保住真实类型可选。
+    if (!row.classifiedType.isEmpty() && !vocab.contains(row.classifiedType))
+      combo->addItem(row.classifiedType, row.classifiedType);
+    const QString disp = folderRowDisplayType(row.path, row.classifiedType);
+    int idx = combo->findData(disp);
+    if (idx < 0)
+      idx = combo->findData(QStringLiteral("unknown"));
+    if (idx >= 0)
+      combo->setCurrentIndex(idx);
+
+    // 锁定优先级：HZ28-6-1 固定参考（改不动）；跳过行同样禁改。
+    const bool locked = isFixedAuxiliaryPath(row.path);
+    if (row.skipped || locked)
+      combo->setEnabled(false);
+    if (locked)
+    {
+      combo->setToolTip(QObject::tr("该文件固定为参考资料"));
+      pathItem->setToolTip(QObject::tr("%1\n该文件固定为参考资料").arg(row.path));
+    }
+    table->setCellWidget(r, 1, combo);
+    if (combosOut)
+      combosOut->append(combo);
+    if (row.skipped)
+    {
+      table->item(r, 3)->setText(QObject::tr("跳过：%1").arg(row.skipReason));
+      for (int c = 0; c < 4; ++c)
+        table->item(r, c)->setFlags(table->item(r, c)->flags() & ~Qt::ItemIsEnabled);
+    }
+    else
+    {
+      // C 包 IngestPlan：plan 期决策逐行可见——重复→跳过 / 重复→新版本；
+      // 未决行不在此预写（保持既有口径：结果列导入后才写「未决」）。
+      const QString decisionText =
+          row.decision == QLatin1String("skip")
+              ? QObject::tr("重复→跳过")
+              : row.decision == QLatin1String("as_new_version")
+                    ? QObject::tr("重复→新版本")
+                    : QString();
+      if (!decisionText.isEmpty())
+        table->item(r, 3)->setText(decisionText);
+    }
+  }
+}
+
+QMap<QString, QString>
+collectFolderTypeOverrides(const QTableWidget *table,
+                           const QVector<FolderPreviewRow> &rows,
+                           const QVector<QComboBox *> &combos)
+{
+  QMap<QString, QString> overrides;
+  for (int r = 0; r < combos.size() && r < rows.size(); ++r)
+  {
+    if (!combos[r] || !combos[r]->isEnabled())
+      continue; // 跳过行/锁定行不参与导入，改动也不成 override
+    const QString t = combos[r]->currentData().toString(); // item data，非显示文本
+    const QString path = table->item(r, 0)->data(Qt::UserRole).toString();
+    // 只在「合法类型」且「不同于分类器原类型」时发 override——这样不动
+    // 下拉/保持默认的行不发出多余覆盖（参考资料默认「参考」属有意覆盖）。
+    if (isClassifierType(t) && t != rows.at(r).classifiedType)
+      overrides.insert(path, t);
+  }
+  return overrides;
+}
+
+void writeFolderRowResult(QTableWidget *table, int row, const FolderRowResult &res,
+                          const std::function<void(int)> &onRetry)
+{
+  using Outcome = FolderRowResult::Outcome;
+  QString outcomeText;
+  switch (res.outcome)
+  {
+  case Outcome::Imported:
+    outcomeText = QObject::tr("已入库");
+    break;
+  case Outcome::Unresolved:
+    outcomeText = QObject::tr("未决");
+    break;
+  case Outcome::Failed:
+    outcomeText = QObject::tr("失败");
+    break;
+  case Outcome::Skipped:
+    outcomeText = QObject::tr("跳过");
+    break;
+  }
+  const QString text = res.message.isEmpty()
+                           ? outcomeText
+                           : QObject::tr("%1：%2").arg(outcomeText, res.message);
+  table->item(row, 2)->setText(res.entityName);
+  // 清掉旧的重试控件——removeCellWidget 只摘不删，控件会活成表内孤儿。
+  if (QWidget *old = table->cellWidget(row, 3))
+  {
+    table->removeCellWidget(row, 3);
+    old->setParent(nullptr);
+    old->deleteLater();
+  }
+  table->item(row, 3)->setText(text);
+  if (res.outcome == Outcome::Failed && onRetry)
+  {
+    // 失败行的「重试」：按当前下拉类型只重导这一行。
+    auto *cell = new QWidget(table);
+    auto *hl = new QHBoxLayout(cell);
+    hl->setContentsMargins(4, 0, 4, 0);
+    auto *msg = new QLabel(text, cell);
+    msg->setWordWrap(true);
+    auto *retry = new QPushButton(QObject::tr("重试"), cell);
+    retry->setObjectName(QStringLiteral("folderRetry"));
+    retry->setAccessibleName(
+        QObject::tr("重试导入 %1").arg(table->item(row, 0)->text()));
+    hl->addWidget(msg, 1);
+    hl->addWidget(retry, 0);
+    QObject::connect(retry, &QPushButton::clicked, table,
+                     [onRetry, row] { onRetry(row); });
+    table->setCellWidget(row, 3, cell);
+  }
+}
+
+QString folderImportSummaryText(const QVector<FolderRowResult> &rows)
+{
+  using Outcome = FolderRowResult::Outcome;
+  int imported = 0, unresolved = 0, failed = 0, skipped = 0;
+  for (const auto &res : rows)
+    switch (res.outcome)
+    {
+    case Outcome::Imported:
+      ++imported;
+      break;
+    case Outcome::Unresolved:
+      ++unresolved;
+      break;
+    case Outcome::Failed:
+      ++failed;
+      break;
+    case Outcome::Skipped:
+      ++skipped;
+      break;
+    }
+  QString text = QObject::tr("入库 %1，未决 %2，失败 %3")
+                     .arg(imported)
+                     .arg(unresolved)
+                     .arg(failed);
+  if (skipped > 0) // D3：「跳过」保留为第四计数（符号链接/非普通文件如实报）
+    text += QObject::tr("，跳过 %1").arg(skipped);
+  return text;
+}
+
+void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
+                              const QVector<FolderPreviewRow> &preview,
+                              const Hooks &hooks)
+{
+  dlg->setObjectName(QStringLiteral("folderImportDialog"));
+  dlg->setWindowTitle(QObject::tr("导入工区文件夹 — %1").arg(dir));
+  dlg->resize(760, 420);
+  auto *lay = new QVBoxLayout(dlg);
+  auto *hint = new QLabel(
+      QObject::tr("确认每个文件的类型（可改）后导入；井口文件会先入库。"), dlg);
+  hint->setWordWrap(true);
+  lay->addWidget(hint);
+  // T22：CRS 契约句——只读一行，挂在确认表上方。
+  auto *crsNote = new QLabel(engineeringCrsSentence(), dlg);
+  crsNote->setObjectName(QStringLiteral("folderCrsNote"));
+  crsNote->setWordWrap(true);
+  crsNote->setStyleSheet(QStringLiteral("color: #5D6E80;")); // DESIGN.md text-muted
+  lay->addWidget(crsNote);
+
+  auto *table = new QTableWidget(0, 4, dlg);
+  table->setObjectName(QStringLiteral("folderTable"));
+  // T32 a11y：文件夹确认表报名 + 说明（每行可改类型、锁死行只读）。
+  table->setAccessibleName(QObject::tr("文件夹导入确认表"));
+  table->setAccessibleDescription(QObject::tr(
+      "列出所选文件夹里的每个文件：确认或修改类型后导入，井口文件先入库"));
+  table->setHorizontalHeaderLabels(
+      {QObject::tr("路径"), QObject::tr("类型"), QObject::tr("实体"),
+       QObject::tr("结果")});
+  table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+  table->horizontalHeader()->setStretchLastSection(true);
+  table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  lay->addWidget(table);
+
+  QVector<QComboBox *> combos;
+  populateFolderConfirmTable(table, dir, preview, &combos);
+
+  auto *summary = new QLabel(dlg);
+  summary->setObjectName(QStringLiteral("folderSummary"));
+  summary->setWordWrap(true);
+  summary->hide();
+  lay->addWidget(summary);
+
+  auto *buttons = new QDialogButtonBox(dlg);
+  auto *confirm =
+      buttons->addButton(QObject::tr("确认导入"), QDialogButtonBox::AcceptRole);
+  confirm->setObjectName(QStringLiteral("folderConfirmButton"));
+  auto *cancel = buttons->addButton(QObject::tr("取消"), QDialogButtonBox::RejectRole);
+  // T31「查看未决」：导入完成后出现——把数据页资产表过滤到未决行，直接
+  // 指向「挂到这口井」的挂接入口（不留「导完了然后呢」的断头路）。
+  auto *showUnresolved =
+      buttons->addButton(QObject::tr("查看未决"), QDialogButtonBox::ActionRole);
+  showUnresolved->setObjectName(QStringLiteral("folderShowUnresolvedButton"));
+  showUnresolved->setVisible(false);
+  showUnresolved->setAccessibleName(QObject::tr("查看未决资产"));
+  QObject::connect(showUnresolved, &QAbstractButton::clicked, dlg, [dlg, hooks]() {
+    if (hooks.showUnresolved)
+      hooks.showUnresolved();
+    dlg->accept();
+  });
+  QObject::connect(cancel, &QAbstractButton::clicked, dlg, &QDialog::reject);
+
+  // 对话框 exec 在 build 返回之后——行结果/重试回调的生存期挂到 shared 状态，
+  // 不捕局部引用。
+  auto results = std::make_shared<QVector<FolderRowResult>>();
+  auto retryFn = std::make_shared<std::function<void(int)>>();
+  const std::function<void(int)> retryCb =
+      [retryFn](int r) { if (*retryFn) (*retryFn)(r); };
+
+  // 行重试：只重导这一行的文件，类型取当前下拉值（合法且不同于分类器原类
+  // 型才成 override；锁定/灰显行不带覆盖）。
+  *retryFn = [retryFn, retryCb, table, summary, combos, preview, results,
+              hooks](int r) {
+    if (r < 0 || r >= preview.size() || r >= results->size())
+      return;
+    const QString path = table->item(r, 0)->data(Qt::UserRole).toString();
+    QString force;
+    if (combos.value(r) && combos[r]->isEnabled())
+    {
+      const QString t = combos[r]->currentData().toString();
+      if (isClassifierType(t) && t != preview.at(r).classifiedType)
+        force = t;
+    }
+    FolderRowResult rowRes;
+    QString rerr;
+    if (hooks.importRow)
+      rowRes = hooks.importRow(path, force);
+    else
+    {
+      rowRes.outcome = FolderRowResult::Outcome::Failed;
+      rowRes.message = QStringLiteral("导入未接线");
+    }
+    (void)rerr;
+    (*results)[r] = rowRes;
+    writeFolderRowResult(table, r, rowRes, retryCb); // 仍失败 → 重试按钮回挂
+    // 行不再是失败：收掉改类型入口；仍失败的保留下拉（可换类型再试）。
+    if (rowRes.outcome != FolderRowResult::Outcome::Failed && combos.value(r))
+      combos[r]->setEnabled(false);
+    summary->setText(folderImportSummaryText(*results));
+  };
+
+  QObject::connect(confirm, &QAbstractButton::clicked, dlg,
+                   [dlg, table, summary, confirm, cancel, showUnresolved,
+                    combos, preview, results, retryCb, hooks]() {
+    const QMap<QString, QString> overrides =
+        collectFolderTypeOverrides(table, preview, combos);
+    confirm->setEnabled(false); // 确认只走一遍（异步在途也一样）
+
+    // 导入结果回表——同步路径与任务终态共用（在 GUI 线程执行）。
+    const auto applyResults =
+        [dlg, table, summary, confirm, cancel, showUnresolved, combos, preview,
+         results, retryCb, hooks](const QVector<FolderRowResult> &res,
+                                  const QString &importErr) {
+      if (res.isEmpty() && !importErr.isEmpty())
+      {
+        QMessageBox::warning(dlg, QObject::tr("导入工区文件夹"), importErr);
+        confirm->setEnabled(true); // 整体失败可重试
+        return;
+      }
+      // D5：结果序按生效类型两阶段排——改过类型的行可能换阶段，按「路径」
+      // 回行而不是按索引；results 与表行同序存放，供重试回写与汇总重算。
+      results->fill(FolderRowResult{}, preview.size());
+      using Outcome = FolderRowResult::Outcome;
+      QString wellHeadAssetId;
+      for (const FolderRowResult &rowRes : res)
+      {
+        int r = -1;
+        for (int i = 0; i < preview.size(); ++i)
+          if (preview.at(i).path == rowRes.path)
+          {
+            r = i;
+            break;
+          }
+        if (r < 0)
+          continue;
+        (*results)[r] = rowRes;
+        writeFolderRowResult(table, r, rowRes, retryCb);
+        if (rowRes.outcome == Outcome::Imported &&
+            rowRes.classifiedType == QLatin1String("well_head") &&
+            wellHeadAssetId.isEmpty() && hooks.importedWellHead)
+        {
+          // 找回刚入库的井口资产：按文件名反查（壳/workflow 侧 catalog 读）。
+          wellHeadAssetId = hooks.importedWellHead(rowRes.path);
+        }
+      }
+      summary->setText(folderImportSummaryText(*results));
+      summary->show();
+      // 有未决行才露「查看未决」入口（T31）。
+      bool anyUnresolved = false;
+      for (const auto &rowRes : *results)
+        if (rowRes.outcome == Outcome::Unresolved)
+          anyUnresolved = true;
+      showUnresolved->setVisible(anyUnresolved);
+      // 结果留在表里给用户过目；仍失败的行保留下拉（可换类型再点「重试」），
+      // 其余行锁定。
+      for (int r = 0; r < combos.size(); ++r)
+        if (r >= results->size() || results->at(r).outcome != Outcome::Failed)
+          combos[r]->setEnabled(false);
+      cancel->setText(QObject::tr("关闭"));
+      if (hooks.previewAsset && !wellHeadAssetId.isEmpty())
+        hooks.previewAsset(wellHeadAssetId);
+      // PROJECT_FILE_DESIGN：「从工区文件夹新建」的工程把本次导入统计写回
+      // project.paleo.sourceArea（目录不匹配时 stampSourceArea 自拒，不污染
+      // 普通导入路径下的工程）。
+      if (hooks.stampSourceArea)
+      {
+        int nImported = 0, nUnresolved = 0, nFailed = 0, nSkipped = 0;
+        for (const auto &rr : res)
+          switch (rr.outcome)
+          {
+          case Outcome::Imported: ++nImported; break;
+          case Outcome::Unresolved: ++nUnresolved; break;
+          case Outcome::Failed: ++nFailed; break;
+          case Outcome::Skipped: ++nSkipped; break;
+          }
+        hooks.stampSourceArea(QVariantMap{
+            {QStringLiteral("files"), res.size()},
+            {QStringLiteral("imported"), nImported},
+            {QStringLiteral("unresolved"), nUnresolved},
+            {QStringLiteral("failed"), nFailed},
+            {QStringLiteral("skipped"), nSkipped}});
+      }
+    };
+
+    // 对话框中途关闭 → 结果弃置（catalog 状态已入库，可重开表看）。
+    QPointer<QDialog> guard(dlg);
+    const auto guardedApply = [guard, applyResults](const QVector<FolderRowResult> &r,
+                                                    const QString &e) {
+      if (guard)
+        applyResults(r, e);
+    };
+    if (hooks.importAll)
+      hooks.importAll(overrides, guardedApply);
+  });
+  lay->addWidget(buttons);
+}
+
+} // namespace PaleoFolderConfirm

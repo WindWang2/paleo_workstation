@@ -1,3 +1,4 @@
+// 层：视图
 #include "correlationwellcolumn.h"
 
 #include <QGraphicsLineItem>

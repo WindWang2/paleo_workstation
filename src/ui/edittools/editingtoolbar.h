@@ -1,3 +1,4 @@
+// 层：视图
 #pragma once
 #include <QPointer>
 #include <QWidget>

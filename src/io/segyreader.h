@@ -1,20 +1,12 @@
+// 层：数据
 #pragma once
 #include <QHash>
 #include <QString>
 #include <QVector>
-#include <functional>
-#include <limits>
+
+#include "../domain/sectiontrace.h"   // SegyOptions/SegyTrace/SegyGeometry/SegySectionGrid（domain 纯数据）
 
 class QFile;
-
-// 长 IO 钩子（wave2 D1：索引/解码跑在任务池上）：progress(done,total) 报
-// 字节/条目进度（worker 侧节流，~每 8MB 或每 64 道一次）；cancel() 返回真
-// 即中止，函数照常返回 false、error 记 "cancelled"——任务层据此判 Cancelled。
-struct SegyOptions
-{
-  std::function<void(qint64 done, qint64 total)> progress;
-  std::function<bool()> cancel;
-};
 
 // io/ — SEG-Y rev0/1 测线级读取器（plan §2/§7）。
 // open() 只做道头索引：沿文件顺序逐道读 240 字节道头，冻结 survey 几何
@@ -22,27 +14,8 @@ struct SegyOptions
 // →文件偏移索引；样本不进内存（不再 readAll）。
 // 单条 inline 或 crossline 用 readInline/readCrossline 按需解码。
 // IBM 370 fp32（format 1）与 IEEE 754 fp32（format 5）解码保留。
-struct SegyTrace
-{
-  qint32 cdp = 0;
-  qint32 lineNo = 0;   // inline（道头字节 189；0 时回退二进制头 line number）
-  qint32 xlineNo = 0;  // crossline（道头字节 193，默认）
-  QVector<float> samples;
-  qint64 tracl = 0;
-  float sampleIntervalUs = 0.0f;
-  double startTimeMs = std::numeric_limits<double>::quiet_NaN();
-};
-
-struct SegyGeometry
-{
-  qint32 inlineMin = 0, inlineMax = 0;
-  qint32 xlineMin = 0, xlineMax = 0;
-  // survey 角点 (x,y)：取自 CDP 道头坐标（字节 181-188），
-  // 顺序 (inlMin,xlMin) (inlMin,xlMax) (inlMax,xlMax) (inlMax,xlMin)。
-  double cornerX[4] = {0, 0, 0, 0};
-  double cornerY[4] = {0, 0, 0, 0};
-  double startTimeMs = 0; // 道头延迟记录时间（字节 109-110，ms）
-};
+// 纯数据类型（SegyOptions/SegyTrace/SegyGeometry/SegySectionGrid）在
+// domain/sectiontrace.h——视图层直接消费它们，不进本头。
 
 class SegyReader
 {

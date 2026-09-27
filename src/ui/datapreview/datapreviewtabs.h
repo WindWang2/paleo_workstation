@@ -1,3 +1,4 @@
+// 层：视图
 #pragma once
 #include <QHash>
 #include <QPointer>
@@ -5,20 +6,16 @@
 #include <QWidget>
 #include <memory>
 
+#include "../../services/previewdoc.h"   // 数据页预览的唯一数据门面（W1）
+
 class DataImportService;
 class PaleoTaskService;
-class PaleoTask;
 class DataCatalog;
 class QLabel;
 class QTabWidget;
 struct CatalogAsset;
-class SegyReader;
 class QgsProject;
 class QgsMapCanvas;
-
-namespace seismic {
-class SeismicTaskService;
-}
 
 // ui/datapreview — 数据页页内预览标签栏（docs/PROJECT_AREA_PLAN.md §4）。
 // 普通 QTabWidget（可关闭标签），样式走 DESIGN.md dock 面板，不用工作流
@@ -47,7 +44,11 @@ class DataPreviewTabs : public QWidget
     void setHorizonOnMap(const QString &layerId, bool on);
 
     // 服务绑定（mainwindow 接线处调用；为空时 openAsset 显示空态）。
+    // setImportService 自建门面（测试/小环境）；setDocService 挂壳共享的
+    // 门面实例（壳持有一个 PreviewDocService，页属性与本组件共用同一份
+    // 读者缓存/SHA 已验集）。
     void setImportService(DataImportService *svc);
+    void setDocService(PreviewDocService *doc);
     void setProject(QgsProject *project);
 
     // 打开测区全景地图画布（可以用 QGIS 画布）
@@ -113,9 +114,19 @@ class DataPreviewTabs : public QWidget
     QWidget *failureState(const QString &assetId, const QString &reason, QWidget *parent);
     // 「正在读取」+文件名 标签（同步读取前置；buildContent 完成后隐藏）。
     QLabel *loadingLabel(const QString &fileName, QWidget *parent);
+    // 测线解码结果应用（services/previewdoc 信号 → 当前挂起的控件组；
+    // 陈旧结果已在服务内丢弃，这里只管最新一代）。
+    void onSectionReady(const QString &assetId,
+                        const PreviewDocService::SectionDoc &doc);
+    void onSectionFailed(const QString &assetId, const QString &reason);
 
-  DataImportService *m_svc = nullptr;
-  PaleoTaskService *m_taskSvc = nullptr;
+    // 挂接门面（私有）：setImportService/setDocService 共用入口。
+    void attachDoc(PreviewDocService *doc);
+
+  // 视图侧持有的数据门面：一切解析/解码/SHA/PDF 编排都经它（W1 下沉）。
+  PreviewDocService *m_doc = nullptr;             // 挂接的门面（非持有）
+  std::unique_ptr<PreviewDocService> m_docOwned;  // setImportService 自建时持有
+  PaleoTaskService *m_taskSvc = nullptr; // 仅记忆接线顺序，真用走 m_doc
   QPointer<QgsProject> m_project;
   // 「过时」徽标刷新接线（B 包 staleness-lite）：当前服务 catalog 的
   // changed() → 重算已开标签标题。换绑服务时先断开（见 setImportService）。
@@ -125,11 +136,16 @@ class DataPreviewTabs : public QWidget
     QHash<QString, QWidget *> m_pageOfAsset;
     QHash<QString, QString> m_wellEntityOfAsset; // assetId → 该标签已选井（多井下拉框）
     QHash<QString, QString> m_titleSuffixOfAsset; // assetId → 「 · 井名」/「 · IL1315」
-    // D1 异步解码：按资产的索引缓存（每资产只 open/SHA 一次）、世代号
-    //（陈旧结果丢弃）、进行中任务指针（新解码请求取消旧任务）。
-    QHash<QString, std::shared_ptr<SegyReader>> m_segyReaders;
-    QHash<QString, int> m_decodeSeq;
-    QHash<QString, QPointer<PaleoTask>> m_decodeTask;
-    QHash<QString, bool> m_shaVerified; // assetId → 本会话已过 SHA 复验（不重复哈希）
-    std::unique_ptr<seismic::SeismicTaskService> m_seismicTaskSvc;
+    // 解码进行中挂起的控件组（服务发射结果时按 assetId 找回该把图像贴哪）。
+    struct SectionPending
+    {
+      QPointer<QWidget> panel;      // SectionPanel（cpp 内类，按 QWidget 存）
+      QPointer<QWidget> mode;       // 测线模式下拉框（解完恢复可用）
+      QPointer<QWidget> spin;       // 测线号输入框（同上）
+      QPointer<QWidget> tieCaption; // 标定线说明标签（setTieMarker 取其文案）
+      QString tieText;
+      double tieMs = 0.0;
+      bool hasTie = false;
+    };
+    QHash<QString, SectionPending> m_pendingSection;
 };

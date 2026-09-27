@@ -1,20 +1,16 @@
+// 层：数据
 #pragma once
 #include <QList>
 #include <QString>
 #include <QStringList>
 #include <QVector>
 
+#include "lasdoc.h" // LasCurve / LasDoc（视图可用的纯类型门面）
+
 // io/ — minimal LAS 2.x well-log parser (pure Qt, no QGIS dependency).
 // Handles the CWLS sections ~V (version/wrap), ~W (well info — the NULL item
 // drives NaN mapping), ~C (curve definitions in column order) and ~A (ASCII
 // data rows). The first ~C curve is the DEPT index channel.
-struct LasCurve
-{
-  QString name;             // mnemonic, e.g. "DEPT"
-  QString unit;             // e.g. "M"
-  QString descr;            // description text after ':'
-  QVector<double> values;   // one entry per ~A data row; NULL tokens -> NaN
-};
 
 class LasParser
 {

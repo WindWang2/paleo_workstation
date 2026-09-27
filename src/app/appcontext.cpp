@@ -1,3 +1,4 @@
+// 层：组装根
 #include "appcontext.h"
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header; instantiation is PALEO_HAVE_ORT-guarded
@@ -11,7 +12,7 @@
 #include "../services/toolavailability.h"
 #include "../services/paleotaskservice.h"
 #include "../services/crashreport.h" // wave4：projectOpened → 报告头工程路径
-#include "../io/arearules.h"         // wave4 接线点：projectOpened → setProjectDir
+#include "../domain/arearules.h"         // wave4 接线点：projectOpened → setProjectDir
 #include "../linkage/selectioncontext.h"
 #include "../linkage/seismicmaplink.h"
 #include "../linkage/wellmaplink.h"

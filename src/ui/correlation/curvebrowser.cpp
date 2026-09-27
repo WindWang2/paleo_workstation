@@ -1,3 +1,4 @@
+// 层：视图
 #include "curvebrowser.h"
 
 #include <QAbstractItemView>

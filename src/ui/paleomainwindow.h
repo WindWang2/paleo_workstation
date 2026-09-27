@@ -78,6 +78,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     SARibbonCategory *categoryForPage(const QString &pageId) const;
     void showStartup();            // first-run: recent projects + new/open
     void onProjectOpened();        // called after project opens: swap startup->workspace
+    // 打开工程文件（.paleo / .qgz）或工区目录（已有工程则打开，全新工区则建工程并唤起导入）。
+    bool openPath(const QString &path);
 
     // §42 shell persistence — geometry/dock layout/last page in QSettings;
     // canvas extent is per-project and lives inside the .qgz (paleo props).

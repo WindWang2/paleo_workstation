@@ -434,59 +434,8 @@ void PaleoMainWindow::buildShell()
         return;
       const QString dir =
           QFileDialog::getExistingDirectory(this, QStringLiteral("从工区文件夹新建工程"));
-      if (dir.isEmpty())
-        return;
-      const QString paleo = paleoProjectFilePath(dir);
-      if (QFile::exists(paleo))
-      {
-        if (!m_projectSvc->openProject(paleo))
-          QMessageBox::critical(this, QStringLiteral("打开工程失败"),
-                                m_projectSvc->lastErrors().join(QLatin1Char('\n')));
-        return;
-      }
-      const QString qgz = QDir(dir).filePath(
-          QFileInfo(dir).fileName() + QStringLiteral(".qgz"));
-      if (QFile::exists(qgz) || !QDir(dir).entryList(QStringList{QStringLiteral("*.qgz")}).isEmpty())
-      {
-        // 收养既有 qgz（如实：目录里已有 QGIS 工程就不另建覆盖）
-        const QString adopt = QFile::exists(qgz)
-            ? qgz
-            : QDir(dir).filePath(
-                  QDir(dir).entryList(QStringList{QStringLiteral("*.qgz")}).first());
-        if (!m_projectSvc->openProject(adopt))
-          QMessageBox::critical(this, QStringLiteral("打开工程失败"),
-                                m_projectSvc->lastErrors().join(QLatin1Char('\n')));
-        return;
-      }
-      if (!m_projectSvc->createProject(qgz))
-      {
-        QMessageBox::critical(this, QStringLiteral("新建工程失败"),
-                              m_projectSvc->lastErrors().join(QLatin1Char('\n')));
-        return;
-      }
-      // 记来源目录（统计在导入完成时回填）
-      if (QFile::exists(paleoProjectFilePath(dir)))
-      {
-        bool ok = false;
-        QString perr;
-        PaleoProjectFile pf =
-            readProjectFile(paleoProjectFilePath(dir), &ok, &perr);
-        if (ok)
-        {
-          pf.sourceAreaRoot = dir;
-          QString werr;
-          if (!writeProjectFile(dir, pf, &werr))
-            qWarning() << "paleomainwindow: stamp sourceArea failed:" << werr;
-        }
-      }
-      if (m_importSvc)
-        runFolderImportAt(m_importSvc, dir);
-      else
-        // 导入服务未就绪不静默——工程已建好，如实提示走数据页手动导入。
-        QMessageBox::information(
-            this, QStringLiteral("从工区文件夹新建"),
-            QStringLiteral("工程已创建于 %1；导入服务未就绪，请在数据页手动导入该文件夹。")
-                .arg(dir));
+      if (!dir.isEmpty())
+        openPath(dir);
     });
   if (auto *list = startup->findChild<QListWidget *>(QStringLiteral("recentProjectsList")))
     connect(list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
@@ -1496,6 +1445,91 @@ void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
     }
   });
   timer->start(100);
+}
+
+bool PaleoMainWindow::openPath(const QString &path)
+{
+  if (path.isEmpty() || !m_projectSvc)
+    return false;
+  const QFileInfo fi(path);
+  if (!fi.exists())
+  {
+    if (!isOffscreen())
+      QMessageBox::warning(this, tr("打开工程"), tr("路径不存在: %1").arg(path));
+    return false;
+  }
+  if (fi.isFile())
+  {
+    if (!m_projectSvc->openProject(fi.absoluteFilePath()))
+    {
+      if (!isOffscreen())
+        QMessageBox::critical(this, tr("打开工程失败"),
+                              m_projectSvc->lastErrors().join(QLatin1Char('\n')));
+      return false;
+    }
+    return true;
+  }
+  if (fi.isDir())
+  {
+    const QString dir = fi.absoluteFilePath();
+    const QString paleo = paleoProjectFilePath(dir);
+    if (QFile::exists(paleo))
+    {
+      if (!m_projectSvc->openProject(paleo))
+      {
+        if (!isOffscreen())
+          QMessageBox::critical(this, tr("打开工程失败"),
+                                m_projectSvc->lastErrors().join(QLatin1Char('\n')));
+        return false;
+      }
+      return true;
+    }
+    const QString qgz = QDir(dir).filePath(
+        QFileInfo(dir).fileName() + QStringLiteral(".qgz"));
+    if (QFile::exists(qgz) || !QDir(dir).entryList(QStringList{QStringLiteral("*.qgz")}).isEmpty())
+    {
+      const QString adopt = QFile::exists(qgz)
+          ? qgz
+          : QDir(dir).filePath(
+                QDir(dir).entryList(QStringList{QStringLiteral("*.qgz")}).first());
+      if (!m_projectSvc->openProject(adopt))
+      {
+        if (!isOffscreen())
+          QMessageBox::critical(this, tr("打开工程失败"),
+                                m_projectSvc->lastErrors().join(QLatin1Char('\n')));
+        return false;
+      }
+      return true;
+    }
+    if (!m_projectSvc->createProject(qgz))
+    {
+      if (!isOffscreen())
+        QMessageBox::critical(this, tr("新建工程失败"),
+                              m_projectSvc->lastErrors().join(QLatin1Char('\n')));
+      return false;
+    }
+    if (QFile::exists(paleoProjectFilePath(dir)))
+    {
+      bool ok = false;
+      QString perr;
+      PaleoProjectFile pf = readProjectFile(paleoProjectFilePath(dir), &ok, &perr);
+      if (ok)
+      {
+        pf.sourceAreaRoot = dir;
+        QString werr;
+        if (!writeProjectFile(dir, pf, &werr))
+          qWarning() << "paleomainwindow: stamp sourceArea failed:" << werr;
+      }
+    }
+    if (m_importSvc)
+      runFolderImportAt(m_importSvc, dir);
+    else if (!isOffscreen())
+      QMessageBox::information(
+          this, tr("从工区文件夹新建"),
+          tr("工程已创建于 %1；导入服务未就绪，请在数据页手动导入该文件夹。").arg(dir));
+    return true;
+  }
+  return false;
 }
 
 void PaleoMainWindow::showStartup()

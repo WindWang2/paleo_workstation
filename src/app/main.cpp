@@ -32,9 +32,22 @@ int main(int argc, char *argv[])
   const CrashReport::SessionStart session = CrashReport::installCrashHandler(
       QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
 
-  const QString qgisPrefix =
-      argc > 1 ? QString::fromLocal8Bit(argv[1])
-               : qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr"));
+  QString qgisPrefix = qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr"));
+  QString targetPath;
+  for (int i = 1; i < argc; ++i)
+  {
+    const QString arg = QString::fromLocal8Bit(argv[i]);
+    if (arg == QStringLiteral("--prefix") || arg == QStringLiteral("--qgis-prefix"))
+    {
+      if (i + 1 < argc)
+        qgisPrefix = QString::fromLocal8Bit(argv[++i]);
+    }
+    else if (!arg.startsWith(QLatin1Char('-')))
+    {
+      if (targetPath.isEmpty())
+        targetPath = arg;
+    }
+  }
 
   AppContext ctx(qgisPrefix); // brings up QgsApplication + wires all services
   if (!ctx.ready())
@@ -58,6 +71,8 @@ int main(int argc, char *argv[])
                        ctx.projectData(),
                        ctx.importSvc() ? ctx.importSvc()->catalog() : nullptr);
   window.show();
+  if (!targetPath.isEmpty())
+    window.openPath(targetPath);
 
   // §38 错误呈现契约——可恢复降级不模态：上次脏退出的诚实告知（有报告带
   // 路径，无报告如实说没有），不阻塞用户继续干活。

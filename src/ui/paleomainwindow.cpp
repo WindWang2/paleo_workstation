@@ -852,6 +852,7 @@ void PaleoMainWindow::showPage(const QString &pageId)
   if (m_previewTabs)
     m_previewTabs->setVisible(pageId == QLatin1String("data"));
 
+
   // 页作用域工具面：编辑命令组只在编图链三页的 ribbon 里。落到非编辑页
   // 时停用活动画布工具——各工具 deactivate() 统一发 abort 信号，约束捕获/
   // 编辑会话经 owner 的 abort 路径拆台（等价 §42.15 的 Esc）。
@@ -1839,11 +1840,23 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 applyProvisionalRegistration(importSvc, assetId, params);
               });
       connect(dataPage, &DataPage::assetActivated, preview, &DataPreviewTabs::openAsset);
+      connect(dataPage, &DataPage::assetActivated, dataPage, &DataPage::selectAsset);
       connect(dataPage, &DataPage::assetWellActivated, preview, &DataPreviewTabs::openAssetForWell);
       connect(dataPage, &DataPage::seismicLineActivated, preview,
               [preview](const QString &aid, const QString &mode) {
                 preview->openSeismicLine(aid, mode, 0, 0.0);
               });
+      if (auto *inner = preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs")))
+      {
+        connect(inner, &QTabWidget::currentChanged, this, [preview, dataPage](int idx) {
+          if (idx >= 0 && preview && dataPage)
+          {
+            const QString aid = preview->assetIdAt(idx);
+            if (!aid.isEmpty())
+              dataPage->selectAsset(aid);
+          }
+        });
+      }
       // well_head 预览 / 井树选中 → 地图高亮该井（§4；Direction B 经 SelectionContext）。
       if (m_selection)
       {

@@ -52,6 +52,8 @@ class DataPage : public QWidget
     // 列表面筛选：名称/类型/关联含搜索词（不分大小写）且类型匹配下拉的行
     // 才显示；计数标签写「共 N 条」或「显示 M / 共 N 条」。刷新后自动重放。
     void applyListFilter();
+    // 选中指定资产并在右侧属性面板显示其详细属性
+    void selectAsset(const QString &assetId);
   signals:
     void importRequested(const QString &kind);  // "wells" | "seismic" | "boundary"
     void assetActivated(const QString &assetId); // 列表选中 → 预览标签打开

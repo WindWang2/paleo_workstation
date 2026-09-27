@@ -100,6 +100,11 @@ add_library(paleo_core STATIC
   src/workflow/workflows.cpp
   src/ui/paleomainwindow.cpp
   src/ui/pages/pagepanels.cpp
+  src/ui/pages/predictpage.cpp                   # m2/mapping-pages：三页拆分
+  src/ui/pages/constraintpage.cpp
+  src/ui/pages/composepage.cpp
+  src/qgis/qgislayerprofile.cpp                  # m1 缺席兜底：页面图层档案
+  src/services/singlefactordef.cpp               # m2：单因素定义注册表
   src/ui/locator/paleolocatorfilters.cpp
   src/ui/layoutdesignershell.cpp
   src/ui/maptools/paleomaptools.cpp
@@ -205,6 +210,7 @@ add_paleo_test(tst_services2)
 add_paleo_test(tst_workflows)
 add_paleo_test(tst_ui)
 add_paleo_test(tst_panels)
+add_paleo_test(tst_mappingpages)
 add_paleo_test(tst_perf)
 add_paleo_test(tst_locator)
 add_paleo_test(tst_layoutshell)

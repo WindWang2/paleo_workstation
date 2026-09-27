@@ -87,6 +87,14 @@
 - **文件夹导入扫描期进度 UX**：本轮只定「忙碌光标 + 状态栏一行」契约；真进度条（文件计数/ETA）递延。触发条件：大文件夹导入实测等待过长。Effort: S / Priority: P3
 - **include 级护栏的调用级补强**：单一 `paleo_core` 静态库下 `check_layering.py` 只挡 include 挡不住「不带 include 直接 new」；若要挡需 clang 插件或拆库。触发条件：发现绕过 include 的违规实例。Effort: M / Priority: P4
 
+## P3 — m2/mapping-pages 递延（wave/mapping-pages, 2026-09-27）
+
+- **置信度伴生栅格**：算法侧无真实置信度输出（ONNX 仅读首个输出张量、paleo:\* 均确定性单输出栅格）——不造假数据；接入点已留（`PredictionWorkflow::confidenceCompanionAvailable()` 恒 false + 声明位）。触发条件：出现带置信度/方差输出的算法。Effort: S / Priority: P3
+- **非 IDW 单因素引擎**：welldist（距离变换）/confidence（预测结果直取）/strathick（`paleo:paleo_isopach` 双栅格链）v1 统一走井点 IDW，注册表 algorithm 标签已注「待接入」。触发条件：对应资产链就绪。Effort: M / Priority: P3
+- **PaleoEditingToolbar `mEditLayer` 裸指针**：编辑会话开着时切换/新建工程，层被 `QgsProject::clear` 删除后工具条悬空（智能编图自动编辑态使该路径更易触达；真实栈测试复现过 SIGSEGV，测试侧已规避）。edittools/ 属 z3 禁碰区未改。触发条件：编辑会话 × 工程切换实测。Effort: S / Priority: P2
+- **ctest -j2 跨二进制 QSettings 竞态**：多测试二进制共享落盘 `paleo/paleo` 配置，`-j2` 下 `lastPage` 读写交错偶发 `tst_ui::windowStateAndExtentPersist` 红、串行全绿。触发条件：并行 ctest 再现。Effort: S / Priority: P4
+- **native processing provider 注册**：C++ 嵌入运行时 Processing 注册表仅 `paleo:\*`（`gdal:contour` 属 Python provider）；等值线已走 GDAL C API（gdal:contour 同一底层引擎）交付，native provider 按需引入。Effort: M / Priority: P4
+
 ## Completed
 
 - **2026-09-26 · project_area 数据底座 + D61 编图链**（p1/p2 双包并入 master）：catalog 实体/资产/版本/显式关联 + SHA-256 受管 RAW；分类器与井口/分层/时深解析；D61 装箱时间栅格；SEG-Y 道索引单测线解码；9 类数据页预览；读侧 facade、D61→D62 厚度→凸包约束 IDW→相多边形；TD 残差验证、三视图联动、PDF 导出、8 层位 chip、版本状态机。`424e185` `f3d9b83` `c994d21`
@@ -100,4 +108,4 @@
 - **2026-09-27 · Wave-4 两 PR 并入 master**：崩溃报告+外链重定位（`2c1c8e1`）；AreaRules 参数 seam+Phase-0 vendor 收口四文档（`8fc7bb2`）。ctest 67/67 + 真数据逐字节一致。
 - **2026-09-27 · data-fabric 采纳四包 + ribbon 并入 master**（规格 `docs/DATA_FABRIC_ADOPTION.md`）：RoleRegistry 工程词表（`d2bcaf1`）、commit-coord journal 幂等有序提交（`12aa9b1`）、EntityView+ordinal+staleness（`6e34d9d`）、IngestPlan 三段式幂等导入（`6d1f3cb`）、ribbon QGIS 主题图标+自绘补缺（`0615050`）。ctest 67/67。
 - **2026-09-26 · /autoplan 评审修复 F1–F8（九分支并入 master）**：画布绑定工程 + `m_instances` 悬空清理 + 无基准 ENGCRS 替换 eqc + 打开失败对话框；TimeDepthTool 重写（文件序/不钳制/三原因/MD 回退）；外链 SHA-256 入库复验 + 同 sha 去重 + 路径净化；C 阶段 isochron×IDW²(Vint) 厚度链（凸包裁剪、删错误相化）+ 残差语义（10ms/边界/三类原因行/20井全表）；发布门（pdf_asset_id+sha256+残差完备+OUTPUT 登记+chip 禁用）；预览层（splitter 位置/井下拉/剖面标定/关联列+未决徽标）；文件夹导入后端（两阶段排序/软链跳过/行序对齐）+ 确认表 UI；ONNX 411×641 硬门 + 真服务接线。`5972466` `8a23d01` `0f02fc3` `781914e` `0b8de17` `6735dcf` `e399ddf` `5bb80bc` `4c0f575` `f084e28` `090ffa2`
-
+- **2026-09-27 · m2/mapping-pages 三编图页升级（wave/mapping-pages）**：基座（三页拆出 predictpage/constraintpage/composepage + panelshared + m1 兜底 qgis/qgislayerprofile + tst_mappingpages 桩，`e022f6b`）；预测页（预测类型/schema 动态表单 algoparamschema/PaleoTaskService 任务化运行/重跑幂等稳定 layerId/历史结果清单）；单因素页（singlefactordef 七因素注册表/生成链 04_SingleFactor/GDAL C API 等值线子组/factorstylewriter 色带 .qml/互斥单选上图/物源-展布-控制点类型化捕获 typedconstraintdrawcontroller/厚度样本折叠区）；智能编图页（融合只列栅格因素/矢量化自动进相界编辑态（派生 gpkg 只读→可写工作副本自愈）/相属性编辑回写 edit buffer/06_Reference 参考图区/导出版面钉 compose 主题 setLayoutMapTheme/布局设计器入口）；壳（showPage + chip 切换重应用页面档案 applyPageProfile + canvas 刷新；PageProfileTests 真实栈）。合并 `8840611` `40acf1e` `a92cab0` `6edeaa0`；ctest 串行 70/70（-j2 偶发 QSettings 竞态见上）。

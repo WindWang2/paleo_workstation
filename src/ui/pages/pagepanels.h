@@ -1,4 +1,5 @@
 #pragma once
+#include <QPointer>
 #include <QWidget>
 #include <QString>
 #include <QVariantMap>
@@ -20,11 +21,19 @@ class PaleoOnnxService;
 // 已挪到主区地图下方的竖向分栏，右 dock 只留导入按钮与资产表）。
 // 服务经动态属性 "paleo.page.importsvc"（QObject* → DataImportService）绑定，
 // 由 mainwindow 接线处设置；catalog 变更后调用 refreshAssetTable() 刷新列表。
+//
+// 三段（objectName）：dataImportSection（导入按钮）/ dataListSection（搜索 +
+// 类型筛选 + 计数 + 资产表）/ entityViewSection（实体数据视图）。ribbon 壳
+// 把本页放进中央「数据列表」、实体段挪进右侧「数据属性」dock、导入段藏起
+// （命令在 ribbon）；单独使用时三段竖排。
 class DataPage : public QWidget
 {
   Q_OBJECT
   public:
     explicit DataPage(QWidget *parent = nullptr);
+    // 实体数据视图段——壳可把它重新挂到别处（刷新按段内 objectName 查找，
+    // 与挂在哪无关）。
+    QWidget *entityViewSection() const { return m_entitySection; }
   public slots:
     void refreshAssetTable();                     // 从 catalog 资产重建资产表
     // p5a（data/view-wiring）：当前选中实体的角色槽数据视图重取——
@@ -40,9 +49,15 @@ class DataPage : public QWidget
     void selectAssetsForEntities(const QStringList &entityIds);
     // T31「查看未决」：把资产表过滤到仍有未决链接的行；off 清除过滤。
     void setUnresolvedFilter(bool on);
+    // 列表面筛选：名称/类型/关联含搜索词（不分大小写）且类型匹配下拉的行
+    // 才显示；计数标签写「共 N 条」或「显示 M / 共 N 条」。刷新后自动重放。
+    void applyListFilter();
   signals:
     void importRequested(const QString &kind);  // "wells" | "seismic" | "boundary"
     void assetActivated(const QString &assetId); // 列表选中 → 预览标签打开
+
+  private:
+    QPointer<QWidget> m_entitySection;
 };
 
 // ①智能预测 — horizon + algorithm selection, run button, status.

@@ -2,6 +2,7 @@
 
 #include "paleotheme.h" // T32：焦点环/mono 数字面 token 出口
 #include "paleoicons.h" // ribbon 图标：QGIS 主题直取 + 自绘补缺
+#include "paleoribbon.h" // SARibbon 壳公用件：主题/命令镜像
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
@@ -65,6 +66,8 @@
 #include <qgswkbtypes.h>
 #include <qgsrubberband.h>
 #include <qgsgeometry.h>
+#include <qgsmaptoolpan.h>
+#include <qgsmaptoolzoom.h>
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -106,20 +109,41 @@
 
 #include <memory>
 
-// §42 shell: five-page workflow chain on top, layer tree left, page panel
-// right, log/tasks bottom, startup page stacked under the canvas. The header
-// fixes the member set, so the page table and cross-widget lookups live at
-// file scope / via objectName (same discipline as qgiscanvascontroller.cpp).
+// §42 shell: five-page workflow chain as ribbon tabs on top, layer tree left,
+// page panel right, log/tasks bottom, startup page stacked under the
+// workspace. The header fixes the member set, so the page table and
+// cross-widget lookups live at file scope / via objectName (same discipline
+// as qgiscanvascontroller.cpp).
 namespace
 {
   // Tab order = reading order = right-panel stack order.
   const QStringList kPageIds = {
     QStringLiteral("data"),       // 数据管理
-    QStringLiteral("predict"),    // ①预测
-    QStringLiteral("constraint"), // ②约束
-    QStringLiteral("compose"),    // ③编图
-    QStringLiteral("validate"),   // ④验证
+    QStringLiteral("predict"),    // 预测编图
+    QStringLiteral("constraint"), // 单因素图
+    QStringLiteral("compose"),    // 智能编图
+    QStringLiteral("validate"),   // 验证
   };
+  // ribbon 页签文案（用户裁决 2026-09-27：Ribbon 界面，五页保留验证）。
+  const QStringList kPageLabels = {
+    QStringLiteral("数据管理"), QStringLiteral("预测编图"), QStringLiteral("单因素图"),
+    QStringLiteral("智能编图"), QStringLiteral("验证"),
+  };
+  // 右侧 dock 标题随页：数据页是属性面，编图页是参数面，验证页是结果面。
+  const QStringList kPageDockTitles = {
+    QStringLiteral("数据属性"), QStringLiteral("预测参数"), QStringLiteral("单因素参数"),
+    QStringLiteral("编图参数"), QStringLiteral("验证结果"),
+  };
+
+  // SARibbonMainWindow 构造参数：顺带在基类构造前备好库（qrc + 关掉跟随
+  // 系统暗色）。原生边框：Linux X11/Wayland 与 offscreen 测试同一路径，
+  // SARibbon 此时自动用紧凑三行布局（页签与右侧按钮同一行）。
+  SARibbonMainWindowStyles ribbonWindowStyle()
+  {
+    PaleoRibbon::prepareLibrary();
+    return SARibbonMainWindowStyles(SARibbonMainWindowStyleFlag::UseRibbonMenuBar) |
+           SARibbonMainWindowStyleFlag::UseNativeFrame;
+  }
 
   // 页作用域的数字化工具面：编辑/编图工具只属于编图链三页
   // （预测/约束/编图——PALEO_QGIS_PLAN §9 的物源线、相界编辑所在）。
@@ -255,7 +279,7 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
                                  ToolAvailabilityService *tools,
                                  SelectionContext *selection,
                                  QWidget *parent)
-  : QMainWindow(parent)
+  : SARibbonMainWindow(parent, ribbonWindowStyle())
   , m_canvasCtl(canvasCtl)
   , m_projectSvc(projectSvc)
   , m_layerSvc(layerSvc)
@@ -277,64 +301,63 @@ void PaleoMainWindow::buildShell()
   setWindowTitle(QStringLiteral("Paleo Workbench"));
   setMinimumSize(1280, 800); // §42.11 a11y floor
 
-  const QStringList labels = {
-    QStringLiteral("数据管理"), QStringLiteral("①预测"), QStringLiteral("②约束"),
-    QStringLiteral("③编图"),   QStringLiteral("④验证"),
-  };
-
-  // ---- top: workflow chain tab bar ----
-  m_workflowTabs = new QTabBar(this);
-  m_workflowTabs->setObjectName(QStringLiteral("workflowTabs"));
-  m_workflowTabs->setExpanding(false);
-  m_workflowTabs->setDrawBase(false);
-  // T32 tab 溢出策略：超宽走滚动按钮（Qt 默认即此，显式钉住防样式/平台漂移）。
-  m_workflowTabs->setUsesScrollButtons(true);
-  m_workflowTabs->setAccessibleName(QStringLiteral("工作流步骤"));
-  for (int i = 0; i < kPageIds.size(); ++i)
-  {
-    m_workflowTabs->addTab(labels.at(i));
-    m_workflowTabs->setTabData(i, kPageIds.at(i));
-  }
-  connect(m_workflowTabs, &QTabBar::currentChanged, this, [this](int idx) {
-    if (idx >= 0)
-      showPage(m_workflowTabs->tabData(idx).toString());
-  });
-
-  auto *topWidget = new QWidget(this);
-  topWidget->setObjectName(QStringLiteral("workflowTopBar"));
-  auto *topLay = new QHBoxLayout(topWidget);
-  topLay->setContentsMargins(12, 6, 12, 0);
-  topLay->addWidget(m_workflowTabs);
-  topLay->addStretch(1);
-
-  // ---- center: startup page stacked under the map+preview workspace ----
+  // ---- center: startup page stacked under the workspace ----
   m_centerStack = new QStackedWidget(this);
   m_centerStack->setObjectName(QStringLiteral("centerStack"));
 
   QWidget *startup = makeStartupPage();
   m_centerStack->addWidget(startup); // index 0
 
-  // §4 预览壳重排：工作区是竖向 QSplitter——共享地图在上、数据预览在下
-  // （预览只在数据管理页可见；空态收成一行次级文字，用户可拖分栏）。
-  auto *workspace = new QWidget(m_centerStack);
-  auto *wsLay = new QVBoxLayout(workspace);
-  wsLay->setContentsMargins(0, 0, 0, 0);
-  wsLay->setSpacing(0);
-  m_centerSplit = new QSplitter(Qt::Vertical, workspace);
-  m_centerSplit->setObjectName(QStringLiteral("mapPreviewSplit"));
-  m_centerSplit->setChildrenCollapsible(false);
+  // 工作区两面（用户裁决：数据管理是列表面，另外四页以 QGIS 画布为主）：
+  //   0 画布面 = 层位 chip 条 + QgsMapCanvas（预测编图/单因素图/智能编图/验证）
+  //   1 数据面 = 「数据列表」在上 +「数据预览」在下的竖向分栏（数据管理）
+  m_workspaceStack = new QStackedWidget(m_centerStack);
+  m_workspaceStack->setObjectName(QStringLiteral("workspaceStack"));
+
+  auto *canvasPane = new QWidget(m_workspaceStack);
+  canvasPane->setObjectName(QStringLiteral("canvasPane"));
+  auto *canvasLay = new QVBoxLayout(canvasPane);
+  canvasLay->setContentsMargins(0, 0, 0, 0);
+  canvasLay->setSpacing(0);
+  // 层位 chip 条：ribbon 之下、画布之上（DESIGN.md 结构层）。切换 =
+  // activeHorizon + 懒加载。
+  auto *chipsRow = new QWidget(canvasPane);
+  chipsRow->setObjectName(QStringLiteral("horizonChipRow"));
+  auto *chipsLay = new QHBoxLayout(chipsRow);
+  chipsLay->setContentsMargins(12, 4, 12, 4);
+  auto *chips = new HorizonChipBar(m_selection, m_layerSvc, chipsRow);
+  chips->setObjectName(QStringLiteral("horizonChips"));
+  chips->setAccessibleName(QStringLiteral("层位切换"));
+  chipsLay->addWidget(chips);
+  chipsLay->addStretch(1);
+  canvasLay->addWidget(chipsRow);
   if (m_canvasCtl)
-    m_centerSplit->addWidget(m_canvasCtl->canvas()); // reparents the parentless canvas
+    canvasLay->addWidget(m_canvasCtl->canvas(), 1); // reparents the parentless canvas
   else
-    m_centerSplit->addWidget(new QWidget(m_centerSplit));
+    canvasLay->addStretch(1);
+  m_workspaceStack->addWidget(canvasPane); // 0
+
+  // §4 预览壳：数据列表在上、预览在下；预览空态收成一行次级文字，首个
+  // 标签打开时给预览 60%（D7），用户可拖分栏。
+  m_centerSplit = new QSplitter(Qt::Vertical, m_workspaceStack);
+  m_centerSplit->setObjectName(QStringLiteral("dataListPreviewSplit"));
+  m_centerSplit->setChildrenCollapsible(false);
+  m_dataListHost = new QWidget(m_centerSplit);
+  m_dataListHost->setObjectName(QStringLiteral("dataListPanel"));
+  m_dataListHost->setAccessibleName(QStringLiteral("数据列表"));
+  m_dataListHost->setMinimumHeight(0);
+  auto *listHostLay = new QVBoxLayout(m_dataListHost);
+  listHostLay->setContentsMargins(0, 0, 0, 0);
+  m_centerSplit->addWidget(m_dataListHost);
   m_previewTabs = new DataPreviewTabs(m_centerSplit);
   m_previewTabs->setObjectName(QStringLiteral("dataPreview"));
+  m_previewTabs->setAccessibleName(QStringLiteral("数据预览"));
   m_previewTabs->setMinimumHeight(0); // 空态要能收成一行
   m_centerSplit->addWidget(m_previewTabs);
-  m_centerSplit->setStretchFactor(0, 2); // 初始 ≈ 地图 2/3 · 预览 1/3
+  m_centerSplit->setStretchFactor(0, 1);
   m_centerSplit->setStretchFactor(1, 1);
-  wsLay->addWidget(m_centerSplit);
-  m_centerStack->addWidget(workspace); // index 1
+  m_workspaceStack->addWidget(m_centerSplit); // 1
+  m_centerStack->addWidget(m_workspaceStack); // index 1
 
   // 画布装饰管理器（D11 临时配准水印等）：parent 到 canvas，renderComplete
   // 自连；各项默认关，按需 setEnabled。
@@ -365,7 +388,7 @@ void PaleoMainWindow::buildShell()
   if (m_canvasCtl)
   {
     mapEmpty = new EmptyStateLabel(
-        QStringLiteral("地图上还没有图层 — 先导入工区文件夹，或在①预测页运行预测"),
+        QStringLiteral("地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「预测编图」运行预测"),
         m_canvasCtl->canvas());
     mapEmpty->setObjectName(QStringLiteral("mapEmptyState"));
     mapEmpty->raise();
@@ -475,29 +498,7 @@ void PaleoMainWindow::buildShell()
                               m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
 
-  auto *central = new QWidget(this);
-  auto *clay = new QVBoxLayout(central);
-  clay->setContentsMargins(0, 0, 0, 0);
-  clay->setSpacing(0);
-  clay->addWidget(topWidget);
-
-  // ---- 层位 chip 条（阶段E）+ 右侧动作钮：ribbon 之下、画布之上
-  // （DESIGN.md 结构层）。chips 独占左侧，Web 服务/搜索/保存/处理算法/
-  // 图件设计等按钮追加在本行右侧——编号工作流标签行从此不被挤压出滚动态。
-  // 切换 = activeHorizon + 懒加载。----
-  auto *chipsRow = new QWidget(central);
-  chipsRow->setObjectName(QStringLiteral("ribbonActionRow"));
-  auto *chipsLay = new QHBoxLayout(chipsRow);
-  chipsLay->setContentsMargins(12, 2, 12, 4);
-  auto *chips = new HorizonChipBar(m_selection, m_layerSvc, chipsRow);
-  chips->setObjectName(QStringLiteral("horizonChips"));
-  chips->setAccessibleName(QStringLiteral("层位切换"));
-  chipsLay->addWidget(chips);
-  chipsLay->addStretch(1);
-  clay->addWidget(chipsRow);
-
-  clay->addWidget(m_centerStack, 1);
-  setCentralWidget(central);
+  setCentralWidget(m_centerStack);
 
   // ---- left dock: layer tree on the project's declared tree ----
   m_leftDock = new QDockWidget(QStringLiteral("图层"), this);
@@ -563,13 +564,14 @@ void PaleoMainWindow::buildShell()
             [updateEmptyStates](const QStringList &) { updateEmptyStates(); });
   }
 
-  // ---- right dock: per-page panel stack (placeholders until §42.2 lands) ----
-  m_rightDock = new QDockWidget(QStringLiteral("页面面板"), this);
+  // ---- right dock: per-page panel stack (placeholders until attachWorkflows) ----
+  // 标题随页（kPageDockTitles）；ribbon 里的「参数」钮就是它的 toggleViewAction。
+  m_rightDock = new QDockWidget(kPageDockTitles.first(), this);
   m_rightDock->setObjectName(QStringLiteral("pagePanelDock"));
   auto *panelHost = new QWidget(m_rightDock);
   panelHost->setObjectName(QStringLiteral("rightPanelHost"));
   auto *panelStack = new QStackedLayout(panelHost);
-  for (const QString &label : labels)
+  for (const QString &label : kPageLabels)
   {
     auto *placeholder = new QLabel(label + QStringLiteral(" — 面板待实现"), panelHost);
     placeholder->setAlignment(Qt::AlignTop | Qt::AlignLeft);
@@ -653,31 +655,9 @@ void PaleoMainWindow::buildShell()
   connect(addrOpen, &QPushButton::clicked, this, openWebUrl);
   connect(addrEdit, &QLineEdit::returnPressed, this, openWebUrl);
 
-  // 面板管理入口（右键 dock 标题栏是同一菜单——contextMenuEvent）。
-  // 「面板」钮走 chipsRow 惯例；菜单每次点击现建——createPopupMenu 反映
-  // 当下 dock 集（顶点编辑器 dock 等懒创建的也能列上）。
-  auto *panelsBtn = new QToolButton(topWidget);
-  panelsBtn->setObjectName(QStringLiteral("panelsMenuButton"));
-  panelsBtn->setText(tr("面板"));
-  panelsBtn->setAccessibleName(tr("面板显隐菜单"));
-  panelsBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionShowAllLayers.svg")));
-  panelsBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-  connect(panelsBtn, &QToolButton::clicked, this, [this, panelsBtn] {
-    showPanelMenu(panelsBtn->mapToGlobal(QPoint(0, panelsBtn->height())));
-  });
-  chipsRow->layout()->addWidget(panelsBtn);
-
-  // Toggle entry on the top bar — same action-button pattern as
-  // 处理算法/图件设计 (the shell has no 视图 menu). toggleViewAction keeps
-  // the button in sync when the dock is closed via its title-bar ✕.
-  auto *webToggle = new QToolButton(topWidget);
-  webToggle->setObjectName(QStringLiteral("webServiceButton"));
-  webToggle->setDefaultAction(webDock->toggleViewAction());
-  webToggle->setAccessibleName(tr("Web 服务面板"));
-  webDock->toggleViewAction()->setIcon(
-      PaleoIcons::qgisTheme(QStringLiteral("mActionAddWmsLayer.svg")));
-  webToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-  chipsRow->layout()->addWidget(webToggle);
+  // ribbon 骨架（页签 / 文件菜单 / 右侧按钮组）——右侧组要挂 Web dock 的
+  // toggleViewAction，所以放在 dock 建好之后。
+  buildRibbon();
 
   // ---- status bar: active horizon + provider count ----
   auto *horizonLabel = new QLabel(this);
@@ -730,16 +710,124 @@ void PaleoMainWindow::buildShell()
     connect(m_selection, &SelectionContext::activeHorizonChanged, horizonLabel,
             [horizonLabel, horizonText](const QString &h) { horizonLabel->setText(horizonText(h)); });
 
-  // DESIGN.md tokens on shell chrome only — no custom painting.
+  // DESIGN.md tokens on shell chrome only — no custom painting. ribbon 本体
+  // 的颜色来自 PaleoTheme::ribbonPaletteJson（office2021 模板）。
   // T32：拼上全局 2px #1B73D0 键盘焦点环（替代 Fusion 虚线框）。
-  setStyleSheet(QStringLiteral(
-      "QMainWindow { background: #EDF1F5; }"
-      "QTabBar#workflowTabs::tab { color: #5D6E80; padding: 8px 18px; }"
-      "QTabBar#workflowTabs::tab:selected { color: #1B73D0; border-bottom: 2px solid #1B73D0; }"
-      "QTabBar#workflowTabs::tab:hover { color: #24303E; background: #EDF1F5; }"
-      "QDockWidget::title { background: #EDF1F5; color: #24303E; padding: 6px 10px; }"
-      "QStatusBar { background: #EDF1F5; color: #5D6E80; }") +
-      PaleoTheme::focusRingStyleSheet());
+  const QString shellQss =
+      QStringLiteral(
+          "QMainWindow { background: #EDF1F5; }"
+          "QDockWidget::title { background: #EDF1F5; color: #24303E; padding: 6px 10px; }"
+          "QStatusBar { background: #EDF1F5; color: #5D6E80; }"
+          "QWidget#horizonChipRow { background: #FFFFFF; border-bottom: 1px solid #DFE5EC; }") +
+      PaleoTheme::focusRingStyleSheet();
+  PaleoRibbon::applyTheme(this, shellQss);
+  // SARibbonMainWindow 构造时排了一次 singleShot(0) 重套内置主题（会整体
+  // 覆盖样式表）；零时定时器按注册顺序触发——这里再排一次，保证最后落的
+  // 是 DESIGN.md 这套。
+  QTimer::singleShot(0, this, [this, shellQss] { PaleoRibbon::applyTheme(this, shellQss); });
+}
+
+void PaleoMainWindow::buildRibbon()
+{
+  SARibbonBar *bar = ribbonBar();
+  if (!bar)
+    return;
+  bar->setRibbonStyle(SARibbonBar::RibbonStyleCompactThreeRow);
+  bar->setTabDoubleClickToMinimumMode(true); // 双击页签收起/展开 ribbon（Office 惯例）
+  if (SARibbonTabBar *tabs = bar->ribbonTabBar())
+  {
+    tabs->setObjectName(QStringLiteral("workflowTabs"));
+    tabs->setAccessibleName(QStringLiteral("工作流步骤"));
+    // T32 tab 溢出策略：超宽走滚动按钮（显式钉住防样式/平台漂移）。
+    tabs->setUsesScrollButtons(true);
+  }
+
+  // ---- 五个页签 = 五个工作流页（页签序 = kPageIds 序）----
+  for (int i = 0; i < kPageIds.size(); ++i)
+  {
+    SARibbonCategory *cat = bar->addCategoryPage(kPageLabels.at(i));
+    cat->setObjectName(QStringLiteral("ribbonCategory.") + kPageIds.at(i));
+    cat->setProperty("paleo.pageId", kPageIds.at(i));
+  }
+  connect(bar, &SARibbonBar::currentRibbonTabChanged, this, [this, bar](int idx) {
+    SARibbonCategory *cat = bar->categoryByIndex(idx);
+    const QString id = cat ? cat->property("paleo.pageId").toString() : QString();
+    if (!id.isEmpty() && id != m_currentPage)
+      showPage(id);
+  });
+
+  // ---- 「文件」应用按钮：工程级动作。起始页按钮是同一批动作的另一入口
+  // （点它们的按钮 = 同一条代码路径，offscreen 下同样惰性）。----
+  if (auto *appBtn = qobject_cast<QToolButton *>(bar->applicationButton()))
+  {
+    appBtn->setText(tr("文件"));
+    appBtn->setAccessibleName(tr("文件菜单"));
+    auto *menu = new SARibbonMenu(appBtn);
+    menu->setObjectName(QStringLiteral("fileMenu"));
+    const auto viaStartup = [this, menu](const QString &text, const char *iconName,
+                                         const char *buttonName) {
+      QAction *a = menu->addAction(PaleoIcons::qgisTheme(QLatin1String(iconName)), text);
+      connect(a, &QAction::triggered, this, [this, buttonName] {
+        if (auto *b = findChild<QPushButton *>(QLatin1String(buttonName)))
+          b->click();
+      });
+    };
+    viaStartup(tr("新建工程…"), "mActionFileNew.svg", "newProjectButton");
+    viaStartup(tr("打开工程…"), "mActionFileOpen.svg", "openProjectButton");
+    viaStartup(tr("从工区文件夹新建…"), "mIconFolderOpen.svg", "importFromFolderButton");
+    menu->addSeparator()->setObjectName(QStringLiteral("fileMenuSaveAnchor"));
+    QAction *home =
+        menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mIconFolderHome.svg")), tr("起始页"));
+    connect(home, &QAction::triggered, this, [this] { showStartup(); });
+    menu->addSeparator();
+    QAction *quit =
+        menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mActionFileExit.svg")), tr("退出"));
+    connect(quit, &QAction::triggered, this, &QWidget::close);
+    appBtn->setMenu(menu);
+    appBtn->setPopupMode(QToolButton::InstantPopup);
+  }
+
+  // ---- 右侧全局按钮组：[搜索][处理算法][面板][Web 服务] ----
+  // 搜索（QgsLocatorWidget）与处理算法依赖服务，attachWorkflows 里补进来。
+  SARibbonButtonGroupWidget *right = bar->rightButtonGroup();
+  right->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  auto *locatorSlot = new QWidget(right);
+  locatorSlot->setObjectName(QStringLiteral("locatorSlot"));
+  auto *slotLay = new QHBoxLayout(locatorSlot);
+  slotLay->setContentsMargins(0, 1, 6, 1);
+  right->addWidget(locatorSlot);
+
+  // 面板管理入口（右键 dock 标题栏是同一菜单——contextMenuEvent）。菜单
+  // 每次点击现建——createPopupMenu 反映当下 dock 集。
+  auto *panelsBtn = new QToolButton(right);
+  panelsBtn->setObjectName(QStringLiteral("panelsMenuButton"));
+  panelsBtn->setText(tr("面板"));
+  panelsBtn->setAccessibleName(tr("面板显隐菜单"));
+  panelsBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionShowAllLayers.svg")));
+  panelsBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  connect(panelsBtn, &QToolButton::clicked, this, [this, panelsBtn] {
+    showPanelMenu(panelsBtn->mapToGlobal(QPoint(0, panelsBtn->height())));
+  });
+  right->addWidget(panelsBtn);
+
+  // Web 服务 dock 的 toggleViewAction：dock 标题栏 ✕ 关掉时按钮态跟随。
+  if (auto *webDock = findChild<QDockWidget *>(QStringLiteral("webServiceDock")))
+  {
+    QAction *webAct = webDock->toggleViewAction();
+    webAct->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionAddWmsLayer.svg")));
+    right->addAction(webAct);
+    if (auto *webToggle = qobject_cast<QToolButton *>(right->widgetForAction(webAct)))
+    {
+      webToggle->setObjectName(QStringLiteral("webServiceButton"));
+      webToggle->setAccessibleName(tr("Web 服务面板"));
+    }
+  }
+}
+
+SARibbonCategory *PaleoMainWindow::categoryForPage(const QString &pageId) const
+{
+  SARibbonBar *bar = ribbonBar();
+  return bar ? bar->categoryByObjectName(QStringLiteral("ribbonCategory.") + pageId) : nullptr;
 }
 
 void PaleoMainWindow::showPanelMenu(const QPoint &globalPos)
@@ -776,7 +864,7 @@ void PaleoMainWindow::contextMenuEvent(QContextMenuEvent *event)
       return;
     }
   }
-  QMainWindow::contextMenuEvent(event);
+  SARibbonMainWindow::contextMenuEvent(event);
 }
 
 void PaleoMainWindow::showPage(const QString &pageId)
@@ -789,12 +877,17 @@ void PaleoMainWindow::showPage(const QString &pageId)
   }
   m_currentPage = pageId;
 
-  if (m_workflowTabs && m_workflowTabs->currentIndex() != idx)
-    m_workflowTabs->setCurrentIndex(idx); // re-enters via currentChanged, idempotent
+  // 页签 = 页：切到对应 ribbon 页签（currentRibbonTabChanged 回到这里时
+  // id == m_currentPage，不重入）。
+  if (SARibbonCategory *cat = categoryForPage(pageId))
+    if (ribbonBar()->currentIndex() != ribbonBar()->categoryIndex(cat))
+      ribbonBar()->raiseCategory(cat);
 
   if (auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost")))
     if (auto *stack = static_cast<QStackedLayout *>(host->layout()))
       stack->setCurrentIndex(idx);
+  if (m_rightDock)
+    m_rightDock->setWindowTitle(kPageDockTitles.at(idx));
 
   // A workflow step implies the workspace: leave the startup page once a
   // project exists (with no project the startup page stays — nothing to show).
@@ -802,28 +895,18 @@ void PaleoMainWindow::showPage(const QString &pageId)
       !m_projectSvc->projectPath().isEmpty())
     m_centerStack->setCurrentIndex(1);
 
-  // §4 预览壳重排：预览分栏只在数据管理页显示；其余页藏下格、地图吃满。
+  // 数据管理页是列表面（数据列表 + 数据预览），其余四页是画布面。井上
+  // 图层状态不受影响——回到画布页照常看图。
+  if (m_workspaceStack)
+    m_workspaceStack->setCurrentIndex(pageId == QLatin1String("data") ? 1 : 0);
   if (m_previewTabs)
     m_previewTabs->setVisible(pageId == QLatin1String("data"));
 
-  // 页作用域工具面：编辑 dock 只在编图链页可见。落到非编辑页时停用活动
-  // 画布工具——各工具 deactivate() 统一发 abort 信号，约束捕获/编辑会话
-  // 经 owner 的 abort 路径拆台（等价 §42.15 的 Esc），不会把笔挂到
-  // 数据页画布上。
-  const bool editingPage = kEditingToolPages.contains(pageId);
-  if (auto *tb = findChild<QWidget *>(QStringLiteral("editingToolbar")))
-    tb->setVisible(editingPage);
-  if (!editingPage && m_canvasCtl)
+  // 页作用域工具面：编辑命令组只在编图链三页的 ribbon 里。落到非编辑页
+  // 时停用活动画布工具——各工具 deactivate() 统一发 abort 信号，约束捕获/
+  // 编辑会话经 owner 的 abort 路径拆台（等价 §42.15 的 Esc）。
+  if (!kEditingToolPages.contains(pageId) && m_canvasCtl)
     m_canvasCtl->deactivateTool();
-
-  // 数据管理页是列表面：中央区预览/表格吃满，地图画布整格藏掉
-  // （编图链页恢复）。井上图层状态不受影响——去编图链页照常看图。
-  // 上格按「不是预览」判定而非钉死 widget(0)：测试夹具可能把画布借走，
-  // 那时预览会落到 0 位——绝不能藏预览自己。
-  if (m_centerSplit && m_centerSplit->count() > 0)
-    if (QWidget *mapW = m_centerSplit->widget(0))
-      if (mapW != m_previewTabs)
-        mapW->setVisible(pageId != QLatin1String("data"));
 
   applyPreviewSplit();
 }
@@ -841,12 +924,13 @@ void PaleoMainWindow::applyPreviewSplit()
   const int tabs = inner ? inner->count() : m_previewTabs->tabCount();
   if (tabs > 0)
   {
-    // D7 最大化态：地图只留 64px 壳，预览拿走其余；「还原预览」走
-    // previewMaximizeToggled(false) 恢复 m_preMaxSplitSizes。
+    // D7 最大化态：数据列表只留 64px 壳（splitter 会按列表最小高度兜底），
+    // 预览拿走其余；「还原预览」走 previewMaximizeToggled(false) 恢复
+    // m_preMaxSplitSizes。
     if (m_previewMaximized)
     {
-      const int mapFloor = qMin(64, qMax(1, total / 10));
-      m_centerSplit->setSizes({mapFloor, qMax(1, total - mapFloor)});
+      const int listFloor = qMin(64, qMax(1, total / 10));
+      m_centerSplit->setSizes({listFloor, qMax(1, total - listFloor)});
       return;
     }
     // D7 高度预算：首个标签出现时给预览 ≥60%；之后由用户拖分栏，不再触碰。
@@ -1491,7 +1575,7 @@ void PaleoMainWindow::onProjectOpened()
 void PaleoMainWindow::closeEvent(QCloseEvent *event)
 {
   saveWindowState();
-  QMainWindow::closeEvent(event);
+  SARibbonMainWindow::closeEvent(event);
 }
 
 void PaleoMainWindow::saveWindowState()
@@ -1588,12 +1672,31 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     delete item;
   }
 
-  auto *dataPage = new DataPage(host);
+  // 数据管理页（ribbon 布局）：DataPage 本体进中央「数据列表」；实体数据
+  // 视图段挂到右 dock 第 0 页「数据属性」；导入段藏起——导入命令在 ribbon
+  // 「数据导入」组（镜像这些按钮，门控/原因仍写在按钮上）。
+  auto *dataPage = new DataPage(m_dataListHost ? m_dataListHost : host);
+  auto *dataProps = new QWidget(host);
+  dataProps->setObjectName(QStringLiteral("dataPropertiesPage"));
+  {
+    auto *pl = new QVBoxLayout(dataProps);
+    pl->setContentsMargins(8, 8, 8, 8); // spacing.sm
+    if (m_dataListHost)
+    {
+      m_dataListHost->layout()->addWidget(dataPage);
+      if (QWidget *entity = dataPage->entityViewSection())
+        pl->addWidget(entity, 1); // 重新挂父：刷新按段查找，不受影响
+      if (auto *imports = dataPage->findChild<QWidget *>(QStringLiteral("dataImportSection")))
+        imports->hide();
+    }
+    else
+      pl->addWidget(dataPage);
+  }
   auto *predictPage = new PredictPage(pred, m_layerSvc, host);
   auto *constraintPage = new ConstraintPage(constraint, host);
   auto *composePage = new ComposePage(compose, m_layerSvc, host);
   auto *validatePage = new ValidatePage(validate, host);
-  stack->addWidget(dataPage);
+  stack->addWidget(dataProps);
   stack->addWidget(predictPage);
   stack->addWidget(constraintPage);
   stack->addWidget(composePage);
@@ -1982,15 +2085,15 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
             [this](int) { if (m_refreshPublishGate) m_refreshPublishGate(); });
   }
 
-  // ---- action row (chips 条右侧): domain locator + save ----
-  if (auto *topBar = findChild<QWidget *>(QStringLiteral("ribbonActionRow")))
+  // ---- ribbon 右侧组的搜索槽 + 快速访问栏的保存 ----
+  if (auto *topBar = findChild<QWidget *>(QStringLiteral("locatorSlot")))
   {
     if (m_layerSvc && m_selection && m_canvasCtl)
     {
       auto *locatorWidget = new QgsLocatorWidget(topBar);
       locatorWidget->setObjectName(QStringLiteral("paleoLocator"));
       locatorWidget->setMapCanvas(m_canvasCtl->canvas());
-      locatorWidget->setPlaceholderText(tr("搜索井位/层位/问题…"));
+      locatorWidget->setPlaceholderText(tr("搜索井位/层位  Ctrl+K"));
       locatorWidget->setMinimumWidth(220);
 
       // Wells filter: resolve the declared "wells" layer lazily (instantiate
@@ -2053,12 +2156,11 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
 
     if (store && m_projectSvc)
     {
-      auto *saveBtn = new QToolButton(topBar);
-      saveBtn->setObjectName(QStringLiteral("saveButton"));
-      saveBtn->setText(tr("保存"));
-      saveBtn->setAccessibleName(tr("保存工程"));
-      saveBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionFileSave.svg")));
-      saveBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+      // 保存 = 快速访问栏第一颗（Office 惯例）+「文件」菜单；Ctrl+S 走同一函数。
+      auto *saveAct = new QAction(PaleoIcons::qgisTheme(QStringLiteral("mActionFileSave.svg")),
+                                  tr("保存工程"), this);
+      saveAct->setObjectName(QStringLiteral("saveProjectAction"));
+      saveAct->setToolTip(tr("保存工程（Ctrl+S）"));
       // §41.2 ordering through the write queue: gpkg commit (no-op until edit
       // buffers report dirty state) then the atomic .qgz write.
       auto saveFn = [this, store]() {
@@ -2081,10 +2183,26 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
             QStringLiteral("Paleo"),
             res.ok ? Qgis::MessageLevel::Info : Qgis::MessageLevel::Critical);
       };
-      connect(saveBtn, &QToolButton::clicked, this, saveFn);
+      connect(saveAct, &QAction::triggered, this, saveFn);
       auto *saveShortcut = new QShortcut(QKeySequence::Save, this);
       connect(saveShortcut, &QShortcut::activated, this, saveFn);
-      topBar->layout()->addWidget(saveBtn);
+      if (SARibbonQuickAccessBar *qab = ribbonBar()->quickAccessBar())
+      {
+        qab->addAction(saveAct);
+        if (auto *saveBtn = qobject_cast<QToolButton *>(qab->widgetForAction(saveAct)))
+        {
+          saveBtn->setObjectName(QStringLiteral("saveButton"));
+          saveBtn->setAccessibleName(tr("保存工程"));
+        }
+      }
+      if (auto *fileMenu = findChild<QMenu *>(QStringLiteral("fileMenu")))
+        for (QAction *a : fileMenu->actions())
+          if (a->objectName() == QLatin1String("fileMenuSaveAnchor"))
+          {
+            fileMenu->insertAction(a, saveAct);
+            fileMenu->insertSeparator(saveAct);
+            break;
+          }
     }
   }
 
@@ -2168,12 +2286,13 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
       }
     }
 
-  // Processing entry point on the top bar: paleo:* algorithms first-class,
-  // the full registry grouped under per-provider submenus. Each item opens
-  // the native QGIS algorithm dialog (non-blocking, offscreen-safe).
+  // Processing entry point in the ribbon's right group (global tool, like the
+  // QGIS Processing Toolbox): paleo:* algorithms first-class, the full
+  // registry grouped under per-provider submenus. Each item opens the native
+  // QGIS algorithm dialog (non-blocking, offscreen-safe).
   if (procSvc)
   {
-    if (auto *topBar = findChild<QWidget *>(QStringLiteral("ribbonActionRow")))
+    if (SARibbonButtonGroupWidget *topBar = ribbonBar()->rightButtonGroup())
     {
       auto *btn = new QToolButton(topBar);
       btn->setObjectName(QStringLiteral("processingButton"));
@@ -2213,19 +2332,26 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
       }
 
       btn->setMenu(menu);
-      topBar->layout()->addWidget(btn);
+      // 插在「面板」钮之前：[搜索][处理算法][面板][Web 服务]。
+      QAction *before = nullptr;
+      if (auto *panelsBtn = topBar->findChild<QToolButton *>(QStringLiteral("panelsMenuButton")))
+        for (QAction *a : topBar->actions())
+          if (topBar->widgetForAction(a) == panelsBtn)
+            before = a;
+      topBar->insertWidget(before, btn);
     }
   }
 
-  // 编辑 toolbar (wave/edit-tools): hosts the digitizing toolset —
-  // add/reshape/move/delete + vertex editing routed through the editing
-  // service; undo/redo follows the selected layer. 归属 ribbon 体：插在
-  // ribbonActionRow 之下、中央工作区之上——编图工具跟着页签走，不能压在
-  // 页签行上面（TopDockWidgetArea 会越过整个中央件）。页作用域显隐仍由
-  // showPage 的 kEditingToolPages 驱动（无 toggle 入口）。
+  // 编辑工具 (wave/edit-tools): digitizing toolset — add/reshape/move/delete +
+  // vertex editing routed through the editing service; undo/redo follows the
+  // selected layer. Ribbon 形态：PaleoEditingToolbar 只当逻辑宿主（工具
+  // 生命周期、图层下拉、门控/原因），本体不上屏；它的 QAction 进三个编图页
+  // 的「要素编辑」组（buildRibbonPanels），撤销/重做进快速访问栏。页作用域
+  // = 只有编图链三页的页签里有这组命令。
+  PaleoEditingToolbar *editTb = nullptr;
   if (m_canvasCtl)
   {
-    auto *editTb = new PaleoEditingToolbar(m_canvasCtl->canvas(), this);
+    editTb = new PaleoEditingToolbar(m_canvasCtl->canvas(), this);
     editTb->setObjectName(QStringLiteral("editingToolbar"));
     if (editSvc)
       editTb->setEditingService(editSvc);
@@ -2244,28 +2370,24 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 [editTb](const QStringList &) { editTb->refreshFromProject(); });
       }
     }
-    if (auto *vl =
-            qobject_cast<QVBoxLayout *>(m_centerStack->parentWidget()->layout()))
-      vl->insertWidget(vl->indexOf(m_centerStack), editTb); // ribbon 之下、画布之上
-    else
-      editTb->setParent(this); // 布局兜底：不可见孤儿也比丢失强
-    // 页作用域：可见性完全由 showPage 驱动——建条时按当前页落初值
-    //（startup/数据页一律隐藏）。
-    editTb->setVisible(kEditingToolPages.contains(m_currentPage));
+    editTb->hide(); // 逻辑宿主，不进布局
+    if (SARibbonQuickAccessBar *qab = ribbonBar()->quickAccessBar())
+    {
+      qab->addAction(editTb->actionUndo());
+      qab->addAction(editTb->actionRedo());
+    }
   }
 
   // 图件设计 entry (wave/layout-designer): create a print layout via the
-  // layout service and open the designer shell dialog non-modally.
+  // layout service and open the designer shell dialog non-modally. 入口在
+  // 「智能编图 › 图件输出」组（buildRibbonPanels 按 objectName 取这颗动作）。
   if (layoutSvc)
-    if (auto *topBar = findChild<QWidget *>(QStringLiteral("ribbonActionRow")))
     {
-      auto *designerBtn = new QToolButton(topBar);
-      designerBtn->setObjectName(QStringLiteral("designerButton"));
-      designerBtn->setText(tr("图件设计"));
-      designerBtn->setAccessibleName(tr("打开图件设计器"));
-      designerBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionNewLayout.svg")));
-      designerBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-      connect(designerBtn, &QToolButton::clicked, this, [this, layoutSvc] {
+      auto *designerAct = new QAction(
+          PaleoIcons::qgisTheme(QStringLiteral("mActionNewLayout.svg")), tr("图件设计"), this);
+      designerAct->setObjectName(QStringLiteral("ribbonDesignerAction"));
+      designerAct->setToolTip(tr("新建布局并打开图件设计器"));
+      connect(designerAct, &QAction::triggered, this, [this, layoutSvc] {
         if (m_projectSvc->projectPath().isEmpty())
         {
           QgsMessageLog::logMessage(tr("无打开工程 — 无法创建布局"),
@@ -2287,13 +2409,366 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
         shell->setModal(false);
         shell->show();
       });
-      topBar->layout()->addWidget(designerBtn);
     }
+
+  buildRibbonPanels(dataPage, predictPage, constraintPage, composePage, validatePage, editTb,
+                    corrPanel);
 
   // Re-sync visible page index with current tab.
   const int idx = kPageIds.indexOf(m_currentPage);
   stack->setCurrentIndex(idx >= 0 ? idx : 0);
   m_workflowsAttached = true; // 走到末尾才算接线完成（幂等守卫置位）
+}
+
+// ---------------------------------------------------------------------------
+// Ribbon 命令组：每个页签按「做事的顺序」排组——数据管理（导入 → 列表 →
+// 预览）、预测编图（运行 → 叠加对照 → 编辑 → 地图 → 结果）、单因素图（约束
+// → 插值 → 连井 → 编辑 → 地图 → 结果）、智能编图（编图链 → 编辑 → 地图 →
+// 图件输出 → 版本）、验证（验证 → 联动定位 → 地图 → 发布）。
+// 页面板按钮是状态源：ribbon 动作经 PaleoRibbon::mirror 镜像它们。
+// ---------------------------------------------------------------------------
+void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
+                                        ConstraintPage *constraint, ComposePage *compose,
+                                        ValidatePage *validate, PaleoEditingToolbar *editTb,
+                                        WellCorrelationPanel *corrPanel)
+{
+  SARibbonBar *bar = ribbonBar();
+  if (!bar)
+    return;
+  bar->beginUpdate();
+
+  const auto icon = [](const char *name) { return PaleoIcons::qgisTheme(QLatin1String(name)); };
+  const auto newAction = [this](const QString &text, const QIcon &ic, const QString &tip,
+                                const char *name) {
+    auto *a = new QAction(ic, text, this);
+    a->setObjectName(QLatin1String(name));
+    if (!tip.isEmpty())
+      a->setToolTip(tip);
+    return a;
+  };
+  // 镜像命令：面板按钮存在才建（空工作流的测试壳照样能跑）。
+  const auto mirrored = [&newAction](QWidget *page, const char *buttonName, const QString &text,
+                                     const QIcon &ic, const char *actionName,
+                                     bool syncText = false) -> QAction * {
+    auto *b = page ? page->findChild<QAbstractButton *>(QLatin1String(buttonName)) : nullptr;
+    if (!b)
+      return nullptr;
+    QAction *a = newAction(text, ic, QString(), actionName);
+    PaleoRibbon::mirror(a, b, syncText);
+    return a;
+  };
+  const auto large = [](SARibbonPanel *p, QAction *a, bool run = false) {
+    if (!p || !a)
+      return;
+    p->addLargeAction(a);
+    if (run)
+      PaleoRibbon::markRun(PaleoRibbon::buttonFor(p, a));
+  };
+  const auto small = [](SARibbonPanel *p, QAction *a) {
+    if (p && a)
+      p->addSmallAction(a);
+  };
+  const auto panel = [](SARibbonCategory *cat, const QString &title, const char *name) {
+    SARibbonPanel *p = cat->addPanel(title);
+    p->setObjectName(QLatin1String(name));
+    return p;
+  };
+
+  // ---- 共享动作（多个页签复用同一颗 QAction）----
+  // 「参数」= 右侧 dock 的 toggleViewAction：文案随页（预测参数/单因素参数…）。
+  QAction *paramsAct = m_rightDock ? m_rightDock->toggleViewAction() : nullptr;
+  if (paramsAct)
+  {
+    paramsAct->setIcon(icon("mActionOptions.svg"));
+    paramsAct->setToolTip(tr("显示/隐藏右侧参数面板"));
+  }
+  auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
+  const auto bottomAction = [this, bottomTabs, &newAction](QWidget *tab, const QString &text,
+                                                           const QIcon &ic, const QString &tip,
+                                                           const char *name) -> QAction * {
+    if (!tab || !bottomTabs)
+      return nullptr;
+    QAction *a = newAction(text, ic, tip, name);
+    connect(a, &QAction::triggered, this, [this, bottomTabs, tab] {
+      m_bottomDock->show();
+      m_bottomDock->raise();
+      bottomTabs->setCurrentWidget(tab);
+    });
+    return a;
+  };
+  QAction *corrAct = bottomAction(corrPanel, tr("连井剖面"), icon("mActionElevationProfile.svg"),
+                                  tr("在底部面板打开连井剖面（与地图联动）"),
+                                  "ribbonCorrelationAction");
+  QAction *attrAct = bottomAction(findChild<QWidget *>(QStringLiteral("attributeTablePanel")),
+                                  tr("属性表"), icon("mActionOpenTable.svg"),
+                                  tr("在底部面板打开图层属性表"), "ribbonAttributeTableAction");
+  QAction *releaseAct = bottomAction(findChild<QWidget *>(QStringLiteral("releasePanel")),
+                                     tr("发布记录"), icon("mActionHistory.svg"),
+                                     tr("在底部面板查看已发布的版本"), "ribbonReleaseAction");
+  QAction *toValidate = newAction(tr("送交验证"), icon("mActionSharingExport.svg"),
+                                  tr("切到验证页，用井点残差检查当前成果"), "ribbonToValidateAction");
+  connect(toValidate, &QAction::triggered, this, [this] { showPage(QStringLiteral("validate")); });
+
+  // 地图导航：原生 QGIS 工具；setAction 让工具激活/停用时自动勾选/取消。
+  QAction *panAct = nullptr, *zoomInAct = nullptr, *zoomOutAct = nullptr, *fullAct = nullptr;
+  if (m_canvasCtl)
+  {
+    QgsMapCanvas *cv = m_canvasCtl->canvas();
+    const auto toolAction = [this, &newAction](QgsMapTool *tool, const QString &text,
+                                               const QIcon &ic, const QString &tip,
+                                               const char *name) {
+      QAction *a = newAction(text, ic, tip, name);
+      a->setCheckable(true);
+      tool->setAction(a);
+      connect(a, &QAction::triggered, this, [this, tool] { m_canvasCtl->setMapTool(tool); });
+      return a;
+    };
+    panAct = toolAction(new QgsMapToolPan(cv), tr("平移"), icon("mActionPan.svg"),
+                        tr("拖动平移地图"), "ribbonPanAction");
+    zoomInAct = toolAction(new QgsMapToolZoom(cv, false), tr("放大"), icon("mActionZoomIn.svg"),
+                           tr("点击或框选放大"), "ribbonZoomInAction");
+    zoomOutAct = toolAction(new QgsMapToolZoom(cv, true), tr("缩小"), icon("mActionZoomOut.svg"),
+                            tr("点击或框选缩小"), "ribbonZoomOutAction");
+    fullAct = newAction(tr("全图"), icon("mActionZoomFullExtent.svg"), tr("缩放到全部图层"),
+                        "ribbonZoomFullAction");
+    connect(fullAct, &QAction::triggered, this, [this] { m_canvasCtl->zoomToFullExtent(); });
+  }
+  const auto navPanel = [&](SARibbonCategory *cat) {
+    if (!panAct)
+      return;
+    SARibbonPanel *p = panel(cat, tr("地图"), "ribbonNavPanel");
+    large(p, panAct);
+    small(p, zoomInAct);
+    small(p, zoomOutAct);
+    small(p, fullAct);
+  };
+
+  // ================= 数据管理 =================
+  if (SARibbonCategory *cat = categoryForPage(QStringLiteral("data")))
+  {
+    SARibbonPanel *p = panel(cat, tr("数据导入"), "ribbonPanel.data.import");
+    large(p, mirrored(data, "importFolder", tr("导入工区文件夹"), icon("mIconFolderOpen.svg"),
+                      "ribbonImportFolder"));
+    small(p, mirrored(data, "importWells", tr("导入井数据"), icon("mIconPointLayer.svg"),
+                      "ribbonImportWells"));
+    small(p, mirrored(data, "importSeismic", tr("导入地震数据"), icon("mIconRasterLayer.svg"),
+                      "ribbonImportSeismic"));
+    small(p, mirrored(data, "importBoundary", tr("导入边界数据"), icon("mIconPolygonLayer.svg"),
+                      "ribbonImportBoundary"));
+
+    if (data)
+    {
+      SARibbonPanel *lp = panel(cat, tr("数据列表"), "ribbonPanel.data.list");
+      QAction *unresolved = newAction(tr("只看未决"), icon("mActionFilter2.svg"),
+                                      tr("只显示还有未决关联的数据"), "ribbonUnresolvedFilter");
+      unresolved->setCheckable(true);
+      connect(unresolved, &QAction::triggered, data, &DataPage::setUnresolvedFilter);
+      // 过滤条显隐（「清除过滤」、导入确认框的「查看未决」）回写勾选态。
+      if (auto *filterBar = data->findChild<QWidget *>(QStringLiteral("unresolvedFilterBar")))
+        PaleoRibbon::followVisibility(unresolved, filterBar);
+      large(lp, unresolved);
+      QAction *refresh = newAction(tr("刷新列表"), icon("mActionRefresh.svg"),
+                                   tr("按数据目录重建列表"), "ribbonRefreshList");
+      connect(refresh, &QAction::triggered, data, &DataPage::refreshAssetTable);
+      large(lp, refresh);
+    }
+
+    auto *maxBtn = m_previewTabs
+                       ? m_previewTabs->findChild<QToolButton *>(QStringLiteral("previewMaxButton"))
+                       : nullptr;
+    auto *inner = m_previewTabs
+                      ? m_previewTabs->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"))
+                      : nullptr;
+    if (maxBtn && inner)
+    {
+      SARibbonPanel *vp = panel(cat, tr("数据预览"), "ribbonPanel.data.preview");
+      QAction *maxAct = newAction(tr("最大化预览"), PaleoIcons::maximize(), QString(),
+                                  "ribbonPreviewMaximize");
+      maxAct->setCheckable(true);
+      connect(maxAct, &QAction::triggered, maxBtn, [maxBtn](bool on) { maxBtn->setChecked(on); });
+      connect(maxBtn, &QAbstractButton::toggled, maxAct, [maxAct](bool on) {
+        maxAct->setChecked(on);
+        maxAct->setText(on ? tr("还原预览") : tr("最大化预览"));
+        maxAct->setIcon(on ? PaleoIcons::restore() : PaleoIcons::maximize());
+      });
+      // 没有打开的预览时不可用（禁用必带原因，§35）。
+      const auto syncMax = [maxAct, inner] {
+        const bool any = inner->count() > 0;
+        maxAct->setEnabled(any);
+        maxAct->setToolTip(any ? tr("预览占满数据面（列表留一行）")
+                               : tr("先在数据列表里选一条数据打开预览"));
+      };
+      connect(inner, &QTabWidget::currentChanged, maxAct, syncMax);
+      syncMax();
+      large(vp, maxAct);
+    }
+  }
+
+  // ================= 预测编图 =================
+  if (SARibbonCategory *cat = categoryForPage(QStringLiteral("predict")))
+  {
+    SARibbonPanel *p = panel(cat, tr("预测运行"), "ribbonPanel.predict.run");
+    large(p, mirrored(predict, "runButton", tr("运行预测"), icon("mActionStart.svg"),
+                      "ribbonRunPrediction"),
+          true);
+    large(p, paramsAct);
+    if (corrAct || attrAct)
+    {
+      SARibbonPanel *cp = panel(cat, tr("叠加对照"), "ribbonPanel.predict.compare");
+      large(cp, corrAct);
+      large(cp, attrAct);
+    }
+    addEditingPanel(cat, editTb);
+    navPanel(cat);
+    large(panel(cat, tr("结果"), "ribbonPanel.predict.result"), toValidate);
+  }
+
+  // ================= 单因素图 =================
+  if (SARibbonCategory *cat = categoryForPage(QStringLiteral("constraint")))
+  {
+    SARibbonPanel *p = panel(cat, tr("约束编辑"), "ribbonPanel.constraint.draw");
+    auto *drawBtn = constraint ? constraint->findChild<QPushButton *>(QStringLiteral("drawButton"))
+                               : nullptr;
+    auto *shape = constraint ? constraint->findChild<QComboBox *>(QStringLiteral("shapeCombo"))
+                             : nullptr;
+    if (QAction *draw = mirrored(constraint, "drawButton", tr("绘制约束"),
+                                 icon("mActionCaptureLine.svg"), "ribbonDrawConstraint"))
+    {
+      // 拆分按钮：主体按参数面板当前形状画；下拉直接挑形状开画（改的是
+      // 同一个 shapeCombo，参数面板随之显示）。
+      if (shape && drawBtn)
+      {
+        auto *menu = new QMenu(this);
+        menu->setObjectName(QStringLiteral("ribbonConstraintShapeMenu"));
+        for (int i = 0; i < shape->count(); ++i)
+          menu->addAction(shape->itemText(i), this, [shape, drawBtn, i] {
+            shape->setCurrentIndex(i);
+            drawBtn->click();
+          });
+        draw->setMenu(menu);
+        p->addLargeAction(draw, QToolButton::MenuButtonPopup);
+      }
+      else
+        large(p, draw);
+    }
+    large(p, paramsAct);
+    SARibbonPanel *ip = panel(cat, tr("插值计算"), "ribbonPanel.constraint.idw");
+    large(ip, mirrored(constraint, "runIdwButton", tr("计算单因素"), icon("mActionStart.svg"),
+                       "ribbonRunIdw"),
+          true);
+    if (corrAct)
+      large(panel(cat, tr("连井分析"), "ribbonPanel.constraint.correlation"), corrAct);
+    addEditingPanel(cat, editTb);
+    navPanel(cat);
+    large(panel(cat, tr("结果"), "ribbonPanel.constraint.result"), toValidate);
+  }
+
+  // ================= 智能编图 =================
+  if (SARibbonCategory *cat = categoryForPage(QStringLiteral("compose")))
+  {
+    SARibbonPanel *p = panel(cat, tr("编图链"), "ribbonPanel.compose.chain");
+    large(p, mirrored(compose, "thicknessChainButton", tr("生成等厚图"),
+                      icon("processingAlgorithm.svg"), "ribbonThicknessChain", true),
+          true);
+    small(p, mirrored(compose, "fuseButton", tr("合成编图"), icon("processingModel.svg"),
+                      "ribbonFuse"));
+    small(p, mirrored(compose, "polygonizeButton", tr("转为相多边形"),
+                      icon("mActionCapturePolygon.svg"), "ribbonPolygonize"));
+    large(p, paramsAct);
+    addEditingPanel(cat, editTb);
+    navPanel(cat);
+
+    SARibbonPanel *op = panel(cat, tr("图件输出"), "ribbonPanel.compose.output");
+    large(op, mirrored(compose, "exportPdfButton", tr("导出 PDF"), icon("mActionSaveAsPDF.svg"),
+                       "ribbonExportPdf"));
+    if (QAction *designer = findChild<QAction *>(QStringLiteral("ribbonDesignerAction")))
+    {
+      large(op, designer);
+      if (auto *b = PaleoRibbon::buttonFor(op, designer))
+      {
+        b->setObjectName(QStringLiteral("designerButton"));
+        b->setAccessibleName(tr("打开图件设计器"));
+      }
+    }
+
+    SARibbonPanel *vp = panel(cat, tr("版本"), "ribbonPanel.compose.version");
+    large(vp, mirrored(compose, "saveVersionButton", tr("保存版本"), icon("mActionFileSaveAs.svg"),
+                       "ribbonSaveVersion", true));
+    large(vp, mirrored(compose, "publishButton", tr("发布"), icon("mActionSharing.svg"),
+                       "ribbonPublish"));
+    small(vp, toValidate);
+  }
+
+  // ================= 验证 =================
+  if (SARibbonCategory *cat = categoryForPage(QStringLiteral("validate")))
+  {
+    SARibbonPanel *p = panel(cat, tr("验证"), "ribbonPanel.validate.run");
+    large(p, mirrored(validate, "runButton", tr("运行验证"), icon("mActionStart.svg"),
+                      "ribbonRunValidation"),
+          true);
+    large(p, paramsAct);
+    QAction *section = mirrored(validate, "openSeismicSectionButton", tr("看这条剖面"),
+                                icon("mIconRasterLayer.svg"), "ribbonOpenSection");
+    if (section || corrAct)
+    {
+      SARibbonPanel *lp = panel(cat, tr("联动定位"), "ribbonPanel.validate.locate");
+      large(lp, section);
+      large(lp, corrAct);
+    }
+    navPanel(cat);
+    if (releaseAct)
+      large(panel(cat, tr("发布"), "ribbonPanel.validate.release"), releaseAct);
+  }
+
+  bar->endUpdate();
+  bar->updateRibbonGeometry();
+}
+
+void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb)
+{
+  if (!category || !editTb)
+    return;
+  SARibbonPanel *p = category->addPanel(tr("要素编辑"));
+  p->setObjectName(QStringLiteral("ribbonEditPanel"));
+
+  // 目标图层：共享编辑条下拉的 model（●标记编辑中图层，同一份数据）；用户
+  // 选择经 setCurrentLayer 回写——与编辑条自身 activated 同一路径。
+  QComboBox *master = editTb->layerCombo();
+  auto *combo = new QComboBox(p);
+  combo->setObjectName(QStringLiteral("ribbonEditLayerCombo"));
+  combo->setAccessibleName(tr("编辑图层"));
+  combo->setToolTip(tr("要编辑的矢量图层"));
+  combo->setPlaceholderText(tr("选择可编辑图层"));
+  combo->setModel(master->model());
+  auto *state = new QLabel(p);
+  state->setObjectName(QStringLiteral("ribbonEditState"));
+  connect(combo, &QComboBox::activated, editTb, [editTb, combo](int i) {
+    editTb->setCurrentLayer(qvariant_cast<QgsVectorLayer *>(combo->itemData(i)));
+  });
+  const auto sync = [combo, state, master, editTb] {
+    combo->setCurrentIndex(master->currentIndex());
+    state->setText(editTb->stateLabel()->text());
+  };
+  connect(master, &QComboBox::currentIndexChanged, combo, sync);
+  // 编辑条重建下拉时屏蔽了自身信号——model 变化与会话切换后排队再对一次。
+  QAbstractItemModel *model = master->model();
+  connect(model, &QAbstractItemModel::modelReset, combo, sync, Qt::QueuedConnection);
+  connect(model, &QAbstractItemModel::rowsInserted, combo, sync, Qt::QueuedConnection);
+  connect(model, &QAbstractItemModel::rowsRemoved, combo, sync, Qt::QueuedConnection);
+  connect(editTb, &PaleoEditingToolbar::editingStarted, combo, sync, Qt::QueuedConnection);
+  connect(editTb, &PaleoEditingToolbar::editingStopped, combo, sync, Qt::QueuedConnection);
+  sync();
+  p->addSmallWidget(combo);
+  p->addSmallWidget(state);
+
+  p->addLargeAction(editTb->actionSelect());
+  p->addLargeAction(editTb->actionAddFeature(), QToolButton::InstantPopup);
+  p->addSmallAction(editTb->actionReshape());
+  p->addSmallAction(editTb->actionMove());
+  p->addSmallAction(editTb->actionDeleteFeatures());
+  p->addSmallAction(editTb->actionVertexEdit());
+  p->addSmallAction(editTb->actionSave());
+  p->addSmallAction(editTb->actionCancel());
 }
 
 // ---------------------------------------------------------------------------

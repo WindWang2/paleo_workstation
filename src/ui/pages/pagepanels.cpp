@@ -30,6 +30,7 @@
 #include <QPushButton>
 #include <QSet>
 #include <QShowEvent>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QStackedLayout>
 #include <QTableWidget>
@@ -280,7 +281,23 @@ DataPage::DataPage(QWidget *parent)
 {
   auto *lay = panelLayout(this);
 
-  lay->addWidget(caption(tr("数据导入"), this));
+  // 三段各自成件（objectName 见头文件），壳按 ribbon 布局重新安放。
+  const auto section = [this](const char *name) {
+    auto *w = new QWidget(this);
+    w->setObjectName(QLatin1String(name));
+    auto *l = new QVBoxLayout(w);
+    l->setContentsMargins(0, 0, 0, 0);
+    l->setSpacing(8);
+    return w;
+  };
+  QWidget *importSection = section("dataImportSection");
+  auto *importLay = static_cast<QVBoxLayout *>(importSection->layout());
+  QWidget *listSection = section("dataListSection");
+  auto *listLay = static_cast<QVBoxLayout *>(listSection->layout());
+  m_entitySection = section("entityViewSection");
+  auto *entityLay = static_cast<QVBoxLayout *>(m_entitySection->layout());
+
+  importLay->addWidget(caption(tr("数据导入"), importSection));
   const struct { const char *name; const char *text; const char *kind; const char *desc; }
       kImports[] = {
     {"importWells", QT_TR_NOOP("导入井数据"), "wells",
@@ -294,20 +311,45 @@ DataPage::DataPage(QWidget *parent)
   };
   for (const auto &spec : kImports)
   {
-    auto *btn = new QPushButton(tr(spec.text), this);
+    auto *btn = new QPushButton(tr(spec.text), importSection);
     btn->setObjectName(QLatin1String(spec.name));
     // T32 a11y：导入入口各自报名（屏幕阅读器不读图标猜测）。
     btn->setAccessibleName(tr(spec.text));
     btn->setAccessibleDescription(tr(spec.desc));
     connect(btn, &QPushButton::clicked, this,
             [this, kind = QLatin1String(spec.kind)] { emit importRequested(kind); });
-    lay->addWidget(btn);
+    importLay->addWidget(btn);
   }
-
+  lay->addWidget(importSection);
   lay->addSpacing(16); // spacing.md between groups
-  lay->addWidget(caption(tr("资产"), this));
+
+  // 列表面表头：标题 + 搜索 + 类型筛选 + 计数（原型「数据列表」）。
+  auto *header = new QWidget(listSection);
+  auto *hl = new QHBoxLayout(header);
+  hl->setContentsMargins(0, 0, 0, 0);
+  hl->setSpacing(8);
+  hl->addWidget(caption(tr("数据列表"), header));
+  auto *search = new QLineEdit(header);
+  search->setObjectName(QStringLiteral("assetSearchEdit"));
+  search->setPlaceholderText(tr("搜索名称、类型、关联井"));
+  search->setAccessibleName(tr("搜索数据"));
+  search->setClearButtonEnabled(true);
+  hl->addWidget(search, 1);
+  auto *typeFilter = new QComboBox(header);
+  typeFilter->setObjectName(QStringLiteral("assetTypeFilter"));
+  typeFilter->setAccessibleName(tr("按类型筛选"));
+  typeFilter->addItem(tr("所有类型"), QString());
+  hl->addWidget(typeFilter);
+  auto *count = new QLabel(header);
+  count->setObjectName(QStringLiteral("assetCountLabel"));
+  count->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+  hl->addWidget(count);
+  listLay->addWidget(header);
+  connect(search, &QLineEdit::textChanged, this, [this] { applyListFilter(); });
+  connect(typeFilter, &QComboBox::currentIndexChanged, this, [this] { applyListFilter(); });
+
   // T31「查看未决」过滤条：过滤开启时露出一行，带「清除过滤」。
-  auto *filterBar = new QWidget(this);
+  auto *filterBar = new QWidget(listSection);
   filterBar->setObjectName(QStringLiteral("unresolvedFilterBar"));
   filterBar->hide();
   auto *fl = new QHBoxLayout(filterBar);
@@ -322,8 +364,8 @@ DataPage::DataPage(QWidget *parent)
   fl->addWidget(clearBtn);
   fl->addStretch(1);
   connect(clearBtn, &QPushButton::clicked, this, [this]() { setUnresolvedFilter(false); });
-  lay->addWidget(filterBar);
-  auto *table = new QTableWidget(0, 3, this);
+  listLay->addWidget(filterBar);
+  auto *table = new QTableWidget(0, 3, listSection);
   table->setObjectName(QStringLiteral("assetTable"));
   table->setAccessibleName(tr("资产列表"));
   // §4 预览壳重排：预览移到共享地图下方（不再挂右栏）；第三列由「来源」改为
@@ -332,20 +374,21 @@ DataPage::DataPage(QWidget *parent)
   table->verticalHeader()->setVisible(false);
   table->horizontalHeader()->setStretchLastSection(true);
   refreshAssetEmptyState(table, QString());
-  lay->addWidget(table, 1);
+  listLay->addWidget(table, 1);
+  lay->addWidget(listSection, 1);
 
   // ---- p5a：实体角色槽数据视图（entityDataView facade，B 包接线） ----
   // 实体选中（D6 地图点选 → selectAssetsForEntities）后按角色词表枚举
   // (实体,角色) 槽：主关联/成员/未决 + 空「缺失」槽位；下游 DERIVED 产物
   // 与悬空血缘诊断。纯查询；catalog.changed() → refreshAssetTable() 重取。
   lay->addSpacing(16); // spacing.md between groups
-  lay->addWidget(caption(tr("实体数据视图"), this));
-  auto *viewEmpty = new QLabel(this);
+  entityLay->addWidget(caption(tr("实体数据视图"), m_entitySection));
+  auto *viewEmpty = new QLabel(m_entitySection);
   viewEmpty->setObjectName(QStringLiteral("entityViewEmptyLabel"));
   viewEmpty->setWordWrap(true);
   viewEmpty->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
-  lay->addWidget(viewEmpty);
-  auto *viewContent = new QWidget(this);
+  entityLay->addWidget(viewEmpty);
+  auto *viewContent = new QWidget(m_entitySection);
   viewContent->setObjectName(QStringLiteral("entityViewContent"));
   auto *vcl = new QVBoxLayout(viewContent);
   vcl->setContentsMargins(0, 0, 0, 0);
@@ -375,8 +418,10 @@ DataPage::DataPage(QWidget *parent)
   missing->setWordWrap(true);
   missing->hide(); // 悬空血缘诊断只在 missingSources 非空时出现
   vcl->addWidget(missing);
-  lay->addWidget(viewContent, 1);
+  entityLay->addWidget(viewContent, 1);
+  lay->addWidget(m_entitySection, 1);
   refreshEntityView(); // 初始空态（未选实体）：指引行，不留白板
+  applyListFilter();   // 空表也写计数
 
   // 列表选中一条资产 → 中央预览标签（预览部件由 shell 持有，重选聚焦语义
   // 由 DataPreviewTabs 实现）。
@@ -753,6 +798,62 @@ void DataPage::refreshAssetTable()
   }
   refreshAssetEmptyState(
       table, unresolvedOnly ? tr("没有未决资产 — 全部资产都已挂接") : QString());
+
+  // 类型下拉按当前资产类型集重建（保留原选择）。
+  if (auto *typeFilter = findChild<QComboBox *>(QStringLiteral("assetTypeFilter")))
+  {
+    const QString keep = typeFilter->currentData().toString();
+    QStringList types;
+    for (const CatalogAsset &a : cat->assets())
+      if (!a.type.isEmpty() && !types.contains(a.type))
+        types << a.type;
+    types.sort();
+    const QSignalBlocker block(typeFilter);
+    typeFilter->clear();
+    typeFilter->addItem(tr("所有类型"), QString());
+    for (const QString &t : types)
+      typeFilter->addItem(t, t);
+    typeFilter->setCurrentIndex(qMax(0, typeFilter->findData(keep)));
+  }
+  applyListFilter();
+}
+
+void DataPage::applyListFilter()
+{
+  auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
+  if (!table)
+    return;
+  const auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
+  const auto *typeFilter = findChild<QComboBox *>(QStringLiteral("assetTypeFilter"));
+  const QString needle = search ? search->text().trimmed() : QString();
+  const QString type = typeFilter ? typeFilter->currentData().toString() : QString();
+  int total = 0, shown = 0;
+  for (int r = 0; r < table->rowCount(); ++r)
+  {
+    const QTableWidgetItem *name = table->item(r, 0);
+    // 空态指引行（无 UserRole）不算数据，也永远不藏。
+    if (!name || name->data(Qt::UserRole).toString().isEmpty())
+    {
+      table->setRowHidden(r, false);
+      continue;
+    }
+    ++total;
+    const auto text = [table, r](int c) {
+      const QTableWidgetItem *it = table->item(r, c);
+      return it ? it->text() : QString();
+    };
+    const bool typeOk = type.isEmpty() || text(1) == type;
+    const bool textOk = needle.isEmpty() ||
+                        text(0).contains(needle, Qt::CaseInsensitive) ||
+                        text(1).contains(needle, Qt::CaseInsensitive) ||
+                        text(2).contains(needle, Qt::CaseInsensitive);
+    const bool visible = typeOk && textOk;
+    table->setRowHidden(r, !visible);
+    shown += visible ? 1 : 0;
+  }
+  if (auto *count = findChild<QLabel *>(QStringLiteral("assetCountLabel")))
+    count->setText(shown == total ? tr("共 %1 条").arg(total)
+                                  : tr("显示 %1 / 共 %2 条").arg(shown).arg(total));
 }
 
 // p5a：当前选中实体的角色槽数据视图。entityDataView 是纯查询门面——这里
@@ -760,12 +861,16 @@ void DataPage::refreshAssetTable()
 // 任何东西；页面刷新统一走 catalog.changed() → refreshAssetTable() → 本槽。
 void DataPage::refreshEntityView()
 {
-  auto *content = findChild<QWidget *>(QStringLiteral("entityViewContent"));
-  auto *empty = findChild<QLabel *>(QStringLiteral("entityViewEmptyLabel"));
-  auto *header = findChild<QLabel *>(QStringLiteral("entityViewHeader"));
-  auto *roleTable = findChild<QTableWidget *>(QStringLiteral("entityRoleTable"));
-  auto *derived = findChild<QTableWidget *>(QStringLiteral("derivedProductsTable"));
-  auto *missing = findChild<QLabel *>(QStringLiteral("missingSourcesLabel"));
+  // 段可能已被壳挂到右侧 dock——按段查找，不按 this。
+  QWidget *root = m_entitySection;
+  if (!root)
+    return;
+  auto *content = child<QWidget>(root, "entityViewContent");
+  auto *empty = child<QLabel>(root, "entityViewEmptyLabel");
+  auto *header = child<QLabel>(root, "entityViewHeader");
+  auto *roleTable = child<QTableWidget>(root, "entityRoleTable");
+  auto *derived = child<QTableWidget>(root, "derivedProductsTable");
+  auto *missing = child<QLabel>(root, "missingSourcesLabel");
   if (!content || !empty || !header || !roleTable || !derived || !missing)
     return;
 
@@ -1517,7 +1622,12 @@ void ComposePage::setVersionState(int version, bool published)
                                   : PaleoTheme::CapsuleKind::Warning)));
   }
   if (auto *save = child<QPushButton>(this, "saveVersionButton"))
+  {
     save->setText(published ? tr("保存新版本") : tr("保存版本"));
+    // tooltip 写明改名原因；ribbon 镜像靠 ToolTipChange 顺带同步文案。
+    save->setToolTip(published ? tr("v%1 已发布、快照只读 — 继续保存会产生新版本").arg(version)
+                               : tr("把当前编图保存为版本快照"));
+  }
 }
 
 void ComposePage::setThicknessHorizon(const QString &horizon)

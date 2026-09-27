@@ -173,4 +173,59 @@ namespace PaleoTheme
     // 与应用同一条路径钉死（Fusion + 浅色 palette + vendor 字体）。
     applyLightTheme();
   }
+
+  QByteArray ribbonPaletteJson()
+  {
+    // 页签行 = surface-alt，ribbon 体 = surface；选中页签蓝字蓝下划线就是
+    // 编号工作流标签（唯一签名元素）。hover = surface-alt（ribbon-button
+    // 规约），按下 = border 色。无暗色变体（V1 不交付暗色）。
+    return QByteArrayLiteral(R"({
+  "name": "Paleo Workbench",
+  "version": "1.0",
+  "isDark": false,
+  "keyColors": {
+    "accent": "#EDF1F5",
+    "accent-hover": "#DFE5EC",
+    "tab-accent": "#1B73D0",
+    "tab-accent-hover": "#9AA7B4",
+    "content-bg": "#FFFFFF",
+    "content-hover-bg": "#EDF1F5",
+    "content-pressed-bg": "#DFE5EC",
+    "text-color": "#24303E",
+    "subtitle": "#5D6E80",
+    "separator": "#DFE5EC",
+    "border-color": "#DFE5EC",
+    "input-border": "#DFE5EC",
+    "input-focus": "#1B73D0",
+    "selection-bg": "#DFE5EC",
+    "menu-border": "#DFE5EC",
+    "close-bg": "#E53935",
+    "close-bg-pressed": "#FDEBEB",
+    "sys-button-hover": "#EDF1F5",
+    "sys-button-pressed": "#DFE5EC",
+    "white": "#FFFFFF",
+    "black": "#24303E"
+  }
+})");
+  }
+
+  QString ribbonStyleSheet()
+  {
+    return QStringLiteral(
+        // office2021 模板把 hover 字色设成按下底色（浅灰字）——改回正文色。
+        "SARibbonToolButton:hover { color: #24303E; }"
+        // 选中态（活动地图工具 / 开着的过滤）：primary 描边 + surface-alt 底。
+        "SARibbonToolButton:checked, SARibbonToolButton:checked:hover {"
+        " border: 1px solid #1B73D0; background-color: #EDF1F5; color: #24303E; }"
+        "SARibbonToolButton:disabled { color: #9AA7B4; }"
+        // 运行类动作（运行预测 / 单因素插值 / 运行验证）：文字用 primary。
+        "SARibbonToolButton[paleoRun=\"true\"] { color: #1B73D0; }"
+        "SARibbonToolButton[paleoRun=\"true\"]:disabled { color: #9AA7B4; }"
+        "SARibbonPanelLabel { font-size: 8pt; }"
+        "SARibbonTabBar::tab { font-size: 9pt; }"
+        "SARibbonButtonGroupWidget > QToolButton { padding: 0 6px; }"
+        "SARibbonPanel QComboBox { border: 1px solid #DFE5EC; border-radius: 4px;"
+        " background: #FFFFFF; padding: 1px 6px; min-width: 132px; }"
+        "SARibbonPanel QLabel#ribbonEditState { color: #5D6E80; }");
+  }
 } // namespace PaleoTheme

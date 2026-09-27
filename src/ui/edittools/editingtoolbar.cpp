@@ -390,6 +390,9 @@ void PaleoEditingToolbar::buildUi()
                                      QStringLiteral( "mActionCaptureLine.svg" ) );
   mActionAddPolygon = newCaptureAction( tr( "添加面" ), tr( "在当前图层添加面要素" ),
                                         QStringLiteral( "mActionCapturePolygon.svg" ) );
+  // 菜单挂在动作上：宿主（ribbon「要素编辑」组）用同一颗动作建按钮时也带
+  // 点/线/面下拉。
+  mActionAddFeature->setMenu( addMenu );
   QToolButton *addButton = new QToolButton( mToolBar );
   addButton->setDefaultAction( mActionAddFeature );
   addButton->setMenu( addMenu );

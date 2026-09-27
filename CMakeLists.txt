@@ -63,6 +63,16 @@ endif()
 find_program(OGR2OGR ogr2ogr)
 set(FIXTURE_GPKG ${CMAKE_SOURCE_DIR}/testdata/fixture.gpkg)
 
+# ---- ui/ribbon：SARibbon v2.9.5（vendor/saribbon，MIT，amalgamated 单文件） ----
+# 静态嵌入；不带 QWindowKit（主窗走原生边框）。qrc 已内联进 SARibbon.cpp，
+# 静态库资源由 PaleoMainWindow 构造时 Q_INIT_RESOURCE(SARibbonResource) 拉起。
+add_library(paleo_saribbon STATIC vendor/saribbon/SARibbon.h vendor/saribbon/SARibbon.cpp)
+target_include_directories(paleo_saribbon SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/vendor/saribbon)
+target_compile_definitions(paleo_saribbon PUBLIC
+  SA_RIBBON_BAR_NO_EXPORT SA_COLOR_WIDGETS_NO_DLL SARIBBON_USE_3RDPARTY_FRAMELESSHELPER=0)
+target_link_libraries(paleo_saribbon PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets)
+target_compile_options(paleo_saribbon PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>) # 第三方源不改，静音其告警
+
 add_executable(paleo_selfcheck src/selfcheck/main.cpp)
 target_link_libraries(paleo_selfcheck PRIVATE paleo_qgis_iface)
 target_compile_definitions(paleo_selfcheck PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
@@ -135,7 +145,7 @@ add_library(paleo_core STATIC
   # ---- package C: ingest-plan (three-phase folder import) ----
   src/io/ingestplan.cpp                          # C 包：纯 plan + 幂等执行器
 )
-target_link_libraries(paleo_core PUBLIC paleo_qgis_iface ${GDAL_LIB})
+target_link_libraries(paleo_core PUBLIC paleo_qgis_iface paleo_saribbon ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
 
 # ---- wave3/ux-consistency ----
@@ -148,6 +158,9 @@ target_sources(paleo_core PRIVATE src/ui/paleotheme.cpp resources/paleo_fonts.qr
 # ribbon 图标出口：QGIS default 主题 svg（qrc，安装路径无关）优先；
 # QGIS 缺语义的（预览最大化/还原）QPainter 自绘，DESIGN.md text token 色。
 target_sources(paleo_core PRIVATE src/ui/paleoicons.cpp)
+
+# ---- ui/ribbon：SARibbon 壳公用件（主题调色板 + 页面板按钮镜像） ----
+target_sources(paleo_core PRIVATE src/ui/paleoribbon.cpp)
 
 # ONNX Runtime (vendored; spike ET4). The shipped cmake config assumes lib64/ — we use lib/.
 find_path(ORT_INCLUDE onnxruntime_cxx_api.h PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/include)

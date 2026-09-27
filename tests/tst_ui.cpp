@@ -98,15 +98,22 @@ class TestUiShell : public QObject
       QCOMPARE(coords->font().pointSize(), 9);
     }
 
-    // §42 workflow chain: 数据管理/①预测/②约束/③编图/④验证
+    // §42 workflow chain: 数据管理/预测编图/单因素图/智能编图/验证
     void workflowTabBarHasFiveTabs()
     {
       auto *tabs = m_win->findChild<QTabBar *>(QStringLiteral("workflowTabs"));
       QVERIFY(tabs);
       QCOMPARE(tabs->count(), 5);
       QCOMPARE(tabs->tabText(0), QStringLiteral("数据管理"));
-      QCOMPARE(tabs->tabData(0).toString(), QStringLiteral("data"));
-      QCOMPARE(tabs->tabData(4).toString(), QStringLiteral("validate"));
+      QCOMPARE(tabs->tabText(1), QStringLiteral("预测编图"));
+      QCOMPARE(tabs->tabText(2), QStringLiteral("单因素图"));
+      QCOMPARE(tabs->tabText(3), QStringLiteral("智能编图"));
+      QCOMPARE(tabs->tabText(4), QStringLiteral("验证"));
+      QVERIFY(m_win->categoryForPage(QStringLiteral("data")));
+      QVERIFY(m_win->categoryForPage(QStringLiteral("predict")));
+      QVERIFY(m_win->categoryForPage(QStringLiteral("constraint")));
+      QVERIFY(m_win->categoryForPage(QStringLiteral("compose")));
+      QVERIFY(m_win->categoryForPage(QStringLiteral("validate")));
 
       // shell anatomy: left tree / right panel / bottom tabs all exist
       QVERIFY(m_win->findChild<QWidget *>(QStringLiteral("rightPanelHost")));
@@ -280,7 +287,7 @@ class TestUiShell : public QObject
         QVERIFY(!d->icon().isNull());
 
       auto *chipsRow =
-          m_win->findChild<QWidget *>(QStringLiteral("ribbonActionRow"));
+          m_win->findChild<QWidget *>(QStringLiteral("horizonChipRow"));
       QVERIFY(chipsRow);
       auto *chips =
           chipsRow->findChild<QWidget *>(QStringLiteral("horizonChips"));
@@ -481,15 +488,15 @@ class TestUiShell : public QObject
       QCOMPARE(m_ctx->canvasCtl()->canvas()->extent(), before);
     }
 
-    // §4 预览壳重排：中央工作区是「地图在上、预览在下」的竖向分栏；预览
+    // §4 预览壳重排：中央工作区在数据页是「数据列表在上、预览在下」的竖向分栏；预览
     // 只在数据管理页可见，其余四页隐藏；底栏不再挂地震预览标签（连井
     // 剖面面板保留），状态栏标工程网格坐标系。
     void previewSplitterShell()
     {
-      auto *split = m_win->findChild<QSplitter *>(QStringLiteral("mapPreviewSplit"));
+      auto *split = m_win->findChild<QSplitter *>(QStringLiteral("dataListPreviewSplit"));
       QVERIFY(split);
       QCOMPARE(split->orientation(), Qt::Vertical);
-      QVERIFY(split->count() >= 1); // 画布可能被前面用例的 win2 借走——结构断言不依赖它
+      QVERIFY(split->count() >= 1);
       auto *preview = m_win->findChild<QWidget *>(QStringLiteral("dataPreview"));
       QVERIFY(preview);
       QCOMPARE(split->indexOf(preview), split->count() - 1); // 预览总是分栏最后一格
@@ -519,12 +526,12 @@ class TestUiShell : public QObject
       QCOMPARE(crs->text(), QStringLiteral("工程坐标 · 米 · 未投影"));
     }
 
-    // D7：预览高度预算——首个标签给 ≥60%；角落「最大化预览」把地图压到
+    // D7：预览高度预算——首个标签给 ≥60%；角落「最大化预览」把数据列表压到
     // ≤64px 壳，「还原」回用户尺寸；空态（关全部标签）复位最大化与预算。
     void previewSplitterBudgetAndMaximize()
     {
       // 自给自足：分栏尺寸断言要求窗口已布局（单跑本用例时前面的用例不会先 show）。
-      m_win->resize(1280, 860);
+      m_win->resize(1280, 1100);
       m_win->show();
       // 无工程时 showPage 不离开启动页——布局断言需要工作区页为当前页。
       if (auto *centerStack =
@@ -532,7 +539,7 @@ class TestUiShell : public QObject
         centerStack->setCurrentIndex(1);
       m_win->showPage(QStringLiteral("data"));
       QTest::qWait(30);
-      auto *split = m_win->findChild<QSplitter *>(QStringLiteral("mapPreviewSplit"));
+      auto *split = m_win->findChild<QSplitter *>(QStringLiteral("dataListPreviewSplit"));
       auto *preview = m_win->findChild<DataPreviewTabs *>(QStringLiteral("dataPreview"));
       QVERIFY(split && preview);
       auto *inner = preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
@@ -541,8 +548,6 @@ class TestUiShell : public QObject
       QVERIFY(maxBtn->isCheckable());
       QCOMPARE(maxBtn->text(), QStringLiteral("最大化预览"));
 
-      // 画布可能被前面的用例借走——预览不是分栏第一格时尺寸才有意义；
-      // 缺上格就补个占位件（splitter 按位置分尺寸，与画布无关）。
       if (split->indexOf(preview) == 0)
         split->insertWidget(0, new QWidget);
       QCOMPARE(split->indexOf(preview), 1);
@@ -558,15 +563,13 @@ class TestUiShell : public QObject
                qPrintable(QStringLiteral("preview %1 of %2")
                               .arg(split->sizes().at(1)).arg(total)));
 
-      // 最大化：预览 ≥80%（地图被压到自身最小高度壳——QgsMapCanvas
-      // minimumSizeHint≈70px 会比 64 预算略高），按钮文案翻面。
+      // 最大化：预览 ≥75%（数据列表被压到自身最小高度壳），按钮文案翻面。
       const int mapBudget = split->sizes().at(0);
       maxBtn->setChecked(true);
       QTest::qWait(20);
-      QVERIFY(split->sizes().at(1) >= total * 4 / 5 - 2);
       QVERIFY(split->sizes().at(0) < mapBudget);
-      QVERIFY(split->sizes().at(0) <=
-              qMax(70, split->widget(0)->minimumSizeHint().height()));
+      QVERIFY(split->sizes().at(0) <= qMax(160, split->widget(0)->minimumSizeHint().height()));
+      QVERIFY(split->sizes().at(1) >= total - split->widget(0)->minimumSizeHint().height() - 2);
       QCOMPARE(maxBtn->text(), QStringLiteral("还原预览"));
 
       // 还原：预览回到 ~60%（还原的是最大化前的预算尺寸）。
@@ -641,22 +644,24 @@ class TestUiShell : public QObject
                              m_ctx->taskSvc());
       auto *tb = m_win->findChild<QWidget *>(QStringLiteral("editingToolbar"));
       QVERIFY(tb);
-      // 归属 ribbon 体：不再有 dock 包装——编辑条是中央列里的一行，
-      // 在 ribbonActionRow 之下、centerStack 之上。
+      // 归属 ribbon 体：不再有 dock 包装——编辑条动作挂在编图链三页的 ribbon 面板中。
       QVERIFY(!m_win->findChild<QDockWidget *>(QStringLiteral("editToolbarDock")));
-      QVERIFY(tb->parentWidget() == m_win->centralWidget());
+      QVERIFY(tb->parentWidget() == m_win);
 
-      // isHidden() 惯例同预览用例：offscreen 窗口未 show 时 isVisible 不可用。
+      // 编辑命令组只在编图链三页（predict / constraint / compose）的 ribbon 页签中；
+      // 数据管理页与验证页无此面板。
       for (const QString &p : {QStringLiteral("data"), QStringLiteral("validate")})
       {
-        m_win->showPage(p);
-        QVERIFY2(tb->isHidden(), qPrintable(p));
+        SARibbonCategory *cat = m_win->categoryForPage(p);
+        QVERIFY(cat);
+        QVERIFY(!cat->findChild<SARibbonPanel *>(QStringLiteral("ribbonEditPanel")));
       }
       for (const QString &p : {QStringLiteral("predict"), QStringLiteral("constraint"),
                                QStringLiteral("compose")})
       {
-        m_win->showPage(p);
-        QVERIFY2(!tb->isHidden(), qPrintable(p));
+        SARibbonCategory *cat = m_win->categoryForPage(p);
+        QVERIFY(cat);
+        QVERIFY(cat->findChild<SARibbonPanel *>(QStringLiteral("ribbonEditPanel")));
       }
 
       // 活动工具随页停用：借原生 QgsMapToolPan 当活动工具，落数据页后
@@ -669,33 +674,29 @@ class TestUiShell : public QObject
       delete pan;
     }
 
-    // 数据页是列表面（用户裁决）：中央区画布整格藏掉，预览/表格吃满；
-    // 编图链页画布恢复。预览分栏显隐沿用旧约（预览只在数据页）。
+    // 数据页是列表面（用户裁决）：中央工作区切到数据面（数据列表 + 预览），
+    // 编图链四页切到画布面（层位 chips + 画布）。预览分栏显隐沿用旧约（预览只在数据页）。
     void dataPageHidesCanvasForLists()
     {
-      auto *split = m_win->findChild<QSplitter *>(QStringLiteral("mapPreviewSplit"));
+      auto *split = m_win->findChild<QSplitter *>(QStringLiteral("dataListPreviewSplit"));
       auto *preview = m_win->findChild<DataPreviewTabs *>(QStringLiteral("dataPreview"));
-      QVERIFY(split && preview);
-      // 画布可能被先前用例借走：此时分栏只有预览一格，上格断言不适用。
-      QWidget *mapW = (split->count() > 1) ? split->widget(0) : nullptr;
-      QVERIFY2(!mapW || mapW != preview, "preview unexpectedly in top slot");
+      auto *workspaceStack = m_win->findChild<QStackedWidget *>(QStringLiteral("workspaceStack"));
+      QVERIFY(split && preview && workspaceStack);
 
       m_win->showPage(QStringLiteral("data"));
-      if (mapW)
-        QVERIFY(mapW->isHidden()); // 列表面：画布格藏掉
+      QCOMPARE(workspaceStack->currentIndex(), 1);
       QVERIFY(!preview->isHidden());
 
       for (const QString &p : {QStringLiteral("predict"), QStringLiteral("constraint"),
                                QStringLiteral("compose"), QStringLiteral("validate")})
       {
         m_win->showPage(p);
-        if (mapW)
-          QVERIFY2(!mapW->isHidden(), qPrintable(p));
+        QCOMPARE(workspaceStack->currentIndex(), 0);
         QVERIFY2(preview->isHidden(), qPrintable(p));
       }
       m_win->showPage(QStringLiteral("data"));
-      if (mapW)
-        QVERIFY(mapW->isHidden());
+      QCOMPARE(workspaceStack->currentIndex(), 1);
+      QVERIFY(!preview->isHidden());
     }
 
     // 面板管理（右键 dock 标题栏 = 顶栏「面板」钮）：createPopupMenu
@@ -718,7 +719,9 @@ class TestUiShell : public QObject
       QStringList texts;
       for (QAction *a : menu->actions())
         texts << a->text();
-      for (const QString &t : {QStringLiteral("图层"), QStringLiteral("页面面板"),
+      auto *rightDock = m_win->findChild<QDockWidget *>(QStringLiteral("pagePanelDock"));
+      const QString rightDockTitle = rightDock ? rightDock->windowTitle() : QStringLiteral("页面面板");
+      for (const QString &t : {QStringLiteral("图层"), rightDockTitle,
                                QStringLiteral("日志 / 任务"), QStringLiteral("Web 服务")})
         QVERIFY2(texts.contains(t), qPrintable(t + " / got: " + texts.join(",")));
       // 每个非分隔符条目是 dock 的 toggleViewAction——可勾选
@@ -726,6 +729,49 @@ class TestUiShell : public QObject
       QVERIFY(std::all_of(acts.begin(), acts.end(),
                           [](QAction *a) { return a->isSeparator() || a->isCheckable(); }));
       delete menu;
+    }
+
+    // Ribbon 工作流五页与工作区视图联动：
+    // 1. 五个页签全部就位且文案对齐设计（数据管理 / 预测编图 / 单因素图 / 智能编图 / 验证）；
+    // 2. 数据管理页处于数据面（index 1：数据列表 + 数据预览）；
+    // 3. 预测/单因素/智能编图/验证页处于画布面（index 0：层位 chips + QgsMapCanvas）。
+    void ribbonWorkflowCategoriesAndWorkspaceSwitching()
+    {
+      const QStringList pages = {
+        QStringLiteral("data"), QStringLiteral("predict"), QStringLiteral("constraint"),
+        QStringLiteral("compose"), QStringLiteral("validate")
+      };
+      const QStringList expectedTitles = {
+        QStringLiteral("数据管理"), QStringLiteral("预测编图"), QStringLiteral("单因素图"),
+        QStringLiteral("智能编图"), QStringLiteral("验证")
+      };
+
+      for (int i = 0; i < pages.size(); ++i)
+      {
+        SARibbonCategory *cat = m_win->categoryForPage(pages.at(i));
+        QVERIFY2(cat != nullptr, qPrintable("Missing category for page: " + pages.at(i)));
+        QCOMPARE(cat->categoryName(), expectedTitles.at(i));
+      }
+      QVERIFY(m_win->categoryForPage(QStringLiteral("nonexistent")) == nullptr);
+
+      auto *workspaceStack = m_win->findChild<QStackedWidget *>(QStringLiteral("workspaceStack"));
+      QVERIFY(workspaceStack);
+
+      // 数据管理页：工作区展示列表与预览分栏（index 1）
+      m_win->showPage(QStringLiteral("data"));
+      QCOMPARE(workspaceStack->currentIndex(), 1);
+
+      // 预测编图、单因素图、智能编图、验证页：工作区展示 QGIS 画布与层位栏（index 0）
+      for (const QString &p : {QStringLiteral("predict"), QStringLiteral("constraint"),
+                               QStringLiteral("compose"), QStringLiteral("validate")})
+      {
+        m_win->showPage(p);
+        QCOMPARE(workspaceStack->currentIndex(), 0);
+      }
+
+      // 切回数据管理页再次验证幂等性
+      m_win->showPage(QStringLiteral("data"));
+      QCOMPARE(workspaceStack->currentIndex(), 1);
     }
 };
 

@@ -48,4 +48,12 @@ namespace PaleoTheme
   // 渲染回归稳定化（TODOS P1）：vendor 字体 + Fusion + 浅色 palette 钉死，
   // 消除跨平台字体替换/平台样式差异带来的截图噪点。测试 initTestCase 调用。
   void pinRenderEnvironment();
+
+  // ---- ribbon（SARibbon office2021 模板）----
+  // 模板 {{token}} → DESIGN.md 色值的调色板 JSON。全部写在 keyColors，不留
+  // derived 规则（派生色会盖过同名键色，结果不再等于 token）。
+  QByteArray ribbonPaletteJson();
+  // 模板管不到的细节：hover/checked 态、运行类动作主色字（DESIGN.md
+  // ribbon-button.primaryText）、组名 8pt、右侧按钮组与编辑图层下拉。
+  QString ribbonStyleSheet();
 } // namespace PaleoTheme

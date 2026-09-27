@@ -454,14 +454,14 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   maxBtn->setCheckable(true);
   maxBtn->setText(tr("最大化预览"));
   maxBtn->setAccessibleName(tr("最大化预览"));
-  maxBtn->setToolTip(tr("预览占满地图区"));
+  maxBtn->setToolTip(tr("预览占满数据面（列表留一行）"));
   // QGIS 主题没有最大化/还原语义——PaleoIcons 自绘，随勾选态切换。
   maxBtn->setIcon(PaleoIcons::maximize());
   maxBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   connect(maxBtn, &QToolButton::toggled, this, [this, maxBtn](bool on) {
     maxBtn->setText(on ? tr("还原预览") : tr("最大化预览"));
     maxBtn->setIcon(on ? PaleoIcons::restore() : PaleoIcons::maximize());
-    maxBtn->setToolTip(on ? tr("恢复地图/预览分栏") : tr("预览占满地图区"));
+    maxBtn->setToolTip(on ? tr("恢复列表/预览分栏") : tr("预览占满数据面（列表留一行）"));
     emit previewMaximizeToggled(on);
   });
   m_tabs->setCornerWidget(maxBtn, Qt::TopRightCorner);

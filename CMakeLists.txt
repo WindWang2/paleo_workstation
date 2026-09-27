@@ -105,6 +105,9 @@ add_library(paleo_core STATIC
   src/ui/pages/composepage.cpp
   src/qgis/qgislayerprofile.cpp                  # m1 缺席兜底：页面图层档案
   src/services/singlefactordef.cpp               # m2：单因素定义注册表
+  src/qgis/factorstylewriter.cpp                 # m2(B)：单因素色带 .qml 落盘
+  src/qgis/factorcontour.cpp                     # m2(B)：等值线 GDAL C API（gdal:contour 降级）
+  src/ui/typedconstraintdrawcontroller.cpp       # m2(B)：物源线/展布线/控制点类型化捕获
   src/ui/locator/paleolocatorfilters.cpp
   src/ui/layoutdesignershell.cpp
   src/ui/maptools/paleomaptools.cpp
@@ -211,6 +214,7 @@ add_paleo_test(tst_workflows)
 add_paleo_test(tst_ui)
 add_paleo_test(tst_panels)
 add_paleo_test(tst_mappingpages)
+add_paleo_test(tst_factorworkflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
 add_paleo_test(tst_perf)
 add_paleo_test(tst_locator)
 add_paleo_test(tst_layoutshell)

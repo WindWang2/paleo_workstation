@@ -32,6 +32,7 @@
 #include "attributetablepanel.h"
 #include "pages/pagepanels.h"
 #include "constraintdrawcontroller.h"
+#include "typedconstraintdrawcontroller.h" // ---- m2(B)：物源线/展布线/控制点（块内接线用）----
 #include "correlationpanel.h"
 #include "datapreview/datapreviewtabs.h"
 #include "../catalog/datacatalog.h"
@@ -2109,6 +2110,105 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
               if (!constraint->runConstraintIDW(horizon, pointsId, field, cellSize, &err))
                 fail(err.isEmpty() ? tr("约束插值失败") : err);
             });
+
+    // ---- m2(B): 单因素图页（deliverable 2）接线——三入口的类型化捕获。----
+    // 状态列刷新：页面监听 layerDeclared/factorGenerated（含重开工程重读）。
+    if (m_layerSvc)
+      constraintPage->bindLayerService(m_layerSvc);
+    // 生成链：generateFactorRequested(factorId, horizon, params) →
+    // ConstraintWorkflow::generateFactor（井点解析在 workflow 侧）。
+    connect(constraintPage, &ConstraintPage::generateFactorRequested, this,
+            [this, constraint, constraintPage](const QString &factorId, const QString &horizon,
+                                               const QVariantMap &params) {
+              auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
+              QString err;
+              if (!constraint->generateFactor(horizon, factorId, params, &err))
+              {
+                const QString msg = err.isEmpty() ? tr("单因素生成失败") : err;
+                if (status)
+                  status->setText(msg);
+                QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+              }
+            });
+    // 等值线（§12 GIS LineString）：horizon 从 factor layerId 前缀取（"factor.<h>.<fid>"）。
+    connect(constraintPage, &ConstraintPage::contourRequested, this,
+            [this, constraint, constraintPage](const QString &factorLayerId, double interval) {
+              const QString horizon = factorLayerId.startsWith(QStringLiteral("factor."))
+                                         ? factorLayerId.mid(QStringLiteral("factor.").size())
+                                              .section(QLatin1Char('.'), 0, 0)
+                                         : QString();
+              auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
+              QString err;
+              if (!constraint->generateContours(horizon, factorLayerId, interval, &err))
+              {
+                const QString msg = err.isEmpty() ? tr("等值线生成失败") : err;
+                if (status)
+                  status->setText(msg);
+                QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+              }
+            });
+    // 互斥上图：visible=true → instantiate + 图层树勾选该层，04_SingleFactor 组
+    // 其它已实例化层取消勾选；false 只取消该层（业务上同时只看一张单因素图）。
+    connect(constraintPage, &ConstraintPage::factorVisibilityRequested, this,
+            [this](const QString &layerId, bool visible) {
+              if (!m_layerSvc || layerId.isEmpty())
+                return;
+              QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr;
+              if (!proj)
+                return;
+              const auto setNodeChecked = [this, proj](const QString &id, bool checked) {
+                QgsMapLayer *layer = m_layerSvc->layer(id); // 只拨已实例化层
+                if (!layer)
+                  return;
+                if (QgsLayerTreeLayer *node = proj->layerTreeRoot()->findLayer(layer->id()))
+                  node->setItemVisibilityChecked(checked);
+              };
+              if (visible)
+              {
+                QString err;
+                QgsMapLayer *layer = m_layerSvc->instantiate(layerId, &err);
+                if (!layer)
+                {
+                  QgsMessageLog::logMessage(
+                      tr("单因素上图失败：%1").arg(err.isEmpty() ? layerId : err),
+                      QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+                  return;
+                }
+                // 组内互斥：04_SingleFactor（含 Contours 子组，按前缀）先全下。
+                QVector<LayerDeclaration> decls;
+                if (m_layerSvc->tryDeclared(&decls))
+                {
+                  for (const LayerDeclaration &d : decls)
+                  {
+                    if (d.layerId == layerId)
+                      continue;
+                    if (d.group == QLatin1String("04_SingleFactor") ||
+                        d.group.startsWith(QLatin1String("04_SingleFactor/")))
+                      setNodeChecked(d.layerId, false);
+                  }
+                }
+                setNodeChecked(layerId, true);
+              }
+              else
+              {
+                setNodeChecked(layerId, false);
+              }
+            });
+    // 三入口（物源线/展布线/控制点）：类型化捕获工具（type 列落地质类型词表）。
+    if (m_canvasCtl)
+    {
+      auto *typedCtl = new TypedConstraintDrawController(m_canvasCtl, constraint, this);
+      connect(constraintPage, &ConstraintPage::drawTypedConstraintRequested, typedCtl,
+              [typedCtl](const QString &horizon, const QString &shape,
+                         const QString &constraintType, int faciesCode) {
+                typedCtl->startCapture(horizon, shape, constraintType, faciesCode);
+              });
+      connect(typedCtl, &TypedConstraintDrawController::captureFailed, this,
+              [](const QString &err) {
+                QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+              });
+    }
+    // ---- m2(B) end ----
   }
   if (compose && composePage)
   {

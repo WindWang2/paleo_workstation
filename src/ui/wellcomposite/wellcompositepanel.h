@@ -40,6 +40,9 @@ public:
   // 获取当前装配的综合数据
   ComprehensiveWellData currentData() const { return m_data; }
 
+  // 打开曲线道组合/解散管理对话框
+  void openCurveConfigDialog();
+
 signals:
   void wellLoaded(const QString &wellName);
 
@@ -56,6 +59,7 @@ private:
   QLabel *m_lblZoom = nullptr;
   QToolButton *m_btnZoomIn = nullptr;
   QToolButton *m_btnResetZoom = nullptr;
+  QToolButton *m_btnConfigCurves = nullptr;
   QLabel *m_lblStatus = nullptr;
 
   WellCompositeCanvas *m_canvas = nullptr;

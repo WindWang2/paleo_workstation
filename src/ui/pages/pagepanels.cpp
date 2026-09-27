@@ -367,7 +367,9 @@ DataPage::DataPage(QWidget *parent)
   const struct { const char *name; const char *text; const char *kind; const char *desc; }
       kImports[] = {
     {"importWells", QT_TR_NOOP("导入井数据"), "wells",
-     QT_TR_NOOP("选择单个井位/测井/分层文件入库")},
+     QT_TR_NOOP("选择单个井位/分层文件入库")},
+    {"importWellLogs", QT_TR_NOOP("导入测井数据"), "well_log",
+     QT_TR_NOOP("选择 LAS 测井曲线或 XML/Excel 综合柱状图入库")},
     {"importSeismic", QT_TR_NOOP("导入地震数据"), "seismic",
      QT_TR_NOOP("选择 SEG-Y 等地震数据文件入库")},
     {"importBoundary", QT_TR_NOOP("导入边界数据"), "boundary",
@@ -505,7 +507,9 @@ DataPage::DataPage(QWidget *parent)
   m_tree->header()->setMinimumSectionSize(20);
   m_tree->setHeaderLabels({tr("数据导航"), tr("类型 / 描述")});
   m_tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-  m_tree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+  m_tree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+  m_tree->setColumnWidth(1, 160);
+  m_tree->header()->setStretchLastSection(false);
   m_tree->setAnimated(true);
   m_tree->setAlternatingRowColors(true);
   m_tree->setStyleSheet(QStringLiteral(
@@ -1123,7 +1127,18 @@ void DataPage::refreshAssetTable()
     typeFilter->clear();
     typeFilter->addItem(tr("所有类型"), QString());
     for (const QString &t : types)
-      typeFilter->addItem(t, t);
+    {
+      QString label = t;
+      if (t == QLatin1String("well_log")) label = tr("测井曲线 (well_log)");
+      else if (t == QLatin1String("well_head")) label = tr("井位/井身 (well_head)");
+      else if (t == QLatin1String("tops")) label = tr("井分层 (tops)");
+      else if (t == QLatin1String("time_depth")) label = tr("时深关系 (time_depth)");
+      else if (t == QLatin1String("seismic")) label = tr("地震数据 (seismic)");
+      else if (t == QLatin1String("horizon")) label = tr("层位解释 (horizon)");
+      else if (t == QLatin1String("boundary")) label = tr("边界/相图 (boundary)");
+      else if (t == QLatin1String("auxiliary") || t == QLatin1String("reference")) label = tr("辅助/综合图 (auxiliary)");
+      typeFilter->addItem(label, t);
+    }
     typeFilter->setCurrentIndex(qMax(0, typeFilter->findData(keep)));
   }
   refreshAssetTree();
@@ -1172,7 +1187,7 @@ void DataPage::refreshAssetTree()
   wellRoot->setText(1, tr("井位 / 测井曲线 / 分层 / 时深"));
   wellRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
   wellRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPointLayer.svg")));
-  wellRoot->setExpanded(true);
+  wellRoot->setExpanded(false);
 
   for (const CatalogEntity &w : wells)
   {
@@ -1248,7 +1263,105 @@ void DataPage::refreshAssetTree()
     }
   }
 
-  // 2. 地震 (Seismic)
+  // 2. 测井 (Well Logs: 综合柱状图 + 测井曲线)
+  QList<CatalogAsset> logAssets;
+  QList<CatalogAsset> compositeAssets;
+  for (const CatalogAsset &a : cat->assets())
+  {
+    if (a.type == QLatin1String("well_log") || a.displayName.endsWith(QLatin1String(".las"), Qt::CaseInsensitive))
+    {
+      logAssets.append(a);
+    }
+    else if (a.displayName.contains(QStringLiteral("柱状图")) ||
+             (a.displayName.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive) && a.displayName.contains(QStringLiteral("综合"))))
+    {
+      compositeAssets.append(a);
+    }
+  }
+
+  std::sort(logAssets.begin(), logAssets.end(), [](const CatalogAsset &a, const CatalogAsset &b) {
+    return naturalNameSort(a.displayName, b.displayName);
+  });
+  std::sort(compositeAssets.begin(), compositeAssets.end(), [](const CatalogAsset &a, const CatalogAsset &b) {
+    return naturalNameSort(a.displayName, b.displayName);
+  });
+
+  const int totalLogs = logAssets.size() + compositeAssets.size();
+  auto *logRoot = new QTreeWidgetItem(m_tree);
+  logRoot->setText(0, tr("测井 (%1)").arg(totalLogs));
+  logRoot->setText(1, tr("综合柱状图 / 测井曲线 (LAS)"));
+  logRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+  logRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconLineLayer.svg")));
+  logRoot->setExpanded(true);
+
+  if (!compositeAssets.isEmpty())
+  {
+    auto *compBranch = new QTreeWidgetItem(logRoot);
+    compBranch->setText(0, tr("综合柱状图 (%1)").arg(compositeAssets.size()));
+    compBranch->setText(1, tr("多井道地质综合柱状图 (ResFormStar 规范)"));
+    compBranch->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+    compBranch->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconLineLayer.svg")));
+    compBranch->setExpanded(true);
+
+    for (const CatalogAsset &a : compositeAssets)
+    {
+      auto *it = new QTreeWidgetItem(compBranch);
+      it->setText(0, a.displayName);
+      it->setText(1, tr("8类井道 · 19根曲线 · 地层/岩性/取芯/符号"));
+      it->setData(0, Qt::UserRole, a.id);
+      it->setData(0, Qt::UserRole + 2, QStringLiteral("composite_log"));
+      it->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconLineLayer.svg")));
+    }
+  }
+
+  if (!logAssets.isEmpty())
+  {
+    auto *curveBranch = new QTreeWidgetItem(logRoot);
+    curveBranch->setText(0, tr("测井曲线 (%1)").arg(logAssets.size()));
+    curveBranch->setText(1, tr("LAS 连续测井曲线数据"));
+    curveBranch->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+    curveBranch->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconLineLayer.svg")));
+    curveBranch->setExpanded(true);
+
+    for (const CatalogAsset &a : logAssets)
+    {
+      auto *it = new QTreeWidgetItem(curveBranch);
+      QString linkedWellName;
+      QString linkedWellId;
+      for (const auto &w : wells)
+      {
+        const auto links = cat->linksForEntity(w.id);
+        for (const auto &lk : links)
+        {
+          if (lk.assetId == a.id)
+          {
+            linkedWellName = w.name;
+            linkedWellId = w.id;
+            break;
+          }
+        }
+        if (!linkedWellName.isEmpty())
+          break;
+      }
+
+      if (!linkedWellName.isEmpty())
+      {
+        it->setText(0, QStringLiteral("%1 · 井 %2").arg(a.displayName, linkedWellName));
+        it->setData(0, Qt::UserRole + 1, linkedWellId);
+      }
+      else
+      {
+        it->setText(0, a.displayName);
+      }
+
+      it->setText(1, tr("测井曲线 (GR/AC/DEN/电阻率等)"));
+      it->setData(0, Qt::UserRole, a.id);
+      it->setData(0, Qt::UserRole + 2, QStringLiteral("well_log"));
+      it->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconLineLayer.svg")));
+    }
+  }
+
+  // 3. 地震 (Seismic)
   QList<CatalogAsset> seisAssets;
   for (const CatalogAsset &a : cat->assets())
     if (a.type == QLatin1String("seismic"))
@@ -1302,7 +1415,7 @@ void DataPage::refreshAssetTree()
     }
   }
 
-  // 3. 层位 (Horizons)
+  // 4. 层位 (Horizons)
   QList<CatalogAsset> horAssets;
   for (const CatalogAsset &a : cat->assets())
     if (a.type == QLatin1String("horizon"))
@@ -1330,10 +1443,14 @@ void DataPage::refreshAssetTree()
       hItem->setText(1, tr("层位网格"));
   }
 
-  // 4. 辅助资料 (Auxiliary)
+  // 5. 辅助资料 (Auxiliary)
   QList<CatalogAsset> auxAssets;
   for (const CatalogAsset &a : cat->assets())
   {
+    if (a.displayName.contains(QStringLiteral("柱状图")) ||
+        (a.displayName.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive) && a.displayName.contains(QStringLiteral("综合"))))
+      continue;
+
     if (a.type == QLatin1String("boundary") || a.type == QLatin1String("auxiliary") ||
         a.type == QLatin1String("document") || a.type == QLatin1String("reference") ||
         a.displayName.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive))
@@ -1469,9 +1586,14 @@ void DataPage::applyListFilter()
         catItem->setExpanded(true);
       else if (!filtering)
       {
-        catItem->setExpanded(true);
+        const bool isWellCategory = catItem->text(0).startsWith(tr("井 ("));
+        catItem->setExpanded(!isWellCategory);
         for (int j = 0; j < catItem->childCount(); ++j)
-          catItem->child(j)->setExpanded(false);
+        {
+          auto *child = catItem->child(j);
+          const bool expandChild = child->text(0).contains(QStringLiteral("综合柱状图"));
+          child->setExpanded(expandChild);
+        }
       }
     }
   }

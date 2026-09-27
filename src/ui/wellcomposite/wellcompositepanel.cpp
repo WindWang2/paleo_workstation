@@ -1,6 +1,7 @@
 #include "wellcompositepanel.h"
-
+#include "curveconfigdialog.h"
 #include <QHBoxLayout>
+#include <QLineEdit>
 #include <QVBoxLayout>
 
 namespace WellComposite
@@ -34,13 +35,14 @@ void WellCompositePanel::setupUi()
       "QLabel { background: #E8F0FE; color: #1B73D0; font-weight: bold; border-radius: 4px; padding: 2px 8px; font-size: 9pt; }"));
   topLay->addWidget(m_lblWellName);
 
-  // 比例尺选择
+  // 比例尺选择（可编辑，且随着放大/缩小联动动态更新）
   auto *lblScaleTitle = new QLabel(tr("比例尺:"), topBar);
   lblScaleTitle->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8pt;"));
   topLay->addWidget(lblScaleTitle);
 
   m_scaleCombo = new QComboBox(topBar);
   m_scaleCombo->setObjectName(QStringLiteral("scaleCombo"));
+  m_scaleCombo->setEditable(true);
   m_scaleCombo->addItems({QStringLiteral("1:200"), QStringLiteral("1:500"),
                           QStringLiteral("1:1000"), QStringLiteral("1:2000"), tr("自适应")});
   m_scaleCombo->setCurrentText(QStringLiteral("1:500"));
@@ -67,10 +69,10 @@ void WellCompositePanel::setupUi()
   m_btnZoomOut->setStyleSheet(btnStyle);
   topLay->addWidget(m_btnZoomOut);
 
-  m_lblZoom = new QLabel(QStringLiteral("100% 比例"), topBar);
+  m_lblZoom = new QLabel(QStringLiteral("100% (1:500)"), topBar);
   m_lblZoom->setObjectName(QStringLiteral("lblCompZoomFactor"));
   m_lblZoom->setStyleSheet(QStringLiteral(
-      "QLabel { color: #24303E; font-size: 8pt; min-width: 40px; }"));
+      "QLabel { color: #24303E; font-size: 8pt; min-width: 65px; }"));
   m_lblZoom->setAlignment(Qt::AlignCenter);
   topLay->addWidget(m_lblZoom);
 
@@ -87,6 +89,14 @@ void WellCompositePanel::setupUi()
   m_btnResetZoom->setToolTip(tr("双击道内任意位置或点击此键恢复全井段"));
   m_btnResetZoom->setStyleSheet(btnStyle);
   topLay->addWidget(m_btnResetZoom);
+
+  // 曲线道组合/解散管理按钮
+  m_btnConfigCurves = new QToolButton(topBar);
+  m_btnConfigCurves->setObjectName(QStringLiteral("btnConfigCurves"));
+  m_btnConfigCurves->setText(tr("曲线道配置"));
+  m_btnConfigCurves->setToolTip(tr("打开曲线组合管理窗口：支持多曲线合并显示(1-4根)与解散为独立单道"));
+  m_btnConfigCurves->setStyleSheet(btnStyle);
+  topLay->addWidget(m_btnConfigCurves);
 
   topLay->addStretch(1);
 
@@ -107,22 +117,33 @@ void WellCompositePanel::setupUi()
   connect(m_btnZoomIn, &QToolButton::clicked, m_canvas, &WellCompositeCanvas::zoomIn);
   connect(m_btnZoomOut, &QToolButton::clicked, m_canvas, &WellCompositeCanvas::zoomOut);
   connect(m_btnResetZoom, &QToolButton::clicked, m_canvas, &WellCompositeCanvas::resetZoom);
+  connect(m_btnConfigCurves, &QToolButton::clicked, this, &WellCompositePanel::openCurveConfigDialog);
 
   connect(m_canvas, &WellCompositeCanvas::zoomChanged, this, [this](double z) {
-    m_lblZoom->setText(QStringLiteral("%1% 比例").arg(qRound(z * 100)));
+    m_lblZoom->setText(QStringLiteral("%1% (%2)").arg(qRound(z * 100)).arg(m_canvas->scaleRatio()));
   });
 
   connect(m_scaleCombo, &QComboBox::currentTextChanged, this, [this](const QString &scaleText) {
     m_canvas->setScaleRatio(scaleText);
   });
 
+  if (m_scaleCombo->lineEdit())
+  {
+    connect(m_scaleCombo->lineEdit(), &QLineEdit::editingFinished, this, [this]() {
+      m_canvas->setScaleRatio(m_scaleCombo->currentText());
+    });
+  }
+
   connect(m_canvas, &WellCompositeCanvas::scaleRatioChanged, this, [this](const QString &ratio) {
     if (m_scaleCombo->currentText() != ratio)
     {
       m_scaleCombo->blockSignals(true);
-      m_scaleCombo->setCurrentText(ratio);
+      m_scaleCombo->setEditText(ratio);
       m_scaleCombo->blockSignals(false);
     }
+    m_lblZoom->setText(QStringLiteral("%1% (%2)")
+                           .arg(qRound(m_canvas->zoomFactor() * 100))
+                           .arg(ratio));
   });
 
   connect(m_canvas, &WellCompositeCanvas::depthHovered, this, [this](double d) {
@@ -140,6 +161,12 @@ void WellCompositePanel::setupUi()
                                .arg(QString::number(m_canvas->maxDepth(), 'f', 1)));
     }
   });
+}
+
+void WellCompositePanel::openCurveConfigDialog()
+{
+  CurveConfigDialog dlg(m_canvas, this);
+  dlg.exec();
 }
 
 void WellCompositePanel::setWellName(const QString &name)

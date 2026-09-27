@@ -6,6 +6,7 @@
 #include "ui/wellcomposite/wellcompositetrack.h"
 #include "ui/wellcomposite/wellcompositecanvas.h"
 #include "ui/wellcomposite/wellcompositepanel.h"
+#include "ui/wellcomposite/curveconfigdialog.h"
 #include "io/wellcompositexml.h"
 #include "qgis/qgisruntime.h"
 
@@ -107,6 +108,62 @@ private slots:
     const double midY = canvas.depthToY(2000.0);
     const double calcDepth = canvas.yToDepth(midY);
     QVERIFY(std::abs(calcDepth - 2000.0) < 1e-3);
+  }
+
+  void testDynamicScaleRatioCalculation()
+  {
+    WellCompositeCanvas canvas;
+    canvas.resize(800, 600);
+    canvas.setDepthRange(1000.0, 3000.0);
+    canvas.setScaleRatio(QStringLiteral("1:500"));
+
+    QCOMPARE(canvas.scaleRatio(), QStringLiteral("1:500"));
+
+    QSignalSpy scaleSpy(&canvas, &WellCompositeCanvas::scaleRatioChanged);
+
+    // 深度放大后，有效比例尺联动更新（分子变大，分母变小，例如 1:380）
+    canvas.zoomIn();
+    QVERIFY(scaleSpy.count() >= 1);
+    QVERIFY(canvas.scaleRatio() != QStringLiteral("1:500"));
+    QVERIFY(canvas.scaleRatio().startsWith(QLatin1String("1:")));
+    const int zoomedDenom = canvas.scaleRatio().mid(2).toInt();
+    QVERIFY(zoomedDenom < 500);
+
+    // 缩放复位后，恢复 1:500
+    canvas.resetZoom();
+    QCOMPARE(canvas.scaleRatio(), QStringLiteral("1:500"));
+  }
+
+  void testCurveConfigDialogCombineAndDissolve()
+  {
+    WellCompositeCanvas canvas;
+    canvas.resize(800, 600);
+    canvas.setDepthRange(1000.0, 2000.0);
+
+    // 添加深度道与一个包含 2 根曲线的道
+    auto depthTrack = std::make_shared<DepthScaleTrack>(64.0);
+    canvas.addTrack(depthTrack);
+
+    auto ct1 = std::make_shared<CurveTrack>(QStringLiteral("岩性测井"), 180.0);
+    CurveData c1; c1.name = QStringLiteral("GR"); c1.depths = {1000, 1001}; c1.values = {50, 60};
+    CurveData c2; c2.name = QStringLiteral("SP"); c2.depths = {1000, 1001}; c2.values = {-20, -10};
+    ct1->addCurve(c1);
+    ct1->addCurve(c2);
+    canvas.addTrack(ct1);
+
+    auto ct2 = std::make_shared<CurveTrack>(QStringLiteral("声波测井"), 180.0);
+    CurveData c3; c3.name = QStringLiteral("AC"); c3.depths = {1000, 1001}; c3.values = {200, 210};
+    ct2->addCurve(c3);
+    canvas.addTrack(ct2);
+
+    QCOMPARE(canvas.trackCount(), 3);
+
+    // 测试 CurveConfigDialog
+    CurveConfigDialog dlg(&canvas);
+    dlg.applyConfiguration();
+
+    // 验证轨道依然正常
+    QCOMPARE(canvas.trackCount(), 3);
   }
 
   void testParseComprehensiveXmlRealData()

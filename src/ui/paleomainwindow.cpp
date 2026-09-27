@@ -893,6 +893,7 @@ void PaleoMainWindow::applyPreviewSplit()
   const auto *inner =
       m_previewTabs->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
   const int tabs = inner ? inner->count() : m_previewTabs->tabCount();
+
   if (tabs > 0)
   {
     // D7 最大化态：数据列表只留 64px 壳（splitter 会按列表最小尺寸兜底），
@@ -928,6 +929,7 @@ void PaleoMainWindow::applyPreviewSplit()
   if (auto *maxBtn =
           m_previewTabs->findChild<QToolButton *>(QStringLiteral("previewMaxButton")))
     maxBtn->setChecked(false);
+
   if (isHoriz)
   {
     const int leftSize = qMin(380, qMax(260, total * 2 / 5));
@@ -935,7 +937,6 @@ void PaleoMainWindow::applyPreviewSplit()
   }
   else
   {
-    // 垂直模式空态只留「预览为空」那行次级文字的高度（≈28px），不再给 1/3。
     const int hint = qMax(24, m_previewTabs->sizeHint().height());
     m_centerSplit->setSizes({qMax(0, total - hint), hint});
   }
@@ -1938,11 +1939,13 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 runFolderImport(importSvc);
                 return;
               }
+              const QString filter = (kind == QLatin1String("seismic"))
+                                         ? tr("地震数据文件 (*.sgy *.segy);;All files (*)")
+                                         : ((kind == QLatin1String("well_log"))
+                                                ? tr("测井与柱状图文件 (*.las *.xml *.txt *.csv);;All files (*)")
+                                                : tr("数据文件 (*.las *.xml *.csv *.dat *.gpkg *.shp *.tif *.img);;All files (*)"));
               const QString path = QFileDialog::getOpenFileName(
-                  this, tr("Import %1").arg(kind), QString(),
-                  kind == QLatin1String("seismic")
-                      ? tr("Seismic/vector files (*.sgy *.segy *.las *.csv *.gpkg *.shp);;All files (*)")
-                      : tr("Vector/log files (*.las *.csv *.gpkg *.shp *.tif *.img);;All files (*)"));
+                  this, tr("导入 %1").arg(kind), QString(), filter);
               if (path.isEmpty())
                 return;
               // T22：单文件导入同样展示 CRS 契约句（确认一步，含识别类型）。
@@ -2648,6 +2651,8 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
                       "ribbonImportFolder"));
     small(p, mirrored(data, "importWells", tr("导入井数据"), icon("mIconPointLayer.svg"),
                       "ribbonImportWells"));
+    small(p, mirrored(data, "importWellLogs", tr("导入测井数据"), icon("mIconLineLayer.svg"),
+                      "ribbonImportWellLogs"));
     small(p, mirrored(data, "importSeismic", tr("导入地震数据"), icon("mIconRasterLayer.svg"),
                       "ribbonImportSeismic"));
     small(p, mirrored(data, "importBoundary", tr("导入边界数据"), icon("mIconPolygonLayer.svg"),

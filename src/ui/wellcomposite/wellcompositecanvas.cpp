@@ -82,6 +82,21 @@ void WellCompositeCanvas::clearTracks()
   updateAll();
 }
 
+void WellCompositeCanvas::setTracks(const QList<std::shared_ptr<WellTrack>> &tracks)
+{
+  m_tracks = tracks;
+  for (auto &t : m_tracks)
+  {
+    if (t && t->type() == TrackType::DepthScale)
+    {
+      auto dst = std::dynamic_pointer_cast<DepthScaleTrack>(t);
+      if (dst) dst->setScaleRatio(m_scaleRatio);
+    }
+  }
+  syncScrollBars();
+  updateAll();
+}
+
 void WellCompositeCanvas::setDepthRange(double minDepth, double maxDepth)
 {
   if (maxDepth <= minDepth)
@@ -134,6 +149,19 @@ qreal WellCompositeCanvas::totalTracksWidth() const
   return w;
 }
 
+QString WellCompositeCanvas::calculateScaleRatioString() const
+{
+  const double ppm = pxPerMeter();
+  if (ppm <= 1e-4) return QStringLiteral("1:5000");
+  int denom = qRound(3779.528 / ppm);
+  if (denom < 10) denom = 10;
+  else if (denom < 50) denom = (denom + 2) / 5 * 5;
+  else if (denom < 200) denom = (denom + 5) / 10 * 10;
+  else if (denom < 1000) denom = (denom + 12) / 25 * 25;
+  else denom = (denom + 25) / 50 * 50;
+  return QStringLiteral("1:%1").arg(denom);
+}
+
 void WellCompositeCanvas::setZoomFactor(double factor, double anchorDepth)
 {
   const double oldFactor = m_zoomFactor;
@@ -149,8 +177,19 @@ void WellCompositeCanvas::setZoomFactor(double factor, double anchorDepth)
     m_scrollDepth = anchorDepth - anchorY / pxPerMeter();
   }
 
+  m_scaleRatio = calculateScaleRatioString();
+  for (auto &t : m_tracks)
+  {
+    if (t && t->type() == TrackType::DepthScale)
+    {
+      auto dst = std::dynamic_pointer_cast<DepthScaleTrack>(t);
+      if (dst) dst->setScaleRatio(m_scaleRatio);
+    }
+  }
+
   syncScrollBars();
   updateAll();
+  emit scaleRatioChanged(m_scaleRatio);
   emit zoomChanged(m_zoomFactor);
 }
 
@@ -171,63 +210,102 @@ void WellCompositeCanvas::resetZoom()
   const double bodyH = (m_body && m_body->height() > 50) ? m_body->height() : qMax(100.0, height() - m_headerHeight - 10.0);
   const double totalSpan = qMax(1.0, m_maxDepth - m_minDepth);
 
-  if (m_scaleRatio == tr("自适应") || m_scaleRatio == QStringLiteral("自适应"))
+  if (m_baseScaleRatio == tr("自适应") || m_baseScaleRatio == QStringLiteral("自适应"))
   {
     m_basePxPerMeter = bodyH / totalSpan;
+    m_zoomFactor = 1.0;
+    m_scaleRatio = calculateScaleRatioString();
   }
   else
   {
-    if (m_scaleRatio == QStringLiteral("1:200"))
-      m_basePxPerMeter = 18.9;
-    else if (m_scaleRatio == QStringLiteral("1:500"))
-      m_basePxPerMeter = 7.56;
-    else if (m_scaleRatio == QStringLiteral("1:1000"))
-      m_basePxPerMeter = 3.78;
-    else if (m_scaleRatio == QStringLiteral("1:2000"))
-      m_basePxPerMeter = 1.89;
+    if (m_baseScaleRatio == QStringLiteral("1:200"))
+      m_basePxPerMeter = 3779.528 / 200.0;
+    else if (m_baseScaleRatio == QStringLiteral("1:500"))
+      m_basePxPerMeter = 3779.528 / 500.0;
+    else if (m_baseScaleRatio == QStringLiteral("1:1000"))
+      m_basePxPerMeter = 3779.528 / 1000.0;
+    else if (m_baseScaleRatio == QStringLiteral("1:2000"))
+      m_basePxPerMeter = 3779.528 / 2000.0;
+    else if (m_baseScaleRatio.startsWith(QLatin1String("1:")))
+    {
+      bool ok = false;
+      int denom = m_baseScaleRatio.mid(2).toInt(&ok);
+      if (ok && denom > 0)
+        m_basePxPerMeter = 3779.528 / denom;
+      else
+        m_basePxPerMeter = 3779.528 / 500.0;
+    }
     else
-      m_basePxPerMeter = 7.56;
+      m_basePxPerMeter = 3779.528 / 500.0;
+
+    m_zoomFactor = 1.0;
+    m_scaleRatio = m_baseScaleRatio;
   }
 
-  m_zoomFactor = 1.0;
   m_scrollDepth = m_minDepth;
+  for (auto &t : m_tracks)
+  {
+    if (t && t->type() == TrackType::DepthScale)
+    {
+      auto dst = std::dynamic_pointer_cast<DepthScaleTrack>(t);
+      if (dst) dst->setScaleRatio(m_scaleRatio);
+    }
+  }
   syncScrollBars();
   updateAll();
+  emit scaleRatioChanged(m_scaleRatio);
   emit zoomChanged(m_zoomFactor);
 }
 
 void WellCompositeCanvas::setScaleRatio(const QString &ratioStr)
 {
-  m_scaleRatio = ratioStr;
+  m_baseScaleRatio = ratioStr;
   const double bodyH = (m_body && m_body->height() > 50) ? m_body->height() : qMax(100.0, height() - m_headerHeight - 10.0);
   const double totalSpan = qMax(1.0, m_maxDepth - m_minDepth);
 
-  if (ratioStr == QStringLiteral("1:200"))
-    m_basePxPerMeter = 18.9;
-  else if (ratioStr == QStringLiteral("1:500"))
-    m_basePxPerMeter = 7.56;
-  else if (ratioStr == QStringLiteral("1:1000"))
-    m_basePxPerMeter = 3.78;
-  else if (ratioStr == QStringLiteral("1:2000"))
-    m_basePxPerMeter = 1.89;
-  else if (ratioStr == tr("自适应") || ratioStr == QStringLiteral("自适应"))
+  if (ratioStr == tr("自适应") || ratioStr == QStringLiteral("自适应"))
+  {
     m_basePxPerMeter = bodyH / totalSpan;
+    m_zoomFactor = 1.0;
+    m_scaleRatio = calculateScaleRatioString();
+  }
   else
-    m_basePxPerMeter = 7.56;
+  {
+    if (ratioStr == QStringLiteral("1:200"))
+      m_basePxPerMeter = 3779.528 / 200.0;
+    else if (ratioStr == QStringLiteral("1:500"))
+      m_basePxPerMeter = 3779.528 / 500.0;
+    else if (ratioStr == QStringLiteral("1:1000"))
+      m_basePxPerMeter = 3779.528 / 1000.0;
+    else if (ratioStr == QStringLiteral("1:2000"))
+      m_basePxPerMeter = 3779.528 / 2000.0;
+    else if (ratioStr.startsWith(QLatin1String("1:")))
+    {
+      bool ok = false;
+      int denom = ratioStr.mid(2).toInt(&ok);
+      if (ok && denom > 0)
+        m_basePxPerMeter = 3779.528 / denom;
+      else
+        m_basePxPerMeter = 3779.528 / 500.0;
+    }
+    else
+      m_basePxPerMeter = 3779.528 / 500.0;
 
-  m_zoomFactor = 1.0;
+    m_zoomFactor = 1.0;
+    m_scaleRatio = ratioStr;
+  }
 
   for (auto &t : m_tracks)
   {
     if (t && t->type() == TrackType::DepthScale)
     {
       auto dst = std::dynamic_pointer_cast<DepthScaleTrack>(t);
-      if (dst) dst->setScaleRatio(ratioStr);
+      if (dst) dst->setScaleRatio(m_scaleRatio);
     }
   }
   syncScrollBars();
   updateAll();
-  emit scaleRatioChanged(ratioStr);
+  emit scaleRatioChanged(m_scaleRatio);
   emit zoomChanged(m_zoomFactor);
 }
 

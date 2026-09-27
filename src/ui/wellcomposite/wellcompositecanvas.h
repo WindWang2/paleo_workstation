@@ -38,6 +38,7 @@ public:
   void insertTrack(int index, const std::shared_ptr<WellTrack> &track);
   void removeTrack(int index);
   void clearTracks();
+  void setTracks(const QList<std::shared_ptr<WellTrack>> &tracks);
   QList<std::shared_ptr<WellTrack>> tracks() const { return m_tracks; }
   int trackCount() const { return m_tracks.size(); }
 
@@ -57,6 +58,7 @@ public:
 
   void setScaleRatio(const QString &ratioStr);
   QString scaleRatio() const { return m_scaleRatio; }
+  QString calculateScaleRatioString() const;
 
   // 坐标转换
   double depthToY(double depth) const;
@@ -97,6 +99,7 @@ private:
 
   qreal m_headerHeight = 72.0;
   qreal m_hScrollOffset = 0.0;
+  QString m_baseScaleRatio = QStringLiteral("1:500");
   QString m_scaleRatio = QStringLiteral("1:500");
 
   WellCompositeHeader *m_header = nullptr;

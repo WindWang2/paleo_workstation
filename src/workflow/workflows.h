@@ -72,9 +72,31 @@ class ConstraintWorkflow : public QObject
     QVector<QVariantMap> loadConstraints(const QString &horizon = QString());
     bool runConstraintIDW(const QString &horizon, const QString &pointsLayerId, const QString &field,
                           double cellSize, QString *error = nullptr);
+
+    // ---- m2(B) 单因素图页（§10 词表驱动）----
+    // 注册表项生成链：解析井点图层（原 runIdwRequested 壳里的 wells 查找逻辑
+    // 挪到 workflow 侧，params 可携 pointsLayerId 覆盖）→ def.processingAlgId
+    // 插值（约束线随行，同 runConstraintIDW）→ 色带样式落盘 styles/ →
+    // declare "factor.<horizon>.<factorId>" 进 04_SingleFactor（同 id 幂等
+    // upsert）。params：field/cellSize（缺省取注册表 defaultParams）+
+    // pointsLayerId（可选）。
+    bool generateFactor(const QString &horizon, const QString &factorId,
+                        const QVariantMap &params, QString *error = nullptr);
+
+    // 等值线（§12：GIS LineString 图层）。gdal:contour 在 C++ 嵌入运行时未注册
+    // （Python provider），按 §32/§33 降级决议走 GDAL C API（FactorContourService，
+    // gdal:contour 同一底层）→ 真 QgsVectorLayer 进 "04_SingleFactor/Contours"
+    // 子组，layerId "contours.<horizon>.<factorId>"，幂等。
+    bool generateContours(const QString &horizon, const QString &factorLayerId,
+                          double interval, QString *error = nullptr);
   signals:
     void constraintAdded(const QString &constraintId);
     void factorDone(const QString &horizon, const QString &resultLayerId);
+
+    // ---- m2(B)：单因素页消费的新信号（factorDone 原语义不动）----
+    void factorGenerated(const QString &horizon, const QString &factorId, const QString &layerId);
+    void contoursGenerated(const QString &horizon, const QString &factorLayerId,
+                           const QString &contourLayerId);
 };
 
 // ③综合编图 — fuse declared single-factor rasters into composite facies layer.

@@ -40,6 +40,8 @@
 #include "layoutdesignershell.h"
 #include "webviewpanel.h"
 #include "edittools/editingtoolbar.h"
+#include "layout/layoutexportactions.h" // ---- m2(C)：导出前版面地图项钉主题 ----
+#include "../qgis/qgislayerprofile.h" // ---- m2(C)：setLayoutMapTheme（m1 接缝）----
 #include "../qgis/qgislayoutservice.h"
 #include "../qgis/qgiseditingservice.h"
 #include "../services/paleotaskservice.h"
@@ -48,6 +50,9 @@
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
+#include <qgslayout.h> // ---- m2(C)：设计器/导出的版面地图项主题钉定 ----
+#include <qgslayoutitemmap.h>
+#include <qgsprintlayout.h>
 #include <qgsmaplayer.h>
 #include <qgslayertree.h>
 #include <qgslayertreemodel.h>
@@ -2317,6 +2322,135 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
               else if (!err.isEmpty())
                 QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
             });
+
+    // ---- m2(C): 矢量化成功 → 自动进入相界编辑态（z3 PaleoVertexTool）------
+    // 拿 facies.<horizon> 矢量层 instantiate → 编辑条选层 + 触发顶点工具
+    // （QgsVertexTool 是 app-only，顶点编辑走 PaleoVertexTool；snapping/
+    // 拓扑在画布控制器侧已开）。派生 gpkg 按 T26 纪律只读——进编辑前先铺
+    // 可编辑工作副本（prepareFaciesForEditing）。编辑条缺席（无画布环境）
+    // → 降级为选中层 + 状态文案提示手动进入编辑。
+    connect(compose, &CompositionWorkflow::faciesPolygonsReady, this,
+            [this, compose, composePage](const QString &h, const QString &layerId) {
+              Q_UNUSED(h);
+              composePage->setFaciesEditTarget(layerId);
+              if (!m_layerSvc)
+                return;
+              QString target = layerId;
+              QString prepErr;
+              const QString prepared = compose->prepareFaciesForEditing(layerId, &prepErr);
+              if (prepared.isEmpty())
+                QgsMessageLog::logMessage(
+                    tr("相界工作副本铺设失败：%1").arg(prepErr), QStringLiteral("Paleo"),
+                    Qgis::MessageLevel::Warning);
+              else
+                target = prepared;
+              QgsMapLayer *l = m_layerSvc->instantiate(target);
+              auto *vl = qobject_cast<QgsVectorLayer *>(l);
+              auto *status = composePage->findChild<QLabel *>(QStringLiteral("statusLabel"));
+              auto *editTb = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar"));
+              if (vl && editTb && m_canvasCtl)
+              {
+                editTb->refreshFromProject(); // 新层入列（instantiate 已挂工程）
+                editTb->setCurrentLayer(vl);
+                editTb->actionVertexEdit()->trigger(); // 自动开编辑（走编辑服务纪律）+ 装顶点工具
+                if (editTb->isEditing() && editTb->currentLayer() == vl)
+                {
+                  if (status)
+                    status->setText(tr("相界就绪，已进入编辑：%1（顶点工具 — 选中要素改属性）")
+                                        .arg(layerId));
+                  return;
+                }
+              }
+              // 降级：选中层 + 文案提示手动进入编辑（如实报告，不假装在编辑）。
+              if (vl && m_canvasCtl)
+                m_canvasCtl->canvas()->setCurrentLayer(vl);
+              if (status)
+                status->setText(tr("相界就绪：%1 — 请在「要素编辑」组手动进入编辑")
+                                    .arg(layerId));
+            });
+
+    // ---- m2(C): 相属性保存 → edit buffer 回写 ------------------------------
+    connect(composePage, &ComposePage::faciesAttributesSaveRequested, this,
+            [this, compose, composePage](const QString &layerId, const QVariantMap &attrs) {
+              if (!compose)
+                return;
+              QString err;
+              if (compose->saveFaciesAttributes(layerId, attrs, &err))
+              {
+                if (auto *status = composePage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+                  status->setText(tr("相属性已写入编辑缓冲：%1（随「保存编辑」提交）")
+                                      .arg(layerId));
+              }
+              else
+              {
+                if (auto *status = composePage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+                  status->setText(err.isEmpty() ? tr("相属性保存失败") : err);
+                if (!err.isEmpty())
+                  QgsMessageLog::logMessage(err, QStringLiteral("Paleo"),
+                                            Qgis::MessageLevel::Warning);
+              }
+            });
+
+    // ---- m2(C): 参考图勾选 → instantiate + 图层树节点勾选/取消 ------------
+    connect(composePage, &ComposePage::referenceVisibilityRequested, this,
+            [this](const QString &layerId, bool visible) {
+              if (!m_layerSvc || layerId.isEmpty())
+                return;
+              QgsMapLayer *l = visible ? m_layerSvc->instantiate(layerId)
+                                       : m_layerSvc->layer(layerId);
+              if (!l)
+                return;
+              QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr;
+              QgsLayerTree *root = proj ? proj->layerTreeRoot() : nullptr;
+              if (!root)
+                return;
+              for (QgsLayerTreeLayer *node : root->findLayers())
+                if (node->layer() == l)
+                  node->setItemVisibilityChecked(visible);
+            });
+
+    // ---- m2(C): 在布局设计器中打开（layoutdesignershell 公共入口）---------
+    // 打开（或新建）本层位的版面：优先复用导出同名布局 "<h>_map"；新空布局
+    // 没有地图项时主题钉定自然跳过（设计器里由模板/手工补地图项）。
+    connect(composePage, &ComposePage::layoutDesignerRequested, this,
+            [this, layoutSvc]() {
+              if (!layoutSvc)
+              {
+                QgsMessageLog::logMessage(tr("布局服务未接入 — 无法打开图件设计器"),
+                                          QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+                return;
+              }
+              if (m_projectSvc->projectPath().isEmpty())
+              {
+                QgsMessageLog::logMessage(tr("无打开工程 — 无法打开图件设计器"),
+                                          QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+                return;
+              }
+              const QString h = m_selection ? m_selection->activeHorizon() : QString();
+              const QString name = h.isEmpty() ? tr("编图布局")
+                                               : QStringLiteral("%1_map").arg(h);
+              QString err;
+              QgsLayout *layout = layoutSvc->layout(name);
+              if (!layout)
+                layout = layoutSvc->createLayout(name, &err);
+              if (!layout)
+              {
+                QgsMessageLog::logMessage(
+                    err.isEmpty() ? tr("创建布局失败：%1").arg(name) : err,
+                    QStringLiteral("Paleo"), Qgis::MessageLevel::Critical);
+                return;
+              }
+              // 版面地图项钉本页主题（m1 setLayoutMapTheme 接缝）。
+              QgisLayerProfileService profile(m_layerSvc, m_projectSvc, this);
+              if (QgsLayoutItemMap *mapItem =
+                      qobject_cast<QgsLayoutItemMap *>(layout->itemById(QStringLiteral("map"))))
+                profile.setLayoutMapTheme(mapItem, QStringLiteral("compose"));
+              auto *shell = new PaleoLayoutDesignerShell(layout, this);
+              shell->setAttribute(Qt::WA_DeleteOnClose);
+              shell->setModal(false);
+              shell->show();
+            });
+    // ---- m2(C) end ----
   }
   if (validate && validatePage)
   {
@@ -3148,11 +3282,40 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
                                            : QDir::temp().absolutePath();
             const QString target = QDir(projectDir).filePath(
                 QStringLiteral("%1_map.pdf").arg(h));
+            // ---- m2(C): 版面地图项钉本页主题（paleo.page.compose）---------
+            // exportHorizonMapPdf 内建布局不外露地图项，这里走同一
+            // buildHorizonMapLayout + PaleoLayoutExportActions（300dpi PDF，
+            // 与既有导出参数逐字一致），在导出前把布局里 id="map" 的地图项
+            // 钉到 compose 页主题（m1 setLayoutMapTheme 接缝；m1 缺席时直写
+            // QgsLayoutItemMap::setFollowVisibilityPresetName）。
+            const auto exportPinned = [this](const QString &horizon, const QString &outPath,
+                                             QString *errOut) -> QString {
+              QgsPrintLayout *layout = buildHorizonMapLayout(m_layerSvc, m_projectSvc,
+                                                             horizon, errOut);
+              if (!layout)
+                return QString();
+              QgisLayerProfileService profile(m_layerSvc, m_projectSvc, this);
+              if (QgsLayoutItemMap *mapItem = qobject_cast<QgsLayoutItemMap *>(
+                      layout->itemById(QStringLiteral("map"))))
+                profile.setLayoutMapTheme(mapItem, QStringLiteral("compose"));
+              PaleoLayoutExportActions exports;
+              const auto outcome =
+                  exports.exportLayout(layout, outPath, PaleoLayoutExportActions::Format::Pdf,
+                                       300.0, PaleoLayoutExportActions::PageRange());
+              delete layout;
+              if (!outcome.ok)
+              {
+                if (errOut)
+                  *errOut = outcome.error;
+                return QString();
+              }
+              return outcome.files.value(0);
+            };
             QString pdf;
             while (true) // 失败 → 重试 / 取消（§215：导出失败要写原因）
             {
               QString err;
-              pdf = exportHorizonMapPdf(m_layerSvc, m_projectSvc, h, target, &err);
+              pdf = exportPinned(h, target, &err);
               if (!pdf.isEmpty())
                 break;
               QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
@@ -3166,6 +3329,7 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
                 return;
               }
             }
+            // ---- m2(C) end ----
 
             // 阶段E：登记 catalog OUTPUT 受管资产 —— 登记失败的导出不算完成
             // （发布门要求的是「已登记的 PDF」，不是「写出过文件」）。

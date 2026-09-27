@@ -216,6 +216,7 @@ add_paleo_test(tst_ui)
 add_paleo_test(tst_panels)
 add_paleo_test(tst_mappingpages)
 add_paleo_test(tst_factorworkflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
+add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式）
 add_paleo_test(tst_perf)
 add_paleo_test(tst_locator)
 add_paleo_test(tst_layoutshell)

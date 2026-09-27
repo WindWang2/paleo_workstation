@@ -616,17 +616,239 @@ void FactorPageTests::typedDrawEntries()
   QCOMPARE( legacy.count(), 1 );
 }
 
+// ---- 任务 C（智能编图页）：融合清单栅格过滤/参考图/相属性/设计器入口。--
+// 真实栈（属性回写 edit buffer、壳自动编辑态）在 tst_composeworkflow.cpp。
 class ComposePageTests : public QObject
 {
   Q_OBJECT
   private slots:
     void constructsWithNullServices(); // 基座冒烟：拆分后类仍可构造
+    void fusionListListsOnlyRasterFactors(); // m2(C)：contours 矢量不入融合清单
+    void factorSelectAllAndClearRow();       // m2(C)：全选/清空小工具行
+    void referenceAreaListsAndSignals();     // m2(C)：06_Reference 清单 + 可见性意图
+    void faciesAttrAreaSavesPayload();       // m2(C)：相属性三字段 + 保存信号载荷
+    void faciesTargetAdoptsSoleDeclaredFacies(); // m2(C)：唯一 facies.* 自动成目标
+    void openDesignerButtonEmitsSignal();    // m2(C)：布局设计器入口信号
+
+  private:
+    static LayerDeclaration makeDecl(const QString &layerId, const QString &horizon,
+                                     const QString &type, const QString &group);
 };
 
 void ComposePageTests::constructsWithNullServices()
 {
   ComposePage page(nullptr, nullptr);
   QVERIFY(page.findChild<QListWidget *>(QStringLiteral("factorList")));
+}
+
+LayerDeclaration ComposePageTests::makeDecl(const QString &layerId, const QString &horizon,
+                                            const QString &type, const QString &group)
+{
+  LayerDeclaration d;
+  d.layerId = layerId;
+  d.horizon = horizon;
+  d.type = type;
+  d.source = QStringLiteral("memory://%1").arg(layerId); // 清单行不校验存在性
+  d.group = group;
+  return d;
+}
+
+void ComposePageTests::fusionListListsOnlyRasterFactors()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  LayerManifest manifest(dir.filePath(QStringLiteral("c.sqlite")));
+  QVERIFY(manifest.open());
+  QgisLayerService layers(nullptr, &manifest);
+
+  QString err;
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("factor.T1.sandthick"), QStringLiteral("T1"),
+                                  QStringLiteral("raster"), QStringLiteral("04_SingleFactor")), &err));
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("factor.T1.poro"), QStringLiteral("T1"),
+                                  QStringLiteral("raster"), QStringLiteral("04_SingleFactor")), &err));
+  // B 的成果：等值线是 04_SingleFactor 下的矢量（子组 + 平组两种写法），
+  // 都不是融合输入——清单只认栅格因素。
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("contours.T1.sandthick"), QStringLiteral("T1"),
+                                  QStringLiteral("vector"), QStringLiteral("04_SingleFactor/Contours")), &err));
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("contours.T1.poro"), QStringLiteral("T1"),
+                                  QStringLiteral("vector"), QStringLiteral("04_SingleFactor")), &err));
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("facies.T1"), QStringLiteral("T1"),
+                                  QStringLiteral("vector"), QStringLiteral("05_PaleoMap")), &err));
+
+  ComposePage page(nullptr, &layers);
+  auto *list = page.findChild<QListWidget *>(QStringLiteral("factorList"));
+  QVERIFY(list);
+  QCOMPARE(list->count(), 2);
+  QStringList ids;
+  for (int i = 0; i < list->count(); ++i)
+    ids << list->item(i)->data(Qt::UserRole).toString();
+  QVERIFY(ids.contains(QStringLiteral("factor.T1.sandthick")));
+  QVERIFY(ids.contains(QStringLiteral("factor.T1.poro")));
+  QVERIFY(!ids.contains(QStringLiteral("contours.T1.sandthick")));
+  QVERIFY(!ids.contains(QStringLiteral("contours.T1.poro")));
+
+  // 融合按钮勾选收集（既有语义）不回归（manifest 按 layer_id 排序，首行
+  // 是 factor.T1.poro）。
+  const QString firstId = list->item(0)->data(Qt::UserRole).toString();
+  QVERIFY(firstId.startsWith(QStringLiteral("factor.")));
+  list->item(0)->setCheckState(Qt::Checked);
+  QSignalSpy spy(&page, &ComposePage::fuseRequested);
+  page.findChild<QPushButton *>(QStringLiteral("fuseButton"))->click();
+  QCOMPARE(spy.count(), 1);
+  QCOMPARE(spy.first().at(0).toStringList(), QStringList{firstId});
+}
+
+void ComposePageTests::factorSelectAllAndClearRow()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  LayerManifest manifest(dir.filePath(QStringLiteral("c.sqlite")));
+  QVERIFY(manifest.open());
+  QgisLayerService layers(nullptr, &manifest);
+  QString err;
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("factor.T1.a"), QStringLiteral("T1"),
+                                  QStringLiteral("raster"), QStringLiteral("04_SingleFactor")), &err));
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("factor.T1.b"), QStringLiteral("T1"),
+                                  QStringLiteral("raster"), QStringLiteral("04_SingleFactor")), &err));
+
+  ComposePage page(nullptr, &layers);
+  auto *list = page.findChild<QListWidget *>(QStringLiteral("factorList"));
+  auto *selectAll = page.findChild<QPushButton *>(QStringLiteral("factorSelectAllButton"));
+  auto *clear = page.findChild<QPushButton *>(QStringLiteral("factorClearButton"));
+  QVERIFY(list && selectAll && clear);
+
+  selectAll->click();
+  QSignalSpy spy(&page, &ComposePage::fuseRequested);
+  page.findChild<QPushButton *>(QStringLiteral("fuseButton"))->click();
+  QCOMPARE(spy.count(), 1);
+  QCOMPARE(spy.first().at(0).toStringList().size(), 2);
+
+  clear->click();
+  int checked = 0;
+  for (int i = 0; i < list->count(); ++i)
+    if (list->item(i)->checkState() == Qt::Checked)
+      ++checked;
+  QCOMPARE(checked, 0);
+  spy.clear();
+  page.findChild<QPushButton *>(QStringLiteral("fuseButton"))->click();
+  QCOMPARE(spy.count(), 1);
+  QVERIFY(spy.first().at(0).toStringList().isEmpty());
+}
+
+void ComposePageTests::referenceAreaListsAndSignals()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  LayerManifest manifest(dir.filePath(QStringLiteral("c.sqlite")));
+  QVERIFY(manifest.open());
+  QgisLayerService layers(nullptr, &manifest);
+  QString err;
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("ref.T1.topo"), QStringLiteral("T1"),
+                                  QStringLiteral("raster"), QStringLiteral("06_Reference")), &err));
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("facies.T1"), QStringLiteral("T1"),
+                                  QStringLiteral("vector"), QStringLiteral("05_PaleoMap")), &err));
+
+  ComposePage page(nullptr, &layers);
+  auto *area = page.findChild<QWidget *>(QStringLiteral("referenceArea"));
+  auto *refs = page.findChild<QListWidget *>(QStringLiteral("referenceList"));
+  QVERIFY(area && refs);
+  QCOMPARE(refs->count(), 1); // 05_PaleoMap 不入参考图清单
+  QCOMPARE(refs->item(0)->data(Qt::UserRole).toString(), QStringLiteral("ref.T1.topo"));
+
+  // 勾选意图：勾 → (layerId, true)；取消 → (layerId, false)。
+  QSignalSpy spy(&page, &ComposePage::referenceVisibilityRequested);
+  refs->item(0)->setCheckState(Qt::Checked);
+  QCOMPARE(spy.count(), 1);
+  QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("ref.T1.topo"));
+  QCOMPARE(spy.at(0).at(1).toBool(), true);
+  refs->item(0)->setCheckState(Qt::Unchecked);
+  QCOMPARE(spy.count(), 2);
+  QCOMPARE(spy.at(1).at(0).toString(), QStringLiteral("ref.T1.topo"));
+  QCOMPARE(spy.at(1).at(1).toBool(), false);
+
+  // 声明落地（layerDeclared）→ 清单即时刷新（06_Reference 新行出现）。
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("ref.T1.bathy"), QStringLiteral("T1"),
+                                  QStringLiteral("vector"), QStringLiteral("06_Reference")), &err));
+  QCOMPARE(refs->count(), 2);
+}
+
+void ComposePageTests::faciesAttrAreaSavesPayload()
+{
+  ComposePage page(nullptr, nullptr);
+  auto *area = page.findChild<QWidget *>(QStringLiteral("faciesAttrArea"));
+  auto *target = page.findChild<QLabel *>(QStringLiteral("faciesTargetLabel"));
+  auto *code = page.findChild<QLineEdit *>(QStringLiteral("faciesCodeEdit"));
+  auto *type = page.findChild<QLineEdit *>(QStringLiteral("faciesTypeEdit"));
+  auto *comment = page.findChild<QLineEdit *>(QStringLiteral("faciesCommentEdit"));
+  auto *save = page.findChild<QPushButton *>(QStringLiteral("faciesAttrSaveButton"));
+  QVERIFY(area && target && code && type && comment && save);
+
+  // 无目标层：禁用 + reason tooltip（DESIGN.md），点击不发信号。
+  QVERIFY(!save->isEnabled());
+  QVERIFY2(!save->toolTip().isEmpty(), "disabled save needs a reason tooltip");
+  QSignalSpy spy(&page, &ComposePage::faciesAttributesSaveRequested);
+  save->click();
+  QCOMPARE(spy.count(), 0);
+
+  // 壳指名目标层（矢量化成功后 setFaciesEditTarget）→ 开闸 + 目标可见。
+  page.setFaciesEditTarget(QStringLiteral("facies.T1"));
+  QVERIFY(save->isEnabled());
+  QVERIFY(save->toolTip().isEmpty());
+  QVERIFY(target->text().contains(QStringLiteral("facies.T1")));
+
+  // 非整数相代码：不发信号，状态区写原因。
+  code->setText(QStringLiteral("abc"));
+  save->click();
+  QCOMPARE(spy.count(), 0);
+  QVERIFY(page.findChild<QLabel *>(QStringLiteral("statusLabel"))
+              ->text()
+              .contains(QStringLiteral("整数")));
+
+  // 合法载荷：layerId + 三字段。
+  code->setText(QStringLiteral("3"));
+  type->setText(QStringLiteral("辫状河三角洲"));
+  comment->setText(QStringLiteral("备注"));
+  save->click();
+  QCOMPARE(spy.count(), 1);
+  QCOMPARE(spy.first().at(0).toString(), QStringLiteral("facies.T1"));
+  const QVariantMap attrs = spy.first().at(1).toMap();
+  QCOMPARE(attrs.value(QStringLiteral("facies_code")), QVariant(3));
+  QCOMPARE(attrs.value(QStringLiteral("facies_type")).toString(), QStringLiteral("辫状河三角洲"));
+  QCOMPARE(attrs.value(QStringLiteral("comment")).toString(), QStringLiteral("备注"));
+}
+
+void ComposePageTests::faciesTargetAdoptsSoleDeclaredFacies()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  LayerManifest manifest(dir.filePath(QStringLiteral("c.sqlite")));
+  QVERIFY(manifest.open());
+  QgisLayerService layers(nullptr, &manifest);
+  QString err;
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("facies.T1"), QStringLiteral("T1"),
+                                  QStringLiteral("vector"), QStringLiteral("05_PaleoMap")), &err));
+
+  ComposePage page(nullptr, &layers);
+  auto *save = page.findChild<QPushButton *>(QStringLiteral("faciesAttrSaveButton"));
+  auto *target = page.findChild<QLabel *>(QStringLiteral("faciesTargetLabel"));
+  QVERIFY(save && target);
+  QVERIFY(save->isEnabled()); // 唯一 facies.* 声明 → 自动成目标
+  QVERIFY(target->text().contains(QStringLiteral("facies.T1")));
+
+  // 显式指名优先于自动采纳：换目标后标签跟随。
+  page.setFaciesEditTarget(QStringLiteral("facies.T2"));
+  QVERIFY(target->text().contains(QStringLiteral("facies.T2")));
+}
+
+void ComposePageTests::openDesignerButtonEmitsSignal()
+{
+  ComposePage page(nullptr, nullptr);
+  auto *btn = page.findChild<QPushButton *>(QStringLiteral("openDesignerButton"));
+  QVERIFY(btn);
+  QCOMPARE(btn->text(), QStringLiteral("在布局设计器中打开"));
+  QSignalSpy spy(&page, &ComposePage::layoutDesignerRequested);
+  btn->click();
+  QCOMPARE(spy.count(), 1);
 }
 
 // 多测试类单可执行体：QTEST_MAIN 只支持单类，这里手动跑三个类。

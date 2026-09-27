@@ -234,6 +234,136 @@ private slots:
     QCOMPARE( failSpy.at( 0 ).at( 1 ).toString(), err );
   }
 
+  // m2/mapping-pages(A)：重跑幂等——同一 horizon+algorithmId 再次运行复用同一
+  // layerId，manifest 不新增重复行（upsert），source 指向最新一次产物；历史
+  // 分组 01_Prediction 保持不动。且无置信度伴生层声明（当前算法栈无置信度
+  // 输出——见 PredictionWorkflow::confidenceCompanionAvailable 调查注释）。
+  void predictionRerunIsIdempotentAndDeclaresNoConfidence()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+
+    const QVector<float> px = { 1, 1, 1,
+                                1, 2, 1,
+                                1, 1, 1 };
+    const QString inPath = makeRaster( f.dir.filePath( QStringLiteral( "coded_in.tif" ) ), 3, 3, px );
+    QVERIFY( !inPath.isEmpty() );
+
+    QString err;
+    QVERIFY2( f.layers.declare( decl( QStringLiteral( "input.T1" ), QStringLiteral( "T1" ),
+                                      QStringLiteral( "raster" ), inPath ), &err ), qPrintable( err ) );
+    QgsMapLayer *input = f.layers.instantiate( QStringLiteral( "input.T1" ), &err );
+    QVERIFY2( input != nullptr, qPrintable( err ) );
+
+    PredictionWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+    QSignalSpy doneSpy( &wf, &PredictionWorkflow::predictionDone );
+    QSignalSpy failSpy( &wf, &PredictionWorkflow::predictionFailed );
+
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( input ) );
+    params.insert( QStringLiteral( "PASSES" ), 1 );
+
+    QVERIFY2( wf.runPrediction( QStringLiteral( "T1" ),
+                                QStringLiteral( "paleo:paleo_geological_smoothing" ),
+                                params, &err ), qPrintable( err ) );
+    QString firstSource;
+    {
+      const LayerDeclaration *d = nullptr;
+      const QString id = doneSpy.at( 0 ).at( 1 ).toString();
+      d = findDecl( f.layers, id );
+      QVERIFY2( d != nullptr, qPrintable( id ) );
+      firstSource = d->source;
+      delete d;
+    }
+    QVERIFY2( wf.runPrediction( QStringLiteral( "T1" ),
+                                QStringLiteral( "paleo:paleo_geological_smoothing" ),
+                                params, &err ), qPrintable( err ) );
+    QCOMPARE( failSpy.count(), 0 );
+    QCOMPARE( doneSpy.count(), 2 );
+
+    // 同一 horizon+algorithmId → 同一 layerId（稳定段 = 净化后的 algorithmId）。
+    const QString id1 = doneSpy.at( 0 ).at( 1 ).toString();
+    const QString id2 = doneSpy.at( 1 ).at( 1 ).toString();
+    QCOMPARE( id1, id2 );
+    QVERIFY2( id1.startsWith( QStringLiteral( "predict.T1." ) ), qPrintable( id1 ) );
+    QVERIFY2( id1.contains( QStringLiteral( "paleo_geological_smoothing" ) ), qPrintable( id1 ) );
+
+    // manifest 里该 layerId 只有一行（upsert，不重复），source 为最新产物。
+    int rows = 0;
+    const QVector<LayerDeclaration> decls = f.layers.declared();
+    for ( const LayerDeclaration &d : decls )
+      if ( d.layerId == id1 )
+        ++rows;
+    QCOMPARE( rows, 1 );
+
+    const LayerDeclaration *d = findDecl( f.layers, id1 );
+    QVERIFY( d != nullptr );
+    QCOMPARE( d->horizon, QStringLiteral( "T1" ) );
+    QCOMPARE( d->group, QStringLiteral( "01_Prediction" ) ); // 历史分组保持
+    QVERIFY2( QFile::exists( d->source ), qPrintable( d->source ) );
+    QVERIFY( d->source != firstSource ); // 重跑产出新版本目录，声明行已更新
+    delete d;
+
+    // 置信度伴生层降级分支：无 confidence.* 声明、无 02_Prediction 分组行。
+    int confidenceRows = 0, group02Rows = 0;
+    for ( const LayerDeclaration &dd : decls )
+    {
+      if ( dd.layerId.startsWith( QStringLiteral( "confidence." ) ) )
+        ++confidenceRows;
+      if ( dd.group == QStringLiteral( "02_Prediction" ) )
+        ++group02Rows;
+    }
+    QCOMPARE( confidenceRows, 0 );
+    QCOMPARE( group02Rows, 0 );
+  }
+
+  // m2(A)：不同算法各自稳定 id——同层位两个算法互不挤占同一 layerId。
+  void predictionDistinctAlgorithmsGetDistinctLayerIds()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+
+    const QVector<float> px = { 1, 2, 3, 4 };
+    const QString top = makeRaster( f.dir.filePath( QStringLiteral( "top.tif" ) ), 2, 2, px );
+    const QString base = makeRaster( f.dir.filePath( QStringLiteral( "base.tif" ) ), 2, 2, px );
+    QVERIFY( !top.isEmpty() && !base.isEmpty() );
+
+    QString err;
+    QVERIFY2( f.layers.declare( decl( QStringLiteral( "top.T1" ), QStringLiteral( "T1" ),
+                                      QStringLiteral( "raster" ), top ), &err ), qPrintable( err ) );
+    QVERIFY2( f.layers.declare( decl( QStringLiteral( "base.T1" ), QStringLiteral( "T1" ),
+                                      QStringLiteral( "raster" ), base ), &err ), qPrintable( err ) );
+    QgsMapLayer *topL = f.layers.instantiate( QStringLiteral( "top.T1" ), &err );
+    QgsMapLayer *baseL = f.layers.instantiate( QStringLiteral( "base.T1" ), &err );
+    QVERIFY2( topL && baseL, qPrintable( err ) );
+
+    PredictionWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+    QSignalSpy doneSpy( &wf, &PredictionWorkflow::predictionDone );
+
+    QVariantMap iso;
+    iso.insert( QStringLiteral( "INPUT_TOP" ), QVariant::fromValue( topL ) );
+    iso.insert( QStringLiteral( "INPUT_BASE" ), QVariant::fromValue( baseL ) );
+    iso.insert( QStringLiteral( "NEGATIVE_TO_NODATA" ), false );
+    QVERIFY2( wf.runPrediction( QStringLiteral( "T1" ),
+                                QStringLiteral( "paleo:paleo_isopach" ), iso, &err ),
+              qPrintable( err ) );
+    QCOMPARE( doneSpy.count(), 1 );
+    const QString isoId = doneSpy.at( 0 ).at( 1 ).toString();
+    QVERIFY2( isoId.startsWith( QStringLiteral( "predict.T1." ) ), qPrintable( isoId ) );
+    QVERIFY2( isoId != QStringLiteral( "predict.T1.paleo.paleo_geological_smoothing" ),
+              qPrintable( isoId ) );
+
+    // 不同层位同样分离。
+    QVERIFY2( wf.runPrediction( QStringLiteral( "T2" ),
+                                QStringLiteral( "paleo:paleo_isopach" ), iso, &err ),
+              qPrintable( err ) );
+    const QString t2Id = doneSpy.at( 1 ).at( 1 ).toString();
+    QVERIFY( t2Id.startsWith( QStringLiteral( "predict.T2." ) ) );
+    QVERIFY( t2Id != isoId );
+  }
+
   // ②a addConstraint: ids c-1, c-2; per-horizon "constraints.<h>" decl holds WKT.
   void addConstraintDeclaresAndSignals()
   {

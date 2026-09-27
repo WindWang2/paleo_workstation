@@ -49,9 +49,21 @@ class PredictionWorkflow : public QObject
     void setCatalog(DataCatalog *catalog, const QString &projectDir);
 
     bool runPrediction(const QString &horizon, const QString &algorithmId, const QVariantMap &params, QString *error = nullptr);
+
   signals:
     void predictionDone(const QString &horizon, const QString &resultLayerId);
     void predictionFailed(const QString &horizon, const QString &error);
+
+  private:
+    // m2/mapping-pages(A)：结果层 id 的稳定段（algorithmId 净化）——同一
+    // horizon+algorithmId 重跑复用同一 layerId，manifest upsert 不新增重复行。
+    static QString stableResultSuffix(const QString &algorithmId);
+    // m2(A) 3b 置信度调查（2026-09-27）：PaleoOnnxService 只取模型首个输出
+    // tensor（无第二输出/方差通道），paleo:* 五算法均为确定性单输出栅格——
+    // 当前没有任何算法产出真实置信度，恒 false；此时不声明伴生层
+    // confidence.<horizon>，不用常量假栅格冒充。真实置信度通道接入后在此
+    // 按算法能力判定，runPrediction 会据此声明（group "02_Prediction"）。
+    static bool confidenceCompanionAvailable(const QString &algorithmId);
 };
 
 // ②约束与单因素 — ingest drawn constraint geometries + run ConstraintIDW.

@@ -2027,12 +2027,98 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
             });
 
   if (pred && predictPage)
+  {
+    // ---- m2(A): 预测运行任务化 + 历史结果显示接线 ----
+    // 任务池在场 → runPrediction 跑 worker 线程（模仿导入任务化样例：结果经
+    // PaleoTask 终态回 GUI；changed→进度、finished→解忙+失败文案）；取消是
+    // 协作式的——预测运算本体无法中断，取消后以实际完成状态如实呈现。
+    // 无任务服务时保持同步旧路径。
     connect(predictPage, &PredictPage::runRequested, this,
-            [this, pred](const QString &horizon, const QString &algId,
-                         const QVariantMap &params) {
-              QString err;
-              pred->runPrediction(horizon, algId, params, &err);
+            [this, pred, predictPage](const QString &horizon, const QString &algId,
+                                      const QVariantMap &params) {
+              auto *status = predictPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
+              const auto logFail = [status](const QString &msg) {
+                if (status)
+                  status->setText(msg);
+                QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::Critical);
+              };
+              if (!m_taskSvc)
+              {
+                QString err;
+                pred->runPrediction(horizon, algId, params, &err);
+                return;
+              }
+              predictPage->setRunBusy(true);
+              auto outErr = std::make_shared<QString>();
+              PaleoTask *task = m_taskSvc->start(
+                  tr("预测 %1 · %2").arg(horizon, algId),
+                  [pred, horizon, algId, params, outErr](PaleoTask *) -> QString {
+                    QString err;
+                    if (pred->runPrediction(horizon, algId, params, &err))
+                      return QString();
+                    return err.isEmpty() ? QStringLiteral("prediction failed") : err;
+                  });
+              QObject::connect(task, &PaleoTask::changed, predictPage,
+                               [predictPage, task] {
+                                 const int pct = task->percent();
+                                 if (pct >= 0) // 无进度回调的算法不伪造进度
+                                   predictPage->updateProgress(pct);
+                               });
+              QObject::connect(task, &PaleoTask::finished, predictPage,
+                               [predictPage, task, outErr, status, logFail] {
+                                 predictPage->setRunBusy(false);
+                                 if (task->state() == PaleoTask::State::Cancelled)
+                                 {
+                                   const QString msg = tr(
+                                       "已请求取消——预测运算无法中断，结果以实际完成为准");
+                                   if (status)
+                                     status->setText(msg);
+                                   QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"),
+                                                             Qgis::MessageLevel::Warning);
+                                 }
+                                 else if (task->state() == PaleoTask::State::Failed)
+                                 {
+                                   logFail(tr("预测失败：%1").arg(*outErr));
+                                 }
+                               });
             });
+    // 取消按钮 → 协作式取消请求（worker 自查 cancelRequested）。
+    connect(predictPage, &PredictPage::runCancelRequested, this, [this]( ) {
+      if (!m_taskSvc || m_taskSvc->tasks().isEmpty())
+        return;
+      // 最近一个「预测 ·」任务是本页发起的运行（页内同一时刻至多一个）。
+      for (int i = m_taskSvc->tasks().size() - 1; i >= 0; --i)
+      {
+        PaleoTask *t = m_taskSvc->tasks().at(i);
+        if (t->running() && t->title().startsWith(tr("预测")))
+        {
+          t->requestCancel();
+          return;
+        }
+      }
+    });
+    // 历史结果「显示」：instantiate → 图层树勾选 → zoomToLayer（§37 按需实例化）。
+    connect(predictPage, &PredictPage::showResultRequested, this,
+            [this](const QString &layerId) {
+              if (!m_layerSvc)
+                return;
+              QString err;
+              QgsMapLayer *layer = m_layerSvc->instantiate(layerId, &err);
+              if (!layer)
+              {
+                QgsMessageLog::logMessage(tr("Show on map failed: %1").arg(err),
+                                          QStringLiteral("Paleo"), Qgis::Critical);
+                return;
+              }
+              if (m_canvasCtl)
+                m_canvasCtl->zoomToLayer(layerId);
+              QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr;
+              if (QgsLayerTreeLayer *node =
+                      proj ? proj->layerTreeRoot()->findLayer(layer->id()) : nullptr)
+                node->setItemVisibilityChecked(true); // 显示意图（可能已在）
+            });
+    // ---- m2(A) end ----
+  }
 
   if (constraint && constraintPage)
   {

@@ -294,12 +294,41 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
 {
   buildShell();
 
+  // ---- m2(D): 页面图层档案（m1 接缝消费）----
+  // 四个编图页各有一份档案（QgisLayerProfileService 的页面档案表）；页切换
+  // 与层位 chip 切换都会重应用。档案应用后画布随图层树勾选态刷新
+  // （QgsLayerTreeMapCanvasBridge 节律），这里再补一次显式 refresh 兜底。
+  m_profileSvc = new QgisLayerProfileService(m_layerSvc, m_projectSvc, this);
+  connect(m_profileSvc, &QgisLayerProfileService::profileApplied, this, [this] {
+    if (m_canvasCtl && m_canvasCtl->canvas())
+      m_canvasCtl->canvas()->refresh();
+  });
+  if (m_selection)
+  {
+    // chip 切换 = setActiveHorizon（chipbar 里 selection 先、layerSvc 后）+
+    // 重应用当前页档案。deferred 到下一拍：等 chipbar 把 layerSvc 的激活
+    // 层位也拨完，档案的层位过滤才读到新值。
+    connect(m_selection, &SelectionContext::activeHorizonChanged, this,
+            [this](const QString &) {
+              QMetaObject::invokeMethod(
+                  this, [this] { applyCurrentPageProfile(); }, Qt::QueuedConnection);
+            });
+  }
+
   if (m_projectSvc)
     connect(m_projectSvc, &QgisProjectService::projectOpened, this,
             [this](const QString &) { onProjectOpened(); });
 
   showStartup(); // §42.1: first-run lands on the startup page
   restoreWindowState();
+}
+
+void PaleoMainWindow::applyCurrentPageProfile()
+{
+  if (!m_profileSvc ||
+      !QgisLayerProfileService::knownPageIds().contains(m_currentPage))
+    return;
+  m_profileSvc->applyPageProfile(m_currentPage);
 }
 
 void PaleoMainWindow::buildShell()
@@ -846,6 +875,10 @@ void PaleoMainWindow::showPage(const QString &pageId)
       stack->setCurrentIndex(idx);
   if (m_rightDock)
     m_rightDock->setWindowTitle(kPageDockTitles.at(idx));
+
+  // ---- m2(D): 页面图层档案——切到编图页即应用该页档案（数据页 no-op）。
+  // 档案表在 QgisLayerProfileService（predict/constraint/compose/validate）。
+  applyCurrentPageProfile();
 
   // A workflow step implies the workspace: leave the startup page once a
   // project exists (with no project the startup page stays — nothing to show).

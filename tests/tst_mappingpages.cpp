@@ -851,10 +851,160 @@ void ComposePageTests::openDesignerButtonEmitsSignal()
   QCOMPARE(spy.count(), 1);
 }
 
-// 多测试类单可执行体：QTEST_MAIN 只支持单类，这里手动跑三个类。
+// ---- m2(D/E) 页面图层档案测试（真实 QGIS 栈；main 用 QgsApplication 引导）----
+#include <qgsapplication.h>
+#include <qgslayertree.h>
+#include <qgsmaplayer.h>
+#include <qgsmapthemecollection.h>
+#include <qgsproject.h>
+
+#include "../src/qgis/qgislayerprofile.h"
+#include "../src/qgis/qgisprojectservice.h"
+
+// m2(D)：页面切换档案应用顺序——每页只见档案表里的组；层位过滤；主题落
+// QgsMapThemeCollection；图层树勾选态对齐；未知页空档案不崩。
+class PageProfileTests : public QObject
+{
+  Q_OBJECT
+  private slots:
+    void profileGroupsTable();
+    void applyProfilePerVisiblePage();
+    void horizonFilterNarrowsToActiveHorizon();
+    void layerTreeVisibilityFollowsProfile();
+    void unknownPageAppliesNothing();
+
+  private:
+    struct Fixture
+    {
+      QTemporaryDir dir;
+      QgisProjectService projectSvc;
+      LayerManifest manifest{dir.filePath(QStringLiteral("project.sqlite"))};
+      QgisLayerService layers{&projectSvc, &manifest};
+      QgisLayerProfileService profile{&layers, &projectSvc};
+      Fixture()
+      {
+        manifest.open();
+        projectSvc.createProject(dir.filePath(QStringLiteral("proj.qgz")));
+        declare(QStringLiteral("basemap.wells"), QString(),
+                QStringLiteral("01_Base"));
+        declare(QStringLiteral("predict.T1"), QStringLiteral("T1"),
+                QStringLiteral("02_Prediction"));
+        declare(QStringLiteral("predict.T2"), QStringLiteral("T2"),
+                QStringLiteral("02_Prediction"));
+        declare(QStringLiteral("constraints.T1"), QStringLiteral("T1"),
+                QStringLiteral("03_Constraints"));
+        declare(QStringLiteral("factor.T1.sandthick"), QStringLiteral("T1"),
+                QStringLiteral("04_SingleFactor"));
+        declare(QStringLiteral("contours.T1.sandthick"), QStringLiteral("T1"),
+                QStringLiteral("04_SingleFactor/Contours"));
+        declare(QStringLiteral("facies.T1"), QStringLiteral("T1"),
+                QStringLiteral("05_PaleoMap"));
+        declare(QStringLiteral("reference.wells"), QString(),
+                QStringLiteral("06_Reference"));
+        declare(QStringLiteral("validation.T1"), QStringLiteral("T1"),
+                QStringLiteral("07_Validation"));
+        layers.setActiveHorizon(QStringLiteral("T1"));
+      }
+      void declare(const QString &layerId, const QString &horizon,
+                   const QString &group)
+      {
+        LayerDeclaration d;
+        d.layerId = layerId;
+        d.horizon = horizon;
+        d.type = QStringLiteral("vector");
+        d.source = QStringLiteral(FIXTURE_GPKG);
+        d.group = group;
+        QVERIFY2(manifest.upsert(d), qPrintable(layerId));
+      }
+    };
+};
+
+void PageProfileTests::profileGroupsTable()
+{
+  QCOMPARE(QgisLayerProfileService::profileGroups(QStringLiteral("predict")),
+           QStringList({QStringLiteral("01_Base"), QStringLiteral("02_Prediction")}));
+  QCOMPARE(QgisLayerProfileService::profileGroups(QStringLiteral("constraint")),
+           QStringList({QStringLiteral("01_Base"), QStringLiteral("03_Constraints"),
+                        QStringLiteral("04_SingleFactor")}));
+  QCOMPARE(QgisLayerProfileService::profileGroups(QStringLiteral("compose")),
+           QStringList({QStringLiteral("01_Base"), QStringLiteral("03_Constraints"),
+                        QStringLiteral("04_SingleFactor"), QStringLiteral("05_PaleoMap"),
+                        QStringLiteral("06_Reference")}));
+  QCOMPARE(QgisLayerProfileService::profileGroups(QStringLiteral("validate")),
+           QStringList({QStringLiteral("01_Base"), QStringLiteral("07_Validation")}));
+  QVERIFY(QgisLayerProfileService::profileGroups(QStringLiteral("nope")).isEmpty());
+}
+
+void PageProfileTests::applyProfilePerVisiblePage()
+{
+  Fixture f;
+  QSignalSpy applied(&f.profile, &QgisLayerProfileService::profileApplied);
+
+  QStringList ids = f.profile.applyPageProfile(QStringLiteral("predict"));
+  ids.sort();
+  QCOMPARE(ids, QStringList({QStringLiteral("basemap.wells"),
+                             QStringLiteral("predict.T1")}));
+  QVERIFY(f.projectSvc.project()->mapThemeCollection()->hasMapTheme(
+      QStringLiteral("paleo.page.predict")));
+  QCOMPARE(applied.count(), 1);
+
+  ids = f.profile.applyPageProfile(QStringLiteral("compose"));
+  ids.sort();
+  QCOMPARE(ids, QStringList({QStringLiteral("basemap.wells"),
+                             QStringLiteral("constraints.T1"),
+                             QStringLiteral("contours.T1.sandthick"),
+                             QStringLiteral("facies.T1"),
+                             QStringLiteral("factor.T1.sandthick"),
+                             QStringLiteral("reference.wells")}));
+  QVERIFY(f.projectSvc.project()->mapThemeCollection()->hasMapTheme(
+      QStringLiteral("paleo.page.compose")));
+}
+
+void PageProfileTests::horizonFilterNarrowsToActiveHorizon()
+{
+  Fixture f;
+  f.layers.setActiveHorizon(QStringLiteral("T2"));
+  QStringList ids = f.profile.applyPageProfile(QStringLiteral("compose"));
+  ids.sort();
+  // T2：只剩层位无关（01_Base/06_Reference）+ T2 预测层——T1 的单因素/相面
+  // 不进档案（compose 不含 02_Prediction，predict.T2 也不进）。
+  QCOMPARE(ids, QStringList({QStringLiteral("basemap.wells"),
+                             QStringLiteral("reference.wells")}));
+}
+
+void PageProfileTests::layerTreeVisibilityFollowsProfile()
+{
+  Fixture f;
+  QgsMapLayer *facies = f.layers.layer(QStringLiteral("facies.T1"));
+  QVERIFY(facies);
+  QgsLayerTreeLayer *node =
+      f.projectSvc.project()->layerTreeRoot()->findLayer(facies->id());
+  QVERIFY(node);
+
+  f.profile.applyPageProfile(QStringLiteral("compose"));
+  QVERIFY(node->itemVisibilityChecked());
+
+  f.profile.applyPageProfile(QStringLiteral("predict"));
+  QVERIFY(!node->itemVisibilityChecked());
+}
+
+void PageProfileTests::unknownPageAppliesNothing()
+{
+  Fixture f;
+  QSignalSpy applied(&f.profile, &QgisLayerProfileService::profileApplied);
+  QVERIFY(f.profile.applyPageProfile(QStringLiteral("data")).isEmpty());
+  QVERIFY(f.profile.applyPageProfile(QString()).isEmpty());
+  QCOMPARE(applied.count(), 0);
+}
+
+// 多测试类单可执行体：QTEST_MAIN 只支持单类，这里手动跑四个类。
+// QgsApplication 引导（tst_workflows 同款）：PageProfileTests 需要真 QGIS 栈；
+// 它是 QApplication 子类，前三个纯页面类照常可用（offscreen）。
 int main(int argc, char *argv[])
 {
-  QApplication app(argc, argv);
+  QgsApplication app(argc, argv, false);
+  app.setPrefixPath(QStringLiteral("/usr"), true); // distro install
+  app.initQgis();
   int status = 0;
   {
     PredictPageTests t;
@@ -868,6 +1018,11 @@ int main(int argc, char *argv[])
     ComposePageTests t;
     status |= QTest::qExec(&t, argc, argv);
   }
+  {
+    PageProfileTests t;
+    status |= QTest::qExec(&t, argc, argv);
+  }
+  QgsApplication::exitQgis();
   return status;
 }
 

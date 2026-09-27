@@ -16,6 +16,7 @@ class QTableWidget;
 class QgisCanvasController;
 class QgisProjectService;
 class QgisLayerService;
+class QgisLayerProfileService;
 class ToolAvailabilityService;
 class SelectionContext;
 class QgsMapLayer;
@@ -189,6 +190,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 面板显隐菜单（QMainWindow::createPopupMenu 列出全部 dock 的
     // toggleViewAction）。右键 dock 标题栏与右上「面板」钮共用此入口。
     void showPanelMenu(const QPoint &globalPos);
+    // m2(D) 页面图层档案：四个编图页切到/层位 chip 切换后重应用当前页档案
+    // （QgisLayerProfileService::applyPageProfile）。数据页无档案，no-op。
+    void applyCurrentPageProfile();
     // 预览分栏（§4 预览壳）：数据页地图在上预览在下；预览空态收成一行
     // 次级文字，首个标签打开时展开到约三分之一高度。
     void applyPreviewSplit();
@@ -243,4 +247,5 @@ class PaleoMainWindow : public SARibbonMainWindow
     PaleoDecorationManager *m_decorMgr = nullptr; // D11 临时配准水印等画布装饰
     int m_provisionalLayers = 0;   // 已上图的临时配准图层数（>0 → 水印）
     QString m_currentPage;
+    QgisLayerProfileService *m_profileSvc = nullptr; // m2(D)：页面图层档案（m1 兜底实现）
 };

@@ -158,6 +158,7 @@ add_library(paleo_core STATIC
   src/ui/wellcomposite/wellcompositetrack.cpp
   src/ui/wellcomposite/wellcompositecanvas.cpp
   src/ui/wellcomposite/wellcompositepanel.cpp
+  src/ui/wellcomposite/curveconfigdialog.cpp
   src/io/wellcompositexml.cpp
   # ---- package C: ingest-plan (three-phase folder import) ----
   src/io/ingestplan.cpp                          # C 包：纯 plan + 幂等执行器
@@ -178,6 +179,13 @@ add_library(paleo_core STATIC
   src/domain/seismic/sgyreadplan.cpp
   src/domain/seismic/seismiccolormap.cpp
   src/services/seismictaskservice.cpp
+  # ---- ui/seismic3d: 3D seismic volume viewport & renderers ----
+  src/ui/seismic3d/seismiccameracontroller.cpp
+  src/ui/seismic3d/seismicslicerenderer.cpp
+  src/ui/seismic3d/volumeframerenderer.cpp
+  src/ui/seismic3d/seismic3dviewportwidget.cpp
+  src/ui/seismic3d/seismic3dviewpanel.cpp
+  resources/seismic_shaders.qrc
 )
 target_link_libraries(paleo_core PUBLIC paleo_qgis_iface paleo_saribbon paleo_segyio paleo_glm ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
@@ -273,6 +281,10 @@ target_compile_definitions(tst_segy_lines PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_seismic_core)
 add_paleo_test(tst_seismic_index)
+add_paleo_test(tst_seismic_3d)
+target_compile_definitions(tst_seismic_3d PRIVATE
+  SEGY_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/testdata/project_area/mini_seismic.sgy"
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_timedeptool)
 target_compile_definitions(tst_import PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")

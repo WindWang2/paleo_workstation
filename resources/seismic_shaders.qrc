@@ -1,0 +1,13 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+  <qresource prefix="/paleo">
+    <file>shaders/seismic/seismic_slice.vert.glsl</file>
+    <file>shaders/seismic/seismic_slice.frag.glsl</file>
+    <file>shaders/seismic/axis.vert.glsl</file>
+    <file>shaders/seismic/axis.frag.glsl</file>
+    <file>shaders/seismic/horizon_line.vert.glsl</file>
+    <file>shaders/seismic/horizon_line.frag.glsl</file>
+    <file>shaders/seismic/horizon_surface.vert.glsl</file>
+    <file>shaders/seismic/horizon_surface.frag.glsl</file>
+  </qresource>
+</RCC>

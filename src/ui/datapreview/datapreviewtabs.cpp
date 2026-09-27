@@ -13,6 +13,9 @@
 #include "../../io/timedeptool.h"
 #include "../../io/wellfileparsers.h"
 #include "../../services/paleotaskservice.h"
+#include "../../services/seismictaskservice.h"
+#include "../../domain/seismic/sgyvolume.h"
+#include "../seismic3d/seismic3dviewpanel.h"
 #include "../wellcomposite/wellcompositepanel.h"
 
 #include <QComboBox>
@@ -1349,6 +1352,8 @@ void DataPreviewTabs::openSeismicLine(const QString &assetId, const QString &kin
     mode->setCurrentIndex(want); // currentIndexChanged → 该控件链路上的 decode
   if (no->value() != line)
     no->setValue(line); // valueChanged → decode 目标测线
+  if (auto *modeTabs = page->findChild<QTabWidget *>(QStringLiteral("seismicSubTabs")))
+    modeTabs->setCurrentIndex(0); // 聚焦到二维测线剖面页签
   Q_UNUSED(timeMs); // 目标时间的标注由剖面自身的 D61 标定线承担（§4/阶段B）
 }
 
@@ -2293,10 +2298,47 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     if (initialInline >= 0)
       barLay->addWidget(caption8(tr("%1 所在测线").arg(tieWellName), bar)); // §4 旁注
     barLay->addStretch(1);
-    lay->addWidget(caption8(tr("选择一条测线解码"), host));
-    lay->addWidget(bar);
-    lay->addWidget(tieCaption);
-    lay->addWidget(panel, 1);
+    auto *modeTabs = new QTabWidget(host);
+    modeTabs->setObjectName(QStringLiteral("seismicSubTabs"));
+    modeTabs->setStyleSheet(QStringLiteral(
+        "QTabWidget::pane { border: 1px solid #DFE5EC; background: #FFFFFF; }"
+        "QTabBar::tab { background: #EDF1F5; color: #5D6E80; padding: 4px 12px; border: 1px solid #DFE5EC; border-bottom: none; }"
+        "QTabBar::tab:selected { background: #FFFFFF; color: #1B73D0; font-weight: 500; }"));
+
+    // 1. 二维测线 (2D)
+    auto *w2d = new QWidget(modeTabs);
+    w2d->setObjectName(QStringLiteral("seismic2DContainer"));
+    auto *lay2d = new QVBoxLayout(w2d);
+    lay2d->setContentsMargins(6, 6, 6, 6);
+    lay2d->setSpacing(4);
+    lay2d->addWidget(caption8(tr("选择一条测线解码"), w2d));
+    lay2d->addWidget(bar);
+    lay2d->addWidget(tieCaption);
+    lay2d->addWidget(panel, 1);
+    modeTabs->addTab(w2d, tr("二维测线 (2D)"));
+
+    // 2. 三维立体 (3D)
+    auto *panel3d = new seismic::Seismic3DViewPanel(modeTabs);
+    panel3d->setObjectName(QStringLiteral("seismic3DPanel"));
+    modeTabs->addTab(panel3d, tr("三维立体 (3D)"));
+
+    const auto load3DIfNeeded = [panel3d, abs]() {
+      if (panel3d->volume() == nullptr && !abs.isEmpty() && QFile::exists(abs))
+      {
+        auto vol = std::make_shared<seismic::SgyVolume>();
+        std::string volErr;
+        if (vol->Load(abs.toStdString(), volErr))
+        {
+          panel3d->setVolume(vol);
+        }
+      }
+    };
+    connect(modeTabs, &QTabWidget::currentChanged, host, [load3DIfNeeded](int idx) {
+      if (idx == 1)
+        load3DIfNeeded();
+    });
+
+    lay->addWidget(modeTabs, 1);
     return host;
   }
 

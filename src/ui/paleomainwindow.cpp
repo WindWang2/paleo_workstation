@@ -45,6 +45,7 @@
 #include "../io/geojsonaffine.h"
 #include "decorations/paleodecorations.h"
 #include "ui/seismicsection/seismicsectiondockwidget.h"
+#include "ui/seismic3d/seismic3dviewpanel.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
@@ -555,6 +556,15 @@ void PaleoMainWindow::buildShell()
   addDockWidget(Qt::BottomDockWidgetArea, m_seismicSectionDock);
   tabifyDockWidget(m_bottomDock, m_seismicSectionDock);
   m_seismicSectionDock->hide();
+
+  // ---- seismic 3D viewport dock ----
+  m_seismic3dDock = new QDockWidget(tr("三维地震视口 (3D)"), this);
+  m_seismic3dDock->setObjectName(QStringLiteral("seismic3dDock"));
+  m_seismic3dPanel = new seismic::Seismic3DViewPanel(m_seismic3dDock);
+  m_seismic3dPanel->setObjectName(QStringLiteral("seismic3dPanel"));
+  m_seismic3dDock->setWidget(m_seismic3dPanel);
+  addDockWidget(Qt::RightDockWidgetArea, m_seismic3dDock);
+  m_seismic3dDock->hide();
 
   // ---- web shell dock (goal/webui-host): embed already-built web services.
   // Hidden by default; the WebViewPanel inside is lazily constructed on first
@@ -2713,6 +2723,27 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       syncMax();
       large(vp, maxAct);
     }
+
+    SARibbonPanel *sp = panel(cat, tr("地震视口"), "ribbonPanel.data.seismic");
+    QAction *seismic3dAct = newAction(tr("三维视口"), icon("mIcon3D.svg"),
+                                      tr("打开三维地震体立体视口"), "ribbonActionSeismic3D");
+    connect(seismic3dAct, &QAction::triggered, this, [this] {
+      if (m_seismic3dDock) {
+        m_seismic3dDock->show();
+        m_seismic3dDock->raise();
+      }
+    });
+    large(sp, seismic3dAct);
+
+    QAction *seismic2dAct = newAction(tr("地震剖面"), icon("mIconRasterLayer.svg"),
+                                      tr("打开二维地震与井震标定剖面"), "ribbonActionSeismic2D");
+    connect(seismic2dAct, &QAction::triggered, this, [this] {
+      if (m_seismicSectionDock) {
+        m_seismicSectionDock->show();
+        m_seismicSectionDock->raise();
+      }
+    });
+    large(sp, seismic2dAct);
   }
 
   // ================= 预测编图 =================
@@ -2728,6 +2759,24 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       SARibbonPanel *cp = panel(cat, tr("叠加对照"), "ribbonPanel.predict.compare");
       large(cp, corrAct);
       large(cp, attrAct);
+      QAction *pSeismic3d = newAction(tr("三维地震"), icon("mIcon3D.svg"),
+                                      tr("打开三维地震立体视口"), "ribbonPredictSeismic3D");
+      connect(pSeismic3d, &QAction::triggered, this, [this] {
+        if (m_seismic3dDock) {
+          m_seismic3dDock->show();
+          m_seismic3dDock->raise();
+        }
+      });
+      large(cp, pSeismic3d);
+      QAction *pSeismic2d = newAction(tr("地震剖面"), icon("mIconRasterLayer.svg"),
+                                      tr("打开地震与井震剖面"), "ribbonPredictSeismic2D");
+      connect(pSeismic2d, &QAction::triggered, this, [this] {
+        if (m_seismicSectionDock) {
+          m_seismicSectionDock->show();
+          m_seismicSectionDock->raise();
+        }
+      });
+      large(cp, pSeismic2d);
     }
     addEditingPanel(cat, editTb);
     navPanel(cat);

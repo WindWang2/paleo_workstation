@@ -48,6 +48,9 @@ public:
   QTabWidget *tabWidget() const { return m_tabWidget; }
   Seismic3DViewPanel *view3dPanel() const { return m_panel3d; }
   SeismicSectionCanvas *sectionCanvas() const { return m_sectionDock ? m_sectionDock->canvas() : nullptr; }
+  SeismicSectionCanvas *timeSliceCanvas() const { return m_timeSliceDock ? m_timeSliceDock->canvas() : nullptr; }
+  SeismicSectionDockWidget *sectionDock() const { return m_sectionDock; }
+  SeismicSectionDockWidget *timeSliceDock() const { return m_timeSliceDock; }
 
 protected:
   void showEvent(QShowEvent *event) override
@@ -56,6 +59,8 @@ protected:
     QTimer::singleShot(50, this, [this]() {
       if (m_sectionDock && m_sectionDock->canvas())
         m_sectionDock->canvas()->fitToWindow();
+      if (m_timeSliceDock && m_timeSliceDock->canvas())
+        m_timeSliceDock->canvas()->fitToWindow();
     });
   }
 
@@ -127,12 +132,27 @@ private:
     m_sectionDock = new SeismicSectionDockWidget(tr("二维地震展开剖面与井震标定"), tab2Container);
     m_sectionDock->setObjectName(QStringLiteral("sectionDock"));
     tab2Lay->addWidget(m_sectionDock);
-    m_tabWidget->addTab(tab2Container, tr("二维剖面与井震标定 (2D Section & Well Calibration)"));
+    m_tabWidget->addTab(tab2Container, tr("二维纵/横测线剖面 (2D Section)"));
+
+    // Tab 3: 水平时间切片剖面 (Time Slice)
+    auto *tab3Container = new QWidget(m_tabWidget);
+    auto *tab3Lay = new QVBoxLayout(tab3Container);
+    tab3Lay->setContentsMargins(0, 0, 0, 0);
+    tab3Lay->setSpacing(0);
+
+    m_timeSliceDock = new SeismicSectionDockWidget(tr("水平时间切片剖面 (Time Slice)"), tab3Container);
+    m_timeSliceDock->setObjectName(QStringLiteral("timeSliceDock"));
+    tab3Lay->addWidget(m_timeSliceDock);
+    m_tabWidget->addTab(tab3Container, tr("水平时间切片剖面 (Time Slice)"));
 
     connect(m_tabWidget, &QTabWidget::currentChanged, this, [this](int idx) {
       if (idx == 1 && m_sectionDock && m_sectionDock->canvas()) {
         QTimer::singleShot(20, this, [this]() {
           m_sectionDock->canvas()->fitToWindow();
+        });
+      } else if (idx == 2 && m_timeSliceDock && m_timeSliceDock->canvas()) {
+        QTimer::singleShot(20, this, [this]() {
+          m_timeSliceDock->canvas()->fitToWindow();
         });
       }
     });
@@ -163,17 +183,17 @@ private:
     m_panel3d->setTimeSample(180); // ~720ms
     m_panel3d->viewport()->setPresetView(SeismicCameraController::PresetView::Isometric);
 
-    // 3. 提取二维 Inline 剖面并送入剖面画布
-    SgySliceImage slice;
-    const int midInl = m_volume->InlineMin() + 25;
-    if (m_volume->ExtractSlice(SgySliceType::Inline, midInl, slice, err))
-    {
-      const float dtMs = m_volume->SampleIntervalUs() > 0 ? (m_volume->SampleIntervalUs() / 1000.0f) : 2.0f;
-      m_sectionDock->canvas()->setSectionData(slice, dtMs, 0.0);
-      m_sectionDock->canvas()->setColorMap(SectionColorMapType::RedWhiteBlue);
-      m_sectionDock->canvas()->setGain(1.5f);
-      m_sectionDock->canvas()->setContrast(1.2f);
-    }
+    // 3. 关联体数据到二维剖面与时间切片
+    m_sectionDock->setVolume(m_volume);
+    m_sectionDock->canvas()->setColorMap(SectionColorMapType::RedWhiteBlue);
+    m_sectionDock->canvas()->setGain(1.5f);
+    m_sectionDock->canvas()->setContrast(1.2f);
+
+    m_timeSliceDock->setSectionMode(2); // Time Slice mode
+    m_timeSliceDock->setVolume(m_volume);
+    m_timeSliceDock->canvas()->setColorMap(SectionColorMapType::RedWhiteBlue);
+    m_timeSliceDock->canvas()->setGain(1.5f);
+    m_timeSliceDock->canvas()->setContrast(1.2f);
 
     // 4. 解析井口、测井分层、时深关系表与 LAS 曲线
     loadWellA1Calibration();
@@ -322,6 +342,11 @@ private:
     m_sectionDock->canvas()->setShowWells(true);
     m_sectionDock->canvas()->setShowFormationTops(true);
     m_sectionDock->canvas()->setShowWellCurves(true);
+
+    m_timeSliceDock->canvas()->setTimeDepthModel(tdModel);
+    m_timeSliceDock->canvas()->setWells({ wellInfo });
+    m_timeSliceDock->canvas()->setShowWells(true);
+    m_timeSliceDock->canvas()->setShowFormationTops(true);
   }
 
 private:
@@ -335,6 +360,7 @@ private:
   QTabWidget *m_tabWidget = nullptr;
   Seismic3DViewPanel *m_panel3d = nullptr;
   SeismicSectionDockWidget *m_sectionDock = nullptr;
+  SeismicSectionDockWidget *m_timeSliceDock = nullptr;
 };
 
 int main(int argc, char *argv[])
@@ -409,18 +435,36 @@ int main(int argc, char *argv[])
             QPixmap pm2d = window.sectionCanvas()->grab();
             pm2d.save(p2d);
             std::cout << "Captured 2D Section: " << p2d.toStdString() << std::endl;
-
-            const QString pAll = captureDir + QStringLiteral("/seismic_workstation_demo.png");
-            QPixmap pmAll = window.grab();
-            pmAll.save(pAll);
-            std::cout << "Captured Full Window: " << pAll.toStdString() << std::endl;
           }
 
-          if (autoCaptureAndExit)
-          {
-            std::cout << "Auto-capture complete, exiting demo." << std::endl;
-            QTimer::singleShot(200, &app, &QCoreApplication::quit);
-          }
+          // 3. 抓取 Tab 2 (水平时间切片与井位标定)
+          QTimer::singleShot(500, [&]() {
+            window.tabWidget()->setCurrentIndex(2);
+            if (window.timeSliceCanvas())
+              window.timeSliceCanvas()->fitToWindow();
+            QApplication::processEvents();
+
+            QTimer::singleShot(300, [&]() {
+              if (!captureDir.isEmpty())
+              {
+                const QString pts = captureDir + QStringLiteral("/seismic_time_slice.png");
+                QPixmap pmts = window.timeSliceCanvas()->grab();
+                pmts.save(pts);
+                std::cout << "Captured Time Slice: " << pts.toStdString() << std::endl;
+
+                const QString pAll = captureDir + QStringLiteral("/seismic_workstation_demo.png");
+                QPixmap pmAll = window.grab();
+                pmAll.save(pAll);
+                std::cout << "Captured Full Window: " << pAll.toStdString() << std::endl;
+              }
+
+              if (autoCaptureAndExit)
+              {
+                std::cout << "Auto-capture complete, exiting demo." << std::endl;
+                QTimer::singleShot(200, &app, &QCoreApplication::quit);
+              }
+            });
+          });
         });
       });
     });

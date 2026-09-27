@@ -78,6 +78,10 @@ void SeismicMapLink::attachSectionDock(seismic::SeismicSectionDockWidget *dock)
   if (!m_sectionDock || !m_sectionDock->canvas())
     return;
 
+  if (m_volume) {
+    m_sectionDock->setVolume(m_volume);
+  }
+
   connect(m_sectionDock->canvas(), &seismic::SeismicSectionCanvas::traceHovered,
           this, &SeismicMapLink::onSectionTraceHovered);
   connect(m_sectionDock->canvas(), &seismic::SeismicSectionCanvas::traceClicked,
@@ -92,6 +96,9 @@ void SeismicMapLink::setGridGeometry(const SurveyGridGeometry &geom)
 void SeismicMapLink::setActiveVolume(std::shared_ptr<const seismic::SgyVolume> volume)
 {
   m_volume = volume;
+  if (m_sectionDock) {
+    m_sectionDock->setVolume(volume);
+  }
 }
 
 void SeismicMapLink::activateSectionCaptureTool()

@@ -23,6 +23,7 @@ class QgsMapLayer;
 
 namespace seismic {
 class SeismicSectionDockWidget;
+class Seismic3DViewPanel;
 }
 
 class PaleoDockWidget : public QDockWidget
@@ -172,6 +173,8 @@ class PaleoMainWindow : public SARibbonMainWindow
         PaleoMainWindow *self);
 
     seismic::SeismicSectionDockWidget *seismicSectionDock() const { return m_seismicSectionDock; }
+    QDockWidget *seismic3dDock() const { return m_seismic3dDock; }
+    seismic::Seismic3DViewPanel *seismic3dPanel() const { return m_seismic3dPanel; }
 
   protected:
     void closeEvent(QCloseEvent *event) override;
@@ -239,6 +242,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     QDockWidget *m_rightDock = nullptr;
     PaleoDockWidget *m_bottomDock = nullptr;
     seismic::SeismicSectionDockWidget *m_seismicSectionDock = nullptr;
+    QDockWidget *m_seismic3dDock = nullptr;
+    seismic::Seismic3DViewPanel *m_seismic3dPanel = nullptr;
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
     DataImportService *m_importSvc = nullptr; // attachWorkflows 注入；启动页「从工区文件夹新建」用

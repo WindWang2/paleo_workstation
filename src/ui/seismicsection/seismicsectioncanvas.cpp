@@ -36,6 +36,7 @@ void SeismicSectionCanvas::setSectionData(
     const std::vector<float> &columnDistancesM,
     const std::vector<glm::dvec2> &mapCoords)
 {
+    m_orientation = SectionOrientation::Vertical;
     m_slice = image;
     m_traces = image.width;
     m_samples = image.height;
@@ -54,6 +55,37 @@ void SeismicSectionCanvas::setSectionData(
     rebuildImage();
     fitToWindow();
     update();
+}
+
+void SeismicSectionCanvas::setTimeSliceData(
+    const SgySliceImage &image,
+    double twtMs,
+    int inlineMin, int inlineMax,
+    int xlineMin, int xlineMax)
+{
+    m_orientation = SectionOrientation::TimeSlice;
+    m_slice = image;
+    m_traces = image.width;    // XL count
+    m_samples = image.height;  // IL count
+    m_currentTimeMs = twtMs;
+    m_inlineMin = inlineMin;
+    m_inlineMax = inlineMax;
+    m_xlineMin = xlineMin;
+    m_xlineMax = xlineMax;
+    m_columnDistances.clear();
+    m_mapCoords.clear();
+
+    rebuildImage();
+    fitToWindow();
+    update();
+}
+
+void SeismicSectionCanvas::setOrientation(SectionOrientation orientation) {
+    if (m_orientation != orientation) {
+        m_orientation = orientation;
+        fitToWindow();
+        update();
+    }
 }
 
 void SeismicSectionCanvas::clearData() {
@@ -247,6 +279,20 @@ double SeismicSectionCanvas::pixelToTime(double py) const {
     return m_t0Ms + sampleIdx * m_dtMs;
 }
 
+double SeismicSectionCanvas::inlineToPixelY(double inlineNo) const {
+    const double span = std::max(1, m_inlineMax - m_inlineMin);
+    const double rowIdx = (static_cast<double>(m_inlineMax) - inlineNo) / span * std::max(1, m_samples - 1);
+    return static_cast<double>(m_topMargin) + m_panY + rowIdx * m_zoomY;
+}
+
+double SeismicSectionCanvas::pixelToInline(double py) const {
+    if (std::abs(m_zoomY) < 1e-6)
+        return m_inlineMin;
+    const double rowIdx = (py - static_cast<double>(m_topMargin) - m_panY) / m_zoomY;
+    const double norm = std::clamp(rowIdx / std::max(1, m_samples - 1), 0.0, 1.0);
+    return static_cast<double>(m_inlineMax) - norm * (m_inlineMax - m_inlineMin);
+}
+
 QRect SeismicSectionCanvas::viewportRect() const {
     return QRect(m_leftMargin, m_topMargin,
                  std::max(1, width() - m_leftMargin),
@@ -351,83 +397,143 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
 
     // 3. Render Wellbores, Tops, and Curves inside viewport
     if (m_showWells && !m_wells.empty() && hasData()) {
-        for (const auto &well : m_wells) {
-            if (!well.isWithinBuffer)
-                continue;
-
-            const double wx = traceToPixelX(well.tracePosition);
-            if (wx < vp.left() - 60 || wx > vp.right() + 60)
-                continue;
-
-            // Draw vertical wellbore trajectory line (1px white halo under 2px #1B73D0)
-            const double bottomTwt = well.totalDepth > 0.0
-                ? m_tdModel.DepthToTwtMs(well.totalDepth)
-                : (m_t0Ms + m_samples * m_dtMs);
-            const double wellTopY = timeToPixelY(m_t0Ms);
-            const double wellBotY = std::min(timeToPixelY(bottomTwt), static_cast<double>(vp.bottom()));
-
-            p.setPen(QPen(QColor(QStringLiteral("#FFFFFF")), 4.0));
-            p.drawLine(QPointF(wx, wellTopY), QPointF(wx, wellBotY));
-
-            p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 2.0));
-            p.drawLine(QPointF(wx, wellTopY), QPointF(wx, wellBotY));
-
-            // Formation tops
-            if (m_showTops) {
-                for (const auto &top : well.tops) {
-                    const double ty = timeToPixelY(top.twtMs);
-                    if (ty < vp.top() || ty > vp.bottom())
-                        continue;
-
-                    // Horizontal top cross tick
-                    p.setPen(QPen(QColor(QStringLiteral("#FFFFFF")), 4.0));
-                    p.drawLine(QPointF(wx - 8.0, ty), QPointF(wx + 8.0, ty));
-                    p.setPen(QPen(top.color.isValid() ? top.color : QColor(QStringLiteral("#1B73D0")), 2.0));
-                    p.drawLine(QPointF(wx - 8.0, ty), QPointF(wx + 8.0, ty));
-
-                    // Marker label
-                    p.setFont(monoFont);
-                    const QString tagText = top.topName;
-                    const QFontMetrics fm(monoFont);
-                    const int tw = fm.horizontalAdvance(tagText);
-                    const QRectF tagRect(wx + 10.0, ty - 8.0, tw + 8.0, 16.0);
-
-                    p.setBrush(QColor(QStringLiteral("#E8F0FE")));
-                    p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0));
-                    p.drawRoundedRect(tagRect, 3.0, 3.0);
-
-                    p.setPen(QColor(QStringLiteral("#1B73D0")));
-                    p.drawText(tagRect, Qt::AlignCenter, tagText);
+        if (m_orientation == SectionOrientation::TimeSlice) {
+            // Horizontal slice wellhead markers & penetrated tops
+            for (const auto &well : m_wells) {
+                double wellXl = 0.0;
+                double wellIl = 0.0;
+                if (well.surfaceX >= m_xlineMin && well.surfaceX <= m_xlineMax &&
+                    well.surfaceY >= m_inlineMin && well.surfaceY <= m_inlineMax) {
+                    wellXl = well.surfaceX;
+                    wellIl = well.surfaceY;
+                } else {
+                    const double norm = std::clamp(well.tracePosition / std::max(1, m_traces - 1), 0.0, 1.0);
+                    wellXl = m_xlineMin + norm * (m_xlineMax - m_xlineMin);
+                    wellIl = (m_inlineMin + m_inlineMax) * 0.5;
                 }
-            }
 
-            // Well log curves
-            if (m_showCurves && !well.curves.empty()) {
-                const double trackWidth = 36.0;
-                for (const auto &curve : well.curves) {
-                    if (curve.values.empty() || curve.twtMs.size() != curve.values.size())
-                        continue;
+                const double colIdx = (wellXl - m_xlineMin) / std::max(1, m_xlineMax - m_xlineMin) * std::max(1, m_traces - 1);
+                const double wx = traceToPixelX(colIdx);
+                const double wy = inlineToPixelY(wellIl);
 
-                    const float span = std::max(1e-4f, curve.maxVal - curve.minVal);
-                    QPolygonF poly;
-                    poly.reserve(static_cast<int>(curve.values.size()));
+                if (wx < vp.left() - 40 || wx > vp.right() + 40 || wy < vp.top() - 40 || wy > vp.bottom() + 40)
+                    continue;
 
-                    for (std::size_t i = 0; i < curve.values.size(); ++i) {
-                        const float val = curve.values[i];
-                        if (!std::isfinite(val))
-                            continue;
-                        const double cy = timeToPixelY(curve.twtMs[i]);
-                        if (cy < vp.top() - 10 || cy > vp.bottom() + 10)
-                            continue;
-                        const double norm = std::clamp(static_cast<double>((val - curve.minVal) / span), 0.0, 1.0);
-                        const double cx = wx + 4.0 + norm * trackWidth;
-                        poly.append(QPointF(cx, cy));
+                // Borehole target marker (halo, blue circle, white crosshair)
+                p.setPen(QPen(QColor(QStringLiteral("#FFFFFF")), 4.0));
+                p.setBrush(QColor(QStringLiteral("#1B73D0")));
+                p.drawEllipse(QPointF(wx, wy), 5.5, 5.5);
+
+                p.setPen(QPen(QColor(QStringLiteral("#FFFFFF")), 1.5));
+                p.drawLine(QPointF(wx - 4.0, wy), QPointF(wx + 4.0, wy));
+                p.drawLine(QPointF(wx, wy - 4.0), QPointF(wx, wy + 4.0));
+
+                // Well tag badge
+                p.setFont(monoFont);
+                QString wellTag = well.wellName;
+                QString nearTop;
+                double minDiff = 1e9;
+                for (const auto &top : well.tops) {
+                    const double diff = std::abs(top.twtMs - m_currentTimeMs);
+                    if (diff < minDiff && diff <= 35.0) {
+                        minDiff = diff;
+                        nearTop = top.topName;
                     }
+                }
+                if (!nearTop.isEmpty()) {
+                    wellTag += QStringLiteral(" [%1]").arg(nearTop);
+                }
 
-                    if (poly.size() >= 2) {
-                        p.setPen(QPen(curve.color.isValid() ? curve.color : QColor(QStringLiteral("#43A047")), 1.5));
-                        p.setBrush(Qt::NoBrush);
-                        p.drawPolyline(poly);
+                const QFontMetrics fm(monoFont);
+                const int tw = fm.horizontalAdvance(wellTag);
+                const QRectF tagRect(wx + 8.0, wy - 9.0, tw + 8.0, 18.0);
+
+                p.setBrush(QColor(QStringLiteral("#FFFFFF")));
+                p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0));
+                p.drawRoundedRect(tagRect, 3.0, 3.0);
+
+                p.setPen(QColor(QStringLiteral("#1B73D0")));
+                p.drawText(tagRect, Qt::AlignCenter, wellTag);
+            }
+        } else {
+            for (const auto &well : m_wells) {
+                if (!well.isWithinBuffer)
+                    continue;
+
+                const double wx = traceToPixelX(well.tracePosition);
+                if (wx < vp.left() - 60 || wx > vp.right() + 60)
+                    continue;
+
+                // Draw vertical wellbore trajectory line (1px white halo under 2px #1B73D0)
+                const double bottomTwt = well.totalDepth > 0.0
+                    ? m_tdModel.DepthToTwtMs(well.totalDepth)
+                    : (m_t0Ms + m_samples * m_dtMs);
+                const double wellTopY = timeToPixelY(m_t0Ms);
+                const double wellBotY = std::min(timeToPixelY(bottomTwt), static_cast<double>(vp.bottom()));
+
+                p.setPen(QPen(QColor(QStringLiteral("#FFFFFF")), 4.0));
+                p.drawLine(QPointF(wx, wellTopY), QPointF(wx, wellBotY));
+
+                p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 2.0));
+                p.drawLine(QPointF(wx, wellTopY), QPointF(wx, wellBotY));
+
+                // Formation tops
+                if (m_showTops) {
+                    for (const auto &top : well.tops) {
+                        const double ty = timeToPixelY(top.twtMs);
+                        if (ty < vp.top() || ty > vp.bottom())
+                            continue;
+
+                        // Horizontal top cross tick
+                        p.setPen(QPen(QColor(QStringLiteral("#FFFFFF")), 4.0));
+                        p.drawLine(QPointF(wx - 8.0, ty), QPointF(wx + 8.0, ty));
+                        p.setPen(QPen(top.color.isValid() ? top.color : QColor(QStringLiteral("#1B73D0")), 2.0));
+                        p.drawLine(QPointF(wx - 8.0, ty), QPointF(wx + 8.0, ty));
+
+                        // Marker label
+                        p.setFont(monoFont);
+                        const QString tagText = top.topName;
+                        const QFontMetrics fm(monoFont);
+                        const int tw = fm.horizontalAdvance(tagText);
+                        const QRectF tagRect(wx + 10.0, ty - 8.0, tw + 8.0, 16.0);
+
+                        p.setBrush(QColor(QStringLiteral("#E8F0FE")));
+                        p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0));
+                        p.drawRoundedRect(tagRect, 3.0, 3.0);
+
+                        p.setPen(QColor(QStringLiteral("#1B73D0")));
+                        p.drawText(tagRect, Qt::AlignCenter, tagText);
+                    }
+                }
+
+                // Well log curves
+                if (m_showCurves && !well.curves.empty()) {
+                    const double trackWidth = 36.0;
+                    for (const auto &curve : well.curves) {
+                        if (curve.values.empty() || curve.twtMs.size() != curve.values.size())
+                            continue;
+
+                        const float span = std::max(1e-4f, curve.maxVal - curve.minVal);
+                        QPolygonF poly;
+                        poly.reserve(static_cast<int>(curve.values.size()));
+
+                        for (std::size_t i = 0; i < curve.values.size(); ++i) {
+                            const float val = curve.values[i];
+                            if (!std::isfinite(val))
+                                continue;
+                            const double cy = timeToPixelY(curve.twtMs[i]);
+                            if (cy < vp.top() - 10 || cy > vp.bottom() + 10)
+                                continue;
+                            const double norm = std::clamp(static_cast<double>((val - curve.minVal) / span), 0.0, 1.0);
+                            const double cx = wx + 4.0 + norm * trackWidth;
+                            poly.append(QPointF(cx, cy));
+                        }
+
+                        if (poly.size() >= 2) {
+                            p.setPen(QPen(curve.color.isValid() ? curve.color : QColor(QStringLiteral("#43A047")), 1.5));
+                            p.setBrush(Qt::NoBrush);
+                            p.drawPolyline(poly);
+                        }
                     }
                 }
             }
@@ -450,141 +556,211 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
     p.drawLine(QPoint(m_leftMargin, m_topMargin), QPoint(width(), m_topMargin));
 
     if (hasData()) {
-        const double minTrace = pixelToTrace(m_leftMargin);
-        const double maxTrace = pixelToTrace(width());
+        if (m_orientation == SectionOrientation::TimeSlice) {
+            // Horizontal Crossline (XL) ruler
+            const double minTrace = pixelToTrace(m_leftMargin);
+            const double maxTrace = pixelToTrace(width());
+            const double spanXl = std::max(1, m_xlineMax - m_xlineMin);
+            const double minXl = m_xlineMin + (minTrace / std::max(1.0, static_cast<double>(m_traces - 1))) * spanXl;
+            const double maxXl = m_xlineMin + (maxTrace / std::max(1.0, static_cast<double>(m_traces - 1))) * spanXl;
 
-        // Distance ticks
-        const double totalDist = totalDistanceM();
-        const double traceToDistFactor = m_traces > 1 ? totalDist / static_cast<double>(m_traces - 1) : 25.0;
-        const double minDistM = minTrace * traceToDistFactor;
-        const double maxDistM = maxTrace * traceToDistFactor;
+            const auto ticks = NiceStep::GenerateTicks(minXl, maxXl, m_leftMargin, width(), 8, QStringLiteral("%.0f"));
 
-        const auto ticks = NiceStep::GenerateTicks(minDistM, maxDistM, m_leftMargin, width(), 8, QStringLiteral("%.0f"));
+            p.setFont(monoFont);
+            for (const auto &tk : ticks) {
+                if (tk.pixelPos < m_leftMargin || tk.pixelPos > width())
+                    continue;
 
-        p.setFont(monoFont);
-        for (const auto &tk : ticks) {
-            if (tk.pixelPos < m_leftMargin || tk.pixelPos > width())
-                continue;
-
-            p.setPen(QColor(QStringLiteral("#5D6E80")));
-            if (tk.isMajor) {
-                p.drawLine(QPointF(tk.pixelPos, m_topMargin - 12.0), QPointF(tk.pixelPos, m_topMargin));
-                QString distLabel;
-                if (std::abs(tk.value) >= 1000.0) {
-                    distLabel = QStringLiteral("%1 km").arg(tk.value / 1000.0, 0, 'f', 1);
+                p.setPen(QColor(QStringLiteral("#5D6E80")));
+                if (tk.isMajor) {
+                    p.drawLine(QPointF(tk.pixelPos, m_topMargin - 12.0), QPointF(tk.pixelPos, m_topMargin));
+                    const QString xlLabel = QStringLiteral("XL %1").arg(qRound(tk.value));
+                    const QFontMetrics fm(monoFont);
+                    const int tw = fm.horizontalAdvance(xlLabel);
+                    p.setPen(QColor(QStringLiteral("#24303E")));
+                    p.drawText(QPointF(tk.pixelPos - tw * 0.5, m_topMargin - 16.0), xlLabel);
                 } else {
-                    distLabel = QStringLiteral("%1 m").arg(qRound(tk.value));
+                    p.drawLine(QPointF(tk.pixelPos, m_topMargin - 6.0), QPointF(tk.pixelPos, m_topMargin));
                 }
-                const QFontMetrics fm(monoFont);
-                const int tw = fm.horizontalAdvance(distLabel);
-                p.setPen(QColor(QStringLiteral("#24303E")));
-                p.drawText(QPointF(tk.pixelPos - tw * 0.5, m_topMargin - 16.0), distLabel);
-            } else {
-                p.drawLine(QPointF(tk.pixelPos, m_topMargin - 6.0), QPointF(tk.pixelPos, m_topMargin));
             }
-        }
+        } else {
+            // Distance ticks for vertical profile
+            const double minTrace = pixelToTrace(m_leftMargin);
+            const double maxTrace = pixelToTrace(width());
 
-        // Well indicator flags on top ruler
-        if (m_showWells) {
-            for (const auto &well : m_wells) {
-                if (!well.isWithinBuffer)
+            // Distance ticks
+            const double totalDist = totalDistanceM();
+            const double traceToDistFactor = m_traces > 1 ? totalDist / static_cast<double>(m_traces - 1) : 25.0;
+            const double minDistM = minTrace * traceToDistFactor;
+            const double maxDistM = maxTrace * traceToDistFactor;
+
+            const auto ticks = NiceStep::GenerateTicks(minDistM, maxDistM, m_leftMargin, width(), 8, QStringLiteral("%.0f"));
+
+            p.setFont(monoFont);
+            for (const auto &tk : ticks) {
+                if (tk.pixelPos < m_leftMargin || tk.pixelPos > width())
                     continue;
-                const double wx = traceToPixelX(well.tracePosition);
-                if (wx < m_leftMargin || wx > width())
-                    continue;
 
-                // Triangle pin pointing down
-                const QPolygonF triangle({
-                    QPointF(wx - 5.0, m_topMargin - 8.0),
-                    QPointF(wx + 5.0, m_topMargin - 8.0),
-                    QPointF(wx, m_topMargin - 1.0)
-                });
-                p.setBrush(QColor(QStringLiteral("#1B73D0")));
-                p.setPen(Qt::NoPen);
-                p.drawPolygon(triangle);
+                p.setPen(QColor(QStringLiteral("#5D6E80")));
+                if (tk.isMajor) {
+                    p.drawLine(QPointF(tk.pixelPos, m_topMargin - 12.0), QPointF(tk.pixelPos, m_topMargin));
+                    QString distLabel;
+                    if (std::abs(tk.value) >= 1000.0) {
+                        distLabel = QStringLiteral("%1 km").arg(tk.value / 1000.0, 0, 'f', 1);
+                    } else {
+                        distLabel = QStringLiteral("%1 m").arg(qRound(tk.value));
+                    }
+                    const QFontMetrics fm(monoFont);
+                    const int tw = fm.horizontalAdvance(distLabel);
+                    p.setPen(QColor(QStringLiteral("#24303E")));
+                    p.drawText(QPointF(tk.pixelPos - tw * 0.5, m_topMargin - 16.0), distLabel);
+                } else {
+                    p.drawLine(QPointF(tk.pixelPos, m_topMargin - 6.0), QPointF(tk.pixelPos, m_topMargin));
+                }
+            }
 
-                // Capsule label
-                p.setFont(bodyFont);
-                const QString pinText = std::abs(well.offsetDistanceM) > 1.0
-                    ? QStringLiteral("%1 (%2m)").arg(well.wellName).arg(qRound(well.offsetDistanceM))
-                    : well.wellName;
-                const QFontMetrics fm(bodyFont);
-                const int tw = fm.horizontalAdvance(pinText);
-                const QRectF badge(wx - tw * 0.5 - 4.0, 4.0, tw + 8.0, 18.0);
+            // Well indicator flags on top ruler
+            if (m_showWells) {
+                for (const auto &well : m_wells) {
+                    if (!well.isWithinBuffer)
+                        continue;
+                    const double wx = traceToPixelX(well.tracePosition);
+                    if (wx < m_leftMargin || wx > width())
+                        continue;
 
-                p.setBrush(QColor(QStringLiteral("#E8F0FE")));
-                p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0));
-                p.drawRoundedRect(badge, 4.0, 4.0);
+                    // Triangle pin pointing down
+                    const QPolygonF triangle({
+                        QPointF(wx - 5.0, m_topMargin - 8.0),
+                        QPointF(wx + 5.0, m_topMargin - 8.0),
+                        QPointF(wx, m_topMargin - 1.0)
+                    });
+                    p.setBrush(QColor(QStringLiteral("#1B73D0")));
+                    p.setPen(Qt::NoPen);
+                    p.drawPolygon(triangle);
 
-                p.setPen(QColor(QStringLiteral("#1B73D0")));
-                p.drawText(badge, Qt::AlignCenter, pinText);
+                    // Capsule label
+                    p.setFont(bodyFont);
+                    const QString pinText = std::abs(well.offsetDistanceM) > 1.0
+                        ? QStringLiteral("%1 (%2m)").arg(well.wellName).arg(qRound(well.offsetDistanceM))
+                        : well.wellName;
+                    const QFontMetrics fm(bodyFont);
+                    const int tw = fm.horizontalAdvance(pinText);
+                    const QRectF badge(wx - tw * 0.5 - 4.0, 4.0, tw + 8.0, 18.0);
+
+                    p.setBrush(QColor(QStringLiteral("#E8F0FE")));
+                    p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0));
+                    p.drawRoundedRect(badge, 4.0, 4.0);
+
+                    p.setPen(QColor(QStringLiteral("#1B73D0")));
+                    p.drawText(badge, Qt::AlignCenter, pinText);
+                }
             }
         }
     }
 
-    // 6. Render Left Vertical Ruler (TWT ms or Depth m)
+    // 6. Render Left Vertical Ruler (TWT ms or Depth m, or Inline for TimeSlice)
     const QRect leftRulerRect(0, m_topMargin, m_leftMargin, vp.height());
     p.fillRect(leftRulerRect, QColor(QStringLiteral("#F5F7FA")));
     p.setPen(QColor(QStringLiteral("#DFE5EC")));
     p.drawLine(QPoint(m_leftMargin, m_topMargin), QPoint(m_leftMargin, height()));
 
     if (hasData()) {
-        const double minTime = pixelToTime(m_topMargin);
-        const double maxTime = pixelToTime(height());
+        if (m_orientation == SectionOrientation::TimeSlice) {
+            // Vertical Inline (IL) ruler
+            const double topIl = pixelToInline(m_topMargin);
+            const double botIl = pixelToInline(height());
 
-        p.setFont(monoFont);
-        if (m_vertUnit == SectionVerticalUnit::TwoWayTimeMs) {
-            const auto ticks = NiceStep::GenerateTicks(minTime, maxTime, m_topMargin, height(), 8, QStringLiteral("%.0f"));
+            const auto ticks = NiceStep::GenerateTicks(std::min(topIl, botIl), std::max(topIl, botIl),
+                                                       m_topMargin, height(), 8, QStringLiteral("%.0f"));
+
+            p.setFont(monoFont);
             for (const auto &tk : ticks) {
-                if (tk.pixelPos < m_topMargin || tk.pixelPos > height())
+                const double py = inlineToPixelY(tk.value);
+                if (py < m_topMargin || py > height())
                     continue;
 
                 p.setPen(QColor(QStringLiteral("#5D6E80")));
                 if (tk.isMajor) {
-                    p.drawLine(QPointF(m_leftMargin - 10.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
-                    const QString label = QStringLiteral("%1").arg(qRound(tk.value));
+                    p.drawLine(QPointF(m_leftMargin - 10.0, py), QPointF(m_leftMargin, py));
+                    const QString label = QStringLiteral("IL %1").arg(qRound(tk.value));
                     const QFontMetrics fm(monoFont);
                     const int tw = fm.horizontalAdvance(label);
                     p.setPen(QColor(QStringLiteral("#24303E")));
-                    p.drawText(QPointF(m_leftMargin - 14.0 - tw, tk.pixelPos + 4.0), label);
+                    p.drawText(QPointF(m_leftMargin - 14.0 - tw, py + 4.0), label);
                 } else {
-                    p.drawLine(QPointF(m_leftMargin - 5.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
+                    p.drawLine(QPointF(m_leftMargin - 5.0, py), QPointF(m_leftMargin, py));
                 }
             }
+
+            // Top-left corner box
+            p.fillRect(QRect(0, 0, m_leftMargin, m_topMargin), QColor(QStringLiteral("#EDF1F5")));
+            p.setPen(QColor(QStringLiteral("#DFE5EC")));
+            p.drawRect(QRect(0, 0, m_leftMargin, m_topMargin));
+
+            p.setFont(bodyFont);
+            p.setPen(QColor(QStringLiteral("#1B73D0")));
+            const QString cornerStr = m_vertUnit == SectionVerticalUnit::TwoWayTimeMs
+                ? QStringLiteral("时间切片\n%1 ms").arg(m_currentTimeMs, 0, 'f', 1)
+                : QStringLiteral("深度切片\n%1 m").arg(m_tdModel.TwtMsToDepth(m_currentTimeMs), 0, 'f', 1);
+            p.drawText(QRect(2, 2, m_leftMargin - 4, m_topMargin - 4), Qt::AlignCenter, cornerStr);
         } else {
-            // Depth unit
-            const double minDepth = m_tdModel.TwtMsToDepth(minTime);
-            const double maxDepth = m_tdModel.TwtMsToDepth(maxTime);
-            const auto ticks = NiceStep::GenerateTicks(minDepth, maxDepth, m_topMargin, height(), 8, QStringLiteral("%.0f"));
-            for (const auto &tk : ticks) {
-                if (tk.pixelPos < m_topMargin || tk.pixelPos > height())
-                    continue;
+            const double minTime = pixelToTime(m_topMargin);
+            const double maxTime = pixelToTime(height());
 
-                p.setPen(QColor(QStringLiteral("#5D6E80")));
-                if (tk.isMajor) {
-                    p.drawLine(QPointF(m_leftMargin - 10.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
-                    const QString label = QStringLiteral("%1").arg(qRound(tk.value));
-                    const QFontMetrics fm(monoFont);
-                    const int tw = fm.horizontalAdvance(label);
-                    p.setPen(QColor(QStringLiteral("#24303E")));
-                    p.drawText(QPointF(m_leftMargin - 14.0 - tw, tk.pixelPos + 4.0), label);
-                } else {
-                    p.drawLine(QPointF(m_leftMargin - 5.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
+            p.setFont(monoFont);
+            if (m_vertUnit == SectionVerticalUnit::TwoWayTimeMs) {
+                const auto ticks = NiceStep::GenerateTicks(minTime, maxTime, m_topMargin, height(), 8, QStringLiteral("%.0f"));
+                for (const auto &tk : ticks) {
+                    if (tk.pixelPos < m_topMargin || tk.pixelPos > height())
+                        continue;
+
+                    p.setPen(QColor(QStringLiteral("#5D6E80")));
+                    if (tk.isMajor) {
+                        p.drawLine(QPointF(m_leftMargin - 10.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
+                        const QString label = QStringLiteral("%1").arg(qRound(tk.value));
+                        const QFontMetrics fm(monoFont);
+                        const int tw = fm.horizontalAdvance(label);
+                        p.setPen(QColor(QStringLiteral("#24303E")));
+                        p.drawText(QPointF(m_leftMargin - 14.0 - tw, tk.pixelPos + 4.0), label);
+                    } else {
+                        p.drawLine(QPointF(m_leftMargin - 5.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
+                    }
+                }
+            } else {
+                // Depth unit
+                const double minDepth = m_tdModel.TwtMsToDepth(minTime);
+                const double maxDepth = m_tdModel.TwtMsToDepth(maxTime);
+                const auto ticks = NiceStep::GenerateTicks(minDepth, maxDepth, m_topMargin, height(), 8, QStringLiteral("%.0f"));
+                for (const auto &tk : ticks) {
+                    if (tk.pixelPos < m_topMargin || tk.pixelPos > height())
+                        continue;
+
+                    p.setPen(QColor(QStringLiteral("#5D6E80")));
+                    if (tk.isMajor) {
+                        p.drawLine(QPointF(m_leftMargin - 10.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
+                        const QString label = QStringLiteral("%1").arg(qRound(tk.value));
+                        const QFontMetrics fm(monoFont);
+                        const int tw = fm.horizontalAdvance(label);
+                        p.setPen(QColor(QStringLiteral("#24303E")));
+                        p.drawText(QPointF(m_leftMargin - 14.0 - tw, tk.pixelPos + 4.0), label);
+                    } else {
+                        p.drawLine(QPointF(m_leftMargin - 5.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
+                    }
                 }
             }
+
+            // Axis unit label in top-left corner box
+            p.fillRect(QRect(0, 0, m_leftMargin, m_topMargin), QColor(QStringLiteral("#EDF1F5")));
+            p.setPen(QColor(QStringLiteral("#DFE5EC")));
+            p.drawRect(QRect(0, 0, m_leftMargin, m_topMargin));
+
+            p.setFont(bodyFont);
+            p.setPen(QColor(QStringLiteral("#5D6E80")));
+            const QString unitStr = m_vertUnit == SectionVerticalUnit::TwoWayTimeMs
+                ? QStringLiteral("TWT (ms)")
+                : QStringLiteral("深度 (m)");
+            p.drawText(QRect(2, 2, m_leftMargin - 4, m_topMargin - 4), Qt::AlignCenter, unitStr);
         }
-
-        // Axis unit label in top-left corner box
-        p.fillRect(QRect(0, 0, m_leftMargin, m_topMargin), QColor(QStringLiteral("#EDF1F5")));
-        p.setPen(QColor(QStringLiteral("#DFE5EC")));
-        p.drawRect(QRect(0, 0, m_leftMargin, m_topMargin));
-
-        p.setFont(bodyFont);
-        p.setPen(QColor(QStringLiteral("#5D6E80")));
-        const QString unitStr = m_vertUnit == SectionVerticalUnit::TwoWayTimeMs
-            ? QStringLiteral("TWT (ms)")
-            : QStringLiteral("深度 (m)");
-        p.drawText(QRect(2, 2, m_leftMargin - 4, m_topMargin - 4), Qt::AlignCenter, unitStr);
     }
 }
 
@@ -632,13 +808,20 @@ void SeismicSectionCanvas::wheelEvent(QWheelEvent *event) {
     const QPointF anchor = event->position();
 
     const double anchorTrace = pixelToTrace(anchor.x());
-    const double anchorTime = pixelToTime(anchor.y());
+    const double anchorY = (m_orientation == SectionOrientation::TimeSlice)
+        ? pixelToInline(anchor.y())
+        : pixelToTime(anchor.y());
 
     m_zoomX = std::clamp(m_zoomX * zoomFactor, 0.12, 64.0);
     m_zoomY = std::clamp(m_zoomY * zoomFactor, 0.12, 64.0);
 
     m_panX = anchor.x() - m_leftMargin - anchorTrace * m_zoomX;
-    m_panY = anchor.y() - m_topMargin - ((anchorTime - m_t0Ms) / m_dtMs) * m_zoomY;
+    if (m_orientation == SectionOrientation::TimeSlice) {
+        const double rowIdx = (static_cast<double>(m_inlineMax) - anchorY) / std::max(1, m_inlineMax - m_inlineMin) * std::max(1, m_samples - 1);
+        m_panY = anchor.y() - m_topMargin - rowIdx * m_zoomY;
+    } else {
+        m_panY = anchor.y() - m_topMargin - ((anchorY - m_t0Ms) / m_dtMs) * m_zoomY;
+    }
 
     emit zoomChanged(m_zoomX);
     updateHoverInfo(event->position().toPoint());
@@ -657,6 +840,24 @@ void SeismicSectionCanvas::leaveEvent(QEvent *) {
 void SeismicSectionCanvas::updateHoverInfo(const QPoint &pos) {
     if (!hasData())
         return;
+
+    if (m_orientation == SectionOrientation::TimeSlice) {
+        const double trace = pixelToTrace(pos.x());
+        const double ilVal = pixelToInline(pos.y());
+        const int colIdx = std::clamp(static_cast<int>(std::round(trace)), 0, m_traces - 1);
+        const double spanIl = std::max(1, m_inlineMax - m_inlineMin);
+        const int rowIdx = std::clamp(static_cast<int>(std::round((static_cast<double>(m_inlineMax) - ilVal) / spanIl * std::max(1, m_samples - 1))), 0, m_samples - 1);
+
+        const float amp = (colIdx >= 0 && colIdx < m_traces && rowIdx >= 0 && rowIdx < m_samples)
+            ? m_slice.Value(colIdx, rowIdx)
+            : 0.0f;
+
+        const double xlVal = m_xlineMin + (static_cast<double>(colIdx) / std::max(1, m_traces - 1)) * (m_xlineMax - m_xlineMin);
+        const double depth = m_tdModel.TwtMsToDepth(m_currentTimeMs);
+
+        emit traceHovered(colIdx, m_currentTimeMs, depth, amp, xlVal, ilVal);
+        return;
+    }
 
     const double trace = pixelToTrace(pos.x());
     const double twt = pixelToTime(pos.y());

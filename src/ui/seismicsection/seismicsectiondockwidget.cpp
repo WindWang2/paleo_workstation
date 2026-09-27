@@ -54,6 +54,49 @@ void SeismicSectionDockWidget::setupUi() {
         "QLabel { background: #E8F0FE; color: #1B73D0; font-weight: bold; border-radius: 4px; padding: 2px 8px; font-size: 9pt; }"));
     toolLay->addWidget(m_lblTitle);
 
+    // Section Mode Combo
+    m_cboSectionMode = new QComboBox(toolbar);
+    m_cboSectionMode->setObjectName(QStringLiteral("cboSectionMode"));
+    m_cboSectionMode->addItems({tr("纵测线 (IL)"), tr("横测线 (XL)"), tr("时间切片 (Time)"), tr("任意测线/井剖面")});
+    m_cboSectionMode->setStyleSheet(QStringLiteral(
+        "QComboBox { border: 1px solid #DFE5EC; border-radius: 4px; padding: 2px 6px; font-size: 8.5pt; color: #24303E; background: #FFFFFF; font-weight: 500; }"));
+    toolLay->addWidget(m_cboSectionMode);
+
+    // Slicing Group (Slider + Spin + Time label)
+    m_sliceGroup = new QWidget(toolbar);
+    auto *sliceLay = new QHBoxLayout(m_sliceGroup);
+    sliceLay->setContentsMargins(0, 0, 0, 0);
+    sliceLay->setSpacing(4);
+
+    m_lblSliceIndex = new QLabel(tr("纵测线:"), m_sliceGroup);
+    m_lblSliceIndex->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8.5pt; font-weight: 500;"));
+    sliceLay->addWidget(m_lblSliceIndex);
+
+    m_sliderSlice = new QSlider(Qt::Horizontal, m_sliceGroup);
+    m_sliderSlice->setObjectName(QStringLiteral("sliderSectionSlice"));
+    m_sliderSlice->setRange(1, 100);
+    m_sliderSlice->setValue(1);
+    m_sliderSlice->setFixedWidth(90);
+    sliceLay->addWidget(m_sliderSlice);
+
+    m_spinSlice = new QSpinBox(m_sliceGroup);
+    m_spinSlice->setObjectName(QStringLiteral("spinSectionSlice"));
+    m_spinSlice->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
+    m_spinSlice->setRange(1, 100);
+    m_spinSlice->setValue(1);
+    m_spinSlice->setFixedWidth(64);
+    sliceLay->addWidget(m_spinSlice);
+
+    m_lblTimeMs = new QLabel(QStringLiteral("0.0 ms"), m_sliceGroup);
+    m_lblTimeMs->setObjectName(QStringLiteral("lblSectionTimeMs"));
+    m_lblTimeMs->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
+    m_lblTimeMs->setStyleSheet(QStringLiteral("color: #1B73D0; font-weight: bold;"));
+    m_lblTimeMs->setFixedWidth(68);
+    m_lblTimeMs->setVisible(false);
+    sliceLay->addWidget(m_lblTimeMs);
+
+    toolLay->addWidget(m_sliceGroup);
+
     // Zoom Buttons
     m_btnZoomIn = new QToolButton(toolbar);
     m_btnZoomIn->setObjectName(QStringLiteral("btnSectionZoomIn"));
@@ -238,10 +281,180 @@ void SeismicSectionDockWidget::setupUi() {
     connect(actBuf500, &QAction::triggered, this, [this]() { m_canvas->setBufferDistanceM(500.0); });
     connect(actBuf1000, &QAction::triggered, this, [this]() { m_canvas->setBufferDistanceM(1000.0); });
 
+    connect(m_cboSectionMode, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &SeismicSectionDockWidget::onSectionModeChanged);
+
+    connect(m_sliderSlice, &QSlider::valueChanged, m_spinSlice, &QSpinBox::setValue);
+    connect(m_spinSlice, &QSpinBox::valueChanged, m_sliderSlice, &QSlider::setValue);
+    connect(m_sliderSlice, &QSlider::valueChanged, this, &SeismicSectionDockWidget::onSliceSliderChanged);
+
     connect(m_btnExport, &QToolButton::clicked, this, &SeismicSectionDockWidget::onExportSnapshot);
 
     connect(m_canvas, &SeismicSectionCanvas::zoomChanged, this, &SeismicSectionDockWidget::onZoomChanged);
     connect(m_canvas, &SeismicSectionCanvas::traceHovered, this, &SeismicSectionDockWidget::onTraceHovered);
+}
+
+void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume) {
+    m_volume = volume;
+    if (!m_volume || !m_volume->IsLoaded()) {
+        m_sliceGroup->setEnabled(false);
+        return;
+    }
+
+    m_sliceGroup->setEnabled(true);
+    onSectionModeChanged(m_cboSectionMode->currentIndex());
+}
+
+void SeismicSectionDockWidget::onSectionModeChanged(int modeIndex) {
+    if (!m_volume || !m_volume->IsLoaded()) {
+        m_sliceGroup->setVisible(modeIndex != 3);
+        return;
+    }
+
+    m_sliderSlice->blockSignals(true);
+    m_spinSlice->blockSignals(true);
+
+    if (modeIndex == 0) { // Inline
+        m_sliceGroup->setVisible(true);
+        m_lblSliceIndex->setText(tr("纵测线:"));
+        m_sliderSlice->setRange(m_volume->InlineMin(), m_volume->InlineMax());
+        m_spinSlice->setRange(m_volume->InlineMin(), m_volume->InlineMax());
+        const int mid = (m_volume->InlineMin() + m_volume->InlineMax()) / 2;
+        m_sliderSlice->setValue(mid);
+        m_spinSlice->setValue(mid);
+        m_lblTimeMs->setVisible(false);
+        m_sliderSlice->blockSignals(false);
+        m_spinSlice->blockSignals(false);
+        extractSliceAsync(SgySliceType::Inline, mid);
+    } else if (modeIndex == 1) { // Crossline
+        m_sliceGroup->setVisible(true);
+        m_lblSliceIndex->setText(tr("横测线:"));
+        m_sliderSlice->setRange(m_volume->XlineMin(), m_volume->XlineMax());
+        m_spinSlice->setRange(m_volume->XlineMin(), m_volume->XlineMax());
+        const int mid = (m_volume->XlineMin() + m_volume->XlineMax()) / 2;
+        m_sliderSlice->setValue(mid);
+        m_spinSlice->setValue(mid);
+        m_lblTimeMs->setVisible(false);
+        m_sliderSlice->blockSignals(false);
+        m_spinSlice->blockSignals(false);
+        extractSliceAsync(SgySliceType::Xline, mid);
+    } else if (modeIndex == 2) { // Time Slice
+        m_sliceGroup->setVisible(true);
+        m_lblSliceIndex->setText(tr("时间采样:"));
+        m_sliderSlice->setRange(0, m_volume->SampleMax());
+        m_spinSlice->setRange(0, m_volume->SampleMax());
+        const int mid = m_volume->SampleMax() / 2;
+        m_sliderSlice->setValue(mid);
+        m_spinSlice->setValue(mid);
+        const double ms = mid * (m_volume->SampleIntervalUs() / 1000.0);
+        m_lblTimeMs->setText(QStringLiteral("%1 ms").arg(ms, 0, 'f', 1));
+        m_lblTimeMs->setVisible(true);
+        m_sliderSlice->blockSignals(false);
+        m_spinSlice->blockSignals(false);
+        extractSliceAsync(SgySliceType::Time, mid);
+    } else { // Arbitrary line
+        m_sliceGroup->setVisible(false);
+        m_sliderSlice->blockSignals(false);
+        m_spinSlice->blockSignals(false);
+    }
+}
+
+void SeismicSectionDockWidget::onSliceSliderChanged(int value) {
+    if (!m_volume || !m_volume->IsLoaded())
+        return;
+
+    const int mode = m_cboSectionMode->currentIndex();
+    if (mode == 0) {
+        extractSliceAsync(SgySliceType::Inline, value);
+    } else if (mode == 1) {
+        extractSliceAsync(SgySliceType::Xline, value);
+    } else if (mode == 2) {
+        const double ms = value * (m_volume->SampleIntervalUs() / 1000.0);
+        m_lblTimeMs->setText(QStringLiteral("%1 ms").arg(ms, 0, 'f', 1));
+        extractSliceAsync(SgySliceType::Time, value);
+    }
+}
+
+void SeismicSectionDockWidget::setSectionMode(int modeIndex) {
+    if (m_cboSectionMode && m_cboSectionMode->currentIndex() != modeIndex) {
+        m_cboSectionMode->setCurrentIndex(modeIndex);
+    } else if (m_volume && m_volume->IsLoaded()) {
+        onSectionModeChanged(modeIndex);
+    }
+}
+
+void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
+    if (!m_volume || !m_volume->IsLoaded())
+        return;
+
+    if (m_isExtractingSlice) {
+        m_pendingSliceType = type;
+        m_pendingSliceIndex = index;
+        return;
+    }
+    m_isExtractingSlice = true;
+
+    QString title;
+    if (type == SgySliceType::Inline) {
+        title = QStringLiteral("纵测线剖面 IL %1").arg(index);
+    } else if (type == SgySliceType::Xline) {
+        title = QStringLiteral("横测线剖面 XL %1").arg(index);
+    } else {
+        const double ms = index * (m_volume->SampleIntervalUs() / 1000.0);
+        title = QStringLiteral("水平时间切片 TWT %1 ms").arg(ms, 0, 'f', 1);
+    }
+    setLineTitle(title);
+
+    m_progressBar->setValue(0);
+    m_progressBar->setVisible(true);
+
+    auto vol = m_volume;
+    QThreadPool::globalInstance()->start([this, vol, type, index, title]() {
+        SgySliceImage image;
+        std::string err;
+        auto progressCb = [this](int processed, int total) -> bool {
+            if (total > 0) {
+                const int pct = std::clamp(static_cast<int>(std::round(100.0 * processed / total)), 0, 100);
+                QMetaObject::invokeMethod(this, [this, pct]() {
+                    m_progressBar->setValue(pct);
+                }, Qt::QueuedConnection);
+            }
+            return true;
+        };
+
+        const bool ok = vol->ExtractSlice(type, index, image, err, progressCb);
+
+        QMetaObject::invokeMethod(this, [this, ok, image, type, index, title, vol, err]() {
+            m_isExtractingSlice = false;
+            m_progressBar->setVisible(false);
+
+            if (m_pendingSliceIndex >= 0) {
+                const auto nextType = m_pendingSliceType;
+                const int nextIdx = m_pendingSliceIndex;
+                m_pendingSliceIndex = -1;
+                extractSliceAsync(nextType, nextIdx);
+                if (nextType != type) {
+                    return;
+                }
+            }
+
+            if (!ok) {
+                setLineTitle(tr("切片提取失败: %1").arg(QString::fromStdString(err)));
+                emit sectionExtractionFinished(false, QString::fromStdString(err));
+                return;
+            }
+
+            setLineTitle(title);
+            if (type == SgySliceType::Time) {
+                const double ms = index * (vol->SampleIntervalUs() / 1000.0);
+                m_canvas->setTimeSliceData(image, ms, vol->InlineMin(), vol->InlineMax(), vol->XlineMin(), vol->XlineMax());
+            } else {
+                const float dtMs = vol->SampleIntervalUs() > 0 ? (vol->SampleIntervalUs() / 1000.0f) : 2.0f;
+                m_canvas->setSectionData(image, dtMs, 0.0);
+            }
+            emit sectionExtractionFinished(true, QString());
+        }, Qt::QueuedConnection);
+    });
 }
 
 void SeismicSectionDockWidget::setSectionData(
@@ -275,6 +488,17 @@ void SeismicSectionDockWidget::onTraceHovered(
 {
     if (m_canvas->traceCount() <= 0)
         return;
+
+    if (m_canvas->orientation() == SectionOrientation::TimeSlice) {
+        m_lblCoordinates->setText(
+            QStringLiteral("横测线 (XL): %1 | 纵测线 (IL): %2 | 时间: %3 ms | 深度: %4 m | 振幅: %5")
+                .arg(qRound(mapX))
+                .arg(qRound(mapY))
+                .arg(twtMs, 0, 'f', 1)
+                .arg(depthM, 0, 'f', 1)
+                .arg(amplitude, 0, 'f', 4));
+        return;
+    }
 
     QString text = QStringLiteral("道: %1/%2 | TWT: %3 ms | 深度: %4 m | 振幅: %5")
         .arg(traceIndex + 1)
@@ -315,6 +539,12 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
 {
     if (!volume || pathPoints.empty())
         return;
+
+    m_volume = volume;
+    m_cboSectionMode->blockSignals(true);
+    m_cboSectionMode->setCurrentIndex(3);
+    m_cboSectionMode->blockSignals(false);
+    m_sliceGroup->setVisible(false);
 
     setLineTitle(lineTitle.isEmpty() ? tr("剖面抽取中...") : lineTitle);
     m_progressBar->setValue(0);

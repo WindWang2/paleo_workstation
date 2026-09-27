@@ -50,6 +50,7 @@ public:
 signals:
     void cameraChanged();
     void volumeLoaded();
+    void glReady();
 
 protected:
     void initializeGL() override;
@@ -65,10 +66,26 @@ protected:
 private:
     enum class DragMode { None, Rotate, Pan };
 
+    struct PendingSlice {
+        SeismicSliceSlot slot;
+        SgySliceType type;
+        int index;
+        SgySliceImage image;
+    };
+
+    struct PendingLineSlice {
+        std::vector<glm::ivec2> pathPoints;
+        SgySliceImage image;
+        bool valid = false;
+    };
+
     SeismicCameraController camera_;
     SeismicSliceRenderer sliceRenderer_;
     VolumeFrameRenderer frameRenderer_;
     std::shared_ptr<SgyVolume> volume_;
+
+    std::map<SeismicSliceSlot, PendingSlice> pendingSlices_;
+    PendingLineSlice pendingLineSlice_;
 
     DragMode dragMode_ = DragMode::None;
     QPointF lastMousePos_;

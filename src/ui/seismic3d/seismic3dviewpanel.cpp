@@ -200,6 +200,20 @@ void Seismic3DViewPanel::buildUi() {
     connect(timeSlider_, &QSlider::valueChanged, timeSpin_, &QSpinBox::setValue);
     connect(timeSpin_, &QSpinBox::valueChanged, timeSlider_, &QSlider::setValue);
     connect(timeSlider_, &QSlider::valueChanged, this, &Seismic3DViewPanel::onTimeSliderChanged);
+
+    connect(viewport_, &Seismic3DViewportWidget::glReady, this, [this]() {
+        auto vol = volume();
+        if (!vol || !vol->IsLoaded()) return;
+        if (!viewport_->isSlotReady(SeismicSliceSlot::Inline)) {
+            requestSliceUpdate(SeismicSliceSlot::Inline, SgySliceType::Inline, currentInline());
+        }
+        if (!viewport_->isSlotReady(SeismicSliceSlot::Crossline)) {
+            requestSliceUpdate(SeismicSliceSlot::Crossline, SgySliceType::Xline, currentCrossline());
+        }
+        if (!viewport_->isSlotReady(SeismicSliceSlot::Time)) {
+            requestSliceUpdate(SeismicSliceSlot::Time, SgySliceType::Time, currentTimeSample());
+        }
+    });
 }
 
 void Seismic3DViewPanel::setTaskService(SeismicTaskService *taskSvc) {

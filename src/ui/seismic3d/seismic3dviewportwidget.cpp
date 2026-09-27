@@ -36,6 +36,26 @@ void Seismic3DViewportWidget::initializeGL() {
         frameRenderer_.UpdateFromVolume(this, *volume_);
         fitToBounds();
     }
+
+    if (!pendingSlices_.empty() && volume_) {
+        makeCurrent();
+        for (const auto &[slot, ps] : pendingSlices_) {
+            sliceRenderer_.UpdateSlice(this, ps.slot, *volume_, ps.type, ps.index, ps.image);
+        }
+        pendingSlices_.clear();
+        doneCurrent();
+    }
+
+    if (pendingLineSlice_.valid && volume_) {
+        makeCurrent();
+        sliceRenderer_.UpdateLineSlice(this, *volume_, pendingLineSlice_.pathPoints, pendingLineSlice_.image);
+        frameRenderer_.UpdateLineSection(this, *volume_, pendingLineSlice_.pathPoints);
+        pendingLineSlice_.valid = false;
+        doneCurrent();
+    }
+
+    emit glReady();
+    update();
 }
 
 void Seismic3DViewportWidget::resizeGL(int w, int h) {
@@ -58,6 +78,8 @@ void Seismic3DViewportWidget::paintGL() {
 
 void Seismic3DViewportWidget::setVolume(std::shared_ptr<SgyVolume> volume) {
     volume_ = std::move(volume);
+    pendingSlices_.clear();
+    pendingLineSlice_.valid = false;
     if (glInitialized_ && volume_ && volume_->IsLoaded()) {
         makeCurrent();
         frameRenderer_.UpdateFromVolume(this, *volume_);
@@ -73,8 +95,12 @@ bool Seismic3DViewportWidget::updateSlice(
     SgySliceType type,
     int index,
     const SgySliceImage &image) {
-    if (!volume_ || !glInitialized_) {
+    if (!volume_) {
         return false;
+    }
+    if (!glInitialized_) {
+        pendingSlices_[slot] = {slot, type, index, image};
+        return true;
     }
     makeCurrent();
     const bool ok = sliceRenderer_.UpdateSlice(this, slot, *volume_, type, index, image);
@@ -88,8 +114,12 @@ bool Seismic3DViewportWidget::updateSlice(
 bool Seismic3DViewportWidget::updateLineSlice(
     const std::vector<glm::ivec2> &pathPoints,
     const SgySliceImage &image) {
-    if (!volume_ || !glInitialized_) {
+    if (!volume_) {
         return false;
+    }
+    if (!glInitialized_) {
+        pendingLineSlice_ = {pathPoints, image, true};
+        return true;
     }
     makeCurrent();
     const bool ok = sliceRenderer_.UpdateLineSlice(this, *volume_, pathPoints, image);

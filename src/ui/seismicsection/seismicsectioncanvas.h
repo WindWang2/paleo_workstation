@@ -23,6 +23,11 @@ enum class SectionVerticalUnit {
     DepthMeters = 1    // Depth (m)
 };
 
+enum class SectionOrientation {
+    Vertical = 0,   // Inline, Crossline, Arbitrary line (X: traces/dist, Y: TWT ms / depth m)
+    TimeSlice = 1   // Horizontal time slice (X: Crosslines, Y: Inlines, Constant TWT ms)
+};
+
 class SeismicSectionCanvas : public QWidget {
     Q_OBJECT
 
@@ -36,6 +41,20 @@ public:
                         double startSampleMs = 0.0f,
                         const std::vector<float> &columnDistancesM = {},
                         const std::vector<glm::dvec2> &mapCoords = {});
+
+    void setTimeSliceData(const SgySliceImage &image,
+                          double twtMs,
+                          int inlineMin, int inlineMax,
+                          int xlineMin, int xlineMax);
+
+    void setOrientation(SectionOrientation orientation);
+    SectionOrientation orientation() const { return m_orientation; }
+
+    double currentTimeMs() const { return m_currentTimeMs; }
+    int inlineMin() const { return m_inlineMin; }
+    int inlineMax() const { return m_inlineMax; }
+    int xlineMin() const { return m_xlineMin; }
+    int xlineMax() const { return m_xlineMax; }
 
     void clearData();
     bool hasData() const { return m_traces > 0 && m_samples > 0; }
@@ -89,8 +108,10 @@ public:
     // Coordinates conversion
     double traceToPixelX(double trace) const;
     double timeToPixelY(double twtMs) const;
+    double inlineToPixelY(double inlineNo) const;
     double pixelToTrace(double px) const;
     double pixelToTime(double py) const;
+    double pixelToInline(double py) const;
 
 signals:
     void traceHovered(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
@@ -120,6 +141,14 @@ private:
     double m_t0Ms = 0.0;
     std::vector<float> m_columnDistances;
     std::vector<glm::dvec2> m_mapCoords;
+
+    // Time Slice parameters
+    SectionOrientation m_orientation = SectionOrientation::Vertical;
+    double m_currentTimeMs = 0.0;
+    int m_inlineMin = 1;
+    int m_inlineMax = 1;
+    int m_xlineMin = 1;
+    int m_xlineMax = 1;
 
     // Image rendering cache
     QImage m_cachedImage;

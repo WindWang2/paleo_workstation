@@ -2,7 +2,9 @@
 
 #include "manifestprojection.h"
 #include "../metadata/atomicfile.h"
+#include "../metadata/paleoprojectfile.h"
 
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 
@@ -46,14 +48,68 @@ bool QgisProjectService::openProject( const QString &qgzPath )
     return false;
   }
 
-  if ( !m_project->read( qgzPath ) )
+  // project.paleo 清单入口（PROJECT_FILE_DESIGN）：.paleo → 解析出 qgz 成员
+  // 再开；qgz 成员缺席 = 束损坏，拒开。其他成员缺失如实报 lastErrors 仍开。
+  QString qgzFile = qgzPath;
+  if ( qgzPath.endsWith( QLatin1String( ".paleo" ) ) )
+  {
+    bool ok = false;
+    QString perr;
+    const PaleoProjectFile pf = readProjectFile( qgzPath, &ok, &perr );
+    if ( !ok )
+    {
+      m_errors << ( perr.isEmpty() ? tr( "Cannot read project file %1" ).arg( qgzPath )
+                                   : perr );
+      return false;
+    }
+    const QString dir = QFileInfo( qgzPath ).absolutePath();
+    if ( pf.qgz.isEmpty() ||
+         !QFile::exists( QDir( dir ).filePath( pf.qgz ) ) )
+    {
+      m_errors << tr( "Project bundle is damaged: qgz member missing (%1)" )
+                      .arg( pf.qgz.isEmpty() ? QStringLiteral( "not declared" )
+                                             : pf.qgz );
+      return false;
+    }
+    qgzFile = QDir( dir ).filePath( pf.qgz );
+    for ( const QString &m : missingMembers( dir, pf ) )
+      m_errors << tr( "project member missing: %1" ).arg( m ); // 如实报，不拦开
+  }
+  else
+  {
+    // .qgz 直开：旁有 .paleo → 校验束成员；旁无 → 收养（写一份清单），
+    // 老工程静默升级。校验失败只进 lastErrors——束检查不拦可用工程。
+    const QString dir = QFileInfo( qgzFile ).absolutePath();
+    const QString paleoPath = paleoProjectFilePath( dir );
+    if ( QFile::exists( paleoPath ) )
+    {
+      bool ok = false;
+      QString perr;
+      const PaleoProjectFile pf = readProjectFile( paleoPath, &ok, &perr );
+      if ( ok )
+        for ( const QString &m : missingMembers( dir, pf ) )
+          m_errors << tr( "project member missing: %1" ).arg( m );
+      else
+        m_errors << tr( "project manifest unreadable: %1" ).arg( perr );
+    }
+    else
+    {
+      QString werr;
+      if ( !writeProjectFile( dir, projectFileForQgz( qgzFile ), &werr ) )
+        m_errors << tr( "could not adopt project manifest: %1" ).arg( werr );
+      else
+        qInfo() << "QgisProjectService: adopted" << paleoPath;
+    }
+  }
+
+  if ( !m_project->read( qgzFile ) )
   {
     const QString err = m_project->error();
-    m_errors << ( err.isEmpty() ? tr( "Failed to read project: %1" ).arg( qgzPath ) : err );
+    m_errors << ( err.isEmpty() ? tr( "Failed to read project: %1" ).arg( qgzFile ) : err );
     return false;
   }
 
-  m_path = qgzPath;
+  m_path = qgzFile;
   emit projectOpened( m_path );
   return true;
 }
@@ -75,6 +131,15 @@ bool QgisProjectService::createProject( const QString &qgzPath )
   // later saveAll() cycles always have an existing .qgz to back up.
   if ( !writeProject() )
     return false;
+
+  // 工程清单随新建落盘（PROJECT_FILE_DESIGN）：.qgz + project.paleo 双件。
+  // 清单写失败不拦工程创建——如实进 lastErrors。
+  {
+    QString werr;
+    if ( !writeProjectFile( QFileInfo( qgzPath ).absolutePath(),
+                            projectFileForQgz( qgzPath ), &werr ) )
+      m_errors << tr( "project manifest write failed: %1" ).arg( werr );
+  }
 
   emit projectOpened( m_path );
   return true;

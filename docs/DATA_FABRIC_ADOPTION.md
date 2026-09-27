@@ -154,3 +154,7 @@ A（独立新增）→ C（dataimportservice 接缝）→ D（paleoprojectstore 
 - **放弃项（如实记录）**：曾考虑给 `buildIngestPlan` 加「推断角色↔词表」
   note 标记——`roleForType` 只产词表内角色、`project_area.json` 的 roles
   覆盖是增量补丁不能删内置，标记路径不可达 = 死代码，不做。
+- **就地工程导入（PROJECT_FILE_DESIGN 追加）**：`buildIngestPlan` 扫描守卫
+  改口径——源根==工程根（「从工区文件夹新建」）不再硬拒，束成员
+  （project.paleo 声明件 + artifacts/ 受管子树）不出行；源根在工程目录
+  之内仍拒。见 `docs/PROJECT_FILE_DESIGN.md`。

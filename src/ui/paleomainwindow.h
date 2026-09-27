@@ -133,6 +133,11 @@ class PaleoMainWindow : public QMainWindow
     // 「导入工区文件夹」：分类确认表（可改类型）→ 两阶段导入 → 计数汇总，
     // 确认后只打开井口标签（§3/autoplan-design）。
     void runFolderImport(DataImportService *svc);
+    // 已知目录的入口变体（「从工区文件夹新建」复用同一确认框流程）。
+    void runFolderImportAt(DataImportService *svc, const QString &dir);
+    // PROJECT_FILE_DESIGN：文件夹导入完成后把来源+统计回填 project.paleo
+    // 的 sourceArea。只在「工程目录==导入目录」（从文件夹新建的工程）时写。
+    void stampSourceArea(const QString &dir, const QVariantMap &stats);
     // D11 临时配准：手工仿射 → DERIVED GeoJSON 版本登记 → 「临时配准 · 名」
     // 矢量图层实例化 + 画布水印；失败走状态栏文案，不弹框。
     void applyProvisionalRegistration(DataImportService *svc,
@@ -166,6 +171,7 @@ class PaleoMainWindow : public QMainWindow
     QDockWidget *m_bottomDock = nullptr;
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
+    DataImportService *m_importSvc = nullptr; // attachWorkflows 注入；启动页「从工区文件夹新建」用
     // attachWorkflows 幂等守卫：该函数每次执行都清栈重建右栏页面、给底栏/
     // 状态栏加面板并往服务对象上叠信号连接，二次执行会重复建 dock/按钮并
     // 遗留悬空引用（后续用例段错误）。测试套件会二次触达同一窗口——

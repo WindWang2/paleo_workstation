@@ -3,6 +3,7 @@
 #include "lasparser.h"
 #include "projectclassifier.h"
 #include "wellfileparsers.h"
+#include "../metadata/paleoprojectfile.h"
 
 #include <QDir>
 #include <QDirIterator>
@@ -121,12 +122,40 @@ namespace
     const QString projectCanon = QFileInfo(projectDir).canonicalFilePath();
     const QString projectPrefix =
         projectCanon.isEmpty() ? QString() : projectCanon + QLatin1Char('/');
-    if (!projectCanon.isEmpty() &&
-        (rootCanon == projectCanon || rootCanon.startsWith(projectPrefix)))
+    // 根在工程目录之内（如选中了 artifacts/ 子目录）仍拒——把工程产物喂回来
+    // 没有意义。
+    if (!projectCanon.isEmpty() && rootCanon.startsWith(projectPrefix))
     {
       plan->issues.append(
-          QStringLiteral("不能把工程目录自身选作导入源: %1").arg(dirPath));
+          QStringLiteral("不能把工程目录内的子目录选作导入源: %1").arg(dirPath));
       return;
+    }
+    // 就地工程（源目录==工程根，「从工区文件夹新建」形态）：束成员与
+    // artifacts/ 受管子树不当作源数据出行，其余文件照常分类。
+    const bool inPlace = !projectCanon.isEmpty() && rootCanon == projectCanon;
+    QSet<QString> bundleMembers;
+    QString managedPrefix;
+    if (inPlace)
+    {
+      const QDir pd(projectCanon);
+      managedPrefix = pd.absoluteFilePath(QStringLiteral("artifacts")) +
+                      QLatin1Char('/');
+      bundleMembers.insert(
+          pd.absoluteFilePath(QString::fromLatin1(PaleoProjectFile::kFileName)));
+      bool ok = false;
+      const PaleoProjectFile pf =
+          readProjectFile(paleoProjectFilePath(projectCanon), &ok);
+      if (ok)
+        for (const QString &rel :
+             {pf.qgz, pf.catalog, pf.manifest, pf.gpkg, pf.areaRules})
+          if (!rel.isEmpty())
+          {
+            const QString abs = pd.absoluteFilePath(rel);
+            bundleMembers.insert(abs);
+            const QString cm = QFileInfo(abs).canonicalFilePath();
+            if (!cm.isEmpty())
+              bundleMembers.insert(cm);
+          }
     }
 
     // 迭代器不带 FollowSymlinks：目录符号链接天然不下钻；文件符号链接用
@@ -141,7 +170,13 @@ namespace
       const QString canon = fi.canonicalFilePath();
       if (!projectPrefix.isEmpty() && !canon.isEmpty() &&
           canon.startsWith(projectPrefix))
-        continue; // 工程产物子树不是源数据——跳过且不出行
+      {
+        if (!inPlace)
+          continue; // 工程产物子树不是源数据——跳过且不出行
+        if (canon.startsWith(managedPrefix) || bundleMembers.contains(canon) ||
+            bundleMembers.contains(fi.absoluteFilePath()))
+          continue; // 就地工程：束成员/受管产物不出行
+      }
 
       PlannedItem item;
       item.path = path;

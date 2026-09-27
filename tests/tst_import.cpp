@@ -1335,9 +1335,23 @@ private slots:
     QVERIFY(svc.importFolder(emptyDir, &err).isEmpty());
     QVERIFY(!err.isEmpty());
 
-    // 工程目录自身（或内部目录）不能当导入源。
-    QVERIFY(svc.importFolder(projectDir, &err).isEmpty());
+    // 工程之内的子目录（受管区）不能当导入源。
+    QVERIFY(QDir().mkpath(QDir(projectDir).filePath(QStringLiteral("artifacts"))));
+    QVERIFY(svc.importFolder(QDir(projectDir).filePath(QStringLiteral("artifacts")),
+                             &err).isEmpty());
     QVERIFY(!err.isEmpty());
+
+    // PROJECT_FILE_DESIGN 就地工程（源==工程根）：不再硬拒——束成员
+    // （proj.qgz/project.paleo）与 artifacts/ 不出行，其余文件照常分类
+    // （「从工区文件夹新建」依赖这条路径）。
+    const auto inPlaceRows = svc.importFolder(projectDir, &err);
+    for (const auto &r : inPlaceRows)
+    {
+      QVERIFY2(!r.path.endsWith(QStringLiteral("proj.qgz")), qPrintable(r.path));
+      QVERIFY2(!r.path.endsWith(QStringLiteral("project.paleo")),
+               qPrintable(r.path));
+      QVERIFY2(!r.path.contains(QStringLiteral("artifacts/")), qPrintable(r.path));
+    }
 
     // 包住工程目录的上级目录：工程产物子树不出行，只收外面的普通文件。
     const QVector<DataImportService::FolderRowResult> rows =
@@ -2046,6 +2060,56 @@ private slots:
     QVERIFY(json.open(QIODevice::ReadOnly));
     QCOMPARE(json.readAll(), jsonBefore); // 没落盘
     json.close();
+  }
+
+  // PROJECT_FILE_DESIGN 就地工程：源目录==工程根（「从工区文件夹新建」
+  // 形态）时，束成员（project.paleo/proj.qgz）与 artifacts/ 受管子树
+  // 不当作源数据出行；数据文件照常分类。工程之内的子目录仍拒。
+  void inPlaceProjectSkipsBundleMembers()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir); // createProject 已写 project.paleo
+    QVERIFY(stack != nullptr);
+    DataCatalog *cat = stack->importSvc->catalog();
+    QVERIFY(cat != nullptr);
+
+    // 受管子树内的产物（受管区不应出行）
+    QVERIFY(QDir().mkpath(QDir(projectDir).filePath(
+        QStringLiteral("artifacts/metadata/commit_journal"))));
+    QVERIFY(writeFile(QDir(projectDir).filePath(
+                          QStringLiteral("artifacts/metadata/commit_journal/op-x.json")),
+                      QByteArrayLiteral("{}")));
+    // 源数据
+    QVERIFY(writeFile(QDir(projectDir).filePath(QStringLiteral("new.las")),
+        QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n"
+                          "~Well\nWELL. A1 : WELL\n~Curve\nDEPT.M :\n"
+                          "~A DEPT\n101.0\n")));
+
+    const IngestPlan plan = buildIngestPlan(projectDir, *cat);
+    QVERIFY2(plan.issues.isEmpty(), qPrintable(plan.issues.join(';')));
+    for (const PlannedItem &it : plan.items)
+    {
+      QVERIFY2(!it.path.contains(QStringLiteral("artifacts/")),
+               qPrintable(it.path));
+      QVERIFY2(!it.path.endsWith(QStringLiteral("proj.qgz")),
+               qPrintable(it.path));
+      QVERIFY2(!it.path.endsWith(QStringLiteral("project.paleo")),
+               qPrintable(it.path));
+    }
+    // new.las 照常成项（束成员排除没有误伤源数据）
+    bool foundLas = false;
+    for (const PlannedItem &it : plan.items)
+      if (it.path.endsWith(QStringLiteral("new.las")))
+        foundLas = true;
+    QVERIFY(foundLas);
+
+    // 工程之内的子目录（受管区）仍拒——只换口径没开门。
+    const IngestPlan inner = buildIngestPlan(
+        QDir(projectDir).filePath(QStringLiteral("artifacts")), *cat);
+    QVERIFY(inner.items.isEmpty());
+    QVERIFY(!inner.issues.isEmpty());
   }
 };
 

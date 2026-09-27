@@ -78,6 +78,7 @@ add_library(paleo_core STATIC
   src/qgis/qgisstyleservice.cpp
   src/qgis/qgislayoutservice.cpp
   src/metadata/paleoprojectstore.cpp
+  src/metadata/paleoprojectfile.cpp
   src/metadata/layermanifest.cpp
   src/metadata/releasestore.cpp
   src/services/toolavailability.cpp

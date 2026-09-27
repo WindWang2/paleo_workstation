@@ -1145,3 +1145,22 @@ Remaining per approval: Wave-3 — D4 undo restore, D10 minimum numeric residual
 - **ribbon-icons**（`a99a42a`→`0615050`）：`PaleoIcons` 出口（`QgsApplication::getThemeIcon` qrc 直取 + QPainter 自绘补缺）；编辑条 icon-over-text、chips 独占 `ribbonActionRow`、动作钮 icon-beside-text、预览角落钮自绘图标。
 
 Deferred as designed: working-copy 编辑会话、trash/retention/pin、typed RunPort（派生链短，扁平 parentVersionIds 够用）、catalog.sqlite（TODOS P3 触发条件未满足）。待接线接缝：EntityView→DataPage、`markDownstreamStale`→预览 sha 失配、发布门 stale advisory、addLink 词表强制——wave-5（p5a/p5b/p5c）覆盖。存量债：`attachWorkflows` 非幂等（p5c 修）、计时类用例负载敏感（环境性）。
+
+### 项目文件重设计 + 工区文件夹成工程（PROJECT_FILE_DESIGN）
+
+工程锚点从裸 `.qgz` 升级为**工程束**：`project.paleo` 清单（formatVersion/
+projectId/members/sourceArea）作唯一入口，`.qgz` 退居成员之一（仍是
+QGIS 图层集权威）。打开契约：`.paleo` 解析成员、qgz 缺席拒开；裸 `.qgz`
+旁无清单 → 自动收养写一份；新建 → 双件落盘。
+
+- `src/metadata/paleoprojectfile.{h,cpp}`：纯 Qt JSON，QSaveFile 原子写。
+- `QgisProjectService`：双后缀打开 + 收养 + 束校验（缺失成员如实进
+  `lastErrors` 不拦开）。
+- 启动页「从工区文件夹新建」：选目录 → `.paleo` 在则直接开、有 `.qgz`
+  则收养、否则就地建 `<basename>.qgz`+清单 → 自动走 IngestPlan 确认框；
+  完成后 `sourceArea` 回填（根/时间/导入统计）。
+- `buildIngestPlan` 守卫改口径：源根==工程根允许（束成员+artifacts/
+  不出行）；根在工程之内仍拒；`.preview_cache` 隐藏目录天然不进表。
+- 测试：`tst_projectsvc` +6（清单落盘/`.paleo` 打开/收养/坏束拒开/往返）、
+  `tst_import` inPlace 用例 + rejectsBadRoots 口径更新；真数据 smoke
+  116 行入库 0 失败。

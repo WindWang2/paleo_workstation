@@ -592,6 +592,60 @@ class TestUiShell : public QObject
         QVERIFY(split->sizes().at(1) > 0);
     }
 
+    // 数据列表的宽度绝不应双击数据项而改变，只能由用户调整。
+    void dataListWidthUnchangedOnItemActivationAndFollowsUser()
+    {
+      m_win->resize(1280, 1100);
+      m_win->show();
+      if (auto *centerStack =
+              m_win->findChild<QStackedWidget *>(QStringLiteral("centerStack")))
+        centerStack->setCurrentIndex(1);
+      m_win->showPage(QStringLiteral("data"));
+      QTest::qWait(30);
+
+      auto *split = m_win->findChild<QSplitter *>(QStringLiteral("dataListPreviewSplit"));
+      auto *preview = m_win->findChild<DataPreviewTabs *>(QStringLiteral("dataPreview"));
+      QVERIFY(split && preview);
+      auto *inner = preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+      QVERIFY(inner);
+
+      while (inner->count() > 0)
+        inner->removeTab(0);
+      QTest::qWait(20);
+
+      // 1. 用户拖拽分栏调整列表宽度为 275px
+      const int customWidth = 275;
+      emit split->splitterMoved(customWidth, 1);
+      split->setSizes({customWidth, split->width() - customWidth});
+      QTest::qWait(20);
+      QCOMPARE(split->sizes().at(0), customWidth);
+
+      // 2. 双击/激活数据项，打开首个预览标签：数据列表宽度绝不得改变
+      inner->addTab(new QLabel(QStringLiteral("item1")), QStringLiteral("Tab1"));
+      QTest::qWait(20);
+      QCOMPARE(split->sizes().at(0), customWidth);
+
+      // 3. 打开第二个预览标签 / 切换标签：数据列表宽度绝不得改变
+      inner->addTab(new QLabel(QStringLiteral("item2")), QStringLiteral("Tab2"));
+      inner->setCurrentIndex(1);
+      QTest::qWait(20);
+      QCOMPARE(split->sizes().at(0), customWidth);
+
+      // 4. 关闭所有标签回到空态：数据列表宽度绝不得改变
+      inner->removeTab(1);
+      inner->removeTab(0);
+      QTest::qWait(20);
+      QCOMPARE(split->sizes().at(0), customWidth);
+
+      // 5. 再次打开标签：数据列表宽度依然保持用户设定值
+      inner->addTab(new QLabel(QStringLiteral("item3")), QStringLiteral("Tab3"));
+      QTest::qWait(20);
+      QCOMPARE(split->sizes().at(0), customWidth);
+
+      // 清理
+      inner->removeTab(0);
+    }
+
     // wave/data-integrity：attachWorkflows 幂等——同一窗口二次调用不得重复
     // 建 dock/连接/崩溃（旧行为：重复建 correlationPanel/editingToolbar/
     // processingButton 等 + 叠加信号连接，二次调用后后续用例段错误）。

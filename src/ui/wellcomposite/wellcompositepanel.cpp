@@ -91,11 +91,11 @@ void WellCompositePanel::setupUi()
   m_btnResetZoom->setStyleSheet(btnStyle);
   topLay->addWidget(m_btnResetZoom);
 
-  // 曲线道组合/解散管理按钮
+  // 测井道配置与排列管理按钮
   m_btnConfigCurves = new QToolButton(topBar);
   m_btnConfigCurves->setObjectName(QStringLiteral("btnConfigCurves"));
-  m_btnConfigCurves->setText(tr("曲线道配置"));
-  m_btnConfigCurves->setToolTip(tr("打开曲线组合管理窗口：支持多曲线合并显示(1-4根)与解散为独立单道"));
+  m_btnConfigCurves->setText(tr("测井道配置"));
+  m_btnConfigCurves->setToolTip(tr("打开测井道配置与排列管理：支持调整所有井道顺序、合并与解散测井曲线道"));
   m_btnConfigCurves->setStyleSheet(btnStyle);
   topLay->addWidget(m_btnConfigCurves);
 
@@ -255,17 +255,12 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
   stratTrack->autoDeriveStratigraphy(formations, minD, maxD);
   m_canvas->addTrack(stratTrack);
 
-  // 2. 沉积相组合道 (相 | 亚 | 微，带地质纹理填充)
-  auto faciesTrack = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
-  faciesTrack->autoDeriveFacies(formations, {}, minD, maxD);
-  m_canvas->addTrack(faciesTrack);
-
-  // 3. 深度标尺道 (DepthScaleTrack)
+  // 2. 深度标尺道 (DepthScaleTrack)
   auto scaleTrack = std::make_shared<DepthScaleTrack>(68.0);
   scaleTrack->setScaleRatio(m_scaleCombo->currentText());
   m_canvas->addTrack(scaleTrack);
 
-  // 4. 地层道 (FormationTrack) —— 若有分层数据
+  // 3. 地层道 (FormationTrack) —— 若有分层数据
   if (!formations.isEmpty())
   {
     auto formTrack = std::make_shared<FormationTrack>(QStringLiteral("地层"), 80.0);
@@ -341,6 +336,11 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
     }
   }
 
+  // 沉积相组合道 (相 | 亚 | 微，带地质纹理填充，规范放置在最右侧/最后)
+  auto faciesTrack = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
+  faciesTrack->autoDeriveFacies(formations, {}, minD, maxD);
+  m_canvas->addTrack(faciesTrack);
+
   m_data.wellName = wellName;
   m_data.minDepth = minD;
   m_data.maxDepth = maxD;
@@ -366,15 +366,7 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
     stratTrack->autoDeriveStratigraphy(data.formationIntervals, data.minDepth, data.maxDepth);
   m_canvas->addTrack(stratTrack);
 
-  // 2. 沉积相组合道 (相 | 亚 | 微，带地质纹理填充)
-  auto faciesTrack = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
-  if (!data.faciesIntervals.isEmpty())
-    faciesTrack->setIntervals(data.faciesIntervals);
-  else
-    faciesTrack->autoDeriveFacies(data.formationIntervals, data.lithologyIntervals, data.minDepth, data.maxDepth);
-  m_canvas->addTrack(faciesTrack);
-
-  // 3. 地层单位道
+  // 2. 地层单位道
   if (!data.formationIntervals.isEmpty())
   {
     auto formTrack = std::make_shared<FormationTrack>(QStringLiteral("地层单位"), 75.0);
@@ -382,7 +374,7 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
     m_canvas->addTrack(formTrack);
   }
 
-  // 4. 砂层组道（细分层道）
+  // 3. 砂层组道（细分层道）
   if (!data.sandIntervals.isEmpty())
   {
     auto sandTrack = std::make_shared<FormationTrack>(QStringLiteral("砂层组"), 60.0);
@@ -390,7 +382,7 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
     m_canvas->addTrack(sandTrack);
   }
 
-  // 3. 沉积旋回与符号道
+  // 4. 沉积旋回与符号道
   if (!data.symbolItems.isEmpty())
   {
     auto symTrack = std::make_shared<SymbolTrack>(QStringLiteral("沉积旋回"), 50.0);
@@ -398,7 +390,7 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
     m_canvas->addTrack(symTrack);
   }
 
-  // 4. 岩性道（标准地质岩性花纹填充）
+  // 5. 岩性道（标准地质岩性花纹填充）
   if (!data.lithologyIntervals.isEmpty())
   {
     auto lithoTrack = std::make_shared<LithologyTrack>(QStringLiteral("岩性分析"), 80.0);
@@ -406,12 +398,12 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
     m_canvas->addTrack(lithoTrack);
   }
 
-  // 5. 深度标尺道（居中基准）
+  // 6. 深度标尺道（居中基准）
   auto scaleTrack = std::make_shared<DepthScaleTrack>(64.0);
   scaleTrack->setScaleRatio(m_scaleCombo->currentText());
   m_canvas->addTrack(scaleTrack);
 
-  // 6. 取芯道（筒号与收获率对比）
+  // 7. 取芯道（筒号与收获率对比）
   if (!data.coreBarrels.isEmpty())
   {
     auto coreTrack = std::make_shared<CoreTrack>(QStringLiteral("取心数据"), 65.0);
@@ -419,7 +411,7 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
     m_canvas->addTrack(coreTrack);
   }
 
-  // 7. 曲线道（连续物理曲线：支持 1-4 根曲线合并显示）
+  // 8. 曲线道（连续物理曲线：支持 1-4 根曲线合并显示）
   if (!data.continuousCurves.isEmpty())
   {
     for (int i = 0; i < data.continuousCurves.size(); i += 4)
@@ -459,7 +451,7 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
     }
   }
 
-  // 8. 离散曲线道（实测散点/化验分析：支持 1-4 根曲线合并展示）
+  // 9. 离散曲线道（实测散点/化验分析：支持 1-4 根曲线合并展示）
   if (!data.discreteCurves.isEmpty())
   {
     for (int i = 0; i < data.discreteCurves.size(); i += 4)
@@ -474,13 +466,21 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
     }
   }
 
-  // 9. 文本道（取样与试油结论）
+  // 10. 文本道（取样与试油结论）
   if (!data.textIntervals.isEmpty())
   {
     auto textTrack = std::make_shared<TextTrack>(QStringLiteral("解释结论/取样"), 120.0);
     textTrack->setIntervals(data.textIntervals);
     m_canvas->addTrack(textTrack);
   }
+
+  // 11. 沉积相组合道 (相 | 亚 | 微，带地质纹理填充，规范放置在最右侧/最后)
+  auto faciesTrack = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
+  if (!data.faciesIntervals.isEmpty())
+    faciesTrack->setIntervals(data.faciesIntervals);
+  else
+    faciesTrack->autoDeriveFacies(data.formationIntervals, data.lithologyIntervals, data.minDepth, data.maxDepth);
+  m_canvas->addTrack(faciesTrack);
 
   m_canvas->setScaleRatio(m_scaleCombo->currentText());
 }

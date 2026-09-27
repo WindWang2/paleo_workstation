@@ -11,6 +11,7 @@
 #include "../src/qgis/qgisruntime.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
+#include <qgsmapcanvas.h>
 
 #include <QComboBox>
 #include <QLabel>
@@ -107,6 +108,7 @@ private slots:
   void coordinateStatusMappingIsChinese();
   void unresolvedMultiWellTabShowsDeadEnd();
   void lasMultiCurveAndZooming();
+  void surveyAreaOpensQgisCanvasAndEmitsShowOnMain();
 
 private:
   // 共享一次导入的夹具集（每个测试自建栈，互不污染）。
@@ -1158,6 +1160,57 @@ void TestDataPreview::lasMultiCurveAndZooming()
   QVERIFY(btnAC->isChecked());
   QVERIFY(btnDEN->isChecked());
   QVERIFY(!btnBoZuK->isChecked());
+}
+
+void TestDataPreview::surveyAreaOpensQgisCanvasAndEmitsShowOnMain()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  auto st = makeStack(dir.path());
+  QVERIFY(st);
+
+  st->preview->setProject(st->projectSvc.project());
+  QCOMPARE(st->preview->tabCount(), 0);
+
+  st->preview->openSurveyArea();
+  QCOMPARE(st->preview->tabCount(), 1);
+
+  // Tab text is 测区全景地图
+  auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+  QVERIFY(tabs);
+  QCOMPARE(tabs->tabText(0), QStringLiteral("测区全景地图"));
+
+  // Check canvas exists
+  auto *canvas = st->preview->findChild<QgsMapCanvas *>(QStringLiteral("surveyMapCanvas"));
+  QVERIFY(canvas);
+
+  // Check toolbar buttons exist
+  auto *btnFull = st->preview->findChild<QToolButton *>(QStringLiteral("btnSurveyFullExtent"));
+  auto *btnIn = st->preview->findChild<QToolButton *>(QStringLiteral("btnSurveyZoomIn"));
+  auto *btnOut = st->preview->findChild<QToolButton *>(QStringLiteral("btnSurveyZoomOut"));
+  auto *btnPan = st->preview->findChild<QToolButton *>(QStringLiteral("btnSurveyPan"));
+  auto *btnSwitchMain = st->preview->findChild<QToolButton *>(QStringLiteral("btnSwitchToMainCanvas"));
+
+  QVERIFY(btnFull);
+  QVERIFY(btnIn);
+  QVERIFY(btnOut);
+  QVERIFY(btnPan);
+  QVERIFY(btnSwitchMain);
+
+  // Check button clicks work without crashing
+  btnFull->click();
+  btnIn->click();
+  btnOut->click();
+  btnPan->click();
+
+  // Check requestShowOnMainCanvas signal
+  QSignalSpy spy(st->preview.get(), &DataPreviewTabs::requestShowOnMainCanvas);
+  btnSwitchMain->click();
+  QCOMPARE(spy.count(), 1);
+
+  // Re-opening focuses the existing tab without creating duplicate tab
+  st->preview->openSurveyArea();
+  QCOMPARE(st->preview->tabCount(), 1);
 }
 
 int main(int argc, char *argv[])

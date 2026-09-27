@@ -24,6 +24,7 @@ class QgsMapLayer;
 namespace seismic {
 class SeismicSectionDockWidget;
 class Seismic3DViewPanel;
+class SeismicTaskService;
 }
 
 class PaleoDockWidget : public QDockWidget
@@ -103,6 +104,7 @@ class PaleoMainWindow : public SARibbonMainWindow
                     ToolAvailabilityService *tools,
                     SelectionContext *selection,
                     QWidget *parent = nullptr);
+    ~PaleoMainWindow() override;
 
     // Page ids: "data" | "predict" | "constraint" | "compose" | "validate" (+ "startup")
     void showPage(const QString &pageId);
@@ -219,6 +221,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 不与「在地图上显示」的双向同步打架。测试经 "horizonFlashActive"
     // 属性断言起止。
     void flashHorizonLayer(QgsMapLayer *layer);
+    void syncSeismicVolumeToDocks();
 
     QgisCanvasController *m_canvasCtl;
     QgisProjectService *m_projectSvc;
@@ -235,6 +238,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     QSplitter *m_centerSplit = nullptr;        // 数据面：数据列表 / 数据预览 竖向分栏（§4）
     QWidget *m_dataListHost = nullptr;         // 分栏上格——DataPage 由 attachWorkflows 挂入
     DataPreviewTabs *m_previewTabs = nullptr;  // 分栏下格——只在数据管理页可见
+    int m_userListWidth = -1;                  // 用户拖动分栏记忆宽度（绝不因双击数据项重设）
     bool m_previewExpanded = false;            // 首个标签打开后已给过 60%（D7 预算）
     bool m_previewMaximized = false;           // D7：预览最大化态（列表留一行壳）
     QList<int> m_preMaxSplitSizes;             // 最大化前的分栏尺寸（还原用）
@@ -244,6 +248,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     seismic::SeismicSectionDockWidget *m_seismicSectionDock = nullptr;
     QDockWidget *m_seismic3dDock = nullptr;
     seismic::Seismic3DViewPanel *m_seismic3dPanel = nullptr;
+    std::unique_ptr<seismic::SeismicTaskService> m_seismicTaskSvc;
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
     DataImportService *m_importSvc = nullptr; // attachWorkflows 注入；启动页「从工区文件夹新建」用

@@ -14,9 +14,14 @@
 #include "../../io/wellfileparsers.h"
 #include "../../services/paleotaskservice.h"
 #include "../../services/seismictaskservice.h"
-#include "../../domain/seismic/sgyvolume.h"
 #include "../seismic3d/seismic3dviewpanel.h"
 #include "../wellcomposite/wellcompositepanel.h"
+
+#include <qgsmapcanvas.h>
+#include <qgslayertreemapcanvasbridge.h>
+#include <qgsmaptoolpan.h>
+#include <qgsproject.h>
+#include <QTimer>
 
 #include <QComboBox>
 #include <QCryptographicHash>
@@ -1069,6 +1074,8 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   m_tabs->setVisible(false);
 }
 
+DataPreviewTabs::~DataPreviewTabs() = default;
+
 void DataPreviewTabs::setImportService(DataImportService *svc)
 {
   if (m_svc)
@@ -1097,6 +1104,164 @@ void DataPreviewTabs::setImportService(DataImportService *svc)
 void DataPreviewTabs::setTaskService(PaleoTaskService *svc)
 {
   m_taskSvc = svc;
+  if (m_taskSvc)
+  {
+    if (!m_seismicTaskSvc)
+      m_seismicTaskSvc = std::make_unique<seismic::SeismicTaskService>(m_taskSvc, 256, this);
+    else
+      m_seismicTaskSvc->setTaskService(m_taskSvc);
+  }
+}
+
+void DataPreviewTabs::setProject(QgsProject *project)
+{
+  m_project = project;
+}
+
+void DataPreviewTabs::openSurveyArea()
+{
+  const QString key = QStringLiteral("survey_area");
+  if (QWidget *existing = m_pageOfAsset.value(key))
+  {
+    m_tabs->setCurrentIndex(m_tabs->indexOf(existing));
+    if (auto *cv = existing->findChild<QgsMapCanvas *>())
+    {
+      cv->zoomToFullExtent();
+      cv->refresh();
+    }
+    return;
+  }
+
+  QWidget *page = new QWidget(this);
+  auto *pageLay = new QVBoxLayout(page);
+  pageLay->setContentsMargins(0, 0, 0, 0);
+  pageLay->setSpacing(0);
+
+  QWidget *content = buildSurveyAreaContent(page);
+  pageLay->addWidget(content ? content : stateLabel(tr("无法生成测区地图"), page), 1);
+
+  const int idx = m_tabs->addTab(page, PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")), tr("测区全景地图"));
+  m_pageOfAsset.insert(key, page);
+  m_tabs->setVisible(true);
+  m_emptyLabel->setVisible(false);
+  m_tabs->setCurrentIndex(idx);
+}
+
+QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
+{
+  auto *w = new QWidget(page);
+  auto *lay = new QVBoxLayout(w);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->setSpacing(0);
+
+  // 顶部快捷控制条（遵照 DESIGN.md 设计规范）
+  auto *topBar = new QWidget(w);
+  auto *tbLay = new QHBoxLayout(topBar);
+  tbLay->setContentsMargins(8, 4, 8, 4);
+  tbLay->setSpacing(6);
+  topBar->setStyleSheet(QStringLiteral("background: #EDF1F5; border-bottom: 1px solid #DFE5EC;"));
+
+  const QString btnStyle = QStringLiteral(
+      "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; "
+      "padding: 4px 8px; font-size: 8.5pt; color: #24303E; }"
+      "QToolButton:hover { background: #E2E8F0; border-color: #9AA7B4; }"
+      "QToolButton:pressed { background: #DFE5EC; }");
+
+  auto *lblTitle = new QLabel(tr("测区全景地图 (QGIS 画布)"), topBar);
+  lblTitle->setStyleSheet(QStringLiteral("font-weight: 600; color: #1B73D0; font-size: 9pt;"));
+  tbLay->addWidget(lblTitle);
+
+  tbLay->addSpacing(8);
+
+  auto *btnFull = new QToolButton(topBar);
+  btnFull->setObjectName(QStringLiteral("btnSurveyFullExtent"));
+  btnFull->setText(tr("全图"));
+  btnFull->setToolTip(tr("缩放到测区全景范围"));
+  btnFull->setStyleSheet(btnStyle);
+  btnFull->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionZoomFullExtent.svg")));
+  btnFull->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  tbLay->addWidget(btnFull);
+
+  auto *btnIn = new QToolButton(topBar);
+  btnIn->setObjectName(QStringLiteral("btnSurveyZoomIn"));
+  btnIn->setText(tr("放大"));
+  btnIn->setToolTip(tr("放大地图 (支持鼠标滚轮缩放)"));
+  btnIn->setStyleSheet(btnStyle);
+  btnIn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionZoomIn.svg")));
+  btnIn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  tbLay->addWidget(btnIn);
+
+  auto *btnOut = new QToolButton(topBar);
+  btnOut->setObjectName(QStringLiteral("btnSurveyZoomOut"));
+  btnOut->setText(tr("缩小"));
+  btnOut->setToolTip(tr("缩小地图 (支持鼠标滚轮缩放)"));
+  btnOut->setStyleSheet(btnStyle);
+  btnOut->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionZoomOut.svg")));
+  btnOut->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  tbLay->addWidget(btnOut);
+
+  auto *btnPan = new QToolButton(topBar);
+  btnPan->setObjectName(QStringLiteral("btnSurveyPan"));
+  btnPan->setText(tr("漫游"));
+  btnPan->setToolTip(tr("按住鼠标左键拖拽平移地图"));
+  btnPan->setStyleSheet(btnStyle);
+  btnPan->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionPan.svg")));
+  btnPan->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  tbLay->addWidget(btnPan);
+
+  auto *btnSwitchMain = new QToolButton(topBar);
+  btnSwitchMain->setObjectName(QStringLiteral("btnSwitchToMainCanvas"));
+  btnSwitchMain->setText(tr("在主画布中查看"));
+  btnSwitchMain->setToolTip(tr("切换到主工作区全屏 QGIS 地图画布"));
+  btnSwitchMain->setStyleSheet(btnStyle);
+  btnSwitchMain->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionMapSettings.svg")));
+  btnSwitchMain->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  tbLay->addWidget(btnSwitchMain);
+
+  tbLay->addStretch(1);
+
+  auto *crsLabel = new QLabel(tr("局部工程坐标系统 (米)"), topBar);
+  crsLabel->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8pt;"));
+  tbLay->addWidget(crsLabel);
+
+  lay->addWidget(topBar);
+
+  // QGIS 地图画布
+  auto *canvas = new QgsMapCanvas(w);
+  canvas->setObjectName(QStringLiteral("surveyMapCanvas"));
+  canvas->enableAntiAliasing(true);
+  canvas->setCanvasColor(Qt::white);
+
+  QgsProject *proj = m_project ? m_project.data() : QgsProject::instance();
+  if (proj)
+  {
+    canvas->setProject(proj);
+    canvas->setDestinationCrs(proj->crs());
+    // 绑定项目图层树：所有井位、地震测线、边界、层位图层自动同步渲染
+    new QgsLayerTreeMapCanvasBridge(proj->layerTreeRoot(), canvas, canvas);
+  }
+
+  // 设置默认漫游工具
+  auto *panTool = new QgsMapToolPan(canvas);
+  canvas->setMapTool(panTool);
+
+  connect(btnFull, &QToolButton::clicked, canvas, &QgsMapCanvas::zoomToFullExtent);
+  connect(btnIn, &QToolButton::clicked, canvas, &QgsMapCanvas::zoomIn);
+  connect(btnOut, &QToolButton::clicked, canvas, &QgsMapCanvas::zoomOut);
+  connect(btnPan, &QToolButton::clicked, canvas, [canvas, panTool]() {
+    canvas->setMapTool(panTool);
+  });
+  connect(btnSwitchMain, &QToolButton::clicked, this, &DataPreviewTabs::requestShowOnMainCanvas);
+
+  lay->addWidget(canvas, 1);
+
+  // 延迟自适应全图（等几何尺寸就绪）
+  QTimer::singleShot(100, canvas, [canvas]() {
+    canvas->zoomToFullExtent();
+    canvas->refresh();
+  });
+
+  return w;
 }
 
 int DataPreviewTabs::tabCount() const
@@ -2322,20 +2487,34 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     panel3d->setObjectName(QStringLiteral("seismic3DPanel"));
     modeTabs->addTab(panel3d, tr("三维立体 (3D)"));
 
-    const auto load3DIfNeeded = [panel3d, abs]() {
+    const auto load3DIfNeeded = [this, panel3d, abs]() {
       if (panel3d->volume() == nullptr && !abs.isEmpty() && QFile::exists(abs))
       {
+        if (m_seismicTaskSvc)
+          panel3d->setTaskService(m_seismicTaskSvc.get());
         auto vol = std::make_shared<seismic::SgyVolume>();
         std::string volErr;
         if (vol->Load(abs.toStdString(), volErr))
         {
           panel3d->setVolume(vol);
+          if (panel3d->viewport())
+          {
+            panel3d->viewport()->setPresetView(seismic::SeismicCameraController::PresetView::Isometric);
+            panel3d->viewport()->fitToBounds();
+          }
         }
       }
     };
-    connect(modeTabs, &QTabWidget::currentChanged, host, [load3DIfNeeded](int idx) {
+    connect(modeTabs, &QTabWidget::currentChanged, host, [load3DIfNeeded, panel3d](int idx) {
       if (idx == 1)
+      {
         load3DIfNeeded();
+        if (panel3d->viewport())
+        {
+          panel3d->viewport()->fitToBounds();
+          panel3d->viewport()->update();
+        }
+      }
     });
 
     lay->addWidget(modeTabs, 1);
@@ -2462,17 +2641,11 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     for (const QString &k : propKeys)
       if (k.contains(QString::fromUtf8("相")))
         faciesKeys.append(k);
-    QString text = tr("要素个数：%1\n坐标范围：X %2–%3，Y %4–%5\n属性字段：%6\n相名字段：%7")
-                       .arg(features.size())
-                       .arg(QString::number(minX, 'f', 2), QString::number(maxX, 'f', 2),
-                            QString::number(minY, 'f', 2), QString::number(maxY, 'f', 2))
-                       .arg(propKeys.join(QStringLiteral(", ")))
-                       .arg(faciesKeys.isEmpty() ? tr("无") : faciesKeys.join(QStringLiteral(", ")));
-    auto *body = new QLabel(text, host);
-    body->setStyleSheet(QStringLiteral("color: #24303E;"));
-    body->setWordWrap(true);
-    lay->addWidget(body);
-    lay->addWidget(warnLabel(tr("经纬度，与本测网不是同一空间"), host)); // §4
+    // 顶部操作与空间提示工具栏（基础元数据信息已移至右侧「数据属性」面板）
+    auto *topBar = new QWidget(host);
+    auto *topLay = new QHBoxLayout(topBar);
+    topLay->setContentsMargins(0, 0, 0, 4);
+    topLay->setSpacing(8);
 
     // D11 临时配准入口：手工仿射把这份 GeoJSON 拉到工程测网。产物是
     // DERIVED 版本 + 「临时配准」水印图层，不改原 RAW。
@@ -2480,6 +2653,13 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     regBtn->setObjectName(QStringLiteral("provisionalRegisterButton"));
     regBtn->setAccessibleName(tr("临时配准"));
     regBtn->setToolTip(tr("手工输入仿射参数，把 GeoJSON 变换到工程局部测网"));
+    topLay->addWidget(regBtn);
+
+    auto *warnLbl = warnLabel(tr("经纬度，与本测网不是同一空间"), host);
+    warnLbl->setStyleSheet(QStringLiteral("color: #D32F2F; font-size: 11px; font-weight: 500;"));
+    topLay->addWidget(warnLbl);
+    topLay->addStretch(1);
+    lay->addWidget(topBar);
     connect(regBtn, &QPushButton::clicked, this, [this, assetId, abs]() {
       double srcB[4];
       QString berr;
@@ -2574,8 +2754,65 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
                     {QStringLiteral("sy"), sy->value()},
                     {QStringLiteral("rotDeg"), rot->value()}});
     });
-    lay->addWidget(regBtn);
-    lay->addStretch(1);
+
+    // 要素属性表格预览
+    auto *table = new QTableWidget(host);
+    table->setObjectName(QStringLiteral("geoJsonFeatureTable"));
+    table->setAlternatingRowColors(true);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setStyleSheet(QStringLiteral(
+        "QTableWidget { background-color: #FFFFFF; gridline-color: #DFE5EC; border: 1px solid #DFE5EC; font-size: 12px; }"
+        "QHeaderView::section { background-color: #F8FAFC; color: #5D6E80; border: none; border-bottom: 1px solid #DFE5EC; border-right: 1px solid #DFE5EC; padding: 4px 8px; font-weight: 500; font-size: 11px; }"));
+
+    QStringList headers;
+    headers << tr("序号") << tr("几何类型");
+    headers.append(propKeys);
+    table->setColumnCount(headers.size());
+    table->setHorizontalHeaderLabels(headers);
+
+    const int maxRows = qMin(features.size(), 1000);
+    table->setRowCount(maxRows);
+    for (int r = 0; r < maxRows; ++r)
+    {
+      const QJsonObject feat = features.at(r).toObject();
+      const QString geomType = feat.value(QStringLiteral("geometry")).toObject().value(QStringLiteral("type")).toString();
+      const QJsonObject props = feat.value(QStringLiteral("properties")).toObject();
+
+      auto *idItem = new QTableWidgetItem(QString::number(r + 1));
+      idItem->setTextAlignment(Qt::AlignCenter);
+      idItem->setFlags(idItem->flags() & ~Qt::ItemIsEditable);
+      table->setItem(r, 0, idItem);
+
+      auto *geomItem = new QTableWidgetItem(geomType.isEmpty() ? QStringLiteral("—") : geomType);
+      geomItem->setTextAlignment(Qt::AlignCenter);
+      geomItem->setFlags(geomItem->flags() & ~Qt::ItemIsEditable);
+      table->setItem(r, 1, geomItem);
+
+      for (int c = 0; c < propKeys.size(); ++c)
+      {
+        const QString key = propKeys.at(c);
+        const QJsonValue val = props.value(key);
+        QString valStr;
+        if (val.isDouble())
+          valStr = QString::number(val.toDouble());
+        else if (val.isString())
+          valStr = val.toString();
+        else if (val.isBool())
+          valStr = val.toBool() ? QStringLiteral("true") : QStringLiteral("false");
+        else if (val.isNull())
+          valStr = QStringLiteral("null");
+        else
+          valStr = QString::fromUtf8(QJsonDocument(val.toArray()).toJson(QJsonDocument::Compact));
+
+        auto *valItem = new QTableWidgetItem(valStr);
+        valItem->setFlags(valItem->flags() & ~Qt::ItemIsEditable);
+        table->setItem(r, c + 2, valItem);
+      }
+    }
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->resizeColumnsToContents();
+    lay->addWidget(table, 1);
     return host;
   }
 

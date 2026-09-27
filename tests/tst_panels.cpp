@@ -10,6 +10,9 @@
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTemporaryDir>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QResizeEvent>
 
 #include "../src/ui/pages/pagepanels.h"
 #include "../src/ui/paleomainwindow.h"
@@ -1844,6 +1847,176 @@ class TestPanels : public QObject
       QVERIFY(roleTable->item(1, 2)->text().contains(QStringLiteral("main")));
       QVERIFY(roleTable->item(1, 3)->text().isEmpty()
               || roleTable->item(1, 3)->text() == QStringLiteral("—"));
+    }
+
+    void dataPage_surveyAreaFirstItemAndDoubleClicked()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      FolderStack stack(dir.filePath(QStringLiteral("meta.sqlite")), dir.path());
+      auto *cat = stack.svc.catalog();
+      QVERIFY(cat);
+
+      CatalogEntity w;
+      w.id = QStringLiteral("w1");
+      w.entityType = QStringLiteral("well");
+      w.name = QStringLiteral("Well-01");
+      QVERIFY(cat->addEntity(w));
+
+      CatalogEntity surv;
+      surv.id = QStringLiteral("survey1");
+      surv.entityType = QStringLiteral("seismic_survey");
+      surv.name = QStringLiteral("Survey3D");
+      surv.inlineMin = 100;
+      surv.inlineMax = 500;
+      surv.xlineMin = 200;
+      surv.xlineMax = 600;
+      QVERIFY(cat->addEntity(surv));
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&stack.svc));
+      page.refreshAssetTable();
+
+      auto *tree = page.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+      QVERIFY(tree);
+      QVERIFY(tree->topLevelItemCount() >= 1);
+
+      // Requirement 1: "数据列表里面，增加一个测区放在第一个项"
+      QTreeWidgetItem *firstItem = tree->topLevelItem(0);
+      QCOMPARE(firstItem->text(0), QStringLiteral("测区"));
+      QCOMPARE(firstItem->data(0, Qt::UserRole).toString(), QStringLiteral("survey_area"));
+      QCOMPARE(firstItem->data(0, Qt::UserRole + 2).toString(), QStringLiteral("survey_area"));
+      QVERIFY(firstItem->childCount() >= 1);
+      QCOMPARE(firstItem->child(0)->text(0), QStringLiteral("工区全景地图"));
+
+      // Requirement 1: "双击后，就是整个测区的图"
+      QSignalSpy spy(&page, &DataPage::surveyAreaActivated);
+      emit tree->itemDoubleClicked(firstItem, 0);
+      QCOMPARE(spy.count(), 1);
+
+      spy.clear();
+      emit tree->itemDoubleClicked(firstItem->child(0), 0);
+      QCOMPARE(spy.count(), 1);
+
+      // 属性面板展示测区信息
+      auto *header = page.findChild<QLabel *>(QStringLiteral("entityViewHeader"));
+      QVERIFY(header);
+      QVERIFY(header->text().contains(QStringLiteral("测区全景")));
+      auto *propType = page.findChild<QLabel *>(QStringLiteral("propType"));
+      QVERIFY(propType);
+      QVERIFY(propType->text().contains(QStringLiteral("测区全景地图")));
+    }
+
+    void dataPage_columnWidthPreservesFilenameOnShrink()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      FolderStack stack(dir.filePath(QStringLiteral("meta.sqlite")), dir.path());
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&stack.svc));
+      page.refreshAssetTable();
+
+      auto *tree = page.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+      QVERIFY(tree);
+      auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
+      QVERIFY(table);
+
+      // Requirement 2: "数据列表里面，当宽度减少后，应该保文件名的显示，而不是类型/描述。"
+      QResizeEvent shrinkTree(QSize(180, 500), QSize(350, 500));
+      qApp->sendEvent(tree, &shrinkTree);
+
+      const int col1W = tree->columnWidth(1);
+      QVERIFY2(col1W <= 50, qPrintable(QString::number(col1W)));
+      QVERIFY2(col1W >= 35, qPrintable(QString::number(col1W)));
+
+      QResizeEvent shrinkTable(QSize(200, 500), QSize(400, 500));
+      qApp->sendEvent(table, &shrinkTable);
+
+      const int tCol1 = table->columnWidth(1);
+      const int tCol2 = table->columnWidth(2);
+      QVERIFY2(tCol1 <= 45, qPrintable(QString::number(tCol1)));
+      QVERIFY2(tCol2 <= 55, qPrintable(QString::number(tCol2)));
+      QVERIFY(tCol1 + tCol2 <= 100);
+    }
+
+    void dataPage_geoJsonAssetPropertiesInEntityView()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+
+      // Create a test GeoJSON file
+      const QString geoPath = dir.filePath(QStringLiteral("facies_sample.geojson"));
+      QFile f(geoPath);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write(R"({
+        "type": "FeatureCollection",
+        "features": [
+          {
+            "type": "Feature",
+            "geometry": { "type": "Point", "coordinates": [110.5, 30.2] },
+            "properties": { "facies": "delta_front", "id": 1, "name": "F1", "period": "P1" }
+          },
+          {
+            "type": "Feature",
+            "geometry": { "type": "Point", "coordinates": [120.0, 35.8] },
+            "properties": { "facies": "prodelta", "id": 2, "name": "F2", "period": "P1" }
+          }
+        ]
+      })");
+      f.close();
+
+      CatalogAsset a;
+      a.id = QStringLiteral("ast-geo-1");
+      a.type = QStringLiteral("geojson");
+      a.displayName = QStringLiteral("facies_sample.geojson");
+      QVERIFY(cat->addAsset(a));
+
+      CatalogVersion v;
+      v.id = QStringLiteral("ver-geo-1");
+      v.assetId = a.id;
+      v.stage = QStringLiteral("RAW");
+      v.versionNumber = 1;
+      v.managed = false;
+      v.path = geoPath;
+      QString addErr;
+      QVERIFY2(cat->addVersion(v, &addErr), qPrintable(addErr));
+
+      DataPage page;
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      page.selectAsset(a.id);
+
+      auto *header = page.findChild<QLabel *>(QStringLiteral("entityViewHeader"));
+      QVERIFY(header);
+      QVERIFY(header->text().contains(QStringLiteral("facies_sample.geojson")));
+      QVERIFY(!header->text().contains(QStringLiteral("井实体")));
+
+      auto *propType = page.findChild<QLabel *>(QStringLiteral("propType"));
+      QVERIFY(propType);
+      QVERIFY(propType->text().contains(QStringLiteral("参考相图")));
+
+      auto *propCrs = page.findChild<QLabel *>(QStringLiteral("propCrs"));
+      QVERIFY(propCrs);
+      QVERIFY(propCrs->text().contains(QStringLiteral("经纬度，与本测网不是同一空间")));
+
+      auto *propCoord = page.findChild<QLabel *>(QStringLiteral("propCoord"));
+      QVERIFY(propCoord);
+      QVERIFY(propCoord->text().contains(QStringLiteral("110.50")));
+      QVERIFY(propCoord->text().contains(QStringLiteral("120.00")));
+
+      auto *propGrid = page.findChild<QLabel *>(QStringLiteral("propGrid"));
+      QVERIFY(propGrid);
+      QVERIFY(propGrid->text().contains(QStringLiteral("2")));
+
+      auto *propDetailsText = page.findChild<QLabel *>(QStringLiteral("propDetailsText"));
+      QVERIFY(propDetailsText);
+      const QString details = propDetailsText->text();
+      QVERIFY(details.contains(QStringLiteral("要素个数: 2")));
+      QVERIFY(details.contains(QStringLiteral("facies, id, name, period")));
+      QVERIFY(details.contains(QStringLiteral("经纬度，与本测网不是同一空间")));
     }
 };
 

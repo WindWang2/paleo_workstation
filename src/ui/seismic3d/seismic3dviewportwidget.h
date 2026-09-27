@@ -56,6 +56,7 @@ protected:
     void initializeGL() override;
     void resizeGL(int w, int h) override;
     void paintGL() override;
+    void showEvent(QShowEvent *event) override;
 
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
@@ -90,6 +91,7 @@ private:
     DragMode dragMode_ = DragMode::None;
     QPointF lastMousePos_;
     bool glInitialized_ = false;
+    bool initialFitDone_ = false;
 };
 
 } // namespace seismic

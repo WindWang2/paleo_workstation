@@ -1,12 +1,18 @@
 #include "seismic3dviewportwidget.h"
 
+static void initSeismicResources() {
+    Q_INIT_RESOURCE(seismic_shaders);
+}
+
 namespace seismic {
 
 Seismic3DViewportWidget::Seismic3DViewportWidget(QWidget *parent)
     : QOpenGLWidget(parent) {
+    initSeismicResources();
     QSurfaceFormat fmt = QSurfaceFormat::defaultFormat();
     fmt.setVersion(3, 3);
     fmt.setProfile(QSurfaceFormat::CoreProfile);
+    fmt.setDepthBufferSize(24);
     setFormat(fmt);
 
     setFocusPolicy(Qt::StrongFocus);
@@ -23,6 +29,7 @@ Seismic3DViewportWidget::~Seismic3DViewportWidget() {
 }
 
 void Seismic3DViewportWidget::initializeGL() {
+    initSeismicResources();
     initializeOpenGLFunctions();
 
     glEnable(GL_DEPTH_TEST);
@@ -34,24 +41,23 @@ void Seismic3DViewportWidget::initializeGL() {
 
     if (volume_ && volume_->IsLoaded()) {
         frameRenderer_.UpdateFromVolume(this, *volume_);
-        fitToBounds();
+        if (width() > 0 && height() > 0) {
+            fitToBounds();
+            initialFitDone_ = true;
+        }
     }
 
     if (!pendingSlices_.empty() && volume_) {
-        makeCurrent();
         for (const auto &[slot, ps] : pendingSlices_) {
             sliceRenderer_.UpdateSlice(this, ps.slot, *volume_, ps.type, ps.index, ps.image);
         }
         pendingSlices_.clear();
-        doneCurrent();
     }
 
     if (pendingLineSlice_.valid && volume_) {
-        makeCurrent();
         sliceRenderer_.UpdateLineSlice(this, *volume_, pendingLineSlice_.pathPoints, pendingLineSlice_.image);
         frameRenderer_.UpdateLineSection(this, *volume_, pendingLineSlice_.pathPoints);
         pendingLineSlice_.valid = false;
-        doneCurrent();
     }
 
     emit glReady();
@@ -60,12 +66,27 @@ void Seismic3DViewportWidget::initializeGL() {
 
 void Seismic3DViewportWidget::resizeGL(int w, int h) {
     glViewport(0, 0, w, h);
+    if (!initialFitDone_ && w > 0 && h > 0 && volume_ && volume_->IsLoaded()) {
+        fitToBounds();
+        initialFitDone_ = true;
+    }
+}
+
+void Seismic3DViewportWidget::showEvent(QShowEvent *event) {
+    QOpenGLWidget::showEvent(event);
+    if (!initialFitDone_ && width() > 0 && height() > 0 && volume_ && volume_->IsLoaded()) {
+        fitToBounds();
+        initialFitDone_ = true;
+    }
 }
 
 void Seismic3DViewportWidget::paintGL() {
     // Elegant dark slate background for scientific 3D seismic display
     glClearColor(0.12f, 0.14f, 0.17f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
 
     const float aspect = height() > 0 ? static_cast<float>(width()) / static_cast<float>(height()) : 1.0f;
     const glm::mat4 proj = camera_.BuildProjectionMatrix(aspect);
@@ -80,10 +101,14 @@ void Seismic3DViewportWidget::setVolume(std::shared_ptr<SgyVolume> volume) {
     volume_ = std::move(volume);
     pendingSlices_.clear();
     pendingLineSlice_.valid = false;
+    initialFitDone_ = false;
     if (glInitialized_ && volume_ && volume_->IsLoaded()) {
         makeCurrent();
         frameRenderer_.UpdateFromVolume(this, *volume_);
-        fitToBounds();
+        if (width() > 0 && height() > 0) {
+            fitToBounds();
+            initialFitDone_ = true;
+        }
         doneCurrent();
         update();
     }

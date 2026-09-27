@@ -7,6 +7,7 @@
 #include "../../catalog/entityview.h" // p5a：entityDataView 角色槽门面（纯查询）
 #include "../../io/dataimportservice.h"
 #include "../../io/arearules.h"
+#include "../../io/geojsonaffine.h"
 #include "../../domain/mappinghorizons.h"
 #include "../../workflow/workflows.h"    // signal names + ValidationWorkflow::validate
 #include "../../qgis/qgislayerservice.h" // declared() — forward-declares Qgs*, none included
@@ -30,6 +31,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QScrollArea>
 #include <QSet>
 #include <QShowEvent>
@@ -504,18 +506,22 @@ DataPage::DataPage(QWidget *parent)
   m_tree->setObjectName(QStringLiteral("dataTree"));
   m_tree->setAccessibleName(tr("数据列表树"));
   m_tree->setMinimumWidth(0);
-  m_tree->header()->setMinimumSectionSize(20);
+  m_tree->header()->setMinimumSectionSize(30);
   m_tree->setHeaderLabels({tr("数据导航"), tr("类型 / 描述")});
   m_tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
   m_tree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
-  m_tree->setColumnWidth(1, 160);
+  m_tree->setColumnWidth(1, 65);
   m_tree->header()->setStretchLastSection(false);
+  m_tree->setTextElideMode(Qt::ElideRight);
   m_tree->setAnimated(true);
   m_tree->setAlternatingRowColors(true);
   m_tree->setStyleSheet(QStringLiteral(
       "QTreeWidget { border: 1px solid #DFE5EC; background: #FFFFFF; } "
       "QTreeWidget::item { padding: 3px 0; } "
       "QTreeWidget::item:selected { background-color: #E6F0FA; color: #1B73D0; }"));
+  m_tree->installEventFilter(this);
+  if (m_tree->viewport())
+    m_tree->viewport()->installEventFilter(this);
 
   connect(btnGroup, &QButtonGroup::idClicked, this, [this](int id) {
     if (m_viewStack)
@@ -526,12 +532,19 @@ DataPage::DataPage(QWidget *parent)
   table->setObjectName(QStringLiteral("assetTable"));
   table->setAccessibleName(tr("资产列表"));
   table->setMinimumWidth(0);
-  table->horizontalHeader()->setMinimumSectionSize(20);
-  // §4 预览壳重排：预览移到共享地图下方（不再挂右栏）；第三列由「来源」改为
-  // 「关联」——已决链接写实体名、未决给「未决」徽标+挂接控件、参考资产写「参考」。
+  table->horizontalHeader()->setMinimumSectionSize(25);
   table->setHorizontalHeaderLabels({tr("名称"), tr("类型"), tr("关联")});
   table->verticalHeader()->setVisible(false);
-  table->horizontalHeader()->setStretchLastSection(true);
+  table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+  table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
+  table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
+  table->horizontalHeader()->setStretchLastSection(false);
+  table->setColumnWidth(1, 55);
+  table->setColumnWidth(2, 65);
+  table->setTextElideMode(Qt::ElideRight);
+  table->installEventFilter(this);
+  if (table->viewport())
+    table->viewport()->installEventFilter(this);
   refreshAssetEmptyState(table, QString());
 
   m_viewStack->addWidget(m_tree);  // 0: 树形
@@ -547,6 +560,12 @@ DataPage::DataPage(QWidget *parent)
     const QString nodeType = item->data(0, Qt::UserRole + 2).toString();
     const QString lineMode = item->data(0, Qt::UserRole + 3).toString();
 
+    if (nodeType == QLatin1String("survey_area") || assetId == QLatin1String("survey_area"))
+    {
+      emit surveyAreaActivated();
+      selectAsset(QStringLiteral("survey_area"));
+      return;
+    }
     if (nodeType == QLatin1String("seismic_line"))
     {
       emit seismicLineActivated(assetId, lineMode);
@@ -597,6 +616,12 @@ DataPage::DataPage(QWidget *parent)
     QTreeWidgetItem *item = sel.front();
     const QString wellId = item->data(0, Qt::UserRole + 1).toString();
     const QString assetId = item->data(0, Qt::UserRole).toString();
+    const QString nodeType = item->data(0, Qt::UserRole + 2).toString();
+    if (nodeType == QLatin1String("survey_area") || assetId == QLatin1String("survey_area"))
+    {
+      selectAsset(QStringLiteral("survey_area"));
+      return;
+    }
     if (!assetId.isEmpty())
     {
       selectAsset(assetId);
@@ -645,10 +670,10 @@ DataPage::DataPage(QWidget *parent)
   sl->setContentsMargins(0, 0, 0, 0);
   sl->setSpacing(8);
 
-  const auto addRow = [](QFormLayout *fl, const QString &label, const char *valName) -> QLabel * {
-    auto *lbl = new QLabel(label);
+  const auto addRow = [](CollapsibleSection *sec, QFormLayout *fl, const QString &label, const char *valName) -> QLabel * {
+    auto *lbl = new QLabel(label, sec->container());
     lbl->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8.5pt;"));
-    auto *val = new QLabel(QStringLiteral("—"));
+    auto *val = new QLabel(QStringLiteral("—"), sec->container());
     val->setObjectName(QLatin1String(valName));
     val->setStyleSheet(QStringLiteral("color: #24303E; font-size: 8.5pt; font-weight: 500;"));
     val->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -659,29 +684,31 @@ DataPage::DataPage(QWidget *parent)
   // 1. 基本信息
   auto *secBasic = new CollapsibleSection(tr("基本信息"), scrollContainer);
   secBasic->setObjectName(QStringLiteral("secBasic"));
-  auto *formBasic = new QFormLayout(secBasic->container());
+  auto *formBasic = new QFormLayout();
+  secBasic->containerLayout()->addLayout(formBasic);
   formBasic->setContentsMargins(4, 2, 4, 4);
   formBasic->setSpacing(4);
-  addRow(formBasic, tr("名称:"), "propName");
-  addRow(formBasic, tr("类型:"), "propType");
-  addRow(formBasic, tr("格式:"), "propFormat");
-  auto *pathVal = addRow(formBasic, tr("路径:"), "propPath");
+  addRow(secBasic, formBasic, tr("名称:"), "propName");
+  addRow(secBasic, formBasic, tr("类型:"), "propType");
+  addRow(secBasic, formBasic, tr("格式:"), "propFormat");
+  auto *pathVal = addRow(secBasic, formBasic, tr("路径:"), "propPath");
   pathVal->setWordWrap(true);
-  addRow(formBasic, tr("当前版本:"), "propVersion");
-  addRow(formBasic, tr("状态:"), "propStatus");
+  addRow(secBasic, formBasic, tr("当前版本:"), "propVersion");
+  addRow(secBasic, formBasic, tr("状态:"), "propStatus");
   sl->addWidget(secBasic);
 
   // 2. 空间与几何
   auto *secSpatial = new CollapsibleSection(tr("空间与几何"), scrollContainer);
   secSpatial->setObjectName(QStringLiteral("secSpatial"));
-  auto *formSpatial = new QFormLayout(secSpatial->container());
+  auto *formSpatial = new QFormLayout();
+  secSpatial->containerLayout()->addLayout(formSpatial);
   formSpatial->setContentsMargins(4, 2, 4, 4);
   formSpatial->setSpacing(4);
-  addRow(formSpatial, tr("坐标系:"), "propCrs");
-  auto *coordVal = addRow(formSpatial, tr("坐标/范围:"), "propCoord");
+  addRow(secSpatial, formSpatial, tr("坐标系:"), "propCrs");
+  auto *coordVal = addRow(secSpatial, formSpatial, tr("坐标/范围:"), "propCoord");
   coordVal->setWordWrap(true);
-  addRow(formSpatial, tr("深度/时间:"), "propZRange");
-  addRow(formSpatial, tr("采样/规格:"), "propGrid");
+  addRow(secSpatial, formSpatial, tr("深度/时间:"), "propZRange");
+  addRow(secSpatial, formSpatial, tr("采样/规格:"), "propGrid");
   sl->addWidget(secSpatial);
 
   // 3. 业务角色与关联
@@ -751,6 +778,44 @@ DataPage::DataPage(QWidget *parent)
     if (!assetId.isEmpty())
       emit assetActivated(assetId);
   });
+}
+
+bool DataPage::eventFilter(QObject *watched, QEvent *event)
+{
+  if (event && event->type() == QEvent::Resize)
+  {
+    if (watched == m_tree || (m_tree && watched == m_tree->viewport()))
+    {
+      const int w = (watched == m_tree && event)
+                        ? static_cast<QResizeEvent *>(event)->size().width()
+                        : (m_tree ? m_tree->viewport()->width() : 0);
+      if (w > 40)
+      {
+        const int col1W = qBound(35, w * 22 / 100, 75);
+        if (m_tree->columnWidth(1) != col1W)
+          m_tree->setColumnWidth(1, col1W);
+      }
+    }
+    else if (auto *tbl = findChild<QTableWidget *>(QStringLiteral("assetTable")))
+    {
+      if (watched == tbl || watched == tbl->viewport())
+      {
+        const int w = (watched == tbl && event)
+                          ? static_cast<QResizeEvent *>(event)->size().width()
+                          : tbl->viewport()->width();
+        if (w > 50)
+        {
+          const int c1 = qBound(30, w * 18 / 100, 60);
+          const int c2 = qBound(35, w * 22 / 100, 75);
+          if (tbl->columnWidth(1) != c1)
+            tbl->setColumnWidth(1, c1);
+          if (tbl->columnWidth(2) != c2)
+            tbl->setColumnWidth(2, c2);
+        }
+      }
+    }
+  }
+  return QWidget::eventFilter(watched, event);
 }
 
 void DataPage::refreshAssetTable()
@@ -1179,6 +1244,22 @@ void DataPage::refreshAssetTree()
   DataCatalog *cat = svc->catalog();
   if (!cat)
     return;
+
+  // 0. 测区 (Survey Area) — 首项显示，双击打开测区全景地图 (QGIS 画布)
+  auto *surveyRoot = new QTreeWidgetItem(m_tree);
+  surveyRoot->setText(0, tr("测区"));
+  surveyRoot->setText(1, tr("工区全景"));
+  surveyRoot->setData(0, Qt::UserRole, QStringLiteral("survey_area"));
+  surveyRoot->setData(0, Qt::UserRole + 2, QStringLiteral("survey_area"));
+  surveyRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")));
+  surveyRoot->setExpanded(true);
+
+  auto *surveyMapItem = new QTreeWidgetItem(surveyRoot);
+  surveyMapItem->setText(0, tr("工区全景地图"));
+  surveyMapItem->setText(1, tr("QGIS地图画布"));
+  surveyMapItem->setData(0, Qt::UserRole, QStringLiteral("survey_area"));
+  surveyMapItem->setData(0, Qt::UserRole + 2, QStringLiteral("survey_area"));
+  surveyMapItem->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionZoomFullExtent.svg")));
 
   // 1. 井 (Wells)
   QVector<CatalogEntity> wells = cat->entities(QStringLiteral("well"));
@@ -1658,7 +1739,368 @@ void DataPage::refreshEntityView()
     return;
   }
 
-  // 情况 A：选中了实体
+  // 情况 1：选中了测区全景
+  if (assetId == QLatin1String("survey_area"))
+  {
+    empty->setVisible(false);
+    content->setVisible(true);
+    header->setText(tr("测区全景 (Survey Area)"));
+    if (propName) propName->setText(tr("工区全景与空间范围"));
+    if (propType) propType->setText(tr("测区全景地图 (Survey Map)"));
+    if (propFormat) propFormat->setText(tr("QGIS 地图工程"));
+    if (propPath) propPath->setText(cat->catalogPath());
+    if (propVersion) propVersion->setText(tr("当前工程"));
+    if (propStatus) propStatus->setText(tr("已加载 · 双击打开全景地图"));
+
+    const QVector<CatalogEntity> wells = cat->entities(QStringLiteral("well"));
+    const QVector<CatalogEntity> surveys = cat->entities(QStringLiteral("seismic_survey"));
+    CatalogEntity survey = surveys.isEmpty() ? CatalogEntity() : surveys.front();
+    if (propCrs) propCrs->setText(tr("工区三维测网坐标系 (米)"));
+    if (propCoord)
+    {
+      if (!survey.corners.isEmpty())
+      {
+        propCoord->setText(tr("角点 1: (%1, %2)\n角点 2: (%3, %4)")
+                               .arg(QString::number(survey.corners.first().first, 'f', 1))
+                               .arg(QString::number(survey.corners.first().second, 'f', 1))
+                               .arg(QString::number(survey.corners.last().first, 'f', 1))
+                               .arg(QString::number(survey.corners.last().second, 'f', 1)));
+      }
+      else if (survey.inlineMax > survey.inlineMin)
+      {
+        propCoord->setText(tr("Inline: %1 ~ %2\nCrossline: %3 ~ %4")
+                               .arg(int(survey.inlineMin))
+                               .arg(int(survey.inlineMax))
+                               .arg(int(survey.xlineMin))
+                               .arg(int(survey.xlineMax)));
+      }
+      else
+      {
+        propCoord->setText(tr("工区全景坐标覆盖"));
+      }
+    }
+    if (propZRange) propZRange->setText(tr("多测线 / 多层位 / 测井联合空间"));
+    if (propGrid) propGrid->setText(tr("总井数: %1 口").arg(wells.size()));
+    if (propRoleSummary) propRoleSummary->setText(tr("包含工区所有井位、地震工区范围、构造解释层位及辅助地质底图"));
+
+    if (propDetailsText)
+    {
+      QStringList details;
+      details << tr("数据目录: %1").arg(cat->catalogPath());
+      details << tr("井实体数: %1 口").arg(wells.size());
+      details << tr("地震工区数: %1 个").arg(surveys.size());
+      propDetailsText->setText(details.join(QStringLiteral("\n")));
+    }
+
+    roleTable->setRowCount(0);
+    derived->setRowCount(0);
+    missing->hide();
+    return;
+  }
+
+  // 情况 2：选中了具体资产（例如地震体、层位、测井文件、GeoJSON相图、参考资料等）
+  if (!assetId.isEmpty())
+  {
+    const CatalogAsset a = cat->assetById(assetId);
+    if (a.id.isEmpty())
+    {
+      empty->setText(tr("所选资产不在目录中：%1").arg(assetId));
+      empty->setVisible(true);
+      content->setVisible(false);
+      return;
+    }
+
+    empty->setVisible(false);
+    content->setVisible(true);
+    const CatalogVersion v = cat->currentVersion(a.id);
+    const QString abs = svc ? svc->absolutePathForVersion(v) : QString();
+
+    QString typeDisplay = a.type;
+    QString formatDisplay = tr("未知格式");
+    const bool isGeoJson = a.type == QLatin1String("geojson") ||
+                           a.type == QLatin1String("boundary") ||
+                           a.displayName.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive);
+
+    if (a.type == QLatin1String("seismic"))
+    {
+      typeDisplay = tr("三维地震数据体 (3D Seismic)");
+      formatDisplay = tr("SEG-Y rev1.0 (IEEE/IBM FP32)");
+      header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, tr("三维地震")));
+    }
+    else if (a.type == QLatin1String("horizon"))
+    {
+      typeDisplay = tr("解释层位 (Horizon Grid)");
+      formatDisplay = tr("CPS-3 / ZMAP ASCII");
+      header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, tr("解释层位")));
+    }
+    else if (a.type == QLatin1String("well_log"))
+    {
+      typeDisplay = tr("测井曲线 (Well Log)");
+      formatDisplay = tr("CWLS LAS 2.0");
+      header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, tr("测井曲线")));
+    }
+    else if (a.type == QLatin1String("boundary"))
+    {
+      typeDisplay = tr("工区边界 (Boundary)");
+      formatDisplay = tr("GeoJSON 矢量");
+      header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, tr("工区边界")));
+    }
+    else if (isGeoJson)
+    {
+      typeDisplay = tr("参考相图 (GeoJSON 矢量)");
+      formatDisplay = tr("GeoJSON");
+      header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, tr("参考相图")));
+    }
+    else if (a.type == QLatin1String("auxiliary") || a.type == QLatin1String("document"))
+    {
+      typeDisplay = tr("辅助参考资料");
+      formatDisplay = a.displayName.section(QLatin1Char('.'), -1).toUpper();
+      header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, a.type));
+    }
+    else
+    {
+      header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, a.type));
+    }
+
+    // 1. 基本信息
+    if (propName) propName->setText(a.displayName);
+    if (propType) propType->setText(typeDisplay);
+    if (propFormat) propFormat->setText(formatDisplay);
+    if (propPath) propPath->setText(v.path.isEmpty() ? tr("—") : v.path);
+    if (propVersion) propVersion->setText(v.versionNumber > 0 ? tr("v%1").arg(v.versionNumber) : tr("v1"));
+    if (propStatus)
+    {
+      if (isGeoJson && v.extra.value(QStringLiteral("provisional")).toBool())
+        propStatus->setText(tr("就绪 · 临时配准"));
+      else if (isGeoJson)
+        propStatus->setText(tr("就绪 · 未配准"));
+      else
+        propStatus->setText(tr("就绪 · 可预览"));
+    }
+
+    // 2. 空间与几何
+    if (a.type == QLatin1String("seismic"))
+    {
+      const QVector<CatalogEntity> surveys = cat->entities(QStringLiteral("seismic_survey"));
+      CatalogEntity survey = surveys.isEmpty() ? CatalogEntity() : surveys.front();
+      if (propCrs) propCrs->setText(tr("工区三维地震测网坐标系"));
+      if (propCoord)
+      {
+        if (survey.inlineMax > survey.inlineMin)
+          propCoord->setText(tr("Inline: %1 ~ %2\nCrossline: %3 ~ %4")
+              .arg(int(survey.inlineMin)).arg(int(survey.inlineMax))
+              .arg(int(survey.xlineMin)).arg(int(survey.xlineMax)));
+        else
+          propCoord->setText(tr("三维地震数据范围"));
+      }
+      if (propZRange)
+      {
+        const double dt = survey.sampleIntervalUs > 0 ? survey.sampleIntervalUs / 1000.0 : 2.0;
+        propZRange->setText(tr("双程旅行时 0.0 ~ 3000.0 ms (采样间隔 %1 ms)").arg(dt, 0, 'f', 1));
+      }
+      if (propGrid) propGrid->setText(tr("多道地震数据体 · 40,000 道"));
+    }
+    else if (a.type == QLatin1String("horizon"))
+    {
+      if (propCrs) propCrs->setText(QStringLiteral("EPSG:4544 / CGCS2000"));
+      if (propCoord) propCoord->setText(tr("工区构造层位面网格"));
+      if (propZRange) propZRange->setText(tr("双程时间 / 构造深度 (TWT)"));
+      if (propGrid) propGrid->setText(tr("411 × 641 网格节点 (步长 25m)"));
+    }
+    else if (isGeoJson)
+    {
+      double b[4] = {0, 0, 0, 0};
+      QString berr;
+      const bool hasB = (!abs.isEmpty() && QFile::exists(abs)) ? geoJsonBounds(abs, b, &berr) : false;
+
+      int featCount = 0;
+      QStringList propKeys, faciesKeys;
+      if (!abs.isEmpty() && QFile::exists(abs))
+      {
+        QFile gf(abs);
+        if (gf.open(QIODevice::ReadOnly))
+        {
+          const QJsonDocument gDoc = QJsonDocument::fromJson(gf.readAll());
+          if (gDoc.isObject())
+          {
+            const QJsonArray feats = gDoc.object().value(QStringLiteral("features")).toArray();
+            featCount = feats.size();
+            for (const QJsonValue &fv : feats)
+            {
+              const QJsonObject props = fv.toObject().value(QStringLiteral("properties")).toObject();
+              for (auto it = props.begin(); it != props.end(); ++it)
+                if (!propKeys.contains(it.key()))
+                  propKeys.append(it.key());
+            }
+            for (const QString &k : propKeys)
+              if (k.contains(QString::fromUtf8("相")))
+                faciesKeys.append(k);
+          }
+        }
+      }
+
+      if (propCrs)
+      {
+        if (v.extra.value(QStringLiteral("provisional")).toBool())
+          propCrs->setText(tr("工区局部测网（临时配准仿射变换）"));
+        else
+          propCrs->setText(tr("WGS 84 (经纬度) · 经纬度，与本测网不是同一空间"));
+      }
+      if (propCoord)
+      {
+        if (hasB)
+          propCoord->setText(tr("X %1–%2, Y %3–%4")
+                                 .arg(QString::number(b[0], 'f', 2), QString::number(b[2], 'f', 2),
+                                      QString::number(b[1], 'f', 2), QString::number(b[3], 'f', 2)));
+        else
+          propCoord->setText(tr("未定义坐标"));
+      }
+      if (propZRange) propZRange->setText(tr("—（平面矢量数据）"));
+      if (propGrid) propGrid->setText(tr("要素个数：%1").arg(featCount));
+    }
+    else
+    {
+      if (propCrs) propCrs->setText(QStringLiteral("EPSG:4544 / CGCS2000"));
+      if (propCoord) propCoord->setText(tr("工区基准坐标"));
+      if (propZRange) propZRange->setText(tr("—"));
+      if (propGrid) propGrid->setText(tr("—"));
+    }
+
+    // 3. 业务角色与关联
+    const QVector<EntityAssetLink> links = cat->linksForAsset(a.id);
+    if (propRoleSummary)
+    {
+      if (links.isEmpty())
+        propRoleSummary->setText(tr("独立资产（未挂接到井实体）"));
+      else
+        propRoleSummary->setText(tr("已挂接 %1 条业务关联").arg(links.size()));
+    }
+    roleTable->setRowCount(0);
+    for (const EntityAssetLink &l : links)
+    {
+      const int r = roleTable->rowCount();
+      roleTable->insertRow(r);
+      auto *rItem = new QTableWidgetItem(l.role);
+      rItem->setFlags(rItem->flags() & ~Qt::ItemIsEditable);
+      roleTable->setItem(r, 0, rItem);
+
+      const CatalogEntity e = cat->entityById(l.entityId);
+      auto *eItem = new QTableWidgetItem(e.name.isEmpty() ? l.entityId : e.name);
+      eItem->setFlags(eItem->flags() & ~Qt::ItemIsEditable);
+      roleTable->setItem(r, 1, eItem);
+
+      auto *mItem = new QTableWidgetItem(l.isPrimary ? tr("主关联") : tr("成员"));
+      mItem->setFlags(mItem->flags() & ~Qt::ItemIsEditable);
+      roleTable->setItem(r, 2, mItem);
+
+      auto *uItem = new QTableWidgetItem(l.unresolved ? tr("未决") : tr("已确认"));
+      uItem->setFlags(uItem->flags() & ~Qt::ItemIsEditable);
+      roleTable->setItem(r, 3, uItem);
+    }
+
+    // 4. 属性明细 / 特征
+    if (propDetailsText)
+    {
+      QStringList details;
+      details << tr("资产标识: %1").arg(a.id);
+      details << tr("显示名称: %1").arg(a.displayName);
+      if (!v.path.isEmpty())
+        details << tr("存储位置: %1").arg(v.path);
+      if (a.type == QLatin1String("seismic"))
+      {
+        details << tr("数据类型: 地震振幅数据体 (SEG-Y)");
+        details << tr("道头定义: Inline 189-192, Xline 193-196, CDP 21-24");
+        details << tr("振幅动态范围: 浮点连续振幅");
+      }
+      else if (a.type == QLatin1String("horizon"))
+      {
+        details << tr("层位属性: 构造解释层面");
+        details << tr("数据格式: 规则网格插值曲面");
+      }
+      else if (isGeoJson)
+      {
+        double b[4] = {0, 0, 0, 0};
+        QString berr;
+        const bool hasB = (!abs.isEmpty() && QFile::exists(abs)) ? geoJsonBounds(abs, b, &berr) : false;
+
+        int featCount = 0;
+        QStringList propKeys, faciesKeys;
+        if (!abs.isEmpty() && QFile::exists(abs))
+        {
+          QFile gf(abs);
+          if (gf.open(QIODevice::ReadOnly))
+          {
+            const QJsonDocument gDoc = QJsonDocument::fromJson(gf.readAll());
+            if (gDoc.isObject())
+            {
+              const QJsonArray feats = gDoc.object().value(QStringLiteral("features")).toArray();
+              featCount = feats.size();
+              for (const QJsonValue &fv : feats)
+              {
+                const QJsonObject props = fv.toObject().value(QStringLiteral("properties")).toObject();
+                for (auto it = props.begin(); it != props.end(); ++it)
+                  if (!propKeys.contains(it.key()))
+                    propKeys.append(it.key());
+              }
+              for (const QString &k : propKeys)
+                if (k.contains(QString::fromUtf8("相")))
+                  faciesKeys.append(k);
+            }
+          }
+        }
+        details << tr("要素个数: %1").arg(featCount);
+        if (hasB)
+          details << tr("坐标范围: X %1–%2, Y %3–%4")
+                         .arg(QString::number(b[0], 'f', 2), QString::number(b[2], 'f', 2),
+                              QString::number(b[1], 'f', 2), QString::number(b[3], 'f', 2));
+        details << tr("属性字段: %1").arg(propKeys.isEmpty() ? tr("无") : propKeys.join(QStringLiteral(", ")));
+        details << tr("相名字段: %1").arg(faciesKeys.isEmpty() ? tr("无") : faciesKeys.join(QStringLiteral(", ")));
+        if (v.extra.value(QStringLiteral("provisional")).toBool())
+          details << tr("空间提示: 已临时配准（手工仿射变换至工区测网）");
+        else
+          details << tr("空间提示: 经纬度，与本测网不是同一空间（可使用「临时配准」功能）");
+      }
+      propDetailsText->setText(details.join(QStringLiteral("\n")));
+    }
+
+    // 5. 派生产物
+    for (int r = 0; r < derived->rowCount(); ++r)
+      if (QWidget *w = derived->cellWidget(r, 2))
+      {
+        derived->removeCellWidget(r, 2);
+        w->setParent(nullptr);
+        w->deleteLater();
+      }
+    derived->setRowCount(0);
+    const QVector<CatalogVersion> allVers = cat->versionsForAsset(a.id);
+    for (const CatalogVersion &ver : allVers)
+    {
+      if (ver.stage == QLatin1String("DERIVED") || ver.versionNumber > v.versionNumber)
+      {
+        const int r = derived->rowCount();
+        derived->insertRow(r);
+        auto *nameItem = new QTableWidgetItem(ver.fileName.isEmpty() ? a.displayName : ver.fileName);
+        nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
+        derived->setItem(r, 0, nameItem);
+        auto *verItem = new QTableWidgetItem(tr("v%1").arg(ver.versionNumber));
+        verItem->setFont(PaleoTheme::monoFont());
+        verItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        derived->setItem(r, 1, verItem);
+        if (ver.extra.value(QStringLiteral("stale")).toBool())
+          derived->setCellWidget(
+              r, 2, PaleoTheme::capsuleLabel(tr("过时"), PaleoTheme::CapsuleKind::Warning, derived));
+        else if (ver.extra.value(QStringLiteral("provisional")).toBool())
+          derived->setCellWidget(
+              r, 2, PaleoTheme::capsuleLabel(tr("临时配准"), PaleoTheme::CapsuleKind::Neutral, derived));
+        else
+          derived->setItem(r, 2, mutedCell(QStringLiteral("—")));
+      }
+    }
+    missing->hide();
+    return;
+  }
+
+  // 情况 3：选中了实体
   if (!entityId.isEmpty())
   {
     const EntityView view = entityDataView(*cat, entityId);
@@ -1674,11 +2116,26 @@ void DataPage::refreshEntityView()
     content->setVisible(true);
 
     const QString title = view.entity.name.isEmpty() ? view.entity.id : view.entity.name;
-    header->setText(QStringLiteral("%1  (%2)").arg(title, tr("井实体")));
+    QString kindText = tr("井实体");
+    if (view.entity.entityType == QLatin1String("auxiliary"))
+      kindText = tr("辅助资料");
+    else if (view.entity.entityType == QLatin1String("seismic_survey"))
+      kindText = tr("地震工区");
+    else if (view.entity.entityType == QLatin1String("sequence_boundary"))
+      kindText = tr("层序界面");
+    header->setText(QStringLiteral("%1  (%2)").arg(title, kindText));
 
     // 1. 基本信息
     if (propName) propName->setText(title);
-    if (propType) propType->setText(tr("井 (Well)"));
+    if (propType)
+    {
+      if (view.entity.entityType == QLatin1String("auxiliary"))
+        propType->setText(tr("辅助资料 (Auxiliary)"));
+      else if (view.entity.entityType == QLatin1String("seismic_survey"))
+        propType->setText(tr("地震工区 (Survey)"));
+      else
+        propType->setText(tr("井 (Well)"));
+    }
     if (propFormat) propFormat->setText(tr("工程实体记录"));
     if (propPath) propPath->setText(tr("受管工程目录"));
     if (propVersion) propVersion->setText(tr("v1"));
@@ -1704,7 +2161,15 @@ void DataPage::refreshEntityView()
       else
         propZRange->setText(tr("—"));
     }
-    if (propGrid) propGrid->setText(tr("单井测量与轨迹"));
+    if (propGrid)
+    {
+      if (view.entity.entityType == QLatin1String("auxiliary"))
+        propGrid->setText(tr("参考相图 / 辅助图件"));
+      else if (view.entity.entityType == QLatin1String("seismic_survey"))
+        propGrid->setText(tr("地震三维测网网格"));
+      else
+        propGrid->setText(tr("单井测量与轨迹"));
+    }
 
     // 3. 业务角色与关联
     if (propRoleSummary)
@@ -1773,28 +2238,36 @@ void DataPage::refreshEntityView()
     if (propDetailsText)
     {
       QStringList details;
-      details << tr("井编号: %1").arg(view.entity.id);
-      details << tr("井名: %1").arg(view.entity.name);
-      if (view.entity.hasSurface)
+      if (view.entity.entityType == QLatin1String("auxiliary"))
       {
-        details << tr("井口坐标: X=%1, Y=%2")
-                       .arg(QString::number(view.entity.surfaceX, 'f', 2))
-                       .arg(QString::number(view.entity.surfaceY, 'f', 2));
+        details << tr("资料标识: %1").arg(view.entity.id);
+        details << tr("资料名称: %1").arg(view.entity.name);
       }
-      const QVector<EntityAssetLink> links = cat->linksForEntity(view.entity.id);
-      QStringList logNames, topNames;
-      for (const EntityAssetLink &l : links)
+      else
       {
-        const CatalogAsset a = cat->assetById(l.assetId);
-        if (l.role == QLatin1String("well_log"))
-          logNames << a.displayName;
-        else if (l.role == QLatin1String("tops"))
-          topNames << a.displayName;
+        details << tr("井编号: %1").arg(view.entity.id);
+        details << tr("井名: %1").arg(view.entity.name);
+        if (view.entity.hasSurface)
+        {
+          details << tr("井口坐标: X=%1, Y=%2")
+                         .arg(QString::number(view.entity.surfaceX, 'f', 2))
+                         .arg(QString::number(view.entity.surfaceY, 'f', 2));
+        }
+        const QVector<EntityAssetLink> links = cat->linksForEntity(view.entity.id);
+        QStringList logNames, topNames;
+        for (const EntityAssetLink &l : links)
+        {
+          const CatalogAsset a = cat->assetById(l.assetId);
+          if (l.role == QLatin1String("well_log"))
+            logNames << a.displayName;
+          else if (l.role == QLatin1String("tops"))
+            topNames << a.displayName;
+        }
+        if (!logNames.isEmpty())
+          details << tr("测井曲线数据: %1").arg(logNames.join(QStringLiteral(", ")));
+        if (!topNames.isEmpty())
+          details << tr("分层数据: %1").arg(topNames.join(QStringLiteral(", ")));
       }
-      if (!logNames.isEmpty())
-        details << tr("测井曲线数据: %1").arg(logNames.join(QStringLiteral(", ")));
-      if (!topNames.isEmpty())
-        details << tr("分层数据: %1").arg(topNames.join(QStringLiteral(", ")));
       propDetailsText->setText(details.join(QStringLiteral("\n")));
     }
 
@@ -1842,160 +2315,6 @@ void DataPage::refreshEntityView()
     }
     return;
   }
-
-  // 情况 B：选中了纯资产（例如地震体、层位、独立文件）
-  const CatalogAsset a = cat->assetById(assetId);
-  if (a.id.isEmpty())
-  {
-    empty->setText(tr("所选资产不在目录中：%1").arg(assetId));
-    empty->setVisible(true);
-    content->setVisible(false);
-    return;
-  }
-
-  empty->setVisible(false);
-  content->setVisible(true);
-  const CatalogVersion v = cat->currentVersion(a.id);
-
-  QString typeDisplay = a.type;
-  QString formatDisplay = tr("未知格式");
-  if (a.type == QLatin1String("seismic"))
-  {
-    typeDisplay = tr("三维地震数据体 (3D Seismic)");
-    formatDisplay = tr("SEG-Y rev1.0 (IEEE/IBM FP32)");
-  }
-  else if (a.type == QLatin1String("horizon"))
-  {
-    typeDisplay = tr("解释层位 (Horizon Grid)");
-    formatDisplay = tr("CPS-3 / ZMAP ASCII");
-  }
-  else if (a.type == QLatin1String("well_log"))
-  {
-    typeDisplay = tr("测井曲线 (Well Log)");
-    formatDisplay = tr("CWLS LAS 2.0");
-  }
-  else if (a.type == QLatin1String("boundary"))
-  {
-    typeDisplay = tr("工区边界 (Boundary)");
-    formatDisplay = tr("GeoJSON 矢量");
-  }
-  else if (a.type == QLatin1String("auxiliary") || a.type == QLatin1String("document"))
-  {
-    typeDisplay = tr("辅助参考资料");
-    formatDisplay = a.displayName.section(QLatin1Char('.'), -1).toUpper();
-  }
-
-  header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, a.type));
-
-  // 1. 基本信息
-  if (propName) propName->setText(a.displayName);
-  if (propType) propType->setText(typeDisplay);
-  if (propFormat) propFormat->setText(formatDisplay);
-  if (propPath) propPath->setText(v.path.isEmpty() ? tr("—") : v.path);
-  if (propVersion) propVersion->setText(v.versionNumber > 0 ? tr("v%1").arg(v.versionNumber) : tr("v1"));
-  if (propStatus) propStatus->setText(tr("就绪 · 可预览"));
-
-  // 2. 空间与几何
-  if (a.type == QLatin1String("seismic"))
-  {
-    const QVector<CatalogEntity> surveys = cat->entities(QStringLiteral("seismic_survey"));
-    CatalogEntity survey = surveys.isEmpty() ? CatalogEntity() : surveys.front();
-    if (propCrs) propCrs->setText(tr("工区三维地震测网坐标系"));
-    if (propCoord)
-    {
-      if (survey.inlineMax > survey.inlineMin)
-        propCoord->setText(tr("Inline: %1 ~ %2\nCrossline: %3 ~ %4")
-            .arg(int(survey.inlineMin)).arg(int(survey.inlineMax))
-            .arg(int(survey.xlineMin)).arg(int(survey.xlineMax)));
-      else
-        propCoord->setText(tr("三维地震数据范围"));
-    }
-    if (propZRange)
-    {
-      const double dt = survey.sampleIntervalUs > 0 ? survey.sampleIntervalUs / 1000.0 : 2.0;
-      propZRange->setText(tr("双程旅行时 0.0 ~ 3000.0 ms (采样间隔 %1 ms)").arg(dt, 0, 'f', 1));
-    }
-    if (propGrid) propGrid->setText(tr("多道地震数据体 · 40,000 道"));
-  }
-  else if (a.type == QLatin1String("horizon"))
-  {
-    if (propCrs) propCrs->setText(QStringLiteral("EPSG:4544 / CGCS2000"));
-    if (propCoord) propCoord->setText(tr("工区构造层位面网格"));
-    if (propZRange) propZRange->setText(tr("双程时间 / 构造深度 (TWT)"));
-    if (propGrid) propGrid->setText(tr("411 × 641 网格节点 (步长 25m)"));
-  }
-  else
-  {
-    if (propCrs) propCrs->setText(QStringLiteral("EPSG:4544 / CGCS2000"));
-    if (propCoord) propCoord->setText(tr("工区基准坐标"));
-    if (propZRange) propZRange->setText(tr("—"));
-    if (propGrid) propGrid->setText(tr("—"));
-  }
-
-  // 3. 业务角色与关联
-  const QVector<EntityAssetLink> links = cat->linksForAsset(a.id);
-  if (propRoleSummary)
-  {
-    if (links.isEmpty())
-      propRoleSummary->setText(tr("独立资产（未挂接到井实体）"));
-    else
-      propRoleSummary->setText(tr("已挂接 %1 条业务关联").arg(links.size()));
-  }
-  roleTable->setRowCount(0);
-  for (const EntityAssetLink &l : links)
-  {
-    const int r = roleTable->rowCount();
-    roleTable->insertRow(r);
-    auto *rItem = new QTableWidgetItem(l.role);
-    rItem->setFlags(rItem->flags() & ~Qt::ItemIsEditable);
-    roleTable->setItem(r, 0, rItem);
-
-    const CatalogEntity e = cat->entityById(l.entityId);
-    auto *eItem = new QTableWidgetItem(e.name.isEmpty() ? l.entityId : e.name);
-    eItem->setFlags(eItem->flags() & ~Qt::ItemIsEditable);
-    roleTable->setItem(r, 1, eItem);
-
-    auto *mItem = new QTableWidgetItem(l.isPrimary ? tr("主关联") : tr("成员"));
-    mItem->setFlags(mItem->flags() & ~Qt::ItemIsEditable);
-    roleTable->setItem(r, 2, mItem);
-
-    auto *uItem = new QTableWidgetItem(l.unresolved ? tr("未决") : tr("已确认"));
-    uItem->setFlags(uItem->flags() & ~Qt::ItemIsEditable);
-    roleTable->setItem(r, 3, uItem);
-  }
-
-  // 4. 属性明细 / 特征
-  if (propDetailsText)
-  {
-    QStringList details;
-    details << tr("资产标识: %1").arg(a.id);
-    details << tr("显示名称: %1").arg(a.displayName);
-    if (!v.path.isEmpty())
-      details << tr("存储位置: %1").arg(v.path);
-    if (a.type == QLatin1String("seismic"))
-    {
-      details << tr("数据类型: 地震振幅数据体 (SEG-Y)");
-      details << tr("道头定义: Inline 189-192, Xline 193-196, CDP 21-24");
-      details << tr("振幅动态范围: 浮点连续振幅");
-    }
-    else if (a.type == QLatin1String("horizon"))
-    {
-      details << tr("层位属性: 构造解释层面");
-      details << tr("数据格式: 规则网格插值曲面");
-    }
-    propDetailsText->setText(details.join(QStringLiteral("\n")));
-  }
-
-  // 5. 派生产物
-  for (int r = 0; r < derived->rowCount(); ++r)
-    if (QWidget *w = derived->cellWidget(r, 2))
-    {
-      derived->removeCellWidget(r, 2);
-      w->setParent(nullptr);
-      w->deleteLater();
-    }
-  derived->setRowCount(0);
-  missing->hide();
 }
 
 void DataPage::setUnresolvedFilter(bool on)

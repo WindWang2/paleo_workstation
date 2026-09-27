@@ -9,6 +9,7 @@
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <QString>
+#include <QSurfaceFormat>
 #include <cstdio>
 
 // App entry. Order matters: QgisRuntime::initialize() (inside AppContext)
@@ -18,6 +19,20 @@
 // the instance once it exists.
 int main(int argc, char *argv[])
 {
+  // OpenGL 3.3 Core Profile default format must precede QApplication / QgsApplication
+  // so that shared OpenGL contexts across the application (including QtWebEngine,
+  // QGIS Map Canvas, and Seismic 3D Viewport) have compatible Core Profile contexts.
+  QSurfaceFormat glFormat;
+  glFormat.setVersion(3, 3);
+  glFormat.setProfile(QSurfaceFormat::CoreProfile);
+  glFormat.setDepthBufferSize(24);
+  glFormat.setStencilBufferSize(8);
+  glFormat.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
+  QSurfaceFormat::setDefaultFormat(glFormat);
+
+  // Initialize static Qt resources in paleo_core
+  Q_INIT_RESOURCE(seismic_shaders);
+
   // Required by QtWebEngine when a process also owns OpenGL-backed widgets
   // (QGIS map canvas). Must precede the QApplication/QgsApplication ctor,
   // which lives inside QgisRuntime::initialize().

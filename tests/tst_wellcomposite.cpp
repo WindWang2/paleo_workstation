@@ -147,7 +147,7 @@ private slots:
     canvas.resize(800, 600);
     canvas.setDepthRange(1000.0, 2000.0);
 
-    // 添加深度道与一个包含 2 根曲线的道
+    // 添加深度道与两个曲线道
     auto depthTrack = std::make_shared<DepthScaleTrack>(64.0);
     canvas.addTrack(depthTrack);
 
@@ -163,14 +163,50 @@ private slots:
     ct2->addCurve(c3);
     canvas.addTrack(ct2);
 
-    QCOMPARE(canvas.trackCount(), 3);
+    auto faciesTrack = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
+    canvas.addTrack(faciesTrack);
 
-    // 测试 CurveConfigDialog
+    QCOMPARE(canvas.trackCount(), 4);
+    QCOMPARE(canvas.tracks()[0]->type(), TrackType::DepthScale);
+    QCOMPARE(canvas.tracks()[3]->type(), TrackType::FaciesCompound);
+
+    // 1. 测试 CurveConfigDialog 加载全部井道
     CurveConfigDialog dlg(&canvas);
-    dlg.applyConfiguration();
+    QCOMPARE(dlg.trackItems().size(), 4);
 
-    // 验证轨道依然正常
-    QCOMPARE(canvas.trackCount(), 3);
+    // 2. 测试井道顺序调整：将最末尾的沉积相道移动到最前面 (置顶)
+    dlg.moveTrack(3, 0);
+    QCOMPARE(dlg.trackItems()[0].type, TrackType::FaciesCompound);
+    dlg.applyConfiguration();
+    QCOMPARE(canvas.tracks()[0]->type(), TrackType::FaciesCompound);
+    QCOMPARE(canvas.tracks()[1]->type(), TrackType::DepthScale);
+
+    // 恢复沉积相道到末尾 (置底)
+    dlg.moveTrack(0, 3);
+    QCOMPARE(dlg.trackItems()[3].type, TrackType::FaciesCompound);
+    dlg.applyConfiguration();
+    QCOMPARE(canvas.tracks()[3]->type(), TrackType::FaciesCompound);
+
+    // 3. 测试合并曲线道：将 ct1 的 GR 与 ct2 的 AC 合并为新曲线道
+    // ct1 当前为 index 1 (GR:0, SP:1), ct2 为 index 2 (AC:0)
+    const bool okCombine = dlg.combineCurves({{1, 0}, {2, 0}}, QStringLiteral("三孔+岩性组合"));
+    QVERIFY(okCombine);
+
+    // ct2 变空被清理，组合道插入在 index 1，原 ct1(剩余SP) 顺延到 index 2
+    QCOMPARE(dlg.trackItems().size(), 4);
+    QCOMPARE(dlg.trackItems()[1].title, QStringLiteral("三孔+岩性组合"));
+    QCOMPARE(dlg.trackItems()[1].curves.size(), 2);
+
+    dlg.applyConfiguration();
+    QCOMPARE(canvas.trackCount(), 4);
+
+    // 4. 测试解散多曲线道
+    const bool okDissolve = dlg.dissolveTrack(1);
+    QVERIFY(okDissolve);
+    // 组合道解散为两个独立单道，总道数变为 5
+    QCOMPARE(dlg.trackItems().size(), 5);
+    dlg.applyConfiguration();
+    QCOMPARE(canvas.trackCount(), 5);
   }
 
   void testParseComprehensiveXmlRealData()
@@ -226,6 +262,8 @@ private slots:
     QVERIFY(hasCurve);
     QVERIFY(hasLitho);
     QVERIFY(hasForm);
+    // 验证沉积相道按石油地质规范放置在最右侧/最后一道
+    QCOMPARE(panel.canvas()->tracks().last()->type(), TrackType::FaciesCompound);
 
     // 1. 全井自适应纵览图
     panel.canvas()->setScaleRatio(QStringLiteral("自适应"));
@@ -279,6 +317,8 @@ private slots:
     forms.append(f2);
 
     QVERIFY(panel.loadLasCurves(QStringLiteral("TEST_WELL_1"), curves, forms));
+    // 验证 LAS 测井加载后沉积相道位于最右侧/最后一道
+    QCOMPARE(panel.canvas()->tracks().last()->type(), TrackType::FaciesCompound);
 
     // 验证初始视口与全井深度匹配
     QCOMPARE(panel.canvas()->minDepth(), 1000.0);

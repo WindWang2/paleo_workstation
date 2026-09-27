@@ -60,6 +60,10 @@ class DataPage : public QWidget
     void assetWellActivated(const QString &assetId, const QString &wellId); // 树节点关联井选中 → 预览打开并定位到该井
     void seismicLineActivated(const QString &assetId, const QString &mode); // 测线激活
     void wellSelected(const QString &wellId); // 树中选中井 → 地图高亮
+    void surveyAreaActivated(); // 双击测区 → 打开测区全景地图 (QGIS 画布)
+
+  protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
   private:
     void refreshAssetTree();

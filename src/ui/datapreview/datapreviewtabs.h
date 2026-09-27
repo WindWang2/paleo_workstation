@@ -13,6 +13,12 @@ class QLabel;
 class QTabWidget;
 struct CatalogAsset;
 class SegyReader;
+class QgsProject;
+class QgsMapCanvas;
+
+namespace seismic {
+class SeismicTaskService;
+}
 
 // ui/datapreview — 数据页页内预览标签栏（docs/PROJECT_AREA_PLAN.md §4）。
 // 普通 QTabWidget（可关闭标签），样式走 DESIGN.md dock 面板，不用工作流
@@ -30,6 +36,7 @@ class DataPreviewTabs : public QWidget
   Q_OBJECT
   public:
     explicit DataPreviewTabs(QWidget *parent = nullptr);
+    ~DataPreviewTabs() override;
 
     // T27 中文化：coordinate_status 枚举显示串（ok/untransformed/invalid/
     // missing → 中文，§4 文案）。未知/空按「没有坐标」。
@@ -41,6 +48,10 @@ class DataPreviewTabs : public QWidget
 
     // 服务绑定（mainwindow 接线处调用；为空时 openAsset 显示空态）。
     void setImportService(DataImportService *svc);
+    void setProject(QgsProject *project);
+
+    // 打开测区全景地图画布（可以用 QGIS 画布）
+    void openSurveyArea();
 
     // 任务服务（wave2 D1）：接上后地震标签的「索引+SHA 复验+测线解码」进
     // 任务池异步执行（任务页有进度条/ETA/取消）；不接线保持同步旧行为
@@ -84,9 +95,12 @@ class DataPreviewTabs : public QWidget
     // params 携带 tx/ty/sx/sy/rotDeg；DERIVED 登记、图层实例化与水印由壳办。
     void provisionalRegistrationRequested(const QString &assetId,
                                           const QVariantMap &params);
+    // 请求切换到主工作区全屏 QGIS 画布查看
+    void requestShowOnMainCanvas();
 
   private:
     QWidget *buildContent(const QString &assetId, QWidget *page);
+    QWidget *buildSurveyAreaContent(QWidget *page);
     void rebuildAssetTab(const QString &assetId); // 「重试」/PDF 转换完成后重建内容
     void focusWellIfNeeded(const QString &assetId, QWidget *page);
     void updateTabTitle(const QString &assetId); // 文件名 + 过滤后缀（井/测线）
@@ -102,6 +116,7 @@ class DataPreviewTabs : public QWidget
 
   DataImportService *m_svc = nullptr;
   PaleoTaskService *m_taskSvc = nullptr;
+  QPointer<QgsProject> m_project;
   // 「过时」徽标刷新接线（B 包 staleness-lite）：当前服务 catalog 的
   // changed() → 重算已开标签标题。换绑服务时先断开（见 setImportService）。
   DataCatalog *m_catalogForTitles = nullptr;
@@ -116,4 +131,5 @@ class DataPreviewTabs : public QWidget
     QHash<QString, int> m_decodeSeq;
     QHash<QString, QPointer<PaleoTask>> m_decodeTask;
     QHash<QString, bool> m_shaVerified; // assetId → 本会话已过 SHA 复验（不重复哈希）
+    std::unique_ptr<seismic::SeismicTaskService> m_seismicTaskSvc;
 };

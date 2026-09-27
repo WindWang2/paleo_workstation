@@ -46,6 +46,9 @@
 #include "decorations/paleodecorations.h"
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 #include "ui/seismic3d/seismic3dviewpanel.h"
+#include "ui/seismic3d/seismic3dviewportwidget.h"
+#include "services/seismictaskservice.h"
+#include "domain/seismic/sgyvolume.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
@@ -298,6 +301,8 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
   restoreWindowState();
 }
 
+PaleoMainWindow::~PaleoMainWindow() = default;
+
 void PaleoMainWindow::buildShell()
 {
   setWindowTitle(QStringLiteral("Paleo Workbench"));
@@ -359,6 +364,11 @@ void PaleoMainWindow::buildShell()
   m_centerSplit->addWidget(m_previewTabs);
   m_centerSplit->setStretchFactor(0, 0);
   m_centerSplit->setStretchFactor(1, 1);
+  connect(m_centerSplit, &QSplitter::splitterMoved, this,
+          [this](int pos, int) {
+            if (!m_previewMaximized && pos > 0)
+              m_userListWidth = pos;
+          });
   m_workspaceStack->addWidget(m_centerSplit); // 1
   m_centerStack->addWidget(m_workspaceStack); // index 1
 
@@ -923,34 +933,30 @@ void PaleoMainWindow::applyPreviewSplit()
       m_centerSplit->setSizes({listFloor, qMax(1, total - listFloor)});
       return;
     }
-    // D7 预算：首个标签出现时给预览 ≥60%；之后由用户拖分栏，不再触碰。
-    if (!m_previewExpanded)
-    {
-      m_previewExpanded = true;
-      if (isHoriz)
-      {
-        const int leftSize = qMax(1, total * 2 / 5);
-        m_centerSplit->setSizes({leftSize, qMax(1, total - leftSize)});
-      }
-      else
-      {
-        m_centerSplit->setSizes({qMax(1, total * 2 / 5), qMax(1, total * 3 / 5)});
-      }
-    }
+
+    // 用户调整过的宽度绝不因双击数据项而改变；只能由用户调整。
+    // 首开未调整时使用默认宽度（确保预览 ≥60%）。
+    const int defaultList = isHoriz ? qMin(380, qMax(260, total * 2 / 5)) : qMax(1, total * 2 / 5);
+    int leftSize = (m_userListWidth > 0) ? m_userListWidth : defaultList;
+    leftSize = qMin(leftSize, qMax(1, total - 64));
+    m_centerSplit->setSizes({leftSize, qMax(1, total - leftSize)});
     return;
   }
 
-  m_previewExpanded = false;
-  // 空态：最大化/保存的尺寸一并复位——角落钮随 tabs 隐藏，下次重开按预算走。
+  // 空态：最大化/保存的尺寸一并复位——角落钮随 tabs 隐藏
   m_preMaxSplitSizes.clear();
   m_previewMaximized = false;
   if (auto *maxBtn =
           m_previewTabs->findChild<QToolButton *>(QStringLiteral("previewMaxButton")))
     maxBtn->setChecked(false);
 
+  // 空态下保持左侧列表宽度，绝不因关标签或无标签强制改变用户设置或默认宽度
+  const int defaultList = isHoriz ? qMin(380, qMax(260, total * 2 / 5)) : qMax(1, total * 2 / 5);
+  int leftSize = (m_userListWidth > 0) ? m_userListWidth : defaultList;
+
   if (isHoriz)
   {
-    const int leftSize = qMin(380, qMax(260, total * 2 / 5));
+    leftSize = qMin(leftSize, qMax(1, total - 64));
     m_centerSplit->setSizes({leftSize, qMax(1, total - leftSize)});
   }
   else
@@ -1753,6 +1759,14 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     return;
   m_taskSvc = taskSvc; // D1b：导入任务池（nullptr 时保持同步旧路径）
   m_importSvc = importSvc; // 「从工区文件夹新建」直达入口
+  if (taskSvc && !m_seismicTaskSvc)
+  {
+    m_seismicTaskSvc = std::make_unique<seismic::SeismicTaskService>(taskSvc, 256, this);
+  }
+  if (m_seismicTaskSvc && m_seismic3dPanel)
+  {
+    m_seismic3dPanel->setTaskService(m_seismicTaskSvc.get());
+  }
 
   // Replace placeholders in page order (data, predict, constraint, compose, validate).
   while (stack->count() > 0)
@@ -1817,8 +1831,12 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     // 列表选中在中央预览标签（地图下方分栏）打开（确认入库后才开标签）。
     dataPage->setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(importSvc));
     connect(importSvc->catalog(), &DataCatalog::changed, this,
-            [dataPage]() { QMetaObject::invokeMethod(dataPage, "refreshAssetTable"); });
+            [this, dataPage]() {
+              QMetaObject::invokeMethod(dataPage, "refreshAssetTable");
+              syncSeismicVolumeToDocks();
+            });
     dataPage->refreshAssetTable();
+    syncSeismicVolumeToDocks();
     // D6 地图→表联动：画布上拾取的实体（WellMapLink → ctx）→ 资产表选中
     // 其已决关联的行；选中走同一条 assetActivated → 预览照开。
     if (m_selection)
@@ -1859,7 +1877,9 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     // 收告警、放开导入。
     if (m_projectSvc)
       connect(m_projectSvc, &QgisProjectService::projectOpened, this,
-              [dataPage, importSvc, catalogError, setImportsEnabled](const QString &) {
+              [this, dataPage, importSvc, catalogError, setImportsEnabled](const QString &) {
+                if (m_previewTabs && m_projectSvc)
+                  m_previewTabs->setProject(m_projectSvc->project());
                 if (importSvc->catalogOpenError().isEmpty())
                 {
                   catalogError->hide();
@@ -1868,12 +1888,15 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 else
                   setImportsEnabled(false); // 换了个工程仍然失败 → 保持禁用
                 dataPage->refreshAssetTable();
+                syncSeismicVolumeToDocks();
               });
     DataPreviewTabs *preview = m_previewTabs;
     if (preview)
     {
       preview->setImportService(importSvc);
       preview->setTaskService(taskSvc); // D1：剖面索引/解码异步化（nullptr 时保持同步）
+      if (m_projectSvc)
+        preview->setProject(m_projectSvc->project());
       // D11 临时配准：GeoJSON 标签手工仿射 → DERIVED + 水印图层。
       connect(preview, &DataPreviewTabs::provisionalRegistrationRequested, this,
               [this, importSvc](const QString &assetId, const QVariantMap &params) {
@@ -1886,6 +1909,11 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
               [preview](const QString &aid, const QString &mode) {
                 preview->openSeismicLine(aid, mode, 0, 0.0);
               });
+      connect(dataPage, &DataPage::surveyAreaActivated, preview, &DataPreviewTabs::openSurveyArea);
+      connect(preview, &DataPreviewTabs::requestShowOnMainCanvas, this, [this]() {
+        if (m_workspaceStack)
+          m_workspaceStack->setCurrentIndex(0);
+      });
       if (auto *inner = preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs")))
       {
         connect(inner, &QTabWidget::currentChanged, this, [preview, dataPage](int idx) {
@@ -2728,9 +2756,14 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     QAction *seismic3dAct = newAction(tr("三维视口"), icon("mIcon3D.svg"),
                                       tr("打开三维地震体立体视口"), "ribbonActionSeismic3D");
     connect(seismic3dAct, &QAction::triggered, this, [this] {
+      syncSeismicVolumeToDocks();
       if (m_seismic3dDock) {
         m_seismic3dDock->show();
         m_seismic3dDock->raise();
+        if (m_seismic3dPanel && m_seismic3dPanel->viewport()) {
+          m_seismic3dPanel->viewport()->fitToBounds();
+          m_seismic3dPanel->viewport()->update();
+        }
       }
     });
     large(sp, seismic3dAct);
@@ -2738,6 +2771,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     QAction *seismic2dAct = newAction(tr("地震剖面"), icon("mIconRasterLayer.svg"),
                                       tr("打开二维地震与井震标定剖面"), "ribbonActionSeismic2D");
     connect(seismic2dAct, &QAction::triggered, this, [this] {
+      syncSeismicVolumeToDocks();
       if (m_seismicSectionDock) {
         m_seismicSectionDock->show();
         m_seismicSectionDock->raise();
@@ -2762,15 +2796,21 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       QAction *pSeismic3d = newAction(tr("三维地震"), icon("mIcon3D.svg"),
                                       tr("打开三维地震立体视口"), "ribbonPredictSeismic3D");
       connect(pSeismic3d, &QAction::triggered, this, [this] {
+        syncSeismicVolumeToDocks();
         if (m_seismic3dDock) {
           m_seismic3dDock->show();
           m_seismic3dDock->raise();
+          if (m_seismic3dPanel && m_seismic3dPanel->viewport()) {
+            m_seismic3dPanel->viewport()->fitToBounds();
+            m_seismic3dPanel->viewport()->update();
+          }
         }
       });
       large(cp, pSeismic3d);
       QAction *pSeismic2d = newAction(tr("地震剖面"), icon("mIconRasterLayer.svg"),
                                       tr("打开地震与井震剖面"), "ribbonPredictSeismic2D");
       connect(pSeismic2d, &QAction::triggered, this, [this] {
+        syncSeismicVolumeToDocks();
         if (m_seismicSectionDock) {
           m_seismicSectionDock->show();
           m_seismicSectionDock->raise();
@@ -3298,3 +3338,49 @@ void PaleoMainWindow::applyProvisionalRegistration(DataImportService *svc,
             .arg(featureCount),
         8000);
 }
+
+void PaleoMainWindow::syncSeismicVolumeToDocks()
+{
+  if (!m_importSvc || !m_importSvc->catalog())
+    return;
+  for (const CatalogAsset &a : m_importSvc->catalog()->assets())
+  {
+    if (a.type == QLatin1String("seismic"))
+    {
+      const CatalogVersion tv = m_importSvc->catalog()->currentVersion(a.id);
+      const QString abs = tv.id.isEmpty() ? QString() : m_importSvc->absolutePathForVersion(tv);
+      if (!abs.isEmpty() && QFile::exists(abs))
+      {
+        if (m_seismic3dPanel && (m_seismic3dPanel->volume() == nullptr ||
+                                 QString::fromStdString(m_seismic3dPanel->volume()->Path().string()) != abs))
+        {
+          if (m_seismicTaskSvc)
+            m_seismic3dPanel->setTaskService(m_seismicTaskSvc.get());
+          auto vol = std::make_shared<seismic::SgyVolume>();
+          std::string volErr;
+          if (vol->Load(abs.toStdString(), volErr))
+          {
+            m_seismic3dPanel->setVolume(vol);
+            if (m_seismic3dPanel->viewport())
+            {
+              m_seismic3dPanel->viewport()->setPresetView(seismic::SeismicCameraController::PresetView::Isometric);
+              m_seismic3dPanel->viewport()->fitToBounds();
+            }
+          }
+        }
+        if (m_seismicSectionDock && (m_seismicSectionDock->volume() == nullptr ||
+                                     QString::fromStdString(m_seismicSectionDock->volume()->Path().string()) != abs))
+        {
+          auto vol = std::make_shared<seismic::SgyVolume>();
+          std::string volErr;
+          if (vol->Load(abs.toStdString(), volErr))
+          {
+            m_seismicSectionDock->setVolume(vol);
+          }
+        }
+        break;
+      }
+    }
+  }
+}
+

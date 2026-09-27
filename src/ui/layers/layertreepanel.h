@@ -1,16 +1,24 @@
 // 层：视图
 #pragma once
 
+#include <QList>
 #include <QString>
 #include <QWidget>
 
+class QgsLayerTreeGroup;
+class QgsLayerTreeLayer;
 class QgsLayerTreeModel;
+class QgsLayerTreeNode;
 class QgsLayerTreeView;
 class QgsMapCanvas;
+class QgsMapLayer;
 class QgsProject;
 class QgisLayerService;
+class QEvent;
 class QLabel;
 class QLineEdit;
+class QAction;
+class QMenu;
 
 // 图层管理面板 —— 替换壳里裸 QgsLayerTreeView 的挂接（paleomainwindow 只
 // new 这个面板）。objectName 兼容（tst_ui 依赖）：view="layerTreeView"、
@@ -54,10 +62,42 @@ class LayerTreePanel : public QWidget
     // 「导出/加载样式 .qml」经 QFileDialog + QgsMapLayer::export/importNamedStyle。
 
   private:
+    // ---- 构建与刷新 ----
+    QWidget *buildToolbar();
+    void buildContextMenu();
+    void updateEmptyState();
+    void updatePaleoActionStates();
+    void expandNewLayerNodes(const QList<QgsMapLayer *> &layers);
+    // ---- 筛选（组内任一后代命中→组保留；空串全显） ----
+    bool filterGroup(QgsLayerTreeGroup *group);      // 返回该组是否可见
+    bool layerMatchesFilter(QgsLayerTreeLayer *node) const;
+    void applyFilter();
+    // ---- 右键 Paleo 项 ----
+    QString currentLayerGroup() const;               // 树上组名，其次 decl.group
+    void duplicateCurrentLayer();
+    void exportCurrentStyle();
+    void importCurrentStyle();
+    // ---- indicator ----
+    void scheduleIndicatorRefresh(); // 排队合并刷新（setActiveHorizon 时序）
+
+    // ---- 空态 label 随宿主 resize 居中（沿用壳内 EmptyStateLabel 模式） ----
+    void recenterEmptyState();
+
+    bool eventFilter(QObject *obj, QEvent *ev) override;
+
     QgsProject *m_project = nullptr;
     QgsMapCanvas *m_canvas = nullptr;
     QgisLayerService *m_layerService = nullptr;
     QgsLayerTreeView *m_view = nullptr;
     QLineEdit *m_filterEdit = nullptr;
     QLabel *m_emptyState = nullptr;
+    QMenu *m_menu = nullptr;
+    QAction *m_addGroupAction = nullptr;       // 复用 defaultActions()
+    QAction *m_propertiesAction = nullptr;     // objectName: layerTreePropertiesAction
+    QAction *m_duplicateAction = nullptr;      // objectName: layerTreeDuplicateAction
+    QAction *m_exportStyleAction = nullptr;    // objectName: layerTreeExportStyleAction
+    QAction *m_importStyleAction = nullptr;    // objectName: layerTreeImportStyleAction
+    QAction *m_openPageAction = nullptr;       // objectName: layerTreeOpenMappingPageAction
+    QString m_filterText;
+    bool m_refreshQueued = false;
 };

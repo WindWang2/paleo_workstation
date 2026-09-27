@@ -668,6 +668,36 @@ class TestUiShell : public QObject
       QVERIFY(m_ctx->canvasCtl()->activeTool() == nullptr);
       delete pan;
     }
+
+    // 面板管理（右键 dock 标题栏 = 顶栏「面板」钮）：createPopupMenu
+    // 列出全部 dock 的 toggleViewAction；编辑条是 ribbon 行内控件，
+    // 页作用域归 showPage——不在可关清单里。
+    void panelMenuListsDocks()
+    {
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                             m_ctx->compositionWf(), m_ctx->validationWf(),
+                             m_ctx->importSvc(), m_ctx->seismicLink(),
+                             m_ctx->processingSvc(), m_ctx->store(),
+                             m_ctx->editingSvc(), m_ctx->layoutSvc(),
+                             m_ctx->taskSvc());
+      auto *btn = m_win->findChild<QToolButton *>(QStringLiteral("panelsMenuButton"));
+      QVERIFY(btn);
+      QCOMPARE(btn->text(), QStringLiteral("面板"));
+
+      QMenu *menu = m_win->createPopupMenu();
+      QVERIFY(menu);
+      QStringList texts;
+      for (QAction *a : menu->actions())
+        texts << a->text();
+      for (const QString &t : {QStringLiteral("图层"), QStringLiteral("页面面板"),
+                               QStringLiteral("日志 / 任务"), QStringLiteral("Web 服务")})
+        QVERIFY2(texts.contains(t), qPrintable(t + " / got: " + texts.join(",")));
+      // 每个非分隔符条目是 dock 的 toggleViewAction——可勾选
+      const QList<QAction *> acts = menu->actions(); // 迭代器必须同一容器
+      QVERIFY(std::all_of(acts.begin(), acts.end(),
+                          [](QAction *a) { return a->isSeparator() || a->isCheckable(); }));
+      delete menu;
+    }
 };
 
 int main(int argc, char *argv[])

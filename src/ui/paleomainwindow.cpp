@@ -68,6 +68,7 @@
 
 #include <QApplication>
 #include <QCloseEvent>
+#include <QContextMenuEvent>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QLineEdit>
@@ -652,6 +653,20 @@ void PaleoMainWindow::buildShell()
   connect(addrOpen, &QPushButton::clicked, this, openWebUrl);
   connect(addrEdit, &QLineEdit::returnPressed, this, openWebUrl);
 
+  // 面板管理入口（右键 dock 标题栏是同一菜单——contextMenuEvent）。
+  // 「面板」钮走 chipsRow 惯例；菜单每次点击现建——createPopupMenu 反映
+  // 当下 dock 集（顶点编辑器 dock 等懒创建的也能列上）。
+  auto *panelsBtn = new QToolButton(topWidget);
+  panelsBtn->setObjectName(QStringLiteral("panelsMenuButton"));
+  panelsBtn->setText(tr("面板"));
+  panelsBtn->setAccessibleName(tr("面板显隐菜单"));
+  panelsBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionShowAllLayers.svg")));
+  panelsBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  connect(panelsBtn, &QToolButton::clicked, this, [this, panelsBtn] {
+    showPanelMenu(panelsBtn->mapToGlobal(QPoint(0, panelsBtn->height())));
+  });
+  chipsRow->layout()->addWidget(panelsBtn);
+
   // Toggle entry on the top bar — same action-button pattern as
   // 处理算法/图件设计 (the shell has no 视图 menu). toggleViewAction keeps
   // the button in sync when the dock is closed via its title-bar ✕.
@@ -725,6 +740,43 @@ void PaleoMainWindow::buildShell()
       "QDockWidget::title { background: #EDF1F5; color: #24303E; padding: 6px 10px; }"
       "QStatusBar { background: #EDF1F5; color: #5D6E80; }") +
       PaleoTheme::focusRingStyleSheet());
+}
+
+void PaleoMainWindow::showPanelMenu(const QPoint &globalPos)
+{
+  // createPopupMenu() 是 QMainWindow 原生面板清单：列出每个 dock 的
+  // toggleViewAction（+注册的 QToolBar——本壳没有；编辑条是 ribbon 行内
+  // 控件，页作用域归 showPage 管，故意不进可关清单）。菜单生命周期归
+  // WA_DeleteOnClose。
+  if (QMenu *menu = createPopupMenu())
+  {
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    menu->popup(globalPos);
+  }
+}
+
+void PaleoMainWindow::contextMenuEvent(QContextMenuEvent *event)
+{
+  // 命中件祖先链上有 QDockWidget 且不落在其内容子树里（标题栏/边距）
+  // → 弹面板管理菜单；dock 内容件（图层树、表格…）与画布各有自己的
+  // 右键语义，一路放行。
+  QWidget *hit = childAt(event->pos());
+  if (!hit) // 停靠区空白边距
+  {
+    showPanelMenu(event->globalPos());
+    return;
+  }
+  for (QWidget *w = hit; w; w = w->parentWidget())
+  {
+    if (auto *dock = qobject_cast<QDockWidget *>(w))
+    {
+      if (dock->widget() && dock->widget()->isAncestorOf(hit))
+        break;
+      showPanelMenu(event->globalPos());
+      return;
+    }
+  }
+  QMainWindow::contextMenuEvent(event);
 }
 
 void PaleoMainWindow::showPage(const QString &pageId)

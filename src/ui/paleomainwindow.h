@@ -42,6 +42,8 @@ class PaleoProjectStore;
 class PaleoTaskService;
 class PaleoDecorationManager;
 class QCloseEvent;
+class QContextMenuEvent;
+class QPoint;
 
 // ui/ — PaleoMainWindow: the five-page workflow shell (§42).
 // Anatomy: left = layer tree dock; center = canvas (+ startup page stacked under);
@@ -124,9 +126,16 @@ class PaleoMainWindow : public QMainWindow
 
   protected:
     void closeEvent(QCloseEvent *event) override;
+    // 面板管理右键（§42 壳规约）：只在停靠区标题栏/边距触发——命中件
+    // 落在某个 QDockWidget 的「非内容」区域（标题栏）时弹 createPopupMenu；
+    // dock 内容子树与画布各有自己的右键语义，不抢。
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
   private:
     void buildShell();
+    // 面板显隐菜单（QMainWindow::createPopupMenu 列出全部 dock 的
+    // toggleViewAction）。右键 dock 标题栏与顶栏「面板」钮共用此入口。
+    void showPanelMenu(const QPoint &globalPos);
     // 预览分栏（§4 预览壳）：数据页地图在上预览在下；预览空态收成一行
     // 次级文字，首个标签打开时展开到约三分之一高度。
     void applyPreviewSplit();

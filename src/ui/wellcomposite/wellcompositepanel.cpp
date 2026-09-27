@@ -61,26 +61,29 @@ void WellCompositePanel::setupUi()
       "QToolButton:pressed { background: #DFE5EC; }");
 
   m_btnZoomOut = new QToolButton(topBar);
-  m_btnZoomOut->setText(QStringLiteral("−"));
+  m_btnZoomOut->setObjectName(QStringLiteral("btnCompZoomOut"));
+  m_btnZoomOut->setText(tr("缩小"));
   m_btnZoomOut->setToolTip(tr("缩小深度 (Ctrl+滚轮下)"));
   m_btnZoomOut->setStyleSheet(btnStyle);
   topLay->addWidget(m_btnZoomOut);
 
-  m_lblZoom = new QLabel(QStringLiteral("100%"), topBar);
-  m_lblZoom->setObjectName(QStringLiteral("lblZoomFactor"));
+  m_lblZoom = new QLabel(QStringLiteral("100% 比例"), topBar);
+  m_lblZoom->setObjectName(QStringLiteral("lblCompZoomFactor"));
   m_lblZoom->setStyleSheet(QStringLiteral(
       "QLabel { color: #24303E; font-size: 8pt; min-width: 40px; }"));
   m_lblZoom->setAlignment(Qt::AlignCenter);
   topLay->addWidget(m_lblZoom);
 
   m_btnZoomIn = new QToolButton(topBar);
-  m_btnZoomIn->setText(QStringLiteral("+"));
+  m_btnZoomIn->setObjectName(QStringLiteral("btnCompZoomIn"));
+  m_btnZoomIn->setText(tr("放大"));
   m_btnZoomIn->setToolTip(tr("放大深度 (Ctrl+滚轮上)"));
   m_btnZoomIn->setStyleSheet(btnStyle);
   topLay->addWidget(m_btnZoomIn);
 
   m_btnResetZoom = new QToolButton(topBar);
-  m_btnResetZoom->setText(tr("1:1 适应"));
+  m_btnResetZoom->setObjectName(QStringLiteral("btnCompResetZoom"));
+  m_btnResetZoom->setText(tr("全井适应"));
   m_btnResetZoom->setToolTip(tr("双击道内任意位置或点击此键恢复全井段"));
   m_btnResetZoom->setStyleSheet(btnStyle);
   topLay->addWidget(m_btnResetZoom);
@@ -106,7 +109,7 @@ void WellCompositePanel::setupUi()
   connect(m_btnResetZoom, &QToolButton::clicked, m_canvas, &WellCompositeCanvas::resetZoom);
 
   connect(m_canvas, &WellCompositeCanvas::zoomChanged, this, [this](double z) {
-    m_lblZoom->setText(QStringLiteral("%1%").arg(qRound(z * 100)));
+    m_lblZoom->setText(QStringLiteral("%1% 比例").arg(qRound(z * 100)));
   });
 
   connect(m_scaleCombo, &QComboBox::currentTextChanged, this, [this](const QString &scaleText) {
@@ -159,12 +162,13 @@ bool WellCompositePanel::loadComprehensiveXml(const QString &xmlPath)
   return true;
 }
 
-bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<CurveData> &curves)
+bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<CurveData> &curves,
+                                       const QVector<FormationInterval> &formations)
 {
   m_canvas->clearTracks();
   setWellName(wellName);
 
-  if (curves.isEmpty())
+  if (curves.isEmpty() && formations.isEmpty())
     return false;
 
   // 计算深度跨度
@@ -177,25 +181,98 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
       if (c.depths.last() > maxD) maxD = c.depths.last();
     }
   }
+  for (const auto &f : formations)
+  {
+    if (f.topDepth < minD) minD = f.topDepth;
+    if (f.bottomDepth > maxD) maxD = f.bottomDepth;
+  }
+  if (minD >= maxD)
+  {
+    minD = 0.0;
+    maxD = 1000.0;
+  }
 
   m_canvas->setDepthRange(minD, maxD);
 
-  // 1. 标尺道
-  auto scaleTrack = std::make_shared<DepthScaleTrack>(64.0);
+  // 1. 深度标尺道 (DepthScaleTrack)
+  auto scaleTrack = std::make_shared<DepthScaleTrack>(68.0);
   scaleTrack->setScaleRatio(m_scaleCombo->currentText());
   m_canvas->addTrack(scaleTrack);
 
-  // 2. 曲线道（严格按最多4根曲线合并显示）
-  for (int i = 0; i < curves.size(); i += 4)
+  // 2. 地层道 (FormationTrack) —— 若有分层数据
+  if (!formations.isEmpty())
   {
-    auto curveTrack = std::make_shared<CurveTrack>(
-        i == 0 ? QStringLiteral("常规测井") : QStringLiteral("辅助曲线"), 180.0);
+    auto formTrack = std::make_shared<FormationTrack>(QStringLiteral("地层"), 80.0);
+    formTrack->setIntervals(formations);
+    m_canvas->addTrack(formTrack);
+  }
 
-    for (int j = 0; j < 4 && (i + j) < curves.size(); ++j)
+  // 3. 曲线道 (CurveTrack) —— 严格按照 1-4 根曲线分道合并显示
+  const auto isLitho = [](const QString &name) {
+    const QString n = name.toUpper();
+    return n.startsWith(QStringLiteral("GR")) || n.startsWith(QStringLiteral("CAL")) ||
+           n.startsWith(QStringLiteral("SP")) || n.startsWith(QStringLiteral("BS")) ||
+           n.startsWith(QStringLiteral("AZIM"));
+  };
+  const auto isPorosity = [](const QString &name) {
+    const QString n = name.toUpper();
+    return n.startsWith(QStringLiteral("AC")) || n.startsWith(QStringLiteral("DEN")) ||
+           n.startsWith(QStringLiteral("CNL")) || n.startsWith(QStringLiteral("POR")) ||
+           n.startsWith(QStringLiteral("CPOR")) || n.startsWith(QStringLiteral("PHIF"));
+  };
+  const auto isResistivity = [](const QString &name) {
+    const QString n = name.toUpper();
+    return n.startsWith(QStringLiteral("RT")) || n.startsWith(QStringLiteral("RXO")) ||
+           n.startsWith(QStringLiteral("RD")) || n.startsWith(QStringLiteral("RS")) ||
+           n.startsWith(QStringLiteral("ILD")) || n.startsWith(QStringLiteral("ILM")) ||
+           n.startsWith(QStringLiteral("AT"));
+  };
+
+  QVector<CurveData> lithoCurves;
+  QVector<CurveData> poroCurves;
+  QVector<CurveData> resCurves;
+  QVector<CurveData> otherCurves;
+
+  for (const auto &c : curves)
+  {
+    if (isLitho(c.name)) lithoCurves.append(c);
+    else if (isPorosity(c.name)) poroCurves.append(c);
+    else if (isResistivity(c.name)) resCurves.append(c);
+    else otherCurves.append(c);
+  }
+
+  const auto addTrackGroup = [this](const QString &baseTitle, const QVector<CurveData> &group) {
+    for (int i = 0; i < group.size(); i += 4)
     {
-      curveTrack->addCurve(curves.at(i + j));
+      QString title = baseTitle;
+      if (group.size() > 4)
+        title += QStringLiteral(" (%1)").arg(i / 4 + 1);
+      auto track = std::make_shared<CurveTrack>(title, 180.0);
+      for (int j = 0; j < 4 && (i + j) < group.size(); ++j)
+        track->addCurve(group.at(i + j));
+      m_canvas->addTrack(track);
     }
-    m_canvas->addTrack(curveTrack);
+  };
+
+  if (!lithoCurves.isEmpty())
+    addTrackGroup(QStringLiteral("岩性测井"), lithoCurves);
+  if (!poroCurves.isEmpty())
+    addTrackGroup(QStringLiteral("三孔隙测井"), poroCurves);
+  if (!resCurves.isEmpty())
+    addTrackGroup(QStringLiteral("电阻率测井"), resCurves);
+  if (!otherCurves.isEmpty())
+    addTrackGroup(QStringLiteral("辅助曲线"), otherCurves);
+
+  if (lithoCurves.isEmpty() && poroCurves.isEmpty() && resCurves.isEmpty() && otherCurves.isEmpty())
+  {
+    for (int i = 0; i < curves.size(); i += 4)
+    {
+      auto track = std::make_shared<CurveTrack>(
+          i == 0 ? QStringLiteral("常规测井") : QStringLiteral("辅助曲线"), 180.0);
+      for (int j = 0; j < 4 && (i + j) < curves.size(); ++j)
+        track->addCurve(curves.at(i + j));
+      m_canvas->addTrack(track);
+    }
   }
 
   m_canvas->setScaleRatio(m_scaleCombo->currentText());

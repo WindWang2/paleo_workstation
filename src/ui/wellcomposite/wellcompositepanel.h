@@ -29,8 +29,9 @@ public:
   // 加载并装配中国石油标准综合柱状图 XML (SpreadsheetML)
   bool loadComprehensiveXml(const QString &xmlPath);
 
-  // 加载并装配单井 LAS 曲线
-  bool loadLasCurves(const QString &wellName, const QVector<CurveData> &curves);
+  // 加载并装配单井 LAS 曲线（支持关联地层分层道与 1-4 根曲线分道合并显示）
+  bool loadLasCurves(const QString &wellName, const QVector<CurveData> &curves,
+                     const QVector<FormationInterval> &formations = {});
 
   // 设置并显示井名
   void setWellName(const QString &name);

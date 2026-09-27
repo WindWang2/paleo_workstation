@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(paleo_workbench CXX)
+project(paleo_workbench C CXX)
 
 set(CMAKE_CXX_STANDARD 20) # QGIS 4.2 headers require C++20 (defaulted operator==)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -72,6 +72,18 @@ target_compile_definitions(paleo_saribbon PUBLIC
   SA_RIBBON_BAR_NO_EXPORT SA_COLOR_WIDGETS_NO_DLL SARIBBON_USE_3RDPARTY_FRAMELESSHELPER=0)
 target_link_libraries(paleo_saribbon PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets)
 target_compile_options(paleo_saribbon PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>) # 第三方源不改，静音其告警
+
+# ---- vendor/segyio: segyio v2.0.0-alpha.1 C library ----
+add_library(paleo_segyio STATIC vendor/segyio/src/segy.c)
+target_include_directories(paleo_segyio SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/vendor/segyio/include)
+target_compile_definitions(paleo_segyio PRIVATE
+  HAVE_SYS_STAT_H HAVE_FSEEKO HAVE_FTELLO _FILE_OFFSET_BITS=64)
+target_compile_options(paleo_segyio PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>)
+set_target_properties(paleo_segyio PROPERTIES AUTOMOC OFF AUTORCC OFF AUTOUIC OFF)
+
+# ---- vendor/glm: OpenGL Mathematics (header-only) ----
+add_library(paleo_glm INTERFACE)
+target_include_directories(paleo_glm SYSTEM INTERFACE ${CMAKE_SOURCE_DIR}/vendor/glm)
 
 add_executable(paleo_selfcheck src/selfcheck/main.cpp)
 target_link_libraries(paleo_selfcheck PRIVATE paleo_qgis_iface)
@@ -149,8 +161,24 @@ add_library(paleo_core STATIC
   src/io/wellcompositexml.cpp
   # ---- package C: ingest-plan (three-phase folder import) ----
   src/io/ingestplan.cpp                          # C 包：纯 plan + 幂等执行器
+  # ---- domain/seismic: 3D seismic volume & section core ----
+  src/domain/seismic/sgyindex.cpp
+  src/domain/seismic/sgyrulelayout.cpp
+  src/domain/seismic/sgycoordinatemapper.cpp
+  src/domain/seismic/sgyio.cpp
+  src/domain/seismic/sgyfilereader.cpp
+  src/domain/seismic/sgysequentialscan.cpp
+  src/domain/seismic/sgyindexbuilder.cpp
+  src/domain/seismic/sgyindexcache.cpp
+  src/domain/seismic/sgyreadsession.cpp
+  src/domain/seismic/sgydatacache.cpp
+  src/domain/seismic/sgysectionbuilder.cpp
+  src/domain/seismic/sgywelllocator.cpp
+  src/domain/seismic/sgyvolume.cpp
+  src/domain/seismic/sgyreadplan.cpp
+  src/domain/seismic/seismiccolormap.cpp
 )
-target_link_libraries(paleo_core PUBLIC paleo_qgis_iface paleo_saribbon ${GDAL_LIB})
+target_link_libraries(paleo_core PUBLIC paleo_qgis_iface paleo_saribbon paleo_segyio paleo_glm ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
 
 # ---- wave3/ux-consistency ----
@@ -242,6 +270,7 @@ target_compile_definitions(tst_horizonbinner PRIVATE
 add_paleo_test(tst_segy_lines)
 target_compile_definitions(tst_segy_lines PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_seismic_core)
 add_paleo_test(tst_timedeptool)
 target_compile_definitions(tst_import PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")

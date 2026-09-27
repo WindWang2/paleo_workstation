@@ -44,6 +44,7 @@
 #include <QSpinBox>
 #include <QStandardItemModel>
 #include <QToolButton>
+#include <QStackedWidget>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QUrl>
@@ -1473,12 +1474,17 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       lay->addWidget(failureState(assetId, perr, host), 1);
       return host;
     }
-    auto *panel = new CurvePanel(host);
+    auto *singlePage = new QWidget(host);
+    auto *singleLay = new QVBoxLayout(singlePage);
+    singleLay->setContentsMargins(0, 0, 0, 0);
+    singleLay->setSpacing(6);
+
+    auto *panel = new CurvePanel(singlePage);
     panel->setObjectName(QStringLiteral("curvePanel"));
     panel->setEmptyText(tr("这条曲线没有有效样点")); // §4：整条 -99999 → 不绘制
 
     // 1. 顶部控制栏（主选曲线 + 预设 + 缩放控制）
-    auto *topBar = new QWidget(host);
+    auto *topBar = new QWidget(singlePage);
     auto *topLay = new QHBoxLayout(topBar);
     topLay->setContentsMargins(0, 0, 0, 0);
     topLay->setSpacing(6);
@@ -1578,7 +1584,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     }
 
     // 2. 曲线多选 Chips 栏（横向滚动条，支持单击自由切换各曲线可见性）
-    auto *chipScroll = new QScrollArea(host);
+    auto *chipScroll = new QScrollArea(singlePage);
     chipScroll->setWidgetResizable(true);
     chipScroll->setFixedHeight(32);
     chipScroll->setFrameShape(QFrame::NoFrame);
@@ -1675,9 +1681,174 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       }
     });
 
-    lay->addWidget(topBar);
-    lay->addWidget(chipScroll);
-    lay->addWidget(panel, 1);
+    singleLay->addWidget(topBar);
+    singleLay->addWidget(chipScroll);
+    singleLay->addWidget(panel, 1);
+
+    // ResFormStar 多井道综合柱状图总装
+    auto *compPanel = new WellComposite::WellCompositePanel(host);
+    compPanel->setObjectName(QStringLiteral("wellCompositePanel"));
+
+    QVector<WellComposite::CurveData> compCurves;
+    if (!curves.isEmpty())
+    {
+      const auto &depList = curves.at(0).values;
+      QVector<float> depVec;
+      depVec.reserve(depList.size());
+      for (double d : depList)
+        depVec.append(static_cast<float>(d));
+
+      for (int i = 1; i < names.size(); ++i)
+      {
+        const auto &src = curves.at(i);
+        WellComposite::CurveData cd;
+        cd.name = names.at(i);
+        cd.unit = src.unit;
+        cd.color = pickCurveColor(cd.name, i - 1);
+        cd.depths = depVec;
+        cd.values.reserve(src.values.size());
+        float valMin = 1e9f, valMax = -1e9f;
+        for (double v : src.values)
+        {
+          if (v <= -999.0 || v >= 99999.0)
+          {
+            cd.values.append(-9999.0f);
+            continue;
+          }
+          float fv = static_cast<float>(v);
+          cd.values.append(fv);
+          if (fv < valMin) valMin = fv;
+          if (fv > valMax) valMax = fv;
+        }
+        if (valMin < valMax)
+        {
+          cd.minScale = valMin;
+          cd.maxScale = valMax;
+        }
+        else
+        {
+          cd.minScale = 0.0f;
+          cd.maxScale = 100.0f;
+        }
+        compCurves.append(cd);
+      }
+    }
+
+    // 查询该井是否有关联分层数据 (DC.dat)
+    QVector<WellComposite::FormationInterval> formationIntervals;
+    if (!linkedWell.isEmpty())
+    {
+      static const QVector<QColor> kFormColors = {
+          QColor(QStringLiteral("#FFE082")), QColor(QStringLiteral("#FFF59D")),
+          QColor(QStringLiteral("#C8E6C9")), QColor(QStringLiteral("#A5D6A7")),
+          QColor(QStringLiteral("#80CBC4")), QColor(QStringLiteral("#80DEEA")),
+          QColor(QStringLiteral("#90CAF9")), QColor(QStringLiteral("#B39DDB"))};
+
+      const auto wLinks = cat->linksForEntity(linkedWell);
+      for (const auto &lk : wLinks)
+      {
+        if (lk.role == QLatin1String("tops"))
+        {
+          CatalogAsset topsAsset = cat->assetById(lk.assetId);
+          CatalogVersion topsVer = cat->currentVersion(lk.assetId);
+          QString topsPath = m_svc->absolutePathForVersion(topsVer);
+          if (QFile::exists(topsPath))
+          {
+            QFile tf(topsPath);
+            if (tf.open(QIODevice::ReadOnly))
+            {
+              const QVector<WellTopRecord> tops = parseWellTopsText(tf.readAll());
+              const QString normWell = DataCatalog::normalizeWellName(wells.isEmpty() ? QString() : wells.front().second);
+              QVector<WellTopRecord> wellTops;
+              for (const auto &tr : tops)
+              {
+                if (normWell.isEmpty() || DataCatalog::normalizeWellName(tr.wellName) == normWell)
+                  wellTops.append(tr);
+              }
+              std::sort(wellTops.begin(), wellTops.end(), [](const WellTopRecord &a, const WellTopRecord &b) {
+                return a.md < b.md;
+              });
+              for (int ti = 0; ti < wellTops.size(); ++ti)
+              {
+                WellComposite::FormationInterval fi;
+                fi.name = wellTops.at(ti).topName;
+                fi.topDepth = static_cast<float>(wellTops.at(ti).md);
+                fi.bottomDepth = static_cast<float>((ti + 1 < wellTops.size()) ? wellTops.at(ti + 1).md : (wellTops.at(ti).md + 50.0));
+                fi.color = kFormColors.at(ti % kFormColors.size());
+                formationIntervals.append(fi);
+              }
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    const QString wellTitle = wells.isEmpty() ? asset.displayName : wells.front().second;
+    compPanel->loadLasCurves(wellTitle, compCurves, formationIntervals);
+
+    // 视图模式切换条与堆叠容器
+    auto *viewSwitchBar = new QWidget(host);
+    auto *switchLay = new QHBoxLayout(viewSwitchBar);
+    switchLay->setContentsMargins(0, 0, 0, 0);
+    switchLay->setSpacing(8);
+
+    auto *btnResForm = new QToolButton(viewSwitchBar);
+    btnResForm->setObjectName(QStringLiteral("btnResFormView"));
+    btnResForm->setText(tr("ResFormStar 综合多井道柱状图 (推荐)"));
+    btnResForm->setCheckable(true);
+    btnResForm->setChecked(true);
+    btnResForm->setStyleSheet(QStringLiteral(
+        "QToolButton { background: #1B73D0; color: #FFFFFF; font-weight: bold; "
+        "border-radius: 4px; padding: 3px 10px; font-size: 8.5pt; }"
+        "QToolButton:hover { background: #15589E; }"));
+
+    auto *btnSingle = new QToolButton(viewSwitchBar);
+    btnSingle->setObjectName(QStringLiteral("btnSingleView"));
+    btnSingle->setText(tr("单道叠合检视"));
+    btnSingle->setCheckable(true);
+    btnSingle->setChecked(false);
+    btnSingle->setStyleSheet(QStringLiteral(
+        "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; "
+        "border-radius: 4px; padding: 3px 10px; font-size: 8.5pt; color: #24303E; }"
+        "QToolButton:hover { background: #EDF1F5; }"));
+
+    auto *viewStack = new QStackedWidget(host);
+    viewStack->setObjectName(QStringLiteral("logViewStack"));
+    viewStack->addWidget(compPanel);   // 0: ResForm 多井道柱状图（默认）
+    viewStack->addWidget(singlePage);  // 1: 单道快速检视
+
+    connect(btnResForm, &QToolButton::clicked, host, [btnResForm, btnSingle, viewStack] {
+      btnResForm->setChecked(true);
+      btnSingle->setChecked(false);
+      btnResForm->setStyleSheet(QStringLiteral(
+          "QToolButton { background: #1B73D0; color: #FFFFFF; font-weight: bold; "
+          "border-radius: 4px; padding: 3px 10px; font-size: 8.5pt; }"));
+      btnSingle->setStyleSheet(QStringLiteral(
+          "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; "
+          "border-radius: 4px; padding: 3px 10px; font-size: 8.5pt; color: #24303E; }"));
+      viewStack->setCurrentIndex(0);
+    });
+
+    connect(btnSingle, &QToolButton::clicked, host, [btnResForm, btnSingle, viewStack] {
+      btnSingle->setChecked(true);
+      btnResForm->setChecked(false);
+      btnSingle->setStyleSheet(QStringLiteral(
+          "QToolButton { background: #1B73D0; color: #FFFFFF; font-weight: bold; "
+          "border-radius: 4px; padding: 3px 10px; font-size: 8.5pt; }"));
+      btnResForm->setStyleSheet(QStringLiteral(
+          "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; "
+          "border-radius: 4px; padding: 3px 10px; font-size: 8.5pt; color: #24303E; }"));
+      viewStack->setCurrentIndex(1);
+    });
+
+    switchLay->addWidget(caption8(tr("呈现模式:"), viewSwitchBar));
+    switchLay->addWidget(btnResForm);
+    switchLay->addWidget(btnSingle);
+    switchLay->addStretch(1);
+
+    lay->addWidget(viewSwitchBar);
+    lay->addWidget(viewStack, 1);
     return host;
   }
 

@@ -438,3 +438,4 @@ target_sources(paleo_core PRIVATE
 add_paleo_test(tst_layerplatform)     # 档案应用/主题往返 .qgz/生命周期/层位时序
 add_paleo_test(tst_layertreepanel)    # 筛选/组级显隐/复制图层/objectName 兼容
 add_paleo_test(tst_layerproperties)   # 矢量/栅格/缺源三类 + 业务页字段
+add_paleo_test(tst_layerprofilebar)   # 主题下拉/保存/管理对话框/页指示

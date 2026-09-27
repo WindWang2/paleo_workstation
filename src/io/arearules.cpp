@@ -198,8 +198,8 @@ bool applyClassifier(const QJsonObject &o, ClassifierRules *out, QString *error)
 
 bool applyConfigObject(const QJsonObject &o, Rules *out, QString *error)
 {
-  if (!checkKeys(o, {"schema_version", "sequence_boundaries", "classifier", "segy_indexing",
-                     "onnx_grid"},
+  if (!checkKeys(o, {"schema_version", "sequence_boundaries", "target_horizon", "classifier",
+                     "segy_indexing", "onnx_grid"},
                  QStringLiteral("project_area.json"), error))
     return false;
   const QJsonValue sv = o.value(QLatin1String("schema_version"));
@@ -224,6 +224,27 @@ bool applyConfigObject(const QJsonObject &o, Rules *out, QString *error)
     for (QString &n : names)
       n = n.toUpper(); // isKnownSequenceBoundary 对 stem 取大写比较
     out->sequenceBoundaries = names;
+  }
+  const QJsonValue target = o.value(QLatin1String("target_horizon"));
+  if (!target.isUndefined())
+  {
+    if (!target.isString() || target.toString().isEmpty())
+    {
+      *error = errAt(QStringLiteral("project_area.json"),
+                     QStringLiteral("'target_horizon' expects a non-empty string"));
+      return false;
+    }
+    out->targetHorizon = target.toString().toUpper();
+  }
+  // target_horizon 必须是有序集合的成员——标定一个集合外层位 = 配置错误，
+  // 如实拒绝而不是带着一个永远不会命中的目标跑。
+  if (!out->sequenceBoundaries.contains(out->targetHorizon))
+  {
+    *error = errAt(QStringLiteral("project_area.json"),
+                   QStringLiteral("'target_horizon' %1 is not a member of "
+                                  "sequence_boundaries")
+                       .arg(out->targetHorizon));
+    return false;
   }
   const QJsonValue classifier = o.value(QLatin1String("classifier"));
   if (!classifier.isUndefined())
@@ -290,6 +311,7 @@ Rules defaults()
   r.sequenceBoundaries = {QStringLiteral("C3"),  QStringLiteral("C6"),  QStringLiteral("D53"),
                           QStringLiteral("D61"), QStringLiteral("D62"), QStringLiteral("D63"),
                           QStringLiteral("D71"), QStringLiteral("D72")};
+  r.targetHorizon = QStringLiteral("D61"); // 本工区编图/验证的标定层位
 
   // projectclassifier.cpp 原 .dat 段表（优先级序，先中先得）。
   DatPathRule timeDepth;

@@ -12,6 +12,8 @@
 #include "../workflow/workflows.h"
 #include "../io/dataimportservice.h"
 #include "../io/projectclassifier.h"
+#include "../io/arearules.h"
+#include "../domain/mappinghorizons.h"
 #include "../linkage/seismicmaplink.h"
 #include "../linkage/threewaylocator.h"
 #include "../qgis/qgisprocessingservice.h"
@@ -1370,6 +1372,33 @@ void PaleoMainWindow::onProjectOpened()
 
   restoreCanvasExtent(); // per-project display state from the .qgz
 
+  // 工程级参数驱动的层位 UI（AreaRules 已在 AppContext::projectOpened 装载）：
+  // chip 条按新词表重建；标定层位相关文案重写。
+  if (auto *bar = findChild<HorizonChipBar *>())
+    bar->reloadHorizons();
+  {
+    const QString tgt = AreaRules::active().targetHorizon;
+    const QString base = baseHorizonFor(tgt);
+    if (auto *l = findChild<QLabel *>(QStringLiteral("thicknessCaption")))
+      l->setText(tr("%1→%2 厚度样本").arg(tgt, base));
+    if (auto *t = findChild<QTableWidget *>(QStringLiteral("thicknessTable")))
+      t->setHorizontalHeaderLabels(
+          {tr("井名"), tr("%1 TVD").arg(tgt), tr("%1 TVD").arg(base),
+           tr("层间速度或原因")});
+    if (auto *l = findChild<QLabel *>(QStringLiteral("residualCaption")))
+      l->setText(tr("%1 时间残差").arg(tgt));
+    if (auto *l = findChild<QLabel *>(QStringLiteral("residualSummaryLabel")))
+      if (l->text().startsWith(QString::fromUtf8("还没有计算")))
+        l->setText(tr("还没有计算 %1 残差").arg(tgt));
+    if (auto *t = findChild<QTableWidget *>(QStringLiteral("residualTable")))
+      t->setAccessibleName(tr("%1 残差表").arg(tgt));
+    if (auto *l = findChild<QLabel *>(QStringLiteral("onnxGridCaption")))
+      l->setText(tr("输出固定为 %1 工区网格 %2×%3")
+                     .arg(tgt)
+                     .arg(AreaRules::active().onnxGrid.rows)
+                     .arg(AreaRules::active().onnxGrid.cols));
+  }
+
   // Workflow lands on the last-used page when the session was persisted,
   // otherwise on 数据管理 — first step of the chain.
   const QString last = QSettings(QStringLiteral("paleo"), QStringLiteral("paleo"))
@@ -2234,13 +2263,15 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
   connect(mapping, &MappingWorkflow::chainFailed, this,
           [status](const QString &, const QString &error) { status(error); });
 
-  // 「选 D61 → 算厚度 → IDW → 转相面」：层位来自 chip 的 activeHorizon。
+  // 「选层位 → 算厚度 → IDW → 转相面」：层位来自 chip 的 activeHorizon，
+  // 提示里的目标层位随工程参数（AreaRules targetHorizon）。
   connect(composePage, &ComposePage::thicknessChainRequested, this,
           [this, mapping, activeHorizon, status]() {
             const QString h = activeHorizon();
             if (h.isEmpty())
             {
-              status(tr("先在顶部 chip 选择层位（本阶段目标 D61）"));
+              status(tr("先在顶部 chip 选择层位（本阶段目标 %1）")
+                         .arg(AreaRules::active().targetHorizon));
               return;
             }
             QString err;

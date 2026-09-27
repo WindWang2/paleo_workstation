@@ -1164,3 +1164,13 @@ QGIS 图层集权威）。打开契约：`.paleo` 解析成员、qgz 缺席拒�
 - 测试：`tst_projectsvc` +6（清单落盘/`.paleo` 打开/收养/坏束拒开/往返）、
   `tst_import` inPlace 用例 + rejectsBadRoots 口径更新；真数据 smoke
   116 行入库 0 失败。
+
+### 层位名单工程参数化（用户指正：层位随工程，不写死）
+
+`target_horizon` 入 `AreaRules`（默认 D61，必须是 `sequence_boundaries`
+成员否则配置拒用）；`mappingHorizons()`/`isMappingHorizon`/`baseHorizonFor`
+从独立硬编码副本归并到 `active().sequenceBoundaries` 单一词表（序=浅→深）。
+`appcontext` 的 `projectOpened` 接线 `AreaRules::setProjectDir`（先于
+importSvc/catalog；坏 JSON 如实上报不静默）。D61 硬编码点全部参数化：
+验证工作流时间残差、ONNX 网格门/声明前缀/provenance、时深 tie 井、
+面板文案与状态提示；chip 条加 `reloadHorizons()` 随工程打开重建。

@@ -24,7 +24,26 @@ HorizonChipBar::HorizonChipBar( SelectionContext *selection, QgisLayerService *l
   auto *lay = new QHBoxLayout( this );
   lay->setContentsMargins( 0, 0, 0, 0 );
   lay->setSpacing( 4 ); // spacing.xs
+  buildChips();
+  lay->addStretch( 1 );
 
+  if ( m_selection )
+  {
+    connect( m_selection, &SelectionContext::activeHorizonChanged, this,
+             [this]( const QString &h ) { applyActive( h ); } );
+    applyActive( m_selection->activeHorizon() );
+  }
+  if ( m_layers )
+    connect( m_layers, &QgisLayerService::layerDeclared, this,
+             [this]( const QString & ) { applyAvailability(); } );
+  applyAvailability();
+}
+
+void HorizonChipBar::buildChips()
+{
+  // insertWidget 在末尾 stretch 之前落 chip——reload 时 stretch 已在布局里。
+  auto *lay = qobject_cast<QHBoxLayout *>( layout() );
+  int pos = 0;
   for ( const QString &h : mappingHorizons() )
   {
     auto *chip = new QToolButton( this );
@@ -42,19 +61,22 @@ HorizonChipBar::HorizonChipBar( SelectionContext *selection, QgisLayerService *l
         m_layers->setActiveHorizon( h );
       applyActive( h );
     } );
-    lay->addWidget( chip );
+    lay->insertWidget( pos++, chip );
   }
-  lay->addStretch( 1 );
+}
 
-  if ( m_selection )
+void HorizonChipBar::reloadHorizons()
+{
+  // 层位名单是工程级参数（AreaRules）——工程打开后按新词表重建；旧 chip
+  // 连同其连接一并销毁，激活态交由 applyActive 按当前 selection 恢复。
+  const auto chips = findChildren<QToolButton *>();
+  for ( QToolButton *chip : chips )
   {
-    connect( m_selection, &SelectionContext::activeHorizonChanged, this,
-             [this]( const QString &h ) { applyActive( h ); } );
-    applyActive( m_selection->activeHorizon() );
+    layout()->removeWidget( chip );
+    chip->deleteLater();
   }
-  if ( m_layers )
-    connect( m_layers, &QgisLayerService::layerDeclared, this,
-             [this]( const QString & ) { applyAvailability(); } );
+  buildChips();
+  applyActive( m_selection ? m_selection->activeHorizon() : QString() );
   applyAvailability();
 }
 

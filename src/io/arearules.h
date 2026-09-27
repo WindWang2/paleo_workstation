@@ -59,7 +59,13 @@ struct OnnxGrid
 
 struct Rules
 {
-  QStringList sequenceBoundaries; // 大写比较（isKnownSequenceBoundary）
+  // 有序层序界面集合（浅→深）。双职：isKnownSequenceBoundary 的成员词表
+  // （大写比较）+ mappingHorizons()/编图 chip/厚度基面推导的有序集合——
+  // 顺序即地层序，project_area.json 里按浅→深写。
+  QStringList sequenceBoundaries;
+  // 本工程的标定层位（时间残差验证 / ONNX 结果落栅格 / 时深井 tie 的目标
+  // 层位）——必须是 sequenceBoundaries 的成员，否则配置拒用。
+  QString targetHorizon;
   ClassifierRules classifier;
   SegyIndexing segy;
   OnnxGrid onnxGrid;

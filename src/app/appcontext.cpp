@@ -11,6 +11,7 @@
 #include "../services/toolavailability.h"
 #include "../services/paleotaskservice.h"
 #include "../services/crashreport.h" // wave4：projectOpened → 报告头工程路径
+#include "../io/arearules.h"         // wave4 接线点：projectOpened → setProjectDir
 #include "../linkage/selectioncontext.h"
 #include "../linkage/seismicmaplink.h"
 #include "../linkage/wellmaplink.h"
@@ -233,6 +234,20 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             }
 
             m_styleSvc->setStylesRoot(fi.absoluteDir().filePath(QStringLiteral("styles")));
+            // 工程级参数（AREA_PARAMETERS）：project_area.json → 层位名单/
+            // 分类规则/SEG-Y 偏移/ONNX 网格/标定层位。必须在 importSvc/
+            // catalog 之前装载——分类器与层位词表消费 active()。坏 JSON
+            // 如实上报（active 保持默认），不静默。
+            AreaRules::setProjectDir(fi.absolutePath());
+            if (!AreaRules::lastError().isEmpty())
+            {
+              qWarning() << "AppContext: area rules rejected:" << AreaRules::lastError();
+              QgsMessageLog::logMessage(
+                  tr("工程参数文件 project_area.json 被拒用（%1）——本工程按内置"
+                     "默认参数运行")
+                      .arg(AreaRules::lastError()),
+                  QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+            }
             m_import->setProjectDir(fi.absolutePath());
             // wave4/崩溃报告：报告头的「当前工程路径」随工程打开更新（落点
             // 不变——AppData 下，脏退出检测要求先于工程存在）。

@@ -3,6 +3,7 @@
 #include "../ai/onnxpredictionservice.h" // ORT-free header; symbol refs are PALEO_HAVE_ORT-guarded
 #include "../catalog/datacatalog.h"      // localGridCrsWkt — ONNX 栅格落在局部测网
 #include "../io/constraintstore.h"
+#include "../io/arearules.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/qgiseditingservice.h" // 拓扑提交门（geometryCommitError）
 #include "../qgis/qgislayerservice.h"
@@ -174,11 +175,12 @@ namespace
   }
 #if PALEO_HAVE_ORT
   // project_area 工区网格（PROJECT_AREA_PLAN §3 + autoplan eng trap）：ONNX 结果
-  // 落在 D61 的 411×641 栅格上，北向上 geotransform (0, 12793/640, 0, 16406, 0,
-  // -16406/410)。清单里已声明的 horizon.D61* 栅格优先提供 geotransform 与 SRS，
-  // 读不到时用这组常量；行列数硬要求恒为 411×641（plan §1：不是就失败）。
-  constexpr int kOnnxGridRows = 411;
-  constexpr int kOnnxGridCols = 641;
+  // 落在标定层位的工程栅格上（默认 D61 411×641，北向上 geotransform
+  // (0, 12793/640, 0, 16406, 0, -16406/410)）。清单里已声明的
+  // horizon.<target>* 栅格优先提供 geotransform 与 SRS，读不到时用这组常量；
+  // 行列数硬要求 = AreaRules::onnxGrid（工程配置），不是就失败。
+  // 注：geotransform 常量仍是本工区兜底——新工区应声明供体栅格（清单
+  // horizon.<target>*），否则 GT 会落在 project_area 的原点上。
 
   struct OnnxAreaGrid
   {
@@ -196,10 +198,12 @@ namespace
     OnnxAreaGrid grid;
     if ( !layers )
       return grid;
+    const QString prefix = QStringLiteral( "horizon.%1" )
+                               .arg( AreaRules::active().targetHorizon );
     QString source;
     for ( const LayerDeclaration &d : layers->declared() )
     {
-      if ( !d.layerId.startsWith( QLatin1String( "horizon.D61" ) ) ||
+      if ( !d.layerId.startsWith( prefix ) ||
            d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) != 0 )
         continue;
       source = d.source;
@@ -262,9 +266,12 @@ namespace
       rows = ( n == 1 ) ? 1 : 0;
       cols = ( n == 1 ) ? 1 : 0;
     }
-    if ( rows != kOnnxGridRows || cols != kOnnxGridCols )
+    const AreaRules::OnnxGrid want = AreaRules::active().onnxGrid;
+    if ( rows != want.rows || cols != want.cols )
     {
-      setError( error, QObject::tr( "结果不是 411×641，没有写入栅格（实际 %1）" )
+      setError( error, QObject::tr( "结果不是 %1×%2，没有写入栅格（实际 %3）" )
+                           .arg( want.rows )
+                           .arg( want.cols )
                            .arg( actual.isEmpty() ? QString::number( n ) : actual ) );
       return false;
     }
@@ -339,7 +346,9 @@ namespace
     prov.insert( QStringLiteral( "rows" ), rows );
     prov.insert( QStringLiteral( "cols" ), cols );
     prov.insert( QStringLiteral( "geotransform_source" ),
-                 grid.fromDecl ? QStringLiteral( "horizon.D61" ) : QStringLiteral( "project_area" ) );
+                 grid.fromDecl ? QStringLiteral( "horizon.%1" ).arg(
+                                     AreaRules::active().targetHorizon )
+                               : QStringLiteral( "project_area" ) );
     QJsonArray gtJson;
     for ( int i = 0; i < 6; ++i )
       gtJson.append( gt[i] );
@@ -499,7 +508,8 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
     onnxExtra.insert( QStringLiteral( "rows" ), rows );
     onnxExtra.insert( QStringLiteral( "cols" ), cols );
     onnxExtra.insert( QStringLiteral( "geotransform_source" ),
-                      grid.fromDecl ? QStringLiteral( "horizon.D61" )
+                      grid.fromDecl ? QStringLiteral( "horizon.%1" ).arg(
+                                          AreaRules::active().targetHorizon )
                                     : QStringLiteral( "project_area" ) );
     const QStringList onnxParents = grid.fromDecl && !grid.sourcePath.isEmpty()
                                         ? registrar.parentVersionIdsFor( QStringList{ grid.sourcePath } )
@@ -1298,20 +1308,22 @@ QList<ValidationIssue> ValidationWorkflow::validate()
     }
   }
 
-  // (d) 井上 D61 时间残差（autoplan §5C）— 只评 D61。每口井一行（验证页残差
-  // 表渲染源，存 paleo.wf.residualRows）；|r|>阈值 → TIME_RESIDUAL 问题。
+  // (d) 井上标定层位时间残差（autoplan §5C）— 只评 targetHorizon（工程参数，
+  // 本工区 D61）。每口井一行（验证页残差表渲染源，存 paleo.wf.residualRows）；
+  // |r|>阈值 → TIME_RESIDUAL 问题。
   // 默认阈值 10 ms；非数值行（无分层/TD 原因/不在测网内/落在空道）不成问题。
   {
+    const QString tgtHorizon = AreaRules::active().targetHorizon;
     QVariantList rowMaps;
     if ( auto *pd = qobject_cast<ProjectDataFacade *>( property( "paleo.wf.projectdata" ).value<QObject *>() ) )
     {
       const double prop = property( "paleo.wf.residualThresholdMs" ).toDouble();
       const double threshold = prop > 0.0 ? prop : 10.0;
       const QList<TimeResidualRow> rows =
-          computeTimeResiduals( pd, QStringLiteral( "D61" ), threshold );
+          computeTimeResiduals( pd, tgtHorizon, threshold );
       // 残差行所属栅格图层（问题行/残差行的地图缩放目标与联动 layerId）。
       const HorizonRasterInfo rasterInfo =
-          pd->horizonRasterDecl( QStringLiteral( "D61" ) );
+          pd->horizonRasterDecl( tgtHorizon );
       const QString rasterLayerId = rasterInfo.layerId;
       // T25：有井但一行残差都没有 → 栅格没声明或打不开，残差检查其实没跑成；
       // 发 RASTER_MISSING 让问题表/摘要行说清原因，不和「还没计算」混为一谈。
@@ -1322,11 +1334,11 @@ QList<ValidationIssue> ValidationWorkflow::validate()
         v.severity = ValidationIssue::Warning;
         v.code = QStringLiteral( "RASTER_MISSING" );
         v.message = rasterLayerId.isEmpty()
-                        ? tr( "层位 %1 还没有时间栅格" ).arg( QStringLiteral( "D61" ) )
+                        ? tr( "层位 %1 还没有时间栅格" ).arg( tgtHorizon )
                         : ( pd->lastError().isEmpty()
-                                ? tr( "层位 %1 的时间栅格不可用" ).arg( QStringLiteral( "D61" ) )
+                                ? tr( "层位 %1 的时间栅格不可用" ).arg( tgtHorizon )
                                 : pd->lastError() );
-        v.horizon = QStringLiteral( "D61" );
+        v.horizon = tgtHorizon;
         v.layerId = rasterLayerId;
         issues.append( v );
       }
@@ -1335,7 +1347,7 @@ QList<ValidationIssue> ValidationWorkflow::validate()
         QVariantMap m;
         m.insert( QStringLiteral( "well_id" ), row.wellId );
         m.insert( QStringLiteral( "well_name" ), row.wellName );
-        m.insert( QStringLiteral( "horizon" ), QStringLiteral( "D61" ) );
+        m.insert( QStringLiteral( "horizon" ), tgtHorizon );
         m.insert( QStringLiteral( "layer_id" ), rasterLayerId );
         m.insert( QStringLiteral( "threshold_ms" ), threshold );
         m.insert( QStringLiteral( "reason" ), row.reason );
@@ -1366,12 +1378,12 @@ QList<ValidationIssue> ValidationWorkflow::validate()
         if ( row.inlineNo >= 0 )
           inlineText = tr( "，目标测线 %1" ).arg( row.inlineNo );
         v.message = tr( "井 %1 %2 时间残差 %3ms（井 %4ms vs 栅格 %5ms%6）" )
-                        .arg( row.wellName, QStringLiteral( "D61" ) )
+                        .arg( row.wellName, tgtHorizon )
                         .arg( row.residualMs, 0, 'f', 1 )
                         .arg( row.timeMs, 0, 'f', 1 )
                         .arg( row.rasterMs, 0, 'f', 1 )
                         .arg( inlineText );
-        v.horizon = QStringLiteral( "D61" );
+        v.horizon = tgtHorizon;
         v.wellId = row.wellId;
         if ( std::isfinite( row.x ) && std::isfinite( row.y ) )
           v.wktLocation = QStringLiteral( "POINT(%1 %2)" ).arg( row.x ).arg( row.y );

@@ -6,6 +6,8 @@
 #include "../../catalog/datacatalog.h"
 #include "../../catalog/entityview.h" // p5a：entityDataView 角色槽门面（纯查询）
 #include "../../io/dataimportservice.h"
+#include "../../io/arearules.h"
+#include "../../domain/mappinghorizons.h"
 #include "../../workflow/workflows.h"    // signal names + ValidationWorkflow::validate
 #include "../../qgis/qgislayerservice.h" // declared() — forward-declares Qgs*, none included
 #include "../../metadata/layermanifest.h" // LayerDeclaration fields
@@ -995,9 +997,17 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   nameEdit->setText(QStringLiteral("x"));
   paramsLay->addWidget(nameEdit);
 
-  // 输出网格是工区合同（PROJECT_AREA_PLAN §3）：D61 栅格 411×641 与同一套
-  // geotransform，行/列/像元不可配——结果不是 411×641 时 workflow 拒绝写盘。
-  paramsLay->addWidget(caption(tr("输出固定为 D61 工区网格 411×641"), paramsArea));
+  // 输出网格是工区合同（PROJECT_AREA_PLAN §3）：标定层位栅格 + 同一套
+  // geotransform，行/列/像元来自 project_area.json 的 onnx_grid——尺寸
+  // 不符时 workflow 拒绝写盘。文案随工程参数刷新（onnxGridCaption）。
+  auto *onnxCap = caption(
+      tr("输出固定为 %1 工区网格 %2×%3")
+          .arg(AreaRules::active().targetHorizon)
+          .arg(AreaRules::active().onnxGrid.rows)
+          .arg(AreaRules::active().onnxGrid.cols),
+      paramsArea);
+  onnxCap->setObjectName(QStringLiteral("onnxGridCaption"));
+  paramsLay->addWidget(onnxCap);
 
   paramsArea->hide();
   lay->addWidget(paramsArea);
@@ -1231,12 +1241,22 @@ ConstraintPage::ConstraintPage(ConstraintWorkflow *wf, QWidget *parent)
   // 镜像到 ConstraintWorkflow 的 paleo.thickness.* 动态属性；不足样本的两句
   // （「厚度样本不足以成面」/「没有厚度样本」）渲染在 thicknessHint，不弹框。
   lay->addSpacing(16); // spacing.md
-  lay->addWidget(caption(tr("D61→D62 厚度样本"), this));
+  // 厚度样本的层位/基面名随工程参数（AreaRules targetHorizon + 有序集合的
+  // 下一界面）——文案在工程打开时由 refreshAreaParamLabels 重写。
+  auto *thCap = caption(
+      tr("%1→%2 厚度样本")
+          .arg(AreaRules::active().targetHorizon,
+               baseHorizonFor(AreaRules::active().targetHorizon)),
+      this);
+  thCap->setObjectName(QStringLiteral("thicknessCaption"));
+  lay->addWidget(thCap);
   auto *thTable = new QTableWidget(0, 4, this);
   thTable->setObjectName(QStringLiteral("thicknessTable"));
   thTable->setAccessibleName(tr("厚度样本表"));
   thTable->setHorizontalHeaderLabels(
-      {tr("井名"), tr("D61 TVD"), tr("D62 TVD"), tr("层间速度或原因")});
+      {tr("井名"), tr("%1 TVD").arg(AreaRules::active().targetHorizon),
+       tr("%1 TVD").arg(baseHorizonFor(AreaRules::active().targetHorizon)),
+       tr("层间速度或原因")});
   thTable->verticalHeader()->setVisible(false);
   thTable->horizontalHeader()->setStretchLastSection(true);
   lay->addWidget(thTable, 1);
@@ -1577,14 +1597,18 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
 
   // autoplan §5C：D61 残差表 —— 每口井一行（井名/残差或原因/阈值），
   // 状态字+颜色（通过 #43A047 / 超过阈值 #F29900 / 未计算 #5D6E80）。
-  // 计数行在表头；还没跑时面板写「还没有计算 D61 残差」。
-  auto *resSummary = new QLabel(tr("还没有计算 D61 残差"), this);
+  // 计数行在表头；还没跑时面板写「还没有计算 <标定层位> 残差」。
+  auto *resSummary =
+      new QLabel(tr("还没有计算 %1 残差").arg(AreaRules::active().targetHorizon), this);
   resSummary->setObjectName(QStringLiteral("residualSummaryLabel"));
   lay->addWidget(resSummary);
-  lay->addWidget(caption(tr("D61 时间残差"), this));
+  auto *resCap =
+      caption(tr("%1 时间残差").arg(AreaRules::active().targetHorizon), this);
+  resCap->setObjectName(QStringLiteral("residualCaption"));
+  lay->addWidget(resCap);
   auto *resTable = new QTableWidget(0, 3, this);
   resTable->setObjectName(QStringLiteral("residualTable"));
-  resTable->setAccessibleName(tr("D61 残差表"));
+  resTable->setAccessibleName(tr("%1 残差表").arg(AreaRules::active().targetHorizon));
   resTable->setHorizontalHeaderLabels({tr("井名"), tr("残差或原因"), tr("阈值")});
   resTable->verticalHeader()->setVisible(false);
   resTable->horizontalHeader()->setStretchLastSection(true);
@@ -1718,7 +1742,8 @@ void ValidatePage::populate()
         rasterReason = v.message;
     if (resSummary)
       resSummary->setText(rasterReason.isEmpty()
-                              ? tr("还没有计算 D61 残差")
+                              ? tr("还没有计算 %1 残差")
+                                    .arg(AreaRules::active().targetHorizon)
                               : rasterReason);
     return;
   }

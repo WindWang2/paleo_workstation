@@ -5,6 +5,7 @@
 #include "../src/io/arearules.h"
 #include "../src/io/projectclassifier.h"
 #include "../src/io/segyreader.h"
+#include "../src/domain/mappinghorizons.h"
 
 // wave4/area-parametrization：工程级参数 seam 的行为等价性测试（TODOS
 // 「第二工区参数化接缝」）。四类钉死值（层序界面名单 / 分类器目录规则 /
@@ -19,6 +20,7 @@ class TestAreaRules : public QObject
 
 private slots:
   void defaultsPinCurrentAreaValues();
+  void horizonSetFollowsProjectConfig();
   void defaultClassifierBehaviorUnchanged();
   void missingConfigFallsBackToDefaults();
   void customConfigTakesEffect();
@@ -115,6 +117,8 @@ bool TestAreaRules::sameRules(const AreaRules::Rules &a, const AreaRules::Rules 
 {
   if (a.sequenceBoundaries != b.sequenceBoundaries)
     return false;
+  if (a.targetHorizon != b.targetHorizon)
+    return false;
   if (a.classifier.datPathRules.size() != b.classifier.datPathRules.size())
     return false;
   for (int i = 0; i < a.classifier.datPathRules.size(); ++i)
@@ -181,6 +185,35 @@ void TestAreaRules::defaultsPinCurrentAreaValues()
   // 该门常量的 AreaRules 化接线归 workflow 属主，见 docs/AREA_PARAMETERS.md）
   QCOMPARE(r.onnxGrid.rows, 411);
   QCOMPARE(r.onnxGrid.cols, 641);
+
+  // 标定层位 = D61（时间残差验证 / ONNX 落栅格 / 时深 tie 的目标）
+  QCOMPARE(r.targetHorizon, QStringLiteral("D61"));
+}
+
+// 层位名单是工程参数：自定义 sequence_boundaries + target_horizon 后，
+// mappingHorizons()/baseHorizonFor()/isMappingHorizon()（编图 chip 与厚度
+// 基面推导的词表）跟着换——不再钉死 C3/C6/D61…。
+void TestAreaRules::horizonSetFollowsProjectConfig()
+{
+  QTemporaryDir dir;
+  writeConfig(dir.path(), QByteArrayLiteral(R"({
+  "schema_version": 1,
+  "sequence_boundaries": ["E1", "E2", "E3"],
+  "target_horizon": "e2"
+})"));
+  AreaRules::setProjectDir(dir.path());
+  QVERIFY(AreaRules::lastError().isEmpty());
+
+  QCOMPARE(AreaRules::active().targetHorizon, QStringLiteral("E2")); // 归大写
+  QCOMPARE(mappingHorizons(),
+           QStringList({QStringLiteral("E1"), QStringLiteral("E2"), QStringLiteral("E3")}));
+  QCOMPARE(baseHorizonFor(QStringLiteral("E2")), QStringLiteral("E3"));
+  QVERIFY(baseHorizonFor(QStringLiteral("E3")).isEmpty());
+  QVERIFY(isMappingHorizon(QStringLiteral("E1")));
+  QVERIFY(!isMappingHorizon(QStringLiteral("D61")));
+
+  AreaRules::reset();
+  QCOMPARE(mappingHorizons().first(), QStringLiteral("C3")); // 回默认
 }
 
 // 默认规则下分类器公共行为不变（与 tst_projectparsers::classifiesEachCategory
@@ -370,6 +403,14 @@ void TestAreaRules::badJsonIsRefused()
        QByteArrayLiteral(R"({"segy_indexing": {"cdp_xline_offset": -4}})")},
       {"grid-zero-rows", QByteArrayLiteral(R"({"onnx_grid": {"rows": 0, "cols": 8}})")},
       {"schema-version", QByteArrayLiteral(R"({"schema_version": 2})")},
+      {"target-not-member",
+       QByteArrayLiteral(R"({"target_horizon": "XX"})")},
+      {"target-wrong-type",
+       QByteArrayLiteral(R"({"target_horizon": 61})")},
+      // 自定义边界表不含 D61 且不写 target_horizon → 默认标定层位落空，
+      // 拒用（新工区必须显式写 target_horizon，不让目标静默失效）。
+      {"boundaries-without-target",
+       QByteArrayLiteral(R"({"sequence_boundaries": ["A", "B"]})")},
       {"rule-missing-type",
        QByteArrayLiteral(R"({"classifier": {"dat_path_rules": [{"segment_keywords": ["x"]}]}})")},
       {"rule-unknown-type",

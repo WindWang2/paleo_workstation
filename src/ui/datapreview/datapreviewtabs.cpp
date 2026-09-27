@@ -5,6 +5,7 @@
 
 #include "../../catalog/datacatalog.h"
 #include "../../io/dataimportservice.h"
+#include "../../io/arearules.h"
 #include "../../io/geojsonaffine.h"
 #include "../../io/lasparser.h"
 #include "../../io/segyreader.h"
@@ -1077,7 +1078,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
           continue;
         for (const WellTopRecord &t : parseWellTopsText(f.readAll()))
         {
-          if (t.topName != QLatin1String("D61"))
+          if (t.topName != AreaRules::active().targetHorizon)
             continue;
           const QString norm = DataCatalog::normalizeWellName(t.wellName);
           if (!norm.isEmpty() && !d61ByNorm.contains(norm))
@@ -1173,12 +1174,14 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     if (haveTieTop)
     {
       // 标定写「A1 D61」和时间，或「无时深表」「超出时深表」「时深表无序」之一。
+      const QString tieHorizon = AreaRules::active().targetHorizon;
       if (tie.ok())
         tieCaption->setText(
-            tr("%1 D61 · %2 ms").arg(tieWellName).arg(tie.timeMs, 0, 'f', 1));
+            tr("%1 %2 · %3 ms").arg(tieWellName, tieHorizon).arg(tie.timeMs, 0, 'f', 1));
       else
         tieCaption->setText(
-            tr("%1 D61 · %2").arg(tieWellName, TimeDepthTool::reasonText(tie.status)));
+            tr("%1 %2 · %3").arg(tieWellName, tieHorizon,
+                                 TimeDepthTool::reasonText(tie.status)));
     }
     const auto decode = [this, assetId, abs, survey, mode, no, panel, tieCaption, v,
                          haveTieTop, tie, tieWellName]() {

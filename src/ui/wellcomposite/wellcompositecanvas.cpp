@@ -38,6 +38,7 @@ WellCompositeCanvas::WellCompositeCanvas(QWidget *parent)
   connect(m_vScrollBar, &QScrollBar::valueChanged, this, [this](int val) {
     m_scrollDepth = m_minDepth + val / pxPerMeter();
     updateAll();
+    notifyViewportChanged();
   });
 
   connect(m_hScrollBar, &QScrollBar::valueChanged, this, [this](int val) {
@@ -107,6 +108,7 @@ void WellCompositeCanvas::setDepthRange(double minDepth, double maxDepth)
   m_scrollDepth = qBound(m_minDepth, m_scrollDepth, m_maxDepth);
   syncScrollBars();
   updateAll();
+  notifyViewportChanged();
 }
 
 void WellCompositeCanvas::setScrollDepth(double depth)
@@ -123,6 +125,18 @@ void WellCompositeCanvas::setScrollDepth(double depth)
     m_vScrollBar->blockSignals(false);
   }
   updateAll();
+  notifyViewportChanged();
+}
+
+double WellCompositeCanvas::visibleDepthSpan() const
+{
+  const double bodyH = (m_body && m_body->height() > 10) ? m_body->height() : 100.0;
+  return bodyH / pxPerMeter();
+}
+
+void WellCompositeCanvas::notifyViewportChanged()
+{
+  emit viewportChanged(visibleTopDepth(), visibleBottomDepth(), visibleDepthSpan());
 }
 
 double WellCompositeCanvas::pxPerMeter() const
@@ -191,6 +205,7 @@ void WellCompositeCanvas::setZoomFactor(double factor, double anchorDepth)
   updateAll();
   emit scaleRatioChanged(m_scaleRatio);
   emit zoomChanged(m_zoomFactor);
+  notifyViewportChanged();
 }
 
 void WellCompositeCanvas::zoomIn()
@@ -255,6 +270,7 @@ void WellCompositeCanvas::resetZoom()
   updateAll();
   emit scaleRatioChanged(m_scaleRatio);
   emit zoomChanged(m_zoomFactor);
+  notifyViewportChanged();
 }
 
 void WellCompositeCanvas::setScaleRatio(const QString &ratioStr)
@@ -307,6 +323,7 @@ void WellCompositeCanvas::setScaleRatio(const QString &ratioStr)
   updateAll();
   emit scaleRatioChanged(m_scaleRatio);
   emit zoomChanged(m_zoomFactor);
+  notifyViewportChanged();
 }
 
 void WellCompositeCanvas::setHoverDepth(double depth)
@@ -383,6 +400,7 @@ void WellCompositeCanvas::resizeEvent(QResizeEvent *event)
   }
 
   syncScrollBars();
+  notifyViewportChanged();
 }
 
 // ----------------------------------------------------------------------------
@@ -488,6 +506,46 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
 
     p.restore();
   }
+
+  // 依据 DESIGN.md §140：画布右下角白底半透明位置与比例尺图例卡片
+  if (width() > 240 && height() > 120)
+  {
+    p.save();
+    const qreal cardW = 195.0;
+    const qreal cardH = 38.0;
+    const QRectF cardRect(width() - cardW - 10, height() - cardH - 10, cardW, cardH);
+
+    p.fillRect(cardRect, QColor(255, 255, 255, 235));
+    p.setPen(QColor(QStringLiteral("#DFE5EC")));
+    p.drawRoundedRect(cardRect, 4.0, 4.0);
+
+    QFont cardFont = p.font();
+    cardFont.setFamily(QStringLiteral("JetBrains Mono, monospace"));
+    cardFont.setPointSize(7);
+    p.setFont(cardFont);
+
+    // 比例尺与每厘米米数换算
+    const double ppm = m_canvas->pxPerMeter();
+    const double metersPerCm = (ppm > 1e-4) ? (37.79528 / ppm) : 5.0;
+    const QString mCmStr = (metersPerCm < 1.0) ? QString::number(metersPerCm, 'f', 2)
+                           : (metersPerCm < 10.0) ? QString::number(metersPerCm, 'f', 1)
+                                                  : QString::number(metersPerCm, 'f', 0);
+    const QString scaleText = QStringLiteral("比例尺: %1 (1cm≈%2m)")
+                                  .arg(m_canvas->scaleRatio(), mCmStr);
+    p.setPen(QColor(QStringLiteral("#24303E")));
+    p.drawText(QRectF(cardRect.left() + 8, cardRect.top() + 3, cardW - 16, 15),
+               Qt::AlignLeft | Qt::AlignVCenter, scaleText);
+
+    // 当前视口深度范围与跨度
+    const QString rangeText = QStringLiteral("[%1~%2m] 跨度:%3m")
+                                  .arg(QString::number(topDepth, 'f', 1))
+                                  .arg(QString::number(bottomDepth, 'f', 1))
+                                  .arg(QString::number(visibleDepthSpan, 'f', 1));
+    p.setPen(QColor(QStringLiteral("#5D6E80")));
+    p.drawText(QRectF(cardRect.left() + 8, cardRect.top() + 19, cardW - 16, 15),
+               Qt::AlignLeft | Qt::AlignVCenter, rangeText);
+    p.restore();
+  }
 }
 
 void WellCompositeBody::wheelEvent(QWheelEvent *event)
@@ -537,6 +595,7 @@ void WellCompositeBody::mouseMoveEvent(QMouseEvent *event)
 
     m_canvas->syncScrollBars();
     m_canvas->updateAll();
+    m_canvas->notifyViewportChanged();
     event->accept();
     return;
   }

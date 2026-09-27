@@ -539,7 +539,7 @@ DataPage::DataPage(QWidget *parent)
   listLay->addWidget(m_viewStack, 1);
   lay->addWidget(listSection, 1);
 
-  connect(m_tree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *item, int) {
+  const auto handleTreeActivation = [this](QTreeWidgetItem *item, int) {
     if (!item)
       return;
     const QString assetId = item->data(0, Qt::UserRole).toString();
@@ -566,7 +566,7 @@ DataPage::DataPage(QWidget *parent)
     if (nodeType == QLatin1String("well"))
     {
       item->setExpanded(!item->isExpanded());
-      // 双击井节点：打开第一条关联资产（如 A1.Las 测井曲线或井位）
+      // 双击或Enter激活井节点：打开第一条关联资产（如 A1.Las 测井曲线或井位）
       for (int i = 0; i < item->childCount(); ++i)
       {
         QTreeWidgetItem *child = item->child(i);
@@ -583,7 +583,10 @@ DataPage::DataPage(QWidget *parent)
     {
       item->setExpanded(!item->isExpanded());
     }
-  });
+  };
+
+  connect(m_tree, &QTreeWidget::itemDoubleClicked, this, handleTreeActivation);
+  connect(m_tree, &QTreeWidget::itemActivated, this, handleTreeActivation);
 
   connect(m_tree, &QTreeWidget::itemSelectionChanged, this, [this]() {
     if (!m_tree)

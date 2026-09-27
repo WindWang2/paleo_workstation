@@ -16,6 +16,8 @@
 namespace WellComposite
 {
 
+class WellPositionLegendWidget;
+
 class WellCompositePanel : public QWidget
 {
   Q_OBJECT
@@ -25,6 +27,7 @@ public:
   ~WellCompositePanel() override = default;
 
   WellCompositeCanvas *canvas() const { return m_canvas; }
+  WellPositionLegendWidget *legendWidget() const { return m_legendWidget; }
 
   // 加载并装配中国石油标准综合柱状图 XML (SpreadsheetML)
   bool loadComprehensiveXml(const QString &xmlPath);
@@ -63,6 +66,7 @@ private:
   QLabel *m_lblStatus = nullptr;
 
   WellCompositeCanvas *m_canvas = nullptr;
+  WellPositionLegendWidget *m_legendWidget = nullptr;
 };
 
 } // namespace WellComposite

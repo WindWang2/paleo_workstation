@@ -7,6 +7,7 @@
 #include "ui/wellcomposite/wellcompositecanvas.h"
 #include "ui/wellcomposite/wellcompositepanel.h"
 #include "ui/wellcomposite/curveconfigdialog.h"
+#include "ui/wellcomposite/wellpositionlegendwidget.h"
 #include "io/wellcompositexml.h"
 #include "qgis/qgisruntime.h"
 
@@ -64,6 +65,12 @@ private slots:
 
     auto curveTrack = std::make_shared<CurveTrack>(QStringLiteral("测井三孔隙度"), 180.0);
     QCOMPARE(curveTrack->type(), TrackType::Curve);
+
+    auto stratTrack = std::make_shared<StratigraphyCompoundTrack>(QStringLiteral("地层"), 145.0);
+    QCOMPARE(stratTrack->type(), TrackType::StratigraphyCompound);
+
+    auto faciesTrack = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
+    QCOMPARE(faciesTrack->type(), TrackType::FaciesCompound);
 
     // 测井曲线道：测试最多合并 4 根曲线（1-4根）
     CurveData c1; c1.name = QStringLiteral("GR"); c1.depths = {1000, 1001, 1002}; c1.values = {45, 50, 55};
@@ -226,7 +233,7 @@ private slots:
     imgAdaptive.fill(Qt::white);
     panel.render(&imgAdaptive);
     QVERIFY(!imgAdaptive.isNull());
-    imgAdaptive.save(QStringLiteral("/home/kevin/.config/antigravity_accounts/11111/.gemini/antigravity-cli/brain/45d666c3-a0cf-4a44-a54b-9328b30b5bea/screen_resform_composite.png"));
+    imgAdaptive.save(QStringLiteral("/home/kevin/.config/antigravity_accounts/garni/.gemini/antigravity-cli/brain/c9308e91-0248-4fc8-8bd5-962620634b6c/screen_resform_composite.png"));
 
     // 2. 储层段 (2000m - 2100m) 1:500 地质精细标尺特写图
     panel.canvas()->setScaleRatio(QStringLiteral("1:500"));
@@ -235,7 +242,225 @@ private slots:
     imgDetail.fill(Qt::white);
     panel.render(&imgDetail);
     QVERIFY(!imgDetail.isNull());
-    imgDetail.save(QStringLiteral("/home/kevin/.config/antigravity_accounts/11111/.gemini/antigravity-cli/brain/45d666c3-a0cf-4a44-a54b-9328b30b5bea/screen_resform_reservoir_detail.png"));
+    imgDetail.save(QStringLiteral("/home/kevin/.config/antigravity_accounts/garni/.gemini/antigravity-cli/brain/c9308e91-0248-4fc8-8bd5-962620634b6c/screen_resform_reservoir_detail.png"));
+  }
+
+  void testWellPositionLegendWidgetAndSync()
+  {
+    WellCompositePanel panel;
+    panel.resize(1000, 700);
+
+    QVERIFY(panel.legendWidget() != nullptr);
+
+    // 装配包含地层和曲线的测试数据
+    QVector<CurveData> curves;
+    CurveData gr;
+    gr.name = QStringLiteral("GR");
+    gr.minScale = 20.0f;
+    gr.maxScale = 180.0f;
+    gr.unit = QStringLiteral("API");
+    gr.depths = {1000.0f, 1050.0f, 1100.0f, 1200.0f, 1500.0f};
+    gr.values = {40.0f, 60.0f, 80.0f, 70.0f, 50.0f};
+    curves.append(gr);
+
+    QVector<FormationInterval> forms;
+    FormationInterval f1;
+    f1.name = QStringLiteral("韩江组");
+    f1.topDepth = 1000.0;
+    f1.bottomDepth = 1200.0;
+    f1.color = QColor(QStringLiteral("#4CAF50"));
+    forms.append(f1);
+
+    FormationInterval f2;
+    f2.name = QStringLiteral("珠江组");
+    f2.topDepth = 1200.0;
+    f2.bottomDepth = 1500.0;
+    f2.color = QColor(QStringLiteral("#2196F3"));
+    forms.append(f2);
+
+    QVERIFY(panel.loadLasCurves(QStringLiteral("TEST_WELL_1"), curves, forms));
+
+    // 验证初始视口与全井深度匹配
+    QCOMPARE(panel.canvas()->minDepth(), 1000.0);
+    QCOMPARE(panel.canvas()->maxDepth(), 1500.0);
+    QCOMPARE(panel.canvas()->visibleTopDepth(), 1000.0);
+    QVERIFY(panel.canvas()->visibleBottomDepth() > 1000.0);
+    QVERIFY(panel.canvas()->visibleDepthSpan() > 0.0);
+
+    // 监听 viewportChanged 信号
+    QSignalSpy spyViewport(panel.canvas(), &WellCompositeCanvas::viewportChanged);
+    QSignalSpy spyScale(panel.canvas(), &WellCompositeCanvas::scaleRatioChanged);
+
+    // 1. 测试滚动视口
+    panel.canvas()->setScrollDepth(1150.0);
+    QCOMPARE(spyViewport.count(), 1);
+    QCOMPARE(panel.canvas()->visibleTopDepth(), 1150.0);
+
+    // 2. 测试放大缩放联动
+    panel.canvas()->zoomIn();
+    QVERIFY(spyViewport.count() >= 2);
+    QVERIFY(spyScale.count() >= 1);
+
+    // 3. 验证图例组件尺寸与存在性
+    QVERIFY(panel.legendWidget()->height() >= 30);
+    QVERIFY(panel.legendWidget()->scaleBar() != nullptr);
+    QVERIFY(panel.legendWidget()->miniBar() != nullptr);
+
+    // 4. 验证渲染正常
+    QImage imgLegend(1000, 50, QImage::Format_ARGB32_Premultiplied);
+    imgLegend.fill(Qt::white);
+    panel.legendWidget()->render(&imgLegend);
+    QVERIFY(!imgLegend.isNull());
+    imgLegend.save(QStringLiteral("/home/kevin/.config/antigravity_accounts/11111/.gemini/antigravity-cli/brain/45d666c3-a0cf-4a44-a54b-9328b30b5bea/screen_legend_bar_test.png"));
+  }
+
+  void testFaciesPatterns()
+  {
+    // 测试各标准沉积相及微相地质纹理画刷生成
+    const QStringList patternKeys = {
+        QStringLiteral("distributary_channel"),
+        QStringLiteral("水下分流河道"),
+        QStringLiteral("mouth_bar"),
+        QStringLiteral("河口坝"),
+        QStringLiteral("sheet_sand"),
+        QStringLiteral("席状砂"),
+        QStringLiteral("interdistributary_bay"),
+        QStringLiteral("分流间湾"),
+        QStringLiteral("delta_front"),
+        QStringLiteral("三角洲前缘"),
+        QStringLiteral("delta_plain"),
+        QStringLiteral("三角洲平原"),
+        QStringLiteral("prodelta"),
+        QStringLiteral("前三角洲"),
+        QStringLiteral("shallow_marine"),
+        QStringLiteral("浅海陆棚"),
+        QStringLiteral("turbidite"),
+        QStringLiteral("浊积砂体"),
+        QStringLiteral("channel_lag"),
+        QStringLiteral("滞留沉积"),
+        QStringLiteral("tidal_flat"),
+        QStringLiteral("潮坪微相")};
+
+    for (const auto &key : patternKeys)
+    {
+      const QBrush brush = FaciesPatternFactory::getBrush(key);
+      QCOMPARE(brush.style(), Qt::TexturePattern);
+      QVERIFY(!brush.texture().isNull());
+      QVERIFY(brush.texture().width() > 0);
+      QVERIFY(brush.texture().height() > 0);
+    }
+  }
+
+  void testStratigraphyCompoundTrack()
+  {
+    auto track = std::make_shared<StratigraphyCompoundTrack>(QStringLiteral("地层"), 145.0);
+    QCOMPARE(track->type(), TrackType::StratigraphyCompound);
+    QCOMPARE(track->title(), QStringLiteral("地层"));
+    QCOMPARE(track->width(), 145.0);
+    QCOMPARE(track->systemWidth(), 38.0);
+    QCOMPARE(track->seriesWidth(), 42.0);
+    QCOMPARE(track->formationWidth(), 65.0);
+
+    track->setSubColumnWidths(40.0, 45.0);
+    QCOMPARE(track->systemWidth(), 40.0);
+    QCOMPARE(track->seriesWidth(), 45.0);
+    QCOMPARE(track->formationWidth(), 60.0);
+
+    // 1. 测试基于空地层时的自动推导
+    track->autoDeriveStratigraphy({}, 1000.0, 3000.0);
+    QVERIFY(!track->intervals().isEmpty());
+    QCOMPARE(track->intervals().first().system, QStringLiteral("新近系"));
+
+    // 2. 测试基于珠江口盆地标准地层序列的自动推导
+    QVector<FormationInterval> fms = {
+        {1000.0f, 1300.0f, QStringLiteral("粤海组"), QStringLiteral("YH")},
+        {1300.0f, 1700.0f, QStringLiteral("韩江组"), QStringLiteral("HJ")},
+        {1700.0f, 2100.0f, QStringLiteral("珠江组"), QStringLiteral("ZJ")},
+        {2100.0f, 2500.0f, QStringLiteral("珠海组"), QStringLiteral("ZH")},
+        {2500.0f, 2900.0f, QStringLiteral("恩平组"), QStringLiteral("EP")},
+        {2900.0f, 3300.0f, QStringLiteral("文昌组"), QStringLiteral("WC")},
+    };
+    track->autoDeriveStratigraphy(fms, 1000.0, 3300.0);
+    QCOMPARE(track->intervals().size(), 6);
+
+    QCOMPARE(track->intervals()[0].system, QStringLiteral("新近系"));
+    QCOMPARE(track->intervals()[0].series, QStringLiteral("上新统"));
+    QCOMPARE(track->intervals()[1].system, QStringLiteral("新近系"));
+    QCOMPARE(track->intervals()[1].series, QStringLiteral("中新统"));
+    QCOMPARE(track->intervals()[2].system, QStringLiteral("新近系"));
+    QCOMPARE(track->intervals()[2].series, QStringLiteral("早中新统"));
+    QCOMPARE(track->intervals()[3].system, QStringLiteral("古近系"));
+    QCOMPARE(track->intervals()[3].series, QStringLiteral("渐新统"));
+    QCOMPARE(track->intervals()[4].system, QStringLiteral("古近系"));
+    QCOMPARE(track->intervals()[4].series, QStringLiteral("始新统"));
+    QCOMPARE(track->intervals()[5].system, QStringLiteral("古近系"));
+    QCOMPARE(track->intervals()[5].series, QStringLiteral("始新统"));
+
+    // 3. 测试道头与道体绘制
+    QImage img(145, 200, QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::white);
+    QPainter p(&img);
+    track->paintHeader(p, QRectF(0, 0, 145, 72), 1500.0);
+    track->paintBody(p, QRectF(0, 72, 145, 128), 1000.0, 2000.0, 0.128);
+    p.end();
+    QVERIFY(!img.isNull());
+  }
+
+  void testFaciesCompoundTrack()
+  {
+    auto track = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
+    QCOMPARE(track->type(), TrackType::FaciesCompound);
+    QCOMPARE(track->title(), QStringLiteral("沉积相"));
+    QCOMPARE(track->width(), 180.0);
+    QCOMPARE(track->majorWidth(), 48.0);
+    QCOMPARE(track->subWidth(), 54.0);
+    QCOMPARE(track->microWidth(), 78.0);
+
+    track->setSubColumnWidths(50.0, 55.0);
+    QCOMPARE(track->majorWidth(), 50.0);
+    QCOMPARE(track->subWidth(), 55.0);
+    QCOMPARE(track->microWidth(), 75.0);
+
+    // 1. 测试空数据时的自动推导
+    track->autoDeriveFacies({}, {}, 1000.0, 3000.0);
+    QVERIFY(!track->intervals().isEmpty());
+
+    // 2. 测试根据地层与岩性联合推导相、亚相、微相及纹理
+    QVector<FormationInterval> fms = {
+        {1000.0f, 1500.0f, QStringLiteral("珠江组"), QStringLiteral("ZJ")},
+        {1500.0f, 2000.0f, QStringLiteral("珠海组"), QStringLiteral("ZH")},
+    };
+    QVector<LithologyInterval> liths = {
+        {1000.0f, 1100.0f, QStringLiteral("细砂岩"), QStringLiteral("SS")},
+        {1100.0f, 1200.0f, QStringLiteral("粉砂岩"), QStringLiteral("ST")},
+        {1200.0f, 1300.0f, QStringLiteral("灰色泥岩"), QStringLiteral("MD")},
+        {1500.0f, 1600.0f, QStringLiteral("中砂岩"), QStringLiteral("SS")},
+    };
+    track->autoDeriveFacies(fms, liths, 1000.0, 2000.0);
+    QCOMPARE(track->intervals().size(), 4);
+
+    // 细砂岩 -> 水下分流河道
+    QCOMPARE(track->intervals()[0].majorFacies, QStringLiteral("三角洲相"));
+    QCOMPARE(track->intervals()[0].subFacies, QStringLiteral("三角洲前缘"));
+    QCOMPARE(track->intervals()[0].microFacies, QStringLiteral("水下分流河道"));
+    QCOMPARE(track->intervals()[0].patternType, QStringLiteral("distributary_channel"));
+
+    // 粉砂岩 -> 席状砂
+    QCOMPARE(track->intervals()[1].microFacies, QStringLiteral("席状砂"));
+    QCOMPARE(track->intervals()[1].patternType, QStringLiteral("sheet_sand"));
+
+    // 灰色泥岩 -> 分流间湾
+    QCOMPARE(track->intervals()[2].microFacies, QStringLiteral("分流间湾"));
+    QCOMPARE(track->intervals()[2].patternType, QStringLiteral("interdistributary_bay"));
+
+    // 3. 测试道头与道体绘制（验证纹理图案与半透明文字胶囊无崩溃）
+    QImage img(180, 200, QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::white);
+    QPainter p(&img);
+    track->paintHeader(p, QRectF(0, 0, 180, 72), 1200.0);
+    track->paintBody(p, QRectF(0, 72, 180, 128), 1000.0, 1400.0, 0.32);
+    p.end();
+    QVERIFY(!img.isNull());
   }
 };
 

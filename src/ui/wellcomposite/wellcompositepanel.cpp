@@ -1,5 +1,6 @@
 #include "wellcompositepanel.h"
 #include "curveconfigdialog.h"
+#include "wellpositionlegendwidget.h"
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QVBoxLayout>
@@ -161,6 +162,32 @@ void WellCompositePanel::setupUi()
                                .arg(QString::number(m_canvas->maxDepth(), 'f', 1)));
     }
   });
+
+  // 底部位置显示与比例尺图例综合控制栏
+  m_legendWidget = new WellPositionLegendWidget(this);
+  m_legendWidget->setObjectName(QStringLiteral("wellPositionLegendWidget"));
+  rootLay->addWidget(m_legendWidget);
+
+  connect(m_canvas, &WellCompositeCanvas::viewportChanged,
+          m_legendWidget, &WellPositionLegendWidget::updateViewport);
+  connect(m_canvas, &WellCompositeCanvas::depthHovered,
+          m_legendWidget, &WellPositionLegendWidget::updateHoverDepth);
+  connect(m_legendWidget, &WellPositionLegendWidget::requestScrollDepth,
+          m_canvas, &WellCompositeCanvas::setScrollDepth);
+
+  auto syncScaleToLegend = [this]() {
+    if (m_legendWidget && m_canvas)
+      m_legendWidget->updateScale(m_canvas->pxPerMeter(), m_canvas->scaleRatio());
+  };
+  connect(m_canvas, &WellCompositeCanvas::scaleRatioChanged, this, syncScaleToLegend);
+  connect(m_canvas, &WellCompositeCanvas::zoomChanged, this, [syncScaleToLegend](double) {
+    syncScaleToLegend();
+  });
+
+  syncScaleToLegend();
+  m_legendWidget->updateViewport(m_canvas->visibleTopDepth(),
+                                 m_canvas->visibleBottomDepth(),
+                                 m_canvas->visibleDepthSpan());
 }
 
 void WellCompositePanel::openCurveConfigDialog()
@@ -185,6 +212,8 @@ bool WellCompositePanel::loadComprehensiveXml(const QString &xmlPath)
   m_data = data;
   setWellName(data.wellName);
   setupTracksFromData(data);
+  if (m_legendWidget)
+    m_legendWidget->setWellData(data);
   emit wellLoaded(data.wellName);
   return true;
 }
@@ -221,12 +250,22 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
 
   m_canvas->setDepthRange(minD, maxD);
 
-  // 1. 深度标尺道 (DepthScaleTrack)
+  // 1. 地层系统组组合道 (系 | 统 | 组)
+  auto stratTrack = std::make_shared<StratigraphyCompoundTrack>(QStringLiteral("地层"), 145.0);
+  stratTrack->autoDeriveStratigraphy(formations, minD, maxD);
+  m_canvas->addTrack(stratTrack);
+
+  // 2. 沉积相组合道 (相 | 亚 | 微，带地质纹理填充)
+  auto faciesTrack = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
+  faciesTrack->autoDeriveFacies(formations, {}, minD, maxD);
+  m_canvas->addTrack(faciesTrack);
+
+  // 3. 深度标尺道 (DepthScaleTrack)
   auto scaleTrack = std::make_shared<DepthScaleTrack>(68.0);
   scaleTrack->setScaleRatio(m_scaleCombo->currentText());
   m_canvas->addTrack(scaleTrack);
 
-  // 2. 地层道 (FormationTrack) —— 若有分层数据
+  // 4. 地层道 (FormationTrack) —— 若有分层数据
   if (!formations.isEmpty())
   {
     auto formTrack = std::make_shared<FormationTrack>(QStringLiteral("地层"), 80.0);
@@ -302,6 +341,14 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
     }
   }
 
+  m_data.wellName = wellName;
+  m_data.minDepth = minD;
+  m_data.maxDepth = maxD;
+  m_data.continuousCurves = curves;
+  m_data.formationIntervals = formations;
+  if (m_legendWidget)
+    m_legendWidget->setWellData(m_data);
+
   m_canvas->setScaleRatio(m_scaleCombo->currentText());
   return true;
 }
@@ -311,7 +358,23 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
   m_canvas->clearTracks();
   m_canvas->setDepthRange(data.minDepth, data.maxDepth);
 
-  // 1. 地层单位道
+  // 1. 地层系统组组合道 (系 | 统 | 组)
+  auto stratTrack = std::make_shared<StratigraphyCompoundTrack>(QStringLiteral("地层"), 145.0);
+  if (!data.stratigraphyIntervals.isEmpty())
+    stratTrack->setIntervals(data.stratigraphyIntervals);
+  else
+    stratTrack->autoDeriveStratigraphy(data.formationIntervals, data.minDepth, data.maxDepth);
+  m_canvas->addTrack(stratTrack);
+
+  // 2. 沉积相组合道 (相 | 亚 | 微，带地质纹理填充)
+  auto faciesTrack = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
+  if (!data.faciesIntervals.isEmpty())
+    faciesTrack->setIntervals(data.faciesIntervals);
+  else
+    faciesTrack->autoDeriveFacies(data.formationIntervals, data.lithologyIntervals, data.minDepth, data.maxDepth);
+  m_canvas->addTrack(faciesTrack);
+
+  // 3. 地层单位道
   if (!data.formationIntervals.isEmpty())
   {
     auto formTrack = std::make_shared<FormationTrack>(QStringLiteral("地层单位"), 75.0);
@@ -319,7 +382,7 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
     m_canvas->addTrack(formTrack);
   }
 
-  // 2. 砂层组道（细分层道）
+  // 4. 砂层组道（细分层道）
   if (!data.sandIntervals.isEmpty())
   {
     auto sandTrack = std::make_shared<FormationTrack>(QStringLiteral("砂层组"), 60.0);

@@ -12,7 +12,8 @@ namespace WellComposite
 bool ComprehensiveWellData::isEmpty() const
 {
   return continuousCurves.isEmpty() && discreteCurves.isEmpty() &&
-         lithologyIntervals.isEmpty() && formationIntervals.isEmpty();
+         lithologyIntervals.isEmpty() && formationIntervals.isEmpty() &&
+         stratigraphyIntervals.isEmpty() && faciesIntervals.isEmpty();
 }
 
 static QColor pickWellCurveColor(const QString &mnemonic, int index)

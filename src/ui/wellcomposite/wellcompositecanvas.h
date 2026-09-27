@@ -60,6 +60,11 @@ public:
   QString scaleRatio() const { return m_scaleRatio; }
   QString calculateScaleRatioString() const;
 
+  // 视口深度范围与跨度查询
+  double visibleTopDepth() const { return m_scrollDepth; }
+  double visibleDepthSpan() const;
+  double visibleBottomDepth() const { return visibleTopDepth() + visibleDepthSpan(); }
+
   // 坐标转换
   double depthToY(double depth) const;
   double yToDepth(double y) const;
@@ -74,13 +79,15 @@ public:
   double hoverDepth() const { return m_hoverDepth; }
   void setHoverDepth(double depth);
 
-  // 内部重绘通知
+  // 内部重绘通知与视口变动广播
   void updateAll();
+  void notifyViewportChanged();
 
 signals:
   void zoomChanged(double factor);
   void depthHovered(double depth);
   void scaleRatioChanged(const QString &ratio);
+  void viewportChanged(double topDepth, double bottomDepth, double span);
 
 protected:
   void resizeEvent(QResizeEvent *event) override;

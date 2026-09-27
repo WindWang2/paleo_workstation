@@ -40,6 +40,8 @@ struct ComprehensiveWellData
   QVector<SymbolItem> symbolItems;
   QVector<CoreBarrel> coreBarrels;
   QVector<QPair<double, QString>> standardHorizons;
+  QVector<StratigraphyInterval> stratigraphyIntervals;
+  QVector<FaciesInterval> faciesIntervals;
 
   bool isEmpty() const;
 };

@@ -28,14 +28,16 @@ namespace WellComposite
 
 enum class TrackType
 {
-  DepthScale, // 标尺道
-  Text,       // 文本道
-  Formation,  // 地层道
-  Lithology,  // 岩性道
-  Core,       // 取芯道
-  Image,      // 图片道
-  Curve,      // 曲线道（支持1-4根曲线合并显示）
-  Symbol      // 符号道
+  DepthScale,           // 标尺道
+  Text,                 // 文本道
+  Formation,            // 地层道
+  Lithology,            // 岩性道
+  Core,                 // 取芯道
+  Image,                // 图片道
+  Curve,                // 曲线道（支持1-4根曲线合并显示）
+  Symbol,               // 符号道
+  StratigraphyCompound, // 地层系统组组合道 (系 | 统 | 组)
+  FaciesCompound        // 沉积相组合道 (相 | 亚 | 微，带地质纹理)
 };
 
 enum class CurveDisplayMode
@@ -82,6 +84,33 @@ struct FormationInterval
   QString name;
   QString code;
   QColor color = QColor(QStringLiteral("#FFE082"));
+};
+
+// 地层系统组组合道区间数据 (系 | 统 | 组)
+struct StratigraphyInterval
+{
+  float topDepth = 0.0f;
+  float bottomDepth = 0.0f;
+  QString system;     // 系，如 "新近系" / "古近系"
+  QString series;     // 统，如 "中新统" / "渐新统" / "始新统"
+  QString formation;  // 组，如 "韩江组" / "珠江组" / "珠海组" / "恩平组" / "文昌组"
+  QColor systemColor = QColor(QStringLiteral("#FFF9C4"));
+  QColor seriesColor = QColor(QStringLiteral("#FFE082"));
+  QColor formationColor = QColor(QStringLiteral("#FFD54F"));
+};
+
+// 沉积相组合道区间数据 (相 | 亚 | 微，支持地质纹理填充)
+struct FaciesInterval
+{
+  float topDepth = 0.0f;
+  float bottomDepth = 0.0f;
+  QString majorFacies; // 相，如 "三角洲相" / "浅海陆棚相" / "湖泊相"
+  QString subFacies;   // 亚相，如 "三角洲前缘" / "三角洲平原" / "前三角洲"
+  QString microFacies; // 微相，如 "水下分流河道" / "河口坝" / "席状砂" / "分流间湾"
+  QString patternType; // 纹理类型，如 "distributary_channel", "mouth_bar", "sheet_sand", "interdistributary_bay" 等
+  QColor majorColor = QColor(QStringLiteral("#FFF9C4"));
+  QColor subColor = QColor(QStringLiteral("#FFE082"));
+  QColor microColor = QColor(QStringLiteral("#FFE082"));
 };
 
 // 岩性道区间数据
@@ -144,6 +173,14 @@ class LithologyPatternFactory
 {
 public:
   static QBrush getBrush(const QString &lithoName, const QColor &baseBg = QColor());
+  static QPixmap createPatternPixmap(const QString &patternType, const QColor &bg, const QColor &fg);
+};
+
+// 标准沉积相地质纹理画刷生成器（支持水下分流河道、河口坝、席状砂、分流间湾、三角洲前缘/平原/前三角洲、浅海陆棚、浊积砂体等纹理）
+class FaciesPatternFactory
+{
+public:
+  static QBrush getBrush(const QString &patternTypeOrName, const QColor &baseBg = QColor());
   static QPixmap createPatternPixmap(const QString &patternType, const QColor &bg, const QColor &fg);
 };
 
@@ -359,6 +396,74 @@ public:
 private:
   qreal m_width = 48.0;
   QVector<SymbolItem> m_items;
+};
+
+// 9. 地层系统组组合道 (StratigraphyCompoundTrack) — 2级道头「地层」下设「系 | 统 | 组」
+class StratigraphyCompoundTrack : public WellTrack
+{
+public:
+  explicit StratigraphyCompoundTrack(const QString &title = QStringLiteral("地层"), qreal width = 145.0);
+  TrackType type() const override { return TrackType::StratigraphyCompound; }
+  QString title() const override { return m_title; }
+  qreal width() const override { return m_width; }
+  void setWidth(qreal w) override { m_width = w; }
+
+  void setIntervals(const QVector<StratigraphyInterval> &intervals) { m_intervals = intervals; }
+  void addInterval(const StratigraphyInterval &interval) { m_intervals.append(interval); }
+  QVector<StratigraphyInterval> intervals() const { return m_intervals; }
+
+  qreal systemWidth() const { return m_systemWidth; }
+  qreal seriesWidth() const { return m_seriesWidth; }
+  qreal formationWidth() const { return m_width - m_systemWidth - m_seriesWidth; }
+  void setSubColumnWidths(qreal sysW, qreal serW);
+
+  // 自动从单层道数据推导生成「系 | 统 | 组」层级结构
+  void autoDeriveStratigraphy(const QVector<FormationInterval> &formations, double minDepth, double maxDepth);
+
+  void paintHeader(QPainter &painter, const QRectF &headerRect, double currentDepth) override;
+  void paintBody(QPainter &painter, const QRectF &bodyRect,
+                 double topDepth, double bottomDepth, double pxPerMeter) override;
+
+private:
+  qreal m_width = 145.0;
+  qreal m_systemWidth = 38.0;
+  qreal m_seriesWidth = 42.0;
+  QVector<StratigraphyInterval> m_intervals;
+};
+
+// 10. 沉积相组合道 (FaciesCompoundTrack) — 2级道头「沉积相」下设「相 | 亚 | 微」，微相全地质纹理填充
+class FaciesCompoundTrack : public WellTrack
+{
+public:
+  explicit FaciesCompoundTrack(const QString &title = QStringLiteral("沉积相"), qreal width = 180.0);
+  TrackType type() const override { return TrackType::FaciesCompound; }
+  QString title() const override { return m_title; }
+  qreal width() const override { return m_width; }
+  void setWidth(qreal w) override { m_width = w; }
+
+  void setIntervals(const QVector<FaciesInterval> &intervals) { m_intervals = intervals; }
+  void addInterval(const FaciesInterval &interval) { m_intervals.append(interval); }
+  QVector<FaciesInterval> intervals() const { return m_intervals; }
+
+  qreal majorWidth() const { return m_majorWidth; }
+  qreal subWidth() const { return m_subWidth; }
+  qreal microWidth() const { return m_width - m_majorWidth - m_subWidth; }
+  void setSubColumnWidths(qreal majW, qreal subW);
+
+  // 自动从地层与岩性数据推导生成「相 | 亚 | 微」层级结构与微相纹理
+  void autoDeriveFacies(const QVector<FormationInterval> &formations,
+                        const QVector<LithologyInterval> &lithologies,
+                        double minDepth, double maxDepth);
+
+  void paintHeader(QPainter &painter, const QRectF &headerRect, double currentDepth) override;
+  void paintBody(QPainter &painter, const QRectF &bodyRect,
+                 double topDepth, double bottomDepth, double pxPerMeter) override;
+
+private:
+  qreal m_width = 180.0;
+  qreal m_majorWidth = 48.0;
+  qreal m_subWidth = 54.0;
+  QVector<FaciesInterval> m_intervals;
 };
 
 } // namespace WellComposite

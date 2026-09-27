@@ -1,6 +1,7 @@
 #include "wellcompositetrack.h"
 
 #include <QBitmap>
+#include <QPainterPath>
 #include <cmath>
 
 namespace WellComposite
@@ -156,6 +157,229 @@ QBrush LithologyPatternFactory::getBrush(const QString &lithoName, const QColor 
     pat = QStringLiteral("coal");
     if (!baseBg.isValid()) bg = QColor(QStringLiteral("#CFD8DC"));
     fg = QColor(QStringLiteral("#212121"));
+  }
+
+  QPixmap pm = createPatternPixmap(pat, bg, fg);
+  return QBrush(pm);
+}
+
+// ----------------------------------------------------------------------------
+// FaciesPatternFactory: 生成标准石油地质沉积相填充纹理 (相/亚相/微相)
+// ----------------------------------------------------------------------------
+QPixmap FaciesPatternFactory::createPatternPixmap(const QString &patternType, const QColor &bg, const QColor &fg)
+{
+  const int size = 20;
+  QPixmap pm(size, size);
+  pm.fill(bg);
+
+  QPainter p(&pm);
+  p.setRenderHint(QPainter::Antialiasing, true);
+  p.setPen(QPen(fg, 1.0));
+
+  if (patternType == QLatin1String("distributary_channel")) // 水下分流河道：前积交错层理细弧线 + 砂粒散点
+  {
+    p.setBrush(Qt::NoBrush);
+    p.drawArc(-4, 0, 24, 16, 20 * 16, 110 * 16);
+    p.drawArc(6, 6, 20, 14, 20 * 16, 110 * 16);
+    p.setPen(QPen(fg, 1.2));
+    p.drawPoint(5, 15);
+    p.drawPoint(12, 17);
+    p.drawPoint(16, 4);
+    p.drawPoint(3, 7);
+  }
+  else if (patternType == QLatin1String("mouth_bar")) // 河口坝：向上凸起的坝状双透镜微弧线 + 密砂点
+  {
+    p.setBrush(Qt::NoBrush);
+    p.drawArc(-2, 4, 24, 12, 0, 180 * 16);
+    p.drawArc(2, 12, 20, 10, 0, 180 * 16);
+    p.setPen(QPen(fg, 1.2));
+    p.drawPoint(10, 3);
+    p.drawPoint(4, 9);
+    p.drawPoint(16, 9);
+    p.drawPoint(10, 15);
+  }
+  else if (patternType == QLatin1String("sheet_sand")) // 席状砂：稀疏细水平薄层线 + 均匀散点
+  {
+    p.drawLine(0, 5, 20, 5);
+    p.drawLine(0, 15, 20, 15);
+    p.setPen(QPen(fg, 1.2));
+    p.drawPoint(5, 10);
+    p.drawPoint(15, 10);
+    p.drawPoint(10, 1);
+    p.drawPoint(10, 19);
+  }
+  else if (patternType == QLatin1String("interdistributary_bay")) // 分流间湾：缓波浪形泥质微纹
+  {
+    p.setBrush(Qt::NoBrush);
+    QPainterPath path1;
+    path1.moveTo(0, 6);
+    path1.cubicTo(5, 3, 10, 9, 20, 6);
+    p.drawPath(path1);
+
+    QPainterPath path2;
+    path2.moveTo(0, 16);
+    path2.cubicTo(5, 13, 10, 19, 20, 16);
+    p.drawPath(path2);
+  }
+  else if (patternType == QLatin1String("delta_front")) // 三角洲前缘：45度斜向交错砂泥互层纹
+  {
+    p.drawLine(0, 10, 10, 0);
+    p.drawLine(0, 20, 20, 0);
+    p.drawLine(10, 20, 20, 10);
+    p.setPen(QPen(fg, 1.2));
+    p.drawPoint(5, 5);
+    p.drawPoint(15, 15);
+  }
+  else if (patternType == QLatin1String("delta_plain")) // 三角洲平原：垂直植物根迹/炭质线与杂基点
+  {
+    p.drawLine(5, 2, 5, 10);
+    p.drawLine(15, 8, 15, 18);
+    p.setPen(QPen(fg, 1.2));
+    p.drawPoint(5, 14);
+    p.drawPoint(15, 4);
+    p.drawPoint(10, 10);
+  }
+  else if (patternType == QLatin1String("prodelta")) // 前三角洲：密集的水平平直极薄页理线
+  {
+    p.drawLine(0, 4, 20, 4);
+    p.drawLine(0, 9, 20, 9);
+    p.drawLine(0, 14, 20, 14);
+    p.drawLine(0, 19, 20, 19);
+  }
+  else if (patternType == QLatin1String("shallow_marine")) // 浅海陆棚：波状水流波痕与微波浪纹
+  {
+    p.setBrush(Qt::NoBrush);
+    QPainterPath pWave;
+    pWave.moveTo(0, 7);
+    pWave.quadTo(5, 2, 10, 7);
+    pWave.quadTo(15, 12, 20, 7);
+    p.drawPath(pWave);
+
+    QPainterPath pWave2;
+    pWave2.moveTo(0, 17);
+    pWave2.quadTo(5, 12, 10, 17);
+    pWave2.quadTo(15, 22, 20, 17);
+    p.drawPath(pWave2);
+  }
+  else if (patternType == QLatin1String("turbidite")) // 浊积砂体/重力流：底粗顶细的正粒序递变点阵
+  {
+    p.setPen(QPen(fg, 1.0));
+    p.drawPoint(3, 3);
+    p.drawPoint(10, 4);
+    p.drawPoint(17, 3);
+
+    p.setPen(QPen(fg, 1.5));
+    p.drawPoint(6, 10);
+    p.drawPoint(14, 11);
+
+    p.setPen(QPen(fg, 2.2));
+    p.drawPoint(4, 17);
+    p.drawPoint(10, 16);
+    p.drawPoint(16, 17);
+  }
+  else if (patternType == QLatin1String("channel_lag")) // 滞留沉积：椭圆砾石 + 粗砂粒
+  {
+    p.setBrush(Qt::NoBrush);
+    p.drawEllipse(2, 3, 6, 4);
+    p.drawEllipse(11, 11, 7, 5);
+    p.setPen(QPen(fg, 1.5));
+    p.drawPoint(14, 4);
+    p.drawPoint(4, 14);
+  }
+  else if (patternType == QLatin1String("tidal_flat")) // 潮坪：人字形双向羽状交错层理
+  {
+    p.drawLine(2, 4, 8, 8);
+    p.drawLine(8, 8, 14, 4);
+    p.drawLine(6, 14, 12, 18);
+    p.drawLine(12, 18, 18, 14);
+  }
+  else // 默认沉积微纹理：点线相间
+  {
+    p.drawLine(0, 10, 20, 10);
+    p.setPen(QPen(fg, 1.2));
+    p.drawPoint(5, 4);
+    p.drawPoint(15, 4);
+    p.drawPoint(5, 16);
+    p.drawPoint(15, 16);
+  }
+
+  p.end();
+  return pm;
+}
+
+QBrush FaciesPatternFactory::getBrush(const QString &patternTypeOrName, const QColor &baseBg)
+{
+  QString pat = QStringLiteral("distributary_channel");
+  QColor bg = baseBg.isValid() ? baseBg : QColor(QStringLiteral("#FFE082"));
+  QColor fg = QColor(QStringLiteral("#E65100"));
+
+  const QString key = patternTypeOrName.trimmed();
+
+  if (key == QLatin1String("distributary_channel") || key.contains(QStringLiteral("分流河道")) || key.contains(QStringLiteral("水下河道")))
+  {
+    pat = QStringLiteral("distributary_channel");
+    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFE082"));
+    fg = QColor(QStringLiteral("#E65100"));
+  }
+  else if (key == QLatin1String("mouth_bar") || key.contains(QStringLiteral("河口坝")) || key.contains(QStringLiteral("沙坝")))
+  {
+    pat = QStringLiteral("mouth_bar");
+    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFF176"));
+    fg = QColor(QStringLiteral("#F57F17"));
+  }
+  else if (key == QLatin1String("sheet_sand") || key.contains(QStringLiteral("席状砂")) || key.contains(QStringLiteral("远砂坝")))
+  {
+    pat = QStringLiteral("sheet_sand");
+    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFF9C4"));
+    fg = QColor(QStringLiteral("#F9A825"));
+  }
+  else if (key == QLatin1String("interdistributary_bay") || key.contains(QStringLiteral("间湾")) || key.contains(QStringLiteral("分流间")))
+  {
+    pat = QStringLiteral("interdistributary_bay");
+    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#C8E6C9"));
+    fg = QColor(QStringLiteral("#2E7D32"));
+  }
+  else if (key == QLatin1String("delta_front") || key.contains(QStringLiteral("前缘")))
+  {
+    pat = QStringLiteral("delta_front");
+    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFE0B2"));
+    fg = QColor(QStringLiteral("#D84315"));
+  }
+  else if (key == QLatin1String("delta_plain") || key.contains(QStringLiteral("平原")) || key.contains(QStringLiteral("沼泽")))
+  {
+    pat = QStringLiteral("delta_plain");
+    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#E6EE9C"));
+    fg = QColor(QStringLiteral("#33691E"));
+  }
+  else if (key == QLatin1String("prodelta") || key.contains(QStringLiteral("前三角洲")) || key.contains(QStringLiteral("半深湖")) || key.contains(QStringLiteral("深湖")))
+  {
+    pat = QStringLiteral("prodelta");
+    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#B0BEC5"));
+    fg = QColor(QStringLiteral("#37474F"));
+  }
+  else if (key == QLatin1String("shallow_marine") || key.contains(QStringLiteral("浅海")) || key.contains(QStringLiteral("陆棚")) || key.contains(QStringLiteral("滨海")) || key.contains(QStringLiteral("台地")))
+  {
+    pat = QStringLiteral("shallow_marine");
+    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#80DEEA"));
+    fg = QColor(QStringLiteral("#006064"));
+  }
+  else if (key == QLatin1String("turbidite") || key.contains(QStringLiteral("浊积")) || key.contains(QStringLiteral("重力流")) || key.contains(QStringLiteral("扇")))
+  {
+    pat = QStringLiteral("turbidite");
+    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFCC80"));
+    fg = QColor(QStringLiteral("#BF360C"));
+  }
+  else if (key == QLatin1String("channel_lag") || key.contains(QStringLiteral("滞留")))
+  {
+    pat = QStringLiteral("channel_lag");
+    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFE082"));
+    fg = QColor(QStringLiteral("#5D4037"));
+  }
+  else if (key == QLatin1String("tidal_flat") || key.contains(QStringLiteral("潮坪")) || key.contains(QStringLiteral("潮道")))
+  {
+    pat = QStringLiteral("tidal_flat");
+    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#D7CCC8"));
+    fg = QColor(QStringLiteral("#4E342E"));
   }
 
   QPixmap pm = createPatternPixmap(pat, bg, fg);
@@ -919,6 +1143,752 @@ void SymbolTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   }
 
   painter.restore();
+}
+
+// ----------------------------------------------------------------------------
+// 9. 地层系统组组合道 (StratigraphyCompoundTrack)
+// ----------------------------------------------------------------------------
+StratigraphyCompoundTrack::StratigraphyCompoundTrack(const QString &title, qreal width)
+  : m_width(width)
+{
+  m_title = title.isEmpty() ? QStringLiteral("地层") : title;
+}
+
+void StratigraphyCompoundTrack::setSubColumnWidths(qreal sysW, qreal serW)
+{
+  m_systemWidth = qMax(20.0, sysW);
+  m_seriesWidth = qMax(20.0, serW);
+}
+
+void StratigraphyCompoundTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double /*currentDepth*/)
+{
+  painter.save();
+  painter.setClipRect(headerRect);
+
+  // 背景
+  painter.fillRect(headerRect, QColor(QStringLiteral("#F5F7FA")));
+  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.drawLine(headerRect.topRight(), headerRect.bottomRight());
+  painter.drawLine(headerRect.bottomLeft(), headerRect.bottomRight());
+
+  const qreal topH = std::floor(headerRect.height() * 0.5);
+  const qreal botH = headerRect.height() - topH;
+
+  // 顶层合并道头：「地层」
+  const QRectF topRect(headerRect.left(), headerRect.top(), headerRect.width(), topH);
+  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.drawLine(topRect.bottomLeft(), topRect.bottomRight());
+
+  painter.setPen(QColor(QStringLiteral("#24303E")));
+  QFont fTitle = painter.font();
+  fTitle.setPointSize(9);
+  fTitle.setBold(true);
+  painter.setFont(fTitle);
+  painter.drawText(topRect, Qt::AlignCenter, title());
+
+  // 底层次级道头：3 列分栏「系 | 统 | 组」
+  const qreal col1W = m_systemWidth;
+  const qreal col2W = m_seriesWidth;
+  const qreal col3W = qMax<qreal>(20.0, headerRect.width() - col1W - col2W);
+
+  const QRectF rSys(headerRect.left(), headerRect.top() + topH, col1W, botH);
+  const QRectF rSer(rSys.right(), headerRect.top() + topH, col2W, botH);
+  const QRectF rForm(rSer.right(), headerRect.top() + topH, col3W, botH);
+
+  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.drawLine(rSys.topRight(), rSys.bottomRight());
+  painter.drawLine(rSer.topRight(), rSer.bottomRight());
+
+  QFont fSub = painter.font();
+  fSub.setPointSize(8);
+  fSub.setBold(true);
+  painter.setFont(fSub);
+  painter.setPen(QColor(QStringLiteral("#5D6E80"))); // text-muted
+
+  painter.drawText(rSys, Qt::AlignCenter, QStringLiteral("系"));
+  painter.drawText(rSer, Qt::AlignCenter, QStringLiteral("统"));
+  painter.drawText(rForm, Qt::AlignCenter, QStringLiteral("组"));
+
+  painter.restore();
+}
+
+void StratigraphyCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
+                                          double topDepth, double bottomDepth, double pxPerMeter)
+{
+  painter.save();
+  painter.setClipRect(bodyRect);
+  painter.fillRect(bodyRect, QColor(QStringLiteral("#FFFFFF")));
+
+  const qreal col1W = m_systemWidth;
+  const qreal col2W = m_seriesWidth;
+  const qreal col3W = qMax<qreal>(20.0, bodyRect.width() - col1W - col2W);
+
+  const qreal col1X = bodyRect.left();
+  const qreal col2X = col1X + col1W;
+  const qreal col3X = col2X + col2W;
+
+  // 绘制竖向分割线
+  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.drawLine(QPointF(col2X, bodyRect.top()), QPointF(col2X, bodyRect.bottom()));
+  painter.drawLine(QPointF(col3X, bodyRect.top()), QPointF(col3X, bodyRect.bottom()));
+  painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
+
+  QFont fBody = painter.font();
+  fBody.setPointSize(8);
+  fBody.setBold(true);
+  painter.setFont(fBody);
+
+  // 1. 绘制「系」：对连续相同系名称进行跨层合并绘制
+  struct MergedSys {
+    float topD = 0;
+    float botD = 0;
+    QString name;
+    QColor color;
+  };
+  QVector<MergedSys> sysGroups;
+  for (const auto &it : m_intervals)
+  {
+    if (!sysGroups.isEmpty() && sysGroups.last().name == it.system)
+    {
+      sysGroups.last().botD = qMax(sysGroups.last().botD, it.bottomDepth);
+    }
+    else
+    {
+      sysGroups.append({it.topDepth, it.bottomDepth, it.system, it.systemColor});
+    }
+  }
+
+  for (const auto &grp : sysGroups)
+  {
+    if (grp.botD < topDepth || grp.topD > bottomDepth) continue;
+    const qreal y0 = bodyRect.top() + (grp.topD - topDepth) * pxPerMeter;
+    const qreal y1 = bodyRect.top() + (grp.botD - topDepth) * pxPerMeter;
+    const QRectF box(col1X, y0, col1W, qMax<qreal>(4.0, y1 - y0));
+
+    painter.fillRect(box, grp.color);
+    painter.setPen(QPen(QColor(QStringLiteral("#78909C")), 1.0));
+    painter.drawLine(box.topLeft(), box.topRight());
+    painter.drawLine(box.bottomLeft(), box.bottomRight());
+
+    const QRectF textBox = box.intersected(bodyRect);
+    if (textBox.height() >= 16.0 && !grp.name.isEmpty())
+    {
+      painter.setPen(QColor(QStringLiteral("#24303E")));
+      QString dt = grp.name;
+      if (textBox.height() >= 45.0 && col1W <= 42.0)
+      {
+        QStringList chars;
+        for (const QChar &ch : grp.name) chars << QString(ch);
+        dt = chars.join(QLatin1Char('\n'));
+      }
+      painter.drawText(textBox.adjusted(1, 2, -1, -2), Qt::AlignCenter, dt);
+    }
+  }
+
+  // 2. 绘制「统」：对连续相同统名称进行跨层合并绘制
+  struct MergedSer {
+    float topD = 0;
+    float botD = 0;
+    QString name;
+    QColor color;
+  };
+  QVector<MergedSer> serGroups;
+  for (const auto &it : m_intervals)
+  {
+    if (!serGroups.isEmpty() && serGroups.last().name == it.series)
+    {
+      serGroups.last().botD = qMax(serGroups.last().botD, it.bottomDepth);
+    }
+    else
+    {
+      serGroups.append({it.topDepth, it.bottomDepth, it.series, it.seriesColor});
+    }
+  }
+
+  for (const auto &grp : serGroups)
+  {
+    if (grp.botD < topDepth || grp.topD > bottomDepth) continue;
+    const qreal y0 = bodyRect.top() + (grp.topD - topDepth) * pxPerMeter;
+    const qreal y1 = bodyRect.top() + (grp.botD - topDepth) * pxPerMeter;
+    const QRectF box(col2X, y0, col2W, qMax<qreal>(4.0, y1 - y0));
+
+    painter.fillRect(box, grp.color);
+    painter.setPen(QPen(QColor(QStringLiteral("#90A4AE")), 1.0));
+    painter.drawLine(box.topLeft(), box.topRight());
+    painter.drawLine(box.bottomLeft(), box.bottomRight());
+
+    const QRectF textBox = box.intersected(bodyRect);
+    if (textBox.height() >= 16.0 && !grp.name.isEmpty())
+    {
+      painter.setPen(QColor(QStringLiteral("#24303E")));
+      QString dt = grp.name;
+      if (textBox.height() >= 45.0 && col2W <= 46.0)
+      {
+        QStringList chars;
+        for (const QChar &ch : grp.name) chars << QString(ch);
+        dt = chars.join(QLatin1Char('\n'));
+      }
+      painter.drawText(textBox.adjusted(1, 2, -1, -2), Qt::AlignCenter, dt);
+    }
+  }
+
+  // 3. 绘制「组」：具体地层分层
+  for (const auto &it : m_intervals)
+  {
+    if (it.bottomDepth < topDepth || it.topDepth > bottomDepth) continue;
+    const qreal y0 = bodyRect.top() + (it.topDepth - topDepth) * pxPerMeter;
+    const qreal y1 = bodyRect.top() + (it.bottomDepth - topDepth) * pxPerMeter;
+    const QRectF box(col3X, y0, col3W, qMax<qreal>(4.0, y1 - y0));
+
+    painter.fillRect(box, it.formationColor);
+    painter.setPen(QPen(QColor(QStringLiteral("#24303E")), 1.0));
+    painter.drawLine(box.topLeft(), box.topRight());
+    painter.drawLine(box.bottomLeft(), box.bottomRight());
+
+    const QRectF textBox = box.intersected(bodyRect);
+    if (textBox.height() >= 14.0 && !it.formation.isEmpty())
+    {
+      painter.setPen(QColor(QStringLiteral("#1A237E")));
+      painter.drawText(textBox.adjusted(2, 2, -2, -2), Qt::AlignCenter | Qt::TextWordWrap, it.formation);
+    }
+  }
+
+  painter.restore();
+}
+
+void StratigraphyCompoundTrack::autoDeriveStratigraphy(const QVector<FormationInterval> &formations,
+                                                      double minDepth, double maxDepth)
+{
+  m_intervals.clear();
+
+  if (!formations.isEmpty())
+  {
+    for (const auto &f : formations)
+    {
+      StratigraphyInterval si;
+      si.topDepth = f.topDepth;
+      si.bottomDepth = f.bottomDepth;
+      si.formation = f.name;
+      si.formationColor = f.color;
+
+      const QString n = f.name.trimmed();
+      if (n.contains(QStringLiteral("粤海")) || n.contains(QStringLiteral("万山")))
+      {
+        si.system = QStringLiteral("新近系");
+        si.series = QStringLiteral("上新统");
+        si.systemColor = QColor(QStringLiteral("#FFF9C4"));
+        si.seriesColor = QColor(QStringLiteral("#FFF59D"));
+      }
+      else if (n.contains(QStringLiteral("韩江")))
+      {
+        si.system = QStringLiteral("新近系");
+        si.series = QStringLiteral("中新统");
+        si.systemColor = QColor(QStringLiteral("#FFF9C4"));
+        si.seriesColor = QColor(QStringLiteral("#FFE082"));
+      }
+      else if (n.contains(QStringLiteral("珠江")))
+      {
+        si.system = QStringLiteral("新近系");
+        si.series = QStringLiteral("早中新统");
+        si.systemColor = QColor(QStringLiteral("#FFF9C4"));
+        si.seriesColor = QColor(QStringLiteral("#FFD54F"));
+      }
+      else if (n.contains(QStringLiteral("珠海")))
+      {
+        si.system = QStringLiteral("古近系");
+        si.series = QStringLiteral("渐新统");
+        si.systemColor = QColor(QStringLiteral("#FFF3E0"));
+        si.seriesColor = QColor(QStringLiteral("#FFCC80"));
+      }
+      else if (n.contains(QStringLiteral("恩平")))
+      {
+        si.system = QStringLiteral("古近系");
+        si.series = QStringLiteral("始新统");
+        si.systemColor = QColor(QStringLiteral("#FFF3E0"));
+        si.seriesColor = QColor(QStringLiteral("#FFA726"));
+      }
+      else if (n.contains(QStringLiteral("文昌")))
+      {
+        si.system = QStringLiteral("古近系");
+        si.series = QStringLiteral("始新统");
+        si.systemColor = QColor(QStringLiteral("#FFF3E0"));
+        si.seriesColor = QColor(QStringLiteral("#FFA726"));
+      }
+      else
+      {
+        if (n.contains(QStringLiteral("新近")))
+        {
+          si.system = QStringLiteral("新近系");
+          si.series = QStringLiteral("中新统");
+          si.systemColor = QColor(QStringLiteral("#FFF9C4"));
+          si.seriesColor = QColor(QStringLiteral("#FFE082"));
+        }
+        else if (n.contains(QStringLiteral("古近")))
+        {
+          si.system = QStringLiteral("古近系");
+          si.series = QStringLiteral("古新统");
+          si.systemColor = QColor(QStringLiteral("#FFF3E0"));
+          si.seriesColor = QColor(QStringLiteral("#FFCC80"));
+        }
+        else if (n.contains(QStringLiteral("白垩")))
+        {
+          si.system = QStringLiteral("白垩系");
+          si.series = QStringLiteral("上白垩统");
+          si.systemColor = QColor(QStringLiteral("#E8F5E9"));
+          si.seriesColor = QColor(QStringLiteral("#C8E6C9"));
+        }
+        else
+        {
+          si.system = QStringLiteral("古近系");
+          si.series = QStringLiteral("始新统");
+          si.systemColor = QColor(QStringLiteral("#FFF3E0"));
+          si.seriesColor = QColor(QStringLiteral("#FFE082"));
+        }
+      }
+      m_intervals.append(si);
+    }
+  }
+  else
+  {
+    const double span = qMax(100.0, maxDepth - minDepth);
+    const double d1 = minDepth + span * 0.28;
+    const double d2 = minDepth + span * 0.55;
+    const double d3 = minDepth + span * 0.80;
+
+    m_intervals.append({static_cast<float>(minDepth), static_cast<float>(d1),
+                        QStringLiteral("新近系"), QStringLiteral("中新统"), QStringLiteral("韩江组"),
+                        QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#FFE082")), QColor(QStringLiteral("#FFE082"))});
+    m_intervals.append({static_cast<float>(d1), static_cast<float>(d2),
+                        QStringLiteral("新近系"), QStringLiteral("早中新统"), QStringLiteral("珠江组"),
+                        QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#FFD54F")), QColor(QStringLiteral("#FFCA28"))});
+    m_intervals.append({static_cast<float>(d2), static_cast<float>(d3),
+                        QStringLiteral("古近系"), QStringLiteral("渐新统"), QStringLiteral("珠海组"),
+                        QColor(QStringLiteral("#FFF3E0")), QColor(QStringLiteral("#FFCC80")), QColor(QStringLiteral("#FFA726"))});
+    m_intervals.append({static_cast<float>(d3), static_cast<float>(maxDepth),
+                        QStringLiteral("古近系"), QStringLiteral("始新统"), QStringLiteral("恩平组"),
+                        QColor(QStringLiteral("#FFF3E0")), QColor(QStringLiteral("#FFA726")), QColor(QStringLiteral("#FF7043"))});
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 10. 沉积相组合道 (FaciesCompoundTrack)
+// ----------------------------------------------------------------------------
+FaciesCompoundTrack::FaciesCompoundTrack(const QString &title, qreal width)
+  : m_width(width)
+{
+  m_title = title.isEmpty() ? QStringLiteral("沉积相") : title;
+}
+
+void FaciesCompoundTrack::setSubColumnWidths(qreal majW, qreal subW)
+{
+  m_majorWidth = qMax(20.0, majW);
+  m_subWidth = qMax(20.0, subW);
+}
+
+void FaciesCompoundTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double /*currentDepth*/)
+{
+  painter.save();
+  painter.setClipRect(headerRect);
+
+  // 背景
+  painter.fillRect(headerRect, QColor(QStringLiteral("#F5F7FA")));
+  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.drawLine(headerRect.topRight(), headerRect.bottomRight());
+  painter.drawLine(headerRect.bottomLeft(), headerRect.bottomRight());
+
+  const qreal topH = std::floor(headerRect.height() * 0.5);
+  const qreal botH = headerRect.height() - topH;
+
+  // 顶层合并道头：「沉积相」
+  const QRectF topRect(headerRect.left(), headerRect.top(), headerRect.width(), topH);
+  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.drawLine(topRect.bottomLeft(), topRect.bottomRight());
+
+  painter.setPen(QColor(QStringLiteral("#24303E")));
+  QFont fTitle = painter.font();
+  fTitle.setPointSize(9);
+  fTitle.setBold(true);
+  painter.setFont(fTitle);
+  painter.drawText(topRect, Qt::AlignCenter, title());
+
+  // 底层次级道头：3 列分栏「相 | 亚 | 微」
+  const qreal col1W = m_majorWidth;
+  const qreal col2W = m_subWidth;
+  const qreal col3W = qMax<qreal>(20.0, headerRect.width() - col1W - col2W);
+
+  const QRectF rMaj(headerRect.left(), headerRect.top() + topH, col1W, botH);
+  const QRectF rSub(rMaj.right(), headerRect.top() + topH, col2W, botH);
+  const QRectF rMic(rSub.right(), headerRect.top() + topH, col3W, botH);
+
+  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.drawLine(rMaj.topRight(), rMaj.bottomRight());
+  painter.drawLine(rSub.topRight(), rSub.bottomRight());
+
+  QFont fSub = painter.font();
+  fSub.setPointSize(8);
+  fSub.setBold(true);
+  painter.setFont(fSub);
+  painter.setPen(QColor(QStringLiteral("#5D6E80"))); // text-muted
+
+  painter.drawText(rMaj, Qt::AlignCenter, QStringLiteral("相"));
+  painter.drawText(rSub, Qt::AlignCenter, QStringLiteral("亚"));
+  painter.drawText(rMic, Qt::AlignCenter, QStringLiteral("微"));
+
+  painter.restore();
+}
+
+void FaciesCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
+                                    double topDepth, double bottomDepth, double pxPerMeter)
+{
+  painter.save();
+  painter.setClipRect(bodyRect);
+  painter.fillRect(bodyRect, QColor(QStringLiteral("#FFFFFF")));
+
+  const qreal col1W = m_majorWidth;
+  const qreal col2W = m_subWidth;
+  const qreal col3W = qMax<qreal>(20.0, bodyRect.width() - col1W - col2W);
+
+  const qreal col1X = bodyRect.left();
+  const qreal col2X = col1X + col1W;
+  const qreal col3X = col2X + col2W;
+
+  // 绘制竖向分割线
+  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.drawLine(QPointF(col2X, bodyRect.top()), QPointF(col2X, bodyRect.bottom()));
+  painter.drawLine(QPointF(col3X, bodyRect.top()), QPointF(col3X, bodyRect.bottom()));
+  painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
+
+  QFont fBody = painter.font();
+  fBody.setPointSize(8);
+  fBody.setBold(true);
+  painter.setFont(fBody);
+
+  // 1. 绘制「相」：对连续相同相名称进行跨层合并绘制
+  struct MergedMajor {
+    float topD = 0;
+    float botD = 0;
+    QString name;
+    QColor color;
+  };
+  QVector<MergedMajor> majGroups;
+  for (const auto &it : m_intervals)
+  {
+    if (!majGroups.isEmpty() && majGroups.last().name == it.majorFacies)
+    {
+      majGroups.last().botD = qMax(majGroups.last().botD, it.bottomDepth);
+    }
+    else
+    {
+      majGroups.append({it.topDepth, it.bottomDepth, it.majorFacies, it.majorColor});
+    }
+  }
+
+  for (const auto &grp : majGroups)
+  {
+    if (grp.botD < topDepth || grp.topD > bottomDepth) continue;
+    const qreal y0 = bodyRect.top() + (grp.topD - topDepth) * pxPerMeter;
+    const qreal y1 = bodyRect.top() + (grp.botD - topDepth) * pxPerMeter;
+    const QRectF box(col1X, y0, col1W, qMax<qreal>(4.0, y1 - y0));
+
+    painter.fillRect(box, grp.color);
+    painter.setPen(QPen(QColor(QStringLiteral("#78909C")), 1.0));
+    painter.drawLine(box.topLeft(), box.topRight());
+    painter.drawLine(box.bottomLeft(), box.bottomRight());
+
+    const QRectF textBox = box.intersected(bodyRect);
+    if (textBox.height() >= 16.0 && !grp.name.isEmpty())
+    {
+      painter.setPen(QColor(QStringLiteral("#24303E")));
+      QString dt = grp.name;
+      if (textBox.height() >= 45.0 && col1W <= 52.0)
+      {
+        QStringList chars;
+        for (const QChar &ch : grp.name) chars << QString(ch);
+        dt = chars.join(QLatin1Char('\n'));
+      }
+      painter.drawText(textBox.adjusted(1, 2, -1, -2), Qt::AlignCenter, dt);
+    }
+  }
+
+  // 2. 绘制「亚」：对同一主要相内连续相同亚相名称进行合并绘制
+  struct MergedSub {
+    float topD = 0;
+    float botD = 0;
+    QString major;
+    QString sub;
+    QColor color;
+  };
+  QVector<MergedSub> subGroups;
+  for (const auto &it : m_intervals)
+  {
+    if (!subGroups.isEmpty() && subGroups.last().major == it.majorFacies && subGroups.last().sub == it.subFacies)
+    {
+      subGroups.last().botD = qMax(subGroups.last().botD, it.bottomDepth);
+    }
+    else
+    {
+      subGroups.append({it.topDepth, it.bottomDepth, it.majorFacies, it.subFacies, it.subColor});
+    }
+  }
+
+  for (const auto &grp : subGroups)
+  {
+    if (grp.botD < topDepth || grp.topD > bottomDepth) continue;
+    const qreal y0 = bodyRect.top() + (grp.topD - topDepth) * pxPerMeter;
+    const qreal y1 = bodyRect.top() + (grp.botD - topDepth) * pxPerMeter;
+    const QRectF box(col2X, y0, col2W, qMax<qreal>(4.0, y1 - y0));
+
+    painter.fillRect(box, grp.color);
+    painter.setPen(QPen(QColor(QStringLiteral("#90A4AE")), 1.0));
+    painter.drawLine(box.topLeft(), box.topRight());
+    painter.drawLine(box.bottomLeft(), box.bottomRight());
+
+    const QRectF textBox = box.intersected(bodyRect);
+    if (textBox.height() >= 16.0 && !grp.sub.isEmpty())
+    {
+      painter.setPen(QColor(QStringLiteral("#24303E")));
+      QString dt = grp.sub;
+      if (textBox.height() >= 55.0 && col2W <= 56.0)
+      {
+        QStringList chars;
+        for (const QChar &ch : grp.sub) chars << QString(ch);
+        dt = chars.join(QLatin1Char('\n'));
+      }
+      painter.drawText(textBox.adjusted(1, 2, -1, -2), Qt::AlignCenter, dt);
+    }
+  }
+
+  // 3. 绘制「微」（微相）：地质纹理全填充，带半透明高对比胶囊文字保证极致可读性
+  for (const auto &it : m_intervals)
+  {
+    if (it.bottomDepth < topDepth || it.topDepth > bottomDepth) continue;
+    const qreal y0 = bodyRect.top() + (it.topDepth - topDepth) * pxPerMeter;
+    const qreal y1 = bodyRect.top() + (it.bottomDepth - topDepth) * pxPerMeter;
+    const QRectF box(col3X, y0, col3W, qMax<qreal>(4.0, y1 - y0));
+
+    // 使用地质沉积相纹理画刷填充
+    const QBrush brush = FaciesPatternFactory::getBrush(
+        it.patternType.isEmpty() ? it.microFacies : it.patternType, it.microColor);
+    painter.fillRect(box, brush);
+
+    // 上下边界线
+    painter.setPen(QPen(QColor(QStringLiteral("#24303E")), 1.0));
+    painter.drawLine(box.topLeft(), box.topRight());
+    painter.drawLine(box.bottomLeft(), box.bottomRight());
+
+    // 绘制微相名称：采用半透明白色胶囊底衬，确保任何复杂纹理下文字 100% 极佳清晰度
+    const QRectF textBox = box.intersected(bodyRect);
+    if (textBox.height() >= 15.0 && !it.microFacies.isEmpty())
+    {
+      QFontMetrics fm(painter.font());
+      const int tw = fm.horizontalAdvance(it.microFacies);
+      const int th = fm.height();
+      const qreal pillW = qMin(box.width() - 4.0, static_cast<qreal>(tw + 10));
+      const qreal pillH = qMin(textBox.height() - 4.0, static_cast<qreal>(th + 4));
+
+      const QRectF pill(box.center().x() - pillW * 0.5,
+                        textBox.center().y() - pillH * 0.5,
+                        pillW, pillH);
+
+      painter.fillRect(pill, QColor(255, 255, 255, 220));
+      painter.setPen(QPen(QColor(QStringLiteral("#B0BEC5")), 0.8));
+      painter.drawRoundedRect(pill, 3.0, 3.0);
+
+      painter.setPen(QColor(QStringLiteral("#1A237E")));
+      painter.drawText(pill, Qt::AlignCenter, it.microFacies);
+    }
+  }
+
+  painter.restore();
+}
+
+void FaciesCompoundTrack::autoDeriveFacies(const QVector<FormationInterval> &formations,
+                                          const QVector<LithologyInterval> &lithologies,
+                                          double minDepth, double maxDepth)
+{
+  m_intervals.clear();
+
+  // 若有岩性数据，基于地层与岩性精细对应推导沉积相
+  if (!lithologies.isEmpty())
+  {
+    const auto findFmName = [&](float d) {
+      for (const auto &f : formations)
+        if (d >= f.topDepth && d <= f.bottomDepth) return f.name;
+      return QString();
+    };
+
+    int microCounter = 0;
+    for (const auto &li : lithologies)
+    {
+      FaciesInterval fi;
+      fi.topDepth = li.topDepth;
+      fi.bottomDepth = li.bottomDepth;
+      const QString fName = findFmName((li.topDepth + li.bottomDepth) * 0.5f);
+      const QString lName = li.lithoName;
+
+      if (fName.contains(QStringLiteral("文昌")) || li.topDepth > 2200.0f)
+      {
+        // 半深湖 - 深湖相 / 浊积扇
+        fi.majorFacies = QStringLiteral("湖泊相");
+        fi.majorColor = QColor(QStringLiteral("#E0F7FA"));
+        if (lName.contains(QStringLiteral("砂")))
+        {
+          fi.subFacies = QStringLiteral("半深湖");
+          fi.subColor = QColor(QStringLiteral("#B2EBF2"));
+          fi.microFacies = QStringLiteral("浊积砂体");
+          fi.patternType = QStringLiteral("turbidite");
+          fi.microColor = QColor(QStringLiteral("#FFE082"));
+        }
+        else
+        {
+          fi.subFacies = QStringLiteral("深湖");
+          fi.subColor = QColor(QStringLiteral("#80DEEA"));
+          fi.microFacies = QStringLiteral("深湖泥");
+          fi.patternType = QStringLiteral("prodelta");
+          fi.microColor = QColor(QStringLiteral("#CFD8DC"));
+        }
+      }
+      else if (fName.contains(QStringLiteral("恩平")) || (li.topDepth > 1800.0f && li.topDepth <= 2200.0f))
+      {
+        // 三角洲平原
+        fi.majorFacies = QStringLiteral("三角洲相");
+        fi.majorColor = QColor(QStringLiteral("#FFF9C4"));
+        fi.subFacies = QStringLiteral("三角洲平原");
+        fi.subColor = QColor(QStringLiteral("#E6EE9C"));
+        if (lName.contains(QStringLiteral("砂")))
+        {
+          fi.microFacies = QStringLiteral("分流平原河道");
+          fi.patternType = QStringLiteral("distributary_channel");
+          fi.microColor = QColor(QStringLiteral("#FFE082"));
+        }
+        else
+        {
+          fi.microFacies = QStringLiteral("平原沼泽/间湾");
+          fi.patternType = QStringLiteral("delta_plain");
+          fi.microColor = QColor(QStringLiteral("#DCEDC8"));
+        }
+      }
+      else if (fName.contains(QStringLiteral("珠海")) || (li.topDepth > 1400.0f && li.topDepth <= 1800.0f))
+      {
+        // 滨浅海 - 三角洲过渡
+        fi.majorFacies = QStringLiteral("三角洲相");
+        fi.majorColor = QColor(QStringLiteral("#FFF9C4"));
+        fi.subFacies = QStringLiteral("三角洲前缘");
+        fi.subColor = QColor(QStringLiteral("#FFE082"));
+        if (lName.contains(QStringLiteral("砂")))
+        {
+          if ((microCounter % 2) == 0)
+          {
+            fi.microFacies = QStringLiteral("水下分流河道");
+            fi.patternType = QStringLiteral("distributary_channel");
+            fi.microColor = QColor(QStringLiteral("#FFE082"));
+          }
+          else
+          {
+            fi.microFacies = QStringLiteral("河口坝");
+            fi.patternType = QStringLiteral("mouth_bar");
+            fi.microColor = QColor(QStringLiteral("#FFF176"));
+          }
+          microCounter++;
+        }
+        else
+        {
+          fi.microFacies = QStringLiteral("分流间湾");
+          fi.patternType = QStringLiteral("interdistributary_bay");
+          fi.microColor = QColor(QStringLiteral("#C8E6C9"));
+        }
+      }
+      else
+      {
+        // 珠江组 / 韩江组：三角洲前缘主要储层段
+        fi.majorFacies = QStringLiteral("三角洲相");
+        fi.majorColor = QColor(QStringLiteral("#FFF9C4"));
+        fi.subFacies = QStringLiteral("三角洲前缘");
+        fi.subColor = QColor(QStringLiteral("#FFE082"));
+
+        if (lName.contains(QStringLiteral("粉砂")))
+        {
+          fi.microFacies = QStringLiteral("席状砂");
+          fi.patternType = QStringLiteral("sheet_sand");
+          fi.microColor = QColor(QStringLiteral("#FFF9C4"));
+        }
+        else if (lName.contains(QStringLiteral("砂")))
+        {
+          if ((microCounter % 2) == 0)
+          {
+            fi.microFacies = QStringLiteral("水下分流河道");
+            fi.patternType = QStringLiteral("distributary_channel");
+            fi.microColor = QColor(QStringLiteral("#FFE082"));
+          }
+          else
+          {
+            fi.microFacies = QStringLiteral("河口坝");
+            fi.patternType = QStringLiteral("mouth_bar");
+            fi.microColor = QColor(QStringLiteral("#FFF176"));
+          }
+          microCounter++;
+        }
+        else if (lName.contains(QStringLiteral("灰岩")))
+        {
+          fi.majorFacies = QStringLiteral("碳酸盐台地");
+          fi.majorColor = QColor(QStringLiteral("#E0F7FA"));
+          fi.subFacies = QStringLiteral("台地边缘");
+          fi.subColor = QColor(QStringLiteral("#80DEEA"));
+          fi.microFacies = QStringLiteral("生物礁滩");
+          fi.patternType = QStringLiteral("shallow_marine");
+          fi.microColor = QColor(QStringLiteral("#B2EBF2"));
+        }
+        else
+        {
+          fi.microFacies = QStringLiteral("分流间湾");
+          fi.patternType = QStringLiteral("interdistributary_bay");
+          fi.microColor = QColor(QStringLiteral("#C8E6C9"));
+        }
+      }
+
+      m_intervals.append(fi);
+    }
+  }
+  else
+  {
+    // 无岩性数据时，基于深度生成典型沉积序列（三角洲平原 -> 前缘 -> 前三角洲 -> 陆棚）
+    const double span = qMax(100.0, maxDepth - minDepth);
+    const double d1 = minDepth + span * 0.20;
+    const double d2 = minDepth + span * 0.40;
+    const double d3 = minDepth + span * 0.55;
+    const double d4 = minDepth + span * 0.70;
+    const double d5 = minDepth + span * 0.85;
+
+    m_intervals.append({static_cast<float>(minDepth), static_cast<float>(d1),
+                        QStringLiteral("三角洲相"), QStringLiteral("三角洲平原"), QStringLiteral("分流平原河道"),
+                        QStringLiteral("distributary_channel"),
+                        QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#E6EE9C")), QColor(QStringLiteral("#FFE082"))});
+
+    m_intervals.append({static_cast<float>(d1), static_cast<float>(d2),
+                        QStringLiteral("三角洲相"), QStringLiteral("三角洲前缘"), QStringLiteral("水下分流河道"),
+                        QStringLiteral("distributary_channel"),
+                        QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#FFE082")), QColor(QStringLiteral("#FFE082"))});
+
+    m_intervals.append({static_cast<float>(d2), static_cast<float>(d3),
+                        QStringLiteral("三角洲相"), QStringLiteral("三角洲前缘"), QStringLiteral("河口坝"),
+                        QStringLiteral("mouth_bar"),
+                        QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#FFE082")), QColor(QStringLiteral("#FFF176"))});
+
+    m_intervals.append({static_cast<float>(d3), static_cast<float>(d4),
+                        QStringLiteral("三角洲相"), QStringLiteral("三角洲前缘"), QStringLiteral("席状砂"),
+                        QStringLiteral("sheet_sand"),
+                        QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#FFE082")), QColor(QStringLiteral("#FFF9C4"))});
+
+    m_intervals.append({static_cast<float>(d4), static_cast<float>(d5),
+                        QStringLiteral("三角洲相"), QStringLiteral("前三角洲"), QStringLiteral("前三角洲泥"),
+                        QStringLiteral("prodelta"),
+                        QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#B0BEC5")), QColor(QStringLiteral("#B0BEC5"))});
+
+    m_intervals.append({static_cast<float>(d5), static_cast<float>(maxDepth),
+                        QStringLiteral("湖泊相"), QStringLiteral("半深湖"), QStringLiteral("浊积砂体"),
+                        QStringLiteral("turbidite"),
+                        QColor(QStringLiteral("#E0F7FA")), QColor(QStringLiteral("#B2EBF2")), QColor(QStringLiteral("#FFCC80"))});
+  }
 }
 
 } // namespace WellComposite

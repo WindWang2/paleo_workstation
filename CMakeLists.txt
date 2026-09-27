@@ -105,6 +105,7 @@ add_library(paleo_core STATIC
   src/ui/pages/composepage.cpp
   src/qgis/qgislayerprofile.cpp                  # m1 缺席兜底：页面图层档案
   src/services/singlefactordef.cpp               # m2：单因素定义注册表
+  src/services/algoparamschema.cpp               # m2：算法参数 schema 注册表（预测页动态表单）
   src/ui/locator/paleolocatorfilters.cpp
   src/ui/layoutdesignershell.cpp
   src/ui/maptools/paleomaptools.cpp

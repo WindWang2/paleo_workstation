@@ -44,6 +44,7 @@
 #include "../services/paleotaskservice.h"
 #include "../io/geojsonaffine.h"
 #include "decorations/paleodecorations.h"
+#include "ui/seismicsection/seismicsectiondockwidget.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
@@ -547,6 +548,13 @@ void PaleoMainWindow::buildShell()
   addDockWidget(Qt::BottomDockWidgetArea, m_bottomDock);
   m_bottomDock->setUserWantsVisible(false);
   m_bottomDock->setProgrammaticVisible(false);
+
+  // ---- seismic section dock (Phase 4: 2D arbitrary line & well section dock) ----
+  m_seismicSectionDock = new seismic::SeismicSectionDockWidget(tr("地震剖面 / 井震综合"), this);
+  m_seismicSectionDock->setObjectName(QStringLiteral("seismicSectionDock"));
+  addDockWidget(Qt::BottomDockWidgetArea, m_seismicSectionDock);
+  tabifyDockWidget(m_bottomDock, m_seismicSectionDock);
+  m_seismicSectionDock->hide();
 
   // ---- web shell dock (goal/webui-host): embed already-built web services.
   // Hidden by default; the WebViewPanel inside is lazily constructed on first

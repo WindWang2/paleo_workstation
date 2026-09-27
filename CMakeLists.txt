@@ -186,6 +186,13 @@ add_library(paleo_core STATIC
   src/ui/seismic3d/seismic3dviewportwidget.cpp
   src/ui/seismic3d/seismic3dviewpanel.cpp
   resources/seismic_shaders.qrc
+  # ---- domain/seismic: Phase 4 & 2D section ----
+  src/domain/seismic/nicestep.cpp
+  src/domain/seismic/timedepthmodel.cpp
+  src/domain/seismic/sectionwellprojector.cpp
+  # ---- ui/seismicsection: 2D arbitrary line & well section dock ----
+  src/ui/seismicsection/seismicsectioncanvas.cpp
+  src/ui/seismicsection/seismicsectiondockwidget.cpp
 )
 target_link_libraries(paleo_core PUBLIC paleo_qgis_iface paleo_saribbon paleo_segyio paleo_glm ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
@@ -283,6 +290,10 @@ add_paleo_test(tst_seismic_core)
 add_paleo_test(tst_seismic_index)
 add_paleo_test(tst_seismic_3d)
 target_compile_definitions(tst_seismic_3d PRIVATE
+  SEGY_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/testdata/project_area/mini_seismic.sgy"
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_seismic_section)
+target_compile_definitions(tst_seismic_section PRIVATE
   SEGY_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/testdata/project_area/mini_seismic.sgy"
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_timedeptool)

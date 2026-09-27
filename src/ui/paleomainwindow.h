@@ -21,6 +21,10 @@ class SelectionContext;
 class QgsMapLayer;
 #include <QDockWidget>
 
+namespace seismic {
+class SeismicSectionDockWidget;
+}
+
 class PaleoDockWidget : public QDockWidget
 {
   Q_OBJECT
@@ -167,6 +171,8 @@ class PaleoMainWindow : public SARibbonMainWindow
         const QVector<DataImportService::FolderPreviewRow> &preview,
         PaleoMainWindow *self);
 
+    seismic::SeismicSectionDockWidget *seismicSectionDock() const { return m_seismicSectionDock; }
+
   protected:
     void closeEvent(QCloseEvent *event) override;
     // 面板管理右键（§42 壳规约）：只在停靠区标题栏/边距触发——命中件
@@ -232,6 +238,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     PaleoDockWidget *m_leftDock = nullptr;
     QDockWidget *m_rightDock = nullptr;
     PaleoDockWidget *m_bottomDock = nullptr;
+    seismic::SeismicSectionDockWidget *m_seismicSectionDock = nullptr;
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
     DataImportService *m_importSvc = nullptr; // attachWorkflows 注入；启动页「从工区文件夹新建」用

@@ -214,6 +214,10 @@ std::filesystem::path SgyIndexCache::CachePathFor(const std::filesystem::path& s
     return CacheDirectory() / name;
 }
 
+std::filesystem::path SgyIndexCache::CompanionPathFor(const std::filesystem::path& sgyPath) {
+    return sgyPath.string() + ".sgyidx";
+}
+
 std::uint64_t SgyIndexCache::FingerprintFile(const std::filesystem::path& path, std::uintmax_t fileSize) {
     std::uint64_t hash = 1469598103934665603ull;
     hash = Fnv1a(&fileSize, sizeof(fileSize), hash);
@@ -252,7 +256,19 @@ std::uint64_t SgyIndexCache::FingerprintFile(const std::filesystem::path& path, 
 
 SgyIndexPtr SgyIndexCache::Load(const std::filesystem::path& sgyPath, std::string& reason) {
     reason.clear();
+    const std::filesystem::path companionPath = CompanionPathFor(sgyPath);
+    std::error_code ec;
+    if(std::filesystem::exists(companionPath, ec) && !ec) {
+        return LoadFromPath(companionPath, sgyPath, reason);
+    }
     const std::filesystem::path cachePath = CachePathFor(sgyPath);
+    return LoadFromPath(cachePath, sgyPath, reason);
+}
+
+SgyIndexPtr SgyIndexCache::LoadFromPath(const std::filesystem::path& cachePath,
+                                        const std::filesystem::path& sgyPath,
+                                        std::string& reason) {
+    reason.clear();
     std::error_code ec;
     if(!std::filesystem::exists(cachePath, ec) || ec) {
         reason = "no cache file";
@@ -514,7 +530,8 @@ SgyIndexPtr SgyIndexCache::Load(const std::filesystem::path& sgyPath, std::strin
     return index;
 }
 
-bool SgyIndexCache::Save(const SgyIndexPtr& index, std::string& errorMessage) {
+bool SgyIndexCache::Save(const SgyIndexPtr& index, std::string& errorMessage,
+                         const std::filesystem::path& targetCachePath) {
     errorMessage.clear();
     if(!index || !index->FullyScanned()) {
         // Rule-based, declared-range and bounded indexes must never become a
@@ -540,7 +557,9 @@ bool SgyIndexCache::Save(const SgyIndexPtr& index, std::string& errorMessage) {
     }
     const std::uint64_t currentFingerprint = FingerprintFile(index->path, currentSize);
 
-    const std::filesystem::path cachePath = CachePathFor(index->path);
+    const std::filesystem::path cachePath = targetCachePath.empty()
+        ? CachePathFor(index->path)
+        : targetCachePath;
     std::error_code ec;
     std::filesystem::create_directories(cachePath.parent_path(), ec);
     if(ec) {
@@ -680,8 +699,12 @@ bool SgyIndexCache::Save(const SgyIndexPtr& index, std::string& errorMessage) {
 
 bool SgyIndexCache::Remove(const std::filesystem::path& sgyPath, std::string& errorMessage) {
     errorMessage.clear();
-    const std::filesystem::path cachePath = CachePathFor(sgyPath);
     std::error_code ec;
+    const std::filesystem::path companionPath = CompanionPathFor(sgyPath);
+    if(std::filesystem::exists(companionPath, ec)) {
+        std::filesystem::remove(companionPath, ec);
+    }
+    const std::filesystem::path cachePath = CachePathFor(sgyPath);
     if(!std::filesystem::exists(cachePath, ec)) {
         return true;
     }

@@ -177,6 +177,7 @@ add_library(paleo_core STATIC
   src/domain/seismic/sgyvolume.cpp
   src/domain/seismic/sgyreadplan.cpp
   src/domain/seismic/seismiccolormap.cpp
+  src/services/seismictaskservice.cpp
 )
 target_link_libraries(paleo_core PUBLIC paleo_qgis_iface paleo_saribbon paleo_segyio paleo_glm ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
@@ -271,6 +272,7 @@ add_paleo_test(tst_segy_lines)
 target_compile_definitions(tst_segy_lines PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_seismic_core)
+add_paleo_test(tst_seismic_index)
 add_paleo_test(tst_timedeptool)
 target_compile_definitions(tst_import PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")

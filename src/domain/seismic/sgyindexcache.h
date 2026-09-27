@@ -27,16 +27,21 @@ public:
     // %LOCALAPPDATA%\SeismicF3Viewer\index-cache (override: SEISMIC_INDEX_CACHE_DIR).
     static std::filesystem::path CacheDirectory();
     static std::filesystem::path CachePathFor(const std::filesystem::path& sgyPath);
+    static std::filesystem::path CompanionPathFor(const std::filesystem::path& sgyPath);
 
-    // Returns the cached index, or nullptr with a human-readable reason
-    // (missing / invalidated / corrupted / incompatible).
+    // Returns the cached index, checking companion .sgyidx then centralized cache,
+    // or nullptr with a human-readable reason.
     static SgyIndexPtr Load(const std::filesystem::path& sgyPath, std::string& reason);
+    static SgyIndexPtr LoadFromPath(const std::filesystem::path& cacheFilePath,
+                                    const std::filesystem::path& sgyPath,
+                                    std::string& reason);
 
     // Atomic publish: temp file -> close -> re-read and verify -> replace.
-    // Refuses to publish when the source file changed while indexing.
-    static bool Save(const SgyIndexPtr& index, std::string& errorMessage);
+    // If targetCachePath is empty, defaults to CachePathFor(index->path).
+    static bool Save(const SgyIndexPtr& index, std::string& errorMessage,
+                     const std::filesystem::path& targetCachePath = {});
 
-    // Force-rebuild helper: deletes the cache for this file.
+    // Force-rebuild helper: deletes the cache files for this file.
     static bool Remove(const std::filesystem::path& sgyPath, std::string& errorMessage);
 
     // 64-bit FNV-1a over the first/last 32 KB plus the file size.

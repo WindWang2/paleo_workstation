@@ -8,6 +8,7 @@
 
 class QgsLayerTreeModel;
 class QgsLayoutItemMap;
+class QgsMapThemeCollection;
 class QgsProject;
 class QgisLayerService;
 
@@ -91,6 +92,17 @@ class QgisLayerProfileService : public QObject
     void mapThemesChanged();
 
   private:
+    // 工程的主题集合（m_project 为 null 时 nullptr）。
+    QgsMapThemeCollection *themeCollection() const;
+    // 应用一个已存在的主题：先防御性剔除记录里已不在工程中的图层
+    //（层位切换释放实例的悬空记录），update 回写后再 applyTheme。
+    // 修剪后记录为空仍可应用（全隐藏语义）。
+    bool applyPrunedTheme(const QString &name);
+    // 按档案表「摆树」：声明驱动的组匹配（paleoLayerId → declaration.group），
+    // predict 页并入当前层位约束图层，同名树组按组内结果同步勾选态。
+    // layerService 为 null 或清单读失败 → 不动任何可见性（读失败时返回 false）。
+    bool stageTreeVisibility(const QStringList &groups, bool mergeActiveHorizonConstraints);
+
     QgsProject *m_project = nullptr;
     QgsLayerTreeModel *m_model = nullptr;
     QgisLayerService *m_layerService = nullptr;

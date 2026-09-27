@@ -551,7 +551,7 @@ DataPage::DataPage(QWidget *parent)
     if (!wellId.isEmpty() && !assetId.isEmpty())
     {
       emit assetWellActivated(assetId, wellId);
-      emit assetActivated(assetId);
+      selectAsset(assetId);
       return;
     }
     if (!assetId.isEmpty())
@@ -570,7 +570,7 @@ DataPage::DataPage(QWidget *parent)
         if (!cid.isEmpty())
         {
           emit assetWellActivated(cid, wellId);
-          emit assetActivated(cid);
+          selectAsset(cid);
           break;
         }
       }

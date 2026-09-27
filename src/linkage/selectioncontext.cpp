@@ -12,10 +12,16 @@ SelectionContext::SelectionContext(QObject *parent) : QObject(parent) {}
 
 void SelectionContext::setSelection(const QStringList &ids, const QString &origin)
 {
+  if (m_ids == ids && m_origin == origin)
+    return;
+
   if (m_broadcastDepth > 0)
   {
     // Broadcast in flight — fold this set into the pending slot instead of
     // recursing. Repeated nested sets keep only the latest payload.
+    // If the payload matches current or already pending broadcast, ignore to prevent infinite echo loops.
+    if (m_ids == ids || (m_pending && m_pendingIds == ids))
+      return;
     m_pending = true;
     m_pendingIds = ids;
     m_pendingOrigin = origin;
@@ -34,6 +40,8 @@ void SelectionContext::setSelection(const QStringList &ids, const QString &origi
   while (m_pending)
   {
     m_pending = false;
+    if (m_ids == m_pendingIds && m_origin == m_pendingOrigin)
+      break;
     m_ids = m_pendingIds;
     m_origin = m_pendingOrigin;
     ++m_broadcastDepth;
@@ -57,6 +65,8 @@ void SelectionContext::setActiveHorizon(const QString &horizon)
   while (m_pending)
   {
     m_pending = false;
+    if (m_ids == m_pendingIds && m_origin == m_pendingOrigin)
+      break;
     m_ids = m_pendingIds;
     m_origin = m_pendingOrigin;
     ++m_broadcastDepth;

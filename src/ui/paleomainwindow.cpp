@@ -1803,8 +1803,9 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     // 其已决关联的行；选中走同一条 assetActivated → 预览照开。
     if (m_selection)
       connect(m_selection, &SelectionContext::selectionChanged, dataPage,
-              [dataPage](const QStringList &ids, const QString &) {
-                dataPage->selectAssetsForEntities(ids);
+              [dataPage](const QStringList &ids, const QString &origin) {
+                if (origin != QLatin1String("datapreview") && origin != QLatin1String("datatree"))
+                  dataPage->selectAssetsForEntities(ids);
               });
 
     // ---- T20 余项：catalogOpenFailed 的状态栏露出 ----

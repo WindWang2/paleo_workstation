@@ -120,6 +120,16 @@ namespace
     QStringLiteral("validate"),   // ④验证
   };
 
+  // 页作用域的数字化工具面：编辑/编图工具只属于编图链三页
+  // （预测/约束/编图——PALEO_QGIS_PLAN §9 的物源线、相界编辑所在）。
+  // 数据管理页是纯数据面（预览+实体视图），验证页是检查面：
+  // 两页画布只作展示，编辑 dock 隐藏，且进入时停用活动画布工具。
+  const QStringList kEditingToolPages = {
+    QStringLiteral("predict"),
+    QStringLiteral("constraint"),
+    QStringLiteral("compose"),
+  };
+
   bool isOffscreen()
   {
     return QGuiApplication::platformName() == QLatin1String("offscreen");
@@ -743,6 +753,17 @@ void PaleoMainWindow::showPage(const QString &pageId)
   // §4 预览壳重排：预览分栏只在数据管理页显示；其余页藏下格、地图吃满。
   if (m_previewTabs)
     m_previewTabs->setVisible(pageId == QLatin1String("data"));
+
+  // 页作用域工具面：编辑 dock 只在编图链页可见。落到非编辑页时停用活动
+  // 画布工具——各工具 deactivate() 统一发 abort 信号，约束捕获/编辑会话
+  // 经 owner 的 abort 路径拆台（等价 §42.15 的 Esc），不会把笔挂到
+  // 数据页画布上。画布本体保留：数据页的井位上图+图→表联动只读展示。
+  const bool editingPage = kEditingToolPages.contains(pageId);
+  if (auto *dock = findChild<QDockWidget *>(QStringLiteral("editToolbarDock")))
+    dock->setVisible(editingPage);
+  if (!editingPage && m_canvasCtl)
+    m_canvasCtl->deactivateTool();
+
   applyPreviewSplit();
 }
 
@@ -2163,6 +2184,9 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     editDock->setObjectName(QStringLiteral("editToolbarDock"));
     editDock->setWidget(editTb);
     addDockWidget(Qt::TopDockWidgetArea, editDock);
+    // 页作用域：dock 无 toggle 入口，可见性完全由 showPage 驱动——
+    // 建 dock 时按当前页落初值（startup/数据页一律隐藏）。
+    editDock->setVisible(kEditingToolPages.contains(m_currentPage));
   }
 
   // 图件设计 entry (wave/layout-designer): create a print layout via the

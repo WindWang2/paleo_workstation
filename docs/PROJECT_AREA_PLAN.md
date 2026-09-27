@@ -1174,3 +1174,14 @@ QGIS 图层集权威）。打开契约：`.paleo` 解析成员、qgz 缺席拒�
 importSvc/catalog；坏 JSON 如实上报不静默）。D61 硬编码点全部参数化：
 验证工作流时间残差、ONNX 网格门/声明前缀/provenance、时深 tie 井、
 面板文案与状态提示；chip 条加 `reloadHorizons()` 随工程打开重建。
+
+### 页作用域工具面（用户指正：数据页不得出现编图工具）
+
+`editToolbarDock`（数字化/编辑工具条）从常驻 dock 改为页作用域：
+只在编图链三页（predict/constraint/compose——`kEditingToolPages`）
+可见，数据管理与验证页隐藏；dock 无 toggle 入口，可见性完全由
+`showPage` 驱动。进入非编辑页时 `canvasCtl->deactivateTool()` 停掉
+活动画布工具——约束捕获/编辑工具的 `deactivate()` 统一发 abort
+信号经 owner 拆台（等价 Esc），避免把进行中的笔挂到数据页画布。
+数据页画布本体保留：井位上图与图→表联动（D6）是只读展示面，
+不是编图工具。

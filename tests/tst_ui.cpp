@@ -34,6 +34,7 @@
 #include <qgsmaplayer.h>
 #include <qgsvectorlayer.h>
 #include <qgslayertreemodel.h>
+#include <qgsmaptoolpan.h>
 
 // App-shell acceptance (§42): the five-page workflow chrome over the P0 spine.
 // AppContext owns the QgsApplication — main() builds the context (which brings
@@ -624,6 +625,44 @@ class TestUiShell : public QObject
       // 不崩的直接证据：二次调用后窗口照常响应页切换。
       m_win->showPage(QStringLiteral("data"));
       QCOMPARE(m_win->currentPage(), QStringLiteral("data"));
+    }
+
+    // 页作用域工具面（用户裁决）：数字化/编辑工具只属于编图链三页
+    // （predict/constraint/compose）——数据管理页与验证页不得出现 QGIS
+    // 编图工具。进入非编辑页时活动画布工具被停用（画布只读展示）。
+    void editingToolsScopedToMappingPages()
+    {
+      // attachWorkflows 幂等：套件内已 attach 则空操作；单跑则首次建 dock。
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                             m_ctx->compositionWf(), m_ctx->validationWf(),
+                             m_ctx->importSvc(), m_ctx->seismicLink(),
+                             m_ctx->processingSvc(), m_ctx->store(),
+                             m_ctx->editingSvc(), m_ctx->layoutSvc(),
+                             m_ctx->taskSvc());
+      auto *dock = m_win->findChild<QDockWidget *>(QStringLiteral("editToolbarDock"));
+      QVERIFY(dock);
+
+      // isHidden() 惯例同预览用例：offscreen 窗口未 show 时 isVisible 不可用。
+      for (const QString &p : {QStringLiteral("data"), QStringLiteral("validate")})
+      {
+        m_win->showPage(p);
+        QVERIFY2(dock->isHidden(), qPrintable(p));
+      }
+      for (const QString &p : {QStringLiteral("predict"), QStringLiteral("constraint"),
+                               QStringLiteral("compose")})
+      {
+        m_win->showPage(p);
+        QVERIFY2(!dock->isHidden(), qPrintable(p));
+      }
+
+      // 活动工具随页停用：借原生 QgsMapToolPan 当活动工具，落数据页后
+      // 画布不再持有任何工具（非编辑页 deactivate 等价 Esc）。
+      auto *pan = new QgsMapToolPan(m_ctx->canvasCtl()->canvas());
+      m_ctx->canvasCtl()->setMapTool(pan);
+      QCOMPARE(m_ctx->canvasCtl()->activeTool(), pan);
+      m_win->showPage(QStringLiteral("data"));
+      QVERIFY(m_ctx->canvasCtl()->activeTool() == nullptr);
+      delete pan;
     }
 };
 

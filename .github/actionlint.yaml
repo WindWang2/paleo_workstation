@@ -1,0 +1,6 @@
+# actionlint 配置：ubuntu-26.04 是矩阵钉定平台（docs/PLATFORM_MATRIX.md 行 2，
+# QGIS deb 闭包的 resolute 套件），actionlint 1.7.x 的 runner-label 数据库
+# 尚未收录——在此显式放行，勿降级标签。
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

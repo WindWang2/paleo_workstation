@@ -207,6 +207,7 @@ class TestEditTools : public QObject
     void vertexTopoCrossLayerDragMovesBothLayers();
     void vertexTopoCrossLayerCrsMismatchExcluded();
     void vertexTopoCrossLayerDeleteAndUndo();
+    void vertexTopoCrossLayerParticipantDestructionMidDrag();
 };
 
 // ---------------------------------------------------------------------------
@@ -3859,6 +3860,61 @@ void TestEditTools::vertexTopoCrossLayerDeleteAndUndo()
   b.rollBack();
   QgsProject::instance()->removeMapLayer( &a );
   QgsProject::instance()->removeMapLayer( &b );
+}
+
+// mapping 主线2 review 修复：拖拽途中跨层参与层析构——DragState 持有裸层
+// 指针键，靠 destroyed→clearDragState 守卫；释放事件不得解引用悬空层。
+void TestEditTools::vertexTopoCrossLayerParticipantDestructionMidDrag()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+  canvas.setExtent( QgsRectangle( 25, 5, 35, 15 ) );
+  canvas.refresh();
+
+  QgsVectorLayer a( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                    QStringLiteral( "x-a" ), QStringLiteral( "memory" ) );
+  QVERIFY( a.isValid() );
+  const QgsFeatureId fa = seedFeature( a, QgsGeometry::fromWkt( squareWkt( 10, 10, 20 ) ) );
+  // 参与层 b：堆对象、工程托管所有权——中途 delete 模拟析构。
+  auto *b = new QgsVectorLayer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                                QStringLiteral( "x-b" ), QStringLiteral( "memory" ) );
+  QVERIFY( b->isValid() );
+  const QgsFeatureId fb = seedFeature( *b, QgsGeometry::fromWkt( squareWkt( 30, 10, 20 ) ) );
+  Q_UNUSED( fb );
+  QgsProject::instance()->addMapLayer( &a, /*addToLegend=*/false, /*takeOwnership=*/false );
+  QgsProject::instance()->addMapLayer( b ); // 工程所有
+  a.startEditing();
+  b->startEditing();
+  a.selectByIds( { fa } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &a, b } );
+  canvas.setCurrentLayer( &a );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &a );
+  tool.setTopologicalEditingEnabled( true );
+  tool.setCrossLayerTopologyEnabled( true );
+  canvas.setMapTool( &tool );
+
+  // 抓共享顶点 (30,10)——b 入写集（destroyed 守卫挂上）。
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, pxAt( canvas, 30, 10 ),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY2( tool.isDragging(), "press on the shared vertex must arm the drag" );
+
+  // 参与层中途析构（工程移除并 delete，destroyed 同步发出）→ 拖拽被丢弃，不崩。
+  QgsProject::instance()->removeMapLayer( b ); // takeOwnership：析构随移除
+  b = nullptr;
+  QVERIFY( !tool.isDragging() ); // destroyed → clearDragState
+
+  // 后续 release 是无拖拽 no-op；a 未被写入。
+  QgsMapMouseEvent rel( &canvas, QEvent::MouseButtonRelease, pxAt( canvas, 30, 7 ),
+                        Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &rel );
+  QCOMPARE( a.undoStack()->count(), 0 );
+
+  canvas.unsetMapTool( &tool );
+  a.rollBack();
+  QgsProject::instance()->removeMapLayer( &a );
 }
 
 int main( int argc, char *argv[] )

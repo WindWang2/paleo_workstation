@@ -169,6 +169,8 @@ struct PaleoVertexTool::DragState
   QHash<QgsVectorLayer *, QHash<qint64, QgsRubberBand *>> previewBands; // canvas-parented
   QList<QgsVertexMarker *> topoMarkers;     // red markers for coincident
                                             // vertices outside the selection
+  QList<QMetaObject::Connection> guardConnections; // 跨层参与层的 destroyed
+                                                    // 守卫（clearDragState 断开）
 };
 
 PaleoVertexTool::PaleoVertexTool( QgsMapCanvas *canvas, QgsVectorLayer *layer )
@@ -349,6 +351,14 @@ void PaleoVertexTool::canvasPressEvent( QgsMapMouseEvent *e )
       if ( !mDraggingVertex->previewBands.value( member.layer ).contains( member.fid ) )
         mDraggingVertex->previewBands[member.layer].insert(
             member.fid, createRubberBand( member.layer->geometryType() ) );
+      // 跨层参与层：拖拽途中（按住鼠标时事件循环仍在跑）被析构 → 丢弃整个
+      // 拖拽，绝不带着悬空层指针走到 release 提交（目标层由 activate() 接线）。
+      if ( member.layer != layer )
+        mDraggingVertex->guardConnections.append(
+            connect( member.layer, &QObject::destroyed, this, [this] {
+              clearDragState();
+              rebuildMarkers();
+            } ) ); // NB: 无 UniqueConnection——Qt6 对 functor+Unique 静默拒绝
     }
   }
 
@@ -893,6 +903,11 @@ void PaleoVertexTool::clearDragState()
 {
   if ( !mDraggingVertex )
     return;
+
+  // 先断守卫连接：destroyed 波里到达的第二个连接不得重入 clearDragState
+  for ( const QMetaObject::Connection &c : std::as_const( mDraggingVertex->guardConnections ) )
+    disconnect( c );
+  mDraggingVertex->guardConnections.clear();
 
   // previewBands contains previewBand itself — delete via the nested map to
   // avoid a double-free; topoMarkers are canvas-parented extras, delete directly.

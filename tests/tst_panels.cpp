@@ -541,7 +541,7 @@ class TestPanels : public QObject
       auto *label = win.findChild<QLabel *>(QStringLiteral("statusCatalogError"));
       QVERIFY2(label, "statusbar must own a catalog-error capsule");
       QVERIFY(label->styleSheet().contains(QStringLiteral("#FDEBEB"))); // errorBg
-      QVERIFY(label->styleSheet().contains(QStringLiteral("#E53935"))); // error 字
+      QVERIFY(label->styleSheet().contains(QStringLiteral("#C62828"))); // errorText 深色变体（AA）
       QVERIFY(!label->isVisibleTo(&win));
 
       QSignalSpy spy(&svc, &DataImportService::catalogOpenFailed);
@@ -1049,7 +1049,7 @@ class TestPanels : public QObject
                "severity cell must carry a capsule label");
       QCOMPARE(sevCapsule->text(), QStringLiteral("错误"));
       QVERIFY(sevCapsule->styleSheet().contains(QStringLiteral("#FDEBEB")));
-      QVERIFY(sevCapsule->styleSheet().contains(QStringLiteral("#E53935")));
+      QVERIFY(sevCapsule->styleSheet().contains(QStringLiteral("#C62828"))); // errorText
       QVERIFY(sevCapsule->styleSheet().contains(QStringLiteral("border-radius")));
       // 级别 item 不再持彩色裸文字。
       QVERIFY(issueTable->item(0, 0)->text().isEmpty());

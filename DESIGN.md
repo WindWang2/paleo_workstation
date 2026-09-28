@@ -72,6 +72,9 @@ components:
     successBg: "#E8F5E9"
     warningBg: "#FFF4E0"
     errorBg: "#FDEBEB"
+    successText: "#2E7D32"     # 胶囊文字深色变体（浅底上语义原色仅 3.0:1，不足 AA）
+    warningText: "#9A5B00"     # 原色 2.1:1 → 深色变体 5.0:1
+    errorText: "#C62828"       # 原色 3.7:1 → 深色变体 4.9:1
   dark:                        # 2026-09-29 翻案：深色变体（UI chrome；数据符号色不跟随）
     surface: "#252C36"         # 面板、卡片、dock 内容区
     surface-alt: "#1B212A"     # 窗口底色、标题栏、页签行
@@ -90,6 +93,9 @@ components:
       successBg: "#1F3524"
       warningBg: "#3A2E15"
       errorBg: "#3A1D1D"
+      successText: "#5CB860"   # = 语义色（深底上已 AA）
+      warningText: "#FFB74D"
+      errorText: "#F76A61"
     note: primary/on-primary 填充色两主题同值；placeholder=text-muted
 ---
 
@@ -180,4 +186,5 @@ QGIS 标准解剖：左 dock（资源管理器/图层树）、中央 `QgsMapCanv
 | 2026-09-25 | 初始设计系统 | /design-consultation + /qt-ui-design；控件级复用+主题还原（D2）；工作流即记忆点（D4）；AI mockup 不可用走 HTML 预览 |
 | 2026-09-29 | 暗色模式翻案 | 用户明确要求交付暗色：推翻 2026-09-25「V1 不交付暗色」决定。落地=UI chrome 全量 token 双值（frontmatter `dark` 块）；缺省浅色、仅显式切换写 QSettings（`ui/theme`）；SARibbon 调色板 isDark 双份；图标暗色再着色（QGIS default 深 glyph 逐像素提亮，PaleoIcons）；数据符号色（§93）不跟随；wellcomposite 柱状图画布保持纸面白底（地质文档隐喻），仅面板/对话框 chrome 跟随。对比度全 AA（text/surface 11.6:1、muted 6.4:1、error 胶囊 5.2:1）。 |
 | 2026-09-29 | 翻译源语言口径 = 中文 | 全部用户可见串以中文为源串走 tr()/translate（layoutdesignershell 的 22 条英文源串同日改写为中文源串）；lupdate 骨架 translations/paleo_zh_CN.ts（1611 条），更新走 tools/update_translations.sh。 |
+| 2026-09-29 | status-tag 胶囊文字色补 token | 浅色 status-tag 底+语义原色实测不足 AA（warning 2.1:1/success 3.0:1/error 3.7:1），补 successText/warningText/errorText 深色变体（4.5+）；暗色深底上语义提亮色本已 AA，文字=语义色。capsuleLabel 同步改活体注册（运行中切主题即时跟随）。 |
 | 2026-09-28 | 控件映射与页签文案偏离确认 (#43) | 1. 工作流页签文案根据用户裁决确定为「数据管理 / 预测编图 / 单因素图 / 智能编图 / 验证」五页；2. 状态栏采用 QStatusBar + 坐标/比例尺/CRS（QGIS 4.2 中 QgsScaleWidget 等专有状态栏控件为 QGIS 应用内实现，libqgis_gui 未导出）；3. 右侧 dock 采用 QDockWidget+QStackedLayout，任务面板采用 QTreeWidget 以满足非模态展示与无头测试需求。 |

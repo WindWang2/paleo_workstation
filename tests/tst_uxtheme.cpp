@@ -78,14 +78,15 @@ class TestUxTheme : public QObject
                  qPrintable(QStringLiteral("focus ring misses %1").arg(QString::fromLatin1(sel))));
     }
 
-    // 状态胶囊：DESIGN.md status-tag token 逐色断言（浅底 + 深语义字）。
+    // 状态胶囊：DESIGN.md status-tag token 逐色断言（浅底 + 深色文字变体，
+    // 语义原色在浅底上不足 AA，文字走 successText/warningText/errorText）。
     void capsuleTokensMatchDesignMd()
     {
       using K = PaleoTheme::CapsuleKind;
       const struct { K kind; const char *bg; const char *fg; } cases[] = {
-          {K::Success, "#E8F5E9", "#43A047"},
-          {K::Warning, "#FFF4E0", "#F29900"},
-          {K::Error, "#FDEBEB", "#E53935"},
+          {K::Success, "#E8F5E9", "#2E7D32"},
+          {K::Warning, "#FFF4E0", "#9A5B00"},
+          {K::Error, "#FDEBEB", "#C62828"},
           {K::Neutral, "#EDF1F5", "#5D6E80"},
       };
       for (const auto &c : cases)

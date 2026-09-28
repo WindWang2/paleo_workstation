@@ -6,6 +6,8 @@
 
 #include <segyio/segy.h>
 
+#include "Data/Sgy/SgyIo.h"
+
 namespace seismic {
 namespace {
 
@@ -61,14 +63,13 @@ bool SgyReadSession::ValidateRuleTrace(int traceIndex, std::string& errorMessage
         errorMessage = "rule layout validation failed: trace header is unreadable";
         return false;
     }
-    int actualInline = 0;
-    int actualXline = 0;
-    segy_get_tracefield_int(header.data(), SEGY_TR_INLINE, &actualInline);
-    segy_get_tracefield_int(header.data(), SEGY_TR_CROSSLINE, &actualXline);
-    if(actualInline != expectedInline || actualXline != expectedXline) {
+    // P5: same trace-key words (incl. the paleo @8/@20 fallback) the layout was
+    // probed with, so validation never contradicts the probe.
+    const sgyio::SgyTraceKeyWords words = sgyio::ReadTraceKeyWords(header.data());
+    if(words.inlineNo != expectedInline || words.xlineNo != expectedXline) {
         std::ostringstream oss;
         oss << "rule layout validation failed at trace " << traceIndex << ": expected " << expectedInline << "/"
-            << expectedXline << " but found " << actualInline << "/" << actualXline
+            << expectedXline << " but found " << words.inlineNo << "/" << words.xlineNo
             << ". Use the full index instead.";
         errorMessage = oss.str();
         return false;

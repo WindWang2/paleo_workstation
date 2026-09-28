@@ -9,6 +9,7 @@
 #include <segyio/segy.h>
 
 #include "Data/Sgy/SgyIndexBuilder.h"
+#include "Data/Sgy/SgyIo.h"
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -225,8 +226,10 @@ bool SgyFileReader::ReadSummary(const std::filesystem::path& path,
     if(traceCount > 0) {
         std::array<char, SEGY_TRACE_HEADER_SIZE> traceHeader{};
         if(segy_read_standard_traceheader(file.get(), 0, traceHeader.data()) == SEGY_OK) {
-            segy_get_tracefield_int(traceHeader.data(), SEGY_TR_INLINE, &firstInline);
-            segy_get_tracefield_int(traceHeader.data(), SEGY_TR_CROSSLINE, &firstCrossline);
+            // P5: paleo @8/@20 fallback for the declared-range summary.
+            const sgyio::SgyTraceKeyWords keyWords = sgyio::ReadTraceKeyWords(traceHeader.data());
+            firstInline = keyWords.inlineNo;
+            firstCrossline = keyWords.xlineNo;
         }
     }
 

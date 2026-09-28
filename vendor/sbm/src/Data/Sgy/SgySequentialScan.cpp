@@ -858,10 +858,10 @@ bool ScanSegySequentially(const std::filesystem::path& path,
         for(std::uint64_t r = 0; r < recordCount; ++r) {
             const char* record = windowData + static_cast<std::size_t>(r * bytesPerTrace);
             const int traceOrdinal = static_cast<int>(recordStart + r);
-            int inlineNo = 0;
-            int xlineNo = 0;
-            segy_get_tracefield_int(record, SEGY_TR_INLINE, &inlineNo);
-            segy_get_tracefield_int(record, SEGY_TR_CROSSLINE, &xlineNo);
+            // P5: paleo @8/@20 fallback keeps the production convention indexable.
+            const sgyio::SgyTraceKeyWords keyWords = sgyio::ReadTraceKeyWords(record);
+            const int inlineNo = keyWords.inlineNo;
+            const int xlineNo = keyWords.xlineNo;
             ++recordsConsumed;
             if(visitor && !visitor(traceOrdinal, record, static_cast<int>(bytesPerTrace))) {
                 windowCancelled = true;

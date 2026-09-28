@@ -162,7 +162,7 @@ void TestCanvasTools::toolGating()
 int main( int argc, char *argv[] )
 {
   QgsApplication app( argc, argv, false );
-  app.setPrefixPath( QStringLiteral( "/usr" ), true ); // distro install
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true); // distro install
   app.initQgis();
   TestCanvasTools tc;
   const int rc = QTest::qExec( &tc, argc, argv );

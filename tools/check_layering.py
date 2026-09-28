@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 # 层边界机械检查（docs/UI_LAYER_PLAN.md W6）。
 #
+# 用法：
+#   check_layering.py [--strict] [--vocab PATH] [--baseline PATH]
+#   check_layering.py --selftest
+#   未知参数一律 exit 2（历史上 argv 被静默忽略，--strict 假绿——已修）。
+#
 # 规则面：
 #   1. include 一律先规范化为仓库相对路径再匹配——`../io/x.h`、`../../io/x.h`
 #      与 `io/x.h` 归一为 `io/x.h`，防 ../ 前缀绕过。
@@ -8,49 +13,62 @@
 #        - io/lasdoc.h          （io/* 白名单制，其余 io/* 一律失败）
 #        - metadata/{layermanifest,paleoprojectstore,mapversionstore,releasestore}.h
 #      且 algorithms/* 一律失败。
-#   3. 反向：src/{domain,catalog,io,metadata,services,workflow,linkage,
-#      algorithms,ai,qgis}/** 出现 ui/* include 即失败。
+#   3. 反向：non_view（见 tools/layering_vocab.json）目录出现 ui/* include 即失败。
 #      src/app、src/selfcheck 不扫（组装根/测试壳按契约允许 ui/ 依赖，
 #      by design 豁免）。
-#   4. QtWidgets 禁令（domain/catalog/io/metadata/services/workflow/linkage/
-#      algorithms/ai；仅 qgis 豁免）：词表制三类写法——
+#   4. QtWidgets 禁令（non_view 去掉 qgis；仅 QGIS 封装豁免）：词表制三类写法——
 #      `#include <QtWidgets…>`、`#include <QWidget>` 等单类头、
 #      `class Q…;` 前向声明。
-#   5. 层标记：每个 src/ 文件头三行内必须有 `// 层：<六值词表之一>` 且与所属目录对应。
+#   5. 层标记：每个 src/ 文件头三行内必须有 `// 层：<词表之一>` 且与所属目录对应。
+#      词表外置在 tools/layering_vocab.json——新增顶层模块先登记词表
+#      （scripts/new_module.sh 会同步），否则全量判违规。
 #
 # 合法残留走 tools/layering-baseline.txt（格式：每行 `<path>:<rule>`，
 # `#` 开头注释）。命中 baseline 的违规降级为提示；baseline 里已修复的条目
 # 提示可收缩。收敛方式：修代码后把该行从 baseline 删掉——baseline 只缩不涨。
 #
-# `--selftest` 跑内置正/反夹具（不进 ctest 就是哑护栏），单独挂 ctest 项。
+# --strict：闸门语义，防 baseline 回升。以下任一即 fail：
+#   - baseline 非空（残留只许收缩，当前已归零，任何新增都是回升）；
+#   - baseline 存在可收缩条目（对应违规已修复却仍占着表）。
+# 非严格模式维持提示语义（可收缩 NOTE 非 fail）。
+#
+# `--selftest` 跑内置正/反夹具 + strict 语义夹具（不进 ctest 就是哑护栏）。
 
+import json
 import os
 import re
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "src")
+VOCAB = os.path.join(REPO, "tools", "layering_vocab.json")
 BASELINE = os.path.join(REPO, "tools", "layering-baseline.txt")
 
-LAYERS = {
-    "domain": "数据", "catalog": "数据", "io": "数据", "metadata": "数据",
-    "services": "数据", "algorithms": "数据",
-    "workflow": "功能", "linkage": "功能", "ai": "功能",
-    "qgis": "QGIS 封装", "ui": "视图", "app": "组装根", "selfcheck": "测试壳",
-}
+
+def load_vocab(path=VOCAB):
+    """词表外置的单点事实；缺失/坏 JSON 直接 exit 2（哑配置不能静默变绿）。"""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        layers = {k: str(v) for k, v in data["layers"].items()}
+        non_view = [str(x) for x in data["non_view"]]
+        ui_io = set(data["ui_io_whitelist"])
+        ui_meta = set(data["ui_metadata_whitelist"])
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        print(f"FAIL 词表 {path} 不可用：{exc}", file=sys.stderr)
+        print("       新模块须先登记 tools/layering_vocab.json（scripts/new_module.sh 会同步）。",
+              file=sys.stderr)
+        sys.exit(2)
+    unknown_nv = [d for d in non_view if d not in layers]
+    if unknown_nv:
+        print(f"FAIL 词表自相矛盾：non_view {unknown_nv} 不在 layers 中", file=sys.stderr)
+        sys.exit(2)
+    return layers, non_view, ui_io, ui_meta
+
+
+LAYERS, NON_VIEW, UI_IO_WHITELIST, UI_METADATA_WHITELIST = load_vocab()
 LAYER_VOCAB = set(LAYERS.values())
-
-# 反向扫描与 QtWidgets 禁令覆盖的非视图目录；app/selfcheck 按契约豁免
-# （组装根装配 UI、测试壳驱动 UI——见 docs/UI_LAYER_PLAN.md W6.1 by design）。
-NON_VIEW = ["domain", "catalog", "io", "metadata", "services", "workflow",
-            "linkage", "algorithms", "ai", "qgis"]
 QTWIDGETS_BAN = [d for d in NON_VIEW if d != "qgis"]
-
-UI_IO_WHITELIST = {"io/lasdoc.h"}
-UI_METADATA_WHITELIST = {
-    "metadata/layermanifest.h", "metadata/paleoprojectstore.h",
-    "metadata/mapversionstore.h", "metadata/releasestore.h",
-}
 
 # QtWidgets 单类头/前向声明词表（只列控件类；QtCore/QtGui 通用类不在列）。
 QTWIDGETS_CLASSES = {
@@ -94,9 +112,8 @@ FWD_RE = re.compile(r'^\s*class\s+(Q[A-Za-z0-9_]+)\s*;')
 
 def norm_include(file_dir, inc):
     """把 include 归一为仓库相对路径（以 src/ 为根）。失败返回 None。"""
-    if inc.startswith(("io/", "domain/", "catalog/", "metadata/", "services/",
-                       "algorithms/", "workflow/", "linkage/", "ai/", "qgis/",
-                       "ui/", "app/", "selfcheck/")):
+    top_prefixes = tuple(d + "/" for d in LAYERS)
+    if inc.startswith(top_prefixes):
         return inc
     cand = os.path.normpath(os.path.join(file_dir, inc))
     rel = os.path.relpath(cand, SRC)
@@ -135,7 +152,7 @@ def check_file(path):
     expected_layer = LAYERS.get(layer_dir)
     if not tag or tag not in LAYER_VOCAB:
         violations.append(("layer-marker", 0,
-                           "头三行缺 `// 层：<数据|功能|QGIS 封装|视图|组装根|测试壳>`"))
+                           f"头三行缺 `// 层：<{'|'.join(sorted(LAYER_VOCAB))}>`"))
     elif tag != expected_layer:
         violations.append(("layer-marker-mismatch", 0,
                            f"层标记不匹配：标注为 `// 层：{tag}`，所属目录 `{layer_dir}` 应为 `// 层：{expected_layer}`"))
@@ -170,22 +187,22 @@ def check_file(path):
     return violations
 
 
-def load_baseline():
+def load_baseline(path=BASELINE):
     entries = {}
-    if not os.path.exists(BASELINE):
+    if not os.path.exists(path):
         return entries
-    with open(BASELINE, encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            path, _, rule = line.partition(":")
-            entries.setdefault(path.strip(), set()).add(rule.strip())
+            path_, _, rule = line.partition(":")
+            entries.setdefault(path_.strip(), set()).add(rule.strip())
     return entries
 
 
-def run_check():
-    baseline = load_baseline()
+def run_check(strict=False, baseline_path=None):
+    baseline = load_baseline(baseline_path or BASELINE)
     hits = {}          # baseline 中被命中的条目
     failures = []      # baseline 外的真违规
     for path in iter_sources():
@@ -214,14 +231,25 @@ def run_check():
               f"修代码后删除对应行——baseline 只缩不涨。")
         return 1
     if shrunk:
+        # --strict 下可收缩条目也算 fail：残留只许收缩，修完必须删行。
+        if strict:
+            print(f"\n--strict：baseline 有 {len(shrunk)} 条可收缩——"
+                  f"对应违规已修复，删除这些行后再合入。")
+            return 1
         print(f"\n检查通过；baseline 有 {len(shrunk)} 条可收缩（非失败）。")
         return 0
+    if strict and baseline:
+        # baseline 非空即 fail：当前已归零，任何新增条目都是回升。
+        n = sum(len(r) for r in baseline.values())
+        print(f"\n--strict：baseline 非空（{n} 条）——已归零的残留清单"
+              f"禁止回升，请修代码而非加表项。")
+        return 1
     print("检查通过：无层违规。")
     return 0
 
 
 def selftest():
-    """内置夹具：正/反违规 + ../ 前缀 + 前向声明 + 层标记。"""
+    """内置夹具：正/反违规 + ../ 前缀 + 前向声明 + 层标记 + strict 语义。"""
     import tempfile
 
     cases = [
@@ -296,18 +324,123 @@ def selftest():
                 print(f"SELFTEST FAIL {rel}: 期望 {sorted(expected)} "
                       f"实得 {sorted(got)}")
                 failures += 1
+        # ---- 词表外置回归：新目录登记词表后按登记层检查，未登记会被
+        # layer-marker 判违规（new_module.sh 的同步义务就是为此存在）----
+        geo = os.path.join(tmp, "geophysics", "x.cpp")
+        os.makedirs(os.path.dirname(geo), exist_ok=True)
+        open(geo, "w", encoding="utf-8").write('// 层：数据\n#include "../ui/x.h"\n')
+        unregistered = {rule for rule, _n, _t in check_file(geo)}
+        LAYERS["geophysics"] = "数据"
+        NON_VIEW.append("geophysics")
+        QTWIDGETS_BAN.append("geophysics")
+        registered = {rule for rule, _n, _t in check_file(geo)}
+        del LAYERS["geophysics"]
+        NON_VIEW.remove("geophysics")
+        QTWIDGETS_BAN.remove("geophysics")
+        if "layer-marker-mismatch" not in unregistered:
+            print("SELFTEST FAIL 词表: 未登记新目录必须被 layer-marker 判违规")
+            failures += 1
+        if registered != {"reverse-ui-include"}:
+            print(f"SELFTEST FAIL 词表: 登记后应按登记层检查，实得 {sorted(registered)}")
+            failures += 1
+
+    # ---- strict 语义夹具：需要干净扫描树，与上面的违规夹具分树跑 ----
+    global BASELINE
+    orig_baseline = BASELINE
+    with tempfile.TemporaryDirectory() as tmp2:
+        SRC = tmp2
+        BASELINE = os.path.join(tmp2, "baseline.txt")
+
+        def write_baseline(text):
+            open(BASELINE, "w", encoding="utf-8").write(text)
+
+        def rc_of(strict):
+            return run_check(strict=strict, baseline_path=BASELINE)
+
+        # (a) 全净 + baseline 空：非严格/严格都过
+        write_baseline("# empty\n")
+        if rc_of(False) != 0 or rc_of(True) != 0:
+            print("SELFTEST FAIL strict: 全净+空 baseline 应双绿")
+            failures += 1
+        # (b) 注入违例 + baseline 空：双红
+        os.makedirs(os.path.join(tmp2, "io"), exist_ok=True)
+        vio = os.path.join(tmp2, "io", "bad.cpp")
+        open(vio, "w", encoding="utf-8").write('// 层：数据\n#include <QWidget>\n')
+        if rc_of(False) != 1 or rc_of(True) != 1:
+            print("SELFTEST FAIL strict: 注入违例应双红")
+            failures += 1
+        # (c) 违例 + baseline 命中：非严格绿（残留合法），strict 红（baseline 回升）
+        write_baseline("src/io/bad.cpp:qtwidgets-include\n")
+        if rc_of(False) != 0:
+            print("SELFTEST FAIL strict: 命中 baseline 的残留非严格模式应绿")
+            failures += 1
+        if rc_of(True) != 1:
+            print("SELFTEST FAIL strict: baseline 新增条目在 strict 下必须红（防回升）")
+            failures += 1
+        # (d) 违例已修 + baseline 未删（可收缩）：非严格绿+NOTE，strict 红
+        open(vio, "w", encoding="utf-8").write('// 层：数据\n#include <QString>\n')
+        if rc_of(False) != 0:
+            print("SELFTEST FAIL strict: 可收缩条目非严格模式应绿")
+            failures += 1
+        if rc_of(True) != 1:
+            print("SELFTEST FAIL strict: 可收缩条目在 strict 下必须红（强制删行）")
+            failures += 1
+    BASELINE = orig_baseline
     SRC = orig_src
     if failures:
-        print(f"selftest：{failures}/{len(cases)} 夹具失败")
+        print(f"selftest：{failures}/{len(cases) + 7} 夹具失败")
         return 1
-    print(f"selftest 通过：{len(cases)} 夹具全部命中预期。")
+    print(f"selftest 通过：{len(cases)} 文件夹具 + 2 词表外置夹具 + "
+          f"5 strict 语义夹具全部命中预期。")
     return 0
 
 
-def main():
-    if "--selftest" in sys.argv[1:]:
-        return selftest()
-    return run_check()
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    strict = False
+    vocab = VOCAB
+    baseline = None
+    it = iter(argv)
+    for a in it:
+        if a == "--selftest":
+            return selftest()
+        if a == "--strict":
+            strict = True
+        elif a == "--vocab":
+            vocab = next(it, None)
+            if not vocab:
+                print("FAIL --vocab 需要路径参数", file=sys.stderr)
+                return 2
+        elif a == "--baseline":
+            baseline = next(it, None)
+            if not baseline:
+                print("FAIL --baseline 需要路径参数", file=sys.stderr)
+                return 2
+        elif a in ("-h", "--help"):
+            print(__doc__)
+            return 0
+        else:
+            # 真实 argv 校验：未知参数一律 exit 2（--strict 假绿的根因是全静默忽略）
+            print(f"FAIL 未知参数：{a}\n"
+                  f"       用法：check_layering.py [--strict] [--vocab PATH] "
+                  f"[--baseline PATH] | --selftest", file=sys.stderr)
+            return 2
+    global SRC
+    if vocab != VOCAB:
+        # 自定义词表：替换模块级单点事实（selftest 也走这条路注入临时词表）
+        _layers, _nv, _io, _meta = load_vocab(vocab)
+        LAYERS.clear()
+        LAYERS.update(_layers)
+        NON_VIEW[:] = _nv
+        UI_IO_WHITELIST.clear()
+        UI_IO_WHITELIST.update(_io)
+        UI_METADATA_WHITELIST.clear()
+        UI_METADATA_WHITELIST.update(_meta)
+        LAYER_VOCAB.clear()
+        LAYER_VOCAB.update(set(_layers))
+        QTWIDGETS_BAN.clear()
+        QTWIDGETS_BAN.extend(d for d in NON_VIEW if d != "qgis")
+    return run_check(strict=strict, baseline_path=baseline)
 
 
 if __name__ == "__main__":

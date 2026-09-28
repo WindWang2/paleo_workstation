@@ -230,7 +230,7 @@ int main( int argc, char *argv[] )
 {
   qputenv( "QT_QPA_PLATFORM", "offscreen" ); // before QApplication is built
   QgsApplication app( argc, argv, true );
-  app.setPrefixPath( QStringLiteral( "/usr" ), true ); // distro install
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true); // distro install
   app.initQgis();
   TestLocator tc;
   const int rc = QTest::qExec( &tc, argc, argv );

@@ -21,6 +21,10 @@ class QgisLayerService;
 class ToolAvailabilityService;
 class SelectionContext;
 class QgsMapLayer;
+class LayerTreePanel;
+class LayerProfileBar;
+class LayerPropertiesDialog;
+class QgisLayerProfileService;
 #include <QDockWidget>
 
 namespace seismic {
@@ -253,6 +257,12 @@ class PaleoMainWindow : public SARibbonMainWindow
     PaleoDockWidget *m_leftDock = nullptr;
     QDockWidget *m_rightDock = nullptr;
     PaleoDockWidget *m_bottomDock = nullptr;
+    // ---- wave/layer-platform：左 dock 图层平台（面板 + 档案工具条 + 服务） ----
+    LayerTreePanel *m_layerPanel = nullptr;
+    LayerProfileBar *m_profileBar = nullptr;
+    QgisLayerProfileService *m_profileSvc = nullptr;
+    LayerPropertiesDialog *m_layerProps = nullptr;
+    bool m_profileReplayQueued = false; // 层位切换后的页面档案重放去抖旗标
     seismic::SeismicSectionDockWidget *m_seismicSectionDock = nullptr;
     QDockWidget *m_seismic3dDock = nullptr;
     seismic::Seismic3DViewPanel *m_seismic3dPanel = nullptr;

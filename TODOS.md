@@ -86,6 +86,11 @@
 - **大 LAS 同步 `lasAt` 的 UI 线程延迟悬崖**：correlation 侧按路径同步解析保留现状 UX；大文件会阻塞 GUI 线程（现状已存在，分层不恶化）。触发条件：实测大 LAS 连井剖面卡顿。Effort: M / Priority: P3
 - **文件夹导入扫描期进度 UX**：本轮只定「忙碌光标 + 状态栏一行」契约；真进度条（文件计数/ETA）递延。触发条件：大文件夹导入实测等待过长。Effort: S / Priority: P3
 - **include 级护栏的调用级补强**：单一 `paleo_core` 静态库下 `check_layering.py` 只挡 include 挡不住「不带 include 直接 new」；若要挡需 clang 插件或拆库。触发条件：发现绕过 include 的违规实例。Effort: M / Priority: P4
+- **图层平台 · 旧组名词表迁移**：`workflows.cpp` 产层仍用 `01_Prediction`/`02_Constraints`/`03_Predict`/`03_Composite`/`00_Data`，页面档案表（`QgisLayerProfileService`）按 canonical 词表（`02_Prediction`/`03_Constraints`/`05_PaleoMap`/`07_Validation`…）匹配，旧组名层在档案应用时按表外隐藏。触发条件：编图链产出层迁移到 canonical 组。Effort: S / Priority: P2
+- **图层平台 · 主题重命名**：QgsMapThemeCollection 无 rename API，档案工具条管理对话框已注记「重命名暂未支持」。触发条件：QGIS 提供 rename 或 `QgisLayerProfileService` 增加记录复制通道。Effort: S / Priority: P3
+- **图层平台 · layerId↔assetId 关联面**：`LayerDeclaration` 无 asset 字段，属性对话框业务页关联资产恒「未关联」（按钮禁用+reason tooltip）；`LayerPropertiesDialog::assetIdForLayer()` 预留单点扩展。触发条件：catalog 增图层-资产显式关联。Effort: M / Priority: P2
+- **图层平台 · 图层创建时间**：manifest 无时间戳，业务页恒「—」。触发条件：layer_declarations 表加 created_at（schema 变更需评审）。Effort: S / Priority: P3
+- **图层平台 · 「删除选中」语义**：QGIS 默认动作只摘树节点不 `removeMapLayer`；若需「删树即删层」，壳侧补工程注销接线。触发条件：用户实测困惑。Effort: S / Priority: P3
 
 ## Completed
 
@@ -101,3 +106,4 @@
 - **2026-09-27 · data-fabric 采纳四包 + ribbon 并入 master**（规格 `docs/DATA_FABRIC_ADOPTION.md`）：RoleRegistry 工程词表（`d2bcaf1`）、commit-coord journal 幂等有序提交（`12aa9b1`）、EntityView+ordinal+staleness（`6e34d9d`）、IngestPlan 三段式幂等导入（`6d1f3cb`）、ribbon QGIS 主题图标+自绘补缺（`0615050`）。ctest 67/67。
 - **2026-09-26 · /autoplan 评审修复 F1–F8（九分支并入 master）**：画布绑定工程 + `m_instances` 悬空清理 + 无基准 ENGCRS 替换 eqc + 打开失败对话框；TimeDepthTool 重写（文件序/不钳制/三原因/MD 回退）；外链 SHA-256 入库复验 + 同 sha 去重 + 路径净化；C 阶段 isochron×IDW²(Vint) 厚度链（凸包裁剪、删错误相化）+ 残差语义（10ms/边界/三类原因行/20井全表）；发布门（pdf_asset_id+sha256+残差完备+OUTPUT 登记+chip 禁用）；预览层（splitter 位置/井下拉/剖面标定/关联列+未决徽标）；文件夹导入后端（两阶段排序/软链跳过/行序对齐）+ 确认表 UI；ONNX 411×641 硬门 + 真服务接线。`5972466` `8a23d01` `0f02fc3` `781914e` `0b8de17` `6735dcf` `e399ddf` `5bb80bc` `4c0f575` `f084e28` `090ffa2`
 
+- **2026-09-27 · 图层平台（wave/layer-platform）**：三编图页共用底座——LayerTreePanel（工具条/筛选/全量右键/层位灰显+缺源警示 indicator，objectName 兼容）、LayerPropertiesDialog（原生属性壳经 addPropertiesPageFactory 挂 Paleo 业务页 + QgsMapLayerStyleManager 预设/qml）、QgisLayerProfileService（QgsMapThemeCollection 页面档案 page:* + 声明驱动组匹配 + 悬空修剪 + setLayoutMapTheme）、LayerProfileBar（主题下拉/保存/管理）。壳接线 +61 行。ctest 75/75。`6834294`…`17f623e`

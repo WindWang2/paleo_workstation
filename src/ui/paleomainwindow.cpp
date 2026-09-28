@@ -41,6 +41,10 @@
 #include "datapreview/datapreviewtabs.h"
 #include "../catalog/datacatalog.h"
 #include "horizonchipbar.h"
+#include "layers/layertreepanel.h"
+#include "layers/layerpropertiesdialog.h"
+#include "layers/layerprofilebar.h"
+#include "../qgis/qgislayerprofile.h"
 #include "layoutdesignershell.h"
 #include "webviewpanel.h"
 #include "edittools/editingtoolbar.h"
@@ -454,46 +458,57 @@ void PaleoMainWindow::buildShell()
 
   setCentralWidget(m_centerStack);
 
-  // ---- left dock: layer tree on the project's declared tree ----
+  // ---- left dock: 图层平台（档案工具条 + 图层树面板），替换裸 QgsLayerTreeView ----
   m_leftDock = new PaleoDockWidget(QStringLiteral("图层"), this);
   m_leftDock->setObjectName(QStringLiteral("layerTreeDock"));
-  EmptyStateLabel *treeEmpty = nullptr;
   if (m_projectSvc && m_projectSvc->project() && m_projectSvc->project()->layerTreeRoot())
   {
-    auto *treeView = new QgsLayerTreeView(m_leftDock);
-    treeView->setObjectName(QStringLiteral("layerTreeView"));
-    auto *treeModel = new QgsLayerTreeModel(m_projectSvc->project()->layerTreeRoot(), treeView);
-    treeModel->setFlag(QgsLayerTreeModel::AllowNodeReorder);
-    treeModel->setFlag(QgsLayerTreeModel::AllowNodeRename);
-    treeModel->setFlag(QgsLayerTreeModel::AllowNodeChangeVisibility);
-    treeView->setModel(treeModel);
-    // 图层树默认动作（QGIS_NATIVE_ADOPTION）：QgsLayerTreeViewDefaultActions
-    // 在 gui 已安装——用它组右键菜单；QgsLayerTreeViewMenuProvider 是
-    // app-only（头不安装），不链接。
-    if (QgsMapCanvas *cv = m_canvasCtl ? m_canvasCtl->canvas() : nullptr)
+    // 页面档案服务 + 属性对话框 + 面板组装（objectName 兼容由面板自持：
+    // layerTreeView / layerTreeEmptyState，tst_ui 依赖）。
+    m_profileSvc = new QgisLayerProfileService(m_projectSvc->project(), this);
+    m_profileSvc->setLayerService(m_layerSvc);
+    m_layerProps = new LayerPropertiesDialog(
+        m_layerSvc,
+        {m_canvasCtl ? m_canvasCtl->canvas() : nullptr, nullptr}, this);
+    m_layerPanel = new LayerTreePanel(
+        m_projectSvc->project(), m_canvasCtl ? m_canvasCtl->canvas() : nullptr,
+        m_layerSvc, m_leftDock);
+    m_profileSvc->setLayerTreeModel(m_layerPanel->layerTreeModel());
+    m_profileBar = new LayerProfileBar(m_profileSvc, m_leftDock);
+    connect(m_layerPanel, &LayerTreePanel::propertiesRequested, m_layerProps,
+            &LayerPropertiesDialog::openLayerProperties);
+    connect(m_layerPanel, &LayerTreePanel::mappingPageRequested, this,
+            &PaleoMainWindow::showPage);
+    connect(m_layerProps, &LayerPropertiesDialog::assetInspectionRequested, this,
+            [this](const QString &) { showPage(QStringLiteral("data")); });
+    // 层位切换 → 重放页面档案：horizonReleased 早于 activeHorizon 落位
+    //（qgislayerservice 实测），排队到事件循环尾，钉死「先换层位（实例化/
+    // 释放）再应用主题」的时序；多信号去抖合并为一次重放。
+    if (m_layerSvc)
     {
-      auto *treeActions = new QgsLayerTreeViewDefaultActions(treeView);
-      auto *treeMenu = new QMenu(treeView);
-      treeMenu->addAction(
-          treeActions->actionZoomToLayers(cv, treeMenu));
-      treeMenu->addAction(
-          treeActions->actionZoomToSelection(cv, treeMenu));
-      treeMenu->addAction(treeActions->actionShowFeatureCount(treeMenu));
-      treeMenu->addSeparator();
-      treeMenu->addAction(treeActions->actionRenameGroupOrLayer(treeMenu));
-      treeMenu->addAction(treeActions->actionRemoveGroupOrLayer(treeMenu));
-      treeView->setContextMenuPolicy(Qt::CustomContextMenu);
-      connect(treeView, &QWidget::customContextMenuRequested, treeMenu,
-              [treeView, treeMenu](const QPoint &p) {
-                treeMenu->popup(treeView->viewport()->mapToGlobal(p));
-              });
+      const auto queueProfileReplay = [this]() {
+        if (m_profileReplayQueued)
+          return;
+        m_profileReplayQueued = true;
+        QMetaObject::invokeMethod(
+            this,
+            [this]() {
+              m_profileReplayQueued = false;
+              if (m_profileSvc)
+                m_profileSvc->applyCurrentPageProfile();
+            },
+            Qt::QueuedConnection);
+      };
+      connect(m_layerSvc, &QgisLayerService::horizonReleased, this, queueProfileReplay);
+      connect(m_layerSvc, &QgisLayerService::layerInstantiated, this, queueProfileReplay);
     }
-    m_leftDock->setWidget(treeView);
-    // T31：图层树空态——工程没有图层时给指引，不留一棵空树。
-    treeEmpty = new EmptyStateLabel(
-        QStringLiteral("图层树是空的 — 导入数据后图层会出现在这里"), treeView);
-    treeEmpty->setObjectName(QStringLiteral("layerTreeEmptyState"));
-    treeEmpty->raise();
+    auto *layerHost = new QWidget(m_leftDock);
+    auto *layerLayout = new QVBoxLayout(layerHost);
+    layerLayout->setContentsMargins(0, 0, 0, 0);
+    layerLayout->setSpacing(0);
+    layerLayout->addWidget(m_profileBar);
+    layerLayout->addWidget(m_layerPanel, 1);
+    m_leftDock->setWidget(layerHost);
   }
   else
   {
@@ -501,15 +516,12 @@ void PaleoMainWindow::buildShell()
   }
   addDockWidget(Qt::LeftDockWidgetArea, m_leftDock);
 
-  // 图层增删驱动两个空态（T31）：图层集为空 → 露出指引；否则收起。
+  // 地图空态随工程图层集显隐（T31）；图层树空态由 LayerTreePanel 自持。
   if (QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr)
   {
-    const auto updateEmptyStates = [proj, mapEmpty, treeEmpty]() {
-      const bool empty = proj->mapLayers().isEmpty();
+    const auto updateEmptyStates = [proj, mapEmpty]() {
       if (mapEmpty)
-        mapEmpty->setVisible(empty);
-      if (treeEmpty)
-        treeEmpty->setVisible(empty);
+        mapEmpty->setVisible(proj->mapLayers().isEmpty());
     };
     updateEmptyStates();
     connect(proj, &QgsProject::layersAdded, this,
@@ -889,6 +901,15 @@ void PaleoMainWindow::showPage(const QString &pageId)
       m_leftDock->setProgrammaticVisible(true);
     if (m_bottomDock && m_bottomDock->userWantsVisible())
       m_bottomDock->setProgrammaticVisible(true);
+  }
+
+  // 图层平台：页面档案——不同页面激活不同图层组（QgsMapThemeCollection，
+  // data 页 no-op）；档案工具条同步当前页指示。
+  if (m_profileSvc)
+  {
+    m_profileSvc->applyPageProfile(pageId);
+    if (m_profileBar)
+      m_profileBar->setCurrentPage(pageId);
   }
 
 

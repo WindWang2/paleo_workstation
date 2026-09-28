@@ -50,7 +50,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QMessageBox>
 #include <QPainter>
+#include <QPointer>
 #include <QMouseEvent>
 #include <QPdfDocument>
 #include <QPdfView>
@@ -2604,6 +2606,41 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         "QToolButton:hover { background: #EDF1F5; border-color: #1B73D0; }"));
     timeBarLay->addWidget(btnFitTime);
 
+    // vendor/sbm Engine：转码 .sf3c 工作区后切片/剖面走随机访问后端。
+    auto *btnTranscode = new QToolButton(timeBar);
+    btnTranscode->setText(tr("转码工作区"));
+    btnTranscode->setToolTip(tr("将 SEG-Y 转码为 .sf3c 分片工作区（可续跑）；转码后切片与任意剖面走随机访问后端"));
+    btnTranscode->setStyleSheet(QStringLiteral(
+        "QToolButton { background: transparent; border: 1px solid #DFE5EC; border-radius: 4px; padding: 2px 8px; font-size: 8.5pt; color: #24303E; }"
+        "QToolButton:hover { background: #EDF1F5; border-color: #1B73D0; }"));
+    btnTranscode->setEnabled(!abs.isEmpty() && QFile::exists(abs)
+                             && !QFile::exists(abs + QStringLiteral(".sf3c.meta")));
+    timeBarLay->addWidget(btnTranscode);
+    connect(btnTranscode, &QToolButton::clicked, host, [this, abs, btnTranscode]() {
+      auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
+      if (!svc)
+        return;
+      const auto answer = QMessageBox::question(
+          btnTranscode, tr("转码地震工作区"),
+          tr("将 %1 转码为 .sf3c 分片工作区（体积与源文件同量级）。\n"
+             "过程可取消并续跑；完成后切片与任意剖面走随机访问后端。")
+              .arg(QFileInfo(abs).fileName()));
+      if (answer != QMessageBox::Yes)
+        return;
+      btnTranscode->setEnabled(false);
+      btnTranscode->setText(tr("转码中…（任务面板可取消）"));
+      const QPointer<QToolButton> guard(btnTranscode);
+      svc->startWorkspaceTranscode(abs, QString(),
+                                   [guard](bool ok, const QString &, const QString &err) {
+        if (!guard)
+          return;
+        guard->setText(ok ? QObject::tr("工作区已就绪") : QObject::tr("转码工作区"));
+        guard->setEnabled(!ok);
+        if (!ok && !err.isEmpty())
+          QMessageBox::warning(guard, QObject::tr("转码未完成"), err);
+      });
+    });
+
     timeBarLay->addStretch(1);
     layTime->addWidget(timeBar);
 
@@ -2650,19 +2687,48 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       }
     };
 
-    const auto updateTimeSlice = [sharedVol, timeCanvas, lblTimeMs](int sampleIndex) {
+    // 时间片走任务服务：sdk::Dataset 在已转码时命中工作区随机访问后端；
+    // 未转码走 Direct（同一份 SgyVolume 实现）。防抖 120ms，仅贴最新请求。
+    auto *sliceDebounce = new QTimer(host);
+    sliceDebounce->setSingleShot(true);
+    sliceDebounce->setInterval(120);
+    const auto pendingIdx = std::make_shared<int>(-1);
+    const auto requestTimeSlice = [this, sharedVol, timeCanvas, lblTimeMs, pendingIdx](int sampleIndex) {
       if (!*sharedVol || !(*sharedVol)->IsLoaded())
         return;
       const auto vol = *sharedVol;
       const double ms = sampleIndex * (vol->SampleIntervalUs() / 1000.0);
       lblTimeMs->setText(QStringLiteral("%1 ms").arg(ms, 0, 'f', 1));
 
+      auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
+      const QPointer<seismic::SeismicSectionCanvas> canvasGuard(timeCanvas);
+      if (svc)
+      {
+        svc->startSliceExtraction(
+            vol, seismic::SgySliceType::Time, sampleIndex,
+            [canvasGuard, pendingIdx, sampleIndex, ms, vol](
+                bool ok, std::shared_ptr<const seismic::SgySliceImage> img, const QString &) {
+              if (!ok || !img || !canvasGuard || *pendingIdx != sampleIndex)
+                return;
+              canvasGuard->setTimeSliceData(*img, ms, vol->InlineMin(), vol->InlineMax(),
+                                            vol->XlineMin(), vol->XlineMax());
+            });
+        return;
+      }
       seismic::SgySliceImage img;
       std::string err;
       if (vol->ExtractSlice(seismic::SgySliceType::Time, sampleIndex, img, err))
       {
         timeCanvas->setTimeSliceData(img, ms, vol->InlineMin(), vol->InlineMax(), vol->XlineMin(), vol->XlineMax());
       }
+    };
+    connect(sliceDebounce, &QTimer::timeout, host, [pendingIdx, requestTimeSlice]() {
+      if (*pendingIdx >= 0)
+        requestTimeSlice(*pendingIdx);
+    });
+    const auto updateTimeSlice = [pendingIdx, sliceDebounce](int sampleIndex) {
+      *pendingIdx = sampleIndex;
+      sliceDebounce->start();
     };
 
     connect(sliderTime, &QSlider::valueChanged, host, [spinTime, updateTimeSlice](int val) {

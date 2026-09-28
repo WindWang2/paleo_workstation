@@ -135,7 +135,7 @@ set_target_properties(paleo_sbm PROPERTIES AUTOMOC OFF AUTORCC OFF AUTOUIC OFF)
 find_library(SBM_ZSTD_LIB zstd)
 find_path(SBM_ZSTD_INCLUDE zstd.h)
 if(SBM_ZSTD_LIB AND SBM_ZSTD_INCLUDE)
-  target_compile_definitions(paleo_sbm PRIVATE SEISMIC_HAVE_ZSTD)
+  target_compile_definitions(paleo_sbm PUBLIC SEISMIC_HAVE_ZSTD) # PUBLIC：消费方按此选 codec
   target_include_directories(paleo_sbm SYSTEM PRIVATE ${SBM_ZSTD_INCLUDE})
   target_link_libraries(paleo_sbm PRIVATE ${SBM_ZSTD_LIB})
 endif()

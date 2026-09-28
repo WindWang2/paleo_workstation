@@ -66,6 +66,14 @@ public:
       const SgySectionOptions &options,
       std::function<void(bool success, std::shared_ptr<const SgySliceImage> image, const SgySectionStats &stats, const QString &error)> onFinished);
 
+  // 4. SEG-Y → .sf3c 工作区转码（engine TranscodeJob，可续跑/可取消）。
+  //    workspaceBase 为空时按 Auto 约定取 <sgyPath> 本身（产出 <sgy>.sf3c.meta +
+  //    <sgy>.sf3.sNNN 分片）；成功后 sdk::Dataset 的 Auto 后端自动升级随机访问。
+  PaleoTask *startWorkspaceTranscode(
+      const QString &sgyPath,
+      const QString &workspaceBase,
+      std::function<void(bool success, const QString &workspaceDir, const QString &error)> onFinished);
+
 signals:
   void indexingFinished(const QString &sgyPath, bool success);
 

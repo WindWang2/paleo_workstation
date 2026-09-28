@@ -9,7 +9,9 @@
 #include <QTimer>
 
 #include "Engine/Sdk.h"
+#include "Engine/TranscodeJob.h"
 #include "Engine/Types.h"
+#include "Engine/WorkspaceFormat.h"
 
 #include "domain/seismic/sgyindexbuilder.h"
 #include "domain/seismic/sgyindexcache.h"
@@ -305,7 +307,54 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
   auto outImage = std::make_shared<SgySliceImage>();
   auto outStats = std::make_shared<SgySectionStats>();
 
-  auto work = [volume, pathPoints, options, outImage, outStats](PaleoTask *task) -> QString {
+  const QString sgyPath = QString::fromStdString(sgyio::ToUtf8Path(volume->Index()->path));
+  const auto entry = datasetEntryFor(sgyPath);
+
+  auto work = [volume, entry, pathPoints, options, outImage, outStats](PaleoTask *task) -> QString {
+    if (entry && entry->dataset)
+    {
+      engine::CancelToken cancel;
+      cancel.SetPredicate([task]() { return task->cancelRequested(); });
+      engine::SectionRequest request;
+      request.pathPoints.reserve(pathPoints.size());
+      for (const glm::ivec2 &p : pathPoints)
+        request.pathPoints.push_back({p.x, p.y});
+      request.interpolate = options.interpolate;
+      request.keepOutsideColumns = options.keepOutsideColumns;
+      request.maxColumns = options.maxColumns;
+      request.useReadPlan = true; // 去重+升序+范围合并的扇区读
+
+      engine::Slice2D slice;
+      engine::Status status;
+      {
+        QMutexLocker lock(&entry->mutex);
+        status = entry->dataset->ReadSection(request, slice, &cancel);
+      }
+      if (status.ok())
+      {
+        outImage->width = slice.width;
+        outImage->height = slice.height;
+        outImage->valueMin = slice.valueMin;
+        outImage->valueMax = slice.valueMax;
+        outImage->values = std::move(slice.values);
+        outImage->rgba = std::move(slice.rgba);
+        outStats->columns = slice.width;
+        outStats->tracesRead = slice.columnsRead;
+        outStats->columnDistances = std::move(slice.distances);
+        int missing = 0;
+        std::vector<int> traces = std::move(slice.traceIndices);
+        for (int t : traces)
+          missing += (t < 0) ? 1 : 0;
+        outStats->missingColumns = missing;
+        outStats->uniqueTraces = static_cast<int>(traces.size()) - missing;
+        task->reportBytes(slice.width * slice.height, slice.width * slice.height);
+        return QString();
+      }
+      if (status.code == engine::StatusCode::Cancelled || task->cancelRequested())
+        return QString();
+      // 引擎路径失败回落逐道构建
+    }
+
     std::string err;
     auto progress = [task](int processed, int total) -> bool {
       if (task->cancelRequested())
@@ -342,6 +391,71 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
     }
   });
 
+  return task;
+}
+
+PaleoTask *SeismicTaskService::startWorkspaceTranscode(
+    const QString &sgyPath,
+    const QString &workspaceBase,
+    std::function<void(bool, const QString &, const QString &)> onFinished)
+{
+  if (!taskService_)
+  {
+    if (onFinished)
+      onFinished(false, QString(), QStringLiteral("PaleoTaskService not set"));
+    return nullptr;
+  }
+
+  // Auto 约定：workspaceBase = SEG-Y 路径本身（产出 <sgy>.sf3c.meta + .sf3.sNNN）
+  const QString base = workspaceBase.isEmpty() ? sgyPath : workspaceBase;
+  const QString title = tr("转码地震工作区: %1").arg(QFileInfo(sgyPath).fileName());
+  auto outBase = std::make_shared<QString>(base);
+
+  auto work = [sgyPath, base](PaleoTask *task) -> QString {
+    engine::CancelToken cancel;
+    cancel.SetPredicate([task]() { return task->cancelRequested(); });
+    auto progress = [task](const engine::TranscodeProgress &p) -> bool {
+      if (task->cancelRequested())
+        return false;
+      task->reportBytes(p.chunksDone + p.chunksSkipped, p.chunksTotal);
+      task->reportDetail(QCoreApplication::translate(
+          "seismic::SeismicTaskService", "阶段 %1 · 块 %2/%3 · 已写 %4 MB")
+              .arg(QString::fromStdString(p.phase))
+              .arg(p.chunksDone)
+              .arg(p.chunksTotal)
+              .arg(p.bytesWritten / (1024 * 1024)));
+      return true;
+    };
+
+    engine::TranscodeOptions options;
+#ifdef SEISMIC_HAVE_ZSTD
+    options.codec = engine::kCodecZstd;
+#endif
+    const engine::TranscodeResult result = engine::TranscodeSegyToWorkspace(
+        std::filesystem::path(sgyPath.toStdString()),
+        std::filesystem::path(base.toStdString()),
+        options, &cancel, progress);
+
+    if (!result.status.ok())
+    {
+      if (result.status.code == engine::StatusCode::Cancelled || task->cancelRequested())
+        return QString();
+      return QString::fromStdString(result.status.message);
+    }
+    return QString();
+  };
+
+  PaleoTask *task = taskService_->start(title, work);
+  connect(task, &PaleoTask::finished, this, [task, outBase, onFinished]() {
+    if (!onFinished)
+      return;
+    if (task->state() == PaleoTask::State::Succeeded)
+      onFinished(true, *outBase, QString());
+    else if (task->state() == PaleoTask::State::Cancelled)
+      onFinished(false, *outBase, tr("转码已取消（工作区可续跑）"));
+    else
+      onFinished(false, *outBase, task->errorText());
+  });
   return task;
 }
 

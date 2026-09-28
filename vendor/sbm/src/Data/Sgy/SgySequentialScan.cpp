@@ -735,9 +735,16 @@ bool ScanSegySequentially(const std::filesystem::path& path,
     bool failed = false;
 
     std::vector<char> singleBuffer;
+#ifdef _WIN32
+    // Windows async reader owns per-slot buffers; singleBuffer only serves the
+    // synchronous queueDepth==1 path.
     if(queueDepth == 1) {
         singleBuffer.assign(static_cast<std::size_t>(windowBytes), 0);
     }
+#else
+    // POSIX 阅读器恒为同步路径：singleBuffer 无论 queueDepth 都必须分配。
+    singleBuffer.assign(static_cast<std::size_t>(windowBytes), 0);
+#endif
     // Records consumed in this run (with or without checkpointing); the window
     // start check must not depend on the checkpoint being enabled.
     std::uint64_t recordsConsumed = startRecord;

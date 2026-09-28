@@ -21,7 +21,14 @@
   直接解码样本（IEEE/IBM float、int16/int32/int8）；失败回落上游逐道顺序读。
 - 依赖 `Qt6::Core`（QFile/QString）——vendor 库因此私有链接 Qt。
 
-## P3 · `src/Engine/StorageProfile.cpp` — POSIX 回退
+## P3 · `src/Data/Sgy/SgySequentialScan.cpp` — POSIX 同步读 buffer 分配
+
+上游 `singleBuffer` 仅在 `queueDepth == 1` 时分配（Windows 异步路径用
+`reader.Buffers()` 每槽独立 buffer）。POSIX 分支恒走 `singleBuffer` 同步读，
+`ClassifyPath` 返回 Unknown 时 `readQueueDepth=2` → 空 vector `.data()` 为
+nullptr → `istream::read(nullptr, bytes)` 段错误。补丁：POSIX 下无条件分配。
+
+## P4 · `src/Engine/StorageProfile.cpp` — POSIX 回退
 
 上游仅 Windows 实现（IOCTL_STORAGE_QUERY_PROPERTY）。POSIX 分支读
 `/sys/block/*/queue/rotational` 判定介质类型；探测不到返回 Unknown，

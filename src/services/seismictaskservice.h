@@ -142,7 +142,7 @@ public:
 
   // 7. SEG-Y → .sf3p 分页工作区金字塔转码（L0+L1+L2，可续跑/可取消）。
   //    产出 sf3pPath 本体与 <stem>.l1/.l2.sf3p 兄弟层级；Auto 后端不变，
-  //    需显式传 .sf3p 或 Backend::Paged（见 datasetEntryFor）。
+  //    需显式传 .sf3p 或 Backend::Paged（见 registry 条目表）。
   PaleoTask *startPagedTranscode(
       const QString &sgyPath,
       const QString &sf3pPath,

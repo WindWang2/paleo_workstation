@@ -2973,17 +2973,22 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       const QPointer<seismic::SeismicSectionCanvas> canvasGuard(timeCanvas);
       if (svc && !sharedPaged->isEmpty())
       {
-        // paged 通道：瓦片渐进（焦点=网格中心；tileSize 64 与引擎页几何匹配）
-        const int inlCount = qMax(1, static_cast<int>(vol->InlineValues().size()));
-        const int xlCount = qMax(1, static_cast<int>(vol->XlineValues().size()));
+        // paged 通道：瓦片渐进（焦点=网格中心；tileSize 64 与引擎页几何匹配）。
+        // 焦点取轴上真值（InlineValues/XlineValues 中位）——step≠1 的轴上
+        // InlineMin()+count/2 不保证存在，引擎会退回默认中心。
+        const auto &inlVals = vol->InlineValues();
+        const auto &xlVals = vol->XlineValues();
+        const int inlCount = qMax(1, static_cast<int>(inlVals.size()));
+        const int xlCount = qMax(1, static_cast<int>(xlVals.size()));
+        const int focusInl = inlVals[static_cast<std::size_t>(inlCount / 2)];
+        const int focusXl = xlVals[static_cast<std::size_t>(xlCount / 2)];
         timeCanvas->beginTimeSliceTiled(xlCount, inlCount, ms,
                                         vol->InlineMin(), vol->InlineMax(),
                                         vol->XlineMin(), vol->XlineMax());
         m_tiledCanvas = timeCanvas;
         m_tiledSample = sampleIndex;
         svc->startTimeSliceTiled(
-            *sharedPaged, sampleIndex, 64,
-            vol->InlineMin() + inlCount / 2, vol->XlineMin() + xlCount / 2,
+            *sharedPaged, sampleIndex, 64, focusInl, focusXl,
             [canvasGuard, pendingIdx, sampleIndex](bool ok,
                                                    std::shared_ptr<const seismic::SgySliceImage> img,
                                                    const QString &) {
@@ -3056,6 +3061,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       }
     });
 
+    lay->addWidget(quickInfo);
     lay->addWidget(modeTabs, 1);
     return host;
   }

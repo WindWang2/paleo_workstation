@@ -37,8 +37,8 @@ class SingleFactorRegistry
 namespace SingleFactorContracts
 {
 // welldist 距离变换：INPUT=井点图层，OUTPUT=栅格，CELL_SIZE=正数（绕障=约束线）。
-inline QString welldistEngineId();
+QString welldistEngineId();
 // confidence 置信度面：INPUT=预测结果栅格，OUTPUT=栅格（真实置信度通道，
 // 当前 ONNX 会话只读首个输出张量——接入前置在 onnxpredictionservice）。
-inline QString confidenceEngineId();
+QString confidenceEngineId();
 } // namespace SingleFactorContracts

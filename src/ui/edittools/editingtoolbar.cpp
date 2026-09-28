@@ -290,9 +290,13 @@ void PaleoEditingToolbar::setLayers( const QList<QgsVectorLayer *> &layers )
 void PaleoEditingToolbar::setProject( QgsProject *project )
 {
   mProject = project;
-  // Adopt the stored flag without writing it back (toggled would re-set).
+  // Adopt the stored flags without writing them back (toggled would re-set).
   const QSignalBlocker block( mActionTopological );
+  const QSignalBlocker blockCross( mActionCrossLayerTopo );
   mActionTopological->setChecked( project ? project->topologicalEditing() : false );
+  mActionCrossLayerTopo->setChecked(
+      project && project->readNumEntry( QStringLiteral( "paleo" ),
+                                        QStringLiteral( "crossLayerTopologicalEditing" ), 0 ) != 0 );
 }
 
 void PaleoEditingToolbar::refreshFromProject()
@@ -302,7 +306,11 @@ void PaleoEditingToolbar::refreshFromProject()
   // The persisted topo flag changes with the project — adopt it without
   // firing toggled (which would write it straight back).
   const QSignalBlocker block( mActionTopological );
+  const QSignalBlocker blockCross( mActionCrossLayerTopo );
   mActionTopological->setChecked( project && project->topologicalEditing() );
+  mActionCrossLayerTopo->setChecked(
+      project && project->readNumEntry( QStringLiteral( "paleo" ),
+                                        QStringLiteral( "crossLayerTopologicalEditing" ), 0 ) != 0 );
 }
 
 void PaleoEditingToolbar::setLayerFilter( LayerFilter filter )
@@ -463,6 +471,21 @@ void PaleoEditingToolbar::buildUi()
       project->setTopologicalEditing( on );
     if ( auto *vt = qobject_cast<PaleoVertexTool *>( mActiveEditTool.data() ) )
       vt->setTopologicalEditingEnabled( on );
+    updateActionStates(); // 跨层开关的可用性随拓扑开关联动
+  } );
+
+  // 跨层拓扑（mapping 主线2）：写集延伸到「同 CRS 且处于编辑会话的相邻层」。
+  // 参与层必须可写（native 语义），undo 按层各一步。持久化走工程自定义属性
+  // paleo/crossLayerTopologicalEditing（随 .qgz）。仅在拓扑编辑开启时可用。
+  mActionCrossLayerTopo = newToolAction( tr( "跨层" ), tr( "跨层拓扑：共点节点延伸到同 CRS 的其他编辑层（各层 undo 独立）" ),
+                                         QStringLiteral( "mActionTopologicalEditing.svg" ) );
+  mActionCrossLayerTopo->setObjectName( QStringLiteral( "actionCrossLayerTopo" ) );
+  connect( mActionCrossLayerTopo, &QAction::toggled, this, [this]( bool on ) {
+    QgsProject *project = mProject ? mProject.data() : QgsProject::instance();
+    if ( project )
+      project->writeEntry( QStringLiteral( "paleo" ), QStringLiteral( "crossLayerTopologicalEditing" ), on );
+    if ( auto *vt = qobject_cast<PaleoVertexTool *>( mActiveEditTool.data() ) )
+      vt->setCrossLayerTopologyEnabled( on );
   } );
 
   mToolBar->addSeparator();
@@ -592,6 +615,9 @@ void PaleoEditingToolbar::updateActionStates()
   for ( QAction *action : { mActionAddFeature, mActionMove, mActionDeleteFeatures,
                             mActionVertexEdit, mActionTopological } )
     gate( action, noEdit );
+  // 跨层拓扑叠加在拓扑编辑之上：拓扑关或不可编辑 → 禁用并带 reason。
+  gate( mActionCrossLayerTopo, !noEdit.isEmpty() ? noEdit
+          : !mActionTopological->isChecked() ? tr( "先开启拓扑编辑，再考虑跨层联动" ) : QString() );
   const auto geometryGate = [&]( QAction *action, Qgis::GeometryType geometry,
                                   const QString &reason ) {
     gate( action, !noEdit.isEmpty() ? noEdit
@@ -709,6 +735,7 @@ void PaleoEditingToolbar::onEditToolTriggered()
   {
     auto *vt = new PaleoVertexTool( mCanvas, target );
     vt->setTopologicalEditingEnabled( mActionTopological->isChecked() );
+    vt->setCrossLayerTopologyEnabled( mActionCrossLayerTopo->isChecked() );
     tool = wireAborted( vt );
   }
 

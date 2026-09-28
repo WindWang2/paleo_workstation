@@ -93,6 +93,9 @@ class PaleoEditingToolbar : public QWidget
     // checkable, mirrors the project's topologicalEditing flag (persisted in
     // .qgz), pushes live into an armed PaleoVertexTool.
     QAction *actionTopological() const { return mActionTopological; }
+    // 跨层拓扑（主线2）：checkable 叠加开关，仅拓扑开启时可用；镜像工程条目
+    // paleo/crossLayerTopologicalEditing（writeEntry，随 .qgz 持久化）。
+    QAction *actionCrossLayerTopo() const { return mActionCrossLayerTopo; }
     QAction *actionSave() const { return mActionSave; }
     QAction *actionCancel() const { return mActionCancel; }
     QAction *actionUndo() const { return mActionUndo; }
@@ -148,7 +151,8 @@ class PaleoEditingToolbar : public QWidget
     QAction *mActionMove = nullptr;
     QAction *mActionDeleteFeatures = nullptr;
     QAction *mActionVertexEdit = nullptr;
-    QAction *mActionTopological = nullptr; // mode toggle, not in toolGroup
+    QAction *mActionTopological = nullptr;    // mode toggle, not in toolGroup
+    QAction *mActionCrossLayerTopo = nullptr; // mode toggle gated on mActionTopological
     QAction *mActionSave = nullptr;
     QAction *mActionCancel = nullptr;
     QAction *mActionUndo = nullptr;

@@ -3,6 +3,7 @@
 #include <QPainter>
 #include <QImage>
 #include <QDir>
+#include <QFile>
 
 // wave/ux-polish：视觉取证截图只经 PALEO_UI_CAPTURE 开关落盘（tst_ui.cpp
 // 同款惯例）——路径形如 $PALEO_UI_CAPTURE/<name>.png，未设则完全跳过；
@@ -226,6 +227,9 @@ private slots:
   {
     const QString xmlPath = QStringLiteral(
         "/home/kevin/projects/paleo_project/data/project_area/artifacts/raw/ast-28/ver-28/HZ28-6-1井综合柱状图-2021-沉积-地化室-未钻遇烃源岩层-测井-惠州勘探室.xml");
+    // 真实数据仅存在于开发机私有目录，CI/其他环境跳过而非 FAIL
+    if (!QFile::exists(xmlPath))
+      QSKIP("真实井综合柱状图 XML 不在本机，跳过");
 
     ComprehensiveWellData data;
     QString err;
@@ -250,6 +254,9 @@ private slots:
   {
     const QString xmlPath = QStringLiteral(
         "/home/kevin/projects/paleo_project/data/project_area/artifacts/raw/ast-28/ver-28/HZ28-6-1井综合柱状图-2021-沉积-地化室-未钻遇烃源岩层-测井-惠州勘探室.xml");
+    // 真实数据仅存在于开发机私有目录，CI/其他环境跳过而非 FAIL
+    if (!QFile::exists(xmlPath))
+      QSKIP("真实井综合柱状图 XML 不在本机，跳过");
 
     WellCompositePanel panel;
     panel.resize(1200, 800);

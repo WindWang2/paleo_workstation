@@ -1,5 +1,6 @@
 // 层：组装根
 #include "appcontext.h"
+#include "../workflow/mappingworkbench.h"
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header; instantiation is PALEO_HAVE_ORT-guarded
 #include "../qgis/qgisruntime.h"
@@ -164,6 +165,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 #endif
   m_constraintWf = new ConstraintWorkflow(m_procSvc, m_layerSvc, this);
   m_constraintWf->setStore(m_store); // GeoPackage constraint persistence (wave/constraint-gpkg)
+  m_mappingWorkbench = new MappingWorkbench(m_layerSvc, m_procSvc, m_projectSvc, m_constraintWf, this);
   m_compositionWf = new CompositionWorkflow(m_procSvc, m_layerSvc, this);
   m_validationWf = new ValidationWorkflow(m_layerSvc, m_store, this);
 
@@ -276,6 +278,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               m_predictionWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_constraintWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_compositionWf->setCatalog(derivedCatalog, fi.absolutePath());
+              m_mappingWorkbench->bindCatalog(derivedCatalog, fi.absolutePath());
             }
 #if PALEO_HAVE_ORT
             // onnx:* 模型按层位钉在 <工程目录>/models/*.onnx。

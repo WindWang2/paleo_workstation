@@ -27,6 +27,7 @@ namespace
         : QObject(action), m_action(action), m_button(button), m_syncText(syncText),
           m_baseTip(action->toolTip())
       {
+        setObjectName(QStringLiteral("paleoButtonMirror"));
         button->installEventFilter(this);
         QObject::connect(action, &QAction::triggered, this, [this] {
           if (m_button && m_button->isEnabled())
@@ -123,6 +124,7 @@ namespace PaleoRibbon
   {
     if (!action || !button)
       return;
+    if (auto *old=action->findChild<QObject *>(QStringLiteral("paleoButtonMirror"))) delete old;
     new ButtonMirror(action, button, syncText);
     if (hideSource)
       button->hide();

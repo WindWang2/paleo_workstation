@@ -78,7 +78,12 @@ bool generateContours( const QString &rasterPath, const QString &outputGpkg,
   }
 
   OGRSpatialReferenceH srs = const_cast<OGRSpatialReferenceH>( GDALGetSpatialRef( src ) );
+  OGRSpatialReferenceH preserved = nullptr;
+  if(const char *wkt=GDALGetMetadataItem(src,"PALEO_CRS_WKT",nullptr)) {
+    preserved=OSRNewSpatialReference(wkt);if(preserved)srs=preserved;
+  }
   OGRLayerH layer = GDALDatasetCreateLayer( ds, "contours", srs, wkbLineString, nullptr );
+  if(preserved)OSRDestroySpatialReference(preserved);
   if ( !layer )
   {
     setError( error, QStringLiteral( "cannot create layer 'contours' in '%1'" ).arg( outputGpkg ) );

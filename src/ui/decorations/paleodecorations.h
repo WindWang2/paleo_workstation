@@ -3,6 +3,7 @@
 
 #include <QList>
 #include <QObject>
+#include <QVariantList>
 #include <memory>
 
 #include <qgsmapdecoration.h>
@@ -66,6 +67,14 @@ class PaleoWatermarkDecoration : public QgsMapDecoration
     QString mText = QStringLiteral( "临时配准 · 手工仿射" );
 };
 
+class PaleoFaciesLegendDecoration : public QgsMapDecoration
+{
+public:
+  QString title;
+  QVariantList facies;
+  void render(const QgsMapSettings &, QgsRenderContext &context) override;
+};
+
 class QWidget;
 
 // Toggles decoration overlays on a QgsMapCanvas. Parented to the canvas by
@@ -77,6 +86,9 @@ class PaleoDecorationManager : public QObject
   public:
     explicit PaleoDecorationManager( QgsMapCanvas *canvas, QObject *parent = nullptr );
 
+    void setFaciesLegend(const QString &title, const QVariantList &facies);
+    QString legendTitle() const { return mLegend->title; }
+    QVariantList legendFacies() const { return mLegend->facies; }
     void setScaleBarEnabled( bool enabled );
     void setNorthArrowEnabled( bool enabled );
     void setGridEnabled( bool enabled );
@@ -103,6 +115,8 @@ class PaleoDecorationManager : public QObject
     QWidget *mOverlay = nullptr;
 
     // Owned decoration instances; enabled flags gate which are painted.
+    std::unique_ptr<PaleoFaciesLegendDecoration> mLegend;
+    bool mLegendEnabled = false;
     std::unique_ptr<PaleoScaleBarDecoration> mScaleBar;
     std::unique_ptr<PaleoNorthArrowDecoration> mNorthArrow;
     std::unique_ptr<PaleoGridDecoration> mGrid;

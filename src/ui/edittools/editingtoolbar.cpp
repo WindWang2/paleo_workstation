@@ -247,6 +247,7 @@ PaleoEditingToolbar::PaleoEditingToolbar( QgsMapCanvas *canvas, QWidget *parent 
   connect( mUndoStack.get(), &PaleoUndoStack::canUndoChanged, this, &PaleoEditingToolbar::updateActionStates );
   connect( mUndoStack.get(), &PaleoUndoStack::canRedoChanged, this, &PaleoEditingToolbar::updateActionStates );
   updateActionStates();
+  watchProject( nullptr ); // 默认监听进程级 QgsProject::instance()
 }
 
 PaleoEditingToolbar::~PaleoEditingToolbar()
@@ -289,7 +290,14 @@ void PaleoEditingToolbar::setLayers( const QList<QgsVectorLayer *> &layers )
 
 void PaleoEditingToolbar::setProject( QgsProject *project )
 {
+  QgsProject *previous = mProject ? mProject.data() : QgsProject::instance();
+  // 工程边界（主线3）：编辑中的图层属于旧工程——切走前先收尾会话
+  //（提交优先、失败回滚），不能等图层随旧工程析构丢缓冲。
+  if ( isEditing() && project != previous )
+    finalizeSession( tr( "切换工程：编辑%1" ) );
+
   mProject = project;
+  watchProject( project );
   // Adopt the stored flags without writing them back (toggled would re-set).
   const QSignalBlocker block( mActionTopological );
   const QSignalBlocker blockCross( mActionCrossLayerTopo );
@@ -832,6 +840,74 @@ bool PaleoEditingToolbar::saveEditing()
   refreshCombo();
   updateActionStates(); // commit cleared the native stack → undo/redo off
   return true;
+}
+
+void PaleoEditingToolbar::finalizeSession( const QString &reason )
+{
+  QgsVectorLayer *layer = mEditLayer;
+  if ( !layer || !layer->isEditable() )
+    return; // 无会话（或会话已在外部结束）：幂等
+
+  QString err;
+  bool saved = mEditingService ? mEditingService->commitEdit( layer, &err )
+                               : layer->commitChanges();
+  if ( !saved )
+  {
+    // Provider 拒绝提交：工程边界上不能保留会话——回滚兜底（错误经 reason 上报）。
+    saved = false;
+    if ( !( mEditingService ? mEditingService->rollbackEdit( layer ) : layer->rollBack() ) )
+      emit editRefused( tr( "回滚图层 %1 失败" ).arg( layer->name() ) );
+  }
+
+  const QString id = layer->id();
+  mEditLayer = nullptr;
+  installTool( nullptr );
+  uncheckEditTools( this );
+  emit editingStopped( id, saved );
+  emit editRefused( reason.arg( saved ? tr( "已提交" ) : tr( "已放弃" ) ) );
+  refreshCombo();
+  updateActionStates(); // 提交/回滚清空 native undo 栈
+}
+
+void PaleoEditingToolbar::watchProject( QgsProject *project )
+{
+  QgsProject *watched = project ? project : QgsProject::instance();
+  if ( mWatchedProject == watched )
+    return;
+  if ( mWatchedProject )
+  {
+    disconnect( mWatchedProject.data(),
+                qOverload<const QStringList &>( &QgsProject::layersWillBeRemoved ), this, nullptr );
+    disconnect( mWatchedProject.data(), &QgsProject::cleared, this, nullptr );
+  }
+  mWatchedProject = watched;
+  if ( !watched )
+    return;
+
+  // 编辑层即将被移除（含 clear()/切工程 的移除波）：先收尾会话——此时图层
+  // 对象仍活着，提交窗口还在；拖到析构就只能是静默丢缓冲。
+  connect( watched, qOverload<const QStringList &>( &QgsProject::layersWillBeRemoved ), this,
+           [this]( const QStringList &ids ) {
+             if ( !mEditLayer || !ids.contains( mEditLayer->id() ) )
+               return;
+             finalizeSession( tr( "编辑图层被移除：编辑%1" ) );
+           } );
+  // clear() 收尾波（layersWillBeRemoved 已处理会话；这里只清残余状态）。
+  connect( watched, &QgsProject::cleared, this, [this] {
+    if ( !mEditLayer )
+    {
+      updateActionStates();
+      return;
+    }
+    const QString id = mEditLayer->id();
+    mEditLayer = nullptr; // 缓冲随层析构丢弃
+    installTool( nullptr );
+    uncheckEditTools( this );
+    emit editingStopped( id, false );
+    emit editRefused( tr( "工程已清空：编辑已丢弃" ) );
+    refreshCombo();
+    updateActionStates();
+  } );
 }
 
 bool PaleoEditingToolbar::cancelEditing()

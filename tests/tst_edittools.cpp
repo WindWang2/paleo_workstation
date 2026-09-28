@@ -184,6 +184,10 @@ class TestEditTools : public QObject
     void toolbarSavePersistsAndClearsUndo();
     void toolbarCancelDiscardsEdits();
     void toolbarSaveRefusedOutsideSession();
+    // ---- mapping 主线3：编辑会话生命周期加固 ----
+    void toolbarProjectSwitchFinalizesSession();
+    void toolbarProjectClearedDropsSessionCleanly();
+    void toolbarUndoBoundaryAfterProjectFinalize();
 
     // g) abort paths
     void addAbortPaths();
@@ -2886,6 +2890,110 @@ void TestEditTools::toolbarSaveRefusedOutsideSession()
 // ---------------------------------------------------------------------------
 // g) abort paths
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// mapping 主线3：编辑会话生命周期加固（工程边界收尾）
+// ---------------------------------------------------------------------------
+
+void TestEditTools::toolbarProjectSwitchFinalizesSession()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Point?crs=EPSG:4326&field=id:integer" ),
+                        QStringLiteral( "switch-l" ), QStringLiteral( "memory" ) );
+  QVERIFY( layer.isValid() );
+  seedFeature( layer, QgsGeometry::fromPointXY( QgsPointXY( 7, 7 ) ) ); // 会话外种子（provider 面）
+
+  QgsProject projectA;
+  QgsProject projectB;
+
+  PaleoEditingToolbar bar( &canvas );
+  bar.setLayers( { &layer } );
+  bar.setProject( &projectA );
+  QSignalSpy stoppedSpy( &bar, &PaleoEditingToolbar::editingStopped );
+  QSignalSpy refusedSpy( &bar, &PaleoEditingToolbar::editRefused );
+
+  QVERIFY( bar.startEditing() );
+  addPointCommand( &layer, 8 ); // 会话内编辑
+  QCOMPARE( layer.undoStack()->count(), 1 );
+
+  // 切工程：会话在旧工程侧收尾（提交优先），不留给图层析构。
+  bar.setProject( &projectB );
+  QCOMPARE( stoppedSpy.count(), 1 );
+  QCOMPARE( stoppedSpy.at( 0 ).at( 1 ).toBool(), true ); // committed
+  QVERIFY( refusedSpy.count() >= 1 );
+  QVERIFY( refusedSpy.at( refusedSpy.count() - 1 ).at( 0 ).toString().contains( QStringLiteral( "切换工程" ) ) );
+  QVERIFY( !bar.isEditing() );
+  QCOMPARE( layer.featureCount(), 2 ); // 提交生效
+  QCOMPARE( layer.undoStack()->count(), 0 ); // commit 清栈
+
+  // 收尾后无会话：再次 setProject 幂等、不再发 editingStopped。
+  const int stoppedBefore = stoppedSpy.count();
+  bar.setProject( &projectA );
+  QCOMPARE( stoppedSpy.count(), stoppedBefore );
+}
+
+void TestEditTools::toolbarProjectClearedDropsSessionCleanly()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  // 堆图层归工程所有：clear() 移除并析构——会话必须在移除波里收尾。
+  auto *layer = new QgsVectorLayer( QStringLiteral( "Point?crs=EPSG:4326&field=id:integer" ),
+                                    QStringLiteral( "clear-l" ), QStringLiteral( "memory" ) );
+  QVERIFY( layer->isValid() );
+  seedFeature( *layer, QgsGeometry::fromPointXY( QgsPointXY( 3, 3 ) ) ); // 提交面种子
+  QgsProject project;
+  project.addMapLayer( layer );
+
+  PaleoEditingToolbar bar( &canvas );
+  bar.setLayers( { layer } );
+  bar.setProject( &project );
+  QSignalSpy stoppedSpy( &bar, &PaleoEditingToolbar::editingStopped );
+
+  QVERIFY( bar.startEditing() ); // 会话归工具条持有
+  addPointCommand( layer, 5 );
+
+  project.clear(); // layersWillBeRemoved → finalizeSession（提交）→ 图层析构
+
+  QCOMPARE( stoppedSpy.count(), 1 );
+  QCOMPARE( stoppedSpy.at( 0 ).at( 1 ).toBool(), true );
+  QVERIFY( !bar.isEditing() );
+  QVERIFY( bar.currentLayer() == nullptr || bar.currentLayer() != layer ); // 悬空引用不外泄
+}
+
+void TestEditTools::toolbarUndoBoundaryAfterProjectFinalize()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Point?crs=EPSG:4326&field=id:integer" ),
+                        QStringLiteral( "undo-b" ), QStringLiteral( "memory" ) );
+  QVERIFY( layer.isValid() );
+  QgsProject projectA;
+  QgsProject projectB;
+
+  PaleoEditingToolbar bar( &canvas );
+  bar.setLayers( { &layer } );
+  bar.setProject( &projectA );
+
+  QVERIFY( bar.startEditing() );
+  addPointCommand( &layer, 1 );
+  QVERIFY( bar.actionUndo()->isEnabled() ); // 会话内可撤销
+
+  // 工程边界收尾 = 版本边界（§34：undo 不跨版本）——提交后 undo/redo 全关。
+  bar.setProject( &projectB );
+  QVERIFY( !bar.isEditing() );
+  QVERIFY( !bar.actionUndo()->isEnabled() );
+  QVERIFY( !bar.actionRedo()->isEnabled() );
+  QVERIFY( !bar.undoStack()->canUndo() );
+  QVERIFY( !bar.undoStack()->canRedo() );
+
+  // 边界后的 undo 请求是无害 no-op（不崩、不改数据）。
+  bar.actionUndo()->trigger();
+  QCOMPARE( layer.featureCount(), 1 );
+}
 
 void TestEditTools::addAbortPaths()
 {

@@ -36,8 +36,8 @@
       "platform": "windows-x64",
       "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.30.0/onnxruntime-win-x64-1.30.0.zip",
       "archive": {
-        "sha256": "4f97ea143a411ba1016629737fa1dfb003a2e91cf97cf86a43bf074cf24e47be",
-        "size_bytes": 13950275
+        "sha256": "c6ba983baf5681af108599675d2a89c2d145512d02de28aed0bff177cd0ba949",
+        "size_bytes": 82645522
       },
       "layout": {
         "include": "onnxruntime/include",

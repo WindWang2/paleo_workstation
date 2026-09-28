@@ -199,7 +199,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     {
       corrPanel = new WellCorrelationPanel(m_selection, bottomTabs);
       corrPanel->setObjectName(QStringLiteral("correlationPanel"));
-      bottomTabs->addTab(corrPanel, QStringLiteral("连井剖面"));
+      bottomTabs->addTab(corrPanel, tr("连井剖面"));
     }
   }
 
@@ -415,7 +415,8 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                 auto *crsNote = new QLabel(PaleoFolderConfirm::engineeringCrsSentence(), &confirmDlg);
                 crsNote->setObjectName(QStringLiteral("singleImportCrsNote"));
                 crsNote->setWordWrap(true);
-                crsNote->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+                PaleoTheme::applyThemedStyleSheet(
+                    crsNote, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
                 cl->addWidget(crsNote);
                 auto *bb = new QDialogButtonBox(&confirmDlg);
                 bb->addButton(tr("导入"), QDialogButtonBox::AcceptRole);
@@ -504,7 +505,7 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                     QString err;
                     if (pred->runPrediction(horizon, algId, params, &err))
                       return QString();
-                    return err.isEmpty() ? QStringLiteral("prediction failed") : err;
+                    return err.isEmpty() ? tr("prediction failed") : err;
                   });
               QObject::connect(task, &PaleoTask::changed, predictPage,
                                [predictPage, task] {
@@ -1151,7 +1152,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
               });
       connect(m_projectSvc, &QgisProjectService::projectOpened, releasePanel,
               &ReleasePanel::refresh);
-      bottomTabs->addTab(releasePanel, QStringLiteral("发布"));
+      bottomTabs->addTab(releasePanel, tr("发布"));
     }
 
   // Task panel replaces the placeholder in the 任务 tab (index 1); attribute
@@ -1167,10 +1168,10 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
         QWidget *old = bottomTabs->widget(idx);
         bottomTabs->removeTab(idx);
         delete old;
-        bottomTabs->insertTab(idx, taskPanel, QStringLiteral("任务"));
+        bottomTabs->insertTab(idx, taskPanel, tr("任务"));
       }
       else
-        bottomTabs->addTab(taskPanel, QStringLiteral("任务"));
+        bottomTabs->addTab(taskPanel, tr("任务"));
 
       if (m_layerSvc && m_canvasCtl)
       {
@@ -1211,7 +1212,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
                 });
         connect(m_projectSvc, &QgisProjectService::projectOpened, this,
                 [refreshIds](const QString &) { refreshIds(); });
-        bottomTabs->addTab(attrPanel, QStringLiteral("属性表"));
+        bottomTabs->addTab(attrPanel, tr("属性表"));
       }
     }
 
@@ -1478,7 +1479,7 @@ void PaleoMainWindow::attachMappingPublishGate(ComposePage *composePage,
                     .arg(total < 0 ? 0 : total)
                     + (advisory.isEmpty()
                            ? QString()
-                           : QStringLiteral("\n\n注意：") + advisory),
+                           : tr("\n\n注意：") + advisory),
                 QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel);
             if (choice != QMessageBox::Ok)
               return;

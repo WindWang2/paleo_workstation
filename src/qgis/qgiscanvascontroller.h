@@ -62,7 +62,6 @@ class QgisCanvasController : public QObject
 
     QgsMapCanvas *m_canvas = nullptr;
     QgsLayerTreeMapCanvasBridge *m_bridge = nullptr;
-    QgsMapTool *m_tool = nullptr;
     bool m_broadcasting = false;
     LayerResolver m_layerResolver;
 };

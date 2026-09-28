@@ -148,25 +148,17 @@ void QgisCanvasController::setMapTool( QgsMapTool *tool )
     return;
   }
   canvas()->setMapTool( tool ); // deactivates previous; reactivates if same tool
-  // If the tool is deleted while active, canvas clears its own pointer via
-  // mapToolDestroyed; mirror that so activeTool() never dangles.
-  connect( tool, &QObject::destroyed, this, [this, tool] {
-    if ( m_tool == tool )
-      m_tool = nullptr;
-  } );
-  m_tool = tool;
 }
 
 QgsMapTool *QgisCanvasController::activeTool() const
 {
-  return m_tool;
+  return m_canvas ? m_canvas->mapTool() : nullptr;
 }
 
 void QgisCanvasController::deactivateTool()
 {
-  if ( m_canvas && m_tool )
-    m_canvas->unsetMapTool( m_tool ); // proper deactivate path (Esc, §42.15)
-  m_tool = nullptr;
+  if ( QgsMapTool *tool = activeTool() )
+    m_canvas->unsetMapTool( tool ); // includes tools installed by native widgets
 }
 
 void QgisCanvasController::zoomToFullExtent()

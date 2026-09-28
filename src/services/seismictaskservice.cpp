@@ -4,13 +4,67 @@
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QMetaObject>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QTimer>
+
+#include "Engine/Sdk.h"
+#include "Engine/Types.h"
 
 #include "domain/seismic/sgyindexbuilder.h"
 #include "domain/seismic/sgyindexcache.h"
+#include "domain/seismic/sgyio.h"
 #include "services/paleotaskservice.h"
 
 namespace seismic {
+
+struct SeismicDatasetEntry {
+  std::shared_ptr<sdk::Dataset> dataset;
+  QMutex mutex;          // engine 契约：一次一个线程使用 Dataset
+  quint64 lastUse = 0;
+};
+
+SeismicTaskService::~SeismicTaskService() = default;
+
+std::shared_ptr<SeismicDatasetEntry> SeismicTaskService::datasetEntryFor(const QString &sgyPath)
+{
+  auto it = datasetEntries_.find(sgyPath);
+  if (it != datasetEntries_.end())
+  {
+    it.value()->lastUse = ++datasetClock_;
+    return it.value();
+  }
+
+  sdk::OpenOptions options; // Backend::Auto：有工作区用工作区，否则 Direct
+  engine::Status status;
+  auto dataset = sdk::Dataset::Open(std::filesystem::path(sgyPath.toStdString()), options, status);
+  if (!dataset || !status.ok())
+    return nullptr;
+
+  auto entry = std::make_shared<SeismicDatasetEntry>();
+  entry->dataset = std::move(dataset);
+  entry->lastUse = ++datasetClock_;
+  datasetEntries_.insert(sgyPath, entry);
+
+  // 有界缓存：超出 8 个时淘汰最久未用
+  while (datasetEntries_.size() > 8)
+  {
+    QString oldestKey;
+    quint64 oldestUse = ~0ull;
+    for (auto eit = datasetEntries_.begin(); eit != datasetEntries_.end(); ++eit)
+    {
+      if (eit.value()->lastUse < oldestUse)
+      {
+        oldestUse = eit.value()->lastUse;
+        oldestKey = eit.key();
+      }
+    }
+    if (oldestKey.isEmpty())
+      break;
+    datasetEntries_.remove(oldestKey);
+  }
+  return entry;
+}
 
 SeismicTaskService::SeismicTaskService(PaleoTaskService *taskService,
                                        std::size_t dataCacheBudgetMb,
@@ -143,7 +197,50 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
   const QString title = tr("提取地震切片 (%1: %2)").arg(QString::fromLatin1(typeStr)).arg(sliceIndex);
   auto outImage = std::make_shared<SgySliceImage>();
 
-  auto work = [volume, type, sliceIndex, outImage](PaleoTask *task) -> QString {
+  // 引擎优先：sdk::Dataset（Backend::Auto 在工作区存在时用随机访问后端）。
+  const QString sgyPath = QString::fromStdString(sgyio::ToUtf8Path(volume->Index()->path));
+  const auto entry = datasetEntryFor(sgyPath);
+
+  auto work = [volume, entry, type, sliceIndex, outImage](PaleoTask *task) -> QString {
+    if (entry && entry->dataset)
+    {
+      engine::CancelToken cancel;
+      cancel.SetPredicate([task]() { return task->cancelRequested(); });
+      engine::Slice2D slice;
+      engine::Status status;
+      {
+        QMutexLocker lock(&entry->mutex);
+        switch (type)
+        {
+        case SgySliceType::Inline:
+          status = entry->dataset->ReadInline(sliceIndex, slice, &cancel);
+          break;
+        case SgySliceType::Xline:
+          status = entry->dataset->ReadCrossline(sliceIndex, slice, &cancel);
+          break;
+        case SgySliceType::Time:
+        default:
+          status = entry->dataset->ReadCachedTimeSlice(sliceIndex, slice, &cancel);
+          break;
+        }
+      }
+      if (status.ok())
+      {
+        outImage->width = slice.width;
+        outImage->height = slice.height;
+        outImage->valueMin = slice.valueMin;
+        outImage->valueMax = slice.valueMax;
+        outImage->values = std::move(slice.values);
+        outImage->rgba = std::move(slice.rgba);
+        task->reportBytes(outImage->width * outImage->height,
+                          outImage->width * outImage->height);
+        return QString();
+      }
+      if (status.code == engine::StatusCode::Cancelled || task->cancelRequested())
+        return QString();
+      // 引擎路径失败回落 volume 直读（同一份上游实现，保底）
+    }
+
     std::string err;
     auto progress = [task](int processed, int total) -> bool {
       if (task->cancelRequested())

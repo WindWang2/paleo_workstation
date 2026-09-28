@@ -21,6 +21,7 @@ private slots:
   void canvasIsUsableOffscreen();
   void nativeSnappingEnabled();
   void mapToolRoundtrip();
+  void nativeToolSwitchStaysInSync();
   void broadcastGuardCoalesces();
   void toolGating();
 };
@@ -79,6 +80,23 @@ void TestCanvasTools::mapToolRoundtrip()
   QCOMPARE( ctl.activeTool(), nullptr );
 
   delete pan;
+}
+
+void TestCanvasTools::nativeToolSwitchStaysInSync()
+{
+  QgisCanvasController ctl;
+  QgsMapCanvas *canvas = ctl.canvas();
+  QgsMapToolPan first(canvas);
+  ctl.setMapTool(&first);
+  auto *native = new QgsMapToolPan(canvas);
+  canvas->setMapTool(native); // editor/native widgets bypass the controller
+  QCOMPARE(ctl.activeTool(), native);
+  ctl.deactivateTool();
+  QVERIFY(!canvas->mapTool());
+  canvas->setMapTool(native);
+  delete native;
+  QVERIFY(!ctl.activeTool());
+  ctl.deactivateTool();
 }
 
 // (c) §41.3 broadcast guard: nested begin/end balances, swallows echoes,

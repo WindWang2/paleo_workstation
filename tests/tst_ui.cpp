@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QLabel>
+#include <QComboBox>
 #include <QTabBar>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -442,7 +443,9 @@ class TestUiShell : public QObject
       QVERIFY2(!geom.isEmpty(), "saveWindowState must persist geometry bytes");
       QVERIFY2(!state.isEmpty(), "saveWindowState must persist dock-state bytes");
 
-      PaleoMainWindow win2(m_ctx->canvasCtl(), m_ctx->projectSvc(),
+      // A second window must own its own canvas, not reparent the first one.
+      QgisCanvasController secondCanvas(m_ctx);
+      PaleoMainWindow win2(&secondCanvas, m_ctx->projectSvc(),
                            m_ctx->layerSvc(), m_ctx->toolSvc(), m_ctx->selection());
       QVERIFY2(win2.restoreGeometry(geom), "restoreGeometry rejected stored bytes");
       QVERIFY2(win2.restoreState(state), "restoreState rejected stored bytes");
@@ -733,6 +736,76 @@ class TestUiShell : public QObject
       m_win->showPage(QStringLiteral("data"));
       QVERIFY(m_ctx->canvasCtl()->activeTool() == nullptr);
       delete pan;
+    }
+
+    void mapContextAndLayerSelectionStayInSync()
+    {
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                             m_ctx->compositionWf(), m_ctx->validationWf(),
+                             m_ctx->importSvc(), m_ctx->seismicLink(),
+                             m_ctx->processingSvc(), m_ctx->store(),
+                             m_ctx->editingSvc(), m_ctx->layoutSvc(), m_ctx->taskSvc());
+      auto *editor = m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar"));
+      auto *tree = m_win->findChild<QgsLayerTreeView *>(QStringLiteral("layerTreeView"));
+      auto *hint = m_win->findChild<QLabel *>(QStringLiteral("mapInteractionHint"));
+      auto *stop = m_win->findChild<QToolButton *>(QStringLiteral("stopMapToolButton"));
+      auto *pan = m_win->findChild<QAction *>(QStringLiteral("ribbonPanAction"));
+      QVERIFY(editor && tree && hint && stop && pan);
+      auto *project = m_ctx->projectSvc()->project();
+      auto *first = new QgsVectorLayer(QStringLiteral("Point"), QStringLiteral("井位测试"), QStringLiteral("memory"));
+      auto *second = new QgsVectorLayer(QStringLiteral("LineString"), QStringLiteral("约束线测试"), QStringLiteral("memory"));
+      project->addMapLayer(first);
+      project->addMapLayer(second);
+      m_win->showPage(QStringLiteral("compose"));
+      tree->setCurrentLayer(first);
+      QCOMPARE(editor->currentLayer(), first);
+      QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(), first);
+      editor->setCurrentLayer(second);
+      QCOMPARE(tree->currentLayer(), second);
+      for (auto *combo : m_win->findChildren<QComboBox *>(QStringLiteral("ribbonEditLayerCombo")))
+        QCOMPARE(qvariant_cast<QgsVectorLayer *>(combo->currentData()), second);
+      auto *targetNode = project->layerTreeRoot()->findLayer(second->id());
+      QVERIFY(targetNode);
+      targetNode->setItemVisibilityChecked(false);
+      editor->actionSelect()->trigger();
+      QVERIFY(targetNode->isVisible());
+      QVERIFY(!second->isEditable());
+      QVERIFY(hint->text().contains(QStringLiteral("选择")));
+      QVERIFY(hint->text().contains(second->name()));
+      editor->actionAddLine()->trigger();
+      QVERIFY(second->isEditable());
+      tree->setCurrentLayer(first); // live session refuses target switches everywhere
+      QCOMPARE(tree->currentLayer(), second);
+      QCOMPARE(editor->currentLayer(), second);
+      pan->trigger();
+      QVERIFY(pan->isChecked());
+      QVERIFY(!editor->actionAddLine()->isChecked());
+      QVERIFY(hint->text().contains(QStringLiteral("平移")));
+      editor->actionAddLine()->trigger();
+      QVERIFY(!pan->isChecked());
+      QVERIFY(editor->actionAddLine()->isChecked());
+      // Optional visual evidence from the real widget tree, using the same flow.
+      const QString capturePath = qEnvironmentVariable("PALEO_UI_CAPTURE");
+      if (!capturePath.isEmpty())
+      {
+        m_win->findChild<QStackedWidget *>(QStringLiteral("centerStack"))->setCurrentIndex(1);
+        m_win->show();
+        QTest::qWait(100);
+        QVERIFY(m_win->grab().save(capturePath));
+      }
+      stop->click();
+      QVERIFY(!m_ctx->canvasCtl()->canvas()->mapTool());
+      QVERIFY(!editor->actionAddLine()->isChecked());
+      QVERIFY(second->isEditable()); // ending a tool doesn't discard edits
+      QVERIFY(!stop->isEnabled());
+      QVERIFY(editor->cancelEditing());
+      editor->actionAddLine()->trigger();
+      m_win->showPage(QStringLiteral("data"));
+      QVERIFY(!m_ctx->canvasCtl()->canvas()->mapTool());
+      QVERIFY(!editor->actionAddLine()->isChecked());
+      QVERIFY(editor->cancelEditing());
+      project->removeMapLayer(first);
+      project->removeMapLayer(second);
     }
 
     // 数据页是列表面（用户裁决）：中央工作区切到数据面（数据列表 + 预览），

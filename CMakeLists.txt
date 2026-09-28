@@ -85,6 +85,61 @@ set_target_properties(paleo_segyio PROPERTIES AUTOMOC OFF AUTORCC OFF AUTOUIC OF
 add_library(paleo_glm INTERFACE)
 target_include_directories(paleo_glm SYSTEM INTERFACE ${CMAKE_SOURCE_DIR}/vendor/glm)
 
+# ---- vendor/sbm: Seismic-Body-Management engine（Data/Sgy + Engine + Render/ColorMap） ----
+# 上游 SeismicF3Viewer 的 headless 地震引擎，溯源与本地补丁见 vendor/sbm/{README,PATCHES}.md。
+# 顶层一律经 Engine/Sdk.h 的 sdk::Dataset facade 使用；UI 侧旧引用走 domain/seismic 转发头。
+add_library(paleo_sbm STATIC
+    vendor/sbm/src/Data/Sgy/SgyCoordinateMapper.cpp
+    vendor/sbm/src/Data/Sgy/SgyDataCache.cpp
+    vendor/sbm/src/Data/Sgy/SgyFileReader.cpp
+    vendor/sbm/src/Data/Sgy/SgyIndex.cpp
+    vendor/sbm/src/Data/Sgy/SgyIndexBuilder.cpp
+    vendor/sbm/src/Data/Sgy/SgyIndexCache.cpp
+    vendor/sbm/src/Data/Sgy/SgyIndexJob.cpp
+    vendor/sbm/src/Data/Sgy/SgyIndexService.cpp
+    vendor/sbm/src/Data/Sgy/SgyIo.cpp
+    vendor/sbm/src/Data/Sgy/SgyReadSession.cpp
+    vendor/sbm/src/Data/Sgy/SgyRuleLayout.cpp
+    vendor/sbm/src/Data/Sgy/SgySectionBuilder.cpp
+    vendor/sbm/src/Data/Sgy/SgySequentialScan.cpp
+    vendor/sbm/src/Data/Sgy/SgyTaskQueue.cpp
+    vendor/sbm/src/Data/Sgy/SgyVolume.cpp
+    vendor/sbm/src/Data/Sgy/SgyVolumeLookup.cpp
+    vendor/sbm/src/Data/Sgy/SgyWellLocator.cpp
+    vendor/sbm/src/Engine/Cache.cpp
+    vendor/sbm/src/Engine/LayoutV5.cpp
+    vendor/sbm/src/Engine/LodBuilder.cpp
+    vendor/sbm/src/Engine/PagedPipeline.cpp
+    vendor/sbm/src/Engine/PagedWorkspace.cpp
+    vendor/sbm/src/Engine/PlannedReader.cpp
+    vendor/sbm/src/Engine/PlannedSection.cpp
+    vendor/sbm/src/Engine/QuickOpen.cpp
+    vendor/sbm/src/Engine/ReadPlan.cpp
+    vendor/sbm/src/Engine/RoiWorkspaceBuilder.cpp
+    vendor/sbm/src/Engine/Sdk.cpp
+    vendor/sbm/src/Engine/SdkC.cpp
+    vendor/sbm/src/Engine/SgyVolumeSource.cpp
+    vendor/sbm/src/Engine/StorageProfile.cpp
+    vendor/sbm/src/Engine/TranscodeJob.cpp
+    vendor/sbm/src/Engine/WorkspaceFormat.cpp
+    vendor/sbm/src/Engine/WorkspaceVolumeSource.cpp
+    vendor/sbm/src/Render/ColorMap.cpp)
+target_include_directories(paleo_sbm SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/vendor/sbm/src)
+# 上游按 C++17 写 .u8string()；char8_t 会打碎 30 处调用。头文件零 char8_t 使用，flag 即可。
+target_compile_options(paleo_sbm PRIVATE
+  $<IF:$<CXX_COMPILER_ID:MSVC>,/Zc:char8_t-,-fno-char8_t>
+  $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>) # 第三方源不改其告警
+target_link_libraries(paleo_sbm PUBLIC paleo_segyio paleo_glm PRIVATE Qt6::Core)
+set_target_properties(paleo_sbm PROPERTIES AUTOMOC OFF AUTORCC OFF AUTOUIC OFF)
+# zstd 块压缩（可选；SEISMIC_HAVE_ZSTD 控制上游开关）
+find_library(SBM_ZSTD_LIB zstd)
+find_path(SBM_ZSTD_INCLUDE zstd.h)
+if(SBM_ZSTD_LIB AND SBM_ZSTD_INCLUDE)
+  target_compile_definitions(paleo_sbm PRIVATE SEISMIC_HAVE_ZSTD)
+  target_include_directories(paleo_sbm SYSTEM PRIVATE ${SBM_ZSTD_INCLUDE})
+  target_link_libraries(paleo_sbm PRIVATE ${SBM_ZSTD_LIB})
+endif()
+
 add_executable(paleo_selfcheck src/selfcheck/main.cpp)
 target_link_libraries(paleo_selfcheck PRIVATE paleo_qgis_iface)
 target_compile_definitions(paleo_selfcheck PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
@@ -186,21 +241,7 @@ add_library(paleo_core STATIC
   # ---- package C: ingest-plan (three-phase folder import) ----
   src/io/ingestplan.cpp                          # C 包：纯 plan + 幂等执行器
   # ---- domain/seismic: 3D seismic volume & section core ----
-  src/domain/seismic/sgyindex.cpp
-  src/domain/seismic/sgyrulelayout.cpp
-  src/domain/seismic/sgycoordinatemapper.cpp
-  src/domain/seismic/sgyio.cpp
-  src/domain/seismic/sgyfilereader.cpp
-  src/domain/seismic/sgysequentialscan.cpp
-  src/domain/seismic/sgyindexbuilder.cpp
-  src/domain/seismic/sgyindexcache.cpp
-  src/domain/seismic/sgyreadsession.cpp
-  src/domain/seismic/sgydatacache.cpp
-  src/domain/seismic/sgysectionbuilder.cpp
-  src/domain/seismic/sgywelllocator.cpp
-  src/domain/seismic/sgyvolume.cpp
-  src/domain/seismic/sgyreadplan.cpp
-  src/domain/seismic/seismiccolormap.cpp
+  # sgy*.h 现为指向 paleo_sbm（vendor/sbm）的转发头；实现随 vendor 库编译。
   src/services/seismictaskservice.cpp
   # ---- ui/seismic3d: 3D seismic volume viewport & renderers ----
   src/ui/seismic3d/seismiccameracontroller.cpp
@@ -217,7 +258,7 @@ add_library(paleo_core STATIC
   src/ui/seismicsection/seismicsectioncanvas.cpp
   src/ui/seismicsection/seismicsectiondockwidget.cpp
 )
-target_link_libraries(paleo_core PUBLIC paleo_qgis_iface paleo_saribbon paleo_segyio paleo_glm ${GDAL_LIB})
+target_link_libraries(paleo_core PUBLIC paleo_qgis_iface paleo_saribbon paleo_segyio paleo_glm paleo_sbm ${GDAL_LIB})
 target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
 
 # ---- wave3/ux-consistency ----

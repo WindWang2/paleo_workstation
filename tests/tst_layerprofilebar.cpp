@@ -212,6 +212,20 @@ class TestLayerProfileBar : public QObject
       QCOMPARE(selSpy.size(), 0); // 全程程序化，无用户激活
     }
 
+    void missingPageThemeClearsPreviousSelection()
+    {
+      BarFixture fx;
+      LayerProfileBar bar(&fx.profile);
+      QSignalSpy selected(&bar, &LayerProfileBar::themeSelected);
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("compose")));
+      bar.setCurrentPage(QStringLiteral("compose"));
+      QCOMPARE(bar.themeCombo()->currentData().toString(), QStringLiteral("page:compose"));
+      bar.setCurrentPage(QStringLiteral("validate")); // no theme exists for this page yet
+      QCOMPARE(bar.themeCombo()->currentIndex(), -1);
+      QCOMPARE(bar.themeCombo()->count(), 1);
+      QCOMPARE(selected.count(), 0);
+    }
+
     // ---- page 主题：applyPageProfile + setCurrentPage → label/下拉选中，不发信号 ----
     void pageThemeSelectionIsSilent()
     {

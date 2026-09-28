@@ -372,7 +372,50 @@ void PaleoMainWindow::buildShell()
   chipsLay->addStretch(1);
   canvasLay->addWidget(chipsRow);
   if (m_canvasCtl)
-    canvasLay->addWidget(m_canvasCtl->canvas(), 1); // reparents the parentless canvas
+  {
+    QgsMapCanvas *canvas = m_canvasCtl->canvas();
+    // Context belongs to the map surface, so it disappears on the data page.
+    auto *contextRow = new QWidget(canvasPane);
+    contextRow->setObjectName(QStringLiteral("mapInteractionContext"));
+    auto *contextLayout = new QHBoxLayout(contextRow);
+    contextLayout->setContentsMargins(8, 4, 8, 4);
+    contextLayout->setSpacing(8);
+    auto *context = new QLabel(contextRow);
+    context->setObjectName(QStringLiteral("mapInteractionHint"));
+    context->setWordWrap(true);
+    context->setTextFormat(Qt::PlainText);
+    context->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    auto *stop = new QToolButton(contextRow);
+    stop->setObjectName(QStringLiteral("stopMapToolButton"));
+    stop->setText(tr("结束工具"));
+    stop->setToolTip(tr("结束当前地图操作，保留尚未保存的图层编辑"));
+    stop->setAccessibleName(stop->toolTip());
+    connect(stop, &QToolButton::clicked, this, [this] { m_canvasCtl->deactivateTool(); });
+    const auto syncContext = [context, stop, canvas] {
+      QgsMapTool *tool = canvas->mapTool();
+      QAction *action = tool ? tool->action() : nullptr;
+      const QString mode = action ? action->text().remove(QLatin1Char('&'))
+                                  : tool ? tool->toolName() : tr("浏览");
+      const QString target = canvas->currentLayer() ? canvas->currentLayer()->name() : tr("未选择图层");
+      const QString hint = action ? action->toolTip()
+                                 : tool ? tr("在地图中操作；结束工具后保留图层编辑")
+                                        : tr("选择上方地图工具开始操作");
+      const QString text = tr("%1 · %2 — %3").arg(mode, target, hint);
+      context->setText(text);
+      context->setToolTip(text);
+      context->setAccessibleName(text);
+      stop->setEnabled(tool != nullptr);
+      stop->setToolTip(tool ? tr("结束当前地图操作，保留尚未保存的图层编辑")
+                            : tr("当前没有活动地图工具"));
+    };
+    connect(canvas, &QgsMapCanvas::mapToolSet, contextRow, syncContext);
+    connect(canvas, &QgsMapCanvas::currentLayerChanged, contextRow, syncContext);
+    syncContext();
+    contextLayout->addWidget(context, 1);
+    contextLayout->addWidget(stop);
+    canvasLay->addWidget(contextRow);
+    canvasLay->addWidget(canvas, 1);
+  }
   else
     canvasLay->addStretch(1);
   m_workspaceStack->addWidget(canvasPane); // 0
@@ -739,6 +782,7 @@ void PaleoMainWindow::buildShell()
           "QMainWindow { background: #EDF1F5; }"
           "QDockWidget::title { background: #EDF1F5; color: #24303E; padding: 6px 10px; }"
           "QStatusBar { background: #EDF1F5; color: #5D6E80; }"
+          "QWidget#mapInteractionContext { background: #EDF1F5; color: #5D6E80; border-bottom: 1px solid #DFE5EC; }"
           "QWidget#horizonChipRow { background: #FFFFFF; border-bottom: 1px solid #DFE5EC; }") +
       PaleoTheme::focusRingStyleSheet();
   PaleoRibbon::applyTheme(this, shellQss);

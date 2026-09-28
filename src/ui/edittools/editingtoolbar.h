@@ -72,7 +72,7 @@ class PaleoEditingToolbar : public QWidget
     void setEditingService( QgisEditingService *service );
 
     QgsVectorLayer *currentLayer() const;
-    // Selects \a layer in the combo (must be a listed candidate) and makes
+    // Selects \a layer in the combo (null clears; otherwise a listed candidate) and makes
     // it the canvas current layer.
     void setCurrentLayer( QgsVectorLayer *layer );
 
@@ -118,6 +118,8 @@ class PaleoEditingToolbar : public QWidget
     void featureEdited( const QString &layerId );
     // Emitted for the host log when a session transition is refused.
     void editRefused( const QString &reason );
+    // One notification after selection/session/action state is fully synchronized.
+    void stateChanged();
 
   private:
     void buildUi();
@@ -129,10 +131,10 @@ class PaleoEditingToolbar : public QWidget
     QgsVectorLayer *editableTarget() const;     // current layer passing gates
 
     QgsMapCanvas *mCanvas = nullptr;            // not owned
-    QList<QgsVectorLayer *> mLayers;            // not owned candidates
+    QList<QPointer<QgsVectorLayer>> mLayers;     // not owned candidates
     LayerFilter mLayerFilter;                   // default: accept all
     QgisEditingService *mEditingService = nullptr; // not owned, optional
-    QgsVectorLayer *mEditLayer = nullptr;       // not owned; layer in session
+    QPointer<QgsVectorLayer> mEditLayer;       // not owned; layer in session
 
     QToolBar *mToolBar = nullptr;
     QComboBox *mLayerCombo = nullptr;
@@ -151,7 +153,7 @@ class PaleoEditingToolbar : public QWidget
     QAction *mActionCancel = nullptr;
     QAction *mActionUndo = nullptr;
     QAction *mActionRedo = nullptr;
-    class QgsMapTool *mActiveEditTool = nullptr; // installed tool, not owned
+    QPointer<class QgsMapTool> mActiveEditTool; // installed tool, not owned
     std::unique_ptr<PaleoUndoStack> mUndoStack;
     QPointer<QgsProject> mProject;
 };

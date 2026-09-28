@@ -210,3 +210,9 @@ flowchart LR
 （含 `a6b5b0f` 时间片剖面+3D 视口入主窗、`c5532cf` GL 上下文 profile/shader 资源/任务服务修复、
 `085e88e` 时间片网格缓存+相色预览+剖面色标）。相关测试：`tst_seismic_core`/`tst_seismic_3d`/
 `tst_seismic_section`/`tst_segy_*`/`tst_datapreview`/`tst_linkage`/`tst_threeway` 全绿。
+
+**引擎 vendor 化（2026-09-28）**：上游仓库 `changyanyanchang/Seismic-Body-Management` 的 `Data/Sgy`+`Engine`
+（含 `sdk::Dataset`/`SdkC` 稳定 facade、workspace/paged 后端、LOD、TranscodeJob）以 `vendor/sbm` 原样入库，
+pinned `aae56c77f8233e206523717ad8fdd854b3a5156e`。`domain/seismic` 原移植层退役为转发头；项目增强
+（`TimeGridCache`+mmap 并行 `ReadSlice`、`.sgyidx` 伴生缓存）以 vendor 补丁保留（见 `vendor/sbm/PATCHES.md`）。
+切片提取已走 `sdk::Dataset`；转码/QuickOpen/LOD/ReadSection 等高价值入口登记 TODOS 待接线。

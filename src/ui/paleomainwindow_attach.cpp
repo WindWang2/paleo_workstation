@@ -56,6 +56,7 @@
 #include "domain/seismic/sgyvolume.h"
 
 #include <qgsmapcanvas.h>
+#include <qgsmaptool.h>
 #include <qgsproject.h>
 #include <qgsmaplayer.h>
 #include <qgslayertree.h>
@@ -1291,6 +1292,39 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
                 [editTb](const QStringList &) { editTb->refreshFromProject(); });
       }
     }
+    // The selected tree layer, canvas target and ribbon target form one context.
+    QgsMapCanvas *canvas = m_canvasCtl->canvas();
+    connect(canvas, &QgsMapCanvas::mapToolSet, this, [this, canvas](QgsMapTool *tool, QgsMapTool *) {
+      if (!tool || !tool->property("paleo-action").isValid() || !canvas->currentLayer() || !m_projectSvc)
+        return;
+      auto *node = m_projectSvc->project()->layerTreeRoot()->findLayer(canvas->currentLayer()->id());
+      if (node && !node->isVisible())
+      {
+        node->setItemVisibilityCheckedParentRecursive(true);
+        statusBar()->showMessage(tr("已显示操作图层：%1").arg(canvas->currentLayer()->name()), 5000);
+      }
+    });
+    auto *tree = findChild<QgsLayerTreeView *>(QStringLiteral("layerTreeView"));
+    if (tree)
+    {
+      connect(tree, &QgsLayerTreeView::currentLayerChanged, editTb,
+              [editTb, canvas, tree](QgsMapLayer *layer) {
+        auto *vector = qobject_cast<QgsVectorLayer *>(layer);
+        editTb->setCurrentLayer(vector);
+        if (!editTb->isEditing() && !vector)
+          canvas->setCurrentLayer(layer); // a raster is a valid browsing target
+        // A refused switch restores the tree as well as the ribbon.
+        const QSignalBlocker block(tree);
+        tree->setCurrentLayer(canvas->currentLayer());
+      });
+      connect(editTb, &PaleoEditingToolbar::stateChanged, tree, [canvas, tree] {
+        const QSignalBlocker block(tree);
+        tree->setCurrentLayer(canvas->currentLayer());
+      });
+    }
+    connect(editTb, &PaleoEditingToolbar::editRefused, this, [this](const QString &reason) {
+      statusBar()->showMessage(reason, 8000);
+    });
     editTb->hide(); // 逻辑宿主，不进布局
     if (SARibbonQuickAccessBar *qab = ribbonBar()->quickAccessBar())
     {

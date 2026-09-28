@@ -50,6 +50,7 @@
 #include <qgsgeometry.h>
 #include <qgslinestring.h>
 #include <qgsmapcanvas.h>
+#include <qgsmaptoolpan.h>
 #include <qgsmapmouseevent.h>
 #include <qgsmaptoolcapture.h>
 #include <qgspolygon.h>
@@ -171,6 +172,9 @@ class TestEditTools : public QObject
     void undoStackDetachReattachDestroyedSafe();
 
     // d/e/f) PaleoEditingToolbar (implementation by the parallel agent)
+    void toolbarSelectionIsReadOnlyAndToolsFollowCanvas();
+    void toolbarGeometryAndReadOnlyGates();
+    void toolbarRemovedLayerClearsTarget();
     void toolbarStartStopSignalsAndStateRendering();
     void toolbarComboFilterAndProjectRefresh();
     void toolbarEditToolActionAutoStartsSession();
@@ -2482,6 +2486,88 @@ void TestEditTools::undoStackDetachReattachDestroyedSafe()
 // (The .cpp is implemented by a parallel agent; failures here are reported,
 // not fixed.)
 // ---------------------------------------------------------------------------
+
+void TestEditTools::toolbarSelectionIsReadOnlyAndToolsFollowCanvas()
+{
+  QgsMapCanvas canvas;
+  configureCanvas(canvas);
+  QgsVectorLayer layer(QStringLiteral("Point?crs=EPSG:4326"), QStringLiteral("井位"), QStringLiteral("memory"));
+  PaleoEditingToolbar bar(&canvas);
+  bar.setLayers({&layer});
+  QSignalSpy started(&bar, &PaleoEditingToolbar::editingStarted);
+  bar.actionSelect()->trigger();
+  QVERIFY(canvas.mapTool());
+  QVERIFY(bar.actionSelect()->isChecked());
+  QVERIFY(!layer.isEditable());
+  QCOMPARE(started.count(), 0);
+  QVERIFY(!bar.actionSave()->isEnabled());
+  QgsMapToolPan pan(&canvas);
+  canvas.setMapTool(&pan);
+  QVERIFY(!bar.actionSelect()->isChecked());
+  bar.actionSelect()->trigger(); // same command after navigation must re-arm
+  QVERIFY(canvas.mapTool() != &pan);
+  QVERIFY(bar.actionSelect()->isChecked());
+  bar.actionAddPoint()->trigger();
+  QVERIFY(layer.isEditable());
+  QVERIFY(bar.actionAddFeature()->isChecked());
+  canvas.setMapTool(&pan);
+  QVERIFY(!bar.actionAddPoint()->isChecked());
+  QVERIFY(!bar.actionAddFeature()->isChecked());
+  bar.actionAddPoint()->trigger();
+  QVERIFY(qobject_cast<PaleoAddFeatureTool *>(canvas.mapTool()));
+  QVERIFY(bar.actionAddPoint()->isChecked());
+  QCOMPARE(started.count(), 1); // navigation didn't end/restart the session
+  QVERIFY(bar.cancelEditing());
+}
+
+void TestEditTools::toolbarGeometryAndReadOnlyGates()
+{
+  QgsMapCanvas canvas;
+  QgsVectorLayer point(QStringLiteral("Point"), QStringLiteral("井"), QStringLiteral("memory"));
+  QgsVectorLayer line(QStringLiteral("LineString"), QStringLiteral("约束线"), QStringLiteral("memory"));
+  QgsVectorLayer polygon(QStringLiteral("Polygon"), QStringLiteral("相区"), QStringLiteral("memory"));
+  PaleoEditingToolbar bar(&canvas);
+  bar.setLayers({&point, &line, &polygon});
+  bar.setCurrentLayer(&point);
+  QVERIFY(bar.actionAddPoint()->isEnabled());
+  QVERIFY(!bar.actionAddLine()->isEnabled());
+  QVERIFY(!bar.actionAddPolygon()->isEnabled());
+  QVERIFY(!bar.actionReshape()->isEnabled());
+  QVERIFY(!bar.actionAddLine()->toolTip().isEmpty());
+  bar.actionAddLine()->trigger();
+  QVERIFY(!point.isEditable());
+  bar.setCurrentLayer(&line);
+  QVERIFY(bar.actionAddLine()->isEnabled());
+  QVERIFY(bar.actionReshape()->isEnabled());
+  QVERIFY(!bar.actionAddPoint()->isEnabled());
+  bar.setCurrentLayer(&polygon);
+  QVERIFY(bar.actionAddPolygon()->isEnabled());
+  QVERIFY(polygon.setReadOnly());
+  QVERIFY(bar.actionSelect()->isEnabled());
+  QVERIFY(!bar.actionAddFeature()->isEnabled());
+  QVERIFY(!bar.actionVertexEdit()->isEnabled());
+  bar.actionSelect()->trigger();
+  QVERIFY(!polygon.isEditable());
+  bar.setLayerFilter([](const QgsVectorLayer *) { return false; });
+  QVERIFY(!bar.actionSelect()->isEnabled());
+  QVERIFY(!bar.actionMove()->isEnabled());
+}
+
+void TestEditTools::toolbarRemovedLayerClearsTarget()
+{
+  QgsMapCanvas canvas;
+  auto *layer = new QgsVectorLayer(QStringLiteral("Point"), QStringLiteral("临时层"), QStringLiteral("memory"));
+  PaleoEditingToolbar bar(&canvas);
+  bar.setLayers({layer});
+  bar.actionAddPoint()->trigger();
+  QVERIFY(bar.isEditing());
+  delete layer;
+  QVERIFY(!bar.currentLayer());
+  QVERIFY(!bar.isEditing());
+  QVERIFY(!bar.actionSave()->isEnabled());
+  QVERIFY(!bar.actionAddFeature()->isEnabled());
+  QVERIFY(!canvas.mapTool());
+}
 
 void TestEditTools::toolbarStartStopSignalsAndStateRendering()
 {

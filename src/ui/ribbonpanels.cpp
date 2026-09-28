@@ -140,7 +140,10 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       QAction *a = newAction(text, ic, tip, name);
       a->setCheckable(true);
       tool->setAction(a);
-      connect(a, &QAction::triggered, this, [this, tool] { m_canvasCtl->setMapTool(tool); });
+      connect(a, &QAction::triggered, this, [this, tool] {
+        m_canvasCtl->setMapTool(tool);
+        m_canvasCtl->canvas()->setFocus(Qt::OtherFocusReason);
+      });
       return a;
     };
     panAct = toolAction(new QgsMapToolPan(cv), tr("平移"), icon("mActionPan.svg"),
@@ -409,8 +412,8 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   QComboBox *master = editTb->layerCombo();
   auto *combo = new QComboBox(p);
   combo->setObjectName(QStringLiteral("ribbonEditLayerCombo"));
-  combo->setAccessibleName(tr("编辑图层"));
-  combo->setToolTip(tr("要编辑的矢量图层"));
+  combo->setAccessibleName(tr("当前矢量图层"));
+  combo->setToolTip(tr("与图层树同步；选择要素不进入编辑，修改要素时自动开始编辑"));
   combo->setPlaceholderText(tr("选择可编辑图层"));
   combo->setModel(master->model());
   auto *state = new QLabel(p);
@@ -423,6 +426,7 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
     state->setText(editTb->stateLabel()->text());
   };
   connect(master, &QComboBox::currentIndexChanged, combo, sync);
+  connect(editTb, &PaleoEditingToolbar::stateChanged, combo, sync);
   // 编辑条重建下拉时屏蔽了自身信号——model 变化与会话切换后排队再对一次。
   QAbstractItemModel *model = master->model();
   connect(model, &QAbstractItemModel::modelReset, combo, sync, Qt::QueuedConnection);

@@ -81,6 +81,7 @@ LayerProfileBar::LayerProfileBar(QgisLayerProfileService *service, QWidget *pare
   m_combo = new QComboBox(this);
   m_combo->setObjectName(QStringLiteral("layerThemeCombo"));
   m_combo->setToolTip(tr("可见性主题（页面档案与保存的主题）"));
+  m_combo->setPlaceholderText(tr("未应用主题"));
   m_combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
   m_combo->setMinimumContentsLength(10);
   // 用户交互路径才走 applyTheme：activated 仅由弹出选择/键盘触发，
@@ -88,11 +89,13 @@ LayerProfileBar::LayerProfileBar(QgisLayerProfileService *service, QWidget *pare
   connect(m_combo, &QComboBox::activated, this, &LayerProfileBar::onComboActivated);
 
   auto *saveButton = mkTextButton(
-      this, QStringLiteral("layerSaveThemeButton"), tr("保存当前可见性为主题…"),
+      this, QStringLiteral("layerSaveThemeButton"), tr("保存主题…"),
       [this] { saveCurrentAsThemeWithDialog(); });
   auto *manageButton = mkTextButton(
       this, QStringLiteral("layerManageThemesButton"), tr("管理主题…"),
       [this] { showManageDialog(); });
+
+  saveButton->setToolTip(tr("保存当前图层可见性为主题"));
 
   // 当前页档案指示：8pt 次级（DESIGN.md label 字阶 + text-muted #5D6E80）。
   m_pageLabel = new QLabel(this);
@@ -102,15 +105,21 @@ LayerProfileBar::LayerProfileBar(QgisLayerProfileService *service, QWidget *pare
   labelFont.setPointSizeF(8.0);
   m_pageLabel->setFont(labelFont);
 
-  // 紧凑工具条：水平布局，间距 xs=4；水平内边距 sm=8、垂直 xs（压高度）。
-  auto *layout = new QHBoxLayout(this);
+  // Two compact rows keep the layer dock from imposing a wide minimum on the map.
+  auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(8, 4, 8, 4);
   layout->setSpacing(4);
-  layout->addWidget(m_combo, 1);
-  layout->addWidget(saveButton);
-  layout->addWidget(manageButton);
-  layout->addSpacing(4);
-  layout->addWidget(m_pageLabel);
+  auto *themeRow = new QHBoxLayout;
+  themeRow->setSpacing(4);
+  themeRow->addWidget(m_combo, 1);
+  themeRow->addWidget(m_pageLabel);
+  auto *actionsRow = new QHBoxLayout;
+  actionsRow->setSpacing(4);
+  actionsRow->addWidget(saveButton);
+  actionsRow->addWidget(manageButton);
+  actionsRow->addStretch(1);
+  layout->addLayout(themeRow);
+  layout->addLayout(actionsRow);
 
   if (m_service)
     connect(m_service, &QgisLayerProfileService::mapThemesChanged, this,
@@ -123,17 +132,13 @@ LayerProfileBar::LayerProfileBar(QgisLayerProfileService *service, QWidget *pare
 void LayerProfileBar::setCurrentPage(const QString &pageId)
 {
   m_currentPage = pageId;
+  refreshThemeCombo(); // project reopen may have replaced its theme collection
   updatePageLabel();
-  if (m_service && !pageId.isEmpty())
+  if (m_combo)
   {
-    const QString themeName = QgisLayerProfileService::pageThemeName(pageId);
-    if (m_service->themes().contains(themeName) && m_combo)
-    {
-      const QSignalBlocker blocker(m_combo); // 程序化选中：不发激活路径
-      const int idx = m_combo->findData(themeName);
-      if (idx >= 0)
-        m_combo->setCurrentIndex(idx);
-    }
+    const QSignalBlocker blocker(m_combo);
+    // A missing profile must not leave the previous page's theme displayed.
+    m_combo->setCurrentIndex(m_combo->findData(QgisLayerProfileService::pageThemeName(pageId)));
   }
 }
 

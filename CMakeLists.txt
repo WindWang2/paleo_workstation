@@ -546,3 +546,13 @@ add_paleo_test(tst_layerplatform)     # 档案应用/主题往返 .qgz/生命周
 add_paleo_test(tst_layertreepanel)    # 筛选/组级显隐/复制图层/objectName 兼容
 add_paleo_test(tst_layerproperties)   # 矢量/栅格/缺源三类 + 业务页字段
 add_paleo_test(tst_layerprofilebar)   # 主题下拉/保存/管理对话框/页指示
+
+# ---- 并行开发挂点 ----
+# 各并行方向的新增源文件/测试一律放 cmake/extra-<方向>.cmake，内容为：
+#   target_sources(paleo_<模块> PRIVATE src/.../foo.cpp)
+#   add_paleo_test(tst_foo)
+# 禁止直接改本文件的模块源列表——并行分支在此汇合零冲突。
+file(GLOB _paleo_extra CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/cmake/extra-*.cmake")
+foreach(_f IN LISTS _paleo_extra)
+  include(${_f})
+endforeach()

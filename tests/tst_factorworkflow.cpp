@@ -128,8 +128,26 @@ class TestFactorWorkflow : public QObject
                                err );
     }
 
-  private slots:
+  private:
+    // 主线6：3×3 同网格构造面栅格（GTiff，GDAL C API——同 tst_algorithms 的
+    // makeRaster 形）。
+    static QString makeSurfaceRaster( const QString &path, const QVector<float> &px )
+    {
+      GDALDriverH drv = GDALGetDriverByName( "GTiff" );
+      GDALDatasetH ds = GDALCreate( drv, path.toUtf8().constData(), 3, 3, 1, GDT_Float32, nullptr );
+      if ( !ds )
+        return QString();
+      const double gt[6] = { 0.0, 1.0, 0.0, 3.0, 0.0, -1.0 };
+      GDALSetGeoTransform( ds, const_cast<double *>( gt ) );
+      GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+      const CPLErr err = GDALRasterIO( band, GF_Write, 0, 0, 3, 3,
+                                       const_cast<float *>( px.constData() ), 3, 3,
+                                       GDT_Float32, 0, 0 );
+      GDALClose( ds );
+      return err == CE_None ? path : QString();
+    }
 
+  private slots:
     void initTestCase()
     {
       QVERIFY( QgsApplication::instance() != nullptr );
@@ -154,9 +172,22 @@ class TestFactorWorkflow : public QObject
       const QStringList ids = f.proc.algorithmIds();
       QVERIFY2( ids.contains( QStringLiteral( "paleo:paleo_constraint_idw" ) ),
                 "paleo:paleo_constraint_idw must be registered" );
+      // 主线6 分级：已接入引擎（IDW/isopach）运行时必须注册；冻结契约的
+      // blocked 引擎（welldist 距离变换 / confidence 置信度面）恰相反——
+      // 注册了反而说明契约被人抢注，生成链的显式拒绝就失真了。
       for ( const SingleFactorDefinition &d : SingleFactorRegistry::builtins() )
+      {
+        if ( d.processingAlgId == SingleFactorContracts::welldistEngineId()
+             || d.processingAlgId == SingleFactorContracts::confidenceEngineId() )
+        {
+          QVERIFY2( !ids.contains( d.processingAlgId ),
+                    qPrintable( QStringLiteral( "blocked engine %1 must NOT be registered yet" )
+                                    .arg( d.processingAlgId ) ) );
+          continue;
+        }
         QVERIFY2( ids.contains( d.processingAlgId ),
                   qPrintable( QStringLiteral( "%1 not registered at runtime" ).arg( d.processingAlgId ) ) );
+      }
     }
 
     void styleWriterPresets()
@@ -312,6 +343,84 @@ class TestFactorWorkflow : public QObject
     }
 
     // 失败路径：未知因素 id / 无井点 / 坏间距 / 未声明图层 / 非栅格输入。
+
+  private slots:
+    // ---- mapping 主线6：非 IDW 引擎分级 ----
+    void strathickIsopachEngineRunsAndDeclares()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+
+      // 顶/底构造面：top = base + 常量厚度（3 网格逐值 5/3/…）。
+      const QVector<float> topPx = { 12.0f, 11.0f, 10.0f, 9.0f, 8.0f, 7.0f, 6.0f, 5.0f, 4.0f };
+      const QVector<float> basePx = { 2.0f, 2.0f, 2.0f, 2.0f, 2.0f, 2.0f, 2.0f, 2.0f, 2.0f };
+      const QString topPath = makeSurfaceRaster( f.dir.filePath( QStringLiteral( "top.tif" ) ), topPx );
+      const QString basePath = makeSurfaceRaster( f.dir.filePath( QStringLiteral( "base.tif" ) ), basePx );
+      QVERIFY2( !topPath.isEmpty() && !basePath.isEmpty(), "surface rasters failed" );
+      QVERIFY2( f.layers.declare( decl( QStringLiteral( "horizon.T1.top" ), QStringLiteral( "T1" ),
+                                        QStringLiteral( "raster" ), topPath ),
+                                  &err ),
+                qPrintable( err ) );
+      QVERIFY2( f.layers.declare( decl( QStringLiteral( "horizon.T1.base" ), QStringLiteral( "T1" ),
+                                        QStringLiteral( "raster" ), basePath ),
+                                  &err ),
+                qPrintable( err ) );
+
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QSignalSpy generated( &wf, &ConstraintWorkflow::factorGenerated );
+
+      QVariantMap params;
+      params.insert( QStringLiteral( "topLayerId" ), QStringLiteral( "horizon.T1.top" ) );
+      params.insert( QStringLiteral( "baseLayerId" ), QStringLiteral( "horizon.T1.base" ) );
+      QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "strathick" ),
+                                   params, &err ),
+                qPrintable( err ) );
+      QCOMPARE( generated.count(), 1 );
+      QCOMPARE( generated.at( 0 ).at( 1 ).toString(), QStringLiteral( "strathick" ) );
+      QCOMPARE( generated.at( 0 ).at( 2 ).toString(), QStringLiteral( "factor.T1.strathick" ) );
+
+      const LayerDeclaration *d = findDecl( f.layers, QStringLiteral( "factor.T1.strathick" ) );
+      QVERIFY2( d != nullptr, "strathick declaration missing" );
+      QCOMPARE( d->type, QStringLiteral( "raster" ) );
+      QCOMPARE( d->group, QStringLiteral( "04_SingleFactor" ) );
+      QVERIFY2( QFile::exists( d->source ), qPrintable( d->source ) );
+      QVERIFY2( d->source.contains( QStringLiteral( "artifacts/derived/" ) ),
+                qPrintable( d->source ) );
+      delete d;
+
+      // 缺顶/底参数 → 工作流侧显式拒绝（页面空清单兜底）。
+      err.clear();
+      QVERIFY( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "strathick" ),
+                                   QVariantMap(), &err ) );
+      QVERIFY2( err.contains( QStringLiteral( "topLayerId" ) ), qPrintable( err ) );
+    }
+
+    void blockedEnginesRefuseExplicitly()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      QVERIFY2( setupWells( f, &err ), qPrintable( err ) );
+
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+
+      // welldist/confidence：冻结契约引擎显式拒绝（不静默降级 IDW）。
+      for ( const char *factorId : { "welldist", "confidence" } )
+      {
+        err.clear();
+        QVERIFY2( !wf.generateFactor( QStringLiteral( "T1" ), QString::fromLatin1( factorId ),
+                                      QVariantMap(), &err ),
+                  "blocked engine must refuse" );
+        QVERIFY2( err.contains( QStringLiteral( "尚未接入" ) ), qPrintable( err ) );
+        QVERIFY2( err.contains( QString::fromLatin1( factorId ) ), qPrintable( err ) );
+        QVERIFY( findDecl( f.layers, QStringLiteral( "factor.T1.%1" ).arg(
+                               QString::fromLatin1( factorId ) ) ) == nullptr );
+      }
+    }
+
     void failurePaths()
     {
       Fixture f;

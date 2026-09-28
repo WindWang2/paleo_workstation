@@ -118,6 +118,41 @@ private slots:
     QCOMPARE(cancelSpy.count(), 2);
   }
 
+  // 主线7：捕获中断恢复——页面切换/取消打断进行中的捕获后，新捕获从干净
+  // 状态开始（无幽灵约束、无工具堆叠、序号未被虚耗）。
+  void interruptedCaptureRecoversFresh()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto s = makeStack(dir.filePath(QStringLiteral("p")));
+    QVERIFY(s != nullptr);
+    auto &ctl = *s->ctl;
+
+    QSignalSpy cancelSpy(&ctl, &ConstraintDrawController::captureCancelled);
+    QSignalSpy addedSpy(s->wf.get(), &ConstraintWorkflow::constraintAdded);
+
+    ctl.startCapture(QStringLiteral("T1"), QStringLiteral("line"), 7);
+    QVERIFY(ctl.active());
+    QgsMapTool *first = ctl.currentTool();
+
+    ctl.cancel(); // 页面切换打断（owner-initiated）
+    QCOMPARE(cancelSpy.count(), 1);
+    QVERIFY(!ctl.active());
+    QVERIFY(!s->canvasCtl.activeTool()); // 画布工具被卸下
+    QCOMPARE(addedSpy.count(), 0);       // 未提交任何约束
+
+    // 重新捕获：全新工具、序号从 c-1 起（中断没有虚耗 commit 序号）。
+    ctl.startCapture(QStringLiteral("T1"), QStringLiteral("line"), 7);
+    QVERIFY(ctl.active());
+    QVERIFY(ctl.currentTool() != first);
+    QSignalSpy finSpy(&ctl, &ConstraintDrawController::captureFinished);
+    ctl.onDrawn(QStringLiteral("LineString (0 0, 2 2)"));
+    QCOMPARE(finSpy.count(), 1);
+    QCOMPARE(finSpy.at(0).at(1).toString(), QStringLiteral("c-1"));
+    QCOMPARE(addedSpy.count(), 1);
+    QVERIFY(!ctl.active());
+  }
+
   // failure modes: empty horizon, unknown shape — no tool ever installed.
   void captureFailures()
   {

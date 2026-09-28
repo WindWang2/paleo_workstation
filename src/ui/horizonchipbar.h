@@ -32,6 +32,11 @@ class HorizonChipBar : public QWidget
     void reloadHorizons();
     void setAllowEmptyHorizons(bool enabled);
 
+  signals:
+    // 主线3：编辑中拦截切换层位时的文案（此前静默弹回）。恢复路径 = 编辑会话
+    // 结束（保存/放弃）后 chip 即恢复可点——可用性门不记忆拦截态。
+    void horizonSwitchRefused(const QString &reason);
+
   private:
     void buildChips();
     void applyActive(const QString &horizon);

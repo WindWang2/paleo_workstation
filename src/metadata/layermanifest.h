@@ -14,7 +14,7 @@ struct LayerDeclaration {
   QString type;         // "vector" | "raster" | "annotations" ...
   QString source;       // provider URI (gpkg table / raster path / memory)
   QString styleRef;     // style identifier in styles/
-  QString group;        // layer-tree group, e.g. "04_SingleFactor"
+  QString group;        // layer-tree group；canonical 词表单一权威见 src/qgis/layervocabulary.h（旧名→canonical 别名同处）
   QString title;        // 显示名（图层树/图例）；空 → 用 layerId
   bool instantiated = false; // runtime-only, not persisted
 };

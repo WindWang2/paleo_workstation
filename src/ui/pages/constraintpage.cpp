@@ -115,11 +115,32 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   cell->setAccessibleName( tr( "单因素像元大小" ) );
   lay->addWidget( cell );
 
+  // 主线6：等厚引擎（strathick）专属行——顶/底构造面栅格选择。默认隐藏，
+  // 勾选等厚引擎因素时展开（updateEngineRows 管可见性）。
+  auto *surfaceRow = new QWidget( this );
+  surfaceRow->setObjectName( QStringLiteral( "factorSurfaceRow" ) );
+  auto *surfaceLay = new QHBoxLayout( surfaceRow );
+  surfaceLay->setContentsMargins( 0, 0, 0, 0 );
+  surfaceLay->setSpacing( 4 );
+  auto *topCombo = new QComboBox( surfaceRow );
+  topCombo->setObjectName( QStringLiteral( "factorTopSurfaceCombo" ) );
+  topCombo->setAccessibleName( tr( "顶构造面图层" ) );
+  auto *baseCombo = new QComboBox( surfaceRow );
+  baseCombo->setObjectName( QStringLiteral( "factorBaseSurfaceCombo" ) );
+  baseCombo->setAccessibleName( tr( "底构造面图层" ) );
+  surfaceLay->addWidget( new QLabel( tr( "顶面" ), surfaceRow ), 0 );
+  surfaceLay->addWidget( topCombo, 1 );
+  surfaceLay->addWidget( new QLabel( tr( "底面" ), surfaceRow ), 0 );
+  surfaceLay->addWidget( baseCombo, 1 );
+  surfaceRow->setVisible( false );
+  lay->addWidget( surfaceRow );
+
   auto *generate = new QPushButton( tr( "生成单因素图" ), this );
   generate->setObjectName( QStringLiteral( "generateFactorButton" ) );
   generate->setEnabled( false ); // 先勾选一个单因素（updateFactorActionStates 管 tooltip）
   lay->addWidget( generate );
-  connect( generate, &QPushButton::clicked, this, [this, horizons, field, cell, factors] {
+  connect( generate, &QPushButton::clicked, this,
+           [this, horizons, field, cell, factors, topCombo, baseCombo] {
     const int r = checkedRow( factors );
     if ( r < 0 )
       return;
@@ -132,6 +153,12 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
                        ? def.defaultParams.value( QStringLiteral( "field" ) )
                        : field->text().trimmed() );
     params.insert( QStringLiteral( "cellSize" ), cell->value() );
+    // 主线6：等厚引擎参数——顶/底构造面图层随 payload（空即工作流侧拒绝）。
+    if ( def.processingAlgId == QLatin1String( "paleo:paleo_isopach" ) )
+    {
+      params.insert( QStringLiteral( "topLayerId" ), topCombo->currentData().toString() );
+      params.insert( QStringLiteral( "baseLayerId" ), baseCombo->currentData().toString() );
+    }
     emit generateFactorRequested( factorId, horizons->currentText(), params );
   } );
 
@@ -471,6 +498,58 @@ QString ConstraintPage::checkedFactorLayerId() const
   return property( kFactorGenProp ).toMap().value( factorIdOfRow( factors, r ) ).toString();
 }
 
+void ConstraintPage::updateEngineRows()
+{
+  // 等厚引擎行：勾选因素的 processingAlgId 是 isopach 时展开并按当前层位
+  // 列出已声明栅格（构造面随层位声明；层位无关的也列）。
+  auto *factors = child<QTableWidget>( this, "factorTable" );
+  auto *row = child<QWidget>( this, "factorSurfaceRow" );
+  auto *horizons = child<QComboBox>( this, "horizonCombo" );
+  auto *topCombo = child<QComboBox>( this, "factorTopSurfaceCombo" );
+  auto *baseCombo = child<QComboBox>( this, "factorBaseSurfaceCombo" );
+  if ( !factors || !row || !topCombo || !baseCombo )
+    return;
+  const int r = checkedRow( factors );
+  bool isopach = false;
+  if ( r >= 0 )
+  {
+    bool known = false;
+    const SingleFactorDefinition def =
+        SingleFactorRegistry::byId( factorIdOfRow( factors, r ), &known );
+    isopach = known && def.processingAlgId == QLatin1String( "paleo:paleo_isopach" );
+  }
+  row->setVisible( isopach );
+  if ( !isopach )
+    return;
+
+  const QString horizon = horizons ? horizons->currentText() : QString();
+  const QString keepTop = topCombo->currentData().toString();
+  const QString keepBase = baseCombo->currentData().toString();
+  auto fill = [&]( QComboBox *combo, const QString &keep ) {
+    combo->blockSignals( true );
+    combo->clear();
+    if ( auto *svc = qobject_cast<QgisLayerService *>(
+             property( kLayersProp ).value<QObject *>() ) )
+    {
+      const QVector<LayerDeclaration> declared = svc->declared();
+      for ( const LayerDeclaration &d : declared )
+      {
+        if ( d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) != 0 )
+          continue;
+        if ( !d.horizon.isEmpty() && !horizon.isEmpty() && d.horizon != horizon )
+          continue;
+        combo->addItem( d.title.isEmpty() ? d.layerId : d.title, d.layerId );
+      }
+    }
+    const int idx = combo->findData( keep );
+    if ( idx >= 0 )
+      combo->setCurrentIndex( idx );
+    combo->blockSignals( false );
+  };
+  fill( topCombo, keepTop );
+  fill( baseCombo, keepBase );
+}
+
 void ConstraintPage::updateFactorActionStates()
 {
   auto *factors = child<QTableWidget>( this, "factorTable" );
@@ -485,8 +564,10 @@ void ConstraintPage::updateFactorActionStates()
     generate->setToolTip( tr( "先在清单中勾选一个单因素" ) );
     contour->setEnabled( false );
     contour->setToolTip( tr( "先在清单中勾选一个单因素" ) );
+    updateEngineRows();
     return;
   }
+  updateEngineRows();
   generate->setEnabled( true );
   generate->setToolTip( QString() );
   const QString layerId = checkedFactorLayerId();

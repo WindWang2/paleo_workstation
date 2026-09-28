@@ -17,6 +17,7 @@
 #include <qgsvectorlayer.h>
 
 #include "../src/metadata/layermanifest.h"
+#include "../src/qgis/layervocabulary.h"
 #include "../src/qgis/qgislayerprofile.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
@@ -210,6 +211,127 @@ class TestLayerPlatform : public QObject
                                     {QStringLiteral("01_Base"), QStringLiteral("05_PaleoMap")});
       QCOMPARE(prof.profileGroupsFor(QStringLiteral("custom1")),
                QStringList({QStringLiteral("01_Base"), QStringLiteral("05_PaleoMap")}));
+    }
+
+    // ---- 主线7：档案应用/回滚——页面主题被删后 applyPageProfile 重建 ----
+    void pageThemeRemovalAndRegeneration()
+    {
+      ProfileFixture fx;
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("compose")));
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("page:compose")));
+      QVERIFY(fx.layerChecked(QStringLiteral("pm.facies")));
+
+      // 用户在管理对话框删掉页面主题（回滚档案定制）
+      QVERIFY(fx.profile.removeMapTheme(QStringLiteral("page:compose")));
+      QVERIFY(!fx.profile.hasTheme(QStringLiteral("page:compose")));
+
+      // 手改漂移（表外层勾上）后再应用：主题不存在 → 按档案表重新摆树建主题
+      fx.setLayerChecked(QStringLiteral("val.section"), true);
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("compose")));
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("page:compose")));
+      QVERIFY(fx.layerChecked(QStringLiteral("pm.facies")));
+      QVERIFY(!fx.layerChecked(QStringLiteral("val.section"))); // 档案表语义恢复
+    }
+
+    // ---- 主线5：主题重命名（insert-then-remove 记录复制）----
+    void renameThemeCopiesRecordAndRefuses()
+    {
+      ProfileFixture fx;
+      QVERIFY(fx.profile.captureCurrentAsTheme(QStringLiteral("work")));
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("work")));
+
+      QVERIFY(fx.profile.renameTheme(QStringLiteral("work"), QStringLiteral("work2")));
+      QVERIFY(!fx.profile.hasTheme(QStringLiteral("work")));
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("work2")));
+      // 改名后的主题记录完整可应用
+      QVERIFY(fx.profile.applyTheme(QStringLiteral("work2")));
+
+      // 拒绝路径：旧名不存在 / 新名已占用 / 空名 / 同名
+      QVERIFY(!fx.profile.renameTheme(QStringLiteral("work"), QStringLiteral("x")));
+      QVERIFY(fx.profile.captureCurrentAsTheme(QStringLiteral("occupied")));
+      QVERIFY(!fx.profile.renameTheme(QStringLiteral("work2"), QStringLiteral("occupied")));
+      QVERIFY(!fx.profile.renameTheme(QStringLiteral("work2"), QString()));
+      QVERIFY(!fx.profile.renameTheme(QStringLiteral("work2"), QStringLiteral("work2")));
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("work2"))); // 拒绝不改状态
+    }
+
+    // ---- 主线1：词表单一权威（canonical 七组 + 旧名别名折算 + 组→页）----
+    void vocabularySingleAuthority()
+    {
+      using namespace PaleoLayerVocabulary;
+      QCOMPARE(canonicalGroups(),
+               QStringList({QStringLiteral("01_Base"), QStringLiteral("02_Prediction"),
+                            QStringLiteral("03_Constraints"), QStringLiteral("04_SingleFactor"),
+                            QStringLiteral("05_PaleoMap"), QStringLiteral("06_Reference"),
+                            QStringLiteral("07_Validation")}));
+      QVERIFY(isCanonical(QStringLiteral("04_SingleFactor")));
+      QVERIFY(!isCanonical(QStringLiteral("01_Prediction")));
+
+      // 旧名 → canonical
+      QCOMPARE(canonicalize(QStringLiteral("01_Prediction")), QStringLiteral("02_Prediction"));
+      QCOMPARE(canonicalize(QStringLiteral("03_Predict")), QStringLiteral("02_Prediction"));
+      QCOMPARE(canonicalize(QStringLiteral("02_Constraints")), QStringLiteral("03_Constraints"));
+      QCOMPARE(canonicalize(QStringLiteral("03_Composite")), QStringLiteral("05_PaleoMap"));
+      // canonical / 未知（00_Data、子组路径）原样返回
+      QCOMPARE(canonicalize(QStringLiteral("02_Prediction")), QStringLiteral("02_Prediction"));
+      QCOMPARE(canonicalize(QStringLiteral("00_Data")), QStringLiteral("00_Data"));
+      QCOMPARE(canonicalize(QStringLiteral("04_SingleFactor/Contours")),
+               QStringLiteral("04_SingleFactor/Contours"));
+
+      // 家族 = canonical + 全部旧别名
+      QCOMPARE(groupFamily(QStringLiteral("02_Prediction")),
+               QStringList({QStringLiteral("02_Prediction"), QStringLiteral("01_Prediction"),
+                            QStringLiteral("03_Predict")}));
+
+      // 档案成员判定：旧名声明落在 canonical 档案表内
+      const QStringList predict = profileGroupsForPage(QStringLiteral("predict"));
+      QVERIFY(profileContains(predict, QStringLiteral("01_Prediction")));
+      QVERIFY(profileContains(predict, QStringLiteral("02_Prediction")));
+      QVERIFY(!profileContains(predict, QStringLiteral("03_Constraints")));
+
+      // 组→页：旧名同样能跳页；01_Base/未知组带 reason
+      QString reason;
+      QCOMPARE(pageForGroup(QStringLiteral("03_Predict"), &reason), QStringLiteral("predict"));
+      QCOMPARE(pageForGroup(QStringLiteral("03_Composite"), &reason), QStringLiteral("compose"));
+      QCOMPARE(pageForGroup(QStringLiteral("02_Constraints"), &reason), QStringLiteral("constraint"));
+      QCOMPARE(pageForGroup(QStringLiteral("01_Base"), &reason), QString());
+      QVERIFY(!reason.isEmpty());
+      QCOMPARE(pageForGroup(QStringLiteral("00_Data"), &reason), QString());
+      QVERIFY(reason.contains(QStringLiteral("00_Data")));
+    }
+
+    // ---- 主线1现象级：档案应用不再隐藏旧组名产层（旧 .qgz 兼容）----
+    void legacyGroupAliasKeepsOldPredictionVisible()
+    {
+      ProfileFixture fx;
+      QString err;
+      // 旧 .qgz 的声明组名是历史值（workflows.cpp 产点不改，消费面折算）
+      QVERIFY(fx.layerSvc.declare(
+          decl(QStringLiteral("pred.legacy"), QStringLiteral("T1"), QStringLiteral("01_Prediction")), &err));
+      QVERIFY(fx.layerSvc.declare(
+          decl(QStringLiteral("con.legacy"), QStringLiteral("T1"), QStringLiteral("02_Constraints")), &err));
+      QVERIFY(fx.layerSvc.declare(
+          decl(QStringLiteral("pm.legacy"), QStringLiteral("T1"), QStringLiteral("03_Composite")), &err));
+      QgsLayerTree *root = QgsProject::instance()->layerTreeRoot();
+      for (const QString id : {QStringLiteral("pred.legacy"), QStringLiteral("con.legacy"),
+                               QStringLiteral("pm.legacy")})
+      {
+        QgsMapLayer *l = fx.layerSvc.instantiate(id, &err);
+        QVERIFY2(l != nullptr, qPrintable(err));
+        moveIntoGroup(root, QStringLiteral("01_Prediction"), l->id()); // 旧组名树节点
+      }
+
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("predict")));
+      QVERIFY(fx.layerChecked(QStringLiteral("pred.legacy")));  // 旧 01_Prediction 产层不再被表外隐藏
+      QVERIFY(fx.layerChecked(QStringLiteral("pred.facies")));  // canonical 产层照常
+      QVERIFY(!fx.layerChecked(QStringLiteral("con.legacy"))); // 折算 03_Constraints → predict 表外
+
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("constraint")));
+      QVERIFY(fx.layerChecked(QStringLiteral("con.legacy")));  // 旧 02_Constraints → 03_Constraints 入表
+      QVERIFY(!fx.layerChecked(QStringLiteral("pred.legacy")));
+
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("compose")));
+      QVERIFY(fx.layerChecked(QStringLiteral("pm.legacy")));   // 旧 03_Composite → 05_PaleoMap 入表
     }
 
     // ---- 未接线防御：null project / null model / 未知 pageId ----

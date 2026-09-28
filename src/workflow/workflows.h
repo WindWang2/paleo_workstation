@@ -6,6 +6,7 @@
 #include <QVariantMap>
 #include <QVector>
 #include "../domain/types.h"
+#include "../services/singlefactordef.h"
 
 class QgisProcessingService;
 class QgisLayerService;
@@ -95,6 +96,16 @@ class ConstraintWorkflow : public QObject
     // pointsLayerId（可选）。
     bool generateFactor(const QString &horizon, const QString &factorId,
                         const QVariantMap &params, QString *error = nullptr);
+
+  private:
+    // 主线6：strathick 的等厚引擎分派（paleo:paleo_isopach，INPUT_TOP/
+    // INPUT_BASE 双构造面栅格）。params：topLayerId/baseLayerId（声明图层
+    // id，必填）+ negativeToNodata（默认 true，倒置层序折 nodata）。
+    bool generateIsopachFactor(const QString &horizon, const QString &factorId,
+                               const SingleFactorDefinition &def, const QVariantMap &params,
+                               QString *error = nullptr);
+
+  public:
 
     // 等值线（§12：GIS LineString 图层）。gdal:contour 在 C++ 嵌入运行时未注册
     // （Python provider），按 §32/§33 降级决议走 GDAL C API（FactorContourService，

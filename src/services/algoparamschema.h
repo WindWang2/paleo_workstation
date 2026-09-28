@@ -35,6 +35,7 @@ struct AlgorithmParamField
   QString label; // 用户可见标签（tr 由实现侧承载）
   Type type = Double;
   QVariant defaultValue;
+  bool required = false; // String 非空必填（收集侧拒收并写状态；主线7）
   bool hasMin = false;
   double minValue = 0.0;
   bool hasMax = false;

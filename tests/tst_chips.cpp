@@ -11,6 +11,7 @@
 #include "../src/ui/horizonchipbar.h"
 
 #include <qgsapplication.h>
+#include <qgsvectorlayer.h>
 
 // wave/mapping-pipeline 阶段E — 编图 chip 只列 8 个层序界面；
 // 切换沿用 activeHorizon + 按层位懒加载；集合外的层位名字不进 chip。
@@ -21,6 +22,7 @@ class TestChips : public QObject
 
   private slots:
 
+    void chipInterceptWhileEditingEmitsReasonAndRecovers();
     void fixedSetOfEightAndLazySwitch()
     {
         QTemporaryDir dir;
@@ -146,6 +148,70 @@ class TestChips : public QObject
         QVERIFY( bar.isChipActive( QStringLiteral( "D61" ) ) );
     }
 };
+
+// mapping 主线3：编辑中拦截切换层位——不再静默，带文案 + 会话结束后恢复。
+void TestChips::chipInterceptWhileEditingEmitsReasonAndRecovers()
+{
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    QgisProjectService projectSvc;
+    QVERIFY( projectSvc.createProject( dir.filePath( QStringLiteral( "proj.qgz" ) ) ) );
+    LayerManifest manifest{ dir.filePath( QStringLiteral( "m.sqlite" ) ) };
+    QVERIFY( manifest.open() );
+    QgisLayerService layers{ &projectSvc, &manifest };
+    SelectionContext ctx;
+
+    // D61 栅格声明（chip 可点门）+ 一个已实例化矢量层（D62）承载编辑会话。
+    LayerDeclaration d61;
+    d61.layerId = QStringLiteral( "horizon.D61.derived" );
+    d61.horizon = QStringLiteral( "D61" );
+    d61.type = QStringLiteral( "raster" );
+    d61.source = dir.filePath( QStringLiteral( "d61.tif" ) );
+    QString err;
+    QVERIFY2( layers.declare( d61, &err ), qPrintable( err ) );
+
+    QFile geo( dir.filePath( QStringLiteral( "f.geojson" ) ) );
+    QVERIFY( geo.open( QIODevice::WriteOnly ) );
+    geo.write( "{\"type\":\"FeatureCollection\",\"features\":["
+               "{\"type\":\"Feature\",\"properties\":{},\"geometry\":"
+               "{\"type\":\"Polygon\",\"coordinates\":[[[0,0],[1,0],[1,1],[0,0]]]}}]}" );
+    geo.close();
+    LayerDeclaration d62;
+    d62.layerId = QStringLiteral( "facies.D62" );
+    d62.horizon = QStringLiteral( "D62" );
+    d62.type = QStringLiteral( "vector" );
+    d62.source = dir.filePath( QStringLiteral( "f.geojson" ) );
+    QVERIFY2( layers.declare( d62, &err ), qPrintable( err ) );
+    QgsVectorLayer *vl = qobject_cast<QgsVectorLayer *>(
+        layers.instantiate( QStringLiteral( "facies.D62" ) ) );
+    QVERIFY( vl != nullptr );
+    layers.setActiveHorizon( QStringLiteral( "D62" ) );
+
+    HorizonChipBar bar( &ctx, &layers );
+    ctx.setActiveHorizon( QStringLiteral( "D62" ) );
+    QVERIFY( bar.isChipActive( QStringLiteral( "D62" ) ) );
+
+    // 编辑会话开启 → 点 D61：拦截 + 文案（含编辑层名），activeHorizon 不变。
+    QVERIFY( vl->startEditing() );
+    QSignalSpy refuseSpy( &bar, &HorizonChipBar::horizonSwitchRefused );
+    QSignalSpy horizonSpy( &ctx, &SelectionContext::activeHorizonChanged );
+    auto *chip = bar.findChild<QToolButton *>( QStringLiteral( "chip_D61" ) );
+    QVERIFY( chip != nullptr && chip->isEnabled() );
+    chip->click();
+    QCOMPARE( refuseSpy.count(), 1 );
+    QVERIFY( refuseSpy.at( 0 ).at( 0 ).toString().contains( QStringLiteral( "编辑" ) ) );
+    QVERIFY( refuseSpy.at( 0 ).at( 0 ).toString().contains( vl->name() ) );
+    QCOMPARE( ctx.activeHorizon(), QStringLiteral( "D62" ) ); // 未切换
+    QCOMPARE( horizonSpy.count(), 0 );
+    QVERIFY( bar.isChipActive( QStringLiteral( "D62" ) ) ); // 高亮弹回原层位
+
+    // 恢复路径：会话结束（回滚）后同一 chip 可再点且切换成功。
+    vl->rollBack();
+    chip->click();
+    QCOMPARE( refuseSpy.count(), 1 ); // 不再拦截
+    QCOMPARE( ctx.activeHorizon(), QStringLiteral( "D61" ) );
+    QCOMPARE( layers.activeHorizon(), QStringLiteral( "D61" ) );
+}
 
 int main( int argc, char *argv[] )
 {

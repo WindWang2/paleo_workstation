@@ -1,3 +1,4 @@
+// 层：视图
 #pragma once
 // ui/pages/panelshared.h — 右 dock 页面板共享的小控件与助手。
 // 原 pagepanels.cpp 匿名命名空间成员抽出，供拆分后的 per-page 文件

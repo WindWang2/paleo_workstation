@@ -440,6 +440,7 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   p->addSmallAction(editTb->actionMove());
   p->addSmallAction(editTb->actionDeleteFeatures());
   p->addSmallAction(editTb->actionVertexEdit());
+  p->addSmallAction(editTb->actionTopological()); // 共边节点联动开关
   p->addSmallAction(editTb->actionSave());
   p->addSmallAction(editTb->actionCancel());
 }

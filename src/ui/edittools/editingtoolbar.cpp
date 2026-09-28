@@ -269,12 +269,19 @@ void PaleoEditingToolbar::setLayers( const QList<QgsVectorLayer *> &layers )
 void PaleoEditingToolbar::setProject( QgsProject *project )
 {
   mProject = project;
+  // Adopt the stored flag without writing it back (toggled would re-set).
+  const QSignalBlocker block( mActionTopological );
+  mActionTopological->setChecked( project ? project->topologicalEditing() : false );
 }
 
 void PaleoEditingToolbar::refreshFromProject()
 {
   QgsProject *project = mProject ? mProject.data() : QgsProject::instance();
   setLayers( project ? project->layers<QgsVectorLayer *>() : QList<QgsVectorLayer *>() );
+  // The persisted topo flag changes with the project — adopt it without
+  // firing toggled (which would write it straight back).
+  const QSignalBlocker block( mActionTopological );
+  mActionTopological->setChecked( project && project->topologicalEditing() );
 }
 
 void PaleoEditingToolbar::setLayerFilter( LayerFilter filter )
@@ -409,6 +416,19 @@ void PaleoEditingToolbar::buildUi()
                                          QStringLiteral( "mActionDeleteSelected.svg" ) );
   mActionVertexEdit = newToolAction( tr( "节点" ), tr( "编辑所选要素的节点" ),
                                      QStringLiteral( "mActionVertexTool.svg" ) );
+  // Mode toggle (checkable, NOT in the exclusive tool group): same-layer
+  // topological editing for the vertex tool — coincident vertices move/insert/
+  // delete together. State mirrors QgsProject::topologicalEditing so it
+  // persists in the .qgz; toggling also pushes live into an armed vertex tool.
+  mActionTopological = newToolAction( tr( "拓扑" ), tr( "拓扑编辑：共边节点随选区节点一起动/增/删" ),
+                                      QStringLiteral( "mActionTopologicalEditing.svg" ) );
+  connect( mActionTopological, &QAction::toggled, this, [this]( bool on ) {
+    QgsProject *project = mProject ? mProject.data() : QgsProject::instance();
+    if ( project && project->topologicalEditing() != on )
+      project->setTopologicalEditing( on );
+    if ( auto *vt = qobject_cast<PaleoVertexTool *>( mActiveEditTool ) )
+      vt->setTopologicalEditingEnabled( on );
+  } );
 
   mToolBar->addSeparator();
   mActionSave = newPlainAction( tr( "保存" ), tr( "提交当前图层的编辑" ),
@@ -528,7 +548,8 @@ void PaleoEditingToolbar::updateActionStates()
   const QString noTarget = tr( "先选择一个可编辑图层" );
   const QList<QAction *> toolActions = { mActionSelect, mActionAddFeature, mActionAddPoint,
                                          mActionAddLine, mActionAddPolygon, mActionReshape,
-                                         mActionMove, mActionDeleteFeatures, mActionVertexEdit };
+                                         mActionMove, mActionDeleteFeatures, mActionVertexEdit,
+                                         mActionTopological };
   for ( QAction *a : toolActions )
   {
     a->setEnabled( hasCandidates );
@@ -635,7 +656,11 @@ void PaleoEditingToolbar::onEditToolTriggered()
   else if ( action == mActionDeleteFeatures )
     tool = wireAborted( new PaleoDeleteFeatureTool( mCanvas, target ) );
   else if ( action == mActionVertexEdit )
-    tool = wireAborted( new PaleoVertexTool( mCanvas, target ) );
+  {
+    auto *vt = new PaleoVertexTool( mCanvas, target );
+    vt->setTopologicalEditingEnabled( mActionTopological->isChecked() );
+    tool = wireAborted( vt );
+  }
 
   if ( !tool )
   {

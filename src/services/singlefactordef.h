@@ -1,3 +1,4 @@
+// 层：功能
 #pragma once
 #include <QString>
 #include <QVariantMap>

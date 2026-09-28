@@ -3,7 +3,9 @@
 
 #include <QKeyEvent>
 
+#include <qgis.h>
 #include <qgsfeature.h>
+#include <qgsfeatureiterator.h>
 #include <qgsgeometry.h>
 #include <qgsmapcanvas.h>
 #include <qgsmapmouseevent.h>
@@ -75,20 +77,42 @@ QgsVertexMarker *markerForVertex( const QList<QgsVertexMarker *> &markers, qint6
   }
   return nullptr;
 }
+
+// XY coincidence tolerant of last-ulp noise (GEOS round-trips); shared-
+// boundary vertices produced by polygonize are bitwise-equal to start with.
+bool sameXy( const QgsPoint &a, const QgsPoint &b )
+{
+  return qgsDoubleNear( a.x(), b.x() ) && qgsDoubleNear( a.y(), b.y() );
+}
+
+// Dense-numbered vertex position; invalid nr → empty (geometry-less).
+QgsPointXY vertexXy( const QgsGeometry &geometry, int vertexNr )
+{
+  QgsVertexId vid;
+  if ( !geometry.vertexIdFromVertexNr( vertexNr, vid ) || !geometry.constGet() )
+    return QgsPointXY();
+  const QgsPoint pt = geometry.constGet()->vertexAt( vid );
+  return QgsPointXY( pt.x(), pt.y() );
+}
 } // namespace
 
-// One in-flight vertex drag: the dragged vertex identified by (feature id,
-// vertex number), the feature's pre-drag geometry (QgsGeometry copies are deep,
-// so this is the sanctioned "clone current geometry → mutate → commit" clone),
-// the highlighted marker (canvas-owned, tracked for color/center restore) and
-// the rubber band previewing the whole translated geometry.
+// One in-flight vertex drag. The grabbed vertex is (fid, vertexNr); in
+// topological mode `coincident` lists every layer vertex sharing its
+// position (self included). Per-feature state is keyed by fid so a single
+// feature carrying several coincident vertices moves them all on one clone.
 struct PaleoVertexTool::DragState
 {
   qint64 fid = -1;
   int vertexNr = -1;
-  QgsGeometry originalGeometry;
-  QgsVertexMarker *marker = nullptr; // not owned (canvas-parented)
-  QgsRubberBand *previewBand = nullptr; // not owned (canvas-parented)
+  QgsGeometry originalGeometry;             // grabbed feature's pre-drag clone
+  QgsVertexMarker *marker = nullptr;        // not owned (canvas-parented)
+  QgsRubberBand *previewBand = nullptr;     // grabbed feature's preview band
+  QgsPointXY grabPos;                       // grabbed vertex, layer CRS
+  QList<QPair<qint64, int>> coincident;     // write set ({self} when topo off)
+  QHash<qint64, QgsGeometry> originalByFid; // fid → pre-drag clone
+  QHash<qint64, QgsRubberBand *> previewBands; // fid → band (canvas-parented)
+  QList<QgsVertexMarker *> topoMarkers;     // red markers for coincident
+                                            // vertices outside the selection
 };
 
 PaleoVertexTool::PaleoVertexTool( QgsMapCanvas *canvas, QgsVectorLayer *layer )
@@ -177,6 +201,9 @@ void PaleoVertexTool::canvasPressEvent( QgsMapMouseEvent *e )
   mDraggingVertex->fid = fid;
   mDraggingVertex->vertexNr = vertexNr;
   mDraggingVertex->originalGeometry = feature.geometry(); // deep copy = pre-drag clone
+  mDraggingVertex->grabPos = vertexXy( feature.geometry(), vertexNr );
+  mDraggingVertex->coincident.append( qMakePair( fid, vertexNr ) );
+  mDraggingVertex->originalByFid.insert( fid, feature.geometry() );
   mDraggingVertex->marker = markerForVertex( mMarkers, fid, vertexNr );
   if ( mDraggingVertex->marker )
   {
@@ -184,12 +211,52 @@ void PaleoVertexTool::canvasPressEvent( QgsMapMouseEvent *e )
     mDraggingVertex->marker->setIconSize( MARKER_ICON_SIZE + 4 );
   }
   mDraggingVertex->previewBand = createRubberBand( layer->geometryType() );
+  mDraggingVertex->previewBands.insert( fid, mDraggingVertex->previewBand );
 
-  // Prime the preview with the (so far zero-length) move, same math as move.
-  QgsGeometry preview = mDraggingVertex->originalGeometry;
+  // Topological editing: every vertex sharing the grabbed position joins the
+  // write set — coincident members on UNSELECTED features get a red marker so
+  // the shared-boundary move is visible before commit.
+  if ( mTopoEditing )
+  {
+    const QgsFeatureIds selected = layer->selectedFeatureIds();
+    for ( const QPair<qint64, int> &member : coincidentVertices( mDraggingVertex->grabPos ) )
+    {
+      if ( member.first == fid && member.second == vertexNr )
+        continue;
+      mDraggingVertex->coincident.append( member );
+      if ( !mDraggingVertex->originalByFid.contains( member.first ) )
+      {
+        const QgsFeature other = layer->getFeature( member.first );
+        if ( other.hasGeometry() )
+          mDraggingVertex->originalByFid.insert( member.first, other.geometry() );
+      }
+      if ( !selected.contains( member.first ) )
+      {
+        const QgsPointXY mp = vertexXy( mDraggingVertex->originalByFid.value( member.first ), member.second );
+        QgsVertexMarker *marker = new QgsVertexMarker( mCanvas );
+        marker->setIconType( QgsVertexMarker::ICON_CIRCLE );
+        marker->setColor( dragMarkerColor() );
+        marker->setIconSize( MARKER_ICON_SIZE );
+        marker->setPenWidth( MARKER_PEN_WIDTH );
+        marker->setCenter( toMapCoordinates( layer, mp ) );
+        mDraggingVertex->topoMarkers.append( marker );
+      }
+      if ( !mDraggingVertex->previewBands.contains( member.first ) )
+        mDraggingVertex->previewBands.insert( member.first,
+                                              createRubberBand( layer->geometryType() ) );
+    }
+  }
+
+  // Prime the previews with the (so far zero-length) move, same math as move.
   const QgsPointXY lp = toLayerCoordinates( layer, e->mapPoint() );
-  if ( preview.moveVertex( lp.x(), lp.y(), mDraggingVertex->vertexNr ) )
-    mDraggingVertex->previewBand->setToGeometry( preview, layer );
+  for ( auto it = mDraggingVertex->originalByFid.begin(); it != mDraggingVertex->originalByFid.end(); ++it )
+  {
+    QgsGeometry preview = it.value();
+    for ( const QPair<qint64, int> &member : std::as_const( mDraggingVertex->coincident ) )
+      if ( member.first == it.key() )
+        preview.moveVertex( lp.x(), lp.y(), member.second );
+    mDraggingVertex->previewBands.value( it.key() )->setToGeometry( preview, layer );
+  }
 }
 
 void PaleoVertexTool::canvasMoveEvent( QgsMapMouseEvent *e )
@@ -203,10 +270,15 @@ void PaleoVertexTool::canvasMoveEvent( QgsMapMouseEvent *e )
 
   if ( QgsVectorLayer *layer = targetLayer() )
   {
-    QgsGeometry preview = mDraggingVertex->originalGeometry;
     const QgsPointXY lp = toLayerCoordinates( layer, e->mapPoint() );
-    if ( preview.moveVertex( lp.x(), lp.y(), mDraggingVertex->vertexNr ) )
-      mDraggingVertex->previewBand->setToGeometry( preview, layer );
+    for ( auto it = mDraggingVertex->originalByFid.begin(); it != mDraggingVertex->originalByFid.end(); ++it )
+    {
+      QgsGeometry preview = it.value();
+      for ( const QPair<qint64, int> &member : std::as_const( mDraggingVertex->coincident ) )
+        if ( member.first == it.key() )
+          preview.moveVertex( lp.x(), lp.y(), member.second );
+      mDraggingVertex->previewBands.value( it.key() )->setToGeometry( preview, layer );
+    }
   }
 }
 
@@ -239,23 +311,60 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
     // closure point counted for polygon rings): a line needs ≥3 vertices to
     // delete down to 2, a ring ≥5 to delete down to 4. A single point's last
     // vertex would delete the whole feature — refused here.
-    QgsVertexId vid;
-    if ( !geometry.vertexIdFromVertexNr( vertexNr, vid ) || !geometry.constGet() )
-      return;
-    const Qgis::GeometryType geometryType = QgsWkbTypes::geometryType( geometry.wkbType() );
-    const int ringVertices = geometry.constGet()->vertexCount( vid.part, vid.ring );
-    const int minimum = geometryType == Qgis::GeometryType::Line ? 3
-                        : geometryType == Qgis::GeometryType::Polygon ? 5
-                        : 2;
-    if ( ringVertices < minimum )
+    auto ringFitsDelete = []( const QgsGeometry &g, int nr ) -> bool {
+      QgsVertexId vid;
+      if ( !g.vertexIdFromVertexNr( nr, vid ) || !g.constGet() )
+        return false;
+      const Qgis::GeometryType gt = QgsWkbTypes::geometryType( g.wkbType() );
+      const int ringVertices = g.constGet()->vertexCount( vid.part, vid.ring );
+      const int minimum = gt == Qgis::GeometryType::Line ? 3
+                          : gt == Qgis::GeometryType::Polygon ? 5
+                          : 2;
+      return ringVertices >= minimum;
+    };
+    if ( !ringFitsDelete( geometry, vertexNr ) )
     {
       emit messageEmitted( tr( "Cannot delete vertex: the feature would become invalid" ), Qgis::MessageLevel::Warning );
       return;
     }
 
-    QgsGeometry mutated = geometry;
+    // Topological editing: collect every vertex coincident with the target —
+    // the batch is refused whole when any member's own ring would break.
+    QList<QPair<qint64, int>> writeSet = { qMakePair( fid, vertexNr ) };
+    if ( mTopoEditing )
+    {
+      writeSet = coincidentVertices( vertexXy( geometry, vertexNr ) );
+      for ( const QPair<qint64, int> &member : std::as_const( writeSet ) )
+      {
+        const QgsFeature other = layer->getFeature( member.first );
+        if ( !other.hasGeometry() || !ringFitsDelete( other.geometry(), member.second ) )
+        {
+          emit messageEmitted( tr( "Cannot delete vertex: a shared-boundary feature would become invalid" ),
+                               Qgis::MessageLevel::Warning );
+          return;
+        }
+      }
+    }
+
     layer->beginEditCommand( tr( "Deleted vertex" ) );
-    if ( mutated.deleteVertex( vertexNr ) && layer->changeGeometry( fid, mutated ) )
+    // Group per fid: several coincident vertices on ONE feature must delete
+    // in descending vertex order — dense numbering shifts as vertices drop.
+    QHash<qint64, QList<int>> byFid;
+    for ( const QPair<qint64, int> &member : std::as_const( writeSet ) )
+      byFid[member.first].append( member.second );
+    bool committed = true;
+    for ( auto it = byFid.begin(); it != byFid.end() && committed; ++it )
+    {
+      QgsGeometry mutated = layer->getFeature( it.key() ).geometry();
+      QList<int> nrs = it.value();
+      std::sort( nrs.begin(), nrs.end(), std::greater<int>() );
+      for ( const int nr : std::as_const( nrs ) )
+        if ( !mutated.deleteVertex( nr ) )
+          committed = false;
+      if ( committed && !layer->changeGeometry( it.key(), mutated ) )
+        committed = false;
+    }
+    if ( committed )
     {
       layer->endEditCommand();
       ++mEditedCount;
@@ -286,12 +395,33 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
 
   // The release point commits even when it left the drag start's vicinity
   // (QGIS vertex-tool semantics: the whole press→release span is the move).
-  const QgsPointXY releasePoint = toLayerCoordinates( layer, e->mapPoint() );
-  QgsGeometry geometry = mDraggingVertex->originalGeometry;
+  QgsPointXY releasePoint = toLayerCoordinates( layer, e->mapPoint() );
+
+  // Topological weld: landing on another vertex's doorstep snaps to its exact
+  // position — this is how coincidence is CREATED (shared-boundary healing).
+  if ( mTopoEditing )
+  {
+    QgsPointXY snapPos;
+    if ( findNearestLayerVertex( releasePoint, mDraggingVertex->grabPos, snapPos ) )
+      releasePoint = snapPos;
+  }
 
   layer->beginEditCommand( tr( "Moved vertex" ) );
-  if ( geometry.moveVertex( releasePoint.x(), releasePoint.y(), mDraggingVertex->vertexNr )
-       && layer->changeGeometry( mDraggingVertex->fid, geometry ) )
+  bool committed = true;
+  // One clone per touched feature; moveVertex keeps vertex numbering stable
+  // so every coincident member applies against its own pre-drag geometry.
+  for ( auto it = mDraggingVertex->originalByFid.begin();
+        it != mDraggingVertex->originalByFid.end() && committed; ++it )
+  {
+    QgsGeometry geometry = it.value();
+    for ( const QPair<qint64, int> &member : std::as_const( mDraggingVertex->coincident ) )
+      if ( member.first == it.key()
+           && !geometry.moveVertex( releasePoint.x(), releasePoint.y(), member.second ) )
+        committed = false;
+    if ( committed && !layer->changeGeometry( it.key(), geometry ) )
+      committed = false;
+  }
+  if ( committed )
   {
     layer->endEditCommand();
     ++mEditedCount;
@@ -327,10 +457,60 @@ void PaleoVertexTool::canvasDoubleClickEvent( QgsMapMouseEvent *e )
   if ( !feature.hasGeometry() )
     return;
 
-  QgsGeometry geometry = feature.geometry();
+  // fid → insertion indices (before-vertex numbering). Topological editing
+  // extends the hit feature's segment to every feature carrying a coincident
+  // edge — consecutive vertices equal to the segment endpoints, either
+  // orientation (shared boundaries run opposite directions in the two rings).
+  QHash<qint64, QList<int>> inserts;
+  inserts[fid].append( beforeVertex );
+
+  if ( mTopoEditing && beforeVertex >= 1 )
+  {
+    const QgsPointXY segA = vertexXy( feature.geometry(), beforeVertex - 1 );
+    const QgsPointXY segB = vertexXy( feature.geometry(), beforeVertex );
+
+    QgsFeatureIterator fit = layer->getFeatures();
+    QgsFeature other;
+    while ( fit.nextFeature( other ) )
+    {
+      if ( other.id() == fid || !other.hasGeometry() || !other.geometry().constGet() )
+        continue;
+
+      const QgsGeometry og = other.geometry();
+      const int total = og.constGet()->vertexCount();
+      for ( int nr = 0; nr + 1 < total; ++nr )
+      {
+        QgsVertexId va, vb;
+        if ( !og.vertexIdFromVertexNr( nr, va ) || !og.vertexIdFromVertexNr( nr + 1, vb ) )
+          break;
+        if ( va.part != vb.part || va.ring != vb.ring ) // not the same segment
+          continue;
+        const QgsPoint pa = og.constGet()->vertexAt( va );
+        const QgsPoint pb = og.constGet()->vertexAt( vb );
+        const bool forward = qgsDoubleNear( pa.x(), segA.x() ) && qgsDoubleNear( pa.y(), segA.y() )
+                             && qgsDoubleNear( pb.x(), segB.x() ) && qgsDoubleNear( pb.y(), segB.y() );
+        const bool reversed = qgsDoubleNear( pa.x(), segB.x() ) && qgsDoubleNear( pa.y(), segB.y() )
+                              && qgsDoubleNear( pb.x(), segA.x() ) && qgsDoubleNear( pb.y(), segA.y() );
+        if ( forward || reversed )
+          inserts[other.id()].append( nr + 1 );
+      }
+    }
+  }
+
   layer->beginEditCommand( tr( "Added vertex" ) );
-  if ( geometry.insertVertex( onSegment.x(), onSegment.y(), beforeVertex )
-       && layer->changeGeometry( fid, geometry ) )
+  bool committed = true;
+  for ( auto it = inserts.begin(); it != inserts.end() && committed; ++it )
+  {
+    QgsGeometry geometry = layer->getFeature( it.key() ).geometry();
+    QList<int> nrs = it.value();
+    std::sort( nrs.begin(), nrs.end(), std::greater<int>() ); // dense numbering shifts per insert
+    for ( const int nr : std::as_const( nrs ) )
+      if ( !geometry.insertVertex( onSegment.x(), onSegment.y(), nr ) )
+        committed = false;
+    if ( committed && !layer->changeGeometry( it.key(), geometry ) )
+      committed = false;
+  }
+  if ( committed )
   {
     layer->endEditCommand();
     ++mEditedCount;
@@ -432,11 +612,14 @@ void PaleoVertexTool::clearDragState()
   if ( !mDraggingVertex )
     return;
 
-  if ( mDraggingVertex->previewBand )
-  {
-    delete mDraggingVertex->previewBand; // canvas-parented; remove explicitly
-    mDraggingVertex->previewBand = nullptr;
-  }
+  // previewBands contains previewBand itself — delete via the map to avoid
+  // a double-free; topoMarkers are canvas-parented extras, delete directly.
+  for ( QgsRubberBand *band : std::as_const( mDraggingVertex->previewBands ) )
+    delete band;
+  mDraggingVertex->previewBands.clear();
+  mDraggingVertex->previewBand = nullptr;
+  qDeleteAll( mDraggingVertex->topoMarkers );
+  mDraggingVertex->topoMarkers.clear();
   if ( mDraggingVertex->marker )
   {
     mDraggingVertex->marker->setColor( idleMarkerColor() );
@@ -445,6 +628,88 @@ void PaleoVertexTool::clearDragState()
   }
   delete mDraggingVertex;
   mDraggingVertex = nullptr;
+}
+
+void PaleoVertexTool::setTopologicalEditingEnabled( bool on )
+{
+  if ( mTopoEditing == on )
+    return;
+  mTopoEditing = on;
+  // A mid-drag toggle leaves the captured coincident set stale — drop the
+  // drag rather than commit a mixed-semantics gesture.
+  clearDragState();
+}
+
+// ---------------------------------------------------------------------------
+// Topological helpers
+// ---------------------------------------------------------------------------
+
+QList<QPair<qint64, int>> PaleoVertexTool::coincidentVertices( const QgsPointXY &layerPoint ) const
+{
+  QList<QPair<qint64, int>> out;
+  QgsVectorLayer *layer = targetLayer();
+  if ( !layer )
+    return out;
+
+  const QgsPoint target( layerPoint );
+  QgsFeatureIterator fit = layer->getFeatures();
+  QgsFeature feature;
+  while ( fit.nextFeature( feature ) )
+  {
+    if ( !feature.hasGeometry() )
+      continue;
+    const QgsGeometry geometry = feature.geometry();
+    int nr = 0;
+    QgsVertexId vid;
+    while ( geometry.vertexIdFromVertexNr( nr, vid ) )
+    {
+      if ( sameXy( geometry.constGet()->vertexAt( vid ), target ) )
+        out.append( qMakePair( feature.id(), nr ) );
+      ++nr;
+    }
+  }
+  return out;
+}
+
+bool PaleoVertexTool::findNearestLayerVertex( const QgsPointXY &layerPoint,
+                                              const QgsPointXY &excludedPos,
+                                              QgsPointXY &nearestPos )
+{
+  QgsVectorLayer *layer = targetLayer();
+  if ( !layer )
+    return false;
+
+  const QgsPointXY mapPoint = toMapCoordinates( layer, layerPoint );
+  const double radius = searchRadiusMU( mCanvas );
+  const QgsPoint excluded( excludedPos );
+
+  bool found = false;
+  double best = radius;
+  QgsFeatureIterator fit = layer->getFeatures();
+  QgsFeature feature;
+  while ( fit.nextFeature( feature ) )
+  {
+    if ( !feature.hasGeometry() )
+      continue;
+    const QgsGeometry geometry = feature.geometry();
+    int nr = 0;
+    QgsVertexId vid;
+    while ( geometry.vertexIdFromVertexNr( nr, vid ) )
+    {
+      const QgsPoint pt = geometry.constGet()->vertexAt( vid );
+      ++nr;
+      if ( sameXy( pt, excluded ) )
+        continue; // the coincident stack being dragged — welding to self is noise
+      const double dist = mapPoint.distance( toMapCoordinates( layer, QgsPointXY( pt.x(), pt.y() ) ) );
+      if ( dist <= best )
+      {
+        best = dist;
+        nearestPos = QgsPointXY( pt.x(), pt.y() );
+        found = true;
+      }
+    }
+  }
+  return found;
 }
 
 bool PaleoVertexTool::findNearestVertex( const QgsPointXY &layerPoint, qint64 &fid, int &vertexNr )

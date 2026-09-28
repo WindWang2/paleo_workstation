@@ -89,6 +89,10 @@ class PaleoEditingToolbar : public QWidget
     QAction *actionMove() const { return mActionMove; }
     QAction *actionDeleteFeatures() const { return mActionDeleteFeatures; }
     QAction *actionVertexEdit() const { return mActionVertexEdit; }
+    // Mode toggle (not a tool action): same-layer topological editing —
+    // checkable, mirrors the project's topologicalEditing flag (persisted in
+    // .qgz), pushes live into an armed PaleoVertexTool.
+    QAction *actionTopological() const { return mActionTopological; }
     QAction *actionSave() const { return mActionSave; }
     QAction *actionCancel() const { return mActionCancel; }
     QAction *actionUndo() const { return mActionUndo; }
@@ -142,6 +146,7 @@ class PaleoEditingToolbar : public QWidget
     QAction *mActionMove = nullptr;
     QAction *mActionDeleteFeatures = nullptr;
     QAction *mActionVertexEdit = nullptr;
+    QAction *mActionTopological = nullptr; // mode toggle, not in toolGroup
     QAction *mActionSave = nullptr;
     QAction *mActionCancel = nullptr;
     QAction *mActionUndo = nullptr;

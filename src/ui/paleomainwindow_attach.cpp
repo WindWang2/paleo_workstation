@@ -782,8 +782,9 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
 
     // ---- m2(C): 矢量化成功 → 自动进入相界编辑态（z3 PaleoVertexTool）------
     // 拿 facies.<horizon> 矢量层 instantiate → 编辑条选层 + 触发顶点工具
-    // （QgsVertexTool 是 app-only，顶点编辑走 PaleoVertexTool；snapping/
-    // 拓扑在画布控制器侧已开）。派生 gpkg 按 T26 纪律只读——进编辑前先铺
+    // （QgsVertexTool 是 app-only，顶点编辑走 PaleoVertexTool；snapping 在
+    // 画布控制器侧已开，拓扑编辑由编辑条「拓扑」开关驱动——默认关）。派生
+    // gpkg 按 T26 纪律只读——进编辑前先铺
     // 可编辑工作副本（prepareFaciesForEditing）。编辑条缺席（无画布环境）
     // → 降级为选中层 + 状态文案提示手动进入编辑。
     connect(compose, &CompositionWorkflow::faciesPolygonsReady, this,

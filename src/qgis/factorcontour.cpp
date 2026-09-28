@@ -1,3 +1,4 @@
+// 层：QGIS 封装
 #include "factorcontour.h"
 
 #include <QByteArray>

@@ -33,6 +33,18 @@ class QKeyEvent;
 //   · Esc cancels an in-flight drag (or emits editAborted when idle — owner
 //     tears the tool down, §42.15 pattern).
 //
+// Topological editing (QGIS QgsVertexTool semantics, same-layer scope):
+// when enabled, vertex gestures apply to every vertex in the layer whose XY
+// coincides with the grabbed one — the shared-boundary case facies polygons
+// produce. Drag moves all coincident copies, double-click on a shared edge
+// inserts a vertex in every feature carrying that edge, right-click delete
+// removes every coincident copy; one edit command wraps the whole batch →
+// one native undo step. Release welds: landing within the search radius of
+// another layer vertex snaps to its exact position (creates coincidence).
+// Grab domain stays the selected features; the write set extends to all
+// coincident vertices whether selected or not. OFF by default — the host
+// (PaleoEditingToolbar) drives it from the project's topologicalEditing flag.
+//
 // Coordinate discipline: hit-testing runs in layer CRS (event →
 // QgsMapTool::toLayerCoordinates(layer, mapPoint)); QgsVertexMarker centers
 // take map CRS, so markers convert back through the canvas transform.
@@ -51,6 +63,10 @@ class PaleoVertexTool : public QgsMapToolEdit
     // Vertices currently displayed (selected features' total vertex count).
     int markerCount() const { return mMarkers.size(); }
     int editedCount() const { return mEditedCount; } // committed edit commands
+
+    // Same-layer topological editing (see header notes). Host-driven.
+    void setTopologicalEditingEnabled( bool on );
+    bool topologicalEditingEnabled() const { return mTopoEditing; }
 
   signals:
     void featureEdited( const QString &layerId );
@@ -80,9 +96,21 @@ class PaleoVertexTool : public QgsMapToolEdit
     // insertion index (the "next vertex" of the closest segment).
     bool findSegmentInsertion( const QgsPointXY &layerPoint, qint64 &fid, int &beforeVertex, QgsPointXY &onSegment );
 
+    // Topological helpers (all-feature scans, exact XY coincidence via
+    // qgsDoubleNear — shared-boundary vertices are bitwise-equal or at worst
+    // last-ulp off after GEOS round-trips).
+    // Every (fid, vertexNr) in the layer at the given layer-CRS position.
+    QList<QPair<qint64, int>> coincidentVertices( const QgsPointXY &layerPoint ) const;
+    // Nearest vertex across ALL features within search radius, excluding
+    // vertices at \a excludedPos (the drag origin's coincident stack — welding
+    // to your own start is a no-op).
+    bool findNearestLayerVertex( const QgsPointXY &layerPoint, const QgsPointXY &excludedPos,
+                                 QgsPointXY &nearestPos );
+
     QgsVectorLayer *mLayer = nullptr;   // not owned
     DragState *mDraggingVertex = nullptr; // owned, null when idle
     int mEditedCount = 0;
+    bool mTopoEditing = false;
     // Canvas-item markers, owned via canvas parenting; tracked for teardown.
     QList<class QgsVertexMarker *> mMarkers;
 };

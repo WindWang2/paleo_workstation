@@ -1,3 +1,4 @@
+// 层：功能
 #include "singlefactordef.h"
 
 #include <QStringList>

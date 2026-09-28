@@ -139,6 +139,14 @@ class TestEditTools : public QObject
     void vertexRightClickDeletesWithUndo();
     void vertexDeleteRefusedBelowMinimums();
 
+    // c+) topological editing — shared-boundary coincident vertices
+    void vertexTopoDragMovesCoincidentVertices();
+    void vertexTopoOffLeavesNeighborUntouched();
+    void vertexTopoDoubleClickInsertsOnSharedEdge();
+    void vertexTopoDeleteRemovesCoincidentVertices();
+    void vertexTopoReleaseWeldsToNeighborVertex();
+    void toolbarTopologicalActionMirrorsProjectFlag();
+
     // d) undo/redo spine
     void undoStackAttachForwardUndoRedo();
     void undoStackSwitchRefusedAndCommitClears();
@@ -832,6 +840,282 @@ void TestEditTools::vertexDeleteRefusedBelowMinimums()
     canvas.unsetMapTool( &tool );
     layer.rollBack();
   }
+}
+
+// ---------------------------------------------------------------------------
+// c+) topological editing — shared-boundary coincident vertices
+// ---------------------------------------------------------------------------
+
+void TestEditTools::vertexTopoDragMovesCoincidentVertices()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  // Two lines sharing one endpoint — the fidB copy is NEVER selected.
+  QgsVectorLayer layer( QStringLiteral( "LineString?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "topo-drag" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory line layer failed to initialize" );
+  const QgsPointXY shared = mapPt( canvas, 100, 100 );
+  const QgsFeatureId fidA = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { mapPt( canvas, 40, 140 ), shared, mapPt( canvas, 160, 60 ) } ) );
+  const QgsFeatureId fidB = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { shared, mapPt( canvas, 180, 140 ) } ) );
+  layer.startEditing();
+  layer.selectByIds( { fidA } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( true );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+
+  const QgsPointXY pNew = mapPt( canvas, 70, 110 );
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, QPoint( 100, 100 ),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY2( tool.isDragging(), "press on the shared vertex must arm the drag" );
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, QPoint( 70, 110 ),
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+
+  QCOMPARE( editedSpy.count(), 1 );
+  QCOMPARE( layer.undoStack()->count(), 1 ); // one edit command covers both features
+
+  const QgsLineString *lsA = asLineString( layer.getFeature( fidA ).geometry() );
+  const QgsLineString *lsB = asLineString( layer.getFeature( fidB ).geometry() );
+  QVERIFY2( lsA && lsB, "dragged geometries must stay line strings" );
+  QVERIFY( qgsDoubleNear( lsA->xAt( 1 ), pNew.x(), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( lsA->yAt( 1 ), pNew.y(), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( lsB->xAt( 0 ), pNew.x(), 1e-6 ) ); // unselected neighbor followed
+  QVERIFY( qgsDoubleNear( lsB->yAt( 0 ), pNew.y(), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( lsB->xAt( 1 ), mapPt( canvas, 180, 140 ).x(), 1e-6 ) ); // tail untouched
+
+  // One undo step restores BOTH features to the shared position.
+  layer.undoStack()->undo();
+  const QgsLineString *lsAu = asLineString( layer.getFeature( fidA ).geometry() );
+  const QgsLineString *lsBu = asLineString( layer.getFeature( fidB ).geometry() );
+  QVERIFY( qgsDoubleNear( lsAu->xAt( 1 ), shared.x(), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( lsBu->xAt( 0 ), shared.x(), 1e-6 ) );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexTopoOffLeavesNeighborUntouched()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "LineString?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "topo-off" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory line layer failed to initialize" );
+  const QgsPointXY shared = mapPt( canvas, 100, 100 );
+  const QgsFeatureId fidA = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { mapPt( canvas, 40, 140 ), shared, mapPt( canvas, 160, 60 ) } ) );
+  const QgsFeatureId fidB = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { shared, mapPt( canvas, 180, 140 ) } ) );
+  layer.startEditing();
+  layer.selectByIds( { fidA } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  // Default OFF — coincident vertices are independent again.
+  TestVertexTool tool( &canvas, &layer );
+  QVERIFY( !tool.topologicalEditingEnabled() );
+  canvas.setMapTool( &tool );
+
+  const QgsPointXY pNew = mapPt( canvas, 70, 110 );
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, QPoint( 100, 100 ),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, QPoint( 70, 110 ),
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+
+  const QgsLineString *lsA = asLineString( layer.getFeature( fidA ).geometry() );
+  const QgsLineString *lsB = asLineString( layer.getFeature( fidB ).geometry() );
+  QVERIFY( qgsDoubleNear( lsA->xAt( 1 ), pNew.x(), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( lsB->xAt( 0 ), shared.x(), 1e-6 ) ); // neighbor kept the split
+  QVERIFY( qgsDoubleNear( lsB->yAt( 0 ), shared.y(), 1e-6 ) );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexTopoDoubleClickInsertsOnSharedEdge()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  // Adjacent squares sharing the x=30 edge: A = (10,10)-(30,30),
+  // B = (30,10)-(50,30). Coincident vertices at (30,10) and (30,30).
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "topo-ins" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+  const QgsFeatureId fidA = seedFeature( layer, QgsGeometry::fromWkt( squareWkt( 10, 10, 20 ) ) );
+  const QgsFeatureId fidB = seedFeature( layer, QgsGeometry::fromWkt( squareWkt( 30, 10, 20 ) ) );
+  layer.startEditing();
+  layer.selectByIds( { fidA } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( true );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+
+  QCOMPARE( vertexTotal( layer, fidA ), 5 );
+  QCOMPARE( vertexTotal( layer, fidB ), 5 );
+
+  // Double-click the midpoint of the shared edge → both rings gain a vertex.
+  QgsMapMouseEvent dbl( &canvas, QEvent::MouseButtonDblClick, pxAt( canvas, 30, 20 ),
+                        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasDoubleClickEvent( &dbl );
+
+  QCOMPARE( editedSpy.count(), 1 );
+  QCOMPARE( layer.undoStack()->count(), 1 );
+  QCOMPARE( vertexTotal( layer, fidA ), 6 );
+  QCOMPARE( vertexTotal( layer, fidB ), 6 ); // coincident edge got the vertex too
+
+  // The inserted vertex sits on the shared edge: x lands exactly on 30 (the
+  // projection onto the vertical segment), y at the clicked pixel's position.
+  const QgsPointXY clickPt = mapPt( canvas, pxAt( canvas, 30, 20 ).x(), pxAt( canvas, 30, 20 ).y() );
+  const QgsPolygon *polyA = asPolygon( layer.getFeature( fidA ).geometry() );
+  const QgsPolygon *polyB = asPolygon( layer.getFeature( fidB ).geometry() );
+  QVERIFY2( polyA && polyB, "mutated geometries must stay polygons" );
+  const QgsLineString *ringA = qgsgeometry_cast<const QgsLineString *>( polyA->exteriorRing() );
+  const QgsLineString *ringB = qgsgeometry_cast<const QgsLineString *>( polyB->exteriorRing() );
+  QVERIFY2( ringA && ringB, "rings must survive" );
+  // A's ring: (10,10)(30,10) (30,20) (30,30) (10,30) closure
+  QVERIFY( qgsDoubleNear( ringA->xAt( 2 ), 30.0, 1e-6 ) );
+  QVERIFY( qgsDoubleNear( ringA->yAt( 2 ), clickPt.y(), 1e-6 ) );
+  // B's ring: (30,10)(50,10)(50,30)(30,30) (30,20) closure — reversed edge
+  QVERIFY( qgsDoubleNear( ringB->xAt( 4 ), 30.0, 1e-6 ) );
+  QVERIFY( qgsDoubleNear( ringB->yAt( 4 ), clickPt.y(), 1e-6 ) );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexTopoDeleteRemovesCoincidentVertices()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "topo-del" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+  const QgsFeatureId fidA = seedFeature( layer, QgsGeometry::fromWkt( squareWkt( 10, 10, 20 ) ) );
+  const QgsFeatureId fidB = seedFeature( layer, QgsGeometry::fromWkt( squareWkt( 30, 10, 20 ) ) );
+  layer.startEditing();
+  layer.selectByIds( { fidA } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( true );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+  QSignalSpy msgSpy( &tool, &QgsMapTool::messageEmitted );
+
+  // Right-click the shared corner (30,30): both rings drop one vertex —
+  // 5→4 stays above the ring minimum, so the batch commits.
+  click( tool, canvas, pxAt( canvas, 30, 30 ), Qt::RightButton );
+
+  QCOMPARE( editedSpy.count(), 1 );
+  QCOMPARE( msgSpy.count(), 0 );
+  QCOMPARE( vertexTotal( layer, fidA ), 4 );
+  QCOMPARE( vertexTotal( layer, fidB ), 4 );
+  QVERIFY( layer.getFeature( fidA ).geometry().isGeosValid() );
+  QVERIFY( layer.getFeature( fidB ).geometry().isGeosValid() );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexTopoReleaseWeldsToNeighborVertex()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "LineString?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "topo-weld" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory line layer failed to initialize" );
+  const QgsFeatureId fidA = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { mapPt( canvas, 40, 140 ), mapPt( canvas, 100, 100 ) } ) );
+  const QgsPointXY weldTarget = mapPt( canvas, 75, 95 );
+  const QgsFeatureId fidB = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { weldTarget, mapPt( canvas, 150, 120 ) } ) );
+  layer.startEditing();
+  layer.selectByIds( { fidA } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( true );
+  canvas.setMapTool( &tool );
+
+  // Drag fidA's vertex 1 to ~3px from fidB's vertex 0 — inside the search
+  // radius → welded onto the neighbor's exact position.
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, QPoint( 100, 100 ),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY2( tool.isDragging(), "press on vertex must arm the drag" );
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, QPoint( 78, 97 ),
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+
+  const QgsLineString *lsA = asLineString( layer.getFeature( fidA ).geometry() );
+  QVERIFY( qgsDoubleNear( lsA->xAt( 1 ), weldTarget.x(), 1e-9 ) );
+  QVERIFY( qgsDoubleNear( lsA->yAt( 1 ), weldTarget.y(), 1e-9 ) );
+
+  // …and the welded vertex is itself coincident now — a second topo drag
+  // grabs the welded stack (both vertices move together).
+  QgsMapMouseEvent press2( &canvas, QEvent::MouseButtonPress, pxAt( canvas, weldTarget.x(), weldTarget.y() ),
+                           Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press2 );
+  QVERIFY( tool.isDragging() );
+  QgsMapMouseEvent release2( &canvas, QEvent::MouseButtonRelease, QPoint( 55, 125 ),
+                             Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release2 );
+
+  const QgsPointXY pNew = mapPt( canvas, 55, 125 );
+  const QgsLineString *lsA2 = asLineString( layer.getFeature( fidA ).geometry() );
+  const QgsLineString *lsB2 = asLineString( layer.getFeature( fidB ).geometry() );
+  QVERIFY( qgsDoubleNear( lsA2->xAt( 1 ), pNew.x(), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( lsB2->xAt( 0 ), pNew.x(), 1e-6 ) ); // welded neighbor moved too
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::toolbarTopologicalActionMirrorsProjectFlag()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsProject project;
+  QVERIFY( !project.topologicalEditing() ); // QGIS default
+
+  PaleoEditingToolbar bar( &canvas );
+  QVERIFY( bar.actionTopological() );
+  QVERIFY( bar.actionTopological()->isCheckable() );
+
+  bar.setProject( &project );
+  QVERIFY( !bar.actionTopological()->isChecked() );
+
+  // Toggle on → the project flag follows (persists in .qgz).
+  bar.actionTopological()->setChecked( true );
+  QVERIFY( project.topologicalEditing() );
+
+  // A project that already has the flag set lands checked — adoption without
+  // a toggled write-back (would loop otherwise).
+  QgsProject stored;
+  stored.setTopologicalEditing( true );
+  bar.setProject( &stored );
+  QVERIFY( bar.actionTopological()->isChecked() );
+  QVERIFY( stored.topologicalEditing() );
 }
 
 // ---------------------------------------------------------------------------

@@ -1,9 +1,8 @@
-// 层：功能
+// 层：数据
 #include "singlefactordef.h"
 
 #include <QStringList>
 
-// 层：数据
 // PALEO_QGIS_PLAN.md §10 内置单因素词表（固定顺序）。processingAlgId 全部是
 // C++ 嵌入运行时真实注册的算法（QgisProcessingService::algorithmIds() 核实，
 // 见 tst_factorworkflow）：gdal:grid* 属 Python provider，不进嵌入注册表，

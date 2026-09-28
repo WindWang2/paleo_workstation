@@ -16,7 +16,7 @@
 #      algorithms/ai；仅 qgis 豁免）：词表制三类写法——
 #      `#include <QtWidgets…>`、`#include <QWidget>` 等单类头、
 #      `class Q…;` 前向声明。
-#   5. 层标记：每个 src/ 文件头三行内必须有 `// 层：<六值词表之一>`。
+#   5. 层标记：每个 src/ 文件头三行内必须有 `// 层：<六值词表之一>` 且与所属目录对应。
 #
 # 合法残留走 tools/layering-baseline.txt（格式：每行 `<path>:<rule>`，
 # `#` 开头注释）。命中 baseline 的违规降级为提示；baseline 里已修复的条目
@@ -128,14 +128,17 @@ def check_file(path):
     except OSError as exc:
         return [("read-error", 0, str(exc))]
 
-    # W5c 层标记：头三行必须有 `// 层：<词表值>`
+    # W5c 层标记：头三行必须有 `// 层：<词表值>` 且与目录所属层严格一致
     head = "\n".join(lines[:3])
     m = re.search(r"//\s*层：\s*([^\n]+)", head)
-    if m:
-        m = m if m.group(1).strip() in LAYER_VOCAB else None
-    if not m or m.group(1) not in LAYER_VOCAB:
+    tag = m.group(1).strip() if m else None
+    expected_layer = LAYERS.get(layer_dir)
+    if not tag or tag not in LAYER_VOCAB:
         violations.append(("layer-marker", 0,
                            "头三行缺 `// 层：<数据|功能|QGIS 封装|视图|组装根|测试壳>`"))
+    elif tag != expected_layer:
+        violations.append(("layer-marker-mismatch", 0,
+                           f"层标记不匹配：标注为 `// 层：{tag}`，所属目录 `{layer_dir}` 应为 `// 层：{expected_layer}`"))
 
     for n, line in enumerate(lines, 1):
         inc = INC_RE.match(line)
@@ -274,6 +277,9 @@ def selftest():
         ("ui/pages/x.cpp",
          '// 层：视图\n#include "pageshared.h"\n#include <QTabWidget>\n',
          set()),  # ui 自身用 QtWidgets 合法
+        ("services/x.cpp",
+         '// 层：功能\n#include <QString>\n',
+         {"layer-marker-mismatch"}),
     ]
 
     global SRC

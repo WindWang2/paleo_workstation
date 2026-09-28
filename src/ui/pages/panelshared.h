@@ -4,7 +4,6 @@
 // 原 pagepanels.cpp 匿名命名空间成员抽出，供拆分后的 per-page 文件
 // （pagepanels/predictpage/constraintpage/composepage）共用；行为与样式
 // 逐字保持（DESIGN.md token 内嵌于样式表）。
-// 层：视图
 
 #include <QLabel>
 #include <QObject>

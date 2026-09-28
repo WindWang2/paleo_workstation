@@ -440,11 +440,6 @@ void PaleoMainWindow::buildShell()
   m_centerSplit->addWidget(m_previewTabs);
   m_centerSplit->setStretchFactor(0, 0);
   m_centerSplit->setStretchFactor(1, 1);
-  connect(m_centerSplit, &QSplitter::splitterMoved, this,
-          [this](int pos, int) {
-            if (!m_previewMaximized && pos > 0)
-              m_userListWidth = pos;
-          });
   m_workspaceStack->addWidget(m_centerSplit); // 1
   m_centerStack->addWidget(m_workspaceStack); // index 1
 
@@ -453,24 +448,47 @@ void PaleoMainWindow::buildShell()
   if (m_canvasCtl && m_canvasCtl->canvas())
     m_decorMgr = new PaleoDecorationManager(m_canvasCtl->canvas(), this);
 
-  // 预览空态/首标签的分栏高度（普通 QTabWidget 的 currentChanged 覆盖
-  // 0→1 与 1→0 两个迁移；加页时发 0，最后关页发 -1）。
-  if (auto *inner = m_previewTabs->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs")))
-    connect(inner, &QTabWidget::currentChanged, this,
-            [this](int) { applyPreviewSplit(); });
-  // D7 最大化/还原：最大化前存用户分栏尺寸；还原恢复（无记录按 60% 预算）。
+  // 分栏宽度只在三种情况下变化：用户拖 splitter 手柄、用户点
+  // 「最大化/还原预览」（本 lambda）、外层窗口尺寸改变（stretchFactor
+  // 0:1 → 列表保宽度、预览吃增量）。标签开/关、页签切换等其余事件都
+  // 不重设分栏尺寸。
   connect(m_previewTabs, &DataPreviewTabs::previewMaximizeToggled, this,
           [this](bool on) {
             m_previewMaximized = on;
+            if (!m_centerSplit || m_centerSplit->count() < 2)
+              return;
             if (on)
-              m_preMaxSplitSizes = m_centerSplit ? m_centerSplit->sizes() : QList<int>{};
-            else if (m_centerSplit && !m_preMaxSplitSizes.isEmpty())
+            {
+              m_preMaxSplitSizes = m_centerSplit->sizes();
+              const int total = m_centerSplit->orientation() == Qt::Horizontal
+                                    ? m_centerSplit->width()
+                                    : m_centerSplit->height();
+              const int listFloor = qMin(64, qMax(1, total / 10));
+              m_centerSplit->setSizes({listFloor, qMax(1, total - listFloor)});
+            }
+            else if (!m_preMaxSplitSizes.isEmpty())
             {
               m_centerSplit->setSizes(m_preMaxSplitSizes);
-              m_previewExpanded = true; // 已给过预算，不再触碰用户尺寸
             }
-            applyPreviewSplit();
           });
+
+  // 标签全部关掉时清理最大化态并还原用户分栏——此刻预览只剩空态
+  // 提示、恢复尺寸不算动用户布局；其余标签事件绝不重设分栏宽度。
+  if (auto *inner =
+          m_previewTabs->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs")))
+    connect(inner, &QTabWidget::currentChanged, this, [this, inner](int) {
+      if (inner->count() > 0 || !m_previewMaximized)
+        return;
+      m_previewMaximized = false;
+      if (auto *maxBtn = m_previewTabs->findChild<QToolButton *>(
+              QStringLiteral("previewMaxButton")))
+        maxBtn->setChecked(false);
+      if (m_centerSplit && !m_preMaxSplitSizes.isEmpty())
+      {
+        m_centerSplit->setSizes(m_preMaxSplitSizes);
+        m_preMaxSplitSizes.clear();
+      }
+    });
 
   // ---- T31 空态：地图没有图层时画布上的居中指引 ----
   EmptyStateLabel *mapEmpty = nullptr;
@@ -948,11 +966,23 @@ void PaleoMainWindow::showPage(const QString &pageId)
     if (ribbonBar()->currentIndex() != ribbonBar()->categoryIndex(cat))
       ribbonBar()->raiseCategory(cat);
 
+  // 切页只换 dock 内容不换宽度：新页 sizeHint 不同不该把用户拖好的
+  // 「数据属性」宽度带走——栈切页后钉回原宽（窗口 resize 时才跟随）。
+  const int dockW = (m_rightDock && m_rightDock->isVisible() && !m_rightDock->isFloating())
+                        ? m_rightDock->width()
+                        : -1;
   if (auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost")))
     if (auto *stack = static_cast<QStackedLayout *>(host->layout()))
       stack->setCurrentIndex(idx);
   if (m_rightDock)
+  {
     m_rightDock->setWindowTitle(kPageDockTitles.at(idx));
+    if (dockW > 0 && m_rightDock->width() != dockW)
+      QTimer::singleShot(0, this, [this, dockW]() {
+        if (m_rightDock && m_rightDock->isVisible() && !m_rightDock->isFloating())
+          resizeDocks({m_rightDock}, {dockW}, Qt::Horizontal);
+      });
+  }
 
   // ---- m2(D): 页面图层档案——切到编图页即应用该页档案（数据页 no-op）。
   // 档案表在 QgisLayerProfileService（predict/constraint/compose/validate）。
@@ -1003,65 +1033,6 @@ void PaleoMainWindow::showPage(const QString &pageId)
   // 编辑会话经 owner 的 abort 路径拆台（等价 §42.15 的 Esc）。
   if (!kEditingToolPages.contains(pageId) && m_canvasCtl)
     m_canvasCtl->deactivateTool();
-
-  applyPreviewSplit();
-}
-
-void PaleoMainWindow::applyPreviewSplit()
-{
-  if (!m_centerSplit || !m_previewTabs || m_centerSplit->count() < 2)
-    return;
-  const bool isHoriz = (m_centerSplit->orientation() == Qt::Horizontal);
-  const int total = isHoriz ? m_centerSplit->width() : m_centerSplit->height();
-  if (total <= 0 || !m_previewTabs->isVisible())
-    return; // 预览藏着的页（或未布局时）：尺寸让给地图，不动分栏
-
-  const auto *inner =
-      m_previewTabs->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
-  const int tabs = inner ? inner->count() : m_previewTabs->tabCount();
-
-  if (tabs > 0)
-  {
-    // D7 最大化态：数据列表只留 64px 壳（splitter 会按列表最小尺寸兜底），
-    // 预览拿走其余；「还原预览」走 previewMaximizeToggled(false) 恢复
-    // m_preMaxSplitSizes。
-    if (m_previewMaximized)
-    {
-      const int listFloor = qMin(64, qMax(1, total / 10));
-      m_centerSplit->setSizes({listFloor, qMax(1, total - listFloor)});
-      return;
-    }
-
-    // 用户调整过的宽度绝不因双击数据项而改变；只能由用户调整。
-    // 首开未调整时使用默认宽度（确保预览 ≥60%）。
-    const int defaultList = isHoriz ? qMin(380, qMax(260, total * 2 / 5)) : qMax(1, total * 2 / 5);
-    int leftSize = (m_userListWidth > 0) ? m_userListWidth : defaultList;
-    leftSize = qMin(leftSize, qMax(1, total - 64));
-    m_centerSplit->setSizes({leftSize, qMax(1, total - leftSize)});
-    return;
-  }
-
-  // 空态：最大化/保存的尺寸一并复位——角落钮随 tabs 隐藏
-  m_preMaxSplitSizes.clear();
-  m_previewMaximized = false;
-  if (auto *maxBtn =
-          m_previewTabs->findChild<QToolButton *>(QStringLiteral("previewMaxButton")))
-    maxBtn->setChecked(false);
-
-  // 空态下保持左侧列表宽度，绝不因关标签或无标签强制改变用户设置或默认宽度
-  const int defaultList = isHoriz ? qMin(380, qMax(260, total * 2 / 5)) : qMax(1, total * 2 / 5);
-  int leftSize = (m_userListWidth > 0) ? m_userListWidth : defaultList;
-
-  if (isHoriz)
-  {
-    leftSize = qMin(leftSize, qMax(1, total - 64));
-    m_centerSplit->setSizes({leftSize, qMax(1, total - leftSize)});
-  }
-  else
-  {
-    const int hint = qMax(24, m_previewTabs->sizeHint().height());
-    m_centerSplit->setSizes({qMax(0, total - hint), hint});
-  }
 }
 
 // ---------------------------------------------------------------------------

@@ -218,9 +218,6 @@ class PaleoMainWindow : public SARibbonMainWindow
     // m2(D) 页面图层档案：四个编图页切到/层位 chip 切换后重应用当前页档案
     // （QgisLayerProfileService::applyPageProfile）。数据页无档案，no-op。
     void applyCurrentPageProfile();
-    // 预览分栏（§4 预览壳）：数据页地图在上预览在下；预览空态收成一行
-    // 次级文字，首个标签打开时展开到约三分之一高度。
-    void applyPreviewSplit();
     // 「导入工区文件夹」：分类确认表（可改类型）→ 两阶段导入 → 计数汇总，
     // 确认后只打开井口标签（§3/autoplan-design）。
     void runFolderImport(DataImportService *svc);
@@ -259,8 +256,6 @@ class PaleoMainWindow : public SARibbonMainWindow
     QSplitter *m_centerSplit = nullptr;        // 数据面：数据列表 / 数据预览 竖向分栏（§4）
     QWidget *m_dataListHost = nullptr;         // 分栏上格——DataPage 由 attachWorkflows 挂入
     DataPreviewTabs *m_previewTabs = nullptr;  // 分栏下格——只在数据管理页可见
-    int m_userListWidth = -1;                  // 用户拖动分栏记忆宽度（绝不因双击数据项重设）
-    bool m_previewExpanded = false;            // 首个标签打开后已给过 60%（D7 预算）
     bool m_previewMaximized = false;           // D7：预览最大化态（列表留一行壳）
     QList<int> m_preMaxSplitSizes;             // 最大化前的分栏尺寸（还原用）
     PaleoDockWidget *m_leftDock = nullptr;

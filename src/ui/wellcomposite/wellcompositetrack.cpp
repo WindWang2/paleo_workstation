@@ -1329,6 +1329,8 @@ void StratigraphyCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyR
 void StratigraphyCompoundTrack::autoDeriveStratigraphy(const QVector<FormationInterval> &formations,
                                                       double minDepth, double maxDepth)
 {
+  Q_UNUSED(minDepth);
+  Q_UNUSED(maxDepth);
   m_intervals.clear();
 
   if (!formations.isEmpty())
@@ -1384,59 +1386,30 @@ void StratigraphyCompoundTrack::autoDeriveStratigraphy(const QVector<FormationIn
         si.systemColor = QColor(QStringLiteral("#FFF3E0"));
         si.seriesColor = QColor(QStringLiteral("#FFA726"));
       }
-      else
+      else if (n.contains(QStringLiteral("新近")))
       {
-        if (n.contains(QStringLiteral("新近")))
-        {
-          si.system = QStringLiteral("新近系");
-          si.series = QStringLiteral("中新统");
-          si.systemColor = QColor(QStringLiteral("#FFF9C4"));
-          si.seriesColor = QColor(QStringLiteral("#FFE082"));
-        }
-        else if (n.contains(QStringLiteral("古近")))
-        {
-          si.system = QStringLiteral("古近系");
-          si.series = QStringLiteral("古新统");
-          si.systemColor = QColor(QStringLiteral("#FFF3E0"));
-          si.seriesColor = QColor(QStringLiteral("#FFCC80"));
-        }
-        else if (n.contains(QStringLiteral("白垩")))
-        {
-          si.system = QStringLiteral("白垩系");
-          si.series = QStringLiteral("上白垩统");
-          si.systemColor = QColor(QStringLiteral("#E8F5E9"));
-          si.seriesColor = QColor(QStringLiteral("#C8E6C9"));
-        }
-        else
-        {
-          si.system = QStringLiteral("古近系");
-          si.series = QStringLiteral("始新统");
-          si.systemColor = QColor(QStringLiteral("#FFF3E0"));
-          si.seriesColor = QColor(QStringLiteral("#FFE082"));
-        }
+        si.system = QStringLiteral("新近系");
+        si.series = QStringLiteral("中新统");
+        si.systemColor = QColor(QStringLiteral("#FFF9C4"));
+        si.seriesColor = QColor(QStringLiteral("#FFE082"));
       }
+      else if (n.contains(QStringLiteral("古近")))
+      {
+        si.system = QStringLiteral("古近系");
+        si.series = QStringLiteral("古新统");
+        si.systemColor = QColor(QStringLiteral("#FFF3E0"));
+        si.seriesColor = QColor(QStringLiteral("#FFCC80"));
+      }
+      else if (n.contains(QStringLiteral("白垩")))
+      {
+        si.system = QStringLiteral("白垩系");
+        si.series = QStringLiteral("上白垩统");
+        si.systemColor = QColor(QStringLiteral("#E8F5E9"));
+        si.seriesColor = QColor(QStringLiteral("#C8E6C9"));
+      }
+      // 未识别层名：不臆造系/统，仅显示真实层名
       m_intervals.append(si);
     }
-  }
-  else
-  {
-    const double span = qMax(100.0, maxDepth - minDepth);
-    const double d1 = minDepth + span * 0.28;
-    const double d2 = minDepth + span * 0.55;
-    const double d3 = minDepth + span * 0.80;
-
-    m_intervals.append({static_cast<float>(minDepth), static_cast<float>(d1),
-                        QStringLiteral("新近系"), QStringLiteral("中新统"), QStringLiteral("韩江组"),
-                        QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#FFE082")), QColor(QStringLiteral("#FFE082"))});
-    m_intervals.append({static_cast<float>(d1), static_cast<float>(d2),
-                        QStringLiteral("新近系"), QStringLiteral("早中新统"), QStringLiteral("珠江组"),
-                        QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#FFD54F")), QColor(QStringLiteral("#FFCA28"))});
-    m_intervals.append({static_cast<float>(d2), static_cast<float>(d3),
-                        QStringLiteral("古近系"), QStringLiteral("渐新统"), QStringLiteral("珠海组"),
-                        QColor(QStringLiteral("#FFF3E0")), QColor(QStringLiteral("#FFCC80")), QColor(QStringLiteral("#FFA726"))});
-    m_intervals.append({static_cast<float>(d3), static_cast<float>(maxDepth),
-                        QStringLiteral("古近系"), QStringLiteral("始新统"), QStringLiteral("恩平组"),
-                        QColor(QStringLiteral("#FFF3E0")), QColor(QStringLiteral("#FFA726")), QColor(QStringLiteral("#FF7043"))});
   }
 }
 
@@ -1670,195 +1643,6 @@ void FaciesCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   }
 
   painter.restore();
-}
-
-void FaciesCompoundTrack::autoDeriveFacies(const QVector<FormationInterval> &formations,
-                                          const QVector<LithologyInterval> &lithologies,
-                                          double minDepth, double maxDepth)
-{
-  m_intervals.clear();
-
-  // 若有岩性数据，基于地层与岩性精细对应推导沉积相
-  if (!lithologies.isEmpty())
-  {
-    const auto findFmName = [&](float d) {
-      for (const auto &f : formations)
-        if (d >= f.topDepth && d <= f.bottomDepth) return f.name;
-      return QString();
-    };
-
-    int microCounter = 0;
-    for (const auto &li : lithologies)
-    {
-      FaciesInterval fi;
-      fi.topDepth = li.topDepth;
-      fi.bottomDepth = li.bottomDepth;
-      const QString fName = findFmName((li.topDepth + li.bottomDepth) * 0.5f);
-      const QString lName = li.lithoName;
-
-      if (fName.contains(QStringLiteral("文昌")) || li.topDepth > 2200.0f)
-      {
-        // 半深湖 - 深湖相 / 浊积扇
-        fi.majorFacies = QStringLiteral("湖泊相");
-        fi.majorColor = QColor(QStringLiteral("#E0F7FA"));
-        if (lName.contains(QStringLiteral("砂")))
-        {
-          fi.subFacies = QStringLiteral("半深湖");
-          fi.subColor = QColor(QStringLiteral("#B2EBF2"));
-          fi.microFacies = QStringLiteral("浊积砂体");
-          fi.patternType = QStringLiteral("turbidite");
-          fi.microColor = QColor(QStringLiteral("#FFE082"));
-        }
-        else
-        {
-          fi.subFacies = QStringLiteral("深湖");
-          fi.subColor = QColor(QStringLiteral("#80DEEA"));
-          fi.microFacies = QStringLiteral("深湖泥");
-          fi.patternType = QStringLiteral("prodelta");
-          fi.microColor = QColor(QStringLiteral("#CFD8DC"));
-        }
-      }
-      else if (fName.contains(QStringLiteral("恩平")) || (li.topDepth > 1800.0f && li.topDepth <= 2200.0f))
-      {
-        // 三角洲平原
-        fi.majorFacies = QStringLiteral("三角洲相");
-        fi.majorColor = QColor(QStringLiteral("#FFF9C4"));
-        fi.subFacies = QStringLiteral("三角洲平原");
-        fi.subColor = QColor(QStringLiteral("#E6EE9C"));
-        if (lName.contains(QStringLiteral("砂")))
-        {
-          fi.microFacies = QStringLiteral("分流平原河道");
-          fi.patternType = QStringLiteral("distributary_channel");
-          fi.microColor = QColor(QStringLiteral("#FFE082"));
-        }
-        else
-        {
-          fi.microFacies = QStringLiteral("平原沼泽/间湾");
-          fi.patternType = QStringLiteral("delta_plain");
-          fi.microColor = QColor(QStringLiteral("#DCEDC8"));
-        }
-      }
-      else if (fName.contains(QStringLiteral("珠海")) || (li.topDepth > 1400.0f && li.topDepth <= 1800.0f))
-      {
-        // 滨浅海 - 三角洲过渡
-        fi.majorFacies = QStringLiteral("三角洲相");
-        fi.majorColor = QColor(QStringLiteral("#FFF9C4"));
-        fi.subFacies = QStringLiteral("三角洲前缘");
-        fi.subColor = QColor(QStringLiteral("#FFE082"));
-        if (lName.contains(QStringLiteral("砂")))
-        {
-          if ((microCounter % 2) == 0)
-          {
-            fi.microFacies = QStringLiteral("水下分流河道");
-            fi.patternType = QStringLiteral("distributary_channel");
-            fi.microColor = QColor(QStringLiteral("#FFE082"));
-          }
-          else
-          {
-            fi.microFacies = QStringLiteral("河口坝");
-            fi.patternType = QStringLiteral("mouth_bar");
-            fi.microColor = QColor(QStringLiteral("#FFF176"));
-          }
-          microCounter++;
-        }
-        else
-        {
-          fi.microFacies = QStringLiteral("分流间湾");
-          fi.patternType = QStringLiteral("interdistributary_bay");
-          fi.microColor = QColor(QStringLiteral("#C8E6C9"));
-        }
-      }
-      else
-      {
-        // 珠江组 / 韩江组：三角洲前缘主要储层段
-        fi.majorFacies = QStringLiteral("三角洲相");
-        fi.majorColor = QColor(QStringLiteral("#FFF9C4"));
-        fi.subFacies = QStringLiteral("三角洲前缘");
-        fi.subColor = QColor(QStringLiteral("#FFE082"));
-
-        if (lName.contains(QStringLiteral("粉砂")))
-        {
-          fi.microFacies = QStringLiteral("席状砂");
-          fi.patternType = QStringLiteral("sheet_sand");
-          fi.microColor = QColor(QStringLiteral("#FFF9C4"));
-        }
-        else if (lName.contains(QStringLiteral("砂")))
-        {
-          if ((microCounter % 2) == 0)
-          {
-            fi.microFacies = QStringLiteral("水下分流河道");
-            fi.patternType = QStringLiteral("distributary_channel");
-            fi.microColor = QColor(QStringLiteral("#FFE082"));
-          }
-          else
-          {
-            fi.microFacies = QStringLiteral("河口坝");
-            fi.patternType = QStringLiteral("mouth_bar");
-            fi.microColor = QColor(QStringLiteral("#FFF176"));
-          }
-          microCounter++;
-        }
-        else if (lName.contains(QStringLiteral("灰岩")))
-        {
-          fi.majorFacies = QStringLiteral("碳酸盐台地");
-          fi.majorColor = QColor(QStringLiteral("#E0F7FA"));
-          fi.subFacies = QStringLiteral("台地边缘");
-          fi.subColor = QColor(QStringLiteral("#80DEEA"));
-          fi.microFacies = QStringLiteral("生物礁滩");
-          fi.patternType = QStringLiteral("shallow_marine");
-          fi.microColor = QColor(QStringLiteral("#B2EBF2"));
-        }
-        else
-        {
-          fi.microFacies = QStringLiteral("分流间湾");
-          fi.patternType = QStringLiteral("interdistributary_bay");
-          fi.microColor = QColor(QStringLiteral("#C8E6C9"));
-        }
-      }
-
-      m_intervals.append(fi);
-    }
-  }
-  else
-  {
-    // 无岩性数据时，基于深度生成典型沉积序列（三角洲平原 -> 前缘 -> 前三角洲 -> 陆棚）
-    const double span = qMax(100.0, maxDepth - minDepth);
-    const double d1 = minDepth + span * 0.20;
-    const double d2 = minDepth + span * 0.40;
-    const double d3 = minDepth + span * 0.55;
-    const double d4 = minDepth + span * 0.70;
-    const double d5 = minDepth + span * 0.85;
-
-    m_intervals.append({static_cast<float>(minDepth), static_cast<float>(d1),
-                        QStringLiteral("三角洲相"), QStringLiteral("三角洲平原"), QStringLiteral("分流平原河道"),
-                        QStringLiteral("distributary_channel"),
-                        QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#E6EE9C")), QColor(QStringLiteral("#FFE082"))});
-
-    m_intervals.append({static_cast<float>(d1), static_cast<float>(d2),
-                        QStringLiteral("三角洲相"), QStringLiteral("三角洲前缘"), QStringLiteral("水下分流河道"),
-                        QStringLiteral("distributary_channel"),
-                        QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#FFE082")), QColor(QStringLiteral("#FFE082"))});
-
-    m_intervals.append({static_cast<float>(d2), static_cast<float>(d3),
-                        QStringLiteral("三角洲相"), QStringLiteral("三角洲前缘"), QStringLiteral("河口坝"),
-                        QStringLiteral("mouth_bar"),
-                        QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#FFE082")), QColor(QStringLiteral("#FFF176"))});
-
-    m_intervals.append({static_cast<float>(d3), static_cast<float>(d4),
-                        QStringLiteral("三角洲相"), QStringLiteral("三角洲前缘"), QStringLiteral("席状砂"),
-                        QStringLiteral("sheet_sand"),
-                        QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#FFE082")), QColor(QStringLiteral("#FFF9C4"))});
-
-    m_intervals.append({static_cast<float>(d4), static_cast<float>(d5),
-                        QStringLiteral("三角洲相"), QStringLiteral("前三角洲"), QStringLiteral("前三角洲泥"),
-                        QStringLiteral("prodelta"),
-                        QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#B0BEC5")), QColor(QStringLiteral("#B0BEC5"))});
-
-    m_intervals.append({static_cast<float>(d5), static_cast<float>(maxDepth),
-                        QStringLiteral("湖泊相"), QStringLiteral("半深湖"), QStringLiteral("浊积砂体"),
-                        QStringLiteral("turbidite"),
-                        QColor(QStringLiteral("#E0F7FA")), QColor(QStringLiteral("#B2EBF2")), QColor(QStringLiteral("#FFCC80"))});
-  }
 }
 
 } // namespace WellComposite

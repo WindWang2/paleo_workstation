@@ -318,19 +318,91 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
     else if (sheetName.contains(QStringLiteral("文本道")))
     {
       // ['井号', '道名', '层号', '顶深', '顶TVD', '顶TVDSS', '底深', '底TVD', '底TVDSS', '文本']
+      // 道名 = 沉积相/沉积亚相/沉积微相 的行是三级相区间，接入 faciesIntervals
+      // （不再混入文本道）；其余行（取样结论等）保持原样。
+      struct FaciesRow
+      {
+        float top = 0.0f;
+        float bot = 0.0f;
+        QString name;
+      };
+      QVector<FaciesRow> majorRows, subRows, microRows;
+
       for (int r = 1; r < rows.size(); ++r)
       {
         const QStringList &row = rows.at(r);
         if (row.size() < 10) continue;
 
-        TextInterval ti;
-        ti.category = row.at(1).trimmed();
-        ti.topDepth = row.at(3).trimmed().toFloat();
-        ti.bottomDepth = row.at(6).trimmed().toFloat();
-        ti.text = row.at(9).trimmed();
+        const QString category = row.at(1).trimmed();
+        const float top = row.at(3).trimmed().toFloat();
+        const float bot = row.at(6).trimmed().toFloat();
+        const QString text = row.at(9).trimmed();
+        if (text.isEmpty()) continue;
 
-        if (!ti.text.isEmpty())
-          outData.textIntervals.append(ti);
+        if (category == QStringLiteral("沉积相"))
+        {
+          if (bot > top) majorRows.append({top, bot, text});
+          continue;
+        }
+        if (category == QStringLiteral("沉积亚相"))
+        {
+          if (bot > top) subRows.append({top, bot, text});
+          continue;
+        }
+        if (category == QStringLiteral("沉积微相"))
+        {
+          if (bot > top) microRows.append({top, bot, text});
+          continue;
+        }
+
+        TextInterval ti;
+        ti.category = category;
+        ti.topDepth = top;
+        ti.bottomDepth = bot;
+        ti.text = text;
+        outData.textIntervals.append(ti);
+      }
+
+      // 以最细一级区间为骨架，按中点包含向上补齐 相/亚相
+      const QVector<FaciesRow> *base =
+          !microRows.isEmpty() ? &microRows : (!subRows.isEmpty() ? &subRows : &majorRows);
+      const int baseLevel = !microRows.isEmpty() ? 2 : (!subRows.isEmpty() ? 1 : 0);
+      const auto containing = [](const QVector<FaciesRow> &cands, float mid) -> const FaciesRow * {
+        const FaciesRow *best = nullptr;
+        for (const auto &c : cands)
+        {
+          if (mid >= c.top && mid <= c.bot &&
+              (!best || (c.bot - c.top) < (best->bot - best->top)))
+            best = &c;
+        }
+        return best;
+      };
+      // 同一相名映射到稳定淡色；层级越深明度略降
+      const auto faciesColor = [](const QString &name, int level) {
+        if (name.isEmpty()) return QColor(QStringLiteral("#ECEFF1"));
+        const int hue = static_cast<int>(qHash(name) % 360);
+        return QColor::fromHsl(hue, 96, 218 - level * 10);
+      };
+
+      for (const auto &br : *base)
+      {
+        const float mid = (br.top + br.bot) * 0.5f;
+        FaciesInterval fi;
+        fi.topDepth = br.top;
+        fi.bottomDepth = br.bot;
+        if (baseLevel == 0) fi.majorFacies = br.name;
+        if (baseLevel == 1) fi.subFacies = br.name;
+        if (baseLevel == 2) fi.microFacies = br.name;
+        if (fi.majorFacies.isEmpty())
+          if (const FaciesRow *m = containing(majorRows, mid)) fi.majorFacies = m->name;
+        if (fi.subFacies.isEmpty())
+          if (const FaciesRow *m = containing(subRows, mid)) fi.subFacies = m->name;
+        if (fi.microFacies.isEmpty())
+          if (const FaciesRow *m = containing(microRows, mid)) fi.microFacies = m->name;
+        fi.majorColor = faciesColor(fi.majorFacies, 0);
+        fi.subColor = faciesColor(fi.subFacies, 1);
+        fi.microColor = faciesColor(fi.microFacies, 2);
+        outData.faciesIntervals.append(fi);
       }
     }
     else if (sheetName.contains(QStringLiteral("取心数据道")))

@@ -1086,6 +1086,17 @@ void DataListPanel::refreshAssetTree()
     }
   }
 
+  // 资产挂在 auxiliary 实体（reference 角色）上 = 辅助资料，不进测区井/测井分组。
+  const auto linkedToAuxEntity = [cat](const QString &assetId) {
+    for (const EntityAssetLink &l : cat->linksForAsset(assetId))
+    {
+      if (!l.entityId.isEmpty() &&
+          cat->entityById(l.entityId).entityType == QLatin1String("auxiliary"))
+        return true;
+    }
+    return false;
+  };
+
   // 2. 测井 (Well Logs: 综合柱状图 + 测井曲线)
   QList<CatalogAsset> logAssets;
   QList<CatalogAsset> compositeAssets;
@@ -1095,8 +1106,9 @@ void DataListPanel::refreshAssetTree()
     {
       logAssets.append(a);
     }
-    else if (a.displayName.contains(QStringLiteral("柱状图")) ||
-             (a.displayName.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive) && a.displayName.contains(QStringLiteral("综合"))))
+    else if ((a.displayName.contains(QStringLiteral("柱状图")) ||
+              (a.displayName.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive) && a.displayName.contains(QStringLiteral("综合")))) &&
+             !linkedToAuxEntity(a.id))
     {
       compositeAssets.append(a);
     }
@@ -1270,9 +1282,16 @@ void DataListPanel::refreshAssetTree()
   QList<CatalogAsset> auxAssets;
   for (const CatalogAsset &a : cat->assets())
   {
-    if (a.displayName.contains(QStringLiteral("柱状图")) ||
-        (a.displayName.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive) && a.displayName.contains(QStringLiteral("综合"))))
+    // 挂在辅助实体下的综合柱状图（如参考井 XML）归参考资料，其余柱状图进测井分组。
+    const bool isCompositeXml = a.displayName.contains(QStringLiteral("柱状图")) ||
+        (a.displayName.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive) && a.displayName.contains(QStringLiteral("综合")));
+    if (isCompositeXml && !linkedToAuxEntity(a.id))
       continue;
+    if (isCompositeXml)
+    {
+      auxAssets.append(a);
+      continue;
+    }
 
     if (a.type == QLatin1String("boundary") || a.type == QLatin1String("auxiliary") ||
         a.type == QLatin1String("document") || a.type == QLatin1String("reference") ||

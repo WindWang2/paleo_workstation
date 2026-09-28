@@ -293,7 +293,8 @@ public:
   qreal formationWidth() const { return m_width - m_systemWidth - m_seriesWidth; }
   void setSubColumnWidths(qreal sysW, qreal serW);
 
-  // 自动从单层道数据推导生成「系 | 统 | 组」层级结构
+  // 按已识别层名查区域地层表生成「系 | 统 | 组」；未识别层名留空系/统，不臆造。
+  // formations 为空时不产生任何区间。
   void autoDeriveStratigraphy(const QVector<FormationInterval> &formations, double minDepth, double maxDepth);
 
   void paintHeader(QPainter &painter, const QRectF &headerRect, double currentDepth) override;
@@ -325,11 +326,6 @@ public:
   qreal subWidth() const { return m_subWidth; }
   qreal microWidth() const { return m_width - m_majorWidth - m_subWidth; }
   void setSubColumnWidths(qreal majW, qreal subW);
-
-  // 自动从地层与岩性数据推导生成「相 | 亚 | 微」层级结构与微相纹理
-  void autoDeriveFacies(const QVector<FormationInterval> &formations,
-                        const QVector<LithologyInterval> &lithologies,
-                        double minDepth, double maxDepth);
 
   void paintHeader(QPainter &painter, const QRectF &headerRect, double currentDepth) override;
   void paintBody(QPainter &painter, const QRectF &bodyRect,

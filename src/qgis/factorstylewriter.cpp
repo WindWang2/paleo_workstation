@@ -134,6 +134,9 @@ QString writeStyleQml( const QString &factorId, const QString &rasterPath,
   auto *rampShader = new QgsColorRampShader( min, max, rampFor( factorId ),
                                              Qgis::ShaderInterpolationMethod::Linear,
                                              Qgis::ShaderClassificationMethod::Continuous );
+  // Continuous 也要 classify：itemList 为空时 shade() 全部返回 false，
+  // 主图上的伪彩栅格会渲成全透明（看起来是空白图层）。
+  rampShader->classifyColorRamp( 1, layer.extent(), layer.dataProvider() );
   shader->setRasterShaderFunction( rampShader );
   auto *renderer = new QgsSingleBandPseudoColorRenderer( layer.dataProvider(), 1, shader );
   layer.setRenderer( renderer );

@@ -15,6 +15,10 @@
 #include <qgsmapcanvas.h>
 #include <qgsrubberband.h>
 #include <qgsvectorlayer.h>
+#include <qgsrasterlayer.h>
+#include <qgsmapsettings.h>
+#include <qgsmaprenderercustompainterjob.h>
+#include <qgsrectangle.h>
 #include <qgscategorizedsymbolrenderer.h>
 #include <QStackedWidget>
 
@@ -264,6 +268,31 @@ void TestDataPreview::horizonTabOffersShowOnMap()
   // 其它 layerId 不误伤。
   st->preview->setHorizonOnMap(QStringLiteral("horizon.D62"), true);
   QCOMPARE(btn->text(), QStringLiteral("在地图上显示"));
+
+  // 层位预览内嵌 QGIS 画布：派生栅格以私有图层显示，不进项目图层树。
+  auto *hzCanvas = page->findChild<QgsMapCanvas *>(QStringLiteral("horizonMapCanvas"));
+  QVERIFY2(hzCanvas, "horizon preview must embed a map canvas for the derived raster");
+  QVERIFY(!hzCanvas->layers().isEmpty());
+  // 私有图层不注册进 QgsProject——预览不污染主图实例表。
+  QVERIFY(st->projectSvc.project() == nullptr ||
+          !st->projectSvc.project()->mapLayers().contains(hzCanvas->layers().first()->id()));
+
+  // 回归断言（QGIS Continuous shader 不 classify 时 shade() 全空 → 画布
+  // 纯白）：画布实际渲出的非白像素必须显著多于零（栅格数据 + 装饰）。
+  st->preview->resize(1100, 700);
+  st->preview->show();
+  QTest::qWait(300); // 等 singleShot 缩放到图层范围 + 首帧刷新
+  hzCanvas->refresh();
+  QTest::qWait(500);
+  const QImage img = hzCanvas->grab().toImage();
+  int nonWhite = 0;
+  for (int y = 0; y < img.height(); ++y)
+    for (int x = 0; x < img.width(); ++x)
+      if (img.pixel(x, y) != qRgb(255, 255, 255))
+        ++nonWhite;
+  QVERIFY2(nonWhite > 5000,
+           qPrintable(QStringLiteral("horizon canvas rendered blank "
+                                     "(nonWhite=%1)").arg(nonWhite)));
 }
 
 void TestDataPreview::everyTypeOpensContent()

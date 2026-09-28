@@ -37,9 +37,10 @@ public:
   bool loadLasCurves(const QString &wellName, const QVector<CurveData> &curves,
                      const QVector<FormationInterval> &formations = {});
 
-  // 设置并显示井名
-  void setWellName(const QString &name);
+  // 设置并显示井名；reference=true 时徽章标识为参考井（辅助资料内的井，非测区井序列）
+  void setWellName(const QString &name, bool reference = false);
   QString wellName() const { return m_wellName; }
+  bool isReferenceWell() const { return m_referenceWell; }
 
   // 获取当前装配的综合数据
   ComprehensiveWellData currentData() const { return m_data; }
@@ -55,6 +56,7 @@ private:
   void setupTracksFromData(const ComprehensiveWellData &data);
 
   QString m_wellName;
+  bool m_referenceWell = false;
   ComprehensiveWellData m_data;
 
   QLabel *m_lblWellName = nullptr;

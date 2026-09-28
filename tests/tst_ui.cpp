@@ -530,8 +530,9 @@ class TestUiShell : public QObject
       QCOMPARE(crs->text(), QStringLiteral("工程坐标 · 米 · 未投影"));
     }
 
-    // D7：预览高度/宽度预算——首个标签给 ≥60%；角落「最大化预览」把数据列表压到
-    // ≤64px 壳，「还原」回用户尺寸；空态（关全部标签）复位最大化与预算。
+    // D7：预览最大化/还原是用户动作——角落钮把数据列表压到 ≤64px 壳，
+    // 「还原」回最大化前尺寸。标签开/关/切换不重设分栏宽度（用户规格：
+    // 只有拖手柄、最大化钮、窗口 resize 三种情况允许变）。
     void previewSplitterBudgetAndMaximize()
     {
       // 自给自足：分栏尺寸断言要求窗口已布局（单跑本用例时前面的用例不会先 show）。
@@ -557,18 +558,22 @@ class TestUiShell : public QObject
       QCOMPARE(split->indexOf(preview), 1);
 
       // 测试壳未开工程（importSvc==nullptr → openAsset 不建页）；直接给
-      // 内层 tabWidget 加页——currentChanged 0→1 同样驱动 applyPreviewSplit。
+      // 内层 tabWidget 加页——首开绝不改分栏尺寸。
+      const QList<int> sizesBefore = split->sizes();
       inner->addTab(new QLabel(QStringLiteral("x")), QStringLiteral("t"));
       QCOMPARE(inner->count(), 1);
-      QTest::qWait(20); // applyPreviewSplit 借 currentChanged 后事件链
+      QTest::qWait(20);
+      QCOMPARE(split->sizes(), sizesBefore);
       const int total = split->sizes().at(0) + split->sizes().at(1);
       QVERIFY2(total > 0, "split not laid out");
-      QVERIFY2(split->sizes().at(1) >= total * 3 / 5 - 2,
-               qPrintable(QStringLiteral("preview %1 of %2")
-                              .arg(split->sizes().at(1)).arg(total)));
+
+      // 先把分栏拖到用户位置（列表占一半），给最大化留出可压缩空间——
+      // 若列表已在最小尺寸，最大化 clamp 到最小尺寸属正常。
+      split->setSizes({total / 2, total / 2});
+      QTest::qWait(10);
+      const int mapBudget = split->sizes().at(0);
 
       // 最大化：预览 ≥75%（数据列表被压到自身最小尺寸壳），按钮文案翻面。
-      const int mapBudget = split->sizes().at(0);
       maxBtn->setChecked(true);
       QTest::qWait(20);
       QVERIFY(split->sizes().at(0) < mapBudget);
@@ -579,21 +584,18 @@ class TestUiShell : public QObject
       QVERIFY(split->sizes().at(1) >= total - qMax(160, floor) - 2);
       QCOMPARE(maxBtn->text(), QStringLiteral("还原预览"));
 
-      // 还原：预览回到 ~60%（还原的是最大化前的预算尺寸）。
+      // 还原：精确回到最大化前的分栏尺寸。
       maxBtn->setChecked(false);
       QTest::qWait(20);
-      QVERIFY(split->sizes().at(1) >= total * 3 / 5 - 2);
-      QVERIFY(split->sizes().at(0) > 64);
+      QCOMPARE(split->sizes().at(0), mapBudget);
 
-      // 关掉最后一个标签 → 空态收成一行（竖向）或展示空态底纹（横向），最大化态复位。
+      // 关掉最后一个标签：空态也不动宽度；最大化态/按钮复位。
       inner->removeTab(0);
       QTest::qWait(20);
       QCOMPARE(inner->count(), 0);
       QVERIFY(!maxBtn->isChecked());
-      if (split->orientation() == Qt::Vertical)
-        QVERIFY(split->sizes().at(1) <= qMax(28, preview->sizeHint().height() + 8));
-      else
-        QVERIFY(split->sizes().at(1) > 0);
+      QCOMPARE(split->sizes().at(0), mapBudget);
+      QVERIFY(split->sizes().at(1) > 0);
     }
 
     // 数据列表的宽度绝不应双击数据项而改变，只能由用户调整。

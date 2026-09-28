@@ -19,6 +19,13 @@
 #include <qgslayertreemapcanvasbridge.h>
 #include <qgsmaptoolpan.h>
 #include <qgsproject.h>
+#include <qgsrasterbandstats.h>
+#include <qgsrasterdataprovider.h>
+#include <qgsrasterlayer.h>
+#include <qgsrastershader.h>
+#include <qgscolorrampshader.h>
+#include <qgscolorrampimpl.h>
+#include <qgssinglebandpseudocolorrenderer.h>
 #include <qgsrubberband.h>
 #include <qgsgeometry.h>
 #include <qgsvectorlayer.h>
@@ -2447,7 +2454,81 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       });
     }
     lay->addWidget(btn, 0, Qt::AlignLeft);
-    lay->addStretch(1);
+
+    // 派生栅格就地用 QGIS 画布预览（§4：地图数据给地图，不是一行元数据）。
+    // 私有 QgsRasterLayer 不注册进 QgsProject——预览不污染主图图层树/实例表；
+    // 用户要在主图看仍走「在地图上显示」那条实例化+闪烁定位路径。
+    const QString tifPath =
+        derived.id.isEmpty() ? QString() : m_doc->absolutePathForVersion(derived);
+    std::unique_ptr<QgsRasterLayer> raster;
+    if (!tifPath.isEmpty() && QFile::exists(tifPath))
+    {
+      raster = std::make_unique<QgsRasterLayer>(
+          tifPath, sb.name.isEmpty() ? asset.displayName : sb.name,
+          QStringLiteral("gdal"));
+      if (!raster->isValid())
+        raster.reset();
+    }
+    if (raster)
+    {
+      auto *canvas = new QgsMapCanvas(host);
+      canvas->setObjectName(QStringLiteral("horizonMapCanvas"));
+      canvas->enableAntiAliasing(true);
+      canvas->setCanvasColor(Qt::white);
+
+      // 高程面按等深惯例浅蓝→深蓝连续伪彩（地图域符号，非 UI token）。
+      double zMin = 0.0, zMax = 1.0;
+      if (QgsRasterDataProvider *provider = raster->dataProvider())
+      {
+        const QgsRasterBandStats st = provider->bandStatistics(1);
+        if (st.minimumValue < st.maximumValue &&
+            st.minimumValue > -std::numeric_limits<double>::max())
+        {
+          zMin = st.minimumValue;
+          zMax = st.maximumValue;
+        }
+      }
+      auto *shader = new QgsRasterShader();
+      auto *ramp = new QgsColorRampShader(
+          zMin, zMax,
+          new QgsGradientColorRamp(QColor(QStringLiteral("#CDE7F6")),
+                                   QColor(QStringLiteral("#14507F"))),
+          Qgis::ShaderInterpolationMethod::Linear,
+          Qgis::ShaderClassificationMethod::Continuous);
+      // Continuous 也必须先分类：itemList 为空时 shade() 全部返回
+      // false，像元渲成透明（画布看起来是空白白图）。
+      ramp->classifyColorRamp(1, raster->extent(), raster->dataProvider());
+      shader->setRasterShaderFunction(ramp);
+      raster->setRenderer(
+          new QgsSingleBandPseudoColorRenderer(raster->dataProvider(), 1, shader));
+
+      canvas->setDestinationCrs(raster->crs());
+      canvas->setLayers({raster.get()});
+
+      auto *decor = new PaleoDecorationManager(canvas, canvas);
+      decor->setScaleBarEnabled(true);
+      decor->setNorthArrowEnabled(true);
+
+      canvas->setMapTool(new QgsMapToolPan(canvas));
+      lay->addWidget(canvas, 1);
+
+      // raster 交给 host 父子树托管，画布只引用裸指针（与图层树同寿）。
+      QgsRasterLayer *rasterRaw = raster.release();
+      rasterRaw->setParent(host);
+      QTimer::singleShot(0, canvas, [canvas, rasterRaw]() {
+        if (rasterRaw && !rasterRaw->extent().isEmpty())
+        {
+          QgsRectangle ext = rasterRaw->extent();
+          ext.grow(qMax(ext.width(), ext.height()) * 0.06);
+          canvas->setExtent(ext);
+        }
+        canvas->refresh();
+      });
+    }
+    else
+    {
+      lay->addStretch(1);
+    }
     return host;
   }
 

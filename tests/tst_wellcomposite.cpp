@@ -231,6 +231,25 @@ private slots:
     QVERIFY(!data.formationIntervals.isEmpty());
     QVERIFY(!data.textIntervals.isEmpty());
     QVERIFY(!data.standardHorizons.isEmpty());
+
+    // 文本道中道名=沉积相/沉积亚相/沉积微相 的行接入 faciesIntervals（三级配套），
+    // 不再留在文本道里
+    QVERIFY(!data.faciesIntervals.isEmpty());
+    bool foundMicro = false;
+    for (const auto &fi : data.faciesIntervals)
+    {
+      if (fi.microFacies == QStringLiteral("远砂坝"))
+      {
+        foundMicro = true;
+        QCOMPARE(fi.topDepth, 1994.0f);
+        QCOMPARE(fi.bottomDepth, 2017.0f);
+        QVERIFY(!fi.majorFacies.isEmpty());
+        QVERIFY(!fi.subFacies.isEmpty());
+      }
+    }
+    QVERIFY(foundMicro);
+    for (const auto &ti : data.textIntervals)
+      QVERIFY(!ti.category.startsWith(QStringLiteral("沉积")));
   }
 
   void testCompositePanelAssembly()
@@ -243,6 +262,10 @@ private slots:
 
     QVERIFY(panel.loadComprehensiveXml(xmlPath));
     QCOMPARE(panel.wellName(), QStringLiteral("HZ28-6-1"));
+    // 综合柱状图 XML 只出现在辅助资料——井名徽章必须标成参考井
+    QVERIFY(panel.isReferenceWell());
+    QCOMPARE(panel.findChild<QLabel *>(QStringLiteral("lblWellName"))->text(),
+             QStringLiteral("参考井: HZ28-6-1"));
     QVERIFY(panel.canvas()->trackCount() >= 5);
 
     // 验证井深跨度合理准确（0 - 2475m）
@@ -317,8 +340,12 @@ private slots:
     forms.append(f2);
 
     QVERIFY(panel.loadLasCurves(QStringLiteral("TEST_WELL_1"), curves, forms));
-    // 验证 LAS 测井加载后沉积相道位于最右侧/最后一道
-    QCOMPARE(panel.canvas()->tracks().last()->type(), TrackType::FaciesCompound);
+    // LAS 预览是测区井：徽章不标参考井
+    QVERIFY(!panel.isReferenceWell());
+    // 无真实相数据时不展示沉积相道（不臆造相序）；最末道为曲线道
+    for (const auto &t : panel.canvas()->tracks())
+      QVERIFY(t->type() != TrackType::FaciesCompound);
+    QCOMPARE(panel.canvas()->tracks().last()->type(), TrackType::Curve);
 
     // 验证初始视口与全井深度匹配
     QCOMPARE(panel.canvas()->minDepth(), 1000.0);
@@ -406,10 +433,9 @@ private slots:
     QCOMPARE(track->seriesWidth(), 45.0);
     QCOMPARE(track->formationWidth(), 60.0);
 
-    // 1. 测试基于空地层时的自动推导
+    // 1. 空地层不再捏造任何系/统/组区间
     track->autoDeriveStratigraphy({}, 1000.0, 3000.0);
-    QVERIFY(!track->intervals().isEmpty());
-    QCOMPARE(track->intervals().first().system, QStringLiteral("新近系"));
+    QVERIFY(track->intervals().isEmpty());
 
     // 2. 测试基于珠江口盆地标准地层序列的自动推导
     QVector<FormationInterval> fms = {
@@ -436,6 +462,16 @@ private slots:
     QCOMPARE(track->intervals()[5].system, QStringLiteral("古近系"));
     QCOMPARE(track->intervals()[5].series, QStringLiteral("始新统"));
 
+    // 未识别层名不臆造系/统，仅保留真实层名
+    QVector<FormationInterval> unknownFms = {
+        {1000.0f, 1500.0f, QStringLiteral("A"), QStringLiteral("A")},
+    };
+    track->autoDeriveStratigraphy(unknownFms, 1000.0, 1500.0);
+    QCOMPARE(track->intervals().size(), 1);
+    QCOMPARE(track->intervals()[0].formation, QStringLiteral("A"));
+    QVERIFY(track->intervals()[0].system.isEmpty());
+    QVERIFY(track->intervals()[0].series.isEmpty());
+
     // 3. 测试道头与道体绘制
     QImage img(145, 200, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::white);
@@ -461,37 +497,28 @@ private slots:
     QCOMPARE(track->subWidth(), 55.0);
     QCOMPARE(track->microWidth(), 75.0);
 
-    // 1. 测试空数据时的自动推导
-    track->autoDeriveFacies({}, {}, 1000.0, 3000.0);
-    QVERIFY(!track->intervals().isEmpty());
-
-    // 2. 测试根据地层与岩性联合推导相、亚相、微相及纹理
-    QVector<FormationInterval> fms = {
-        {1000.0f, 1500.0f, QStringLiteral("珠江组"), QStringLiteral("ZJ")},
-        {1500.0f, 2000.0f, QStringLiteral("珠海组"), QStringLiteral("ZH")},
+    // 相道只消费真实相区间数据（不再提供自动推导）
+    QVector<FaciesInterval> fis = {
+        {1000.0f, 1200.0f, QStringLiteral("三角洲相"), QStringLiteral("三角洲平原"),
+         QStringLiteral("分流平原河道"), QStringLiteral("distributary_channel"),
+         QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#E6EE9C")), QColor(QStringLiteral("#FFE082"))},
+        {1200.0f, 1500.0f, QStringLiteral("三角洲相"), QStringLiteral("三角洲前缘"),
+         QStringLiteral("河口坝"), QStringLiteral("mouth_bar"),
+         QColor(QStringLiteral("#FFF9C4")), QColor(QStringLiteral("#FFE082")), QColor(QStringLiteral("#FFF176"))},
+        {1500.0f, 1800.0f, QStringLiteral("浅海陆棚相"), QStringLiteral("浅海"),
+         QStringLiteral("远砂坝"), QStringLiteral("sheet_sand"),
+         QColor(QStringLiteral("#E0F7FA")), QColor(QStringLiteral("#80DEEA")), QColor(QStringLiteral("#FFF9C4"))},
     };
-    QVector<LithologyInterval> liths = {
-        {1000.0f, 1100.0f, QStringLiteral("细砂岩"), QStringLiteral("SS")},
-        {1100.0f, 1200.0f, QStringLiteral("粉砂岩"), QStringLiteral("ST")},
-        {1200.0f, 1300.0f, QStringLiteral("灰色泥岩"), QStringLiteral("MD")},
-        {1500.0f, 1600.0f, QStringLiteral("中砂岩"), QStringLiteral("SS")},
-    };
-    track->autoDeriveFacies(fms, liths, 1000.0, 2000.0);
-    QCOMPARE(track->intervals().size(), 4);
-
-    // 细砂岩 -> 水下分流河道
+    track->setIntervals(fis);
+    QCOMPARE(track->intervals().size(), 3);
     QCOMPARE(track->intervals()[0].majorFacies, QStringLiteral("三角洲相"));
-    QCOMPARE(track->intervals()[0].subFacies, QStringLiteral("三角洲前缘"));
-    QCOMPARE(track->intervals()[0].microFacies, QStringLiteral("水下分流河道"));
+    QCOMPARE(track->intervals()[0].subFacies, QStringLiteral("三角洲平原"));
+    QCOMPARE(track->intervals()[0].microFacies, QStringLiteral("分流平原河道"));
     QCOMPARE(track->intervals()[0].patternType, QStringLiteral("distributary_channel"));
-
-    // 粉砂岩 -> 席状砂
-    QCOMPARE(track->intervals()[1].microFacies, QStringLiteral("席状砂"));
-    QCOMPARE(track->intervals()[1].patternType, QStringLiteral("sheet_sand"));
-
-    // 灰色泥岩 -> 分流间湾
-    QCOMPARE(track->intervals()[2].microFacies, QStringLiteral("分流间湾"));
-    QCOMPARE(track->intervals()[2].patternType, QStringLiteral("interdistributary_bay"));
+    QCOMPARE(track->intervals()[1].microFacies, QStringLiteral("河口坝"));
+    QCOMPARE(track->intervals()[1].patternType, QStringLiteral("mouth_bar"));
+    QCOMPARE(track->intervals()[2].microFacies, QStringLiteral("远砂坝"));
+    QCOMPARE(track->intervals()[2].patternType, QStringLiteral("sheet_sand"));
 
     // 3. 测试道头与道体绘制（验证纹理图案与半透明文字胶囊无崩溃）
     QImage img(180, 200, QImage::Format_ARGB32_Premultiplied);

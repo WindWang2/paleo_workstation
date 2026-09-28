@@ -6,6 +6,7 @@
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QVBoxLayout>
+#include <algorithm>
 
 namespace WellComposite
 {
@@ -198,10 +199,33 @@ void WellCompositePanel::openCurveConfigDialog()
   dlg.exec();
 }
 
-void WellCompositePanel::setWellName(const QString &name)
+void WellCompositePanel::setWellName(const QString &name, bool reference)
 {
   m_wellName = name;
-  m_lblWellName->setText(name.isEmpty() ? QStringLiteral("井号: —") : QStringLiteral("井号: %1").arg(name));
+  m_referenceWell = reference;
+  static const QString kSurveyStyle = QStringLiteral(
+      "QLabel { background: #E8F0FE; color: #1B73D0; font-weight: bold; border-radius: 4px; padding: 2px 8px; font-size: 9pt; }");
+  static const QString kRefStyle = QStringLiteral(
+      "QLabel { background: #FEF3C7; color: #92400E; font-weight: bold; border-radius: 4px; padding: 2px 8px; font-size: 9pt; }");
+
+  if (name.isEmpty())
+  {
+    m_lblWellName->setText(QStringLiteral("井号: —"));
+    m_lblWellName->setStyleSheet(kSurveyStyle);
+    m_lblWellName->setToolTip(QString());
+  }
+  else if (reference)
+  {
+    m_lblWellName->setText(QStringLiteral("参考井: %1").arg(name));
+    m_lblWellName->setStyleSheet(kRefStyle);
+    m_lblWellName->setToolTip(tr("辅助资料中的参考井，不属于本测区井序列"));
+  }
+  else
+  {
+    m_lblWellName->setText(QStringLiteral("井号: %1").arg(name));
+    m_lblWellName->setStyleSheet(kSurveyStyle);
+    m_lblWellName->setToolTip(QString());
+  }
 }
 
 bool WellCompositePanel::loadComprehensiveXml(const QString &xmlPath)
@@ -212,7 +236,7 @@ bool WellCompositePanel::loadComprehensiveXml(const QString &xmlPath)
     return false;
 
   m_data = data;
-  setWellName(data.wellName);
+  setWellName(data.wellName, true); // 综合柱状图 XML 只出现在辅助资料里，井名是参考井
   setupTracksFromData(data);
   if (m_legendWidget)
     m_legendWidget->setWellData(data);
@@ -252,10 +276,17 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
 
   m_canvas->setDepthRange(minD, maxD);
 
-  // 1. 地层系统组组合道 (系 | 统 | 组)
-  auto stratTrack = std::make_shared<StratigraphyCompoundTrack>(QStringLiteral("地层"), 145.0);
-  stratTrack->autoDeriveStratigraphy(formations, minD, maxD);
-  m_canvas->addTrack(stratTrack);
+  // 1. 地层系统组组合道 (系 | 统 | 组) —— 仅当分层名能映射出系/统时才展示，
+  //    否则不摆一个大量留空的组合道（地层单位道已覆盖真实分层）。
+  if (!formations.isEmpty())
+  {
+    auto stratTrack = std::make_shared<StratigraphyCompoundTrack>(QStringLiteral("地层"), 145.0);
+    stratTrack->autoDeriveStratigraphy(formations, minD, maxD);
+    const bool anySystem = std::any_of(stratTrack->intervals().begin(), stratTrack->intervals().end(),
+                                       [](const StratigraphyInterval &si) { return !si.system.isEmpty(); });
+    if (anySystem)
+      m_canvas->addTrack(stratTrack);
+  }
 
   // 2. 深度标尺道 (DepthScaleTrack)
   auto scaleTrack = std::make_shared<DepthScaleTrack>(68.0);
@@ -338,11 +369,7 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
     }
   }
 
-  // 沉积相组合道 (相 | 亚 | 微，带地质纹理填充，规范放置在最右侧/最后)
-  auto faciesTrack = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
-  faciesTrack->autoDeriveFacies(formations, {}, minD, maxD);
-  m_canvas->addTrack(faciesTrack);
-
+  // 沉积相道：无真实相数据时不展示（不臆造相序）。
   m_data.wellName = wellName;
   m_data.minDepth = minD;
   m_data.maxDepth = maxD;
@@ -360,13 +387,25 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
   m_canvas->clearTracks();
   m_canvas->setDepthRange(data.minDepth, data.maxDepth);
 
-  // 1. 地层系统组组合道 (系 | 统 | 组)
-  auto stratTrack = std::make_shared<StratigraphyCompoundTrack>(QStringLiteral("地层"), 145.0);
-  if (!data.stratigraphyIntervals.isEmpty())
-    stratTrack->setIntervals(data.stratigraphyIntervals);
-  else
-    stratTrack->autoDeriveStratigraphy(data.formationIntervals, data.minDepth, data.maxDepth);
-  m_canvas->addTrack(stratTrack);
+  // 1. 地层系统组组合道 (系 | 统 | 组) —— 有真实地层系统数据，或分层名能映射出
+  //    系/统时才展示。
+  if (!data.stratigraphyIntervals.isEmpty() || !data.formationIntervals.isEmpty())
+  {
+    auto stratTrack = std::make_shared<StratigraphyCompoundTrack>(QStringLiteral("地层"), 145.0);
+    if (!data.stratigraphyIntervals.isEmpty())
+    {
+      stratTrack->setIntervals(data.stratigraphyIntervals);
+      m_canvas->addTrack(stratTrack);
+    }
+    else
+    {
+      stratTrack->autoDeriveStratigraphy(data.formationIntervals, data.minDepth, data.maxDepth);
+      const bool anySystem = std::any_of(stratTrack->intervals().begin(), stratTrack->intervals().end(),
+                                         [](const StratigraphyInterval &si) { return !si.system.isEmpty(); });
+      if (anySystem)
+        m_canvas->addTrack(stratTrack);
+    }
+  }
 
   // 2. 地层单位道
   if (!data.formationIntervals.isEmpty())
@@ -477,12 +516,13 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
   }
 
   // 11. 沉积相组合道 (相 | 亚 | 微，带地质纹理填充，规范放置在最右侧/最后)
-  auto faciesTrack = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
+  //     仅当文档真实提供了相区间时展示，不自动臆造。
   if (!data.faciesIntervals.isEmpty())
+  {
+    auto faciesTrack = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
     faciesTrack->setIntervals(data.faciesIntervals);
-  else
-    faciesTrack->autoDeriveFacies(data.formationIntervals, data.lithologyIntervals, data.minDepth, data.maxDepth);
-  m_canvas->addTrack(faciesTrack);
+    m_canvas->addTrack(faciesTrack);
+  }
 
   m_canvas->setScaleRatio(m_scaleCombo->currentText());
 }

@@ -1,8 +1,6 @@
 // 层：数据
 #pragma once
 
-#include <QHash>
-#include <QMutex>
 #include <QObject>
 #include <QString>
 #include <functional>
@@ -23,7 +21,8 @@ class PaleoTaskService;
 
 namespace seismic {
 
-struct SeismicDatasetEntry; // cpp 内定义：Dataset + 使用锁（engine 契约：单线程独占使用）
+struct SeismicDatasetEntry;     // cpp 内定义：Dataset + 使用锁（engine 契约：单线程独占使用）
+struct SeismicDatasetRegistry;  // cpp 内定义：条目注册表（shared_ptr 共享给 worker，析构安全）
 
 // 秒级首屏快照（QuickOpenSegyPreview 的主线程可消费副本）：
 // 网格范围/角点验证结论/中央测线真振幅缩略（未读列 NaN）。
@@ -191,18 +190,18 @@ signals:
   void timeSliceTileReady(const seismic::SeismicTimeTile &tile);
 
 private:
-  // sdk::Dataset 入口（vendor/sbm Engine facade）：按路径惰性打开并缓存；
+  // sdk::Dataset 条目注册表（vendor/sbm Engine facade）：按路径惰性打开并缓存；
   // Backend::Auto 在有 .sf3c/.sf3p 工作区时用随机访问后端，否则 Direct
   // （Auto 只发现 .sf3c.meta 伴生，永不自动升级 .sf3p）。
   // engine 契约要求 Dataset 单线程独占使用，故条目中带互斥锁；
   // paged 后端以 progressiveLod 打开（兄弟层级发现 + 从最粗层起步）。
-  std::shared_ptr<SeismicDatasetEntry> datasetEntryFor(const QString &path, sdk::Backend backend);
+  // 注册表以 shared_ptr 持有并由 worker 携带——服务先行析构时注册表
+  // （含其互斥锁与条目哈希）存活到最后一个在途 worker 退出，杜绝
+  // 「锁在等待者手中被销毁」的析构竞态。
+  std::shared_ptr<SeismicDatasetRegistry> registry_;
 
   PaleoTaskService *taskService_ = nullptr;
   SgyDataCache dataCache_;
-  QMutex datasetMutex_;   // datasetEntries_ 可能被多个 worker 并发触碰
-  QHash<QString, std::shared_ptr<SeismicDatasetEntry>> datasetEntries_;
-  quint64 datasetClock_ = 0;
 };
 
 } // namespace seismic

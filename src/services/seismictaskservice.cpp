@@ -66,23 +66,35 @@ SeismicBackendStatus statusFromDataset(const sdk::Dataset &dataset)
 
 } // namespace
 
+// 条目注册表：以 shared_ptr 持有（服务与各 worker 各持引用）。worker 在
+// 服务析构后仍可能排队在 registry->mutex 上——注册表必须活到最后一个
+// 使用者退出，否则出现「锁在等待者手中被销毁」的析构竞态（挂死/UAF）。
+struct SeismicDatasetRegistry
+{
+  QMutex mutex;
+  QHash<QString, std::shared_ptr<SeismicDatasetEntry>> entries;
+  quint64 clock = 0;
+};
+
 SeismicTaskService::~SeismicTaskService() = default;
 
-std::shared_ptr<SeismicDatasetEntry> SeismicTaskService::datasetEntryFor(const QString &path,
-                                                                         sdk::Backend backend)
+// 按需打开并缓存条目。registry 以值参 shared_ptr 传入：worker 与服务共用，
+// 生命周期自动延伸过任何在途 worker。
+static std::shared_ptr<SeismicDatasetEntry> datasetEntryFor(
+    const std::shared_ptr<SeismicDatasetRegistry> &registry,
+    const QString &path, sdk::Backend backend)
 {
   const QString key = entryKey(path, backend);
   {
-    QMutexLocker lock(&datasetMutex_);
-    auto it = datasetEntries_.find(key);
-    if (it != datasetEntries_.end())
+    QMutexLocker lock(&registry->mutex);
+    auto it = registry->entries.find(key);
+    if (it != registry->entries.end())
     {
-      it.value()->lastUse = ++datasetClock_;
+      it.value()->lastUse = ++registry->clock;
       return it.value();
     }
   }
 
-  // 打开在 datasetMutex_ 内串行：Open 是有限 IO，不与条目使用锁嵌套。
   sdk::OpenOptions options;
   options.backend = backend;
   if (backend == sdk::Backend::Paged)
@@ -95,16 +107,16 @@ std::shared_ptr<SeismicDatasetEntry> SeismicTaskService::datasetEntryFor(const Q
   auto entry = std::make_shared<SeismicDatasetEntry>();
   entry->dataset = std::move(dataset);
 
-  QMutexLocker lock(&datasetMutex_);
-  entry->lastUse = ++datasetClock_;
-  datasetEntries_.insert(key, entry);
+  QMutexLocker lock(&registry->mutex);
+  entry->lastUse = ++registry->clock;
+  registry->entries.insert(key, entry);
 
   // 有界缓存：超出 8 个时淘汰最久未用
-  while (datasetEntries_.size() > 8)
+  while (registry->entries.size() > 8)
   {
     QString oldestKey;
     quint64 oldestUse = ~0ull;
-    for (auto eit = datasetEntries_.begin(); eit != datasetEntries_.end(); ++eit)
+    for (auto eit = registry->entries.begin(); eit != registry->entries.end(); ++eit)
     {
       if (eit.value()->lastUse < oldestUse)
       {
@@ -114,16 +126,16 @@ std::shared_ptr<SeismicDatasetEntry> SeismicTaskService::datasetEntryFor(const Q
     }
     if (oldestKey.isEmpty())
       break;
-    datasetEntries_.remove(oldestKey);
+    registry->entries.remove(oldestKey);
   }
   return entry;
 }
 
 void SeismicTaskService::invalidateDataset(const QString &path)
 {
-  QMutexLocker lock(&datasetMutex_);
-  datasetEntries_.remove(entryKey(path, sdk::Backend::Auto));
-  datasetEntries_.remove(entryKey(path, sdk::Backend::Paged));
+  QMutexLocker lock(&registry_->mutex);
+  registry_->entries.remove(entryKey(path, sdk::Backend::Auto));
+  registry_->entries.remove(entryKey(path, sdk::Backend::Paged));
 }
 
 SeismicTaskService::SeismicTaskService(PaleoTaskService *taskService,
@@ -131,7 +143,8 @@ SeismicTaskService::SeismicTaskService(PaleoTaskService *taskService,
                                        QObject *parent)
   : QObject(parent),
     taskService_(taskService),
-    dataCache_(dataCacheBudgetMb * 1024ull * 1024ull)
+    dataCache_(dataCacheBudgetMb * 1024ull * 1024ull),
+    registry_(std::make_shared<SeismicDatasetRegistry>())
 {
 }
 
@@ -265,15 +278,13 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
   // pagedPath 非空走显式 .sf3p（LOD 映射）。条目在 worker 内解析——
   // Dataset::Open 是有限 IO，不得占用 UI 线程。
   const QString sgyPath = QString::fromStdString(sgyio::ToUtf8Path(volume->Index()->path));
-  const QPointer<SeismicTaskService> self(this);
+  const auto registry = registry_;
 
-  auto work = [self, volume, sgyPath, pagedPath, type, sliceIndex, outImage](PaleoTask *task) -> QString {
-    if (self)
+  auto work = [registry, volume, sgyPath, pagedPath, type, sliceIndex, outImage](PaleoTask *task) -> QString {
+    const auto entry = datasetEntryFor(registry, pagedPath.isEmpty() ? sgyPath : pagedPath,
+                                       pagedPath.isEmpty() ? sdk::Backend::Auto : sdk::Backend::Paged);
+    if (entry && entry->dataset)
     {
-      const auto entry = self->datasetEntryFor(pagedPath.isEmpty() ? sgyPath : pagedPath,
-                                               pagedPath.isEmpty() ? sdk::Backend::Auto : sdk::Backend::Paged);
-      if (entry && entry->dataset)
-      {
         engine::CancelToken cancel;
         cancel.SetPredicate([task]() { return task->cancelRequested(); });
         engine::Slice2D slice;
@@ -311,7 +322,6 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
         if (!pagedPath.isEmpty())
           return QObject::tr("分页工作区读取失败：%1").arg(QString::fromStdString(status.message));
         // Auto 通道失败回落 volume 直读（同一份上游实现，保底）
-      }
     }
 
     if (!pagedPath.isEmpty())
@@ -383,14 +393,12 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
   auto outStats = std::make_shared<SgySectionStats>();
 
   const QString sgyPath = QString::fromStdString(sgyio::ToUtf8Path(volume->Index()->path));
-  const QPointer<SeismicTaskService> self(this);
+  const auto registry = registry_;
 
-  auto work = [self, volume, sgyPath, pathPoints, options, outImage, outStats](PaleoTask *task) -> QString {
-    if (self)
+  auto work = [registry, volume, sgyPath, pathPoints, options, outImage, outStats](PaleoTask *task) -> QString {
+    const auto entry = datasetEntryFor(registry, sgyPath, sdk::Backend::Auto);
+    if (entry && entry->dataset)
     {
-      const auto entry = self->datasetEntryFor(sgyPath, sdk::Backend::Auto);
-      if (entry && entry->dataset)
-      {
         engine::CancelToken cancel;
         cancel.SetPredicate([task]() { return task->cancelRequested(); });
         engine::SectionRequest request;
@@ -431,7 +439,6 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
         if (status.code == engine::StatusCode::Cancelled || task->cancelRequested())
           return QString();
         // 引擎路径失败回落逐道构建
-      }
     }
 
     std::string err;
@@ -765,13 +772,12 @@ PaleoTask *SeismicTaskService::startTimeSliceTiled(
 
   const QString title = tr("瓦片渐进时间片 (采样 %1)").arg(sampleIndex);
   auto outImage = std::make_shared<SgySliceImage>();
-  const QPointer<SeismicTaskService> self(this);
+  const QPointer<SeismicTaskService> self(this); // 仅作瓦片投递目标；条目走 registry
+  const auto registry = registry_;
 
-  auto work = [self, sf3pPath, sampleIndex, tileSize, focusInline, focusXline, outImage](
+  auto work = [self, registry, sf3pPath, sampleIndex, tileSize, focusInline, focusXline, outImage](
                   PaleoTask *task) -> QString {
-    if (!self)
-      return QString();
-    const auto entry = self->datasetEntryFor(sf3pPath, sdk::Backend::Paged);
+    const auto entry = datasetEntryFor(registry, sf3pPath, sdk::Backend::Paged);
     if (!entry || !entry->dataset)
       return QObject::tr("分页工作区不可用：%1").arg(sf3pPath);
 
@@ -850,14 +856,12 @@ PaleoTask *SeismicTaskService::startVoxelWindow(
   const QString title = tr("读取三维体素窗口 (%1×%2×%3)")
                             .arg(request.inlineCount).arg(request.xlineCount).arg(request.sampleCount);
   auto outWindow = std::make_shared<engine::VoxelWindow>();
-  const QPointer<SeismicTaskService> self(this);
+  const auto registry = registry_;
   const bool paged = datasetPath.endsWith(QStringLiteral(".sf3p"), Qt::CaseInsensitive);
 
-  auto work = [self, datasetPath, paged, request, outWindow](PaleoTask *task) -> QString {
-    if (!self)
-      return QString();
-    const auto entry = self->datasetEntryFor(
-        datasetPath, paged ? sdk::Backend::Paged : sdk::Backend::Auto);
+  auto work = [registry, datasetPath, paged, request, outWindow](PaleoTask *task) -> QString {
+    const auto entry = datasetEntryFor(
+        registry, datasetPath, paged ? sdk::Backend::Paged : sdk::Backend::Auto);
     if (!entry || !entry->dataset)
       return QObject::tr("数据集不可用：%1").arg(datasetPath);
 
@@ -906,12 +910,11 @@ PaleoTask *SeismicTaskService::startPagedOpen(
 
   const QString title = tr("打开分页工作区: %1").arg(QFileInfo(sf3pPath).fileName());
   auto status = std::make_shared<SeismicBackendStatus>();
-  const QPointer<SeismicTaskService> self(this);
+  const auto registry = registry_;
 
-  auto work = [self, sf3pPath, status](PaleoTask *task) -> QString {
-    if (!self)
-      return QString();
-    const auto entry = self->datasetEntryFor(sf3pPath, sdk::Backend::Paged);
+  auto work = [registry, sf3pPath, status](PaleoTask *task) -> QString {
+    Q_UNUSED(task);
+    const auto entry = datasetEntryFor(registry, sf3pPath, sdk::Backend::Paged);
     if (!entry || !entry->dataset)
       return QObject::tr("分页工作区不可用：%1").arg(sf3pPath);
     QMutexLocker lock(&entry->mutex);
@@ -947,12 +950,11 @@ PaleoTask *SeismicTaskService::startLodSwitch(
 
   const QString title = tr("切换 LOD 层级 %1").arg(lodLevel);
   auto quality = std::make_shared<QString>();
-  const QPointer<SeismicTaskService> self(this);
+  const auto registry = registry_;
 
-  auto work = [self, sf3pPath, lodLevel, quality](PaleoTask *task) -> QString {
-    if (!self)
-      return QString();
-    const auto entry = self->datasetEntryFor(sf3pPath, sdk::Backend::Paged);
+  auto work = [registry, sf3pPath, lodLevel, quality](PaleoTask *task) -> QString {
+    Q_UNUSED(task);
+    const auto entry = datasetEntryFor(registry, sf3pPath, sdk::Backend::Paged);
     if (!entry || !entry->dataset)
       return QObject::tr("分页工作区不可用：%1").arg(sf3pPath);
     QMutexLocker lock(&entry->mutex);

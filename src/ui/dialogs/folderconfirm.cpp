@@ -240,6 +240,56 @@ QString folderImportSummaryText(const QVector<FolderRowResult> &rows)
   return text;
 }
 
+QString folderEstimateText(const QVector<FolderPreviewRow> &rows)
+{
+  int willImport = 0, dupSkip = 0, enumSkip = 0, unknownSize = 0;
+  qint64 totalBytes = 0;
+  for (const FolderPreviewRow &row : rows)
+  {
+    if (row.skipped)
+    {
+      ++enumSkip; // 软链逃逸/非普通文件（大小仍计入展示，但不导入）
+      continue;
+    }
+    if (row.decision == QLatin1String("skip"))
+    {
+      ++dupSkip; // plan 期 sha 重复 → 默认跳过（可「仍导入」）
+      continue;
+    }
+    ++willImport;
+    if (row.sizeBytes >= 0)
+      totalBytes += row.sizeBytes;
+    else
+      ++unknownSize;
+  }
+  if (rows.isEmpty())
+    return QString();
+  // 人类可读大小：B/KB/MB/GB 一位小数（>200MB 的 SEG-Y 常态走 MB/GB 位）。
+  const auto humanSize = [](qint64 b) -> QString {
+    static const QStringList units{QStringLiteral("B"), QStringLiteral("KB"),
+                                   QStringLiteral("MB"), QStringLiteral("GB")};
+    double v = static_cast<double>(b);
+    int u = 0;
+    while (v >= 1024.0 && u + 1 < units.size())
+    {
+      v /= 1024.0;
+      ++u;
+    }
+    return QStringLiteral("%1 %2").arg(v, 0, 'f', v >= 10 || u == 0 ? 0 : 1).arg(units.at(u));
+  };
+  QString text = QObject::tr("将导入 %1 项 · 约 %2").arg(willImport).arg(humanSize(totalBytes));
+  if (unknownSize > 0)
+    text += QObject::tr("（%1 项大小未知）").arg(unknownSize);
+  QStringList tails;
+  if (dupSkip > 0)
+    tails.append(QObject::tr("重复跳过 %1").arg(dupSkip));
+  if (enumSkip > 0)
+    tails.append(QObject::tr("枚举跳过 %1").arg(enumSkip));
+  if (!tails.isEmpty())
+    text += QLatin1String("（") + tails.join(QStringLiteral("，")) + QLatin1String("）");
+  return text;
+}
+
 void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
                               const QVector<FolderPreviewRow> &preview,
                               const Hooks &hooks)
@@ -276,11 +326,71 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
   QVector<QComboBox *> combos;
   populateFolderConfirmTable(table, dir, preview, &combos);
 
+  // T2 大小估算：预览期一行估算（将导入多少/多大/跳过多少）+ 每行大小进
+  // 路径 tooltip——不动四列结构（既有测试与结果列控件挂点不迁移）。
+  for (int r = 0; r < preview.size() && r < table->rowCount(); ++r)
+  {
+    if (preview.at(r).sizeBytes < 0)
+      continue;
+    QTableWidgetItem *pathItem = table->item(r, 0);
+    if (!pathItem)
+      continue;
+    const qint64 b = preview.at(r).sizeBytes;
+    const QString human = b >= 1024 * 1024 * 1024
+                              ? QStringLiteral("%1 GB").arg(b / 1073741824.0, 0, 'f', 1)
+                              : b >= 1024 * 1024
+                                    ? QStringLiteral("%1 MB").arg(b / 1048576.0, 0, 'f', 1)
+                                    : b >= 1024
+                                          ? QStringLiteral("%1 KB").arg(b / 1024.0, 0, 'f', 1)
+                                          : QStringLiteral("%1 B").arg(b);
+    pathItem->setToolTip(QObject::tr("%1\n大小 %2").arg(pathItem->toolTip(), human));
+  }
+  auto *estimate = new QLabel(dlg);
+  estimate->setObjectName(QStringLiteral("folderEstimateLabel"));
+  estimate->setText(folderEstimateText(preview));
+  estimate->setStyleSheet(QStringLiteral("color: #5D6E80;")); // DESIGN.md text-muted
+  if (estimate->text().isEmpty())
+    estimate->hide();
+  lay->addWidget(estimate);
+
+  // T2 跳过策略：「重复→跳过」行的「仍导入」按钮（结果列挂点，与「重试」
+  // 同一模式）。只有壳给了 importAllWithForced 才出现——旧壳零扰动。
+  auto forcePaths = std::make_shared<QStringList>();
+  if (hooks.importAllWithForced)
+    for (int r = 0; r < preview.size() && r < table->rowCount(); ++r)
+    {
+      const FolderPreviewRow &row = preview.at(r);
+      if (row.skipped || row.decision != QLatin1String("skip"))
+        continue;
+      auto *btn = new QPushButton(QObject::tr("仍导入"), table);
+      btn->setObjectName(QStringLiteral("folderForceImport%1").arg(r));
+      btn->setAccessibleName(
+          QObject::tr("仍导入 %1").arg(table->item(r, 0)->text()));
+      const QString path = row.path;
+      QObject::connect(btn, &QPushButton::clicked, table,
+                       [btn, forcePaths, path]() {
+                         if (forcePaths->contains(path))
+                           return;
+                         forcePaths->append(path);
+                         btn->setText(QObject::tr("将导入"));
+                         btn->setEnabled(false);
+                       });
+      table->setCellWidget(r, 3, btn);
+    }
+
   auto *summary = new QLabel(dlg);
   summary->setObjectName(QStringLiteral("folderSummary"));
   summary->setWordWrap(true);
   summary->hide();
   lay->addWidget(summary);
+  // T2 错误行报告：失败行明细（路径: 原因，至多 5 行 + 「等 n 项」）——
+  // 汇总计数之外把「为什么失败」留在对话里，用户不必逐行扫表。
+  auto *errorReport = new QLabel(dlg);
+  errorReport->setObjectName(QStringLiteral("folderErrorReport"));
+  errorReport->setWordWrap(true);
+  errorReport->setStyleSheet(QStringLiteral("color: #B3261E;")); // DESIGN.md danger
+  errorReport->hide();
+  lay->addWidget(errorReport);
 
   auto *buttons = new QDialogButtonBox(dlg);
   auto *confirm =
@@ -341,17 +451,18 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
   };
 
   QObject::connect(confirm, &QAbstractButton::clicked, dlg,
-                   [dlg, table, summary, confirm, cancel, showUnresolved,
-                    combos, preview, results, retryCb, hooks]() {
+                   [dlg, dir, table, summary, errorReport, confirm, cancel,
+                    showUnresolved, combos, preview, results, retryCb, hooks,
+                    forcePaths]() {
     const QMap<QString, QString> overrides =
         collectFolderTypeOverrides(table, preview, combos);
     confirm->setEnabled(false); // 确认只走一遍（异步在途也一样）
 
     // 导入结果回表——同步路径与任务终态共用（在 GUI 线程执行）。
     const auto applyResults =
-        [dlg, table, summary, confirm, cancel, showUnresolved, combos, preview,
-         results, retryCb, hooks](const QVector<FolderRowResult> &res,
-                                  const QString &importErr) {
+        [dlg, dir, table, summary, errorReport, confirm, cancel,
+         showUnresolved, combos, preview, results, retryCb,
+         hooks](const QVector<FolderRowResult> &res, const QString &importErr) {
       if (res.isEmpty() && !importErr.isEmpty())
       {
         QMessageBox::warning(dlg, QObject::tr("导入工区文件夹"), importErr);
@@ -386,6 +497,28 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
       }
       summary->setText(folderImportSummaryText(*results));
       summary->show();
+      // T2 错误行报告：失败行明细（至多 5 行 + 余量计数）；无失败则隐藏。
+      QStringList failures;
+      for (const FolderRowResult &rowRes : res)
+        if (rowRes.outcome == FolderRowResult::Outcome::Failed)
+          failures.append(
+              QObject::tr("%1：%2")
+                  .arg(QDir::isAbsolutePath(rowRes.path)
+                           ? QDir(dir).relativeFilePath(rowRes.path)
+                           : rowRes.path,
+                       rowRes.message.isEmpty() ? QObject::tr("导入失败")
+                                                : rowRes.message));
+      if (!failures.isEmpty())
+      {
+        const int shown = qMin(5, failures.size());
+        QString text = failures.mid(0, shown).join(QLatin1Char('\n'));
+        if (failures.size() > shown)
+          text += QObject::tr("\n…等共 %1 项失败").arg(failures.size());
+        errorReport->setText(text);
+        errorReport->show();
+      }
+      else
+        errorReport->hide();
       // 有未决行才露「查看未决」入口（T31）。
       bool anyUnresolved = false;
       for (const auto &rowRes : *results)
@@ -430,7 +563,10 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
       if (guard)
         applyResults(r, e);
     };
-    if (hooks.importAll)
+    // T2 跳过策略：壳给了「仍导入」通道就带上改判集合；否则旧口径零扰动。
+    if (hooks.importAllWithForced)
+      hooks.importAllWithForced(overrides, *forcePaths, guardedApply);
+    else if (hooks.importAll)
       hooks.importAll(overrides, guardedApply);
   });
   lay->addWidget(buttons);

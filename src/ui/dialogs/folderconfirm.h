@@ -38,6 +38,14 @@ struct Hooks
                      std::function<void(const QVector<FolderRowResult> &,
                                         const QString &)> done)>
       importAll;
+  // （T2 跳过策略，additive）带「仍导入」改判的整批导入：forceImportPaths
+  // 是用户对「重复→跳过」行点了「仍导入」的源路径集合。给了这个出口，
+  // 确认表才会挂「仍导入」按钮；只给 importAll 的旧壳看不到该能力。
+  std::function<void(const QMap<QString, QString> &overrides,
+                     const QStringList &forceImportPaths,
+                     std::function<void(const QVector<FolderRowResult> &,
+                                        const QString &)> done)>
+      importAllWithForced;
   // 确认完成后按行源文件名反查刚入库的井口资产（空 → 不开预览）。
   std::function<QString(const QString &rowPath)> importedWellHead;
   // 「查看未决」→ 数据页切未决过滤。
@@ -69,6 +77,9 @@ void writeFolderRowResult(QTableWidget *table, int row, const FolderRowResult &r
                           const std::function<void(int)> &onRetry);
 // 汇总文案：「入库 n，未决 n，失败 n（，跳过 n）」——D3 保留第四计数。
 QString folderImportSummaryText(const QVector<FolderRowResult> &rows);
+// 预览期估算文案（T2 大小估算）：「将导入 n 项 · 约 12.4 MB（重复跳过 n，
+// 枚举跳过 n）」——大小未知的行计入「大小未知」；无行回空串。
+QString folderEstimateText(const QVector<FolderPreviewRow> &rows);
 // 确认对话框整体搭建（类型表 + CRS 说明句 + 确认/取消/查看未决 + 行重试
 // 接线）。hooks 为空出口对应行为跳过；dlg.exec() 由调用方负责。
 void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,

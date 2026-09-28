@@ -87,6 +87,8 @@ PreviewDocService::PreviewDocService(DataImportService *svc, QObject *parent)
 {
   qRegisterMetaType<PreviewDocService::SectionDoc>(
       "PreviewDocService::SectionDoc");
+  // LAS 曲线表经信号跨线程交接（任务池路径）。
+  qRegisterMetaType<QList<LasCurve>>("QList<LasCurve>");
   if (m_svc)
   {
     // 文档 PDF 转换信号转发——UI 只订阅本门面，不直连 io 服务。
@@ -96,9 +98,12 @@ PreviewDocService::PreviewDocService(DataImportService *svc, QObject *parent)
             [this](const QString &assetId, const QString &error) {
               emit documentPdfFailed(assetId, error);
             });
-    // 壳侧转发：catalog 打开失败 / 资产入库（主窗不直连 io 服务）。
+    // 壳侧转发：catalog 打开失败 / .bak 恢复告警 / 资产入库（主窗不直连
+    // io 服务）。
     connect(m_svc, &DataImportService::catalogOpenFailed, this,
             [this](const QString &error) { emit catalogOpenFailed(error); });
+    connect(m_svc, &DataImportService::catalogRecoveredFromBackup, this,
+            [this](const QString &reason) { emit catalogRecoveredFromBackup(reason); });
     connect(m_svc, &DataImportService::imported, this,
             [this](const QString &kind, const QString &assetId,
                    const QString &layerId) {
@@ -172,6 +177,17 @@ bool PreviewDocService::lasAt(const QString &absPath, QStringList *names,
                               QList<LasCurve> *curves, QString *error)
 {
   return LasParser::parse(absPath, *names, *curves, error);
+}
+
+bool PreviewDocService::lasHeaderAt(const QString &absPath, LasHeaderInfo *out,
+                                    QString *error)
+{
+  LasHeaderInfo info;
+  if (!LasParser::parseHeader(absPath, info, error))
+    return false;
+  if (out)
+    *out = info;
+  return true;
 }
 
 bool PreviewDocService::wellHeadsAt(const QString &absPath,
@@ -283,7 +299,7 @@ void PreviewDocService::affinePreviewBounds(const double src[4],
 
 bool PreviewDocService::verifyExternalSha(const QString &assetId,
                                           const CatalogVersion &version,
-                                          QString *error)
+                                          QString *error) const
 {
   if (version.managed || version.sha256.isEmpty() || m_shaVerified.value(assetId))
     return true; // 托管副本/无指纹/本会话已验 → 放行
@@ -386,6 +402,11 @@ PreviewDocService::seismicTieMarker(const QString &assetId) const
       if (a.type != QLatin1String("well_stratification"))
         continue;
       const CatalogVersion tv = cat->currentVersion(a.id);
+      // T8 staleness 补漏：外链版本带指纹先复验——源字节变了就不再当标定
+      // 依据（失配时 verifyExternalSha 已如实标下游过时，这里跳过该文件）。
+      QString shaErr;
+      if (!verifyExternalSha(a.id, tv, &shaErr))
+        continue;
       const QString p = tv.id.isEmpty() ? QString() : m_svc->absolutePathForVersion(tv);
       if (p.isEmpty() || !QFile::exists(p))
         continue;
@@ -433,7 +454,11 @@ PreviewDocService::seismicTieMarker(const QString &assetId) const
       if (l.role != QLatin1String("time_depth") || l.unresolved || !l.isPrimary)
         continue;
       const CatalogVersion tv = cat->currentVersion(l.assetId);
-      const QString p = tv.id.isEmpty() ? QString() : m_svc->absolutePathForVersion(tv);
+      // T8：同上——外链时深表先复验再作插值依据。
+      QString shaErr;
+      if (tv.id.isEmpty() || !verifyExternalSha(tv.assetId, tv, &shaErr))
+        break; // 主关联只有一条（失配即不取该表——TD 留空如实降级）
+      const QString p = m_svc->absolutePathForVersion(tv);
       if (!p.isEmpty())
         timeDepthAt(p, &tieTd);
       break; // 主关联只有一条
@@ -601,4 +626,60 @@ void PreviewDocService::releaseSection(const QString &assetId)
   if (auto *t = m_decodeTask.value(assetId).data(); t && t->running())
     t->requestCancel();
   m_decodeTask.remove(assetId);
+}
+
+void PreviewDocService::requestLas(const QString &key, const QString &absPath)
+{
+  // 与 requestSection 同一世代号纪律：同 key 新请求作废旧代（旧任务协作
+  // 取消，其结果按世代号在发射前丢弃）。
+  const int seq = ++m_lasSeq[key];
+  if (auto *old = m_lasTask.value(key).data(); old && old->running())
+    old->requestCancel();
+
+  // worker 产出（跨线程交接，GUI 只读 finished 后的快照）。
+  auto names = std::make_shared<QStringList>();
+  auto curves = std::make_shared<QList<LasCurve>>();
+  const auto work = [absPath, names, curves](PaleoTask *t) -> QString {
+    QString err;
+    if (!LasParser::parse(absPath, *names, *curves, &err))
+      return (t && t->cancelRequested()) ? QString() : err;
+    return QString();
+  };
+  const auto apply = [this, key, seq, names, curves](PaleoTask::State st,
+                                                     const QString &errText) {
+    if (seq != m_lasSeq.value(key))
+      return; // 陈旧结果丢弃：更新一代请求已接管（发射前压制）
+    if (st == PaleoTask::State::Succeeded)
+      emit lasReady(key, *names, *curves);
+    else if (st == PaleoTask::State::Failed)
+      emit lasFailed(key, errText.isEmpty()
+                              ? QStringLiteral("无法解析 LAS 文件") : errText);
+    else
+      emit lasCancelled(key);
+  };
+
+  if (m_taskSvc)
+  {
+    auto *task = m_taskSvc->start(
+        QStringLiteral("解析测井 %1").arg(QFileInfo(absPath).fileName()), work);
+    m_lasTask[key] = task;
+    connect(task, &PaleoTask::finished, this,
+            [apply, task]() { apply(task->state(), task->errorText()); });
+  }
+  else
+  {
+    // 无任务服务（测试/小环境）：同步旧路径，行为与接线前一致。
+    const QString err = work(nullptr);
+    apply(err.isEmpty() ? PaleoTask::State::Succeeded : PaleoTask::State::Failed,
+          err);
+  }
+}
+
+void PreviewDocService::releaseLas(const QString &key)
+{
+  // 标签/调用方关掉即释放世代号；进行中的解析请求取消——结果没人等了。
+  m_lasSeq.remove(key);
+  if (auto *t = m_lasTask.value(key).data(); t && t->running())
+    t->requestCancel();
+  m_lasTask.remove(key);
 }

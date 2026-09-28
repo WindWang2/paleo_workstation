@@ -83,14 +83,29 @@ class DataCatalog : public QObject
     explicit DataCatalog(QObject *parent = nullptr);
 
     // 打开（或初始化）<projectDir>/artifacts/metadata/catalog.json。
+    // 主文件解析失败且存在 .bak 时回退读 .bak（腐败恢复，只对「解析失败」
+    // 生效——schema 版本不匹配是「未来版本」信号，回退旧代数据等于静默
+    // 降级，不进该路径）；恢复成功后 recoveredFromBackup() 为真、
+    // lastBackupRecoveryReason() 带主文件损坏原因，open 仍算成功。
     bool open(const QString &projectDir, QString *error = nullptr);
     bool isOpen() const { return m_isOpen; }
-    // 拒绝写入态：open() 失败、或从未成功 open 过 → true。mutator 一律
-    // return false + error，不落盘不改内存——绝不让空 catalog 覆盖坏文件
-    // （audit row 36，§9 回滚语义）。
-    bool refusesWrites() const { return !m_isOpen; }
+    // 拒绝写入态：open() 失败、从未成功 open 过、或被锁降级只读 → true。
+    // mutator 一律 return false + error，不落盘不改内存——绝不让空 catalog
+    // 覆盖坏文件（audit row 36，§9 回滚语义）。
+    bool refusesWrites() const { return !m_isOpen || m_lockedReadOnly; }
     QString openError() const { return m_openError; } // open() 失败原因（无则空）
     QString catalogPath() const { return m_dir + QStringLiteral("/artifacts/metadata/catalog.json"); }
+
+    // ---- 单写实例降级（SCHEMA_MIGRATION.md §6：锁失败 = 真只读）----
+    // 工程目录被另一实例持锁时由组装根置 true：save() 恒 false（锁错误文
+    // 案），mutator 因 save 失败回滚内存；读查询不受影响。open() 不清除该
+    // 标志——它是实例级模式，由拥有者（AppContext）管理生命周期。
+    void setLockedReadOnly(bool readOnly) { m_lockedReadOnly = readOnly; }
+    bool isLockedReadOnly() const { return m_lockedReadOnly; }
+
+    // ---- 腐败恢复面（open() 的 .bak 回退结果）----
+    bool recoveredFromBackup() const { return m_recoveredFromBackup; }
+    QString lastBackupRecoveryReason() const { return m_backupRecoveryReason; }
     int catalogRevision() const { return m_revision; }
 
     // 工程角色词表（DATA_FABRIC_ADOPTION A 包）：open() 时读
@@ -170,6 +185,8 @@ class DataCatalog : public QObject
     QVector<CatalogAsset> assets() const;
     CatalogAsset assetById(const QString &id) const;
     QVector<CatalogVersion> versionsForAsset(const QString &assetId) const;
+    // 全量版本表（只读快照口径——IngestPlan 构建 worker 线程用；COW O(1)）。
+    QVector<CatalogVersion> versions() const { return m_versions; }
     CatalogVersion versionById(const QString &id) const;
     CatalogVersion currentVersion(const QString &assetId) const; // 最高 versionNumber
     // 空 entityId 是调用方 bug（audit row 35）：如实返回空集，不再静默命中
@@ -236,6 +253,9 @@ class DataCatalog : public QObject
 
   signals:
     void changed();      // 任一变更落盘后发射（UI 刷新资产表用）
+    // open() 经 .bak 回退恢复成功后发射一次（主文件损坏原因随行）——UI/
+    // 状态面据此向用户告警「catalog 已从备份恢复，主文件损坏」。
+    void backupRecovered(const QString &reason);
 
   private:
     bool ensureOpen(QString *error) const;
@@ -248,6 +268,9 @@ class DataCatalog : public QObject
     QString m_dir;
     bool m_isOpen = false;
     QString m_openError;         // 最近一次 open() 失败原因（成功后清空）
+    bool m_lockedReadOnly = false; // 见 setLockedReadOnly——实例级只读降级
+    bool m_recoveredFromBackup = false; // open() 走了 .bak 回退（本次 open 内）
+    QString m_backupRecoveryReason;     // 主文件损坏原因（恢复成功时留底）
     int m_batchDepth = 0;        // >0 时 save() 挂起（BatchSave）
     bool m_batchDirty = false;   // 挂起期间有过变更 → endBatch 落一次盘
     int m_revision = 0;

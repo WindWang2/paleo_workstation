@@ -195,7 +195,7 @@ private slots:
 
     QElapsedTimer timer;
     timer.start();
-    const QVector<DataImportService::FolderPreviewRow> rows =
+    const QVector<FolderPreviewRow> rows =
         importSvc.previewFolder(QDir(dir.path()).filePath(QStringLiteral("tree")), &err);
     const qint64 elapsedMs = timer.elapsed();
     QVERIFY2(err.isEmpty(), qPrintable(err));

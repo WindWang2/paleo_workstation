@@ -822,6 +822,7 @@ QVariantMap IsopachAlgorithm::processAlgorithm( const QVariantMap &parameters,
 
 void PaleoProvider::loadAlgorithms()
 {
+  addAlgorithm( new PaleoWellDistanceAlgorithm() ); // welldist 核（welldist.cpp）
   addAlgorithm( new ConstraintIDWAlgorithm() );
   addAlgorithm( new FaciesFusionAlgorithm() );
   addAlgorithm( new GeologicalSmoothingAlgorithm() );

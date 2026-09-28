@@ -100,6 +100,11 @@ DataImportService::DataImportService(QgisLayerService *layers, PaleoProjectStore
   , m_store(store)
   , m_catalog(new DataCatalog(this))
 {
+  // T5 腐败恢复广播：catalog open() 走了 .bak 回退 → 转发壳侧（状态面向
+  // 用户告警「catalog 已从备份恢复，主文件损坏」）。PreviewDocService 再转
+  // 一道给 UI。
+  connect(m_catalog, &DataCatalog::backupRecovered, this,
+          [this](const QString &reason) { emit catalogRecoveredFromBackup(reason); });
 }
 
 DataImportService::~DataImportService()
@@ -138,6 +143,23 @@ void DataImportService::setProjectDir(const QString &dir)
     qWarning("DataImportService: catalog open failed: %s", qPrintable(err));
     emit catalogOpenFailed(err);
   }
+}
+
+IngestPlan DataImportService::planFor(
+    const QString &root,
+    const std::function<bool(int filesSeen, const QString &path)> &scanProgress) const
+{
+  // T2：plan 期搬出 GUI。快照在 catalog 线程拷出（COW O(1)——唯一的跨线程
+  // 接触点）；扫描/分类/哈希/身份匹配/去重复核全在当前线程执行——worker
+  // 调用即整段离 GUI，catalog 仍只被它自己的线程触碰。
+  const CatalogReadSnapshot snap =
+      catInvoke([&] { return CatalogReadSnapshot::fromCatalog(*m_catalog); });
+  IngestScanProgress progress;
+  if (scanProgress)
+    progress = [scanProgress](int seen, const QString &path) {
+      return scanProgress(seen, path);
+    };
+  return buildIngestPlan(root, snap, progress);
 }
 
 DataImportService::WellBind DataImportService::resolveWell(const QString &name) const
@@ -280,8 +302,7 @@ DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOp
   if (m_catalog && m_catalogReady && !sourcePath.isEmpty() &&
       QFileInfo(sourcePath).isFile())
   {
-    const IngestPlan plan =
-        catInvoke([&] { return buildIngestPlan(sourcePath, *m_catalog); });
+    const IngestPlan plan = planFor(sourcePath);
     if (!plan.items.isEmpty())
     {
       const PlannedItem &item = plan.items.constFirst();
@@ -332,6 +353,10 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
                     .arg(m_catalogOpenError.isEmpty()
                              ? QStringLiteral("catalog 打开失败")
                              : m_catalogOpenError));
+  // 单写实例降级（T4）：锁在别的实例手里——受管字节还没开始复制就拒，
+  // 不留「文件拷进 artifacts/ 而 catalog 拒登记」的孤儿。
+  if (m_catalog && m_catalog->isLockedReadOnly())
+    return fail(QStringLiteral("工程目录被另一个实例锁定——本实例只读，导入被拒绝"));
   if (sourcePath.isEmpty() || !QFile::exists(sourcePath))
     return fail(QStringLiteral("找不到源文件: %1").arg(sourcePath));
 
@@ -853,8 +878,15 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
 // 共用同一份 plan，确认表逐行看到的就是将要执行的决策。
 // ---------------------------------------------------------------------------
 
-QVector<DataImportService::FolderPreviewRow>
+QVector<FolderPreviewRow>
 DataImportService::previewFolder(const QString &dirPath, QString *error)
+{
+  return previewFolder(dirPath, error, {});
+}
+
+QVector<FolderPreviewRow>
+DataImportService::previewFolder(const QString &dirPath, QString *error,
+                                 const std::function<bool(int, const QString &)> &scanProgress)
 {
   QVector<FolderPreviewRow> rows;
   if (error)
@@ -864,10 +896,15 @@ DataImportService::previewFolder(const QString &dirPath, QString *error)
     setError(error, QStringLiteral("找不到目录: %1").arg(dirPath));
     return rows;
   }
-  // C 包：预览即 plan——catalog 只读纯函数，经 catInvoke 回它自己的线程构建
-  // （扫描/分类/族归组/身份匹配/去重/主建议）。行序 = 执行序。
-  const IngestPlan plan =
-      catInvoke([&] { return buildIngestPlan(dirPath, *m_catalog); });
+  // C 包：预览即 plan。T2：经 COW 快照在当前线程构建（扫描/分类/族归组/
+  // 身份匹配/去重/主建议）——GUI 直调等价旧路径，worker 调用（经
+  // FolderImportWorkflow::previewFolderAsync）整段离 GUI。行序 = 执行序。
+  const IngestPlan plan = planFor(dirPath, scanProgress);
+  if (plan.cancelled)
+  {
+    setError(error, QStringLiteral("已取消"));
+    return rows; // 扫描段取消：不展示半份预览
+  }
   if (plan.items.isEmpty() && plan.skipped.isEmpty())
   {
     setError(error, plan.issues.isEmpty()
@@ -908,6 +945,7 @@ DataImportService::previewFolder(const QString &dirPath, QString *error)
     r.path = item.path;
     r.classifiedType = item.type;
     r.decision = item.decision; // plan 期决策（重复→跳过等）随行进确认表
+    r.sizeBytes = item.size;    // T2 大小估算（族项 = 主件字节）
     fillDisplay(r);
     rows.append(r);
   }
@@ -918,22 +956,33 @@ DataImportService::previewFolder(const QString &dirPath, QString *error)
     r.classifiedType = s.type;
     r.skipped = true;
     r.skipReason = s.note;
+    r.sizeBytes = s.size; // 枚举期跳过行也带大小（用户看得见它占了多少）
     fillDisplay(r);
     rows.append(r);
   }
   return rows;
 }
 
-QVector<DataImportService::FolderRowResult>
+QVector<FolderRowResult>
 DataImportService::importFolder(const QString &dirPath, QString *error)
 {
-  return importFolder(dirPath, error, QMap<QString, QString>{}, {});
+  return importFolder(dirPath, error, QMap<QString, QString>{}, {}, {});
 }
 
-QVector<DataImportService::FolderRowResult>
+QVector<FolderRowResult>
 DataImportService::importFolder(
     const QString &dirPath, QString *error,
     const QMap<QString, QString> &typeOverrides,
+    const std::function<bool(int, int, const QString &)> &progress)
+{
+  return importFolder(dirPath, error, typeOverrides, QStringList{}, progress);
+}
+
+QVector<FolderRowResult>
+DataImportService::importFolder(
+    const QString &dirPath, QString *error,
+    const QMap<QString, QString> &typeOverrides,
+    const QStringList &forceImportPaths,
     const std::function<bool(int, int, const QString &)> &progress)
 {
   QVector<FolderRowResult> rows;
@@ -956,10 +1005,26 @@ DataImportService::importFolder(
     return rows;
   }
 
-  // C 包三段式：buildIngestPlan 是 catalog 只读纯函数——经 catInvoke 回
-  // catalog 所在线程整体构建（扫描/分类/shp 归组/身份匹配/去重/主建议）。
-  // 阶段 1 全部 well_head（井建齐）、阶段 2 其余——序在 builder 里已排好。
-  IngestPlan plan = catInvoke([&] { return buildIngestPlan(dirPath, *m_catalog); });
+  // C 包三段式：T2 起 plan 经 COW 快照在当前线程构建（扫描/分类/shp 归组/
+  // 身份匹配/去重/主建议不再 marshal 回 GUI）。扫描期进度复用 progress 回
+  // 调——total=0 标记扫描段（调用方区分跑马灯/行进度）。阶段 1 全部
+  // well_head（井建齐）、阶段 2 其余——序在 builder 里已排好。
+  IngestPlan plan;
+  if (progress)
+  {
+    const auto scanCb = [&progress](int seen, const QString &p) {
+      return progress(seen, 0, p); // total=0：plan 扫描段
+    };
+    plan = planFor(dirPath, scanCb);
+  }
+  else
+    plan = planFor(dirPath);
+  if (plan.cancelled)
+  {
+    // 扫描段取消：零行执行零行入库（执行段取消另有「保留已处理行」语义）。
+    setError(error, QStringLiteral("已取消"));
+    return rows;
+  }
   if (plan.items.isEmpty() && plan.skipped.isEmpty())
   {
     setError(error, plan.issues.isEmpty()
@@ -984,6 +1049,19 @@ DataImportService::importFolder(
   if (retype)
     orderIngestPlanItems(plan.items);
 
+  // 「仍导入」改判（T2）：只翻 plan 期 sha 重复行（decision==skip 且带
+  // duplicateOfVersionId）；枚举期跳过行（软链逃逸等）不在用户改判面。
+  if (!forceImportPaths.isEmpty())
+    for (PlannedItem &item : plan.items)
+      if (forceImportPaths.contains(item.path) && item.decision == QLatin1String("skip") &&
+          !item.duplicateOfVersionId.isEmpty())
+      {
+        item.decision = QStringLiteral("as_new_version");
+        item.note =
+            (item.note.isEmpty() ? QString() : item.note + QStringLiteral("；")) +
+            QStringLiteral("用户改判：仍导入");
+      }
+
   // 执行面：executeIngestPlan 逐项 executePlannedItem + BatchSave 一次落盘 +
   // progress 协作取消。幂等——decision==skip 或 (path,sha) 已注册的项不再
   // 登记；重跑同目录每行 Skipped、目录零增量。
@@ -995,7 +1073,7 @@ DataImportService::importFolder(
 // 「重试」经 folderRowFor 合成的单项也走这里）。FolderRowResult::
 // classifiedType 记生效类型（override 已并进 item.type），与确认表显示一致。
 // ---------------------------------------------------------------------------
-DataImportService::FolderRowResult
+FolderRowResult
 DataImportService::executePlannedItem(const PlannedItem &item, QString *error)
 {
   if (error)
@@ -1151,7 +1229,7 @@ void DataImportService::copyBundleMembersIntoVersion(const PlannedItem &item,
 // 「重试」/兼容入口合成 1 项：决策恒 as_new_version——显式单文件导入的语义
 // 是「仍导入」，同字节结局由内部 dedup 消化（AlreadyStored + 补挂），
 // registered-check 对它不生效。
-DataImportService::FolderRowResult
+FolderRowResult
 DataImportService::folderRowFor(const QString &path, const QString &classifiedType,
                                 const QString &effectiveType)
 {
@@ -1163,7 +1241,7 @@ DataImportService::folderRowFor(const QString &path, const QString &classifiedTy
   return executePlannedItem(item, nullptr);
 }
 
-DataImportService::FolderRowResult
+FolderRowResult
 DataImportService::importFolderRow(const QString &sourcePath, const QString &forceType,
                                    QString *error)
 {
@@ -1385,15 +1463,35 @@ void DataImportService::ensureDocumentPdf(const QString &assetId)
     return failNow(tr("找不到 LibreOffice（soffice）——无法生成 PDF 预览"));
 
   QString rawAbs, rawVersionId;
+  CatalogVersion rawVersion;
   for (const CatalogVersion &v : m_catalog->versionsForAsset(assetId))
     if (v.stage == QLatin1String("RAW"))
     {
       rawAbs = absolutePathForVersion(v);
       rawVersionId = v.id;
+      rawVersion = v;
       break;
     }
   if (rawAbs.isEmpty() || !QFile::exists(rawAbs))
     return failNow(tr("原始文件缺失，无法转换"));
+
+  // T8 staleness 补漏：外链 RAW 带指纹时转换前复验——soffice 读的是当前
+  // 字节，源被改后转出的 DERIVED 与入库指纹无血缘；失配如实失败 + 下游
+  // DERIVED 标过时（与剖面解码路径同一纪律，previewdoc.cpp 的两处之外的
+  // 第三个失配入口）。
+  if (!rawVersion.managed && !rawVersion.sha256.isEmpty())
+  {
+    QString verr;
+    if (!m_catalog->verifyExternalVersionSha(rawVersion, &verr))
+    {
+      QString markErr;
+      if (!m_catalog->markDownstreamStale(rawVersion.id,
+                                          QStringLiteral("上游外链版本 sha 校验失败"),
+                                          &markErr))
+        qWarning() << "markDownstreamStale:" << markErr;
+      return failNow(verr);
+    }
+  }
 
   m_pdfPending.insert(assetId);
   m_pdfQueue.append(assetId);

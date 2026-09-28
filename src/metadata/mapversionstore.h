@@ -43,6 +43,12 @@ class MapVersionStore
 
     bool open(QString *error = nullptr);          // 建表/补列（幂等）
 
+    // 单写实例降级（T4/SCHEMA_MIGRATION.md §6）：锁失败 = 真只读——
+    // saveVersion/recordLayoutProduct 等写面如实失败，读面照常。值语义：
+    // 拷贝/赋值带回默认可写态，组装根在重绑后重设。
+    void setReadOnly(bool readOnly) { m_readOnly = readOnly; }
+    bool isReadOnly() const { return m_readOnly; }
+
     int currentVersion(const QString &horizon) const;        // 0 = 无版本
     MapVersion latest(const QString &horizon) const;         // version=0 when none
     QVector<MapVersion> versions(const QString &horizon) const;
@@ -91,4 +97,5 @@ class MapVersionStore
 
   private:
     QString m_dbPath;
+    bool m_readOnly = false;
 };

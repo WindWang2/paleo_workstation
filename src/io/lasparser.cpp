@@ -174,6 +174,83 @@ bool LasParser::parse(const QString &path, QStringList &curveNames,
   return true;
 }
 
+bool LasParser::parseHeader(const QString &path, LasHeaderInfo &out,
+                            QString *error)
+{
+  out = LasHeaderInfo{};
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+  {
+    setError(error, QStringLiteral("cannot open %1").arg(path));
+    return false;
+  }
+
+  // 与 parse() 同源的段状态机（Version/Well/Curves）；见到 ~A 段头即停——
+  // 数据行（文件体的大头）一个都不读，代价与头部行数成正比。语义对齐：
+  // WRAP YES 拒绝、无 ~C 拒绝；~A 缺失不算失败（sawAscii 如实报 false）。
+  enum class Section { None, Version, Well, Curves, Other };
+  Section section = Section::None;
+  bool sawCurves = false;
+  QTextStream in(&f);
+  while (!in.atEnd())
+  {
+    const QString line = in.readLine().trimmed();
+    if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
+      continue;
+    if (line.startsWith(QLatin1Char('~')))
+    {
+      const QChar code = line.size() > 1 ? line.at(1).toUpper() : QChar();
+      if (code == QLatin1Char('A'))
+      {
+        out.sawAscii = true;
+        break; // 数据节从此开始——header-only 到此为止
+      }
+      if (code == QLatin1Char('V'))      section = Section::Version;
+      else if (code == QLatin1Char('W')) section = Section::Well;
+      else if (code == QLatin1Char('C')) section = Section::Curves;
+      else                               section = Section::Other;
+      continue;
+    }
+    LasItem it;
+    if (!parseItemLine(line, it))
+      continue;
+    switch (section)
+    {
+      case Section::Version:
+        if (it.mnem == QStringLiteral("WRAP") &&
+            it.value.startsWith(QStringLiteral("YES"), Qt::CaseInsensitive))
+        {
+          setError(error, QStringLiteral("wrap mode (WRAP YES) is not supported: %1").arg(path));
+          return false;
+        }
+        break;
+      case Section::Well:
+        if (it.mnem == QStringLiteral("NULL"))
+        {
+          bool ok = false;
+          const double v = it.value.toDouble(&ok);
+          if (ok)
+            out.nullValue = v;
+        }
+        else if (it.mnem == QStringLiteral("WELL") && out.wellName.isEmpty())
+          out.wellName = it.value;
+        break;
+      case Section::Curves:
+        out.curveNames.append(it.mnem);
+        sawCurves = true;
+        break;
+      default:
+        break;
+    }
+  }
+  if (!sawCurves)
+  {
+    setError(error, QStringLiteral("no curve definitions (~C) found in %1").arg(path));
+    return false;
+  }
+  return true;
+}
+
 bool LasParser::readWellInfo(const QString &path, QString &wellName, QString *error)
 {
   wellName.clear();

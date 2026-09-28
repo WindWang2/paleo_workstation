@@ -56,6 +56,9 @@ class LayerTreePanel : public QWidget
   signals:
     // 「属性…」→ 壳接 LayerPropertiesDialog::openLayerProperties
     void propertiesRequested(const QString &layerId);
+    // 主线5「删除选中」消歧：编辑中的图层被从树里删时拒绝并带原因
+    //（壳接状态栏/消息条展示；收尾会话走编辑工具条/属性表面板）。
+    void layerRemovalRefused(const QString &reason);
     // 「在新页打开所属编图页」→ 壳接 showPage（组→页映射在面板内定义）
     void mappingPageRequested(const QString &pageId);
     // 「复制图层」直接落 QgsProject（克隆层 + 同组插入），不发信号。

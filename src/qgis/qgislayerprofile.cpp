@@ -275,6 +275,22 @@ bool QgisLayerProfileService::removeMapTheme(const QString &name)
   return true;
 }
 
+bool QgisLayerProfileService::renameTheme(const QString &oldName, const QString &newName)
+{
+  QgsMapThemeCollection *collection = themeCollection();
+  if (!collection || newName.isEmpty() || newName == oldName)
+    return false;
+  if (!collection->hasMapTheme(oldName) || collection->hasMapTheme(newName))
+    return false; // 旧名不存在 / 新名已占用（不覆盖既有主题）
+
+  // insert-then-remove：新名插入失败即中止（旧主题原封不动），成功才删旧名。
+  collection->insert(newName, collection->mapThemeState(oldName));
+  if (!collection->hasMapTheme(newName))
+    return false;
+  collection->removeMapTheme(oldName);
+  return !collection->hasMapTheme(oldName) && collection->hasMapTheme(newName);
+}
+
 bool QgisLayerProfileService::hasTheme(const QString &name) const
 {
   QgsMapThemeCollection *collection = themeCollection();

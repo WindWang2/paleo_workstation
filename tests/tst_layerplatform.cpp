@@ -213,6 +213,28 @@ class TestLayerPlatform : public QObject
                QStringList({QStringLiteral("01_Base"), QStringLiteral("05_PaleoMap")}));
     }
 
+    // ---- 主线5：主题重命名（insert-then-remove 记录复制）----
+    void renameThemeCopiesRecordAndRefuses()
+    {
+      ProfileFixture fx;
+      QVERIFY(fx.profile.captureCurrentAsTheme(QStringLiteral("work")));
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("work")));
+
+      QVERIFY(fx.profile.renameTheme(QStringLiteral("work"), QStringLiteral("work2")));
+      QVERIFY(!fx.profile.hasTheme(QStringLiteral("work")));
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("work2")));
+      // 改名后的主题记录完整可应用
+      QVERIFY(fx.profile.applyTheme(QStringLiteral("work2")));
+
+      // 拒绝路径：旧名不存在 / 新名已占用 / 空名 / 同名
+      QVERIFY(!fx.profile.renameTheme(QStringLiteral("work"), QStringLiteral("x")));
+      QVERIFY(fx.profile.captureCurrentAsTheme(QStringLiteral("occupied")));
+      QVERIFY(!fx.profile.renameTheme(QStringLiteral("work2"), QStringLiteral("occupied")));
+      QVERIFY(!fx.profile.renameTheme(QStringLiteral("work2"), QString()));
+      QVERIFY(!fx.profile.renameTheme(QStringLiteral("work2"), QStringLiteral("work2")));
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("work2"))); // 拒绝不改状态
+    }
+
     // ---- 主线1：词表单一权威（canonical 七组 + 旧名别名折算 + 组→页）----
     void vocabularySingleAuthority()
     {

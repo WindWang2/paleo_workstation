@@ -305,8 +305,11 @@ class TestLayerProfileBar : public QObject
       QPushButton *removeBtn =
           dlg->findChild<QPushButton *>(QStringLiteral("layerManageDeleteThemeButton"));
       QVERIFY(removeBtn != nullptr);
-      // V1 裁决可视面：不做重命名，按钮区小字注明
+      // 主线5：重命名按钮在场 + page:* 约定名提示
+      QVERIFY(dlg->findChild<QPushButton *>(QStringLiteral("layerManageRenameThemeButton")) != nullptr);
       QVERIFY(dlg->findChild<QLabel *>(QStringLiteral("layerManageRenameNote")) != nullptr);
+      QCOMPARE(dlg->findChild<QLabel *>(QStringLiteral("layerManageRenameNote"))->text(),
+               QStringLiteral("page:* 页面档案名不可改"));
 
       // 删除 page:compose（offscreen 免确认直接删；page:* 允许删）
       for (int i = 0; i < list->count(); ++i)
@@ -323,6 +326,34 @@ class TestLayerProfileBar : public QObject
       applyBtn->click();
       QCOMPARE(dlg->result(), QDialog::Accepted);
       QVERIFY(fx.layerChecked(QStringLiteral("pm.facies"))); // 主题态恢复
+    }
+
+    // ---- 主线5：重命名按钮对 page:* 约定名静默不动（offscreen 无输入通道）----
+    void manageDialogRenameShieldsPageThemes()
+    {
+      BarFixture fx;
+      LayerProfileBar bar(&fx.profile);
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("compose")));
+      QVERIFY(fx.profile.captureCurrentAsTheme(QStringLiteral("work")));
+
+      QDialog *dlg = bar.buildManageDialog();
+      QListWidget *list = dlg->findChild<QListWidget *>(QStringLiteral("layerManageThemeList"));
+      auto *renameBtn =
+          dlg->findChild<QPushButton *>(QStringLiteral("layerManageRenameThemeButton"));
+      QVERIFY(list != nullptr && renameBtn != nullptr);
+
+      // 选中 page:compose 点重命名：offscreen 无输入框 → 静默不改名
+      for (int i = 0; i < list->count(); ++i)
+        if (list->item(i)->data(Qt::UserRole).toString() == QLatin1String("page:compose"))
+          list->setCurrentRow(i);
+      renameBtn->click();
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("page:compose")));
+      QCOMPARE(fx.profile.themes().size(), 2);
+
+      // 服务面重命名语义（work → work2）与 UI 解耦直证
+      QVERIFY(fx.profile.renameTheme(QStringLiteral("work"), QStringLiteral("work2")));
+      QVERIFY(!fx.profile.hasTheme(QStringLiteral("work")));
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("work2")));
     }
 
     // ---- offscreen：showManageDialog 不 exec 不死（直接调用即返回）----

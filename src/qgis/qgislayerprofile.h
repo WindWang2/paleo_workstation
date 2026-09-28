@@ -82,6 +82,11 @@ class QgisLayerProfileService : public QObject
     bool captureCurrentAsTheme(const QString &name);
     bool applyTheme(const QString &name);
     bool removeMapTheme(const QString &name);
+    // 重命名（主线5）：QgsMapThemeCollection 无 rename API——以记录复制实现：
+    // 先 insert 新名（失败即中止，旧主题原封不动），成功后再删旧名。拒绝
+    // 空名/同名/新名已占用/旧名不存在；page:* 前缀的主题调用面自行回避
+    //（页面档案按 pageId 重建，改名无意义）。
+    bool renameTheme(const QString &oldName, const QString &newName);
     bool hasTheme(const QString &name) const;
     QStringList themes() const; // 全部主题（含 page:*）
 

@@ -12,6 +12,7 @@
 #include <qgslayertreeviewindicator.h>
 #include <qgsmapcanvas.h>
 #include <qgsmaplayer.h>
+#include <qgsvectorlayer.h>
 #include <qgsproject.h>
 
 #include <QAction>
@@ -175,7 +176,32 @@ QWidget *LayerTreePanel::buildToolbar()
   m_addGroupAction->setText(tr("添加组"));
 
   auto *removeAction = acts->actionRemoveGroupOrLayer(this);
-  removeAction->setText(tr("删除选中"));
+  // 主线5 消歧：明确动作对象是「图层树的图层/组」，不是画布上选中的要素
+  //（要素删除在编辑工具条）。默认动作（右键菜单共用实例）同步改口。
+  removeAction->setText(tr("删除所选图层/组"));
+  removeAction->setToolTip(
+      tr("删除图层树里选中的图层或组；画布上选中的要素用编辑工具条的「删除」"));
+
+  // 工具条按钮走守卫包装：编辑会话中的图层先收尾（保存/放弃）再删——
+  // 直接删会把未提交的编辑随图层析构静默丢弃。
+  auto *guardedRemove = new QAction(tr("删除所选图层/组"), this);
+  guardedRemove->setToolTip(removeAction->toolTip());
+  connect(guardedRemove, &QAction::triggered, this, [this, removeAction] {
+    QList<QgsMapLayer *> selected =
+        m_view ? m_view->selectedLayers() : QList<QgsMapLayer *>();
+    if (selected.isEmpty() && m_view && m_view->currentLayer())
+      selected = { m_view->currentLayer() }; // setCurrentLayer 未建立选区的路径
+    for (QgsMapLayer *l : selected)
+    {
+      if (auto *vl = qobject_cast<QgsVectorLayer *>(l); vl && vl->isEditable())
+      {
+        emit layerRemovalRefused(
+            tr("图层「%1」正在编辑——先保存或放弃编辑，再从图层树删除").arg(vl->name()));
+        return;
+      }
+    }
+    removeAction->trigger();
+  });
 
   auto mkButton = [bar](const QString &objectName, QAction *action) {
     auto *btn = new QToolButton(bar);
@@ -185,7 +211,7 @@ QWidget *LayerTreePanel::buildToolbar()
     return btn;
   };
   lay->addWidget(mkButton(QStringLiteral("layerTreeAddGroupButton"), m_addGroupAction));
-  lay->addWidget(mkButton(QStringLiteral("layerTreeRemoveSelectedButton"), removeAction));
+  lay->addWidget(mkButton(QStringLiteral("layerTreeRemoveSelectedButton"), guardedRemove));
 
   auto *expandAct = new QAction(tr("展开全部"), this);
   connect(expandAct, &QAction::triggered, m_view, &QgsLayerTreeView::expandAllNodes);

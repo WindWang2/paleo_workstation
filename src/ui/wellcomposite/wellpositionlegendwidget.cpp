@@ -576,13 +576,13 @@ WellPositionLegendWidget::WellPositionLegendWidget(QWidget *parent)
   mainLay->addWidget(sep1);
 
   // 3. 当前显示区域与视口范围标注
-  m_lblViewportRange = new QLabel(QStringLiteral("视口: 0.0 ~ 500.0m (跨度 500.0m)"), this);
+  m_lblViewportRange = new QLabel(tr("视口: 0.0 ~ 500.0m (跨度 500.0m)"), this);
   m_lblViewportRange->setObjectName(QStringLiteral("lblViewportRange"));
   m_lblViewportRange->setFont(monoFont);
   mainLay->addWidget(m_lblViewportRange);
 
   // 4. 全井范围与相对位置标注
-  m_lblWellRange = new QLabel(QStringLiteral("全井: 0.0 ~ 3000.0m (0.0%~16.7%)"), this);
+  m_lblWellRange = new QLabel(tr("全井: 0.0 ~ 3000.0m (0.0%~16.7%)"), this);
   m_lblWellRange->setObjectName(QStringLiteral("lblWellRange"));
   m_lblWellRange->setFont(monoFont);
   m_lblWellRange->setStyleSheet(QStringLiteral("color: #5D6E80;"));
@@ -603,7 +603,7 @@ WellPositionLegendWidget::WellPositionLegendWidget(QWidget *parent)
   connect(m_miniBar, &WellOverviewMiniBar::requestScrollDepth, this, &WellPositionLegendWidget::requestScrollDepth);
 
   // 6. 悬停光标测深标注
-  m_lblCursorDepth = new QLabel(QStringLiteral("光标: —"), this);
+  m_lblCursorDepth = new QLabel(tr("光标: —"), this);
   m_lblCursorDepth->setObjectName(QStringLiteral("lblCursorDepth"));
   m_lblCursorDepth->setFont(monoFont);
   m_lblCursorDepth->setMinimumWidth(80);
@@ -633,7 +633,7 @@ void WellPositionLegendWidget::updateViewport(double topDepth, double bottomDept
 
   // 更新当前显示区域文字
   m_lblViewportRange->setText(
-      QStringLiteral("视口: %1 ~ %2m (跨度 %3m)")
+      tr("视口: %1 ~ %2m (跨度 %3m)")
           .arg(QString::number(topDepth, 'f', 1))
           .arg(QString::number(bottomDepth, 'f', 1))
           .arg(QString::number(span, 'f', 1)));
@@ -644,7 +644,7 @@ void WellPositionLegendWidget::updateViewport(double topDepth, double bottomDept
   const double pctEnd = qBound(0.0, (bottomDepth - m_minDepth) / totalSpan * 100.0, 100.0);
 
   m_lblWellRange->setText(
-      QStringLiteral("全井: %1 ~ %2m (%3%~%4%)")
+      tr("全井: %1 ~ %2m (%3%~%4%)")
           .arg(QString::number(m_minDepth, 'f', 0))
           .arg(QString::number(m_maxDepth, 'f', 0))
           .arg(QString::number(pctStart, 'f', 1))
@@ -673,11 +673,11 @@ void WellPositionLegendWidget::updateHoverDepth(double depth)
 {
   if (depth >= m_minDepth && depth <= m_maxDepth)
   {
-    m_lblCursorDepth->setText(QStringLiteral("光标: %1m").arg(QString::number(depth, 'f', 1)));
+    m_lblCursorDepth->setText(tr("光标: %1m").arg(QString::number(depth, 'f', 1)));
   }
   else
   {
-    m_lblCursorDepth->setText(QStringLiteral("光标: —"));
+    m_lblCursorDepth->setText(tr("光标: —"));
   }
 }
 

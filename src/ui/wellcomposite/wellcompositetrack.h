@@ -11,6 +11,7 @@
 #include <QString>
 #include <QVector>
 #include <memory>
+#include <QCoreApplication>
 
 #include "../../domain/wellcompositemodel.h"
 
@@ -94,7 +95,7 @@ class DepthScaleTrack : public WellTrack
 public:
   explicit DepthScaleTrack(qreal width = 64.0);
   TrackType type() const override { return TrackType::DepthScale; }
-  QString title() const override { return m_title.isEmpty() ? QStringLiteral("深度(m)") : m_title; }
+  QString title() const override { return m_title.isEmpty() ? QCoreApplication::translate("WellCompositeTrack", "深度(m)") : m_title; }
   qreal width() const override { return m_width; }
   void setWidth(qreal w) override { m_width = w; }
 
@@ -114,7 +115,7 @@ private:
 class TextTrack : public WellTrack
 {
 public:
-  explicit TextTrack(const QString &title = QStringLiteral("地质描述"), qreal width = 110.0);
+  explicit TextTrack(const QString &title = QCoreApplication::translate("WellCompositeTrack", "地质描述"), qreal width = 110.0);
   TrackType type() const override { return TrackType::Text; }
   QString title() const override { return m_title; }
   qreal width() const override { return m_width; }
@@ -137,7 +138,7 @@ private:
 class FormationTrack : public WellTrack
 {
 public:
-  explicit FormationTrack(const QString &title = QStringLiteral("地层单位"), qreal width = 75.0);
+  explicit FormationTrack(const QString &title = QCoreApplication::translate("WellCompositeTrack", "地层单位"), qreal width = 75.0);
   TrackType type() const override { return TrackType::Formation; }
   QString title() const override { return m_title; }
   qreal width() const override { return m_width; }
@@ -160,7 +161,7 @@ private:
 class LithologyTrack : public WellTrack
 {
 public:
-  explicit LithologyTrack(const QString &title = QStringLiteral("岩性剖面"), qreal width = 75.0);
+  explicit LithologyTrack(const QString &title = QCoreApplication::translate("WellCompositeTrack", "岩性剖面"), qreal width = 75.0);
   TrackType type() const override { return TrackType::Lithology; }
   QString title() const override { return m_title; }
   qreal width() const override { return m_width; }
@@ -183,7 +184,7 @@ private:
 class CoreTrack : public WellTrack
 {
 public:
-  explicit CoreTrack(const QString &title = QStringLiteral("取心数据"), qreal width = 65.0);
+  explicit CoreTrack(const QString &title = QCoreApplication::translate("WellCompositeTrack", "取心数据"), qreal width = 65.0);
   TrackType type() const override { return TrackType::Core; }
   QString title() const override { return m_title; }
   qreal width() const override { return m_width; }
@@ -206,7 +207,7 @@ private:
 class ImageTrack : public WellTrack
 {
 public:
-  explicit ImageTrack(const QString &title = QStringLiteral("岩芯/薄片照"), qreal width = 110.0);
+  explicit ImageTrack(const QString &title = QCoreApplication::translate("WellCompositeTrack", "岩芯/薄片照"), qreal width = 110.0);
   TrackType type() const override { return TrackType::Image; }
   QString title() const override { return m_title; }
   qreal width() const override { return m_width; }
@@ -229,7 +230,7 @@ private:
 class CurveTrack : public WellTrack
 {
 public:
-  explicit CurveTrack(const QString &title = QStringLiteral("测井曲线"), qreal width = 170.0);
+  explicit CurveTrack(const QString &title = QCoreApplication::translate("WellCompositeTrack", "测井曲线"), qreal width = 170.0);
   TrackType type() const override { return TrackType::Curve; }
   QString title() const override { return m_title; }
   qreal width() const override { return m_width; }
@@ -255,7 +256,7 @@ private:
 class SymbolTrack : public WellTrack
 {
 public:
-  explicit SymbolTrack(const QString &title = QStringLiteral("符号道"), qreal width = 48.0);
+  explicit SymbolTrack(const QString &title = QCoreApplication::translate("WellCompositeTrack", "符号道"), qreal width = 48.0);
   TrackType type() const override { return TrackType::Symbol; }
   QString title() const override { return m_title; }
   qreal width() const override { return m_width; }
@@ -278,7 +279,7 @@ private:
 class StratigraphyCompoundTrack : public WellTrack
 {
 public:
-  explicit StratigraphyCompoundTrack(const QString &title = QStringLiteral("地层"), qreal width = 145.0);
+  explicit StratigraphyCompoundTrack(const QString &title = QCoreApplication::translate("WellCompositeTrack", "地层"), qreal width = 145.0);
   TrackType type() const override { return TrackType::StratigraphyCompound; }
   QString title() const override { return m_title; }
   qreal width() const override { return m_width; }
@@ -311,7 +312,7 @@ private:
 class FaciesCompoundTrack : public WellTrack
 {
 public:
-  explicit FaciesCompoundTrack(const QString &title = QStringLiteral("沉积相"), qreal width = 180.0);
+  explicit FaciesCompoundTrack(const QString &title = QCoreApplication::translate("WellCompositeTrack", "沉积相"), qreal width = 180.0);
   TrackType type() const override { return TrackType::FaciesCompound; }
   QString title() const override { return m_title; }
   qreal width() const override { return m_width; }

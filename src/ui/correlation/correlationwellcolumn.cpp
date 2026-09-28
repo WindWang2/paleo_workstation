@@ -1,5 +1,6 @@
 // 层：视图
 #include "correlationwellcolumn.h"
+#include "../paleotheme.h"
 
 #include <QGraphicsLineItem>
 #include <QGraphicsPathItem>
@@ -151,12 +152,12 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
 
   // Column chrome: 4px rounded white card; border token, or the primary
   // selected pen when highlighted (DESIGN.md § selected state).
-  const QColor border(QStringLiteral("#DFE5EC"));
-  const QColor primary(QStringLiteral("#1B73D0"));
+  const QColor border = PaleoTheme::tokens().border;
+  const QColor primary = PaleoTheme::tokens().primary;
   QPainterPath path;
   path.addRoundedRect(QRectF(topLeft, QSizeF(width(), m_headerHeight + bodyHeight)), 4.0, 4.0);
   auto *column = scene->addPath(path, highlighted ? QPen(primary, 2.0) : QPen(border, 1.0),
-                                QBrush(Qt::white));
+                                QBrush(PaleoTheme::tokens().surface));
   column->setData(CorrelationItemRoles::WellId, m_wellId);
   column->setData(CorrelationItemRoles::Highlight, highlighted);
 
@@ -165,7 +166,7 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
   QFont f = label->font();
   f.setPointSize(9);
   label->setFont(f);
-  label->setBrush(QColor(QStringLiteral("#24303E")));
+  label->setBrush(PaleoTheme::tokens().text);
   const QRectF lb = label->boundingRect();
   label->setPos(topLeft.x() + (width() - lb.width()) / 2.0,
                 topLeft.y() + (m_headerHeight - lb.height()) / 2.0);
@@ -229,7 +230,7 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
       QFont cf = cap->font();
       cf.setPointSize(8);
       cap->setFont(cf);
-      cap->setBrush(QColor(QStringLiteral("#5D6E80")));
+      cap->setBrush(PaleoTheme::tokens().textMuted);
       const QRectF cb = cap->boundingRect();
       const qreal unitGap = t.unit().isEmpty() ? 0.0 : cb.width() + 3.0;
       const qreal capX = stripX + (m_trackWidth - cb.width() - unitGap) / 2.0;
@@ -241,7 +242,7 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
         QFont uf = uc->font();
         uf.setPointSize(7);
         uc->setFont(uf);
-        uc->setBrush(QColor(QStringLiteral("#9AA7B4"))); // text-disabled as a soft unit tag
+        uc->setBrush(PaleoTheme::tokens().textDisabled); // text-disabled as a soft unit tag
         uc->setPos(cap->x() + cb.width() + 3.0, bodyTop + 2.5);
       }
 

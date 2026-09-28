@@ -1,5 +1,6 @@
 // 层：视图
 #include "paleodecorations.h"
+#include <QCoreApplication>
 
 #include <cmath>
 
@@ -287,6 +288,8 @@ PaleoDecorationManager::PaleoDecorationManager( QgsMapCanvas *canvas, QObject *p
   , mGrid( std::make_unique<PaleoGridDecoration>() )
   , mWatermark( std::make_unique<PaleoWatermarkDecoration>() )
 {
+  // 水印默认文案走翻译机制（装饰类非 QObject，语境挂管理器）。
+  mWatermark->setText( QCoreApplication::translate( "PaleoDecorationManager", "临时配准 · 手工仿射" ) );
   if ( mCanvas && mCanvas->viewport() )
   {
     mOverlay = new PaleoDecorationOverlay( mCanvas, this );

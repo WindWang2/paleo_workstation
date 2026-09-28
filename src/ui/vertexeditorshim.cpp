@@ -14,9 +14,8 @@
 PaleoVertexEditorWidget::PaleoVertexEditorWidget( QWidget *parent )
   : QTableWidget( 0, 3, parent )
 {
-  setHorizontalHeaderLabels( { QStringLiteral( "#" ),
-                               QStringLiteral( "x" ),
-                               QStringLiteral( "y" ) } );
+  setHorizontalHeaderLabels( { tr( "#" ), tr( "x" ), tr( "y" ) } );
+  setAccessibleName( tr( "顶点坐标表" ) );
   horizontalHeader()->setStretchLastSection( true );
   verticalHeader()->hide();
 }

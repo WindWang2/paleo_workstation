@@ -22,6 +22,7 @@
 #include <QTableWidgetItem>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include "../paleotheme.h"
 
 using namespace paleo::pagesinternal;
 
@@ -44,18 +45,27 @@ namespace
       m_toggle->setCheckable(true);
       m_toggle->setChecked(true);
       m_toggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
-      m_toggle->setStyleSheet(QStringLiteral(
-          "QToolButton { "
-          "  font-weight: 600; "
-          "  font-size: 8.5pt; "
-          "  color: #24303E; "
-          "  background: #EDF1F5; "
-          "  border: 1px solid #DFE5EC; "
-          "  border-radius: 4px; "
-          "  padding: 4px 8px; "
-          "  text-align: left; "
-          "} "
-          "QToolButton:hover { background: #E2E8F0; }"));
+      // chrome 全 token（浅色值与旧字面量一致；hover 浅色保留 #E2E8F0、
+      // 暗色换 border），活体注册随主题。
+      PaleoTheme::applyThemedStyleSheet(m_toggle, [] {
+        const bool dark = PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark;
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral(
+                   "QToolButton { "
+                   "  font-weight: 600; "
+                   "  font-size: 8.5pt; "
+                   "  color: %1; "
+                   "  background: %2; "
+                   "  border: 1px solid %3; "
+                   "  border-radius: 4px; "
+                   "  padding: 4px 8px; "
+                   "  text-align: left; "
+                   "} "
+                   "QToolButton:hover { background: %4; }")
+            .arg(t.text.name().toUpper(), t.surfaceAltRaised.name().toUpper(),
+                 t.border.name().toUpper(),
+                 dark ? t.border.name().toUpper() : QStringLiteral("#E2E8F0"));
+      });
       m_toggle->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
       m_container = new QWidget(this);
@@ -106,7 +116,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   auto *viewEmpty = new QLabel(this);
   viewEmpty->setObjectName(QStringLiteral("entityViewEmptyLabel"));
   viewEmpty->setWordWrap(true);
-  viewEmpty->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+  PaleoTheme::applyThemedStyleSheet(viewEmpty, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   entityLay->addWidget(viewEmpty);
 
   auto *viewContent = new QWidget(this);
@@ -117,16 +127,24 @@ EntityPanel::EntityPanel(QWidget *parent)
 
   auto *entityHeader = new QLabel(viewContent);
   entityHeader->setObjectName(QStringLiteral("entityViewHeader"));
-  entityHeader->setStyleSheet(QStringLiteral(
-      "QLabel { "
-      "  background: #EDF1F5; "
-      "  color: #1B73D0; "
-      "  font-weight: 600; "
-      "  font-size: 10pt; "
-      "  padding: 6px 10px; "
-      "  border-radius: 4px; "
-      "  border: 1px solid #DFE5EC; "
-      "}"));
+  // 实体头：surfaceAltRaised 底 + 文字位主色（浅 #1B73D0 / 暗 primaryText）。
+  PaleoTheme::applyThemedStyleSheet(entityHeader, [] {
+    const bool dark = PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark;
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "QLabel { "
+               "  background: %1; "
+               "  color: %2; "
+               "  font-weight: 600; "
+               "  font-size: 10pt; "
+               "  padding: 6px 10px; "
+               "  border-radius: 4px; "
+               "  border: 1px solid %3; "
+               "}")
+        .arg(t.surfaceAltRaised.name().toUpper(),
+             (dark ? t.primaryText : t.primary).name().toUpper(),
+             t.border.name().toUpper());
+  });
   vcl->addWidget(entityHeader);
 
   auto *scroll = new QScrollArea(viewContent);
@@ -139,10 +157,16 @@ EntityPanel::EntityPanel(QWidget *parent)
 
   const auto addRow = [](CollapsibleSection *sec, QFormLayout *fl, const QString &label, const char *valName) -> QLabel * {
     auto *lbl = new QLabel(label, sec->container());
-    lbl->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8.5pt;"));
+    PaleoTheme::applyThemedStyleSheet(lbl, [] {
+      return QStringLiteral("color: %1; font-size: 8.5pt;")
+          .arg(PaleoTheme::tokens().textMuted.name().toUpper());
+    });
     auto *val = new QLabel(QStringLiteral("—"), sec->container());
     val->setObjectName(QLatin1String(valName));
-    val->setStyleSheet(QStringLiteral("color: #24303E; font-size: 8.5pt; font-weight: 500;"));
+    PaleoTheme::applyThemedStyleSheet(val, [] {
+      return QStringLiteral("color: %1; font-size: 8.5pt; font-weight: 500;")
+          .arg(PaleoTheme::tokens().text.name().toUpper());
+    });
     val->setTextInteractionFlags(Qt::TextSelectableByMouse);
     fl->addRow(lbl, val);
     return val;
@@ -184,7 +208,10 @@ EntityPanel::EntityPanel(QWidget *parent)
   auto *rl = secRoles->containerLayout();
   auto *roleSummary = new QLabel(secRoles->container());
   roleSummary->setObjectName(QStringLiteral("propRoleSummary"));
-  roleSummary->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8pt; margin-bottom: 2px;"));
+  PaleoTheme::applyThemedStyleSheet(roleSummary, [] {
+    return QStringLiteral("color: %1; font-size: 8pt; margin-bottom: 2px;")
+        .arg(PaleoTheme::tokens().textMuted.name().toUpper());
+  });
   rl->addWidget(roleSummary);
   auto *roleTable = new QTableWidget(0, 4, secRoles->container());
   roleTable->setObjectName(QStringLiteral("entityRoleTable"));
@@ -203,7 +230,10 @@ EntityPanel::EntityPanel(QWidget *parent)
   auto *dl = secDetails->containerLayout();
   auto *detailsText = new QLabel(secDetails->container());
   detailsText->setObjectName(QStringLiteral("propDetailsText"));
-  detailsText->setStyleSheet(QStringLiteral("color: #24303E; font-size: 8.5pt;"));
+  PaleoTheme::applyThemedStyleSheet(detailsText, [] {
+    return QStringLiteral("color: %1; font-size: 8.5pt;")
+        .arg(PaleoTheme::tokens().text.name().toUpper());
+  });
   detailsText->setWordWrap(true);
   dl->addWidget(detailsText);
   sl->addWidget(secDetails);
@@ -742,7 +772,7 @@ void EntityPanel::refresh()
           slot.def.display.isEmpty() ? slot.def.role : slot.def.display);
       roleItem->setFlags(roleItem->flags() & ~Qt::ItemIsEditable);
       if (slotEmpty)
-        roleItem->setForeground(QColor(QStringLiteral("#5D6E80"))); // 空槽灰字
+        roleItem->setForeground(PaleoTheme::tokens().textMuted); // 空槽灰字（现取随主题）
       roleTable->setItem(r, 0, roleItem);
 
       if (!slot.primary.assetId.isEmpty())

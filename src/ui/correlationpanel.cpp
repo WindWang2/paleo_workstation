@@ -1,5 +1,6 @@
 // 层：视图
 #include "correlationpanel.h"
+#include "paleotheme.h"
 
 #include "../linkage/selectioncontext.h"
 #include "../services/previewdoc.h" // LasParser 的唯一 UI 出口（W1）
@@ -56,15 +57,16 @@ namespace
         && !it->data(CorrelationItemRoles::HorizonMarker).isValid();
   }
 
-  const QColor kSurfaceAlt(QStringLiteral("#EDF1F5"));
-  const QColor kBorder(QStringLiteral("#DFE5EC"));
-  const QColor kPrimary(QStringLiteral("#1B73D0"));
-  const QColor kText(QStringLiteral("#24303E"));
-  const QColor kTextMuted(QStringLiteral("#5D6E80"));
+  // DESIGN.md token 出口（调用时现取——暗色翻案后随主题翻转）。
+  QColor kSurfaceAlt() { return PaleoTheme::tokens().surfaceAlt; }
+  QColor kBorder() { return PaleoTheme::tokens().border; }
+  QColor kPrimary() { return PaleoTheme::tokens().primary; }
+  QColor kText() { return PaleoTheme::tokens().text; }
+  QColor kTextMuted() { return PaleoTheme::tokens().textMuted; }
 
   QPen columnPen(bool highlighted)
   {
-    return highlighted ? QPen(kPrimary, 2.0) : QPen(kBorder, 1.0);
+    return highlighted ? QPen(kPrimary(), 2.0) : QPen(kBorder(), 1.0);
   }
 
   // Click/double-click intents (QListWidget semantics: every press reports
@@ -289,7 +291,7 @@ WellCorrelationPanel::WellCorrelationPanel(SelectionContext *ctx, QWidget *paren
   view->setAccessibleName(tr("连井剖面"));
   view->setFrameShape(QFrame::NoFrame);
   view->setRenderHint(QPainter::Antialiasing);
-  view->setBackgroundBrush(kSurfaceAlt);
+  view->setBackgroundBrush(kSurfaceAlt());
   view->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   view->ruler = m_ruler;
@@ -307,7 +309,7 @@ WellCorrelationPanel::WellCorrelationPanel(SelectionContext *ctx, QWidget *paren
   m_emptyLabel->setObjectName(QStringLiteral("emptyLabel"));
   m_emptyLabel->setAlignment(Qt::AlignCenter);
   m_emptyLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
-  m_emptyLabel->setStyleSheet(QStringLiteral("color: %1;").arg(kTextMuted.name()));
+  m_emptyLabel->setStyleSheet(QStringLiteral("color: %1;").arg(kTextMuted().name()));
   grid->addWidget(m_emptyLabel, 0, 0);
   m_emptyLabel->setVisible(true);
 

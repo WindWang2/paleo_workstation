@@ -1,5 +1,6 @@
 // 层：视图
 #include "webviewpanel.h"
+#include "paleotheme.h"
 
 #include <QDesktopServices>
 #include <QGuiApplication>
@@ -14,7 +15,12 @@
 #endif
 
 // DESIGN.md tokens: status/fallback text uses text-muted #5D6E80.
-static const char kMutedStyle[] = "color: #5D6E80;";
+// 状态文字次级色（DESIGN.md text-muted）——从 PaleoTheme 现取（随主题翻转），
+// 活体注册：切主题自动重算。
+static void applyMutedStyle(QWidget *w)
+{
+  PaleoTheme::applyThemedStyleSheet(w, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+}
 
 WebViewPanel::WebViewPanel(QWidget *parent)
   : QWidget(parent)
@@ -31,7 +37,7 @@ WebViewPanel::WebViewPanel(QWidget *parent)
   m_statusLabel->setObjectName(QStringLiteral("webStatus"));
   m_statusLabel->setAlignment(Qt::AlignCenter);
   m_statusLabel->setWordWrap(true);
-  m_statusLabel->setStyleSheet(QLatin1String(kMutedStyle));
+  applyMutedStyle(m_statusLabel);
   lay->addWidget(m_statusLabel);
   m_externalButton = new QPushButton(tr("用系统浏览器打开"), statusPage);
   m_externalButton->setObjectName(QStringLiteral("webExternalButton"));

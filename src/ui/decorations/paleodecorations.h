@@ -64,7 +64,7 @@ class PaleoWatermarkDecoration : public QgsMapDecoration
     QString text() const { return mText; }
     void render( const QgsMapSettings &mapSettings, QgsRenderContext &context ) override;
   private:
-    QString mText = QStringLiteral( "临时配准 · 手工仿射" );
+    QString mText; // 默认文案由 PaleoDecorationManager 构造时以 translate 落（见 .cpp）
 };
 
 class PaleoFaciesLegendDecoration : public QgsMapDecoration

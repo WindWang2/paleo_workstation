@@ -45,6 +45,7 @@ void WellCompositePanel::setupUi()
 
   m_scaleCombo = new QComboBox(topBar);
   m_scaleCombo->setObjectName(QStringLiteral("scaleCombo"));
+  m_scaleCombo->setAccessibleName(tr("比例尺"));
   m_scaleCombo->setEditable(true);
   m_scaleCombo->addItems({QStringLiteral("1:200"), QStringLiteral("1:500"),
                           QStringLiteral("1:1000"), QStringLiteral("1:2000"), tr("自适应")});

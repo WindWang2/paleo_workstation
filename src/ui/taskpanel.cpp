@@ -35,6 +35,7 @@ TaskPanel::TaskPanel(PaleoProjectStore *store, PaleoTaskService *tasks,
 
   auto *list = new QTreeWidget(this);
   list->setObjectName(QStringLiteral("busyList"));
+  list->setAccessibleName(tr("任务列表"));
   list->setHeaderLabels({tr("图层"), tr("任务"),
                          tr("进度"), tr("剩余"),
                          tr("状态")});

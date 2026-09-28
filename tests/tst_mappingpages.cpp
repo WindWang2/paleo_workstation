@@ -52,7 +52,9 @@ class PredictPageTests : public QObject
     void schemaFormBuildsPerAlgorithm();        // m2(A)：表单按 schema 动态建控件
     void schemaParamsCollectedIntoRunRequest(); // m2(A)：schema 控件 → QVariantMap
     void predictTypeSwitchRebuildsForm();       // m2(A)：类型切换联动重建（值保留）
-    void runBusyLifecycleAndCancel();           // m2(A)：任务化忙碌/取消/进度
+    void runBusyLifecycleAndCancel();
+    void busyStateSurvivesPageHideShow();
+    void schemaValidationFailureRefusesRun();           // m2(A)：任务化忙碌/取消/进度
     void historyListFiltersAndShows();          // m2(A)：历史清单过滤/显示/刷新
 
   private:
@@ -289,6 +291,54 @@ LayerDeclaration PredictPageTests::makeDecl(const QString &layerId, const QStrin
   d.source = QStringLiteral("/tmp/%1.tif").arg(layerId); // 清单行不校验存在性
   d.group = group;
   return d;
+}
+
+void PredictPageTests::busyStateSurvivesPageHideShow()
+{
+  PredictPage page(nullptr, nullptr);
+  auto *run = page.findChild<QPushButton *>(QStringLiteral("runButton"));
+  auto *cancel = page.findChild<QPushButton *>(QStringLiteral("cancelRunButton"));
+  QVERIFY(run && cancel);
+
+  // 页面切换（壳切页=hide/show）不打断忙碌守卫：状态跨显隐保持，取消路径
+  // 完整（主线7「页面切换 dirty 守卫」——忙碌中的预测页被切走再切回）。
+  page.setRunBusy(true);
+  page.hide();
+  page.show();
+  QVERIFY(!run->isEnabled());
+  QVERIFY(!cancel->isHidden());
+
+  QSignalSpy cancelSpy(&page, &PredictPage::runCancelRequested);
+  cancel->click();
+  QCOMPARE(cancelSpy.count(), 1);
+  page.setRunBusy(false);
+  QVERIFY(run->isEnabled());
+}
+
+void PredictPageTests::schemaValidationFailureRefusesRun()
+{
+  PredictPage page(nullptr, nullptr);
+  page.setAlgorithms({QStringLiteral("paleo:paleo_constraint_idw")});
+  auto *algos = page.findChild<QComboBox *>(QStringLiteral("algoCombo"));
+  auto *run = page.findChild<QPushButton *>(QStringLiteral("runButton"));
+  auto *status = page.findChild<QLabel *>(QStringLiteral("statusLabel"));
+  QVERIFY(algos && run && status);
+  QCOMPARE(algos->currentData().toString(), QStringLiteral("paleo:paleo_constraint_idw"));
+  auto *fieldEdit = page.findChild<QLineEdit *>(QStringLiteral("param.FIELD"));
+  QVERIFY(fieldEdit != nullptr);
+
+  QSignalSpy runSpy(&page, &PredictPage::runRequested);
+  fieldEdit->setText(QString()); // 必填为空
+  run->click();
+  QCOMPARE(runSpy.count(), 0); // 校验失败：不发意图
+  QVERIFY2(status->text().contains(QStringLiteral("不能为空")),
+           qPrintable(status->text()));
+
+  // 恢复合法值 → 正常下发
+  fieldEdit->setText(QStringLiteral("z"));
+  run->click();
+  QCOMPARE(runSpy.count(), 1);
+  QVERIFY2(status->text().isEmpty(), qPrintable(status->text()));
 }
 
 void PredictPageTests::historyListFiltersAndShows()

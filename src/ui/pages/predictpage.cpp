@@ -478,7 +478,16 @@ bool PredictPage::collectSchemaParams(QVariantMap *out)
         break;
       case AlgorithmParamField::String:
         if (auto *edit = child<QLineEdit>(this, name.toUtf8().constData()))
+        {
+          // 主线7：必填 String 空 → 收集侧拒收（statusLabel 说明 + 不发意图）。
+          if (f.required && edit->text().trimmed().isEmpty())
+          {
+            if (status)
+              status->setText(tr("%1 不能为空").arg(f.label));
+            return false;
+          }
           params.insert(f.key, edit->text().trimmed());
+        }
         break;
       case AlgorithmParamField::FloatList:
       {
@@ -512,6 +521,9 @@ bool PredictPage::collectSchemaParams(QVariantMap *out)
   if (auto *types = child<QComboBox>(this, "predictTypeCombo"))
     params.insert(QStringLiteral("predictType"), types->currentData());
   *out = params;
+  // 校验通过即下发：清掉上一轮的失败文案（陈旧错误不残留）。
+  if (status)
+    status->clear();
   return true;
 }
 

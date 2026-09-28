@@ -213,6 +213,26 @@ class TestLayerPlatform : public QObject
                QStringList({QStringLiteral("01_Base"), QStringLiteral("05_PaleoMap")}));
     }
 
+    // ---- 主线7：档案应用/回滚——页面主题被删后 applyPageProfile 重建 ----
+    void pageThemeRemovalAndRegeneration()
+    {
+      ProfileFixture fx;
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("compose")));
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("page:compose")));
+      QVERIFY(fx.layerChecked(QStringLiteral("pm.facies")));
+
+      // 用户在管理对话框删掉页面主题（回滚档案定制）
+      QVERIFY(fx.profile.removeMapTheme(QStringLiteral("page:compose")));
+      QVERIFY(!fx.profile.hasTheme(QStringLiteral("page:compose")));
+
+      // 手改漂移（表外层勾上）后再应用：主题不存在 → 按档案表重新摆树建主题
+      fx.setLayerChecked(QStringLiteral("val.section"), true);
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("compose")));
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("page:compose")));
+      QVERIFY(fx.layerChecked(QStringLiteral("pm.facies")));
+      QVERIFY(!fx.layerChecked(QStringLiteral("val.section"))); // 档案表语义恢复
+    }
+
     // ---- 主线5：主题重命名（insert-then-remove 记录复制）----
     void renameThemeCopiesRecordAndRefuses()
     {

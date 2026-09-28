@@ -40,6 +40,7 @@ namespace
     field.label = QCoreApplication::translate( "AlgorithmParamSchema", "Z 值字段名" );
     field.type = AlgorithmParamField::String;
     field.defaultValue = QStringLiteral( "z" );
+    field.required = true; // 空字段名进不了插值（主线7：页面收集侧拒收）
 
     AlgorithmParamField faciesCode;
     faciesCode.key = QStringLiteral( "FACIES_CODE" );

@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #include "qgislayerprofile.h"
 
+#include "layervocabulary.h"
 #include "qgislayerservice.h"
 
 #include <QHash>
@@ -73,18 +74,8 @@ void QgisLayerProfileService::setLayerService(QgisLayerService *service) { m_lay
 
 QStringList QgisLayerProfileService::defaultProfileGroups(const QString &pageId)
 {
-    if (pageId == QStringLiteral("predict"))
-        return {QStringLiteral("01_Base"), QStringLiteral("02_Prediction")};
-    if (pageId == QStringLiteral("constraint"))
-        return {QStringLiteral("01_Base"), QStringLiteral("03_Constraints"),
-                QStringLiteral("04_SingleFactor")};
-    if (pageId == QStringLiteral("compose"))
-        return {QStringLiteral("01_Base"), QStringLiteral("03_Constraints"),
-                QStringLiteral("04_SingleFactor"), QStringLiteral("05_PaleoMap"),
-                QStringLiteral("06_Reference")};
-    if (pageId == QStringLiteral("validate"))
-        return {QStringLiteral("01_Base"), QStringLiteral("07_Validation")};
-    return {}; // data（或未知页）：不操作画布
+    // 词表单一权威：页表在 layervocabulary.h（主线1），此处只透传。
+    return PaleoLayerVocabulary::profileGroupsForPage(pageId);
 }
 
 void QgisLayerProfileService::setProfileGroupsOverride(const QString &pageId,
@@ -185,7 +176,6 @@ bool QgisLayerProfileService::stageTreeVisibility(const QStringList &groups,
       declById.insert(d.layerId, d);
   }
 
-  const QSet<QString> inProfile(groups.cbegin(), groups.cend());
   const QString activeHorizon =
       m_layerService ? m_layerService->activeHorizon() : QString();
 
@@ -203,10 +193,12 @@ bool QgisLayerProfileService::stageTreeVisibility(const QStringList &groups,
       continue; // 无声明：可见性不动
 
     const LayerDeclaration &decl = it.value();
-    bool visible = inProfile.contains(decl.group);
+    // 旧名→canonical 在此吸收（主线1）：旧 .qgz/project.sqlite 里的
+    // "01_Prediction" 等历史组名经 profileContains 折算，不再表外隐藏。
+    bool visible = PaleoLayerVocabulary::profileContains(groups, decl.group);
     if (!visible && mergeActiveHorizonConstraints
-        && decl.group == QStringLiteral("03_Constraints") && m_layerService
-        && decl.horizon == activeHorizon)
+        && PaleoLayerVocabulary::canonicalize(decl.group) == QStringLiteral("03_Constraints")
+        && m_layerService && decl.horizon == activeHorizon)
     {
       visible = true; // predict 档案并入当前层位约束图层
     }

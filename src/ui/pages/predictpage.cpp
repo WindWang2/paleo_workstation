@@ -7,6 +7,7 @@
 #include "../../domain/arearules.h"
 #include "../../services/algoparamschema.h" // 算法参数 schema 注册表（数据层，只读）
 #include "../../workflow/workflows.h"    // signal names
+#include "../../qgis/layervocabulary.h"
 #include "../../qgis/qgislayerservice.h" // declared()/layerDeclared — forward-declares Qgs*, none included
 
 #include <QComboBox>
@@ -568,9 +569,9 @@ void PredictPage::refreshHistory()
     return; // 未绑定图层服务（如测试桩）→ 空清单
 
   const QString horizon = horizons->currentText();
-  const QStringList predictGroups = { QStringLiteral("01_Prediction"),
-                                      QStringLiteral("02_Prediction"),
-                                      QStringLiteral("03_Predict") };
+  // 兼容清单收口到词表权威（主线1）：02_Prediction 家族 = canonical + 旧名。
+  const QStringList predictGroups = PaleoLayerVocabulary::groupFamily(
+      QStringLiteral("02_Prediction"));
   for (const LayerDeclaration &d : layers->declared())
   {
     if (d.horizon != horizon)

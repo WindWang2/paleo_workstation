@@ -204,4 +204,9 @@ flowchart LR
 
 本方案完全继承了外部仓库 `Seismic-Body-Management` 的全部优秀算法资产（流式顺序大窗口索引、规则探针秒级首屏、物理扇区读合并、大地坐标仿射拟合、四槽三维切片模型），并彻底淘汰了其与本项目冲突的 GLFW/ImGui 架构，重构为符合 `paleo_workstation` 设计系统（`DESIGN.md`）和权威规划（`PALEO_QGIS_PLAN.md`）的 Qt6 / QGIS 原生专业地质组件。
 
-请用户评审并批准本方案。批准后，我们将按 **Phase 1 → Phase 5** 的顺序稳步落地执行。
+~~请用户评审并批准本方案。批准后，我们将按 **Phase 1 → Phase 5** 的顺序稳步落地执行。~~
+
+**交付状态（2026-09-28）**：Phase 1–5 已落地并经 `feature/seismic-3d-section` 并入 `master`
+（含 `a6b5b0f` 时间片剖面+3D 视口入主窗、`c5532cf` GL 上下文 profile/shader 资源/任务服务修复、
+`085e88e` 时间片网格缓存+相色预览+剖面色标）。相关测试：`tst_seismic_core`/`tst_seismic_3d`/
+`tst_seismic_section`/`tst_segy_*`/`tst_datapreview`/`tst_linkage`/`tst_threeway` 全绿。

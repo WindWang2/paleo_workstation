@@ -463,3 +463,9 @@ Native 评审全部事实核对通过（3237/2547/2875 行、27 处跨层 includ
 
 验收命令：`cmake --build build` 全量通过；`QT_QPA_PLATFORM=offscreen ctest --test-dir build` 77/77；
 `./paleo-dev selfcheck` PASS；`tools/check_layering.py`/`--selftest` 绿。
+
+**落点更新（2026-09-28）**：`wave/ui-layer-separation` 已并入 `master`（merge `84fc13b`）；
+worktree `pw-uilayer` 与本地分支已删。合并接缝：`datapreviewtabs.cpp` 一处冲突
+（保留 previewdoc 门面 include，并入侧 WIP 工区图改经 `m_doc->catalog()`）；
+mapping-pages 合并时其三页走 m2 实装版（io/arearules.h → domain/arearules.h），
+m2 兜底 qgislayerprofile API 调用点收口为 `PaleoMainWindow::pinLayoutTheme()`。

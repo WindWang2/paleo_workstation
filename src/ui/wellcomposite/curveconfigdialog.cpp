@@ -15,18 +15,18 @@ static QString trackTypeLabel(TrackType type)
 {
   switch (type)
   {
-    case TrackType::DepthScale: return QStringLiteral("[深度标尺]");
-    case TrackType::StratigraphyCompound: return QStringLiteral("[地层系统组]");
-    case TrackType::FaciesCompound: return QStringLiteral("[沉积相]");
-    case TrackType::Formation: return QStringLiteral("[地层分层]");
-    case TrackType::Lithology: return QStringLiteral("[岩性分析]");
-    case TrackType::Core: return QStringLiteral("[取心数据]");
-    case TrackType::Symbol: return QStringLiteral("[沉积旋回/符号]");
-    case TrackType::Text: return QStringLiteral("[解释文本]");
-    case TrackType::Image: return QStringLiteral("[微观图像]");
-    case TrackType::Curve: return QStringLiteral("[测井曲线]");
+    case TrackType::DepthScale: return QCoreApplication::translate("CurveConfigDialog", "[深度标尺]");
+    case TrackType::StratigraphyCompound: return QCoreApplication::translate("CurveConfigDialog", "[地层系统组]");
+    case TrackType::FaciesCompound: return QCoreApplication::translate("CurveConfigDialog", "[沉积相]");
+    case TrackType::Formation: return QCoreApplication::translate("CurveConfigDialog", "[地层分层]");
+    case TrackType::Lithology: return QCoreApplication::translate("CurveConfigDialog", "[岩性分析]");
+    case TrackType::Core: return QCoreApplication::translate("CurveConfigDialog", "[取心数据]");
+    case TrackType::Symbol: return QCoreApplication::translate("CurveConfigDialog", "[沉积旋回/符号]");
+    case TrackType::Text: return QCoreApplication::translate("CurveConfigDialog", "[解释文本]");
+    case TrackType::Image: return QCoreApplication::translate("CurveConfigDialog", "[微观图像]");
+    case TrackType::Curve: return QCoreApplication::translate("CurveConfigDialog", "[测井曲线]");
   }
-  return QStringLiteral("[井道]");
+  return QCoreApplication::translate("CurveConfigDialog", "[井道]");
 }
 
 CurveConfigDialog::CurveConfigDialog(WellCompositeCanvas *canvas, QWidget *parent)
@@ -558,7 +558,7 @@ void CurveConfigDialog::onCombineSelected()
   }
 
   bool ok = false;
-  const QString defaultTitle = QStringLiteral("组合道: %1").arg(curveNames.join(QLatin1String("+")));
+  const QString defaultTitle = tr("组合道: %1").arg(curveNames.join(QLatin1String("+")));
   const QString title = QInputDialog::getText(
       this, tr("合并曲线道"), tr("请输入新建曲线道的名称:"), QLineEdit::Normal, defaultTitle, &ok);
   if (!ok || title.trimmed().isEmpty())
@@ -583,7 +583,7 @@ bool CurveConfigDialog::dissolveTrack(int targetTrackIdx)
   {
     WellTrackConfigItem standalone;
     standalone.type = TrackType::Curve;
-    standalone.title = QStringLiteral("%1 测井").arg(c.name);
+    standalone.title = tr("%1 测井").arg(c.name);
     standalone.width = 140.0;
     standalone.visible = true;
     standalone.curves.append(c);
@@ -619,7 +619,7 @@ bool CurveConfigDialog::extractCurve(int trkIdx, int crvIdx)
 
   WellTrackConfigItem standalone;
   standalone.type = TrackType::Curve;
-  standalone.title = QStringLiteral("%1 测井").arg(c.name);
+  standalone.title = tr("%1 测井").arg(c.name);
   standalone.width = 140.0;
   standalone.visible = true;
   standalone.curves.append(c);
@@ -713,10 +713,10 @@ void CurveConfigDialog::onResetDefault()
     }
   };
 
-  if (!lithoCurves.isEmpty()) addGroup(QStringLiteral("岩性测井"), lithoCurves);
-  if (!poroCurves.isEmpty()) addGroup(QStringLiteral("三孔隙测井"), poroCurves);
-  if (!resCurves.isEmpty()) addGroup(QStringLiteral("电阻率测井"), resCurves);
-  if (!otherCurves.isEmpty()) addGroup(QStringLiteral("辅助曲线"), otherCurves);
+  if (!lithoCurves.isEmpty()) addGroup(tr("岩性测井"), lithoCurves);
+  if (!poroCurves.isEmpty()) addGroup(tr("三孔隙测井"), poroCurves);
+  if (!resCurves.isEmpty()) addGroup(tr("电阻率测井"), resCurves);
+  if (!otherCurves.isEmpty()) addGroup(tr("辅助曲线"), otherCurves);
 
   if (lithoCurves.isEmpty() && poroCurves.isEmpty() && resCurves.isEmpty() && otherCurves.isEmpty())
   {
@@ -724,7 +724,7 @@ void CurveConfigDialog::onResetDefault()
     {
       WellTrackConfigItem item;
       item.type = TrackType::Curve;
-      item.title = (i == 0) ? QStringLiteral("常规测井") : QStringLiteral("辅助曲线");
+      item.title = (i == 0) ? tr("常规测井") : tr("辅助曲线");
       item.width = 180.0;
       item.visible = true;
       for (int j = 0; j < 4 && (i + j) < m_allCurves.size(); ++j)

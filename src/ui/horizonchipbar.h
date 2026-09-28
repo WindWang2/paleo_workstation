@@ -30,6 +30,7 @@ class HorizonChipBar : public QWidget
     bool isChipActive(const QString &horizon) const;
     // 工程打开/切换后调用：按 mappingHorizons() 当前集合重建 chip。
     void reloadHorizons();
+    void setAllowEmptyHorizons(bool enabled);
 
   private:
     void buildChips();
@@ -37,6 +38,7 @@ class HorizonChipBar : public QWidget
     // 阶段E — 无栅格声明的层位 chip 禁用（「这一阶段还没有这个层位的栅格」），
     // layerDeclared 后重算；可用性以 LayerManifest 的 raster 声明为准。
     void applyAvailability();
+    bool m_allowEmptyHorizons = false;
     SelectionContext *m_selection = nullptr;
     QgisLayerService *m_layers = nullptr;
 };

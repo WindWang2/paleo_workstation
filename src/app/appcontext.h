@@ -30,6 +30,7 @@ class CompositionWorkflow;
 class ValidationWorkflow;
 class ProjectDataFacade;
 class MappingWorkflow;
+class MappingWorkbench;
 class MapVersionStore;
 class MapVersionController;
 class PaleoTaskService;
@@ -68,6 +69,7 @@ class AppContext : public QObject
 
     // wave/mapping-pipeline 阶段C+E：读侧门面 / D61 编图链 / 版本状态机。
     ProjectDataFacade *projectData() const { return m_projectData; }
+    MappingWorkbench *mappingWorkbench() const { return m_mappingWorkbench; }
     MappingWorkflow *mappingWf() const { return m_mappingWf; }
     MapVersionStore *versionStore() const { return m_versionStore; }
     MapVersionController *versionCtl() const { return m_versionCtl; }
@@ -109,6 +111,7 @@ class AppContext : public QObject
     CompositionWorkflow *m_compositionWf = nullptr;
     ValidationWorkflow *m_validationWf = nullptr;
     ProjectDataFacade *m_projectData = nullptr;
+    MappingWorkbench *m_mappingWorkbench = nullptr;
     MappingWorkflow *m_mappingWf = nullptr;
     MapVersionStore *m_versionStore = nullptr;
     MapVersionController *m_versionCtl = nullptr;

@@ -1,5 +1,6 @@
 // 层：数据
 #include "paleoalgorithms.h"
+#include "../catalog/datacatalog.h"
 
 #include <qgsprocessingparameters.h>
 #include <qgsprocessingutils.h> // QgsProcessingFeatureSource
@@ -68,8 +69,13 @@ GDALDatasetH createFloatRaster( const QString &outPath, int nCols, int nRows,
   }
   if ( crs.isValid() )
   {
-    const QByteArray wkt = crs.toWkt( Qgis::CrsWktVariant::Wkt1Gdal ).toUtf8();
+    // QGIS's engineering CRS exporter can omit EDATUM; GeoTIFF then loses
+    // the local datum and no longer compares equal to the project grid.
+    const auto local = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+    const QByteArray wkt = ((crs == local || crs.toWkt()==local.toWkt()) ? DataCatalog::localGridCrsWkt()
+                                      : crs.toWkt(Qgis::CrsWktVariant::PreferredGdal)).toUtf8();
     GDALSetProjection( ds, wkt.constData() );
+    GDALSetMetadataItem(ds,"PALEO_CRS_WKT",wkt.constData(),nullptr);
   }
   GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
   GDALSetRasterNoDataValue( band, nodata );

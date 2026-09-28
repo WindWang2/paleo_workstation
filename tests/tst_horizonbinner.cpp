@@ -160,6 +160,28 @@ void TestHorizonBinner::rejectsMalformedHeaders()
       "0.0 0.0 111.0 100 200\n",
       &b, &err));
   QVERIFY2(err.contains(QStringLiteral("do not match Grid_size")), qPrintable(err));
+
+  // 超限 Grid_size (> 100M 像元) → 拒绝。
+  err.clear();
+  QVERIFY(!binHorizon(
+      "# Grid_size:20000x20000\n"
+      "# P1:      100,      200,     0.00000,     0.00000\n"
+      "# P2:      100,    20199,    10.00000,     0.00000\n"
+      "# P3:    20099,    20199,    10.00000,    10.00000\n"
+      "0.0 0.0 111.0 100 200\n",
+      &b, &err));
+  QVERIFY2(err.contains(QStringLiteral("exceeds supported limits")), qPrintable(err));
+
+  // 旋转/非正交网格：P2.y != P1.y → 拒绝。
+  err.clear();
+  QVERIFY(!binHorizon(
+      "# Grid_size:2x2\n"
+      "# P1:      100,      200,     0.00000,     0.00000\n"
+      "# P2:      100,      201,    10.00000,     5.00000\n"
+      "# P3:      101,      201,    10.00000,    10.00000\n"
+      "0.0 0.0 111.0 100 200\n",
+      &b, &err));
+  QVERIFY2(err.contains(QStringLiteral("rotated or non-orthogonal")), qPrintable(err));
 }
 
 void TestHorizonBinner::writesGeoTiffWithGeotransform()

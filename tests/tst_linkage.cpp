@@ -117,7 +117,7 @@ private slots:
   }
 
   // (d) direction A sanity: a programmatic layer selection resolves fids to
-  // well ids and broadcasts with origin "canvas".
+  // well ids and broadcasts with origin "well_map".
   void directionABroadcastsCanvasSelection()
   {
     QgsVectorLayer layer(wellsSource(), QStringLiteral("wells"), QStringLiteral("ogr"));
@@ -131,7 +131,7 @@ private slots:
     layer.selectByIds(QgsFeatureIds({1, 3}));
 
     QCOMPARE(spy.count(), 1);
-    QCOMPARE(ctx.origin(), QStringLiteral("canvas"));
+    QCOMPARE(ctx.origin(), QStringLiteral("well_map"));
     const QStringList ids = ctx.selectedIds();
     QCOMPARE(ids.size(), 2);
     QVERIFY(ids.contains(QStringLiteral("W1")));

@@ -17,12 +17,16 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QCoreApplication>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QUrl>
+
+#include "../metadata/atomicfile.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -228,8 +232,9 @@ bool DataImportService::storeManagedRaw(const QString &sourcePath, const QString
     setError(error, QStringLiteral("read error on %1").arg(sourcePath));
     return false;
   }
+  out.flush();
   out.close();
-  if (::rename(QFile::encodeName(partial).constData(), QFile::encodeName(dst).constData()) != 0)
+  if (!paleoReplaceFile(partial, dst))
   {
     QFile::remove(partial);
     setError(error, QStringLiteral("cannot place %1").arg(dst));
@@ -1420,9 +1425,11 @@ void DataImportService::startNextDocumentPdf()
   m_pdfOutFile = outDir + QLatin1Char('/') +
                  QFileInfo(rawAbs).completeBaseName() + QStringLiteral(".pdf");
 
-  // 独立 UserInstallation：避开 LibreOffice 单实例 profile 锁。
-  const QString profile = QStringLiteral("-env:UserInstallation=file://") +
-                          QDir::temp().filePath(QStringLiteral("paleo-lo-profile"));
+  // 独立 UserInstallation：避开 LibreOffice 单实例 profile 锁，且 URL 合规。
+  const QString profileDir = QDir::temp().filePath(
+      QStringLiteral("paleo-lo-profile-%1").arg(QCoreApplication::applicationPid()));
+  const QString profile = QStringLiteral("-env:UserInstallation=") +
+                          QUrl::fromLocalFile(profileDir).toString();
 
   m_pdfProc = new QProcess(this);
   connect(m_pdfProc, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
@@ -1477,6 +1484,9 @@ void DataImportService::finishDocumentPdf(int exitCode)
                     : tr("无法创建输出目录");
   if (err.isEmpty() && !ok)
     err = tr("soffice 退出码 %1，未产出 PDF").arg(exitCode);
+
+  if (!ok && QFile::exists(m_pdfOutFile))
+    QFile::remove(m_pdfOutFile);
 
   if (m_pdfProc)
   {

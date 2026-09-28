@@ -21,14 +21,13 @@
   （`CMakeLists.txt:27` QUIET 探测，缺失时 WebViewPanel 降级外链浏览器）。
 - **GDAL/PROJ/GEOS**：随 QGIS 来源（行 1 实测 GDAL 3.13.3 / PROJ 9.8.1 /
   GEOS 3.15.0；行 2/3 由 apt/OSGeo4W 闭包决定）。
-- **ONNX Runtime 1.30.0**：与平台矩阵正交（GitHub release pin，manylinux_2_28
-  glibc floor 2.28）；未 vendor 时构建降级——`ai/` 服务与 `tst_onnx*` 排除。
+- **ONNX Runtime 1.30.0**：与平台矩阵正交（Linux: manylinux_2_28, Windows: win-x64；均已在 `vendor/manifest.json` pin SHA256）；未 vendor 时构建降级——`ai/` 服务与 `tst_onnx*` 排除。
 
 ## 实测基线（写死在 CI 与本机的两档）
 
 | 档 | 命令 | 当前结果 |
 |---|---|---|
-| 本机（行 1） | `ninja -C build` → `QT_QPA_PLATFORM=offscreen ctest --output-on-failure` | 62/62（wave4 起；`PALEO_REAL_PROJECT_AREA` 指向真工区时含真数据 smoke） |
+| 本机（行 1） | `ninja -C build` → `QT_QPA_PLATFORM=offscreen ctest --output-on-failure` | 84/84 通过（以 `ctest -N` 为准；`PALEO_REAL_PROJECT_AREA` 指向真工区时含真数据 smoke） |
 | CI（行 2/3） | `./paleo-dev build && ./paleo-dev test`（+ selfcheck） | 两 leg 全绿为合并门 |
 
 ## 加行流程（新平台/新架构）

@@ -35,16 +35,16 @@ TaskPanel::TaskPanel(PaleoProjectStore *store, PaleoTaskService *tasks,
 
   auto *list = new QTreeWidget(this);
   list->setObjectName(QStringLiteral("busyList"));
-  list->setHeaderLabels({QStringLiteral("图层"), QStringLiteral("任务"),
-                         QStringLiteral("进度"), QStringLiteral("剩余"),
-                         QStringLiteral("状态")});
+  list->setHeaderLabels({tr("图层"), tr("任务"),
+                         tr("进度"), tr("剩余"),
+                         tr("状态")});
   list->setRootIsDecorated(false);
   list->setColumnWidth(0, 160);
   list->setColumnWidth(1, 220);
   list->setColumnWidth(2, 120);
   lay->addWidget(list, 1);
 
-  auto *empty = new QLabel(QStringLiteral("（无运行中的任务）"), this);
+  auto *empty = new QLabel(tr("（无运行中的任务）"), this);
   empty->setObjectName(QStringLiteral("busyEmptyHint"));
   lay->addWidget(empty);
 
@@ -126,7 +126,7 @@ void TaskPanel::updateTaskRow(QTreeWidgetItem *row, PaleoTask *task)
               &PaleoTask::requestCancel);
       connect(btn, &QPushButton::clicked, btn, [btn]() {
         btn->setEnabled(false);
-        btn->setText(QStringLiteral("取消中"));
+        btn->setText(tr("取消中"));
       });
     }
     row->setText(4, task->cancelRequested() ? tr("取消中")
@@ -199,7 +199,7 @@ void TaskPanel::rebuildBusyRows()
 
   auto *count = findChild<QLabel *>(QStringLiteral("busyCountLabel"));
   if (count)
-    count->setText(QStringLiteral("忙图层：%1").arg(unowned));
+    count->setText(tr("忙图层：%1").arg(unowned));
 }
 
 void TaskPanel::refresh()

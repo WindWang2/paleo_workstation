@@ -128,8 +128,11 @@ bool parseHorizonHeader(const QByteArray &text, HorizonHeader *out, QString *err
   const qint64 inlineMax = static_cast<qint64>(h.p1Inline) + h.gridRows - 1;
   const qint64 xlineMax = static_cast<qint64>(h.p1Xline) + h.gridCols - 1;
   const qint64 cellCount = static_cast<qint64>(h.gridRows) * h.gridCols;
+  constexpr qint64 kMaxCellCount = 100'000'000;
   if (inlineMax > std::numeric_limits<int>::max() ||
-      xlineMax > std::numeric_limits<int>::max() || cellCount > std::numeric_limits<int>::max())
+      xlineMax > std::numeric_limits<int>::max() ||
+      cellCount > kMaxCellCount ||
+      cellCount > std::numeric_limits<int>::max())
   {
     setError(error, QStringLiteral("horizon Grid_size or line range exceeds supported limits"));
     return false;
@@ -167,6 +170,11 @@ bool parseHorizonHeader(const QByteArray &text, HorizonHeader *out, QString *err
       h.p2x <= h.p1x || h.p3y <= h.p2y)
   {
     setError(error, QStringLiteral("horizon P-corner geometry is degenerate"));
+    return false;
+  }
+  if (std::abs(h.p2y - h.p1y) > 1e-3 || std::abs(h.p3x - h.p2x) > 1e-3)
+  {
+    setError(error, QStringLiteral("horizon grid is rotated or non-orthogonal"));
     return false;
   }
   if (out)

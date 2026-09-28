@@ -12,6 +12,8 @@
 #include <QSaveFile>
 #include <QSet>
 
+#include "../metadata/atomicfile.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -385,16 +387,22 @@ bool DataCatalog::save(QString *error)
   }
   // §9 回滚：替换前把现存 catalog 轮转一份 .bak——QSaveFile 防写一半，
   // .bak 防「写成功了但内容是错的」需要一个上一代可回退。
-  const QString bak = catalogPath() + QStringLiteral(".bak");
-  if (QFile::exists(bak) && !QFile::remove(bak))
+  if (QFile::exists(catalogPath()))
   {
-    setError(error, QStringLiteral("cannot rotate %1").arg(bak));
-    return false;
-  }
-  if (QFile::exists(catalogPath()) && !QFile::copy(catalogPath(), bak))
-  {
-    setError(error, QStringLiteral("cannot rotate %1 to %2").arg(catalogPath(), bak));
-    return false;
+    const QString bak = catalogPath() + QStringLiteral(".bak");
+    const QString bakTmp = bak + QStringLiteral(".tmp");
+    QFile::remove(bakTmp);
+    if (!QFile::copy(catalogPath(), bakTmp))
+    {
+      setError(error, QStringLiteral("cannot copy %1 to backup tmp %2").arg(catalogPath(), bakTmp));
+      return false;
+    }
+    if (!paleoReplaceFile(bakTmp, bak))
+    {
+      QFile::remove(bakTmp);
+      setError(error, QStringLiteral("cannot rotate %1 to %2").arg(catalogPath(), bak));
+      return false;
+    }
   }
 
   const QByteArray bytes = QJsonDocument(root).toJson(QJsonDocument::Indented);

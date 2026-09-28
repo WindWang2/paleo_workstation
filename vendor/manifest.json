@@ -30,6 +30,20 @@
         "glibcxx": "3.4.22",
         "note": "official manylinux_2_28 build; host glibc 2.44 OK"
       }
+    },
+    "onnxruntime_win": {
+      "version": "1.30.0",
+      "platform": "windows-x64",
+      "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.30.0/onnxruntime-win-x64-1.30.0.zip",
+      "archive": {
+        "sha256": "4f97ea143a411ba1016629737fa1dfb003a2e91cf97cf86a43bf074cf24e47be",
+        "size_bytes": 13950275
+      },
+      "layout": {
+        "include": "onnxruntime/include",
+        "lib": "onnxruntime/lib",
+        "bin": "onnxruntime/lib/onnxruntime.dll"
+      }
     }
   }
 }

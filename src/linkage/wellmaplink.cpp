@@ -60,7 +60,7 @@ void WellMapLink::setWellLayer(QgsVectorLayer *layer, const QString &idField)
             const QgsFeatureIds sel = m_layer->selectedFeatureIds();
             if (sel.isEmpty())
             {
-              m_ctx->clear(QStringLiteral("canvas"));
+              m_ctx->clear(QStringLiteral("well_map"));
               return;
             }
 
@@ -74,13 +74,13 @@ void WellMapLink::setWellLayer(QgsVectorLayer *layer, const QString &idField)
             QgsFeatureIterator it = m_layer->getFeatures(req);
             while (it.nextFeature(f))
               wellIds << f.attribute(idx).toString();
-            m_ctx->setSelection(wellIds, QStringLiteral("canvas"));
+            m_ctx->setSelection(wellIds, QStringLiteral("well_map"));
           });
 }
 
 void WellMapLink::onContextSelection(const QStringList &ids, const QString &origin)
 {
-  if (!m_layer || origin == QLatin1String("canvas"))
+  if (!m_layer || origin == QLatin1String("well_map"))
     return; // nothing to sync, or our own broadcast coming back around
 
   const int idx = m_layer->fields().indexOf(m_idField);

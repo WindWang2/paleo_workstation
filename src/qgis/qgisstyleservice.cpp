@@ -3,8 +3,14 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QVariantMap>
 
 #include <qgsmaplayer.h>
+#include <qgsmarkersymbol.h>
+#include <qgspallabeling.h>
+#include <qgssinglesymbolrenderer.h>
+#include <qgsvectorlayer.h>
+#include <qgsvectorlayerlabeling.h>
 
 namespace
 {
@@ -79,4 +85,29 @@ QStringList QgisStyleService::availableStyles() const
   for (const QString &f : files)
     refs << QFileInfo(f).completeBaseName(); // basename without .qml
   return refs;
+}
+
+void QgisStyleService::applyWellLayerStyle(QgsVectorLayer *layer)
+{
+  if (!layer)
+    return;
+  QVariantMap props;
+  props.insert(QStringLiteral("name"), QStringLiteral("circle"));
+  props.insert(QStringLiteral("color"), QStringLiteral("#24303E"));
+  props.insert(QStringLiteral("outline_color"), QStringLiteral("#FFFFFF"));
+  props.insert(QStringLiteral("outline_width"), QStringLiteral("0.4"));
+  props.insert(QStringLiteral("size"), QStringLiteral("3"));
+  layer->setRenderer(
+      new QgsSingleSymbolRenderer(QgsMarkerSymbol::createSimple(props).release()));
+
+  QgsPalLayerSettings lbl;
+  lbl.fieldName = QStringLiteral("name");
+  lbl.isExpression = false;
+  QgsTextFormat fmt;
+  fmt.setSize(9.0);
+  fmt.setSizeUnit(Qgis::RenderUnit::Points);
+  fmt.setColor(QColor(QStringLiteral("#24303E")));
+  lbl.setFormat(fmt);
+  layer->setLabeling(new QgsVectorLayerSimpleLabeling(lbl));
+  layer->setLabelsEnabled(true);
 }

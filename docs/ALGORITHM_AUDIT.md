@@ -39,7 +39,7 @@
 | Plan 条目（§节） | 需要 | 现状 | native/provider 名 | C++/GDAL 实现在哪 | 缺口 | 建议 |
 |---|---|---|---|---|---|---|
 | 普通 IDW（§10.1） | 井点→栅格 | **已覆盖** | `paleo:paleo_constraint_idw`（不带 CONSTRAINTS 即普通 IDW） | 自研，src/algorithms/paleoalgorithms.cpp | 无 | 无需 `qgis:idwinterpolation`（Python-only）；plan §10.1 的「优先调 QGIS Interpolation Provider」修订为「用自家 constraint_idw 无约束档」 |
-| 约束 IDW（§11） | 井点+物源/展布线+地质边界 | **已实现** | `paleo:paleo_constraint_idw` | 自研（软屏障绕行距离） | 无（[测试] tst_algorithms/tst_algorithm_harness） | — |
+| 约束 IDW（§11） | 井点+物源/展布线+地质边界 | **部分实现** | `paleo:paleo_constraint_idw` | 自研（凸包 ROI 裁剪；软屏障绕行距离 RESERVED） | 软屏障绕行距离未实现（凸包内未阻断插值） | 软屏障绕行距离为保留参数，当前几何做凸包 ROI 裁剪（对齐 help string 与实现） |
 | 相融合（§11） | N 单相栅格→编码栅格 | **已实现** | `paleo:paleo_facies_fusion` | 自研 | 无 | — |
 | 地质光滑（§11） | 编码栅格多数滤波 | **已实现** | `paleo:paleo_geological_smoothing` | 自研（3×3 众数，不跨相插值） | 无 | — |
 | 地层/砂体厚度（§10） | top−base | **已实现** | `paleo:paleo_isopach` | 自研 | 无 | — |

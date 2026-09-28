@@ -25,13 +25,13 @@ ReleasePanel::ReleasePanel(QWidget *parent)
 {
   setObjectName(QStringLiteral("releasePanel"));
   // T32 a11y：屏幕阅读器面（面板/列表/动作各自报名）。
-  setAccessibleName(QStringLiteral("发布管理面板"));
+  setAccessibleName(tr("发布管理面板"));
   setAccessibleDescription(
-      QStringLiteral("管理地图发布：创建发布快照、比较两个版本的图层差异"));
+      tr("管理地图发布：创建发布快照、比较两个版本的图层差异"));
   auto *lay = new QVBoxLayout(this);
   lay->setContentsMargins(8, 8, 8, 8);
 
-  auto *title = new QLabel(QStringLiteral("发布管理"), this);
+  auto *title = new QLabel(tr("发布管理"), this);
   QFont f = title->font();
   f.setBold(true);
   title->setFont(f);
@@ -40,9 +40,9 @@ ReleasePanel::ReleasePanel(QWidget *parent)
   // Release list: id / name / created / layers.
   auto *list = new QTreeWidget(this);
   list->setObjectName(QStringLiteral("releaseList"));
-  list->setAccessibleName(QStringLiteral("发布列表"));
-  list->setHeaderLabels({QStringLiteral("ID"), QStringLiteral("名称"),
-                         QStringLiteral("时间"), QStringLiteral("图层数")});
+  list->setAccessibleName(tr("发布列表"));
+  list->setHeaderLabels({tr("ID"), tr("名称"),
+                         tr("时间"), tr("图层数")});
   list->setRootIsDecorated(false);
   lay->addWidget(list, 1);
 
@@ -50,21 +50,21 @@ ReleasePanel::ReleasePanel(QWidget *parent)
   auto *form = new QFormLayout;
   auto *nameEdit = new QLineEdit(this);
   nameEdit->setObjectName(QStringLiteral("releaseNameEdit"));
-  nameEdit->setPlaceholderText(QStringLiteral("v1.0 / 阶段名…"));
+  nameEdit->setPlaceholderText(tr("v1.0 / 阶段名…"));
   auto *noteEdit = new QLineEdit(this);
   noteEdit->setObjectName(QStringLiteral("releaseNoteEdit"));
-  noteEdit->setPlaceholderText(QStringLiteral("备注（可选）"));
-  form->addRow(QStringLiteral("名称"), nameEdit);
-  form->addRow(QStringLiteral("备注"), noteEdit);
+  noteEdit->setPlaceholderText(tr("备注（可选）"));
+  form->addRow(tr("名称"), nameEdit);
+  form->addRow(tr("备注"), noteEdit);
   lay->addLayout(form);
 
-  auto *createBtn = new QPushButton(QStringLiteral("创建发布（快照当前清单）"), this);
+  auto *createBtn = new QPushButton(tr("创建发布（快照当前清单）"), this);
   createBtn->setObjectName(QStringLiteral("createReleaseButton"));
-  createBtn->setAccessibleName(QStringLiteral("创建发布"));
+  createBtn->setAccessibleName(tr("创建发布"));
   lay->addWidget(createBtn);
 
   // Diff section: pick A/B, show added/removed/changed.
-  auto *diffLabel = new QLabel(QStringLiteral("版本差异"), this);
+  auto *diffLabel = new QLabel(tr("版本差异"), this);
   diffLabel->setFont(f);
   lay->addWidget(diffLabel);
 
@@ -73,7 +73,7 @@ ReleasePanel::ReleasePanel(QWidget *parent)
   comboA->setObjectName(QStringLiteral("diffA"));
   auto *comboB = new QComboBox(this);
   comboB->setObjectName(QStringLiteral("diffB"));
-  auto *diffBtn = new QPushButton(QStringLiteral("对比"), this);
+  auto *diffBtn = new QPushButton(tr("对比"), this);
   diffBtn->setObjectName(QStringLiteral("diffButton"));
   diffRow->addWidget(comboA, 1);
   diffRow->addWidget(new QLabel(QStringLiteral("→"), this));
@@ -91,14 +91,14 @@ ReleasePanel::ReleasePanel(QWidget *parent)
     const QString path = m_dbPath();
     if (path.isEmpty())
     {
-      emit statusMessage(QStringLiteral("无打开工程 — 无法创建发布"));
+      emit statusMessage(tr("无打开工程 — 无法创建发布"));
       return;
     }
     ReleaseStore store(path);
     QString err;
     if (!store.open(&err))
     {
-      emit statusMessage(QStringLiteral("发布库打开失败：%1").arg(err));
+      emit statusMessage(tr("发布库打开失败：%1").arg(err));
       return;
     }
     const QString id = store.createRelease(nameEdit->text().trimmed(),
@@ -106,13 +106,13 @@ ReleasePanel::ReleasePanel(QWidget *parent)
                                            m_manifestProvider(), &err);
     if (id.isEmpty())
     {
-      emit statusMessage(QStringLiteral("创建发布失败：%1").arg(err));
+      emit statusMessage(tr("创建发布失败：%1").arg(err));
       return;
     }
     nameEdit->clear();
     noteEdit->clear();
     emit releaseCreated(id);
-    emit statusMessage(QStringLiteral("已创建发布 %1").arg(id));
+    emit statusMessage(tr("已创建发布 %1").arg(id));
     refresh();
   });
 
@@ -130,7 +130,7 @@ ReleasePanel::ReleasePanel(QWidget *parent)
     QStringList added, removed, changed;
     if (!store.diff(idA, idB, &added, &removed, &changed))
     {
-      emit statusMessage(QStringLiteral("版本对比失败"));
+      emit statusMessage(tr("版本对比失败"));
       return;
     }
     for (const QString &s : added)
@@ -140,7 +140,7 @@ ReleasePanel::ReleasePanel(QWidget *parent)
     for (const QString &s : changed)
       diffOut->addItem(QStringLiteral("~ %1").arg(s));
     if (added.isEmpty() && removed.isEmpty() && changed.isEmpty())
-      diffOut->addItem(QStringLiteral("（两版本声明集一致）"));
+      diffOut->addItem(tr("（两版本声明集一致）"));
   });
 }
 

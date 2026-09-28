@@ -1,6 +1,7 @@
 // 层：数据
 #include "mapversionstore.h"
 #include "metastore.h"
+#include "../catalog/datacatalog.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -365,6 +366,12 @@ int MapVersionStore::numericResidualCount( const QString &summaryJson )
 QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDeclaration> &decls,
                                   const QString &residualSummary, QString *error )
 {
+  if ( !DataCatalog::isSafePathSegment( horizon ) )
+  {
+    setError( error, QStringLiteral( "非法层位名称：%1" ).arg( horizon ) );
+    return QString();
+  }
+
   if ( !ensureOpen( m_dbPath, error ) )
     return QString();
 

@@ -3,6 +3,7 @@
 
 #include "../catalog/datacatalog.h"
 #include "../metadata/layermanifest.h"
+#include "../metadata/atomicfile.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/layoutexport.h" // PaleoLayoutExport::exportLayout（QGIS 封装层导出核心）
@@ -358,7 +359,7 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
   const QString partial = dst + QStringLiteral( ".partial" );
   if ( !QFile::copy( pdfPath, partial ) )
     return fail( QObject::tr( "cannot copy %1 → %2" ).arg( pdfPath, partial ) );
-  if ( ::rename( QFile::encodeName( partial ).constData(), QFile::encodeName( dst ).constData() ) != 0 )
+  if ( !paleoReplaceFile( partial, dst ) )
   {
     QFile::remove( partial );
     return fail( QObject::tr( "cannot place %1" ).arg( dst ) );

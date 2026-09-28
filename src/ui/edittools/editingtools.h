@@ -2,6 +2,7 @@
 #pragma once
 #include <qgsmaptoolcapture.h>
 #include <qgsmaptooledit.h>
+#include <QPointer>
 #include <QString>
 
 class QgsMapCanvas;
@@ -89,7 +90,7 @@ class PaleoAddFeatureTool : public QgsMapToolCapture
     // editable; a refused commit is NOT an editAborted() (no user gesture).
     bool commitFeature( class QgsGeometry geometry );
 
-    QgsVectorLayer *mLayer = nullptr; // not owned; nullptr → canvas current
+    QPointer<QgsVectorLayer> mLayer; // not owned; nullptr → canvas current
     int mCommittedCount = 0;
 };
 
@@ -128,7 +129,7 @@ class PaleoReshapeTool : public QgsMapToolCapture
     void cadCanvasReleaseEvent( QgsMapMouseEvent *e ) override; // <2 vertices → editAborted
 
   private:
-    QgsVectorLayer *mLayer = nullptr; // not owned
+    QPointer<QgsVectorLayer> mLayer; // not owned
     int mReshapedCount = 0;
 };
 
@@ -168,7 +169,7 @@ class PaleoMoveTool : public QgsMapToolEdit
   private:
     void clearDragState();
 
-    QgsVectorLayer *mLayer = nullptr;      // not owned
+    QPointer<QgsVectorLayer> mLayer;      // not owned
     bool mDragging = false;
     int mMovedCount = 0;
     class QgsPointXY *mStartPoint = nullptr;        // layer CRS, drag origin
@@ -204,6 +205,6 @@ class PaleoDeleteFeatureTool : public QgsMapToolEdit
     void keyPressEvent( QKeyEvent *e ) override;             // Esc → editAborted
 
   private:
-    QgsVectorLayer *mLayer = nullptr; // not owned
+    QPointer<QgsVectorLayer> mLayer; // not owned
     int mDeletedCount = 0;
 };

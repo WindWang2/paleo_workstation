@@ -90,6 +90,7 @@ namespace PaleoTheme
     f.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("monospace")});
     f.setPointSize(kMonoPt);
     f.setStyleHint(QFont::TypeWriter);
+    f.setFeature(QFont::Tag("tnum"), 1);
     return f;
   }
 

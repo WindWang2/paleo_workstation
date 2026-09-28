@@ -12,8 +12,8 @@ class SelectionContext;
 // linkage/ — WellMapLink keeps map-canvas selection and well-panel selection
 // in sync for a well point layer (§31 well–map linkage; seismic analog is
 // SeismicMapLink, same pattern, added with seismic ingestion).
-// Direction A: canvas select -> SelectionContext (origin "canvas").
-// Direction B: SelectionContext (origin != "canvas") -> highlight on layer.
+// Direction A: canvas select -> SelectionContext (origin "well_map").
+// Direction B: SelectionContext (origin != "well_map") -> highlight on layer.
 class WellMapLink : public QObject
 {
   Q_OBJECT

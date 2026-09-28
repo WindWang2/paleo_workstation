@@ -56,6 +56,11 @@ void HorizonChipBar::buildChips()
     chip->setAccessibleName( QStringLiteral( "层位 %1" ).arg( h ) );
     connect( chip, &QToolButton::clicked, this, [this, h] {
       // 切层位 = 广播 + 懒加载（物化目标、释放其他层位实例）。
+      if ( m_layers && m_layers->isEditingAnyLayer() )
+      {
+        applyActive( m_selection ? m_selection->activeHorizon() : QString() );
+        return;
+      }
       if ( m_selection )
         m_selection->setActiveHorizon( h );
       if ( m_layers )

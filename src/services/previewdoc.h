@@ -15,6 +15,7 @@
 #include "../domain/wellrecords.h"    // WellHeadRecord/WellTopRecord/TimeDepthTable
 #include "../domain/wellcompositemodel.h" // ComprehensiveWellData（XML 门面的出参）
 #include "../io/lasdoc.h"             // LasCurve（数据模型，白名单）
+#include "../io/lasparser.h"          // LasHeaderInfo（header-only LAS 出参）
 
 class DataCatalog;
 class DataImportService;
@@ -75,6 +76,12 @@ class PreviewDocService : public QObject
     // lasAt 是纯解析——静态出口（连井剖面等无门面实例的视图也走它）。
     static bool lasAt(const QString &absPath, QStringList *names,
                       QList<LasCurve> *curves, QString *error = nullptr);
+    // header-only 快速解析（T1 LAS 解阻）：只读 ~V/~W/~C 到 ~A 段头为止——
+    // 代价与头部行数成正比、与数据行数无关，GUI 线程取曲线名不再整文件
+    // 解析。曲线名与 lasAt 产出的 names 逐项一致；~A 缺失不算失败
+    // （sawAscii 如实报）。WRAP YES / 无 ~C 与 lasAt 同一拒绝语义。
+    static bool lasHeaderAt(const QString &absPath, LasHeaderInfo *out,
+                            QString *error = nullptr);
     static bool wellHeadsAt(const QString &absPath, QVector<WellHeadRecord> *out,
                             QString *error = nullptr);
     static bool wellTopsAt(const QString &absPath, QVector<WellTopRecord> *out,
@@ -101,7 +108,7 @@ class PreviewDocService : public QObject
     // 非托管版本带 sha256 时先验后发；会话内每资产只验一次（resetSha 供
     // 「重新定位文件」后重验）。失配时由服务内部把下游 DERIVED 如实标过时。
     bool verifyExternalSha(const QString &assetId, const CatalogVersion &version,
-                           QString *error);
+                           QString *error) const;
     void resetSha(const QString &assetId);
     bool markDownstreamStale(const QString &versionId, const QString &reason,
                              QString *error);
@@ -150,6 +157,16 @@ class PreviewDocService : public QObject
     // 标签关闭时释放该资产的索引缓存/世代号/进行中任务。
     void releaseSection(const QString &assetId);
 
+    // ---- LAS 数据异步填充（T1：GUI 线程零同步整文件解析）----
+    // requestLas 在任务池整份解析 LAS（协作取消 + 每 key 世代号防陈旧），
+    // 结果经 lasReady 回 GUI。key 是调用方稳定的键（资产 id / 井 id）——
+    // 同 key 新请求自动作废旧代，旧任务请求取消。无任务服务时同步执行、
+    // 返回前信号已发（与 requestSection 同一降级口径）。GUI 消费路径建议
+    // 先用 lasHeaderAt 铺曲线名，再 requestLas 补数据行。
+    void requestLas(const QString &key, const QString &absPath);
+    // 释放该 key 的世代号；进行中的解析请求取消——结果没人等了。
+    void releaseLas(const QString &key);
+
   signals:
     // 解码成功（已判陈旧——到达的必然是最新一代）。
     void seismicSectionReady(const QString &assetId,
@@ -162,8 +179,16 @@ class PreviewDocService : public QObject
     void documentPdfFailed(const QString &assetId, const QString &error);
     // DataImportService 信号的壳侧转发（主窗只认门面）。
     void catalogOpenFailed(const QString &error);
+    // catalog open() 经 .bak 回退恢复（T5）——「已从备份恢复，主文件损坏」
+    // 的用户可见告警面；catalog 本身可用。
+    void catalogRecoveredFromBackup(const QString &reason);
     void assetImported(const QString &kind, const QString &assetId,
                        const QString &layerId);
+    // LAS 数据异步填充结果（requestLas；已判陈旧——到达的必然是最新一代）。
+    void lasReady(const QString &key, const QStringList &names,
+                  const QList<LasCurve> &curves);
+    void lasFailed(const QString &key, const QString &reason);
+    void lasCancelled(const QString &key);
 
   private:
     DataImportService *m_svc = nullptr;
@@ -175,7 +200,14 @@ class PreviewDocService : public QObject
     QHash<QString, std::shared_ptr<SegyReader>> m_segyReaders;
     QHash<QString, int> m_decodeSeq;
     QHash<QString, QPointer<PaleoTask>> m_decodeTask;
-    QHash<QString, bool> m_shaVerified; // assetId → 本会话已过 SHA 复验
+    // assetId → 本会话已过 SHA 复验（mutable：verifyExternalSha 是 const——
+    // 会话级缓存不算对象逻辑状态，seismicTieMarker 等 const 读路径可用）。
+    mutable QHash<QString, bool> m_shaVerified;
+
+    // T1 LAS 异步填充：按 key 的世代号（陈旧结果发射前丢弃）与进行中
+    // 任务指针（新请求取消旧任务）——与 m_decodeSeq/m_decodeTask 同一模式。
+    QHash<QString, int> m_lasSeq;
+    QHash<QString, QPointer<PaleoTask>> m_lasTask;
 };
 
 // 解码结果经信号跨线程交接（任务池路径）——注册 metatype 供排队连接/QSignalSpy。

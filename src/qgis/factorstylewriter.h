@@ -4,6 +4,7 @@
 #include <QVariantMap>
 
 class QgsColorRamp;
+class QgsRasterLayer;
 
 // qgis/factorstylewriter.h — 单因素色带样式落盘（m2/mapping-pages 任务 B）。
 // 每个因素一份默认 QgsColorRamp 预设（PALEO_QGIS_PLAN §10 词表对应，地图域
@@ -15,6 +16,8 @@ class QgsColorRamp;
 // 层：QGIS 封装
 namespace FactorStyleWriter
 {
+
+bool applyTo(QgsRasterLayer *layer, const QString &factorId);
 
 // factorId 的色带预设（caller 拥有；未知 id → nullptr）。
 QgsColorRamp *rampFor(const QString &factorId);

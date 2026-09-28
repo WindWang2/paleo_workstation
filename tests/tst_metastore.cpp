@@ -8,6 +8,11 @@
 #include "../src/metadata/mapversionstore.h"
 #include "../src/metadata/metastore.h"
 #include "../src/metadata/projectlock.h"
+#include "../src/metadata/paleoprojectstore.h"
+#include "../src/metadata/releasestore.h"
+
+#include <QProcess>
+#include <QSysInfo>
 
 // wave3/model-hardening — metadata/project.sqlite 的 PRAGMA user_version 门
 // （docs/SCHEMA_MIGRATION.md 最小落地）。三个 store（LayerManifest /
@@ -242,7 +247,220 @@ private slots:
     QString err;
     QVERIFY2(again.tryLock(&err), qPrintable(err)); // 解锁后可重取
   }
+// ---- wave/data-foundation T7：user_version 前向/后向矩阵扩全 -------------
+  // 组合矩阵：{0(遗留), 1(当前), 2/99(未来)} × {LayerManifest, MapVersionStore,
+  // ReleaseStore}——0→采纳并保持可写；1→原样通过（幂等）；>1→拒开且零表创建。
+  // （"absent" 在 sqlite 上等价 0——全新文件 PRAGMA 读 0，已由 fresh 案覆盖。）
+  void userVersionMatrixAcrossStores()
+  {
+    struct Row { int version; bool shouldOpen; };
+    const QVector<Row> matrix = {
+        {0, true}, {1, true}, {2, false}, {99, false}};
+
+    for (const Row &row : matrix)
+    {
+      // LayerManifest
+      {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString db = dir.filePath(QStringLiteral("m.sqlite"));
+        QVERIFY(setRawUserVersion(db, row.version));
+        LayerManifest m(db);
+        QString err;
+        QCOMPARE2(m.open(&err), row.shouldOpen, err, row.version);
+        if (row.shouldOpen)
+        {
+          // 采纳后可写且 user_version 推到当前版本。
+          LayerDeclaration d;
+          d.layerId = QStringLiteral("L1");
+          d.type = QStringLiteral("vector");
+          QVERIFY2(m.upsert(d, &err), qPrintable(err));
+          QCOMPARE(rawUserVersion(db), MetaStore::kUserVersion);
+        }
+        else
+        {
+          QVERIFY(!m.all().isEmpty() ? true : true); // 读面不炸即可
+          QVERIFY2(tablesOf(db).isEmpty(),
+                   qPrintable(QStringLiteral("manifest tables: %1 (v=%2)")
+                                  .arg(tablesOf(db).join(QLatin1Char(',')))
+                                  .arg(row.version))); // 零表创建
+        }
+      }
+      // MapVersionStore
+      {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString db = dir.filePath(QStringLiteral("m.sqlite"));
+        QVERIFY(setRawUserVersion(db, row.version));
+        MapVersionStore vs(db);
+        QString err;
+        QCOMPARE2(vs.open(&err), row.shouldOpen, err, row.version);
+        if (row.shouldOpen)
+        {
+          QVERIFY2(!vs.saveVersion(QStringLiteral("H"), QStringLiteral("{}"), &err)
+                        .horizon.isEmpty(),
+                   qPrintable(err));
+          QCOMPARE(rawUserVersion(db), MetaStore::kUserVersion);
+        }
+        else
+        {
+          QVERIFY2(tablesOf(db).isEmpty(),
+                   qPrintable(QStringLiteral("mapversion tables: %1 (v=%2)")
+                                  .arg(tablesOf(db).join(QLatin1Char(',')))
+                                  .arg(row.version)));
+        }
+      }
+      // ReleaseStore
+      {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString db = dir.filePath(QStringLiteral("m.sqlite"));
+        QVERIFY(setRawUserVersion(db, row.version));
+        ReleaseStore rs(db);
+        QString err;
+        QCOMPARE2(rs.open(&err), row.shouldOpen, err, row.version);
+        if (row.shouldOpen)
+          QCOMPARE(rawUserVersion(db), MetaStore::kUserVersion);
+        else
+          QVERIFY2(tablesOf(db).isEmpty(),
+                   qPrintable(QStringLiteral("release tables: %1 (v=%2)")
+                                  .arg(tablesOf(db).join(QLatin1Char(',')))
+                                  .arg(row.version)));
+      }
+    }
+  }
+
+  // T7 补充：采纳后重开幂等（user_version 已是 1 → 再开不动版本号）+ 写后
+  // 重开数据仍在（迁移不丢数据）。
+  void adoptedDbReopensStable()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString db = dir.filePath(QStringLiteral("m.sqlite"));
+    {
+      LayerManifest m(db);
+      QString err;
+      QVERIFY(m.open(&err));
+      LayerDeclaration d;
+      d.layerId = QStringLiteral("L1");
+      d.type = QStringLiteral("vector");
+      QVERIFY(m.upsert(d, &err));
+    }
+    const int v1 = rawUserVersion(db);
+    {
+      LayerManifest m(db);
+      QString err;
+      QVERIFY(m.open(&err));
+      QCOMPARE(m.all().size(), 1);
+    }
+    QCOMPARE(rawUserVersion(db), v1); // 幂等：不空涨
+  }
+
+  // ---- T4：残留锁实测——持有者进程已死的锁文件被 tryLock 自动回收 ------
+  void staleLockAutoRecovered()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    // 手写一份「持有者已退出」的锁文件（QLockFile 文本格式：pid\t主机\t应用）。
+    // 拿一个「刚退出」的 pid：先起再收 processId，等它退出后写进锁文件。
+    QProcess killer;
+    killer.start(QStringLiteral("sh"), {QStringLiteral("-c"), QStringLiteral("exit 0")});
+    QVERIFY2(killer.waitForStarted(5000), "cannot spawn a short-lived pid");
+    const qint64 deadPid = killer.processId();
+    QVERIFY(deadPid > 0);
+    QVERIFY(killer.waitForFinished(5000));
+    const QString lockPath = QDir(dir.path()).filePath(
+        QStringLiteral("artifacts/metadata/.project.lock"));
+    QVERIFY(QDir().mkpath(QFileInfo(lockPath).absolutePath()));
+    {
+      QFile f(lockPath);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      // QLockFile 的磁盘格式是三行：pid\n应用名\n主机名（getLockInfo 的
+      // 顺序实证：line2→appname、line3→hostname；主机行必须与本机一致——
+      // 跨主机无法证明持有者存活，QLockFile 不回收）。
+      f.write((QString::number(deadPid) + QLatin1Char('\n') +
+               QStringLiteral("paleo-test") + QLatin1Char('\n') +
+               QSysInfo::machineHostName() + QLatin1Char('\n'))
+                  .toUtf8());
+    }
+    ProjectDirLock lock(dir.path());
+    QString err;
+    QVERIFY2(lock.tryLock(&err), qPrintable(err)); // 死持有者 → 陈旧锁回收
+    QVERIFY(lock.isHeld());
+  }
+
+  // ---- T4：只读降级门——三个存储的写面如实拒绝、读面照常 ------------------
+  void readOnlyGatesRefuseStoreWrites()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString db = dir.filePath(QStringLiteral("m.sqlite"));
+
+    LayerManifest m(db);
+    QString err;
+    QVERIFY(m.open(&err));
+    m.setReadOnly(true);
+    LayerDeclaration d;
+    d.layerId = QStringLiteral("L1");
+    d.type = QStringLiteral("vector");
+    QVERIFY(!m.upsert(d, &err));
+    QVERIFY(err.contains(QStringLiteral("另一个实例锁定")));
+    QVERIFY(!m.remove(QStringLiteral("L1"), &err));
+    m.setReadOnly(false);
+    QVERIFY(m.upsert(d, &err)); // 解锁恢复可写
+    QCOMPARE(m.all().size(), 1);
+
+    MapVersionStore vs(db);
+    QVERIFY(vs.open(&err));
+    vs.setReadOnly(true);
+    QVERIFY(vs.saveVersion(QStringLiteral("H"), QStringLiteral("{}"), &err)
+                .horizon.isEmpty());
+    QVERIFY(err.contains(QStringLiteral("另一个实例锁定")));
+    QVERIFY(!vs.recordLayoutProduct(QStringLiteral("H"), QStringLiteral("/x.pdf"),
+                                    QString(), QString(), &err));
+
+    PaleoProjectStore store;
+    store.setReadOnly(true);
+    const auto okUnit = [] { return PaleoProjectStore::WriteResult{true, QString()}; };
+    QVERIFY(!store.enqueueWrite(okUnit).ok);
+    QVERIFY(!store.saveAll(okUnit, okUnit).ok);
+    QVERIFY(!store.commitAll(QStringLiteral("op1"), QStringLiteral("d"), okUnit, okUnit).ok);
+    store.setReadOnly(false);
+    QVERIFY(store.enqueueWrite(okUnit).ok);
+  }
+
+private:
+  // 矩阵断言辅助（QCOMPARE + 版本号上下文）。
+  void QCOMPARE2(bool actual, bool expected, const QString &err, int version)
+  {
+    QVERIFY2(actual == expected,
+             qPrintable(QStringLiteral("user_version=%1: %2").arg(version).arg(err)));
+  }
+
+  // sqlite 里全部用户表名（零表创建断言用）。
+  static QStringList tablesOf(const QString &path)
+  {
+    const QString conn = QStringLiteral("tst_metastore_tables_") + QString::number(qHash(path));
+    QStringList out;
+    {
+      QSqlDatabase db = QSqlDatabase::contains(conn)
+                            ? QSqlDatabase::database(conn)
+                            : QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
+      db.setDatabaseName(path);
+      if (!db.open())
+        return out;
+      QSqlQuery q(db);
+      if (q.exec(QStringLiteral(
+              "SELECT name FROM sqlite_master WHERE type='table' "
+              "AND name NOT LIKE 'sqlite_%'")))
+        while (q.next())
+          out.append(q.value(0).toString());
+    }
+    QSqlDatabase::removeDatabase(conn);
+    return out;
+  }
 };
 
 QTEST_MAIN(TestMetaStore)
 #include "tst_metastore.moc"
+

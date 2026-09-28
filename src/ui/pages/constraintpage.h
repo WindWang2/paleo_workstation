@@ -55,4 +55,6 @@ class ConstraintPage : public QWidget
   private:
     // 勾选/生成态 → 生成与等值线按钮可用性 + 禁用 reason tooltip（DESIGN.md）。
     void updateFactorActionStates();
+    // 主线6：等厚引擎行（顶/底构造面选择）的可见性与清单填充。
+    void updateEngineRows();
 };

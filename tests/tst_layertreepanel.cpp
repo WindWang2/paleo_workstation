@@ -494,6 +494,40 @@ class TestLayerTreePanel : public QObject
                "删除选中后节点应从树上移除");
     }
 
+    // ---- 主线5：「删除选中」消歧 + 编辑会话守卫 ----
+    void removalGuardRefusesEditingLayers()
+    {
+      LayerTreePanel panel(QgsProject::instance(), nullptr, nullptr);
+      QSignalSpy refuseSpy(&panel, &LayerTreePanel::layerRemovalRefused);
+      auto *view = panel.treeView();
+      QgsLayerTree *root = view->layerTreeModel()->rootGroup();
+
+      // 文案消歧：动作明确写「图层/组」，并指向要素删除的另一入口。
+      auto *rmBtn = panel.findChild<QToolButton *>(QStringLiteral("layerTreeRemoveSelectedButton"));
+      QVERIFY(rmBtn != nullptr && rmBtn->defaultAction() != nullptr);
+      QCOMPARE(rmBtn->defaultAction()->text(), QStringLiteral("删除所选图层/组"));
+      QVERIFY(rmBtn->defaultAction()->toolTip().contains(QStringLiteral("要素")));
+
+      auto *vl = new QgsVectorLayer(QStringLiteral("Point"),
+                                    QString::fromUtf8("编辑中"), QStringLiteral("memory"));
+      QgsProject::instance()->addMapLayer(vl);
+      QTRY_VERIFY(root->findLayer(vl->id()) != nullptr);
+      view->setCurrentLayer(vl);
+
+      // 编辑会话中：删除被拒 + 原因信号；节点保留
+      vl->startEditing();
+      rmBtn->click();
+      QCOMPARE(refuseSpy.count(), 1);
+      QVERIFY(refuseSpy.at(0).at(0).toString().contains(QStringLiteral("编辑")));
+      QVERIFY(root->findLayer(vl->id()) != nullptr);
+
+      // 收尾会话后同一按钮删除成功
+      vl->rollBack();
+      rmBtn->click();
+      QVERIFY2(root->findLayer(vl->id()) == nullptr,
+               "会话收尾后删除所选图层应生效");
+    }
+
     // ---- 导出/加载样式：offscreen 无对话框（硬纪律烟测——不弹不死） ----
     void styleActionsNoOpUnderOffscreen()
     {

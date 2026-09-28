@@ -135,7 +135,13 @@ class PaleoLayerConfigPage : public QgsMapLayerConfigWidget
                                   QStringLiteral("paleoPropAsset"));
         m_propSource = addFieldRow(form, tr("来源"), declField(m_decl.source),
                                    QStringLiteral("paleoPropSource"));
-        m_propCreated = addFieldRow(form, tr("创建时间"), kDash, // manifest 无时间戳（降级）
+        // 主线5：创建时间 = instantiate() 落的 paleoCreatedAt 图层自定义属性
+        //（随 .qgz 持久化）；无该属性的层外挂图层降级为占位符。
+        const QString createdAt = layer
+            ? layer->customProperty(QStringLiteral("paleoCreatedAt")).toString()
+            : QString();
+        m_propCreated = addFieldRow(form, tr("创建时间"),
+                                    createdAt.isEmpty() ? kDash : createdAt,
                                     QStringLiteral("paleoPropCreated"));
         root->addLayout(form);
 

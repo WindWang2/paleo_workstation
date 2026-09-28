@@ -29,6 +29,7 @@ struct FolderPreviewRow
   QString displayType;       // 空 = 由调用方按 classifiedType 显示
   bool typeEditable = true;
   QStringList typeVocab;
+  qint64 sizeBytes = -1;     // 源文件字节（T2 大小估算；族项 = 主件；未知 = -1）
 };
 
 // 导入行结果（两阶段导入 / 单行重导 / plan 执行共用口径）。

@@ -3,6 +3,7 @@
 
 #include <QFile>
 #include <QJsonDocument>
+#include <QSaveFile>
 #include <QJsonObject>
 #include <QtMath>
 #include <functional>
@@ -114,20 +115,22 @@ bool geoAffineTransformFile(const QString &inPath, const QString &outPath,
   root.insert(QStringLiteral("paleo_provisional_affine"),
               QJsonObject::fromVariantMap(geoAffineToMap(p)));
 
-  QFile of(outPath);
+  // 原子写审计（T6）：配准结果 GeoJSON 裸 QFile 截断写在中途崩溃/短写时
+  // 留半截文件——OGR 之后读到残缺要素。QSaveFile 写全量成功才替换。
+  QSaveFile of(outPath);
+  of.setDirectWriteFallback(false);
   if (!of.open(QIODevice::WriteOnly | QIODevice::Truncate))
   {
     if (error)
       *error = of.errorString();
     return false;
   }
-  if (of.write(QJsonDocument(root).toJson(QJsonDocument::Compact)) < 0)
+  if (of.write(QJsonDocument(root).toJson(QJsonDocument::Compact)) < 0 || !of.commit())
   {
     if (error)
-      *error = of.errorString();
+      *error = QStringLiteral("write failed: %1").arg(outPath);
     return false;
   }
-  of.close();
 
   if (outFeatures)
     *outFeatures = out.size();

@@ -264,9 +264,33 @@ QDialog *LayerProfileBar::buildManageDialog()
       delete list->takeItem(list->row(item)); // 列表即时收敛（下拉走 mapThemesChanged）
   });
 
-  // V1 裁决可视面：不做重命名（QgsMapThemeCollection 无 rename API 且
-  // QgisLayerProfileService public 面无记录复制），小字注明。
-  auto *renameNote = new QLabel(tr("重命名暂未支持"), dialog);
+  // 主线5：重命名落地——「先建新名再删旧名」的记录复制（QgsMapThemeCollection
+  // 无原生 rename API）；page:* 是页面档案约定名，不改（档案按 pageId 重建）。
+  auto *renameButton = new QPushButton(tr("重命名"), dialog);
+  renameButton->setObjectName(QStringLiteral("layerManageRenameThemeButton"));
+  renameButton->setToolTip(tr("重命名所选主题；page:* 页面档案名不可改"));
+  connect(renameButton, &QPushButton::clicked, this, [this, list]() {
+    QListWidgetItem *item = list->currentItem();
+    if (!item || !m_service)
+      return;
+    const QString name = item->data(Qt::UserRole).toString();
+    if (name.startsWith(QStringLiteral("page:")))
+      return; // 系统约定名
+    if (noDialogs())
+      return; // offscreen：无输入通道（服务面语义由测试直证）
+    bool ok = false;
+    const QString newName = QInputDialog::getText(
+        this, tr("重命名主题"), tr("主题新名字"), QLineEdit::Normal, name, &ok);
+    if (!ok || newName.trimmed().isEmpty() || newName.trimmed() == name)
+      return;
+    if (m_service->renameTheme(name, newName.trimmed()))
+      delete list->takeItem(list->row(item)); // 下拉经 mapThemesChanged 收敛
+    else
+      QMessageBox::warning(this, tr("重命名主题"),
+                           tr("重命名失败：新名字可能已被占用"));
+  });
+
+  auto *renameNote = new QLabel(tr("page:* 页面档案名不可改"), dialog);
   renameNote->setObjectName(QStringLiteral("layerManageRenameNote"));
   renameNote->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
   QFont noteFont = renameNote->font();
@@ -277,6 +301,7 @@ QDialog *LayerProfileBar::buildManageDialog()
   buttonRow->setSpacing(4); // xs
   buttonRow->addWidget(applyButton);
   buttonRow->addWidget(removeButton);
+  buttonRow->addWidget(renameButton);
   buttonRow->addSpacing(4);
   buttonRow->addWidget(renameNote, 1);
   vlay->addLayout(buttonRow);

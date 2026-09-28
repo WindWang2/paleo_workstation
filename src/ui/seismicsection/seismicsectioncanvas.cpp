@@ -81,6 +81,74 @@ void SeismicSectionCanvas::setTimeSliceData(
     update();
 }
 
+void SeismicSectionCanvas::beginTimeSliceTiled(
+    int xlineCount, int inlineCount, double twtMs,
+    int inlineMin, int inlineMax, int xlineMin, int xlineMax)
+{
+    m_orientation = SectionOrientation::TimeSlice;
+    m_traces = std::max(1, xlineCount);    // XL count
+    m_samples = std::max(1, inlineCount);  // IL count
+    m_currentTimeMs = twtMs;
+    m_inlineMin = inlineMin;
+    m_inlineMax = inlineMax;
+    m_xlineMin = xlineMin;
+    m_xlineMax = xlineMax;
+    m_columnDistances.clear();
+    m_mapCoords.clear();
+
+    // 全网格 NaN 底图：未到的瓦片显示为无数据灰，绝不冒充零振幅。
+    m_slice = SgySliceImage{};
+    m_slice.width = m_traces;
+    m_slice.height = m_samples;
+    m_slice.values.assign(static_cast<std::size_t>(m_traces) * m_samples,
+                          std::numeric_limits<float>::quiet_NaN());
+    m_slice.valueMin = 0.0f;
+    m_slice.valueMax = 1.0f;
+
+    rebuildImage();
+    fitToWindow();
+    update();
+}
+
+void SeismicSectionCanvas::appendTimeSliceTile(const SgySliceImage &tile, int x, int y)
+{
+    if (tile.width <= 0 || tile.height <= 0 ||
+        x < 0 || y < 0 || x + tile.width > m_traces || y + tile.height > m_samples ||
+        tile.values.size() < static_cast<std::size_t>(tile.width) * tile.height) {
+        return;
+    }
+
+    for (int ty = 0; ty < tile.height; ++ty) {
+        const std::size_t srcRow = static_cast<std::size_t>(ty) * tile.width;
+        const std::size_t dstRow = static_cast<std::size_t>(y + ty) * m_traces + x;
+        for (int tx = 0; tx < tile.width; ++tx) {
+            m_slice.values[dstRow + tx] = tile.values[srcRow + tx];
+        }
+    }
+    // 动态范围随瓦片到达累积（有限值才算数）
+    for (float v : tile.values) {
+        if (std::isfinite(v)) {
+            m_slice.valueMin = std::min(m_slice.valueMin, v);
+            m_slice.valueMax = std::max(m_slice.valueMax, v);
+        }
+    }
+
+    paintValueRegion(x, y, tile.width, tile.height);
+    update();
+}
+
+void SeismicSectionCanvas::finishTimeSliceTiled(const SgySliceImage &full)
+{
+    if (full.width <= 0 || full.height <= 0) {
+        return;
+    }
+    m_slice = full;
+    m_traces = full.width;
+    m_samples = full.height;
+    rebuildImage();
+    update();
+}
+
 void SeismicSectionCanvas::setOrientation(SectionOrientation orientation) {
     if (m_orientation != orientation) {
         m_orientation = orientation;
@@ -306,18 +374,30 @@ void SeismicSectionCanvas::rebuildImage() {
         return;
     }
 
-    const int w = m_traces;
-    const int h = m_samples;
-    m_cachedImage = QImage(w, h, QImage::Format_ARGB32_Premultiplied);
+    m_cachedImage = QImage(m_traces, m_samples, QImage::Format_ARGB32_Premultiplied);
+    paintValueRegion(0, 0, m_traces, m_samples);
+}
+
+void SeismicSectionCanvas::paintValueRegion(int x0, int y0, int w, int h) {
+    if (m_cachedImage.isNull() || m_slice.values.empty()) {
+        return;
+    }
+    x0 = std::clamp(x0, 0, m_traces);
+    y0 = std::clamp(y0, 0, m_samples);
+    w = std::clamp(w, 0, m_traces - x0);
+    h = std::clamp(h, 0, m_samples - y0);
+    if (w <= 0 || h <= 0) {
+        return;
+    }
 
     const float absMax = std::max(std::abs(m_slice.valueMin), std::abs(m_slice.valueMax));
     const float baseScale = absMax > 1e-8f ? 1.0f / absMax : 1.0f;
     const float effectiveScale = baseScale * m_gain;
 
-    for (int y = 0; y < h; ++y) {
+    for (int y = y0; y < y0 + h; ++y) {
         auto *scanLine = reinterpret_cast<QRgb *>(m_cachedImage.scanLine(y));
-        const int rowOffset = y * w;
-        for (int x = 0; x < w; ++x) {
+        const int rowOffset = y * m_traces;
+        for (int x = x0; x < x0 + w; ++x) {
             const float raw = m_slice.values[rowOffset + x];
             if (!std::isfinite(raw)) {
                 // NaN: Dark neutral gray per DESIGN.md (#303131)

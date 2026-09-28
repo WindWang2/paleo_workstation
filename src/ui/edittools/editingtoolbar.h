@@ -93,6 +93,9 @@ class PaleoEditingToolbar : public QWidget
     // checkable, mirrors the project's topologicalEditing flag (persisted in
     // .qgz), pushes live into an armed PaleoVertexTool.
     QAction *actionTopological() const { return mActionTopological; }
+    // 跨层拓扑（主线2）：checkable 叠加开关，仅拓扑开启时可用；镜像工程条目
+    // paleo/crossLayerTopologicalEditing（writeEntry，随 .qgz 持久化）。
+    QAction *actionCrossLayerTopo() const { return mActionCrossLayerTopo; }
     QAction *actionSave() const { return mActionSave; }
     QAction *actionCancel() const { return mActionCancel; }
     QAction *actionUndo() const { return mActionUndo; }
@@ -130,6 +133,13 @@ class PaleoEditingToolbar : public QWidget
     void onEditToolTriggered();                 // shared: auto-start editing + install
     QgsVectorLayer *editableTarget() const;     // current layer passing gates
 
+    // 主线3：编辑会话生命周期加固。工程边界（切工程/关工程/编辑层被移除）上
+    // 的会话收尾——先提交保住编辑成果，provider 拒绝则回滚，绝不把悬挂编辑
+    // 缓冲留给图层析构。editingStopped(id, saved) 照常发出。
+    void finalizeSession( const QString &reason );
+    // 监听工程的 layersWillBeRemoved/cleared（null → 进程级 QgsProject::instance()）。
+    void watchProject( QgsProject *project );
+
     QgsMapCanvas *mCanvas = nullptr;            // not owned
     QList<QPointer<QgsVectorLayer>> mLayers;     // not owned candidates
     LayerFilter mLayerFilter;                   // default: accept all
@@ -148,7 +158,8 @@ class PaleoEditingToolbar : public QWidget
     QAction *mActionMove = nullptr;
     QAction *mActionDeleteFeatures = nullptr;
     QAction *mActionVertexEdit = nullptr;
-    QAction *mActionTopological = nullptr; // mode toggle, not in toolGroup
+    QAction *mActionTopological = nullptr;    // mode toggle, not in toolGroup
+    QAction *mActionCrossLayerTopo = nullptr; // mode toggle gated on mActionTopological
     QAction *mActionSave = nullptr;
     QAction *mActionCancel = nullptr;
     QAction *mActionUndo = nullptr;
@@ -156,4 +167,5 @@ class PaleoEditingToolbar : public QWidget
     QPointer<class QgsMapTool> mActiveEditTool; // installed tool, not owned
     std::unique_ptr<PaleoUndoStack> mUndoStack;
     QPointer<QgsProject> mProject;
+    QPointer<QgsProject> mWatchedProject; // 生命周期信号源（主线3）
 };

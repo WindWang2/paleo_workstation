@@ -6,6 +6,7 @@
 #include "../paleotheme.h" // DESIGN.md token 出口：胶囊样式
 
 #include "../../workflow/workflows.h"    // signal names
+#include "../../qgis/layervocabulary.h"
 #include "../../qgis/qgislayerservice.h" // declared() — forward-declares Qgs*, none included
 #include "../../metadata/layermanifest.h" // LayerDeclaration fields
 
@@ -424,10 +425,11 @@ void ComposePage::refreshFactors()
     for (const LayerDeclaration &d : declared)
     {
       const bool raster = isRaster(d);
-      const bool groupOk = d.group == QLatin1String("03_Composite") ||
-                           d.group == QLatin1String("01_Prediction") ||
-                           d.group == QLatin1String("02_Prediction") ||
-                           d.group == QLatin1String("03_Predict");
+      // 兼容清单收口到词表权威（主线1）：预测 + 编图两组的家族（canonical+旧名）。
+      const QStringList compatGroups =
+          PaleoLayerVocabulary::groupFamily(QStringLiteral("02_Prediction")) +
+          PaleoLayerVocabulary::groupFamily(QStringLiteral("05_PaleoMap"));
+      const bool groupOk = compatGroups.contains(d.group);
       const bool idOk = d.layerId.startsWith(QLatin1String("composite.")) ||
                         d.layerId.startsWith(QLatin1String("pred.")) ||
                         d.layerId.startsWith(QLatin1String("predict."));

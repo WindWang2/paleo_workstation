@@ -40,12 +40,23 @@ class FolderImportWorkflow : public QObject
 
     // 确认表预览：与 importFolder 同一枚举/分类口径，只列行不导入。
     QVector<FolderPreviewRow> previewFolder(const QString &dir, QString *error = nullptr);
+    // 预览异步（T2）：任务池在场时扫描/分类/哈希跑 worker（GUI 只收任务
+    // 页进度行），done(rows, err) 总在 GUI 线程回调；无任务服务同步旧路径。
+    void previewFolderAsync(
+        const QString &dir,
+        const std::function<void(const QVector<FolderPreviewRow> &,
+                                 const QString &)> &done);
     // 单行导入/重试：forceType 空 = 按分类器原类型。
     FolderRowResult importFolderRow(const QString &path, const QString &forceType,
                                     QString *error = nullptr);
     // 整批导入：异步（任务池在场）或同步；done 总在 GUI 线程调用。
     void importFolder(const QString &dir, const QMap<QString, QString> &overrides,
                       const ImportDone &done);
+    // 同上 + 「仍导入」改判（T2 确认表跳过策略）：forceImportPaths 是用户
+    // 对「重复→跳过」行点了「仍导入」的源路径集合——plan 里这些行改判
+    // as_new_version（同字节结局交内部 dedup：AlreadyStored + 补挂）。
+    void importFolder(const QString &dir, const QMap<QString, QString> &overrides,
+                      const QStringList &forceImportPaths, const ImportDone &done);
     // 单文件导入（数据页「导入」按钮）：同 importFolder 的双路径语义。
     void importFile(const QString &kind, const QString &path,
                     std::function<void(const QString &assetId, const QString &error)> done);
@@ -55,6 +66,8 @@ class FolderImportWorkflow : public QObject
   signals:
     // 导入编排进行中（worker 或同步段）——壳把逐文件预览标签抑制挂上。
     void importActiveChanged(bool active);
+    // 预览扫描进行中（T2 异步预览）——壳可挂忙碌光标/状态栏一行。
+    void previewActiveChanged(bool active);
 
   private:
     DataImportService *m_svc = nullptr;

@@ -70,6 +70,7 @@ class ConstraintWorkflow;
 class CompositionWorkflow;
 class ValidationWorkflow;
 class MappingWorkflow;
+class MappingWorkbench;
 class MapVersionController;
 class MapVersionStore;
 class ProjectDataFacade;
@@ -136,6 +137,7 @@ class PaleoMainWindow : public SARibbonMainWindow
 
     // Swap right-dock placeholder panels for the real page panels (§42.2),
     // bound to the workflow orchestrators. Call after AppContext assembly.
+    void attachWorkbench(MappingWorkbench *workbench);
     void attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                          CompositionWorkflow *compose, ValidationWorkflow *validate,
                          DataImportService *importSvc = nullptr,

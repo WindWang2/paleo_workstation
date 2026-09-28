@@ -20,6 +20,7 @@ class QgisLayerService;
 class PaleoProjectStore;
 class QProcess;
 struct PlannedItem; // io/ingestplan.h（前向声明——C 包 plan 项按引用传）
+struct IngestPlan;  // io/ingestplan.h（planFor 返回值；定义侧 include）
 
 // io/ — DataImportService 按 project_area 数据契约（docs/PROJECT_AREA_PLAN.md §3）
 // 导入外部文件：分类 → 解析元数据 → 解析/创建实体 → 受管 RAW 复制（边复制边算
@@ -77,9 +78,7 @@ class DataImportService : public QObject
     // 两阶段：先处理全部 well_head 行（井建齐），其余文件再对已齐的井集解
     // 析——LAS 排序在井口前也照常挂到 A1。返回行按处理序排：well_head 行在
     // 前、其余行随后（各按路径排序）、Skipped 行缀在最后。
-    // FolderRowResult/FolderPreviewRow 已解嵌套到 domain/importrows.h——
-    // 兼容别名保留一期（UI 确认表与工作流按裸类型名使用；删除递延 TODOS）。
-    using FolderRowResult = ::FolderRowResult;
+    // 行类型 = domain/importrows.h 的裸类型（二期别名已下线，全仓库直呼）。
     QVector<FolderRowResult> importFolder(const QString &dirPath, QString *error = nullptr);
     // typeOverrides：确认表里用户改过类型的行——key 是源路径，value 是目标类型。
     // 只认分类器词表内的类型（projectClassifierTypes()）；非法值忽略，行按
@@ -90,6 +89,15 @@ class DataImportService : public QObject
     QVector<FolderRowResult> importFolder(
         const QString &dirPath, QString *error,
         const QMap<QString, QString> &typeOverrides,
+        const std::function<bool(int done, int total, const QString &path)> &progress =
+            {});
+    // 同上 + 「仍导入」改判（T2 确认表跳过策略）：forceImportPaths 里的
+    // 「重复→跳过」行改判 as_new_version——同字节重登记交内部 dedup
+    // （AlreadyStored + 补挂），不破坏 plan 期其余决策。
+    QVector<FolderRowResult> importFolder(
+        const QString &dirPath, QString *error,
+        const QMap<QString, QString> &typeOverrides,
+        const QStringList &forceImportPaths,
         const std::function<bool(int done, int total, const QString &path)> &progress =
             {});
 
@@ -104,8 +112,13 @@ class DataImportService : public QObject
     // skipped=true 的行是软链逃逸/非普通文件（预览里灰显、不可改类型）。
     // decision 是 plan 期决策（"skip"=重复→跳过 等），确认表逐行显示。
     // displayType/typeEditable/typeVocab 已在预览期按分类器谓词回填。
-    using FolderPreviewRow = ::FolderPreviewRow;
     QVector<FolderPreviewRow> previewFolder(const QString &dirPath, QString *error = nullptr);
+    // 同上 + 扫描期进度回调（每见一个源文件一次：(已见数, 路径)；返回
+    // false = 协作取消）。T2：FolderImportWorkflow 在任务池里调它——扫描/
+    // 分类/哈希全在 worker，GUI 只收进度信号。
+    QVector<FolderPreviewRow>
+    previewFolder(const QString &dirPath, QString *error,
+                  const std::function<bool(int filesSeen, const QString &path)> &scanProgress);
 
     // ---- C 包 IngestPlan 执行面（docs/DATA_FABRIC_ADOPTION.md）----
     // 执行单条 plan 项——executeIngestPlan 逐项调它；确认表「重试」合成的
@@ -158,10 +171,22 @@ class DataImportService : public QObject
     void importFailed(const QString &kind, const QString &path, const QString &error);
     // setProjectDir 里 catalog open 失败即发；成功打开后 catalogOpenError() 清空。
     void catalogOpenFailed(const QString &error);
+    // catalog open() 经 .bak 回退恢复成功（T5）——主文件损坏原因随行，UI
+    // 状态面据此告警。catalog 本身可用（读面正常、可续存）。
+    void catalogRecoveredFromBackup(const QString &reason);
     void documentPdfReady(const QString &assetId);
     void documentPdfFailed(const QString &assetId, const QString &error);
 
   private:
+    // T2 plan 期搬出 GUI：catalog 线程上 COW 快照（O(1)）→ 当前线程跑
+    // buildIngestPlan（扫描/分类/哈希/身份匹配/去重复核）。worker 调用即
+    // plan 期整体离 GUI 线程——不再 BlockingQueuedConnection 把整段扫描
+    // marshal 回 GUI。scanProgress 可选（plan 构建期逐文件进度 + 取消）。
+    IngestPlan planFor(
+        const QString &root,
+        const std::function<bool(int filesSeen, const QString &path)> &scanProgress =
+            {}) const;
+
     // 线程规则（D1b/D1c 异步导入）：import* 系列可在 worker 线程执行——内部
     // 对 catalog 的每一次读写经 catInvoke marshal 回 catalog 所在线程（GUI）。
     // GUI 线程调用 = 直调零成本；worker 线程 = BlockingQueuedConnection 排队

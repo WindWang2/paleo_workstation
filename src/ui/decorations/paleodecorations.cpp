@@ -113,10 +113,13 @@ void PaleoNorthArrowDecoration::render( const QgsMapSettings &mapSettings, QgsRe
 
   const double s = 28.0;
   const int margin = 14;
-  const double cx = painter->device()->width() - margin - s / 2.0;
+  const double cx = margin + s / 2.0;
   const double cy = margin + s / 2.0;
 
   painter->save();
+  painter->setPen(Qt::NoPen);
+  painter->setBrush(QColor(255,255,255,220));
+  painter->drawRoundedRect(QRectF(margin-6, margin-6, s+12, s+28),4,4);
   painter->translate( cx, cy );
   painter->rotate( -mapSettings.rotation() );
 
@@ -279,6 +282,7 @@ namespace
 PaleoDecorationManager::PaleoDecorationManager( QgsMapCanvas *canvas, QObject *parent )
   : QObject( parent ? parent : static_cast<QObject *>( canvas ) )
   , mCanvas( canvas )
+  , mLegend( std::make_unique<PaleoFaciesLegendDecoration>() )
   , mScaleBar( std::make_unique<PaleoScaleBarDecoration>() )
   , mNorthArrow( std::make_unique<PaleoNorthArrowDecoration>() )
   , mGrid( std::make_unique<PaleoGridDecoration>() )
@@ -309,8 +313,12 @@ PaleoDecorationManager::PaleoDecorationManager( QgsMapCanvas *canvas, QObject *p
 
   // QGIS 4.x has no QgsMapCanvas::addDecorationItem — decorations paint from
   // the post-render hook, same as libqgis_app's QgsDecorationItem.
-  connect( mCanvas, &QgsMapCanvas::renderComplete,
-           this, &PaleoDecorationManager::paintDecorations );
+  // Screen decorations belong to the foreground overlay only. Baking another
+  // copy into the cached map image leaves old legends visible after a schema
+  // or horizon change. Exporters can render decorationItems() explicitly.
+  if (!mOverlay)
+    connect(mCanvas, &QgsMapCanvas::renderComplete, this,
+            &PaleoDecorationManager::paintDecorations);
 }
 
 void PaleoDecorationManager::setScaleBarEnabled( bool enabled )
@@ -389,6 +397,8 @@ QList<QgsMapDecoration *> PaleoDecorationManager::decorationItems() const
     items << mScaleBar.get();
   if ( mNorthArrowEnabled )
     items << mNorthArrow.get();
+  if ( mLegendEnabled )
+    items << mLegend.get();
   if ( mWatermarkEnabled )
     items << mWatermark.get();
   return items;
@@ -411,4 +421,27 @@ void PaleoDecorationManager::paintDecorations( QPainter *painter )
     d->render( ms, context );
     painter->restore();
   }
+}
+
+void PaleoFaciesLegendDecoration::render(const QgsMapSettings &, QgsRenderContext &context)
+{
+  auto *p=context.painter();if(!p || !p->device())return;
+  p->save();QFont f=p->font();f.setPointSize(8);p->setFont(f);
+  const int row=p->fontMetrics().height()+8;
+  const int width=std::min(240, std::max(140, p->device()->width()/3));
+  const int x=p->device()->width()-width-16,y=16;
+  p->setPen(QColor("#DFE5EC"));p->setBrush(QColor(255,255,255,235));
+  p->drawRoundedRect(QRectF(x,y,width,16+row*(facies.size()+1)),4,4);
+  p->setPen(QColor("#24303E"));f.setBold(true);p->setFont(f);
+  p->drawText(QRect(x+8,y+4,width-16,row),Qt::AlignVCenter,p->fontMetrics().elidedText(title,Qt::ElideRight,width-16));
+  f.setBold(false);p->setFont(f);
+  for(int i=0;i<facies.size();++i){const auto entry=facies[i].toMap();int top=y+8+(i+1)*row;
+    p->setPen(QColor("#DFE5EC"));p->setBrush(QColor(entry.value("color").toString()));p->drawRect(QRect(x+8,top+3,16,row-8));
+    p->setPen(QColor("#24303E"));const auto label=entry.value("name").toString();p->drawText(QRect(x+32,top,width-40,row),Qt::AlignVCenter,p->fontMetrics().elidedText(label,Qt::ElideRight,width-40));}
+  p->restore();
+}
+void PaleoDecorationManager::setFaciesLegend(const QString &title,const QVariantList &facies)
+{
+  mLegend->title=title;mLegend->facies=facies;mLegendEnabled=true;
+  if(mOverlay){mOverlay->raise();mOverlay->update();}if(mCanvas)mCanvas->refresh();
 }

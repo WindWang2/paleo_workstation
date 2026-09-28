@@ -1,5 +1,6 @@
 // 层：视图
 #include "layoutitempalette.h"
+#include "../paleotheme.h"
 
 #include <QCoreApplication>
 #include <QFont>
@@ -310,7 +311,8 @@ QWidget *PaleoLayoutItemPalette::buildGroup( const QString &objectName, const QS
   QFont captionFont = caption->font();
   captionFont.setPointSizeF( 8.0 ); // DESIGN.md typography.label (pointSize, DPI-aware)
   caption->setFont( captionFont );
-  caption->setStyleSheet( QStringLiteral( "color: #5D6E80;" ) ); // DESIGN.md text-muted
+  // DESIGN.md text-muted——PaleoTheme 现取（随主题翻转，活体注册）。
+  PaleoTheme::applyThemedStyleSheet( caption, [] { return PaleoTheme::mutedCaptionStyleSheet(); } );
   vbox->addWidget( caption );
 
   auto *grid = new QGridLayout();

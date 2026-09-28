@@ -47,6 +47,23 @@ WellLocatorFilter::WellLocatorFilter( WellLayerProvider provider, QgsMapCanvas *
 {
 }
 
+namespace
+{
+  // wave/ux-polish：结果排序/分组——score 反映匹配强度（精确 > 前缀 > 包含），
+  // group 走各 filter 的 displayName（井位/层位各一节，QgsLocatorModel 自动
+  // 出节头；键盘 ↑↓ 导航由 QgsLocatorWidget 原生提供）。
+  double matchScore( const QString &candidate, const QString &term )
+  {
+    const QString c = candidate.trimmed();
+    const QString t = term.trimmed();
+    if ( c.compare( t, Qt::CaseInsensitive ) == 0 )
+      return 1.0;
+    if ( c.startsWith( t, Qt::CaseInsensitive ) )
+      return 0.9;
+    return 0.6;
+  }
+} // namespace
+
 void WellLocatorFilter::fetchResults( const QString &string, const QgsLocatorContext &context,
                                       QgsLocatorFeedback *feedback )
 {
@@ -100,6 +117,19 @@ void WellLocatorFilter::fetchResults( const QString &string, const QgsLocatorCon
     result.displayString = f.attribute( idField ).toString();
     if ( result.displayString.isEmpty() )
       result.displayString = FID_TO_STRING( f.id() );
+    result.group = displayName();
+    result.groupScore = 1.0;
+    result.score = 0.6; // 兜底；命中字段打分见下
+    for ( const QString &field : matchFields )
+      if ( matches( f.attribute( field ).toString(), string ) )
+        result.score = qMax( result.score, matchScore( f.attribute( field ).toString(), string ) );
+    // 次级说明：name 字段有值且不同于显示串时作为 description。
+    if ( matchFields.contains( QStringLiteral( "name" ) ) )
+    {
+      const QString nm = f.attribute( QStringLiteral( "name" ) ).toString();
+      if ( !nm.isEmpty() && nm != result.displayString )
+        result.description = nm;
+    }
 
     QVariantMap data;
     data.insert( QStringLiteral( "fid" ), FID_TO_NUMBER( f.id() ) );
@@ -167,6 +197,9 @@ void HorizonLocatorFilter::fetchResults( const QString &string, const QgsLocator
     QgsLocatorResult result;
     result.filter = this;
     result.displayString = id;
+    result.group = displayName();
+    result.groupScore = 1.0;
+    result.score = matchScore( id, string );
     result.setUserData( id );
     emit resultFetched( result );
 

@@ -42,6 +42,7 @@
 #include <QTreeWidgetItem>
 #include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
+#include "../paleotheme.h"
 
 using namespace paleo::pagesinternal;
 
@@ -59,7 +60,7 @@ namespace
                                                        "或用上方按钮导入单个文件")
                                         : text);
     it->setFlags(Qt::NoItemFlags);
-    it->setForeground(QColor(QStringLiteral("#5D6E80"))); // text-muted
+    it->setForeground(PaleoTheme::tokens().textMuted); // text-muted（现取随主题）
     it->setTextAlignment(Qt::AlignCenter);                // T31 居中提示
     t->setItem(0, 0, it);
     t->setSpan(0, 0, 1, t->columnCount());
@@ -71,7 +72,7 @@ namespace
   {
     auto *it = new QTableWidgetItem(text);
     it->setFlags(Qt::NoItemFlags);
-    it->setForeground(QColor(QStringLiteral("#5D6E80"))); // text-muted
+    it->setForeground(PaleoTheme::tokens().textMuted); // text-muted（现取随主题）
     return it;
   }
 
@@ -296,6 +297,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   auto *expandBtn = new QToolButton(header);
   expandBtn->setObjectName(QStringLiteral("expandAllTreeButton"));
   expandBtn->setToolTip(tr("全部展开"));
+  expandBtn->setAccessibleName(tr("全部展开"));
   expandBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionExpandTree.svg")));
   if (expandBtn->icon().isNull())
     expandBtn->setText(QStringLiteral("▼"));
@@ -305,6 +307,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   auto *collapseBtn = new QToolButton(header);
   collapseBtn->setObjectName(QStringLiteral("collapseAllTreeButton"));
   collapseBtn->setToolTip(tr("全部折叠"));
+  collapseBtn->setAccessibleName(tr("全部折叠"));
   collapseBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionCollapseTree.svg")));
   if (collapseBtn->icon().isNull())
     collapseBtn->setText(QStringLiteral("▶"));
@@ -355,7 +358,8 @@ DataListPanel::DataListPanel(QWidget *parent)
 
   auto *count = new QLabel(searchRow);
   count->setObjectName(QStringLiteral("assetCountLabel"));
-  count->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+  // text-muted——活体注册随主题重算。
+  PaleoTheme::applyThemedStyleSheet(count, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   count->setMinimumWidth(0);
   srl->addWidget(count);
   listLay->addWidget(searchRow);
@@ -379,7 +383,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   fl->setContentsMargins(0, 0, 0, 0);
   fl->setSpacing(4);
   auto *filterText = new QLabel(tr("只显示未决资产"), filterBar);
-  filterText->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+  PaleoTheme::applyThemedStyleSheet(filterText, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   fl->addWidget(filterText);
   auto *clearBtn = new QPushButton(tr("清除过滤"), filterBar);
   clearBtn->setObjectName(QStringLiteral("clearUnresolvedFilterButton"));
@@ -406,10 +410,19 @@ DataListPanel::DataListPanel(QWidget *parent)
   m_tree->setTextElideMode(Qt::ElideRight);
   m_tree->setAnimated(true);
   m_tree->setAlternatingRowColors(true);
-  m_tree->setStyleSheet(QStringLiteral(
-      "QTreeWidget { border: 1px solid #DFE5EC; background: #FFFFFF; } "
-      "QTreeWidget::item { padding: 3px 0; } "
-      "QTreeWidget::item:selected { background-color: #E6F0FA; color: #1B73D0; }"));
+  // 树 chrome 走 token（活体注册随主题）；选中底浅色保留 #E6F0FA 原值、
+  // 暗色换 surfaceAltRaised；选中字浅色 primary / 暗色 primaryText（可读性）。
+  PaleoTheme::applyThemedStyleSheet(m_tree, [] {
+    const bool dark = PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark;
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "QTreeWidget { border: 1px solid %1; background: %2; } "
+               "QTreeWidget::item { padding: 3px 0; } "
+               "QTreeWidget::item:selected { background-color: %3; color: %4; }")
+        .arg(t.border.name().toUpper(), t.surface.name().toUpper(),
+             dark ? t.surfaceAltRaised.name().toUpper() : QStringLiteral("#E6F0FA"),
+             (dark ? t.primaryText : t.primary).name().toUpper());
+  });
   m_tree->installEventFilter(this);
   if (m_tree->viewport())
     m_tree->viewport()->installEventFilter(this);
@@ -708,7 +721,7 @@ void DataListPanel::refreshAssetTable()
     if (!resolved.isEmpty())
     {
       auto *names = new QLabel(resolved.join(QStringLiteral("、")), browse);
-      names->setStyleSheet(QStringLiteral("color: #24303E;"));
+      PaleoTheme::applyThemedStyleSheet(names, [] { return QStringLiteral("color: %1;").arg(PaleoTheme::tokens().text.name().toUpper()); });
       bl->addWidget(names);
     }
 
@@ -725,10 +738,16 @@ void DataListPanel::refreshAssetTable()
       }();
       auto *badge = new QLabel(tr("未决"), browse);
       badge->setObjectName(QStringLiteral("unresolvedBadge"));
-      // §4 未决徽标：bg #FFF4E0 / text #24303E / border #F29900（DESIGN.md）。
-      badge->setStyleSheet(QStringLiteral(
-          "background: #FFF4E0; color: #24303E; border: 1px solid #F29900;"
-          "border-radius: 3px; padding: 0 6px;"));
+      // §4 未决徽标：warningBg 底 / text 字 / warning 边（DESIGN.md 浅值
+      // #FFF4E0/#24303E/#F29900——token 活体，随主题出暗色变体）。
+      PaleoTheme::applyThemedStyleSheet(badge, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral(
+                   "background: %1; color: %2; border: 1px solid %3;"
+                   "border-radius: 3px; padding: 0 6px;")
+            .arg(t.warningBg.name().toUpper(), t.text.name().toUpper(),
+                 t.warning.name().toUpper());
+      });
       badge->setToolTip(badgeNote.isEmpty() ? tr("未决关联") : badgeNote);
       bl->addWidget(badge);
 
@@ -1080,7 +1099,7 @@ void DataListPanel::refreshAssetTree()
       sub->setText(1, detailDisplay);
       if (l.unresolved)
       {
-        sub->setForeground(0, QColor(QStringLiteral("#F29900")));
+        sub->setForeground(0, PaleoTheme::tokens().warning); // 待复核色（现取随主题）
         sub->setText(1, tr("未决关联"));
       }
     }
@@ -1169,7 +1188,7 @@ void DataListPanel::refreshAssetTree()
 
       if (!linkedWellName.isEmpty())
       {
-        it->setText(0, QStringLiteral("%1 · 井 %2").arg(a.displayName, linkedWellName));
+        it->setText(0, tr("%1 · 井 %2").arg(a.displayName, linkedWellName));
         it->setData(0, Qt::UserRole + 1, linkedWellId);
       }
       else

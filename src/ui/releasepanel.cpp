@@ -51,9 +51,11 @@ ReleasePanel::ReleasePanel(QWidget *parent)
   auto *nameEdit = new QLineEdit(this);
   nameEdit->setObjectName(QStringLiteral("releaseNameEdit"));
   nameEdit->setPlaceholderText(tr("v1.0 / 阶段名…"));
+  nameEdit->setAccessibleName(tr("发布名称"));
   auto *noteEdit = new QLineEdit(this);
   noteEdit->setObjectName(QStringLiteral("releaseNoteEdit"));
   noteEdit->setPlaceholderText(tr("备注（可选）"));
+  noteEdit->setAccessibleName(tr("发布备注"));
   form->addRow(tr("名称"), nameEdit);
   form->addRow(tr("备注"), noteEdit);
   lay->addLayout(form);
@@ -71,8 +73,10 @@ ReleasePanel::ReleasePanel(QWidget *parent)
   auto *diffRow = new QHBoxLayout;
   auto *comboA = new QComboBox(this);
   comboA->setObjectName(QStringLiteral("diffA"));
+  comboA->setAccessibleName(tr("对比基准版本"));
   auto *comboB = new QComboBox(this);
   comboB->setObjectName(QStringLiteral("diffB"));
+  comboB->setAccessibleName(tr("对比目标版本"));
   auto *diffBtn = new QPushButton(tr("对比"), this);
   diffBtn->setObjectName(QStringLiteral("diffButton"));
   diffRow->addWidget(comboA, 1);
@@ -83,6 +87,7 @@ ReleasePanel::ReleasePanel(QWidget *parent)
 
   auto *diffOut = new QListWidget(this);
   diffOut->setObjectName(QStringLiteral("diffOutput"));
+  diffOut->setAccessibleName(tr("版本差异结果"));
   lay->addWidget(diffOut, 1);
 
   connect(createBtn, &QPushButton::clicked, this, [this, nameEdit, noteEdit] {

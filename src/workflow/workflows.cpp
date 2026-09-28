@@ -1072,6 +1072,19 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     setError( error, tr( "未知单因素 id：%1" ).arg( factorId ) );
     return false;
   }
+
+  // 主线6：按引擎分派参数整形。冻结契约的未接入引擎显式拒绝——不静默
+  // 降级成 IDW（那会产出语义错误的栅格）；契约全文见 docs/progress/mapping.md。
+  if ( def.processingAlgId == SingleFactorContracts::welldistEngineId()
+       || def.processingAlgId == SingleFactorContracts::confidenceEngineId() )
+  {
+    setError( error, tr( "单因素 %1 的引擎 %2 尚未接入（参数契约已冻结，"
+                         "实现属数据方向版图；见 docs/progress/mapping.md）" )
+                         .arg( factorId, def.processingAlgId ) );
+    return false;
+  }
+  if ( def.processingAlgId == QStringLiteral( "paleo:paleo_isopach" ) )
+    return generateIsopachFactor( horizon, factorId, def, params, error );
   const QString field = params.value( QStringLiteral( "field" ),
                                       def.defaultParams.value( QStringLiteral( "field" ) ) )
                             .toString();
@@ -1179,6 +1192,120 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
 
   // 色带样式落盘 <projectDir>/styles/factor_<factorId>.qml（best-effort：样式
   // 写失败不拦栅格成果——styleRef 照常声明，样式面板可后补）。
+  if ( !registrar.projectDir().isEmpty() )
+  {
+    QString styleErr; // 降级不打断生成链
+    FactorStyleWriter::writeStyleQml( factorId, outPath,
+                                      QDir( registrar.projectDir() ).filePath( QStringLiteral( "styles" ) ),
+                                      &styleErr );
+  }
+
+  LayerDeclaration decl;
+  decl.layerId = QStringLiteral( "factor.%1.%2" ).arg( horizon, factorId );
+  decl.horizon = horizon;
+  decl.type = QStringLiteral( "raster" );
+  decl.source = outPath;
+  decl.group = QStringLiteral( "04_SingleFactor" );
+  decl.styleRef = def.styleRef;
+  decl.title = tr( "%1·%2" ).arg( def.title, horizon );
+  if ( !layers->declare( decl, error ) )
+    return false;
+
+  emit factorGenerated( horizon, factorId, decl.layerId );
+  return true;
+}
+
+bool ConstraintWorkflow::generateIsopachFactor( const QString &horizon, const QString &factorId,
+                                                const SingleFactorDefinition &def,
+                                                const QVariantMap &params, QString *error )
+{
+  QgisProcessingService *proc = procOf( this );
+  QgisLayerService *layers = layersOf( this );
+  if ( !proc || !layers )
+  {
+    setError( error, tr( "constraint workflow is not bound to services" ) );
+    return false;
+  }
+
+  // 等厚引擎的输入是两个已声明的构造面栅格（页面 topLayerId/baseLayerId）。
+  const QString topId = params.value( QStringLiteral( "topLayerId" ),
+                                      def.defaultParams.value( QStringLiteral( "topLayerId" ) ) )
+                            .toString();
+  const QString baseId = params.value( QStringLiteral( "baseLayerId" ),
+                                       def.defaultParams.value( QStringLiteral( "baseLayerId" ) ) )
+                             .toString();
+  if ( topId.isEmpty() || baseId.isEmpty() )
+  {
+    setError( error, tr( "等厚引擎需要顶/底构造面图层（topLayerId/baseLayerId）" ) );
+    return false;
+  }
+
+  QgsMapLayer *top = layers->instantiate( topId, error );
+  if ( !top )
+    return false;
+  QgsMapLayer *base = layers->instantiate( baseId, error );
+  if ( !base )
+    return false;
+  const auto isRaster = []( QgsMapLayer *l ) {
+    return l->type() == Qgis::LayerType::Raster;
+  };
+  if ( !isRaster( top ) || !isRaster( base ) )
+  {
+    setError( error, tr( "顶/底输入必须是栅格图层：%1 / %2" ).arg( topId, baseId ) );
+    return false;
+  }
+
+  QString regErr;
+  DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
+  if ( !registrar.isBound() )
+  {
+    setError( error, regErr );
+    return false;
+  }
+  const DerivedStaging st = registrar.stage(
+      QStringLiteral( "single_factor_raster" ), tr( "%1·%2" ).arg( def.title, horizon ),
+      QStringLiteral( "FACTOR_%1_%2.tif" ).arg( factorId, horizon ), &regErr );
+  if ( !st.isValid() )
+  {
+    setError( error, regErr );
+    return false;
+  }
+
+  QVariantMap runParams;
+  runParams.insert( QStringLiteral( "INPUT_TOP" ), QVariant::fromValue( top ) );
+  runParams.insert( QStringLiteral( "INPUT_BASE" ), QVariant::fromValue( base ) );
+  // 倒置层序（底高于顶）多为重叠/误拾取——默认折 nodata（注册表默认同值）。
+  runParams.insert( QStringLiteral( "NEGATIVE_TO_NODATA" ),
+                    params.value( QStringLiteral( "negativeToNodata" ),
+                                  def.defaultParams.value( QStringLiteral( "negativeToNodata" ), true ) ) );
+  runParams.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
+
+  const QVariantMap results = proc->run( def.processingAlgId, runParams, error );
+  if ( results.isEmpty() )
+    return false;
+  const QString outPath = outputPathOf( results );
+  if ( outPath.isEmpty() )
+  {
+    setError( error, tr( "等厚生成未返回输出路径" ) );
+    return false;
+  }
+
+  const QStringList parentPaths{
+      top->source().section( QLatin1Char( '|' ), 0, 0 ),
+      base->source().section( QLatin1Char( '|' ), 0, 0 ) };
+  QVariantMap extra;
+  extra.insert( QStringLiteral( "factor_id" ), factorId );
+  extra.insert( QStringLiteral( "engine" ), def.processingAlgId );
+  extra.insert( QStringLiteral( "top_layer_id" ), topId );
+  extra.insert( QStringLiteral( "base_layer_id" ), baseId );
+  QString commitErr;
+  if ( !registrar.commitExternal( st, outPath, registrar.parentVersionIdsFor( parentPaths ),
+                                  def.processingAlgId, extra, &commitErr ) )
+  {
+    setError( error, commitErr );
+    return false;
+  }
+
   if ( !registrar.projectDir().isEmpty() )
   {
     QString styleErr; // 降级不打断生成链

@@ -361,6 +361,7 @@ class FactorPageTests : public QObject
     void dualZoneWidgetsAndLegacyNames();
     void generateFactorPayload();
     void factorCheckIsExclusive();
+    void strathickEngineRowsAndPayload();
     void visibilitySignalOnCheckTransitions();
     void contourRowGatingAndSignal();
     void thicknessSamplesInsideCollapsibleSection();
@@ -458,6 +459,47 @@ void FactorPageTests::dualZoneWidgetsAndLegacyNames()
     QVERIFY2( page.findChild<QWidget *>( QString::fromLatin1( name ) ) != nullptr,
               qPrintable( QStringLiteral( "missing legacy objectName %1" ).arg( name ) ) );
   }
+}
+
+void FactorPageTests::strathickEngineRowsAndPayload()
+{
+  // 引擎分级：strathick → isopach；welldist/confidence → 冻结契约 id。
+  bool ok = false;
+  const SingleFactorDefinition strathick =
+      SingleFactorRegistry::byId( QStringLiteral( "strathick" ), &ok );
+  QVERIFY( ok );
+  QCOMPARE( strathick.processingAlgId, QStringLiteral( "paleo:paleo_isopach" ) );
+  const SingleFactorDefinition welldist =
+      SingleFactorRegistry::byId( QStringLiteral( "welldist" ), &ok );
+  QVERIFY( ok );
+  QCOMPARE( welldist.processingAlgId, SingleFactorContracts::welldistEngineId() );
+  const SingleFactorDefinition confidence =
+      SingleFactorRegistry::byId( QStringLiteral( "confidence" ), &ok );
+  QVERIFY( ok );
+  QCOMPARE( confidence.processingAlgId, SingleFactorContracts::confidenceEngineId() );
+
+  ConstraintPage page( nullptr );
+  auto *horizons = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
+  auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
+  auto *surfaceRow = page.findChild<QWidget *>( QStringLiteral( "factorSurfaceRow" ) );
+  horizons->addItem( QStringLiteral( "T1" ) );
+  horizons->setCurrentIndex( 0 );
+  QVERIFY( surfaceRow != nullptr );
+  QVERIFY( !surfaceRow->isVisibleTo( &page ) ); // 无勾选 → 隐藏
+
+  // IDW 引擎（sandthick）勾选 → 顶/底行仍隐藏。
+  factors->item( 0, 0 )->setCheckState( Qt::Checked );
+  QVERIFY( !surfaceRow->isVisibleTo( &page ) );
+
+  // strathick（第 3 行）勾选 → 行展开；payload 携带 topLayerId/baseLayerId。
+  factors->item( 2, 0 )->setCheckState( Qt::Checked );
+  QVERIFY( surfaceRow->isVisibleTo( &page ) );
+  QSignalSpy spy( &page, &ConstraintPage::generateFactorRequested );
+  page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) )->click();
+  QCOMPARE( spy.count(), 1 );
+  const QVariantMap params = spy.at( 0 ).at( 2 ).toMap();
+  QVERIFY( params.contains( QStringLiteral( "topLayerId" ) ) );
+  QVERIFY( params.contains( QStringLiteral( "baseLayerId" ) ) );
 }
 
 void FactorPageTests::generateFactorPayload()

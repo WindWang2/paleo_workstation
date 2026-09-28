@@ -37,6 +37,7 @@
 #include "pages/pageshared.h" // kPageIds（W4 跨 TU 页序表）
 #include "constraintdrawcontroller.h"
 #include "dialogs/folderconfirm.h"
+#include "typedconstraintdrawcontroller.h" // ---- m2(B)：物源线/展布线/控制点（块内接线用）----
 #include "correlationpanel.h"
 #include "datapreview/datapreviewtabs.h"
 #include "../catalog/datacatalog.h"
@@ -48,6 +49,8 @@
 #include "layoutdesignershell.h"
 #include "webviewpanel.h"
 #include "edittools/editingtoolbar.h"
+#include "layout/layoutexportactions.h" // ---- m2(C)：导出前版面地图项钉主题 ----
+#include "../qgis/qgislayerprofile.h" // ---- m2(C)：setLayoutMapTheme（m1 接缝）----
 #include "../qgis/qgislayoutservice.h"
 #include "../qgis/qgiseditingservice.h"
 #include "../services/paleotaskservice.h"
@@ -60,6 +63,9 @@
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
+#include <qgslayout.h> // ---- m2(C)：设计器/导出的版面地图项主题钉定 ----
+#include <qgslayoutitemmap.h>
+#include <qgsprintlayout.h>
 #include <qgsmaplayer.h>
 #include <qgslayertree.h>
 #include <qgslayertreemodel.h>
@@ -289,6 +295,29 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
 {
   buildShell();
 
+  // ---- m2(D): 页面图层档案（m1 接缝消费）----
+  // 四个编图页各有一份档案（QgisLayerProfileService 的页面档案表）；页切换
+  // 与层位 chip 切换都会重应用。档案应用后画布随图层树勾选态刷新
+  // （QgsLayerTreeMapCanvasBridge 节律），这里再补一次显式 refresh 兜底。
+  // 档案服务本体在 buildShell 左 dock 组装处创建（m1 实装）；这里只叠
+  // m2 的信号接线：档案应用后补一次显式 refresh 兜底。
+  if (m_profileSvc)
+    connect(m_profileSvc, &QgisLayerProfileService::profileApplied, this, [this] {
+      if (m_canvasCtl && m_canvasCtl->canvas())
+        m_canvasCtl->canvas()->refresh();
+    });
+  if (m_selection)
+  {
+    // chip 切换 = setActiveHorizon（chipbar 里 selection 先、layerSvc 后）+
+    // 重应用当前页档案。deferred 到下一拍：等 chipbar 把 layerSvc 的激活
+    // 层位也拨完，档案的层位过滤才读到新值。
+    connect(m_selection, &SelectionContext::activeHorizonChanged, this,
+            [this](const QString &) {
+              QMetaObject::invokeMethod(
+                  this, [this] { applyCurrentPageProfile(); }, Qt::QueuedConnection);
+            });
+  }
+
   if (m_projectSvc)
     connect(m_projectSvc, &QgisProjectService::projectOpened, this,
             [this](const QString &) { onProjectOpened(); });
@@ -298,6 +327,14 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
 }
 
 PaleoMainWindow::~PaleoMainWindow() = default;
+
+void PaleoMainWindow::applyCurrentPageProfile()
+{
+  if (!m_profileSvc ||
+      !paleo::pagesinternal::kPageIds.contains(m_currentPage))
+    return;
+  m_profileSvc->applyPageProfile(m_currentPage);
+}
 
 void PaleoMainWindow::buildShell()
 {
@@ -872,6 +909,10 @@ void PaleoMainWindow::showPage(const QString &pageId)
       stack->setCurrentIndex(idx);
   if (m_rightDock)
     m_rightDock->setWindowTitle(kPageDockTitles.at(idx));
+
+  // ---- m2(D): 页面图层档案——切到编图页即应用该页档案（数据页 no-op）。
+  // 档案表在 QgisLayerProfileService（predict/constraint/compose/validate）。
+  applyCurrentPageProfile();
 
   // A workflow step implies the workspace: leave the startup page once a
   // project exists (with no project the startup page stays — nothing to show).

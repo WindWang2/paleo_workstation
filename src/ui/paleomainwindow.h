@@ -18,13 +18,14 @@ class QTableWidget;
 class QgisCanvasController;
 class QgisProjectService;
 class QgisLayerService;
+class QgisLayerProfileService;
 class ToolAvailabilityService;
 class SelectionContext;
 class QgsMapLayer;
 class LayerTreePanel;
 class LayerProfileBar;
 class LayerPropertiesDialog;
-class QgisLayerProfileService;
+class QgsLayoutItemMap;
 #include <QDockWidget>
 
 namespace seismic {
@@ -158,9 +159,14 @@ class PaleoMainWindow : public SARibbonMainWindow
                         DataImportService *importSvc, PaleoTaskService *taskSvc);
     void attachPredictPage(PredictPage *predictPage, PredictionWorkflow *pred);
     void attachConstraintPage(ConstraintPage *constraintPage, ConstraintWorkflow *constraint);
-    void attachComposePage(ComposePage *composePage, CompositionWorkflow *compose);
+    void attachComposePage(ComposePage *composePage, CompositionWorkflow *compose,
+                           QgisLayoutService *layoutSvc);
     void attachValidatePage(ValidatePage *validatePage, ValidationWorkflow *validate,
                             WellCorrelationPanel *corrPanel, DataImportService *importSvc);
+    // m2(C) 接缝：版面地图项钉页面档案主题。m1 档案服务在场走
+    // QgisLayerProfileService::setLayoutMapTheme（含记录修剪），缺席时直写
+    // QGIS 原生 follow-visibility 预设（与 m1 兜底分支同语义）。
+    void pinLayoutTheme(QgsLayoutItemMap *mapItem, const QString &pageId);
     // 壳面（locator/保存/底栏面板/处理算法/编辑条/图件设计）；返回编辑条
     // 逻辑宿主供 buildRibbonPanels 镜像。
     PaleoEditingToolbar *attachShellSurfaces(PaleoProjectStore *store,
@@ -209,6 +215,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 面板显隐菜单（QMainWindow::createPopupMenu 列出全部 dock 的
     // toggleViewAction）。右键 dock 标题栏与右上「面板」钮共用此入口。
     void showPanelMenu(const QPoint &globalPos);
+    // m2(D) 页面图层档案：四个编图页切到/层位 chip 切换后重应用当前页档案
+    // （QgisLayerProfileService::applyPageProfile）。数据页无档案，no-op。
+    void applyCurrentPageProfile();
     // 预览分栏（§4 预览壳）：数据页地图在上预览在下；预览空态收成一行
     // 次级文字，首个标签打开时展开到约三分之一高度。
     void applyPreviewSplit();

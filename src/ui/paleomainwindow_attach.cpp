@@ -38,13 +38,16 @@
 #include "pages/pagepanels.h"
 #include "pages/pageshared.h" // kPageIds
 #include "constraintdrawcontroller.h"
+#include "typedconstraintdrawcontroller.h" // m2(B)：物源线/展布线/控制点类型化捕获
 #include "dialogs/folderconfirm.h"
 #include "correlationpanel.h"
 #include "datapreview/datapreviewtabs.h"
 #include "../catalog/datacatalog.h"
 #include "layoutdesignershell.h"
 #include "edittools/editingtoolbar.h"
+#include "layout/layoutexportactions.h"     // m2(C)：导出版面钉 compose 主题后走同一 PDF 出口
 #include "../qgis/qgislayoutservice.h"
+#include "../qgis/qgislayerprofile.h"       // m1 页面档案：setLayoutMapTheme/pageThemeName
 #include "../qgis/qgiseditingservice.h"
 #include "../services/paleotaskservice.h"
 #include "ui/seismicsection/seismicsectiondockwidget.h"
@@ -61,6 +64,10 @@
 #include <qgslocatorwidget.h>
 #include <qgslocator.h>
 #include <qgsvectorlayer.h>
+#include <qgslayertreelayer.h>
+#include <qgslayout.h>
+#include <qgslayoutitemmap.h>
+#include <qgsprintlayout.h>
 
 #include <QDir>
 #include <QDoubleSpinBox>
@@ -199,7 +206,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   attachDataPage(dataPage, corrPanel, importSvc, taskSvc);
   attachPredictPage(predictPage, pred);
   attachConstraintPage(constraintPage, constraint);
-  attachComposePage(composePage, compose);
+  attachComposePage(composePage, compose, layoutSvc);
   attachValidatePage(validatePage, validate, corrPanel, importSvc);
   PaleoEditingToolbar *editTb =
       attachShellSurfaces(store, procSvc, editSvc, layoutSvc, taskSvc);
@@ -467,12 +474,98 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                                         PredictionWorkflow *pred)
 {
   if (pred && predictPage)
+  {
+    // ---- m2(A): 预测运行任务化 + 历史结果显示接线 ----
+    // 任务池在场 → runPrediction 跑 worker 线程（模仿导入任务化样例：结果经
+    // PaleoTask 终态回 GUI；changed→进度、finished→解忙+失败文案）；取消是
+    // 协作式的——预测运算本体无法中断，取消后以实际完成状态如实呈现。
+    // 无任务服务时保持同步旧路径。
     connect(predictPage, &PredictPage::runRequested, this,
-            [this, pred](const QString &horizon, const QString &algId,
-                         const QVariantMap &params) {
-              QString err;
-              pred->runPrediction(horizon, algId, params, &err);
+            [this, pred, predictPage](const QString &horizon, const QString &algId,
+                                      const QVariantMap &params) {
+              auto *status = predictPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
+              const auto logFail = [status](const QString &msg) {
+                if (status)
+                  status->setText(msg);
+                QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::Critical);
+              };
+              if (!m_taskSvc)
+              {
+                QString err;
+                pred->runPrediction(horizon, algId, params, &err);
+                return;
+              }
+              predictPage->setRunBusy(true);
+              auto outErr = std::make_shared<QString>();
+              PaleoTask *task = m_taskSvc->start(
+                  tr("预测 %1 · %2").arg(horizon, algId),
+                  [pred, horizon, algId, params, outErr](PaleoTask *) -> QString {
+                    QString err;
+                    if (pred->runPrediction(horizon, algId, params, &err))
+                      return QString();
+                    return err.isEmpty() ? QStringLiteral("prediction failed") : err;
+                  });
+              QObject::connect(task, &PaleoTask::changed, predictPage,
+                               [predictPage, task] {
+                                 const int pct = task->percent();
+                                 if (pct >= 0) // 无进度回调的算法不伪造进度
+                                   predictPage->updateProgress(pct);
+                               });
+              QObject::connect(task, &PaleoTask::finished, predictPage,
+                               [predictPage, task, outErr, status, logFail] {
+                                 predictPage->setRunBusy(false);
+                                 if (task->state() == PaleoTask::State::Cancelled)
+                                 {
+                                   const QString msg = tr(
+                                       "已请求取消——预测运算无法中断，结果以实际完成为准");
+                                   if (status)
+                                     status->setText(msg);
+                                   QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"),
+                                                             Qgis::MessageLevel::Warning);
+                                 }
+                                 else if (task->state() == PaleoTask::State::Failed)
+                                 {
+                                   logFail(tr("预测失败：%1").arg(*outErr));
+                                 }
+                               });
             });
+    // 取消按钮 → 协作式取消请求（worker 自查 cancelRequested）。
+    connect(predictPage, &PredictPage::runCancelRequested, this, [this]( ) {
+      if (!m_taskSvc || m_taskSvc->tasks().isEmpty())
+        return;
+      // 最近一个「预测 ·」任务是本页发起的运行（页内同一时刻至多一个）。
+      for (int i = m_taskSvc->tasks().size() - 1; i >= 0; --i)
+      {
+        PaleoTask *t = m_taskSvc->tasks().at(i);
+        if (t->running() && t->title().startsWith(tr("预测")))
+        {
+          t->requestCancel();
+          return;
+        }
+      }
+    });
+    // 历史结果「显示」：instantiate → 图层树勾选 → zoomToLayer（§37 按需实例化）。
+    connect(predictPage, &PredictPage::showResultRequested, this,
+            [this](const QString &layerId) {
+              if (!m_layerSvc)
+                return;
+              QString err;
+              QgsMapLayer *layer = m_layerSvc->instantiate(layerId, &err);
+              if (!layer)
+              {
+                QgsMessageLog::logMessage(tr("Show on map failed: %1").arg(err),
+                                          QStringLiteral("Paleo"), Qgis::Critical);
+                return;
+              }
+              if (m_canvasCtl)
+                m_canvasCtl->zoomToLayer(layerId);
+              QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr;
+              if (QgsLayerTreeLayer *node =
+                      proj ? proj->layerTreeRoot()->findLayer(layer->id()) : nullptr)
+                node->setItemVisibilityChecked(true); // 显示意图（可能已在）
+            });
+    // ---- m2(A) end ----
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -556,6 +649,105 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
               if (!constraint->runConstraintIDW(horizon, pointsId, field, cellSize, &err))
                 fail(err.isEmpty() ? tr("约束插值失败") : err);
             });
+
+    // ---- m2(B): 单因素图页（deliverable 2）接线——三入口的类型化捕获。----
+    // 状态列刷新：页面监听 layerDeclared/factorGenerated（含重开工程重读）。
+    if (m_layerSvc)
+      constraintPage->bindLayerService(m_layerSvc);
+    // 生成链：generateFactorRequested(factorId, horizon, params) →
+    // ConstraintWorkflow::generateFactor（井点解析在 workflow 侧）。
+    connect(constraintPage, &ConstraintPage::generateFactorRequested, this,
+            [this, constraint, constraintPage](const QString &factorId, const QString &horizon,
+                                               const QVariantMap &params) {
+              auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
+              QString err;
+              if (!constraint->generateFactor(horizon, factorId, params, &err))
+              {
+                const QString msg = err.isEmpty() ? tr("单因素生成失败") : err;
+                if (status)
+                  status->setText(msg);
+                QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+              }
+            });
+    // 等值线（§12 GIS LineString）：horizon 从 factor layerId 前缀取（"factor.<h>.<fid>"）。
+    connect(constraintPage, &ConstraintPage::contourRequested, this,
+            [this, constraint, constraintPage](const QString &factorLayerId, double interval) {
+              const QString horizon = factorLayerId.startsWith(QStringLiteral("factor."))
+                                         ? factorLayerId.mid(QStringLiteral("factor.").size())
+                                              .section(QLatin1Char('.'), 0, 0)
+                                         : QString();
+              auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
+              QString err;
+              if (!constraint->generateContours(horizon, factorLayerId, interval, &err))
+              {
+                const QString msg = err.isEmpty() ? tr("等值线生成失败") : err;
+                if (status)
+                  status->setText(msg);
+                QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+              }
+            });
+    // 互斥上图：visible=true → instantiate + 图层树勾选该层，04_SingleFactor 组
+    // 其它已实例化层取消勾选；false 只取消该层（业务上同时只看一张单因素图）。
+    connect(constraintPage, &ConstraintPage::factorVisibilityRequested, this,
+            [this](const QString &layerId, bool visible) {
+              if (!m_layerSvc || layerId.isEmpty())
+                return;
+              QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr;
+              if (!proj)
+                return;
+              const auto setNodeChecked = [this, proj](const QString &id, bool checked) {
+                QgsMapLayer *layer = m_layerSvc->layer(id); // 只拨已实例化层
+                if (!layer)
+                  return;
+                if (QgsLayerTreeLayer *node = proj->layerTreeRoot()->findLayer(layer->id()))
+                  node->setItemVisibilityChecked(checked);
+              };
+              if (visible)
+              {
+                QString err;
+                QgsMapLayer *layer = m_layerSvc->instantiate(layerId, &err);
+                if (!layer)
+                {
+                  QgsMessageLog::logMessage(
+                      tr("单因素上图失败：%1").arg(err.isEmpty() ? layerId : err),
+                      QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+                  return;
+                }
+                // 组内互斥：04_SingleFactor（含 Contours 子组，按前缀）先全下。
+                QVector<LayerDeclaration> decls;
+                if (m_layerSvc->tryDeclared(&decls))
+                {
+                  for (const LayerDeclaration &d : decls)
+                  {
+                    if (d.layerId == layerId)
+                      continue;
+                    if (d.group == QLatin1String("04_SingleFactor") ||
+                        d.group.startsWith(QLatin1String("04_SingleFactor/")))
+                      setNodeChecked(d.layerId, false);
+                  }
+                }
+                setNodeChecked(layerId, true);
+              }
+              else
+              {
+                setNodeChecked(layerId, false);
+              }
+            });
+    // 三入口（物源线/展布线/控制点）：类型化捕获工具（type 列落地质类型词表）。
+    if (m_canvasCtl)
+    {
+      auto *typedCtl = new TypedConstraintDrawController(m_canvasCtl, constraint, this);
+      connect(constraintPage, &ConstraintPage::drawTypedConstraintRequested, typedCtl,
+              [typedCtl](const QString &horizon, const QString &shape,
+                         const QString &constraintType, int faciesCode) {
+                typedCtl->startCapture(horizon, shape, constraintType, faciesCode);
+              });
+      connect(typedCtl, &TypedConstraintDrawController::captureFailed, this,
+              [](const QString &err) {
+                QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+              });
+    }
+    // ---- m2(B) end ----
   }
 }
 
@@ -563,7 +755,8 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
 // 编图页接线：因子融合 + 相面多边形化（W4 拆分段）
 // ---------------------------------------------------------------------------
 void PaleoMainWindow::attachComposePage(ComposePage *composePage,
-                                        CompositionWorkflow *compose)
+                                        CompositionWorkflow *compose,
+                                        QgisLayoutService *layoutSvc)
 {
   if (compose && composePage)
   {
@@ -586,7 +779,150 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
               else if (!err.isEmpty())
                 QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
             });
+
+    // ---- m2(C): 矢量化成功 → 自动进入相界编辑态（z3 PaleoVertexTool）------
+    // 拿 facies.<horizon> 矢量层 instantiate → 编辑条选层 + 触发顶点工具
+    // （QgsVertexTool 是 app-only，顶点编辑走 PaleoVertexTool；snapping/
+    // 拓扑在画布控制器侧已开）。派生 gpkg 按 T26 纪律只读——进编辑前先铺
+    // 可编辑工作副本（prepareFaciesForEditing）。编辑条缺席（无画布环境）
+    // → 降级为选中层 + 状态文案提示手动进入编辑。
+    connect(compose, &CompositionWorkflow::faciesPolygonsReady, this,
+            [this, compose, composePage](const QString &h, const QString &layerId) {
+              Q_UNUSED(h);
+              composePage->setFaciesEditTarget(layerId);
+              if (!m_layerSvc)
+                return;
+              QString target = layerId;
+              QString prepErr;
+              const QString prepared = compose->prepareFaciesForEditing(layerId, &prepErr);
+              if (prepared.isEmpty())
+                QgsMessageLog::logMessage(
+                    tr("相界工作副本铺设失败：%1").arg(prepErr), QStringLiteral("Paleo"),
+                    Qgis::MessageLevel::Warning);
+              else
+                target = prepared;
+              QgsMapLayer *l = m_layerSvc->instantiate(target);
+              auto *vl = qobject_cast<QgsVectorLayer *>(l);
+              auto *status = composePage->findChild<QLabel *>(QStringLiteral("statusLabel"));
+              auto *editTb = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar"));
+              if (vl && editTb && m_canvasCtl)
+              {
+                editTb->refreshFromProject(); // 新层入列（instantiate 已挂工程）
+                editTb->setCurrentLayer(vl);
+                editTb->actionVertexEdit()->trigger(); // 自动开编辑（走编辑服务纪律）+ 装顶点工具
+                if (editTb->isEditing() && editTb->currentLayer() == vl)
+                {
+                  if (status)
+                    status->setText(tr("相界就绪，已进入编辑：%1（顶点工具 — 选中要素改属性）")
+                                        .arg(layerId));
+                  return;
+                }
+              }
+              // 降级：选中层 + 文案提示手动进入编辑（如实报告，不假装在编辑）。
+              if (vl && m_canvasCtl)
+                m_canvasCtl->canvas()->setCurrentLayer(vl);
+              if (status)
+                status->setText(tr("相界就绪：%1 — 请在「要素编辑」组手动进入编辑")
+                                    .arg(layerId));
+            });
+
+    // ---- m2(C): 相属性保存 → edit buffer 回写 ------------------------------
+    connect(composePage, &ComposePage::faciesAttributesSaveRequested, this,
+            [this, compose, composePage](const QString &layerId, const QVariantMap &attrs) {
+              if (!compose)
+                return;
+              QString err;
+              if (compose->saveFaciesAttributes(layerId, attrs, &err))
+              {
+                if (auto *status = composePage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+                  status->setText(tr("相属性已写入编辑缓冲：%1（随「保存编辑」提交）")
+                                      .arg(layerId));
+              }
+              else
+              {
+                if (auto *status = composePage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+                  status->setText(err.isEmpty() ? tr("相属性保存失败") : err);
+                if (!err.isEmpty())
+                  QgsMessageLog::logMessage(err, QStringLiteral("Paleo"),
+                                            Qgis::MessageLevel::Warning);
+              }
+            });
+
+    // ---- m2(C): 参考图勾选 → instantiate + 图层树节点勾选/取消 ------------
+    connect(composePage, &ComposePage::referenceVisibilityRequested, this,
+            [this](const QString &layerId, bool visible) {
+              if (!m_layerSvc || layerId.isEmpty())
+                return;
+              QgsMapLayer *l = visible ? m_layerSvc->instantiate(layerId)
+                                       : m_layerSvc->layer(layerId);
+              if (!l)
+                return;
+              QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr;
+              QgsLayerTree *root = proj ? proj->layerTreeRoot() : nullptr;
+              if (!root)
+                return;
+              for (QgsLayerTreeLayer *node : root->findLayers())
+                if (node->layer() == l)
+                  node->setItemVisibilityChecked(visible);
+            });
+
+    // ---- m2(C): 在布局设计器中打开（layoutdesignershell 公共入口）---------
+    // 打开（或新建）本层位的版面：优先复用导出同名布局 "<h>_map"；新空布局
+    // 没有地图项时主题钉定自然跳过（设计器里由模板/手工补地图项）。
+    connect(composePage, &ComposePage::layoutDesignerRequested, this,
+            [this, layoutSvc]() {
+              if (!layoutSvc)
+              {
+                QgsMessageLog::logMessage(tr("布局服务未接入 — 无法打开图件设计器"),
+                                          QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+                return;
+              }
+              if (m_projectSvc->projectPath().isEmpty())
+              {
+                QgsMessageLog::logMessage(tr("无打开工程 — 无法打开图件设计器"),
+                                          QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+                return;
+              }
+              const QString h = m_selection ? m_selection->activeHorizon() : QString();
+              const QString name = h.isEmpty() ? tr("编图布局")
+                                               : QStringLiteral("%1_map").arg(h);
+              QString err;
+              QgsLayout *layout = layoutSvc->layout(name);
+              if (!layout)
+                layout = layoutSvc->createLayout(name, &err);
+              if (!layout)
+              {
+                QgsMessageLog::logMessage(
+                    err.isEmpty() ? tr("创建布局失败：%1").arg(name) : err,
+                    QStringLiteral("Paleo"), Qgis::MessageLevel::Critical);
+                return;
+              }
+              // 版面地图项钉本页主题（m1 setLayoutMapTheme 接缝）。
+              if (QgsLayoutItemMap *mapItem =
+                      qobject_cast<QgsLayoutItemMap *>(layout->itemById(QStringLiteral("map"))))
+                pinLayoutTheme(mapItem, QStringLiteral("compose"));
+              auto *shell = new PaleoLayoutDesignerShell(layout, this);
+              shell->setAttribute(Qt::WA_DeleteOnClose);
+              shell->setModal(false);
+              shell->show();
+            });
+    // ---- m2(C) end ----
   }
+}
+
+// ---------------------------------------------------------------------------
+// m2(C) 接缝：版面地图项钉页面档案主题（实现说明见 paleomainwindow.h）
+// ---------------------------------------------------------------------------
+void PaleoMainWindow::pinLayoutTheme(QgsLayoutItemMap *mapItem, const QString &pageId)
+{
+  const QString theme = QgisLayerProfileService::pageThemeName(pageId);
+  if (m_profileSvc)
+  {
+    m_profileSvc->setLayoutMapTheme(mapItem, theme);
+    return;
+  }
+  mapItem->setFollowVisibilityPreset(true);
+  mapItem->setFollowVisibilityPresetName(theme);
 }
 
 // ---------------------------------------------------------------------------
@@ -1181,11 +1517,39 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
                                            : QDir::temp().absolutePath();
             const QString target = QDir(projectDir).filePath(
                 QStringLiteral("%1_map.pdf").arg(h));
+            // ---- m2(C): 版面地图项钉本页主题（paleo.page.compose）---------
+            // exportHorizonMapPdf 内建布局不外露地图项，这里走同一
+            // buildHorizonMapLayout + PaleoLayoutExportActions（300dpi PDF，
+            // 与既有导出参数逐字一致），在导出前把布局里 id="map" 的地图项
+            // 钉到 compose 页主题（m1 setLayoutMapTheme 接缝；服务缺席时
+            // pinLayoutTheme 直写原生 follow-visibility 预设）。
+            const auto exportPinned = [this](const QString &horizon, const QString &outPath,
+                                             QString *errOut) -> QString {
+              QgsPrintLayout *layout = buildHorizonMapLayout(m_layerSvc, m_projectSvc,
+                                                             horizon, errOut);
+              if (!layout)
+                return QString();
+              if (QgsLayoutItemMap *mapItem = qobject_cast<QgsLayoutItemMap *>(
+                      layout->itemById(QStringLiteral("map"))))
+                pinLayoutTheme(mapItem, QStringLiteral("compose"));
+              PaleoLayoutExportActions exports;
+              const auto outcome =
+                  exports.exportLayout(layout, outPath, PaleoLayoutExportActions::Format::Pdf,
+                                       300.0, PaleoLayoutExportActions::PageRange());
+              delete layout;
+              if (!outcome.ok)
+              {
+                if (errOut)
+                  *errOut = outcome.error;
+                return QString();
+              }
+              return outcome.files.value(0);
+            };
             QString pdf;
             while (true) // 失败 → 重试 / 取消（§215：导出失败要写原因）
             {
               QString err;
-              pdf = exportHorizonMapPdf(m_layerSvc, m_projectSvc, h, target, &err);
+              pdf = exportPinned(h, target, &err);
               if (!pdf.isEmpty())
                 break;
               QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);

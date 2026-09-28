@@ -9,6 +9,11 @@
 #include "../qgis/qgiseditingservice.h" // 拓扑提交门（geometryCommitError）
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
+// ---- m2(B): 单因素生成链（ConstraintWorkflow::generateFactor/generateContours）----
+#include "../qgis/factorcontour.h"
+#include "../qgis/factorstylewriter.h"
+#include "../services/singlefactordef.h"
+// ---- m2(B) end ----
 #include "../services/projectdata.h"
 #include "derivedassets.h"
 #include "mappingworkflow.h"
@@ -24,8 +29,10 @@
 #include <QVariantList>
 
 #include <qgscoordinatereferencesystem.h>
+#include <qgsfield.h>
 #include <qgsgeometry.h>
 #include <qgsmaplayer.h>
+#include <qgsvectorlayer.h> // ---- m2(C)：saveFaciesAttributes 的 edit buffer 回写 ------
 
 #include <gdal.h>
 #include <ogr_spatialref.h>
@@ -526,11 +533,20 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
     decl.horizon = horizon;
     decl.type = QStringLiteral( "raster" );
     decl.source = st.absolutePath;
-    decl.group = QStringLiteral( "03_Predict" );
+    decl.group = QStringLiteral( "03_Predict" ); // 历史分组保持（m2(A)）
+    decl.title = tr( "%1 onnx %2 预测" ).arg( horizon, model );
     if ( !layers->declare( decl, error ) )
       return fail( ( error && !error->isEmpty() )
                        ? *error
                        : tr( "failed to declare result layer '%1'" ).arg( decl.layerId ) );
+
+    // m2(A) 3b：算法无置信度输出 → 不声明伴生层（见
+    // confidenceCompanionAvailable 调查注释；接入真实置信度后在此声明
+    // confidence.<horizon>，group "02_Prediction"，带色标 styleRef）。
+    if ( confidenceCompanionAvailable( algorithmId ) )
+    {
+      // 当前恒不可达——留作真实置信度输出的声明接入点，禁止造假数据填充。
+    }
 
     emit predictionDone( horizon, decl.layerId );
     return true;
@@ -616,11 +632,15 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
   }
 
   LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "predict.%1.%2" ).arg( horizon, stamp() );
+  // m2(A)：稳定结果 id——同一 horizon+algorithmId 重跑复用同一 layerId
+  // （manifest INSERT OR REPLACE upsert，清单不新增重复行）； tst_workflows
+  // 既有断言 startsWith("predict.<h>.") 由稳定段继续满足。
+  decl.layerId = QStringLiteral( "predict.%1.%2" ).arg( horizon, stableResultSuffix( algorithmId ) );
   decl.horizon = horizon;
   decl.type = QStringLiteral( "raster" );
   decl.source = st.absolutePath;
-  decl.group = QStringLiteral( "01_Prediction" );
+  decl.group = QStringLiteral( "01_Prediction" ); // 历史分组保持（m2(A)：新声明面才用 02_Prediction）
+  decl.title = tr( "%1 %2 预测" ).arg( horizon, algorithmId );
   if ( !layers->declare( decl, error ) )
   {
     emit predictionFailed( horizon,
@@ -630,8 +650,38 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
     return false;
   }
 
+  // m2(A) 3b：算法无置信度输出 → 不声明伴生层（confidenceCompanionAvailable
+  // 对当前算法栈恒 false，见 workflows.h 上的调查注释）。真实置信度通道接入
+  // 后在此声明 confidence.<horizon>：group "02_Prediction"、type raster、
+  // styleRef 指向置信度色标——禁止常量假栅格冒充。
+  if ( confidenceCompanionAvailable( algorithmId ) )
+  {
+    // 当前恒不可达——留作真实置信度输出的声明接入点。
+  }
+
   emit predictionDone( horizon, decl.layerId );
   return true;
+}
+
+QString PredictionWorkflow::stableResultSuffix( const QString &algorithmId )
+{
+  // algorithmId 净化为 id 片段（"paleo:paleo_geological_smoothing" →
+  // "paleo.paleo_geological_smoothing"）：不同 provider 同名算法不会互相
+  // 挤占同一 layerId。
+  QString s = algorithmId;
+  s.replace( QLatin1Char( ':' ), QLatin1Char( '.' ) );
+  return s;
+}
+
+bool PredictionWorkflow::confidenceCompanionAvailable( const QString &algorithmId )
+{
+  // 置信度调查结论（2026-09-27，m2(A) 3b）：onnxpredictionservice.cpp 的
+  // runTensor 只读 session 首个输出 tensor（GetOutputCount() 仅作下限检查），
+  // 没有第二输出/方差通道可取；paleo_* 五个算法（smoothing/IDW/fusion/
+  // isopach/polygonize）都是确定性单输出栅格算法。→ 没有真实置信度数据可
+  // 落盘，返回 false（调用侧据此跳过 confidence.<horizon> 声明）。
+  Q_UNUSED( algorithmId );
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -976,6 +1026,288 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
   return true;
 }
 
+// ---- m2(B) 单因素图页：generateFactor / generateContours ---------------------
+namespace
+{
+  // 原壳（paleomainwindow runIdwRequested 接线）里的井点图层查找，挪进
+  // workflow 侧：vector 声明、layerId 以 "wells" 开头，优先当前层位，其次
+  // 层位无关（horizon-agnostic）声明。
+  QString wellsLayerIdFor( QgisLayerService *layers, const QString &horizon )
+  {
+    if ( !layers )
+      return QString();
+    QVector<LayerDeclaration> declared;
+    if ( !layers->tryDeclared( &declared ) )
+      return QString();
+    QString agnostic;
+    for ( const LayerDeclaration &d : declared )
+    {
+      if ( d.type.compare( QStringLiteral( "vector" ), Qt::CaseInsensitive ) != 0 )
+        continue;
+      if ( !d.layerId.startsWith( QStringLiteral( "wells" ) ) )
+        continue;
+      if ( !horizon.isEmpty() && d.horizon == horizon )
+        return d.layerId;
+      if ( agnostic.isEmpty() && d.horizon.isEmpty() )
+        agnostic = d.layerId;
+    }
+    return agnostic;
+  }
+} // namespace
+
+bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &factorId,
+                                         const QVariantMap &params, QString *error )
+{
+  QgisProcessingService *proc = procOf( this );
+  QgisLayerService *layers = layersOf( this );
+  if ( !proc || !layers )
+  {
+    setError( error, tr( "constraint workflow is not bound to services" ) );
+    return false;
+  }
+  bool known = false;
+  const SingleFactorDefinition def = SingleFactorRegistry::byId( factorId, &known );
+  if ( !known )
+  {
+    setError( error, tr( "未知单因素 id：%1" ).arg( factorId ) );
+    return false;
+  }
+  const QString field = params.value( QStringLiteral( "field" ),
+                                      def.defaultParams.value( QStringLiteral( "field" ) ) )
+                            .toString();
+  const double cellSize = params.value( QStringLiteral( "cellSize" ),
+                                        def.defaultParams.value( QStringLiteral( "cellSize" ), 1.0 ) )
+                              .toDouble();
+  if ( field.isEmpty() )
+  {
+    setError( error, tr( "插值字段为空" ) );
+    return false;
+  }
+  if ( !( cellSize > 0.0 ) )
+  {
+    setError( error, tr( "像元大小必须是正数" ) );
+    return false;
+  }
+
+  const QString overridePoints = params.value( QStringLiteral( "pointsLayerId" ) ).toString();
+  const QString pointsId = overridePoints.isEmpty() ? wellsLayerIdFor( layers, horizon )
+                                                    : overridePoints;
+  if ( pointsId.isEmpty() )
+  {
+    setError( error, tr( "层位 %1 没有井点图层" ).arg( horizon ) );
+    return false;
+  }
+
+  // INPUT is a QgsProcessingParameterFeatureSource: resolve the declared points
+  // layer through the layer service (same contract as runConstraintIDW).
+  QgsMapLayer *points = layers->instantiate( pointsId, error );
+  if ( !points )
+    return false;
+
+  QString regErr;
+  DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
+  if ( !registrar.isBound() )
+  {
+    setError( error, regErr );
+    return false;
+  }
+  const DerivedStaging st = registrar.stage(
+      QStringLiteral( "single_factor_raster" ), tr( "%1·%2" ).arg( def.title, horizon ),
+      QStringLiteral( "FACTOR_%1_%2.tif" ).arg( factorId, horizon ), &regErr );
+  if ( !st.isValid() )
+  {
+    setError( error, regErr );
+    return false;
+  }
+  QStringList parentPaths{ points->source().section( QLatin1Char( '|' ), 0, 0 ) };
+
+  QVariantMap runParams;
+  runParams.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( points ) );
+  runParams.insert( QStringLiteral( "FIELD" ), field );
+  runParams.insert( QStringLiteral( "CELL_SIZE" ), cellSize );
+  runParams.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
+
+  // 约束线屏障随行（同 runConstraintIDW：清单里有该层位的约束图层就带上）。
+  QVector<LayerDeclaration> declared;
+  QString manifestErr;
+  if ( !layers->tryDeclared( &declared, &manifestErr ) )
+  {
+    setError( error, manifestErr.isEmpty() ? tr( "无法读取图层清单" ) : manifestErr );
+    return false;
+  }
+  const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( horizon );
+  const bool hasConstraints = std::any_of(
+      declared.cbegin(), declared.cend(),
+      [&constraintLayerId]( const LayerDeclaration &d ) { return d.layerId == constraintLayerId; } );
+  if ( hasConstraints )
+  {
+    QString constraintErr;
+    QgsMapLayer *constraints = layers->instantiate( constraintLayerId, &constraintErr );
+    if ( !constraints )
+    {
+      setError( error, constraintErr.isEmpty()
+                           ? tr( "无法加载约束图层 %1" ).arg( constraintLayerId )
+                           : constraintErr );
+      return false;
+    }
+    runParams.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( constraints ) );
+    parentPaths.append( constraints->source().section( QLatin1Char( '|' ), 0, 0 ) );
+  }
+
+  const QVariantMap results = proc->run( def.processingAlgId, runParams, error );
+  if ( results.isEmpty() )
+    return false;
+  const QString outPath = outputPathOf( results );
+  if ( outPath.isEmpty() )
+  {
+    setError( error, tr( "单因素生成未返回输出路径" ) );
+    return false;
+  }
+
+  QVariantMap extra;
+  extra.insert( QStringLiteral( "factor_id" ), factorId );
+  extra.insert( QStringLiteral( "field" ), field );
+  extra.insert( QStringLiteral( "cell_size" ), cellSize );
+  extra.insert( QStringLiteral( "constrained" ), hasConstraints );
+  QString commitErr;
+  if ( !registrar.commitExternal( st, outPath, registrar.parentVersionIdsFor( parentPaths ),
+                                  def.processingAlgId, extra, &commitErr ) )
+  {
+    setError( error, commitErr );
+    return false;
+  }
+
+  // 色带样式落盘 <projectDir>/styles/factor_<factorId>.qml（best-effort：样式
+  // 写失败不拦栅格成果——styleRef 照常声明，样式面板可后补）。
+  if ( !registrar.projectDir().isEmpty() )
+  {
+    QString styleErr; // 降级不打断生成链
+    FactorStyleWriter::writeStyleQml( factorId, outPath,
+                                      QDir( registrar.projectDir() ).filePath( QStringLiteral( "styles" ) ),
+                                      &styleErr );
+  }
+
+  LayerDeclaration decl;
+  decl.layerId = QStringLiteral( "factor.%1.%2" ).arg( horizon, factorId );
+  decl.horizon = horizon;
+  decl.type = QStringLiteral( "raster" );
+  decl.source = outPath;
+  decl.group = QStringLiteral( "04_SingleFactor" );
+  decl.styleRef = def.styleRef;
+  decl.title = tr( "%1·%2" ).arg( def.title, horizon );
+  if ( !layers->declare( decl, error ) )
+    return false;
+
+  emit factorGenerated( horizon, factorId, decl.layerId );
+  return true;
+}
+
+bool ConstraintWorkflow::generateContours( const QString &horizon, const QString &factorLayerId,
+                                           double interval, QString *error )
+{
+  QgisLayerService *layers = layersOf( this );
+  if ( !layers )
+  {
+    setError( error, tr( "constraint workflow is not bound to a layer service" ) );
+    return false;
+  }
+  if ( factorLayerId.isEmpty() )
+  {
+    setError( error, tr( "缺少单因素图层 id" ) );
+    return false;
+  }
+  if ( !( interval > 0.0 ) )
+  {
+    setError( error, tr( "等值线间距必须是正数" ) );
+    return false;
+  }
+
+  // 输入必须是已声明的单因素栅格（等值线是对栅格的 §12 LineString 派生）。
+  QVector<LayerDeclaration> declared;
+  QString readErr;
+  if ( !layers->tryDeclared( &declared, &readErr ) )
+  {
+    setError( error, readErr.isEmpty() ? tr( "无法读取图层清单" ) : readErr );
+    return false;
+  }
+  const LayerDeclaration *factorDecl = nullptr;
+  for ( const LayerDeclaration &d : declared )
+  {
+    if ( d.layerId == factorLayerId )
+    {
+      factorDecl = &d;
+      break;
+    }
+  }
+  if ( !factorDecl )
+  {
+    setError( error, tr( "图层 %1 未在清单声明" ).arg( factorLayerId ) );
+    return false;
+  }
+  if ( factorDecl->type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) != 0 )
+  {
+    setError( error, tr( "等值线输入必须是栅格图层：%1" ).arg( factorLayerId ) );
+    return false;
+  }
+  const QString rasterPath = factorDecl->source.section( QLatin1Char( '|' ), 0, 0 );
+
+  // layerId "factor.<horizon>.<factorId>" → 尾段 factorId（命名失败安全退化）。
+  QString factorId = factorLayerId;
+  const QString factorPrefix = QStringLiteral( "factor.%1." ).arg( horizon );
+  if ( factorLayerId.startsWith( factorPrefix ) )
+    factorId = factorLayerId.mid( factorPrefix.size() );
+
+  QString regErr;
+  DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
+  if ( !registrar.isBound() )
+  {
+    setError( error, regErr );
+    return false;
+  }
+  const DerivedStaging st = registrar.stage(
+      QStringLiteral( "contour_lines" ),
+      tr( "等值线·%1" ).arg( SingleFactorRegistry::titleFor( factorId ) ),
+      QStringLiteral( "CONTOURS_%1_%2.gpkg" ).arg( factorId, horizon ), &regErr );
+  if ( !st.isValid() )
+  {
+    setError( error, regErr );
+    return false;
+  }
+
+  QString contourErr;
+  if ( !FactorContourService::generateContours( rasterPath, st.absolutePath, interval, &contourErr ) )
+  {
+    setError( error, contourErr );
+    return false;
+  }
+
+  QVariantMap extra;
+  extra.insert( QStringLiteral( "interval" ), interval );
+  extra.insert( QStringLiteral( "factor_layer_id" ), factorLayerId );
+  QString commitErr;
+  if ( !registrar.commitExternal( st, st.absolutePath,
+                                  registrar.parentVersionIdsFor( { rasterPath } ),
+                                  QStringLiteral( "gdal_contour_c_api" ), extra, &commitErr ) )
+  {
+    setError( error, commitErr );
+    return false;
+  }
+
+  LayerDeclaration decl;
+  decl.layerId = QStringLiteral( "contours.%1.%2" ).arg( horizon, factorId );
+  decl.horizon = horizon;
+  decl.type = QStringLiteral( "vector" );
+  decl.source = QStringLiteral( "%1|layername=contours" ).arg( st.absolutePath );
+  decl.group = QStringLiteral( "04_SingleFactor/Contours" );
+  decl.title = tr( "等值线·%1" ).arg( SingleFactorRegistry::titleFor( factorId ) );
+  if ( !layers->declare( decl, error ) )
+    return false;
+
+  emit contoursGenerated( horizon, factorLayerId, decl.layerId );
+  return true;
+}
+// ---- m2(B) end ----------------------------------------------------------------
+
 // ---------------------------------------------------------------------------
 // CompositionWorkflow — ③综合编图
 // ---------------------------------------------------------------------------
@@ -1194,6 +1526,181 @@ bool CompositionWorkflow::deriveFaciesPolygons( const QString &horizon, const QS
   emit faciesPolygonsReady( h, decl.layerId );
   return true;
 }
+
+// ---- m2(C)：相属性回写 -------------------------------------------------------
+QString CompositionWorkflow::prepareFaciesForEditing( const QString &layerId, QString *error )
+{
+  const auto fail = [error]( const QString &msg ) {
+    setError( error, msg );
+    return QString();
+  };
+
+  QgisLayerService *layers = layersOf( this );
+  if ( !layers )
+    return fail( tr( "composition workflow is not bound to services" ) );
+  if ( layerId.isEmpty() )
+    return fail( tr( "no facies layer supplied" ) );
+
+  QVector<LayerDeclaration> declared;
+  QString manifestErr;
+  if ( !layers->tryDeclared( &declared, &manifestErr ) )
+    return fail( manifestErr.isEmpty() ? tr( "无法读取图层清单" ) : manifestErr );
+  LayerDeclaration decl;
+  bool found = false;
+  for ( const LayerDeclaration &d : declared )
+  {
+    if ( d.layerId == layerId )
+    {
+      decl = d;
+      found = true;
+      break;
+    }
+  }
+  if ( !found )
+    return fail( tr( "layer '%1' is not declared" ).arg( layerId ) );
+
+  const QString srcPath = decl.source.section( QLatin1Char( '|' ), 0, 0 );
+  const QString srcSuffix = decl.source.contains( QLatin1Char( '|' ) )
+                                ? decl.source.section( QLatin1Char( '|' ), 1 )
+                                : QString();
+  if ( !QFileInfo( srcPath ).isFile() )
+    return layerId; // 非文件源（memory 等）——交给常规编辑路径
+  const QFile::Permissions perms = QFile::permissions( srcPath );
+  if ( perms & ( QFile::WriteOwner | QFile::WriteUser | QFile::WriteGroup | QFile::WriteOther ) )
+    return layerId; // 已可写（不是 T26 只读派生件）——原样
+
+  const QString projectDir = PaleoWorkflowDerivedProjectDir( this );
+  if ( projectDir.isEmpty() )
+    return fail( tr( "无法定位工程目录来铺相界工作副本（%1）" ).arg( layerId ) );
+  QString safeId = layerId;
+  safeId.replace( QLatin1Char( '/' ), QLatin1Char( '_' ) )
+      .replace( QLatin1Char( '\\' ), QLatin1Char( '_' ) );
+  const QString workDir =
+      QDir( projectDir ).filePath( QStringLiteral( "artifacts/layers/facies" ) );
+  const QString workPath = QDir( workDir ).filePath( QStringLiteral( "%1.gpkg" ).arg( safeId ) );
+  if ( !QDir().mkpath( workDir ) )
+    return fail( tr( "cannot create %1" ).arg( workDir ) );
+  if ( QFileInfo::exists( workPath ) && !QFile::remove( workPath ) )
+    return fail( tr( "cannot replace stale working copy %1" ).arg( workPath ) );
+  if ( !QFile::copy( srcPath, workPath ) )
+    return fail( tr( "cannot copy %1 → %2" ).arg( srcPath, workPath ) );
+  QFile::setPermissions( workPath,
+                         QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                             QFileDevice::ReadUser | QFileDevice::WriteUser |
+                             QFileDevice::ReadGroup | QFileDevice::ReadOther );
+
+  // manifest 同 id 重指（layerId 不变——页面/导出/引用方无感）；只读原件
+  // 留在 artifacts/derived，catalog 版本 sha 不动。
+  LayerDeclaration work = decl;
+  work.source = srcSuffix.isEmpty() ? workPath
+                                    : QStringLiteral( "%1|%2" ).arg( workPath, srcSuffix );
+  QString declErr;
+  if ( !layers->declare( work, &declErr ) )
+    return fail( declErr );
+
+  // 实例缓存里可能压着只读旧层：按层位整组释放（manifest 是权威，图层按
+  // 需重实例化；实例由 QgsProject 持有，removeMapLayer 即析构）。
+  if ( layers->isInstantiated( layerId ) )
+    layers->releaseHorizon( decl.horizon );
+  return layerId;
+}
+
+bool CompositionWorkflow::saveFaciesAttributes( const QString &layerId, const QVariantMap &attrs,
+                                                QString *error )
+{
+  const auto fail = [error]( const QString &msg ) {
+    setError( error, msg );
+    return false;
+  };
+
+  QgisLayerService *layers = layersOf( this );
+  if ( !layers )
+    return fail( tr( "composition workflow is not bound to services" ) );
+  if ( layerId.isEmpty() )
+    return fail( tr( "no facies layer supplied" ) );
+
+  QgsMapLayer *l = layers->instantiate( layerId, error );
+  auto *vl = qobject_cast<QgsVectorLayer *>( l );
+  if ( !vl )
+    return fail( ( error && !error->isEmpty() )
+                     ? *error
+                     : tr( "layer '%1' is not a vector layer" ).arg( layerId ) );
+
+  // 页面拿不到选中要素 id：以图层当前选中集为准（空集 → 拒绝并说明）。
+  QgsFeatureIds selected = vl->selectedFeatureIds();
+  if ( selected.isEmpty() )
+    return fail( tr( "先在地图上选中要改相属性的要素（%1）" ).arg( layerId ) );
+
+  // 只读派生件兜底：startEditing 失败且源只读 → 铺工作副本重指后重试一次
+  // （fid 跨实例稳定，选中集随行迁移）。
+  if ( !vl->isEditable() && !vl->startEditing() )
+  {
+    QString prepErr;
+    const QString prepared = prepareFaciesForEditing( layerId, &prepErr );
+    if ( prepared.isEmpty() )
+      return fail( tr( "cannot start editing on '%1'（%2）" ).arg( layerId, prepErr ) );
+    vl = qobject_cast<QgsVectorLayer *>( layers->instantiate( layerId, error ) );
+    if ( !vl )
+      return fail( ( error && !error->isEmpty() )
+                       ? *error
+                       : tr( "failed to re-instantiate '%1' after preparing edit copy" )
+                             .arg( layerId ) );
+    vl->select( selected );
+    if ( !vl->startEditing() )
+      return fail( tr( "cannot start editing on '%1'" ).arg( layerId ) );
+  }
+
+  // 字段词表：facies_code 是 polygonize 算法产物（int）；facies_type/comment
+  // 为编辑面字段，缺则先补建（补建也在编辑会话内，各自成 undo 步）。
+  struct FieldSpec
+  {
+    const char *key;
+    const char *name;
+    QVariant::Type type;
+  };
+  const FieldSpec wanted[] = {
+    { "facies_code", "facies_code", QVariant::Int },
+    { "facies_type", "facies_type", QVariant::String },
+    { "comment", "comment", QVariant::String },
+  };
+
+  // 只写 attrs 携带的字段。
+  QVector<QPair<int, QVariant>> writes; // resolved field index + value
+  for ( const FieldSpec &f : wanted )
+  {
+    if ( !attrs.contains( QLatin1String( f.key ) ) )
+      continue;
+    QVariant value = attrs.value( QLatin1String( f.key ) );
+    if ( value.type() == QVariant::String && f.type == QVariant::Int )
+    {
+      // 页面校验过整数，这里兜底：非整数串如实拒绝，不静默落 0。
+      bool ok = false;
+      const int code = value.toInt( &ok );
+      if ( !ok )
+        return fail( tr( "相代码须是整数：%1" ).arg( value.toString() ) );
+      value = code;
+    }
+    int idx = vl->fields().lookupField( QLatin1String( f.name ) );
+    if ( idx < 0 )
+    {
+      if ( !vl->addAttribute( QgsField( QLatin1String( f.name ), f.type ) ) )
+        return fail( tr( "cannot add field '%1' to %2" ).arg( QLatin1String( f.name ), layerId ) );
+      idx = vl->fields().lookupField( QLatin1String( f.name ) );
+      if ( idx < 0 )
+        return fail( tr( "field '%1' not visible after add" ).arg( QLatin1String( f.name ) ) );
+    }
+    writes.append( qMakePair( idx, value ) );
+  }
+
+  vl->beginEditCommand( tr( "编辑相属性" ) );
+  for ( const auto &w : writes )
+    for ( const QgsFeatureId fid : selected )
+      vl->changeAttributeValue( fid, w.first, w.second );
+  vl->endEditCommand();
+  vl->triggerRepaint();
+  return true;
+}
+// ---- m2(C) end --------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // ValidationWorkflow — ④验证

@@ -10,6 +10,7 @@
 #include "../../domain/sectiontrace.h"    // SegyTrace/SegySectionGrid（domain 纯数据）
 #include "../../io/lasdoc.h"              // LasCurve（白名单：数据模型）
 #include "../../services/previewdoc.h"    // 唯一数据门面——解析/解码/SHA/PDF 编排全经它（W1）
+#include "../../services/paleotaskservice.h" // PaleoTask 进度/取消（地震转码区）
 #include "../seismic3d/seismic3dviewpanel.h"
 #include "../seismicsection/seismicsectioncanvas.h"
 #include "../wellcomposite/wellcompositepanel.h"
@@ -58,6 +59,7 @@
 #include <QPdfView>
 #include <QPixmap>
 #include <QPushButton>
+#include <QProgressBar>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSet>
@@ -2562,6 +2564,13 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     panel3d->setObjectName(QStringLiteral("seismic3DPanel"));
     modeTabs->addTab(panel3d, tr("三维立体 (3D)"));
 
+    // ---- 引擎通道状态（先于转码区声明）：两段式体加载 + 显式 .sf3p 通道 ----
+    auto sharedVol = std::make_shared<std::shared_ptr<seismic::SgyVolume>>();
+    auto sharedPaged = std::make_shared<QString>();
+    *sharedPaged = QFile::exists(abs + QStringLiteral(".sf3p"))
+                       ? abs + QStringLiteral(".sf3p")
+                       : QString(); // Auto 永不自动升级 .sf3p：存在即显式启用（引擎语义）
+
     // 3. 水平时间切片剖面 (Time Slice)
     auto *wTime = new QWidget(modeTabs);
     wTime->setObjectName(QStringLiteral("seismicTimeSliceContainer"));
@@ -2606,17 +2615,104 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         "QToolButton:hover { background: #EDF1F5; border-color: #1B73D0; }"));
     timeBarLay->addWidget(btnFitTime);
 
-    // vendor/sbm Engine：转码 .sf3c 工作区后切片/剖面走随机访问后端。
-    auto *btnTranscode = new QToolButton(timeBar);
-    btnTranscode->setText(tr("转码工作区"));
-    btnTranscode->setToolTip(tr("将 SEG-Y 转码为 .sf3c 分片工作区（可续跑）；转码后切片与任意剖面走随机访问后端"));
-    btnTranscode->setStyleSheet(QStringLiteral(
+    // ---- 转码区（主线6）：.sf3c（Auto 自动升级）与 .sf3p（显式 paged/LOD 通道）
+    // 双通道并存；进度条非 spinner（有总量即百分比）、可取消、完成后热切换
+    // 后端并把状态写在 backendLabel 上。取消后两条通道都可续跑。 ----
+    const QString transcodeBtnStyle = QStringLiteral(
         "QToolButton { background: transparent; border: 1px solid #DFE5EC; border-radius: 4px; padding: 2px 8px; font-size: 8.5pt; color: #24303E; }"
-        "QToolButton:hover { background: #EDF1F5; border-color: #1B73D0; }"));
+        "QToolButton:hover { background: #EDF1F5; border-color: #1B73D0; }"
+        "QToolButton:disabled { color: #9AA7B4; }");
+
+    auto *btnTranscode = new QToolButton(timeBar);
+    btnTranscode->setText(tr("转码工作区 (.sf3c)"));
+    btnTranscode->setToolTip(tr("将 SEG-Y 转码为 .sf3c 分片工作区（可续跑）；转码后切片与任意剖面走随机访问后端"));
+    btnTranscode->setStyleSheet(transcodeBtnStyle);
     btnTranscode->setEnabled(!abs.isEmpty() && QFile::exists(abs)
                              && !QFile::exists(abs + QStringLiteral(".sf3c.meta")));
     timeBarLay->addWidget(btnTranscode);
-    connect(btnTranscode, &QToolButton::clicked, host, [this, abs, btnTranscode]() {
+
+    auto *btnPagedTranscode = new QToolButton(timeBar);
+    btnPagedTranscode->setObjectName(QStringLiteral("btnPagedTranscode"));
+    btnPagedTranscode->setText(tr("转码分页工作区 (.sf3p)"));
+    btnPagedTranscode->setToolTip(tr("转码为 .sf3p 分页工作区并构建 L1/L2 金字塔（可续跑）；"
+                                     "提供瓦片渐进时间片与拖动粗/静止细的渐进 LOD。Auto 后端不自动启用，需显式选择"));
+    btnPagedTranscode->setStyleSheet(transcodeBtnStyle);
+    const QString pagedPathForButtons = abs + QStringLiteral(".sf3p");
+    btnPagedTranscode->setEnabled(!abs.isEmpty() && QFile::exists(abs)
+                                  && !QFile::exists(pagedPathForButtons));
+    timeBarLay->addWidget(btnPagedTranscode);
+
+    auto *transcodeProgress = new QProgressBar(timeBar);
+    transcodeProgress->setObjectName(QStringLiteral("transcodeProgress"));
+    transcodeProgress->setFixedWidth(140);
+    transcodeProgress->setRange(0, 100);
+    transcodeProgress->setVisible(false);
+    timeBarLay->addWidget(transcodeProgress);
+
+    auto *btnCancelTranscode = new QToolButton(timeBar);
+    btnCancelTranscode->setObjectName(QStringLiteral("btnCancelTranscode"));
+    btnCancelTranscode->setText(tr("取消"));
+    btnCancelTranscode->setStyleSheet(transcodeBtnStyle);
+    btnCancelTranscode->setVisible(false);
+    timeBarLay->addWidget(btnCancelTranscode);
+
+    auto *backendLabel = new QLabel(timeBar);
+    backendLabel->setObjectName(QStringLiteral("seismicBackendLabel"));
+    backendLabel->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
+    backendLabel->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+    timeBarLay->addWidget(backendLabel);
+
+    // 后端状态探测（转码完成后的「热切换」提示；Auto 只认 .sf3c 伴生）
+    const auto refreshBackendStatus = [this, abs, backendLabel](const QString &suffix = QString()) {
+      auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
+      if (!svc)
+        return;
+      const QPointer<QLabel> labelGuard(backendLabel);
+      svc->startBackendProbe(abs, [labelGuard, suffix](bool ok, const seismic::SeismicBackendStatus &s, const QString &) {
+        if (!labelGuard)
+          return;
+        if (!ok)
+        {
+          labelGuard->setText(QObject::tr("后端：探测失败"));
+          return;
+        }
+        QString name;
+        if (s.backendName == QLatin1String("workspace"))
+          name = QObject::tr(".sf3c 工作区");
+        else if (s.backendName == QLatin1String("paged-workspace"))
+          name = QObject::tr(".sf3p 分页工作区");
+        else
+          name = QObject::tr("直读 SEG-Y");
+        QString text = QObject::tr("后端：%1%2").arg(
+            name, s.fellBackToDirect ? QObject::tr("（回退直读）") : QString());
+        if (s.backendName == QLatin1String("paged-workspace") && !s.quality.isEmpty())
+          text += QStringLiteral(" · %1").arg(s.quality);
+        if (!suffix.isEmpty())
+          text += suffix;
+        labelGuard->setText(text);
+      });
+    };
+
+    // 转码任务的进度条/取消接线（两通道共用）
+    const auto bindTranscodeTask = [transcodeProgress, btnCancelTranscode](PaleoTask *task) {
+      if (!task)
+        return;
+      transcodeProgress->setVisible(true);
+      transcodeProgress->setValue(0);
+      btnCancelTranscode->setVisible(true);
+      const QPointer<PaleoTask> taskGuard(task);
+      QObject::connect(task, &PaleoTask::changed, transcodeProgress, [taskGuard, transcodeProgress]() {
+        if (taskGuard)
+          transcodeProgress->setValue(taskGuard->percent());
+      });
+      QObject::connect(btnCancelTranscode, &QToolButton::clicked, task, &PaleoTask::requestCancel);
+      QObject::connect(task, &PaleoTask::finished, transcodeProgress, [transcodeProgress, btnCancelTranscode]() {
+        transcodeProgress->setVisible(false);
+        btnCancelTranscode->setVisible(false);
+      });
+    };
+
+    connect(btnTranscode, &QToolButton::clicked, host, [this, abs, btnTranscode, bindTranscodeTask, refreshBackendStatus]() {
       auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
       if (!svc)
         return;
@@ -2628,18 +2724,72 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       if (answer != QMessageBox::Yes)
         return;
       btnTranscode->setEnabled(false);
-      btnTranscode->setText(tr("转码中…（任务面板可取消）"));
+      btnTranscode->setText(tr("转码中…（可取消）"));
       const QPointer<QToolButton> guard(btnTranscode);
-      svc->startWorkspaceTranscode(abs, QString(),
-                                   [guard](bool ok, const QString &, const QString &err) {
+      PaleoTask *task = svc->startWorkspaceTranscode(abs, QString(),
+                                                     [guard, refreshBackendStatus](bool ok, const QString &, const QString &err) {
         if (!guard)
           return;
-        guard->setText(ok ? QObject::tr("工作区已就绪") : QObject::tr("转码工作区"));
-        guard->setEnabled(!ok);
-        if (!ok && !err.isEmpty())
-          QMessageBox::warning(guard, QObject::tr("转码未完成"), err);
+        if (ok)
+        {
+          guard->setText(QObject::tr("工作区已就绪"));
+          guard->setEnabled(false);
+          refreshBackendStatus(QObject::tr("（已热切换）"));
+        }
+        else
+        {
+          guard->setText(QObject::tr("转码工作区 (.sf3c)"));
+          guard->setEnabled(true);
+          if (!err.isEmpty())
+            QMessageBox::warning(guard, QObject::tr("转码未完成"), err);
+        }
       });
+      bindTranscodeTask(task);
     });
+
+    connect(btnPagedTranscode, &QToolButton::clicked, host,
+            [this, abs, pagedPathForButtons, btnPagedTranscode, bindTranscodeTask, refreshBackendStatus,
+             sharedPaged, panel3d, sharedVol]() {
+      auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
+      if (!svc)
+        return;
+      const auto answer = QMessageBox::question(
+          btnPagedTranscode, tr("转码分页工作区"),
+          tr("将 %1 转码为 .sf3p 分页工作区并构建 L1/L2 金字塔\n"
+             "（含瓦片渐进时间片与渐进 LOD；体积与源文件同量级）。\n"
+             "过程可取消并续跑。")
+              .arg(QFileInfo(abs).fileName()));
+      if (answer != QMessageBox::Yes)
+        return;
+      btnPagedTranscode->setEnabled(false);
+      btnPagedTranscode->setText(tr("转码中…（可取消）"));
+      const QPointer<QToolButton> guard(btnPagedTranscode);
+      PaleoTask *task = svc->startPagedTranscode(abs, pagedPathForButtons, /*buildLod=*/true,
+                                                 [guard, refreshBackendStatus, sharedPaged, panel3d, sharedVol,
+                                                  pagedPathForButtons](bool ok, const QString &, const QString &err) {
+        if (!guard)
+          return;
+        if (ok)
+        {
+          guard->setText(QObject::tr("分页工作区已就绪"));
+          guard->setEnabled(false);
+          // 热切换：启用显式 .sf3p 通道（瓦片时间片 + 3D 渐进 LOD）
+          *sharedPaged = pagedPathForButtons;
+          if (*sharedVol != nullptr)
+            panel3d->setPagedWorkspace(*sharedPaged);
+          refreshBackendStatus(QObject::tr("（已热切换）"));
+        }
+        else
+        {
+          guard->setText(QObject::tr("转码分页工作区 (.sf3p)"));
+          guard->setEnabled(true);
+          if (!err.isEmpty())
+            QMessageBox::warning(guard, QObject::tr("分页转码未完成"), err);
+        }
+      });
+      bindTranscodeTask(task);
+    });
+    refreshBackendStatus();
 
     timeBarLay->addStretch(1);
     layTime->addWidget(timeBar);
@@ -2655,45 +2805,164 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 
     modeTabs->addTab(wTime, tr("水平时间切片 (Time Slice)"));
 
-    auto sharedVol = std::make_shared<std::shared_ptr<seismic::SgyVolume>>();
+    // ---- 两段式秒开（主线1）：QuickOpen 秒级预览 → 后台体加载换装 ----
+    auto *quickInfo = new QLabel(host);
+    quickInfo->setObjectName(QStringLiteral("seismicQuickInfo"));
+    quickInfo->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
+    quickInfo->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+    quickInfo->setVisible(false);
 
-    const auto loadVolumeIfNeeded = [this, sharedVol, panel3d, sliderTime, spinTime, abs]() {
-      if (*sharedVol == nullptr && !abs.isEmpty() && QFile::exists(abs))
+    const QPointer<QLabel> quickInfoGuard(quickInfo);
+    const QPointer<QWidget> sectionPanelGuard(panel);
+    const QPointer<seismic::Seismic3DViewPanel> panel3dGuard(panel3d);
+
+    // 体就绪后的统一换装（两段共用；只装一次）
+    const auto finishVolumeSetup = [panel3dGuard, sliderTime, spinTime](const std::shared_ptr<seismic::SgyVolume> &vol) {
+      if (!panel3dGuard || !vol)
+        return;
+      if (panel3dGuard->viewport())
       {
-        if (m_doc && m_doc->seismicTaskService())
-          panel3d->setTaskService(m_doc->seismicTaskService());
+        panel3dGuard->viewport()->setPresetView(seismic::SeismicCameraController::PresetView::Isometric);
+        panel3dGuard->viewport()->fitToBounds();
+      }
+
+      sliderTime->blockSignals(true);
+      spinTime->blockSignals(true);
+      sliderTime->setRange(0, vol->SampleMax());
+      spinTime->setRange(0, vol->SampleMax());
+      const int mid = vol->SampleMax() / 2;
+      sliderTime->setValue(mid);
+      spinTime->setValue(mid);
+      sliderTime->blockSignals(false);
+      spinTime->blockSignals(false);
+    };
+
+    const auto installVolume = [sharedVol, sharedPaged, panel3dGuard, finishVolumeSetup](
+                                   const std::shared_ptr<seismic::SgyVolume> &vol) {
+      if (*sharedVol != nullptr || !vol)
+        return;
+      *sharedVol = vol;
+      // paged 通道先于 volume：初始三槽切片请求即带 LOD 映射（从最粗层起步）
+      if (!sharedPaged->isEmpty())
+        panel3dGuard->setPagedWorkspace(*sharedPaged);
+      panel3dGuard->setVolume(vol);
+      finishVolumeSetup(vol);
+    };
+
+    const auto ensureVolumeLoaded = [this, abs, sharedVol, panel3dGuard, quickInfoGuard, sectionPanelGuard, installVolume]() {
+      if (*sharedVol != nullptr || abs.isEmpty() || !QFile::exists(abs))
+        return;
+      auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
+      if (panel3dGuard && svc)
+        panel3dGuard->setTaskService(svc);
+
+      if (!svc)
+      {
+        // 无任务服务（小夹具测试环境）：保留同步加载路径
         auto vol = std::make_shared<seismic::SgyVolume>();
         std::string volErr;
         if (vol->Load(abs.toStdString(), volErr))
-        {
-          *sharedVol = vol;
-          panel3d->setVolume(vol);
-          if (panel3d->viewport())
-          {
-            panel3d->viewport()->setPresetView(seismic::SeismicCameraController::PresetView::Isometric);
-            panel3d->viewport()->fitToBounds();
-          }
-
-          sliderTime->blockSignals(true);
-          spinTime->blockSignals(true);
-          sliderTime->setRange(0, vol->SampleMax());
-          spinTime->setRange(0, vol->SampleMax());
-          const int mid = vol->SampleMax() / 2;
-          sliderTime->setValue(mid);
-          spinTime->setValue(mid);
-          sliderTime->blockSignals(false);
-          spinTime->blockSignals(false);
-        }
+          installVolume(vol);
+        return;
       }
+
+      // 第一段：QuickOpen 秒级首屏（网格/角点/中央测线真振幅缩略）
+      svc->startQuickOpen(abs, 128, [quickInfoGuard, sectionPanelGuard](bool ok, const seismic::SeismicQuickPreview &p) {
+        if (!quickInfoGuard)
+          return;
+        if (!ok)
+        {
+          quickInfoGuard->setText(QObject::tr("秒开失败：%1").arg(p.error));
+          quickInfoGuard->setVisible(true);
+          return;
+        }
+        QString text;
+        if (p.ruleVerified)
+        {
+          text = QObject::tr("秒开 %1 ms · IL %2–%3 · XL %4–%5 · %6 道 × %7 样点 · 预览 IL %8")
+                     .arg(p.totalMs, 0, 'f', 0)
+                     .arg(p.inlineMin).arg(p.inlineMax)
+                     .arg(p.xlineMin).arg(p.xlineMax)
+                     .arg(p.traceCount).arg(p.sampleCount)
+                     .arg(p.previewInline);
+        }
+        else
+        {
+          text = QObject::tr("秒开 %1 ms · %2").arg(p.totalMs, 0, 'f', 0).arg(p.summary);
+        }
+        quickInfoGuard->setText(text);
+        quickInfoGuard->setVisible(true);
+
+        // 秒级缩略：真振幅中央测线先上 2D 剖面（测线解码结果到达后自然替换）
+        if (p.ruleVerified && p.preview && p.preview->width > 0 && sectionPanelGuard)
+        {
+          auto *sectionPanel = static_cast<SectionPanel *>(sectionPanelGuard.data());
+          if (!sectionPanel->hasImage())
+          {
+            QVector<SegyTrace> traces;
+            traces.reserve(p.preview->width);
+            for (int col = 0; col < p.preview->width; ++col)
+            {
+              SegyTrace t;
+              t.lineNo = p.previewInline;
+              t.xlineNo = p.xlineMin + col;
+              t.cdp = t.xlineNo;
+              t.sampleIntervalUs = static_cast<float>(p.sampleIntervalUs);
+              t.samples.reserve(p.preview->height);
+              for (int s = 0; s < p.preview->height; ++s) // row 0 = 最深采样
+                t.samples.push_back(p.preview->values[
+                    static_cast<std::size_t>(p.preview->height - 1 - s) * p.preview->width + col]);
+              traces.push_back(t);
+            }
+            sectionPanel->setTraces(traces, static_cast<float>(p.sampleIntervalUs), 0.0);
+          }
+        }
+      });
+
+      // 第二段：后台体加载（.sgyidx 命中时秒级），完成换装 3D/时间片面板
+      svc->startVolumeLoad(abs, [quickInfoGuard, installVolume](
+                                    bool ok, std::shared_ptr<seismic::SgyVolume> vol, const QString &err) {
+        if (ok)
+        {
+          installVolume(vol);
+          return;
+        }
+        if (quickInfoGuard && !err.isEmpty())
+        {
+          quickInfoGuard->setText(QObject::tr("体加载失败：%1").arg(err));
+          quickInfoGuard->setVisible(true);
+        }
+      });
     };
+    // 工区打开即启动两段式（不等页签切换）；页签切换回调只做幂等兜底与聚焦
+    ensureVolumeLoaded();
 
     // 时间片走任务服务：sdk::Dataset 在已转码时命中工作区随机访问后端；
     // 未转码走 Direct（同一份 SgyVolume 实现）。防抖 120ms，仅贴最新请求。
+    // 取舍（主线2）：显式 .sf3p 存在时走瓦片渐进（引擎焦点优先，冷缓存
+    // 首见先出中心瓦片再补边角）；直读/热缓存一次性整图更省——两路并存。
     auto *sliceDebounce = new QTimer(host);
     sliceDebounce->setSingleShot(true);
     sliceDebounce->setInterval(120);
     const auto pendingIdx = std::make_shared<int>(-1);
-    const auto requestTimeSlice = [this, sharedVol, timeCanvas, lblTimeMs, pendingIdx](int sampleIndex) {
+
+    // 瓦片信号路由（每服务接一次）：只贴最新一次瓦片请求的目标画布，
+    // 采样号世代不符（陈旧请求/其他资产标签）直接丢弃。
+    if (auto *tileSvc = (m_doc ? m_doc->seismicTaskService() : nullptr);
+        tileSvc && m_tiledSignalService != tileSvc)
+    {
+      m_tiledSignalService = tileSvc;
+      connect(tileSvc, &seismic::SeismicTaskService::timeSliceTileReady, this,
+              [this](const seismic::SeismicTimeTile &tile) {
+                if (!m_tiledCanvas || tile.sampleIndex != m_tiledSample || !tile.image)
+                  return;
+                auto *canvas = qobject_cast<seismic::SeismicSectionCanvas *>(m_tiledCanvas.data());
+                if (canvas)
+                  canvas->appendTimeSliceTile(*tile.image, tile.x, tile.y);
+              });
+    }
+
+    const auto requestTimeSlice = [this, sharedVol, sharedPaged, timeCanvas, lblTimeMs, pendingIdx](int sampleIndex) {
       if (!*sharedVol || !(*sharedVol)->IsLoaded())
         return;
       const auto vol = *sharedVol;
@@ -2702,6 +2971,28 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 
       auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
       const QPointer<seismic::SeismicSectionCanvas> canvasGuard(timeCanvas);
+      if (svc && !sharedPaged->isEmpty())
+      {
+        // paged 通道：瓦片渐进（焦点=网格中心；tileSize 64 与引擎页几何匹配）
+        const int inlCount = qMax(1, static_cast<int>(vol->InlineValues().size()));
+        const int xlCount = qMax(1, static_cast<int>(vol->XlineValues().size()));
+        timeCanvas->beginTimeSliceTiled(xlCount, inlCount, ms,
+                                        vol->InlineMin(), vol->InlineMax(),
+                                        vol->XlineMin(), vol->XlineMax());
+        m_tiledCanvas = timeCanvas;
+        m_tiledSample = sampleIndex;
+        svc->startTimeSliceTiled(
+            *sharedPaged, sampleIndex, 64,
+            vol->InlineMin() + inlCount / 2, vol->XlineMin() + xlCount / 2,
+            [canvasGuard, pendingIdx, sampleIndex](bool ok,
+                                                   std::shared_ptr<const seismic::SgySliceImage> img,
+                                                   const QString &) {
+              if (!ok || !img || !canvasGuard || *pendingIdx != sampleIndex)
+                return;
+              canvasGuard->finishTimeSliceTiled(*img);
+            });
+        return;
+      }
       if (svc)
       {
         svc->startSliceExtraction(
@@ -2745,10 +3036,10 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       updateTimeSlice(val);
     });
 
-    connect(modeTabs, &QTabWidget::currentChanged, host, [loadVolumeIfNeeded, panel3d, timeCanvas, updateTimeSlice, sliderTime](int idx) {
+    connect(modeTabs, &QTabWidget::currentChanged, host, [ensureVolumeLoaded, panel3d, timeCanvas, updateTimeSlice, sliderTime](int idx) {
       if (idx == 1)
       {
-        loadVolumeIfNeeded();
+        ensureVolumeLoaded();
         if (panel3d->viewport())
         {
           panel3d->viewport()->fitToBounds();
@@ -2757,7 +3048,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       }
       else if (idx == 2)
       {
-        loadVolumeIfNeeded();
+        ensureVolumeLoaded();
         updateTimeSlice(sliderTime->value());
         QTimer::singleShot(20, timeCanvas, [timeCanvas]() {
           timeCanvas->fitToWindow();

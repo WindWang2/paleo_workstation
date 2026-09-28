@@ -144,8 +144,72 @@ add_executable(paleo_selfcheck src/selfcheck/main.cpp)
 target_link_libraries(paleo_selfcheck PRIVATE paleo_qgis_iface)
 target_compile_definitions(paleo_selfcheck PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
 
-# ---- P0 spine library ----
-add_library(paleo_core STATIC
+# ---- ONNX Runtime (vendored; spike ET4) — 先于模块库定义，paleo_ai 依赖它 ----
+find_path(ORT_INCLUDE onnxruntime_cxx_api.h PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/include)
+find_library(ORT_LIB onnxruntime PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib)
+if(ORT_INCLUDE AND ORT_LIB)
+  set(PALEO_HAVE_ORT TRUE)
+  add_library(ort_vendored SHARED IMPORTED)
+  set_target_properties(ort_vendored PROPERTIES IMPORTED_LOCATION ${ORT_LIB}
+    INTERFACE_INCLUDE_DIRECTORIES ${ORT_INCLUDE})
+  add_library(paleo_ai STATIC src/ai/onnxpredictionservice.cpp)
+  target_link_libraries(paleo_ai PUBLIC paleo_deps ort_vendored)
+  target_compile_definitions(paleo_ai PUBLIC PALEO_HAVE_ORT=1)
+  target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
+  set(CMAKE_BUILD_RPATH "${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
+else()
+  set(PALEO_HAVE_ORT FALSE)
+  add_library(paleo_ai INTERFACE) # 无 ORT 时为空壳，消费方链接名不变
+  message(STATUS "onnxruntime not vendored — ai/ service excluded (run ./paleo-dev bootstrap)")
+endif()
+
+# ---- 模块化分层库（按 UI_LAYER_PLAN 层契约拆分）----
+# DAG（按实测 include 边排序，单向无环）：
+#   domain · algorithms · ai · store(catalog+metadata) ── qgis ── io ── services
+#     ── linkage · workflow ── ui ── app
+# catalog↔metadata 互有 include（datacatalog→atomicfile / mapversionstore→datacatalog），
+# 同层环合并为 paleo_store。paleo_core 降为 INTERFACE 伞，旧链接方零改动。
+add_library(paleo_deps INTERFACE)
+target_link_libraries(paleo_deps INTERFACE paleo_qgis_iface ${GDAL_LIB})
+target_include_directories(paleo_deps INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
+
+# ---- 数据层 ----
+add_library(paleo_domain STATIC
+  src/domain/types.cpp
+  src/domain/wellcompositemodel.cpp
+  src/domain/wellrecords.cpp                        # 井文本记录类型 + XML 嗅探（自 io 下沉）
+  src/domain/projectclassifier.cpp                  # §3 path/extension classifier + xml sniff
+  src/domain/arearules.cpp                          # 工程级参数 seam（docs/AREA_PARAMETERS.md）
+  src/domain/seismic/nicestep.cpp
+  src/domain/seismic/timedepthmodel.cpp
+  src/domain/seismic/sectionwellprojector.cpp
+  # sgy*.h 为指向 paleo_sbm 的转发头；实现随 vendor 库编译。
+)
+target_link_libraries(paleo_domain PUBLIC paleo_deps paleo_sbm paleo_segyio paleo_glm)
+
+add_library(paleo_algorithms STATIC
+  src/algorithms/paleoalgorithms.cpp
+  src/algorithms/faciespolygonize.cpp
+)
+target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
+
+# catalog + metadata 同库（互依环）
+add_library(paleo_store STATIC
+  src/catalog/datacatalog.cpp                       # entity/link/asset/version + catalog.json
+  src/catalog/roleregistry.cpp                      # RoleDef/RoleRegistry 词表 + project_area.json 覆盖
+  src/catalog/entityview.cpp                        # RoleSlot/EntityView 纯查询门面
+  src/metadata/paleoprojectstore.cpp
+  src/metadata/paleoprojectfile.cpp
+  src/metadata/layermanifest.cpp
+  src/metadata/releasestore.cpp
+  src/metadata/mapversionstore.cpp                  # 版本/发布状态机落表（meta sqlite）
+  src/metadata/metastore.cpp                        # project.sqlite user_version 门
+  src/metadata/projectlock.cpp                      # 两实例同开一工程写互斥（QLockFile）
+)
+target_link_libraries(paleo_store PUBLIC paleo_deps)
+
+# ---- QGIS 封装层 ----
+add_library(paleo_qgis STATIC
   src/qgis/qgisruntime.cpp
   src/qgis/qgisprojectservice.cpp
   src/qgis/qgislayerservice.cpp
@@ -154,27 +218,68 @@ add_library(paleo_core STATIC
   src/qgis/qgisprocessingservice.cpp
   src/qgis/qgisstyleservice.cpp
   src/qgis/qgislayoutservice.cpp
-  src/qgis/layoutexport.cpp                       # 层位图/设计器导出核心（QgsLayoutExporter 封装）
-  src/metadata/paleoprojectstore.cpp
-  src/metadata/paleoprojectfile.cpp
-  src/metadata/layermanifest.cpp
-  src/metadata/releasestore.cpp
+  src/qgis/layoutexport.cpp                         # 层位图/设计器导出核心（QgsLayoutExporter 封装）
+  src/qgis/manifestprojection.cpp
+  src/qgis/factorstylewriter.cpp                    # m2(B)：单因素色带 .qml 落盘
+  src/qgis/factorcontour.cpp                        # m2(B)：等值线 GDAL C API
+  src/qgis/qgislayerprofile.cpp                     # 页面档案：QgsMapThemeCollection 封装 + 组档案表
+)
+target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_store paleo_algorithms)
+
+add_library(paleo_io STATIC
+  src/io/dataimportservice.cpp
+  src/io/lasparser.cpp
+  src/io/segyreader.cpp                             # wave/segy
+  src/io/constraintstore.cpp                        # wave/constraint-gpkg
+  src/io/wellfileparsers.cpp                        # well head / tops / TD text parsers
+  src/io/horizonbinner.cpp                          # horizon scatter -> binned time raster
+  src/io/timedeptool.cpp                            # TVD/MD -> TIME(ms) interpolation
+  src/io/geojsonaffine.cpp                          # D11 临时配准（手工仿射）
+  src/io/wellcompositexml.cpp
+  src/io/ingestplan.cpp                             # C 包：纯 plan + 幂等执行器
+)
+target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store paleo_qgis)
+
+add_library(paleo_services STATIC
   src/services/toolavailability.cpp
-  src/services/previewdoc.cpp                       # W1 数据页唯一数据门面（解析/解码/SHA/PDF 编排）
-  src/domain/types.cpp
-  src/domain/wellcompositemodel.cpp
-  src/domain/wellrecords.cpp                        # 井文本记录类型 + XML 嗅探（自 io 下沉）               # 单井综合柱状图纯数据模型（自 ui 下沉）
+  src/services/previewdoc.cpp                       # W1 数据页唯一数据门面
+  src/services/singlefactordef.cpp                  # m2：单因素定义注册表
+  src/services/algoparamschema.cpp                  # m2：算法参数 schema 注册表
+  src/services/projectdata.cpp                      # 读侧门面（catalog.json + LayerManifest）
+  src/services/paleotaskservice.cpp                 # D1/D2 异步任务框架
+  src/services/seismicmapping.cpp                   # 测网几何↔inline/xline/CDP
+  src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排
+  src/services/crashreport.cpp                      # 致命信号 fd 落盘 + .running 旗标
+)
+target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store)
+
+# ---- 功能层 ----
+add_library(paleo_linkage STATIC
   src/linkage/selectioncontext.cpp
   src/linkage/wellmaplink.cpp
-  src/algorithms/paleoalgorithms.cpp
-  src/algorithms/faciespolygonize.cpp
+  src/linkage/seismicmaplink.cpp
+  src/linkage/seismicsectiontool.cpp
+  src/linkage/threewaylocator.cpp                  # 问题→三视图联动
+)
+target_link_libraries(paleo_linkage PUBLIC paleo_deps paleo_services paleo_qgis paleo_domain)
+
+add_library(paleo_workflow STATIC
   src/workflow/workflows.cpp
-  src/workflow/folderimport.cpp                   # W2 文件夹/单文件导入编排
-  src/workflow/projectopen.cpp                    # W2 打开/新建工程编排
-  src/workflow/registration.cpp                   # W3 临时配准编排
+  src/workflow/folderimport.cpp                    # W2 文件夹/单文件导入编排
+  src/workflow/projectopen.cpp                     # W2 打开/新建工程编排
+  src/workflow/registration.cpp                    # W3 临时配准编排
+  src/workflow/mappingworkflow.cpp                 # 厚度→约束IDW→相多边形链路
+  src/workflow/mapexport.cpp                       # 层位图 PDF 导出
+  src/workflow/mapversioncontroller.cpp            # 保存版本/发布编排
+  src/workflow/derivedassets.cpp                   # 派生产物 + DERIVED 版本登记
+)
+target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store paleo_io paleo_services paleo_domain paleo_ai)
+
+# ---- 视图层 ----
+add_library(paleo_ui STATIC
   src/ui/paleomainwindow.cpp
-  src/ui/paleomainwindow_attach.cpp              # W4 接线按页拆分
-  src/ui/ribbonpanels.cpp                        # W4 ribbon 命令组构建迁出
+  src/ui/paleomainwindow_attach.cpp                # W4 接线按页拆分
+  src/ui/ribbonpanels.cpp                          # W4 ribbon 命令组构建迁出
   src/ui/pages/datalist.cpp                        # W5 数据页·列表侧
   src/ui/pages/entitypanel.cpp                     # W5 数据页·实体视图侧
   src/ui/pages/datapage.cpp                        # W5 DataPage 兼容薄壳
@@ -182,115 +287,72 @@ add_library(paleo_core STATIC
   src/ui/pages/constraintpage.cpp                  # W5b ②约束与单因素
   src/ui/pages/composepage.cpp                     # W5b ③综合编图
   src/ui/pages/validatepage.cpp                    # W5b ④验证
-  src/services/singlefactordef.cpp               # m2：单因素定义注册表
-  src/services/algoparamschema.cpp               # m2：算法参数 schema 注册表（预测页动态表单）
-  src/qgis/factorstylewriter.cpp                 # m2(B)：单因素色带 .qml 落盘
-  src/qgis/factorcontour.cpp                     # m2(B)：等值线 GDAL C API（gdal:contour 降级）
-  src/ui/typedconstraintdrawcontroller.cpp       # m2(B)：物源线/展布线/控制点类型化捕获
+  src/ui/typedconstraintdrawcontroller.cpp         # m2(B)：物源线/展布线/控制点捕获
   src/ui/locator/paleolocatorfilters.cpp
   src/ui/layoutdesignershell.cpp
   src/ui/maptools/paleomaptools.cpp
+  src/ui/maptools/paleoshapetools.cpp              # wave/shapetools
   src/ui/correlationpanel.cpp
-  src/ui/decorations/paleodecorations.cpp
-  src/ui/vertexeditorshim.cpp
-  src/app/appcontext.cpp
-  src/linkage/seismicmaplink.cpp
-  src/linkage/seismicsectiontool.cpp
-  src/qgis/manifestprojection.cpp
-  src/io/dataimportservice.cpp
-  src/io/lasparser.cpp
-  src/ui/constraintdrawcontroller.cpp
-  src/ui/releasepanel.cpp
-  src/ui/taskpanel.cpp
-  src/ui/attributetablepanel.cpp
-  # ---- merged worktree waves ----
-  src/io/segyreader.cpp                          # wave/segy
-  src/io/constraintstore.cpp                     # wave/constraint-gpkg
-  src/ui/maptools/paleoshapetools.cpp            # wave/shapetools
-  src/ui/edittools/editingtools.cpp              # wave/edit-tools
-  src/ui/edittools/editingundostack.cpp
-  src/ui/edittools/vertexeditortools.cpp
-  src/ui/edittools/editingtoolbar.cpp
-  src/ui/correlation/correlationtrack.cpp        # wave/correlation
+  src/ui/correlation/correlationtrack.cpp          # wave/correlation
   src/ui/correlation/correlationwellcolumn.cpp
   src/ui/correlation/curvebrowser.cpp
   src/ui/correlation/depthruler.cpp
   src/ui/correlation/horizonmarkers.cpp
-  src/ui/layout/layoutitempalette.cpp            # wave/layout-designer
+  src/ui/decorations/paleodecorations.cpp
+  src/ui/edittools/editingtools.cpp                # wave/edit-tools
+  src/ui/edittools/editingundostack.cpp
+  src/ui/edittools/vertexeditortools.cpp
+  src/ui/edittools/editingtoolbar.cpp
+  src/ui/vertexeditorshim.cpp
+  src/ui/layout/layoutitempalette.cpp              # wave/layout-designer
   src/ui/layout/layoutitempanel.cpp
   src/ui/layout/layoutexportactions.cpp
   src/ui/layout/layouttemplates.cpp
   src/ui/layout/layoutundostack.cpp
-  # ---- wave/data-foundation (keep contiguous for parallel-package merges) ----
-  src/catalog/datacatalog.cpp                    # entity/link/asset/version + catalog.json
-  src/domain/projectclassifier.cpp               # §3 path/extension classifier + xml sniff（W2 平移 domain）
-  src/io/wellfileparsers.cpp                     # well head / tops / TD text parsers
-  src/io/horizonbinner.cpp                       # horizon scatter -> binned time raster
-  src/io/timedeptool.cpp                         # TVD/MD -> TIME(ms) interpolation
-  src/io/geojsonaffine.cpp                       # D11 临时配准（手工仿射）
-  src/ui/datapreview/datapreviewtabs.cpp         # §4 data-page preview tabs
-  src/ui/dialogs/folderconfirm.cpp               # W2 文件夹导入确认表（视图件）
-  src/ui/webviewpanel.cpp                        # embedded web shell (lazy, degradable)
-  # ---- wave/wellcomposite (ResFormStar multi-track composite column) ----
-  src/ui/wellcomposite/wellcompositetrack.cpp
+  src/ui/datapreview/datapreviewtabs.cpp           # §4 data-page preview tabs
+  src/ui/dialogs/folderconfirm.cpp                 # W2 文件夹导入确认表
+  src/ui/webviewpanel.cpp                          # embedded web shell (lazy, degradable)
+  src/ui/wellcomposite/wellcompositetrack.cpp      # ResFormStar 多道综合柱状图
   src/ui/wellcomposite/wellcompositecanvas.cpp
   src/ui/wellcomposite/wellcompositepanel.cpp
   src/ui/wellcomposite/curveconfigdialog.cpp
   src/ui/wellcomposite/wellpositionlegendwidget.cpp
-  src/io/wellcompositexml.cpp
-  # ---- package C: ingest-plan (three-phase folder import) ----
-  src/io/ingestplan.cpp                          # C 包：纯 plan + 幂等执行器
-  # ---- domain/seismic: 3D seismic volume & section core ----
-  # sgy*.h 现为指向 paleo_sbm（vendor/sbm）的转发头；实现随 vendor 库编译。
-  src/services/seismictaskservice.cpp
-  # ---- ui/seismic3d: 3D seismic volume viewport & renderers ----
-  src/ui/seismic3d/seismiccameracontroller.cpp
+  src/ui/horizonchipbar.cpp                        # 8层位chip条（阶段E）
+  src/ui/releasepanel.cpp
+  src/ui/taskpanel.cpp
+  src/ui/attributetablepanel.cpp
+  src/ui/constraintdrawcontroller.cpp
+  src/ui/layers/layertreepanel.cpp                 # 图层树面板
+  src/ui/layers/layerpropertiesdialog.cpp          # 原生属性壳 + 业务页
+  src/ui/layers/layerprofilebar.cpp                # 档案工具条
+  src/ui/seismic3d/seismiccameracontroller.cpp     # 3D 视口相机/渲染器
   src/ui/seismic3d/seismicslicerenderer.cpp
   src/ui/seismic3d/volumeframerenderer.cpp
   src/ui/seismic3d/seismic3dviewportwidget.cpp
   src/ui/seismic3d/seismic3dviewpanel.cpp
-  resources/seismic_shaders.qrc
-  # ---- domain/seismic: Phase 4 & 2D section ----
-  src/domain/seismic/nicestep.cpp
-  src/domain/seismic/timedepthmodel.cpp
-  src/domain/seismic/sectionwellprojector.cpp
-  # ---- ui/seismicsection: 2D arbitrary line & well section dock ----
-  src/ui/seismicsection/seismicsectioncanvas.cpp
+  src/ui/seismicsection/seismicsectioncanvas.cpp   # 2D 任意线/井剖面 dock
   src/ui/seismicsection/seismicsectiondockwidget.cpp
+  src/ui/paleotheme.cpp                            # DESIGN.md 字体/色 token
+  src/ui/paleoicons.cpp                            # ribbon 图标出口
+  src/ui/paleoribbon.cpp                           # SARibbon 壳公用件
+  resources/seismic_shaders.qrc
+  resources/paleo_fonts.qrc
 )
-target_link_libraries(paleo_core PUBLIC paleo_qgis_iface paleo_saribbon paleo_segyio paleo_glm paleo_sbm ${GDAL_LIB})
-target_include_directories(paleo_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
+target_link_libraries(paleo_ui PUBLIC paleo_deps paleo_qgis paleo_workflow paleo_services
+  paleo_store paleo_linkage paleo_domain paleo_io paleo_ai paleo_saribbon paleo_sbm)
 
-# ---- wave3/ux-consistency ----
-# DESIGN.md typography: vendored fonts (Noto Sans SC + JetBrains Mono) travel
-# inside the binary so UI text and render-regression baselines are identical
-# on every platform. Registered by PaleoTheme::ensureApplicationFonts().
-target_sources(paleo_core PRIVATE src/ui/paleotheme.cpp resources/paleo_fonts.qrc)
+# ---- 组装根 ----
+add_library(paleo_app STATIC src/app/appcontext.cpp)
+target_link_libraries(paleo_app PUBLIC paleo_ui paleo_workflow paleo_linkage paleo_services
+  paleo_io paleo_qgis paleo_store paleo_domain paleo_ai)
 
-# ---- ui/ribbon-icons ----
-# ribbon 图标出口：QGIS default 主题 svg（qrc，安装路径无关）优先；
-# QGIS 缺语义的（预览最大化/还原）QPainter 自绘，DESIGN.md text token 色。
-target_sources(paleo_core PRIVATE src/ui/paleoicons.cpp)
-
-# ---- ui/ribbon：SARibbon 壳公用件（主题调色板 + 页面板按钮镜像） ----
-target_sources(paleo_core PRIVATE src/ui/paleoribbon.cpp)
-
-# ONNX Runtime (vendored; spike ET4). The shipped cmake config assumes lib64/ — we use lib/.
-find_path(ORT_INCLUDE onnxruntime_cxx_api.h PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/include)
-find_library(ORT_LIB onnxruntime PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib)
-if(ORT_INCLUDE AND ORT_LIB)
-  set(PALEO_HAVE_ORT TRUE)
-  add_library(ort_vendored SHARED IMPORTED)
-  set_target_properties(ort_vendored PROPERTIES IMPORTED_LOCATION ${ORT_LIB}
-    INTERFACE_INCLUDE_DIRECTORIES ${ORT_INCLUDE})
-  target_sources(paleo_core PRIVATE src/ai/onnxpredictionservice.cpp)
-  target_link_libraries(paleo_core PUBLIC ort_vendored)
-  target_compile_definitions(paleo_core PUBLIC PALEO_HAVE_ORT=1)
-  set(CMAKE_BUILD_RPATH "${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
-else()
-  set(PALEO_HAVE_ORT FALSE)
-  message(STATUS "onnxruntime not vendored — ai/ service excluded (run ./paleo-dev bootstrap)")
-endif()
+# ---- 兼容伞：旧链接方零改动，实际分派各模块 ----
+add_library(paleo_core INTERFACE)
+target_link_libraries(paleo_core INTERFACE
+  paleo_app paleo_ui paleo_workflow paleo_linkage paleo_services paleo_io
+  paleo_qgis paleo_store paleo_algorithms paleo_domain paleo_ai
+  paleo_saribbon paleo_sbm paleo_segyio paleo_glm ${GDAL_LIB})
+target_include_directories(paleo_core INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
 
 enable_testing()
 
@@ -403,32 +465,16 @@ if(PALEO_HAVE_ORT)
 endif()
 
 # ---- wave/mapping-pipeline (阶段C+E 编图链路) ----
-target_sources(paleo_core PRIVATE
-  src/services/projectdata.cpp                    # 读侧门面（catalog.json + LayerManifest）
-  src/workflow/mappingworkflow.cpp                # 厚度→约束IDW→相多边形链路 + 时间残差
-  src/workflow/mapexport.cpp                      # 层位图 PDF 导出（井位+相多边形）
-  src/linkage/threewaylocator.cpp                 # 问题→三视图联动
-  src/ui/horizonchipbar.cpp                       # 8层位chip条（阶段E）
-  src/metadata/mapversionstore.cpp                # 版本/发布状态机落表（meta sqlite）
-  src/workflow/mapversioncontroller.cpp           # 保存版本/发布编排（§41.7/§1223）
-)
 add_paleo_test(tst_projectdata)
 add_paleo_test(tst_mapping)
 
 # ---- wave2 async-ux (D1/D2 异步任务框架 + 任务页进度条) ----
-target_sources(paleo_core PRIVATE
-  src/services/paleotaskservice.cpp               # D1/D2 异步任务注册+池化执行+字节进度+10s ETA+协作取消
-)
 add_paleo_test(tst_taskservice)
 add_paleo_test(tst_threeway)
 add_paleo_test(tst_chips)
 add_paleo_test(tst_versions)
 
 # ---- wave3/derived-publish (T26/D10/D15 + §40 速度模型与 CDP 映射) ----
-target_sources(paleo_core PRIVATE
-  src/workflow/derivedassets.cpp                  # 派生产物落 artifacts/derived + DERIVED 版本登记
-  src/services/seismicmapping.cpp                 # 测网几何↔inline/xline/CDP + 井 TD 速度桥
-)
 add_paleo_test(tst_derivedassets)
 add_paleo_test(tst_seismicmapping)
 target_compile_definitions(tst_seismicmapping PRIVATE
@@ -454,10 +500,6 @@ add_test(NAME polygonize COMMAND tst_polygonize)
 set_tests_properties(polygonize PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 # ---- wave3/model-hardening (数据模型与测试基建加固) ----
-target_sources(paleo_core PRIVATE
-  src/metadata/metastore.cpp                         # project.sqlite user_version 门
-  src/metadata/projectlock.cpp                       # 两实例同开一工程的写互斥（QLockFile）
-)
 add_paleo_test(tst_metastore)      # sqlite user_version：新库采纳/遗留升级/未来拒开
 add_paleo_test(tst_segy_fixture)   # 合成最小 SEG-Y 夹具：索引/单线/角点/范围门
 target_compile_definitions(tst_segy_fixture PRIVATE
@@ -468,26 +510,17 @@ target_compile_definitions(tst_perfbudget PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 
 # ---- data/role-registry (A 包：工程作用域角色词表) ----
-target_sources(paleo_core PRIVATE
-  src/catalog/roleregistry.cpp                      # RoleDef/RoleRegistry 内置词表 + project_area.json roles 覆盖
-)
 add_paleo_test(tst_roles)
 
 # ---- data/commit-coord（D 包：journal + 幂等有序提交） ----
 add_paleo_test(tst_commitcoord)    # commitAll 记档生命周期/幂等重入/崩溃恢复/catalog→qgz 顺序
 
 # ---- data/entity-view (B 包：实体视图 + link ordinal + staleness-lite) ----
-target_sources(paleo_core PRIVATE
-  src/catalog/entityview.cpp                        # RoleSlot/EntityView 纯查询门面（derivedProducts/missingSources 诊断）
-)
 add_paleo_test(tst_entityview)
 
 # ---- wave4/runtime-resilience ----
 # 崩溃本地转储（§38 留白按本地优先落地）+ 外链源重定位恢复路径。
 # 新增源与测试集中在此块；并行包合并冲突时保留双方行。
-target_sources(paleo_core PRIVATE
-  src/services/crashreport.cpp                  # 致命信号 fd 落盘 + .running 会话旗标 + 重启提示文案
-)
 add_paleo_test(tst_crashreport)
 add_paleo_test(tst_relocate)
 target_compile_definitions(tst_relocate PRIVATE
@@ -497,9 +530,6 @@ target_compile_definitions(tst_relocate PRIVATE
 # AreaRules：工程级参数 seam——层序界面名单 / 分类器目录规则 / SEG-Y 道号索引
 # 约定 / ONNX 期望网格（TODOS「第二工区参数化接缝」）。默认 = 本工区内置值，
 # 工程目录 project_area.json 可覆盖（docs/AREA_PARAMETERS.md）。
-target_sources(paleo_core PRIVATE
-  src/domain/arearules.cpp                           # 参数装载 + 进程级 active 快照
-)
 add_paleo_test(tst_arearules)     # 默认等价 / 自定义生效 / 坏 JSON 拒用
 
 # ---- data/staleness (p5b：staleness 链路接线 + 发布门 advisory) ----
@@ -512,12 +542,6 @@ target_compile_definitions(tst_staleness PRIVATE
 # ---- wave/layer-platform (图层平台：三编图页共用底座) ----
 # 图层树面板 + 属性对话框 + 页面档案服务（QgsMapThemeCollection 封装）+
 # 档案工具条。QgsLayerTree/主题是唯一图层可见性状态源，Paleo 只做业务接线。
-target_sources(paleo_core PRIVATE
-  src/qgis/qgislayerprofile.cpp                   # 页面档案：QgsMapThemeCollection 封装 + 组档案表
-  src/ui/layers/layertreepanel.cpp                # 图层树面板（工具条+筛选+全量右键+indicator）
-  src/ui/layers/layerpropertiesdialog.cpp         # 原生属性壳 + Paleo 业务页 + 样式预设
-  src/ui/layers/layerprofilebar.cpp               # 档案工具条（主题下拉/保存/管理）
-)
 add_paleo_test(tst_layerplatform)     # 档案应用/主题往返 .qgz/生命周期/层位时序
 add_paleo_test(tst_layertreepanel)    # 筛选/组级显隐/复制图层/objectName 兼容
 add_paleo_test(tst_layerproperties)   # 矢量/栅格/缺源三类 + 业务页字段

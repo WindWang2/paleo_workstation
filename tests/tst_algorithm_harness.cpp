@@ -100,6 +100,73 @@ private slots:
     delete pts;
   }
 
+  // 0) welldist（wave/data-foundation T11）：精确最近井距离——两口井
+  //    (0,0)/(10,0)、CELL_SIZE=1 → 逐格与解析期望 hypot 对拍（tol=1e-4）；
+  //    空输入拒绝；重复运行确定性。
+  void paleoWellDistanceExactTest()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 0, 0 ), 0.0 }, { QgsPointXY( 10, 0 ), 0.0 } } );
+    QVERIFY( wells->isValid() );
+
+    const QString out = mDir.filePath( QStringLiteral( "welldist.tif" ) );
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    params.insert( QStringLiteral( "OUTPUT" ), out );
+    QString log;
+    QVERIFY2( !AlgorithmTestBase::run( QStringLiteral( "paleo:paleo_welldist" ), params, &log ).isEmpty(),
+              qPrintable( log ) );
+
+    int w = 0, h = 0;
+    QVector<float> px;
+    QVERIFY( AlgorithmTestBase::readRaster( out, w, h, px ) );
+    // 范围 (0,0)-(10,0) 外扩 10%：x∈[-1,11] y∈[-1,1] → 12×2 格。
+    QCOMPARE( w, 12 );
+    QCOMPARE( h, 2 );
+    const double x0 = -1.0, y1 = 1.0; // GeoTransform 起点
+    for ( int r = 0; r < h; ++r )
+    {
+      const double y = y1 - ( r + 0.5 );
+      for ( int c = 0; c < w; ++c )
+      {
+        const double x = x0 + ( c + 0.5 );
+        const double expect = std::min( std::hypot( x, y ), std::hypot( x - 10.0, y ) );
+        const float got = px.at( r * w + c );
+        QVERIFY2( std::fabs( got - static_cast<float>( expect ) ) < 1e-4,
+                  qPrintable( QStringLiteral( "cell(%1,%2) got %3 want %4" )
+                                  .arg( r )
+                                  .arg( c )
+                                  .arg( got )
+                                  .arg( expect ) ) );
+      }
+    }
+
+    // 确定性重跑。
+    const QString out2 = mDir.filePath( QStringLiteral( "welldist_b.tif" ) );
+    QVariantMap params2 = params;
+    params2.insert( QStringLiteral( "OUTPUT" ), out2 );
+    QVERIFY2( !AlgorithmTestBase::run( QStringLiteral( "paleo:paleo_welldist" ), params2, &log ).isEmpty(),
+              qPrintable( log ) );
+    AlgorithmTestBase::RasterDiff diff;
+    QVERIFY2( AlgorithmTestBase::compareRasters( out, out2, 0.0, &diff ),
+              qPrintable( diff.message ) );
+
+    // 空输入拒绝（无可用点要素）。
+    auto *empty = AlgorithmTestBase::makePointLayer( QStringLiteral( "empty" ), {} );
+    QVariantMap paramsE;
+    paramsE.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( empty ) );
+    paramsE.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    paramsE.insert( QStringLiteral( "OUTPUT" ),
+                    mDir.filePath( QStringLiteral( "welldist_e.tif" ) ) );
+    QVERIFY2( AlgorithmTestBase::run( QStringLiteral( "paleo:paleo_welldist" ), paramsE, &log ).isEmpty(),
+              qPrintable( log ) ); // 期望失败：返回空 map
+
+    delete wells;
+    delete empty;
+  }
+
   // 1) IDW：同一输入连跑两次，输出逐像元一致（tol=0）；顺带校验一个
   //    已知中心的值（harness.makeRaster/readRaster 同时被本案覆盖）。
   void constraintIdwDeterministicRerun()
@@ -239,7 +306,7 @@ private slots:
 int main( int argc, char *argv[] )
 {
   QgsApplication app( argc, argv, false );
-  app.setPrefixPath( QStringLiteral( "/usr" ), true );
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true);
   app.initQgis();
   QgsApplication::processingRegistry();
   GDALAllRegister();

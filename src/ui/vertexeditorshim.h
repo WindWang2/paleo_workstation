@@ -34,6 +34,7 @@ class QgsPointXY;
 // setVertices(). Placeholder for the real QgsVertexEditor model/table.
 class PaleoVertexEditorWidget : public QTableWidget
 {
+  Q_OBJECT
   public:
     explicit PaleoVertexEditorWidget( QWidget *parent = nullptr );
     void setVertices( const QList<QgsPointXY> &points );

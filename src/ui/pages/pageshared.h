@@ -5,6 +5,7 @@
 #include <QStringList>
 #include <QVBoxLayout>
 #include <QWidget>
+#include "../paleotheme.h"
 
 // ui/pages/pageshared — 各页面板共用的视图助手（W5b：自 pagepanels.cpp
 // 的匿名命名空间收敛成内联头）。只含纯 Qt 布局/查找助手，不含业务。
@@ -33,7 +34,8 @@ inline QLabel *caption(const QString &text, QWidget *parent)
   QFont f = l->font();
   f.setPointSize(8);
   l->setFont(f);
-  l->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+  // text-muted——PaleoTheme 现取（每次 caption() 调用现算，天然随主题）。
+  l->setStyleSheet(PaleoTheme::mutedCaptionStyleSheet());
   return l;
 }
 

@@ -873,22 +873,33 @@ void TestDataPreview::seismicDecodeRunsThroughTaskService()
   auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
   QWidget *page = tabs->widget(tabs->currentIndex());
 
-  // 解码任务注册进任务服务并跑成功。
+  // 解码任务注册进任务服务并跑成功。（wave/seismic-engine-deep 起工区打开
+  // 还会派「秒开预览/加载地震体」任务——按「解码剖面」标题语义定位解码
+  // 任务，不依赖任务表序号。）
   QTRY_VERIFY_WITH_TIMEOUT(!taskSvc.tasks().isEmpty(), 3000);
-  PaleoTask *t1 = taskSvc.tasks().first();
-  QTRY_COMPARE_WITH_TIMEOUT(t1->state(), PaleoTask::State::Succeeded, 5000);
-  QCOMPARE(tabs->tabText(tabs->currentIndex()),
-           QStringLiteral("vol.sgy · IL1000"));
+  QTRY_COMPARE_WITH_TIMEOUT(tabs->tabText(tabs->currentIndex()),
+                            QStringLiteral("vol.sgy · IL1000"), 5000);
+  QVERIFY([&]() {
+    for (PaleoTask *t : taskSvc.tasks())
+      if (t->title().startsWith(QStringLiteral("解码剖面")) &&
+          t->state() == PaleoTask::State::Succeeded)
+        return true;
+    return false;
+  }());
   auto *no = page->findChild<QSpinBox *>(QStringLiteral("lineSpin"));
   QVERIFY(no);
 
-  // 换测线 → 第二个任务（索引缓存命中，不再 open 全文件）。
+  // 换测线 → 第二个解码任务（索引缓存命中，不再 open 全文件）。
   no->setValue(1001);
-  QTRY_VERIFY_WITH_TIMEOUT(taskSvc.tasks().size() >= 2, 3000);
-  PaleoTask *t2 = taskSvc.tasks().at(1);
-  QTRY_COMPARE_WITH_TIMEOUT(t2->state(), PaleoTask::State::Succeeded, 5000);
-  QCOMPARE(tabs->tabText(tabs->currentIndex()),
-           QStringLiteral("vol.sgy · IL1001"));
+  QTRY_VERIFY_WITH_TIMEOUT([&]() {
+    int decodes = 0;
+    for (PaleoTask *t : taskSvc.tasks())
+      if (t->title().startsWith(QStringLiteral("解码剖面")))
+        ++decodes;
+    return decodes >= 2;
+  }(), 3000);
+  QTRY_COMPARE_WITH_TIMEOUT(tabs->tabText(tabs->currentIndex()),
+                            QStringLiteral("vol.sgy · IL1001"), 5000);
 }
 
 // §4：没有 TD 表 → 标定写原因「无时深表」，绝不造时间。

@@ -248,8 +248,14 @@ class TestLayerProperties : public QObject
                fixtureGpkg() + QStringLiteral("|layername=basin"));
       QCOMPARE(page->findChild<QLabel *>(QStringLiteral("paleoPropAsset"))->text(),
                QStringLiteral("未关联"));
-      QCOMPARE(page->findChild<QLabel *>(QStringLiteral("paleoPropCreated"))->text(),
-               QStringLiteral("—"));
+      // 主线5：创建时间来自 instantiate() 落的 paleoCreatedAt 图层自定义属性
+      //（ISO UTC；非 instantiate 产生的层保持占位「—」）。
+      const QString createdText =
+          page->findChild<QLabel *>(QStringLiteral("paleoPropCreated"))->text();
+      QVERIFY2(createdText != QStringLiteral("—"),
+               qPrintable(QStringLiteral("instantiated layer must carry paleoCreatedAt: %1").arg(createdText)));
+      QVERIFY2(createdText.startsWith(QStringLiteral("20")),
+               qPrintable(QStringLiteral("not an ISO timestamp: %1").arg(createdText)));
 
       // 未关联资产：按钮禁用 + reason tooltip（DESIGN.md 禁用带 reason），
       // 点击不发射 assetInspectionRequested（负面断言）。
@@ -422,7 +428,7 @@ class TestLayerProperties : public QObject
 int main(int argc, char *argv[])
 {
   QgsApplication app(argc, argv, false);
-  app.setPrefixPath(QStringLiteral("/usr"), true); // distro install
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true); // distro install
   app.initQgis();
   TestLayerProperties tc;
   const int rc = QTest::qExec(&tc, argc, argv);

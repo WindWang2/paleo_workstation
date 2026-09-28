@@ -30,6 +30,7 @@ class CompositionWorkflow;
 class ValidationWorkflow;
 class ProjectDataFacade;
 class MappingWorkflow;
+class MappingWorkbench;
 class MapVersionStore;
 class MapVersionController;
 class PaleoTaskService;
@@ -68,6 +69,7 @@ class AppContext : public QObject
 
     // wave/mapping-pipeline 阶段C+E：读侧门面 / D61 编图链 / 版本状态机。
     ProjectDataFacade *projectData() const { return m_projectData; }
+    MappingWorkbench *mappingWorkbench() const { return m_mappingWorkbench; }
     MappingWorkflow *mappingWf() const { return m_mappingWf; }
     MapVersionStore *versionStore() const { return m_versionStore; }
     MapVersionController *versionCtl() const { return m_versionCtl; }
@@ -76,6 +78,15 @@ class AppContext : public QObject
     // ETA + 协作取消），任务页轮询它渲染进度条；长 IO 经它上 worker。
     PaleoTaskService *taskSvc() const { return m_taskSvc; }
     ProjectDirLock *projectLock() const { return m_projectLock.get(); }
+
+    // 单写实例降级面（T4）：projectOpened 时 tryLock 失败 → 本实例只读。
+    // catalog/manifest/版本库/工程存储的写路径已全部如实拒绝（各自
+    // setReadOnly/setLockedReadOnly 接线在本组装根）；UI 态反映经信号
+    // projectReadOnlyChanged（壳侧可绑标题「（只读）」/禁用保存动作）。
+    bool isProjectReadOnly() const;
+
+  signals:
+    void projectReadOnlyChanged(bool readOnly);
 
   private:
     // §4 井位图层：catalog 井点 → artifacts/layers/wells.geojson → manifest
@@ -109,9 +120,11 @@ class AppContext : public QObject
     CompositionWorkflow *m_compositionWf = nullptr;
     ValidationWorkflow *m_validationWf = nullptr;
     ProjectDataFacade *m_projectData = nullptr;
+    MappingWorkbench *m_mappingWorkbench = nullptr;
     MappingWorkflow *m_mappingWf = nullptr;
     MapVersionStore *m_versionStore = nullptr;
     MapVersionController *m_versionCtl = nullptr;
     PaleoTaskService *m_taskSvc = nullptr;
     std::unique_ptr<ProjectDirLock> m_projectLock;
+    bool m_lastReadOnlyNotified = false; // 上次广播的只读态（去重）
 };

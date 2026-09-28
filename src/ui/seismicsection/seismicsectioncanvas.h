@@ -48,6 +48,16 @@ public:
                           int inlineMin, int inlineMax,
                           int xlineMin, int xlineMax);
 
+    // 瓦片渐进时间片（wave/seismic-engine-deep 主线2）：begin 建立全网格
+    // NaN 底图并适应窗口；append 只重绘该瓦片区域（分块贴图，不整图重建）；
+    // finish 以完整图整体替换但不重置用户视口。
+    // 与 setTimeSliceData 的取舍：paged 后端冷缓存首见走瓦片流（引擎焦点
+    // 优先，先出中心再补边角）；直读/热缓存路径一次性整图更省。
+    void beginTimeSliceTiled(int xlineCount, int inlineCount, double twtMs,
+                             int inlineMin, int inlineMax, int xlineMin, int xlineMax);
+    void appendTimeSliceTile(const SgySliceImage &tile, int x, int y);
+    void finishTimeSliceTiled(const SgySliceImage &full);
+
     void setOrientation(SectionOrientation orientation);
     SectionOrientation orientation() const { return m_orientation; }
 
@@ -131,6 +141,9 @@ protected:
 
 private:
     void rebuildImage();
+    // 把 m_slice.values 的 [x0,x0+w)×[y0,y0+h) 区域按当前色标/增益写入
+    // m_cachedImage（瓦片流与整图重建共用一条上色路径）。
+    void paintValueRegion(int x0, int y0, int w, int h);
     void updateHoverInfo(const QPoint &pos);
     QRect viewportRect() const;
 

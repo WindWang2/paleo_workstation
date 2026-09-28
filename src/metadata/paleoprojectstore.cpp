@@ -77,6 +77,8 @@ void PaleoProjectStore::setProjectPaths( const QString &qgzPath, const QString &
 
 PaleoProjectStore::WriteResult PaleoProjectStore::enqueueWrite( const std::function<WriteResult()> &fn )
 {
+  if ( m_readOnly )
+    return { false, tr( "工程目录被另一个实例锁定——本实例只读，工程文件写入被拒绝" ) };
   WriteResult result;
   {
     QMutexLocker locker( &m_writeMutex );
@@ -94,6 +96,8 @@ PaleoProjectStore::WriteResult PaleoProjectStore::enqueueWrite( const std::funct
 PaleoProjectStore::WriteResult PaleoProjectStore::saveAll( const std::function<WriteResult()> &gpkgCommit,
                                                            const std::function<WriteResult()> &writeQgz )
 {
+  if ( m_readOnly )
+    return { false, tr( "工程目录被另一个实例锁定——本实例只读，工程保存被拒绝" ) };
   struct PendingEmission { bool failed; QString target; QString error; };
   QList<PendingEmission> pending;
   WriteResult result;
@@ -323,6 +327,8 @@ PaleoProjectStore::WriteResult PaleoProjectStore::commitAll(
   QList<PendingEmission> pending;
   WriteResult result{ false, QString() };
 
+  if ( m_readOnly )
+    return { false, tr( "工程目录被另一个实例锁定——本实例只读，工程提交被拒绝" ) };
   // 执行前校验：没有写动作发生就不发射信号（与 saveAll 只对跑过的单元
   // 发信号同一约定）。
   if ( !catalogCommit || !qgzWrite )

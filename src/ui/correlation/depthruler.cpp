@@ -1,5 +1,6 @@
 // 层：视图
 #include "depthruler.h"
+#include "../paleotheme.h"
 
 #include <QFont>
 #include <QFontMetrics>
@@ -11,8 +12,8 @@
 namespace
 {
   // DESIGN.md tokens — the only colors this ruler ever paints.
-  const QColor kTextMuted(QStringLiteral("#5D6E80"));
-  const QColor kBorder(QStringLiteral("#DFE5EC"));
+  QColor kTextMuted() { return PaleoTheme::tokens().textMuted; }
+  QColor kBorder() { return PaleoTheme::tokens().border; }
 
   // Tick geometry (scene px): marks hang off the label column's right edge.
   constexpr qreal kMajorTickLen = 8.0;
@@ -194,7 +195,7 @@ void DepthRuler::paint(QPainter *painter, const QStyleOptionGraphicsItem *option
     QFont f = painter->font();
     f.setPointSize(8);
     painter->setFont(f);
-    painter->setPen(QPen(kTextMuted, 1.0));
+    painter->setPen(QPen(kTextMuted(), 1.0));
     painter->drawText(QRectF(2.0, 0.0, m_labelWidth - 4.0, 11.0),
                       Qt::AlignLeft | Qt::AlignVCenter,
                       m_unit == Unit::Feet ? QStringLiteral("ft") : QStringLiteral("m"));
@@ -206,7 +207,7 @@ void DepthRuler::paint(QPainter *painter, const QStyleOptionGraphicsItem *option
   // this paint only guarantees the geometry).
   if (m_grid && m_gridWidth > 0.0)
   {
-    painter->setPen(QPen(kBorder, 1.0));
+    painter->setPen(QPen(kBorder(), 1.0));
     for (double d : majorDepths())
     {
       const qreal y = yOf(d);
@@ -215,7 +216,7 @@ void DepthRuler::paint(QPainter *painter, const QStyleOptionGraphicsItem *option
   }
 
   // --- tick marks: 1px muted, depth increasing downward -------------------
-  painter->setPen(QPen(kTextMuted, 1.0));
+  painter->setPen(QPen(kTextMuted(), 1.0));
   for (double d : minorDepths())
   {
     const qreal y = yOf(d);
@@ -237,7 +238,7 @@ void DepthRuler::paint(QPainter *painter, const QStyleOptionGraphicsItem *option
   mono.setFeature(QFont::Tag("tnum"), 1);
   mono.setPointSize(7);
   painter->setFont(mono);
-  painter->setPen(QPen(kTextMuted, 1.0));
+  painter->setPen(QPen(kTextMuted(), 1.0));
 
   const QFontMetricsF fm(mono);
   const qreal boxH = fm.height();

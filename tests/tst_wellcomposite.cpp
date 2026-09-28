@@ -2,6 +2,20 @@
 #include <QTest>
 #include <QPainter>
 #include <QImage>
+#include <QDir>
+#include <QFile>
+
+// wave/ux-polish：视觉取证截图只经 PALEO_UI_CAPTURE 开关落盘（tst_ui.cpp
+// 同款惯例）——路径形如 $PALEO_UI_CAPTURE/<name>.png，未设则完全跳过；
+// 绝不允许个人绝对路径混进测试。
+static void captureIfAsked(const QImage &img, const QString &name)
+{
+  const QString dir = qEnvironmentVariable("PALEO_UI_CAPTURE");
+  if (dir.isEmpty() || img.isNull())
+    return;
+  QDir().mkpath(dir);
+  img.save(dir + QLatin1Char('/') + name);
+}
 
 #include "ui/wellcomposite/wellcompositetrack.h"
 #include "ui/wellcomposite/wellcompositecanvas.h"
@@ -213,6 +227,9 @@ private slots:
   {
     const QString xmlPath = QStringLiteral(
         "/home/kevin/projects/paleo_project/data/project_area/artifacts/raw/ast-28/ver-28/HZ28-6-1井综合柱状图-2021-沉积-地化室-未钻遇烃源岩层-测井-惠州勘探室.xml");
+    // 真实数据仅存在于开发机私有目录，CI/其他环境跳过而非 FAIL
+    if (!QFile::exists(xmlPath))
+      QSKIP("真实井综合柱状图 XML 不在本机，跳过");
 
     ComprehensiveWellData data;
     QString err;
@@ -256,6 +273,9 @@ private slots:
   {
     const QString xmlPath = QStringLiteral(
         "/home/kevin/projects/paleo_project/data/project_area/artifacts/raw/ast-28/ver-28/HZ28-6-1井综合柱状图-2021-沉积-地化室-未钻遇烃源岩层-测井-惠州勘探室.xml");
+    // 真实数据仅存在于开发机私有目录，CI/其他环境跳过而非 FAIL
+    if (!QFile::exists(xmlPath))
+      QSKIP("真实井综合柱状图 XML 不在本机，跳过");
 
     WellCompositePanel panel;
     panel.resize(1200, 800);
@@ -294,7 +314,7 @@ private slots:
     imgAdaptive.fill(Qt::white);
     panel.render(&imgAdaptive);
     QVERIFY(!imgAdaptive.isNull());
-    imgAdaptive.save(QStringLiteral("/home/kevin/.config/antigravity_accounts/garni/.gemini/antigravity-cli/brain/c9308e91-0248-4fc8-8bd5-962620634b6c/screen_resform_composite.png"));
+    captureIfAsked(imgAdaptive, QStringLiteral("screen_resform_composite.png"));
 
     // 2. 储层段 (2000m - 2100m) 1:500 地质精细标尺特写图
     panel.canvas()->setScaleRatio(QStringLiteral("1:500"));
@@ -303,7 +323,7 @@ private slots:
     imgDetail.fill(Qt::white);
     panel.render(&imgDetail);
     QVERIFY(!imgDetail.isNull());
-    imgDetail.save(QStringLiteral("/home/kevin/.config/antigravity_accounts/garni/.gemini/antigravity-cli/brain/c9308e91-0248-4fc8-8bd5-962620634b6c/screen_resform_reservoir_detail.png"));
+    captureIfAsked(imgDetail, QStringLiteral("screen_resform_reservoir_detail.png"));
   }
 
   void testWellPositionLegendWidgetAndSync()
@@ -378,7 +398,7 @@ private slots:
     imgLegend.fill(Qt::white);
     panel.legendWidget()->render(&imgLegend);
     QVERIFY(!imgLegend.isNull());
-    imgLegend.save(QStringLiteral("/home/kevin/.config/antigravity_accounts/11111/.gemini/antigravity-cli/brain/45d666c3-a0cf-4a44-a54b-9328b30b5bea/screen_legend_bar_test.png"));
+    captureIfAsked(imgLegend, QStringLiteral("screen_legend_bar_test.png"));
   }
 
   void testFaciesPatterns()

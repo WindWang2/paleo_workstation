@@ -79,10 +79,13 @@ namespace
         setError( error, db.lastError().text() );
         return false;
       }
-      // 共享 schema 门（docs/SCHEMA_MIGRATION.md）：建表/补列之前执行。
-      if ( !MetaStore::ensureUserVersion( db, error ) )
-        return false;
     }
+    // 共享 schema 门（docs/SCHEMA_MIGRATION.md）：建表/补列之前执行。
+    // T7 矩阵暴露的洞：检查原先只在首次 open 时跑——拒开后连接留在注册表
+    // 里处于 open 态，之后的读调用经缓存连接绕过版本门直接建表。移到连接
+    // 确保之后每次执行（一次 PRAGMA，幂等便宜）。
+    if ( !MetaStore::ensureUserVersion( db, error ) )
+      return false;
 
     QSqlQuery schema( db );
     if ( !schema.exec( QStringLiteral( "CREATE TABLE IF NOT EXISTS map_versions("
@@ -226,6 +229,11 @@ QVector<MapVersion> MapVersionStore::versions( const QString &horizon ) const
 MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &provenanceJson,
                                          QString *error )
 {
+  if ( m_readOnly )
+  {
+    setError( error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，版本写入被拒绝") );
+    return MapVersion();
+  }
   if ( !ensureOpen( m_dbPath, error ) )
     return MapVersion();
 
@@ -281,6 +289,11 @@ bool MapVersionStore::recordLayoutProduct( const QString &horizon, const QString
                                            const QString &assetId, const QString &sha256,
                                            QString *error )
 {
+  if ( m_readOnly )
+  {
+    setError( error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，产物登记被拒绝") );
+    return false;
+  }
   if ( !ensureOpen( m_dbPath, error ) )
     return false;
   QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );

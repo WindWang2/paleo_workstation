@@ -1,5 +1,6 @@
 // 层：视图
 #include "wellcompositetrack.h"
+#include <QCoreApplication>
 
 #include <QBitmap>
 #include <QPainterPath>
@@ -362,7 +363,7 @@ QBrush FaciesPatternFactory::getBrush(const QString &patternTypeOrName, const QC
 DepthScaleTrack::DepthScaleTrack(qreal width)
   : m_width(width)
 {
-  m_title = QStringLiteral("深度 (m)");
+  m_title = QCoreApplication::translate("WellCompositeTrack", "深度 (m)");
 }
 
 void DepthScaleTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double /*currentDepth*/)
@@ -688,7 +689,7 @@ void CoreTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double 
   font.setBold(false);
   painter.setFont(font);
   painter.setPen(QColor(QStringLiteral("#5D6E80")));
-  painter.drawText(headerRect.adjusted(2, headerRect.height() - 16, -2, -2), Qt::AlignCenter, QStringLiteral("筒号|收获率"));
+  painter.drawText(headerRect.adjusted(2, headerRect.height() - 16, -2, -2), Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "筒号|收获率"));
   painter.restore();
 }
 
@@ -800,7 +801,7 @@ void ImageTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     {
       painter.fillRect(imgRect, QColor(QStringLiteral("#E0E0E0")));
       painter.setPen(QColor(QStringLiteral("#757575")));
-      painter.drawText(imgRect, Qt::AlignCenter, item.caption.isEmpty() ? QStringLiteral("照片") : item.caption);
+      painter.drawText(imgRect, Qt::AlignCenter, item.caption.isEmpty() ? QCoreApplication::translate("WellCompositeTrack", "照片") : item.caption);
     }
     painter.setPen(QColor(QStringLiteral("#B0BEC5")));
     painter.drawRect(imgRect);
@@ -1121,7 +1122,7 @@ void SymbolTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
 StratigraphyCompoundTrack::StratigraphyCompoundTrack(const QString &title, qreal width)
   : m_width(width)
 {
-  m_title = title.isEmpty() ? QStringLiteral("地层") : title;
+  m_title = title.isEmpty() ? QCoreApplication::translate("WellCompositeTrack", "地层") : title;
 }
 
 void StratigraphyCompoundTrack::setSubColumnWidths(qreal sysW, qreal serW)
@@ -1175,9 +1176,9 @@ void StratigraphyCompoundTrack::paintHeader(QPainter &painter, const QRectF &hea
   painter.setFont(fSub);
   painter.setPen(QColor(QStringLiteral("#5D6E80"))); // text-muted
 
-  painter.drawText(rSys, Qt::AlignCenter, QStringLiteral("系"));
-  painter.drawText(rSer, Qt::AlignCenter, QStringLiteral("统"));
-  painter.drawText(rForm, Qt::AlignCenter, QStringLiteral("组"));
+  painter.drawText(rSys, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "系"));
+  painter.drawText(rSer, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "统"));
+  painter.drawText(rForm, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "组"));
 
   painter.restore();
 }
@@ -1419,7 +1420,7 @@ void StratigraphyCompoundTrack::autoDeriveStratigraphy(const QVector<FormationIn
 FaciesCompoundTrack::FaciesCompoundTrack(const QString &title, qreal width)
   : m_width(width)
 {
-  m_title = title.isEmpty() ? QStringLiteral("沉积相") : title;
+  m_title = title.isEmpty() ? QCoreApplication::translate("WellCompositeTrack", "沉积相") : title;
 }
 
 void FaciesCompoundTrack::setSubColumnWidths(qreal majW, qreal subW)
@@ -1473,9 +1474,9 @@ void FaciesCompoundTrack::paintHeader(QPainter &painter, const QRectF &headerRec
   painter.setFont(fSub);
   painter.setPen(QColor(QStringLiteral("#5D6E80"))); // text-muted
 
-  painter.drawText(rMaj, Qt::AlignCenter, QStringLiteral("相"));
-  painter.drawText(rSub, Qt::AlignCenter, QStringLiteral("亚"));
-  painter.drawText(rMic, Qt::AlignCenter, QStringLiteral("微"));
+  painter.drawText(rMaj, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "相"));
+  painter.drawText(rSub, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "亚"));
+  painter.drawText(rMic, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "微"));
 
   painter.restore();
 }

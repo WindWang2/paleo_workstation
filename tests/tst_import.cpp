@@ -142,6 +142,28 @@ private slots:
     QVERIFY(QgisRuntime::isInitialized());
   }
 
+  // T4（data-foundation）：锁降级只读——导入在算 SHA/复制字节之前早拒，
+  // 不留 artifacts/raw 孤儿文件。
+  void lockedReadOnlyImportRefusedEarly()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+
+    stack->importSvc->catalog()->setLockedReadOnly(true);
+    QString err;
+    const QString assetId =
+        stack->importSvc->importProjectFile(fixture(QStringLiteral("A1.Las")), &err);
+    QVERIFY(assetId.isEmpty());
+    QVERIFY(err.contains(QStringLiteral("另一个实例锁定")));
+    QVERIFY(stack->importSvc->catalog()->assets().isEmpty());
+    // 早拒：受管目录连 raw/ 都没出现（字节没开始复制）。
+    QVERIFY(!QFileInfo::exists(QDir(projectDir).filePath(QStringLiteral("artifacts/raw"))));
+  }
+
   // 井位 → 20 井实体（untransformed、surface 坐标），多井文件=每井一条关联。
   void wellHeadCreatesEntitiesAndLinks()
   {
@@ -1079,7 +1101,7 @@ private slots:
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
     DataCatalog *cat = svc.catalog();
-    using Outcome = DataImportService::FolderRowResult::Outcome;
+    using Outcome = FolderRowResult::Outcome;
 
     const QString root = tmp.filePath(QStringLiteral("area"));
     QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
@@ -1133,7 +1155,7 @@ private slots:
 #endif
 
     QString err;
-    const QVector<DataImportService::FolderRowResult> rows = svc.importFolder(root, &err);
+    const QVector<FolderRowResult> rows = svc.importFolder(root, &err);
     QVERIFY2(err.isEmpty(), qPrintable(err));
     QCOMPARE(rows.size(), 9 + (madeFifo ? 1 : 0));
 
@@ -1259,8 +1281,8 @@ private slots:
 
     const auto runOnWorker =
         [&](const std::function<bool(int, int, const QString &)> &progress)
-        -> std::tuple<QVector<DataImportService::FolderRowResult>, QString, bool> {
-      QVector<DataImportService::FolderRowResult> rows;
+        -> std::tuple<QVector<FolderRowResult>, QString, bool> {
+      QVector<FolderRowResult> rows;
       QString err;
       std::atomic_bool finished{false};
       QThreadPool::globalInstance()->start([&] {
@@ -1274,7 +1296,9 @@ private slots:
       return {rows, err, finished.load()};
     };
 
-    // 全量：两行都入库，progress 递增到 total，实体在 GUI 线程建成。
+    // 全量：两行都入库，实体在 GUI 线程建成。progress 分两段（T2 扫描期
+    // 进度）：plan 哈希段 total==0（两个小文件各一次），执行段 total==2
+    // 递增到 2。
     QVector<int> progressSeen;
     QVector<int> totalsSeen;
     auto [rows, err, done1] = runOnWorker(
@@ -1285,10 +1309,10 @@ private slots:
         });
     QVERIFY2(done1, "worker importFolder did not finish (marshal deadlock?)");
     QVERIFY2(err.isEmpty(), qPrintable(err));
-    QCOMPARE(totalsSeen, QVector<int>({2, 2}));
+    QCOMPARE(totalsSeen, QVector<int>({0, 0, 2, 2}));
     QCOMPARE(rows.size(), 2);
-    QCOMPARE(progressSeen, QVector<int>({1, 2}));
-    using Outcome = DataImportService::FolderRowResult::Outcome;
+    QCOMPARE(progressSeen, QVector<int>({2, 2, 1, 2}));
+    using Outcome = FolderRowResult::Outcome;
     for (const auto &r : rows)
       QCOMPARE(r.outcome, Outcome::Imported);
     DataCatalog *cat = svc.catalog();
@@ -1300,14 +1324,27 @@ private slots:
     QVERIFY(lasRow != rows.end());
     QCOMPARE(lasRow->entityName, QStringLiteral("A1"));
 
-    // 协作取消：首行回调返回 false 即中止——已处理的行保留，err 记「已取消」。
+    // 协作取消：扫描段回调放行、执行段首行回调返回 false 即中止——已处理
+    // 的行保留，err 记「已取消」（T2 前契约只回调执行段；现在扫描段也在
+    // 同一回调面上，取消语义不变）。
     int calls = 0;
     auto [rows2, err2, done2] = runOnWorker(
-        [&](int, int, const QString &) { ++calls; return false; });
+        [&](int, int total, const QString &) {
+          ++calls;
+          return total == 0; // 扫描段放行；执行段首行即取消
+        });
     QVERIFY2(done2, "cancel run did not finish");
-    QCOMPARE(calls, 1);
+    QCOMPARE(calls, 3); // 2 次扫描（哈希段）+ 1 次执行段首行
     QCOMPARE(rows2.size(), 1); // dedup 行（AlreadyStored→Imported 口径）仍在结果里
     QVERIFY(err2.contains(QStringLiteral("已取消")));
+
+    // 扫描段取消：哈希回调直接返回 false——plan 停在半途，零行执行、零行
+    // 入库（中断续跑语义见 tst_ingestplan）。
+    auto [rows3, err3, done3] = runOnWorker(
+        [&](int, int, const QString &) { return false; });
+    QVERIFY2(done3, "scan-cancel run did not finish");
+    QVERIFY(rows3.isEmpty());
+    QVERIFY(err3.contains(QStringLiteral("已取消")));
   }
 
   void folderImportRejectsBadRoots()
@@ -1354,7 +1391,7 @@ private slots:
     }
 
     // 包住工程目录的上级目录：工程产物子树不出行，只收外面的普通文件。
-    const QVector<DataImportService::FolderRowResult> rows =
+    const QVector<FolderRowResult> rows =
         svc.importFolder(tmp.path(), &err);
     QVERIFY2(err.isEmpty(), qPrintable(err));
     QCOMPARE(rows.size(), 1);
@@ -1372,7 +1409,7 @@ private slots:
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
     DataCatalog *cat = svc.catalog();
-    using Outcome = DataImportService::FolderRowResult::Outcome;
+    using Outcome = FolderRowResult::Outcome;
 
     const QString root = tmp.filePath(QStringLiteral("area"));
     QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
@@ -1430,7 +1467,7 @@ private slots:
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
     DataCatalog *cat = svc.catalog();
-    using Outcome = DataImportService::FolderRowResult::Outcome;
+    using Outcome = FolderRowResult::Outcome;
 
     const QString root = tmp.filePath(QStringLiteral("area"));
     QVERIFY(QDir().mkpath(root));
@@ -1496,7 +1533,7 @@ private slots:
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
     DataCatalog *cat = svc.catalog();
-    using Outcome = DataImportService::FolderRowResult::Outcome;
+    using Outcome = FolderRowResult::Outcome;
 
     const QString root = tmp.filePath(QStringLiteral("area"));
     QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井分层"))));
@@ -1535,7 +1572,7 @@ private slots:
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
     DataCatalog *cat = svc.catalog();
-    using Outcome = DataImportService::FolderRowResult::Outcome;
+    using Outcome = FolderRowResult::Outcome;
 
     const QString root = tmp.filePath(QStringLiteral("area"));
     const QString refDir = QDir(root).filePath(QString::fromUtf8("参考资料"));
@@ -1593,7 +1630,7 @@ private slots:
     auto stack = makeStack(projectDir);
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
-    using Outcome = DataImportService::FolderRowResult::Outcome;
+    using Outcome = FolderRowResult::Outcome;
 
     const QString dir = tmp.filePath(QString::fromUtf8("井位"));
     QVERIFY(QDir().mkpath(dir));
@@ -1602,7 +1639,7 @@ private slots:
                       QByteArrayLiteral("#WellHead File From SMI\n# no rows\n")));
 
     QString err;
-    DataImportService::FolderRowResult row =
+    FolderRowResult row =
         svc.importFolderRow(headsPath, QString(), &err);
     QCOMPARE(row.outcome, Outcome::Failed);
     QVERIFY(!err.isEmpty());
@@ -1646,23 +1683,23 @@ private slots:
     QString err;
     QElapsedTimer timer;
     timer.start();
-    const QVector<DataImportService::FolderRowResult> rows = svc.importFolder(src, &err);
+    const QVector<FolderRowResult> rows = svc.importFolder(src, &err);
     QVERIFY2(err.isEmpty(), qPrintable(err));
     QVERIFY(rows.size() >= 60); // 60 个数据文件 + 旧产物/工作区 json 参考行
 
     int nImported = 0, nUnresolved = 0, nFailed = 0, nSkipped = 0;
     bool sawWellHead = false, sawSeismic = false;
-    for (const DataImportService::FolderRowResult &r : rows)
+    for (const FolderRowResult &r : rows)
     {
       switch (r.outcome)
       {
-        case DataImportService::FolderRowResult::Outcome::Imported: ++nImported; break;
-        case DataImportService::FolderRowResult::Outcome::Unresolved: ++nUnresolved; break;
-        case DataImportService::FolderRowResult::Outcome::Failed:
+        case FolderRowResult::Outcome::Imported: ++nImported; break;
+        case FolderRowResult::Outcome::Unresolved: ++nUnresolved; break;
+        case FolderRowResult::Outcome::Failed:
           ++nFailed;
           qWarning("FOLDER FAIL %s: %s", qPrintable(r.path), qPrintable(r.message));
           break;
-        case DataImportService::FolderRowResult::Outcome::Skipped: ++nSkipped; break;
+        case FolderRowResult::Outcome::Skipped: ++nSkipped; break;
       }
       sawWellHead = sawWellHead || r.classifiedType == QLatin1String("well_head");
       sawSeismic = sawSeismic || r.classifiedType == QLatin1String("seismic");
@@ -1776,7 +1813,7 @@ private slots:
     auto stack = makeStack(projectDir);
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
-    using Outcome = DataImportService::FolderRowResult::Outcome;
+    using Outcome = FolderRowResult::Outcome;
 
     QString err;
     QVERIFY(!svc.importProjectFile(fixture(QStringLiteral("ExportWellHead.dat")), &err).isEmpty());
@@ -1826,7 +1863,7 @@ private slots:
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
     DataCatalog *cat = svc.catalog();
-    using Outcome = DataImportService::FolderRowResult::Outcome;
+    using Outcome = FolderRowResult::Outcome;
 
     const QString root = tmp.filePath(QStringLiteral("area"));
     QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
@@ -1880,7 +1917,7 @@ private slots:
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
     DataCatalog *cat = svc.catalog();
-    using Outcome = DataImportService::FolderRowResult::Outcome;
+    using Outcome = FolderRowResult::Outcome;
 
     const QString root = tmp.filePath(QStringLiteral("area"));
     QVERIFY(QDir().mkpath(root));
@@ -1973,7 +2010,7 @@ private slots:
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
     DataCatalog *cat = svc.catalog();
-    using Outcome = DataImportService::FolderRowResult::Outcome;
+    using Outcome = FolderRowResult::Outcome;
 
     const QString root = tmp.filePath(QStringLiteral("area"));
     QVERIFY(QDir().mkpath(root));

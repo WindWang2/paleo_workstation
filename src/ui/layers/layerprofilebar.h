@@ -12,7 +12,7 @@ class QgisLayerProfileService;
 // 图层 dock 头档案工具条：主题下拉（service->themes() 实时，"page:*" 显示
 // 「页面·<中文页名>」）+「保存当前可见性为主题…」（名字输入后
 // captureCurrentAsTheme）+「管理主题…」（应用/删除小对话框，bar 自持；
-// 重命名 V1 暂未支持——QgsMapThemeCollection 无 rename API）+ 当前页档案
+// 重命名经「先建新名再删旧名」的记录复制实现（QgsMapThemeCollection 无原生 rename API；主线5）+ 当前页档案
 // 指示（setCurrentPage 后显示「页面档案：<中文页名>」；未知 id 原样、
 // 空则空文案）。
 // 只渲染 + 调 QgisLayerProfileService（不直碰 QgsProject/

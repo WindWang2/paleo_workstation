@@ -1,5 +1,6 @@
 // 层：视图
 #include "correlationtrack.h"
+#include "../paleotheme.h"
 
 #include <QPainter>
 #include <QVariantMap>
@@ -19,9 +20,12 @@
 // correlationpanel.cpp::addCurveItems onto QgsLineChartPlot — QGIS's plot
 // engine always draws the polyline, this class never builds a QPainterPath.
 
+CorrelationTrack::CorrelationTrack() : CorrelationTrack(QString(), QString(), {}, {}) {}
+
 CorrelationTrack::CorrelationTrack(const QString &mnemonic, const QString &unit,
                                    const QVector<float> &depths, const QVector<float> &values)
-  : m_mnemonic(mnemonic), m_unit(unit), m_depths(depths), m_values(values)
+  : m_mnemonic(mnemonic), m_unit(unit), m_depths(depths), m_values(values),
+    m_color(PaleoTheme::tokens().textMuted) // DESIGN.md text-muted（构造时取当前主题）
 {
 }
 

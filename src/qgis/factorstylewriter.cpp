@@ -3,6 +3,7 @@
 
 #include <QColor>
 #include <QDir>
+#include <cmath>
 
 #include <qgscolorrampimpl.h>
 #include <qgsrasterbandstats.h>
@@ -61,6 +62,20 @@ namespace
 namespace FactorStyleWriter
 {
 
+bool applyTo(QgsRasterLayer *layer,const QString &factorId)
+{
+  if(!layer || !layer->isValid())return false;
+  auto *ramp=rampFor(factorId);if(!ramp)return false;
+  const auto stats=layer->dataProvider()->bandStatistics(1);
+  double low=stats.minimumValue,high=stats.maximumValue;
+  if(!std::isfinite(low) || !std::isfinite(high) || low>high){delete ramp;return false;}
+  if(low==high)high=low+1;
+  auto *renderer=new QgsSingleBandPseudoColorRenderer(layer->dataProvider(),1,nullptr);
+  renderer->setClassificationMin(low);renderer->setClassificationMax(high);
+  renderer->createShader(ramp,Qgis::ShaderInterpolationMethod::Linear,Qgis::ShaderClassificationMethod::Continuous,5);
+  layer->setRenderer(renderer);layer->triggerRepaint();return true;
+}
+
 QgsColorRamp *rampFor( const QString &factorId )
 {
   RampPreset p;
@@ -109,37 +124,7 @@ QString writeStyleQml( const QString &factorId, const QString &rasterPath,
     return QString();
   }
 
-  // Renderer 分类区间取真实像元 min/max（小栅格精确统计）；不可用时退 0..1，
-  // 色带本身仍完整落盘，用户可在样式面板里重分类。
-  double min = 0.0;
-  double max = 1.0;
-  if ( QgsRasterDataProvider *provider = layer.dataProvider() )
-  {
-    const QgsRasterBandStats stats = provider->bandStatistics( 1 );
-    if ( stats.minimumValue <= stats.maximumValue &&
-         stats.maximumValue > -std::numeric_limits<double>::max() &&
-         stats.minimumValue < std::numeric_limits<double>::max() )
-    {
-      min = stats.minimumValue;
-      max = stats.maximumValue;
-    }
-  }
-  if ( !( max > min ) )
-  {
-    min = 0.0;
-    max = 1.0;
-  }
-
-  auto *shader = new QgsRasterShader();
-  auto *rampShader = new QgsColorRampShader( min, max, rampFor( factorId ),
-                                             Qgis::ShaderInterpolationMethod::Linear,
-                                             Qgis::ShaderClassificationMethod::Continuous );
-  // Continuous 也要 classify：itemList 为空时 shade() 全部返回 false，
-  // 主图上的伪彩栅格会渲成全透明（看起来是空白图层）。
-  rampShader->classifyColorRamp( 1, layer.extent(), layer.dataProvider() );
-  shader->setRasterShaderFunction( rampShader );
-  auto *renderer = new QgsSingleBandPseudoColorRenderer( layer.dataProvider(), 1, shader );
-  layer.setRenderer( renderer );
+  applyTo(&layer,factorId);
 
   if ( !QDir().mkpath( styleDir ) )
   {

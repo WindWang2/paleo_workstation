@@ -24,8 +24,21 @@ Deferred work lives in `TODOS.md`.
 | 测试壳 | `src/selfcheck` | 同 by design 豁免 |
 
 每个 `src/` 文件头三行必须有 `// 层：<数据|功能|QGIS 封装|视图|组装根|测试壳>`。
-检查器：`tools/check_layering.py`（ctest 项 `layering` + `layering_selftest`）；
-残留收敛走 `tools/layering-baseline.txt`（只缩不涨）。
+检查器：`tools/check_layering.py`（ctest 项 `layering` + `layering_strict` +
+`layering_selftest`）；词表外置在 `tools/layering_vocab.json`
+（新顶层模块先用 `scripts/new_module.sh` 脚手架登记，否则全量判违规）。
+残留清单 `tools/layering-baseline.txt` 已归零——`--strict` 闸门下非空即红
+（防回升），可收缩条目同样红；非严格模式维持提示语义。
 
-已知边界：各层编进同一 `paleo_core` 静态库，护栏只挡 include 层——
+已知边界：各层编进 `paleo_<模块>` 分层静态库（`paleo_core` 是 INTERFACE
+兼容伞，不再编代码），护栏只挡 include 层——
 「不带 include 直接 new」挡不住，靠 review 纪律（见 TODOS.md 递延项）。
+
+## 构建与测试布线
+测试统一走 `add_paleo_test(name [LIBS ...])`（CMakeLists.txt）：单参 = 伞式
+旧式契约（cmake/extra-*.cmake 并行方向零改动可用）；`LIBS` 给最小链接集
+（瘦 relink 面，口径见 docs/progress/devex.md）。每测试自动获得独立
+XDG_CONFIG_HOME/XDG_DATA_HOME 沙箱（QSettings 并行竞态根治；Windows
+NativeFormat 走注册表不受 env 控制，Windows 侧保持串行）。
+构建加速与实验档（ccache launcher / PALEO_ENABLE_ASAN / PALEO_ENABLE_UBSAN /
+PALEO_UNITY_BUILD）见 BUILDING.md。

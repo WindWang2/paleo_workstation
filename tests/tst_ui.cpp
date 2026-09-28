@@ -16,6 +16,14 @@
 #include <QDockWidget>
 
 #include "../src/app/appcontext.h"
+#include "../src/workflow/mappingworkbench.h"
+#include "../src/workflow/derivedassets.h"
+#include "../src/linkage/selectioncontext.h"
+#include "../src/ui/pages/mappingworkbenchpage.h"
+#include "../src/ui/decorations/paleodecorations.h"
+#include "../src/ui/paleotheme.h"
+#include <QTreeWidget>
+#include <QDialog>
 #include "../src/ui/paleomainwindow.h"
 #include "../src/io/dataimportservice.h" // 测试可直触 io（断言 DataImportService 信号）
 #include "../src/ui/datapreview/datapreviewtabs.h"
@@ -909,6 +917,35 @@ class TestUiShell : public QObject
       m_win->showPage(QStringLiteral("data"));
       QCOMPARE(workspaceStack->currentIndex(), 1);
     }
+    void mappingWorkbenchCanvasRibbonAndReferences()
+    {
+      QTemporaryDir dir;
+      QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("mapping.qgz")));
+      m_win->attachWorkflows(m_ctx->predictionWf(),m_ctx->constraintWf(),m_ctx->compositionWf(),m_ctx->validationWf(),m_ctx->importSvc(),m_ctx->seismicLink(),m_ctx->processingSvc(),m_ctx->store(),m_ctx->editingSvc(),m_ctx->layoutSvc(),m_ctx->taskSvc());
+      m_win->attachWorkbench(m_ctx->mappingWorkbench());
+      QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+      auto *d61=m_win->findChild<QToolButton *>("chip_D61");auto *d62=m_win->findChild<QToolButton *>("chip_D62");QVERIFY(d61 && d61->isEnabled());QVERIFY(d62 && d62->isEnabled());d61->click();m_win->showPage("predict");
+      auto *catalog=m_ctx->importSvc()->catalog();QVERIFY(catalog && catalog->isOpen());
+      DerivedAssetRegistrar registrar(catalog,dir.path());auto st=registrar.stage("seismic","示例地震体","volume.bin");QVERIFY(st.isValid());QFile source(st.absolutePath);QVERIFY(source.open(QIODevice::WriteOnly));source.write("mock volume");source.close();QVERIFY(registrar.commit(st,{},"test",{}));
+      CatalogEntity e;e.id="workbench-survey";e.name="示例工区";e.entityType="seismic_survey";e.corners={{0,0},{640,0},{640,640},{0,640}};QVERIFY(catalog->addEntity(e));EntityAssetLink link;link.entityType=e.entityType;link.entityId=e.id;link.assetId=st.assetId;link.role="seismic_volume";QVERIFY(catalog->addLink(link));
+      auto *page=m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.predict");QVERIFY(page);auto *inputs=page->findChild<QListWidget *>("workbenchInputs");QVERIFY(inputs && inputs->count()==1);inputs->item(0)->setCheckState(Qt::Checked);
+      auto *run=m_win->findChild<QAction *>("ribbonRunPrediction");QVERIFY(run && run->isEnabled());run->trigger();QVERIFY(m_ctx->mappingWorkbench()->busy());QVERIFY(!run->isEnabled());QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->mappingWorkbench()->busy(),5000);
+      const auto id=page->selectedLayer();QVERIFY(!id.isEmpty());auto *layer=m_ctx->layerSvc()->layer(id);QVERIFY(layer);QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(layer));QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(),layer);
+      auto *decor=m_win->findChild<PaleoDecorationManager *>();QVERIFY(decor);QVERIFY(decor->isNorthArrowEnabled());QVERIFY(decor->isScaleBarEnabled());QVERIFY(decor->legendTitle().contains("D61"));QVERIFY(decor->legendTitle().contains("Mock"));
+      page->commandButton("compare")->click();auto *ref=m_win->findChild<QDialog *>("mappingReferenceWindow");QVERIFY(ref);auto *referenceCanvas=ref->findChild<QgsMapCanvas *>("referenceCanvas");QVERIFY(referenceCanvas);QCOMPARE(referenceCanvas->layers().size(),1);QPointer<QgsMapLayer> reference=referenceCanvas->layers().first();QVERIFY(reference!=layer);
+      QPointer<QgsMapLayer> mainLayer=layer;d62->click();QVERIFY(mainLayer.isNull());QVERIFY(reference && reference->isValid());QCOMPARE(referenceCanvas->layers().first(),reference.data());QVERIFY(decor->legendTitle().contains("D62"));
+      d61->click();QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(m_ctx->layerSvc()->layer(id)));QTRY_COMPARE(page->selectedLayer(),id);page->commandButton("show")->click();ref->close();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+      PaleoTheme::applyLightTheme();m_win->resize(1600,1000);m_win->show();QTest::qWait(350);
+      QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(m_ctx->layerSvc()->layer(id)));
+      QVERIFY(m_ctx->projectSvc()->project()->layerTreeRoot()->findLayer(m_ctx->layerSvc()->layer(id)->id())->isVisible());
+      auto visibleFaciesPixels=[this]{const auto image=m_ctx->canvasCtl()->canvas()->grab().toImage();int count=0;for(int y=100;y<image.height()-60;y+=4)for(int x=100;x<image.width()-260;x+=4){const auto c=image.pixelColor(x,y);if(c==QColor("#E6C875") || c==QColor("#81B99A") || c==QColor("#97B4CE"))++count;}return count;};
+      QTRY_VERIFY_WITH_TIMEOUT(visibleFaciesPixels()>100,5000);
+      if(const auto capture=qEnvironmentVariable("PALEO_MAPPING_CAPTURE");!capture.isEmpty())QVERIFY(m_win->grab().save(capture));
+      page->commandButton("polygonize")->click();QVERIFY(page->selectedLayer()!=id);QVERIFY(page->commandButton("copy")->isEnabled());
+      page->commandButton("copy")->click();const auto draft=page->selectedLayer();QVERIFY2(draft.startsWith("draft."),qPrintable(page->findChild<QLabel *>("workbenchMessage")->text()));auto *editing=m_win->findChild<PaleoEditingToolbar *>("editingToolbar");QVERIFY(editing && editing->isEditing());auto previous=m_ctx->mappingWorkbench()->versionForLayer(draft);auto *vector=editing->currentLayer();QVERIFY(vector);QgsFeature feature;auto fi=vector->getFeatures();QVERIFY(fi.nextFeature(feature));const int field=vector->fields().indexOf("facies_code");QVERIFY(field>=0);QVERIFY(vector->changeAttributeValue(feature.id(),field,feature.attribute(field).toInt()==1?2:1));editing->actionSave()->trigger();QVERIFY(!editing->isEditing());QCOMPARE(m_ctx->mappingWorkbench()->versionForLayer(draft).versionNumber,previous.versionNumber+1);
+      m_win->showPage("compose");auto *compose=m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.compose");compose->selectLayer(draft);auto *save=m_win->findChild<QAction *>("ribbonSaveVersion");QVERIFY(save && save->isEnabled());QCOMPARE(save->text(),compose->commandButton("save")->text());
+    }
+
 };
 
 int main(int argc, char *argv[])

@@ -130,7 +130,7 @@ int main(int argc, char *argv[])
                      QDir::temp().filePath(QStringLiteral("paleo_tst_procdialog")));
 
   QgsApplication app(argc, argv, true); // GUI-enabled: dialog widgets required
-  app.setPrefixPath(QStringLiteral("/usr"), true); // distro install
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true); // distro install
   app.initQgis();
 
   TestProcDialog tc;

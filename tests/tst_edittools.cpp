@@ -62,6 +62,7 @@
 #include <qgsvertexmarker.h>
 
 #include "qgis/qgiseditingservice.h"
+#include "qgis/topologicalindex.h"
 #include "ui/edittools/editingtoolbar.h"
 #include "ui/edittools/editingtools.h"
 #include "ui/edittools/editingundostack.h"
@@ -148,6 +149,7 @@ class TestEditTools : public QObject
     void vertexTopoDeleteRemovesCoincidentVertices();
     void vertexTopoReleaseWeldsToNeighborVertex();
     void toolbarTopologicalActionMirrorsProjectFlag();
+    void toolbarCrossLayerTopoMirrorsProjectEntry();
     void vertexMovePolygonClosureMaintainsClosedRing();
     void vertexDeletePolygonClosurePreservesRing();
     void vertexUndoRedoSyncsMarkers();
@@ -182,6 +184,10 @@ class TestEditTools : public QObject
     void toolbarSavePersistsAndClearsUndo();
     void toolbarCancelDiscardsEdits();
     void toolbarSaveRefusedOutsideSession();
+    // ---- mapping 主线3：编辑会话生命周期加固 ----
+    void toolbarProjectSwitchFinalizesSession();
+    void toolbarProjectClearedDropsSessionCleanly();
+    void toolbarUndoBoundaryAfterProjectFinalize();
 
     // g) abort paths
     void addAbortPaths();
@@ -194,6 +200,14 @@ class TestEditTools : public QObject
 
     // +) shared signal contract across the five tools
     void signalContractAcrossTools();
+
+    // ---- mapping 主线2：R-tree 拓扑索引 + 跨层拓扑 ----
+    void topoIndexCandidatesAndHealth();
+    void topoIndexInvalidationOnEditSignals();
+    void vertexTopoCrossLayerDragMovesBothLayers();
+    void vertexTopoCrossLayerCrsMismatchExcluded();
+    void vertexTopoCrossLayerDeleteAndUndo();
+    void vertexTopoCrossLayerParticipantDestructionMidDrag();
 };
 
 // ---------------------------------------------------------------------------
@@ -1138,6 +1152,35 @@ void TestEditTools::toolbarTopologicalActionMirrorsProjectFlag()
   bar.setProject( &stored );
   QVERIFY( bar.actionTopological()->isChecked() );
   QVERIFY( stored.topologicalEditing() );
+}
+
+void TestEditTools::toolbarCrossLayerTopoMirrorsProjectEntry()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsProject project;
+  PaleoEditingToolbar bar( &canvas );
+  QVERIFY( bar.actionCrossLayerTopo() );
+  QVERIFY( bar.actionCrossLayerTopo()->isCheckable() );
+
+  bar.setProject( &project );
+  QVERIFY( !bar.actionCrossLayerTopo()->isChecked() );
+
+  // 开关写入工程条目 paleo/crossLayerTopologicalEditing（随 .qgz 持久化）。
+  bar.actionCrossLayerTopo()->setChecked( true );
+  QCOMPARE( project.readNumEntry( QStringLiteral( "paleo" ),
+                                  QStringLiteral( "crossLayerTopologicalEditing" ), 0 ), 1 );
+
+  // 已置位的工程落进工具条 → 采纳而不回写；拓扑关闭时跨层仍禁用带 reason。
+  QgsProject stored;
+  stored.writeEntry( QStringLiteral( "paleo" ), QStringLiteral( "crossLayerTopologicalEditing" ), 1 );
+  bar.setProject( &stored );
+  QVERIFY( bar.actionCrossLayerTopo()->isChecked() );
+
+  bar.actionTopological()->setChecked( false );
+  QVERIFY( !bar.actionTopological()->isEnabled() || !bar.actionCrossLayerTopo()->isEnabled()
+           || bar.actionCrossLayerTopo()->toolTip().contains( QStringLiteral( "拓扑" ) ) );
 }
 
 void TestEditTools::vertexMovePolygonClosureMaintainsClosedRing()
@@ -2849,6 +2892,110 @@ void TestEditTools::toolbarSaveRefusedOutsideSession()
 // g) abort paths
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// mapping 主线3：编辑会话生命周期加固（工程边界收尾）
+// ---------------------------------------------------------------------------
+
+void TestEditTools::toolbarProjectSwitchFinalizesSession()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Point?crs=EPSG:4326&field=id:integer" ),
+                        QStringLiteral( "switch-l" ), QStringLiteral( "memory" ) );
+  QVERIFY( layer.isValid() );
+  seedFeature( layer, QgsGeometry::fromPointXY( QgsPointXY( 7, 7 ) ) ); // 会话外种子（provider 面）
+
+  QgsProject projectA;
+  QgsProject projectB;
+
+  PaleoEditingToolbar bar( &canvas );
+  bar.setLayers( { &layer } );
+  bar.setProject( &projectA );
+  QSignalSpy stoppedSpy( &bar, &PaleoEditingToolbar::editingStopped );
+  QSignalSpy refusedSpy( &bar, &PaleoEditingToolbar::editRefused );
+
+  QVERIFY( bar.startEditing() );
+  addPointCommand( &layer, 8 ); // 会话内编辑
+  QCOMPARE( layer.undoStack()->count(), 1 );
+
+  // 切工程：会话在旧工程侧收尾（提交优先），不留给图层析构。
+  bar.setProject( &projectB );
+  QCOMPARE( stoppedSpy.count(), 1 );
+  QCOMPARE( stoppedSpy.at( 0 ).at( 1 ).toBool(), true ); // committed
+  QVERIFY( refusedSpy.count() >= 1 );
+  QVERIFY( refusedSpy.at( refusedSpy.count() - 1 ).at( 0 ).toString().contains( QStringLiteral( "切换工程" ) ) );
+  QVERIFY( !bar.isEditing() );
+  QCOMPARE( layer.featureCount(), 2 ); // 提交生效
+  QCOMPARE( layer.undoStack()->count(), 0 ); // commit 清栈
+
+  // 收尾后无会话：再次 setProject 幂等、不再发 editingStopped。
+  const int stoppedBefore = stoppedSpy.count();
+  bar.setProject( &projectA );
+  QCOMPARE( stoppedSpy.count(), stoppedBefore );
+}
+
+void TestEditTools::toolbarProjectClearedDropsSessionCleanly()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  // 堆图层归工程所有：clear() 移除并析构——会话必须在移除波里收尾。
+  auto *layer = new QgsVectorLayer( QStringLiteral( "Point?crs=EPSG:4326&field=id:integer" ),
+                                    QStringLiteral( "clear-l" ), QStringLiteral( "memory" ) );
+  QVERIFY( layer->isValid() );
+  seedFeature( *layer, QgsGeometry::fromPointXY( QgsPointXY( 3, 3 ) ) ); // 提交面种子
+  QgsProject project;
+  project.addMapLayer( layer );
+
+  PaleoEditingToolbar bar( &canvas );
+  bar.setLayers( { layer } );
+  bar.setProject( &project );
+  QSignalSpy stoppedSpy( &bar, &PaleoEditingToolbar::editingStopped );
+
+  QVERIFY( bar.startEditing() ); // 会话归工具条持有
+  addPointCommand( layer, 5 );
+
+  project.clear(); // layersWillBeRemoved → finalizeSession（提交）→ 图层析构
+
+  QCOMPARE( stoppedSpy.count(), 1 );
+  QCOMPARE( stoppedSpy.at( 0 ).at( 1 ).toBool(), true );
+  QVERIFY( !bar.isEditing() );
+  QVERIFY( bar.currentLayer() == nullptr || bar.currentLayer() != layer ); // 悬空引用不外泄
+}
+
+void TestEditTools::toolbarUndoBoundaryAfterProjectFinalize()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Point?crs=EPSG:4326&field=id:integer" ),
+                        QStringLiteral( "undo-b" ), QStringLiteral( "memory" ) );
+  QVERIFY( layer.isValid() );
+  QgsProject projectA;
+  QgsProject projectB;
+
+  PaleoEditingToolbar bar( &canvas );
+  bar.setLayers( { &layer } );
+  bar.setProject( &projectA );
+
+  QVERIFY( bar.startEditing() );
+  addPointCommand( &layer, 1 );
+  QVERIFY( bar.actionUndo()->isEnabled() ); // 会话内可撤销
+
+  // 工程边界收尾 = 版本边界（§34：undo 不跨版本）——提交后 undo/redo 全关。
+  bar.setProject( &projectB );
+  QVERIFY( !bar.isEditing() );
+  QVERIFY( !bar.actionUndo()->isEnabled() );
+  QVERIFY( !bar.actionRedo()->isEnabled() );
+  QVERIFY( !bar.undoStack()->canUndo() );
+  QVERIFY( !bar.undoStack()->canRedo() );
+
+  // 边界后的 undo 请求是无害 no-op（不崩、不改数据）。
+  bar.actionUndo()->trigger();
+  QCOMPARE( layer.featureCount(), 1 );
+}
+
 void TestEditTools::addAbortPaths()
 {
   QgsMapCanvas canvas;
@@ -3453,10 +3600,327 @@ void TestEditTools::signalContractAcrossTools()
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// mapping 主线2：QgsPointLocator 拓扑索引 + 跨层拓扑
+// ---------------------------------------------------------------------------
+
+void TestEditTools::topoIndexCandidatesAndHealth()
+{
+  QgsVectorLayer a( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                    QStringLiteral( "idx-a" ), QStringLiteral( "memory" ) );
+  QgsVectorLayer b( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                    QStringLiteral( "idx-b" ), QStringLiteral( "memory" ) );
+  QVERIFY( a.isValid() && b.isValid() );
+  const QgsFeatureId fa = seedFeature( a, QgsGeometry::fromWkt( squareWkt( 10, 10, 20 ) ) );
+  const QgsFeatureId fb = seedFeature( b, QgsGeometry::fromWkt( squareWkt( 30, 10, 20 ) ) );
+  Q_UNUSED( fa );
+  Q_UNUSED( fb );
+
+  QgisTopologicalIndex idx;
+  idx.setLayers( &a, { &b } );
+  QVERIFY( !idx.isLayerIndexed( &a ) ); // 惰性：查询前未建
+  QVERIFY( !idx.isLayerIndexed( &b ) );
+
+  // 共点 (30,10)：a 的 v1、b 的 v0 与 b 的闭合顶点 v4（同位重复计数）。
+  const QList<QgisTopologicalIndex::VertexHit> same =
+      idx.verticesNear( QgsPointXY( 30, 10 ), 1e-9, /*includeOthers=*/true );
+  QCOMPARE( idx.indexedLayerCount(), 2 );
+  QCOMPARE( same.size(), 3 );
+  QSet<QString> layersOf;
+  for ( const QgisTopologicalIndex::VertexHit &h : same )
+    layersOf.insert( h.layer->name() );
+  QVERIFY( layersOf.contains( QStringLiteral( "idx-a" ) ) );
+  QVERIFY( layersOf.contains( QStringLiteral( "idx-b" ) ) );
+
+  // 单层查询：只出 scope 层的候选。
+  const QList<QgisTopologicalIndex::VertexHit> scoped =
+      idx.verticesNear( QgsPointXY( 30, 10 ), 1e-9, /*includeOthers=*/false );
+  QCOMPARE( scoped.size(), 1 );
+  QCOMPARE( scoped.first().layer, &a );
+
+  // 候选 pos 与 dense 号对得上（v1 的位置 = (30,10)）。
+  QVERIFY( qgsDoubleNear( scoped.first().pos.x(), 30.0 ) );
+  QVERIFY( qgsDoubleNear( scoped.first().pos.y(), 10.0 ) );
+  QCOMPARE( scoped.first().vertexNr, 1 );
+}
+
+void TestEditTools::topoIndexInvalidationOnEditSignals()
+{
+  QgsVectorLayer a( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                    QStringLiteral( "idx-dirty" ), QStringLiteral( "memory" ) );
+  QVERIFY( a.isValid() );
+  const QgsFeatureId fid = seedFeature( a, QgsGeometry::fromWkt( squareWkt( 10, 10, 20 ) ) );
+
+  QgisTopologicalIndex idx;
+  idx.setLayers( &a, {} );
+  ( void )idx.verticesNear( QgsPointXY( 25, 25 ), 5.0, false ); // 建索引
+  QVERIFY( idx.isLayerIndexed( &a ) );
+
+  // 编辑信号 → 整层标脏（geometryChanged 走编辑会话）。
+  a.startEditing();
+  QgsGeometry moved = a.getFeature( fid ).geometry();
+  QVERIFY( moved.moveVertex( 45, 45, 2 ) );
+  QVERIFY( a.changeGeometry( fid, moved ) );
+  QVERIFY( !idx.isLayerIndexed( &a ) );
+
+  // 惰性重建：下一次查询看到新位置 (45,45) 而不是旧 (30,30)。
+  const QList<QgisTopologicalIndex::VertexHit> hits =
+      idx.verticesNear( QgsPointXY( 45, 45 ), 1e-9, false );
+  QCOMPARE( hits.size(), 1 );
+  QCOMPARE( hits.first().fid, fid );
+  QCOMPARE( hits.first().vertexNr, 2 );
+  QVERIFY( idx.isLayerIndexed( &a ) );
+
+  // 回滚同样标脏并重建回旧位置。
+  a.rollBack();
+  QVERIFY( !idx.isLayerIndexed( &a ) );
+  const QList<QgisTopologicalIndex::VertexHit> after =
+      idx.verticesNear( QgsPointXY( 45, 45 ), 1e-9, false );
+  QCOMPARE( after.size(), 0 );
+  const QList<QgisTopologicalIndex::VertexHit> back =
+      idx.verticesNear( QgsPointXY( 30, 30 ), 1e-9, false );
+  QCOMPARE( back.size(), 1 );
+}
+
+void TestEditTools::vertexTopoCrossLayerDragMovesBothLayers()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+  // 缩窄视野：searchRadiusMU ≈ 38px×mupp——200px 视野 10 单位时 ≈1.9 单位，
+  // 释放点 (30,7) 距一切既有顶点 ≥3 单位 → 不触发落点焊接（焊接另有用例）。
+  canvas.setExtent( QgsRectangle( 25, 5, 35, 15 ) );
+  canvas.refresh();
+
+  // 同 CRS 两层各一个方形，共享顶点 (30,10)；两层都在编辑会话。
+  QgsVectorLayer a( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                    QStringLiteral( "x-a" ), QStringLiteral( "memory" ) );
+  QgsVectorLayer b( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                    QStringLiteral( "x-b" ), QStringLiteral( "memory" ) );
+  QVERIFY( a.isValid() && b.isValid() );
+  const QgsFeatureId fa = seedFeature( a, QgsGeometry::fromWkt( squareWkt( 10, 10, 20 ) ) );
+  const QgsFeatureId fb = seedFeature( b, QgsGeometry::fromWkt( squareWkt( 30, 10, 20 ) ) );
+  QgsProject::instance()->addMapLayer( &a, /*addToLegend=*/false, /*takeOwnership=*/false ); // 栈层：不转移所有权
+  QgsProject::instance()->addMapLayer( &b, /*addToLegend=*/false, /*takeOwnership=*/false );
+  a.startEditing();
+  b.startEditing();
+  a.selectByIds( { fa } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &a, &b } );
+  canvas.setCurrentLayer( &a );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &a );
+  tool.setTopologicalEditingEnabled( true );
+  tool.setCrossLayerTopologyEnabled( true );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+
+  // 抓 (30,10)（a 的 v1 / b 的 v0+v4 闭合），拖到 (30,7) 释放。
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, pxAt( canvas, 30, 10 ),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY2( tool.isDragging(), "press on the shared vertex must arm the drag" );
+  QCOMPARE( tool.topoMarkers().size(), 2 ); // b 层 v0/v4 均在写集（无选区 → 红 marker）
+  QgsMapMouseEvent rel( &canvas, QEvent::MouseButtonRelease, pxAt( canvas, 30, 7 ),
+                        Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &rel );
+
+  // 两层各一组 edit command、各一次 featureEdited。
+  QCOMPARE( editedSpy.count(), 2 );
+  QCOMPARE( a.undoStack()->count(), 1 );
+  QCOMPARE( b.undoStack()->count(), 1 );
+
+  // a 的 v1 与 b 的 v0 现在都在 (30,25)（两环各自闭合被 moveVertex 保持）。
+  auto vertexPos = []( QgsVectorLayer &l, QgsFeatureId fid, int nr ) {
+    const QgsGeometry g = l.getFeature( fid ).geometry();
+    QgsVertexId vid;
+    if ( !g.vertexIdFromVertexNr( nr, vid ) )
+      return QgsPointXY();
+    const QgsPoint p = g.constGet()->vertexAt( vid );
+    return QgsPointXY( p.x(), p.y() );
+  };
+  // 释放点是像素取整后的 map 点（DPI 放大），断言对它而不是名义 (30,7)。
+  const QgsPointXY released = mapPt( canvas, pxAt( canvas, 30, 7 ).x(), pxAt( canvas, 30, 7 ).y() );
+  const QgsPointXY pa1 = vertexPos( a, fa, 1 );
+  const QgsPointXY pb0 = vertexPos( b, fb, 0 );
+  QVERIFY( qgsDoubleNear( pa1.y(), released.y(), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( pb0.y(), released.y(), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( pb0.x(), released.x(), 1e-6 ) );
+
+  // undo 按层独立：先 b 后 a，各自回到 (30,10)。
+  b.undoStack()->undo();
+  QVERIFY( qgsDoubleNear( vertexPos( b, fb, 0 ).y(), 10.0 ) );
+  QVERIFY( qgsDoubleNear( vertexPos( a, fa, 1 ).y(), released.y(), 1e-6 ) ); // a 仍是移动后
+  a.undoStack()->undo();
+  QVERIFY( qgsDoubleNear( vertexPos( a, fa, 1 ).y(), 10.0 ) );
+
+  canvas.unsetMapTool( &tool );
+  a.rollBack();
+  b.rollBack();
+  QgsProject::instance()->removeMapLayer( &a );
+  QgsProject::instance()->removeMapLayer( &b );
+}
+
+void TestEditTools::vertexTopoCrossLayerCrsMismatchExcluded()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+  canvas.setExtent( QgsRectangle( 25, 5, 35, 15 ) ); // 同上：避开落点焊接
+  canvas.refresh();
+
+  // b 层与 a 层数值同坐标但 CRS 不同——跨层参与被同 CRS 门槛排除。
+  QgsVectorLayer a( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                    QStringLiteral( "crs-a" ), QStringLiteral( "memory" ) );
+  QgsVectorLayer b( QStringLiteral( "Polygon?crs=EPSG:3857&field=id:integer" ),
+                    QStringLiteral( "crs-b" ), QStringLiteral( "memory" ) );
+  QVERIFY( a.isValid() && b.isValid() );
+  const QgsFeatureId fa = seedFeature( a, QgsGeometry::fromWkt( squareWkt( 10, 10, 20 ) ) );
+  const QgsFeatureId fb = seedFeature( b, QgsGeometry::fromWkt( squareWkt( 30, 10, 20 ) ) );
+  Q_UNUSED( fb );
+  QgsProject::instance()->addMapLayer( &a, /*addToLegend=*/false, /*takeOwnership=*/false ); // 栈层：不转移所有权
+  QgsProject::instance()->addMapLayer( &b, /*addToLegend=*/false, /*takeOwnership=*/false );
+  a.startEditing();
+  b.startEditing();
+  a.selectByIds( { fa } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &a, &b } );
+  canvas.setCurrentLayer( &a );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &a );
+  tool.setTopologicalEditingEnabled( true );
+  tool.setCrossLayerTopologyEnabled( true );
+  canvas.setMapTool( &tool );
+
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, pxAt( canvas, 30, 10 ),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY2( tool.isDragging(), "press on the shared vertex must arm the drag" );
+  QCOMPARE( tool.topoMarkers().size(), 0 ); // b 不在写集（CRS 不同）
+  QgsMapMouseEvent rel( &canvas, QEvent::MouseButtonRelease, pxAt( canvas, 30, 7 ),
+                        Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &rel );
+
+  QCOMPARE( a.undoStack()->count(), 1 );
+  QCOMPARE( b.undoStack()->count(), 0 ); // b 未被写
+  const QgsGeometry gb = b.getFeature( fb ).geometry();
+  QVERIFY( qgsDoubleNear( gb.constGet()->vertexAt( QgsVertexId( 0, 0, 0 ) ).y(), 10.0 ) );
+
+  canvas.unsetMapTool( &tool );
+  a.rollBack();
+  b.rollBack();
+  QgsProject::instance()->removeMapLayer( &a );
+  QgsProject::instance()->removeMapLayer( &b );
+}
+
+void TestEditTools::vertexTopoCrossLayerDeleteAndUndo()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  // 两层共享顶点 (30,30)（a 的 v2 / b 的 v3）——右键批量删除跨层生效。
+  QgsVectorLayer a( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                    QStringLiteral( "del-a" ), QStringLiteral( "memory" ) );
+  QgsVectorLayer b( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                    QStringLiteral( "del-b" ), QStringLiteral( "memory" ) );
+  QVERIFY( a.isValid() && b.isValid() );
+  const QgsFeatureId fa = seedFeature( a, QgsGeometry::fromWkt( squareWkt( 10, 10, 20 ) ) );
+  const QgsFeatureId fb = seedFeature( b, QgsGeometry::fromWkt( squareWkt( 30, 10, 20 ) ) );
+  QgsProject::instance()->addMapLayer( &a, /*addToLegend=*/false, /*takeOwnership=*/false ); // 栈层：不转移所有权
+  QgsProject::instance()->addMapLayer( &b, /*addToLegend=*/false, /*takeOwnership=*/false );
+  a.startEditing();
+  b.startEditing();
+  a.selectByIds( { fa } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &a, &b } );
+  canvas.setCurrentLayer( &a );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &a );
+  tool.setTopologicalEditingEnabled( true );
+  tool.setCrossLayerTopologyEnabled( true );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+
+  QgsMapMouseEvent rel( &canvas, QEvent::MouseButtonRelease, pxAt( canvas, 30, 30 ),
+                        Qt::RightButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &rel );
+
+  QCOMPARE( editedSpy.count(), 2 ); // 两层各删一个共点顶点
+  QCOMPARE( a.undoStack()->count(), 1 );
+  QCOMPARE( b.undoStack()->count(), 1 );
+  QCOMPARE( vertexTotal( a, fa ), 4 ); // 5 → 4（各删一个）
+  QCOMPARE( vertexTotal( b, fb ), 4 );
+
+  a.undoStack()->undo();
+  b.undoStack()->undo();
+  QCOMPARE( vertexTotal( a, fa ), 5 );
+  QCOMPARE( vertexTotal( b, fb ), 5 );
+
+  canvas.unsetMapTool( &tool );
+  a.rollBack();
+  b.rollBack();
+  QgsProject::instance()->removeMapLayer( &a );
+  QgsProject::instance()->removeMapLayer( &b );
+}
+
+// mapping 主线2 review 修复：拖拽途中跨层参与层析构——DragState 持有裸层
+// 指针键，靠 destroyed→clearDragState 守卫；释放事件不得解引用悬空层。
+void TestEditTools::vertexTopoCrossLayerParticipantDestructionMidDrag()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+  canvas.setExtent( QgsRectangle( 25, 5, 35, 15 ) );
+  canvas.refresh();
+
+  QgsVectorLayer a( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                    QStringLiteral( "x-a" ), QStringLiteral( "memory" ) );
+  QVERIFY( a.isValid() );
+  const QgsFeatureId fa = seedFeature( a, QgsGeometry::fromWkt( squareWkt( 10, 10, 20 ) ) );
+  // 参与层 b：堆对象、工程托管所有权——中途 delete 模拟析构。
+  auto *b = new QgsVectorLayer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                                QStringLiteral( "x-b" ), QStringLiteral( "memory" ) );
+  QVERIFY( b->isValid() );
+  const QgsFeatureId fb = seedFeature( *b, QgsGeometry::fromWkt( squareWkt( 30, 10, 20 ) ) );
+  Q_UNUSED( fb );
+  QgsProject::instance()->addMapLayer( &a, /*addToLegend=*/false, /*takeOwnership=*/false );
+  QgsProject::instance()->addMapLayer( b ); // 工程所有
+  a.startEditing();
+  b->startEditing();
+  a.selectByIds( { fa } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &a, b } );
+  canvas.setCurrentLayer( &a );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &a );
+  tool.setTopologicalEditingEnabled( true );
+  tool.setCrossLayerTopologyEnabled( true );
+  canvas.setMapTool( &tool );
+
+  // 抓共享顶点 (30,10)——b 入写集（destroyed 守卫挂上）。
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, pxAt( canvas, 30, 10 ),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY2( tool.isDragging(), "press on the shared vertex must arm the drag" );
+
+  // 参与层中途析构（工程移除并 delete，destroyed 同步发出）→ 拖拽被丢弃，不崩。
+  QgsProject::instance()->removeMapLayer( b ); // takeOwnership：析构随移除
+  b = nullptr;
+  QVERIFY( !tool.isDragging() ); // destroyed → clearDragState
+
+  // 后续 release 是无拖拽 no-op；a 未被写入。
+  QgsMapMouseEvent rel( &canvas, QEvent::MouseButtonRelease, pxAt( canvas, 30, 7 ),
+                        Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &rel );
+  QCOMPARE( a.undoStack()->count(), 0 );
+
+  canvas.unsetMapTool( &tool );
+  a.rollBack();
+  QgsProject::instance()->removeMapLayer( &a );
+}
+
 int main( int argc, char *argv[] )
 {
   QgsApplication app( argc, argv, false );
-  app.setPrefixPath( QStringLiteral( "/usr" ), true ); // distro install
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true); // distro install
   app.initQgis();
   TestEditTools tc;
   const int rc = QTest::qExec( &tc, argc, argv );

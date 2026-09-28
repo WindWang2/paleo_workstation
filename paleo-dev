@@ -22,7 +22,20 @@ case "$verb" in
     cmake --build "$BUILD_DIR" "$@"
     ;;
   test)
-    QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure "$@"
+    # ET1 消费侧：deb 闭包路（vendor/prefix 存在）自动注入 prefix 与动态库
+    # 路径——测试 main() 读 QGIS_PREFIX_PATH（缺省 /usr），无需手工导出。
+    # 仅在用户显式 bootstrap 过 deb 路时接管；想回系统包 rm -rf vendor/prefix。
+    if [ -d vendor/prefix/usr ]; then
+      export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
+      export LD_LIBRARY_PATH="$PWD/vendor/prefix/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+    # ctest 默认并行到核数（T2：每测试有独立 XDG 沙箱，并行安全）；
+    # 传 --parallel/-j 或 RERUN 语义时用户参数照传。
+    if [ "$#" -eq 0 ]; then
+      QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure -j "$(nproc 2>/dev/null || echo 4)"
+    else
+      QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure "$@"
+    fi
     ;;
   selfcheck)
     mkdir -p vendor/logs

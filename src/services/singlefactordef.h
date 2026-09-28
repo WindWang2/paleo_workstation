@@ -30,3 +30,15 @@ class SingleFactorRegistry
     // 稳定 id → 显示名（未知 id 原样返回）。
     static QString titleFor(const QString &factorId);
 };
+
+// 主线6 冻结契约：未接入引擎的 processing id（实现属数据方向版图，见
+// docs/progress/mapping.md「跨方向契约」节）。生成链按 id 显式拒绝；
+// 实现侧按契约注册同名算法即可点亮（工作流侧整形分派已就位）。
+namespace SingleFactorContracts
+{
+// welldist 距离变换：INPUT=井点图层，OUTPUT=栅格，CELL_SIZE=正数（绕障=约束线）。
+QString welldistEngineId();
+// confidence 置信度面：INPUT=预测结果栅格，OUTPUT=栅格（真实置信度通道，
+// 当前 ONNX 会话只读首个输出张量——接入前置在 onnxpredictionservice）。
+QString confidenceEngineId();
+} // namespace SingleFactorContracts

@@ -56,9 +56,13 @@ void HorizonChipBar::buildChips()
     chip->setAccessibleName( QStringLiteral( "层位 %1" ).arg( h ) );
     connect( chip, &QToolButton::clicked, this, [this, h] {
       // 切层位 = 广播 + 懒加载（物化目标、释放其他层位实例）。
-      if ( m_layers && m_layers->isEditingAnyLayer() )
+      QString editingName;
+      if ( m_layers && m_layers->isEditingAnyLayer( &editingName ) )
       {
         applyActive( m_selection ? m_selection->activeHorizon() : QString() );
+        // 主线3：不再静默拦截——文案告诉用户编辑挡住了切换及恢复路径。
+        emit horizonSwitchRefused(
+            tr( "正在编辑「%1」——先保存或放弃编辑，再切换层位" ).arg( editingName ) );
         return;
       }
       if ( m_selection )
@@ -122,8 +126,13 @@ void HorizonChipBar::applyAvailability()
         available.insert( d.horizon );
   for ( QToolButton *chip : findChildren<QToolButton *>() )
   {
-    const bool ok = available.contains( chip->text() );
+    const bool ok = m_allowEmptyHorizons || available.contains( chip->text() );
     chip->setEnabled( ok );
     chip->setToolTip( ok ? QString() : tr( "这一阶段还没有这个层位的栅格" ) );
   }
+}
+
+void HorizonChipBar::setAllowEmptyHorizons(bool enabled)
+{
+  m_allowEmptyHorizons=enabled;applyAvailability();
 }

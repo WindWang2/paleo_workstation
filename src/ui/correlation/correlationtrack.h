@@ -22,7 +22,7 @@
 class CorrelationTrack
 {
   public:
-    CorrelationTrack() = default;
+    CorrelationTrack(); // 缺省曲线色 = text-muted token（.cpp 委托四参构造落）
     CorrelationTrack(const QString &mnemonic, const QString &unit = QString(),
                      const QVector<float> &depths = {}, const QVector<float> &values = {});
 
@@ -71,6 +71,6 @@ class CorrelationTrack
     QString m_unit;
     QVector<float> m_depths;
     QVector<float> m_values;
-    QColor m_color = QColor(QStringLiteral("#5D6E80")); // DESIGN.md text-muted
+    QColor m_color; // 缺省 = DESIGN.md text-muted（构造时取 PaleoTheme token）
     qreal m_width = 90.0;
 };

@@ -25,9 +25,11 @@ class QgisLayerService;
 //
 // 组匹配 = 声明驱动：树里图层经 paleoLayerId 自定义属性回查 manifest
 // declaration.group；同名树组（存在时）整组一并纳入。落在树根、无
-// declaration 的临时图层（用户手加）不动其可见性。旧组名词表
-//（01_Prediction/02_Constraints/03_Predict/03_Composite/00_Data——
-// workflows.cpp 历史值）不在档案表内 → 表外处理（记 TODOS 迁移）。
+// declaration 的临时图层（用户手加）不动其可见性。旧组名
+//（01_Prediction/02_Constraints/03_Predict/03_Composite——workflows.cpp
+// 历史产点不改）在档案摆树时经 PaleoLayerVocabulary::canonicalize 折算
+// 到 canonical 组（主线1；词表单一权威见 qgis/layervocabulary.h）——
+// 旧 .qgz 的 "01_Prediction" 产层应用 predict 档案不再被表外隐藏。
 //
 // 与 QgisLayerService::setActiveHorizon 的时序：先换层位（实例化/释放）
 // 再应用页面主题；apply* 对主题记录里已不在工程中的 layerId 做防御性
@@ -50,7 +52,8 @@ class QgisLayerProfileService : public QObject
     void setLayerService(QgisLayerService *service);
     QgisLayerService *layerService() const { return m_layerService; }
 
-    // 内置页面档案表（默认组集合，词表见 layermanifest group 七值）：
+    // 内置页面档案表（默认组集合；canonical 词表单一权威 =
+    // qgis/layervocabulary.h）：
     //   predict   → 01_Base, 02_Prediction
     //   constraint→ 01_Base, 03_Constraints, 04_SingleFactor
     //   compose   → 01_Base, 03_Constraints, 04_SingleFactor, 05_PaleoMap, 06_Reference
@@ -79,6 +82,11 @@ class QgisLayerProfileService : public QObject
     bool captureCurrentAsTheme(const QString &name);
     bool applyTheme(const QString &name);
     bool removeMapTheme(const QString &name);
+    // 重命名（主线5）：QgsMapThemeCollection 无 rename API——以记录复制实现：
+    // 先 insert 新名（失败即中止，旧主题原封不动），成功后再删旧名。拒绝
+    // 空名/同名/新名已占用/旧名不存在；page:* 前缀的主题调用面自行回避
+    //（页面档案按 pageId 重建，改名无意义）。
+    bool renameTheme(const QString &oldName, const QString &newName);
     bool hasTheme(const QString &name) const;
     QStringList themes() const; // 全部主题（含 page:*）
 

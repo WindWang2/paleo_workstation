@@ -102,8 +102,8 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
   setObjectName( QStringLiteral( "PaleoLayoutDesignerShell" ) );
   const QString layoutName = masterLayout() ? masterLayout()->name() : QString();
   setWindowTitle( !layoutName.isEmpty()
-                    ? tr( "%1 — Layout Designer" ).arg( layoutName )
-                    : tr( "Layout Designer" ) );
+                    ? tr( "%1 — 图件设计器" ).arg( layoutName )
+                    : tr( "图件设计器" ) );
   resize( 1200, 800 );
 
   auto *outer = new QVBoxLayout( this );
@@ -237,12 +237,12 @@ void PaleoLayoutDesignerShell::buildChrome()
   // --- page navigation actions (needed by both the Layout menu and the
   // status-bar navigator — created first so buildLayoutMenu can add them) ----
 
-  m_prevPageAction = new QAction( tr( "Previous Page" ), this );
+  m_prevPageAction = new QAction( tr( "上一页" ), this );
   m_prevPageAction->setObjectName( QStringLiteral( "actionPreviousPage" ) );
   connect( m_prevPageAction, &QAction::triggered, this,
            [this]() { gotoPage( m_view->currentPage() - 1 ); } );
 
-  m_nextPageAction = new QAction( tr( "Next Page" ), this );
+  m_nextPageAction = new QAction( tr( "下一页" ), this );
   m_nextPageAction->setObjectName( QStringLiteral( "actionNextPage" ) );
   connect( m_nextPageAction, &QAction::triggered, this,
            [this]() { gotoPage( m_view->currentPage() + 1 ); } );
@@ -253,18 +253,18 @@ void PaleoLayoutDesignerShell::buildChrome()
   // never a second createUndoAction wiring), then Close.
   QToolBar *ltb = layoutToolbar();
   m_undoStack->attachWidget( ltb );
-  QAction *closeAction = ltb->addAction( tr( "Close" ) );
+  QAction *closeAction = ltb->addAction( tr( "关闭" ) );
   closeAction->setObjectName( QStringLiteral( "actionCloseLayoutDesigner" ) );
   connect( closeAction, &QAction::triggered, this, &QDialog::close );
 
   // Navigation toolbar: zoom (also mirrored into the View submenu and the
   // status bar — one set of shared QAction instances).
   QToolBar *ntb = navigationToolbar();
-  ntb->addAction( tr( "Zoom In" ), m_view, &QgsLayoutView::zoomIn );
-  ntb->addAction( tr( "Zoom Out" ), m_view, &QgsLayoutView::zoomOut );
-  ntb->addAction( tr( "Zoom Full" ), m_view, &QgsLayoutView::zoomFull );
-  ntb->addAction( tr( "Zoom to Width" ), m_view, &QgsLayoutView::zoomWidth );
-  ntb->addAction( tr( "Zoom 100%" ), m_view, &QgsLayoutView::zoomActual );
+  ntb->addAction( tr( "放大" ), m_view, &QgsLayoutView::zoomIn );
+  ntb->addAction( tr( "缩小" ), m_view, &QgsLayoutView::zoomOut );
+  ntb->addAction( tr( "全图" ), m_view, &QgsLayoutView::zoomFull );
+  ntb->addAction( tr( "适应宽度" ), m_view, &QgsLayoutView::zoomWidth );
+  ntb->addAction( tr( "原始比例" ), m_view, &QgsLayoutView::zoomActual );
 
   // --- menus (exactly four top levels: File / Items / Layout / Settings) ----
 
@@ -299,7 +299,8 @@ void PaleoLayoutDesignerShell::buildChrome()
 
   m_pageSpin = new QSpinBox( navigator );
   m_pageSpin->setObjectName( QStringLiteral( "pageSpinBox" ) );
-  m_pageSpin->setToolTip( tr( "Go to page" ) );
+  m_pageSpin->setToolTip( tr( "跳转到页" ) );
+  m_pageSpin->setAccessibleName( tr( "页码" ) );
   m_pageSpin->setKeyboardTracking( false );
   connect( m_pageSpin, &QSpinBox::valueChanged, this,
            [this]( int page ) { gotoPage( page - 1 ); } );
@@ -329,7 +330,7 @@ void PaleoLayoutDesignerShell::buildFileMenu()
   file->addAction( m_templates->saveAsTemplateAction() );
   file->addAction( m_templates->loadFromTemplateAction() );
 
-  QMenu *builtins = file->addMenu( tr( "Built-in &Templates" ) );
+  QMenu *builtins = file->addMenu( tr( "内置模板(&T)" ) );
   builtins->setObjectName( QStringLiteral( "menuBuiltinTemplates" ) );
   for ( const QString &key : PaleoLayoutTemplates::builtinKeys() )
   {
@@ -351,13 +352,13 @@ void PaleoLayoutDesignerShell::buildItemsMenu()
     QgsLayoutItemAbstractGuiMetadata *metadata = QgsGui::layoutItemGuiRegistry()->itemMetadata( metadataId );
     if ( !metadata )
       continue;
-    QAction *a = menu->addAction( metadata->creationIcon(), tr( "Add %1" ).arg( metadata->visibleName() ) );
+    QAction *a = menu->addAction( metadata->creationIcon(), tr( "添加 %1" ).arg( metadata->visibleName() ) );
     a->setObjectName( QStringLiteral( "menuAddItem_%1" ).arg( metadataId ) );
     connect( a, &QAction::triggered, this, [this, metadataId]() { m_palette->requestItem( metadataId ); } );
   }
 
   menu->addSeparator();
-  QAction *pageAction = menu->addAction( tr( "Page Properties…" ) );
+  QAction *pageAction = menu->addAction( tr( "页面属性…" ) );
   pageAction->setObjectName( QStringLiteral( "menuPageProperties" ) );
   connect( pageAction, &QAction::triggered, m_palette, &PaleoLayoutItemPalette::requestPageProperties );
 }
@@ -366,7 +367,7 @@ void PaleoLayoutDesignerShell::buildLayoutMenu()
 {
   QMenu *layout = layoutMenu();
 
-  QAction *goAction = layout->addAction( tr( "Go to Page…" ) );
+  QAction *goAction = layout->addAction( tr( "跳转到页…" ) );
   goAction->setObjectName( QStringLiteral( "actionGoToPage" ) );
   connect( goAction, &QAction::triggered, this, [this]()
   {
@@ -374,7 +375,7 @@ void PaleoLayoutDesignerShell::buildLayoutMenu()
     if ( count < 1 )
       return;
     bool ok = false;
-    const int page = QInputDialog::getInt( this, tr( "Go to Page" ), tr( "Page number:" ),
+    const int page = QInputDialog::getInt( this, tr( "跳转到页" ), tr( "页码：" ),
                                            m_view->currentPage() + 1, 1, count, 1, &ok );
     if ( ok )
       gotoPage( page - 1 );
@@ -388,7 +389,7 @@ void PaleoLayoutDesignerShell::buildLayoutMenu()
   // &Atlas and &Report hang off the Layout top-level menu.
   m_undoStack->attachMenu( editMenu() );
 
-  QAction *rulerAction = new QAction( tr( "Show Rulers" ), this );
+  QAction *rulerAction = new QAction( tr( "显示标尺" ), this );
   rulerAction->setObjectName( QStringLiteral( "actionShowRulers" ) );
   rulerAction->setCheckable( true );
   rulerAction->setChecked( true );
@@ -596,8 +597,8 @@ void PaleoLayoutDesignerShell::updatePageNavigator()
   const int count = m_layout && m_layout->pageCollection() ? m_layout->pageCollection()->pageCount() : 0;
   const int current = m_view ? m_view->currentPage() : 0;
 
-  m_pageLabel->setText( count > 0 ? tr( "Page %1 / %2" ).arg( current + 1 ).arg( count )
-                                  : tr( "No Pages" ) );
+  m_pageLabel->setText( count > 0 ? tr( "第 %1 / %2 页" ).arg( current + 1 ).arg( count )
+                                  : tr( "暂无页面" ) );
 
   {
     const QSignalBlocker block( m_pageSpin );
@@ -636,7 +637,7 @@ void PaleoLayoutDesignerShell::openPageProperties()
   if ( !pages || pages->pageCount() < 1 )
   {
     if ( m_statusBar )
-      m_statusBar->showMessage( tr( "The layout has no pages." ) );
+      m_statusBar->showMessage( tr( "版面还没有页面。" ) );
     return;
   }
 
@@ -647,7 +648,7 @@ void PaleoLayoutDesignerShell::openPageProperties()
   // modal dialog would block the palette/status flows that share this shell.
   auto *dialog = new QDialog( this );
   dialog->setObjectName( QStringLiteral( "paleoPagePropertiesDialog" ) );
-  dialog->setWindowTitle( tr( "Page Properties" ) );
+  dialog->setWindowTitle( tr( "页面属性" ) );
   auto *lay = new QVBoxLayout( dialog );
   lay->setContentsMargins( 0, 0, 0, 0 );
   lay->addWidget( new QgsLayoutPagePropertiesWidget( dialog, pageItem ) );

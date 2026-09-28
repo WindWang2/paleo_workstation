@@ -20,8 +20,9 @@
 
 // ---------------------------------------------------------------------------
 // IngestPlan 三段式（C 包，见 ingestplan.h 头注）。buildIngestPlan 是纯函数：
-// 枚举/分类/归组/身份匹配/去重/主建议全部只读——catalog 只被查询不修改，故
-// 必须在 catalog 所在线程调用（服务内用法经 catInvoke marshal）。
+// 枚举/分类/归组/身份匹配/去重/主建议全部只读。catalog 只读面有两个实现
+// （T2）：活对象包装仅限 catalog 线程；COW 快照在 catalog 线程拷出后任意
+// 线程构建 plan——worker 上扫描/哈希不再 marshal 回 GUI。
 // ---------------------------------------------------------------------------
 namespace
 {
@@ -92,17 +93,6 @@ namespace
   QString fileStem(const QString &path)
   {
     return QFileInfo(path).completeBaseName();
-  }
-
-  // catalog.catalogPath() = <projectDir>/artifacts/metadata/catalog.json ——
-  // 上两级即工程目录。catalog 未 open 时调用方传空，工程子树守卫随之关闭
-  // （与旧 collectFolderCandidates 拿到空 projectDir 的行为一致）。
-  QString projectDirFromCatalog(const DataCatalog &catalog)
-  {
-    QDir d = QFileInfo(catalog.catalogPath()).absoluteDir(); // …/artifacts/metadata
-    if (!d.cdUp() || !d.cdUp())
-      return QString();
-    return d.absolutePath();
   }
 
   // ---- 枚举（与旧 collectFolderCandidates 同一口径）-----------------------
@@ -304,7 +294,7 @@ namespace
   // 与 resolveWell 同口径：按序尝试候选名——恰好 1 个匹配即绑定；0 个换下
   // 一个名字；≥2 个标 entityAmbiguous 不再往后试（歧义不猜）。
   void proposeWell(PlannedItem &item, const QStringList &tried,
-                   const DataCatalog &catalog)
+                   const IngestCatalogSource &catalog)
   {
     item.entityType = QStringLiteral("well");
     QStringList names;
@@ -338,7 +328,7 @@ namespace
   // 多井文件（井分层）：每个井名一条匹配——任一名字双候选 → 歧义；恰好一个
   // 唯一命中 → entityId；多命中 → entityId 留空、entityName 记已决名集合。
   void proposeWellMulti(PlannedItem &item, const QStringList &names,
-                        const DataCatalog &catalog)
+                        const IngestCatalogSource &catalog)
   {
     item.entityType = QStringLiteral("well");
     QStringList resolvedIds, resolvedNames, unmatched;
@@ -379,7 +369,7 @@ namespace
   // 井口文件是建井来源：plan 期不做实体归属（entityId 恒空），只如实检测
   // 歧义——文件内规范化重名行 / 同时匹配两口已有井的行都标 entityAmbiguous。
   void proposeWellHead(PlannedItem &item, const QString &path,
-                       const DataCatalog &catalog)
+                       const IngestCatalogSource &catalog)
   {
     item.entityType = QStringLiteral("well");
     const QByteArray prefix = readFilePrefix(path, kIdentityPeekBytes);
@@ -417,7 +407,7 @@ namespace
 
   // 测井/时深的井名提取与 importOneFile 同序：LAS 读 ~W WELL、时深读 # Well
   // 行，零候选才回退文件名主名。
-  void proposeWellLog(PlannedItem &item, const DataCatalog &catalog)
+  void proposeWellLog(PlannedItem &item, const IngestCatalogSource &catalog)
   {
     QString wellName;
     if (item.format == QLatin1String("las"))
@@ -425,7 +415,7 @@ namespace
     proposeWell(item, {wellName, fileStem(item.path)}, catalog);
   }
 
-  void proposeTimeDepth(PlannedItem &item, const DataCatalog &catalog)
+  void proposeTimeDepth(PlannedItem &item, const IngestCatalogSource &catalog)
   {
     QString name = fileStem(item.path);
     const QByteArray prefix = readFilePrefix(item.path, kIdentityPeekBytes);
@@ -438,7 +428,7 @@ namespace
     proposeWell(item, {name, fileStem(item.path)}, catalog);
   }
 
-  void proposeStratification(PlannedItem &item, const DataCatalog &catalog)
+  void proposeStratification(PlannedItem &item, const IngestCatalogSource &catalog)
   {
     QStringList names;
     const QByteArray prefix = readFilePrefix(item.path, kIdentityPeekBytes);
@@ -451,7 +441,7 @@ namespace
       proposeWellMulti(item, names, catalog);
   }
 
-  void proposeIdentity(PlannedItem &item, const DataCatalog &catalog)
+  void proposeIdentity(PlannedItem &item, const IngestCatalogSource &catalog)
   {
     item.role = roleForType(item.type);
     const QString stem = fileStem(item.path);
@@ -487,8 +477,24 @@ namespace
 
 IngestPlan buildIngestPlan(const QString &root, const DataCatalog &catalog)
 {
+  // 旧签名 = 活对象零拷贝直通（仅 catalog 线程；GUI 直调等价旧路径）。
+  const LiveCatalogSource live(&catalog);
+  return buildIngestPlan(root, live);
+}
+
+IngestPlan buildIngestPlan(const QString &root, const IngestCatalogSource &catalog,
+                           const IngestScanProgress &scanProgress)
+{
   IngestPlan plan;
   plan.root = root;
+  bool cancelled = false;
+  const auto reportScan = [&cancelled, &scanProgress](int seen,
+                                                      const QString &path) {
+    if (!scanProgress || cancelled)
+      return;
+    if (!scanProgress(seen, path))
+      cancelled = true;
+  };
   const QFileInfo rootInfo(root);
   if (rootInfo.isFile())
   {
@@ -507,8 +513,7 @@ IngestPlan buildIngestPlan(const QString &root, const DataCatalog &catalog)
   }
   else if (rootInfo.isDir())
   {
-    const QString projectDir =
-        catalog.isOpen() ? projectDirFromCatalog(catalog) : QString();
+    const QString projectDir = catalog.isOpen() ? catalog.projectDir() : QString();
     scanFolder(root, projectDir, &plan);
     groupShapefileFamilies(plan.items);
     orderIngestPlanItems(plan.items);
@@ -522,19 +527,36 @@ IngestPlan buildIngestPlan(const QString &root, const DataCatalog &catalog)
     plan.issues.append(QStringLiteral("找不到源文件: %1").arg(root));
     return plan;
   }
+  if (cancelled)
+  {
+    plan.cancelled = true;
+    plan.issues.append(QStringLiteral("已取消"));
+    return plan;
+  }
   if (plan.items.isEmpty() && plan.skipped.isEmpty() && plan.issues.isEmpty())
     plan.issues.append(QStringLiteral("目录里没有可导入的文件: %1").arg(root));
 
-  // ---- plan 期 sha256：≤200MB 才算；SEG-Y 留空、永不因 plan 去重拦截 ----
+  // ---- plan 期 sha256：≤200MB 才算；SEG-Y 留空、永不因 plan 去重拦截。
+  // 哈希是 plan 期的主要重活——每个待哈希文件回调一次扫描进度（枚举本身
+  // 只 stat，不报；>200MB 不哈希的文件无回调，重活在执行段另有行进度）。
   for (PlannedItem &item : plan.items)
   {
     if (item.size <= 0 || item.size > kPlanHashLimitBytes)
       continue;
+    reportScan(plan.items.size(), item.path);
+    if (cancelled)
+      break;
     QString herr;
     item.sha256 = DataCatalog::sha256FileHex(item.path, &herr);
     if (item.sha256.isEmpty())
       plan.issues.append(QFileInfo(item.path).fileName() +
                          (herr.isEmpty() ? QStringLiteral(" 哈希失败") : herr));
+  }
+  if (cancelled)
+  {
+    plan.cancelled = true;
+    plan.issues.append(QStringLiteral("已取消"));
+    return plan;
   }
 
   // ---- 身份匹配（只读 catalog；歧义/零匹配如实未决，不猜）----
@@ -542,7 +564,8 @@ IngestPlan buildIngestPlan(const QString &root, const DataCatalog &catalog)
     proposeIdentity(item, catalog);
 
   // ---- sha 去重：catalog.versionBySha256 命中 → duplicateOf + decision=skip
-  // （确认框可改；同一 sha 只查一次）。
+  // （确认框可改；同一 sha 只查一次）。快照路径下重哈希发生在调用线程
+  // （worker）——这正是 plan 期要搬出 GUI 的重活。
   QHash<QString, QString> dupVersionBySha; // sha → versionId（缓存含空命中）
   for (PlannedItem &item : plan.items)
   {
@@ -614,13 +637,138 @@ void orderIngestPlanItems(QVector<PlannedItem> &items)
   items = ordered;
 }
 
-QVector<DataImportService::FolderRowResult>
+// ---------------------------------------------------------------------------
+// IngestCatalogSource 两个实现（T2：plan 期搬出 GUI 线程）
+// ---------------------------------------------------------------------------
+
+namespace
+{
+// catalogPath = <projectDir>/artifacts/metadata/catalog.json——上两级即工程
+// 目录。目录推不出来（相对路径/未 open）→ 空，工程子树守卫随之关闭（与旧
+// collectFolderCandidates 拿到空 projectDir 的行为一致）。
+QString projectDirOfCatalogPath(const QString &catalogPath)
+{
+  QDir d = QFileInfo(catalogPath).absoluteDir(); // …/artifacts/metadata
+  if (!d.cdUp() || !d.cdUp())
+    return QString();
+  return d.absolutePath();
+}
+
+// linksForEntity 的快照重实现：DataCatalog 的口径 = 过滤 + 按 ordinal
+// stable_sort（不同角色保持入库序；ordinal 全 0 时与排序前逐项一致）。
+QVector<EntityAssetLink> linksForEntityFrom(const QVector<EntityAssetLink> &links,
+                                            const QString &entityId)
+{
+  if (entityId.isEmpty())
+    return {}; // audit row 35：空 id 如实回空集
+  QVector<EntityAssetLink> out;
+  for (const EntityAssetLink &l : links)
+    if (l.entityId == entityId)
+      out.append(l);
+  std::stable_sort(out.begin(), out.end(),
+                   [](const EntityAssetLink &a, const EntityAssetLink &b) {
+                     return a.ordinal < b.ordinal;
+                   });
+  return out;
+}
+} // namespace
+
+bool LiveCatalogSource::isOpen() const { return m_cat && m_cat->isOpen(); }
+
+QString LiveCatalogSource::projectDir() const
+{
+  return m_cat ? projectDirOfCatalogPath(m_cat->catalogPath()) : QString();
+}
+
+QStringList LiveCatalogSource::wellsMatchingName(const QString &name) const
+{
+  return m_cat ? m_cat->wellsMatchingName(name) : QStringList();
+}
+
+CatalogEntity LiveCatalogSource::entityById(const QString &id) const
+{
+  return m_cat ? m_cat->entityById(id) : CatalogEntity();
+}
+
+CatalogVersion LiveCatalogSource::versionBySha256(const QString &sha256) const
+{
+  return m_cat ? m_cat->versionBySha256(sha256) : CatalogVersion();
+}
+
+QVector<EntityAssetLink> LiveCatalogSource::linksForEntity(const QString &entityId) const
+{
+  return m_cat ? m_cat->linksForEntity(entityId) : QVector<EntityAssetLink>();
+}
+
+CatalogReadSnapshot CatalogReadSnapshot::fromCatalog(const DataCatalog &catalog)
+{
+  // 只在 catalog 线程调用。QVector 隐式共享 → 三张表 O(1) 拷出；此后
+  // catalog 线程的 append/修改走 COW 分离，快照持有构建瞬间的视图。
+  CatalogReadSnapshot snap;
+  snap.m_open = catalog.isOpen();
+  snap.m_dir = snap.m_open ? projectDirOfCatalogPath(catalog.catalogPath())
+                           : QString();
+  snap.m_projectDir = snap.m_dir;
+  if (snap.m_open)
+  {
+    snap.m_entities = catalog.entities();
+    snap.m_versions = catalog.versions();
+    snap.m_links = catalog.links();
+  }
+  return snap;
+}
+
+QStringList CatalogReadSnapshot::wellsMatchingName(const QString &name) const
+{
+  const QString needle = DataCatalog::normalizeWellName(name);
+  QStringList out;
+  if (needle.isEmpty())
+    return out;
+  for (const CatalogEntity &e : m_entities)
+    if (e.entityType == QStringLiteral("well") &&
+        DataCatalog::normalizeWellName(e.name) == needle)
+      out.append(e.id);
+  return out;
+}
+
+CatalogEntity CatalogReadSnapshot::entityById(const QString &id) const
+{
+  for (const CatalogEntity &e : m_entities)
+    if (e.id == id)
+      return e;
+  return CatalogEntity();
+}
+
+CatalogVersion CatalogReadSnapshot::versionBySha256(const QString &sha256) const
+{
+  // 与 DataCatalog::versionBySha256 同口径：命中后复核文件仍在且字节一致
+  // （受管文件丢失/被改的旧条目不冒充命中）——文件 IO 在调用线程执行。
+  if (sha256.isEmpty())
+    return CatalogVersion();
+  for (const CatalogVersion &v : m_versions)
+    if (v.sha256.compare(sha256, Qt::CaseInsensitive) == 0)
+    {
+      const QString path = DataCatalog::resolvedVersionPath(m_dir, v);
+      if (path.isEmpty() || !QFileInfo(path).isFile())
+        continue;
+      if (DataCatalog::sha256FileHex(path).compare(sha256, Qt::CaseInsensitive) == 0)
+        return v;
+    }
+  return CatalogVersion();
+}
+
+QVector<EntityAssetLink> CatalogReadSnapshot::linksForEntity(const QString &entityId) const
+{
+  return linksForEntityFrom(m_links, entityId);
+}
+
+QVector<FolderRowResult>
 executeIngestPlan(const IngestPlan &plan, DataImportService &svc,
                   const IngestProgress &progress, QString *error)
 {
   if (error)
     error->clear();
-  QVector<DataImportService::FolderRowResult> rows;
+  QVector<FolderRowResult> rows;
   DataCatalog *cat = svc.catalog();
   if (!cat)
   {
@@ -652,10 +800,10 @@ executeIngestPlan(const IngestPlan &plan, DataImportService &svc,
   // 枚举期跳过项（逃逸链接/非普通文件）如实记 Skipped 行缀在最后。
   for (const PlannedItem &s : plan.skipped)
   {
-    DataImportService::FolderRowResult row;
+    FolderRowResult row;
     row.path = s.path;
     row.classifiedType = s.type;
-    row.outcome = DataImportService::FolderRowResult::Outcome::Skipped;
+    row.outcome = FolderRowResult::Outcome::Skipped;
     row.message = s.note;
     rows.append(row);
   }

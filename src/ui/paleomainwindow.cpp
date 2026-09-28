@@ -1,8 +1,9 @@
 // 层：视图
 #include "paleomainwindow.h"
 
-#include "paleotheme.h" // T32：焦点环/mono 数字面 token 出口
-#include "paleoicons.h" // ribbon 图标：QGIS 主题直取 + 自绘补缺
+#include "paleotheme.h" // T32：焦点环/mono 数字面 token 出口；暗色翻案 token 全集
+#include "paleoemptystate.h" // T31 空态卡片共享组件（本文件旧匿名类收敛于此）
+#include "paleoicons.h" // ribbon 图标：QGIS 主题直取（暗色再着色）+ 自绘补缺
 #include "paleoribbon.h" // SARibbon 壳公用件：主题/命令镜像
 
 #include "../qgis/qgiscanvascontroller.h"
@@ -85,6 +86,7 @@
 #include <qgsmaptoolzoom.h>
 
 #include <QApplication>
+#include <QCoreApplication>
 #include <QCloseEvent>
 #include <QContextMenuEvent>
 #include <QDir>
@@ -134,15 +136,31 @@ namespace
   // Tab order = reading order = right-panel stack order：页序表收敛到
   // pages/pageshared.h 的 kPageIds（W4：attach 接线 TU 同查页序）。
   // ribbon 页签文案（用户裁决 2026-09-27：Ribbon 界面，五页保留验证）。
-  const QStringList kPageLabels = {
-    QStringLiteral("数据管理"), QStringLiteral("预测编图"), QStringLiteral("单因素图"),
-    QStringLiteral("智能编图"), QStringLiteral("验证"),
-  };
+  // 首调时构建（首次调用发生在 buildShell——QApplication 已在场，翻译
+  // 系统可用）；命名空间级常量会在 main 前静态初始化，漏翻译。
+  const QStringList &pageLabels()
+  {
+    static const QStringList labels = {
+        QCoreApplication::translate("PaleoMainWindow", "数据管理"),
+        QCoreApplication::translate("PaleoMainWindow", "预测编图"),
+        QCoreApplication::translate("PaleoMainWindow", "单因素图"),
+        QCoreApplication::translate("PaleoMainWindow", "智能编图"),
+        QCoreApplication::translate("PaleoMainWindow", "验证"),
+    };
+    return labels;
+  }
   // 右侧 dock 标题随页：数据页是属性面，编图页是参数面，验证页是结果面。
-  const QStringList kPageDockTitles = {
-    QStringLiteral("数据属性"), QStringLiteral("预测参数"), QStringLiteral("单因素参数"),
-    QStringLiteral("编图参数"), QStringLiteral("验证结果"),
-  };
+  const QStringList &pageDockTitles()
+  {
+    static const QStringList titles = {
+        QCoreApplication::translate("PaleoMainWindow", "数据属性"),
+        QCoreApplication::translate("PaleoMainWindow", "预测参数"),
+        QCoreApplication::translate("PaleoMainWindow", "单因素参数"),
+        QCoreApplication::translate("PaleoMainWindow", "编图参数"),
+        QCoreApplication::translate("PaleoMainWindow", "验证结果"),
+    };
+    return titles;
+  }
 
   // SARibbonMainWindow 构造参数：顺带在基类构造前备好库（qrc + 关掉跟随
   // 系统暗色）。原生边框：Linux X11/Wayland 与 offscreen 测试同一路径，
@@ -198,17 +216,17 @@ namespace
     lay->setContentsMargins(64, 48, 64, 48);
     lay->setSpacing(12);
 
-    auto *title = new QLabel(QStringLiteral("Paleo Workbench"), page);
+    auto *title = new QLabel(QCoreApplication::translate("PaleoMainWindow", "Paleo Workbench"), page);
     QFont f = title->font();
     f.setPointSize(15); // DESIGN.md 图件标题/页级标题 token
     f.setBold(true);
     title->setFont(f);
-    auto *sub = new QLabel(QStringLiteral("古地理编图工作台 — 新建工程或打开最近工程开始"), page);
+    auto *sub = new QLabel(QCoreApplication::translate("PaleoMainWindow", "古地理编图工作台 — 新建工程或打开最近工程开始"), page);
 
-    auto *recentLabel = new QLabel(QStringLiteral("最近工程"), page);
+    auto *recentLabel = new QLabel(QCoreApplication::translate("PaleoMainWindow", "最近工程"), page);
     auto *list = new QListWidget(page);
     list->setObjectName(QStringLiteral("recentProjectsList"));
-    list->setAccessibleName(QStringLiteral("最近工程列表"));
+    list->setAccessibleName(QCoreApplication::translate("PaleoMainWindow", "最近工程列表"));
     const QStringList recent = readRecentProjects();
     for (const QString &p : recent)
     {
@@ -217,17 +235,17 @@ namespace
     }
     if (recent.isEmpty()) // §42.4 empty state — guidance, not a blank panel
     {
-      auto *item = new QListWidgetItem(QStringLiteral("（暂无最近工程）"), list);
+      auto *item = new QListWidgetItem(QCoreApplication::translate("PaleoMainWindow", "（暂无最近工程）"), list);
       item->setFlags(Qt::NoItemFlags);
     }
 
     auto *btnRow = new QHBoxLayout;
-    auto *newBtn = new QPushButton(QStringLiteral("新建工程"), page);
+    auto *newBtn = new QPushButton(QCoreApplication::translate("PaleoMainWindow", "新建工程"), page);
     newBtn->setObjectName(QStringLiteral("newProjectButton"));
-    auto *openBtn = new QPushButton(QStringLiteral("打开工程"), page);
+    auto *openBtn = new QPushButton(QCoreApplication::translate("PaleoMainWindow", "打开工程"), page);
     openBtn->setObjectName(QStringLiteral("openProjectButton"));
     auto *fromAreaBtn =
-        new QPushButton(QStringLiteral("从工区文件夹新建"), page);
+        new QPushButton(QCoreApplication::translate("PaleoMainWindow", "从工区文件夹新建"), page);
     fromAreaBtn->setObjectName(QStringLiteral("importFromFolderButton"));
     btnRow->addWidget(newBtn);
     btnRow->addWidget(openBtn);
@@ -242,42 +260,8 @@ namespace
     lay->addLayout(btnRow);
     return page;
   }
-// T31 空态标签：宿主（地图画布/图层树）resize 时保持居中；白底半透明卡片
-// 承载（DESIGN.md 画布装饰约定），文案永远带下一步动作指引。
-class EmptyStateLabel : public QLabel
-{
-  public:
-    EmptyStateLabel(const QString &text, QWidget *host) : QLabel(text, host)
-    {
-      setAlignment(Qt::AlignCenter);
-      setWordWrap(true);
-      setStyleSheet(QStringLiteral(
-          "background: rgba(255,255,255,0.9); color: #5D6E80; padding: 12px 16px;"
-          "border: 1px solid #DFE5EC; border-radius: 8px;"));
-      host->installEventFilter(this);
-      recenter(host->size());
-    }
-
-  protected:
-    bool eventFilter(QObject *obj, QEvent *ev) override
-    {
-      if (ev->type() == QEvent::Resize)
-        if (auto *w = qobject_cast<QWidget *>(obj))
-          recenter(w->size());
-      return QLabel::eventFilter(obj, ev);
-    }
-
-  private:
-    void recenter(const QSize &host)
-    {
-      const int maxW = qMax(160, host.width() - 24);
-      if (width() > maxW || height() > host.height())
-        resize(maxW, qMax(40, heightForWidth(maxW)));
-      adjustSize();
-      move(qMax(0, (host.width() - width()) / 2),
-           qMax(0, (host.height() - height()) / 2));
-    }
-};
+// T31 空态标签已收敛为共享组件 ui/paleoemptystate（本文件旧匿名类删除）；
+// layertreepanel 的复制版迁移登记在 docs/progress/ux.md seam 表。
 } // namespace
 
 PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
@@ -293,6 +277,10 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
   , m_tools(tools)
   , m_selection(selection)
 {
+  // 暗色翻案（DESIGN.md 决策日志 2026-09-28）：main() 落的浅色只是无用户
+  // 设置时的缺省；窗口构造按 QSettings 显式钉一次（读取无副作用——写只
+  // 发生在用户切换主题时，测试路径不产生新写者）。
+  PaleoTheme::applyTheme(PaleoTheme::themeFromSettings());
   buildShell();
 
   // ---- m2(D): 页面图层档案（m1 接缝消费）----
@@ -367,7 +355,7 @@ void PaleoMainWindow::buildShell()
   chipsLay->setContentsMargins(12, 4, 12, 4);
   auto *chips = new HorizonChipBar(m_selection, m_layerSvc, chipsRow);
   chips->setObjectName(QStringLiteral("horizonChips"));
-  chips->setAccessibleName(QStringLiteral("层位切换"));
+  chips->setAccessibleName(tr("层位切换"));
   chipsLay->addWidget(chips);
   chipsLay->addStretch(1);
   canvasLay->addWidget(chipsRow);
@@ -426,7 +414,7 @@ void PaleoMainWindow::buildShell()
   m_centerSplit->setChildrenCollapsible(false);
   m_dataListHost = new QWidget(m_centerSplit);
   m_dataListHost->setObjectName(QStringLiteral("dataListPanel"));
-  m_dataListHost->setAccessibleName(QStringLiteral("数据列表"));
+  m_dataListHost->setAccessibleName(tr("数据列表"));
   m_dataListHost->setMinimumWidth(0);
   m_dataListHost->setMinimumHeight(0);
   auto *listHostLay = new QVBoxLayout(m_dataListHost);
@@ -434,7 +422,7 @@ void PaleoMainWindow::buildShell()
   m_centerSplit->addWidget(m_dataListHost);
   m_previewTabs = new DataPreviewTabs(m_centerSplit);
   m_previewTabs->setObjectName(QStringLiteral("dataPreview"));
-  m_previewTabs->setAccessibleName(QStringLiteral("数据预览"));
+  m_previewTabs->setAccessibleName(tr("数据预览"));
   m_previewTabs->setMinimumWidth(0);
   m_previewTabs->setMinimumHeight(0);
   m_centerSplit->addWidget(m_previewTabs);
@@ -490,14 +478,15 @@ void PaleoMainWindow::buildShell()
       }
     });
 
-  // ---- T31 空态：地图没有图层时画布上的居中指引 ----
-  EmptyStateLabel *mapEmpty = nullptr;
+  // ---- T31 空态：地图没有图层时画布上的居中指引（共享组件）----
+  PaleoEmptyStateLabel *mapEmpty = nullptr;
   if (m_canvasCtl)
   {
-    mapEmpty = new EmptyStateLabel(
-        QStringLiteral("地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「预测编图」运行预测"),
+    mapEmpty = new PaleoEmptyStateLabel(
+        QCoreApplication::translate("PaleoMainWindow",
+                                    "地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「预测编图」运行预测"),
         m_canvasCtl->canvas());
-    mapEmpty->setObjectName(QStringLiteral("mapEmptyState"));
+    mapEmpty->setObjectName(QStringLiteral("mapEmptyState")); // tst_ui 依赖的稳定名
     mapEmpty->raise();
   }
 
@@ -508,14 +497,14 @@ void PaleoMainWindow::buildShell()
       if (isOffscreen() || !m_projectSvc)
         return;
       const QString p = QFileDialog::getOpenFileName(
-          this, QStringLiteral("打开工程"), QString(),
+          this, tr("打开工程"), QString(),
           QStringLiteral("Paleo 工程 (*.paleo);;QGIS 工程 (*.qgz *.qgs)"));
       if (p.isEmpty())
         return;
       // §38 blocking-error contract: a failed open surfaces as a dialog, not
       // a silent no-op on the startup page.
       if (!m_projectSvc->openProject(p))
-        QMessageBox::critical(this, QStringLiteral("打开工程失败"),
+        QMessageBox::critical(this, tr("打开工程失败"),
                               m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
   if (auto *newBtn = startup->findChild<QPushButton *>(QStringLiteral("newProjectButton")))
@@ -523,11 +512,11 @@ void PaleoMainWindow::buildShell()
       if (isOffscreen() || !m_projectSvc)
         return;
       const QString p = QFileDialog::getSaveFileName(
-          this, QStringLiteral("新建工程"), QString(), QStringLiteral("Paleo 工程 (*.qgz)"));
+          this, tr("新建工程"), QString(), QStringLiteral("Paleo 工程 (*.qgz)"));
       if (p.isEmpty())
         return;
       if (!m_projectSvc->createProject(p))
-        QMessageBox::critical(this, QStringLiteral("新建工程失败"),
+        QMessageBox::critical(this, tr("新建工程失败"),
                               m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
   // PROJECT_FILE_DESIGN：从工区文件夹新建——选目录后
@@ -540,7 +529,7 @@ void PaleoMainWindow::buildShell()
       if (isOffscreen() || !m_projectSvc)
         return;
       const QString dir =
-          QFileDialog::getExistingDirectory(this, QStringLiteral("从工区文件夹新建工程"));
+          QFileDialog::getExistingDirectory(this, tr("从工区文件夹新建工程"));
       if (!dir.isEmpty())
         openPath(dir);
     });
@@ -550,14 +539,14 @@ void PaleoMainWindow::buildShell()
       if (p.isEmpty() || !m_projectSvc)
         return;
       if (!m_projectSvc->openProject(p))
-        QMessageBox::critical(this, QStringLiteral("打开工程失败"),
+        QMessageBox::critical(this, tr("打开工程失败"),
                               m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
 
   setCentralWidget(m_centerStack);
 
   // ---- left dock: 图层平台（档案工具条 + 图层树面板），替换裸 QgsLayerTreeView ----
-  m_leftDock = new PaleoDockWidget(QStringLiteral("图层"), this);
+  m_leftDock = new PaleoDockWidget(tr("图层"), this);
   m_leftDock->setObjectName(QStringLiteral("layerTreeDock"));
   if (m_projectSvc && m_projectSvc->project() && m_projectSvc->project()->layerTreeRoot())
   {
@@ -610,7 +599,7 @@ void PaleoMainWindow::buildShell()
   }
   else
   {
-    m_leftDock->setWidget(new QLabel(QStringLiteral("未打开工程"), m_leftDock));
+    m_leftDock->setWidget(new QLabel(tr("未打开工程"), m_leftDock));
   }
   addDockWidget(Qt::LeftDockWidgetArea, m_leftDock);
 
@@ -629,15 +618,15 @@ void PaleoMainWindow::buildShell()
   }
 
   // ---- right dock: per-page panel stack (placeholders until attachWorkflows) ----
-  // 标题随页（kPageDockTitles）；ribbon 里的「参数」钮就是它的 toggleViewAction。
-  m_rightDock = new QDockWidget(kPageDockTitles.first(), this);
+  // 标题随页（pageDockTitles()）；ribbon 里的「参数」钮就是它的 toggleViewAction。
+  m_rightDock = new QDockWidget(pageDockTitles().first(), this);
   m_rightDock->setObjectName(QStringLiteral("pagePanelDock"));
   auto *panelHost = new QWidget(m_rightDock);
   panelHost->setObjectName(QStringLiteral("rightPanelHost"));
   auto *panelStack = new QStackedLayout(panelHost);
-  for (const QString &label : kPageLabels)
+  for (const QString &label : pageLabels())
   {
-    auto *placeholder = new QLabel(label + QStringLiteral(" — 面板待实现"), panelHost);
+    auto *placeholder = new QLabel(label + tr(" — 面板待实现"), panelHost);
     placeholder->setAlignment(Qt::AlignTop | Qt::AlignLeft);
     placeholder->setMargin(12);
     panelStack->addWidget(placeholder);
@@ -646,17 +635,18 @@ void PaleoMainWindow::buildShell()
   addDockWidget(Qt::RightDockWidgetArea, m_rightDock);
 
   // ---- bottom dock: log + tasks tabs ----
-  m_bottomDock = new PaleoDockWidget(QStringLiteral("日志 / 任务"), this);
+  m_bottomDock = new PaleoDockWidget(tr("日志 / 任务"), this);
   m_bottomDock->setObjectName(QStringLiteral("bottomDock"));
   auto *bottomTabs = new QTabWidget(m_bottomDock);
   bottomTabs->setObjectName(QStringLiteral("bottomTabs"));
+  bottomTabs->setAccessibleName(tr("底部面板页签"));
   // Qt::Widget flags keep the QDialog-based viewer embeddable as a tab page.
-  bottomTabs->addTab(new QgsMessageLogViewer(bottomTabs, Qt::Widget), QStringLiteral("日志"));
+  bottomTabs->addTab(new QgsMessageLogViewer(bottomTabs, Qt::Widget), tr("日志"));
   auto *tasks = new QTextEdit(bottomTabs);
   tasks->setObjectName(QStringLiteral("tasksPlaceholder"));
   tasks->setReadOnly(true);
-  tasks->setPlaceholderText(QStringLiteral("任务队列 — 待实现"));
-  bottomTabs->addTab(tasks, QStringLiteral("任务"));
+  tasks->setPlaceholderText(tr("任务队列 — 待实现"));
+  bottomTabs->addTab(tasks, tr("任务"));
   m_bottomDock->setWidget(bottomTabs);
   addDockWidget(Qt::BottomDockWidgetArea, m_bottomDock);
   m_bottomDock->setUserWantsVisible(false);
@@ -745,12 +735,12 @@ void PaleoMainWindow::buildShell()
   auto *horizonLabel = new QLabel(this);
   horizonLabel->setObjectName(QStringLiteral("statusHorizon"));
   const auto horizonText = [](const QString &h) {
-    return QStringLiteral("层位：%1").arg(h.isEmpty() ? QStringLiteral("—") : h);
+    return tr("层位：%1").arg(h.isEmpty() ? QStringLiteral("—") : h);
   };
   horizonLabel->setText(horizonText(m_selection ? m_selection->activeHorizon() : QString()));
   auto *providerLabel = new QLabel(this);
   providerLabel->setObjectName(QStringLiteral("statusProviders"));
-  providerLabel->setText(QStringLiteral("数据提供器：%1")
+  providerLabel->setText(tr("数据提供器：%1")
                              .arg(QgisRuntime::isInitialized() ? QgisRuntime::providerCount() : 0));
   statusBar()->addPermanentWidget(horizonLabel);
   statusBar()->addPermanentWidget(providerLabel);
@@ -783,9 +773,10 @@ void PaleoMainWindow::buildShell()
     // 「工程坐标 · 米 · 未投影」（DESIGN.md 状态文字 #5D6E80，次级文案同色）。
     auto *crsLabel = new QLabel(this);
     crsLabel->setObjectName(QStringLiteral("statusCrs"));
-    crsLabel->setText(QStringLiteral("工程坐标 · 米 · 未投影"));
-    crsLabel->setToolTip(QStringLiteral("局部工程坐标，单位米，未投影 — 不是经纬度"));
-    crsLabel->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+    crsLabel->setText(tr("工程坐标 · 米 · 未投影"));
+    crsLabel->setToolTip(tr("局部工程坐标，单位米，未投影 — 不是经纬度"));
+    PaleoTheme::applyThemedStyleSheet(
+        crsLabel, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
     statusBar()->addPermanentWidget(crsLabel);
   }
   if (m_selection)
@@ -794,20 +785,35 @@ void PaleoMainWindow::buildShell()
 
   // DESIGN.md tokens on shell chrome only — no custom painting. ribbon 本体
   // 的颜色来自 PaleoTheme::ribbonPaletteJson（office2021 模板）。
-  // T32：拼上全局 2px #1B73D0 键盘焦点环（替代 Fusion 虚线框）。
+  // T32：拼上全局 2px 键盘焦点环（替代 Fusion 虚线框）。壳 QSS 与焦点环
+  // 都从 PaleoTheme 取（缺省=当前主题）——暗色下整套壳 chrome 跟随。
   const QString shellQss =
-      QStringLiteral(
-          "QMainWindow { background: #EDF1F5; }"
-          "QDockWidget::title { background: #EDF1F5; color: #24303E; padding: 6px 10px; }"
-          "QStatusBar { background: #EDF1F5; color: #5D6E80; }"
-          "QWidget#mapInteractionContext { background: #EDF1F5; color: #5D6E80; border-bottom: 1px solid #DFE5EC; }"
-          "QWidget#horizonChipRow { background: #FFFFFF; border-bottom: 1px solid #DFE5EC; }") +
-      PaleoTheme::focusRingStyleSheet();
+      PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet();
   PaleoRibbon::applyTheme(this, shellQss);
   // SARibbonMainWindow 构造时排了一次 singleShot(0) 重套内置主题（会整体
   // 覆盖样式表）；零时定时器按注册顺序触发——这里再排一次，保证最后落的
   // 是 DESIGN.md 这套。
-  QTimer::singleShot(0, this, [this, shellQss] { PaleoRibbon::applyTheme(this, shellQss); });
+  QTimer::singleShot(0, this, [this] { reapplyThemeChrome(); });
+}
+
+void PaleoMainWindow::reapplyThemeChrome()
+{
+  const QString shellQss =
+      PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet();
+  PaleoRibbon::applyTheme(this, shellQss);
+}
+
+void PaleoMainWindow::setDarkThemeEnabled(bool dark)
+{
+  // 唯一主题写者：只有用户显式切换（面板菜单「深色模式」勾选）才写盘。
+  PaleoTheme::writeThemeToSettings(
+      dark ? PaleoTheme::Theme::Dark : PaleoTheme::Theme::Light);
+  PaleoTheme::applyTheme(
+      dark ? PaleoTheme::Theme::Dark : PaleoTheme::Theme::Light);
+  reapplyThemeChrome(); // SARibbon 调色板不跟 palette 事件，显式重套
+  if (statusBar())
+    statusBar()->showMessage(dark ? tr("已切换到深色模式") : tr("已切换到浅色模式"),
+                             4000);
 }
 
 void PaleoMainWindow::buildRibbon()
@@ -820,7 +826,7 @@ void PaleoMainWindow::buildRibbon()
   if (SARibbonTabBar *tabs = bar->ribbonTabBar())
   {
     tabs->setObjectName(QStringLiteral("workflowTabs"));
-    tabs->setAccessibleName(QStringLiteral("工作流步骤"));
+    tabs->setAccessibleName(tr("工作流步骤"));
     // T32 tab 溢出策略：超宽走滚动按钮（显式钉住防样式/平台漂移）。
     tabs->setUsesScrollButtons(true);
   }
@@ -828,7 +834,7 @@ void PaleoMainWindow::buildRibbon()
   // ---- 五个页签 = 五个工作流页（页签序 = paleo::pagesinternal::kPageIds 序）----
   for (int i = 0; i < paleo::pagesinternal::kPageIds.size(); ++i)
   {
-    SARibbonCategory *cat = bar->addCategoryPage(kPageLabels.at(i));
+    SARibbonCategory *cat = bar->addCategoryPage(pageLabels().at(i));
     cat->setObjectName(QStringLiteral("ribbonCategory.") + paleo::pagesinternal::kPageIds.at(i));
     cat->setProperty("paleo.pageId", paleo::pagesinternal::kPageIds.at(i));
   }
@@ -919,9 +925,17 @@ void PaleoMainWindow::showPanelMenu(const QPoint &globalPos)
   // toggleViewAction（+注册的 QToolBar——本壳没有；编辑条是 ribbon 行内
   // 控件，页作用域归 showPage 管，故意不进可关清单）。菜单生命周期归
   // WA_DeleteOnClose。
+  // 「视图」节：面板清单之后附主题切换（缺省浅色；勾选即深色——写盘只
+  // 在用户显式切换时发生，见 setDarkThemeEnabled）。
   if (QMenu *menu = createPopupMenu())
   {
     menu->setAttribute(Qt::WA_DeleteOnClose);
+    menu->addSeparator();
+    QAction *dark = menu->addAction(tr("深色模式"));
+    dark->setObjectName(QStringLiteral("themeToggleAction"));
+    dark->setCheckable(true);
+    dark->setChecked(PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark);
+    connect(dark, &QAction::toggled, this, &PaleoMainWindow::setDarkThemeEnabled);
     menu->popup(globalPos);
   }
 }
@@ -976,7 +990,7 @@ void PaleoMainWindow::showPage(const QString &pageId)
       stack->setCurrentIndex(idx);
   if (m_rightDock)
   {
-    m_rightDock->setWindowTitle(kPageDockTitles.at(idx));
+    m_rightDock->setWindowTitle(pageDockTitles().at(idx));
     if (dockW > 0 && m_rightDock->width() != dockW)
       QTimer::singleShot(0, this, [this, dockW]() {
         if (m_rightDock && m_rightDock->isVisible() && !m_rightDock->isFloating())

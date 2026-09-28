@@ -70,6 +70,7 @@ class ConstraintWorkflow;
 class CompositionWorkflow;
 class ValidationWorkflow;
 class MappingWorkflow;
+class MappingWorkbench;
 class MapVersionController;
 class MapVersionStore;
 class ProjectDataFacade;
@@ -136,6 +137,7 @@ class PaleoMainWindow : public SARibbonMainWindow
 
     // Swap right-dock placeholder panels for the real page panels (§42.2),
     // bound to the workflow orchestrators. Call after AppContext assembly.
+    void attachWorkbench(MappingWorkbench *workbench);
     void attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                          CompositionWorkflow *compose, ValidationWorkflow *validate,
                          DataImportService *importSvc = nullptr,
@@ -214,7 +216,14 @@ class PaleoMainWindow : public SARibbonMainWindow
     void addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb);
     // 面板显隐菜单（QMainWindow::createPopupMenu 列出全部 dock 的
     // toggleViewAction）。右键 dock 标题栏与右上「面板」钮共用此入口。
+    // 菜单尾附「视图」节：浅色/深色主题切换（写 QSettings 仅发生在用户
+    // 显式切换时；缺省浅色）。
     void showPanelMenu(const QPoint &globalPos);
+    // 暗色翻案（决策日志 2026-09-28）：切主题 = 换 palette（ApplicationPaletteChange
+    // 风暴自动重算所有活体样式）+ 重套 SARibbon 调色板与壳样式。dark 参数
+    // 为目标态；写盘走 PaleoTheme::writeThemeToSettings（唯一写者）。
+    void setDarkThemeEnabled(bool dark);
+    void reapplyThemeChrome();
     // m2(D) 页面图层档案：四个编图页切到/层位 chip 切换后重应用当前页档案
     // （QgisLayerProfileService::applyPageProfile）。数据页无档案，no-op。
     void applyCurrentPageProfile();

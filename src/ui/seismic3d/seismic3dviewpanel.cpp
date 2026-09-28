@@ -9,6 +9,7 @@
 #include <QSpinBox>
 #include <QLabel>
 #include <QFrame>
+#include <QTimer>
 
 namespace seismic {
 
@@ -91,6 +92,12 @@ void Seismic3DViewPanel::buildUi() {
     topLay->addWidget(btnCrossline_);
     topLay->addWidget(btnTime_);
     topLay->addStretch();
+
+    qualityLabel_ = new QLabel(topBar);
+    qualityLabel_->setObjectName(QStringLiteral("seismic3DLodLabel"));
+    qualityLabel_->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
+    qualityLabel_->setStyleSheet(QStringLiteral("color: #5D6E80; padding: 0 4px;"));
+    topLay->addWidget(qualityLabel_);
 
     mainLay->addWidget(topBar);
 
@@ -191,16 +198,29 @@ void Seismic3DViewPanel::buildUi() {
 
     // Connections - Sliders & Spinboxes
     connect(inlineSlider_, &QSlider::valueChanged, inlineSpin_, &QSpinBox::setValue);
-    connect(inlineSpin_, &QSpinBox::valueChanged, inlineSlider_, &QSlider::setValue);
+    connect(inlineSpin_, QOverload<int>::of(&QSpinBox::valueChanged), inlineSlider_, &QSlider::setValue);
     connect(inlineSlider_, &QSlider::valueChanged, this, &Seismic3DViewPanel::onInlineSliderChanged);
 
     connect(xlineSlider_, &QSlider::valueChanged, xlineSpin_, &QSpinBox::setValue);
-    connect(xlineSpin_, &QSpinBox::valueChanged, xlineSlider_, &QSlider::setValue);
+    connect(xlineSpin_, QOverload<int>::of(&QSpinBox::valueChanged), xlineSlider_, &QSlider::setValue);
     connect(xlineSlider_, &QSlider::valueChanged, this, &Seismic3DViewPanel::onCrosslineSliderChanged);
 
     connect(timeSlider_, &QSlider::valueChanged, timeSpin_, &QSpinBox::setValue);
-    connect(timeSpin_, &QSpinBox::valueChanged, timeSlider_, &QSlider::setValue);
+    connect(timeSpin_, QOverload<int>::of(&QSpinBox::valueChanged), timeSlider_, &QSlider::setValue);
     connect(timeSlider_, &QSlider::valueChanged, this, &Seismic3DViewPanel::onTimeSliderChanged);
+
+    // LOD 交互（主线4）：按下即请求粗层，松手静止后升细层
+    for (QSlider *slider : {inlineSlider_, xlineSlider_, timeSlider_}) {
+        connect(slider, &QSlider::sliderPressed, this, &Seismic3DViewPanel::onSliderPressed);
+        connect(slider, &QSlider::sliderReleased, this, &Seismic3DViewPanel::onSliderReleased);
+    }
+    lodRefineTimer_ = new QTimer(this);
+    lodRefineTimer_->setSingleShot(true);
+    lodRefineTimer_->setInterval(350);
+    connect(lodRefineTimer_, &QTimer::timeout, this, [this]() {
+        if (!pagedPath_.isEmpty() && activeLod_ != 0)
+            switchLod(0, /*refreshAfter=*/true);
+    });
 
     connect(viewport_, &Seismic3DViewportWidget::glReady, this, [this]() {
         auto vol = volume();
@@ -219,6 +239,79 @@ void Seismic3DViewPanel::buildUi() {
 
 void Seismic3DViewPanel::setTaskService(SeismicTaskService *taskSvc) {
     taskSvc_ = taskSvc;
+}
+
+void Seismic3DViewPanel::setPagedWorkspace(const QString &sf3pPath) {
+    pagedPath_ = sf3pPath;
+    coarsestLod_ = 0;
+    activeLod_ = 0;
+    if (pagedPath_.isEmpty()) {
+        updateQualityLabel(QString());
+        return;
+    }
+    if (!taskSvc_) {
+        return;
+    }
+    // progressiveLod 打开：起步即最粗层，交互拖动便宜；静止后由精化定时器升 L0
+    QPointer<Seismic3DViewPanel> guard(this);
+    taskSvc_->startPagedOpen(pagedPath_, [guard](bool ok, const SeismicBackendStatus &status, const QString &) {
+        if (!guard)
+            return;
+        if (!ok) {
+            guard->updateQualityLabel(QStringLiteral("?"));
+            return;
+        }
+        guard->coarsestLod_ = status.activeLod;
+        guard->activeLod_ = status.activeLod;
+        guard->updateQualityLabel(status.quality);
+        guard->refreshVisibleSlices();
+    });
+}
+
+void Seismic3DViewPanel::onSliderPressed() {
+    lodRefineTimer_->stop();
+    if (!pagedPath_.isEmpty() && coarsestLod_ > 0 && activeLod_ != coarsestLod_)
+        switchLod(coarsestLod_, /*refreshAfter=*/false);
+}
+
+void Seismic3DViewPanel::onSliderReleased() {
+    if (!pagedPath_.isEmpty())
+        lodRefineTimer_->start();
+}
+
+void Seismic3DViewPanel::switchLod(int level, bool refreshAfter) {
+    if (!taskSvc_ || pagedPath_.isEmpty() || lodSwitchInFlight_)
+        return;
+    lodSwitchInFlight_ = true;
+    QPointer<Seismic3DViewPanel> guard(this);
+    taskSvc_->startLodSwitch(pagedPath_, level,
+                             [guard, level, refreshAfter](bool ok, const QString &quality, const QString &) {
+        if (!guard)
+            return;
+        guard->lodSwitchInFlight_ = false;
+        if (!ok)
+            return;
+        guard->activeLod_ = level;
+        guard->updateQualityLabel(quality);
+        if (refreshAfter)
+            guard->refreshVisibleSlices();
+    });
+}
+
+void Seismic3DViewPanel::refreshVisibleSlices() {
+    auto vol = volume();
+    if (!vol || !vol->IsLoaded())
+        return;
+    requestSliceUpdate(SeismicSliceSlot::Inline, SgySliceType::Inline, currentInline());
+    requestSliceUpdate(SeismicSliceSlot::Crossline, SgySliceType::Xline, currentCrossline());
+    requestSliceUpdate(SeismicSliceSlot::Time, SgySliceType::Time, currentTimeSample());
+}
+
+void Seismic3DViewPanel::updateQualityLabel(const QString &quality) {
+    const QString text = quality.isEmpty() ? QString() : QStringLiteral("LOD %1").arg(quality);
+    qualityLabel_->setText(text);
+    qualityLabel_->setVisible(!text.isEmpty());
+    emit lodChanged(text);
 }
 
 void Seismic3DViewPanel::setVolume(std::shared_ptr<SgyVolume> volume) {
@@ -354,34 +447,38 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
             timeExtracting_ = true;
         }
 
-        taskSvc_->startSliceExtraction(vol, type, index, [this, slot, type, index](bool success, std::shared_ptr<const SgySliceImage> image, const QString &/*error*/) {
+        // 回调经服务的任务终态发射；面板可能已先析构（测试 teardown / 关页），
+        // QPointer 守卫避免对已亡视口贴图。
+        QPointer<Seismic3DViewPanel> guard(this);
+        taskSvc_->startSliceExtraction(vol, type, index, [guard, slot, type, index](bool success, std::shared_ptr<const SgySliceImage> image, const QString &/*error*/) {
+            if (!guard)
+                return;
             if (slot == SeismicSliceSlot::Inline) {
-                inlineExtracting_ = false;
+                guard->inlineExtracting_ = false;
             } else if (slot == SeismicSliceSlot::Crossline) {
-                crosslineExtracting_ = false;
+                guard->crosslineExtracting_ = false;
             } else if (slot == SeismicSliceSlot::Time) {
-                timeExtracting_ = false;
+                guard->timeExtracting_ = false;
             }
 
             if (success && image) {
-                viewport_->updateSlice(slot, type, index, *image);
+                guard->viewport_->updateSlice(slot, type, index, *image);
             }
-
             // Drain pending request if user moved slider during extraction
-            if (slot == SeismicSliceSlot::Inline && pendingInline_ >= 0) {
-                const int next = pendingInline_;
-                pendingInline_ = -1;
-                requestSliceUpdate(slot, type, next);
-            } else if (slot == SeismicSliceSlot::Crossline && pendingCrossline_ >= 0) {
-                const int next = pendingCrossline_;
-                pendingCrossline_ = -1;
-                requestSliceUpdate(slot, type, next);
-            } else if (slot == SeismicSliceSlot::Time && pendingTime_ >= 0) {
-                const int next = pendingTime_;
-                pendingTime_ = -1;
-                requestSliceUpdate(slot, type, next);
+            if (slot == SeismicSliceSlot::Inline && guard->pendingInline_ >= 0) {
+                const int next = guard->pendingInline_;
+                guard->pendingInline_ = -1;
+                guard->requestSliceUpdate(slot, type, next);
+            } else if (slot == SeismicSliceSlot::Crossline && guard->pendingCrossline_ >= 0) {
+                const int next = guard->pendingCrossline_;
+                guard->pendingCrossline_ = -1;
+                guard->requestSliceUpdate(slot, type, next);
+            } else if (slot == SeismicSliceSlot::Time && guard->pendingTime_ >= 0) {
+                const int next = guard->pendingTime_;
+                guard->pendingTime_ = -1;
+                guard->requestSliceUpdate(slot, type, next);
             }
-        });
+        }, pagedPath_);
     } else {
         // Synchronous fallback (e.g. testing)
         SgySliceImage image;

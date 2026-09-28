@@ -55,10 +55,11 @@ namespace
         setError(error, db.lastError().text());
         return false;
       }
-      // 共享 schema 门（docs/SCHEMA_MIGRATION.md）：建表之前执行。
-      if (!MetaStore::ensureUserVersion(db, error))
-        return false;
     }
+    // 共享 schema 门（docs/SCHEMA_MIGRATION.md）：建表之前执行。每次调用
+    // 都查（缓存连接拒开后不得绕过版本门建表——与 layermanifest 同修）。
+    if (!MetaStore::ensureUserVersion(db, error))
+      return false;
     QSqlQuery schema(db);
     if (!schema.exec(QStringLiteral(
             "CREATE TABLE IF NOT EXISTS releases("

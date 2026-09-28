@@ -26,6 +26,13 @@ class LayerManifest
     explicit LayerManifest(const QString &metaSqlitePath);
 
     bool open(QString *error = nullptr);       // creates schema if absent
+
+    // 单写实例降级（T4/SCHEMA_MIGRATION.md §6）：工程目录被另一实例持锁时
+    // 由组装根置 true——upsert/remove 如实失败（锁错误文案），读面照常。
+    // 值语义：拷贝/赋值带回默认可写态，组装根在重绑后重设。
+    void setReadOnly(bool readOnly) { m_readOnly = readOnly; }
+    bool isReadOnly() const { return m_readOnly; }
+
     bool upsert(const LayerDeclaration &decl, QString *error = nullptr);
     bool remove(const QString &layerId, QString *error = nullptr);
     QVector<LayerDeclaration> all() const;                       // full declared set; empty on failure
@@ -36,4 +43,5 @@ class LayerManifest
 
   private:
     QString m_dbPath;
+    bool m_readOnly = false;
 };

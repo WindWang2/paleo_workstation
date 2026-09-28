@@ -27,6 +27,50 @@ FolderImportWorkflow::previewFolder(const QString &dir, QString *error)
   return m_svc->previewFolder(dir, error);
 }
 
+void FolderImportWorkflow::previewFolderAsync(
+    const QString &dir,
+    const std::function<void(const QVector<FolderPreviewRow> &,
+                             const QString &)> &done)
+{
+  if (!m_svc)
+  {
+    if (done)
+      done({}, QStringLiteral("导入服务未就绪"));
+    return;
+  }
+  // T2：任务池在场 → 扫描/分类/哈希跑 worker（plan 经 COW 快照构建，
+  // catalog 不被 worker 触碰），扫描进度回报任务页；GUI 零同步整目录扫描。
+  // 无任务服务 → 同步旧路径（小环境/测试行为不变）。
+  if (m_taskSvc)
+  {
+    emit previewActiveChanged(true);
+    auto outRows = std::make_shared<QVector<FolderPreviewRow>>();
+    auto outErr = std::make_shared<QString>();
+    PaleoTask *task = m_taskSvc->start(
+        tr("扫描工区文件夹"),
+        [svc = m_svc, dir, outRows, outErr](PaleoTask *t) -> QString {
+          *outRows = svc->previewFolder(
+              dir, outErr.get(),
+              [t](int seen, const QString &path) {
+                t->reportDetail(tr("扫描 %1").arg(QFileInfo(path).fileName()));
+                return !t->cancelRequested();
+              });
+          return outErr->isEmpty() ? QString() : *outErr;
+        });
+    connect(task, &PaleoTask::finished, this,
+            [this, done, outRows, outErr] {
+              emit previewActiveChanged(false);
+              if (done)
+                done(*outRows, *outErr);
+            });
+    return;
+  }
+  QString err;
+  const QVector<FolderPreviewRow> rows = m_svc->previewFolder(dir, &err);
+  if (done)
+    done(rows, err);
+}
+
 FolderRowResult
 FolderImportWorkflow::importFolderRow(const QString &path, const QString &forceType,
                                       QString *error)
@@ -47,16 +91,26 @@ void FolderImportWorkflow::importFolder(const QString &dir,
                                         const QMap<QString, QString> &overrides,
                                         const ImportDone &done)
 {
+  importFolder(dir, overrides, QStringList{}, done);
+}
+
+void FolderImportWorkflow::importFolder(const QString &dir,
+                                        const QMap<QString, QString> &overrides,
+                                        const QStringList &forceImportPaths,
+                                        const ImportDone &done)
+{
   if (!m_svc)
   {
     if (done)
       done({}, QStringLiteral("导入服务未就绪"));
     return;
   }
-  // D1b：任务池在场 → 整个文件夹导入（含 LAS 解析/层位装箱/SEG-Y 索引）
-  // 跑 worker 线程，行进度回报到任务页；catalog 操作经服务内 marshal 回
-  // GUI。worker 的 imported 信号排队顺序先于 finished——槽里抑制标签的
-  // 标志在终态回调复位，不会漏开逐文件标签。
+  // D1b+T2：任务池在场 → 整个文件夹导入（plan 扫描/哈希 + LAS 解析/层位
+  // 装箱/SEG-Y 索引）跑 worker 线程——plan 期经 COW 快照不再 marshal 回
+  // GUI；catalog 写操作仍经服务内 marshal 回 GUI。进度口径：扫描段
+  // total==0（跑马灯 + 文件名 detail），执行段 total=行数。worker 的
+  // imported 信号排队顺序先于 finished——槽里抑制标签的标志在终态回调
+  // 复位，不会漏开逐文件标签。
   if (m_taskSvc)
   {
     emit importActiveChanged(true);
@@ -64,12 +118,20 @@ void FolderImportWorkflow::importFolder(const QString &dir,
     auto outErr = std::make_shared<QString>();
     PaleoTask *task = m_taskSvc->start(
         tr("导入工区文件夹"),
-        [svc = m_svc, dir, overrides, outRows, outErr](PaleoTask *t) -> QString {
+        [svc = m_svc, dir, overrides, forceImportPaths, outRows,
+         outErr](PaleoTask *t) -> QString {
           *outRows = svc->importFolder(
-              dir, outErr.get(), overrides,
+              dir, outErr.get(), overrides, forceImportPaths,
               [t](int d, int total, const QString &p) {
-                t->reportBytes(d, total);
-                t->reportDetail(p);
+                if (total > 0)
+                {
+                  t->reportBytes(d, total); // 执行段：行进度
+                  t->reportDetail(p);
+                }
+                else
+                {
+                  t->reportDetail(tr("扫描 %1").arg(QFileInfo(p).fileName()));
+                }
                 return !t->cancelRequested();
               });
           return *outErr;
@@ -84,7 +146,7 @@ void FolderImportWorkflow::importFolder(const QString &dir,
   }
   emit importActiveChanged(true);
   QString importErr;
-  const auto res = m_svc->importFolder(dir, &importErr, overrides);
+  const auto res = m_svc->importFolder(dir, &importErr, overrides, forceImportPaths);
   emit importActiveChanged(false);
   if (done)
     done(res, importErr);

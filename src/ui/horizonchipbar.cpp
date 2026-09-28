@@ -126,8 +126,13 @@ void HorizonChipBar::applyAvailability()
         available.insert( d.horizon );
   for ( QToolButton *chip : findChildren<QToolButton *>() )
   {
-    const bool ok = available.contains( chip->text() );
+    const bool ok = m_allowEmptyHorizons || available.contains( chip->text() );
     chip->setEnabled( ok );
     chip->setToolTip( ok ? QString() : tr( "这一阶段还没有这个层位的栅格" ) );
   }
+}
+
+void HorizonChipBar::setAllowEmptyHorizons(bool enabled)
+{
+  m_allowEmptyHorizons=enabled;applyAvailability();
 }

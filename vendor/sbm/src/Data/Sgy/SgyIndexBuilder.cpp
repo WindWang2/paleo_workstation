@@ -362,10 +362,10 @@ bool SgyIndexBuilder::Build(
             continue;
         }
 
-        int inlineNo = 0;
-        int xlineNo = 0;
-        segy_get_tracefield_int(traceHeader.data(), SEGY_TR_INLINE, &inlineNo);
-        segy_get_tracefield_int(traceHeader.data(), SEGY_TR_CROSSLINE, &xlineNo);
+        // P5: paleo @8/@20 fallback keeps the production convention indexable.
+        const sgyio::SgyTraceKeyWords keyWords = sgyio::ReadTraceKeyWords(traceHeader.data());
+        const int inlineNo = keyWords.inlineNo;
+        const int xlineNo = keyWords.xlineNo;
         if(inlineNo == 0 && xlineNo == 0) {
             continue;
         }

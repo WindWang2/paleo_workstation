@@ -34,6 +34,21 @@ nullptr → `istream::read(nullptr, bytes)` 段错误。补丁：POSIX 下无条
 `/sys/block/*/queue/rotational` 判定介质类型；探测不到返回 Unknown，
 不影响功能，只影响预读/页大小这类启发式默认值。
 
+## P5 · `src/Data/Sgy/SgyIo.{h,cpp}` + 6 个调用点 — paleo 生产道字约定回退
+
+`paleo_workstation` 生产工区（含 966MB 真实体与 `testdata/segy/synthetic_4x5.sgy`）的
+INLINE@189/CROSSLINE@193 两字恒 0，实际编码为 field record@9（inline）+ CDP ensemble@21
+（crossline）——`src/io/segyreader.cpp` 冻结的约定（见 tools/make_segy_fixture.py 头注）。
+上游只读标准字，这些文件在 probe/index/read 链上全部退化为文本头回退或失败。
+
+- `sgyio::ReadTraceKeyWords(header)`（SgyIo）：先读标准 INLINE/CROSSLINE；仅当两字
+  同时为 0 才回退 @9/@21。上游规范文件行为逐位不变。
+- 调用点统一换用该 helper（与 probe 同一取字口径，读回校验永不自相矛盾）：
+  `SgyRuleLayout.cpp` ReadTraceKey（probe）、`SgyIndexBuilder.cpp` 全卷扫描、
+  `SgySequentialScan.cpp` 记录循环（.pair 落盘同步换字）、`SgyVolume.cpp` /
+  `SgyReadSession.cpp` ValidateRuleTrace、`SgyFileReader.cpp` 摘要 declared ranges。
+- 未动 `Engine/RoiWorkspaceBuilder.cpp`（上游实验路径，SDK 链路不经过）。
+
 ## 编译层适配（非源码补丁）
 
 - `paleo_sbm` 目标加 `-fno-char8_t`（MSVC `/Zc:char8_t-`）：上游 30 处

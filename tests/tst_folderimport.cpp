@@ -15,6 +15,13 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/workflow/folderimport.h"
+#include "../src/services/paleotaskservice.h"
+#include "../src/ui/dialogs/folderconfirm.h"
+
+#include <QDialog>
+#include <QElapsedTimer>
+#include <QLabel>
+#include <QPushButton>
 #include "../src/workflow/projectopen.h"
 
 class TestFolderImport : public QObject
@@ -66,6 +73,7 @@ class TestFolderImport : public QObject
     return s;
   }
 
+private slots:
   void initTestCase() { QVERIFY(QgisRuntime::isInitialized()); }
 
   // previewFolder 只列行不入库（确认表数据源的纯查询契约）。
@@ -202,6 +210,15 @@ class TestFolderImport : public QObject
     auto stack = makeStack(projectDir);
     QVERIFY(stack != nullptr);
 
+    // 井先建齐（TD 的身份匹配需要井实体在库——单 TD 无井是 Unresolved，
+    // 不是 Imported）。该用例在补上 private slots 前从未真正执行，恢复
+    // 执行后按两阶段语义修正断言前提。
+    QString herr;
+    QVERIFY(!stack->importSvc
+                  ->importProjectFile(
+                      fixture(QStringLiteral("ExportWellHead.dat")), &herr)
+                  .isEmpty());
+
     FolderImportWorkflow wf(stack->importSvc.get(), nullptr);
     QSignalSpy activeSpy(&wf, &FolderImportWorkflow::importActiveChanged);
     QString err;
@@ -235,6 +252,13 @@ class TestFolderImport : public QObject
                   });
     QVERIFY(doneCalled);
     QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+  }
+
+  static QVector<FolderPreviewRow> wfPreview(Stack &stack, const QString &dir)
+  {
+    FolderImportWorkflow wf(stack.importSvc.get(), nullptr);
+    QString err;
+    return wf.previewFolder(dir, &err);
   }
 
   // stampSourceArea 门控：工程目录 != 导入目录时静默拒写；
@@ -271,6 +295,139 @@ class TestFolderImport : public QObject
       QCOMPARE(pf.sourceStats.value(QStringLiteral("files")).toInt(), 2);
     }
   }
+
+// ---- wave/data-foundation T2 ------------------------------------------------
+
+// 任务池在场 → 预览扫描走 worker，done 在 GUI 线程回调、行集与同步路径一致；
+// previewActiveChanged 双发。
+void previewFolderAsyncOnTaskPool()
+  {
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  QVERIFY(!stageFixture(tmp, QStringLiteral("src_area"),
+                        QStringLiteral("ExportWellHead.dat")).isEmpty());
+  QVERIFY(!stageFixture(tmp, QStringLiteral("src_area"),
+                        QStringLiteral("A1.Las")).isEmpty());
+  const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+  QVERIFY(QDir().mkpath(projectDir));
+  auto stack = makeStack(projectDir);
+  QVERIFY(stack != nullptr);
+
+  PaleoTaskService tasks(stack->store.get());
+  FolderImportWorkflow wf(stack->importSvc.get(), &tasks);
+  QSignalSpy activeSpy(&wf, &FolderImportWorkflow::previewActiveChanged);
+
+  bool doneCalled = false;
+  QVector<FolderPreviewRow> rows;
+  QString err;
+  wf.previewFolderAsync(
+      tmp.filePath(QStringLiteral("src_area")),
+      [&doneCalled, &rows, &err](const QVector<FolderPreviewRow> &r, const QString &e) {
+        doneCalled = true;
+        rows = r;
+        err = e;
+      });
+  QElapsedTimer clock;
+  clock.start();
+  while (!doneCalled && clock.elapsed() < 15000)
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+  QVERIFY(doneCalled);
+  QVERIFY2(err.isEmpty(), qPrintable(err));
+  QCOMPARE(rows.size(), 2); // 井口 + LAS（与同步路径同一行集）
+  QCOMPARE(activeSpy.count(), 2);
+  QCOMPARE(activeSpy.at(0).at(0).toBool(), true);
+  QCOMPARE(activeSpy.at(1).at(0).toBool(), false);
+}
+
+// 「仍导入」改判：重复行默认 Skipped；forceImportPaths 翻成 as_new_version
+// 后结局 Imported（同字节结局 = AlreadyStored + 补挂口径）。
+void importFolderForceImportFlipsDuplicate()
+  {
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString staged =
+      stageFixture(tmp, QStringLiteral("src_area"),
+                   QStringLiteral("ExportWellHead.dat"));
+  QVERIFY(!staged.isEmpty());
+  const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+  QVERIFY(QDir().mkpath(projectDir));
+  auto stack = makeStack(projectDir);
+  QVERIFY(stack != nullptr);
+
+  FolderImportWorkflow wf(stack->importSvc.get(), nullptr);
+  QString err;
+  const QVector<FolderRowResult> first =
+      wf.importService()->importFolder(tmp.filePath(QStringLiteral("src_area")), &err);
+  QVERIFY2(err.isEmpty(), qPrintable(err));
+  QCOMPARE(first.size(), 1);
+  QCOMPARE(first.at(0).outcome, FolderRowResult::Outcome::Imported);
+
+  const QVector<FolderRowResult> again =
+      wf.importService()->importFolder(tmp.filePath(QStringLiteral("src_area")), &err);
+  QCOMPARE(again.at(0).outcome, FolderRowResult::Outcome::Skipped);
+
+  const QVector<FolderRowResult> forced = wf.importService()->importFolder(
+      tmp.filePath(QStringLiteral("src_area")), &err, QMap<QString, QString>{},
+      QStringList{staged});
+  QVERIFY2(err.isEmpty(), qPrintable(err));
+  QCOMPARE(forced.at(0).outcome, FolderRowResult::Outcome::Imported);
+  QVERIFY(forced.at(0).message.contains(QStringLiteral("字节已在库")));
+}
+
+// folderconfirm 细化：大小估算行、「仍导入」按钮（仅当壳给了
+// importAllWithForced 时出现）、改判集合送达壳出口。
+void folderConfirmEstimateForceImportAndErrorReport()
+  {
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString staged =
+      stageFixture(tmp, QStringLiteral("src_area"),
+                   QStringLiteral("ExportWellHead.dat"));
+  QVERIFY(!staged.isEmpty());
+  const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+  QVERIFY(QDir().mkpath(projectDir));
+  auto stack = makeStack(projectDir);
+  QVERIFY(stack != nullptr);
+  QString err;
+  QVERIFY(!stack->importSvc->importProjectFile(staged, &err).isEmpty());
+
+  const QVector<FolderPreviewRow> preview =
+      wfPreview(*stack, tmp.filePath(QStringLiteral("src_area")));
+  QCOMPARE(preview.size(), 1);
+  QCOMPARE(preview.at(0).decision, QStringLiteral("skip"));
+  QVERIFY(preview.at(0).sizeBytes > 0);
+
+  QDialog dlg;
+  QStringList gotForced;
+  PaleoFolderConfirm::Hooks hooks;
+  hooks.importAllWithForced =
+      [&gotForced](const QMap<QString, QString> &, const QStringList &forcePaths,
+                   const std::function<void(const QVector<FolderRowResult> &,
+                                            const QString &)> &) {
+        gotForced = forcePaths;
+      };
+  PaleoFolderConfirm::buildFolderConfirmDialog(
+      &dlg, tmp.filePath(QStringLiteral("src_area")), preview, hooks);
+
+  auto *estimate = dlg.findChild<QLabel *>(QStringLiteral("folderEstimateLabel"));
+  QVERIFY(estimate != nullptr);
+  QVERIFY(!estimate->text().isEmpty());
+  QVERIFY(estimate->text().contains(QStringLiteral("重复跳过 1")));
+
+  auto *force = dlg.findChild<QPushButton *>(QStringLiteral("folderForceImport0"));
+  QVERIFY(force != nullptr);
+  force->click();
+  QCOMPARE(force->text(), QStringLiteral("将导入"));
+
+  dlg.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"))->click();
+  QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+  QCOMPARE(gotForced.size(), 1);
+  QCOMPARE(gotForced.at(0), staged);
+
+  auto *errorReport = dlg.findChild<QLabel *>(QStringLiteral("folderErrorReport"));
+  QVERIFY(errorReport != nullptr);
+  QVERIFY(errorReport->isHidden()); // 尚无失败——错误报告不出现
+}
 };
 
 int main(int argc, char *argv[])

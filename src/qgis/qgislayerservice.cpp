@@ -2,6 +2,7 @@
 #include "qgislayerservice.h"
 
 #include "qgisprojectservice.h"
+#include "mappingartifactwriter.h"
 
 #include <QSet>
 
@@ -68,8 +69,17 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
     setError(error, QStringLiteral("cannot declare a layer with an empty layerId"));
     return false;
   }
+  QgsMapLayer *previous=m_instances.value(decl.layerId);
+  const bool replace=previous && previous->source()!=decl.source;
+  if(replace) if(auto *vector=qobject_cast<QgsVectorLayer *>(previous);vector && vector->isEditable()) {
+    setError(error, tr("请先保存或取消该图层的编辑，再替换图件"));return false;
+  }
   if (!m_manifest->upsert(decl, error))
     return false;
+  if(replace) {
+    if(auto *project=resolveProject(m_projectSvc))project->removeMapLayer(previous->id());
+    instantiate(decl.layerId,error);
+  }
   emit layerDeclared(decl.layerId);
   return true;
 }
@@ -135,6 +145,8 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
                         .arg(layerId, detail.isEmpty() ? QStringLiteral("provider rejected source '%1'").arg(decl->source) : detail));
     return nullptr;
   }
+
+  MappingArtifactWriter::restoreRasterCrs(layer.get());
 
   // QgsProject takes ownership; keep only the raw pointer in the instance map.
   QgsMapLayer *added = proj->addMapLayer(layer.get());

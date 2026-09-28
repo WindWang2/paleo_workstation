@@ -1,4 +1,6 @@
 #include <QtTest>
+#include <QElapsedTimer>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -6,6 +8,9 @@
 #include <QDir>
 
 #include "../src/catalog/datacatalog.h"
+
+#include <algorithm>
+#include <functional>
 
 // plan §3 数据模型：实体—关联—资产—版本，catalog.json 是唯一主存储。
 // 覆盖：JSON round-trip、井名规范化身份解析、双候选不合并（unresolved 语义）、
@@ -47,6 +52,14 @@ private slots:
   void roleEntityTypeMismatchDiagnosedNotBlocked();
   void attachLinkReappliesRoleDiagnostics();
   void knownRoleLinksStayOutOfInvalidSet();
+  // ---- wave/data-foundation：T5 .bak 腐败恢复 / T6 原子写 / T4 锁降级 /
+  //      T3 千实体量化预算 ----
+  void backupRecoveryChainDrill();               // T5+T7：连续两轮损坏→恢复→续存
+  void backupRecoveryRefusedOnSchemaMismatch();  // T5：未来版本不走 .bak 回退
+  void bothCorruptRefusesWrites();               // T5：主/bak 都坏 → 拒写态
+  void wellsGeoJsonKeepsOldFileOnFailedWrite();  // T6：写失败不截断旧文件
+  void lockedReadOnlyRefusesMutationsButReadsFine(); // T4
+  void thousandEntityQueryBudget();              // T3：catalog.sqlite 触发条件量化
 };
 
 void TestCatalog::roundTripsThroughJson()
@@ -1169,6 +1182,365 @@ void TestCatalog::knownRoleLinksStayOutOfInvalidSet()
   QVERIFY(cat.invalidRoleLinks().isEmpty());
   QVERIFY(cat.links().at(0).note.isEmpty());
   QCOMPARE(cat.links().at(1).note, QStringLiteral("候选: x1(well-X1), x2(well-X2)"));
+}
+
+
+// ---------------------------------------------------------------------------
+// wave/data-foundation T5+T7：.bak 链恢复演练——连续两轮「损坏主文件 → 恢复
+// → 变更续存 → 再损坏 → 再恢复」，每轮恢复后数据完整且可继续演化。
+// ---------------------------------------------------------------------------
+void TestCatalog::backupRecoveryChainDrill()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = QDir(dir.path()).filePath(
+      QStringLiteral("artifacts/metadata/catalog.json"));
+  const QString bak = path + QStringLiteral(".bak");
+
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogEntity a1;
+  a1.id = QStringLiteral("well-A1");
+  a1.entityType = QStringLiteral("well");
+  a1.name = QStringLiteral("A1");
+  QVERIFY(cat.addEntity(a1));
+
+  // 第一轮：save 已轮转出 .bak → 损坏主文件 → reopen 恢复。
+  QVERIFY(QFile::exists(bak));
+  QVERIFY(cat.addEntity([] {
+    CatalogEntity b2;
+    b2.id = QStringLiteral("well-B2");
+    b2.entityType = QStringLiteral("well");
+    b2.name = QStringLiteral("B2");
+    return b2;
+  }()));
+  {
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("{ this is not json");
+  }
+  // .bak 语义（§9 回滚）：恢复点 = 最后一次成功 save 的「上一代」。B2 所在
+  // 的 v2 被损坏时，.bak 还是 v1（A1 only）——最近一轮增量如实丢失，这是
+  // 设计而非缺陷（QSaveFile 防写一半，.bak 防「写成功但内容错」）。
+  DataCatalog reopened;
+  QSignalSpy recovered(&reopened, &DataCatalog::backupRecovered);
+  QVERIFY(reopened.open(dir.path()));
+  QVERIFY(reopened.recoveredFromBackup());
+  QVERIFY(!reopened.lastBackupRecoveryReason().isEmpty());
+  QCOMPARE(recovered.count(), 1);
+  QVERIFY(reopened.hasEntity(QStringLiteral("well-A1")));
+  QVERIFY(!reopened.hasEntity(QStringLiteral("well-B2"))); // 最近一轮丢失（上一代恢复）
+
+  // 恢复后续存两轮：C3 save 后 .bak=恢复内容(A1)；D4 save 后 .bak=A1+C3。
+  CatalogEntity c3;
+  c3.id = QStringLiteral("well-C3");
+  c3.entityType = QStringLiteral("well");
+  c3.name = QStringLiteral("C3");
+  QVERIFY(reopened.addEntity(c3));
+  CatalogEntity d4;
+  d4.id = QStringLiteral("well-D4");
+  d4.entityType = QStringLiteral("well");
+  d4.name = QStringLiteral("D4");
+  QVERIFY(reopened.addEntity(d4));
+
+  // 第二轮：再损坏 → 再恢复（.bak 链一直可用；恢复点推进到 A1+C3 那代）。
+  {
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("]]] corrupt again");
+  }
+  DataCatalog second;
+  QVERIFY(second.open(dir.path()));
+  QVERIFY(second.recoveredFromBackup());
+  QVERIFY(second.hasEntity(QStringLiteral("well-A1")));
+  QVERIFY(second.hasEntity(QStringLiteral("well-C3"))); // 倒数第二代全在
+  QVERIFY(!second.hasEntity(QStringLiteral("well-D4"))); // 最近一轮丢失
+  QCOMPARE(second.entities(QStringLiteral("well")).size(), 2);
+}
+
+// T5：schema 不匹配（未来版本）不走 .bak 回退——那是数据降级不是恢复。
+void TestCatalog::backupRecoveryRefusedOnSchemaMismatch()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = QDir(dir.path()).filePath(
+      QStringLiteral("artifacts/metadata/catalog.json"));
+
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path()));
+    CatalogEntity w;
+    w.id = QStringLiteral("well-A1");
+    w.entityType = QStringLiteral("well");
+    w.name = QStringLiteral("A1");
+    QVERIFY(cat.addEntity(w));
+  }
+  // 主文件写成 schema_version=99（好 JSON、坏版本）。
+  {
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(R"({"schema_version": 99, "entities": []})");
+  }
+  DataCatalog cat;
+  QString err;
+  QVERIFY(!cat.open(dir.path(), &err));
+  QVERIFY(err.contains(QStringLiteral("unsupported catalog schema")));
+  QVERIFY(!cat.recoveredFromBackup());
+  QVERIFY(cat.refusesWrites());
+}
+
+// T5：主/bak 都坏 → 拒写态（错误文案点名两份文件），不让空 catalog 覆盖。
+void TestCatalog::bothCorruptRefusesWrites()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = QDir(dir.path()).filePath(
+      QStringLiteral("artifacts/metadata/catalog.json"));
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path()));
+    CatalogEntity w;
+    w.id = QStringLiteral("well-A1");
+    w.entityType = QStringLiteral("well");
+    w.name = QStringLiteral("A1");
+    QVERIFY(cat.addEntity(w));
+  }
+  {
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("nope");
+  }
+  {
+    QFile f(path + QStringLiteral(".bak"));
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("also nope");
+  }
+  DataCatalog cat;
+  QString err;
+  QVERIFY(!cat.open(dir.path(), &err));
+  QVERIFY(err.contains(QStringLiteral("corrupt catalog")));
+  QVERIFY(err.contains(QStringLiteral("corrupt backup")));
+  QVERIFY(cat.refusesWrites());
+}
+
+// T6：写盘失败（目标目录只读）不截断既有 wells.geojson——QSaveFile 语义。
+void TestCatalog::wellsGeoJsonKeepsOldFileOnFailedWrite()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sub = QDir(dir.path()).filePath(QStringLiteral("out"));
+  QVERIFY(QDir().mkpath(sub));
+  const QString geo = QDir(sub).filePath(QStringLiteral("wells.geojson"));
+
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogEntity w;
+  w.id = QStringLiteral("well-A1");
+  w.entityType = QStringLiteral("well");
+  w.name = QStringLiteral("A1");
+  w.surfaceX = 1.0;
+  w.surfaceY = 2.0;
+  w.hasSurface = true;
+  QVERIFY(cat.addEntity(w));
+
+  QVERIFY(cat.writeWellsGeoJson(geo));
+  const QByteArray good = [&] {
+    QFile f(geo);
+    f.open(QIODevice::ReadOnly);
+    return f.readAll();
+  }();
+  QVERIFY(!good.isEmpty());
+
+  // 目录只读 → QSaveFile 开不出临时文件 → 失败且旧文件字节原样。
+  QVERIFY(QFile::setPermissions(sub, QFileDevice::ReadOwner | QFileDevice::ExeOwner |
+                                         QFileDevice::ReadGroup | QFileDevice::ExeGroup |
+                                         QFileDevice::ReadOther | QFileDevice::ExeOther));
+  QString werr;
+  QVERIFY(!cat.writeWellsGeoJson(geo, &werr));
+  QVERIFY(!werr.isEmpty());
+  {
+    QFile f(geo);
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    QCOMPARE(f.readAll(), good); // 关键断言：没有半截文件
+  }
+  QVERIFY(QFile::setPermissions(sub, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                         QFileDevice::ExeOwner |
+                                         QFileDevice::ReadGroup | QFileDevice::WriteGroup |
+                                         QFileDevice::ExeGroup |
+                                         QFileDevice::ReadOther | QFileDevice::ExeOther));
+}
+
+// T4：锁降级只读——save/mutator 拒绝且内存回滚，读面照常。
+void TestCatalog::lockedReadOnlyRefusesMutationsButReadsFine()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogEntity w;
+  w.id = QStringLiteral("well-A1");
+  w.entityType = QStringLiteral("well");
+  w.name = QStringLiteral("A1");
+  QVERIFY(cat.addEntity(w));
+  const int revisionBefore = cat.catalogRevision();
+
+  cat.setLockedReadOnly(true);
+  QVERIFY(cat.refusesWrites());
+  CatalogEntity b2;
+  b2.id = QStringLiteral("well-B2");
+  b2.entityType = QStringLiteral("well");
+  b2.name = QStringLiteral("B2");
+  QString err;
+  QVERIFY(!cat.addEntity(b2, &err));
+  QVERIFY(err.contains(QStringLiteral("另一个实例锁定")));
+  QVERIFY(!cat.hasEntity(QStringLiteral("well-B2"))); // 内存回滚
+  QCOMPARE(cat.catalogRevision(), revisionBefore);   // 落盘零次
+  QVERIFY(cat.hasEntity(QStringLiteral("well-A1"))); // 读面照常
+  QVERIFY(!cat.wellsMatchingName(QStringLiteral("A1")).isEmpty());
+
+  // 解锁恢复可写。
+  cat.setLockedReadOnly(false);
+  QVERIFY(cat.addEntity(b2));
+  QVERIFY(cat.hasEntity(QStringLiteral("well-B2")));
+}
+
+// T3：catalog.sqlite 递延项的触发条件量化——合成 1000 井/2000 资产/3000 版本
+// /4000 链接的 catalog.json，量 open()/save()/各查询延迟。预算阈值 = 实测
+// 均值量级 × 大余量（防 CI 抖动假红），实测数记 qInfo 供 docs/progress/
+// data.md 论证引用。结论判据写在 docs：阈值远未触发 → sqlite 递延维持。
+void TestCatalog::thousandEntityQueryBudget()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString projectDir = dir.path();
+  const QString metaDir = QDir(projectDir).filePath(QStringLiteral("artifacts/metadata"));
+  QVERIFY(QDir().mkpath(metaDir));
+  const QString path = QDir(metaDir).filePath(QStringLiteral("catalog.json"));
+
+  // 直接写合成 JSON（不经 mutator——逐条 add 是 O(n²) 全量重写，量的正是
+  // 打开态查询，不是装载路径本身的写入放大）。
+  {
+    QJsonArray ents, asts, vers, lnks;
+    for (int i = 0; i < 1000; ++i)
+    {
+      QJsonObject e;
+      e.insert(QStringLiteral("id"), QStringLiteral("well-%1").arg(i));
+      e.insert(QStringLiteral("entity_type"), QStringLiteral("well"));
+      e.insert(QStringLiteral("name"), QStringLiteral("W%1").arg(i));
+      e.insert(QStringLiteral("surface_x"), 1000.0 + i);
+      e.insert(QStringLiteral("surface_y"), 2000.0 + i);
+      e.insert(QStringLiteral("has_surface"), true);
+      ents.append(e);
+    }
+    for (int i = 0; i < 2000; ++i)
+    {
+      QJsonObject a;
+      a.insert(QStringLiteral("id"), QStringLiteral("ast-%1").arg(i + 1));
+      a.insert(QStringLiteral("type"), QStringLiteral("well_log"));
+      a.insert(QStringLiteral("format"), QStringLiteral("las"));
+      a.insert(QStringLiteral("display_name"), QStringLiteral("log%1.las").arg(i));
+      asts.append(a);
+    }
+    for (int i = 0; i < 3000; ++i)
+    {
+      QJsonObject v;
+      v.insert(QStringLiteral("id"), QStringLiteral("ver-%1").arg(i + 1));
+      v.insert(QStringLiteral("asset_id"), QStringLiteral("ast-%1").arg(i / 3 + 1));
+      v.insert(QStringLiteral("stage"), QStringLiteral("RAW"));
+      v.insert(QStringLiteral("version_number"), i % 3 + 1);
+      v.insert(QStringLiteral("managed"), false);
+      v.insert(QStringLiteral("path"),
+               QStringLiteral("/nonexistent/external/log%1.las").arg(i));
+      v.insert(QStringLiteral("sha256"),
+               QStringLiteral("%1").arg(i, 64, 16, QChar(QLatin1Char('0'))));
+      vers.append(v);
+    }
+    for (int i = 0; i < 4000; ++i)
+    {
+      QJsonObject l;
+      l.insert(QStringLiteral("entity_type"), QStringLiteral("well"));
+      l.insert(QStringLiteral("entity_id"), QStringLiteral("well-%1").arg(i % 1000));
+      l.insert(QStringLiteral("asset_id"), QStringLiteral("ast-%1").arg(i % 2000 + 1));
+      l.insert(QStringLiteral("role"), QStringLiteral("well_log"));
+      l.insert(QStringLiteral("is_primary"), i % 4 == 0);
+      l.insert(QStringLiteral("ordinal"), i % 4);
+      lnks.append(l);
+    }
+    QJsonObject root;
+    root.insert(QStringLiteral("schema_version"), 1);
+    root.insert(QStringLiteral("catalog_revision"), 1);
+    root.insert(QStringLiteral("entities"), ents);
+    root.insert(QStringLiteral("assets"), asts);
+    root.insert(QStringLiteral("versions"), vers);
+    root.insert(QStringLiteral("entity_asset_links"), lnks);
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+  }
+  const qint64 jsonBytes = QFileInfo(path).size();
+  QVERIFY(jsonBytes > 500 * 1024); // 合成库确实够大（>500KB）
+
+  DataCatalog cat;
+  QElapsedTimer clock;
+  clock.start();
+  QString oerr;
+  QVERIFY2(cat.open(projectDir, &oerr), qPrintable(oerr));
+  const qint64 openMs = clock.elapsed();
+  QCOMPARE(cat.entities(QStringLiteral("well")).size(), 1000);
+
+  // 各查询取 5 次中位数（单次微秒级，冷热差吸收在中位数里）。
+  const auto medianOf = [](const std::function<void()> &fn) -> qint64 {
+    QVector<qint64> xs;
+    for (int i = 0; i < 5; ++i)
+    {
+      QElapsedTimer c;
+      c.start();
+      fn();
+      xs.append(c.elapsed());
+    }
+    std::sort(xs.begin(), xs.end());
+    return xs.at(xs.size() / 2);
+  };
+  const qint64 wellsMs = medianOf([&] {
+    int n = 0;
+    for (const CatalogEntity &e : cat.entities(QStringLiteral("well")))
+      if (DataCatalog::normalizeWellName(e.name).startsWith(QLatin1Char('w')))
+        ++n;
+    QCOMPARE(n, 1000);
+  });
+  const qint64 matchMs = medianOf([&] { cat.wellsMatchingName(QStringLiteral("W999")); });
+  const qint64 shaMissMs = medianOf([&] {
+    cat.versionBySha256(QStringLiteral("deadbeef")); // miss：无文件 IO
+  });
+  const qint64 linksMs = medianOf([&] { cat.linksForEntity(QStringLiteral("well-500")); });
+  const qint64 currentMs = medianOf([&] { cat.currentVersion(QStringLiteral("ast-1")); });
+
+  clock.start();
+  CatalogEntity extra;
+  extra.id = QStringLiteral("well-NEW");
+  extra.entityType = QStringLiteral("well");
+  extra.name = QStringLiteral("NEW");
+  QString serr;
+  QVERIFY(cat.addEntity(extra, &serr)); // 10001 行全量重写（1k 井 + 2000 资产 + 3001 版本 + 4000 链接）
+  const qint64 saveMs = clock.elapsed();
+
+  qInfo("catalog thousand-entity budget: json=%lldKB open=%lldms wells=%lldms "
+        "match=%lldms shaMiss=%lldms links=%lldms current=%lldms save=%lldms",
+        static_cast<long long>(jsonBytes / 1024), static_cast<long long>(openMs),
+        static_cast<long long>(wellsMs), static_cast<long long>(matchMs),
+        static_cast<long long>(shaMissMs), static_cast<long long>(linksMs),
+        static_cast<long long>(currentMs), static_cast<long long>(saveMs));
+
+  // 预算 = 实测量级的大余量（阈值依据见 docs/progress/data.md；中位数×N
+  // 之外的绝对上限防宿主级抖动假红）。
+  QVERIFY2(openMs < 2000, qPrintable(QString::number(openMs)));
+  QVERIFY2(wellsMs < 100, qPrintable(QString::number(wellsMs)));
+  QVERIFY2(matchMs < 100, qPrintable(QString::number(matchMs)));
+  QVERIFY2(shaMissMs < 100, qPrintable(QString::number(shaMissMs)));
+  QVERIFY2(linksMs < 100, qPrintable(QString::number(linksMs)));
+  QVERIFY2(currentMs < 100, qPrintable(QString::number(currentMs)));
+  QVERIFY2(saveMs < 2000, qPrintable(QString::number(saveMs)));
 }
 
 QTEST_MAIN(TestCatalog)

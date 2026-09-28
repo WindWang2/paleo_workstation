@@ -148,4 +148,12 @@ class DataPreviewTabs : public QWidget
       bool hasTie = false;
     };
     QHash<QString, SectionPending> m_pendingSection;
+
+    // 瓦片渐进时间片（wave/seismic-engine-deep 主线2）：服务信号是广播的，
+    // 这里只记最新一次瓦片请求的目标画布 + 世代（采样号）——旧请求/其他
+    // 资产标签的瓦片不进当前画布。m_tiledSignalService 记已接线的服务，
+    // 门面重挂（换服务实例）时自动重接。
+    QPointer<QObject> m_tiledSignalService;
+    QPointer<QWidget> m_tiledCanvas; // SeismicSectionCanvas（cpp 内 qobject_cast）
+    int m_tiledSample = -1;
 };

@@ -57,6 +57,19 @@ segy_datasource* OpenReadOnly(const std::filesystem::path& path) {
     return nullptr;
 }
 
+SgyTraceKeyWords ReadTraceKeyWords(const char* traceHeader) {
+    SgyTraceKeyWords key;
+    segy_get_tracefield_int(traceHeader, SEGY_TR_INLINE, &key.inlineNo);
+    segy_get_tracefield_int(traceHeader, SEGY_TR_CROSSLINE, &key.xlineNo);
+    if(key.inlineNo == 0 && key.xlineNo == 0) {
+        // P5: paleo production fallback — field record @8 (inline) + CDP
+        // ensemble @20 (xline). Only reached when both standard words are zero.
+        segy_get_tracefield_int(traceHeader, SEGY_TR_FIELD_RECORD, &key.inlineNo);
+        segy_get_tracefield_int(traceHeader, SEGY_TR_ENSEMBLE, &key.xlineNo);
+    }
+    return key;
+}
+
 Handle::~Handle() {
     Reset();
 }

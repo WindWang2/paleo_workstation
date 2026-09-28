@@ -1152,10 +1152,17 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
   const bool hasConstraints = std::any_of(
       declared.cbegin(), declared.cend(),
       [&constraintLayerId]( const LayerDeclaration &d ) { return d.layerId == constraintLayerId; } );
+  std::unique_ptr<QgsVectorLayer> frozenConstraints;
   if ( hasConstraints )
   {
     QString constraintErr;
     QgsMapLayer *constraints = layers->instantiate( constraintLayerId, &constraintErr );
+    const auto frozenPath=property(("paleo.constraint.snapshot."+horizon).toUtf8().constData()).toString();
+    if(!frozenPath.isEmpty()) {
+      frozenConstraints=std::make_unique<QgsVectorLayer>(frozenPath+"|layername=features","constraints","ogr");
+      if(!frozenConstraints->isValid()){setError(error,tr("约束快照无法读取"));return false;}
+      constraints=frozenConstraints.get();
+    }
     if ( !constraints )
     {
       setError( error, constraintErr.isEmpty()
@@ -1178,12 +1185,22 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
   }
 
   QVariantMap extra;
+  extra.insert("mapping_product",true);extra.insert("layer_id","product."+st.versionId);
+  extra.insert("layer_type","raster");extra.insert("title",tr("%1·%2").arg(def.title,horizon));extra.insert("group","04_SingleFactor");
   extra.insert( QStringLiteral( "factor_id" ), factorId );
   extra.insert( QStringLiteral( "field" ), field );
   extra.insert( QStringLiteral( "cell_size" ), cellSize );
   extra.insert( QStringLiteral( "constrained" ), hasConstraints );
+  extra.insert(QStringLiteral("horizon"), horizon);
+  extra.insert(QStringLiteral("kind"), QStringLiteral("single_factor_raster"));
+  parentPaths.append(property(("paleo.constraint.snapshot."+horizon).toUtf8().constData()).toString());
+  QStringList parentIds = registrar.parentVersionIdsFor(parentPaths);
+  parentIds.append(params.value("parentVersionIds").toStringList());
+  parentIds.removeDuplicates();
+  if(auto *catalog=PaleoWorkflowDerivedCatalog(this))for(const auto &id:parentIds)
+    if(catalog->versionById(id).extra.value("mock").toBool())extra.insert("mock",true);
   QString commitErr;
-  if ( !registrar.commitExternal( st, outPath, registrar.parentVersionIdsFor( parentPaths ),
+  if ( !registrar.commitExternal( st, outPath, parentIds,
                                   def.processingAlgId, extra, &commitErr ) )
   {
     setError( error, commitErr );
@@ -1409,8 +1426,13 @@ bool ConstraintWorkflow::generateContours( const QString &horizon, const QString
   }
 
   QVariantMap extra;
+  extra.insert("mapping_product",true);extra.insert("layer_id","product."+st.versionId);extra.insert("horizon",horizon);extra.insert("kind","contour_lines");
+  extra.insert("layer_type","vector");extra.insert("source_suffix","|layername=contours");extra.insert("title",tr("%1 等值线").arg(horizon));extra.insert("group","04_SingleFactor/Contours");
   extra.insert( QStringLiteral( "interval" ), interval );
   extra.insert( QStringLiteral( "factor_layer_id" ), factorLayerId );
+  if(auto *catalog=PaleoWorkflowDerivedCatalog(this))
+    for(const auto &id:registrar.parentVersionIdsFor({rasterPath}))
+      if(catalog->versionById(id).extra.value("mock").toBool())extra.insert("mock",true);
   QString commitErr;
   if ( !registrar.commitExternal( st, st.absolutePath,
                                   registrar.parentVersionIdsFor( { rasterPath } ),

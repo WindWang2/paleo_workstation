@@ -3,13 +3,17 @@
 // 取消-续跑-幂等、瓦片流、ReadVoxelWindow、渐进 LOD、useReadPlan 的
 // interpolate 回落、P5 生产道字约定、POSIX StorageProfile。
 #include <QtTest>
+#include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QtEndian>
+#include <QThread>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <tuple>
 #include <vector>
 
@@ -26,6 +30,9 @@
 #include "domain/seismic/sgyio.h"
 #include "domain/seismic/sgyrulelayout.h"
 #include "domain/seismic/sgyvolume.h"
+
+#include "services/paleotaskservice.h"
+#include "services/seismictaskservice.h"
 
 namespace {
 
@@ -80,6 +87,31 @@ std::filesystem::path toPath(const QString &s)
 {
   return std::filesystem::path(s.toStdString());
 }
+
+// 服务级测试脚手架：真实 PaleoTaskService 线程池 + 事件循环等待。
+class PaleotaskserviceFixture : public QObject
+{
+public:
+  PaleotaskserviceFixture()
+      : seismic(&tasks, 16, this) {}
+
+  bool waitFor(const std::function<bool()> &done, int timeoutMs = 30000)
+  {
+    QElapsedTimer clock;
+    clock.start();
+    while (!done())
+    {
+      if (clock.elapsed() > timeoutMs)
+        return false;
+      QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+      QThread::msleep(5);
+    }
+    return true;
+  }
+
+  PaleoTaskService tasks;
+  seismic::SeismicTaskService seismic;
+};
 
 } // namespace
 
@@ -588,6 +620,170 @@ private slots:
     QVERIFY2(loaded != nullptr, reason.c_str());
     QVERIFY(loaded->complete);
     QCOMPARE(loaded->inlineMin, 10);
+  }
+
+  // ---- 服务层：秒开两段式（QuickOpen → 体加载）经 PaleoTask 池 ----
+  void serviceQuickOpenThenVolumeLoad()
+  {
+    PaleotaskserviceFixture fix;
+    seismic::SeismicQuickPreview preview;
+    bool quickDone = false;
+    fix.seismic.startQuickOpen(ordinalSgy_, 128,
+                                [&preview, &quickDone](bool ok, const seismic::SeismicQuickPreview &p) {
+                                  preview = p;
+                                  preview.ok = ok && p.ok;
+                                  quickDone = true;
+                                });
+    QVERIFY(fix.waitFor([&] { return quickDone; }));
+    QVERIFY(preview.ok);
+    QVERIFY(preview.ruleVerified);
+    QVERIFY(preview.preview != nullptr);
+    QCOMPARE(preview.preview->width, 5);
+
+    std::shared_ptr<seismic::SgyVolume> volume;
+    bool loadDone = false;
+    fix.seismic.startVolumeLoad(ordinalSgy_,
+                                 [&volume, &loadDone](bool ok, std::shared_ptr<seismic::SgyVolume> v,
+                                                      const QString &) {
+                                   volume = ok ? v : nullptr;
+                                   loadDone = true;
+                                 });
+    QVERIFY(fix.waitFor([&] { return loadDone; }));
+    QVERIFY(volume != nullptr);
+    QVERIFY(volume->IsIndexComplete());
+  }
+
+  // ---- 服务层：取消桥（PaleoTask.requestCancel → 引擎 CancelToken）无成品发布 ----
+  void serviceCancelBridgePublishesNothing()
+  {
+    PaleotaskserviceFixture fix;
+    const QString sgy = tempDir_.filePath(QStringLiteral("svc_cancel.sgy"));
+    QVERIFY(writeStandardSegy(sgy, 96, 96, 128));
+    const QString l0 = sgy + QStringLiteral(".sf3p");
+
+    bool done = false;
+    bool reportedOk = false;
+    QString reportedError;
+    PaleoTask *task = fix.seismic.startPagedTranscode(
+        sgy, l0, true, [&](bool ok, const QString &, const QString &err) {
+          reportedOk = ok;
+          reportedError = err;
+          done = true;
+        });
+    QVERIFY(task != nullptr);
+    task->requestCancel(); // 立即取消：worker 首个进度点即中止
+    QVERIFY(fix.waitFor([&] { return done; }));
+    QVERIFY(!reportedOk);
+    QVERIFY(!reportedError.isEmpty());
+    QCOMPARE(task->state(), PaleoTask::State::Cancelled);
+    QVERIFY(!QFile::exists(l0)); // 取消不发布成品 .sf3p（只留 .partial 可续跑）
+  }
+
+  // ---- 服务层：瓦片信号流 + 完成图发布（paged 通道） ----
+  void serviceTiledSliceStreamsTiles()
+  {
+    PaleotaskserviceFixture fix;
+    const QString sgy = tempDir_.filePath(QStringLiteral("svc_tiles.sgy"));
+    QVERIFY(writeStandardSegy(sgy, 24, 24, 128));
+    const QString l0 = sgy + QStringLiteral(".sf3p");
+
+    bool transcoded = false;
+    fix.seismic.startPagedTranscode(sgy, l0, false, [&](bool, const QString &, const QString &) {
+      transcoded = true;
+    });
+    QVERIFY(fix.waitFor([&] { return transcoded; }));
+
+    std::vector<seismic::SeismicTimeTile> tiles;
+    bool done = false;
+    bool finalOk = false;
+    std::shared_ptr<const seismic::SgySliceImage> finalImage;
+    QObject::connect(&fix.seismic, &seismic::SeismicTaskService::timeSliceTileReady,
+                     &fix, [&tiles](const seismic::SeismicTimeTile &tile) { tiles.push_back(tile); });
+    fix.seismic.startTimeSliceTiled(l0, 64, 8, 1012, 2012,
+                                     [&](bool ok, std::shared_ptr<const seismic::SgySliceImage> img,
+                                         const QString &) {
+                                       finalOk = ok;
+                                       finalImage = img;
+                                       done = true;
+                                     });
+    QVERIFY(fix.waitFor([&] { return done; }));
+    QVERIFY(finalOk);
+    QVERIFY(finalImage != nullptr);
+    QCOMPARE(finalImage->width, 24);
+    QVERIFY(!tiles.empty());
+    QCOMPARE(tiles.back().completed, static_cast<int>(tiles.size()));
+    for (const auto &tile : tiles)
+    {
+      QCOMPARE(tile.sampleIndex, 64);
+      QVERIFY(tile.image != nullptr);
+    }
+  }
+
+  // ---- 服务层：体素窗口 + LOD 切换 + 后端探测 ----
+  void serviceVoxelLodAndBackendProbe()
+  {
+    PaleotaskserviceFixture fix;
+    const QString sgy = tempDir_.filePath(QStringLiteral("svc_voxel.sgy"));
+    QVERIFY(writeStandardSegy(sgy, 24, 24, 128));
+    const QString l0 = sgy + QStringLiteral(".sf3p");
+
+    bool transcoded = false;
+    fix.seismic.startPagedTranscode(sgy, l0, true, [&](bool, const QString &, const QString &) {
+      transcoded = true;
+    });
+    QVERIFY(fix.waitFor([&] { return transcoded; }));
+
+    seismic::SeismicBackendStatus status;
+    bool opened = false;
+    fix.seismic.startPagedOpen(l0, [&](bool ok, const seismic::SeismicBackendStatus &s, const QString &) {
+      status = s;
+      status.ok = ok && s.ok;
+      opened = true;
+    });
+    QVERIFY(fix.waitFor([&] { return opened; }));
+    QVERIFY(status.ok);
+    QCOMPARE(status.backendName, QStringLiteral("paged-workspace"));
+    QCOMPARE(status.lodLevels, 2); // {L1, L2}
+    QVERIFY(status.quality.startsWith(QLatin1String("L2")));
+
+    QString quality;
+    bool switched = false;
+    fix.seismic.startLodSwitch(l0, 0, [&](bool ok, const QString &q, const QString &) {
+      quality = ok ? q : QString();
+      switched = true;
+    });
+    QVERIFY(fix.waitFor([&] { return switched; }));
+    QVERIFY(quality.startsWith(QLatin1String("L0")));
+
+    seismic::engine::VoxelWindow window;
+    bool voxelDone = false;
+    seismic::engine::VoxelWindowRequest request;
+    request.inlineBegin = 1000;
+    request.xlineBegin = 2000;
+    request.sampleBegin = 0;
+    request.inlineCount = 4;
+    request.xlineCount = 4;
+    request.sampleCount = 16;
+    fix.seismic.startVoxelWindow(l0, request,
+                                  [&](bool ok, const seismic::engine::VoxelWindow &w, const QString &) {
+                                    if (ok)
+                                      window = w;
+                                    voxelDone = true;
+                                  });
+    QVERIFY(fix.waitFor([&] { return voxelDone; }));
+    QCOMPARE(static_cast<int>(window.values.size()), 4 * 4 * 16);
+
+    seismic::SeismicBackendStatus probe;
+    bool probed = false;
+    fix.seismic.startBackendProbe(sgy, [&](bool ok, const seismic::SeismicBackendStatus &s, const QString &) {
+      probe = s;
+      probe.ok = ok && s.ok;
+      probed = true;
+    });
+    QVERIFY(fix.waitFor([&] { return probed; }));
+    QVERIFY(probe.ok);
+    // Auto 语义：旁生 .sf3p 不影响——.sf3c 不存在时仍是直读
+    QCOMPARE(probe.backendName, QStringLiteral("direct"));
   }
 };
 

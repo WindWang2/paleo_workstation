@@ -367,6 +367,21 @@ WellCorrelationPanel::~WellCorrelationPanel()
   delete m_ruler;
 }
 
+void WellCorrelationPanel::setUpdatesEnabled(bool enabled)
+{
+  QWidget::setUpdatesEnabled(enabled);
+  if (m_updatesEnabled == enabled)
+    return;
+  m_updatesEnabled = enabled;
+  if (m_updatesEnabled && m_dirty)
+  {
+    m_dirty = false;
+    rebuildScene();
+    if (m_ctx)
+      applySelection(m_ctx->selectedIds());
+  }
+}
+
 void WellCorrelationPanel::setWells(const QList<QPair<QString, QString>> &wells)
 {
   m_wells = wells;
@@ -654,6 +669,12 @@ float WellCorrelationPanel::depthAtY(qreal y) const
 // mid-drag relayouts (markerDepthChanged) never kill an in-flight drag.
 void WellCorrelationPanel::rebuildScene()
 {
+  if (!m_updatesEnabled)
+  {
+    m_dirty = true;
+    return;
+  }
+
   m_emptyLabel->setVisible(m_wells.isEmpty());
 
   for (QGraphicsPathItem *it : m_columnItems)

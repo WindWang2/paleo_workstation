@@ -1,6 +1,7 @@
 // 层：功能
 #pragma once
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 
@@ -20,14 +21,14 @@ class WellMapLink : public QObject
     WellMapLink(QgsMapCanvas *canvas, SelectionContext *ctx, QObject *parent = nullptr);
 
     void setWellLayer(QgsVectorLayer *layer, const QString &idField = QStringLiteral("id"));
-    QgsVectorLayer *wellLayer() const { return m_layer; }
+    QgsVectorLayer *wellLayer() const;
 
   private slots:
     void onContextSelection(const QStringList &ids, const QString &origin);
 
   private:
-    QgsMapCanvas *m_canvas;
+    QPointer<QgsMapCanvas> m_canvas;
     SelectionContext *m_ctx;
-    QgsVectorLayer *m_layer = nullptr;
+    QPointer<QgsVectorLayer> m_layer;
     QString m_idField;
 };

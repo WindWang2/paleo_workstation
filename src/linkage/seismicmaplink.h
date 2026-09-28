@@ -1,6 +1,7 @@
 // 层：功能
 #pragma once
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -33,7 +34,7 @@ class SeismicMapLink : public QObject
     ~SeismicMapLink() override;
 
     void setSeismicLayer(QgsVectorLayer *lineLayer, const QString &idField = QStringLiteral("line_id"));
-    QgsVectorLayer *seismicLayer() const { return m_layer; }
+    QgsVectorLayer *seismicLayer() const;
 
     // 剖面跨视图联动（W3b）：linkage 不持有 ui 控件——壳把剖面画布的
     // traceHovered/traceClicked 连到下面的槽，把 sectionVolumeChanged 连到
@@ -70,9 +71,9 @@ class SeismicMapLink : public QObject
     void onSectionPathCaptured(const QVector<QgsPointXY> &points);
 
   private:
-    QgsMapCanvas *m_canvas;
+    QPointer<QgsMapCanvas> m_canvas;
     SelectionContext *m_ctx;
-    QgsVectorLayer *m_layer = nullptr;
+    QPointer<QgsVectorLayer> m_layer;
     QString m_idField;
 
     QgsVertexMarker *m_cursorMarker = nullptr;

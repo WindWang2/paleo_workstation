@@ -104,3 +104,8 @@ void WellMapLink::onContextSelection(const QStringList &ids, const QString &orig
   }
   m_layer->triggerRepaint();
 }
+
+QgsVectorLayer *WellMapLink::wellLayer() const
+{
+  return m_layer.data();
+}

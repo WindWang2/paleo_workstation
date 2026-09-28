@@ -47,6 +47,11 @@ class WellCorrelationPanel : public QWidget
     explicit WellCorrelationPanel(SelectionContext *ctx, QWidget *parent = nullptr);
     ~WellCorrelationPanel() override;
 
+    // Batching: setUpdatesEnabled(false) defers rebuildScene() until enabled.
+    void setUpdatesEnabled(bool enabled);
+    void beginBatch() { setUpdatesEnabled(false); }
+    void endBatch() { setUpdatesEnabled(true); }
+
     // (id, name) pairs in section order; re-layouts the scene. Track sets
     // of wells that survive the replacement are kept.
     void setWells(const QList<QPair<QString, QString>> &wells);
@@ -135,4 +140,6 @@ class WellCorrelationPanel : public QWidget
     QLabel *m_emptyLabel = nullptr;
     float m_axisMin = 0.0f, m_axisMax = 100.0f; // shared display-space depth window
     QString m_scrollWell, m_scrollHorizon;      // 三视图联动最近一次滚动目标
+    bool m_updatesEnabled = true;
+    bool m_dirty = false;
 };

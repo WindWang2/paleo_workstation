@@ -28,8 +28,8 @@ class CorrelationTrack
 
     // --- data ---------------------------------------------------------------
     void setData(const QVector<float> &depths, const QVector<float> &values);
-    QVector<float> depths() const { return m_depths; }
-    QVector<float> values() const { return m_values; }
+    const QVector<float> &depths() const { return m_depths; }
+    const QVector<float> &values() const { return m_values; }
     qsizetype sampleCount() const { return qMin(m_depths.size(), m_values.size()); }
 
     void setMnemonic(const QString &mnemonic) { m_mnemonic = mnemonic; }

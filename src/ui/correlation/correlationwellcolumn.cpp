@@ -187,31 +187,33 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
       // matches (geometry, axis, offset, color, data fingerprint) — a hit
       // skips render() entirely; a miss re-renders and re-stores.
       const quint64 key = trackCacheKey(t, stripW, stripH, depthMin, depthMax, depthOffset);
-      QImage img;
+      QPixmap pmData;
       const auto cit = m_cache.constFind(t.mnemonic());
       if (cit != m_cache.constEnd() && cit.value().key == key)
       {
-        img = cit.value().image;
+        pmData = cit.value().pixmap;
         ++m_cacheHits;
       }
       else
       {
-        img = t.render(stripW, stripH, depthMin, depthMax, depthOffset);
-        m_cache.insert(t.mnemonic(), CachedImage{key, img});
+        const QImage img = t.render(stripW, stripH, depthMin, depthMax, depthOffset);
+        if (!img.isNull())
+          pmData = QPixmap::fromImage(img);
+        m_cache.insert(t.mnemonic(), CachedImage{key, img, pmData});
       }
 
-      // Null image (empty track / stub renderer): the pixmap is skipped,
+      // Null pixmap (empty track / stub renderer): the pixmap is skipped,
       // but caption and separators still draw — the column chrome never
       // depends on render succeeding.
-      if (!img.isNull())
+      if (!pmData.isNull())
       {
-        auto *pm = new QGraphicsPixmapItem(QPixmap::fromImage(img), column);
+        auto *pm = new QGraphicsPixmapItem(pmData, column);
         pm->setPos(stripX, bodyTop);
         // Stretch the (possibly rounded-size) image to the full strip —
         // pos+fromScale maps the pixmap rect onto exactly [stripX, stripX+
         // trackWidth]×[bodyTop, bodyTop+bodyHeight] (verified composition).
-        const qreal sx = m_trackWidth / img.width();
-        const qreal sy = bodyHeight / img.height();
+        const qreal sx = m_trackWidth / pmData.width();
+        const qreal sy = bodyHeight / pmData.height();
         if (!qFuzzyCompare(sx, 1.0) || !qFuzzyCompare(sy, 1.0))
           pm->setTransform(QTransform::fromScale(sx, sy));
         pm->setAcceptedMouseButtons(Qt::NoButton); // clicks resolve to the well

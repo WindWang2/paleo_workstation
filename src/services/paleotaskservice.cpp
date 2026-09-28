@@ -133,6 +133,8 @@ void PaleoTask::applyFinish(const QString &error)
     m_state = State::Succeeded;
   emit changed();
   emit finished();
+  if (!parent())
+    deleteLater();
 }
 
 // ---------------------------------------------------------------------------

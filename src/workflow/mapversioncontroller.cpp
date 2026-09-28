@@ -104,7 +104,11 @@ namespace
       row = rows - 1; // 恰在外边界 → 最后一行
     if ( col < 0 || row < 0 || col >= cols || row >= rows )
       return CellSample::Outside;
+    if ( GDALGetRasterCount( ds ) < 1 )
+      return CellSample::Nodata;
     GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+    if ( !band )
+      return CellSample::Nodata;
     float v = 0.0f;
     if ( GDALRasterIO( band, GF_Read, col, row, 1, 1, &v, 1, 1, GDT_Float32, 0, 0 ) != CE_None )
       return CellSample::Nodata;

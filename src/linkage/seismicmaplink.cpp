@@ -21,12 +21,22 @@ SeismicMapLink::SeismicMapLink(QgsMapCanvas *canvas, SelectionContext *ctx, QObj
   if (m_ctx)
     connect(m_ctx, &SelectionContext::selectionChanged,
             this, &SeismicMapLink::onContextSelection);
+  if (m_canvas)
+  {
+    connect(m_canvas.data(), &QObject::destroyed, this, [this]() {
+      m_cursorMarker = nullptr;
+      m_tool = nullptr;
+    });
+  }
 }
 
 SeismicMapLink::~SeismicMapLink()
 {
-  delete m_cursorMarker;
-  delete m_tool;
+  if (m_canvas)
+  {
+    delete m_cursorMarker;
+    delete m_tool;
+  }
 }
 
 void SeismicMapLink::setSeismicLayer(QgsVectorLayer *lineLayer, const QString &idField)
@@ -70,6 +80,11 @@ void SeismicMapLink::setSeismicLayer(QgsVectorLayer *lineLayer, const QString &i
               lineIds << f.attribute(idx).toString();
             m_ctx->setSelection(lineIds, QStringLiteral("canvas"));
           });
+}
+
+QgsVectorLayer *SeismicMapLink::seismicLayer() const
+{
+  return m_layer.data();
 }
 
 void SeismicMapLink::setGridGeometry(const SurveyGridGeometry &geom)

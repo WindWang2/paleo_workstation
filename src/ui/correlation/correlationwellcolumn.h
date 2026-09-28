@@ -4,6 +4,7 @@
 #include <QHash>
 #include <QImage>
 #include <QList>
+#include <QPixmap>
 #include <QPointF>
 #include <QString>
 #include <QStringList>
@@ -91,6 +92,7 @@ class CorrelationWellColumn
     {
       quint64 key = 0;
       QImage image;
+      QPixmap pixmap;
     };
 
     QString m_wellId;

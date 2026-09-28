@@ -2483,6 +2483,7 @@ class TestCorrPanelFull : public QObject
 
         QElapsedTimer t;
         t.start();
+        panel.setUpdatesEnabled(false);
         for (int i = 0; i < 50; ++i)
         {
           const QString id = QStringLiteral("W%1").arg(i);
@@ -2492,6 +2493,7 @@ class TestCorrPanelFull : public QObject
           panel.addWellTrack(id, QStringLiteral("RHOB"), QStringLiteral("G/C3"),
                              d, ramp(2.0f, 2.8f, 2001));
         }
+        panel.setUpdatesEnabled(true);
         panel.resize(1200, 480);
         panel.show();
         const bool exposed = QTest::qWaitForWindowExposed(&panel);

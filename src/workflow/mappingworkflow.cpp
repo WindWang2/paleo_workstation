@@ -85,7 +85,17 @@ namespace
     g->cols = GDALGetRasterXSize( ds );
     g->rows = GDALGetRasterYSize( ds );
     GDALGetGeoTransform( ds, g->gt );
+    if ( GDALGetRasterCount( ds ) < 1 )
+    {
+      GDALClose( ds );
+      return false;
+    }
     GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+    if ( !band )
+    {
+      GDALClose( ds );
+      return false;
+    }
     int flag = 0;
     g->nodata = GDALGetRasterNoDataValue( band, &flag );
     g->hasNodata = flag != 0;
@@ -319,7 +329,11 @@ namespace
       row = rows - 1; // 恰在外边界 → 最后一行
     if ( col < 0 || row < 0 || col >= cols || row >= rows )
       return SampleOutcome::Outside;
+    if ( GDALGetRasterCount( ds ) < 1 )
+      return SampleOutcome::Nodata;
     GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+    if ( !band )
+      return SampleOutcome::Nodata;
     float v = 0.0f;
     if ( GDALRasterIO( band, GF_Read, col, row, 1, 1, &v, 1, 1, GDT_Float32, 0, 0 ) != CE_None )
       return SampleOutcome::Nodata;

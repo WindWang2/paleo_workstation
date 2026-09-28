@@ -8,3 +8,6 @@ vendor/ort.tgz
 *.o
 symbology-style.db
 build-nowebengine/
+.agents/
+__pycache__/
+

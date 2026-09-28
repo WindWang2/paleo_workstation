@@ -1,6 +1,7 @@
 // 层：数据
 #include "services/seismictaskservice.h"
 
+#include <QCoreApplication>
 #include <QFileInfo>
 #include <QMetaObject>
 #include <QTimer>
@@ -37,11 +38,11 @@ PaleoTask *SeismicTaskService::startIndexing(
   const QString title = tr("索引 SEG-Y: %1").arg(QFileInfo(sgyPath).fileName());
   auto resultIndex = std::make_shared<SgyIndexPtr>();
 
-  auto work = [this, stdPath, forceReindex, resultIndex](PaleoTask *task) -> QString {
+  auto work = [stdPath, forceReindex, resultIndex](PaleoTask *task) -> QString {
     if (!forceReindex)
     {
       std::string reason;
-      task->reportDetail(tr("检查本地磁盘索引缓存..."));
+      task->reportDetail(QCoreApplication::translate("seismic::SeismicTaskService", "检查本地磁盘索引缓存..."));
       if (auto cached = SgyIndexCache::Load(stdPath, reason))
       {
         if (cached->complete)
@@ -56,7 +57,7 @@ PaleoTask *SeismicTaskService::startIndexing(
     if (task->cancelRequested())
       return QString();
 
-    task->reportDetail(tr("正在进行全卷道头扫描与几何提取..."));
+    task->reportDetail(QCoreApplication::translate("seismic::SeismicTaskService", "正在进行全卷道头扫描与几何提取..."));
     SgyIndexBuildOptions opts;
     opts.progressInterval = 64; // 敏捷响应取消（<50ms）
     std::string err;

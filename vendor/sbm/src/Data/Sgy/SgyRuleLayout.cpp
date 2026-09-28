@@ -24,13 +24,12 @@ bool ReadTraceKey(segy_datasource* file, int traceIndex, TraceKey& key) {
     if(segy_read_standard_traceheader(file, traceIndex, header.data()) != SEGY_OK) {
         return false;
     }
-    int inlineNo = 0;
-    int xlineNo = 0;
-    segy_get_tracefield_int(header.data(), SEGY_TR_INLINE, &inlineNo);
-    segy_get_tracefield_int(header.data(), SEGY_TR_CROSSLINE, &xlineNo);
-    key.inlineNo = inlineNo;
-    key.xlineNo = xlineNo;
-    key.valid = !(inlineNo == 0 && xlineNo == 0);
+    // P5: includes the paleo field record @8 / CDP @20 fallback for the
+    // (inlineNo == 0 && xlineNo == 0) case.
+    const sgyio::SgyTraceKeyWords words = sgyio::ReadTraceKeyWords(header.data());
+    key.inlineNo = words.inlineNo;
+    key.xlineNo = words.xlineNo;
+    key.valid = !(words.inlineNo == 0 && words.xlineNo == 0);
     return key.valid;
 }
 

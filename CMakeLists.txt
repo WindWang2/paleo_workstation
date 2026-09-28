@@ -3,6 +3,10 @@ project(paleo_workbench C CXX)
 
 set(CMAKE_CXX_STANDARD 20) # QGIS 4.2 headers require C++20 (defaulted operator==)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# 本仓无 C++20 named modules；CMake≥3.28+Ninja 的默认扫描会往每条编译命令
+# 塞 -fdeps-format/-fmodule-mapper（GCC 专属 flag，clang-tidy 不认，见
+# tools/check_tidy.py）还拖慢编译——显式关掉。
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON) # wave3/ux-consistency: vendored fonts qrc
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -12,6 +16,44 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if(MSVC)
   add_compile_definitions(NOMINMAX)
   add_compile_options(/utf-8 /W4)
+endif()
+
+# ---- 编译缓存 launcher（devex T6）：ccache/sccache 任一在 PATH 即启用 ----
+# 已显式给 launcher（-DCMAKE_CXX_COMPILER_LAUNCHER=...）或 PALEO_NO_CCACHE=1 时不抢。
+if(NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER AND NOT PALEO_NO_CCACHE)
+  find_program(PALEO_CCACHE_EXE NAMES ccache sccache)
+  if(PALEO_CCACHE_EXE)
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${PALEO_CCACHE_EXE}")
+    set(CMAKE_C_COMPILER_LAUNCHER "${PALEO_CCACHE_EXE}")
+    message(STATUS "compile cache launcher: ${PALEO_CCACHE_EXE}")
+  endif()
+endif()
+
+# ---- sanitizer 档（devex T7，实验性，默认 OFF；GNU/Clang 限定）----
+# ASAN 档测试默认关 LSAN（QGIS/Qt 插件/单例的"泄漏"是设计内行为，见
+# tools/lsan-suppressions.txt；猎泄漏时手动开 detect_leaks=1 + suppressions）。
+# UBSAN 保持可恢复（只打印栈），做巡检不做门禁。
+option(PALEO_ENABLE_ASAN "AddressSanitizer 实验档（测试默认关 leak 检测）" OFF)
+option(PALEO_ENABLE_UBSAN "UndefinedBehaviorSanitizer 巡检档（可恢复）" OFF)
+# ---- 实验性 unity build（devex T6）：逐 target opt-in，默认 OFF ----
+# paleo_sbm（-fno-char8_t TU 语义）/paleo_segyio（纯 C）/paleo_saribbon（vendor）
+# 显式排除；AUTOMOC 与 unity 的组合按 CMake 语义兼容，但跨 TU 静态同名符号
+# 有合批冲突风险——只作本地加速实验，不进 CI 默认路径。
+option(PALEO_UNITY_BUILD "实验性 unity build（vendor 目标显式排除）" OFF)
+if(PALEO_ENABLE_ASAN OR PALEO_ENABLE_UBSAN)
+  if(MSVC)
+    message(FATAL_ERROR "sanitizer 档仅支持 GNU/Clang（MSVC 走 /fsanitize 手动档）")
+  endif()
+  add_compile_options(-fno-omit-frame-pointer -g)
+  add_link_options(-fno-omit-frame-pointer)
+endif()
+if(PALEO_ENABLE_ASAN)
+  add_compile_options(-fsanitize=address)
+  add_link_options(-fsanitize=address)
+endif()
+if(PALEO_ENABLE_UBSAN)
+  add_compile_options(-fsanitize=undefined)
+  add_link_options(-fsanitize=undefined)
 endif()
 
 if(NOT QGIS_PREFIX AND DEFINED ENV{QGIS_PREFIX_PATH})
@@ -359,130 +401,201 @@ target_link_libraries(paleo_core INTERFACE
   paleo_saribbon paleo_sbm paleo_segyio paleo_glm ${GDAL_LIB})
 target_include_directories(paleo_core INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
 
+# ---- 实验性 unity build（devex T6）：PALEO_UNITY_BUILD=ON 时仅逐产品 target ----
+# vendor 三家（sbm/segyio/saribbon）显式排除——见顶部 option 注释。
+# 实测结论（build-unity 轮）：ON 当前**编译不过**——全仓 .cpp 惯用同名
+# 匿名 helper（setError/connectionNameFor…），metadata/catalog/qgis 等目标
+# 合批即 redefinition。开关按约定保留（默认 OFF，不影响任何现有路径），
+# 真正可用需先做 helper 去重/改名（src/ 改动归各模块方向，递延 devex.md）；
+# 逐源 SKIP_UNITY_BUILD_INCLUSION 可作局部逃生门但维护成本高于收益。
+if(PALEO_UNITY_BUILD)
+  foreach(_t paleo_domain paleo_algorithms paleo_store paleo_qgis paleo_io
+             paleo_services paleo_linkage paleo_workflow paleo_ui paleo_app)
+    set_target_properties(${_t} PROPERTIES UNITY_BUILD TRUE UNITY_BUILD_BATCH_SIZE 8)
+  endforeach()
+endif()
+
 enable_testing()
 
+# ---- 测试环境沙箱（devex T2 竞态根治，单点定义）----
+# 每测试独立 XDG/HOME 目录：QSettings NativeFormat 在 Linux 走 XDG_CONFIG_HOME，
+# tst_panels/tst_webviewpanel 等不再互踩真实 ~/.config/paleo（tst_ui/tst_procdialog
+# 曾靠 .cpp 里 setPath 自救，现收归测试布线，零 .cpp 改动）。
+# 已知边界：Windows NativeFormat 走注册表不受 env 控制——Windows 侧仍靠
+# 串行 ctest（ci.yml windows leg 未开并行）；文档见 BUILDING.md。
+# 注意 set_tests_properties 的 ENVIRONMENT 是整体覆盖非追加：外部对本函数
+# 注入环境做扩展必须用 set_property(TEST ... APPEND PROPERTY ...)，
+# 不能再整体 set（CMakeLists 下方 tst_onnx* 即此坑的修复点）。
+function(paleo_test_sandbox name)
+  set(_home ${CMAKE_BINARY_DIR}/ctest-home/${name})
+  file(MAKE_DIRECTORY "${_home}/config" "${_home}/data" "${_home}/cache")
+  set_tests_properties(${name} PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;XDG_CONFIG_HOME=${_home}/config;XDG_DATA_HOME=${_home}/data;XDG_CACHE_HOME=${_home}/cache;HOME=${_home}")
+  if(PALEO_ENABLE_ASAN)
+    set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
+      "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:print_summary=1")
+    set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
+      "LSAN_OPTIONS=detect_leaks=0")
+  endif()
+  if(PALEO_ENABLE_UBSAN)
+    set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
+      "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=0")
+  endif()
+endfunction()
+
+# ---- 跨方向契约：add_paleo_test(name [LIBS ...]) ----
+# 单参旧式调用零改动可用（回退 paleo_core 伞）——cmake/extra-*.cmake 里
+# 四个并行方向都是旧式调用，勿破坏。新式 LIBS 给最小链接集（链接瘦身 T1：
+# touch 单模块不再牵连全部测试 relink）；LIBS 按依赖序书写，首模块决定
+# ctest LABEL（CI -L 分步用，不拆 job）。
+# 注册行保持单行；并行合并冲突时保留双方行。
 function(add_paleo_test name)
+  cmake_parse_arguments(PARSE_ARGV 1 apt "" "" "LIBS")
+  set(_libs ${apt_LIBS})
+  if(NOT _libs)
+    set(_libs paleo_core)
+  endif()
   add_executable(${name} tests/${name}.cpp)
-  target_link_libraries(${name} PRIVATE paleo_core Qt6::Test)
+  target_link_libraries(${name} PRIVATE ${_libs} Qt6::Test)
   target_compile_definitions(${name} PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
   add_test(NAME ${name} COMMAND ${name})
-  set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+  paleo_test_sandbox(${name})
+  set(_label core)
+  foreach(_l IN LISTS _libs)
+    if(_l MATCHES "^paleo_[a-z]+$" AND NOT _l STREQUAL "paleo_core")
+      string(REGEX REPLACE "^paleo_" "" _label "${_l}")
+      break()
+    endif()
+  endforeach()
+  set_tests_properties(${name} PROPERTIES LABELS "${_label}")
 endfunction()
 
 # ---- W6 层边界护栏（docs/UI_LAYER_PLAN.md）：include 归一化正向/反向扫描 +
-# QtWidgets 词表禁令 + 层标记硬检查；baseline 只缩不涨。selftest 单独成项——
-# 扫描器自身坏掉不能静默变绿。 ----
+# QtWidgets 词表禁令 + 层标记硬检查；词表外置 tools/layering_vocab.json
+# （scripts/new_module.sh 同步维护）。baseline 已归零，--strict 是防回升闸门
+# （非空即红）；selftest 单独成项——扫描器自身坏掉不能静默变绿。 ----
 find_program(PALEO_PYTHON3 NAMES python3 python)
 if(PALEO_PYTHON3)
   add_test(NAME layering COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py)
+  add_test(NAME layering_strict COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_layering.py --strict)
   add_test(NAME layering_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --selftest)
 endif()
 
-add_paleo_test(tst_runtime)
-add_paleo_test(tst_projectsvc)
-add_paleo_test(tst_layerservice)
-add_paleo_test(tst_canvas_tools)
-add_paleo_test(tst_domain)
-add_paleo_test(tst_linkage)
-add_paleo_test(tst_algorithms)
-add_paleo_test(tst_services2)
-add_paleo_test(tst_workflows)
-add_paleo_test(tst_mappingworkbench)
-add_paleo_test(tst_ui)
-add_paleo_test(tst_panels)
-add_paleo_test(tst_mappingpages)
-add_paleo_test(tst_factorworkflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
-add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式）
-add_paleo_test(tst_perf)
-add_paleo_test(tst_locator)
-add_paleo_test(tst_layoutshell)
-add_paleo_test(tst_maptools)
-add_paleo_test(tst_correlation)
-add_paleo_test(tst_decorations)
-add_paleo_test(tst_manifestproj)
-add_paleo_test(tst_import)
-add_paleo_test(tst_drawctl)
-add_paleo_test(tst_procdialog)
-add_paleo_test(tst_rehydrate)
-add_paleo_test(tst_release)
-add_paleo_test(tst_releasepanel)
-add_paleo_test(tst_taskpanel)
-add_paleo_test(tst_attrpanel)
+# ---- 测试注册（devex T1 链接瘦身：LIBS = 各测试 include 面的最小闭包，见
+# docs/progress/devex.md 对比表；单参 = 伞式旧式契约，保留 5 个作为兼容样本）----
+add_paleo_test(tst_runtime LIBS paleo_qgis)                 # metadata,qgis
+add_paleo_test(tst_projectsvc LIBS paleo_qgis)              # metadata,qgis
+add_paleo_test(tst_layerservice LIBS paleo_qgis)            # catalog,metadata,qgis
+add_paleo_test(tst_canvas_tools LIBS paleo_services paleo_qgis) # metadata,qgis,services
+add_paleo_test(tst_domain LIBS paleo_domain)
+add_paleo_test(tst_linkage LIBS paleo_linkage)
+add_paleo_test(tst_algorithms LIBS paleo_algorithms)
+add_paleo_test(tst_services2 LIBS paleo_qgis)               # algorithms,metadata,qgis
+add_paleo_test(tst_workflows LIBS paleo_workflow)
+add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）
+add_paleo_test(tst_ui)                                      # 伞式（app 面全栈，兼容样本）
+add_paleo_test(tst_panels)                                  # 伞式（全栈，兼容样本）
+add_paleo_test(tst_mappingpages LIBS paleo_ui)
+add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
+add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式；伞式兼容样本）
+add_paleo_test(tst_perf LIBS paleo_qgis)
+add_paleo_test(tst_locator LIBS paleo_ui)
+add_paleo_test(tst_layoutshell LIBS paleo_ui)
+add_paleo_test(tst_maptools LIBS paleo_ui)
+add_paleo_test(tst_correlation LIBS paleo_ui)
+add_paleo_test(tst_decorations LIBS paleo_ui)
+add_paleo_test(tst_manifestproj LIBS paleo_qgis)
+add_paleo_test(tst_import LIBS paleo_io)
+add_paleo_test(tst_drawctl LIBS paleo_ui)
+add_paleo_test(tst_procdialog LIBS paleo_qgis)
+add_paleo_test(tst_rehydrate)                               # 伞式（app 面全栈，兼容样本）
+add_paleo_test(tst_release LIBS paleo_store)
+add_paleo_test(tst_releasepanel LIBS paleo_ui)
+add_paleo_test(tst_taskpanel LIBS paleo_ui)
+add_paleo_test(tst_attrpanel LIBS paleo_ui)
 # ---- merged worktree waves ----
-add_paleo_test(tst_segy)
-add_paleo_test(tst_constraintstore)
-add_paleo_test(tst_shapetools)
-add_paleo_test(tst_edittools)
-add_paleo_test(tst_correlation_full)
-add_paleo_test(tst_layoutpalette)
-add_paleo_test(tst_layoutitempanel)
-add_paleo_test(tst_layoutexport)
-add_paleo_test(tst_layoutundo)
-add_paleo_test(tst_layoutdesigner_full)
+add_paleo_test(tst_segy LIBS paleo_io)
+add_paleo_test(tst_constraintstore LIBS paleo_workflow)
+add_paleo_test(tst_shapetools LIBS paleo_ui)
+add_paleo_test(tst_edittools LIBS paleo_ui)
+add_paleo_test(tst_correlation_full LIBS paleo_ui)
+# tst_correlation_full 内嵌墙钟性能断言（10 次 warm reorder < 1000ms，测试
+# .cpp 归 correlation 方向）——并行负载下偶发超时（本次 ctest -j4 实测捕获）。
+# RUN_SERIAL 独占机器跑：计时抖动关回串行基线；根治（QTRY_/预算放宽）
+# 归测试属主方向，见 docs/progress/devex.md T2 注记。
+set_tests_properties(tst_correlation_full PROPERTIES RUN_SERIAL TRUE)
+add_paleo_test(tst_layoutpalette LIBS paleo_ui)
+add_paleo_test(tst_layoutitempanel LIBS paleo_ui)
+add_paleo_test(tst_layoutexport LIBS paleo_ui)
+add_paleo_test(tst_layoutundo LIBS paleo_ui)
+add_paleo_test(tst_layoutdesigner_full LIBS paleo_ui)
 # ---- wave/data-foundation ----
-add_paleo_test(tst_catalog)
-add_paleo_test(tst_projectparsers)
+add_paleo_test(tst_catalog LIBS paleo_store)
+add_paleo_test(tst_projectparsers LIBS paleo_io)
 target_compile_definitions(tst_projectparsers PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
-add_paleo_test(tst_horizonbinner)
+add_paleo_test(tst_horizonbinner LIBS paleo_io)
 target_compile_definitions(tst_horizonbinner PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
-add_paleo_test(tst_segy_lines)
+add_paleo_test(tst_segy_lines LIBS paleo_io)
 target_compile_definitions(tst_segy_lines PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
-add_paleo_test(tst_seismic_core)
-add_paleo_test(tst_seismic_index)
-add_paleo_test(tst_seismic_3d)
+add_paleo_test(tst_seismic_core LIBS paleo_domain)
+add_paleo_test(tst_seismic_index LIBS paleo_services)
+add_paleo_test(tst_seismic_3d LIBS paleo_ui)
 target_compile_definitions(tst_seismic_3d PRIVATE
   SEGY_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/testdata/project_area/mini_seismic.sgy"
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
-add_paleo_test(tst_seismic_section)
+add_paleo_test(tst_seismic_section LIBS paleo_ui)
 target_compile_definitions(tst_seismic_section PRIVATE
   SEGY_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/testdata/project_area/mini_seismic.sgy"
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
-add_paleo_test(tst_timedeptool)
+add_paleo_test(tst_timedeptool LIBS paleo_io)
 target_compile_definitions(tst_import PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
-add_paleo_test(tst_datapreview)
+add_paleo_test(tst_datapreview LIBS paleo_ui)
 target_compile_definitions(tst_datapreview PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 # ---- W7 新接缝测试（docs/UI_LAYER_PLAN.md）----
-add_paleo_test(tst_folderimport)
+add_paleo_test(tst_folderimport LIBS paleo_workflow)
 target_compile_definitions(tst_folderimport PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
-add_paleo_test(tst_previewdoc)
+add_paleo_test(tst_previewdoc LIBS paleo_services paleo_qgis)
 target_compile_definitions(tst_previewdoc PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
-add_paleo_test(tst_wellcomposite)
-add_paleo_test(tst_smoke_realdata) # real-data smoke; skips unless PALEO_REAL_PROJECT_AREA is set
-add_paleo_test(tst_webviewpanel)   # offscreen: engine unavailable → fallback, host survives
+add_paleo_test(tst_wellcomposite LIBS paleo_ui)
+add_paleo_test(tst_smoke_realdata LIBS paleo_workflow) # real-data smoke; skips unless PALEO_REAL_PROJECT_AREA is set
+add_paleo_test(tst_webviewpanel LIBS paleo_ui)   # offscreen: engine unavailable → fallback, host survives
 # ---- wave3/ux-consistency ----
 # (fonts qrc + theme singleton live in paleo_core below; UI-domain tests here)
-add_paleo_test(tst_uxtheme)
+add_paleo_test(tst_uxtheme LIBS paleo_ui)
 if(PALEO_HAVE_ORT)
-  add_paleo_test(tst_onnx)
-  add_paleo_test(tst_onnxworkflow)
+  add_paleo_test(tst_onnx LIBS paleo_ai)
+  add_paleo_test(tst_onnxworkflow LIBS paleo_workflow)
   target_compile_definitions(tst_onnxworkflow PRIVATE
     PROJECT_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
-  set_tests_properties(tst_onnx tst_onnxworkflow PROPERTIES ENVIRONMENT
-    "QT_QPA_PLATFORM=offscreen;LD_LIBRARY_PATH=${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
+  # LD_LIBRARY_PATH 必须用 APPEND：paleo_test_sandbox 注入的 XDG/HOME 沙箱
+  # 挂在 ENVIRONMENT 上，这里整体 set 会把它抹掉（原整体覆盖即竞态坑来源）。
+  set_property(TEST tst_onnx tst_onnxworkflow APPEND PROPERTY ENVIRONMENT
+    "LD_LIBRARY_PATH=${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()
 
 # ---- wave/mapping-pipeline (阶段C+E 编图链路) ----
-add_paleo_test(tst_projectdata)
-add_paleo_test(tst_mapping)
+add_paleo_test(tst_projectdata LIBS paleo_services paleo_qgis)
+add_paleo_test(tst_mapping LIBS paleo_workflow)
 
 # ---- wave2 async-ux (D1/D2 异步任务框架 + 任务页进度条) ----
-add_paleo_test(tst_taskservice)
-add_paleo_test(tst_threeway)
-add_paleo_test(tst_chips)
-add_paleo_test(tst_versions)
+add_paleo_test(tst_taskservice LIBS paleo_ui)
+add_paleo_test(tst_threeway)          # 伞式（全栈，兼容样本）
+add_paleo_test(tst_chips LIBS paleo_ui)
+add_paleo_test(tst_versions LIBS paleo_workflow)
 
 # ---- wave3/derived-publish (T26/D10/D15 + §40 速度模型与 CDP 映射) ----
-add_paleo_test(tst_derivedassets)
-add_paleo_test(tst_seismicmapping)
+add_paleo_test(tst_derivedassets LIBS paleo_workflow)
+add_paleo_test(tst_seismicmapping LIBS paleo_ui)
 target_compile_definitions(tst_seismicmapping PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 
@@ -497,38 +610,38 @@ add_executable(tst_boot tests/tst_boot.cpp)
 target_link_libraries(tst_boot PRIVATE paleo_qgis_iface Qt6::Test)
 target_compile_definitions(tst_boot PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
 add_test(NAME boot COMMAND tst_boot)
-set_tests_properties(boot PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+paleo_test_sandbox(boot)
 
 add_executable(tst_polygonize tests/tst_polygonize.cpp spikes/polygonize/paleopolygonize.cpp)
 target_link_libraries(tst_polygonize PRIVATE paleo_qgis_iface Qt6::Test ${GDAL_LIB})
 target_include_directories(tst_polygonize PRIVATE ${GDAL_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/spikes/polygonize)
 add_test(NAME polygonize COMMAND tst_polygonize)
-set_tests_properties(polygonize PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+paleo_test_sandbox(polygonize)
 
 # ---- wave3/model-hardening (数据模型与测试基建加固) ----
-add_paleo_test(tst_metastore)      # sqlite user_version：新库采纳/遗留升级/未来拒开
-add_paleo_test(tst_segy_fixture)   # 合成最小 SEG-Y 夹具：索引/单线/角点/范围门
+add_paleo_test(tst_metastore LIBS paleo_store)      # sqlite user_version：新库采纳/遗留升级/未来拒开
+add_paleo_test(tst_segy_fixture LIBS paleo_io)   # 合成最小 SEG-Y 夹具：索引/单线/角点/范围门
 target_compile_definitions(tst_segy_fixture PRIVATE
   TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
-add_paleo_test(tst_algorithm_harness)  # AlgorithmTestBase harness + ≥3 算法用例
-add_paleo_test(tst_perfbudget)     # 非 UI 性能预算：工程打开/folder 枚举/save 200 版本
+add_paleo_test(tst_algorithm_harness LIBS paleo_algorithms)  # AlgorithmTestBase harness + ≥3 算法用例
+add_paleo_test(tst_perfbudget LIBS paleo_services paleo_qgis)     # 非 UI 性能预算：工程打开/folder 枚举/save 200 版本
 target_compile_definitions(tst_perfbudget PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 
 # ---- data/role-registry (A 包：工程作用域角色词表) ----
-add_paleo_test(tst_roles)
+add_paleo_test(tst_roles LIBS paleo_store)
 
 # ---- data/commit-coord（D 包：journal + 幂等有序提交） ----
-add_paleo_test(tst_commitcoord)    # commitAll 记档生命周期/幂等重入/崩溃恢复/catalog→qgz 顺序
+add_paleo_test(tst_commitcoord LIBS paleo_store)    # commitAll 记档生命周期/幂等重入/崩溃恢复/catalog→qgz 顺序
 
 # ---- data/entity-view (B 包：实体视图 + link ordinal + staleness-lite) ----
-add_paleo_test(tst_entityview)
+add_paleo_test(tst_entityview LIBS paleo_store)
 
 # ---- wave4/runtime-resilience ----
 # 崩溃本地转储（§38 留白按本地优先落地）+ 外链源重定位恢复路径。
 # 新增源与测试集中在此块；并行包合并冲突时保留双方行。
-add_paleo_test(tst_crashreport)
-add_paleo_test(tst_relocate)
+add_paleo_test(tst_crashreport LIBS paleo_services)
+add_paleo_test(tst_relocate LIBS paleo_ui)
 target_compile_definitions(tst_relocate PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 
@@ -536,22 +649,22 @@ target_compile_definitions(tst_relocate PRIVATE
 # AreaRules：工程级参数 seam——层序界面名单 / 分类器目录规则 / SEG-Y 道号索引
 # 约定 / ONNX 期望网格（TODOS「第二工区参数化接缝」）。默认 = 本工区内置值，
 # 工程目录 project_area.json 可覆盖（docs/AREA_PARAMETERS.md）。
-add_paleo_test(tst_arearules)     # 默认等价 / 自定义生效 / 坏 JSON 拒用
+add_paleo_test(tst_arearules LIBS paleo_io)     # 默认等价 / 自定义生效 / 坏 JSON 拒用
 
 # ---- data/staleness (p5b：staleness 链路接线 + 发布门 advisory) ----
 # 预览侧 sha 失配产标（markDownstreamStale）、发布门 stale 计数 advisory、
 # 数据页「过时」徽标。catalog 内部语义在 tst_entityview；此处测两端接线。
-add_paleo_test(tst_staleness)
+add_paleo_test(tst_staleness LIBS paleo_ui)
 target_compile_definitions(tst_staleness PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 
 # ---- wave/layer-platform (图层平台：三编图页共用底座) ----
 # 图层树面板 + 属性对话框 + 页面档案服务（QgsMapThemeCollection 封装）+
 # 档案工具条。QgsLayerTree/主题是唯一图层可见性状态源，Paleo 只做业务接线。
-add_paleo_test(tst_layerplatform)     # 档案应用/主题往返 .qgz/生命周期/层位时序
-add_paleo_test(tst_layertreepanel)    # 筛选/组级显隐/复制图层/objectName 兼容
-add_paleo_test(tst_layerproperties)   # 矢量/栅格/缺源三类 + 业务页字段
-add_paleo_test(tst_layerprofilebar)   # 主题下拉/保存/管理对话框/页指示
+add_paleo_test(tst_layerplatform LIBS paleo_qgis)     # 档案应用/主题往返 .qgz/生命周期/层位时序
+add_paleo_test(tst_layertreepanel LIBS paleo_ui)    # 筛选/组级显隐/复制图层/objectName 兼容
+add_paleo_test(tst_layerproperties LIBS paleo_ui)   # 矢量/栅格/缺源三类 + 业务页字段
+add_paleo_test(tst_layerprofilebar LIBS paleo_ui)   # 主题下拉/保存/管理对话框/页指示
 
 # ---- 并行开发挂点 ----
 # 各并行方向的新增源文件/测试一律放 cmake/extra-<方向>.cmake，内容为：

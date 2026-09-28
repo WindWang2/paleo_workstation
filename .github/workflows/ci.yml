@@ -1,5 +1,11 @@
 name: ci
 
+# devex 改造（build(devex) PR）：
+#   - 三段 job：lint（clang-tidy 增量门禁 + deb 闭包冒烟）→ linux（编译+测试）
+#     → windows（原样）。lint 与编译并行，不串行排队。
+#   - 不拆 per-module 测试 job：GB 级 QGIS 依赖在 runner 间流转不划算
+#     （apt 装一轮 6min+），用 ctest LABELS -L/-LE 在同机分步替代。
+#   - ccache：launcher 由 CMakeLists 检测，CI 只管缓存与安装。
 env:
   CMAKE_BUILD_PARALLEL_LEVEL: 2
 
@@ -9,7 +15,38 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  lint:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # check_tidy 需要 merge-base(origin/master)
+      # clang-tidy 版本钉死：告警面随 LLVM 版本漂移，门禁必须可复现。
+      # 升级 = 有意变更：改此包名 + 本地同步跑一轮收录新告警。
+      - name: Pin clang-tidy
+        run: sudo apt-get update && sudo apt-get install -y clang-tidy-20 python3
+      - name: Install QGIS/Qt headers (configure 需要 find_package 全绿才有 compile_commands)
+        run: |
+          sudo apt-get install -y ca-certificates curl gnupg
+          sudo install -d -m 755 /etc/apt/keyrings
+          sudo curl -fsSL https://download.qgis.org/downloads/qgis-archive-keyring.gpg -o /etc/apt/keyrings/qgis-archive-keyring.gpg
+          printf 'Types: deb\nURIs: https://qgis.org/debian\nSuites: resolute\nArchitectures: amd64\nComponents: main\nSigned-By: /etc/apt/keyrings/qgis-archive-keyring.gpg\n' | sudo tee /etc/apt/sources.list.d/qgis.sources
+          sudo apt-get update
+          sudo apt-get install -y qgis qgis-providers libqgis-dev qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev qt6-webengine-dev qt6-pdf-dev libgdal-dev
+      - name: Configure (compile_commands.json only)
+        run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - name: clang-tidy gate (changed src/ TUs vs merge-base)
+        env:
+          PALEO_CLANG_TIDY: clang-tidy-20
+        run: python3 tools/check_tidy.py --base origin/master
+      - name: deb-closure smoke (ET1：锁文件可解析、条目格式合法，零下载)
+        run: ./vendor/fetch-deps.sh --print-only
+
   linux:
     runs-on: ubuntu-26.04
     steps:
@@ -22,7 +59,14 @@ jobs:
           sudo curl -fsSL https://download.qgis.org/downloads/qgis-archive-keyring.gpg -o /etc/apt/keyrings/qgis-archive-keyring.gpg
           printf 'Types: deb\nURIs: https://qgis.org/debian\nSuites: resolute\nArchitectures: amd64\nComponents: main\nSigned-By: /etc/apt/keyrings/qgis-archive-keyring.gpg\n' | sudo tee /etc/apt/sources.list.d/qgis.sources
           sudo apt-get update
-          sudo apt-get install -y qgis qgis-providers libqgis-dev qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev qt6-webengine-dev qt6-pdf-dev libgdal-dev libproj-dev libgeos-dev
+          sudo apt-get install -y qgis qgis-providers libqgis-dev qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev qt6-webengine-dev qt6-pdf-dev libgdal-dev libproj-dev libgeos-dev ccache
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-ccache-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
       - name: Cache vendor artifacts
         uses: actions/cache@v4
         with:
@@ -33,11 +77,16 @@ jobs:
         run: ./paleo-dev bootstrap
       - name: Build
         run: ./paleo-dev build
-      - name: Test (headless)
+      - name: Test (headless, isolated-module labels first)
         env:
           QT_QPA_PLATFORM: offscreen
           LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
-        run: ./paleo-dev test
+        run: ./paleo-dev test -LE core -j "$(nproc)"
+      - name: Test (full-stack umbrella tests)
+        env:
+          QT_QPA_PLATFORM: offscreen
+          LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
+        run: ./paleo-dev test -L core -j "$(nproc)"
       - name: Selfcheck
         env:
           QT_QPA_PLATFORM: offscreen
@@ -65,7 +114,7 @@ jobs:
       - name: Build (MSVC + vendored QGIS)
         shell: pwsh
         run: ./paleo-dev.ps1 build
-      - name: Test (headless)
+      - name: Test (headless；Windows NativeFormat 走注册表，QSettings 沙箱不适用，保持串行)
         shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen

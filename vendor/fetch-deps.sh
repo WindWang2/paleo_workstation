@@ -34,10 +34,14 @@ done
 
 fail() { echo "FAIL fetch-deps: $1" >&2; echo "       fix: $2" >&2; exit 1; }
 
-command -v apt-get >/dev/null || \
-  fail "apt-get absent — deb closure requires a Debian>=13/Ubuntu>=25.04 host" \
-       "on other distros install system qgis>=4.2 or use a Debian container"
-command -v python3 >/dev/null || fail "python3 absent" "install python3 to resolve signed apt SHA256 metadata"
+# --print-only 只读锁文件（格式校验 + 列表打印），宿主不需要 apt/python——
+# CI 冒烟门（ci.yml lint job）跑在任何 runner 上都不应被工具链前置检查绊倒。
+if [ "$PRINT_ONLY" != "1" ]; then
+  command -v apt-get >/dev/null || \
+    fail "apt-get absent — deb closure requires a Debian>=13/Ubuntu>=25.04 host" \
+         "on other distros install system qgis>=4.2 or use a Debian container"
+  command -v python3 >/dev/null || fail "python3 absent" "install python3 to resolve signed apt SHA256 metadata"
+fi
 
 # --- seed package list -------------------------------------------------------
 if [ ! -f "$PKGFILE" ]; then
@@ -73,11 +77,17 @@ else
 fi
 
 COUNT=$(printf '%s\n' "$URIS" | wc -l)
-TOTAL_KB=$(printf '%s\n' "$URIS" | awk '{s+=$3} END {printf "%d", s/1024}')
+TOTAL_KB=$(printf '%s\n' "$URIS" | awk '{s+=$3} END {printf "%d", s/1048576}')
 echo "  .. $COUNT packages, ~${TOTAL_KB} MiB"
 
 if [ "$PRINT_ONLY" = "1" ]; then
   if [ "$UPDATE_LOCK" = 1 ]; then mv "$LOCK.tmp" "$LOCK"; fi
+  # 冒烟门语义：顺带校验每条锁目格式合法（与下载路径同一断言），零下载。
+  printf '%s\n' "$URIS" | while read -r quoted name size hash; do
+    [[ "$quoted" == \'http*\' && "$name" =~ ^[A-Za-z0-9][A-Za-z0-9.+_%:~-]*\.deb$ &&
+       "$size" =~ ^[0-9]+$ && "$hash" =~ ^SHA256:[a-f0-9]{64}$ ]] || \
+      fail "invalid lock entry: $quoted $name $size $hash" "refresh $LOCK with --update-lock"
+  done
   printf '%s\n' "$URIS"
   exit 0
 fi

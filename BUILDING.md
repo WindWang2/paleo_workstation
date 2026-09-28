@@ -48,6 +48,53 @@ vendor 路径对照：
 
 QGIS 4.2.x · Qt ≥6.6 · GDAL · PROJ · GEOS · QCA-qt6 · QtKeychain-qt6 · libspatialindex · exiv2 · libzip · OpenSSL · sqlite3/spatialite · **ONNX Runtime 1.30.0**（官方 release，sha256 `a5ed5a3c…3b3fd`，manylinux_2_28）。Ubuntu 26.04 的 deb 完整闭包和 SHA-256 在 `vendor/deb-closure.lock`；OSGeo4W 安装器摘要在 `vendor/manifest.json`。
 
+## 测试布线约定（devex）
+
+- **注册**：`add_paleo_test(name [LIBS ...])`（CMakeLists.txt）。单参 = 伞式
+  旧式契约，回退链 `paleo_core`（cmake/extra-*.cmake 并行方向零改动可用）；
+  `LIBS` 给该测试 include 面的最小闭包——touch 单模块不再牵连全部测试
+  relink（对比数据 docs/progress/devex.md）。首模块决定 ctest `LABELS`
+  （`ctest -L io` / `-LE core` 分步筛选）。
+- **QGIS prefix**：测试 main() 统一读环境 `QGIS_PREFIX_PATH`（缺省 `/usr`）；
+  `./paleo-dev test` 在 deb 闭包路（`vendor/prefix` 存在）自动注入 prefix 与
+  `LD_LIBRARY_PATH`。
+- **并行安全**：每个 ctest 项自动获得独立 `XDG_CONFIG_HOME`/`XDG_DATA_HOME`/
+  `HOME` 沙箱（`build/ctest-home/<test>/`），QSettings 不再互踩真实用户配置
+  ——`ctest -j$(nproc)` 默认安全。**已知边界：Windows NativeFormat 走注册表
+  不受 env 控制**，Windows 侧保持串行 ctest。
+- **层护栏**：`ctest -R layering`（提示）/`layering_strict`（防回升闸门：
+  baseline 非空或可收缩即红）/`layering_selftest`（扫描器自检）。
+
+## 加速与实验档（devex）
+
+| 旋钮 | 说明 |
+|------|------|
+| ccache/sccache | PATH 上有即自动挂 launcher（`-DCMAKE_CXX_COMPILER_LAUNCHER=` 显式指定优先；`PALEO_NO_CCACHE=1` 关）。CI 缓存 `~/.cache/ccache` |
+| `PALEO_ENABLE_ASAN=ON` | ASAN 实验档；测试注入 `ASAN_OPTIONS=detect_leaks=0`（QGIS/Qt 设计内"泄漏"面，suppressions 见 `tools/lsan-suppressions.txt`） |
+| `PALEO_ENABLE_UBSAN=ON` | UBSAN 巡检档（可恢复，打印栈） |
+| `PALEO_UNITY_BUILD=ON` | 实验 unity build：逐产品 target、vendor 三家（sbm/segyio/saribbon）显式排除；有跨 TU 静态符号合批风险，仅供本地加速实验 |
+| clang-tidy 门禁 | `python3 tools/check_tidy.py`——只扫相对 merge-base 改动的 src/ TU；配置 `tools/.clang-tidy`；CI 钉 `clang-tidy-20` |
+
+PCH 评估结论（T6，定性）：模块静态库已把 Qt/QGIS 头的重压摊到 10 个
+产品 target，重头是 ui/workflow 两个。PCH 预热
+（`target_precompile_headers` 塞 `<QtGui>`/`qgsapplication.h`）的理论收益
+集中在这两个 target 的全量编译；但代价是任何 PCH 头变更强制全 target
+重编（正好打在本仓最重的 ui 上），与 AUTOMOC/unity 组合易碎，且会改变
+编译命令形状让 ccache 全量 miss 一次。当前全量构建在 16 核已是分钟级、
+增量由 ccache 兜底——**不落地 PCH**，ccache 是本仓收益/风险比更高的路；
+编译时间成为痛点时再按当时数据重评。分析全文见 docs/progress/devex.md。
+
+## 新模块脚手架（devex）
+
+```bash
+scripts/new_module.sh <name> <层> [target-lib]   # 生成层标记模板+测试骨架，
+                                                 # 同步 tools/layering_vocab.json
+```
+
+词表外置后，新顶层模块不登记 `tools/layering_vocab.json` 会被
+layer-marker 全量判违规（by design，防漏网）；脚本同时打印
+`cmake/extra-<wave>.cmake` 接线片段。
+
 ## 常见失败表
 
 | 现象 | 原因 | 修复 |

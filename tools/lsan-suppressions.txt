@@ -1,0 +1,15 @@
+# LSAN suppressions — QGIS/Qt 已知泄漏面（sanitizer 档泄漏猎捕模式用）。
+#
+# 测试档默认 ASAN_OPTIONS=detect_leaks=0（QGIS/Qt 插件注册表、单例、
+# 线程局部缓存的"泄漏"是设计内行为， suppression 逐条养不齐）。
+# 真要猎泄漏时：ASAN_OPTIONS=detect_leaks=1:suppressions=<repo>/tools/lsan-suppressions.txt
+# 命中新泄漏先确认归属： Paleo 自有 → 修；第三方 → 在此加条目并注明出处。
+# 语法：leak:<栈帧或目标文件子串>（top-frame 优先匹配）。
+leak:QgsApplication
+leak:QgsProviderRegistry
+leak:qgis_core
+leak:libQt6Core
+leak:libQt6Widgets
+leak:qt_plugin_instance
+leak:QApplication
+leak:QObjectPrivate

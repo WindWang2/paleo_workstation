@@ -37,9 +37,12 @@ void SelectionContext::setSelection(const QStringList &ids, const QString &origi
 
   // Settle pass: payloads coalesced during the broadcast fire once. The loop
   // covers a settle broadcast that itself triggers another re-set — each
-  // generation still emits at most one merged payload.
-  while (m_pending)
+  // generation still emits at most one merged payload. Bound at 4 iterations.
+  int settleGenerations = 0;
+  constexpr int kMaxSettleGenerations = 4;
+  while (m_pending && settleGenerations < kMaxSettleGenerations)
   {
+    ++settleGenerations;
     m_pending = false;
     if (m_ids == m_pendingIds && m_origin == m_pendingOrigin)
       break;
@@ -48,6 +51,11 @@ void SelectionContext::setSelection(const QStringList &ids, const QString &origi
     ++m_broadcastDepth;
     emit selectionChanged(m_ids, m_origin);
     --m_broadcastDepth;
+  }
+  if (m_pending)
+  {
+    qWarning("SelectionContext::setSelection: settle iteration limit reached, dropped runaway pending selection");
+    m_pending = false;
   }
 }
 
@@ -63,8 +71,11 @@ void SelectionContext::setActiveHorizon(const QString &horizon)
   emit activeHorizonChanged(m_horizon);
   --m_broadcastDepth;
 
-  while (m_pending)
+  int settleGenerations = 0;
+  constexpr int kMaxSettleGenerations = 4;
+  while (m_pending && settleGenerations < kMaxSettleGenerations)
   {
+    ++settleGenerations;
     m_pending = false;
     if (m_ids == m_pendingIds && m_origin == m_pendingOrigin)
       break;
@@ -73,6 +84,11 @@ void SelectionContext::setActiveHorizon(const QString &horizon)
     ++m_broadcastDepth;
     emit selectionChanged(m_ids, m_origin);
     --m_broadcastDepth;
+  }
+  if (m_pending)
+  {
+    qWarning("SelectionContext::setActiveHorizon: settle iteration limit reached, dropped runaway pending selection");
+    m_pending = false;
   }
 }
 

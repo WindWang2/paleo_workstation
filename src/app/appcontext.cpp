@@ -18,6 +18,7 @@
 #include "../linkage/wellmaplink.h"
 #include "../catalog/datacatalog.h"
 #include "../metadata/paleoprojectstore.h"
+#include "../metadata/projectlock.h"
 #include "../metadata/layermanifest.h"
 #include "../qgis/manifestprojection.h"
 #include "../io/dataimportservice.h"
@@ -177,11 +178,22 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_validationWf->setResidualThresholdMs(10.0);  // autoplan §5C：D61 残差阈值 10 ms
   m_versionStore = new MapVersionStore(QString());
   m_versionCtl = new MapVersionController(m_versionStore, m_layerSvc, this);
+  m_versionCtl->setEditingService(m_editSvc);
+  m_versionCtl->setProjectStore(m_store);
 
   // ensureManifest-on-open: first point a per-project path is derivable.
   connect(m_projectSvc, &QgisProjectService::projectOpened, this,
           [this](const QString &qgzPath) {
             const QFileInfo fi(qgzPath);
+            m_projectLock = std::make_unique<ProjectDirLock>(fi.absolutePath());
+            QString lockErr;
+            if (!m_projectLock->tryLock(&lockErr))
+            {
+              qWarning() << "AppContext: project lock refused:" << lockErr;
+              QgsMessageLog::logMessage(
+                  tr("工程已被另一个实例锁定（%1），当前以只读模式打开").arg(lockErr),
+                  QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+            }
             const QString metaPath = manifestPathFor(qgzPath);
             m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
 
@@ -289,36 +301,6 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
           });
 }
 
-namespace
-{
-  // D6 井点符号 + 井名标注：程序化样式（GeoJSON 图层每次 instantiate 是
-  // 新对象，样式随对象重赋）。深色圆点白描边 = DESIGN.md text/surface；
-  // 标注字段是 writeWellsGeoJson 写出的 "name"（不是 wells.thickness 的
-  // "well_name"——那是编图导出层的另一约定）。
-  void applyWellLayerStyle(QgsVectorLayer *layer)
-  {
-    QVariantMap props;
-    props.insert(QStringLiteral("name"), QStringLiteral("circle"));
-    props.insert(QStringLiteral("color"), QStringLiteral("#24303E"));
-    props.insert(QStringLiteral("outline_color"), QStringLiteral("#FFFFFF"));
-    props.insert(QStringLiteral("outline_width"), QStringLiteral("0.4"));
-    props.insert(QStringLiteral("size"), QStringLiteral("3"));
-    layer->setRenderer(
-        new QgsSingleSymbolRenderer(QgsMarkerSymbol::createSimple(props).release()));
-
-    QgsPalLayerSettings lbl;
-    lbl.fieldName = QStringLiteral("name");
-    lbl.isExpression = false;
-    QgsTextFormat fmt;
-    fmt.setSize(9.0);
-    fmt.setSizeUnit(Qgis::RenderUnit::Points);
-    fmt.setColor(QColor(QStringLiteral("#24303E")));
-    lbl.setFormat(fmt);
-    layer->setLabeling(new QgsVectorLayerSimpleLabeling(lbl));
-    layer->setLabelsEnabled(true);
-  }
-} // namespace
-
 void AppContext::refreshWellsLayer(bool zoomOnGrowth)
 {
   if (m_projectDir.isEmpty() || !m_import || !m_layerSvc)
@@ -361,7 +343,7 @@ void AppContext::refreshWellsLayer(bool zoomOnGrowth)
     return;
   }
   layer->reload();         // 文件可能刚被重写——数据源重读要素
-  applyWellLayerStyle(layer);
+  QgisStyleService::applyWellLayerStyle(layer);
   layer->triggerRepaint();
   if (m_wellLink)
     m_wellLink->setWellLayer(layer, QStringLiteral("id"));
@@ -391,6 +373,7 @@ AppContext::~AppContext()
   m_manifest = nullptr;
   delete m_versionStore; // same idiom as the manifest (wave/mapping-pipeline)
   m_versionStore = nullptr;
+  m_projectLock.reset();
 
   if (s_runtimeOwners.remove(this))
     QgisRuntime::shutdown();

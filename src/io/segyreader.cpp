@@ -608,8 +608,21 @@ bool SegyReader::readInline(qint32 inlineNo, QVector<SegyTrace> *out,
       *error = QStringLiteral("inline %1 not present in %2").arg(inlineNo).arg(m_path);
     return false;
   }
-  *out = readByIndexList(m_byInline.value(inlineNo), opts);
-  return !out->isEmpty() || (opts && opts->cancel && opts->cancel());
+  const QVector<int> &idxs = m_byInline.value(inlineNo);
+  *out = readByIndexList(idxs, opts);
+  if (opts && opts->cancel && opts->cancel())
+    return false;
+  if (out->size() != idxs.size())
+  {
+    if (error)
+      *error = QStringLiteral("failed to decode %1 of %2 traces for inline %3 in %4")
+                   .arg(idxs.size() - out->size())
+                   .arg(idxs.size())
+                   .arg(inlineNo)
+                   .arg(m_path);
+    return false;
+  }
+  return true;
 }
 
 bool SegyReader::readCrossline(qint32 xlineNo, QVector<SegyTrace> *out,
@@ -621,6 +634,19 @@ bool SegyReader::readCrossline(qint32 xlineNo, QVector<SegyTrace> *out,
       *error = QStringLiteral("crossline %1 not present in %2").arg(xlineNo).arg(m_path);
     return false;
   }
-  *out = readByIndexList(m_byXline.value(xlineNo), opts);
-  return !out->isEmpty() || (opts && opts->cancel && opts->cancel());
+  const QVector<int> &idxs = m_byXline.value(xlineNo);
+  *out = readByIndexList(idxs, opts);
+  if (opts && opts->cancel && opts->cancel())
+    return false;
+  if (out->size() != idxs.size())
+  {
+    if (error)
+      *error = QStringLiteral("failed to decode %1 of %2 traces for crossline %3 in %4")
+                   .arg(idxs.size() - out->size())
+                   .arg(idxs.size())
+                   .arg(xlineNo)
+                   .arg(m_path);
+    return false;
+  }
+  return true;
 }

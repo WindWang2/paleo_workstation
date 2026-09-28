@@ -4,6 +4,7 @@
 #include "../algorithms/paleoalgorithms.h"
 #include "../metadata/paleoprojectstore.h"
 
+#include <QCloseEvent>
 #include <QDir>
 #include <QLabel>
 #include <QMainWindow>
@@ -323,11 +324,22 @@ namespace
 
       ~PaleoAlgorithmWidget() override
       {
-        // The in-flight task (if any) holds a raw pointer to the feedback
-        // object — deleting it mid-run would be a use-after-free, so it is
-        // intentionally leaked in that (unreachable-in-practice) corner.
-        if (!m_running)
-          delete m_feedback;
+        if (m_running && m_currentTask)
+        {
+          m_currentTask->cancel();
+          m_currentTask->waitForFinished(5000);
+        }
+        delete m_feedback;
+      }
+
+      void closeEvent(QCloseEvent *e) override
+      {
+        if (m_running && m_currentTask)
+        {
+          m_currentTask->cancel();
+          m_currentTask->waitForFinished(5000);
+        }
+        QgsProcessingAlgorithmWidgetBase::closeEvent(e);
       }
 
       QVariantMap createProcessingParameters(
@@ -396,9 +408,11 @@ namespace
 
         m_running = true;
         auto *task = new QgsProcessingAlgRunnerTask(algorithm(), params, m_context, m_feedback);
+        m_currentTask = task;
         connect(task, &QgsProcessingAlgRunnerTask::executed, this,
                 [this](bool successful, const QVariantMap &results) {
                   m_running = false;
+                  m_currentTask = nullptr;
                   finished(successful, results, m_context, m_feedback);
                 });
         // If prepare() failed inside the task ctor the task self-cancels; the
@@ -415,6 +429,7 @@ namespace
       {
         Q_UNUSED(context);
         Q_UNUSED(feedback);
+        m_currentTask = nullptr;
         setExecuted(successful);
         setResults(result);
         if (algorithm())
@@ -435,6 +450,7 @@ namespace
       QgsProcessingContext m_context;
       QgsProcessingFeedback *m_feedback = nullptr; // owned, freed between runs
       bool m_running = false;
+      QPointer<QgsProcessingAlgRunnerTask> m_currentTask;
   };
 
 } // namespace

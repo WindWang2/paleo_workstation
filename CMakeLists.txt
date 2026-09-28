@@ -11,6 +11,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # QGIS headers (C2589 on MSVC) whenever a Windows header reaches a TU first.
 if(MSVC)
   add_compile_definitions(NOMINMAX)
+  add_compile_options(/utf-8 /W4)
 endif()
 
 if(NOT QGIS_PREFIX AND DEFINED ENV{QGIS_PREFIX_PATH})
@@ -59,8 +60,7 @@ else()
   message(STATUS "Qt6 WebEngineWidgets NOT found — WebViewPanel degrades to the external browser")
 endif()
 
-# GPKG fixture is generated at configure time (committed binary is the fallback copy)
-find_program(OGR2OGR ogr2ogr)
+# GPKG fixture fallback
 set(FIXTURE_GPKG ${CMAKE_SOURCE_DIR}/testdata/fixture.gpkg)
 
 # ---- ui/ribbon：SARibbon v2.9.5（vendor/saribbon，MIT，amalgamated 单文件） ----

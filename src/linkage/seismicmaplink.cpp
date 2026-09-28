@@ -64,7 +64,7 @@ void SeismicMapLink::setSeismicLayer(QgsVectorLayer *lineLayer, const QString &i
             const QgsFeatureIds sel = m_layer->selectedFeatureIds();
             if (sel.isEmpty())
             {
-              m_ctx->clear(QStringLiteral("canvas"));
+              m_ctx->clear(QStringLiteral("seismic_map"));
               return;
             }
 
@@ -78,7 +78,7 @@ void SeismicMapLink::setSeismicLayer(QgsVectorLayer *lineLayer, const QString &i
             QgsFeatureIterator it = m_layer->getFeatures(req);
             while (it.nextFeature(f))
               lineIds << f.attribute(idx).toString();
-            m_ctx->setSelection(lineIds, QStringLiteral("canvas"));
+            m_ctx->setSelection(lineIds, QStringLiteral("seismic_map"));
           });
 }
 
@@ -154,7 +154,7 @@ void SeismicMapLink::triggerSectionFromMapPolyline(const QVector<QgsPointXY> &ma
 
 void SeismicMapLink::onContextSelection(const QStringList &ids, const QString &origin)
 {
-  if (!m_layer || origin == QLatin1String("canvas"))
+  if (!m_layer || origin == QLatin1String("seismic_map"))
     return;
 
   const int idx = m_layer->fields().indexOf(m_idField);

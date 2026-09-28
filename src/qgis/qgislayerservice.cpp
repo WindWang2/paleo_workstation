@@ -182,7 +182,14 @@ void QgisLayerService::releaseHorizon(const QString &horizon)
   {
     QgsMapLayer *l = m_instances.take(id);
     if (proj && l)
+    {
+      if (auto *vl = qobject_cast<QgsVectorLayer *>(l))
+      {
+        if (vl->isEditable())
+          vl->rollBack();
+      }
       proj->removeMapLayer(l); // project-owned: removal deletes the layer
+    }
   }
   emit horizonReleased(horizon);
 }
@@ -232,6 +239,23 @@ bool QgisLayerService::isInstantiated(const QString &layerId) const
   return m_instances.contains(layerId);
 }
 
+bool QgisLayerService::isEditingAnyLayer(QString *layerName) const
+{
+  for (auto it = m_instances.cbegin(); it != m_instances.cend(); ++it)
+  {
+    if (auto *vl = qobject_cast<QgsVectorLayer *>(it.value()))
+    {
+      if (vl->isEditable())
+      {
+        if (layerName)
+          *layerName = vl->name().isEmpty() ? it.key() : vl->name();
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 void QgisLayerService::setActiveHorizon(const QString &horizon)
 {
   QVector<LayerDeclaration> decls;
@@ -260,7 +284,14 @@ void QgisLayerService::setActiveHorizon(const QString &horizon)
   {
     QgsMapLayer *l = m_instances.take(id);
     if (proj && l)
+    {
+      if (auto *vl = qobject_cast<QgsVectorLayer *>(l))
+      {
+        if (vl->isEditable())
+          vl->rollBack();
+      }
       proj->removeMapLayer(l);
+    }
   }
   for (const QString &h : otherHorizons)
     releaseHorizon(h);

@@ -9,7 +9,7 @@
 ```
 
 - **TTHW 目标：vendor 引导完成后，首次绿色测试 2–5 分钟**（configure+build+
-  ctest，8 核基线机；当前全套 62 测试实测 ~48s，余量给增量编译）。
+  ctest，8 核基线机；当前全套 84 测试（以 ctest -N 为准）实测 ~48s，余量给增量编译）。
 - 引导本身（一次性）：binary 路 ~10min（OSGeo4W / deb 闭包 / onnxruntime
   pin）；superbuild 回退路 ≤2h、磁盘 ≥60GB——仅在 binary 路不可用时启用
   （`vendor/superbuild/README.md` 回退条款）。

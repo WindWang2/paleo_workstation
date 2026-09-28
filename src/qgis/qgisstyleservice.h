@@ -17,6 +17,8 @@ class QgisStyleService : public QObject
     bool applyStyle(QgsMapLayer *layer, const QString &styleRef, QString *error = nullptr);
     QStringList availableStyles() const;               // basenames under stylesRoot
 
+    static void applyWellLayerStyle(class QgsVectorLayer *layer);
+
   private:
     QString m_stylesRoot;
 };

@@ -85,6 +85,25 @@ switch ($Verb) {
                            'include\sqlite3.h')) {
       if (-not (Test-Path (Join-Path $osgeo $required))) { throw "OSGeo4W closure missing $required" }
     }
+
+    $ortPin = (Get-Content (Join-Path $Vendor 'manifest.json') -Raw | ConvertFrom-Json).deps.onnxruntime_win
+    if ($ortPin) {
+      $ortDest = Join-Path $Vendor 'onnxruntime'
+      if (-not (Test-Path (Join-Path $ortDest 'include\onnxruntime_c_api.h'))) {
+        Write-Host "Fetching ONNX Runtime Windows archive..."
+        $ortZip = Join-Path $Vendor 'onnxruntime-win-x64.zip'
+        Invoke-WebRequest -Uri $ortPin.url -OutFile $ortZip
+        $actualOrt = (Get-FileHash $ortZip -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualOrt -ne $ortPin.archive.sha256) { throw "ONNX Runtime Windows archive SHA256 mismatch: $actualOrt" }
+        $tmpOrt = Join-Path $Vendor 'tmp-ort'
+        Expand-Archive -Path $ortZip -DestinationPath $tmpOrt -Force
+        $inner = Get-ChildItem -Path $tmpOrt | Select-Object -First 1
+        if (Test-Path $ortDest) { Remove-Item -Recurse -Force $ortDest }
+        Move-Item -Path $inner.FullName -Destination $ortDest -Force
+        Remove-Item -Recurse -Force $tmpOrt, $ortZip
+      }
+    }
+
     Enter-VendorEnvironment
     & $PSCommandPath build
     if ($LASTEXITCODE -ne 0) { throw 'Windows bootstrap build failed' }

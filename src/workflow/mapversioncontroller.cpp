@@ -5,7 +5,9 @@
 #include "../io/wellfileparsers.h"
 #include "../catalog/datacatalog.h"
 #include "../metadata/layermanifest.h"
+#include "../metadata/paleoprojectstore.h"
 #include "../qgis/qgislayerservice.h"
+#include "../qgis/qgiseditingservice.h"
 #include "../services/projectdata.h"
 
 #include <QJsonArray>
@@ -155,12 +157,42 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
       auto *vl = qobject_cast<QgsVectorLayer *>( layer );
       if ( !vl )
         continue; // 声明暂不可实例化（如源未落盘）不影响其他图层的提交
-      if ( vl->isEditable() && !vl->commitChanges() )
+      if ( vl->isEditable() )
       {
-        if ( error )
-          *error = tr( "图层 %1 提交编辑失败：%2" )
-                       .arg( d.layerId, vl->commitErrors().join( QLatin1Char( ';' ) ) );
-        return MapVersion();
+        if ( m_editSvc )
+        {
+          if ( !m_editSvc->commitEdit( vl, error ) )
+            return MapVersion();
+        }
+        else if ( m_projectStore )
+        {
+          const auto res = m_projectStore->enqueueWrite( [vl]() -> PaleoProjectStore::WriteResult {
+            if ( !vl->commitChanges() )
+              return { false, QObject::tr( "commitChanges failed for layer '%1'" ).arg( vl->id() ) };
+            return { true, QString() };
+          } );
+          m_projectStore->markLayerFree( d.layerId );
+          if ( !res.ok )
+          {
+            if ( error )
+              *error = tr( "图层 %1 提交编辑失败：%2" ).arg( d.layerId, res.error );
+            return MapVersion();
+          }
+        }
+        else
+        {
+          if ( !vl->commitChanges() )
+          {
+            if ( error )
+              *error = tr( "图层 %1 提交编辑失败：%2" )
+                           .arg( d.layerId, vl->commitErrors().join( QLatin1Char( ';' ) ) );
+            return MapVersion();
+          }
+        }
+      }
+      else if ( m_projectStore )
+      {
+        m_projectStore->markLayerFree( d.layerId );
       }
       vl->undoStack()->clear();
     }

@@ -24,7 +24,7 @@ private slots:
   }
   void rendersGpkgNonUniform()
   {
-    QVERIFY2(QFile::exists(FIXTURE_GPKG), "testdata/fixture.gpkg missing — run scripts/make_fixture.sh");
+    QVERIFY2(QFile::exists(FIXTURE_GPKG), "testdata/fixture.gpkg missing");
     QgsVectorLayer layer(FIXTURE_GPKG "|layername=basin", QStringLiteral("basin"), QStringLiteral("ogr"));
     QVERIFY2(layer.isValid(), qPrintable(layer.error().message()));
     QVERIFY(layer.featureCount() > 0);
@@ -52,7 +52,8 @@ private slots:
 int main(int argc, char *argv[])
 {
   QgsApplication app(argc, argv, false);
-  app.setPrefixPath(QStringLiteral("/usr"), true); // distro install; vendor prefix overrides later
+  const QString prefix = qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr"));
+  app.setPrefixPath(prefix, true);
   app.initQgis();
   TestBoot tc;
   const int rc = QTest::qExec(&tc, argc, argv);

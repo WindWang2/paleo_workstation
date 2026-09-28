@@ -325,6 +325,11 @@ QString flagPath(const QString &crashDir)
   return crashDir + QStringLiteral("/.running");
 }
 
+QString pidFlagPath(const QString &crashDir)
+{
+  return QStringLiteral("%1/.running-%2").arg(crashDir).arg(currentPid());
+}
+
 void renderHeader()
 {
   const QString head = QStringLiteral(
@@ -365,18 +370,27 @@ SessionStart installCrashHandler(const QString &baseDir)
   }
 
   const QString flag = flagPath(dir);
-  out.previousDirtyExit = QFileInfo::exists(flag);
+  const QString pidFlag = pidFlagPath(dir);
+  const QStringList runningFiles = QDir(dir).entryList(
+      {QStringLiteral(".running*")}, QDir::Files | QDir::Hidden);
+  out.previousDirtyExit = !runningFiles.isEmpty();
   if (out.previousDirtyExit)
     out.lastReportPath = latestReportPath(baseDir);
 
-  // 新会话旗标（pid+启动时刻——崩溃后现场诊断用）
+  const QByteArray flagContent = QStringLiteral("pid=%1\nstarted=%2\n")
+                                     .arg(currentPid())
+                                     .arg(QDateTime::currentDateTimeUtc().toString(
+                                         QStringLiteral("yyyyMMdd-HHmmss")))
+                                     .toUtf8();
+
+  // 新会话旗标（按 pid 分文件防多实例互踩，保留 .running 供单进程/兼容断言）
+  QFile fPid(pidFlag);
+  if (fPid.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    fPid.write(flagContent);
+
   QFile f(flag);
   if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-    f.write(QStringLiteral("pid=%1\nstarted=%2\n")
-                .arg(currentPid())
-                .arg(QDateTime::currentDateTimeUtc().toString(
-                    QStringLiteral("yyyyMMdd-HHmmss")))
-                .toUtf8());
+    f.write(flagContent);
   else
     qWarning("CrashReport: cannot write running flag: %s", qPrintable(flag));
 
@@ -403,7 +417,15 @@ void clearRunningFlag()
 {
   if (!s_dir[0])
     return;
-  QFile::remove(flagPath(QFile::decodeName(s_dir)));
+  const QString dir = QFile::decodeName(s_dir);
+  QFile::remove(pidFlagPath(dir));
+
+  const QStringList remaining = QDir(dir).entryList(
+      {QStringLiteral(".running-*")}, QDir::Files | QDir::Hidden);
+  if (remaining.isEmpty())
+  {
+    QFile::remove(flagPath(dir));
+  }
 }
 
 QString latestReportPath(const QString &baseDir)

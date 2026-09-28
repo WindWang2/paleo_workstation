@@ -73,7 +73,7 @@ QgsVectorLayer *PaleoAddFeatureTool::targetLayer() const
 {
   // QgsMapToolEdit::currentVectorLayer() is non-const, so the fallback goes
   // through the const canvas() accessor instead (canvas()->currentLayer()).
-  return mLayer ? mLayer : qobject_cast<QgsVectorLayer *>( canvas()->currentLayer() );
+  return mLayer ? mLayer.data() : qobject_cast<QgsVectorLayer *>( canvas()->currentLayer() );
 }
 
 void PaleoAddFeatureTool::keyPressEvent( QKeyEvent *e )
@@ -223,7 +223,7 @@ void PaleoReshapeTool::deactivate()
 
 QgsVectorLayer *PaleoReshapeTool::targetLayer() const
 {
-  return mLayer ? mLayer : qobject_cast<QgsVectorLayer *>( canvas()->currentLayer() );
+  return mLayer ? mLayer.data() : qobject_cast<QgsVectorLayer *>( canvas()->currentLayer() );
 }
 
 void PaleoReshapeTool::keyPressEvent( QKeyEvent *e )
@@ -341,7 +341,7 @@ void PaleoMoveTool::deactivate()
 
 QgsVectorLayer *PaleoMoveTool::targetLayer() const
 {
-  return mLayer ? mLayer : qobject_cast<QgsVectorLayer *>( canvas()->currentLayer() );
+  return mLayer ? mLayer.data() : qobject_cast<QgsVectorLayer *>( canvas()->currentLayer() );
 }
 
 void PaleoMoveTool::canvasPressEvent( QgsMapMouseEvent *e )
@@ -526,7 +526,7 @@ void PaleoDeleteFeatureTool::deactivate()
 
 QgsVectorLayer *PaleoDeleteFeatureTool::targetLayer() const
 {
-  return mLayer ? mLayer : qobject_cast<QgsVectorLayer *>( canvas()->currentLayer() );
+  return mLayer ? mLayer.data() : qobject_cast<QgsVectorLayer *>( canvas()->currentLayer() );
 }
 
 void PaleoDeleteFeatureTool::canvasReleaseEvent( QgsMapMouseEvent *e )

@@ -157,6 +157,28 @@ class TestUxTheme : public QObject
                  "ButtonText must stay dark");
       }
     }
+
+    void colorTokensAndTypographyMatchDesignMd()
+    {
+      QCOMPARE(PaleoTheme::kDisplayPt, 15);
+      QCOMPARE(PaleoTheme::kTitlePt, 12);
+      QCOMPARE(PaleoTheme::kBodyPt, 9);
+      QCOMPARE(PaleoTheme::kLabelPt, 8);
+      QCOMPARE(PaleoTheme::kMonoPt, 9);
+
+      QCOMPARE(PaleoTheme::kColorPrimary.name().toUpper(), QStringLiteral("#1B73D0"));
+      QCOMPARE(PaleoTheme::kColorOnPrimary.name().toUpper(), QStringLiteral("#FFFFFF"));
+      QCOMPARE(PaleoTheme::kColorPrimaryHover.name().toUpper(), QStringLiteral("#1565B8"));
+      QCOMPARE(PaleoTheme::kColorSurface.name().toUpper(), QStringLiteral("#FFFFFF"));
+      QCOMPARE(PaleoTheme::kColorSurfaceAlt.name().toUpper(), QStringLiteral("#EDF1F5"));
+      QCOMPARE(PaleoTheme::kColorBorder.name().toUpper(), QStringLiteral("#DFE5EC"));
+      QCOMPARE(PaleoTheme::kColorText.name().toUpper(), QStringLiteral("#24303E"));
+      QCOMPARE(PaleoTheme::kColorTextMuted.name().toUpper(), QStringLiteral("#5D6E80"));
+      QCOMPARE(PaleoTheme::kColorTextDisabled.name().toUpper(), QStringLiteral("#9AA7B4"));
+      QCOMPARE(PaleoTheme::kColorSuccess.name().toUpper(), QStringLiteral("#43A047"));
+      QCOMPARE(PaleoTheme::kColorWarning.name().toUpper(), QStringLiteral("#F29900"));
+      QCOMPARE(PaleoTheme::kColorError.name().toUpper(), QStringLiteral("#E53935"));
+    }
 };
 
 int main(int argc, char *argv[])

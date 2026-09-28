@@ -1202,6 +1202,13 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
         refreshIds();
         connect(m_layerSvc, &QgisLayerService::layerInstantiated, this,
                 [refreshIds](const QString &) { refreshIds(); });
+        connect(m_layerSvc, &QgisLayerService::horizonReleased, this,
+                [this, attrPanel, refreshIds](const QString &) {
+                  refreshIds();
+                  const QString cur = attrPanel->currentLayerId();
+                  if (!cur.isEmpty() && (!m_layerSvc->isInstantiated(cur) || !m_layerSvc->layer(cur)))
+                    attrPanel->showLayer(cur);
+                });
         connect(m_projectSvc, &QgisProjectService::projectOpened, this,
                 [refreshIds](const QString &) { refreshIds(); });
         bottomTabs->addTab(attrPanel, QStringLiteral("属性表"));

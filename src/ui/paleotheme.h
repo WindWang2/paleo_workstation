@@ -15,9 +15,25 @@ class QWidget;
 namespace PaleoTheme
 {
   // DESIGN.md typography tokens。
-  constexpr int kBodyPt = 9;  // 正文基准（Noto Sans SC）
-  constexpr int kLabelPt = 8; // 次级标签
-  constexpr int kMonoPt = 9;  // 数值/坐标/深度（JetBrains Mono，tnum 等宽）
+  constexpr int kDisplayPt = 15; // 图件标题 chip、页级标题 (15pt)
+  constexpr int kTitlePt = 12;   // 标题 (12pt)
+  constexpr int kBodyPt = 9;     // 正文基准（Noto Sans SC 9pt）
+  constexpr int kLabelPt = 8;    // 次级标签 (8pt)
+  constexpr int kMonoPt = 9;     // 数值/坐标/深度（JetBrains Mono 9pt，tnum 等宽）
+
+  // DESIGN.md color tokens。
+  inline const QColor kColorPrimary = QColor(QStringLiteral("#1B73D0"));
+  inline const QColor kColorOnPrimary = QColor(QStringLiteral("#FFFFFF"));
+  inline const QColor kColorPrimaryHover = QColor(QStringLiteral("#1565B8"));
+  inline const QColor kColorSurface = QColor(QStringLiteral("#FFFFFF"));
+  inline const QColor kColorSurfaceAlt = QColor(QStringLiteral("#EDF1F5"));
+  inline const QColor kColorBorder = QColor(QStringLiteral("#DFE5EC"));
+  inline const QColor kColorText = QColor(QStringLiteral("#24303E"));
+  inline const QColor kColorTextMuted = QColor(QStringLiteral("#5D6E80"));
+  inline const QColor kColorTextDisabled = QColor(QStringLiteral("#9AA7B4"));
+  inline const QColor kColorSuccess = QColor(QStringLiteral("#43A047"));
+  inline const QColor kColorWarning = QColor(QStringLiteral("#F29900"));
+  inline const QColor kColorError = QColor(QStringLiteral("#E53935"));
 
   // 启动时注册 vendor 字体（resources/fonts，qrc 前缀 :/paleo/fonts）。
   // 返回是否全部注册成功；单个失败记 qWarning 并继续（降级到系统字体，

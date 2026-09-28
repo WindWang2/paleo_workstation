@@ -41,7 +41,7 @@
 - ~~**保存/发布语义状态机**~~ — 已落地：`docs/VERSION_PUBLISH_STATE_MACHINE.md`（wave-3 derived-publish `72dc070`）。
 - ~~**native:* 算法逐项审计**~~ — 已落地：`docs/ALGORITHM_AUDIT.md`（wave-3 model-hardening `82dff27`）。
 - ~~**算法测试框架自建**~~ — 已落地：`tests/tst_algorithm_harness` + `tests/algorithmbase.h`（wave-3，`82dff27`）。
-- ~~**schema 迁移策略**~~ — 已落地：`docs/SCHEMA_MIGRATION.md` + catalog `schema_version` 校验 + `.bak` 轮转；同工程双实例并发写经 `ProjectDirLock`（PR #12 `c908e1e`）。
+- ~~**schema 迁移策略**~~ — 已落地：`docs/SCHEMA_MIGRATION.md` + catalog `schema_version` 校验 + `.bak` 轮转原子落盘；同工程双实例并发写经 `ProjectDirLock`（`AppContext` 打开工程时取锁排他保护）。
 - ~~**崩溃报告机制**~~ — 已落地：§38 本地优先（fd 转储 + `.running` 脏退出 + 重启提示），`docs/CRASH_REPORTING.md`（wave-4 `2c1c8e1`）。
 - ~~**速度模型 + line-geometry↔CDP 映射**~~ — 已落地（wave-3 derived-publish `72dc070`）。
 - ~~**性能测试**~~ — 已落地：`tst_perfbudget`（wave-3 `82dff27`）。
@@ -96,7 +96,7 @@
 
 - **置信度伴生栅格**：算法侧无真实置信度输出（ONNX 仅读首个输出张量、paleo:\* 均确定性单输出栅格）——不造假数据；接入点已留（`PredictionWorkflow::confidenceCompanionAvailable()` 恒 false + 声明位）。触发条件：出现带置信度/方差输出的算法。Effort: S / Priority: P3
 - **非 IDW 单因素引擎**：welldist（距离变换）/confidence（预测结果直取）/strathick（`paleo:paleo_isopach` 双栅格链）v1 统一走井点 IDW，注册表 algorithm 标签已注「待接入」。触发条件：对应资产链就绪。Effort: M / Priority: P3
-- **PaleoEditingToolbar `mEditLayer` 裸指针**：编辑会话开着时切换/新建工程，层被 `QgsProject::clear` 删除后工具条悬空（智能编图自动编辑态使该路径更易触达；真实栈测试复现过 SIGSEGV，测试侧已规避）。edittools/ 属 z3 禁碰区未改。触发条件：编辑会话 × 工程切换实测。Effort: S / Priority: P2
+- ~~**PaleoEditingToolbar `mEditLayer` 裸指针**~~ — 已落地：`mEditLayer` 与 `mLayers` 均已切为 `QPointer<QgsVectorLayer>`（`src/ui/edittools/editingtoolbar.h:134,137`）。
 - **ctest -j2 跨二进制 QSettings 竞态**：多测试二进制共享落盘 `paleo/paleo` 配置，`-j2` 下 `lastPage` 读写交错偶发 `tst_ui::windowStateAndExtentPersist` 红、串行全绿。触发条件：并行 ctest 再现。Effort: S / Priority: P4
 - **native processing provider 注册**：C++ 嵌入运行时 Processing 注册表仅 `paleo:\*`（`gdal:contour` 属 Python provider）；等值线已走 GDAL C API（gdal:contour 同一底层引擎）交付，native provider 按需引入。Effort: M / Priority: P4
 - **SBM Engine 剩余入口**：`QuickOpen` 秒级首屏预览、`ReadTimeSliceTiled` 瓦片渐进发布、渐进 LOD（progressiveLod + `SetActiveLod`）、`ReadVoxelWindow` 三维窗口取数。已接：sdk::Dataset 切片/剖面路由、TranscodeJob（预览页「转码工作区」按钮）。触发条件：工区实测瓶颈或交互预算超限。Effort: M–L / Priority: P2

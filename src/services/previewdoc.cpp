@@ -484,7 +484,10 @@ void PreviewDocService::requestSection(const QString &assetId,
   // D1：新解码请求取消同资产仍在跑的任务——其结果反正按世代号丢弃。
   const int seq = ++m_decodeSeq[assetId];
   if (auto *old = m_decodeTask.value(assetId).data(); old && old->running())
+  {
     old->requestCancel();
+    m_segyReaders.remove(assetId);
+  }
 
   // worker 产出（跨线程交接，GUI 只读 finished 后的快照）。
   struct DecodeOut

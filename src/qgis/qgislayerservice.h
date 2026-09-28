@@ -30,6 +30,7 @@ class QgisLayerService : public QObject
     void releaseHorizon(const QString &horizon);                 // drop instances (manifest keeps decl)
     QgsMapLayer *layer(const QString &layerId) const;            // instantiated only, nullptr otherwise
     bool isInstantiated(const QString &layerId) const;
+    bool isEditingAnyLayer(QString *layerName = nullptr) const;
 
     void setActiveHorizon(const QString &horizon);               // materialize active, release others
     QString activeHorizon() const { return m_activeHorizon; }

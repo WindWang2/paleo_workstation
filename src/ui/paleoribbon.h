@@ -18,12 +18,15 @@ class SARibbonToolButton;
 namespace PaleoRibbon
 {
   // 必须在 SARibbonMainWindow 构造前调用：注册静态库 qrc，关掉「跟随系统
-  // 暗色」自动换主题（DESIGN.md：浅色为主，不跟随系统深色模式）。
+  // 暗色」自动换主题（DESIGN.md 决策日志 2026-09-28 暗色翻案：双主题由
+  // PaleoTheme 显式驱动——SARibbon 调色板 JSON 随 currentTheme() 换，
+  // 但不允许它自己跟着系统暗色模式自作主张）。
   void prepareLibrary();
 
-  // DESIGN.md 调色板套 office2021 模板，再拼 PaleoTheme::ribbonStyleSheet()
-  // 与壳样式 shellQss，一次性 setStyleSheet（SA::applyRibbonTheme 会整体
-  // 覆盖窗口样式表，所以壳样式只能跟在它后面一起落）。
+  // DESIGN.md 调色板（浅/暗随当前主题）套 office2021 模板，再整体替换为
+  // 「PaleoTheme::ribbonStyleSheet() + 壳样式 shellQss」一份完整样式表
+  // （SA::applyRibbonTheme 会整体覆盖窗口样式表，所以壳样式只能跟在它
+  // 后面一起落；整体替换保证主题来回切换不累积）。主题切换时由壳重调。
   void applyTheme(SARibbonMainWindow *win, const QString &shellQss);
 
   // 镜像绑定：action 的 enabled / tooltip（按钮无 tooltip 时保留 action 自己

@@ -101,6 +101,8 @@ namespace PaleoRibbon
   {
     static const bool once = [] {
       initSARibbonResource();
+      // 暗色翻案（DESIGN.md 决策日志 2026-09-28）：主题仍只由 PaleoTheme
+      // 显式驱动——关掉 SARibbon 跟随系统暗色的自动换肤，防双写/互踩。
       SA::setEnableSystemDarkModeAutoSwitch(false);
       return true;
     }();
@@ -115,8 +117,10 @@ namespace PaleoRibbon
     palette.loadFromJson(PaleoTheme::ribbonPaletteJson());
     SA::applyRibbonTheme(win, win->ribbonBar(), SARibbonTheme::RibbonThemeOffice2021Blue,
                          palette);
-    win->setStyleSheet(win->styleSheet() + QLatin1Char('\n') +
-                       PaleoTheme::ribbonStyleSheet() + QLatin1Char('\n') + shellQss);
+    // 整体替换（不是追加）：SA::applyRibbonTheme 会覆盖窗口样式表，这里
+    // 重设一份完整的「ribbon 细节 + 壳样式」；主题来回切换不会累积。
+    win->setStyleSheet(PaleoTheme::ribbonStyleSheet() + QLatin1Char('\n') +
+                       shellQss);
   }
 
   void mirror(QAction *action, QAbstractButton *button, bool syncText, bool hideSource)

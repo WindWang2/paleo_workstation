@@ -1,15 +1,22 @@
 #include <QtTest>
 #include <QApplication>
+#include <QDir>
+#include <QFile>
 #include <QFontDatabase>
 #include <QFontInfo>
 #include <QImage>
 #include <QLabel>
 #include <QPainter>
 #include <QPalette>
+#include <QSettings>
 #include <QStyle>
 #include <QStyleFactory>
+#include <QVBoxLayout>
+#include <QWidget>
 
 #include "../src/ui/paleotheme.h"
+#include "../src/ui/paleoemptystate.h"
+#include "../src/ui/paleoicons.h"
 
 // wave3/ux-consistency T32 — DESIGN.md token 的代码出口（PaleoTheme）契约：
 // vendor 字体注册、mono/正文字体、2px #1B73D0 焦点环、状态胶囊 token、
@@ -179,6 +186,235 @@ class TestUxTheme : public QObject
       QCOMPARE(PaleoTheme::kColorWarning.name().toUpper(), QStringLiteral("#F29900"));
       QCOMPARE(PaleoTheme::kColorError.name().toUpper(), QStringLiteral("#E53935"));
     }
+
+    void cleanupTestCase()
+    {
+      // 暗色用例把全局主题拨到 Dark——收尾还原浅色，进程级状态不外漏。
+      PaleoTheme::applyLightTheme();
+    }
+
+  private slots:
+    // ---- 暗色翻案（DESIGN.md 决策日志 2026-09-28）----
+
+    // 暗色 palette 三组显式写齐：深底浅字，不允许系统/浅色泄漏。
+    void darkThemePaletteIsExplicit()
+    {
+      PaleoTheme::applyDarkTheme();
+      QCOMPARE(PaleoTheme::currentTheme(), PaleoTheme::Theme::Dark);
+      QCOMPARE(qApp->style()->objectName().compare(QLatin1String("Fusion"),
+                                                   Qt::CaseInsensitive),
+               0);
+      for (const auto group : {QPalette::Active, QPalette::Inactive,
+                               QPalette::Disabled})
+      {
+        const QPalette p = qApp->palette();
+        QVERIFY2(p.color(group, QPalette::Window).lightness() < 80,
+                 "Window must stay dark");
+        QVERIFY2(p.color(group, QPalette::Base).lightness() < 80,
+                 "Base must stay dark");
+        QVERIFY2(p.color(group, QPalette::Text).lightness() > 150,
+                 "Text must stay light on dark surfaces");
+        QVERIFY2(p.color(group, QPalette::WindowText).lightness() > 150,
+                 "WindowText must stay light");
+        QVERIFY2(p.color(group, QPalette::ButtonText).lightness() > 120,
+                 "Disabled ButtonText uses text-muted (>=A3B1BF lightness)");
+      }
+      // 回浅色，不打扰后续用例的隐含浅色基线。
+      PaleoTheme::applyLightTheme();
+    }
+
+    // 暗色 token / QSS 全集：焦点环提亮、壳 QSS 深底、胶囊深底提亮字、
+    // ribbon 调色板 isDark。
+    void darkTokensAndStyleSheetsCarryDarkValues()
+    {
+      const auto &d = PaleoTheme::tokens(PaleoTheme::Theme::Dark);
+      QCOMPARE(d.surface.name().toUpper(), QStringLiteral("#252C36"));
+      QCOMPARE(d.surfaceAlt.name().toUpper(), QStringLiteral("#1B212A"));
+      QCOMPARE(d.border.name().toUpper(), QStringLiteral("#3B4552"));
+      QCOMPARE(d.text.name().toUpper(), QStringLiteral("#E4EAF2"));
+      QCOMPARE(d.textMuted.name().toUpper(), QStringLiteral("#A3B1BF"));
+      QCOMPARE(d.primaryText.name().toUpper(), QStringLiteral("#5FA5F0"));
+      QCOMPARE(d.focusRing.name().toUpper(), QStringLiteral("#5FA5F0"));
+      // primary 填充色两主题同值（交互蓝不随主题漂移）。
+      QCOMPARE(d.primary, PaleoTheme::kColorPrimary);
+
+      QVERIFY(PaleoTheme::focusRingStyleSheet(PaleoTheme::Theme::Dark)
+                  .contains(QStringLiteral("2px solid #5FA5F0")));
+
+      const QString shell = PaleoTheme::shellStyleSheet(PaleoTheme::Theme::Dark);
+      QVERIFY(shell.contains(QStringLiteral("QMainWindow { background: #1B212A; }")));
+      QVERIFY(shell.contains(QStringLiteral("QStatusBar { background: #1B212A; color: #A3B1BF; }")));
+      QVERIFY(!shell.contains(QStringLiteral("background: #FFFFFF")));
+
+      const QString capsule =
+          PaleoTheme::capsuleStyleSheet(PaleoTheme::CapsuleKind::Error,
+                                        PaleoTheme::Theme::Dark);
+      QVERIFY(capsule.contains(QStringLiteral("#3A1D1D")));
+      QVERIFY(capsule.contains(QStringLiteral("#F76A61")));
+
+      const QByteArray ribbon =
+          PaleoTheme::ribbonPaletteJson(PaleoTheme::Theme::Dark);
+      QVERIFY(ribbon.contains("\"isDark\": true"));
+      QVERIFY(ribbon.contains("\"content-bg\": \"#252C36\""));
+
+      // 浅色输出不受暗色影响（显式 Theme 参数的两态独立）。
+      QVERIFY(PaleoTheme::shellStyleSheet(PaleoTheme::Theme::Light)
+                  .contains(QStringLiteral("background: #EDF1F5;")));
+    }
+
+    // 缺省实参跟随当前主题：applyDarkTheme 后无参调用给暗色阶。
+    void defaultArgsFollowCurrentTheme()
+    {
+      PaleoTheme::applyLightTheme();
+      QVERIFY(PaleoTheme::focusRingStyleSheet().contains(
+          QStringLiteral("2px solid #1B73D0")));
+      PaleoTheme::applyDarkTheme();
+      QVERIFY(PaleoTheme::focusRingStyleSheet().contains(
+          QStringLiteral("2px solid #5FA5F0")));
+      QVERIFY(PaleoTheme::tokens().surface.name().toUpper() ==
+              QStringLiteral("#252C36"));
+      PaleoTheme::applyLightTheme();
+    }
+
+    // 活体主题样式：注册后换主题，widget 样式表自动重算（palette 事件风暴）。
+    void themedStyleSheetRelayRebuildsOnThemeChange()
+    {
+      QWidget host;
+      QLabel l(QStringLiteral("次级说明"), &host);
+      PaleoTheme::applyThemedStyleSheet(
+          &l, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+      QVERIFY(l.styleSheet().contains(QStringLiteral("#5D6E80")));
+      PaleoTheme::applyDarkTheme();
+      QVERIFY2(l.styleSheet().contains(QStringLiteral("#A3B1BF")),
+               qPrintable(QStringLiteral("style after dark switch: ") + l.styleSheet()));
+      PaleoTheme::applyLightTheme();
+      QVERIFY(l.styleSheet().contains(QStringLiteral("#5D6E80")));
+    }
+
+    // 图标暗色再着色：自绘图标墨色翻转；QGIS 深 glyph 经 Plus 提亮。
+    void iconsRetintForDarkTheme()
+    {
+      PaleoTheme::applyLightTheme();
+      QImage lightGlyph = PaleoIcons::maximize()
+                              .pixmap(32, 32)
+                              .toImage()
+                              .convertToFormat(QImage::Format_ARGB32);
+      PaleoTheme::applyDarkTheme();
+      QImage darkGlyph = PaleoIcons::maximize()
+                             .pixmap(32, 32)
+                             .toImage()
+                             .convertToFormat(QImage::Format_ARGB32);
+      // 描边像素扫描（浅色深墨 / 暗色浅墨）：取整幅最亮的不透明像素比较。
+      const auto brightest = [](const QImage &img) {
+        int best = -1;
+        for (int y = 0; y < img.height(); ++y)
+          for (int x = 0; x < img.width(); ++x)
+          {
+            const QRgb c = img.pixel(x, y);
+            if (qAlpha(c) > 200)
+              best = qMax(best, (qRed(c) + qGreen(c) + qBlue(c)) / 3);
+          }
+        return best;
+      };
+      QVERIFY2(brightest(lightGlyph) < 120,
+               "light glyph must be dark ink on transparent");
+      QVERIFY2(brightest(darkGlyph) > 150,
+               qPrintable(QStringLiteral("dark glyph must be lifted ink, brightest=%1")
+                              .arg(brightest(darkGlyph))));
+
+      // tintForDarkTheme：手工深色 icon 提亮、透明区保持透明。
+      QPixmap pm(8, 8);
+      pm.fill(Qt::transparent);
+      QPainter p(&pm);
+      p.setPen(QColor(36, 48, 62)); // #24303E
+      p.drawLine(0, 4, 7, 4);
+      p.end();
+      QIcon tinted = PaleoIcons::tintForDarkTheme(QIcon(pm));
+      const QImage img =
+          tinted.pixmap(8, 8).toImage().convertToFormat(QImage::Format_ARGB32);
+      QVERIFY(qRed(img.pixel(4, 4)) > 150);
+      QCOMPARE(qAlpha(img.pixel(0, 0)), 0);
+      PaleoTheme::applyLightTheme();
+    }
+
+    // 空态卡片共享组件：objectName 三态 + 样式随主题活体重算。
+    void emptyStateCardIsThemed()
+    {
+      PaleoTheme::applyLightTheme(); // 用例自钉基线，不依赖前序用例收尾
+      QWidget host;
+      host.resize(400, 300);
+      auto *card = new PaleoEmptyStateLabel(
+          QStringLiteral("还没有数据 — 先导入工区"), &host);
+      QCOMPARE(card->objectName(), QStringLiteral("emptyStateCard"));
+      QVERIFY(card->styleSheet().contains(QStringLiteral("#5D6E80")));
+      auto *err = new PaleoEmptyStateLabel(QStringLiteral("加载失败"), &host,
+                                           PaleoEmptyStateLabel::Kind::Error);
+      QCOMPARE(err->objectName(), QStringLiteral("emptyStateCardError"));
+      QVERIFY(err->styleSheet().contains(QStringLiteral("#E53935")));
+      PaleoTheme::applyDarkTheme();
+      QVERIFY2(card->styleSheet().contains(QStringLiteral("#A3B1BF")),
+               qPrintable(card->styleSheet()));
+      QVERIFY2(err->styleSheet().contains(QStringLiteral("#F76A61")),
+               qPrintable(err->styleSheet()));
+      PaleoTheme::applyLightTheme();
+    }
+
+    // QSettings 持久化：缺省浅色；显式写后读回。测试进程经 setPath 隔离
+    // （main 里重定向 IniFormat UserScope 到临时目录，tst_ui 同惯例）。
+    void themeSettingsRoundTripDefaultsLight()
+    {
+      QCOMPARE(PaleoTheme::themeFromSettings(), PaleoTheme::Theme::Light);
+      PaleoTheme::writeThemeToSettings(PaleoTheme::Theme::Dark);
+      QCOMPARE(PaleoTheme::themeFromSettings(), PaleoTheme::Theme::Dark);
+      PaleoTheme::writeThemeToSettings(PaleoTheme::Theme::Light);
+      QCOMPARE(PaleoTheme::themeFromSettings(), PaleoTheme::Theme::Light);
+      QSettings(QStringLiteral("paleo"), QStringLiteral("paleo"))
+          .remove(QStringLiteral("ui/theme"));
+    }
+
+    // 双主题对照截图（视觉审计取证）：PALEO_UI_CAPTURE 设了才落盘，
+    // light/dark 各一张；未设完全跳过。
+    void dualThemeScreenshotsForVisualAudit()
+    {
+      const QString dir = qEnvironmentVariable("PALEO_UI_CAPTURE");
+      if (dir.isEmpty())
+        return;
+
+      const auto render = [dir](PaleoTheme::Theme theme, const QString &name) {
+        PaleoTheme::applyTheme(theme);
+        QWidget surface;
+        surface.setObjectName(QStringLiteral("auditSurface"));
+        auto *lay = new QVBoxLayout(&surface);
+        lay->setContentsMargins(24, 24, 24, 24);
+        auto *title = new QLabel(QStringLiteral("Paleo Workbench · 双主题对照"));
+        QFont f = title->font();
+        f.setPointSize(12);
+        title->setFont(f);
+        lay->addWidget(title);
+        lay->addWidget(PaleoTheme::capsuleLabel(
+            QStringLiteral("通过"), PaleoTheme::CapsuleKind::Success, &surface));
+        lay->addWidget(PaleoTheme::capsuleLabel(
+            QStringLiteral("未执行"), PaleoTheme::CapsuleKind::Neutral, &surface));
+        auto *muted = new QLabel(QStringLiteral("次级说明文字（text-muted）"), &surface);
+        PaleoTheme::applyThemedStyleSheet(
+            muted, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+        lay->addWidget(muted);
+        auto *card = new PaleoEmptyStateLabel(
+            QStringLiteral("空态卡片 — 下一步动作指引写在这里"), &surface,
+            PaleoEmptyStateLabel::Kind::Empty);
+        lay->addWidget(card, 1);
+        surface.resize(420, 300);
+        QImage img(surface.size(), QImage::Format_ARGB32_Premultiplied);
+        QPainter p(&img);
+        surface.render(&p);
+        p.end();
+        img.save(dir + QLatin1Char('/') + name);
+      };
+      render(PaleoTheme::Theme::Light, QStringLiteral("uxtheme_light.png"));
+      render(PaleoTheme::Theme::Dark, QStringLiteral("uxtheme_dark.png"));
+      QVERIFY(QFile::exists(dir + QLatin1Char('/') + "uxtheme_dark.png"));
+      PaleoTheme::applyLightTheme();
+    }
 };
 
 int main(int argc, char *argv[])
@@ -186,6 +422,10 @@ int main(int argc, char *argv[])
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
   QApplication app(argc, argv);
+  // QSettings 隔离（tst_ui 惯例）：主题读写测试不碰真实用户配置。
+  QSettings::setDefaultFormat(QSettings::IniFormat);
+  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                     QDir::temp().filePath(QStringLiteral("paleo_tst_uxtheme_settings")));
   TestUxTheme tc;
   return QTest::qExec(&tc, argc, argv);
 }

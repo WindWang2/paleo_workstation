@@ -57,11 +57,14 @@ namespace
         setError(error, db.lastError().text());
         return false;
       }
-      // 共享 schema 门（docs/SCHEMA_MIGRATION.md）：新库/遗留库采纳当前
-      // user_version，未来版本拒开——在建任何表之前执行。
-      if (!MetaStore::ensureUserVersion(db, error))
-        return false;
     }
+    // 共享 schema 门（docs/SCHEMA_MIGRATION.md）：新库/遗留库采纳当前
+    // user_version，未来版本拒开——在建任何表之前执行。T7 矩阵暴露的洞：
+    // 检查原先只在首次 open 时跑，拒开后连接留在注册表里处于 open 态，
+    // 之后的读调用（all()/latest()...）经缓存的 open 连接绕过版本门直接
+    // 建表。移到连接确保之后每次执行（一次 PRAGMA，幂等便宜）。
+    if ( !MetaStore::ensureUserVersion(db, error ) )
+      return false;
 
     QSqlQuery schema(db);
     if (!schema.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS layer_declarations("
@@ -121,6 +124,11 @@ bool LayerManifest::open(QString *error)
 
 bool LayerManifest::upsert(const LayerDeclaration &decl, QString *error)
 {
+  if (m_readOnly)
+  {
+    setError(error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，图层清单写入被拒绝"));
+    return false;
+  }
   if (decl.layerId.isEmpty())
   {
     setError(error, QStringLiteral("layer declaration requires a non-empty layerId"));
@@ -150,6 +158,11 @@ bool LayerManifest::upsert(const LayerDeclaration &decl, QString *error)
 
 bool LayerManifest::remove(const QString &layerId, QString *error)
 {
+  if (m_readOnly)
+  {
+    setError(error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，图层清单写入被拒绝"));
+    return false;
+  }
   if (!ensureOpen(m_dbPath, error))
     return false;
 

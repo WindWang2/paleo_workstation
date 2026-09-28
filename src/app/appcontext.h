@@ -77,6 +77,15 @@ class AppContext : public QObject
     PaleoTaskService *taskSvc() const { return m_taskSvc; }
     ProjectDirLock *projectLock() const { return m_projectLock.get(); }
 
+    // 单写实例降级面（T4）：projectOpened 时 tryLock 失败 → 本实例只读。
+    // catalog/manifest/版本库/工程存储的写路径已全部如实拒绝（各自
+    // setReadOnly/setLockedReadOnly 接线在本组装根）；UI 态反映经信号
+    // projectReadOnlyChanged（壳侧可绑标题「（只读）」/禁用保存动作）。
+    bool isProjectReadOnly() const;
+
+  signals:
+    void projectReadOnlyChanged(bool readOnly);
+
   private:
     // §4 井位图层：catalog 井点 → artifacts/layers/wells.geojson → manifest
     // 声明「wells」→ 实例化 → 绑给 m_wellLink。工程打开与 catalog 每次
@@ -114,4 +123,5 @@ class AppContext : public QObject
     MapVersionController *m_versionCtl = nullptr;
     PaleoTaskService *m_taskSvc = nullptr;
     std::unique_ptr<ProjectDirLock> m_projectLock;
+    bool m_lastReadOnlyNotified = false; // 上次广播的只读态（去重）
 };

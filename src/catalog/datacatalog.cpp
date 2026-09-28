@@ -232,6 +232,9 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
 {
   m_isOpen = false;
   m_openError.clear();
+  m_recoveredFromBackup = false; // 恢复态是「本次 open」的属性，重开重新判
+  m_backupRecoveryReason.clear();
+  // 注意：m_lockedReadOnly 不在此重置——实例级只读降级由拥有者管理（见头注）。
   m_batchDepth = 0;
   m_batchDirty = false;
   m_dir = projectDir.trimmed().isEmpty() ? QString() : projectDir;
@@ -280,67 +283,127 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
     return fail(serr.isEmpty() ? QStringLiteral("cannot initialize catalog") : serr);
   }
 
+  // 装载一段已解析的 JSON 根（主文件与 .bak 回退共用）：schema 校验 +
+  // 四表读入 + 序号恢复。返回空串 = 成功；非空 = 拒因。
+  const auto loadFrom = [this](const QJsonObject &root) -> QString {
+    // T20b：缺键按当前版本处理（旧 catalog 照常打开）；显式写了且不等于
+    // kSchemaVersion（无论新旧）→ 如实拒绝，不读不写。
+    const QString schemaKey = QStringLiteral("schema_version");
+    if (root.contains(schemaKey) && root.value(schemaKey).toInt() != kSchemaVersion)
+      return QStringLiteral("unsupported catalog schema");
+    m_revision = root.value(QStringLiteral("catalog_revision")).toInt();
+    for (const auto &v : root.value(QStringLiteral("entities")).toArray())
+      m_entities.append(entityFromJson(v.toObject()));
+    for (const auto &v : root.value(QStringLiteral("assets")).toArray())
+    {
+      const CatalogAsset a{
+          v.toObject().value(QStringLiteral("id")).toString(),
+          v.toObject().value(QStringLiteral("type")).toString(),
+          v.toObject().value(QStringLiteral("format")).toString(),
+          v.toObject().value(QStringLiteral("display_name")).toString()};
+      m_assets.append(a);
+      bool ok = false;
+      const int n = QString(a.id).mid(4).toInt(&ok); // "ast-N"
+      if (ok)
+        m_assetSeq = qMax(m_assetSeq, n);
+    }
+    for (const auto &v : root.value(QStringLiteral("versions")).toArray())
+    {
+      const CatalogVersion cv = versionFromJson(v.toObject());
+      // 段校验（fileName/stage/受管 path）与 resolvedVersionPath 根包含检查：
+      // 坏段版本如实跳过且不写回，不静默沿用——与 addVersion 同一校验面
+      // （audit row 36/T33；resolvedVersionPath 另挡符号链接与越界绝对路径）。
+      QString badSeg = unsafeVersionSegmentReason(cv);
+      if (badSeg.isEmpty() && cv.managed && !cv.path.isEmpty() &&
+          resolvedVersionPath(m_dir, cv).isEmpty())
+        badSeg = QStringLiteral("managed path escapes project root: %1").arg(cv.path);
+      if (!badSeg.isEmpty())
+      {
+        qWarning("catalog: skipping version %s with unsafe path segment: %s",
+                 qPrintable(cv.id), qPrintable(badSeg));
+        continue;
+      }
+      m_versions.append(cv);
+      bool ok = false;
+      const int n = cv.id.startsWith(QStringLiteral("ver-")) ? cv.id.mid(4).toInt(&ok) : 0;
+      if (ok && n > 0)
+        m_versionSeq = qMax(m_versionSeq, n);
+    }
+    for (const auto &v : root.value(QStringLiteral("entity_asset_links")).toArray())
+      m_links.append(linkFromJson(v.toObject()));
+    return QString();
+  };
+
   if (!f.open(QIODevice::ReadOnly))
     return fail(QStringLiteral("cannot open catalog %1").arg(catalogPath()));
   QJsonParseError pe;
   const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &pe);
-  if (pe.error != QJsonParseError::NoError || !doc.isObject())
-    return fail(QStringLiteral("corrupt catalog %1: %2").arg(catalogPath(), pe.errorString()));
-  const QJsonObject root = doc.object();
-  // T20b：缺键按当前版本处理（旧 catalog 照常打开）；显式写了且不等于
-  // kSchemaVersion（无论新旧）→ 如实拒绝，不读不写。
+  const bool mainParses = pe.error == QJsonParseError::NoError && doc.isObject();
   const QString schemaKey = QStringLiteral("schema_version");
-  if (root.contains(schemaKey) && root.value(schemaKey).toInt() != kSchemaVersion)
+  const bool mainSchemaOk =
+      !mainParses || !doc.object().contains(schemaKey) ||
+      doc.object().value(schemaKey).toInt() == kSchemaVersion;
+  if (mainParses && mainSchemaOk)
+  {
+    const QString rerr = loadFrom(doc.object());
+    if (!rerr.isEmpty())
+      return fail(QStringLiteral("%1 in %2").arg(rerr, catalogPath()));
+    m_isOpen = true;
+    emit changed();
+    return true;
+  }
+
+  // ---- 腐败恢复（.bak 回退）：只对「主文件解析失败」生效。schema 不匹配
+  // 是未来版本信号——.bak 与主文件同代，回退既救不了也不该静默降级数据。
+  if (mainParses)
     return fail(QStringLiteral("unsupported catalog schema in %1").arg(catalogPath()));
-  m_revision = root.value(QStringLiteral("catalog_revision")).toInt();
-  for (const auto &v : root.value(QStringLiteral("entities")).toArray())
-    m_entities.append(entityFromJson(v.toObject()));
-  for (const auto &v : root.value(QStringLiteral("assets")).toArray())
+  const QString bakPath = catalogPath() + QStringLiteral(".bak");
+  QFile bak(bakPath);
+  QString bakDetail;
+  if (bak.exists() && bak.open(QIODevice::ReadOnly))
   {
-    const CatalogAsset a{
-        v.toObject().value(QStringLiteral("id")).toString(),
-        v.toObject().value(QStringLiteral("type")).toString(),
-        v.toObject().value(QStringLiteral("format")).toString(),
-        v.toObject().value(QStringLiteral("display_name")).toString()};
-    m_assets.append(a);
-    bool ok = false;
-    const int n = QString(a.id).mid(4).toInt(&ok); // "ast-N"
-    if (ok)
-      m_assetSeq = qMax(m_assetSeq, n);
-  }
-  for (const auto &v : root.value(QStringLiteral("versions")).toArray())
-  {
-    const CatalogVersion cv = versionFromJson(v.toObject());
-    // 段校验（fileName/stage/受管 path）与 resolvedVersionPath 根包含检查：
-    // 坏段版本如实跳过且不写回，不静默沿用——与 addVersion 同一校验面
-    // （audit row 36/T33；resolvedVersionPath 另挡符号链接与越界绝对路径）。
-    QString badSeg = unsafeVersionSegmentReason(cv);
-    if (badSeg.isEmpty() && cv.managed && !cv.path.isEmpty() &&
-        resolvedVersionPath(m_dir, cv).isEmpty())
-      badSeg = QStringLiteral("managed path escapes project root: %1").arg(cv.path);
-    if (!badSeg.isEmpty())
+    QJsonParseError bpe;
+    const QJsonDocument bakDoc = QJsonDocument::fromJson(bak.readAll(), &bpe);
+    bak.close();
+    if (bpe.error == QJsonParseError::NoError && bakDoc.isObject())
     {
-      qWarning("catalog: skipping version %s with unsafe path segment: %s",
-               qPrintable(cv.id), qPrintable(badSeg));
-      continue;
+      const QString rerr = loadFrom(bakDoc.object());
+      if (rerr.isEmpty())
+      {
+        // 恢复成功：open 算成功（读面可用、可续存），损坏事实如实留底并
+        // 广播——UI/状态面向用户告警；下一次 save 会把恢复后的内容轮转成
+        // 新 .bak，主文件重写为好文件。
+        m_recoveredFromBackup = true;
+        m_backupRecoveryReason = QStringLiteral("%1: %2").arg(catalogPath(), pe.errorString());
+        qWarning("catalog: primary %s is corrupt (%s) — recovered from %s",
+                 qPrintable(catalogPath()), qPrintable(pe.errorString()), qPrintable(bakPath));
+        m_isOpen = true;
+        emit backupRecovered(m_backupRecoveryReason);
+        emit changed();
+        return true;
+      }
+      bakDetail = rerr;
     }
-    m_versions.append(cv);
-    bool ok = false;
-    const int n = cv.id.startsWith(QStringLiteral("ver-")) ? cv.id.mid(4).toInt(&ok) : 0;
-    if (ok && n > 0)
-      m_versionSeq = qMax(m_versionSeq, n);
+    else
+    {
+      bakDetail = QStringLiteral("corrupt backup: ").append(bpe.errorString());
+    }
   }
-  for (const auto &v : root.value(QStringLiteral("entity_asset_links")).toArray())
-    m_links.append(linkFromJson(v.toObject()));
-  m_isOpen = true;
-  emit changed();
-  return true;
+  return fail(QStringLiteral("corrupt catalog %1: %2 (no usable %3: %4)")
+                  .arg(catalogPath(), pe.errorString(), bakPath,
+                       bakDetail.isEmpty() ? QStringLiteral("backup missing") : bakDetail));
 }
 
 bool DataCatalog::save(QString *error)
 {
   if (!ensureOpen(error))
     return false;
+  // 单写实例降级（§6）：锁在别的实例手里——本实例只读，任何落盘如实拒绝。
+  if (m_lockedReadOnly)
+  {
+    setError(error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，catalog 写入被拒绝"));
+    return false;
+  }
   // 批量作用域内：只记脏、不落盘——endBatch 统一结算（audit row 37）。
   if (m_batchDepth > 0)
   {
@@ -1119,12 +1182,21 @@ bool DataCatalog::writeWellsGeoJson(const QString &path, QString *error) const
   root.insert(QStringLiteral("features"), feats);
 
   QDir().mkpath(QFileInfo(path).absolutePath());
-  QFile file(path);
+  // 原子写审计（T6）：井点 GeoJSON 是 wells 图层的数据源——裸 QFile 截断
+  // 写中途崩溃会留下半截文件，OGR 照常打开但要素缺失（静默坏图层）。
+  // QSaveFile 全量写成功才替换，坏盘/短写保住上一份好文件。
+  QSaveFile file(path);
+  file.setDirectWriteFallback(false);
   if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    setError(error, tr("井点 GeoJSON 写入失败：%1（%2）").arg(path, file.errorString()));
+    return false;
+  }
+  if (file.write(QJsonDocument(root).toJson(QJsonDocument::Compact)) < 0 ||
+      !file.commit())
   {
     setError(error, tr("井点 GeoJSON 写入失败：%1").arg(path));
     return false;
   }
-  file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
   return true;
 }

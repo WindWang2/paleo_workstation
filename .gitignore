@@ -11,3 +11,4 @@ build-nowebengine/
 .agents/
 __pycache__/
 
+worktree-issues

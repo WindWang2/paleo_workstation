@@ -1,3 +1,4 @@
+// 层：QGIS 封装
 #include "manifestprojection.h"
 
 #include <QJsonArray>

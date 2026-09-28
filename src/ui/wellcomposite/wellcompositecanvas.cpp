@@ -1,3 +1,4 @@
+// 层：视图
 #include "wellcompositecanvas.h"
 
 #include <QApplication>

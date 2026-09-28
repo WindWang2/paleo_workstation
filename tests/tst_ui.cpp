@@ -16,6 +16,7 @@
 
 #include "../src/app/appcontext.h"
 #include "../src/ui/paleomainwindow.h"
+#include "../src/io/dataimportservice.h" // 测试可直触 io（断言 DataImportService 信号）
 #include "../src/ui/datapreview/datapreviewtabs.h"
 #include "../src/ui/edittools/editingtoolbar.h"
 #include "../src/qgis/qgisprojectservice.h"

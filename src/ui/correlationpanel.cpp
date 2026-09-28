@@ -1,7 +1,8 @@
+// 层：视图
 #include "correlationpanel.h"
 
 #include "../linkage/selectioncontext.h"
-#include "../io/lasparser.h"
+#include "../services/previewdoc.h" // LasParser 的唯一 UI 出口（W1）
 
 #include "correlation/correlationwellcolumn.h"
 #include "correlation/curvebrowser.h"
@@ -527,7 +528,7 @@ bool WellCorrelationPanel::setLasForWell(const QString &wellId, const QString &l
 {
   QStringList names;
   QList<LasCurve> curves;
-  if (!LasParser::parse(lasPath, names, curves) || curves.isEmpty())
+  if (!PreviewDocService::lasAt(lasPath, &names, &curves) || curves.isEmpty())
     return false;
   m_lasByWell.insert(wellId, curves);
   m_browser->setCurves(wellId, curves);
@@ -539,7 +540,7 @@ bool WellCorrelationPanel::loadWellLas(const QString &wellId, const QString &las
 {
   QStringList names;
   QList<LasCurve> curves;
-  if (!LasParser::parse(lasPath, names, curves) || curves.isEmpty())
+  if (!PreviewDocService::lasAt(lasPath, &names, &curves) || curves.isEmpty())
     return false;
 
   const QString want = curveMnemonic.trimmed();

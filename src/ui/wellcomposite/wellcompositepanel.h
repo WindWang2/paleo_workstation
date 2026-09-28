@@ -1,3 +1,4 @@
+// 层：视图
 #pragma once
 
 #include <QComboBox>
@@ -6,7 +7,7 @@
 #include <QWidget>
 
 #include "wellcompositecanvas.h"
-#include "io/wellcompositexml.h"
+#include "domain/wellcompositemodel.h"
 
 // ui/wellcomposite/ — WellCompositePanel: ResFormStar 风格单井综合柱状图总装面板
 //

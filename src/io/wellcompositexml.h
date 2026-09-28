@@ -1,10 +1,11 @@
+// 层：数据
 #pragma once
 
 #include <QByteArray>
 #include <QString>
 #include <QVector>
 
-#include "ui/wellcomposite/wellcompositetrack.h"
+#include "../domain/wellcompositemodel.h"
 
 // io/ — wellcompositexml: 解析中国石油地质行业标准单井综合柱状图 XML (SpreadsheetML)
 //
@@ -22,29 +23,6 @@
 
 namespace WellComposite
 {
-
-struct ComprehensiveWellData
-{
-  QString wellName;
-  double x = 0.0;
-  double y = 0.0;
-  double minDepth = 0.0;
-  double maxDepth = 0.0;
-
-  QVector<CurveData> continuousCurves;
-  QVector<CurveData> discreteCurves;
-  QVector<LithologyInterval> lithologyIntervals;
-  QVector<FormationInterval> formationIntervals;
-  QVector<FormationInterval> sandIntervals;
-  QVector<TextInterval> textIntervals;
-  QVector<SymbolItem> symbolItems;
-  QVector<CoreBarrel> coreBarrels;
-  QVector<QPair<double, QString>> standardHorizons;
-  QVector<StratigraphyInterval> stratigraphyIntervals;
-  QVector<FaciesInterval> faciesIntervals;
-
-  bool isEmpty() const;
-};
 
 // 流式解析文件或二进制内容
 bool parseComprehensiveWellXml(const QString &filePath, ComprehensiveWellData &outData, QString *errorMsg = nullptr);

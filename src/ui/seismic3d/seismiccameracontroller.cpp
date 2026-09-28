@@ -1,3 +1,4 @@
+// 层：视图
 #include "seismiccameracontroller.h"
 
 #include <algorithm>

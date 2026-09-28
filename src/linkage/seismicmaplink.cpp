@@ -1,7 +1,7 @@
+// 层：功能
 #include "seismicmaplink.h"
 #include "seismicsectiontool.h"
 #include "selectioncontext.h"
-#include "ui/seismicsection/seismicsectiondockwidget.h"
 #include "domain/seismic/sgyvolume.h"
 
 #include <QSignalBlocker>
@@ -72,22 +72,6 @@ void SeismicMapLink::setSeismicLayer(QgsVectorLayer *lineLayer, const QString &i
           });
 }
 
-void SeismicMapLink::attachSectionDock(seismic::SeismicSectionDockWidget *dock)
-{
-  m_sectionDock = dock;
-  if (!m_sectionDock || !m_sectionDock->canvas())
-    return;
-
-  if (m_volume) {
-    m_sectionDock->setVolume(m_volume);
-  }
-
-  connect(m_sectionDock->canvas(), &seismic::SeismicSectionCanvas::traceHovered,
-          this, &SeismicMapLink::onSectionTraceHovered);
-  connect(m_sectionDock->canvas(), &seismic::SeismicSectionCanvas::traceClicked,
-          this, &SeismicMapLink::onSectionTraceClicked);
-}
-
 void SeismicMapLink::setGridGeometry(const SurveyGridGeometry &geom)
 {
   m_gridGeom = geom;
@@ -96,9 +80,7 @@ void SeismicMapLink::setGridGeometry(const SurveyGridGeometry &geom)
 void SeismicMapLink::setActiveVolume(std::shared_ptr<const seismic::SgyVolume> volume)
 {
   m_volume = volume;
-  if (m_sectionDock) {
-    m_sectionDock->setVolume(volume);
-  }
+  emit sectionVolumeChanged(volume);
 }
 
 void SeismicMapLink::activateSectionCaptureTool()
@@ -148,14 +130,10 @@ void SeismicMapLink::triggerSectionFromMapPolyline(const QVector<QgsPointXY> &ma
     return;
   }
 
-  if (m_sectionDock)
-  {
-    const QString sectionTitle = title.isEmpty() ? tr("地图折线剖面") : title;
-    m_sectionDock->extractSectionFromVolumeAsync(m_volume, pathPoints, sectionTitle, mapPolyline);
-    m_sectionDock->show();
-    m_sectionDock->raise();
-  }
-
+  // 壳订阅：折线已换算成测线序——剖面 dock 走异步提取 + show/raise。
+  emit sectionExtractRequested(
+      m_volume, pathPoints,
+      title.isEmpty() ? tr("地图折线剖面") : title, mapPolyline);
   emit sectionExtractedFromMap(true, QString());
 }
 

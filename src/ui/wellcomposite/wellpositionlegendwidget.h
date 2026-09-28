@@ -1,3 +1,4 @@
+// 层：视图
 #pragma once
 
 #include <QDialog>
@@ -6,7 +7,7 @@
 #include <QToolButton>
 #include <QWidget>
 
-#include "io/wellcompositexml.h"
+#include "domain/wellcompositemodel.h"
 
 // ui/wellcomposite/ — WellPositionLegendWidget:
 // 位置显示图例与比例尺动态指示组件 (ResFormStar / QGIS 地质工作站标准规范)

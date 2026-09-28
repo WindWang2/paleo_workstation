@@ -1,3 +1,4 @@
+// 层：数据
 #include "crashreport.h"
 
 // 崩溃报告实现。两层结构：

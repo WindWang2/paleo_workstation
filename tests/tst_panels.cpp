@@ -14,6 +14,9 @@
 #include <QTreeWidgetItem>
 #include <QResizeEvent>
 
+#include "../src/services/previewdoc.h"
+#include "../src/ui/dialogs/folderconfirm.h"
+#include "../src/workflow/folderimport.h"
 #include "../src/ui/pages/pagepanels.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/workflow/workflows.h"
@@ -21,7 +24,7 @@
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/io/dataimportservice.h"
-#include "../src/io/projectclassifier.h"
+#include "../src/domain/projectclassifier.h"
 #include "../src/catalog/datacatalog.h"
 
 // §42.2 right-dock page panels. Panels emit intents only (§25: no Qgs* in
@@ -74,6 +77,32 @@ class TestPanels : public QObject
         svc.setProjectDir(projectDir);
       }
     };
+
+    // W2：文件夹确认表的壳出口——测试里就地接 FolderImportWorkflow
+    //（无任务服务 → 同步旧路径，点击即完成）。win 非空时挂「查看未决」。
+    static PaleoFolderConfirm::Hooks
+    folderConfirmHooks(FolderImportWorkflow &wf, const QString &dir,
+                       PaleoMainWindow *win = nullptr)
+    {
+      PaleoFolderConfirm::Hooks hooks;
+      hooks.importRow = [&wf](const QString &p, const QString &f) {
+        return wf.importFolderRow(p, f, nullptr);
+      };
+      hooks.importAll = [&wf, dir](const QMap<QString, QString> &ov,
+                                   FolderImportWorkflow::ImportDone done) {
+        wf.importFolder(dir, ov, std::move(done));
+      };
+      hooks.importedWellHead = [&wf](const QString &rowPath) {
+        return wf.importedWellHeadAsset(rowPath);
+      };
+      if (win)
+        hooks.showUnresolved = [win] {
+          win->showPage(QStringLiteral("data"));
+          if (auto *page = win->findChild<DataPage *>())
+            page->setUnresolvedFilter(true);
+        };
+      return hooks;
+    }
 
     static bool writeFile(const QString &path, const QByteArray &content)
     {
@@ -164,7 +193,8 @@ class TestPanels : public QObject
       QVERIFY(cat->addLink(link));
 
       DataPage page;
-      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      PreviewDocService previewDoc1(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc1));
       page.refreshAssetTable();
       auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
       QVERIFY(table);
@@ -247,7 +277,8 @@ class TestPanels : public QObject
       QVERIFY(cat->addLink(l2));
 
       DataPage page;
-      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      PreviewDocService previewDoc2(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc2));
       page.refreshAssetTable();
       auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
       QCOMPARE(table->rowCount(), 2);
@@ -303,7 +334,8 @@ class TestPanels : public QObject
         QVERIFY(cat->addLink(pending));
 
         DataPage page;
-        page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+        PreviewDocService previewDoc3(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc3));
         page.refreshAssetTable();
         auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
         QVERIFY(table);
@@ -340,7 +372,8 @@ class TestPanels : public QObject
       svc2.setProjectDir(dir.path());
       DataCatalog *cat2 = svc2.catalog();
       DataPage page2;
-      page2.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc2));
+      PreviewDocService previewDoc2(&svc2);
+        page2.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc2));
       page2.refreshAssetTable();
       auto *table2 = page2.findChild<QTableWidget *>(QStringLiteral("assetTable"));
       auto *undo = table2->findChild<QPushButton *>(QStringLiteral("undoAttachButton"));
@@ -404,7 +437,8 @@ class TestPanels : public QObject
       }
 
       DataPage page;
-      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      PreviewDocService previewDoc4(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc4));
       page.refreshAssetTable();
       auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
       QCOMPARE(table->rowCount(), 2);
@@ -464,7 +498,8 @@ class TestPanels : public QObject
       QVERIFY(cat->addLink(l));
 
       DataPage page;
-      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      PreviewDocService previewDoc5(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc5));
       page.refreshAssetTable();
       auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
       auto *combo = table->findChild<QComboBox *>(QStringLiteral("resolveEntityCombo"));
@@ -564,7 +599,8 @@ class TestPanels : public QObject
       QVERIFY(cat->addLink(l3));
 
       DataPage page;
-      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      PreviewDocService previewDoc6(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc6));
       page.refreshAssetTable();
       auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
       QCOMPARE(table->rowCount(), 3);
@@ -1140,7 +1176,8 @@ class TestPanels : public QObject
       QVERIFY(cat->addLink(un));
 
       DataPage page;
-      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      PreviewDocService previewDoc7(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc7));
       page.refreshAssetTable();
       auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
       QCOMPARE(table->rowCount(), 2);
@@ -1190,7 +1227,9 @@ class TestPanels : public QObject
       PaleoMainWindow win(nullptr, nullptr, nullptr, nullptr, nullptr);
       win.attachWorkflows(nullptr, nullptr, nullptr, nullptr, &st.svc);
       QDialog dlg;
-      PaleoMainWindow::buildFolderConfirmDialog(&dlg, &st.svc, root, preview, &win);
+      FolderImportWorkflow wf(&st.svc, nullptr);
+      PaleoFolderConfirm::buildFolderConfirmDialog(
+          &dlg, root, preview, folderConfirmHooks(wf, root, &win));
       auto *showUnresolved =
           dlg.findChild<QPushButton *>(QStringLiteral("folderShowUnresolvedButton"));
       QVERIFY(showUnresolved);
@@ -1238,7 +1277,7 @@ class TestPanels : public QObject
 
       QTableWidget table(0, 4);
       QVector<QComboBox *> combos;
-      PaleoMainWindow::populateFolderConfirmTable(&table, root, preview, &combos);
+      PaleoFolderConfirm::populateFolderConfirmTable(&table, root, preview, &combos);
       QCOMPARE(combos.size(), 2);
 
       const QStringList vocab = projectClassifierTypes();
@@ -1258,11 +1297,11 @@ class TestPanels : public QObject
       QCOMPARE(combos.at(1)->currentData().toString(), QStringLiteral("tabular"));
 
       // 未改动的行不发 override；改成 document 才出现在覆盖表里。
-      QVERIFY(PaleoMainWindow::collectFolderTypeOverrides(&table, preview, combos)
+      QVERIFY(PaleoFolderConfirm::collectFolderTypeOverrides(&table, preview, combos)
                   .isEmpty());
       combos.at(1)->setCurrentIndex(vocab.indexOf(QStringLiteral("document")));
       const auto ov =
-          PaleoMainWindow::collectFolderTypeOverrides(&table, preview, combos);
+          PaleoFolderConfirm::collectFolderTypeOverrides(&table, preview, combos);
       QCOMPARE(ov.size(), 1);
       QCOMPARE(ov.value(preview.at(1).path), QStringLiteral("document"));
     }
@@ -1299,7 +1338,7 @@ class TestPanels : public QObject
 
       QTableWidget table(0, 4);
       QVector<QComboBox *> combos;
-      PaleoMainWindow::populateFolderConfirmTable(&table, root, preview, &combos);
+      PaleoFolderConfirm::populateFolderConfirmTable(&table, root, preview, &combos);
       QCOMPARE(combos.size(), 4);
 
       const int rHz = tableRowForPath(&table, QStringLiteral("HZ28-6-1测井.xml"));
@@ -1321,7 +1360,7 @@ class TestPanels : public QObject
 
       // 收集：other.xml 的「参考」默认值与分类器原类型不同 → 成 override；
       // HZ28 行禁用 → 不发 override。
-      auto ov = PaleoMainWindow::collectFolderTypeOverrides(&table, preview, combos);
+      auto ov = PaleoFolderConfirm::collectFolderTypeOverrides(&table, preview, combos);
       QCOMPARE(ov.value(preview.at(rOther).path), QStringLiteral("reference"));
       QVERIFY(!ov.contains(preview.at(rHz).path));
       QVERIFY(!ov.contains(preview.at(rSpec).path));
@@ -1333,11 +1372,11 @@ class TestPanels : public QObject
       // 整目录锁参考）；选回 well_log（=原类型）→ 不发覆盖，后端按原类型走。
       const QStringList vocab = projectClassifierTypes();
       combos.at(rOther)->setCurrentIndex(vocab.indexOf(QStringLiteral("well_head")));
-      ov = PaleoMainWindow::collectFolderTypeOverrides(&table, preview, combos);
+      ov = PaleoFolderConfirm::collectFolderTypeOverrides(&table, preview, combos);
       QCOMPARE(ov.value(preview.at(rOther).path), QStringLiteral("well_head"));
       QCOMPARE(ov.size(), ovSize);
       combos.at(rOther)->setCurrentIndex(vocab.indexOf(QStringLiteral("well_log")));
-      ov = PaleoMainWindow::collectFolderTypeOverrides(&table, preview, combos);
+      ov = PaleoFolderConfirm::collectFolderTypeOverrides(&table, preview, combos);
       QVERIFY(!ov.contains(preview.at(rOther).path)); // 同原类型 → 不成 override
       QCOMPARE(ov.size(), ovSize - 1);
     }
@@ -1377,8 +1416,9 @@ class TestPanels : public QObject
       QCOMPARE(preview.size(), 4);
 
       QDialog dlg;
-      PaleoMainWindow::buildFolderConfirmDialog(&dlg, &st.svc, root, preview,
-                                                nullptr);
+      FolderImportWorkflow wf(&st.svc, nullptr);
+      PaleoFolderConfirm::buildFolderConfirmDialog(
+          &dlg, root, preview, folderConfirmHooks(wf, root));
       // CRS 契约句：只读一行，挂在确认表上方。
       auto *crsNote = dlg.findChild<QLabel *>(QStringLiteral("folderCrsNote"));
       QVERIFY(crsNote);
@@ -1486,10 +1526,10 @@ class TestPanels : public QObject
       rows[1].outcome = Outcome::Unresolved;
       rows[2].outcome = Outcome::Failed;
       rows[3].outcome = Outcome::Skipped;
-      QCOMPARE(PaleoMainWindow::folderImportSummaryText(rows),
+      QCOMPARE(PaleoFolderConfirm::folderImportSummaryText(rows),
                QString::fromUtf8("入库 1，未决 1，失败 1，跳过 1"));
       rows.removeLast();
-      QCOMPARE(PaleoMainWindow::folderImportSummaryText(rows),
+      QCOMPARE(PaleoFolderConfirm::folderImportSummaryText(rows),
                QString::fromUtf8("入库 1，未决 1，失败 1"));
     }
 
@@ -1557,7 +1597,8 @@ class TestPanels : public QObject
       QVERIFY(cat->addLink(pend));
 
       DataPage page;
-      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      PreviewDocService previewDoc8(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc8));
       page.selectAssetsForEntities({QStringLiteral("well-1")});
       auto *roleTable = page.findChild<QTableWidget *>(QStringLiteral("entityRoleTable"));
       QVERIFY2(roleTable, "entity selection must render a role-slot table");
@@ -1643,7 +1684,8 @@ class TestPanels : public QObject
       QVERIFY(cat->addVersion(d2));
 
       DataPage page;
-      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      PreviewDocService previewDoc9(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc9));
       page.selectAssetsForEntities({QStringLiteral("well-1")});
       auto *derived = page.findChild<QTableWidget *>(QStringLiteral("derivedProductsTable"));
       QVERIFY2(derived, "entity view must list downstream DERIVED products");
@@ -1716,7 +1758,8 @@ class TestPanels : public QObject
       QVERIFY(cat->addVersion(d));
 
       DataPage page;
-      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      PreviewDocService previewDoc10(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc10));
       page.selectAssetsForEntities({QStringLiteral("well-1")});
       auto *missing = page.findChild<QLabel *>(QStringLiteral("missingSourcesLabel"));
       QVERIFY2(missing, "dangling parentVersionIds must surface a diagnosis line");
@@ -1758,7 +1801,8 @@ class TestPanels : public QObject
       {
         DataImportService svc(nullptr, nullptr);
         DataPage page;
-        page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+        PreviewDocService previewDoc11(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc11));
         page.selectAssetsForEntities({QStringLiteral("well-1")});
         auto *hint = page.findChild<QLabel *>(QStringLiteral("entityViewEmptyLabel"));
         QVERIFY(hint->isVisibleTo(&page));
@@ -1771,7 +1815,8 @@ class TestPanels : public QObject
         DataImportService svc(nullptr, nullptr);
         svc.setProjectDir(dir.path());
         DataPage page;
-        page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+        PreviewDocService previewDoc12(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc12));
         page.refreshAssetTable();
         auto *hint = page.findChild<QLabel *>(QStringLiteral("entityViewEmptyLabel"));
         QVERIFY(hint->isVisibleTo(&page));
@@ -1784,7 +1829,8 @@ class TestPanels : public QObject
         DataImportService svc(nullptr, nullptr);
         svc.setProjectDir(dir.path());
         DataPage page;
-        page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+        PreviewDocService previewDoc13(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc13));
         page.selectAssetsForEntities({QStringLiteral("well-nope")});
         auto *hint = page.findChild<QLabel *>(QStringLiteral("entityViewEmptyLabel"));
         QVERIFY(hint->isVisibleTo(&page));
@@ -1828,7 +1874,8 @@ class TestPanels : public QObject
       QVERIFY(cat->addLink(pend));
 
       DataPage page;
-      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      PreviewDocService previewDoc14(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc14));
       page.selectAssetsForEntities({QStringLiteral("well-1")});
       auto *roleTable = page.findChild<QTableWidget *>(QStringLiteral("entityRoleTable"));
       QVERIFY(roleTable);
@@ -1874,7 +1921,8 @@ class TestPanels : public QObject
       QVERIFY(cat->addEntity(surv));
 
       DataPage page;
-      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&stack.svc));
+      PreviewDocService previewDocStackSvc(&stack.svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDocStackSvc));
       page.refreshAssetTable();
 
       auto *tree = page.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
@@ -1914,7 +1962,8 @@ class TestPanels : public QObject
       FolderStack stack(dir.filePath(QStringLiteral("meta.sqlite")), dir.path());
 
       DataPage page;
-      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&stack.svc));
+      PreviewDocService previewDocStackSvc(&stack.svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDocStackSvc));
       page.refreshAssetTable();
 
       auto *tree = page.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
@@ -1986,7 +2035,8 @@ class TestPanels : public QObject
       QVERIFY2(cat->addVersion(v, &addErr), qPrintable(addErr));
 
       DataPage page;
-      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&svc));
+      PreviewDocService previewDoc17(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc17));
       page.selectAsset(a.id);
 
       auto *header = page.findChild<QLabel *>(QStringLiteral("entityViewHeader"));

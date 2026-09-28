@@ -1,3 +1,4 @@
+// 层：QGIS 封装
 #pragma once
 #include <QString>
 #include <QVector>

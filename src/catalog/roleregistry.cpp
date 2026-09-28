@@ -1,3 +1,4 @@
+// 层：数据
 #include "roleregistry.h"
 
 #include <QJsonArray>

@@ -1,31 +1,16 @@
+// 层：功能
 #include "threewaylocator.h"
 
 #include "../qgis/qgiscanvascontroller.h"
-#include "../ui/correlationpanel.h"
-#include "../ui/pages/pagepanels.h"
 
 #include <QRegularExpression>
-#include <QTabWidget>
 
 #include <cmath>
 
-ThreeWayLocator::ThreeWayLocator( QgisCanvasController *canvas, WellCorrelationPanel *wellPanel,
-                                  QTabWidget *bottomTabs, QObject *parent )
+ThreeWayLocator::ThreeWayLocator( QgisCanvasController *canvas, QObject *parent )
   : QObject( parent )
   , m_canvas( canvas )
-  , m_wellPanel( wellPanel )
-  , m_bottomTabs( bottomTabs )
 {
-}
-
-void ThreeWayLocator::attach( ValidatePage *page )
-{
-  if ( !page )
-    return;
-  connect( page, &ValidatePage::locateRequested, this,
-           [this]( const QString &layerId, const QString &wkt, const QVariantMap &payload ) {
-             locate( layerId, wkt, payload );
-           } );
 }
 
 void ThreeWayLocator::locate( const QString &layerId, const QString &wktLocation,
@@ -62,12 +47,14 @@ void ThreeWayLocator::locate( const QString &layerId, const QString &wktLocation
   else if ( m_canvas && !layerId.isEmpty() )
     m_canvas->zoomToLayer( layerId );
 
-  // ② 连井剖面：先把底栏切到「连井剖面」标签（停靠里的面板要先可见），
-  // 再滚到该井该分层。inline/time_ms 不再走地震 gotoLine —— 底栏地震
-  // 标签已随预览壳重排移除，测线跳转由验证页「在数据页看这条剖面」负责。
+  // ② 连井剖面：先发底栏切页意图（停靠里的面板要先可见），再发滚动意图。
+  // inline/time_ms 不再走地震 gotoLine —— 底栏地震标签已随预览壳重排移除，
+  // 测线跳转由验证页「在数据页看这条剖面」负责。
   const QString wellId = payload.value( QStringLiteral( "wellId" ) ).toString();
-  if ( m_bottomTabs && m_wellPanel && !wellId.isEmpty() )
-    m_bottomTabs->setCurrentWidget( m_wellPanel );
-  if ( m_wellPanel && !wellId.isEmpty() )
-    m_wellPanel->scrollToWellTop( wellId, payload.value( QStringLiteral( "horizon" ) ).toString() );
+  if ( !wellId.isEmpty() )
+  {
+    emit bottomTabFocusRequested( QStringLiteral( "correlation" ) );
+    emit correlationFocusRequested(
+        wellId, payload.value( QStringLiteral( "horizon" ) ).toString() );
+  }
 }

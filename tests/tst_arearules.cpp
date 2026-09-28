@@ -2,8 +2,8 @@
 #include <QFile>
 #include <QTemporaryDir>
 
-#include "../src/io/arearules.h"
-#include "../src/io/projectclassifier.h"
+#include "../src/domain/arearules.h"
+#include "../src/domain/projectclassifier.h"
 #include "../src/io/segyreader.h"
 #include "../src/domain/mappinghorizons.h"
 

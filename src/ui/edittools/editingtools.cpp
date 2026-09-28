@@ -1,3 +1,4 @@
+// 层：视图
 #include "editingtools.h"
 
 #include "../../qgis/qgiseditingservice.h"

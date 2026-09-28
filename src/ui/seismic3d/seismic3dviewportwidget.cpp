@@ -1,3 +1,4 @@
+// 层：视图
 #include "seismic3dviewportwidget.h"
 
 static void initSeismicResources() {

@@ -1,6 +1,8 @@
+// 层：视图
 #include "wellcompositepanel.h"
 #include "curveconfigdialog.h"
 #include "wellpositionlegendwidget.h"
+#include "../../services/previewdoc.h" // 数据门面（W1：XML 解析入口不直触）
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QVBoxLayout>
@@ -206,7 +208,7 @@ bool WellCompositePanel::loadComprehensiveXml(const QString &xmlPath)
 {
   ComprehensiveWellData data;
   QString err;
-  if (!parseComprehensiveWellXml(xmlPath, data, &err))
+  if (!PreviewDocService::wellCompositeAt(xmlPath, &data, &err))
     return false;
 
   m_data = data;

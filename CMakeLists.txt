@@ -99,19 +99,34 @@ add_library(paleo_core STATIC
   src/qgis/qgisprocessingservice.cpp
   src/qgis/qgisstyleservice.cpp
   src/qgis/qgislayoutservice.cpp
+  src/qgis/layoutexport.cpp                       # 层位图/设计器导出核心（QgsLayoutExporter 封装）
   src/metadata/paleoprojectstore.cpp
   src/metadata/paleoprojectfile.cpp
   src/metadata/layermanifest.cpp
   src/metadata/releasestore.cpp
   src/services/toolavailability.cpp
+  src/services/previewdoc.cpp                       # W1 数据页唯一数据门面（解析/解码/SHA/PDF 编排）
   src/domain/types.cpp
+  src/domain/wellcompositemodel.cpp
+  src/domain/wellrecords.cpp                        # 井文本记录类型 + XML 嗅探（自 io 下沉）               # 单井综合柱状图纯数据模型（自 ui 下沉）
   src/linkage/selectioncontext.cpp
   src/linkage/wellmaplink.cpp
   src/algorithms/paleoalgorithms.cpp
   src/algorithms/faciespolygonize.cpp
   src/workflow/workflows.cpp
+  src/workflow/folderimport.cpp                   # W2 文件夹/单文件导入编排
+  src/workflow/projectopen.cpp                    # W2 打开/新建工程编排
+  src/workflow/registration.cpp                   # W3 临时配准编排
   src/ui/paleomainwindow.cpp
-  src/ui/pages/pagepanels.cpp
+  src/ui/paleomainwindow_attach.cpp              # W4 接线按页拆分
+  src/ui/ribbonpanels.cpp                        # W4 ribbon 命令组构建迁出
+  src/ui/pages/datalist.cpp                        # W5 数据页·列表侧
+  src/ui/pages/entitypanel.cpp                     # W5 数据页·实体视图侧
+  src/ui/pages/datapage.cpp                        # W5 DataPage 兼容薄壳
+  src/ui/pages/predictpage.cpp                     # W5b ①智能预测
+  src/ui/pages/constraintpage.cpp                  # W5b ②约束与单因素
+  src/ui/pages/composepage.cpp                     # W5b ③综合编图
+  src/ui/pages/validatepage.cpp                    # W5b ④验证
   src/ui/locator/paleolocatorfilters.cpp
   src/ui/layoutdesignershell.cpp
   src/ui/maptools/paleomaptools.cpp
@@ -148,12 +163,13 @@ add_library(paleo_core STATIC
   src/ui/layout/layoutundostack.cpp
   # ---- wave/data-foundation (keep contiguous for parallel-package merges) ----
   src/catalog/datacatalog.cpp                    # entity/link/asset/version + catalog.json
-  src/io/projectclassifier.cpp                   # §3 path/extension classifier + xml sniff
+  src/domain/projectclassifier.cpp               # §3 path/extension classifier + xml sniff（W2 平移 domain）
   src/io/wellfileparsers.cpp                     # well head / tops / TD text parsers
   src/io/horizonbinner.cpp                       # horizon scatter -> binned time raster
   src/io/timedeptool.cpp                         # TVD/MD -> TIME(ms) interpolation
   src/io/geojsonaffine.cpp                       # D11 临时配准（手工仿射）
   src/ui/datapreview/datapreviewtabs.cpp         # §4 data-page preview tabs
+  src/ui/dialogs/folderconfirm.cpp               # W2 文件夹导入确认表（视图件）
   src/ui/webviewpanel.cpp                        # embedded web shell (lazy, degradable)
   # ---- wave/wellcomposite (ResFormStar multi-track composite column) ----
   src/ui/wellcomposite/wellcompositetrack.cpp
@@ -240,6 +256,17 @@ function(add_paleo_test name)
   set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endfunction()
 
+# ---- W6 层边界护栏（docs/UI_LAYER_PLAN.md）：include 归一化正向/反向扫描 +
+# QtWidgets 词表禁令 + 层标记硬检查；baseline 只缩不涨。selftest 单独成项——
+# 扫描器自身坏掉不能静默变绿。 ----
+find_program(PALEO_PYTHON3 NAMES python3 python)
+if(PALEO_PYTHON3)
+  add_test(NAME layering COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_layering.py)
+  add_test(NAME layering_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_layering.py --selftest)
+endif()
+
 add_paleo_test(tst_runtime)
 add_paleo_test(tst_projectsvc)
 add_paleo_test(tst_layerservice)
@@ -303,6 +330,13 @@ target_compile_definitions(tst_import PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_datapreview)
 target_compile_definitions(tst_datapreview PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+# ---- W7 新接缝测试（docs/UI_LAYER_PLAN.md）----
+add_paleo_test(tst_folderimport)
+target_compile_definitions(tst_folderimport PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_previewdoc)
+target_compile_definitions(tst_previewdoc PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_wellcomposite)
 add_paleo_test(tst_smoke_realdata) # real-data smoke; skips unless PALEO_REAL_PROJECT_AREA is set
@@ -415,7 +449,7 @@ target_compile_definitions(tst_relocate PRIVATE
 # 约定 / ONNX 期望网格（TODOS「第二工区参数化接缝」）。默认 = 本工区内置值，
 # 工程目录 project_area.json 可覆盖（docs/AREA_PARAMETERS.md）。
 target_sources(paleo_core PRIVATE
-  src/io/arearules.cpp                           # 参数装载 + 进程级 active 快照
+  src/domain/arearules.cpp                           # 参数装载 + 进程级 active 快照
 )
 add_paleo_test(tst_arearules)     # 默认等价 / 自定义生效 / 坏 JSON 拒用
 

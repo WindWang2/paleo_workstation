@@ -1,3 +1,4 @@
+// 层：视图
 #include "releasepanel.h"
 
 #include "../metadata/releasestore.h"

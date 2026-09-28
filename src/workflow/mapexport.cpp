@@ -1,10 +1,11 @@
+// 层：功能
 #include "mapexport.h"
 
 #include "../catalog/datacatalog.h"
 #include "../metadata/layermanifest.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprojectservice.h"
-#include "../ui/layout/layoutexportactions.h"
+#include "../qgis/layoutexport.h" // PaleoLayoutExport::exportLayout（QGIS 封装层导出核心）
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -289,10 +290,9 @@ QString exportHorizonMapPdf( QgisLayerService *layers, QgisProjectService *proje
   if ( !layout )
     return QString();
 
-  PaleoLayoutExportActions exports;
-  const auto outcome = exports.exportLayout( layout, outPath,
-                                             PaleoLayoutExportActions::Format::Pdf, 300.0,
-                                             PaleoLayoutExportActions::PageRange() );
+  const auto outcome = PaleoLayoutExport::exportLayout(
+      layout, outPath, PaleoLayoutExport::Format::Pdf, 300.0,
+      PaleoLayoutExport::PageRange() );
   delete layout;
   if ( !outcome.ok )
     return fail( outcome.error );

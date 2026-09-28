@@ -1,3 +1,4 @@
+// 层：视图
 #pragma once
 #include <SARibbon.h> // vendor/saribbon（MIT）——主窗是 SARibbonMainWindow
 #include <QString>
@@ -6,7 +7,8 @@
 #include <QVector>
 #include <functional>
 
-#include "../io/dataimportservice.h"   // FolderPreviewRow / FolderRowResult（T22 静态面）
+#include "../domain/importrows.h"   // FolderPreviewRow / FolderRowResult（T22 静态面，W2 下沉 domain）
+#include "../services/seismictaskservice.h" // m_seismicTaskSvc unique_ptr 需完整类型
 
 class QComboBox;
 class QDialog;
@@ -68,6 +70,10 @@ class MapVersionStore;
 class ProjectDataFacade;
 class DataCatalog;
 class DataImportService;
+class PreviewDocService;
+class FolderImportWorkflow;
+class ProjectOpenWorkflow;
+class RegistrationWorkflow;
 class SeismicMapLink;
 class QgisProcessingService;
 class QgisLayoutService;
@@ -142,37 +148,36 @@ class PaleoMainWindow : public SARibbonMainWindow
                        MapVersionStore *versionStore, ProjectDataFacade *projectData,
                        DataCatalog *catalog = nullptr);
 
+    // ---- W4 拆分段（实现在 paleomainwindow_attach.cpp）----
+    // attachWorkflows 入口只做幂等守卫 + 页创建 + 顺序编排；每页接线一段：
+    void attachDataPage(DataPage *dataPage, WellCorrelationPanel *corrPanel,
+                        DataImportService *importSvc, PaleoTaskService *taskSvc);
+    void attachPredictPage(PredictPage *predictPage, PredictionWorkflow *pred);
+    void attachConstraintPage(ConstraintPage *constraintPage, ConstraintWorkflow *constraint);
+    void attachComposePage(ComposePage *composePage, CompositionWorkflow *compose);
+    void attachValidatePage(ValidatePage *validatePage, ValidationWorkflow *validate,
+                            WellCorrelationPanel *corrPanel, DataImportService *importSvc);
+    // 壳面（locator/保存/底栏面板/处理算法/编辑条/图件设计）；返回编辑条
+    // 逻辑宿主供 buildRibbonPanels 镜像。
+    PaleoEditingToolbar *attachShellSurfaces(PaleoProjectStore *store,
+                                             QgisProcessingService *procSvc,
+                                             QgisEditingService *editSvc,
+                                             QgisLayoutService *layoutSvc,
+                                             PaleoTaskService *taskSvc);
+    // attachMapping 三段：发布门（m_refreshPublishGate 本体）→ 导出接线 →
+    // 版本状态机。
+    void attachMappingPublishGate(ComposePage *composePage, MapVersionController *versions,
+                                  MapVersionStore *versionStore, ProjectDataFacade *projectData,
+                                  DataCatalog *catalog);
+    void attachMappingExport(ComposePage *composePage, MappingWorkflow *mapping,
+                             MapVersionStore *versionStore, ProjectDataFacade *projectData,
+                             DataCatalog *catalog);
+    void attachMappingVersions(ComposePage *composePage, MapVersionController *versions);
+
     // ---- T22 文件夹确认表（静态面，tst_panels 直接驱动；runFolderImport 只
     // 负责选目录 + exec）----
-    // 类型下拉的稳定 label↔type 映射：label 只管显示，type 存 Qt::UserRole，
-    // 永不靠显示文本反推。词表 = 分类器实际输出集（含 tabular，无「tops」——
-    // 那是关联角色）+ reference 伪类型。
-    static QString folderTypeLabel(const QString &type);
-    // 行默认显示类型：HZ28-6-1 固定辅助 → 「参考」；「参考资料」目录内井类/
-    // 未判内容默认「参考」（可改）；其余行显示分类器原类型。
-    static QString folderRowDisplayType(const QString &path, const QString &classifiedType);
-    // 建确认表行（锁定行禁用下拉 + tooltip、跳过行灰显）；combosOut 收每行下拉。
-    static void populateFolderConfirmTable(
-        QTableWidget *table, const QString &rootDir,
-        const QVector<DataImportService::FolderPreviewRow> &rows,
-        QVector<QComboBox *> *combosOut);
-    // 覆盖收集：只看启用行；选中映射类型合法且不同于分类器原类型才成 override。
-    static QMap<QString, QString> collectFolderTypeOverrides(
-        const QTableWidget *table, const QVector<DataImportService::FolderPreviewRow> &rows,
-        const QVector<QComboBox *> &combos);
-    // 行结果写回（实体列 + 结果列）；Failed 且给了 onRetry → 结果列挂「重试」按钮。
-    static void writeFolderRowResult(QTableWidget *table, int row,
-                                     const DataImportService::FolderRowResult &res,
-                                     const std::function<void(int)> &onRetry);
-    // 汇总文案：「入库 n，未决 n，失败 n（，跳过 n）」——D3 保留第四计数。
-    static QString folderImportSummaryText(
-        const QVector<DataImportService::FolderRowResult> &rows);
-    // 确认对话框整体搭建（类型表 + CRS 说明句 + 确认/取消 + 行重试接线）。
-    // self 可为空（测试）；非空时用于文件夹导入期的预览抑制与井口标签打开。
-    static void buildFolderConfirmDialog(
-        QDialog *dlg, DataImportService *svc, const QString &dir,
-        const QVector<DataImportService::FolderPreviewRow> &preview,
-        PaleoMainWindow *self);
+    // 「导入工区文件夹」确认表的类型词表/行结果写回已下沉 ui/dialogs/
+    // folderconfirm.{h,cpp}（PaleoFolderConfirm 命名空间，W2）。
 
     seismic::SeismicSectionDockWidget *seismicSectionDock() const { return m_seismicSectionDock; }
     QDockWidget *seismic3dDock() const { return m_seismic3dDock; }
@@ -208,6 +213,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     void runFolderImport(DataImportService *svc);
     // 已知目录的入口变体（「从工区文件夹新建」复用同一确认框流程）。
     void runFolderImportAt(DataImportService *svc, const QString &dir);
+    // W2/W3 工作流懒建钩子（壳侧唯一持有点； nullptr 直至服务注入）。
+    FolderImportWorkflow *folderImportWorkflow();
+    ProjectOpenWorkflow *projectOpenWorkflow();
     // PROJECT_FILE_DESIGN：文件夹导入完成后把来源+统计回填 project.paleo
     // 的 sourceArea。只在「工程目录==导入目录」（从文件夹新建的工程）时写。
     void stampSourceArea(const QString &dir, const QVariantMap &stats);
@@ -252,6 +260,11 @@ class PaleoMainWindow : public SARibbonMainWindow
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
     DataImportService *m_importSvc = nullptr; // attachWorkflows 注入；启动页「从工区文件夹新建」用
+    // 壳唯一数据门面（W1）：dataPage 属性与 previewTabs 共用同一实例。
+    PreviewDocService *m_previewDoc = nullptr;
+    FolderImportWorkflow *m_folderImportWf = nullptr;   // W2 文件夹/单文件导入编排
+    ProjectOpenWorkflow *m_projectOpenWf = nullptr;     // W2 打开/新建工程编排
+    RegistrationWorkflow *m_registrationWf = nullptr;   // W3 临时配准编排
     // attachWorkflows 幂等守卫：该函数每次执行都清栈重建右栏页面、给底栏/
     // 状态栏加面板并往服务对象上叠信号连接，二次执行会重复建 dock/按钮并
     // 遗留悬空引用（后续用例段错误）。测试套件会二次触达同一窗口——

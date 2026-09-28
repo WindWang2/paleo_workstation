@@ -1,10 +1,11 @@
+// 层：视图
 #pragma once
 #include <QList>
 #include <QString>
 #include <QStringList>
 #include <QWidget>
 
-#include "../../io/lasparser.h"
+#include "../../io/lasdoc.h"   // LasCurve 数据模型（W1：解析走 services/previewdoc）
 
 class QLabel;
 class QTreeWidget;

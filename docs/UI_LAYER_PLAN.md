@@ -448,3 +448,18 @@ Native 评审全部事实核对通过（3237/2547/2875 行、27 处跨层 includ
 - 工程评审产出落盘：§8 架构图、§9 路径→测试图、§10 失效模式登记、§11 已存在资产、测试计划 artifact（~/.gstack/projects/paleo_workstation/*test-plan*.md）。
 - 修订 design 条目（实现计划已改，块原文保留此处声明替换）：folderimport 回调集在 confirmCb/retryCb/onShowUnresolved/onPreviewAsset/importActiveChanged 之外补 `import()` 批量入口；`domain/types.h`（AreaRule）改为 `domain/arearules.h` 整头平移。
 <!-- /autoplan-accepted:eng -->
+
+## Review record（W7.2 收口，wave/ui-layer-separation 落点）
+
+| 度量 | 前（c5532cf 基线） | 后 | 说明 |
+|------|--------------------|----|----|
+| `paleomainwindow.cpp` 行数 | 3386 | 1349 | ≤~2200 达标；attachWorkflows 按页拆入 `paleomainwindow_attach.cpp`（1270），ribbon 命令组入 `ribbonpanels.cpp`（445） |
+| 主窗 `../` 跨层 include | 27 | 0 黑名单命中 | paleomainwindow.cpp 内 28 处 `../` 全指向白名单目录（qgis/services/workflow/domain/linkage/metadata 门面头），io/* 清零 |
+| `pagepanels.cpp` | 3319 单文件 | 8 文件 | datalist/entitypanel/datapage(薄壳)+predict/constraint/compose/validate+pagepanels.h 聚合 |
+| `datapreviewtabs.cpp` `io/*` include | 8 | 0 | 全部经 `PreviewDocService` 门面 |
+| ui→`io/*` | — | 仅白名单 `io/lasdoc.h` 经门面头 | check_layering.py 机械执行 |
+| 非视图层→`ui/` | mapexport/threewaylocator/wellcompositexml/seismicmaplink | 0 | 信号化/类型下沉（entityview.h→catalog、wellcompositemodel→domain） |
+| ctest | 73 项 | 77 项全绿 | 新增 layering、layering_selftest、tst_folderimport、tst_previewdoc |
+
+验收命令：`cmake --build build` 全量通过；`QT_QPA_PLATFORM=offscreen ctest --test-dir build` 77/77；
+`./paleo-dev selfcheck` PASS；`tools/check_layering.py`/`--selftest` 绿。

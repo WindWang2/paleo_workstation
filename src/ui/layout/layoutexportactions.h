@@ -1,3 +1,4 @@
+// 层：视图
 #pragma once
 #include <QObject>
 #include <QPointer>
@@ -5,6 +6,8 @@
 #include <QStringList>
 
 #include <functional>
+
+#include "../../qgis/layoutexport.h" // Format/PageRange/ExportOutcome + 导出核心
 
 class QAction;
 class QStatusBar;
@@ -36,26 +39,11 @@ class PaleoLayoutExportActions : public QObject
 {
     Q_OBJECT
   public:
-    enum class Format { Png, Pdf, Svg };
-
-    // 0-based page selection, QGIS convention (page 0 = first page).
-    // fromPage/toPage are inclusive and clamped to the existing page count;
-    // a range that selects no pages at all is reported as an error.
-    struct PageRange
-    {
-        enum class Mode { All, Current, Range };
-        Mode mode = Mode::All;
-        int currentPage = 0; //!< used when mode == Current
-        int fromPage = 0;    //!< used when mode == Range (inclusive)
-        int toPage = 0;      //!< used when mode == Range (inclusive)
-    };
-
-    struct ExportOutcome
-    {
-        bool ok = false;
-        QString error;     //!< human-readable, empty on success
-        QStringList files; //!< files written: primary path first, then "_2".. siblings
-    };
+    // 导出核心类型已抽到 qgis/layoutexport.h（QGIS 封装层）；别名保留——
+    // 调用点（mapexport / tst_layoutexport / designer shell）写法不变。
+    using Format = PaleoLayoutExport::Format;
+    using PageRange = PaleoLayoutExport::PageRange;
+    using ExportOutcome = PaleoLayoutExport::ExportOutcome;
 
     explicit PaleoLayoutExportActions( QObject *parent = nullptr );
 

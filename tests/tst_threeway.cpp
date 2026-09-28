@@ -205,8 +205,24 @@ class TestThreeWay : public QObject
         // 画布为空 → zoomToPoint 跳过但井点目标仍被记录（lastMapPoint）。
         bottomTabs.addTab( &wellPanel, QStringLiteral( "连井剖面" ) );
 
-        ThreeWayLocator locator( nullptr, &wellPanel, &bottomTabs );
-        locator.attach( &page );
+        // 信号化后的接缝（W3b）：locator 不持有面板——壳侧语义在这里用
+        // 订阅信号复演（切底栏页签 + 滚到井分层）。
+        ThreeWayLocator locator( nullptr );
+        QObject::connect( &page, &ValidatePage::locateRequested, &locator,
+                          [&locator]( const QString &layerId, const QString &wkt,
+                                      const QVariantMap &payload ) {
+                          locator.locate( layerId, wkt, payload );
+                        } );
+        QObject::connect( &locator, &ThreeWayLocator::bottomTabFocusRequested,
+                          &bottomTabs, [&bottomTabs, &wellPanel]( const QString &tabId ) {
+                          if ( tabId == QLatin1String( "correlation" ) )
+                            bottomTabs.setCurrentWidget( &wellPanel );
+                        } );
+        QObject::connect( &locator, &ThreeWayLocator::correlationFocusRequested,
+                          &wellPanel, [&wellPanel]( const QString &wellId,
+                                                    const QString &horizon ) {
+                          wellPanel.scrollToWellTop( wellId, horizon );
+                        } );
 
         QSignalSpy spy( &page, &ValidatePage::locateRequested );
         page.populate();

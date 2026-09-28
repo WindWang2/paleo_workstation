@@ -1,20 +1,15 @@
+// 层：视图
 #include "datapreviewtabs.h"
 
 #include "../paleotheme.h" // DESIGN.md token 出口（mono 数字面共用）
 #include "../paleoicons.h" // 角落最大化/还原自绘图标
 
 #include "../../catalog/datacatalog.h"
-#include "../../io/dataimportservice.h"
-#include "../../io/arearules.h"
-#include "../../io/geojsonaffine.h"
-#include "../../io/lasparser.h"
-#include "../../io/segyreader.h"
-#include "../../io/segysectiongrid.h"
-#include "../../io/timedeptool.h"
-#include "../../io/wellfileparsers.h"
-#include "../../services/paleotaskservice.h"
-#include "../../services/seismictaskservice.h"
 #include "../../domain/seismic/nicestep.h"
+#include "../../domain/wellrecords.h"     // WellTopRecord/TimeDepthTable（domain 纯数据）
+#include "../../domain/sectiontrace.h"    // SegyTrace/SegySectionGrid（domain 纯数据）
+#include "../../io/lasdoc.h"              // LasCurve（白名单：数据模型）
+#include "../../services/previewdoc.h"    // 唯一数据门面——解析/解码/SHA/PDF 编排全经它（W1）
 #include "../seismic3d/seismic3dviewpanel.h"
 #include "../seismicsection/seismicsectioncanvas.h"
 #include "../wellcomposite/wellcompositepanel.h"
@@ -1123,82 +1118,7 @@ namespace
     QString m_tieLabel;
   };
 
-  void walkCoords(const QJsonArray &arr, double *minX, double *minY, double *maxX, double *maxY)
-  {
-    if (arr.isEmpty())
-      return;
-    if (arr.at(0).isArray())
-    {
-      for (const QJsonValue &v : arr)
-        walkCoords(v.toArray(), minX, minY, maxX, maxY);
-      return;
-    }
-    const double x = arr.at(0).toDouble();
-    const double y = arr.size() > 1 ? arr.at(1).toDouble() : 0.0;
-    *minX = qMin(*minX, x);
-    *maxX = qMax(*maxX, x);
-    *minY = qMin(*minY, y);
-    *maxY = qMax(*maxY, y);
-  }
 } // namespace
-
-// D1：外链 SHA-256 复验——与 DataCatalog::verifyExternalVersionSha 同语义的
-// 分块哈希，但可报字节进度并可协作取消（异步解码路径用；服务侧无此钩子）。
-// mismatched（可选出参）只在「摘要与入库值不符」时置真——读取失败/取消
-// 不是源被改的证据，调用方据此区分要不要标下游过时。
-static bool externalShaMatches(const QString &absPath, const QString &expected,
-                               PaleoTask *task, QString *error, bool *mismatched = nullptr)
-{
-  QFile f(absPath);
-  if (!f.open(QIODevice::ReadOnly))
-  {
-    if (error)
-      *error = QStringLiteral("无法读取源文件：%1").arg(absPath);
-    return false;
-  }
-  const qint64 total = f.size();
-  QCryptographicHash hash(QCryptographicHash::Sha256);
-  // 64KB chunks: a 1MB stack buffer overflows the default Windows thread
-  // stack when the preview runs on the QTest main thread.
-  char buf[64 << 10];
-  qint64 done = 0;
-  int sinceReport = 0;
-  for (;;)
-  {
-    const qint64 n = f.read(buf, sizeof(buf));
-    if (n < 0)
-    {
-      if (error)
-        *error = QStringLiteral("读取源文件失败：%1").arg(absPath);
-      return false;
-    }
-    if (n == 0)
-      break;
-    hash.addData(QByteArrayView(buf, static_cast<qsizetype>(n)));
-    done += n;
-    if (task && ++sinceReport >= 16) // ~16MB 粒度上报
-    {
-      sinceReport = 0;
-      task->reportBytes(done, total);
-      if (task->cancelRequested())
-      {
-        if (error)
-          *error = QStringLiteral("cancelled");
-        return false;
-      }
-    }
-  }
-  if (QString::fromLatin1(hash.result().toHex())
-          .compare(expected, Qt::CaseInsensitive) != 0)
-  {
-    if (error)
-      *error = QStringLiteral("源文件与入库时的 SHA-256 不一致");
-    if (mismatched)
-      *mismatched = true;
-    return false;
-  }
-  return true;
-}
 
 // T27 中文化：coordinate_status 枚举 → §4 计划文案。untransformed 用与
 // 状态栏/PDF 页脚同一句「工程坐标 · 米 · 未投影」；invalid/missing 用
@@ -1282,22 +1202,47 @@ DataPreviewTabs::~DataPreviewTabs() = default;
 
 void DataPreviewTabs::setImportService(DataImportService *svc)
 {
-  if (m_svc)
-    disconnect(m_svc, nullptr, this, nullptr);
+  // 自建门面（测试/小环境）；壳共享实例经 setDocService。
+  m_docOwned.reset(svc ? new PreviewDocService(svc) : nullptr);
+  attachDoc(m_docOwned.get());
+}
+
+void DataPreviewTabs::setDocService(PreviewDocService *doc)
+{
+  m_docOwned.reset();
+  attachDoc(doc);
+}
+
+void DataPreviewTabs::attachDoc(PreviewDocService *doc)
+{
+  if (m_doc)
+    disconnect(m_doc, nullptr, this, nullptr);
   if (m_catalogForTitles)
     disconnect(m_catalogForTitles, nullptr, this, nullptr);
-  m_svc = svc;
-  if (!m_svc)
+  m_catalogForTitles = nullptr;
+  m_doc = doc;
+  if (!m_doc)
     return;
+  if (m_taskSvc)
+    m_doc->setTaskService(m_taskSvc); // 接线顺序无关：后到的服务补进门面
   // 文档 PDF 转换完成/失败 → 重建该资产标签（「转换中」→ 预览或降级面）。
-  connect(m_svc, &DataImportService::documentPdfReady, this,
+  connect(m_doc, &PreviewDocService::documentPdfReady, this,
           [this](const QString &assetId) { rebuildAssetTab(assetId); });
-  connect(m_svc, &DataImportService::documentPdfFailed, this,
+  connect(m_doc, &PreviewDocService::documentPdfFailed, this,
           [this](const QString &assetId, const QString &) { rebuildAssetTab(assetId); });
+  // 测线解码结果（D1/T23）：陈旧结果已在服务内按世代号丢弃。
+  connect(m_doc, &PreviewDocService::seismicSectionReady, this,
+          &DataPreviewTabs::onSectionReady);
+  connect(m_doc, &PreviewDocService::seismicSectionFailed, this,
+          &DataPreviewTabs::onSectionFailed);
+  connect(m_doc, &PreviewDocService::seismicSectionCancelled, this,
+          [this](const QString &assetId) {
+            onSectionFailed(assetId, tr("已取消"));
+          });
   // B 包 staleness-lite：stale 标记可能来自其它标签的 sha 复验或上游版本
   // 取代——catalog 任一变更后重算已开标签的「过时」徽标（GUI 线程直连，
   // 不必重建标签）。换绑服务时先断旧 catalog（上面已断）。
-  m_catalogForTitles = m_svc->catalog();
+  m_catalogForTitles = m_doc->catalog();
   if (m_catalogForTitles)
     connect(m_catalogForTitles, &DataCatalog::changed, this, [this]() {
       for (auto it = m_pageOfAsset.constBegin(); it != m_pageOfAsset.constEnd(); ++it)
@@ -1308,13 +1253,8 @@ void DataPreviewTabs::setImportService(DataImportService *svc)
 void DataPreviewTabs::setTaskService(PaleoTaskService *svc)
 {
   m_taskSvc = svc;
-  if (m_taskSvc)
-  {
-    if (!m_seismicTaskSvc)
-      m_seismicTaskSvc = std::make_unique<seismic::SeismicTaskService>(m_taskSvc, 256, this);
-    else
-      m_seismicTaskSvc->setTaskService(m_taskSvc);
-  }
+  if (m_doc)
+    m_doc->setTaskService(svc);
 }
 
 void DataPreviewTabs::setProject(QgsProject *project)
@@ -1490,9 +1430,9 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
 
   // 构建工区边界 (QgsRubberBand)
   CatalogEntity survey;
-  if (m_svc && m_svc->catalog())
+  if (m_doc && m_doc->catalog())
   {
-    const auto surveys = m_svc->catalog()->entities(QStringLiteral("seismic_survey"));
+    const auto surveys = m_doc->catalog()->entities(QStringLiteral("seismic_survey"));
     if (!surveys.isEmpty())
       survey = surveys.first();
   }
@@ -1642,12 +1582,9 @@ void DataPreviewTabs::closeAssetTab(const QString &assetId)
   m_titleSuffixOfAsset.remove(assetId);
   // D1：标签关掉即释放该资产的索引缓存（持有文件句柄级状态）与世代号；
   // 进行中的解码任务请求取消——结果没人等了。
-  m_segyReaders.remove(assetId);
-  m_decodeSeq.remove(assetId);
-  m_shaVerified.remove(assetId);
-  if (auto *t = m_decodeTask.value(assetId).data(); t && t->running())
-    t->requestCancel();
-  m_decodeTask.remove(assetId);
+  if (m_doc)
+    m_doc->releaseSection(assetId);
+  m_pendingSection.remove(assetId);
   page->setParent(nullptr); // 摘出子树再推迟删除，关闭后 findChild 不再命中
   page->deleteLater();
   if (m_tabs->count() == 0)
@@ -1674,10 +1611,10 @@ bool DataPreviewTabs::relocateMissingSourceWith(const QString &assetId,
   // SHA 不一致的候选文件，不静默换源）。失败保留「找不到源文件」状态与按钮，
   // 错误就地可见，可换文件再试；成功清掉本会话的 SHA 已验缓存（新路径要在
   // 重建时重新过 §3 校验门）并重建标签加载真预览。
-  if (!m_svc || assetId.isEmpty())
+  if (!m_doc || assetId.isEmpty())
     return false;
   QString err;
-  const QString newVer = m_svc->relocateVersionSource(versionId, pickedPath, &err);
+  const QString newVer = m_doc->relocateVersionSource(versionId, pickedPath, &err);
   if (newVer.isEmpty())
   {
     QWidget *page = m_pageOfAsset.value(assetId);
@@ -1685,7 +1622,8 @@ bool DataPreviewTabs::relocateMissingSourceWith(const QString &assetId,
       lbl->setText(tr("找不到源文件\n重新定位失败：%1").arg(err));
     return false;
   }
-  m_shaVerified.remove(assetId);
+  if (m_doc)
+    m_doc->resetSha(assetId);
   rebuildAssetTab(assetId);
   return true;
 }
@@ -1704,7 +1642,7 @@ QWidget *DataPreviewTabs::failureState(const QString &assetId, const QString &re
 {
   // §4 失败态：「读取失败」+原因+文件名+「重试」。重试 = 重建该标签。
   const QString name =
-      m_svc ? m_svc->catalog()->assetById(assetId).displayName : assetId;
+      m_doc ? m_doc->catalog()->assetById(assetId).displayName : assetId;
   auto *box = new QWidget(parent);
   auto *l = new QVBoxLayout(box);
   l->setContentsMargins(0, 0, 0, 0);
@@ -1723,12 +1661,12 @@ QWidget *DataPreviewTabs::failureState(const QString &assetId, const QString &re
 void DataPreviewTabs::focusWellIfNeeded(const QString &assetId, QWidget *page)
 {
   Q_UNUSED(page);
-  if (!m_svc || assetId.isEmpty())
+  if (!m_doc || assetId.isEmpty())
     return;
   // §4：well_head 标签的选中井在地图上高亮。多井标签只报该标签已选中的井
   // ——没有选中就不报，绝不拿第一条链接糊弄（m_wellEntityOfAsset 在
   // 唯一已决井/下拉框选择时写入）。
-  const CatalogAsset asset = m_svc->catalog()->assetById(assetId);
+  const CatalogAsset asset = m_doc->catalog()->assetById(assetId);
   if (asset.type != QLatin1String("well_head"))
     return;
   const QString wellId = m_wellEntityOfAsset.value(assetId);
@@ -1746,7 +1684,7 @@ void DataPreviewTabs::updateTabTitle(const QString &assetId)
     return;
   // §4：标题是「文件名 · 井名」/「文件名 · 测线」；无过滤时只有文件名。
   QString title =
-      m_svc ? m_svc->catalog()->assetById(assetId).displayName : assetId;
+      m_doc ? m_doc->catalog()->assetById(assetId).displayName : assetId;
   if (title.isEmpty())
     title = assetId;
   const QString suffix = m_titleSuffixOfAsset.value(assetId);
@@ -1754,7 +1692,7 @@ void DataPreviewTabs::updateTabTitle(const QString &assetId)
     title += QStringLiteral(" · ") + suffix;
   // B 包 staleness-lite：资产当前版本被标 stale（上游 sha 失配/被取代）→
   // 标题带「过时」徽标——下游产物过期在数据页如实可见。
-  if (m_svc && m_svc->catalog()->currentVersion(assetId)
+  if (m_doc && m_doc->catalog()->currentVersion(assetId)
                    .extra.value(QStringLiteral("stale"))
                    .toBool())
     title += QStringLiteral(" · ") + tr("过时");
@@ -1764,7 +1702,7 @@ void DataPreviewTabs::updateTabTitle(const QString &assetId)
 void DataPreviewTabs::rebuildAssetTab(const QString &assetId)
 {
   QWidget *page = m_pageOfAsset.value(assetId);
-  if (!page || !m_svc)
+  if (!page || !m_doc)
     return;
   auto *pageLay = qobject_cast<QVBoxLayout *>(page->layout());
   if (!pageLay)
@@ -1780,7 +1718,7 @@ void DataPreviewTabs::rebuildAssetTab(const QString &assetId)
     }
     delete it;
   }
-  const QString name = m_svc->catalog()->assetById(assetId).displayName;
+  const QString name = m_doc->catalog()->assetById(assetId).displayName;
   QLabel *loading = loadingLabel(name.isEmpty() ? assetId : name, page);
   pageLay->addWidget(loading, 1);
   loading->repaint(); // 「正在读取」先可见，随后同步读
@@ -1792,7 +1730,7 @@ void DataPreviewTabs::rebuildAssetTab(const QString &assetId)
 
 void DataPreviewTabs::openAsset(const QString &assetId)
 {
-  if (!m_svc || assetId.isEmpty())
+  if (!m_doc || assetId.isEmpty())
     return;
   if (QWidget *existing = m_pageOfAsset.value(assetId))
   {
@@ -1801,7 +1739,7 @@ void DataPreviewTabs::openAsset(const QString &assetId)
     return;
   }
 
-  const QString displayName = m_svc->catalog()->assetById(assetId).displayName;
+  const QString displayName = m_doc->catalog()->assetById(assetId).displayName;
   QWidget *page = new QWidget(this);
   auto *pageLay = new QVBoxLayout(page);
   pageLay->setContentsMargins(8, 8, 8, 8);
@@ -1825,13 +1763,13 @@ void DataPreviewTabs::openAsset(const QString &assetId)
 
 void DataPreviewTabs::openAssetForWell(const QString &assetId, const QString &wellId)
 {
-  if (!m_svc || assetId.isEmpty())
+  if (!m_doc || assetId.isEmpty())
     return;
   if (!wellId.isEmpty())
   {
     m_wellEntityOfAsset[assetId] = wellId;
-    if (m_svc->catalog())
-      m_titleSuffixOfAsset[assetId] = m_svc->catalog()->entityById(wellId).name;
+    if (m_doc->catalog())
+      m_titleSuffixOfAsset[assetId] = m_doc->catalog()->entityById(wellId).name;
   }
   openAsset(assetId);
   QWidget *page = m_pageOfAsset.value(assetId);
@@ -1874,13 +1812,13 @@ void DataPreviewTabs::openSeismicLine(const QString &assetId, const QString &kin
 QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 {
   Q_UNUSED(page);
-  DataCatalog *cat = m_svc->catalog();
+  DataCatalog *cat = m_doc->catalog();
   const CatalogAsset asset = cat->assetById(assetId);
   if (asset.id.isEmpty())
     return nullptr;
   const CatalogVersion v = cat->currentVersion(assetId);
   CatalogVersion sourceVersion = v; // abs 实际对应的版本（文档标签锚回 RAW 原件）
-  QString abs = m_svc->absolutePathForVersion(v);
+  QString abs = m_doc->absolutePathForVersion(v);
   // 文档资产：RAW 原件是规范来源——currentVersion 可能已指向 DERIVED
   // PDF 转换件，缺失检查与「用系统程序打开」必须锚在原件上。
   if (asset.type == QLatin1String("document"))
@@ -1888,7 +1826,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       if (cv.stage == QLatin1String("RAW"))
       {
         sourceVersion = cv;
-        abs = m_svc->absolutePathForVersion(cv);
+        abs = m_doc->absolutePathForVersion(cv);
         break;
       }
 
@@ -1932,7 +1870,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   if (abs.isEmpty() || !QFile::exists(abs))
   {
     lay->addWidget(stateLabel(tr("找不到源文件\n%1").arg(abs.isEmpty() ? v.path : abs), host), 1);
-    if (!sourceVersion.managed && m_svc)
+    if (!sourceVersion.managed && m_doc)
     {
       auto *btn = new QPushButton(tr("重新定位文件…"), host);
       btn->setObjectName(QStringLiteral("relocateBtn"));
@@ -1952,26 +1890,17 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   // 正文如实写「源文件与入库时的 SHA-256 不一致」。
   // D1：地震资产接了任务服务时把这道哈希移交异步解码任务——体量大不该堵
   // 住建标签；其它资产类型文件小，保留同步门（会话已验过的资产直接跳过）。
+  // 托管/无指纹/本会话已验的短路、失配后的下游标过时都在门面里。
   const bool deferShaToTask =
-      m_taskSvc && asset.type == QLatin1String("seismic");
-  if (!sourceVersion.managed && !sourceVersion.sha256.isEmpty() &&
-      !m_shaVerified.value(assetId) && !deferShaToTask)
+      m_doc->taskService() && asset.type == QLatin1String("seismic");
+  if (!deferShaToTask)
   {
     QString verr;
-    if (!cat->verifyExternalVersionSha(sourceVersion, &verr))
+    if (!m_doc->verifyExternalSha(assetId, sourceVersion, &verr))
     {
-      // B 包 staleness-lite：外链源字节与入库时不一致 ⇒ 下游闭包里的
-      // DERIVED 产物输入失效，如实标过时（幂等；GUI 线程直调，与 catalog
-      // 线程纪律一致）。标记失败只记日志——复验拒解码的门不受影响。
-      QString markErr;
-      if (!cat->markDownstreamStale(sourceVersion.id,
-                                    QStringLiteral("上游外链版本 sha 校验失败"),
-                                    &markErr))
-        qWarning() << "markDownstreamStale:" << markErr;
       lay->addWidget(stateLabel(verr, host), 1);
       return host;
     }
-    m_shaVerified.insert(assetId, true);
   }
 
   if (asset.type == QLatin1String("well_log") && !auxOnly)
@@ -1988,7 +1917,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     QStringList names;
     QList<LasCurve> curves;
     QString perr;
-    if (!LasParser::parse(abs, names, curves, &perr))
+    if (!m_doc->lasAt(abs, &names, &curves, &perr))
     {
       lay->addWidget(failureState(assetId, perr, host), 1);
       return host;
@@ -2270,13 +2199,11 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         {
           CatalogAsset topsAsset = cat->assetById(lk.assetId);
           CatalogVersion topsVer = cat->currentVersion(lk.assetId);
-          QString topsPath = m_svc->absolutePathForVersion(topsVer);
-          if (QFile::exists(topsPath))
+          QString topsPath = m_doc->absolutePathForVersion(topsVer);
           {
-            QFile tf(topsPath);
-            if (tf.open(QIODevice::ReadOnly))
+            QVector<WellTopRecord> tops;
+            if (!topsPath.isEmpty() && m_doc->wellTopsAt(topsPath, &tops))
             {
-              const QVector<WellTopRecord> tops = parseWellTopsText(tf.readAll());
               const QString normWell = DataCatalog::normalizeWellName(wells.isEmpty() ? QString() : wells.front().second);
               QVector<WellTopRecord> wellTops;
               for (const auto &tr : tops)
@@ -2532,101 +2459,12 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     const CatalogEntity survey =
         surveyId.isEmpty() ? CatalogEntity() : cat->entityById(surveyId);
 
-    // ---- 标定井：catalog 序第一口有 D61 分层的井（§3/阶段 B）。----
-    // 分层点有坐标用分层点，没有退回井口；TD 表取该井已决 time_depth 关联。
-    QString tieWellId, tieWellName;
-    WellTopRecord tieTop;
-    bool haveTieTop = false;
-    double tieX = 0.0, tieY = 0.0;
-    bool tieHasCoords = false;
-    {
-      // 先按资产把各井的 D61 行收集起来（多井文件解析一次就好）。
-      QHash<QString, WellTopRecord> d61ByNorm;
-      for (const CatalogAsset &a : cat->assets())
-      {
-        if (a.type != QLatin1String("well_stratification"))
-          continue;
-        const CatalogVersion tv = cat->currentVersion(a.id);
-        const QString p = tv.id.isEmpty() ? QString() : m_svc->absolutePathForVersion(tv);
-        if (p.isEmpty() || !QFile::exists(p))
-          continue;
-        QFile f(p);
-        if (!f.open(QIODevice::ReadOnly))
-          continue;
-        for (const WellTopRecord &t : parseWellTopsText(f.readAll()))
-        {
-          if (t.topName != AreaRules::active().targetHorizon)
-            continue;
-          const QString norm = DataCatalog::normalizeWellName(t.wellName);
-          if (!norm.isEmpty() && !d61ByNorm.contains(norm))
-            d61ByNorm.insert(norm, t);
-        }
-      }
-      for (const CatalogEntity &w : cat->entities(QStringLiteral("well")))
-      {
-        const auto it = d61ByNorm.constFind(DataCatalog::normalizeWellName(w.name));
-        if (it == d61ByNorm.constEnd())
-          continue;
-        tieWellId = w.id;
-        tieWellName = w.name;
-        tieTop = *it;
-        haveTieTop = true;
-        if (it->hasX && it->hasY)
-        {
-          tieX = it->x;
-          tieY = it->y;
-          tieHasCoords = true;
-        }
-        else if (w.hasSurface)
-        {
-          tieX = w.surfaceX;
-          tieY = w.surfaceY;
-          tieHasCoords = true;
-        }
-        break;
-      }
-    }
-    TimeDepthTable tieTd;
-    if (haveTieTop)
-      for (const EntityAssetLink &l : cat->linksForEntity(tieWellId))
-      {
-        if (l.role != QLatin1String("time_depth") || l.unresolved || !l.isPrimary)
-          continue;
-        const CatalogVersion tv = cat->currentVersion(l.assetId);
-        const QString p = tv.id.isEmpty() ? QString() : m_svc->absolutePathForVersion(tv);
-        QFile f(p);
-        if (!p.isEmpty() && f.open(QIODevice::ReadOnly))
-          tieTd = parseTimeDepthText(f.readAll());
-        break; // 主关联只有一条
-      }
-
-    // 标定线：D61 分层深度经 TD 表换成 ms；失败原因如实写，绝不造时间。
-    // 分层点 TVD 空时改用 MD（§3）；两者皆空 → 留默认 NoTable「无时深表」。
-    TimeDepthTool::TdResult tie;
-    if (haveTieTop && (tieTop.hasTvd || tieTop.hasMd))
-    {
-      const bool useMd = !tieTop.hasTvd;
-      const double depth = tieTop.hasTvd ? tieTop.tvd : tieTop.md;
-      tie = TimeDepthTool::interpolateTimeMs(tieTd, depth, useMd);
-    }
-
-    // 初始测线：标定井所在 inline（survey 角点线性内插；判不出回 min，§4/§7）。
-    int initialInline = -1;
-    if (tieHasCoords && survey.corners.size() == 4 && survey.inlineMax > survey.inlineMin)
-    {
-      // corners 序：(inlMin,xlMin) (inlMin,xlMax) (inlMax,xlMax) (inlMax,xlMin)。
-      const double yAtMin =
-          (survey.corners.at(0).second + survey.corners.at(1).second) * 0.5;
-      const double yAtMax =
-          (survey.corners.at(2).second + survey.corners.at(3).second) * 0.5;
-      if (yAtMax != yAtMin)
-      {
-        const double f = (tieY - yAtMin) / (yAtMax - yAtMin);
-        const int inl = qRound(survey.inlineMin + f * (survey.inlineMax - survey.inlineMin));
-        if (inl >= survey.inlineMin && inl <= survey.inlineMax)
-          initialInline = inl;
-      }
-    }
+    // ---- 标定井：catalog 序第一口有目标层位分层的井 + 主 time_depth 表插值
+    // + 初始测线内插——派生量全在数据门面一次算好（§3/阶段 B 口径不变）。----
+    const PreviewDocService::TieMarker tie = m_doc->seismicTieMarker(assetId);
+    const bool haveTieTop = tie.haveTop;
+    const QString tieWellName = tie.wellName;
+    const int initialInline = tie.initialInline;
 
     auto *bar = new QWidget(host);
     auto *barLay = new QHBoxLayout(bar);
@@ -2651,153 +2489,39 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     if (haveTieTop)
     {
       // 标定写「A1 D61」和时间，或「无时深表」「超出时深表」「时深表无序」之一。
-      const QString tieHorizon = AreaRules::active().targetHorizon;
-      if (tie.ok())
+      if (tie.ok)
         tieCaption->setText(
-            tr("%1 %2 · %3 ms").arg(tieWellName, tieHorizon).arg(tie.timeMs, 0, 'f', 1));
+            tr("%1 %2 · %3 ms").arg(tieWellName, tie.horizon).arg(tie.timeMs, 0, 'f', 1));
       else
         tieCaption->setText(
-            tr("%1 %2 · %3").arg(tieWellName, tieHorizon,
-                                 TimeDepthTool::reasonText(tie.status)));
+            tr("%1 %2 · %3").arg(tieWellName, tie.horizon, tie.statusText));
     }
-    const auto decode = [this, assetId, abs, survey, mode, no, panel, tieCaption, v,
-                         haveTieTop, tie, tieWellName]() {
+    const auto decode = [this, assetId, abs, v, mode, no, panel, tieCaption]() {
       panel->clearImage(); // 换测线先清掉上一张剖面（§4）
       const QString idxTip = tr("正在建立道索引");
       mode->setEnabled(false);
       no->setEnabled(false);
       mode->setToolTip(idxTip);
       no->setToolTip(idxTip);
-      const auto restore = [mode, no]() {
-        mode->setEnabled(true);
-        no->setEnabled(true);
-        mode->setToolTip(QString());
-        no->setToolTip(QString());
-      };
       const bool isInline = mode->currentData().toString() == QLatin1String("inline");
       const int lineNo = no->value();
 
-      // D1：新解码请求取消同资产仍在跑的任务——其结果反正按世代号丢弃。
-      const int seq = ++m_decodeSeq[assetId];
-      if (auto *old = m_decodeTask.value(assetId).data();
-          old && old->running())
-        old->requestCancel();
-
-      // worker 产出（跨线程交接，GUI 只读 finished 后的快照）。
-      struct DecodeOut
-      {
-        std::shared_ptr<SegyReader> opened; // worker 新建索引时填（回填缓存）
-        QVector<SegyTrace> line;
-        float sampleIntervalUs = 0.0f;
-        double startTimeMs = 0.0;
-      };
-      auto out = std::make_shared<DecodeOut>();
-      const std::shared_ptr<SegyReader> cachedReader = m_segyReaders.value(assetId);
-      const bool needSha =
-          !v.managed && !v.sha256.isEmpty() && !m_shaVerified.value(assetId);
-      const QString sha = v.sha256;
-      // B 包 staleness-lite：sha 是否失配由 worker 判定（bool 经 shared_ptr
-      // 交接），回 GUI 线程再碰 catalog——下游标记的线程纪律与库内一致。
-      const QString staleSeedId = v.id;
-      const auto shaMismatch = std::make_shared<bool>(false);
-
-      // T23+D1：索引/SHA 每资产一次（缓存命中即跳过）；道索引与测线解码
-      // 在任务池执行并回报字节进度/ETA；任务可协作取消。
-      const auto work = [abs, isInline, lineNo, needSha, sha, cachedReader,
-                         out, shaMismatch](PaleoTask *t) -> QString {
-        std::shared_ptr<SegyReader> reader = cachedReader;
-        SegyOptions opts;
-        if (t)
-        {
-          opts.progress = [t](qint64 d, qint64 tot) { t->reportBytes(d, tot); };
-          opts.cancel = [t]() { return t->cancelRequested(); };
-        }
-        if (!reader)
-        {
-          // §3：外链源入库时留过 SHA-256——解码前照它再验一遍（文件可能在
-          // 标签打开后被改动）。不一致就只写原因，不解码。
-          if (needSha)
-          {
-            QString serr;
-            if (!externalShaMatches(abs, sha, t, &serr, shaMismatch.get()))
-              return (t && t->cancelRequested()) ? QString() : serr;
-          }
-          reader = std::make_shared<SegyReader>();
-          QString err;
-          if (!reader->open(abs, &err, &opts))
-            return (t && t->cancelRequested())
-                       ? QString()
-                       : (err.isEmpty() ? QStringLiteral("无法打开文件") : err);
-          out->opened = reader;
-        }
-        QString err;
-        const bool ok =
-            isInline ? reader->readInline(lineNo, &out->line, &err, &opts)
-                     : reader->readCrossline(lineNo, &out->line, &err, &opts);
-        if (!ok && !(t && t->cancelRequested()))
-          return err.isEmpty() ? QStringLiteral("无法解码测线") : err;
-        out->sampleIntervalUs = reader->sampleIntervalUs();
-        out->startTimeMs = reader->geometry().startTimeMs;
-        return QString();
-      };
-
-      const auto apply = [this, assetId, seq, isInline, lineNo, out, panel,
-                          mode, no, tieCaption, haveTieTop, tie, restore,
-                          staleSeedId, shaMismatch](PaleoTask::State st,
-                                                    const QString &errText) {
-        if (seq != m_decodeSeq.value(assetId))
-          return; // 陈旧结果丢弃：更新一代 decode 已接管控件
-        if (st == PaleoTask::State::Succeeded)
-        {
-          if (out->opened)
-            m_segyReaders.insert(assetId, out->opened);
-          m_shaVerified.insert(assetId, true);
-          panel->setTraces(out->line, out->sampleIntervalUs, out->startTimeMs);
-          if (haveTieTop && tie.ok())
-            panel->setTieMarker(tieCaption->text(), tie.timeMs);
-          // 标题后缀：「文件名 · IL1315」/「文件名 · XL4165」（§4）。
-          m_titleSuffixOfAsset[assetId] =
-              (isInline ? QStringLiteral("IL") : QStringLiteral("XL")) +
-              QString::number(lineNo);
-          updateTabTitle(assetId);
-        }
-        else if (st == PaleoTask::State::Failed)
-        {
-          // sha 失配（worker 判定）：下游 DERIVED 如实标过时——GUI 线程
-          // 直调、幂等；读取失败/取消/纯解码失败不产标（非源被改的证据）。
-          if (*shaMismatch && !staleSeedId.isEmpty() && m_svc)
-          {
-            QString markErr;
-            if (!m_svc->catalog()->markDownstreamStale(
-                    staleSeedId,
-                    QStringLiteral("上游外链版本 sha 校验失败"), &markErr))
-              qWarning() << "markDownstreamStale:" << markErr;
-          }
-          // 解码失败如实写原因（§4），不装成灰 1×1。
-          panel->setError(errText.isEmpty() ? tr("无法解码测线") : errText);
-        }
-        else
-          panel->setError(tr("已取消"));
-        restore();
-      };
-
-      if (m_taskSvc)
-      {
-        auto *task = m_taskSvc->start(
-            tr("解码剖面 %1").arg(QFileInfo(abs).fileName()), work);
-        m_decodeTask[assetId] = task;
-        connect(task, &PaleoTask::finished, panel,
-                [apply, task]() { apply(task->state(), task->errorText()); });
-      }
-      else
-      {
-        // 无任务服务（测试/小环境）：同步旧路径，行为与接线前一致。
-        const QString err = work(nullptr);
-        apply(err.isEmpty() ? PaleoTask::State::Succeeded
-                            : PaleoTask::State::Failed,
-              err);
-      }
+      // D1/T23：读者缓存/世代号/协作取消/SHA 复验/下游标过时全在门面——
+      // 这里只挂起控件组（结果信号回来按 assetId 找回控件贴图）。
+      SectionPending pend;
+      pend.panel = panel;
+      pend.mode = mode;
+      pend.spin = no;
+      pend.tieCaption = tieCaption;
+      pend.tieText = tieCaption->text();
+      const PreviewDocService::TieMarker tieNow = m_doc->seismicTieMarker(assetId);
+      pend.hasTie = tieNow.haveTop && tieNow.ok;
+      pend.tieMs = tieNow.timeMs;
+      m_pendingSection[assetId] = pend;
+      m_doc->requestSection(assetId, v.id, abs, v.managed, v.sha256,
+                            isInline, lineNo);
     };
+
     connect(mode, &QComboBox::currentIndexChanged, host, [mode, no, survey, decode]() {
       const bool isInline = mode->currentData().toString() == QLatin1String("inline");
       no->setRange(isInline ? static_cast<int>(survey.inlineMin) : static_cast<int>(survey.xlineMin),
@@ -2899,8 +2623,8 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     const auto loadVolumeIfNeeded = [this, sharedVol, panel3d, sliderTime, spinTime, abs]() {
       if (*sharedVol == nullptr && !abs.isEmpty() && QFile::exists(abs))
       {
-        if (m_seismicTaskSvc)
-          panel3d->setTaskService(m_seismicTaskSvc.get());
+        if (m_doc && m_doc->seismicTaskService())
+          panel3d->setTaskService(m_doc->seismicTaskService());
         auto vol = std::make_shared<seismic::SgyVolume>();
         std::string volErr;
         if (vol->Load(abs.toStdString(), volErr))
@@ -3021,17 +2745,17 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     QString pdfAbs;
     if (asset.format == QLatin1String("pdf"))
       pdfAbs = abs;
-    else if (m_svc)
+    else if (m_doc)
     {
-      m_svc->ensureDocumentPdf(assetId);
-      switch (m_svc->documentPdfState(assetId))
+      m_doc->ensureDocumentPdf(assetId);
+      switch (m_doc->documentPdfState(assetId))
       {
-        case DataImportService::DocPdfState::Ready:
-          pdfAbs = m_svc->documentPdfPath(assetId);
+        case PreviewDocService::DocPdfState::Ready:
+          pdfAbs = m_doc->documentPdfPath(assetId);
           break;
-        case DataImportService::DocPdfState::Failed:
+        case PreviewDocService::DocPdfState::Failed:
           lay->addWidget(
-              stateLabel(tr("无 PDF 预览：%1").arg(m_svc->documentPdfError(assetId)),
+              stateLabel(tr("无 PDF 预览：%1").arg(m_doc->documentPdfError(assetId)),
                          host),
               1);
           break;
@@ -3068,33 +2792,23 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   if (asset.type == QLatin1String("geojson") ||
       (asset.type == QLatin1String("boundary") && asset.displayName.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive)))
   {
-    QFile f(abs);
-    if (!f.open(QIODevice::ReadOnly))
+    QJsonDocument doc;
+    QString gerr;
+    if (!m_doc->geoJsonDocumentAt(abs, &doc, &gerr))
     {
-      lay->addWidget(failureState(assetId, f.errorString(), host), 1);
-      return host;
-    }
-    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
-    if (!doc.isObject())
-    {
-      lay->addWidget(failureState(assetId, tr("GeoJSON 解析失败"), host), 1);
+      lay->addWidget(failureState(assetId, gerr, host), 1);
       return host;
     }
     const QJsonArray features = doc.object().value(QStringLiteral("features")).toArray();
-    double minX = std::numeric_limits<double>::max(), minY = minX;
-    double maxX = std::numeric_limits<double>::lowest(), maxY = maxX;
     QStringList propKeys;
     for (const QJsonValue &fv : features)
     {
-      const QJsonObject feature = fv.toObject();
-      const QJsonObject props = feature.value(QStringLiteral("properties")).toObject();
+      const QJsonObject props = fv.toObject()
+                                    .value(QStringLiteral("properties"))
+                                    .toObject();
       for (auto it = props.begin(); it != props.end(); ++it)
         if (!propKeys.contains(it.key()))
           propKeys.append(it.key());
-      walkCoords(feature.value(QStringLiteral("geometry")).toObject()
-                     .value(QStringLiteral("coordinates"))
-                     .toArray(),
-                 &minX, &minY, &maxX, &maxY);
     }
 
     // 寻找沉积相分类字段候选 (相、亚相、微相、facies 等)
@@ -3305,7 +3019,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     connect(regBtn, &QPushButton::clicked, this, [this, assetId, abs]() {
       double srcB[4];
       QString berr;
-      if (!geoJsonBounds(abs, srcB, &berr))
+      if (!m_doc->geoJsonBounds(abs, srcB, &berr))
       {
         warnLabel(tr("读不出坐标范围：%1").arg(berr), m_tabs);
         return;
@@ -3357,19 +3071,14 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       dstLbl->setWordWrap(true);
       dstLbl->setStyleSheet(QStringLiteral("color: #5D6E80;"));
       form->addRow(dstLbl);
-      const auto refreshDst = [srcB, tx, ty, sx, sy, rot, dstLbl]() {
-        GeoAffineParams p{tx->value(), ty->value(), sx->value(), sy->value(),
-                          rot->value()};
-        double lo[2] = {1e30, 1e30}, hi[2] = {-1e30, -1e30};
-        for (int i = 0; i < 4; ++i)
-        {
-          double ox, oy;
-          geoAffineApply(p, srcB[i % 2 == 0 ? 0 : 2], srcB[i < 2 ? 1 : 3], &ox, &oy);
-          lo[0] = qMin(lo[0], ox);
-          hi[0] = qMax(hi[0], ox);
-          lo[1] = qMin(lo[1], oy);
-          hi[1] = qMax(hi[1], oy);
-        }
+      const auto refreshDst = [this, srcB, tx, ty, sx, sy, rot, dstLbl]() {
+        const QVariantMap p{{QStringLiteral("tx"), tx->value()},
+                            {QStringLiteral("ty"), ty->value()},
+                            {QStringLiteral("sx"), sx->value()},
+                            {QStringLiteral("sy"), sy->value()},
+                            {QStringLiteral("rotDeg"), rot->value()}};
+        double lo[2], hi[2];
+        m_doc->affinePreviewBounds(srcB, p, lo, hi);
         dstLbl->setText(tr("变换后范围：X %1–%2 · Y %3–%4")
                             .arg(QString::number(lo[0], 'f', 1),
                                  QString::number(hi[0], 'f', 1),
@@ -3605,10 +3314,10 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
 
   if (asset.type == QLatin1String("well_stratification"))
   {
-    QFile f(absPath);
-    if (!f.open(QIODevice::ReadOnly))
-      return failureState(asset.id, f.errorString(), parent);
-    const QVector<WellTopRecord> tops = parseWellTopsText(f.readAll());
+    QVector<WellTopRecord> tops;
+    QString werr;
+    if (!m_doc->wellTopsAt(absPath, &tops, &werr))
+      return failureState(asset.id, werr, parent);
     auto *holder = new QWidget(parent);
     auto *hl = new QVBoxLayout(holder);
     hl->setContentsMargins(0, 0, 0, 0);
@@ -3649,10 +3358,10 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
 
   if (asset.type == QLatin1String("time_depth"))
   {
-    QFile f(absPath);
-    if (!f.open(QIODevice::ReadOnly))
-      return failureState(asset.id, f.errorString(), parent);
-    const TimeDepthTable td = parseTimeDepthText(f.readAll());
+    TimeDepthTable td;
+    QString terr;
+    if (!m_doc->timeDepthAt(absPath, &td, &terr))
+      return failureState(asset.id, terr, parent);
     QVector<double> tvds, times;
     for (const TdRow &r : td.rows)
     {
@@ -3672,10 +3381,10 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
 
   if (asset.type == QLatin1String("well_head"))
   {
-    QFile f(absPath);
-    if (!f.open(QIODevice::ReadOnly))
-      return failureState(asset.id, f.errorString(), parent);
-    const QVector<WellHeadRecord> rows = parseWellHeadText(f.readAll());
+    QVector<WellHeadRecord> rows;
+    QString herr;
+    if (!m_doc->wellHeadsAt(absPath, &rows, &herr))
+      return failureState(asset.id, herr, parent);
     auto *holder = new QWidget(parent);
     auto *hl = new QVBoxLayout(holder);
     hl->setContentsMargins(0, 0, 0, 0);
@@ -3724,7 +3433,7 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
     const QString status =
         wellEntityId.isEmpty()
             ? QString()
-            : m_svc->catalog()->entityById(wellEntityId).coordinateStatus;
+            : m_doc->catalog()->entityById(wellEntityId).coordinateStatus;
     // T27：坐标状态行中文化 + text-muted（计划 §4：这些状态仍用 #5D6E80）。
     addRow(tr("坐标状态"), coordinateStatusText(status), false, true);
     hl->addWidget(info);
@@ -3734,4 +3443,53 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
   }
 
   return stateLabel(tr("先选择一口井"), parent); // 兜底（不可达）
+}
+
+// ---- 测线解码结果应用（PreviewDocService 信号 → 挂起控件组）----
+// 陈旧结果与 SHA 标过时都在服务内做完；这里只把最新一代贴上控件。
+void DataPreviewTabs::onSectionReady(const QString &assetId,
+                                     const PreviewDocService::SectionDoc &doc)
+{
+  const SectionPending pend = m_pendingSection.value(assetId);
+  if (!pend.panel)
+    return;
+  // SectionPanel 是本 cpp 内聚的预览控件——挂起时存的是它。
+  auto *sp = static_cast<SectionPanel *>(pend.panel.data());
+  sp->setTraces(doc.traces, doc.sampleIntervalUs, doc.startTimeMs);
+  if (pend.hasTie)
+    sp->setTieMarker(pend.tieText, pend.tieMs);
+  // 标题后缀：「文件名 · IL1315」/「文件名 · XL4165」（§4）。
+  m_titleSuffixOfAsset[assetId] =
+      (doc.isInline ? QStringLiteral("IL") : QStringLiteral("XL")) +
+      QString::number(doc.lineNo);
+  updateTabTitle(assetId);
+  if (pend.mode)
+  {
+    pend.mode->setEnabled(true);
+    pend.mode->setToolTip(QString());
+  }
+  if (pend.spin)
+  {
+    pend.spin->setEnabled(true);
+    pend.spin->setToolTip(QString());
+  }
+}
+
+void DataPreviewTabs::onSectionFailed(const QString &assetId,
+                                      const QString &reason)
+{
+  const SectionPending pend = m_pendingSection.value(assetId);
+  if (auto *sp = static_cast<SectionPanel *>(
+          pend.panel ? pend.panel.data() : nullptr))
+    sp->setError(reason.isEmpty() ? tr("无法解码测线") : reason); // §4：如实写，不装灰图
+  if (pend.mode)
+  {
+    pend.mode->setEnabled(true);
+    pend.mode->setToolTip(QString());
+  }
+  if (pend.spin)
+  {
+    pend.spin->setEnabled(true);
+    pend.spin->setToolTip(QString());
+  }
 }

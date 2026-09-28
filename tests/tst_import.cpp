@@ -13,7 +13,7 @@
 #include "../src/io/geojsonaffine.h"
 #include "../src/io/ingestplan.h"
 #include "../src/io/lasparser.h"
-#include "../src/io/projectclassifier.h"
+#include "../src/domain/projectclassifier.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/qgislayerservice.h"

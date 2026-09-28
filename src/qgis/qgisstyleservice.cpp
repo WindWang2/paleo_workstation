@@ -1,3 +1,4 @@
+// 层：QGIS 封装
 #include "qgisstyleservice.h"
 
 #include <QDir>

@@ -1,3 +1,4 @@
+// 层：QGIS 封装
 #include "qgisruntime.h"
 
 #include <QCoreApplication>

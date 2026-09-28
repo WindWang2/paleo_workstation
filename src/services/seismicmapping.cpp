@@ -1,3 +1,4 @@
+// 层：数据
 #include "seismicmapping.h"
 
 #include <QHash>

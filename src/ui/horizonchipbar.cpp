@@ -1,3 +1,4 @@
+// 层：视图
 #include "horizonchipbar.h"
 
 #include "../domain/mappinghorizons.h"

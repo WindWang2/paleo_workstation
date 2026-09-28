@@ -1,3 +1,4 @@
+// 层：功能
 #include "selectioncontext.h"
 
 // §41.3 — the single selection broadcast hub.

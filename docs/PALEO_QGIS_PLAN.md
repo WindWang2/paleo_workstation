@@ -1440,6 +1440,37 @@ STAGE          | DEV DOES                          | STATUS
 - ET13 (P2) — `README.md` + `BUILDING.md`（§44.4）。验证：按文档在无先验机器走通 TTHW。
 - ET14 (P2) — 增量构建预算检查：单文件改动增量 ≤60s 记录进 BUILDING.md 实测值（§44.6）。
 
+## 45. 层边界契约（docs/UI_LAYER_PLAN.md 落地，wave/ui-layer-separation）
+
+视图只发信号不干活，功能只编排不画像素，数据只问答不管谁来问。
+
+- **数据层** `src/domain` `src/catalog` `src/io` `src/metadata` `src/services`
+  `src/algorithms`：解析、目录、工程持久化、算法。禁 QtWidgets 与 `ui/`。
+  视图读侧唯一门 = `services/previewdoc.h`（`PreviewDocService`：catalog
+  只读透传 + 静态解析门面 lasAt/wellHeadAt/wellTopsAt/timeDepthAt/
+  geoJsonBounds/geoJsonDocument/seismicTieMarker/decodeSectionAsync/
+  wellCompositeAt + absolutePathForVersion/relocateVersionSource）。
+- **功能层** `src/workflow` `src/linkage` `src/ai`：编排服务与操作。
+  `folderimport`（导入编排）/`projectopen`（打开/新建工程）/`registration`
+  （临时配准）；禁 QtWidgets 与 `ui/`——联动器改发意图信号由壳订阅
+  （threewaylocator/seismicmaplink）。
+- **QGIS 封装** `src/qgis`：QtWidgets 豁免（Qgs* 接口所需），仍禁 `ui/`。
+  `layoutexport`（PDF/PNG 导出核心，ui/layout 壳委托）。
+- **视图** `src/ui/**`：渲染 + 输入 + 意图信号。`io/*` 白名单仅
+  `io/lasdoc.h`；`metadata/*` 白名单四头（layermanifest/paleoprojectstore/
+  mapversionstore/releasestore）；`algorithms/*` 全禁。
+  `PaleoMainWindow` 是壳：attachWorkflows 按页拆 `attach*Page` +
+  attachShellSurfaces（`paleomainwindow_attach.cpp`），attachMapping 三段
+  （发布门/导出接线/版本状态机），ribbon 命令组在 `ribbonpanels.cpp`；
+  DataPage 分家 = DataListPanel + EntityPanel + 兼容薄壳 `datapage`。
+- **组装根** `src/app`：唯一允许 include `ui/` 的非视图目录；
+  `src/selfcheck`（测试壳）同豁免。
+- **机械执行**：`tools/check_layering.py`（include 归一化 + io/metadata
+  白名单 + QtWidgets 词表禁令含 `class Q…;` 前向声明 + 头三行 `// 层：`
+  标记硬检查），ctest 项 `layering`/`layering_selftest`；合法残留收敛走
+  `tools/layering-baseline.txt`（只缩不涨）。已知上限：单一 `paleo_core`
+  静态库下护栏只挡 include 层。
+
 ## NOT in scope（本次评审决议）
 
 - **License/vendor 合规章节** — 用户确认产品遵循 GPL，vendored QGIS 兼容，无需专章。（D3）

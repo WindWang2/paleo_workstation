@@ -292,8 +292,11 @@ private slots:
     SeismicMapLink link(&canvas, &ctx);
 
     seismic::SeismicSectionDockWidget dock;
-    link.attachSectionDock(&dock);
-    QCOMPARE(link.sectionDock(), &dock);
+    // 信号化接线（W3b）：linkage 不持有 dock——壳侧语义用 connect 复演。
+    connect(dock.canvas(), &seismic::SeismicSectionCanvas::traceHovered,
+            &link, &SeismicMapLink::onSectionTraceHovered);
+    connect(dock.canvas(), &seismic::SeismicSectionCanvas::traceClicked,
+            &link, &SeismicMapLink::onSectionTraceClicked);
 
     // Simulate trace hover with map coordinates (5288.67, 8219.94)
     emit dock.canvas()->traceHovered(10, 800.0, 1000.0, 0.5f, 5288.67, 8219.94);
@@ -311,7 +314,8 @@ private slots:
     SeismicMapLink link(&canvas, &ctx);
 
     seismic::SeismicSectionDockWidget dock;
-    link.attachSectionDock(&dock);
+    connect(dock.canvas(), &seismic::SeismicSectionCanvas::traceHovered,
+            &link, &SeismicMapLink::onSectionTraceHovered);
 
     // Set grid geometry
     const SurveyGridGeometry g = SurveyGridGeometry::fromHorizonHeader(realD61Header());

@@ -1,6 +1,7 @@
+// 层：数据
 #include "segyreader.h"
 
-#include "arearules.h"
+#include "../domain/arearules.h"
 
 #include <QFile>
 #include <QtEndian>

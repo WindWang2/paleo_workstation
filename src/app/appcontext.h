@@ -1,3 +1,4 @@
+// 层：组装根
 #pragma once
 #include <QObject>
 #include <QString>

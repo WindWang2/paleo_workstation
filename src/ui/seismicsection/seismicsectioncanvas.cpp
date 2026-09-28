@@ -1,3 +1,4 @@
+// 层：视图
 #include "ui/seismicsection/seismicsectioncanvas.h"
 
 #include <QPainter>

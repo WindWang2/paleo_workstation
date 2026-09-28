@@ -1,5 +1,6 @@
 // 层：组装根
 #include "appcontext.h"
+#include "../workflow/mappingworkbench.h"
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header; instantiation is PALEO_HAVE_ORT-guarded
 #include "../qgis/qgisruntime.h"
@@ -164,6 +165,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 #endif
   m_constraintWf = new ConstraintWorkflow(m_procSvc, m_layerSvc, this);
   m_constraintWf->setStore(m_store); // GeoPackage constraint persistence (wave/constraint-gpkg)
+  m_mappingWorkbench = new MappingWorkbench(m_layerSvc, m_procSvc, m_projectSvc, m_constraintWf, this);
   m_compositionWf = new CompositionWorkflow(m_procSvc, m_layerSvc, this);
   m_validationWf = new ValidationWorkflow(m_layerSvc, m_store, this);
 
@@ -191,8 +193,23 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             {
               qWarning() << "AppContext: project lock refused:" << lockErr;
               QgsMessageLog::logMessage(
-                  tr("工程已被另一个实例锁定（%1），当前以只读模式打开").arg(lockErr),
+                  tr("工程已被另一个实例锁定（%1），当前以只读模式打开——"
+                     "导入/保存/图层清单/版本登记都会被拒绝")
+                      .arg(lockErr),
                   QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+            }
+            // T4 单写实例降级：锁失败 = 真只读。四个落盘面全部接线——
+            // catalog（save/mutator 回滚）、工程存储（gpkg/qgz/journal）、
+            // 图层清单（manifest sqlite）、版本库（map_versions）。读面照常。
+            const bool writable = m_projectLock->isHeld();
+            m_store->setReadOnly(!writable);
+            if (DataCatalog *cat = m_import->catalog())
+              cat->setLockedReadOnly(!writable); // 实例级模式，open() 不清除
+            // 广播去重：同工程重复打开（理论不可达）不重复弹。
+            if (m_lastReadOnlyNotified != !writable)
+            {
+              m_lastReadOnlyNotified = !writable;
+              emit projectReadOnlyChanged(!writable);
             }
             const QString metaPath = manifestPathFor(qgzPath);
             m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
@@ -226,11 +243,18 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             const bool metaExisted = QFileInfo::exists(metaPath);
 
             *m_manifest = LayerManifest(metaPath); // rebind in place
+            m_manifest->setReadOnly(!writable); // 值重绑带回可写默认——重设
             QString err;
             if (!m_manifest->open(&err))
               qWarning() << "AppContext: failed to open layer manifest" << metaPath << err;
 
-            if (!metaExisted)
+            if (!metaExisted && !writable)
+            {
+              // 只读实例不做 rehydrate 写入（.qgz 内嵌清单本就来自第一实例
+              // 的 manifest；这里写入既越权也会在 upsert 门上如实失败）。
+              qWarning() << "AppContext: read-only instance skips manifest rehydrate";
+            }
+            else if (!metaExisted)
             {
               const QVector<LayerDeclaration> embedded =
                   ManifestProjection::extractDeclarations(m_projectSvc->project());
@@ -276,6 +300,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               m_predictionWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_constraintWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_compositionWf->setCatalog(derivedCatalog, fi.absolutePath());
+              m_mappingWorkbench->bindCatalog(derivedCatalog, fi.absolutePath());
             }
 #if PALEO_HAVE_ORT
             // onnx:* 模型按层位钉在 <工程目录>/models/*.onnx。
@@ -286,6 +311,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             // wave/mapping-pipeline：版本存储重绑到本工程 meta 库；读侧门面
             // 接上数据底座的 catalog（<工程目录>/artifacts/metadata/catalog.json）。
             *m_versionStore = MapVersionStore(metaPath);
+            m_versionStore->setReadOnly(!writable); // 值重绑带回可写默认——重设
             QString versionErr;
             if (!m_versionStore->open(&versionErr))
               qWarning() << "AppContext: map version store open failed" << metaPath << versionErr;
@@ -301,6 +327,11 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
           });
 }
 
+bool AppContext::isProjectReadOnly() const
+{
+  return m_projectLock && !m_projectLock->isHeld();
+}
+
 void AppContext::refreshWellsLayer(bool zoomOnGrowth)
 {
   if (m_projectDir.isEmpty() || !m_import || !m_layerSvc)
@@ -309,30 +340,42 @@ void AppContext::refreshWellsLayer(bool zoomOnGrowth)
   if (!cat)
     return;
 
+  // 只读实例（T4）：不写 wells.geojson、不 upsert manifest——第一实例的
+  // 产物已在位时直接按既有声明实例化；声明缺失（从未有写实例跑过）则
+  // 如实无 wells 图层，静默降级。
+  const bool readOnly = m_projectLock && !m_projectLock->isHeld();
+
   // catalog 井实体（有 surface 坐标者）→ artifacts/layers/wells.geojson。
   // 坐标是工程网格局部米（writeWellsGeoJson 写同一 WKT，不投 4326）。
   const QString wellsPath = QDir(m_projectDir).filePath(
       QStringLiteral("artifacts/layers/wells.geojson"));
-  QString werr;
-  if (!cat->writeWellsGeoJson(wellsPath, &werr))
+  if (!readOnly)
   {
-    qWarning() << "AppContext: wells geojson write failed:" << werr;
-    return;
-  }
-  if (!QFile::exists(wellsPath))
-    return; // 没有可定位的井——不声明空图层（与 writeWellsGeoJson 同一约定）
+    QString werr;
+    if (!cat->writeWellsGeoJson(wellsPath, &werr))
+    {
+      qWarning() << "AppContext: wells geojson write failed:" << werr;
+      return;
+    }
+    if (!QFile::exists(wellsPath))
+      return; // 没有可定位的井——不声明空图层（与 writeWellsGeoJson 同一约定）
 
-  LayerDeclaration decl;
-  decl.layerId = QStringLiteral("wells");
-  decl.type = QStringLiteral("vector");
-  decl.source = wellsPath;
-  decl.group = QStringLiteral("00_Data");
-  decl.title = tr("井位");
-  QString derr;
-  if (!m_layerSvc->declare(decl, &derr)) // upsert——重复声明安全
+    LayerDeclaration decl;
+    decl.layerId = QStringLiteral("wells");
+    decl.type = QStringLiteral("vector");
+    decl.source = wellsPath;
+    decl.group = QStringLiteral("00_Data");
+    decl.title = tr("井位");
+    QString derr;
+    if (!m_layerSvc->declare(decl, &derr)) // upsert——重复声明安全
+    {
+      qWarning() << "AppContext: wells layer declare failed:" << derr;
+      return;
+    }
+  }
+  else if (!QFile::exists(wellsPath))
   {
-    qWarning() << "AppContext: wells layer declare failed:" << derr;
-    return;
+    return; // 只读且无可复用产物——不造数据，也不算失败
   }
   QString ierr;
   auto *layer = qobject_cast<QgsVectorLayer *>(

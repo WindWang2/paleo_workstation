@@ -86,6 +86,7 @@ int main(int argc, char *argv[])
   window.attachMapping(ctx.mappingWf(), ctx.versionCtl(), ctx.versionStore(),
                        ctx.projectData(),
                        ctx.importSvc() ? ctx.importSvc()->catalog() : nullptr);
+  window.attachWorkbench(ctx.mappingWorkbench());
   window.show();
   if (!targetPath.isEmpty())
     window.openPath(targetPath);

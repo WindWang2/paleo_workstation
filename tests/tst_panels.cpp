@@ -1519,8 +1519,8 @@ class TestPanels : public QObject
     // 汇总函数口径（D3）：四种结局计数，跳过只在 >0 时列第四项。
     void folderSummary_countsAllFourOutcomes()
     {
-      using R = DataImportService::FolderRowResult;
-      using Outcome = DataImportService::FolderRowResult::Outcome;
+      using R = FolderRowResult;
+      using Outcome = FolderRowResult::Outcome;
       QVector<R> rows(4);
       rows[0].outcome = Outcome::Imported;
       rows[1].outcome = Outcome::Unresolved;

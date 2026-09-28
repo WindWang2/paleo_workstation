@@ -152,14 +152,15 @@ if(ORT_INCLUDE AND ORT_LIB)
   add_library(ort_vendored SHARED IMPORTED)
   set_target_properties(ort_vendored PROPERTIES IMPORTED_LOCATION ${ORT_LIB}
     INTERFACE_INCLUDE_DIRECTORIES ${ORT_INCLUDE})
-  add_library(paleo_ai STATIC src/ai/onnxpredictionservice.cpp)
+  add_library(paleo_ai STATIC src/ai/onnxpredictionservice.cpp src/ai/remotepredictionservice.cpp)
   target_link_libraries(paleo_ai PUBLIC paleo_deps ort_vendored)
   target_compile_definitions(paleo_ai PUBLIC PALEO_HAVE_ORT=1)
   target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
   set(CMAKE_BUILD_RPATH "${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 else()
   set(PALEO_HAVE_ORT FALSE)
-  add_library(paleo_ai INTERFACE) # 无 ORT 时为空壳，消费方链接名不变
+  add_library(paleo_ai STATIC src/ai/remotepredictionservice.cpp)
+  target_link_libraries(paleo_ai PUBLIC Qt6::Core Qt6::Gui) # 无 ORT 时为空壳，消费方链接名不变
   message(STATUS "onnxruntime not vendored — ai/ service excluded (run ./paleo-dev bootstrap)")
 endif()
 
@@ -210,6 +211,7 @@ target_link_libraries(paleo_store PUBLIC paleo_deps)
 
 # ---- QGIS 封装层 ----
 add_library(paleo_qgis STATIC
+  src/qgis/mappingartifactwriter.cpp
   src/qgis/qgisruntime.cpp
   src/qgis/qgisprojectservice.cpp
   src/qgis/qgislayerservice.cpp
@@ -264,6 +266,7 @@ add_library(paleo_linkage STATIC
 target_link_libraries(paleo_linkage PUBLIC paleo_deps paleo_services paleo_qgis paleo_domain)
 
 add_library(paleo_workflow STATIC
+  src/workflow/mappingworkbench.cpp
   src/workflow/workflows.cpp
   src/workflow/folderimport.cpp                    # W2 文件夹/单文件导入编排
   src/workflow/projectopen.cpp                     # W2 打开/新建工程编排
@@ -277,6 +280,8 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 
 # ---- 视图层 ----
 add_library(paleo_ui STATIC
+  src/ui/pages/mappingworkbenchpage.cpp
+  src/ui/paleomainwindow_workbench.cpp
   src/ui/paleomainwindow.cpp
   src/ui/paleomainwindow_attach.cpp                # W4 接线按页拆分
   src/ui/ribbonpanels.cpp                          # W4 ribbon 命令组构建迁出
@@ -384,6 +389,7 @@ add_paleo_test(tst_linkage)
 add_paleo_test(tst_algorithms)
 add_paleo_test(tst_services2)
 add_paleo_test(tst_workflows)
+add_paleo_test(tst_mappingworkbench)
 add_paleo_test(tst_ui)
 add_paleo_test(tst_panels)
 add_paleo_test(tst_mappingpages)

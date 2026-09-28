@@ -3,10 +3,12 @@
 #include <cmath>
 
 #include <QColor>
+#include <QEvent>
 #include <QFont>
 #include <QPainter>
 #include <QPen>
 #include <QPolygonF>
+#include <QWidget>
 
 #include <qgsmapcanvas.h>
 #include <qgsmapsettings.h>
@@ -219,6 +221,57 @@ void PaleoWatermarkDecoration::render( const QgsMapSettings &mapSettings, QgsRen
   painter->restore();
 }
 
+namespace
+{
+  class PaleoDecorationOverlay : public QWidget
+  {
+  public:
+    explicit PaleoDecorationOverlay( QgsMapCanvas *canvas, PaleoDecorationManager *mgr )
+      : QWidget( canvas ? canvas->viewport() : nullptr )
+      , mCanvas( canvas )
+      , mMgr( mgr )
+    {
+      setObjectName( QStringLiteral( "paleoDecorationOverlay" ) );
+      setAttribute( Qt::WA_TransparentForMouseEvents, true );
+      setAttribute( Qt::WA_NoSystemBackground, true );
+      setAttribute( Qt::WA_TranslucentBackground, true );
+      if ( mCanvas && mCanvas->viewport() )
+      {
+        mCanvas->viewport()->installEventFilter( this );
+        resize( mCanvas->viewport()->size() );
+        show();
+      }
+    }
+
+  protected:
+    bool eventFilter( QObject *obj, QEvent *ev ) override
+    {
+      if ( mCanvas && obj == mCanvas->viewport() )
+      {
+        if ( ev->type() == QEvent::Resize || ev->type() == QEvent::Show )
+        {
+          resize( mCanvas->viewport()->size() );
+          raise();
+          update();
+        }
+      }
+      return QWidget::eventFilter( obj, ev );
+    }
+
+    void paintEvent( QPaintEvent * ) override
+    {
+      if ( !mCanvas || !mMgr || mMgr->decorationItems().isEmpty() )
+        return;
+      QPainter painter( this );
+      mMgr->paintDecorations( &painter );
+    }
+
+  private:
+    QgsMapCanvas *mCanvas = nullptr;
+    PaleoDecorationManager *mMgr = nullptr;
+  };
+}
+
 // ----------------------------------------------------------------- manager
 
 PaleoDecorationManager::PaleoDecorationManager( QgsMapCanvas *canvas, QObject *parent )
@@ -229,6 +282,27 @@ PaleoDecorationManager::PaleoDecorationManager( QgsMapCanvas *canvas, QObject *p
   , mGrid( std::make_unique<PaleoGridDecoration>() )
   , mWatermark( std::make_unique<PaleoWatermarkDecoration>() )
 {
+  if ( mCanvas && mCanvas->viewport() )
+  {
+    mOverlay = new PaleoDecorationOverlay( mCanvas, this );
+    connect( mCanvas, &QgsMapCanvas::mapCanvasRefreshed,
+             this, [this]() {
+               if ( mOverlay )
+               {
+                 mOverlay->raise();
+                 mOverlay->update();
+               }
+             } );
+    connect( mCanvas, &QgsMapCanvas::extentsChanged,
+             this, [this]() {
+               if ( mOverlay )
+               {
+                 mOverlay->raise();
+                 mOverlay->update();
+               }
+             } );
+  }
+
   // QGIS 4.x has no QgsMapCanvas::addDecorationItem — decorations paint from
   // the post-render hook, same as libqgis_app's QgsDecorationItem.
   connect( mCanvas, &QgsMapCanvas::renderComplete,
@@ -240,6 +314,11 @@ void PaleoDecorationManager::setScaleBarEnabled( bool enabled )
   if ( mScaleBarEnabled == enabled )
     return;
   mScaleBarEnabled = enabled;
+  if ( mOverlay )
+  {
+    mOverlay->raise();
+    mOverlay->update();
+  }
   mCanvas->refresh();
 }
 
@@ -248,6 +327,11 @@ void PaleoDecorationManager::setNorthArrowEnabled( bool enabled )
   if ( mNorthArrowEnabled == enabled )
     return;
   mNorthArrowEnabled = enabled;
+  if ( mOverlay )
+  {
+    mOverlay->raise();
+    mOverlay->update();
+  }
   mCanvas->refresh();
 }
 
@@ -256,6 +340,11 @@ void PaleoDecorationManager::setGridEnabled( bool enabled )
   if ( mGridEnabled == enabled )
     return;
   mGridEnabled = enabled;
+  if ( mOverlay )
+  {
+    mOverlay->raise();
+    mOverlay->update();
+  }
   mCanvas->refresh();
 }
 
@@ -264,6 +353,11 @@ void PaleoDecorationManager::setWatermarkEnabled( bool enabled )
   if ( mWatermarkEnabled == enabled )
     return;
   mWatermarkEnabled = enabled;
+  if ( mOverlay )
+  {
+    mOverlay->raise();
+    mOverlay->update();
+  }
   mCanvas->refresh();
 }
 
@@ -271,7 +365,14 @@ void PaleoDecorationManager::setWatermarkText( const QString &text )
 {
   mWatermark->setText( text );
   if ( mWatermarkEnabled )
+  {
+    if ( mOverlay )
+    {
+      mOverlay->raise();
+      mOverlay->update();
+    }
     mCanvas->refresh();
+  }
 }
 
 QList<QgsMapDecoration *> PaleoDecorationManager::decorationItems() const

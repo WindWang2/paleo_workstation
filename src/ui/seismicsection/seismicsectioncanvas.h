@@ -172,8 +172,9 @@ private:
     double m_panY = 0.0;
 
     // Ruler margins
-    int m_leftMargin = 72;  // Vertical ruler width
-    int m_topMargin = 60;   // Horizontal ruler and wellpins height
+    int m_leftMargin = 72;   // Vertical ruler width
+    int m_topMargin = 60;    // Horizontal ruler and wellpins height
+    int m_rightMargin = 64;  // Color bar width
 
     // Interaction state
     bool m_isPanning = false;

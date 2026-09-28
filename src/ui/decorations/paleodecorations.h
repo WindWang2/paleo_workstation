@@ -65,6 +65,8 @@ class PaleoWatermarkDecoration : public QgsMapDecoration
     QString mText = QStringLiteral( "临时配准 · 手工仿射" );
 };
 
+class QWidget;
+
 // Toggles decoration overlays on a QgsMapCanvas. Parented to the canvas by
 // default; paintDecorations() is the slot wired to renderComplete and is also
 // directly callable for offscreen paint checks.
@@ -97,6 +99,7 @@ class PaleoDecorationManager : public QObject
 
   private:
     QgsMapCanvas *mCanvas = nullptr; // not owned; also QObject parent
+    QWidget *mOverlay = nullptr;
 
     // Owned decoration instances; enabled flags gate which are painted.
     std::unique_ptr<PaleoScaleBarDecoration> mScaleBar;

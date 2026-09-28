@@ -7,7 +7,11 @@
 #include <functional>
 #include <limits>
 #include <sstream>
+#include <thread>
 #include <unordered_map>
+
+#include <QFile>
+#include <QString>
 
 #include <segyio/segy.h>
 
@@ -137,11 +141,13 @@ bool SgyVolume::Load(
         return false;
     }
     index_ = std::move(built);
+    timeGridCache_ = std::make_shared<TimeGridCache>();
     return true;
 }
 
 void SgyVolume::AdoptIndex(SgyIndexPtr index) {
     index_ = std::move(index);
+    timeGridCache_ = std::make_shared<TimeGridCache>();
 }
 
 const std::filesystem::path& SgyVolume::Path() const {
@@ -198,6 +204,36 @@ int SgyVolume::FindTraceIndex(int inlineNo, int xlineNo) const {
 const SgyRuleLayout& SgyVolume::Rule() const {
     static const SgyRuleLayout empty;
     return index_ ? index_->rule : empty;
+}
+
+void SgyVolume::EnsureTimeSliceGrid() const {
+    if(!timeGridCache_) {
+        timeGridCache_ = std::make_shared<TimeGridCache>();
+    }
+    std::lock_guard<std::mutex> lock(timeGridCache_->mutex);
+    if(!timeGridCache_->traceIndices.empty()) {
+        return;
+    }
+    const int inlCount = InlineCount();
+    const int xlCount = XlineCount();
+    if(inlCount <= 0 || xlCount <= 0) {
+        return;
+    }
+    const std::size_t totalPixels = static_cast<std::size_t>(inlCount * xlCount);
+    timeGridCache_->traceIndices.assign(totalPixels, -1);
+
+    const auto& inlVals = InlineValues();
+    const auto& xlVals = XlineValues();
+
+    for(int i = 0; i < inlCount; ++i) {
+        const int row = inlCount - 1 - i;
+        const int inlineNo = inlVals[static_cast<std::size_t>(i)];
+        for(int x = 0; x < xlCount; ++x) {
+            const int xlineNo = xlVals[static_cast<std::size_t>(x)];
+            timeGridCache_->traceIndices[static_cast<std::size_t>(row * xlCount + x)] =
+                FindTraceIndex(inlineNo, xlineNo);
+        }
+    }
 }
 
 bool SgyVolume::ValidateRuleTrace(segy_datasource* file, int traceIndex, std::string& errorMessage) const {
@@ -408,35 +444,115 @@ bool SgyVolume::ExtractSlice(
     }
 
     const int sampleIndex = std::clamp(requestedIndex, 0, sampleCount - 1);
-    values.assign(static_cast<std::size_t>(InlineCount() * XlineCount()), std::numeric_limits<float>::quiet_NaN());
-    // Read strategy, measured on the real 31 GB survey:
-    //   * one inline, warm cache: partial sample read 2 us/trace vs whole
-    //     trace 27 us/trace (segy_readsubtr wins by 13x),
-    //   * whole volume: partial reads take ~232 s for 2066 rows because 4-byte
-    //     reads defeat OS readahead, while whole-trace reads complete in ~20 s
-    //     (warm) / a few minutes (cold) and keep sequential I/O.
-    // The whole-trace path is therefore kept for full-volume time slices; the
-    // partial-read comparison stays available through --sgy-read-compare.
-    for(int i = 0; i < InlineCount(); ++i) {
-        if(progress && (i % 16 == 0) && !progress(i, InlineCount())) {
-            errorMessage = "Slice extraction cancelled by caller.";
-            return false;
+    const int inlCount = InlineCount();
+    const int xlCount = XlineCount();
+    const std::size_t totalPixels = static_cast<std::size_t>(inlCount * xlCount);
+
+    EnsureTimeSliceGrid();
+    const auto& gridTraceIndices = timeGridCache_->traceIndices;
+
+    const unsigned long long trace0 = file.Get()->metadata.trace0;
+    const int formatCode = FormatCode();
+    const int formatSizeBytes = index_ ? index_->formatSizeBytes : 0;
+    const std::size_t traceSize = static_cast<std::size_t>(240 + sampleCount * formatSizeBytes);
+
+    bool fastDone = false;
+    QFile qfile(QString::fromStdString(sgyio::ToUtf8Path(index_->path)));
+    if(formatSizeBytes > 0 && trace0 >= 3600 && traceSize > 240 && qfile.open(QIODevice::ReadOnly)) {
+        const qint64 fileSize = qfile.size();
+        const uchar* mapped = qfile.map(0, fileSize);
+        if(mapped) {
+            if(progress && !progress(0, static_cast<int>(totalPixels))) {
+                qfile.unmap(const_cast<uchar*>(mapped));
+                qfile.close();
+                errorMessage = "Slice extraction cancelled by caller.";
+                return false;
+            }
+
+            values.assign(totalPixels, std::numeric_limits<float>::quiet_NaN());
+
+            const unsigned int nThreads = std::max(1u, std::min(16u, std::thread::hardware_concurrency()));
+            const std::size_t chunkSize = (totalPixels + nThreads - 1) / nThreads;
+            std::vector<std::thread> workers;
+            workers.reserve(nThreads);
+
+            for(unsigned int th = 0; th < nThreads; ++th) {
+                const std::size_t startIdx = th * chunkSize;
+                const std::size_t endIdx = std::min(totalPixels, startIdx + chunkSize);
+                if(startIdx >= endIdx) break;
+
+                workers.emplace_back([&, startIdx, endIdx]() {
+                    for(std::size_t idx = startIdx; idx < endIdx; ++idx) {
+                        const int traceIdx = gridTraceIndices[idx];
+                        if(traceIdx < 0) continue;
+
+                        const std::size_t offset = static_cast<std::size_t>(trace0) +
+                                                  static_cast<std::size_t>(traceIdx) * traceSize +
+                                                  240 +
+                                                  static_cast<std::size_t>(sampleIndex) * static_cast<std::size_t>(formatSizeBytes);
+                        if(offset + static_cast<std::size_t>(formatSizeBytes) <= static_cast<std::size_t>(fileSize)) {
+                            if(formatSizeBytes == 4 && (formatCode == SEGY_IEEE_FLOAT_4_BYTE || formatCode == SEGY_IBM_FLOAT_4_BYTE)) {
+                                float val = 0.0f;
+                                std::memcpy(&val, mapped + offset, 4);
+                                segy_to_native(formatCode, 1, &val);
+                                values[idx] = val;
+                            } else if(formatSizeBytes == 2) {
+                                std::int16_t raw = 0;
+                                std::memcpy(&raw, mapped + offset, 2);
+                                segy_to_native(formatCode, 1, &raw);
+                                values[idx] = static_cast<float>(raw);
+                            } else if(formatSizeBytes == 1) {
+                                signed char raw = static_cast<signed char>(mapped[offset]);
+                                values[idx] = static_cast<float>(raw);
+                            } else if(formatSizeBytes == 4 && formatCode == SEGY_SIGNED_INTEGER_4_BYTE) {
+                                std::int32_t raw = 0;
+                                std::memcpy(&raw, mapped + offset, 4);
+                                segy_to_native(formatCode, 1, &raw);
+                                values[idx] = static_cast<float>(raw);
+                            }
+                        }
+                    }
+                });
+            }
+            for(auto& w : workers) {
+                w.join();
+            }
+
+            qfile.unmap(const_cast<uchar*>(mapped));
+            fastDone = true;
+
+            if(progress && !progress(static_cast<int>(totalPixels), static_cast<int>(totalPixels))) {
+                qfile.close();
+                errorMessage = "Slice extraction cancelled by caller.";
+                return false;
+            }
         }
-        for(int x = 0; x < XlineCount(); ++x) {
-            const int traceIndex = FindTraceIndex(
-                InlineValues()[static_cast<std::size_t>(i)],
-                XlineValues()[static_cast<std::size_t>(x)]);
-            if(traceIndex < 0) {
-                continue;
+        qfile.close();
+    }
+
+    if(!fastDone) {
+        values.assign(totalPixels, std::numeric_limits<float>::quiet_NaN());
+        for(int i = 0; i < inlCount; ++i) {
+            if(progress && (i % 16 == 0) && !progress(i, inlCount)) {
+                errorMessage = "Slice extraction cancelled by caller.";
+                return false;
             }
-            const int row = InlineCount() - 1 - i;
-            if(!ReadTraceAsFloat(file.Get(), traceIndex, traceSamples, errorMessage)) {
-                continue;
+            for(int x = 0; x < xlCount; ++x) {
+                const int traceIndex = FindTraceIndex(
+                    InlineValues()[static_cast<std::size_t>(i)],
+                    XlineValues()[static_cast<std::size_t>(x)]);
+                if(traceIndex < 0) {
+                    continue;
+                }
+                const int row = inlCount - 1 - i;
+                if(!ReadTraceAsFloat(file.Get(), traceIndex, traceSamples, errorMessage)) {
+                    continue;
+                }
+                values[static_cast<std::size_t>(row * xlCount + x)] = traceSamples[static_cast<std::size_t>(sampleIndex)];
             }
-            values[static_cast<std::size_t>(row * XlineCount() + x)] = traceSamples[static_cast<std::size_t>(sampleIndex)];
         }
     }
-    FinishImage(std::move(values), XlineCount(), InlineCount(), image);
+    FinishImage(std::move(values), xlCount, inlCount, image);
     return true;
 }
 

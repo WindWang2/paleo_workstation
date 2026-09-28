@@ -14,13 +14,28 @@
 #include "../../io/wellfileparsers.h"
 #include "../../services/paleotaskservice.h"
 #include "../../services/seismictaskservice.h"
+#include "../../domain/seismic/nicestep.h"
 #include "../seismic3d/seismic3dviewpanel.h"
+#include "../seismicsection/seismicsectioncanvas.h"
 #include "../wellcomposite/wellcompositepanel.h"
 
+#include "../decorations/paleodecorations.h"
 #include <qgsmapcanvas.h>
 #include <qgslayertreemapcanvasbridge.h>
 #include <qgsmaptoolpan.h>
 #include <qgsproject.h>
+#include <qgsrubberband.h>
+#include <qgsgeometry.h>
+#include <qgsvectorlayer.h>
+#include <qgscategorizedsymbolrenderer.h>
+#include <qgssymbol.h>
+#include <qgsfillsymbol.h>
+#include <qgsmarkersymbol.h>
+#include <qgslinesymbol.h>
+#include <qgspallabeling.h>
+#include <qgsvectorlayerlabeling.h>
+#include <qgstextbuffersettings.h>
+#include <QButtonGroup>
 #include <QTimer>
 
 #include <QComboBox>
@@ -150,6 +165,100 @@ namespace
       QStringLiteral("#388E3C")
     };
     return QColor(kPalette.at(index % kPalette.size()));
+  }
+
+  static QColor faciesColor(const QString &name)
+  {
+    const QString lower = name.toLower();
+    if (lower.contains(QStringLiteral("深湖")) || lower.contains(QStringLiteral("深盆")) || lower.contains(QStringLiteral("deep basin")))
+      return QColor(QStringLiteral("#4DD0E1"));
+    if (lower.contains(QStringLiteral("半深湖")) || lower.contains(QStringLiteral("semi-deep")))
+      return QColor(QStringLiteral("#80DEEA"));
+    if (lower.contains(QStringLiteral("滨浅湖")) || lower.contains(QStringLiteral("浅湖")) || lower.contains(QStringLiteral("shallow lake")) || lower.contains(QStringLiteral("lake")))
+      return QColor(QStringLiteral("#81D4FA"));
+    if (lower.contains(QStringLiteral("滩坝")) || lower.contains(QStringLiteral("滩砂")) || lower.contains(QStringLiteral("beach bar")))
+      return QColor(QStringLiteral("#FFF59D"));
+    if (lower.contains(QStringLiteral("水下分流河道")) || lower.contains(QStringLiteral("distributary channel")))
+      return QColor(QStringLiteral("#FFD54F"));
+    if (lower.contains(QStringLiteral("河口坝")) || lower.contains(QStringLiteral("mouth bar")))
+      return QColor(QStringLiteral("#FFE082"));
+    if (lower.contains(QStringLiteral("远砂坝")) || lower.contains(QStringLiteral("distal bar")))
+      return QColor(QStringLiteral("#FFE57F"));
+    if (lower.contains(QStringLiteral("分流间湾")) || lower.contains(QStringLiteral("interdistributary")))
+      return QColor(QStringLiteral("#DCEDC8"));
+    if (lower.contains(QStringLiteral("席状砂")) || lower.contains(QStringLiteral("sheet sand")))
+      return QColor(QStringLiteral("#FFF176"));
+    if (lower.contains(QStringLiteral("三角洲前缘")) || lower.contains(QStringLiteral("delta front")))
+      return QColor(QStringLiteral("#FFE082"));
+    if (lower.contains(QStringLiteral("三角洲平原")) || lower.contains(QStringLiteral("delta plain")))
+      return QColor(QStringLiteral("#E6EE9C"));
+    if (lower.contains(QStringLiteral("前三角洲")) || lower.contains(QStringLiteral("prodelta")))
+      return QColor(QStringLiteral("#B2DFDB"));
+    if (lower.contains(QStringLiteral("三角洲")) || lower.contains(QStringLiteral("delta")))
+      return QColor(QStringLiteral("#FFE082"));
+    if (lower.contains(QStringLiteral("冲积扇")) || lower.contains(QStringLiteral("alluvial")))
+      return QColor(QStringLiteral("#FFAB91"));
+    if (lower.contains(QStringLiteral("河流")) || lower.contains(QStringLiteral("fluvial")) || lower.contains(QStringLiteral("channel")))
+      return QColor(QStringLiteral("#FFB74D"));
+    if (lower.contains(QStringLiteral("碳酸盐")) || lower.contains(QStringLiteral("台地")) || lower.contains(QStringLiteral("carbonate")) || lower.contains(QStringLiteral("platform")))
+      return QColor(QStringLiteral("#A5D6A7"));
+    if (lower.contains(QStringLiteral("生物礁")) || lower.contains(QStringLiteral("礁滩")) || lower.contains(QStringLiteral("reef")))
+      return QColor(QStringLiteral("#80CBC4"));
+    if (lower.contains(QStringLiteral("陆棚")) || lower.contains(QStringLiteral("浅海")) || lower.contains(QStringLiteral("shelf")) || lower.contains(QStringLiteral("marine")))
+      return QColor(QStringLiteral("#90CAF9"));
+    if (lower.contains(QStringLiteral("潮坪")) || lower.contains(QStringLiteral("tidal")))
+      return QColor(QStringLiteral("#D7CCC8"));
+    if (lower.contains(QStringLiteral("浊积")) || lower.contains(QStringLiteral("重力流")) || lower.contains(QStringLiteral("turbidite")))
+      return QColor(QStringLiteral("#FFCC80"));
+
+    static const QVector<QColor> fallbackPalette = {
+      QColor(QStringLiteral("#81D4FA")),
+      QColor(QStringLiteral("#FFE082")),
+      QColor(QStringLiteral("#A5D6A7")),
+      QColor(QStringLiteral("#FFAB91")),
+      QColor(QStringLiteral("#CE93D8")),
+      QColor(QStringLiteral("#FFF59D")),
+      QColor(QStringLiteral("#80CBC4")),
+      QColor(QStringLiteral("#B0BEC5")),
+      QColor(QStringLiteral("#FFCC80")),
+      QColor(QStringLiteral("#B39DDB"))
+    };
+    const uint h = qHash(name);
+    return fallbackPalette.at(h % fallbackPalette.size());
+  }
+
+  static std::unique_ptr<QgsSymbol> createFaciesSymbol(Qgis::GeometryType geomType, const QColor &color)
+  {
+    const QColor strokeColor = color.darker(150);
+    if (geomType == Qgis::GeometryType::Point)
+    {
+      QVariantMap props;
+      props[QStringLiteral("name")] = QStringLiteral("circle");
+      props[QStringLiteral("color")] = color.name(QColor::HexArgb);
+      props[QStringLiteral("outline_color")] = strokeColor.name();
+      props[QStringLiteral("outline_width")] = QStringLiteral("0.8");
+      props[QStringLiteral("size")] = QStringLiteral("5.5");
+      return QgsMarkerSymbol::createSimple(props);
+    }
+    else if (geomType == Qgis::GeometryType::Line)
+    {
+      QVariantMap props;
+      props[QStringLiteral("line_color")] = color.name();
+      props[QStringLiteral("line_width")] = QStringLiteral("1.5");
+      return QgsLineSymbol::createSimple(props);
+    }
+    else // Polygon
+    {
+      QVariantMap props;
+      QColor fill = color;
+      fill.setAlpha(200);
+      props[QStringLiteral("color")] = QStringLiteral("%1,%2,%3,%4")
+                                          .arg(fill.red()).arg(fill.green()).arg(fill.blue()).arg(fill.alpha());
+      props[QStringLiteral("outline_color")] = strokeColor.name();
+      props[QStringLiteral("outline_width")] = QStringLiteral("0.8");
+      props[QStringLiteral("outline_style")] = QStringLiteral("solid");
+      return QgsFillSymbol::createSimple(props);
+    }
   }
 
   struct CurveData
@@ -798,7 +907,8 @@ namespace
     QString m_emptyText = QObject::tr("无有效采样");
   };
 
-  // 地震剖面：一条 inline/crossline 的变密度灰度渲染（§4/§7：只解码这一条）。
+  // 地震剖面：一条 inline/crossline 的红白蓝双极振幅渲染（§4/§7：只解码这一条）。
+  // 时间轴与色标：左侧显示 TWT(ms) 时间刻度轴，右侧显示红白蓝振幅色标与极性标注。
   // D61 标定：井的 D61 分层经时深表换算成 ms 后，在剖面上画一条水平标记线。
   class SectionPanel : public QWidget
   {
@@ -814,8 +924,8 @@ namespace
       const int w = qMax(1, traces.size());
       const SegySectionGrid grid = SegySectionGrid::forTraces(traces, dtUs, t0Ms);
       const int h = grid.rows;
-      m_img = QImage(w, h, QImage::Format_Grayscale8);
-      m_img.fill(128);
+      m_img = QImage(w, h, QImage::Format_ARGB32_Premultiplied);
+      m_img.fill(qRgb(255, 255, 255));
       float amp = 1e-6f;
       for (const SegyTrace &t : traces)
         for (float s : t.samples)
@@ -827,11 +937,21 @@ namespace
         {
           float sample = 0.0f;
           if (!grid.sampleAt(t, y, dtUs, t0Ms, &sample)) continue;
-          const float v = sample / amp;
-          const int g = qRound((v * 0.5f + 0.5f) * 255.0f);
-          m_img.setPixel(x, y, static_cast<uchar>(g));
+          const float v = std::clamp((sample / amp) * 1.35f, -1.0f, 1.0f);
+          const float mag = std::pow(std::abs(v), 0.85f);
+          const float k = 1.0f - mag;
+          QRgb color;
+          if (v < 0.0f) {
+              // Deep blue to white (Trough)
+              color = qRgb(static_cast<int>(217 * k), static_cast<int>(230 * k), 255);
+          } else {
+              // White to deep red (Peak)
+              color = qRgb(255, static_cast<int>(224 * k), static_cast<int>(214 * k));
+          }
+          m_img.setPixel(x, y, color);
         }
       }
+      m_maxAmp = amp;
       m_t0Ms = grid.startMs;
       m_dtMs = grid.stepMs;
       m_caption = QObject::tr("%1 道 · %2 样点 · %3 ms 采样 · t0 = %4 ms")
@@ -842,7 +962,6 @@ namespace
       update();
     }
     bool hasImage() const { return !m_img.isNull(); }
-    // 换测线先清掉上一张剖面（§4）。
     void clearImage()
     {
       m_img = QImage();
@@ -851,7 +970,6 @@ namespace
       clearTieMarker();
       update();
     }
-    // 解码入口的失败面（如外链 SHA-256 不一致）：清图并写出原因，不装成剖面。
     void setError(const QString &text)
     {
       m_img = QImage();
@@ -859,7 +977,6 @@ namespace
       clearTieMarker();
       update();
     }
-    // 「井名 D61 · ms」标定线：挂在剖面时间轴上（没有数值就绝不画）。
     void setTieMarker(const QString &label, double ms)
     {
       m_tieLabel = label;
@@ -876,6 +993,7 @@ namespace
     void paintEvent(QPaintEvent *) override
     {
       QPainter p(this);
+      p.setRenderHint(QPainter::Antialiasing, true);
       p.fillRect(rect(), Qt::white);
       if (m_img.isNull())
       {
@@ -884,9 +1002,46 @@ namespace
                    m_error.isEmpty() ? QObject::tr("尚未解码剖面") : m_error);
         return;
       }
-      const QRect dst = rect().adjusted(6, 22, -6, -20);
-      p.drawImage(dst, m_img.scaled(dst.size(), Qt::IgnoreAspectRatio, Qt::FastTransformation));
-      // D61 标定线（§4/阶段 B）：时间 ms → 样点行 → 剖面内水平线 + 井名标注。
+
+      const int leftMargin = 58;
+      const int rightMargin = 54;
+      const int topMargin = 26;
+      const int bottomMargin = 16;
+      const QRect dst(leftMargin, topMargin,
+                      std::max(10, width() - leftMargin - rightMargin),
+                      std::max(10, height() - topMargin - bottomMargin));
+
+      // 1. 左侧时间刻度轴 (TWT ms 时间剖面)
+      const QRect leftRuler(0, topMargin, leftMargin, dst.height());
+      p.fillRect(leftRuler, QColor(QStringLiteral("#F5F7FA")));
+      p.setPen(QColor(QStringLiteral("#DFE5EC")));
+      p.drawLine(leftMargin, topMargin, leftMargin, dst.bottom());
+
+      QFont monoFont(QStringLiteral("JetBrains Mono"), 7);
+      QFont bodyFont(QStringLiteral("Noto Sans SC"), 7);
+      p.setFont(bodyFont);
+      p.setPen(QColor(QStringLiteral("#5D6E80")));
+      p.drawText(QRect(2, 4, leftMargin - 4, 18), Qt::AlignCenter, QStringLiteral("TWT (ms)"));
+
+      if (m_dtMs > 0.0 && m_img.height() > 0)
+      {
+        const double endTimeMs = m_t0Ms + m_img.height() * m_dtMs;
+        const auto ticks = seismic::NiceStep::GenerateTicks(m_t0Ms, endTimeMs, topMargin, dst.bottom(), 6, QStringLiteral("%.0f"));
+        p.setFont(monoFont);
+        for (const auto &tk : ticks)
+        {
+          if (tk.pixelPos < topMargin || tk.pixelPos > dst.bottom()) continue;
+          p.setPen(QColor(QStringLiteral("#5D6E80")));
+          p.drawLine(QPointF(leftMargin - 6.0, tk.pixelPos), QPointF(leftMargin, tk.pixelPos));
+          p.setPen(QColor(QStringLiteral("#24303E")));
+          p.drawText(QRectF(2, tk.pixelPos - 7.0, leftMargin - 10, 14), Qt::AlignRight | Qt::AlignVCenter, QString::number(qRound(tk.value)));
+        }
+      }
+
+      // 2. 剖面核心地震图像
+      p.drawImage(dst, m_img.scaled(dst.size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+
+      // 3. D61 标定线（时间 ms → 剖面内水平线 + 井名标注）
       if (std::isfinite(m_tieMs) && m_dtMs > 0.0 && m_img.height() > 1)
       {
         const double row = (m_tieMs - m_t0Ms) / m_dtMs;
@@ -896,24 +1051,73 @@ namespace
           const int y = dst.top() + qRound(yFrac * dst.height());
           p.setPen(QPen(QColor(QStringLiteral("#24303E")), 1.5));
           p.drawLine(dst.left(), y, dst.right(), y);
-          QFont f = p.font();
-          f.setPointSize(8);
-          p.setFont(f);
+          p.setFont(bodyFont);
           p.drawText(QRect(dst.left() + 4, y - 16, dst.width() - 8, 14), Qt::AlignLeft,
                      m_tieLabel);
         }
       }
+
+      // 4. 右侧振幅色标 (Color Bar)
+      const QRect rightBarRect(dst.right(), 0, rightMargin, height());
+      p.fillRect(rightBarRect, QColor(QStringLiteral("#F5F7FA")));
+      p.setPen(QColor(QStringLiteral("#DFE5EC")));
+      p.drawLine(dst.right(), 0, dst.right(), height());
+
+      p.setFont(QFont(QStringLiteral("Noto Sans SC"), 7, QFont::Bold));
+      p.setPen(QColor(QStringLiteral("#24303E")));
+      p.drawText(QRect(dst.right(), 4, rightMargin, 16), Qt::AlignCenter, tr("色标"));
+
+      const int barW = 10;
+      const int barX = dst.right() + 6;
+      const int barTop = topMargin + 8;
+      const int barH = std::max(20, dst.height() - 24);
+
+      QLinearGradient grad(barX, barTop, barX, barTop + barH);
+      grad.setColorAt(0.0, QColor(220, 38, 38));   // Red Peak
+      grad.setColorAt(0.5, QColor(255, 255, 255)); // White Zero
+      grad.setColorAt(1.0, QColor(25, 118, 210));  // Blue Trough
+
+      p.setBrush(grad);
+      p.setPen(QPen(QColor(QStringLiteral("#DFE5EC")), 1.0));
+      p.drawRoundedRect(QRectF(barX, barTop, barW, barH), 2.0, 2.0);
+
+      // 刻度值
+      p.setFont(monoFont);
+      p.setPen(QColor(QStringLiteral("#24303E")));
+      const QString maxStr = m_maxAmp >= 1000.0f
+          ? QStringLiteral("+%1k").arg(m_maxAmp / 1000.0f, 0, 'f', 0)
+          : QStringLiteral("+%1").arg(qRound(m_maxAmp));
+      const QString minStr = m_maxAmp >= 1000.0f
+          ? QStringLiteral("-%1k").arg(m_maxAmp / 1000.0f, 0, 'f', 0)
+          : QStringLiteral("-%1").arg(qRound(m_maxAmp));
+
+      p.drawLine(QPointF(barX + barW, barTop), QPointF(barX + barW + 3, barTop));
+      p.drawText(QRectF(barX + barW + 4, barTop - 6, rightMargin - barW - 10, 12), Qt::AlignLeft | Qt::AlignVCenter, maxStr);
+
+      const double midY = barTop + barH * 0.5;
+      p.drawLine(QPointF(barX + barW, midY), QPointF(barX + barW + 3, midY));
+      p.drawText(QRectF(barX + barW + 4, midY - 6, rightMargin - barW - 10, 12), Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("0"));
+
+      p.drawLine(QPointF(barX + barW, barTop + barH), QPointF(barX + barW + 3, barTop + barH));
+      p.drawText(QRectF(barX + barW + 4, barTop + barH - 6, rightMargin - barW - 10, 12), Qt::AlignLeft | Qt::AlignVCenter, minStr);
+
+      p.setFont(QFont(QStringLiteral("Noto Sans SC"), 7));
+      p.setPen(QColor(220, 38, 38));
+      p.drawText(QRectF(dst.right(), barTop - 12, rightMargin - 4, 10), Qt::AlignRight, tr("波峰+"));
+      p.setPen(QColor(25, 118, 210));
+      p.drawText(QRectF(dst.right(), barTop + barH + 2, rightMargin - 4, 10), Qt::AlignRight, tr("波谷-"));
+
+      // 5. 顶部说明条
       p.setPen(QColor(QStringLiteral("#5D6E80")));
-      QFont f = p.font();
-      f.setPointSize(8);
-      p.setFont(f);
-      p.drawText(rect().adjusted(6, 2, -6, -2), Qt::AlignLeft, m_caption);
+      p.setFont(bodyFont);
+      p.drawText(QRect(leftMargin + 4, 4, dst.width() - 8, 18), Qt::AlignLeft | Qt::AlignVCenter, m_caption);
     }
 
   private:
     QImage m_img;
     QString m_caption;
     QString m_error;
+    float m_maxAmp = 1.0f;
     double m_t0Ms = 0.0, m_dtMs = 0.0;
     double m_tieMs = qQNaN();
     QString m_tieLabel;
@@ -1165,7 +1369,8 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
       "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; "
       "padding: 4px 8px; font-size: 8.5pt; color: #24303E; }"
       "QToolButton:hover { background: #E2E8F0; border-color: #9AA7B4; }"
-      "QToolButton:pressed { background: #DFE5EC; }");
+      "QToolButton:pressed { background: #DFE5EC; }"
+      "QToolButton:checked { background: #E1EFFE; border-color: #1B73D0; color: #1B73D0; font-weight: 500; }");
 
   auto *lblTitle = new QLabel(tr("测区全景地图 (QGIS 画布)"), topBar);
   lblTitle->setStyleSheet(QStringLiteral("font-weight: 600; color: #1B73D0; font-size: 9pt;"));
@@ -1209,6 +1414,48 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   btnPan->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   tbLay->addWidget(btnPan);
 
+  // 1. 工区概况图应该有比例尺，指南针，工区范围等显示
+  auto *btnBoundary = new QToolButton(topBar);
+  btnBoundary->setObjectName(QStringLiteral("btnToggleSurveyBoundary"));
+  btnBoundary->setText(tr("工区范围"));
+  btnBoundary->setToolTip(tr("显示/隐藏工区范围边界多边形"));
+  btnBoundary->setCheckable(true);
+  btnBoundary->setChecked(true);
+  btnBoundary->setStyleSheet(btnStyle);
+  btnBoundary->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")));
+  btnBoundary->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  tbLay->addWidget(btnBoundary);
+
+  auto *btnScaleBar = new QToolButton(topBar);
+  btnScaleBar->setObjectName(QStringLiteral("btnToggleScaleBar"));
+  btnScaleBar->setText(tr("比例尺"));
+  btnScaleBar->setToolTip(tr("开启/关闭左下角动态比例尺"));
+  btnScaleBar->setCheckable(true);
+  btnScaleBar->setChecked(true);
+  btnScaleBar->setStyleSheet(btnStyle);
+  btnScaleBar->setToolButtonStyle(Qt::ToolButtonTextOnly);
+  tbLay->addWidget(btnScaleBar);
+
+  auto *btnNorthArrow = new QToolButton(topBar);
+  btnNorthArrow->setObjectName(QStringLiteral("btnToggleNorthArrow"));
+  btnNorthArrow->setText(tr("指南针"));
+  btnNorthArrow->setToolTip(tr("开启/关闭右上角指北针"));
+  btnNorthArrow->setCheckable(true);
+  btnNorthArrow->setChecked(true);
+  btnNorthArrow->setStyleSheet(btnStyle);
+  btnNorthArrow->setToolButtonStyle(Qt::ToolButtonTextOnly);
+  tbLay->addWidget(btnNorthArrow);
+
+  auto *btnGrid = new QToolButton(topBar);
+  btnGrid->setObjectName(QStringLiteral("btnToggleGrid"));
+  btnGrid->setText(tr("网格"));
+  btnGrid->setToolTip(tr("开启/关闭坐标方格网"));
+  btnGrid->setCheckable(true);
+  btnGrid->setChecked(false);
+  btnGrid->setStyleSheet(btnStyle);
+  btnGrid->setToolButtonStyle(Qt::ToolButtonTextOnly);
+  tbLay->addWidget(btnGrid);
+
   auto *btnSwitchMain = new QToolButton(topBar);
   btnSwitchMain->setObjectName(QStringLiteral("btnSwitchToMainCanvas"));
   btnSwitchMain->setText(tr("在主画布中查看"));
@@ -1219,12 +1466,6 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   tbLay->addWidget(btnSwitchMain);
 
   tbLay->addStretch(1);
-
-  auto *crsLabel = new QLabel(tr("局部工程坐标系统 (米)"), topBar);
-  crsLabel->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8pt;"));
-  tbLay->addWidget(crsLabel);
-
-  lay->addWidget(topBar);
 
   // QGIS 地图画布
   auto *canvas = new QgsMapCanvas(w);
@@ -1241,25 +1482,133 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
     new QgsLayerTreeMapCanvasBridge(proj->layerTreeRoot(), canvas, canvas);
   }
 
+  // 挂载装饰管理器：比例尺 + 指南针 + 网格
+  auto *decorMgr = new PaleoDecorationManager(canvas, canvas);
+  decorMgr->setObjectName(QStringLiteral("surveyAreaDecorManager"));
+  decorMgr->setScaleBarEnabled(true);
+  decorMgr->setNorthArrowEnabled(true);
+
+  // 构建工区边界 (QgsRubberBand)
+  CatalogEntity survey;
+  if (m_svc && m_svc->catalog())
+  {
+    const auto surveys = m_svc->catalog()->entities(QStringLiteral("seismic_survey"));
+    if (!surveys.isEmpty())
+      survey = surveys.first();
+  }
+
+  QgsGeometry surveyGeom;
+  if (survey.corners.size() >= 3)
+  {
+    QgsPolylineXY ring;
+    for (const auto &c : survey.corners)
+      ring.append(QgsPointXY(c.first, c.second));
+    if (!ring.isEmpty() && ring.first() != ring.last())
+      ring.append(ring.first());
+    surveyGeom = QgsGeometry::fromPolygonXY(QgsPolygonXY{ring});
+  }
+  else if (survey.inlineMax > survey.inlineMin && survey.xlineMax > survey.xlineMin)
+  {
+    surveyGeom = QgsGeometry::fromRect(QgsRectangle(survey.inlineMin, survey.xlineMin,
+                                                    survey.inlineMax, survey.xlineMax));
+  }
+  else if (proj && !proj->mapLayers().isEmpty())
+  {
+    QgsRectangle ext;
+    for (auto *layer : proj->mapLayers())
+    {
+      if (layer && !layer->extent().isEmpty())
+        ext.combineExtentWith(layer->extent());
+    }
+    if (!ext.isEmpty())
+      surveyGeom = QgsGeometry::fromRect(ext);
+  }
+  if (surveyGeom.isNull())
+  {
+    // 默认局部测区范围 (10 km × 10 km)
+    surveyGeom = QgsGeometry::fromRect(QgsRectangle(0, 0, 10000, 10000));
+  }
+
+  auto *boundaryBand = new QgsRubberBand(canvas, Qgis::GeometryType::Polygon);
+  boundaryBand->setParent(canvas);
+  boundaryBand->setObjectName(QStringLiteral("surveyAreaRubberBand"));
+  if (!surveyGeom.isNull() && surveyGeom.isGeosValid())
+  {
+    boundaryBand->setToGeometry(surveyGeom, nullptr);
+  }
+  boundaryBand->setColor(QColor(27, 115, 208, 16)); // #1B73D0 浅蓝半透明填充
+  boundaryBand->setStrokeColor(QColor(QStringLiteral("#1B73D0"))); // 边界线
+  boundaryBand->setWidth(2);
+  boundaryBand->setLineStyle(Qt::DashLine);
+  boundaryBand->show();
+
+  // 工区范围与坐标系说明标签
+  QString extentStr;
+  if (!surveyGeom.isNull() && !surveyGeom.boundingBox().isEmpty())
+  {
+    const QgsRectangle box = surveyGeom.boundingBox();
+    const double wKm = box.width() / 1000.0;
+    const double hKm = box.height() / 1000.0;
+    extentStr = tr("工区范围: %1 km × %2 km · 局部工程坐标系统 (米)")
+                    .arg(QString::number(wKm, 'f', 1), QString::number(hKm, 'f', 1));
+  }
+  else
+  {
+    extentStr = tr("局部工程坐标系统 (米)");
+  }
+  auto *crsLabel = new QLabel(extentStr, topBar);
+  crsLabel->setObjectName(QStringLiteral("surveyAreaExtentLabel"));
+  crsLabel->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8pt; font-family: 'JetBrains Mono', 'Noto Sans SC';"));
+  tbLay->addWidget(crsLabel);
+
+  lay->addWidget(topBar);
+  lay->addWidget(canvas, 1);
+
   // 设置默认漫游工具
   auto *panTool = new QgsMapToolPan(canvas);
   canvas->setMapTool(panTool);
 
-  connect(btnFull, &QToolButton::clicked, canvas, &QgsMapCanvas::zoomToFullExtent);
+  auto zoomFull = [canvas, surveyGeom]() {
+    if (!surveyGeom.isNull() && !surveyGeom.boundingBox().isEmpty())
+    {
+      QgsRectangle ext = surveyGeom.boundingBox();
+      ext.grow(qMax(ext.width(), ext.height()) * 0.08);
+      canvas->setExtent(ext);
+      canvas->refresh();
+    }
+    else
+    {
+      canvas->zoomToFullExtent();
+      canvas->refresh();
+    }
+  };
+
+  connect(btnFull, &QToolButton::clicked, canvas, zoomFull);
   connect(btnIn, &QToolButton::clicked, canvas, &QgsMapCanvas::zoomIn);
   connect(btnOut, &QToolButton::clicked, canvas, &QgsMapCanvas::zoomOut);
   connect(btnPan, &QToolButton::clicked, canvas, [canvas, panTool]() {
     canvas->setMapTool(panTool);
   });
-  connect(btnSwitchMain, &QToolButton::clicked, this, &DataPreviewTabs::requestShowOnMainCanvas);
-
-  lay->addWidget(canvas, 1);
-
-  // 延迟自适应全图（等几何尺寸就绪）
-  QTimer::singleShot(100, canvas, [canvas]() {
-    canvas->zoomToFullExtent();
+  connect(btnBoundary, &QToolButton::toggled, canvas, [boundaryBand, canvas](bool checked) {
+    boundaryBand->setVisible(checked);
     canvas->refresh();
   });
+  connect(btnScaleBar, &QToolButton::toggled, canvas, [decorMgr, canvas](bool checked) {
+    decorMgr->setScaleBarEnabled(checked);
+    canvas->refresh();
+  });
+  connect(btnNorthArrow, &QToolButton::toggled, canvas, [decorMgr, canvas](bool checked) {
+    decorMgr->setNorthArrowEnabled(checked);
+    canvas->refresh();
+  });
+  connect(btnGrid, &QToolButton::toggled, canvas, [decorMgr, canvas](bool checked) {
+    decorMgr->setGridEnabled(checked);
+    canvas->refresh();
+  });
+  connect(btnSwitchMain, &QToolButton::clicked, this, &DataPreviewTabs::requestShowOnMainCanvas);
+
+  // 延迟自适应全图（等几何尺寸就绪）
+  QTimer::singleShot(100, canvas, zoomFull);
 
   return w;
 }
@@ -2487,8 +2836,68 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     panel3d->setObjectName(QStringLiteral("seismic3DPanel"));
     modeTabs->addTab(panel3d, tr("三维立体 (3D)"));
 
-    const auto load3DIfNeeded = [this, panel3d, abs]() {
-      if (panel3d->volume() == nullptr && !abs.isEmpty() && QFile::exists(abs))
+    // 3. 水平时间切片剖面 (Time Slice)
+    auto *wTime = new QWidget(modeTabs);
+    wTime->setObjectName(QStringLiteral("seismicTimeSliceContainer"));
+    auto *layTime = new QVBoxLayout(wTime);
+    layTime->setContentsMargins(6, 6, 6, 6);
+    layTime->setSpacing(4);
+
+    auto *timeBar = new QWidget(wTime);
+    auto *timeBarLay = new QHBoxLayout(timeBar);
+    timeBarLay->setContentsMargins(0, 0, 0, 0);
+    timeBarLay->setSpacing(8);
+
+    auto *lblTimeTitle = caption8(tr("水平时间切片 (TWT)"), timeBar);
+    timeBarLay->addWidget(lblTimeTitle);
+
+    auto *lblTimeIndex = new QLabel(tr("时间采样:"), timeBar);
+    lblTimeIndex->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8.5pt;"));
+    timeBarLay->addWidget(lblTimeIndex);
+
+    auto *sliderTime = new QSlider(Qt::Horizontal, timeBar);
+    sliderTime->setObjectName(QStringLiteral("timeSliceSlider"));
+    sliderTime->setFixedWidth(160);
+    timeBarLay->addWidget(sliderTime);
+
+    auto *spinTime = new QSpinBox(timeBar);
+    spinTime->setObjectName(QStringLiteral("timeSliceSpin"));
+    spinTime->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
+    spinTime->setFixedWidth(64);
+    timeBarLay->addWidget(spinTime);
+
+    auto *lblTimeMs = new QLabel(QStringLiteral("0.0 ms"), timeBar);
+    lblTimeMs->setObjectName(QStringLiteral("timeSliceMsLabel"));
+    lblTimeMs->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
+    lblTimeMs->setStyleSheet(QStringLiteral("color: #1B73D0; font-weight: bold;"));
+    lblTimeMs->setFixedWidth(90);
+    timeBarLay->addWidget(lblTimeMs);
+
+    auto *btnFitTime = new QToolButton(timeBar);
+    btnFitTime->setText(tr("适应窗口"));
+    btnFitTime->setStyleSheet(QStringLiteral(
+        "QToolButton { background: transparent; border: 1px solid #DFE5EC; border-radius: 4px; padding: 2px 8px; font-size: 8.5pt; color: #24303E; }"
+        "QToolButton:hover { background: #EDF1F5; border-color: #1B73D0; }"));
+    timeBarLay->addWidget(btnFitTime);
+
+    timeBarLay->addStretch(1);
+    layTime->addWidget(timeBar);
+
+    auto *timeCanvas = new seismic::SeismicSectionCanvas(wTime);
+    timeCanvas->setObjectName(QStringLiteral("timeSliceCanvas"));
+    timeCanvas->setColorMap(seismic::SectionColorMapType::RedWhiteBlue);
+    timeCanvas->setGain(1.2f);
+    timeCanvas->setContrast(1.3f);
+    layTime->addWidget(timeCanvas, 1);
+
+    connect(btnFitTime, &QToolButton::clicked, timeCanvas, &seismic::SeismicSectionCanvas::fitToWindow);
+
+    modeTabs->addTab(wTime, tr("水平时间切片 (Time Slice)"));
+
+    auto sharedVol = std::make_shared<std::shared_ptr<seismic::SgyVolume>>();
+
+    const auto loadVolumeIfNeeded = [this, sharedVol, panel3d, sliderTime, spinTime, abs]() {
+      if (*sharedVol == nullptr && !abs.isEmpty() && QFile::exists(abs))
       {
         if (m_seismicTaskSvc)
           panel3d->setTaskService(m_seismicTaskSvc.get());
@@ -2496,24 +2905,73 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         std::string volErr;
         if (vol->Load(abs.toStdString(), volErr))
         {
+          *sharedVol = vol;
           panel3d->setVolume(vol);
           if (panel3d->viewport())
           {
             panel3d->viewport()->setPresetView(seismic::SeismicCameraController::PresetView::Isometric);
             panel3d->viewport()->fitToBounds();
           }
+
+          sliderTime->blockSignals(true);
+          spinTime->blockSignals(true);
+          sliderTime->setRange(0, vol->SampleMax());
+          spinTime->setRange(0, vol->SampleMax());
+          const int mid = vol->SampleMax() / 2;
+          sliderTime->setValue(mid);
+          spinTime->setValue(mid);
+          sliderTime->blockSignals(false);
+          spinTime->blockSignals(false);
         }
       }
     };
-    connect(modeTabs, &QTabWidget::currentChanged, host, [load3DIfNeeded, panel3d](int idx) {
+
+    const auto updateTimeSlice = [sharedVol, timeCanvas, lblTimeMs](int sampleIndex) {
+      if (!*sharedVol || !(*sharedVol)->IsLoaded())
+        return;
+      const auto vol = *sharedVol;
+      const double ms = sampleIndex * (vol->SampleIntervalUs() / 1000.0);
+      lblTimeMs->setText(QStringLiteral("%1 ms").arg(ms, 0, 'f', 1));
+
+      seismic::SgySliceImage img;
+      std::string err;
+      if (vol->ExtractSlice(seismic::SgySliceType::Time, sampleIndex, img, err))
+      {
+        timeCanvas->setTimeSliceData(img, ms, vol->InlineMin(), vol->InlineMax(), vol->XlineMin(), vol->XlineMax());
+      }
+    };
+
+    connect(sliderTime, &QSlider::valueChanged, host, [spinTime, updateTimeSlice](int val) {
+      spinTime->blockSignals(true);
+      spinTime->setValue(val);
+      spinTime->blockSignals(false);
+      updateTimeSlice(val);
+    });
+
+    connect(spinTime, QOverload<int>::of(&QSpinBox::valueChanged), host, [sliderTime, updateTimeSlice](int val) {
+      sliderTime->blockSignals(true);
+      sliderTime->setValue(val);
+      sliderTime->blockSignals(false);
+      updateTimeSlice(val);
+    });
+
+    connect(modeTabs, &QTabWidget::currentChanged, host, [loadVolumeIfNeeded, panel3d, timeCanvas, updateTimeSlice, sliderTime](int idx) {
       if (idx == 1)
       {
-        load3DIfNeeded();
+        loadVolumeIfNeeded();
         if (panel3d->viewport())
         {
           panel3d->viewport()->fitToBounds();
           panel3d->viewport()->update();
         }
+      }
+      else if (idx == 2)
+      {
+        loadVolumeIfNeeded();
+        updateTimeSlice(sliderTime->value());
+        QTimer::singleShot(20, timeCanvas, [timeCanvas]() {
+          timeCanvas->fitToWindow();
+        });
       }
     });
 
@@ -2607,7 +3065,8 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     return host;
   }
 
-  if (asset.type == QLatin1String("geojson"))
+  if (asset.type == QLatin1String("geojson") ||
+      (asset.type == QLatin1String("boundary") && asset.displayName.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive)))
   {
     QFile f(abs);
     if (!f.open(QIODevice::ReadOnly))
@@ -2637,15 +3096,193 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
                      .toArray(),
                  &minX, &minY, &maxX, &maxY);
     }
-    QStringList faciesKeys;
+
+    // 寻找沉积相分类字段候选 (相、亚相、微相、facies 等)
+    QStringList faciesCandidates;
     for (const QString &k : propKeys)
-      if (k.contains(QString::fromUtf8("相")))
-        faciesKeys.append(k);
-    // 顶部操作与空间提示工具栏（基础元数据信息已移至右侧「数据属性」面板）
+    {
+      if (k == QLatin1String("相") || k == QLatin1String("微相") || k == QLatin1String("亚相") ||
+          k.contains(QStringLiteral("相")) ||
+          k.compare(QLatin1String("facies"), Qt::CaseInsensitive) == 0 ||
+          k.compare(QLatin1String("sub_facies"), Qt::CaseInsensitive) == 0 ||
+          k.compare(QLatin1String("micro_facies"), Qt::CaseInsensitive) == 0)
+      {
+        faciesCandidates.append(k);
+      }
+    }
+    if (faciesCandidates.isEmpty())
+    {
+      for (const QString &k : propKeys)
+      {
+        if (k.compare(QLatin1String("name"), Qt::CaseInsensitive) == 0 ||
+            k.compare(QLatin1String("type"), Qt::CaseInsensitive) == 0 ||
+            k.compare(QLatin1String("zone"), Qt::CaseInsensitive) == 0)
+        {
+          faciesCandidates.append(k);
+        }
+      }
+    }
+    if (faciesCandidates.isEmpty() && !propKeys.isEmpty())
+      faciesCandidates.append(propKeys.first());
+
+    QString activeFaciesField;
+    if (faciesCandidates.contains(QStringLiteral("相")))
+      activeFaciesField = QStringLiteral("相");
+    else if (!faciesCandidates.isEmpty())
+      activeFaciesField = faciesCandidates.first();
+
+    // 尝试创建 QGIS 矢量图层用于相图画布渲染
+    auto *vlayer = new QgsVectorLayer(abs, asset.displayName, QStringLiteral("ogr"));
+    vlayer->setParent(host);
+
+    auto applyFaciesRenderer = [vlayer](const QString &fieldName) {
+      if (!vlayer || !vlayer->isValid() || fieldName.isEmpty())
+        return;
+
+      const int fieldIdx = vlayer->fields().lookupField(fieldName);
+      if (fieldIdx < 0)
+        return;
+
+      QSet<QString> uniqueVals;
+      QgsFeatureIterator it = vlayer->getFeatures();
+      QgsFeature feat;
+      while (it.nextFeature(feat))
+      {
+        const QString v = feat.attribute(fieldIdx).toString().trimmed();
+        if (!v.isEmpty())
+          uniqueVals.insert(v);
+      }
+
+      QgsCategoryList categories;
+      for (const QString &val : uniqueVals)
+      {
+        const QColor col = faciesColor(val);
+        std::unique_ptr<QgsSymbol> sym = createFaciesSymbol(vlayer->geometryType(), col);
+        categories.append(QgsRendererCategory(val, sym.release(), val));
+      }
+      std::unique_ptr<QgsSymbol> defSym = createFaciesSymbol(vlayer->geometryType(), QColor(QStringLiteral("#CFD8DC")));
+      categories.append(QgsRendererCategory(QVariant(), defSym.release(), QObject::tr("其他")));
+
+      vlayer->setRenderer(new QgsCategorizedSymbolRenderer(fieldName, categories));
+
+      // 文本标注 (白色光晕 + 9pt 中黑)
+      QgsPalLayerSettings palSettings;
+      palSettings.fieldName = fieldName;
+      palSettings.isExpression = false;
+      QgsTextFormat txtFmt;
+      QFont font(QStringLiteral("Noto Sans SC"), 9, QFont::Medium);
+      txtFmt.setFont(font);
+      txtFmt.setSize(9.0);
+      txtFmt.setSizeUnit(Qgis::RenderUnit::Points);
+      txtFmt.setColor(QColor(QStringLiteral("#24303E")));
+      QgsTextBufferSettings buf;
+      buf.setEnabled(true);
+      buf.setSize(1.5);
+      buf.setColor(Qt::white);
+      txtFmt.setBuffer(buf);
+      palSettings.setFormat(txtFmt);
+
+      vlayer->setLabeling(new QgsVectorLayerSimpleLabeling(palSettings));
+      vlayer->setLabelsEnabled(true);
+      vlayer->triggerRepaint();
+    };
+
+    // 顶部操作与空间提示工具栏
     auto *topBar = new QWidget(host);
     auto *topLay = new QHBoxLayout(topBar);
-    topLay->setContentsMargins(0, 0, 0, 4);
-    topLay->setSpacing(8);
+    topLay->setContentsMargins(8, 4, 8, 4);
+    topLay->setSpacing(6);
+    topBar->setStyleSheet(QStringLiteral("background: #EDF1F5; border-bottom: 1px solid #DFE5EC;"));
+
+    const QString btnStyle = QStringLiteral(
+        "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; "
+        "padding: 4px 8px; font-size: 8.5pt; color: #24303E; }"
+        "QToolButton:hover { background: #E2E8F0; border-color: #9AA7B4; }"
+        "QToolButton:pressed { background: #DFE5EC; }"
+        "QToolButton:checked { background: #E1EFFE; border-color: #1B73D0; color: #1B73D0; font-weight: 500; }");
+
+    // 视图切换器: 相图地图 / 属性列表
+    auto *btnViewMap = new QToolButton(topBar);
+    btnViewMap->setObjectName(QStringLiteral("btnViewFaciesMap"));
+    btnViewMap->setText(tr("相图地图"));
+    btnViewMap->setCheckable(true);
+    btnViewMap->setChecked(true);
+    btnViewMap->setStyleSheet(btnStyle);
+    btnViewMap->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")));
+    btnViewMap->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    topLay->addWidget(btnViewMap);
+
+    auto *btnViewTable = new QToolButton(topBar);
+    btnViewTable->setObjectName(QStringLiteral("btnViewFaciesTable"));
+    btnViewTable->setText(tr("属性列表"));
+    btnViewTable->setCheckable(true);
+    btnViewTable->setChecked(false);
+    btnViewTable->setStyleSheet(btnStyle);
+    btnViewTable->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionOpenTable.svg")));
+    btnViewTable->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    topLay->addWidget(btnViewTable);
+
+    auto *viewGroup = new QButtonGroup(topBar);
+    viewGroup->addButton(btnViewMap);
+    viewGroup->addButton(btnViewTable);
+
+    topLay->addSpacing(6);
+
+    // 地图浏览工具
+    auto *btnFull = new QToolButton(topBar);
+    btnFull->setObjectName(QStringLiteral("btnFaciesFullExtent"));
+    btnFull->setText(tr("全图"));
+    btnFull->setToolTip(tr("缩放到相图完整范围"));
+    btnFull->setStyleSheet(btnStyle);
+    btnFull->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionZoomFullExtent.svg")));
+    btnFull->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    topLay->addWidget(btnFull);
+
+    auto *btnIn = new QToolButton(topBar);
+    btnIn->setObjectName(QStringLiteral("btnFaciesZoomIn"));
+    btnIn->setText(tr("放大"));
+    btnIn->setStyleSheet(btnStyle);
+    btnIn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionZoomIn.svg")));
+    btnIn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    topLay->addWidget(btnIn);
+
+    auto *btnOut = new QToolButton(topBar);
+    btnOut->setObjectName(QStringLiteral("btnFaciesZoomOut"));
+    btnOut->setText(tr("缩小"));
+    btnOut->setStyleSheet(btnStyle);
+    btnOut->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionZoomOut.svg")));
+    btnOut->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    topLay->addWidget(btnOut);
+
+    auto *btnPan = new QToolButton(topBar);
+    btnPan->setObjectName(QStringLiteral("btnFaciesPan"));
+    btnPan->setText(tr("漫游"));
+    btnPan->setStyleSheet(btnStyle);
+    btnPan->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionPan.svg")));
+    btnPan->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    topLay->addWidget(btnPan);
+
+    // 字段选择下拉框（若有多个相分类字段）
+    QComboBox *fieldCombo = nullptr;
+    QLabel *fieldLbl = nullptr;
+    if (faciesCandidates.size() > 1)
+    {
+      fieldLbl = new QLabel(tr("渲染字段:"), topBar);
+      fieldLbl->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8.5pt;"));
+      topLay->addWidget(fieldLbl);
+
+      fieldCombo = new QComboBox(topBar);
+      fieldCombo->setObjectName(QStringLiteral("faciesFieldCombo"));
+      fieldCombo->addItems(faciesCandidates);
+      if (!activeFaciesField.isEmpty())
+        fieldCombo->setCurrentText(activeFaciesField);
+      fieldCombo->setStyleSheet(QStringLiteral(
+          "QComboBox { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; padding: 2px 6px; font-size: 8.5pt; color: #24303E; }"
+          "QComboBox:hover { border-color: #9AA7B4; }"));
+      topLay->addWidget(fieldCombo);
+    }
+
+    topLay->addSpacing(8);
 
     // D11 临时配准入口：手工仿射把这份 GeoJSON 拉到工程测网。产物是
     // DERIVED 版本 + 「临时配准」水印图层，不改原 RAW。
@@ -2653,13 +3290,18 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     regBtn->setObjectName(QStringLiteral("provisionalRegisterButton"));
     regBtn->setAccessibleName(tr("临时配准"));
     regBtn->setToolTip(tr("手工输入仿射参数，把 GeoJSON 变换到工程局部测网"));
+    regBtn->setStyleSheet(QStringLiteral(
+        "QPushButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; padding: 4px 8px; font-size: 8.5pt; color: #24303E; }"
+        "QPushButton:hover { background: #E2E8F0; border-color: #9AA7B4; }"));
     topLay->addWidget(regBtn);
+
+    topLay->addStretch(1);
 
     auto *warnLbl = warnLabel(tr("经纬度，与本测网不是同一空间"), host);
     warnLbl->setStyleSheet(QStringLiteral("color: #D32F2F; font-size: 11px; font-weight: 500;"));
     topLay->addWidget(warnLbl);
-    topLay->addStretch(1);
     lay->addWidget(topBar);
+
     connect(regBtn, &QPushButton::clicked, this, [this, assetId, abs]() {
       double srcB[4];
       QString berr;
@@ -2755,8 +3397,77 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
                     {QStringLiteral("rotDeg"), rot->value()}});
     });
 
-    // 要素属性表格预览
-    auto *table = new QTableWidget(host);
+    auto *viewStack = new QStackedWidget(host);
+    viewStack->setObjectName(QStringLiteral("faciesViewStack"));
+
+    // 1. QGIS 相图地图画布页
+    auto *canvasPage = new QWidget(viewStack);
+    auto *cvLay = new QVBoxLayout(canvasPage);
+    cvLay->setContentsMargins(0, 0, 0, 0);
+    cvLay->setSpacing(0);
+
+    auto *canvas = new QgsMapCanvas(canvasPage);
+    canvas->setObjectName(QStringLiteral("faciesMapCanvas"));
+    canvas->enableAntiAliasing(true);
+    canvas->setCanvasColor(Qt::white);
+
+    if (vlayer && vlayer->isValid())
+    {
+      applyFaciesRenderer(activeFaciesField);
+      canvas->setDestinationCrs(vlayer->crs());
+      canvas->setLayers({vlayer});
+
+      auto *decorMgr = new PaleoDecorationManager(canvas, canvas);
+      decorMgr->setObjectName(QStringLiteral("faciesDecorManager"));
+      decorMgr->setScaleBarEnabled(true);
+      decorMgr->setNorthArrowEnabled(true);
+
+      auto *panTool = new QgsMapToolPan(canvas);
+      canvas->setMapTool(panTool);
+
+      auto zoomFaciesFull = [canvas, vlayer]() {
+        if (vlayer && !vlayer->extent().isEmpty())
+        {
+          QgsRectangle ext = vlayer->extent();
+          ext.grow(qMax(ext.width(), ext.height()) * 0.1);
+          canvas->setExtent(ext);
+          canvas->refresh();
+        }
+        else
+        {
+          canvas->zoomToFullExtent();
+          canvas->refresh();
+        }
+      };
+
+      connect(btnFull, &QToolButton::clicked, canvas, zoomFaciesFull);
+      connect(btnIn, &QToolButton::clicked, canvas, &QgsMapCanvas::zoomIn);
+      connect(btnOut, &QToolButton::clicked, canvas, &QgsMapCanvas::zoomOut);
+      connect(btnPan, &QToolButton::clicked, canvas, [canvas, panTool]() {
+        canvas->setMapTool(panTool);
+      });
+
+      if (fieldCombo)
+      {
+        connect(fieldCombo, &QComboBox::currentTextChanged, canvas, [applyFaciesRenderer, canvas](const QString &fld) {
+          applyFaciesRenderer(fld);
+          canvas->refresh();
+        });
+      }
+
+      QTimer::singleShot(100, canvas, zoomFaciesFull);
+    }
+    else
+    {
+      btnViewMap->setEnabled(false);
+      btnViewTable->setChecked(true);
+    }
+
+    cvLay->addWidget(canvas, 1);
+    viewStack->addWidget(canvasPage);
+
+    // 2. 要素属性表格预览
+    auto *table = new QTableWidget(viewStack);
     table->setObjectName(QStringLiteral("geoJsonFeatureTable"));
     table->setAlternatingRowColors(true);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -2812,7 +3523,23 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     }
     table->horizontalHeader()->setStretchLastSection(true);
     table->resizeColumnsToContents();
-    lay->addWidget(table, 1);
+    viewStack->addWidget(table);
+
+    const auto updateViewMode = [viewStack, btnFull, btnIn, btnOut, btnPan, fieldLbl, fieldCombo](int idx) {
+      viewStack->setCurrentIndex(idx);
+      const bool isMap = (idx == 0);
+      btnFull->setVisible(isMap);
+      btnIn->setVisible(isMap);
+      btnOut->setVisible(isMap);
+      btnPan->setVisible(isMap);
+      if (fieldLbl) fieldLbl->setVisible(isMap);
+      if (fieldCombo) fieldCombo->setVisible(isMap);
+    };
+
+    connect(btnViewMap, &QToolButton::clicked, host, [updateViewMode]() { updateViewMode(0); });
+    connect(btnViewTable, &QToolButton::clicked, host, [updateViewMode]() { updateViewMode(1); });
+
+    lay->addWidget(viewStack, 1);
     return host;
   }
 

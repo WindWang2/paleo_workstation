@@ -11,7 +11,12 @@
 #include "../src/qgis/qgisruntime.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
+#include "../src/ui/decorations/paleodecorations.h"
 #include <qgsmapcanvas.h>
+#include <qgsrubberband.h>
+#include <qgsvectorlayer.h>
+#include <qgscategorizedsymbolrenderer.h>
+#include <QStackedWidget>
 
 #include <QComboBox>
 #include <QLabel>
@@ -320,6 +325,42 @@ void TestDataPreview::everyTypeOpensContent()
                      ->findChild<QPushButton *>(
                          QStringLiteral("provisionalRegisterButton"));
   QVERIFY2(regBtn, "geojson tab needs the provisional-registration entry");
+
+  // 相图 QGIS 画布预览与视图切换测试
+  QWidget *geoPage = tabs->widget(tabs->currentIndex());
+  auto *faciesCanvas = geoPage->findChild<QgsMapCanvas *>(QStringLiteral("faciesMapCanvas"));
+  QVERIFY(faciesCanvas);
+  auto *faciesDecor = faciesCanvas->findChild<PaleoDecorationManager *>(QStringLiteral("faciesDecorManager"));
+  QVERIFY(faciesDecor);
+  QVERIFY(faciesDecor->isScaleBarEnabled());
+  QVERIFY(faciesDecor->isNorthArrowEnabled());
+
+  QCOMPARE(faciesCanvas->layers().size(), 1);
+  auto *vlayer = qobject_cast<QgsVectorLayer *>(faciesCanvas->layers().first());
+  QVERIFY(vlayer);
+  QVERIFY(vlayer->isValid());
+  auto *renderer = dynamic_cast<QgsCategorizedSymbolRenderer *>(vlayer->renderer());
+  QVERIFY(renderer);
+  QVERIFY(vlayer->labelsEnabled());
+
+  auto *viewStack = geoPage->findChild<QStackedWidget *>(QStringLiteral("faciesViewStack"));
+  QVERIFY(viewStack);
+  QCOMPARE(viewStack->currentIndex(), 0); // 默认为地图画布页
+
+  auto *btnViewMap = geoPage->findChild<QToolButton *>(QStringLiteral("btnViewFaciesMap"));
+  auto *btnViewTable = geoPage->findChild<QToolButton *>(QStringLiteral("btnViewFaciesTable"));
+  QVERIFY(btnViewMap);
+  QVERIFY(btnViewTable);
+
+  btnViewTable->click();
+  QCOMPARE(viewStack->currentIndex(), 1); // 切换至属性列表页
+  auto *geoTable = geoPage->findChild<QTableWidget *>(QStringLiteral("geoJsonFeatureTable"));
+  QVERIFY(geoTable);
+  QVERIFY(geoTable->rowCount() > 0);
+
+  btnViewMap->click();
+  QCOMPARE(viewStack->currentIndex(), 0); // 切换回相图地图画布
+
   QCOMPARE(st->preview->tabCount(), 9);
 }
 
@@ -1207,6 +1248,49 @@ void TestDataPreview::surveyAreaOpensQgisCanvasAndEmitsShowOnMain()
   QSignalSpy spy(st->preview.get(), &DataPreviewTabs::requestShowOnMainCanvas);
   btnSwitchMain->click();
   QCOMPARE(spy.count(), 1);
+
+  // Check decorations and survey boundary rubberband
+  auto *decorMgr = canvas->findChild<PaleoDecorationManager *>(QStringLiteral("surveyAreaDecorManager"));
+  QVERIFY(decorMgr);
+  QVERIFY(decorMgr->isScaleBarEnabled());
+  QVERIFY(decorMgr->isNorthArrowEnabled());
+  QVERIFY(!decorMgr->isGridEnabled());
+
+  auto *band = canvas->findChild<QgsRubberBand *>(QStringLiteral("surveyAreaRubberBand"));
+  QVERIFY(band);
+  QVERIFY(band->isVisible());
+
+  auto *btnBoundary = st->preview->findChild<QToolButton *>(QStringLiteral("btnToggleSurveyBoundary"));
+  auto *btnScaleBar = st->preview->findChild<QToolButton *>(QStringLiteral("btnToggleScaleBar"));
+  auto *btnNorthArrow = st->preview->findChild<QToolButton *>(QStringLiteral("btnToggleNorthArrow"));
+  auto *btnGrid = st->preview->findChild<QToolButton *>(QStringLiteral("btnToggleGrid"));
+
+  QVERIFY(btnBoundary && btnBoundary->isChecked());
+  QVERIFY(btnScaleBar && btnScaleBar->isChecked());
+  QVERIFY(btnNorthArrow && btnNorthArrow->isChecked());
+  QVERIFY(btnGrid && !btnGrid->isChecked());
+
+  // Test toggling boundary
+  btnBoundary->click();
+  QVERIFY(!band->isVisible());
+  btnBoundary->click();
+  QVERIFY(band->isVisible());
+
+  // Test toggling decorations
+  btnScaleBar->click();
+  QVERIFY(!decorMgr->isScaleBarEnabled());
+  btnScaleBar->click();
+  QVERIFY(decorMgr->isScaleBarEnabled());
+
+  btnGrid->click();
+  QVERIFY(decorMgr->isGridEnabled());
+  btnGrid->click();
+  QVERIFY(!decorMgr->isGridEnabled());
+
+  // Check extent label exists
+  auto *extentLabel = st->preview->findChild<QLabel *>(QStringLiteral("surveyAreaExtentLabel"));
+  QVERIFY(extentLabel);
+  QVERIFY(!extentLabel->text().isEmpty());
 
   // Re-opening focuses the existing tab without creating duplicate tab
   st->preview->openSurveyArea();

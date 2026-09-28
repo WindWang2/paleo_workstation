@@ -192,6 +192,14 @@ private:
     // the expectation before its samples may be used.
     bool ValidateRuleTrace(segy_datasource* file, int traceIndex, std::string& errorMessage) const;
 
+    void EnsureTimeSliceGrid() const;
+
+    struct TimeGridCache {
+        std::mutex mutex;
+        std::vector<int> traceIndices;
+    };
+    mutable std::shared_ptr<TimeGridCache> timeGridCache_ = std::make_shared<TimeGridCache>();
+
     SgyIndexPtr index_;
 };
 

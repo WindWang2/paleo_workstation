@@ -295,7 +295,7 @@ double SeismicSectionCanvas::pixelToInline(double py) const {
 
 QRect SeismicSectionCanvas::viewportRect() const {
     return QRect(m_leftMargin, m_topMargin,
-                 std::max(1, width() - m_leftMargin),
+                 std::max(1, width() - m_leftMargin - m_rightMargin),
                  std::max(1, height() - m_topMargin));
 }
 
@@ -553,22 +553,22 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
     const QRect topRulerRect(m_leftMargin, 0, vp.width(), m_topMargin);
     p.fillRect(topRulerRect, QColor(QStringLiteral("#F5F7FA")));
     p.setPen(QColor(QStringLiteral("#DFE5EC")));
-    p.drawLine(QPoint(m_leftMargin, m_topMargin), QPoint(width(), m_topMargin));
+    p.drawLine(QPoint(m_leftMargin, m_topMargin), QPoint(vp.right(), m_topMargin));
 
     if (hasData()) {
         if (m_orientation == SectionOrientation::TimeSlice) {
             // Horizontal Crossline (XL) ruler
             const double minTrace = pixelToTrace(m_leftMargin);
-            const double maxTrace = pixelToTrace(width());
+            const double maxTrace = pixelToTrace(vp.right());
             const double spanXl = std::max(1, m_xlineMax - m_xlineMin);
             const double minXl = m_xlineMin + (minTrace / std::max(1.0, static_cast<double>(m_traces - 1))) * spanXl;
             const double maxXl = m_xlineMin + (maxTrace / std::max(1.0, static_cast<double>(m_traces - 1))) * spanXl;
 
-            const auto ticks = NiceStep::GenerateTicks(minXl, maxXl, m_leftMargin, width(), 8, QStringLiteral("%.0f"));
+            const auto ticks = NiceStep::GenerateTicks(minXl, maxXl, m_leftMargin, vp.right(), 8, QStringLiteral("%.0f"));
 
             p.setFont(monoFont);
             for (const auto &tk : ticks) {
-                if (tk.pixelPos < m_leftMargin || tk.pixelPos > width())
+                if (tk.pixelPos < m_leftMargin || tk.pixelPos > vp.right())
                     continue;
 
                 p.setPen(QColor(QStringLiteral("#5D6E80")));
@@ -586,7 +586,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
         } else {
             // Distance ticks for vertical profile
             const double minTrace = pixelToTrace(m_leftMargin);
-            const double maxTrace = pixelToTrace(width());
+            const double maxTrace = pixelToTrace(vp.right());
 
             // Distance ticks
             const double totalDist = totalDistanceM();
@@ -594,11 +594,11 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
             const double minDistM = minTrace * traceToDistFactor;
             const double maxDistM = maxTrace * traceToDistFactor;
 
-            const auto ticks = NiceStep::GenerateTicks(minDistM, maxDistM, m_leftMargin, width(), 8, QStringLiteral("%.0f"));
+            const auto ticks = NiceStep::GenerateTicks(minDistM, maxDistM, m_leftMargin, vp.right(), 8, QStringLiteral("%.0f"));
 
             p.setFont(monoFont);
             for (const auto &tk : ticks) {
-                if (tk.pixelPos < m_leftMargin || tk.pixelPos > width())
+                if (tk.pixelPos < m_leftMargin || tk.pixelPos > vp.right())
                     continue;
 
                 p.setPen(QColor(QStringLiteral("#5D6E80")));
@@ -625,7 +625,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                     if (!well.isWithinBuffer)
                         continue;
                     const double wx = traceToPixelX(well.tracePosition);
-                    if (wx < m_leftMargin || wx > width())
+                    if (wx < m_leftMargin || wx > vp.right())
                         continue;
 
                     // Triangle pin pointing down
@@ -760,6 +760,87 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 ? QStringLiteral("TWT (ms)")
                 : QStringLiteral("深度 (m)");
             p.drawText(QRect(2, 2, m_leftMargin - 4, m_topMargin - 4), Qt::AlignCenter, unitStr);
+        }
+    }
+
+    // 7. Render Right Color Bar (色标)
+    const int colorBarX = width() - m_rightMargin;
+    const QRect rightBarRect(colorBarX, 0, m_rightMargin, height());
+    p.fillRect(rightBarRect, QColor(QStringLiteral("#F5F7FA")));
+    p.setPen(QColor(QStringLiteral("#DFE5EC")));
+    p.drawLine(QPoint(colorBarX, 0), QPoint(colorBarX, height()));
+
+    // Title at the top of the color bar
+    p.setFont(QFont(QStringLiteral("Noto Sans SC"), 8, QFont::Bold));
+    p.setPen(QColor(QStringLiteral("#24303E")));
+    p.drawText(QRect(colorBarX, 8, m_rightMargin, 16), Qt::AlignCenter, tr("色标"));
+
+    p.setFont(QFont(QStringLiteral("Noto Sans SC"), 7));
+    p.setPen(QColor(QStringLiteral("#5D6E80")));
+    p.drawText(QRect(colorBarX, 24, m_rightMargin, 14), Qt::AlignCenter, tr("振幅"));
+
+    if (hasData()) {
+        const int barW = 12;
+        const int barLeft = colorBarX + 8;
+        const int barTop = m_topMargin + 12;
+        const int barBottom = height() - 24;
+        const int barH = std::max(20, barBottom - barTop);
+
+        QLinearGradient grad(barLeft, barTop, barLeft, barBottom);
+        if (m_colorMap == SectionColorMapType::RedWhiteBlue) {
+            grad.setColorAt(0.0, QColor(220, 38, 38));    // Deep Red (+Peak)
+            grad.setColorAt(0.5, QColor(255, 255, 255));  // Pure White (0)
+            grad.setColorAt(1.0, QColor(25, 118, 210));   // Deep Blue (-Trough)
+        } else if (m_colorMap == SectionColorMapType::Rainbow) {
+            grad.setColorAt(0.0, QColor(220, 38, 38));    // Red
+            grad.setColorAt(0.25, QColor(251, 192, 45));  // Yellow
+            grad.setColorAt(0.50, QColor(56, 142, 60));   // Green
+            grad.setColorAt(0.75, QColor(0, 172, 193));   // Cyan
+            grad.setColorAt(1.00, QColor(21, 101, 192));  // Blue
+        } else {
+            grad.setColorAt(0.0, QColor(255, 255, 255));  // White
+            grad.setColorAt(1.0, QColor(0, 0, 0));        // Black
+        }
+
+        const QRectF colorBarRect(barLeft, barTop, barW, barH);
+        p.setBrush(grad);
+        p.setPen(QPen(QColor(QStringLiteral("#DFE5EC")), 1.0));
+        p.drawRoundedRect(colorBarRect, 2.0, 2.0);
+
+        // Labels next to the bar
+        p.setFont(QFont(QStringLiteral("JetBrains Mono"), 7));
+        p.setPen(QColor(QStringLiteral("#24303E")));
+
+        const float absMax = std::max(std::abs(m_slice.valueMin), std::abs(m_slice.valueMax));
+        const QString maxStr = absMax >= 10000.0f
+            ? QStringLiteral("+%1k").arg(absMax / 1000.0f, 0, 'f', 0)
+            : (absMax >= 1000.0f ? QStringLiteral("+%1k").arg(absMax / 1000.0f, 0, 'f', 1)
+                                 : QStringLiteral("+%1").arg(qRound(absMax)));
+        const QString minStr = absMax >= 10000.0f
+            ? QStringLiteral("-%1k").arg(absMax / 1000.0f, 0, 'f', 0)
+            : (absMax >= 1000.0f ? QStringLiteral("-%1k").arg(absMax / 1000.0f, 0, 'f', 1)
+                                 : QStringLiteral("-%1").arg(qRound(absMax)));
+
+        // Top tick (+Max)
+        p.drawLine(QPointF(barLeft + barW, barTop), QPointF(barLeft + barW + 3, barTop));
+        p.drawText(QRectF(barLeft + barW + 4, barTop - 7, m_rightMargin - barW - 12, 14), Qt::AlignLeft | Qt::AlignVCenter, maxStr);
+
+        // Mid tick (0)
+        const double midY = barTop + barH * 0.5;
+        p.drawLine(QPointF(barLeft + barW, midY), QPointF(barLeft + barW + 3, midY));
+        p.drawText(QRectF(barLeft + barW + 4, midY - 7, m_rightMargin - barW - 12, 14), Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("0"));
+
+        // Bottom tick (-Max)
+        p.drawLine(QPointF(barLeft + barW, barBottom), QPointF(barLeft + barW + 3, barBottom));
+        p.drawText(QRectF(barLeft + barW + 4, barBottom - 7, m_rightMargin - barW - 12, 14), Qt::AlignLeft | Qt::AlignVCenter, minStr);
+
+        // Peak / Trough text annotations
+        p.setFont(QFont(QStringLiteral("Noto Sans SC"), 7));
+        if (m_colorMap == SectionColorMapType::RedWhiteBlue) {
+            p.setPen(QColor(220, 38, 38));
+            p.drawText(QRectF(colorBarX, barTop - 13, m_rightMargin - 6, 12), Qt::AlignRight, tr("波峰+"));
+            p.setPen(QColor(25, 118, 210));
+            p.drawText(QRectF(colorBarX, barBottom + 3, m_rightMargin - 6, 12), Qt::AlignRight, tr("波谷-"));
         }
     }
 }

@@ -14,6 +14,9 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/services/previewdoc.h"
+#include "../src/services/paleotaskservice.h"
+
+#include <QElapsedTimer>
 
 class TestPreviewDoc : public QObject
 {
@@ -77,7 +80,13 @@ class TestPreviewDoc : public QObject
     return r;
   }
 
+private slots:
   void initTestCase() { QVERIFY(QgisRuntime::isInitialized()); }
+  // ---- wave/data-foundation ----
+  void lasHeaderFacadeMatchesAndIsFast();     // T1：header-only 出参一致且快
+  void requestLasSyncFallbackEmitsBeforeReturn(); // T1：无任务服务同步降级
+  void requestLasGenerationsDiscardStale();   // T1：世代号压制陈旧结果
+  void catalogRecoveredFromBackupForwards();  // T5：门面转发恢复告警
 
   // 解析门面：lasAt 成功返回曲线名+曲线；坏路径 false + errorString。
   void lasFacade()
@@ -85,7 +94,7 @@ class TestPreviewDoc : public QObject
     QStringList names;
     QList<LasCurve> curves;
     QString err;
-    QVERIFY2(PreviewDocService::lasAt(fixture(QStringLiteral("A1.Las")),
+    QVERIFY2(PreviewDocService::lasAt(TestPreviewDoc::fixture(QStringLiteral("A1.Las")),
                                       &names, &curves, &err),
              qPrintable(err));
     QVERIFY(!names.isEmpty());
@@ -254,6 +263,203 @@ class TestPreviewDoc : public QObject
              "sha 失配应有如实失败原因");
   }
 };
+
+  // ---- wave/data-foundation T1：LAS header-only 门面 ------------------------
+  // 大 LAS fixture：6 曲线 × 60k 行（约 3.5MB）——头部只有 ~10 行。断言：
+  // header 出参与全量解析逐项一致；耗时与数据行数解耦（绝对预算大余量）。
+  static QString makeBigLas(const QTemporaryDir &tmp)
+  {
+    const QString path = tmp.filePath(QStringLiteral("BIG1.Las"));
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+      return QString();
+    QByteArray head =
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n"
+        "~Well\nWELL. BIG1 : WELL\nNULL. -99999.0 :\n"
+        "~Curve\nDEPT.M :\nGR.API :\nDEN.G/C3 :\nSP.MV :\nCAL.MM :\nPEF. :\n"
+        "~ASCII LOG DATA\n";
+    f.write(head);
+    QByteArray row;
+    for (int i = 0; i < 60000; ++i)
+    {
+      const double d = 1000.0 + 0.125 * i;
+      row = QByteArray::number(d, 'f', 3);
+      for (int c = 0; c < 5; ++c)
+        row += ' ' + QByteArray::number(d + c * 1.5, 'f', 3);
+      row += '\n';
+      f.write(row);
+    }
+    f.close();
+    return path;
+  }
+
+void TestPreviewDoc::lasHeaderFacadeMatchesAndIsFast()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString big = makeBigLas(tmp);
+    QVERIFY(!big.isEmpty());
+
+    QStringList fullNames;
+    QList<LasCurve> fullCurves;
+    QString ferr;
+    QVERIFY2(PreviewDocService::lasAt(big, &fullNames, &fullCurves, &ferr),
+             qPrintable(ferr));
+    QCOMPARE(fullNames.size(), 6);
+    QCOMPARE(fullCurves.size(), 6);
+    QCOMPARE(fullCurves.at(0).values.size(), 60000);
+
+    LasHeaderInfo header;
+    QString herr;
+    QVERIFY2(PreviewDocService::lasHeaderAt(big, &header, &herr), qPrintable(herr));
+    QCOMPARE(header.curveNames, fullNames); // 与全量解析逐项一致
+    QCOMPARE(header.wellName, QStringLiteral("BIG1"));
+    QCOMPARE(header.nullValue, -99999.0);
+    QVERIFY(header.sawAscii);
+
+    // 计时：header-only 明显快于全量（预算 = 全量时间本身作上限，另加
+    // 50ms 绝对余量防超快机器上全量也毫秒级的退化）。
+    QElapsedTimer clock;
+    clock.start();
+    LasHeaderInfo h2;
+    QVERIFY(PreviewDocService::lasHeaderAt(big, &h2));
+    const qint64 headerMs = clock.elapsed();
+    clock.restart();
+    QStringList n2;
+    QList<LasCurve> c2;
+    QVERIFY(PreviewDocService::lasAt(big, &n2, &c2));
+    const qint64 fullMs = clock.elapsed();
+    qInfo("las timings: header=%lldms full=%lldms", static_cast<long long>(headerMs),
+          static_cast<long long>(fullMs));
+    QVERIFY2(headerMs < fullMs || fullMs < 5,
+             qPrintable(QStringLiteral("header=%1 full=%2").arg(headerMs).arg(fullMs)));
+    QVERIFY2(headerMs < 50, qPrintable(QString::number(headerMs)));
+
+    // 坏文件语义对齐：WRAP YES 拒绝；无 ~C 拒绝；~A 缺失不算失败。
+    {
+      const QString wrapYes = tmp.filePath(QStringLiteral("WRAP.Las"));
+      QFile f(wrapYes);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("~Version\nWRAP. YES :\n~Curve\nDEPT.M :\n~A DEPT\n1\n");
+      f.close();
+      LasHeaderInfo h;
+      QString err;
+      QVERIFY(!PreviewDocService::lasHeaderAt(wrapYes, &h, &err));
+      QVERIFY(err.contains(QStringLiteral("WRAP YES")));
+    }
+    {
+      const QString noC = tmp.filePath(QStringLiteral("NOC.Las"));
+      QFile f(noC);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("~Version\nVERS. 2.0:\n~A 1\n");
+      f.close();
+      LasHeaderInfo h;
+      QString err;
+      QVERIFY(!PreviewDocService::lasHeaderAt(noC, &h, &err));
+      QVERIFY(err.contains(QStringLiteral("~C")));
+    }
+  }
+
+  // T1：无任务服务 → 同步降级——lasReady 在 requestLas 返回前已发。
+void TestPreviewDoc::requestLasSyncFallbackEmitsBeforeReturn()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    auto stack = TestPreviewDoc::makeStack(tmp.path());
+    QVERIFY(stack != nullptr);
+    PreviewDocService doc(stack->importSvc.get()); // 无 setTaskService
+
+    const QString las = TestPreviewDoc::fixture(QStringLiteral("A1.Las"));
+    QSignalSpy ready(&doc, &PreviewDocService::lasReady);
+    doc.requestLas(QStringLiteral("k1"), las);
+    QCOMPARE(ready.count(), 1); // 同步路径：返回前已发
+    const QStringList names = ready.at(0).at(1).toStringList();
+    QVERIFY(!names.isEmpty());
+
+    // 与 lasAt 同口径：曲线数一致。
+    QStringList fullNames;
+    QList<LasCurve> fullCurves;
+    QString err;
+    QVERIFY(PreviewDocService::lasAt(las, &fullNames, &fullCurves, &err));
+    QCOMPARE(names, fullNames);
+
+    doc.releaseLas(QStringLiteral("k1"));
+    doc.requestLas(QStringLiteral("k1"), las);
+    QCOMPARE(ready.count(), 2); // release 后同 key 重新可用
+  }
+
+  // T1：任务池路径——同 key 新请求作废旧代（陈旧 lasReady 压制在发射前）。
+void TestPreviewDoc::requestLasGenerationsDiscardStale()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    auto stack = TestPreviewDoc::makeStack(tmp.path());
+    QVERIFY(stack != nullptr);
+    PaleoTaskService tasks(stack->store.get());
+    PreviewDocService doc(stack->importSvc.get());
+    doc.setTaskService(&tasks);
+
+    const QString big = makeBigLas(tmp);
+    QVERIFY(!big.isEmpty());
+    const QString small = TestPreviewDoc::fixture(QStringLiteral("A1.Las"));
+
+    QSignalSpy ready(&doc, &PreviewDocService::lasReady);
+    QSignalSpy failed(&doc, &PreviewDocService::lasFailed);
+    doc.requestLas(QStringLiteral("k"), big);   // 旧代：大文件（慢）
+    doc.requestLas(QStringLiteral("k"), small); // 新代：小文件（快）
+
+    QElapsedTimer clock;
+    clock.start();
+    while (ready.count() < 1 && clock.elapsed() < 15000)
+      QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+    // 让可能晚到的大文件任务收尾（其结果按世代号被丢弃）。
+    while (clock.elapsed() < 1000)
+      QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+
+    QCOMPARE(ready.count(), 1); // 该 key 只有最新一代到达
+    QCOMPARE(failed.count(), 0);
+    const QStringList names = ready.at(0).at(1).toStringList();
+    QStringList smallNames;
+    QList<LasCurve> smallCurves;
+    QString err;
+    QVERIFY(PreviewDocService::lasAt(small, &smallNames, &smallCurves, &err));
+    QCOMPARE(names, smallNames); // 到达的是小文件那一代
+    QCOMPARE(ready.at(0).at(0).toString(), QStringLiteral("k"));
+  }
+
+  // T5：catalog .bak 恢复告警经 DataImportService → 门面转发。
+void TestPreviewDoc::catalogRecoveredFromBackupForwards()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    auto stack = TestPreviewDoc::makeStack(tmp.path());
+    QVERIFY(stack != nullptr);
+    const QString catPath = QDir(tmp.path()).filePath(
+        QStringLiteral("artifacts/metadata/catalog.json"));
+    QVERIFY(QFile::exists(catPath));
+    // 先制造一代 .bak（再导入一次触发 save 轮转），再损坏主文件。
+    QString ierr;
+    QVERIFY(!stack->importSvc
+                  ->importProjectFile(TestPreviewDoc::fixture(QStringLiteral("A1.Las")), &ierr)
+                  .isEmpty());
+    QVERIFY(QFile::exists(catPath + QStringLiteral(".bak")));
+
+    PreviewDocService doc(stack->importSvc.get());
+    QSignalSpy recovered(&doc, &PreviewDocService::catalogRecoveredFromBackup);
+    QSignalSpy openFailed(&doc, &PreviewDocService::catalogOpenFailed);
+    {
+      QFile f(catPath);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("{broken");
+    }
+    stack->importSvc->setProjectDir(tmp.path()); // 重开 → .bak 回退
+    QCOMPARE(recovered.count(), 1);
+    QCOMPARE(openFailed.count(), 0); // 恢复成功不算打开失败
+    QVERIFY(recovered.at(0).at(0).toString().contains(
+        QStringLiteral("catalog.json"))); // 原因 = 主文件路径 + 解析错误
+    QVERIFY(doc.catalog()->isOpen());
+    QVERIFY(doc.catalog()->recoveredFromBackup());
+  }
 
 int main(int argc, char *argv[])
 {

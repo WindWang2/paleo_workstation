@@ -94,6 +94,55 @@ QgsPointXY vertexXy( const QgsGeometry &geometry, int vertexNr )
   const QgsPoint pt = geometry.constGet()->vertexAt( vid );
   return QgsPointXY( pt.x(), pt.y() );
 }
+
+// Returns the matching closure vertex number if nr is the start or end of a closed ring; otherwise -1.
+int matchingClosureVertex( const QgsGeometry &g, int nr )
+{
+  QgsVertexId vid;
+  if ( !g.constGet() || !g.vertexIdFromVertexNr( nr, vid ) )
+    return -1;
+  const int ringVertices = g.constGet()->vertexCount( vid.part, vid.ring );
+  if ( ringVertices < 2 )
+    return -1;
+
+  if ( vid.vertex == 0 || vid.vertex == ringVertices - 1 )
+  {
+    QgsVertexId firstVid( vid.part, vid.ring, 0 );
+    QgsVertexId lastVid( vid.part, vid.ring, ringVertices - 1 );
+    const QgsPoint ptFirst = g.constGet()->vertexAt( firstVid );
+    const QgsPoint ptLast = g.constGet()->vertexAt( lastVid );
+    if ( sameXy( ptFirst, ptLast ) )
+    {
+      const QgsVertexId otherVid = ( vid.vertex == 0 ) ? lastVid : firstVid;
+      return g.vertexNrFromVertexId( otherVid );
+    }
+  }
+  return -1;
+}
+
+// Determines if nr is a closure vertex (start 0 or end N) of a polygon ring.
+bool isPolygonClosureVertex( const QgsGeometry &g, int nr, int &part, int &ring, int &startNr, int &endNr )
+{
+  if ( QgsWkbTypes::geometryType( g.wkbType() ) != Qgis::GeometryType::Polygon )
+    return false;
+  if ( !g.constGet() )
+    return false;
+  QgsVertexId vid;
+  if ( !g.vertexIdFromVertexNr( nr, vid ) )
+    return false;
+  const int count = g.constGet()->vertexCount( vid.part, vid.ring );
+  if ( count < 2 )
+    return false;
+  if ( vid.vertex == 0 || vid.vertex == count - 1 )
+  {
+    part = vid.part;
+    ring = vid.ring;
+    startNr = g.vertexNrFromVertexId( QgsVertexId( vid.part, vid.ring, 0 ) );
+    endNr = g.vertexNrFromVertexId( QgsVertexId( vid.part, vid.ring, count - 1 ) );
+    return true;
+  }
+  return false;
+}
 } // namespace
 
 // One in-flight vertex drag. The grabbed vertex is (fid, vertexNr); in
@@ -125,12 +174,8 @@ PaleoVertexTool::PaleoVertexTool( QgsMapCanvas *canvas, QgsVectorLayer *layer )
 
 PaleoVertexTool::~PaleoVertexTool()
 {
-  // Only drop the bookkeeping struct: the marker and preview band are
-  // canvas-parented and may already be gone if the canvas died first, so the
-  // destructor must not dereference them. deactivate() performs the full
-  // cleanup while the canvas is guaranteed alive.
-  delete mDraggingVertex;
-  mDraggingVertex = nullptr;
+  clearDragState();
+  clearMarkers();
 }
 
 void PaleoVertexTool::activate()
@@ -139,17 +184,49 @@ void PaleoVertexTool::activate()
   if ( !mLayer )
     mLayer = qobject_cast<QgsVectorLayer *>( mCanvas->currentLayer() );
 
-  // Live marker rebuild on selection changes while active. Context object
-  // `this` auto-disconnects on destruction; the disconnect-then-connect pair
-  // survives repeated activate() cycles without stacking duplicate handlers
-  // (NB: Qt::UniqueConnection cannot be used — it rejects lambda slots).
+  // Live marker rebuild on selection changes, undo/redo, rollback, and geometry mutations.
   if ( mLayer )
   {
-    disconnect( mLayer, &QgsVectorLayer::selectionChanged, this, nullptr );
-    connect( mLayer, &QgsVectorLayer::selectionChanged, this, [this]
+    disconnect( mLayer.data(), &QgsVectorLayer::selectionChanged, this, nullptr );
+    disconnect( mLayer.data(), &QgsVectorLayer::geometryChanged, this, nullptr );
+    disconnect( mLayer.data(), &QgsMapLayer::layerModified, this, nullptr );
+    disconnect( mLayer.data(), &QgsVectorLayer::afterRollBack, this, nullptr );
+    disconnect( mLayer.data(), &QObject::destroyed, this, nullptr );
+
+    connect( mLayer.data(), &QgsVectorLayer::selectionChanged, this, [this]
     {
-      if ( mCanvas->mapTool() == this ) // ignore selection churn while inactive
+      if ( mCanvas->mapTool() == this )
         rebuildMarkers();
+    } );
+
+    auto onExternalChange = [this]
+    {
+      if ( mCanvas->mapTool() == this && !mCommitting )
+      {
+        if ( mDraggingVertex )
+          clearDragState();
+        rebuildMarkers();
+      }
+    };
+
+    connect( mLayer.data(), &QgsVectorLayer::geometryChanged, this, [onExternalChange]( QgsFeatureId, const QgsGeometry & ) {
+      onExternalChange();
+    } );
+    connect( mLayer.data(), &QgsMapLayer::layerModified, this, onExternalChange );
+    connect( mLayer.data(), &QgsVectorLayer::afterRollBack, this, onExternalChange );
+
+    if ( QUndoStack *stack = mLayer->undoStack() )
+    {
+      disconnect( stack, &QUndoStack::indexChanged, this, nullptr );
+      connect( stack, &QUndoStack::indexChanged, this, [onExternalChange]( int ) {
+        onExternalChange();
+      } );
+    }
+
+    connect( mLayer.data(), &QObject::destroyed, this, [this] {
+      mLayer = nullptr;
+      clearDragState();
+      clearMarkers();
     } );
   }
 
@@ -166,7 +243,12 @@ void PaleoVertexTool::deactivate()
 
 QgsVectorLayer *PaleoVertexTool::targetLayer() const
 {
-  return mLayer;
+  return mLayer.data();
+}
+
+QList<QgsVertexMarker *> PaleoVertexTool::topoMarkers() const
+{
+  return mDraggingVertex ? mDraggingVertex->topoMarkers : QList<QgsVertexMarker *>();
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +285,10 @@ void PaleoVertexTool::canvasPressEvent( QgsMapMouseEvent *e )
   mDraggingVertex->originalGeometry = feature.geometry(); // deep copy = pre-drag clone
   mDraggingVertex->grabPos = vertexXy( feature.geometry(), vertexNr );
   mDraggingVertex->coincident.append( qMakePair( fid, vertexNr ) );
+  const int closureNr = matchingClosureVertex( feature.geometry(), vertexNr );
+  if ( closureNr >= 0 && closureNr != vertexNr )
+    mDraggingVertex->coincident.append( qMakePair( fid, closureNr ) );
+
   mDraggingVertex->originalByFid.insert( fid, feature.geometry() );
   mDraggingVertex->marker = markerForVertex( mMarkers, fid, vertexNr );
   if ( mDraggingVertex->marker )
@@ -222,6 +308,8 @@ void PaleoVertexTool::canvasPressEvent( QgsMapMouseEvent *e )
     for ( const QPair<qint64, int> &member : coincidentVertices( mDraggingVertex->grabPos ) )
     {
       if ( member.first == fid && member.second == vertexNr )
+        continue;
+      if ( mDraggingVertex->coincident.contains( member ) )
         continue;
       mDraggingVertex->coincident.append( member );
       if ( !mDraggingVertex->originalByFid.contains( member.first ) )
@@ -247,6 +335,16 @@ void PaleoVertexTool::canvasPressEvent( QgsMapMouseEvent *e )
     }
   }
 
+  for ( const QPair<qint64, int> &member : std::as_const( mDraggingVertex->coincident ) )
+  {
+    QgsVertexMarker *m = markerForVertex( mMarkers, member.first, member.second );
+    if ( m && m != mDraggingVertex->marker )
+    {
+      m->setColor( dragMarkerColor() );
+      m->setIconSize( MARKER_ICON_SIZE + 4 );
+    }
+  }
+
   // Prime the previews with the (so far zero-length) move, same math as move.
   const QgsPointXY lp = toLayerCoordinates( layer, e->mapPoint() );
   for ( auto it = mDraggingVertex->originalByFid.begin(); it != mDraggingVertex->originalByFid.end(); ++it )
@@ -267,6 +365,18 @@ void PaleoVertexTool::canvasMoveEvent( QgsMapMouseEvent *e )
   // mapPoint() and marker centers are both map CRS — follow directly.
   if ( mDraggingVertex->marker )
     mDraggingVertex->marker->setCenter( e->mapPoint() );
+
+  for ( QgsVertexMarker *tm : std::as_const( mDraggingVertex->topoMarkers ) )
+  {
+    if ( tm )
+      tm->setCenter( e->mapPoint() );
+  }
+
+  for ( const QPair<qint64, int> &member : std::as_const( mDraggingVertex->coincident ) )
+  {
+    if ( QgsVertexMarker *m = markerForVertex( mMarkers, member.first, member.second ) )
+      m->setCenter( e->mapPoint() );
+  }
 
   if ( QgsVectorLayer *layer = targetLayer() )
   {
@@ -334,18 +444,49 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
     if ( mTopoEditing )
     {
       writeSet = coincidentVertices( vertexXy( geometry, vertexNr ) );
-      for ( const QPair<qint64, int> &member : std::as_const( writeSet ) )
+    }
+
+    // De-duplicate polygon closure vertices in writeSet:
+    // If both 0 and N of the same ring are present, drop N.
+    // If only N is present, replace it with 0.
+    // This ensures only 1 logical vertex count is deleted per ring.
+    QList<QPair<qint64, int>> dedupedWriteSet;
+    QSet<QPair<qint64, QPair<int, int>>> closureRingsHandled;
+
+    for ( const QPair<qint64, int> &member : std::as_const( writeSet ) )
+    {
+      const QgsFeature feat = layer->getFeature( member.first );
+      if ( !feat.hasGeometry() || !feat.geometry().constGet() )
+        continue;
+      int part = -1, ring = -1, startNr = -1, endNr = -1;
+      if ( isPolygonClosureVertex( feat.geometry(), member.second, part, ring, startNr, endNr ) )
       {
-        const QgsFeature other = layer->getFeature( member.first );
-        if ( !other.hasGeometry() || !ringFitsDelete( other.geometry(), member.second ) )
+        const auto ringKey = qMakePair( member.first, qMakePair( part, ring ) );
+        if ( !closureRingsHandled.contains( ringKey ) )
         {
-          emit messageEmitted( tr( "Cannot delete vertex: a shared-boundary feature would become invalid" ),
-                               Qgis::MessageLevel::Warning );
-          return;
+          closureRingsHandled.insert( ringKey );
+          dedupedWriteSet.append( qMakePair( member.first, startNr ) );
         }
+      }
+      else
+      {
+        dedupedWriteSet.append( member );
+      }
+    }
+    writeSet = dedupedWriteSet;
+
+    for ( const QPair<qint64, int> &member : std::as_const( writeSet ) )
+    {
+      const QgsFeature other = layer->getFeature( member.first );
+      if ( !other.hasGeometry() || !ringFitsDelete( other.geometry(), member.second ) )
+      {
+        emit messageEmitted( tr( "Cannot delete vertex: a shared-boundary feature would become invalid" ),
+                             Qgis::MessageLevel::Warning );
+        return;
       }
     }
 
+    mCommitting = true;
     layer->beginEditCommand( tr( "Deleted vertex" ) );
     // Group per fid: several coincident vertices on ONE feature must delete
     // in descending vertex order — dense numbering shifts as vertices drop.
@@ -358,9 +499,41 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
       QgsGeometry mutated = layer->getFeature( it.key() ).geometry();
       QList<int> nrs = it.value();
       std::sort( nrs.begin(), nrs.end(), std::greater<int>() );
+
+      // Track which polygon rings had their closure vertex deleted so we restore closure afterwards.
+      QList<QPair<int, int>> closedRingsTouched;
+      if ( QgsWkbTypes::geometryType( mutated.wkbType() ) == Qgis::GeometryType::Polygon && mutated.constGet() )
+      {
+        for ( const int nr : std::as_const( nrs ) )
+        {
+          int part = -1, ring = -1, startNr = -1, endNr = -1;
+          if ( isPolygonClosureVertex( mutated, nr, part, ring, startNr, endNr ) )
+            closedRingsTouched.append( qMakePair( part, ring ) );
+        }
+      }
+
       for ( const int nr : std::as_const( nrs ) )
         if ( !mutated.deleteVertex( nr ) )
           committed = false;
+
+      // Ensure each affected polygon ring maintains valid closure
+      if ( committed && mutated.constGet() )
+      {
+        for ( const auto &pr : std::as_const( closedRingsTouched ) )
+        {
+          const int part = pr.first;
+          const int ring = pr.second;
+          const int remainingCount = mutated.constGet()->vertexCount( part, ring );
+          if ( remainingCount >= 2 )
+          {
+            const QgsPoint newStart = mutated.constGet()->vertexAt( QgsVertexId( part, ring, 0 ) );
+            const int closingNr = mutated.vertexNrFromVertexId( QgsVertexId( part, ring, remainingCount - 1 ) );
+            if ( closingNr >= 0 )
+              mutated.moveVertex( newStart.x(), newStart.y(), closingNr );
+          }
+        }
+      }
+
       if ( committed && !layer->changeGeometry( it.key(), mutated ) )
         committed = false;
     }
@@ -375,6 +548,7 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
       layer->destroyEditCommand();
       emit messageEmitted( tr( "Could not delete vertex" ), Qgis::MessageLevel::Warning );
     }
+    mCommitting = false;
 
     rebuildMarkers();
     return;
@@ -406,6 +580,7 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
       releasePoint = snapPos;
   }
 
+  mCommitting = true;
   layer->beginEditCommand( tr( "Moved vertex" ) );
   bool committed = true;
   // One clone per touched feature; moveVertex keeps vertex numbering stable
@@ -432,6 +607,7 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
     layer->destroyEditCommand();
     emit messageEmitted( tr( "Could not move vertex" ), Qgis::MessageLevel::Warning );
   }
+  mCommitting = false;
 
   clearDragState();
   rebuildMarkers(); // centers recomputed from the committed geometry
@@ -466,37 +642,46 @@ void PaleoVertexTool::canvasDoubleClickEvent( QgsMapMouseEvent *e )
 
   if ( mTopoEditing && beforeVertex >= 1 )
   {
-    const QgsPointXY segA = vertexXy( feature.geometry(), beforeVertex - 1 );
-    const QgsPointXY segB = vertexXy( feature.geometry(), beforeVertex );
-
-    QgsFeatureIterator fit = layer->getFeatures();
-    QgsFeature other;
-    while ( fit.nextFeature( other ) )
+    const QgsGeometry fg = feature.geometry();
+    QgsVertexId va, vb;
+    if ( fg.constGet()
+         && fg.vertexIdFromVertexNr( beforeVertex - 1, va )
+         && fg.vertexIdFromVertexNr( beforeVertex, vb )
+         && va.part == vb.part && va.ring == vb.ring )
     {
-      if ( other.id() == fid || !other.hasGeometry() || !other.geometry().constGet() )
-        continue;
+      const QgsPointXY segA = vertexXy( fg, beforeVertex - 1 );
+      const QgsPointXY segB = vertexXy( fg, beforeVertex );
 
-      const QgsGeometry og = other.geometry();
-      const int total = og.constGet()->vertexCount();
-      for ( int nr = 0; nr + 1 < total; ++nr )
+      QgsFeatureIterator fit = layer->getFeatures();
+      QgsFeature other;
+      while ( fit.nextFeature( other ) )
       {
-        QgsVertexId va, vb;
-        if ( !og.vertexIdFromVertexNr( nr, va ) || !og.vertexIdFromVertexNr( nr + 1, vb ) )
-          break;
-        if ( va.part != vb.part || va.ring != vb.ring ) // not the same segment
+        if ( other.id() == fid || !other.hasGeometry() || !other.geometry().constGet() )
           continue;
-        const QgsPoint pa = og.constGet()->vertexAt( va );
-        const QgsPoint pb = og.constGet()->vertexAt( vb );
-        const bool forward = qgsDoubleNear( pa.x(), segA.x() ) && qgsDoubleNear( pa.y(), segA.y() )
-                             && qgsDoubleNear( pb.x(), segB.x() ) && qgsDoubleNear( pb.y(), segB.y() );
-        const bool reversed = qgsDoubleNear( pa.x(), segB.x() ) && qgsDoubleNear( pa.y(), segB.y() )
-                              && qgsDoubleNear( pb.x(), segA.x() ) && qgsDoubleNear( pb.y(), segA.y() );
-        if ( forward || reversed )
-          inserts[other.id()].append( nr + 1 );
+
+        const QgsGeometry og = other.geometry();
+        const int total = og.constGet()->vertexCount();
+        for ( int nr = 0; nr + 1 < total; ++nr )
+        {
+          QgsVertexId ova, ovb;
+          if ( !og.vertexIdFromVertexNr( nr, ova ) || !og.vertexIdFromVertexNr( nr + 1, ovb ) )
+            break;
+          if ( ova.part != ovb.part || ova.ring != ovb.ring ) // not the same segment
+            continue;
+          const QgsPoint pa = og.constGet()->vertexAt( ova );
+          const QgsPoint pb = og.constGet()->vertexAt( ovb );
+          const bool forward = qgsDoubleNear( pa.x(), segA.x() ) && qgsDoubleNear( pa.y(), segA.y() )
+                               && qgsDoubleNear( pb.x(), segB.x() ) && qgsDoubleNear( pb.y(), segB.y() );
+          const bool reversed = qgsDoubleNear( pa.x(), segB.x() ) && qgsDoubleNear( pa.y(), segB.y() )
+                                && qgsDoubleNear( pb.x(), segA.x() ) && qgsDoubleNear( pb.y(), segA.y() );
+          if ( forward || reversed )
+            inserts[other.id()].append( nr + 1 );
+        }
       }
     }
   }
 
+  mCommitting = true;
   layer->beginEditCommand( tr( "Added vertex" ) );
   bool committed = true;
   for ( auto it = inserts.begin(); it != inserts.end() && committed; ++it )
@@ -521,6 +706,7 @@ void PaleoVertexTool::canvasDoubleClickEvent( QgsMapMouseEvent *e )
     layer->destroyEditCommand();
     emit messageEmitted( tr( "Could not add vertex" ), Qgis::MessageLevel::Warning );
   }
+  mCommitting = false;
 
   rebuildMarkers();
 }
@@ -537,6 +723,7 @@ void PaleoVertexTool::keyPressEvent( QKeyEvent *e )
       {
         QgsVertexId vid;
         if ( mDraggingVertex->marker
+             && mDraggingVertex->originalGeometry.constGet()
              && mDraggingVertex->originalGeometry.vertexIdFromVertexNr( mDraggingVertex->vertexNr, vid ) )
         {
           const QgsPoint pt = mDraggingVertex->originalGeometry.constGet()->vertexAt( vid );
@@ -544,6 +731,7 @@ void PaleoVertexTool::keyPressEvent( QKeyEvent *e )
         }
       }
       clearDragState();
+      rebuildMarkers();
     }
     else
     {
@@ -659,6 +847,8 @@ QList<QPair<qint64, int>> PaleoVertexTool::coincidentVertices( const QgsPointXY 
     if ( !feature.hasGeometry() )
       continue;
     const QgsGeometry geometry = feature.geometry();
+    if ( !geometry.constGet() )
+      continue;
     int nr = 0;
     QgsVertexId vid;
     while ( geometry.vertexIdFromVertexNr( nr, vid ) )
@@ -692,6 +882,8 @@ bool PaleoVertexTool::findNearestLayerVertex( const QgsPointXY &layerPoint,
     if ( !feature.hasGeometry() )
       continue;
     const QgsGeometry geometry = feature.geometry();
+    if ( !geometry.constGet() )
+      continue;
     int nr = 0;
     QgsVertexId vid;
     while ( geometry.vertexIdFromVertexNr( nr, vid ) )
@@ -736,6 +928,8 @@ bool PaleoVertexTool::findNearestVertex( const QgsPointXY &layerPoint, qint64 &f
       continue;
 
     const QgsGeometry geometry = feature.geometry();
+    if ( !geometry.constGet() )
+      continue;
     int nr = 0;
     QgsVertexId vid;
     while ( geometry.vertexIdFromVertexNr( nr, vid ) )
@@ -780,6 +974,8 @@ bool PaleoVertexTool::findSegmentInsertion( const QgsPointXY &layerPoint, qint64
     QgsPointXY segmentPoint;
     int nextVertex = -1;
     const QgsGeometry geometry = feature.geometry();
+    if ( !geometry.constGet() )
+      continue;
     if ( geometry.closestSegmentWithContext( layerPoint, segmentPoint, nextVertex ) < 0 || nextVertex < 0 )
       continue;
 

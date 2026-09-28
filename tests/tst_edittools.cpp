@@ -58,6 +58,7 @@
 #include <qgsrectangle.h>
 #include <qgsvectorlayer.h>
 #include <qgsvectorlayereditbuffer.h>
+#include <qgsvertexmarker.h>
 
 #include "qgis/qgiseditingservice.h"
 #include "ui/edittools/editingtoolbar.h"
@@ -146,6 +147,23 @@ class TestEditTools : public QObject
     void vertexTopoDeleteRemovesCoincidentVertices();
     void vertexTopoReleaseWeldsToNeighborVertex();
     void toolbarTopologicalActionMirrorsProjectFlag();
+    void vertexMovePolygonClosureMaintainsClosedRing();
+    void vertexDeletePolygonClosurePreservesRing();
+    void vertexUndoRedoSyncsMarkers();
+    void vertexTopoDragMovesAllMarkers();
+    void vertexMoveClosedLineStringClosureInvariants();
+    void vertexMovePolygonEndClosureVertexInvariants();
+    void vertexDeleteEndClosureVertexInvariants();
+    void vertexDeleteTriangleAllVerticesRejected();
+    void vertexDeleteMultiFeaturePartialTriangleRefused();
+    void vertexMoveAndDeletePolygonHoleInvariants();
+    void vertexTopoSharedClosureMultiFeatureInvariants();
+    void vertexInFlightDragAbortedByExternalUndo();
+    void vertexAdversarialTopoMarkersDynamicTracking();
+    void vertexAdversarialRebuildOnRollbackSync();
+    void vertexAdversarialInFlightDragAbortedByRollback();
+    void vertexAdversarialLayerDestructionArmedToolSafety();
+    void vertexAdversarialToolDestructionCanvasSafety();
 
     // d) undo/redo spine
     void undoStackAttachForwardUndoRedo();
@@ -1116,6 +1134,1169 @@ void TestEditTools::toolbarTopologicalActionMirrorsProjectFlag()
   bar.setProject( &stored );
   QVERIFY( bar.actionTopological()->isChecked() );
   QVERIFY( stored.topologicalEditing() );
+}
+
+void TestEditTools::vertexMovePolygonClosureMaintainsClosedRing()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "move-closure" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromWkt( squareWkt( 0, 0, 10 ) ) );
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( false ); // explicitly verify non-topo mode
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+
+  // Drag vertex 0 at (0,0) to (-5,-5)
+  const QPoint startPx = pxAt( canvas, 0, 0 );
+  const QPoint targetPx = pxAt( canvas, -5, -5 );
+  const QgsPointXY pNew = mapPt( canvas, targetPx.x(), targetPx.y() );
+
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, startPx,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY2( tool.isDragging(), "press on vertex 0 must arm drag" );
+
+  QgsMapMouseEvent move( &canvas, QEvent::MouseMove, targetPx,
+                         Qt::NoButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasMoveEvent( &move );
+
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, targetPx,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+
+  QCOMPARE( editedSpy.count(), 1 );
+  QCOMPARE( layer.undoStack()->count(), 1 );
+
+  const QgsGeometry mutated = layer.getFeature( fid ).geometry();
+  QVERIFY2( mutated.isGeosValid(), "mutated polygon must remain GEOS valid" );
+  const QgsPolygon *poly = asPolygon( mutated );
+  QVERIFY2( poly && poly->exteriorRing(), "must have valid polygon exterior ring" );
+  const QgsLineString *ring = qgsgeometry_cast<const QgsLineString *>( poly->exteriorRing() );
+  QVERIFY2( ring, "exterior ring must be line string" );
+  QCOMPARE( ring->numPoints(), 5 );
+  QVERIFY( ring->isClosed() );
+
+  // Both vertex 0 and closure vertex (index 4) must match pNew
+  QVERIFY( qgsDoubleNear( ring->xAt( 0 ), pNew.x(), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( ring->yAt( 0 ), pNew.y(), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( ring->xAt( 4 ), pNew.x(), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( ring->yAt( 4 ), pNew.y(), 1e-6 ) );
+
+  // Undo restores both vertex 0 and closure vertex to (0,0)
+  layer.undoStack()->undo();
+  const QgsGeometry restored = layer.getFeature( fid ).geometry();
+  QVERIFY( restored.isGeosValid() );
+  const QgsPolygon *polyRestored = asPolygon( restored );
+  const QgsLineString *ringRestored = qgsgeometry_cast<const QgsLineString *>( polyRestored->exteriorRing() );
+  QVERIFY( ringRestored->isClosed() );
+  QVERIFY( qgsDoubleNear( ringRestored->xAt( 0 ), 0.0, 1e-6 ) );
+  QVERIFY( qgsDoubleNear( ringRestored->yAt( 0 ), 0.0, 1e-6 ) );
+  QVERIFY( qgsDoubleNear( ringRestored->xAt( 4 ), 0.0, 1e-6 ) );
+  QVERIFY( qgsDoubleNear( ringRestored->yAt( 4 ), 0.0, 1e-6 ) );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexDeletePolygonClosurePreservesRing()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  // Test 1: topoEditing = false
+  {
+    QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "del-closure-off" ), QStringLiteral( "memory" ) );
+    QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+    const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromWkt( squareWkt( 0, 0, 10 ) ) );
+    layer.startEditing();
+    layer.selectByIds( { fid } );
+    canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+    canvas.setCurrentLayer( &layer );
+    canvas.refresh();
+
+    TestVertexTool tool( &canvas, &layer );
+    tool.setTopologicalEditingEnabled( false );
+    canvas.setMapTool( &tool );
+    QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+    QSignalSpy msgSpy( &tool, &QgsMapTool::messageEmitted );
+
+    // Right-click on vertex 0 (0,0)
+    click( tool, canvas, pxAt( canvas, 0, 0 ), Qt::RightButton );
+
+    QCOMPARE( editedSpy.count(), 1 );
+    QCOMPARE( msgSpy.count(), 0 );
+    QCOMPARE( vertexTotal( layer, fid ), 4 );
+    QCOMPARE( tool.markerCount(), 4 );
+
+    const QgsGeometry mutated = layer.getFeature( fid ).geometry();
+    QVERIFY2( mutated.isGeosValid(), "mutated polygon must be GEOS valid" );
+    const QgsPolygon *poly = asPolygon( mutated );
+    QVERIFY( poly && poly->exteriorRing() );
+    const QgsLineString *ring = qgsgeometry_cast<const QgsLineString *>( poly->exteriorRing() );
+    QVERIFY( ring->isClosed() );
+    QCOMPARE( ring->numPoints(), 4 );
+    // Ensure start == end
+    QVERIFY( qgsDoubleNear( ring->xAt( 0 ), ring->xAt( 3 ), 1e-6 ) );
+    QVERIFY( qgsDoubleNear( ring->yAt( 0 ), ring->yAt( 3 ), 1e-6 ) );
+
+    canvas.unsetMapTool( &tool );
+    layer.rollBack();
+  }
+
+  // Test 2: topoEditing = true
+  {
+    QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "del-closure-on" ), QStringLiteral( "memory" ) );
+    QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+    const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromWkt( squareWkt( 0, 0, 10 ) ) );
+    layer.startEditing();
+    layer.selectByIds( { fid } );
+    canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+    canvas.setCurrentLayer( &layer );
+    canvas.refresh();
+
+    TestVertexTool tool( &canvas, &layer );
+    tool.setTopologicalEditingEnabled( true );
+    canvas.setMapTool( &tool );
+    QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+    QSignalSpy msgSpy( &tool, &QgsMapTool::messageEmitted );
+
+    // Right-click on vertex 0 (0,0) with topo editing enabled
+    click( tool, canvas, pxAt( canvas, 0, 0 ), Qt::RightButton );
+
+    QCOMPARE( editedSpy.count(), 1 );
+    QCOMPARE( msgSpy.count(), 0 );
+    // Exactly 1 vertex count dropped (5 -> 4), NOT double deleted down to 3
+    QCOMPARE( vertexTotal( layer, fid ), 4 );
+    QCOMPARE( tool.markerCount(), 4 );
+
+    const QgsGeometry mutated = layer.getFeature( fid ).geometry();
+    QVERIFY2( mutated.isGeosValid(), "mutated polygon must be GEOS valid in topo mode" );
+    const QgsPolygon *poly = asPolygon( mutated );
+    QVERIFY( poly && poly->exteriorRing() );
+    const QgsLineString *ring = qgsgeometry_cast<const QgsLineString *>( poly->exteriorRing() );
+    QVERIFY( ring->isClosed() );
+    QCOMPARE( ring->numPoints(), 4 );
+    QVERIFY( qgsDoubleNear( ring->xAt( 0 ), ring->xAt( 3 ), 1e-6 ) );
+    QVERIFY( qgsDoubleNear( ring->yAt( 0 ), ring->yAt( 3 ), 1e-6 ) );
+
+    canvas.unsetMapTool( &tool );
+    layer.rollBack();
+  }
+}
+
+void TestEditTools::vertexUndoRedoSyncsMarkers()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "LineString?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "undo-sync" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory line layer failed to initialize" );
+  const QgsPointXY pt0 = mapPt( canvas, 40, 140 );
+  const QgsPointXY pt1 = mapPt( canvas, 100, 100 );
+  const QgsPointXY pt2 = mapPt( canvas, 160, 60 );
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromPolylineXY( { pt0, pt1, pt2 } ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  canvas.setMapTool( &tool );
+  QCOMPARE( tool.markerCount(), 3 );
+  QCOMPARE( tool.markers().size(), 3 );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 1 )->center().x(), pt1.x(), 1e-4 ) );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 1 )->center().y(), pt1.y(), 1e-4 ) );
+
+  // Drag vertex 1 to (120, 120)
+  const QPoint startPx = pxAt( canvas, pt1.x(), pt1.y() );
+  const QPoint targetPx = pxAt( canvas, mapPt( canvas, 120, 120 ).x(), mapPt( canvas, 120, 120 ).y() );
+  const QgsPointXY pt1New = mapPt( canvas, targetPx.x(), targetPx.y() );
+
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, startPx,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY( tool.isDragging() );
+
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, targetPx,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+
+  // After move, marker at index 1 is at pt1New
+  QCOMPARE( tool.markerCount(), 3 );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 1 )->center().x(), pt1New.x(), 1e-4 ) );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 1 )->center().y(), pt1New.y(), 1e-4 ) );
+
+  // Trigger undo: markers must automatically sync to restored geometry
+  layer.undoStack()->undo();
+  QCOMPARE( tool.markerCount(), 3 );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 1 )->center().x(), pt1.x(), 1e-4 ) );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 1 )->center().y(), pt1.y(), 1e-4 ) );
+
+  // Trigger redo: markers must automatically sync to pt1New again
+  layer.undoStack()->redo();
+  QCOMPARE( tool.markerCount(), 3 );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 1 )->center().x(), pt1New.x(), 1e-4 ) );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 1 )->center().y(), pt1New.y(), 1e-4 ) );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexTopoDragMovesAllMarkers()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "LineString?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "topo-markers" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory line layer failed to initialize" );
+  const QgsPointXY shared = mapPt( canvas, 100, 100 );
+  const QgsFeatureId fidA = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { mapPt( canvas, 40, 140 ), shared, mapPt( canvas, 160, 60 ) } ) );
+  const QgsFeatureId fidB = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { shared, mapPt( canvas, 180, 140 ) } ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fidA } ); // fidA only is selected; fidB is unselected neighbor
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( true );
+  canvas.setMapTool( &tool );
+
+  // Press on the shared vertex
+  const QPoint pressPx( 100, 100 );
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, pressPx,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY2( tool.isDragging(), "press on shared vertex must arm drag" );
+
+  // Topo markers must be created for the unselected feature's coincident vertex
+  QVERIFY2( !tool.topoMarkers().isEmpty(), "topoMarkers must be populated for unselected coincident vertex" );
+
+  // Move mouse to QPoint(70, 110)
+  const QPoint movePx( 70, 110 );
+  const QgsPointXY moveMapPt = mapPt( canvas, 70, 110 );
+  QgsMapMouseEvent move( &canvas, QEvent::MouseMove, movePx,
+                         Qt::NoButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasMoveEvent( &move );
+
+  // All markers in topoMarkers must track the mouse position exactly
+  for ( QgsVertexMarker *tm : tool.topoMarkers() )
+  {
+    QVERIFY( tm != nullptr );
+    QVERIFY( qgsDoubleNear( tm->center().x(), moveMapPt.x(), 1e-4 ) );
+    QVERIFY( qgsDoubleNear( tm->center().y(), moveMapPt.y(), 1e-4 ) );
+  }
+
+  // Cancel with Esc
+  sendEsc( tool );
+  QVERIFY( !tool.isDragging() );
+  QVERIFY( tool.topoMarkers().isEmpty() );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexMoveClosedLineStringClosureInvariants()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "LineString?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "closed-ls-move" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory line layer failed to initialize" );
+
+  const QgsPointXY p0( 20, 20 );
+  const QgsPointXY p1( 40, 20 );
+  const QgsPointXY p2( 40, 40 );
+  const QgsPointXY p3( 20, 40 );
+  // 5 vertices: closed ring line string
+  const QgsFeatureId fid1 = seedFeature( layer, QgsGeometry::fromPolylineXY( { p0, p1, p2, p3, p0 } ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fid1 } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( false ); // Step 1: verify non-topological mode
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+
+  // Drag start/closure vertex at (20, 20) to (15, 15)
+  const QPoint startPx = pxAt( canvas, 20, 20 );
+  const QPoint targetPx = pxAt( canvas, 15, 15 );
+  const QgsPointXY pNew = mapPt( canvas, targetPx.x(), targetPx.y() );
+
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, startPx,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY2( tool.isDragging(), "press on closed line start vertex must arm drag" );
+
+  QgsMapMouseEvent move( &canvas, QEvent::MouseMove, targetPx,
+                         Qt::NoButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasMoveEvent( &move );
+
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, targetPx,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+
+  QCOMPARE( editedSpy.count(), 1 );
+  QCOMPARE( layer.undoStack()->count(), 1 );
+
+  const QgsGeometry mutated = layer.getFeature( fid1 ).geometry();
+  QVERIFY2( mutated.isGeosValid(), "mutated closed line must remain GEOS valid" );
+  const QgsLineString *ls = asLineString( mutated );
+  QVERIFY2( ls, "must remain line string" );
+  QCOMPARE( ls->numPoints(), 5 );
+  QVERIFY2( ls->isClosed(), "closed line string must remain closed after moving closure vertex" );
+  QVERIFY( qgsDoubleNear( ls->xAt( 0 ), pNew.x(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ls->yAt( 0 ), pNew.y(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ls->xAt( 4 ), pNew.x(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ls->yAt( 4 ), pNew.y(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ls->xAt( 0 ), ls->xAt( 4 ), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( ls->yAt( 0 ), ls->yAt( 4 ), 1e-6 ) );
+
+  // Undo restores both endpoints
+  layer.undoStack()->undo();
+  const QgsGeometry undone = layer.getFeature( fid1 ).geometry();
+  const QgsLineString *lsUndone = asLineString( undone );
+  QVERIFY( lsUndone->isClosed() );
+  QVERIFY( qgsDoubleNear( lsUndone->xAt( 0 ), 20.0, 1e-5 ) );
+  QVERIFY( qgsDoubleNear( lsUndone->yAt( 0 ), 20.0, 1e-5 ) );
+  QVERIFY( qgsDoubleNear( lsUndone->xAt( 4 ), 20.0, 1e-5 ) );
+  QVERIFY( qgsDoubleNear( lsUndone->yAt( 4 ), 20.0, 1e-5 ) );
+
+  // Redo re-applies move
+  layer.undoStack()->redo();
+  const QgsGeometry redone = layer.getFeature( fid1 ).geometry();
+  const QgsLineString *lsRedone = asLineString( redone );
+  QVERIFY( lsRedone->isClosed() );
+  QVERIFY( qgsDoubleNear( lsRedone->xAt( 0 ), pNew.x(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( lsRedone->xAt( 4 ), pNew.x(), 1e-5 ) );
+
+  // Step 2: Now test with topologicalEditingEnabled = true and a neighbor closed line
+  tool.setTopologicalEditingEnabled( true );
+  const QgsFeatureId fid2 = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { pNew, QgsPointXY( 10, 30 ), QgsPointXY( 10, 15 ), pNew } ) );
+  layer.selectByIds( { fid1 } ); // fid1 selected, fid2 unselected neighbor sharing pNew
+
+  const QPoint targetPx2 = pxAt( canvas, 25, 25 );
+  const QgsPointXY pNew2 = mapPt( canvas, targetPx2.x(), targetPx2.y() );
+  QgsMapMouseEvent press2( &canvas, QEvent::MouseButtonPress, targetPx,
+                           Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press2 );
+  QVERIFY( tool.isDragging() );
+
+  QgsMapMouseEvent release2( &canvas, QEvent::MouseButtonRelease, targetPx2,
+                             Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release2 );
+
+  const QgsLineString *ls1Topo = asLineString( layer.getFeature( fid1 ).geometry() );
+  const QgsLineString *ls2Topo = asLineString( layer.getFeature( fid2 ).geometry() );
+  QVERIFY2( ls1Topo && ls1Topo->isClosed(), "fid1 must remain closed in topo move" );
+  QVERIFY2( ls2Topo && ls2Topo->isClosed(), "fid2 must remain closed in topo move" );
+  QVERIFY( qgsDoubleNear( ls1Topo->xAt( 0 ), pNew2.x(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ls1Topo->xAt( 4 ), pNew2.x(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ls2Topo->xAt( 0 ), pNew2.x(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ls2Topo->xAt( 3 ), pNew2.x(), 1e-5 ) );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexMovePolygonEndClosureVertexInvariants()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "move-end-closure" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromWkt( squareWkt( 20, 20, 20 ) ) );
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( false );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+
+  const QPoint startPx = pxAt( canvas, 20, 20 );
+  const QPoint targetPx = pxAt( canvas, 15, 18 );
+  const QgsPointXY pNew = mapPt( canvas, targetPx.x(), targetPx.y() );
+
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, startPx,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY( tool.isDragging() );
+
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, targetPx,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+
+  QCOMPARE( editedSpy.count(), 1 );
+  const QgsGeometry mutated = layer.getFeature( fid ).geometry();
+  QVERIFY( mutated.isGeosValid() );
+  const QgsPolygon *poly = asPolygon( mutated );
+  QVERIFY( poly && poly->exteriorRing() );
+  const QgsLineString *ring = qgsgeometry_cast<const QgsLineString *>( poly->exteriorRing() );
+  QVERIFY( ring->isClosed() );
+  QCOMPARE( ring->numPoints(), 5 );
+  QVERIFY( qgsDoubleNear( ring->xAt( 0 ), pNew.x(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ring->yAt( 0 ), pNew.y(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ring->xAt( 4 ), pNew.x(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ring->yAt( 4 ), pNew.y(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ring->xAt( 0 ), ring->xAt( 4 ), 1e-9 ) );
+  QVERIFY( qgsDoubleNear( ring->yAt( 0 ), ring->yAt( 4 ), 1e-9 ) );
+
+  // Full undo/redo cycle
+  layer.undoStack()->undo();
+  const QgsGeometry undone = layer.getFeature( fid ).geometry();
+  QVERIFY( undone.isGeosValid() );
+  const QgsLineString *ringUndone = qgsgeometry_cast<const QgsLineString *>( asPolygon( undone )->exteriorRing() );
+  QVERIFY( ringUndone->isClosed() );
+  QVERIFY( qgsDoubleNear( ringUndone->xAt( 0 ), 20.0, 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ringUndone->xAt( 4 ), 20.0, 1e-5 ) );
+
+  layer.undoStack()->redo();
+  const QgsGeometry redone = layer.getFeature( fid ).geometry();
+  QVERIFY( redone.isGeosValid() );
+  const QgsLineString *ringRedone = qgsgeometry_cast<const QgsLineString *>( asPolygon( redone )->exteriorRing() );
+  QVERIFY( ringRedone->isClosed() );
+  QVERIFY( qgsDoubleNear( ringRedone->xAt( 0 ), pNew.x(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ringRedone->xAt( 4 ), pNew.x(), 1e-5 ) );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexDeleteEndClosureVertexInvariants()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "del-quad-closure" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromWkt( squareWkt( 20, 20, 20 ) ) );
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( false );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+  QSignalSpy msgSpy( &tool, &QgsMapTool::messageEmitted );
+
+  // Right-click on closure vertex at (20, 20)
+  click( tool, canvas, pxAt( canvas, 20, 20 ), Qt::RightButton );
+
+  QCOMPARE( editedSpy.count(), 1 );
+  QCOMPARE( msgSpy.count(), 0 );
+  QCOMPARE( vertexTotal( layer, fid ), 4 ); // 5 -> 4 vertices (quad -> triangle)
+  QCOMPARE( tool.markerCount(), 4 );
+
+  const QgsGeometry mutated = layer.getFeature( fid ).geometry();
+  QVERIFY2( mutated.isGeosValid(), "mutated geometry must be a valid triangle" );
+  const QgsPolygon *poly = asPolygon( mutated );
+  QVERIFY( poly && poly->exteriorRing() );
+  const QgsLineString *ring = qgsgeometry_cast<const QgsLineString *>( poly->exteriorRing() );
+  QVERIFY2( ring->isClosed(), "ring must remain closed" );
+  QCOMPARE( ring->numPoints(), 4 );
+  QVERIFY( qgsDoubleNear( ring->xAt( 0 ), ring->xAt( 3 ), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( ring->yAt( 0 ), ring->yAt( 3 ), 1e-6 ) );
+
+  // Verify undo restores 5 vertices
+  layer.undoStack()->undo();
+  QCOMPARE( vertexTotal( layer, fid ), 5 );
+  QCOMPARE( tool.markerCount(), 5 );
+  const QgsGeometry undone = layer.getFeature( fid ).geometry();
+  QVERIFY( undone.isGeosValid() );
+  const QgsLineString *ringUndone = qgsgeometry_cast<const QgsLineString *>( asPolygon( undone )->exteriorRing() );
+  QCOMPARE( ringUndone->numPoints(), 5 );
+  QVERIFY( ringUndone->isClosed() );
+
+  // Verify redo restores 4 vertices
+  layer.undoStack()->redo();
+  QCOMPARE( vertexTotal( layer, fid ), 4 );
+  QCOMPARE( tool.markerCount(), 4 );
+  const QgsGeometry redone = layer.getFeature( fid ).geometry();
+  QVERIFY( redone.isGeosValid() );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexDeleteTriangleAllVerticesRejected()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "triangle-refuse" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+
+  const QVector<QgsPointXY> pts = { mapPt( canvas, 40, 140 ), mapPt( canvas, 140, 140 ), mapPt( canvas, 90, 60 ) };
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromPolygonXY( { pts } ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+  QSignalSpy msgSpy( &tool, &QgsMapTool::messageEmitted );
+
+  QCOMPARE( vertexTotal( layer, fid ), 4 );
+  QCOMPARE( tool.markerCount(), 4 );
+
+  // Test rejecting delete on vertex 0 at (40, 140)
+  click( tool, canvas, QPoint( 40, 140 ), Qt::RightButton );
+  QCOMPARE( editedSpy.count(), 0 );
+  QCOMPARE( msgSpy.count(), 1 );
+  QCOMPARE( vertexTotal( layer, fid ), 4 );
+  QCOMPARE( layer.undoStack()->count(), 0 );
+
+  // Test rejecting delete on vertex 1 at (140, 140)
+  click( tool, canvas, QPoint( 140, 140 ), Qt::RightButton );
+  QCOMPARE( editedSpy.count(), 0 );
+  QCOMPARE( msgSpy.count(), 2 );
+  QCOMPARE( vertexTotal( layer, fid ), 4 );
+  QCOMPARE( layer.undoStack()->count(), 0 );
+
+  // Test rejecting delete on vertex 2 at (90, 60)
+  click( tool, canvas, QPoint( 90, 60 ), Qt::RightButton );
+  QCOMPARE( editedSpy.count(), 0 );
+  QCOMPARE( msgSpy.count(), 3 );
+  QCOMPARE( vertexTotal( layer, fid ), 4 );
+  QCOMPARE( layer.undoStack()->count(), 0 );
+
+  const QgsGeometry g = layer.getFeature( fid ).geometry();
+  QVERIFY( g.isGeosValid() );
+  const QgsPolygon *poly = asPolygon( g );
+  QVERIFY( poly && poly->exteriorRing() );
+  QCOMPARE( qgsgeometry_cast<const QgsLineString *>( poly->exteriorRing() )->numPoints(), 4 );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexDeleteMultiFeaturePartialTriangleRefused()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "batch-refusal" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+
+  // Feature A: Quad (30,30)-(50,50) -> 5 vertices
+  const QgsFeatureId fidA = seedFeature( layer, QgsGeometry::fromWkt( squareWkt( 30, 30, 20 ) ) );
+  // Feature B: Triangle (30,30), (10,30), (20,50) -> 4 vertices
+  const QVector<QgsPointXY> triPts = { QgsPointXY( 30, 30 ), QgsPointXY( 10, 30 ), QgsPointXY( 20, 50 ) };
+  const QgsFeatureId fidB = seedFeature( layer, QgsGeometry::fromPolygonXY( { triPts } ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fidA } ); // fidA is selected; shares (30,30) with fidB
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( true );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+  QSignalSpy msgSpy( &tool, &QgsMapTool::messageEmitted );
+
+  QCOMPARE( vertexTotal( layer, fidA ), 5 );
+  QCOMPARE( vertexTotal( layer, fidB ), 4 );
+
+  // Right-click the shared corner (30, 30): Feature B would drop to 3, so entire batch must be refused!
+  click( tool, canvas, pxAt( canvas, 30, 30 ), Qt::RightButton );
+
+  QCOMPARE( editedSpy.count(), 0 ); // Refused!
+  QCOMPARE( msgSpy.count(), 1 );   // Guard warning emitted
+  QCOMPARE( layer.undoStack()->count(), 0 );
+
+  // Invariant: Feature A must NOT have been modified
+  QCOMPARE( vertexTotal( layer, fidA ), 5 );
+  // Invariant: Feature B must NOT have been modified
+  QCOMPARE( vertexTotal( layer, fidB ), 4 );
+
+  QVERIFY( layer.getFeature( fidA ).geometry().isGeosValid() );
+  QVERIFY( layer.getFeature( fidB ).geometry().isGeosValid() );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexMoveAndDeletePolygonHoleInvariants()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "hole-invariants" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+
+  const QString holeWkt = QStringLiteral( "Polygon ((10 10, 50 10, 50 50, 10 50, 10 10), (20 20, 35 20, 35 35, 20 35, 20 20))" );
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromWkt( holeWkt ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( false );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+  QSignalSpy msgSpy( &tool, &QgsMapTool::messageEmitted );
+
+  QCOMPARE( vertexTotal( layer, fid ), 10 );
+  QCOMPARE( tool.markerCount(), 10 );
+
+  // 1. Move closure vertex of hole at (20, 20) to (22, 22)
+  const QPoint startPx = pxAt( canvas, 20, 20 );
+  const QPoint targetPx = pxAt( canvas, 22, 22 );
+  const QgsPointXY pNew = mapPt( canvas, targetPx.x(), targetPx.y() );
+
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, startPx,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY( tool.isDragging() );
+
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, targetPx,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+
+  QCOMPARE( editedSpy.count(), 1 );
+  const QgsGeometry mutated = layer.getFeature( fid ).geometry();
+  QVERIFY2( mutated.isGeosValid(), "polygon with moved hole vertex must remain GEOS valid" );
+  const QgsPolygon *poly = asPolygon( mutated );
+  QVERIFY( poly && poly->numInteriorRings() == 1 );
+  const QgsLineString *holeRing = qgsgeometry_cast<const QgsLineString *>( poly->interiorRing( 0 ) );
+  QVERIFY2( holeRing && holeRing->isClosed(), "hole ring must remain closed" );
+  QCOMPARE( holeRing->numPoints(), 5 );
+  QVERIFY( qgsDoubleNear( holeRing->xAt( 0 ), pNew.x(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( holeRing->yAt( 0 ), pNew.y(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( holeRing->xAt( 4 ), pNew.x(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( holeRing->yAt( 4 ), pNew.y(), 1e-5 ) );
+
+  // 2. Delete closure vertex on the hole (5 -> 4 vertices on hole, 10 -> 9 total)
+  click( tool, canvas, targetPx, Qt::RightButton );
+  QCOMPARE( editedSpy.count(), 2 );
+  QCOMPARE( vertexTotal( layer, fid ), 9 );
+  const QgsGeometry delGeom = layer.getFeature( fid ).geometry();
+  QVERIFY2( delGeom.isGeosValid(), "polygon with triangle hole must remain GEOS valid" );
+  const QgsPolygon *delPoly = asPolygon( delGeom );
+  const QgsLineString *delHole = qgsgeometry_cast<const QgsLineString *>( delPoly->interiorRing( 0 ) );
+  QVERIFY( delHole->isClosed() );
+  QCOMPARE( delHole->numPoints(), 4 ); // 3 vertices + closure point
+  QVERIFY( qgsDoubleNear( delHole->xAt( 0 ), delHole->xAt( 3 ), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( delHole->yAt( 0 ), delHole->yAt( 3 ), 1e-6 ) );
+
+  // 3. Attempting to delete a vertex from the 4-vertex hole must be rejected!
+  const QPoint holePtPx = pxAt( canvas, delHole->xAt( 1 ), delHole->yAt( 1 ) );
+  click( tool, canvas, holePtPx, Qt::RightButton );
+  QCOMPARE( editedSpy.count(), 2 ); // Still 2
+  QCOMPARE( msgSpy.count(), 1 );    // Warning
+  QCOMPARE( vertexTotal( layer, fid ), 9 ); // Unchanged
+
+  // 4. Undo restores back to 9 then 10 vertices
+  layer.undoStack()->undo();
+  QCOMPARE( vertexTotal( layer, fid ), 10 );
+  layer.undoStack()->undo();
+  QCOMPARE( vertexTotal( layer, fid ), 10 );
+  const QgsGeometry restored = layer.getFeature( fid ).geometry();
+  const QgsLineString *origHole = qgsgeometry_cast<const QgsLineString *>( asPolygon( restored )->interiorRing( 0 ) );
+  QVERIFY( qgsDoubleNear( origHole->xAt( 0 ), 20.0, 1e-5 ) );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexTopoSharedClosureMultiFeatureInvariants()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "topo-shared-closure" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+
+  // Feature A: Quad (20,20)-(40,40) -> closure at (20,20)
+  const QgsFeatureId fidA = seedFeature( layer, QgsGeometry::fromWkt( squareWkt( 20, 20, 20 ) ) );
+  // Feature B: Adjacent Quad (20,20)-(0,40) -> closure at (20,20)
+  const QString wktB = QStringLiteral( "Polygon ((20 20, 20 40, 0 40, 0 20, 20 20))" );
+  const QgsFeatureId fidB = seedFeature( layer, QgsGeometry::fromWkt( wktB ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fidA } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( true );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+
+  QCOMPARE( vertexTotal( layer, fidA ), 5 );
+  QCOMPARE( vertexTotal( layer, fidB ), 5 );
+
+  // Move shared closure vertex (20, 20) to (18, 18)
+  const QPoint startPx = pxAt( canvas, 20, 20 );
+  const QPoint targetPx = pxAt( canvas, 18, 18 );
+  const QgsPointXY pNew = mapPt( canvas, targetPx.x(), targetPx.y() );
+
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, startPx,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY( tool.isDragging() );
+
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, targetPx,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+
+  QCOMPARE( editedSpy.count(), 1 );
+  QCOMPARE( layer.undoStack()->count(), 1 );
+
+  const QgsGeometry geomA = layer.getFeature( fidA ).geometry();
+  const QgsGeometry geomB = layer.getFeature( fidB ).geometry();
+  QVERIFY2( geomA.isGeosValid(), "Feature A must remain GEOS valid after topo move" );
+  QVERIFY2( geomB.isGeosValid(), "Feature B must remain GEOS valid after topo move" );
+
+  const QgsLineString *ringA = qgsgeometry_cast<const QgsLineString *>( asPolygon( geomA )->exteriorRing() );
+  const QgsLineString *ringB = qgsgeometry_cast<const QgsLineString *>( asPolygon( geomB )->exteriorRing() );
+  QVERIFY( ringA->isClosed() );
+  QVERIFY( ringB->isClosed() );
+  QVERIFY( qgsDoubleNear( ringA->xAt( 0 ), pNew.x(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ringA->xAt( 4 ), pNew.x(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ringB->xAt( 0 ), pNew.x(), 1e-5 ) );
+  QVERIFY( qgsDoubleNear( ringB->xAt( 4 ), pNew.x(), 1e-5 ) );
+
+  // Delete shared closure vertex at (18, 18) with topo editing enabled
+  click( tool, canvas, targetPx, Qt::RightButton );
+
+  QCOMPARE( editedSpy.count(), 2 );
+  QCOMPARE( layer.undoStack()->count(), 2 );
+  // Both features must have decremented by exactly 1 vertex (5 -> 4), NOT double deleted to 3
+  QCOMPARE( vertexTotal( layer, fidA ), 4 );
+  QCOMPARE( vertexTotal( layer, fidB ), 4 );
+
+  const QgsGeometry delGeomA = layer.getFeature( fidA ).geometry();
+  const QgsGeometry delGeomB = layer.getFeature( fidB ).geometry();
+  QVERIFY( delGeomA.isGeosValid() );
+  QVERIFY( delGeomB.isGeosValid() );
+  const QgsLineString *delRingA = qgsgeometry_cast<const QgsLineString *>( asPolygon( delGeomA )->exteriorRing() );
+  const QgsLineString *delRingB = qgsgeometry_cast<const QgsLineString *>( asPolygon( delGeomB )->exteriorRing() );
+  QVERIFY( delRingA->isClosed() );
+  QVERIFY( delRingB->isClosed() );
+
+  // Undo delete: restores both to 5 vertices
+  layer.undoStack()->undo();
+  QCOMPARE( vertexTotal( layer, fidA ), 5 );
+  QCOMPARE( vertexTotal( layer, fidB ), 5 );
+
+  // Redo delete: restores both to 4 vertices
+  layer.undoStack()->redo();
+  QCOMPARE( vertexTotal( layer, fidA ), 4 );
+  QCOMPARE( vertexTotal( layer, fidB ), 4 );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexInFlightDragAbortedByExternalUndo()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "LineString?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "inflight-undo" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory line layer failed to initialize" );
+
+  const QgsPointXY p0 = mapPt( canvas, 40, 140 );
+  const QgsPointXY p1 = mapPt( canvas, 100, 100 );
+  const QgsPointXY p2 = mapPt( canvas, 160, 60 );
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromPolylineXY( { p0, p1, p2 } ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  canvas.setMapTool( &tool );
+
+  // 1. Move vertex 2 to push 1 command on the undo stack
+  const QPoint v2Start = pxAt( canvas, p2.x(), p2.y() );
+  const QPoint v2Target = pxAt( canvas, 180, 80 );
+  QgsMapMouseEvent p( &canvas, QEvent::MouseButtonPress, v2Start, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &p );
+  QgsMapMouseEvent r( &canvas, QEvent::MouseButtonRelease, v2Target, Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &r );
+  QCOMPARE( layer.undoStack()->count(), 1 );
+
+  // 2. Start an in-flight drag on vertex 0
+  const QPoint v0Start = pxAt( canvas, p0.x(), p0.y() );
+  const QPoint v0Move = pxAt( canvas, 60, 120 );
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, v0Start, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY2( tool.isDragging(), "tool must be in dragging state" );
+
+  QgsMapMouseEvent move( &canvas, QEvent::MouseMove, v0Move, Qt::NoButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasMoveEvent( &move );
+  QVERIFY( tool.isDragging() );
+
+  // 3. Trigger external undo while drag is in flight
+  layer.undoStack()->undo();
+
+  // Invariant: drag state must be cleared immediately, no crash, markers refreshed
+  QVERIFY2( !tool.isDragging(), "in-flight drag must be aborted upon external undo" );
+  QCOMPARE( tool.markerCount(), 3 );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexAdversarialTopoMarkersDynamicTracking()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "LineString?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "topo-stress" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory line layer failed to initialize" );
+
+  const QgsPointXY shared = mapPt( canvas, 100, 100 );
+  // Feature A (selected)
+  const QgsFeatureId fidA = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { mapPt( canvas, 40, 140 ), shared, mapPt( canvas, 160, 60 ) } ) );
+  // Feature B (unselected)
+  const QgsFeatureId fidB = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { shared, mapPt( canvas, 180, 140 ) } ) );
+  // Feature C (unselected)
+  const QgsFeatureId fidC = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { mapPt( canvas, 20, 20 ), shared } ) );
+  // Feature D (selected) also coincident at shared
+  const QgsFeatureId fidD = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { shared, mapPt( canvas, 100, 180 ) } ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fidA, fidD } ); // A and D are selected; B and C are unselected
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( true );
+  canvas.setMapTool( &tool );
+
+  // fidA has 3 vertices, fidD has 2 vertices -> selected features have 5 vertices total
+  QCOMPARE( tool.markerCount(), 5 );
+
+  // Press on shared vertex (100, 100)
+  const QPoint pressPx( 100, 100 );
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, pressPx,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY2( tool.isDragging(), "drag must be armed on shared junction" );
+
+  // fidB and fidC are unselected, so topoMarkers must contain exactly 2 markers
+  QCOMPARE( tool.topoMarkers().size(), 2 );
+
+  // Step 1: Drag to (120, 110)
+  const QPoint p1( 120, 110 );
+  const QgsPointXY mp1 = mapPt( canvas, 120, 110 );
+  QgsMapMouseEvent move1( &canvas, QEvent::MouseMove, p1,
+                          Qt::NoButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasMoveEvent( &move1 );
+
+  for ( QgsVertexMarker *tm : tool.topoMarkers() )
+  {
+    QVERIFY( tm != nullptr );
+    QVERIFY( qgsDoubleNear( tm->center().x(), mp1.x(), 1e-4 ) );
+    QVERIFY( qgsDoubleNear( tm->center().y(), mp1.y(), 1e-4 ) );
+  }
+
+  // Step 2: Drag to (80, 50)
+  const QPoint p2( 80, 50 );
+  const QgsPointXY mp2 = mapPt( canvas, 80, 50 );
+  QgsMapMouseEvent move2( &canvas, QEvent::MouseMove, p2,
+                          Qt::NoButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasMoveEvent( &move2 );
+
+  for ( QgsVertexMarker *tm : tool.topoMarkers() )
+  {
+    QVERIFY( tm != nullptr );
+    QVERIFY( qgsDoubleNear( tm->center().x(), mp2.x(), 1e-4 ) );
+    QVERIFY( qgsDoubleNear( tm->center().y(), mp2.y(), 1e-4 ) );
+  }
+
+  // Step 3: Drag to (150, 150) and release to commit
+  const QPoint p3( 150, 150 );
+  const QgsPointXY mp3 = mapPt( canvas, 150, 150 );
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, p3,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+
+  QVERIFY( !tool.isDragging() );
+  QVERIFY( tool.topoMarkers().isEmpty() );
+  QCOMPARE( tool.editedCount(), 1 );
+
+  // All 4 features must have moved their shared vertex to mp3
+  const QgsLineString *lsA = asLineString( layer.getFeature( fidA ).geometry() );
+  const QgsLineString *lsB = asLineString( layer.getFeature( fidB ).geometry() );
+  const QgsLineString *lsC = asLineString( layer.getFeature( fidC ).geometry() );
+  const QgsLineString *lsD = asLineString( layer.getFeature( fidD ).geometry() );
+  QVERIFY( qgsDoubleNear( lsA->xAt( 1 ), mp3.x(), 1e-4 ) && qgsDoubleNear( lsA->yAt( 1 ), mp3.y(), 1e-4 ) );
+  QVERIFY( qgsDoubleNear( lsB->xAt( 0 ), mp3.x(), 1e-4 ) && qgsDoubleNear( lsB->yAt( 0 ), mp3.y(), 1e-4 ) );
+  QVERIFY( qgsDoubleNear( lsC->xAt( 1 ), mp3.x(), 1e-4 ) && qgsDoubleNear( lsC->yAt( 1 ), mp3.y(), 1e-4 ) );
+  QVERIFY( qgsDoubleNear( lsD->xAt( 0 ), mp3.x(), 1e-4 ) && qgsDoubleNear( lsD->yAt( 0 ), mp3.y(), 1e-4 ) );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexAdversarialRebuildOnRollbackSync()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "undo-redo-rollback" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromWkt( squareWkt( 10, 10, 20 ) ) );
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  canvas.setMapTool( &tool );
+
+  // 5 vertices for a closed square: (10,10), (30,10), (30,30), (10,30), (10,10)
+  QCOMPARE( tool.markerCount(), 5 );
+  const QgsPointXY origPt2 = tool.markers().at( 2 )->center();
+
+  // Move vertex 2 from (30, 30) to (35, 35)
+  const QPoint startPx = pxAt( canvas, 30, 30 );
+  const QPoint targetPx = pxAt( canvas, 35, 35 );
+  const QgsPointXY movedPt2 = mapPt( canvas, targetPx.x(), targetPx.y() );
+
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, startPx,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY( tool.isDragging() );
+
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, targetPx,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+  QCOMPARE( tool.editedCount(), 1 );
+  QCOMPARE( tool.markerCount(), 5 );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 2 )->center().x(), movedPt2.x(), 1e-4 ) );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 2 )->center().y(), movedPt2.y(), 1e-4 ) );
+
+  // 1. Undo: verify rebuildMarkers() restored marker 2 back to origPt2
+  layer.undoStack()->undo();
+  QCOMPARE( tool.markerCount(), 5 );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 2 )->center().x(), origPt2.x(), 1e-4 ) );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 2 )->center().y(), origPt2.y(), 1e-4 ) );
+
+  // 2. Redo: verify rebuildMarkers() updated marker 2 back to movedPt2
+  layer.undoStack()->redo();
+  QCOMPARE( tool.markerCount(), 5 );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 2 )->center().x(), movedPt2.x(), 1e-4 ) );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 2 )->center().y(), movedPt2.y(), 1e-4 ) );
+
+  // 3. Rollback: rollBack() rolls back all edits in the edit buffer
+  layer.rollBack();
+  // afterRollBack signal must trigger rebuildMarkers()
+  QCOMPARE( tool.markerCount(), 5 );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 2 )->center().x(), origPt2.x(), 1e-4 ) );
+  QVERIFY( qgsDoubleNear( tool.markers().at( 2 )->center().y(), origPt2.y(), 1e-4 ) );
+
+  canvas.unsetMapTool( &tool );
+}
+
+void TestEditTools::vertexAdversarialInFlightDragAbortedByRollback()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "LineString?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "abort-drag-rollback" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory line layer failed to initialize" );
+
+  const QgsPointXY pt0 = mapPt( canvas, 50, 50 );
+  const QgsPointXY pt1 = mapPt( canvas, 150, 150 );
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromPolylineXY( { pt0, pt1 } ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  canvas.setMapTool( &tool );
+
+  // Press to arm drag
+  const QPoint pressPx( 50, 50 );
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, pressPx,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY2( tool.isDragging(), "drag must be active after press" );
+
+  // Trigger external rollback while drag gesture is in-flight!
+  layer.rollBack();
+
+  // The tool must automatically detect rollback, clear drag state, and rebuild markers
+  QVERIFY2( !tool.isDragging(), "in-flight drag must be aborted on layer rollback" );
+  QVERIFY( tool.topoMarkers().isEmpty() );
+  QCOMPARE( tool.markerCount(), 2 );
+
+  // Subsequent move and release must not crash and must not commit anything
+  const QPoint movePx( 80, 80 );
+  QgsMapMouseEvent move( &canvas, QEvent::MouseMove, movePx,
+                         Qt::NoButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasMoveEvent( &move );
+
+  const QPoint releasePx( 90, 90 );
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, releasePx,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+  QCOMPARE( tool.editedCount(), 0 );
+
+  // Idle Esc must emit editAborted
+  QSignalSpy abortSpy( &tool, &PaleoVertexTool::editAborted );
+  sendEsc( tool );
+  QCOMPARE( abortSpy.count(), 1 );
+
+  canvas.unsetMapTool( &tool );
+}
+
+void TestEditTools::vertexAdversarialLayerDestructionArmedToolSafety()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  auto *dynLayer = new QgsVectorLayer( QStringLiteral( "Point?crs=EPSG:4326&field=id:integer" ),
+                                       QStringLiteral( "dyn-layer" ), QStringLiteral( "memory" ) );
+  QVERIFY2( dynLayer->isValid(), "dynLayer failed to initialize" );
+  const QgsFeatureId fid = seedFeature( *dynLayer, QgsGeometry::fromPointXY( mapPt( canvas, 100, 100 ) ) );
+
+  dynLayer->startEditing();
+  dynLayer->selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ dynLayer } );
+  canvas.setCurrentLayer( dynLayer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, dynLayer );
+  canvas.setMapTool( &tool );
+  QCOMPARE( tool.markerCount(), 1 );
+
+  // Arm drag on the point
+  const QPoint pressPx( 100, 100 );
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, pressPx,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY( tool.isDragging() );
+
+  // Delete the layer while tool is armed!
+  delete dynLayer;
+
+  // mLayer->destroyed must trigger teardown in tool
+  QVERIFY( tool.targetLayer() == nullptr );
+  QVERIFY( !tool.isDragging() );
+  QCOMPARE( tool.markerCount(), 0 );
+  QVERIFY( tool.topoMarkers().isEmpty() );
+
+  // Injected canvas events must be handled safely without null dereference
+  const QPoint anyPx( 50, 50 );
+  QgsMapMouseEvent move( &canvas, QEvent::MouseMove, anyPx,
+                         Qt::NoButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasMoveEvent( &move );
+
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, anyPx,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+
+  QgsMapMouseEvent dclick( &canvas, QEvent::MouseButtonDblClick, anyPx,
+                           Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasDoubleClickEvent( &dclick );
+
+  sendEsc( tool );
+
+  canvas.unsetMapTool( &tool );
+  canvas.setLayers( {} );
+}
+
+void TestEditTools::vertexAdversarialToolDestructionCanvasSafety()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                        QStringLiteral( "canvas-active-teardown" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "layer failed to initialize" );
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromWkt( squareWkt( 20, 20, 40 ) ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  const int initialItemCount = canvas.scene()->items().count();
+
+  auto *dynTool = new TestVertexTool( &canvas, &layer );
+  canvas.setMapTool( dynTool );
+
+  // Markers must now be present on the canvas scene
+  const int armedItemCount = canvas.scene()->items().count();
+  QVERIFY2( armedItemCount > initialItemCount, "canvas scene must contain vertex markers" );
+
+  // Press to start a drag (creates rubber band preview)
+  const QPoint pressPx = pxAt( canvas, 20, 20 );
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, pressPx,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  dynTool->canvasPressEvent( &press );
+  QVERIFY( dynTool->isDragging() );
+  const int dragItemCount = canvas.scene()->items().count();
+  QVERIFY2( dragItemCount > armedItemCount, "canvas scene must contain rubber band during drag" );
+
+  // Destroy the tool while canvas is active and drag is in-flight!
+  delete dynTool;
+
+  // Verify all markers and rubber bands were removed from canvas scene
+  const int finalItemCount = canvas.scene()->items().count();
+  QCOMPARE( finalItemCount, initialItemCount );
+
+  // Repaint canvas — must not crash or encounter dangling pointers
+  canvas.refresh();
+  canvas.update();
+
+  layer.rollBack();
 }
 
 // ---------------------------------------------------------------------------

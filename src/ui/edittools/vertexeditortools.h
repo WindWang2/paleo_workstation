@@ -1,6 +1,7 @@
 // 层：视图
 #pragma once
 #include <qgsmaptooledit.h>
+#include <QPointer>
 #include <QString>
 
 class QgsMapCanvas;
@@ -62,6 +63,8 @@ class PaleoVertexTool : public QgsMapToolEdit
     bool isDragging() const { return mDraggingVertex != nullptr; }
     // Vertices currently displayed (selected features' total vertex count).
     int markerCount() const { return mMarkers.size(); }
+    QList<class QgsVertexMarker *> markers() const { return mMarkers; }
+    QList<class QgsVertexMarker *> topoMarkers() const;
     int editedCount() const { return mEditedCount; } // committed edit commands
 
     // Same-layer topological editing (see header notes). Host-driven.
@@ -107,10 +110,11 @@ class PaleoVertexTool : public QgsMapToolEdit
     bool findNearestLayerVertex( const QgsPointXY &layerPoint, const QgsPointXY &excludedPos,
                                  QgsPointXY &nearestPos );
 
-    QgsVectorLayer *mLayer = nullptr;   // not owned
+    QPointer<QgsVectorLayer> mLayer;      // not owned
     DragState *mDraggingVertex = nullptr; // owned, null when idle
     int mEditedCount = 0;
     bool mTopoEditing = false;
+    bool mCommitting = false;
     // Canvas-item markers, owned via canvas parenting; tracked for teardown.
     QList<class QgsVertexMarker *> mMarkers;
 };

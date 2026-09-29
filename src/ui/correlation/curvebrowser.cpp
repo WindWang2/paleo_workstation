@@ -80,7 +80,7 @@ CurveBrowser::CurveBrowser(QWidget *parent)
   m_wellLabel = new QLabel(this);
   m_wellLabel->setObjectName(QStringLiteral("wellLabel"));
   m_wellLabel->setFont(pointFont(8));
-  m_wellLabel->setStyleSheet(QStringLiteral("color: %1;").arg(kTextMuted().name()));
+  PaleoTheme::applyThemedStyleSheet(m_wellLabel, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   m_wellLabel->setVisible(false);
   lay->addWidget(m_wellLabel, 0, 0);
 
@@ -111,7 +111,7 @@ CurveBrowser::CurveBrowser(QWidget *parent)
   m_emptyLabel->setObjectName(QStringLiteral("browserEmptyLabel"));
   m_emptyLabel->setAlignment(Qt::AlignCenter);
   m_emptyLabel->setFont(pointFont(9));
-  m_emptyLabel->setStyleSheet(QStringLiteral("color: %1;").arg(kTextMuted().name()));
+  PaleoTheme::applyThemedStyleSheet(m_emptyLabel, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   m_emptyLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
   lay->addWidget(m_emptyLabel, 1, 0);
   m_emptyLabel->setVisible(true);

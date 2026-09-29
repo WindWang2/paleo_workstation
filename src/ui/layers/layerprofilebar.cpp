@@ -1,11 +1,14 @@
 // 层：视图
 #include "layerprofilebar.h"
 
+#include "../paleotheme.h"
+
 #include "qgis/qgislayerprofile.h"
 
 #include <QAction>
 #include <QComboBox>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -72,8 +75,12 @@ namespace
 LayerProfileBar::LayerProfileBar(QgisLayerProfileService *service, QWidget *parent)
     : QWidget(parent), m_service(service)
 {
-  // DESIGN.md：surface #FFFFFF 底；正文 9pt（pointSize 跟随系统缩放）。
-  setStyleSheet(QStringLiteral("LayerProfileBar { background: #FFFFFF; }"));
+  // DESIGN.md：surface 底（token 活体注册，随主题重算）；正文 9pt
+  //（pointSize 跟随系统缩放）。
+  PaleoTheme::applyThemedStyleSheet(this, [] {
+    return QStringLiteral("LayerProfileBar { background: %1; }")
+        .arg(PaleoTheme::tokens().surface.name().toUpper());
+  });
   QFont base = font();
   base.setPointSizeF(9.0);
   setFont(base);
@@ -97,10 +104,11 @@ LayerProfileBar::LayerProfileBar(QgisLayerProfileService *service, QWidget *pare
 
   saveButton->setToolTip(tr("保存当前图层可见性为主题"));
 
-  // 当前页档案指示：8pt 次级（DESIGN.md label 字阶 + text-muted #5D6E80）。
+  // 当前页档案指示：8pt 次级（DESIGN.md label 字阶 + text-muted 活体）。
   m_pageLabel = new QLabel(this);
   m_pageLabel->setObjectName(QStringLiteral("layerPageProfileLabel"));
-  m_pageLabel->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+  PaleoTheme::applyThemedStyleSheet(
+      m_pageLabel, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   QFont labelFont = m_pageLabel->font();
   labelFont.setPointSizeF(8.0);
   m_pageLabel->setFont(labelFont);
@@ -183,7 +191,10 @@ void LayerProfileBar::onComboActivated(int index)
   const QString name = m_combo->itemData(index).toString();
   if (name.isEmpty())
     return;
-  m_service->applyTheme(name); // 失败静默（主题刚被并发移除等边缘态）
+  // 失败要可见（主题刚被并发移除等边缘态）——不静默吞掉。
+  if (!m_service->applyTheme(name))
+    emit statusMessage(tr("应用主题「%1」失败（主题可能已被移除）")
+                           .arg(themeDisplayName(name)));
   emit themeSelected(name);
 }
 
@@ -239,7 +250,12 @@ QDialog *LayerProfileBar::buildManageDialog()
     const QListWidgetItem *item = list->currentItem();
     if (!item || !m_service)
       return;
-    m_service->applyTheme(item->data(Qt::UserRole).toString());
+    if (!m_service->applyTheme(item->data(Qt::UserRole).toString()))
+    {
+      emit statusMessage(tr("应用主题「%1」失败（主题可能已被移除）")
+                             .arg(themeDisplayName(item->data(Qt::UserRole).toString())));
+      return; // 失败不关窗——用户看得见、可改选
+    }
     dialog->accept(); // 应用即关窗
   });
 
@@ -292,7 +308,8 @@ QDialog *LayerProfileBar::buildManageDialog()
 
   auto *renameNote = new QLabel(tr("page:* 页面档案名不可改"), dialog);
   renameNote->setObjectName(QStringLiteral("layerManageRenameNote"));
-  renameNote->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+  PaleoTheme::applyThemedStyleSheet(
+      renameNote, [] { return PaleoTheme::mutedCaptionStyleSheet(); }); // text-muted 活体
   QFont noteFont = renameNote->font();
   noteFont.setPointSizeF(8.0); // DESIGN.md label 8pt
   renameNote->setFont(noteFont);
@@ -305,6 +322,12 @@ QDialog *LayerProfileBar::buildManageDialog()
   buttonRow->addSpacing(4);
   buttonRow->addWidget(renameNote, 1);
   vlay->addLayout(buttonRow);
+
+  // 对话框必须有显式关闭出口（只留标题栏 ✕ 不够）。
+  auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+  buttonBox->setObjectName(QStringLiteral("layerManageCloseBox"));
+  connect(buttonBox, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+  vlay->addWidget(buttonBox);
   return dialog;
 }
 

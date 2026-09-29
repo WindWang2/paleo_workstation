@@ -1,7 +1,7 @@
 // 层：视图
 #include "constraintpage.h"
 
-#include "panelshared.h"
+#include "pageshared.h"
 
 #include "../../domain/arearules.h" // 历史存量 include（勿增新 io include）
 #include "../../domain/mappinghorizons.h"
@@ -11,6 +11,7 @@
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
@@ -22,7 +23,7 @@
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
 
-using namespace PaleoPanel;
+using namespace paleo::pagesinternal;
 
 namespace
 {
@@ -101,12 +102,14 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   }
   lay->addWidget( factors, 1 );
 
+  lay->addWidget( caption( tr( "井属性字段" ), this ) );
   auto *field = new QLineEdit( QStringLiteral( "z" ), this );
   field->setObjectName( QStringLiteral( "factorFieldEdit" ) );
   field->setPlaceholderText( tr( "井属性字段" ) );
   field->setAccessibleName( tr( "单因素插值字段" ) );
   lay->addWidget( field );
 
+  lay->addWidget( caption( tr( "像元大小" ), this ) );
   auto *cell = new QDoubleSpinBox( this );
   cell->setObjectName( QStringLiteral( "factorCellSizeSpin" ) );
   cell->setRange( 0.0001, 1.0e9 );
@@ -135,9 +138,12 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   surfaceRow->setVisible( false );
   lay->addWidget( surfaceRow );
 
+  // 本页主操作（DESIGN.md primary 三用途之一）：生成单因素图突出；
+  // 其余动作保持常规面并按组分隔。
   auto *generate = new QPushButton( tr( "生成单因素图" ), this );
   generate->setObjectName( QStringLiteral( "generateFactorButton" ) );
   generate->setEnabled( false ); // 先勾选一个单因素（updateFactorActionStates 管 tooltip）
+  markPrimaryButton( generate );
   lay->addWidget( generate );
   connect( generate, &QPushButton::clicked, this,
            [this, horizons, field, cell, factors, topCombo, baseCombo] {
@@ -162,6 +168,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
     emit generateFactorRequested( factorId, horizons->currentText(), params );
   } );
 
+  lay->addWidget( caption( tr( "等值线间距" ), this ) );
   auto *interval = new QDoubleSpinBox( this );
   interval->setObjectName( QStringLiteral( "contourIntervalSpin" ) );
   interval->setRange( 0.01, 1.0e9 );
@@ -225,12 +232,14 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
            } );
   // ---- m2(B) 双区 end ------------------------------------------------------
 
+  lay->addSpacing( 16 ); // spacing.md：单因素区与约束区分组
   lay->addWidget( caption( tr( "约束" ), this ) );
   auto *list = new QListWidget( this );
   list->setObjectName( QStringLiteral( "constraintList" ) );
   list->setAccessibleName( tr( "约束列表" ) );
   lay->addWidget( list, 1 );
 
+  lay->addWidget( caption( tr( "相代码" ), this ) );
   auto *spin = new QSpinBox( this );
   spin->setObjectName( QStringLiteral( "faciesCodeSpin" ) );
   spin->setRange( 0, 9999 );
@@ -258,30 +267,36 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
 
   // ---- m2(B)：三入口（物源线/展布线/控制点——03_Constraints 组的类型化
   // 约束；shape 决定画布工具，constraintType 进 ConstraintStore 词表）------
+  // 三个类型化入口是同组次要动作——归并为一行工具排，不再各占全宽。
+  auto *typedRow = new QHBoxLayout();
+  typedRow->setSpacing( 4 ); // xs
   auto *provenance = new QPushButton( tr( "画物源线" ), this );
   provenance->setObjectName( QStringLiteral( "provenanceButton" ) );
-  lay->addWidget( provenance );
+  typedRow->addWidget( provenance );
   connect( provenance, &QPushButton::clicked, this, [this, horizons, spin] {
     emit drawTypedConstraintRequested( horizons->currentText(), QStringLiteral( "line" ),
                                        QStringLiteral( "provenance_line" ), spin->value() );
   } );
   auto *distribution = new QPushButton( tr( "画展布线" ), this );
   distribution->setObjectName( QStringLiteral( "distributionButton" ) );
-  lay->addWidget( distribution );
+  typedRow->addWidget( distribution );
   connect( distribution, &QPushButton::clicked, this, [this, horizons, spin] {
     emit drawTypedConstraintRequested( horizons->currentText(), QStringLiteral( "line" ),
                                        QStringLiteral( "distribution_line" ), spin->value() );
   } );
   auto *controlPoint = new QPushButton( tr( "画控制点" ), this );
   controlPoint->setObjectName( QStringLiteral( "controlPointButton" ) );
-  lay->addWidget( controlPoint );
+  typedRow->addWidget( controlPoint );
   connect( controlPoint, &QPushButton::clicked, this, [this, horizons, spin] {
     emit drawTypedConstraintRequested( horizons->currentText(), QStringLiteral( "point" ),
                                        QStringLiteral( "control_point" ), spin->value() );
   } );
+  lay->addLayout( typedRow );
   // ---- m2(B) 三入口 end ----------------------------------------------------
 
   // 旧 IDW 行（objectName 保留；runIdwRequested 原语义不动）。
+  lay->addSpacing( 16 ); // spacing.md：约束区与 IDW 区分组
+  lay->addWidget( caption( tr( "插值（IDW）" ), this ) );
   auto *idwField = new QLineEdit( QStringLiteral( "z" ), this );
   idwField->setObjectName( QStringLiteral( "idwField" ) );
   idwField->setPlaceholderText( tr( "井属性字段" ) );
@@ -341,7 +356,9 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   auto *thHint = new QLabel( section->container() );
   thHint->setObjectName( QStringLiteral( "thicknessHint" ) );
   thHint->setWordWrap( true );
-  thHint->setStyleSheet( QStringLiteral( "color: #5D6E80; " ) ); // text-muted
+  // text-muted 活体（随主题重算）。
+  PaleoTheme::applyThemedStyleSheet(
+      thHint, [] { return PaleoTheme::mutedCaptionStyleSheet(); } );
   thLay->addWidget( thHint );
 
   if ( wf ) // workflow feedback lands on the status label

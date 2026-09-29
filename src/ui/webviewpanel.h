@@ -4,7 +4,9 @@
 #include <QWidget>
 
 class QLabel;
+class QProgressBar;
 class QPushButton;
+class QStackedLayout;
 class QWebEngineView;
 
 // ui/webviewpanel — 内嵌浏览器孤岛：为「嵌壳」用途（已开发 web 服务 / 页面
@@ -39,6 +41,8 @@ class WebViewPanel : public QWidget
     void showFallback(const QString &reason);
 
     QWebEngineView *m_engine = nullptr; // 懒建；nullptr = 未建或不可用
+    QStackedLayout *m_stack = nullptr;  // 状态面/引擎页切换（根布局是外壳 VBox）
+    QProgressBar *m_progress = nullptr; // 加载进度（>1s 的静默加载必须有反馈）
     QLabel *m_statusLabel = nullptr;
     QPushButton *m_externalButton = nullptr;
     QString m_lastError;

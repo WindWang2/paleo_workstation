@@ -1,7 +1,7 @@
 // 层：视图
 #include "predictpage.h"
 
-#include "panelshared.h"
+#include "pageshared.h"
 
 #include "../../ai/onnxpredictionservice.h" // ORT-free header; runtimeAvailable 调用受 PALEO_HAVE_ORT 保护
 #include "../../domain/arearules.h"
@@ -12,6 +12,7 @@
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -20,7 +21,7 @@
 #include <QSpinBox>
 #include <QVBoxLayout>
 
-using namespace PaleoPanel;
+using namespace paleo::pagesinternal;
 
 // 层：视图
 // ---------------------------------------------------------------------------
@@ -72,13 +73,13 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   paramsLay->addWidget(caption(tr("输入数据 (逗号分隔浮点数)"), paramsArea));
   auto *inputEdit = new QLineEdit(paramsArea);
   inputEdit->setObjectName(QStringLiteral("onnxInputEdit"));
-  inputEdit->setPlaceholderText(QStringLiteral("例如: 0.0, 1.0"));
+  inputEdit->setPlaceholderText(tr("例如: 0.0, 1.0"));
   paramsLay->addWidget(inputEdit);
 
   paramsLay->addWidget(caption(tr("输入形状 (逗号分隔整数)"), paramsArea));
   auto *shapeEdit = new QLineEdit(paramsArea);
   shapeEdit->setObjectName(QStringLiteral("onnxShapeEdit"));
-  shapeEdit->setPlaceholderText(QStringLiteral("例如: 1, 1"));
+  shapeEdit->setPlaceholderText(tr("例如: 1, 1"));
   paramsLay->addWidget(shapeEdit);
 
   paramsLay->addWidget(caption(tr("输入名称"), paramsArea));
@@ -597,13 +598,23 @@ void PredictPage::refreshHistory()
 
     auto *item = new QListWidgetItem(d.title.isEmpty() ? d.layerId : d.title, list);
     item->setData(Qt::UserRole, d.layerId);
-    auto *showBtn = new QPushButton(tr("显示"), list);
+    // C5：行控件 = 标题 label + 「显示」按钮——结果名不能被按钮整行遮蔽。
+    auto *roww = new QWidget(list);
+    auto *rl = new QHBoxLayout(roww);
+    rl->setContentsMargins(4, 1, 4, 1);
+    rl->setSpacing(4);
+    auto *title = new QLabel(d.title.isEmpty() ? d.layerId : d.title, roww);
+    title->setToolTip(d.layerId);
+    rl->addWidget(title, 1);
+    auto *showBtn = new QPushButton(tr("显示"), roww);
     showBtn->setObjectName(QStringLiteral("historyShowButton"));
     showBtn->setToolTip(tr("在地图上显示 %1").arg(d.layerId));
     const QString layerId = d.layerId;
     connect(showBtn, &QPushButton::clicked, this, [this, layerId] {
       emit showResultRequested(layerId);
     });
-    list->setItemWidget(item, showBtn);
+    rl->addWidget(showBtn, 0);
+    item->setSizeHint(roww->sizeHint());
+    list->setItemWidget(item, roww);
   }
 }

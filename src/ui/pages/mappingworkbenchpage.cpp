@@ -61,8 +61,8 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
   layout->addLayout(form);
   if (mode == "predict") {
-    label(tr("远端预测 · Mock "
-             "模拟\n选择一个地震体，或勾选一口／多口井。结果按当前层位与相分类"
+    label(tr("远端预测 · 模拟数据 · 待复核\n"
+             "选择一个地震体，或勾选一口／多口井。结果按当前层位与相分类"
              "生成。"));
     m_kind = new QComboBox(body);
     m_kind->setObjectName("predictionKind");
@@ -223,8 +223,8 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   sr->addWidget(remove);
   sr->addWidget(button("schema", tr("保存分类")));
   sbl->addLayout(sr);
-  auto *hint = new QLabel(tr("分类按层位独立保存；已有图件保留生成时的相分类。M"
-                             "ock 默认名称需按实际地质含义配置。"),
+  auto *hint = new QLabel(tr("分类按层位独立保存；已有图件保留生成时的相分类。模"
+                             "拟数据的默认名称需按实际地质含义配置。"),
                           schemaBody);
   hint->setWordWrap(true);
   sbl->addWidget(hint);
@@ -410,7 +410,7 @@ void MappingWorkbenchPage::updateState() {
   if (selected) {
     m_details->setText(
         tr("%1\n来源：%2\n后续派生：%5\n方法：%3\n文件：%4")
-            .arg(row.value("mock").toBool() ? tr("Mock 派生图件 · 待地质复核")
+            .arg(row.value("mock").toBool() ? tr("模拟派生图件 · 待地质复核")
                                             : tr("已关联工程文件"),
                  row.value("parent_names").toStringList().join("；"),
                  row.value("method").toString(), row.value("path").toString(),

@@ -2,6 +2,7 @@
 #include "folderconfirm.h"
 
 #include "../../domain/projectclassifier.h" // 分类词表/固定辅助谓词（domain 纯函数）
+#include "../paleotheme.h"
 
 #include <memory>
 
@@ -24,19 +25,21 @@ namespace PaleoFolderConfirm
 
 QString folderTypeLabel(const QString &type)
 {
+  // 用户可见类型名：中文源串走 tr（函数内静态表，首次调用时才求值，
+  // 此时翻译器早已装好）。
   static const QHash<QString, QString> kLabels = {
-      {QStringLiteral("well_head"), QStringLiteral("井口")},
-      {QStringLiteral("well_log"), QStringLiteral("测井")},
-      {QStringLiteral("well_stratification"), QStringLiteral("井分层")},
-      {QStringLiteral("time_depth"), QStringLiteral("时深")},
-      {QStringLiteral("horizon"), QStringLiteral("层位")},
-      {QStringLiteral("seismic"), QStringLiteral("地震")},
-      {QStringLiteral("tabular"), QStringLiteral("表格")},
-      {QStringLiteral("geojson"), QStringLiteral("GeoJSON")},
-      {QStringLiteral("document"), QStringLiteral("文档")},
-      {QStringLiteral("image_reference"), QStringLiteral("图像")},
-      {QStringLiteral("reference"), QStringLiteral("参考资料")},
-      {QStringLiteral("unknown"), QStringLiteral("未知")}};
+      {QStringLiteral("well_head"), QObject::tr("井口")},
+      {QStringLiteral("well_log"), QObject::tr("测井")},
+      {QStringLiteral("well_stratification"), QObject::tr("井分层")},
+      {QStringLiteral("time_depth"), QObject::tr("时深")},
+      {QStringLiteral("horizon"), QObject::tr("层位")},
+      {QStringLiteral("seismic"), QObject::tr("地震")},
+      {QStringLiteral("tabular"), QObject::tr("表格")},
+      {QStringLiteral("geojson"), QObject::tr("GeoJSON")},
+      {QStringLiteral("document"), QObject::tr("文档")},
+      {QStringLiteral("image_reference"), QObject::tr("图像")},
+      {QStringLiteral("reference"), QObject::tr("参考资料")},
+      {QStringLiteral("unknown"), QObject::tr("未知")}};
   return kLabels.value(type, type); // 词表外类型裸显 id（type 仍存 item data）
 }
 
@@ -63,7 +66,7 @@ QString engineeringCrsSentence()
 {
   // T22/§3 契约句：工区导入统一展示的 CRS 说明（文件夹确认表 + 单文件
   // 导入确认都只读挂这句）。状态栏短句另行，与 PDF 页脚同一文案。
-  return QStringLiteral(
+  return QObject::tr(
       "局部工程坐标，单位米。源文件里的 EPSG:4326 只是标签，不会画到地图上。");
 }
 
@@ -306,7 +309,9 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
   auto *crsNote = new QLabel(engineeringCrsSentence(), dlg);
   crsNote->setObjectName(QStringLiteral("folderCrsNote"));
   crsNote->setWordWrap(true);
-  crsNote->setStyleSheet(QStringLiteral("color: #5D6E80;")); // DESIGN.md text-muted
+  // text-muted 活体（对话框生命周期内跟随主题切换）。
+  PaleoTheme::applyThemedStyleSheet(
+      crsNote, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   lay->addWidget(crsNote);
 
   auto *table = new QTableWidget(0, 4, dlg);
@@ -348,7 +353,8 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
   auto *estimate = new QLabel(dlg);
   estimate->setObjectName(QStringLiteral("folderEstimateLabel"));
   estimate->setText(folderEstimateText(preview));
-  estimate->setStyleSheet(QStringLiteral("color: #5D6E80;")); // DESIGN.md text-muted
+  PaleoTheme::applyThemedStyleSheet(
+      estimate, [] { return PaleoTheme::mutedCaptionStyleSheet(); }); // text-muted 活体
   if (estimate->text().isEmpty())
     estimate->hide();
   lay->addWidget(estimate);
@@ -388,7 +394,11 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
   auto *errorReport = new QLabel(dlg);
   errorReport->setObjectName(QStringLiteral("folderErrorReport"));
   errorReport->setWordWrap(true);
-  errorReport->setStyleSheet(QStringLiteral("color: #B3261E;")); // DESIGN.md danger
+  // error token（语义红——失败明细是状态不是装饰；活体随主题）。
+  PaleoTheme::applyThemedStyleSheet(errorReport, [] {
+    return QStringLiteral("color: %1;")
+        .arg(PaleoTheme::tokens().error.name().toUpper());
+  });
   errorReport->hide();
   lay->addWidget(errorReport);
 

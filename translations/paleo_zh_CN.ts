@@ -6837,30 +6837,30 @@ SHA-256：%2</source>
 <context>
     <name>PaleoVertexEditorShim</name>
     <message>
-        <location filename="../src/ui/vertexeditorshim.cpp" line="76"/>
-        <source>Vertex Editor</source>
+        <location filename="../src/ui/vertexeditorshim.cpp" line="86"/>
+        <source>顶点编辑器</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
     <name>PaleoVertexEditorWidget</name>
     <message>
-        <location filename="../src/ui/vertexeditorshim.cpp" line="17"/>
+        <location filename="../src/ui/vertexeditorshim.cpp" line="18"/>
         <source>#</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/vertexeditorshim.cpp" line="17"/>
+        <location filename="../src/ui/vertexeditorshim.cpp" line="18"/>
         <source>x</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/vertexeditorshim.cpp" line="17"/>
+        <location filename="../src/ui/vertexeditorshim.cpp" line="18"/>
         <source>y</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/vertexeditorshim.cpp" line="18"/>
+        <location filename="../src/ui/vertexeditorshim.cpp" line="19"/>
         <source>顶点坐标表</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8456,7 +8456,7 @@ SHA-256：%2</source>
     <message>
         <location filename="../src/ui/releasepanel.cpp" line="113"/>
         <location filename="../src/ui/releasepanel.cpp" line="151"/>
-        <location filename="../src/ui/releasepanel.cpp" line="210"/>
+        <location filename="../src/ui/releasepanel.cpp" line="209"/>
         <source>发布库打开失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8491,17 +8491,17 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/releasepanel.cpp" line="202"/>
+        <location filename="../src/ui/releasepanel.cpp" line="201"/>
         <source>打开工程后可创建发布快照</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/releasepanel.cpp" line="211"/>
+        <location filename="../src/ui/releasepanel.cpp" line="210"/>
         <source>发布库暂时不可用</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/releasepanel.cpp" line="224"/>
+        <location filename="../src/ui/releasepanel.cpp" line="223"/>
         <source>还没有发布 — 在下方填名称后点「创建发布」</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9288,37 +9288,37 @@ SHA-256：%2</source>
 <context>
     <name>WebViewPanel</name>
     <message>
-        <location filename="../src/ui/webviewpanel.cpp" line="36"/>
+        <location filename="../src/ui/webviewpanel.cpp" line="53"/>
         <source>还没有打开的 web 服务</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/webviewpanel.cpp" line="42"/>
+        <location filename="../src/ui/webviewpanel.cpp" line="59"/>
         <source>用系统浏览器打开</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/webviewpanel.cpp" line="59"/>
+        <location filename="../src/ui/webviewpanel.cpp" line="76"/>
         <source>无效的 URL</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/webviewpanel.cpp" line="91"/>
+        <location filename="../src/ui/webviewpanel.cpp" line="108"/>
         <source>本构建未启用内嵌浏览器（缺少 Qt WebEngine 组件）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/webviewpanel.cpp" line="100"/>
+        <location filename="../src/ui/webviewpanel.cpp" line="117"/>
         <source>无屏平台（%1）不支持内嵌浏览器</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/webviewpanel.cpp" line="116"/>
+        <location filename="../src/ui/webviewpanel.cpp" line="148"/>
         <source>渲染进程异常终止（status=%1, code=%2）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/webviewpanel.cpp" line="128"/>
+        <location filename="../src/ui/webviewpanel.cpp" line="160"/>
         <source>内嵌浏览器不可用：%1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10231,12 +10231,12 @@ SHA-256：%2</source>
 <context>
     <name>WellCorrelationPanel</name>
     <message>
-        <location filename="../src/ui/correlationpanel.cpp" line="291"/>
+        <location filename="../src/ui/correlationpanel.cpp" line="299"/>
         <source>连井剖面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/correlationpanel.cpp" line="308"/>
+        <location filename="../src/ui/correlationpanel.cpp" line="316"/>
         <source>选择井以构建剖面</source>
         <translation type="unfinished"></translation>
     </message>

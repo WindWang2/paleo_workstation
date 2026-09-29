@@ -1,6 +1,8 @@
 // 层：视图
 #include "horizonmarkers.h"
 
+#include "../paleotheme.h"
+
 #include "correlationwellcolumn.h"
 
 #include <QCursor>
@@ -405,14 +407,15 @@ void HorizonMarkerSet::rebuild(QGraphicsScene *scene, QGraphicsItem *parent,
     if (anyPick)
     {
       // ONE label per marker — readable across the whole section, not
-      // one per column. Mouse-transparent; colored like its data symbol.
+      // one per column. Mouse-transparent. 文字走 tokens().text（语义色
+      // 在白底上对比度不足 AA）——标志色由标记线本身承载（色+线双编码）。
       auto *label = new QGraphicsSimpleTextItem(m.name, host);
       if (!host)
         scene->addItem(label);
       QFont f = label->font();
       f.setPointSizeF(8.0); // DESIGN.md label size
       label->setFont(f);
-      label->setBrush(m.color);
+      label->setBrush(PaleoTheme::tokens().text);
       label->setData(CorrelationItemRoles::HorizonMarker, m.name); // reap key
       label->setAcceptedMouseButtons(Qt::NoButton);
       label->setZValue(kLabelZ);

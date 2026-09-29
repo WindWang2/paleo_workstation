@@ -5,6 +5,7 @@
 #include "../../services/previewdoc.h"
 #include "../../workflow/workflows.h"
 #include "../../domain/types.h"
+#include <QCoreApplication>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -62,7 +63,18 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
   auto *run = new QPushButton(tr("运行验证"), this);
   run->setObjectName(QStringLiteral("runButton"));
   lay->addWidget(run);
-  connect(run, &QPushButton::clicked, this, [this] { populate(); });
+  connect(run, &QPushButton::clicked, this, [this, run] {
+    // 同步验证无进度回调：运行期间禁用 + 忙碌文案（禁用带 reason，§35），
+    // 先让忙碌态上屏再跑（populate 是同步路径）。
+    run->setEnabled(false);
+    run->setText(tr("正在验证…"));
+    run->setToolTip(tr("验证正在运行——完成后自动恢复"));
+    QCoreApplication::processEvents();
+    populate();
+    run->setText(tr("运行验证"));
+    run->setToolTip(QString());
+    run->setEnabled(true);
+  });
 
   // autoplan §5C：D61 残差表 —— 每口井一行（井名/残差或原因/阈值），
   // 状态字+颜色（通过 #43A047 / 超过阈值 #F29900 / 未计算 #5D6E80）。
@@ -101,6 +113,17 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
   table->verticalHeader()->setVisible(false);
   table->horizontalHeader()->setStretchLastSection(true);
   lay->addWidget(table, 1);
+  // 初始空态：不留白板——指引下一步（populate 重建行时会清掉它）。
+  {
+    table->insertRow(0);
+    auto *it = new QTableWidgetItem(
+        tr("还没有运行验证 — 点上方「运行验证」生成问题清单"));
+    it->setFlags(Qt::NoItemFlags);
+    it->setForeground(PaleoTheme::tokens().textMuted);
+    it->setTextAlignment(Qt::AlignCenter);
+    table->setItem(0, 0, it);
+    table->setSpan(0, 0, 1, table->columnCount());
+  }
   connect(table, &QTableWidget::itemDoubleClicked, this, [this, table](QTableWidgetItem *it) {
     if (!it)
       return;
@@ -118,11 +141,12 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
   openSection->setObjectName(QStringLiteral("openSeismicSectionButton"));
   openSection->setAccessibleName(tr("在数据页看这条剖面"));
   openSection->setEnabled(false);
+  openSection->setToolTip(tr("先在问题表或残差表中选一条含剖面位置的行")); // §35 禁用带原因
   lay->addWidget(openSection);
   const auto hasSection = [](const QVariantMap &p) {
     return p.value(QStringLiteral("inline"), -1).toInt() >= 0;
   };
-  const auto armSectionFrom = [openSection, hasSection](QTableWidget *src) {
+  const auto armSectionFrom = [this, openSection, hasSection](QTableWidget *src) {
     int row = src ? src->currentRow() : -1;
     if (row < 0 && src)
     {
@@ -133,7 +157,25 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
     auto *first = (src && row >= 0) ? src->item(row, 0) : nullptr;
     const QVariantMap p = first ? first->data(Qt::UserRole + 2).toMap() : QVariantMap();
     openSection->setProperty("armedPayload", p);
-    openSection->setEnabled(hasSection(p));
+    const bool armed = hasSection(p);
+    openSection->setEnabled(armed);
+    // 两表共用一钮：armed 时文案带上目标行标识，不再隐式指向「最近选中」。
+    if (armed)
+    {
+      const int inl = p.value(QStringLiteral("inline"), -1).toInt();
+      const QString wellName = p.value(QStringLiteral("well_name")).toString();
+      openSection->setText(wellName.isEmpty()
+                               ? tr("在数据页看剖面（Inline %1）").arg(inl)
+                               : tr("在数据页看剖面（井 %1 · Inline %2）")
+                                     .arg(wellName)
+                                     .arg(inl));
+      openSection->setToolTip(QString());
+    }
+    else
+    {
+      openSection->setText(tr("在数据页看这条剖面"));
+      openSection->setToolTip(tr("先在问题表或残差表中选一条含剖面位置的行")); // §35 禁用带原因
+    }
   };
   connect(table, &QTableWidget::itemSelectionChanged, openSection,
           [armSectionFrom, table]() { armSectionFrom(table); });
@@ -291,14 +333,18 @@ void ValidatePage::fillResidualTable(QTableWidget *resTable, const QVariantList 
       auto *num = new QLabel(tr("%1 ms").arg(residualMs, 0, 'f', 1), cell);
       num->setFont(PaleoTheme::monoFont());
       num->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-      num->setStyleSheet(QStringLiteral("color: #24303E;"));
+      PaleoTheme::applyThemedStyleSheet(num, [] {
+        return QStringLiteral("color: %1;")
+            .arg(PaleoTheme::tokens().text.name().toUpper());
+      });
       hl->addWidget(num);
     }
     else if (!m.value(QStringLiteral("reason")).toString().isEmpty())
     {
       auto *reason = new QLabel(m.value(QStringLiteral("reason")).toString(), cell);
       reason->setWordWrap(true);
-      reason->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+      PaleoTheme::applyThemedStyleSheet(
+          reason, [] { return PaleoTheme::mutedCaptionStyleSheet(); }); // text-muted 活体
       hl->addWidget(reason, 1);
     }
     hl->addStretch(1);

@@ -41,6 +41,8 @@ class LayerProfileBar : public QWidget
     // 用户在下拉里选了主题（bar 已调 service->applyTheme；程序化
     // setCurrentPage/刷新引起的选中变化不发）。
     void themeSelected(const QString &themeName);
+    // 服务调用失败的可见提示（壳可接状态栏/消息条；不弹模态）。
+    void statusMessage(const QString &text);
 
   private slots:
     // 用户激活路径（activated 信号）：applyTheme + themeSelected。

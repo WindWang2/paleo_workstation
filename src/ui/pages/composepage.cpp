@@ -1,7 +1,7 @@
 // 层：视图
 #include "composepage.h"
 
-#include "panelshared.h"
+#include "pageshared.h"
 
 #include "../paleotheme.h" // DESIGN.md token 出口：胶囊样式
 
@@ -22,7 +22,7 @@
 
 #include <algorithm>
 
-using namespace PaleoPanel;
+using namespace paleo::pagesinternal;
 
 namespace
 {
@@ -55,19 +55,21 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   lay->addWidget(caption(tr("编图链（等时差 × 层间速度 → 等厚图）"), this));
   // D8 厚度触发：命名「生成 <层位> 等厚图」，未选层位禁用并写原因；使能态
   // 由壳经 setThicknessHorizon 跟 activeHorizon 联动。
+  // 本页主路径 = 生成等厚图（primary）；导出/版面/版本/发布是次要动作，
+  // 归并为两行工具排，不再五个全宽 CTA 平铺。
   auto *chain = new QPushButton(tr("生成等厚图"), this);
   chain->setObjectName(QStringLiteral("thicknessChainButton"));
   chain->setEnabled(false);
   chain->setToolTip(tr("先在顶部层位 chip 选择层位"));
   chain->setAccessibleName(tr("生成等厚图"));
   connect(chain, &QPushButton::clicked, this, [this] { emit thicknessChainRequested(); });
+  markPrimaryButton(chain);
   lay->addWidget(chain);
 
   auto *exportPdf = new QPushButton(tr("导出层位图 PDF"), this);
   exportPdf->setObjectName(QStringLiteral("exportPdfButton"));
   exportPdf->setAccessibleName(tr("导出层位图 PDF"));
   connect(exportPdf, &QPushButton::clicked, this, [this] { emit exportPdfRequested(); });
-  lay->addWidget(exportPdf);
 
   // m2(C)：在布局设计器中打开本页版面（导出用的同一主题版面）。
   auto *openDesigner = new QPushButton(tr("在布局设计器中打开"), this);
@@ -75,13 +77,11 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   openDesigner->setAccessibleName(tr("在布局设计器中打开"));
   connect(openDesigner, &QPushButton::clicked, this,
           [this] { emit layoutDesignerRequested(); });
-  lay->addWidget(openDesigner);
 
   auto *saveVersion = new QPushButton(tr("保存版本"), this);
   saveVersion->setObjectName(QStringLiteral("saveVersionButton"));
   saveVersion->setAccessibleName(tr("保存版本"));
   connect(saveVersion, &QPushButton::clicked, this, [this] { emit saveVersionRequested(); });
-  lay->addWidget(saveVersion);
 
   auto *publish = new QPushButton(tr("发布"), this);
   publish->setObjectName(QStringLiteral("publishButton"));
@@ -89,7 +89,17 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   publish->setEnabled(false); // 发布门：PDF 能导出之后再暴露（shell 开闸）
   publish->setToolTip(tr("导出 PDF 后再保存")); // 门控原因（阶段E：PDF 先行）
   connect(publish, &QPushButton::clicked, this, [this] { emit publishRequested(); });
-  lay->addWidget(publish);
+
+  auto *toolRow1 = new QHBoxLayout();
+  toolRow1->setSpacing(4); // xs
+  toolRow1->addWidget(exportPdf, 1);
+  toolRow1->addWidget(openDesigner, 1);
+  lay->addLayout(toolRow1);
+  auto *toolRow2 = new QHBoxLayout();
+  toolRow2->setSpacing(4);
+  toolRow2->addWidget(saveVersion, 1);
+  toolRow2->addWidget(publish, 1);
+  lay->addLayout(toolRow2);
 
   // 版本状态标注（已发布 / 编辑中 / 无版本），跟着 shell 的发布门刷新走。
   auto *publishState = new QLabel(this);

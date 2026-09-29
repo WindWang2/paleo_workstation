@@ -70,9 +70,12 @@ private slots:
                        [&manifest] { return manifest; });
 
     auto *createBtn = panel.findChild<QPushButton *>(QStringLiteral("createReleaseButton"));
+    auto *nameEdit = panel.findChild<QLineEdit *>(QStringLiteral("releaseNameEdit"));
     manifest = {decl(QStringLiteral("facies.T1")), decl(QStringLiteral("faults.T1"))};
+    nameEdit->setText(QStringLiteral("v1"));
     createBtn->click();
     manifest = {decl(QStringLiteral("facies.T1")), decl(QStringLiteral("grid.T1"))};
+    nameEdit->setText(QStringLiteral("v2")); // 空名称被拒（防呆）——测试给真名
     createBtn->click();
 
     auto *comboA = panel.findChild<QComboBox *>(QStringLiteral("diffA"));
@@ -103,8 +106,31 @@ private slots:
     panel.findChild<QPushButton *>(QStringLiteral("createReleaseButton"))->click();
     QCOMPARE(statusSpy.count(), 1);
 
+    // 无工程时列表是空态指引行（不可交互），不是白板。
     auto *list = panel.findChild<QTreeWidget *>(QStringLiteral("releaseList"));
-    QCOMPARE(list->topLevelItemCount(), 0);
+    QCOMPARE(list->topLevelItemCount(), 1);
+    QCOMPARE(list->topLevelItem(0)->flags(), Qt::NoItemFlags);
+    QVERIFY(list->topLevelItem(0)->text(0).contains(QString::fromUtf8("打开工程")));
+  }
+
+  void emptyNameRejected()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString db = dir.filePath(QStringLiteral("meta.sqlite"));
+
+    ReleasePanel panel;
+    QVector<LayerDeclaration> manifest = {decl(QStringLiteral("facies.T1"))};
+    panel.setProviders([db] { return db; },
+                       [&manifest] { return manifest; });
+
+    // 空名称 → 拒绝 + statusMessage 提示，不创建任何发布。
+    QSignalSpy statusSpy(&panel, &ReleasePanel::statusMessage);
+    QSignalSpy createdSpy(&panel, &ReleasePanel::releaseCreated);
+    panel.findChild<QPushButton *>(QStringLiteral("createReleaseButton"))->click();
+    QCOMPARE(createdSpy.count(), 0);
+    QCOMPARE(statusSpy.count(), 1);
+    QVERIFY(statusSpy.at(0).at(0).toString().contains(QString::fromUtf8("名称不能为空")));
   }
 };
 

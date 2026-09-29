@@ -320,8 +320,7 @@ QImage ExportEngine::renderToImage(const WellCompositeCanvas &canvas,
 
   if (opt.includeHeader)
   {
-    Options hOpt = opt;
-    paintPageHeader(p, QRectF(1, 1, width - 2, 20), hOpt, 1, 1);
+    paintPageHeader(p, QRectF(1, 1, width - 2, 20), opt, 1, 1);
   }
 
   const QPointF origin(1.0, opt.includeHeader ? 24.0 : 2.0);

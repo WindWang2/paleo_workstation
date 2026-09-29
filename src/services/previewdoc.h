@@ -167,6 +167,11 @@ class PreviewDocService : public QObject
     // 释放该 key 的世代号；进行中的解析请求取消——结果没人等了。
     void releaseLas(const QString &key);
 
+    // ---- D1.3 批量预取：后台低优先级把一批 LAS 解析进缓存 ----
+    // 不发 lasReady（调用方按需再 requestLas 即命中缓存）；任务服务空时同步
+    // 逐个装载（测试/小环境）。返回提交的任务数（0 = 无任务服务同步完成）。
+    int prefetch(const QStringList &absPaths);
+
   signals:
     // 解码成功（已判陈旧——到达的必然是最新一代）。
     void seismicSectionReady(const QString &assetId,

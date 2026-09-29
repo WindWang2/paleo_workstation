@@ -163,3 +163,5 @@ P1 单井综合柱状图深度升级（D1–D8 全量交付）。逐项决策与
 - **QLatin1String 中文坑**：CJK UTF-8 字面量经 QLatin1String 解释为
   Latin-1 乱码（chronostrat/patterncatalog 曾中招）——中文字面量一律
   QStringLiteral 或 QString::fromUtf8。
+
+- **2026-09-29 · IO/服务层性能与缓存体系（wave/io-perf-cache P4）递延**：预算治理只挡 include 层，「不带 include 直接 new」的大缓冲挡不住（与分层护栏同一遗留口径，后续可引入分配钩子审计）；Pyramid DERIVED 版本登记接口已备（RasterPyramidService 路径面），导入侧 ensureRasterPyramidVersion 批量接线随视图层 P2 瓦片消费一并落；D7.8 网络盘超时只有 slow-path 探测设计位（见 docs/perf/BENCHMARKS.md），NFS 自动降级等真实工区再实装；catalog.sqlite（T3 既有递延）——10k 打开 145ms 已达标，留作 >100k 目录的下一步；SEG-Y 坏道跳过仅固定道长布局生效，变道长文件保持旧契约（整索引报错），放宽需单独评审。

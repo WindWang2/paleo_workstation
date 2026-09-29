@@ -1,6 +1,8 @@
 // 层：数据
 #include "wellfileparsers.h"
 
+#include "encodingdetect.h"
+
 #include <QFile>
 #include <QRegularExpression>
 #include <QSet>
@@ -33,10 +35,9 @@ namespace
 // 若首行是表头/数据行，BOM 会粘上第一个 token（井名失配），统一先剥。
 static QString withoutBom(const QByteArray &text)
 {
-  QString s = QString::fromUtf8(text);
-  if (s.startsWith(u'\uFEFF'))
-    s.remove(0, 1);
-  return s;
+  // D7.2：编码统一收口——GB18030 井名文件不再静默变乱码（EncodingDetect：
+  // BOM 剥除 + UTF-8/GB 嗅探；纯 ASCII 三种口径结果一致，零回归面）。
+  return EncodingDetect::decodeText(text);
 }
 
 QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text)

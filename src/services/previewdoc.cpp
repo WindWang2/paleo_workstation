@@ -5,6 +5,7 @@
 #include "../domain/arearules.h"
 #include "../io/dataimportservice.h"
 #include "../io/geojsonaffine.h"
+#include "../io/lascache.h"
 #include "../io/lasparser.h"
 #include "../io/segyreader.h"
 #include "../io/timedeptool.h"
@@ -176,7 +177,18 @@ int PreviewDocService::onnxGridCols()
 bool PreviewDocService::lasAt(const QString &absPath, QStringList *names,
                               QList<LasCurve> *curves, QString *error)
 {
-  return LasParser::parse(absPath, *names, *curves, error);
+  // D1.1：走 LasCache（内存 LRU + 磁盘缓存 + 并发合并）——纯同步语义不变，
+  // 二次打开 <5ms。文件不存在/解析失败的 error 文本与 parseDoc 口径一致。
+  const LasDoc doc = LasCache::shared().load(absPath);
+  if (!doc.ok)
+  {
+    if (error)
+      *error = doc.error;
+    return false;
+  }
+  *names = doc.curveNames;
+  *curves = doc.curves;
+  return true;
 }
 
 bool PreviewDocService::lasHeaderAt(const QString &absPath, LasHeaderInfo *out,
@@ -533,7 +545,9 @@ void PreviewDocService::requestSection(const QString &assetId,
 
   // T23+D1：索引/SHA 每资产一次（缓存命中即跳过）；道索引与测线解码在
   // 任务池执行并回报字节进度/ETA；任务可协作取消。
-  const auto work = [absPath, isInline, lineNo, needSha, sha256, cachedReader,
+  // P4 D2：磁盘索引目录在 GUI 线程取（worker 只值捕获）。
+  const QString idxDir = m_svc ? m_svc->indexCacheDir() : QString();
+  const auto work = [absPath, isInline, lineNo, needSha, sha256, cachedReader, idxDir,
                      out, shaMismatch](PaleoTask *t) -> QString {
     std::shared_ptr<SegyReader> reader = cachedReader;
     SegyOptions opts;
@@ -552,7 +566,12 @@ void PreviewDocService::requestSection(const QString &assetId,
       }
       reader = std::make_shared<SegyReader>();
       QString err;
-      if (!reader->open(absPath, &err, &opts))
+      // P4 D2：磁盘索引层——会话内重开免扫全文件道头（大 survey 分钟级 →
+      // 亚秒）。索引目录取导入服务的工程级 artifacts/index/segy；无工程
+      // （测试/外链未接线）时退回 open() 旧路径。
+      const bool opened = idxDir.isEmpty() ? reader->open(absPath, &err, &opts)
+                                           : reader->openCached(absPath, idxDir, &err, &opts);
+      if (!opened)
         return (t && t->cancelRequested())
                    ? QString()
                    : (err.isEmpty() ? QStringLiteral("无法打开文件") : err);
@@ -640,9 +659,13 @@ void PreviewDocService::requestLas(const QString &key, const QString &absPath)
   auto names = std::make_shared<QStringList>();
   auto curves = std::make_shared<QList<LasCurve>>();
   const auto work = [absPath, names, curves](PaleoTask *t) -> QString {
-    QString err;
-    if (!LasParser::parse(absPath, *names, *curves, &err))
-      return (t && t->cancelRequested()) ? QString() : err;
+    // D1.1/D4.7：LasCache::load——同文件并发请求（不同 key 的两个标签、
+    // 预取 + 点击）只解析一份，其余等 future 拷贝。
+    const LasDoc doc = LasCache::shared().load(absPath);
+    if (!doc.ok)
+      return (t && t->cancelRequested()) ? QString() : doc.error;
+    *names = doc.curveNames;
+    *curves = doc.curves;
     return QString();
   };
   const auto apply = [this, key, seq, names, curves](PaleoTask::State st,
@@ -682,4 +705,27 @@ void PreviewDocService::releaseLas(const QString &key)
   if (auto *t = m_lasTask.value(key).data(); t && t->running())
     t->requestCancel();
   m_lasTask.remove(key);
+}
+
+int PreviewDocService::prefetch(const QStringList &absPaths)
+{
+  // D1.3/D4.6：低优先级后台预取——用户点击（Normal/High）不被预取挡道；
+  // LasCache 的 in-flight 合并保证「预取跑到一半用户点开」不双解析。
+  if (!m_taskSvc)
+  {
+    LasCache::shared().prefetch(absPaths);
+    return 0;
+  }
+  int submitted = 0;
+  for (const QString &p : absPaths)
+  {
+    m_taskSvc->start(QStringLiteral("预取测井 %1").arg(QFileInfo(p).fileName()),
+                     [p](PaleoTask *) -> QString {
+                       LasCache::shared().load(p);
+                       return QString();
+                     },
+                     QString(), PaleoTask::Priority::Low);
+    ++submitted;
+  }
+  return submitted;
 }

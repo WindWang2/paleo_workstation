@@ -4,11 +4,16 @@
 #include "../domain/arearules.h"
 
 #include <QFile>
+#include <QFileInfo>
+#include <QThread>
+#include <QThreadPool>
 #include <QtEndian>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <vector>
 
 namespace
 {
@@ -241,7 +246,10 @@ bool SegyReader::open(const QString &path, QString *error,
       {
         if (error)
           *error = QStringLiteral("cancelled");
-        m_index.clear();
+        // D2.8：取消不清索引——m_lastScanPartial + m_scannedOffset 供
+        // openCached() checkpoint 续扫（ordinal 模式由调用方识别后放弃）。
+        m_lastScanPartial = true;
+        m_scannedOffset = offset;
         return false;
       }
       if (opts->progress)
@@ -649,4 +657,524 @@ bool SegyReader::readCrossline(qint32 xlineNo, QVector<SegyTrace> *out,
     return false;
   }
   return true;
+}
+
+// ===========================================================================
+// wave/io-perf-cache D2：磁盘索引层（openCached/snapshot/restore）+ 并行扫描
+// + 断点续扫 + 空洞统计。open() 的顺序扫描语义保持不变（上方原实现）。
+// ===========================================================================
+void SegyReader::resetState()
+{
+  m_index.clear();
+  m_byInline.clear();
+  m_byXline.clear();
+  m_badTraceOffsets.clear();
+  m_samplesPerTrace = 0;
+  m_sampleIntervalUs = 0.0f;
+  m_geometry = SegyGeometry();
+  m_path.clear();
+  m_firstTraceOffset = 0;
+  m_formatCode = 0;
+  m_binLineNo = 0;
+  m_lastScanPartial = false;
+  m_scannedOffset = 0;
+}
+
+void SegyReader::rebuildLineHashes()
+{
+  m_byInline.clear();
+  m_byXline.clear();
+  for (int i = 0; i < m_index.size(); ++i)
+    m_byInline[m_index.at(i).inlineNo].append(i);
+  for (int i = 0; i < m_index.size(); ++i)
+    m_byXline[m_index.at(i).xlineNo].append(i);
+  const QVector<IndexEntry> &idx = m_index;
+  for (auto it = m_byInline.begin(); it != m_byInline.end(); ++it)
+    std::sort(it.value().begin(), it.value().end(),
+              [&idx](int a, int b) { return idx.at(a).xlineNo < idx.at(b).xlineNo; });
+  for (auto it = m_byXline.begin(); it != m_byXline.end(); ++it)
+    std::sort(it.value().begin(), it.value().end(),
+              [&idx](int a, int b) { return idx.at(a).inlineNo < idx.at(b).inlineNo; });
+}
+
+bool SegyReader::snapshot(SegyIndexStore::StoredIndex *out) const
+{
+  if (m_index.isEmpty() || m_path.isEmpty())
+    return false;
+  const QFileInfo fi(m_path);
+  out->ident = SegyIndexStore::identityOf(fi);
+  out->samplesPerTrace = m_samplesPerTrace;
+  out->sampleIntervalUs = qRound(m_sampleIntervalUs);
+  out->formatCode = m_formatCode;
+  out->binLineNo = m_binLineNo;
+  out->firstTraceOffset = m_firstTraceOffset;
+  out->geometry = m_geometry;
+  out->inlineNos.resize(m_index.size());
+  out->xlineNos.resize(m_index.size());
+  out->offsets.resize(m_index.size());
+  for (int i = 0; i < m_index.size(); ++i)
+  {
+    out->inlineNos[i] = m_index.at(i).inlineNo;
+    out->xlineNos[i] = m_index.at(i).xlineNo;
+    out->offsets[i] = m_index.at(i).offset;
+  }
+  out->badTraceOffsets = m_badTraceOffsets;
+  out->complete = !m_lastScanPartial;
+  out->scannedOffset = m_lastScanPartial ? m_scannedOffset : fi.size();
+  out->prefixFingerprint =
+      SegyIndexStore::prefixFingerprintOf(m_path, qMin<qint64>(64 * 1024, fi.size()));
+  return true;
+}
+
+bool SegyReader::restore(const SegyIndexStore::StoredIndex &in, const QString &path)
+{
+  if (in.inlineNos.size() != in.xlineNos.size() ||
+      in.inlineNos.size() != in.offsets.size() || in.inlineNos.isEmpty())
+    return false;
+  m_samplesPerTrace = in.samplesPerTrace;
+  m_sampleIntervalUs = static_cast<float>(in.sampleIntervalUs);
+  m_formatCode = in.formatCode;
+  m_binLineNo = in.binLineNo;
+  m_firstTraceOffset = in.firstTraceOffset;
+  m_geometry = in.geometry;
+  m_badTraceOffsets = in.badTraceOffsets;
+  m_index.resize(in.inlineNos.size());
+  for (int i = 0; i < in.inlineNos.size(); ++i)
+    m_index[i] = IndexEntry{in.inlineNos.at(i), in.xlineNos.at(i), in.offsets.at(i)};
+  m_path = path;
+  m_lastScanPartial = !in.complete;
+  m_scannedOffset = in.scannedOffset;
+  rebuildLineHashes();
+  return true;
+}
+
+SegyIndexStore::IndexStats SegyReader::indexStats() const
+{
+  SegyIndexStore::StoredIndex snap;
+  if (!snapshot(&snap))
+    return SegyIndexStore::IndexStats();
+  return SegyIndexStore::computeStats(snap);
+}
+
+bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 traceSize,
+                              qint64 traceCount, QString *error, const SegyOptions *opts)
+{
+  Q_UNUSED(file);
+  const QString path = m_path;
+  const AreaRules::SegyIndexing sidx = AreaRules::active().segy;
+  const int ns = m_samplesPerTrace;
+
+  struct Shard
+  {
+      qint64 from = 0, to = 0;
+      bool ok = false;
+      bool cancelled = false;
+      QString err;
+      QVector<qint32> inlines, xlines;
+      QVector<qint64> offsets, bad;
+      QVector<double> xs, ys;
+  };
+  const int maxThreads = qBound(1, qMin(4, QThread::idealThreadCount()), 4);
+  const int shardCount = static_cast<int>(qMin<qint64>(traceCount, maxThreads));
+  std::vector<Shard> shards(static_cast<size_t>(shardCount));
+  const qint64 per = traceCount / shardCount;
+  const qint64 rem = traceCount % shardCount;
+  qint64 start = 0;
+  for (int s = 0; s < shardCount; ++s)
+  {
+    const qint64 count = per + (s < static_cast<int>(rem) ? 1 : 0);
+    shards[static_cast<size_t>(s)].from = start;
+    shards[static_cast<size_t>(s)].to = start + count;
+    start += count;
+  }
+
+  std::atomic_bool cancelled{false};
+  QThreadPool pool;
+  pool.setMaxThreadCount(maxThreads);
+  for (int s = 0; s < shardCount; ++s)
+  {
+    Shard &sh = shards[static_cast<size_t>(s)];
+    pool.start([&sh, &cancelled, path, firstTraceOffset, traceSize, traceCount, &sidx, ns,
+                opts]() {
+      QFile local(path);
+      if (!local.open(QIODevice::ReadOnly))
+      {
+        sh.err = QStringLiteral("cannot reopen %1").arg(path);
+        return;
+      }
+      uchar h[240];
+      for (qint64 i = sh.from; i < sh.to; ++i)
+      {
+        if ((i & 127) == 0 &&
+            (cancelled.load() || (opts && opts->cancel && opts->cancel())))
+        {
+          cancelled.store(true);
+          sh.cancelled = true;
+          sh.err = QStringLiteral("cancelled");
+          return;
+        }
+        const qint64 offset = firstTraceOffset + i * traceSize;
+        if (!local.seek(offset) ||
+            local.read(reinterpret_cast<char *>(h), 240) != 240)
+        {
+          sh.err = QStringLiteral("Truncated trace header at offset %1").arg(offset);
+          return;
+        }
+        const qint16 traceNs = beI16(h + 114);
+        if (traceNs < 0 || traceNs > ns)
+        {
+          sh.bad.append(offset); // D2.7：固定道长布局——跳过并记录，不整体作废
+          continue;
+        }
+        const qint16 scal = beI16(h + 70);
+        const double coordScale =
+            (scal == 0 || scal == 1) ? 1.0
+                                     : (scal > 0 ? static_cast<double>(scal)
+                                                 : 1.0 / -static_cast<double>(scal));
+        sh.inlines.append(beI32(h + sidx.inlineWordOffset));
+        sh.xlines.append(beI32(h + sidx.crosslineWordOffset));
+        sh.offsets.append(offset);
+        sh.xs.append(static_cast<double>(beI32(h + 72)) * coordScale);
+        sh.ys.append(static_cast<double>(beI32(h + 76)) * coordScale);
+        if (opts && opts->progress && ((i - sh.from) % 128) == 0)
+          opts->progress(offset, firstTraceOffset + traceCount * traceSize);
+      }
+      sh.ok = true;
+    });
+  }
+  while (!pool.waitForDone(50))
+  {
+    if (opts && opts->cancel && opts->cancel())
+      cancelled.store(true);
+  }
+
+  // 合并（分片连续有序 → 文件道序保持）。
+  for (const Shard &sh : shards)
+  {
+    for (int i = 0; i < sh.inlines.size(); ++i)
+      m_index.append(IndexEntry{sh.inlines.at(i), sh.xlines.at(i), sh.offsets.at(i)});
+    m_badTraceOffsets += sh.bad;
+    if (!sh.ok)
+    {
+      // 分片失败（取消/坏道头读失败）：保留「连续前缀」为部分索引。
+      m_lastScanPartial = true;
+      m_scannedOffset = firstTraceOffset + static_cast<qint64>(m_index.size()) * traceSize;
+      if (error)
+        *error = sh.err;
+      return false;
+    }
+  }
+
+  // 几何冻结（与顺序路径同一算法：运行 min/max + 中点二分四角槽位）。
+  QVector<double> xs, ys;
+  for (const Shard &sh : shards)
+  {
+    xs += sh.xs;
+    ys += sh.ys;
+  }
+  if (!m_index.isEmpty())
+  {
+    m_geometry.inlineMin = m_geometry.inlineMax = m_index.first().inlineNo;
+    m_geometry.xlineMin = m_geometry.xlineMax = m_index.first().xlineNo;
+    m_geometry.cornerX[0] = m_geometry.cornerX[1] = m_geometry.cornerX[2] = m_geometry.cornerX[3] = xs.first();
+    m_geometry.cornerY[0] = m_geometry.cornerY[1] = m_geometry.cornerY[2] = m_geometry.cornerY[3] = ys.first();
+    for (int i = 0; i < m_index.size(); ++i)
+    {
+      if (m_index.at(i).inlineNo < m_geometry.inlineMin)
+        m_geometry.inlineMin = m_index.at(i).inlineNo;
+      if (m_index.at(i).inlineNo > m_geometry.inlineMax)
+        m_geometry.inlineMax = m_index.at(i).inlineNo;
+      if (m_index.at(i).xlineNo < m_geometry.xlineMin)
+        m_geometry.xlineMin = m_index.at(i).xlineNo;
+      if (m_index.at(i).xlineNo > m_geometry.xlineMax)
+        m_geometry.xlineMax = m_index.at(i).xlineNo;
+      const bool iLo = m_index.at(i).inlineNo * 2 <= m_geometry.inlineMin + m_geometry.inlineMax;
+      const bool xLo = m_index.at(i).xlineNo * 2 <= m_geometry.xlineMin + m_geometry.xlineMax;
+      const int slot = iLo ? (xLo ? 0 : 1) : (xLo ? 3 : 2);
+      m_geometry.cornerX[slot] = xs.at(i);
+      m_geometry.cornerY[slot] = ys.at(i);
+    }
+  }
+  // 首道 delay（字 109-110）：重读一次首道头。
+  {
+    QFile local(path);
+    if (local.open(QIODevice::ReadOnly) && local.seek(firstTraceOffset))
+    {
+      uchar h[240];
+      if (local.read(reinterpret_cast<char *>(h), 240) == 240)
+        m_geometry.startTimeMs = static_cast<double>(beI16(h + 108));
+    }
+  }
+  m_lastScanPartial = false;
+  m_scannedOffset = firstTraceOffset + traceCount * traceSize;
+  rebuildLineHashes();
+  return true;
+}
+
+bool SegyReader::resumeScan(QFile &file, const SegyIndexStore::StoredIndex &partial,
+                            QString *error, const SegyOptions *opts)
+{
+  // 续扫前提：固定道长（ns 恒定）——增长量必须是整道。
+  const qint64 traceSize = 240 + qint64(partial.samplesPerTrace) * 4;
+  const qint64 fileSize = file.size();
+  if ((fileSize - partial.scannedOffset) % traceSize != 0)
+  {
+    if (error)
+      *error = QStringLiteral("appended bytes are not whole traces (%1 + %2 bytes)")
+                   .arg(partial.scannedOffset)
+                   .arg(fileSize - partial.scannedOffset);
+    return false;
+  }
+  const AreaRules::SegyIndexing sidx = AreaRules::active().segy;
+  uchar trHdr[240];
+  qint64 offset = partial.scannedOffset;
+  while (offset + 240 <= fileSize)
+  {
+    if (opts && (m_index.size() % 128) == 0)
+    {
+      if (opts->cancel && opts->cancel())
+      {
+        if (error)
+          *error = QStringLiteral("cancelled");
+        m_lastScanPartial = true;
+        m_scannedOffset = offset;
+        return false;
+      }
+      if (opts->progress)
+        opts->progress(offset, fileSize);
+    }
+    if (!file.seek(offset) || file.read(reinterpret_cast<char *>(trHdr), 240) != 240)
+    {
+      if (error)
+        *error = QStringLiteral("Truncated trace header at offset %1").arg(offset);
+      return false;
+    }
+    const qint16 traceNs = beI16(trHdr + 114);
+    if (traceNs < 0 || traceNs > partial.samplesPerTrace)
+    {
+      m_badTraceOffsets.append(offset); // D2.7
+      offset += traceSize;
+      continue;
+    }
+    if (m_sampleIntervalUs <= 0.0f)
+    {
+      const qint16 traceDt = beI16(trHdr + 116);
+      if (traceDt > 0)
+        m_sampleIntervalUs = static_cast<float>(traceDt);
+    }
+    IndexEntry e;
+    e.offset = offset;
+    e.inlineNo = beI32(trHdr + sidx.inlineWordOffset);
+    e.xlineNo = beI32(trHdr + sidx.crosslineWordOffset);
+    // 几何延续（同一运行 min/max + 槽位规则）。
+    const qint16 scal = beI16(trHdr + 70);
+    const double coordScale =
+        (scal == 0 || scal == 1) ? 1.0
+                                 : (scal > 0 ? static_cast<double>(scal)
+                                             : 1.0 / -static_cast<double>(scal));
+    const double cx = static_cast<double>(beI32(trHdr + 72)) * coordScale;
+    const double cy = static_cast<double>(beI32(trHdr + 76)) * coordScale;
+    if (m_index.isEmpty())
+    {
+      m_geometry.inlineMin = m_geometry.inlineMax = e.inlineNo;
+      m_geometry.xlineMin = m_geometry.xlineMax = e.xlineNo;
+      for (int k = 0; k < 4; ++k)
+      {
+        m_geometry.cornerX[k] = cx;
+        m_geometry.cornerY[k] = cy;
+      }
+    }
+    else
+    {
+      m_geometry.inlineMin = qMin<qint32>(m_geometry.inlineMin, e.inlineNo);
+      m_geometry.inlineMax = qMax<qint32>(m_geometry.inlineMax, e.inlineNo);
+      m_geometry.xlineMin = qMin<qint32>(m_geometry.xlineMin, e.xlineNo);
+      m_geometry.xlineMax = qMax<qint32>(m_geometry.xlineMax, e.xlineNo);
+      const bool iLo = e.inlineNo * 2 <= m_geometry.inlineMin + m_geometry.inlineMax;
+      const bool xLo = e.xlineNo * 2 <= m_geometry.xlineMin + m_geometry.xlineMax;
+      const int slot = iLo ? (xLo ? 0 : 1) : (xLo ? 3 : 2);
+      m_geometry.cornerX[slot] = cx;
+      m_geometry.cornerY[slot] = cy;
+    }
+    m_index.append(e);
+    offset += traceSize;
+  }
+  m_lastScanPartial = false;
+  m_scannedOffset = fileSize;
+  rebuildLineHashes();
+  return true;
+}
+
+bool SegyReader::openCached(const QString &path, const QString &indexCacheDir,
+                            QString *error, const SegyOptions *opts)
+{
+  resetState();
+  SegyIndexStore::ensureLegacyGlobalCacheDir(); // D2.1：vendor 全局缓存目录预建
+  const QFileInfo fi(path);
+  if (!fi.exists())
+  {
+    if (error) *error = QStringLiteral("File does not exist: %1").arg(path);
+    return false;
+  }
+  SegyIndexStore store(indexCacheDir);
+
+  // 1) 精确身份命中（完整索引）→ 免扫直读。
+  QString reason;
+  if (auto stored = store.load(fi, /*partialOk=*/false, &reason))
+  {
+    if (restore(*stored, path))
+    {
+      if (opts && opts->progress)
+        opts->progress(fi.size(), fi.size()); // 命中即收敛 100%
+      return true;
+    }
+  }
+
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly))
+  {
+    if (error) *error = QStringLiteral("Cannot open file: %1").arg(path);
+    return false;
+  }
+
+  // 2) checkpoint / 追加增长 → 断点续扫（D2.5/D2.8）。
+  if (auto partial = store.loadForResume(fi, &reason))
+  {
+    if (restore(*partial, path))
+    {
+      if (resumeScan(file, *partial, error, opts))
+      {
+        SegyIndexStore::StoredIndex done;
+        if (snapshot(&done))
+          store.save(done); // 完成态按新身份重存（失败降级无缓存）
+        return true;
+      }
+      if (m_lastScanPartial)
+      {
+        // 续扫又被取消——checkpoint 再落一截。
+        SegyIndexStore::StoredIndex cp;
+        if (snapshot(&cp))
+          store.save(cp);
+      }
+      return false;
+    }
+  }
+
+  // 3) 全新扫描：固定道长 + 标准 inline 索引 → 并行（D2.9）；否则顺序 open()。
+  {
+    // 轻量头部解析（extHeaders >= 0 的常规布局；-1 EBCDIC 扩展头走顺序路径）。
+    uchar bin[400];
+    if (file.seek(3200) && file.read(reinterpret_cast<char *>(bin), 400) == 400)
+    {
+      const qint16 binDt = beI16(bin + 16);
+      const qint16 binNs = beI16(bin + 20);
+      const qint16 formatCode = beI16(bin + 24);
+      const qint16 extHeaders = beI16(bin + 304);
+      const qint64 firstTraceOffset = 3600 + static_cast<qint64>(extHeaders) * 3200;
+      const qint64 traceSize = 240 + static_cast<qint64>(binNs) * 4;
+      const qint64 tail = fi.size() - firstTraceOffset;
+      bool eligible = extHeaders >= 0 && binNs > 0 && (formatCode == 1 || formatCode == 5) &&
+                      tail > 0 && tail % traceSize == 0 && fi.size() > 1024 * 1024; // 1MB 以上才值得并行（分片开销换 IO 重叠）
+      // inline 字必须在全文件范围内变化（ordinal 方言——偏移 188 恒定——其
+      // 道号索引依赖全序上下文，走顺序路径）。抽查首/中/尾 + 前缀 8 道的 ns
+      //（变道长判据；负 ns = 损坏道，不否定固定道长）。
+      if (eligible)
+      {
+        const AreaRules::SegyIndexing sidx = AreaRules::active().segy;
+        const qint64 traceCountTotal = tail / traceSize;
+        const qint64 probes[] = {0, traceCountTotal / 3, traceCountTotal * 2 / 3,
+                                 traceCountTotal - 1};
+        qint32 firstInline = 0;
+        bool haveFirst = false;
+        for (qint64 t : probes)
+        {
+          uchar h[240];
+          const qint64 off = firstTraceOffset + t * traceSize;
+          if (!file.seek(off) || file.read(reinterpret_cast<char *>(h), 240) != 240)
+          {
+            eligible = false;
+            break;
+          }
+          const qint32 v = beI32(h + sidx.inlineWordOffset);
+          if (!haveFirst)
+          {
+            firstInline = v;
+            haveFirst = true;
+          }
+          else if (v == firstInline)
+          {
+            eligible = false; // 全程不变——ordinal 方言
+            break;
+          }
+        }
+        for (qint64 t = 0; eligible && t < 8 && t < traceCountTotal; ++t)
+        {
+          uchar h[240];
+          const qint64 off = firstTraceOffset + t * traceSize;
+          if (!file.seek(off) || file.read(reinterpret_cast<char *>(h), 240) != 240)
+          {
+            eligible = false;
+            break;
+          }
+          const qint16 traceNs = beI16(h + 114);
+          if (traceNs > 0 && traceNs != binNs)
+            eligible = false; // 变道长布局——顺序路径
+        }
+      }
+      if (eligible)
+      {
+        m_path = path;
+        m_samplesPerTrace = binNs;
+        m_sampleIntervalUs = static_cast<float>(binDt > 0 ? binDt : 0);
+        m_formatCode = formatCode;
+        m_firstTraceOffset = firstTraceOffset;
+        const qint64 traceCount = tail / traceSize;
+        if (scanParallel(file, firstTraceOffset, traceSize, traceCount, error, opts))
+        {
+          SegyIndexStore::StoredIndex done;
+          if (snapshot(&done))
+            store.save(done);
+          return true;
+        }
+        if (m_lastScanPartial)
+        {
+          SegyIndexStore::StoredIndex cp;
+          if (snapshot(&cp))
+            store.save(cp); // 取消 checkpoint（失败降级）
+          return false;
+        }
+        // 非取消失败（坏道头读失败等）→ 落到顺序路径重试。
+        resetState();
+        file.seek(0);
+      }
+    }
+  }
+
+  // 4) 顺序 open()（既有语义），成功后发布索引。
+  const bool ok = open(path, error, opts);
+  if (ok)
+  {
+    SegyIndexStore::StoredIndex done;
+    if (snapshot(&done))
+      store.save(done);
+    return true;
+  }
+  if (m_lastScanPartial)
+  {
+    // ordinal 方言（inlineNo 全 0 占位）没有可续扫的最终语义——不 checkpoint。
+    bool ordinal = true;
+    for (const IndexEntry &e : m_index)
+      if (e.inlineNo != 0)
+      {
+        ordinal = false;
+        break;
+      }
+    if (!ordinal && !m_index.isEmpty())
+    {
+      SegyIndexStore::StoredIndex cp;
+      if (snapshot(&cp))
+        store.save(cp);
+    }
+  }
+  return false;
 }

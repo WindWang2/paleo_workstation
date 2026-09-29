@@ -1,11 +1,18 @@
 // 层：数据
 #include "lasparser.h"
 
+#include "cachebudget.h"
+#include "encodingdetect.h"
+
 #include <QFile>
+#include <QFileInfo>
 #include <QRegularExpression>
 #include <QTextStream>
 
+#include <cmath>
 #include <limits>
+
+qint64 LasParser::s_fileSizeLimit = 500LL * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // LAS 2.x item lines have the form "MNEM.UNIT VALUE : DESCRIPTION":
@@ -287,5 +294,550 @@ bool LasParser::readWellInfo(const QString &path, QString &wellName, QString *er
     if (it.mnem == QStringLiteral("WELL") && wellName.isEmpty())
       wellName = it.value;
   }
+  return true;
+}
+
+// ===========================================================================
+// wave/io-perf-cache D1.4-D1.9：字节级快解析 / 区间查询 / 错误分类 / 大文件防护
+// ===========================================================================
+namespace
+{
+  void addIssue(QList<LasIssue> *issues, LasIssue::Severity s, LasIssue::Category c,
+                int line, const QString &msg)
+  {
+    if (!issues)
+      return;
+    LasIssue issue;
+    issue.severity = s;
+    issue.category = c;
+    issue.line = line;
+    issue.message = msg;
+    issues->append(issue);
+  }
+
+  struct HeaderScanResult
+  {
+      LasHeaderInfo header;
+      qint64 asciiDataOffset = -1; // ~A 段头行之后首数据行字节偏移；无 ~A = -1
+      bool sawWrapYes = false;
+      bool sawCurves = false;
+      QList<QPair<QString, QString>> curveNameUnits; // (name, unit) 有序
+      QString error;                                  // 非空 = 致命
+  };
+
+  // 逐原始字节行扫段结构：字节偏移全程对 raw（头段含 GB18030 井名时解码后
+  // 字符数 != 字节数，~A 偏移必须按原始字节记——这是 D1.4 区间查询的锚点）。
+  HeaderScanResult scanHeaderBytes(const QByteArray &raw, QList<LasIssue> *issues)
+  {
+    HeaderScanResult out;
+    enum class Section { None, Version, Well, Curves, Other };
+    Section section = Section::None;
+
+    // 头部编码统一嗅探（GB18030 井名不再乱码，D7.2 联动）。
+    const QByteArray noBom = EncodingDetect::stripBom(raw);
+    const TextEncoding enc =
+        EncodingDetect::detect(noBom.left(qMin<qsizetype>(64 * 1024, noBom.size())));
+    if (enc == TextEncoding::GB18030)
+      addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Encoding, 0,
+               QStringLiteral("文件非 UTF-8，按 GB18030 解码头段"));
+    else if (enc == TextEncoding::Latin1)
+      addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Encoding, 0,
+               QStringLiteral("文件编码无法识别为 UTF-8/GB18030，按 Latin1 保底解码"));
+
+    const qint64 n = noBom.size();
+    qint64 pos = 0;
+    int lineNo = 0;
+    while (pos < n)
+    {
+      ++lineNo;
+      qint64 eol = pos;
+      while (eol < n && noBom.at(eol) != '\n' && noBom.at(eol) != '\r')
+        ++eol;
+      QByteArray lineBytes = noBom.mid(static_cast<int>(pos), static_cast<int>(eol - pos));
+      pos = (eol >= n) ? n : eol + 1;
+      if (eol < n && noBom.at(eol) == '\r' && pos < n && noBom.at(pos) == '\n')
+        ++pos;
+
+      const QString trimmed = EncodingDetect::decodeText(lineBytes).trimmed();
+      if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#')))
+        continue;
+      if (trimmed.startsWith(QLatin1Char('~')))
+      {
+        const QChar code = trimmed.size() > 1 ? trimmed.at(1).toUpper() : QChar();
+        if (code == QLatin1Char('V'))      section = Section::Version;
+        else if (code == QLatin1Char('W')) section = Section::Well;
+        else if (code == QLatin1Char('C')) section = Section::Curves;
+        else if (code == QLatin1Char('A'))
+        {
+          out.header.sawAscii = true;
+          out.asciiDataOffset = pos; // BOM 偏移差在 stripBom 后坐标系内——调用方用原始 raw 时需加回
+          return out;                // 数据节开始——头部扫描到此为止
+        }
+        else                               section = Section::Other;
+        continue;
+      }
+      LasItem it;
+      if (!parseItemLine(trimmed, it))
+        continue;
+      switch (section)
+      {
+        case Section::Version:
+          if (it.mnem == QStringLiteral("WRAP") &&
+              it.value.startsWith(QStringLiteral("YES"), Qt::CaseInsensitive))
+          {
+            out.sawWrapYes = true;
+            out.error = QStringLiteral("wrap mode (WRAP YES) is not supported");
+            return out;
+          }
+          break;
+        case Section::Well:
+          if (it.mnem == QStringLiteral("NULL"))
+          {
+            bool ok = false;
+            const double v = it.value.toDouble(&ok);
+            if (ok)
+              out.header.nullValue = v;
+          }
+          else if (it.mnem == QStringLiteral("WELL") && out.header.wellName.isEmpty())
+            out.header.wellName = it.value;
+          break;
+        case Section::Curves:
+        {
+          out.header.curveNames.append(it.mnem);
+          out.curveNameUnits.append({it.mnem, it.unit});
+          out.sawCurves = true;
+          // D1.6 单位缺失分级：~C 行没有单位不算错（CWLS 允许），值得提示。
+          if (it.unit.isEmpty())
+            addIssue(issues, LasIssue::Severity::Info, LasIssue::Category::MissingUnit, lineNo,
+                     QStringLiteral("曲线 %1 未声明单位").arg(it.mnem));
+          break;
+        }
+        default:
+          break;
+      }
+    }
+    return out;
+  }
+
+  // raw 含 BOM 时 asciiDataOffset 要加回 BOM 长度（stripBom 前的坐标系）。
+  qint64 bomAdjustment(const QByteArray &raw)
+  {
+    if (raw.size() >= 3 && static_cast<uchar>(raw[0]) == 0xEF &&
+        static_cast<uchar>(raw[1]) == 0xBB && static_cast<uchar>(raw[2]) == 0xBF)
+      return 3;
+    return 0;
+  }
+} // namespace
+
+bool LasParser::scanSections(const QByteArray &raw, SectionMap *out, QList<LasIssue> *issues)
+{
+  out->ok = false;
+  out->error.clear();
+  const HeaderScanResult h = scanHeaderBytes(raw, issues);
+  out->header = h.header;
+  out->asciiDataOffset = h.asciiDataOffset >= 0 ? h.asciiDataOffset + bomAdjustment(raw) : -1;
+  out->sawWrapYes = h.sawWrapYes;
+  if (!h.error.isEmpty())
+  {
+    out->error = h.error;
+    addIssue(issues, LasIssue::Severity::Error, LasIssue::Category::WrapMode, 0, h.error);
+    return false;
+  }
+  if (!h.sawCurves)
+  {
+    out->error = QStringLiteral("no curve definitions (~C) found");
+    addIssue(issues, LasIssue::Severity::Error, LasIssue::Category::Format, 0, out->error);
+    return false;
+  }
+  out->ok = true;
+  return true;
+}
+
+QList<LasCurve> LasParser::parseAsciiRows(const QByteArray &raw, qint64 asciiOffset,
+                                          const QStringList &names, double nullValue,
+                                          qint64 rowFrom, qint64 rowTo, qint64 *rowsTotal,
+                                          QList<LasIssue> *issues)
+{
+  QList<LasCurve> cols;
+  cols.reserve(names.size());
+  for (const QString &n : names)
+    cols.append({n, QString(), QString(), {}});
+
+  const int nCurves = cols.size();
+  const qint64 n = raw.size();
+  qint64 i = qMax<qint64>(0, asciiOffset);
+  qint64 row = 0;
+  QVector<bool> sawFinite(nCurves, false);
+  qint64 truncatedRows = 0;
+  const bool wantAll = rowFrom <= 0 && rowTo <= 0;
+  const qint64 from = rowFrom < 0 ? 0 : rowFrom;
+  const qint64 to = rowTo < 0 ? std::numeric_limits<qint64>::max() : rowTo;
+
+  auto keep = [&](qint64 r) { return wantAll || (r >= from && r < to); };
+
+  while (i < n)
+  {
+    qint64 eol = i;
+    while (eol < n && raw.at(eol) != '\n' && raw.at(eol) != '\r')
+      ++eol;
+    if (eol > i)
+    {
+      int col = 0;
+      qint64 p = i;
+      while (p < eol && col < nCurves)
+      {
+        while (p < eol && (raw.at(p) == ' ' || raw.at(p) == '\t'))
+          ++p;
+        if (p >= eol)
+          break;
+        qint64 q = p;
+        while (q < eol && raw.at(q) != ' ' && raw.at(q) != '\t')
+          ++q;
+        bool ok = false;
+        const double v =
+            QByteArray::fromRawData(raw.constData() + p, static_cast<int>(q - p)).toDouble(&ok);
+        if (ok && v == v && v != nullValue)
+        {
+          sawFinite[col] = true;
+          if (keep(row))
+            cols[col].values.append(v);
+        }
+        else if (keep(row))
+        {
+          cols[col].values.append(nan());
+        }
+        ++col;
+        p = q;
+      }
+      if (col < nCurves)
+      {
+        ++truncatedRows;
+        if (keep(row))
+          for (; col < nCurves; ++col)
+            cols[col].values.append(nan());
+      }
+    }
+    ++row;
+    if (eol >= n)
+      break; // 尾行无行界符——处理完即结束
+    i = eol + 1;
+    if (raw.at(eol) == '\r' && i < n && raw.at(i) == '\n')
+      ++i;
+    if (!wantAll && row >= to)
+      break; // 区间查询：越过 to 即停（D1.4）
+  }
+  *rowsTotal = row;
+  if (truncatedRows > 0)
+    addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Truncated, 0,
+             QStringLiteral("%1 行 token 少于曲线数（缺失列记 NaN）").arg(truncatedRows));
+  // D1.9 空曲线统一策略：保留全 NaN 列（列数恒等于曲线数），发 Info。
+  if (wantAll)
+    for (int c = 0; c < nCurves; ++c)
+      if (!sawFinite[c])
+        addIssue(issues, LasIssue::Severity::Info, LasIssue::Category::MissingCurve, 0,
+                 QStringLiteral("曲线 %1 全列无有效值（空曲线保留为 NaN 列）").arg(names.at(c)));
+  return cols;
+}
+
+LasDoc LasParser::parseDoc(const QString &path, QList<LasIssue> *issues)
+{
+  LasDoc doc;
+  QFileInfo info(path);
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly))
+  {
+    doc.error = QStringLiteral("cannot open %1").arg(path);
+    addIssue(issues, LasIssue::Severity::Error, LasIssue::Category::Io, 0, doc.error);
+    return doc;
+  }
+  const qint64 size = f.size();
+  if (size > s_fileSizeLimit)
+  {
+    // D1.8 大文件防护：拒绝整读并点名流式入口。
+    doc.error = QStringLiteral("file %1 is %2 bytes — exceeds the %3 MB full-parse guard; "
+                               "use parseRange/parseDepthRange streaming instead")
+                    .arg(path)
+                    .arg(size)
+                    .arg(s_fileSizeLimit / (1024 * 1024));
+    addIssue(issues, LasIssue::Severity::Error, LasIssue::Category::Oversize, 0, doc.error);
+    return doc;
+  }
+  CacheBudgetManager::instance()->noteLargeAllocation(
+      QStringLiteral("LasParser::parseDoc(%1)").arg(info.fileName()), size);
+  const QByteArray raw = f.readAll();
+  HeaderScanResult header = scanHeaderBytes(raw, issues);
+  if (!header.error.isEmpty())
+  {
+    doc.error = QStringLiteral("%1: %2").arg(path, header.error);
+    addIssue(issues, LasIssue::Severity::Error, LasIssue::Category::WrapMode, 0, header.error);
+    return doc;
+  }
+  if (!header.sawCurves)
+  {
+    doc.error = QStringLiteral("no curve definitions (~C) found in %1").arg(path);
+    addIssue(issues, LasIssue::Severity::Error, LasIssue::Category::Format, 0, doc.error);
+    return doc;
+  }
+  if (header.asciiDataOffset < 0)
+  {
+    doc.error = QStringLiteral("no ASCII data section (~A) found in %1").arg(path);
+    addIssue(issues, LasIssue::Severity::Error, LasIssue::Category::Format, 0, doc.error);
+    return doc;
+  }
+  qint64 rowsTotal = 0;
+  const qint64 asciiOff = header.asciiDataOffset + bomAdjustment(raw);
+  doc.curves = parseAsciiRows(raw, asciiOff, header.header.curveNames,
+                              header.header.nullValue, 0, -1, &rowsTotal, issues);
+  for (int i = 0; i < doc.curves.size(); ++i)
+    doc.curves[i].unit =
+        i < header.curveNameUnits.size() ? header.curveNameUnits.at(i).second : QString();
+  doc.curveNames = header.header.curveNames;
+  doc.ok = true;
+  return doc;
+}
+
+namespace
+{
+  // parseRange/parseDepthRange 共用：头部扫描 + 公共拒因。
+  bool scanHeaderFromFile(QFile &f, HeaderScanResult *header, QString *error,
+                          QList<LasIssue> *issues, const QString &path)
+  {
+    // 头部按需读（不整读）：头段通常 < 64KB，最大扫 4MB 兜住病态长头。
+    const QByteArray head = f.read(4 * 1024 * 1024);
+    *header = scanHeaderBytes(head, issues);
+    if (!header->error.isEmpty())
+    {
+      if (error)
+        *error = QStringLiteral("%1: %2").arg(path, header->error);
+      return false;
+    }
+    if (!header->sawCurves)
+    {
+      if (error)
+        *error = QStringLiteral("no curve definitions (~C) found in %1").arg(path);
+      return false;
+    }
+    if (header->asciiDataOffset < 0)
+    {
+      if (error)
+        *error = QStringLiteral("no ASCII data section (~A) found in %1").arg(path);
+      return false;
+    }
+    return true;
+  }
+
+  void fillUnits(QList<LasCurve> *curves, const HeaderScanResult &header)
+  {
+    for (int i = 0; i < curves->size(); ++i)
+      (*curves)[i].unit =
+          i < header.curveNameUnits.size() ? header.curveNameUnits.at(i).second : QString();
+  }
+} // namespace
+
+bool LasParser::parseRange(const QString &path, qint64 rowFrom, qint64 rowTo,
+                           QStringList &curveNames, QList<LasCurve> &curves,
+                           QString *error, QList<LasIssue> *issues)
+{
+  curveNames.clear();
+  curves.clear();
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly))
+  {
+    if (error)
+      *error = QStringLiteral("cannot open %1").arg(path);
+    addIssue(issues, LasIssue::Severity::Error, LasIssue::Category::Io, 0,
+             QStringLiteral("cannot open %1").arg(path));
+    return false;
+  }
+  HeaderScanResult header;
+  if (!scanHeaderFromFile(f, &header, error, issues, path))
+    return false;
+  const QStringList &names = header.header.curveNames;
+  const qint64 asciiOff = header.asciiDataOffset + bomAdjustment(f.peek(3));
+
+  if (f.size() <= 8 * 1024 * 1024)
+  {
+    // 小文件：整读（一次盘 IO 比流式拼块省）。头部扫描后位置在 EOF——回卷。
+    f.seek(0);
+    const QByteArray raw = f.readAll();
+    qint64 rowsTotal = 0;
+    curves = parseAsciiRows(raw, asciiOff, names, header.header.nullValue,
+                            rowFrom, rowTo, &rowsTotal, issues);
+    fillUnits(&curves, header);
+    curveNames = names;
+    return true;
+  }
+
+  // 大文件流式：8MB 块推进；块尾半行留给下一块（D1.6 Truncated 口径不受污染）。
+  const qint64 fileSize = f.size();
+  qint64 pos = asciiOff;
+  qint64 row = 0;
+  const int nCurves = names.size();
+  QList<LasCurve> cols;
+  for (const QString &n : names)
+    cols.append({n, QString(), QString(), {}});
+  QVector<bool> sawFinite(nCurves, false);
+  const qint64 from = qMax<qint64>(0, rowFrom);
+  const qint64 to = rowTo < 0 ? std::numeric_limits<qint64>::max() : rowTo;
+  while (pos < fileSize)
+  {
+    f.seek(pos);
+    QByteArray chunk = f.read(8 * 1024 * 1024);
+    if (chunk.isEmpty())
+      break;
+    qint64 usable = chunk.size();
+    if (pos + usable < fileSize)
+    {
+      const qint64 lastSep = qMax<qint64>(chunk.lastIndexOf('\n'), chunk.lastIndexOf('\r'));
+      if (lastSep < 0)
+        usable = 0; // 单行超过 8MB——病态，放弃（如实返回已收行）
+      else
+        usable = lastSep + 1;
+    }
+    if (usable <= 0)
+      break;
+    const QByteArray complete = chunk.left(static_cast<int>(usable));
+    qint64 rowsInChunk = 0;
+    const QList<LasCurve> piece = parseAsciiRows(complete, 0, names, header.header.nullValue,
+                                                 0, -1, &rowsInChunk, nullptr);
+    for (int c = 0; c < nCurves; ++c)
+    {
+      const QVector<double> &vals = piece.at(c).values;
+      for (int r = 0; r < vals.size(); ++r)
+      {
+        const qint64 globalRow = row + r;
+        if (vals.at(r) == vals.at(r))
+          sawFinite[c] = true;
+        if (globalRow >= from && globalRow < to)
+          cols[c].values.append(vals.at(r));
+      }
+    }
+    row += rowsInChunk;
+    pos += usable;
+    if (row >= to)
+      break;
+  }
+  for (int c = 0; c < nCurves; ++c)
+    if (!sawFinite[c])
+      addIssue(issues, LasIssue::Severity::Info, LasIssue::Category::MissingCurve, 0,
+               QStringLiteral("曲线 %1 在请求区间内无有效值").arg(names.at(c)));
+  curves = cols;
+  fillUnits(&curves, header);
+  curveNames = names;
+  return true;
+}
+
+bool LasParser::parseDepthRange(const QString &path, double fromDepth, double toDepth,
+                                QStringList &curveNames, QList<LasCurve> &curves,
+                                QString *error, QList<LasIssue> *issues)
+{
+  curveNames.clear();
+  curves.clear();
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly))
+  {
+    if (error)
+      *error = QStringLiteral("cannot open %1").arg(path);
+    return false;
+  }
+  HeaderScanResult header;
+  if (!scanHeaderFromFile(f, &header, error, issues, path))
+    return false;
+  const QStringList &names = header.header.curveNames;
+  if (names.isEmpty())
+  {
+    if (error)
+      *error = QStringLiteral("no curves in %1").arg(path);
+    return false;
+  }
+  const int nCurves = names.size();
+  QList<LasCurve> cols;
+  for (const QString &n : names)
+    cols.append({n, QString(), QString(), {}});
+  const double nullValue = header.header.nullValue;
+  bool monotonicDepth = true;
+  double lastDepth = -std::numeric_limits<double>::infinity();
+
+  // 流式逐行：DEPT 落在 [from,to] 内的行收；DEPT 单调递增时越过 to 即停。
+  const qint64 fileSize = f.size();
+  qint64 pos = header.asciiDataOffset + bomAdjustment(f.peek(3));
+  constexpr qint64 kChunk = 4 * 1024 * 1024;
+  QByteArray carry;
+  bool stopped = false;
+  while (pos < fileSize && !stopped)
+  {
+    f.seek(pos);
+    QByteArray chunk = carry + f.read(kChunk);
+    if (chunk.isEmpty())
+      break;
+    const qint64 base = pos - carry.size();
+    qint64 usable = chunk.size();
+    if (base + chunk.size() < fileSize)
+    {
+      const qint64 lastSep = qMax<qint64>(chunk.lastIndexOf('\n'), chunk.lastIndexOf('\r'));
+      if (lastSep < 0)
+        usable = 0;
+      else
+        usable = lastSep + 1;
+    }
+    if (usable <= 0)
+      break;
+    qint64 i = 0;
+    while (i < usable)
+    {
+      qint64 eol = i;
+      while (eol < usable && chunk.at(eol) != '\n' && chunk.at(eol) != '\r')
+        ++eol;
+      if (eol > i)
+      {
+        double rowVals[64];
+        int col = 0;
+        qint64 p = i;
+        while (p < eol && col < 64)
+        {
+          while (p < eol && (chunk.at(p) == ' ' || chunk.at(p) == '\t'))
+            ++p;
+          if (p >= eol)
+            break;
+          qint64 q = p;
+          while (q < eol && chunk.at(q) != ' ' && chunk.at(q) != '\t')
+            ++q;
+          bool ok = false;
+          rowVals[col++] =
+              QByteArray::fromRawData(chunk.constData() + p, static_cast<int>(q - p)).toDouble(&ok);
+          if (!ok)
+            rowVals[col - 1] = nan();
+          p = q;
+        }
+        if (col > 0)
+        {
+          const double depth = rowVals[0];
+          if (depth < lastDepth)
+            monotonicDepth = false;
+          lastDepth = depth;
+          if (depth == depth && depth >= fromDepth && depth <= toDepth)
+            for (int c = 0; c < nCurves; ++c)
+            {
+              const double v = c < col ? rowVals[c] : nan();
+              cols[c].values.append(v == nullValue || v != v ? nan() : v);
+            }
+          else if (monotonicDepth && depth == depth && depth > toDepth)
+          {
+            stopped = true; // 越界即停——真·按需读段（D1.4）
+            break;
+          }
+        }
+      }
+      i = eol + 1;
+      if (eol < usable && chunk.at(eol) == '\r' && i < usable && chunk.at(i) == '\n')
+        ++i;
+    }
+    carry = chunk.mid(static_cast<int>(usable));
+    pos = base + usable;
+  }
+  fillUnits(&curves, header);
+  curves = cols;
+  fillUnits(&curves, header);
+  curveNames = names;
   return true;
 }

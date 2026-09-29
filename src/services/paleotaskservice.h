@@ -8,6 +8,7 @@
 #include <deque>
 #include <functional>
 
+class QThreadPool;
 class PaleoProjectStore;
 
 // services/ — PaleoTaskService: 异步任务注册中心 + 池化执行（autoplan pass-2
@@ -26,6 +27,10 @@ class PaleoTask : public QObject
   Q_OBJECT
 public:
   enum class State { Running, Succeeded, Failed, Cancelled };
+
+  // D4.6 优先级（QThreadPool 语义：高优先级先出队）。用户交互路径 High/
+  // Normal，预取与后台扫描 Low。
+  enum class Priority { Low = 0, Normal = 1, High = 2 };
 
   qint64 id() const { return m_id; }
   QString title() const { return m_title; }
@@ -47,6 +52,13 @@ public:
   // worker 侧上报：非 GUI 线程可直调，内部排队回主线程。
   void reportBytes(qint64 done, qint64 total);
   void reportDetail(const QString &detail);
+  // D4.3 阶段化进度：stage 用标准词表（scan/parse/index/decode/hash/build/
+  // publish）；percent 无意义时 -1（字节进度仍走 reportBytes）。ETA 面不替
+  // 换——阶段是给人看的分组，速率仍按字节估。
+  void reportStage(const QString &stage, int percent = -1);
+  QString stage() const { return m_stage; }
+  int stagePercent() const { return m_stagePercent; }
+  bool isFinished() const { return m_state != State::Running; }
 
 signals:
   void changed();
@@ -58,10 +70,13 @@ private:
             QObject *parent);
   Q_INVOKABLE void applyProgress(qint64 done, qint64 total);
   Q_INVOKABLE void applyDetail(const QString &detail);
+  Q_INVOKABLE void applyStage(const QString &stage, int percent);
   Q_INVOKABLE void applyFinish(const QString &error);
 
   qint64 m_id;
   QString m_title, m_layerId, m_error, m_detail;
+  QString m_stage;
+  int m_stagePercent = -1;
   State m_state = State::Running;
   std::atomic_bool m_cancel{false};
   qint64 m_bytesDone = 0, m_bytesTotal = -1;
@@ -84,8 +99,19 @@ public:
                    std::function<QString(PaleoTask *)> work,
                    const QString &layerId = QString());
 
+  // D4.6 带优先级启动（预取 Low / 用户点击 High）。同签名 3 参版默认 Normal。
+  PaleoTask *start(const QString &title,
+                   std::function<QString(PaleoTask *)> work,
+                   const QString &layerId, PaleoTask::Priority priority);
+
   QVector<PaleoTask *> tasks() const { return m_tasks; }
   void clearFinished(); // 移除非运行态行（运行中任务永不删）
+
+  // D4.5 线程池纪律：本服务任务跑专用池，工作线程上限 4（j4 资源纪律精神；
+  // 不再与 UI 侧共用 globalInstance 的无上限默认）。返回池配置面（测试/诊断）。
+  int maxWorkerThreads() const;
+  void setMaxWorkerThreads(int n); // 夹取 [1,8]；只影响之后的排队
+  int runningCount() const;
 
 signals:
   void taskAdded(PaleoTask *task);
@@ -98,4 +124,5 @@ private:
   PaleoProjectStore *m_store;
   qint64 m_nextId = 1;
   QVector<PaleoTask *> m_tasks;
+  QThreadPool *m_pool = nullptr; // D4.5 专用 ≤4 工作线程池
 };

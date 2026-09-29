@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers> // std::numbers::pi——std::numbers::pi 在 MSVC <cmath> 下不定义
 
 namespace WellComposite
 {
@@ -16,8 +17,8 @@ double tvdIncrement(double md1, double inc1Deg, double md2, double inc2Deg)
   if (dMd <= 0.0)
     return 0.0;
 
-  const double i1 = inc1Deg * M_PI / 180.0;
-  const double i2 = inc2Deg * M_PI / 180.0;
+  const double i1 = inc1Deg * std::numbers::pi / 180.0;
+  const double i2 = inc2Deg * std::numbers::pi / 180.0;
 
   double cosDog = std::cos(i2 - i1);
   cosDog = std::min(1.0, std::max(-1.0, cosDog));
@@ -43,7 +44,7 @@ void DepthTransform::setDeviationSurvey(const QVector<DeviationStation> &station
             [](const DeviationStation &a, const DeviationStation &b) { return a.md < b.md; });
 
   // 首站前视为垂直井段：TVD 基准取地表（与 MD 同基准，非相对首站）
-  double tvd = sorted.first().md * std::cos(sorted.first().inclinationDeg * M_PI / 180.0);
+  double tvd = sorted.first().md * std::cos(sorted.first().inclinationDeg * std::numbers::pi / 180.0);
   m_tvdStations.append({sorted.first().md, tvd});
   for (int i = 1; i < sorted.size(); ++i)
   {

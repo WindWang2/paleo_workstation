@@ -826,7 +826,7 @@ void DataListPanel::refreshAssetTable()
                 if (eid.isEmpty() || idx < 0)
                   return;
                 const QVector<EntityAssetLink> ls = cat->links();
-                const EntityAssetLink link = ls.at(idx);
+                const EntityAssetLink &link = ls.at(idx);
                 // 被降级的前主关联（撤销时恢复，D4）：同（实体,角色）当前主链。
                 UndoRecord rec;
                 rec.assetId = assetId;

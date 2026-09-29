@@ -560,11 +560,31 @@ void WellCompositeBody::wheelEvent(QWheelEvent *event)
 {
   if (!m_canvas) return;
 
-  const double mouseDepth = m_canvas->yToDepth(event->position().y());
-
-  // 支持滚轮缩放深度（以光标处深度为锚点）
-  const double factor = event->angleDelta().y() > 0 ? 1.2 : 0.8333;
-  m_canvas->setZoomFactor(m_canvas->zoomFactor() * factor, mouseDepth);
+  if (event->modifiers() & Qt::ControlModifier)
+  {
+    // Ctrl+滚轮：缩放深度（以光标处深度为锚点）
+    const double mouseDepth = m_canvas->yToDepth(event->position().y());
+    const double factor = event->angleDelta().y() > 0 ? 1.2 : 0.8333;
+    m_canvas->setZoomFactor(m_canvas->zoomFactor() * factor, mouseDepth);
+  }
+  else
+  {
+    // 裸滚轮：滚动深度（上滚=向浅部），横向分量平移井道
+    const QPoint delta = event->angleDelta();
+    const double notchPx = 40.0; // 每格滚轮约滚动 40px
+    if (delta.y() != 0)
+    {
+      const double scrollPx = delta.y() / 8.0 / 15.0 * notchPx;
+      m_canvas->setScrollDepth(m_canvas->scrollDepth() - scrollPx / m_canvas->pxPerMeter());
+    }
+    if (delta.x() != 0)
+    {
+      const double maxH = qMax(0.0, m_canvas->totalTracksWidth() - width());
+      m_canvas->m_hScrollOffset = qBound(0.0, m_canvas->m_hScrollOffset - delta.x() / 8.0 / 15.0 * notchPx, maxH);
+      m_canvas->syncScrollBars();
+      m_canvas->updateAll();
+    }
+  }
 
   event->accept();
 }

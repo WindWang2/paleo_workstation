@@ -13,7 +13,13 @@
 #include <QThread>
 
 #include <cerrno>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#else
 #include <csignal>
+#include <sys/types.h>
+#endif
 
 namespace
 {
@@ -77,7 +83,20 @@ bool processAlive(qint64 pid)
 {
   if (pid <= 0)
     return false;
+#ifdef Q_OS_WIN
+  // 句柄拿到且仍活跃 → 活；权限不足（ACCESS_DENIED）同样是「进程存在」。
+  // PID 复用窗口与 STILL_ACTIVE 魔数是 Win32 语义固有局限，清尾场景可接受。
+  HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+                         static_cast<DWORD>(pid));
+  if (!h)
+    return GetLastError() == ERROR_ACCESS_DENIED;
+  DWORD code = 0;
+  const BOOL ok = GetExitCodeProcess(h, &code);
+  CloseHandle(h);
+  return ok && code == STILL_ACTIVE;
+#else
   return ::kill(static_cast<pid_t>(pid), 0) == 0 || errno != ESRCH;
+#endif
 }
 
 QStringList sweepTempFiles(const QString &dir, qint64 keepNewerThanMs)

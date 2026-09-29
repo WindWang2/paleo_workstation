@@ -12,6 +12,10 @@
 #include <algorithm>
 #include <functional>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 // plan §3 数据模型：实体—关联—资产—版本，catalog.json 是唯一主存储。
 // 覆盖：JSON round-trip、井名规范化身份解析、双候选不合并（unresolved 语义）、
 // 版本不可变递增、revision 单调。
@@ -1352,9 +1356,18 @@ void TestCatalog::wellsGeoJsonKeepsOldFileOnFailedWrite()
   QVERIFY(!good.isEmpty());
 
   // 目录只读 → QSaveFile 开不出临时文件 → 失败且旧文件字节原样。
+  // Windows：目录只读属性不挡在目录内创建文件，改为对目标文件持零共享
+  // 句柄——QSaveFile 提交阶段的替换必败，同样保住旧文件字节。
+#ifdef Q_OS_WIN
+  HANDLE geoLock = CreateFileW(
+      reinterpret_cast<const wchar_t *>(geo.utf16()), GENERIC_READ, 0, nullptr,
+      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  QVERIFY(geoLock != INVALID_HANDLE_VALUE);
+#else
   QVERIFY(QFile::setPermissions(sub, QFileDevice::ReadOwner | QFileDevice::ExeOwner |
                                          QFileDevice::ReadGroup | QFileDevice::ExeGroup |
                                          QFileDevice::ReadOther | QFileDevice::ExeOther));
+#endif
   QString werr;
   QVERIFY(!cat.writeWellsGeoJson(geo, &werr));
   QVERIFY(!werr.isEmpty());
@@ -1363,11 +1376,15 @@ void TestCatalog::wellsGeoJsonKeepsOldFileOnFailedWrite()
     QVERIFY(f.open(QIODevice::ReadOnly));
     QCOMPARE(f.readAll(), good); // 关键断言：没有半截文件
   }
+#ifdef Q_OS_WIN
+  CloseHandle(geoLock);
+#else
   QVERIFY(QFile::setPermissions(sub, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
                                          QFileDevice::ExeOwner |
                                          QFileDevice::ReadGroup | QFileDevice::WriteGroup |
                                          QFileDevice::ExeGroup |
                                          QFileDevice::ReadOther | QFileDevice::ExeOther));
+#endif
 }
 
 // T4：锁降级只读——save/mutator 拒绝且内存回滚，读面照常。

@@ -865,8 +865,11 @@ QString DataCatalog::resolvedVersionPath(const QString &projectDir, const Catalo
     if (info.isSymbolicLink()) return QString();
     if (info.exists())
     {
+      // canonicalFilePath() 恒以 '/' 作分隔符（含 Windows）；QDir::separator()
+      // 在 Windows 是 '\'，拼进前缀会让 startsWith 永假——曾致全部受管导入
+      // 在 Windows 报 "unsafe managed path/destination"。
       const QString canonical = info.canonicalFilePath();
-      if (!canonical.startsWith(root + QDir::separator())) return QString();
+      if (!canonical.startsWith(root + QLatin1Char('/'))) return QString();
     }
   }
   return current;

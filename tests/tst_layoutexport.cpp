@@ -343,12 +343,18 @@ class TestLayoutExport : public QObject
       QVERIFY( !outcome.ok );
       QVERIFY( !outcome.error.isEmpty() );
 
-      // Unwritable destination.
+      // Unwritable destination: 父路径是普通文件——两平台都必败。
+      // （原 /nonexistent-dir-xyz 在 Windows 管理员权限下可建目录而变可写。）
       QgsProject project;
       QgsPrintLayout layout( &project );
       layout.initializeDefaults();
       addLabel( &layout, QStringLiteral( "ERR" ) );
-      outcome = exports.exportLayout( &layout, QStringLiteral( "/nonexistent-dir-xyz/out.png" ),
+      QTemporaryDir unwritableRoot;
+      QVERIFY2( unwritableRoot.isValid(), "temp dir for unwritable case" );
+      QFile parentAsFile( unwritableRoot.filePath( QStringLiteral( "parent" ) ) );
+      QVERIFY( parentAsFile.open( QIODevice::WriteOnly ) );
+      parentAsFile.close();
+      outcome = exports.exportLayout( &layout, parentAsFile.fileName() + QStringLiteral( "/out.png" ),
                                       PaleoLayoutExportActions::Format::Png, 300.0,
                                       PaleoLayoutExportActions::PageRange() );
       QVERIFY( !outcome.ok );

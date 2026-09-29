@@ -29,14 +29,19 @@ Ort::Env &ortEnv()
 
 QString libDirOf( const QString &root )
 {
-  // Canonical vendored layout is <root>/lib; the extracted release tarball
-  // keeps that shape, but be tolerant of a wrapped onnxruntime-linux-x64-*/
+  // Canonical vendored layout is <root>/lib; the extracted release archive
+  // keeps that shape, but be tolerant of a wrapped onnxruntime-<platform>-*/
   // directory one level down.
   const QString direct = root + QStringLiteral( "/lib" );
   if ( QDir( direct ).exists() )
     return direct;
+#ifdef Q_OS_WIN
+  QDirIterator it( root, { QStringLiteral( "onnxruntime*.dll" ) }, QDir::Files,
+                   QDirIterator::Subdirectories );
+#else
   QDirIterator it( root, { QStringLiteral( "libonnxruntime.so*" ) }, QDir::Files,
                    QDirIterator::Subdirectories );
+#endif
   return it.hasNext() ? QFileInfo( it.next() ).absolutePath() : QString();
 }
 } // namespace
@@ -253,7 +258,12 @@ bool PaleoOnnxService::runtimeAvailable()
   const QString libDir = libDirOf( root );
   if ( libDir.isEmpty() )
     return false;
+#ifdef Q_OS_WIN
+  // manifest.json onnxruntime_win.layout.bin：vendor/onnxruntime/lib/onnxruntime.dll
+  return QFile::exists( libDir + QStringLiteral( "/onnxruntime.dll" ) );
+#else
   // Accept the versioned soname or the unversioned dev symlink.
   return QFile::exists( libDir + QStringLiteral( "/libonnxruntime.so.1.30.0" ) ) ||
          QFile::exists( libDir + QStringLiteral( "/libonnxruntime.so" ) );
+#endif
 }

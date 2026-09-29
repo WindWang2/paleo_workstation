@@ -436,10 +436,16 @@ void TestCatalog::managedPathRejectsSymlinksAndTraversal()
 #endif
   QVERIFY(DataCatalog::resolvedVersionPath(project.path(), version).isEmpty());
   QVERIFY(QDir(project.path()).mkpath(QStringLiteral("artifacts")));
+#ifndef Q_OS_WIN
+  // Windows 的 QFile::link 生成 .lnk 快捷方式（非符号链接）——「raw」处
+  // 不会有链接，拒绝语义无从谈起；符号链接子例在 POSIX 轮覆盖。
   const QString link = project.filePath(QStringLiteral("artifacts/raw"));
   QVERIFY(QFile::link(outside.path(), link));
   version.path = QStringLiteral("artifacts/raw/file.dat");
   QVERIFY(DataCatalog::resolvedVersionPath(project.path(), version).isEmpty());
+#else
+  Q_UNUSED(outside);
+#endif
 }
 
 void TestCatalog::managedCatalogLoadRejectsEscape()

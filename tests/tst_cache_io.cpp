@@ -115,8 +115,11 @@ void CacheIoTests::canonicalizeRelativeAndSymlink()
   QFile::remove(link);
   QVERIFY(QFile::link(real, link));
 
-  // 符号链接 → 真身。
+#ifndef Q_OS_WIN
+  // 符号链接 → 真身。（Windows 的 QFile::link 生成 .lnk 快捷方式而非
+  // 符号链接——canonicalize 返回链接自身是正确行为，子例仅 POSIX 覆盖。）
   QCOMPARE(PathCanon::canonicalize(link), PathCanon::canonicalize(real));
+#endif
   // 相对路径以 base 绝对化。
   const QString abs = PathCanon::canonicalize(QStringLiteral("sub/../real.dat"), m_dir.path());
   QCOMPARE(abs, PathCanon::canonicalize(real));

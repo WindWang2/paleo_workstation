@@ -11,6 +11,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QTemporaryDir>
+#include <QSettings>
 
 #include <cmath>
 #include <cstring>
@@ -75,10 +76,21 @@ class TestSeismicSectionUi : public QObject
 {
   Q_OBJECT
 
+private:
+  QTemporaryDir m_settingsDir; // initTestCase 前构造：settings 沙箱路径
+
 private slots:
   void initTestCase()
   {
     qputenv("PALEO_UI_CAPTURE", "0");
+    // 书签/相机态走 QSettings() 默认构造：测试进程没设组织名，Windows
+    // NativeFormat（注册表）在空组织名下的行为不可靠且污染宿主注册表——
+    // 钉死为沙箱内 IniFormat，两平台同一路径语义。
+    QCoreApplication::setOrganizationName(QStringLiteral("paleo-tests"));
+    QCoreApplication::setApplicationName(QStringLiteral("tst_seismic_sectionui"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                       m_settingsDir.path());
   }
 
   // ---- D2.2 显示三模：密度 / wiggle / 混合渲染互异 ----
@@ -346,6 +358,13 @@ private slots:
 
     // 第二个实例从 QSettings 恢复（同体身份）
     {
+      // 诊断：实存书签键（若仍失败，CI 日志直接给出注册/INI 内容）
+      QSettings probe;
+      const QStringList keys = probe.allKeys();
+      for (const QString &k : keys)
+        if (k.contains(QStringLiteral("sectionBookmarks")))
+          qWarning("bookmark probe: %s", qPrintable(QStringLiteral("%1 = %2")
+                         .arg(k, probe.value(k).toString().left(60))));
       SgyVolume volume2;
       QVERIFY(volume2.Load(sgy.toStdString(), err));
       SeismicSectionDockWidget dock2;

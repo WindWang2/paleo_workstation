@@ -308,16 +308,16 @@ void SeismicSectionDockWidget::setupUi() {
     mainLay->addWidget(toolbar);
 
     // ==========================================
-    // 1b. Display Bar（D2.2–D2.10 显示控制行）
-    // ==========================================
-    setupDisplayBar(container);
-
-    // ==========================================
-    // 2. Center Canvas
+    // 2. Center Canvas（先建——Display Bar 的控件以 m_canvas 为接收者）
     // ==========================================
     m_canvas = new SeismicSectionCanvas(container);
     m_canvas->setObjectName(QStringLiteral("seismicSectionCanvas"));
     mainLay->addWidget(m_canvas, 1);
+
+    // ==========================================
+    // 1b. Display Bar（D2.2–D2.10 显示控制行）
+    // ==========================================
+    setupDisplayBar(container);
 
     // D4 解释面板（画布下方，默认折叠）
     setupInterpretationUi(container);
@@ -772,11 +772,11 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     m_btnBookmarkDel->setStyleSheet(btnStyle);
     lay->addWidget(m_btnBookmarkDel);
 
-    // 为主工具栏补 D2.13 复制/打印
-    // （按钮在 setupUi 的工具栏创建——此处仅接信号；按钮在下方追加）
-
+    // 显示控制行固定排在工具栏（index 0）之后、画布之前——setupDisplayBar
+    // 在画布创建之后才调用（m_canvas 作接收者的连接需要它先在），但视觉
+    // 位置不变。
     if (auto *mainLay = qobject_cast<QVBoxLayout *>(parent->layout())) {
-        mainLay->addWidget(bar);
+        mainLay->insertWidget(1, bar);
     }
 
     // ---- 信号接线 ----

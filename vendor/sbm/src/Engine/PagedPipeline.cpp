@@ -251,6 +251,27 @@ PagedBuildResult TranscodeSegyToPagedWorkspace(
     state.chunksTotal = info.ChunkCount();
     state.chunksDone = initiallyComplete;
     state.chunksSkipped = initiallyComplete;
+
+    // P9 (paleo): damaged source traces are skipped and NaN-filled instead of
+    // failing the whole pyramid; the first 32 are recorded for the report.
+    std::uint64_t missingTraces = 0;
+    std::uint64_t damagedTraces = 0;
+    std::vector<std::pair<int, int>> damagedSample;
+    float valueMin = std::numeric_limits<float>::infinity();
+    float valueMax = -std::numeric_limits<float>::infinity();
+    const auto noteTrace = [&valueMin, &valueMax](const std::vector<float>& trace) {
+        for(const float v : trace) {
+            if(std::isnan(v)) {
+                continue;
+            }
+            if(v < valueMin) {
+                valueMin = v;
+            }
+            if(v > valueMax) {
+                valueMax = v;
+            }
+        }
+    };
     if(!Report(progress, state, cancel)) {
         result = ErrorResult(targetPath, StatusCode::Cancelled, "paged workspace build cancelled", start);
         result.info = info;
@@ -288,17 +309,21 @@ PagedBuildResult TranscodeSegyToPagedWorkspace(
                         result.tracesRead = state.tracesRead;
                         return result;
                     }
-                    const int traceIndex = index->FindTraceIndex(inlineNo, info.xlineAxis.ValueAt(globalX));
+                    const int xlineNo = info.xlineAxis.ValueAt(globalX);
+                    const int traceIndex = index->FindTraceIndex(inlineNo, xlineNo);
                     if(traceIndex < 0) {
+                        ++missingTraces;
                         continue;
                     }
                     if(!readSession.ReadTrace(traceIndex, trace, error)) {
-                        result = ErrorResult(targetPath, StatusCode::IoError, error, start);
-                        result.info = info;
-                        result.tracesRead = state.tracesRead;
-                        return result;
+                        ++damagedTraces;
+                        if(damagedSample.size() < 32) {
+                            damagedSample.emplace_back(inlineNo, xlineNo);
+                        }
+                        continue; // damaged trace stays NaN
                     }
                     ++state.tracesRead;
+                    noteTrace(trace);
                     for(std::uint32_t sample = 0; sample < info.samples; ++sample) {
                         const std::uint32_t ct = sample / info.chunkSamples;
                         if(writer.Complete(ci, cx, ct)) {
@@ -336,9 +361,21 @@ PagedBuildResult TranscodeSegyToPagedWorkspace(
     }
     state.phase = "finalizing";
     Report(progress, state, cancel);
+    const auto applyQuality = [&](PagedBuildResult& r) {
+        r.missingTraceCount = missingTraces;
+        r.damagedTraceCount = damagedTraces;
+        r.damagedTraceSample = damagedSample;
+        if(valueMin != std::numeric_limits<float>::infinity()) {
+            r.valueMin = valueMin;
+        }
+        if(valueMax != -std::numeric_limits<float>::infinity()) {
+            r.valueMax = valueMax;
+        }
+    };
     if(IsCancelled(cancel)) {
         result = ErrorResult(targetPath, StatusCode::Cancelled, "paged workspace build cancelled", start);
         result.info = info;
+        applyQuality(result);
         return result;
     }
     const std::uint64_t bytesWritten = writer.BytesWritten();
@@ -354,6 +391,7 @@ PagedBuildResult TranscodeSegyToPagedWorkspace(
     result.tracesRead = state.tracesRead;
     result.bytesWritten = bytesWritten;
     result.elapsedSeconds = SecondsSince(start);
+    applyQuality(result);
     return result;
 }
 

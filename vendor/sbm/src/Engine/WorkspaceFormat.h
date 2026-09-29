@@ -70,6 +70,29 @@ std::filesystem::path WorkspaceMetaPath(const std::filesystem::path& basePath);
 std::filesystem::path WorkspaceShardPath(const std::filesystem::path& basePath, std::uint32_t shardIndex);
 std::uint64_t WorkspaceChecksum(const void* data, std::size_t bytes);
 
+// P7 (paleo): header-only meta probe for resume UX / backend readiness checks.
+// Reads magic..completion without touching the chunk table or shards, so it is
+// safe to call cheaply on every Auto open.
+struct WorkspaceMetaSummary {
+    bool exists = false;
+    bool readable = false;          // header parsed (version supported)
+    std::uint32_t formatVersion = 0;
+    std::uint32_t algorithmVersion = 0;
+    std::uint32_t samples = 0;
+    std::uint32_t inlines = 0;
+    std::uint32_t xlines = 0;
+    std::uint32_t codec = 0;
+    std::uint64_t chunkCount = 0;
+    std::uint64_t chunksCompleted = 0; // popcount of the completion bitmap
+    bool complete = false;
+    std::uint64_t sourceIdentityHash = 0;
+    std::string error;               // reason when exists && !readable
+};
+bool ProbeWorkspaceMeta(
+    const std::filesystem::path& basePath,
+    WorkspaceMetaSummary& out,
+    std::string& errorMessage);
+
 // Streaming writer: generate or transcode chunk by chunk, then finalize.
 // WriteChunk writes only chunks inside the volume box; padded edge chunks are
 // stored with NaN outside the volume so every chunk has a fixed byte size.
@@ -89,6 +112,12 @@ public:
     bool WriteChunk(
         std::uint32_t cs, std::uint32_t ci, std::uint32_t cx,
         const float* values, std::size_t valueCount, std::string& errorMessage);
+
+    // P6 (paleo): writes an already-encoded payload (compression happened on a
+    // pool thread). WriteChunk == encode + this. Single writer thread only.
+    bool WriteChunkPrepared(
+        std::uint32_t cs, std::uint32_t ci, std::uint32_t cx,
+        const void* payload, std::size_t payloadBytes, std::string& errorMessage);
 
     bool HasChunk(std::uint32_t cs, std::uint32_t ci, std::uint32_t cx) const;
     const WorkspaceInfo& Info() const { return info_; }
@@ -158,6 +187,10 @@ public:
     // Resume support: the writer reuses the published chunk table.
     const std::vector<unsigned char>& Completion() const { return completion_; }
     const std::vector<WorkspaceChunkEntry>& Entries() const { return entries_; }
+
+    // P7 (paleo): all chunks of the completion bitmap are present. An
+    // interrupted-but-resumable workspace is NOT complete.
+    bool IsComplete() const;
 
 private:
 

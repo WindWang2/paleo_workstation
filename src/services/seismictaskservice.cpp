@@ -2,12 +2,25 @@
 #include "services/seismictaskservice.h"
 
 #include <QCoreApplication>
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMetaObject>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QPointer>
+#include <QSet>
 #include <QTimer>
+
+#include <cmath>
+
+#if defined(Q_OS_UNIX)
+#include <unistd.h>
+#elif defined(Q_OS_WINDOWS)
+#include <windows.h>
+#endif
 
 #include "Engine/PagedPipeline.h"
 #include "Engine/PagedWorkspace.h"
@@ -17,6 +30,11 @@
 #include "Engine/Types.h"
 #include "Engine/WorkspaceFormat.h"
 
+#include <QCryptographicHash>
+#include <QUuid>
+#include <QDir>
+
+#include "catalog/datacatalog.h"
 #include "domain/seismic/sgyindexbuilder.h"
 #include "domain/seismic/sgyindexcache.h"
 #include "domain/seismic/sgyio.h"
@@ -64,6 +82,196 @@ SeismicBackendStatus statusFromDataset(const sdk::Dataset &dataset)
   return status;
 }
 
+// ---- D1.1 分阶段聚合进度 ----------------------------------------------------
+// 把引擎的分阶段 done/total 聚合成单调全局百分比喂给 PaleoTask：
+// reportBytes 的字节速率 ETA 与进度条都直接受益（不再阶段归零）。
+class TranscodePhaseTracker
+{
+public:
+  void addPhase(const QString &name, double weight)
+  {
+    m_weights[name] = weight;
+    m_fracs[name] = 0.0;
+  }
+
+  void setFrac(const QString &name, double frac)
+  {
+    auto it = m_fracs.find(name);
+    if (it != m_fracs.end())
+      it.value() = std::clamp(frac, 0.0, 1.0);
+  }
+
+  // 某阶段整体完成（例如扫描结束进入写片）。
+  void finishPhase(const QString &name) { setFrac(name, 1.0); }
+
+  double overallFrac() const
+  {
+    double total = 0.0, weightSum = 0.0;
+    for (auto it = m_weights.constBegin(); it != m_weights.constEnd(); ++it)
+    {
+      weightSum += it.value();
+      total += it.value() * m_fracs.value(it.key(), 0.0);
+    }
+    return weightSum > 0.0 ? total / weightSum : 0.0;
+  }
+
+private:
+  QMap<QString, double> m_weights;
+  QMap<QString, double> m_fracs;
+};
+
+// 二进制头轻量估计体字节（3600B 头读一次；不建索引、不扫道头）。
+// 估计失真只影响 LOD 层数规划（D1.9），不影响转码正确性。
+qint64 estimateVolumeBytesFromSgy(const QString &sgyPath)
+{
+  QFile file(sgyPath);
+  if (!file.open(QIODevice::ReadOnly))
+    return 0;
+  QByteArray header = file.read(3600);
+  if (header.size() < 3600)
+    return 0;
+  const auto be16 = [&](int offset) -> int {
+    return (quint8(header[offset]) << 8) | quint8(header[offset + 1]);
+  };
+  const int samples = be16(3220);
+  const int format = be16(3224);
+  int bytesPerSample = 4; // 1=IBM 5=IEEE
+  if (format == 2 || format == 3)
+    bytesPerSample = 2;   // int16 / int32(上头是 4 字节？SEG-Y 3=INT32 —— 按字宽表处理)
+  else if (format == 8)
+    bytesPerSample = 1;   // int8
+  if (samples <= 0 || bytesPerSample <= 0)
+    return 0;
+  const qint64 bytesPerTrace = 240 + qint64(samples) * bytesPerSample;
+  const qint64 traceCount = (file.size() - 3600) / bytesPerTrace;
+  return traceCount * qint64(samples) * 4;
+}
+
+// D1.9 自适应金字塔层数：按体字节规划（L1=4x4x1, L2=8x8x1, L3=16x16x1）。
+QStringList planPagedLodLevels(qint64 volumeBytes, bool userWantsLod)
+{
+  if (!userWantsLod)
+    return {};
+  if (volumeBytes <= 0)
+    return {QStringLiteral("L1"), QStringLiteral("L2")}; // 未知体量走保守生产档
+  constexpr qint64 kMiB = 1024ll * 1024ll;
+  if (volumeBytes < 64 * kMiB)
+    return {};                        // 小体量：LOD 收益不抵构建成本
+  if (volumeBytes < 2ll * 1024 * kMiB)
+    return {QStringLiteral("L1")};
+  if (volumeBytes < 16ll * 1024 * kMiB)
+    return {QStringLiteral("L1"), QStringLiteral("L2")};
+  return {QStringLiteral("L1"), QStringLiteral("L2"), QStringLiteral("L3")};
+}
+
+// D1.10 结构化转码日志：PALEO-SEISMIC-TRANSCODE 前缀 + 单行紧凑 JSON。
+void logTranscodeEvent(const QJsonObject &event)
+{
+  qInfo().noquote() << QStringLiteral("PALEO-SEISMIC-TRANSCODE ")
+                    << QString::fromUtf8(QJsonDocument(event).toJson(QJsonDocument::Compact));
+}
+
+QStringList damagedListFromEngine(const std::vector<std::pair<int, int>> &samples)
+{
+  QStringList out;
+  out.reserve(int(samples.size()));
+  for (const auto &p : samples)
+    out << QStringLiteral("%1/%2").arg(p.first).arg(p.second);
+  return out;
+}
+
+void fillReportFromSf3c(SeismicTranscodeReport &report,
+                        const engine::TranscodeResult &result)
+{
+  report.kind = QStringLiteral("sf3c");
+  report.chunksWritten = qint64(result.chunksWritten);
+  report.chunksSkipped = qint64(result.chunksSkipped);
+  report.chunksTotal = qint64(result.info.ChunkCount());
+  report.tracesRead = qint64(result.tracesRead);
+  report.tracesTotal = qint64(result.info.inlines) * result.info.xlines;
+  report.missingTraces = qint64(result.missingTraceCount);
+  report.damagedTraces = qint64(result.damagedTraceCount);
+  report.damagedSample = damagedListFromEngine(result.damagedTraceSample);
+  if (!std::isnan(result.valueMin) && !std::isnan(result.valueMax))
+  {
+    report.valueMin = result.valueMin;
+    report.valueMax = result.valueMax;
+    report.validValues = true;
+  }
+  report.bytesWritten = qint64(result.bytesWritten);
+  report.elapsedSeconds = result.elapsedSeconds;
+  report.resumed = result.chunksSkipped > 0;
+  report.ok = result.status.ok();
+  report.cancelled = result.status.code == engine::StatusCode::Cancelled;
+}
+
+void fillReportFromPaged(SeismicTranscodeReport &report,
+                         const engine::PagedPyramidResult &pyramid,
+                         const QStringList &levels,
+                         const engine::PagedBuildResult *l3)
+{
+  report.kind = QStringLiteral("sf3p");
+  const engine::PagedBuildResult &l0 = pyramid.l0;
+  report.chunksWritten = qint64(l0.chunksWritten);
+  report.chunksSkipped = qint64(l0.chunksSkipped);
+  report.chunksTotal = qint64(l0.info.ChunkCount());
+  report.tracesRead = qint64(l0.tracesRead);
+  report.tracesTotal = qint64(l0.info.inlineAxis.count) * l0.info.xlineAxis.count;
+  report.missingTraces = qint64(l0.missingTraceCount);
+  report.damagedTraces = qint64(l0.damagedTraceCount);
+  report.damagedSample = damagedListFromEngine(l0.damagedTraceSample);
+  if (!std::isnan(l0.valueMin) && !std::isnan(l0.valueMax))
+  {
+    report.valueMin = l0.valueMin;
+    report.valueMax = l0.valueMax;
+    report.validValues = true;
+  }
+  report.bytesWritten = qint64(l0.bytesWritten);
+  report.elapsedSeconds = l0.elapsedSeconds;
+  report.resumed = l0.chunksSkipped > 0 || l0.reused;
+  report.lodLevels = levels;
+  report.ok = pyramid.status.ok() && (!l3 || l3->status.ok() || l3->reused);
+  report.cancelled = l0.status.code == engine::StatusCode::Cancelled ||
+                     (l3 && l3->status.code == engine::StatusCode::Cancelled);
+  if (l3)
+  {
+    report.bytesWritten += qint64(l3->bytesWritten);
+    report.elapsedSeconds += l3->elapsedSeconds;
+  }
+}
+
+// D1.4/D1.10：报告 → JSON 对象（终态日志与 toJsonLine 共用字段集）。
+QJsonObject reportToJson(const SeismicTranscodeReport &r)
+{
+  QJsonObject o;
+  o.insert("kind", r.kind);
+  o.insert("output", r.output);
+  o.insert("ok", r.ok);
+  o.insert("cancelled", r.cancelled);
+  o.insert("resumed", r.resumed);
+  o.insert("chunksWritten", double(r.chunksWritten));
+  o.insert("chunksSkipped", double(r.chunksSkipped));
+  o.insert("chunksTotal", double(r.chunksTotal));
+  o.insert("tracesRead", double(r.tracesRead));
+  o.insert("tracesTotal", double(r.tracesTotal));
+  o.insert("missingTraces", double(r.missingTraces));
+  o.insert("damagedTraces", double(r.damagedTraces));
+  o.insert("coverage", r.coverage());
+  o.insert("droppedRatio", r.droppedRatio());
+  if (r.validValues)
+  {
+    o.insert("valueMin", r.valueMin);
+    o.insert("valueMax", r.valueMax);
+  }
+  o.insert("bytesWritten", double(r.bytesWritten));
+  o.insert("elapsedSeconds", r.elapsedSeconds);
+  if (!r.lodLevels.isEmpty())
+    o.insert("lodLevels", QJsonArray::fromStringList(r.lodLevels));
+  if (!r.damagedSample.isEmpty())
+    o.insert("damagedSample", QJsonArray::fromStringList(r.damagedSample));
+  return o;
+}
+
 } // namespace
 
 // 条目注册表：以 shared_ptr 持有（服务与各 worker 各持引用）。worker 在
@@ -77,6 +285,11 @@ struct SeismicDatasetRegistry
 };
 
 SeismicTaskService::~SeismicTaskService() = default;
+
+int SeismicTaskService::activeTaskCount() const
+{
+  return gate_ ? gate_->active.load() : 0;
+}
 
 // 按需打开并缓存条目。registry 以值参 shared_ptr 传入：worker 与服务共用，
 // 生命周期自动延伸过任何在途 worker。
@@ -144,7 +357,8 @@ SeismicTaskService::SeismicTaskService(PaleoTaskService *taskService,
   : QObject(parent),
     taskService_(taskService),
     dataCache_(dataCacheBudgetMb * 1024ull * 1024ull),
-    registry_(std::make_shared<SeismicDatasetRegistry>())
+    registry_(std::make_shared<SeismicDatasetRegistry>()),
+    gate_(std::make_shared<SeismicConcurrencyGate>(kMaxConcurrentTasks))
 {
 }
 
@@ -213,7 +427,7 @@ PaleoTask *SeismicTaskService::startIndexing(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work, layerId);
+  PaleoTask *task = startBounded(title, work, layerId); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [this, task, sgyPath, resultIndex, onFinished]() {
     const bool success = (task->state() == PaleoTask::State::Succeeded);
     if (onFinished)
@@ -346,7 +560,7 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [this, task, key, pagedPath, outImage, onFinished]() {
     if (task->state() == PaleoTask::State::Succeeded)
     {
@@ -391,6 +605,27 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
   }
 
   const QString title = tr("提取任意测线/过井剖面 (%1 节点)").arg(pathPoints.size());
+
+  // D5.2 任意线缓存：同体同路径重复提取即出（缓存查询+命中回调走事件循环）
+  if (std::shared_ptr<const SgySliceImage> hit = cachedSection(pathPoints, volume))
+  {
+    SgySectionStats stats;
+    stats.columnDistances.reserve(hit->width);
+    for (int c = 0; c < hit->width; ++c)
+      stats.columnDistances.push_back(float(c) * 25.0f); // 近似道距（缓存路径无 stats）
+    if (onFinished)
+    {
+      auto *timer = new QTimer(this);
+      timer->setSingleShot(true);
+      connect(timer, &QTimer::timeout, this, [timer, hit, stats, onFinished]() {
+        delete timer;
+        onFinished(true, hit, stats, QString());
+      });
+      timer->start(0);
+    }
+    return nullptr;
+  }
+
   auto outImage = std::make_shared<SgySliceImage>();
   auto outStats = std::make_shared<SgySectionStats>();
 
@@ -460,10 +695,12 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
-  connect(task, &PaleoTask::finished, this, [task, outImage, outStats, onFinished]() {
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
+  connect(task, &PaleoTask::finished, this,
+          [this, task, outImage, outStats, onFinished, volume, pathPoints]() {
     if (task->state() == PaleoTask::State::Succeeded)
     {
+      cacheSection(pathPoints, volume, outImage); // D5.2 成功入 LRU
       if (onFinished)
         onFinished(true, outImage, *outStats, QString());
     }
@@ -487,6 +724,15 @@ PaleoTask *SeismicTaskService::startWorkspaceTranscode(
     const QString &workspaceBase,
     std::function<void(bool, const QString &, const QString &)> onFinished)
 {
+  return startWorkspaceTranscodeDetailed(sgyPath, workspaceBase, onFinished, {});
+}
+
+PaleoTask *SeismicTaskService::startWorkspaceTranscodeDetailed(
+    const QString &sgyPath,
+    const QString &workspaceBase,
+    std::function<void(bool, const QString &, const QString &)> onFinished,
+    std::function<void(const SeismicTranscodeReport &)> onReport)
+{
   if (!taskService_)
   {
     if (onFinished)
@@ -498,51 +744,140 @@ PaleoTask *SeismicTaskService::startWorkspaceTranscode(
   const QString base = workspaceBase.isEmpty() ? sgyPath : workspaceBase;
   const QString title = tr("转码地震工作区: %1").arg(QFileInfo(sgyPath).fileName());
   auto outBase = std::make_shared<QString>(base);
+  auto outResult = std::make_shared<engine::TranscodeResult>();
+  auto engineRan = std::make_shared<bool>(false);
 
-  auto work = [sgyPath, base](PaleoTask *task) -> QString {
+  // D1.7 同输出互斥：在途转码未终态前拒绝第二次写同一目标
+  if (activeTranscodeOutputs_.contains(base))
+  {
+    const QString error = tr("该工作区已有转码任务进行中（%1）").arg(base);
+    logTranscodeEvent({{"event", "rejected"},
+                       {"kind", "sf3c"},
+                       {"output", base},
+                       {"reason", "concurrent-transcode"}});
+    if (onFinished)
+      onFinished(false, base, error);
+    return nullptr;
+  }
+  activeTranscodeOutputs_.insert(base);
+
+  auto work = [sgyPath, base, outResult, engineRan](PaleoTask *task) -> QString {
     engine::CancelToken cancel;
     cancel.SetPredicate([task]() { return task->cancelRequested(); });
-    auto progress = [task](const engine::TranscodeProgress &p) -> bool {
+
+    // D1.1：扫描/写片/收尾加权聚合（扫描含索引/续跑探测，实测 ~3% 耗时）
+    TranscodePhaseTracker tracker;
+    tracker.addPhase(QStringLiteral("scanning"), 0.04);
+    tracker.addPhase(QStringLiteral("transcoding"), 0.92);
+    tracker.addPhase(QStringLiteral("finalizing"), 0.04);
+
+    auto progress = [task, &tracker](const engine::TranscodeProgress &p) -> bool {
       if (task->cancelRequested())
         return false;
-      task->reportBytes(p.chunksDone + p.chunksSkipped, p.chunksTotal);
-      task->reportDetail(QCoreApplication::translate(
-          "seismic::SeismicTaskService", "阶段 %1 · 块 %2/%3 · 已写 %4 MB")
-              .arg(QString::fromStdString(p.phase))
-              .arg(p.chunksDone)
-              .arg(p.chunksTotal)
-              .arg(p.bytesWritten / (1024 * 1024)));
+      const QString phase = QString::fromStdString(p.phase);
+      if (phase == QLatin1String("scanning"))
+      {
+        tracker.setFrac(QStringLiteral("scanning"), 0.5);
+      }
+      else if (phase == QLatin1String("transcoding"))
+      {
+        tracker.finishPhase(QStringLiteral("scanning"));
+        const double frac = p.chunksTotal > 0
+            ? double(p.chunksDone + p.chunksSkipped) / double(p.chunksTotal)
+            : 0.0;
+        tracker.setFrac(QStringLiteral("transcoding"), frac);
+      }
+      else if (phase == QLatin1String("finalizing"))
+      {
+        tracker.finishPhase(QStringLiteral("transcoding"));
+        tracker.setFrac(QStringLiteral("finalizing"), 0.5);
+      }
+      constexpr qint64 kUnits = 100000;
+      task->reportBytes(qint64(tracker.overallFrac() * kUnits), kUnits);
+      task->reportDetail(tr("阶段 %1 · 块 %2/%3 · 跳过 %4 · 总体 %5%")
+                             .arg(phase)
+                             .arg(p.chunksDone + p.chunksSkipped)
+                             .arg(p.chunksTotal)
+                             .arg(p.chunksSkipped)
+                             .arg(int(tracker.overallFrac() * 100)));
       return true;
     };
 
     engine::TranscodeOptions options;
+    options.writerThreads = 4; // D1.3：并行分片编码池（≤4；raw 编解码自动退单线程）
 #ifdef SEISMIC_HAVE_ZSTD
     options.codec = engine::kCodecZstd;
 #endif
-    const engine::TranscodeResult result = engine::TranscodeSegyToWorkspace(
+    *outResult = engine::TranscodeSegyToWorkspace(
         std::filesystem::path(sgyPath.toStdString()),
         std::filesystem::path(base.toStdString()),
         options, &cancel, progress);
+    *engineRan = true;
 
-    if (!result.status.ok())
+    if (!outResult->status.ok())
     {
-      if (result.status.code == engine::StatusCode::Cancelled || task->cancelRequested())
+      if (outResult->status.code == engine::StatusCode::Cancelled || task->cancelRequested())
         return QString();
-      return QString::fromStdString(result.status.message);
+      return QString::fromStdString(outResult->status.message);
     }
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
-  connect(task, &PaleoTask::finished, this, [task, outBase, onFinished]() {
-    if (!onFinished)
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
+  if (!task)
+  {
+    activeTranscodeOutputs_.remove(base);
+    if (onFinished)
+      onFinished(false, base, tr("任务提交失败"));
+    return nullptr;
+  }
+  logTranscodeEvent({{"event", "start"},
+                     {"kind", "sf3c"},
+                     {"source", sgyPath},
+                     {"output", base},
+                     {"writerThreads", 4}});
+
+  connect(task, &PaleoTask::finished, this, [this, task, outBase, outResult, engineRan, onFinished, onReport]() {
+    activeTranscodeOutputs_.remove(*outBase);
+    if (!onFinished && !onReport)
       return;
-    if (task->state() == PaleoTask::State::Succeeded)
-      onFinished(true, *outBase, QString());
-    else if (task->state() == PaleoTask::State::Cancelled)
-      onFinished(false, *outBase, tr("转码已取消（工作区可续跑）"));
-    else
+
+    const bool succeeded = task->state() == PaleoTask::State::Succeeded;
+    const bool cancelled = task->state() == PaleoTask::State::Cancelled;
+
+    SeismicTranscodeReport report;
+    report.output = *outBase;
+    report.ok = succeeded;
+    report.cancelled = cancelled;
+    if (*engineRan)
+      fillReportFromSf3c(report, *outResult); // 成功/取消/引擎失败都带质量证据
+    report.ok = succeeded;                    // 终态由任务状态定夺
+    report.cancelled = cancelled;
+
+    if (succeeded)
+    {
+      invalidateDataset(*outBase); // 热切换：下次读取按磁盘现状重开
+      if (onFinished)
+        onFinished(true, *outBase, QString());
+    }
+    else if (cancelled)
+    {
+      if (onFinished)
+        onFinished(false, *outBase, tr("转码已取消（工作区可续跑）"));
+    }
+    else if (onFinished)
+    {
       onFinished(false, *outBase, task->errorText());
+    }
+
+    // D1.10 结构化终态日志（成功/取消/失败都记）
+    QJsonObject event = reportToJson(report);
+    event.insert("event", succeeded ? "finished" : (cancelled ? "cancelled" : "failed"));
+    if (!succeeded && !cancelled)
+      event.insert("error", task->errorText());
+    logTranscodeEvent(event);
+    if (onReport)
+      onReport(report);
   });
   return task;
 }
@@ -601,7 +936,7 @@ PaleoTask *SeismicTaskService::startQuickOpen(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, result, onFinished]() {
     if (!onFinished)
       return;
@@ -651,7 +986,7 @@ PaleoTask *SeismicTaskService::startVolumeLoad(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, outVolume, onFinished]() {
     if (!onFinished)
       return;
@@ -671,6 +1006,28 @@ PaleoTask *SeismicTaskService::startPagedTranscode(
     bool buildLod,
     std::function<void(bool, const QString &, const QString &)> onFinished)
 {
+  // 旧 API 语义保持不变：buildLod=true 恒建 L1+L2（自适应只属于 Detailed）
+  return startPagedTranscodeImpl(sgyPath, sf3pPath, buildLod ? 1 : 0, onFinished, {});
+}
+
+PaleoTask *SeismicTaskService::startPagedTranscodeDetailed(
+    const QString &sgyPath,
+    const QString &sf3pPath,
+    bool buildLod,
+    std::function<void(bool, const QString &, const QString &)> onFinished,
+    std::function<void(const SeismicTranscodeReport &)> onReport)
+{
+  // buildLod=true → 按体量自适应层数（D1.9）；false → 不建
+  return startPagedTranscodeImpl(sgyPath, sf3pPath, buildLod ? 2 : 0, onFinished, onReport);
+}
+
+PaleoTask *SeismicTaskService::startPagedTranscodeImpl(
+    const QString &sgyPath,
+    const QString &sf3pPath,
+    int lodMode,
+    std::function<void(bool, const QString &, const QString &)> onFinished,
+    std::function<void(const SeismicTranscodeReport &)> onReport)
+{
   if (!taskService_)
   {
     if (onFinished)
@@ -680,79 +1037,210 @@ PaleoTask *SeismicTaskService::startPagedTranscode(
 
   const QString title = tr("转码分页工作区: %1").arg(QFileInfo(sgyPath).fileName());
   auto outPath = std::make_shared<QString>(sf3pPath);
+  auto outPyramid = std::make_shared<engine::PagedPyramidResult>();
+  auto outL3 = std::make_shared<engine::PagedBuildResult>();
+  auto outLevels = std::make_shared<QStringList>();
+  auto engineRan = std::make_shared<bool>(false);
 
-  auto work = [sgyPath, sf3pPath, buildLod](PaleoTask *task) -> QString {
+  // D1.7 同输出互斥
+  if (activeTranscodeOutputs_.contains(sf3pPath))
+  {
+    const QString error = tr("该分页工作区已有转码任务进行中（%1）").arg(sf3pPath);
+    logTranscodeEvent({{"event", "rejected"},
+                       {"kind", "sf3p"},
+                       {"output", sf3pPath},
+                       {"reason", "concurrent-transcode"}});
+    if (onFinished)
+      onFinished(false, sf3pPath, error);
+    return nullptr;
+  }
+  activeTranscodeOutputs_.insert(sf3pPath);
+
+  // D1.9 金字塔层数自适应体量（二进制头轻量估计，失真只影响层数选择）。
+  // lodMode: 0=无 LOD；1=经典 L1+L2（旧 API 语义）；2=自适应。
+  QStringList plannedLevels;
+  if (lodMode == 1)
+    plannedLevels = {QStringLiteral("L1"), QStringLiteral("L2")};
+  else if (lodMode == 2)
+    plannedLevels = planPagedLodLevels(estimateVolumeBytesFromSgy(sgyPath), true);
+
+  auto work = [sgyPath, sf3pPath, plannedLevels, outPyramid, outL3, outLevels, engineRan](
+                  PaleoTask *task) -> QString {
     engine::CancelToken cancel;
     cancel.SetPredicate([task]() { return task->cancelRequested(); });
 
-    engine::PagedPipelineOptions options;
-    options.buildLod1 = buildLod;
-    options.buildLod2 = buildLod;
-#ifdef SEISMIC_HAVE_ZSTD
-    options.codec = engine::kPagedCodecZstd;
-#endif
-    // 金字塔三阶段分别计总量；每阶段内 done/total 单调（阶段切换时进度条
-    // 归零属预期，任务页以明细行显示当前阶段）。
-    auto progress = [task](const engine::PagedPipelineProgress &p) -> bool {
+    // D1.1：阶段权重按各层字节数（L0=1, L1=1/16, L2=1/64, L3=1/256）归一
+    TranscodePhaseTracker tracker;
+    tracker.addPhase(QStringLiteral("l0-transcode"), 1.0);
+    if (plannedLevels.contains(QLatin1String("L1")))
+      tracker.addPhase(QStringLiteral("l1-build"), 1.0 / 16.0);
+    if (plannedLevels.contains(QLatin1String("L2")))
+      tracker.addPhase(QStringLiteral("l2-build"), 1.0 / 64.0);
+    if (plannedLevels.contains(QLatin1String("L3")))
+      tracker.addPhase(QStringLiteral("l3-build"), 1.0 / 256.0);
+    tracker.addPhase(QStringLiteral("finalizing"), 0.01);
+
+    auto progress = [task, &tracker](const engine::PagedPipelineProgress &p) -> bool {
       if (task->cancelRequested())
         return false;
-      task->reportBytes(static_cast<qint64>(p.chunksDone + p.chunksSkipped),
-                        static_cast<qint64>(std::max<std::uint64_t>(1, p.chunksTotal)));
-      task->reportDetail(QCoreApplication::translate(
-          "seismic::SeismicTaskService", "阶段 %1 · 块 %2/%3 · 已读道 %4")
-              .arg(QString::fromStdString(p.phase))
-              .arg(p.chunksDone + p.chunksSkipped)
-              .arg(p.chunksTotal)
-              .arg(p.tracesRead));
+      const QString phase = QString::fromStdString(p.phase);
+      const double frac = p.chunksTotal > 0
+          ? double(p.chunksDone + p.chunksSkipped) / double(p.chunksTotal)
+          : 0.0;
+      if (phase != QLatin1String("finalizing"))
+        tracker.setFrac(phase, frac);
+      else
+      {
+        // 收尾阶段：把先前所有构建阶段视作完成
+        tracker.finishPhase(QStringLiteral("l0-transcode"));
+        tracker.finishPhase(QStringLiteral("l1-build"));
+        tracker.finishPhase(QStringLiteral("l2-build"));
+        tracker.finishPhase(QStringLiteral("l3-build"));
+        tracker.setFrac(QStringLiteral("finalizing"), 0.5);
+      }
+      constexpr qint64 kUnits = 100000;
+      task->reportBytes(qint64(tracker.overallFrac() * kUnits), kUnits);
+      task->reportDetail(tr("阶段 %1 · 块 %2/%3 · 已读道 %4 · 总体 %5%")
+                             .arg(phase)
+                             .arg(p.chunksDone + p.chunksSkipped)
+                             .arg(p.chunksTotal)
+                             .arg(p.tracesRead)
+                             .arg(int(tracker.overallFrac() * 100)));
       return true;
     };
 
-    const engine::PagedPyramidResult result = engine::BuildPagedPyramid(
-        std::filesystem::path(sgyPath.toStdString()),
-        std::filesystem::path(sf3pPath.toStdString()),
-        options, &cancel, progress);
+    engine::PagedPipelineOptions options;
+    options.buildLod1 = plannedLevels.contains(QLatin1String("L1"));
+    options.buildLod2 = plannedLevels.contains(QLatin1String("L2"));
+#ifdef SEISMIC_HAVE_ZSTD
+    options.codec = engine::kPagedCodecZstd;
+#endif
 
-    const auto phaseError = [&result](const engine::PagedBuildResult &phase,
-                                      const char *name) -> QString {
+    const std::filesystem::path l0(sf3pPath.toStdString());
+    *outPyramid = engine::BuildPagedPyramid(
+        std::filesystem::path(sgyPath.toStdString()), l0, options, &cancel, progress);
+    *engineRan = true;
+
+    // D1.9 L3（16x16x1，超大体量档）：直接从 L0 构建
+    if (plannedLevels.contains(QLatin1String("L3")) &&
+        outPyramid->l0.status.ok())
+    {
+      *outL3 = engine::BuildPagedLodFromL0(
+          l0, engine::PagedLodPath(l0, 3), 3, 16, 16, 1, engine::LodMethod::Average,
+          options, &cancel, progress);
+    }
+
+    // 计划外的历史兄弟层级清理（旧计划留下的 L1/L2/L3 不再是事实）
+    for (int level = 1; level <= 3; ++level)
+    {
+      const QString tag = QStringLiteral("L%1").arg(level);
+      if (plannedLevels.contains(tag))
+        continue;
+      std::error_code ec;
+      std::filesystem::remove(engine::PagedLodPath(l0, level), ec);
+    }
+
+    const auto phaseError = [](const engine::PagedBuildResult &phase,
+                               const char *name) -> QString {
       if (phase.status.ok() || phase.reused)
         return QString();
       return QObject::tr("分页转码 %1 阶段失败：%2")
           .arg(QString::fromLatin1(name), QString::fromStdString(phase.status.message));
     };
-    if (QString err = phaseError(result.l0, "L0"); !err.isEmpty())
+    if (QString err = phaseError(outPyramid->l0, "L0"); !err.isEmpty())
     {
-      if (result.l0.status.code == engine::StatusCode::Cancelled || task->cancelRequested())
+      if (outPyramid->l0.status.code == engine::StatusCode::Cancelled || task->cancelRequested())
         return QString();
       return err;
     }
-    if (QString err = phaseError(result.l1, "L1"); !err.isEmpty())
+    if (QString err = phaseError(outPyramid->l1, "L1"); !err.isEmpty())
     {
-      if (result.l1.status.code == engine::StatusCode::Cancelled || task->cancelRequested())
+      if (outPyramid->l1.status.code == engine::StatusCode::Cancelled || task->cancelRequested())
         return QString();
       return err;
     }
-    if (QString err = phaseError(result.l2, "L2"); !err.isEmpty())
+    if (QString err = phaseError(outPyramid->l2, "L2"); !err.isEmpty())
     {
-      if (result.l2.status.code == engine::StatusCode::Cancelled || task->cancelRequested())
+      if (outPyramid->l2.status.code == engine::StatusCode::Cancelled || task->cancelRequested())
         return QString();
       return err;
     }
+    if (plannedLevels.contains(QLatin1String("L3")))
+    {
+      if (QString err = phaseError(*outL3, "L3"); !err.isEmpty())
+      {
+        if (outL3->status.code == engine::StatusCode::Cancelled || task->cancelRequested())
+          return QString();
+        return err;
+      }
+    }
+    *outLevels = plannedLevels;
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
-  connect(task, &PaleoTask::finished, this, [this, task, outPath, onFinished]() {
-    if (!onFinished)
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
+  if (!task)
+  {
+    activeTranscodeOutputs_.remove(sf3pPath);
+    if (onFinished)
+      onFinished(false, sf3pPath, tr("任务提交失败"));
+    return nullptr;
+  }
+  logTranscodeEvent({{"event", "start"},
+                     {"kind", "sf3p"},
+                     {"source", sgyPath},
+                     {"output", sf3pPath},
+                     {"lodPlan", QJsonArray::fromStringList(plannedLevels)}});
+
+  connect(task, &PaleoTask::finished, this,
+          [this, task, outPath, outPyramid, outL3, outLevels, engineRan, onFinished, onReport]() {
+    activeTranscodeOutputs_.remove(*outPath);
+    if (!onFinished && !onReport)
       return;
-    if (task->state() == PaleoTask::State::Succeeded)
+
+    const bool succeeded = task->state() == PaleoTask::State::Succeeded;
+    const bool cancelled = task->state() == PaleoTask::State::Cancelled;
+
+    SeismicTranscodeReport report;
+    report.output = *outPath;
+    report.ok = succeeded;
+    report.cancelled = cancelled;
+    if (*engineRan)
+    {
+      const engine::PagedBuildResult *l3 = outL3->status.code == engine::StatusCode::Ok ||
+                                                    outL3->reused
+                                                ? outL3.get()
+                                                : nullptr;
+      fillReportFromPaged(report, *outPyramid, *outLevels,
+                          outLevels->contains(QLatin1String("L3")) ? outL3.get() : nullptr);
+      (void)l3;
+    }
+    report.ok = succeeded;
+    report.cancelled = cancelled;
+
+    if (succeeded)
     {
       invalidateDataset(*outPath); // 热切换：下次读取按磁盘现状重开
-      onFinished(true, *outPath, QString());
+      if (onFinished)
+        onFinished(true, *outPath, QString());
     }
-    else if (task->state() == PaleoTask::State::Cancelled)
-      onFinished(false, *outPath, tr("分页转码已取消（可续跑）"));
-    else
+    else if (cancelled)
+    {
+      if (onFinished)
+        onFinished(false, *outPath, tr("分页转码已取消（可续跑）"));
+    }
+    else if (onFinished)
+    {
       onFinished(false, *outPath, task->errorText());
+    }
+
+    QJsonObject event = reportToJson(report);
+    event.insert("event", succeeded ? "finished" : (cancelled ? "cancelled" : "failed"));
+    if (!succeeded && !cancelled)
+      event.insert("error", task->errorText());
+    logTranscodeEvent(event);
+    if (onReport)
+      onReport(report);
   });
   return task;
 }
@@ -829,7 +1317,7 @@ PaleoTask *SeismicTaskService::startTimeSliceTiled(
     return QObject::tr("瓦片时间片读取失败：%1").arg(QString::fromStdString(status.message));
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, outImage, onFinished]() {
     if (!onFinished)
       return;
@@ -885,7 +1373,7 @@ PaleoTask *SeismicTaskService::startVoxelWindow(
     return QObject::tr("体素窗口读取失败：%1").arg(QString::fromStdString(status.message));
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, outWindow, onFinished]() {
     if (!onFinished)
       return;
@@ -915,7 +1403,9 @@ PaleoTask *SeismicTaskService::startPagedOpen(
   const auto registry = registry_;
 
   auto work = [registry, sf3pPath, status](PaleoTask *task) -> QString {
-    Q_UNUSED(task);
+    // D6.5：短操作的取消边界检查（入池即取消则跳过引擎调用）
+        if (task->cancelRequested())
+          return QString();
     const auto entry = datasetEntryFor(registry, sf3pPath, sdk::Backend::Paged);
     if (!entry || !entry->dataset)
       return QObject::tr("分页工作区不可用：%1").arg(sf3pPath);
@@ -924,7 +1414,7 @@ PaleoTask *SeismicTaskService::startPagedOpen(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, status, onFinished]() {
     if (!onFinished)
       return;
@@ -955,7 +1445,9 @@ PaleoTask *SeismicTaskService::startLodSwitch(
   const auto registry = registry_;
 
   auto work = [registry, sf3pPath, lodLevel, quality](PaleoTask *task) -> QString {
-    Q_UNUSED(task);
+    // D6.5：短操作的取消边界检查（入池即取消则跳过引擎调用）
+        if (task->cancelRequested())
+          return QString();
     const auto entry = datasetEntryFor(registry, sf3pPath, sdk::Backend::Paged);
     if (!entry || !entry->dataset)
       return QObject::tr("分页工作区不可用：%1").arg(sf3pPath);
@@ -967,7 +1459,7 @@ PaleoTask *SeismicTaskService::startLodSwitch(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, quality, onFinished]() {
     if (!onFinished)
       return;
@@ -997,7 +1489,9 @@ PaleoTask *SeismicTaskService::startBackendProbe(
 
   // 独立探测（不经条目缓存）：反映此刻磁盘现状——转码完成后的热切换提示。
   auto work = [sgyPath, status](PaleoTask *task) -> QString {
-    Q_UNUSED(task);
+    // D6.5：短操作的取消边界检查（入池即取消则跳过引擎调用）
+        if (task->cancelRequested())
+          return QString();
     sdk::OpenOptions options; // Auto：有 .sf3c 用工作区，否则直读
     engine::Status openStatus;
     auto dataset = sdk::Dataset::Open(std::filesystem::path(sgyPath.toStdString()),
@@ -1008,7 +1502,7 @@ PaleoTask *SeismicTaskService::startBackendProbe(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, status, onFinished]() {
     if (!onFinished)
       return;
@@ -1018,6 +1512,1020 @@ PaleoTask *SeismicTaskService::startBackendProbe(
       onFinished(false, *status, tr("后端探测已取消"));
     else
       onFinished(false, *status, task->errorText());
+  });
+  return task;
+}
+
+
+// ---- D1.2/D1.6/D1.8 断点探测 -------------------------------------------------
+
+SeismicWorkspaceProbe SeismicTaskService::probeWorkspace(const QString &sgyOrMetaPath) const
+{
+  SeismicWorkspaceProbe probe;
+  QString base = sgyOrMetaPath;
+  if (base.endsWith(QLatin1String(".sf3c.meta"), Qt::CaseInsensitive))
+    base.chop(static_cast<int>(qstrlen(".sf3c.meta")));
+
+  engine::WorkspaceMetaSummary summary;
+  std::string error;
+  engine::ProbeWorkspaceMeta(std::filesystem::path(base.toStdString()), summary, error);
+  probe.exists = summary.exists;
+  probe.complete = summary.complete;
+  probe.resumable = summary.exists && summary.readable && !summary.complete;
+  probe.readable = summary.readable;
+  probe.formatVersion = int(summary.formatVersion);
+  probe.algorithmVersion = int(summary.algorithmVersion);
+  probe.chunksDone = qint64(summary.chunksCompleted);
+  probe.chunksTotal = qint64(summary.chunkCount);
+  probe.samples = qint64(summary.samples);
+  probe.inlines = qint64(summary.inlines);
+  probe.xlines = qint64(summary.xlines);
+  probe.error = QString::fromStdString(summary.error);
+  return probe;
+}
+
+SeismicWorkspaceProbe SeismicTaskService::probePagedWorkspace(const QString &sf3pPath) const
+{
+  SeismicWorkspaceProbe probe;
+  const QFileInfo finalFile(sf3pPath);
+  const QString partialPath = sf3pPath + QStringLiteral(".partial");
+
+  if (finalFile.exists())
+  {
+    probe.exists = true;
+    engine::PagedWorkspaceReader reader;
+    std::string error;
+    if (reader.Open(std::filesystem::path(sf3pPath.toStdString()), error, /*metadataOnly=*/true))
+    {
+      probe.readable = true;
+      probe.complete = reader.Info().complete;
+      probe.resumable = !probe.complete;
+      probe.formatVersion = 7; // kPagedWorkspaceVersion（v6 legacy 可读）
+      probe.algorithmVersion = int(reader.Info().algorithmVersion);
+      probe.inlines = qint64(reader.Info().inlineAxis.count);
+      probe.xlines = qint64(reader.Info().xlineAxis.count);
+      probe.samples = qint64(reader.Info().samples);
+    }
+    else
+    {
+      probe.error = tr("分页工作区头不可读：%1").arg(QString::fromStdString(error));
+    }
+    return probe;
+  }
+
+  if (QFileInfo::exists(partialPath))
+  {
+    probe.exists = true;
+    probe.resumable = true; // .partial 半成品：续跑从完成位图继续
+    engine::PagedWorkspaceReader reader;
+    std::string error;
+    if (reader.Open(std::filesystem::path(partialPath.toStdString()), error, /*metadataOnly=*/true))
+    {
+      probe.readable = true;
+      probe.formatVersion = 7;
+      probe.algorithmVersion = int(reader.Info().algorithmVersion);
+      probe.inlines = qint64(reader.Info().inlineAxis.count);
+      probe.xlines = qint64(reader.Info().xlineAxis.count);
+      probe.samples = qint64(reader.Info().samples);
+    }
+    else
+    {
+      probe.error = tr("分页工作区断点文件不可读：%1").arg(QString::fromStdString(error));
+    }
+  }
+  return probe;
+}
+
+QString SeismicWorkspaceProbe::stateText() const
+{
+  if (!exists)
+    return QObject::tr("未开始");
+  if (complete)
+    return QObject::tr("已完成");
+  if (!readable)
+    return QObject::tr("不可读（%1）").arg(error.isEmpty() ? QObject::tr("格式版本不支持") : error);
+  return QObject::tr("已完成 %1/%2 块（可续跑）").arg(chunksDone).arg(chunksTotal);
+}
+
+QString SeismicTranscodeReport::summaryLine() const
+{
+  QString line = ok ? QObject::tr("转码完成") : (cancelled ? QObject::tr("已取消（可续跑）") : QObject::tr("失败"));
+  line += QObject::tr(" · 道 %1 · 覆盖 %2% · 丢弃 %3%")
+              .arg(tracesRead)
+              .arg(int(coverage() * 100))
+              .arg(QString::number(droppedRatio() * 100, 'f', 2));
+  if (validValues)
+    line += QObject::tr(" · 值域 [%1, %2]")
+                .arg(QString::number(valueMin, 'g', 6))
+                .arg(QString::number(valueMax, 'g', 6));
+  if (!lodLevels.isEmpty())
+    line += QObject::tr(" · 金字塔 %1").arg(lodLevels.join(QLatin1Char('/')));
+  if (damagedTraces > 0)
+    line += QObject::tr(" · 坏道 %1（%2…）")
+                .arg(damagedTraces)
+                .arg(damagedSample.isEmpty() ? QString() : damagedSample.first());
+  return line;
+}
+
+QString SeismicTranscodeReport::toJsonLine() const
+{
+  return QStringLiteral("PALEO-SEISMIC-TRANSCODE ") +
+         QString::fromUtf8(QJsonDocument(reportToJson(*this)).toJson(QJsonDocument::Compact));
+}
+
+// ---- D2.11 道头查询 -----------------------------------------------------------
+
+SeismicTraceHeaderInfo SeismicTaskService::readTraceHeader(const QString &sgyPath, int traceIndex)
+{
+  SeismicTraceHeaderInfo info;
+  info.traceIndex = traceIndex;
+  if (sgyPath.isEmpty() || traceIndex < 0)
+  {
+    info.error = QStringLiteral("无效道序号");
+    return info;
+  }
+
+  // 样本数/格式码：索引命中最好；未命中退二进制头（规则文件可靠）
+  int sampleCount = 0;
+  int formatCode = 5;
+  double dtUs = 0.0;
+  std::string reason;
+  if (SgyIndexPtr index = SgyIndexCache::Load(std::filesystem::path(sgyPath.toStdString()), reason))
+  {
+    if (traceIndex >= static_cast<int>(index->traces.size()))
+    {
+      info.error = QStringLiteral("道序号 %1 超出索引范围（共 %2 道）").arg(traceIndex).arg(index->traces.size());
+      return info;
+    }
+    sampleCount = index->sampleCount;
+    formatCode = index->formatCode;
+    dtUs = index->sampleIntervalUs;
+  }
+
+  QFile file(sgyPath);
+  if (!file.open(QIODevice::ReadOnly))
+  {
+    info.error = QStringLiteral("无法打开 SEG-Y 文件");
+    return info;
+  }
+  if (sampleCount <= 0)
+  {
+    QByteArray binHdr = file.read(3600);
+    if (binHdr.size() < 3600)
+    {
+      info.error = QStringLiteral("SEG-Y 头读取失败");
+      return info;
+    }
+    const auto be16 = [&](int at) -> int {
+      return (quint8(binHdr[at]) << 8) | quint8(binHdr[at + 1]);
+    };
+    sampleCount = be16(3220);
+    formatCode = be16(3224);
+  }
+  int bytesPerSample = 4;
+  if (formatCode == 2 || formatCode == 3)
+    bytesPerSample = formatCode == 3 ? 4 : 2;
+  else if (formatCode == 8)
+    bytesPerSample = 1;
+  else if (formatCode == 1 || formatCode == 5)
+    bytesPerSample = 4;
+
+  const qint64 traceBytes = 240 + qint64(sampleCount) * bytesPerSample;
+  info.fileOffset = 3600 + qint64(traceIndex) * traceBytes;
+  if (!file.seek(info.fileOffset))
+  {
+    info.error = QStringLiteral("道偏移越界（文件 %1 字节）").arg(file.size());
+    return info;
+  }
+  const QByteArray hdr = file.read(240);
+  if (hdr.size() < 240)
+  {
+    info.error = QStringLiteral("道头读取不完整");
+    return info;
+  }
+  file.close();
+
+  const auto be16 = [&](int at) -> int {
+    return qint16((quint8(hdr[at]) << 8) | quint8(hdr[at + 1]));
+  };
+  const auto be32 = [&](int at) -> qint32 {
+    return qint32((quint32(quint8(hdr[at])) << 24) | (quint32(quint8(hdr[at + 1])) << 16) |
+                   (quint32(quint8(hdr[at + 2])) << 8) | quint32(quint8(hdr[at + 3])));
+  };
+  // SEG-Y 字节序（1 基）→ 0 基偏移
+  info.fieldRecord = be32(8);    // 9-12
+  info.cdpEnsemble = be32(20);   // 21-24
+  info.inlineNo = be32(188);     // 189-192 INLINE
+  info.xlineNo = be32(192);      // 193-196 CROSSLINE
+  info.sampleCount = be16(114);  // 115-116 ns
+  info.sampleIntervalUs = dtUs > 0 ? int(dtUs) : be16(116); // 117-118 dt(μs)
+  // 71-72 比例因子（负值 = 除以 |v|）
+  double scalar = be16(70);
+  if (scalar == 0.0)
+    scalar = 1.0;
+  const double rawX = static_cast<double>(be32(72)); // 73-76
+  const double rawY = static_cast<double>(be32(76)); // 77-80
+  info.cdpX = scalar > 0 ? rawX * scalar : rawX / -scalar;
+  info.cdpY = scalar > 0 ? rawY * scalar : rawY / -scalar;
+  info.ok = true;
+  return info;
+}
+
+
+// ---- Phase 4 解释工具 ---------------------------------------------------------
+
+namespace {
+
+// 归一化互相关（Pearson）：种子波形 w vs 候选 c；返回 -1..1（无方差 → 0）
+double NormalizedCorrelation(const float *w, const float *c, int n)
+{
+  double sw = 0, sc = 0, sww = 0, scc = 0, swc = 0;
+  int valid = 0;
+  for (int i = 0; i < n; ++i)
+  {
+    if (!std::isfinite(w[i]) || !std::isfinite(c[i]))
+      continue;
+    sw += w[i]; sc += c[i];
+    sww += double(w[i]) * w[i]; scc += double(c[i]) * c[i];
+    swc += double(w[i]) * c[i];
+    ++valid;
+  }
+  if (valid < 4)
+    return 0.0;
+  const double cov = swc - sw * sc / valid;
+  const double varW = sww - sw * sw / valid;
+  const double varC = scc - sc * sc / valid;
+  const double denom = std::sqrt(varW * varC);
+  return denom > 1e-12 ? cov / denom : 0.0;
+}
+
+QString horizonCsvLine(const SeismicPick &p)
+{
+  return QStringLiteral("%1,%2,%3,%4")
+      .arg(p.inlineNo).arg(p.xlineNo)
+      .arg(QString::number(p.twtMs, 'f', 2))
+      .arg(QString::number(p.confidence, 'f', 3));
+}
+
+QString sha256OfFile(const QString &path)
+{
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly))
+    return QString();
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  if (!hash.addData(&f))
+    return QString();
+  return QString::fromLatin1(hash.result().toHex());
+}
+
+} // namespace
+
+QStringList SeismicInterpretationSession::horizonNames() const
+{
+  QStringList names;
+  for (const SeismicPick &p : picks)
+    if (!names.contains(p.horizonName))
+      names << p.horizonName;
+  return names;
+}
+
+const SeismicPick *SeismicInterpretationSession::pickById(int id) const
+{
+  for (const SeismicPick &p : picks)
+    if (p.id == id)
+      return &p;
+  return nullptr;
+}
+
+QList<SeismicPick> SeismicTaskService::trackHorizon(
+    const SgySliceImage &slice,
+    SgySliceType sectionType, int sectionIndex,
+    int colMin, int colMax,
+    int seedTraceCol, int seedSample,
+    const SeismicTrackOptions &options,
+    const QString &interpreter, const QString &horizonName,
+    float sampleIntervalMs)
+{
+  QList<SeismicPick> result;
+  if (slice.width <= 0 || slice.height <= 0 || slice.values.empty())
+    return result;
+  const int w = std::min(int(options.windowSamples), int(slice.height));
+  if (w < 4 || seedTraceCol < 0 || seedTraceCol >= slice.width)
+    return result;
+
+  const auto columnValue = [&](int col, int sample) -> float {
+    return slice.values[static_cast<std::size_t>(sample) * slice.width + col];
+  };
+
+  // 种子波形（中心在 seedSample，向上/向下各取一半窗）
+  const int seedTop = std::max(0, seedSample - w / 2);
+  const int seedBottom = std::min(slice.height - 1, seedTop + w - 1);
+  if (seedBottom - seedTop + 1 < 4)
+    return result;
+  std::vector<float> seedWave(static_cast<std::size_t>(seedBottom - seedTop + 1));
+  for (int y = seedTop; y <= seedBottom; ++y)
+    seedWave[static_cast<std::size_t>(y - seedTop)] = columnValue(seedTraceCol, y);
+
+  const auto toPick = [&](int col, int sample, double conf) -> SeismicPick {
+    SeismicPick p;
+    p.inlineNo = sectionType == SgySliceType::Inline ? sectionIndex : colMin + col;
+    p.xlineNo = sectionType == SgySliceType::Inline ? colMin + col : sectionIndex;
+    p.sampleIndex = sample;
+    p.twtMs = sample * double(sampleIntervalMs);
+    p.confidence = float(std::clamp(conf, 0.0, 1.0));
+    p.interpreter = interpreter;
+    p.horizonName = horizonName;
+    return p;
+  };
+
+  // 种子点本身
+  result.append(toPick(seedTraceCol, seedSample, 1.0));
+
+  // 双向追踪：向左/向右逐道，上一道拾取位置附近搜索最大相关
+  const int dirs[2] = {-1, +1};
+  for (int dir : dirs)
+  {
+    int prevSample = seedSample;
+    for (int col = seedTraceCol + dir; col >= 0 && col < slice.width; col += dir)
+    {
+      double bestCorr = -2.0;
+      int bestSample = -1;
+      // 搜索窗围绕上一道窗口顶（prevSample），钳到体积界——不是种子窗
+      // （否则同相轴漂移超过一个窗长后永远追不上）。
+      // 注意：行主序布局里一条道窗口是「跨行」段——候选必须按列跨步取数，
+      // 不能拿行内连续指针当窗口（那是横向跨道的噪声条）。
+      const int winLen = int(seedWave.size());
+      const int searchLo = std::max(0, prevSample - options.maxSearchSamples);
+      const int searchHi = std::min(int(slice.height) - winLen,
+                                    prevSample + options.maxSearchSamples);
+      std::vector<float> candidate(static_cast<std::size_t>(winLen));
+      for (int s = searchLo; s <= searchHi; ++s)
+      {
+        for (int i = 0; i < winLen; ++i)
+          candidate[static_cast<std::size_t>(i)] = columnValue(col, s + i);
+        const double corr = NormalizedCorrelation(
+            seedWave.data(), candidate.data(), winLen);
+        if (corr > bestCorr)
+        {
+          bestCorr = corr;
+          bestSample = s + winLen / 2; // 窗口中心 = 拾取位置
+        }
+      }
+      if (bestSample < 0 || bestCorr < options.correlationThreshold)
+        break; // 同相轴丢失：停（不硬凑）
+      SeismicPick p = toPick(col, bestSample, bestCorr);
+      p.id = 0; // 由会话分配
+      result.append(p);
+      prevSample = bestSample - int(seedWave.size()) / 2;
+    }
+  }
+  return result;
+}
+
+SeismicHorizonGrid SeismicTaskService::gridPicks(const QList<SeismicPick> &picks)
+{
+  SeismicHorizonGrid grid;
+  if (picks.isEmpty())
+    return grid;
+  int ilMin = picks.first().inlineNo, ilMax = ilMin;
+  int xlMin = picks.first().xlineNo, xlMax = xlMin;
+  for (const SeismicPick &p : picks)
+  {
+    ilMin = std::min(ilMin, p.inlineNo); ilMax = std::max(ilMax, p.inlineNo);
+    xlMin = std::min(xlMin, p.xlineNo); xlMax = std::max(xlMax, p.xlineNo);
+  }
+  // 步长：同轴不同值之间的最小间隔（全部相同则 1）
+  const auto axisStep = [](QList<int> values) {
+    std::sort(values.begin(), values.end());
+    values.erase(std::unique(values.begin(), values.end()), values.end());
+    if (values.size() < 2)
+      return 1;
+    int step = values[1] - values[0];
+    for (int i = 2; i < values.size(); ++i)
+      step = std::min(step, values[i] - values[i - 1]);
+    return std::max(1, step);
+  };
+  QList<int> ils, xls;
+  for (const SeismicPick &p : picks)
+  {
+    ils << p.inlineNo;
+    xls << p.xlineNo;
+  }
+  grid.inlineStep = axisStep(ils);
+  grid.xlineStep = axisStep(xls);
+  grid.inlineMin = ilMin;
+  grid.inlineCount = (ilMax - ilMin) / grid.inlineStep + 1;
+  grid.xlineMin = xlMin;
+  grid.xlineCount = (xlMax - xlMin) / grid.xlineStep + 1;
+  const std::size_t n = std::size_t(grid.inlineCount) * grid.xlineCount;
+  grid.twtMs.assign(n, std::numeric_limits<double>::quiet_NaN());
+  grid.confidence.assign(n, 0.0f);
+
+  // IDW：power=2；样本即拾取点
+  for (int gi = 0; gi < grid.inlineCount; ++gi)
+  {
+    for (int gx = 0; gx < grid.xlineCount; ++gx)
+    {
+      const int il = grid.inlineMin + gi * grid.inlineStep;
+      const int xl = grid.xlineMin + gx * grid.xlineStep;
+      double num = 0.0, den = 0.0, bestConf = 0.0;
+      for (const SeismicPick &p : picks)
+      {
+        const double dil = double(p.inlineNo - il) / std::max(1, grid.inlineStep);
+        const double dxl = double(p.xlineNo - xl) / std::max(1, grid.xlineStep);
+        const double d2 = dil * dil + dxl * dxl;
+        if (d2 < 1e-12)
+        {
+          num = p.twtMs;
+          den = 1.0;
+          bestConf = p.confidence;
+          break;
+        }
+        const double wgt = 1.0 / d2;
+        num += wgt * p.twtMs;
+        den += wgt;
+        bestConf = std::max(bestConf, double(p.confidence));
+      }
+      if (den > 0)
+      {
+        grid.twtMs[std::size_t(gi) * grid.xlineCount + gx] = num / den;
+        grid.confidence[std::size_t(gi) * grid.xlineCount + gx] = float(bestConf);
+      }
+    }
+  }
+  return grid;
+}
+
+QString SeismicTaskService::registerHorizonAsset(
+    DataCatalog *catalog, const QString &seismicAssetId,
+    const QString &seismicVersionId, const QString &horizonName,
+    const QList<SeismicPick> &picks, const QString &outputDir,
+    QString *error)
+{
+  if (!catalog || picks.isEmpty())
+  {
+    if (error)
+      *error = QStringLiteral("catalog 未设置或拾取集为空");
+    return QString();
+  }
+  const SeismicHorizonGrid grid = gridPicks(picks);
+  if (!grid.isValid())
+  {
+    if (error)
+      *error = QStringLiteral("拾取网格化失败");
+    return QString();
+  }
+  QDir().mkpath(outputDir);
+  const QString fileName = QStringLiteral("%1_%2_horizon.csv")
+                               .arg(QFileInfo(outputDir).fileName() == QStringLiteral("interpretation")
+                                        ? QStringLiteral("seismic")
+                                        : QFileInfo(outputDir).fileName())
+                               .arg(horizonName);
+  const QString filePath = outputDir + QLatin1Char('/') + fileName;
+  QFile f(filePath);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    if (error)
+      *error = QStringLiteral("无法写层位文件 %1").arg(filePath);
+    return QString();
+  }
+  f.write("inline,xline,twt_ms,confidence\n");
+  for (int gi = 0; gi < grid.inlineCount; ++gi)
+    for (int gx = 0; gx < grid.xlineCount; ++gx)
+    {
+      const double twt = grid.twtMs[std::size_t(gi) * grid.xlineCount + gx];
+      if (!std::isfinite(twt))
+        continue;
+      f.write(QStringLiteral("%1,%2,%3,%4\n")
+                  .arg(grid.inlineMin + gi * grid.inlineStep)
+                  .arg(grid.xlineMin + gx * grid.xlineStep)
+                  .arg(QString::number(twt, 'f', 2))
+                  .arg(QString::number(grid.confidence[std::size_t(gi) * grid.xlineCount + gx], 'f', 3))
+                  .toUtf8());
+    }
+  f.close();
+
+  // DERIVED 版本登记（外链托管：解释产物在工程 interpretation/ 目录）
+  CatalogAsset asset;
+  asset.id = QStringLiteral("seis_horizon_%1_%2").arg(seismicAssetId).arg(horizonName);
+  asset.type = QStringLiteral("horizon");
+  asset.format = QStringLiteral("csv");
+  asset.displayName = QStringLiteral("%1（地震拾取）").arg(horizonName);
+  catalog->addAsset(asset); // 已存在则失败被忽略（幂等语义）
+
+  CatalogVersion v;
+  v.id = QStringLiteral("ver_%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+  v.assetId = asset.id;
+  v.stage = QStringLiteral("DERIVED");
+  v.versionNumber = 1;
+  v.managed = false;
+  v.path = filePath;
+  v.sourceUri = seismicAssetId;
+  v.sha256 = sha256OfFile(filePath);
+  v.fileName = fileName;
+  v.parentVersionIds = QStringList{seismicVersionId};
+  v.extra.insert(QStringLiteral("origin"), QStringLiteral("seismic-interpretation"));
+  v.extra.insert(QStringLiteral("pickCount"), picks.size());
+  if (!catalog->addVersion(v))
+  {
+    // 版本可能已存在（重复登记）——按 (asset, version) 幂等返回路径
+    const CatalogVersion existing = catalog->versionBySha256(v.sha256);
+    if (!existing.id.isEmpty())
+      return DataCatalog::resolvedVersionPath(QString(), existing);
+    if (error)
+      *error = QStringLiteral("catalog 版本登记失败");
+    return QString();
+  }
+  return filePath;
+}
+
+QString SeismicTaskService::registerFaultAsset(
+    DataCatalog *catalog, const QString &seismicAssetId,
+    const QString &seismicVersionId, const QString &faultName,
+    const QList<SeismicFaultSegment> &faults, const QString &outputDir,
+    QString *error)
+{
+  if (!catalog || faults.isEmpty())
+  {
+    if (error)
+      *error = QStringLiteral("catalog 未设置或断层集为空");
+    return QString();
+  }
+  QDir().mkpath(outputDir);
+  const QString fileName = QStringLiteral("seismic_%1_fault.csv").arg(faultName);
+  const QString filePath = outputDir + QLatin1Char('/') + fileName;
+  QFile f(filePath);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    if (error)
+      *error = QStringLiteral("无法写断层文件 %1").arg(filePath);
+    return QString();
+  }
+  f.write("segment_id,section_type,section_index,trace_frac,twt_ms\n");
+  for (const SeismicFaultSegment &seg : faults)
+  {
+    const QString st = seg.sectionType == SgySliceType::Inline
+        ? QStringLiteral("inline")
+        : (seg.sectionType == SgySliceType::Xline ? QStringLiteral("xline")
+                                                  : QStringLiteral("time"));
+    for (const auto &pt : seg.points)
+      f.write(QStringLiteral("%1,%2,%3,%4,%5\n")
+                  .arg(seg.id).arg(st).arg(seg.sectionIndex)
+                  .arg(QString::number(pt.first, 'f', 4))
+                  .arg(QString::number(pt.second, 'f', 2))
+                  .toUtf8());
+  }
+  f.close();
+
+  CatalogAsset asset;
+  asset.id = QStringLiteral("seis_fault_%1_%2").arg(seismicAssetId).arg(faultName);
+  asset.type = QStringLiteral("fault");
+  asset.format = QStringLiteral("csv");
+  asset.displayName = QStringLiteral("%1（地震断层）").arg(faultName);
+  catalog->addAsset(asset);
+
+  CatalogVersion v;
+  v.id = QStringLiteral("ver_%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+  v.assetId = asset.id;
+  v.stage = QStringLiteral("DERIVED");
+  v.versionNumber = 1;
+  v.managed = false;
+  v.path = filePath;
+  v.sourceUri = seismicAssetId;
+  v.sha256 = sha256OfFile(filePath);
+  v.fileName = fileName;
+  v.parentVersionIds = QStringList{seismicVersionId};
+  v.extra.insert(QStringLiteral("origin"), QStringLiteral("seismic-interpretation"));
+  if (!catalog->addVersion(v))
+  {
+    if (error)
+      *error = QStringLiteral("catalog 版本登记失败");
+    return QString();
+  }
+  return filePath;
+}
+
+bool SeismicTaskService::saveSession(const SeismicInterpretationSession &session, QString *error)
+{
+  if (session.sourceSgyPath.isEmpty())
+  {
+    if (error)
+      *error = QStringLiteral("会话无源 SEG-Y 锚");
+    return false;
+  }
+  const QString path = session.sourceSgyPath + QStringLiteral(".seispicks.json");
+  QFile f(path);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    if (error)
+      *error = QStringLiteral("无法写会话文件 %1").arg(path);
+    return false;
+  }
+  QJsonObject root;
+  root.insert("format", QStringLiteral("paleo-seis-interpretation"));
+  root.insert("version", 1);
+  root.insert("name", session.name);
+  root.insert("source", session.sourceSgyPath);
+  root.insert("interpreters", QJsonArray::fromStringList(session.interpreters));
+  root.insert("nextId", session.nextId);
+  QJsonArray pickArr;
+  for (const SeismicPick &p : session.picks)
+  {
+    QJsonObject o;
+    o.insert("id", p.id);
+    o.insert("inline", p.inlineNo);
+    o.insert("xline", p.xlineNo);
+    o.insert("twtMs", p.twtMs);
+    o.insert("sample", p.sampleIndex);
+    o.insert("confidence", double(p.confidence));
+    o.insert("interpreter", p.interpreter);
+    o.insert("horizon", p.horizonName);
+    pickArr.append(o);
+  }
+  root.insert("picks", pickArr);
+  QJsonArray faultArr;
+  for (const SeismicFaultSegment &seg : session.faults)
+  {
+    QJsonObject o;
+    o.insert("id", seg.id);
+    o.insert("sectionType", int(seg.sectionType));
+    o.insert("sectionIndex", seg.sectionIndex);
+    o.insert("interpreter", seg.interpreter);
+    o.insert("name", seg.name);
+    QJsonArray pts;
+    for (const auto &pt : seg.points)
+    {
+      pts.append(QJsonArray{pt.first, pt.second});
+    }
+    o.insert("points", pts);
+    faultArr.append(o);
+  }
+  root.insert("faults", faultArr);
+  f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+  f.close();
+  return true;
+}
+
+bool SeismicTaskService::loadSession(const QString &sgyPath,
+                                     SeismicInterpretationSession &out, QString *error)
+{
+  const QString path = sgyPath + QStringLiteral(".seispicks.json");
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly))
+  {
+    if (error)
+      *error = QStringLiteral("无会话文件 %1").arg(path);
+    return false;
+  }
+  const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+  if (!doc.isObject())
+  {
+    if (error)
+      *error = QStringLiteral("会话文件损坏");
+    return false;
+  }
+  const QJsonObject root = doc.object();
+  out = SeismicInterpretationSession{};
+  out.name = root.value("name").toString();
+  out.sourceSgyPath = sgyPath;
+  out.nextId = root.value("nextId").toInt(1);
+  for (const auto &v : root.value("interpreters").toArray())
+    out.interpreters << v.toString();
+  for (const auto &v : root.value("picks").toArray())
+  {
+    const QJsonObject o = v.toObject();
+    SeismicPick p;
+    p.id = o.value("id").toInt();
+    p.inlineNo = o.value("inline").toInt();
+    p.xlineNo = o.value("xline").toInt();
+    p.twtMs = o.value("twtMs").toDouble();
+    p.sampleIndex = o.value("sample").toInt();
+    p.confidence = float(o.value("confidence").toDouble(1.0));
+    p.interpreter = o.value("interpreter").toString();
+    p.horizonName = o.value("horizon").toString();
+    out.picks.append(p);
+  }
+  for (const auto &v : root.value("faults").toArray())
+  {
+    const QJsonObject o = v.toObject();
+    SeismicFaultSegment seg;
+    seg.id = o.value("id").toInt();
+    seg.sectionType = static_cast<SgySliceType>(o.value("sectionType").toInt());
+    seg.sectionIndex = o.value("sectionIndex").toInt();
+    seg.interpreter = o.value("interpreter").toString();
+    seg.name = o.value("name").toString();
+    for (const auto &pv : o.value("points").toArray())
+    {
+      const QJsonArray pa = pv.toArray();
+      if (pa.size() == 2)
+        seg.points.append({pa[0].toDouble(), pa[1].toDouble()});
+    }
+    out.faults.append(seg);
+  }
+  return true;
+}
+
+bool SeismicTaskService::exportPicksCsv(const QList<SeismicPick> &picks,
+                                        const QString &filePath, QString *error)
+{
+  QFile f(filePath);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    if (error)
+      *error = QStringLiteral("无法写 %1").arg(filePath);
+    return false;
+  }
+  f.write("id,inline,xline,twt_ms,sample,confidence,interpreter,horizon\n");
+  for (const SeismicPick &p : picks)
+    f.write(QStringLiteral("%1,%2\n").arg(p.id).arg(horizonCsvLine(p)).toUtf8());
+  f.close();
+  return true;
+}
+
+// ---- D5.2 任意线提取缓存 -------------------------------------------------------
+
+qint64 SeismicTaskService::sectionCacheKey(const std::vector<glm::ivec2> &pathPoints,
+                                           std::shared_ptr<const SgyVolume> volume)
+{
+  qint64 h = 1469598103934665603ll;
+  const auto mix = [&h](qint64 v) {
+    h ^= v;
+    h *= 1099511628211ll;
+  };
+  if (volume)
+    mix(qint64(volume->Index() ? volume->Index()->fileSize : 0));
+  for (const glm::ivec2 &pt : pathPoints)
+  {
+    mix(pt.x);
+    mix(pt.y);
+  }
+  return h;
+}
+
+std::shared_ptr<const SgySliceImage> SeismicTaskService::cachedSection(
+    const std::vector<glm::ivec2> &pathPoints,
+    std::shared_ptr<const SgyVolume> volume) const
+{
+  const qint64 key = sectionCacheKey(pathPoints, volume);
+  for (auto &entry : sectionCache_)
+  {
+    if (entry.key == key)
+    {
+      entry.lastUse = ++sectionCacheClock_;
+      return entry.image;
+    }
+  }
+  return nullptr;
+}
+
+void SeismicTaskService::cacheSection(const std::vector<glm::ivec2> &pathPoints,
+                                      std::shared_ptr<const SgyVolume> volume,
+                                      std::shared_ptr<const SgySliceImage> image)
+{
+  const qint64 key = sectionCacheKey(pathPoints, volume);
+  for (auto it = sectionCache_.begin(); it != sectionCache_.end();)
+    it = (it->key == key) ? sectionCache_.erase(it) : it + 1;
+  sectionCache_.push_back({key, image, ++sectionCacheClock_});
+  while (sectionCache_.size() > 4)
+  {
+    // 淘汰最久未用
+    auto oldest = sectionCache_.begin();
+    for (auto it = sectionCache_.begin(); it != sectionCache_.end(); ++it)
+      if (it->lastUse < oldest->lastUse)
+        oldest = it;
+    sectionCache_.erase(oldest);
+  }
+}
+
+// ---- D5.4 合成记录 -------------------------------------------------------------
+
+SeismicTaskService::SeismicSyntheticResult SeismicTaskService::computeSyntheticSeismogram(
+    const std::vector<double> &acDepthsM, const std::vector<float> &acUsPerM,
+    const std::vector<double> &denDepthsM, const std::vector<float> &denValues,
+    const TimeDepthModel &tdModel, double rickerHz)
+{
+  SeismicSyntheticResult result;
+  if (acDepthsM.size() < 2 || acDepthsM.size() != acUsPerM.size())
+  {
+    result.reason = QStringLiteral("声波曲线（AC）缺失或不足 2 个采样点");
+    return result;
+  }
+  if (denDepthsM.size() < 2 || denDepthsM.size() != denValues.size())
+  {
+    result.reason = QStringLiteral("密度曲线（DEN）缺失或不足 2 个采样点");
+    return result;
+  }
+  if (!tdModel.isValid())
+  {
+    result.reason = QStringLiteral("时深表缺失或无效——合成记录需时深标定");
+    return result;
+  }
+
+  // 公共深度轴（两曲线深度并集排序去重）+ 线性插值对齐
+  std::vector<double> depths;
+  depths.reserve(acDepthsM.size() + denDepthsM.size());
+  depths.insert(depths.end(), acDepthsM.begin(), acDepthsM.end());
+  depths.insert(depths.end(), denDepthsM.begin(), denDepthsM.end());
+  std::sort(depths.begin(), depths.end());
+  depths.erase(std::unique(depths.begin(), depths.end()), depths.end());
+  const auto interp = [](const std::vector<double> &xs, const std::vector<float> &ys,
+                         double x) -> float {
+    if (x <= xs.front())
+      return ys.front();
+    if (x >= xs.back())
+      return ys.back();
+    const auto it = std::lower_bound(xs.begin(), xs.end(), x);
+    const std::size_t hi = std::size_t(it - xs.begin());
+    const std::size_t lo = hi - 1;
+    const double t = (x - xs[lo]) / std::max(1e-9, xs[hi] - xs[lo]);
+    return float(ys[lo] + t * (ys[hi] - ys[lo]));
+  };
+
+  // 波阻抗 Z = ρ · V（V = 1e6 / DT μs/m，m/s）
+  std::vector<double> z;
+  z.reserve(depths.size());
+  for (double d : depths)
+  {
+    const float dtUs = interp(acDepthsM, acUsPerM, d);
+    const float rho = interp(denDepthsM, denValues, d);
+    const double v = dtUs > 1e-6 ? 1e6 / double(dtUs) : 0.0;
+    z.push_back(double(rho) * v);
+  }
+
+  // 反射系数（层间）+ 时深转换（顶底 TWT 中点）
+  std::vector<double> rcTwt;
+  std::vector<float> rc;
+  for (std::size_t i = 1; i < z.size(); ++i)
+  {
+    const double denom = z[i] + z[i - 1];
+    if (denom < 1e-9)
+      continue;
+    const double r = (z[i] - z[i - 1]) / denom;
+    if (std::abs(r) < 1e-10)
+      continue;
+    const double twt = tdModel.DepthToTwtMs((depths[i] + depths[i - 1]) * 0.5);
+    if (!std::isfinite(twt) || twt <= 0.0)
+      continue;
+    rcTwt.push_back(twt);
+    rc.push_back(float(r));
+  }
+  if (rcTwt.empty())
+  {
+    result.reason = QStringLiteral("反射系数序列为空（曲线平直或时深超出范围）");
+    return result;
+  }
+
+  // Ricker 子波褶积：输出 2ms 采样网格
+  const double dtMs = 2.0;
+  const double tStart = *std::min_element(rcTwt.begin(), rcTwt.end()) - 100.0;
+  const double tEnd = *std::max_element(rcTwt.begin(), rcTwt.end()) + 100.0;
+  const double pi2 = 2.0 * std::acos(-1.0);
+  const double f2 = rickerHz * rickerHz;
+  for (double t = std::max(0.0, tStart); t <= tEnd; t += dtMs)
+  {
+    double amp = 0.0;
+    for (std::size_t k = 0; k < rcTwt.size(); ++k)
+    {
+      const double tau = t - rcTwt[k]; // 褶积：子波平移到反射点
+      const double a = pi2 * f2 * tau * tau / 1e6; // ms² → s² 折算在分子
+      (void)a;
+      const double arg = pi2 * f2 * (tau / 1000.0) * (tau / 1000.0);
+      amp += double(rc[k]) * (1.0 - 2.0 * arg) * std::exp(-arg);
+    }
+    result.twtMs.push_back(t);
+    result.amplitude.push_back(float(amp));
+  }
+  // 归一化到 [-1,1]
+  float maxAbs = 1e-12f;
+  for (float v : result.amplitude)
+    maxAbs = std::max(maxAbs, std::abs(v));
+  for (float &v : result.amplitude)
+    v /= maxAbs;
+  result.sampleCount = int(result.amplitude.size());
+  result.ok = result.sampleCount > 4;
+  if (!result.ok)
+    result.reason = QStringLiteral("褶积输出为空");
+  return result;
+}
+
+// ---- D6 性能与可靠性 -----------------------------------------------------------
+
+SeismicTaskService::SeismicErrorCategory SeismicTaskService::SeismicErrorCategory::classify(
+    const QString &error, bool glContextFailed)
+{
+  SeismicErrorCategory out;
+  if (glContextFailed)
+  {
+    out.kind = Kind::GlUnavailable;
+    out.userText = QStringLiteral("OpenGL 不可用（驱动/软渲染缺失）——三维视口已回退 2D 拼接视图");
+    return out;
+  }
+  if (error.isEmpty())
+  {
+    out.kind = Kind::None;
+    return out;
+  }
+  if (error.contains(QStringLiteral("不存在")) || error.contains(QStringLiteral("无法打开")) ||
+      error.contains(QStringLiteral("No such file")) || error.contains(QStringLiteral("cannot open")))
+  {
+    out.kind = Kind::FileMissing;
+    out.userText = QStringLiteral("地震文件缺失或不可读：%1").arg(error);
+    return out;
+  }
+  if (error.contains(QStringLiteral("索引")) || error.contains(QStringLiteral("index")) ||
+      error.contains(QStringLiteral("corrupt")) || error.contains(QStringLiteral("损坏")))
+  {
+    out.kind = Kind::IndexCorrupt;
+    out.userText = QStringLiteral("索引损坏或不完整（将自动重建）：%1").arg(error);
+    return out;
+  }
+  if (error.contains(QStringLiteral("内存")) || error.contains(QStringLiteral("memory")) ||
+      error.contains(QStringLiteral("bad_alloc")))
+  {
+    out.kind = Kind::MemoryBudget;
+    out.userText = QStringLiteral("内存预算超限——建议启用 .sf3p 分页通道（按页取数）");
+    return out;
+  }
+  if (error.contains(QStringLiteral("取消")))
+  {
+    out.kind = Kind::Cancelled;
+    out.userText = error;
+    return out;
+  }
+  out.kind = Kind::Other;
+  out.userText = error;
+  return out;
+}
+
+qint64 SeismicTaskService::totalRamBytes()
+{
+#if defined(Q_OS_UNIX)
+  const long pages = sysconf(_SC_PHYS_PAGES);
+  const long pageSize = sysconf(_SC_PAGESIZE);
+  if (pages > 0 && pageSize > 0)
+    return qint64(pages) * pageSize;
+  return 0;
+#elif defined(Q_OS_WINDOWS)
+  MEMORYSTATUSEX status{};
+  status.dwLength = sizeof(status);
+  if (GlobalMemoryStatusEx(&status))
+    return qint64(status.ullTotalPhys);
+  return 0;
+#else
+  return 0;
+#endif
+}
+
+SeismicTaskService::SeismicMemoryReport SeismicTaskService::assessMemoryBudget(
+    qint64 volumeBytes, qint64 totalRamOverride)
+{
+  SeismicMemoryReport report;
+  report.volumeBytes = volumeBytes;
+  report.totalRamBytes = totalRamOverride > 0 ? totalRamOverride : totalRamBytes();
+  report.budgetBytes = report.totalRamBytes / 2;
+  report.overBudget = report.totalRamBytes > 0 && volumeBytes > report.budgetBytes;
+  if (report.overBudget)
+    report.recommendation = QStringLiteral(
+        "体 %1 GB 超过内存预算（RAM/2 ≈ %2 GB）——建议转码 .sf3p 分页工作区并启用分页通道")
+        .arg(volumeBytes / 1073741824.0, 0, 'f', 1)
+        .arg(report.budgetBytes / 1073741824.0, 0, 'f', 1);
+  return report;
+}
+
+qint64 SeismicTaskService::estimatedMemoryBytes() const
+{
+  qint64 total = 0;
+  // 数据缓存按预算上限估（LRU 上界）
+  total += qint64(dataCache_.Budget());
+  // 任意线缓存按实占
+  for (const SectionCacheEntry &e : sectionCache_)
+    if (e.image)
+      total += qint64(e.image->values.size()) * 4 + qint64(e.image->rgba.size());
+  // 数据集条目：每条 chunk 256MB + slice 64MB 缓存预算（引擎契约上限）
+  QMutexLocker lock(&registry_->mutex);
+  total += qint64(registry_->entries.size()) * (256 + 64) * 1024 * 1024;
+  return total;
+}
+
+// D6.4 并发闸：≤4 个地震任务同时执行（信号量槽位；排队者阻塞在信号量上
+// 不耗 CPU，获取后先查取消再干活——取消不悬挂）。闸以 shared_ptr 由 worker
+// 携带：服务析构时在途 worker 安全退出（同 registry 析构竞态模式）。
+PaleoTask *SeismicTaskService::startBounded(const QString &title,
+                                            const std::function<QString(PaleoTask *)> &work,
+                                            const QString &layerId)
+{
+  const auto gate = gate_; // shared_ptr：析构安全
+  gate->active.fetch_add(1);
+  const std::function<QString(PaleoTask *)> gated =
+      [gate, work](PaleoTask *task) -> QString {
+        gate->slotSemaphore.acquire();
+        const QString err = task->cancelRequested() ? QString() : work(task);
+        gate->slotSemaphore.release();
+        return err;
+      };
+  PaleoTask *task = taskService_->start(title, gated, layerId);
+  QObject::connect(task, &PaleoTask::finished, this, [gate]() {
+    gate->active.fetch_sub(1);
   });
   return task;
 }

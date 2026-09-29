@@ -5,11 +5,17 @@
 #include <QPointer>
 #include <QString>
 
+#include <array>
 #include <memory>
 
+#include "seismic3dcolormap.h"
+#include "seismic3dfallback.h"
 #include "seismic3dviewportwidget.h"
 #include "../../services/seismictaskservice.h"
 
+class QCheckBox;
+class QComboBox;
+class QDoubleSpinBox;
 class QSlider;
 class QSpinBox;
 class QLabel;
@@ -45,6 +51,31 @@ public:
     [[nodiscard]] int currentCrossline() const;
     [[nodiscard]] int currentTimeSample() const;
 
+    // D3.4 井位标记（调用者换算到 inline/xline + sampleFrac）
+    void setWells(const std::vector<Seismic3DWell> &wells);
+    // D3.12 多体叠加：第二工区轮廓
+    void setSecondaryVolume(std::shared_ptr<const SgyVolume> secondary);
+    [[nodiscard]] bool hasSecondaryVolume() const;
+
+    // D3.5 当前 colormap（预设名或"自定义"）
+    void setColorMap(const Seismic3DColorMap &cmap);
+    [[nodiscard]] Seismic3DColorMap colorMap() const { return cmap_; }
+    // D3.3 透明度与值域裁剪（0..1 归一化带）
+    void setSliceAlpha(float alpha);
+    void setValueRange(float minFrac, float maxFrac);
+
+    // D3.9 回退态查询（GL 不可用时视口被 2D 拼接件替换）
+    [[nodiscard]] bool isFallbackActive() const { return fallbackActive_; }
+
+    // D3.1 体渲染（切片堆叠）开关
+    void setStackModeEnabled(bool enabled);
+    [[nodiscard]] bool isStackModeEnabled() const { return stackMode_; }
+
+    // D3.6 相机书签
+    void saveCameraBookmark(const QString &name);
+    void applyCameraBookmark(int index);
+    [[nodiscard]] QStringList cameraBookmarkNames() const;
+
 signals:
     void inlineChanged(int inlineNo);
     void crosslineChanged(int xlineNo);
@@ -60,11 +91,16 @@ private slots:
 
 private:
     void buildUi();
+    void buildDisplayBar();          // D3.x 显示控制行
     void requestSliceUpdate(SeismicSliceSlot slot, SgySliceType type, int index);
+    void requestStackLayers();       // D3.1 堆叠层提取
+    void recolorizeSlice(SeismicSliceSlot slot); // D3.5/D3.3 重着色+上传
     void updateTimeMsLabel(int sampleIdx);
     void switchLod(int level, bool refreshAfter);
     void refreshVisibleSlices();
     void updateQualityLabel(const QString &quality);
+    void activateFallback();         // D3.9
+    void checkMemoryBudget();        // D3.8
 
     Seismic3DViewportWidget *viewport_ = nullptr;
     QPointer<SeismicTaskService> taskSvc_;
@@ -104,6 +140,47 @@ private:
     bool inlineExtracting_ = false;
     bool crosslineExtracting_ = false;
     bool timeExtracting_ = false;
+
+    // D3.x 显示控制行控件
+    QComboBox *cboColorMap_ = nullptr;
+    QToolButton *btnCmapEdit_ = nullptr;       // D3.5 自定义控制点编辑
+    QSlider *sliderAlpha_ = nullptr;           // D3.3 透明度
+    QDoubleSpinBox *spinRangeMin_ = nullptr;   // D3.3 值域裁剪
+    QDoubleSpinBox *spinRangeMax_ = nullptr;
+    QToolButton *btnStack_ = nullptr;          // D3.1 体渲染堆叠
+    QToolButton *btnShot_ = nullptr;           // D3.7 截图
+    QCheckBox *chkFps_ = nullptr;              // D3.10 帧率
+    QComboBox *cboCamBookmark_ = nullptr;      // D3.6 相机书签
+    QToolButton *btnCamSave_ = nullptr;
+    QToolButton *btnCamDel_ = nullptr;
+    QLabel *memoryHintLabel_ = nullptr;        // D3.8
+
+    // D3.5/D3.3 渲染状态
+    Seismic3DColorMap cmap_;
+    bool customCmapActive_ = false;  // false = 引擎预烘焙 rgba 直传
+    float alpha_ = 1.0f;
+    float rangeMinFrac_ = 0.0f;
+    float rangeMaxFrac_ = 1.0f;
+    std::array<SgySliceImage, 3> cachedSlices_;   // values 保真缓存（重着色用）
+    std::array<int, 3> cachedIndex_{};
+    std::array<bool, 3> cachedReady_{};
+
+    // D3.1 堆叠层
+    bool stackMode_ = false;
+    bool stackExtracting_ = false;
+    int stackTargetLayers_ = 0;
+
+    // D3.9 回退
+    bool fallbackActive_ = false;
+    Seismic3DFallbackWidget *fallback_ = nullptr;
+    QTimer *glWatchTimer_ = nullptr;
+
+    // D3.6 相机书签（内存态；QSettings 持久化在 save/apply 中）
+    struct CamBookmark {
+        QString name;
+        SeismicCameraController::CameraState state;
+    };
+    QList<CamBookmark> camBookmarks_;
 };
 
 } // namespace seismic

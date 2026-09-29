@@ -3124,6 +3124,26 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     btnTranscode->setStyleSheet(transcodeBtnStyle);
     btnTranscode->setEnabled(!abs.isEmpty() && QFile::exists(abs)
                              && !QFile::exists(abs + QStringLiteral(".sf3c.meta")));
+    // D1.2/D1.6：断点探测——半成品给「继续转码」入口，旧版/损坏给「重建」提示
+    if (auto *probeSvc = (m_doc ? m_doc->seismicTaskService() : nullptr))
+    {
+      const seismic::SeismicWorkspaceProbe wp = probeSvc->probeWorkspace(abs);
+      if (wp.exists && wp.readable && !wp.complete)
+      {
+        btnTranscode->setEnabled(true);
+        btnTranscode->setText(tr("继续转码 (.sf3c)"));
+        btnTranscode->setToolTip(tr("检测到未完成的 .sf3c 工作区（%1）。点击继续，已写分片自动跳过")
+                                     .arg(wp.stateText()));
+      }
+      else if (wp.exists && !wp.readable)
+      {
+        btnTranscode->setEnabled(true);
+        btnTranscode->setText(tr("重建工作区 (.sf3c)"));
+        btnTranscode->setToolTip(tr("现有 .sf3c 工作区不可读（%1，格式版本 v%2）。再次转码将自动重建")
+                                     .arg(wp.error.isEmpty() ? tr("格式不支持") : wp.error)
+                                     .arg(wp.formatVersion));
+      }
+    }
     timeBarLay->addWidget(btnTranscode);
 
     auto *btnPagedTranscode = new QToolButton(timeBar);
@@ -3135,6 +3155,17 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     const QString pagedPathForButtons = abs + QStringLiteral(".sf3p");
     btnPagedTranscode->setEnabled(!abs.isEmpty() && QFile::exists(abs)
                                   && !QFile::exists(pagedPathForButtons));
+    if (auto *probeSvc = (m_doc ? m_doc->seismicTaskService() : nullptr))
+    {
+      const seismic::SeismicWorkspaceProbe pp = probeSvc->probePagedWorkspace(pagedPathForButtons);
+      if (pp.exists && !pp.complete)
+      {
+        btnPagedTranscode->setEnabled(true);
+        btnPagedTranscode->setText(tr("继续转码 (.sf3p)"));
+        btnPagedTranscode->setToolTip(tr("检测到未完成的 .sf3p 分页工作区（%1）。点击继续，已完成页自动跳过")
+                                          .arg(pp.stateText()));
+      }
+    }
     timeBarLay->addWidget(btnPagedTranscode);
 
     auto *transcodeProgress = new QProgressBar(timeBar);
@@ -3211,18 +3242,28 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
       if (!svc)
         return;
-      const auto answer = QMessageBox::question(
-          btnTranscode, tr("转码地震工作区"),
-          tr("将 %1 转码为 .sf3c 分片工作区（体积与源文件同量级）。\n"
-             "过程可取消并续跑；完成后切片与任意剖面走随机访问后端。")
-              .arg(QFileInfo(abs).fileName()));
+      // D1.2：点击时重新探测——续跑/新建/重建三种话术
+      const seismic::SeismicWorkspaceProbe wp = svc->probeWorkspace(abs);
+      QString questionText;
+      if (wp.exists && wp.readable && !wp.complete)
+        questionText = tr("检测到未完成的 .sf3c 工作区（%1）。\n继续转码（已写分片自动跳过）？")
+                           .arg(wp.stateText());
+      else if (wp.exists && !wp.readable)
+        questionText = tr("现有 .sf3c 工作区不可读（%1）。\n重新转码将自动重建，继续？")
+                           .arg(wp.error.isEmpty() ? tr("格式版本不支持") : wp.error);
+      else
+        questionText = tr("将 %1 转码为 .sf3c 分片工作区（体积与源文件同量级）。\n"
+                          "过程可取消并续跑；完成后切片与任意剖面走随机访问后端。")
+                           .arg(QFileInfo(abs).fileName());
+      const auto answer = QMessageBox::question(btnTranscode, tr("转码地震工作区"), questionText);
       if (answer != QMessageBox::Yes)
         return;
       btnTranscode->setEnabled(false);
       btnTranscode->setText(tr("转码中…（可取消）"));
       const QPointer<QToolButton> guard(btnTranscode);
-      PaleoTask *task = svc->startWorkspaceTranscode(abs, QString(),
-                                                     [guard, refreshBackendStatus](bool ok, const QString &, const QString &err) {
+      PaleoTask *task = svc->startWorkspaceTranscodeDetailed(
+          abs, QString(),
+          [guard, refreshBackendStatus](bool ok, const QString &, const QString &err) {
         if (!guard)
           return;
         if (ok)
@@ -3233,11 +3274,25 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         }
         else
         {
-          guard->setText(QObject::tr("转码工作区 (.sf3c)"));
+          // D1.2：取消/失败后若留有半成品，入口变「继续转码」
+          guard->setText(QObject::tr("继续转码 (.sf3c)"));
           guard->setEnabled(true);
           if (!err.isEmpty())
             QMessageBox::warning(guard, QObject::tr("转码未完成"), err);
         }
+      },
+          [guard](const seismic::SeismicTranscodeReport &report) {
+        if (!guard)
+          return;
+        // D1.4：质量报告挂按钮 tooltip（道数/覆盖率/丢弃率/值域）
+        guard->setToolTip(report.summaryLine());
+        if (report.ok)
+          QMessageBox::information(guard, QObject::tr("转码完成"), report.summaryLine());
+        else if (report.damagedTraces > 0)
+          QMessageBox::warning(guard, QObject::tr("转码包含坏道"),
+                               QObject::tr("损坏源道 %1 条已跳过（NaN 填充），如 %2…")
+                                   .arg(report.damagedTraces)
+                                   .arg(report.damagedSample.isEmpty() ? QString() : report.damagedSample.first()));
       });
       bindTranscodeTask(task);
     });
@@ -3248,20 +3303,27 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
       if (!svc)
         return;
-      const auto answer = QMessageBox::question(
-          btnPagedTranscode, tr("转码分页工作区"),
-          tr("将 %1 转码为 .sf3p 分页工作区并构建 L1/L2 金字塔\n"
-             "（含瓦片渐进时间片与渐进 LOD；体积与源文件同量级）。\n"
-             "过程可取消并续跑。")
-              .arg(QFileInfo(abs).fileName()));
+      // D1.2：点击时重新探测（.partial 半成品 → 续跑话术）
+      const seismic::SeismicWorkspaceProbe pp = svc->probePagedWorkspace(pagedPathForButtons);
+      QString pagedQuestion;
+      if (pp.exists && !pp.complete)
+        pagedQuestion = tr("检测到未完成的 .sf3p 分页工作区（%1）。\n继续转码（已完成页自动跳过）？")
+                            .arg(pp.stateText());
+      else
+        pagedQuestion = tr("将 %1 转码为 .sf3p 分页工作区并按体量自适应构建金字塔\n"
+                           "（含瓦片渐进时间片与渐进 LOD；体积与源文件同量级）。\n"
+                           "过程可取消并续跑。")
+                            .arg(QFileInfo(abs).fileName());
+      const auto answer = QMessageBox::question(btnPagedTranscode, tr("转码分页工作区"), pagedQuestion);
       if (answer != QMessageBox::Yes)
         return;
       btnPagedTranscode->setEnabled(false);
       btnPagedTranscode->setText(tr("转码中…（可取消）"));
       const QPointer<QToolButton> guard(btnPagedTranscode);
-      PaleoTask *task = svc->startPagedTranscode(abs, pagedPathForButtons, /*buildLod=*/true,
-                                                 [guard, refreshBackendStatus, sharedPaged, panel3d, sharedVol,
-                                                  pagedPathForButtons](bool ok, const QString &, const QString &err) {
+      PaleoTask *task = svc->startPagedTranscodeDetailed(
+          abs, pagedPathForButtons, /*buildLod=*/true,
+          [guard, refreshBackendStatus, sharedPaged, panel3d, sharedVol,
+           pagedPathForButtons](bool ok, const QString &, const QString &err) {
         if (!guard)
           return;
         if (ok)
@@ -3276,11 +3338,18 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         }
         else
         {
-          guard->setText(QObject::tr("转码分页工作区 (.sf3p)"));
+          guard->setText(QObject::tr("继续转码 (.sf3p)"));
           guard->setEnabled(true);
           if (!err.isEmpty())
             QMessageBox::warning(guard, QObject::tr("分页转码未完成"), err);
         }
+      },
+          [guard](const seismic::SeismicTranscodeReport &report) {
+        if (!guard)
+          return;
+        guard->setToolTip(report.summaryLine());
+        if (report.ok)
+          QMessageBox::information(guard, QObject::tr("分页转码完成"), report.summaryLine());
       });
       bindTranscodeTask(task);
     });
@@ -3350,6 +3419,16 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
       if (panel3dGuard && svc)
         panel3dGuard->setTaskService(svc);
+        // D3.2：三维切片拖动联动 2D——IL/XL 变化走 openSeismicLine（拨线号并
+        // 聚焦 2D 页），T 变化拨时间片采样值
+        QObject::connect(panel3dGuard, &seismic::Seismic3DViewPanel::inlineChanged,
+                         panel3dGuard, [this, abs](int inlineNo) {
+          openSeismicLine(abs, QStringLiteral("inline"), inlineNo, 0.0);
+        });
+        QObject::connect(panel3dGuard, &seismic::Seismic3DViewPanel::crosslineChanged,
+                         panel3dGuard, [this, abs](int xlineNo) {
+          openSeismicLine(abs, QStringLiteral("crossline"), xlineNo, 0.0);
+        });
 
       if (!svc)
       {

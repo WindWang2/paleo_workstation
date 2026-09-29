@@ -3,7 +3,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <limits>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "Engine/LodBuilder.h"
 #include "Engine/PagedWorkspace.h"
@@ -48,6 +51,13 @@ struct PagedBuildResult {
     std::uint64_t bytesWritten = 0;
     bool reused = false;
     double elapsedSeconds = 0.0;
+
+    // P9 (paleo): L0 quality evidence (LOD levels aggregate the L0 numbers).
+    std::uint64_t missingTraceCount = 0;   // (inline, xline) absent in source
+    std::uint64_t damagedTraceCount = 0;   // source read failed -> NaN-filled
+    std::vector<std::pair<int, int>> damagedTraceSample; // first 32
+    float valueMin = std::numeric_limits<float>::quiet_NaN();
+    float valueMax = std::numeric_limits<float>::quiet_NaN();
 };
 
 struct PagedPyramidResult {

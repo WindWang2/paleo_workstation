@@ -1,6 +1,12 @@
 // 层：视图
 #include "seismic3dviewportwidget.h"
 
+#include <QPainter>
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+
 static void initSeismicResources() {
     Q_INIT_RESOURCE(seismic_shaders);
 }
@@ -18,6 +24,10 @@ Seismic3DViewportWidget::Seismic3DViewportWidget(QWidget *parent)
 
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
+
+    // D3.11 惯性旋转：松手后按速度衰减续转（16ms 节拍）
+    inertiaTimer_.setInterval(16);
+    connect(&inertiaTimer_, &QTimer::timeout, this, [this]() { applyInertia(); });
 }
 
 Seismic3DViewportWidget::~Seismic3DViewportWidget() {
@@ -61,6 +71,7 @@ void Seismic3DViewportWidget::initializeGL() {
         pendingLineSlice_.valid = false;
     }
 
+    fpsClock_.start();
     emit glReady();
     update();
 }
@@ -96,6 +107,22 @@ void Seismic3DViewportWidget::paintGL() {
 
     sliceRenderer_.Render(this, view, proj, model);
     frameRenderer_.Render(this, view, proj, model);
+
+    // D3.10 帧率读数（debug 开关；半秒滚动均值）
+    ++fpsFrames_;
+    if (fpsClock_.elapsed() >= 500) {
+        fps_ = fpsFrames_ * 1000.0 / double(fpsClock_.elapsed());
+        fpsFrames_ = 0;
+        fpsClock_.restart();
+    }
+    if (fpsVisible_) {
+        QPainter p(this);
+        p.setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
+        p.setPen(QColor(95, 165, 240));
+        p.drawText(rect().adjusted(6, 4, -6, -4), Qt::AlignTop | Qt::AlignRight,
+                   QStringLiteral("%1 fps").arg(fps_, 0, 'f', 1));
+        p.end();
+    }
 }
 
 void Seismic3DViewportWidget::setVolume(std::shared_ptr<SgyVolume> volume) {
@@ -124,6 +151,7 @@ bool Seismic3DViewportWidget::updateSlice(
     if (!volume_) {
         return false;
     }
+    sliceIndex_[static_cast<int>(slot) % 3] = index; // D3.2 拖动换算基准
     if (!glInitialized_) {
         pendingSlices_[slot] = {slot, type, index, image};
         return true;
@@ -198,8 +226,23 @@ void Seismic3DViewportWidget::fitToBounds() {
 
 void Seismic3DViewportWidget::mousePressEvent(QMouseEvent *event) {
     lastMousePos_ = event->position();
+    rotateVelocity_ = QPointF(0, 0);
+    inertiaTimer_.stop();
     if (event->button() == Qt::LeftButton && !(event->modifiers() & Qt::ShiftModifier)) {
-        dragMode_ = DragMode::Rotate;
+        // D3.2：点中切片面 → 拖面（Ctrl 按住强制旋转，避免抢交互）
+        if (event->modifiers() & Qt::ControlModifier) {
+            dragMode_ = DragMode::Rotate;
+        } else {
+            const SeismicSliceSlot hit = pickSliceAt(event->position());
+            if (hit != SeismicSliceSlot::Line && sliceRenderer_.IsSlotVisible(hit) &&
+                sliceRenderer_.IsSlotReady(hit)) {
+                dragMode_ = DragMode::SliceDrag;
+                dragSlot_ = hit;
+                setCursor(Qt::SizeAllCursor);
+                return;
+            }
+            dragMode_ = DragMode::Rotate;
+        }
     } else if (event->button() == Qt::RightButton || event->button() == Qt::MiddleButton ||
                (event->button() == Qt::LeftButton && (event->modifiers() & Qt::ShiftModifier))) {
         dragMode_ = DragMode::Pan;
@@ -210,17 +253,33 @@ void Seismic3DViewportWidget::mousePressEvent(QMouseEvent *event) {
 
 void Seismic3DViewportWidget::mouseMoveEvent(QMouseEvent *event) {
     if (dragMode_ == DragMode::None) {
+        // D3.2 悬停高亮提示：落在切片面上给拖拽光标
+        if (!sliceRenderer_.IsStackVisible()) {
+            const SeismicSliceSlot hit = pickSliceAt(event->position());
+            setCursor((hit != SeismicSliceSlot::Line && sliceRenderer_.IsSlotReady(hit))
+                          ? Qt::SizeAllCursor : Qt::ArrowCursor);
+        }
         return;
     }
 
-    const float dx = static_cast<float>(event->position().x() - lastMousePos_.x());
-    const float dy = static_cast<float>(event->position().y() - lastMousePos_.y());
+    const QPointF delta = event->position() - lastMousePos_;
+    const float dx = static_cast<float>(delta.x());
+    const float dy = static_cast<float>(delta.y());
     lastMousePos_ = event->position();
 
     if (dragMode_ == DragMode::Rotate) {
         camera_.Rotate(dx, dy);
+        rotateVelocity_ = delta; // D3.11 惯性速度采样
     } else if (dragMode_ == DragMode::Pan) {
         camera_.Pan(dx, dy);
+    } else if (dragMode_ == DragMode::SliceDrag) {
+        // D3.2：拖面换索引 → 面板重提取 + 广播（联动 2D 剖面）
+        const int newIndex = draggedSliceIndex(dragSlot_, delta);
+        if (newIndex != sliceIndex_[static_cast<int>(dragSlot_)]) {
+            sliceIndex_[static_cast<int>(dragSlot_)] = newIndex;
+            emit sliceDragged(dragSlot_, newIndex);
+        }
+        return; // 拖面不动相机
     }
 
     update();
@@ -228,7 +287,25 @@ void Seismic3DViewportWidget::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void Seismic3DViewportWidget::mouseReleaseEvent(QMouseEvent * /*event*/) {
+    if (dragMode_ == DragMode::Rotate && inertiaEnabled_ &&
+        std::abs(rotateVelocity_.x()) + std::abs(rotateVelocity_.y()) > 2.0) {
+        inertiaTimer_.start(); // D3.11 惯性续转
+    }
     dragMode_ = DragMode::None;
+    setCursor(Qt::ArrowCursor);
+}
+
+void Seismic3DViewportWidget::applyInertia() {
+    // 速度衰减 0.92/帧；低于阈值停表
+    rotateVelocity_ *= 0.92;
+    if (std::abs(rotateVelocity_.x()) + std::abs(rotateVelocity_.y()) < 0.6) {
+        inertiaTimer_.stop();
+        return;
+    }
+    camera_.Rotate(static_cast<float>(rotateVelocity_.x()),
+                   static_cast<float>(rotateVelocity_.y()));
+    update();
+    emit cameraChanged();
 }
 
 void Seismic3DViewportWidget::wheelEvent(QWheelEvent *event) {
@@ -240,6 +317,184 @@ void Seismic3DViewportWidget::wheelEvent(QWheelEvent *event) {
 
 void Seismic3DViewportWidget::mouseDoubleClickEvent(QMouseEvent * /*event*/) {
     fitToBounds();
+}
+
+// ---- D3.2 切片面拾取与拖拽换算 ----
+
+SeismicSliceSlot Seismic3DViewportWidget::pickSliceAt(const QPointF &pos) const {
+    if (!volume_ || !volume_->IsLoaded() || glInitialized_ == false)
+        return SeismicSliceSlot::Line;
+    const float aspect = height() > 0 ? static_cast<float>(width()) / static_cast<float>(height()) : 1.0f;
+    const glm::mat4 mvp = camera_.BuildProjectionMatrix(aspect) * camera_.BuildViewMatrix();
+
+    struct PlaneDef {
+        SeismicSliceSlot slot;
+        SgySliceType type;
+        int index;
+    };
+    const PlaneDef planes[3] = {
+        {SeismicSliceSlot::Inline, SgySliceType::Inline, sliceIndex_[0]},
+        {SeismicSliceSlot::Crossline, SgySliceType::Xline, sliceIndex_[1]},
+        {SeismicSliceSlot::Time, SgySliceType::Time, sliceIndex_[2]},
+    };
+
+    // 构造与切片渲染一致的 4 角（与 BuildSliceVertices 同映射），投影到屏幕
+    const float hScale = SeismicSliceRenderer::HorizontalScale();
+    const float vScale = SeismicSliceRenderer::HeightScale();
+    const auto normalize = [&](int value, int minValue, int maxValue, float scale) {
+        const float range = static_cast<float>(std::max(1, maxValue - minValue));
+        return ((static_cast<float>(value - minValue) / range) - 0.5f) * scale;
+    };
+    const float xMin = normalize(volume_->XlineMin(), volume_->XlineMin(), volume_->XlineMax(), hScale);
+    const float xMax = normalize(volume_->XlineMax(), volume_->XlineMin(), volume_->XlineMax(), hScale);
+    const float zMin = normalize(volume_->InlineMin(), volume_->InlineMin(), volume_->InlineMax(), hScale);
+    const float zMax = normalize(volume_->InlineMax(), volume_->InlineMin(), volume_->InlineMax(), hScale);
+    const float yTop = vScale * 0.5f;
+    const float yBottom = -vScale * 0.5f;
+
+    for (const PlaneDef &plane : planes) {
+        if (!sliceRenderer_.IsSlotVisible(plane.slot))
+            continue;
+        std::array<glm::vec3, 4> corners{};
+        if (plane.type == SgySliceType::Inline) {
+            const float z = normalize(plane.index, volume_->InlineMin(), volume_->InlineMax(), hScale);
+            corners = {{{xMin, yBottom, z}, {xMax, yBottom, z}, {xMax, yTop, z}, {xMin, yTop, z}}};
+        } else if (plane.type == SgySliceType::Xline) {
+            const float x = normalize(plane.index, volume_->XlineMin(), volume_->XlineMax(), hScale);
+            corners = {{{x, yBottom, zMin}, {x, yBottom, zMax}, {x, yTop, zMax}, {x, yTop, zMin}}};
+        } else {
+            const float y = -((static_cast<float>(plane.index) / std::max(1.0f, static_cast<float>(volume_->SampleMax()))) - 0.5f) * vScale;
+            corners = {{{xMin, y, zMin}, {xMax, y, zMin}, {xMax, y, zMax}, {xMin, y, zMax}}};
+        }
+        // 投影 + 点在四边形内测试（符号一致法）
+        int inside = 0;
+        for (const glm::vec3 &c : corners) {
+            const glm::vec4 clip = mvp * glm::vec4(c, 1.0f);
+            if (clip.w <= 1e-4f) { inside = -99; break; }
+            const float sx = (clip.x / clip.w * 0.5f + 0.5f) * width();
+            const float sy = (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * height();
+            const float cross = (sx - pos.x()) * (sx - pos.x()) + (sy - pos.y()) * (sy - pos.y());
+            (void)cross;
+        }
+        // 简化：屏幕空间四边形（凸）— 用角点连线做 point-in-polygon
+        bool allSame = true;
+        bool lastSign = false;
+        bool valid = true;
+        std::array<QPointF, 5> poly;
+        for (std::size_t i = 0; i < 4; ++i) {
+            const glm::vec4 clip = mvp * glm::vec4(corners[i], 1.0f);
+            if (clip.w <= 1e-4f) { valid = false; break; }
+            poly[i] = QPointF((clip.x / clip.w * 0.5f + 0.5f) * width(),
+                              (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * height());
+        }
+        if (!valid)
+            continue;
+        poly[4] = poly[0];
+        for (std::size_t i = 0; i < 4; ++i) {
+            const QPointF &a = poly[i];
+            const QPointF &b = poly[i + 1];
+            const double cross = (b.x() - a.x()) * (pos.y() - a.y()) -
+                                 (b.y() - a.y()) * (pos.x() - a.x());
+            const bool sign = cross >= 0.0;
+            if (i == 0)
+                lastSign = sign;
+            else if (sign != lastSign)
+                allSame = false;
+        }
+        if (allSame)
+            return plane.slot;
+    }
+    return SeismicSliceSlot::Line; // 未命中
+}
+
+int Seismic3DViewportWidget::draggedSliceIndex(SeismicSliceSlot slot, const QPointF &delta) const {
+    if (!volume_ || !volume_->IsLoaded())
+        return sliceIndex_[static_cast<int>(slot)];
+    int index = sliceIndex_[static_cast<int>(slot)];
+    int minV = 0, maxV = 1;
+    if (slot == SeismicSliceSlot::Inline) {
+        minV = volume_->InlineMin();
+        maxV = volume_->InlineMax();
+        // 屏幕横向（近似测线方向）拖动换 IL；左右方向与相机 yaw 相关——用
+        // 简单启发：dx 正 → IL 增
+        index += static_cast<int>(std::round(delta.x() * 0.15));
+    } else if (slot == SeismicSliceSlot::Crossline) {
+        minV = volume_->XlineMin();
+        maxV = volume_->XlineMax();
+        index -= static_cast<int>(std::round(delta.x() * 0.15));
+    } else {
+        maxV = volume_->SampleMax();
+        index -= static_cast<int>(std::round(delta.y() * 0.1)); // 上拖 → 时间上移
+    }
+    return std::clamp(index, minV, std::max(minV, maxV));
+}
+
+// ---- D3.1 / D3.3 / D3.4 / D3.7 / D3.12 ----
+
+bool Seismic3DViewportWidget::updateStackLayer(int layerIdx, int sampleIndex, const SgySliceImage &image) {
+    if (!volume_)
+        return false;
+    if (!glInitialized_) {
+        return false; // GL 未就绪时堆叠层由面板在 glReady 后重发
+    }
+    makeCurrent();
+    const bool ok = sliceRenderer_.UpdateStackLayer(this, layerIdx, *volume_, sampleIndex, image);
+    doneCurrent();
+    if (ok)
+        update();
+    return ok;
+}
+
+void Seismic3DViewportWidget::setStackVisible(bool visible) {
+    sliceRenderer_.SetStackVisible(visible);
+    update();
+}
+
+bool Seismic3DViewportWidget::isStackVisible() const {
+    return sliceRenderer_.IsStackVisible();
+}
+
+void Seismic3DViewportWidget::setStackLayerCount(int count) {
+    const int clamped = std::clamp(count, 0, SeismicSliceRenderer::kMaxStackLayers);
+    if (clamped == stackLayerCount_)
+        return;
+    // 只显示前 N 层（层序 = 体积分布序）
+    for (int i = 0; i < SeismicSliceRenderer::kMaxStackLayers; ++i)
+        sliceRenderer_.SetStackLayerVisible(i, i < clamped);
+    stackLayerCount_ = clamped;
+    update();
+}
+
+void Seismic3DViewportWidget::setSliceAlpha(float alpha) {
+    sliceRenderer_.SetSliceAlpha(alpha);
+    update();
+}
+
+QImage Seismic3DViewportWidget::grabViewportImage() {
+    if (!glInitialized_)
+        return QImage();
+    return grabFramebuffer();
+}
+
+void Seismic3DViewportWidget::setWells(const std::vector<Seismic3DWell> &wells) {
+    if (!volume_)
+        return;
+    if (glInitialized_) {
+        makeCurrent();
+        frameRenderer_.UpdateWells(this, *volume_, wells);
+        doneCurrent();
+        update();
+    }
+}
+
+void Seismic3DViewportWidget::setSecondaryVolume(std::shared_ptr<const SgyVolume> secondary) {
+    secondaryVolume_ = std::move(secondary);
+    if (!volume_ || !glInitialized_)
+        return;
+    makeCurrent();
+    frameRenderer_.SetSecondaryVolume(this, *volume_, secondaryVolume_);
+    doneCurrent();
+    update();
 }
 
 } // namespace seismic

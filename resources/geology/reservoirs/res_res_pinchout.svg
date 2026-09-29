@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <line x1="5" y1="35" x2="135" y2="35" stroke="#000" stroke-width="1"/>
+  <text x="70" y="40" text-anchor="middle" font-size="14" fill="#000">[ × × ]</text>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">储层断层尖厚</text>
+</svg>

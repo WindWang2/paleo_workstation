@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <polygon points="70,10 82,22 76,42 64,42 58,22" fill="none" stroke="#888" stroke-width="1.5"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">方解石</text>
+</svg>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <rect x="5" y="10" width="130" height="45" rx="5" fill="#E8D0F0" stroke="#9B59B6" stroke-width="1.5"/>
+  <text x="70" y="28" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">东方1-1南区</text>
+  <text x="70" y="44" text-anchor="middle" font-size="10" fill="#555">3D 1600.9km²</text>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">三维标注(粉紫)</text>
+</svg>

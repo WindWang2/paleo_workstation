@@ -1,0 +1,212 @@
+// 层：视图
+#include "linkage/seismicmaplink.h"
+#include "linkage/selectioncontext.h"
+#include "paleoicons.h"
+#include "paleomainwindow.h"
+#include "qgis/qgiscanvascontroller.h"
+#include "seismicsection/sectionsetupdialog.h"
+#include "seismicsection/seismicsectiondockwidget.h"
+#include "services/previewdoc.h"
+#include "workflow/sectionworkbench.h"
+#include <QAction>
+#include <QFileInfo>
+#include <QPointer>
+#include <QStatusBar>
+#include <qgsmapcanvas.h>
+#include <qgsrubberband.h>
+
+void PaleoMainWindow::attachSections(SeismicMapLink *link) {
+  m_sectionLink = link;
+  if (!link || !m_seismicSectionDock || !m_previewDoc)
+    return;
+  auto *dock = m_seismicSectionDock;
+  if (m_seismicTaskSvc)
+    dock->setTaskService(m_seismicTaskSvc.get());
+  auto *workbench = new SectionWorkbench(m_previewDoc->catalog(), this);
+  auto *setup = new SectionSetupDialog(this);
+  auto route = std::make_shared<std::vector<glm::dvec2>>();
+  auto routeHorizon = std::make_shared<QString>();
+  auto *band =
+      new QgsRubberBand(m_canvasCtl->canvas(), Qgis::GeometryType::Line);
+  band->setColor(QColor("#1B73D0"));
+  band->setWidth(2);
+  auto refresh = [workbench, setup] {
+    setup->setWells(workbench->wells());
+    setup->setSavedSections(workbench->savedSections());
+  };
+  auto report = [this, setup](const QString &message) {
+    setup->setMessage(message);
+    statusBar()->showMessage(message, 10000);
+  };
+  auto open = [setup, refresh] {
+    refresh();
+    setup->show();
+    setup->raise();
+    setup->activateWindow();
+  };
+  auto *action = new QAction(tr("连井 / 时深对齐"), this);
+  action->setObjectName("sectionWorkbenchAction");
+  action->setIcon(PaleoIcons::qgisTheme("mActionElevationProfile.svg"));
+  action->setToolTip(
+      tr("按井顺序或地图折线提取地震剖面，叠加测井与分层并校正时深关系"));
+  connect(action, &QAction::triggered, this, open);
+  connect(dock, &seismic::SeismicSectionDockWidget::setupRequested, this, open);
+  connect(link, &SeismicMapLink::sectionVolumeChanged, dock,
+          &seismic::SeismicSectionDockWidget::setVolume);
+  connect(link, &SeismicMapLink::sectionVolumeChanged, this, [route, band] {
+    route->clear();
+    band->reset(Qgis::GeometryType::Line);
+  });
+  auto catalogPath =
+      std::make_shared<QString>(m_previewDoc->catalog()->catalogPath());
+  connect(m_previewDoc->catalog(), &DataCatalog::changed, this,
+          [this, catalogPath, link, refresh] {
+            const auto path = m_previewDoc->catalog()->catalogPath();
+            if (*catalogPath != path) {
+              *catalogPath = path;
+              link->setActiveVolume(nullptr);
+              refresh();
+            }
+          });
+  auto locate = [link, dock](bool clicked, int trace, double time, double depth,
+                             float amp, double x, double y) {
+    if (dock->canvas()->orientation() ==
+        seismic::SectionOrientation::TimeSlice) {
+      const auto grid = link->gridGeometry();
+      if (!grid.valid)
+        return;
+      const double inl = y, xl = x;
+      grid.inlineXlineToXy(inl, xl, &x, &y);
+    }
+    if (clicked)
+      link->onSectionTraceClicked(trace, time, depth, amp, x, y);
+    else
+      link->onSectionTraceHovered(trace, time, depth, amp, x, y);
+  };
+  connect(dock->canvas(), &seismic::SeismicSectionCanvas::traceHovered, link,
+          [locate](int a, double b, double c, float d, double e, double f) {
+            locate(false, a, b, c, d, e, f);
+          });
+  connect(dock->canvas(), &seismic::SeismicSectionCanvas::traceClicked, link,
+          [locate](int a, double b, double c, float d, double e, double f) {
+            locate(true, a, b, c, d, e, f);
+          });
+  connect(link, &SeismicMapLink::sectionExtractedFromMap, this,
+          [report](bool ok, const QString &error) {
+            if (!ok)
+              report(error);
+          });
+  connect(link, &SeismicMapLink::sectionExtractRequested, dock,
+          [this, dock, workbench, route, routeHorizon, band,
+           setup](std::shared_ptr<const seismic::SgyVolume> volume,
+                  std::vector<glm::ivec2> points, QString title,
+                  std::vector<glm::dvec2> line) {
+            *route = line;
+            *routeHorizon =
+                m_selection ? m_selection->activeHorizon() : QString();
+            band->reset(Qgis::GeometryType::Line);
+            for (const auto &p : line)
+              band->addPoint(QgsPointXY(p.x, p.y));
+            band->show();
+            dock->extractSectionFromVolumeAsync(volume, points, title, line,
+                                                workbench->sectionWells());
+            setup->setMessage(
+                QObject::tr("正在提取剖面；沿线井按各自时深关系叠加。"));
+            dock->show();
+            dock->raise();
+          });
+  connect(dock, &seismic::SeismicSectionDockWidget::sectionExtractionFinished,
+          this, [dock, workbench, report](bool ok, const QString &error) {
+            if (ok && dock->hasRoute()) {
+              dock->refreshWellOverlay(workbench->sectionWells());
+              report(QObject::tr("剖面已更新。可在“井与分层”设置偏距范围；未对"
+                                 "齐或超范围的数据不叠加。"));
+            } else if (!ok)
+              report(error);
+          });
+  connect(setup, &SectionSetupDialog::drawRequested, this,
+          [this, setup, link, report] {
+            if (!link->activeVolume() || !link->gridGeometry().valid) {
+              report(tr("请先导入带有效坐标的地震体"));
+              return;
+            }
+            showPage("constraint");
+            setup->hide();
+            link->activateSectionCaptureTool();
+            m_canvasCtl->canvas()->setFocus();
+            report(tr("左键添加节点，右键完成；退格撤回节点，Esc 取消。"));
+          });
+  connect(setup, &SectionSetupDialog::buildRequested, this,
+          [link, workbench, report](const QStringList &ids) {
+            QString error;
+            const auto points = workbench->wellRoute(ids, &error);
+            if (points.empty()) {
+              report(error);
+              return;
+            }
+            QVector<QgsPointXY> line;
+            for (const auto &p : points)
+              line << QgsPointXY(p.x, p.y);
+            link->triggerSectionFromMapPolyline(
+                line, QObject::tr("连井剖面 · %1 口井").arg(ids.size()));
+          });
+  connect(
+      setup, &SectionSetupDialog::calibrationRequested, this,
+      [dock, workbench, refresh, report](const QString &id, bool constant,
+                                         double velocity, double shift) {
+        QString error;
+        if (!workbench->setCalibration(id, constant, velocity, shift, &error)) {
+          report(error);
+          return;
+        }
+        dock->refreshWellOverlay(workbench->sectionWells());
+        refresh();
+        report(QObject::tr("时深对齐已应用；保存剖面新版本后可在工程中恢复。"));
+      });
+  connect(setup, &SectionSetupDialog::saveRequested, this,
+          [this, dock, route, routeHorizon, workbench, refresh,
+           report](const QString &name) {
+            if (!dock->hasRoute()) {
+              report(tr("请先完成连井或任意折线剖面提取"));
+              return;
+            }
+            QString error;
+            const auto path =
+                dock->volume()
+                    ? QString::fromStdString(dock->volume()->Path().string())
+                    : QString();
+            if (!workbench->save(name, *route, path, *routeHorizon, &error)) {
+              report(error);
+              return;
+            }
+            refresh();
+            report(tr("路线、逐井时深校正与来源关系已保存为工程新版本。"));
+          });
+  connect(setup, &SectionSetupDialog::restoreRequested, this,
+          [workbench, link, routeHorizon, refresh, report](const QString &id) {
+            if (!link->activeVolume()) {
+              report(QObject::tr("请先加载剖面使用的地震体"));
+              return;
+            }
+            QString error;
+            const auto state = workbench->restore(
+                id, &error,
+                QString::fromStdString(link->activeVolume()->Path().string()));
+            if (state.isEmpty()) {
+              report(error);
+              return;
+            }
+            refresh();
+            QVector<QgsPointXY> line;
+            for (const auto &v : state.value("route").toList()) {
+              auto p = v.toMap();
+              line << QgsPointXY(p.value("x").toDouble(),
+                                 p.value("y").toDouble());
+            }
+            link->triggerSectionFromMapPolyline(line,
+                                                QObject::tr("恢复的剖面版本"));
+            *routeHorizon = state.value("horizon").toString();
+          });
+  if (link->activeVolume())
+    dock->setVolume(link->activeVolume());
+}

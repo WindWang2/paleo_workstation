@@ -50,6 +50,8 @@
 #include "../qgis/qgislayerprofile.h"       // m1 页面档案：setLayoutMapTheme/pageThemeName
 #include "../qgis/qgiseditingservice.h"
 #include "../services/paleotaskservice.h"
+#include "../services/pythonenv.h"
+#include "../workflow/mamcltool.h"
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 #include "ui/seismic3d/seismic3dviewpanel.h"
 #include "services/seismictaskservice.h"
@@ -87,6 +89,7 @@
 #include <QShortcut>
 #include <QToolButton>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QStatusBar>
 #include <QStackedLayout>
 #include <QTabWidget>
@@ -172,30 +175,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   stack->addWidget(composePage);
   stack->addWidget(validatePage);
 
-  // Phase 5: 井-震-图联动 (SeismicMapLink) 接线——linkage 不碰 ui 类型：
-  // 剖面画布的悬停/点击信号连进联动器槽，联动器的体量推送连回剖面控件。
-  if (seismicLink && m_seismicSectionDock && m_seismicSectionDock->canvas())
-  {
-    connect(m_seismicSectionDock->canvas(), &seismic::SeismicSectionCanvas::traceHovered,
-            seismicLink, &SeismicMapLink::onSectionTraceHovered);
-    connect(m_seismicSectionDock->canvas(), &seismic::SeismicSectionCanvas::traceClicked,
-            seismicLink, &SeismicMapLink::onSectionTraceClicked);
-    connect(seismicLink, &SeismicMapLink::sectionVolumeChanged,
-            m_seismicSectionDock, &seismic::SeismicSectionDockWidget::setVolume);
-    // 地图折线剖面意图 → dock 异步提取 + 露出（W3b：linkage 只发信号）。
-    connect(seismicLink, &SeismicMapLink::sectionExtractRequested,
-            m_seismicSectionDock,
-            [this](std::shared_ptr<const seismic::SgyVolume> volume,
-                   std::vector<glm::ivec2> pathPoints, QString title,
-                   std::vector<glm::dvec2> mapPolyline) {
-              m_seismicSectionDock->extractSectionFromVolumeAsync(
-                  volume, pathPoints, title, mapPolyline);
-              m_seismicSectionDock->show();
-              m_seismicSectionDock->raise();
-            });
-    if (auto volume = seismicLink->activeVolume())
-      m_seismicSectionDock->setVolume(volume);
-  }
+  attachSections(seismicLink);
   WellCorrelationPanel *corrPanel = nullptr;
   if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
   {
@@ -203,7 +183,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     {
       corrPanel = new WellCorrelationPanel(m_selection, bottomTabs);
       corrPanel->setObjectName(QStringLiteral("correlationPanel"));
-      bottomTabs->addTab(corrPanel, tr("连井剖面"));
+      bottomTabs->addTab(corrPanel, tr("测井对比"));
     }
   }
 
@@ -571,6 +551,36 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                 node->setItemVisibilityChecked(true); // 显示意图（可能已在）
             });
     // ---- m2(A) end ----
+  }
+
+  // MAMCL 外部工具：视图只发意图；解包/venv/依赖/启动编排在 MamclTool
+  // （功能层）+ PythonEnvService（数据层）。与 pred 是否在场无关，独立接线。
+  if (predictPage)
+  {
+    auto *status = predictPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
+    const QString envRoot =
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) +
+        QStringLiteral("/external/mamcl");
+    auto *pyenv = new PythonEnvService(envRoot, this);
+    auto *mamcl = new MamclTool(pyenv, this);
+    connect(predictPage, &PredictPage::mamclLaunchRequested, mamcl, &MamclTool::open);
+    connect(mamcl, &MamclTool::busyChanged, predictPage, &PredictPage::setMamclBusy);
+    connect(mamcl, &MamclTool::statusMessage, predictPage,
+            [status](const QString &msg) {
+              if (status)
+                status->setText(msg);
+            });
+    connect(mamcl, &MamclTool::launchFinished, predictPage,
+            [status](bool ok, const QString &msg) {
+              if (status)
+                status->setText(msg);
+              if (!ok)
+                QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::Critical);
+            });
+    // pip/解包逐行输出落消息日志（状态条只承载阶段文案，不刷屏）。
+    connect(pyenv, &PythonEnvService::outputLine, this, [](const QString &line) {
+      QgsMessageLog::logMessage(line, QStringLiteral("MAMCL"), Qgis::Info);
+    });
   }
 }
 

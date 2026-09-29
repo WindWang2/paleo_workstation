@@ -1,0 +1,257 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1200" width="1400" height="1200">
+  <defs>
+    <style>
+      .title { font-family: SimHei, Microsoft YaHei, sans-serif; font-size: 20px; font-weight: bold; fill: #1a1a1a; }
+      .subtitle { font-family: SimSun, serif; font-size: 13px; fill: #666; }
+      .category { font-family: SimHei, Microsoft YaHei, sans-serif; font-size: 15px; font-weight: bold; fill: #c41e3a; }
+      .label { font-family: SimSun, serif; font-size: 12px; fill: #1a1a1a; }
+      .code { font-family: Arial, sans-serif; font-size: 10px; fill: #888; }
+      .desc { font-family: SimSun, serif; font-size: 11px; fill: #444; }
+      .remark { font-family: SimSun, serif; font-size: 10px; fill: #999; }
+      .cell-border { fill: none; stroke: #ccc; stroke-width: 0.5; }
+      .bg-normal { fill: #fff8f8; }
+      .bg-reverse { fill: #f8f8ff; }
+      .bg-strike { fill: #fffff8; }
+      .bg-uncertain { fill: #f5f5f5; }
+      .bg-complex { fill: #fff8f8; }
+    </style>
+
+    <!-- Marker for inferred faults (dashed) -->
+    <marker id="arrow-normal" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+      <path d="M 0 0 L 6 3 L 0 6 Z" fill="#333"/>
+    </marker>
+    <marker id="arrow-reverse" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+      <path d="M 0 0 L 6 3 L 0 6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="1200" fill="#fafafa"/>
+
+  <!-- Title -->
+  <text x="700" y="35" text-anchor="middle" class="title">断层图式符号库</text>
+  <text x="700" y="55" text-anchor="middle" class="subtitle">Fault Line Symbol Library — Q/HS 1011—2016 附录 I.1 (表 I.1)</text>
+
+  <!-- ========== 正断层 Normal Faults ========== -->
+  <text x="20" y="85" class="category">一、正断层 (Normal Fault) — 红色 #D71414</text>
+  <rect x="15" y="88" width="1370" height="380" class="cell-border"/>
+
+  <!-- Ungraded normal fault -->
+  <text x="30" y="115" class="label">正断层（不分类）</text>
+  <text x="30" y="130" class="desc">Normal Fault (ungraded)</text>
+  <text x="30" y="143" class="code">DCX-B1-2H/C</text>
+  <text x="350" y="130" class="remark">不分级，修改符号</text>
+  <!-- Symbol: diagonal line with triangles -->
+  <g transform="translate(200, 110)">
+    <line x1="0" y1="20" x2="120" y2="0" stroke="#D71414" stroke-width="2"/>
+    <!-- triangles pointing down-right -->
+    <polygon points="30,18 34,14 38,18" fill="#D71414"/>
+    <polygon points="50,14 54,10 58,14" fill="#D71414"/>
+    <polygon points="70,10 74,6 78,10" fill="#D71414"/>
+    <polygon points="90,6 94,2 98,6" fill="#D71414"/>
+    <polygon points="110,2 114,-2 118,2" fill="#D71414"/>
+  </g>
+
+  <!-- Grade 1 normal fault -->
+  <text x="30" y="175" class="label">一级正断层</text>
+  <text x="30" y="190" class="desc">1st Grade Normal Fault</text>
+  <text x="30" y="203" class="code">DCX-B1-3H/C</text>
+  <text x="350" y="190" class="remark">凹陷正断层。凹和凸起间的断层，对应海油标准中的正断层</text>
+  <g transform="translate(200, 170)">
+    <line x1="0" y1="20" x2="120" y2="0" stroke="#D71414" stroke-width="2.5"/>
+    <polygon points="25,20 31,13 37,20" fill="#D71414"/>
+    <polygon points="55,14 61,7 67,14" fill="#D71414"/>
+    <polygon points="85,8 91,1 97,8" fill="#D71414"/>
+  </g>
+
+  <!-- Grade 2 normal fault -->
+  <text x="30" y="235" class="label">二级正断层</text>
+  <text x="30" y="250" class="desc">2nd Grade Normal Fault</text>
+  <text x="30" y="263" class="code">DCX-B1-4H/C</text>
+  <text x="350" y="250" class="remark">洼陷与凹陷内隆起带间断层</text>
+  <g transform="translate(200, 230)">
+    <line x1="0" y1="20" x2="120" y2="0" stroke="#D71414" stroke-width="2"/>
+    <polygon points="30,19 34,15 38,19" fill="#D71414"/>
+    <polygon points="55,14 59,10 63,14" fill="#D71414"/>
+    <polygon points="80,9 84,5 88,9" fill="#D71414"/>
+    <polygon points="105,4 109,0 113,4" fill="#D71414"/>
+  </g>
+
+  <!-- Grade 3 normal fault -->
+  <text x="30" y="295" class="label">三级正断层</text>
+  <text x="30" y="310" class="desc">3rd Grade Normal Fault</text>
+  <text x="30" y="323" class="code">DCX-B1-5H/C</text>
+  <text x="350" y="310" class="remark">主要指划分断块区和大型断块间的断层</text>
+  <g transform="translate(200, 290)">
+    <line x1="0" y1="20" x2="120" y2="0" stroke="#D71414" stroke-width="1.5"/>
+    <polygon points="25,19 28,16 31,19" fill="#D71414"/>
+    <polygon points="45,15 48,12 51,15" fill="#D71414"/>
+    <polygon points="65,11 68,8 71,11" fill="#D71414"/>
+    <polygon points="85,7 88,4 91,7" fill="#D71414"/>
+    <polygon points="105,3 108,0 111,3" fill="#D71414"/>
+  </g>
+
+  <!-- Grade 4 normal fault -->
+  <text x="30" y="355" class="label">四级正断层</text>
+  <text x="30" y="370" class="desc">4th Grade Normal Fault</text>
+  <text x="30" y="383" class="code">DCX-B1-6H/C</text>
+  <text x="350" y="370" class="remark">主要指断块区内划分断块（小断块）或使大断块复杂化的断层</text>
+  <g transform="translate(200, 350)">
+    <line x1="0" y1="20" x2="120" y2="0" stroke="#D71414" stroke-width="1.2"/>
+    <polygon points="25,19 27,17 29,19" fill="#D71414"/>
+    <polygon points="40,16 42,14 44,16" fill="#D71414"/>
+    <polygon points="55,13 57,11 59,13" fill="#D71414"/>
+    <polygon points="70,10 72,8 74,10" fill="#D71414"/>
+    <polygon points="85,7 87,5 89,7" fill="#D71414"/>
+    <polygon points="100,4 102,2 104,4" fill="#D71414"/>
+  </g>
+
+  <!-- Inferred normal fault -->
+  <text x="30" y="420" class="label">推测正断层</text>
+  <text x="30" y="435" class="desc">Inferred Normal Fault</text>
+  <text x="30" y="448" class="code">DCX-B1-27H/C</text>
+  <text x="350" y="435" class="remark">虚线 + 正断层符号</text>
+  <g transform="translate(200, 420)">
+    <line x1="0" y1="20" x2="120" y2="0" stroke="#D71414" stroke-width="1.5" stroke-dasharray="6,4"/>
+    <polygon points="30,19 34,15 38,19" fill="#D71414"/>
+    <polygon points="60,13 64,9 68,13" fill="#D71414"/>
+    <polygon points="90,7 94,3 98,7" fill="#D71414"/>
+  </g>
+
+  <!-- Regional / sag fault -->
+  <text x="30" y="485" class="label">区域断裂 / 坳陷断裂线</text>
+  <text x="30" y="500" class="desc">Regional / Sag Fault</text>
+  <text x="30" y="513" class="code">DCX-B1-1H/C</text>
+  <text x="350" y="500" class="remark">坳陷和隆起间的断裂</text>
+  <g transform="translate(200, 480)">
+    <line x1="0" y1="20" x2="120" y2="0" stroke="#D71414" stroke-width="2.5" stroke-dasharray="15,5"/>
+    <polygon points="40,18 46,11 52,18" fill="#D71414"/>
+    <polygon points="80,10 86,3 92,10" fill="#D71414"/>
+  </g>
+
+  <!-- ========== 逆断层 Reverse Faults ========== -->
+  <text x="20" y="550" class="category">二、逆断层 (Reverse Fault) — 红色 #D71414</text>
+  <rect x="15" y="553" width="1370" height="310" class="cell-border"/>
+
+  <!-- Ungraded reverse fault -->
+  <text x="30" y="578" class="label">逆断层（不分类）</text>
+  <text x="30" y="593" class="desc">Reverse Fault (ungraded)</text>
+  <text x="30" y="606" class="code">DCX-B1-7H</text>
+  <text x="350" y="593" class="remark">不分类</text>
+  <g transform="translate(200, 570)">
+    <line x1="0" y1="20" x2="120" y2="0" stroke="#333" stroke-width="2"/>
+    <!-- triangles pointing up-right -->
+    <polygon points="30,22 34,18 38,22" fill="#333"/>
+    <polygon points="55,17 59,13 63,17" fill="#333"/>
+    <polygon points="80,12 84,8 88,12" fill="#333"/>
+    <polygon points="105,7 109,3 113,7" fill="#333"/>
+  </g>
+
+  <!-- Grade 1 reverse -->
+  <text x="30" y="635" class="label">一级逆断层</text>
+  <text x="30" y="650" class="desc">1st Grade Reverse Fault</text>
+  <text x="30" y="663" class="code">DCX-B1-8H/C</text>
+  <text x="350" y="650" class="remark">用法及范围同正断层</text>
+  <g transform="translate(200, 630)">
+    <line x1="0" y1="20" x2="120" y2="0" stroke="#D71414" stroke-width="2.5"/>
+    <polygon points="25,22 31,15 37,22" fill="#D71414"/>
+    <polygon points="55,15 61,8 67,15" fill="#D71414"/>
+    <polygon points="85,8 91,1 97,8" fill="#D71414"/>
+  </g>
+
+  <!-- Grade 2 reverse -->
+  <text x="30" y="695" class="label">二级逆断层</text>
+  <text x="30" y="710" class="desc">2nd Grade Reverse Fault</text>
+  <text x="30" y="723" class="code">DCX-B1-9H/C</text>
+  <text x="350" y="710" class="remark">用法及范围同正断层</text>
+  <g transform="translate(200, 690)">
+    <line x1="0" y1="20" x2="120" y2="0" stroke="#D71414" stroke-width="2"/>
+    <polygon points="30,21 34,17 38,21" fill="#D71414"/>
+    <polygon points="55,16 59,12 63,16" fill="#D71414"/>
+    <polygon points="80,11 84,7 88,11" fill="#D71414"/>
+    <polygon points="105,6 109,2 113,6" fill="#D71414"/>
+  </g>
+
+  <!-- Grade 3 reverse -->
+  <text x="30" y="755" class="label">三级逆断层</text>
+  <text x="30" y="770" class="desc">3rd Grade Reverse Fault</text>
+  <text x="30" y="783" class="code">DCX-B1-10H/C</text>
+  <text x="350" y="770" class="remark">用法及范围同正断层</text>
+  <g transform="translate(200, 750)">
+    <line x1="0" y1="20" x2="120" y2="0" stroke="#D71414" stroke-width="1.5"/>
+    <polygon points="25,20 28,17 31,20" fill="#D71414"/>
+    <polygon points="45,16 48,13 51,16" fill="#D71414"/>
+    <polygon points="65,12 68,9 71,12" fill="#D71414"/>
+    <polygon points="85,8 88,5 91,8" fill="#D71414"/>
+    <polygon points="105,4 108,1 111,4" fill="#D71414"/>
+  </g>
+
+  <!-- Grade 4 reverse -->
+  <text x="30" y="815" class="label">四级逆断层</text>
+  <text x="30" y="830" class="desc">4th Grade Reverse Fault</text>
+  <text x="30" y="843" class="code">DCX-B1-11H/C</text>
+  <text x="350" y="830" class="remark">用法及范围同正断层</text>
+  <g transform="translate(200, 810)">
+    <line x1="0" y1="20" x2="120" y2="0" stroke="#D71414" stroke-width="1.2"/>
+    <polygon points="25,20 27,18 29,20" fill="#D71414"/>
+    <polygon points="40,17 42,15 44,17" fill="#D71414"/>
+    <polygon points="55,14 57,12 59,14" fill="#D71414"/>
+    <polygon points="70,11 72,9 74,11" fill="#D71414"/>
+    <polygon points="85,8 87,6 89,8" fill="#D71414"/>
+    <polygon points="100,5 102,3 104,5" fill="#D71414"/>
+  </g>
+
+  <!-- Inferred reverse fault -->
+  <text x="30" y="875" class="label">推测逆断层</text>
+  <text x="30" y="890" class="desc">Inferred Reverse Fault</text>
+  <text x="30" y="903" class="code">DCX-B1-28H/C</text>
+  <g transform="translate(200, 870)">
+    <line x1="0" y1="20" x2="120" y2="0" stroke="#D71414" stroke-width="1.5" stroke-dasharray="6,4"/>
+    <polygon points="30,21 34,17 38,21" fill="#D71414"/>
+    <polygon points="60,14 64,10 68,14" fill="#D71414"/>
+    <polygon points="90,7 94,3 98,7" fill="#D71414"/>
+  </g>
+
+  <!-- ========== 平推断层 Strike-slip Faults ========== -->
+  <text x="20" y="945" class="category">三、平推断层 (Strike-slip Fault) — 红色 #D71414</text>
+  <rect x="15" y="948" width="1370" height="240" class="cell-border"/>
+
+  <!-- Ungraded strike-slip -->
+  <text x="30" y="973" class="label">平推断层（不分类）</text>
+  <text x="30" y="988" class="desc">Strike-slip Fault (ungraded)</text>
+  <text x="30" y="1001" class="code">DCX-B1-12H/C</text>
+  <text x="350" y="988" class="remark">不分级的平推断层</text>
+  <g transform="translate(200, 965)">
+    <line x1="0" y1="15" x2="120" y2="15" stroke="#D71414" stroke-width="2"/>
+    <polygon points="40,18 45,12 50,18" fill="#D71414"/>
+    <polygon points="80,18 85,12 90,18" fill="#D71414"/>
+  </g>
+
+  <!-- Grade 1 strike-slip -->
+  <text x="30" y="1035" class="label">一级平推断层</text>
+  <text x="30" y="1050" class="desc">1st Grade Strike-slip</text>
+  <text x="30" y="1063" class="code">DCX-B1-13H/C</text>
+  <text x="350" y="1050" class="remark">用法及范围同正断层，对应海油标准的平推断层</text>
+  <g transform="translate(200, 1030)">
+    <line x1="0" y1="15" x2="120" y2="15" stroke="#D71414" stroke-width="2.5"/>
+    <polygon points="35,18 41,10 47,18" fill="#D71414"/>
+    <polygon points="75,18 81,10 87,18" fill="#D71414"/>
+  </g>
+
+  <!-- Grade 2 strike-slip -->
+  <text x="30" y="1097" class="label">二级平推断层</text>
+  <text x="30" y="1112" class="desc">2nd Grade Strike-slip</text>
+  <text x="30" y="1125" class="code">DCX-B1-14H/C</text>
+  <text x="350" y="1112" class="remark">用法及范围同正断层</text>
+  <g transform="translate(200, 1095)">
+    <line x1="0" y1="15" x2="120" y2="15" stroke="#D71414" stroke-width="2"/>
+    <polygon points="38,18 42,13 46,18" fill="#D71414"/>
+    <polygon points="78,18 82,13 86,18" fill="#D71414"/>
+  </g>
+
+  <!-- Footer -->
+  <text x="700" y="1195" text-anchor="middle" class="remark" fill="#888">
+    注：正断层三角形指向下盘，逆断层三角形指向上盘。等级越高，符号越简化。
+  </text>
+</svg>

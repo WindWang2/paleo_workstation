@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <circle cx="70" cy="25" r="12" fill="#00CC00" stroke="#000" stroke-width="0.5"/>
+  <line x1="70" y1="37" x2="70" y2="55" stroke="#8B4513" stroke-width="2"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">独立树</text>
+</svg>

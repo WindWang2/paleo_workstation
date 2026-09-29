@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <defs>
+    <pattern id="tuff" width="12" height="12" patternUnits="userSpaceOnUse">
+      <rect width="6" height="6" fill="#d8d0c0"/><circle cx="1" cy="1" r="0.6" fill="#c0b098"/><circle cx="4" cy="2.5" r="0.5" fill="#c0b098"/><circle cx="2.5" cy="4.5" r="0.7" fill="#b8a890"/>
+    </pattern>
+  </defs>
+  <rect width="80" height="80" fill="#d8d0c0" opacity="0.3"/>
+  <rect x="4" y="4" width="72" height="72" fill="url(#tuff)" stroke="#999" stroke-width="0.5"/>
+  <text x="40" y="42" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#333" opacity="0.7">凝灰岩</text>
+</svg>

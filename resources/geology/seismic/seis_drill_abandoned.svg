@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <circle cx="70" cy="32" r="18" fill="none" stroke="#666" stroke-width="2"/>
+  <text x="70" y="38" text-anchor="middle" font-size="16" font-weight="bold" fill="#666">废</text>
+  <circle cx="70" cy="32" r="18" fill="none" stroke="#666" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">报废井</text>
+</svg>

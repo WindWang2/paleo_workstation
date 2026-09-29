@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 70" width="160" height="70">
+  <rect width="160" height="70" fill="#fff"/>
+  <polyline points="5,50 40,10 80,50 120,10 155,50" fill="none" stroke="#C87830" stroke-width="2"/>
+  <text x="80" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">尖棱褶皱</text>
+</svg>

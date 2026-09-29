@@ -1,0 +1,374 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1600" width="1400" height="1600">
+  <defs>
+    <style>
+      .title { font-family: SimHei, Microsoft YaHei, sans-serif; font-size: 20px; font-weight: bold; fill: #1a1a1a; }
+      .subtitle { font-family: SimSun, serif; font-size: 13px; fill: #666; }
+      .category { font-family: SimHei, Microsoft YaHei, sans-serif; font-size: 15px; font-weight: bold; fill: #1a6b8a; }
+      .label { font-family: SimSun, serif; font-size: 12px; fill: #1a1a1a; }
+      .code { font-family: Arial, sans-serif; font-size: 10px; fill: #888; }
+      .desc { font-family: SimSun, serif; font-size: 11px; fill: #444; }
+      .remark { font-family: SimSun, serif; font-size: 10px; fill: #999; }
+      .cell-border { fill: none; stroke: #ccc; stroke-width: 0.5; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="1600" fill="#fafafa"/>
+
+  <!-- Title -->
+  <text x="700" y="35" text-anchor="middle" class="title">油气层符号库</text>
+  <text x="700" y="55" text-anchor="middle" class="subtitle">Oil-Gas Reservoir Symbol Library — Q/HS 1011—2016 附录 L</text>
+
+  <!-- ========== 接触关系 Contact Relationships ========== -->
+  <text x="20" y="85" class="category">一、接触关系 (Contact Relationships) — 附录 L.1</text>
+  <rect x="15" y="88" width="1370" height="160" class="cell-border"/>
+
+  <text x="30" y="115" class="label">整合接触</text>
+  <text x="30" y="130" class="desc">Conformable Contact</text>
+  <text x="30" y="143" class="code">JZGX-L1-1H/C</text>
+  <g transform="translate(250, 100)">
+    <line x1="0" y1="10" x2="120" y2="10" stroke="#000" stroke-width="2"/>
+    <line x1="0" y1="20" x2="120" y2="20" stroke="#000" stroke-width="2"/>
+  </g>
+
+  <text x="600" y="115" class="label">平行不整合接触</text>
+  <text x="600" y="130" class="desc">Parallel Unconformity</text>
+  <text x="600" y="143" class="code">JZGX-L1-2H/C</text>
+  <g transform="translate(820, 100)">
+    <line x1="0" y1="10" x2="120" y2="10" stroke="#000" stroke-width="2"/>
+    <line x1="0" y1="20" x2="120" y2="20" stroke="#000" stroke-width="1" stroke-dasharray="5,3"/>
+    <!-- wavy line for erosion -->
+    <path d="M 20,25 Q 30,22 40,25 Q 50,28 60,25 Q 70,22 80,25" fill="none" stroke="#000" stroke-width="1"/>
+  </g>
+
+  <text x="30" y="190" class="label">角度不整合接触</text>
+  <text x="30" y="205" class="desc">Angular Unconformity</text>
+  <text x="30" y="218" class="code">JZGX-L1-3H/C</text>
+  <g transform="translate(250, 175)">
+    <line x1="0" y1="5" x2="80" y2="25" stroke="#000" stroke-width="2"/>
+    <line x1="0" y1="15" x2="80" y2="15" stroke="#000" stroke-width="2"/>
+    <line x1="80" y1="15" x2="120" y2="25" stroke="#000" stroke-width="1" stroke-dasharray="5,3"/>
+    <path d="M 20,30 Q 30,27 40,30 Q 50,33 60,30" fill="none" stroke="#000" stroke-width="1"/>
+  </g>
+
+  <!-- ========== 油气水层 Oil-Gas-Water Layers ========== -->
+  <text x="20" y="275" class="category">二、油气水层 (Oil-Gas-Water Layers) — 附录 L.2</text>
+  <rect x="15" y="278" width="1370" height="420" class="cell-border"/>
+
+  <!-- Possible oil -->
+  <text x="30" y="305" class="label">可能油层</text>
+  <text x="30" y="320" class="desc">Possible Oil Layer</text>
+  <text x="30" y="333" class="code">YQSC-E2-1H/C</text>
+  <g transform="translate(250, 280)">
+    <rect x="0" y="10" width="120" height="20" fill="#90EE90" stroke="#000" stroke-width="1"/>
+    <circle cx="20" cy="20" r="3" fill="#000"/>
+    <circle cx="50" cy="20" r="3" fill="#000"/>
+    <circle cx="80" cy="20" r="3" fill="#000"/>
+  </g>
+
+  <!-- Possible gas -->
+  <text x="600" y="305" class="label">可能气层</text>
+  <text x="600" y="320" class="desc">Possible Gas Layer</text>
+  <text x="600" y="333" class="code">YQSC-E2-2H/C</text>
+  <g transform="translate(820, 280)">
+    <rect x="0" y="10" width="120" height="20" fill="#90EE90" stroke="#000" stroke-width="1"/>
+    <circle cx="20" cy="20" r="3" fill="#FF9900"/>
+    <circle cx="50" cy="20" r="3" fill="#FF9900"/>
+    <circle cx="80" cy="20" r="3" fill="#FF9900"/>
+  </g>
+
+  <!-- Oil-same layer -->
+  <text x="30" y="365" class="label">油水同层</text>
+  <text x="30" y="380" class="desc">Oil-Water Same Layer</text>
+  <text x="30" y="393" class="code">YQSC-E2-3H/C</text>
+  <g transform="translate(250, 340)">
+    <rect x="0" y="10" width="120" height="20" fill="#90EE90" stroke="#000" stroke-width="1"/>
+    <rect x="60" y="10" width="60" height="20" fill="#0082FF" stroke="#000" stroke-width="1"/>
+  </g>
+
+  <!-- Water-oil layer -->
+  <text x="600" y="365" class="label">含油水层</text>
+  <text x="600" y="380" class="desc">Oil-Bearing Water Layer</text>
+  <text x="600" y="393" class="code">YQSC-E2-4H/C</text>
+  <g transform="translate(820, 340)">
+    <rect x="0" y="10" width="120" height="20" fill="#0082FF" stroke="#000" stroke-width="1"/>
+    <rect x="30" y="10" width="30" height="20" fill="#90EE90" stroke="#000" stroke-width="1"/>
+  </g>
+
+  <!-- Gas layer -->
+  <text x="30" y="425" class="label">气层</text>
+  <text x="30" y="440" class="desc">Gas Layer</text>
+  <text x="30" y="453" class="code">YQSC-E2-5H/C</text>
+  <g transform="translate(250, 400)">
+    <rect x="0" y="10" width="120" height="20" fill="#FF9900" stroke="#000" stroke-width="1"/>
+  </g>
+
+  <!-- Possible gas layer -->
+  <text x="600" y="425" class="label">可能气层</text>
+  <text x="600" y="440" class="desc">Possible Gas Layer</text>
+  <text x="600" y="453" class="code">YQSC-E2-6H/C</text>
+  <g transform="translate(820, 400)">
+    <rect x="0" y="10" width="120" height="20" fill="#FF9900" stroke="#000" stroke-width="1"/>
+    <circle cx="20" cy="20" r="3" fill="#000"/>
+    <circle cx="50" cy="20" r="3" fill="#000"/>
+    <circle cx="80" cy="20" r="3" fill="#000"/>
+  </g>
+
+  <!-- Gas-water same layer -->
+  <text x="30" y="485" class="label">气水同层</text>
+  <text x="30" y="500" class="desc">Gas-Water Same Layer</text>
+  <text x="30" y="513" class="code">YQSC-E2-7H/C</text>
+  <g transform="translate(250, 460)">
+    <rect x="0" y="10" width="120" height="20" fill="#FF9900" stroke="#000" stroke-width="1"/>
+    <rect x="60" y="10" width="60" height="20" fill="#0082FF" stroke="#000" stroke-width="1"/>
+  </g>
+
+  <!-- Water layer -->
+  <text x="600" y="485" class="label">水层</text>
+  <text x="600" y="500" class="desc">Water Layer</text>
+  <text x="600" y="513" class="code">YQSC-E2-8H/C</text>
+  <g transform="translate(820, 460)">
+    <rect x="0" y="10" width="120" height="20" fill="#0082FF" stroke="#000" stroke-width="1"/>
+  </g>
+
+  <!-- Sand layer -->
+  <text x="30" y="545" class="label">砂层</text>
+  <text x="30" y="560" class="desc">Sand Layer</text>
+  <text x="30" y="573" class="code">YQSC-E2-9H/C</text>
+  <g transform="translate(250, 520)">
+    <rect x="0" y="10" width="120" height="20" fill="#FFD700" stroke="#D71414" stroke-width="1"/>
+  </g>
+  <text x="30" y="585" class="remark">补充符号</text>
+
+  <!-- Reservoir interval fault -->
+  <text x="30" y="615" class="label">储层断层</text>
+  <text x="30" y="630" class="desc">Reservoir Interval Fault</text>
+  <text x="30" y="643" class="code">YQSC-E2-10H/C</text>
+  <text x="350" y="630" class="remark">黑色 #000000</text>
+  <g transform="translate(250, 600)">
+    <line x1="0" y1="20" x2="120" y2="20" stroke="#000" stroke-width="1.5"/>
+    <polygon points="50,15 55,20 50,25 45,20" fill="#000"/>
+  </g>
+
+  <!-- Reservoir interval pinchout -->
+  <text x="600" y="615" class="label">储层断层尖厚</text>
+  <text x="600" y="630" class="desc">Reservoir Interval Pinchout</text>
+  <text x="600" y="643" class="code">YQSC-E2-11H/C</text>
+  <g transform="translate(820, 600)">
+    <line x1="0" y1="20" x2="120" y2="20" stroke="#000" stroke-width="1"/>
+    <text x="55" y="25" text-anchor="middle" font-size="14" fill="#000">[ × × ]</text>
+  </g>
+
+  <!-- Undrilled -->
+  <text x="30" y="675" class="label">未钻穿</text>
+  <text x="30" y="690" class="desc">Not Penetrated</text>
+  <text x="30" y="703" class="code">YQSC-E2-12H/C</text>
+  <g transform="translate(250, 660)">
+    <polygon points="60,0 120,40 0,40" fill="#000"/>
+  </g>
+
+  <!-- ========== 录井含油气产状 Logging Oil-Gas Content ========== -->
+  <text x="20" y="735" class="category">三、录井含油气产状 (Logging Oil-Gas Content) — 附录 L.3</text>
+  <rect x="15" y="738" width="1370" height="260" class="cell-border"/>
+
+  <text x="30" y="765" class="label">油浸</text>
+  <text x="30" y="780" class="desc">Oil Soaking</text>
+  <text x="30" y="793" class="code">LJCZ-L3-1H/C</text>
+  <g transform="translate(200, 750)">
+    <rect x="5" y="10" width="50" height="30" fill="#90EE90" stroke="#000" stroke-width="1"/>
+    <text x="30" y="30" text-anchor="middle" font-size="12" fill="#000">浸</text>
+  </g>
+
+  <text x="400" y="765" class="label">油斑</text>
+  <text x="400" y="780" class="desc">Oil Stain</text>
+  <text x="400" y="793" class="code">LJCZ-L3-2H/C</text>
+  <g transform="translate(570, 750)">
+    <rect x="5" y="10" width="50" height="30" fill="#90EE90" stroke="#000" stroke-width="1"/>
+    <text x="30" y="30" text-anchor="middle" font-size="12" fill="#000">斑</text>
+    <!-- spot pattern -->
+    <circle cx="20" cy="18" r="2" fill="#006600"/>
+    <circle cx="35" cy="25" r="2" fill="#006600"/>
+    <circle cx="25" cy="35" r="2" fill="#006600"/>
+  </g>
+
+  <text x="770" y="765" class="label">油迹</text>
+  <text x="770" y="780" class="desc">Oil Trace</text>
+  <text x="770" y="793" class="code">LJCZ-L3-3H/C</text>
+  <g transform="translate(940, 750)">
+    <rect x="5" y="10" width="50" height="30" fill="#f0fff0" stroke="#000" stroke-width="1"/>
+    <text x="30" y="30" text-anchor="middle" font-size="12" fill="#006600">迹</text>
+  </g>
+
+  <text x="30" y="835" class="label">荧光</text>
+  <text x="30" y="850" class="desc">Fluorescence</text>
+  <text x="30" y="863" class="code">LJCZ-L3-4H/C</text>
+  <g transform="translate(200, 820)">
+    <rect x="5" y="10" width="50" height="30" fill="#FFFFCC" stroke="#000" stroke-width="1"/>
+    <text x="30" y="30" text-anchor="middle" font-size="12" fill="#CC9900">荧</text>
+  </g>
+
+  <text x="400" y="835" class="label">含油</text>
+  <text x="400" y="850" class="desc">Oil-Bearing</text>
+  <text x="400" y="863" class="code">LJCZ-L3-5H/C</text>
+  <g transform="translate(570, 820)">
+    <rect x="5" y="10" width="50" height="30" fill="#CCFFCC" stroke="#000" stroke-width="1"/>
+    <text x="30" y="30" text-anchor="middle" font-size="12" fill="#006600">含</text>
+  </g>
+
+  <text x="770" y="835" class="label">油砂</text>
+  <text x="770" y="850" class="desc">Oil Sand</text>
+  <text x="770" y="863" class="code">LJCZ-L3-6H/C</text>
+  <g transform="translate(940, 820)">
+    <rect x="5" y="10" width="50" height="30" fill="#FFD700" stroke="#000" stroke-width="1"/>
+    <text x="30" y="30" text-anchor="middle" font-size="12" fill="#000">砂</text>
+  </g>
+
+  <!-- Gas logging symbols -->
+  <text x="30" y="905" class="label">气浸</text>
+  <text x="30" y="920" class="desc">Gas Soaking</text>
+  <text x="30" y="933" class="code">LJCZ-L3-7H/C</text>
+  <g transform="translate(200, 890)">
+    <rect x="5" y="10" width="50" height="30" fill="#FFE4B5" stroke="#000" stroke-width="1"/>
+    <text x="30" y="30" text-anchor="middle" font-size="12" fill="#FF6600">浸</text>
+  </g>
+
+  <text x="400" y="905" class="label">气斑</text>
+  <text x="400" y="920" class="desc">Gas Stain</text>
+  <text x="400" y="933" class="code">LJCZ-L3-8H/C</text>
+  <g transform="translate(570, 890)">
+    <rect x="5" y="10" width="50" height="30" fill="#FFE4B5" stroke="#000" stroke-width="1"/>
+    <text x="30" y="30" text-anchor="middle" font-size="12" fill="#FF6600">斑</text>
+  </g>
+
+  <text x="770" y="905" class="label">气迹</text>
+  <text x="770" y="920" class="desc">Gas Trace</text>
+  <text x="770" y="933" class="code">LJCZ-L3-9H/C</text>
+  <g transform="translate(940, 890)">
+    <rect x="5" y="10" width="50" height="30" fill="#FFF8DC" stroke="#000" stroke-width="1"/>
+    <text x="30" y="30" text-anchor="middle" font-size="12" fill="#CC6600">迹</text>
+  </g>
+
+  <!-- ========== 测井解释 Well Logging Interpretation ========== -->
+  <text x="20" y="980" class="category">四、测井解释 (Well Logging Interpretation) — 附录 L.4</text>
+  <rect x="15" y="983" width="1370" height="260" class="cell-border"/>
+
+  <text x="30" y="1010" class="label">油层</text>
+  <text x="30" y="1025" class="desc">Oil Layer (Log Interpretation)</text>
+  <text x="30" y="1038" class="code">CJJS-L4-1H/C</text>
+  <g transform="translate(200, 990)">
+    <rect x="0" y="5" width="120" height="25" fill="#00AA00" stroke="#000" stroke-width="1.5"/>
+    <text x="60" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">油层</text>
+  </g>
+
+  <text x="600" y="1010" class="label">气层</text>
+  <text x="600" y="1025" class="desc">Gas Layer</text>
+  <text x="600" y="1038" class="code">CJJS-L4-2H/C</text>
+  <g transform="translate(820, 990)">
+    <rect x="0" y="5" width="120" height="25" fill="#FF9900" stroke="#000" stroke-width="1.5"/>
+    <text x="60" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">气层</text>
+  </g>
+
+  <text x="30" y="1080" class="label">油水同层</text>
+  <text x="30" y="1095" class="desc">Oil-Water Layer</text>
+  <text x="30" y="1108" class="code">CJJS-L4-3H/C</text>
+  <g transform="translate(200, 1060)">
+    <rect x="0" y="5" width="60" height="25" fill="#00AA00" stroke="#000" stroke-width="1.5"/>
+    <text x="30" y="23" text-anchor="middle" font-size="12" font-weight="bold" fill="#fff">油</text>
+    <rect x="60" y="5" width="60" height="25" fill="#0082FF" stroke="#000" stroke-width="1.5"/>
+    <text x="90" y="23" text-anchor="middle" font-size="12" font-weight="bold" fill="#fff">水</text>
+  </g>
+
+  <text x="600" y="1080" class="label">含油水层</text>
+  <text x="600" y="1095" class="desc">Oil-Bearing Water Layer</text>
+  <text x="600" y="1108" class="code">CJJS-L4-4H/C</text>
+  <g transform="translate(820, 1060)">
+    <rect x="0" y="5" width="120" height="25" fill="#0082FF" stroke="#000" stroke-width="1.5"/>
+    <text x="40" y="23" text-anchor="middle" font-size="12" font-weight="bold" fill="#fff">水</text>
+    <rect x="50" y="5" width="40" height="25" fill="#00AA00" stroke="#000" stroke-width="1.5"/>
+    <text x="70" y="23" text-anchor="middle" font-size="10" font-weight="bold" fill="#fff">油</text>
+  </g>
+
+  <text x="30" y="1150" class="label">差油层</text>
+  <text x="30" y="1165" class="desc">Poor Oil Layer</text>
+  <text x="30" y="1178" class="code">CJJS-L4-5H/C</text>
+  <g transform="translate(200, 1130)">
+    <rect x="0" y="5" width="120" height="25" fill="#66BB6A" stroke="#000" stroke-width="1.5" stroke-dasharray="4,2"/>
+    <text x="60" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">差油</text>
+  </g>
+
+  <text x="600" y="1150" class="label">干层</text>
+  <text x="600" y="1165" class="desc">Dry Layer</text>
+  <text x="600" y="1178" class="code">CJJS-L4-6H/C</text>
+  <g transform="translate(820, 1130)">
+    <rect x="0" y="5" width="120" height="25" fill="#ccc" stroke="#000" stroke-width="1.5"/>
+    <text x="60" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="#666">干层</text>
+  </g>
+
+  <!-- Layer position marker -->
+  <text x="30" y="1220" class="label">层位标识</text>
+  <text x="30" y="1235" class="desc">Layer Position Marker</text>
+  <text x="30" y="1248" class="code">CWBS-L4-7H/C</text>
+  <g transform="translate(200, 1210)">
+    <rect x="0" y="5" width="120" height="25" fill="none" stroke="#000" stroke-width="1.5" stroke-dasharray="8,4"/>
+    <text x="60" y="23" text-anchor="middle" font-size="12" fill="#000">— — —</text>
+  </g>
+
+  <!-- ========== 水淹层 Water-Flooded Zones ========== -->
+  <text x="20" y="1275" class="category">五、水淹层 (Water-Flooded Zones) — 附录 L.5</text>
+  <rect x="15" y="1278" width="1370" height="160" class="cell-border"/>
+
+  <text x="30" y="1305" class="label">水淹层</text>
+  <text x="30" y="1320" class="desc">Water-Flooded Zone</text>
+  <text x="30" y="1333" class="code">SYC-L5-1H/C</text>
+  <g transform="translate(250, 1285)">
+    <rect x="0" y="5" width="120" height="25" fill="#0082FF" stroke="#000" stroke-width="1.5"/>
+    <text x="60" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">水淹</text>
+  </g>
+
+  <text x="600" y="1305" class="label">强水淹</text>
+  <text x="600" y="1320" class="desc">Strong Water-Flooded</text>
+  <text x="600" y="1333" class="code">SYC-L5-2H/C</text>
+  <g transform="translate(820, 1285)">
+    <rect x="0" y="5" width="120" height="25" fill="#0055CC" stroke="#000" stroke-width="1.5"/>
+    <text x="60" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">强淹</text>
+  </g>
+
+  <!-- ========== 矿物流体包裹体符号 Fluid Inclusion ========== -->
+  <text x="20" y="1400" class="category">六、流体包裹体符号 (Fluid Inclusion Symbols)</text>
+  <rect x="15" y="1403" width="1370" height="140" class="cell-border"/>
+
+  <text x="30" y="1430" class="label">液态烃包裹体</text>
+  <text x="30" y="1445" class="desc">Liquid Hydrocarbon Inclusion</text>
+  <g transform="translate(250, 1410)">
+    <circle cx="30" cy="20" r="12" fill="#90EE90" stroke="#000" stroke-width="1"/>
+    <circle cx="28" cy="18" r="3" fill="#006600"/>
+  </g>
+
+  <text x="600" y="1430" class="label">气态烃包裹体</text>
+  <text x="600" y="1445" class="desc">Gaseous Hydrocarbon Inclusion</text>
+  <g transform="translate(820, 1410)">
+    <circle cx="30" cy="20" r="12" fill="#FFE4B5" stroke="#000" stroke-width="1"/>
+    <circle cx="30" cy="20" r="4" fill="#FF6600"/>
+  </g>
+
+  <text x="30" y="1490" class="label">盐水包裹体</text>
+  <text x="30" y="1505" class="desc">Brine Inclusion</text>
+  <g transform="translate(250, 1475)">
+    <circle cx="30" cy="20" r="12" fill="#E0F0FF" stroke="#000" stroke-width="1"/>
+    <circle cx="30" cy="20" r="5" fill="#0082FF" opacity="0.6"/>
+  </g>
+
+  <text x="600" y="1490" class="label">含烃盐水包裹体</text>
+  <text x="600" y="1505" class="desc">Hydrocarbon-Bearing Brine Inclusion</text>
+  <g transform="translate(820, 1475)">
+    <circle cx="30" cy="20" r="12" fill="#E0F0FF" stroke="#000" stroke-width="1"/>
+    <circle cx="30" cy="20" r="5" fill="#0082FF" opacity="0.6"/>
+    <circle cx="26" cy="16" r="2" fill="#FF9900"/>
+  </g>
+
+  <!-- Footer -->
+  <text x="700" y="1595" text-anchor="middle" class="remark" fill="#888">
+    注：油层/气层/水层为测井综合解释结果，颜色区分含油气级别。水淹层蓝色深浅代表水淹强度。
+  </text>
+</svg>

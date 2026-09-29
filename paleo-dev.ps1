@@ -132,6 +132,15 @@ switch ($Verb) {
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
     cmake --build $Build
     if ($LASTEXITCODE -ne 0) { throw 'CMake build failed' }
+    # vendored onnxruntime.dll 拷进 build（应用目录在 DLL 搜索序中永远
+    # 第一）：PATH 排序压不住 OSGeo4W 自带的 1.17.1（qgis 依赖链的解析
+    # 机制绕过 PATH），ABI 1.30 头对 1.17 运行时即段错误。
+    $ortLib = Join-Path $Vendor 'onnxruntime\lib'
+    if (Test-Path $ortLib) {
+      Copy-Item (Join-Path $ortLib '*.dll') $Build -Force
+      Write-Host ("  ort dll staged -> {0} ({1})" -f $Build,
+        (Get-Item (Join-Path $Build 'onnxruntime.dll')).VersionInfo.FileVersion)
+    }
   }
   'test' {
     Enter-VendorEnvironment
@@ -148,11 +157,18 @@ switch ($Verb) {
         ForEach-Object { if ($_ -match 'Test\s+#\d+:\s+(\S+)') { $Matches[1] } }
       foreach ($n in $names) {
         # 有些 ctest 项不是可执行文件（layering 是 python 脚本）——跳过，
-        # 否则 & 不存在的 .exe 会终止整个直跑循环（上轮 CI 实锤）。
+        # 否则 & 不存在的 .exe 会终止整个直跑循环。
         $exe = Join-Path $Build "$n.exe"
         if (-not (Test-Path $exe)) { continue }
         "=== $n (direct run) ===" | Tee-Object -FilePath $log -Append
-        & $exe 2>&1 | Tee-Object -FilePath $log -Append
+        # QtTest 在无控制台的 Windows 上把结果走 OutputDebugString，
+        # stdout 重定向收不到——用 -o 落文件再回放（崩溃栈仍走 stderr）。
+        $qtout = Join-Path $logDir "$n.qtout.txt"
+        & $exe -o "$qtout,txt" 2>&1 | Tee-Object -FilePath $log -Append
+        if (Test-Path $qtout) {
+          Get-Content $qtout | Tee-Object -FilePath $log -Append
+          Remove-Item $qtout -Force
+        }
       }
       throw 'CTest failed'
     }

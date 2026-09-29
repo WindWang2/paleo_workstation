@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <rect x="10" y="10" width="120" height="50" fill="#d4c8b8" stroke="#999" stroke-width="1"/>
+  <text x="70" y="40" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="11" fill="#333">侵入岩</text>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">侵入岩</text>
+</svg>

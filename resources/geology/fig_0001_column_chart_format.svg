@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
+  <defs>
+    <style>
+      .title { font-family: SimHei, Microsoft YaHei, sans-serif; font-size: 18px; font-weight: bold; fill: #1a1a1a; }
+      .subtitle { font-family: SimSun, serif; font-size: 14px; fill: #333; }
+      .label { font-family: SimSun, serif; font-size: 12px; fill: #1a1a1a; }
+      .small { font-family: Arial, sans-serif; font-size: 10px; fill: #555; }
+      .well-name { font-family: Arial, sans-serif; font-size: 11px; fill: #c41e3a; font-weight: bold; }
+      .header-bg { fill: #f5f5f5; }
+      .border { fill: none; stroke: #333; stroke-width: 1.5; }
+      .grid-line { stroke: #ccc; stroke-width: 0.5; stroke-dasharray: 3,3; }
+      .formation-border { stroke: #666; stroke-width: 1; }
+    </style>
+    
+    <!-- Pattern for sandstone -->
+    <pattern id="sandstone" width="6" height="6" patternUnits="userSpaceOnUse">
+      <rect width="6" height="6" fill="#f4e4c1"/>
+      <circle cx="1.5" cy="1.5" r="0.8" fill="#d4b483"/>
+      <circle cx="4.5" cy="3.5" r="0.8" fill="#d4b483"/>
+      <circle cx="1.5" cy="5" r="0.6" fill="#c4a473"/>
+    </pattern>
+    
+    <!-- Pattern for shale -->
+    <pattern id="shale" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect width="4" height="4" fill="#b8c5d6"/>
+      <line x1="0" y1="1" x2="4" y2="1" stroke="#8a9bb0" stroke-width="0.5"/>
+      <line x1="0" y1="3" x2="4" y2="3" stroke="#8a9bb0" stroke-width="0.5"/>
+    </pattern>
+    
+    <!-- Pattern for limestone -->
+    <pattern id="limestone" width="8" height="8" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" fill="#e8dcc8"/>
+      <circle cx="4" cy="4" r="2" fill="none" stroke="#c4b498" stroke-width="0.5"/>
+      <circle cx="2" cy="6" r="1" fill="none" stroke="#c4b498" stroke-width="0.5"/>
+    </pattern>
+    
+    <!-- Pattern for conglomerate -->
+    <pattern id="conglomerate" width="10" height="10" patternUnits="userSpaceOnUse">
+      <rect width="10" height="10" fill="#d4c4a8"/>
+      <rect x="1" y="1" width="3" height="3" fill="#b8a888" rx="0.5"/>
+      <rect x="6" y="2" width="2" height="2" fill="#a89878" rx="0.5"/>
+      <rect x="3" y="6" width="3" height="2" fill="#c4b498" rx="0.5"/>
+    </pattern>
+    
+    <!-- Pattern for mudstone -->
+    <pattern id="mudstone" width="5" height="5" patternUnits="userSpaceOnUse">
+      <rect width="5" height="5" fill="#d5d0c8"/>
+      <line x1="0" y1="2.5" x2="5" y2="2.5" stroke="#b5b0a8" stroke-width="0.8"/>
+    </pattern>
+    
+    <!-- Pattern for coal -->
+    <pattern id="coal" width="6" height="6" patternUnits="userSpaceOnUse">
+      <rect width="6" height="6" fill="#2a2a2a"/>
+      <line x1="0" y1="1" x2="6" y2="1" stroke="#444" stroke-width="0.3"/>
+      <line x1="0" y1="3" x2="6" y2="3" stroke="#444" stroke-width="0.3"/>
+      <line x1="0" y1="5" x2="6" y2="5" stroke="#444" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="800" height="600" fill="#fafafa"/>
+  
+  <!-- Title -->
+  <text x="400" y="30" text-anchor="middle" class="title">图 C.1 柱状图格式</text>
+  <text x="400" y="50" text-anchor="middle" class="subtitle">（示意图）</text>
+  
+  <!-- Main chart area border -->
+  <rect x="50" y="70" width="700" height="480" class="border"/>
+  
+  <!-- Header row -->
+  <rect x="50" y="70" width="700" height="25" class="header-bg" style="stroke:#333;stroke-width:1"/>
+  
+  <!-- Column headers -->
+  <text x="70" y="87" class="label" font-weight="bold">井号</text>
+  <text x="150" y="87" class="label" font-weight="bold">井深(m)</text>
+  <text x="250" y="87" class="label" font-weight="bold">补心海拔(m)</text>
+  <text x="370" y="87" class="label" font-weight="bold">层位</text>
+  <text x="450" y="87" class="label" font-weight="bold">底界深度(m)</text>
+  <text x="570" y="87" class="label" font-weight="bold">底界海拔(m)</text>
+  <text x="660" y="87" class="label" font-weight="bold">厚度(m)</text>
+  <text x="720" y="87" class="label" font-weight="bold">录井草图</text>
+  
+  <!-- Vertical column separators -->
+  <line x1="130" y1="70" x2="130" y2="550" class="grid-line"/>
+  <line x1="230" y1="70" x2="230" y2="550" class="grid-line"/>
+  <line x1="350" y1="70" x2="350" y2="550" class="grid-line"/>
+  <line x1="440" y1="70" x2="440" y2="550" class="grid-line"/>
+  <line x1="550" y1="70" x2="550" y2="550" class="grid-line"/>
+  <line x1="650" y1="70" x2="650" y2="550" class="grid-line"/>
+  
+  <!-- Data rows with stratigraphic columns -->
+  <!-- Row 1: 平原组 -->
+  <rect x="350" y="95" width="290" height="30" fill="#e8dcc8" stroke="#999" stroke-width="0.5"/>
+  <text x="365" y="115" class="label">平原组</text>
+  <text x="60" y="115" class="label">庆 1 井</text>
+  <text x="150" y="115" class="label">3050</text>
+  <text x="260" y="115" class="label">3.0</text>
+  <text x="450" y="115" class="label">2800</text>
+  <text x="570" y="115" class="label">-2797.0</text>
+  <text x="660" y="115" class="label">250</text>
+  <rect x="665" y="100" width="60" height="20" fill="url(#mudstone)"/>
+  
+  <!-- Row 2: 明化镇组 -->
+  <rect x="350" y="125" width="290" height="35" fill="url(#sandstone)" stroke="#999" stroke-width="0.5"/>
+  <text x="365" y="145" class="label">明化镇组</text>
+  <text x="60" y="145" class="label">无 1 井</text>
+  <text x="150" y="145" class="label">3200</text>
+  <text x="260" y="145" class="label">3.5</text>
+  <text x="450" y="145" class="label">2550</text>
+  <text x="570" y="145" class="label">-2546.5</text>
+  <text x="660" y="145" class="label">250</text>
+  <rect x="665" y="130" width="60" height="25" fill="url(#sandstone)"/>
+  
+  <!-- Row 3: 馆陶组 -->
+  <rect x="350" y="160" width="290" height="40" fill="url(#conglomerate)" stroke="#999" stroke-width="0.5"/>
+  <text x="365" y="180" class="label">馆陶组</text>
+  <text x="60" y="180" class="label">歧 1 井</text>
+  <text x="150" y="180" class="label">3500</text>
+  <text x="260" y="180" class="label">4.0</text>
+  <text x="450" y="180" class="label">2300</text>
+  <text x="570" y="180" class="label">-2296.0</text>
+  <text x="660" y="180" class="label">250</text>
+  <rect x="665" y="165" width="60" height="30" fill="url(#conglomerate)"/>
+  
+  <!-- Row 4: 东营组 -->
+  <rect x="350" y="200" width="290" height="45" fill="url(#shale)" stroke="#999" stroke-width="0.5"/>
+  <text x="365" y="220" class="label">东营组</text>
+  <text x="60" y="220" class="label">埕 1 井</text>
+  <text x="150" y="220" class="label">3800</text>
+  <text x="260" y="220" class="label">4.5</text>
+  <text x="450" y="220" class="label">2050</text>
+  <text x="570" y="220" class="label">-2045.5</text>
+  <text x="660" y="220" class="label">250</text>
+  <rect x="665" y="205" width="60" height="35" fill="url(#shale)"/>
+  
+  <!-- Row 5: 沙河街组 -->
+  <rect x="350" y="245" width="290" height="50" fill="url(#limestone)" stroke="#999" stroke-width="0.5"/>
+  <text x="365" y="265" class="label">沙河街组</text>
+  <text x="60" y="265" class="label">沙 1 井</text>
+  <text x="150" y="265" class="label">4200</text>
+  <text x="260" y="265" class="label">5.0</text>
+  <text x="450" y="265" class="label">1800</text>
+  <text x="570" y="265" class="label">-1795.0</text>
+  <text x="660" y="265" class="label">250</text>
+  <rect x="665" y="250" width="60" height="40" fill="url(#limestone)"/>
+  
+  <!-- Row 6: 孔店组 -->
+  <rect x="350" y="295" width="290" height="40" fill="url(#mudstone)" stroke="#999" stroke-width="0.5"/>
+  <text x="365" y="315" class="label">孔店组</text>
+  <text x="60" y="315" class="label">板 2 井</text>
+  <text x="150" y="315" class="label">4500</text>
+  <text x="260" y="315" class="label">5.5</text>
+  <text x="450" y="315" class="label">1550</text>
+  <text x="570" y="315" class="label">-1544.5</text>
+  <text x="660" y="315" class="label">250</text>
+  <rect x="665" y="300" width="60" height="30" fill="url(#mudstone)"/>
+  
+  <!-- Row 7: 侏罗系 -->
+  <rect x="350" y="335" width="290" height="35" fill="url(#sandstone)" stroke="#999" stroke-width="0.5"/>
+  <text x="365" y="355" class="label">侏罗系</text>
+  <text x="60" y="355" class="label">大 1 井</text>
+  <text x="150" y="355" class="label">4800</text>
+  <text x="260" y="355" class="label">6.0</text>
+  <text x="450" y="355" class="label">1300</text>
+  <text x="570" y="355" class="label">-1294.0</text>
+  <text x="660" y="355" class="label">250</text>
+  <rect x="665" y="340" width="60" height="25" fill="url(#sandstone)"/>
+  
+  <!-- Row 8: 石炭系 -->
+  <rect x="350" y="370" width="290" height="30" fill="url(#coal)" stroke="#999" stroke-width="0.5"/>
+  <text x="365" y="390" class="label" fill="#fff">石炭系</text>
+  <text x="60" y="390" class="label">惠 1 井</text>
+  <text x="150" y="390" class="label">5100</text>
+  <text x="260" y="390" class="label">6.5</text>
+  <text x="450" y="390" class="label">1050</text>
+  <text x="570" y="390" class="label">-1043.5</text>
+  <text x="660" y="390" class="label">250</text>
+  <rect x="665" y="375" width="60" height="20" fill="url(#coal)"/>
+  
+  <!-- Row 9: 奥陶系 -->
+  <rect x="350" y="400" width="290" height="40" fill="url(#limestone)" stroke="#999" stroke-width="0.5"/>
+  <text x="365" y="420" class="label">奥陶系</text>
+  <text x="60" y="420" class="label">棣 1 井</text>
+  <text x="150" y="420" class="label">5500</text>
+  <text x="260" y="420" class="label">7.0</text>
+  <text x="450" y="420" class="label">800</text>
+  <text x="570" y="420" class="label">-793.0</text>
+  <text x="660" y="420" class="label">250</text>
+  <rect x="665" y="405" width="60" height="30" fill="url(#limestone)"/>
+  
+  <!-- Row 10: 寒武系 -->
+  <rect x="350" y="440" width="290" height="45" fill="url(#shale)" stroke="#999" stroke-width="0.5"/>
+  <text x="365" y="460" class="label">寒武系</text>
+  <text x="60" y="460" class="label">刘 1 井</text>
+  <text x="150" y="460" class="label">6000</text>
+  <text x="260" y="460" class="label">7.5</text>
+  <text x="450" y="460" class="label">550</text>
+  <text x="570" y="460" class="label">-542.5</text>
+  <text x="660" y="460" class="label">250</text>
+  <rect x="665" y="445" width="60" height="35" fill="url(#shale)"/>
+  
+  <!-- Row 11: 青白口系 -->
+  <rect x="350" y="485" width="290" height="35" fill="url(#conglomerate)" stroke="#999" stroke-width="0.5"/>
+  <text x="365" y="505" class="label">青白口系</text>
+  <text x="60" y="505" class="label">歧 2 井</text>
+  <text x="150" y="505" class="label">6500</text>
+  <text x="260" y="505" class="label">8.0</text>
+  <text x="450" y="505" class="label">300</text>
+  <text x="570" y="505" class="label">-292.0</text>
+  <text x="660" y="505" class="label">250</text>
+  <rect x="665" y="490" width="60" height="25" fill="url(#conglomerate)"/>
+  
+  <!-- Row 12: 长城系 -->
+  <rect x="350" y="520" width="290" height="30" fill="url(#limestone)" stroke="#999" stroke-width="0.5"/>
+  <text x="365" y="540" class="label">长城系</text>
+  <text x="60" y="540" class="label">官 1 井</text>
+  <text x="150" y="540" class="label">7000</text>
+  <text x="260" y="540" class="label">8.5</text>
+  <text x="450" y="540" class="label">50</text>
+  <text x="570" y="540" class="label">-41.5</text>
+  <text x="660" y="540" class="label">250</text>
+  <rect x="665" y="525" width="60" height="20" fill="url(#limestone)"/>
+  
+  <!-- Legend section at bottom -->
+  <rect x="50" y="560" width="700" height="30" fill="#f8f8f8" stroke="#ccc" stroke-width="0.5"/>
+  <text x="65" y="580" class="small" font-weight="bold">图例：</text>
+  
+  <!-- Legend items -->
+  <rect x="120" y="567" width="15" height="10" fill="url(#sandstone)"/>
+  <text x="140" y="577" class="small">砂岩</text>
+  
+  <rect x="180" y="567" width="15" height="10" fill="url(#shale)"/>
+  <text x="200" y="577" class="small">页岩</text>
+  
+  <rect x="240" y="567" width="15" height="10" fill="url(#limestone)"/>
+  <text x="260" y="577" class="small">石灰岩</text>
+  
+  <rect x="310" y="567" width="15" height="10" fill="url(#conglomerate)"/>
+  <text x="330" y="577" class="small">砾岩</text>
+  
+  <rect x="380" y="567" width="15" height="10" fill="url(#mudstone)"/>
+  <text x="400" y="577" class="small">泥岩</text>
+  
+  <rect x="440" y="567" width="15" height="10" fill="url(#coal)"/>
+  <text x="460" y="577" class="small" fill="#fff">煤层</text>
+  
+  <!-- Note about this is a format example -->
+  <text x="550" y="577" class="small" fill="#666">本图仅展示柱状图格式示例</text>
+</svg>

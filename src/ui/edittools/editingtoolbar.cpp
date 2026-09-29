@@ -76,6 +76,8 @@ class PaleoSelectTool : public QgsMapTool
       setCursor( QCursor( Qt::ArrowCursor ) );
     }
 
+    Flags flags() const override { return ShowContextMenu; }
+
     ~PaleoSelectTool() override
     {
       // QGIS 4: QgsMapCanvasItem is no longer a QObject — delete, don't hide

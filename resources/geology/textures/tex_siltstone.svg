@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <defs>
+    <pattern id="siltstone" width="12" height="12" patternUnits="userSpaceOnUse">
+      <rect width="4" height="4" fill="#e8dcc8"/><circle cx="0.5" cy="0.5" r="0.3" fill="#d0c0a0"/><circle cx="2.5" cy="1.5" r="0.3" fill="#d0c0a0"/><circle cx="1" cy="3" r="0.3" fill="#d0c0a0"/><circle cx="3.5" cy="3.5" r="0.3" fill="#d0c0a0"/>
+    </pattern>
+  </defs>
+  <rect width="80" height="80" fill="#e8dcc8" opacity="0.3"/>
+  <rect x="4" y="4" width="72" height="72" fill="url(#siltstone)" stroke="#999" stroke-width="0.5"/>
+  <text x="40" y="42" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#333" opacity="0.7">粉砂岩</text>
+</svg>

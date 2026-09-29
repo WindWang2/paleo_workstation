@@ -9,6 +9,8 @@
 
 #include "roleregistry.h"
 
+#include "catalogindex.h" // D5 邻接索引（纯派生加速结构，四张 QVector 仍是唯一事实源）
+
 // catalog/ — project_area 数据底座（docs/PROJECT_AREA_PLAN.md §3）。
 // 对象链：实体 → 显式关联(entity_asset_links) → 数据资产 → 不可变版本。
 // catalog.json 是本阶段唯一主存储和查询源（ADR 0056 的 C++ 最小面；
@@ -114,6 +116,16 @@ class DataCatalog : public QObject
     // isKnown 校验——诚实降级而非硬拦（词表是工程自定义的，project_area.json
     // 可扩；硬拦会把合法自定义挡在旧二进制外），见 invalidRoleLinks()。
     const RoleRegistry &roleRegistry() const { return m_roles; }
+
+    // ---- wave/io-perf-cache D5：索引化查询 + 计数缓存 + 备份轮转 ----
+    // 类型计数缓存（D5.3）：邻接索引维护，不再每次全量算。
+    QHash<QString, int> entityCountsByType() const;
+    // 索引健康对账（诊断/测试面：索引 vs 四表线性扫描）。
+    bool indexHealthy(QString *mismatch = nullptr) const;
+    // 备份轮转保留代数（D5.6）：catalog.bak（最新一代）+ .bak.2 … .bak.N；
+    // 默认 3，范围 [1,9]。open() 的 .bak 回退永远读最新一代。
+    int backupKeepCount() const { return m_backupKeep; }
+    void setBackupKeepCount(int generations) { m_backupKeep = qBound(1, generations, 9); }
 
     // 词表违例链接集（诊断面）：addLink/attachLink 写入的「未知角色」与
     // 「角色与实体类型不符」链接——扫描 note 诊断标记，随 catalog.json
@@ -280,4 +292,6 @@ class DataCatalog : public QObject
     QVector<EntityAssetLink> m_links;
     int m_assetSeq = 0, m_versionSeq = 0;
     RoleRegistry m_roles;            // 见 roleRegistry()——open() 时装载
+    CatalogIndex m_idx;              // D5 邻接索引（随 mutator 增量维护）
+    int m_backupKeep = 3;            // D5.6 备份轮转代数
 };

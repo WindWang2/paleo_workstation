@@ -2,6 +2,7 @@
 #include <QTemporaryDir>
 #include <QLabel>
 #include <QComboBox>
+#include <QLineEdit>
 #include <QTabBar>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -16,24 +17,30 @@
 #include <QDockWidget>
 
 #include "../src/app/appcontext.h"
-#include "../src/workflow/mappingworkbench.h"
-#include "../src/workflow/derivedassets.h"
-#include "../src/linkage/selectioncontext.h"
-#include "../src/ui/pages/mappingworkbenchpage.h"
-#include "../src/ui/decorations/paleodecorations.h"
-#include "../src/ui/paleotheme.h"
-#include <QTreeWidget>
-#include <QDialog>
-#include "../src/ui/paleomainwindow.h"
+#include "../src/domain/faciescatalog.h"
 #include "../src/io/dataimportservice.h" // 测试可直触 io（断言 DataImportService 信号）
-#include "../src/ui/datapreview/datapreviewtabs.h"
-#include "../src/ui/edittools/editingtoolbar.h"
-#include "../src/qgis/qgisprojectservice.h"
-#include "../src/qgis/qgisprocessingservice.h"
-#include "../src/qgis/qgislayerservice.h"
-#include "../src/qgis/qgiscanvascontroller.h"
+#include "../src/linkage/selectioncontext.h"
 #include "../src/metadata/layermanifest.h"
+#include "../src/qgis/qgiscanvascontroller.h"
+#include "../src/qgis/qgislayerservice.h"
+#include "../src/qgis/qgisprocessingservice.h"
+#include "../src/qgis/qgisprojectservice.h"
+#include "../src/ui/datapreview/datapreviewtabs.h"
+#include "../src/ui/decorations/paleodecorations.h"
+#include "../src/ui/edittools/editingtoolbar.h"
+#include "../src/ui/pages/mappingworkbenchpage.h"
+#include "../src/ui/pages/datalist.h"
+#include "../src/ui/pages/wellpredictionpanel.h"
+#include "../src/ui/paleomainwindow.h"
+#include "../src/ui/paleotheme.h"
+#include "../src/workflow/derivedassets.h"
+#include "../src/workflow/mappingworkbench.h"
+#include <QDialog>
+#include <QMenu>
+#include <QTableWidget>
 #include <QTimer>
+#include <QTreeWidget>
+#include <qgsmapmouseevent.h>
 
 #include <qgsproject.h>
 #include <qgsmapcanvas.h>
@@ -45,6 +52,13 @@
 #include <qgsvectorlayer.h>
 #include <qgslayertreemodel.h>
 #include <qgsmaptoolpan.h>
+
+// P3 D9 分栏契约测试的前置上下文（类外声明——moc 不解析槽区内的嵌套结构体）。
+struct DataOpsWidthCtx
+{
+    QSplitter *split = nullptr;
+    int width = 0;
+};
 
 // App-shell acceptance (§42): the five-page workflow chrome over the P0 spine.
 // AppContext owns the QgsApplication — main() builds the context (which brings
@@ -666,6 +680,96 @@ class TestUiShell : public QObject
       inner->removeTab(0);
     }
 
+    // ---- P3 D9 分栏/布局契约回归（wave/data-page-operations）----
+  private:
+    DataOpsWidthCtx dataOpsWidthSetup()
+    {
+      m_win->resize(1280, 1100);
+      m_win->show();
+      if (auto *centerStack = m_win->findChild<QStackedWidget *>(QStringLiteral("centerStack")))
+        centerStack->setCurrentIndex(1);
+      m_win->showPage(QStringLiteral("data"));
+      QTest::qWait(30);
+      DataOpsWidthCtx ctx;
+      ctx.split = m_win->findChild<QSplitter *>(QStringLiteral("dataListPreviewSplit"));
+      ctx.width = 275;
+      ctx.split->setSizes({ctx.width, ctx.split->width() - ctx.width});
+      QTest::qWait(20);
+      return ctx;
+    }
+
+  private slots:
+    // D9.3：过滤切换/未决快捷过滤/清除过滤下宽度不变。
+    void dataListWidthStableUnderFilterOperations()
+    {
+      const auto ctx = dataOpsWidthSetup();
+      QVERIFY(ctx.split);
+      auto *lp = m_win->findChild<DataListPanel *>();
+      QVERIFY(lp);
+      auto *search = lp->findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
+      search->setText(QStringLiteral("xyz-无命中"));
+      QTest::qWait(20);
+      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+      auto *quick = lp->findChild<QWidget *>(QStringLiteral("pendingQuickBar"));
+      if (auto *btn = quick->findChild<QPushButton *>(QStringLiteral("quickWarned")))
+      {
+        btn->click();
+        QTest::qWait(20);
+        QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+        btn->click();
+      }
+      // D2.10 状态串应用（过滤器整组替换）。
+      lp->setFilterFromStateString(
+          QStringLiteral("paleo://dataops-filter?op=and&q=%E6%B5%8B%E8%AF%95"));
+      QTest::qWait(20);
+      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+      search->clear();
+      QTest::qWait(20);
+      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+    }
+
+    // D9.2/D9.3：视图五态切换（树/表/图标/高速/分组）+ 多选/全选/反选下宽度不变。
+    void dataListWidthStableUnderViewModesAndSelection()
+    {
+      const auto ctx = dataOpsWidthSetup();
+      QVERIFY(ctx.split);
+      auto *lp = m_win->findChild<DataListPanel *>();
+      QVERIFY(lp);
+      for (int mode = 0; mode <= 4; ++mode)
+      {
+        lp->setViewMode(mode);
+        QTest::qWait(15);
+        QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+      }
+      // 选择操作（D1.9 全选/反选——空目录下是空操作，但不得触发重排宽度）。
+      lp->selectAllVisibleAssets();
+      lp->invertAssetSelection();
+      QTest::qWait(15);
+      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+      // 撤销/重做空栈调用（D5 面按钮态刷新）。
+      lp->undoOp();
+      lp->redoOp();
+      QTest::qWait(15);
+      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+    }
+
+    // D9.4：窗口 resize 是允许的被动分配——总宽随窗口走，列表宽不越界涨。
+    void dataListWidthFollowsWindowResize()
+    {
+      const auto ctx = dataOpsWidthSetup();
+      QVERIFY(ctx.split);
+      const int totalBefore = ctx.split->sizes().at(0) + ctx.split->sizes().at(1);
+      m_win->resize(1560, 1100); // +280
+      QTest::qWait(30);
+      const int totalAfter = ctx.split->sizes().at(0) + ctx.split->sizes().at(1);
+      QVERIFY2(totalAfter > totalBefore, "resize must redistribute more total width");
+      // 列表侧不得借机自涨超过用户设定 + 增量的一半（被动分配以预览侧为主）。
+      QVERIFY2(ctx.split->sizes().at(0) <= ctx.width + 140,
+               qPrintable(QStringLiteral("list grew to %1").arg(ctx.split->sizes().at(0))));
+      m_win->resize(1280, 1100);
+      QTest::qWait(30);
+    }
+
     // wave/data-integrity：attachWorkflows 幂等——同一窗口二次调用不得重复
     // 建 dock/连接/崩溃（旧行为：重复建 correlationPanel/editingToolbar/
     // processingButton 等 + 叠加信号连接，二次调用后后续用例段错误）。
@@ -944,12 +1048,107 @@ class TestUiShell : public QObject
       PaleoTheme::applyLightTheme();m_win->resize(1600,1000);m_win->show();QTest::qWait(350);
       QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(m_ctx->layerSvc()->layer(id)));
       QVERIFY(m_ctx->projectSvc()->project()->layerTreeRoot()->findLayer(m_ctx->layerSvc()->layer(id)->id())->isVisible());
-      auto visibleFaciesPixels=[this]{const auto image=m_ctx->canvasCtl()->canvas()->grab().toImage();int count=0;for(int y=100;y<image.height()-60;y+=4)for(int x=100;x<image.width()-260;x+=4){const auto c=image.pixelColor(x,y);if(c==QColor("#E6C875") || c==QColor("#81B99A") || c==QColor("#97B4CE"))++count;}return count;};
+      auto visibleFaciesPixels = [this] {
+        const auto image = m_ctx->canvasCtl()->canvas()->grab().toImage();
+        int count = 0;
+        for (int y = 100; y < image.height() - 60; y += 4)
+          for (int x = 100; x < image.width() - 260; x += 4) {
+            const auto c = image.pixelColor(x, y);
+            for (const auto &f : FaciesCatalog::defaults())
+              if (c == QColor(f.toMap().value("color").toString())) {
+                ++count;
+                break;
+              }
+          }
+        return count;
+      };
       QTRY_VERIFY_WITH_TIMEOUT(visibleFaciesPixels()>100,5000);
       if(const auto capture=qEnvironmentVariable("PALEO_MAPPING_CAPTURE");!capture.isEmpty())QVERIFY(m_win->grab().save(capture));
       page->commandButton("polygonize")->click();QVERIFY(page->selectedLayer()!=id);QVERIFY(page->commandButton("copy")->isEnabled());
       page->commandButton("copy")->click();const auto draft=page->selectedLayer();QVERIFY2(draft.startsWith("draft."),qPrintable(page->findChild<QLabel *>("workbenchMessage")->text()));auto *editing=m_win->findChild<PaleoEditingToolbar *>("editingToolbar");QVERIFY(editing && editing->isEditing());auto previous=m_ctx->mappingWorkbench()->versionForLayer(draft);auto *vector=editing->currentLayer();QVERIFY(vector);QgsFeature feature;auto fi=vector->getFeatures();QVERIFY(fi.nextFeature(feature));const int field=vector->fields().indexOf("facies_code");QVERIFY(field>=0);QVERIFY(vector->changeAttributeValue(feature.id(),field,feature.attribute(field).toInt()==1?2:1));editing->actionSave()->trigger();QVERIFY(!editing->isEditing());QCOMPARE(m_ctx->mappingWorkbench()->versionForLayer(draft).versionNumber,previous.versionNumber+1);
       m_win->showPage("compose");auto *compose=m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.compose");compose->selectLayer(draft);auto *save=m_win->findChild<QAction *>("ribbonSaveVersion");QVERIFY(save && save->isEnabled());QCOMPARE(save->text(),compose->commandButton("save")->text());
+      auto wellStage = registrar.stage("well_log", "井道测试", "review.las");
+      QVERIFY(wellStage.isValid());
+      QFile las(wellStage.absolutePath);
+      QVERIFY(las.open(QIODevice::WriteOnly));
+      las.write("~V\nVERS. 2.0 : version\nWRAP. NO : wrap\n~W\nNULL. -999.25 : "
+                "null\n~C\nDEPT.M : depth\nGR.API : gamma\n~A\n1000 30\n1030 "
+                "50\n1060 90\n1090 45\n1120 20\n");
+      las.close();
+      QVERIFY(registrar.commit(wellStage, {}, "test", {}));
+      CatalogEntity well;
+      well.id = "review-well";
+      well.entityType = "well";
+      well.name = "修订测试井";
+      well.hasSurface = true;
+      well.surfaceX = 200;
+      well.surfaceY = 200;
+      QVERIFY(catalog->addEntity(well));
+      EntityAssetLink wl;
+      wl.entityType = "well";
+      wl.entityId = well.id;
+      wl.assetId = wellStage.assetId;
+      wl.role = "well_log";
+      QVERIFY(catalog->addLink(wl));
+      m_win->showPage("predict");
+      auto *kind = page->findChild<QComboBox *>("predictionKind");
+      kind->setCurrentIndex(kind->findData("wells"));
+      QCOMPARE(inputs->count(), 1);
+      inputs->item(0)->setCheckState(Qt::Checked);
+      run->trigger();
+      QTRY_VERIFY(!m_ctx->mappingWorkbench()->busy());
+      auto *wellPanel = m_win->findChild<WellPredictionPanel *>();
+      QVERIFY(wellPanel);
+      QTRY_VERIFY(wellPanel->isVisible());
+      QCOMPARE(wellPanel->findChild<QTableWidget *>("predictionIntervals")
+                   ->rowCount(),
+               12);
+      wellPanel->findChild<QPushButton *>("copyWellPrediction")->click();
+      QVERIFY(wellPanel->layerId().startsWith("draft."));
+      const auto wellDraft = wellPanel->layerId();
+      auto beforeRevision =
+          m_ctx->mappingWorkbench()->versionForLayer(wellDraft);
+      auto *choice = wellPanel->findChild<QComboBox *>("wellFaciesChoice");
+      choice->setCurrentIndex((choice->currentIndex() + 1) % choice->count());
+      wellPanel->findChild<QPushButton *>("applyWellFacies")->click();
+      QVERIFY(editing->isEditing());
+      wellPanel->findChild<QPushButton *>("saveWellPrediction")->click();
+      QVERIFY(!editing->isEditing());
+      QCOMPARE(
+          m_ctx->mappingWorkbench()->versionForLayer(wellDraft).versionNumber,
+          beforeRevision.versionNumber + 1);
+      // Right-click menu routes the hit feature to the same facies workflow.
+      auto *map = m_ctx->canvasCtl()->canvas();
+      auto *wellVector = qobject_cast<QgsVectorLayer *>(map->currentLayer());
+      QVERIFY(wellVector);
+      auto wellFeatures = wellVector->getFeatures();
+      QgsFeature wf;
+      QVERIFY(wellFeatures.nextFeature(wf));
+      const auto pixel =
+          map->mapSettings().mapToPixel().transform(wf.geometry().asPoint());
+      const QPoint pos(qRound(pixel.x()), qRound(pixel.y()));
+      QMouseEvent mouse(QEvent::MouseButtonPress, QPointF(pos),
+                        QPointF(map->mapToGlobal(pos)), Qt::RightButton,
+                        Qt::RightButton, Qt::NoModifier);
+      QgsMapMouseEvent event(map, &mouse);
+      QMenu menu;
+      emit map->contextMenuAboutToShow(&menu, &event);
+      auto *change = menu.findChild<QMenu *>("changeFeatureFacies");
+      QVERIFY(change);
+      QCOMPARE(change->actions().size(), 3);
+      change->actions().first()->trigger();
+      QVERIFY(editing->isEditing());
+      QVERIFY(map->currentLayer()
+                  ->customProperty("paleoLayerId")
+                  .toString()
+                  .startsWith("draft."));
+      editing->actionSave()->trigger();
+      QVERIFY(!editing->isEditing());
+      QTest::qWait(150);
+      if (const auto capture =
+              qEnvironmentVariable("PALEO_PREDICTION_WINDOW_CAPTURE");
+          !capture.isEmpty())
+        QVERIFY(m_win->grab().save(capture));
     }
 
 };

@@ -6,7 +6,25 @@
 #include "../../services/previewdoc.h"
 #include "../../catalog/datacatalog.h"
 #include "../../domain/importrows.h"
+#include "dataops/dataopscommands.h"
+#include "dataops/dataopsexport.h"
+#include "dataops/dataopsfilter.h"
+#include "dataops/dataopsmodel.h"
+#include "dataops/dataopsselection.h"
+#include "dataopsundo.h"
+#include "dataopspanelops.h"
+#include "dataopsimportui.h"
+#include "dataopsviews.h"
+#include "dataopswidgets.h"
+#include "datanavtree.h"
 #include <QButtonGroup>
+#include <QClipboard>
+#include <QDesktopServices>
+#include <QGuiApplication>
+#include <QInputDialog>
+#include <QMessageBox>
+#include <QShortcut>
+#include <functional>
 #include <QColor>
 #include <QComboBox>
 #include <QDialog>
@@ -286,6 +304,7 @@ DataListPanel::DataListPanel(QWidget *parent)
 
   // 列表面表头：标题 + 折叠/展开 + 视图切换
   auto *header = new QWidget(listSection);
+  header->setObjectName(QStringLiteral("dataListHeader"));
   header->setMinimumWidth(0);
   auto *hl = new QHBoxLayout(header);
   hl->setContentsMargins(0, 0, 0, 0);
@@ -396,7 +415,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   m_viewStack->setObjectName(QStringLiteral("dataViewStack"));
   m_viewStack->setMinimumWidth(0);
 
-  m_tree = new QTreeWidget(m_viewStack);
+  m_tree = new paleo::dataops::DataNavTree(m_viewStack);
   m_tree->setObjectName(QStringLiteral("dataTree"));
   m_tree->setAccessibleName(tr("数据列表树"));
   m_tree->setMinimumWidth(0);
@@ -445,6 +464,23 @@ DataListPanel::DataListPanel(QWidget *parent)
   table->setColumnWidth(1, 55);
   table->setColumnWidth(2, 65);
   table->setTextElideMode(Qt::ElideRight);
+  // P3 D1.1：ExtendedSelection（Ctrl/Shift/框选，跨类型混合选中）。
+  table->setSelectionMode(QAbstractItemView::ExtendedSelection);
+  table->setSelectionBehavior(QAbstractItemView::SelectRows);
+  // P3 D2.7：搜索命中高亮委托（needle 随 applyListFilter 更新）。
+  m_delegate = new paleo::dataops::HighlightDelegate(table);
+  table->setItemDelegate(m_delegate);
+  // P3 D1.3/D7.8：右键菜单 + 列头漏斗。
+  table->setContextMenuPolicy(Qt::CustomContextMenu);
+  connect(table, &QTableWidget::customContextMenuRequested, this,
+          [this](const QPoint &pos) { showAssetContextMenu(sender(), pos); });
+  connect(table->horizontalHeader(), &QHeaderView::customContextMenuRequested, this,
+          [this, table](const QPoint &pos) {
+            const int col = table->horizontalHeader()->logicalIndexAt(pos);
+            if (col >= 0)
+              paleo::dataops::ColumnFunnel::execForColumn(table, col, this);
+          });
+  table->horizontalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);
   table->installEventFilter(this);
   if (table->viewport())
     table->viewport()->installEventFilter(this);
@@ -510,6 +546,25 @@ DataListPanel::DataListPanel(QWidget *parent)
   connect(m_tree, &QTreeWidget::itemDoubleClicked, this, handleTreeActivation);
   connect(m_tree, &QTreeWidget::itemActivated, this, handleTreeActivation);
 
+  // P3 D3：树拖放——资产→实体（挂接/转移）、→标签（打标签）、外部文件→导入。
+  connect(m_tree, &paleo::dataops::DataNavTree::assetsDroppedOnEntity, this,
+          [this](const QStringList &assetIds, const QString &entityId) {
+            applyEntityDrop(assetIds, entityId);
+          });
+  connect(m_tree, &paleo::dataops::DataNavTree::assetsDroppedOnTag, this,
+          [this](const QStringList &assetIds, const QString &tag) {
+            for (const QString &id : assetIds)
+              pushCommand(new paleo::dataops::TagCmd(m_ctx, id, tag, true));
+            emit statusMessage(tr("已给 %1 个资产打标签「%2」（可撤销）")
+                                   .arg(assetIds.size()).arg(tag));
+          });
+  connect(m_tree, &paleo::dataops::DataNavTree::externalFilesDropped, this,
+          &DataListPanel::handleExternalFiles);
+  connect(m_tree, &paleo::dataops::DataNavTree::searchFocusRequested, this, [this] {
+    if (auto *edit = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit")))
+      edit->setFocus();
+  });
+
   connect(m_tree, &QTreeWidget::itemSelectionChanged, this, [this]() {
     if (!m_tree)
       return;
@@ -536,18 +591,36 @@ DataListPanel::DataListPanel(QWidget *parent)
     }
   });
 
+  // D5 命令栈：会话内撤销/重做（push 见各操作处理器）。
+  m_opStack = new paleo::dataops::DataOpsUndoStack(this);
+  connect(m_opStack, &paleo::dataops::DataOpsUndoStack::stackChanged, this,
+          [this] { refreshUndoButtons(); });
+
+  // P3 dataops 增量 UI（过滤条/队列/视图页/徽标/命令登记）。
+  m_history = std::make_shared<paleo::dataops::OperationsHistory>();
+  buildDataOpsUi();
+  m_treeSort = paleo::dataops::recalledTreeSort();
+
   applyListFilter();   // 空表也写计数
 
   // 列表选中一条资产 → 中央预览标签（预览部件由 shell 持有，重选聚焦语义
   // 由 DataPreviewTabs 实现）。
   connect(table, &QTableWidget::itemSelectionChanged, this, [this, table]() {
+    // P3 D1：多选中不逐个开预览（批量打开走「打开预览」动作）；程序化多选
+    //（selectAssetsForEntities）保持旧行为——首个命中行激活。
     const QList<QTableWidgetItem *> sel = table->selectedItems();
+    refreshSelectionBadge(); // 空选/多选都刷新（徽标隐藏 = 0/1 选中）
     if (sel.isEmpty())
+      return;
+    if (!m_progSelect && sel.size() > 1)
       return;
     const QString assetId = sel.front()->data(Qt::UserRole).toString();
     if (!assetId.isEmpty())
       emit assetActivated(assetId);
   });
+  // 树选中联动徽标（实体/资产混合选中计数）。
+  connect(m_tree, &QTreeWidget::itemSelectionChanged, this,
+          [this] { refreshSelectionBadge(); });
 }
 bool DataListPanel::eventFilter(QObject *watched, QEvent *event)
 {
@@ -595,6 +668,9 @@ void DataListPanel::refreshAssetTable()
   if (!svc)
     return;
   DataCatalog *cat = svc->catalog();
+  // P3：stores 装载（会话变化清栈 D5.6）+ D1.10 选中快照（重建后还原）。
+  loadStoresForCatalog();
+  m_selKeep.snapshot(m_tree, table);
   const QVector<EntityAssetLink> allLinks = cat->links();
   // T28 undo 库：attach 落档（含被降级的前主关联 + 挂前 note），撤销消费；
   // note 记忆独立长存（撤销后未决徽标 tooltip 从这里恢复——catalog 无 note
@@ -619,8 +695,12 @@ void DataListPanel::refreshAssetTable()
   // T31「查看未决」：过滤开启时只留仍有未决链接的资产行。
   const bool unresolvedOnly =
       property("paleo.page.filterUnresolved").toBool();
+  m_rows.clear();
   for (const CatalogAsset &a : cat->assets())
   {
+    // D1.6 软删资产不出现在列表（可回收清单里恢复）。
+    if (m_recycle.isRemoved(a.id))
+      continue;
     if (unresolvedOnly)
     {
       bool anyUnresolved = false;
@@ -633,6 +713,9 @@ void DataListPanel::refreshAssetTable()
       if (!anyUnresolved)
         continue;
     }
+    // P3 行快照（过滤/排序/导出/分组的统一输入；单遍装配）。
+    m_rows.append(paleo::dataops::buildAssetRow(cat, a, m_tags, m_typeOv, m_recycle,
+                                                m_entityOv));
     const int r = table->rowCount();
     table->insertRow(r);
     auto *nameItem = new QTableWidgetItem(a.displayName);
@@ -643,7 +726,10 @@ void DataListPanel::refreshAssetTable()
       nameItem->setToolTip(v.managed ? tr("受管 %1").arg(v.path)
                                      : tr("外部链接 %1").arg(v.path));
     table->setItem(r, 0, nameItem);
-    table->setItem(r, 1, new QTableWidgetItem(a.type));
+    const QString shownType = m_typeOv.overriddenType(a.id).isEmpty()
+                                  ? a.type
+                                  : m_typeOv.overriddenType(a.id);
+    table->setItem(r, 1, new QTableWidgetItem(shownType));
 
     // ---- 关联列 ----------------------------------------------------------
     QStringList parts;    // item 文本（控件行也保留，便于检索与断言）
@@ -988,6 +1074,17 @@ void DataListPanel::refreshAssetTable()
     typeFilter->setCurrentIndex(qMax(0, typeFilter->findData(keep)));
   }
   refreshAssetTree();
+  // P3：D1.10 选择还原（静默——不发激活信号）+ 计数/标签云/徽标刷新。
+  {
+    const QSignalBlocker b(table);
+    m_selKeep.restoreTable(table);
+  }
+  m_selKeep.restoreTree(m_tree);
+  refreshSelectionBadge();
+  refreshTagCloud();
+  updatePendingCounts();
+  refreshChipBar();
+  refreshUndoButtons();
   applyListFilter();
 }
 void DataListPanel::refreshAssetTree()
@@ -1018,11 +1115,28 @@ void DataListPanel::refreshAssetTree()
   surveyMapItem->setData(0, Qt::UserRole + 2, QStringLiteral("survey_area"));
   surveyMapItem->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionZoomFullExtent.svg")));
 
-  // 1. 井 (Wells)
+  // 1. 井 (Wells)——显示名走实体改写表（D4.1），排序按 D2.5 记忆键。
   QVector<CatalogEntity> wells = cat->entities(QStringLiteral("well"));
-  std::sort(wells.begin(), wells.end(), [](const CatalogEntity &a, const CatalogEntity &b) {
-    return naturalNameSort(a.name, b.name);
-  });
+  // 软删实体（撤销新建等）不显示。
+  const auto wellsVisible = [this](const QVector<CatalogEntity> &in) {
+    QVector<CatalogEntity> out;
+    for (const CatalogEntity &e : in)
+      if (!m_recycle.isRemoved(e.id))
+        out.append(e);
+    return out;
+  };
+  wells = wellsVisible(wells);
+  const paleo::dataops::EntityOverrideStore *ovStore = &m_entityOv;
+  std::sort(wells.begin(), wells.end(),
+            [ovStore, this](const CatalogEntity &a, const CatalogEntity &b) {
+              if (m_treeSort == paleo::dataops::TreeSortKind::Time)
+              {
+                const paleo::dataops::EntityOverride oa = ovStore->overrideFor(a.id);
+                const paleo::dataops::EntityOverride ob = ovStore->overrideFor(b.id);
+                return false; // 实体无时间面——保持稳定序
+              }
+              return naturalNameSort(ovStore->displayName(a), ovStore->displayName(b));
+            });
   auto *wellRoot = new QTreeWidgetItem(m_tree);
   wellRoot->setText(0, tr("井 (%1)").arg(wells.size()));
   wellRoot->setText(1, tr("井位 / 测井曲线 / 分层 / 时深"));
@@ -1033,7 +1147,7 @@ void DataListPanel::refreshAssetTree()
   for (const CatalogEntity &w : wells)
   {
     auto *wellItem = new QTreeWidgetItem(wellRoot);
-    wellItem->setText(0, w.name);
+    wellItem->setText(0, m_entityOv.displayName(w));
     wellItem->setData(0, Qt::UserRole + 1, w.id);
     wellItem->setData(0, Qt::UserRole + 2, QStringLiteral("well"));
     wellItem->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPointLayer.svg")));
@@ -1108,6 +1222,10 @@ void DataListPanel::refreshAssetTree()
   }
 
   // 资产挂在 auxiliary 实体（reference 角色）上 = 辅助资料，不进测区井/测井分组。
+  // D1.6 软删资产全树不显示。
+  const auto assetVisible = [this](const CatalogAsset &a) {
+    return !m_recycle.isRemoved(a.id);
+  };
   const auto linkedToAuxEntity = [cat](const QString &assetId) {
     for (const EntityAssetLink &l : cat->linksForAsset(assetId))
     {
@@ -1123,6 +1241,8 @@ void DataListPanel::refreshAssetTree()
   QList<CatalogAsset> compositeAssets;
   for (const CatalogAsset &a : cat->assets())
   {
+    if (!assetVisible(a))
+      continue;
     if (a.type == QLatin1String("well_log") || a.displayName.endsWith(QLatin1String(".las"), Qt::CaseInsensitive))
     {
       logAssets.append(a);
@@ -1220,7 +1340,7 @@ void DataListPanel::refreshAssetTree()
   // 3. 地震 (Seismic)
   QList<CatalogAsset> seisAssets;
   for (const CatalogAsset &a : cat->assets())
-    if (a.type == QLatin1String("seismic"))
+    if (assetVisible(a) && a.type == QLatin1String("seismic"))
       seisAssets.append(a);
   auto *seismicRoot = new QTreeWidgetItem(m_tree);
   seismicRoot->setText(0, tr("地震 (%1)").arg(seisAssets.size()));
@@ -1274,7 +1394,7 @@ void DataListPanel::refreshAssetTree()
   // 4. 层位 (Horizons)
   QList<CatalogAsset> horAssets;
   for (const CatalogAsset &a : cat->assets())
-    if (a.type == QLatin1String("horizon"))
+    if (assetVisible(a) && a.type == QLatin1String("horizon"))
       horAssets.append(a);
   std::sort(horAssets.begin(), horAssets.end(), [](const CatalogAsset &a, const CatalogAsset &b) {
     return naturalNameSort(a.displayName, b.displayName);
@@ -1301,6 +1421,8 @@ void DataListPanel::refreshAssetTree()
   QList<CatalogAsset> auxAssets;
   for (const CatalogAsset &a : cat->assets())
   {
+    if (!assetVisible(a))
+      continue;
     // 挂在辅助实体下的综合柱状图（如参考井 XML）归参考资料，其余柱状图进测井分组。
     const bool isCompositeXml = a.displayName.contains(QStringLiteral("柱状图")) ||
         (a.displayName.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive) && a.displayName.contains(QStringLiteral("综合")));
@@ -1361,17 +1483,49 @@ void DataListPanel::refreshAssetTree()
     else
       it->setText(1, a.type);
   }
+
+  // 6. 标签分组（D2.4 组织面 + D3.5 拖放目标）：每个标签一个叶节点，
+  //    拖资产到标签节点 = 打标签；点击标签 = 过滤。
+  const auto tagCloud = m_tags.tagCloud();
+  if (!tagCloud.isEmpty())
+  {
+    auto *tagRoot = new QTreeWidgetItem(m_tree);
+    tagRoot->setText(0, tr("标签 (%1)").arg(tagCloud.size()));
+    tagRoot->setText(1, tr("点击过滤 / 拖资产来打标签"));
+    tagRoot->setData(0, Qt::UserRole + 2, QStringLiteral("tag_group"));
+    tagRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionFolder.svg")));
+    tagRoot->setExpanded(false);
+    for (const auto &tc : tagCloud)
+    {
+      auto *leaf = new QTreeWidgetItem(tagRoot);
+      leaf->setText(0, QStringLiteral("%1 ×%2").arg(tc.first).arg(tc.second));
+      leaf->setData(0, Qt::UserRole + 2, QStringLiteral("tag_leaf"));
+      leaf->setData(0, Qt::UserRole + 3, tc.first);
+      leaf->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionOpenTable.svg")));
+      // 点击标签节点 = 按标签过滤（与标签云同语义）。
+    }
+  }
 }
 void DataListPanel::applyListFilter()
 {
+  using namespace paleo::dataops;
   auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
   if (!table)
     return;
-  const auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
-  const auto *typeFilter = findChild<QComboBox *>(QStringLiteral("assetTypeFilter"));
-  const QString needle = search ? search->text().trimmed() : QString();
-  const QString type = typeFilter ? typeFilter->currentData().toString() : QString();
-  int total = 0, shown = 0;
+  syncLegacyControlsIntoFilter();
+  // 可见集 = 行快照 × FilterGroup × 激活标签（D2.2/D2.4）。
+  QSet<QString> visibleIds;
+  int shown = 0;
+  for (const AssetRowInfo &row : m_rows)
+  {
+    if (!m_activeTag.isEmpty() && !row.tags.contains(m_activeTag, Qt::CaseInsensitive))
+      continue;
+    if (!m_filter.matches(row))
+      continue;
+    visibleIds.insert(row.assetId);
+    ++shown;
+  }
+  const int total = int(m_rows.size());
   for (int r = 0; r < table->rowCount(); ++r)
   {
     const QTableWidgetItem *name = table->item(r, 0);
@@ -1381,83 +1535,70 @@ void DataListPanel::applyListFilter()
       table->setRowHidden(r, false);
       continue;
     }
-    ++total;
-    const auto text = [table, r](int c) {
-      const QTableWidgetItem *it = table->item(r, c);
-      return it ? it->text() : QString();
-    };
-    const bool typeOk = type.isEmpty() || text(1) == type;
-    const bool textOk = needle.isEmpty() ||
-                        text(0).contains(needle, Qt::CaseInsensitive) ||
-                        text(1).contains(needle, Qt::CaseInsensitive) ||
-                        text(2).contains(needle, Qt::CaseInsensitive);
-    const bool visible = typeOk && textOk;
-    table->setRowHidden(r, !visible);
-    shown += visible ? 1 : 0;
+    table->setRowHidden(r, !visibleIds.contains(name->data(Qt::UserRole).toString()));
   }
   if (auto *count = findChild<QLabel *>(QStringLiteral("assetCountLabel")))
     count->setText(shown == total ? tr("共 %1 条").arg(total)
                                   : tr("显示 %1 / 共 %2 条").arg(shown).arg(total));
 
-  // 树形视图过滤
-  if (m_tree)
+  // D2.7 高亮 needle（搜索词来自 Search 条件或旧搜索框）。
+  if (m_delegate)
   {
-    const bool filtering = !needle.isEmpty() || !type.isEmpty();
-    for (int i = 0; i < m_tree->topLevelItemCount(); ++i)
+    QString needle;
+    for (const FilterCondition &c : m_filter.conditions)
+      if (c.dim == FilterDim::Search && !c.negate)
+        needle = c.value;
+    m_delegate->setNeedle(needle);
+    if (m_delegate->needle().isEmpty())
     {
-      QTreeWidgetItem *catItem = m_tree->topLevelItem(i);
-      bool catVisible = false;
-      for (int j = 0; j < catItem->childCount(); ++j)
-      {
-        QTreeWidgetItem *subItem = catItem->child(j);
-        bool subVisible = false;
-        if (subItem->childCount() > 0)
-        {
-          for (int k = 0; k < subItem->childCount(); ++k)
-          {
-            QTreeWidgetItem *leaf = subItem->child(k);
-            const bool leafMatch = (needle.isEmpty() || leaf->text(0).contains(needle, Qt::CaseInsensitive) || leaf->text(1).contains(needle, Qt::CaseInsensitive));
-            leaf->setHidden(!leafMatch);
-            if (leafMatch)
-              subVisible = true;
-          }
-          const bool subSelfMatch = (needle.isEmpty() || subItem->text(0).contains(needle, Qt::CaseInsensitive) || subItem->text(1).contains(needle, Qt::CaseInsensitive));
-          if (subSelfMatch)
-          {
-            subVisible = true;
-            for (int k = 0; k < subItem->childCount(); ++k)
-              subItem->child(k)->setHidden(false);
-          }
-        }
-        else
-        {
-          subVisible = (needle.isEmpty() || subItem->text(0).contains(needle, Qt::CaseInsensitive) || subItem->text(1).contains(needle, Qt::CaseInsensitive));
-        }
-        subItem->setHidden(!subVisible);
-        if (subVisible)
-        {
-          catVisible = true;
-          if (filtering)
-            subItem->setExpanded(true);
-        }
-      }
-      catItem->setHidden(!catVisible);
-      if (filtering && catVisible)
-        catItem->setExpanded(true);
-      else if (!filtering)
-      {
-        const bool isWellCategory = catItem->text(0).startsWith(tr("井 ("));
-        catItem->setExpanded(!isWellCategory);
-        for (int j = 0; j < catItem->childCount(); ++j)
-        {
-          auto *child = catItem->child(j);
-          const bool expandChild = child->text(0).contains(QStringLiteral("综合柱状图"));
-          child->setExpanded(expandChild);
-        }
-      }
+      const auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
+      m_delegate->setNeedle(search ? search->text().trimmed() : QString());
     }
   }
+
+  // 树形视图过滤（P3：按可见 id 集 + 文本匹配递归）。
+  const bool filtering = !m_filter.conditions.isEmpty() || !m_activeTag.isEmpty();
+  applyFilterToTree(visibleIds, filtering);
+
+  // D2.9 空结果态：有过滤而零命中 → 放宽/清除快捷钮（空态指引行仍显示）。
+  if (m_emptyState)
+  {
+    const bool noHits = filtering && shown == 0 && total > 0;
+    m_emptyState->setVisible(noHits);
+    if (noHits)
+      m_emptyState->setMessage(
+          tr("没有匹配的资产 — 试试放宽条件（当前 %1 个条件%2）")
+              .arg(m_filter.conditions.size())
+              .arg(m_activeTag.isEmpty() ? QString()
+                                         : tr(" + 标签「%1」").arg(m_activeTag)));
+  }
+
+  // D7 新视图页同口径重灌（图标/分组；虚拟模型给全量行——fetchMore 自管）。
+  if (m_iconView)
+  {
+    QVector<AssetRowInfo> vis;
+    for (const AssetRowInfo &row : m_rows)
+      if (visibleIds.contains(row.assetId))
+        vis.append(row);
+    m_iconView->loadRows(vis);
+    if (m_groupTree)
+      m_groupTree->loadRows(vis);
+  }
+  if (m_virtualView)
+  {
+    QVector<AssetRowInfo> vis;
+    for (const AssetRowInfo &row : m_rows)
+      if (visibleIds.contains(row.assetId))
+        vis.append(row);
+    // D7.4 稳定排序（多列次级）：名称升序为次级键。
+    sortAssetRows(&vis, QStringLiteral("name"), true);
+    m_virtualView->flatModel()->setRows(vis);
+    if (m_virtualView->horizontalHeader())
+      restoreColumnState(QStringLiteral("assetVirtualTable"),
+                         m_virtualView->horizontalHeader());
+  }
 }
+
 void DataListPanel::setUnresolvedFilter(bool on)
 {
   setProperty("paleo.page.filterUnresolved", on);
@@ -1465,7 +1606,6 @@ void DataListPanel::setUnresolvedFilter(bool on)
     bar->setVisible(on);
   refreshAssetTable();
 }
-
 void DataListPanel::selectAssetsForEntities(const QStringList &entityIds)
 {
   auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
@@ -1496,8 +1636,12 @@ void DataListPanel::selectAssetsForEntities(const QStringList &entityIds)
   }
   if (sel.isEmpty())
     return;
+  // P3 D1：程序化多选守卫——选中变化仍发首个命中行的 assetActivated（旧行为），
+  // 但用户 Ctrl 多选不逐个激活。刷新期间的选中还原走 QSignalBlocker 不入此路径。
+  m_progSelect = true;
   table->selectionModel()->select(
       sel, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+  m_progSelect = false;
   if (firstHit)
     table->scrollToItem(firstHit);
 }
@@ -1537,3 +1681,1439 @@ void DataListPanel::selectAssetInViews(const QString &assetId)
     }
   }
 }
+// ===========================================================================
+// P3 数据操作重构（wave/data-page-operations）：多选/过滤/拖拽/批量/撤销/
+// 视图形态。以下方法按 docs/dataops/OPERATIONS.md 的操作矩阵实现。
+// ===========================================================================
+
+namespace
+{
+// 快捷键表（D6.3 数据源；registerCommands 同步登记）。
+struct ShortcutSpec
+{
+  const char *id;
+  const char *title;
+  const char *shortcut;
+  const char *category;
+};
+const ShortcutSpec kShortcutSpecs[] = {
+  {"dataops.undo", QT_TR_NOOP("撤销"), "Ctrl+Z", QT_TR_NOOP("编辑")},
+  {"dataops.redo", QT_TR_NOOP("重做"), "Ctrl+Y", QT_TR_NOOP("编辑")},
+  {"dataops.selectAll", QT_TR_NOOP("全选可见项"), "Ctrl+A", QT_TR_NOOP("选择")},
+  {"dataops.invertSelection", QT_TR_NOOP("反选"), "Ctrl+Shift+A", QT_TR_NOOP("选择")},
+  {"dataops.selectFiltered", QT_TR_NOOP("按过滤器选中"), "Ctrl+Shift+F", QT_TR_NOOP("选择")},
+  {"dataops.commandPalette", QT_TR_NOOP("命令面板"), "Ctrl+K", QT_TR_NOOP("工具")},
+  {"dataops.shortcutsDialog", QT_TR_NOOP("快捷键表"), "?", QT_TR_NOOP("帮助")},
+  {"dataops.focusSearch", QT_TR_NOOP("聚焦搜索"), "Ctrl+F", QT_TR_NOOP("工具")},
+  {"dataops.vimToggle", QT_TR_NOOP("Vim 风导航开关"), "Ctrl+Alt+V", QT_TR_NOOP("工具")},
+  {"dataops.recursiveExpand", QT_TR_NOOP("全部展开"), "", QT_TR_NOOP("视图")},
+  {"dataops.collapseAll", QT_TR_NOOP("全部折叠"), "", QT_TR_NOOP("视图")},
+};
+} // namespace
+
+void DataListPanel::buildDataOpsUi()
+{
+  using namespace paleo::dataops;
+  QWidget *listSection = findChild<QWidget *>(QStringLiteral("dataListSection"));
+  if (!listSection)
+    return;
+  auto *listLay = static_cast<QVBoxLayout *>(listSection->layout());
+
+  // ---- 头部：仅选中徽标（D1.2）——宽度契约（D9）：本行保持 P3 之前的
+  //      最小宽，新增按钮全部下放工具行，列表仍可压到 ~150px。----
+  if (auto *header = findChild<QWidget *>(QStringLiteral("dataListHeader")))
+  {
+    auto *hl = static_cast<QHBoxLayout *>(header->layout());
+    auto *badge = new SelectionBadge(header);
+    hl->addWidget(badge);
+  }
+
+  // ---- dataops 工具行（D5.2 撤销/重做 + D2.5 排序 + D7.2 列配置 +
+  //      D7.1 视图模式）：头行之下、搜索行之上的独立横排。----
+  auto *toolbar = new QWidget(listSection);
+  toolbar->setObjectName(QStringLiteral("dataOpsToolbar"));
+  toolbar->setMinimumWidth(0);
+  auto *tl = new QHBoxLayout(toolbar);
+  tl->setContentsMargins(0, 0, 0, 0);
+  tl->setSpacing(4);
+  m_undoBtn = new QPushButton(tr("撤销"), toolbar);
+  m_undoBtn->setObjectName(QStringLiteral("dataUndoButton"));
+  m_undoBtn->setEnabled(false);
+  m_undoBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 8px;"));
+  m_redoBtn = new QPushButton(tr("重做"), toolbar);
+  m_redoBtn->setObjectName(QStringLiteral("dataRedoButton"));
+  m_redoBtn->setEnabled(false);
+  m_redoBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 8px;"));
+  m_undoBtn->setMaximumWidth(150); // 长操作名截断（tooltip 全文）
+  m_redoBtn->setMaximumWidth(150);
+  connect(m_undoBtn, &QPushButton::clicked, this, &DataListPanel::undoOp);
+  connect(m_redoBtn, &QPushButton::clicked, this, &DataListPanel::redoOp);
+  tl->addWidget(m_undoBtn);
+  tl->addWidget(m_redoBtn);
+  // D2.5 树排序下拉（记忆在 QSettings）。
+  auto *sortBox = new QComboBox(toolbar);
+  sortBox->setObjectName(QStringLiteral("treeSortCombo"));
+  sortBox->setToolTip(tr("树排序方式（记忆到下次会话）"));
+  sortBox->addItem(tr("按名称"), int(TreeSortKind::Name));
+  sortBox->addItem(tr("按时间"), int(TreeSortKind::Time));
+  sortBox->addItem(tr("按类型"), int(TreeSortKind::Type));
+  sortBox->addItem(tr("按大小"), int(TreeSortKind::Size));
+  sortBox->setCurrentIndex(qMax(0, sortBox->findData(int(m_treeSort))));
+  sortBox->setStyleSheet(QStringLiteral("font-size: 8pt;"));
+  sortBox->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+  sortBox->setMinimumContentsLength(2);
+  sortBox->setMinimumWidth(0);
+  connect(sortBox, &QComboBox::currentIndexChanged, this, [this, sortBox](int) {
+    setTreeSort(TreeSortKind(sortBox->currentData().toInt()));
+  });
+  tl->addWidget(sortBox);
+  // D7.2 列配置。
+  auto *colBtn = new QToolButton(toolbar);
+  colBtn->setText(tr("列"));
+  colBtn->setObjectName(QStringLiteral("columnConfigButton"));
+  colBtn->setToolTip(tr("配置列（显隐/顺序）"));
+  colBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 6px;"));
+  connect(colBtn, &QToolButton::clicked, this, &DataListPanel::openColumnConfig);
+  tl->addWidget(colBtn);
+  tl->addStretch(1);
+  // 第二行：视图模式全家（D7.1 树/表/图标 + 高速/分组）。树形/列表按钮
+  // 从 header 迁入（objectName 不变；宽度契约：header 行回到 P3 前宽度）。
+  auto *modeRow = new QWidget(listSection);
+  modeRow->setObjectName(QStringLiteral("dataViewModeRow"));
+  modeRow->setMinimumWidth(0);
+  auto *ml = new QHBoxLayout(modeRow);
+  ml->setContentsMargins(0, 0, 0, 0);
+  ml->setSpacing(4);
+  if (auto *btnGroup = findChild<QButtonGroup *>())
+  {
+    if (auto *header = findChild<QWidget *>(QStringLiteral("dataListHeader")))
+      if (auto *treeBtn = header->findChild<QToolButton *>(QStringLiteral("treeViewButton")))
+        treeBtn->setParent(modeRow);
+    if (auto *header = findChild<QWidget *>(QStringLiteral("dataListHeader")))
+      if (auto *listBtn = header->findChild<QToolButton *>(QStringLiteral("listViewButton")))
+        listBtn->setParent(modeRow);
+    if (auto *treeBtn = modeRow->findChild<QToolButton *>(QStringLiteral("treeViewButton")))
+      ml->addWidget(treeBtn);
+    if (auto *listBtn = modeRow->findChild<QToolButton *>(QStringLiteral("listViewButton")))
+      ml->addWidget(listBtn);
+    const struct
+    {
+      const char *name;
+      const char *text;
+      int id;
+    } kModes[] = {
+      {"iconViewButton", QT_TR_NOOP("图标"), 2},
+      {"virtualViewButton", QT_TR_NOOP("高速"), 3},
+      {"groupViewButton", QT_TR_NOOP("分组"), 4},
+    };
+    for (const auto &m : kModes)
+    {
+      auto *btn = new QToolButton(modeRow);
+      btn->setObjectName(QLatin1String(m.name));
+      btn->setText(tr(m.text));
+      btn->setCheckable(true);
+      btn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 6px;"));
+      btnGroup->addButton(btn, m.id);
+      ml->addWidget(btn);
+    }
+  }
+  ml->addStretch(1);
+  // 插到 header 之后：toolbar 第 1、模式行第 2。
+  listLay->insertWidget(1, toolbar);
+  listLay->insertWidget(2, modeRow);
+
+  // ---- viewStack 新页：图标（2）/ 虚拟（3）/ 分组（4）----
+  m_iconView = new AssetIconView(m_viewStack);
+  m_virtualView = new AssetVirtualView(m_viewStack);
+  m_groupTree = new AssetGroupTree(m_viewStack);
+  m_viewStack->addWidget(m_iconView);   // 2
+  m_viewStack->addWidget(m_virtualView); // 3
+  m_viewStack->addWidget(m_groupTree);  // 4
+  // 图标/分组视图的激活语义与树一致（双击/回车 → 预览）。
+  connect(m_iconView, &QListWidget::itemActivated, this, [this](QListWidgetItem *it) {
+    if (it)
+      emit assetActivated(it->data(Qt::UserRole).toString());
+  });
+  connect(m_iconView, &QListWidget::itemSelectionChanged, this, [this] {
+    refreshSelectionBadge();
+  });
+  connect(m_groupTree, &QTreeWidget::itemActivated, this, [this](QTreeWidgetItem *it, int) {
+    if (it)
+    {
+      const QString id = it->data(0, Qt::UserRole).toString();
+      if (!id.isEmpty())
+        emit assetActivated(id);
+    }
+  });
+  connect(m_groupTree, &QTreeWidget::itemSelectionChanged, this,
+          [this] { refreshSelectionBadge(); });
+
+  // ---- D2 多维过滤条 + chip 行 + 未决快捷行 ----
+  auto *filterWrap = new QWidget(listSection);
+  filterWrap->setObjectName(QStringLiteral("filterWrap"));
+  auto *fw = new QVBoxLayout(filterWrap);
+  fw->setContentsMargins(0, 0, 0, 0);
+  fw->setSpacing(4);
+  m_filterBar = new FilterBar(filterWrap);
+  fw->addWidget(m_filterBar);
+  m_chipBar = new FilterChipBar(filterWrap);
+  fw->addWidget(m_chipBar);
+  m_quickBar = new PendingQuickBar(filterWrap);
+  fw->addWidget(m_quickBar);
+  m_tagCloud = new TagCloudWidget(filterWrap);
+  fw->addWidget(m_tagCloud);
+  m_emptyState = new FilterEmptyState(filterWrap);
+  fw->addWidget(m_emptyState);
+  // 插在搜索行之后（搜索行已是 listLay 第 2 项——按索引插到其后）。
+  const int searchRowIdx = [listLay]() {
+    for (int i = 0; i < listLay->count(); ++i)
+      if (auto *w = listLay->itemAt(i)->widget())
+        if (w->findChild<QLineEdit *>(QStringLiteral("assetSearchEdit")))
+          return i;
+    return -1;
+  }();
+  listLay->insertWidget(searchRowIdx >= 0 ? searchRowIdx + 1 : listLay->count(),
+                        filterWrap);
+
+  // 过滤条信号接线。
+  connect(m_filterBar, &FilterBar::conditionAdded, this, [this](const FilterCondition &c) {
+    m_filter.add(c);
+    applyListFilter();
+    refreshChipBar();
+  });
+  connect(m_filterBar, &FilterBar::modeChanged, this, [this](bool or_) {
+    m_filter.orMode = or_;
+    applyListFilter();
+    refreshChipBar();
+  });
+  connect(m_filterBar, &FilterBar::presetChosen, this, [this](const QString &name) {
+    const FilterGroup g = loadFilterPreset(name);
+    m_filter = g;
+    m_filterBar->setOrMode(g.orMode);
+    applyListFilter();
+    refreshChipBar();
+    emit statusMessage(tr("已应用过滤器预设「%1」").arg(name));
+  });
+  connect(m_filterBar, &FilterBar::savePresetRequested, this, [this] {
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, tr("保存过滤器"),
+                                               tr("预设名称:"), QLineEdit::Normal,
+                                               QString(), &ok);
+    if (ok && saveFilterPreset(name, m_filter))
+    {
+      m_filterBar->reloadPresets();
+      emit statusMessage(tr("过滤器已存为预设「%1」").arg(name));
+    }
+  });
+  connect(m_filterBar, &FilterBar::shareStateRequested, this, [this] {
+    // D2.10：状态串复制到剪贴板（可粘贴分享/恢复）。
+    QGuiApplication::clipboard()->setText(m_filter.toStateString());
+    emit statusMessage(tr("过滤器状态串已复制（paleo://dataops-filter?…）"));
+  });
+  connect(m_chipBar, &FilterChipBar::chipRemoved, this, [this](const FilterCondition &c) {
+    m_filter.removeOne(c);
+    applyListFilter();
+    refreshChipBar();
+  });
+  connect(m_chipBar, &FilterChipBar::chipToggled, this, [this](const FilterCondition &c) {
+    for (FilterCondition &cc : m_filter.conditions)
+      if (cc == c)
+        cc.negate = !cc.negate;
+    applyListFilter();
+    refreshChipBar();
+  });
+  connect(m_chipBar, &FilterChipBar::clearAllRequested, this, [this] {
+    m_filter.conditions.clear();
+    m_filter.orMode = false;
+    m_activeTag.clear();
+    m_quickBar->clearAll();
+    if (auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit")))
+      search->clear();
+    if (auto *tf = findChild<QComboBox *>(QStringLiteral("assetTypeFilter")))
+      tf->setCurrentIndex(0);
+    applyListFilter();
+    refreshChipBar();
+    emit statusMessage(tr("已清除全部过滤条件"));
+  });
+  connect(m_quickBar, &PendingQuickBar::quickToggled, this,
+          [this](FilterDim d, bool on) {
+            if (on)
+              m_filter.add({d, QString(), false});
+            else
+              m_filter.clearDim(d);
+            applyListFilter();
+            refreshChipBar();
+          });
+  connect(m_tagCloud, &TagCloudWidget::tagClicked, this, [this](const QString &t, bool) {
+    // 开关态由处理器现算（点击的 chip 可能在重建 deleteLater 队列里——
+    // 其捕获的 active 态不作真相源）。
+    const bool on = m_activeTag != t;
+    m_activeTag = on ? t : QString();
+    applyListFilter();
+    refreshTagCloud();
+    emit statusMessage(on ? tr("按标签「%1」过滤").arg(t) : tr("已取消标签过滤"));
+  });
+  connect(m_emptyState, &FilterEmptyState::relaxRequested, this, [this] {
+    // 逐级放宽：去掉最后一个条件（旧控件持有的维度同步清空，防 sync 回填）。
+    if (!m_filter.conditions.isEmpty())
+    {
+      const FilterCondition last = m_filter.conditions.last();
+      m_filter.conditions.removeLast();
+      if (last.dim == FilterDim::Search)
+        if (auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit")))
+        {
+          const QSignalBlocker b(search);
+          search->clear();
+        }
+      if (last.dim == FilterDim::Type)
+        if (auto *tf = findChild<QComboBox *>(QStringLiteral("assetTypeFilter")))
+        {
+          const QSignalBlocker b(tf);
+          tf->setCurrentIndex(0);
+        }
+    }
+    else if (!m_activeTag.isEmpty())
+      m_activeTag.clear();
+    applyListFilter();
+    refreshChipBar();
+  });
+  connect(m_emptyState, &FilterEmptyState::clearRequested, this, [this] {
+    m_filter.conditions.clear();
+    m_activeTag.clear();
+    applyListFilter();
+    refreshChipBar();
+  });
+
+  // ---- D8 导入队列面板（挂在列表段底）----
+  m_importQueue = new ImportQueuePanel(listSection);
+  listLay->addWidget(m_importQueue);
+
+  // ---- 树右键菜单（D1.3 实体侧）----
+  m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
+  connect(m_tree, &QTreeWidget::customContextMenuRequested, this,
+          [this](const QPoint &pos) { showAssetContextMenu(m_tree, pos); });
+
+  // ---- 快捷键（D6.4/D6.6；命令面板/快捷键表在 DataPage 层）----
+  const auto addShortcut = [this](QKeySequence key, const char *name,
+                                  std::function<void()> handler) {
+    auto *sc = new QShortcut(key, this);
+    sc->setObjectName(QLatin1String(name));
+    m_shortcuts.append({key.toString(), QLatin1String(name)});
+    connect(sc, &QShortcut::activated, this, std::move(handler));
+    return sc;
+  };
+  addShortcut(QKeySequence(Qt::CTRL | Qt::Key_Z), "scUndo",
+              [this] { undoOp(); });
+  addShortcut(QKeySequence(Qt::CTRL | Qt::Key_Y), "scRedo",
+              [this] { redoOp(); });
+  addShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A), "scInvert",
+              [this] { invertAssetSelection(); });
+  addShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F), "scSelectFiltered",
+              [this] { selectByCurrentFilter(); });
+  addShortcut(QKeySequence(Qt::Key_F2), "scRename", [this] {
+    // D4.1：树内实体节点 F2 → 实体重命名意图（EntityPanel/壳接）。
+    const QStringList ents = currentEntitySelection();
+    if (!ents.isEmpty())
+      emit entityRenameRequested(ents.front());
+  });
+  addShortcut(QKeySequence(Qt::Key_Question), "scShortcuts", [this] {
+    emit shortcutsDialogRequested();
+  });
+  addShortcut(QKeySequence(Qt::CTRL | Qt::Key_F), "scFocusSearch", [this] {
+    if (auto *edit = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit")))
+      edit->setFocus();
+  });
+  addShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_V), "scVimToggle", [this] {
+    QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
+    const bool on = !s.value(QStringLiteral("dataops/vimMode")).toBool();
+    s.setValue(QStringLiteral("dataops/vimMode"), on);
+    m_tree->setVimMode(on);
+    emit statusMessage(on ? tr("Vim 风导航：开（j/k/g/G//）")
+                          : tr("Vim 风导航：关"));
+  });
+
+  // 树/表键盘 Space 勾选语义（D6.4：Space = 切换选中态）——ExtendedSelection
+  // 下 Qt 内建 Space 在 item view 无勾选语义；补 keyPressEvent 处理。
+  installEventFilter(this);
+
+  registerCommands();
+}
+
+void DataListPanel::registerCommands()
+{
+  using namespace paleo::dataops;
+  const ShortcutSpec *specs = kShortcutSpecs;
+  const int n = int(sizeof(kShortcutSpecs) / sizeof(kShortcutSpecs[0]));
+  for (int i = 0; i < n; ++i)
+  {
+    CommandEntry e;
+    e.id = QLatin1String(specs[i].id);
+    e.title = tr(specs[i].title);
+    e.category = tr(specs[i].category);
+    e.shortcut = QLatin1String(specs[i].shortcut);
+    e.keywords << e.title << e.category;
+    m_reg.registerCommand(e);
+  }
+  const auto reg = [this](const char *id, const char *title, const char *cat,
+                          std::function<void()> fn) {
+    CommandEntry e;
+    e.id = QLatin1String(id);
+    e.title = tr(title);
+    e.category = tr(cat);
+    e.trigger = std::move(fn);
+    e.keywords << e.title << tr(cat);
+    m_reg.registerCommand(e);
+  };
+  reg("dataops.selectAllVisible", QT_TR_NOOP("全选可见项"), QT_TR_NOOP("选择"),
+      [this] { selectAllVisibleAssets(); });
+  reg("dataops.invertSel", QT_TR_NOOP("反选"), QT_TR_NOOP("选择"),
+      [this] { invertAssetSelection(); });
+  reg("dataops.attachBatch", QT_TR_NOOP("批量挂接到实体"), QT_TR_NOOP("批量"),
+      [this] { batchAttachToEntity(); });
+  reg("dataops.changeType", QT_TR_NOOP("批量改类型"), QT_TR_NOOP("批量"),
+      [this] { batchChangeType(); });
+  reg("dataops.removeSoft", QT_TR_NOOP("移除（软删）"), QT_TR_NOOP("批量"),
+      [this] { batchRemoveSoft(); });
+  reg("dataops.exportManifest", QT_TR_NOOP("导出清单 CSV/JSON"), QT_TR_NOOP("批量"),
+      [this] { batchExportManifest(); });
+  reg("dataops.openPreviewAll", QT_TR_NOOP("批量打开预览"), QT_TR_NOOP("批量"),
+      [this] { batchOpenPreview(); });
+  reg("dataops.addTag", QT_TR_NOOP("给选中打标签"), QT_TR_NOOP("批量"),
+      [this] { batchAddTag(); });
+  reg("dataops.recycleBin", QT_TR_NOOP("打开可回收清单"), QT_TR_NOOP("批量"),
+      [this] { showRecycleBin(); });
+  reg("dataops.clearFilter", QT_TR_NOOP("清除全部过滤"), QT_TR_NOOP("过滤"),
+      [this] {
+        m_filter.conditions.clear();
+        m_activeTag.clear();
+        applyListFilter();
+        refreshChipBar();
+      });
+  reg("dataops.filterUnlinked", QT_TR_NOOP("过滤：未挂接"), QT_TR_NOOP("过滤"),
+      [this] {
+        m_filter.add({FilterDim::Unlinked, QString(), false});
+        applyListFilter();
+        refreshChipBar();
+      });
+  reg("dataops.filterPending", QT_TR_NOOP("过滤：有警告"), QT_TR_NOOP("过滤"),
+      [this] {
+        m_filter.add({FilterDim::Warned, QString(), false});
+        applyListFilter();
+        refreshChipBar();
+      });
+  reg("dataops.viewTree", QT_TR_NOOP("视图：树形"), QT_TR_NOOP("视图"),
+      [this] { setViewMode(0); });
+  reg("dataops.viewTable", QT_TR_NOOP("视图：列表"), QT_TR_NOOP("视图"),
+      [this] { setViewMode(1); });
+  reg("dataops.viewIcon", QT_TR_NOOP("视图：图标"), QT_TR_NOOP("视图"),
+      [this] { setViewMode(2); });
+  reg("dataops.viewVirtual", QT_TR_NOOP("视图：高速（大数据）"), QT_TR_NOOP("视图"),
+      [this] { setViewMode(3); });
+  reg("dataops.viewGroup", QT_TR_NOOP("视图：分组"), QT_TR_NOOP("视图"),
+      [this] { setViewMode(4); });
+  reg("dataops.refresh", QT_TR_NOOP("刷新数据列表"), QT_TR_NOOP("视图"),
+      [this] { refreshAssetTable(); });
+}
+
+void DataListPanel::refreshChipBar()
+{
+  if (m_chipBar)
+    m_chipBar->setConditions(m_filter);
+  if (m_filterBar)
+  {
+    // 维度词表（下拉候选）。
+    QStringList types, statuses, roles, entities, tags;
+    for (const paleo::dataops::AssetRowInfo &r : m_rows)
+    {
+      if (!types.contains(r.effectiveType) && !r.effectiveType.isEmpty())
+        types << r.effectiveType;
+      if (!statuses.contains(r.status))
+        statuses << r.status;
+      for (const QString &ro : r.roles)
+        if (!roles.contains(ro))
+          roles << ro;
+      for (const QString &en : r.entityNames)
+        if (!entities.contains(en))
+          entities << en;
+      for (const QString &t : r.tags)
+        if (!tags.contains(t))
+          tags << t;
+    }
+    types.sort(); statuses.sort(); roles.sort(); entities.sort();
+    m_filterBar->setValueVocabulary(paleo::dataops::FilterDim::Type, types);
+    m_filterBar->setValueVocabulary(paleo::dataops::FilterDim::Status,
+                                    {QStringLiteral("RAW"), QStringLiteral("DERIVED")});
+    m_filterBar->setValueVocabulary(paleo::dataops::FilterDim::Role, roles);
+    m_filterBar->setValueVocabulary(paleo::dataops::FilterDim::Entity, entities);
+    m_filterBar->setValueVocabulary(paleo::dataops::FilterDim::Tag, tags);
+    m_filterBar->reloadPresets();
+  }
+}
+
+void DataListPanel::loadStoresForCatalog()
+{
+  using namespace paleo::dataops;
+  PreviewDocService *svc = m_doc;
+  DataCatalog *cat = svc ? svc->catalog() : nullptr;
+  if (!cat || !cat->isOpen())
+    return;
+  const QString path = cat->catalogPath();
+  if (path != m_lastCatalogPath)
+  {
+    // D5.6：项目会话切换 → 命令栈/历史清空（旧工程的命令对新 catalog 无意义）。
+    m_lastCatalogPath = path;
+    if (m_opStack)
+      m_opStack->clear();
+    if (m_history)
+      m_history->clear();
+  }
+  m_tags.load(cat);
+  m_typeOv.load(cat);
+  m_entityOv.load(cat);
+  m_recycle.load(cat);
+  m_ctx.cat = cat;
+  m_ctx.tags = &m_tags;
+  m_ctx.assetOverrides = &m_typeOv;
+  m_ctx.entityOverrides = &m_entityOv;
+  m_ctx.recycle = &m_recycle;
+}
+
+void DataListPanel::rebuildRowSnapshot()
+{
+  using namespace paleo::dataops;
+  m_rows.clear();
+  PreviewDocService *svc = m_doc;
+  DataCatalog *cat = svc ? svc->catalog() : nullptr;
+  if (!cat)
+    return;
+  const bool unresolvedOnly = property("paleo.page.filterUnresolved").toBool();
+  for (const CatalogAsset &a : cat->assets())
+  {
+    if (m_recycle.isRemoved(a.id))
+      continue;
+    AssetRowInfo row = buildAssetRow(cat, a, m_tags, m_typeOv, m_recycle, m_entityOv);
+    if (unresolvedOnly && !row.unresolved)
+      continue;
+    m_rows.append(row);
+  }
+}
+
+QSet<QString> DataListPanel::currentAssetSelection() const
+{
+  using namespace paleo::dataops;
+  QSet<QString> out = selectedAssetIds(m_tree);
+  if (auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable")))
+    out += selectedAssetIds(table);
+  if (m_iconView)
+  {
+    for (QListWidgetItem *it : m_iconView->selectedItems())
+    {
+      const QString id = it->data(Qt::UserRole).toString();
+      if (!id.isEmpty())
+        out.insert(id);
+    }
+  }
+  // 软删资产不在表里——选中集只含现存可见资产。
+  return out;
+}
+
+QStringList DataListPanel::currentEntitySelection() const
+{
+  return paleo::dataops::selectedEntityIds(m_tree);
+}
+
+paleo::dataops::SelectionMix DataListPanel::currentSelectionMix() const
+{
+  paleo::dataops::SelectionMix mix;
+  mix.assetIds = currentAssetSelection();
+  mix.entityIds = currentEntitySelection();
+  return mix;
+}
+
+void DataListPanel::refreshSelectionBadge()
+{
+  using namespace paleo::dataops;
+  if (auto *badge = findChild<SelectionBadge *>(QStringLiteral("selectionBadge")))
+    badge->setCount(int(currentAssetSelection().size()));
+  emit selectionCountChanged(int(currentAssetSelection().size()),
+                            currentEntitySelection().size());
+}
+
+void DataListPanel::refreshTagCloud()
+{
+  if (m_tagCloud)
+    m_tagCloud->setCloud(m_tags.tagCloud(), m_activeTag);
+}
+
+void DataListPanel::updatePendingCounts()
+{
+  using namespace paleo::dataops;
+  if (!m_quickBar)
+    return;
+  int unlinked = 0, unknown = 0, warned = 0;
+  for (const AssetRowInfo &r : m_rows)
+  {
+    FilterCondition c;
+    c.dim = FilterDim::Unlinked;
+    if (c.matches(r)) ++unlinked;
+    c.dim = FilterDim::UnknownType;
+    if (c.matches(r)) ++unknown;
+    c.dim = FilterDim::Warned;
+    if (c.matches(r)) ++warned;
+  }
+  m_quickBar->setCounts(unlinked, unknown, warned);
+}
+
+void DataListPanel::refreshUndoButtons()
+{
+  if (m_undoBtn)
+  {
+    // D5.2：菜单项（按钮同面）显示操作名——「撤销 挂接 …」。
+    m_undoBtn->setEnabled(m_opStack && m_opStack->canUndo());
+    m_undoBtn->setText(m_opStack && m_opStack->canUndo()
+                           ? tr("撤销 %1").arg(m_opStack->undoText())
+                           : tr("撤销"));
+    m_undoBtn->setToolTip(m_opStack && m_opStack->canUndo()
+                              ? m_opStack->undoText() : tr("无可撤销操作"));
+  }
+  if (m_redoBtn)
+  {
+    m_redoBtn->setEnabled(m_opStack && m_opStack->canRedo());
+    m_redoBtn->setText(m_opStack && m_opStack->canRedo()
+                           ? tr("重做 %1").arg(m_opStack->redoText())
+                           : tr("重做"));
+    m_redoBtn->setToolTip(m_opStack && m_opStack->canRedo()
+                              ? m_opStack->redoText() : tr("无可重做操作"));
+  }
+}
+
+void DataListPanel::undoOp()
+{
+  if (!m_opStack || !m_opStack->canUndo())
+    return;
+  const QString text = m_opStack->undo();
+  refreshAssetTable();
+  emit entityRefreshRequested();
+  // D5.4：撤销后状态栏确认反馈。
+  emit statusMessage(tr("已撤销：%1").arg(text));
+}
+
+void DataListPanel::redoOp()
+{
+  if (!m_opStack || !m_opStack->canRedo())
+    return;
+  const QString text = m_opStack->redo();
+  refreshAssetTable();
+  emit entityRefreshRequested();
+  emit statusMessage(tr("已重做：%1").arg(text));
+}
+
+void DataListPanel::pushCommand(paleo::dataops::DataOpCommand *cmd)
+{
+  if (!m_opStack || !cmd)
+    return;
+  m_opStack->push(cmd);
+  refreshAssetTable();
+  emit entityRefreshRequested();
+}
+
+void DataListPanel::syncLegacyControlsIntoFilter()
+{
+  using namespace paleo::dataops;
+  // Search/Type 两维有双输入面：旧控件（assetSearchEdit/assetTypeFilter，
+  // 兼容面）与 FilterBar/预设/状态串。reconcile 双向：
+  //   1) FilterGroup 已有该维条件 → 写回旧控件（镜像一致）；
+  //   2) 控件有值而条件缺 → 从控件带入条件。
+  // 旧测试（直接打字/选类型）与新路径（FilterBar/预设/状态串）互不覆盖。
+  auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
+  auto *typeFilter = findChild<QComboBox *>(QStringLiteral("assetTypeFilter"));
+  const auto condValue = [this](FilterDim d) {
+    for (const FilterCondition &c : m_filter.conditions)
+      if (c.dim == d && !c.negate)
+        return c.value;
+    return QString();
+  };
+  if (search)
+  {
+    const QString inFilter = condValue(FilterDim::Search);
+    if (!inFilter.isEmpty() && inFilter != search->text().trimmed())
+    {
+      const QSignalBlocker b(search);
+      search->setText(inFilter);
+    }
+    else if (inFilter.isEmpty() && !search->text().trimmed().isEmpty())
+    {
+      m_filter.clearDim(FilterDim::Search);
+      m_filter.conditions.prepend(
+          {FilterDim::Search, search->text().trimmed(), false});
+    }
+    else if (inFilter.isEmpty() && search->text().trimmed().isEmpty())
+      m_filter.clearDim(FilterDim::Search);
+  }
+  if (typeFilter)
+  {
+    const QString inFilter = condValue(FilterDim::Type);
+    const QString combo = typeFilter->currentData().toString();
+    if (!inFilter.isEmpty() && inFilter != combo)
+    {
+      const QSignalBlocker b(typeFilter);
+      const int idx = typeFilter->findData(inFilter);
+      typeFilter->setCurrentIndex(idx >= 0 ? idx : 0);
+    }
+    else if (inFilter.isEmpty() && !combo.isEmpty())
+    {
+      m_filter.clearDim(FilterDim::Type);
+      m_filter.conditions.prepend({FilterDim::Type, combo, false});
+    }
+    else if (inFilter.isEmpty() && combo.isEmpty())
+      m_filter.clearDim(FilterDim::Type);
+  }
+}
+
+void DataListPanel::applyFilterGroup(const paleo::dataops::FilterGroup &g)
+{
+  m_filter = g;
+  if (m_filterBar)
+    m_filterBar->setOrMode(g.orMode);
+  applyListFilter();
+  refreshChipBar();
+}
+
+void DataListPanel::setFilterFromStateString(const QString &s)
+{
+  applyFilterGroup(paleo::dataops::FilterGroup::fromStateString(s));
+}
+
+void DataListPanel::setTreeSort(paleo::dataops::TreeSortKind kind)
+{
+  m_treeSort = kind;
+  paleo::dataops::rememberTreeSort(kind);
+  refreshAssetTable();
+}
+
+void DataListPanel::selectAllVisibleAssets()
+{
+  using namespace paleo::dataops;
+  if (auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable")))
+    selectAllVisible(table);
+  // 树/图标视图同步全选（可见项）。
+  if (m_iconView)
+    m_iconView->selectAll();
+}
+
+void DataListPanel::invertAssetSelection()
+{
+  using namespace paleo::dataops;
+  if (auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable")))
+    invertSelection(table);
+}
+
+void DataListPanel::selectByCurrentFilter()
+{
+  // 按过滤器选中 = 全选可见项（过滤已先行生效）。
+  selectAllVisibleAssets();
+  emit statusMessage(tr("已选中全部 %1 个可见资产").arg(currentAssetSelection().size()));
+}
+
+// ---- D1.4 批量挂接 ----------------------------------------------------------
+void DataListPanel::batchAttachToEntity()
+{
+  using namespace paleo::dataops;
+  const QSet<QString> ids = currentAssetSelection();
+  if (ids.isEmpty() || !m_ctx.valid())
+    return;
+  EntityPickerDialog dlg(this);
+  dlg.loadEntities(m_ctx.cat, m_entityOv, QString());
+  if (dlg.exec() != QDialog::Accepted)
+    return;
+  const QString target = dlg.selectedEntityId();
+  if (target.isEmpty())
+    return;
+  applyEntityDrop(QStringList(ids.values()), target);
+}
+
+// 拖放/批量挂接共用核心（D3.1/D3.4/D1.4）：按资产当前链接态分派
+// 挂接（未决）/转移（已决换实体）/跳过（已挂到同一实体）。
+void DataListPanel::applyEntityDrop(const QStringList &assetIds, const QString &entityId)
+{
+  using namespace paleo::dataops;
+  if (!m_ctx.valid() || entityId.isEmpty())
+    return;
+  const CatalogEntity target = m_ctx.cat->entityById(entityId);
+  int attached = 0, transferred = 0, skipped = 0;
+  for (const QString &id : assetIds)
+  {
+    const QVector<EntityAssetLink> links = m_ctx.cat->linksForAsset(id);
+    if (links.isEmpty())
+    {
+      // 无链接资产：直接建链接挂到目标实体（addLink——不可撤销路径，
+      // D5.5 语义由确认对话框承担；这里作为拖放主路径不弹额外确认，
+      // 失败明细走状态栏）。
+      EntityAssetLink l;
+      l.entityType = target.entityType;
+      l.entityId = entityId;
+      l.assetId = id;
+      l.role = QStringLiteral("reference");
+      QString err;
+      if (!m_ctx.cat->addLink(l, &err))
+      {
+        emit statusMessage(tr("挂接失败：%1").arg(err));
+        continue;
+      }
+      ++attached;
+      continue;
+    }
+    bool acted = false;
+    for (const EntityAssetLink &l : links)
+    {
+      if (l.unresolved)
+      {
+        pushCommand(new AttachLinkCmd(m_ctx, id, l.role, entityId, target.entityType));
+        ++attached;
+        acted = true;
+        break; // 每资产处理第一条未决链接（与既有行内控件口径一致）
+      }
+    }
+    if (acted)
+      continue;
+    for (const EntityAssetLink &l : links)
+    {
+      if (!l.unresolved && l.entityId != entityId)
+      {
+        pushCommand(new TransferLinkCmd(m_ctx, id, l.role, l.entityId, entityId));
+        ++transferred;
+        acted = true;
+        break;
+      }
+    }
+    if (!acted)
+      ++skipped; // 已挂到目标实体的资产
+  }
+  if (m_history)
+    m_history->push(tr("批量挂接 %1（挂 %2 / 转移 %3 / 跳过 %4）")
+                        .arg(entityId).arg(attached).arg(transferred).arg(skipped));
+  // D3.1 确认 toast（非模态反馈 + 可撤销提示）。
+  emit statusMessage(tr("挂接到「%1」：新挂 %2、转移 %3、跳过 %4（可撤销）")
+                         .arg(target.name.isEmpty() ? entityId : target.name)
+                         .arg(attached).arg(transferred).arg(skipped));
+}
+
+// ---- D1.5 批量改类型 ----------------------------------------------------------
+void DataListPanel::batchChangeType()
+{
+  using namespace paleo::dataops;
+  const QSet<QString> ids = currentAssetSelection();
+  if (ids.isEmpty() || !m_ctx.valid())
+    return;
+  // 类型词表 = 库内类型 ∪ 分类器常用类型。
+  QStringList vocab;
+  for (const AssetRowInfo &r : m_rows)
+    if (!vocab.contains(r.effectiveType) && !r.effectiveType.isEmpty())
+      vocab << r.effectiveType;
+  vocab << QStringLiteral("well_log") << QStringLiteral("well_head")
+        << QStringLiteral("tops") << QStringLiteral("time_depth")
+        << QStringLiteral("seismic") << QStringLiteral("horizon")
+        << QStringLiteral("boundary") << QStringLiteral("auxiliary");
+  vocab.removeDuplicates();
+  vocab.sort();
+  QStringList names;
+  for (const QString &id : ids)
+  {
+    const CatalogAsset a = m_ctx.cat->assetById(id);
+    names << a.displayName;
+  }
+  BatchTypeDialog dlg(names, vocab, this);
+  dlg.setNote(tr("改型写入视图层改写表（可撤销，可清除回原型）；catalog 资产"
+                 "记录的类型字段不动。"));
+  if (dlg.exec() != QDialog::Accepted)
+    return;
+  const QString newType = dlg.chosenType();
+  if (newType.isEmpty())
+    return;
+  QStringList failures;
+  for (const QString &id : ids)
+  {
+    const QString prev = m_typeOv.overriddenType(id);
+    if (!m_typeOv.setType(id, newType))
+    {
+      // 幂等跳过不算失败。
+      continue;
+    }
+    if (!m_typeOv.save())
+      failures << tr("%1：sidecar 写入失败").arg(id);
+    else
+      pushCommand(new TypeOverrideCmd(m_ctx, id, newType, prev));
+  }
+  if (m_history)
+    m_history->push(tr("批量改类型 → %1（%2 项）").arg(newType).arg(ids.size()));
+  if (!failures.isEmpty())
+    showBatchFailureDetail(this, tr("批量改类型"), failures);
+  else
+    emit statusMessage(tr("已把 %1 个资产类型改为 %2（可撤销）").arg(ids.size()).arg(newType));
+}
+
+// ---- D1.6 批量移除（软删）+ 可回收清单 ----------------------------------------
+void DataListPanel::batchRemoveSoft()
+{
+  using namespace paleo::dataops;
+  const QSet<QString> ids = currentAssetSelection();
+  if (ids.isEmpty() || !m_ctx.valid())
+    return;
+  // D5.5：软删可撤销——确认说明这一点（不是破坏性删除）。
+  if (QMessageBox::question(this, tr("移除资产"),
+                            tr("把 %1 个资产移入可回收清单？\n"
+                               "（软删：可从「可回收清单」恢复，可撤销；"
+                               "catalog 记录保留）").arg(ids.size())) !=
+      QMessageBox::Yes)
+    return;
+  for (const QString &id : ids)
+  {
+    const CatalogAsset a = m_ctx.cat->assetById(id);
+    pushCommand(new SoftDeleteCmd(m_ctx, id, a.displayName, a.type, true));
+  }
+  if (m_history)
+    m_history->push(tr("批量移除 %1 项（软删）").arg(ids.size()));
+  emit statusMessage(tr("已移除 %1 个资产到可回收清单（可撤销）").arg(ids.size()));
+}
+
+void DataListPanel::showRecycleBin()
+{
+  using namespace paleo::dataops;
+  if (!m_ctx.valid())
+    return;
+  RecycleBinDialog dlg(this);
+  dlg.loadEntries(m_recycle.entries());
+  const int restored[] = {0};
+  Q_UNUSED(restored);
+  connect(&dlg, &RecycleBinDialog::restoreRequested, this,
+          [&](const QStringList &assetIds) {
+            int n = 0;
+            for (const QString &id : assetIds)
+            {
+              const RecycleEntry e = [this, id]() {
+                for (const RecycleEntry &x : m_recycle.entries())
+                  if (x.assetId == id)
+                    return x;
+                return RecycleEntry();
+              }();
+              pushCommand(new SoftDeleteCmd(m_ctx, id, e.displayName, e.type, false));
+              ++n;
+            }
+            emit statusMessage(tr("已恢复 %1 个资产").arg(n));
+          });
+  connect(&dlg, &RecycleBinDialog::restoreAllRequested, this, [&] {
+    for (const RecycleEntry &e : m_recycle.entries())
+      pushCommand(new SoftDeleteCmd(m_ctx, e.assetId, e.displayName, e.type, false));
+    emit statusMessage(tr("已全部恢复"));
+  });
+  connect(&dlg, &RecycleBinDialog::purgeAllRequested, this, [&] {
+    m_recycle.clearAll();
+    m_recycle.save();
+    refreshAssetTable();
+    emit statusMessage(tr("可回收清单已清空（不可撤销）"));
+  });
+  dlg.exec();
+}
+
+// ---- D1.7 导出清单 -------------------------------------------------------------
+void DataListPanel::batchExportManifest()
+{
+  using namespace paleo::dataops;
+  const QSet<QString> ids = currentAssetSelection();
+  QVector<AssetRowInfo> rows;
+  for (const AssetRowInfo &r : m_rows)
+    if (ids.isEmpty() || ids.contains(r.assetId))
+      rows.append(r);
+  if (rows.isEmpty())
+    return;
+  const QString path = exportRowsToFile(this, rows);
+  if (!path.isEmpty())
+    emit statusMessage(tr("清单已导出：%1").arg(path));
+}
+
+// ---- D1.8 批量打开预览 ---------------------------------------------------------
+void DataListPanel::batchOpenPreview()
+{
+  using namespace paleo::dataops;
+  const QSet<QString> ids = currentAssetSelection();
+  if (ids.isEmpty())
+    return;
+  const auto plan = batchOpenPreviewPlan(QStringList(ids.values()));
+  for (const QString &id : plan.first)
+    emit assetActivated(id);
+  if (plan.second > 0)
+    emit statusMessage(tr("已打开前 %1 项预览；其余 %2 项未打开（防标签爆炸）")
+                           .arg(plan.first.size()).arg(plan.second));
+}
+
+// ---- D2.4 选中打标签 ------------------------------------------------------------
+void DataListPanel::batchAddTag()
+{
+  using namespace paleo::dataops;
+  const QSet<QString> ids = currentAssetSelection();
+  if (ids.isEmpty() || !m_ctx.valid())
+    return;
+  bool ok = false;
+  const QString tag = QInputDialog::getText(this, tr("打标签"),
+                                            tr("标签名（选中 %1 个资产）:")
+                                                .arg(ids.size()),
+                                            QLineEdit::Normal, QString(), &ok);
+  if (!ok)
+    return;
+  int n = 0;
+  for (const QString &id : ids)
+    if (m_tags.addTag(id, tag))
+    {
+      m_tags.save();
+      pushCommand(new TagCmd(m_ctx, id, tag, true));
+      ++n;
+    }
+  if (n > 0 && m_history)
+    m_history->push(tr("打标签「%1」（%2 项）").arg(tag).arg(n));
+  emit statusMessage(n > 0 ? tr("已给 %1 个资产打标签「%2」").arg(n).arg(tag)
+                           : tr("标签未变化（已存在或为空）"));
+}
+
+// ---- 单资产链接操作 --------------------------------------------------------------
+void DataListPanel::detachSingleAssetLink()
+{
+  using namespace paleo::dataops;
+  const QSet<QString> ids = currentAssetSelection();
+  if (ids.isEmpty() || !m_ctx.valid())
+    return;
+  for (const QString &id : ids)
+    for (const EntityAssetLink &l : m_ctx.cat->linksForAsset(id))
+      if (!l.unresolved)
+      {
+        pushCommand(new DetachLinkCmd(m_ctx, id, l.role, l.entityId));
+        emit statusMessage(tr("已解挂 %1→%2（可撤销）").arg(id, l.entityId));
+        return; // 单操作语义：首个选中资产的第一条已决链接
+      }
+  emit statusMessage(tr("选中资产没有已决关联"));
+}
+
+void DataListPanel::setPrimaryForSelection()
+{
+  using namespace paleo::dataops;
+  const QSet<QString> ids = currentAssetSelection();
+  if (ids.isEmpty() || !m_ctx.valid())
+    return;
+  for (const QString &id : ids)
+  {
+    const QVector<EntityAssetLink> links = m_ctx.cat->linksForAsset(id);
+    for (const EntityAssetLink &l : links)
+      if (!l.unresolved && !l.isPrimary)
+      {
+        // 前主关联（撤销时恢复）。
+        QString prevPrimary;
+        for (const EntityAssetLink &o : links)
+          if (!o.unresolved && o.isPrimary && o.entityId == l.entityId && o.role == l.role)
+            prevPrimary = o.assetId;
+        pushCommand(new SetPrimaryCmd(m_ctx, id, l.role, l.entityId, prevPrimary));
+        emit statusMessage(tr("已把 %1 设为主关联（可撤销）").arg(id));
+        return;
+      }
+  }
+  emit statusMessage(tr("选中资产没有可提升的非主关联"));
+}
+
+void DataListPanel::editRoleForSelection()
+{
+  using namespace paleo::dataops;
+  const QSet<QString> ids = currentAssetSelection();
+  if (ids.isEmpty() || !m_ctx.valid() || ids.size() != 1)
+    return;
+  const QString assetId = *ids.constBegin();
+  QString role, entityId;
+  for (const EntityAssetLink &l : m_ctx.cat->linksForAsset(assetId))
+    if (!l.unresolved)
+    {
+      role = l.role;
+      entityId = l.entityId;
+      break;
+    }
+  if (role.isEmpty())
+  {
+    emit statusMessage(tr("该资产没有已决关联可改角色"));
+    return;
+  }
+  // 词表 = roleRegistry 按实体类型的合法角色（工程可扩词表如实进下拉）。
+  QStringList vocab;
+  QString linkEntityType;
+  for (const EntityAssetLink &l : m_ctx.cat->linksForAsset(assetId))
+    if (!l.unresolved)
+    {
+      linkEntityType = l.entityType;
+      break;
+    }
+  for (const RoleDef &d : m_ctx.cat->roleRegistry().forEntity(linkEntityType))
+    vocab << d.role;
+  if (!vocab.contains(role))
+    vocab << role;
+  vocab.sort();
+  RoleEditDialog dlg(this);
+  dlg.loadRole(role, vocab);
+  if (dlg.exec() != QDialog::Accepted || dlg.newRole() == role)
+    return;
+  // D4.7 + D5.5：addLink 无删除对偶 → 不可撤销，确认说明。
+  if (QMessageBox::warning(
+          this, tr("角色变更（不可撤销）"),
+          tr("将为「%1」新增角色关联 %2（原 %3 关联保留）。\n"
+             "此操作不可撤销。继续？")
+              .arg(assetId, dlg.newRole(), role),
+          QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
+    return;
+  EntityAssetLink l;
+  l.entityType = m_ctx.cat->entityById(entityId).entityType;
+  l.entityId = entityId;
+  l.assetId = assetId;
+  l.role = dlg.newRole();
+  l.isPrimary = false;
+  QString err;
+  if (m_ctx.cat->addLink(l, &err))
+  {
+    if (m_history)
+      m_history->push(tr("角色变更 %1：%2→%3").arg(assetId, role, dlg.newRole()));
+    refreshAssetTable();
+    emit entityRefreshRequested();
+    emit statusMessage(tr("已新增角色关联 %1（原关联保留，不可撤销）")
+                           .arg(dlg.newRole()));
+  }
+  else
+    emit statusMessage(tr("角色变更失败：%1").arg(err));
+}
+
+// ---- D3.2 外部文件拖入 → 导入流 ---------------------------------------------------
+void DataListPanel::handleExternalFiles(const QStringList &paths)
+{
+  using namespace paleo::dataops;
+  if (paths.isEmpty())
+    return;
+  // D8.6：目录/大量文件 → 预估 + 分批确认；单文件直接走壳导入流。
+  QString dir;
+  int fileCount = 0;
+  for (const QString &p : paths)
+  {
+    const QFileInfo fi(p);
+    if (fi.isDir())
+      dir = p;
+    else if (fi.isFile())
+      ++fileCount;
+  }
+  if (!dir.isEmpty() || paths.size() > 20)
+  {
+    ImportEstimate estimate;
+    if (!dir.isEmpty())
+      estimate = estimateDirectory(dir);
+    else
+    {
+      estimate.fileCount = fileCount;
+      for (const QString &p : paths)
+        if (QFileInfo(p).isFile())
+          estimate.totalBytes += QFileInfo(p).size();
+    }
+    ImportEstimateDialog dlg(this);
+    dlg.setEstimate(estimate);
+    if (dlg.exec() != QDialog::Accepted)
+      return;
+    emit statusMessage(dlg.batchChosen()
+                           ? tr("分批导入已确认（首批 %1 项）").arg(batchPaths(paths, 200).size())
+                           : tr("整批导入已确认（%1 项）").arg(paths.size()));
+  }
+  // 视图只发意图：实际导入由壳的 FolderImport 流执行（T22 确认表复用）。
+  emit externalImportRequested(paths);
+  // 导入队列（D8.1）：未注入 runner 时仅登记（生产接线见 docs/dataops/GAPS.md）。
+  if (m_importQueue)
+  {
+    QHash<QString, QString> typeByExt;
+    for (const ImportPreset &p : importPresets())
+      typeByExt = p.typeMap; // 预设的类型映射（最后一个命中的预设）
+    m_importQueue->enqueuePaths(paths, typeByExt);
+  }
+}
+
+// ---- D7 视图形态 ------------------------------------------------------------------
+void DataListPanel::setViewMode(int mode)
+{
+  if (m_viewStack && mode >= 0 && mode < m_viewStack->count())
+    m_viewStack->setCurrentIndex(mode);
+}
+
+void DataListPanel::openColumnConfig()
+{
+  using namespace paleo::dataops;
+  auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
+  if (!table)
+    return;
+  QStringList labels;
+  QList<bool> visible;
+  for (int c = 0; c < table->columnCount(); ++c)
+  {
+    const int logical = table->horizontalHeader()->logicalIndex(c);
+    labels << (table->horizontalHeaderItem(logical)
+                   ? table->horizontalHeaderItem(logical)->text()
+                   : QString::number(logical));
+    visible << !table->isColumnHidden(logical);
+  }
+  ColumnConfigDialog dlg(labels, visible, this);
+  if (dlg.exec() != QDialog::Accepted)
+    return;
+  const QList<QPair<int, bool>> result = dlg.result();
+  for (int visual = 0; visual < result.size(); ++visual)
+  {
+    const int logical = result.at(visual).first;
+    table->setColumnHidden(logical, !result.at(visual).second);
+    const int curVisual = table->horizontalHeader()->visualIndex(logical);
+    if (curVisual != visual)
+      table->horizontalHeader()->moveSection(curVisual, visual);
+  }
+  saveColumnState(QStringLiteral("assetTable"), table->horizontalHeader());
+}
+
+void DataListPanel::openGroupConfig()
+{
+  using namespace paleo::dataops;
+  if (!m_groupTree)
+    return;
+  QStringList dims = {tr("按类型"), tr("按实体"), tr("按标签"), tr("按版本")};
+  bool ok = false;
+  const QString chosen = QInputDialog::getItem(
+      this, tr("分组维度"), tr("按什么分组:"), dims, m_groupMode, false, &ok);
+  if (!ok)
+    return;
+  m_groupMode = dims.indexOf(chosen);
+  if (m_groupMode < 0)
+    m_groupMode = 0;
+  m_groupTree->setGroupBy(AssetGroupTree::GroupBy(m_groupMode));
+  setViewMode(4);
+  // 重灌当前可见行。
+  QSet<QString> visible;
+  for (const AssetRowInfo &r : m_rows)
+    if (!r.removed)
+      visible.insert(r.assetId);
+  QVector<AssetRowInfo> shown;
+  for (const AssetRowInfo &r : m_rows)
+    if (visible.contains(r.assetId))
+      shown.append(r);
+  m_groupTree->loadRows(shown);
+}
+
+// ---- D1.3 上下文菜单 --------------------------------------------------------------
+QTreeWidgetItem *DataListPanel::treeItemForAsset(const QString &assetId) const
+{
+  if (!m_tree)
+    return nullptr;
+  QTreeWidgetItemIterator it(m_tree);
+  while (*it)
+  {
+    if ((*it)->data(0, Qt::UserRole).toString() == assetId)
+      return *it;
+    ++it;
+  }
+  return nullptr;
+}
+
+void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
+{
+  using namespace paleo::dataops;
+  // 选择集（右键不改变选择——Qt 菜单口径：右键在选中项上保持多选）。
+  const SelectionMix mix = currentSelectionMix();
+  ContextMenuSpec spec;
+  spec.hasAssets = !mix.assetIds.isEmpty();
+  spec.hasEntities = !mix.entityIds.isEmpty();
+  spec.assetCount = int(mix.assetIds.size());
+  spec.entityCount = mix.entityIds.size();
+  if (spec.assetCount == 1)
+  {
+    const QString id = *mix.assetIds.constBegin();
+    for (const AssetRowInfo &r : m_rows)
+      if (r.assetId == id)
+      {
+        spec.singleAssetUnresolved = r.unresolved;
+        spec.singleAssetResolved = !r.entityNames.isEmpty();
+        break;
+      }
+  }
+  spec.hasRecycleEntries = !m_recycle.entries().isEmpty();
+  const QStringList keys = contextMenuActions(spec);
+  if (keys.isEmpty())
+    return;
+  QMenu menu(this);
+  menu.setObjectName(QStringLiteral("dataContextMenu"));
+  const struct
+  {
+    const char *key;
+    const char *text;
+  } kTitles[] = {
+    {"openPreview", QT_TR_NOOP("打开预览")},
+    {"openPreviewAll", QT_TR_NOOP("批量打开预览（前 8 项）")},
+    {"attachToEntity", QT_TR_NOOP("挂接到实体…")},
+    {"detachLink", QT_TR_NOOP("解除挂接")},
+    {"setPrimary", QT_TR_NOOP("设为主关联")},
+    {"editRole", QT_TR_NOOP("编辑挂接角色…")},
+    {"transferLink", QT_TR_NOOP("转移到其它实体…")},
+    {"addTag", QT_TR_NOOP("打标签…")},
+    {"changeType", QT_TR_NOOP("改类型…")},
+    {"exportManifest", QT_TR_NOOP("导出清单 CSV/JSON…")},
+    {"removeSoft", QT_TR_NOOP("移除（进可回收清单）")},
+    {"showInFolder", QT_TR_NOOP("在文件管理器中显示")},
+    {"renameEntity", QT_TR_NOOP("重命名实体…")},
+    {"editCoords", QT_TR_NOOP("编辑坐标/备注…")},
+    {"deleteEntity", QT_TR_NOOP("删除实体…")},
+    {"focusEntities", QT_TR_NOOP("定位选中实体")},
+    {"selectAll", QT_TR_NOOP("全选可见项")},
+    {"invertSelection", QT_TR_NOOP("反选")},
+    {"showRecycleBin", QT_TR_NOOP("可回收清单…")},
+  };
+  for (const QString &key : keys)
+  {
+    const char *text = nullptr;
+    for (const auto &t : kTitles)
+      if (key == QLatin1String(t.key))
+      {
+        text = t.text;
+        break;
+      }
+    if (!text)
+      continue;
+    QAction *act = menu.addAction(tr(text));
+    act->setData(key);
+  }
+  QWidget *src = qobject_cast<QWidget *>(source);
+  const QPoint global = src ? src->mapToGlobal(pos) : QCursor::pos();
+  QAction *picked = menu.exec(global);
+  if (!picked)
+    return;
+  const QString key = picked->data().toString();
+  if (key == QLatin1String("openPreview") || key == QLatin1String("openPreviewAll"))
+    batchOpenPreview();
+  else if (key == QLatin1String("attachToEntity"))
+    batchAttachToEntity();
+  else if (key == QLatin1String("detachLink"))
+    detachSingleAssetLink();
+  else if (key == QLatin1String("setPrimary"))
+    setPrimaryForSelection();
+  else if (key == QLatin1String("editRole"))
+    editRoleForSelection();
+  else if (key == QLatin1String("transferLink"))
+    batchAttachToEntity(); // 转移 = 选目标实体（与挂接同一对话框）
+  else if (key == QLatin1String("addTag"))
+    batchAddTag();
+  else if (key == QLatin1String("changeType"))
+    batchChangeType();
+  else if (key == QLatin1String("exportManifest"))
+    batchExportManifest();
+  else if (key == QLatin1String("removeSoft"))
+    batchRemoveSoft();
+  else if (key == QLatin1String("showInFolder"))
+  {
+    const QSet<QString> ids = currentAssetSelection();
+    if (!ids.isEmpty() && m_doc)
+    {
+      const CatalogVersion v = m_doc->catalog()->currentVersion(*ids.constBegin());
+      const QString abs = m_doc->absolutePathForVersion(v);
+      if (!abs.isEmpty())
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(abs).absolutePath()));
+    }
+  }
+  else if (key == QLatin1String("renameEntity"))
+    emit entityRenameRequested(mix.entityIds.isEmpty() ? QString() : mix.entityIds.front());
+  else if (key == QLatin1String("editCoords") || key == QLatin1String("deleteEntity"))
+    emit entityDeleteRequested(mix.entityIds.isEmpty() ? QString() : mix.entityIds.front());
+  else if (key == QLatin1String("focusEntities"))
+    emit entitiesFocusRequested(mix.entityIds);
+  else if (key == QLatin1String("selectAll"))
+    selectAllVisibleAssets();
+  else if (key == QLatin1String("invertSelection"))
+    invertAssetSelection();
+  else if (key == QLatin1String("showRecycleBin"))
+    showRecycleBin();
+}
+
+// ---- D2 过滤：树面 ---------------------------------------------------------------
+void DataListPanel::applyFilterToTree(const QSet<QString> &visibleIds, bool filtering)
+{
+  if (!m_tree)
+    return;
+  const QString needle = [this]() {
+    const auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
+    return search ? search->text().trimmed() : QString();
+  }();
+  // 递归判定：分类/标签组随子命中；资产叶按可见 id 集；测区节点按文本；
+  // 井/标签叶按自身文本或子命中。
+  std::function<bool(QTreeWidgetItem *)> visit = [&](QTreeWidgetItem *node) -> bool {
+    const QString nodeType = node->data(0, Qt::UserRole + 2).toString();
+    const QString id = node->data(0, Qt::UserRole).toString();
+    const bool selfMatch =
+        needle.isEmpty() || node->text(0).contains(needle, Qt::CaseInsensitive) ||
+        node->text(1).contains(needle, Qt::CaseInsensitive);
+    if (nodeType == QLatin1String("category") || nodeType == QLatin1String("tag_group"))
+    {
+      bool any = false;
+      for (int k = 0; k < node->childCount(); ++k)
+        if (visit(node->child(k)))
+          any = true;
+      node->setHidden(!any);
+      return any;
+    }
+    if (!id.isEmpty() && nodeType != QLatin1String("well"))
+    {
+      // 资产叶 / 测线 / 测区：资产在可见集；测区/测线随文本。
+      const bool ok = selfMatch &&
+                      (nodeType == QLatin1String("survey_area") ||
+                       visibleIds.contains(id));
+      node->setHidden(!ok);
+      return ok;
+    }
+    // 井节点 / 标签叶 / 其它无 id 结构节点。
+    bool any = selfMatch;
+    for (int k = 0; k < node->childCount(); ++k)
+      if (visit(node->child(k)))
+        any = true;
+    node->setHidden(!any);
+    return any;
+  };
+  for (int i = 0; i < m_tree->topLevelItemCount(); ++i)
+  {
+    QTreeWidgetItem *cat = m_tree->topLevelItem(i);
+    const bool catVisible = visit(cat);
+    cat->setHidden(!catVisible);
+    if (filtering && catVisible)
+      cat->setExpanded(true);
+    else if (!filtering)
+    {
+      const bool isWellCategory = cat->text(0).startsWith(tr("井 ("));
+      cat->setExpanded(!isWellCategory);
+      for (int j = 0; j < cat->childCount(); ++j)
+      {
+        auto *child = cat->child(j);
+        child->setExpanded(child->text(0).contains(QStringLiteral("综合柱状图")));
+      }
+    }
+  }
+}
+
+// AUTOMOC：Q_OBJECT 头（非同名 basename）的 moc 显式编入本 TU——
+// CMake AUTOMOC 只对同名 basename 头自动 moc（datalist.cpp→datalist.h），
+// dataops 家族的部件头经此 include 挂进 paleo_ui（详见 docs/dataops/GAPS.md
+// 「构建接线」节）。__has_include 守卫：lint 门（tools/check_tidy.py）只
+// configure 不 build，moc 尚未生成时跳过；AUTOMOC 生成 moc 靠文本扫描，
+// 不受预处理条件影响，真实构建照常编入。
+#if __has_include("moc_dataopspanelops.cpp")
+#include "moc_dataopspanelops.cpp"
+#endif
+#if __has_include("moc_dataopsimportui.cpp")
+#include "moc_dataopsimportui.cpp"
+#endif
+#if __has_include("moc_dataopsundo.cpp")
+#include "moc_dataopsundo.cpp"
+#endif
+#if __has_include("moc_dataopsviews.cpp")
+#include "moc_dataopsviews.cpp"
+#endif
+#if __has_include("moc_dataopswidgets.cpp")
+#include "moc_dataopswidgets.cpp"
+#endif
+#if __has_include("moc_datanavtree.cpp")
+#include "moc_datanavtree.cpp"
+#endif

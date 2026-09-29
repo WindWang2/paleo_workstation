@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <defs>
+    <pattern id="sandstone_coarse" width="12" height="12" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" fill="#f0dbb5"/><rect x="1" y="1" width="2.5" height="2.5" fill="#d4b483" rx="0.3"/><rect x="5" y="2" width="2" height="2" fill="#c4a473" rx="0.3"/><rect x="2" y="5.5" width="2.5" height="2" fill="#d4b483" rx="0.3"/>
+    </pattern>
+  </defs>
+  <rect width="80" height="80" fill="#f0dbb5" opacity="0.3"/>
+  <rect x="4" y="4" width="72" height="72" fill="url(#sandstone_coarse)" stroke="#999" stroke-width="0.5"/>
+  <text x="40" y="42" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#333" opacity="0.7">粗粒砂岩</text>
+</svg>

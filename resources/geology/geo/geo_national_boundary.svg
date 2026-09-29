@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <line x1="5" y1="35" x2="135" y2="35" stroke="#000" stroke-width="3"/>
+  <rect x="15" y="31" width="10" height="8" fill="none" stroke="#000" stroke-width="1"/>
+  <rect x="27" y="31" width="10" height="8" fill="#000"/>
+  <rect x="30" y="31" width="10" height="8" fill="none" stroke="#000" stroke-width="1"/>
+  <rect x="42" y="31" width="10" height="8" fill="#000"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">国界</text>
+</svg>

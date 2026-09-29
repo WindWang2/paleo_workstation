@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 50" width="140" height="50">
+  <rect width="140" height="50" fill="#fff"/>
+  <rect x="10" y="10" width="120" height="30" fill="#E8D5B0" stroke="#999" stroke-width="1"/>
+  <text x="70" y="30" text-anchor="middle" font-family="Arial, SimHei, Microsoft YaHei, sans-serif" font-size="14" fill="#333" font-weight="bold">三角洲</text>
+</svg>

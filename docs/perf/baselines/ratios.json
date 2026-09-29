@@ -1,0 +1,7 @@
+{
+  "_comment": "wave/io-perf-cache D8.3 基线（机器无关相对指标）。语义：各键为比率上限（越小越好），回归门 = 基线 x 1.2（D8.2 允许 20% 劣化后仍须低于该线）。生成口径：RelWithDebInfo/-O2、合成夹具（PerfFixtures）、tst_perf_regress 同款测量。",
+  "las_cache_hit_vs_cold_max": 0.30,
+  "segy_cached_vs_rebuild_max": 0.35,
+  "sha_cached_vs_hash_max": 0.02,
+  "catalog_query_5k_vs_1k_max": 4.0
+}

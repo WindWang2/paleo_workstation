@@ -94,6 +94,13 @@ void PaleoTask::reportDetail(const QString &detail)
       this, [this, detail]() { applyDetail(detail); }, Qt::QueuedConnection);
 }
 
+void PaleoTask::reportStage(const QString &stage, int percent)
+{
+  QMetaObject::invokeMethod(
+      this, [this, stage, percent]() { applyStage(stage, percent); },
+      Qt::QueuedConnection);
+}
+
 void PaleoTask::applyProgress(qint64 done, qint64 total)
 {
   m_bytesDone = done;
@@ -120,6 +127,13 @@ void PaleoTask::applyDetail(const QString &detail)
   emit changed();
 }
 
+void PaleoTask::applyStage(const QString &stage, int percent)
+{
+  m_stage = stage;
+  m_stagePercent = percent;
+  emit changed();
+}
+
 void PaleoTask::applyFinish(const QString &error)
 {
   if (m_cancel.load())
@@ -142,6 +156,11 @@ void PaleoTask::applyFinish(const QString &error)
 PaleoTaskService::PaleoTaskService(PaleoProjectStore *store, QObject *parent)
     : QObject(parent), m_store(store)
 {
+  // D4.5：专用池 ≤4 工作线程——不占 globalInstance 默认（UI 侧仍有自己的
+  // 池面），也不被 seismic 任务服务（P5 领地）牵连。
+  m_pool = new QThreadPool(); // 无父：析构策略见 ~PaleoTaskService
+  m_pool->setMaxThreadCount(4);
+  m_pool->setExpiryTimeout(30 * 1000);
 }
 
 PaleoTaskService::~PaleoTaskService()
@@ -155,6 +174,11 @@ PaleoTaskService::~PaleoTaskService()
       t->requestCancel();
       t->setParent(nullptr);
     }
+  // D4.5：清空未开始的排队（运行中的协作取消已发）；池不再 delete——
+  // waitForDone 会卡住仍在跑的长任务，孤儿化池（线程随 expiry 退出）与
+  // 任务的孤儿化语义一致。
+  m_pool->clear();
+  m_pool->setParent(nullptr);
 }
 
 PaleoTask *PaleoTaskService::start(const QString &title,
@@ -170,8 +194,45 @@ PaleoTask *PaleoTaskService::start(const QString &title,
           [this, task]() { onTaskFinished(task); });
   emit taskAdded(task);
   emit tasksChanged();
-  QThreadPool::globalInstance()->start(new TaskRunner(task, std::move(work)));
+  m_pool->start(new TaskRunner(task, std::move(work)));
   return task;
+}
+
+PaleoTask *PaleoTaskService::start(const QString &title,
+                                   std::function<QString(PaleoTask *)> work,
+                                   const QString &layerId, PaleoTask::Priority priority)
+{
+  auto *task = new PaleoTask(m_nextId++, title, layerId, this);
+  m_tasks.append(task);
+  if (m_store && !layerId.isEmpty())
+    m_store->markLayerBusy(layerId, QStringLiteral("task-%1").arg(task->id()),
+                           title);
+  connect(task, &PaleoTask::finished, this,
+          [this, task]() { onTaskFinished(task); });
+  emit taskAdded(task);
+  emit tasksChanged();
+  // QThreadPool 优先级：数值大者先出队（D4.6 预取 Low 不挡用户点击 High）。
+  m_pool->start(new TaskRunner(task, std::move(work)), static_cast<int>(priority));
+  return task;
+}
+
+int PaleoTaskService::maxWorkerThreads() const
+{
+  return m_pool->maxThreadCount();
+}
+
+void PaleoTaskService::setMaxWorkerThreads(int n)
+{
+  m_pool->setMaxThreadCount(qBound(1, n, 8));
+}
+
+int PaleoTaskService::runningCount() const
+{
+  int n = 0;
+  for (const PaleoTask *t : m_tasks)
+    if (t->running())
+      ++n;
+  return n;
 }
 
 void PaleoTaskService::onTaskFinished(PaleoTask *task)

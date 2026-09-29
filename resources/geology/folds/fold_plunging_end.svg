@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 70" width="160" height="70">
+  <rect width="160" height="70" fill="#fff"/>
+  <line x1="5" y1="35" x2="155" y2="35" stroke="#000" stroke-width="1.5"/>
+  <polygon points="130,25 155,35 130,45" fill="#000"/>
+  <text x="80" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">倾伏端</text>
+</svg>

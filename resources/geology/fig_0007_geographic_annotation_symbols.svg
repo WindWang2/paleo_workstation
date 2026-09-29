@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1400" width="1400" height="1400">
+  <defs>
+    <style>
+      .title { font-family: SimHei, Microsoft YaHei, sans-serif; font-size: 20px; font-weight: bold; fill: #1a1a1a; }
+      .subtitle { font-family: SimSun, serif; font-size: 13px; fill: #666; }
+      .category { font-family: SimHei, Microsoft YaHei, sans-serif; font-size: 15px; font-weight: bold; fill: #3a6b3a; }
+      .label { font-family: SimSun, serif; font-size: 12px; fill: #1a1a1a; }
+      .code { font-family: Arial, sans-serif; font-size: 10px; fill: #888; }
+      .desc { font-family: SimSun, serif; font-size: 11px; fill: #444; }
+      .remark { font-family: SimSun, serif; font-size: 10px; fill: #999; }
+      .cell-border { fill: none; stroke: #ccc; stroke-width: 0.5; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="1400" fill="#fafafa"/>
+
+  <!-- Title -->
+  <text x="700" y="35" text-anchor="middle" class="title">地理与注记符号库</text>
+  <text x="700" y="55" text-anchor="middle" class="subtitle">Geographic &amp; Annotation Symbol Library — Q/HS 1011—2016 附录 H, P</text>
+
+  <!-- ========== 行政区划 Administrative Boundaries ========== -->
+  <text x="20" y="85" class="category">一、行政区划 (Administrative Boundaries) — 附录 H.1</text>
+  <rect x="15" y="88" width="1370" height="100" class="cell-border"/>
+
+  <text x="30" y="115" class="label">国界</text>
+  <text x="30" y="130" class="desc">National Boundary</text>
+  <text x="30" y="143" class="code">XZQH-H1-1H/C</text>
+  <g transform="translate(200, 100)">
+    <line x1="0" y1="15" x2="150" y2="15" stroke="#000" stroke-width="2.5"/>
+    <rect x="5" y="11" width="8" height="8" fill="none" stroke="#000" stroke-width="1"/>
+    <rect x="20" y="11" width="8" height="8" fill="#000"/>
+    <rect x="35" y="11" width="8" height="8" fill="none" stroke="#000" stroke-width="1"/>
+  </g>
+
+  <text x="400" y="115" class="label">省界</text>
+  <text x="400" y="130" class="desc">Provincial Boundary</text>
+  <text x="400" y="143" class="code">XZQH-H1-2H/C</text>
+  <g transform="translate(570, 100)">
+    <line x1="0" y1="15" x2="150" y2="15" stroke="#000" stroke-width="2"/>
+    <circle cx="20" cy="15" r="3" fill="#000"/>
+    <circle cx="40" cy="15" r="3" fill="none" stroke="#000" stroke-width="1"/>
+    <circle cx="60" cy="15" r="3" fill="#000"/>
+  </g>
+
+  <text x="770" y="115" class="label">地区界</text>
+  <text x="770" y="130" class="desc">Regional Boundary</text>
+  <text x="770" y="143" class="code">XZQH-H1-3H/C</text>
+  <g transform="translate(940, 100)">
+    <line x1="0" y1="15" x2="150" y2="15" stroke="#000" stroke-width="1.5"/>
+    <circle cx="20" cy="15" r="3" fill="none" stroke="#000" stroke-width="1"/>
+    <circle cx="50" cy="15" r="3" fill="none" stroke="#000" stroke-width="1"/>
+    <circle cx="80" cy="15" r="3" fill="none" stroke="#000" stroke-width="1"/>
+  </g>
+
+  <!-- ========== 水系 Water Systems ========== -->
+  <text x="20" y="210" class="category">二、水系 (Water Systems) — 附录 H.4</text>
+  <rect x="15" y="213" width="1370" height="240" class="cell-border"/>
+
+  <text x="30" y="240" class="label">海岸线</text>
+  <text x="30" y="255" class="desc">Coastline</text>
+  <text x="30" y="268" class="code">HAX-A4-1H/C</text>
+  <text x="350" y="255" class="remark">蓝色 #0071FF</text>
+  <g transform="translate(250, 225)">
+    <path d="M 0,15 Q 30,5 60,15 Q 90,25 120,15" fill="none" stroke="#0071FF" stroke-width="2"/>
+  </g>
+
+  <text x="600" y="240" class="label">等深线</text>
+  <text x="600" y="255" class="desc">Isobath</text>
+  <text x="600" y="268" class="code">HAX-A4-2H</text>
+  <g transform="translate(820, 225)">
+    <path d="M 0,15 Q 30,5 60,15 Q 90,25 120,15" fill="none" stroke="#0071FF" stroke-width="1" stroke-dasharray="5,3"/>
+  </g>
+
+  <text x="30" y="300" class="label">岛礁</text>
+  <text x="30" y="315" class="desc">Island / Reef</text>
+  <text x="30" y="328" class="code">HAX-A4-3H/C</text>
+  <text x="350" y="315" class="remark">粉红 #EC2667</text>
+  <g transform="translate(250, 285)">
+    <ellipse cx="30" cy="20" rx="20" ry="12" fill="#EC2667" stroke="#000" stroke-width="0.5"/>
+  </g>
+
+  <text x="600" y="300" class="label">海水域</text>
+  <text x="600" y="315" class="desc">Sea Water Area</text>
+  <text x="600" y="328" class="code">HAX-A4-4H/C</text>
+  <text x="920" y="315" class="remark">浅蓝 #D0E4CE</text>
+  <g transform="translate(820, 285)">
+    <rect x="0" y="5" width="120" height="30" fill="#D0E4CE" stroke="#000" stroke-width="0.5"/>
+  </g>
+
+  <text x="30" y="360" class="label">湖泊</text>
+  <text x="30" y="375" class="desc">Lake</text>
+  <text x="30" y="388" class="code">HUP-A4-5H/C</text>
+  <g transform="translate(250, 340)">
+    <ellipse cx="30" cy="20" rx="25" ry="15" fill="#0071FF" stroke="#000" stroke-width="1"/>
+  </g>
+
+  <text x="600" y="360" class="label">河流</text>
+  <text x="600" y="375" class="desc">River</text>
+  <text x="600" y="388" class="code">HEL-A4-9H/C</text>
+  <g transform="translate(820, 340)">
+    <path d="M 0,20 Q 20,10 40,20 Q 60,30 80,20 Q 100,10 120,20" fill="none" stroke="#0071FF" stroke-width="3"/>
+  </g>
+
+  <text x="30" y="420" class="label">时令河</text>
+  <text x="30" y="435" class="desc">Intermittent River</text>
+  <text x="30" y="448" class="code">HEL-A4-10H/C</text>
+  <g transform="translate(250, 400)">
+    <path d="M 0,20 Q 20,10 40,20 Q 60,30 80,20 Q 100,10 120,20" fill="none" stroke="#0071FF" stroke-width="2" stroke-dasharray="6,3"/>
+  </g>
+
+  <text x="600" y="420" class="label">运河</text>
+  <text x="600" y="435" class="desc">Canal</text>
+  <text x="600" y="448" class="code">HEL-A4-11H/C</text>
+  <g transform="translate(820, 400)">
+    <line x1="0" y1="20" x2="120" y2="20" stroke="#0071FF" stroke-width="3"/>
+    <line x1="0" y1="23" x2="120" y2="23" stroke="#0071FF" stroke-width="1"/>
+  </g>
+
+  <text x="30" y="480" class="label">堤坝</text>
+  <text x="30" y="495" class="desc">Dam / Levee</text>
+  <text x="30" y="508" class="code">DIB-A4-13H/C</text>
+  <g transform="translate(250, 460)">
+    <line x1="0" y1="20" x2="120" y2="20" stroke="#000" stroke-width="2"/>
+    <line x1="0" y1="23" x2="120" y2="23" stroke="#0071FF" stroke-width="2"/>
+  </g>
+
+  <text x="600" y="480" class="label">水库</text>
+  <text x="600" y="495" class="desc">Reservoir</text>
+  <text x="600" y="508" class="code">SHK-A4-14H/C</text>
+  <g transform="translate(820, 460)">
+    <polygon points="60,5 90,35 30,35" fill="#0071FF" stroke="#000" stroke-width="1"/>
+  </g>
+
+  <!-- ========== 地形地貌 Terrain & Landforms ========== -->
+  <text x="20" y="555" class="category">三、地形地貌植被 (Terrain, Landforms &amp; Vegetation) — 附录 H.5</text>
+  <rect x="15" y="558" width="1370" height="280" class="cell-border"/>
+
+  <text x="30" y="585" class="label">戈壁滩</text>
+  <text x="30" y="600" class="desc">Gobi Desert</text>
+  <text x="30" y="613" class="code">DIX-A5-1H/C</text>
+  <text x="350" y="600" class="remark">橙 #B4820</text>
+  <g transform="translate(250, 575)">
+    <rect x="0" y="5" width="120" height="25" fill="#B4820" stroke="none"/>
+  </g>
+
+  <text x="600" y="585" class="label">盐碱地</text>
+  <text x="600" y="600" class="desc">Saline Land</text>
+  <text x="600" y="613" class="code">DIX-A5-2H/C</text>
+  <text x="920" y="600" class="remark">橙 #B4820</text>
+  <g transform="translate(820, 575)">
+    <rect x="0" y="5" width="120" height="25" fill="#B4820" stroke="none"/>
+  </g>
+
+  <text x="30" y="645" class="label">沙漠</text>
+  <text x="30" y="660" class="desc">Desert</text>
+  <text x="30" y="673" class="code">DIX-A5-4H/C</text>
+  <text x="350" y="660" class="remark">橙 #B4820</text>
+  <g transform="translate(250, 635)">
+    <rect x="0" y="5" width="120" height="25" fill="#B4820" stroke="none"/>
+  </g>
+
+  <text x="600" y="645" class="label">山峰/标高</text>
+  <text x="600" y="660" class="desc">Peak / Elevation</text>
+  <text x="600" y="673" class="code">DIX-A5-6H/C</text>
+  <text x="920" y="660" class="remark">棕 #996633</text>
+  <g transform="translate(820, 635)">
+    <polygon points="60,5 70,30 50,30" fill="#996633" stroke="#000" stroke-width="1"/>
+    <text x="60" y="45" text-anchor="middle" font-size="10" fill="#000">标高</text>
+  </g>
+
+  <text x="30" y="705" class="label">火山口</text>
+  <text x="30" y="720" class="desc">Crater</text>
+  <text x="30" y="733" class="code">DIX-A5-7H/C</text>
+  <text x="350" y="720" class="remark">红 #FF0000</text>
+  <g transform="translate(250, 690)">
+    <circle cx="30" cy="20" r="15" fill="none" stroke="#FF0000" stroke-width="2"/>
+    <circle cx="30" cy="20" r="8" fill="#FF0000"/>
+  </g>
+
+  <text x="600" y="705" class="label">森林</text>
+  <text x="600" y="720" class="desc">Forest</text>
+  <text x="600" y="733" class="code">ZIB-A5-8H/C</text>
+  <text x="920" y="720" class="remark">绿 #00CC00</text>
+  <g transform="translate(820, 690)">
+    <polygon points="30,5 40,30 20,30" fill="#00CC00" stroke="#000" stroke-width="0.5"/>
+  </g>
+
+  <text x="30" y="765" class="label">独立树</text>
+  <text x="30" y="780" class="desc">Single Tree</text>
+  <text x="30" y="793" class="code">ZIB-A5-9H/C</text>
+  <text x="350" y="780" class="remark">绿 #00CC00</text>
+  <g transform="translate(250, 750)">
+    <circle cx="30" cy="15" r="10" fill="#00CC00" stroke="#000" stroke-width="0.5"/>
+    <line x1="30" y1="25" x2="30" y2="38" stroke="#8B4513" stroke-width="2"/>
+  </g>
+
+  <text x="600" y="765" class="label">灌木林</text>
+  <text x="600" y="780" class="desc">Shrub</text>
+  <text x="600" y="793" class="code">ZIB-A5-10H/C</text>
+  <text x="920" y="780" class="remark">绿 #00CC00</text>
+  <g transform="translate(820, 750)">
+    <ellipse cx="30" cy="22" rx="18" ry="12" fill="#00CC00" stroke="#000" stroke-width="0.5"/>
+  </g>
+
+  <!-- ========== 交通 Transportation ========== -->
+  <text x="20" y="855" class="category">四、交通 (Transportation) — 附录 H.6</text>
+  <rect x="15" y="858" width="1370" height="180" class="cell-border"/>
+
+  <text x="30" y="885" class="label">高速公路</text>
+  <text x="30" y="900" class="desc">Highway</text>
+  <text x="30" y="913" class="code">JIAOT-A6-1H/C</text>
+  <text x="350" y="900" class="remark">橙 #FF9900</text>
+  <g transform="translate(250, 875)">
+    <line x1="0" y1="20" x2="120" y2="20" stroke="#FF9900" stroke-width="4"/>
+  </g>
+
+  <text x="600" y="885" class="label">普通公路</text>
+  <text x="600" y="900" class="desc">General Road</text>
+  <text x="600" y="913" class="code">JIAOT-A6-2H/C</text>
+  <text x="920" y="900" class="remark">黑 #000000</text>
+  <g transform="translate(820, 875)">
+    <line x1="0" y1="20" x2="120" y2="20" stroke="#000" stroke-width="2"/>
+  </g>
+
+  <text x="30" y="945" class="label">普通铁路</text>
+  <text x="30" y="960" class="desc">Railway</text>
+  <text x="30" y="973" class="code">JIAOT-A6-4H/C</text>
+  <text x="350" y="960" class="remark">黑 #000000</text>
+  <g transform="translate(250, 930)">
+    <line x1="0" y1="18" x2="120" y2="18" stroke="#000" stroke-width="2"/>
+    <line x1="0" y1="24" x2="120" y2="24" stroke="#000" stroke-width="1"/>
+    <line x1="15" y1="14" x2="15" y2="28" stroke="#000" stroke-width="0.8"/>
+    <line x1="40" y1="14" x2="40" y2="28" stroke="#000" stroke-width="0.8"/>
+    <line x1="65" y1="14" x2="65" y2="28" stroke="#000" stroke-width="0.8"/>
+    <line x1="90" y1="14" x2="90" y2="28" stroke="#000" stroke-width="0.8"/>
+  </g>
+
+  <text x="600" y="945" class="label">机场</text>
+  <text x="600" y="960" class="desc">Airport</text>
+  <text x="600" y="973" class="code">JIAOT-A6-7H/C</text>
+  <text x="920" y="960" class="remark">蓝 #0000FF</text>
+  <g transform="translate(820, 930)">
+    <ellipse cx="60" cy="20" rx="30" ry="12" fill="none" stroke="#0000FF" stroke-width="2"/>
+    <line x1="30" y1="20" x2="90" y2="20" stroke="#0000FF" stroke-width="1"/>
+  </g>
+
+  <text x="30" y="1005" class="label">码头港口</text>
+  <text x="30" y="1020" class="desc">Port / Wharf</text>
+  <text x="30" y="1033" class="code">JIAOT-A6-8H/C</text>
+  <text x="350" y="1020" class="remark">蓝 #0000FF</text>
+  <g transform="translate(250, 1000)">
+    <rect x="10" y="10" width="30" height="20" fill="none" stroke="#0000FF" stroke-width="1.5"/>
+    <line x1="10" y1="20" x2="60" y2="20" stroke="#0000FF" stroke-width="1.5"/>
+  </g>
+
+  <!-- ========== 注记 Annotation Symbols ========== -->
+  <text x="20" y="1075" class="category">五、石油地质专用注记 (Oil-Gas Special Annotation) — 附录 P.3</text>
+  <rect x="15" y="1078" width="1370" height="200" class="cell-border"/>
+
+  <text x="30" y="1105" class="label">井位标注</text>
+  <text x="30" y="1120" class="desc">Well Location Label</text>
+  <text x="30" y="1133" class="code">JWBZ-P3-2H/C</text>
+  <g transform="translate(250, 1095)">
+    <text x="0" y="25" font-size="14" font-weight="bold" fill="#000">井 名 × × ×</text>
+    <circle cx="80" cy="20" r="5" fill="none" stroke="#000" stroke-width="1"/>
+  </g>
+
+  <text x="600" y="1105" class="label">盆地构造标注</text>
+  <text x="600" y="1120" class="desc">Basin Structure Label</text>
+  <text x="600" y="1133" class="code">GZBZ-P3-3H/C</text>
+  <g transform="translate(820, 1095)">
+    <text x="0" y="25" font-size="14" font-weight="bold" fill="#000">盆地名称</text>
+  </g>
+
+  <text x="30" y="1165" class="label">油气田标注</text>
+  <text x="30" y="1180" class="desc">Oil-Gas Field Label</text>
+  <text x="30" y="1193" class="code">YQBZ-P3-4H/C</text>
+  <g transform="translate(250, 1155)">
+    <text x="0" y="25" font-size="14" font-weight="bold" fill="#000">油气田名称</text>
+    <circle cx="120" cy="20" r="8" fill="#00AA00"/>
+  </g>
+
+  <text x="600" y="1165" class="label">油藏剖面</text>
+  <text x="600" y="1180" class="desc">Reservoir Section</text>
+  <text x="600" y="1193" class="code">YCPM-P3-5H/C</text>
+  <g transform="translate(820, 1155)">
+    <text x="0" y="25" font-size="14" font-weight="bold" fill="#000">油藏剖面</text>
+    <rect x="100" y="12" width="20" height="16" fill="none" stroke="#000" stroke-width="1"/>
+  </g>
+
+  <!-- ========== 单位所在地 Unit Locations ========== -->
+  <text x="20" y="1240" class="category">六、单位所在地 (Unit Locations) — 附录 H.3</text>
+  <rect x="15" y="1243" width="1370" height="150" class="cell-border"/>
+
+  <text x="30" y="1270" class="label">学校</text>
+  <text x="30" y="1285" class="desc">School</text>
+  <text x="30" y="1298" class="code">QYDW-A3-1H/C</text>
+  <text x="350" y="1285" class="remark">浅蓝 #00CCFF</text>
+  <g transform="translate(250, 1255)">
+    <rect x="15" y="5" width="30" height="25" fill="#00CCFF" stroke="#000" stroke-width="1"/>
+    <text x="30" y="23" text-anchor="middle" font-size="14" fill="#fff">校</text>
+  </g>
+
+  <text x="600" y="1270" class="label">医院</text>
+  <text x="600" y="1285" class="desc">Hospital</text>
+  <text x="600" y="1298" class="code">QYDW-A3-2H/C</text>
+  <text x="920" y="1285" class="remark">红 #FF0000</text>
+  <g transform="translate(820, 1255)">
+    <rect x="15" y="5" width="30" height="25" fill="#FF0000" stroke="#000" stroke-width="1"/>
+    <text x="30" y="23" text-anchor="middle" font-size="14" fill="#fff">医</text>
+  </g>
+
+  <text x="30" y="1340" class="label">油田公司</text>
+  <text x="30" y="1355" class="desc">Oil Field Company</text>
+  <text x="30" y="1368" class="code">QYDW-A3-3H/C</text>
+  <text x="350" y="1355" class="remark">红 #FF0000</text>
+  <g transform="translate(250, 1330)">
+    <rect x="10" y="5" width="40" height="30" fill="#FF0000" stroke="#000" stroke-width="1.5" rx="2"/>
+    <text x="30" y="25" text-anchor="middle" font-size="12" fill="#fff">油司</text>
+  </g>
+
+  <text x="600" y="1340" class="label">采油厂</text>
+  <text x="600" y="1355" class="desc">Oil Production Plant</text>
+  <text x="600" y="1368" class="code">QYDW-A3-4H/C</text>
+  <text x="920" y="1355" class="remark">红 #FF0000</text>
+  <g transform="translate(820, 1330)">
+    <rect x="10" y="5" width="40" height="30" fill="#FF0000" stroke="#000" stroke-width="1.5" rx="2"/>
+    <text x="30" y="25" text-anchor="middle" font-size="12" fill="#fff">采油</text>
+  </g>
+
+  <!-- Footer -->
+  <text x="700" y="1395" text-anchor="middle" class="remark" fill="#888">
+    注：注记符号用于地图上的文字标注，不同类别用不同颜色区分。蓝色系用于水系，绿色系用于植被。
+  </text>
+</svg>

@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1200" width="1400" height="1200">
+  <defs>
+    <style>
+      .title { font-family: SimHei, Microsoft YaHei, sans-serif; font-size: 20px; font-weight: bold; fill: #1a1a1a; }
+      .subtitle { font-family: SimSun, serif; font-size: 13px; fill: #666; }
+      .category { font-family: SimHei, Microsoft YaHei, sans-serif; font-size: 15px; font-weight: bold; fill: #4a6b8a; }
+      .label { font-family: SimSun, serif; font-size: 12px; fill: #1a1a1a; }
+      .code { font-family: Arial, sans-serif; font-size: 10px; fill: #888; }
+      .desc { font-family: SimSun, serif; font-size: 11px; fill: #444; }
+      .remark { font-family: SimSun, serif; font-size: 10px; fill: #999; }
+      .cell-border { fill: none; stroke: #ccc; stroke-width: 0.5; }
+    </style>
+
+    <!-- Seismic line grid pattern (2D survey) -->
+    <pattern id="seismic_2d_grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <rect width="20" height="20" fill="#B0C8E0" opacity="0.3"/>
+      <line x1="0" y1="0" x2="20" y2="20" stroke="#D71414" stroke-width="0.8" opacity="0.7"/>
+      <line x1="20" y1="0" x2="0" y2="20" stroke="#D71414" stroke-width="0.8" opacity="0.7"/>
+      <line x1="10" y1="0" x2="10" y2="20" stroke="#D71414" stroke-width="0.5" opacity="0.5"/>
+      <line x1="0" y1="10" x2="20" y2="10" stroke="#D71414" stroke-width="0.5" opacity="0.5"/>
+    </pattern>
+
+    <!-- Seismic 3D coverage pattern -->
+    <pattern id="seismic_3d_coverage" width="15" height="15" patternUnits="userSpaceOnUse">
+      <rect width="15" height="15" fill="#C8D8E8" opacity="0.3"/>
+      <line x1="0" y1="7.5" x2="15" y2="7.5" stroke="#1A54B4" stroke-width="0.6" opacity="0.7"/>
+      <line x1="7.5" y1="0" x2="7.5" y2="15" stroke="#1A54B4" stroke-width="0.6" opacity="0.7"/>
+      <circle cx="7.5" cy="7.5" r="1.5" fill="#1A54B4" opacity="0.5"/>
+    </pattern>
+
+    <!-- Dense seismic grid pattern -->
+    <pattern id="seismic_dense" width="12" height="12" patternUnits="userSpaceOnUse">
+      <rect width="12" height="12" fill="#D0D8E8" opacity="0.4"/>
+      <line x1="0" y1="0" x2="12" y2="12" stroke="#D71414" stroke-width="0.6"/>
+      <line x1="12" y1="0" x2="0" y2="12" stroke="#D71414" stroke-width="0.6"/>
+      <line x1="6" y1="0" x2="6" y2="12" stroke="#D71414" stroke-width="0.4"/>
+      <line x1="0" y1="6" x2="12" y2="6" stroke="#D71414" stroke-width="0.4"/>
+    </pattern>
+
+    <!-- Sparse seismic line pattern -->
+    <pattern id="seismic_sparse" width="30" height="30" patternUnits="userSpaceOnUse">
+      <rect width="30" height="30" fill="#D8E4F0" opacity="0.2"/>
+      <line x1="0" y1="15" x2="30" y2="15" stroke="#D71414" stroke-width="1" opacity="0.6"/>
+    </pattern>
+
+    <!-- Vessel/acquition pattern -->
+    <pattern id="seismic_vessel_track" width="25" height="10" patternUnits="userSpaceOnUse">
+      <rect width="25" height="10" fill="none"/>
+      <path d="M 0,5 L 25,5" stroke="#D71414" stroke-width="0.8" stroke-dasharray="4,3"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="1200" fill="#fafafa"/>
+
+  <!-- Title -->
+  <text x="700" y="35" text-anchor="middle" class="title">地震勘探符号库</text>
+  <text x="700" y="55" text-anchor="middle" class="subtitle">Seismic Exploration Symbol Library — Q/HS 1011—2016 附录 D.10, D.11</text>
+
+  <!-- ========== 二维地震测网 2D Seismic Survey Grid ========== -->
+  <text x="20" y="85" class="category">一、二维地震测网 (2D Seismic Survey Grid) — 附录 D.10</text>
+  <rect x="15" y="88" width="1370" height="400" class="cell-border"/>
+
+  <text x="30" y="115" class="label">二维地震测线（交叉网格）</text>
+  <text x="30" y="130" class="desc">2D Seismic Line (Crossing Grid)</text>
+  <text x="30" y="143" class="code">SEC-A7-1H/C</text>
+  <text x="350" y="130" class="remark">红色交叉线 #D71414</text>
+  <rect x="250" y="95" width="200" height="40" fill="url(#seismic_2d_grid)" class="cell-border"/>
+  <text x="350" y="155" class="remark" text-anchor="middle">交叉测线网格</text>
+
+  <text x="600" y="115" class="label">二维地震测线（密集网格）</text>
+  <text x="600" y="130" class="desc">2D Seismic Line (Dense Grid)</text>
+  <text x="600" y="143" class="code">SEC-A7-2H/C</text>
+  <rect x="820" y="95" width="200" height="40" fill="url(#seismic_dense)" class="cell-border"/>
+  <text x="920" y="155" class="remark" text-anchor="middle">密集测线区域</text>
+
+  <text x="30" y="195" class="label">二维地震测线（稀疏）</text>
+  <text x="30" y="210" class="desc">2D Seismic Line (Sparse)</text>
+  <text x="30" y="223" class="code">SEC-A7-3H/C</text>
+  <rect x="250" y="175" width="200" height="40" fill="url(#seismic_sparse)" class="cell-border"/>
+  <text x="350" y="235" class="remark" text-anchor="middle">稀疏测线</text>
+
+  <text x="600" y="195" class="label">地震测线方向标注</text>
+  <text x="600" y="210" class="desc">Seismic Line Direction Label</text>
+  <text x="600" y="223" class="code">SEC-A7-4H/C</text>
+  <g transform="translate(820, 175)">
+    <line x1="0" y1="20" x2="120" y2="20" stroke="#D71414" stroke-width="1.5"/>
+    <polygon points="115,14 125,20 115,26" fill="#D71414"/>
+    <text x="60" y="42" text-anchor="middle" font-size="11" fill="#333">测线方向</text>
+  </g>
+
+  <!-- 2D line symbol examples -->
+  <text x="30" y="285" class="label">测线符号示意</text>
+  <text x="30" y="300" class="desc">2D Line Symbol Examples</text>
+  <g transform="translate(250, 260)">
+    <!-- Inline crossing pattern -->
+    <line x1="0" y1="10" x2="150" y2="30" stroke="#D71414" stroke-width="1.5"/>
+    <line x1="50" y1="0" x2="100" y2="40" stroke="#D71414" stroke-width="1.5"/>
+    <circle cx="75" cy="20" r="3" fill="#D71414"/>
+  </g>
+
+  <!-- ========== 三维地震勘探程度 3D Seismic Coverage ========== -->
+  <text x="20" y="365" class="category">二、三维地震勘探程度 (3D Seismic Coverage) — 附录 D.11</text>
+  <rect x="15" y="368" width="1370" height="320" class="cell-border"/>
+
+  <text x="30" y="395" class="label">三维地震勘探区域</text>
+  <text x="30" y="410" class="desc">3D Seismic Survey Area</text>
+  <text x="30" y="423" class="code">SEC-A7-5H/C</text>
+  <text x="350" y="410" class="remark">蓝色网格 #1A54B4</text>
+  <rect x="250" y="375" width="200" height="40" fill="url(#seismic_3d_coverage)" class="cell-border"/>
+  <text x="350" y="435" class="remark" text-anchor="middle">3D 网格覆盖区</text>
+
+  <text x="600" y="395" class="label">三维地震满覆盖区域</text>
+  <text x="600" y="410" class="desc">3D Full-fold Coverage</text>
+  <text x="600" y="423" class="code">SEC-A7-6H/C</text>
+  <rect x="820" y="375" width="200" height="40" fill="url(#seismic_3d_coverage)" class="cell-border" stroke="#1A54B4" stroke-width="2"/>
+  <text x="920" y="435" class="remark" text-anchor="middle">满覆盖（粗边框）</text>
+
+  <text x="30" y="475" class="label">三维地震部分覆盖</text>
+  <text x="30" y="490" class="desc">3D Partial Coverage</text>
+  <text x="30" y="503" class="code">SEC-A7-7H/C</text>
+  <rect x="250" y="455" width="200" height="40" fill="url(#seismic_3d_coverage)" class="cell-border" stroke-dasharray="5,3"/>
+  <text x="350" y="515" class="remark" text-anchor="middle">部分覆盖（虚线边框）</text>
+
+  <text x="30" y="555" class="label">三维勘探程度标注</text>
+  <text x="30" y="570" class="desc">3D Survey Progress Label</text>
+  <g transform="translate(250, 530)">
+    <rect x="0" y="5" width="120" height="30" fill="#E8F0FF" stroke="#1A54B4" stroke-width="1"/>
+    <text x="60" y="16" text-anchor="middle" font-size="10" fill="#333">3D 1600.9km²</text>
+    <text x="60" y="30" text-anchor="middle" font-size="10" fill="#333">(2015年)</text>
+  </g>
+
+  <!-- 3D block labels -->
+  <text x="30" y="615" class="label">三维区块标注格式</text>
+  <text x="30" y="630" class="desc">3D Block Label Format</text>
+  <text x="30" y="643" class="code">SEC-A7-8H/C</text>
+  <g transform="translate(250, 600)">
+    <rect x="0" y="0" width="140" height="50" rx="5" fill="#E8D0F0" stroke="#9B59B6" stroke-width="1.5"/>
+    <text x="70" y="18" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">东方1-1南区</text>
+    <text x="70" y="34" text-anchor="middle" font-size="10" fill="#555">3D 1600.9km²</text>
+  </g>
+  <text x="400" y="625" class="remark">粉紫色标注框</text>
+
+  <text x="600" y="615" class="label">三维区块标注格式（2）</text>
+  <text x="600" y="630" class="desc">3D Block Label Format (Type 2)</text>
+  <text x="600" y="643" class="code">SEC-A7-9H/C</text>
+  <g transform="translate(820, 600)">
+    <rect x="0" y="0" width="140" height="50" rx="5" fill="#D0E8FF" stroke="#3498DB" stroke-width="1.5"/>
+    <text x="70" y="18" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">东方1-1东区</text>
+    <text x="70" y="34" text-anchor="middle" font-size="10" fill="#555">3D 350.2km²</text>
+  </g>
+  <text x="970" y="625" class="remark">浅蓝色标注框</text>
+
+  <!-- ========== 钻井符号 Drilling Symbols ========== -->
+  <text x="20" y="715" class="category">三、钻井符号 (Drilling Symbols)</text>
+  <rect x="15" y="718" width="1370" height="240" class="cell-border"/>
+
+  <text x="30" y="745" class="label">探井（已钻井）</text>
+  <text x="30" y="760" class="desc">Exploration Well (Drilled)</text>
+  <text x="30" y="773" class="code">DRL-A8-1H/C</text>
+  <g transform="translate(250, 720)">
+    <circle cx="30" cy="25" r="16" fill="none" stroke="#D71414" stroke-width="2"/>
+    <text x="30" y="30" text-anchor="middle" font-size="16" font-weight="bold" fill="#D71414">井</text>
+  </g>
+
+  <text x="600" y="745" class="label">参数井</text>
+  <text x="600" y="760" class="desc">Parameter Well</text>
+  <text x="600" y="773" class="code">DRL-A8-2H/C</text>
+  <g transform="translate(820, 720)">
+    <circle cx="30" cy="25" r="16" fill="none" stroke="#333" stroke-width="2"/>
+    <text x="30" y="30" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">参</text>
+    <line x1="14" y1="25" x2="46" y2="25" stroke="#333" stroke-width="1.5"/>
+  </g>
+
+  <text x="30" y="815" class="label">评价井</text>
+  <text x="30" y="830" class="desc">Appraisal Well</text>
+  <text x="30" y="843" class="code">DRL-A8-3H/C</text>
+  <g transform="translate(250, 790)">
+    <circle cx="30" cy="25" r="16" fill="none" stroke="#00AA00" stroke-width="2"/>
+    <text x="30" y="30" text-anchor="middle" font-size="16" font-weight="bold" fill="#00AA00">评</text>
+  </g>
+
+  <text x="600" y="815" class="label">开发井</text>
+  <text x="600" y="830" class="desc">Development Well</text>
+  <text x="600" y="843" class="code">DRL-A8-4H/C</text>
+  <g transform="translate(820, 790)">
+    <circle cx="30" cy="25" r="16" fill="none" stroke="#FF9900" stroke-width="2"/>
+    <text x="30" y="30" text-anchor="middle" font-size="16" font-weight="bold" fill="#FF9900">开</text>
+  </g>
+
+  <text x="30" y="885" class="label">油气显示井</text>
+  <text x="30" y="900" class="desc">Oil-Gas Show Well</text>
+  <text x="30" y="913" class="code">DRL-A8-5H/C</text>
+  <g transform="translate(250, 865)">
+    <circle cx="30" cy="25" r="16" fill="#FF6600" stroke="#D71414" stroke-width="2" opacity="0.3"/>
+    <text x="30" y="30" text-anchor="middle" font-size="16" font-weight="bold" fill="#FF6600">显</text>
+  </g>
+
+  <text x="600" y="885" class="label">报废井</text>
+  <text x="600" y="900" class="desc">Abandoned Well</text>
+  <text x="600" y="913" class="code">DRL-A8-6H/C</text>
+  <g transform="translate(820, 865)">
+    <circle cx="30" cy="25" r="16" fill="none" stroke="#666" stroke-width="1.5" stroke-dasharray="4,3"/>
+    <text x="30" y="30" text-anchor="middle" font-size="16" fill="#666">废</text>
+  </g>
+
+  <!-- ========== 剖面线 Section Lines ========== -->
+  <text x="20" y="975" class="category">四、剖面线 (Section Lines) — 附录 D.12</text>
+  <rect x="15" y="978" width="1370" height="180" class="cell-border"/>
+
+  <text x="30" y="1005" class="label">剖面位置线（地震剖面）</text>
+  <text x="30" y="1020" class="desc">Seismic Section Location Line</text>
+  <text x="30" y="1033" class="code">SEC-A7-10H/C</text>
+  <g transform="translate(250, 990)">
+    <line x1="0" y1="20" x2="150" y2="20" stroke="#D71414" stroke-width="1.5" stroke-dasharray="8,4"/>
+    <text x="75" y="12" text-anchor="middle" font-size="11" fill="#333">A — B</text>
+    <text x="75" y="38" text-anchor="middle" font-size="10" fill="#666">剖面线</text>
+  </g>
+
+  <text x="600" y="1005" class="label">连井剖面位置线</text>
+  <text x="600" y="1020" class="desc">Well-Tie Section Location</text>
+  <text x="600" y="1033" class="code">SEC-A7-11H/C</text>
+  <g transform="translate(820, 990)">
+    <line x1="0" y1="20" x2="150" y2="20" stroke="#333" stroke-width="1.5" stroke-dasharray="6,4"/>
+    <circle cx="30" cy="20" r="4" fill="#D71414"/>
+    <circle cx="75" cy="20" r="4" fill="#00AA00"/>
+    <circle cx="120" cy="20" r="4" fill="#FF9900"/>
+    <text x="75" y="40" text-anchor="middle" font-size="10" fill="#666">连井剖面</text>
+  </g>
+
+  <!-- Footer -->
+  <text x="700" y="1185" text-anchor="middle" class="remark" fill="#888">
+    注：二维测线为红色交叉线，三维区域为蓝色网格。2D/3D 符号颜色不可互换。
+  </text>
+</svg>

@@ -49,6 +49,42 @@ INLINE@189/CROSSLINE@193 两字恒 0，实际编码为 field record@9（inline�
   `SgyReadSession.cpp` ValidateRuleTrace、`SgyFileReader.cpp` 摘要 declared ranges。
 - 未动 `Engine/RoiWorkspaceBuilder.cpp`（上游实验路径，SDK 链路不经过）。
 
+## P9 · `src/Engine/PagedPipeline.{h,cpp}` — L0 质量账目（paleo P5 Phase 1）
+
+- `PagedBuildResult` 新增 `missingTraceCount`/`damagedTraceCount`/
+  `damagedTraceSample`（前 32 个）/`valueMin`/`valueMax`。
+- L0 道循环：缺席（FindTraceIndex<0）与损坏（ReadTrace 失败）计数 + NaN
+  填充 + 记样，损坏道不再让整个金字塔 IoError 失败；值域 NaN 感知统计。
+  LOD 层沿 L0 指针聚合（LOD 构建本身无源道概念）。
+
+## P6 · `src/Engine/TranscodeJob.{h,cpp}` — 并行分片编码 + 质量账目 + scanning 阶段（paleo P5 Phase 1）
+
+- `TranscodeOptions.writerThreads`（1..4，默认 1=上游行为）：codec=zstd 时
+  产者 → N 编码线程（BoundedQueue 容量 8）→ 单写线程（容量 4）。写序与
+  可续跑布局不变；raw codec 自动退单线程（无编码可并行）。**关队语义**：
+  产者只关 encodeQueue；最后一个编码器负责关 writeQueue（否则在途编码块
+  会被已关闭的写队列丢弃——静默丢块 bug，测试 tst_seismic_transcode 锁定）。
+- `TranscodeResult` 新增缺失/损坏道计数、损坏道样、值域（与 P9 同形）；
+  坏道 NaN 填充不炸整体（上游 ReadTrace 失败原本就是静默 continue，此处
+  只是把账记全）。
+- `TranscodeProgress.phase="scanning"` 头文档承诺但从未发射——现在在
+  SgyVolumeSource::Open（索引/续跑探测）前真实发射。
+
+## P7 · `src/Engine/WorkspaceFormat.{h,cpp}` — WriteChunkPrepared + meta 头探测（paleo P5 Phase 1）
+
+- `WorkspaceWriter::WriteChunkPrepared(cs,ci,cx,payload,bytes,err)`：
+  写已编码载荷；`WriteChunk` = 编码 + 该函数（P6 编码池消费）。
+- `WorkspaceMetaSummary` + `ProbeWorkspaceMeta(base,...)`：只读头与完成
+  位图（不碰 chunk 表/shard），供续跑 UX 与 Auto 就绪判定廉价调用。
+- `WorkspaceReader::IsComplete()`：完成位图 popcount ≥ chunkCount。
+
+## P8 · `src/Engine/Sdk.cpp` — Auto 只认完整工作区（paleo P5 Phase 1）
+
+`Dataset::Open(Auto)` 的伴生 `.sf3c.meta` 发现改为：`ProbeWorkspaceMeta`
+判定 complete 才升级工作区后端；半成品（取消留下的可续跑 meta）保持直读
+后端并置 `FellBackToDirect()`（消费侧如实看到「伴生存在但未就绪」）。
+杜绝「半个有效 meta 的假完成态」被 Auto 当成品读出错。
+
 ## 编译层适配（非源码补丁）
 
 - `paleo_sbm` 目标加 `-fno-char8_t`（MSVC `/Zc:char8_t-`）：上游 30 处

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 70" width="120" height="70">
+  <rect width="120" height="70" fill="#fff"/>
+  <polygon points="60,10 110,35 60,60 10,35" fill="#FE9999" stroke="#FE9999" stroke-width="1.5"/>
+  <text x="60" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">一类圈闭</text>
+</svg>

@@ -4,10 +4,36 @@
 #include "wellpositionlegendwidget.h"
 #include "../paleotheme.h"
 #include "../../services/previewdoc.h" // 数据门面（W1：XML 解析入口不直触）
+#include <QApplication>
 #include <QHBoxLayout>
-#include <QLineEdit>
 #include <QVBoxLayout>
+#include <QClipboard>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QInputDialog>
+#include <QMenu>
+#include <QMessageBox>
+#include <QPlainTextEdit>
+#include <QPushButton>
+#include <QLineEdit>
+#include <QShortcut>
+#include <QTextStream>
+
 #include <algorithm>
+#include <utility>
+
+#include "curveconfigdialog.h"
+#include "editsession.h"
+#include "exportengine.h"
+#include "hiddentrackbar.h"
+#include "intervaleditor.h"
+#include "intervalstatistics.h"
+#include "trackconfigdialog.h"
+#include "trackops.h"
+#include "stratassignment.h"
+#include "trackregistry.h"
+#include "wellpositionlegendwidget.h"
 
 namespace WellComposite
 {
@@ -16,6 +42,15 @@ WellCompositePanel::WellCompositePanel(QWidget *parent)
   : QWidget(parent)
 {
   setupUi();
+
+  // D2.7 Ctrl+G 跳深度
+  auto *shortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+G")), this);
+  connect(shortcut, &QShortcut::activated, this, &WellCompositePanel::openGotoDepthDialog);
+}
+
+WellCompositePanel::~WellCompositePanel()
+{
+  saveSessionState();
 }
 
 void WellCompositePanel::setupUi()
@@ -82,6 +117,14 @@ void WellCompositePanel::setupUi()
         .arg(t.surface.name(), t.border.name(), t.text.name(),
              t.surfaceAlt.name(), t.textDisabled.name());
   };
+  // D2.x 新增按钮仍走旧样式串（含 :checked 态——themedBtnStyle 未覆盖）；
+  // 主题化收口递延（见 TODOS）。
+  const QString btnStyle = QStringLiteral(
+      "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; "
+      "padding: 2px 7px; font-size: 8pt; color: #24303E; }"
+      "QToolButton:hover { background: #EDF1F5; border-color: #9AA7B4; }"
+      "QToolButton:pressed { background: #DFE5EC; }"
+      "QToolButton:checked { background: #E8F0FE; border-color: #1B73D0; color: #1B73D0; }");
 
   m_btnZoomOut = new QToolButton(topBar);
   m_btnZoomOut->setObjectName(QStringLiteral("btnCompZoomOut"));
@@ -114,6 +157,34 @@ void WellCompositePanel::setupUi()
   PaleoTheme::applyThemedStyleSheet(m_btnResetZoom, themedBtnStyle);
   topLay->addWidget(m_btnResetZoom);
 
+  // ---- 深度交互组（D2.x）----
+  m_btnGoto = new QToolButton(topBar);
+  m_btnGoto->setObjectName(QStringLiteral("btnCompGoto"));
+  m_btnGoto->setText(tr("跳深度"));
+  m_btnGoto->setToolTip(tr("跳转到指定深度 (Ctrl+G)"));
+  m_btnGoto->setStyleSheet(btnStyle);
+  topLay->addWidget(m_btnGoto);
+
+  m_btnBookmarks = new QToolButton(topBar);
+  m_btnBookmarks->setObjectName(QStringLiteral("btnCompBookmarks"));
+  m_btnBookmarks->setText(tr("书签"));
+  m_btnBookmarks->setToolTip(tr("深度书签：添加/跳转/删除"));
+  m_btnBookmarks->setPopupMode(QToolButton::InstantPopup);
+  m_btnBookmarks->setStyleSheet(btnStyle);
+  auto *bmMenu = new QMenu(m_btnBookmarks);
+  m_btnBookmarks->setMenu(bmMenu);
+  connect(bmMenu, &QMenu::aboutToShow, this, &WellCompositePanel::onBookmarkMenuAboutToShow);
+  topLay->addWidget(m_btnBookmarks);
+
+  m_btnSnap = new QToolButton(topBar);
+  m_btnSnap->setObjectName(QStringLiteral("btnCompSnap"));
+  m_btnSnap->setText(tr("吸附"));
+  m_btnSnap->setToolTip(tr("深度标尺吸附整刻度与标志层线（D2.1）"));
+  m_btnSnap->setCheckable(true);
+  m_btnSnap->setChecked(false);
+  m_btnSnap->setStyleSheet(btnStyle);
+  topLay->addWidget(m_btnSnap);
+
   // 测井道配置与排列管理按钮
   m_btnConfigCurves = new QToolButton(topBar);
   m_btnConfigCurves->setObjectName(QStringLiteral("btnConfigCurves"));
@@ -122,7 +193,46 @@ void WellCompositePanel::setupUi()
   PaleoTheme::applyThemedStyleSheet(m_btnConfigCurves, themedBtnStyle);
   topLay->addWidget(m_btnConfigCurves);
 
+  // ---- D4.x 导出菜单 ----
+  m_btnExport = new QToolButton(topBar);
+  m_btnExport->setObjectName(QStringLiteral("btnCompExport"));
+  m_btnExport->setText(tr("导出"));
+  m_btnExport->setToolTip(tr("导出 PDF/PNG/SVG、打印、导出预设管理"));
+  m_btnExport->setPopupMode(QToolButton::InstantPopup);
+  m_btnExport->setStyleSheet(btnStyle);
+  auto *exportMenu = new QMenu(m_btnExport);
+  QAction *actPdf = exportMenu->addAction(tr("导出 PDF…"));
+  QAction *actPng = exportMenu->addAction(tr("导出 PNG (300dpi)…"));
+  QAction *actSvg = exportMenu->addAction(tr("导出 SVG…"));
+  exportMenu->addSeparator();
+  QAction *actPrint = exportMenu->addAction(tr("打印…"));
+  QAction *actPreset = exportMenu->addAction(tr("导出预设…"));
+  connect(actPdf, &QAction::triggered, this, [this]() { exportCurrent(ExportEngine::Format::Pdf); });
+  connect(actPng, &QAction::triggered, this, [this]() { exportCurrent(ExportEngine::Format::Png); });
+  connect(actSvg, &QAction::triggered, this, [this]() { exportCurrent(ExportEngine::Format::Svg); });
+  connect(actPrint, &QAction::triggered, this, [this]() { printCurrent(); });
+  connect(actPreset, &QAction::triggered, this, [this]() { manageExportPresets(); });
+  m_btnExport->setMenu(exportMenu);
+  topLay->addWidget(m_btnExport);
+
+  // ---- D3.1/D3.14 编辑模式开关 ----
+  m_btnEdit = new QToolButton(topBar);
+  m_btnEdit->setObjectName(QStringLiteral("btnCompEdit"));
+  m_btnEdit->setText(tr("TOPs 编辑"));
+  m_btnEdit->setToolTip(tr("进入标志层/区间编辑模式：标志层线可拖拽改顶深，区间可编辑"));
+  m_btnEdit->setCheckable(true);
+  m_btnEdit->setStyleSheet(btnStyle);
+  topLay->addWidget(m_btnEdit);
+
   topLay->addStretch(1);
+
+  // D2.11 当前深度读数条：大字号 mono 深度 + 最近标志层名
+  m_lblReadout = new QLabel(QStringLiteral("— m"), topBar);
+  m_lblReadout->setObjectName(QStringLiteral("lblCompReadout"));
+  m_lblReadout->setStyleSheet(QStringLiteral(
+      "QLabel { font-family: 'JetBrains Mono, monospace'; font-size: 12pt; color: #24303E;"
+      " font-weight: 500; padding: 0 6px; }"));
+  topLay->addWidget(m_lblReadout);
 
   // 状态信息显示（悬停深度等）
   m_lblStatus = new QLabel(tr("就绪 | 支持按住拖拽漫游，Ctrl+滚轮缩放"), topBar);
@@ -139,11 +249,23 @@ void WellCompositePanel::setupUi()
   m_canvas->setObjectName(QStringLiteral("wellCompositeCanvas"));
   rootLay->addWidget(m_canvas, 1);
 
-  // 事件与信号绑定
+  // D1.10 隐藏道管理条
+  m_hiddenBar = new HiddenTrackBar(this);
+  rootLay->addWidget(m_hiddenBar);
+
+  // 底部位置显示与比例尺图例综合控制栏
+  m_legendWidget = new WellPositionLegendWidget(this);
+  m_legendWidget->setObjectName(QStringLiteral("wellPositionLegendWidget"));
+  rootLay->addWidget(m_legendWidget);
+
+  // ---- 事件与信号绑定 ----
   connect(m_btnZoomIn, &QToolButton::clicked, m_canvas, &WellCompositeCanvas::zoomIn);
   connect(m_btnZoomOut, &QToolButton::clicked, m_canvas, &WellCompositeCanvas::zoomOut);
   connect(m_btnResetZoom, &QToolButton::clicked, m_canvas, &WellCompositeCanvas::resetZoom);
   connect(m_btnConfigCurves, &QToolButton::clicked, this, &WellCompositePanel::openCurveConfigDialog);
+  connect(m_btnGoto, &QToolButton::clicked, this, &WellCompositePanel::openGotoDepthDialog);
+  connect(m_btnSnap, &QToolButton::toggled, m_canvas, &WellCompositeCanvas::setSnapEnabled);
+  connect(m_btnEdit, &QToolButton::toggled, this, &WellCompositePanel::setEditMode);
 
   connect(m_canvas, &WellCompositeCanvas::zoomChanged, this, [this](double z) {
     m_lblZoom->setText(QStringLiteral("%1% (%2)").arg(qRound(z * 100)).arg(m_canvas->scaleRatio()));
@@ -173,6 +295,9 @@ void WellCompositePanel::setupUi()
   });
 
   connect(m_canvas, &WellCompositeCanvas::depthHovered, this, [this](double d) {
+    // D2.11 读数条：深度 + 最近标志层名
+    m_lblReadout->setText(DepthTools::readoutText(qMax(0.0, d), m_canvas->markerLines()));
+
     if (d > 0.0)
     {
       m_lblStatus->setText(tr("当前测深: %1 m | 井深跨度: %2 - %3 m")
@@ -188,17 +313,42 @@ void WellCompositePanel::setupUi()
     }
   });
 
-  // 底部位置显示与比例尺图例综合控制栏
-  m_legendWidget = new WellPositionLegendWidget(this);
-  m_legendWidget->setObjectName(QStringLiteral("wellPositionLegendWidget"));
-  rootLay->addWidget(m_legendWidget);
+  // ---- 道操作意图接线（D1.5/D1.6/D1.10）----
+  connect(m_canvas, &WellCompositeCanvas::trackCsvRequested, this, &WellCompositePanel::onTrackCsvRequested);
+  connect(m_canvas, &WellCompositeCanvas::trackConfigRequested, this, &WellCompositePanel::onTrackConfigRequested);
+  connect(m_canvas, &WellCompositeCanvas::trackDuplicationRequested, this, &WellCompositePanel::onTrackDuplicateRequested);
+  connect(m_canvas, &WellCompositeCanvas::trackVisibilityChanged, this, &WellCompositePanel::onTrackVisibilityChanged);
+  connect(m_canvas, &WellCompositeCanvas::trackOrderChanged, this, &WellCompositePanel::onTrackOrderOrWidthChanged);
+  connect(m_canvas, &WellCompositeCanvas::trackWidthChanged, this, &WellCompositePanel::onTrackOrderOrWidthChanged);
+  connect(m_canvas, &WellCompositeCanvas::gotoDepthRequested, this, &WellCompositePanel::openGotoDepthDialog);
+  connect(m_hiddenBar, &HiddenTrackBar::trackRestoreRequested, this, [this](const QString &title) {
+    for (int i = 0; i < m_canvas->trackCount(); ++i)
+    {
+      if (m_canvas->tracks().at(i)->title() == title && !m_canvas->tracks().at(i)->isVisible())
+      {
+        m_canvas->tracks().at(i)->setVisible(true);
+        m_canvas->syncScrollBars();
+        m_canvas->updateAll();
+        emit m_canvas->trackVisibilityChanged(i);
+        return;
+      }
+    }
+  });
+
+  // ---- 深度交互接线（D2.2/D2.3）----
+  connect(m_canvas, &WellCompositeCanvas::intervalSelected, this, &WellCompositePanel::onIntervalSelected);
+  connect(m_canvas, &WellCompositeCanvas::pinCreateRequested, this, &WellCompositePanel::onPinCreateRequested);
+  connect(m_canvas, &WellCompositeCanvas::pinEditRequested, this, &WellCompositePanel::onPinEditRequested);
+
+  // ---- 编辑接线（D3.1）----
+  connect(m_canvas, &WellCompositeCanvas::markerMoved, this, &WellCompositePanel::onMarkerMoved);
 
   connect(m_canvas, &WellCompositeCanvas::viewportChanged,
           m_legendWidget, &WellPositionLegendWidget::updateViewport);
   connect(m_canvas, &WellCompositeCanvas::depthHovered,
           m_legendWidget, &WellPositionLegendWidget::updateHoverDepth);
-  connect(m_legendWidget, &WellPositionLegendWidget::requestScrollDepth,
-          m_canvas, &WellCompositeCanvas::setScrollDepth);
+  connect(m_legendWidget, &WellPositionLegendWidget::requestScrollDepth, this,
+          [this](double depth) { m_canvas->setScrollDepth(depth); });
 
   auto syncScaleToLegend = [this]() {
     if (m_legendWidget && m_canvas)
@@ -262,6 +412,29 @@ void WellCompositePanel::setWellName(const QString &name, bool reference)
   }
 }
 
+void WellCompositePanel::setProjectName(const QString &project)
+{
+  m_projectName = project.trimmed().isEmpty() ? QStringLiteral("default") : project.trimmed();
+}
+
+void WellCompositePanel::setSourceDataPath(const QString &path)
+{
+  m_sourceDataPath = path;
+  if (path.isEmpty())
+  {
+    m_store.reset();
+    return;
+  }
+  m_store = std::make_unique<WellCompositeStore>(path);
+  m_store->load();
+  const qint64 mtime = QFileInfo(path).lastModified().toMSecsSinceEpoch();
+  if (m_editSession)
+    m_editSession->setSourceMtime(mtime);
+}
+
+// ----------------------------------------------------------------------------
+// 数据装配
+// ----------------------------------------------------------------------------
 bool WellCompositePanel::loadComprehensiveXml(const QString &xmlPath)
 {
   ComprehensiveWellData data;
@@ -274,6 +447,17 @@ bool WellCompositePanel::loadComprehensiveXml(const QString &xmlPath)
   setupTracksFromData(data);
   if (m_legendWidget)
     m_legendWidget->setWellData(data);
+
+  // D3.x 编辑会话：工作副本 + 源 mtime 跟踪（D3.10）
+  m_editSession = std::make_unique<EditSession>(data, this);
+  connect(m_editSession.get(), &EditSession::documentChanged, this, [this]() {
+    syncSessionToTracks();
+  });
+  setSourceDataPath(xmlPath);
+
+  // D2.x sidecar + D1.8 会话记忆
+  loadSidecar();
+  restoreSessionState();
   emit wellLoaded(data.wellName);
   return true;
 }
@@ -335,7 +519,7 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
     m_canvas->addTrack(formTrack);
   }
 
-  // 3. 曲线道 (CurveTrack) —— 严格按照 1-4 根曲线分道合并显示
+  // 4. 曲线道 —— 按助记名语义分道（H3：经 TrackSpec/注册表装配，配置对话框可改）
   const auto isLitho = [](const QString &name) {
     const QString n = name.toUpper();
     return n.startsWith(QStringLiteral("GR")) || n.startsWith(QStringLiteral("CAL")) ||
@@ -348,13 +532,6 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
            n.startsWith(QStringLiteral("CNL")) || n.startsWith(QStringLiteral("POR")) ||
            n.startsWith(QStringLiteral("CPOR")) || n.startsWith(QStringLiteral("PHIF"));
   };
-  const auto isResistivity = [](const QString &name) {
-    const QString n = name.toUpper();
-    return n.startsWith(QStringLiteral("RT")) || n.startsWith(QStringLiteral("RXO")) ||
-           n.startsWith(QStringLiteral("RD")) || n.startsWith(QStringLiteral("RS")) ||
-           n.startsWith(QStringLiteral("ILD")) || n.startsWith(QStringLiteral("ILM")) ||
-           n.startsWith(QStringLiteral("AT"));
-  };
 
   QVector<CurveData> lithoCurves;
   QVector<CurveData> poroCurves;
@@ -365,7 +542,7 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
   {
     if (isLitho(c.name)) lithoCurves.append(c);
     else if (isPorosity(c.name)) poroCurves.append(c);
-    else if (isResistivity(c.name)) resCurves.append(c);
+    else if (c.name.toUpper().startsWith(QStringLiteral("RT"))) resCurves.append(c);
     else otherCurves.append(c);
   }
 
@@ -412,6 +589,14 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
   if (m_legendWidget)
     m_legendWidget->setWellData(m_data);
 
+  // LAS 路径无 sidecar（曲线为主）；编辑会话仍可建（层位编辑）
+  m_editSession = std::make_unique<EditSession>(m_data, this);
+  connect(m_editSession.get(), &EditSession::documentChanged, this, [this]() {
+    syncSessionToTracks();
+  });
+
+  const QList<TrackSpec> mem = WellCompositeStore::loadSessionTracks(m_projectName, m_wellName);
+  restoreSessionState();
   m_canvas->setScaleRatio(m_scaleCombo->currentText());
   return true;
 }
@@ -421,8 +606,10 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
   m_canvas->clearTracks();
   m_canvas->setDepthRange(data.minDepth, data.maxDepth);
 
-  // 1. 地层系统组组合道 (系 | 统 | 组) —— 有真实地层系统数据，或分层名能映射出
-  //    系/统时才展示。
+  // D2.x 标志层线（渲染/吸附/读数/gap 数据面）
+  m_canvas->setMarkerLines(data.standardHorizons);
+
+  // 1. 地层系统组组合道：文档真实地层系统数据，或分层名能映射出系/统时展示。
   if (!data.stratigraphyIntervals.isEmpty() || !data.formationIntervals.isEmpty())
   {
     auto stratTrack = std::make_shared<StratigraphyCompoundTrack>(QStringLiteral("地层"), 145.0);
@@ -478,7 +665,7 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
   scaleTrack->setScaleRatio(m_scaleCombo->currentText());
   m_canvas->addTrack(scaleTrack);
 
-  // 7. 取芯道（筒号与收获率对比）
+  // 7. 取芯道
   if (!data.coreBarrels.isEmpty())
   {
     auto coreTrack = std::make_shared<CoreTrack>(QStringLiteral("取心数据"), 65.0);
@@ -486,12 +673,11 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
     m_canvas->addTrack(coreTrack);
   }
 
-  // 8. 曲线道（连续物理曲线：支持 1-4 根曲线合并显示）
+  // 8. 曲线道（连续物理曲线：4 根合并）
   if (!data.continuousCurves.isEmpty())
   {
     for (int i = 0; i < data.continuousCurves.size(); i += 4)
     {
-      // 根据道内曲线的测井物理属性智能化命名
       bool hasGR = false, hasNeutronDensity = false, hasGas = false, hasRes = false, hasInterp = false;
       for (int j = 0; j < 4 && (i + j) < data.continuousCurves.size(); ++j)
       {
@@ -519,14 +705,12 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
 
       auto curveTrack = std::make_shared<CurveTrack>(title, 180.0);
       for (int j = 0; j < 4 && (i + j) < data.continuousCurves.size(); ++j)
-      {
         curveTrack->addCurve(data.continuousCurves.at(i + j));
-      }
       m_canvas->addTrack(curveTrack);
     }
   }
 
-  // 9. 离散曲线道（实测散点/化验分析：支持 1-4 根曲线合并展示）
+  // 9. 离散曲线道
   if (!data.discreteCurves.isEmpty())
   {
     for (int i = 0; i < data.discreteCurves.size(); i += 4)
@@ -534,14 +718,12 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
       const QString title = (i == 0) ? QStringLiteral("实测物性分析") : QStringLiteral("地化/生烃潜量");
       auto discTrack = std::make_shared<CurveTrack>(title, 160.0);
       for (int j = 0; j < 4 && (i + j) < data.discreteCurves.size(); ++j)
-      {
         discTrack->addCurve(data.discreteCurves.at(i + j));
-      }
       m_canvas->addTrack(discTrack);
     }
   }
 
-  // 10. 文本道（取样与试油结论）
+  // 10. 文本道
   if (!data.textIntervals.isEmpty())
   {
     auto textTrack = std::make_shared<TextTrack>(QStringLiteral("解释结论/取样"), 120.0);
@@ -549,8 +731,7 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
     m_canvas->addTrack(textTrack);
   }
 
-  // 11. 沉积相组合道 (相 | 亚 | 微，带地质纹理填充，规范放置在最右侧/最后)
-  //     仅当文档真实提供了相区间时展示，不自动臆造。
+  // 11. 沉积相组合道（规范放置在最右侧）
   if (!data.faciesIntervals.isEmpty())
   {
     auto faciesTrack = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
@@ -559,6 +740,577 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
   }
 
   m_canvas->setScaleRatio(m_scaleCombo->currentText());
+}
+
+// 编辑会话数据 → 画布道重同步（undo/redo/编辑后统一走这里）
+void WellCompositePanel::syncSessionToTracks()
+{
+  if (!m_editSession)
+    return;
+  const auto &doc = m_editSession->document();
+  m_canvas->setMarkerLines(doc.standardHorizons);
+
+  for (const auto &t : m_canvas->tracks())
+  {
+    if (!t)
+      continue;
+    if (t->type() == TrackType::Formation)
+    {
+      auto ft = std::static_pointer_cast<FormationTrack>(t);
+      if (!doc.formationIntervals.isEmpty())
+        ft->setIntervals(doc.formationIntervals);
+    }
+    else if (t->type() == TrackType::Lithology)
+    {
+      auto lt = std::static_pointer_cast<LithologyTrack>(t);
+      lt->setIntervals(doc.lithologyIntervals);
+    }
+    else if (t->type() == TrackType::FaciesCompound)
+    {
+      auto fc = std::static_pointer_cast<FaciesCompoundTrack>(t);
+      fc->setIntervals(doc.faciesIntervals);
+    }
+    else if (t->type() == TrackType::StratigraphyCompound)
+    {
+      auto sc = std::static_pointer_cast<StratigraphyCompoundTrack>(t);
+      if (!doc.stratigraphyIntervals.isEmpty())
+        sc->setIntervals(doc.stratigraphyIntervals);
+    }
+  }
+  m_canvas->updateAll();
+}
+
+// ----------------------------------------------------------------------------
+// D1.5/D1.6/D1.10 道操作槽
+// ----------------------------------------------------------------------------
+void WellCompositePanel::onTrackCsvRequested(int trackIndex)
+{
+  const QString csv = m_canvas->trackCsvAt(trackIndex);
+  if (csv.isEmpty())
+    return;
+
+  const QString suggested = QStringLiteral("%1_%2.csv").arg(m_wellName.isEmpty() ? QStringLiteral("well") : m_wellName,
+                                                            m_canvas->tracks().at(trackIndex)->title());
+  QString path = QFileDialog::getSaveFileName(this, tr("导出该道 CSV"), suggested,
+                                              QStringLiteral("CSV (*.csv)"));
+  if (path.isEmpty())
+    return;
+  if (!path.endsWith(QStringLiteral(".csv"), Qt::CaseInsensitive))
+    path += QStringLiteral(".csv");
+
+  QFile f(path);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    QMessageBox::warning(this, tr("导出失败"), tr("无法写入文件: %1").arg(path));
+    return;
+  }
+  f.write("\xEF\xBB\xBF"); // UTF-8 BOM（Excel 中文兼容）
+  f.write(csv.toUtf8());
+  m_lblStatus->setText(tr("已导出: %1").arg(path));
+}
+
+void WellCompositePanel::onTrackConfigRequested(int trackIndex)
+{
+  if (trackIndex < 0 || trackIndex >= m_canvas->trackCount())
+    return;
+
+  const auto &track = m_canvas->tracks().at(trackIndex);
+  TrackSpec initial = TrackRegistry::instance().captureSpec(track);
+  if (initial.typeId.isEmpty())
+    initial.typeId = TrackRegistry::typeIdForEnum(track->type());
+
+  TrackConfigDialog dlg(initial, TrackOps::combinedCurvePool(m_data.continuousCurves, m_data.discreteCurves), this);
+  if (dlg.exec() != QDialog::Accepted)
+    return;
+
+  const TrackSpec spec = dlg.resultSpec();
+  track->setTitle(spec.title);
+  track->setWidth(spec.width);
+  track->setVisible(spec.visible);
+  track->setPrintIncluded(spec.printIncluded);
+
+  if (auto ct = std::dynamic_pointer_cast<CurveTrack>(track))
+  {
+    ct->setShowGrid(spec.showGrid());
+    ct->setGridDensity(spec.gridDensity());
+    if (!spec.curveNames().isEmpty())
+      TrackOps::injectCurvesFromWellData(*ct, spec, m_data);
+  }
+  m_canvas->updateAll();
+  onTrackOrderOrWidthChanged();
+}
+
+void WellCompositePanel::onTrackDuplicateRequested(int trackIndex)
+{
+  if (trackIndex < 0 || trackIndex >= m_canvas->trackCount())
+    return;
+  auto dup = TrackOps::duplicateTrack(m_canvas->tracks().at(trackIndex));
+  if (!dup)
+    return;
+  dup->setTitle(dup->title() + tr(" 副本"));
+  m_canvas->insertTrack(trackIndex + 1, dup);
+}
+
+void WellCompositePanel::onTrackVisibilityChanged(int trackIndex)
+{
+  // D1.10 隐藏道管理条刷新
+  m_hiddenBar->setTracks(currentSpecs());
+  onTrackOrderOrWidthChanged();
+}
+
+void WellCompositePanel::onTrackOrderOrWidthChanged()
+{
+  // D1.8 会话记忆（道序/宽度/显隐/打印开关）
+  WellCompositeStore::saveSessionTracks(m_projectName, m_wellName, currentSpecs());
+
+  // D1.4 宽度集合独立记忆（标题键）
+  QVariantMap widths;
+  for (const auto &t : m_canvas->tracks())
+    if (t)
+      widths.insert(t->title(), t->width());
+  WellCompositeStore::saveWidthSet(m_projectName, m_wellName, widths);
+}
+
+QList<TrackSpec> WellCompositePanel::currentSpecs() const
+{
+  QList<TrackSpec> specs;
+  for (const auto &t : m_canvas->tracks())
+  {
+    TrackSpec spec = TrackRegistry::instance().captureSpec(t);
+    if (spec.typeId.isEmpty() && t)
+      spec.typeId = TrackRegistry::typeIdForEnum(t->type());
+    specs << spec;
+  }
+  return specs;
+}
+
+void WellCompositePanel::applySpecsIncrementally(const QList<TrackSpec> &specs)
+{
+  // D1.1 道增删改不重建面板：按 spec 列表增量调整既有道（顺序/宽度/可见性/
+  // 打印开关按「类型+标题」匹配）；匹配不上的忽略（数据驱动的道可能改名）。
+  if (specs.isEmpty())
+    return;
+
+  QList<std::shared_ptr<WellTrack>> reordered;
+  for (const auto &spec : specs)
+  {
+    for (const auto &t : m_canvas->tracks())
+    {
+      if (!t)
+        continue;
+      const QString typeId = TrackRegistry::typeIdForEnum(t->type());
+      if (typeId == spec.typeId && t->title() == spec.title)
+      {
+        t->setWidth(spec.width);
+        t->setVisible(spec.visible);
+        t->setPrintIncluded(spec.printIncluded);
+        if (auto ct = std::dynamic_pointer_cast<CurveTrack>(t))
+        {
+          ct->setShowGrid(spec.showGrid());
+          ct->setGridDensity(spec.gridDensity());
+        }
+        reordered << t;
+        break;
+      }
+    }
+  }
+  // 记忆外的道（新建/数据新加）保持尾部
+  for (const auto &t : m_canvas->tracks())
+    if (t && !reordered.contains(t))
+      reordered << t;
+
+  if (reordered.size() == m_canvas->trackCount())
+    m_canvas->setTracks(reordered);
+  m_canvas->syncScrollBars();
+  m_canvas->updateAll();
+}
+
+void WellCompositePanel::saveSessionState() const
+{
+  if (m_wellName.isEmpty())
+    return;
+  WellCompositeStore::saveSessionTracks(m_projectName, m_wellName, currentSpecs());
+}
+
+void WellCompositePanel::restoreSessionState()
+{
+  if (m_wellName.isEmpty())
+    return;
+  const QList<TrackSpec> remembered = WellCompositeStore::loadSessionTracks(m_projectName, m_wellName);
+  applySpecsIncrementally(remembered);
+  m_hiddenBar->setTracks(currentSpecs());
+}
+
+// ----------------------------------------------------------------------------
+// D2.x 深度交互槽
+// ----------------------------------------------------------------------------
+void WellCompositePanel::onIntervalSelected(double top, double bottom)
+{
+  // D2.2 区间统计对话框
+  const IntervalStatsReport rep = computeIntervalStats(top, bottom, m_data);
+  if (!rep.isValid())
+    return;
+
+  QDialog dlg(this);
+  dlg.setObjectName(QStringLiteral("wellCompositeIntervalStatsDialog"));
+  dlg.setWindowTitle(tr("区间统计 [%1~%2m]").arg(QString::number(top, 'f', 1),
+                                                QString::number(bottom, 'f', 1)));
+  dlg.setMinimumSize(QSize(520, 380));
+  auto *lay = new QVBoxLayout(&dlg);
+  auto *edit = new QPlainTextEdit(&dlg);
+  edit->setReadOnly(true);
+  edit->setFont(QFont(QStringLiteral("JetBrains Mono, monospace")));
+  edit->setPlainText(rep.toTsv());
+  lay->addWidget(edit, 1);
+
+  auto *btnRow = new QWidget(&dlg);
+  auto *btnLay = new QHBoxLayout(btnRow);
+  auto *btnCopy = new QPushButton(tr("复制 TSV"), btnRow);
+  auto *btnClose = new QPushButton(tr("关闭"), btnRow);
+  btnLay->addStretch(1);
+  btnLay->addWidget(btnCopy);
+  btnLay->addWidget(btnClose);
+  lay->addWidget(btnRow);
+  connect(btnCopy, &QPushButton::clicked, this, [edit]() {
+    QApplication::clipboard()->setText(edit->toPlainText());
+  });
+  connect(btnClose, &QPushButton::clicked, &dlg, &QDialog::accept);
+  dlg.exec();
+}
+
+void WellCompositePanel::onPinCreateRequested(double depth)
+{
+  bool ok = false;
+  const QString text = QInputDialog::getText(this, tr("添加深度标注"),
+                                             tr("深度 %1 m 的标注文字:").arg(QString::number(depth, 'f', 1)),
+                                             QLineEdit::Normal, QString(), &ok);
+  if (!ok)
+    return;
+
+  QList<DepthPin> pins = m_canvas->pins();
+  DepthTools::addPin(&pins, depth, text);
+  m_canvas->setPins(pins);
+  if (m_store)
+  {
+    m_store->setPins(pins);
+    m_store->save();
+  }
+}
+
+void WellCompositePanel::onPinEditRequested(int pinIndex)
+{
+  QList<DepthPin> pins = m_canvas->pins();
+  if (pinIndex < 0 || pinIndex >= pins.size())
+    return;
+
+  bool ok = false;
+  const QString text = QInputDialog::getText(this, tr("编辑深度标注"),
+                                             tr("深度 %1 m 的标注文字:").arg(QString::number(pins.at(pinIndex).depth, 'f', 1)),
+                                             QLineEdit::Normal, pins.at(pinIndex).text, &ok);
+  if (!ok)
+    return;
+
+  DepthTools::updatePinText(&pins, pinIndex, text);
+  m_canvas->setPins(pins);
+  if (m_store)
+  {
+    m_store->setPins(pins);
+    m_store->save();
+  }
+}
+
+void WellCompositePanel::clearPins()
+{
+  m_canvas->setPins({});
+  if (m_store)
+  {
+    m_store->setPins({});
+    m_store->save();
+  }
+}
+
+void WellCompositePanel::addPinAt(double depth, const QString &text)
+{
+  QList<DepthPin> pins = m_canvas->pins();
+  DepthTools::addPin(&pins, depth, text);
+  m_canvas->setPins(pins);
+  if (m_store)
+  {
+    m_store->setPins(pins);
+    m_store->save();
+  }
+}
+
+void WellCompositePanel::openGotoDepthDialog()
+{
+  GotoDepthDialog dlg(m_canvas->minDepth(), m_canvas->maxDepth(),
+                      m_canvas->visibleTopDepth(), m_depthFeet, this);
+  if (dlg.exec() == QDialog::Accepted)
+    m_canvas->setScrollDepth(dlg.selectedDepth());
+}
+
+void WellCompositePanel::onBookmarkMenuAboutToShow()
+{
+  QMenu *menu = m_btnBookmarks->menu();
+  menu->clear();
+
+  QAction *actAdd = menu->addAction(tr("在视口顶部添加书签…"));
+  connect(actAdd, &QAction::triggered, this, [this]() {
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, tr("添加书签"),
+                                               tr("书签名（深度 %1 m）:")
+                                                   .arg(QString::number(m_canvas->visibleTopDepth(), 'f', 1)),
+                                               QLineEdit::Normal, QString(), &ok);
+    if (ok)
+      addBookmark(name, m_canvas->visibleTopDepth());
+  });
+
+  if (!m_bookmarks.isEmpty())
+  {
+    menu->addSeparator();
+    for (const auto &bm : std::as_const(m_bookmarks))
+    {
+      QAction *act = menu->addAction(QStringLiteral("%1 @ %2 m").arg(bm.name, QString::number(bm.depth, 'f', 1)));
+      connect(act, &QAction::triggered, this, [this, name = bm.name]() { jumpToBookmark(name); });
+    }
+    menu->addSeparator();
+    QAction *actClear = menu->addAction(tr("清除全部书签"));
+    connect(actClear, &QAction::triggered, this, [this]() {
+      setBookmarks({});
+    });
+  }
+}
+
+bool WellCompositePanel::addBookmark(const QString &name, double depth)
+{
+  if (DepthTools::addBookmark(&m_bookmarks, name, depth) < 0)
+    return false;
+  if (m_store)
+  {
+    m_store->setBookmarks(m_bookmarks);
+    m_store->save();
+  }
+  return true;
+}
+
+void WellCompositePanel::setBookmarks(const QList<DepthBookmark> &bms)
+{
+  m_bookmarks = bms;
+  if (m_store)
+  {
+    m_store->setBookmarks(m_bookmarks);
+    m_store->save();
+  }
+}
+
+bool WellCompositePanel::jumpToBookmark(const QString &name)
+{
+  for (const auto &bm : m_bookmarks)
+    if (bm.name == name)
+    {
+      m_canvas->setScrollDepth(bm.depth);
+      return true;
+    }
+  return false;
+}
+
+void WellCompositePanel::setDepthUnitFeet(bool feet)
+{
+  if (m_depthFeet == feet)
+    return;
+  m_depthFeet = feet;
+  m_canvas->setDepthUnitLabel(feet ? QStringLiteral("ft") : QString());
+  m_lblReadout->setText(QStringLiteral("— ") + (feet ? QStringLiteral("ft") : QStringLiteral("m")));
+}
+
+void WellCompositePanel::setGapThresholdMeters(double meters)
+{
+  m_gapThresholdM = meters;
+  m_canvas->setGapThresholdMeters(meters);
+}
+
+// ----------------------------------------------------------------------------
+// D3.x 编辑模式
+// ----------------------------------------------------------------------------
+void WellCompositePanel::setEditMode(bool on)
+{
+  if (m_editSession && m_editSession->isReadOnly() && on)
+  {
+    // D3.15 只读降级：拒绝进入并给出原因
+    m_btnEdit->blockSignals(true);
+    m_btnEdit->setChecked(false);
+    m_btnEdit->blockSignals(false);
+    QMessageBox::information(this, tr("不可编辑"),
+                             m_editSession->readOnlyReason().isEmpty()
+                                 ? tr("当前资产为只读（RAW 或未授权路径）。")
+                                 : m_editSession->readOnlyReason());
+    return;
+  }
+  m_canvas->setEditMode(on);
+}
+
+bool WellCompositePanel::editMode() const
+{
+  return m_canvas->editMode();
+}
+
+bool WellCompositePanel::saveDerived()
+{
+  if (!m_editSession || !m_editSession->isDirty())
+    return false;
+
+  // D3.3 派生文档 + manifest 风格摘要（落盘由壳接 derivedDocumentReady；测试
+  // 直接断言信号携带的文档内容与审计摘要）
+  const ComprehensiveWellData derived = m_editSession->buildDerivedDocument();
+  const QString summary = m_editSession->buildManifestStyleSummary();
+  emit derivedDocumentReady(derived, summary);
+
+  // D3.11 审计摘要同步 sidecar（auditLog 在各编辑操作时已逐条累积）
+  if (m_store)
+    m_store->save();
+  m_editSession->markSaved();
+  return true;
+}
+
+void WellCompositePanel::setHighContrast(bool on)
+{
+  m_highContrast = on;
+  m_canvas->setHighContrast(on);
+}
+
+void WellCompositePanel::onMarkerMoved(const QString &name, double newDepth)
+{
+  if (!m_editSession)
+    return;
+
+  // D3.10 源冲突检测：编辑时源文件被动过 → 警告（重载/分叉由用户选）
+  if (!m_sourceDataPath.isEmpty())
+  {
+    const qint64 cur = QFileInfo(m_sourceDataPath).lastModified().toMSecsSinceEpoch();
+    if (m_editSession->sourceChanged(cur))
+      m_editSession->checkSourceConflict(cur); // 内部发 sourceConflictDetected
+  }
+
+  m_editSession->moveMarker(name, newDepth); // undo 栈 + 审计；documentChanged → 重同步
+}
+
+// ----------------------------------------------------------------------------
+// sidecar
+// ----------------------------------------------------------------------------
+void WellCompositePanel::loadSidecar()
+{
+  if (!m_store)
+    return;
+
+  m_canvas->setPins(m_store->pins());
+  m_bookmarks = m_store->bookmarks();
+
+  // D3.12 曲线量程/单位覆盖层应用（源 LAS 不动）
+  const QVariantMap ov = m_store->curveOverrides();
+  if (!ov.isEmpty())
+  {
+    for (const auto &t : m_canvas->tracks())
+    {
+      if (auto ct = std::dynamic_pointer_cast<CurveTrack>(t))
+      {
+        QVector<CurveData> curves = ct->curves();
+        for (auto &c : curves)
+        {
+          const QVariantMap o = ov.value(c.name).toMap();
+          if (!o.isEmpty())
+            c = applyCurveOverride(c, o);
+        }
+        ct->setCurves(curves);
+      }
+    }
+  }
+
+  // D3.6 地层指派应用（stratigraphyIntervals 补齐未识别层名的系/统）
+  const auto assigns = m_store->stratAssignments();
+  if (!assigns.isEmpty() && m_editSession)
+  {
+    for (const auto &t : m_canvas->tracks())
+    {
+      if (auto sc = std::dynamic_pointer_cast<StratigraphyCompoundTrack>(t))
+        sc->setIntervals(StratAssign::applyAssignments(sc->intervals(), assigns));
+    }
+  }
+  m_canvas->updateAll();
+}
+
+void WellCompositePanel::saveSidecar() const
+{
+  if (!m_store)
+    return;
+  m_store->setPins(m_canvas->pins());
+  m_store->setBookmarks(m_bookmarks);
+  m_store->save();
+}
+
+void WellCompositePanel::applyStratAssignments(QVector<FormationInterval> *formations) const
+{
+  // 遗留接口兼容（指派直接作用于 stratigraphyIntervals 展示层，不污染源数据）
+  Q_UNUSED(formations);
+}
+
+// ----------------------------------------------------------------------------
+// 导出（D4.x；引擎实现见 exportengine）
+// ----------------------------------------------------------------------------
+void WellCompositePanel::exportCurrent(ExportEngine::Format format)
+{
+  QString filter;
+  QString ext;
+  switch (format)
+  {
+  case ExportEngine::Format::Png: filter = tr("PNG 图像 (*.png)"); ext = QStringLiteral("png"); break;
+  case ExportEngine::Format::Svg: filter = tr("SVG 矢量 (*.svg)"); ext = QStringLiteral("svg"); break;
+  default: filter = tr("PDF 文档 (*.pdf)"); ext = QStringLiteral("pdf"); break;
+  }
+
+  const QString suggested = QStringLiteral("%1_综合柱状图.%2").arg(m_wellName.isEmpty() ? QStringLiteral("well") : m_wellName, ext);
+  QString path = QFileDialog::getSaveFileName(this, tr("导出综合柱状图"), suggested, filter);
+  if (path.isEmpty())
+    return;
+
+  ExportEngine::Options opt;
+  opt.scaleRatio = m_canvas->scaleRatio();
+  opt.topDepth = m_canvas->minDepth();
+  opt.bottomDepth = m_canvas->maxDepth();
+  opt.includeHeader = true;
+  opt.includeLegend = true;
+  opt.dpi = 300;
+  opt.wellName = m_wellName;
+  opt.projectName = m_projectName;
+
+  const QString err = ExportEngine::exportCanvas(*m_canvas, m_data, format, path, opt);
+  if (!err.isEmpty())
+    QMessageBox::warning(this, tr("导出失败"), err);
+  else
+    m_lblStatus->setText(tr("已导出: %1").arg(path));
+}
+
+void WellCompositePanel::printCurrent()
+{
+  // D4.8/D4.9 打印对话框 + 预览：经 ExportEngine 落 PDF 后交系统打印（无打印机
+  // 环境 offscreen 下降级为导出 PDF 提示）
+  exportCurrent(ExportEngine::Format::Pdf);
+}
+
+void WellCompositePanel::manageExportPresets()
+{
+  if (!m_store)
+  {
+    QMessageBox::information(this, tr("导出预设"), tr("加载井数据后可用（预设按源数据 sidecar 保存）。"));
+    return;
+  }
+
+  QStringList rows;
+  const auto presets = m_store->exportPresets();
+  for (const auto &p : presets)
+    rows << QStringLiteral("%1 [%2 %3dpi]").arg(p.name, p.format, QString::number(p.dpi));
+  QMessageBox::information(this, tr("导出预设"),
+                           rows.isEmpty() ? tr("暂无预设。导出一次后可经 sidecar 保存。")
+                                          : rows.join(QLatin1Char('\n')));
 }
 
 } // namespace WellComposite

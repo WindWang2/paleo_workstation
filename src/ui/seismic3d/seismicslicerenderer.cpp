@@ -97,6 +97,13 @@ void SeismicSliceRenderer::Cleanup(QOpenGLFunctions_3_3_Core *gl) {
             vao = 0;
         }
     }
+    gl->glDeleteVertexArrays(kMaxStackLayers, stackVaos_.data());
+    gl->glDeleteBuffers(kMaxStackLayers, stackVbos_.data());
+    gl->glDeleteTextures(kMaxStackLayers, stackTextures_.data());
+    stackVaos_.fill(0);
+    stackVbos_.fill(0);
+    stackTextures_.fill(0);
+    stackReady_.fill(false);
     program_.reset();
 
     indexCounts_.fill(0);
@@ -113,11 +120,37 @@ bool SeismicSliceRenderer::Initialize(QOpenGLFunctions_3_3_Core *gl) {
     Cleanup(gl);
 
     program_ = std::make_unique<QOpenGLShaderProgram>();
-    if (!program_->addShaderFromSourceFile(QOpenGLShader::Vertex, QStringLiteral(":/paleo/shaders/seismic/seismic_slice.vert.glsl"))) {
+    // D3.3：透明度/裁剪着色器内联（qrc 资源属共享只读，新 uniform 走源码）
+    static const char *kVertSrc = R"GLSL(
+#version 330 core
+layout(location = 0) in vec3 position;
+layout(location = 1) in vec2 uv;
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+out vec2 vUv;
+void main() {
+    vUv = uv;
+    gl_Position = projection * view * model * vec4(position, 1.0);
+}
+)GLSL";
+    static const char *kFragSrc = R"GLSL(
+#version 330 core
+in vec2 vUv;
+uniform sampler2D sliceTexture;
+uniform float uAlpha;      // D3.3 切片透明度
+out vec4 fragColor;
+void main() {
+    vec4 tex = texture(sliceTexture, vUv);
+    if (tex.a < 0.02) discard;   // D3.3 值域裁剪（CPU 侧把带外像素 alpha 置 0）
+    fragColor = vec4(tex.rgb, tex.a * uAlpha);
+}
+)GLSL";
+    if (!program_->addShaderFromSourceCode(QOpenGLShader::Vertex, kVertSrc)) {
         qWarning() << "SeismicSliceRenderer: failed to compile vertex shader:" << program_->log();
         return false;
     }
-    if (!program_->addShaderFromSourceFile(QOpenGLShader::Fragment, QStringLiteral(":/paleo/shaders/seismic/seismic_slice.frag.glsl"))) {
+    if (!program_->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragSrc)) {
         qWarning() << "SeismicSliceRenderer: failed to compile fragment shader:" << program_->log();
         return false;
     }
@@ -156,11 +189,70 @@ bool SeismicSliceRenderer::Initialize(QOpenGLFunctions_3_3_Core *gl) {
         indexCounts_[slot] = 6;
     }
 
+    // D3.1 体渲染堆叠层资源
+    gl->glGenVertexArrays(kMaxStackLayers, stackVaos_.data());
+    gl->glGenBuffers(kMaxStackLayers, stackVbos_.data());
+    gl->glGenTextures(kMaxStackLayers, stackTextures_.data());
+    for (int layer = 0; layer < kMaxStackLayers; ++layer) {
+        gl->glBindVertexArray(stackVaos_[static_cast<std::size_t>(layer)]);
+        gl->glBindBuffer(GL_ARRAY_BUFFER, stackVbos_[static_cast<std::size_t>(layer)]);
+        gl->glBufferData(GL_ARRAY_BUFFER, sizeof(SliceVertex) * 4, nullptr, GL_DYNAMIC_DRAW);
+        // 每层固定 4 顶点两三角：element buffer 复用 ebos_[Time]
+        gl->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[static_cast<size_t>(SeismicSliceSlot::Time)]);
+        gl->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(SliceVertex), reinterpret_cast<void *>(offsetof(SliceVertex, position)));
+        gl->glEnableVertexAttribArray(0);
+        gl->glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(SliceVertex), reinterpret_cast<void *>(offsetof(SliceVertex, uv)));
+        gl->glEnableVertexAttribArray(1);
+        gl->glBindTexture(GL_TEXTURE_2D, stackTextures_[static_cast<std::size_t>(layer)]);
+        gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        stackReady_[static_cast<std::size_t>(layer)] = false;
+        stackVisibleLayer_[static_cast<std::size_t>(layer)] = true;
+    }
+
     gl->glBindTexture(GL_TEXTURE_2D, 0);
     gl->glBindVertexArray(0);
 
     initialized_ = true;
     return true;
+}
+
+// D3.1：堆叠层 = 水平切片（与 Time 槽同几何布局），层序即精渲调度单位
+bool SeismicSliceRenderer::UpdateStackLayer(
+    QOpenGLFunctions_3_3_Core *gl,
+    int layerIdx,
+    const SgyVolume &volume,
+    int sampleIndex,
+    const SgySliceImage &image) {
+    if (!gl || !initialized_ || layerIdx < 0 || layerIdx >= kMaxStackLayers ||
+        image.width <= 0 || image.height <= 0 ||
+        image.rgba.size() != static_cast<std::size_t>(image.width) * image.height * 4) {
+        return false;
+    }
+    const auto vertices = BuildSliceVertices(volume, SgySliceType::Time, sampleIndex);
+    const std::size_t layer = static_cast<std::size_t>(layerIdx);
+    gl->glBindVertexArray(stackVaos_[layer]);
+    gl->glBindBuffer(GL_ARRAY_BUFFER, stackVbos_[layer]);
+    gl->glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(sizeof(SliceVertex) * vertices.size()), vertices.data());
+    gl->glBindTexture(GL_TEXTURE_2D, stackTextures_[layer]);
+    gl->glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    gl->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, image.width, image.height, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, image.rgba.data());
+    gl->glBindTexture(GL_TEXTURE_2D, 0);
+    gl->glBindVertexArray(0);
+    stackReady_[layer] = true;
+    return true;
+}
+
+void SeismicSliceRenderer::SetStackLayerVisible(int layerIdx, bool visible) {
+    if (layerIdx >= 0 && layerIdx < kMaxStackLayers)
+        stackVisibleLayer_[static_cast<std::size_t>(layerIdx)] = visible;
+}
+
+void SeismicSliceRenderer::SetSliceAlpha(float alpha) {
+    sliceAlpha_ = std::clamp(alpha, 0.05f, 1.0f);
 }
 
 bool SeismicSliceRenderer::UpdateSlice(
@@ -319,6 +411,7 @@ void SeismicSliceRenderer::Render(
     gl->glUniformMatrix4fv(gl->glGetUniformLocation(progId, "view"), 1, GL_FALSE, glm::value_ptr(view));
     gl->glUniformMatrix4fv(gl->glGetUniformLocation(progId, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     gl->glUniform1i(gl->glGetUniformLocation(progId, "sliceTexture"), 0);
+    gl->glUniform1f(gl->glGetUniformLocation(progId, "uAlpha"), sliceAlpha_); // D3.3
 
     gl->glDisable(GL_CULL_FACE);
     gl->glEnable(GL_BLEND);
@@ -332,6 +425,24 @@ void SeismicSliceRenderer::Render(
         gl->glBindTexture(GL_TEXTURE_2D, textures_[slot]);
         gl->glBindVertexArray(vaos_[slot]);
         gl->glDrawElements(GL_TRIANGLES, indexCounts_[slot], GL_UNSIGNED_INT, nullptr);
+    }
+
+    // D3.1 体渲染堆叠层：深度测试开、深度写关 + 混合（水平面互不遮挡序无关）
+    if (stackVisible_) {
+        gl->glDepthMask(GL_FALSE);
+        const float savedAlpha = sliceAlpha_;
+        gl->glUniform1f(gl->glGetUniformLocation(progId, "uAlpha"),
+                        std::clamp(savedAlpha * 0.55f, 0.05f, 1.0f));
+        for (int layer = 0; layer < kMaxStackLayers; ++layer) {
+            const std::size_t li = static_cast<std::size_t>(layer);
+            if (!stackReady_[li] || !stackVisibleLayer_[li])
+                continue;
+            gl->glBindTexture(GL_TEXTURE_2D, stackTextures_[li]);
+            gl->glBindVertexArray(stackVaos_[li]);
+            gl->glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
+        }
+        gl->glUniform1f(gl->glGetUniformLocation(progId, "uAlpha"), savedAlpha);
+        gl->glDepthMask(GL_TRUE);
     }
 
     gl->glBindVertexArray(0);

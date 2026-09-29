@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <polyline points="10,25 25,15 40,25 55,15 70,25 85,15 100,25 115,15 130,25" fill="none" stroke="#666" stroke-width="1.5"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">泥裂</text>
+</svg>

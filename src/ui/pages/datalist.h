@@ -2,15 +2,42 @@
 #pragma once
 
 #include <QPointer>
+#include <QPushButton>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QWidget>
+#include <memory>
+
+#include "dataops/dataopscommands.h"
+#include "dataops/dataopsfilter.h"
+#include "dataops/dataopsfuzzy.h"
+#include "dataops/dataopsmodel.h"
+#include "dataops/dataopsselection.h"
+#include "dataopsundo.h"
+#include "datanavtree.h"
 
 class PreviewDocService;
-class QTreeWidget;
 class QStackedWidget;
 
-// ui/pages/datalist — 数据管理页的「导入 + 列表」侧（W5：自 DataPage 分家）。
+namespace paleo::dataops
+{
+class ImportQueuePanel;
+class AssetIconView;
+class AssetVirtualView;
+class AssetGroupTree;
+class FilterBar;
+class FilterChipBar;
+class PendingQuickBar;
+class TagCloudWidget;
+class FilterEmptyState;
+class SelectionBadge;
+class HighlightDelegate;
+class OperationsHistory;
+} // namespace paleo::dataops
+
+// ui/pages/datalist — 数据管理页的「导入 + 列表」侧（W5：自 DataPage 分家；
+// P3 数据操作重构：多选/过滤/拖拽/批量/撤销/视图形态全部在本面板落地）。
 //
 // 含两段（objectName 不变）：dataImportSection（导入按钮）/ dataListSection
 //（搜索 + 类型筛选 + 未决过滤条 + 树/表 viewStack）。数据访问只走
@@ -26,7 +53,37 @@ class DataListPanel : public QWidget
     // 门面下发（DataPage 的 "paleo.page.importsvc" 动态属性 → 本面板）。
     void setDocService(PreviewDocService *doc);
 
+    // ---- D1/D5 共享面（DataPage 转发给 EntityPanel，实体侧操作共用栈/存储） ----
+    paleo::dataops::DataOpsUndoStack *opStack() const { return m_opStack; }
+    const paleo::dataops::DataOpsContext &opsContext() const { return m_ctx; }
+    paleo::dataops::OperationsHistory *operationsHistory() const { return m_history.get(); }
+    // D6.2 命令注册表（DataPage 装配命令面板时读取）。
+    const paleo::dataops::CommandRegistry &commandRegistry() const { return m_reg; }
+
+    // ---- D1 选中面 ----
+    QSet<QString> currentAssetSelection() const;      // 表+树聚合
+    QStringList currentEntitySelection() const;       // 树中井节点
+    paleo::dataops::SelectionMix currentSelectionMix() const;
+
+    // ---- D2 过滤面 ----
+    paleo::dataops::FilterGroup filterGroup() const { return m_filter; }
+    void applyFilterGroup(const paleo::dataops::FilterGroup &g); // 替换并应用
+    QString filterStateString() const { return m_filter.toStateString(); }
+    void setFilterFromStateString(const QString &s);
+    QString activeTagFilter() const { return m_activeTag; }
+
+    // ---- 树排序（D2.5）----
+    void setTreeSort(paleo::dataops::TreeSortKind kind);
+
+    // ---- D1.9 ----
+    // 命令面（测试/编程式操作入口；右键菜单与拖放共用）。
+    void pushCommand(paleo::dataops::DataOpCommand *cmd);
+
   public slots:
+    void selectAllVisibleAssets();
+    void invertAssetSelection();
+    void selectByCurrentFilter(); // 按过滤器选中（全选可见项的同义词，保留语义口）
+
     void refreshAssetTable();   // 从 catalog 资产重建资产表/树
     void applyListFilter();     // 名称/类型/关联含搜索词且类型匹配的行才显示
     // T31「查看未决」：资产表过滤到仍有未决链接的行；off 清除过滤。
@@ -36,6 +93,29 @@ class DataListPanel : public QWidget
     void selectAssetsForEntities(const QStringList &entityIds);
     // 表 + 树定位到指定资产（不发激活信号——setCurrentCell 走 QSignalBlocker）。
     void selectAssetInViews(const QString &assetId);
+
+    // ---- D5 撤销/重做（含状态反馈信号）----
+    void undoOp();
+    void redoOp();
+
+    // ---- D1 批量操作（右键菜单/命令面板共用入口）----
+    void batchAttachToEntity();          // D1.4 目标实体对话框
+    void batchChangeType();              // D1.5（确认 + 失败明细）
+    void batchRemoveSoft();              // D1.6 软删 → 可回收清单
+    void batchExportManifest();          // D1.7 CSV/JSON
+    void batchOpenPreview();             // D1.8 前几项进标签
+    void batchAddTag();                  // D2.4 选中打标签
+    void showRecycleBin();               // D1.6 可回收清单对话框
+    // ---- 单资产操作 ----
+    void detachSingleAssetLink();        // 解挂（首个选中资产的已决链接）
+    void setPrimaryForSelection();       // 设为主版本
+    void editRoleForSelection();         // D4.7（不可撤销确认）
+    // ---- D3.2 外部文件拖入 → 导入队列 ----
+    void handleExternalFiles(const QStringList &paths);
+    // ---- D7 视图形态 ----
+    void setViewMode(int mode);          // 0 树 1 表 2 图标 3 虚拟 4 分组
+    void openColumnConfig();             // D7.2
+    void openGroupConfig();              // D7.6 分组维度
 
   signals:
     void importRequested(const QString &kind);   // "wells" | "seismic" | "boundary" | ...
@@ -51,14 +131,78 @@ class DataListPanel : public QWidget
     // selectAssetsForEntities（实体视图定位口径由壳统一）。
     void assetFocusRequested(const QString &assetId);
     void entitiesFocusRequested(const QStringList &entityIds);
+    // ---- P3 新增信号 ----
+    void selectionCountChanged(int assetCount, int entityCount); // D1.2
+    void statusMessage(const QString &msg);         // D5.4/D8 反馈（壳接状态栏）
+    void externalImportRequested(const QStringList &paths); // D3.2（壳接导入流）
+    // D4.6 实体操作经意图信号（实体编辑对话框在 EntityPanel 侧有完整版；
+    // 树内入口给轻量路径）。
+    void entityRenameRequested(const QString &entityId);
+    void entityDeleteRequested(const QString &entityId);
+    void shortcutsDialogRequested(); // D6.3（DataPage 接快捷键表对话框）
 
   protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
   private:
+    void buildDataOpsUi();          // P3 增量 UI（过滤条/队列/视图页）
     void refreshAssetTree();
+    void rebuildRowSnapshot();      // m_rows 装配（stores + catalog）
+    void refreshSelectionBadge();
+    void refreshTagCloud();
+    void updatePendingCounts();
+    void applyFilterToTree(const QSet<QString> &visibleIds, bool filtering);
+    void registerCommands();        // D6.2 命令登记
+    QTreeWidgetItem *treeItemForAsset(const QString &assetId) const;
+    void refreshUndoButtons();      // D5.2 撤销/重做按钮文案与可用态
+  public:
+    void applyEntityDrop(const QStringList &assetIds, const QString &entityId); // D3.1/D3.4（拖放核心，批量挂接共用）
+  private:
+    void showAssetContextMenu(QObject *source, const QPoint &pos);              // D1.3
+    void loadStoresForCatalog();   // catalog 会话变化 → stores 重载 + 栈清空
+    // 旧搜索/类型控件 → FilterGroup 同步（兼容面：assetSearchEdit/assetTypeFilter
+    // 仍是 Search/Type 维度的输入口）。
+    void syncLegacyControlsIntoFilter();
 
     PreviewDocService *m_doc = nullptr;
-    QTreeWidget *m_tree = nullptr;
+    paleo::dataops::DataNavTree *m_tree = nullptr;
     QStackedWidget *m_viewStack = nullptr;
+    // D5 视图命令栈（挂接/标签/改型/软删…；壳订阅 stackChanged 刷按钮态）。
+    paleo::dataops::DataOpsUndoStack *m_opStack = nullptr;
+
+    // ---- P3 dataops 状态 ----
+    paleo::dataops::DataOpsContext m_ctx;              // catalog + stores 指针包
+    paleo::dataops::TagStore m_tags;                   // D2.4
+    paleo::dataops::AssetOverrideStore m_typeOv;       // D1.5
+    paleo::dataops::EntityOverrideStore m_entityOv;    // D4.1/D4.2
+    paleo::dataops::RecycleBin m_recycle;              // D1.6
+    paleo::dataops::FilterGroup m_filter;              // D2
+    QString m_activeTag;                               // D2.4 标签云激活
+    QVector<paleo::dataops::AssetRowInfo> m_rows;      // 行快照（过滤输入）
+    paleo::dataops::SelectionKeeper m_selKeep;         // D1.10
+    paleo::dataops::TreeSortKind m_treeSort = paleo::dataops::TreeSortKind::Name; // D2.5
+    std::shared_ptr<paleo::dataops::OperationsHistory> m_history; // D4.10
+    paleo::dataops::CommandRegistry m_reg;             // D6.2
+    // D1.4 批量挂接候选（EntityPickerDialog 结果暂存，供测试断言）。
+    QString m_lastBatchTarget;
+    // D7.6 分组维度。
+    int m_groupMode = 0;
+    // D2.7 高亮委托 / D1 程序化选中守卫 / catalog 会话记忆（D5.6）。
+    paleo::dataops::HighlightDelegate *m_delegate = nullptr;
+    bool m_progSelect = false;
+    QString m_lastCatalogPath;
+    // P3 部件指针（buildDataOpsUi 创建；objectName 见各部件）。
+    QPushButton *m_undoBtn = nullptr;                       // dataUndoButton
+    QPushButton *m_redoBtn = nullptr;                       // dataRedoButton
+    paleo::dataops::FilterBar *m_filterBar = nullptr;
+    paleo::dataops::FilterChipBar *m_chipBar = nullptr;
+    paleo::dataops::PendingQuickBar *m_quickBar = nullptr;
+    paleo::dataops::TagCloudWidget *m_tagCloud = nullptr;
+    paleo::dataops::FilterEmptyState *m_emptyState = nullptr;
+    paleo::dataops::AssetIconView *m_iconView = nullptr;
+    paleo::dataops::AssetVirtualView *m_virtualView = nullptr;
+    paleo::dataops::AssetGroupTree *m_groupTree = nullptr;
+    paleo::dataops::ImportQueuePanel *m_importQueue = nullptr;
+    QList<QPair<QString, QString>> m_shortcuts;             // (键串, objectName)
+    void refreshChipBar();                                  // chip/词表/预设刷新
 };

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <circle cx="70" cy="35" r="18" fill="none" stroke="#FF0000" stroke-width="2"/>
+  <circle cx="70" cy="35" r="9" fill="#FF0000"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">火山口</text>
+</svg>

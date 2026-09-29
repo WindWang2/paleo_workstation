@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 70" width="150" height="70">
+  <rect width="150" height="70" fill="#fff"/>
+  <line x1="5" y1="35" x2="145" y2="35" stroke="#D71414" stroke-width="2.5" />
+  <text x="75" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">二级构造分区线</text>
+</svg>

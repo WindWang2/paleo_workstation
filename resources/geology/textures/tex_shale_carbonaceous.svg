@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <defs>
+    <pattern id="shale_carbonaceous" width="12" height="12" patternUnits="userSpaceOnUse">
+      <rect width="5" height="5" fill="#6b7b8c"/><line x1="0" y1="1.5" x2="5" y2="1.5" stroke="#556270" stroke-width="0.5"/><line x1="0" y1="3.5" x2="5" y2="3.5" stroke="#556270" stroke-width="0.5"/>
+    </pattern>
+  </defs>
+  <rect width="80" height="80" fill="#6b7b8c" opacity="0.3"/>
+  <rect x="4" y="4" width="72" height="72" fill="url(#shale_carbonaceous)" stroke="#999" stroke-width="0.5"/>
+  <text x="40" y="42" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#333" opacity="0.7">炭质页岩</text>
+</svg>

@@ -1,7 +1,9 @@
 // 层：视图
 #include "paleodecorations.h"
 #include "../paleotheme.h" // 画布装饰取色（显式 Light：见各 render 注释）
+#include "../../domain/faciescatalog.h"
 #include <QCoreApplication>
+#include <QSvgRenderer>
 
 #include <cmath>
 
@@ -41,6 +43,23 @@ namespace
     return qBound( 0, int( -std::floor( std::log10( interval ) ) ), 8 );
   }
 }
+
+
+namespace PaleoDecorationTheme
+{
+  namespace
+  {
+    bool gDark = false;
+  }
+  void setDark( bool dark ) { gDark = dark; }
+  bool isDark() { return gDark; }
+  QColor card() { return gDark ? QColor( 27, 33, 42, 200 ) : QColor( 255, 255, 255, 170 ); }
+  QColor ink() { return gDark ? QColor( QStringLiteral( "#E4EAF2" ) ) : QColor( 20, 20, 20 ); }
+  QColor inkSoft() { return gDark ? QColor( 163, 177, 191, 120 ) : QColor( 60, 60, 60, 90 ); }
+  QColor border() { return gDark ? QColor( QStringLiteral( "#3B4552" ) ) : QColor( QStringLiteral( "#DFE5EC" ) ); }
+  QColor arrowDarkHalf() { return gDark ? QColor( 228, 234, 242 ) : QColor( 30, 30, 30 ); }
+  QColor arrowLightHalf() { return gDark ? QColor( 59, 69, 82 ) : QColor( 240, 240, 240 ); }
+} // namespace PaleoDecorationTheme
 
 // ---------------------------------------------------------------- scale bar
 
@@ -85,12 +104,12 @@ void PaleoScaleBarDecoration::render( const QgsMapSettings &mapSettings, QgsRend
 
   // Translucent backing panel for legibility over rendered layers.
   painter->setPen( Qt::NoPen );
-  painter->setBrush( QColor( 255, 255, 255, 170 ) );
+  painter->setBrush( PaleoDecorationTheme::card() );
   painter->drawRect( x0 - 5, y - 26,
                      qMax( x1 - x0, textW ) + 10, 34 );
 
   // Bar + end ticks.
-  QPen pen( QColor( 20, 20, 20 ), 2 );
+  QPen pen( PaleoDecorationTheme::ink(), 2 );
   painter->setPen( pen );
   painter->setBrush( Qt::NoBrush );
   painter->drawLine( QPointF( x0, y ), QPointF( x1, y ) );
@@ -119,7 +138,7 @@ void PaleoNorthArrowDecoration::render( const QgsMapSettings &mapSettings, QgsRe
 
   painter->save();
   painter->setPen(Qt::NoPen);
-  painter->setBrush(QColor(255,255,255,220));
+  painter->setBrush( PaleoDecorationTheme::card() );
   painter->drawRoundedRect(QRectF(margin-6, margin-6, s+12, s+28),4,4);
   painter->translate( cx, cy );
   painter->rotate( -mapSettings.rotation() );
@@ -130,17 +149,17 @@ void PaleoNorthArrowDecoration::render( const QgsMapSettings &mapSettings, QgsRe
   const QPolygonF leftHalf { QPointF( 0, -h ), QPointF( -w, h ), QPointF( 0, h * 0.55 ) };
   const QPolygonF rightHalf { QPointF( 0, -h ), QPointF( 0, h * 0.55 ), QPointF( w, h ) };
 
-  painter->setPen( QPen( QColor( 20, 20, 20 ), 1 ) );
-  painter->setBrush( QColor( 30, 30, 30 ) );
+  painter->setPen( QPen( PaleoDecorationTheme::ink(), 1 ) );
+  painter->setBrush( PaleoDecorationTheme::arrowDarkHalf() );
   painter->drawPolygon( leftHalf );
-  painter->setBrush( QColor( 240, 240, 240 ) );
+  painter->setBrush( PaleoDecorationTheme::arrowLightHalf() );
   painter->drawPolygon( rightHalf );
 
   painter->restore();
 
   // "N" label below the arrow (unrotated, anchored to the viewport corner).
   painter->save();
-  painter->setPen( QColor( 20, 20, 20 ) );
+  painter->setPen( PaleoDecorationTheme::ink() );
   const QString n = QStringLiteral( "N" );
   painter->drawText( QPointF( cx - painter->fontMetrics().horizontalAdvance( n ) / 2.0,
                               cy + s / 2.0 + 12.0 ),
@@ -170,7 +189,7 @@ void PaleoGridDecoration::render( const QgsMapSettings &mapSettings, QgsRenderCo
   const int devH = painter->device()->height();
 
   painter->save();
-  QPen pen( QColor( 60, 60, 60, 90 ), 0 );
+  QPen pen( PaleoDecorationTheme::inkSoft(), 0 );
   pen.setStyle( Qt::DashLine );
   painter->setPen( pen );
 
@@ -433,21 +452,24 @@ void PaleoDecorationManager::paintDecorations( QPainter *painter )
 void PaleoFaciesLegendDecoration::render(const QgsMapSettings &, QgsRenderContext &context)
 {
   auto *p=context.painter();if(!p || !p->device())return;
-  // 相图例的边框/文字取浅色 token（显式 Theme::Light）：画布装饰压在数据
-  // 画布（浅色底图）上，属图件文档面，不跟随 UI 暗色主题是有意的。
-  const auto &lt=PaleoTheme::tokens(PaleoTheme::Theme::Light);
   p->save();QFont f=p->font();f.setPointSize(8);p->setFont(f);
   const int row=p->fontMetrics().height()+8;
   const int width=std::min(240, std::max(140, p->device()->width()/3));
   const int x=p->device()->width()-width-16,y=16;
-  p->setPen(lt.border);p->setBrush(QColor(255,255,255,235));
+  p->setPen(PaleoDecorationTheme::border());p->setBrush(PaleoDecorationTheme::card());
   p->drawRoundedRect(QRectF(x,y,width,16+row*(facies.size()+1)),4,4);
-  p->setPen(lt.text);f.setBold(true);p->setFont(f);
+  p->setPen(PaleoDecorationTheme::ink());f.setBold(true);p->setFont(f);
   p->drawText(QRect(x+8,y+4,width-16,row),Qt::AlignVCenter,p->fontMetrics().elidedText(title,Qt::ElideRight,width-16));
   f.setBold(false);p->setFont(f);
   for(int i=0;i<facies.size();++i){const auto entry=facies[i].toMap();int top=y+8+(i+1)*row;
-    p->setPen(lt.border);p->setBrush(QColor(entry.value("color").toString()));p->drawRect(QRect(x+8,top+3,16,row-8));
-    p->setPen(lt.text);const auto label=entry.value("name").toString();p->drawText(QRect(x+32,top,width-40,row),Qt::AlignVCenter,p->fontMetrics().elidedText(label,Qt::ElideRight,width-40));}
+    p->setPen(PaleoDecorationTheme::border());p->setBrush(QColor(entry.value("color").toString()));p->drawRect(QRect(x+8,top+3,16,row-8));
+    const auto texture =
+        FaciesCatalog::resourcePath(entry.value("texture").toString());
+    if (!texture.isEmpty()) {
+      QSvgRenderer svg(texture);
+      svg.render(p, QRectF(x + 8, top + 3, 16, row - 8));
+    }
+    p->setPen(PaleoDecorationTheme::ink());const auto label=entry.value("name").toString();p->drawText(QRect(x+32,top,width-40,row),Qt::AlignVCenter,p->fontMetrics().elidedText(label,Qt::ElideRight,width-40));}
   p->restore();
 }
 void PaleoDecorationManager::setFaciesLegend(const QString &title,const QVariantList &facies)

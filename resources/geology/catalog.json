@@ -1,0 +1,3122 @@
+[
+  {
+    "category": "岩石纹理",
+    "file": "tex_sandstone_fine.svg",
+    "chinese_name": "细砂岩",
+    "english_name": "Fine Sandstone",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-1H/C",
+    "color": "#E8D5B5",
+    "usage": "细砂颗粒点状填充(2×2 tile)，沉积岩-砂岩类。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_sandstone_medium.svg",
+    "chinese_name": "中砂岩",
+    "english_name": "Medium Sandstone",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-2H/C",
+    "color": "#E8D5B5",
+    "usage": "中等砂颗粒点状填充(3×3 tile)，沉积岩-砂岩类。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_sandstone_coarse.svg",
+    "chinese_name": "粗砂岩",
+    "english_name": "Coarse Sandstone",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-3H/C",
+    "color": "#E8D5B5",
+    "usage": "大砂颗粒点状填充(5×5 tile)，沉积岩-砂岩类。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_sandstone_pebbly.svg",
+    "chinese_name": "砾质砂岩",
+    "english_name": "Pebbly Sandstone",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-4H/C",
+    "color": "#E8D5B5",
+    "usage": "大圆(8×8)加小圆点混合pattern，砾质砂岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_conglomerate_cobble.svg",
+    "chinese_name": "巨砾砾岩",
+    "english_name": "Cobble Conglomerate",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-5H/C",
+    "color": "#D0C0A0",
+    "usage": "极大砾石填充(15×15 tile)，巨砾砾岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_conglomerate_pebble.svg",
+    "chinese_name": "砾石砾岩",
+    "english_name": "Pebble Conglomerate",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-6H/C",
+    "color": "#D0C0A0",
+    "usage": "大砾石填充(10×10 tile)，砾石砾岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_siltstone.svg",
+    "chinese_name": "粉砂岩",
+    "english_name": "Siltstone",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-7H/C",
+    "color": "#DCD4C4",
+    "usage": "微粒填充(2×2浅色 tile)，粉砂岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_mudstone.svg",
+    "chinese_name": "泥岩",
+    "english_name": "Mudstone",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-8H/C",
+    "color": "#C8C0B0",
+    "usage": "均匀填充pattern，泥岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_mudstone_silty.svg",
+    "chinese_name": "含粉砂泥岩",
+    "english_name": "Silty Mudstone",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-9H/C",
+    "color": "#C8C0B0",
+    "usage": "均匀填充加微粒点缀，含粉砂泥岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_shale_thin.svg",
+    "chinese_name": "薄层页岩",
+    "english_name": "Thin-bedded Shale",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-10H/C",
+    "color": "#B0C4D8",
+    "usage": "细水平线(2px) pattern，薄层页岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_shale_thick.svg",
+    "chinese_name": "厚层页岩",
+    "english_name": "Thick-bedded Shale",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-11H/C",
+    "color": "#B0C4D8",
+    "usage": "粗水平线(4px) pattern，厚层页岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_shale_carbonaceous.svg",
+    "chinese_name": "碳质页岩",
+    "english_name": "Carbonaceous Shale",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-12H/C",
+    "color": "#6A5A4A",
+    "usage": "密集黑点填充pattern，碳质页岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_limestone_micritic.svg",
+    "chinese_name": "泥晶灰岩",
+    "english_name": "Micritic Limestone",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-13H/C",
+    "color": "#F0E8D8",
+    "usage": "密集细点 pattern，泥晶灰岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_limestone_bio.svg",
+    "chinese_name": "生物灰岩",
+    "english_name": "Bio-limestone",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-14H/C",
+    "color": "#F0E8D8",
+    "usage": "圆点加短线(化石) pattern，生物灰岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_limestone_oolitic.svg",
+    "chinese_name": "鲕粒灰岩",
+    "english_name": "Oolitic Limestone",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-15H/C",
+    "color": "#F0E8D8",
+    "usage": "同心圆(鲕粒) pattern，鲕粒灰岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_limestone_cherty.svg",
+    "chinese_name": "燧石灰岩",
+    "english_name": "Cherty Limestone",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-16H/C",
+    "color": "#E8E0D0",
+    "usage": "黑色小圆(燧石结核) pattern，燧石灰岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_reef_limestone.svg",
+    "chinese_name": "礁灰岩",
+    "english_name": "Reef Limestone",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-17H/C",
+    "color": "#F8F0E0",
+    "usage": "不规则块状(珊瑚礁) pattern，礁灰岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_dolomite.svg",
+    "chinese_name": "白云岩",
+    "english_name": "Dolomite",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-18H/C",
+    "color": "#E0D8C8",
+    "usage": "晶粒状正方形 pattern，白云岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_dolomite_granular.svg",
+    "chinese_name": "晶粒白云岩",
+    "english_name": "Granular Dolomite",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-19H/C",
+    "color": "#E0D8C8",
+    "usage": "密集小正方形 pattern，晶粒白云岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_marl.svg",
+    "chinese_name": "泥灰岩",
+    "english_name": "Marl",
+    "specification": "附录F.1 表F.1",
+    "symbol_code": "TEX-F1-20H/C",
+    "color": "#D8D0C0",
+    "usage": "石灰+泥质混合 pattern，泥灰岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_gypsum.svg",
+    "chinese_name": "石膏",
+    "english_name": "Gypsum",
+    "specification": "附录F.2 表F.2",
+    "symbol_code": "TEX-F2-1H/C",
+    "color": "#F0EEE8",
+    "usage": "透明晶质纹理 pattern，石膏。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_salt.svg",
+    "chinese_name": "岩盐",
+    "english_name": "Rock Salt",
+    "specification": "附录F.2 表F.2",
+    "symbol_code": "TEX-F2-2H/C",
+    "color": "#F5F5F0",
+    "usage": "透明水纹纹理 pattern，岩盐。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_tuff.svg",
+    "chinese_name": "凝灰岩",
+    "english_name": "Tuff",
+    "specification": "附录F.2 表F.2",
+    "symbol_code": "TEX-F2-3H/C",
+    "color": "#C8C0B0",
+    "usage": "火山碎屑点 pattern，凝灰岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_volcanic_breccia.svg",
+    "chinese_name": "火山角砾岩",
+    "english_name": "Volcanic Breccia",
+    "specification": "附录F.2 表F.2",
+    "symbol_code": "TEX-F2-4H/C",
+    "color": "#B8B0A0",
+    "usage": "大碎屑斑块 pattern，火山角砾岩。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_coal.svg",
+    "chinese_name": "煤层",
+    "english_name": "Coal",
+    "specification": "附录F.2 表F.2",
+    "symbol_code": "TEX-F2-5H/C",
+    "color": "#2a2a2a",
+    "usage": "黑色均匀填充，煤层。"
+  },
+  {
+    "category": "岩石纹理",
+    "file": "tex_oil_sand.svg",
+    "chinese_name": "油砂",
+    "english_name": "Oil Sand",
+    "specification": "附录F.3 表F.3",
+    "symbol_code": "TEX-F3-1H/C",
+    "color": "#8B7355",
+    "usage": "砂质加油斑纹理 pattern，油砂。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_normal_g1.svg",
+    "chinese_name": "正断层一級",
+    "english_name": "Normal Fault Grade 1",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-1H/C",
+    "color": "#000",
+    "usage": "黑色粗线+大三角，正断层一級。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_normal_g2.svg",
+    "chinese_name": "正断层二級",
+    "english_name": "Normal Fault Grade 2",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-2H/C",
+    "color": "#000",
+    "usage": "黑色线+中等三角，正断层二級。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_normal_g3.svg",
+    "chinese_name": "正断层三級",
+    "english_name": "Normal Fault Grade 3",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-3H/C",
+    "color": "#000",
+    "usage": "黑色细线+密集小三角，三級。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_normal_g4.svg",
+    "chinese_name": "正断层四級",
+    "english_name": "Normal Fault Grade 4",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-4H/C",
+    "color": "#000",
+    "usage": "黑色细线+最小三角，四級。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_normal_inferred.svg",
+    "chinese_name": "推测正断层",
+    "english_name": "Inferred Normal Fault",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-5H/C",
+    "color": "#666",
+    "usage": "灰色虚线+三角，推测正断层。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_normal_ungraded.svg",
+    "chinese_name": "正断层(未分级)",
+    "english_name": "Normal Fault Ungraded",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-NG/C",
+    "color": "#000",
+    "usage": "黑色线+中等三角，未分级正断层。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_reverse_g1.svg",
+    "chinese_name": "逆断层一級",
+    "english_name": "Reverse Fault Grade 1",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-6H/C",
+    "color": "#000",
+    "usage": "黑色粗线+大三角(上盘)，逆断层一級。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_reverse_g2.svg",
+    "chinese_name": "逆断层二級",
+    "english_name": "Reverse Fault Grade 2",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-7H/C",
+    "color": "#000",
+    "usage": "黑色线+中等三角，逆断层二級。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_reverse_g3.svg",
+    "chinese_name": "逆断层三級",
+    "english_name": "Reverse Fault Grade 3",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-8H/C",
+    "color": "#000",
+    "usage": "黑色细线+小三角，三級。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_reverse_g4.svg",
+    "chinese_name": "逆断层四級",
+    "english_name": "Reverse Fault Grade 4",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-9H/C",
+    "color": "#000",
+    "usage": "黑色细线+最小三角，四級。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_reverse_inferred.svg",
+    "chinese_name": "推测逆断层",
+    "english_name": "Inferred Reverse Fault",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-10H/C",
+    "color": "#666",
+    "usage": "灰色虚线+三角，推测逆断层。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_reverse_ungraded.svg",
+    "chinese_name": "逆断层(未分级)",
+    "english_name": "Reverse Fault Ungraded",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-RG/C",
+    "color": "#000",
+    "usage": "黑色线+中等三角，未分级逆断层。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_thrust_g1.svg",
+    "chinese_name": "逆冲断层一級",
+    "english_name": "Thrust Fault Grade 1",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-11H/C",
+    "color": "#000",
+    "usage": "黑色粗线+大三角，逆冲断层一級。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_thrust_g2.svg",
+    "chinese_name": "逆冲断层二級",
+    "english_name": "Thrust Fault Grade 2",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-12H/C",
+    "color": "#000",
+    "usage": "黑色线+中等三角，二級。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_thrust_g3.svg",
+    "chinese_name": "逆冲断层三級",
+    "english_name": "Thrust Fault Grade 3",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-13H/C",
+    "color": "#000",
+    "usage": "黑色细线+小三角，三級。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_thrust_g4.svg",
+    "chinese_name": "逆冲断层四級",
+    "english_name": "Thrust Fault Grade 4",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-14H/C",
+    "color": "#000",
+    "usage": "黑色细线+最小三角，四級。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_thrust_inferred.svg",
+    "chinese_name": "推测逆冲断层",
+    "english_name": "Inferred Thrust Fault",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-15H/C",
+    "color": "#666",
+    "usage": "灰色虚线+三角，推测逆冲断层。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_thrust_ungraded.svg",
+    "chinese_name": "逆冲断层(未分级)",
+    "english_name": "Thrust Fault Ungraded",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-TG/C",
+    "color": "#000",
+    "usage": "黑色线+中等三角，未分级逆冲断层。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_strike_g1.svg",
+    "chinese_name": "平移断层一級",
+    "english_name": "Strike-Slip Grade 1",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-16H/C",
+    "color": "#000",
+    "usage": "黑色粗线+横线标记，平移一級。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_strike_g2.svg",
+    "chinese_name": "平移断层二級",
+    "english_name": "Strike-Slip Grade 2",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-17H/C",
+    "color": "#000",
+    "usage": "黑色线+中等横线标记。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_strike_g3.svg",
+    "chinese_name": "平移断层三級",
+    "english_name": "Strike-Slip Grade 3",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-18H/C",
+    "color": "#000",
+    "usage": "黑色细线+小横线标记。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_strike_g4.svg",
+    "chinese_name": "平移断层四級",
+    "english_name": "Strike-Slip Grade 4",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-19H/C",
+    "color": "#000",
+    "usage": "黑色细线+最小横线标记。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_strike_inferred.svg",
+    "chinese_name": "推测平移断层",
+    "english_name": "Inferred Strike-Slip",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-20H/C",
+    "color": "#666",
+    "usage": "灰色虚线+横线，推测平移断层。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_strike_ungraded.svg",
+    "chinese_name": "平移断层(未分级)",
+    "english_name": "Strike-Slip Ungraded",
+    "specification": "附录K.1 表K.1",
+    "symbol_code": "DC-K1-SG/C",
+    "color": "#000",
+    "usage": "黑色线+横线标记，未分级平移。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_regional_sag.svg",
+    "chinese_name": "区域性凹陷断裂",
+    "english_name": "Regional Sag Fault",
+    "specification": "附录K.2 表K.2",
+    "symbol_code": "DC-K2-1H/C",
+    "color": "#D71414",
+    "usage": "红色长虚线(15,5)，区域性大断裂。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_detach_g1.svg",
+    "chinese_name": "滑脱断层一級",
+    "english_name": "Detachment Fault Grade 1",
+    "specification": "附录K.2 表K.2",
+    "symbol_code": "DC-K2-2H/C",
+    "color": "#D71414",
+    "usage": "红色粗线+大三角，滑脱断层一級。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_detach_g2.svg",
+    "chinese_name": "滑脱断层二級",
+    "english_name": "Detachment Fault Grade 2",
+    "specification": "附录K.2 表K.2",
+    "symbol_code": "DC-K2-3H/C",
+    "color": "#D71414",
+    "usage": "红色线+中等三角。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_detach_g3.svg",
+    "chinese_name": "滑脱断层三級",
+    "english_name": "Detachment Fault Grade 3",
+    "specification": "附录K.2 表K.2",
+    "symbol_code": "DC-K2-4H/C",
+    "color": "#D71414",
+    "usage": "红色细线+小三角。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_detach_g4.svg",
+    "chinese_name": "滑脱断层四級",
+    "english_name": "Detachment Fault Grade 4",
+    "specification": "附录K.2 表K.2",
+    "symbol_code": "DC-K2-5H/C",
+    "color": "#D71414",
+    "usage": "红色细线+最小三角。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_detach_inferred.svg",
+    "chinese_name": "推测滑脱断层",
+    "english_name": "Inferred Detachment",
+    "specification": "附录K.2 表K.2",
+    "symbol_code": "DC-K2-6H/C",
+    "color": "#D71414",
+    "usage": "红色虚线+三角，推测滑脱。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_complex_zone.svg",
+    "chinese_name": "断裂复杂带",
+    "english_name": "Fault Complex Zone",
+    "specification": "附录K.2",
+    "symbol_code": "DC-KZ-1H/C",
+    "color": "#D71414",
+    "usage": "密集断线区域，断裂复杂带。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_fault_contact.svg",
+    "chinese_name": "断层接触",
+    "english_name": "Fault Contact",
+    "specification": "附录K.2",
+    "symbol_code": "DC-KZ-2H/C",
+    "color": "#000",
+    "usage": "断线+接触标记，断层接触。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_uncertain.svg",
+    "chinese_name": "断层(不确定)",
+    "english_name": "Uncertain Fault",
+    "specification": "附录K.2",
+    "symbol_code": "DC-KZ-3H/C",
+    "color": "#CCC",
+    "usage": "浅灰线，不确定断层。"
+  },
+  {
+    "category": "断层",
+    "file": "fault_section_fault.svg",
+    "chinese_name": "断层剖面",
+    "english_name": "Fault Section Profile",
+    "specification": "附录K.3",
+    "symbol_code": "DC-PROF-H/C",
+    "color": "#000",
+    "usage": "剖面图中断层线及位移标记。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_basin_boundary.svg",
+    "chinese_name": "盆地边界",
+    "english_name": "Basin Boundary",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "XZBH-L1-1H/C",
+    "color": "#008000",
+    "usage": "绿色粗实线，盆地边界。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_basin_boundary_inferred.svg",
+    "chinese_name": "推测盆地边界",
+    "english_name": "Inferred Basin Boundary",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "XZBH-L1-2H/C",
+    "color": "#008000",
+    "usage": "绿色虚线，推测盆地边界。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_overlap_line.svg",
+    "chinese_name": "超覆线",
+    "english_name": "Overlap Line",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "CHF-L1-1H/C",
+    "color": "#D71414",
+    "usage": "红色箭头线，超覆界线。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_overlap_inferred.svg",
+    "chinese_name": "推测超覆线",
+    "english_name": "Inferred Overlap",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "CHF-L1-2H/C",
+    "color": "#D71414",
+    "usage": "红色虚线+箭头，推测超覆。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_pinchout_line.svg",
+    "chinese_name": "尖灭线",
+    "english_name": "Pinchout Line",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "JML-L1-1H/C",
+    "color": "#D71414",
+    "usage": "红色三角线，地层尖灭。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_pinchout_inferred.svg",
+    "chinese_name": "推测尖灭线",
+    "english_name": "Inferred Pinchout",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "JML-L1-2H/C",
+    "color": "#D71414",
+    "usage": "红色虚线+三角，推测尖灭。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_erosion_line.svg",
+    "chinese_name": "剥蚀线",
+    "english_name": "Erosion Line",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "BQX-L1-1H/C",
+    "color": "#D71414",
+    "usage": "红色波浪线+V标记，剥蚀线。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_erosion_inferred.svg",
+    "chinese_name": "推测剥蚀线",
+    "english_name": "Inferred Erosion",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "BQX-L1-2H/C",
+    "color": "#D71414",
+    "usage": "红色虚线+波浪，推测剥蚀。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_unconformity.svg",
+    "chinese_name": "不整合面",
+    "english_name": "Unconformity",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "BQH-L1-1H/C",
+    "color": "#D71414",
+    "usage": "红色断波线，角度不整合。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_unconformity_inf.svg",
+    "chinese_name": "推测不整合",
+    "english_name": "Inferred Unconformity",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "BQH-L1-2H/C",
+    "color": "#D71414",
+    "usage": "红色虚线，推测不整合。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_fault_nose.svg",
+    "chinese_name": "断鼻",
+    "english_name": "Fault Nose",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "DB-L1-1H/C",
+    "color": "#000",
+    "usage": "弧线+断线，断鼻构造。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_anticline.svg",
+    "chinese_name": "背斜",
+    "english_name": "Anticline Boundary",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "BX-L1-1H/C",
+    "color": "#000",
+    "usage": "向上弧线+轴，背斜边界。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_half_anticline.svg",
+    "chinese_name": "半背斜",
+    "english_name": "Half Anticline",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "BBX-L1-1H/C",
+    "color": "#000",
+    "usage": "半弧线，半背斜。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_uplift.svg",
+    "chinese_name": "凸起",
+    "english_name": "Uplift",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "TQ-L1-1H/C",
+    "color": "#008000",
+    "usage": "绿色椭圆，凸起构造。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_low_uplift.svg",
+    "chinese_name": "低凸起",
+    "english_name": "Low Uplift",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "DTQ-L1-1H/C",
+    "color": "#008000",
+    "usage": "绿色小椭圆，低凸起。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_low_uplift_2.svg",
+    "chinese_name": "低凸起(变体)",
+    "english_name": "Low Uplift Variant",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "DTQ-L1-2H/C",
+    "color": "#008000",
+    "usage": "绿色扁椭圆，低凸起变体。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_slope.svg",
+    "chinese_name": "斜坡",
+    "english_name": "Slope Zone",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "XP-L1-1H/C",
+    "color": "#008000",
+    "usage": "绿色斜线填充，斜坡带。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_suture_line.svg",
+    "chinese_name": "缝合线",
+    "english_name": "Suture Line",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "FHX-L1-1H/C",
+    "color": "#000",
+    "usage": "黑色粗线带齿，缝合线。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_section_line.svg",
+    "chinese_name": "剖面线",
+    "english_name": "Section Line",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "PMX-L1-1H/C",
+    "color": "#000",
+    "usage": "粗虚线+A-B标注，剖面线。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_contour_def.svg",
+    "chinese_name": "等深线",
+    "english_name": "Depth Contour",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "DSX-L1-1H/C",
+    "color": "#0071FF",
+    "usage": "蓝色波浪线，等深线。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_contour_inf.svg",
+    "chinese_name": "推测等深线",
+    "english_name": "Inferred Depth Contour",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "DSX-L1-2H/C",
+    "color": "#0071FF",
+    "usage": "蓝色虚线波浪，推测等深。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_shallow_dep.svg",
+    "chinese_name": "浅凹陷",
+    "english_name": "Shallow Depression",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "QAJ-L1-1H/C",
+    "color": "#008000",
+    "usage": "绿色浅凹，浅凹陷。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_med_dep.svg",
+    "chinese_name": "中凹陷",
+    "english_name": "Medium Depression",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "ZAJ-L1-1H/C",
+    "color": "#008000",
+    "usage": "绿色中等凹，中凹陷。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_deep_dep.svg",
+    "chinese_name": "深凹陷",
+    "english_name": "Deep Depression",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "SAJ-L1-1H/C",
+    "color": "#008000",
+    "usage": "绿色深凹，深凹陷。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_nose_structure.svg",
+    "chinese_name": "鼻状构造",
+    "english_name": "Nose Structure",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "BZG-L1-1H/C",
+    "color": "#000",
+    "usage": "黑色尖鼻形，鼻状构造。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_sand_body_supp.svg",
+    "chinese_name": "砂岩体边界",
+    "english_name": "Sand Body Boundary",
+    "specification": "附录L.1 表L.1",
+    "symbol_code": "SYT-L1-1H/C",
+    "color": "#D71414",
+    "usage": "红色点线，砂岩体边界。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_zone_g1.svg",
+    "chinese_name": "I级构造分区",
+    "english_name": "Grade I Zone",
+    "specification": "附录L.2",
+    "symbol_code": "JGZ-L2-1H/C",
+    "color": "#000",
+    "usage": "粗黑线，I级构造分区。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_zone_g1_inferred.svg",
+    "chinese_name": "推测I级分区",
+    "english_name": "Inferred Grade I Zone",
+    "specification": "附录L.2",
+    "symbol_code": "JGZ-L2-2H/C",
+    "color": "#666",
+    "usage": "虚线，推测I级分区。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_zone_g2.svg",
+    "chinese_name": "II级构造分区",
+    "english_name": "Grade II Zone",
+    "specification": "附录L.2",
+    "symbol_code": "JGZ-L2-3H/C",
+    "color": "#333",
+    "usage": "粗线，II级分区。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_zone_g3.svg",
+    "chinese_name": "III级构造分区",
+    "english_name": "Grade III Zone",
+    "specification": "附录L.2",
+    "symbol_code": "JGZ-L2-4H/C",
+    "color": "#666",
+    "usage": "中线，III级分区。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_trap_1.svg",
+    "chinese_name": "一类圈闭",
+    "english_name": "Class 1 Trap",
+    "specification": "附录L.3",
+    "symbol_code": "QLB-L3-1H/C",
+    "color": "#FE9999",
+    "usage": "粉红菱形，一类圈闭。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_trap_2.svg",
+    "chinese_name": "二类圈闭",
+    "english_name": "Class 2 Trap",
+    "specification": "附录L.3",
+    "symbol_code": "QLB-L3-2H/C",
+    "color": "#FECC33",
+    "usage": "黄色菱形，二类圈闭。"
+  },
+  {
+    "category": "构造边界",
+    "file": "bnd_attitude.svg",
+    "chinese_name": "地层产状",
+    "english_name": "Attitude Symbol",
+    "specification": "附录L.4",
+    "symbol_code": "DCCZ-L4-1H/C",
+    "color": "#000",
+    "usage": "长线+短垂线(走向/倾向)。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_wildcat.svg",
+    "chinese_name": "野猫井",
+    "english_name": "Wildcat Well",
+    "specification": "附录G.1 表G.1",
+    "symbol_code": "JW-G1-1H/C",
+    "color": "#333",
+    "usage": "圆圈+十字，野猫井(初探井)。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_spudded.svg",
+    "chinese_name": "已钻井",
+    "english_name": "Spudded Well",
+    "specification": "附录G.1 表G.1",
+    "symbol_code": "JW-G1-2H/C",
+    "color": "#333",
+    "usage": "圆圈+实心点，已钻井。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_parameter.svg",
+    "chinese_name": "参数井",
+    "english_name": "Parameter Well",
+    "specification": "附录G.1 表G.1",
+    "symbol_code": "JW-G1-3H/C",
+    "color": "#333",
+    "usage": "圆圈+参字，参数井。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_scientific.svg",
+    "chinese_name": "科学探索井",
+    "english_name": "Scientific Well",
+    "specification": "附录G.1 表G.1",
+    "symbol_code": "JW-G1-4H/C",
+    "color": "#333",
+    "usage": "圆圈+科字，科学探索井。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_oiltest.svg",
+    "chinese_name": "试油井",
+    "english_name": "Oil Test Well",
+    "specification": "附录G.1 表G.1",
+    "symbol_code": "JW-G1-5H/C",
+    "color": "#333",
+    "usage": "圆圈+试字，试油井。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_appraisal.svg",
+    "chinese_name": "评价井",
+    "english_name": "Appraisal Well",
+    "specification": "附录G.1 表G.1",
+    "symbol_code": "JW-G1-6H/C",
+    "color": "#00AA00",
+    "usage": "绿边圆圈+十字，评价井。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_sidetrack.svg",
+    "chinese_name": "侧钻井",
+    "english_name": "Sidetrack Well",
+    "specification": "附录G.1 表G.1",
+    "symbol_code": "JW-G1-7H/C",
+    "color": "#333",
+    "usage": "圆圈+侧线，侧钻井。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_geo_junk.svg",
+    "chinese_name": "地质报废",
+    "english_name": "Geological Abandoned",
+    "specification": "附录G.1 表G.1",
+    "symbol_code": "JW-G1-8H/C",
+    "color": "#999",
+    "usage": "灰色虚线圈+地字，地质报废。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_eng_junk.svg",
+    "chinese_name": "工程报废",
+    "english_name": "Engineering Abandoned",
+    "specification": "附录G.1 表G.1",
+    "symbol_code": "JW-G1-9H/C",
+    "color": "#999",
+    "usage": "灰色虚线圈+工字，工程报废。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_no_show.svg",
+    "chinese_name": "未见显示",
+    "english_name": "No Show",
+    "specification": "附录G.1 表G.1",
+    "symbol_code": "JW-G1-10H/C",
+    "color": "#999",
+    "usage": "虚线圈+无字，无显示。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_show.svg",
+    "chinese_name": "油气显示",
+    "english_name": "Show Well",
+    "specification": "附录G.1 表G.1",
+    "symbol_code": "JW-G1-11H/C",
+    "color": "#FF6600",
+    "usage": "橙色圈+显字，油气显示。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_vertical_well.svg",
+    "chinese_name": "直井",
+    "english_name": "Vertical Well",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-1H/C",
+    "color": "#333",
+    "usage": "直线轨迹，直井。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_directional_well.svg",
+    "chinese_name": "定向井",
+    "english_name": "Directional Well",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-2H/C",
+    "color": "#333",
+    "usage": "折线轨迹，定向井。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_horizontal_well.svg",
+    "chinese_name": "水平井",
+    "english_name": "Horizontal Well",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-3H/C",
+    "color": "#333",
+    "usage": "L形轨迹，水平井。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_oil_prod.svg",
+    "chinese_name": "采油井",
+    "english_name": "Oil Producer",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-4H/C",
+    "color": "#00AA00",
+    "usage": "圆圈+油字+绿边，采油井。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_gas_prod.svg",
+    "chinese_name": "采气井",
+    "english_name": "Gas Producer",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-5H/C",
+    "color": "#FF3300",
+    "usage": "圆圈+气字+红边，采气井。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_water_prod.svg",
+    "chinese_name": "注水井",
+    "english_name": "Water Injector",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-6H/C",
+    "color": "#0071FF",
+    "usage": "圆圈+水字+蓝边，注水井。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_faultblock.svg",
+    "chinese_name": "断块井",
+    "english_name": "Fault Block Well",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-7H/C",
+    "color": "#333",
+    "usage": "圆圈+断字，断块井。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_oil_layer.svg",
+    "chinese_name": "油层",
+    "english_name": "Oil Pay Zone",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-8H/C",
+    "color": "#2ECC71",
+    "usage": "圆圈+油字+绿底，油层。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_gas_layer.svg",
+    "chinese_name": "气层",
+    "english_name": "Gas Pay Zone",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-9H/C",
+    "color": "#FF9900",
+    "usage": "圆圈+气字+橙底，气层。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_oilgas_layer.svg",
+    "chinese_name": "油气层",
+    "english_name": "O-G Pay Zone",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-10H/C",
+    "color": "#F1C40F",
+    "usage": "圆圈+油气字+黄底，油气同层。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_oil_water.svg",
+    "chinese_name": "油水层",
+    "english_name": "Oil-Water Zone",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-11H/C",
+    "color": "#27AE60",
+    "usage": "圆圈+上下分色，油水同层。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_gas_water.svg",
+    "chinese_name": "气水层",
+    "english_name": "Gas-Water Zone",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-12H/C",
+    "color": "#E67E22",
+    "usage": "圆圈+气水标注，气水同层。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_oil_bearing_w.svg",
+    "chinese_name": "含油水层",
+    "english_name": "Oil-bearing Water",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-13H/C",
+    "color": "#6B8E23",
+    "usage": "圆圈+油水标注，含油水层。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_gas_bearing_w.svg",
+    "chinese_name": "含气水层",
+    "english_name": "Gas-bearing Water",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-14H/C",
+    "color": "#D35400",
+    "usage": "圆圈+气水标注，含气水层。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_oilgas_show.svg",
+    "chinese_name": "油气显示层",
+    "english_name": "O-G Show Zone",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-15H/C",
+    "color": "#FF6600",
+    "usage": "圆圈+油气显示，油气显示层。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_minor_oil.svg",
+    "chinese_name": "油浸",
+    "english_name": "Minor Oil",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-16H/C",
+    "color": "#9ACD32",
+    "usage": "圆圈+浅油斑，油浸级。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_minor_gas.svg",
+    "chinese_name": "气浸",
+    "english_name": "Minor Gas",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-17H/C",
+    "color": "#F39C12",
+    "usage": "圆圈+浅气斑，气浸级。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_planned.svg",
+    "chinese_name": "计划井",
+    "english_name": "Planned Well",
+    "specification": "附录G.2 表G.2",
+    "symbol_code": "JW-G2-18H/C",
+    "color": "#999",
+    "usage": "虚线圈+待字，计划井。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_prod_platform.svg",
+    "chinese_name": "生产平台",
+    "english_name": "Production Platform",
+    "specification": "附录G.3 表G.3",
+    "symbol_code": "SP-G3-1H/C",
+    "color": "#FF9900",
+    "usage": "矩形+延伸臂，生产平台。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_wellhead_plat.svg",
+    "chinese_name": "井口平台",
+    "english_name": "Wellhead Platform",
+    "specification": "附录G.3 表G.3",
+    "symbol_code": "SP-G3-2H/C",
+    "color": "#FF9900",
+    "usage": "小矩形，井口平台。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_section_well.svg",
+    "chinese_name": "连井剖面",
+    "english_name": "Well Tie Section",
+    "specification": "附录G.3 表G.3",
+    "symbol_code": "SP-G3-3H/C",
+    "color": "#333",
+    "usage": "剖面中井符号连线。"
+  },
+  {
+    "category": "井型田设施",
+    "file": "well_pipeline.svg",
+    "chinese_name": "管道",
+    "english_name": "Pipeline",
+    "specification": "附录G.3 表G.3",
+    "symbol_code": "SP-G3-4H/C",
+    "color": "#0071FF",
+    "usage": "双线，海底管道。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_conformable_contact.svg",
+    "chinese_name": "整合接触",
+    "english_name": "Conformable Contact",
+    "specification": "附录D.1 表D.1",
+    "symbol_code": "JCLX-D1-1H/C",
+    "color": "#000",
+    "usage": "平行直线，整合接触关系。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_parallel_unconformity.svg",
+    "chinese_name": "平行不整合",
+    "english_name": "Parallel Unconformity",
+    "specification": "附录D.1 表D.1",
+    "symbol_code": "JCLX-D1-2H/C",
+    "color": "#000",
+    "usage": "波浪断线，平行不整合。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_angular_unconformity.svg",
+    "chinese_name": "角度不整合",
+    "english_name": "Angular Unconformity",
+    "specification": "附录D.1 表D.1",
+    "symbol_code": "JCLX-D1-3H/C",
+    "color": "#000",
+    "usage": "斜线截断平行线，角度不整合。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_res_fault.svg",
+    "chinese_name": "断层接触",
+    "english_name": "Fault Contact",
+    "specification": "附录D.1 表D.1",
+    "symbol_code": "JCLX-D1-4H/C",
+    "color": "#000",
+    "usage": "断线+箭头，断层接触。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_res_pinchout.svg",
+    "chinese_name": "尖灭",
+    "english_name": "Pinchout",
+    "specification": "附录D.1 表D.1",
+    "symbol_code": "JCLX-D1-5H/C",
+    "color": "#D71414",
+    "usage": "变细尖灭线，地层尖灭。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_gas_layer.svg",
+    "chinese_name": "气层",
+    "english_name": "Gas Layer",
+    "specification": "附录D.2 表D.2",
+    "symbol_code": "QCMD-D2-2H/C",
+    "color": "#FF9900",
+    "usage": "橙色填充，含气层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_water_layer.svg",
+    "chinese_name": "水层",
+    "english_name": "Water Layer",
+    "specification": "附录D.2 表D.2",
+    "symbol_code": "SCTD-D2-4H/C",
+    "color": "#3498DB",
+    "usage": "蓝色填充，水层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_not_penetrated.svg",
+    "chinese_name": "未钻穿",
+    "english_name": "Not Penetrated",
+    "specification": "附录D.2 表D.2",
+    "symbol_code": "WZC-D2-5H/C",
+    "color": "#CCC",
+    "usage": "灰色填充，未钻穿层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_oil_water_same.svg",
+    "chinese_name": "油水同层",
+    "english_name": "Oil-Water Layer",
+    "specification": "附录D.2 表D.2",
+    "symbol_code": "YSTD-D2-1H/C",
+    "color": "#27AE60",
+    "usage": "上下分色，油水同层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_gas_water_same.svg",
+    "chinese_name": "气水同层",
+    "english_name": "Gas-Water Layer",
+    "specification": "附录D.2 表D.2",
+    "symbol_code": "QSTD-D2-2H/C",
+    "color": "#E67E22",
+    "usage": "上下分色，气水同层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_possible_oil.svg",
+    "chinese_name": "可能油层",
+    "english_name": "Possible Oil",
+    "specification": "附录D.2 表D.2",
+    "symbol_code": "KNY-D2-3H/C",
+    "color": "#9ACD32",
+    "usage": "浅绿，可能油层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_possible_gas.svg",
+    "chinese_name": "可能气层",
+    "english_name": "Possible Gas",
+    "specification": "附录D.2 表D.2",
+    "symbol_code": "KNQ-D2-4H/C",
+    "color": "#F39C12",
+    "usage": "浅橙，可能气层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_possible_gas2.svg",
+    "chinese_name": "可能气层(变体)",
+    "english_name": "Possible Gas Variant",
+    "specification": "附录D.2 表D.2",
+    "symbol_code": "KNQ-D2-5H/C",
+    "color": "#F5B041",
+    "usage": "浅橙变体，可能气层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_gas_soaking.svg",
+    "chinese_name": "气浸",
+    "english_name": "Gas Soaking",
+    "specification": "附录D.3 表D.3",
+    "symbol_code": "QJ-D3-1H/C",
+    "color": "#F5B041",
+    "usage": "橙斑，气浸级。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_gas_stain.svg",
+    "chinese_name": "气染",
+    "english_name": "Gas Stain",
+    "specification": "附录D.3 表D.3",
+    "symbol_code": "QR-D3-2H/C",
+    "color": "#F8C471",
+    "usage": "浅橙斑，气染级。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_gas_trace.svg",
+    "chinese_name": "气迹",
+    "english_name": "Gas Trace",
+    "specification": "附录D.3 表D.3",
+    "symbol_code": "QZ-D3-3H/C",
+    "color": "#FAD7A0",
+    "usage": "极浅橙斑，气迹级。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_oil_soaking.svg",
+    "chinese_name": "油浸",
+    "english_name": "Oil Soaking",
+    "specification": "附录D.3 表D.3",
+    "symbol_code": "YJ-D3-1H/C",
+    "color": "#6B8E23",
+    "usage": "暗绿斑，油浸级。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_oil_stain.svg",
+    "chinese_name": "油斑",
+    "english_name": "Oil Stain",
+    "specification": "附录D.3 表D.3",
+    "symbol_code": "YB-D3-2H/C",
+    "color": "#556B2F",
+    "usage": "深绿斑，油斑级。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_oil_trace.svg",
+    "chinese_name": "油迹",
+    "english_name": "Oil Trace",
+    "specification": "附录D.3 表D.3",
+    "symbol_code": "YZ-D3-3H/C",
+    "color": "#8FBC8F",
+    "usage": "浅绿斑，油迹级。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_oil_bearing.svg",
+    "chinese_name": "含油",
+    "english_name": "Oil-bearing",
+    "specification": "附录D.3 表D.3",
+    "symbol_code": "HY-D3-5H/C",
+    "color": "#9ACD32",
+    "usage": "黄绿填充，含油。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_oil_bearing_water.svg",
+    "chinese_name": "含油水层",
+    "english_name": "Oil-bearing Water",
+    "specification": "附录D.3 表D.3",
+    "symbol_code": "HYS-D3-6H/C",
+    "color": "#7F8C8D",
+    "usage": "灰绿，含油水层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_oil_sand_log.svg",
+    "chinese_name": "油砂",
+    "english_name": "Oil Sand Log",
+    "specification": "附录D.3 表D.3",
+    "symbol_code": "YS-D3-7H/C",
+    "color": "#8B7355",
+    "usage": "砂质+油斑，油砂。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_fluorescence.svg",
+    "chinese_name": "荧光",
+    "english_name": "Fluorescence",
+    "specification": "附录D.3 表D.3",
+    "symbol_code": "YG-D3-8H/C",
+    "color": "#D3D3D3",
+    "usage": "灰荧光纹理，荧光级。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_log_oil_layer.svg",
+    "chinese_name": "测井油层",
+    "english_name": "Log Oil Layer",
+    "specification": "附录D.4 表D.4",
+    "symbol_code": "CLJ-D4-1H/C",
+    "color": "#2ECC71",
+    "usage": "绿色曲线，测井油层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_log_gas_layer.svg",
+    "chinese_name": "测井气层",
+    "english_name": "Log Gas Layer",
+    "specification": "附录D.4 表D.4",
+    "symbol_code": "CLJ-D4-2H/C",
+    "color": "#FF9900",
+    "usage": "橙色曲线，测井气层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_log_oil_water.svg",
+    "chinese_name": "测井油水同层",
+    "english_name": "Log O-W Same Layer",
+    "specification": "附录D.4 表D.4",
+    "symbol_code": "CLJ-D4-3H/C",
+    "color": "#F1C40F",
+    "usage": "黄绿曲线，油水同层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_log_oil_water2.svg",
+    "chinese_name": "测井油水层(变体)",
+    "english_name": "Log O-W Variant",
+    "specification": "附录D.4 表D.4",
+    "symbol_code": "CLJ-D4-4H/C",
+    "color": "#F39C12",
+    "usage": "橙黄曲线，油水层变体。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_log_poor_oil.svg",
+    "chinese_name": "测井差油层",
+    "english_name": "Log Poor Oil",
+    "specification": "附录D.4 表D.4",
+    "symbol_code": "CLJ-D4-5H/C",
+    "color": "#9ACD32",
+    "usage": "浅绿曲线，差油层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_log_dry.svg",
+    "chinese_name": "测井干层",
+    "english_name": "Log Dry Layer",
+    "specification": "附录D.4 表D.4",
+    "symbol_code": "CLJ-D4-6H/C",
+    "color": "#CCC",
+    "usage": "灰色曲线，干层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_layer_marker.svg",
+    "chinese_name": "标志层",
+    "english_name": "Marker Bed",
+    "specification": "附录D.5",
+    "symbol_code": "BZC-D5-1H/C",
+    "color": "#F39C12",
+    "usage": "黄线，区域标志层。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_sand_layer_supp.svg",
+    "chinese_name": "砂岩补充符号",
+    "english_name": "Sand Layer Supplement",
+    "specification": "附录D.5",
+    "symbol_code": "SYBZ-D5-2H/C",
+    "color": "#E8D5B5",
+    "usage": "点线，砂岩补充标注。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_water_flooded.svg",
+    "chinese_name": "水淹层",
+    "english_name": "Water-flooded Zone",
+    "specification": "附录D.5 表D.5",
+    "symbol_code": "SYC-D5-1H/C",
+    "color": "#5DADE2",
+    "usage": "中蓝纹理，水淹。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_strong_flooded.svg",
+    "chinese_name": "强水淹层",
+    "english_name": "Strong Water-flooded",
+    "specification": "附录D.5 表D.5",
+    "symbol_code": "SYC-D5-2H/C",
+    "color": "#3498DB",
+    "usage": "深蓝纹理，强水淹。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_liq_hc_inclusion.svg",
+    "chinese_name": "液态烃包裹体",
+    "english_name": "Liquid HC Inclusion",
+    "specification": "附录D.6 表D.6",
+    "symbol_code": "BGTJ-D6-1H/C",
+    "color": "#FFD700",
+    "usage": "金黄色圆圈，液态烃。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_gas_hc_inclusion.svg",
+    "chinese_name": "气态烃包裹体",
+    "english_name": "Gas HC Inclusion",
+    "specification": "附录D.6 表D.6",
+    "symbol_code": "BGTJ-D6-2H/C",
+    "color": "#FFF",
+    "usage": "白圈+灰边，气态烃。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_brine_inclusion.svg",
+    "chinese_name": "盐水包裹体",
+    "english_name": "Brine Inclusion",
+    "specification": "附录D.6 表D.6",
+    "symbol_code": "BGTJ-D6-3H/C",
+    "color": "#CCC",
+    "usage": "灰圈，盐水包裹体。"
+  },
+  {
+    "category": "储层含油性",
+    "file": "res_hc_brine_inclusion.svg",
+    "chinese_name": "油气盐水包裹体",
+    "english_name": "HC-Brine Inclusion",
+    "specification": "附录D.6 表D.6",
+    "symbol_code": "BGTJ-D6-4H/C",
+    "color": "#F39C12",
+    "usage": "双色圆，油气盐水。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_quaternary.svg",
+    "chinese_name": "第四系",
+    "english_name": "Quaternary",
+    "specification": "附录N.1 表N.1",
+    "symbol_code": "DCND-N1-1C",
+    "color": "#f5ecd7",
+    "usage": "Q字母，浅黄填充，最新地质年代。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_neogene.svg",
+    "chinese_name": "新近系",
+    "english_name": "Neogene",
+    "specification": "附录N.1 表N.1",
+    "symbol_code": "DCND-N1-2C",
+    "color": "#FFE4B5",
+    "usage": "N字母，浅橙填充。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_paleogene.svg",
+    "chinese_name": "古近系",
+    "english_name": "Paleogene",
+    "specification": "附录N.1 表N.1",
+    "symbol_code": "DCND-N1-3C",
+    "color": "#B0E0E6",
+    "usage": "E字母，浅蓝填充。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_cretaceous.svg",
+    "chinese_name": "白垩系",
+    "english_name": "Cretaceous",
+    "specification": "附录N.1 表N.1",
+    "symbol_code": "DCND-N1-4C",
+    "color": "#DEB887",
+    "usage": "K字母，浅棕填充。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_jurassic.svg",
+    "chinese_name": "侏罗系",
+    "english_name": "Jurassic",
+    "specification": "附录N.1 表N.1",
+    "symbol_code": "DCND-N1-5C",
+    "color": "#D2B48C",
+    "usage": "J字母，浅棕填充。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_triassic.svg",
+    "chinese_name": "三叠系",
+    "english_name": "Triassic",
+    "specification": "附录N.1 表N.1",
+    "symbol_code": "DCND-N1-6C",
+    "color": "#C8A882",
+    "usage": "T字母，棕色填充。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_permian.svg",
+    "chinese_name": "二叠系",
+    "english_name": "Permian",
+    "specification": "附录N.1 表N.1",
+    "symbol_code": "DCND-N1-7C",
+    "color": "#C0A080",
+    "usage": "P字母，深棕填充。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_carboniferous.svg",
+    "chinese_name": "石炭系",
+    "english_name": "Carboniferous",
+    "specification": "附录N.1 表N.1",
+    "symbol_code": "DCND-N1-8C",
+    "color": "#B89878",
+    "usage": "C字母，更深棕填充。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_devonian.svg",
+    "chinese_name": "泥盆系",
+    "english_name": "Devonian",
+    "specification": "附录N.1 表N.1",
+    "symbol_code": "DCND-N1-9C",
+    "color": "#B09070",
+    "usage": "D字母，泥盆纪地层。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_silurian.svg",
+    "chinese_name": "志留系",
+    "english_name": "Silurian",
+    "specification": "附录N.1 表N.1",
+    "symbol_code": "DCND-N1-10C",
+    "color": "#A88868",
+    "usage": "S字母，志留纪地层。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_ordovician.svg",
+    "chinese_name": "奥陶系",
+    "english_name": "Ordovician",
+    "specification": "附录N.1 表N.1",
+    "symbol_code": "DCND-N1-11C",
+    "color": "#A08060",
+    "usage": "O字母，奥陶纪地层。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_cambrian.svg",
+    "chinese_name": "寒武系",
+    "english_name": "Cambrian",
+    "specification": "附录N.1 表N.1",
+    "symbol_code": "DCND-N1-12C",
+    "color": "#987858",
+    "usage": "∈符号，寒武纪地层。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_proterozoic.svg",
+    "chinese_name": "元古界",
+    "english_name": "Proterozoic",
+    "specification": "附录N.1 表N.1",
+    "symbol_code": "DCND-N1-13C",
+    "color": "#908070",
+    "usage": "Pt字母，元古代地层。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_archean.svg",
+    "chinese_name": "太古界",
+    "english_name": "Archean",
+    "specification": "附录N.1 表N.1",
+    "symbol_code": "DCND-N1-14C",
+    "color": "#887060",
+    "usage": "Ar字母，太古代地层。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_continental_facies.svg",
+    "chinese_name": "陆相沉积",
+    "english_name": "Continental Facies",
+    "specification": "附录O.1 表O.1",
+    "symbol_code": "CJX-O1-1C",
+    "color": "#E8D5B0",
+    "usage": "浅棕填充，陆相环境。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_fluvial.svg",
+    "chinese_name": "河流相",
+    "english_name": "Fluvial Facies",
+    "specification": "附录O.1 表O.1",
+    "symbol_code": "HLX-O1-5C",
+    "color": "#E8D5B0",
+    "usage": "河道纹理，河流相。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_lacustrine.svg",
+    "chinese_name": "湖泊相",
+    "english_name": "Lacustrine Facies",
+    "specification": "附录O.1 表O.1",
+    "symbol_code": "HPX-O1-6C",
+    "color": "#D5E8D0",
+    "usage": "波纹纹理，湖泊相。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_alluvial_fan.svg",
+    "chinese_name": "洪积相",
+    "english_name": "Alluvial Fan",
+    "specification": "附录O.1 表O.1",
+    "symbol_code": "HJX-O1-3C",
+    "color": "#E8DCC0",
+    "usage": "扇形填充，洪积相。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_aeolian.svg",
+    "chinese_name": "沙漠相",
+    "english_name": "Aeolian Facies",
+    "specification": "附录O.1 表O.1",
+    "symbol_code": "SMX-O1-2C",
+    "color": "#F5E6C8",
+    "usage": "沙丘纹理，沙漠相。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_glacial.svg",
+    "chinese_name": "冰川相",
+    "english_name": "Glacial Facies",
+    "specification": "附录O.1 表O.1",
+    "symbol_code": "BCX-O1-4C",
+    "color": "#E8EEF0",
+    "usage": "擦痕纹理，冰川相。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_deltaic.svg",
+    "chinese_name": "三角洲相",
+    "english_name": "Deltaic Facies",
+    "specification": "附录O.2 表O.2",
+    "symbol_code": "SJZX-O2-1C",
+    "color": "#E8D5B0",
+    "usage": "三角形沉积体，三角洲。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_delta.svg",
+    "chinese_name": "三角洲",
+    "english_name": "Delta Facies",
+    "specification": "附录O.2 表O.2",
+    "symbol_code": "SJZ-O2-2C",
+    "color": "#E8D5B0",
+    "usage": "三角填充，三角洲。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_coastal_shallow.svg",
+    "chinese_name": "滨海亚浅海",
+    "english_name": "Coastal-Subtidal",
+    "specification": "附录O.2 表O.2",
+    "symbol_code": "BHQH-O2-3C",
+    "color": "#C8E6F0",
+    "usage": "浅蓝填充，滨海-亚浅海。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_coastal.svg",
+    "chinese_name": "滨海相",
+    "english_name": "Coastal Facies",
+    "specification": "附录O.2 表O.2",
+    "symbol_code": "BHX-O2-4C",
+    "color": "#C8E6F0",
+    "usage": "波浪纹理，滨海相。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_shallow_marine.svg",
+    "chinese_name": "浅海相",
+    "english_name": "Shallow Marine",
+    "specification": "附录O.3 表O.3",
+    "symbol_code": "QHX-O3-1C",
+    "color": "#A8D8EA",
+    "usage": "中蓝填充，浅海相。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_semideep_marine.svg",
+    "chinese_name": "次深海相",
+    "english_name": "Semi-Deep Marine",
+    "specification": "附录O.3 表O.3",
+    "symbol_code": "CSHX-O3-2C",
+    "color": "#7EC8E3",
+    "usage": "较深蓝，次深海相。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_deep_marine.svg",
+    "chinese_name": "深海相",
+    "english_name": "Deep Marine",
+    "specification": "附录O.3 表O.3",
+    "symbol_code": "SHX-O3-3C",
+    "color": "#4AA8C8",
+    "usage": "深蓝填充，深海相。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_provenance.svg",
+    "chinese_name": "物源方向",
+    "english_name": "Provenance Direction",
+    "specification": "附录O.4 表O.4",
+    "symbol_code": "WYFX-O4-1C",
+    "color": "#D71414",
+    "usage": "红色箭头，物源方向。"
+  },
+  {
+    "category": "地层沉积相",
+    "file": "strat_sedimentary_boundary.svg",
+    "chinese_name": "沉积界线",
+    "english_name": "Sedimentary Boundary",
+    "specification": "附录O.5 表O.5",
+    "symbol_code": "CJJX-O5-2C",
+    "color": "#B8956A",
+    "usage": "虚线，沉积相边界。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_national_boundary.svg",
+    "chinese_name": "国界",
+    "english_name": "National Boundary",
+    "specification": "附录H.1 表H.1",
+    "symbol_code": "XZQH-H1-1H/C",
+    "color": "#000",
+    "usage": "粗实线+方块，国家边界。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_provincial_boundary.svg",
+    "chinese_name": "省界",
+    "english_name": "Provincial Boundary",
+    "specification": "附录H.1 表H.1",
+    "symbol_code": "XZQH-H1-2H/C",
+    "color": "#000",
+    "usage": "实线+圆点，省级边界。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_regional_boundary.svg",
+    "chinese_name": "地区界",
+    "english_name": "Regional Boundary",
+    "specification": "附录H.1 表H.1",
+    "symbol_code": "XZQH-H1-3H/C",
+    "color": "#000",
+    "usage": "细线+空心圆，地区级边界。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_coastline.svg",
+    "chinese_name": "海岸线",
+    "english_name": "Coastline",
+    "specification": "附录H.4 表H.4",
+    "symbol_code": "HAX-H4-1H/C",
+    "color": "#0071FF",
+    "usage": "蓝色波浪线，海岸线。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_isobath.svg",
+    "chinese_name": "等深线",
+    "english_name": "Isobath",
+    "specification": "附录H.4 表H.4",
+    "symbol_code": "HAX-H4-2H/C",
+    "color": "#0071FF",
+    "usage": "蓝色虚线波浪，海底等深线。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_island_reef.svg",
+    "chinese_name": "岛礁",
+    "english_name": "Island/Reef",
+    "specification": "附录H.4 表H.4",
+    "symbol_code": "HAX-H4-3H/C",
+    "color": "#EC2667",
+    "usage": "粉红椭圆，岛屿/礁石。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_sea_area.svg",
+    "chinese_name": "海水域",
+    "english_name": "Sea Water Area",
+    "specification": "附录H.4 表H.4",
+    "symbol_code": "HAX-H4-4H/C",
+    "color": "#D0E4CE",
+    "usage": "浅绿填充，海域范围。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_lake.svg",
+    "chinese_name": "湖泊",
+    "english_name": "Lake",
+    "specification": "附录H.4 表H.4",
+    "symbol_code": "HUP-H4-5H/C",
+    "color": "#0071FF",
+    "usage": "蓝色椭圆，湖泊。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_river.svg",
+    "chinese_name": "河流",
+    "english_name": "River",
+    "specification": "附录H.4 表H.4",
+    "symbol_code": "HEL-H4-9H/C",
+    "color": "#0071FF",
+    "usage": "蓝色粗波浪线，常年河。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_intermittent_river.svg",
+    "chinese_name": "时令河",
+    "english_name": "Intermittent River",
+    "specification": "附录H.4 表H.4",
+    "symbol_code": "HEL-H4-10H/C",
+    "color": "#0071FF",
+    "usage": "蓝色虚线波浪，季节性河。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_canal.svg",
+    "chinese_name": "运河",
+    "english_name": "Canal",
+    "specification": "附录H.4 表H.4",
+    "symbol_code": "HEL-H4-11H/C",
+    "color": "#0071FF",
+    "usage": "蓝色双平行线，人工运河。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_dam.svg",
+    "chinese_name": "堤坝",
+    "english_name": "Dam/Levee",
+    "specification": "附录H.4 表H.4",
+    "symbol_code": "DIB-H4-13H/C",
+    "color": "#000",
+    "usage": "黑蓝双线，堤坝工程。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_reservoir_water.svg",
+    "chinese_name": "水库",
+    "english_name": "Reservoir",
+    "specification": "附录H.4 表H.4",
+    "symbol_code": "SHK-H4-14H/C",
+    "color": "#0071FF",
+    "usage": "蓝色三角，水库。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_peak.svg",
+    "chinese_name": "山峰/标高",
+    "english_name": "Peak/Elevation",
+    "specification": "附录H.5 表H.5",
+    "symbol_code": "DIX-H5-6H/C",
+    "color": "#996633",
+    "usage": "棕三角+标高文字。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_crater.svg",
+    "chinese_name": "火山口",
+    "english_name": "Crater",
+    "specification": "附录H.5 表H.5",
+    "symbol_code": "DIX-H5-7H/C",
+    "color": "#FF0000",
+    "usage": "红色双圈，火山口。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_forest.svg",
+    "chinese_name": "森林",
+    "english_name": "Forest",
+    "specification": "附录H.5 表H.5",
+    "symbol_code": "ZIB-H5-8H/C",
+    "color": "#00CC00",
+    "usage": "绿色三角树形，森林。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_single_tree.svg",
+    "chinese_name": "独立树",
+    "english_name": "Single Tree",
+    "specification": "附录H.5 表H.5",
+    "symbol_code": "ZIB-H5-9H/C",
+    "color": "#00CC00",
+    "usage": "绿圈+棕干，单棵树。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_shrub.svg",
+    "chinese_name": "灌木林",
+    "english_name": "Shrub",
+    "specification": "附录H.5 表H.5",
+    "symbol_code": "ZIB-H5-10H/C",
+    "color": "#00CC00",
+    "usage": "绿色椭圆，灌木丛。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_highway.svg",
+    "chinese_name": "高速公路",
+    "english_name": "Highway",
+    "specification": "附录H.6 表H.6",
+    "symbol_code": "JIAOT-H6-1C",
+    "color": "#FF9900",
+    "usage": "橙色粗线，高速公路。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_general_road.svg",
+    "chinese_name": "普通公路",
+    "english_name": "General Road",
+    "specification": "附录H.6 表H.6",
+    "symbol_code": "JIAOT-H6-2C",
+    "color": "#000",
+    "usage": "黑色细线，普通公路。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_railway.svg",
+    "chinese_name": "普通铁路",
+    "english_name": "Railway",
+    "specification": "附录H.6 表H.6",
+    "symbol_code": "JIAOT-H6-4C",
+    "color": "#000",
+    "usage": "黑白双线+竖线，铁路。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_airport.svg",
+    "chinese_name": "机场",
+    "english_name": "Airport",
+    "specification": "附录H.6 表H.6",
+    "symbol_code": "JIAOT-H6-7C",
+    "color": "#0000FF",
+    "usage": "蓝色椭圆+横线，机场。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_port.svg",
+    "chinese_name": "码头港口",
+    "english_name": "Port/Wharf",
+    "specification": "附录H.6 表H.6",
+    "symbol_code": "JIAOT-H6-8C",
+    "color": "#0000FF",
+    "usage": "蓝色矩形+延伸线，港口。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_well_label.svg",
+    "chinese_name": "井位标注",
+    "english_name": "Well Label",
+    "specification": "附录P.3 表P.3",
+    "symbol_code": "JWBZ-P3-2H/C",
+    "color": "#000",
+    "usage": "井名+圆圈，标注井位。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_basin_label.svg",
+    "chinese_name": "盆地构造标注",
+    "english_name": "Basin Label",
+    "specification": "附录P.3 表P.3",
+    "symbol_code": "GZBZ-P3-3H/C",
+    "color": "#000",
+    "usage": "盆地名称标注。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_field_label.svg",
+    "chinese_name": "油气田标注",
+    "english_name": "Field Label",
+    "specification": "附录P.3 表P.3",
+    "symbol_code": "YQBZ-P3-4H/C",
+    "color": "#00AA00",
+    "usage": "油气田名+绿圆点。"
+  },
+  {
+    "category": "地理注记",
+    "file": "geo_reservoir_section.svg",
+    "chinese_name": "油藏剖面",
+    "english_name": "Reservoir Section",
+    "specification": "附录P.3 表P.3",
+    "symbol_code": "YCPM-P3-5H/C",
+    "color": "#000",
+    "usage": "剖面图位置标注。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_2d_crossing_grid.svg",
+    "chinese_name": "二维测线(交叉网格)",
+    "english_name": "2D Seismic Crossing Grid",
+    "specification": "附录D.10",
+    "symbol_code": "SEC-A7-1H/C",
+    "color": "#D71414",
+    "usage": "红色交叉斜线，二维测线网格。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_2d_dense_grid.svg",
+    "chinese_name": "二维测线(密集)",
+    "english_name": "2D Dense Grid",
+    "specification": "附录D.10",
+    "symbol_code": "SEC-A7-2H/C",
+    "color": "#D71414",
+    "usage": "密集红色交叉线。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_2d_sparse.svg",
+    "chinese_name": "二维测线(稀疏)",
+    "english_name": "2D Sparse Line",
+    "specification": "附录D.10",
+    "symbol_code": "SEC-A7-3H/C",
+    "color": "#D71414",
+    "usage": "稀疏红色单线。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_2d_direction.svg",
+    "chinese_name": "测线方向标注",
+    "english_name": "Line Direction Label",
+    "specification": "附录D.10",
+    "symbol_code": "SEC-A7-4H/C",
+    "color": "#D71414",
+    "usage": "红色线+箭头+方向标注。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_3d_coverage.svg",
+    "chinese_name": "三维勘探区域",
+    "english_name": "3D Survey Area",
+    "specification": "附录D.11",
+    "symbol_code": "SEC-A7-5H/C",
+    "color": "#1A54B4",
+    "usage": "蓝色网格填充，三维勘探。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_3d_full_fold.svg",
+    "chinese_name": "三维满覆盖",
+    "english_name": "3D Full-fold",
+    "specification": "附录D.11",
+    "symbol_code": "SEC-A7-6H/C",
+    "color": "#1A54B4",
+    "usage": "蓝色网格+粗边框，满覆盖。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_3d_partial.svg",
+    "chinese_name": "三维部分覆盖",
+    "english_name": "3D Partial Coverage",
+    "specification": "附录D.11",
+    "symbol_code": "SEC-A7-7H/C",
+    "color": "#1A54B4",
+    "usage": "蓝色网格+虚线边框。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_3d_label_purple.svg",
+    "chinese_name": "三维标注(粉紫)",
+    "english_name": "3D Label Purple",
+    "specification": "附录D.11",
+    "symbol_code": "SEC-A7-8H/C",
+    "color": "#9B59B6",
+    "usage": "粉紫圆角矩形，3D区块标注。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_3d_label_blue.svg",
+    "chinese_name": "三维标注(浅蓝)",
+    "english_name": "3D Label Blue",
+    "specification": "附录D.11",
+    "symbol_code": "SEC-A7-9H/C",
+    "color": "#3498DB",
+    "usage": "浅蓝圆角矩形，3D区块标注。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_drill_exploration.svg",
+    "chinese_name": "探井(已钻)",
+    "english_name": "Exploration Well",
+    "specification": "附录D.12",
+    "symbol_code": "DRL-A8-1H/C",
+    "color": "#D71414",
+    "usage": "红色圆圈+井字，已钻探井。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_drill_parameter.svg",
+    "chinese_name": "参数井",
+    "english_name": "Parameter Well",
+    "specification": "附录D.12",
+    "symbol_code": "DRL-A8-2H/C",
+    "color": "#333",
+    "usage": "黑色圆圈+参字+十字。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_drill_appraisal.svg",
+    "chinese_name": "评价井",
+    "english_name": "Appraisal Well",
+    "specification": "附录D.12",
+    "symbol_code": "DRL-A8-3H/C",
+    "color": "#00AA00",
+    "usage": "绿色圆圈+评字。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_drill_development.svg",
+    "chinese_name": "开发井",
+    "english_name": "Development Well",
+    "specification": "附录D.12",
+    "symbol_code": "DRL-A8-4H/C",
+    "color": "#FF9900",
+    "usage": "橙色圆圈+开字。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_drill_show.svg",
+    "chinese_name": "油气显示井",
+    "english_name": "Show Well",
+    "specification": "附录D.12",
+    "symbol_code": "DRL-A8-5H/C",
+    "color": "#FF6600",
+    "usage": "橙色半透明+显字。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_drill_abandoned.svg",
+    "chinese_name": "报废井",
+    "english_name": "Abandoned Well",
+    "specification": "附录D.12",
+    "symbol_code": "DRL-A8-6H/C",
+    "color": "#666",
+    "usage": "灰色虚线+废字。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_section_seismic.svg",
+    "chinese_name": "地震剖面线",
+    "english_name": "Seismic Section Line",
+    "specification": "附录D.12",
+    "symbol_code": "SEC-A7-10H/C",
+    "color": "#D71414",
+    "usage": "红色虚线+A-B，剖面线。"
+  },
+  {
+    "category": "地震符号",
+    "file": "seis_section_welltie.svg",
+    "chinese_name": "连井剖面线",
+    "english_name": "Well-Tie Section",
+    "specification": "附录D.12",
+    "symbol_code": "SEC-A7-11H/C",
+    "color": "#333",
+    "usage": "虚线+彩色圆点，连井剖面。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_anticline.svg",
+    "chinese_name": "背斜",
+    "english_name": "Anticline",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-1H/C",
+    "color": "#C87830",
+    "usage": "向上拱起弧线+轴箭头。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_syncline.svg",
+    "chinese_name": "向斜",
+    "english_name": "Syncline",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-2H/C",
+    "color": "#C87830",
+    "usage": "向下弯曲弧线。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_tight_anticline.svg",
+    "chinese_name": "紧闭背斜",
+    "english_name": "Tight Anticline",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-3H/C",
+    "color": "#C87830",
+    "usage": "多个紧密向上弧形。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_open_anticline.svg",
+    "chinese_name": "开阔背斜",
+    "english_name": "Open Anticline",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-4H/C",
+    "color": "#C87830",
+    "usage": "宽幅向上弧形。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_overturned_anticline.svg",
+    "chinese_name": "倒转背斜",
+    "english_name": "Overturned Anticline",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-5H/C",
+    "color": "#C87830",
+    "usage": "一侧倒转弧形。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_recumbent_fold.svg",
+    "chinese_name": "平卧褶皱",
+    "english_name": "Recumbent Fold",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-6H/C",
+    "color": "#C87830",
+    "usage": "水平线+下方弧形。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_isoclinal_fold.svg",
+    "chinese_name": "等斜褶皱",
+    "english_name": "Isoclinal Fold",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-7H/C",
+    "color": "#C87830",
+    "usage": "两翼等倾角弧形。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_chevron_fold.svg",
+    "chinese_name": "尖棱褶皱",
+    "english_name": "Chevron Fold",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-8H/C",
+    "color": "#C87830",
+    "usage": "V形尖角折线。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_box_fold.svg",
+    "chinese_name": "箱状褶皱",
+    "english_name": "Box Fold",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-9H/C",
+    "color": "#C87830",
+    "usage": "矩形框状折线。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_jug_handle_fold.svg",
+    "chinese_name": "隔档式褶皱",
+    "english_name": "Jug-Handle Fold",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-10H/C",
+    "color": "#C87830",
+    "usage": "两弧形+中间竖线。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_trough_fold.svg",
+    "chinese_name": "隔槽式褶皱",
+    "english_name": "Trough Fold",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-11H/C",
+    "color": "#C87830",
+    "usage": "两竖线+中间弧形。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_structural_terrace.svg",
+    "chinese_name": "构造阶地",
+    "english_name": "Structural Terrace",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-12H/C",
+    "color": "#C87830",
+    "usage": "折线+底边线。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_dome.svg",
+    "chinese_name": "穹隆构造",
+    "english_name": "Dome Structure",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-13H/C",
+    "color": "#C87830",
+    "usage": "双层椭圆+中心线。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_basin_structure.svg",
+    "chinese_name": "盆地构造",
+    "english_name": "Basin Structure",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-14H/C",
+    "color": "#C87830",
+    "usage": "双层椭圆。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_flexure.svg",
+    "chinese_name": "挠曲",
+    "english_name": "Flexure",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-15H/C",
+    "color": "#C87830",
+    "usage": "宽幅波浪形线。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_diapir.svg",
+    "chinese_name": "刺穿构造",
+    "english_name": "Diapir",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-16H/C",
+    "color": "#C87830",
+    "usage": "中间尖突曲线。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_fold_axis.svg",
+    "chinese_name": "褶皱轴线",
+    "english_name": "Fold Axis",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-17H/C",
+    "color": "#000",
+    "usage": "直线+菱形箭头。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_hinge_line.svg",
+    "chinese_name": "枢纽线",
+    "english_name": "Hinge Line",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-18H/C",
+    "color": "#000",
+    "usage": "虚线。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_plunging_end.svg",
+    "chinese_name": "倾伏端",
+    "english_name": "Plunging End",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-19H/C",
+    "color": "#000",
+    "usage": "线+指向箭头。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_strong_reflection.svg",
+    "chinese_name": "强反射",
+    "english_name": "Strong Reflection",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-20H/C",
+    "color": "#000",
+    "usage": "粗实线。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_weak_reflection.svg",
+    "chinese_name": "弱反射",
+    "english_name": "Weak Reflection",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-21H/C",
+    "color": "#999",
+    "usage": "细虚线。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_chaotic_reflection.svg",
+    "chinese_name": "杂乱反射",
+    "english_name": "Chaotic Reflection",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-22H/C",
+    "color": "#000",
+    "usage": "不规则折线。"
+  },
+  {
+    "category": "褶皱构造",
+    "file": "fold_blank_reflection.svg",
+    "chinese_name": "空白反射",
+    "english_name": "Blank Reflection",
+    "specification": "附录I.3 表I.3",
+    "symbol_code": "ZZGZ-I3-23H/C",
+    "color": "#CCC",
+    "usage": "细灰线，无反射。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_self_explore.svg",
+    "chinese_name": "自营勘查矿区",
+    "english_name": "Self-Operated Block",
+    "specification": "附录D.8",
+    "symbol_code": "MIN-D8-1H/C",
+    "color": "#FFCCCC",
+    "usage": "粉红填充矩形，自营勘查。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_joint_explore.svg",
+    "chinese_name": "联合勘查矿区",
+    "english_name": "Joint Exploration Block",
+    "specification": "附录D.8",
+    "symbol_code": "MIN-D8-2H/C",
+    "color": "#CCFFCC",
+    "usage": "绿色填充矩形，联合勘查。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_cooperation.svg",
+    "chinese_name": "合作矿区",
+    "english_name": "Cooperation Block",
+    "specification": "附录D.8",
+    "symbol_code": "MIN-D8-3H/C",
+    "color": "#CCE5FF",
+    "usage": "蓝色填充矩形，合作矿区。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_production_block.svg",
+    "chinese_name": "开采矿区",
+    "english_name": "Production Block",
+    "specification": "附录D.8",
+    "symbol_code": "MIN-D8-4H/C",
+    "color": "#E0CCFF",
+    "usage": "紫色填充矩形，开采矿区。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_self_contract.svg",
+    "chinese_name": "自营合同区",
+    "english_name": "Self-Operated Contract",
+    "specification": "附录D.9",
+    "symbol_code": "COOP-D9-1H/C",
+    "color": "#FFE4E1",
+    "usage": "浅红填充，自营合同。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_joint_contract.svg",
+    "chinese_name": "合作合同区",
+    "english_name": "Joint Contract",
+    "specification": "附录D.9",
+    "symbol_code": "COOP-D9-2H/C",
+    "color": "#E0F0FF",
+    "usage": "浅蓝填充，合作合同。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_contract_boundary.svg",
+    "chinese_name": "合同区块边界",
+    "english_name": "Contract Boundary",
+    "specification": "附录D.9",
+    "symbol_code": "COOP-D9-3H/C",
+    "color": "#0071FF",
+    "usage": "蓝色实线矩形框。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_contract_number.svg",
+    "chinese_name": "合同区块编号",
+    "english_name": "Contract Number",
+    "specification": "附录D.9",
+    "symbol_code": "COOP-D9-4H/C",
+    "color": "#0071FF",
+    "usage": "蓝色框+编号如15/06。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_proved_reserve.svg",
+    "chinese_name": "探明储量",
+    "english_name": "Proved Reserve",
+    "specification": "附录J.1",
+    "symbol_code": "RES-J3-1H/C",
+    "color": "#00AA00",
+    "usage": "绿色圆圈+探明文字。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_controlled_reserve.svg",
+    "chinese_name": "控制储量",
+    "english_name": "Controlled Reserve",
+    "specification": "附录J.1",
+    "symbol_code": "RES-J3-2H/C",
+    "color": "#66BB6A",
+    "usage": "浅绿圆圈+控制文字。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_forecast_reserve.svg",
+    "chinese_name": "预测储量",
+    "english_name": "Forecast Reserve",
+    "specification": "附录J.1",
+    "symbol_code": "RES-J3-3H/C",
+    "color": "#FFEB3B",
+    "usage": "黄色圆圈+预测文字。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_prospective.svg",
+    "chinese_name": "远景资源量",
+    "english_name": "Prospective Resource",
+    "specification": "附录J.1",
+    "symbol_code": "RES-J3-4H/C",
+    "color": "#FFF",
+    "usage": "白色虚线圆圈。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_trap_class1.svg",
+    "chinese_name": "一类圈闭",
+    "english_name": "Class 1 Trap",
+    "specification": "附录I.2",
+    "symbol_code": "QUANB-B2-36C",
+    "color": "#FE9999",
+    "usage": "粉红菱形，一类圈闭。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_trap_class2.svg",
+    "chinese_name": "二类圈闭",
+    "english_name": "Class 2 Trap",
+    "specification": "附录I.2",
+    "symbol_code": "QUANB-B2-37C",
+    "color": "#FECC33",
+    "usage": "黄色菱形，二类圈闭。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_oil_field.svg",
+    "chinese_name": "油田",
+    "english_name": "Oil Field",
+    "specification": "附录J.1",
+    "symbol_code": "YTCL-J1-1H/C",
+    "color": "#00AA00",
+    "usage": "绿点+油字，油田位置。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_gas_field.svg",
+    "chinese_name": "气田",
+    "english_name": "Gas Field",
+    "specification": "附录J.1",
+    "symbol_code": "QTCL-J1-2H/C",
+    "color": "#FF3300",
+    "usage": "红点+气字，气田位置。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_oilgas_boundary.svg",
+    "chinese_name": "油气水边界线",
+    "english_name": "O-G-W Boundary",
+    "specification": "附录J.2",
+    "symbol_code": "YQSX-J2-1H/C",
+    "color": "#000",
+    "usage": "粗实线，油气水边界。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_mining_boundary.svg",
+    "chinese_name": "矿区边界线",
+    "english_name": "Mining Boundary",
+    "specification": "附录H.2",
+    "symbol_code": "KQBJ-H2-1H/C",
+    "color": "#0071FF",
+    "usage": "蓝色实线，矿区边界。"
+  },
+  {
+    "category": "矿区储量",
+    "file": "mine_mining_boundary_inf.svg",
+    "chinese_name": "预测矿区边界",
+    "english_name": "Predicted Boundary",
+    "specification": "附录H.2",
+    "symbol_code": "KQBJ-H2-2H/C",
+    "color": "#0071FF",
+    "usage": "蓝色虚线，预测矿区边界。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_sedimentary_rock.svg",
+    "chinese_name": "沉积岩",
+    "english_name": "Sedimentary Rock",
+    "specification": "附录M.1.1 表M.1.1",
+    "symbol_code": "ROCK-M1-1H/C",
+    "color": "#f4e4c1",
+    "usage": "点状填充，沉积岩类。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_magmatic_rock.svg",
+    "chinese_name": "岩浆岩",
+    "english_name": "Magmatic Rock",
+    "specification": "附录M.1.1 表M.1.1",
+    "symbol_code": "ROCK-M1-2H/C",
+    "color": "#d4c8b8",
+    "usage": "晶质填充，岩浆岩类。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_metamorphic_rock.svg",
+    "chinese_name": "变质岩",
+    "english_name": "Metamorphic Rock",
+    "specification": "附录M.1.1 表M.1.1",
+    "symbol_code": "ROCK-M1-3H/C",
+    "color": "#b8a898",
+    "usage": "片状填充，变质岩类。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_conglomerate_basic.svg",
+    "chinese_name": "砾岩",
+    "english_name": "Conglomerate",
+    "specification": "附录M.1.1 表M.1.1",
+    "symbol_code": "ROCK-M1-4H/C",
+    "color": "#d8c8a8",
+    "usage": "砾石填充，砾岩。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_sandstone_basic.svg",
+    "chinese_name": "砂岩",
+    "english_name": "Sandstone",
+    "specification": "附录M.1.1 表M.1.1",
+    "symbol_code": "ROCK-M1-5H/C",
+    "color": "#f4e4c1",
+    "usage": "砂质填充，砂岩。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_siltstone_basic.svg",
+    "chinese_name": "粉砂岩",
+    "english_name": "Siltstone",
+    "specification": "附录M.1.1 表M.1.1",
+    "symbol_code": "ROCK-M1-6H/C",
+    "color": "#e8dcc8",
+    "usage": "粉砂质填充，粉砂岩。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_shale_basic.svg",
+    "chinese_name": "页岩",
+    "english_name": "Shale",
+    "specification": "附录M.1.1 表M.1.1",
+    "symbol_code": "ROCK-M1-7H/C",
+    "color": "#b8c5d6",
+    "usage": "页理填充，页岩。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_limestone_basic.svg",
+    "chinese_name": "石灰岩",
+    "english_name": "Limestone",
+    "specification": "附录M.1.1 表M.1.1",
+    "symbol_code": "ROCK-M1-8H/C",
+    "color": "#f0e8d8",
+    "usage": "生物碎屑填充，石灰岩。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_dolomite_basic.svg",
+    "chinese_name": "白云岩",
+    "english_name": "Dolomite",
+    "specification": "附录M.1.1 表M.1.1",
+    "symbol_code": "ROCK-M1-9H/C",
+    "color": "#e5ddd0",
+    "usage": "晶粒填充，白云岩。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_mudstone_basic.svg",
+    "chinese_name": "泥岩",
+    "english_name": "Mudstone",
+    "specification": "附录M.1.1 表M.1.1",
+    "symbol_code": "ROCK-M1-10H/C",
+    "color": "#d5d0c8",
+    "usage": "均匀填充，泥岩。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_coal_basic.svg",
+    "chinese_name": "煤",
+    "english_name": "Coal",
+    "specification": "附录M.1.1 表M.1.1",
+    "symbol_code": "ROCK-M1-11H/C",
+    "color": "#2a2a2a",
+    "usage": "黑色填充，煤层。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_volcanic_basic.svg",
+    "chinese_name": "火山岩",
+    "english_name": "Volcanic Rock",
+    "specification": "附录M.1.1 表M.1.1",
+    "symbol_code": "ROCK-M1-12H/C",
+    "color": "#5a5850",
+    "usage": "火山碎屑填充。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_intrusive_basic.svg",
+    "chinese_name": "侵入岩",
+    "english_name": "Intrusive Rock",
+    "specification": "附录M.1.1 表M.1.1",
+    "symbol_code": "ROCK-M1-13H/C",
+    "color": "#d4c8b8",
+    "usage": "花岗质填充。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_quartz.svg",
+    "chinese_name": "石英",
+    "english_name": "Quartz",
+    "specification": "附录M.1.2",
+    "symbol_code": "CLST-M1-1H/C",
+    "color": "#666",
+    "usage": "六边形，石英碎屑。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_feldspar.svg",
+    "chinese_name": "长石",
+    "english_name": "Feldspar",
+    "specification": "附录M.1.2",
+    "symbol_code": "CLST-M1-2H/C",
+    "color": "#666",
+    "usage": "旋转正方形，长石碎屑。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_lithic_fragment.svg",
+    "chinese_name": "岩屑",
+    "english_name": "Lithic Fragment",
+    "specification": "附录M.1.2",
+    "symbol_code": "CLST-M1-3H/C",
+    "color": "#666",
+    "usage": "不规则多边形，岩屑。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_grain_coarse.svg",
+    "chinese_name": "粗粒",
+    "english_name": "Coarse Grain",
+    "specification": "附录M.1.3",
+    "symbol_code": "GRAN-M1-1H/C",
+    "color": "#c4a473",
+    "usage": "大圆点，粗粒结构。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_grain_medium.svg",
+    "chinese_name": "中粒",
+    "english_name": "Medium Grain",
+    "specification": "附录M.1.3",
+    "symbol_code": "GRAN-M1-2H/C",
+    "color": "#d4b483",
+    "usage": "中圆点，中粒结构。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_grain_fine.svg",
+    "chinese_name": "细粒",
+    "english_name": "Fine Grain",
+    "specification": "附录M.1.3",
+    "symbol_code": "GRAN-M1-3H/C",
+    "color": "#d4c4a0",
+    "usage": "小圆点，细粒结构。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_grain_silt.svg",
+    "chinese_name": "粉砂级",
+    "english_name": "Silt Grade",
+    "specification": "附录M.1.3",
+    "symbol_code": "GRAN-M1-4H/C",
+    "color": "#e0d5c0",
+    "usage": "微小圆点，粉砂级。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_mineral_quartz.svg",
+    "chinese_name": "石英(矿物)",
+    "english_name": "Quartz Mineral",
+    "specification": "附录M.2.7",
+    "symbol_code": "MIN-M2-1H/C",
+    "color": "#888",
+    "usage": "六边形，石英矿物。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_mineral_feldspar.svg",
+    "chinese_name": "长石(矿物)",
+    "english_name": "Feldspar Mineral",
+    "specification": "附录M.2.7",
+    "symbol_code": "MIN-M2-2H/C",
+    "color": "#888",
+    "usage": "旋转正方形。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_mineral_mica.svg",
+    "chinese_name": "云母",
+    "english_name": "Mica",
+    "specification": "附录M.2.7",
+    "symbol_code": "MIN-M2-3H/C",
+    "color": "#888",
+    "usage": "长菱形，云母矿物。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_mineral_calcite.svg",
+    "chinese_name": "方解石",
+    "english_name": "Calcite",
+    "specification": "附录M.2.7",
+    "symbol_code": "MIN-M2-4H/C",
+    "color": "#888",
+    "usage": "五边形，方解石矿物。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_fossil_bivalvia.svg",
+    "chinese_name": "瓣鳃类",
+    "english_name": "Bivalvia",
+    "specification": "附录M.2.8",
+    "symbol_code": "FOSS-M2-1H/C",
+    "color": "#666",
+    "usage": "椭圆+中线，瓣鳃化石。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_fossil_gastropoda.svg",
+    "chinese_name": "腹足类",
+    "english_name": "Gastropoda",
+    "specification": "附录M.2.8",
+    "symbol_code": "FOSS-M2-2H/C",
+    "color": "#666",
+    "usage": "螺旋形，腹足化石。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_fossil_ammonite.svg",
+    "chinese_name": "菊石",
+    "english_name": "Ammonite",
+    "specification": "附录M.2.8",
+    "symbol_code": "FOSS-M2-3H/C",
+    "color": "#666",
+    "usage": "圆圈+旋线，菊石化石。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_fossil_trilobite.svg",
+    "chinese_name": "三叶虫",
+    "english_name": "Trilobite",
+    "specification": "附录M.2.8",
+    "symbol_code": "FOSS-M2-4H/C",
+    "color": "#666",
+    "usage": "椭圆+附肢，三叶虫化石。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_bedding_horizontal.svg",
+    "chinese_name": "水平层理",
+    "english_name": "Horizontal Bedding",
+    "specification": "附录M.2.9",
+    "symbol_code": "STRU-M2-1H/C",
+    "color": "#666",
+    "usage": "平行水平线，水平层理。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_bedding_wavy.svg",
+    "chinese_name": "波状层理",
+    "english_name": "Wavy Bedding",
+    "specification": "附录M.2.9",
+    "symbol_code": "STRU-M2-2H/C",
+    "color": "#666",
+    "usage": "波浪平行线，波状层理。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_bedding_cross.svg",
+    "chinese_name": "交错层理",
+    "english_name": "Cross-bedding",
+    "specification": "附录M.2.9",
+    "symbol_code": "STRU-M2-3H/C",
+    "color": "#666",
+    "usage": "斜交平行线，交错层理。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_bedding_lenticular.svg",
+    "chinese_name": "透镜状层理",
+    "english_name": "Lenticular Bedding",
+    "specification": "附录M.2.9",
+    "symbol_code": "STRU-M2-4H/C",
+    "color": "#666",
+    "usage": "交错椭圆，透镜层理。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_mud_crack.svg",
+    "chinese_name": "泥裂",
+    "english_name": "Mud Crack",
+    "specification": "附录M.2.9",
+    "symbol_code": "STRU-M2-5H/C",
+    "color": "#666",
+    "usage": "多边形裂纹，泥裂。"
+  },
+  {
+    "category": "基本岩类",
+    "file": "rock_rain_print.svg",
+    "chinese_name": "雨痕",
+    "english_name": "Rain Print",
+    "specification": "附录M.2.9",
+    "symbol_code": "STRU-M2-6H/C",
+    "color": "#666",
+    "usage": "小圆圈，雨痕构造。"
+  }
+]

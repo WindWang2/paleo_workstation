@@ -42,4 +42,5 @@ private:
   QDoubleSpinBox *m_cell = nullptr, *m_interval = nullptr;
   QProgressBar *m_progress = nullptr;
   QTableWidget *m_facies = nullptr;
+  QComboBox *m_editFacies = nullptr;
 };

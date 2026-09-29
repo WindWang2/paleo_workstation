@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <rect x="5" y="15" width="130" height="30" fill="none" stroke="#000" stroke-width="1.5" stroke-dasharray="8,4"/>
+  <text x="70" y="37" text-anchor="middle" font-size="12" fill="#000">— — —</text>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">层位标识</text>
+</svg>

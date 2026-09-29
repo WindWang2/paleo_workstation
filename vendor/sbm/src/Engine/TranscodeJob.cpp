@@ -16,6 +16,10 @@
 #include "Engine/StorageProfile.h"
 #include "Engine/SgyVolumeSource.h"
 
+#ifdef SEISMIC_HAVE_ZSTD
+#include <zstd.h>
+#endif
+
 namespace seismic {
 namespace engine {
 namespace {
@@ -29,9 +33,8 @@ bool Cancelled(const CancelToken* cancel) {
     return cancel != nullptr && cancel->IsCancelled();
 }
 
-// Bounded single-producer/single-consumer queue used by the transcode pipeline.
-// The producer fills one chunk at a time; the writer thread drains it, so the
-// in-flight memory is bounded by capacity * chunkBytes.
+// Bounded multi-producer/multi-consumer queue used by the transcode pipeline.
+// Closing wakes every waiter; a closed-and-drained Pop returns false.
 template <typename T>
 class BoundedQueue {
 public:
@@ -40,7 +43,7 @@ public:
     BoundedQueue(const BoundedQueue&) = delete;
     BoundedQueue& operator=(const BoundedQueue&) = delete;
 
-    // Returns false when the queue is closed (cancellation or writer failure).
+    // Returns false when the queue is closed (cancellation or downstream failure).
     bool Push(T&& item) {
         std::unique_lock<std::mutex> lock(mutex_);
         notFull_.wait(lock, [this] { return closed_ || items_.size() < capacity_; });
@@ -52,7 +55,7 @@ public:
         return true;
     }
 
-    // Returns false when the queue is closed and empty (writer exit).
+    // Returns false when the queue is closed and empty (consumer exit).
     bool Pop(T& item) {
         std::unique_lock<std::mutex> lock(mutex_);
         notEmpty_.wait(lock, [this] { return closed_ || !items_.empty(); });
@@ -88,11 +91,60 @@ private:
     bool closed_ = false;
 };
 
+// A chunk travelling the pipeline: raw float values on the single-thread path,
+// or an already-encoded payload when the parallel encode pool is active.
 struct ReadyChunk {
     std::uint32_t cs = 0;
     std::uint32_t ci = 0;
     std::uint32_t cx = 0;
     std::vector<float> values;
+    std::vector<unsigned char> payload; // populated when prepared == true
+    bool prepared = false;
+};
+
+// P6 (paleo): per-trace quality accounting shared by both read passes. All
+// mutations happen on the producer thread only.
+struct TraceQuality {
+    std::uint64_t missing = 0;   // (inline, xline) absent from the source
+    std::uint64_t damaged = 0;   // source read failed -> NaN-filled
+    std::vector<std::pair<int, int>> damagedSample; // first 32, (inline, xline)
+    float valueMin = std::numeric_limits<float>::infinity();
+    float valueMax = -std::numeric_limits<float>::infinity();
+
+    void NoteMissing() { ++missing; }
+
+    void NoteDamaged(int inlineNo, int xlineNo) {
+        ++damaged;
+        if(damagedSample.size() < 32) {
+            damagedSample.emplace_back(inlineNo, xlineNo);
+        }
+    }
+
+    void NoteTrace(const std::vector<float>& samples) {
+        for(const float v : samples) {
+            if(std::isnan(v)) {
+                continue;
+            }
+            if(v < valueMin) {
+                valueMin = v;
+            }
+            if(v > valueMax) {
+                valueMax = v;
+            }
+        }
+    }
+
+    void Finish(TranscodeResult& result) const {
+        result.missingTraceCount = missing;
+        result.damagedTraceCount = damaged;
+        result.damagedTraceSample = damagedSample;
+        if(valueMin != std::numeric_limits<float>::infinity()) {
+            result.valueMin = valueMin;
+        }
+        if(valueMax != -std::numeric_limits<float>::infinity()) {
+            result.valueMax = valueMax;
+        }
+    }
 };
 
 } // namespace
@@ -105,6 +157,18 @@ TranscodeResult TranscodeSegyToWorkspace(
     const std::function<bool(const TranscodeProgress&)>& progress) {
     TranscodeResult result;
     const auto start = std::chrono::steady_clock::now();
+
+    // P6: the (potentially long) index/open stage is a distinct phase for the
+    // caller's aggregated progress; the header doc promised "scanning".
+    if(progress) {
+        TranscodeProgress scan;
+        scan.phase = "scanning";
+        scan.elapsedSeconds = 0.0;
+        if(!progress(scan)) {
+            result.status = Status::Error(StatusCode::Cancelled, "the transcode was cancelled");
+            return result;
+        }
+    }
 
     Status openStatus;
     std::unique_ptr<SgyVolumeSource> source = SgyVolumeSource::Open(segyPath, openStatus);
@@ -212,10 +276,22 @@ TranscodeResult TranscodeSegyToWorkspace(
     state.phase = "transcoding";
     state.chunksTotal = chunksTotal;
 
-    // Bounded producer/consumer pipeline: this thread fills chunks, one writer
-    // thread drains them into the shards. The queue depth bounds the memory.
-    constexpr std::size_t kQueueCapacity = 4;
-    BoundedQueue<ReadyChunk> queue(kQueueCapacity);
+    // Pipeline topology (P6): with writerThreads > 1 and an encoding codec the
+    // producer hands raw chunks to an encode pool; encoded chunks flow to the
+    // single writer thread (shard order + resumable layout unchanged).
+    // Otherwise the producer pushes directly and the writer encodes inline
+    // (upstream single-thread behaviour).
+    const bool parallelEncode =
+        options.writerThreads > 1 && info.codec == kCodecZstd;
+#ifdef SEISMIC_HAVE_ZSTD
+    const std::uint32_t encoderCount = parallelEncode
+        ? std::clamp(options.writerThreads, 1u, 4u)
+        : 0;
+#else
+    const std::uint32_t encoderCount = 0;
+#endif
+    BoundedQueue<ReadyChunk> encodeQueue(encoderCount > 0 ? 8 : 4);
+    BoundedQueue<ReadyChunk> writeQueue(4);
     std::atomic<std::uint64_t> chunksWrittenAtomic{0};
     std::atomic<std::uint64_t> tracesReadAtomic{0};
     std::atomic<std::uint64_t> bytesWrittenAtomic{0};
@@ -223,21 +299,102 @@ TranscodeResult TranscodeSegyToWorkspace(
     std::string writerError;
     std::mutex writerErrorMutex;
     std::size_t maxQueueDepth = 0;
+    TraceQuality quality;
+    std::atomic<int> encodersAlive{static_cast<int>(encoderCount)};
+
+    auto failPipeline = [&](const std::string& message) {
+        {
+            std::lock_guard<std::mutex> lock(writerErrorMutex);
+            if(writerError.empty()) {
+                writerError = message;
+            }
+        }
+        writerFailed.store(true);
+        encodeQueue.Close();
+        writeQueue.Close();
+    };
+
+    std::vector<std::thread> encoderThreads;
+    for(std::uint32_t e = 0; e < encoderCount; ++e) {
+        encoderThreads.emplace_back([&]() {
+            ReadyChunk raw;
+            while(true) {
+                if(writerFailed.load() || Cancelled(cancel)) {
+                    // Unblock the producer (Push waits while the queue is full).
+                    encodeQueue.Close();
+                    break;
+                }
+                if(!encodeQueue.Pop(raw)) {
+                    break; // closed and drained: normal shutdown
+                }
+                ReadyChunk encoded;
+                encoded.cs = raw.cs;
+                encoded.ci = raw.ci;
+                encoded.cx = raw.cx;
+                encoded.prepared = true;
+#ifdef SEISMIC_HAVE_ZSTD
+                encoded.payload.resize(ZSTD_compressBound(raw.values.size() * sizeof(float)));
+                const std::size_t written = ZSTD_compress(
+                    encoded.payload.data(), encoded.payload.size(),
+                    raw.values.data(), raw.values.size() * sizeof(float),
+                    static_cast<int>(std::max(1u, info.codecLevel)));
+                if(ZSTD_isError(written)) {
+                    failPipeline(std::string("zstd compress failed: ") + ZSTD_getErrorName(written));
+                    break;
+                }
+                encoded.payload.resize(written);
+#else
+                (void)raw;
+                failPipeline("this build has no zstd support");
+                break;
+#endif
+                if(!writeQueue.Push(std::move(encoded))) {
+                    encodeQueue.Close(); // downstream closed: release producer
+                    break;
+                }
+            }
+            if(encodersAlive.fetch_sub(1) == 1) {
+                writeQueue.Close(); // last encoder out releases the writer
+            }
+        });
+    }
 
     std::thread writerThread([&]() {
         ReadyChunk ready;
-        while(queue.Pop(ready)) {
-            if(!writer.WriteChunk(ready.cs, ready.ci, ready.cx, ready.values.data(),
-                                  ready.values.size(), writerError)) {
-                std::lock_guard<std::mutex> lock(writerErrorMutex);
-                writerFailed.store(true);
-                queue.Close();
+        while(writeQueue.Pop(ready)) {
+            bool ok = false;
+            if(ready.prepared) {
+                ok = writer.WriteChunkPrepared(ready.cs, ready.ci, ready.cx,
+                                               ready.payload.data(), ready.payload.size(),
+                                               writerError);
+                if(ok) {
+                    bytesWrittenAtomic.fetch_add(ready.payload.size());
+                }
+            } else {
+                ok = writer.WriteChunk(ready.cs, ready.ci, ready.cx, ready.values.data(),
+                                       ready.values.size(), writerError);
+                if(ok) {
+                    bytesWrittenAtomic.fetch_add(info.ChunkBytes());
+                }
+            }
+            if(!ok) {
+                failPipeline(writerError.empty() ? "workspace write failed" : writerError);
                 return;
             }
             chunksWrittenAtomic.fetch_add(1);
-            bytesWrittenAtomic.fetch_add(info.ChunkBytes());
         }
     });
+
+    // Queue the producer pushes into: the encode pool when active, otherwise
+    // the writer's queue directly.
+    auto pushChunk = [&](ReadyChunk&& chunk) -> bool {
+        if(encoderCount > 0) {
+            maxQueueDepth = std::max(maxQueueDepth, encodeQueue.Depth());
+            return encodeQueue.Push(std::move(chunk));
+        }
+        maxQueueDepth = std::max(maxQueueDepth, writeQueue.Depth());
+        return writeQueue.Push(std::move(chunk));
+    };
 
     std::vector<float> chunk(static_cast<std::size_t>(info.ChunkBytes() / sizeof(float)),
                              std::numeric_limits<float>::quiet_NaN());
@@ -295,15 +452,17 @@ TranscodeResult TranscodeSegyToWorkspace(
                             source->Volume().FindNearestInlineValue(static_cast<float>(inlineNo)),
                             source->Volume().FindNearestXlineValue(static_cast<float>(xlineNo)));
                         if(traceIndex < 0) {
-                            continue; // missing trace stays NaN
+                            quality.NoteMissing(); // missing trace stays NaN
+                            continue;
                         }
                         if(!session.ReadTrace(traceIndex, traceSamples, error)) {
+                            quality.NoteDamaged(inlineNo, xlineNo); // damaged trace stays NaN
                             continue;
                         }
                         tracesReadAtomic.fetch_add(1);
+                        quality.NoteTrace(traceSamples);
                         for(std::uint32_t cs = 0; cs < info.ChunksS(); ++cs) {
                             std::vector<float>& buffer = buffers[cs];
-                            std::vector<float> existing;
                             if(writer.HasChunk(cs, ci, cx)) {
                                 continue; // resumed chunk: keep it
                             }
@@ -341,8 +500,7 @@ TranscodeResult TranscodeSegyToWorkspace(
                     ready.cx = cx;
                     ready.values = std::move(buffers[cs]);
                     buffers[cs] = std::vector<float>(chunkFloats, std::numeric_limits<float>::quiet_NaN());
-                    maxQueueDepth = std::max(maxQueueDepth, queue.Depth());
-                    if(!queue.Push(std::move(ready))) {
+                    if(!pushChunk(std::move(ready))) {
                         cancelled = true;
                         break;
                     }
@@ -363,9 +521,17 @@ TranscodeResult TranscodeSegyToWorkspace(
         if(progress) {
             progress(state);
         }
-        queue.Close();
+        encodeQueue.Close();
+        if(encoderCount == 0) {
+            writeQueue.Close(); // single-thread path: producer releases the writer
+        }
+        // parallel path: the LAST encoder closes writeQueue after draining, so
+        // chunks still in the encode queue are never dropped by an early close.
         if(writerThread.joinable()) {
             writerThread.join();
+        }
+        for(std::thread& encoder : encoderThreads) {
+            encoder.join();
         }
         if(writerFailed.load()) {
             std::string message;
@@ -374,11 +540,13 @@ TranscodeResult TranscodeSegyToWorkspace(
                 message = writerError;
             }
             writer.Finalize(error);
+            quality.Finish(result);
             result.status = Status::Error(StatusCode::IoError,
                                           message.empty() ? "workspace write failed" : message);
             return result;
         }
         if(!writer.Finalize(error)) {
+            quality.Finish(result);
             result.status = Status::Error(StatusCode::IoError, error);
             return result;
         }
@@ -388,6 +556,7 @@ TranscodeResult TranscodeSegyToWorkspace(
         result.maxQueueDepth = maxQueueDepth;
         result.writeCalls = writer.WriteCalls();
         result.elapsedSeconds = SecondsSince(start);
+        quality.Finish(result);
         result.status = cancelled
             ? Status::Error(StatusCode::Cancelled, "the transcode was cancelled; the workspace is resumable")
             : Status::Ok();
@@ -426,9 +595,11 @@ TranscodeResult TranscodeSegyToWorkspace(
                             static_cast<float>(xlineNo));
                         const int traceIndex = source->Volume().FindTraceIndex(nearestInline, nearestXline);
                         if(traceIndex < 0) {
-                            continue; // missing trace stays NaN
+                            quality.NoteMissing(); // missing trace stays NaN
+                            continue;
                         }
                         if(!session.ReadTrace(traceIndex, traceSamples, error)) {
+                            quality.NoteDamaged(inlineNo, xlineNo); // damaged trace stays NaN
                             continue;
                         }
                         for(std::uint32_t ls = 0; ls < info.chunkSamples; ++ls) {
@@ -445,6 +616,7 @@ TranscodeResult TranscodeSegyToWorkspace(
                             chunk[offset] = traceSamples[static_cast<std::size_t>(sample)];
                         }
                         tracesReadAtomic.fetch_add(1);
+                        quality.NoteTrace(traceSamples);
                     }
                 }
                 if(cancelled || writerFailed.load()) {
@@ -458,11 +630,10 @@ TranscodeResult TranscodeSegyToWorkspace(
                 ready.values = std::move(chunk);
                 chunk.assign(static_cast<std::size_t>(info.ChunkBytes() / sizeof(float)),
                              std::numeric_limits<float>::quiet_NaN());
-                if(!queue.Push(std::move(ready))) {
+                if(!pushChunk(std::move(ready))) {
                     cancelled = true;
                     break;
                 }
-                maxQueueDepth = std::max(maxQueueDepth, queue.Depth());
                 state.chunksDone = chunksWrittenAtomic.load();
                 state.bytesWritten = bytesWrittenAtomic.load();
                 state.elapsedSeconds = SecondsSince(start);
@@ -473,9 +644,17 @@ TranscodeResult TranscodeSegyToWorkspace(
         }
     }
 
-    queue.Close();
+    encodeQueue.Close();
+    if(encoderCount == 0) {
+        writeQueue.Close(); // single-thread path: producer releases the writer
+    }
+    // parallel path: the LAST encoder closes writeQueue after draining, so
+    // chunks still in the encode queue are never dropped by an early close.
     if(writerThread.joinable()) {
         writerThread.join();
+    }
+    for(std::thread& encoder : encoderThreads) {
+        encoder.join();
     }
     if(writerFailed.load()) {
         std::string message;
@@ -484,6 +663,7 @@ TranscodeResult TranscodeSegyToWorkspace(
             message = writerError;
         }
         writer.Finalize(error); // keep what was written: resumable
+        quality.Finish(result);
         result.status = Status::Error(StatusCode::IoError,
                                       message.empty() ? "workspace write failed" : message);
         return result;
@@ -496,6 +676,7 @@ TranscodeResult TranscodeSegyToWorkspace(
         progress(state);
     }
     if(!writer.Finalize(error)) {
+        quality.Finish(result);
         result.status = Status::Error(StatusCode::IoError, error);
         return result;
     }
@@ -505,6 +686,7 @@ TranscodeResult TranscodeSegyToWorkspace(
     result.maxQueueDepth = maxQueueDepth;
     result.writeCalls = writer.WriteCalls();
     result.elapsedSeconds = SecondsSince(start);
+    quality.Finish(result);
     result.status = cancelled
         ? Status::Error(StatusCode::Cancelled, "the transcode was cancelled; the workspace is resumable")
         : Status::Ok();

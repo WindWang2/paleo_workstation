@@ -128,10 +128,24 @@ std::shared_ptr<Dataset> Dataset::Open(
 
     const bool paged = options.backend == Backend::Paged || path.extension() == ".sf3p";
     bool workspace = options.backend == Backend::Workspace;
+    bool companionMetaNotReady = false;
     if(options.backend == Backend::Auto && !paged) {
         std::error_code ec;
         workspace = path.extension() == ".meta" ||
                     std::filesystem::exists(seismic::engine::WorkspaceMetaPath(path), ec);
+        if(workspace && path.extension() != ".meta") {
+            // P8 (paleo): an interrupted-but-resumable workspace must never be
+            // mistaken for a ready one. A cheap header probe decides; incomplete
+            // or unreadable metas keep the direct backend until the transcode
+            // finishes, flagged as a fallback so consumers see the truth.
+            seismic::engine::WorkspaceMetaSummary summary;
+            std::string probeError;
+            if(!seismic::engine::ProbeWorkspaceMeta(path, summary, probeError) ||
+               !summary.exists || !summary.readable || !summary.complete) {
+                workspace = false;
+                companionMetaNotReady = true;
+            }
+        }
     }
 
     const auto stripMetaSuffix = [](const std::filesystem::path& metaPath) -> std::filesystem::path {
@@ -283,6 +297,9 @@ std::shared_ptr<Dataset> Dataset::Open(
             return nullptr;
         }
         dataset->baseMetadata_ = dataset->source_->Metadata();
+        if(companionMetaNotReady) {
+            dataset->fellBackToDirect_ = true; // P8: companion meta exists but is not ready
+        }
     }
     dataset->open_ = true;
     status = engine::Status::Ok();

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <rect x="10" y="15" width="120" height="40" fill="#C8D8E8" opacity="0.3"/>
+  <rect x="10" y="15" width="120" height="40" fill="none" stroke="#1A54B4" stroke-width="2"/>
+  <line x1="40" y1="15" x2="40" y2="55" stroke="#1A54B4" stroke-width="0.5" opacity="0.5"/>
+  <line x1="70" y1="15" x2="70" y2="55" stroke="#1A54B4" stroke-width="0.5" opacity="0.5"/>
+  <line x1="100" y1="15" x2="100" y2="55" stroke="#1A54B4" stroke-width="0.5" opacity="0.5"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">三维满覆盖</text>
+</svg>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <line x1="5" y1="55" x2="135" y2="15" stroke="#D71414" stroke-width="1.5" />
+  <polygon points="19.0,38 24.0,44 29.0,38" fill="#D71414"/><polygon points="43.0,38 48.0,44 53.0,38" fill="#D71414"/><polygon points="67.0,38 72.0,44 77.0,38" fill="#D71414"/><polygon points="91.0,38 96.0,44 101.0,38" fill="#D71414"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">三级逆掩断层</text>
+</svg>

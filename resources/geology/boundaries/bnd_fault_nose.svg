@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 70" width="120" height="70">
+  <rect width="120" height="70" fill="#fff"/>
+  <path d="M 5,50 Q 60,5 115,50" fill="#C87830" stroke="#C87830" stroke-width="1.5"/>
+  <line x1="60" y1="35" x2="60" y2="55" stroke="#D71414" stroke-width="1.5"/>
+  <text x="60" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">断层鼻状构造</text>
+</svg>

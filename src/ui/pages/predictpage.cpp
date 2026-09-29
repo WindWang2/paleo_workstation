@@ -139,6 +139,15 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   progress->hide();
   lay->addWidget(progress);
 
+  // 外部工具：MAMCL 地震多属性智能分析（独立 Python 程序）。视图只发意图；
+  // venv/依赖/启动编排走壳里的 MamclTool，busy 经 setMamclBusy 回流。
+  lay->addWidget(caption(tr("外部工具"), this));
+  auto *mamcl = new QPushButton(tr("地震多属性智能分析 (MAMCL)"), this);
+  mamcl->setObjectName(QStringLiteral("mamclButton"));
+  mamcl->setToolTip(tr("启动独立的 MAMCL 分析程序（首次启动会自动准备 Python 环境）"));
+  lay->addWidget(mamcl);
+  connect(mamcl, &QPushButton::clicked, this, [this] { emit mamclLaunchRequested(); });
+
   connect(run, &QPushButton::clicked, this, [this, horizons, algos] {
     const QString horizon = horizons->currentText();
     const QString algId = algos->currentData().toString();
@@ -562,6 +571,17 @@ void PredictPage::updateProgress(int percent)
 {
   if (auto *bar = child<QProgressBar>(this, "runProgressBar"))
     bar->setValue(qBound(0, percent, 100));
+}
+
+void PredictPage::setMamclBusy(bool busy)
+{
+  if (auto *mamcl = child<QPushButton>(this, "mamclButton"))
+  {
+    mamcl->setEnabled(!busy);
+    // DESIGN.md：禁用控件必须带 reason tooltip。
+    mamcl->setToolTip(busy ? tr("MAMCL 环境准备中——完成后自动启动")
+                           : tr("启动独立的 MAMCL 分析程序（首次启动会自动准备 Python 环境）"));
+  }
 }
 
 // ---------------------------------------------------------------------------

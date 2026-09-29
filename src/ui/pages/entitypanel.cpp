@@ -5,8 +5,20 @@
 #include "../../services/previewdoc.h"
 #include "../../catalog/datacatalog.h"
 #include "../../catalog/entityview.h"
+#include "dataopspanelextra.h"
+#include "dataopspanelops.h"
 #include <QColor>
 #include <QComboBox>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QGraphicsView>
+#include <QHBoxLayout>
+#include <QHeaderView>
+#include <QInputDialog>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QScrollArea>
+#include <QToolButton>
 #include <QFile>
 #include <QFormLayout>
 #include <QFrame>
@@ -22,6 +34,10 @@
 #include <QTableWidgetItem>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <algorithm>
+#include <functional>
+#include <tuple>
+#include "../paleotheme.h"
 
 using namespace paleo::pagesinternal;
 
@@ -62,6 +78,9 @@ EntityPanel::EntityPanel(QWidget *parent)
 
   auto *entityHeader = new QLabel(viewContent);
   entityHeader->setObjectName(QStringLiteral("entityViewHeader"));
+  // 同值标签：实体名（往往是长文件名）不顶宽面板，宽度内换行。
+  entityHeader->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+  entityHeader->setWordWrap(true);
   // 实体头：surfaceAltRaised 底 + 文字位主色（浅 #1B73D0 / 暗 primaryText）。
   PaleoTheme::applyThemedStyleSheet(entityHeader, [] {
     const bool dark = PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark;
@@ -103,6 +122,9 @@ EntityPanel::EntityPanel(QWidget *parent)
           .arg(PaleoTheme::tokens().text.name().toUpper());
     });
     val->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    // 内容永不下推面板宽度：值标签可压到 0（Ignored），长文本在面板现有
+    // 宽度内换行/裁切，而不是把「数据属性」dock 撑宽。
+    val->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     fl->addRow(lbl, val);
     return val;
   };
@@ -114,7 +136,8 @@ EntityPanel::EntityPanel(QWidget *parent)
   secBasic->containerLayout()->addLayout(formBasic);
   formBasic->setContentsMargins(4, 2, 4, 4);
   formBasic->setSpacing(4);
-  addRow(secBasic, formBasic, tr("名称:"), "propName");
+  auto *nameVal = addRow(secBasic, formBasic, tr("名称:"), "propName");
+  nameVal->setWordWrap(true);
   addRow(secBasic, formBasic, tr("类型:"), "propType");
   addRow(secBasic, formBasic, tr("格式:"), "propFormat");
   auto *pathVal = addRow(secBasic, formBasic, tr("路径:"), "propPath");
@@ -143,6 +166,8 @@ EntityPanel::EntityPanel(QWidget *parent)
   auto *rl = secRoles->containerLayout();
   auto *roleSummary = new QLabel(secRoles->container());
   roleSummary->setObjectName(QStringLiteral("propRoleSummary"));
+  roleSummary->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+  roleSummary->setWordWrap(true);
   PaleoTheme::applyThemedStyleSheet(roleSummary, [] {
     return QStringLiteral("color: %1; font-size: 8pt; margin-bottom: 2px;")
         .arg(PaleoTheme::tokens().textMuted.name().toUpper());
@@ -165,6 +190,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   auto *dl = secDetails->containerLayout();
   auto *detailsText = new QLabel(secDetails->container());
   detailsText->setObjectName(QStringLiteral("propDetailsText"));
+  detailsText->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   PaleoTheme::applyThemedStyleSheet(detailsText, [] {
     return QStringLiteral("color: %1; font-size: 8pt;")
         .arg(PaleoTheme::tokens().text.name().toUpper());
@@ -187,6 +213,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   derLay->addWidget(derivedTable);
   auto *missing = new QLabel(secDerived->container());
   missing->setObjectName(QStringLiteral("missingSourcesLabel"));
+  missing->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   missing->setWordWrap(true);
   missing->hide(); // 悬空血缘诊断只在 missingSources 非空时出现
   derLay->addWidget(missing);
@@ -197,7 +224,450 @@ EntityPanel::EntityPanel(QWidget *parent)
   vcl->addWidget(scroll, 1);
   entityLay->addWidget(viewContent, 1);
 
+  buildD4Ui(); // P3 D4：CRUD 条/版本时间线/拓扑图/统计段
+
   refresh(); // 初始空态（未选实体）：指引行，不留白板
+}
+
+// ===========================================================================
+// P3 D4：实体/属性面板增强（wave/data-page-operations）
+// ===========================================================================
+
+void EntityPanel::buildD4Ui()
+{
+  using namespace paleo::dataops;
+  auto *content = findChild<QWidget *>(QStringLiteral("entityViewContent"));
+  if (!content)
+    return;
+  auto *vcl = static_cast<QVBoxLayout *>(content->layout());
+
+  // ---- D4.6 实体 CRUD 工具条（表头之下）----
+  auto *crud = new QWidget(content);
+  crud->setObjectName(QStringLiteral("entityCrudBar"));
+  auto *cl = new QHBoxLayout(crud);
+  cl->setContentsMargins(0, 0, 0, 0);
+  cl->setSpacing(4);
+  const struct
+  {
+    const char *name;
+    const char *text;
+    const char *tip;
+  } kBtns[] = {
+    {"entityCreateButton", QT_TR_NOOP("新建实体"),
+     QT_TR_NOOP("新建井/辅助资料/地震工区实体")},
+    {"entityRenameButton", QT_TR_NOOP("重命名"),
+     QT_TR_NOOP("重命名当前实体（F2）——写视图层改写表，可撤销")},
+    {"entityDeleteButton", QT_TR_NOOP("删除"),
+     QT_TR_NOOP("删除当前实体（软删可恢复；资产处置可选）")},
+    {"entityTopologyButton", QT_TR_NOOP("拓扑"),
+     QT_TR_NOOP("实体↔资产关联拓扑图")},
+    {"entityHistoryButton", QT_TR_NOOP("历史"),
+     QT_TR_NOOP("本面板会话内的最近操作")},
+  };
+  const auto handlers = std::tuple{
+      [this] { beginCreateEntity(); },
+      [this] { if (!m_entityId.isEmpty()) beginRenameEntity(m_entityId); },
+      [this] { if (!m_entityId.isEmpty()) beginDeleteEntity(m_entityId); },
+      [this] { emit statusMessage(tr("拓扑图在「关联拓扑」段实时刷新")); },
+      [this] {
+        OperationsHistoryDialog dlg(this);
+        dlg.setEntries(m_history ? m_history->entries() : QStringList());
+        dlg.exec();
+      },
+  };
+  int bi = 0;
+  for (const auto &b : kBtns)
+  {
+    auto *btn = new QToolButton(crud);
+    btn->setObjectName(QLatin1String(b.name));
+    btn->setText(tr(b.text));
+    btn->setToolTip(tr(b.tip));
+    btn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 8px;"));
+    // D6.7 焦点指示强化：可聚焦 + 强焦点策略（焦点环走全局 QSS）。
+    btn->setFocusPolicy(Qt::StrongFocus);
+    const auto h = handlers;
+    const int idx = bi++;
+    // std::tuple 元素按序接线（编译期分发）。
+    [btn, &h, idx, this](auto seq) {
+      constexpr int I = decltype(seq)::value;
+      if (I == idx)
+        connect(btn, &QToolButton::clicked, this, std::get<I>(h));
+    }(std::integral_constant<int, 0>{});
+    [btn, &h, idx, this](auto seq) {
+      constexpr int I = decltype(seq)::value;
+      if (I == idx)
+        connect(btn, &QToolButton::clicked, this, std::get<I>(h));
+    }(std::integral_constant<int, 1>{});
+    [btn, &h, idx, this](auto seq) {
+      constexpr int I = decltype(seq)::value;
+      if (I == idx)
+        connect(btn, &QToolButton::clicked, this, std::get<I>(h));
+    }(std::integral_constant<int, 2>{});
+    [btn, &h, idx, this](auto seq) {
+      constexpr int I = decltype(seq)::value;
+      if (I == idx)
+        connect(btn, &QToolButton::clicked, this, std::get<I>(h));
+    }(std::integral_constant<int, 3>{});
+    [btn, &h, idx, this](auto seq) {
+      constexpr int I = decltype(seq)::value;
+      if (I == idx)
+        connect(btn, &QToolButton::clicked, this, std::get<I>(h));
+    }(std::integral_constant<int, 4>{});
+    cl->addWidget(btn);
+  }
+  cl->addStretch(1);
+  // 插在实体头之后（vcl 第 0 项是 entityHeader，第 1 项是 scroll）。
+  vcl->insertWidget(1, crud);
+
+  // ---- D4.3 版本时间线 + D4.5 拓扑图：进 scroll 容器（secDerived 之后）----
+  auto *derived = findChild<QTableWidget *>(QStringLiteral("derivedProductsTable"));
+  if (derived)
+  {
+    QWidget *host = derived->parentWidget();
+    while (host && host->objectName() != QLatin1String("secDerived") &&
+           host != content)
+      host = host->parentWidget();
+    QVBoxLayout *sl = host && host != content
+                          ? static_cast<QVBoxLayout *>(host->layout())
+                          : nullptr;
+    if (sl)
+    {
+      auto *secVersion = new CollapsibleSection(tr("版本时间线"), host);
+      secVersion->setObjectName(QStringLiteral("secVersion"));
+      m_timeline = new VersionTimeline(secVersion->container());
+      secVersion->containerLayout()->addWidget(m_timeline);
+      sl->addWidget(secVersion);
+      // D4.4 版本 diff：清单级（大小/SHA/字段差异）。
+      connect(m_timeline, &VersionTimeline::diffRequested, this,
+              [this](const QString &va, const QString &vb) {
+                if (!m_doc || !m_doc->catalog())
+                  return;
+                DataCatalog *cat = m_doc->catalog();
+                const CatalogVersion a = cat->versionById(va);
+                const CatalogVersion b = cat->versionById(vb);
+                if (a.id.isEmpty() || b.id.isEmpty())
+                  return;
+                VersionDiffDialog dlg(this);
+                dlg.showDiff(diffVersions(a, b, m_doc->absolutePathForVersion(a),
+                                          m_doc->absolutePathForVersion(b)));
+                dlg.exec();
+              });
+
+      auto *secTopo = new CollapsibleSection(tr("关联拓扑"), host);
+      secTopo->setObjectName(QStringLiteral("secTopo"));
+      m_topology = new TopologyGraph(secTopo->container());
+      m_topology->setMaximumHeight(220);
+      secTopo->containerLayout()->addWidget(m_topology);
+      // D4.5 点击节点 → 定位（资产 → assetFocus；实体 → entitiesFocus 由壳接）。
+      connect(m_topology, &TopologyGraph::nodeClicked, this,
+              [this](const QString &id, bool isEntity) {
+                if (isEntity)
+                  emit statusMessage(tr("拓扑：实体 %1（地图联动经壳）").arg(id));
+                else
+                  emit statusMessage(tr("拓扑：资产 %1").arg(id));
+              });
+      sl->addWidget(secTopo);
+
+      // D4.8 统计段：当前上下文的资产计数摘要。
+      auto *secStats = new CollapsibleSection(tr("统计"), host);
+      secStats->setObjectName(QStringLiteral("secStats"));
+      auto *statsLabel = new QLabel(secStats->container());
+      statsLabel->setObjectName(QStringLiteral("propStatsText"));
+      statsLabel->setWordWrap(true);
+      PaleoTheme::applyThemedStyleSheet(statsLabel, [] {
+        return QStringLiteral("color: %1; font-size: 8.5pt;")
+            .arg(PaleoTheme::tokens().text.name().toUpper());
+      });
+      secStats->containerLayout()->addWidget(statsLabel);
+      sl->addWidget(secStats);
+    }
+  }
+
+  // D4.7 角色表双击 → 编辑挂接角色（资产上下文）。
+  if (auto *roleTable = findChild<QTableWidget *>(QStringLiteral("entityRoleTable")))
+    connect(roleTable, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
+      if (m_assetId.isEmpty() || !m_ctx.valid())
+        return;
+      DataCatalog *cat = m_ctx.cat;
+      const QVector<EntityAssetLink> links = cat->linksForAsset(m_assetId);
+      if (row < 0 || row >= links.size())
+        return;
+      const EntityAssetLink &l = links.at(row);
+      if (l.unresolved)
+        return;
+      QStringList vocab;
+      for (const RoleDef &d : cat->roleRegistry().forEntity(l.entityType))
+        vocab << d.role;
+      if (!vocab.contains(l.role))
+        vocab << l.role;
+      vocab.sort();
+      RoleEditDialog dlg(this);
+      dlg.loadRole(l.role, vocab);
+      if (dlg.exec() != QDialog::Accepted || dlg.newRole() == l.role)
+        return;
+      // D5.5：addLink 无删除对偶 → 不可撤销确认。
+      if (QMessageBox::warning(
+              this, tr("角色变更（不可撤销）"),
+              tr("将为「%1」新增角色关联 %2（原 %3 关联保留）。\n"
+                 "此操作不可撤销。继续？")
+                  .arg(m_assetId, dlg.newRole(), l.role),
+              QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
+        return;
+      EntityAssetLink nl = l;
+      nl.role = dlg.newRole();
+      nl.isPrimary = false;
+      QString err;
+      if (cat->addLink(nl, &err))
+      {
+        if (m_history)
+          m_history->push(tr("角色变更 %1：%2→%3")
+                              .arg(m_assetId, l.role, dlg.newRole()));
+        refresh();
+        emit entityRefreshRequested();
+        emit statusMessage(tr("已新增角色关联 %1（不可撤销）").arg(dlg.newRole()));
+      }
+      else
+        emit statusMessage(tr("角色变更失败：%1").arg(err));
+    });
+}
+
+void EntityPanel::setSharedOps(const paleo::dataops::DataOpsContext &ctx,
+                               paleo::dataops::DataOpsUndoStack *stack,
+                               paleo::dataops::OperationsHistory *history)
+{
+  m_ctx = ctx;
+  m_stack = stack;
+  m_history = history;
+}
+
+void EntityPanel::setMultiContext(const QStringList &entityIds,
+                                  const QStringList &assetIds)
+{
+  m_multiEntityIds = entityIds;
+  m_multiAssetIds = assetIds;
+  refresh();
+}
+
+// D4.9 多选批量概要。
+void EntityPanel::refreshMultiSummary()
+{
+  auto *content = findChild<QWidget *>(QStringLiteral("entityViewContent"));
+  auto *empty = findChild<QLabel *>(QStringLiteral("entityViewEmptyLabel"));
+  auto *header = findChild<QLabel *>(QStringLiteral("entityViewHeader"));
+  if (!content || !empty || !header)
+    return;
+  empty->setVisible(false);
+  content->setVisible(true);
+  header->setText(tr("已选 %1 个资产 / %2 个实体（批量概要）")
+                      .arg(m_multiAssetIds.size())
+                      .arg(m_multiEntityIds.size()));
+  DataCatalog *cat = m_doc ? m_doc->catalog() : nullptr;
+  QMap<QString, int> byType, byStatus;
+  QSet<QString> commonEntities;
+  bool first = true;
+  QStringList allTags;
+  int totalVersions = 0;
+  const paleo::dataops::EntityOverrideStore *ov = m_ctx.entityOverrides;
+  for (const QString &id : m_multiAssetIds)
+  {
+    const CatalogAsset a = cat ? cat->assetById(id) : CatalogAsset();
+    if (a.id.isEmpty())
+      continue;
+    byType[a.type] += 1;
+    const CatalogVersion v = cat->currentVersion(id);
+    byStatus[v.stage.isEmpty() ? QStringLiteral("RAW") : v.stage] += 1;
+    totalVersions += cat->versionsForAsset(id).size();
+    QSet<QString> ents;
+    for (const EntityAssetLink &l : cat->linksForAsset(id))
+      if (!l.unresolved && !l.entityId.isEmpty())
+        ents.insert(l.entityId);
+    commonEntities = first ? ents : (commonEntities & ents);
+    first = false;
+  }
+  if (ov)
+    for (const QString &e : m_multiEntityIds)
+    {
+      const CatalogEntity ent = cat ? cat->entityById(e) : CatalogEntity();
+      if (!ent.id.isEmpty())
+        byType[tr("实体:") + ent.entityType] += 1;
+    }
+  QStringList typeParts, statusParts;
+  for (auto it = byType.constBegin(); it != byType.constEnd(); ++it)
+    typeParts << QStringLiteral("%1 ×%2").arg(it.key()).arg(it.value());
+  for (auto it = byStatus.constBegin(); it != byStatus.constEnd(); ++it)
+    statusParts << QStringLiteral("%1 ×%2").arg(it.key()).arg(it.value());
+  QStringList entsShown;
+  if (cat)
+    for (const QString &e : commonEntities)
+    {
+      const CatalogEntity ent = cat->entityById(e);
+      entsShown << (ov ? ov->displayName(ent) : ent.name);
+    }
+  if (auto *stats = findChild<QLabel *>(QStringLiteral("propStatsText")))
+    stats->setText(tr("批量概要：%1").arg(typeParts.join(QStringLiteral("、"))));
+  if (auto *details = findChild<QLabel *>(QStringLiteral("propDetailsText")))
+    details->setText(
+        tr("类型分布：%1\n状态分布：%2\n版本总数：%3\n共同实体：%4")
+            .arg(typeParts.join(QStringLiteral("、")),
+                 statusParts.join(QStringLiteral("、")))
+            .arg(totalVersions)
+            .arg(entsShown.isEmpty() ? tr("无") : entsShown.join(QStringLiteral("、"))));
+  if (auto *roleTable = findChild<QTableWidget *>(QStringLiteral("entityRoleTable")))
+    roleTable->setRowCount(0);
+  if (auto *derived = findChild<QTableWidget *>(QStringLiteral("derivedProductsTable")))
+    derived->setRowCount(0);
+  if (m_timeline)
+    m_timeline->loadVersions({});
+}
+
+// ---- D4.6 实体 CRUD ---------------------------------------------------------
+void EntityPanel::beginCreateEntity()
+{
+  using namespace paleo::dataops;
+  if (!m_ctx.valid())
+  {
+    emit statusMessage(tr("工程未打开——无法新建实体"));
+    return;
+  }
+  EntityCreateDialog dlg(this);
+  // 重名校验（D4.1 同口径：井名唯一性按 catalog 现有名）。
+  const QString type = dlg.chosenType();
+  Q_UNUSED(type);
+  if (dlg.exec() != QDialog::Accepted)
+    return;
+  const QString name = dlg.chosenName();
+  if (name.isEmpty())
+  {
+    emit statusMessage(tr("实体名不能为空"));
+    return;
+  }
+  for (const CatalogEntity &e : m_ctx.cat->entities(dlg.chosenType()))
+  {
+    const QString existing = m_ctx.entityOverrides
+                                 ? m_ctx.entityOverrides->displayName(e)
+                                 : e.name;
+    if (existing.compare(name, Qt::CaseInsensitive) == 0)
+    {
+      QMessageBox::warning(this, tr("重名"),
+                           tr("已存在同名实体「%1」").arg(name));
+      return;
+    }
+  }
+  CatalogEntity e;
+  e.entityType = dlg.chosenType();
+  e.name = name;
+  e.hasSurface = dlg.chosenType() == QLatin1String("well");
+  e.surfaceX = dlg.chosenX();
+  e.surfaceY = dlg.chosenY();
+  e.id = m_ctx.cat->nextEntityId(e.entityType == QLatin1String("well")
+                                     ? QStringLiteral("well")
+                                     : QStringLiteral("aux"));
+  if (m_stack)
+  {
+    m_stack->push(new EntityCreateCmd(m_ctx, e));
+    if (m_history)
+      m_history->push(tr("新建实体 %1").arg(name));
+  }
+  else
+  {
+    QString err;
+    if (!m_ctx.cat->addEntity(e, &err))
+    {
+      emit statusMessage(tr("新建实体失败：%1").arg(err));
+      return;
+    }
+  }
+  refresh();
+  emit entityRefreshRequested();
+  emit statusMessage(tr("已新建实体「%1」（可撤销）").arg(name));
+}
+
+void EntityPanel::beginRenameEntity(const QString &entityId)
+{
+  using namespace paleo::dataops;
+  if (!m_ctx.valid() || entityId.isEmpty())
+    return;
+  const CatalogEntity e = m_ctx.cat->entityById(entityId);
+  if (e.id.isEmpty())
+    return;
+  EntityEditDialog dlg(this);
+  dlg.loadEntity(e, m_ctx.entityOverrides ? m_ctx.entityOverrides->overrideFor(e.id)
+                                          : EntityOverride());
+  if (dlg.exec() != QDialog::Accepted)
+    return;
+  const QString newName = dlg.editedName();
+  // D4.1 重名校验：新名不与其它同类实体撞名。
+  for (const CatalogEntity &o : m_ctx.cat->entities(e.entityType))
+    if (o.id != e.id)
+    {
+      const QString existing = m_ctx.entityOverrides
+                                   ? m_ctx.entityOverrides->displayName(o)
+                                   : o.name;
+      if (existing.compare(newName, Qt::CaseInsensitive) == 0)
+      {
+        QMessageBox::warning(this, tr("重名"),
+                             tr("已存在同名实体「%1」").arg(newName));
+        return;
+      }
+    }
+  EntityOverride next;
+  next.name = newName;
+  next.hasCoords = true;
+  next.surfaceX = dlg.editedX();
+  next.surfaceY = dlg.editedY();
+  next.note = dlg.editedNote();
+  if (m_stack)
+  {
+    m_stack->push(new EntityEditCmd(m_ctx, e.id, next,
+                                    m_ctx.entityOverrides
+                                        ? m_ctx.entityOverrides->overrideFor(e.id)
+                                        : EntityOverride(),
+                                    false));
+    if (m_history)
+      m_history->push(tr("编辑实体 %1").arg(newName));
+  }
+  refresh();
+  emit entityRefreshRequested();
+  emit statusMessage(tr("实体「%1」已更新（可撤销）").arg(newName));
+}
+
+void EntityPanel::beginDeleteEntity(const QString &entityId)
+{
+  using namespace paleo::dataops;
+  if (!m_ctx.valid() || entityId.isEmpty())
+    return;
+  const CatalogEntity e = m_ctx.cat->entityById(entityId);
+  if (e.id.isEmpty())
+    return;
+  const int assetCount = int(m_ctx.cat->linksForEntity(entityId).size());
+  EntityDeleteDialog dlg(assetCount, this);
+  if (dlg.exec() != QDialog::Accepted)
+    return;
+  if (dlg.assetsToRecycle())
+  {
+    // 资产一并软删。
+    for (const EntityAssetLink &l : m_ctx.cat->linksForEntity(entityId))
+    {
+      const CatalogAsset a = m_ctx.cat->assetById(l.assetId);
+      if (m_stack)
+        m_stack->push(new SoftDeleteCmd(m_ctx, a.id, a.displayName, a.type, true));
+    }
+  }
+  else
+  {
+    // 保留资产：解除全部关联（可撤销）。
+    for (const EntityAssetLink &l : m_ctx.cat->linksForEntity(entityId))
+      if (m_stack && !l.unresolved)
+        m_stack->push(new DetachLinkCmd(m_ctx, l.assetId, l.role, l.entityId));
+  }
+  // 实体本身：sidecar 软删（可恢复；catalog 无 removeEntity API——GAPS）。
+  if (m_stack)
+    m_stack->push(new SoftDeleteCmd(m_ctx, e.id, e.name, e.entityType, true));
+  if (m_history)
+    m_history->push(tr("删除实体 %1（软删）").arg(e.name));
+  refresh();
+  emit entityRefreshRequested();
+  emit statusMessage(tr("实体「%1」已移入可回收清单（可撤销）").arg(e.name));
 }
 
 void EntityPanel::setDocService(PreviewDocService *doc) { m_doc = doc; }
@@ -206,6 +676,9 @@ void EntityPanel::setContext(const QString &entityId, const QString &assetId)
 {
   m_entityId = entityId;
   m_assetId = assetId;
+  // 单一上下文覆盖多选批量概要态（D4.9 的回落路径）。
+  m_multiAssetIds.clear();
+  m_multiEntityIds.clear();
 }
 
 void EntityPanel::refresh()
@@ -213,6 +686,14 @@ void EntityPanel::refresh()
   QWidget *root = this;
   if (!root)
     return;
+  // D4.9 多选态：批量概要（多资产选中时优先生效；单选/空选回落常规三态）。
+  if (m_multiAssetIds.size() > 1)
+  {
+    refreshMultiSummary();
+    return;
+  }
+  m_multiAssetIds.clear();
+  m_multiEntityIds.clear();
   auto *content = child<QWidget>(root, "entityViewContent");
   auto *empty = child<QLabel>(root, "entityViewEmptyLabel");
   auto *header = child<QLabel>(root, "entityViewHeader");
@@ -632,6 +1113,23 @@ void EntityPanel::refresh()
       }
     }
     missing->hide();
+    // D4.8 统计段：资产态摘要。
+    if (auto *stats = findChild<QLabel *>(QStringLiteral("propStatsText")))
+      stats->setText(tr("版本 %1 个（当前 v%2）· 关联 %3 条 · 未决 %4")
+                         .arg(cat->versionsForAsset(a.id).size())
+                         .arg(v.versionNumber > 0 ? v.versionNumber : 1)
+                         .arg(links.size())
+                         .arg(int(std::count_if(links.begin(), links.end(),
+                                                [](const EntityAssetLink &l) {
+                                                  return l.unresolved;
+                                                }))));
+    // P3 D4.3：资产版本时间线（新→旧版本卡）。
+    if (m_timeline)
+      m_timeline->loadVersions(cat->versionsForAsset(a.id));
+    if (m_topology)
+      m_topology->loadTopology(cat,
+                               m_ctx.entityOverrides ? *m_ctx.entityOverrides
+                                                     : paleo::dataops::EntityOverrideStore());
     return;
   }
 
@@ -650,7 +1148,13 @@ void EntityPanel::refresh()
     empty->setVisible(false);
     content->setVisible(true);
 
-    const QString title = view.entity.name.isEmpty() ? view.entity.id : view.entity.name;
+    // D4.1/D4.2：显示名/坐标经实体改写表（视图层 override，可撤销）。
+    const paleo::dataops::EntityOverride ovr =
+        m_ctx.entityOverrides ? m_ctx.entityOverrides->overrideFor(view.entity.id)
+                              : paleo::dataops::EntityOverride();
+    const QString title = !ovr.name.isEmpty() ? ovr.name
+                          : view.entity.name.isEmpty() ? view.entity.id
+                                                       : view.entity.name;
     QString kindText = tr("井实体");
     if (view.entity.entityType == QLatin1String("auxiliary"))
       kindText = tr("辅助资料");
@@ -680,7 +1184,11 @@ void EntityPanel::refresh()
     if (propCrs) propCrs->setText(tr("工区局部测网坐标系（米）"));
     if (propCoord)
     {
-      if (view.entity.hasSurface)
+      if (ovr.hasCoords)
+        propCoord->setText(tr("地面坐标 X: %1, Y: %2")
+            .arg(QString::number(ovr.surfaceX, 'f', 2))
+            .arg(QString::number(ovr.surfaceY, 'f', 2)));
+      else if (view.entity.hasSurface)
         propCoord->setText(tr("地面坐标 X: %1, Y: %2")
             .arg(QString::number(view.entity.surfaceX, 'f', 2))
             .arg(QString::number(view.entity.surfaceY, 'f', 2)));
@@ -848,6 +1356,42 @@ void EntityPanel::refresh()
           PaleoTheme::capsuleStyleSheet(PaleoTheme::CapsuleKind::Warning));
       missing->show();
     }
+    // P3 D4.3：实体态时间线 = 已决资产的全部版本（新→旧聚合）。
+    if (m_timeline)
+    {
+      QVector<CatalogVersion> agg;
+      for (const RoleSlot &slot : view.roleSlots)
+      {
+        if (!slot.primary.assetId.isEmpty())
+          agg += cat->versionsForAsset(slot.primary.assetId);
+        for (const EntityAssetLink &m : slot.members)
+          agg += cat->versionsForAsset(m.assetId);
+      }
+      m_timeline->loadVersions(agg);
+    }
+    if (m_topology)
+      m_topology->loadTopology(cat,
+                               m_ctx.entityOverrides ? *m_ctx.entityOverrides
+                                                     : paleo::dataops::EntityOverrideStore());
+    // D4.8 统计段：实体态摘要。
+    if (auto *stats = findChild<QLabel *>(QStringLiteral("propStatsText")))
+    {
+      int filled = 0;
+      for (const RoleSlot &slot : view.roleSlots)
+        if (!slot.primary.assetId.isEmpty() || !slot.members.isEmpty())
+          ++filled;
+      stats->setText(tr("角色槽 %1/%2 已填 · 派生产物 %3 · 缺失源 %4")
+                         .arg(filled)
+                         .arg(view.roleSlots.size())
+                         .arg(view.derivedProducts.size())
+                         .arg(view.missingSources.size()));
+    }
     return;
   }
 }
+// AUTOMOC：dataopspanelextra.h 的 Q_OBJECT 类（VersionTimeline/TopologyGraph/
+// 各对话框）——本 TU 持有 moc（datalist.cpp 已持 panelops/undo/views 等）。
+// __has_include 守卫：lint 门 configure-only 场景跳过（详见 datalist.cpp 尾注）。
+#if __has_include("moc_dataopspanelextra.cpp")
+#include "moc_dataopspanelextra.cpp"
+#endif

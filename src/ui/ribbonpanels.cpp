@@ -94,6 +94,12 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     return p;
   };
 
+  if (auto *sections = findChild<QAction *>("sectionWorkbenchAction")) {
+    for (const auto &page : {"data", "predict", "constraint", "compose"})
+      if (auto *cat = categoryForPage(QString::fromLatin1(page)))
+        large(panel(cat, tr("井震剖面"), "ribbonPanel.sections"), sections);
+  }
+
   // ---- 共享动作（多个页签复用同一颗 QAction）----
   // 「参数」= 右侧 dock 的 toggleViewAction：文案随页（预测参数/单因素参数…）。
   QAction *paramsAct = m_rightDock ? m_rightDock->toggleViewAction() : nullptr;
@@ -116,9 +122,9 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     });
     return a;
   };
-  QAction *corrAct = bottomAction(corrPanel, tr("连井剖面"), icon("mActionElevationProfile.svg"),
-                                  tr("在底部面板打开连井剖面（与地图联动）"),
-                                  "ribbonCorrelationAction");
+  QAction *corrAct = bottomAction(
+      corrPanel, tr("测井对比"), icon("mActionElevationProfile.svg"),
+      tr("在底部面板对比多口井的测井曲线与分层"), "ribbonCorrelationAction");
   QAction *attrAct = bottomAction(findChild<QWidget *>(QStringLiteral("attributeTablePanel")),
                                   tr("属性表"), icon("mActionOpenTable.svg"),
                                   tr("在底部面板打开图层属性表"), "ribbonAttributeTableAction");

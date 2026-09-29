@@ -26,6 +26,12 @@ class DataPage : public QWidget
     // 实体数据视图段——壳可把它重新挂到别处（EntityPanel 本体）。
     QWidget *entityViewSection() const { return m_entityPanel; }
 
+    // ---- P3 D6：命令面板/快捷键面（壳与测试入口）----
+    void openCommandPalette();                    // Ctrl+K
+    void openShortcutsDialog();                   // ? 键
+    bool vimModeEnabled() const;
+    void setVimModeEnabled(bool on);
+
   public slots:
     void refreshAssetTable();                     // 资产表/树 + 实体视图一并重取
     void refreshEntityView();                     // 实体角色槽视图重取
@@ -42,12 +48,17 @@ class DataPage : public QWidget
     void seismicLineActivated(const QString &assetId, const QString &mode); // 测线激活
     void wellSelected(const QString &wellId); // 树中选中井 → 地图高亮
     void surveyAreaActivated(); // 双击测区 → 打开测区全景地图
+    // ---- P3 新增 ----
+    void statusMessage(const QString &msg);        // D5.4/D8（壳接状态栏）
+    void externalImportRequested(const QStringList &paths); // D3.2（壳接导入流）
 
   protected:
     bool event(QEvent *event) override; // 动态属性变更 → 门面下发子面板
 
   private:
     PreviewDocService *docService() const;
+    void wireDataOps();      // P3：dataops 信号/共享栈接线（幂等）
+    bool m_dataopsWired = false;
 
     DataListPanel *m_listPanel = nullptr;
     EntityPanel *m_entityPanel = nullptr;

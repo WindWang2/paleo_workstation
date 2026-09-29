@@ -21,6 +21,7 @@
 #include <qgsmapmouseevent.h>
 #include <qgspolygon.h>
 #include <qgsrubberband.h>
+#include <qgstolerance.h>
 #include <qgsvectorlayer.h>
 #include <qgswkbtypes.h>
 
@@ -48,7 +49,7 @@ PaleoAddFeatureTool::PaleoAddFeatureTool( QgsMapCanvas *canvas,
   : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), mode )
   , mLayer( layer )
 {
-  setToolName( tr( "Add feature" ) );
+  setToolName( tr( "添加要素" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
   setCurrentCaptureTechnique( Qgis::CaptureTechnique::StraightSegments );
 }
@@ -161,8 +162,8 @@ bool PaleoAddFeatureTool::commitFeature( QgsGeometry geometry )
   {
     // The host (PaleoEditingToolbar) owns edit sessions; a refusal is a
     // warning, NOT an editAborted() — no user gesture failed here.
-    emit messageEmitted( vl ? tr( "Cannot add feature: %1 is not editable" ).arg( vl->name() )
-                            : tr( "Cannot add feature: no target layer" ),
+    emit messageEmitted( vl ? tr( "无法添加要素：%1 不在编辑状态" ).arg( vl->name() )
+                            : tr( "无法添加要素：没有目标图层" ),
                          Qgis::MessageLevel::Warning );
     return false;
   }
@@ -170,7 +171,7 @@ bool PaleoAddFeatureTool::commitFeature( QgsGeometry geometry )
   // 拓扑提交门（QGIS_NATIVE_ADOPTION）：非法几何（自相交环等）如实拒入
   // edit buffer——原生 QgsGeometryValidator 错误文本，不静默修形。
   const QString geomErr =
-      QgisEditingService::geometryCommitError( geometry, tr( "drawn feature" ) );
+      QgisEditingService::geometryCommitError( geometry, tr( "绘制的要素" ) );
   if ( !geomErr.isEmpty() )
   {
     emit messageEmitted( geomErr, Qgis::MessageLevel::Warning );
@@ -179,7 +180,7 @@ bool PaleoAddFeatureTool::commitFeature( QgsGeometry geometry )
 
   QgsFeature feature( vl->fields() );
   feature.setGeometry( geometry );
-  vl->beginEditCommand( tr( "Add feature" ) );
+  vl->beginEditCommand( tr( "添加要素" ) );
   if ( vl->addFeature( feature ) )
   {
     vl->endEditCommand(); // one edit command per gesture → one native undo step
@@ -201,7 +202,7 @@ PaleoReshapeTool::PaleoReshapeTool( QgsMapCanvas *canvas,
   : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), CaptureLine )
   , mLayer( layer )
 {
-  setToolName( tr( "Reshape features" ) );
+  setToolName( tr( "整形要素" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
   setCurrentCaptureTechnique( Qgis::CaptureTechnique::StraightSegments );
 }
@@ -254,8 +255,8 @@ void PaleoReshapeTool::lineCaptured( const QgsCurve *line )
   QgsVectorLayer *vl = targetLayer();
   if ( !vl || !vl->isEditable() )
   {
-    emit messageEmitted( vl ? tr( "Cannot reshape: %1 is not editable" ).arg( vl->name() )
-                            : tr( "Cannot reshape: no target layer" ),
+    emit messageEmitted( vl ? tr( "无法整形：%1 不在编辑状态" ).arg( vl->name() )
+                            : tr( "无法整形：没有目标图层" ),
                          Qgis::MessageLevel::Warning );
     return;
   }
@@ -263,7 +264,7 @@ void PaleoReshapeTool::lineCaptured( const QgsCurve *line )
   const QgsFeatureIds selected = vl->selectedFeatureIds();
   if ( selected.isEmpty() )
   {
-    emit messageEmitted( tr( "Select features to reshape first" ), Qgis::MessageLevel::Warning );
+    emit messageEmitted( tr( "请先选择要整形的要素" ), Qgis::MessageLevel::Warning );
     return;
   }
 
@@ -273,7 +274,7 @@ void PaleoReshapeTool::lineCaptured( const QgsCurve *line )
   const std::unique_ptr<QgsLineString> reshapeLine( ownedLine->curveToLine() );
   const QgsRectangle lineBBox = reshapeLine->boundingBox();
 
-  vl->beginEditCommand( tr( "Reshape features" ) );
+  vl->beginEditCommand( tr( "整形要素" ) );
   int changed = 0;
   for ( QgsFeatureId fid : selected )
   {
@@ -319,7 +320,7 @@ PaleoMoveTool::PaleoMoveTool( QgsMapCanvas *canvas, QgsVectorLayer *layer )
   : QgsMapToolEdit( canvas ) // NOT QgsMapToolAdvancedDigitizing: events arrive at the plain canvas* hooks
   , mLayer( layer )
 {
-  setToolName( tr( "Move features" ) );
+  setToolName( tr( "移动要素" ) );
   setCursor( QCursor( Qt::SizeAllCursor ) );
 }
 
@@ -354,8 +355,8 @@ void PaleoMoveTool::canvasPressEvent( QgsMapMouseEvent *e )
   if ( !vl || !vl->isEditable() )
   {
     // The host owns edit sessions; a refusal is a warning, not an abort.
-    emit messageEmitted( vl ? tr( "Cannot move features: %1 is not editable" ).arg( vl->name() )
-                            : tr( "Cannot move features: no target layer" ),
+    emit messageEmitted( vl ? tr( "无法移动要素：%1 不在编辑状态" ).arg( vl->name() )
+                            : tr( "无法移动要素：没有目标图层" ),
                          Qgis::MessageLevel::Warning );
     return;
   }
@@ -363,7 +364,7 @@ void PaleoMoveTool::canvasPressEvent( QgsMapMouseEvent *e )
   const QgsFeatureIds selected = vl->selectedFeatureIds();
   if ( selected.isEmpty() )
   {
-    emit messageEmitted( tr( "Select features to move first" ), Qgis::MessageLevel::Warning );
+    emit messageEmitted( tr( "请先选择要移动的要素" ), Qgis::MessageLevel::Warning );
     return;
   }
 
@@ -386,7 +387,7 @@ void PaleoMoveTool::canvasPressEvent( QgsMapMouseEvent *e )
     delete mLastPoint;
     mStartPoint = nullptr;
     mLastPoint = nullptr;
-    emit messageEmitted( tr( "Selected features have no geometry to move" ), Qgis::MessageLevel::Warning );
+    emit messageEmitted( tr( "所选要素没有可移动的几何" ), Qgis::MessageLevel::Warning );
     return;
   }
 
@@ -435,8 +436,8 @@ void PaleoMoveTool::canvasReleaseEvent( QgsMapMouseEvent *e )
   {
     // Layer left edit mode mid-drag: drop the gesture without an edit command
     // (warning, not abort — the drag itself was never committed).
-    emit messageEmitted( vl ? tr( "Cannot move features: %1 is no longer editable" ).arg( vl->name() )
-                            : tr( "Cannot move features: no target layer" ),
+    emit messageEmitted( vl ? tr( "无法移动要素：%1 已不在编辑状态" ).arg( vl->name() )
+                            : tr( "无法移动要素：没有目标图层" ),
                          Qgis::MessageLevel::Warning );
     clearDragState();
     return;
@@ -451,7 +452,7 @@ void PaleoMoveTool::canvasReleaseEvent( QgsMapMouseEvent *e )
     return;
   }
 
-  vl->beginEditCommand( tr( "Move features" ) );
+  vl->beginEditCommand( tr( "移动要素" ) );
   int moved = 0;
   for ( const QPair<qint64, QgsGeometry *> &snapshot : std::as_const( mSnapshots ) )
   {
@@ -508,7 +509,7 @@ PaleoDeleteFeatureTool::PaleoDeleteFeatureTool( QgsMapCanvas *canvas, QgsVectorL
   : QgsMapToolEdit( canvas ) // NOT QgsMapToolAdvancedDigitizing: plain canvas* hooks
   , mLayer( layer )
 {
-  setToolName( tr( "Delete features" ) );
+  setToolName( tr( "删除要素" ) );
   setCursor( QCursor( Qt::ArrowCursor ) );
 }
 
@@ -539,31 +540,47 @@ void PaleoDeleteFeatureTool::canvasReleaseEvent( QgsMapMouseEvent *e )
   if ( !vl || !vl->isEditable() )
   {
     // The host owns edit sessions; a refusal is a warning, not an abort.
-    emit messageEmitted( vl ? tr( "Cannot delete features: %1 is not editable" ).arg( vl->name() )
-                            : tr( "Cannot delete features: no target layer" ),
+    emit messageEmitted( vl ? tr( "无法删除要素：%1 不在编辑状态" ).arg( vl->name() )
+                            : tr( "无法删除要素：没有目标图层" ),
                          Qgis::MessageLevel::Warning );
     return;
   }
 
-  if ( vl->selectedFeatureCount() == 0 )
+  // 命中式删除（QGIS 节点工具惯例：点击作用于光标下的要素）——不再一键删
+  // 整个选区。搜索半径用原生顶点搜索容差（地图单位），点/线/面统一走
+  // 容差圆盘 intersects。
+  const double radius = QgsTolerance::vertexSearchRadius( canvas()->mapSettings() );
+  const QgsGeometry disc = QgsGeometry::fromPointXY( e->mapPoint() ).buffer( radius, 8 );
+  QgsFeatureIds hits;
+  QgsFeature feature;
+  QgsFeatureIterator it = vl->getFeatures( QgsFeatureRequest()
+                                             .setFilterRect( disc.boundingBox() )
+                                             .setFlags( Qgis::FeatureRequestFlag::ExactIntersect ) );
+  while ( it.nextFeature( feature ) )
   {
-    // Nothing was gestured: warn, but do NOT emit editAborted().
-    emit messageEmitted( tr( "Select features to delete first" ), Qgis::MessageLevel::Warning );
+    if ( feature.hasGeometry() && feature.geometry().intersects( disc ) )
+      hits.insert( feature.id() );
+  }
+
+  if ( hits.isEmpty() )
+  {
+    // Nothing under the cursor: warn, but do NOT emit editAborted().
+    emit messageEmitted( tr( "点击位置没有可删除的要素" ), Qgis::MessageLevel::Warning );
     return;
   }
 
-  vl->beginEditCommand( tr( "Delete features" ) );
-  int deleted = 0;
-  const bool ok = vl->deleteSelectedFeatures( &deleted ); // deletedCount out-param (QGIS 4 signature)
-  if ( ok && deleted > 0 )
+  vl->beginEditCommand( tr( "删除要素" ) );
+  const bool ok = vl->deleteFeatures( hits );
+  if ( ok )
   {
     vl->endEditCommand(); // one edit command per click → one native undo step
-    mDeletedCount += deleted;
+    mDeletedCount += static_cast<int>( hits.size() );
     emit featureEdited( vl->id() );
+    emit messageEmitted( tr( "已删除 %1 个要素" ).arg( hits.size() ), Qgis::MessageLevel::Info );
   }
   else
   {
-    vl->destroyEditCommand(); // refused or nothing deleted — stay clean
+    vl->destroyEditCommand(); // refused — stay clean
   }
 }
 

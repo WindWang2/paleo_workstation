@@ -38,17 +38,17 @@ void TypedConstraintDrawController::startCapture( const QString &horizon, const 
 
   if ( horizon.isEmpty() )
   {
-    emit captureFailed( tr( "no active horizon — cannot draw a typed constraint" ) );
+    emit captureFailed( tr( "没有活动层位——无法绘制类型化约束" ) );
     return;
   }
   if ( !m_canvasCtl || !m_wf )
   {
-    emit captureFailed( tr( "typed constraint drawing is not fully wired" ) );
+    emit captureFailed( tr( "类型化约束绘制尚未完成接线" ) );
     return;
   }
   if ( constraintType.isEmpty() )
   {
-    emit captureFailed( tr( "typed constraint needs a constraint type" ) );
+    emit captureFailed( tr( "类型化约束需要一个约束类型" ) );
     return;
   }
 
@@ -65,7 +65,7 @@ void TypedConstraintDrawController::startCapture( const QString &horizon, const 
     m_tool = new PaleoDrawPointTool( canvas, m_cadDock );
   else
   {
-    emit captureFailed( tr( "unsupported typed constraint shape '%1'" ).arg( shape ) );
+    emit captureFailed( tr( "不支持的类型化约束形状「%1」" ).arg( shape ) );
     return;
   }
 
@@ -103,7 +103,7 @@ void TypedConstraintDrawController::onDrawn( const QString &wkt )
   if ( ok )
     emit captureFinished( horizon, type, constraintId );
   else
-    emit captureFailed( err.isEmpty() ? tr( "typed constraint commit failed" ) : err );
+    emit captureFailed( err.isEmpty() ? tr( "类型化约束提交失败" ) : err );
 }
 
 void TypedConstraintDrawController::onAborted()

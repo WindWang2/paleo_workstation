@@ -177,7 +177,7 @@ PaleoVertexTool::PaleoVertexTool( QgsMapCanvas *canvas, QgsVectorLayer *layer )
   : QgsMapToolEdit( canvas )
   , mLayer( layer )
 {
-  setToolName( tr( "Edit vertices" ) );
+  setToolName( tr( "编辑节点" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
 }
 
@@ -272,7 +272,7 @@ void PaleoVertexTool::canvasPressEvent( QgsMapMouseEvent *e )
   QgsVectorLayer *layer = targetLayer();
   if ( !layer || !layer->isEditable() )
   {
-    emit messageEmitted( tr( "Start editing before moving vertices" ), Qgis::MessageLevel::Warning );
+    emit messageEmitted( tr( "请先开始编辑，再移动节点" ), Qgis::MessageLevel::Warning );
     return;
   }
 
@@ -430,20 +430,18 @@ void PaleoVertexTool::canvasMoveEvent( QgsMapMouseEvent *e )
   }
 }
 
-void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
+// Right-button release and Delete/Backspace share this batch delete (single
+// entry point so the keyboard path can never drift from the mouse path).
+void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
 {
-  // Right-button: delete the vertex under the cursor (QGIS gesture convention:
-  // the delete fires on release, not press).
-  if ( e->button() == Qt::RightButton )
-  {
     QgsVectorLayer *layer = targetLayer();
     if ( !layer || !layer->isEditable() )
     {
-      emit messageEmitted( tr( "Start editing before deleting vertices" ), Qgis::MessageLevel::Warning );
+      emit messageEmitted( tr( "请先开始编辑，再删除节点" ), Qgis::MessageLevel::Warning );
       return;
     }
 
-    const QgsPointXY layerPoint = toLayerCoordinates( layer, e->mapPoint() );
+    const QgsPointXY layerPoint = toLayerCoordinates( layer, mapPoint );
     qint64 fid = -1;
     int vertexNr = -1;
     if ( !findNearestVertex( layerPoint, fid, vertexNr ) )
@@ -472,7 +470,7 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
     };
     if ( !ringFitsDelete( geometry, vertexNr ) )
     {
-      emit messageEmitted( tr( "Cannot delete vertex: the feature would become invalid" ), Qgis::MessageLevel::Warning );
+      emit messageEmitted( tr( "无法删除节点：要素将变为无效" ), Qgis::MessageLevel::Warning );
       return;
     }
 
@@ -524,7 +522,7 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
       const QgsFeature other = member.layer->getFeature( member.fid );
       if ( !other.hasGeometry() || !ringFitsDelete( other.geometry(), member.vertexNr ) )
       {
-        emit messageEmitted( tr( "Cannot delete vertex: a shared-boundary feature would become invalid" ),
+        emit messageEmitted( tr( "无法删除节点：共边要素将变为无效" ),
                              Qgis::MessageLevel::Warning );
         return;
       }
@@ -548,7 +546,7 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
         anyFailed = true;
         continue;
       }
-      writeLayer->beginEditCommand( tr( "Deleted vertex" ) );
+      writeLayer->beginEditCommand( tr( "删除节点" ) );
       // Group per fid: several coincident vertices on ONE feature must delete
       // in descending vertex order — dense numbering shifts as vertices drop.
       QHash<qint64, QList<int>> byFid;
@@ -614,13 +612,22 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
     if ( anyFailed )
     {
       emit messageEmitted( anyCommitted
-                               ? tr( "Some layers refused the vertex delete" )
-                               : tr( "Could not delete vertex" ),
+                               ? tr( "部分图层拒绝了节点删除" )
+                               : tr( "无法删除节点" ),
                            Qgis::MessageLevel::Warning );
     }
     mCommitting = false;
 
     rebuildMarkers();
+    return;}
+
+void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
+{
+  // Right-button: delete the vertex under the cursor (QGIS gesture convention:
+  // the delete fires on release, not press).
+  if ( e->button() == Qt::RightButton )
+  {
+    deleteVertexAtMapPoint( e->mapPoint() );
     return;
   }
 
@@ -632,7 +639,7 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
   {
     // The layer was editable when the drag armed but not anymore — drop the
     // drag rather than commit into a missing edit buffer.
-    emit messageEmitted( tr( "Editing was stopped — vertex move discarded" ), Qgis::MessageLevel::Warning );
+    emit messageEmitted( tr( "编辑已停止——节点移动已丢弃" ), Qgis::MessageLevel::Warning );
     clearDragState();
     return;
   }
@@ -672,7 +679,7 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
       continue;
     }
     const QgsPointXY layerRelease = toLayerCoordinates( writeLayer, mapRelease );
-    writeLayer->beginEditCommand( tr( "Moved vertex" ) );
+    writeLayer->beginEditCommand( tr( "移动节点" ) );
     bool layerOk = true;
     for ( auto fit = lit.value().begin(); fit != lit.value().end() && layerOk; ++fit )
     {
@@ -700,8 +707,8 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
   if ( anyFailed )
   {
     emit messageEmitted( anyCommitted
-                             ? tr( "Editing was stopped on some layers — their moves were discarded" )
-                             : tr( "Could not move vertex" ),
+                             ? tr( "部分图层的编辑已停止——这些移动已丢弃" )
+                             : tr( "无法移动节点" ),
                          Qgis::MessageLevel::Warning );
   }
   mCommitting = false;
@@ -715,7 +722,7 @@ void PaleoVertexTool::canvasDoubleClickEvent( QgsMapMouseEvent *e )
   QgsVectorLayer *layer = targetLayer();
   if ( !layer || !layer->isEditable() )
   {
-    emit messageEmitted( tr( "Start editing before adding vertices" ), Qgis::MessageLevel::Warning );
+    emit messageEmitted( tr( "请先开始编辑，再添加节点" ), Qgis::MessageLevel::Warning );
     return;
   }
   refreshTopoIndex(); // gesture start: re-scope the R-tree (lazy rebuild)
@@ -774,7 +781,7 @@ void PaleoVertexTool::canvasDoubleClickEvent( QgsMapMouseEvent *e )
     }
     // onSegment is target-layer CRS; participation is same-CRS — direct.
     const QgsPointXY layerPt = toLayerCoordinates( writeLayer, toMapCoordinates( layer, onSegment ) );
-    writeLayer->beginEditCommand( tr( "Added vertex" ) );
+    writeLayer->beginEditCommand( tr( "添加节点" ) );
     QHash<qint64, QList<int>> byFid;
     for ( const CoincidentMember &member : std::as_const( bl.value() ) )
       byFid[member.fid].append( member.vertexNr );
@@ -806,8 +813,8 @@ void PaleoVertexTool::canvasDoubleClickEvent( QgsMapMouseEvent *e )
   if ( anyFailed )
   {
     emit messageEmitted( anyCommitted
-                             ? tr( "Some layers refused the vertex insert" )
-                             : tr( "Could not add vertex" ),
+                             ? tr( "部分图层拒绝了节点插入" )
+                             : tr( "无法添加节点" ),
                          Qgis::MessageLevel::Warning );
   }
   mCommitting = false;
@@ -817,6 +824,13 @@ void PaleoVertexTool::canvasDoubleClickEvent( QgsMapMouseEvent *e )
 
 void PaleoVertexTool::keyPressEvent( QKeyEvent *e )
 {
+  if ( ( e->key() == Qt::Key_Delete || e->key() == Qt::Key_Backspace ) && !mDraggingVertex )
+  {
+    // QGIS 节点工具惯例：键盘删除作用于光标下的节点（画布最后已知鼠标位置）。
+    deleteVertexAtMapPoint( toMapCoordinates( mCanvas->mouseLastXY() ) );
+    e->accept();
+    return;
+  }
   if ( e->key() == Qt::Key_Escape )
   {
     if ( mDraggingVertex )

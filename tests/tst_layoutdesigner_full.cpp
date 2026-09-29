@@ -105,8 +105,8 @@ class TestLayoutDesignerFull : public QObject
         QVERIFY( a->menu() != nullptr );
         titles << a->menu()->title();
       }
-      QCOMPARE( titles, QStringList( { QStringLiteral( "&File" ), QStringLiteral( "&Items" ),
-                                       QStringLiteral( "&Layout" ), QStringLiteral( "&Settings" ) } ) );
+      QCOMPARE( titles, QStringList( { QStringLiteral( "文件(&F)" ), QStringLiteral( "项(&I)" ),
+                                       QStringLiteral( "版面(&L)" ), QStringLiteral( "设置(&S)" ) } ) );
 
       // The 7 interface accessors return real, idempotent QMenus with titles;
       // edit/view/atlas/report hang as submenus off the Layout top-level.
@@ -118,9 +118,9 @@ class TestLayoutDesignerFull : public QObject
         QVERIFY( !m->title().isEmpty() );
       }
       QCOMPARE( iface->layoutMenu(), iface->layoutMenu() );
-      QCOMPARE( iface->layoutMenu()->title(), QStringLiteral( "&Layout" ) );
-      QCOMPARE( iface->itemsMenu()->title(), QStringLiteral( "&Items" ) );
-      QCOMPARE( iface->settingsMenu()->title(), QStringLiteral( "&Settings" ) );
+      QCOMPARE( iface->layoutMenu()->title(), QStringLiteral( "版面(&L)" ) );
+      QCOMPARE( iface->itemsMenu()->title(), QStringLiteral( "项(&I)" ) );
+      QCOMPARE( iface->settingsMenu()->title(), QStringLiteral( "设置(&S)" ) );
       for ( QMenu *sub : { iface->editMenu(), iface->viewMenu(), iface->atlasMenu(), iface->reportMenu() } )
         QVERIFY( iface->layoutMenu()->actions().contains( sub->menuAction() ) );
 

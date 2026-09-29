@@ -45,7 +45,7 @@ QgsAdvancedDigitizingDockWidget *resolveCadDock( QgsMapCanvas *canvas, QgsAdvanc
 PaleoDrawPointTool::PaleoDrawPointTool( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cadDock )
   : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), CapturePoint )
 {
-  setToolName( tr( "Draw point constraint" ) );
+  setToolName( tr( "绘制点约束" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
 }
 
@@ -100,7 +100,7 @@ void PaleoDrawPointTool::pointCaptured( const QgsPoint &point )
       }
       catch ( QgsCsException & )
       {
-        emit messageEmitted( tr( "Cannot transform constraint point to map coordinates" ), Qgis::MessageLevel::Warning );
+        emit messageEmitted( tr( "无法将约束点转换到地图坐标" ), Qgis::MessageLevel::Warning );
         return;
       }
     }
@@ -117,7 +117,7 @@ void PaleoDrawPointTool::pointCaptured( const QgsPoint &point )
 PaleoDrawCircleTool::PaleoDrawCircleTool( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cadDock )
   : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), CapturePolygon )
 {
-  setToolName( tr( "Draw circle constraint" ) );
+  setToolName( tr( "绘制圆形约束" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
   setCurrentCaptureTechnique( Qgis::CaptureTechnique::StraightSegments );
 }
@@ -183,7 +183,7 @@ void PaleoDrawCircleTool::emitCircle( const QgsPointXY *eventRadiusPoint )
       }
       catch ( QgsCsException & )
       {
-        emit messageEmitted( tr( "Cannot transform constraint circle to map coordinates" ), Qgis::MessageLevel::Warning );
+        emit messageEmitted( tr( "无法将约束圆转换到地图坐标" ), Qgis::MessageLevel::Warning );
         return;
       }
     }
@@ -232,7 +232,7 @@ void PaleoDrawCircleTool::emitCircle( const QgsPointXY *eventRadiusPoint )
 PaleoDrawEllipseTool::PaleoDrawEllipseTool( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cadDock )
   : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), CapturePolygon )
 {
-  setToolName( tr( "Draw ellipse constraint" ) );
+  setToolName( tr( "绘制椭圆约束" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
   setCurrentCaptureTechnique( Qgis::CaptureTechnique::StraightSegments );
 }
@@ -297,7 +297,7 @@ void PaleoDrawEllipseTool::emitEllipse( const QgsPointXY *eventAxis2Point )
       }
       catch ( QgsCsException & )
       {
-        emit messageEmitted( tr( "Cannot transform constraint ellipse to map coordinates" ), Qgis::MessageLevel::Warning );
+        emit messageEmitted( tr( "无法将约束椭圆转换到地图坐标" ), Qgis::MessageLevel::Warning );
         return;
       }
     }

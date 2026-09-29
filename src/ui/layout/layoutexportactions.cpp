@@ -3,15 +3,18 @@
 
 #include <QAction>
 #include <QButtonGroup>
+#include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QProgressDialog>
 #include <QRadioButton>
 #include <QSet>
 #include <QSpinBox>
@@ -29,11 +32,11 @@ namespace
     switch ( format )
     {
       case PaleoLayoutExportActions::Format::Png:
-        return QObject::tr( "PNG image (*.png)" );
+        return QObject::tr( "PNG 图像 (*.png)" );
       case PaleoLayoutExportActions::Format::Pdf:
-        return QObject::tr( "PDF document (*.pdf)" );
+        return QObject::tr( "PDF 文档 (*.pdf)" );
       case PaleoLayoutExportActions::Format::Svg:
-        return QObject::tr( "SVG document (*.svg)" );
+        return QObject::tr( "SVG 文档 (*.svg)" );
     }
     return QString();
   }
@@ -51,7 +54,7 @@ namespace
         : QDialog( parent )
         , m_currentPage0( currentPage0 )
       {
-        setWindowTitle( tr( "Export Layout" ) );
+        setWindowTitle( tr( "导出版面" ) );
 
         m_dpiSpin = new QSpinBox( this );
         m_dpiSpin->setRange( 72, 1200 );
@@ -59,12 +62,12 @@ namespace
         m_dpiSpin->setSuffix( tr( " dpi" ) );
 
         auto *form = new QFormLayout;
-        form->addRow( tr( "Resolution" ), m_dpiSpin );
+        form->addRow( tr( "分辨率" ), m_dpiSpin );
 
         const bool multiPage = pageCount > 1;
-        QRadioButton *allRadio = new QRadioButton( tr( "All pages" ), this );
-        m_currentRadio = new QRadioButton( tr( "Current page (%1)" ).arg( currentPage0 + 1 ), this );
-        m_rangeRadio = new QRadioButton( tr( "Pages from" ), this );
+        QRadioButton *allRadio = new QRadioButton( tr( "全部页面" ), this );
+        m_currentRadio = new QRadioButton( tr( "当前页（第 %1 页）" ).arg( currentPage0 + 1 ), this );
+        m_rangeRadio = new QRadioButton( tr( "页面范围 从" ), this );
         allRadio->setChecked( true );
 
         m_fromSpin = new QSpinBox( this );
@@ -75,11 +78,11 @@ namespace
         m_toSpin->setValue( qMax( 1, pageCount ) );
         auto *rangeRow = new QHBoxLayout;
         rangeRow->addWidget( m_fromSpin );
-        rangeRow->addWidget( new QLabel( tr( "to" ), this ) );
+        rangeRow->addWidget( new QLabel( tr( "到" ), this ) );
         rangeRow->addWidget( m_toSpin );
         rangeRow->addStretch();
 
-        auto *rangeBox = new QGroupBox( tr( "Page Range" ), this );
+        auto *rangeBox = new QGroupBox( tr( "页面范围" ), this );
         auto *rangeLay = new QVBoxLayout( rangeBox );
         rangeLay->addWidget( allRadio );
         rangeLay->addWidget( m_currentRadio );
@@ -153,15 +156,15 @@ namespace
 PaleoLayoutExportActions::PaleoLayoutExportActions( QObject *parent )
   : QObject( parent )
 {
-  m_pngAction = new QAction( tr( "Export as &PNG…" ), this );
+  m_pngAction = new QAction( tr( "导出为 &PNG…" ), this );
   m_pngAction->setObjectName( QStringLiteral( "actionExportLayoutPng" ) );
   connect( m_pngAction, &QAction::triggered, this, [this] { runExportUi( Format::Png ); } );
 
-  m_pdfAction = new QAction( tr( "Export as &PDF…" ), this );
+  m_pdfAction = new QAction( tr( "导出为 &PDF…" ), this );
   m_pdfAction->setObjectName( QStringLiteral( "actionExportLayoutPdf" ) );
   connect( m_pdfAction, &QAction::triggered, this, [this] { runExportUi( Format::Pdf ); } );
 
-  m_svgAction = new QAction( tr( "Export as &SVG…" ), this );
+  m_svgAction = new QAction( tr( "导出为 &SVG…" ), this );
   m_svgAction->setObjectName( QStringLiteral( "actionExportLayoutSvg" ) );
   connect( m_svgAction, &QAction::triggered, this, [this] { runExportUi( Format::Svg ); } );
 }
@@ -209,13 +212,13 @@ void PaleoLayoutExportActions::runExportUi( Format format )
   if ( !layout )
   {
     if ( m_statusTarget )
-      m_statusTarget->showMessage( tr( "No layout to export." ), 4000 );
+      m_statusTarget->showMessage( tr( "没有可导出的版面。" ), 4000 );
     emit exportFinished( QString(), false );
     return;
   }
 
   QWidget *dialogParent = qobject_cast<QWidget *>( parent() );
-  const QString path = QFileDialog::getSaveFileName( dialogParent, tr( "Export Layout" ),
+  const QString path = QFileDialog::getSaveFileName( dialogParent, tr( "导出版面" ),
                                                      QString(), fileDialogFilter( format ) );
   if ( path.isEmpty() )
     return; // user canceled — no export, no signal
@@ -227,15 +230,27 @@ void PaleoLayoutExportActions::runExportUi( Format format )
   if ( dialog.exec() != QDialog::Accepted )
     return;
 
+  // 1200dpi 多页同步导出可能跑很久：模态忙等进度框（核心在 qgis/layoutexport，
+  // 内部一次性走完所有页面，拿不到分页进度——最小可靠版：不确定进度条、
+  // 不可取消，导出结束即关）。
+  QProgressDialog progress( tr( "正在导出版面，请稍候…" ), QString(), 0, 0, dialogParent );
+  progress.setWindowTitle( tr( "导出版面" ) );
+  progress.setWindowModality( Qt::WindowModal );
+  progress.setCancelButton( nullptr );
+  progress.setMinimumDuration( 0 );
+  progress.setValue( 0 );
+  QCoreApplication::processEvents();
+
   const ExportOutcome outcome = exportLayout( layout, path, format, dialog.dpi(), dialog.pageRange() );
+  progress.reset();
 
   if ( m_statusTarget )
   {
     if ( outcome.ok )
     {
       m_statusTarget->showMessage( outcome.files.size() > 1
-                                     ? tr( "Exported %1 files to %2" ).arg( outcome.files.size() ).arg( QFileInfo( outcome.files.first() ).absolutePath() )
-                                     : tr( "Exported %1" ).arg( outcome.files.value( 0 ) ), 4000 );
+                                     ? tr( "已导出 %1 个文件到 %2" ).arg( outcome.files.size() ).arg( QFileInfo( outcome.files.first() ).absolutePath() )
+                                     : tr( "已导出 %1" ).arg( outcome.files.value( 0 ) ), 4000 );
     }
     else
     {

@@ -8,6 +8,7 @@
 #include <QFileDialog>
 #include <QDomDocument>
 #include <QFileInfo>
+#include <QMessageBox>
 
 #include <qgslayout.h>
 #include <qgslayoutitem.h>
@@ -26,9 +27,9 @@ namespace
   // Order is part of the contract (tests pin it).
   const BuiltinTemplate kBuiltinTemplates[] =
   {
-    { "a4_landscape", QT_TRANSLATE_NOOP( "PaleoLayoutTemplates", "A4 Landscape (297 × 210 mm)" ) },
-    { "a4_portrait", QT_TRANSLATE_NOOP( "PaleoLayoutTemplates", "A4 Portrait (210 × 297 mm)" ) },
-    { "a0_landscape", QT_TRANSLATE_NOOP( "PaleoLayoutTemplates", "A0 Landscape (1189 × 841 mm)" ) },
+    { "a4_landscape", QT_TRANSLATE_NOOP( "PaleoLayoutTemplates", "A4 横向（297 × 210 mm）" ) },
+    { "a4_portrait", QT_TRANSLATE_NOOP( "PaleoLayoutTemplates", "A4 纵向（210 × 297 mm）" ) },
+    { "a0_landscape", QT_TRANSLATE_NOOP( "PaleoLayoutTemplates", "A0 横向（1189 × 841 mm）" ) },
   };
 
   const BuiltinTemplate *builtinFor( const QString &key )
@@ -68,7 +69,7 @@ namespace
 PaleoLayoutTemplates::PaleoLayoutTemplates( QObject *parent )
   : QObject( parent )
 {
-  m_saveAction = new QAction( tr( "Save as &Template…" ), this );
+  m_saveAction = new QAction( tr( "另存为模板(&T)…" ), this );
   m_saveAction->setObjectName( QStringLiteral( "actionSaveLayoutTemplate" ) );
   connect( m_saveAction, &QAction::triggered, this, [this]
   {
@@ -78,14 +79,14 @@ PaleoLayoutTemplates::PaleoLayoutTemplates( QObject *parent )
       emit templateFinished( QString(), false );
       return;
     }
-    const QString path = QFileDialog::getSaveFileName( dialogParent( this ), tr( "Save Layout Template" ),
-                                                       QString(), tr( "QGIS layout template (*.qpt)" ) );
+    const QString path = QFileDialog::getSaveFileName( dialogParent( this ), tr( "保存版面模板" ),
+                                                       QString(), tr( "QGIS 版面模板 (*.qpt)" ) );
     if ( path.isEmpty() )
       return; // user canceled — no signal
     saveTemplate( layout, path );
   } );
 
-  m_loadAction = new QAction( tr( "&Load from Template…" ), this );
+  m_loadAction = new QAction( tr( "从模板加载(&L)…" ), this );
   m_loadAction->setObjectName( QStringLiteral( "actionLoadLayoutTemplate" ) );
   connect( m_loadAction, &QAction::triggered, this, [this]
   {
@@ -95,8 +96,8 @@ PaleoLayoutTemplates::PaleoLayoutTemplates( QObject *parent )
       emit templateFinished( QString(), false );
       return;
     }
-    const QString path = QFileDialog::getOpenFileName( dialogParent( this ), tr( "Load Layout Template" ),
-                                                       QString(), tr( "QGIS layout template (*.qpt)" ) );
+    const QString path = QFileDialog::getOpenFileName( dialogParent( this ), tr( "加载版面模板" ),
+                                                       QString(), tr( "QGIS 版面模板 (*.qpt)" ) );
     if ( path.isEmpty() )
       return; // user canceled — no signal
     loadTemplate( layout, path );
@@ -150,13 +151,13 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::saveTemplate( QgsLay
   TemplateOutcome outcome;
   if ( !layout )
   {
-    outcome.error = tr( "No layout to save as a template." );
+    outcome.error = tr( "没有可保存为模板的版面。" );
     emit templateFinished( QString(), false );
     return outcome;
   }
   if ( path.isEmpty() )
   {
-    outcome.error = tr( "No template file given." );
+    outcome.error = tr( "未指定模板文件。" );
     emit templateFinished( QString(), false );
     return outcome;
   }
@@ -166,7 +167,7 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::saveTemplate( QgsLay
   if ( !layout->saveAsTemplate( path, context ) )
   {
     outcome.ok = false;
-    outcome.error = tr( "Could not write the template file %1." ).arg( path );
+    outcome.error = tr( "无法写入模板文件 %1。" ).arg( path );
     emit templateFinished( path, false );
     return outcome;
   }
@@ -186,7 +187,7 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::loadFromFile( QgsLay
   TemplateOutcome outcome;
   if ( !layout )
   {
-    outcome.error = tr( "No layout to load the template into." );
+    outcome.error = tr( "没有可加载模板的版面。" );
     emit templateFinished( QString(), false );
     return outcome;
   }
@@ -194,7 +195,7 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::loadFromFile( QgsLay
   QFile file( path );
   if ( !file.open( QIODevice::ReadOnly | QIODevice::Text ) )
   {
-    outcome.error = tr( "Could not read the template file %1." ).arg( path );
+    outcome.error = tr( "无法读取模板文件 %1。" ).arg( path );
     emit templateFinished( path, false );
     return outcome;
   }
@@ -203,7 +204,7 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::loadFromFile( QgsLay
   const QDomDocument::ParseResult parseResult = document.setContent( &file, QDomDocument::ParseOption::UseNamespaceProcessing );
   if ( !parseResult )
   {
-    outcome.error = tr( "The template file %1 is not valid XML (line %2: %3)." )
+    outcome.error = tr( "模板文件 %1 不是有效的 XML（第 %2 行：%3）。" )
                       .arg( path )
                       .arg( parseResult.errorLine )
                       .arg( parseResult.errorMessage );
@@ -216,7 +217,7 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::loadFromFile( QgsLay
   layout->loadFromTemplate( document, context, /*clearExisting=*/true, &ok );
   if ( !ok )
   {
-    outcome.error = tr( "Could not load the template %1 into the layout." ).arg( path );
+    outcome.error = tr( "无法将模板 %1 加载到版面。" ).arg( path );
     emit templateFinished( path, false );
     return outcome;
   }
@@ -232,7 +233,7 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::applyBuiltin( QgsLay
   TemplateOutcome outcome;
   if ( !builtinFor( key ) )
   {
-    outcome.error = tr( "Unknown built-in template '%1'." ).arg( key );
+    outcome.error = tr( "未知的内置模板「%1」。" ).arg( key );
     emit templateFinished( QString(), false );
     return outcome;
   }
@@ -240,7 +241,7 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::applyBuiltin( QgsLay
   const QString dir = templatesDir();
   if ( dir.isEmpty() )
   {
-    outcome.error = tr( "The built-in templates directory is not configured." );
+    outcome.error = tr( "未配置内置模板目录。" );
     emit templateFinished( QString(), false );
     return outcome;
   }
@@ -248,7 +249,7 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::applyBuiltin( QgsLay
   const QString path = QDir( dir ).absoluteFilePath( key + QStringLiteral( ".qpt" ) );
   if ( !QFile::exists( path ) )
   {
-    outcome.error = tr( "The built-in template %1 was not found in %2." ).arg( key, dir );
+    outcome.error = tr( "在 %2 中找不到内置模板 %1。" ).arg( key, dir );
     emit templateFinished( path, false );
     return outcome;
   }
@@ -280,6 +281,20 @@ QAction *PaleoLayoutTemplates::applyBuiltinAction( const QString &key )
     {
       emit templateFinished( QString(), false );
       return;
+    }
+    // 内置模板走 loadFromTemplate(clearExisting=true)——一键清空版面。
+    // 有内容项时先确认（程序化 applyBuiltin() 不确认：调用方已决断）。
+    const int existing = contentItemCount( layout );
+    if ( existing > 0 )
+    {
+      const auto choice = QMessageBox::question(
+        dialogParent( this ), tr( "应用内置模板" ),
+        tr( "应用模板「%1」将清空当前版面的 %2 个内容项，是否继续？" )
+          .arg( builtinTitle( key ) )
+          .arg( existing ),
+        QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel );
+      if ( choice != QMessageBox::Ok )
+        return;
     }
     applyBuiltin( layout, key );
   } );

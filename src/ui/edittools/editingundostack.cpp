@@ -49,7 +49,7 @@ bool PaleoUndoStack::setLayer( QgsVectorLayer *layer )
   if ( layer && mStack && mStack->canUndo() )
   {
     emit switchRefused( mLayer->id(),
-                        tr( "The current edit layer still has unsaved edit commands; save or roll back before switching layers." ) );
+                        tr( "当前编辑图层仍有未保存的编辑命令；切换图层前请先保存或回滚。" ) );
     return false;
   }
 

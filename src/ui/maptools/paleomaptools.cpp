@@ -42,7 +42,7 @@ QgsAdvancedDigitizingDockWidget *resolveCadDock( QgsMapCanvas *canvas, QgsAdvanc
 PaleoDrawConstraintTool::PaleoDrawConstraintTool( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cadDock )
   : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), CaptureLine )
 {
-  setToolName( tr( "Draw constraint" ) );
+  setToolName( tr( "绘制约束线" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
   setCurrentCaptureTechnique( Qgis::CaptureTechnique::StraightSegments );
 }
@@ -101,7 +101,7 @@ void PaleoDrawConstraintTool::lineCaptured( const QgsCurve *line )
       }
       catch ( QgsCsException & )
       {
-        emit messageEmitted( tr( "Cannot transform constraint line to map coordinates" ), Qgis::MessageLevel::Warning );
+        emit messageEmitted( tr( "无法将约束线转换到地图坐标" ), Qgis::MessageLevel::Warning );
         return;
       }
     }
@@ -137,7 +137,7 @@ void PaleoDrawConstraintTool::cadLineCaptureFinished()
 PaleoDrawPolygonTool::PaleoDrawPolygonTool( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cadDock )
   : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), CapturePolygon )
 {
-  setToolName( tr( "Draw polygon constraint" ) );
+  setToolName( tr( "绘制多边形约束" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
   setCurrentCaptureTechnique( Qgis::CaptureTechnique::StraightSegments );
 }
@@ -196,7 +196,7 @@ void PaleoDrawPolygonTool::polygonCaptured( const QgsCurvePolygon *polygon )
       }
       catch ( QgsCsException & )
       {
-        emit messageEmitted( tr( "Cannot transform constraint polygon to map coordinates" ), Qgis::MessageLevel::Warning );
+        emit messageEmitted( tr( "无法将约束多边形转换到地图坐标" ), Qgis::MessageLevel::Warning );
         return;
       }
     }
@@ -233,7 +233,7 @@ void PaleoDrawPolygonTool::cadPolygonCaptureFinished()
 PaleoDrawRectTool::PaleoDrawRectTool( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cadDock )
   : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), CapturePolygon )
 {
-  setToolName( tr( "Draw rectangle constraint" ) );
+  setToolName( tr( "绘制矩形约束" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
   // NB: CaptureTechnique::Shape is unusable standalone — its concrete shape
   // tools (rectangle/ellipse/...) live in qgis_app, and with none registered
@@ -308,7 +308,7 @@ void PaleoDrawRectTool::emitRectangle( const QgsPointXY *eventCorner )
       }
       catch ( QgsCsException & )
       {
-        emit messageEmitted( tr( "Cannot transform constraint rectangle to map coordinates" ), Qgis::MessageLevel::Warning );
+        emit messageEmitted( tr( "无法将约束矩形转换到地图坐标" ), Qgis::MessageLevel::Warning );
         return;
       }
     }

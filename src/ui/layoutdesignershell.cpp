@@ -526,14 +526,14 @@ QToolBar *PaleoLayoutDesignerShell::toolBarFor( QPointer<QToolBar> &member, cons
   return member;
 }
 
-QMenu *PaleoLayoutDesignerShell::layoutMenu() { return menuFor( m_layoutMenu, tr( "&Layout" ) ); }
-QMenu *PaleoLayoutDesignerShell::editMenu() { return submenuFor( m_editMenu, layoutMenu(), tr( "&Edit" ) ); }
-QMenu *PaleoLayoutDesignerShell::viewMenu() { return submenuFor( m_viewMenu, layoutMenu(), tr( "&View" ) ); }
-QMenu *PaleoLayoutDesignerShell::itemsMenu() { return menuFor( m_itemsMenu, tr( "&Items" ) ); }
-QMenu *PaleoLayoutDesignerShell::atlasMenu() { return submenuFor( m_atlasMenu, layoutMenu(), tr( "&Atlas" ) ); }
-QMenu *PaleoLayoutDesignerShell::reportMenu() { return submenuFor( m_reportMenu, layoutMenu(), tr( "&Report" ) ); }
-QMenu *PaleoLayoutDesignerShell::settingsMenu() { return menuFor( m_settingsMenu, tr( "&Settings" ) ); }
-QMenu *PaleoLayoutDesignerShell::fileMenu() { return menuFor( m_fileMenu, tr( "&File" ) ); }
+QMenu *PaleoLayoutDesignerShell::layoutMenu() { return menuFor( m_layoutMenu, tr( "版面(&L)" ) ); }
+QMenu *PaleoLayoutDesignerShell::editMenu() { return submenuFor( m_editMenu, layoutMenu(), tr( "编辑(&E)" ) ); }
+QMenu *PaleoLayoutDesignerShell::viewMenu() { return submenuFor( m_viewMenu, layoutMenu(), tr( "视图(&V)" ) ); }
+QMenu *PaleoLayoutDesignerShell::itemsMenu() { return menuFor( m_itemsMenu, tr( "项(&I)" ) ); }
+QMenu *PaleoLayoutDesignerShell::atlasMenu() { return submenuFor( m_atlasMenu, layoutMenu(), tr( "地图集(&A)" ) ); }
+QMenu *PaleoLayoutDesignerShell::reportMenu() { return submenuFor( m_reportMenu, layoutMenu(), tr( "报告(&R)" ) ); }
+QMenu *PaleoLayoutDesignerShell::settingsMenu() { return menuFor( m_settingsMenu, tr( "设置(&S)" ) ); }
+QMenu *PaleoLayoutDesignerShell::fileMenu() { return menuFor( m_fileMenu, tr( "文件(&F)" ) ); }
 
 QToolBar *PaleoLayoutDesignerShell::layoutToolbar() { return toolBarFor( m_layoutToolbar, QStringLiteral( "mLayoutToolbar" ) ); }
 QToolBar *PaleoLayoutDesignerShell::navigationToolbar() { return toolBarFor( m_navigationToolbar, QStringLiteral( "mNavigationToolbar" ) ); }

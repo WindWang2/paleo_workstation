@@ -22,8 +22,8 @@ PaleoLayoutUndoStack::PaleoLayoutUndoStack( QgsLayout *layout, QObject *parent )
   {
     // QUndoStack-created actions keep enabled/text in sync with the stack and
     // trigger it directly — no Paleo-side state to keep up to date.
-    m_undoAction = m_stack->createUndoAction( this, tr( "&Undo" ) );
-    m_redoAction = m_stack->createRedoAction( this, tr( "&Redo" ) );
+    m_undoAction = m_stack->createUndoAction( this, tr( "撤销(&U)" ) );
+    m_redoAction = m_stack->createRedoAction( this, tr( "重做(&R)" ) );
     connect( m_stack, &QUndoStack::canUndoChanged, this, &PaleoLayoutUndoStack::canUndoChanged );
     connect( m_stack, &QUndoStack::canRedoChanged, this, &PaleoLayoutUndoStack::canRedoChanged );
   }
@@ -31,8 +31,8 @@ PaleoLayoutUndoStack::PaleoLayoutUndoStack( QgsLayout *layout, QObject *parent )
   {
     // Null layout (or degenerate layout without a stack): uniform, permanently
     // disabled actions so UI wiring never sees a null action.
-    m_undoAction = new QAction( tr( "&Undo" ), this );
-    m_redoAction = new QAction( tr( "&Redo" ), this );
+    m_undoAction = new QAction( tr( "撤销(&U)" ), this );
+    m_redoAction = new QAction( tr( "重做(&R)" ), this );
     m_undoAction->setEnabled( false );
     m_redoAction->setEnabled( false );
     connect( m_undoAction, &QAction::triggered, this, &PaleoLayoutUndoStack::undo );

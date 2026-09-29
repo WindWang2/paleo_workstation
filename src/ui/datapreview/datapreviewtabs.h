@@ -16,6 +16,7 @@ class QTabWidget;
 struct CatalogAsset;
 class QgsProject;
 class QgsMapCanvas;
+class PreviewMapPage;
 
 // ui/datapreview — 数据页页内预览标签栏（docs/PROJECT_AREA_PLAN.md §4）。
 // 普通 QTabWidget（可关闭标签），样式走 DESIGN.md dock 面板，不用工作流
@@ -120,6 +121,11 @@ class DataPreviewTabs : public QWidget
                         const PreviewDocService::SectionDoc &doc);
     void onSectionFailed(const QString &assetId, const QString &reason);
 
+    // D2.10 同目录组图：把另一资产的地图层叠进本预览页（geojson/带配准
+    // 图片/层位栅格；不支持的类型如实跳过）。
+    void addSiblingOverlayLayer(PreviewMapPage *page, const QString &sibAssetId,
+                                const QString &sibName, QWidget *owner);
+
     // 挂接门面（私有）：setImportService/setDocService 共用入口。
     void attachDoc(PreviewDocService *doc);
 
@@ -136,6 +142,8 @@ class DataPreviewTabs : public QWidget
     QHash<QString, QWidget *> m_pageOfAsset;
     QHash<QString, QString> m_wellEntityOfAsset; // assetId → 该标签已选井（多井下拉框）
     QHash<QString, QString> m_titleSuffixOfAsset; // assetId → 「 · 井名」/「 · IL1315」
+    // P2 D2.9：assetId → 预览选中的版本 id（RAW/DERIVED 切换；空 = 缺省最新）。
+    QHash<QString, QString> m_chosenVersionOfAsset;
     // 解码进行中挂起的控件组（服务发射结果时按 assetId 找回该把图像贴哪）。
     struct SectionPending
     {

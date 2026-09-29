@@ -284,6 +284,11 @@ add_library(paleo_qgis STATIC
   src/qgis/factorstylewriter.cpp                    # m2(B)：单因素色带 .qml 落盘
   src/qgis/factorcontour.cpp                        # m2(B)：等值线 GDAL C API
   src/qgis/qgislayerprofile.cpp                     # 页面档案：QgsMapThemeCollection 封装 + 组档案表
+  src/qgis/previewmapcanvas.cpp                     # P2 D1.1 预览画布封装（私有层容器+CRS+历史栈+渐进渲染）
+  src/qgis/previewmaptools.cpp                      # P2 D1.2 预览工具注册表（量测/identify/剖面线）
+  src/qgis/previewrasteranalysis.cpp                # P2 D2.2/D5.x 预览栅格分析（统计/拉伸/直方图/剖面/极值）
+  src/qgis/previewidentify.cpp                      # P2 D7 identify 查询核心（空间索引缓存+栅格插值）
+  src/qgis/previewrendercache.cpp                   # P2 D6.2/D6.6 渲染结果缓存（内存 LRU + QTemporaryDir PNG）
 )
 target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_store paleo_algorithms)
 
@@ -374,6 +379,12 @@ add_library(paleo_ui STATIC
   src/ui/layout/layouttemplates.cpp
   src/ui/layout/layoutundostack.cpp
   src/ui/datapreview/datapreviewtabs.cpp           # §4 data-page preview tabs
+  src/ui/datapreview/previewmappage.cpp            # P2 D1.x/D3.x 预览地图组合页（工具条/状态条/侧栏/鹰眼/书签）
+  src/ui/datapreview/previewtocpanel.cpp           # P2 D4.x 迷你 TOC + 符号快调 + 图例
+  src/ui/datapreview/previewidentifypanel.cpp      # P2 D7.x identify 结果面板 + 全表模式
+  src/ui/datapreview/previewprofilepanel.cpp       # P2 D5.1-5.4 层位剖面图面板
+  src/ui/datapreview/previewhistogramwidget.cpp    # P2 D2.3/D5.8 直方图小图
+  src/ui/datapreview/previewmapstates.cpp          # P2 D1.7/D2.x 状态页 + 会话记忆
   src/ui/dialogs/folderconfirm.cpp                 # W2 文件夹导入确认表
   src/ui/webviewpanel.cpp                          # embedded web shell (lazy, degradable)
   src/ui/wellcomposite/wellcompositetrack.cpp      # ResFormStar 多道综合柱状图
@@ -573,6 +584,18 @@ target_compile_definitions(tst_seismic_section PRIVATE
 add_paleo_test(tst_timedeptool LIBS paleo_io)
 target_compile_definitions(tst_import PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_previewmap_canvas LIBS paleo_qgis)
+add_paleo_test(tst_previewmap_tools LIBS paleo_qgis)
+add_paleo_test(tst_previewmap_identify LIBS paleo_qgis)
+add_paleo_test(tst_previewmap_page LIBS paleo_ui)
+add_paleo_test(tst_previewmap_assets LIBS paleo_ui)
+target_compile_definitions(tst_previewmap_assets PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_previewmap_perf LIBS paleo_ui)
+target_compile_definitions(tst_previewmap_perf PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+# 墙钟预算断言（D6.7）——共享机负载下抖动关回串行基线（tst_correlation_full 先例）。
+set_tests_properties(tst_previewmap_perf PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_datapreview LIBS paleo_ui)
 target_compile_definitions(tst_datapreview PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")

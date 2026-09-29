@@ -50,6 +50,8 @@
 #include "../qgis/qgislayerprofile.h"       // m1 页面档案：setLayoutMapTheme/pageThemeName
 #include "../qgis/qgiseditingservice.h"
 #include "../services/paleotaskservice.h"
+#include "../services/pythonenv.h"
+#include "../workflow/mamcltool.h"
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 #include "ui/seismic3d/seismic3dviewpanel.h"
 #include "services/seismictaskservice.h"
@@ -83,6 +85,7 @@
 #include <QShortcut>
 #include <QToolButton>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QStatusBar>
 #include <QStackedLayout>
 #include <QTabWidget>
@@ -567,6 +570,36 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                 node->setItemVisibilityChecked(true); // 显示意图（可能已在）
             });
     // ---- m2(A) end ----
+  }
+
+  // MAMCL 外部工具：视图只发意图；解包/venv/依赖/启动编排在 MamclTool
+  // （功能层）+ PythonEnvService（数据层）。与 pred 是否在场无关，独立接线。
+  if (predictPage)
+  {
+    auto *status = predictPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
+    const QString envRoot =
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) +
+        QStringLiteral("/external/mamcl");
+    auto *pyenv = new PythonEnvService(envRoot, this);
+    auto *mamcl = new MamclTool(pyenv, this);
+    connect(predictPage, &PredictPage::mamclLaunchRequested, mamcl, &MamclTool::open);
+    connect(mamcl, &MamclTool::busyChanged, predictPage, &PredictPage::setMamclBusy);
+    connect(mamcl, &MamclTool::statusMessage, predictPage,
+            [status](const QString &msg) {
+              if (status)
+                status->setText(msg);
+            });
+    connect(mamcl, &MamclTool::launchFinished, predictPage,
+            [status](bool ok, const QString &msg) {
+              if (status)
+                status->setText(msg);
+              if (!ok)
+                QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::Critical);
+            });
+    // pip/解包逐行输出落消息日志（状态条只承载阶段文案，不刷屏）。
+    connect(pyenv, &PythonEnvService::outputLine, this, [](const QString &line) {
+      QgsMessageLog::logMessage(line, QStringLiteral("MAMCL"), Qgis::Info);
+    });
   }
 }
 

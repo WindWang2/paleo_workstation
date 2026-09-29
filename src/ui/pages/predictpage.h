@@ -28,6 +28,9 @@ class PredictPage : public QWidget
     // 不伪造进度）。
     void setRunBusy(bool busy);
     void updateProgress(int percent);
+    // MAMCL 外部工具：busy=环境准备中（按钮置灰 + reason tooltip），启动结果
+    // 文案由壳写 statusLabel。
+    void setMamclBusy(bool busy);
 
   signals:
     void runRequested(const QString &horizon, const QString &algorithmId, const QVariantMap &params);
@@ -35,6 +38,8 @@ class PredictPage : public QWidget
     void runCancelRequested();
     // 历史结果行「显示」→ 壳 instantiate + 图层树勾选 + zoomToLayer。
     void showResultRequested(const QString &layerId);
+    // 外部工具「地震多属性智能分析 (MAMCL)」→ 壳走 MamclTool 编排启动。
+    void mamclLaunchRequested();
 
   private:
     QVariantMap parseInputParams();                    // onnx:* 三控件（行为不变）

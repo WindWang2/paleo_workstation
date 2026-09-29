@@ -245,6 +245,7 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   m_links.clear();
   m_assetSeq = m_versionSeq = 0;
   m_roles = RoleRegistry::defaults();
+  m_idx.clear();
 
   const auto fail = [&](const QString &msg) {
     setError(error, msg);
@@ -314,9 +315,10 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
       // 坏段版本如实跳过且不写回，不静默沿用——与 addVersion 同一校验面
       // （audit row 36/T33；resolvedVersionPath 另挡符号链接与越界绝对路径）。
       QString badSeg = unsafeVersionSegmentReason(cv);
-      if (badSeg.isEmpty() && cv.managed && !cv.path.isEmpty() &&
-          resolvedVersionPath(m_dir, cv).isEmpty())
-        badSeg = QStringLiteral("managed path escapes project root: %1").arg(cv.path);
+      // D5.7（10k 资产打开预算）：装载期只做段校验——段已排除 ".."/绝对/
+      // 反斜杠，无符号链接不可能逃出根；符号链接逃逸检查推迟到
+      // resolvedVersionPath() 访问期（那里本来就查）。装载不再做 N 次文件
+      // 系统 stat（10k 版本 × 4 段 = 4 万次 stat 是打开预算的大头）。
       if (!badSeg.isEmpty())
       {
         qWarning("catalog: skipping version %s with unsafe path segment: %s",
@@ -331,6 +333,7 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
     }
     for (const auto &v : root.value(QStringLiteral("entity_asset_links")).toArray())
       m_links.append(linkFromJson(v.toObject()));
+    m_idx.rebuild(m_entities, m_assets, m_versions, m_links); // D5.1
     return QString();
   };
 
@@ -448,11 +451,32 @@ bool DataCatalog::save(QString *error)
     setError(error, QStringLiteral("cannot write %1: %2").arg(catalogPath(), f.errorString()));
     return false;
   }
-  // §9 回滚：替换前把现存 catalog 轮转一份 .bak——QSaveFile 防写一半，
-  // .bak 防「写成功了但内容是错的」需要一个上一代可回退。
+  // §9 回滚 + D5.6 备份轮转：替换前把现存 catalog 轮转一份 .bak——QSaveFile
+  // 防写一半，.bak 防「写成功了但内容是错的」需要一个上一代可回退。
+  // 轮转保留 backupKeepCount() 代：.bak（最新）→ .bak.2 → … → .bak.N；
+  // open() 的腐败回退只读 .bak（最新一代）。
   if (QFile::exists(catalogPath()))
   {
+    // 代命名：gen1 = catalog.json.bak（最新），gen g>=2 = catalog.json.bak.g。
+    // keep=K：删除第 K 代 → 2..K-1 依次后移 → .bak 升为 .bak.2 → 现行内容成新 .bak。
     const QString bak = catalogPath() + QStringLiteral(".bak");
+    const int keep = qBound(1, m_backupKeep, 9);
+    if (keep == 1)
+    {
+      // 只留一代：全部扩展代清空。
+      for (int g = 2; g <= 9; ++g)
+        QFile::remove(bak + QStringLiteral(".%1").arg(g));
+    }
+    else
+    {
+      QFile::remove(bak + QStringLiteral(".%1").arg(keep));
+      for (int gen = keep - 1; gen >= 2; --gen)
+        if (QFile::exists(bak + QStringLiteral(".%1").arg(gen)))
+          paleoReplaceFile(bak + QStringLiteral(".%1").arg(gen),
+                           bak + QStringLiteral(".%1").arg(gen + 1));
+      if (QFile::exists(bak))
+        paleoReplaceFile(bak, bak + QStringLiteral(".2"));
+    }
     const QString bakTmp = bak + QStringLiteral(".tmp");
     QFile::remove(bakTmp);
     if (!QFile::copy(catalogPath(), bakTmp))
@@ -533,9 +557,11 @@ bool DataCatalog::addEntity(const CatalogEntity &e, QString *error)
     return false;
   }
   m_entities.append(e);
+  m_idx.entityAdded(m_entities.size() - 1, e.id, e.entityType); // D5.2 增量
   if (save(error))
     return true;
   m_entities.removeLast();
+  m_idx.rebuild(m_entities, m_assets, m_versions, m_links); // 回滚——罕见路径全量换正确性
   return false;
 }
 
@@ -556,9 +582,11 @@ bool DataCatalog::addAsset(const CatalogAsset &a, QString *error)
       m_assetSeq = qMax(m_assetSeq, n);
   }
   m_assets.append(a);
+  m_idx.assetAdded(m_assets.size() - 1, a.id, a.type); // D5.2
   if (save(error))
     return true;
   m_assets.removeLast();
+  m_idx.rebuild(m_entities, m_assets, m_versions, m_links);
   return false;
 }
 
@@ -620,19 +648,21 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
   // 不留「版本回滚了但 stale 标记还在」的半截内存态（与 addLink 同一纪律）。
   const QVector<CatalogVersion> previousVersions = m_versions;
   m_versions.append(v);
+  m_idx.versionAdded(m_versions.size() - 1, v); // D5.2
   // B 包 staleness-lite：新版本入库 = 同资产 versionNumber 更低的旧版本被
   // 取代（supersede）——其下游闭包中的 DERIVED 版本输入失效，随本次
   // addVersion 同一原子写落 extra["stale"]/["staleReason"]，不二次落盘。
   QStringList superseded;
-  for (const CatalogVersion &old : m_versions)
-    if (old.assetId == v.assetId && old.versionNumber < v.versionNumber)
-      superseded.append(old.id);
+  for (int r : m_idx.versionRowsForAsset(v.assetId)) // D5.1 O(命中集) 非全表
+    if (m_versions.at(r).versionNumber < v.versionNumber)
+      superseded.append(m_versions.at(r).id);
   for (const QString &pid : superseded)
     markStaleDownstreamOf(
         pid, QStringLiteral("上游版本 %1 已被同资产新版本 %2 取代").arg(pid, v.id));
   if (save(error))
     return true;
   m_versions = previousVersions;
+  m_idx.versionsMutated(m_versions);
   return false;
 }
 
@@ -659,15 +689,19 @@ bool DataCatalog::addLink(const EntityAssetLink &l, QString *error)
   // §3：新的已决主关联入库后，同一 (entityType, entityId, role) 只保留这一条
   // 主关联——同角色旧主关联（例如同井同角色的旧版本资产）降级为非主。
   if (stored.isPrimary && !stored.unresolved)
-    for (int i = 0; i < m_links.size() - 1; ++i)
-      if (m_links[i].isPrimary && !m_links[i].unresolved &&
+    for (int i : m_idx.linkRowsForEntity(stored.entityId)) // D5.1 O(命中集)
+      if (i != m_links.size() - 1 && m_links[i].isPrimary && !m_links[i].unresolved &&
           m_links[i].entityType == stored.entityType &&
           m_links[i].entityId == stored.entityId &&
           m_links[i].role == stored.role)
         m_links[i].isPrimary = false;
   if (save(error))
-    return true;
+  {
+    m_idx.linkAdded(m_links.size() - 1, m_links.last()); // D5.2：纯追加——旧主关联
+    return true;                                          // 只降标志，邻接键不变
+  }
   m_links = previousLinks;
+  m_idx.linksMutated(m_links);
   return false;
 }
 
@@ -700,14 +734,20 @@ bool DataCatalog::attachLink(int index, const QString &entityId, QString *error)
   // （诚实降级，见 invalidRoleLinks()）。
   annotateRoleDiagnostics(l, m_roles);
   // 与 addLink 同一不变量：同一 (entityType, entityId, role) 只留这一条主关联。
-  for (int i = 0; i < m_links.size(); ++i)
+  // 注意：未决链接也可能带 entityId（上游约定——entity 邻接先于决议建立），
+  // 行集可能包含 index 自身，须显式排除。
+  for (int i : m_idx.linkRowsForEntity(entityId)) // D5.1 O(命中集)
     if (i != index && m_links[i].isPrimary && !m_links[i].unresolved &&
         m_links[i].entityType == l.entityType && m_links[i].entityId == entityId &&
         m_links[i].role == l.role)
       m_links[i].isPrimary = false;
   if (save(error))
+  {
+    m_idx.linksMutated(m_links); // entityId 获值——entity 邻接变化
     return true;
+  }
   m_links = previousLinks;
+  m_idx.linksMutated(m_links);
   return false;
 }
 
@@ -733,8 +773,12 @@ bool DataCatalog::setLinkUnresolved(int index, QString *error)
   l.isPrimary = false;
   l.note.clear();
   if (save(error))
+  {
+    m_idx.linksMutated(m_links); // entityId 被清空——entity 邻接变化
     return true;
+  }
   m_links = previousLinks;
+  m_idx.linksMutated(m_links);
   return false;
 }
 
@@ -757,14 +801,19 @@ bool DataCatalog::setLinkPrimary(int index, QString *error)
   l.isPrimary = true;
   // 与 addLink/attachLink 同一不变量：同一 (entityType, entityId, role) 只留
   // 这一条主关联——同井同角色的旧版本资产降级为非主，不复制字节。
-  for (int i = 0; i < m_links.size(); ++i)
+  // 行集是提升前的快照——index 行本就在 entity 行集里，须显式排除。
+  for (int i : m_idx.linkRowsForEntity(l.entityId)) // D5.1 O(命中集)
     if (i != index && m_links[i].isPrimary && !m_links[i].unresolved &&
         m_links[i].entityType == l.entityType && m_links[i].entityId == l.entityId &&
         m_links[i].role == l.role)
       m_links[i].isPrimary = false;
   if (save(error))
+  {
+    // 同上：纯标志位变化——零重索引。
     return true;
+  }
   m_links = previousLinks;
+  m_idx.linksMutated(m_links);
   return false;
 }
 
@@ -886,27 +935,25 @@ bool DataCatalog::isSafePathSegment(const QString &segment)
 
 bool DataCatalog::hasEntity(const QString &id) const
 {
-  for (const CatalogEntity &e : m_entities)
-    if (e.id == id)
-      return true;
-  return false;
+  return m_idx.entityRow(id) >= 0; // D5.1 O(1)
 }
 
 QVector<CatalogEntity> DataCatalog::entities(const QString &entityType) const
 {
   QVector<CatalogEntity> out;
-  for (const CatalogEntity &e : m_entities)
-    if (entityType.isEmpty() || e.entityType == entityType)
-      out.append(e);
+  if (entityType.isEmpty())
+    return m_entities;
+  const QVector<int> rows = m_idx.entityRowsByType(entityType); // D5.1
+  out.reserve(rows.size());
+  for (int r : rows)
+    out.append(m_entities.at(r));
   return out;
 }
 
 CatalogEntity DataCatalog::entityById(const QString &id) const
 {
-  for (const CatalogEntity &e : m_entities)
-    if (e.id == id)
-      return e;
-  return CatalogEntity();
+  const int row = m_idx.entityRow(id); // D5.1 O(1)
+  return row >= 0 ? m_entities.at(row) : CatalogEntity();
 }
 
 QVector<CatalogAsset> DataCatalog::assets() const
@@ -916,35 +963,33 @@ QVector<CatalogAsset> DataCatalog::assets() const
 
 CatalogAsset DataCatalog::assetById(const QString &id) const
 {
-  for (const CatalogAsset &a : m_assets)
-    if (a.id == id)
-      return a;
-  return CatalogAsset();
+  const int row = m_idx.assetRow(id); // D5.1 O(1)
+  return row >= 0 ? m_assets.at(row) : CatalogAsset();
 }
 
 QVector<CatalogVersion> DataCatalog::versionsForAsset(const QString &assetId) const
 {
   QVector<CatalogVersion> out;
-  for (const CatalogVersion &v : m_versions)
-    if (v.assetId == assetId)
-      out.append(v);
+  const QVector<int> rows = m_idx.versionRowsForAsset(assetId); // D5.1 O(1)+收集
+  out.reserve(rows.size());
+  for (int r : rows)
+    out.append(m_versions.at(r));
   return out;
 }
 
 CatalogVersion DataCatalog::versionById(const QString &id) const
 {
-  for (const CatalogVersion &v : m_versions)
-    if (v.id == id)
-      return v;
-  return CatalogVersion();
+  const int row = m_idx.versionRow(id); // D5.1 O(1)
+  return row >= 0 ? m_versions.at(row) : CatalogVersion();
 }
 
 CatalogVersion DataCatalog::currentVersion(const QString &assetId) const
 {
   CatalogVersion best;
-  for (const CatalogVersion &v : m_versions)
-    if (v.assetId == assetId && v.versionNumber >= best.versionNumber)
-      best = v;
+  const QVector<int> rows = m_idx.versionRowsForAsset(assetId); // D5.1
+  for (int r : rows)
+    if (m_versions.at(r).versionNumber >= best.versionNumber)
+      best = m_versions.at(r);
   return best;
 }
 
@@ -955,9 +1000,10 @@ QVector<EntityAssetLink> DataCatalog::linksForEntity(const QString &entityId) co
   if (entityId.isEmpty())
     return {};
   QVector<EntityAssetLink> out;
-  for (const EntityAssetLink &l : m_links)
-    if (l.entityId == entityId)
-      out.append(l);
+  const QVector<int> rows = m_idx.linkRowsForEntity(entityId); // D5.1（行升序）
+  out.reserve(rows.size());
+  for (int r : rows)
+    out.append(m_links.at(r));
   // B 包：同 (entity,role) 成员按 ordinal 升序展示。stable_sort 只按 ordinal
   // 排——不同角色间的相对序保持入库序；旧数据 ordinal 全 0 时输出与排序前
   // 完全一致，对既有消费方零扰动。
@@ -980,9 +1026,10 @@ QVector<EntityAssetLink> DataCatalog::unresolvedLinks() const
 QVector<EntityAssetLink> DataCatalog::linksForAsset(const QString &assetId) const
 {
   QVector<EntityAssetLink> out;
-  for (const EntityAssetLink &l : m_links)
-    if (l.assetId == assetId)
-      out.append(l);
+  const QVector<int> rows = m_idx.linkRowsForAsset(assetId); // D5.1（行升序）
+  out.reserve(rows.size());
+  for (int r : rows)
+    out.append(m_links.at(r));
   return out;
 }
 
@@ -996,9 +1043,10 @@ QVector<CatalogVersion> DataCatalog::downstreamClosure(const QString &versionId)
   QVector<CatalogVersion> out;
   if (versionId.isEmpty())
     return out;
-  // BFS：frontier 逐个版本反查「谁把它列进 parentVersionIds」。seen 先放种子
-  // ——环（A→B→A）里种子不作为「自己的下游」进结果，也保证遍历终止。
-  // 结果序 = BFS 发现序（frontier 序 × m_versions 表序），确定性。
+  // BFS：邻接表反查（D5.4 childrenByParent）——不再每层全表扫 m_versions。
+  // 结果序 = BFS 发现序（frontier 序 × 子版本行序），与旧「全表扫描 × 表序」
+  // 逐项一致（子版本按行序入边）。seen 先放种子——环（A→B→A）里种子不作为
+  // 「自己的下游」进结果，也保证遍历终止。
   QSet<QString> seen;
   seen.insert(versionId);
   QStringList frontier{versionId};
@@ -1006,13 +1054,16 @@ QVector<CatalogVersion> DataCatalog::downstreamClosure(const QString &versionId)
   {
     // 值拷贝：frontier.append 可能重分配 QList 存储，引用会悬垂。
     const QString cur = frontier.at(head);
-    for (const CatalogVersion &v : m_versions)
+    for (const QString &childId : m_idx.childVersionIds(cur))
     {
-      if (seen.contains(v.id) || !v.parentVersionIds.contains(cur))
+      if (seen.contains(childId))
         continue;
-      seen.insert(v.id);
-      frontier.append(v.id);
-      out.append(v);
+      const int row = m_idx.versionRow(childId);
+      if (row < 0)
+        continue;
+      seen.insert(childId);
+      frontier.append(childId);
+      out.append(m_versions.at(row));
     }
   }
   return out;
@@ -1092,13 +1143,12 @@ QStringList DataCatalog::wellsMatchingName(const QString &name) const
   QStringList out;
   if (needle.isEmpty())
     return out;
-  for (const CatalogEntity &e : m_entities)
+  const QVector<int> rows = m_idx.entityRowsByType(QStringLiteral("well")); // D5.1
+  for (int r : rows)
   {
-    if (e.entityType != QStringLiteral("well"))
-      continue;
     // D12：井身份只走规范化 name——uwi/别名匹配已随字段一并剥离。
-    if (normalizeWellName(e.name) == needle)
-      out.append(e.id);
+    if (normalizeWellName(m_entities.at(r).name) == needle)
+      out.append(m_entities.at(r).id);
   }
   return out;
 }
@@ -1199,4 +1249,15 @@ bool DataCatalog::writeWellsGeoJson(const QString &path, QString *error) const
     return false;
   }
   return true;
+}
+
+// ---- D5 计数缓存 / 索引健康 ----
+QHash<QString, int> DataCatalog::entityCountsByType() const
+{
+  return m_idx.entityCountsByType();
+}
+
+bool DataCatalog::indexHealthy(QString *mismatch) const
+{
+  return m_idx.verifyAgainst(m_entities, m_assets, m_versions, m_links, mismatch);
 }

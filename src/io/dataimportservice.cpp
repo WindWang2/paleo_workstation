@@ -1,6 +1,10 @@
 // 层：数据
 #include "dataimportservice.h"
 
+#include "lascache.h"
+#include "segyindexstore.h"
+#include "shacache.h"
+
 #include "../catalog/datacatalog.h"
 #include "../metadata/layermanifest.h"
 #include "../metadata/paleoprojectstore.h"
@@ -132,6 +136,17 @@ void DataImportService::setProjectDir(const QString &dir)
   m_pdfErrors.clear();
 
   m_projectDir = dir;
+  // wave/io-perf-cache：工程级缓存根统一接线（P4）。
+  //  · LAS 解析缓存 + SHA 摘要表落 <project>/artifacts/index/（工程私有，
+  //    随工程迁移；损坏自愈见 lascache/shacache）。
+  //  · SEG-Y 道索引目录同源（openCached 调用方取 indexCacheDir()）。
+  //  · vendor SgyIndexCache 的全局缓存目录顺手预建（D2.1 仓外根治）。
+  if (!dir.trimmed().isEmpty())
+  {
+    LasCache::shared().setDiskRoot(dir + QStringLiteral("/artifacts/index/las"));
+    ShaCache::shared().setDiskFile(dir + QStringLiteral("/artifacts/index/sha.json"));
+    SegyIndexStore::ensureLegacyGlobalCacheDir();
+  }
   m_catalogReady = false;
   QString err;
   m_catalogReady = m_catalog->open(dir, &err);
@@ -143,6 +158,13 @@ void DataImportService::setProjectDir(const QString &dir)
     qWarning("DataImportService: catalog open failed: %s", qPrintable(err));
     emit catalogOpenFailed(err);
   }
+}
+
+QString DataImportService::indexCacheDir() const
+{
+  return m_projectDir.isEmpty()
+             ? QString()
+             : m_projectDir + QStringLiteral("/artifacts/index/segy");
 }
 
 IngestPlan DataImportService::planFor(
@@ -369,7 +391,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
 
   // 流式算一遍源文件 SHA-256：dedup 查询与外链入库留底共用这一趟。
   QString shaErr;
-  const QString sourceSha = DataCatalog::sha256FileHex(sourcePath, &shaErr);
+  const QString sourceSha = ShaCache::shared().sha256Hex(sourcePath, &shaErr); // D7.7
   if (sourceSha.isEmpty())
     return fail(shaErr.isEmpty() ? QStringLiteral("cannot hash %1").arg(sourcePath) : shaErr);
 
@@ -1338,7 +1360,7 @@ int DataImportService::attachResolvableLinks(const CatalogAsset &asset,
     const EntityAssetLink &l = links.at(i);
     if (l.assetId != asset.id || l.entityType != QLatin1String("well"))
       continue;
-    const QStringList tried = namesPerLink.at(nameIdx++);
+    const QStringList &tried = namesPerLink.at(nameIdx++);
     if (!l.unresolved)
       continue;
     QString target;
@@ -1670,7 +1692,7 @@ QString DataImportService::relocateVersionSource(const QString &versionId,
 
   // 流式 SHA-256 复验（与导入/外链校验同一面）。
   QString herr;
-  const QString sha = DataCatalog::sha256FileHex(abs, &herr);
+  const QString sha = ShaCache::shared().sha256Hex(abs, &herr); // D7.7
   if (sha.isEmpty())
     return fail(herr.isEmpty() ? QStringLiteral("cannot hash %1").arg(abs) : herr);
   if (sha.compare(v.sha256, Qt::CaseInsensitive) != 0)

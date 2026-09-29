@@ -77,6 +77,21 @@ public:
 
 class QWidget;
 
+// D1.10 装饰件主题 token（DESIGN.md 双主题）：画布本体按纸面白底不动
+//（数据符号不随暗色——wellcomposite 同口径），装饰件的卡片/描线/文字色
+// 跟随 UI 主题。浅色 = 既有硬编码色；暗色取 DESIGN dark 块 token。
+namespace PaleoDecorationTheme
+{
+  void setDark( bool dark );
+  bool isDark();
+  QColor card();            // 半透明承载卡片底
+  QColor ink();             // 主描线/文字
+  QColor inkSoft();         // 次级网格线
+  QColor border();          // 卡片描边
+  QColor arrowDarkHalf();   // 指北针深色半翼
+  QColor arrowLightHalf();  // 指北针浅色半翼
+}
+
 // Toggles decoration overlays on a QgsMapCanvas. Parented to the canvas by
 // default; paintDecorations() is the slot wired to renderComplete and is also
 // directly callable for offscreen paint checks.

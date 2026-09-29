@@ -1,12 +1,21 @@
 // 层：测试壳
 // paleo selfcheck — §44.1: checklist + rendered map.png prove the vendored QGIS stack is alive.
 // Each line: PASS/FAIL with cause+fix hint on failure (§44.3 error contract).
+//
+// wave/io-perf-cache D8.1：组化调度——
+//   paleo_selfcheck              默认 qgis 组（原行为，逐字节不变）
+//   paleo_selfcheck qgis         同上
+//   paleo_selfcheck perf [--json <path>]  数据层性能基准（无 QGIS 初始化，
+//                                JSON 到 stdout/文件，超预算退出码 1）
+#include "perfgroup.h"
+
 #include <qgsapplication.h>
 #include <qgsproviderregistry.h>
 #include <qgsvectorlayer.h>
 #include <qgsmapsettings.h>
 #include <qgsmaprendererparalleljob.h>
 #include <qgsmapcanvas.h>
+#include <QCoreApplication>
 #include <QImage>
 #include <QFileInfo>
 #include <cstdio>
@@ -20,7 +29,7 @@ static void check(bool ok, const QString &name, const QString &fix = {})
   if (!fix.isEmpty()) std::printf("       fix: %s\n", qPrintable(fix));
 }
 
-int main(int argc, char *argv[])
+static int runQgisGroup(int argc, char *argv[])
 {
   QElapsedTimer total; total.start();
   QgsApplication app(argc, argv, false);
@@ -58,7 +67,8 @@ int main(int argc, char *argv[])
     job.waitForFinished();
     img = job.renderedImage();
   }
-  check(!img.isNull(), QStringLiteral("map rendered"));
+  check(!img.isNull(), QStringLiteral("map rendered"),
+        QStringLiteral("renderer produced no output"));
 
   bool uniform = true;
   if (!img.isNull()) {
@@ -77,4 +87,19 @@ int main(int argc, char *argv[])
   QgsApplication::exitQgis();
   std::printf("%s — %lld ms total\n", failures ? "SELFCHECK FAILED" : "SELFCHECK OK", (long long)total.elapsed());
   return failures ? 1 : 0;
+}
+
+int main(int argc, char *argv[])
+{
+  // 直接看 argv：QCoreApplication::arguments() 在实例化前不可用，而 perf
+  // 组故意不建 QGIS 应用——分发必须先于任何 App 构造。
+  const QString group = argc > 1 ? QString::fromLocal8Bit(argv[1]) : QStringLiteral("qgis");
+  if (group == QStringLiteral("perf"))
+  {
+    // 数据层基准：无需 QGIS（core-only），QCoreApplication 即可。
+    QCoreApplication app(argc, argv);
+    const QStringList args = QCoreApplication::arguments();
+    return PerfGroup::runMain(args.mid(2));
+  }
+  return runQgisGroup(argc, argv);
 }

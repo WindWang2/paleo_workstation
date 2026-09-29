@@ -421,8 +421,8 @@ void MappingWorkbenchPage::refresh() {
   refreshInputs();
   updateState();
 }
-void MappingWorkbenchPage::showMessage(const QString &s) {
-  m_message->setText(s);
+void MappingWorkbenchPage::showMessage(const QString &message) {
+  m_message->setText(message);
 }
 void MappingWorkbenchPage::updateState() {
   const bool horizon = !m_horizon.isEmpty();

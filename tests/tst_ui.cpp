@@ -2,6 +2,7 @@
 #include <QTemporaryDir>
 #include <QLabel>
 #include <QComboBox>
+#include <QLineEdit>
 #include <QTabBar>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -28,6 +29,7 @@
 #include "../src/ui/decorations/paleodecorations.h"
 #include "../src/ui/edittools/editingtoolbar.h"
 #include "../src/ui/pages/mappingworkbenchpage.h"
+#include "../src/ui/pages/datalist.h"
 #include "../src/ui/pages/wellpredictionpanel.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/paleotheme.h"
@@ -50,6 +52,13 @@
 #include <qgsvectorlayer.h>
 #include <qgslayertreemodel.h>
 #include <qgsmaptoolpan.h>
+
+// P3 D9 分栏契约测试的前置上下文（类外声明——moc 不解析槽区内的嵌套结构体）。
+struct DataOpsWidthCtx
+{
+    QSplitter *split = nullptr;
+    int width = 0;
+};
 
 // App-shell acceptance (§42): the five-page workflow chrome over the P0 spine.
 // AppContext owns the QgsApplication — main() builds the context (which brings
@@ -663,6 +672,96 @@ class TestUiShell : public QObject
 
       // 清理
       inner->removeTab(0);
+    }
+
+    // ---- P3 D9 分栏/布局契约回归（wave/data-page-operations）----
+  private:
+    DataOpsWidthCtx dataOpsWidthSetup()
+    {
+      m_win->resize(1280, 1100);
+      m_win->show();
+      if (auto *centerStack = m_win->findChild<QStackedWidget *>(QStringLiteral("centerStack")))
+        centerStack->setCurrentIndex(1);
+      m_win->showPage(QStringLiteral("data"));
+      QTest::qWait(30);
+      DataOpsWidthCtx ctx;
+      ctx.split = m_win->findChild<QSplitter *>(QStringLiteral("dataListPreviewSplit"));
+      ctx.width = 275;
+      ctx.split->setSizes({ctx.width, ctx.split->width() - ctx.width});
+      QTest::qWait(20);
+      return ctx;
+    }
+
+  private slots:
+    // D9.3：过滤切换/未决快捷过滤/清除过滤下宽度不变。
+    void dataListWidthStableUnderFilterOperations()
+    {
+      const auto ctx = dataOpsWidthSetup();
+      QVERIFY(ctx.split);
+      auto *lp = m_win->findChild<DataListPanel *>();
+      QVERIFY(lp);
+      auto *search = lp->findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
+      search->setText(QStringLiteral("xyz-无命中"));
+      QTest::qWait(20);
+      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+      auto *quick = lp->findChild<QWidget *>(QStringLiteral("pendingQuickBar"));
+      if (auto *btn = quick->findChild<QPushButton *>(QStringLiteral("quickWarned")))
+      {
+        btn->click();
+        QTest::qWait(20);
+        QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+        btn->click();
+      }
+      // D2.10 状态串应用（过滤器整组替换）。
+      lp->setFilterFromStateString(
+          QStringLiteral("paleo://dataops-filter?op=and&q=%E6%B5%8B%E8%AF%95"));
+      QTest::qWait(20);
+      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+      search->clear();
+      QTest::qWait(20);
+      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+    }
+
+    // D9.2/D9.3：视图五态切换（树/表/图标/高速/分组）+ 多选/全选/反选下宽度不变。
+    void dataListWidthStableUnderViewModesAndSelection()
+    {
+      const auto ctx = dataOpsWidthSetup();
+      QVERIFY(ctx.split);
+      auto *lp = m_win->findChild<DataListPanel *>();
+      QVERIFY(lp);
+      for (int mode = 0; mode <= 4; ++mode)
+      {
+        lp->setViewMode(mode);
+        QTest::qWait(15);
+        QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+      }
+      // 选择操作（D1.9 全选/反选——空目录下是空操作，但不得触发重排宽度）。
+      lp->selectAllVisibleAssets();
+      lp->invertAssetSelection();
+      QTest::qWait(15);
+      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+      // 撤销/重做空栈调用（D5 面按钮态刷新）。
+      lp->undoOp();
+      lp->redoOp();
+      QTest::qWait(15);
+      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+    }
+
+    // D9.4：窗口 resize 是允许的被动分配——总宽随窗口走，列表宽不越界涨。
+    void dataListWidthFollowsWindowResize()
+    {
+      const auto ctx = dataOpsWidthSetup();
+      QVERIFY(ctx.split);
+      const int totalBefore = ctx.split->sizes().at(0) + ctx.split->sizes().at(1);
+      m_win->resize(1560, 1100); // +280
+      QTest::qWait(30);
+      const int totalAfter = ctx.split->sizes().at(0) + ctx.split->sizes().at(1);
+      QVERIFY2(totalAfter > totalBefore, "resize must redistribute more total width");
+      // 列表侧不得借机自涨超过用户设定 + 增量的一半（被动分配以预览侧为主）。
+      QVERIFY2(ctx.split->sizes().at(0) <= ctx.width + 140,
+               qPrintable(QStringLiteral("list grew to %1").arg(ctx.split->sizes().at(0))));
+      m_win->resize(1280, 1100);
+      QTest::qWait(30);
     }
 
     // wave/data-integrity：attachWorkflows 幂等——同一窗口二次调用不得重复

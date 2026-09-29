@@ -265,6 +265,8 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
         li.topDepth = row.at(2).trimmed().toFloat();
         li.bottomDepth = row.at(5).trimmed().toFloat();
         li.lithoName = row.at(8).trimmed();
+        if (outData.wellName.isEmpty() && !row.first().isEmpty())
+          outData.wellName = row.first().trimmed();
 
         if (li.bottomDepth > li.topDepth && !li.lithoName.isEmpty())
           outData.lithologyIntervals.append(li);
@@ -289,6 +291,8 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
         fi.topDepth = row.at(3).trimmed().toFloat();
         fi.bottomDepth = row.at(6).trimmed().toFloat();
         fi.color = formColors.at(outData.formationIntervals.size() % formColors.size());
+        if (outData.wellName.isEmpty() && !row.first().isEmpty())
+          outData.wellName = row.first().trimmed();
 
         if (fi.bottomDepth > fi.topDepth && !fi.name.isEmpty())
           outData.formationIntervals.append(fi);
@@ -467,6 +471,8 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
         const QString txt = row.at(6).trimmed();
         if (d > 0.0 && !txt.isEmpty())
           outData.standardHorizons.append({d, txt});
+        if (outData.wellName.isEmpty() && !row.first().isEmpty())
+          outData.wellName = row.first().trimmed();
       }
     }
     else if (sheetName == QStringLiteral("坐标"))
@@ -610,6 +616,377 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
   }
 
   return !outData.isEmpty();
+}
+
+
+// ============================================================================
+// wave/wellcomposite-deep：D3.3 派生版本写回 + D3.11 审计表 + D6.1/D6.5 表解析
+// ============================================================================
+static QString xmlEscape(const QString &s)
+{
+  QString out = s;
+  out.replace(QLatin1Char('&'), QStringLiteral("&amp;"));
+  out.replace(QLatin1Char('<'), QStringLiteral("&lt;"));
+  out.replace(QLatin1Char('>'), QStringLiteral("&gt;"));
+  return out;
+}
+
+static void writeCell(QString &xml, int col, const QString &value)
+{
+  xml += QStringLiteral("<Cell><Data ss:Type=\"String\">%1</Data></Cell>")
+             .arg(xmlEscape(value));
+  Q_UNUSED(col);
+}
+
+static void writeCellF(QString &xml, const QString &value)
+{
+  xml += QStringLiteral("<Cell><Data ss:Type=\"String\">%1</Data></Cell>")
+             .arg(xmlEscape(value));
+}
+
+QByteArray writeComprehensiveWellXml(const ComprehensiveWellData &data, const QStringList &auditLines)
+{
+  QString xml;
+  xml += QStringLiteral(
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+      "<?mso-application progid=\"Excel.Sheet\"?>\n"
+      "<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\" "
+      "xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\">\n");
+
+  // 坐标表
+  xml += QStringLiteral("<Worksheet ss:Name=\"坐标\"><Table>\n<Row>");
+  writeCell(xml, 0, QStringLiteral("X"));
+  writeCell(xml, 1, QString::number(data.x, 'f', 2));
+  xml += QStringLiteral("</Row>\n<Row>");
+  writeCell(xml, 0, QStringLiteral("Y"));
+  writeCell(xml, 1, QString::number(data.y, 'f', 2));
+  xml += QStringLiteral("</Row>\n</Table></Worksheet>\n");
+
+  // 地层单位道（组段分层）
+  if (!data.formationIntervals.isEmpty())
+  {
+    xml += QStringLiteral("<Worksheet ss:Name=\"地层单位道\"><Table>\n");
+    xml += QStringLiteral("<Row>");
+    writeCell(xml, 0, QStringLiteral("井号"));
+    writeCell(xml, 1, QStringLiteral("道名"));
+    writeCell(xml, 2, QStringLiteral("层号"));
+    writeCell(xml, 3, QStringLiteral("顶深"));
+    writeCell(xml, 4, QStringLiteral("顶TVD"));
+    writeCell(xml, 5, QStringLiteral("顶TVDSS"));
+    writeCell(xml, 6, QStringLiteral("底深"));
+    writeCell(xml, 7, QStringLiteral("底TVD"));
+    writeCell(xml, 8, QStringLiteral("底TVDSS"));
+    writeCell(xml, 9, QStringLiteral("相类型"));
+    xml += QStringLiteral("</Row>\n");
+    for (const auto &fi : data.formationIntervals)
+    {
+      xml += QStringLiteral("<Row>");
+      writeCell(xml, 0, data.wellName);
+      writeCell(xml, 1, QStringLiteral("地层单位"));
+      writeCell(xml, 2, fi.name);
+      writeCellF(xml, QString::number(fi.topDepth, 'f', 2));
+      writeCell(xml, 3, QString());
+      writeCell(xml, 4, QString());
+      writeCellF(xml, QString::number(fi.bottomDepth, 'f', 2));
+      writeCell(xml, 5, QString());
+      writeCell(xml, 6, QString());
+      writeCell(xml, 7, fi.code);
+      xml += QStringLiteral("</Row>\n");
+    }
+    xml += QStringLiteral("</Table></Worksheet>\n");
+  }
+
+  // 岩性道
+  if (!data.lithologyIntervals.isEmpty())
+  {
+    xml += QStringLiteral("<Worksheet ss:Name=\"岩性道\"><Table>\n");
+    xml += QStringLiteral("<Row>");
+    writeCell(xml, 0, QStringLiteral("井号"));
+    writeCell(xml, 1, QStringLiteral("道名"));
+    writeCell(xml, 2, QStringLiteral("顶深"));
+    writeCell(xml, 3, QString());
+    writeCell(xml, 4, QString());
+    writeCell(xml, 5, QStringLiteral("底深"));
+    writeCell(xml, 6, QString());
+    writeCell(xml, 7, QString());
+    writeCell(xml, 8, QStringLiteral("岩性"));
+    xml += QStringLiteral("</Row>\n");
+    for (const auto &li : data.lithologyIntervals)
+    {
+      xml += QStringLiteral("<Row>");
+      writeCell(xml, 0, data.wellName);
+      writeCell(xml, 1, QStringLiteral("岩性"));
+      writeCellF(xml, QString::number(li.topDepth, 'f', 2));
+      writeCell(xml, 3, QString());
+      writeCell(xml, 4, QString());
+      writeCellF(xml, QString::number(li.bottomDepth, 'f', 2));
+      writeCell(xml, 6, QString());
+      writeCell(xml, 7, QString());
+      writeCell(xml, 8, li.lithoName);
+      xml += QStringLiteral("</Row>\n");
+    }
+    xml += QStringLiteral("</Table></Worksheet>\n");
+  }
+
+  // 标准层道（标志层/TOPs——D3.1/D3.2 编辑的主要写回对象）
+  if (!data.standardHorizons.isEmpty())
+  {
+    xml += QStringLiteral("<Worksheet ss:Name=\"标准层道\"><Table>\n");
+    xml += QStringLiteral("<Row>");
+    writeCell(xml, 0, QStringLiteral("井号"));
+    writeCell(xml, 1, QStringLiteral("道名"));
+    writeCell(xml, 2, QStringLiteral("层名"));
+    writeCell(xml, 3, QStringLiteral("深度"));
+    writeCell(xml, 4, QStringLiteral("TVD"));
+    writeCell(xml, 5, QStringLiteral("TVDSS"));
+    writeCell(xml, 6, QStringLiteral("文本"));
+    xml += QStringLiteral("</Row>\n");
+    for (const auto &m : data.standardHorizons)
+    {
+      xml += QStringLiteral("<Row>");
+      writeCell(xml, 0, data.wellName);
+      writeCell(xml, 1, QStringLiteral("标志层"));
+      writeCell(xml, 2, m.second);
+      writeCellF(xml, QString::number(m.first, 'f', 2));
+      writeCell(xml, 4, QString());
+      writeCell(xml, 5, QString());
+      writeCell(xml, 6, m.second);
+      xml += QStringLiteral("</Row>\n");
+    }
+    xml += QStringLiteral("</Table></Worksheet>\n");
+  }
+
+  // 文本道（含沉积相三级行，读回时可再分流）
+  const auto writeTextSheet = [&xml](const QString &sheetName, const QString &category,
+                                     const auto &rows) {
+    xml += QStringLiteral("<Worksheet ss:Name=\"%1\"><Table>\n").arg(sheetName);
+    xml += QStringLiteral("<Row>");
+    writeCell(xml, 0, QStringLiteral("井号"));
+    writeCell(xml, 1, QStringLiteral("道名"));
+    writeCell(xml, 2, QStringLiteral("层号"));
+    writeCell(xml, 3, QStringLiteral("顶深"));
+    writeCell(xml, 4, QString());
+    writeCell(xml, 5, QString());
+    writeCell(xml, 6, QStringLiteral("底深"));
+    writeCell(xml, 7, QString());
+    writeCell(xml, 8, QString());
+    writeCell(xml, 9, QStringLiteral("文本"));
+    xml += QStringLiteral("</Row>\n");
+    for (const auto &r : rows)
+    {
+      xml += QStringLiteral("<Row>");
+      writeCell(xml, 0, r.well);
+      writeCell(xml, 1, category);
+      writeCell(xml, 2, QString());
+      writeCellF(xml, QString::number(r.top, 'f', 2));
+      writeCell(xml, 4, QString());
+      writeCell(xml, 5, QString());
+      writeCellF(xml, QString::number(r.bottom, 'f', 2));
+      writeCell(xml, 7, QString());
+      writeCell(xml, 8, QString());
+      writeCell(xml, 9, r.text);
+      xml += QStringLiteral("</Row>\n");
+    }
+    xml += QStringLiteral("</Table></Worksheet>\n");
+  };
+
+  if (!data.textIntervals.isEmpty())
+  {
+    struct Row
+    {
+      QString well;
+      double top = 0, bottom = 0;
+      QString text;
+    };
+    QVector<Row> rows;
+    for (const auto &ti : data.textIntervals)
+      rows << Row{data.wellName, ti.topDepth, ti.bottomDepth,
+                  ti.category.isEmpty() ? ti.text : ti.text};
+    writeTextSheet(QStringLiteral("文本道"), QStringLiteral("取样结论"), rows);
+  }
+
+  if (!data.faciesIntervals.isEmpty())
+  {
+    struct Row
+    {
+      QString well;
+      double top = 0, bottom = 0;
+      QString text;
+    };
+    QVector<Row> rows;
+    for (const auto &fi : data.faciesIntervals)
+    {
+      rows << Row{data.wellName, fi.topDepth, fi.bottomDepth, fi.majorFacies};
+      rows << Row{data.wellName, fi.topDepth, fi.bottomDepth, fi.subFacies};
+      rows << Row{data.wellName, fi.topDepth, fi.bottomDepth, fi.microFacies};
+    }
+    writeTextSheet(QStringLiteral("文本道-相"), QStringLiteral("沉积微相"), rows);
+  }
+
+  // D3.11 编辑审计工作表（manifest 风格操作历史）
+  if (!auditLines.isEmpty())
+  {
+    xml += QStringLiteral("<Worksheet ss:Name=\"编辑审计\"><Table>\n");
+    xml += QStringLiteral("<Row>");
+    writeCell(xml, 0, QStringLiteral("时间"));
+    writeCell(xml, 1, QStringLiteral("操作"));
+    writeCell(xml, 2, QStringLiteral("细节"));
+    xml += QStringLiteral("</Row>\n");
+    for (const QString &line : auditLines)
+    {
+      const QStringList parts = line.split(QStringLiteral(" | "));
+      xml += QStringLiteral("<Row>");
+      writeCell(xml, 0, parts.value(0));
+      writeCell(xml, 1, parts.value(1));
+      writeCell(xml, 2, parts.value(2));
+      xml += QStringLiteral("</Row>\n");
+    }
+    xml += QStringLiteral("</Table></Worksheet>\n");
+  }
+
+  xml += QStringLiteral("</Workbook>\n");
+  return xml.toUtf8();
+}
+
+bool writeComprehensiveWellXmlFile(const ComprehensiveWellData &data, const QString &filePath,
+                                   const QStringList &auditLines, QString *errorMsg)
+{
+  QFile f(filePath);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    if (errorMsg)
+      *errorMsg = QStringLiteral("无法写入文件: %1").arg(filePath);
+    return false;
+  }
+  f.write(writeComprehensiveWellXml(data, auditLines));
+  return true;
+}
+
+// D6.1/D6.5：从 XML 抽取指定工作表的行（复用流式行收集器）
+namespace {
+bool collectSheetRows(const QString &filePath, const QString &sheetNamePrefix,
+                      QVector<QStringList> &rowsOut, QString *errorMsg)
+{
+  QFile file(filePath);
+  if (!file.open(QIODevice::ReadOnly))
+  {
+    if (errorMsg)
+      *errorMsg = QStringLiteral("无法打开文件: %1").arg(filePath);
+    return false;
+  }
+
+  QXmlStreamReader xml(file.readAll());
+  QString currentSheetName;
+  QVector<QStringList> sheetRows;
+  bool found = false;
+
+  while (!xml.atEnd())
+  {
+    xml.readNext();
+    if (xml.isStartElement())
+    {
+      const QString tag = xml.name().toString();
+      if (tag == QLatin1String("Worksheet"))
+      {
+        currentSheetName.clear();
+        for (const auto &attr : xml.attributes())
+          if (attr.name() == QLatin1String("Name"))
+            currentSheetName = attr.value().toString();
+        sheetRows.clear();
+      }
+      else if (tag == QLatin1String("Row") && currentSheetName.startsWith(sheetNamePrefix))
+      {
+        QStringList rowCells;
+        int colIndex = 0;
+        while (!(xml.isEndElement() && xml.name() == QLatin1String("Row")) && !xml.atEnd())
+        {
+          xml.readNext();
+          if (xml.isStartElement() && xml.name() == QLatin1String("Cell"))
+          {
+            for (const auto &attr : xml.attributes())
+            {
+              if (attr.name() == QLatin1String("Index"))
+              {
+                const int explicitIndex = attr.value().toInt() - 1;
+                while (colIndex < explicitIndex)
+                {
+                  rowCells.append(QString());
+                  ++colIndex;
+                }
+              }
+            }
+            QString cellText;
+            while (!(xml.isEndElement() && xml.name() == QLatin1String("Cell")) && !xml.atEnd())
+            {
+              xml.readNext();
+              if (xml.isStartElement() && xml.name() == QLatin1String("Data"))
+                cellText = xml.readElementText();
+            }
+            rowCells.append(cellText);
+            ++colIndex;
+          }
+        }
+        sheetRows.append(rowCells);
+      }
+    }
+    else if (xml.isEndElement() && xml.name() == QLatin1String("Worksheet"))
+    {
+      if (currentSheetName.startsWith(sheetNamePrefix))
+      {
+        rowsOut = sheetRows;
+        found = true;
+      }
+      sheetRows.clear();
+    }
+  }
+  return found;
+}
+} // namespace
+
+bool parseDeviationSurvey(const QString &filePath, QVector<XmlDeviationStation> &out, QString *errorMsg)
+{
+  out.clear();
+  QVector<QStringList> rows;
+  if (!collectSheetRows(filePath, QStringLiteral("井斜"), rows, errorMsg))
+    return false;
+
+  // 列：测深/MD | 井斜角 | 方位角（表头行自动跳过）
+  for (const auto &row : rows)
+  {
+    if (row.size() < 3)
+      continue;
+    bool ok1 = false, ok2 = false, ok3 = false;
+    const double md = row.at(0).trimmed().toDouble(&ok1);
+    const double inc = row.at(1).trimmed().toDouble(&ok2);
+    const double azi = row.at(2).trimmed().toDouble(&ok3);
+    if (!ok1 || !ok2 || !ok3)
+      continue; // 表头/坏行
+    if (md < 0.0)
+      continue;
+    out.append({md, inc, azi});
+  }
+  return !out.isEmpty();
+}
+
+bool parseTimeDepthTable(const QString &filePath, QVector<XmlTimeDepthPair> &out, QString *errorMsg)
+{
+  out.clear();
+  QVector<QStringList> rows;
+  if (!collectSheetRows(filePath, QStringLiteral("时深"), rows, errorMsg))
+    return false;
+
+  for (const auto &row : rows)
+  {
+    if (row.size() < 2)
+      continue;
+    bool ok1 = false, ok2 = false;
+    const double tvd = row.at(0).trimmed().toDouble(&ok1);
+    const double twt = row.at(1).trimmed().toDouble(&ok2);
+    if (!ok1 || !ok2 || tvd < 0.0)
+      continue;
+    out.append({tvd, twt});
+  }
+  return !out.isEmpty();
 }
 
 } // namespace WellComposite

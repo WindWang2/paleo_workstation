@@ -388,8 +388,8 @@ inline QList<QPair<int, int>> matchRanges(const QString &text, const QString &ne
   QList<QPair<int, int>> out;
   if (needle.isEmpty() || text.isEmpty())
     return out;
-  const QString hay = text;
-  const QString nd = needle;
+  const QString &hay = text;
+  const QString &nd = needle;
   int from = 0;
   while (from <= hay.size() - nd.size())
   {

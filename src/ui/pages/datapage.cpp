@@ -287,4 +287,7 @@ void DataPage::selectAsset(const QString &assetId)
 }
 
 // AUTOMOC：dataopspalette.h 的 Q_OBJECT 类（命令面板/快捷键表）。
+// __has_include 守卫：lint 门 configure-only 场景跳过（详见 datalist.cpp 尾注）。
+#if __has_include("moc_dataopspalette.cpp")
 #include "moc_dataopspalette.cpp"
+#endif

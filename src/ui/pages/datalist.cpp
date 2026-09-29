@@ -913,7 +913,7 @@ void DataListPanel::refreshAssetTable()
                 if (eid.isEmpty() || idx < 0)
                   return;
                 const QVector<EntityAssetLink> ls = cat->links();
-                const EntityAssetLink link = ls.at(idx);
+                const EntityAssetLink &link = ls.at(idx);
                 // 被降级的前主关联（撤销时恢复，D4）：同（实体,角色）当前主链。
                 UndoRecord rec;
                 rec.assetId = assetId;
@@ -3096,10 +3096,24 @@ void DataListPanel::applyFilterToTree(const QSet<QString> &visibleIds, bool filt
 // AUTOMOC：Q_OBJECT 头（非同名 basename）的 moc 显式编入本 TU——
 // CMake AUTOMOC 只对同名 basename 头自动 moc（datalist.cpp→datalist.h），
 // dataops 家族的部件头经此 include 挂进 paleo_ui（详见 docs/dataops/GAPS.md
-// 「构建接线」节）。
+// 「构建接线」节）。__has_include 守卫：lint 门（tools/check_tidy.py）只
+// configure 不 build，moc 尚未生成时跳过；AUTOMOC 生成 moc 靠文本扫描，
+// 不受预处理条件影响，真实构建照常编入。
+#if __has_include("moc_dataopspanelops.cpp")
 #include "moc_dataopspanelops.cpp"
+#endif
+#if __has_include("moc_dataopsimportui.cpp")
 #include "moc_dataopsimportui.cpp"
+#endif
+#if __has_include("moc_dataopsundo.cpp")
 #include "moc_dataopsundo.cpp"
+#endif
+#if __has_include("moc_dataopsviews.cpp")
 #include "moc_dataopsviews.cpp"
+#endif
+#if __has_include("moc_dataopswidgets.cpp")
 #include "moc_dataopswidgets.cpp"
+#endif
+#if __has_include("moc_datanavtree.cpp")
 #include "moc_datanavtree.cpp"
+#endif

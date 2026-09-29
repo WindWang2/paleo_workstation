@@ -445,7 +445,7 @@ void EntityPanel::buildD4Ui()
       const QVector<EntityAssetLink> links = cat->linksForAsset(m_assetId);
       if (row < 0 || row >= links.size())
         return;
-      const EntityAssetLink l = links.at(row);
+      const EntityAssetLink &l = links.at(row);
       if (l.unresolved)
         return;
       QStringList vocab;
@@ -1430,4 +1430,7 @@ void EntityPanel::refresh()
 }
 // AUTOMOC：dataopspanelextra.h 的 Q_OBJECT 类（VersionTimeline/TopologyGraph/
 // 各对话框）——本 TU 持有 moc（datalist.cpp 已持 panelops/undo/views 等）。
+// __has_include 守卫：lint 门 configure-only 场景跳过（详见 datalist.cpp 尾注）。
+#if __has_include("moc_dataopspanelextra.cpp")
 #include "moc_dataopspanelextra.cpp"
+#endif

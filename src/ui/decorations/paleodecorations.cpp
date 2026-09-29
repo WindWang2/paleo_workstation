@@ -1,5 +1,6 @@
 // 层：视图
 #include "paleodecorations.h"
+#include "../paleotheme.h" // 画布装饰取色（显式 Light：见各 render 注释）
 #include <QCoreApplication>
 
 #include <cmath>
@@ -203,8 +204,12 @@ void PaleoWatermarkDecoration::render( const QgsMapSettings &mapSettings, QgsRen
   if ( !painter || !painter->device() || mText.isEmpty() )
     return;
 
-  // 顶中胶囊：warning #F29900 底 + 白字——与 DESIGN 的状态用色一致；水印只
-  // 在临时配准图层存在期间绘制，平时不出现。
+  // 顶中胶囊：warning 底（warning token @ ~78% 不透明度）；水印只在临时
+  // 配准图层存在期间绘制，平时不出现。白字在 #F29900 上只有 2.1:1
+  // 对比度（不足 AA）——文字改用深色 text token。
+  // 画布装饰不跟随暗色主题是有意的：它压在数据画布（浅色底图）上，属于
+  // 图件文档面而非 UI chrome，故显式取 tokens(Theme::Light)。
+  const PaleoTheme::ThemeTokens &lt = PaleoTheme::tokens( PaleoTheme::Theme::Light );
   QFont font = painter->font();
   font.setPointSizeF( 9.0 );
   font.setBold( true );
@@ -216,12 +221,14 @@ void PaleoWatermarkDecoration::render( const QgsMapSettings &mapSettings, QgsRen
   const qreal x = ( painter->device()->width() - pillW ) / 2.0;
   const qreal y = 10;
 
+  QColor fill = lt.warning;
+  fill.setAlpha( 200 );
   painter->save();
   painter->setRenderHint( QPainter::Antialiasing, true );
   painter->setPen( Qt::NoPen );
-  painter->setBrush( QColor( 242, 153, 0, 200 ) ); // warning #F29900 @ ~78%
+  painter->setBrush( fill );
   painter->drawRoundedRect( QRectF( x, y, pillW, pillH ), pillH / 2.0, pillH / 2.0 );
-  painter->setPen( QColor( 255, 255, 255 ) );
+  painter->setPen( lt.text );
   painter->drawText( QRectF( x, y, pillW, pillH ), Qt::AlignCenter, mText );
   painter->restore();
 }
@@ -426,18 +433,21 @@ void PaleoDecorationManager::paintDecorations( QPainter *painter )
 void PaleoFaciesLegendDecoration::render(const QgsMapSettings &, QgsRenderContext &context)
 {
   auto *p=context.painter();if(!p || !p->device())return;
+  // 相图例的边框/文字取浅色 token（显式 Theme::Light）：画布装饰压在数据
+  // 画布（浅色底图）上，属图件文档面，不跟随 UI 暗色主题是有意的。
+  const auto &lt=PaleoTheme::tokens(PaleoTheme::Theme::Light);
   p->save();QFont f=p->font();f.setPointSize(8);p->setFont(f);
   const int row=p->fontMetrics().height()+8;
   const int width=std::min(240, std::max(140, p->device()->width()/3));
   const int x=p->device()->width()-width-16,y=16;
-  p->setPen(QColor("#DFE5EC"));p->setBrush(QColor(255,255,255,235));
+  p->setPen(lt.border);p->setBrush(QColor(255,255,255,235));
   p->drawRoundedRect(QRectF(x,y,width,16+row*(facies.size()+1)),4,4);
-  p->setPen(QColor("#24303E"));f.setBold(true);p->setFont(f);
+  p->setPen(lt.text);f.setBold(true);p->setFont(f);
   p->drawText(QRect(x+8,y+4,width-16,row),Qt::AlignVCenter,p->fontMetrics().elidedText(title,Qt::ElideRight,width-16));
   f.setBold(false);p->setFont(f);
   for(int i=0;i<facies.size();++i){const auto entry=facies[i].toMap();int top=y+8+(i+1)*row;
-    p->setPen(QColor("#DFE5EC"));p->setBrush(QColor(entry.value("color").toString()));p->drawRect(QRect(x+8,top+3,16,row-8));
-    p->setPen(QColor("#24303E"));const auto label=entry.value("name").toString();p->drawText(QRect(x+32,top,width-40,row),Qt::AlignVCenter,p->fontMetrics().elidedText(label,Qt::ElideRight,width-40));}
+    p->setPen(lt.border);p->setBrush(QColor(entry.value("color").toString()));p->drawRect(QRect(x+8,top+3,16,row-8));
+    p->setPen(lt.text);const auto label=entry.value("name").toString();p->drawText(QRect(x+32,top,width-40,row),Qt::AlignVCenter,p->fontMetrics().elidedText(label,Qt::ElideRight,width-40));}
   p->restore();
 }
 void PaleoDecorationManager::setFaciesLegend(const QString &title,const QVariantList &facies)

@@ -69,11 +69,15 @@
 #include <qgslayout.h>
 #include <qgslayoutitemmap.h>
 #include <qgsprintlayout.h>
+#include <qgsapplication.h>
+#include <qgsprocessingalgorithm.h>
+#include <qgsprocessingregistry.h>
 
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMap>
@@ -353,7 +357,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                   QgsMapLayer *layer = m_layerSvc->instantiate(layerId, &err);
                   if (!layer)
                   {
-                    QgsMessageLog::logMessage(tr("Show on map failed: %1").arg(err),
+                    QgsMessageLog::logMessage(tr("在地图上显示失败：%1").arg(err),
                                               QStringLiteral("Paleo"), Qgis::Critical);
                     return;
                   }
@@ -438,7 +442,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                                               const QString &err) {
                   if (assetId.isEmpty())
                     QgsMessageLog::logMessage(
-                        QObject::tr("Import failed: %1").arg(err),
+                        QObject::tr("导入失败：%1").arg(err),
                         QStringLiteral("Paleo"), Qgis::Critical);
                 });
             });
@@ -505,7 +509,7 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                     QString err;
                     if (pred->runPrediction(horizon, algId, params, &err))
                       return QString();
-                    return err.isEmpty() ? tr("prediction failed") : err;
+                    return err.isEmpty() ? tr("预测失败") : err;
                   });
               QObject::connect(task, &PaleoTask::changed, predictPage,
                                [predictPage, task] {
@@ -555,7 +559,7 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
               QgsMapLayer *layer = m_layerSvc->instantiate(layerId, &err);
               if (!layer)
               {
-                QgsMessageLog::logMessage(tr("Show on map failed: %1").arg(err),
+                QgsMessageLog::logMessage(tr("在地图上显示失败：%1").arg(err),
                                           QStringLiteral("Paleo"), Qgis::Critical);
                 return;
               }
@@ -949,7 +953,16 @@ void PaleoMainWindow::attachValidatePage(ValidatePage *validatePage,
     connect(threeWay, &ThreeWayLocator::bottomTabFocusRequested, this,
             [this, bottomTabs, corrPanel](const QString &tabId) {
               if (tabId == QLatin1String("correlation") && bottomTabs && corrPanel)
+              {
+                // W4：底栏默认隐藏——定位请求是显式用户意图，连 dock 一起
+                // show+raise，不再只切一个看不见的页签。
+                if (m_bottomDock)
+                {
+                  m_bottomDock->show();
+                  m_bottomDock->raise();
+                }
                 bottomTabs->setCurrentWidget(corrPanel);
+              }
             });
     connect(threeWay, &ThreeWayLocator::correlationFocusRequested, this,
             [corrPanel](const QString &wellId, const QString &horizon) {
@@ -1008,6 +1021,17 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
     QgisEditingService *editSvc, QgisLayoutService *layoutSvc,
     PaleoTaskService *taskSvc)
 {
+  m_editSvc = editSvc; // closeEvent 的保存/放弃编辑走服务（busy 挂账随终态清）
+  // W2 长任务可见性：任务进场/终态时重估底栏露出（本体在主 TU，
+  // syncBottomDockForTasks——露出/恢复都走程序化显隐，不动用户意愿）。
+  if (taskSvc)
+    connect(taskSvc, &PaleoTaskService::taskAdded, this, [this](PaleoTask *task) {
+      if (task)
+        connect(task, &PaleoTask::finished, this,
+                [this] { syncBottomDockForTasks(); });
+      syncBottomDockForTasks();
+    });
+
   // ---- ribbon 右侧组的搜索槽 + 快速访问栏的保存 ----
   if (auto *topBar = findChild<QWidget *>(QStringLiteral("locatorSlot")))
   {
@@ -1046,7 +1070,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
         QString manifestErr;
         if (!m_layerSvc || !m_layerSvc->tryDeclared(&declared, &manifestErr))
         {
-          QgsMessageLog::logMessage(tr("Horizon locator: manifest read failed: %1")
+          QgsMessageLog::logMessage(tr("层位搜索：图层清单读取失败：%1")
                                         .arg(manifestErr),
                                     QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
           return hs;
@@ -1079,10 +1103,12 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
 
     if (store && m_projectSvc)
     {
-      // 保存 = 快速访问栏第一颗（Office 惯例）+「文件」菜单；Ctrl+S 走同一函数。
+      // 保存 = 快速访问栏第一颗（Office 惯例）+「文件」菜单；Ctrl+S 挂在
+      // action 上（菜单里可见快捷键），不再单独立 QShortcut。
       auto *saveAct = new QAction(PaleoIcons::qgisTheme(QStringLiteral("mActionFileSave.svg")),
                                   tr("保存工程"), this);
       saveAct->setObjectName(QStringLiteral("saveProjectAction"));
+      saveAct->setShortcut(QKeySequence::Save);
       saveAct->setToolTip(tr("保存工程（Ctrl+S）"));
       // §41.2 ordering through the write queue: gpkg commit (no-op until edit
       // buffers report dirty state) then the atomic .qgz write.
@@ -1101,14 +1127,22 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
               return PaleoProjectStore::WriteResult{
                   ok, ok ? QString() : m_projectSvc->lastErrors().join(QLatin1Char(';'))};
             });
+        // W3 保存反馈：成功落状态栏（与打开工程失败的 §38 弹框契约对齐——
+        // 失败是阻断级，弹框如实给原因），同时照记日志。
         QgsMessageLog::logMessage(
             res.ok ? tr("工程已保存") : tr("保存失败：%1").arg(res.error),
             QStringLiteral("Paleo"),
             res.ok ? Qgis::MessageLevel::Info : Qgis::MessageLevel::Critical);
+        if (res.ok)
+        {
+          if (statusBar())
+            statusBar()->showMessage(tr("工程已保存：%1").arg(m_projectSvc->projectPath()), 5000);
+          updateWindowTitle();
+        }
+        else if (QGuiApplication::platformName() != QLatin1String("offscreen"))
+          QMessageBox::critical(this, tr("保存工程失败"), res.error);
       };
       connect(saveAct, &QAction::triggered, this, saveFn);
-      auto *saveShortcut = new QShortcut(QKeySequence::Save, this);
-      connect(saveShortcut, &QShortcut::activated, this, saveFn);
       if (SARibbonQuickAccessBar *qab = ribbonBar()->quickAccessBar())
       {
         qab->addAction(saveAct);
@@ -1141,7 +1175,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
             QVector<LayerDeclaration> declared;
             QString manifestErr;
             if (m_layerSvc && !m_layerSvc->tryDeclared(&declared, &manifestErr))
-              QgsMessageLog::logMessage(tr("Release panel: manifest read failed: %1")
+              QgsMessageLog::logMessage(tr("发布面板：图层清单读取失败：%1")
                                           .arg(manifestErr),
                                       QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
             return declared;
@@ -1190,7 +1224,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
           QString manifestErr;
           if (!m_layerSvc->tryDeclared(&declared, &manifestErr))
           {
-            QgsMessageLog::logMessage(tr("Attribute panel: manifest read failed: %1")
+            QgsMessageLog::logMessage(tr("属性表面板：图层清单读取失败：%1")
                                           .arg(manifestErr),
                                       QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
             return; // keep the existing layer list instead of blanking it
@@ -1233,14 +1267,27 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       btn->setPopupMode(QToolButton::InstantPopup);
       auto *menu = new QMenu(btn);
 
+      // W6：菜单显示算法的 displayName（人读名），机器 id 只留 tooltip——
+      // 此前 addAction(id) 直接把 "paleo:paleo_constraint_idw" 甩给用户。
+      const auto displayNameFor = [](const QString &id) {
+        const QgsProcessingRegistry *reg = QgsApplication::processingRegistry();
+        const QgsProcessingAlgorithm *alg = reg ? reg->algorithmById(id) : nullptr;
+        return alg ? alg->displayName() : id;
+      };
+      const auto addAlgorithmAction = [this, procSvc, &displayNameFor](QMenu *m,
+                                                                       const QString &id) {
+        QAction *a = m->addAction(displayNameFor(id), this,
+                                  [this, procSvc, id]() {
+                                    QString err;
+                                    if (!procSvc->showAlgorithmDialog(id, QVariantMap(), this, &err))
+                                      QgsMessageLog::logMessage(err, QStringLiteral("Paleo"),
+                                                                Qgis::MessageLevel::Warning);
+                                  });
+        a->setToolTip(id);
+      };
+
       for (const QString &id : procSvc->paleoAlgorithmIds())
-        menu->addAction(id, this,
-                        [this, procSvc, id]() {
-                          QString err;
-                          if (!procSvc->showAlgorithmDialog(id, QVariantMap(), this, &err))
-                            QgsMessageLog::logMessage(err, QStringLiteral("Paleo"),
-                                                      Qgis::MessageLevel::Warning);
-                        });
+        addAlgorithmAction(menu, id);
 
       QMap<QString, QMenu *> providerMenus;
       for (const QString &id : procSvc->algorithmIds())
@@ -1251,14 +1298,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
         QMenu *&sub = providerMenus[provider];
         if (!sub)
           sub = menu->addMenu(provider);
-        const QString algName = id.section(QLatin1Char(':'), 1);
-        sub->addAction(algName.isEmpty() ? id : algName, this,
-                       [this, procSvc, id]() {
-                         QString err;
-                         if (!procSvc->showAlgorithmDialog(id, QVariantMap(), this, &err))
-                           QgsMessageLog::logMessage(err, QStringLiteral("Paleo"),
-                                                     Qgis::MessageLevel::Warning);
-                       });
+        addAlgorithmAction(sub, id);
       }
 
       btn->setMenu(menu);

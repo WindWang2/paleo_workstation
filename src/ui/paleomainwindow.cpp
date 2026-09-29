@@ -9,7 +9,6 @@
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgislayerservice.h"
-#include "../qgis/qgisruntime.h"
 #include "../services/toolavailability.h"
 #include "../linkage/selectioncontext.h"
 #include "../workflow/workflows.h"
@@ -117,6 +116,7 @@
 #include <QDialogButtonBox>
 #include <QHash>
 #include <QHeaderView>
+#include <QLocale>
 #include <QSet>
 #include <QTableWidget>
 #include <QTabWidget>
@@ -307,8 +307,22 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
   }
 
   if (m_projectSvc)
+  {
     connect(m_projectSvc, &QgisProjectService::projectOpened, this,
             [this](const QString &) { onProjectOpened(); });
+    // 窗口标题/修改标记：dirty → [*] 显示，保存/改名 → 刷新工程名。
+    if (QgsProject *proj = m_projectSvc->project())
+    {
+      connect(proj, &QgsProject::isDirtyChanged, this,
+              [this](bool dirty) { setWindowModified(dirty); });
+      connect(proj, &QgsProject::projectSaved, this, [this] {
+        setWindowModified(false);
+        updateWindowTitle();
+      });
+      connect(proj, &QgsProject::fileNameChanged, this,
+              [this] { updateWindowTitle(); });
+    }
+  }
 
   showStartup(); // §42.1: first-run lands on the startup page
   restoreWindowState();
@@ -326,7 +340,7 @@ void PaleoMainWindow::applyCurrentPageProfile()
 
 void PaleoMainWindow::buildShell()
 {
-  setWindowTitle(QStringLiteral("Paleo Workbench"));
+  updateWindowTitle(); // 「<工程名> — Paleo Workbench [*]」（无工程时只有产品名）
   setMinimumSize(1280, 800); // §42.11 a11y floor
 
   // ---- center: startup page stacked under the workspace ----
@@ -356,6 +370,12 @@ void PaleoMainWindow::buildShell()
   auto *chips = new HorizonChipBar(m_selection, m_layerSvc, chipsRow);
   chips->setObjectName(QStringLiteral("horizonChips"));
   chips->setAccessibleName(tr("层位切换"));
+  // C2：编辑中拒切层位的原因此前无人接（信号发出去就丢了）——落状态栏。
+  connect(chips, &HorizonChipBar::horizonSwitchRefused, this,
+          [this](const QString &reason) {
+            if (statusBar())
+              statusBar()->showMessage(reason, 8000);
+          });
   chipsLay->addWidget(chips);
   chipsLay->addStretch(1);
   canvasLay->addWidget(chipsRow);
@@ -731,19 +751,16 @@ void PaleoMainWindow::buildShell()
   // toggleViewAction，所以放在 dock 建好之后。
   buildRibbon();
 
-  // ---- status bar: active horizon + provider count ----
+  // ---- status bar: active horizon ----
+  //（「数据提供器：N」常驻诊断标签已移除——provider 计数是启动期自检信息，
+  // 不属于用户态状态栏；诊断仍可从日志/QgisRuntime 读。）
   auto *horizonLabel = new QLabel(this);
   horizonLabel->setObjectName(QStringLiteral("statusHorizon"));
   const auto horizonText = [](const QString &h) {
     return tr("层位：%1").arg(h.isEmpty() ? QStringLiteral("—") : h);
   };
   horizonLabel->setText(horizonText(m_selection ? m_selection->activeHorizon() : QString()));
-  auto *providerLabel = new QLabel(this);
-  providerLabel->setObjectName(QStringLiteral("statusProviders"));
-  providerLabel->setText(tr("数据提供器：%1")
-                             .arg(QgisRuntime::isInitialized() ? QgisRuntime::providerCount() : 0));
   statusBar()->addPermanentWidget(horizonLabel);
-  statusBar()->addPermanentWidget(providerLabel);
 
   // Canvas-fed status readouts (the dedicated QGIS statusbar coordinate/scale
   // widgets are app-only in 4.2 — plain labels fed by canvas signals instead).
@@ -758,7 +775,11 @@ void PaleoMainWindow::buildShell()
     scaleLabel->setFont(PaleoTheme::monoFont()); // T32：比例尺读数是数字面
     connect(cv, &QgsMapCanvas::xyCoordinates, this,
             [coordLabel](const QgsPointXY &p) {
-              coordLabel->setText(QStringLiteral("%1, %2").arg(p.x()).arg(p.y()));
+              // 固定 3 位小数（默认 arg(double) 只有 6 位有效数字，读数
+              // 位数随量级跳动）；tnum 等宽数字面下宽度稳定。
+              coordLabel->setText(QStringLiteral("%1, %2")
+                                      .arg(QLocale().toString(p.x(), 'f', 3),
+                                           QLocale().toString(p.y(), 'f', 3)));
             });
     auto updateScale = [scaleLabel, cv] {
       scaleLabel->setText(QStringLiteral("1:%1").arg(static_cast<qlonglong>(cv->scale())));
@@ -838,6 +859,15 @@ void PaleoMainWindow::buildRibbon()
     cat->setObjectName(QStringLiteral("ribbonCategory.") + paleo::pagesinternal::kPageIds.at(i));
     cat->setProperty("paleo.pageId", paleo::pagesinternal::kPageIds.at(i));
   }
+  // W5 键盘可达：Ctrl+1..5 直切五个工作流页（页序 = 工作流链序）。
+  for (int i = 0; i < paleo::pagesinternal::kPageIds.size(); ++i)
+  {
+    auto *sc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+%1").arg(i + 1)), this);
+    sc->setObjectName(QStringLiteral("pageShortcut.") + paleo::pagesinternal::kPageIds.at(i));
+    connect(sc, &QShortcut::activated, this, [this, i] {
+      showPage(paleo::pagesinternal::kPageIds.at(i));
+    });
+  }
   connect(bar, &SARibbonBar::currentRibbonTabChanged, this, [this, bar](int idx) {
     SARibbonCategory *cat = bar->categoryByIndex(idx);
     const QString id = cat ? cat->property("paleo.pageId").toString() : QString();
@@ -861,16 +891,16 @@ void PaleoMainWindow::buildRibbon()
           b->click();
       });
     };
-    viaStartup(tr("新建工程…"), "mActionFileNew.svg", "newProjectButton");
-    viaStartup(tr("打开工程…"), "mActionFileOpen.svg", "openProjectButton");
-    viaStartup(tr("从工区文件夹新建…"), "mIconFolderOpen.svg", "importFromFolderButton");
+    viaStartup(tr("新建工程(&N)…"), "mActionFileNew.svg", "newProjectButton");
+    viaStartup(tr("打开工程(&O)…"), "mActionFileOpen.svg", "openProjectButton");
+    viaStartup(tr("从工区文件夹新建(&I)…"), "mIconFolderOpen.svg", "importFromFolderButton");
     menu->addSeparator()->setObjectName(QStringLiteral("fileMenuSaveAnchor"));
     QAction *home =
-        menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mIconFolderHome.svg")), tr("起始页"));
+        menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mIconFolderHome.svg")), tr("起始页(&H)"));
     connect(home, &QAction::triggered, this, [this] { showStartup(); });
     menu->addSeparator();
     QAction *quit =
-        menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mActionFileExit.svg")), tr("退出"));
+        menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mActionFileExit.svg")), tr("退出(&X)"));
     connect(quit, &QAction::triggered, this, &QWidget::close);
     appBtn->setMenu(menu);
     appBtn->setPopupMode(QToolButton::InstantPopup);
@@ -1028,7 +1058,8 @@ void PaleoMainWindow::showPage(const QString &pageId)
   {
     if (m_leftDock && m_leftDock->userWantsVisible())
       m_leftDock->setProgrammaticVisible(true);
-    if (m_bottomDock && m_bottomDock->userWantsVisible())
+    // W2：任务驱动露出的底栏（m_bottomDockAutoShown）不随切页收回。
+    if (m_bottomDock && (m_bottomDock->userWantsVisible() || m_bottomDockAutoShown))
       m_bottomDock->setProgrammaticVisible(true);
   }
 
@@ -1218,6 +1249,8 @@ void PaleoMainWindow::onProjectOpened()
   if (m_centerStack)
     m_centerStack->setCurrentIndex(1); // startup -> workspace canvas
 
+  updateWindowTitle(); // 标题跟随工程名（「<工程名> — Paleo Workbench [*]」）
+
   if (m_projectSvc && !m_projectSvc->projectPath().isEmpty())
   {
     QStringList recent = readRecentProjects();
@@ -1282,8 +1315,111 @@ void PaleoMainWindow::onProjectOpened()
 
 void PaleoMainWindow::closeEvent(QCloseEvent *event)
 {
+  // C1 关窗数据保护：编辑中且有未提交改动的矢量图层 → 保存/放弃/取消
+  // 三选一。走编辑服务（busy 挂账随 commit/rollback 清），无服务时直连
+  // commitChanges/rollBack。offscreen（无头测试/渲染环境）不弹模态框——
+  // 弹了没人点会挂死事件循环，保持旧行为直接放行。
+  if (m_projectSvc && m_projectSvc->project() && !isOffscreen())
+  {
+    QList<QgsVectorLayer *> dirty;
+    QStringList dirtyNames;
+    const auto layers = m_projectSvc->project()->mapLayers();
+    for (QgsMapLayer *l : layers)
+      if (auto *vl = qobject_cast<QgsVectorLayer *>(l))
+        if (vl->isEditable() && vl->isModified())
+        {
+          dirty << vl;
+          dirtyNames << (vl->name().isEmpty() ? vl->id() : vl->name());
+        }
+    if (!dirty.isEmpty())
+    {
+      // 显式中文按钮文案（标准按钮的翻译依赖 Qt 自带 qtbase 翻译目录，
+      // 未装载时会漏英文——i18n 决策 2026-09-29 用户可见串必须中文）。
+      QMessageBox box(QMessageBox::Warning, tr("未保存的编辑"),
+                      tr("以下图层有未保存的编辑：\n%1\n\n关闭前如何处理？")
+                          .arg(dirtyNames.join(QLatin1Char('\n'))),
+                      QMessageBox::NoButton, this);
+      QPushButton *saveBtn = box.addButton(tr("保存"), QMessageBox::AcceptRole);
+      QPushButton *discardBtn = box.addButton(tr("放弃"), QMessageBox::DestructiveRole);
+      box.addButton(tr("取消"), QMessageBox::RejectRole);
+      box.setDefaultButton(saveBtn);
+      box.exec();
+      if (box.clickedButton() != saveBtn && box.clickedButton() != discardBtn)
+      {
+        event->ignore(); // 取消（含 Esc/窗口 ✕）
+        return;
+      }
+      if (box.clickedButton() == saveBtn)
+      {
+        for (QgsVectorLayer *vl : dirty)
+        {
+          QString err;
+          const bool ok = m_editSvc ? m_editSvc->commitEdit(vl, &err)
+                                    : vl->commitChanges();
+          if (!ok)
+          {
+            QMessageBox::critical(
+                this, tr("保存编辑失败"),
+                tr("图层「%1」的编辑未能提交，窗口不会关闭。")
+                    .arg(vl->name().isEmpty() ? vl->id() : vl->name()));
+            event->ignore();
+            return;
+          }
+        }
+      }
+      else // 放弃
+        for (QgsVectorLayer *vl : dirty)
+        {
+          if (m_editSvc)
+            m_editSvc->rollbackEdit(vl);
+          else
+            vl->rollBack();
+        }
+    }
+  }
   saveWindowState();
   SARibbonMainWindow::closeEvent(event);
+}
+
+void PaleoMainWindow::updateWindowTitle()
+{
+  QString name;
+  if (m_projectSvc && !m_projectSvc->projectPath().isEmpty())
+    name = QFileInfo(m_projectSvc->projectPath()).completeBaseName();
+  setWindowTitle(name.isEmpty() ? tr("Paleo Workbench [*]")
+                                : tr("%1 — Paleo Workbench [*]").arg(name));
+}
+
+void PaleoMainWindow::syncBottomDockForTasks()
+{
+  if (!m_bottomDock)
+    return;
+  bool anyRunning = false;
+  if (m_taskSvc)
+    for (const PaleoTask *t : m_taskSvc->tasks())
+      anyRunning |= t->running();
+  if (anyRunning)
+  {
+    // 有活动任务且底栏藏着 → 程序化露出并切到任务页（不动
+    // userWantsVisible）。用户中途手动关掉即尊重其选择，不再反复拉起。
+    if (!m_bottomDockAutoShown && !m_bottomDock->isVisible())
+    {
+      m_bottomDockAutoShown = true;
+      m_bottomDock->setProgrammaticVisible(true);
+      if (auto *tabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
+        if (auto *panel = findChild<TaskPanel *>(QStringLiteral("taskPanel")))
+          tabs->setCurrentWidget(panel);
+      m_bottomDock->raise();
+    }
+  }
+  else if (m_bottomDockAutoShown)
+  {
+    // 任务清空 → 恢复用户原可见态（数据页的纯三栏布局照常隐藏底栏）。
+    m_bottomDockAutoShown = false;
+    const bool want = m_currentPage != QLatin1String("data") &&
+                      m_bottomDock->userWantsVisible();
+    m_bottomDock->setProgrammaticVisible(want);
+  }
 }
 
 void PaleoMainWindow::saveWindowState()

@@ -34,8 +34,8 @@ class PaleoScaleBarDecoration : public QgsMapDecoration
     void render( const QgsMapSettings &mapSettings, QgsRenderContext &context ) override;
 };
 
-// Minimal north arrow: small two-tone arrow + "N" anchored top-right,
-// rotated by -mapSettings.rotation().
+// Minimal north arrow: small two-tone arrow + "N" anchored top-left
+// （DESIGN.md：指北针左上）, rotated by -mapSettings.rotation().
 class PaleoNorthArrowDecoration : public QgsMapDecoration
 {
   public:
@@ -53,9 +53,9 @@ class PaleoGridDecoration : public QgsMapDecoration
     void render( const QgsMapSettings &mapSettings, QgsRenderContext &context ) override;
 };
 
-// D11 临时配准水印：手工仿射的 GeoJSON 上图期间，画布右上压一条半透明
-// 「临时配准 · 手工仿射」角标（DESIGN warning #F29900）——与正式图层做
-// 视觉隔离，不把临时配准读成权威数据。
+// D11 临时配准水印：手工仿射的 GeoJSON 上图期间，画布顶中压一条半透明
+// 「临时配准 · 手工仿射」胶囊（DESIGN warning 底 + 深色文字——白字在橙底上
+// 不足 AA）——与正式图层做视觉隔离，不把临时配准读成权威数据。
 class PaleoWatermarkDecoration : public QgsMapDecoration
 {
   public:

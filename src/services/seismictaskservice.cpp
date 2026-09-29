@@ -246,8 +246,10 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
   }
 
   const char *typeStr = (type == SgySliceType::Inline) ? "inl" : ((type == SgySliceType::Xline) ? "xl" : "time");
-  const std::string key = SgyDataCache::MakeKey(
-      typeStr, volume->Index()->fileSize, static_cast<std::uint64_t>(sliceIndex));
+  const std::string key =
+      SgyDataCache::MakeKey(typeStr, volume->Index()->fileSize,
+                            static_cast<std::uint64_t>(sliceIndex)) +
+      ":" + volume->Path().string();
 
   // 1. 检查内存 LRU 缓存（显式 paged 通道不查直读缓存——两条通道语义独立）
   if (pagedPath.isEmpty())

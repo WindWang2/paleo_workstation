@@ -24,9 +24,11 @@ signals:
 
 protected:
   void canvasPressEvent(QgsMapMouseEvent *e) override;
+  void keyPressEvent(QKeyEvent *e) override;
   void canvasMoveEvent(QgsMapMouseEvent *e) override;
 
 private:
+  void redraw(const QgsPointXY *hover = nullptr);
   QVector<QgsPointXY> m_points;
   QgsRubberBand *m_rubberBand = nullptr;
 };

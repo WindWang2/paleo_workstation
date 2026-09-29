@@ -91,21 +91,21 @@ std::vector<SectionWellInfo> SectionWellProjector::ProjectWells(
 
         // Calibrate Tops
         for (auto &top : proj.tops) {
-            if (top.twtMs <= 0.0) {
-                const double depth = top.tvd > 0.0 ? top.tvd : top.md;
-                top.twtMs = tdModel.DepthToTwtMs(depth);
-            }
+          if (!proj.calibrated && top.twtMs <= 0.0) {
+            const double depth = top.tvd > 0.0 ? top.tvd : top.md;
+            top.twtMs = tdModel.DepthToTwtMs(depth);
+          }
         }
 
         // Calibrate Curves
         for (auto &curve : proj.curves) {
-            if (curve.twtMs.size() != curve.depthsM.size()) {
-                curve.twtMs.clear();
-                curve.twtMs.reserve(curve.depthsM.size());
-                for (double d : curve.depthsM) {
-                    curve.twtMs.push_back(tdModel.DepthToTwtMs(d));
-                }
+          if (!proj.calibrated && curve.twtMs.size() != curve.depthsM.size()) {
+            curve.twtMs.clear();
+            curve.twtMs.reserve(curve.depthsM.size());
+            for (double d : curve.depthsM) {
+              curve.twtMs.push_back(tdModel.DepthToTwtMs(d));
             }
+          }
             if (!curve.values.empty()) {
                 float vMin = std::numeric_limits<float>::infinity();
                 float vMax = -std::numeric_limits<float>::infinity();

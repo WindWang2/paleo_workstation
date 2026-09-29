@@ -22,6 +22,9 @@ public:
     void setVelocity(double velocityMPerS);
     double velocity() const { return m_velocity; }
 
+    // Strict checkshots preserve file order and never extrapolate. Rejection
+    // leaves the model unchanged.
+    bool setCheckshots(const std::vector<TdPoint> &points);
     void setPoints(const std::vector<TdPoint> &points);
     const std::vector<TdPoint>& points() const { return m_points; }
     bool hasCheckshots() const { return !m_points.empty(); }
@@ -34,8 +37,9 @@ public:
     bool isValid() const;
 
 private:
-    double m_velocity = 2500.0; // Default seismic velocity: 2500 m/s
-    std::vector<TdPoint> m_points;
+  bool m_strict = false;
+  double m_velocity = 2500.0; // Default seismic velocity: 2500 m/s
+  std::vector<TdPoint> m_points;
 };
 
 } // namespace seismic

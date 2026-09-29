@@ -16,24 +16,29 @@
 #include <QDockWidget>
 
 #include "../src/app/appcontext.h"
-#include "../src/workflow/mappingworkbench.h"
-#include "../src/workflow/derivedassets.h"
-#include "../src/linkage/selectioncontext.h"
-#include "../src/ui/pages/mappingworkbenchpage.h"
-#include "../src/ui/decorations/paleodecorations.h"
-#include "../src/ui/paleotheme.h"
-#include <QTreeWidget>
-#include <QDialog>
-#include "../src/ui/paleomainwindow.h"
+#include "../src/domain/faciescatalog.h"
 #include "../src/io/dataimportservice.h" // 测试可直触 io（断言 DataImportService 信号）
-#include "../src/ui/datapreview/datapreviewtabs.h"
-#include "../src/ui/edittools/editingtoolbar.h"
-#include "../src/qgis/qgisprojectservice.h"
-#include "../src/qgis/qgisprocessingservice.h"
-#include "../src/qgis/qgislayerservice.h"
-#include "../src/qgis/qgiscanvascontroller.h"
+#include "../src/linkage/selectioncontext.h"
 #include "../src/metadata/layermanifest.h"
+#include "../src/qgis/qgiscanvascontroller.h"
+#include "../src/qgis/qgislayerservice.h"
+#include "../src/qgis/qgisprocessingservice.h"
+#include "../src/qgis/qgisprojectservice.h"
+#include "../src/ui/datapreview/datapreviewtabs.h"
+#include "../src/ui/decorations/paleodecorations.h"
+#include "../src/ui/edittools/editingtoolbar.h"
+#include "../src/ui/pages/mappingworkbenchpage.h"
+#include "../src/ui/pages/wellpredictionpanel.h"
+#include "../src/ui/paleomainwindow.h"
+#include "../src/ui/paleotheme.h"
+#include "../src/workflow/derivedassets.h"
+#include "../src/workflow/mappingworkbench.h"
+#include <QDialog>
+#include <QMenu>
+#include <QTableWidget>
 #include <QTimer>
+#include <QTreeWidget>
+#include <qgsmapmouseevent.h>
 
 #include <qgsproject.h>
 #include <qgsmapcanvas.h>
@@ -938,12 +943,107 @@ class TestUiShell : public QObject
       PaleoTheme::applyLightTheme();m_win->resize(1600,1000);m_win->show();QTest::qWait(350);
       QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(m_ctx->layerSvc()->layer(id)));
       QVERIFY(m_ctx->projectSvc()->project()->layerTreeRoot()->findLayer(m_ctx->layerSvc()->layer(id)->id())->isVisible());
-      auto visibleFaciesPixels=[this]{const auto image=m_ctx->canvasCtl()->canvas()->grab().toImage();int count=0;for(int y=100;y<image.height()-60;y+=4)for(int x=100;x<image.width()-260;x+=4){const auto c=image.pixelColor(x,y);if(c==QColor("#E6C875") || c==QColor("#81B99A") || c==QColor("#97B4CE"))++count;}return count;};
+      auto visibleFaciesPixels = [this] {
+        const auto image = m_ctx->canvasCtl()->canvas()->grab().toImage();
+        int count = 0;
+        for (int y = 100; y < image.height() - 60; y += 4)
+          for (int x = 100; x < image.width() - 260; x += 4) {
+            const auto c = image.pixelColor(x, y);
+            for (const auto &f : FaciesCatalog::defaults())
+              if (c == QColor(f.toMap().value("color").toString())) {
+                ++count;
+                break;
+              }
+          }
+        return count;
+      };
       QTRY_VERIFY_WITH_TIMEOUT(visibleFaciesPixels()>100,5000);
       if(const auto capture=qEnvironmentVariable("PALEO_MAPPING_CAPTURE");!capture.isEmpty())QVERIFY(m_win->grab().save(capture));
       page->commandButton("polygonize")->click();QVERIFY(page->selectedLayer()!=id);QVERIFY(page->commandButton("copy")->isEnabled());
       page->commandButton("copy")->click();const auto draft=page->selectedLayer();QVERIFY2(draft.startsWith("draft."),qPrintable(page->findChild<QLabel *>("workbenchMessage")->text()));auto *editing=m_win->findChild<PaleoEditingToolbar *>("editingToolbar");QVERIFY(editing && editing->isEditing());auto previous=m_ctx->mappingWorkbench()->versionForLayer(draft);auto *vector=editing->currentLayer();QVERIFY(vector);QgsFeature feature;auto fi=vector->getFeatures();QVERIFY(fi.nextFeature(feature));const int field=vector->fields().indexOf("facies_code");QVERIFY(field>=0);QVERIFY(vector->changeAttributeValue(feature.id(),field,feature.attribute(field).toInt()==1?2:1));editing->actionSave()->trigger();QVERIFY(!editing->isEditing());QCOMPARE(m_ctx->mappingWorkbench()->versionForLayer(draft).versionNumber,previous.versionNumber+1);
       m_win->showPage("compose");auto *compose=m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.compose");compose->selectLayer(draft);auto *save=m_win->findChild<QAction *>("ribbonSaveVersion");QVERIFY(save && save->isEnabled());QCOMPARE(save->text(),compose->commandButton("save")->text());
+      auto wellStage = registrar.stage("well_log", "井道测试", "review.las");
+      QVERIFY(wellStage.isValid());
+      QFile las(wellStage.absolutePath);
+      QVERIFY(las.open(QIODevice::WriteOnly));
+      las.write("~V\nVERS. 2.0 : version\nWRAP. NO : wrap\n~W\nNULL. -999.25 : "
+                "null\n~C\nDEPT.M : depth\nGR.API : gamma\n~A\n1000 30\n1030 "
+                "50\n1060 90\n1090 45\n1120 20\n");
+      las.close();
+      QVERIFY(registrar.commit(wellStage, {}, "test", {}));
+      CatalogEntity well;
+      well.id = "review-well";
+      well.entityType = "well";
+      well.name = "修订测试井";
+      well.hasSurface = true;
+      well.surfaceX = 200;
+      well.surfaceY = 200;
+      QVERIFY(catalog->addEntity(well));
+      EntityAssetLink wl;
+      wl.entityType = "well";
+      wl.entityId = well.id;
+      wl.assetId = wellStage.assetId;
+      wl.role = "well_log";
+      QVERIFY(catalog->addLink(wl));
+      m_win->showPage("predict");
+      auto *kind = page->findChild<QComboBox *>("predictionKind");
+      kind->setCurrentIndex(kind->findData("wells"));
+      QCOMPARE(inputs->count(), 1);
+      inputs->item(0)->setCheckState(Qt::Checked);
+      run->trigger();
+      QTRY_VERIFY(!m_ctx->mappingWorkbench()->busy());
+      auto *wellPanel = m_win->findChild<WellPredictionPanel *>();
+      QVERIFY(wellPanel);
+      QTRY_VERIFY(wellPanel->isVisible());
+      QCOMPARE(wellPanel->findChild<QTableWidget *>("predictionIntervals")
+                   ->rowCount(),
+               12);
+      wellPanel->findChild<QPushButton *>("copyWellPrediction")->click();
+      QVERIFY(wellPanel->layerId().startsWith("draft."));
+      const auto wellDraft = wellPanel->layerId();
+      auto beforeRevision =
+          m_ctx->mappingWorkbench()->versionForLayer(wellDraft);
+      auto *choice = wellPanel->findChild<QComboBox *>("wellFaciesChoice");
+      choice->setCurrentIndex((choice->currentIndex() + 1) % choice->count());
+      wellPanel->findChild<QPushButton *>("applyWellFacies")->click();
+      QVERIFY(editing->isEditing());
+      wellPanel->findChild<QPushButton *>("saveWellPrediction")->click();
+      QVERIFY(!editing->isEditing());
+      QCOMPARE(
+          m_ctx->mappingWorkbench()->versionForLayer(wellDraft).versionNumber,
+          beforeRevision.versionNumber + 1);
+      // Right-click menu routes the hit feature to the same facies workflow.
+      auto *map = m_ctx->canvasCtl()->canvas();
+      auto *wellVector = qobject_cast<QgsVectorLayer *>(map->currentLayer());
+      QVERIFY(wellVector);
+      auto wellFeatures = wellVector->getFeatures();
+      QgsFeature wf;
+      QVERIFY(wellFeatures.nextFeature(wf));
+      const auto pixel =
+          map->mapSettings().mapToPixel().transform(wf.geometry().asPoint());
+      const QPoint pos(qRound(pixel.x()), qRound(pixel.y()));
+      QMouseEvent mouse(QEvent::MouseButtonPress, QPointF(pos),
+                        QPointF(map->mapToGlobal(pos)), Qt::RightButton,
+                        Qt::RightButton, Qt::NoModifier);
+      QgsMapMouseEvent event(map, &mouse);
+      QMenu menu;
+      emit map->contextMenuAboutToShow(&menu, &event);
+      auto *change = menu.findChild<QMenu *>("changeFeatureFacies");
+      QVERIFY(change);
+      QCOMPARE(change->actions().size(), 3);
+      change->actions().first()->trigger();
+      QVERIFY(editing->isEditing());
+      QVERIFY(map->currentLayer()
+                  ->customProperty("paleoLayerId")
+                  .toString()
+                  .startsWith("draft."));
+      editing->actionSave()->trigger();
+      QVERIFY(!editing->isEditing());
+      QTest::qWait(150);
+      if (const auto capture =
+              qEnvironmentVariable("PALEO_PREDICTION_WINDOW_CAPTURE");
+          !capture.isEmpty())
+        QVERIFY(m_win->grab().save(capture));
     }
 
 };

@@ -1,5 +1,6 @@
 // 层：视图
 #include "mappingworkbenchpage.h"
+#include "../../domain/faciescatalog.h"
 #include "../../services/singlefactordef.h"
 #include "../../workflow/mappingworkbench.h"
 #include <QComboBox>
@@ -198,6 +199,13 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   actions->addWidget(button("polygonize", tr("相栅格转相面")), 1, 0);
   actions->addWidget(button("copy", tr("复制底图并编辑")), 1, 1);
   actions->addWidget(button("save", tr("保存图件新版本")), 2, 0, 1, 2);
+  if (mode == "predict")
+    actions->addWidget(button("welltracks", tr("查看井道 / 修订测井相")), 3, 0,
+                       1, 2);
+  m_editFacies = new QComboBox(body);
+  m_editFacies->setObjectName("mapFaciesChoice");
+  actions->addWidget(m_editFacies, 4, 0);
+  actions->addWidget(button("assignFacies", tr("应用到地图选中要素")), 4, 1);
   layout->addLayout(actions);
   m_details = label(tr("选择图件查看来源、生成参数和文件位置。"));
   m_details->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -210,12 +218,42 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   sl->addWidget(schemaBody);
   auto *sbl = new QVBoxLayout(schemaBody);
   sbl->setContentsMargins(0, 0, 0, 0);
-  m_facies = new QTableWidget(0, 3, schemaBody);
+  m_facies = new QTableWidget(0, 7, schemaBody);
   m_facies->setObjectName("faciesSchema");
-  m_facies->setHorizontalHeaderLabels({tr("编码"), tr("相名称"), tr("颜色")});
-  m_facies->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+  m_facies->setHorizontalHeaderLabels({tr("编码"), tr("类别名称"), tr("颜色"),
+                                       tr("相"), tr("亚相"), tr("微相"),
+                                       tr("纹理")});
+  m_facies->horizontalHeader()->setSectionResizeMode(
+      QHeaderView::ResizeToContents);
   m_facies->setMinimumHeight(140);
   sbl->addWidget(m_facies);
+  auto *library = new QComboBox(schemaBody);
+  library->setObjectName("faciesTextureLibrary");
+  library->setEditable(true);
+  library->setInsertPolicy(QComboBox::NoInsert);
+  for (const auto &v : FaciesCatalog::library()) {
+    auto f = v.toMap();
+    library->addItem(
+        QIcon(FaciesCatalog::resourcePath(f.value("texture").toString())),
+        f.value("category").toString() + " · " + f.value("name").toString(), f);
+  }
+  sbl->addWidget(library);
+  auto *useTexture = new QPushButton(tr("将所选纹理应用到分类行"), schemaBody);
+  sbl->addWidget(useTexture);
+  connect(useTexture, &QPushButton::clicked, this, [this, library] {
+    int row = m_facies->currentRow();
+    if (row < 0)
+      return;
+    const auto f = library->currentData().toMap();
+    m_facies->setItem(row, 1, new QTableWidgetItem(f.value("name").toString()));
+    m_facies->setItem(row, 2,
+                      new QTableWidgetItem(f.value("color").toString()));
+    m_facies->setItem(row, 6,
+                      new QTableWidgetItem(f.value("texture").toString()));
+    if (!m_facies->item(row, 3) || m_facies->item(row, 3)->text().isEmpty())
+      m_facies->setItem(row, 3,
+                        new QTableWidgetItem(f.value("name").toString()));
+  });
   auto *sr = new QHBoxLayout;
   auto *add = new QPushButton(tr("新增相"), schemaBody);
   auto *remove = new QPushButton(tr("删除相"), schemaBody);
@@ -223,17 +261,25 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   sr->addWidget(remove);
   sr->addWidget(button("schema", tr("保存分类")));
   sbl->addLayout(sr);
-  auto *hint = new QLabel(tr("分类按层位独立保存；已有图件保留生成时的相分类。M"
-                             "ock 默认名称需按实际地质含义配置。"),
-                          schemaBody);
+  auto *hint =
+      new QLabel(tr("分类按层位独立保存；已有图件保留生成时分类。选中分类行后可"
+                    "从纹理库应用符号；亚相、微相可留空，未分类要素仍会显示。"),
+                 schemaBody);
   hint->setWordWrap(true);
   sbl->addWidget(hint);
   connect(add, &QPushButton::clicked, this, [this] {
     int i = m_facies->rowCount();
     m_facies->insertRow(i);
-    m_facies->setItem(i, 0, new QTableWidgetItem(QString::number(i + 1)));
+    int code = 1;
+    for (int r = 0; r < i; ++r)
+      if (m_facies->item(r, 0))
+        code = qMax(code, m_facies->item(r, 0)->text().toInt() + 1);
+    m_facies->setItem(i, 0, new QTableWidgetItem(QString::number(code)));
     m_facies->setItem(i, 1, new QTableWidgetItem(tr("新相")));
     m_facies->setItem(i, 2, new QTableWidgetItem("#97B4CE"));
+    for (int c = 3; c < 7; ++c)
+      m_facies->setItem(i, c, new QTableWidgetItem());
+    m_facies->setCurrentCell(i, 1);
   });
   connect(remove, &QPushButton::clicked, this,
           [this] { m_facies->removeRow(m_facies->currentRow()); });
@@ -289,6 +335,9 @@ void MappingWorkbenchPage::setHorizon(const QString &h) {
     m_facies->setItem(i, 0, new QTableWidgetItem(f.value("code").toString()));
     m_facies->setItem(i, 1, new QTableWidgetItem(f.value("name").toString()));
     m_facies->setItem(i, 2, new QTableWidgetItem(f.value("color").toString()));
+    int c = 3;
+    for (const auto &key : {"facies", "subfacies", "microfacies", "texture"})
+      m_facies->setItem(i, c++, new QTableWidgetItem(f.value(key).toString()));
   }
 }
 void MappingWorkbenchPage::refreshInputs() {
@@ -392,6 +441,25 @@ void MappingWorkbenchPage::updateState() {
        tr("请勾选本层位编图输入"));
   for (const auto &name : {"import", "draw", "schema"})
     gate(name, horizon, tr("请先选择层位"));
+  const auto selectedSchema = m_workbench->versionForLayer(selectedLayer())
+                                  .extra.value("facies")
+                                  .toList();
+  const auto oldCode = m_editFacies->currentData();
+  m_editFacies->clear();
+  for (const auto &v : selectedSchema) {
+    auto f = v.toMap();
+    m_editFacies->addItem(
+        QIcon(FaciesCatalog::resourcePath(f.value("texture").toString())),
+        f.value("name").toString(), f.value("code").toInt());
+  }
+  int oldIndex = m_editFacies->findData(oldCode);
+  if (oldIndex >= 0)
+    m_editFacies->setCurrentIndex(oldIndex);
+  gate("assignFacies", row.value("draft").toBool() && !selectedSchema.isEmpty(),
+       tr("复制相图后，在画布选中要素，再选择相类别"));
+  gate("welltracks",
+       selected && !m_workbench->wellPredictions(selectedLayer()).isEmpty(),
+       tr("选择包含井段的测井相预测或修订结果"));
   gate("show", selected, tr("请先选择图件"));
   gate("compare", selected, tr("请先选择图件"));
   gate("polygonize",
@@ -444,6 +512,8 @@ void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
       thresholds << v;
     p.insert("thresholds", thresholds);
   }
+  if (action == "assignFacies")
+    p.insert("code", m_editFacies->currentData());
   if (action == "schema") {
     QVariantList rows;
     for (int i = 0; i < m_facies->rowCount(); ++i) {
@@ -451,8 +521,10 @@ void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
         auto *item = m_facies->item(i, c);
         return item ? item->text() : QString();
       };
-      rows << QVariantMap{
-          {"code", text(0)}, {"name", text(1)}, {"color", text(2)}};
+      rows << QVariantMap{{"code", text(0)},      {"name", text(1)},
+                          {"color", text(2)},     {"facies", text(3)},
+                          {"subfacies", text(4)}, {"microfacies", text(5)},
+                          {"texture", text(6)}};
     }
     p.insert("facies", rows);
   }

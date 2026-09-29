@@ -1,4 +1,5 @@
 // 层：视图
+#include "../domain/faciescatalog.h"
 #include "../linkage/selectioncontext.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/mappingartifactwriter.h"
@@ -14,22 +15,28 @@
 #include "pages/constraintpage.h"
 #include "pages/mappingworkbenchpage.h"
 #include "pages/predictpage.h"
+#include "pages/wellpredictionpanel.h"
 #include "paleomainwindow.h"
 #include "paleoribbon.h"
 #include <QAction>
 #include <QDialog>
+#include <QDockWidget>
 #include <QFileDialog>
 #include <QLabel>
+#include <QMenu>
 #include <QPointer>
 #include <QPushButton>
 #include <QStackedLayout>
 #include <QStatusBar>
 #include <QTabWidget>
+#include <QUndoStack>
 #include <QVBoxLayout>
 #include <memory>
 #include <qgslayertree.h>
 #include <qgslayertreeview.h>
 #include <qgsmapcanvas.h>
+#include <qgsmapmouseevent.h>
+#include <qgsmaptoolidentify.h>
 #include <qgsmaptoolpan.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
@@ -100,6 +107,9 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
                                        ? tr("等值线")
                                        : tr("约束线"));
     }
+    if (product && d.type == "vector")
+      schema << QVariantMap{{"name", tr("其他 / 未分类")},
+                            {"color", "#9AA7B4"}};
     m_decorMgr->setFaciesLegend(title, h.isEmpty() ? QVariantList() : schema);
   };
   auto shown = std::make_shared<QHash<QString, QString>>();
@@ -118,6 +128,15 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
       return false;
     workbench->styleLayer(id);
     auto *canvas = m_canvasCtl->canvas();
+    if (!canvas->mapTool()) {
+      auto *pan = canvas->findChild<QgsMapToolPan *>("workbenchPan");
+      if (!pan) {
+        pan = new QgsMapToolPan(canvas);
+        pan->setParent(canvas);
+        pan->setObjectName("workbenchPan");
+      }
+      canvas->setMapTool(pan);
+    }
     // Focus one generated result while retaining base data. History stays in
     // the result list and can be compared in independent windows.
     for (const auto &other : m_layerSvc->declared())
@@ -218,14 +237,192 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     canvas->refresh();
     return true;
   };
+  auto *wellDock = new QDockWidget(tr("测井相预测与修订"), this);
+  wellDock->setObjectName("wellPredictionDock");
+  auto *wellPanel = new WellPredictionPanel(wellDock);
+  wellDock->setWidget(wellPanel);
+  addDockWidget(Qt::BottomDockWidgetArea, wellDock);
+  wellDock->hide();
+  auto openWells = [this, workbench, wellPanel, wellDock](const QString &id) {
+    const auto wells = workbench->wellPredictions(id);
+    if (wells.isEmpty())
+      return;
+    wellPanel->setResult(
+        id, wells,
+        workbench->versionForLayer(id).extra.value("facies").toList());
+    if (auto *v = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id)))
+      wellPanel->setUndoAvailable(v->isEditable() && v->undoStack()->canUndo());
+    wellDock->show();
+    wellDock->raise();
+  };
+  auto beginEdit = [this, edit](const QString &id) {
+    auto *vector = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(id));
+    if (edit && vector) {
+      edit->refreshFromProject();
+      edit->setCurrentLayer(vector);
+      const bool ok = edit->startEditing();
+      if (ok && !edit->actionSelect()->isChecked())
+        edit->actionSelect()->trigger();
+      return ok;
+    }
+    return false;
+  };
+  connect(wellPanel, &WellPredictionPanel::logRequested, this,
+          [workbench, wellPanel](const QString &version) {
+            wellPanel->setLog(workbench->predictionLog(version));
+          });
+  connect(wellPanel, &WellPredictionPanel::featureSelected, this,
+          [this, wellPanel](qint64 fid) {
+            if (auto *v = qobject_cast<QgsVectorLayer *>(
+                    m_layerSvc->layer(wellPanel->layerId())))
+              v->selectByIds({fid});
+          });
+  connect(wellPanel, &WellPredictionPanel::reviseRequested, this,
+          [this, workbench, wellPanel, beginEdit](const QString &well,
+                                                  int interval, int code) {
+            QString error;
+            if (beginEdit(wellPanel->layerId()) &&
+                workbench->reviseWellInterval(wellPanel->layerId(), well,
+                                              interval, code, &error))
+              statusBar()->showMessage(
+                  tr("井段与地图相点已更新；保存修订版本后登记文件。"), 10000);
+            else
+              statusBar()->showMessage(
+                  error.isEmpty() ? tr("请先结束其他图层的编辑") : error,
+                  10000);
+          });
+  connect(wellPanel, &WellPredictionPanel::copyRequested, this,
+          [workbench, wellPanel, openWells, beginEdit]() {
+            QString error;
+            const auto id =
+                workbench->copyForEditing(wellPanel->layerId(), {}, &error);
+            if (!id.isEmpty()) {
+              beginEdit(id);
+              openWells(id);
+            } else
+              emit workbench->errorOccurred(error);
+          });
+  connect(wellPanel, &WellPredictionPanel::saveRequested, this,
+          [this, workbench, wellPanel, edit] {
+            QString error;
+            auto id = wellPanel->layerId();
+            auto *v = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id));
+            if (v && v->isEditable()) {
+              if (edit && edit->currentLayer() == v)
+                edit->saveEditing();
+              else
+                statusBar()->showMessage(tr("请先结束其他图层的编辑"), 10000);
+            } else if (!workbench->saveEditingVersion(id, &error))
+              statusBar()->showMessage(error, 10000);
+          });
+  connect(wellPanel, &WellPredictionPanel::undoRequested, this,
+          [this, workbench, wellPanel] {
+            const auto id = wellPanel->layerId();
+            auto *v = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id));
+            if (v && v->isEditable() && v->undoStack()->canUndo()) {
+              v->undoStack()->undo();
+              v->triggerRepaint();
+              emit workbench->faciesEdited(id);
+            }
+          });
+  connect(
+      workbench, &MappingWorkbench::faciesEdited, this,
+      [this, workbench, wellPanel, legend](const QString &id) {
+        workbench->styleLayer(id);
+        m_canvasCtl->canvas()->refresh();
+        legend(id);
+        if (wellPanel->layerId() == id) {
+          wellPanel->setResult(
+              id, workbench->wellPredictions(id),
+              workbench->versionForLayer(id).extra.value("facies").toList());
+          if (auto *v = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id)))
+            wellPanel->setUndoAvailable(v->isEditable() &&
+                                        v->undoStack()->canUndo());
+        }
+      });
+  connect(m_selection, &SelectionContext::activeHorizonChanged, wellPanel,
+          [wellPanel, wellDock] {
+            wellPanel->clear();
+            wellDock->hide();
+          });
+  connect(m_projectSvc, &QgisProjectService::projectOpened, wellPanel,
+          [wellPanel, wellDock] {
+            wellPanel->clear();
+            wellDock->hide();
+          });
+  connect(
+      m_canvasCtl->canvas(), &QgsMapCanvas::contextMenuAboutToShow, this,
+      [this, workbench, show, beginEdit](QMenu *menu, QgsMapMouseEvent *event) {
+        auto *v = qobject_cast<QgsVectorLayer *>(
+            m_canvasCtl->canvas()->currentLayer());
+        if (!v || v->fields().indexOf("facies_code") < 0)
+          return;
+        const auto id = v->customProperty("paleoLayerId").toString();
+        const auto schema =
+            workbench->versionForLayer(id).extra.value("facies").toList();
+        if (schema.isEmpty())
+          return;
+        QgsMapToolIdentify identify(m_canvasCtl->canvas());
+        const auto hits =
+            identify.identify(event->pos().x(), event->pos().y(), {v},
+                              QgsMapToolIdentify::TopDownAll);
+        if (hits.isEmpty())
+          return;
+        auto *changes = menu->addMenu(tr("更改此要素的相"));
+        changes->setObjectName("changeFeatureFacies");
+        const auto original = hits.first().mFeature;
+        for (const auto &entry : schema) {
+          auto f = entry.toMap();
+          auto *action = changes->addAction(
+              QIcon(FaciesCatalog::resourcePath(f.value("texture").toString())),
+              f.value("name").toString());
+          connect(
+              action, &QAction::triggered, this,
+              [this, workbench, id, original, code = f.value("code").toInt(),
+               show, beginEdit] {
+                QString error;
+                QString target = id;
+                QgsFeatureId fid = original.id();
+                if (!target.startsWith("draft.")) {
+                  target = workbench->copyForEditing(id, {}, &error);
+                  auto *copy = qobject_cast<QgsVectorLayer *>(
+                      m_layerSvc->instantiate(target));
+                  if (copy) {
+                    auto it = copy->getFeatures();
+                    QgsFeature f;
+                    fid = FID_NULL;
+                    while (it.nextFeature(f))
+                      if (f.geometry().asWkb() == original.geometry().asWkb() &&
+                          f.attribute("facies_code") ==
+                              original.attribute("facies_code")) {
+                        fid = f.id();
+                        break;
+                      }
+                  }
+                }
+                if (target.isEmpty() || fid == FID_NULL || !beginEdit(target) ||
+                    !workbench->assignFacies(target, {fid}, code, &error))
+                  statusBar()->showMessage(
+                      error.isEmpty() ? tr("无法修改；请先结束其他图层的编辑")
+                                      : error,
+                      10000);
+                else {
+                  show(target, &error);
+                  statusBar()->showMessage(
+                      tr("相类别已更新，可撤销；保存编辑后登记新版本。"),
+                      10000);
+                }
+              });
+        }
+      });
   for (auto *page : pages) {
     page->setHorizon(m_selection->activeHorizon());
     connect(m_selection, &SelectionContext::activeHorizonChanged, page,
             &MappingWorkbenchPage::setHorizon);
     connect(
         page, &MappingWorkbenchPage::commandRequested, this,
-        [this, workbench, page, show, compare, edit, constraint,
-         legend](const QString &action, const QVariantMap &p) {
+        [this, workbench, page, show, compare, edit, constraint, legend,
+         openWells, beginEdit](const QString &action, const QVariantMap &p) {
           QString error;
           bool ok = true;
           const auto h = p.value("horizon").toString(),
@@ -238,7 +435,21 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             workbench->cancelPrediction();
           else if (action == "show")
             ok = show(id, &error);
-          else if (action == "compare")
+          else if (action == "welltracks")
+            openWells(id);
+          else if (action == "assignFacies") {
+            auto *v =
+                qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(id));
+            if (!v || v->selectedFeatureIds().isEmpty()) {
+              ok = false;
+              error = tr("请先用画布选择工具选中要素");
+            } else if (!beginEdit(id)) {
+              ok = false;
+              error = tr("请先结束其他图层的编辑");
+            } else
+              ok = workbench->assignFacies(id, v->selectedFeatureIds().values(),
+                                           p.value("code").toInt(), &error);
+          } else if (action == "compare")
             ok = compare(id, &error);
           else if (action == "polygonize")
             ok = !workbench->polygonize(id, &error).isEmpty();
@@ -247,10 +458,9 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             ok = !draft.isEmpty();
             if (ok && edit) {
               show(draft, &error);
-              edit->refreshFromProject();
-              edit->setCurrentLayer(
-                  qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(draft)));
-              edit->actionVertexEdit()->trigger();
+              ok = beginEdit(draft);
+              if (!ok)
+                error = tr("副本已创建，请先结束其他图层的编辑");
             }
           } else if (action == "save") {
             auto *vector =
@@ -308,12 +518,16 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
         });
   }
   connect(workbench, &MappingWorkbench::productReady, this,
-          [this, show, pages](const QString &h, const QString &id) {
+          [this, show, pages, workbench, openWells,
+           wellDock](const QString &h, const QString &id) {
             if (h == m_selection->activeHorizon()) {
               QString error;
               if (!show(id, &error))
                 statusBar()->showMessage(error, 10000);
             }
+            if (h == m_selection->activeHorizon() &&
+                !workbench->wellPredictions(id).isEmpty())
+              openWells(id);
             for (auto *page : pages) {
               page->refresh();
               if (page->horizon() == h)

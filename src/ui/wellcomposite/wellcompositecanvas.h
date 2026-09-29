@@ -87,6 +87,7 @@ public:
 signals:
   void zoomChanged(double factor);
   void depthHovered(double depth);
+  void depthClicked(double depth);
   void scaleRatioChanged(const QString &ratio);
   void viewportChanged(double topDepth, double bottomDepth, double span);
 
@@ -157,6 +158,7 @@ private:
   WellCompositeCanvas *m_canvas = nullptr;
   bool m_isPanning = false;
   QPoint m_lastMousePos;
+  QPoint m_pressPos;
 };
 
 } // namespace WellComposite

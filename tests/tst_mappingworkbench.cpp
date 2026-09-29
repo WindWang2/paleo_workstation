@@ -1,9 +1,11 @@
+#include "../src/domain/faciescatalog.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/mappingartifactwriter.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/ui/pages/mappingworkbenchpage.h"
+#include "../src/ui/pages/wellpredictionpanel.h"
 #include "../src/workflow/derivedassets.h"
 #include "../src/workflow/mappingworkbench.h"
 #include "../src/workflow/workflows.h"
@@ -13,11 +15,14 @@
 #include <QListWidget>
 #include <QPushButton>
 #include <QSignalSpy>
+#include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTreeWidget>
+#include <QUndoStack>
 #include <QtTest>
 #include <gdal.h>
 #include <qgsapplication.h>
+#include <qgscategorizedsymbolrenderer.h>
 #include <qgsgeometry.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
@@ -75,7 +80,12 @@ class TestMappingWorkbench : public QObject {
       QFile f(st.absolutePath);
       if (!f.open(QIODevice::WriteOnly))
         return {};
-      f.write("mock input bytes");
+      if (type == "well_log")
+        f.write("~V\nVERS. 2.0 : version\nWRAP. NO : wrap\n~W\nNULL. -999.25 : "
+                "null\n~C\nDEPT.M : depth\nGR.API : gamma\n~A\n1000 30\n1030 "
+                "50\n1060 90\n1090 45\n1120 20\n");
+      else
+        f.write("mock input bytes");
       f.close();
       if (!r.commit(st, {}, "fixture", {}))
         return {};
@@ -140,6 +150,157 @@ class TestMappingWorkbench : public QObject {
     return QCryptographicHash::hash(f.readAll(), QCryptographicHash::Sha256);
   }
 private slots:
+  void textureLibraryAndUnknownCategories() {
+    const auto library = FaciesCatalog::library();
+    QVERIFY(library.size() > 100);
+    auto schema = FaciesCatalog::defaults();
+    auto hierarchical = schema[0].toMap();
+    hierarchical.insert("facies", "三角洲相");
+    hierarchical.insert("subfacies", "三角洲前缘");
+    hierarchical.insert("microfacies", "水下分流河道");
+    schema[0] = hierarchical;
+    QCOMPARE(schema.size(), 3);
+    for (const auto &v : schema) {
+      auto f = v.toMap();
+      QVERIFY(!f.value("name").toString().contains("Mock"));
+      QVERIFY(QFile::exists(
+          FaciesCatalog::resourcePath(f.value("texture").toString())));
+    }
+    QgsVectorLayer legacy("Point?field=facies_code:integer&crs=EPSG:4326",
+                          "legacy", "memory");
+    legacy.setReadOnly(true);
+    MappingArtifactWriter::applyFaciesStyle(&legacy, schema);
+    QVERIFY(legacy.fields().indexOf("facies_name") >= 0);
+    QVERIFY(!legacy.isEditable());
+    QgsVectorLayer layer("Point?field=facies_code:integer&crs=EPSG:4326",
+                         "unknown", "memory");
+    QgsFeature known(layer.fields()), unknown(layer.fields()),
+        empty(layer.fields());
+    known.setAttributes(QgsAttributes(1, QVariant(1)));
+    unknown.setAttributes(QgsAttributes(1, QVariant(77)));
+    empty.setAttributes(QgsAttributes(1, QVariant()));
+    for (auto *f : {&known, &unknown, &empty})
+      f->setGeometry(QgsGeometry::fromWkt("POINT(1 1)"));
+    QgsFeatureList features{known, unknown, empty};
+    QVERIFY(layer.dataProvider()->addFeatures(features));
+    QString error;
+    QVERIFY2(
+        MappingArtifactWriter::syncFaciesAttributes(&layer, schema, &error),
+        qPrintable(error));
+    MappingArtifactWriter::applyFaciesStyle(&layer, schema);
+    auto *renderer =
+        dynamic_cast<QgsCategorizedSymbolRenderer *>(layer.renderer());
+    QVERIFY(renderer);
+    QVERIFY(renderer->categories().last().value().isNull());
+    QVERIFY(renderer->categories().last().symbol());
+    QgsRenderContext context;
+    renderer->startRender(context, layer.fields());
+    auto it = layer.getFeatures();
+    QgsFeature f;
+    int visible = 0;
+    while (it.nextFeature(f)) {
+      QVERIFY(renderer->symbolForFeature(f, context));
+      ++visible;
+      QVERIFY(!f.attribute("facies_name").toString().isEmpty());
+      if (f.attribute("facies_code").toInt() == 1) {
+        QCOMPARE(f.attribute("facies_name").toString(), QString("三角洲相"));
+        QCOMPARE(f.attribute("subfacies").toString(), QString("三角洲前缘"));
+        QCOMPARE(f.attribute("microfacies").toString(),
+                 QString("水下分流河道"));
+      }
+    }
+    renderer->stopRender(context);
+    QCOMPARE(visible, 3);
+  }
+  void wellIntervalsReviewUndoAndPersistence() {
+    Fixture f;
+    QVERIFY(f.init());
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QVERIFY(!f.well("B", 30, 40).isEmpty());
+    QString error;
+    QVERIFY(f.work.predict("D61", "wells", {"A", "B"}, &error));
+    QTRY_VERIFY(!f.work.busy());
+    const auto original = f.latest("wells_prediction");
+    QVERIFY(!original.isEmpty());
+    auto before = f.work.wellPredictions(original);
+    QCOMPARE(before.size(), 2);
+    QCOMPARE(before[0].toMap().value("intervals").toList().size(), 12);
+    const auto originalHash = digest(f.work.declaration(original).source);
+    const auto draft = f.work.copyForEditing(original, {}, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(layer);
+    auto rows = f.work.wellPredictions(draft);
+    const auto well = rows[0].toMap();
+    const auto wellId = well.value("id").toString();
+    QVERIFY(f.work.predictionLog(well.value("log_version_id").toString()).ok);
+    QVERIFY(!well.value("depth_mock").toBool());
+    const auto intervals = well.value("intervals").toList();
+    const int oldCode = intervals[0].toMap().value("code").toInt();
+    const int code = oldCode == 1 ? 2 : 1;
+    const auto version = f.work.versionForLayer(draft);
+    QVERIFY(!f.work.reviseWellInterval(original, wellId, 0, code, &error));
+    QVERIFY(!f.work.reviseWellInterval(draft, wellId, 999, code, &error));
+    QVERIFY2(f.work.reviseWellInterval(draft, wellId, 0, code, &error),
+             qPrintable(error));
+    auto revised = f.work.wellPredictions(draft)[0].toMap();
+    QCOMPARE(
+        revised.value("intervals").toList()[0].toMap().value("code").toInt(),
+        code);
+    QCOMPARE(revised.value("predicted"), well.value("predicted"));
+    layer->undoStack()->undo();
+    QCOMPARE(
+        f.work.wellPredictions(draft)[0].toMap().value("intervals").toList(),
+        intervals);
+    for (int i = 0; i < 12; ++i)
+      QVERIFY(f.work.reviseWellInterval(draft, wellId, i, code, &error));
+    auto feature = layer->getFeature(well.value("feature_id").toLongLong());
+    QCOMPARE(feature.attribute("facies_code").toInt(), code);
+    QCOMPARE(feature.attribute("facies_name").toString(),
+             FaciesCatalog::find(f.work.facies("D61"), code)
+                 .value("facies")
+                 .toString());
+    QVERIFY(layer->commitChanges());
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    auto saved = f.work.versionForLayer(draft);
+    QCOMPARE(saved.versionNumber, version.versionNumber + 1);
+    QVERIFY(saved.parentVersionIds.contains(version.id));
+    QCOMPARE(digest(f.work.declaration(original).source), originalHash);
+    f.work.bindCatalog(&f.catalog, f.dir.path());
+    QCOMPARE(
+        f.work.wellPredictions(draft)[0].toMap().value("facies_code").toInt(),
+        code);
+    QVERIFY2(f.work.assignFacies(draft, {well.value("feature_id").toLongLong()},
+                                 oldCode, &error),
+             qPrintable(error));
+    for (const auto &v :
+         f.work.wellPredictions(draft)[0].toMap().value("intervals").toList())
+      QCOMPARE(v.toMap().value("code").toInt(), oldCode);
+    WellPredictionPanel panel;
+    panel.setResult(draft, f.work.wellPredictions(draft), f.work.facies("D61"));
+    auto *table = panel.findChild<QTableWidget *>("predictionIntervals");
+    QVERIFY(table);
+    QCOMPARE(table->rowCount(), 12);
+    auto *choice = panel.findChild<QComboBox *>("wellFaciesChoice");
+    QVERIFY(choice);
+    choice->setCurrentIndex(choice->findData(code));
+    QSignalSpy revise(&panel, &WellPredictionPanel::reviseRequested);
+    panel.findChild<QPushButton *>("applyWellFacies")->click();
+    QCOMPARE(revise.count(), 1);
+    QCOMPARE(revise[0][0].toString(), wellId);
+    QCOMPARE(revise[0][1].toInt(), 0);
+    QCOMPARE(revise[0][2].toInt(), code);
+    panel.setLog(f.work.predictionLog(well.value("log_version_id").toString()));
+    panel.resize(1250, 520);
+    panel.show();
+    QTest::qWait(100);
+    if (const auto path = qEnvironmentVariable("PALEO_PREDICTION_CAPTURE");
+        !path.isEmpty())
+      QVERIFY(panel.grab().save(path));
+    panel.clear();
+    QCOMPARE(table->rowCount(), 0);
+    QVERIFY(!panel.findChild<QPushButton *>("applyWellFacies")->isEnabled());
+  }
   void seismicToPolygonToEditableVersions() {
     Fixture f;
     QVERIFY(f.init());
@@ -172,6 +333,9 @@ private slots:
         qobject_cast<QgsVectorLayer *>(f.layers.instantiate(polygon, &error));
     QVERIFY(original);
     QVERIFY(original->featureCount() > 0);
+    for (const auto &name :
+         {"facies_name", "subfacies", "microfacies", "texture"})
+      QVERIFY(original->fields().indexOf(name) >= 0);
     QVERIFY(original->readOnly());
     const auto hash = digest(original->source());
     const auto draft = f.work.copyForEditing(polygon, {}, &error);

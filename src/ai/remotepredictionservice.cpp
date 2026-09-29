@@ -1,6 +1,7 @@
 // 层：功能
 #include "remotepredictionservice.h"
 #include <QCryptographicHash>
+#include <QJsonDocument>
 #include <cmath>
 
 MockRemotePredictionService::MockRemotePredictionService(QObject *parent)
@@ -35,6 +36,21 @@ MockRemotePredictionService::MockRemotePredictionService(QObject *parent)
             (request.horizon + point.value("id").toString()).toUtf8(),
             QCryptographicHash::Sha256);
         point.insert("facies_code", code(static_cast<unsigned char>(hash[0])));
+        QVariantList intervals;
+        const double top = point.value("depth_top", 0.0).toDouble();
+        const double bottom = point.value("depth_bottom", 120.0).toDouble();
+        const int primary = point.value("facies_code").toInt();
+        for (int i = 0; i < 12; ++i)
+          intervals << QVariantMap{
+              {"top", top + (bottom - top) * i / 12.0},
+              {"bottom", top + (bottom - top) * (i + 1) / 12.0},
+              {"code", i < 8 ? primary
+                             : code(static_cast<unsigned char>(hash[0]) + i)}};
+        const auto json =
+            QString::fromUtf8(QJsonDocument::fromVariant(intervals).toJson(
+                QJsonDocument::Compact));
+        point.insert("facies_intervals", json);
+        point.insert("predicted_intervals", json);
         point.insert("horizon", request.horizon);
         point.insert("mock", true);
         m_result.points.append(point);

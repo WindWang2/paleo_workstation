@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #include "mappingartifactwriter.h"
 #include "../catalog/datacatalog.h"
+#include "../domain/faciescatalog.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -8,13 +9,17 @@
 #include <gdal.h>
 #include <qgscategorizedsymbolrenderer.h>
 #include <qgscoordinatetransform.h>
+#include <qgsexpression.h>
 #include <qgsfillsymbol.h>
+#include <qgsfillsymbollayer.h>
 #include <qgsgeometry.h>
 #include <qgslinesymbol.h>
 #include <qgsmarkersymbol.h>
+#include <qgsmarkersymbollayer.h>
 #include <qgspalettedrasterrenderer.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
+#include <qgsvectordataprovider.h>
 #include <qgsvectorfilewriter.h>
 #include <qgsvectorlayer.h>
 
@@ -151,10 +156,115 @@ QVariantList constraintGeometries(const QString &path, QString *error) {
     *error = QObject::tr("约束文件没有线要素");
   return records;
 }
+bool syncFaciesAttributes(QgsVectorLayer *layer, const QVariantList &facies,
+                          QString *error) {
+  if (!layer || layer->fields().indexOf("facies_code") < 0)
+    return true;
+  const bool own = !layer->isEditable();
+  if (own && !layer->startEditing()) {
+    if (error)
+      *error = QObject::tr("无法编辑相属性");
+    return false;
+  }
+  layer->beginEditCommand(QObject::tr("同步相、亚相、微相属性"));
+  bool ok = true;
+  for (const auto &name :
+       {"facies_name", "subfacies", "microfacies", "facies_label", "texture"})
+    if (layer->fields().indexOf(name) < 0)
+      ok = layer->addAttribute(QgsField(name, QMetaType::Type::QString)) && ok;
+  auto it = layer->getFeatures();
+  QgsFeature feature;
+  while (ok && it.nextFeature(feature)) {
+    // Direct attribute-table changes to a well point apply to its whole
+    // interval column. Interval edits already keep the dominant point code in
+    // sync.
+    if (layer->fields().indexOf("facies_intervals") >= 0) {
+      auto intervals =
+          QJsonDocument::fromJson(
+              feature.attribute("facies_intervals").toString().toUtf8())
+              .toVariant()
+              .toList();
+      QMap<int, double> lengths;
+      for (const auto &v : intervals) {
+        auto r = v.toMap();
+        lengths[r.value("code").toInt()] +=
+            r.value("bottom").toDouble() - r.value("top").toDouble();
+      }
+      if (!lengths.isEmpty()) {
+        int dominant = lengths.firstKey();
+        for (auto i = lengths.cbegin(); i != lengths.cend(); ++i)
+          if (i.value() > lengths.value(dominant))
+            dominant = i.key();
+        if (dominant != feature.attribute("facies_code").toInt()) {
+          for (auto &v : intervals) {
+            auto r = v.toMap();
+            r.insert("code", feature.attribute("facies_code"));
+            v = r;
+          }
+          ok = layer->changeAttributeValue(
+                   feature.id(), layer->fields().indexOf("facies_intervals"),
+                   QString::fromUtf8(
+                       QJsonDocument::fromVariant(intervals).toJson(
+                           QJsonDocument::Compact))) &&
+               ok;
+        }
+      }
+    }
+    const auto attrs =
+        FaciesCatalog::attributes(facies, feature.attribute("facies_code"));
+    for (auto a = attrs.cbegin(); a != attrs.cend(); ++a)
+      ok = layer->changeAttributeValue(
+               feature.id(), layer->fields().indexOf(a.key()), a.value()) &&
+           ok;
+  }
+  if (!ok) {
+    layer->destroyEditCommand();
+    if (own)
+      layer->rollBack();
+    if (error)
+      *error = QObject::tr("同步相属性失败");
+    return false;
+  }
+  layer->endEditCommand();
+  if (own && !layer->commitChanges()) {
+    if (error)
+      *error = layer->commitErrors().join("；");
+    layer->rollBack();
+    return false;
+  }
+  return true;
+}
 void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
   if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {
-    if (vector->fields().indexOf(QStringLiteral("facies_code")) < 0)
+    if (vector->fields().indexOf("facies_code") < 0)
       return;
+    // Older immutable products can expose names in their attribute tables
+    // without rewriting their source files. Copies materialize these fields.
+    const auto fallbackAttributes = FaciesCatalog::attributes({}, QVariant());
+    for (auto a = fallbackAttributes.cbegin(); a != fallbackAttributes.cend();
+         ++a) {
+      if (vector->fields().indexOf(a.key()) >= 0 ||
+          vector->customProperty("paleoLayerId")
+              .toString()
+              .startsWith("draft."))
+        continue;
+      QString expression = QStringLiteral("CASE ");
+      for (const auto &v : facies) {
+        auto f = v.toMap();
+        expression +=
+            QStringLiteral("WHEN \"facies_code\" = %1 THEN %2 ")
+                .arg(QgsExpression::quotedValue(f.value("code")),
+                     QgsExpression::quotedValue(
+                         FaciesCatalog::attributes(facies, f.value("code"))
+                             .value(a.key())));
+      }
+      expression += QStringLiteral("ELSE %1 END")
+                        .arg(QgsExpression::quotedValue(a.value()));
+      if (facies.isEmpty())
+        expression = QgsExpression::quotedValue(a.value());
+      vector->addExpressionField(expression,
+                                 QgsField(a.key(), QMetaType::Type::QString));
+    }
     QgsCategoryList categories;
     for (const auto &value : facies) {
       const auto f = value.toMap();
@@ -162,19 +272,50 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
       if (!symbol)
         continue;
       symbol->setColor(QColor(f.value("color").toString()));
+      const auto texture =
+          FaciesCatalog::resourcePath(f.value("texture").toString());
+      if (!texture.isEmpty()) {
+        if (vector->geometryType() == Qgis::GeometryType::Polygon)
+          symbol->changeSymbolLayer(0, new QgsSVGFillSymbolLayer(texture, 10));
+        else if (vector->geometryType() == Qgis::GeometryType::Point)
+          symbol->changeSymbolLayer(0, new QgsSvgMarkerSymbolLayer(texture, 7));
+      }
       categories.append(QgsRendererCategory(f.value("code"), symbol,
                                             f.value("name").toString()));
     }
-    vector->setRenderer(new QgsCategorizedSymbolRenderer(
-        QStringLiteral("facies_code"), categories));
+    // A default category includes both NULL and codes missing from the schema.
+    auto *fallback = QgsSymbol::defaultSymbol(vector->geometryType());
+    if (fallback) {
+      fallback->setColor(QColor("#9AA7B4"));
+      categories.append(QgsRendererCategory(QVariant(), fallback,
+                                            QObject::tr("其他 / 未分类")));
+    }
+    vector->setRenderer(
+        new QgsCategorizedSymbolRenderer("facies_code", categories));
+    const QStringList names{"facies_code", "facies_name",  "subfacies",
+                            "microfacies", "facies_label", "texture"};
+    const QStringList labels{QObject::tr("相编码"),   QObject::tr("相"),
+                             QObject::tr("亚相"),     QObject::tr("微相"),
+                             QObject::tr("类别名称"), QObject::tr("纹理")};
+    for (int i = 0; i < names.size(); ++i)
+      if (int index = vector->fields().indexOf(names[i]); index >= 0)
+        vector->setFieldAlias(index, labels[i]);
   } else if (auto *raster = qobject_cast<QgsRasterLayer *>(layer)) {
     QgsPalettedRasterRenderer::ClassData classes;
+    QSet<int> defined;
     for (const auto &value : facies) {
       const auto f = value.toMap();
+      defined.insert(f.value("code").toInt());
       classes.append(QgsPalettedRasterRenderer::Class(
           f.value("code").toInt(), QColor(f.value("color").toString()),
           f.value("name").toString()));
     }
+    for (const auto &entry : QgsPalettedRasterRenderer::classDataFromRaster(
+             raster->dataProvider(), 1))
+      if (!defined.contains(int(entry.value)))
+        classes.append(QgsPalettedRasterRenderer::Class(
+            entry.value, QColor("#9AA7B4"),
+            QObject::tr("其他（%1）").arg(entry.value)));
     raster->setRenderer(
         new QgsPalettedRasterRenderer(raster->dataProvider(), 1, classes));
   }

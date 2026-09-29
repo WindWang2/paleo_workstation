@@ -1,6 +1,8 @@
 // 层：视图
 #include "paleodecorations.h"
+#include "../../domain/faciescatalog.h"
 #include <QCoreApplication>
+#include <QSvgRenderer>
 
 #include <cmath>
 
@@ -437,6 +439,12 @@ void PaleoFaciesLegendDecoration::render(const QgsMapSettings &, QgsRenderContex
   f.setBold(false);p->setFont(f);
   for(int i=0;i<facies.size();++i){const auto entry=facies[i].toMap();int top=y+8+(i+1)*row;
     p->setPen(QColor("#DFE5EC"));p->setBrush(QColor(entry.value("color").toString()));p->drawRect(QRect(x+8,top+3,16,row-8));
+    const auto texture =
+        FaciesCatalog::resourcePath(entry.value("texture").toString());
+    if (!texture.isEmpty()) {
+      QSvgRenderer svg(texture);
+      svg.render(p, QRectF(x + 8, top + 3, 16, row - 8));
+    }
     p->setPen(QColor("#24303E"));const auto label=entry.value("name").toString();p->drawText(QRect(x+32,top,width-40,row),Qt::AlignVCenter,p->fontMetrics().elidedText(label,Qt::ElideRight,width-40));}
   p->restore();
 }

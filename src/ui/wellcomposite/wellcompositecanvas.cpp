@@ -568,6 +568,7 @@ void WellCompositeBody::mousePressEvent(QMouseEvent *event)
   {
     m_isPanning = true;
     m_lastMousePos = event->pos();
+    m_pressPos = event->pos();
     setCursor(Qt::ClosedHandCursor);
     event->accept();
     return;
@@ -613,6 +614,9 @@ void WellCompositeBody::mouseReleaseEvent(QMouseEvent *event)
   if (m_isPanning)
   {
     m_isPanning = false;
+    if (event->button() == Qt::LeftButton &&
+        (event->pos() - m_pressPos).manhattanLength() < 4)
+      emit m_canvas->depthClicked(m_canvas->yToDepth(event->pos().y()));
     setCursor(Qt::ArrowCursor);
     event->accept();
     return;

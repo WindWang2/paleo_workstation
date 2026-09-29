@@ -2,6 +2,7 @@
 #pragma once
 #include "../ai/remotepredictionservice.h"
 #include "../catalog/datacatalog.h"
+#include "../io/lasdoc.h"
 #include "../metadata/layermanifest.h"
 #include <QObject>
 #include <QPointer>
@@ -46,9 +47,16 @@ public:
                   const QVariantMap &params, QString *error);
   QString snapshotConstraints(const QString &horizon,
                               const QStringList &parents, QString *error);
+  QVariantList wellPredictions(const QString &layerId) const;
+  LasDoc predictionLog(const QString &versionId) const;
+  bool assignFacies(const QString &draftId, const QList<qint64> &featureIds,
+                    int code, QString *error);
+  bool reviseWellInterval(const QString &draftId, const QString &wellId,
+                          int interval, int code, QString *error);
   void styleLayer(const QString &id);
 signals:
   void changed();
+  void faciesEdited(const QString &layerId);
   void faciesChanged(const QString &horizon);
   void predictionBusyChanged(bool busy);
   void predictionProgress(int percent);
@@ -74,4 +82,6 @@ private:
   QString m_dir;
   RemotePredictionRequest m_request;
   bool m_importing = false;
+  mutable QString m_logVersion;
+  mutable LasDoc m_logCache;
 };

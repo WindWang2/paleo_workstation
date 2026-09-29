@@ -1,6 +1,8 @@
 // 层：视图
 #include "wellcompositetrack.h"
+#include "../../domain/faciescatalog.h"
 #include <QCoreApplication>
+#include <QSvgRenderer>
 
 #include <QBitmap>
 #include <QPainterPath>
@@ -280,6 +282,17 @@ QPixmap FaciesPatternFactory::createPatternPixmap(const QString &patternType, co
 
 QBrush FaciesPatternFactory::getBrush(const QString &patternTypeOrName, const QColor &baseBg)
 {
+  const auto path = FaciesCatalog::resourcePath(patternTypeOrName);
+  if (!path.isEmpty()) {
+    QPixmap tile(96, 48);
+    tile.fill(baseBg.isValid() ? baseBg : Qt::white);
+    QSvgRenderer svg(path);
+    QPainter painter(&tile);
+    svg.render(&painter);
+    painter.end();
+    return QBrush(tile);
+  }
+
   QString pat = QStringLiteral("distributary_channel");
   QColor bg = baseBg.isValid() ? baseBg : QColor(QStringLiteral("#FFE082"));
   QColor fg = QColor(QStringLiteral("#E65100"));

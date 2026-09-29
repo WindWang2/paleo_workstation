@@ -1,5 +1,6 @@
 // 层：功能
 #include "mappingworkbench.h"
+#include "../domain/faciescatalog.h"
 #include "../domain/mappinghorizons.h"
 #include "../io/constraintstore.h"
 #include "../qgis/factorstylewriter.h"
@@ -88,6 +89,8 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
       m_constraints->setProperty(name.constData(), QVariant());
   m_catalog = catalog;
   m_dir = dir;
+  m_logVersion.clear();
+  m_logCache = {};
   if (catalog)
     connect(catalog, &DataCatalog::changed, this, &MappingWorkbench::changed);
   // Catalog is the durable recovery source if .qgz was not saved after a
@@ -178,15 +181,7 @@ QVariantList MappingWorkbench::facies(const QString &h) const {
   const auto id = schemaVersion(h);
   if (!id.isEmpty())
     return m_catalog->versionById(id).extra.value("facies").toList();
-  return {QVariantMap{{"code", 1},
-                      {"name", tr("%1 Mock 相1").arg(h)},
-                      {"color", "#E6C875"}},
-          QVariantMap{{"code", 2},
-                      {"name", tr("%1 Mock 相2").arg(h)},
-                      {"color", "#81B99A"}},
-          QVariantMap{{"code", 3},
-                      {"name", tr("%1 Mock 相3").arg(h)},
-                      {"color", "#97B4CE"}}};
+  return FaciesCatalog::defaults();
 }
 bool MappingWorkbench::saveFacies(const QString &h, const QVariantList &items,
                                   QString *error) {
@@ -205,6 +200,11 @@ bool MappingWorkbench::saveFacies(const QString &h, const QVariantList &items,
         f.value("name").toString().trimmed().isEmpty() ||
         !QColor(f.value("color").toString()).isValid()) {
       fail(error, tr("相编码须为不重复的正整数，名称与颜色不能为空"));
+      return false;
+    }
+    if (!f.value("texture").toString().isEmpty() &&
+        FaciesCatalog::resourcePath(f.value("texture").toString()).isEmpty()) {
+      fail(error, tr("纹理不在本项目纹理库中"));
       return false;
     }
     codes.insert(code);
@@ -237,6 +237,7 @@ QVariantList MappingWorkbench::inputs(const QString &kind) const {
     for (const auto &well : m_catalog->entities("well")) {
       QStringList parents;
       bool hasLog = false;
+      QString logVersion;
       for (const auto &link : m_catalog->linksForEntity(well.id))
         if (!link.unresolved &&
             QStringList{"well_log", "well_head", "tops", "time_depth"}.contains(
@@ -246,15 +247,17 @@ QVariantList MappingWorkbench::inputs(const QString &kind) const {
               QFileInfo::exists(DataCatalog::resolvedVersionPath(m_dir, v))) {
             parents << v.id;
             hasLog = hasLog || link.role == "well_log";
+            if (link.role == "well_log" &&
+                (logVersion.isEmpty() || link.isPrimary))
+              logVersion = v.id;
           }
         }
       if (hasLog && well.hasSurface && std::isfinite(well.surfaceX) &&
           std::isfinite(well.surfaceY))
-        out << QVariantMap{{"id", well.id},
-                           {"name", well.name},
-                           {"x", well.surfaceX},
-                           {"y", well.surfaceY},
-                           {"parents", parents}};
+        out << QVariantMap{
+            {"id", well.id},      {"name", well.name},
+            {"x", well.surfaceX}, {"y", well.surfaceY},
+            {"parents", parents}, {"log_version_id", logVersion}};
     }
   } else
     for (const auto &a : m_catalog->assets()) {
@@ -436,8 +439,22 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
       continue;
     seen.insert(row.value("id").toString());
     request.sourceVersionIds << row.value("parents").toStringList();
-    if (kind == "wells")
-      request.wells << row;
+    if (kind == "wells") {
+      auto well = row;
+      const auto log = predictionLog(row.value("log_version_id").toString());
+      double top = std::numeric_limits<double>::infinity(), bottom = -top;
+      if (log.ok && !log.curves.isEmpty())
+        for (double d : log.curves.first().values)
+          if (std::isfinite(d)) {
+            top = std::min(top, d);
+            bottom = std::max(bottom, d);
+          }
+      const bool measured = std::isfinite(top) && bottom > top;
+      well.insert("depth_top", measured ? top : 0.0);
+      well.insert("depth_bottom", measured ? bottom : 120.0);
+      well.insert("depth_mock", !measured);
+      request.wells << well;
+    }
   }
   if (seen.size() != QSet<QString>(ids.cbegin(), ids.cend()).size()) {
     fail(error, tr("输入缺少可读源文件、测井曲线或有效井坐标，请检查数据管理"));
@@ -512,6 +529,44 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
               p.value("y") == w.value("y");
     }
   }
+  QVariantList points = result.points;
+  if (request.kind == "wells")
+    for (int i = 0; i < points.size() && valid; ++i) {
+      auto point = points[i].toMap();
+      const auto intervals =
+          QJsonDocument::fromJson(
+              point.value("facies_intervals").toString().toUtf8())
+              .toVariant()
+              .toList();
+      double last = request.wells[i].toMap().value("depth_top").toDouble();
+      valid = !intervals.isEmpty() && intervals.size() <= 10000;
+      for (const auto &v : intervals) {
+        const auto interval = v.toMap();
+        bool topOk = false, bottomOk = false;
+        double top = interval.value("top").toDouble(&topOk),
+               bottom = interval.value("bottom").toDouble(&bottomOk);
+        valid = valid && topOk && bottomOk && std::isfinite(top) &&
+                std::isfinite(bottom) && bottom > top &&
+                std::abs(top - last) < 1e-6 &&
+                codes.contains(interval.value("code").toInt());
+        last = bottom;
+      }
+      valid =
+          valid &&
+          std::abs(last -
+                   request.wells[i].toMap().value("depth_bottom").toDouble()) <
+              1e-6;
+      for (const auto &key : {"log_version_id", "horizon", "depth_mock"})
+        point.insert(key, key == QStringLiteral("horizon")
+                              ? QVariant(request.horizon)
+                              : request.wells[i].toMap().value(key));
+      point.insert("predicted_intervals", point.value("facies_intervals"));
+      const auto attrs =
+          FaciesCatalog::attributes(request.facies, point.value("facies_code"));
+      for (auto a = attrs.cbegin(); a != attrs.cend(); ++a)
+        point.insert(a.key(), a.value());
+      points[i] = point;
+    }
   QString error;
   if (!valid)
     error = tr("预测服务返回的网格、井集合或相编码与请求不一致，未发布");
@@ -520,12 +575,11 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
   const auto path = QDir(stageDir).filePath(
       request.kind == "seismic" ? "prediction.tif" : "prediction.geojson");
   if (error.isEmpty()) {
-    const bool ok =
-        request.kind == "seismic"
-            ? MappingArtifactWriter::raster(path, result.cells, request.columns,
-                                            request.rows, request.extent,
-                                            &error)
-            : MappingArtifactWriter::points(path, result.points, &error);
+    const bool ok = request.kind == "seismic"
+                        ? MappingArtifactWriter::raster(
+                              path, result.cells, request.columns, request.rows,
+                              request.extent, &error)
+                        : MappingArtifactWriter::points(path, points, &error);
     if (ok)
       record(path, request.horizon, request.kind + "_prediction",
              tr("%1 %2预测%3")
@@ -611,6 +665,15 @@ QString MappingWorkbench::polygonize(const QString &id, QString *error) {
                                   error);
   if (output.isEmpty())
     return {};
+  {
+    QgsVectorLayer outputLayer(path + "|layername=facies_polygons", "facies",
+                               "ogr");
+    if (!MappingArtifactWriter::syncFaciesAttributes(
+            &outputLayer,
+            sourceVersion.extra.value("facies", facies(d.horizon)).toList(),
+            error))
+      return {};
+  }
   return record(
       path, d.horizon, "facies_polygons", tr("%1 相面").arg(d.title), "vector",
       {parent},
@@ -657,6 +720,13 @@ QString MappingWorkbench::copyForEditing(const QString &id,
   if (!MappingArtifactWriter::vectorSnapshot(layer, path, error))
     return {};
   const auto source = m_catalog->versionById(parent);
+  {
+    QgsVectorLayer copy(path + "|layername=features", "copy", "ogr");
+    if (!MappingArtifactWriter::syncFaciesAttributes(
+            &copy, source.extra.value("facies", facies(d.horizon)).toList(),
+            error))
+      return {};
+  }
   const QVariantMap extra{
       {"draft_id", draft},
       {"working_path", relative},
@@ -664,14 +734,17 @@ QString MappingWorkbench::copyForEditing(const QString &id,
       {"reference_layers", references},
       {"mock", source.extra.value("mock")},
       {"method", "manual-edit-copy"}};
+  const auto editTitle = layer->fields().indexOf("facies_intervals") >= 0
+                             ? tr("%1 测井相修订").arg(d.horizon)
+                             : tr("%1 相图修订").arg(d.horizon);
   const auto snapshot =
-      record(path, d.horizon, "edited_facies", tr("%1 人工编图").arg(d.horizon),
-             "vector", parents, extra, error, "|layername=features", draft);
+      record(path, d.horizon, "edited_facies", editTitle, "vector", parents,
+             extra, error, "|layername=features", draft);
   if (snapshot.isEmpty())
     return {};
   d.layerId = draft;
   d.source = path + "|layername=features";
-  d.title = tr("%1 人工编图 · 工作副本").arg(d.horizon);
+  d.title = editTitle + tr(" · 工作副本");
   d.group = "05_PaleoMap";
   if (!m_layers->declare(d, error))
     return {};
@@ -699,22 +772,23 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
     fail(error, tr("找不到编辑副本的来源版本"));
     return false;
   }
-  QSet<int> codes;
-  for (const auto &f : previous.extra.value("facies").toList())
-    codes.insert(f.toMap().value("code").toInt());
   auto features = layer->getFeatures();
   QgsFeature feature;
   while (features.nextFeature(feature)) {
     bool ok = false;
     const double code = feature.attribute("facies_code").toDouble(&ok);
-    if (!ok || !std::isfinite(code) || code < 1 || code > 32767 ||
-        code != std::round(code) || !codes.contains(int(code)) ||
+    if ((!feature.attribute("facies_code").isNull() &&
+         (!ok || !std::isfinite(code) || code < 1 || code > 32767 ||
+          code != std::round(code))) ||
         feature.geometry().isEmpty() || !feature.geometry().isGeosValid()) {
-      fail(error, tr("工作副本含空几何、无效几何或未定义相编码。请修正属性 / "
+      fail(error, tr("工作副本含空几何、无效几何或非法相编码。请修正属性 / "
                      "几何后再保存图件版本；历史版本未改变。"));
       return false;
     }
   }
+  if (!MappingArtifactWriter::syncFaciesAttributes(
+          layer, previous.extra.value("facies").toList(), error))
+    return false;
   auto extra = previous.extra;
   extra.insert("method", "manual-edit-save");
   const auto snapshotPath = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
@@ -891,8 +965,22 @@ void MappingWorkbench::styleLayer(const QString &id) {
   auto *layer = m_layers->layer(id);
   if (!layer)
     return;
-  if (auto *vector = qobject_cast<QgsVectorLayer *>(layer))
+  if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {
     vector->setReadOnly(!id.startsWith("draft."));
+    if (id.startsWith("draft.") &&
+        !vector->property("faciesSyncAttached").toBool()) {
+      vector->setProperty("faciesSyncAttached", true);
+      connect(vector, &QgsVectorLayer::beforeCommitChanges, this,
+              [this, vector, schema = v.extra.value("facies").toList()] {
+                QString error;
+                const bool ok = MappingArtifactWriter::syncFaciesAttributes(
+                    vector, schema, &error);
+                vector->setAllowCommit(ok);
+                if (!ok)
+                  emit errorOccurred(error);
+              });
+    }
+  }
   if (v.extra.value("kind") == "single_factor_raster")
     FactorStyleWriter::applyTo(qobject_cast<QgsRasterLayer *>(layer),
                                v.extra.value("factor_id").toString());

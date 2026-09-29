@@ -118,8 +118,14 @@ target_compile_options(paleo_saribbon PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w
 # ---- vendor/segyio: segyio v2.0.0-alpha.1 C library ----
 add_library(paleo_segyio STATIC vendor/segyio/src/segy.c)
 target_include_directories(paleo_segyio SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/vendor/segyio/include)
-target_compile_definitions(paleo_segyio PRIVATE
-  HAVE_SYS_STAT_H HAVE_FSEEKO HAVE_FTELLO _FILE_OFFSET_BITS=64)
+# 64 位 seek 宏按平台：MSVC 无 fseeko/ftello（LLP64 long=32bit 走
+# _fseeki64/_ftelli64 分支），POSIX 走 fseeko/ftello。
+if(MSVC)
+  target_compile_definitions(paleo_segyio PRIVATE HAVE_SYS_STAT_H HAVE_FSEEKI64 HAVE_FTELLI64)
+else()
+  target_compile_definitions(paleo_segyio PRIVATE
+    HAVE_SYS_STAT_H HAVE_FSEEKO HAVE_FTELLO _FILE_OFFSET_BITS=64)
+endif()
 target_compile_options(paleo_segyio PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>)
 set_target_properties(paleo_segyio PROPERTIES AUTOMOC OFF AUTORCC OFF AUTOUIC OFF)
 

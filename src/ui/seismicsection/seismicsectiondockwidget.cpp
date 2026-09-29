@@ -1299,7 +1299,10 @@ QString SeismicSectionDockWidget::volumeSettingsKey() const {
         return QString();
     const auto &path = m_volume->Path();
     QString key = QString::fromStdString(path.string());
+    // Windows 的 path.string() 用反斜杠——QSettings 注册表键不允许 '\'，
+    // 两种分隔符都归一为 '_'（平台稳定的体身份键）。
     key.replace(QLatin1Char('/'), QLatin1Char('_'));
+    key.replace(QLatin1Char('\\'), QLatin1Char('_'));
     return key;
 }
 

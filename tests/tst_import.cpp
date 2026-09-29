@@ -51,6 +51,15 @@ class TestImport : public QObject
     return true;
   }
 
+  // 受管副本是只读的（锁真只读）：Windows 只读属性挡 QFile::remove——
+  // 先授写权限再删（POSIX 侧 chmod 同义无害）。
+  static bool removeManagedFile(const QString &path)
+  {
+    QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                    QFileDevice::ReadUser | QFileDevice::WriteUser);
+    return QFile::remove(path);
+  }
+
   static std::unique_ptr<Stack> makeStack(const QString &projectDir, QString *errOut = nullptr)
   {
     auto s = std::make_unique<Stack>();
@@ -742,7 +751,7 @@ private slots:
     const QString firstId = svc.importProjectFile(fixture(QStringLiteral("A1.Las")), &err);
     QVERIFY2(!firstId.isEmpty(), qPrintable(err));
     const QString oldPath = svc.absolutePath(firstId);
-    QVERIFY(QFile::remove(oldPath));
+    QVERIFY(removeManagedFile(oldPath));
     const DataImportService::ImportResult retry =
         svc.importProjectFileEx(fixture(QStringLiteral("A1.Las")), &err);
     QCOMPARE(retry.outcome, DataImportService::ImportOutcome::Imported);
@@ -767,7 +776,7 @@ private slots:
     const QString assetId = svc.importProjectFile(source, &err);
     QVERIFY2(!assetId.isEmpty(), qPrintable(err));
     const CatalogVersion oldDerived = svc.catalog()->currentVersion(assetId);
-    QVERIFY(QFile::remove(svc.absolutePathForVersion(oldDerived)));
+    QVERIFY(removeManagedFile(svc.absolutePathForVersion(oldDerived)));
     const DataImportService::ImportResult retry = svc.importProjectFileEx(source, &err);
     QCOMPARE(retry.outcome, DataImportService::ImportOutcome::AlreadyStored);
     QCOMPARE(retry.assetId, assetId);
@@ -903,6 +912,17 @@ private slots:
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
 
+#ifdef Q_OS_WIN
+    // Windows 文件系统本身禁用换行/控制字符——夹具无法落盘；改为直接对
+    // 路径段校验器断言（导入链最终消费的就是它）。POSIX 侧走完整导入链。
+    QString err;
+    QVERIFY(DataCatalog::managedPath(QStringLiteral("raw"), QStringLiteral("ast"),
+                                    QStringLiteral("ver"),
+                                    QStringLiteral("bad\nname.las")).isEmpty());
+    QVERIFY(DataCatalog::managedPath(QStringLiteral("raw"), QStringLiteral("ast"),
+                                    QStringLiteral("ver"),
+                                    QStringLiteral("bad\tname.las")).isEmpty());
+#else
     // 换行
     const QString nl = tmp.filePath(QStringLiteral("bad\nname.las"));
     QVERIFY(writeFile(nl, QByteArrayLiteral(
@@ -918,6 +938,7 @@ private slots:
     QVERIFY(writeFile(tab, QByteArrayLiteral("x")));
     QVERIFY(svc.importProjectFile(tab, &err).isEmpty());
     QVERIFY(!err.isEmpty());
+#endif
 
     // ".."
     const QString dd = tmp.filePath(QStringLiteral("..evil.las"));
@@ -1141,11 +1162,15 @@ private slots:
                           "380.0  -252.6   252.6   252.6\n"
                           "382.0  -260.7   260.7   260.7\n")));
 
+#ifndef Q_OS_WIN
     // 逃逸符号链接 → Skipped；根内符号链接 → 正常走（dedup 命中）。
+    // Windows：QFile::link 生成 .lnk 快捷方式文件而非符号链接——语义不
+    // 成立，两行夹具与断言整体跳过。
     const QString outside = tmp.filePath(QStringLiteral("outside.las"));
     QVERIFY(writeFile(outside, QByteArrayLiteral("x")));
     QVERIFY(QFile::link(outside, QDir(root).filePath(QStringLiteral("escape.las"))));
     QVERIFY(QFile::link(lasPath, QDir(root).filePath(QStringLiteral("mirror.Las"))));
+#endif
 
     // 非普通文件（fifo）→ Skipped 行。
     bool madeFifo = false;
@@ -1157,7 +1182,26 @@ private slots:
     QString err;
     const QVector<FolderRowResult> rows = svc.importFolder(root, &err);
     QVERIFY2(err.isEmpty(), qPrintable(err));
+#ifdef Q_OS_WIN
+    QCOMPARE(rows.size(), 7 + (madeFifo ? 1 : 0));
+#else
     QCOMPARE(rows.size(), 9 + (madeFifo ? 1 : 0));
+#endif
+
+    // 行序（两阶段 + 阶段内路径序）：井口行后按文件落位取索引——
+    // Windows 无符号链接行，mirror/escape 缺席，其余顺移。
+    int idx = 2;
+    const int rLas = idx++;
+    const int rGhost = idx++;
+#ifndef Q_OS_WIN
+    const int rMirror = idx++;
+#endif
+    const int rZz = idx++;
+    const int rTops = idx++;
+    const int rTd = idx++;
+#ifndef Q_OS_WIN
+    const int rEscape = idx++;
+#endif
 
     const auto expectPath = [&rows](int i, const QString &suffix) {
       QVERIFY2(rows.at(i).path.endsWith(suffix),
@@ -1178,46 +1222,50 @@ private slots:
     QVERIFY(rows.at(1).entityName.contains(QStringLiteral("A1")));
     QVERIFY(rows.at(1).entityName.contains(QStringLiteral("B2")));
 
-    // 阶段 2（路径排序）：0A1.Las、ghost.las、mirror.Las、井分层、时深/TD。
-    expectPath(2, QStringLiteral("0A1.Las"));
-    QCOMPARE(rows.at(2).classifiedType, QStringLiteral("well_log"));
-    QCOMPARE(rows.at(2).outcome, Outcome::Imported); // 井口已先行 → 照常挂上
-    QCOMPARE(rows.at(2).entityName, QStringLiteral("A1"));
+    // 阶段 2（路径排序）：0A1.Las、ghost.las、[mirror.Las]、井分层、时深/TD。
+    expectPath(rLas, QStringLiteral("0A1.Las"));
+    QCOMPARE(rows.at(rLas).classifiedType, QStringLiteral("well_log"));
+    QCOMPARE(rows.at(rLas).outcome, Outcome::Imported); // 井口已先行 → 照常挂上
+    QCOMPARE(rows.at(rLas).entityName, QStringLiteral("A1"));
 
-    expectPath(3, QStringLiteral("ghost.las"));
-    QCOMPARE(rows.at(3).outcome, Outcome::Unresolved);
-    QVERIFY(rows.at(3).entityName.isEmpty());
-    QVERIFY(rows.at(3).message.contains(QStringLiteral("ghost9")));
+    expectPath(rGhost, QStringLiteral("ghost.las"));
+    QCOMPARE(rows.at(rGhost).outcome, Outcome::Unresolved);
+    QVERIFY(rows.at(rGhost).entityName.isEmpty());
+    QVERIFY(rows.at(rGhost).message.contains(QStringLiteral("ghost9")));
 
-    expectPath(4, QStringLiteral("mirror.Las")); // 根内符号链接 → 处理且 dedup
-    QCOMPARE(rows.at(4).outcome, Outcome::Imported);
-    QVERIFY(rows.at(4).message.contains(QStringLiteral("字节已在库")));
+#ifndef Q_OS_WIN
+    expectPath(rMirror, QStringLiteral("mirror.Las")); // 根内符号链接 → 处理且 dedup
+    QCOMPARE(rows.at(rMirror).outcome, Outcome::Imported);
+    QVERIFY(rows.at(rMirror).message.contains(QStringLiteral("字节已在库")));
+#endif
 
-    expectPath(5, QStringLiteral("zzA1b.las")); // 同井第二份 LAS → 入库
-    QCOMPARE(rows.at(5).outcome, Outcome::Imported);
-    QCOMPARE(rows.at(5).entityName, QStringLiteral("A1"));
+    expectPath(rZz, QStringLiteral("zzA1b.las")); // 同井第二份 LAS → 入库
+    QCOMPARE(rows.at(rZz).outcome, Outcome::Imported);
+    QCOMPARE(rows.at(rZz).entityName, QStringLiteral("A1"));
 
-    expectPath(6, QString::fromUtf8("井分层/tops.dat"));
-    QCOMPARE(rows.at(6).classifiedType, QStringLiteral("well_stratification"));
-    QCOMPARE(rows.at(6).outcome, Outcome::Imported); // 有主关联写出 → 入库
-    QVERIFY(rows.at(6).entityName.contains(QStringLiteral("A1")));
-    QVERIFY(rows.at(6).message.contains(QStringLiteral("ghost9"))); // 附未决备注
+    expectPath(rTops, QString::fromUtf8("井分层/tops.dat"));
+    QCOMPARE(rows.at(rTops).classifiedType, QStringLiteral("well_stratification"));
+    QCOMPARE(rows.at(rTops).outcome, Outcome::Imported); // 有主关联写出 → 入库
+    QVERIFY(rows.at(rTops).entityName.contains(QStringLiteral("A1")));
+    QVERIFY(rows.at(rTops).message.contains(QStringLiteral("ghost9"))); // 附未决备注
 
-    expectPath(7, QString::fromUtf8("时深/TD/a1.dat"));
-    QCOMPARE(rows.at(7).classifiedType, QStringLiteral("time_depth"));
-    QCOMPARE(rows.at(7).outcome, Outcome::Imported);
-    QCOMPARE(rows.at(7).entityName, QStringLiteral("A1"));
+    expectPath(rTd, QString::fromUtf8("时深/TD/a1.dat"));
+    QCOMPARE(rows.at(rTd).classifiedType, QStringLiteral("time_depth"));
+    QCOMPARE(rows.at(rTd).outcome, Outcome::Imported);
+    QCOMPARE(rows.at(rTd).entityName, QStringLiteral("A1"));
 
+#ifndef Q_OS_WIN
     // Skipped 行缀在最后（按路径排序）：escape.las 先于 pipe.sock。
-    expectPath(8, QStringLiteral("escape.las"));
-    QCOMPARE(rows.at(8).outcome, Outcome::Skipped);
-    QVERIFY(rows.at(8).message.contains(QStringLiteral("符号链接")));
-    QVERIFY(rows.at(8).message.contains(QStringLiteral("之外")));
+    expectPath(rEscape, QStringLiteral("escape.las"));
+    QCOMPARE(rows.at(rEscape).outcome, Outcome::Skipped);
+    QVERIFY(rows.at(rEscape).message.contains(QStringLiteral("符号链接")));
+    QVERIFY(rows.at(rEscape).message.contains(QStringLiteral("之外")));
+#endif
     if (madeFifo)
     {
-      expectPath(9, QStringLiteral("pipe.sock"));
-      QCOMPARE(rows.at(9).outcome, Outcome::Skipped);
-      QVERIFY(rows.at(9).message.contains(QStringLiteral("普通文件")));
+      expectPath(idx, QStringLiteral("pipe.sock"));
+      QCOMPARE(rows.at(idx).outcome, Outcome::Skipped);
+      QVERIFY(rows.at(idx).message.contains(QStringLiteral("普通文件")));
     }
 
     // 顺序不变式：所有 well_head 行都排在所有非井口行前面。

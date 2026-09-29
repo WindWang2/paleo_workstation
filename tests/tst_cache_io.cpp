@@ -211,11 +211,20 @@ void CacheIoTests::writeGuardExcludesSecondLiveWriter()
     // 换个角度测真正的互斥：手工写一个活 pid 的锁。
     QFile lf(g1.lockFilePath());
     QVERIFY(lf.open(QIODevice::WriteOnly | QIODevice::Truncate));
+#ifdef Q_OS_WIN
+    // Windows 没有 init(pid 1)；System 进程恒为 pid 4。
+    lf.write(QByteArray::number(4) + QByteArrayLiteral(" paleo-write"));
+#else
     lf.write(QByteArrayLiteral("1 paleo-write")); // pid=1（init，恒活）
+#endif
     lf.close();
     PartialRead::WriteGuard g2(target);
     QVERIFY(!g2.locked());
+#ifdef Q_OS_WIN
+    QVERIFY(g2.refusalReason().contains(QLatin1Char('4')));
+#else
     QVERIFY(g2.refusalReason().contains(QLatin1Char('1')));
+#endif
   }
   // g1 析构后锁文件应已被释放路径处理（g2 未持锁不动文件；g1 release 删除）。
   // 注：上面手工覆盖了锁文件——g1 的 release 仍会 remove 该路径。

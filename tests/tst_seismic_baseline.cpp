@@ -4,6 +4,10 @@
 // 双通道转码、后端打开、体素窗口、离屏 3D 帧率、峰值内存做一轮测量并
 // 以 "BASELINE <metric> = <value>" 行打印。断言只做量级合理性兜底
 // （共享机宽裕），精确预算闸门在 tst_seismic_perf / tst_seismic_budgets。
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <psapi.h>
+#endif
 #include <QtTest>
 #include <QDir>
 #include <QElapsedTimer>
@@ -42,9 +46,16 @@ void report(const char *metric, double value, const char *unit)
     qInfo("BASELINE %s = %.1f %s", metric, value, unit);
 }
 
-// /proc/self/status VmHWM（进程峰值 RSS，KB）
+// 进程峰值 RSS（KB）：Linux 读 /proc/self/status VmHWM；Windows 用
+// GetProcessMemoryInfo 的 PeakWorkingSetSize。
 qint64 peakRssKb()
 {
+#ifdef Q_OS_WIN
+    PROCESS_MEMORY_COUNTERS pmc{};
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
+        return static_cast<qint64>(pmc.PeakWorkingSetSize) / 1024;
+    return -1;
+#else
     std::ifstream status("/proc/self/status");
     std::string key;
     while (status >> key) {
@@ -56,6 +67,7 @@ qint64 peakRssKb()
         status.ignore(4096, '\n');
     }
     return -1;
+#endif
 }
 
 } // namespace

@@ -428,7 +428,12 @@ void TestCatalog::managedPathRejectsSymlinksAndTraversal()
   QVERIFY(!DataCatalog::resolvedVersionPath(project.path(), version).isEmpty());
   version.path = QStringLiteral("artifacts/../outside.dat");
   QVERIFY(DataCatalog::resolvedVersionPath(project.path(), version).isEmpty());
+#ifdef Q_OS_WIN
+  // POSIX 绝对路径（/tmp/...）在 Windows 无盘符、不算绝对——用 Windows 形态。
+  version.path = QStringLiteral("C:/outside.dat");
+#else
   version.path = QStringLiteral("/tmp/outside.dat");
+#endif
   QVERIFY(DataCatalog::resolvedVersionPath(project.path(), version).isEmpty());
   QVERIFY(QDir(project.path()).mkpath(QStringLiteral("artifacts")));
   const QString link = project.filePath(QStringLiteral("artifacts/raw"));
@@ -1359,9 +1364,11 @@ void TestCatalog::wellsGeoJsonKeepsOldFileOnFailedWrite()
   // Windows：目录只读属性不挡在目录内创建文件，改为对目标文件持零共享
   // 句柄——QSaveFile 提交阶段的替换必败，同样保住旧文件字节。
 #ifdef Q_OS_WIN
+  // FILE_SHARE_READ：允许后续只读校验打开，但 QSaveFile 的替换提交
+  // （需要 DELETE 共享）仍必败。
   HANDLE geoLock = CreateFileW(
-      reinterpret_cast<const wchar_t *>(geo.utf16()), GENERIC_READ, 0, nullptr,
-      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+      reinterpret_cast<const wchar_t *>(geo.utf16()), GENERIC_READ,
+      FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
   QVERIFY(geoLock != INVALID_HANDLE_VALUE);
 #else
   QVERIFY(QFile::setPermissions(sub, QFileDevice::ReadOwner | QFileDevice::ExeOwner |

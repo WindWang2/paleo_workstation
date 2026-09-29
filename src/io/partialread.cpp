@@ -164,17 +164,19 @@ bool WriteGuard::acquire(int maxWaitMs)
     else if (QFile::exists(m_lockPath))
     {
       // 已有锁：持有者活着（且不是自己）→ 拒；死锁/自残留 → 回收重试。
-      QFile existing(m_lockPath);
-      if (existing.open(QIODevice::ReadOnly))
+      qint64 holder = 0;
       {
-        const qint64 holder =
-            QString::fromUtf8(existing.readLine()).section(' ', 0, 0).toLongLong();
-        if (holder > 0 && processAlive(holder) &&
-            holder != QCoreApplication::applicationPid())
-        {
-          m_reason = QStringLiteral("被进程 %1 锁定（%2）").arg(holder).arg(m_lockPath);
-          return false;
-        }
+        QFile existing(m_lockPath);
+        if (existing.open(QIODevice::ReadOnly))
+          holder = QString::fromUtf8(existing.readLine()).section(' ', 0, 0).toLongLong();
+        // Windows 不允许删除正被打开的文件——existing 必须先析构/关闭再回收，
+        // 否则 remove 恒败、循环回收成死循环（曾致 tst_cache_io 挂死超时）。
+      }
+      if (holder > 0 && processAlive(holder) &&
+          holder != QCoreApplication::applicationPid())
+      {
+        m_reason = QStringLiteral("被进程 %1 锁定（%2）").arg(holder).arg(m_lockPath);
+        return false;
       }
       QFile::remove(m_lockPath); // 陈锁回收——立即重试（不等轮询节拍）
       continue;

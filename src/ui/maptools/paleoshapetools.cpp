@@ -2,6 +2,7 @@
 #include "paleoshapetools.h"
 
 #include <cmath>
+#include <numbers> // std::numbers::pi——M_PI 在 MSVC <cmath> 下不定义
 #include <memory>
 
 #include <QKeyEvent>
@@ -214,7 +215,7 @@ void PaleoDrawCircleTool::emitCircle( const QgsPointXY *eventRadiusPoint )
   ringPts.reserve( numSegments + 1 );
   for ( int i = 0; i <= numSegments; ++i )
   {
-    const double angle = 2.0 * M_PI * i / numSegments;
+    const double angle = 2.0 * std::numbers::pi * i / numSegments;
     ringPts.append( QgsPoint( center.x() + r * std::cos( angle ),
                               center.y() + r * std::sin( angle ) ) );
   }

@@ -13,7 +13,13 @@
 #include <QThread>
 
 #include <cerrno>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#else
 #include <csignal>
+#include <sys/types.h>
+#endif
 
 namespace
 {
@@ -77,7 +83,20 @@ bool processAlive(qint64 pid)
 {
   if (pid <= 0)
     return false;
+#ifdef Q_OS_WIN
+  // 句柄拿到且仍活跃 → 活；权限不足（ACCESS_DENIED）同样是「进程存在」。
+  // PID 复用窗口与 STILL_ACTIVE 魔数是 Win32 语义固有局限，清尾场景可接受。
+  HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+                         static_cast<DWORD>(pid));
+  if (!h)
+    return GetLastError() == ERROR_ACCESS_DENIED;
+  DWORD code = 0;
+  const BOOL ok = GetExitCodeProcess(h, &code);
+  CloseHandle(h);
+  return ok && code == STILL_ACTIVE;
+#else
   return ::kill(static_cast<pid_t>(pid), 0) == 0 || errno != ESRCH;
+#endif
 }
 
 QStringList sweepTempFiles(const QString &dir, qint64 keepNewerThanMs)
@@ -145,17 +164,19 @@ bool WriteGuard::acquire(int maxWaitMs)
     else if (QFile::exists(m_lockPath))
     {
       // 已有锁：持有者活着（且不是自己）→ 拒；死锁/自残留 → 回收重试。
-      QFile existing(m_lockPath);
-      if (existing.open(QIODevice::ReadOnly))
+      qint64 holder = 0;
       {
-        const qint64 holder =
-            QString::fromUtf8(existing.readLine()).section(' ', 0, 0).toLongLong();
-        if (holder > 0 && processAlive(holder) &&
-            holder != QCoreApplication::applicationPid())
-        {
-          m_reason = QStringLiteral("被进程 %1 锁定（%2）").arg(holder).arg(m_lockPath);
-          return false;
-        }
+        QFile existing(m_lockPath);
+        if (existing.open(QIODevice::ReadOnly))
+          holder = QString::fromUtf8(existing.readLine()).section(' ', 0, 0).toLongLong();
+        // Windows 不允许删除正被打开的文件——existing 必须先析构/关闭再回收，
+        // 否则 remove 恒败、循环回收成死循环（曾致 tst_cache_io 挂死超时）。
+      }
+      if (holder > 0 && processAlive(holder) &&
+          holder != QCoreApplication::applicationPid())
+      {
+        m_reason = QStringLiteral("被进程 %1 锁定（%2）").arg(holder).arg(m_lockPath);
+        return false;
       }
       QFile::remove(m_lockPath); // 陈锁回收——立即重试（不等轮询节拍）
       continue;

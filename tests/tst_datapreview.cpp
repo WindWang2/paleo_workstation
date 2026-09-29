@@ -1,4 +1,7 @@
 #include <QtTest>
+#ifdef _WIN32 // 编译器原生宏（Q_OS_WIN 要等 QtTest 引入 qglobal 后才有）
+#include <windows.h>
+#endif
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
@@ -529,7 +532,16 @@ void TestDataPreview::retryRebuildsAfterFix()
   const CatalogVersion v = st->importSvc->catalog()->currentVersion(ids.tops);
   const QString abs = st->importSvc->absolutePathForVersion(v);
   QVERIFY(QFile::exists(abs));
+#ifdef Q_OS_WIN
+  // Windows：权限位收回不挡读（只读属性只挡写/删）——持零共享句柄模拟
+  // 「占用中不可读」；对应「修复」步骤为 CloseHandle。
+  HANDLE absLock = CreateFileW(
+      reinterpret_cast<const wchar_t *>(abs.utf16()), GENERIC_READ, 0, nullptr,
+      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  QVERIFY(absLock != INVALID_HANDLE_VALUE);
+#else
   QFile::setPermissions(abs, QFileDevice::Permissions{});
+#endif
 
   st->preview->openAsset(ids.tops);
   auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
@@ -544,8 +556,12 @@ void TestDataPreview::retryRebuildsAfterFix()
   auto *retry = page->findChild<QPushButton *>(QStringLiteral("retryBtn"));
   QVERIFY(retry);
 
+#ifdef Q_OS_WIN
+  CloseHandle(absLock);
+#else
   QFile::setPermissions(abs, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
                                  QFileDevice::ReadGroup | QFileDevice::ReadOther);
+#endif
   retry->click();
   QCOMPARE(st->preview->tabCount(), 1);
   QVERIFY2(page->findChild<QComboBox *>(QStringLiteral("wellCombo")),
@@ -1069,6 +1085,9 @@ void TestDataPreview::document_stubbedConverterYieldsDerived()
     QVERIFY(f.open(QIODevice::WriteOnly));
     f.write("not a real docx — the stub converter ignores content");
   }
+#ifdef Q_OS_WIN
+  QSKIP("stub 转换器是 POSIX shell 脚本——Windows 无 /bin/sh；转换器程序机制本身平台中立");
+#else
   const QString stub = tmp.filePath(QStringLiteral("fake_soffice.sh"));
   {
     QFile s(stub);
@@ -1128,6 +1147,7 @@ void TestDataPreview::document_stubbedConverterYieldsDerived()
                    ->findChild<QPdfView *>(QStringLiteral("pdfView"));
   QVERIFY2(view, "converted pdf should render after rebuild");
   QCOMPARE(view->document()->status(), QPdfDocument::Status::Ready);
+#endif
 }
 
 void TestDataPreview::document_converterMissingFailsHonest()

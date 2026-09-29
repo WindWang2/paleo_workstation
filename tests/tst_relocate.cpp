@@ -272,7 +272,13 @@ void TestRelocate::managedMissingShowsNoRelocateButton()
   const QString assetId =
       st->importSvc->importProjectFile(fixture(QStringLiteral("tiny.png")), &err);
   QVERIFY(!assetId.isEmpty());
-  QFile::remove(st->importSvc->absolutePath(assetId)); // 受管副本消失
+  // 受管副本只读（锁真只读）：Windows 只读属性挡 remove——先授写再删。
+  {
+    const QString gone = st->importSvc->absolutePath(assetId);
+    QFile::setPermissions(gone, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                    QFileDevice::ReadUser | QFileDevice::WriteUser);
+    QFile::remove(gone); // 受管副本消失
+  }
 
   DataPreviewTabs pv;
   pv.setImportService(st->importSvc.get());

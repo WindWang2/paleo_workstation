@@ -12,6 +12,10 @@
 #include <algorithm>
 #include <functional>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 // plan §3 数据模型：实体—关联—资产—版本，catalog.json 是唯一主存储。
 // 覆盖：JSON round-trip、井名规范化身份解析、双候选不合并（unresolved 语义）、
 // 版本不可变递增、revision 单调。
@@ -424,13 +428,24 @@ void TestCatalog::managedPathRejectsSymlinksAndTraversal()
   QVERIFY(!DataCatalog::resolvedVersionPath(project.path(), version).isEmpty());
   version.path = QStringLiteral("artifacts/../outside.dat");
   QVERIFY(DataCatalog::resolvedVersionPath(project.path(), version).isEmpty());
+#ifdef Q_OS_WIN
+  // POSIX 绝对路径（/tmp/...）在 Windows 无盘符、不算绝对——用 Windows 形态。
+  version.path = QStringLiteral("C:/outside.dat");
+#else
   version.path = QStringLiteral("/tmp/outside.dat");
+#endif
   QVERIFY(DataCatalog::resolvedVersionPath(project.path(), version).isEmpty());
   QVERIFY(QDir(project.path()).mkpath(QStringLiteral("artifacts")));
+#ifndef Q_OS_WIN
+  // Windows 的 QFile::link 生成 .lnk 快捷方式（非符号链接）——「raw」处
+  // 不会有链接，拒绝语义无从谈起；符号链接子例在 POSIX 轮覆盖。
   const QString link = project.filePath(QStringLiteral("artifacts/raw"));
   QVERIFY(QFile::link(outside.path(), link));
   version.path = QStringLiteral("artifacts/raw/file.dat");
   QVERIFY(DataCatalog::resolvedVersionPath(project.path(), version).isEmpty());
+#else
+  Q_UNUSED(outside);
+#endif
 }
 
 void TestCatalog::managedCatalogLoadRejectsEscape()
@@ -1352,9 +1367,20 @@ void TestCatalog::wellsGeoJsonKeepsOldFileOnFailedWrite()
   QVERIFY(!good.isEmpty());
 
   // 目录只读 → QSaveFile 开不出临时文件 → 失败且旧文件字节原样。
+  // Windows：目录只读属性不挡在目录内创建文件，改为对目标文件持零共享
+  // 句柄——QSaveFile 提交阶段的替换必败，同样保住旧文件字节。
+#ifdef Q_OS_WIN
+  // FILE_SHARE_READ：允许后续只读校验打开，但 QSaveFile 的替换提交
+  // （需要 DELETE 共享）仍必败。
+  HANDLE geoLock = CreateFileW(
+      reinterpret_cast<const wchar_t *>(geo.utf16()), GENERIC_READ,
+      FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  QVERIFY(geoLock != INVALID_HANDLE_VALUE);
+#else
   QVERIFY(QFile::setPermissions(sub, QFileDevice::ReadOwner | QFileDevice::ExeOwner |
                                          QFileDevice::ReadGroup | QFileDevice::ExeGroup |
                                          QFileDevice::ReadOther | QFileDevice::ExeOther));
+#endif
   QString werr;
   QVERIFY(!cat.writeWellsGeoJson(geo, &werr));
   QVERIFY(!werr.isEmpty());
@@ -1363,11 +1389,15 @@ void TestCatalog::wellsGeoJsonKeepsOldFileOnFailedWrite()
     QVERIFY(f.open(QIODevice::ReadOnly));
     QCOMPARE(f.readAll(), good); // 关键断言：没有半截文件
   }
+#ifdef Q_OS_WIN
+  CloseHandle(geoLock);
+#else
   QVERIFY(QFile::setPermissions(sub, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
                                          QFileDevice::ExeOwner |
                                          QFileDevice::ReadGroup | QFileDevice::WriteGroup |
                                          QFileDevice::ExeGroup |
                                          QFileDevice::ReadOther | QFileDevice::ExeOther));
+#endif
 }
 
 // T4：锁降级只读——save/mutator 拒绝且内存回滚，读面照常。

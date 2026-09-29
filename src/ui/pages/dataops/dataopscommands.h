@@ -368,7 +368,10 @@ public:
       return QObject::tr("改坐标 %1").arg(m_entityId);
     return QObject::tr("重命名实体 %1→%2").arg(m_entityId, m_next.name);
   }
-  QByteArray id() const override { return m_mergeable ? "entityedit" : QByteArray(); }
+  // 两侧同为 QByteArray：const char[] 与 QByteArray 的三目公共类型在 MSVC
+  // 下有歧义（C2445，GCC 放行）。
+  QByteArray id() const override
+  { return m_mergeable ? QByteArrayLiteral("entityedit") : QByteArray(); }
 
 private:
   DataOpsContext m_ctx;

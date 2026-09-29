@@ -28,6 +28,10 @@
 #include <QTreeWidgetItemIterator>
 #include <QResizeEvent>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 #include "../src/services/previewdoc.h"
 #include "../src/ui/dialogs/folderconfirm.h"
 #include "../src/workflow/folderimport.h"
@@ -1424,13 +1428,26 @@ class TestPanels : public QObject
           QByteArrayLiteral("#WellHead File From SMI\n#Name X Y KB TD\n"
                             "A1  1.0  2.0  0.0  2000.0\n")));
       // locked.las / nodat.dat：读不了 → 入库前就失败，重导留 Failed。
+      // Windows：只读属性不挡读，改持零共享句柄模拟「占用中不可读」；
+      // 对应「修好文件」步骤在 Windows 是 CloseHandle。
       const QString lockedPath = QDir(root).filePath(QStringLiteral("locked.las"));
       const QString nodatPath = QDir(root).filePath(QStringLiteral("nodat.dat"));
       QVERIFY(writeFile(lockedPath, QByteArrayLiteral(
           "~Well\nWELL. A1 : WELL\n~A DEPT\n1.0\n")));
       QVERIFY(writeFile(nodatPath, QByteArrayLiteral("a,b\n1,2\n")));
+#ifdef Q_OS_WIN
+      HANDLE lockedHandle = CreateFileW(
+          reinterpret_cast<const wchar_t *>(lockedPath.utf16()), GENERIC_READ, 0,
+          nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+      QVERIFY(lockedHandle != INVALID_HANDLE_VALUE);
+      HANDLE nodatHandle = CreateFileW(
+          reinterpret_cast<const wchar_t *>(nodatPath.utf16()), GENERIC_READ, 0,
+          nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+      QVERIFY(nodatHandle != INVALID_HANDLE_VALUE);
+#else
       QVERIFY(QFile::setPermissions(lockedPath, QFileDevice::Permissions()));
       QVERIFY(QFile::setPermissions(nodatPath, QFileDevice::Permissions()));
+#endif
 
       FolderStack st(tmp.filePath(QStringLiteral("m.sqlite")), projectDir);
       QString err;
@@ -1488,9 +1505,13 @@ class TestPanels : public QObject
       QVERIFY(dlg.findChild<QPushButton *>(QStringLiteral("folderRetry")));
 
       // 修好文件 → 重试入库并挂到 A1（井口先行建的）。
+#ifdef Q_OS_WIN
+      CloseHandle(lockedHandle);
+#else
       QVERIFY(QFile::setPermissions(lockedPath,
           QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser |
           QFileDevice::ReadGroup | QFileDevice::ReadOther));
+#endif
       retry = static_cast<QWidget *>(table->cellWidget(rLock, 3))
                   ->findChild<QPushButton *>(QStringLiteral("folderRetry"));
       QVERIFY(retry);
@@ -1506,9 +1527,13 @@ class TestPanels : public QObject
       QVERIFY(nodatCombo && nodatCombo->isEnabled());
       nodatCombo->setCurrentIndex(
           projectClassifierTypes().indexOf(QStringLiteral("document")));
+#ifdef Q_OS_WIN
+      CloseHandle(nodatHandle);
+#else
       QVERIFY(QFile::setPermissions(nodatPath,
           QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser |
           QFileDevice::ReadGroup | QFileDevice::ReadOther));
+#endif
       static_cast<QWidget *>(table->cellWidget(rNodat, 3))
           ->findChild<QPushButton *>(QStringLiteral("folderRetry"))
           ->click();
@@ -4316,12 +4341,16 @@ private:
         // 两拍：输入标签名 → 确认。
         driveModalNextTick([](QWidget *w) {
             if (auto *dlg = qobject_cast<QInputDialog *>(w))
+            {
                 dlg->setTextValue(QStringLiteral("核心资产"));
-            QTimer::singleShot(0, [] {
-                if (auto *d = qobject_cast<QInputDialog *>(
-                        QApplication::activeModalWidget()))
-                    d->accept();
-            });
+                // 直接捕指针 accept：Windows 下嵌套拍里 activeModalWidget()
+                // 可能尚未就绪（曾致 accept 落空、3s 兜底 close 被当取消）。
+                QPointer<QInputDialog> guard(dlg);
+                QTimer::singleShot(0, [guard] {
+                    if (guard)
+                        guard->accept();
+                });
+            }
         });
         lp->batchAddTag();
         // 两个选中资产都带上标签（sidecar + 标签云出现）。

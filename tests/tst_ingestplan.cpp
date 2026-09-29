@@ -13,6 +13,10 @@
 
 #include <future>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/io/ingestplan.h"
@@ -211,10 +215,19 @@ private slots:
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
 
-    // 拿走 LAS 的全部权限 → 该行 plan 哈希失败、执行失败；井口/时深不受
-    // 传染（root 用户不受权限约束的宿主上该用例会退化——CI 以普通用户跑）。
+    // 拿走 LAS 的可读性 → 该行 plan 哈希失败、执行失败；井口/时深不受
+    // 传染。POSIX：清空权限位（root 用户不受权限约束的宿主上该用例会
+    // 退化——CI 以普通用户跑）。Windows：只读属性不挡读，改持零共享
+    // 句柄模拟「占用中不可读」——枚举照常、QFile::open 必败。
     const QString lasPath = QDir(root).filePath(QStringLiteral("0A1.Las"));
+#ifdef Q_OS_WIN
+    HANDLE lasLock = CreateFileW(
+        reinterpret_cast<const wchar_t *>(lasPath.utf16()), GENERIC_READ, 0,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    QVERIFY(lasLock != INVALID_HANDLE_VALUE);
+#else
     QVERIFY(QFile::setPermissions(lasPath, QFileDevice::Permissions{}));
+#endif
     QString err;
     const QVector<FolderRowResult> rows = svc.importFolder(root, &err);
     QVERIFY2(err.isEmpty(), qPrintable(err)); // 行失败不是整体失败
@@ -223,9 +236,13 @@ private slots:
     QCOMPARE(countBy(rows, FolderRowResult::Outcome::Imported), 2);
     QCOMPARE(svc.catalog()->assets().size(), 2);
 
-    // 修复读权限 → 重跑补齐，目录状态 == 一次全绿跑。
+    // 修复可读性 → 重跑补齐，目录状态 == 一次全绿跑。
+#ifdef Q_OS_WIN
+    CloseHandle(lasLock);
+#else
     QVERIFY(QFile::setPermissions(lasPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
                                                QFileDevice::ReadUser));
+#endif
     const QVector<FolderRowResult> retry = svc.importFolder(root, &err);
     QVERIFY2(err.isEmpty(), qPrintable(err));
     QCOMPARE(countBy(retry, FolderRowResult::Outcome::Failed), 0);

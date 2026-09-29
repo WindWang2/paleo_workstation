@@ -115,8 +115,11 @@ void CacheIoTests::canonicalizeRelativeAndSymlink()
   QFile::remove(link);
   QVERIFY(QFile::link(real, link));
 
-  // 符号链接 → 真身。
+#ifndef Q_OS_WIN
+  // 符号链接 → 真身。（Windows 的 QFile::link 生成 .lnk 快捷方式而非
+  // 符号链接——canonicalize 返回链接自身是正确行为，子例仅 POSIX 覆盖。）
   QCOMPARE(PathCanon::canonicalize(link), PathCanon::canonicalize(real));
+#endif
   // 相对路径以 base 绝对化。
   const QString abs = PathCanon::canonicalize(QStringLiteral("sub/../real.dat"), m_dir.path());
   QCOMPARE(abs, PathCanon::canonicalize(real));
@@ -211,11 +214,20 @@ void CacheIoTests::writeGuardExcludesSecondLiveWriter()
     // 换个角度测真正的互斥：手工写一个活 pid 的锁。
     QFile lf(g1.lockFilePath());
     QVERIFY(lf.open(QIODevice::WriteOnly | QIODevice::Truncate));
+#ifdef Q_OS_WIN
+    // Windows 没有 init(pid 1)；System 进程恒为 pid 4。
+    lf.write(QByteArray::number(4) + QByteArrayLiteral(" paleo-write"));
+#else
     lf.write(QByteArrayLiteral("1 paleo-write")); // pid=1（init，恒活）
+#endif
     lf.close();
     PartialRead::WriteGuard g2(target);
     QVERIFY(!g2.locked());
+#ifdef Q_OS_WIN
+    QVERIFY(g2.refusalReason().contains(QLatin1Char('4')));
+#else
     QVERIFY(g2.refusalReason().contains(QLatin1Char('1')));
+#endif
   }
   // g1 析构后锁文件应已被释放路径处理（g2 未持锁不动文件；g1 release 删除）。
   // 注：上面手工覆盖了锁文件——g1 的 release 仍会 remove 该路径。

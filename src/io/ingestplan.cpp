@@ -1,6 +1,8 @@
 // 层：数据
 #include "ingestplan.h"
 
+#include "shacache.h"
+
 #include "lasparser.h"
 #include "../domain/projectclassifier.h"
 #include "wellfileparsers.h"
@@ -547,7 +549,7 @@ IngestPlan buildIngestPlan(const QString &root, const IngestCatalogSource &catal
     if (cancelled)
       break;
     QString herr;
-    item.sha256 = DataCatalog::sha256FileHex(item.path, &herr);
+    item.sha256 = ShaCache::shared().sha256Hex(item.path, &herr); // D7.7
     if (item.sha256.isEmpty())
       plan.issues.append(QFileInfo(item.path).fileName() +
                          (herr.isEmpty() ? QStringLiteral(" 哈希失败") : herr));
@@ -751,7 +753,7 @@ CatalogVersion CatalogReadSnapshot::versionBySha256(const QString &sha256) const
       const QString path = DataCatalog::resolvedVersionPath(m_dir, v);
       if (path.isEmpty() || !QFileInfo(path).isFile())
         continue;
-      if (DataCatalog::sha256FileHex(path).compare(sha256, Qt::CaseInsensitive) == 0)
+      if (ShaCache::shared().sha256Hex(path).compare(sha256, Qt::CaseInsensitive) == 0) // D7.7
         return v;
     }
   return CatalogVersion();

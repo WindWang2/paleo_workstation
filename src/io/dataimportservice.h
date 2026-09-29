@@ -134,6 +134,8 @@ class DataImportService : public QObject
 
     // 版本路径 → 工程内绝对路径（外链原样返回）。
     QString absolutePath(const QString &assetId) const;
+    // P4：SEG-Y 道头索引缓存目录（<project>/artifacts/index/segy；空工程 = 空）。
+    QString indexCacheDir() const;
     // 指定版本的绝对路径——文档标签取 RAW 原件用（currentVersion 可能已是
     // DERIVED 转换件）。
     QString absolutePathForVersion(const CatalogVersion &version) const;

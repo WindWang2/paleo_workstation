@@ -7,8 +7,11 @@
 
 #include "../../catalog/datacatalog.h"
 #include "../../services/previewdoc.h"
+#include "dataopspalette.h"
+#include "dataopsviews.h"
 
 #include <QDynamicPropertyChangeEvent>
+#include <QShortcut>
 
 using namespace paleo::pagesinternal;
 
@@ -48,6 +51,137 @@ DataPage::DataPage(QWidget *parent)
           &DataPage::selectAsset);
   connect(m_listPanel, &DataListPanel::entitiesFocusRequested, this,
           &DataPage::selectAssetsForEntities);
+
+  wireDataOps();
+}
+
+// P3 dataops 接线（wave/data-page-operations）：共享命令栈/存储、命令面板
+//（Ctrl+K）、快捷键表（?）、状态反馈信号、实体 CRUD 意图、多选批量概要。
+void DataPage::wireDataOps()
+{
+  if (m_dataopsWired)
+    return;
+  m_dataopsWired = true;
+  using namespace paleo::dataops;
+
+  // 共享栈：列表侧拥有（stores + DataOpsUndoStack + OperationsHistory），
+  // 实体侧写操作进同一条栈。
+  m_entityPanel->setSharedOps(m_listPanel->opsContext(), m_listPanel->opStack(),
+                              m_listPanel->operationsHistory());
+
+  // 状态反馈（D5.4/D8）与外部导入意图（D3.2）直转。
+  connect(m_listPanel, &DataListPanel::statusMessage, this, &DataPage::statusMessage);
+  connect(m_listPanel, &DataListPanel::externalImportRequested, this,
+          &DataPage::externalImportRequested);
+  connect(m_entityPanel, &EntityPanel::statusMessage, this, &DataPage::statusMessage);
+  // 实体 CRUD 联动（实体侧改完请列表/实体视图重取）。
+  connect(m_entityPanel, &EntityPanel::entityRefreshRequested, this,
+          &DataPage::refreshAssetTable);
+  // 树内 F2/菜单实体意图 → 实体面板执行（同一套对话框/命令栈）。
+  connect(m_listPanel, &DataListPanel::entityRenameRequested, m_entityPanel,
+          &EntityPanel::beginRenameEntity);
+  connect(m_listPanel, &DataListPanel::entityDeleteRequested, m_entityPanel,
+          &EntityPanel::beginDeleteEntity);
+  // D6.3 快捷键表（? 键在列表侧，对话框在这里开）。
+  connect(m_listPanel, &DataListPanel::shortcutsDialogRequested, this,
+          &DataPage::openShortcutsDialog);
+
+  // D1.2/D4.9：多选 → 实体面板批量概要（>1 资产时）。
+  connect(m_listPanel, &DataListPanel::selectionCountChanged, this, [this](int assets, int) {
+    if (assets > 1)
+      m_entityPanel->setMultiContext({}, m_listPanel->currentAssetSelection().values());
+  });
+
+  // D6.1 Ctrl+K 命令面板（数据页内）。
+  auto *paletteSc = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_K), this);
+  paletteSc->setObjectName(QStringLiteral("scCommandPalette"));
+  connect(paletteSc, &QShortcut::activated, this, &DataPage::openCommandPalette);
+}
+
+void DataPage::openCommandPalette()
+{
+  using namespace paleo::dataops;
+  DataCommandPalette palette(this);
+  QVector<DataCommandPalette::Source> sources;
+  // 1) 动作/过滤器命令（D6.2 注册表）。
+  const CommandRegistry &reg = m_listPanel->commandRegistry();
+  for (const CommandEntry &e : reg.all())
+  {
+    DataCommandPalette::Source s;
+    s.kind = QStringLiteral("command");
+    s.id = e.id;
+    s.title = e.title;
+    s.subtitle = e.category + (e.shortcut.isEmpty()
+                                   ? QString()
+                                   : QStringLiteral(" · ") + e.shortcut);
+    s.weight = e.weight;
+    s.trigger = e.trigger; // 可空（纯登记面）
+    sources.append(s);
+  }
+  // 2) 资产 + 实体（模糊搜定位）。
+  if (PreviewDocService *svc = docService())
+    if (DataCatalog *cat = svc->catalog())
+    {
+      for (const CatalogAsset &a : cat->assets())
+      {
+        DataCommandPalette::Source s;
+        s.kind = QStringLiteral("asset");
+        s.id = a.id;
+        s.title = a.displayName;
+        s.subtitle = tr("资产 · %1").arg(a.type);
+        sources.append(s);
+      }
+      const paleo::dataops::EntityOverrideStore *ov =
+          m_listPanel->opsContext().entityOverrides;
+      for (const CatalogEntity &e : cat->entities())
+      {
+        DataCommandPalette::Source s;
+        s.kind = QStringLiteral("entity");
+        s.id = e.id;
+        s.title = ov ? ov->displayName(e) : e.name;
+        s.subtitle = tr("实体 · %1").arg(e.entityType);
+        sources.append(s);
+      }
+    }
+  palette.setSources(std::move(sources));
+  connect(&palette, &DataCommandPalette::assetChosen, this, [this](const QString &id) {
+    selectAsset(id);
+    emit assetActivated(id);
+  });
+  connect(&palette, &DataCommandPalette::entityChosen, this, [this](const QString &id) {
+    selectAssetsForEntities({id});
+  });
+  palette.exec();
+}
+
+void DataPage::openShortcutsDialog()
+{
+  using namespace paleo::dataops;
+  // 快捷键表 = 列表侧注册表 + 内建 Qt 行为说明。
+  CommandRegistry reg = m_listPanel->commandRegistry();
+  CommandEntry e;
+  e.id = QStringLiteral("qt.selectAll");
+  e.title = tr("全选（内建）");
+  e.category = tr("选择");
+  e.shortcut = QStringLiteral("Ctrl+A");
+  reg.registerCommand(e);
+  ShortcutsDialog dlg(this);
+  dlg.loadRegistry(reg);
+  dlg.exec();
+}
+
+bool DataPage::vimModeEnabled() const
+{
+  QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
+  return s.value(QStringLiteral("dataops/vimMode")).toBool();
+}
+
+void DataPage::setVimModeEnabled(bool on)
+{
+  QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
+  s.setValue(QStringLiteral("dataops/vimMode"), on);
+  if (auto *nav = findChild<paleo::dataops::DataNavTree *>(QStringLiteral("dataTree")))
+    nav->setVimMode(on);
 }
 
 bool DataPage::event(QEvent *event)
@@ -63,6 +197,10 @@ bool DataPage::event(QEvent *event)
         m_listPanel->setDocService(doc);
       if (m_entityPanel)
         m_entityPanel->setDocService(doc);
+      // 门面变化（新工程/重开）→ 实体侧共享 ops 重新下发（ctx 指针随列表侧
+      // refreshAssetTable 重载，这里保证面板构造后就有栈可用）。
+      m_entityPanel->setSharedOps(m_listPanel->opsContext(), m_listPanel->opStack(),
+                                  m_listPanel->operationsHistory());
     }
   }
   return QWidget::event(event);
@@ -142,3 +280,6 @@ void DataPage::selectAsset(const QString &assetId)
   if (m_listPanel)
     m_listPanel->selectAssetInViews(assetId);
 }
+
+// AUTOMOC：dataopspalette.h 的 Q_OBJECT 类（命令面板/快捷键表）。
+#include "moc_dataopspalette.cpp"

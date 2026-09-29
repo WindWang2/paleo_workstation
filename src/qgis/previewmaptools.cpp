@@ -106,11 +106,8 @@ PreviewMeasureTool::PreviewMeasureTool( QgsMapCanvas *canvas, bool areaMode )
 
 PreviewMeasureTool::~PreviewMeasureTool()
 {
-  if ( m_band )
-  {
-    m_band->hide();
-    delete m_band; // 画布销毁在先时 QgsRubberBand 父子链已断——防双删走 hide 兜底
-  }
+  // band 的生命周期归画布（QObject 父子链 + 场景）；析构里不碰——
+  // scene 先销毁时 QGraphicsItem 已回收，hide() 也会踩悬空（实测 SIGSEGV）。
 }
 
 double PreviewMeasureTool::currentLength() const
@@ -237,11 +234,7 @@ PreviewIdentifyTool::PreviewIdentifyTool( QgsMapCanvas *canvas )
 
 PreviewIdentifyTool::~PreviewIdentifyTool()
 {
-  if ( m_rectBand )
-  {
-    m_rectBand->hide();
-    delete m_rectBand;
-  }
+  // 同 PreviewMeasureTool：不碰 band。
 }
 
 void PreviewIdentifyTool::canvasPressEvent( QgsMapMouseEvent *e )
@@ -332,16 +325,7 @@ PreviewProfileTool::PreviewProfileTool( QgsMapCanvas *canvas )
 
 PreviewProfileTool::~PreviewProfileTool()
 {
-  if ( m_activeBand )
-  {
-    m_activeBand->hide();
-    delete m_activeBand;
-  }
-  if ( m_doneBand )
-  {
-    m_doneBand->hide();
-    delete m_doneBand;
-  }
+  // 同 PreviewMeasureTool：不碰 band。
 }
 
 void PreviewProfileTool::canvasPressEvent( QgsMapMouseEvent *e )

@@ -1,6 +1,8 @@
 // 层：视图
 #include "previewmappage.h"
 
+#include "../../qgis/previewrendercache.h"
+
 #include "previewhistogramwidget.h"
 #include "previewidentifypanel.h"
 #include "previewmapstates.h"
@@ -37,7 +39,7 @@ namespace
   {
     if ( !( scale > 0.0 ) )
       return QStringLiteral( "—" );
-    return QStringLiteral( "1:%1" ).arg( QLocale().toString( qRound( scale ) ) );
+    return QStringLiteral( "1:%1" ).arg( QLocale().toString( qRound64( scale ) ) ); // 无层时尺度巨大——qRound 溢出 int 即 assert
   }
 }
 
@@ -270,6 +272,15 @@ PreviewMapPage::PreviewMapPage( QWidget *parent )
                                          .arg( ms ) );
              if ( m_overview )
                m_overview->updateViewportRect();
+             // D6.2：identity 在场即存渲染结果（内存 LRU + 磁盘 PNG）。
+             if ( !m_cacheAssetId.isEmpty() )
+             {
+               const QSize sz = m_canvas->canvas()->size();
+               const QString key = PreviewRenderCache::makeKey(
+                   m_cacheAssetId, m_cacheVersionId, m_canvas->currentExtent(), sz.width(),
+                   sz.height() );
+               PreviewRenderCache::instance().store( key, m_canvas->canvas()->grab().toImage() );
+             }
            } );
   connect( m_canvas, &PreviewMapCanvas::scaleChanged, this, [this]( double s ) {
     m_scaleLabel->setText( scaleText( s ) );
@@ -772,6 +783,26 @@ void PreviewMapPage::showLowResSnapshot()
   m_canvas->canvas()->refresh();
 }
 
+void PreviewMapPage::setRenderCacheIdentity( const QString &assetId, const QString &versionId )
+{
+  m_cacheAssetId = assetId;
+  m_cacheVersionId = versionId;
+}
+
+void PreviewMapPage::primeRenderCache()
+{
+  if ( m_cacheAssetId.isEmpty() )
+    return;
+  const QSize sz = m_canvas->canvas()->size();
+  if ( sz.isEmpty() )
+    return;
+  const QString key = PreviewRenderCache::makeKey(
+      m_cacheAssetId, m_cacheVersionId, m_canvas->currentExtent(), sz.width(), sz.height() );
+  const QImage cached = PreviewRenderCache::instance().lookup( key );
+  if ( !cached.isNull() )
+    m_canvas->showPreviewOverlay( cached ); // 命中：缓存图立即上屏（D6.2）
+}
+
 void PreviewMapPage::addToolBarAction( QAction *action )
 {
   m_toolBar->addAction( action );
@@ -780,6 +811,11 @@ void PreviewMapPage::addToolBarAction( QAction *action )
 void PreviewMapPage::addToolBarSeparator()
 {
   m_toolBar->addSeparator();
+}
+
+void PreviewMapPage::addToolBarWidget( QWidget *widget )
+{
+  m_toolBar->addWidget( widget );
 }
 
 void PreviewMapPage::updateNavActions()

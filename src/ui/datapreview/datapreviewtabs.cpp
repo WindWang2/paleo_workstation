@@ -16,6 +16,13 @@
 #include "../wellcomposite/wellcompositepanel.h"
 
 #include "../decorations/paleodecorations.h"
+#include "previewhistogramwidget.h"
+#include "previewmappage.h"
+#include "previewmapstates.h"
+#include "previewprofilepanel.h"
+#include "previewtocpanel.h"
+#include "../../qgis/factorcontour.h"
+#include "../../qgis/previewrasteranalysis.h"
 #include <qgsmapcanvas.h>
 #include <qgslayertreemapcanvasbridge.h>
 #include <qgsmaptoolpan.h>
@@ -30,7 +37,9 @@
 #include <qgsrubberband.h>
 #include <qgsgeometry.h>
 #include <qgsvectorlayer.h>
+#include <qgsfields.h>
 #include <qgscategorizedsymbolrenderer.h>
+#include <qgssinglesymbolrenderer.h>
 #include <qgssymbol.h>
 #include <qgsfillsymbol.h>
 #include <qgsmarkersymbol.h>
@@ -41,7 +50,10 @@
 #include <QButtonGroup>
 #include <QTimer>
 
+#include <QCheckBox>
 #include <QComboBox>
+#include <QElapsedTimer>
+#include <QTemporaryDir>
 #include <QCryptographicHash>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -58,6 +70,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPointer>
@@ -265,6 +278,168 @@ namespace
       props[QStringLiteral("outline_style")] = QStringLiteral("solid");
       return QgsFillSymbol::createSimple(props);
     }
+  }
+
+  // ---- P2 地图化辅助（井位落图 D2.6/D2.8、等值线 D2.1）----
+
+  // 工程局部网格内存点层（井位/分层顶点；私有层不进 QgsProject）。
+  QgsVectorLayer *makeMemoryPointLayer( const QString &name, QWidget *owner )
+  {
+    const QString wkt = DataCatalog::localGridCrsWkt();
+    auto *vl = new QgsVectorLayer(
+        QStringLiteral( "Point?crs=WKT:%1&field=name:string(64)&field=role:string(16)&index=yes" )
+            .arg( wkt ),
+        name, QStringLiteral( "memory" ) );
+    vl->setParent( owner ); // 所有权归预览页宿主（画布只引用裸指针）
+    return vl;
+  }
+
+  void addMemoryPoint( QgsVectorLayer *vl, double x, double y, const QString &name,
+                       const QString &role )
+  {
+    if ( !vl )
+      return;
+    QgsFeature f( vl->fields() );
+    f.setAttribute( QStringLiteral( "name" ), name );
+    f.setAttribute( QStringLiteral( "role" ), role );
+    f.setGeometry( QgsGeometry::fromPointXY( QgsPointXY( x, y ) ) );
+    vl->dataProvider()->addFeature( f );
+    vl->updateExtents();
+  }
+
+  // 点层符号：普通井 #1B73D0 空心圆 + 高亮井加粗描边 + 名称标注开关。
+  void stylePointLayer( QgsVectorLayer *vl, bool withLabels )
+  {
+    if ( !vl )
+      return;
+    QgsCategoryList cats;
+    QVariantMap props;
+    props[QStringLiteral( "name" )] = QStringLiteral( "circle" );
+    props[QStringLiteral( "color" )] = QStringLiteral( "255,255,255,220" );
+    props[QStringLiteral( "outline_color" )] = QStringLiteral( "#1B73D0" );
+    props[QStringLiteral( "outline_width" )] = QStringLiteral( "1.2" );
+    props[QStringLiteral( "size" )] = QStringLiteral( "5" );
+    cats.append( QgsRendererCategory( QStringLiteral( "well" ),
+                                      QgsMarkerSymbol::createSimple( props ).release(),
+                                      QObject::tr( "井位" ) ) );
+    QVariantMap hprops = props;
+    hprops[QStringLiteral( "color" )] = QStringLiteral( "27,115,208,90" );
+    hprops[QStringLiteral( "outline_width" )] = QStringLiteral( "2.2" );
+    hprops[QStringLiteral( "size" )] = QStringLiteral( "7.5" );
+    cats.append( QgsRendererCategory( QStringLiteral( "highlight" ),
+                                      QgsMarkerSymbol::createSimple( hprops ).release(),
+                                      QObject::tr( "当前井" ) ) );
+    vl->setRenderer( new QgsCategorizedSymbolRenderer( QStringLiteral( "role" ), cats ) );
+    vl->setLabelsEnabled( withLabels );
+    if ( withLabels )
+    {
+      QgsPalLayerSettings pal;
+      pal.fieldName = QStringLiteral( "name" );
+      pal.isExpression = false;
+      QgsTextFormat fmt;
+      QFont font( QStringLiteral( "Noto Sans SC" ), 9, QFont::Medium );
+      fmt.setFont( font );
+      fmt.setSize( 9.0 );
+      fmt.setSizeUnit( Qgis::RenderUnit::Points );
+      fmt.setColor( QColor( QStringLiteral( "#24303E" ) ) );
+      QgsTextBufferSettings buf;
+      buf.setEnabled( true );
+      buf.setSize( 1.5 );
+      buf.setColor( Qt::white );
+      fmt.setBuffer( buf );
+      pal.setFormat( fmt );
+      vl->setLabeling( new QgsVectorLayerSimpleLabeling( pal ) );
+    }
+  }
+
+  // 等值线层（D2.1/D5.7）：FactorContourService 产出的 GPKG → 线符号 +
+  // ELEV 标注（density：0=关 1=稀疏 2=全部）。
+  QgsVectorLayer *makeContourLayer( const QString &gpkgPath, QWidget *owner, int density )
+  {
+    auto *vl = new QgsVectorLayer( gpkgPath + QStringLiteral( "|layername=contours" ),
+                                   QObject::tr( "等值线" ), QStringLiteral( "ogr" ) );
+    vl->setParent( owner );
+    if ( !vl->isValid() )
+      return vl;
+    QVariantMap props;
+    props[QStringLiteral( "line_color" )] = QStringLiteral( "#5D6E80" );
+    props[QStringLiteral( "line_width" )] = QStringLiteral( "0.6" );
+    vl->setRenderer( new QgsSingleSymbolRenderer( QgsLineSymbol::createSimple( props ).release() ) );
+    if ( density > 0 )
+    {
+      QgsPalLayerSettings pal;
+      pal.fieldName = QStringLiteral( "ELEV" );
+      pal.isExpression = false;
+      QgsTextFormat fmt;
+      QFont font( QStringLiteral( "Noto Sans SC" ), 8 );
+      fmt.setFont( font );
+      fmt.setSize( 8.0 );
+      fmt.setSizeUnit( Qgis::RenderUnit::Points );
+      fmt.setColor( QColor( QStringLiteral( "#24303E" ) ) );
+      QgsTextBufferSettings buf;
+      buf.setEnabled( true );
+      buf.setSize( 1.2 );
+      buf.setColor( Qt::white );
+      fmt.setBuffer( buf );
+      pal.setFormat( fmt );
+      if ( density == 1 )
+        pal.dist = 60.0; // 稀疏：等值线间最小标注距离
+      vl->setLabeling( new QgsVectorLayerSimpleLabeling( pal ) );
+      vl->setLabelsEnabled( true );
+    }
+    else
+      vl->setLabelsEnabled( false );
+    return vl;
+  }
+
+  // 相字段分类渲染（geojson 预览与 D2.10 同目录叠加共用；D2.4 图例的
+  // category 数据也从渲染器读回）。
+  void applyFaciesRendererToLayer( QgsVectorLayer *vlayer, const QString &fieldName )
+  {
+    if ( !vlayer || !vlayer->isValid() || fieldName.isEmpty() )
+      return;
+    const int fieldIdx = vlayer->fields().lookupField( fieldName );
+    if ( fieldIdx < 0 )
+      return;
+    QSet<QString> uniqueVals;
+    QgsFeatureIterator it = vlayer->getFeatures();
+    QgsFeature feat;
+    while ( it.nextFeature( feat ) )
+    {
+      const QString v = feat.attribute( fieldIdx ).toString().trimmed();
+      if ( !v.isEmpty() )
+        uniqueVals.insert( v );
+    }
+    QgsCategoryList categories;
+    for ( const QString &val : uniqueVals )
+    {
+      const QColor col = faciesColor( val );
+      std::unique_ptr<QgsSymbol> sym = createFaciesSymbol( vlayer->geometryType(), col );
+      categories.append( QgsRendererCategory( val, sym.release(), val ) );
+    }
+    std::unique_ptr<QgsSymbol> defSym =
+        createFaciesSymbol( vlayer->geometryType(), QColor( QStringLiteral( "#CFD8DC" ) ) );
+    categories.append( QgsRendererCategory( QVariant(), defSym.release(), QObject::tr( "其他" ) ) );
+    vlayer->setRenderer( new QgsCategorizedSymbolRenderer( fieldName, categories ) );
+
+    QgsPalLayerSettings palSettings;
+    palSettings.fieldName = fieldName;
+    palSettings.isExpression = false;
+    QgsTextFormat txtFmt;
+    QFont font( QStringLiteral( "Noto Sans SC" ), 9, QFont::Medium );
+    txtFmt.setFont( font );
+    txtFmt.setSize( 9.0 );
+    txtFmt.setSizeUnit( Qgis::RenderUnit::Points );
+    txtFmt.setColor( QColor( QStringLiteral( "#24303E" ) ) );
+    QgsTextBufferSettings buf;
+    buf.setEnabled( true );
+    buf.setSize( 1.5 );
+    buf.setColor( Qt::white );
+    txtFmt.setBuffer( buf );
+    palSettings.setFormat( txtFmt );
+    vlayer->setLabeling( new QgsVectorLayerSimpleLabeling( palSettings ) );
+    vlayer->setLabelsEnabled( true );
+    vlayer->triggerRepaint();
   }
 
   struct CurveData
@@ -1418,23 +1593,19 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
 
   tbLay->addStretch(1);
 
-  // QGIS 地图画布
-  auto *canvas = new QgsMapCanvas(w);
+  // P2：测区全景走统一 PreviewMapPage（工具条/状态条/鹰眼/书签/TOC 全套）。
+  auto *mapPage = new PreviewMapPage(w);
+  mapPage->setObjectName(QStringLiteral("surveyPreviewPage"));
+  mapPage->setProfileEnabled(false); // 全景浏览页不开剖面工具
+  QgsMapCanvas *canvas = mapPage->mapCanvas()->canvas();
   canvas->setObjectName(QStringLiteral("surveyMapCanvas"));
-  canvas->enableAntiAliasing(true);
-  canvas->setCanvasColor(Qt::white);
 
   QgsProject *proj = m_project ? m_project.data() : QgsProject::instance();
   if (proj)
-  {
-    canvas->setProject(proj);
-    canvas->setDestinationCrs(proj->crs());
-    // 绑定项目图层树：所有井位、地震测线、边界、层位图层自动同步渲染
-    new QgsLayerTreeMapCanvasBridge(proj->layerTreeRoot(), canvas, canvas);
-  }
+    mapPage->mapCanvas()->attachProjectLayers(proj);
 
-  // 挂载装饰管理器：比例尺 + 指南针 + 网格
-  auto *decorMgr = new PaleoDecorationManager(canvas, canvas);
+  // 装饰管理器（页内建，测区命名保持既有测试面）
+  PaleoDecorationManager *decorMgr = mapPage->decorations();
   decorMgr->setObjectName(QStringLiteral("surveyAreaDecorManager"));
   decorMgr->setScaleBarEnabled(true);
   decorMgr->setNorthArrowEnabled(true);
@@ -1513,11 +1684,7 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   tbLay->addWidget(crsLabel);
 
   lay->addWidget(topBar);
-  lay->addWidget(canvas, 1);
-
-  // 设置默认漫游工具
-  auto *panTool = new QgsMapToolPan(canvas);
-  canvas->setMapTool(panTool);
+  lay->addWidget(mapPage, 1);
 
   auto zoomFull = [canvas, surveyGeom]() {
     if (!surveyGeom.isNull() && !surveyGeom.boundingBox().isEmpty())
@@ -1534,11 +1701,11 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
     }
   };
 
-  connect(btnFull, &QToolButton::clicked, canvas, zoomFull);
-  connect(btnIn, &QToolButton::clicked, canvas, &QgsMapCanvas::zoomIn);
-  connect(btnOut, &QToolButton::clicked, canvas, &QgsMapCanvas::zoomOut);
-  connect(btnPan, &QToolButton::clicked, canvas, [canvas, panTool]() {
-    canvas->setMapTool(panTool);
+  connect(btnFull, &QToolButton::clicked, mapPage, zoomFull);
+  connect(btnIn, &QToolButton::clicked, mapPage, [mapPage]() { mapPage->mapCanvas()->canvas()->zoomIn(); });
+  connect(btnOut, &QToolButton::clicked, mapPage, [mapPage]() { mapPage->mapCanvas()->canvas()->zoomOut(); });
+  connect(btnPan, &QToolButton::clicked, mapPage, [mapPage]() {
+    mapPage->toolManager()->activate(PreviewMapToolManager::kPan);
   });
   connect(btnBoundary, &QToolButton::toggled, canvas, [boundaryBand, canvas](bool checked) {
     boundaryBand->setVisible(checked);
@@ -1559,7 +1726,7 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   connect(btnSwitchMain, &QToolButton::clicked, this, &DataPreviewTabs::requestShowOnMainCanvas);
 
   // 延迟自适应全图（等几何尺寸就绪）
-  QTimer::singleShot(100, canvas, zoomFull);
+  QTimer::singleShot(100, mapPage, zoomFull);
 
   return w;
 }
@@ -1591,6 +1758,7 @@ void DataPreviewTabs::closeAssetTab(const QString &assetId)
   m_pageOfAsset.remove(assetId);
   m_wellEntityOfAsset.remove(assetId);
   m_titleSuffixOfAsset.remove(assetId);
+  m_chosenVersionOfAsset.remove(assetId);
   // D1：标签关掉即释放该资产的索引缓存（持有文件句柄级状态）与世代号；
   // 进行中的解码任务请求取消——结果没人等了。
   if (m_doc)
@@ -2406,13 +2574,21 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     const QString pendingNote = sb.extra.value(QStringLiteral("pending")).toBool()
                                     ? tr("未决层位 — 不进入编图 chip")
                                     : QString();
-    const CatalogVersion derived = [cat, &assetId]() {
-      CatalogVersion best;
-      for (const CatalogVersion &cv : cat->versionsForAsset(assetId))
-        if (cv.stage == QLatin1String("DERIVED") && cv.versionNumber >= best.versionNumber)
-          best = cv;
-      return best;
-    }();
+    // D2.9 版本集合：DERIVED 栅格（多次生成按号降序）+ RAW 散点。
+    QVector<CatalogVersion> deriveds;
+    CatalogVersion raw;
+    for (const CatalogVersion &cv : cat->versionsForAsset(assetId))
+    {
+      if (cv.stage == QLatin1String("DERIVED"))
+        deriveds.append(cv);
+      else if (cv.stage == QLatin1String("RAW") && cv.versionNumber >= raw.versionNumber)
+        raw = cv;
+    }
+    std::sort(deriveds.begin(), deriveds.end(),
+              [](const CatalogVersion &a, const CatalogVersion &b) {
+                return a.versionNumber > b.versionNumber;
+              });
+    const CatalogVersion derived = deriveds.isEmpty() ? CatalogVersion() : deriveds.first();
     const QString gridTxt =
         derived.id.isEmpty()
             ? tr("派生栅格：未生成")
@@ -2434,9 +2610,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       auto *p = warnLabel(pendingNote, host);
       lay->addWidget(p);
     }
-    // 「在地图上显示」（§4/T29）：无派生栅格时禁用并给出原因 tooltip；点击
-    // 发意图（shell 实例化+缩放+闪烁后回调 setHorizonOnMap 置「已在地图上」；
-    // 图层树里关掉可见性时同样回调置回）。
+    // 「在地图上显示」（§4/T29，语义原样）。
     auto *btn = new QPushButton(tr("在地图上显示"), host);
     btn->setObjectName(QStringLiteral("showOnMapBtn"));
     btn->setAccessibleName(tr("在地图上显示层位 %1").arg(sb.name.isEmpty()
@@ -2457,80 +2631,320 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     }
     lay->addWidget(btn, 0, Qt::AlignLeft);
 
-    // 派生栅格就地用 QGIS 画布预览（§4：地图数据给地图，不是一行元数据）。
-    // 私有 QgsRasterLayer 不注册进 QgsProject——预览不污染主图图层树/实例表；
-    // 用户要在主图看仍走「在地图上显示」那条实例化+闪烁定位路径。
-    const QString tifPath =
-        derived.id.isEmpty() ? QString() : m_doc->absolutePathForVersion(derived);
-    std::unique_ptr<QgsRasterLayer> raster;
-    if (!tifPath.isEmpty() && QFile::exists(tifPath))
+    // ---- D2.9 版本切换：≥2 个版本才给下拉；选 RAW → 散点信息卡。
+    CatalogVersion chosen;
+    const QString chosenId = m_chosenVersionOfAsset.value(assetId);
+    for (const CatalogVersion &cv : deriveds)
+      if (cv.id == chosenId)
+        chosen = cv;
+    if (chosen.id.isEmpty() && !raw.id.isEmpty() && raw.id == chosenId)
+      chosen = raw;
+    if (chosen.id.isEmpty())
+      chosen = derived.id.isEmpty() ? raw : derived;
+    const int totalVersions = deriveds.size() + (raw.id.isEmpty() ? 0 : 1);
+    if (totalVersions > 1)
     {
-      raster = std::make_unique<QgsRasterLayer>(
-          tifPath, sb.name.isEmpty() ? asset.displayName : sb.name,
-          QStringLiteral("gdal"));
-      if (!raster->isValid())
-        raster.reset();
+      auto *verBar = new QWidget(host);
+      auto *verLay = new QHBoxLayout(verBar);
+      verLay->setContentsMargins(0, 0, 0, 0);
+      verLay->addWidget(caption8(tr("版本"), verBar));
+      auto *verCombo = new QComboBox(verBar);
+      verCombo->setObjectName(QStringLiteral("previewVersionCombo"));
+      for (const CatalogVersion &cv : deriveds)
+        verCombo->addItem(tr("派生栅格 v%1").arg(cv.versionNumber), cv.id);
+      if (!raw.id.isEmpty())
+        verCombo->addItem(tr("原始散点 · %1").arg(raw.fileName), raw.id);
+      const int wantIdx = verCombo->findData(chosen.id);
+      if (wantIdx >= 0)
+        verCombo->setCurrentIndex(wantIdx);
+      connect(verCombo, &QComboBox::currentIndexChanged, host,
+              [this, assetId, verCombo](int idx) {
+                const QString vid = verCombo->itemData(idx).toString();
+                if (!vid.isEmpty() && m_chosenVersionOfAsset.value(assetId) != vid)
+                {
+                  m_chosenVersionOfAsset[assetId] = vid;
+                  rebuildAssetTab(assetId); // 画布即时切换（D2.9）
+                }
+              });
+      verLay->addWidget(verCombo);
+      verLay->addStretch(1);
+      lay->addWidget(verBar);
     }
-    if (raster)
-    {
-      auto *canvas = new QgsMapCanvas(host);
-      canvas->setObjectName(QStringLiteral("horizonMapCanvas"));
-      canvas->enableAntiAliasing(true);
-      canvas->setCanvasColor(Qt::white);
 
-      // 高程面按等深惯例浅蓝→深蓝连续伪彩（地图域符号，非 UI token）。
-      double zMin = 0.0, zMax = 1.0;
-      if (QgsRasterDataProvider *provider = raster->dataProvider())
+    const bool chosenIsDerived = chosen.stage == QLatin1String("DERIVED");
+    if (!chosenIsDerived)
+    {
+      // RAW 散点：如实给文件信息卡——散点解析属 io 层，视图不造假地图。
+      lay->addWidget(caption8(tr("原始散点文件"), host));
+      lay->addWidget(valueLabel(m_doc->absolutePathForVersion(chosen), host, false));
+      lay->addWidget(stateLabel(tr("选中「派生栅格」版本可看地图预览"), host), 1);
+      return host;
+    }
+
+    const QString tifPath = m_doc->absolutePathForVersion(chosen);
+    auto raster = std::make_unique<QgsRasterLayer>(
+        tifPath, sb.name.isEmpty() ? asset.displayName : sb.name, QStringLiteral("gdal"));
+    if (!raster->isValid() || raster->extent().isEmpty())
+    {
+      // D1.7：数据源损坏给原因页，不给白画布。
+      lay->addWidget(PreviewMapStates::buildErrorPage(
+                         tr("无法读取层位栅格"), tifPath, host, tr("重试"),
+                         [this, assetId] { rebuildAssetTab(assetId); }),
+                     1);
+      return host;
+    }
+    // D2.11 大图（>50MB 无金字塔）提示条：降级仍可用（低清先行 + 全图照渲）。
+    const QString bigHint = PreviewRasterAnalysis::bigRasterHint(raster.get());
+    if (!bigHint.isEmpty())
+      lay->addWidget(PreviewMapStates::buildBigRasterHintBar(bigHint, host));
+
+    // ---- P2 地图正文：统一 PreviewMapPage（D1.x 框架全套） ----
+    auto *page = new PreviewMapPage(host);
+    page->setObjectName(QStringLiteral("horizonPreviewPage"));
+    page->setAssetKey(assetId);
+    page->setRenderCacheIdentity(assetId, chosen.id);
+    page->mapCanvas()->canvas()->setObjectName(QStringLiteral("horizonMapCanvas"));
+    page->decorations()->setObjectName(QStringLiteral("horizonDecorManager"));
+
+    const auto sum = PreviewRasterAnalysis::summarize(raster.get());
+    if (sum.valid)
+      PreviewRasterAnalysis::applyPseudoColorRenderer(
+          raster.get(), 1, sum.min, sum.max,
+          *PreviewRasterAnalysis::rampPreset(QStringLiteral("depthBlues")), false,
+          PreviewRasterAnalysis::Classification::Continuous);
+    QgsRasterLayer *rasterRaw = raster.release();
+    rasterRaw->setParent(host); // 私有层父子树托管（既有约定：不进 QgsProject）
+    page->addMapLayer(rasterRaw, sb.name.isEmpty() ? asset.displayName : sb.name, tifPath);
+
+    // ---- D2.1 等值线 overlay + D5.7 参数化（间距/标注密度） ----
+    auto contourDir = std::make_shared<QTemporaryDir>();
+    auto currentContour = std::make_shared<QgsVectorLayer *>(nullptr);
+    const auto rebuildContours =
+        [page, rasterRaw, tifPath, contourDir, currentContour, host](double interval, int density) {
+          if (*currentContour)
+          {
+            page->removeMapLayer(*currentContour); // 旧层出树（父子托管，deleteLater 由父管）
+            (*currentContour)->deleteLater();
+            *currentContour = nullptr;
+          }
+          const QString gpkg =
+              contourDir->filePath(QStringLiteral("contours_%1.gpkg").arg(interval));
+          QString cerr;
+          if (!FactorContourService::generateContours(tifPath, gpkg, interval, &cerr))
+            return;
+          auto *cl = makeContourLayer(gpkg, host, density);
+          if (!cl->isValid())
+          {
+            cl->deleteLater();
+            return;
+          }
+          *currentContour = cl;
+          page->addMapLayer(cl, QObject::tr("等值线"), gpkg);
+        };
+    rebuildContours(10.0, 1);
+
+    // ---- D5.5 统计面板 ----
+    {
+      auto *statsPage = new QWidget(page);
+      auto *statsLay = new QFormLayout(statsPage);
+      const auto addStat = [&statsLay, statsPage](const QString &k, const QString &v,
+                                                  const QString &objectName) {
+        auto *l = new QLabel(v, statsPage);
+        l->setObjectName(objectName);
+        l->setFont(monoFont());
+        l->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        statsLay->addRow(k, l);
+      };
+      addStat(tr("最小值"), QString::number(sum.min, 'f', 2), QStringLiteral("horizonStatMin"));
+      addStat(tr("最大值"), QString::number(sum.max, 'f', 2), QStringLiteral("horizonStatMax"));
+      addStat(tr("均值"), QString::number(sum.mean, 'f', 2), QStringLiteral("horizonStatMean"));
+      addStat(tr("标准差"), QString::number(sum.stdDev, 'f', 2), QStringLiteral("horizonStatStd"));
+      addStat(tr("有效像元占比"), QStringLiteral("%1%").arg(sum.validRatio() * 100.0, 0, 'f', 1),
+              QStringLiteral("horizonStatValid"));
+      page->addAnalysisTab(tr("统计"), statsPage);
+    }
+
+    // ---- D2.3/D5.8 直方图（分箱可调/对数纵轴；拉伸界随符号快调联动） ----
+    {
+      auto *histPage = new QWidget(page);
+      auto *histLay = new QVBoxLayout(histPage);
+      histLay->setContentsMargins(4, 4, 4, 4);
+      auto *hist = new PreviewHistogramWidget(false, histPage);
+      hist->setObjectName(QStringLiteral("horizonHistogram"));
+      const auto refreshHist = [hist, rasterRaw](int bins) {
+        hist->setHistogram(PreviewRasterAnalysis::histogram(rasterRaw, bins));
+        // 当前渲染界（TOC 快调后随 renderer 读回）。
+        if (auto *r = dynamic_cast<QgsSingleBandPseudoColorRenderer *>(rasterRaw->renderer()))
+          if (auto *fn = r->shader()->rasterShaderFunction())
+            hist->setStretchMarks(fn->minimumValue(), fn->maximumValue());
+      };
+      refreshHist(64);
+      QObject::connect(hist, &PreviewHistogramWidget::binsChanged, histPage, refreshHist);
+      QObject::connect(page->tocPanel(), &PreviewTocPanel::rasterStyleChanged, histPage,
+                       [refreshHist, hist] { refreshHist(hist->bins()); });
+      histLay->addWidget(hist, 1);
+      page->addAnalysisTab(tr("直方图"), histPage);
+    }
+
+    // ---- D5.7 等值线参数 ----
+    {
+      auto *contourPage = new QWidget(page);
+      auto *cform = new QFormLayout(contourPage);
+      auto *intervalSpin = new QDoubleSpinBox(contourPage);
+      intervalSpin->setObjectName(QStringLiteral("contourIntervalSpin"));
+      intervalSpin->setRange(0.5, 1000.0);
+      intervalSpin->setDecimals(1);
+      intervalSpin->setValue(10.0);
+      intervalSpin->setSuffix(tr(" m"));
+      cform->addRow(tr("等值线间距"), intervalSpin);
+      auto *densityCombo = new QComboBox(contourPage);
+      densityCombo->setObjectName(QStringLiteral("contourDensityCombo"));
+      densityCombo->addItem(tr("全部"), 2);
+      densityCombo->addItem(tr("稀疏"), 1);
+      densityCombo->addItem(tr("关"), 0);
+      densityCombo->setCurrentIndex(1);
+      cform->addRow(tr("标注密度"), densityCombo);
+      const auto applyContours = [rebuildContours, intervalSpin, densityCombo]() {
+        rebuildContours(intervalSpin->value(), densityCombo->currentData().toInt());
+      };
+      QObject::connect(intervalSpin, &QDoubleSpinBox::valueChanged, contourPage,
+                       [applyContours](double) { applyContours(); });
+      QObject::connect(densityCombo, &QComboBox::currentIndexChanged, contourPage,
+                       [applyContours](int) { applyContours(); });
+      page->addAnalysisTab(tr("等值线"), contourPage);
+    }
+
+    // ---- D5.6 局部极值（峰值/洼地标注开关 + 前列清单） ----
+    {
+      auto *extPage = new QWidget(page);
+      auto *extLay = new QVBoxLayout(extPage);
+      auto *extBar = new QWidget(extPage);
+      auto *extBarLay = new QHBoxLayout(extBar);
+      extBarLay->setContentsMargins(0, 0, 0, 0);
+      auto *peakCheck = new QCheckBox(tr("峰值"), extBar);
+      peakCheck->setObjectName(QStringLiteral("extremaPeakCheck"));
+      auto *lowCheck = new QCheckBox(tr("洼地"), extBar);
+      lowCheck->setObjectName(QStringLiteral("extremaLowCheck"));
+      extBarLay->addWidget(peakCheck);
+      extBarLay->addWidget(lowCheck);
+      extBarLay->addStretch(1);
+      extLay->addWidget(extBar);
+      auto *extTable = new QTableWidget(0, 4, extPage);
+      extTable->setObjectName(QStringLiteral("extremaTable"));
+      extTable->setHorizontalHeaderLabels({tr("类型"), tr("X"), tr("Y"), tr("值")});
+      extTable->verticalHeader()->setVisible(false);
+      extTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+      extLay->addWidget(extTable, 1);
+
+      auto *peaksBand = new QgsRubberBand(page->mapCanvas()->canvas(), Qgis::GeometryType::Point);
+      peaksBand->setParent(page->mapCanvas()->canvas());
+      peaksBand->setObjectName(QStringLiteral("horizonPeaksBand"));
+      peaksBand->setColor(QColor(217, 38, 38));   // error 红系（语义：高凸）
+      peaksBand->setIcon(QgsRubberBand::ICON_CIRCLE);
+      peaksBand->setIconSize(6);
+      peaksBand->hide();
+      auto *lowsBand = new QgsRubberBand(page->mapCanvas()->canvas(), Qgis::GeometryType::Point);
+      lowsBand->setParent(page->mapCanvas()->canvas());
+      lowsBand->setObjectName(QStringLiteral("horizonLowsBand"));
+      lowsBand->setColor(QColor(21, 118, 210));   // 蓝（语义：低洼）
+      lowsBand->setIcon(QgsRubberBand::ICON_CIRCLE);
+      lowsBand->setIconSize(6);
+      lowsBand->hide();
+
+      const auto refreshExtrema = [rasterRaw, peakCheck, lowCheck, peaksBand, lowsBand, extTable, sum]() {
+        peaksBand->reset(Qgis::GeometryType::Point);
+        lowsBand->reset(Qgis::GeometryType::Point);
+        extTable->setRowCount(0);
+        if (!peakCheck->isChecked() && !lowCheck->isChecked())
+          return;
+        const double prom = (sum.valid ? sum.stdDev : 0.0) * 0.5; // 显著性 = 半个标准差
+        const auto extrema =
+            PreviewRasterAnalysis::localExtrema(rasterRaw, 1, 5, prom, 100);
+        for (const auto &e : extrema)
+        {
+          if (e.peak)
+            peaksBand->addPoint(e.pos, false);
+          else
+            lowsBand->addPoint(e.pos, false);
+          const int r = extTable->rowCount();
+          extTable->insertRow(r);
+          auto *typeItem = new QTableWidgetItem(e.peak ? tr("峰") : tr("洼"));
+          auto *xItem = new QTableWidgetItem(QString::number(e.pos.x(), 'f', 1));
+          auto *yItem = new QTableWidgetItem(QString::number(e.pos.y(), 'f', 1));
+          auto *vItem = new QTableWidgetItem(QString::number(e.value, 'f', 2));
+          for (auto *it : {xItem, yItem, vItem})
+            setNumericItem(it);
+          extTable->setItem(r, 0, typeItem);
+          extTable->setItem(r, 1, xItem);
+          extTable->setItem(r, 2, yItem);
+          extTable->setItem(r, 3, vItem);
+        }
+        peaksBand->setVisible(peakCheck->isChecked());
+        lowsBand->setVisible(lowCheck->isChecked());
+      };
+      QObject::connect(peakCheck, &QCheckBox::toggled, extPage,
+                       [refreshExtrema](bool) { refreshExtrema(); });
+      QObject::connect(lowCheck, &QCheckBox::toggled, extPage,
+                       [refreshExtrema](bool) { refreshExtrema(); });
+      page->addAnalysisTab(tr("极值"), extPage);
+    }
+
+    // ---- D5.1 剖面：画布拖线 → 沿线采样 → 剖面图（D5.2 悬停读数在面板内） ----
+    QObject::connect(page, &PreviewMapPage::profileLineDrawn, host,
+                     [page, rasterRaw](const QgsPointXY &p1, const QgsPointXY &p2, int total) {
+                       const auto samples = PreviewRasterAnalysis::sampleProfile(rasterRaw, p1, p2, 200);
+                       QVector<PreviewProfilePanel::Sample> pts;
+                       pts.reserve(samples.size());
+                       for (const auto &sm : samples)
+                         pts.append({sm.distance, sm.value, sm.valid});
+                       page->profilePanel()->addProfile(tr("剖面 %1").arg(total), pts, p1, p2);
+                     });
+    page->setProfileEnabled(true); // D1.3：栅格内容才开剖面工具
+
+    // ---- D2.10 同目录组图：同目录可地图化资产一键叠加 ----
+    {
+      const auto siblings = PreviewMapStates::siblingMappableAssets(
+          cat, tifPath, [this](const CatalogVersion &v) { return m_doc->absolutePathForVersion(v); });
+      // 排除自身。
+      QVector<QPair<QString, QString>> others;
+      for (const auto &sib : siblings)
+        if (sib.first != assetId)
+          others.append(sib);
+      if (!others.isEmpty())
       {
-        const QgsRasterBandStats st = provider->bandStatistics(1);
-        if (st.minimumValue < st.maximumValue &&
-            st.minimumValue > -std::numeric_limits<double>::max())
+        auto *overlayBtn = new QToolButton(page);
+        overlayBtn->setObjectName(QStringLiteral("siblingOverlayButton"));
+        overlayBtn->setText(tr("同目录叠加"));
+        overlayBtn->setToolTip(tr("把同目录下的相图/配准图片/层位栅格叠加到本预览"));
+        overlayBtn->setPopupMode(QToolButton::InstantPopup);
+        auto *menu = new QMenu(overlayBtn);
+        for (const auto &sib : others)
         {
-          zMin = st.minimumValue;
-          zMax = st.maximumValue;
+          const QString sibAssetId = sib.first;
+          const QString sibName = sib.second;
+          QAction *act = menu->addAction(sibName);
+          QObject::connect(act, &QAction::triggered, host, [this, page, sibAssetId, sibName, host]() {
+            addSiblingOverlayLayer(page, sibAssetId, sibName, host);
+          });
         }
+        overlayBtn->setMenu(menu);
+        page->addToolBarWidget(overlayBtn);
       }
-      auto *shader = new QgsRasterShader();
-      auto *ramp = new QgsColorRampShader(
-          zMin, zMax,
-          new QgsGradientColorRamp(QColor(QStringLiteral("#CDE7F6")),
-                                   QColor(QStringLiteral("#14507F"))),
-          Qgis::ShaderInterpolationMethod::Linear,
-          Qgis::ShaderClassificationMethod::Continuous);
-      // Continuous 也必须先分类：itemList 为空时 shade() 全部返回
-      // false，像元渲成透明（画布看起来是空白白图）。
-      ramp->classifyColorRamp(1, raster->extent(), raster->dataProvider());
-      shader->setRasterShaderFunction(ramp);
-      raster->setRenderer(
-          new QgsSingleBandPseudoColorRenderer(raster->dataProvider(), 1, shader));
-
-      canvas->setDestinationCrs(raster->crs());
-      canvas->setLayers({raster.get()});
-
-      auto *decor = new PaleoDecorationManager(canvas, canvas);
-      decor->setScaleBarEnabled(true);
-      decor->setNorthArrowEnabled(true);
-
-      canvas->setMapTool(new QgsMapToolPan(canvas));
-      lay->addWidget(canvas, 1);
-
-      // raster 交给 host 父子树托管，画布只引用裸指针（与图层树同寿）。
-      QgsRasterLayer *rasterRaw = raster.release();
-      rasterRaw->setParent(host);
-      QTimer::singleShot(0, canvas, [canvas, rasterRaw]() {
-        if (rasterRaw && !rasterRaw->extent().isEmpty())
-        {
-          QgsRectangle ext = rasterRaw->extent();
-          ext.grow(qMax(ext.width(), ext.height()) * 0.06);
-          canvas->setExtent(ext);
-        }
-        canvas->refresh();
-      });
     }
-    else
-    {
-      lay->addStretch(1);
-    }
+
+    lay->addWidget(page, 1);
+
+    // ---- D6.1/D6.2/D6.7：全图复位 → 缓存命中即上屏；未命中低清先行。 ----
+    auto *openTimer = new QElapsedTimer();
+    openTimer->start();
+    QTimer::singleShot(0, host, [page, openTimer]() {
+      page->mapCanvas()->zoomToFullExtent();
+      page->primeRenderCache();
+      if (!page->mapCanvas()->overlayVisible())
+        page->showLowResSnapshot(); // D6.1 低清整图先上（后台精渲随后替换）
+      openTimer->invalidate();
+      delete openTimer;
+    });
     return host;
   }
 
@@ -3149,6 +3563,42 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 
   if (asset.type == QLatin1String("image_reference"))
   {
+    // D2.7：有 world file/配准边车 → 栅格上图；未配准 → 图片查看器 + 引导。
+    const QString worldFile = PreviewMapStates::detectWorldFile(abs);
+    if (!worldFile.isEmpty())
+    {
+      auto raster = std::make_unique<QgsRasterLayer>(abs, asset.displayName,
+                                                     QStringLiteral("gdal"));
+      if (raster->isValid() && !raster->extent().isEmpty())
+      {
+        auto *page = new PreviewMapPage(host);
+        page->setObjectName(QStringLiteral("imagePreviewPage"));
+        page->setAssetKey(assetId);
+        page->setRenderCacheIdentity(assetId, v.id);
+        page->mapCanvas()->canvas()->setObjectName(QStringLiteral("imageMapCanvas"));
+        page->decorations()->setObjectName(QStringLiteral("imageDecorManager"));
+        page->setProfileEnabled(false); // 影像非连续值面——剖面采样无意义
+        QgsRasterLayer *rasterRaw = raster.release();
+        rasterRaw->setParent(host);
+        page->addMapLayer(rasterRaw, asset.displayName, abs);
+        // D2.11 大图（>50MB 无金字塔）提示：降级仍可用。
+        const QString bigHint = PreviewRasterAnalysis::bigRasterHint(rasterRaw);
+        if (!bigHint.isEmpty())
+          lay->addWidget(PreviewMapStates::buildBigRasterHintBar(bigHint, host));
+        lay->addWidget(page, 1);
+        lay->addWidget(caption8(tr("已按配准边车 %1 上图（RGB 影像原色）")
+                                    .arg(QFileInfo(worldFile).fileName()),
+                                host));
+        QTimer::singleShot(0, host, [page, rasterRaw]() {
+          page->mapCanvas()->zoomToLayer(rasterRaw);
+          page->primeRenderCache();
+          if (!page->mapCanvas()->overlayVisible())
+            page->showLowResSnapshot();
+        });
+        return host;
+      }
+    }
+    // 未配准 → 图片查看器（原行为）+ 「去配准」引导入口（D2.7）。
     auto *scroll = new QScrollArea(host);
     scroll->setWidgetResizable(true);
     auto *imgLabel = new QLabel(scroll);
@@ -3161,6 +3611,19 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     imgLabel->setPixmap(pm.scaledToWidth(560, Qt::SmoothTransformation)); // 按面板宽缩放
     scroll->setWidget(imgLabel);
     lay->addWidget(scroll, 1);
+    auto *regGuideBtn = new QPushButton(tr("去配准…"), host);
+    regGuideBtn->setObjectName(QStringLiteral("goRegisterGuideBtn"));
+    regGuideBtn->setToolTip(tr("把这张平面相图配准到工程测网"));
+    connect(regGuideBtn, &QPushButton::clicked, host, [this, host]() {
+      QMessageBox::information(
+          host, tr("去配准"),
+          tr("配准两条路：\n"
+             "· 在图片旁放同名 world file（.wld/.pgw/.jgw，六参数文本）——"
+             "重新打开预览即按栅格上图；\n"
+             "· 或把相图界线转为 GeoJSON，用 D11「临时配准（手工仿射）」"
+             "登记为 DERIVED 版本。"));
+    });
+    lay->addWidget(regGuideBtn, 0, Qt::AlignLeft);
     lay->addWidget(warnLabel(tr("未配准，不加入地图"), host)); // §4
     return host;
   }
@@ -3289,61 +3752,9 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     else if (!faciesCandidates.isEmpty())
       activeFaciesField = faciesCandidates.first();
 
-    // 尝试创建 QGIS 矢量图层用于相图画布渲染
+    // 矢量层（私有，不进 QgsProject）
     auto *vlayer = new QgsVectorLayer(abs, asset.displayName, QStringLiteral("ogr"));
     vlayer->setParent(host);
-
-    auto applyFaciesRenderer = [vlayer](const QString &fieldName) {
-      if (!vlayer || !vlayer->isValid() || fieldName.isEmpty())
-        return;
-
-      const int fieldIdx = vlayer->fields().lookupField(fieldName);
-      if (fieldIdx < 0)
-        return;
-
-      QSet<QString> uniqueVals;
-      QgsFeatureIterator it = vlayer->getFeatures();
-      QgsFeature feat;
-      while (it.nextFeature(feat))
-      {
-        const QString v = feat.attribute(fieldIdx).toString().trimmed();
-        if (!v.isEmpty())
-          uniqueVals.insert(v);
-      }
-
-      QgsCategoryList categories;
-      for (const QString &val : uniqueVals)
-      {
-        const QColor col = faciesColor(val);
-        std::unique_ptr<QgsSymbol> sym = createFaciesSymbol(vlayer->geometryType(), col);
-        categories.append(QgsRendererCategory(val, sym.release(), val));
-      }
-      std::unique_ptr<QgsSymbol> defSym = createFaciesSymbol(vlayer->geometryType(), QColor(QStringLiteral("#CFD8DC")));
-      categories.append(QgsRendererCategory(QVariant(), defSym.release(), QObject::tr("其他")));
-
-      vlayer->setRenderer(new QgsCategorizedSymbolRenderer(fieldName, categories));
-
-      // 文本标注 (白色光晕 + 9pt 中黑)
-      QgsPalLayerSettings palSettings;
-      palSettings.fieldName = fieldName;
-      palSettings.isExpression = false;
-      QgsTextFormat txtFmt;
-      QFont font(QStringLiteral("Noto Sans SC"), 9, QFont::Medium);
-      txtFmt.setFont(font);
-      txtFmt.setSize(9.0);
-      txtFmt.setSizeUnit(Qgis::RenderUnit::Points);
-      txtFmt.setColor(QColor(QStringLiteral("#24303E")));
-      QgsTextBufferSettings buf;
-      buf.setEnabled(true);
-      buf.setSize(1.5);
-      buf.setColor(Qt::white);
-      txtFmt.setBuffer(buf);
-      palSettings.setFormat(txtFmt);
-
-      vlayer->setLabeling(new QgsVectorLayerSimpleLabeling(palSettings));
-      vlayer->setLabelsEnabled(true);
-      vlayer->triggerRepaint();
-    };
 
     // 顶部操作与空间提示工具栏
     auto *topBar = new QWidget(host);
@@ -3385,6 +3796,17 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     viewGroup->addButton(btnViewTable);
 
     topLay->addSpacing(6);
+
+    // D2.6 名称标注开关
+    auto *btnLabels = new QToolButton(topBar);
+    btnLabels->setObjectName(QStringLiteral("btnToggleLabels"));
+    btnLabels->setText(tr("名称标注"));
+    btnLabels->setToolTip(tr("显示/隐藏要素名称标注"));
+    btnLabels->setCheckable(true);
+    btnLabels->setChecked(true);
+    btnLabels->setStyleSheet(btnStyle);
+    btnLabels->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    topLay->addWidget(btnLabels);
 
     // 地图浏览工具
     auto *btnFull = new QToolButton(topBar);
@@ -3442,8 +3864,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 
     topLay->addSpacing(8);
 
-    // D11 临时配准入口：手工仿射把这份 GeoJSON 拉到工程测网。产物是
-    // DERIVED 版本 + 「临时配准」水印图层，不改原 RAW。
+    // D11 临时配准入口
     auto *regBtn = new QPushButton(tr("临时配准（手工仿射）…"), host);
     regBtn->setObjectName(QStringLiteral("provisionalRegisterButton"));
     regBtn->setAccessibleName(tr("临时配准"));
@@ -3553,62 +3974,110 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     auto *viewStack = new QStackedWidget(host);
     viewStack->setObjectName(QStringLiteral("faciesViewStack"));
 
-    // 1. QGIS 相图地图画布页
-    auto *canvasPage = new QWidget(viewStack);
-    auto *cvLay = new QVBoxLayout(canvasPage);
-    cvLay->setContentsMargins(0, 0, 0, 0);
-    cvLay->setSpacing(0);
-
-    auto *canvas = new QgsMapCanvas(canvasPage);
-    canvas->setObjectName(QStringLiteral("faciesMapCanvas"));
-    canvas->enableAntiAliasing(true);
-    canvas->setCanvasColor(Qt::white);
+    // 1. P2 统一预览地图页（D1.x 工具/TOC/identify/图例全套）
+    auto *page = new PreviewMapPage(viewStack);
+    page->setObjectName(QStringLiteral("faciesPreviewPage"));
+    page->setAssetKey(assetId);
+    page->mapCanvas()->canvas()->setObjectName(QStringLiteral("faciesMapCanvas"));
+    page->decorations()->setObjectName(QStringLiteral("faciesDecorManager"));
+    page->setProfileEnabled(false); // D1.3：矢量内容不开剖面工具
 
     if (vlayer && vlayer->isValid())
     {
-      applyFaciesRenderer(activeFaciesField);
-      canvas->setDestinationCrs(vlayer->crs());
-      canvas->setLayers({vlayer});
-
-      auto *decorMgr = new PaleoDecorationManager(canvas, canvas);
-      decorMgr->setObjectName(QStringLiteral("faciesDecorManager"));
-      decorMgr->setScaleBarEnabled(true);
-      decorMgr->setNorthArrowEnabled(true);
-
-      auto *panTool = new QgsMapToolPan(canvas);
-      canvas->setMapTool(panTool);
-
-      auto zoomFaciesFull = [canvas, vlayer]() {
-        if (vlayer && !vlayer->extent().isEmpty())
-        {
-          QgsRectangle ext = vlayer->extent();
-          ext.grow(qMax(ext.width(), ext.height()) * 0.1);
-          canvas->setExtent(ext);
-          canvas->refresh();
-        }
-        else
-        {
-          canvas->zoomToFullExtent();
-          canvas->refresh();
-        }
+      applyFaciesRendererToLayer(vlayer, activeFaciesField);
+      // 经纬度 GeoJSON：画布跟随层 CRS（旧语义），局部网格层保持工程网格。
+      page->mapCanvas()->setOverrideCrs(vlayer->crs());
+      // D2.4 图例侧栏：从分类渲染器读回 category 色板。
+      const auto syncLegend = [page, vlayer]() {
+        QVector<PreviewTocPanel::LegendEntry> entries;
+        if (auto *r = dynamic_cast<QgsCategorizedSymbolRenderer *>(vlayer->renderer()))
+          for (const QgsRendererCategory &c : r->categories())
+          {
+            if (!c.symbol())
+              continue;
+            PreviewTocPanel::LegendEntry e;
+            e.name = c.label();
+            e.color = c.symbol()->color();
+            entries.append(e);
+          }
+        page->tocPanel()->setLegendEntries(entries);
       };
+      syncLegend();
+      // D4.4 分类字段快调回调（TOC 面板收集参数，相色逻辑在视图层）。
+      page->tocPanel()->vectorStyleApplier =
+          [vlayer, syncLegend](QgsVectorLayer *, const QString &field, bool categorized,
+                               const QColor &) {
+            if (categorized && !field.isEmpty())
+            {
+              applyFaciesRendererToLayer(vlayer, field);
+              syncLegend();
+            }
+          };
+      page->addMapLayer(vlayer, asset.displayName, abs);
 
-      connect(btnFull, &QToolButton::clicked, canvas, zoomFaciesFull);
-      connect(btnIn, &QToolButton::clicked, canvas, &QgsMapCanvas::zoomIn);
-      connect(btnOut, &QToolButton::clicked, canvas, &QgsMapCanvas::zoomOut);
-      connect(btnPan, &QToolButton::clicked, canvas, [canvas, panTool]() {
-        canvas->setMapTool(panTool);
+      // D2.6 名称标注开关
+      connect(btnLabels, &QToolButton::toggled, page, [page, vlayer](bool on) {
+        vlayer->setLabelsEnabled(on);
+        page->mapCanvas()->canvas()->refresh();
+      });
+      connect(btnFull, &QToolButton::clicked, page, [page, vlayer]() {
+        if (vlayer && !vlayer->extent().isEmpty())
+          page->mapCanvas()->zoomToLayer(vlayer);
+        else
+          page->mapCanvas()->zoomToFullExtent();
+      });
+      connect(btnIn, &QToolButton::clicked, page,
+              [page]() { page->mapCanvas()->canvas()->zoomIn(); });
+      connect(btnOut, &QToolButton::clicked, page,
+              [page]() { page->mapCanvas()->canvas()->zoomOut(); });
+      connect(btnPan, &QToolButton::clicked, page, [page]() {
+        page->toolManager()->activate(PreviewMapToolManager::kPan);
       });
 
       if (fieldCombo)
       {
-        connect(fieldCombo, &QComboBox::currentTextChanged, canvas, [applyFaciesRenderer, canvas](const QString &fld) {
-          applyFaciesRenderer(fld);
-          canvas->refresh();
-        });
+        connect(fieldCombo, &QComboBox::currentTextChanged, page,
+                [vlayer, syncLegend, page](const QString &fld) {
+                  applyFaciesRendererToLayer(vlayer, fld);
+                  syncLegend();
+                  page->mapCanvas()->canvas()->refresh();
+                });
       }
 
-      QTimer::singleShot(100, canvas, zoomFaciesFull);
+      // D2.10 同目录叠加
+      {
+        const auto siblings = PreviewMapStates::siblingMappableAssets(
+            cat, abs, [this](const CatalogVersion &v) { return m_doc->absolutePathForVersion(v); });
+        QVector<QPair<QString, QString>> others;
+        for (const auto &sib : siblings)
+          if (sib.first != assetId)
+            others.append(sib);
+        if (!others.isEmpty())
+        {
+          auto *overlayBtn = new QToolButton(page);
+          overlayBtn->setObjectName(QStringLiteral("siblingOverlayButton"));
+          overlayBtn->setText(tr("同目录叠加"));
+          overlayBtn->setToolTip(tr("把同目录下的相图/配准图片/层位栅格叠加到本预览"));
+          overlayBtn->setPopupMode(QToolButton::InstantPopup);
+          auto *menu = new QMenu(overlayBtn);
+          for (const auto &sib : others)
+          {
+            QAction *act = menu->addAction(sib.second);
+            QObject::connect(act, &QAction::triggered, host, [this, page, sib, host]() {
+              addSiblingOverlayLayer(page, sib.first, sib.second, host);
+            });
+          }
+          overlayBtn->setMenu(menu);
+          page->addToolBarWidget(overlayBtn);
+        }
+      }
+
+      QTimer::singleShot(100, page, [page, vlayer]() {
+        if (vlayer && !vlayer->extent().isEmpty())
+          page->mapCanvas()->zoomToLayer(vlayer);
+        else
+          page->mapCanvas()->zoomToFullExtent();
+      });
     }
     else
     {
@@ -3616,8 +4085,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       btnViewTable->setChecked(true);
     }
 
-    cvLay->addWidget(canvas, 1);
-    viewStack->addWidget(canvasPage);
+    viewStack->addWidget(page);
 
     // 2. 要素属性表格预览
     auto *table = new QTableWidget(viewStack);
@@ -3678,13 +4146,14 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     table->resizeColumnsToContents();
     viewStack->addWidget(table);
 
-    const auto updateViewMode = [viewStack, btnFull, btnIn, btnOut, btnPan, fieldLbl, fieldCombo](int idx) {
+    const auto updateViewMode = [viewStack, btnFull, btnIn, btnOut, btnPan, btnLabels, fieldLbl, fieldCombo](int idx) {
       viewStack->setCurrentIndex(idx);
       const bool isMap = (idx == 0);
       btnFull->setVisible(isMap);
       btnIn->setVisible(isMap);
       btnOut->setVisible(isMap);
       btnPan->setVisible(isMap);
+      btnLabels->setVisible(isMap);
       if (fieldLbl) fieldLbl->setVisible(isMap);
       if (fieldCombo) fieldCombo->setVisible(isMap);
     };
@@ -3741,7 +4210,17 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       }
       delete compositePanel;
     }
-    lay->addStretch(1);
+    // P2 D2.12 未知类型：统一「不支持预览」态 + 可支持类型清单（不再留白）。
+    static const QStringList kKnownTypes = {
+        QStringLiteral("well_log"),      QStringLiteral("well_head"),
+        QStringLiteral("well_stratification"), QStringLiteral("time_depth"),
+        QStringLiteral("horizon"),       QStringLiteral("seismic"),
+        QStringLiteral("image_reference"), QStringLiteral("document"),
+        QStringLiteral("geojson"),       QStringLiteral("boundary")};
+    if (!kKnownTypes.contains(asset.type))
+      lay->addWidget(PreviewMapStates::buildUnsupportedPage(asset.type, host), 1);
+    else
+      lay->addStretch(1);
     return host;
   }
 }
@@ -3797,6 +4276,47 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
                                               : tr("%1 的分层表").arg(wellName),
                            holder));
     hl->addWidget(table, 1);
+
+    // P2 D2.8 井位落图：分层行带坐标（X/Y）时把层位顶点打上图。
+    bool anyCoords = false;
+    for (const WellTopRecord &t : tops)
+      if (matchWell(t.wellName) && t.hasX && t.hasY)
+      {
+        anyCoords = true;
+        break;
+      }
+    if (anyCoords)
+    {
+      auto *topsVl = makeMemoryPointLayer(
+          wellName.isEmpty() ? tr("分层顶点") : tr("%1 分层顶点").arg(wellName), holder);
+      for (const WellTopRecord &t : tops)
+        if (matchWell(t.wellName) && t.hasX && t.hasY)
+          addMemoryPoint(topsVl, t.x, t.y, t.topName, QStringLiteral("well"));
+      stylePointLayer(topsVl, true);
+      auto *mapPage = new PreviewMapPage(holder);
+      mapPage->setObjectName(QStringLiteral("topsPreviewPage"));
+      mapPage->mapCanvas()->canvas()->setObjectName(QStringLiteral("topsMapCanvas"));
+      mapPage->setProfileEnabled(false);
+      mapPage->addMapLayer(topsVl, tr("分层顶点"), absPath);
+      auto *labelRow = new QWidget(holder);
+      auto *labelLay = new QHBoxLayout(labelRow);
+      labelLay->setContentsMargins(0, 0, 0, 0);
+      auto *labelToggle = new QCheckBox(tr("名称标注"), labelRow);
+      labelToggle->setObjectName(QStringLiteral("topsLabelToggle"));
+      labelToggle->setChecked(true);
+      labelLay->addWidget(labelToggle);
+      labelLay->addStretch(1);
+      QObject::connect(labelToggle, &QCheckBox::toggled, mapPage,
+                       [topsVl, mapPage](bool on) {
+                         topsVl->setLabelsEnabled(on);
+                         mapPage->mapCanvas()->canvas()->refresh();
+                       });
+      hl->addWidget(labelRow);
+      hl->addWidget(mapPage, 1);
+      QTimer::singleShot(0, holder, [mapPage, topsVl]() {
+        mapPage->mapCanvas()->zoomToLayer(topsVl);
+      });
+    }
     return holder;
   }
 
@@ -3882,11 +4402,126 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
     addRow(tr("坐标状态"), coordinateStatusText(status), false, true);
     hl->addWidget(info);
     hl->addWidget(caption8(tr("选中时地图同时高亮该井"), holder));
-    hl->addStretch(1);
+
+    // P2 D2.6 井位地图预览：全部井位打点 + 当前井高亮 + 名称标注开关。
+    auto *wellsVl = makeMemoryPointLayer(tr("井位"), holder);
+    for (const WellHeadRecord &r : rows)
+      if (r.x > -99990.0 && r.y > -99990.0) // 坐标哨兵过滤
+        addMemoryPoint(wellsVl, r.x, r.y, r.name,
+                       (rec && matchWell(r.name)) ? QStringLiteral("highlight")
+                                                   : QStringLiteral("well"));
+    stylePointLayer(wellsVl, true);
+    auto *mapPage = new PreviewMapPage(holder);
+    mapPage->setObjectName(QStringLiteral("wellHeadPreviewPage"));
+    mapPage->mapCanvas()->canvas()->setObjectName(QStringLiteral("wellHeadMapCanvas"));
+    mapPage->setProfileEnabled(false);
+    mapPage->addMapLayer(wellsVl, tr("井位"), absPath);
+    auto *labelRow = new QWidget(holder);
+    auto *labelLay = new QHBoxLayout(labelRow);
+    labelLay->setContentsMargins(0, 0, 0, 0);
+    auto *labelToggle = new QCheckBox(tr("名称标注"), labelRow);
+    labelToggle->setObjectName(QStringLiteral("wellLabelToggle"));
+    labelToggle->setChecked(true);
+    labelLay->addWidget(labelToggle);
+    labelLay->addStretch(1);
+    QObject::connect(labelToggle, &QCheckBox::toggled, mapPage,
+                     [wellsVl, mapPage](bool on) {
+                       wellsVl->setLabelsEnabled(on);
+                       mapPage->mapCanvas()->canvas()->refresh();
+                     });
+    hl->addWidget(labelRow);
+    hl->addWidget(mapPage, 1);
+    QTimer::singleShot(0, holder, [mapPage, wellsVl]() {
+      mapPage->mapCanvas()->zoomToLayer(wellsVl);
+    });
     return holder;
   }
 
   return stateLabel(tr("先选择一口井"), parent); // 兜底（不可达）
+}
+
+// ---- D2.10 同目录组图：叠一层同目录可地图化资产（geojson/带配准图片/
+// 层位栅格）。不支持的类型如实跳过，不造假层。----
+void DataPreviewTabs::addSiblingOverlayLayer(PreviewMapPage *page, const QString &sibAssetId,
+                                             const QString &sibName, QWidget *owner)
+{
+  if (!page || !m_doc || sibAssetId.isEmpty())
+    return;
+  DataCatalog *cat = m_doc->catalog();
+  const CatalogAsset asset = cat->assetById(sibAssetId);
+  if (asset.id.isEmpty())
+    return;
+  const CatalogVersion v = cat->currentVersion(sibAssetId);
+  const QString abs = m_doc->absolutePathForVersion(v);
+  if (abs.isEmpty() || !QFile::exists(abs))
+    return;
+
+  if (asset.type == QLatin1String("geojson") ||
+      (asset.type == QLatin1String("boundary") &&
+       abs.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive)))
+  {
+    auto *vl = new QgsVectorLayer(abs, sibName, QStringLiteral("ogr"));
+    vl->setParent(owner);
+    if (!vl->isValid())
+    {
+      vl->deleteLater();
+      return;
+    }
+    QString field;
+    for (const QgsField &f : vl->fields())
+    {
+      const QString n = f.name();
+      if (n == QLatin1String("相") || n.contains(QLatin1String("相")) ||
+          n.compare(QLatin1String("facies"), Qt::CaseInsensitive) == 0)
+      {
+        field = n;
+        break;
+      }
+    }
+    if (!field.isEmpty())
+      applyFaciesRendererToLayer(vl, field);
+    page->addMapLayer(vl, sibName, abs);
+    return;
+  }
+  if (asset.type == QLatin1String("image_reference"))
+  {
+    if (PreviewMapStates::detectWorldFile(abs).isEmpty())
+      return; // 未配准图片不进地图（D2.7 语义）
+    auto *rl = new QgsRasterLayer(abs, sibName, QStringLiteral("gdal"));
+    rl->setParent(owner);
+    if (!rl->isValid() || rl->extent().isEmpty())
+    {
+      rl->deleteLater();
+      return;
+    }
+    page->addMapLayer(rl, sibName, abs);
+    return;
+  }
+  if (asset.type == QLatin1String("horizon"))
+  {
+    CatalogVersion best;
+    for (const CatalogVersion &cv : cat->versionsForAsset(sibAssetId))
+      if (cv.stage == QLatin1String("DERIVED") && cv.versionNumber >= best.versionNumber)
+        best = cv;
+    if (best.id.isEmpty())
+      return;
+    const QString tif = m_doc->absolutePathForVersion(best);
+    auto *rl = new QgsRasterLayer(tif, sibName, QStringLiteral("gdal"));
+    rl->setParent(owner);
+    if (!rl->isValid() || rl->extent().isEmpty())
+    {
+      rl->deleteLater();
+      return;
+    }
+    const auto sum = PreviewRasterAnalysis::summarize(rl);
+    if (sum.valid)
+      PreviewRasterAnalysis::applyPseudoColorRenderer(
+          rl, 1, sum.min, sum.max,
+          *PreviewRasterAnalysis::rampPreset(QStringLiteral("terrain")), false,
+          PreviewRasterAnalysis::Classification::Continuous);
+    page->addMapLayer(rl, sibName, tif);
+    return;
+  }
 }
 
 // ---- 测线解码结果应用（PreviewDocService 信号 → 挂起控件组）----

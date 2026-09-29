@@ -95,9 +95,15 @@ class PreviewMapPage : public QWidget
     // ---- D6.1 渐进渲染第一段：低清整图先上屏 ----
     void showLowResSnapshot();
 
+    // ---- D6.2/D6.6 渲染缓存：identity 设置后，renderCompleted 自动存；
+    // primeRenderCache() 命中即上 overlay（首次打开 <300ms 的主力路径）。----
+    void setRenderCacheIdentity( const QString &assetId, const QString &versionId );
+    void primeRenderCache();
+
     // 分支扩展工具条（survey 的工区范围/切主画布等专属按钮）。
     void addToolBarAction( QAction *action );
     void addToolBarSeparator();
+    void addToolBarWidget( class QWidget *widget );
 
   signals:
     // 剖面线拖出（D5.1）：分支采样后 profilePanel()->addProfile(...)。
@@ -154,6 +160,8 @@ class PreviewMapPage : public QWidget
     QHash<QString, QAction *> m_toolActions;
 
     QString m_assetKey;
+    QString m_cacheAssetId;
+    QString m_cacheVersionId;
     QgsPointXY m_lastMousePos;
     bool m_hasMousePos = false;
 };

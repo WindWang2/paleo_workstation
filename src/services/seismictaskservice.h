@@ -2,7 +2,9 @@
 #pragma once
 
 #include <QObject>
+#include <QSemaphore>
 #include <QSet>
+#include <atomic>
 #include <QString>
 #include <QStringList>
 #include <functional>
@@ -384,6 +386,42 @@ public:
   // D4.5 CSV 导出
   static bool exportPicksCsv(const QList<SeismicPick> &picks, const QString &filePath, QString *error);
 
+  // ---- Phase 6 性能与可靠性 ----
+
+  // D6.6 错误分类：文件缺/索引坏/内存超限/GL 不可用分级
+  struct SeismicErrorCategory
+  {
+    enum class Kind { None, FileMissing, IndexCorrupt, MemoryBudget, GlUnavailable, Cancelled, Other };
+    Kind kind = Kind::None;
+    QString userText; // 面向用户的中文描述
+    static SeismicErrorCategory classify(const QString &error, bool glContextFailed = false);
+  };
+
+  // D6.3/D6.8 内存治理（P4 管理器不存在——自建同形接口；合并点：统一
+  // 管理器落地后把 budgetBytes()/onExceeded() 委托给它即可，PR 已注明）
+  struct SeismicMemoryReport
+  {
+    qint64 volumeBytes = 0;
+    qint64 totalRamBytes = 0;
+    qint64 budgetBytes = 0;   // RAM/2
+    bool overBudget = false;
+    QString recommendation;   // 分页通道建议文案
+  };
+  static qint64 totalRamBytes();
+  static SeismicMemoryReport assessMemoryBudget(qint64 volumeBytes,
+                                                qint64 totalRamOverride = -1);
+  // 当前服务占用的内存估计（数据缓存预算 + 任意线缓存 + 数据集条目缓存）
+  qint64 estimatedMemoryBytes() const;
+
+  // D6.4 并发纪律：地震后台任务共享 ≤4 并发（信号量槽位；全 start* 走此闸，
+  // 排队 = 信号量等待不耗 CPU；入池前已取消的任务直接跳过执行）
+  static constexpr int kMaxConcurrentTasks = 4;
+  int activeTaskCount() const; // 在途任务数（含信号量排队中）
+  // 提交一个受 ≤4 并发闸约束的地震任务（测试/扩展面；常规走各 start*）
+  PaleoTask *startBounded(const QString &title,
+                          const std::function<QString(PaleoTask *)> &work,
+                          const QString &layerId = QString());
+
   // ---- Phase 5 井震与任意线 ----
 
   // D5.4 合成记录：AC(声波)+DEN(密度) → 波阻抗 → 反射系数 → Ricker 子波
@@ -440,6 +478,9 @@ private:
   // worker 不触碰）。start 时占用，任务终态释放。
   QSet<QString> activeTranscodeOutputs_;
 
+  // D6.4 并发闸（类型见下方 SeismicConcurrencyGate——moc 不支持类内嵌套）
+  std::shared_ptr<struct SeismicConcurrencyGate> gate_;
+
   // D5.2 任意线 LRU（≤4；键 = 体积指纹 ^ 路径 FNV）
   struct SectionCacheEntry
   {
@@ -451,6 +492,16 @@ private:
   mutable quint64 sectionCacheClock_ = 0;
   static qint64 sectionCacheKey(const std::vector<glm::ivec2> &pathPoints,
                                 std::shared_ptr<const SgyVolume> volume);
+};
+
+// D6.4 并发闸：≤4 槽信号量 + 在途计数。shared_ptr 由 worker 携带——
+// 服务析构时在途 worker 不悬挂（同 registry 析构竞态模式）。
+struct SeismicConcurrencyGate
+{
+  explicit SeismicConcurrencyGate(int slotCount)
+      : slotSemaphore(slotCount) {}
+  QSemaphore slotSemaphore;
+  std::atomic<int> active{0};
 };
 
 } // namespace seismic

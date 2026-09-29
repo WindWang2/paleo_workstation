@@ -16,6 +16,12 @@
 
 #include <cmath>
 
+#if defined(Q_OS_UNIX)
+#include <unistd.h>
+#elif defined(Q_OS_WINDOWS)
+#include <windows.h>
+#endif
+
 #include "Engine/PagedPipeline.h"
 #include "Engine/PagedWorkspace.h"
 #include "Engine/QuickOpen.h"
@@ -280,6 +286,11 @@ struct SeismicDatasetRegistry
 
 SeismicTaskService::~SeismicTaskService() = default;
 
+int SeismicTaskService::activeTaskCount() const
+{
+  return gate_ ? gate_->active.load() : 0;
+}
+
 // 按需打开并缓存条目。registry 以值参 shared_ptr 传入：worker 与服务共用，
 // 生命周期自动延伸过任何在途 worker。
 static std::shared_ptr<SeismicDatasetEntry> datasetEntryFor(
@@ -346,7 +357,8 @@ SeismicTaskService::SeismicTaskService(PaleoTaskService *taskService,
   : QObject(parent),
     taskService_(taskService),
     dataCache_(dataCacheBudgetMb * 1024ull * 1024ull),
-    registry_(std::make_shared<SeismicDatasetRegistry>())
+    registry_(std::make_shared<SeismicDatasetRegistry>()),
+    gate_(std::make_shared<SeismicConcurrencyGate>(kMaxConcurrentTasks))
 {
 }
 
@@ -415,7 +427,7 @@ PaleoTask *SeismicTaskService::startIndexing(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work, layerId);
+  PaleoTask *task = startBounded(title, work, layerId); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [this, task, sgyPath, resultIndex, onFinished]() {
     const bool success = (task->state() == PaleoTask::State::Succeeded);
     if (onFinished)
@@ -546,7 +558,7 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [this, task, key, pagedPath, outImage, onFinished]() {
     if (task->state() == PaleoTask::State::Succeeded)
     {
@@ -681,7 +693,7 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this,
           [this, task, outImage, outStats, onFinished, volume, pathPoints]() {
     if (task->state() == PaleoTask::State::Succeeded)
@@ -809,7 +821,7 @@ PaleoTask *SeismicTaskService::startWorkspaceTranscodeDetailed(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   if (!task)
   {
     activeTranscodeOutputs_.remove(base);
@@ -922,7 +934,7 @@ PaleoTask *SeismicTaskService::startQuickOpen(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, result, onFinished]() {
     if (!onFinished)
       return;
@@ -972,7 +984,7 @@ PaleoTask *SeismicTaskService::startVolumeLoad(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, outVolume, onFinished]() {
     if (!onFinished)
       return;
@@ -1164,7 +1176,7 @@ PaleoTask *SeismicTaskService::startPagedTranscodeImpl(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   if (!task)
   {
     activeTranscodeOutputs_.remove(sf3pPath);
@@ -1303,7 +1315,7 @@ PaleoTask *SeismicTaskService::startTimeSliceTiled(
     return QObject::tr("瓦片时间片读取失败：%1").arg(QString::fromStdString(status.message));
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, outImage, onFinished]() {
     if (!onFinished)
       return;
@@ -1359,7 +1371,7 @@ PaleoTask *SeismicTaskService::startVoxelWindow(
     return QObject::tr("体素窗口读取失败：%1").arg(QString::fromStdString(status.message));
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, outWindow, onFinished]() {
     if (!onFinished)
       return;
@@ -1389,7 +1401,9 @@ PaleoTask *SeismicTaskService::startPagedOpen(
   const auto registry = registry_;
 
   auto work = [registry, sf3pPath, status](PaleoTask *task) -> QString {
-    Q_UNUSED(task);
+    // D6.5：短操作的取消边界检查（入池即取消则跳过引擎调用）
+        if (task->cancelRequested())
+          return QString();
     const auto entry = datasetEntryFor(registry, sf3pPath, sdk::Backend::Paged);
     if (!entry || !entry->dataset)
       return QObject::tr("分页工作区不可用：%1").arg(sf3pPath);
@@ -1398,7 +1412,7 @@ PaleoTask *SeismicTaskService::startPagedOpen(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, status, onFinished]() {
     if (!onFinished)
       return;
@@ -1429,7 +1443,9 @@ PaleoTask *SeismicTaskService::startLodSwitch(
   const auto registry = registry_;
 
   auto work = [registry, sf3pPath, lodLevel, quality](PaleoTask *task) -> QString {
-    Q_UNUSED(task);
+    // D6.5：短操作的取消边界检查（入池即取消则跳过引擎调用）
+        if (task->cancelRequested())
+          return QString();
     const auto entry = datasetEntryFor(registry, sf3pPath, sdk::Backend::Paged);
     if (!entry || !entry->dataset)
       return QObject::tr("分页工作区不可用：%1").arg(sf3pPath);
@@ -1441,7 +1457,7 @@ PaleoTask *SeismicTaskService::startLodSwitch(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, quality, onFinished]() {
     if (!onFinished)
       return;
@@ -1471,7 +1487,9 @@ PaleoTask *SeismicTaskService::startBackendProbe(
 
   // 独立探测（不经条目缓存）：反映此刻磁盘现状——转码完成后的热切换提示。
   auto work = [sgyPath, status](PaleoTask *task) -> QString {
-    Q_UNUSED(task);
+    // D6.5：短操作的取消边界检查（入池即取消则跳过引擎调用）
+        if (task->cancelRequested())
+          return QString();
     sdk::OpenOptions options; // Auto：有 .sf3c 用工作区，否则直读
     engine::Status openStatus;
     auto dataset = sdk::Dataset::Open(std::filesystem::path(sgyPath.toStdString()),
@@ -1482,7 +1500,7 @@ PaleoTask *SeismicTaskService::startBackendProbe(
     return QString();
   };
 
-  PaleoTask *task = taskService_->start(title, work);
+  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, status, onFinished]() {
     if (!onFinished)
       return;
@@ -2387,4 +2405,127 @@ SeismicTaskService::SeismicSyntheticResult SeismicTaskService::computeSyntheticS
     result.reason = QStringLiteral("褶积输出为空");
   return result;
 }
+
+// ---- D6 性能与可靠性 -----------------------------------------------------------
+
+SeismicTaskService::SeismicErrorCategory SeismicTaskService::SeismicErrorCategory::classify(
+    const QString &error, bool glContextFailed)
+{
+  SeismicErrorCategory out;
+  if (glContextFailed)
+  {
+    out.kind = Kind::GlUnavailable;
+    out.userText = QStringLiteral("OpenGL 不可用（驱动/软渲染缺失）——三维视口已回退 2D 拼接视图");
+    return out;
+  }
+  if (error.isEmpty())
+  {
+    out.kind = Kind::None;
+    return out;
+  }
+  if (error.contains(QStringLiteral("不存在")) || error.contains(QStringLiteral("无法打开")) ||
+      error.contains(QStringLiteral("No such file")) || error.contains(QStringLiteral("cannot open")))
+  {
+    out.kind = Kind::FileMissing;
+    out.userText = QStringLiteral("地震文件缺失或不可读：%1").arg(error);
+    return out;
+  }
+  if (error.contains(QStringLiteral("索引")) || error.contains(QStringLiteral("index")) ||
+      error.contains(QStringLiteral("corrupt")) || error.contains(QStringLiteral("损坏")))
+  {
+    out.kind = Kind::IndexCorrupt;
+    out.userText = QStringLiteral("索引损坏或不完整（将自动重建）：%1").arg(error);
+    return out;
+  }
+  if (error.contains(QStringLiteral("内存")) || error.contains(QStringLiteral("memory")) ||
+      error.contains(QStringLiteral("bad_alloc")))
+  {
+    out.kind = Kind::MemoryBudget;
+    out.userText = QStringLiteral("内存预算超限——建议启用 .sf3p 分页通道（按页取数）");
+    return out;
+  }
+  if (error.contains(QStringLiteral("取消")))
+  {
+    out.kind = Kind::Cancelled;
+    out.userText = error;
+    return out;
+  }
+  out.kind = Kind::Other;
+  out.userText = error;
+  return out;
+}
+
+qint64 SeismicTaskService::totalRamBytes()
+{
+#if defined(Q_OS_UNIX)
+  const long pages = sysconf(_SC_PHYS_PAGES);
+  const long pageSize = sysconf(_SC_PAGESIZE);
+  if (pages > 0 && pageSize > 0)
+    return qint64(pages) * pageSize;
+  return 0;
+#elif defined(Q_OS_WINDOWS)
+  MEMORYSTATUSEX status{};
+  status.dwLength = sizeof(status);
+  if (GlobalMemoryStatusEx(&status))
+    return qint64(status.ullTotalPhys);
+  return 0;
+#else
+  return 0;
+#endif
+}
+
+SeismicTaskService::SeismicMemoryReport SeismicTaskService::assessMemoryBudget(
+    qint64 volumeBytes, qint64 totalRamOverride)
+{
+  SeismicMemoryReport report;
+  report.volumeBytes = volumeBytes;
+  report.totalRamBytes = totalRamOverride > 0 ? totalRamOverride : totalRamBytes();
+  report.budgetBytes = report.totalRamBytes / 2;
+  report.overBudget = report.totalRamBytes > 0 && volumeBytes > report.budgetBytes;
+  if (report.overBudget)
+    report.recommendation = QStringLiteral(
+        "体 %1 GB 超过内存预算（RAM/2 ≈ %2 GB）——建议转码 .sf3p 分页工作区并启用分页通道")
+        .arg(volumeBytes / 1073741824.0, 0, 'f', 1)
+        .arg(report.budgetBytes / 1073741824.0, 0, 'f', 1);
+  return report;
+}
+
+qint64 SeismicTaskService::estimatedMemoryBytes() const
+{
+  qint64 total = 0;
+  // 数据缓存按预算上限估（LRU 上界）
+  total += qint64(dataCache_.Budget());
+  // 任意线缓存按实占
+  for (const SectionCacheEntry &e : sectionCache_)
+    if (e.image)
+      total += qint64(e.image->values.size()) * 4 + qint64(e.image->rgba.size());
+  // 数据集条目：每条 chunk 256MB + slice 64MB 缓存预算（引擎契约上限）
+  QMutexLocker lock(&registry_->mutex);
+  total += qint64(registry_->entries.size()) * (256 + 64) * 1024 * 1024;
+  return total;
+}
+
+// D6.4 并发闸：≤4 个地震任务同时执行（信号量槽位；排队者阻塞在信号量上
+// 不耗 CPU，获取后先查取消再干活——取消不悬挂）。闸以 shared_ptr 由 worker
+// 携带：服务析构时在途 worker 安全退出（同 registry 析构竞态模式）。
+PaleoTask *SeismicTaskService::startBounded(const QString &title,
+                                            const std::function<QString(PaleoTask *)> &work,
+                                            const QString &layerId)
+{
+  const auto gate = gate_; // shared_ptr：析构安全
+  gate->active.fetch_add(1);
+  const std::function<QString(PaleoTask *)> gated =
+      [gate, work](PaleoTask *task) -> QString {
+        gate->slotSemaphore.acquire();
+        const QString err = task->cancelRequested() ? QString() : work(task);
+        gate->slotSemaphore.release();
+        return err;
+      };
+  PaleoTask *task = taskService_->start(title, gated, layerId);
+  QObject::connect(task, &PaleoTask::finished, this, [gate]() {
+    gate->active.fetch_sub(1);
+  });
+  return task;
+}
+
 } // namespace seismic

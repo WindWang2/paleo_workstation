@@ -47,3 +47,11 @@ add_paleo_test(tst_seismic_interpret LIBS paleo_ui paleo_store)
 
 # P5 Phase 5 井震：合成记录/任意线缓存/井轨迹/多井开关/任意线提取
 add_paleo_test(tst_seismic_welltie LIBS paleo_ui)
+
+# P5 Phase 6 性能与可靠性：时延/帧率预算入基线、错误分类、内存评估、
+# 并发闸 ≤4、取消无悬挂、自动保存点
+add_paleo_test(tst_seismic_budgets LIBS paleo_ui)
+target_compile_definitions(tst_seismic_budgets PRIVATE
+  PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
+  PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
+  PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")

@@ -1360,7 +1360,7 @@ int DataImportService::attachResolvableLinks(const CatalogAsset &asset,
     const EntityAssetLink &l = links.at(i);
     if (l.assetId != asset.id || l.entityType != QLatin1String("well"))
       continue;
-    const QStringList tried = namesPerLink.at(nameIdx++);
+    const QStringList &tried = namesPerLink.at(nameIdx++);
     if (!l.unresolved)
       continue;
     QString target;

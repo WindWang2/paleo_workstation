@@ -22,8 +22,10 @@ class PythonEnvService : public QObject
     bool venvReady(const QString &name) const;
     bool isBusy() const { return m_proc != nullptr; }
 
-    // 基底解释器：PALEO_PYTHON 环境变量 > PATH 上的 python3/python。
-    static QString findBasePython();
+    // 基底解释器：<root>/base 内置 Python（conda-forge 版，Tk 带 Xft 才能
+    // 渲染中文 GUI）> PALEO_PYTHON 环境变量 > PATH 上的 python3/python。
+    QString basePython() const;
+    static QString findBasePython(); // PATH 兜底（测试/诊断用）
 
   public slots:
     // step 标签随 stepFinished 回传，供编排层对号入座。

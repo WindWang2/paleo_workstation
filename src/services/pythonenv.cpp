@@ -45,7 +45,23 @@ QString PythonEnvService::pythonExecutable( const QString &name ) const
 
 bool PythonEnvService::venvReady( const QString &name ) const
 {
-  return !pythonExecutable( name ).isEmpty();
+  if ( pythonExecutable( name ).isEmpty() )
+    return false;
+  // 基底换过（如内置 base 上线/更换）→ 旧 venv 不重用，交给 createVenv 重建。
+  QFile cfg( QDir( venvDir( name ) ).filePath( QStringLiteral( "pyvenv.cfg" ) ) );
+  if ( !cfg.open( QIODevice::ReadOnly ) )
+    return false;
+  const QByteArray want =
+      QFileInfo( basePython() ).dir().canonicalPath().toUtf8(); // pyvenv.cfg home = <base>/bin
+  const QByteArrayList lines = cfg.readAll().split( '\n' );
+  for ( const QByteArray &line : lines )
+  {
+    if ( !line.trimmed().startsWith( "home" ) )
+      continue;
+    const QString home = QString::fromUtf8( line.mid( line.indexOf( '=' ) + 1 ) ).trimmed();
+    return QDir( home ).canonicalPath().toUtf8() == want;
+  }
+  return false;
 }
 
 QString PythonEnvService::findBasePython()
@@ -60,6 +76,19 @@ QString PythonEnvService::findBasePython()
       return found;
   }
   return QString();
+}
+
+QString PythonEnvService::basePython() const
+{
+#ifdef Q_OS_WIN
+  const QString rel = QStringLiteral( "python.exe" );
+#else
+  const QString rel = QStringLiteral( "bin/python3" );
+#endif
+  const QString bundled = QDir( m_rootDir ).filePath( QStringLiteral( "base/%1" ).arg( rel ) );
+  if ( QFileInfo::exists( bundled ) )
+    return bundled;
+  return findBasePython();
 }
 
 void PythonEnvService::startStep( const QString &step, const QString &program,
@@ -115,7 +144,7 @@ void PythonEnvService::startStep( const QString &step, const QString &program,
 
 void PythonEnvService::createVenv( const QString &name )
 {
-  const QString base = findBasePython();
+  const QString base = basePython();
   if ( base.isEmpty() )
   {
     emit stepFinished( QStringLiteral( "createVenv" ), false,
@@ -143,7 +172,7 @@ void PythonEnvService::installRequirements( const QString &name,
 
 void PythonEnvService::extractZip( const QString &zipPath, const QString &destDir )
 {
-  const QString base = findBasePython();
+  const QString base = basePython();
   if ( base.isEmpty() )
   {
     emit stepFinished( QStringLiteral( "extractZip" ), false,

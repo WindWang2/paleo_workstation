@@ -196,10 +196,11 @@ void WellOverviewMiniBar::paintEvent(QPaintEvent * /*event*/)
   const qreal h = height();
   const double span = qMax(1.0, m_maxDepth - m_minDepth);
 
-  // 底色与边框
+  // 底色与边框（chrome 走当前主题 token——与底部图例栏同款）
   const QRectF baseRect(0.5, 0.5, w - 1.0, h - 1.0);
-  p.fillRect(baseRect, QColor(QStringLiteral("#EDF1F5")));
-  p.setPen(QColor(QStringLiteral("#DFE5EC")));
+  const auto &tok = PaleoTheme::tokens();
+  p.fillRect(baseRect, tok.surfaceAlt);
+  p.setPen(tok.border);
   p.drawRoundedRect(baseRect, 3.0, 3.0);
 
   // 绘制地层分段色块
@@ -224,18 +225,28 @@ void WellOverviewMiniBar::paintEvent(QPaintEvent * /*event*/)
   const qreal vW = qMax(4.0, vx2 - vx1);
 
   const QRectF viewportRect(vx1, 1.0, vW, h - 2.0);
-  p.fillRect(viewportRect, QColor(27, 115, 208, 80));
-  p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.5));
+  // 视口滑块 = 选中/交互指示（primary 合法用途；两主题同值）
+  QColor sel = tok.primary;
+  sel.setAlpha(80);
+  p.fillRect(viewportRect, sel);
+  p.setPen(QPen(tok.primary, 1.5));
   p.drawRect(viewportRect);
 
   // 中间小抓手指示线
   if (vW >= 10.0)
   {
     const qreal midX = vx1 + vW * 0.5;
-    p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0));
+    p.setPen(QPen(tok.primary, 1.0));
     p.drawLine(QPointF(midX - 1.0, 2), QPointF(midX - 1.0, h - 2));
     p.drawLine(QPointF(midX + 1.0, 2), QPointF(midX + 1.0, h - 2));
   }
+}
+
+void WellOverviewMiniBar::changeEvent(QEvent *event)
+{
+  if (event->type() == QEvent::ApplicationPaletteChange || event->type() == QEvent::StyleChange)
+    update();
+  QWidget::changeEvent(event);
 }
 
 // ----------------------------------------------------------------------------

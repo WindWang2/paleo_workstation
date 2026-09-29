@@ -93,13 +93,13 @@ EntityPanel::EntityPanel(QWidget *parent)
   const auto addRow = [](CollapsibleSection *sec, QFormLayout *fl, const QString &label, const char *valName) -> QLabel * {
     auto *lbl = new QLabel(label, sec->container());
     PaleoTheme::applyThemedStyleSheet(lbl, [] {
-      return QStringLiteral("color: %1; font-size: 8.5pt;")
+      return QStringLiteral("color: %1; font-size: 8pt;")
           .arg(PaleoTheme::tokens().textMuted.name().toUpper());
     });
     auto *val = new QLabel(QStringLiteral("—"), sec->container());
     val->setObjectName(QLatin1String(valName));
     PaleoTheme::applyThemedStyleSheet(val, [] {
-      return QStringLiteral("color: %1; font-size: 8.5pt; font-weight: 500;")
+      return QStringLiteral("color: %1; font-size: 8pt; font-weight: 500;")
           .arg(PaleoTheme::tokens().text.name().toUpper());
     });
     val->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -166,7 +166,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   auto *detailsText = new QLabel(secDetails->container());
   detailsText->setObjectName(QStringLiteral("propDetailsText"));
   PaleoTheme::applyThemedStyleSheet(detailsText, [] {
-    return QStringLiteral("color: %1; font-size: 8.5pt;")
+    return QStringLiteral("color: %1; font-size: 8pt;")
         .arg(PaleoTheme::tokens().text.name().toUpper());
   });
   detailsText->setWordWrap(true);

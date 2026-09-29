@@ -68,7 +68,7 @@ public:
       return QStringLiteral(
                  "QToolButton { "
                  "  font-weight: 600; "
-                 "  font-size: 8.5pt; "
+                 "  font-size: 8pt; "
                  "  color: %1; "
                  "  background: %2; "
                  "  border: 1px solid %3; "

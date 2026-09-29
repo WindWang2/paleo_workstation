@@ -4,11 +4,11 @@
 // 双通道转码、后端打开、体素窗口、离屏 3D 帧率、峰值内存做一轮测量并
 // 以 "BASELINE <metric> = <value>" 行打印。断言只做量级合理性兜底
 // （共享机宽裕），精确预算闸门在 tst_seismic_perf / tst_seismic_budgets。
-#ifdef Q_OS_WIN
+#include <QtTest>
+#ifdef _WIN32 // 编译器原生宏（Q_OS_WIN 要等 QtTest 引入 qglobal 后才有）
 #include <windows.h>
 #include <psapi.h>
 #endif
-#include <QtTest>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>

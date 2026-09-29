@@ -1,7 +1,7 @@
-#ifdef Q_OS_WIN
+#include <QtTest>
+#ifdef _WIN32 // 编译器原生宏（Q_OS_WIN 要等 QtTest 引入 qglobal 后才有）
 #include <windows.h>
 #endif
-#include <QtTest>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 

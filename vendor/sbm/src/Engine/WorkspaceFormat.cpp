@@ -1,5 +1,7 @@
 #include "Engine/WorkspaceFormat.h"
 
+#include <bit>
+
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -260,32 +262,19 @@ bool WorkspaceWriter::WriteChunk(
         errorMessage = "the writer was not created";
         return false;
     }
-    const std::uint64_t ordinal = ChunkOrdinal(cs, ci, cx);
-    if(ordinal >= entries_.size()) {
-        errorMessage = "chunk coordinates are outside the workspace";
-        return false;
-    }
     const std::uint64_t expected = info_.ChunkBytes() / sizeof(float);
     if(valueCount != expected) {
         errorMessage = "chunk value count does not match the layout";
         return false;
     }
-    const std::uint32_t shardIndex = static_cast<std::uint32_t>(ordinal / info_.chunksPerShard);
-    if(openShardFile_ == nullptr || openShard_ != shardIndex) {
-        if(!OpenShard(shardIndex, errorMessage)) {
-            return false;
-        }
-    }
-    std::ofstream* shard = static_cast<std::ofstream*>(openShardFile_);
-    const std::uint64_t bytes = info_.ChunkBytes();
     const void* payload = values;
-    std::size_t payloadBytes = static_cast<std::size_t>(bytes);
+    std::size_t payloadBytes = static_cast<std::size_t>(info_.ChunkBytes());
     std::vector<unsigned char> compressed;
     if(info_.codec == kCodecZstd) {
 #ifdef SEISMIC_HAVE_ZSTD
-        compressed.resize(ZSTD_compressBound(static_cast<std::size_t>(bytes)));
+        compressed.resize(ZSTD_compressBound(static_cast<std::size_t>(info_.ChunkBytes())));
         const std::size_t written = ZSTD_compress(
-            compressed.data(), compressed.size(), values, static_cast<std::size_t>(bytes),
+            compressed.data(), compressed.size(), values, static_cast<std::size_t>(info_.ChunkBytes()),
             static_cast<int>(std::max(1u, info_.codecLevel)));
         if(ZSTD_isError(written)) {
             errorMessage = std::string("zstd compress failed: ") + ZSTD_getErrorName(written);
@@ -299,6 +288,28 @@ bool WorkspaceWriter::WriteChunk(
         return false;
 #endif
     }
+    return WriteChunkPrepared(cs, ci, cx, payload, payloadBytes, errorMessage);
+}
+
+bool WorkspaceWriter::WriteChunkPrepared(
+    std::uint32_t cs, std::uint32_t ci, std::uint32_t cx,
+    const void* payload, std::size_t payloadBytes, std::string& errorMessage) {
+    if(!created_) {
+        errorMessage = "the writer was not created";
+        return false;
+    }
+    const std::uint64_t ordinal = ChunkOrdinal(cs, ci, cx);
+    if(ordinal >= entries_.size()) {
+        errorMessage = "chunk coordinates are outside the workspace";
+        return false;
+    }
+    const std::uint32_t shardIndex = static_cast<std::uint32_t>(ordinal / info_.chunksPerShard);
+    if(openShardFile_ == nullptr || openShard_ != shardIndex) {
+        if(!OpenShard(shardIndex, errorMessage)) {
+            return false;
+        }
+    }
+    std::ofstream* shard = static_cast<std::ofstream*>(openShardFile_);
     bool flushBatch = false;
     if(writeBatchBytes_ > 0) {
         if(writeBatch_.size() + payloadBytes > writeBatchBytes_ && !writeBatch_.empty()) {
@@ -541,6 +552,104 @@ bool WorkspaceReader::HasChunk(std::uint32_t cs, std::uint32_t ci, std::uint32_t
         return false;
     }
     return (completion_[static_cast<std::size_t>(ordinal / 8)] & (1u << (ordinal % 8))) != 0;
+}
+
+bool WorkspaceReader::IsComplete() const {
+    if(info_.ChunkCount() == 0) {
+        return false;
+    }
+    std::uint64_t bits = 0;
+    for(const unsigned char byte : completion_) {
+        bits += static_cast<std::uint64_t>(std::popcount(static_cast<unsigned>(byte)));
+    }
+    return bits >= info_.ChunkCount();
+}
+
+bool ProbeWorkspaceMeta(
+    const std::filesystem::path& basePath,
+    WorkspaceMetaSummary& out,
+    std::string& errorMessage) {
+    out = WorkspaceMetaSummary{};
+    const std::filesystem::path metaPath = WorkspaceMetaPath(basePath);
+    std::error_code ec;
+    if(!std::filesystem::exists(metaPath, ec)) {
+        return true; // absent is a valid answer, not an error
+    }
+    out.exists = true;
+
+    std::vector<unsigned char> meta;
+    if(!ReadFile(metaPath, meta, errorMessage)) {
+        out.error = errorMessage;
+        return true;
+    }
+    if(meta.size() < 8 || std::memcmp(meta.data(), kWorkspaceMagic, 8) != 0) {
+        out.error = "workspace metadata magic is wrong";
+        return true;
+    }
+    std::size_t offset = 8;
+    std::uint32_t version = 0;
+    if(!ReadU32(meta, offset, version)) {
+        out.error = "workspace metadata is truncated";
+        return true;
+    }
+    out.formatVersion = version;
+    if(version != kWorkspaceFormatVersion) {
+        out.error = "workspace format version is not supported";
+        return true;
+    }
+    // Field order mirrors WriteMeta / WorkspaceReader::Open exactly.
+    std::uint32_t chunkSamples = 0, chunkInlines = 0, chunkXlines = 0;
+    std::uint32_t chunksPerShard = 0, codecLevel = 0, sampleIntervalUs = 0;
+    std::int32_t inlineMin = 0, xlineMin = 0;
+    std::uint32_t lodLevel = 0, lodMethod = 0, lodFactorSamples = 0;
+    std::uint32_t lodFactorInlines = 0, lodFactorXlines = 0, lodAlgorithmVersion = 0;
+    std::uint64_t lodSourceHash = 0, chunkCount = 0;
+    std::uint32_t shardCount32 = 0, completionBytes = 0;
+    if(!ReadU32(meta, offset, out.samples) ||
+       !ReadU32(meta, offset, out.inlines) ||
+       !ReadU32(meta, offset, out.xlines) ||
+       !ReadU32(meta, offset, chunkSamples) ||
+       !ReadU32(meta, offset, chunkInlines) ||
+       !ReadU32(meta, offset, chunkXlines) ||
+       !ReadU32(meta, offset, chunksPerShard) ||
+       !ReadU32(meta, offset, out.codec) ||
+       !ReadU32(meta, offset, codecLevel) ||
+       !ReadU32(meta, offset, sampleIntervalUs) ||
+       !ReadI32(meta, offset, inlineMin) ||
+       !ReadI32(meta, offset, xlineMin) ||
+       !ReadU64(meta, offset, out.sourceIdentityHash) ||
+       !ReadU32(meta, offset, out.algorithmVersion) ||
+       !ReadU32(meta, offset, lodLevel) ||
+       !ReadU32(meta, offset, lodMethod) ||
+       !ReadU32(meta, offset, lodFactorSamples) ||
+       !ReadU32(meta, offset, lodFactorInlines) ||
+       !ReadU32(meta, offset, lodFactorXlines) ||
+       !ReadU32(meta, offset, lodAlgorithmVersion) ||
+       !ReadU64(meta, offset, lodSourceHash) ||
+       !ReadU64(meta, offset, chunkCount) ||
+       !ReadU32(meta, offset, shardCount32) ||
+       !ReadU32(meta, offset, completionBytes)) {
+        out.error = "workspace metadata is truncated";
+        return true;
+    }
+    (void)chunkSamples; (void)chunkInlines; (void)chunkXlines; (void)chunksPerShard;
+    (void)codecLevel; (void)sampleIntervalUs; (void)inlineMin; (void)xlineMin;
+    (void)lodLevel; (void)lodMethod; (void)lodFactorSamples; (void)lodFactorInlines;
+    (void)lodFactorXlines; (void)lodAlgorithmVersion; (void)lodSourceHash; (void)shardCount32;
+    if(completionBytes > meta.size() - offset) {
+        out.error = "workspace completion map is truncated";
+        return true;
+    }
+    out.chunkCount = chunkCount;
+    std::uint64_t bits = 0;
+    for(std::uint64_t i = 0; i < completionBytes; ++i) {
+        bits += static_cast<std::uint64_t>(
+            std::popcount(static_cast<unsigned>(meta[offset + static_cast<std::size_t>(i)])));
+    }
+    out.chunksCompleted = bits;
+    out.complete = chunkCount > 0 && bits >= chunkCount;
+    out.readable = true;
+    return true;
 }
 
 bool WorkspaceReader::ReadChunk(

@@ -2,7 +2,9 @@
 #pragma once
 
 #include <QObject>
+#include <QSet>
 #include <QString>
+#include <QStringList>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -72,6 +74,58 @@ struct SeismicBackendStatus
   int activeLod = 0;
 };
 
+// 转码质量报告（D1.4/D1.5/D1.10）：道数/覆盖率/丢弃率/值域 + 结构化日志行。
+struct SeismicTranscodeReport
+{
+  QString kind;                    // "sf3c" | "sf3p"
+  QString output;                  // 工作区 base / .sf3p 路径
+  bool ok = false;
+  bool cancelled = false;
+  bool resumed = false;            // 续跑命中（有跳过块或 reused）
+  qint64 chunksWritten = 0;
+  qint64 chunksSkipped = 0;        // 续跑时已存在的块
+  qint64 chunksTotal = 0;
+  qint64 tracesRead = 0;
+  qint64 tracesTotal = 0;          // ROI 内 (inline,xline) 格点数
+  qint64 missingTraces = 0;        // 源文件缺席（NaN 填充）
+  qint64 damagedTraces = 0;        // 源读取失败（跳过 + NaN 填充）
+  QStringList damagedSample;       // 前 32 个坏道 "inline/xline"
+  double valueMin = 0.0;           // 无数据时 validValues=false
+  double valueMax = 0.0;
+  bool validValues = false;
+  qint64 bytesWritten = 0;
+  double elapsedSeconds = 0.0;
+  QStringList lodLevels;           // sf3p：实际构建的层级（"L1"/"L2"/"L3"）
+  double coverage() const          // 已写块 / 总块
+  {
+    return chunksTotal > 0 ? double(chunksWritten + chunksSkipped) / chunksTotal : 0.0;
+  }
+  double droppedRatio() const      // (缺席+损坏) / ROI 格点
+  {
+    return tracesTotal > 0 ? double(missingTraces + damagedTraces) / tracesTotal : 0.0;
+  }
+  QString summaryLine() const;     // 任务页一行摘要
+  QString toJsonLine() const;      // PALEO-SEISMIC-TRANSCODE 结构化日志行
+};
+
+// 工作区断点探测（D1.2/D1.6/D1.8）：半成品识别与「继续转码」入口的数据源。
+struct SeismicWorkspaceProbe
+{
+  bool exists = false;             // meta/.sf3p 文件存在
+  bool complete = false;           // 全部块就绪（Auto 可升级）
+  bool resumable = false;          // 存在但未完成 → 可续跑
+  bool readable = false;           // 头解析成功（false = 版本不支持/损坏）
+  int formatVersion = 0;
+  int algorithmVersion = 0;
+  qint64 chunksDone = 0;
+  qint64 chunksTotal = 0;
+  qint64 samples = 0;
+  qint64 inlines = 0;
+  qint64 xlines = 0;
+  QString error;                   // 不可读原因（版本/损坏）
+  QString stateText() const;       // UI 文案：「未开始/已完成 N 块/续跑 N/M」
+};
+
 // services/ — SeismicTaskService: 地震数据异步任务协调服务
 //
 // 1. 将全卷扫描与几何构建接入 PaleoTaskService 线程池，UI 线程永不阻塞；
@@ -128,6 +182,14 @@ public:
       const QString &workspaceBase,
       std::function<void(bool success, const QString &workspaceDir, const QString &error)> onFinished);
 
+  // 4b. 转码 + 质量报告（D1.1 分阶段聚合进度 + D1.4 报告 + D1.10 结构化日志）。
+  //     onReport 在任务结束时回调一次（成功/取消/失败都回，ok 标志区分）。
+  PaleoTask *startWorkspaceTranscodeDetailed(
+      const QString &sgyPath,
+      const QString &workspaceBase,
+      std::function<void(bool success, const QString &workspaceDir, const QString &error)> onFinished,
+      std::function<void(const SeismicTranscodeReport &report)> onReport);
+
   // 5. QuickOpen 秒级预览：有限道头探测 + 中央测线真振幅缩略（主线 1 第一段）。
   //    全卷索引（第二段）另行走 startIndexing/startVolumeLoad。
   PaleoTask *startQuickOpen(
@@ -140,14 +202,23 @@ public:
       const QString &sgyPath,
       std::function<void(bool success, std::shared_ptr<SgyVolume> volume, const QString &error)> onFinished);
 
-  // 7. SEG-Y → .sf3p 分页工作区金字塔转码（L0+L1+L2，可续跑/可取消）。
-  //    产出 sf3pPath 本体与 <stem>.l1/.l2.sf3p 兄弟层级；Auto 后端不变，
+  // 7. SEG-Y → .sf3p 分页工作区金字塔转码（L0+LOD，可续跑/可取消）。
+  //    产出 sf3pPath 本体与 <stem>.lN.sf3p 兄弟层级；Auto 后端不变，
   //    需显式传 .sf3p 或 Backend::Paged（见 registry 条目表）。
   PaleoTask *startPagedTranscode(
       const QString &sgyPath,
       const QString &sf3pPath,
       bool buildLod,
       std::function<void(bool success, const QString &sf3pPath, const QString &error)> onFinished);
+
+  // 7b. 分页转码 + 质量报告 + 自适应金字塔层数（D1.9：按体量规划 L1/L2/L3，
+  //     buildLod=false 关闭全部 LOD；true = 自动规划）。onReport 终态回调一次。
+  PaleoTask *startPagedTranscodeDetailed(
+      const QString &sgyPath,
+      const QString &sf3pPath,
+      bool buildLod,
+      std::function<void(bool success, const QString &sf3pPath, const QString &error)> onFinished,
+      std::function<void(const SeismicTranscodeReport &report)> onReport);
 
   // 8. 瓦片渐进时间片（仅 paged L0）：tile 经 timeSliceTileReady 信号分块上屏，
   //    完成图经 onFinished 发布；焦点优先由引擎保证。
@@ -181,6 +252,13 @@ public:
       const QString &sgyPath,
       std::function<void(bool success, const SeismicBackendStatus &status, const QString &error)> onFinished);
 
+  // 13. .sf3c 工作区断点探测（D1.2/D1.6/D1.8）：头级轻量读，主线程可直调。
+  //     halfSgyPath 支持 sgy 本身或 .sf3c.meta 两种路径。
+  SeismicWorkspaceProbe probeWorkspace(const QString &sgyOrMetaPath) const;
+
+  // 14. .sf3p 断点探测（含 .partial 半成品识别）。
+  SeismicWorkspaceProbe probePagedWorkspace(const QString &sf3pPath) const;
+
   // 转码完成后作废缓存条目：下次读取按磁盘现状重开（热切换）。
   void invalidateDataset(const QString &path);
 
@@ -190,6 +268,12 @@ signals:
   void timeSliceTileReady(const seismic::SeismicTimeTile &tile);
 
 private:
+  // 分页转码 LOD 模式：0=不建；1=经典 L1+L2（旧 API 语义）；2=按体量自适应
+  PaleoTask *startPagedTranscodeImpl(
+      const QString &sgyPath, const QString &sf3pPath, int lodMode,
+      std::function<void(bool success, const QString &sf3pPath, const QString &error)> onFinished,
+      std::function<void(const SeismicTranscodeReport &report)> onReport);
+
   // sdk::Dataset 条目注册表（vendor/sbm Engine facade）：按路径惰性打开并缓存；
   // Backend::Auto 在有 .sf3c/.sf3p 工作区时用随机访问后端，否则 Direct
   // （Auto 只发现 .sf3c.meta 伴生，永不自动升级 .sf3p）。
@@ -202,6 +286,10 @@ private:
 
   PaleoTaskService *taskService_ = nullptr;
   SgyDataCache dataCache_;
+
+  // D1.7 转码互斥：同输出路径的在途转码集合（主线程 start/finished 串行访问，
+  // worker 不触碰）。start 时占用，任务终态释放。
+  QSet<QString> activeTranscodeOutputs_;
 };
 
 } // namespace seismic

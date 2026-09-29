@@ -22,3 +22,6 @@ target_compile_definitions(tst_seismic_baseline PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
   PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
   PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")
+
+# P5 Phase 1 转码链路：分阶段进度/断点续跑/并发写/质量报告/互斥/自适应 LOD
+add_paleo_test(tst_seismic_transcode)

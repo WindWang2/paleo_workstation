@@ -132,12 +132,13 @@ switch ($Verb) {
     ctest --test-dir $Build --output-on-failure 2>&1 | Tee-Object -FilePath $log
     if ($LASTEXITCODE -ne 0) {
       # ctest 的 --output-on-failure 在 Windows runner 上回收不到子进程
-      # 输出；失败测试逐个直跑，QtTest 的 FAIL/Loc 行直落日志。
+      # 输出；失败测试逐个直跑，QtTest 的 FAIL/Loc 行直落日志与控制台
+      # （控制台可见性：日志文件在 artifact 里，排障不应多一跳）。
       $names = & ctest --test-dir $Build --rerun-failed -N 2>$null |
         ForEach-Object { if ($_ -match 'Test\s+#\d+:\s+(\S+)') { $Matches[1] } }
       foreach ($n in $names) {
-        "=== $n (direct run) ===" | Add-Content -Path $log
-        & (Join-Path $Build "$n.exe") 2>&1 | Add-Content -Path $log
+        "=== $n (direct run) ===" | Tee-Object -FilePath $log -Append
+        & (Join-Path $Build "$n.exe") 2>&1 | Tee-Object -FilePath $log -Append
       }
       throw 'CTest failed'
     }

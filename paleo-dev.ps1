@@ -33,8 +33,18 @@ function Enter-VendorEnvironment {
   if (-not (Test-Path (Join-Path $osgeo 'apps\qgis\include\qgsapplication.h'))) { return }
   $env:QGIS_PREFIX_PATH = Join-Path $osgeo 'apps\qgis'
   $env:CMAKE_PREFIX_PATH = Join-Path $osgeo 'apps\qt6'
-  $env:PATH = ((Join-Path $osgeo 'bin'), (Join-Path $osgeo 'apps\qgis\bin'),
+  # vendored onnxruntime 必须排在 OSGeo4W bin 之前——OSGeo4W 自带
+  # onnxruntime 1.17.1，我们的头文件是 1.30（ABI 30）；PATH 顺序错了
+  # 会加载旧 DLL，会话构造直接段错误（tst_onnx 实锤）。
+  $ortLib = Join-Path $Vendor 'onnxruntime\lib'
+  $env:PATH = ($ortLib, (Join-Path $osgeo 'bin'), (Join-Path $osgeo 'apps\qgis\bin'),
                (Join-Path $osgeo 'apps\qt6\bin'), $env:PATH) -join ';'
+  # GDAL/PROJ 数据目录：缺省时 GDAL 找不到 tms_NZTM2000.json、PROJ
+  # 报 CRS 无大地基准（影响坐标变换类用例）。
+  $gdalData = Join-Path $osgeo 'apps\gdal\share\gdal'
+  if (Test-Path $gdalData) { $env:GDAL_DATA = $gdalData }
+  $projData = Join-Path $osgeo 'share\proj'
+  if (Test-Path $projData) { $env:PROJ_LIB = $projData }
 }
 
 function Preflight {
@@ -132,12 +142,17 @@ switch ($Verb) {
     ctest --test-dir $Build --output-on-failure 2>&1 | Tee-Object -FilePath $log
     if ($LASTEXITCODE -ne 0) {
       # ctest 的 --output-on-failure 在 Windows runner 上回收不到子进程
-      # 输出；失败测试逐个直跑，QtTest 的 FAIL/Loc 行直落日志。
+      # 输出；失败测试逐个直跑，QtTest 的 FAIL/Loc 行直落日志与控制台
+      # （控制台可见性：日志文件在 artifact 里，排障不应多一跳）。
       $names = & ctest --test-dir $Build --rerun-failed -N 2>$null |
         ForEach-Object { if ($_ -match 'Test\s+#\d+:\s+(\S+)') { $Matches[1] } }
       foreach ($n in $names) {
-        "=== $n (direct run) ===" | Add-Content -Path $log
-        & (Join-Path $Build "$n.exe") 2>&1 | Add-Content -Path $log
+        # 有些 ctest 项不是可执行文件（layering 是 python 脚本）——跳过，
+        # 否则 & 不存在的 .exe 会终止整个直跑循环（上轮 CI 实锤）。
+        $exe = Join-Path $Build "$n.exe"
+        if (-not (Test-Path $exe)) { continue }
+        "=== $n (direct run) ===" | Tee-Object -FilePath $log -Append
+        & $exe 2>&1 | Tee-Object -FilePath $log -Append
       }
       throw 'CTest failed'
     }

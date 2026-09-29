@@ -39,6 +39,15 @@ import os
 import re
 import sys
 
+# Windows 控制台缺省 cp1252 无法编码中文输出（CI 上 UnicodeEncodeError
+# 即失败）。任何 print 前把三流重配为 UTF-8；非 TTY（ctest 管道）安全。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        if _s and hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8", errors="replace")
+    except (ValueError, OSError):
+        pass
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "src")
 VOCAB = os.path.join(REPO, "tools", "layering_vocab.json")

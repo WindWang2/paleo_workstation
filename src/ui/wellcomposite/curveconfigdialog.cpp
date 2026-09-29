@@ -1,5 +1,6 @@
 // 层：视图
 #include "curveconfigdialog.h"
+#include "../paleotheme.h"
 
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
@@ -51,9 +52,13 @@ void CurveConfigDialog::setupUi()
   m_lblInfo = new QLabel(
       tr("提示：在左侧列表中可直接调整所有井道的排列顺序（上移/下移/置顶/置底）与显示勾选；多选 2-4 根曲线可合并为同道渲染，亦支持解散多曲线道。"),
       this);
-  m_lblInfo->setStyleSheet(QStringLiteral(
-      "QLabel { background: #EDF1F5; color: #24303E; border: 1px solid #DFE5EC; "
-      "border-radius: 4px; padding: 8px 12px; font-size: 8.5pt; }"));
+  PaleoTheme::applyThemedStyleSheet(m_lblInfo, [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "QLabel { background: %1; color: %2; border: 1px solid %3; "
+               "border-radius: 4px; padding: 8px 12px; font-size: 9pt; }")
+        .arg(t.surfaceAlt.name(), t.text.name(), t.border.name());
+  });
   rootLay->addWidget(m_lblInfo);
 
   // 中间区域：左侧树形列表 + 右侧操作工具栏
@@ -72,10 +77,15 @@ void CurveConfigDialog::setupUi()
   m_tree->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
   m_tree->header()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
   m_tree->header()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
-  m_tree->setStyleSheet(QStringLiteral(
-      "QTreeWidget { border: 1px solid #DFE5EC; border-radius: 4px; background: #FFFFFF; font-size: 8.5pt; }"
-      "QTreeWidget::item { padding: 4px 0; }"
-      "QTreeWidget::item:selected { background-color: #E6F0FA; color: #1B73D0; }"));
+  // 选中范式走 token：surface-alt-raised 底 + 正文色（不占用 primary 交互蓝）
+  PaleoTheme::applyThemedStyleSheet(m_tree, [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "QTreeWidget { border: 1px solid %1; border-radius: 4px; background: %2; font-size: 9pt; }"
+               "QTreeWidget::item { padding: 4px 0; }"
+               "QTreeWidget::item:selected { background-color: %3; color: %4; }")
+        .arg(t.border.name(), t.surface.name(), t.surfaceAltRaised.name(), t.text.name());
+  });
   midLay->addWidget(m_tree, 1);
 
   // 右侧按钮栏
@@ -84,67 +94,86 @@ void CurveConfigDialog::setupUi()
   btnLay->setContentsMargins(0, 0, 0, 0);
   btnLay->setSpacing(6);
 
-  const QString btnStyle = QStringLiteral(
-      "QPushButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; "
-      "padding: 6px 12px; font-size: 8.5pt; color: #24303E; text-align: left; }"
-      "QPushButton:hover { background: #EDF1F5; border-color: #9AA7B4; }"
-      "QPushButton:pressed { background: #DFE5EC; }"
-      "QPushButton:disabled { color: #9AA7B4; background: #F8FAFC; border-color: #E2E8F0; }");
+  const auto themedBtnStyle = [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "QPushButton { background: %1; border: 1px solid %2; border-radius: 4px; "
+               "padding: 6px 12px; font-size: 9pt; color: %3; text-align: left; }"
+               "QPushButton:hover { background: %4; border-color: %5; }"
+               "QPushButton:pressed { background: %2; }"
+               "QPushButton:disabled { color: %5; background: %4; border-color: %2; }")
+        .arg(t.surface.name(), t.border.name(), t.text.name(),
+             t.surfaceAlt.name(), t.textDisabled.name());
+  };
 
   auto *lblOrderTitle = new QLabel(tr("井道顺序管理"), btnBox);
-  lblOrderTitle->setStyleSheet(QStringLiteral("font-weight: bold; color: #5D6E80; font-size: 8pt; margin-top: 2px;"));
+  PaleoTheme::applyThemedStyleSheet(lblOrderTitle, [] {
+    return PaleoTheme::mutedCaptionStyleSheet() +
+           QStringLiteral(" font-weight: bold; font-size: 8pt; margin-top: 2px;");
+  });
   btnLay->addWidget(lblOrderTitle);
 
   m_btnMoveTop = new QPushButton(tr("置顶 ⬆"), btnBox);
-  m_btnMoveTop->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnMoveTop, themedBtnStyle);
   m_btnMoveTop->setToolTip(tr("将选中的井道移动到综合柱状图最左侧"));
+  m_btnMoveTop->setProperty("hint", m_btnMoveTop->toolTip());
   btnLay->addWidget(m_btnMoveTop);
 
   m_btnMoveUp = new QPushButton(tr("井道上移 ▲"), btnBox);
-  m_btnMoveUp->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnMoveUp, themedBtnStyle);
   m_btnMoveUp->setToolTip(tr("将选中的井道向左/向上移动一个位置"));
+  m_btnMoveUp->setProperty("hint", m_btnMoveUp->toolTip());
   btnLay->addWidget(m_btnMoveUp);
 
   m_btnMoveDown = new QPushButton(tr("井道下移 ▼"), btnBox);
-  m_btnMoveDown->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnMoveDown, themedBtnStyle);
   m_btnMoveDown->setToolTip(tr("将选中的井道向右/向下移动一个位置"));
+  m_btnMoveDown->setProperty("hint", m_btnMoveDown->toolTip());
   btnLay->addWidget(m_btnMoveDown);
 
   m_btnMoveBottom = new QPushButton(tr("置底 ⬇"), btnBox);
-  m_btnMoveBottom->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnMoveBottom, themedBtnStyle);
   m_btnMoveBottom->setToolTip(tr("将选中的井道移动到综合柱状图最右侧（如沉积相道）"));
+  m_btnMoveBottom->setProperty("hint", m_btnMoveBottom->toolTip());
   btnLay->addWidget(m_btnMoveBottom);
 
   m_btnRename = new QPushButton(tr("重命名井道..."), btnBox);
-  m_btnRename->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnRename, themedBtnStyle);
   m_btnRename->setToolTip(tr("修改所选井道的道头显示标题"));
+  m_btnRename->setProperty("hint", m_btnRename->toolTip());
   btnLay->addWidget(m_btnRename);
 
   btnLay->addSpacing(8);
 
   auto *lblCurveTitle = new QLabel(tr("曲线合并与解散"), btnBox);
-  lblCurveTitle->setStyleSheet(QStringLiteral("font-weight: bold; color: #5D6E80; font-size: 8pt; margin-top: 4px;"));
+  PaleoTheme::applyThemedStyleSheet(lblCurveTitle, [] {
+    return PaleoTheme::mutedCaptionStyleSheet() +
+           QStringLiteral(" font-weight: bold; font-size: 8pt; margin-top: 4px;");
+  });
   btnLay->addWidget(lblCurveTitle);
 
   m_btnCombine = new QPushButton(tr("合并所选曲线 (2-4根)..."), btnBox);
-  m_btnCombine->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnCombine, themedBtnStyle);
   m_btnCombine->setToolTip(tr("选中多根独立曲线后点击，将其合并入同一个曲线道（最多4根）"));
+  m_btnCombine->setProperty("hint", m_btnCombine->toolTip());
   btnLay->addWidget(m_btnCombine);
 
   m_btnDissolve = new QPushButton(tr("解散所选道 (独立单道)"), btnBox);
-  m_btnDissolve->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnDissolve, themedBtnStyle);
   m_btnDissolve->setToolTip(tr("将选中的多曲线道拆开，每根曲线独占一道"));
+  m_btnDissolve->setProperty("hint", m_btnDissolve->toolTip());
   btnLay->addWidget(m_btnDissolve);
 
   m_btnExtract = new QPushButton(tr("拆出为独立道"), btnBox);
-  m_btnExtract->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnExtract, themedBtnStyle);
   m_btnExtract->setToolTip(tr("将选中的单根曲线移出当前道，成为单独井道"));
+  m_btnExtract->setProperty("hint", m_btnExtract->toolTip());
   btnLay->addWidget(m_btnExtract);
 
   btnLay->addSpacing(8);
 
   m_btnResetDefault = new QPushButton(tr("恢复标准测井组合"), btnBox);
-  m_btnResetDefault->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnResetDefault, themedBtnStyle);
   m_btnResetDefault->setToolTip(tr("按标准地质类别（岩性/三孔隙/电阻率）重置曲线道分道"));
   btnLay->addWidget(m_btnResetDefault);
 
@@ -158,9 +187,14 @@ void CurveConfigDialog::setupUi()
   bottomLay->setSpacing(8);
 
   m_btnApply = new QPushButton(tr("应用"), this);
-  m_btnApply->setStyleSheet(QStringLiteral(
-      "QPushButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; padding: 6px 16px; font-size: 9pt; color: #24303E; }"
-      "QPushButton:hover { background: #EDF1F5; border-color: #9AA7B4; }"));
+  PaleoTheme::applyThemedStyleSheet(m_btnApply, [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "QPushButton { background: %1; border: 1px solid %2; border-radius: 4px; padding: 6px 16px; font-size: 9pt; color: %3; }"
+               "QPushButton:hover { background: %4; border-color: %5; }")
+        .arg(t.surface.name(), t.border.name(), t.text.name(),
+             t.surfaceAlt.name(), t.textDisabled.name());
+  });
   bottomLay->addWidget(m_btnApply);
 
   bottomLay->addStretch(1);
@@ -168,12 +202,21 @@ void CurveConfigDialog::setupUi()
   auto *dialogButtons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
   dialogButtons->button(QDialogButtonBox::Ok)->setText(tr("确定"));
   dialogButtons->button(QDialogButtonBox::Cancel)->setText(tr("取消"));
-  dialogButtons->button(QDialogButtonBox::Ok)->setStyleSheet(QStringLiteral(
-      "QPushButton { background: #1B73D0; color: #FFFFFF; border: 1px solid #1565B8; border-radius: 4px; padding: 6px 20px; font-size: 9pt; font-weight: bold; }"
-      "QPushButton:hover { background: #1565B8; }"));
-  dialogButtons->button(QDialogButtonBox::Cancel)->setStyleSheet(QStringLiteral(
-      "QPushButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; padding: 6px 16px; font-size: 9pt; color: #24303E; }"
-      "QPushButton:hover { background: #EDF1F5; }"));
+  // 确定 = 主按钮（primary 合法三用途之一）
+  PaleoTheme::applyThemedStyleSheet(dialogButtons->button(QDialogButtonBox::Ok), [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "QPushButton { background: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 6px 20px; font-size: 9pt; font-weight: bold; }"
+               "QPushButton:hover { background: %3; }")
+        .arg(t.primary.name(), t.onPrimary.name(), t.primaryHover.name());
+  });
+  PaleoTheme::applyThemedStyleSheet(dialogButtons->button(QDialogButtonBox::Cancel), [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "QPushButton { background: %1; border: 1px solid %2; border-radius: 4px; padding: 6px 16px; font-size: 9pt; color: %3; }"
+               "QPushButton:hover { background: %4; }")
+        .arg(t.surface.name(), t.border.name(), t.text.name(), t.surfaceAlt.name());
+  });
   bottomLay->addWidget(dialogButtons);
   rootLay->addLayout(bottomLay);
 
@@ -359,14 +402,35 @@ void CurveConfigDialog::updateButtonStates()
   const bool hasSingleTrackSelection = (selectedTrackIdx >= 0 && selectedTrackIdx < m_tracks.size() &&
                                         (trackCount == 1 || (trackCount == 0 && curveCount > 0)));
 
-  m_btnMoveUp->setEnabled(hasSingleTrackSelection && selectedTrackIdx > 0);
-  m_btnMoveDown->setEnabled(hasSingleTrackSelection && selectedTrackIdx < m_tracks.size() - 1);
-  m_btnMoveTop->setEnabled(hasSingleTrackSelection && selectedTrackIdx > 0);
-  m_btnMoveBottom->setEnabled(hasSingleTrackSelection && selectedTrackIdx < m_tracks.size() - 1);
-  m_btnRename->setEnabled(hasSingleTrackSelection);
+  // §35：禁用控件必须带 reason tooltip——启用时恢复功能提示，禁用时说明原因。
+  // （范式同 edittools/editingtoolbar.cpp 的 gate()。）
+  const auto gate = [](QPushButton *btn, bool enabled, const QString &reason) {
+    if (enabled)
+    {
+      btn->setEnabled(true);
+      btn->setToolTip(btn->property("hint").toString());
+    }
+    else
+    {
+      btn->setEnabled(false);
+      btn->setToolTip(reason);
+    }
+  };
+
+  const QString reasonNoTrack = tr("请先在左侧列表选中一个井道");
+  gate(m_btnMoveUp, hasSingleTrackSelection && selectedTrackIdx > 0,
+       hasSingleTrackSelection ? tr("所选井道已在最前，无法再上移") : reasonNoTrack);
+  gate(m_btnMoveDown, hasSingleTrackSelection && selectedTrackIdx < m_tracks.size() - 1,
+       hasSingleTrackSelection ? tr("所选井道已在最后，无法再下移") : reasonNoTrack);
+  gate(m_btnMoveTop, hasSingleTrackSelection && selectedTrackIdx > 0,
+       hasSingleTrackSelection ? tr("所选井道已在最前，无需置顶") : reasonNoTrack);
+  gate(m_btnMoveBottom, hasSingleTrackSelection && selectedTrackIdx < m_tracks.size() - 1,
+       hasSingleTrackSelection ? tr("所选井道已在最后，无需置底") : reasonNoTrack);
+  gate(m_btnRename, hasSingleTrackSelection, reasonNoTrack);
 
   // 合并条件：选中了 2 至 4 根曲线
-  m_btnCombine->setEnabled(curveCount >= 2 && curveCount <= 4);
+  gate(m_btnCombine, curveCount >= 2 && curveCount <= 4,
+       tr("需先在列表中选中 2-4 根曲线（当前选中 %1 根）").arg(curveCount));
 
   // 解散条件：选中的道包含 > 1 根曲线
   bool canDissolve = false;
@@ -376,10 +440,13 @@ void CurveConfigDialog::updateButtonStates()
     if (trk.type == TrackType::Curve && trk.curves.size() > 1)
       canDissolve = true;
   }
-  m_btnDissolve->setEnabled(canDissolve && (trackCount == 1 || curveCount > 0));
+  gate(m_btnDissolve, canDissolve && (trackCount == 1 || curveCount > 0),
+       canDissolve ? reasonNoTrack : tr("所选井道不是多曲线道，无需解散"));
 
   // 拆出单根条件：选中的是 1 根曲线且其所在道有 > 1 根曲线
-  m_btnExtract->setEnabled(curveCount == 1 && canDissolve);
+  gate(m_btnExtract, curveCount == 1 && canDissolve,
+       curveCount == 1 ? tr("该曲线所在道只有一根曲线，无法拆出")
+                       : tr("请先选中多曲线道中的单根曲线"));
 }
 
 void CurveConfigDialog::moveTrack(int fromIdx, int toIdx)

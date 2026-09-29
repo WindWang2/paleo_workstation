@@ -2,6 +2,7 @@
 #include "wellcompositepanel.h"
 #include "curveconfigdialog.h"
 #include "wellpositionlegendwidget.h"
+#include "../paleotheme.h"
 #include "../../services/previewdoc.h" // 数据门面（W1：XML 解析入口不直触）
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -26,22 +27,26 @@ void WellCompositePanel::setupUi()
   // 置顶工具栏
   auto *topBar = new QWidget(this);
   topBar->setObjectName(QStringLiteral("wellCompositeTopBar"));
-  topBar->setStyleSheet(QStringLiteral(
-      "#wellCompositeTopBar { background: #FFFFFF; border-bottom: 1px solid #DFE5EC; }"));
+  PaleoTheme::applyThemedStyleSheet(topBar, [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "#wellCompositeTopBar { background: %1; border-bottom: 1px solid %2; }")
+        .arg(t.surface.name(), t.border.name());
+  });
   auto *topLay = new QHBoxLayout(topBar);
   topLay->setContentsMargins(8, 6, 8, 6);
   topLay->setSpacing(8);
 
-  // 井名 Badge
-  m_lblWellName = new QLabel(QStringLiteral("井号: —"), topBar);
+  // 井名 Badge（样式由 setWellName 统一收口，此处仅占位）
+  m_lblWellName = new QLabel(topBar);
   m_lblWellName->setObjectName(QStringLiteral("lblWellName"));
-  m_lblWellName->setStyleSheet(QStringLiteral(
-      "QLabel { background: #E8F0FE; color: #1B73D0; font-weight: bold; border-radius: 4px; padding: 2px 8px; font-size: 9pt; }"));
   topLay->addWidget(m_lblWellName);
 
   // 比例尺选择（可编辑，且随着放大/缩小联动动态更新）
   auto *lblScaleTitle = new QLabel(tr("比例尺:"), topBar);
-  lblScaleTitle->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8pt;"));
+  PaleoTheme::applyThemedStyleSheet(lblScaleTitle, [] {
+    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral(" font-size: 8pt;");
+  });
   topLay->addWidget(lblScaleTitle);
 
   m_scaleCombo = new QComboBox(topBar);
@@ -51,33 +56,47 @@ void WellCompositePanel::setupUi()
   m_scaleCombo->addItems({QStringLiteral("1:200"), QStringLiteral("1:500"),
                           QStringLiteral("1:1000"), QStringLiteral("1:2000"), tr("自适应")});
   m_scaleCombo->setCurrentText(QStringLiteral("1:500"));
-  m_scaleCombo->setStyleSheet(QStringLiteral(
-      "QComboBox { border: 1px solid #DFE5EC; border-radius: 4px; padding: 2px 6px; font-size: 8pt; background: #FFFFFF; }"
-      "QComboBox:hover { border-color: #1B73D0; }"));
+  PaleoTheme::applyThemedStyleSheet(m_scaleCombo, [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "QComboBox { border: 1px solid %1; border-radius: 4px; padding: 2px 6px; font-size: 8pt; background: %2; }"
+               "QComboBox:hover { border-color: %3; }")
+        .arg(t.border.name(), t.surface.name(), t.primary.name());
+  });
   topLay->addWidget(m_scaleCombo);
 
   // 缩放控制组
   auto *lblZoomTitle = new QLabel(tr("深度缩放:"), topBar);
-  lblZoomTitle->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8pt; margin-left: 6px;"));
+  PaleoTheme::applyThemedStyleSheet(lblZoomTitle, [] {
+    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral(" font-size: 8pt; margin-left: 6px;");
+  });
   topLay->addWidget(lblZoomTitle);
 
-  const QString btnStyle = QStringLiteral(
-      "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; "
-      "padding: 2px 7px; font-size: 8pt; color: #24303E; }"
-      "QToolButton:hover { background: #EDF1F5; border-color: #9AA7B4; }"
-      "QToolButton:pressed { background: #DFE5EC; }");
+  const auto themedBtnStyle = [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "QToolButton { background: %1; border: 1px solid %2; border-radius: 4px; "
+               "padding: 2px 7px; font-size: 8pt; color: %3; }"
+               "QToolButton:hover { background: %4; border-color: %5; }"
+               "QToolButton:pressed { background: %2; }")
+        .arg(t.surface.name(), t.border.name(), t.text.name(),
+             t.surfaceAlt.name(), t.textDisabled.name());
+  };
 
   m_btnZoomOut = new QToolButton(topBar);
   m_btnZoomOut->setObjectName(QStringLiteral("btnCompZoomOut"));
   m_btnZoomOut->setText(tr("缩小"));
   m_btnZoomOut->setToolTip(tr("缩小深度 (Ctrl+滚轮下)"));
-  m_btnZoomOut->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnZoomOut, themedBtnStyle);
   topLay->addWidget(m_btnZoomOut);
 
   m_lblZoom = new QLabel(QStringLiteral("100% (1:500)"), topBar);
   m_lblZoom->setObjectName(QStringLiteral("lblCompZoomFactor"));
-  m_lblZoom->setStyleSheet(QStringLiteral(
-      "QLabel { color: #24303E; font-size: 8pt; min-width: 65px; }"));
+  PaleoTheme::applyThemedStyleSheet(m_lblZoom, [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral("QLabel { color: %1; font-size: 8pt; min-width: 65px; }")
+        .arg(t.text.name());
+  });
   m_lblZoom->setAlignment(Qt::AlignCenter);
   topLay->addWidget(m_lblZoom);
 
@@ -85,14 +104,14 @@ void WellCompositePanel::setupUi()
   m_btnZoomIn->setObjectName(QStringLiteral("btnCompZoomIn"));
   m_btnZoomIn->setText(tr("放大"));
   m_btnZoomIn->setToolTip(tr("放大深度 (Ctrl+滚轮上)"));
-  m_btnZoomIn->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnZoomIn, themedBtnStyle);
   topLay->addWidget(m_btnZoomIn);
 
   m_btnResetZoom = new QToolButton(topBar);
   m_btnResetZoom->setObjectName(QStringLiteral("btnCompResetZoom"));
   m_btnResetZoom->setText(tr("全井适应"));
   m_btnResetZoom->setToolTip(tr("双击道内任意位置或点击此键恢复全井段"));
-  m_btnResetZoom->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnResetZoom, themedBtnStyle);
   topLay->addWidget(m_btnResetZoom);
 
   // 测井道配置与排列管理按钮
@@ -100,15 +119,17 @@ void WellCompositePanel::setupUi()
   m_btnConfigCurves->setObjectName(QStringLiteral("btnConfigCurves"));
   m_btnConfigCurves->setText(tr("测井道配置"));
   m_btnConfigCurves->setToolTip(tr("打开测井道配置与排列管理：支持调整所有井道顺序、合并与解散测井曲线道"));
-  m_btnConfigCurves->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnConfigCurves, themedBtnStyle);
   topLay->addWidget(m_btnConfigCurves);
 
   topLay->addStretch(1);
 
   // 状态信息显示（悬停深度等）
-  m_lblStatus = new QLabel(tr("就绪 | 支持按住拖拽漫游与滚轮缩放"), topBar);
+  m_lblStatus = new QLabel(tr("就绪 | 支持按住拖拽漫游，Ctrl+滚轮缩放"), topBar);
   m_lblStatus->setObjectName(QStringLiteral("lblStatus"));
-  m_lblStatus->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8pt;"));
+  PaleoTheme::applyThemedStyleSheet(m_lblStatus, [] {
+    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral(" font-size: 8pt;");
+  });
   topLay->addWidget(m_lblStatus);
 
   rootLay->addWidget(topBar);
@@ -154,14 +175,14 @@ void WellCompositePanel::setupUi()
   connect(m_canvas, &WellCompositeCanvas::depthHovered, this, [this](double d) {
     if (d > 0.0)
     {
-      m_lblStatus->setText(QStringLiteral("当前测深: %1 m | 井深跨度: %2 - %3 m")
+      m_lblStatus->setText(tr("当前测深: %1 m | 井深跨度: %2 - %3 m")
                                .arg(QString::number(d, 'f', 1))
                                .arg(QString::number(m_canvas->minDepth(), 'f', 1))
                                .arg(QString::number(m_canvas->maxDepth(), 'f', 1)));
     }
     else
     {
-      m_lblStatus->setText(QStringLiteral("井深跨度: %1 - %2 m | 滚轮缩放 / 拖拽漫游")
+      m_lblStatus->setText(tr("井深跨度: %1 - %2 m | Ctrl+滚轮缩放 / 拖拽漫游")
                                .arg(QString::number(m_canvas->minDepth(), 'f', 1))
                                .arg(QString::number(m_canvas->maxDepth(), 'f', 1)));
     }
@@ -192,6 +213,9 @@ void WellCompositePanel::setupUi()
   m_legendWidget->updateViewport(m_canvas->visibleTopDepth(),
                                  m_canvas->visibleBottomDepth(),
                                  m_canvas->visibleDepthSpan());
+
+  // 井名徽章初始态（样式与文字收口在 setWellName）
+  setWellName(QString(), false);
 }
 
 void WellCompositePanel::openCurveConfigDialog()
@@ -204,27 +228,36 @@ void WellCompositePanel::setWellName(const QString &name, bool reference)
 {
   m_wellName = name;
   m_referenceWell = reference;
-  static const QString kSurveyStyle = QStringLiteral(
-      "QLabel { background: #E8F0FE; color: #1B73D0; font-weight: bold; border-radius: 4px; padding: 2px 8px; font-size: 9pt; }");
-  static const QString kRefStyle = QStringLiteral(
-      "QLabel { background: #FEF3C7; color: #92400E; font-weight: bold; border-radius: 4px; padding: 2px 8px; font-size: 9pt; }");
+
+  // 测区井徽章 = 中性徽章（surface-alt-raised 底 + text 字）；
+  // 参考井徽章 = warning 胶囊语义（辅助资料、待区分）。
+  const auto neutralBadgeStyle = [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "background: %1; color: %2; font-weight: bold; border-radius: 4px; padding: 2px 8px; font-size: 9pt;")
+        .arg(t.surfaceAltRaised.name(), t.text.name());
+  };
+  const auto referenceBadgeStyle = [] {
+    return PaleoTheme::capsuleStyleSheet(PaleoTheme::CapsuleKind::Warning) +
+           QStringLiteral(" font-weight: bold; padding: 2px 8px; font-size: 9pt;");
+  };
 
   if (name.isEmpty())
   {
-    m_lblWellName->setText(QStringLiteral("井号: —"));
-    m_lblWellName->setStyleSheet(kSurveyStyle);
+    m_lblWellName->setText(tr("井号: —"));
+    PaleoTheme::applyThemedStyleSheet(m_lblWellName, neutralBadgeStyle);
     m_lblWellName->setToolTip(QString());
   }
   else if (reference)
   {
-    m_lblWellName->setText(QStringLiteral("参考井: %1").arg(name));
-    m_lblWellName->setStyleSheet(kRefStyle);
+    m_lblWellName->setText(tr("参考井: %1").arg(name));
+    PaleoTheme::applyThemedStyleSheet(m_lblWellName, referenceBadgeStyle);
     m_lblWellName->setToolTip(tr("辅助资料中的参考井，不属于本测区井序列"));
   }
   else
   {
-    m_lblWellName->setText(QStringLiteral("井号: %1").arg(name));
-    m_lblWellName->setStyleSheet(kSurveyStyle);
+    m_lblWellName->setText(tr("井号: %1").arg(name));
+    PaleoTheme::applyThemedStyleSheet(m_lblWellName, neutralBadgeStyle);
     m_lblWellName->setToolTip(QString());
   }
 }

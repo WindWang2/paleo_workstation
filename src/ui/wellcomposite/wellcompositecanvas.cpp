@@ -1,5 +1,6 @@
 // 层：视图
 #include "wellcompositecanvas.h"
+#include "../paleotheme.h"
 
 #include <QApplication>
 #include <QMouseEvent>
@@ -24,17 +25,21 @@ WellCompositeCanvas::WellCompositeCanvas(QWidget *parent)
   m_vScrollBar = new QScrollBar(Qt::Vertical, this);
   m_hScrollBar = new QScrollBar(Qt::Horizontal, this);
 
-  // 滚动条样式
-  const QString sbStyle = QStringLiteral(
-      "QScrollBar:vertical { width: 10px; background: #F5F7FA; margin: 0; }"
-      "QScrollBar::handle:vertical { background: #CFD8DC; border-radius: 5px; min-height: 20px; }"
-      "QScrollBar::handle:vertical:hover { background: #90A4AE; }"
-      "QScrollBar:horizontal { height: 10px; background: #F5F7FA; margin: 0; }"
-      "QScrollBar::handle:horizontal { background: #CFD8DC; border-radius: 5px; min-width: 20px; }"
-      "QScrollBar::handle:horizontal:hover { background: #90A4AE; }"
-      "QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }");
-  m_vScrollBar->setStyleSheet(sbStyle);
-  m_hScrollBar->setStyleSheet(sbStyle);
+  // 滚动条样式（chrome，跟随主题）
+  const auto sbStyleBuilder = [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "QScrollBar:vertical { width: 10px; background: %1; margin: 0; }"
+               "QScrollBar::handle:vertical { background: %2; border-radius: 5px; min-height: 20px; }"
+               "QScrollBar::handle:vertical:hover { background: %3; }"
+               "QScrollBar:horizontal { height: 10px; background: %1; margin: 0; }"
+               "QScrollBar::handle:horizontal { background: %2; border-radius: 5px; min-width: 20px; }"
+               "QScrollBar::handle:horizontal:hover { background: %3; }"
+               "QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }")
+        .arg(t.surfaceAlt.name(), t.border.name(), t.textDisabled.name());
+  };
+  PaleoTheme::applyThemedStyleSheet(m_vScrollBar, sbStyleBuilder);
+  PaleoTheme::applyThemedStyleSheet(m_hScrollBar, sbStyleBuilder);
 
   connect(m_vScrollBar, &QScrollBar::valueChanged, this, [this](int val) {
     m_scrollDepth = m_minDepth + val / pxPerMeter();
@@ -496,8 +501,9 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
     // 准星深度 Badge（深色小气泡）
     const QString dStr = QStringLiteral("%1 m").arg(QString::number(hDepth, 'f', 1));
     QFont font = p.font();
-    font.setFamily(QStringLiteral("JetBrains Mono, monospace"));
-    font.setPointSize(7);
+    font.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("monospace")});
+    font.setStyleHint(QFont::TypeWriter);
+    font.setPointSize(8);
     p.setFont(font);
 
     const QRectF badgeRect(2, crossY - 8, 48, 16);
@@ -521,8 +527,9 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
     p.drawRoundedRect(cardRect, 4.0, 4.0);
 
     QFont cardFont = p.font();
-    cardFont.setFamily(QStringLiteral("JetBrains Mono, monospace"));
-    cardFont.setPointSize(7);
+    cardFont.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("monospace")});
+    cardFont.setStyleHint(QFont::TypeWriter);
+    cardFont.setPointSize(8);
     p.setFont(cardFont);
 
     // 比例尺与每厘米米数换算
@@ -531,14 +538,14 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
     const QString mCmStr = (metersPerCm < 1.0) ? QString::number(metersPerCm, 'f', 2)
                            : (metersPerCm < 10.0) ? QString::number(metersPerCm, 'f', 1)
                                                   : QString::number(metersPerCm, 'f', 0);
-    const QString scaleText = QStringLiteral("比例尺: %1 (1cm≈%2m)")
+    const QString scaleText = tr("比例尺: %1 (1cm≈%2m)")
                                   .arg(m_canvas->scaleRatio(), mCmStr);
     p.setPen(QColor(QStringLiteral("#24303E")));
     p.drawText(QRectF(cardRect.left() + 8, cardRect.top() + 3, cardW - 16, 15),
                Qt::AlignLeft | Qt::AlignVCenter, scaleText);
 
     // 当前视口深度范围与跨度
-    const QString rangeText = QStringLiteral("[%1~%2m] 跨度:%3m")
+    const QString rangeText = tr("[%1~%2m] 跨度:%3m")
                                   .arg(QString::number(topDepth, 'f', 1))
                                   .arg(QString::number(bottomDepth, 'f', 1))
                                   .arg(QString::number(visibleDepthSpan, 'f', 1));

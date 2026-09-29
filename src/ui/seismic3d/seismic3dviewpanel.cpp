@@ -1,6 +1,8 @@
 // 层：视图
 #include "seismic3dviewpanel.h"
 
+#include "../paleotheme.h"
+
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QGridLayout>
@@ -21,28 +23,36 @@ QToolButton *createToolBtn(const QString &text, const QString &tooltip, bool che
     btn->setToolTip(tooltip);
     btn->setCheckable(checkable);
     btn->setChecked(checked);
-    btn->setStyleSheet(
-        QStringLiteral(
+    // chrome 全 token + 活体注册；checked 态用 primary 填充属 DESIGN 允许的
+    // 「选中 chip」用途。
+    PaleoTheme::applyThemedStyleSheet(btn, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral(
             "QToolButton {"
-            "  background-color: #FFFFFF;"
-            "  color: #24303E;"
-            "  border: 1px solid #DFE5EC;"
+            "  background-color: %1;"
+            "  color: %2;"
+            "  border: 1px solid %3;"
             "  border-radius: 4px;"
             "  padding: 3px 8px;"
             "  font-size: 9pt;"
             "}"
             "QToolButton:hover {"
-            "  background-color: #EDF1F5;"
+            "  background-color: %4;"
             "}"
             "QToolButton:checked {"
-            "  background-color: #1B73D0;"
-            "  color: #FFFFFF;"
-            "  border-color: #1B73D0;"
+            "  background-color: %5;"
+            "  color: %6;"
+            "  border-color: %5;"
             "}"
             "QToolButton:pressed {"
-            "  background-color: #1565B8;"
-            "  color: #FFFFFF;"
-            "}"));
+            "  background-color: %7;"
+            "  color: %6;"
+            "}")
+            .arg(t.surface.name().toUpper(), t.text.name().toUpper(),
+                 t.border.name().toUpper(), t.surfaceAlt.name().toUpper(),
+                 t.primary.name().toUpper(), t.onPrimary.name().toUpper(),
+                 t.primaryHover.name().toUpper());
+    });
     return btn;
 }
 
@@ -60,7 +70,11 @@ void Seismic3DViewPanel::buildUi() {
 
     // 1. Top ToolBar
     auto *topBar = new QWidget(this);
-    topBar->setStyleSheet(QStringLiteral("background-color: #EDF1F5; border-bottom: 1px solid #DFE5EC;"));
+    PaleoTheme::applyThemedStyleSheet(topBar, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral("background-color: %1; border-bottom: 1px solid %2;")
+            .arg(t.surfaceAlt.name().toUpper(), t.border.name().toUpper());
+    });
     auto *topLay = new QHBoxLayout(topBar);
     topLay->setContentsMargins(6, 4, 6, 4);
     topLay->setSpacing(4);
@@ -79,7 +93,10 @@ void Seismic3DViewPanel::buildUi() {
 
     auto *sep = new QFrame(topBar);
     sep->setFrameShape(QFrame::VLine);
-    sep->setStyleSheet(QStringLiteral("color: #DFE5EC;"));
+    PaleoTheme::applyThemedStyleSheet(sep, [] {
+        return QStringLiteral("color: %1;")
+            .arg(PaleoTheme::tokens().border.name().toUpper());
+    });
     topLay->addWidget(sep);
 
     btnFrame_ = createToolBtn(tr("包围盒"), tr("显示/隐藏工区三维包围线框"), true, true);
@@ -95,8 +112,15 @@ void Seismic3DViewPanel::buildUi() {
 
     qualityLabel_ = new QLabel(topBar);
     qualityLabel_->setObjectName(QStringLiteral("seismic3DLodLabel"));
-    qualityLabel_->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
-    qualityLabel_->setStyleSheet(QStringLiteral("color: #5D6E80; padding: 0 4px;"));
+    {
+        QFont f = PaleoTheme::monoFont();
+        f.setPointSize(PaleoTheme::kLabelPt);
+        qualityLabel_->setFont(f);
+    }
+    PaleoTheme::applyThemedStyleSheet(qualityLabel_, [] {
+        return QStringLiteral("color: %1; padding: 0 4px;")
+            .arg(PaleoTheme::tokens().textMuted.name().toUpper());
+    });
     topLay->addWidget(qualityLabel_);
 
     mainLay->addWidget(topBar);
@@ -108,17 +132,24 @@ void Seismic3DViewPanel::buildUi() {
 
     // 3. Bottom Sliders Bar
     auto *bottomBar = new QWidget(this);
-    bottomBar->setStyleSheet(QStringLiteral("background-color: #FFFFFF; border-top: 1px solid #DFE5EC;"));
+    PaleoTheme::applyThemedStyleSheet(bottomBar, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral("background-color: %1; border-top: 1px solid %2;")
+            .arg(t.surface.name().toUpper(), t.border.name().toUpper());
+    });
     auto *bottomLay = new QGridLayout(bottomBar);
     bottomLay->setContentsMargins(12, 8, 12, 8);
     bottomLay->setHorizontalSpacing(10);
     bottomLay->setVerticalSpacing(6);
 
-    QFont monoFont(QStringLiteral("JetBrains Mono"), 9);
+    const QFont monoFont = PaleoTheme::monoFont();
 
     // Inline row
     auto *lblIl = new QLabel(tr("纵测线 (IL):"), bottomBar);
-    lblIl->setStyleSheet(QStringLiteral("font-weight: 500; color: #24303E;"));
+    PaleoTheme::applyThemedStyleSheet(lblIl, [] {
+        return QStringLiteral("font-weight: 500; color: %1;")
+            .arg(PaleoTheme::tokens().text.name().toUpper());
+    });
     inlineSlider_ = new QSlider(Qt::Horizontal, bottomBar);
     inlineSlider_->setObjectName(QStringLiteral("inlineSlider"));
     inlineSpin_ = new QSpinBox(bottomBar);
@@ -132,7 +163,10 @@ void Seismic3DViewPanel::buildUi() {
 
     // Crossline row
     auto *lblXl = new QLabel(tr("横测线 (XL):"), bottomBar);
-    lblXl->setStyleSheet(QStringLiteral("font-weight: 500; color: #24303E;"));
+    PaleoTheme::applyThemedStyleSheet(lblXl, [] {
+        return QStringLiteral("font-weight: 500; color: %1;")
+            .arg(PaleoTheme::tokens().text.name().toUpper());
+    });
     xlineSlider_ = new QSlider(Qt::Horizontal, bottomBar);
     xlineSlider_->setObjectName(QStringLiteral("xlineSlider"));
     xlineSpin_ = new QSpinBox(bottomBar);
@@ -146,7 +180,10 @@ void Seismic3DViewPanel::buildUi() {
 
     // Time row
     auto *lblTime = new QLabel(tr("时间 (Z):"), bottomBar);
-    lblTime->setStyleSheet(QStringLiteral("font-weight: 500; color: #24303E;"));
+    PaleoTheme::applyThemedStyleSheet(lblTime, [] {
+        return QStringLiteral("font-weight: 500; color: %1;")
+            .arg(PaleoTheme::tokens().text.name().toUpper());
+    });
     timeSlider_ = new QSlider(Qt::Horizontal, bottomBar);
     timeSlider_->setObjectName(QStringLiteral("timeSlider"));
     timeSpin_ = new QSpinBox(bottomBar);
@@ -156,7 +193,10 @@ void Seismic3DViewPanel::buildUi() {
     timeMsLabel_ = new QLabel(QStringLiteral("0.0 ms"), bottomBar);
     timeMsLabel_->setObjectName(QStringLiteral("timeMsLabel"));
     timeMsLabel_->setFont(monoFont);
-    timeMsLabel_->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+    PaleoTheme::applyThemedStyleSheet(timeMsLabel_, [] {
+        return QStringLiteral("color: %1;")
+            .arg(PaleoTheme::tokens().textMuted.name().toUpper());
+    });
     timeMsLabel_->setFixedWidth(80);
 
     bottomLay->addWidget(lblTime, 2, 0);

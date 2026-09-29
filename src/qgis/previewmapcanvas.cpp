@@ -68,7 +68,7 @@ PreviewMapCanvas::PreviewMapCanvas( QWidget *parent )
   connect( m_canvas, &QgsMapCanvas::mapCanvasRefreshed, this, [this] {
     m_rendering = false;
     m_lastRenderMs = m_renderTimer.isValid() ? m_renderTimer.elapsed() : 0;
-    const QList<QgsMapLayer *> current = m_canvas->mapSettings().layers<QgsMapLayer *>();
+    const QList<QgsMapLayer *> current = m_canvas->layers();
     m_lastRenderElements = estimateElements( current );
     hidePreviewOverlay(); // 低清/缓存快照让位真渲（D6.1）
     emit renderCompleted( m_lastRenderMs, current.size(), m_lastRenderElements );

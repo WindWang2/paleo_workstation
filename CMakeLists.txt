@@ -378,6 +378,12 @@ add_library(paleo_ui STATIC
   src/ui/layout/layouttemplates.cpp
   src/ui/layout/layoutundostack.cpp
   src/ui/datapreview/datapreviewtabs.cpp           # §4 data-page preview tabs
+  src/ui/datapreview/previewmappage.cpp            # P2 D1.x/D3.x 预览地图组合页（工具条/状态条/侧栏/鹰眼/书签）
+  src/ui/datapreview/previewtocpanel.cpp           # P2 D4.x 迷你 TOC + 符号快调 + 图例
+  src/ui/datapreview/previewidentifypanel.cpp      # P2 D7.x identify 结果面板 + 全表模式
+  src/ui/datapreview/previewprofilepanel.cpp       # P2 D5.1-5.4 层位剖面图面板
+  src/ui/datapreview/previewhistogramwidget.cpp    # P2 D2.3/D5.8 直方图小图
+  src/ui/datapreview/previewmapstates.cpp          # P2 D1.7/D2.x 状态页 + 会话记忆
   src/ui/dialogs/folderconfirm.cpp                 # W2 文件夹导入确认表
   src/ui/webviewpanel.cpp                          # embedded web shell (lazy, degradable)
   src/ui/wellcomposite/wellcompositetrack.cpp      # ResFormStar 多道综合柱状图

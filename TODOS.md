@@ -122,3 +122,41 @@
 - **2026-09-28 · SBM 引擎 vendor 化（`vendor/sbm`，pinned `aae56c77`）**：上游 `Seismic-Body-Management` 的 `Data/Sgy`+`Engine`+`Render/ColorMap` 原样入库编成 `paleo_sbm` 静态库（-fno-char8_t 适配其 C++17 `.u8string()`；系统 libzstd + `SEISMIC_HAVE_ZSTD`）；`StorageProfile` 补 POSIX sysfs 分类；`domain/seismic` 16 个 sgy*/colormap 文件改一行转发头、删 15 个重复 .cpp——`sgyvolume`/`sgyindexcache` 的项目增强（TimeGridCache+mmap 并行时间片、`.sgyidx` 伴生文件）以补丁形式回到 vendor 副本（`vendor/sbm/PATCHES.md`）。`SeismicTaskService::startSliceExtraction` 现在优先走 `sdk::Dataset` facade（Backend::Auto，CancelToken↔PaleoTask 桥，条目锁守「单线程独占」契约，8 项 LRU），失败回落 volume 直读。11 套件 119 测试全绿；分层检查绿。
 - **2026-09-28 · SBM 引擎入口接线 + 上游 POSIX 崩溃修复**：`startSectionExtraction` 改走 `sdk::Dataset::ReadSection`（useReadPlan 去重+扇区合并读，NearestTrace 模式；插值回落 legacy）；新增 `startWorkspaceTranscode`（engine `TranscodeJob`，可续跑/可取消，Auto 约定 workspaceBase=<sgy路径>，zstd 编码）；数据预览时间片页改走服务异步提取（120ms 防抖+仅贴最新）并挂「转码工作区」按钮——966MB 冻屏路径从 UI 线程同步读转为后台+随机访问后端。修复上游 `SgySequentialScan` POSIX 崩溃（queueDepth>1 时同步 buffer 未分配，读 nullptr；PATCHES P3）。13 套件全绿。
 - **2026-09-28 · wave 分支全量并入 master（worktree 收口）**：`feature/seismic-3d-section`（含收尾 WIP `085e88e` 时间片网格缓存/相色预览/剖面色标 + `4fac323` agent-prompts m1/m2 文档）快进并入；`wave/ui-layer-separation` `84fc13b`（datapreviewtabs 冲突：保留 previewdoc 门面、WIP 工区图改 `m_doc->catalog()`）；`wave/layer-platform` `32a9e68`（净合入）；`wave/mapping-pages` `6ea9acc`（pagepanels 维持拆分形态、三页取 m2 实装版+`domain/arearules.h` 路径、qgislayerprofile 取 m1 实装——兜底 API 调用点收口为 `pinLayoutTheme()`、attachWorkflows/attachMapping 的 m2 增量平移入 `paleomainwindow_attach.cpp` 分段、tst_mappingpages 摘除 PageProfileTests〔兜底实现已退役，等价覆盖在 tst_layerplatform〕）。三 worktree（pw-layers/pw-mappages/pw-uilayer）+ 6 个 wave/* 本地分支已删；远程 `origin/wave/*` 引用未动。验证：paleo_core 全量编译 + 21 个相关 ctest 套件绿（tst_correlation_full 性能阈值首跑抖动 3041/3000ms 复跑过）。master 本地领先 origin/master 未推送。
+
+## wave/wellcomposite-deep 决策记录（2026-09-29）
+
+P1 单井综合柱状图深度升级（D1–D8 全量交付）。逐项决策与递延：
+
+- **分层接缝裁决**：ui→io include 被护栏白名单挡死且词表只读 → 派生 XML
+  写回（`io::writeComprehensiveWellXml*`）、井斜/时深表解析落 io 层由测试
+  直驱全链路；运行时面板发 `derivedDocumentReady(doc, 摘要)` 意图信号，
+  壳接 catalog DERIVED 版本落盘——**递延**：壳侧接线（catalog 版本登记）
+  待下一 wave。sidecar/会话持久化以视图层存储助手
+  （`wellcompositestore`，QtCore 文件 IO）落地——**递延**：迁移 services
+  门面（届时 ui 白名单只需放行新门面头）。
+- **井斜/时深运行时数据路径**：`ComprehensiveWellData`（domain，冻结不动）
+  无井斜/时深字段 → io 解析函数产出独立类型；运行时注入走
+  `DepthTransform` API（壳从资产解析后喂面板）——**递延**：壳把
+  `parseDeviationSurvey/parseTimeDepthTable` 接进装配链。
+- **D1.12/D2.9 合并**：单画布内多道天然共享深度轴（标尺道即坐标源）；
+  「Y 缩放联动开关」语义落位多画布锁步（MultiWellView::setLinkScroll）。
+- **D5.4 datum 校平语义**：各井滚动使同名标志层同屏高（视口 40%），
+  深度重映射（warp）未做——correlation 工作流下拉平已够用；真 warp
+  需渲染管线深度函数化，**递延**。
+- **D4.7 SVG**：QSvgGenerator 可用已交付；SVG 档用固定 8px/m 简化比例
+  （矢量无损缩放，比例尺语义由 PDF/PNG 承担）。
+- **D4.8 打印对话框**：offscreen 无打印环境，打印入口降级为 PDF 导出
+  （QPdfWriter 即打印数据流）；原生 QPrintDialog 接线**递延**至壳。
+- **D7.3 暗色**：柱状图画布保持纸面白底（DESIGN.md 2026-09-29 翻案条的
+  wellcomposite 豁免），面板/对话框 chrome 已随主题 token；道内数据符号
+  色不跟随（数据符号语义）。
+- **测试沙箱坑**：仓库有便携 QSettings 路径
+  （`~/.local/share/paleo/profiles/default/…/paleo.ini`）绕过 XDG env——
+  直跑测试二进制会跨进程污染会话记忆；ctest 沙箱不受影响。测试内用
+  每测独立 projectName 隔离（tst_wellcomposite_visual 各导出用例）。
+- **隐藏画布几何坑**：未 show 的画布 body 无真实几何 → D2.8 视口跨度
+  钳制以「bodyH ≥ 80px 才可信」守卫，否则 30px 假几何会把缩放因子反压
+  到 0.4×（tst_wellcomposite 既有比例尺联动测试由此保绿）。
+- **QLatin1String 中文坑**：CJK UTF-8 字面量经 QLatin1String 解释为
+  Latin-1 乱码（chronostrat/patterncatalog 曾中招）——中文字面量一律
+  QStringLiteral 或 QString::fromUtf8。

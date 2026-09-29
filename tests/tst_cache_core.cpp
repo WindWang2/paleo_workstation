@@ -349,6 +349,3 @@ void CacheCoreTests::lruThreadSafety()
 
 QTEST_MAIN(CacheCoreTests)
 #include "tst_cache_core.moc"
-// ---- 追加：zstd 编解码与预算治理补充 ----
-void CacheCoreTests::zstdRoundtrip();
-void CacheCoreTests::lruThreadSafety();

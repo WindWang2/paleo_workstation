@@ -31,7 +31,8 @@ class QgisTopologicalIndex;
 //     moveVertex in one edit command;
 //   · double-click near a feature's segment → insertVertex at the nearest
 //     on-segment point (closestSegmentWithContext — native);
-//   · right-click within search radius of a vertex → deleteVertex, refused
+//   · right-click within search radius of a vertex (or Delete/Backspace with
+//     the cursor over one) → deleteVertex, refused
 //     when it would drop a line below 2 vertices / a ring below 4 (closure
 //     included) — QGIS geometry minimums, not Paleo math;
 //   · Esc cancels an in-flight drag (or emits editAborted when idle — owner
@@ -135,6 +136,9 @@ class PaleoVertexTool : public QgsMapToolEdit
     void rebuildMarkers();    // selection → markers (map CRS centers)
     void clearMarkers();
     void clearDragState();
+    // Batch vertex delete under a map-CRS point — the right-button-release
+    // gesture and the Delete/Backspace key share this single path.
+    void deleteVertexAtMapPoint( const QgsPointXY &mapPoint );
     // Nearest vertex of the selected features within the layer-unit search
     // radius of a layer-CRS point; fills fid/vertexNr/distance when found.
     bool findNearestVertex( const QgsPointXY &layerPoint, qint64 &fid, int &vertexNr );

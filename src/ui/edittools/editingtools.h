@@ -179,9 +179,10 @@ class PaleoMoveTool : public QgsMapToolEdit
     QList<QPair<qint64, class QgsGeometry *>> mSnapshots;
 };
 
-// Delete: click deletes the target layer's currently selected features
-// (QgsVectorLayer::deleteSelectedFeatures — native, honors edit buffer).
-// No selection → messageEmitted warning, no editAborted (nothing was
+// Delete: click deletes the feature(s) UNDER the cursor on the target layer —
+// hit-tested with the native vertex-search tolerance (QGIS map-tool convention:
+// the gesture acts on what it points at, never on the whole selection).
+// Nothing hit → messageEmitted warning, no editAborted (nothing was
 // gestured). Esc emits editAborted (owner tears the tool down).
 class PaleoDeleteFeatureTool : public QgsMapToolEdit
 {
@@ -201,7 +202,7 @@ class PaleoDeleteFeatureTool : public QgsMapToolEdit
     void editAborted();
 
   protected:
-    void canvasReleaseEvent( QgsMapMouseEvent *e ) override; // left click → delete selected
+    void canvasReleaseEvent( QgsMapMouseEvent *e ) override; // left click → delete hit features
     void keyPressEvent( QKeyEvent *e ) override;             // Esc → editAborted
 
   private:

@@ -76,6 +76,9 @@ class DataListPanel : public QWidget
     void setTreeSort(paleo::dataops::TreeSortKind kind);
 
     // ---- D1.9 ----
+    // 命令面（测试/编程式操作入口；右键菜单与拖放共用）。
+    void pushCommand(paleo::dataops::DataOpCommand *cmd);
+
   public slots:
     void selectAllVisibleAssets();
     void invertAssetSelection();
@@ -151,9 +154,10 @@ class DataListPanel : public QWidget
     void applyFilterToTree(const QSet<QString> &visibleIds, bool filtering);
     void registerCommands();        // D6.2 命令登记
     QTreeWidgetItem *treeItemForAsset(const QString &assetId) const;
-    void pushCommand(paleo::dataops::DataOpCommand *cmd); // push + 刷新 + 历史
     void refreshUndoButtons();      // D5.2 撤销/重做按钮文案与可用态
-    void applyEntityDrop(const QStringList &assetIds, const QString &entityId); // D3.1/D3.4
+  public:
+    void applyEntityDrop(const QStringList &assetIds, const QString &entityId); // D3.1/D3.4（拖放核心，批量挂接共用）
+  private:
     void showAssetContextMenu(QObject *source, const QPoint &pos);              // D1.3
     void loadStoresForCatalog();   // catalog 会话变化 → stores 重载 + 栈清空
     // 旧搜索/类型控件 → FilterGroup 同步（兼容面：assetSearchEdit/assetTypeFilter

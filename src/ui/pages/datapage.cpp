@@ -215,11 +215,16 @@ PreviewDocService *DataPage::docService() const
 void DataPage::refreshAssetTable()
 {
   // p5a：catalog.changed() 接到本槽——实体视图一并重取（口径与旧同件实现
-  // 一致：先实体后列表）。
-  if (m_entityPanel)
-    m_entityPanel->refresh();
+  // 一致：先实体后列表）。P3：共享 ops 上下文随刷新重下发（列表侧
+  // loadStoresForCatalog 之后的 ctx 才带有效 catalog/store 指针）。
   if (m_listPanel)
     m_listPanel->refreshAssetTable();
+  if (m_entityPanel)
+  {
+    m_entityPanel->setSharedOps(m_listPanel->opsContext(), m_listPanel->opStack(),
+                                m_listPanel->operationsHistory());
+    m_entityPanel->refresh();
+  }
 }
 
 void DataPage::refreshEntityView()

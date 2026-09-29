@@ -465,8 +465,9 @@ public:
     QStringList values;
     for (int r = 0; r < table->rowCount(); ++r)
     {
+      const QTableWidgetItem *name = table->item(r, 0);
       const QTableWidgetItem *it = table->item(r, column);
-      if (!it || it->data(Qt::UserRole).toString().isEmpty())
+      if (!name || name->data(Qt::UserRole).toString().isEmpty() || !it)
         continue;
       if (!values.contains(it->text()))
         values << it->text();
@@ -486,19 +487,25 @@ public:
     if (acts.isEmpty())
       return false;
     menu.exec(QCursor::pos());
-    // 应用：未勾选的值 → 隐藏对应行。
     QSet<QString> keep;
     for (QAction *a : acts)
       if (a->isChecked())
         keep.insert(a->text());
+    applyColumnFilter(table, column, keep);
+    return true;
+  }
+  // 纯应用面（测试直调）：keep 集 → 行隐藏。数据行身份看第 0 列的
+  // UserRole（空态指引行不动）；过滤值取目标列文本。
+  static void applyColumnFilter(QTableWidget *table, int column, const QSet<QString> &keep)
+  {
     for (int r = 0; r < table->rowCount(); ++r)
     {
-      const QTableWidgetItem *it = table->item(r, column);
-      if (!it || it->data(Qt::UserRole).toString().isEmpty())
+      const QTableWidgetItem *name = table->item(r, 0);
+      const QTableWidgetItem *cell = table->item(r, column);
+      if (!name || name->data(Qt::UserRole).toString().isEmpty() || !cell)
         continue;
-      table->setRowHidden(r, !keep.contains(it->text()));
+      table->setRowHidden(r, !keep.contains(cell->text()));
     }
-    return true;
   }
 };
 

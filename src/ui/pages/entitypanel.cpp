@@ -729,6 +729,9 @@ void EntityPanel::setContext(const QString &entityId, const QString &assetId)
 {
   m_entityId = entityId;
   m_assetId = assetId;
+  // 单一上下文覆盖多选批量概要态（D4.9 的回落路径）。
+  m_multiAssetIds.clear();
+  m_multiEntityIds.clear();
 }
 
 void EntityPanel::refresh()

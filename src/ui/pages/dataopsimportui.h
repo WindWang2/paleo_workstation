@@ -199,11 +199,17 @@ public slots:
   void refresh()
   {
     const QVector<ImportQueueItem> items = m_queue.items();
-    m_table->setRowCount(0);
-    // 清理旧行控件（进度条在 cellWidget）。
+    // 清理旧行控件（进度条/按钮在 cellWidget）——setRowCount(0) 只摘不删，
+    // 先摘出父子树再 deleteLater（refreshAssetTable 同一纪律）。
     for (int r = 0; r < m_table->rowCount(); ++r)
-      if (QWidget *w = m_table->cellWidget(r, 2))
-        w->deleteLater();
+      for (int c = 2; c < m_table->columnCount(); ++c)
+        if (QWidget *w = m_table->cellWidget(r, c))
+        {
+          m_table->removeCellWidget(r, c);
+          w->setParent(nullptr);
+          w->deleteLater();
+        }
+    m_table->setRowCount(0);
     int pending = 0;
     for (int i = 0; i < items.size(); ++i)
     {

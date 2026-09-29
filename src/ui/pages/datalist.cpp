@@ -610,12 +610,9 @@ DataListPanel::DataListPanel(QWidget *parent)
     // P3 D1：多选中不逐个开预览（批量打开走「打开预览」动作）；程序化多选
     //（selectAssetsForEntities）保持旧行为——首个命中行激活。
     const QList<QTableWidgetItem *> sel = table->selectedItems();
+    refreshSelectionBadge(); // 空选/多选都刷新（徽标隐藏 = 0/1 选中）
     if (sel.isEmpty())
-    {
-      emit selectionCountChanged(0, 0);
       return;
-    }
-    refreshSelectionBadge();
     if (!m_progSelect && sel.size() > 1)
       return;
     const QString assetId = sel.front()->data(Qt::UserRole).toString();
@@ -1954,9 +1951,24 @@ void DataListPanel::buildDataOpsUi()
     emit statusMessage(on ? tr("按标签「%1」过滤").arg(t) : tr("已取消标签过滤"));
   });
   connect(m_emptyState, &FilterEmptyState::relaxRequested, this, [this] {
-    // 逐级放宽：去掉最后一个条件。
+    // 逐级放宽：去掉最后一个条件（旧控件持有的维度同步清空，防 sync 回填）。
     if (!m_filter.conditions.isEmpty())
+    {
+      const FilterCondition last = m_filter.conditions.last();
       m_filter.conditions.removeLast();
+      if (last.dim == FilterDim::Search)
+        if (auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit")))
+        {
+          const QSignalBlocker b(search);
+          search->clear();
+        }
+      if (last.dim == FilterDim::Type)
+        if (auto *tf = findChild<QComboBox *>(QStringLiteral("assetTypeFilter")))
+        {
+          const QSignalBlocker b(tf);
+          tf->setCurrentIndex(0);
+        }
+    }
     else if (!m_activeTag.isEmpty())
       m_activeTag.clear();
     applyListFilter();
@@ -2987,55 +2999,44 @@ void DataListPanel::applyFilterToTree(const QSet<QString> &visibleIds, bool filt
     const auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
     return search ? search->text().trimmed() : QString();
   }();
+  // 递归判定：分类/标签组随子命中；资产叶按可见 id 集；测区节点按文本；
+  // 井/标签叶按自身文本或子命中。
+  std::function<bool(QTreeWidgetItem *)> visit = [&](QTreeWidgetItem *node) -> bool {
+    const QString nodeType = node->data(0, Qt::UserRole + 2).toString();
+    const QString id = node->data(0, Qt::UserRole).toString();
+    const bool selfMatch =
+        needle.isEmpty() || node->text(0).contains(needle, Qt::CaseInsensitive) ||
+        node->text(1).contains(needle, Qt::CaseInsensitive);
+    if (nodeType == QLatin1String("category") || nodeType == QLatin1String("tag_group"))
+    {
+      bool any = false;
+      for (int k = 0; k < node->childCount(); ++k)
+        if (visit(node->child(k)))
+          any = true;
+      node->setHidden(!any);
+      return any;
+    }
+    if (!id.isEmpty() && nodeType != QLatin1String("well"))
+    {
+      // 资产叶 / 测线 / 测区：资产在可见集；测区/测线随文本。
+      const bool ok = selfMatch &&
+                      (nodeType == QLatin1String("survey_area") ||
+                       visibleIds.contains(id));
+      node->setHidden(!ok);
+      return ok;
+    }
+    // 井节点 / 标签叶 / 其它无 id 结构节点。
+    bool any = selfMatch;
+    for (int k = 0; k < node->childCount(); ++k)
+      if (visit(node->child(k)))
+        any = true;
+    node->setHidden(!any);
+    return any;
+  };
   for (int i = 0; i < m_tree->topLevelItemCount(); ++i)
   {
     QTreeWidgetItem *cat = m_tree->topLevelItem(i);
-    bool catVisible = false;
-    for (int j = 0; j < cat->childCount(); ++j)
-    {
-      QTreeWidgetItem *sub = cat->child(j);
-      bool subVisible = false;
-      // 叶/子树递归：资产节点按 visibleIds，实体/分类节点按自匹配或子命中。
-      std::function<bool(QTreeWidgetItem *)> visit = [&](QTreeWidgetItem *node) -> bool {
-        const QString id = node->data(0, Qt::UserRole).toString();
-        const bool selfMatch =
-            needle.isEmpty() || node->text(0).contains(needle, Qt::CaseInsensitive) ||
-            node->text(1).contains(needle, Qt::CaseInsensitive);
-        if (!id.isEmpty() &&
-            node->data(0, Qt::UserRole + 2).toString() != QLatin1String("category"))
-        {
-          const bool ok = visibleIds.contains(id) && selfMatch;
-          node->setHidden(!ok);
-          return ok;
-        }
-        bool anyChild = selfMatch && !id.isEmpty();
-        for (int k = 0; k < node->childCount(); ++k)
-          if (visit(node->child(k)))
-            anyChild = true;
-        if (!id.isEmpty())
-          node->setHidden(!anyChild);
-        return anyChild;
-      };
-      subVisible = visit(sub);
-      // 分类直接子节点自匹配（无 id 的说明节点）永远随父类。
-      if (sub->data(0, Qt::UserRole).toString().isEmpty() &&
-          sub->data(0, Qt::UserRole + 1).toString().isEmpty())
-      {
-        const bool selfOk =
-            needle.isEmpty() ||
-            sub->text(0).contains(needle, Qt::CaseInsensitive) ||
-            sub->text(1).contains(needle, Qt::CaseInsensitive);
-        sub->setHidden(!selfOk && !subVisible);
-        subVisible = subVisible || selfOk;
-      }
-      sub->setHidden(!subVisible);
-      if (subVisible)
-      {
-        catVisible = true;
-        if (filtering)
-          sub->setExpanded(true);
-      }
-    }
+    const bool catVisible = visit(cat);
     cat->setHidden(!catVisible);
     if (filtering && catVisible)
       cat->setExpanded(true);

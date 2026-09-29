@@ -77,6 +77,11 @@ public:
   // 当前拖拽悬浮的目标节点（供测试断言反馈态）。
   QTreeWidgetItem *dropTargetItem() const { return m_dropTarget; }
   QString lastDropRejectReason() const { return m_lastReject; }
+  // 编程式驱动面：QApplication::notify 会吞掉无拖拽会话的合成
+  // DragMove/Drop（真实路由只在 QDrag::exec 会话内），测试/自动化直调。
+  void handleDragMove(QDragMoveEvent *e) { dragMoveEvent(e); }
+  void handleDrop(QDropEvent *e) { dropEvent(e); }
+  void handleDragLeave(QDragLeaveEvent *e) { dragLeaveEvent(e); }
 
 signals:
   // D3.1/D3.4：资产（可能多个）拖到实体节点 = 挂接（未决）/ 转移（已决）。
@@ -193,6 +198,9 @@ protected:
     const QStringList ids = assetIdsFromMime(event->mimeData());
     if (!reason.isEmpty() || ids.isEmpty() || !target)
     {
+      // D3.6：drop 落在非法目标同样给出原因反馈（不只是 dragMove 悬浮态）。
+      if (!reason.isEmpty())
+        showDropFeedback(target, reason);
       event->ignore();
       return;
     }
@@ -355,6 +363,7 @@ private:
   bool m_vim = false;
   QTreeWidgetItem *m_dropTarget = nullptr;
   QString m_lastReject;
+
 };
 
 } // namespace paleo::dataops

@@ -41,6 +41,9 @@ inline QString exportCsv(const QVector<AssetRowInfo> &rows, const ExportFields &
   if (f.withTime) header << QStringLiteral("lastModified");
 
   QStringList lines;
+  // 表头同数据口径：引号包裹（CSV 一致转义）。
+  for (QString &h : header)
+    h = QStringLiteral("\"") + h + QStringLiteral("\"");
   lines << header.join(QLatin1Char(','));
   for (const AssetRowInfo &r : rows)
   {

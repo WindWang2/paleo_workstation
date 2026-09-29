@@ -127,6 +127,9 @@ EntityPanel::EntityPanel(QWidget *parent)
 
   auto *entityHeader = new QLabel(viewContent);
   entityHeader->setObjectName(QStringLiteral("entityViewHeader"));
+  // 同值标签：实体名（往往是长文件名）不顶宽面板，宽度内换行。
+  entityHeader->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+  entityHeader->setWordWrap(true);
   // 实体头：surfaceAltRaised 底 + 文字位主色（浅 #1B73D0 / 暗 primaryText）。
   PaleoTheme::applyThemedStyleSheet(entityHeader, [] {
     const bool dark = PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark;
@@ -168,6 +171,9 @@ EntityPanel::EntityPanel(QWidget *parent)
           .arg(PaleoTheme::tokens().text.name().toUpper());
     });
     val->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    // 内容永不下推面板宽度：值标签可压到 0（Ignored），长文本在面板现有
+    // 宽度内换行/裁切，而不是把「数据属性」dock 撑宽。
+    val->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     fl->addRow(lbl, val);
     return val;
   };
@@ -179,7 +185,8 @@ EntityPanel::EntityPanel(QWidget *parent)
   secBasic->containerLayout()->addLayout(formBasic);
   formBasic->setContentsMargins(4, 2, 4, 4);
   formBasic->setSpacing(4);
-  addRow(secBasic, formBasic, tr("名称:"), "propName");
+  auto *nameVal = addRow(secBasic, formBasic, tr("名称:"), "propName");
+  nameVal->setWordWrap(true);
   addRow(secBasic, formBasic, tr("类型:"), "propType");
   addRow(secBasic, formBasic, tr("格式:"), "propFormat");
   auto *pathVal = addRow(secBasic, formBasic, tr("路径:"), "propPath");
@@ -208,6 +215,8 @@ EntityPanel::EntityPanel(QWidget *parent)
   auto *rl = secRoles->containerLayout();
   auto *roleSummary = new QLabel(secRoles->container());
   roleSummary->setObjectName(QStringLiteral("propRoleSummary"));
+  roleSummary->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+  roleSummary->setWordWrap(true);
   PaleoTheme::applyThemedStyleSheet(roleSummary, [] {
     return QStringLiteral("color: %1; font-size: 8pt; margin-bottom: 2px;")
         .arg(PaleoTheme::tokens().textMuted.name().toUpper());
@@ -230,6 +239,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   auto *dl = secDetails->containerLayout();
   auto *detailsText = new QLabel(secDetails->container());
   detailsText->setObjectName(QStringLiteral("propDetailsText"));
+  detailsText->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   PaleoTheme::applyThemedStyleSheet(detailsText, [] {
     return QStringLiteral("color: %1; font-size: 8.5pt;")
         .arg(PaleoTheme::tokens().text.name().toUpper());
@@ -252,6 +262,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   derLay->addWidget(derivedTable);
   auto *missing = new QLabel(secDerived->container());
   missing->setObjectName(QStringLiteral("missingSourcesLabel"));
+  missing->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   missing->setWordWrap(true);
   missing->hide(); // 悬空血缘诊断只在 missingSources 非空时出现
   derLay->addWidget(missing);

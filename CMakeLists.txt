@@ -538,9 +538,6 @@ add_paleo_test(tst_correlation_full LIBS paleo_ui)
 # RUN_SERIAL 独占机器跑：计时抖动关回串行基线；根治（QTRY_/预算放宽）
 # 归测试属主方向，见 docs/progress/devex.md T2 注记。
 set_tests_properties(tst_correlation_full PROPERTIES RUN_SERIAL TRUE)
-# tst_perfbudget 同理：墙钟预算门禁在并行负载下必抖（CI -j$(nproc) 实测
-# folderEnumeration 525ms 超 500ms 预算，尽管已有预热）。计时测试串行跑。
-set_tests_properties(tst_perfbudget PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_layoutpalette LIBS paleo_ui)
 add_paleo_test(tst_layoutitempanel LIBS paleo_ui)
 add_paleo_test(tst_layoutexport LIBS paleo_ui)
@@ -638,7 +635,10 @@ add_paleo_test(tst_segy_fixture LIBS paleo_io)   # 合成最小 SEG-Y 夹具：�
 target_compile_definitions(tst_segy_fixture PRIVATE
   TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
 add_paleo_test(tst_algorithm_harness LIBS paleo_algorithms)  # AlgorithmTestBase harness + ≥3 算法用例
-add_paleo_test(tst_perfbudget LIBS paleo_services paleo_qgis)     # 非 UI 性能预算：工程打开/folder 枚举/save 200 版本
+add_paleo_test(tst_perfbudget LIBS paleo_services paleo_qgis)
+# 墙钟预算门禁在 CI 并行负载下必抖（实测 525ms>500ms，预热救不了 CPU
+# 争抢）——计时测试串行跑，对齐 tst_correlation_full 先例。
+set_tests_properties(tst_perfbudget PROPERTIES RUN_SERIAL TRUE)     # 非 UI 性能预算：工程打开/folder 枚举/save 200 版本
 target_compile_definitions(tst_perfbudget PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 

@@ -123,4 +123,42 @@
 - **2026-09-28 · SBM 引擎入口接线 + 上游 POSIX 崩溃修复**：`startSectionExtraction` 改走 `sdk::Dataset::ReadSection`（useReadPlan 去重+扇区合并读，NearestTrace 模式；插值回落 legacy）；新增 `startWorkspaceTranscode`（engine `TranscodeJob`，可续跑/可取消，Auto 约定 workspaceBase=<sgy路径>，zstd 编码）；数据预览时间片页改走服务异步提取（120ms 防抖+仅贴最新）并挂「转码工作区」按钮——966MB 冻屏路径从 UI 线程同步读转为后台+随机访问后端。修复上游 `SgySequentialScan` POSIX 崩溃（queueDepth>1 时同步 buffer 未分配，读 nullptr；PATCHES P3）。13 套件全绿。
 - **2026-09-28 · wave 分支全量并入 master（worktree 收口）**：`feature/seismic-3d-section`（含收尾 WIP `085e88e` 时间片网格缓存/相色预览/剖面色标 + `4fac323` agent-prompts m1/m2 文档）快进并入；`wave/ui-layer-separation` `84fc13b`（datapreviewtabs 冲突：保留 previewdoc 门面、WIP 工区图改 `m_doc->catalog()`）；`wave/layer-platform` `32a9e68`（净合入）；`wave/mapping-pages` `6ea9acc`（pagepanels 维持拆分形态、三页取 m2 实装版+`domain/arearules.h` 路径、qgislayerprofile 取 m1 实装——兜底 API 调用点收口为 `pinLayoutTheme()`、attachWorkflows/attachMapping 的 m2 增量平移入 `paleomainwindow_attach.cpp` 分段、tst_mappingpages 摘除 PageProfileTests〔兜底实现已退役，等价覆盖在 tst_layerplatform〕）。三 worktree（pw-layers/pw-mappages/pw-uilayer）+ 6 个 wave/* 本地分支已删；远程 `origin/wave/*` 引用未动。验证：paleo_core 全量编译 + 21 个相关 ctest 套件绿（tst_correlation_full 性能阈值首跑抖动 3041/3000ms 复跑过）。master 本地领先 origin/master 未推送。
 
-- **2026-09-29 · 数据管理页操作重构（wave/data-page-operations，P3）**：多选框架（ExtendedSelection 三视图 + 选中徽标/信号 + 右键菜单矩阵 + 批量挂接/改型/软删回收/导出/批量预览 + 全选反选 + 刷新选择保持）；多维过滤（十维度条件 + AND/OR + chip 单删取反 + 未决快捷条计数徽标 + 标签 sidecar 体系/标签云/树尾标签分组 + 排序记忆 + 命名预设 + 高亮委托 + 10k<100ms + 空结果态 + paleo:// 状态串）；拖放（资产→井挂接/转移、→标签节点打标、外部文件→导入意图、非法目标红线+原因、多选拖带全部、dragLeave 清反馈）；实体面板（改名/坐标 override、版本时间线卡+两版清单 diff、实体↔资产拓扑图、实体 CRUD（删除=资产处置二选一）、角色编辑（不可撤销确认）、统计段、多选批量概要、会话操作历史）；命令栈（九类命令统一接口、深 50、相邻合并、Ctrl+Z/Y+操作名按钮+状态反馈、会话清栈）；键盘（Ctrl+K 命令面板（动作/资产/实体模糊检索）、命令注册表、快捷键表+冲突检测、Vim 可选导航、焦点强化）；视图形态（树/表/图标/高速（fetchMore 批 256，10k 单批<16ms）/分组四维 + 列配置持久化 + 列头漏斗 + 稳定多键排序）；导入（队列面板逐文件进度/取消/重试状态机、预设、SHA/同名查重处置、目录预估分批确认、摘要报告）；D9 分栏契约（新代码零 setSizes——源码扫描测试钉死 + tst_ui 三条宽度回归；列表最小宽 263px）。全部新码为头文件（纯逻辑 dataops/ + Q_OBJECT 平铺 pages/ 经 moc include 显式编入——零 CMakeLists 改动）。新增 69 测试函数（tst_panels 66 + tst_ui 3），ctest 88/88。递延项与壳接线缺口见 docs/dataops/GAPS.md（catalog 实体/资产/链接更新删除 API、状态栏/导入/队列 runner/预览区拖放宿主接线）。
+- **2026-09-29 · 数据管理页操作重构（wave/data-page-operations，P3）**：多选框架（ExtendedSelection 三视图 + 选中徽标/信号 + 右键菜单矩阵 + 批量挂接/改型/软删回收/导出/批量预览 + 全选反选 + 刷新选择保持）；多维过滤（十维度条件 + AND/OR + chip 单删取反 + 未决快捷条计数徽标 + 标签 sidecar 体系/标签云/树尾标签分组 + 排序记忆 + 命名预设 + 高亮委托 + 10k<100ms + 空结果态 + paleo:// 状态串）；拖放（资产→井挂接/转移、→标签节点打标、外部文件→导入意图、非法目标红线+原因、多选拖带全部、dragLeave 清反馈）；实体面板（改名/坐标 override、版本时间线卡+两版清单 diff、实体↔资产拓扑图、实体 CRUD（删除=资产处置二选一）、角色编辑（不可撤销确认）、统计段、多选批量概要、会话操作历史）；命令栈（九类命令统一接口、深 50、相邻合并、Ctrl+Z/Y+操作名按钮+状态反馈、会话清栈）；键盘（Ctrl+K 命令面板（动作/资产/实体模糊检索）、命令注册表、快捷键表+冲突检测、Vim 可选导航、焦点强化）；视图形态（树/表/图标/高速（fetchMore 批 256，10k 单批<16ms）/分组四维 + 列配置持久化 + 列头漏斗 + 稳定多键排序）；导入（队列面板逐文件进度/取消/重试状态机、预设、SHA/同名查重处置、目录预估分批确认、摘要报告）；D9 分栏契约（新代码零 setSizes——源码扫描测试钉死 + tst_ui 三条宽度回归；列表最小宽 263px）。全部新码为头文件（纯逻辑 dataops/ + Q_OBJECT 平铺 pages/ 经 moc include 显式编入——零 CMakeLists 改动；moc include 加 __has_include 守卫适配 lint 门 configure-only 场景）。新增 69 测试函数（tst_panels 66 + tst_ui 3），ctest 88/88。递延项与壳接线缺口见 docs/dataops/GAPS.md（catalog 实体/资产/链接更新删除 API、状态栏/导入/队列 runner/预览区拖放宿主接线）。
+
+## wave/wellcomposite-deep 决策记录（2026-09-29）
+
+P1 单井综合柱状图深度升级（D1–D8 全量交付）。逐项决策与递延：
+
+- **分层接缝裁决**：ui→io include 被护栏白名单挡死且词表只读 → 派生 XML
+  写回（`io::writeComprehensiveWellXml*`）、井斜/时深表解析落 io 层由测试
+  直驱全链路；运行时面板发 `derivedDocumentReady(doc, 摘要)` 意图信号，
+  壳接 catalog DERIVED 版本落盘——**递延**：壳侧接线（catalog 版本登记）
+  待下一 wave。sidecar/会话持久化以视图层存储助手
+  （`wellcompositestore`，QtCore 文件 IO）落地——**递延**：迁移 services
+  门面（届时 ui 白名单只需放行新门面头）。
+- **井斜/时深运行时数据路径**：`ComprehensiveWellData`（domain，冻结不动）
+  无井斜/时深字段 → io 解析函数产出独立类型；运行时注入走
+  `DepthTransform` API（壳从资产解析后喂面板）——**递延**：壳把
+  `parseDeviationSurvey/parseTimeDepthTable` 接进装配链。
+- **D1.12/D2.9 合并**：单画布内多道天然共享深度轴（标尺道即坐标源）；
+  「Y 缩放联动开关」语义落位多画布锁步（MultiWellView::setLinkScroll）。
+- **D5.4 datum 校平语义**：各井滚动使同名标志层同屏高（视口 40%），
+  深度重映射（warp）未做——correlation 工作流下拉平已够用；真 warp
+  需渲染管线深度函数化，**递延**。
+- **D4.7 SVG**：QSvgGenerator 可用已交付；SVG 档用固定 8px/m 简化比例
+  （矢量无损缩放，比例尺语义由 PDF/PNG 承担）。
+- **D4.8 打印对话框**：offscreen 无打印环境，打印入口降级为 PDF 导出
+  （QPdfWriter 即打印数据流）；原生 QPrintDialog 接线**递延**至壳。
+- **D7.3 暗色**：柱状图画布保持纸面白底（DESIGN.md 2026-09-29 翻案条的
+  wellcomposite 豁免），面板/对话框 chrome 已随主题 token；道内数据符号
+  色不跟随（数据符号语义）。
+- **测试沙箱坑**：仓库有便携 QSettings 路径
+  （`~/.local/share/paleo/profiles/default/…/paleo.ini`）绕过 XDG env——
+  直跑测试二进制会跨进程污染会话记忆；ctest 沙箱不受影响。测试内用
+  每测独立 projectName 隔离（tst_wellcomposite_visual 各导出用例）。
+- **隐藏画布几何坑**：未 show 的画布 body 无真实几何 → D2.8 视口跨度
+  钳制以「bodyH ≥ 80px 才可信」守卫，否则 30px 假几何会把缩放因子反压
+  到 0.4×（tst_wellcomposite 既有比例尺联动测试由此保绿）。
+- **QLatin1String 中文坑**：CJK UTF-8 字面量经 QLatin1String 解释为
+  Latin-1 乱码（chronostrat/patterncatalog 曾中招）——中文字面量一律
+  QStringLiteral 或 QString::fromUtf8。

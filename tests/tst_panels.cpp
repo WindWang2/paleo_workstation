@@ -1658,6 +1658,38 @@ class TestPanels : public QObject
                   .compare(QStringLiteral("#5d6e80"), Qt::CaseInsensitive) == 0);
     }
 
+    // 宽度契约：超长实体名/文件名不得推高属性面板的宽度需求——内容在面板
+    // 现有宽度内换行/裁切（Ignored 策略），而不是把「数据属性」dock 撑宽。
+    void dataPage_entityViewLongNameDoesNotWidenPanel()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService svc(nullptr, nullptr);
+      svc.setProjectDir(dir.path());
+      DataCatalog *cat = svc.catalog();
+      CatalogEntity well;
+      well.id = QStringLiteral("well-long");
+      well.entityType = QStringLiteral("well");
+      well.name = QStringLiteral("A1_") + QString(200, QChar(u'深')) + QStringLiteral("井");
+      QVERIFY(cat->addEntity(well));
+
+      DataPage page;
+      PreviewDocService previewDoc(&svc);
+      page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&previewDoc));
+      page.selectAssetsForEntities({QStringLiteral("well-long")});
+
+      auto *header = page.findChild<QLabel *>(QStringLiteral("entityViewHeader"));
+      QVERIFY(header);
+      QVERIFY(header->text().contains(QStringLiteral("A1_")));
+      // 头部 Ignored：sizeHint 不随文本长度增长（200 字名称 << 800px 阈值）
+      QVERIFY2(header->sizeHint().width() < 800,
+               qPrintable(QStringLiteral("header sizeHint width = %1").arg(header->sizeHint().width())));
+      auto *props = page.findChild<QWidget *>(QStringLiteral("entityViewSection"));
+      QVERIFY(props);
+      QVERIFY2(props->sizeHint().width() < 800,
+               qPrintable(QStringLiteral("panel sizeHint width = %1").arg(props->sizeHint().width())));
+    }
+
     // 派生产物表：下游 DERIVED 版本列 displayName + vN；父版本被更高
     // versionNumber 取代 → extra["stale"] → 「过时」胶囊（B 包标记）。
     void dataPage_entityViewDerivedProductsAndStale()

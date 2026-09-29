@@ -1,0 +1,24 @@
+{
+  "_comment": [
+    "相名→花纹映射（D4.3）。本文件是内置映射的外置等价物；用户可复制到",
+    "QStandardPaths::AppConfigLocation/wellcomposite/faciespatterns.json 并增改，",
+    "用户条目优先于内置（PatternCatalog::reloadFaciesMap 后生效）。"
+  ],
+  "水下分流河道": "distributary_channel",
+  "分流河道": "distributary_channel",
+  "河口坝": "mouth_bar",
+  "远砂坝": "sheet_sand",
+  "席状砂": "sheet_sand",
+  "分流间湾": "interdistributary_bay",
+  "三角洲前缘": "delta_front",
+  "三角洲平原": "delta_plain",
+  "前三角洲": "prodelta",
+  "浅海陆棚": "shallow_marine",
+  "浊积": "turbidite",
+  "滞留沉积": "channel_lag",
+  "潮坪": "tidal_flat",
+  "颗粒滩": "shoal_grainstone",
+  "礁": "reef_limestone",
+  "泻湖": "marl",
+  "沼泽": "carbonaceous_mudstone"
+}

@@ -6,6 +6,7 @@
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/previewidentify.h"
+#include "../src/qgis/previewrasteranalysis.h"
 #include "../src/qgis/previewrendercache.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/qgis/qgislayerservice.h"
@@ -14,6 +15,7 @@
 #include "../src/ui/datapreview/previewmappage.h"
 
 #include <qgsmapcanvas.h>
+#include <qgsrasterlayer.h>
 #include <qgsvectorlayer.h>
 #include <QElapsedTimer>
 #include <QTabWidget>
@@ -43,6 +45,7 @@ class TestPreviewMapPerf : public QObject
     void renderCacheHitOnReopen();
     void snapshotRenderFast();
     void identifyIndexReused();
+    void profileSamplingUnderBudget();
 
   private:
     static std::unique_ptr<Stack> makeStack(const QString &projectDir);
@@ -205,6 +208,36 @@ void TestPreviewMapPerf::identifyIndexReused()
   qInfo() << "PERF identify-2nd(ms):" << secondMs << "hits:" << r1.size() << r2.size();
   QCOMPARE(r2.size(), r1.size()); // 索引路径结果一致
   QCOMPARE(core.indexCacheSize(), 1); // 无新增缓存行（复用）
+}
+
+void TestPreviewMapPerf::profileSamplingUnderBudget()
+{
+  // D5.1：200 点沿线采样预算（fixture 栅格，provider->sample 路径）。
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
+  QString err;
+  const QString d61Path = stage(tmp, QString::fromUtf8("层位"),
+                                QStringLiteral("D61_sample.dat"), QStringLiteral("D61.dat"));
+  const QString d61 = st->importSvc->importProjectFile(d61Path, &err);
+  QVERIFY(!d61.isEmpty());
+  st->preview->openAsset(d61);
+  auto *page = st->preview->findChild<PreviewMapPage *>(QStringLiteral("horizonPreviewPage"));
+  QVERIFY(page);
+  auto *canvas = page->findChild<QgsMapCanvas *>(QStringLiteral("horizonMapCanvas"));
+  QVERIFY(canvas);
+  auto *raster = qobject_cast<QgsRasterLayer *>(canvas->layers().value(1));
+  QVERIFY(raster);
+  const QgsRectangle ext = raster->extent();
+  QElapsedTimer timer;
+  timer.start();
+  const auto samples = PreviewRasterAnalysis::sampleProfile(
+      raster, QgsPointXY(ext.xMinimum(), ext.yMinimum()),
+      QgsPointXY(ext.xMaximum(), ext.yMaximum()), 200);
+  const qint64 ms = timer.elapsed();
+  qInfo() << "PERF profile-sampling(ms):" << ms << "samples:" << samples.size();
+  QCOMPARE(samples.size(), 200);
+  QVERIFY2(ms < 100, qPrintable(QStringLiteral("sampling %1 ms").arg(ms)));
 }
 
 int main(int argc, char *argv[])

@@ -34,6 +34,8 @@ class TestPreviewIdentify : public QObject
     void indexClearedWhenLayerDestroyed();
     void rasterPointGivesNearestAndBilinear();
     void rasterPointOutsideExtentIsMiss();
+    void pointIdentifyAcrossMixedLayers();
+    void rectIdentifyEmptyRectIsEmpty();
 
   private:
     QgsVectorLayer *makeGridLayer(int n);
@@ -180,6 +182,31 @@ void TestPreviewIdentify::rasterPointOutsideExtentIsMiss()
   // identifyPoint 路径也不产假值。
   const auto results = m_core.identifyPoint({rl.get()}, QgsPointXY(9999.0, -9999.0), 1.0);
   QVERIFY(results.isEmpty());
+}
+
+void TestPreviewIdentify::pointIdentifyAcrossMixedLayers()
+{
+  // 混合层（矢量在上、栅格在下）：点查同时命中矢量要素与栅格取值，
+  // 结果序 = 层序（视顶到视底）。
+  std::unique_ptr<QgsVectorLayer> vl(makeGridLayer(4));
+  std::unique_ptr<QgsRasterLayer> rl(makeTinyRaster());
+  QVERIFY(rl && rl->isValid());
+  // 矢量点 (200,300)=p2_3 落在栅格范围内（0..400）：双命中。
+  const auto results = m_core.identifyPoint({vl.get(), rl.get()}, QgsPointXY(200.0, 300.0), 0.5);
+  QCOMPARE(results.size(), 2);
+  QVERIFY(!results.at(0).isRaster); // 矢量在前
+  QCOMPARE(results.at(0).attributes.value(QStringLiteral("name")).toString(),
+           QStringLiteral("p2_3"));
+  QVERIFY(results.at(1).isRaster); // 栅格在后
+  QCOMPARE(results.at(1).rasterValueNearest, 2.0);
+}
+
+void TestPreviewIdentify::rectIdentifyEmptyRectIsEmpty()
+{
+  std::unique_ptr<QgsVectorLayer> vl(makeGridLayer(4));
+  // 空矩形（零宽/零高）不产任何命中——不回退成全表。
+  QVERIFY(m_core.identifyRect({vl.get()}, QgsRectangle(100, 100, 100, 100), 10).isEmpty());
+  QVERIFY(m_core.identifyRect({vl.get()}, QgsRectangle(), 10).isEmpty());
 }
 
 int main(int argc, char *argv[])

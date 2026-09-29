@@ -50,6 +50,7 @@ class TestPreviewMapCanvas : public QObject
     void setViewExtentIsExact();
     void cancelRenderingWithoutJobIsSafe();
     void renderSignalLifecycleFires();
+    void overlayFollowsCanvasResize();
 
   private:
     QgsVectorLayer *makePointLayer(int points, const QString &name);
@@ -372,6 +373,25 @@ void TestPreviewMapCanvas::renderSignalLifecycleFires()
   QTRY_COMPARE_WITH_TIMEOUT(doneSpy.count(), 1, 5000);
   QVERIFY(startedSpy.count() >= 1);
   QCOMPARE(doneSpy.at(0).at(2).toLongLong(), qint64(4)); // 图元数 = 要素数
+}
+
+void TestPreviewMapCanvas::overlayFollowsCanvasResize()
+{
+  m_canvas->show();
+  QTest::qWaitForWindowExposed(m_canvas.get());
+  QImage img(64, 48, QImage::Format_ARGB32);
+  img.fill(Qt::red);
+  m_canvas->showPreviewOverlay(img);
+  QVERIFY(m_canvas->overlayVisible());
+  const QRect before = m_canvas->findChild<QWidget *>(
+                          QStringLiteral("previewSnapshotOverlay") )
+                          ->geometry();
+  m_canvas->resize(800, 600);
+  QTest::qWait(50); // Resize 事件经事件循环送达
+  const QRect after = m_canvas->findChild<QWidget *>(
+                          QStringLiteral("previewSnapshotOverlay") )
+                          ->geometry();
+  QVERIFY(after.width() > before.width()); // 覆盖层跟随画布尺寸
 }
 
 int main(int argc, char *argv[])

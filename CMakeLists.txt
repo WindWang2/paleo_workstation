@@ -538,6 +538,9 @@ add_paleo_test(tst_correlation_full LIBS paleo_ui)
 # RUN_SERIAL 独占机器跑：计时抖动关回串行基线；根治（QTRY_/预算放宽）
 # 归测试属主方向，见 docs/progress/devex.md T2 注记。
 set_tests_properties(tst_correlation_full PROPERTIES RUN_SERIAL TRUE)
+# tst_perfbudget 同理：墙钟预算门禁在并行负载下必抖（CI -j$(nproc) 实测
+# folderEnumeration 525ms 超 500ms 预算，尽管已有预热）。计时测试串行跑。
+set_tests_properties(tst_perfbudget PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_layoutpalette LIBS paleo_ui)
 add_paleo_test(tst_layoutitempanel LIBS paleo_ui)
 add_paleo_test(tst_layoutexport LIBS paleo_ui)

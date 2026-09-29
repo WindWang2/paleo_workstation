@@ -81,12 +81,22 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
-        run: ./paleo-dev test -LE core -j "$(nproc)"
+        # 并行轮失败时串行重跑失败项一次：QGIS 栈建/计时类在 -j 负载下
+        # 有环境性抖动（本地串行全绿）；重跑仍挂才算真失败。::warning 留痕。
+        run: |
+          ./paleo-dev test -LE core -j "$(nproc)" || {
+            echo "::warning::并行轮有失败，串行重跑失败项排除负载抖动"
+            QT_QPA_PLATFORM=offscreen ctest --test-dir build -j1 --rerun-failed --output-on-failure
+          }
       - name: Test (full-stack umbrella tests)
         env:
           QT_QPA_PLATFORM: offscreen
           LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
-        run: ./paleo-dev test -L core -j "$(nproc)"
+        run: |
+          ./paleo-dev test -L core -j "$(nproc)" || {
+            echo "::warning::并行轮有失败，串行重跑失败项排除负载抖动"
+            QT_QPA_PLATFORM=offscreen ctest --test-dir build -j1 --rerun-failed --output-on-failure
+          }
       - name: Selfcheck
         env:
           QT_QPA_PLATFORM: offscreen

@@ -4,10 +4,12 @@
 #include "../metadata/paleoprojectstore.h"
 #include "../services/paleotaskservice.h"
 
+#include <QHideEvent>
 #include <QLabel>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSet>
+#include <QShowEvent>
 #include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -61,12 +63,30 @@ TaskPanel::TaskPanel(PaleoProjectStore *store, PaleoTaskService *tasks,
 
   // Poll: the busy registry is a plain hash with no change signal — a light
   // timer keeps the view honest without coupling the store to UI concerns.
-  auto *timer = new QTimer(this);
-  timer->setInterval(500);
-  connect(timer, &QTimer::timeout, this, &TaskPanel::refresh);
-  timer->start();
+  // 轮询只在面板可见时跑（底栏默认隐藏，藏着不浪费 500ms 一拍）；
+  // showEvent/hideEvent 负责启停，重新可见时补一次 refresh。
+  m_pollTimer = new QTimer(this);
+  m_pollTimer->setInterval(500);
+  connect(m_pollTimer, &QTimer::timeout, this, &TaskPanel::refresh);
+  if (isVisible())
+    m_pollTimer->start();
 
   refresh();
+}
+
+void TaskPanel::showEvent(QShowEvent *event)
+{
+  QWidget::showEvent(event);
+  if (m_pollTimer && !m_pollTimer->isActive())
+    m_pollTimer->start();
+  refresh(); // 隐藏期间错过的变化一次性补齐
+}
+
+void TaskPanel::hideEvent(QHideEvent *event)
+{
+  if (m_pollTimer)
+    m_pollTimer->stop();
+  QWidget::hideEvent(event);
 }
 
 QTreeWidgetItem *TaskPanel::rowForTask(qint64 id)
@@ -115,6 +135,8 @@ void TaskPanel::updateTaskRow(QTreeWidgetItem *row, PaleoTask *task)
   }
 
   // Status column: running → cancel button; finished → plain state text.
+  // 运行中的 detailText 放 tooltip——与单元格 widget（取消按钮）同列
+  // setText 会被按钮遮挡，二者不能同格共存。
   if (task->running())
   {
     auto *btn = qobject_cast<QPushButton *>(list->itemWidget(row, 4));
@@ -130,8 +152,10 @@ void TaskPanel::updateTaskRow(QTreeWidgetItem *row, PaleoTask *task)
         btn->setText(tr("取消中"));
       });
     }
-    row->setText(4, task->cancelRequested() ? tr("取消中")
-                                          : task->detailText());
+    const QString detail = task->detailText();
+    row->setText(4, QString()); // 清掉终态/旧文本，避免在按钮底下残影
+    row->setToolTip(4, detail);
+    btn->setToolTip(detail);
   }
   else
   {

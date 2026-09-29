@@ -6,6 +6,7 @@
 #include <QFont>
 #include <QFrame>
 #include <QGridLayout>
+#include <QHash>
 #include <QLabel>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -33,6 +34,38 @@ namespace
   // Nominal A4 portrait in mm — fallback page rect for layouts that have no
   // pages yet (a fresh QgsPrintLayout starts with zero pages).
   const QRectF kNominalPageRect( 0.0, 0.0, 210.0, 297.0 );
+
+  // QGIS's default GUI metadata carries English visible names straight into
+  // button text / undo macros. 2026-09-29 决策（源语言=中文）：把已知的注册名
+  // 映射成中文源串；未知名原样返回（兜底，不脱译）。
+  QString localizedItemName( const QString &visibleName )
+  {
+    static const QHash<QString, const char *> kNames = {
+      { QStringLiteral( "Map" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "地图" ) },
+      { QStringLiteral( "Legend" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "图例" ) },
+      { QStringLiteral( "Scale Bar" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "比例尺" ) },
+      { QStringLiteral( "Label" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "标注" ) },
+      { QStringLiteral( "Picture" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "图片" ) },
+      { QStringLiteral( "North Arrow" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "指北针" ) },
+      { QStringLiteral( "Arrow" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "箭头" ) },
+      { QStringLiteral( "Rectangle" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "矩形" ) },
+      { QStringLiteral( "Ellipse" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "椭圆" ) },
+      { QStringLiteral( "Triangle" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "三角形" ) },
+      { QStringLiteral( "Marker" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "点标记" ) },
+      { QStringLiteral( "Polygon" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "多边形" ) },
+      { QStringLiteral( "Polyline" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "折线" ) },
+      { QStringLiteral( "HTML" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "HTML" ) },
+      { QStringLiteral( "Attribute Table" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "属性表" ) },
+      { QStringLiteral( "Fixed Table" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "固定表格" ) },
+      { QStringLiteral( "Text Table" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "文本表格" ) },
+      { QStringLiteral( "Elevation Profile" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "高程剖面" ) },
+      { QStringLiteral( "Chart" ), QT_TRANSLATE_NOOP( "PaleoLayoutItemPalette", "图表" ) },
+    };
+    const auto it = kNames.constFind( visibleName );
+    return it != kNames.constEnd()
+               ? QCoreApplication::translate( "PaleoLayoutItemPalette", it.value() )
+               : visibleName;
+  }
 
   // Default sizes (mm) for programmatic placement, matching the feel of the
   // QGIS designer's defaults for drag-created items.
@@ -101,10 +134,10 @@ PaleoLayoutItemPalette::PaleoLayoutItemPalette( QWidget *parent )
   // --- page properties entry (own signal: LayoutPage has no GUI metadata)
   auto *pageButton = new QToolButton( this );
   pageButton->setObjectName( QStringLiteral( "btnPageProperties" ) );
-  pageButton->setText( tr( "Page Properties" ) );
+  pageButton->setText( tr( "页面属性" ) );
   pageButton->setIcon( QgsApplication::getThemeIcon( QStringLiteral( "/mActionPageSetup.svg" ) ) );
   pageButton->setToolButtonStyle( Qt::ToolButtonTextUnderIcon );
-  pageButton->setToolTip( tr( "Open the page setup for this layout" ) );
+  pageButton->setToolTip( tr( "打开当前版面的页面设置" ) );
   connect( pageButton, &QToolButton::clicked, this, &PaleoLayoutItemPalette::pagePropertiesRequested );
   vbox->addWidget( pageButton );
 
@@ -135,8 +168,8 @@ PaleoLayoutItemPalette::PaleoLayoutItemPalette( QWidget *parent )
     { "btnAddMarker", QgsLayoutItemRegistry::LayoutMarker, nullptr, "Marker" },
   };
 
-  vbox->addWidget( buildGroup( QStringLiteral( "mainElements" ), tr( "Main Elements" ), mainSpecs ) );
-  vbox->addWidget( buildGroup( QStringLiteral( "secondaryElements" ), tr( "Secondary Elements" ), secondarySpecs ) );
+  vbox->addWidget( buildGroup( QStringLiteral( "mainElements" ), tr( "主要元素" ), mainSpecs ) );
+  vbox->addWidget( buildGroup( QStringLiteral( "secondaryElements" ), tr( "次要元素" ), secondarySpecs ) );
   vbox->addStretch( 1 );
 }
 
@@ -232,7 +265,7 @@ bool PaleoLayoutItemPalette::addItemNow( int itemMetadataId, QgsLayout *layout, 
     return false;
 
   if ( layout->undoStack() )
-    layout->undoStack()->beginMacro( tr( "Create %1" ).arg( metadata->visibleName() ) );
+    layout->undoStack()->beginMacro( tr( "创建%1" ).arg( localizedItemName( metadata->visibleName() ) ) );
 
   std::unique_ptr<QgsLayoutItem> item( registry->createItem( itemMetadataId, layout ) );
   if ( !item )
@@ -334,16 +367,16 @@ QWidget *PaleoLayoutItemPalette::buildGroup( const QString &objectName, const QS
     {
       // Unavailable in this QGIS build: disabled, with the reason visible
       // (DESIGN.md: disabled tools must carry a reason tooltip).
-      button->setText( QCoreApplication::translate( "PaleoLayoutItemPalette", spec.fallbackName ) );
+      button->setText( localizedItemName( QString::fromLatin1( spec.fallbackName ) ) );
       button->setEnabled( false );
-      button->setToolTip( tr( "This element type is not available in the current QGIS runtime." ) );
+      button->setToolTip( tr( "当前 QGIS 运行时不支持此元素类型。" ) );
     }
     else
     {
       QgsLayoutItemAbstractGuiMetadata *metadata = QgsGui::layoutItemGuiRegistry()->itemMetadata( metadataId );
-      button->setText( metadata->visibleName() );
+      button->setText( localizedItemName( metadata->visibleName() ) );
       button->setIcon( metadata->creationIcon() );
-      button->setToolTip( tr( "Add %1" ).arg( metadata->visibleName() ) );
+      button->setToolTip( tr( "添加%1" ).arg( localizedItemName( metadata->visibleName() ) ) );
       const int emittedId = metadataId;
       connect( button, &QToolButton::clicked, this,
                [this, emittedId]() { emit itemRequested( emittedId ); } );

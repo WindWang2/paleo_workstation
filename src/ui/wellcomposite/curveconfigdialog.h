@@ -55,8 +55,8 @@ public:
   // 业务逻辑接口（供槽函数及单元测试直接调用）
   bool combineCurves(const QList<QPair<int, int>> &indices, const QString &title);
   bool dissolveTrack(int trackIdx);
-  bool extractCurve(int trackIdx, int curveIdx);
-  bool renameTrack(int trackIdx, const QString &newTitle);
+  bool extractCurve(int trkIdx, int crvIdx);
+  bool renameTrack(int trkIdx, const QString &newTitle);
   void moveTrack(int fromIdx, int toIdx);
   void setTrackVisible(int trackIdx, bool visible);
 

@@ -15,7 +15,7 @@ class QWidget;
 // 字体注册、焦点环、状态胶囊、mono 数字面都从这里取；面板代码不得再各写
 // 一份颜色字面量。找不到 vendor 字体时如实降级（日志说明），不阻止启动。
 //
-// 暗色翻案（DESIGN.md 决策日志 2026-09-28）：Theme::Dark 全套 token 与
+// 暗色翻案（DESIGN.md 决策日志 2026-09-29）：Theme::Dark 全套 token 与
 // 浅色同构——UI chrome 跟随主题，数据符号色（DESIGN.md「地图域配色」：
 // 相色标/物源线/井曲线/相名色）不属 UI token，暗色下保持不变。
 
@@ -60,7 +60,8 @@ namespace PaleoTheme
     QColor surface, surfaceAlt, surfaceAltRaised;
     QColor border, text, textMuted, textDisabled, placeholder;
     QColor success, warning, error;
-    QColor successBg, warningBg, errorBg; // status-tag 底色（capsule）
+    QColor successBg, warningBg, errorBg;     // status-tag 底色（capsule）
+    QColor successText, warningText, errorText; // 胶囊文字色（浅色=深色变体保 AA）
   };
   // theme 省略 = 当前主题（缺省实参在调用点求值，暗色下自动取暗色阶）。
   const ThemeTokens &tokens(Theme theme = currentTheme());

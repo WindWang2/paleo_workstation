@@ -4,17 +4,30 @@
 #include "../domain/mappinghorizons.h"
 #include "../linkage/selectioncontext.h"
 #include "../qgis/qgislayerservice.h"
+#include "paleotheme.h"
 
 #include <QSet>
 #include <QToolButton>
 #include <QHBoxLayout>
 
-// DESIGN.md components.chip / chip-active（rounded.full = 胶囊）。
-static const char kChipStyle[] =
-    "QToolButton { border-radius: 9999px; padding: 4px 16px;"
-    " background: #FFFFFF; border: 1px solid #DFE5EC; color: #5D6E80; }"
-    "QToolButton:checked { background: #1B73D0; border-color: #1B73D0; color: #FFFFFF; }"
-    "QToolButton:hover:!checked { color: #24303E; }";
+// DESIGN.md components.chip / chip-active（rounded.full = 胶囊）：色值全部
+// 走 token（applyThemedStyleSheet 活体注册——运行中切主题即时跟随）；
+// checked = chip-active（primary 底 + on-primary 字，交互蓝三用途之一）。
+static void applyChipStyle( QToolButton *chip )
+{
+  PaleoTheme::applyThemedStyleSheet( chip, [] {
+    const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "QToolButton { border-radius: 9999px; padding: 4px 16px;"
+               " background: %1; border: 1px solid %2; color: %3; }"
+               "QToolButton:checked { background: %4; border-color: %4; color: %5; }"
+               "QToolButton:hover:!checked { color: %6; }"
+               "QToolButton:disabled { color: %7; }" )
+        .arg( t.surface.name(), t.border.name(), t.textMuted.name(),
+              t.primary.name(), t.onPrimary.name(), t.text.name(),
+              t.textDisabled.name() );
+  } );
+}
 
 HorizonChipBar::HorizonChipBar( SelectionContext *selection, QgisLayerService *layers,
                                 QWidget *parent )
@@ -52,8 +65,8 @@ void HorizonChipBar::buildChips()
     chip->setText( h );
     chip->setCheckable( true );
     chip->setToolButtonStyle( Qt::ToolButtonTextOnly );
-    chip->setStyleSheet( QLatin1String( kChipStyle ) );
-    chip->setAccessibleName( QStringLiteral( "层位 %1" ).arg( h ) );
+    applyChipStyle( chip );
+    chip->setAccessibleName( tr( "层位 %1" ).arg( h ) );
     connect( chip, &QToolButton::clicked, this, [this, h] {
       // 切层位 = 广播 + 懒加载（物化目标、释放其他层位实例）。
       QString editingName;

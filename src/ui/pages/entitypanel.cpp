@@ -43,77 +43,13 @@ using namespace paleo::pagesinternal;
 
 namespace
 {
-  // 纯 Qt 折叠段控件（DESIGN.md 浅灰 surface-alt，浅边框，▼/▶ 开合）
-  class CollapsibleSection : public QWidget
-  {
-  public:
-    explicit CollapsibleSection(const QString &title, QWidget *parent = nullptr)
-      : QWidget(parent)
-      , m_title(title)
-    {
-      auto *lay = new QVBoxLayout(this);
-      lay->setContentsMargins(0, 0, 0, 0);
-      lay->setSpacing(4);
-
-      m_toggle = new QToolButton(this);
-      m_toggle->setText(QStringLiteral("▼  ") + title);
-      m_toggle->setCheckable(true);
-      m_toggle->setChecked(true);
-      m_toggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
-      // chrome 全 token（浅色值与旧字面量一致；hover 浅色保留 #E2E8F0、
-      // 暗色换 border），活体注册随主题。
-      PaleoTheme::applyThemedStyleSheet(m_toggle, [] {
-        const bool dark = PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark;
-        const auto &t = PaleoTheme::tokens();
-        return QStringLiteral(
-                   "QToolButton { "
-                   "  font-weight: 600; "
-                   "  font-size: 8.5pt; "
-                   "  color: %1; "
-                   "  background: %2; "
-                   "  border: 1px solid %3; "
-                   "  border-radius: 4px; "
-                   "  padding: 4px 8px; "
-                   "  text-align: left; "
-                   "} "
-                   "QToolButton:hover { background: %4; }")
-            .arg(t.text.name().toUpper(), t.surfaceAltRaised.name().toUpper(),
-                 t.border.name().toUpper(),
-                 dark ? t.border.name().toUpper() : QStringLiteral("#E2E8F0"));
-      });
-      m_toggle->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-
-      m_container = new QWidget(this);
-      auto *cl = new QVBoxLayout(m_container);
-      cl->setContentsMargins(4, 2, 4, 4);
-      cl->setSpacing(4);
-
-      lay->addWidget(m_toggle);
-      lay->addWidget(m_container);
-
-      QObject::connect(m_toggle, &QToolButton::toggled, this, [this](bool checked) {
-        m_container->setVisible(checked);
-        m_toggle->setText((checked ? QStringLiteral("▼  ") : QStringLiteral("▶  ")) + m_title);
-      });
-    }
-
-    QWidget *container() const { return m_container; }
-    QVBoxLayout *containerLayout() const { return static_cast<QVBoxLayout *>(m_container->layout()); }
-    void setExpanded(bool exp) { m_toggle->setChecked(exp); }
-
-  private:
-    QString m_title;
-    QToolButton *m_toggle = nullptr;
-    QWidget *m_container = nullptr;
-  };
-
   // p5a 实体视图占位格（「缺失」/「—」）：缺源可见但样式克制（upstream
   // missing-source 原则——空角色如实显示为缺失槽位，灰字、不可交互）。
   QTableWidgetItem *mutedCell(const QString &text)
   {
     auto *it = new QTableWidgetItem(text);
     it->setFlags(Qt::NoItemFlags);
-    it->setForeground(QColor(QStringLiteral("#5D6E80"))); // text-muted
+    it->setForeground(PaleoTheme::tokens().textMuted); // text-muted（现取随主题）
     return it;
   }
 } // namespace
@@ -176,13 +112,13 @@ EntityPanel::EntityPanel(QWidget *parent)
   const auto addRow = [](CollapsibleSection *sec, QFormLayout *fl, const QString &label, const char *valName) -> QLabel * {
     auto *lbl = new QLabel(label, sec->container());
     PaleoTheme::applyThemedStyleSheet(lbl, [] {
-      return QStringLiteral("color: %1; font-size: 8.5pt;")
+      return QStringLiteral("color: %1; font-size: 8pt;")
           .arg(PaleoTheme::tokens().textMuted.name().toUpper());
     });
     auto *val = new QLabel(QStringLiteral("—"), sec->container());
     val->setObjectName(QLatin1String(valName));
     PaleoTheme::applyThemedStyleSheet(val, [] {
-      return QStringLiteral("color: %1; font-size: 8.5pt; font-weight: 500;")
+      return QStringLiteral("color: %1; font-size: 8pt; font-weight: 500;")
           .arg(PaleoTheme::tokens().text.name().toUpper());
     });
     val->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -256,7 +192,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   detailsText->setObjectName(QStringLiteral("propDetailsText"));
   detailsText->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   PaleoTheme::applyThemedStyleSheet(detailsText, [] {
-    return QStringLiteral("color: %1; font-size: 8.5pt;")
+    return QStringLiteral("color: %1; font-size: 8pt;")
         .arg(PaleoTheme::tokens().text.name().toUpper());
   });
   detailsText->setWordWrap(true);
@@ -961,17 +897,32 @@ void EntityPanel::refresh()
       }
       if (propZRange)
       {
-        const double dt = survey.sampleIntervalUs > 0 ? survey.sampleIntervalUs / 1000.0 : 2.0;
-        propZRange->setText(tr("双程旅行时 0.0 ~ 3000.0 ms (采样间隔 %1 ms)").arg(dt, 0, 'f', 1));
+        // 只写实测值：catalog 冻结了起始时间与采样间隔；TWT 末点依赖样本
+        // 数（catalog 未存），取不到不臆造。
+        if (survey.sampleIntervalUs > 0)
+          propZRange->setText(tr("双程旅行时：起始 %1 ms · 采样间隔 %2 ms")
+                                  .arg(survey.startTimeMs, 0, 'f', 1)
+                                  .arg(survey.sampleIntervalUs / 1000.0, 0, 'f', 1));
+        else
+          propZRange->setText(tr("—"));
       }
-      if (propGrid) propGrid->setText(tr("多道地震数据体 · 40,000 道"));
+      if (propGrid)
+      {
+        // 道数 catalog 未存——按冻结的测网范围给真实规格，取不到写「—」。
+        if (survey.inlineMax > survey.inlineMin && survey.xlineMax > survey.xlineMin)
+          propGrid->setText(tr("三维测网 %1 × %2（Inline × Crossline）")
+                                .arg(int(survey.inlineMax - survey.inlineMin) + 1)
+                                .arg(int(survey.xlineMax - survey.xlineMin) + 1));
+        else
+          propGrid->setText(tr("—"));
+      }
     }
     else if (a.type == QLatin1String("horizon"))
     {
-      if (propCrs) propCrs->setText(QStringLiteral("EPSG:4544 / CGCS2000"));
+      if (propCrs) propCrs->setText(tr("工区局部测网坐标系（米）"));
       if (propCoord) propCoord->setText(tr("工区构造层位面网格"));
       if (propZRange) propZRange->setText(tr("双程时间 / 构造深度 (TWT)"));
-      if (propGrid) propGrid->setText(tr("411 × 641 网格节点 (步长 25m)"));
+      if (propGrid) propGrid->setText(tr("—")); // 网格规格 catalog 未存，不臆造
     }
     else if (isGeoJson)
     {
@@ -1026,7 +977,7 @@ void EntityPanel::refresh()
     }
     else
     {
-      if (propCrs) propCrs->setText(QStringLiteral("EPSG:4544 / CGCS2000"));
+      if (propCrs) propCrs->setText(tr("工区局部测网坐标系（米）"));
       if (propCoord) propCoord->setText(tr("工区基准坐标"));
       if (propZRange) propZRange->setText(tr("—"));
       if (propGrid) propGrid->setText(tr("—"));
@@ -1075,7 +1026,6 @@ void EntityPanel::refresh()
       if (a.type == QLatin1String("seismic"))
       {
         details << tr("数据类型: 地震振幅数据体 (SEG-Y)");
-        details << tr("道头定义: Inline 189-192, Xline 193-196, CDP 21-24");
         details << tr("振幅动态范围: 浮点连续振幅");
       }
       else if (a.type == QLatin1String("horizon"))
@@ -1231,7 +1181,7 @@ void EntityPanel::refresh()
     if (propStatus) propStatus->setText(tr("正常 · 已接入"));
 
     // 2. 空间与几何
-    if (propCrs) propCrs->setText(QStringLiteral("EPSG:4544 / CGCS2000"));
+    if (propCrs) propCrs->setText(tr("工区局部测网坐标系（米）"));
     if (propCoord)
     {
       if (ovr.hasCoords)

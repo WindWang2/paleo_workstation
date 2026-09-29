@@ -5,12 +5,16 @@
 
 class PaleoProjectStore;
 class PaleoTaskService;
+class QHideEvent;
+class QShowEvent;
+class QTimer;
 class QTreeWidgetItem;
 
 // ui/ — TaskPanel: bottom-dock 任务页（autoplan pass-2 D2）。两块内容：
 // 1) store busy 注册表的忙图层镜像（§35 门工具读的那份，含编辑等无进度任务）；
 // 2) PaleoTaskService 的异步任务行——1s 粒度进度条 + 10s 字节线性 ETA +
-//    协作式取消。面板照旧轮询，无信号的 store 不需要改。
+//    协作式取消。面板轮询随可见性启停（showEvent/hideEvent），无信号的
+//    store 不需要改。
 class TaskPanel : public QWidget
 {
   Q_OBJECT
@@ -25,8 +29,15 @@ class TaskPanel : public QWidget
     void rebuildBusyRows();
     void updateTaskRow(QTreeWidgetItem *row, class PaleoTask *task);
 
+  protected:
+    // 500ms 轮询随可见性启停（底栏默认隐藏，不可见不轮询）。
+    void showEvent(QShowEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
+
+  private:
     PaleoProjectStore *m_store;
     PaleoTaskService *m_tasks;
+    QTimer *m_pollTimer = nullptr;
     QHash<qint64, QTreeWidgetItem *> m_taskRows;  // taskId -> row
     QHash<QString, QTreeWidgetItem *> m_busyRows; // layerId -> row
 };

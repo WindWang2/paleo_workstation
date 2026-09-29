@@ -224,6 +224,13 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 为目标态；写盘走 PaleoTheme::writeThemeToSettings（唯一写者）。
     void setDarkThemeEnabled(bool dark);
     void reapplyThemeChrome();
+    // 窗口标题 = 「<工程名> — Paleo Workbench [*]」（QGIS 惯例；[*] 配
+    // setWindowModified，工程 isDirtyChanged/projectSaved 驱动）。无工程时
+    // 只有产品名。工程打开/保存后由接线刷新。
+    void updateWindowTitle();
+    // W2 长任务可见性：有运行中任务时自动露出底栏任务页（程序化显隐，不动
+    // userWantsVisible）；任务清空后恢复用户原可见态。
+    void syncBottomDockForTasks();
     // m2(D) 页面图层档案：四个编图页切到/层位 chip 切换后重应用当前页档案
     // （QgisLayerProfileService::applyPageProfile）。数据页无档案，no-op。
     void applyCurrentPageProfile();
@@ -272,6 +279,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     PaleoDockWidget *m_leftDock = nullptr;
     QDockWidget *m_rightDock = nullptr;
     PaleoDockWidget *m_bottomDock = nullptr;
+    bool m_bottomDockAutoShown = false; // W2：任务驱动的自动露出（恢复用）
     // ---- wave/layer-platform：左 dock 图层平台（面板 + 档案工具条 + 服务） ----
     LayerTreePanel *m_layerPanel = nullptr;
     LayerProfileBar *m_profileBar = nullptr;
@@ -284,6 +292,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     std::unique_ptr<seismic::SeismicTaskService> m_seismicTaskSvc;
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
+    QgisEditingService *m_editSvc = nullptr; // attachShellSurfaces 注入；closeEvent 保存/放弃走它
     DataImportService *m_importSvc = nullptr; // attachWorkflows 注入；启动页「从工区文件夹新建」用
     // 壳唯一数据门面（W1）：dataPage 属性与 previewTabs 共用同一实例。
     PreviewDocService *m_previewDoc = nullptr;

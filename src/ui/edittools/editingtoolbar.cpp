@@ -10,6 +10,7 @@
 #include <QLabel>
 #include <QLayout>
 #include <QMenu>
+#include <QMessageBox>
 #include <QPoint>
 #include <QRect>
 #include <QToolBar>
@@ -32,6 +33,7 @@
 
 #include "../../qgis/qgiseditingservice.h"
 #include "../paleoicons.h"
+#include "../paleotheme.h"
 #include "editingtools.h"
 #include "vertexeditortools.h"
 
@@ -52,9 +54,6 @@
 
 namespace
 {
-// DESIGN.md text-muted: readable state text on the light ribbon surface.
-const QColor kStateIdleColor = QColor( QStringLiteral( "#5D6E80" ) );
-
 // File-local select tool: drag a rectangle rubber band, release selects the
 // canvas current layer's features intersecting the box. QGIS 4.2.2 build note:
 // qgsmaptoolselectutils.h DECLARES selectMultipleFeatures/selectSingleFeature,
@@ -73,7 +72,7 @@ class PaleoSelectTool : public QgsMapTool
       : QgsMapTool( canvas )
 
     {
-      setToolName( QCoreApplication::translate( "PaleoEditingToolbar", "Select features" ) );
+      setToolName( QCoreApplication::translate( "PaleoEditingToolbar", "选择要素" ) );
       setCursor( QCursor( Qt::ArrowCursor ) );
     }
 
@@ -136,7 +135,7 @@ class PaleoSelectTool : public QgsMapTool
       if ( !vl )
       {
         emit messageEmitted( QCoreApplication::translate( "PaleoEditingToolbar",
-                                   "Select needs a vector layer as the current layer" ),
+                                   "选择操作需要当前图层为矢量图层" ),
                              Qgis::MessageLevel::Warning );
         mRubberBand->reset( Qgis::GeometryType::Polygon );
         return;
@@ -155,7 +154,7 @@ class PaleoSelectTool : public QgsMapTool
         catch ( QgsCsException & )
         {
           emit messageEmitted( QCoreApplication::translate( "PaleoEditingToolbar",
-                                     "Cannot transform the selection rectangle to the layer CRS" ),
+                                     "无法将选择矩形转换到图层坐标系" ),
                                Qgis::MessageLevel::Warning );
           mRubberBand->reset( Qgis::GeometryType::Polygon );
           return;
@@ -465,7 +464,7 @@ void PaleoEditingToolbar::buildUi()
                                   QStringLiteral( "mActionReshape.svg" ) );
   mActionMove = newToolAction( tr( "移动" ), tr( "拖动移动所选要素" ),
                                QStringLiteral( "mActionMoveFeature.svg" ) );
-  mActionDeleteFeatures = newToolAction( tr( "删除" ), tr( "删除所选要素" ),
+  mActionDeleteFeatures = newToolAction( tr( "删除" ), tr( "单击删除光标下的要素（命中式，不删整个选区）" ),
                                          QStringLiteral( "mActionDeleteSelected.svg" ) );
   mActionVertexEdit = newToolAction( tr( "节点" ), tr( "编辑所选要素的节点" ),
                                      QStringLiteral( "mActionVertexTool.svg" ) );
@@ -522,7 +521,23 @@ void PaleoEditingToolbar::buildUi()
   }
 
   connect( mActionSave, &QAction::triggered, this, &PaleoEditingToolbar::saveEditing );
-  connect( mActionCancel, &QAction::triggered, this, &PaleoEditingToolbar::cancelEditing );
+  connect( mActionCancel, &QAction::triggered, this, [this] {
+    // 一键 rollBack 整个编辑会话：有未提交命令时先确认（程序化 cancelEditing()
+    // 不确认——调用方已决断；消息措辞如实报出爆炸半径）。
+    QgsVectorLayer *layer = mEditLayer;
+    if ( layer && layer->isEditable() && layer->undoStack() && layer->undoStack()->canUndo() )
+    {
+      const auto choice = QMessageBox::question(
+        this, tr( "放弃编辑" ),
+        tr( "将放弃图层 %1 的全部未保存编辑（%2 条命令），是否继续？" )
+          .arg( layer->name() )
+          .arg( layer->undoStack()->index() ),
+        QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel );
+      if ( choice != QMessageBox::Ok )
+        return;
+    }
+    cancelEditing();
+  } );
 
   // activated() fires on user picks only — programmatic rebuilds re-sync via
   // setCurrentLayer/refreshCombo and never re-enter this path.
@@ -662,17 +677,19 @@ void PaleoEditingToolbar::updateActionStates()
 void PaleoEditingToolbar::updateStateLabel()
 {
   QPalette palette = mStateLabel->palette();
+  // DESIGN.md text-muted——状态文字（浏览/编辑中）是说明性 chrome，非告警。
+  const QColor stateColor = PaleoTheme::tokens().textMuted;
   if ( isEditing() )
   {
     // Editing is an ordinary operation, not an error or review warning.
     mStateLabel->setText( tr( "编辑中：%1" ).arg( mEditLayer->name() ) );
-    palette.setColor( QPalette::WindowText, kStateIdleColor );
+    palette.setColor( QPalette::WindowText, stateColor );
   }
   else
   {
     mStateLabel->setText( currentLayer() ? tr( "浏览：%1" ).arg( currentLayer()->name() )
                                         : tr( "未选择矢量图层" ) );
-    palette.setColor( QPalette::WindowText, kStateIdleColor );
+    palette.setColor( QPalette::WindowText, stateColor );
   }
   mStateLabel->setPalette( palette );
 }

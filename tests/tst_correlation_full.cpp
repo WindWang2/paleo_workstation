@@ -33,6 +33,7 @@
 #include "../src/ui/correlation/curvebrowser.h"
 #include "../src/ui/correlation/depthruler.h"
 #include "../src/ui/correlation/horizonmarkers.h"
+#include "../src/ui/paleotheme.h"
 
 // tst_correlation_full — the well-correlation section's full-coverage suite.
 //
@@ -570,7 +571,7 @@ class TestCorrWellColumn : public QObject
         return false;
       };
       QVERIFY(hasCaption(QStringLiteral("GR")));  // mnemonic-only caption item
-      QVERIFY(hasCaption(QStringLiteral("GAPI"))); // unit as its own 7pt tag
+      QVERIFY(hasCaption(QStringLiteral("GAPI"))); // unit as its own 8pt tag（textMuted，不再压 disabled 级）
       QVERIFY(hasCaption(QStringLiteral("RHOB"))); // exactly the mnemonic, no unit
       for (const auto *t : texts)
         if (t->text() != QStringLiteral("井1") && t->text() != QStringLiteral("GAPI"))
@@ -1357,7 +1358,8 @@ class TestHorizonMarkers : public QObject
         QCOMPARE(mLabels.size(), 1); // one label per marker, not per column
         auto *lbl = mLabels.first();
         QCOMPARE(lbl->text(), QStringLiteral("M"));
-        QCOMPARE(lbl->brush().color(), QColor(QStringLiteral("#F29900")));
+        // 标签文字用正文 token（白底对比度合规）；标志色由线段承载。
+        QCOMPARE(lbl->brush().color(), PaleoTheme::tokens().text);
         QCOMPARE(lbl->font().pointSizeF(), 8.0);
         QCOMPARE(lbl->pos().x(), 0.0); // anchored at the LEFTMOST picked column
         QCOMPARE(lbl->pos().y() + lbl->boundingRect().height(), 148.0); // 2px above y=150
@@ -1368,7 +1370,7 @@ class TestHorizonMarkers : public QObject
         QCOMPARE(nLabels.first()->pos().x(), 120.0); // W3 is N's only picked column
         QCOMPARE(nLabels.first()->pos().y() + nLabels.first()->boundingRect().height(),
                  248.0); // 2px above y=250
-        QCOMPARE(nLabels.first()->brush().color(), QColor(QStringLiteral("#123456")));
+        QCOMPARE(nLabels.first()->brush().color(), PaleoTheme::tokens().text);
 
         QCOMPARE(markerItems(&scene).size(), 5); // 3 lines + 2 labels
     }

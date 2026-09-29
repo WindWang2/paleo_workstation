@@ -1,7 +1,7 @@
 // 层：视图
 #include "datapreviewtabs.h"
 
-#include "../paleotheme.h" // DESIGN.md token 出口（mono 数字面共用）
+#include "../paleotheme.h" // DESIGN.md token 出口（颜色/字阶/活体样式共用）
 #include "../paleoicons.h" // 角落最大化/还原自绘图标
 
 #include "../../catalog/datacatalog.h"
@@ -103,13 +103,19 @@
 // ---------------------------------------------------------------------------
 namespace
 {
+  // token 色 → QSS 大写 #RRGGBB（与 paleotheme 内部 qssHex 同口径，逐字节可比）。
+  QString qssHex(const QColor &c)
+  {
+    return c.name().toUpper();
+  }
+
   QLabel *caption8(const QString &text, QWidget *parent)
   {
     auto *l = new QLabel(text, parent);
     QFont f = l->font();
-    f.setPointSize(8);
+    f.setPointSize(PaleoTheme::kLabelPt);
     l->setFont(f);
-    l->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+    PaleoTheme::applyThemedStyleSheet(l, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
     return l;
   }
 
@@ -118,7 +124,7 @@ namespace
     auto *l = new QLabel(text, parent);
     l->setAlignment(Qt::AlignCenter);
     l->setWordWrap(true);
-    l->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+    PaleoTheme::applyThemedStyleSheet(l, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
     l->setObjectName(QStringLiteral("stateText"));
     return l;
   }
@@ -126,7 +132,9 @@ namespace
   QLabel *warnLabel(const QString &text, QWidget *parent)
   {
     auto *l = new QLabel(text, parent);
-    l->setStyleSheet(QStringLiteral("color: #F29900;")); // DESIGN.md warning
+    PaleoTheme::applyThemedStyleSheet(l, [] {
+      return QStringLiteral("color: %1;").arg(qssHex(PaleoTheme::tokens().warning));
+    });
     l->setWordWrap(true);
     return l;
   }
@@ -140,13 +148,36 @@ namespace
   QLabel *valueLabel(const QString &text, QWidget *parent, bool mono = false)
   {
     auto *v = new QLabel(text, parent);
-    v->setStyleSheet(QStringLiteral("color: #24303E;"));
+    PaleoTheme::applyThemedStyleSheet(v, [] {
+      return QStringLiteral("color: %1;").arg(qssHex(PaleoTheme::tokens().text));
+    });
     if (mono)
     {
       v->setFont(monoFont());
       v->setAlignment(Qt::AlignRight | Qt::AlignVCenter); // 数字列右对齐（§4）
     }
     return v;
+  }
+
+  // 预览页内工具条（测区全景 / GeoJSON 相图共用）：surface-alt 底 + 安静按钮组；
+  // checked = chip 语义（primary 描边 + 浮起面底，同 ribbonStyleSheet checked 范式）。
+  void stylePreviewToolBar(QWidget *bar)
+  {
+    bar->setObjectName(QStringLiteral("previewToolBar"));
+    PaleoTheme::applyThemedStyleSheet(bar, [] {
+      const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+      return QStringLiteral(
+          "QWidget#previewToolBar { background: %1; border-bottom: 1px solid %2; }"
+          "QWidget#previewToolBar QToolButton { background: %3; border: 1px solid %2;"
+          " border-radius: 4px; padding: 4px 8px; font-size: 8pt; color: %4; }"
+          "QWidget#previewToolBar QToolButton:hover { background: %5; border-color: %6; }"
+          "QWidget#previewToolBar QToolButton:pressed { background: %2; }"
+          "QWidget#previewToolBar QToolButton:checked { background: %5;"
+          " border-color: %7; color: %8; font-weight: 500; }")
+          .arg(qssHex(t.surfaceAlt), qssHex(t.border), qssHex(t.surface),
+               qssHex(t.text), qssHex(t.surfaceAltRaised), qssHex(t.textDisabled),
+               qssHex(t.primary), qssHex(t.primaryText));
+    });
   }
 
   void setNumericItem(QTableWidgetItem *it)
@@ -1343,12 +1374,16 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   m_tabs->setTabsClosable(true);
   m_tabs->setUsesScrollButtons(true); // T32：标签超宽滚动，不挤压
   m_tabs->setAccessibleName(tr("预览"));
-  // dock 面板样式（DESIGN.md）：无工作流蓝下划线，安静边框。
-  m_tabs->setStyleSheet(QStringLiteral(
-      "QTabWidget::pane { border: 1px solid #DFE5EC; background: #FFFFFF; top: -1px; }"
-      "QTabBar::tab { padding: 4px 10px; color: #5D6E80; border: 1px solid #DFE5EC;"
-      " border-bottom: none; background: #FFFFFF; }"
-      "QTabBar::tab:selected { color: #24303E; font-weight: 600; }"));
+  // dock 面板样式（DESIGN.md）：无工作流蓝下划线，安静边框；活体跟随主题。
+  PaleoTheme::applyThemedStyleSheet(m_tabs, [] {
+    const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+    return QStringLiteral(
+        "QTabWidget::pane { border: 1px solid %1; background: %2; top: -1px; }"
+        "QTabBar::tab { padding: 4px 10px; color: %3; border: 1px solid %1;"
+        " border-bottom: none; background: %2; }"
+        "QTabBar::tab:selected { color: %4; font-weight: 600; }")
+        .arg(qssHex(t.border), qssHex(t.surface), qssHex(t.textMuted), qssHex(t.text));
+  });
   connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int index) {
     const QString assetId = assetIdAt(index);
     if (!assetId.isEmpty())
@@ -1484,22 +1519,18 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   lay->setContentsMargins(0, 0, 0, 0);
   lay->setSpacing(0);
 
-  // 顶部快捷控制条（遵照 DESIGN.md 设计规范）
+  // 顶部快捷控制条（遵照 DESIGN.md 设计规范；token 活体样式见 stylePreviewToolBar）
   auto *topBar = new QWidget(w);
   auto *tbLay = new QHBoxLayout(topBar);
   tbLay->setContentsMargins(8, 4, 8, 4);
   tbLay->setSpacing(6);
-  topBar->setStyleSheet(QStringLiteral("background: #EDF1F5; border-bottom: 1px solid #DFE5EC;"));
-
-  const QString btnStyle = QStringLiteral(
-      "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; "
-      "padding: 4px 8px; font-size: 8.5pt; color: #24303E; }"
-      "QToolButton:hover { background: #E2E8F0; border-color: #9AA7B4; }"
-      "QToolButton:pressed { background: #DFE5EC; }"
-      "QToolButton:checked { background: #E1EFFE; border-color: #1B73D0; color: #1B73D0; font-weight: 500; }");
+  stylePreviewToolBar(topBar);
 
   auto *lblTitle = new QLabel(tr("测区全景地图 (QGIS 画布)"), topBar);
-  lblTitle->setStyleSheet(QStringLiteral("font-weight: 600; color: #1B73D0; font-size: 9pt;"));
+  PaleoTheme::applyThemedStyleSheet(lblTitle, [] {
+    return QStringLiteral("font-weight: 600; color: %1; font-size: 9pt;")
+        .arg(qssHex(PaleoTheme::tokens().text));
+  });
   tbLay->addWidget(lblTitle);
 
   tbLay->addSpacing(8);
@@ -1508,7 +1539,6 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   btnFull->setObjectName(QStringLiteral("btnSurveyFullExtent"));
   btnFull->setText(tr("全图"));
   btnFull->setToolTip(tr("缩放到测区全景范围"));
-  btnFull->setStyleSheet(btnStyle);
   btnFull->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionZoomFullExtent.svg")));
   btnFull->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   tbLay->addWidget(btnFull);
@@ -1517,7 +1547,6 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   btnIn->setObjectName(QStringLiteral("btnSurveyZoomIn"));
   btnIn->setText(tr("放大"));
   btnIn->setToolTip(tr("放大地图 (支持鼠标滚轮缩放)"));
-  btnIn->setStyleSheet(btnStyle);
   btnIn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionZoomIn.svg")));
   btnIn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   tbLay->addWidget(btnIn);
@@ -1526,7 +1555,6 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   btnOut->setObjectName(QStringLiteral("btnSurveyZoomOut"));
   btnOut->setText(tr("缩小"));
   btnOut->setToolTip(tr("缩小地图 (支持鼠标滚轮缩放)"));
-  btnOut->setStyleSheet(btnStyle);
   btnOut->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionZoomOut.svg")));
   btnOut->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   tbLay->addWidget(btnOut);
@@ -1535,7 +1563,6 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   btnPan->setObjectName(QStringLiteral("btnSurveyPan"));
   btnPan->setText(tr("漫游"));
   btnPan->setToolTip(tr("按住鼠标左键拖拽平移地图"));
-  btnPan->setStyleSheet(btnStyle);
   btnPan->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionPan.svg")));
   btnPan->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   tbLay->addWidget(btnPan);
@@ -1547,7 +1574,6 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   btnBoundary->setToolTip(tr("显示/隐藏工区范围边界多边形"));
   btnBoundary->setCheckable(true);
   btnBoundary->setChecked(true);
-  btnBoundary->setStyleSheet(btnStyle);
   btnBoundary->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")));
   btnBoundary->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   tbLay->addWidget(btnBoundary);
@@ -1558,7 +1584,6 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   btnScaleBar->setToolTip(tr("开启/关闭左下角动态比例尺"));
   btnScaleBar->setCheckable(true);
   btnScaleBar->setChecked(true);
-  btnScaleBar->setStyleSheet(btnStyle);
   btnScaleBar->setToolButtonStyle(Qt::ToolButtonTextOnly);
   tbLay->addWidget(btnScaleBar);
 
@@ -1568,7 +1593,6 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   btnNorthArrow->setToolTip(tr("开启/关闭右上角指北针"));
   btnNorthArrow->setCheckable(true);
   btnNorthArrow->setChecked(true);
-  btnNorthArrow->setStyleSheet(btnStyle);
   btnNorthArrow->setToolButtonStyle(Qt::ToolButtonTextOnly);
   tbLay->addWidget(btnNorthArrow);
 
@@ -1578,7 +1602,6 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   btnGrid->setToolTip(tr("开启/关闭坐标方格网"));
   btnGrid->setCheckable(true);
   btnGrid->setChecked(false);
-  btnGrid->setStyleSheet(btnStyle);
   btnGrid->setToolButtonStyle(Qt::ToolButtonTextOnly);
   tbLay->addWidget(btnGrid);
 
@@ -1586,7 +1609,6 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   btnSwitchMain->setObjectName(QStringLiteral("btnSwitchToMainCanvas"));
   btnSwitchMain->setText(tr("在主画布中查看"));
   btnSwitchMain->setToolTip(tr("切换到主工作区全屏 QGIS 地图画布"));
-  btnSwitchMain->setStyleSheet(btnStyle);
   btnSwitchMain->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionMapSettings.svg")));
   btnSwitchMain->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   tbLay->addWidget(btnSwitchMain);
@@ -1680,7 +1702,11 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   }
   auto *crsLabel = new QLabel(extentStr, topBar);
   crsLabel->setObjectName(QStringLiteral("surveyAreaExtentLabel"));
-  crsLabel->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8pt; font-family: 'JetBrains Mono', 'Noto Sans SC';"));
+  QFont crsFont = PaleoTheme::monoFont();
+  crsFont.setPointSize(PaleoTheme::kLabelPt);
+  crsLabel->setFont(crsFont);
+  PaleoTheme::applyThemedStyleSheet(crsLabel,
+                                    [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   tbLay->addWidget(crsLabel);
 
   lay->addWidget(topBar);
@@ -2148,7 +2174,10 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 
     auto *lblZoom = new QLabel(QStringLiteral("100%"), topBar);
     lblZoom->setFont(monoFont());
-    lblZoom->setStyleSheet(QStringLiteral("color: #5D6E80; min-width: 44px;"));
+    PaleoTheme::applyThemedStyleSheet(lblZoom, [] {
+      return QStringLiteral("color: %1; min-width: 44px;")
+          .arg(qssHex(PaleoTheme::tokens().textMuted));
+    });
     lblZoom->setAlignment(Qt::AlignCenter);
 
     auto *btnZoomIn = new QToolButton(topBar);
@@ -2226,6 +2255,24 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     chipLay->setSpacing(6);
     chipLay->addWidget(caption8(tr("多曲线叠合:"), chipContainer));
 
+    // 曲线 chip：描边/字色用曲线数据色（数据符号，豁免）；底/边/悬停走 chrome
+    // token。切换时重算当前主题样式，活体注册保证运行中换主题跟随。
+    const auto chipStyle = [](const QColor &col, bool on) {
+      const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+      if (on)
+        return QStringLiteral(
+            "QToolButton { background: %1; border: 1.5px solid %2; border-radius: 8px; "
+            "color: %2; font-weight: bold; padding: 1px 7px; font-size: 8pt; }"
+            "QToolButton:hover { background: %3; }")
+            .arg(qssHex(t.surface), col.name(), qssHex(t.surfaceAltRaised));
+      return QStringLiteral(
+          "QToolButton { background: %1; border: 1px solid %2; border-radius: 8px; "
+          "color: %3; padding: 1px 7px; font-size: 8pt; }"
+          "QToolButton:hover { background: %4; border-color: %5; }")
+          .arg(qssHex(t.surface), qssHex(t.border), qssHex(t.textMuted),
+               qssHex(t.surfaceAltRaised), qssHex(t.textDisabled));
+    };
+
     auto chipMap = std::make_shared<QHash<QString, QToolButton *>>();
     for (int i = 1; i < names.size(); ++i)
     {
@@ -2238,20 +2285,13 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       chip->setChecked(isChecked);
       chip->setToolTip(QStringLiteral("%1 (%2)").arg(cname, curves.at(i).unit));
 
-      const QString styleOn = QStringLiteral(
-          "QToolButton { background: #FFFFFF; border: 1.5px solid %1; border-radius: 9px; "
-          "color: %1; font-weight: bold; padding: 1px 7px; font-size: 8pt; }"
-          "QToolButton:hover { background: #EDF1F5; }").arg(col.name());
-      const QString styleOff = QStringLiteral(
-          "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 9px; "
-          "color: #5D6E80; padding: 1px 7px; font-size: 8pt; }"
-          "QToolButton:hover { background: #EDF1F5; border-color: #9AA7B4; }");
+      PaleoTheme::applyThemedStyleSheet(chip, [chipStyle, chip, col] {
+        return chipStyle(col, chip->isChecked());
+      });
 
-      chip->setStyleSheet(isChecked ? styleOn : styleOff);
-
-      connect(chip, &QToolButton::toggled, host, [panel, chip, cname, styleOn, styleOff](bool on) {
+      connect(chip, &QToolButton::toggled, host, [panel, chip, cname, chipStyle, col](bool on) {
         panel->setCurveVisible(cname, on);
-        chip->setStyleSheet(on ? styleOn : styleOff);
+        chip->setStyleSheet(chipStyle(col, on));
       });
 
       (*chipMap)[cname] = chip;
@@ -2412,31 +2452,35 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     const QString wellTitle = wells.isEmpty() ? asset.displayName : wells.front().second;
     compPanel->loadLasCurves(wellTitle, compCurves, formationIntervals);
 
-    // 视图模式切换条与堆叠容器
+    // 视图模式切换条与堆叠容器：选中 = chip 语义（primary 描边 + 浮起面底，
+    // 同 ribbonStyleSheet checked 范式）；样式挂切换条一份，:checked 自动生效。
     auto *viewSwitchBar = new QWidget(host);
     auto *switchLay = new QHBoxLayout(viewSwitchBar);
     switchLay->setContentsMargins(0, 0, 0, 0);
     switchLay->setSpacing(8);
+    PaleoTheme::applyThemedStyleSheet(viewSwitchBar, [] {
+      const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+      return QStringLiteral(
+          "QToolButton { background: %1; border: 1px solid %2; border-radius: 4px;"
+          " padding: 3px 10px; font-size: 8pt; color: %3; }"
+          "QToolButton:hover { background: %4; }"
+          "QToolButton:checked { background: %4; border-color: %5; color: %6;"
+          " font-weight: 600; }")
+          .arg(qssHex(t.surface), qssHex(t.border), qssHex(t.text),
+               qssHex(t.surfaceAltRaised), qssHex(t.primary), qssHex(t.primaryText));
+    });
 
     auto *btnResForm = new QToolButton(viewSwitchBar);
     btnResForm->setObjectName(QStringLiteral("btnResFormView"));
     btnResForm->setText(tr("ResFormStar 综合多井道柱状图 (推荐)"));
     btnResForm->setCheckable(true);
     btnResForm->setChecked(true);
-    btnResForm->setStyleSheet(QStringLiteral(
-        "QToolButton { background: #1B73D0; color: #FFFFFF; font-weight: bold; "
-        "border-radius: 4px; padding: 3px 10px; font-size: 8.5pt; }"
-        "QToolButton:hover { background: #15589E; }"));
 
     auto *btnSingle = new QToolButton(viewSwitchBar);
     btnSingle->setObjectName(QStringLiteral("btnSingleView"));
     btnSingle->setText(tr("单道叠合检视"));
     btnSingle->setCheckable(true);
     btnSingle->setChecked(false);
-    btnSingle->setStyleSheet(QStringLiteral(
-        "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; "
-        "border-radius: 4px; padding: 3px 10px; font-size: 8.5pt; color: #24303E; }"
-        "QToolButton:hover { background: #EDF1F5; }"));
 
     auto *viewStack = new QStackedWidget(host);
     viewStack->setObjectName(QStringLiteral("logViewStack"));
@@ -2446,24 +2490,12 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     connect(btnResForm, &QToolButton::clicked, host, [btnResForm, btnSingle, viewStack] {
       btnResForm->setChecked(true);
       btnSingle->setChecked(false);
-      btnResForm->setStyleSheet(QStringLiteral(
-          "QToolButton { background: #1B73D0; color: #FFFFFF; font-weight: bold; "
-          "border-radius: 4px; padding: 3px 10px; font-size: 8.5pt; }"));
-      btnSingle->setStyleSheet(QStringLiteral(
-          "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; "
-          "border-radius: 4px; padding: 3px 10px; font-size: 8.5pt; color: #24303E; }"));
       viewStack->setCurrentIndex(0);
     });
 
     connect(btnSingle, &QToolButton::clicked, host, [btnResForm, btnSingle, viewStack] {
       btnSingle->setChecked(true);
       btnResForm->setChecked(false);
-      btnSingle->setStyleSheet(QStringLiteral(
-          "QToolButton { background: #1B73D0; color: #FFFFFF; font-weight: bold; "
-          "border-radius: 4px; padding: 3px 10px; font-size: 8.5pt; }"));
-      btnResForm->setStyleSheet(QStringLiteral(
-          "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; "
-          "border-radius: 4px; padding: 3px 10px; font-size: 8.5pt; color: #24303E; }"));
       viewStack->setCurrentIndex(1);
     });
 
@@ -2602,7 +2634,9 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
                   .arg(derived.extra.value(QStringLiteral("collisions")).toInt());
     lay->addWidget(caption8(tr("层位 %1").arg(sb.name.isEmpty() ? asset.displayName : sb.name), host));
     auto *grid = new QLabel(gridTxt, host);
-    grid->setStyleSheet(QStringLiteral("color: #24303E;"));
+    PaleoTheme::applyThemedStyleSheet(grid, [] {
+      return QStringLiteral("color: %1;").arg(qssHex(PaleoTheme::tokens().text));
+    });
     grid->setWordWrap(true);
     lay->addWidget(grid);
     if (!pendingNote.isEmpty())
@@ -3037,10 +3071,16 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     barLay->addStretch(1);
     auto *modeTabs = new QTabWidget(host);
     modeTabs->setObjectName(QStringLiteral("seismicSubTabs"));
-    modeTabs->setStyleSheet(QStringLiteral(
-        "QTabWidget::pane { border: 1px solid #DFE5EC; background: #FFFFFF; }"
-        "QTabBar::tab { background: #EDF1F5; color: #5D6E80; padding: 4px 12px; border: 1px solid #DFE5EC; border-bottom: none; }"
-        "QTabBar::tab:selected { background: #FFFFFF; color: #1B73D0; font-weight: 500; }"));
+    // 普通页签选中 = 深字 + 加粗（同预览主标签栏范式），不用 primary 蓝字。
+    PaleoTheme::applyThemedStyleSheet(modeTabs, [] {
+      const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+      return QStringLiteral(
+          "QTabWidget::pane { border: 1px solid %1; background: %2; }"
+          "QTabBar::tab { background: %3; color: %4; padding: 4px 12px; border: 1px solid %1; border-bottom: none; }"
+          "QTabBar::tab:selected { background: %2; color: %5; font-weight: 600; }")
+          .arg(qssHex(t.border), qssHex(t.surface), qssHex(t.surfaceAlt),
+               qssHex(t.textMuted), qssHex(t.text));
+    });
 
     // 1. 二维测线 (2D)
     auto *w2d = new QWidget(modeTabs);
@@ -3082,7 +3122,13 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     timeBarLay->addWidget(lblTimeTitle);
 
     auto *lblTimeIndex = new QLabel(tr("时间采样:"), timeBar);
-    lblTimeIndex->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8.5pt;"));
+    {
+      QFont f = lblTimeIndex->font();
+      f.setPointSize(PaleoTheme::kLabelPt);
+      lblTimeIndex->setFont(f);
+    }
+    PaleoTheme::applyThemedStyleSheet(lblTimeIndex,
+                                      [] { return PaleoTheme::mutedCaptionStyleSheet(); });
     timeBarLay->addWidget(lblTimeIndex);
 
     auto *sliderTime = new QSlider(Qt::Horizontal, timeBar);
@@ -3090,38 +3136,47 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     sliderTime->setFixedWidth(160);
     timeBarLay->addWidget(sliderTime);
 
+    QFont mono8 = PaleoTheme::monoFont();
+    mono8.setPointSize(PaleoTheme::kLabelPt);
+
     auto *spinTime = new QSpinBox(timeBar);
     spinTime->setObjectName(QStringLiteral("timeSliceSpin"));
-    spinTime->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
+    spinTime->setFont(mono8);
     spinTime->setFixedWidth(64);
     timeBarLay->addWidget(spinTime);
 
+    // 时间读数：mono 数字面 + 正文色（数值读数不是装饰蓝的三许可用途）。
     auto *lblTimeMs = new QLabel(QStringLiteral("0.0 ms"), timeBar);
     lblTimeMs->setObjectName(QStringLiteral("timeSliceMsLabel"));
-    lblTimeMs->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
-    lblTimeMs->setStyleSheet(QStringLiteral("color: #1B73D0; font-weight: bold;"));
+    lblTimeMs->setFont(mono8);
+    PaleoTheme::applyThemedStyleSheet(lblTimeMs, [] {
+      return QStringLiteral("color: %1;").arg(qssHex(PaleoTheme::tokens().text));
+    });
     lblTimeMs->setFixedWidth(90);
     timeBarLay->addWidget(lblTimeMs);
 
+    // 时间片/转码区按钮统一走一份活体样式（原 8.5pt + 浅色字面量收口）。
+    PaleoTheme::applyThemedStyleSheet(timeBar, [] {
+      const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+      return QStringLiteral(
+          "QToolButton { background: transparent; border: 1px solid %1;"
+          " border-radius: 4px; padding: 2px 8px; font-size: 8pt; color: %2; }"
+          "QToolButton:hover { background: %3; border-color: %4; }"
+          "QToolButton:disabled { color: %4; }")
+          .arg(qssHex(t.border), qssHex(t.text), qssHex(t.surfaceAltRaised),
+               qssHex(t.textDisabled));
+    });
+
     auto *btnFitTime = new QToolButton(timeBar);
     btnFitTime->setText(tr("适应窗口"));
-    btnFitTime->setStyleSheet(QStringLiteral(
-        "QToolButton { background: transparent; border: 1px solid #DFE5EC; border-radius: 4px; padding: 2px 8px; font-size: 8.5pt; color: #24303E; }"
-        "QToolButton:hover { background: #EDF1F5; border-color: #1B73D0; }"));
     timeBarLay->addWidget(btnFitTime);
 
     // ---- 转码区（主线6）：.sf3c（Auto 自动升级）与 .sf3p（显式 paged/LOD 通道）
     // 双通道并存；进度条非 spinner（有总量即百分比）、可取消、完成后热切换
     // 后端并把状态写在 backendLabel 上。取消后两条通道都可续跑。 ----
-    const QString transcodeBtnStyle = QStringLiteral(
-        "QToolButton { background: transparent; border: 1px solid #DFE5EC; border-radius: 4px; padding: 2px 8px; font-size: 8.5pt; color: #24303E; }"
-        "QToolButton:hover { background: #EDF1F5; border-color: #1B73D0; }"
-        "QToolButton:disabled { color: #9AA7B4; }");
-
     auto *btnTranscode = new QToolButton(timeBar);
     btnTranscode->setText(tr("转码工作区 (.sf3c)"));
     btnTranscode->setToolTip(tr("将 SEG-Y 转码为 .sf3c 分片工作区（可续跑）；转码后切片与任意剖面走随机访问后端"));
-    btnTranscode->setStyleSheet(transcodeBtnStyle);
     btnTranscode->setEnabled(!abs.isEmpty() && QFile::exists(abs)
                              && !QFile::exists(abs + QStringLiteral(".sf3c.meta")));
     // D1.2/D1.6：断点探测——半成品给「继续转码」入口，旧版/损坏给「重建」提示
@@ -3151,7 +3206,6 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     btnPagedTranscode->setText(tr("转码分页工作区 (.sf3p)"));
     btnPagedTranscode->setToolTip(tr("转码为 .sf3p 分页工作区并构建 L1/L2 金字塔（可续跑）；"
                                      "提供瓦片渐进时间片与拖动粗/静止细的渐进 LOD。Auto 后端不自动启用，需显式选择"));
-    btnPagedTranscode->setStyleSheet(transcodeBtnStyle);
     const QString pagedPathForButtons = abs + QStringLiteral(".sf3p");
     btnPagedTranscode->setEnabled(!abs.isEmpty() && QFile::exists(abs)
                                   && !QFile::exists(pagedPathForButtons));
@@ -3178,14 +3232,14 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     auto *btnCancelTranscode = new QToolButton(timeBar);
     btnCancelTranscode->setObjectName(QStringLiteral("btnCancelTranscode"));
     btnCancelTranscode->setText(tr("取消"));
-    btnCancelTranscode->setStyleSheet(transcodeBtnStyle);
     btnCancelTranscode->setVisible(false);
     timeBarLay->addWidget(btnCancelTranscode);
 
     auto *backendLabel = new QLabel(timeBar);
     backendLabel->setObjectName(QStringLiteral("seismicBackendLabel"));
-    backendLabel->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
-    backendLabel->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+    backendLabel->setFont(mono8);
+    PaleoTheme::applyThemedStyleSheet(backendLabel,
+                                      [] { return PaleoTheme::mutedCaptionStyleSheet(); });
     timeBarLay->addWidget(backendLabel);
 
     // 后端状态探测（转码完成后的「热切换」提示；Auto 只认 .sf3c 伴生）
@@ -3372,8 +3426,9 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     // ---- 两段式秒开（主线1）：QuickOpen 秒级预览 → 后台体加载换装 ----
     auto *quickInfo = new QLabel(host);
     quickInfo->setObjectName(QStringLiteral("seismicQuickInfo"));
-    quickInfo->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
-    quickInfo->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+    quickInfo->setFont(mono8);
+    PaleoTheme::applyThemedStyleSheet(quickInfo,
+                                      [] { return PaleoTheme::mutedCaptionStyleSheet(); });
     quickInfo->setVisible(false);
 
     const QPointer<QLabel> quickInfoGuard(quickInfo);
@@ -3844,14 +3899,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     auto *topLay = new QHBoxLayout(topBar);
     topLay->setContentsMargins(8, 4, 8, 4);
     topLay->setSpacing(6);
-    topBar->setStyleSheet(QStringLiteral("background: #EDF1F5; border-bottom: 1px solid #DFE5EC;"));
-
-    const QString btnStyle = QStringLiteral(
-        "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; "
-        "padding: 4px 8px; font-size: 8.5pt; color: #24303E; }"
-        "QToolButton:hover { background: #E2E8F0; border-color: #9AA7B4; }"
-        "QToolButton:pressed { background: #DFE5EC; }"
-        "QToolButton:checked { background: #E1EFFE; border-color: #1B73D0; color: #1B73D0; font-weight: 500; }");
+    stylePreviewToolBar(topBar);
 
     // 视图切换器: 相图地图 / 属性列表
     auto *btnViewMap = new QToolButton(topBar);
@@ -3859,7 +3907,6 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     btnViewMap->setText(tr("相图地图"));
     btnViewMap->setCheckable(true);
     btnViewMap->setChecked(true);
-    btnViewMap->setStyleSheet(btnStyle);
     btnViewMap->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")));
     btnViewMap->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     topLay->addWidget(btnViewMap);
@@ -3869,7 +3916,6 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     btnViewTable->setText(tr("属性列表"));
     btnViewTable->setCheckable(true);
     btnViewTable->setChecked(false);
-    btnViewTable->setStyleSheet(btnStyle);
     btnViewTable->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionOpenTable.svg")));
     btnViewTable->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     topLay->addWidget(btnViewTable);
@@ -3887,7 +3933,6 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     btnLabels->setToolTip(tr("显示/隐藏要素名称标注"));
     btnLabels->setCheckable(true);
     btnLabels->setChecked(true);
-    btnLabels->setStyleSheet(btnStyle);
     btnLabels->setToolButtonStyle(Qt::ToolButtonTextOnly);
     topLay->addWidget(btnLabels);
 
@@ -3896,7 +3941,6 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     btnFull->setObjectName(QStringLiteral("btnFaciesFullExtent"));
     btnFull->setText(tr("全图"));
     btnFull->setToolTip(tr("缩放到相图完整范围"));
-    btnFull->setStyleSheet(btnStyle);
     btnFull->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionZoomFullExtent.svg")));
     btnFull->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     topLay->addWidget(btnFull);
@@ -3904,7 +3948,6 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     auto *btnIn = new QToolButton(topBar);
     btnIn->setObjectName(QStringLiteral("btnFaciesZoomIn"));
     btnIn->setText(tr("放大"));
-    btnIn->setStyleSheet(btnStyle);
     btnIn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionZoomIn.svg")));
     btnIn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     topLay->addWidget(btnIn);
@@ -3912,7 +3955,6 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     auto *btnOut = new QToolButton(topBar);
     btnOut->setObjectName(QStringLiteral("btnFaciesZoomOut"));
     btnOut->setText(tr("缩小"));
-    btnOut->setStyleSheet(btnStyle);
     btnOut->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionZoomOut.svg")));
     btnOut->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     topLay->addWidget(btnOut);
@@ -3920,7 +3962,6 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     auto *btnPan = new QToolButton(topBar);
     btnPan->setObjectName(QStringLiteral("btnFaciesPan"));
     btnPan->setText(tr("漫游"));
-    btnPan->setStyleSheet(btnStyle);
     btnPan->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionPan.svg")));
     btnPan->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     topLay->addWidget(btnPan);
@@ -3930,8 +3971,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     QLabel *fieldLbl = nullptr;
     if (faciesCandidates.size() > 1)
     {
-      fieldLbl = new QLabel(tr("渲染字段:"), topBar);
-      fieldLbl->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8.5pt;"));
+      fieldLbl = caption8(tr("渲染字段:"), topBar);
       topLay->addWidget(fieldLbl);
 
       fieldCombo = new QComboBox(topBar);
@@ -3939,9 +3979,15 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       fieldCombo->addItems(faciesCandidates);
       if (!activeFaciesField.isEmpty())
         fieldCombo->setCurrentText(activeFaciesField);
-      fieldCombo->setStyleSheet(QStringLiteral(
-          "QComboBox { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; padding: 2px 6px; font-size: 8.5pt; color: #24303E; }"
-          "QComboBox:hover { border-color: #9AA7B4; }"));
+      PaleoTheme::applyThemedStyleSheet(fieldCombo, [] {
+        const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+        return QStringLiteral(
+            "QComboBox { background: %1; border: 1px solid %2; border-radius: 4px;"
+            " padding: 2px 6px; font-size: 8pt; color: %3; }"
+            "QComboBox:hover { border-color: %4; }")
+            .arg(qssHex(t.surface), qssHex(t.border), qssHex(t.text),
+                 qssHex(t.textDisabled));
+      });
       topLay->addWidget(fieldCombo);
     }
 
@@ -3952,26 +3998,45 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     regBtn->setObjectName(QStringLiteral("provisionalRegisterButton"));
     regBtn->setAccessibleName(tr("临时配准"));
     regBtn->setToolTip(tr("手工输入仿射参数，把 GeoJSON 变换到工程局部测网"));
-    regBtn->setStyleSheet(QStringLiteral(
-        "QPushButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; padding: 4px 8px; font-size: 8.5pt; color: #24303E; }"
-        "QPushButton:hover { background: #E2E8F0; border-color: #9AA7B4; }"));
+    PaleoTheme::applyThemedStyleSheet(regBtn, [] {
+      const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+      return QStringLiteral(
+          "QPushButton { background: %1; border: 1px solid %2; border-radius: 4px;"
+          " padding: 4px 8px; font-size: 8pt; color: %3; }"
+          "QPushButton:hover { background: %4; border-color: %5; }")
+          .arg(qssHex(t.surface), qssHex(t.border), qssHex(t.text),
+               qssHex(t.surfaceAltRaised), qssHex(t.textDisabled));
+    });
     topLay->addWidget(regBtn);
 
     topLay->addStretch(1);
 
-    auto *warnLbl = warnLabel(tr("经纬度，与本测网不是同一空间"), host);
-    warnLbl->setStyleSheet(QStringLiteral("color: #D32F2F; font-size: 11px; font-weight: 500;"));
+    // 经纬度与工程测网不同空间：阻断级提示用 error token（原 #D32F2F + 11px）。
+    auto *warnLbl = new QLabel(tr("经纬度，与本测网不是同一空间"), host);
+    warnLbl->setWordWrap(true);
+    PaleoTheme::applyThemedStyleSheet(warnLbl, [] {
+      return QStringLiteral("color: %1; font-size: 8pt; font-weight: 500;")
+          .arg(qssHex(PaleoTheme::tokens().error));
+    });
     topLay->addWidget(warnLbl);
     lay->addWidget(topBar);
 
-    connect(regBtn, &QPushButton::clicked, this, [this, assetId, abs]() {
+    // 「读不出坐标范围」错误就地可见（原实现创建了警告标签却没加进任何布局）。
+    auto *boundsErr = warnLabel(QString(), host);
+    boundsErr->setObjectName(QStringLiteral("affineBoundsError"));
+    boundsErr->setVisible(false);
+    lay->addWidget(boundsErr);
+
+    connect(regBtn, &QPushButton::clicked, this, [this, assetId, abs, boundsErr]() {
       double srcB[4];
       QString berr;
       if (!m_doc->geoJsonBounds(abs, srcB, &berr))
       {
-        warnLabel(tr("读不出坐标范围：%1").arg(berr), m_tabs);
+        boundsErr->setText(tr("读不出坐标范围：%1").arg(berr));
+        boundsErr->setVisible(true);
         return;
       }
+      boundsErr->setVisible(false);
 
       QDialog dlg(this);
       dlg.setWindowTitle(tr("临时配准（手工仿射）"));
@@ -3986,7 +4051,8 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       auto *gridHint = new QLabel(
           tr("目标：工程局部测网（约 X 0–12800 · Y 0–16400，单位米）"), &dlg);
       gridHint->setWordWrap(true);
-      gridHint->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+      PaleoTheme::applyThemedStyleSheet(gridHint,
+                                        [] { return PaleoTheme::mutedCaptionStyleSheet(); });
       form->addRow(gridHint);
 
       auto *tx = new QDoubleSpinBox(&dlg);
@@ -4017,7 +4083,8 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       auto *dstLbl = new QLabel(&dlg);
       dstLbl->setObjectName(QStringLiteral("affineDstBounds"));
       dstLbl->setWordWrap(true);
-      dstLbl->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+      PaleoTheme::applyThemedStyleSheet(dstLbl,
+                                        [] { return PaleoTheme::mutedCaptionStyleSheet(); });
       form->addRow(dstLbl);
       const auto refreshDst = [this, srcB, tx, ty, sx, sy, rot, dstLbl]() {
         const QVariantMap p{{QStringLiteral("tx"), tx->value()},
@@ -4176,9 +4243,17 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     table->setAlternatingRowColors(true);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table->setStyleSheet(QStringLiteral(
-        "QTableWidget { background-color: #FFFFFF; gridline-color: #DFE5EC; border: 1px solid #DFE5EC; font-size: 12px; }"
-        "QHeaderView::section { background-color: #F8FAFC; color: #5D6E80; border: none; border-bottom: 1px solid #DFE5EC; border-right: 1px solid #DFE5EC; padding: 4px 8px; font-weight: 500; font-size: 11px; }"));
+    PaleoTheme::applyThemedStyleSheet(table, [] {
+      const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+      return QStringLiteral(
+          "QTableWidget { background-color: %1; gridline-color: %2; border: 1px solid %2;"
+          " font-size: 9pt; }"
+          "QHeaderView::section { background-color: %3; color: %4; border: none;"
+          " border-bottom: 1px solid %2; border-right: 1px solid %2; padding: 4px 8px;"
+          " font-weight: 500; font-size: 8pt; }")
+          .arg(qssHex(t.surface), qssHex(t.border), qssHex(t.surfaceAlt),
+               qssHex(t.textMuted));
+    });
 
     QStringList headers;
     headers << tr("序号") << tr("几何类型");
@@ -4227,7 +4302,20 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     }
     table->horizontalHeader()->setStretchLastSection(true);
     table->resizeColumnsToContents();
-    viewStack->addWidget(table);
+
+    // 表格放进容器页：超 1000 条截断时表尾如实注明（原实现静默截断）。
+    auto *tablePage = new QWidget(viewStack);
+    auto *tablePageLay = new QVBoxLayout(tablePage);
+    tablePageLay->setContentsMargins(0, 0, 0, 0);
+    tablePageLay->setSpacing(4);
+    tablePageLay->addWidget(table, 1);
+    if (features.size() > maxRows)
+      tablePageLay->addWidget(
+          caption8(tr("已截断，仅显示前 %1 条（共 %2 条）")
+                       .arg(maxRows)
+                       .arg(features.size()),
+                   tablePage));
+    viewStack->addWidget(tablePage);
 
     const auto updateViewMode = [viewStack, btnFull, btnIn, btnOut, btnPan, btnLabels, fieldLbl, fieldCombo](int idx) {
       viewStack->setCurrentIndex(idx);
@@ -4448,7 +4536,8 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
       rl->addWidget(caption8(k, row));
       auto *v = valueLabel(val, row, mono);
       if (muted)
-        v->setStyleSheet(QStringLiteral("color: #5D6E80;")); // text-muted
+        PaleoTheme::applyThemedStyleSheet(
+            v, [] { return PaleoTheme::mutedCaptionStyleSheet(); }); // text-muted
       rl->addWidget(v, 1);
       grid->addWidget(row);
     };

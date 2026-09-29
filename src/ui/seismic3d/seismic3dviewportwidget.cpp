@@ -1,6 +1,7 @@
 // 层：视图
 #include "seismic3dviewportwidget.h"
 
+#include <QKeyEvent>
 #include <QPainter>
 
 #include <algorithm>
@@ -24,6 +25,8 @@ Seismic3DViewportWidget::Seismic3DViewportWidget(QWidget *parent)
 
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
+    setToolTip(tr("左键拖拽旋转；右键/Shift+左键拖拽平移；Ctrl+滚轮缩放；滚轮平移（Shift 横向）\n"
+                  "方向键旋转；+/- 缩放；双击居中复位"));
 
     // D3.11 惯性旋转：松手后按速度衰减续转（16ms 节拍）
     inertiaTimer_.setInterval(16);
@@ -310,9 +313,52 @@ void Seismic3DViewportWidget::applyInertia() {
 
 void Seismic3DViewportWidget::wheelEvent(QWheelEvent *event) {
     const float delta = static_cast<float>(event->angleDelta().y()) / 120.0f;
-    camera_.Zoom(delta);
+    if (event->modifiers() & Qt::ControlModifier) {
+        // Ctrl+滚轮：缩放（与剖面画布/correlationpanel 惯例对齐）
+        camera_.Zoom(delta);
+    } else {
+        // 裸滚轮平移（Shift+滚轮横向）
+        const float stepPx = delta * 24.0f;
+        if (event->modifiers() & Qt::ShiftModifier) {
+            camera_.Pan(stepPx, 0.0f);
+        } else {
+            camera_.Pan(0.0f, -stepPx);
+        }
+    }
     update();
     emit cameraChanged();
+}
+
+void Seismic3DViewportWidget::keyPressEvent(QKeyEvent *event) {
+    // 方向键旋转（12px 当量 ≈ 3°/次），+/- 缩放
+    constexpr float kRotateStepPx = 12.0f;
+    switch (event->key()) {
+    case Qt::Key_Left:
+        camera_.Rotate(-kRotateStepPx, 0.0f);
+        break;
+    case Qt::Key_Right:
+        camera_.Rotate(kRotateStepPx, 0.0f);
+        break;
+    case Qt::Key_Up:
+        camera_.Rotate(0.0f, kRotateStepPx);
+        break;
+    case Qt::Key_Down:
+        camera_.Rotate(0.0f, -kRotateStepPx);
+        break;
+    case Qt::Key_Plus:
+    case Qt::Key_Equal:
+        camera_.Zoom(1.0f);
+        break;
+    case Qt::Key_Minus:
+        camera_.Zoom(-1.0f);
+        break;
+    default:
+        QOpenGLWidget::keyPressEvent(event);
+        return;
+    }
+    update();
+    emit cameraChanged();
+    event->accept();
 }
 
 void Seismic3DViewportWidget::mouseDoubleClickEvent(QMouseEvent * /*event*/) {

@@ -60,7 +60,6 @@
 #include <QTreeWidgetItem>
 #include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
-#include "../paleotheme.h"
 
 using namespace paleo::pagesinternal;
 
@@ -1153,7 +1152,10 @@ void DataListPanel::refreshAssetTree()
     wellItem->setData(0, Qt::UserRole + 2, QStringLiteral("well"));
     wellItem->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPointLayer.svg")));
     if (w.hasSurface)
+    {
       wellItem->setText(1, QStringLiteral("X: %1, Y: %2").arg(QString::number(w.surfaceX, 'f', 1)).arg(QString::number(w.surfaceY, 'f', 1)));
+      wellItem->setFont(1, PaleoTheme::monoFont()); // 坐标列走 mono 数字面（DESIGN.md）
+    }
 
     // 获取该井所有关联资产并按角色序排：测井曲线 -> 井分层 -> 时深关系 -> 井身/井位
     const QVector<EntityAssetLink> wLinks = cat->linksForEntity(w.id);
@@ -1281,7 +1283,7 @@ void DataListPanel::refreshAssetTree()
     {
       auto *it = new QTreeWidgetItem(compBranch);
       it->setText(0, a.displayName);
-      it->setText(1, tr("8类井道 · 19根曲线 · 地层/岩性/取芯/符号"));
+      it->setText(1, tr("多井道地质综合柱状图")); // 道数/曲线数未解析，不臆造
       it->setData(0, Qt::UserRole, a.id);
       it->setData(0, Qt::UserRole + 2, QStringLiteral("composite_log"));
       it->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconLineLayer.svg")));
@@ -1411,10 +1413,8 @@ void DataListPanel::refreshAssetTree()
     hItem->setData(0, Qt::UserRole, a.id);
     hItem->setData(0, Qt::UserRole + 2, QStringLiteral("horizon"));
     hItem->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionOpenTable.svg")));
-    if (a.displayName.contains(QStringLiteral("D61")))
-      hItem->setText(1, tr("目标层位 · 411×641 网格"));
-    else
-      hItem->setText(1, tr("层位网格"));
+    // 网格规格不在 catalog 里（按文件名臆造 411×641 已回收）——如实标类型。
+    hItem->setText(1, tr("层位网格"));
   }
 
   // 5. 辅助资料 (Auxiliary)

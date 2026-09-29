@@ -83,19 +83,17 @@ class LayerTreePanel : public QWidget
     // ---- indicator ----
     void scheduleIndicatorRefresh(); // 排队合并刷新（setActiveHorizon 时序）
 
-    // ---- 空态 label 随宿主 resize 居中（沿用壳内 EmptyStateLabel 模式） ----
-    void recenterEmptyState();
-
-    bool eventFilter(QObject *obj, QEvent *ev) override;
+    // ---- 空态 label 由 PaleoEmptyStateLabel 自持（含宿主 resize 居中） ----
 
     QgsProject *m_project = nullptr;
     QgsMapCanvas *m_canvas = nullptr;
     QgisLayerService *m_layerService = nullptr;
     QgsLayerTreeView *m_view = nullptr;
     QLineEdit *m_filterEdit = nullptr;
-    QLabel *m_emptyState = nullptr;
+    QLabel *m_emptyState = nullptr; // PaleoEmptyStateLabel（共享空态组件）
     QMenu *m_menu = nullptr;
     QAction *m_addGroupAction = nullptr;       // 复用 defaultActions()
+    QAction *m_removeAction = nullptr;         // 编辑守卫包装版（工具条+菜单共用）
     QAction *m_propertiesAction = nullptr;     // objectName: layerTreePropertiesAction
     QAction *m_duplicateAction = nullptr;      // objectName: layerTreeDuplicateAction
     QAction *m_exportStyleAction = nullptr;    // objectName: layerTreeExportStyleAction

@@ -41,6 +41,7 @@
 #include <QComboBox>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QSignalSpy>
 #include <QUndoStack>
 
@@ -140,6 +141,7 @@ class TestEditTools : public QObject
     void reshapeChangesSelectedFeatureOnly();
     void vertexDoubleClickInsertsVertex();
     void vertexRightClickDeletesWithUndo();
+    void vertexKeyboardDeleteMatchesRightClick();
     void vertexDeleteRefusedBelowMinimums();
 
     // c+) topological editing — shared-boundary coincident vertices
@@ -795,6 +797,59 @@ void TestEditTools::vertexRightClickDeletesWithUndo()
   QVERIFY2( ls, "geometry is not a line string after vertex delete" );
   QVERIFY( qgsDoubleNear( ls->xAt( 0 ), mapPt( canvas, 40, 140 ).x(), 1e-6 ) );
   QVERIFY( qgsDoubleNear( ls->xAt( 1 ), mapPt( canvas, 100, 100 ).x(), 1e-6 ) );
+
+  layer.undoStack()->undo();
+  QCOMPARE( vertexTotal( layer, fid ), 3 );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexKeyboardDeleteMatchesRightClick()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "LineString?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "kbd-delv" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory line layer failed to initialize" );
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { mapPt( canvas, 40, 140 ), mapPt( canvas, 100, 100 ), mapPt( canvas, 160, 60 ) } ) );
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+  QSignalSpy msgSpy( &tool, &QgsMapTool::messageEmitted );
+
+  // W3：Delete 键删除光标下的节点（画布最后已知鼠标位置），与右键同路径。
+  QMouseEvent hover( QEvent::MouseMove, QPointF( 160, 60 ), QPointF( 160, 60 ), QPointF( 160, 60 ),
+                     Qt::NoButton, Qt::NoButton, Qt::NoModifier );
+  QApplication::sendEvent( canvas.viewport(), &hover );
+  QCOMPARE( canvas.mouseLastXY(), QPoint( 160, 60 ) );
+
+  QKeyEvent del( QEvent::KeyPress, Qt::Key_Delete, Qt::NoModifier );
+  tool.keyPressEvent( &del );
+
+  QCOMPARE( editedSpy.count(), 1 );
+  QCOMPARE( msgSpy.count(), 0 );
+  QCOMPARE( tool.editedCount(), 1 );
+  QCOMPARE( vertexTotal( layer, fid ), 2 );
+  QCOMPARE( tool.markerCount(), 2 );
+
+  // Backspace 同路径：删到 2 个节点后，在剩余节点上再删被拒（线最少 2 节点）。
+  QMouseEvent hover2( QEvent::MouseMove, QPointF( 100, 100 ), QPointF( 100, 100 ), QPointF( 100, 100 ),
+                      Qt::NoButton, Qt::NoButton, Qt::NoModifier );
+  QApplication::sendEvent( canvas.viewport(), &hover2 );
+  QCOMPARE( canvas.mouseLastXY(), QPoint( 100, 100 ) );
+  QKeyEvent back( QEvent::KeyPress, Qt::Key_Backspace, Qt::NoModifier );
+  tool.keyPressEvent( &back );
+  QCOMPARE( editedSpy.count(), 1 ); // refused: minimum-vertex guard
+  QCOMPARE( vertexTotal( layer, fid ), 2 );
+  QVERIFY( msgSpy.count() >= 1 );
 
   layer.undoStack()->undo();
   QCOMPARE( vertexTotal( layer, fid ), 3 );
@@ -3152,18 +3207,25 @@ void TestEditTools::deleteEscAndEmptySelectionWarns()
   QSignalSpy abortSpy( &tool, &PaleoDeleteFeatureTool::editAborted );
   QSignalSpy msgSpy( &tool, &QgsMapTool::messageEmitted );
 
-  // Click with an empty selection: warned, but nothing was gestured → no abort.
-  click( tool, canvas, pxAt( canvas, 25, 25 ), Qt::LeftButton );
+  // Click on empty space: warned, but nothing was gestured → no abort.
+  click( tool, canvas, pxAt( canvas, 5, 5 ), Qt::LeftButton );
   QVERIFY( msgSpy.count() >= 1 );
   QCOMPARE( abortSpy.count(), 0 );
   QCOMPARE( editedSpy.count(), 0 );
   QCOMPARE( tool.deletedCount(), 0 );
   QCOMPARE( layer.featureCount(), 1 );
 
+  // 命中式删除（W4）：单击命中要素即删——与是否选中无关。
+  click( tool, canvas, pxAt( canvas, 25, 25 ), Qt::LeftButton );
+  QCOMPARE( editedSpy.count(), 1 );
+  QCOMPARE( tool.deletedCount(), 1 );
+  QCOMPARE( layer.featureCount(), 0 );
+  QVERIFY( layer.undoStack()->canUndo() );
+
   // Esc → teardown signal (§42.15).
   sendEsc( tool );
   QCOMPARE( abortSpy.count(), 1 );
-  QCOMPARE( editedSpy.count(), 0 );
+  QCOMPARE( editedSpy.count(), 1 );
 
   layer.rollBack();
   canvas.unsetMapTool( &tool );
@@ -3551,13 +3613,24 @@ void TestEditTools::signalContractAcrossTools()
     canvas.setMapTool( &tool );
     QSignalSpy edited( &tool, &PaleoDeleteFeatureTool::featureEdited );
     QSignalSpy aborted( &tool, &PaleoDeleteFeatureTool::editAborted );
+    QSignalSpy msgSpy( &tool, &QgsMapTool::messageEmitted );
 
+    // W4 爆炸半径：有选区时点击空处不得删选区——只警告。
+    click( tool, canvas, pxAt( canvas, 40, 40 ), Qt::LeftButton );
+    QCOMPARE( edited.count(), 0 );
+    QCOMPARE( tool.deletedCount(), 0 );
+    QCOMPARE( layer.featureCount(), 2 );
+    QVERIFY( msgSpy.count() >= 1 );
+
+    // 点击命中处只删命中的要素；未选中的另一要素不受影响。
     click( tool, canvas, pxAt( canvas, 25, 25 ), Qt::LeftButton );
     QVERIFY2( edited.count() == 1, "one delete gesture must emit featureEdited exactly once" );
     QCOMPARE( edited.at( 0 ).at( 0 ).toString(), layer.id() );
     QCOMPARE( edited.at( 0 ).size(), 1 );
     QCOMPARE( tool.deletedCount(), 1 );
     QCOMPARE( aborted.count(), 0 );
+    QCOMPARE( layer.featureCount(), 1 );
+    QVERIFY( layer.getFeature( seeded.at( 1 ).id() ).isValid() );
 
     sendEsc( tool );
     QCOMPARE( aborted.count(), 1 );

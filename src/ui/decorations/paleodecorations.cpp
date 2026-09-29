@@ -1,5 +1,6 @@
 // 层：视图
 #include "paleodecorations.h"
+#include "../paleotheme.h" // 画布装饰取色（显式 Light：见各 render 注释）
 #include "../../domain/faciescatalog.h"
 #include <QCoreApplication>
 #include <QSvgRenderer>
@@ -222,8 +223,12 @@ void PaleoWatermarkDecoration::render( const QgsMapSettings &mapSettings, QgsRen
   if ( !painter || !painter->device() || mText.isEmpty() )
     return;
 
-  // 顶中胶囊：warning #F29900 底 + 白字——与 DESIGN 的状态用色一致；水印只
-  // 在临时配准图层存在期间绘制，平时不出现。
+  // 顶中胶囊：warning 底（warning token @ ~78% 不透明度）；水印只在临时
+  // 配准图层存在期间绘制，平时不出现。白字在 #F29900 上只有 2.1:1
+  // 对比度（不足 AA）——文字改用深色 text token。
+  // 画布装饰不跟随暗色主题是有意的：它压在数据画布（浅色底图）上，属于
+  // 图件文档面而非 UI chrome，故显式取 tokens(Theme::Light)。
+  const PaleoTheme::ThemeTokens &lt = PaleoTheme::tokens( PaleoTheme::Theme::Light );
   QFont font = painter->font();
   font.setPointSizeF( 9.0 );
   font.setBold( true );
@@ -235,12 +240,14 @@ void PaleoWatermarkDecoration::render( const QgsMapSettings &mapSettings, QgsRen
   const qreal x = ( painter->device()->width() - pillW ) / 2.0;
   const qreal y = 10;
 
+  QColor fill = lt.warning;
+  fill.setAlpha( 200 );
   painter->save();
   painter->setRenderHint( QPainter::Antialiasing, true );
   painter->setPen( Qt::NoPen );
-  painter->setBrush( QColor( 242, 153, 0, 200 ) ); // warning #F29900 @ ~78%
+  painter->setBrush( fill );
   painter->drawRoundedRect( QRectF( x, y, pillW, pillH ), pillH / 2.0, pillH / 2.0 );
-  painter->setPen( QColor( 255, 255, 255 ) );
+  painter->setPen( lt.text );
   painter->drawText( QRectF( x, y, pillW, pillH ), Qt::AlignCenter, mText );
   painter->restore();
 }

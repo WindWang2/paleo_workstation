@@ -280,11 +280,15 @@ private slots:
     QVERIFY(!panel.findChild<QWidget *>(QStringLiteral("btnCompSnap"))->toolTip().isEmpty());
     QVERIFY(!panel.findChild<QWidget *>(QStringLiteral("btnCompEdit"))->toolTip().isEmpty());
 
-    // D7.10 参考井琥珀/测区井蓝语义
+    // D7.10 参考井/测区井徽章语义——主题化收口（ui-deep-polish）后样式走
+    // token（中性徽章 surfaceAltRaised / 参考井 warning 胶囊），不再钉字面
+    // 色值；断言语义本身：两态样式可区分。
     panel.setWellName(QStringLiteral("A1"), false);
-    QVERIFY(panel.findChild<QLabel *>(QStringLiteral("lblWellName"))->styleSheet().contains(QStringLiteral("#E8F0FE")));
+    const QString surveyStyle = panel.findChild<QLabel *>(QStringLiteral("lblWellName"))->styleSheet();
     panel.setWellName(QStringLiteral("REF-9"), true);
-    QVERIFY(panel.findChild<QLabel *>(QStringLiteral("lblWellName"))->styleSheet().contains(QStringLiteral("#FEF3C7")));
+    const QString refStyle = panel.findChild<QLabel *>(QStringLiteral("lblWellName"))->styleSheet();
+    QVERIFY(!surveyStyle.isEmpty());
+    QVERIFY(refStyle != surveyStyle);
   }
 
   // ---- D7.7 参考井/测区井语义在对比模式一致（D5.5 对话框分区着色）----

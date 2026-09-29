@@ -263,6 +263,8 @@ signals:
     void traceHovered(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
     void traceClicked(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
     void zoomChanged(double zoomFactor);
+    // 键盘 PgUp/PgDn 请求切片步进（±1）；切片索引归 dock 的滑杆所有。
+    void sliceStepRequested(int delta);
     // D2.10 卷帘拖动（状态栏读数用）
     void curtainMoved(double frac);
     // D4.1/D4.4：拾取（列号+TWT；IL/XL 由 dock 经 SectionRef 解析）/ 断层折线
@@ -270,6 +272,8 @@ signals:
     void faultDrawn(const QVector<QPair<double, double>> &points); // (traceFrac, twtMs)
 
 protected:
+    bool event(QEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;

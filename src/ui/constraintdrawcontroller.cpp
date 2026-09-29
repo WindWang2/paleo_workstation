@@ -27,12 +27,12 @@ void ConstraintDrawController::startCapture( const QString &horizon,
 
   if ( horizon.isEmpty() )
   {
-    emit captureFailed( tr( "no active horizon — cannot draw a constraint" ) );
+    emit captureFailed( tr( "没有活动层位——无法绘制约束" ) );
     return;
   }
   if ( !m_canvasCtl || !m_wf )
   {
-    emit captureFailed( tr( "constraint drawing is not fully wired" ) );
+    emit captureFailed( tr( "约束绘制尚未完成接线" ) );
     return;
   }
 
@@ -54,7 +54,7 @@ void ConstraintDrawController::startCapture( const QString &horizon,
     m_tool = new PaleoDrawEllipseTool( canvas, m_cadDock );
   else
   {
-    emit captureFailed( tr( "unknown constraint shape '%1'" ).arg( shape ) );
+    emit captureFailed( tr( "未知的约束形状「%1」" ).arg( shape ) );
     return;
   }
 
@@ -91,7 +91,7 @@ void ConstraintDrawController::onDrawn( const QString &wkt )
   if ( ok )
     emit captureFinished( horizon, constraintId );
   else
-    emit captureFailed( err.isEmpty() ? tr( "constraint commit failed" ) : err );
+    emit captureFailed( err.isEmpty() ? tr( "约束提交失败" ) : err );
 }
 
 void ConstraintDrawController::onAborted()

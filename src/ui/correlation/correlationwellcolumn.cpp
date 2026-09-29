@@ -240,9 +240,9 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
       {
         auto *uc = new QGraphicsSimpleTextItem(t.unit(), column);
         QFont uf = uc->font();
-        uf.setPointSize(7);
+        uf.setPointSize(8);
         uc->setFont(uf);
-        uc->setBrush(PaleoTheme::tokens().textDisabled); // text-disabled as a soft unit tag
+        uc->setBrush(PaleoTheme::tokens().textMuted); // 与助记符 caption 同 token，不压到 disabled 级
         uc->setPos(cap->x() + cb.width() + 3.0, bodyTop + 2.5);
       }
 

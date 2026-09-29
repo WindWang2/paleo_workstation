@@ -5,6 +5,7 @@
 #include <QDesktopServices>
 #include <QGuiApplication>
 #include <QLabel>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QStackedLayout>
 #include <QVBoxLayout>
@@ -25,8 +26,24 @@ static void applyMutedStyle(QWidget *w)
 WebViewPanel::WebViewPanel(QWidget *parent)
   : QWidget(parent)
 {
-  auto *stack = new QStackedLayout(this);
-  stack->setContentsMargins(0, 0, 0, 0);
+  auto *root = new QVBoxLayout(this);
+  root->setContentsMargins(0, 0, 0, 0);
+  root->setSpacing(0);
+
+  m_stack = new QStackedLayout;
+  m_stack->setContentsMargins(0, 0, 0, 0);
+  root->addLayout(m_stack, 1);
+
+  // 加载进度条：大页面加载超过 1s 时的唯一反馈。极薄一条，常驻布局、
+  // 闲时隐藏，避免显隐引起内容区跳动。
+  m_progress = new QProgressBar(this);
+  m_progress->setObjectName(QStringLiteral("webLoadProgress"));
+  m_progress->setRange(0, 100);
+  m_progress->setValue(0);
+  m_progress->setTextVisible(false);
+  m_progress->setFixedHeight(3);
+  m_progress->setVisible(false);
+  root->addWidget(m_progress);
 
   // Page 0 — status/fallback surface (placeholder or error + external open).
   auto *statusPage = new QWidget(this);
@@ -48,7 +65,7 @@ WebViewPanel::WebViewPanel(QWidget *parent)
   });
   lay->addWidget(m_externalButton, 0, Qt::AlignHCenter);
   lay->addStretch(1);
-  stack->addWidget(statusPage);
+  m_stack->addWidget(statusPage);
 }
 
 bool WebViewPanel::setUrl(const QUrl &url)
@@ -73,8 +90,8 @@ bool WebViewPanel::setUrl(const QUrl &url)
 
 #if PALEO_HAVE_WEBENGINE
   m_engine->setUrl(url);
-  if (auto *stack = qobject_cast<QStackedLayout *>(layout()))
-    stack->setCurrentWidget(m_engine);
+  if (m_stack)
+    m_stack->setCurrentWidget(m_engine);
 #endif
   return true;
 }
@@ -102,10 +119,25 @@ bool WebViewPanel::ensureEngine(QString *error)
   }
 
   m_engine = new QWebEngineView(this);
-  auto *stack = qobject_cast<QStackedLayout *>(layout());
-  if (stack)
-    stack->addWidget(m_engine);
+  if (m_stack)
+    m_stack->addWidget(m_engine);
 
+  // 加载反馈：开始时亮出进度条，结束（成败都算）收起。
+  connect(m_engine, &QWebEngineView::loadStarted, this, [this] {
+    if (m_progress)
+    {
+      m_progress->setValue(0);
+      m_progress->setVisible(true);
+    }
+  });
+  connect(m_engine, &QWebEngineView::loadProgress, this, [this](int p) {
+    if (m_progress)
+      m_progress->setValue(p);
+  });
+  connect(m_engine, &QWebEngineView::loadFinished, this, [this](bool) {
+    if (m_progress)
+      m_progress->setVisible(false);
+  });
   connect(m_engine, &QWebEngineView::loadFinished, this,
           &WebViewPanel::loadFinished);
   // Render-process death is recoverable for the host: swap to the fallback
@@ -128,6 +160,6 @@ void WebViewPanel::showFallback(const QString &reason)
     m_statusLabel->setText(tr("内嵌浏览器不可用：%1").arg(reason));
   if (m_externalButton)
     m_externalButton->setVisible(m_url.isValid() && !m_url.isEmpty());
-  if (auto *stack = qobject_cast<QStackedLayout *>(layout()))
-    stack->setCurrentIndex(0);
+  if (m_stack)
+    m_stack->setCurrentIndex(0);
 }

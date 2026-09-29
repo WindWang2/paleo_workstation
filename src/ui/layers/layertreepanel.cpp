@@ -1,6 +1,9 @@
 // 层：视图
 #include "layertreepanel.h"
 
+#include "../paleoemptystate.h"
+#include "../paleotheme.h"
+
 #include "../../qgis/layervocabulary.h"
 #include "../../qgis/qgislayerservice.h"
 
@@ -40,7 +43,7 @@ namespace
     return PaleoLayerVocabulary::pageForGroup(group, reason);
   }
 
-  // 灰显 indicator 图标：text-disabled 灰（DESIGN.md #9AA7B4）实心圆点——
+  // 灰显 indicator 图标：text-disabled 灰实心圆点（现取随主题）——
   // 「未激活」是状态语义，不占交互蓝，不属装饰色约束。
   QIcon greyDotIcon()
   {
@@ -49,7 +52,7 @@ namespace
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(QStringLiteral("#9AA7B4")));
+    p.setBrush(PaleoTheme::tokens().textDisabled);
     p.drawEllipse(2, 2, 8, 8);
     return QIcon(pm);
   }
@@ -65,8 +68,12 @@ LayerTreePanel::LayerTreePanel(QgsProject *project, QgsMapCanvas *canvas,
                                QgisLayerService *layerService, QWidget *parent)
     : QWidget(parent), m_project(project), m_canvas(canvas), m_layerService(layerService)
 {
-  // DESIGN.md：面板 surface #FFFFFF 白底；正文 9pt（pointSize 跟随系统缩放）。
-  setStyleSheet(QStringLiteral("LayerTreePanel { background: #FFFFFF; }"));
+  // DESIGN.md：面板 surface 底（token 活体注册，随主题重算）；正文 9pt
+  //（pointSize 跟随系统缩放）。
+  PaleoTheme::applyThemedStyleSheet(this, [] {
+    return QStringLiteral("LayerTreePanel { background: %1; }")
+        .arg(PaleoTheme::tokens().surface.name().toUpper());
+  });
   QFont base = font();
   base.setPointSizeF(9.0);
   setFont(base);
@@ -84,17 +91,11 @@ LayerTreePanel::LayerTreePanel(QgsProject *project, QgsMapCanvas *canvas,
     m_view->setModel(model);
   }
 
-  // 空态 label：壳里 EmptyStateLabel 的等价物（那类是 mainwindow 私有，
-  // 这里自带）——白底半透明卡片、居中、随宿主 resize 保持居中。
-  m_emptyState = new QLabel(
-      QStringLiteral("图层树是空的 — 导入数据后图层会出现在这里"), m_view);
+  // 空态卡片：共享组件 PaleoEmptyStateLabel（token 活体样式 + 宿主 resize
+  // 自居中），objectName/文案钉死不变（tst_layertreepanel/tst_ui 断言）。
+  m_emptyState = new PaleoEmptyStateLabel(
+      tr("图层树是空的 — 导入数据后图层会出现在这里"), m_view);
   m_emptyState->setObjectName(QStringLiteral("layerTreeEmptyState"));
-  m_emptyState->setAlignment(Qt::AlignCenter);
-  m_emptyState->setWordWrap(true);
-  m_emptyState->setStyleSheet(QStringLiteral(
-      "background: rgba(255,255,255,0.9); color: #5D6E80; padding: 12px 16px;"
-      "border: 1px solid #DFE5EC; border-radius: 8px;"));
-  m_view->installEventFilter(this);
   m_emptyState->raise();
 
   auto *layout = new QVBoxLayout(this);
@@ -153,7 +154,6 @@ LayerTreePanel::LayerTreePanel(QgsProject *project, QgsMapCanvas *canvas,
   updateEmptyState();
   refreshIndicators();
   updatePaleoActionStates();
-  recenterEmptyState();
 }
 
 QgsLayerTreeView *LayerTreePanel::treeView() const { return m_view; }
@@ -182,11 +182,12 @@ QWidget *LayerTreePanel::buildToolbar()
   removeAction->setToolTip(
       tr("删除图层树里选中的图层或组；画布上选中的要素用编辑工具条的「删除」"));
 
-  // 工具条按钮走守卫包装：编辑会话中的图层先收尾（保存/放弃）再删——
-  // 直接删会把未提交的编辑随图层析构静默丢弃。
-  auto *guardedRemove = new QAction(tr("删除所选图层/组"), this);
-  guardedRemove->setToolTip(removeAction->toolTip());
-  connect(guardedRemove, &QAction::triggered, this, [this, removeAction] {
+  // 删除走守卫包装（工具条按钮与右键菜单共用同一 QAction 实例——C6）：
+  // 编辑会话中的图层先收尾（保存/放弃）再删——直接删会把未提交的编辑随
+  // 图层析构静默丢弃。
+  m_removeAction = new QAction(tr("删除所选图层/组"), this);
+  m_removeAction->setToolTip(removeAction->toolTip());
+  connect(m_removeAction, &QAction::triggered, this, [this, removeAction] {
     QList<QgsMapLayer *> selected =
         m_view ? m_view->selectedLayers() : QList<QgsMapLayer *>();
     if (selected.isEmpty() && m_view && m_view->currentLayer())
@@ -211,7 +212,7 @@ QWidget *LayerTreePanel::buildToolbar()
     return btn;
   };
   lay->addWidget(mkButton(QStringLiteral("layerTreeAddGroupButton"), m_addGroupAction));
-  lay->addWidget(mkButton(QStringLiteral("layerTreeRemoveSelectedButton"), guardedRemove));
+  lay->addWidget(mkButton(QStringLiteral("layerTreeRemoveSelectedButton"), m_removeAction));
 
   auto *expandAct = new QAction(tr("展开全部"), this);
   connect(expandAct, &QAction::triggered, m_view, &QgsLayerTreeView::expandAllNodes);
@@ -245,7 +246,9 @@ void LayerTreePanel::buildContextMenu()
   m_menu->addAction(acts->actionShowFeatureCount(m_menu));
   m_menu->addSeparator();
   m_menu->addAction(acts->actionRenameGroupOrLayer(m_menu));
-  m_menu->addAction(acts->actionRemoveGroupOrLayer(m_menu));
+  // C6：右键菜单与工具条共用同一守卫版删除动作——编辑中的图层在任何
+  // 入口都必须先收尾（守卫内 emit layerRemovalRefused 给原因）。
+  m_menu->addAction(m_removeAction);
   m_menu->addAction(m_addGroupAction);
   m_menu->addSeparator();
 
@@ -580,20 +583,4 @@ void LayerTreePanel::expandNewLayerNodes(const QList<QgsMapLayer *> &layers)
     if (QgsLayerTreeNode *node = model->rootGroup()->findLayer(l->id()))
       node->setExpanded(true); // 新增图层 legend 符号节点展开
   }
-}
-
-void LayerTreePanel::recenterEmptyState()
-{
-  if (!m_emptyState || !m_view)
-    return;
-  m_emptyState->adjustSize();
-  m_emptyState->move((m_view->width() - m_emptyState->width()) / 2,
-                     (m_view->height() - m_emptyState->height()) / 2);
-}
-
-bool LayerTreePanel::eventFilter(QObject *obj, QEvent *ev)
-{
-  if (obj == m_view && ev->type() == QEvent::Resize)
-    recenterEmptyState(); // 空态卡片随宿主树 resize 保持居中
-  return QWidget::eventFilter(obj, ev);
 }

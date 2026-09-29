@@ -37,7 +37,7 @@ namespace
       explicit PaleoCommonItemWidget( QgsLayoutItem *item, QWidget *parent = nullptr )
         : QgsLayoutItemBaseWidget( parent, item )
       {
-        setPanelTitle( QObject::tr( "Item Properties" ) );
+        setPanelTitle( QObject::tr( "项属性" ) );
         auto *lay = new QVBoxLayout( this );
         lay->setContentsMargins( 0, 0, 0, 0 );
         lay->setSpacing( 0 );
@@ -75,7 +75,7 @@ namespace
       if ( registry->metadataIdForItemType( type ) != -1 )
         continue;
       registry->addLayoutItemGuiMetadata( new QgsLayoutItemGuiMetadata(
-        type, QObject::tr( "Item Properties" ), QIcon(),
+        type, QObject::tr( "项属性" ), QIcon(),
         []( QgsLayoutItem * item ) -> QgsLayoutItemBaseWidget *
         { return new PaleoCommonItemWidget( item ); } ) );
     }
@@ -94,7 +94,7 @@ PaleoLayoutItemPanel::PaleoLayoutItemPanel( QWidget *parent )
   qRegisterMetaType<QgsLayoutItem *>( );
 
   setObjectName( QStringLiteral( "PaleoLayoutItemPanel" ) );
-  setWindowTitle( tr( "Item Properties" ) );
+  setWindowTitle( tr( "项属性" ) );
 
   auto *root = new QVBoxLayout( this );
   root->setContentsMargins( 8, 8, 8, 8 ); // DESIGN spacing.sm panel padding

@@ -39,6 +39,9 @@ namespace
   QColor hx(const char *hex) { return QColor(QLatin1String(hex)); }
 
   // 浅色 token 全集（DESIGN.md colors + status-tag 原值）。
+  // statusTag*Text = 胶囊文字色：浅底下语义色原值不足 4.5:1（实测 warning
+  // 2.1:1 / success 3.0:1 / error 3.7:1），用深色变体拉到 AA（4.5+）；
+  // 暗色深底上语义色提亮值本身已 AA，文字 = 语义色。
   const PaleoTheme::ThemeTokens kLight = {
       /*.primary =*/hx("#1B73D0"),        /*.onPrimary =*/hx("#FFFFFF"),
       /*.primaryHover =*/hx("#1565B8"),   /*.primaryText =*/hx("#1B73D0"),
@@ -49,10 +52,11 @@ namespace
       /*.placeholder =*/hx("#5D6E80"),    /*.success =*/hx("#43A047"),
       /*.warning =*/hx("#F29900"),        /*.error =*/hx("#E53935"),
       /*.successBg =*/hx("#E8F5E9"),      /*.warningBg =*/hx("#FFF4E0"),
-      /*.errorBg =*/hx("#FDEBEB"),
+      /*.errorBg =*/hx("#FDEBEB"),        /*.successText =*/hx("#2E7D32"),
+      /*.warningText =*/hx("#9A5B00"),    /*.errorText =*/hx("#C62828"),
   };
 
-  // 暗色 token 全集（DESIGN.md 决策日志 2026-09-28 翻案条）：中性阶翻转、
+  // 暗色 token 全集（DESIGN.md 决策日志 2026-09-29 翻案条）：中性阶翻转、
   // 语义色提亮保对比度；primary 填充色不变，文字位主色/焦点环提亮为
   // #5FA5F0。surfaceAltRaised = 暗色下比 surfaceAlt 略浮起一档的面
   // （hover/选中底，对应浅色 surface-alt 与 border 的关系）。
@@ -66,12 +70,13 @@ namespace
       /*.placeholder =*/hx("#A3B1BF"),    /*.success =*/hx("#5CB860"),
       /*.warning =*/hx("#FFB74D"),        /*.error =*/hx("#F76A61"),
       /*.successBg =*/hx("#1F3524"),      /*.warningBg =*/hx("#3A2E15"),
-      /*.errorBg =*/hx("#3A1D1D"),
+      /*.errorBg =*/hx("#3A1D1D"),        /*.successText =*/hx("#5CB860"),
+      /*.warningText =*/hx("#FFB74D"),    /*.errorText =*/hx("#F76A61"),
   };
 
-  // DESIGN.md status-tag：浅色底 + 深色字；暗色为深底 + 提亮语义字。
-  // Neutral（未计算）用 surface-alt 底 + text-muted 字 + border 描边——
-  // 中性状态不占语义色。
+  // DESIGN.md status-tag：浅色底 + 深色文字变体（AA）；暗色为深底 +
+  // 提亮语义字。Neutral（未计算）用 surface-alt 底 + text-muted 字 +
+  // border 描边——中性状态不占语义色。
   struct CapsuleColors
   {
     const QColor bg;
@@ -83,9 +88,9 @@ namespace
   {
     switch (kind)
     {
-      case PaleoTheme::CapsuleKind::Success: return {t.successBg, t.success, false};
-      case PaleoTheme::CapsuleKind::Warning: return {t.warningBg, t.warning, false};
-      case PaleoTheme::CapsuleKind::Error: return {t.errorBg, t.error, false};
+      case PaleoTheme::CapsuleKind::Success: return {t.successBg, t.successText, false};
+      case PaleoTheme::CapsuleKind::Warning: return {t.warningBg, t.warningText, false};
+      case PaleoTheme::CapsuleKind::Error: return {t.errorBg, t.errorText, false};
       case PaleoTheme::CapsuleKind::Neutral:
       default: return {t.surfaceAltRaised, t.textMuted, true};
     }
@@ -221,6 +226,7 @@ namespace PaleoTheme
                "QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus,"
                "QTableView:focus, QTreeView:focus, QListView:focus, QListWidget:focus,"
                "QPushButton:focus, QToolButton:focus, QTabBar:focus,"
+               "QSlider:focus, QCheckBox:focus, QRadioButton:focus,"
                "QTextEdit:focus, QPlainTextEdit:focus { border: 2px solid %1; }")
         .arg(qssHex(tokens(theme).focusRing));
   }
@@ -241,7 +247,8 @@ namespace PaleoTheme
     auto *l = new QLabel(text, parent);
     l->setObjectName(QStringLiteral("statusCapsule"));
     l->setProperty("capsuleKind", static_cast<int>(kind));
-    l->setStyleSheet(capsuleStyleSheet(kind));
+    // 活体注册：运行时切主题胶囊随 Relay 重算（不再停留构造时配色）。
+    applyThemedStyleSheet(l, [kind] { return capsuleStyleSheet(kind); });
     l->setAlignment(Qt::AlignCenter);
     return l;
   }
@@ -352,7 +359,7 @@ namespace PaleoTheme
     // 页签行 = surface-alt，ribbon 体 = surface；选中页签蓝字蓝下划线就是
     // 编号工作流标签（唯一签名元素）。hover = surfaceAltRaised（浅色下同
     // surface-alt），按下 = border 色。全部 keyColors 显式写，不留 derived。
-    // dark 变体：isDark=true + 暗色阶（决策日志 2026-09-28 暗色翻案）。
+    // dark 变体：isDark=true + 暗色阶（决策日志 2026-09-29 暗色翻案）。
     // white/black 语义是「模板要用的纯对比色」，两主题都不翻转（对齐
     // SARibbon 官方 office2021-dark 参考的 fixed 节）。
     const QByteArray light = QByteArrayLiteral(R"({
@@ -403,7 +410,7 @@ namespace PaleoTheme
     "input-focus": "#5FA5F0",
     "selection-bg": "#2A313B",
     "menu-border": "#3B4552",
-    "close-bg": "#EF5350",
+    "close-bg": "#F76A61",
     "close-bg-pressed": "#3A1D1D",
     "sys-button-hover": "#2A313B",
     "sys-button-pressed": "#3B4552",

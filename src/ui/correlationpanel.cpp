@@ -9,6 +9,7 @@
 #include "correlation/curvebrowser.h"
 #include "correlation/depthruler.h"
 
+#include <QEvent>
 #include <QGraphicsPathItem>
 #include <QGraphicsRectItem>
 #include <QGraphicsScene>
@@ -62,7 +63,6 @@ namespace
   QColor kBorder() { return PaleoTheme::tokens().border; }
   QColor kPrimary() { return PaleoTheme::tokens().primary; }
   QColor kText() { return PaleoTheme::tokens().text; }
-  QColor kTextMuted() { return PaleoTheme::tokens().textMuted; }
 
   QPen columnPen(bool highlighted)
   {
@@ -208,6 +208,14 @@ namespace
       CorrelationView(QGraphicsScene *scene, QWidget *parent)
         : QGraphicsView(scene, parent) {}
 
+      // 背景刷在构造期固化会跟丢主题切换——随 ApplicationPaletteChange 重取。
+      bool event(QEvent *e) override
+      {
+        if (e->type() == QEvent::ApplicationPaletteChange)
+          setBackgroundBrush(kSurfaceAlt());
+        return QGraphicsView::event(e);
+      }
+
       DepthRuler *ruler = nullptr;
       bool rulerEnabled = false;
       qreal rulerTop = 0.0;                       // scene y of the ruler strip top
@@ -309,7 +317,7 @@ WellCorrelationPanel::WellCorrelationPanel(SelectionContext *ctx, QWidget *paren
   m_emptyLabel->setObjectName(QStringLiteral("emptyLabel"));
   m_emptyLabel->setAlignment(Qt::AlignCenter);
   m_emptyLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
-  m_emptyLabel->setStyleSheet(QStringLiteral("color: %1;").arg(kTextMuted().name()));
+  PaleoTheme::applyThemedStyleSheet(m_emptyLabel, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   grid->addWidget(m_emptyLabel, 0, 0);
   m_emptyLabel->setVisible(true);
 

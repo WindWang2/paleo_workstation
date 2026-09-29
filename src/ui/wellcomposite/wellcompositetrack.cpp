@@ -535,7 +535,8 @@ void DepthScaleTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   const double minorStep = majorStep / 5.0;
 
   QFont numFont = painter.font();
-  numFont.setFamily(QStringLiteral("JetBrains Mono, Noto Sans SC, monospace"));
+  numFont.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("Noto Sans SC"), QStringLiteral("monospace")});
+  numFont.setStyleHint(QFont::TypeWriter);
   numFont.setPointSize(8);
   painter.setFont(numFont);
 
@@ -986,8 +987,9 @@ void CurveTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double
   {
     const qreal slotH = (headerRect.height() - 20) / static_cast<qreal>(count);
     QFont fCurve = painter.font();
-    fCurve.setFamily(QStringLiteral("JetBrains Mono, Noto Sans SC, monospace"));
-    fCurve.setPointSize(7);
+    fCurve.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("Noto Sans SC"), QStringLiteral("monospace")});
+    fCurve.setStyleHint(QFont::TypeWriter);
+    fCurve.setPointSize(8);
     fCurve.setBold(false);
     painter.setFont(fCurve);
 

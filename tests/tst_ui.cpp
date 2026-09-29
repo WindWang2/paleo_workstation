@@ -232,21 +232,27 @@ class TestUiShell : public QObject
       auto *releaseList = m_win->findChild<QWidget *>(QStringLiteral("releaseList"));
       QVERIFY(releaseList && !releaseList->accessibleName().isEmpty());
 
-      QStringList flat;
-      const auto walk = [&flat](QMenu *menu, auto &&self) -> void {
+      QStringList flat, tips;
+      const auto walk = [&flat, &tips](QMenu *menu, auto &&self) -> void {
         for (QAction *a : menu->actions())
         {
           if (a->menu())
             self(a->menu(), self);
           else
+          {
             flat << a->text();
+            tips << a->toolTip();
+          }
         }
       };
       walk(btn->menu(), walk);
 
-      QVERIFY(flat.contains(QStringLiteral("paleo:paleo_constraint_idw")));
-      QVERIFY(flat.contains(QStringLiteral("paleo:paleo_facies_fusion")));
-      QVERIFY(flat.contains(QStringLiteral("paleo:paleo_geological_smoothing")));
+      // W6：菜单项显示 displayName（人读名），机器 id 退到 tooltip。
+      QVERIFY(flat.contains(QStringLiteral("Paleo: Constraint IDW")));
+      QVERIFY(flat.contains(QStringLiteral("Paleo: Facies Fusion")));
+      QVERIFY(flat.contains(QStringLiteral("Paleo: Geological Smoothing")));
+      QVERIFY(!flat.contains(QStringLiteral("paleo:paleo_constraint_idw")));
+      QVERIFY(tips.contains(QStringLiteral("paleo:paleo_constraint_idw")));
 
       // Provider submenus exist for non-paleo algorithms (registry-dependent:
       // only assert when the registry actually exposes others).

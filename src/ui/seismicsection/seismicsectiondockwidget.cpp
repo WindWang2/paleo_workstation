@@ -2,6 +2,7 @@
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 
 #include <QAction>
+#include <QActionGroup>
 #include <QCheckBox>
 #include <QClipboard>
 #include <QDialog>
@@ -34,6 +35,7 @@
 
 #include "domain/seismic/sectiongeometry.h"
 #include "domain/seismic/sgysectionbuilder.h"
+#include "ui/paleotheme.h"
 #include <QUndoStack>
 
 #include "services/seismictaskservice.h"
@@ -63,13 +65,29 @@ void SeismicSectionDockWidget::setupUi() {
     mainLay->setSpacing(0);
 
     // ==========================================
-    // 1. Top Toolbar (DESIGN.md Light Theme)
+    // 1. Top Toolbar（chrome 全 token，活体注册随主题切换重算）
     // ==========================================
     auto *toolbar = new QWidget(container);
+    PaleoTheme::applyThemedStyleSheet(toolbar, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral("background: %1; border-bottom: 1px solid %2;")
+            .arg(t.surface.name().toUpper(), t.border.name().toUpper());
+    });
     auto *toolLay = new QHBoxLayout(toolbar);
     toolLay->setContentsMargins(8, 4, 8, 4);
     toolLay->setSpacing(6);
 
+    auto applyBtnStyle = [](QToolButton *btn) {
+        PaleoTheme::applyThemedStyleSheet(btn, [] {
+            const auto &t = PaleoTheme::tokens();
+            return QStringLiteral(
+                "QToolButton { background: transparent; border: 1px solid %1; border-radius: 4px; padding: 2px 6px; font-size: 8pt; color: %2; }"
+                "QToolButton:hover { background: %3; }"
+                "QToolButton:pressed { background: %4; }")
+                .arg(t.border.name().toUpper(), t.text.name().toUpper(),
+                     t.surfaceAlt.name().toUpper(), t.surfaceAltRaised.name().toUpper());
+        });
+    };
     auto *setup = new QToolButton(toolbar);
     setup->setObjectName("sectionSetupButton");
     setup->setText(tr("连井 / 时深"));
@@ -78,15 +96,26 @@ void SeismicSectionDockWidget::setupUi() {
     connect(setup, &QToolButton::clicked, this,
             &SeismicSectionDockWidget::setupRequested);
 
-    // Title Badge
+    // Title Badge（中性徽章：不占 primary）
     m_lblTitle = new QLabel(tr("测线: 未加载"), toolbar);
+    PaleoTheme::applyThemedStyleSheet(m_lblTitle, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral(
+            "QLabel { background: %1; color: %2; font-weight: bold; border-radius: 4px; padding: 2px 8px; font-size: 9pt; }")
+            .arg(t.surfaceAltRaised.name().toUpper(), t.text.name().toUpper());
+    });
     toolLay->addWidget(m_lblTitle);
 
     // Section Mode Combo
     m_cboSectionMode = new QComboBox(toolbar);
     m_cboSectionMode->setObjectName(QStringLiteral("cboSectionMode"));
-    m_cboSectionMode->addItems({tr("纵测线 (IL)"), tr("横测线 (XL)"),
-                                tr("时间切片 (Time)"), tr("任意测线/井剖面")});
+    m_cboSectionMode->addItems({tr("纵测线 (IL)"), tr("横测线 (XL)"), tr("时间切片 (Time)"), tr("任意测线/井剖面")});
+    PaleoTheme::applyThemedStyleSheet(m_cboSectionMode, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral(
+            "QComboBox { border: 1px solid %1; border-radius: 4px; padding: 2px 6px; font-size: 8pt; color: %2; background: %3; font-weight: 500; }")
+            .arg(t.border.name().toUpper(), t.text.name().toUpper(), t.surface.name().toUpper());
+    });
     toolLay->addWidget(m_cboSectionMode);
 
     // Slicing Group (Slider + Spin + Time label)
@@ -96,6 +125,10 @@ void SeismicSectionDockWidget::setupUi() {
     sliceLay->setSpacing(4);
 
     m_lblSliceIndex = new QLabel(tr("纵测线:"), m_sliceGroup);
+    PaleoTheme::applyThemedStyleSheet(m_lblSliceIndex, [] {
+        return QStringLiteral("color: %1; font-size: 8pt; font-weight: 500;")
+            .arg(PaleoTheme::tokens().textMuted.name().toUpper());
+    });
     sliceLay->addWidget(m_lblSliceIndex);
 
     m_sliderSlice = new QSlider(Qt::Horizontal, m_sliceGroup);
@@ -107,7 +140,11 @@ void SeismicSectionDockWidget::setupUi() {
 
     m_spinSlice = new QSpinBox(m_sliceGroup);
     m_spinSlice->setObjectName(QStringLiteral("spinSectionSlice"));
-    m_spinSlice->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
+    {
+        QFont f = PaleoTheme::monoFont();
+        f.setPointSize(PaleoTheme::kLabelPt);
+        m_spinSlice->setFont(f);
+    }
     m_spinSlice->setRange(1, 100);
     m_spinSlice->setValue(1);
     m_spinSlice->setFixedWidth(64);
@@ -115,7 +152,15 @@ void SeismicSectionDockWidget::setupUi() {
 
     m_lblTimeMs = new QLabel(QStringLiteral("0.0 ms"), m_sliceGroup);
     m_lblTimeMs->setObjectName(QStringLiteral("lblSectionTimeMs"));
-    m_lblTimeMs->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
+    {
+        QFont f = PaleoTheme::monoFont();
+        f.setPointSize(PaleoTheme::kLabelPt);
+        m_lblTimeMs->setFont(f);
+    }
+    PaleoTheme::applyThemedStyleSheet(m_lblTimeMs, [] {
+        return QStringLiteral("color: %1;")
+            .arg(PaleoTheme::tokens().text.name().toUpper());
+    });
     m_lblTimeMs->setFixedWidth(68);
     m_lblTimeMs->setVisible(false);
     sliceLay->addWidget(m_lblTimeMs);
@@ -132,21 +177,25 @@ void SeismicSectionDockWidget::setupUi() {
     m_btnZoomIn = new QToolButton(toolbar);
     m_btnZoomIn->setObjectName(QStringLiteral("btnSectionZoomIn"));
     m_btnZoomIn->setText(tr("+ 放大"));
+    applyBtnStyle(m_btnZoomIn);
     toolLay->addWidget(m_btnZoomIn);
 
     m_btnZoomOut = new QToolButton(toolbar);
     m_btnZoomOut->setObjectName(QStringLiteral("btnSectionZoomOut"));
     m_btnZoomOut->setText(tr("- 缩小"));
+    applyBtnStyle(m_btnZoomOut);
     toolLay->addWidget(m_btnZoomOut);
 
     m_btnFit = new QToolButton(toolbar);
     m_btnFit->setObjectName(QStringLiteral("btnSectionFit"));
     m_btnFit->setText(tr("适应窗口"));
+    applyBtnStyle(m_btnFit);
     toolLay->addWidget(m_btnFit);
 
     m_btnReset = new QToolButton(toolbar);
     m_btnReset->setObjectName(QStringLiteral("btnSectionReset"));
     m_btnReset->setText(tr("1:1"));
+    applyBtnStyle(m_btnReset);
     toolLay->addWidget(m_btnReset);
 
     // Vertical Unit Toggle
@@ -155,10 +204,15 @@ void SeismicSectionDockWidget::setupUi() {
     m_btnUnitToggle->setText(tr("单位: TWT (ms)"));
     m_btnUnitToggle->setToolTip(
         tr("切换 TWT 与常速参考深度尺；井段仍按本井时深表对齐"));
+    applyBtnStyle(m_btnUnitToggle);
     toolLay->addWidget(m_btnUnitToggle);
 
     // Colormap Combo
     auto *lblCmap = new QLabel(tr("色标:"), toolbar);
+    PaleoTheme::applyThemedStyleSheet(lblCmap, [] {
+        return QStringLiteral("color: %1; font-size: 8pt;")
+            .arg(PaleoTheme::tokens().textMuted.name().toUpper());
+    });
     toolLay->addWidget(lblCmap);
 
     m_cboColorMap = new QComboBox(toolbar);
@@ -166,12 +220,20 @@ void SeismicSectionDockWidget::setupUi() {
     m_cboColorMap->addItems({tr("红白蓝 (双极)"), tr("灰度 (单极)"), tr("彩虹谱 (相图)"),
                              tr("蓝白红 (反双极)"), tr("黑-白-蓝 (纸面)"), tr("红-白-黑 (纸面)"),
                              tr("绿-白-品红"), tr("青-白-橙")});
-    m_cboColorMap->setStyleSheet(QStringLiteral(
-        "QComboBox { border: 1px solid #DFE5EC; border-radius: 4px; padding: 2px 6px; font-size: 8.5pt; }"));
+    PaleoTheme::applyThemedStyleSheet(m_cboColorMap, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral(
+            "QComboBox { border: 1px solid %1; border-radius: 4px; padding: 2px 6px; font-size: 8pt; color: %2; background: %3; }")
+            .arg(t.border.name().toUpper(), t.text.name().toUpper(), t.surface.name().toUpper());
+    });
     toolLay->addWidget(m_cboColorMap);
 
     // Gain Control
     auto *lblGain = new QLabel(tr("增益:"), toolbar);
+    PaleoTheme::applyThemedStyleSheet(lblGain, [] {
+        return QStringLiteral("color: %1; font-size: 8pt;")
+            .arg(PaleoTheme::tokens().textMuted.name().toUpper());
+    });
     toolLay->addWidget(lblGain);
 
     m_sliderGain = new QSlider(Qt::Horizontal, toolbar);
@@ -195,6 +257,7 @@ void SeismicSectionDockWidget::setupUi() {
     m_btnWellOptions->setObjectName(QStringLiteral("btnSectionWellOptions"));
     m_btnWellOptions->setText(tr("井与分层 ▼"));
     m_btnWellOptions->setPopupMode(QToolButton::InstantPopup);
+    applyBtnStyle(m_btnWellOptions);
 
     auto *wellMenu = new QMenu(m_btnWellOptions);
     auto *actShowWells = wellMenu->addAction(tr("显示井位"));
@@ -213,6 +276,14 @@ void SeismicSectionDockWidget::setupUi() {
     auto *actBuf200 = wellMenu->addAction(tr("缓冲半径: 200 m"));
     auto *actBuf500 = wellMenu->addAction(tr("缓冲半径: 500 m"));
     auto *actBuf1000 = wellMenu->addAction(tr("缓冲半径: 1000 m"));
+    auto *bufGroup = new QActionGroup(wellMenu);
+    bufGroup->setExclusive(true);
+    for (QAction *act : {actBuf200, actBuf500, actBuf1000}) {
+        act->setCheckable(true);
+        bufGroup->addAction(act);
+    }
+    // 勾选与画布缺省缓冲（500 m）一致
+    actBuf500->setChecked(true);
     wellMenu->addSeparator();
     // D5.7 多井投影开关
     auto *actAllWells = wellMenu->addAction(tr("投影井数: 全部"));
@@ -231,6 +302,7 @@ void SeismicSectionDockWidget::setupUi() {
     m_btnExport = new QToolButton(toolbar);
     m_btnExport->setObjectName(QStringLiteral("btnSectionExport"));
     m_btnExport->setText(tr("导出图件"));
+    applyBtnStyle(m_btnExport);
     toolLay->addWidget(m_btnExport);
 
     mainLay->addWidget(toolbar);
@@ -254,12 +326,26 @@ void SeismicSectionDockWidget::setupUi() {
     // 3. Bottom Status Bar (Monospace Readout)
     // ==========================================
     auto *statusBar = new QWidget(container);
+    PaleoTheme::applyThemedStyleSheet(statusBar, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral("background: %1; border-top: 1px solid %2; min-height: 24px;")
+            .arg(t.surfaceAlt.name().toUpper(), t.border.name().toUpper());
+    });
     auto *statusLay = new QHBoxLayout(statusBar);
     statusLay->setContentsMargins(8, 2, 8, 2);
     statusLay->setSpacing(8);
 
     m_lblCoordinates = new QLabel(statusBar);
     m_lblCoordinates->setObjectName(QStringLiteral("lblSectionCoordinates"));
+    {
+        QFont f = PaleoTheme::monoFont();
+        f.setPointSize(PaleoTheme::kLabelPt);
+        m_lblCoordinates->setFont(f);
+    }
+    PaleoTheme::applyThemedStyleSheet(m_lblCoordinates, [] {
+        return QStringLiteral("color: %1;")
+            .arg(PaleoTheme::tokens().text.name().toUpper());
+    });
     m_lblCoordinates->setText(tr("道: -- | 距离: -- | TWT: -- ms | 深度: -- m | 振幅: -- | (X: --, Y: --)"));
     statusLay->addWidget(m_lblCoordinates, 1);
 
@@ -357,6 +443,10 @@ void SeismicSectionDockWidget::setupUi() {
     connect(m_canvas, &SeismicSectionCanvas::traceHovered, this, &SeismicSectionDockWidget::onTraceHovered);
     // D2.11：点击道 → 道头卡
     connect(m_canvas, &SeismicSectionCanvas::traceClicked, this, &SeismicSectionDockWidget::onTraceClicked);
+    // 画布键盘 PgUp/PgDn → 切片滑杆步进（±1）
+    connect(m_canvas, &SeismicSectionCanvas::sliceStepRequested, this, [this](int delta) {
+        m_sliderSlice->setValue(m_sliderSlice->value() + delta);
+    });
 }
 
 // D2.2–D2.12 显示控制行：显示三模/阈值/极性/AGC/增益曲线/双刻度/拉伸/
@@ -936,12 +1026,12 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
 
     QString title;
     if (type == SgySliceType::Inline) {
-        title = QStringLiteral("纵测线剖面 IL %1").arg(index);
+        title = tr("纵测线剖面 IL %1").arg(index);
     } else if (type == SgySliceType::Xline) {
-        title = QStringLiteral("横测线剖面 XL %1").arg(index);
+        title = tr("横测线剖面 XL %1").arg(index);
     } else {
         const double ms = origin + index * (m_volume->SampleIntervalUs() / 1000.0);
-        title = QStringLiteral("水平时间切片 TWT %1 ms").arg(ms, 0, 'f', 1);
+        title = tr("水平时间切片 TWT %1 ms").arg(ms, 0, 'f', 1);
     }
     setLineTitle(title);
 
@@ -1061,7 +1151,7 @@ void SeismicSectionDockWidget::onTraceHovered(
 
     if (m_canvas->orientation() == SectionOrientation::TimeSlice) {
         m_lblCoordinates->setText(
-            QStringLiteral("横测线 (XL): %1 | 纵测线 (IL): %2 | 时间: %3 ms | 深度: %4 m | 振幅: %5")
+            tr("横测线 (XL): %1 | 纵测线 (IL): %2 | 时间: %3 ms | 深度: %4 m | 振幅: %5")
                 .arg(qRound(mapX))
                 .arg(qRound(mapY))
                 .arg(twtMs, 0, 'f', 1)
@@ -1070,7 +1160,7 @@ void SeismicSectionDockWidget::onTraceHovered(
         return;
     }
 
-    QString text = QStringLiteral("道: %1/%2 | TWT: %3 ms | 深度: %4 m | 振幅: %5")
+    QString text = tr("道: %1/%2 | TWT: %3 ms | 深度: %4 m | 振幅: %5")
         .arg(traceIndex + 1)
         .arg(m_canvas->traceCount())
         .arg(twtMs, 0, 'f', 1)

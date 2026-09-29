@@ -1,6 +1,7 @@
 // 层：视图
 #include "wellpositionlegendwidget.h"
 #include "wellcompositetrack.h"
+#include "../paleotheme.h"
 
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -69,10 +70,11 @@ void GraphicScaleBar::paintEvent(QPaintEvent * /*event*/)
   const qreal barH = 4.0;
   const qreal barY = h - 8.0;
 
-  // 文字字体 (JetBrains Mono 7pt)
+  // 文字字体 (JetBrains Mono 8pt)
   QFont font = p.font();
-  font.setFamily(QStringLiteral("JetBrains Mono, monospace"));
-  font.setPointSize(7);
+  font.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("monospace")});
+  font.setStyleHint(QFont::TypeWriter);
+  font.setPointSize(8);
   p.setFont(font);
 
   // 刻度标注文字 (0, mid, max m)
@@ -194,10 +196,11 @@ void WellOverviewMiniBar::paintEvent(QPaintEvent * /*event*/)
   const qreal h = height();
   const double span = qMax(1.0, m_maxDepth - m_minDepth);
 
-  // 底色与边框
+  // 底色与边框（chrome 走当前主题 token——与底部图例栏同款）
   const QRectF baseRect(0.5, 0.5, w - 1.0, h - 1.0);
-  p.fillRect(baseRect, QColor(QStringLiteral("#EDF1F5")));
-  p.setPen(QColor(QStringLiteral("#DFE5EC")));
+  const auto &tok = PaleoTheme::tokens();
+  p.fillRect(baseRect, tok.surfaceAlt);
+  p.setPen(tok.border);
   p.drawRoundedRect(baseRect, 3.0, 3.0);
 
   // 绘制地层分段色块
@@ -222,18 +225,28 @@ void WellOverviewMiniBar::paintEvent(QPaintEvent * /*event*/)
   const qreal vW = qMax(4.0, vx2 - vx1);
 
   const QRectF viewportRect(vx1, 1.0, vW, h - 2.0);
-  p.fillRect(viewportRect, QColor(27, 115, 208, 80));
-  p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.5));
+  // 视口滑块 = 选中/交互指示（primary 合法用途；两主题同值）
+  QColor sel = tok.primary;
+  sel.setAlpha(80);
+  p.fillRect(viewportRect, sel);
+  p.setPen(QPen(tok.primary, 1.5));
   p.drawRect(viewportRect);
 
   // 中间小抓手指示线
   if (vW >= 10.0)
   {
     const qreal midX = vx1 + vW * 0.5;
-    p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0));
+    p.setPen(QPen(tok.primary, 1.0));
     p.drawLine(QPointF(midX - 1.0, 2), QPointF(midX - 1.0, h - 2));
     p.drawLine(QPointF(midX + 1.0, 2), QPointF(midX + 1.0, h - 2));
   }
+}
+
+void WellOverviewMiniBar::changeEvent(QEvent *event)
+{
+  if (event->type() == QEvent::ApplicationPaletteChange || event->type() == QEvent::StyleChange)
+    update();
+  QWidget::changeEvent(event);
 }
 
 // ----------------------------------------------------------------------------
@@ -244,13 +257,19 @@ WellLegendDialog::WellLegendDialog(const ComprehensiveWellData &wellData, QWidge
 {
   setWindowTitle(tr("综合柱状图 — 地质与道图例"));
   resize(620, 480);
-  setStyleSheet(QStringLiteral(
-      "QDialog { background: #FFFFFF; }"
-      "QTabWidget::pane { border: 1px solid #DFE5EC; background: #FFFFFF; border-radius: 4px; }"
-      "QTabBar::tab { background: #EDF1F5; color: #5D6E80; padding: 6px 16px; margin-right: 2px; border-top-left-radius: 4px; border-top-right-radius: 4px; font-size: 9pt; }"
-      "QTabBar::tab:selected { background: #FFFFFF; color: #1B73D0; font-weight: bold; border: 1px solid #DFE5EC; border-bottom: none; }"
-      "QTableWidget { border: none; background: #FFFFFF; gridline-color: #EDF1F5; }"
-      "QHeaderView::section { background: #EDF1F5; color: #24303E; font-weight: 500; border: none; padding: 4px; }"));
+  // chrome 跟随主题；普通页签选中态用深字+bold，不占用 primary 交互蓝
+  PaleoTheme::applyThemedStyleSheet(this, [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "QDialog { background: %1; }"
+               "QTabWidget::pane { border: 1px solid %2; background: %1; border-radius: 4px; }"
+               "QTabBar::tab { background: %3; color: %4; padding: 6px 16px; margin-right: 2px; border-top-left-radius: 4px; border-top-right-radius: 4px; font-size: 9pt; }"
+               "QTabBar::tab:selected { background: %1; color: %5; font-weight: bold; border: 1px solid %2; border-bottom: none; }"
+               "QTableWidget { border: none; background: %1; gridline-color: %3; }"
+               "QHeaderView::section { background: %3; color: %5; font-weight: 500; border: none; padding: 4px; }")
+        .arg(t.surface.name(), t.border.name(), t.surfaceAlt.name(),
+             t.textMuted.name(), t.text.name());
+  });
   setupUi(wellData);
 }
 
@@ -542,12 +561,18 @@ WellPositionLegendWidget::WellPositionLegendWidget(QWidget *parent)
 {
   setObjectName(QStringLiteral("wellPositionLegendWidget"));
   setFixedHeight(32);
-  setStyleSheet(QStringLiteral(
-      "#wellPositionLegendWidget { background: #FFFFFF; border-top: 1px solid #DFE5EC; }"
-      "QLabel { color: #24303E; font-size: 8pt; }"
-      "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 3px; padding: 1px 6px; font-size: 8pt; color: #1B73D0; font-weight: 500; }"
-      "QToolButton:hover { background: #EDF1F5; border-color: #1B73D0; }"
-      "QToolButton:pressed { background: #DFE5EC; }"));
+  // 底部栏 chrome 跟随主题；导航按钮用正文 text 色，不占用 primary 交互蓝
+  PaleoTheme::applyThemedStyleSheet(this, [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "#wellPositionLegendWidget { background: %1; border-top: 1px solid %2; }"
+               "QLabel { color: %3; font-size: 8pt; }"
+               "QToolButton { background: %1; border: 1px solid %2; border-radius: 3px; padding: 1px 6px; font-size: 8pt; color: %3; font-weight: 500; }"
+               "QToolButton:hover { background: %4; border-color: %5; }"
+               "QToolButton:pressed { background: %2; }")
+        .arg(t.surface.name(), t.border.name(), t.text.name(),
+             t.surfaceAlt.name(), t.textDisabled.name());
+  });
 
   auto *mainLay = new QHBoxLayout(this);
   mainLay->setContentsMargins(6, 1, 6, 1);
@@ -559,7 +584,8 @@ WellPositionLegendWidget::WellPositionLegendWidget(QWidget *parent)
 
   // 2. 真实比例尺与屏幕实物换算标注文字
   QFont monoFont;
-  monoFont.setFamily(QStringLiteral("JetBrains Mono, monospace"));
+  monoFont.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("monospace")});
+  monoFont.setStyleHint(QFont::TypeWriter);
   monoFont.setPointSize(8);
   monoFont.setStyleStrategy(QFont::PreferAntialias);
 
@@ -572,7 +598,9 @@ WellPositionLegendWidget::WellPositionLegendWidget(QWidget *parent)
   auto *sep1 = new QFrame(this);
   sep1->setFrameShape(QFrame::VLine);
   sep1->setFrameShadow(QFrame::Sunken);
-  sep1->setStyleSheet(QStringLiteral("color: #DFE5EC;"));
+  PaleoTheme::applyThemedStyleSheet(sep1, [] {
+    return QStringLiteral("color: %1;").arg(PaleoTheme::tokens().border.name());
+  });
   mainLay->addWidget(sep1);
 
   // 3. 当前显示区域与视口范围标注
@@ -585,14 +613,18 @@ WellPositionLegendWidget::WellPositionLegendWidget(QWidget *parent)
   m_lblWellRange = new QLabel(tr("全井: 0.0 ~ 3000.0m (0.0%~16.7%)"), this);
   m_lblWellRange->setObjectName(QStringLiteral("lblWellRange"));
   m_lblWellRange->setFont(monoFont);
-  m_lblWellRange->setStyleSheet(QStringLiteral("color: #5D6E80;"));
+  PaleoTheme::applyThemedStyleSheet(m_lblWellRange, [] {
+    return PaleoTheme::mutedCaptionStyleSheet();
+  });
   mainLay->addWidget(m_lblWellRange);
 
   mainLay->addStretch(1);
 
   // 5. 全井位置微缩示意图例 / 导航条
   auto *lblNavTitle = new QLabel(tr("全井导航:"), this);
-  lblNavTitle->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8pt;"));
+  PaleoTheme::applyThemedStyleSheet(lblNavTitle, [] {
+    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral(" font-size: 8pt;");
+  });
   mainLay->addWidget(lblNavTitle);
 
   m_miniBar = new WellOverviewMiniBar(this);
@@ -613,7 +645,9 @@ WellPositionLegendWidget::WellPositionLegendWidget(QWidget *parent)
   auto *sep2 = new QFrame(this);
   sep2->setFrameShape(QFrame::VLine);
   sep2->setFrameShadow(QFrame::Sunken);
-  sep2->setStyleSheet(QStringLiteral("color: #DFE5EC;"));
+  PaleoTheme::applyThemedStyleSheet(sep2, [] {
+    return QStringLiteral("color: %1;").arg(PaleoTheme::tokens().border.name());
+  });
   mainLay->addWidget(sep2);
 
   // 7. 地质与道图例弹窗按钮

@@ -2,6 +2,7 @@
 #include "releasepanel.h"
 
 #include "../metadata/releasestore.h"
+#include "paleotheme.h"
 
 #include <QComboBox>
 #include <QFormLayout>
@@ -99,6 +100,12 @@ ReleasePanel::ReleasePanel(QWidget *parent)
       emit statusMessage(tr("无打开工程 — 无法创建发布"));
       return;
     }
+    const QString name = nameEdit->text().trimmed();
+    if (name.isEmpty())
+    {
+      emit statusMessage(tr("发布名称不能为空"));
+      return;
+    }
     ReleaseStore store(path);
     QString err;
     if (!store.open(&err))
@@ -106,7 +113,7 @@ ReleasePanel::ReleasePanel(QWidget *parent)
       emit statusMessage(tr("发布库打开失败：%1").arg(err));
       return;
     }
-    const QString id = store.createRelease(nameEdit->text().trimmed(),
+    const QString id = store.createRelease(name,
                                            noteEdit->text().trimmed(),
                                            m_manifestProvider(), &err);
     if (id.isEmpty())
@@ -127,11 +134,23 @@ ReleasePanel::ReleasePanel(QWidget *parent)
       return;
     const QString idA = comboA->currentData().toString();
     const QString idB = comboB->currentData().toString();
-    if (idA.isEmpty() || idB.isEmpty() || idA == idB)
+    if (idA.isEmpty() || idB.isEmpty())
+    {
+      emit statusMessage(tr("先在两侧各选一个发布版本"));
       return;
+    }
+    if (idA == idB)
+    {
+      emit statusMessage(tr("两侧是同一个版本——选择不同的版本进行对比"));
+      return;
+    }
     ReleaseStore store(m_dbPath());
-    if (!store.open())
+    QString openErr;
+    if (!store.open(&openErr))
+    {
+      emit statusMessage(tr("发布库打开失败：%1").arg(openErr));
       return;
+    }
     QStringList added, removed, changed;
     if (!store.diff(idA, idB, &added, &removed, &changed))
     {
@@ -169,12 +188,28 @@ void ReleasePanel::refresh()
   comboA->clear();
   comboB->clear();
 
+  // 空态文案：不留白板（无工程 / 库打不开 / 还没有发布，三种含义分清）。
+  const auto showEmptyGuidance = [list](const QString &text) {
+    auto *it = new QTreeWidgetItem(list, {text}); // 构造即挂树
+    it->setFlags(Qt::NoItemFlags);
+    it->setForeground(0, PaleoTheme::tokens().textMuted);
+    it->setFirstColumnSpanned(true);
+  };
+
   if (!m_dbPath || m_dbPath().isEmpty())
+  {
+    showEmptyGuidance(tr("打开工程后可创建发布快照"));
     return;
+  }
 
   ReleaseStore store(m_dbPath());
-  if (!store.open())
+  QString openErr;
+  if (!store.open(&openErr))
+  {
+    emit statusMessage(tr("发布库打开失败：%1").arg(openErr));
+    showEmptyGuidance(tr("发布库暂时不可用"));
     return;
+  }
   for (const ReleaseInfo &r : store.releases())
   {
     auto *item = new QTreeWidgetItem(list, {r.id, r.name, r.createdUtc,
@@ -184,6 +219,8 @@ void ReleasePanel::refresh()
     comboA->addItem(label, r.id);
     comboB->addItem(label, r.id);
   }
+  if (list->topLevelItemCount() == 0)
+    showEmptyGuidance(tr("还没有发布 — 在下方填名称后点「创建发布」"));
   if (comboB->count() > 1)
     comboB->setCurrentIndex(comboB->count() - 1); // newest as the default "to"
 }

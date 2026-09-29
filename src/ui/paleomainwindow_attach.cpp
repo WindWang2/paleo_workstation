@@ -171,30 +171,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   stack->addWidget(composePage);
   stack->addWidget(validatePage);
 
-  // Phase 5: 井-震-图联动 (SeismicMapLink) 接线——linkage 不碰 ui 类型：
-  // 剖面画布的悬停/点击信号连进联动器槽，联动器的体量推送连回剖面控件。
-  if (seismicLink && m_seismicSectionDock && m_seismicSectionDock->canvas())
-  {
-    connect(m_seismicSectionDock->canvas(), &seismic::SeismicSectionCanvas::traceHovered,
-            seismicLink, &SeismicMapLink::onSectionTraceHovered);
-    connect(m_seismicSectionDock->canvas(), &seismic::SeismicSectionCanvas::traceClicked,
-            seismicLink, &SeismicMapLink::onSectionTraceClicked);
-    connect(seismicLink, &SeismicMapLink::sectionVolumeChanged,
-            m_seismicSectionDock, &seismic::SeismicSectionDockWidget::setVolume);
-    // 地图折线剖面意图 → dock 异步提取 + 露出（W3b：linkage 只发信号）。
-    connect(seismicLink, &SeismicMapLink::sectionExtractRequested,
-            m_seismicSectionDock,
-            [this](std::shared_ptr<const seismic::SgyVolume> volume,
-                   std::vector<glm::ivec2> pathPoints, QString title,
-                   std::vector<glm::dvec2> mapPolyline) {
-              m_seismicSectionDock->extractSectionFromVolumeAsync(
-                  volume, pathPoints, title, mapPolyline);
-              m_seismicSectionDock->show();
-              m_seismicSectionDock->raise();
-            });
-    if (auto volume = seismicLink->activeVolume())
-      m_seismicSectionDock->setVolume(volume);
-  }
+  attachSections(seismicLink);
   WellCorrelationPanel *corrPanel = nullptr;
   if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
   {
@@ -202,7 +179,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     {
       corrPanel = new WellCorrelationPanel(m_selection, bottomTabs);
       corrPanel->setObjectName(QStringLiteral("correlationPanel"));
-      bottomTabs->addTab(corrPanel, tr("连井剖面"));
+      bottomTabs->addTab(corrPanel, tr("测井对比"));
     }
   }
 

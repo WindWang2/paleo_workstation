@@ -249,6 +249,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 属性断言起止。
     void flashHorizonLayer(QgsMapLayer *layer);
     void syncSeismicVolumeToDocks();
+    void attachSections(SeismicMapLink *link);
+    SeismicMapLink *m_sectionLink = nullptr;
 
     QgisCanvasController *m_canvasCtl;
     QgisProjectService *m_projectSvc;

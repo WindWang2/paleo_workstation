@@ -19,5 +19,7 @@ bool vectorSnapshot(QgsVectorLayer *layer, const QString &path, QString *error);
 QVariantList constraintGeometries(const QString &path, QString *error);
 bool syncFaciesAttributes(QgsVectorLayer *layer, const QVariantList &facies,
                           QString *error);
+void applyFaciesLabels(QgsVectorLayer *layer,
+                       int mode); // 0 hidden, 1 identifiers, 2 facies, 3 both
 void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies);
 } // namespace MappingArtifactWriter

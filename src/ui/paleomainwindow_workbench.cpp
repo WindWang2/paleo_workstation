@@ -435,6 +435,9 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             workbench->cancelPrediction();
           else if (action == "show")
             ok = show(id, &error);
+          else if (action == "labels")
+            ok = workbench->setLabelMode(id, p.value("label_mode").toInt(),
+                                         &error);
           else if (action == "welltracks")
             openWells(id);
           else if (action == "assignFacies") {

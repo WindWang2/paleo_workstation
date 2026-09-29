@@ -37,6 +37,12 @@ struct SectionWellInfo {
     double bottomY = 0.0;
     double totalDepth = 0.0;
 
+    // Times supplied by the per-well calibration must never be overwritten by a
+    // global velocity.
+    bool calibrated = false;
+    double bottomTwtMs = qQNaN();
+    QString alignmentStatus;
+
     // Projection geometry along the unfolded section line
     double cumulativeDistanceM = 0.0; // Distance from start of section (meters)
     double offsetDistanceM = 0.0;     // Perpendicular offset distance (meters)

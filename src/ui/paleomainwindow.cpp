@@ -1429,7 +1429,17 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
           std::string volErr;
           if (vol->Load(abs.toStdString(), volErr))
           {
-            m_seismicSectionDock->setVolume(vol);
+            double origin = 0;
+            for (const auto &link : cat->linksForAsset(a.id))
+              if (!link.unresolved && link.entityType == "seismic_survey") {
+                origin = cat->entityById(link.entityId).startTimeMs;
+                break;
+              }
+            m_seismicSectionDock->setTimeOriginMs(origin);
+            if (m_sectionLink)
+              m_sectionLink->setActiveVolume(vol);
+            else
+              m_seismicSectionDock->setVolume(vol);
           }
         }
         break;

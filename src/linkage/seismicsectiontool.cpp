@@ -1,9 +1,10 @@
 // 层：功能
 #include "seismicsectiontool.h"
 
+#include <QCursor>
+#include <QKeyEvent>
 #include <qgsmapcanvas.h>
 #include <qgsmapmouseevent.h>
-#include <QCursor>
 
 SeismicSectionTool::SeismicSectionTool(QgsMapCanvas *canvas)
   : QgsMapTool(canvas)
@@ -45,11 +46,7 @@ void SeismicSectionTool::canvasPressEvent(QgsMapMouseEvent *e)
   {
     const QgsPointXY pt = e->mapPoint();
     m_points.append(pt);
-    if (m_rubberBand)
-    {
-      m_rubberBand->addPoint(pt, true);
-      m_rubberBand->show();
-    }
+    redraw();
   }
   else if (e->button() == Qt::RightButton)
   {
@@ -75,6 +72,31 @@ void SeismicSectionTool::canvasMoveEvent(QgsMapMouseEvent *e)
   if (m_points.isEmpty() || !m_rubberBand)
     return;
 
-  // Update transient last point
-  m_rubberBand->movePoint(e->mapPoint());
+  const auto pt = e->mapPoint();
+  redraw(&pt);
+}
+
+void SeismicSectionTool::redraw(const QgsPointXY *hover) {
+  if (!m_rubberBand)
+    return;
+  m_rubberBand->reset(Qgis::GeometryType::Line);
+  for (const auto &p : m_points)
+    m_rubberBand->addPoint(p, false);
+  if (hover)
+    m_rubberBand->addPoint(*hover, false);
+  m_rubberBand->show();
+  m_rubberBand->updatePosition();
+}
+void SeismicSectionTool::keyPressEvent(QKeyEvent *e) {
+  if (e->key() == Qt::Key_Escape) {
+    m_points.clear();
+    redraw();
+    if (canvas())
+      canvas()->unsetMapTool(this);
+  } else if (e->key() == Qt::Key_Backspace || e->key() == Qt::Key_Delete) {
+    if (!m_points.isEmpty())
+      m_points.removeLast();
+    redraw();
+  } else
+    QgsMapTool::keyPressEvent(e);
 }

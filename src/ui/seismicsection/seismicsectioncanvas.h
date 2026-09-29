@@ -294,7 +294,7 @@ private:
     // D2.8 256 档 LUT（colormap + 反转）
     void rebuildColorLut();
     float gainAtTwt(double twtMs) const;
-    void updateHoverInfo(const QPoint &pos);
+    void updateHoverInfo(const QPoint &pos, bool clicked = false);
     QRect viewportRect() const;
     double curtainPixelX() const; // D2.10 卷帘分割线像素位置
 
@@ -397,9 +397,10 @@ private:
 
     // Interaction state
     bool m_isPanning = false;
+    QPoint m_pressPos;
+    bool m_dragged = false;
     QPoint m_lastMousePos;
     QPoint m_currentMousePos;
-    QPoint m_pressPos;
     bool m_pressMoved = false;
     bool m_hasHover = false;
 };

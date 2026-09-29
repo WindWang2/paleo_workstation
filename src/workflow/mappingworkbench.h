@@ -54,6 +54,8 @@ public:
   bool reviseWellInterval(const QString &draftId, const QString &wellId,
                           int interval, int code, QString *error);
   void styleLayer(const QString &id);
+  int labelMode(const QString &id) const;
+  bool setLabelMode(const QString &id, int mode, QString *error);
 signals:
   void changed();
   void faciesEdited(const QString &layerId);

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace seismic {
 
@@ -22,13 +23,30 @@ void TimeDepthModel::setVelocity(double velocityMPerS) {
     }
 }
 
+bool TimeDepthModel::setCheckshots(const std::vector<TdPoint> &points) {
+  if (points.size() < 2)
+    return false;
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    const auto &p = points[i];
+    if (!std::isfinite(p.depthM) || !std::isfinite(p.timeMs) ||
+        (i && (p.depthM <= points[i - 1].depthM ||
+               p.timeMs <= points[i - 1].timeMs)))
+      return false;
+  }
+  m_points = points;
+  m_strict = true;
+  return true;
+}
+
 void TimeDepthModel::setPoints(const std::vector<TdPoint> &points) {
-    m_points.clear();
-    for (const auto &pt : points) {
-        if (std::isfinite(pt.depthM) && std::isfinite(pt.timeMs) && pt.depthM >= 0.0 && pt.timeMs >= 0.0) {
-            m_points.push_back(pt);
-        }
+  m_strict = false;
+  m_points.clear();
+  for (const auto &pt : points) {
+    if (std::isfinite(pt.depthM) && std::isfinite(pt.timeMs) &&
+        pt.depthM >= 0.0 && pt.timeMs >= 0.0) {
+      m_points.push_back(pt);
     }
+  }
     std::sort(m_points.begin(), m_points.end(), [](const TdPoint &a, const TdPoint &b) {
         return a.depthM < b.depthM;
     });
@@ -41,13 +59,15 @@ void TimeDepthModel::setPoints(const std::vector<TdPoint> &points) {
 }
 
 double TimeDepthModel::DepthToTwtMs(double depthM) const {
-    if (!std::isfinite(depthM))
-        return 0.0;
+  if (!std::isfinite(depthM) ||
+      (m_strict &&
+       (depthM < m_points.front().depthM || depthM > m_points.back().depthM)))
+    return std::numeric_limits<double>::quiet_NaN();
 
-    if (m_points.empty()) {
-        // Linear velocity formula: twt = 2000.0 * depth / velocity
-        return (depthM * 2000.0) / m_velocity;
-    }
+  if (m_points.empty()) {
+    // Linear velocity formula: twt = 2000.0 * depth / velocity
+    return (depthM * 2000.0) / m_velocity;
+  }
 
     if (m_points.size() == 1) {
         const double v = m_points[0].depthM > 1e-3
@@ -86,13 +106,14 @@ double TimeDepthModel::DepthToTwtMs(double depthM) const {
 }
 
 double TimeDepthModel::TwtMsToDepth(double twtMs) const {
-    if (!std::isfinite(twtMs))
-        return 0.0;
+  if (!std::isfinite(twtMs) || (m_strict && (twtMs < m_points.front().timeMs ||
+                                             twtMs > m_points.back().timeMs)))
+    return std::numeric_limits<double>::quiet_NaN();
 
-    if (m_points.empty()) {
-        // depth = (twt * velocity) / 2000.0
-        return (twtMs * m_velocity) / 2000.0;
-    }
+  if (m_points.empty()) {
+    // depth = (twt * velocity) / 2000.0
+    return (twtMs * m_velocity) / 2000.0;
+  }
 
     if (m_points.size() == 1) {
         const double v = m_points[0].depthM > 1e-3

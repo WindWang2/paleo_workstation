@@ -2273,7 +2273,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       const int ci = combo->currentData().toInt();
       if (ci <= 0 || ci >= names.size())
         return;
-      const QString selName = names.at(ci);
+      const QString &selName = names.at(ci);
       if (chipMap->contains(selName))
       {
         auto *btn = chipMap->value(selName);
@@ -3460,7 +3460,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     const auto requestTimeSlice = [this, sharedVol, sharedPaged, timeCanvas, lblTimeMs, pendingIdx](int sampleIndex) {
       if (!*sharedVol || !(*sharedVol)->IsLoaded())
         return;
-      const auto vol = *sharedVol;
+      const auto &vol = *sharedVol;
       const double ms = sampleIndex * (vol->SampleIntervalUs() / 1000.0);
       lblTimeMs->setText(QStringLiteral("%1 ms").arg(ms, 0, 'f', 1));
 
@@ -4127,7 +4127,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 
       for (int c = 0; c < propKeys.size(); ++c)
       {
-        const QString key = propKeys.at(c);
+        const QString &key = propKeys.at(c);
         const QJsonValue val = props.value(key);
         QString valStr;
         if (val.isDouble())

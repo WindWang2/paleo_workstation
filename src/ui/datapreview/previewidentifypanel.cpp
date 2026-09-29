@@ -371,7 +371,7 @@ void PreviewAttributeTableDialog::rebuild()
       QString text;
       if ( fieldIdx < attrs.size() )
       {
-        const QVariant v = attrs.at( fieldIdx );
+        const QVariant &v = attrs.at( fieldIdx );
         text = v.type() == QVariant::Double ? QString::number( v.toDouble(), 'f', 4 )
                                             : v.toString();
       }

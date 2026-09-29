@@ -3,6 +3,7 @@
 
 #include <QColor>
 #include <QFont>
+#include <QPair>
 #include <QImage>
 #include <QPainter>
 #include <QPair>
@@ -77,6 +78,18 @@ public:
   virtual bool isVisible() const { return m_visible; }
   virtual void setVisible(bool v) { m_visible = v; }
 
+  // D4.10/D4.8 打印/导出开关：不参与打印导出的道在导出引擎中被跳过
+  bool isPrintIncluded() const { return m_printIncluded; }
+  void setPrintIncluded(bool on) { m_printIncluded = on; }
+
+  // D1.11 道头三行区（标题|刻度|单位）——道宽自适应截断由 paintHeaderChrome 统一处理。
+  // 返回空串表示该行不展示（如非曲线道无独立刻度行）。
+  virtual QString headerScaleText() const { return QString(); }
+  virtual QString headerUnitText() const { return QString(); }
+
+  // D1.9 道悬停 tooltip 文本（曲线名/当前深度值/量程/单位）。
+  virtual QString trackToolTip(double depth) const { Q_UNUSED(depth); return title(); }
+
   // 绘制置顶道头（headerRect 宽高确定，currentDepth 为当前十字准星深度）
   virtual void paintHeader(QPainter &painter, const QRectF &headerRect, double currentDepth) = 0;
 
@@ -85,8 +98,16 @@ public:
                          double topDepth, double bottomDepth, double pxPerMeter) = 0;
 
 protected:
+  // D1.11 标准道头三行区绘制：背景/边框/标题(截断)/刻度行/单位行。
+  // scaleText/unitText 允许为空（空行收起，标题行纵向居中补位）。
+  void paintHeaderChrome(QPainter &painter, const QRectF &headerRect,
+                         const QString &scaleText, const QString &unitText) const;
+
+  QString elideTitle(const QPainter &painter, const QString &text, qreal widthPx) const;
+
   QString m_title;
   bool m_visible = true;
+  bool m_printIncluded = true;
 };
 
 // 1. 标尺道 (DepthScaleTrack)
@@ -102,13 +123,30 @@ public:
   void setScaleRatio(const QString &ratioStr) { m_scaleRatio = ratioStr; }
   QString scaleRatio() const { return m_scaleRatio; }
 
+  // D6.3 深度单位切换（显示层换算，数据不动）：空 = 米制原文
+  void setDepthUnitLabel(const QString &unitLabel) { m_depthUnitLabel = unitLabel; }
+  QString depthUnitLabel() const { return m_depthUnitLabel; }
+
+  // D6.5 TWT 副刻度列：左半列在对应深度标注时深值（无表时清空）
+  void setTwtLabels(const QVector<QPair<double, QString>> &twtAtDepth) { m_twtLabels = twtAtDepth; }
+  QVector<QPair<double, QString>> twtLabels() const { return m_twtLabels; }
+
+  // D7.4 高对比模式：次级刻度/文字提升至正文对比色
+  void setHighContrast(bool on) { m_highContrast = on; }
+  bool highContrast() const { return m_highContrast; }
+
   void paintHeader(QPainter &painter, const QRectF &headerRect, double currentDepth) override;
   void paintBody(QPainter &painter, const QRectF &bodyRect,
                  double topDepth, double bottomDepth, double pxPerMeter) override;
 
+  QString trackToolTip(double depth) const override;
+
 private:
   qreal m_width = 64.0;
   QString m_scaleRatio = QStringLiteral("1:500");
+  QString m_depthUnitLabel; // 非空时道头/刻度单位行显示该单位（如 ft）
+  QVector<QPair<double, QString>> m_twtLabels; // (depth, twtText)
+  bool m_highContrast = false;
 };
 
 // 2. 文本道 (TextTrack)
@@ -148,6 +186,12 @@ public:
   void addInterval(const FormationInterval &interval) { m_intervals.append(interval); }
   QVector<FormationInterval> intervals() const { return m_intervals; }
 
+  // D3.1/D3.2 可编辑分层数据（编辑会话直接改写道内区间）
+  FormationInterval *intervalAtDepth(float depth);
+  int intervalIndexAtDepth(float depth) const;
+
+  QString trackToolTip(double depth) const override;
+
   void paintHeader(QPainter &painter, const QRectF &headerRect, double currentDepth) override;
   void paintBody(QPainter &painter, const QRectF &bodyRect,
                  double topDepth, double bottomDepth, double pxPerMeter) override;
@@ -170,6 +214,14 @@ public:
   void setIntervals(const QVector<LithologyInterval> &intervals) { m_intervals = intervals; }
   void addInterval(const LithologyInterval &interval) { m_intervals.append(interval); }
   QVector<LithologyInterval> intervals() const { return m_intervals; }
+
+  // D3.4 岩性区间编辑：按深度定位/替换/追加/删除（编辑会话经此改写道内数据）
+  int intervalIndexAtDepth(float depth) const;
+  bool replaceIntervalAt(int idx, const LithologyInterval &interval);
+  void appendInterval(const LithologyInterval &interval) { m_intervals.append(interval); }
+  bool removeIntervalAt(int idx);
+
+  QString trackToolTip(double depth) const override;
 
   void paintHeader(QPainter &painter, const QRectF &headerRect, double currentDepth) override;
   void paintBody(QPainter &painter, const QRectF &bodyRect,
@@ -242,6 +294,21 @@ public:
   void clearCurves() { m_curves.clear(); }
   QVector<CurveData> curves() const { return m_curves; }
   int curveCount() const { return m_curves.size(); }
+  // D1.7 多曲线组合编辑器：替换单根曲线（量程/单位/色独立可改）；索引越界返回 false
+  bool setCurveAt(int idx, const CurveData &curve);
+  bool removeCurveAt(int idx);
+
+  // D1.7 重叠网格开关（默认开）
+  bool showGrid() const { return m_showGrid; }
+  void setShowGrid(bool on) { m_showGrid = on; }
+
+  // D4.11 网格密度：0=无 1=2 等分 2=4 等分 3=10 等分（叠加次网格），随比例尺自适应
+  int gridDensity() const { return m_gridDensity; }
+  void setGridDensity(int density) { m_gridDensity = qBound(0, density, 3); }
+
+  QString headerScaleText() const override;
+  QString headerUnitText() const override;
+  QString trackToolTip(double depth) const override;
 
   void paintHeader(QPainter &painter, const QRectF &headerRect, double currentDepth) override;
   void paintBody(QPainter &painter, const QRectF &bodyRect,
@@ -250,6 +317,8 @@ public:
 private:
   qreal m_width = 170.0;
   QVector<CurveData> m_curves; // 最多 4 根曲线
+  bool m_showGrid = true;
+  int m_gridDensity = 2;
 };
 
 // 8. 符号道 (SymbolTrack)
@@ -322,6 +391,12 @@ public:
   void setIntervals(const QVector<FaciesInterval> &intervals) { m_intervals = intervals; }
   void addInterval(const FaciesInterval &interval) { m_intervals.append(interval); }
   QVector<FaciesInterval> intervals() const { return m_intervals; }
+
+  // D3.5 相区间编辑：按深度定位（微相⊂亚相⊂相 三级联动校验见 intervaleditor）
+  int intervalIndexAtDepth(float depth) const;
+  bool replaceIntervalAt(int idx, const FaciesInterval &interval);
+
+  QString trackToolTip(double depth) const override;
 
   qreal majorWidth() const { return m_majorWidth; }
   qreal subWidth() const { return m_subWidth; }

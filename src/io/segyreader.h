@@ -5,8 +5,12 @@
 #include <QVector>
 
 #include "../domain/sectiontrace.h"   // SegyOptions/SegyTrace/SegyGeometry/SegySectionGrid（domain 纯数据）
+#include "segyindexstore.h"           // StoredIndex/IndexStats（D2 索引持久化）
+
+#include <atomic>
 
 class QFile;
+class QThreadPool;
 
 // io/ — SEG-Y rev0/1 测线级读取器（plan §2/§7）。
 // open() 只做道头索引：沿文件顺序逐道读 240 字节道头，冻结 survey 几何
@@ -16,7 +20,11 @@ class QFile;
 // IBM 370 fp32（format 1）与 IEEE 754 fp32（format 5）解码保留。
 // 纯数据类型（SegyOptions/SegyTrace/SegyGeometry/SegySectionGrid）在
 // domain/sectiontrace.h——视图层直接消费它们，不进本头。
-
+//
+// wave/io-perf-cache D2：openCached() 在 open() 之上加磁盘索引层——身份
+// 命中免全文件重扫；固定道长文件走 ≤4 线程并行扫描（D2.9）；损坏道跳过
+// 记录（D2.7，仅固定道长布局）；扫描取消/文件追加可 checkpoint 续扫
+// （D2.5/D2.8）。open() 语义保持逐字节不变（兼容路径）。
 class SegyReader
 {
   public:
@@ -30,6 +38,13 @@ class SegyReader
     {
       return reader.open(path, error);
     }
+
+    // D2 缓存式打开：磁盘索引命中 → 免扫；未命中 → open() 同款扫描（固定
+    // 道长布局时 ≤4 线程并行）→ 原子发布索引。发布失败降级为无缓存（可用）。
+    // progress 语义与 open() 相同（bytes 语义：offset/fileSize）；命中时发一次
+    // (size,size) 让面板立刻收敛到 100%。
+    bool openCached(const QString &path, const QString &indexCacheDir,
+                    QString *error = nullptr, const SegyOptions *opts = nullptr);
 
     int traceCount() const { return static_cast<int>(m_index.size()); }
     int samplesPerTrace() const { return m_samplesPerTrace; }
@@ -48,6 +63,18 @@ class SegyReader
     bool readCrossline(qint32 xlineNo, QVector<SegyTrace> *out,
                        QString *error = nullptr, const SegyOptions *opts = nullptr) const;
 
+    // ---- D2 索引面 ----
+    // 当前索引快照（open/openCached 成功后可取）。
+    bool snapshot(SegyIndexStore::StoredIndex *out) const;
+    // 从快照恢复（身份不校验——调用方持 load() 的结果；重建行/道哈希）。
+    bool restore(const SegyIndexStore::StoredIndex &in, const QString &path);
+    // D2.6 空洞报告（快照统计口径）。
+    SegyIndexStore::IndexStats indexStats() const;
+    // D2.7 被跳过的损坏道偏移（无则空）。
+    QVector<qint64> badTraceOffsets() const { return m_badTraceOffsets; }
+    // 最近一次扫描是否因取消而保留部分索引（checkpoint 可用）。
+    bool lastScanPartial() const { return m_lastScanPartial; }
+
   private:
     struct IndexEntry
     {
@@ -60,6 +87,17 @@ class SegyReader
     QVector<SegyTrace> readByIndexList(const QVector<int> &idxs,
                                      const SegyOptions *opts = nullptr) const;
 
+    // D2.9 并行扫描（固定道长布局专用）：成功时填 m_index/m_geometry/…。
+    bool scanParallel(QFile &file, qint64 firstTraceOffset, qint64 traceSize,
+                      qint64 traceCount, QString *error, const SegyOptions *opts);
+    // D2.5/D2.8 断点续扫：从 scannedOffset 继续顺序扫（标准索引模式专用），
+    // 追加进已恢复的部分索引。
+    bool resumeScan(QFile &file, const SegyIndexStore::StoredIndex &partial,
+                    QString *error, const SegyOptions *opts);
+    // 从（部分）m_index 重建行/道哈希 + 范围几何（restore/resume 收尾）。
+    void rebuildLineHashes();
+    void resetState();
+
     QString m_path;
     int m_samplesPerTrace = 0;
     float m_sampleIntervalUs = 0.0f;
@@ -70,4 +108,7 @@ class SegyReader
     QHash<qint32, QVector<int>> m_byInline; // inline -> m_index 下标（按 xline 升序）
     QHash<qint32, QVector<int>> m_byXline;  // xline  -> m_index 下标（按 inline 升序）
     SegyGeometry m_geometry;
+    QVector<qint64> m_badTraceOffsets; // D2.7
+    bool m_lastScanPartial = false;    // open()/openCached() 取消后可 checkpoint
+    qint64 m_scannedOffset = 0;        // 取消时的扫描位置
 };

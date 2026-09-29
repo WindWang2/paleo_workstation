@@ -4341,12 +4341,16 @@ private:
         // 两拍：输入标签名 → 确认。
         driveModalNextTick([](QWidget *w) {
             if (auto *dlg = qobject_cast<QInputDialog *>(w))
+            {
                 dlg->setTextValue(QStringLiteral("核心资产"));
-            QTimer::singleShot(0, [] {
-                if (auto *d = qobject_cast<QInputDialog *>(
-                        QApplication::activeModalWidget()))
-                    d->accept();
-            });
+                // 直接捕指针 accept：Windows 下嵌套拍里 activeModalWidget()
+                // 可能尚未就绪（曾致 accept 落空、3s 兜底 close 被当取消）。
+                QPointer<QInputDialog> guard(dlg);
+                QTimer::singleShot(0, [guard] {
+                    if (guard)
+                        guard->accept();
+                });
+            }
         });
         lp->batchAddTag();
         // 两个选中资产都带上标签（sidecar + 标签云出现）。

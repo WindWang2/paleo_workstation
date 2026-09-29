@@ -5,13 +5,34 @@
 #include <QVBoxLayout>
 #include <QMenu>
 #include <QAction>
+#include <QCheckBox>
+#include <QClipboard>
+#include <QDialog>
 #include <QFileDialog>
+#include <QFormLayout>
+#include <QHeaderView>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPrinter>
+#include <QPrintDialog>
+#include <QSettings>
+#include <QSpinBox>
+#include <QTableWidget>
+#include <QApplication>
+#include <QInputDialog>
+#include <QLineEdit>
+#include <QRegularExpression>
+#include <QTextEdit>
 #include <QThreadPool>
 #include <QMetaObject>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QFileInfo>
 #include <cmath>
 
 #include "domain/seismic/sgysectionbuilder.h"
+#include "services/seismictaskservice.h"
 
 namespace seismic {
 
@@ -138,7 +159,9 @@ void SeismicSectionDockWidget::setupUi() {
 
     m_cboColorMap = new QComboBox(toolbar);
     m_cboColorMap->setObjectName(QStringLiteral("cboSectionColorMap"));
-    m_cboColorMap->addItems({tr("红白蓝 (双极)"), tr("灰度 (单极)"), tr("彩虹谱 (相图)")});
+    m_cboColorMap->addItems({tr("红白蓝 (双极)"), tr("灰度 (单极)"), tr("彩虹谱 (相图)"),
+                             tr("蓝白红 (反双极)"), tr("黑-白-蓝 (纸面)"), tr("红-白-黑 (纸面)"),
+                             tr("绿-白-品红"), tr("青-白-橙")});
     m_cboColorMap->setStyleSheet(QStringLiteral(
         "QComboBox { border: 1px solid #DFE5EC; border-radius: 4px; padding: 2px 6px; font-size: 8.5pt; }"));
     toolLay->addWidget(m_cboColorMap);
@@ -202,6 +225,11 @@ void SeismicSectionDockWidget::setupUi() {
     toolLay->addWidget(m_btnExport);
 
     mainLay->addWidget(toolbar);
+
+    // ==========================================
+    // 1b. Display Bar（D2.2–D2.10 显示控制行）
+    // ==========================================
+    setupDisplayBar(container);
 
     // ==========================================
     // 2. Center Canvas
@@ -291,8 +319,245 @@ void SeismicSectionDockWidget::setupUi() {
 
     connect(m_btnExport, &QToolButton::clicked, this, &SeismicSectionDockWidget::onExportSnapshot);
 
+    // D2.13 复制/打印按钮（追加在主工具栏尾部）
+    m_btnCopy = new QToolButton(toolbar);
+    m_btnCopy->setText(tr("复制"));
+    m_btnCopy->setToolTip(tr("复制剖面图到剪贴板（含坐标轴与色标）"));
+    m_btnCopy->setStyleSheet(btnStyle);
+    toolLay->addWidget(m_btnCopy);
+    m_btnPrint = new QToolButton(toolbar);
+    m_btnPrint->setText(tr("打印"));
+    m_btnPrint->setStyleSheet(btnStyle);
+    toolLay->addWidget(m_btnPrint);
+    connect(m_btnCopy, &QToolButton::clicked, this, &SeismicSectionDockWidget::onCopyImage);
+    connect(m_btnPrint, &QToolButton::clicked, this, &SeismicSectionDockWidget::onPrintImage);
+
     connect(m_canvas, &SeismicSectionCanvas::zoomChanged, this, &SeismicSectionDockWidget::onZoomChanged);
     connect(m_canvas, &SeismicSectionCanvas::traceHovered, this, &SeismicSectionDockWidget::onTraceHovered);
+    // D2.11：点击道 → 道头卡
+    connect(m_canvas, &SeismicSectionCanvas::traceClicked, this, &SeismicSectionDockWidget::onTraceClicked);
+}
+
+// D2.2–D2.12 显示控制行：显示三模/阈值/极性/AGC/增益曲线/双刻度/拉伸/
+// 卷帘/书签/复制/打印。紧凑专业密度（DESIGN.md），全部即时生效。
+void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
+    auto *bar = new QWidget(parent);
+    bar->setStyleSheet(QStringLiteral("background: #FFFFFF; border-bottom: 1px solid #DFE5EC;"));
+    auto *lay = new QHBoxLayout(bar);
+    lay->setContentsMargins(8, 2, 8, 2);
+    lay->setSpacing(6);
+
+    const QString btnStyle = QStringLiteral(
+        "QToolButton { background: transparent; border: 1px solid #DFE5EC; border-radius: 4px; padding: 1px 6px; font-size: 8.5pt; color: #24303E; }"
+        "QToolButton:hover { background: #EDF1F5; border-color: #1B73D0; }"
+        "QToolButton:checked { background: #E8F0FE; color: #1B73D0; border-color: #1B73D0; }");
+    const QString lblStyle = QStringLiteral("color: #5D6E80; font-size: 8.5pt;");
+
+    // D2.2 显示三模
+    auto *lblMode = new QLabel(tr("显示:"), bar);
+    lblMode->setStyleSheet(lblStyle);
+    lay->addWidget(lblMode);
+    m_cboDisplayMode = new QComboBox(bar);
+    m_cboDisplayMode->setObjectName(QStringLiteral("cboSectionDisplayMode"));
+    m_cboDisplayMode->addItems({tr("密度"), tr("波形变面积"), tr("混合")});
+    m_cboDisplayMode->setStyleSheet(QStringLiteral(
+        "QComboBox { border: 1px solid #DFE5EC; border-radius: 4px; padding: 1px 6px; font-size: 8.5pt; }"));
+    lay->addWidget(m_cboDisplayMode);
+
+    // D2.8 反转
+    m_chkInvert = new QCheckBox(tr("反转色标"), bar);
+    m_chkInvert->setStyleSheet(lblStyle);
+    lay->addWidget(m_chkInvert);
+
+    // D2.3 阈值 + 极性
+    auto *lblThreshold = new QLabel(tr("阈值:"), bar);
+    lblThreshold->setStyleSheet(lblStyle);
+    lay->addWidget(lblThreshold);
+    m_spinThreshold = new QDoubleSpinBox(bar);
+    m_spinThreshold->setRange(0.0, 0.9);
+    m_spinThreshold->setSingleStep(0.05);
+    m_spinThreshold->setValue(0.0);
+    m_spinThreshold->setToolTip(tr("低于该归一化阈值的振幅压为 0（压噪声底）"));
+    m_spinThreshold->setFixedWidth(52);
+    lay->addWidget(m_spinThreshold);
+
+    m_btnPolarity = new QToolButton(bar);
+    m_btnPolarity->setText(tr("极性 +/-"));
+    m_btnPolarity->setCheckable(true);
+    m_btnPolarity->setToolTip(tr("极性反转（波峰/波谷互换）"));
+    m_btnPolarity->setStyleSheet(btnStyle);
+    lay->addWidget(m_btnPolarity);
+
+    // D2.4 AGC
+    m_btnAgc = new QToolButton(bar);
+    m_btnAgc->setText(tr("AGC"));
+    m_btnAgc->setCheckable(true);
+    m_btnAgc->setToolTip(tr("自动增益控制：滑动窗 RMS 归一（压掉道间能量差）"));
+    m_btnAgc->setStyleSheet(btnStyle);
+    lay->addWidget(m_btnAgc);
+    m_spinAgcWindow = new QSpinBox(bar);
+    m_spinAgcWindow->setRange(20, 5000);
+    m_spinAgcWindow->setSingleStep(50);
+    m_spinAgcWindow->setValue(200);
+    m_spinAgcWindow->setSuffix(QStringLiteral("ms"));
+    m_spinAgcWindow->setToolTip(tr("AGC 时窗宽度（毫秒）"));
+    m_spinAgcWindow->setFixedWidth(72);
+    lay->addWidget(m_spinAgcWindow);
+
+    // D2.4 手动增益曲线
+    m_btnGainCurve = new QToolButton(bar);
+    m_btnGainCurve->setText(tr("增益曲线…"));
+    m_btnGainCurve->setToolTip(tr("手动增益曲线：TWT→倍数分段线性控制点编辑"));
+    m_btnGainCurve->setStyleSheet(btnStyle);
+    lay->addWidget(m_btnGainCurve);
+
+    // D2.7 纵向拉伸
+    auto *lblVExag = new QLabel(tr("纵向拉伸:"), bar);
+    lblVExag->setStyleSheet(lblStyle);
+    lay->addWidget(lblVExag);
+    m_spinVExag = new QDoubleSpinBox(bar);
+    m_spinVExag->setRange(0.1, 20.0);
+    m_spinVExag->setSingleStep(0.1);
+    m_spinVExag->setValue(1.0);
+    m_spinVExag->setSuffix(QStringLiteral("x"));
+    m_spinVExag->setToolTip(tr("纵向拉伸系数（1.0 = 适应窗口基线）"));
+    m_spinVExag->setFixedWidth(56);
+    lay->addWidget(m_spinVExag);
+
+    // D2.5 双刻度
+    m_btnDualScale = new QToolButton(bar);
+    m_btnDualScale->setText(tr("双刻度 TWT+深度"));
+    m_btnDualScale->setCheckable(true);
+    m_btnDualScale->setToolTip(tr("左轴 TWT(ms) + 右缘深度(m) 同显（需有效时深模型）"));
+    m_btnDualScale->setStyleSheet(btnStyle);
+    lay->addWidget(m_btnDualScale);
+
+    // D2.10 卷帘对比
+    m_btnCurtain = new QToolButton(bar);
+    m_btnCurtain->setText(tr("卷帘对比"));
+    m_btnCurtain->setCheckable(true);
+    m_btnCurtain->setToolTip(tr("相邻线卷帘对比：帘左当前线 / 帘右相邻线，画布内拖分割线"));
+    m_btnCurtain->setStyleSheet(btnStyle);
+    lay->addWidget(m_btnCurtain);
+    m_sliderCurtain = new QSlider(Qt::Horizontal, bar);
+    m_sliderCurtain->setRange(2, 98);
+    m_sliderCurtain->setValue(50);
+    m_sliderCurtain->setFixedWidth(90);
+    m_sliderCurtain->setVisible(false);
+    lay->addWidget(m_sliderCurtain);
+
+    lay->addStretch(1);
+
+    // D2.12 书签
+    auto *lblBookmark = new QLabel(tr("书签:"), bar);
+    lblBookmark->setStyleSheet(lblStyle);
+    lay->addWidget(lblBookmark);
+    m_cboBookmark = new QComboBox(bar);
+    m_cboBookmark->setFixedWidth(120);
+    m_cboBookmark->setStyleSheet(QStringLiteral(
+        "QComboBox { border: 1px solid #DFE5EC; border-radius: 4px; padding: 1px 6px; font-size: 8.5pt; }"));
+    lay->addWidget(m_cboBookmark);
+    m_btnBookmarkAdd = new QToolButton(bar);
+    m_btnBookmarkAdd->setText(tr("存当前"));
+    m_btnBookmarkAdd->setStyleSheet(btnStyle);
+    lay->addWidget(m_btnBookmarkAdd);
+    m_btnBookmarkDel = new QToolButton(bar);
+    m_btnBookmarkDel->setText(tr("删除"));
+    m_btnBookmarkDel->setStyleSheet(btnStyle);
+    lay->addWidget(m_btnBookmarkDel);
+
+    // 为主工具栏补 D2.13 复制/打印
+    // （按钮在 setupUi 的工具栏创建——此处仅接信号；按钮在下方追加）
+
+    if (auto *mainLay = qobject_cast<QVBoxLayout *>(parent->layout())) {
+        mainLay->addWidget(bar);
+    }
+
+    // ---- 信号接线 ----
+    connect(m_cboDisplayMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {
+        m_canvas->setDisplayMode(static_cast<SectionDisplayMode>(idx));
+    });
+    connect(m_chkInvert, &QCheckBox::toggled, m_canvas, &SeismicSectionCanvas::setColorMapInverted);
+    connect(m_spinThreshold, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        m_canvas->setAmplitudeThreshold(static_cast<float>(v));
+    });
+    connect(m_btnPolarity, &QToolButton::toggled, m_canvas, &SeismicSectionCanvas::setPolarityInverted);
+    connect(m_btnAgc, &QToolButton::toggled, this, [this](bool on) {
+        m_canvas->setAgcEnabled(on, m_spinAgcWindow->value());
+        m_spinAgcWindow->setEnabled(true);
+    });
+    connect(m_spinAgcWindow, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int v) {
+        if (m_btnAgc->isChecked())
+            m_canvas->setAgcEnabled(true, v);
+    });
+    connect(m_btnGainCurve, &QToolButton::clicked, this, [this]() {
+        // 简易控制点编辑器：每行 "TWT ms, 倍数"
+        QDialog dlg(this);
+        dlg.setWindowTitle(tr("手动增益曲线（TWT ms → 倍数，分段线性）"));
+        auto *form = new QFormLayout(&dlg);
+        auto *edit = new QTextEdit(&dlg);
+        edit->setFont(QFont(QStringLiteral("JetBrains Mono"), 9));
+        QStringList lines;
+        for (const auto &node : m_canvas->gainCurve())
+            lines << QStringLiteral("%1 %2").arg(node.twtMs, 0, 'f', 0).arg(node.gain, 0, 'f', 2);
+        edit->setPlainText(lines.join(QLatin1Char('\n')));
+        edit->setPlaceholderText(tr("每行一个控制点：TWT毫秒 倍数\n例如：\n0 1.0\n500 1.5\n1500 3.0"));
+        form->addRow(edit);
+        auto *btnBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        connect(btnBox, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+        connect(btnBox, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+        form->addRow(btnBox);
+        if (dlg.exec() != QDialog::Accepted)
+            return;
+        std::vector<SectionGainNode> nodes;
+        const auto rows = edit->toPlainText().split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        for (const QString &row : rows) {
+            const auto parts = row.simplified().split(QRegularExpression(QStringLiteral("[ ,\t]+")), Qt::SkipEmptyParts);
+            if (parts.size() != 2)
+                continue;
+            bool okT = false, okG = false;
+            const double t = parts[0].toDouble(&okT);
+            const double g = parts[1].toDouble(&okG);
+            if (okT && okG && g >= 0.01 && g <= 100.0)
+                nodes.push_back({t, g});
+        }
+        m_canvas->setGainCurve(nodes);
+    });
+    connect(m_spinVExag, QOverload<double>::of(&QDoubleSpinBox::valueChanged), m_canvas,
+            &SeismicSectionCanvas::setVerticalExaggeration);
+    connect(m_btnDualScale, &QToolButton::toggled, m_canvas, &SeismicSectionCanvas::setDualScaleEnabled);
+    connect(m_btnCurtain, &QToolButton::toggled, this, [this](bool on) {
+        m_sliderCurtain->setVisible(on);
+        m_canvas->setCompareEnabled(on);
+        if (on)
+            updateCompareSlice();
+    });
+    connect(m_sliderCurtain, &QSlider::valueChanged, this, [this](int v) {
+        m_canvas->setCurtainPos(v / 100.0);
+    });
+    connect(m_canvas, &SeismicSectionCanvas::curtainMoved, this, [this](double frac) {
+        m_sliderCurtain->blockSignals(true);
+        m_sliderCurtain->setValue(int(frac * 100));
+        m_sliderCurtain->blockSignals(false);
+    });
+
+    // D2.12 书签
+    connect(m_btnBookmarkAdd, &QToolButton::clicked, this, [this]() {
+        bool ok = false;
+        const QString name = QInputDialog::getText(this, tr("保存剖面书签"),
+                                                   tr("书签名："), QLineEdit::Normal,
+                                                   tr("线 %1").arg(m_spinSlice->value()), &ok);
+        if (!ok || name.trimmed().isEmpty())
+            return;
+        addBookmark(name.trimmed());
+    });
+    connect(m_btnBookmarkDel, &QToolButton::clicked, this, [this]() {
+        removeBookmark(m_cboBookmark->currentIndex());
+    });
+    connect(m_cboBookmark, QOverload<int>::of(&QComboBox::activated), this, [this](int idx) {
+        applyBookmark(idx);
+    });
+    loadBookmarksFromSettings();
 }
 
 void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume) {
@@ -303,6 +568,7 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
     }
 
     m_sliceGroup->setEnabled(true);
+    loadBookmarksFromSettings(); // D2.12：体身份确定后才有 settings 键
     onSectionModeChanged(m_cboSectionMode->currentIndex());
 }
 
@@ -453,12 +719,25 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
             }
 
             if (!ok) {
+                // D2.14：原因态——画布显示可读原因而非空白
                 setLineTitle(tr("切片提取失败: %1").arg(QString::fromStdString(err)));
+                m_canvas->clearData();
+                m_canvas->setNoDataReason(tr("剖面不可用\n%1").arg(QString::fromStdString(err)));
                 emit sectionExtractionFinished(false, QString::fromStdString(err));
+                return;
+            }
+            if (image.width <= 0 || image.height <= 0 || image.values.empty()) {
+                // D2.14：空数据原因态（如无有效道的线号）
+                setLineTitle(title);
+                m_canvas->clearData();
+                m_canvas->setNoDataReason(tr("%1\n该线无有效地震道（工区覆盖范围外）").arg(title));
+                emit sectionExtractionFinished(false, tr("空切片"));
                 return;
             }
 
             setLineTitle(title);
+            if (m_btnCurtain && m_btnCurtain->isChecked())
+                updateCompareSlice(); // D2.10：当前线变了，相邻线 B 图同步
             if (type == SgySliceType::Time) {
                 const double ms = index * (vol->SampleIntervalUs() / 1000.0);
                 m_canvas->setTimeSliceData(image, ms, vol->InlineMin(), vol->InlineMax(), vol->XlineMin(), vol->XlineMax());
@@ -618,6 +897,227 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
             }
         }, Qt::QueuedConnection);
     });
+}
+
+
+// ---- D2.12 书签操作 ----
+void SeismicSectionDockWidget::addBookmark(const QString &name) {
+    SectionBookmark bm;
+    bm.name = name;
+    bm.modeIndex = m_cboSectionMode->currentIndex();
+    bm.sliceValue = m_spinSlice->value();
+    bm.view = m_canvas->viewState();
+    m_bookmarks.append(bm);
+    saveBookmarksToSettings();
+    m_cboBookmark->addItem(bm.name);
+}
+
+void SeismicSectionDockWidget::removeBookmark(int index) {
+    if (index < 0 || index >= m_bookmarks.size())
+        return;
+    m_bookmarks.removeAt(index);
+    saveBookmarksToSettings();
+    m_cboBookmark->removeItem(index);
+}
+
+void SeismicSectionDockWidget::applyBookmark(int index) {
+    if (index < 0 || index >= m_bookmarks.size())
+        return;
+    const SectionBookmark &bm = m_bookmarks[index];
+    if (m_cboSectionMode->currentIndex() != bm.modeIndex)
+        m_cboSectionMode->setCurrentIndex(bm.modeIndex); // 触发重提取
+    else if (bm.modeIndex <= 2 && m_spinSlice->value() != bm.sliceValue)
+        m_spinSlice->setValue(bm.sliceValue);
+    m_canvas->setViewState(bm.view);
+}
+
+// ---- D2.12 书签持久化 ----
+QString SeismicSectionDockWidget::volumeSettingsKey() const {
+    if (!m_volume || !m_volume->IsLoaded())
+        return QString();
+    const auto &path = m_volume->Path();
+    QString key = QString::fromStdString(path.string());
+    key.replace(QLatin1Char('/'), QLatin1Char('_'));
+    return key;
+}
+
+void SeismicSectionDockWidget::saveBookmarksToSettings() const {
+    const QString key = volumeSettingsKey();
+    if (key.isEmpty())
+        return;
+    QJsonArray arr;
+    for (const auto &bm : m_bookmarks) {
+        QJsonObject o;
+        o.insert("name", bm.name);
+        o.insert("mode", bm.modeIndex);
+        o.insert("slice", bm.sliceValue);
+        o.insert("zoomX", bm.view.zoomX);
+        o.insert("zoomY", bm.view.zoomY);
+        o.insert("panX", bm.view.panX);
+        o.insert("panY", bm.view.panY);
+        arr.append(o);
+    }
+    QSettings settings;
+    settings.setValue(QStringLiteral("seismic/sectionBookmarks/%1").arg(key),
+                      QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+}
+
+void SeismicSectionDockWidget::loadBookmarksFromSettings() {
+    m_bookmarks.clear();
+    m_cboBookmark->clear();
+    const QString key = volumeSettingsKey();
+    if (key.isEmpty())
+        return;
+    QSettings settings;
+    const QString raw = settings.value(QStringLiteral("seismic/sectionBookmarks/%1").arg(key)).toString();
+    if (raw.isEmpty())
+        return;
+    const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
+    for (const auto &v : doc.array()) {
+        const QJsonObject o = v.toObject();
+        SectionBookmark bm;
+        bm.name = o.value("name").toString();
+        bm.modeIndex = o.value("mode").toInt();
+        bm.sliceValue = o.value("slice").toInt();
+        bm.view.zoomX = o.value("zoomX").toDouble();
+        bm.view.zoomY = o.value("zoomY").toDouble();
+        bm.view.panX = o.value("panX").toDouble();
+        bm.view.panY = o.value("panY").toDouble();
+        if (!bm.name.isEmpty()) {
+            m_bookmarks.append(bm);
+            m_cboBookmark->addItem(bm.name);
+        }
+    }
+}
+
+// ---- D2.10 卷帘 B 图：相邻线提取 ----
+void SeismicSectionDockWidget::updateCompareSlice() {
+    if (!m_volume || !m_volume->IsLoaded() || m_extractingCompare)
+        return;
+    const int mode = m_cboSectionMode->currentIndex();
+    if (mode != 0 && mode != 1)
+        return; // 卷帘仅支持 IL/XL 模式
+    const int current = m_spinSlice->value();
+    int neighbor = -1;
+    QString label;
+    if (mode == 0) { // Inline：取相邻 IL（优先 +1，没有则 -1）
+        const auto &ils = m_volume->InlineValues();
+        const auto it = std::find(ils.begin(), ils.end(), current);
+        if (it != ils.end()) {
+            if (it + 1 != ils.end())
+                neighbor = *(it + 1);
+            else if (it != ils.begin())
+                neighbor = *(it - 1);
+        }
+        label = QStringLiteral("IL %1").arg(neighbor);
+    } else {
+        const auto &xls = m_volume->XlineValues();
+        const auto it = std::find(xls.begin(), xls.end(), current);
+        if (it != xls.end()) {
+            if (it + 1 != xls.end())
+                neighbor = *(it + 1);
+            else if (it != xls.begin())
+                neighbor = *(it - 1);
+        }
+        label = QStringLiteral("XL %1").arg(neighbor);
+    }
+    if (neighbor < 0) {
+        m_canvas->setCompareData(SgySliceImage{}, tr("无相邻线"));
+        return;
+    }
+
+    m_extractingCompare = true;
+    auto vol = m_volume;
+    const auto type = mode == 0 ? SgySliceType::Inline : SgySliceType::Xline;
+    QThreadPool::globalInstance()->start([this, vol, type, neighbor, label]() {
+        SgySliceImage image;
+        std::string err;
+        vol->ExtractSlice(type, neighbor, image, err);
+        QMetaObject::invokeMethod(this, [this, image, label]() {
+            m_extractingCompare = false;
+            m_canvas->setCompareData(image, label);
+        }, Qt::QueuedConnection);
+    });
+}
+
+// ---- D2.11 道头信息卡 ----
+void SeismicSectionDockWidget::showTraceHeaderCard(int traceIndex) {
+    if (!m_volume || !m_volume->IsLoaded())
+        return;
+    const QString sgyPath = QString::fromStdString(m_volume->Path().string());
+    const SeismicTraceHeaderInfo info = SeismicTaskService::readTraceHeader(sgyPath, traceIndex);
+
+    if (!m_traceCard) {
+        m_traceCard = new QDialog(this);
+        m_traceCard->setWindowTitle(tr("道头信息"));
+        m_traceCard->setModal(false);
+        m_traceCard->setMinimumSize(360, 300);
+        auto *lay = new QVBoxLayout(m_traceCard);
+        m_traceCardTable = new QTableWidget(m_traceCard);
+        m_traceCardTable->setColumnCount(2);
+        m_traceCardTable->setHorizontalHeaderLabels({tr("字段"), tr("值")});
+        m_traceCardTable->horizontalHeader()->setStretchLastSection(true);
+        m_traceCardTable->verticalHeader()->setVisible(false);
+        m_traceCardTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        lay->addWidget(m_traceCardTable);
+        auto *btnClose = new QToolButton(m_traceCard);
+        btnClose->setText(tr("关闭"));
+        connect(btnClose, &QToolButton::clicked, m_traceCard, &QDialog::close);
+        lay->addWidget(btnClose, 0, Qt::AlignRight);
+    }
+    const auto addRow = [this](const QString &k, const QString &v) {
+        const int row = m_traceCardTable->rowCount();
+        m_traceCardTable->insertRow(row);
+        m_traceCardTable->setItem(row, 0, new QTableWidgetItem(k));
+        m_traceCardTable->setItem(row, 1, new QTableWidgetItem(v));
+    };
+    m_traceCardTable->setRowCount(0);
+    if (info.ok) {
+        addRow(tr("道序号（0 基）"), QString::number(info.traceIndex));
+        addRow(tr("文件偏移 (B)"), QString::number(info.fileOffset));
+        addRow(tr("INLINE (189-192)"), QString::number(info.inlineNo));
+        addRow(tr("CROSSLINE (193-196)"), QString::number(info.xlineNo));
+        addRow(tr("field record (9-12)"), QString::number(info.fieldRecord));
+        addRow(tr("CDP ensemble (21-24)"), QString::number(info.cdpEnsemble));
+        addRow(tr("CDP X (73-76)"), QString::number(info.cdpX, 'f', 2));
+        addRow(tr("CDP Y (77-80)"), QString::number(info.cdpY, 'f', 2));
+        addRow(tr("采样数 (115-116)"), QString::number(info.sampleCount));
+        addRow(tr("采样间隔 (117-118, μs)"), QString::number(info.sampleIntervalUs));
+    } else {
+        addRow(tr("错误"), info.error);
+    }
+    m_traceCard->show();
+    m_traceCard->raise();
+    m_traceCard->activateWindow();
+}
+
+void SeismicSectionDockWidget::onTraceClicked(int traceIndex, double twtMs, double depthM,
+                                              float amplitude, double, double) {
+    // D2.11：点击道 → 道头信息卡；状态栏同步读数
+    showTraceHeaderCard(traceIndex);
+    onTraceHovered(traceIndex, twtMs, depthM, amplitude, 0.0, 0.0);
+}
+
+// ---- D2.13 复制 / 打印 ----
+void SeismicSectionDockWidget::onCopyImage() {
+    QApplication::clipboard()->setImage(m_canvas->grabCanvasImage(2.0));
+    setLineTitle(tr("剖面图已复制到剪贴板"));
+}
+
+void SeismicSectionDockWidget::onPrintImage() {
+    QPrinter printer(QPrinter::HighResolution);
+    QPrintDialog dlg(&printer, this);
+    dlg.setWindowTitle(tr("打印地震剖面"));
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    QPainter painter(&printer);
+    const QImage img = m_canvas->grabCanvasImage(2.0);
+    const QRectF pageRect = printer.pageRect(QPrinter::DevicePixel);
+    const double scale = std::min(pageRect.width() / img.width(), pageRect.height() / img.height());
+    const QSizeF target(img.width() * scale, img.height() * scale);
+    const QPointF offset((pageRect.width() - target.width()) / 2.0, (pageRect.height() - target.height()) / 2.0);
+    painter.drawImage(QRectF(offset, target), img);
+    painter.end();
 }
 
 } // namespace seismic

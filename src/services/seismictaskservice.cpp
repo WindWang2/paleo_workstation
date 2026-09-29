@@ -1584,4 +1584,103 @@ QString SeismicTranscodeReport::toJsonLine() const
   return QStringLiteral("PALEO-SEISMIC-TRANSCODE ") +
          QString::fromUtf8(QJsonDocument(reportToJson(*this)).toJson(QJsonDocument::Compact));
 }
+
+// ---- D2.11 道头查询 -----------------------------------------------------------
+
+SeismicTraceHeaderInfo SeismicTaskService::readTraceHeader(const QString &sgyPath, int traceIndex)
+{
+  SeismicTraceHeaderInfo info;
+  info.traceIndex = traceIndex;
+  if (sgyPath.isEmpty() || traceIndex < 0)
+  {
+    info.error = QStringLiteral("无效道序号");
+    return info;
+  }
+
+  // 样本数/格式码：索引命中最好；未命中退二进制头（规则文件可靠）
+  int sampleCount = 0;
+  int formatCode = 5;
+  double dtUs = 0.0;
+  std::string reason;
+  if (SgyIndexPtr index = SgyIndexCache::Load(std::filesystem::path(sgyPath.toStdString()), reason))
+  {
+    if (traceIndex >= static_cast<int>(index->traces.size()))
+    {
+      info.error = QStringLiteral("道序号 %1 超出索引范围（共 %2 道）").arg(traceIndex).arg(index->traces.size());
+      return info;
+    }
+    sampleCount = index->sampleCount;
+    formatCode = index->formatCode;
+    dtUs = index->sampleIntervalUs;
+  }
+
+  QFile file(sgyPath);
+  if (!file.open(QIODevice::ReadOnly))
+  {
+    info.error = QStringLiteral("无法打开 SEG-Y 文件");
+    return info;
+  }
+  if (sampleCount <= 0)
+  {
+    QByteArray binHdr = file.read(3600);
+    if (binHdr.size() < 3600)
+    {
+      info.error = QStringLiteral("SEG-Y 头读取失败");
+      return info;
+    }
+    const auto be16 = [&](int at) -> int {
+      return (quint8(binHdr[at]) << 8) | quint8(binHdr[at + 1]);
+    };
+    sampleCount = be16(3220);
+    formatCode = be16(3224);
+  }
+  int bytesPerSample = 4;
+  if (formatCode == 2 || formatCode == 3)
+    bytesPerSample = formatCode == 3 ? 4 : 2;
+  else if (formatCode == 8)
+    bytesPerSample = 1;
+  else if (formatCode == 1 || formatCode == 5)
+    bytesPerSample = 4;
+
+  const qint64 traceBytes = 240 + qint64(sampleCount) * bytesPerSample;
+  info.fileOffset = 3600 + qint64(traceIndex) * traceBytes;
+  if (!file.seek(info.fileOffset))
+  {
+    info.error = QStringLiteral("道偏移越界（文件 %1 字节）").arg(file.size());
+    return info;
+  }
+  const QByteArray hdr = file.read(240);
+  if (hdr.size() < 240)
+  {
+    info.error = QStringLiteral("道头读取不完整");
+    return info;
+  }
+  file.close();
+
+  const auto be16 = [&](int at) -> int {
+    return qint16((quint8(hdr[at]) << 8) | quint8(hdr[at + 1]));
+  };
+  const auto be32 = [&](int at) -> qint32 {
+    return qint32((quint32(quint8(hdr[at])) << 24) | (quint32(quint8(hdr[at + 1])) << 16) |
+                   (quint32(quint8(hdr[at + 2])) << 8) | quint32(quint8(hdr[at + 3])));
+  };
+  // SEG-Y 字节序（1 基）→ 0 基偏移
+  info.fieldRecord = be32(8);    // 9-12
+  info.cdpEnsemble = be32(20);   // 21-24
+  info.inlineNo = be32(188);     // 189-192 INLINE
+  info.xlineNo = be32(192);      // 193-196 CROSSLINE
+  info.sampleCount = be16(114);  // 115-116 ns
+  info.sampleIntervalUs = dtUs > 0 ? int(dtUs) : be16(116); // 117-118 dt(μs)
+  // 71-72 比例因子（负值 = 除以 |v|）
+  double scalar = be16(70);
+  if (scalar == 0.0)
+    scalar = 1.0;
+  const double rawX = static_cast<double>(be32(72)); // 73-76
+  const double rawY = static_cast<double>(be32(76)); // 77-80
+  info.cdpX = scalar > 0 ? rawX * scalar : rawX / -scalar;
+  info.cdpY = scalar > 0 ? rawY * scalar : rawY / -scalar;
+  info.ok = true;
+  return info;
+}
+
 } // namespace seismic

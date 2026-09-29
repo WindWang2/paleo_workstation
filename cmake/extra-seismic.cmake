@@ -25,3 +25,7 @@ target_compile_definitions(tst_seismic_baseline PRIVATE
 
 # P5 Phase 1 转码链路：分阶段进度/断点续跑/并发写/质量报告/互斥/自适应 LOD
 add_paleo_test(tst_seismic_transcode)
+
+# P5 Phase 2 剖面 2D：三模/阈值极性/AGC/曲线/双刻度/纹理缓存/LOD 预算/
+# 8 档色标/导出/卷帘/道头卡/书签/复制/原因态
+add_paleo_test(tst_seismic_sectionui LIBS paleo_ui)

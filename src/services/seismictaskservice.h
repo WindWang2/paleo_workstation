@@ -74,6 +74,23 @@ struct SeismicBackendStatus
   int activeLod = 0;
 };
 
+// 道头信息（D2.11 道头查询卡）：240B 道头关键字解码 + 定位信息。
+struct SeismicTraceHeaderInfo
+{
+  bool ok = false;
+  QString error;
+  qint64 traceIndex = -1;
+  qint64 fileOffset = 0;     // 道头字节偏移（3600 + n*traceBytes）
+  int inlineNo = 0;
+  int xlineNo = 0;
+  int fieldRecord = 0;       // 字节 9-12
+  int cdpEnsemble = 0;       // 字节 21-24
+  double cdpX = 0.0;         // 字节 73-76（含 71-72 比例因子）
+  double cdpY = 0.0;         // 字节 77-80
+  int sampleCount = 0;       // 道头字 115-116
+  int sampleIntervalUs = 0;  // 道头字 117-118
+};
+
 // 转码质量报告（D1.4/D1.5/D1.10）：道数/覆盖率/丢弃率/值域 + 结构化日志行。
 struct SeismicTranscodeReport
 {
@@ -258,6 +275,10 @@ public:
 
   // 14. .sf3p 断点探测（含 .partial 半成品识别）。
   SeismicWorkspaceProbe probePagedWorkspace(const QString &sf3pPath) const;
+
+  // 15. 道头查询（D2.11）：240B 道头解码。静态——无服务实例也可用（剖面
+  //     dock 直接调用）。索引未命中时按二进制头推算道长（规则文件可靠）。
+  static SeismicTraceHeaderInfo readTraceHeader(const QString &sgyPath, int traceIndex);
 
   // 转码完成后作废缓存条目：下次读取按磁盘现状重开（热切换）。
   void invalidateDataset(const QString &path);

@@ -1104,15 +1104,37 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 p.drawText(tagRect, Qt::AlignCenter, wellTag);
             }
         } else {
-            for (const auto &well : m_wells) {
-                if (!well.isWithinBuffer)
-                    continue;
+            // D5.7 多井开关：>0 时只保留离剖面最近的 N 口（|offset| 升序）
+            std::vector<const SectionWellInfo *> visible;
+            visible.reserve(m_wells.size());
+            for (const auto &well : m_wells)
+                if (well.isWithinBuffer)
+                    visible.push_back(&well);
+            if (m_maxVisibleWells > 0 && static_cast<int>(visible.size()) > m_maxVisibleWells) {
+                std::partial_sort(visible.begin(), visible.begin() + m_maxVisibleWells, visible.end(),
+                                  [](const SectionWellInfo *a, const SectionWellInfo *b) {
+                                      return std::abs(a->offsetDistanceM) < std::abs(b->offsetDistanceM);
+                                  });
+                visible.resize(static_cast<std::size_t>(m_maxVisibleWells));
+            }
+
+            for (const SectionWellInfo *wellPtr : visible) {
+                const auto &well = *wellPtr;
 
                 const double wx = traceToPixelX(well.tracePosition);
                 if (wx < vp.left() - 60 || wx > vp.right() + 60)
                     continue;
 
-                // Draw vertical wellbore trajectory line (1px white halo under 2px #1B73D0)
+                // D5.3 井轨迹：底有投影时画斜轨迹线，否则垂直简化
+                double wxBot = wx;
+                for (const WellTrajectory &t : m_wellTrajectories) {
+                    if (t.wellId == well.wellId) {
+                        wxBot = traceToPixelX(t.bottomTracePos);
+                        break;
+                    }
+                }
+
+                // Draw wellbore trajectory line (1px white halo under 2px #1B73D0)
                 const double bottomTwt = well.totalDepth > 0.0
                     ? m_tdModel.DepthToTwtMs(well.totalDepth)
                     : (m_t0Ms + m_samples * m_dtMs);
@@ -1120,10 +1142,38 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 const double wellBotY = std::min(timeToPixelY(bottomTwt), static_cast<double>(vp.bottom()));
 
                 p.setPen(QPen(QColor(QStringLiteral("#FFFFFF")), 4.0));
-                p.drawLine(QPointF(wx, wellTopY), QPointF(wx, wellBotY));
+                p.drawLine(QPointF(wx, wellTopY), QPointF(wxBot, wellBotY));
 
                 p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 2.0));
-                p.drawLine(QPointF(wx, wellTopY), QPointF(wx, wellBotY));
+                p.drawLine(QPointF(wx, wellTopY), QPointF(wxBot, wellBotY));
+
+                // D5.4 合成记录 overlay：井位旁的合成道（红波形 + 褶积振幅）
+                for (const SyntheticOverlay &syn : m_syntheticOverlays) {
+                    if (syn.wellId != well.wellId || syn.twtMs.empty())
+                        continue;
+                    if (!syn.ok) {
+                        // 降级注记：写明原因（如「密度曲线缺失」）
+                        p.setFont(QFont(QStringLiteral("Noto Sans SC"), 7));
+                        p.setPen(QColor(QStringLiteral("#F29900")));
+                        p.drawText(QRectF(wx + 8.0, wellTopY + 4.0, 150.0, 30.0),
+                                   Qt::AlignLeft | Qt::TextWordWrap,
+                                   tr("合成记录不可用：%1").arg(syn.reason));
+                        continue;
+                    }
+                    const double halfW = 16.0;
+                    QPolygonF synWave;
+                    for (std::size_t i = 0; i < syn.twtMs.size(); ++i) {
+                        const double py = timeToPixelY(syn.twtMs[i]);
+                        if (py < vp.top() - 5 || py > vp.bottom() + 5)
+                            continue;
+                        synWave.append(QPointF(wx + 44.0 + syn.amplitude[i] * halfW, py));
+                    }
+                    if (synWave.size() >= 2) {
+                        p.setPen(QPen(QColor(220, 38, 38), 1.4));
+                        p.setBrush(Qt::NoBrush);
+                        p.drawPolyline(synWave);
+                    }
+                }
 
                 // Formation tops
                 if (m_showTops) {
@@ -1726,6 +1776,22 @@ void SeismicSectionCanvas::wheelEvent(QWheelEvent *event) {
 
 void SeismicSectionCanvas::mouseDoubleClickEvent(QMouseEvent *) {
     fitToWindow();
+}
+
+// ---- D5.3/D5.4/D5.7 井轨迹 / 合成记录 / 多井开关 ----
+void SeismicSectionCanvas::setWellTrajectories(const std::vector<WellTrajectory> &traj) {
+    m_wellTrajectories = traj;
+    update();
+}
+
+void SeismicSectionCanvas::setSyntheticOverlays(const std::vector<SyntheticOverlay> &overlays) {
+    m_syntheticOverlays = overlays;
+    update();
+}
+
+void SeismicSectionCanvas::setMaxVisibleWells(int n) {
+    m_maxVisibleWells = std::max(0, n);
+    update();
 }
 
 // ---- D4 解释：拾取/断层模式 ----

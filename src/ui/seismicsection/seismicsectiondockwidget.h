@@ -73,6 +73,15 @@ public:
     void removeBookmark(int index);
     void applyBookmark(int index);
 
+    // ---- D5 井震与任意线 ----
+    void setCandidateWells(const std::vector<SectionWellInfo> &wells); // D5.3/D5.7 候选井（地图链路外亦可注入）
+    std::vector<SectionWellInfo> candidateWells() const { return m_candidateWells; }
+    void showArbitraryLineEditor();                    // D5.1 多段折线路径编辑器
+    void showWellSideTrace();                          // D5.6 井旁道小图（最近井）
+    // D5.3 井轨迹投影（顶/底到剖面折线的投影）；TD 无实测表 → 返回带原因注记
+    void computeWellTrajectories(const std::vector<glm::dvec2> &mapPolyline);
+    void computeSyntheticOverlays();                   // D5.4
+
     // ---- D4 解释工具 ----
     const SeismicInterpretationSession &interpretationSession() const { return m_session; }
     SeismicInterpretationSession &mutableSession();            // undo 命令写入口
@@ -178,6 +187,10 @@ private:
 
     // D2.10 卷帘 B 图提取状态
     bool m_extractingCompare = false;
+
+    // ---- D5 ----
+    std::vector<SectionWellInfo> m_candidateWells;
+    std::vector<glm::dvec2> m_lastMapPolyline;
 
     // ---- D4 解释 ----
     SeismicInterpretationSession m_session;

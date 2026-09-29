@@ -44,3 +44,6 @@ target_sources(paleo_ui PRIVATE src/ui/seismicsection/seismicpickpanel.cpp)
 
 # P5 Phase 4 解释：追踪/网格化/会话/资产登记全链路/undo/CSV
 add_paleo_test(tst_seismic_interpret LIBS paleo_ui paleo_store)
+
+# P5 Phase 5 井震：合成记录/任意线缓存/井轨迹/多井开关/任意线提取
+add_paleo_test(tst_seismic_welltie LIBS paleo_ui)

@@ -119,6 +119,34 @@ public:
     void setNoDataReason(const QString &reason);
     QString noDataReason() const { return m_noDataReason; }
 
+    // ---- D5 井震与任意线 ----
+    // 井轨迹（顶/底剖面位置对；空 = 垂直简化）
+    struct WellTrajectory
+    {
+        QString wellId;
+        double topTracePos = 0.0;
+        double bottomTracePos = 0.0;
+        double topTwtMs = 0.0;
+        double bottomTwtMs = 0.0;
+    };
+    void setWellTrajectories(const std::vector<WellTrajectory> &traj);
+    const std::vector<WellTrajectory> &wellTrajectories() const { return m_wellTrajectories; }
+
+    // 合成记录 overlay（每井一份；ok=false 时画降级原因注记）
+    struct SyntheticOverlay
+    {
+        QString wellId;
+        bool ok = false;
+        QString reason;
+        std::vector<double> twtMs;
+        std::vector<float> amplitude;
+    };
+    void setSyntheticOverlays(const std::vector<SyntheticOverlay> &overlays);
+
+    // 多井开关：>0 时只显示离剖面最近的 N 口井（D5.7）
+    void setMaxVisibleWells(int n);
+    int maxVisibleWells() const { return m_maxVisibleWells; }
+
     // ---- D4 解释 ----
     void setPickMode(SectionPickMode mode);
     SectionPickMode pickMode() const { return m_pickMode; }
@@ -360,6 +388,11 @@ private:
     SectionRef m_sectionRef;
     QList<SeismicPick> m_pickOverlays;
     QList<SeismicFaultSegment> m_faultOverlays;
+
+    // D5.3/D5.4/D5.7
+    std::vector<WellTrajectory> m_wellTrajectories;
+    std::vector<SyntheticOverlay> m_syntheticOverlays;
+    int m_maxVisibleWells = 0; // 0 = 全部
     QVector<QPair<double, double>> m_faultDraft; // 绘制中的断层折线
 
     // Interaction state

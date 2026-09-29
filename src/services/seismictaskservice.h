@@ -16,6 +16,7 @@
 #include "domain/seismic/sgyindex.h"
 #include "domain/seismic/sgyvolume.h"
 #include "domain/seismic/sgydatacache.h"
+#include "domain/seismic/timedepthmodel.h"
 #include "domain/seismic/sgysectionbuilder.h"
 
 class PaleoTask;
@@ -383,8 +384,32 @@ public:
   // D4.5 CSV 导出
   static bool exportPicksCsv(const QList<SeismicPick> &picks, const QString &filePath, QString *error);
 
+  // ---- Phase 5 井震与任意线 ----
+
+  // D5.4 合成记录：AC(声波)+DEN(密度) → 波阻抗 → 反射系数 → Ricker 子波
+  // 褶积。缺曲线/时深表 → ok=false + reason（降级为仅轨迹投影）。
+  struct SeismicSyntheticResult
+  {
+    bool ok = false;
+    QString reason;
+    std::vector<double> twtMs;   // 采样时间
+    std::vector<float> amplitude; // 归一化振幅
+    int sampleCount = 0;
+  };
+  static SeismicSyntheticResult computeSyntheticSeismogram(
+      const std::vector<double> &acDepthsM, const std::vector<float> &acUsPerM,
+      const std::vector<double> &denDepthsM, const std::vector<float> &denValues,
+      const TimeDepthModel &tdModel, double rickerHz = 25.0);
+
   // 转码完成后作废缓存条目：下次读取按磁盘现状重开（热切换）。
   void invalidateDataset(const QString &path);
+
+  // D5.2 任意线提取缓存查询：同（体指纹×路径）重复提取直接命中。
+  std::shared_ptr<const SgySliceImage> cachedSection(
+      const std::vector<glm::ivec2> &pathPoints, std::shared_ptr<const SgyVolume> volume) const;
+  void cacheSection(const std::vector<glm::ivec2> &pathPoints,
+                    std::shared_ptr<const SgyVolume> volume,
+                    std::shared_ptr<const SgySliceImage> image);
 
 signals:
   void indexingFinished(const QString &sgyPath, bool success);
@@ -414,6 +439,18 @@ private:
   // D1.7 转码互斥：同输出路径的在途转码集合（主线程 start/finished 串行访问，
   // worker 不触碰）。start 时占用，任务终态释放。
   QSet<QString> activeTranscodeOutputs_;
+
+  // D5.2 任意线 LRU（≤4；键 = 体积指纹 ^ 路径 FNV）
+  struct SectionCacheEntry
+  {
+    qint64 key = 0;
+    std::shared_ptr<const SgySliceImage> image;
+    quint64 lastUse = 0;
+  };
+  mutable std::vector<SectionCacheEntry> sectionCache_;
+  mutable quint64 sectionCacheClock_ = 0;
+  static qint64 sectionCacheKey(const std::vector<glm::ivec2> &pathPoints,
+                                std::shared_ptr<const SgyVolume> volume);
 };
 
 } // namespace seismic

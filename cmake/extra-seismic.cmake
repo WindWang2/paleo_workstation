@@ -14,3 +14,11 @@ target_compile_definitions(tst_seismic_perf PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
   PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
   PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")
+
+# P5 Phase 0 基线实测：索引冷/热、切片冷/热、双通道转码、体素、离屏 3D
+# 帧率、峰值 RSS（输出 = docs/seismic/BASELINE.md 数据源；共享夹具目录）。
+add_paleo_test(tst_seismic_baseline LIBS paleo_ui)
+target_compile_definitions(tst_seismic_baseline PRIVATE
+  PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
+  PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
+  PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")

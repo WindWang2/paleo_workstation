@@ -1,5 +1,6 @@
 // 层：视图
 #include "wellcompositetrack.h"
+#include "patterncatalog.h"
 #include "../../domain/faciescatalog.h"
 #include <QCoreApplication>
 #include <QSvgRenderer>
@@ -10,6 +11,67 @@
 
 namespace WellComposite
 {
+
+// ----------------------------------------------------------------------------
+// WellTrack 公共道头三行区（D1.11）：标题 | 刻度 | 单位，随道宽自适应截断
+// ----------------------------------------------------------------------------
+void WellTrack::paintHeaderChrome(QPainter &painter, const QRectF &headerRect,
+                                  const QString &scaleText, const QString &unitText) const
+{
+  painter.save();
+  painter.setClipRect(headerRect);
+
+  painter.fillRect(headerRect, QColor(QStringLiteral("#F5F7FA")));
+  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.drawLine(headerRect.topRight(), headerRect.bottomRight());
+  painter.drawLine(headerRect.bottomLeft(), headerRect.bottomRight());
+
+  const bool hasScale = !scaleText.isEmpty();
+  const bool hasUnit = !unitText.isEmpty();
+
+  // 三行布局：标题 26px 置顶，刻度/单位行按存在性均分余高；无副行时标题纵向居中
+  const qreal titleBandH = hasScale || hasUnit ? qMin<qreal>(28.0, headerRect.height() * 0.45)
+                                               : headerRect.height();
+  const QRectF titleBand(headerRect.left() + 2, headerRect.top() + 4,
+                         headerRect.width() - 4, titleBandH - 6);
+  painter.setPen(QColor(QStringLiteral("#24303E")));
+  QFont fTitle = painter.font();
+  fTitle.setPointSize(9);
+  fTitle.setBold(true);
+  painter.setFont(fTitle);
+  painter.drawText(titleBand, Qt::AlignCenter | Qt::TextWrapAnywhere,
+                   elideTitle(painter, title(), titleBand.width()));
+
+  QFont fSub = painter.font();
+  fSub.setPointSize(8);
+  fSub.setBold(false);
+  painter.setFont(fSub);
+
+  qreal rowTop = headerRect.top() + titleBandH;
+  const qreal rowH = (headerRect.height() - titleBandH) / (hasScale + hasUnit ? (hasScale && hasUnit ? 2.0 : 1.0) : 1.0);
+  const QFontMetrics fm(fSub);
+  const auto drawRow = [&](const QString &raw, bool isUnit) {
+    if (raw.isEmpty()) return;
+    const QRectF rowRect(headerRect.left() + 3, rowTop, headerRect.width() - 6, rowH);
+    painter.setPen(QColor(isUnit ? QStringLiteral("#5D6E80") : QStringLiteral("#455A64")));
+    painter.drawText(rowRect, Qt::AlignCenter,
+                     fm.elidedText(raw, Qt::ElideRight, static_cast<int>(rowRect.width())));
+    rowTop += rowH;
+  };
+  drawRow(scaleText, false);
+  drawRow(unitText, true);
+
+  painter.restore();
+}
+
+QString WellTrack::elideTitle(const QPainter &painter, const QString &text, qreal widthPx) const
+{
+  const QFontMetrics fm(painter.font());
+  if (fm.horizontalAdvance(text) <= widthPx)
+    return text;
+  // 两行机会：先按最长行宽折半截断（竖排语义由窄道自适配合并到一行截断）
+  return fm.elidedText(text, Qt::ElideMiddle, static_cast<int>(widthPx));
+}
 
 // ----------------------------------------------------------------------------
 // LithologyPatternFactory: 生成标准石油地质岩性填充纹理
@@ -82,6 +144,17 @@ QPixmap LithologyPatternFactory::createPatternPixmap(const QString &patternType,
 
 QBrush LithologyPatternFactory::getBrush(const QString &lithoName, const QColor &baseBg)
 {
+  // D4.2 花纹库扩充：30+ 种岩性先经 PatternCatalog 关键词最长匹配
+  PatternDef def;
+  if (PatternCatalog::lookupLithology(lithoName, &def))
+  {
+    const QColor bg = baseBg.isValid() ? baseBg : def.bg;
+    QPixmap pm = createPatternPixmap(def.key, bg, def.fg);
+    if (pm.isNull())
+      pm = PatternCatalog::createLithoPattern(def.key, bg, def.fg);
+    return QBrush(pm);
+  }
+
   QString pat = QStringLiteral("mudstone");
   QColor bg = baseBg.isValid() ? baseBg : QColor(QStringLiteral("#ECEFF1"));
   QColor fg = QColor(QStringLiteral("#455A64"));
@@ -299,6 +372,20 @@ QBrush FaciesPatternFactory::getBrush(const QString &patternTypeOrName, const QC
 
   const QString key = patternTypeOrName.trimmed();
 
+  // D4.3 相名→花纹外置映射（内置 + 用户 JSON 覆盖）优先
+  const QString mapped = PatternCatalog::faciesPatternKey(key);
+  if (!mapped.isEmpty())
+  {
+    pat = mapped;
+    if (!baseBg.isValid())
+      bg = QColor(QStringLiteral("#FFE082"));
+    fg = QColor(QStringLiteral("#E65100"));
+    QPixmap pm = createPatternPixmap(pat, bg, fg);
+    if (pm.isNull())
+      pm = PatternCatalog::createLithoPattern(pat, bg, fg);
+    return QBrush(pm);
+  }
+
   if (key == QLatin1String("distributary_channel") || key.contains(QStringLiteral("分流河道")) || key.contains(QStringLiteral("水下河道")))
   {
     pat = QStringLiteral("distributary_channel");
@@ -396,7 +483,8 @@ void DepthScaleTrack::paintHeader(QPainter &painter, const QRectF &headerRect, d
   fTitle.setPointSize(9);
   fTitle.setBold(true);
   painter.setFont(fTitle);
-  painter.drawText(headerRect.adjusted(2, 6, -2, -24), Qt::AlignCenter, title());
+  const QString unitSuffix = m_depthUnitLabel.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(m_depthUnitLabel);
+  painter.drawText(headerRect.adjusted(2, 6, -2, -24), Qt::AlignCenter, title() + unitSuffix);
 
   // 比例尺标识（如 1:500）
   painter.setPen(QColor(QStringLiteral("#5D6E80")));
@@ -406,6 +494,17 @@ void DepthScaleTrack::paintHeader(QPainter &painter, const QRectF &headerRect, d
   painter.setFont(fRatio);
   painter.drawText(headerRect.adjusted(2, headerRect.height() - 22, -2, -4),
                    Qt::AlignCenter, m_scaleRatio);
+
+  // 单位行（D6.3 切 ft 时显示换算标注）
+  if (!m_depthUnitLabel.isEmpty())
+  {
+    painter.setPen(QColor(QStringLiteral("#9AA7B4")));
+    QFont fUnit = painter.font();
+    fUnit.setPointSize(7);
+    painter.setFont(fUnit);
+    painter.drawText(headerRect.adjusted(2, headerRect.height() - 8, -2, -1),
+                     Qt::AlignCenter, m_depthUnitLabel);
+  }
 
   painter.restore();
 }
@@ -459,8 +558,26 @@ void DepthScaleTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     }
     else
     {
-      painter.setPen(QColor(QStringLiteral("#9AA7B4")));
+      // D7.4 高对比：次刻度从 disabled 灰提升到 text-muted
+      painter.setPen(QColor(m_highContrast ? QStringLiteral("#5D6E80") : QStringLiteral("#9AA7B4")));
       painter.drawLine(QPointF(bodyRect.right() - 4, y), QPointF(bodyRect.right(), y));
+    }
+  }
+
+  // D6.5 TWT 副刻度列：左半列标注时深值（右侧主刻度不受影响）
+  if (!m_twtLabels.isEmpty())
+  {
+    painter.setPen(QColor(m_highContrast ? QStringLiteral("#24303E") : QStringLiteral("#5D6E80")));
+    QFont twtFont = painter.font();
+    twtFont.setPointSize(7);
+    painter.setFont(twtFont);
+    for (const auto &pair : m_twtLabels)
+    {
+      if (pair.first < topDepth || pair.first > bottomDepth)
+        continue;
+      const qreal y = bodyRect.top() + (pair.first - topDepth) * pxPerMeter;
+      painter.drawText(QRectF(bodyRect.left() + 1, y - 8, bodyRect.width() * 0.45, 16),
+                       Qt::AlignLeft | Qt::AlignVCenter, pair.second);
     }
   }
 
@@ -478,20 +595,7 @@ TextTrack::TextTrack(const QString &title, qreal width)
 
 void TextTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double /*currentDepth*/)
 {
-  painter.save();
-  painter.setClipRect(headerRect);
-  painter.fillRect(headerRect, QColor(QStringLiteral("#F5F7FA")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
-  painter.drawLine(headerRect.topRight(), headerRect.bottomRight());
-  painter.drawLine(headerRect.bottomLeft(), headerRect.bottomRight());
-
-  painter.setPen(QColor(QStringLiteral("#24303E")));
-  QFont font = painter.font();
-  font.setPointSize(9);
-  font.setBold(true);
-  painter.setFont(font);
-  painter.drawText(headerRect, Qt::AlignCenter, title());
-  painter.restore();
+  paintHeaderChrome(painter, headerRect, QString(), QStringLiteral("m"));
 }
 
 void TextTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
@@ -544,20 +648,7 @@ FormationTrack::FormationTrack(const QString &title, qreal width)
 
 void FormationTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double /*currentDepth*/)
 {
-  painter.save();
-  painter.setClipRect(headerRect);
-  painter.fillRect(headerRect, QColor(QStringLiteral("#F5F7FA")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
-  painter.drawLine(headerRect.topRight(), headerRect.bottomRight());
-  painter.drawLine(headerRect.bottomLeft(), headerRect.bottomRight());
-
-  painter.setPen(QColor(QStringLiteral("#24303E")));
-  QFont font = painter.font();
-  font.setPointSize(9);
-  font.setBold(true);
-  painter.setFont(font);
-  painter.drawText(headerRect, Qt::AlignCenter, title());
-  painter.restore();
+  paintHeaderChrome(painter, headerRect, QStringLiteral("顶深-底深 m"), QString());
 }
 
 void FormationTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
@@ -613,20 +704,7 @@ LithologyTrack::LithologyTrack(const QString &title, qreal width)
 
 void LithologyTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double /*currentDepth*/)
 {
-  painter.save();
-  painter.setClipRect(headerRect);
-  painter.fillRect(headerRect, QColor(QStringLiteral("#F5F7FA")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
-  painter.drawLine(headerRect.topRight(), headerRect.bottomRight());
-  painter.drawLine(headerRect.bottomLeft(), headerRect.bottomRight());
-
-  painter.setPen(QColor(QStringLiteral("#24303E")));
-  QFont font = painter.font();
-  font.setPointSize(9);
-  font.setBold(true);
-  painter.setFont(font);
-  painter.drawText(headerRect, Qt::AlignCenter, title());
-  painter.restore();
+  paintHeaderChrome(painter, headerRect, QStringLiteral("岩性花纹"), QString());
 }
 
 void LithologyTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
@@ -684,26 +762,9 @@ CoreTrack::CoreTrack(const QString &title, qreal width)
 
 void CoreTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double /*currentDepth*/)
 {
-  painter.save();
-  painter.setClipRect(headerRect);
-  painter.fillRect(headerRect, QColor(QStringLiteral("#F5F7FA")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
-  painter.drawLine(headerRect.topRight(), headerRect.bottomRight());
-  painter.drawLine(headerRect.bottomLeft(), headerRect.bottomRight());
-
-  painter.setPen(QColor(QStringLiteral("#24303E")));
-  QFont font = painter.font();
-  font.setPointSize(9);
-  font.setBold(true);
-  painter.setFont(font);
-  painter.drawText(headerRect.adjusted(2, 4, -2, -18), Qt::AlignCenter, title());
-
-  font.setPointSize(7);
-  font.setBold(false);
-  painter.setFont(font);
-  painter.setPen(QColor(QStringLiteral("#5D6E80")));
-  painter.drawText(headerRect.adjusted(2, headerRect.height() - 16, -2, -2), Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "筒号|收获率"));
-  painter.restore();
+  paintHeaderChrome(painter, headerRect,
+                    QCoreApplication::translate("WellCompositeTrack", "筒号|进尺|心长"),
+                    QCoreApplication::translate("WellCompositeTrack", "收获率 %"));
 }
 
 void CoreTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
@@ -771,20 +832,7 @@ ImageTrack::ImageTrack(const QString &title, qreal width)
 
 void ImageTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double /*currentDepth*/)
 {
-  painter.save();
-  painter.setClipRect(headerRect);
-  painter.fillRect(headerRect, QColor(QStringLiteral("#F5F7FA")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
-  painter.drawLine(headerRect.topRight(), headerRect.bottomRight());
-  painter.drawLine(headerRect.bottomLeft(), headerRect.bottomRight());
-
-  painter.setPen(QColor(QStringLiteral("#24303E")));
-  QFont font = painter.font();
-  font.setPointSize(9);
-  font.setBold(true);
-  painter.setFont(font);
-  painter.drawText(headerRect, Qt::AlignCenter, title());
-  painter.restore();
+  paintHeaderChrome(painter, headerRect, QStringLiteral("深度等比"), QString());
 }
 
 void ImageTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
@@ -847,6 +895,70 @@ void CurveTrack::setCurves(const QVector<CurveData> &curves)
   m_curves.clear();
   for (int i = 0; i < qMin(4, curves.size()); ++i)
     m_curves.append(curves.at(i));
+}
+
+bool CurveTrack::setCurveAt(int idx, const CurveData &curve)
+{
+  if (idx < 0 || idx >= m_curves.size())
+    return false;
+  m_curves[idx] = curve;
+  return true;
+}
+
+bool CurveTrack::removeCurveAt(int idx)
+{
+  if (idx < 0 || idx >= m_curves.size())
+    return false;
+  m_curves.removeAt(idx);
+  return true;
+}
+
+QString CurveTrack::headerScaleText() const
+{
+  if (m_curves.isEmpty())
+    return QString();
+  const auto &c = m_curves.first();
+  const auto fmt = [](float v) {
+    if (std::abs(v) >= 100.0f) return QString::number(static_cast<int>(std::round(v)));
+    return QString::number(v, 'f', 1);
+  };
+  QString t = QStringLiteral("%1~%2").arg(fmt(c.minScale), fmt(c.maxScale));
+  if (m_curves.size() > 1)
+    t += QStringLiteral(" +%1").arg(m_curves.size() - 1);
+  return t;
+}
+
+QString CurveTrack::headerUnitText() const
+{
+  if (m_curves.isEmpty())
+    return QString();
+  const QString u = m_curves.first().unit;
+  return u.isEmpty() ? QStringLiteral("—") : u;
+}
+
+QString CurveTrack::trackToolTip(double depth) const
+{
+  if (m_curves.isEmpty())
+    return title();
+  QStringList rows;
+  rows.reserve(m_curves.size() + 1);
+  rows << title();
+  const auto fmt = [](float v) {
+    if (!std::isfinite(v)) return QStringLiteral("NaN");
+    if (std::abs(v) >= 10000.0f || (std::abs(v) < 0.01f && v != 0.0f))
+      return QString::number(v, 'g', 3);
+    if (std::abs(v) >= 100.0f) return QString::number(static_cast<int>(std::round(v)));
+    return QString::number(v, 'f', 2);
+  };
+  for (const auto &c : m_curves)
+  {
+    if (c.isEmpty()) continue;
+    const float val = c.valueAtDepth(static_cast<float>(depth));
+    rows << QStringLiteral("%1 = %2%3   [%4~%5]")
+                .arg(c.name, fmt(val), c.unit.isEmpty() ? QString() : QStringLiteral(" ") + c.unit,
+                     fmt(c.minScale), fmt(c.maxScale));
+  }
+  return rows.join(QLatin1Char('\n'));
 }
 
 void CurveTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double currentDepth)
@@ -926,12 +1038,19 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   painter.setClipRect(bodyRect);
   painter.fillRect(bodyRect, QColor(QStringLiteral("#FFFFFF")));
 
-  // 浅灰色垂直等分网格线（4等分）
-  painter.setPen(QPen(QColor(QStringLiteral("#F1F3F5")), 1.0, Qt::DashLine));
-  for (int div = 1; div < 4; ++div)
+  // D4.11/D1.7 网格系统：密度可配（0 无 / 1 两分 / 2 四分 / 3 十分含次网格），
+  // 次网格（1/10）仅在密度 3 时叠加；重叠网格开关关闭时完全不画。
+  if (m_showGrid && m_gridDensity > 0)
   {
-    const qreal gx = bodyRect.left() + bodyRect.width() * (div / 4.0);
-    painter.drawLine(QPointF(gx, bodyRect.top()), QPointF(gx, bodyRect.bottom()));
+    const int divisions = m_gridDensity == 1 ? 2 : (m_gridDensity == 2 ? 4 : 10);
+    for (int div = 1; div < divisions; ++div)
+    {
+      const bool isMinor = (m_gridDensity == 3 && div % 5 != 0 && div != 5);
+      painter.setPen(QPen(isMinor ? QColor(QStringLiteral("#F8FAFB")) : QColor(QStringLiteral("#F1F3F5")),
+                          1.0, isMinor ? Qt::DotLine : Qt::DashLine));
+      const qreal gx = bodyRect.left() + bodyRect.width() * (div / static_cast<qreal>(divisions));
+      painter.drawLine(QPointF(gx, bodyRect.top()), QPointF(gx, bodyRect.bottom()));
+    }
   }
 
   // 遍历绘制道内的 1 至 4 根曲线
@@ -1031,20 +1150,7 @@ SymbolTrack::SymbolTrack(const QString &title, qreal width)
 
 void SymbolTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double /*currentDepth*/)
 {
-  painter.save();
-  painter.setClipRect(headerRect);
-  painter.fillRect(headerRect, QColor(QStringLiteral("#F5F7FA")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
-  painter.drawLine(headerRect.topRight(), headerRect.bottomRight());
-  painter.drawLine(headerRect.bottomLeft(), headerRect.bottomRight());
-
-  painter.setPen(QColor(QStringLiteral("#24303E")));
-  QFont font = painter.font();
-  font.setPointSize(9);
-  font.setBold(true);
-  painter.setFont(font);
-  painter.drawText(headerRect, Qt::AlignCenter, title());
-  painter.restore();
+  paintHeaderChrome(painter, headerRect, QStringLiteral("段/点符号"), QString());
 }
 
 void SymbolTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
@@ -1657,6 +1763,108 @@ void FaciesCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   }
 
   painter.restore();
+}
+
+// ----------------------------------------------------------------------------
+// D1.9/D3.x 道内数据访问器（tooltip 与编辑会话共用）
+// ----------------------------------------------------------------------------
+QString DepthScaleTrack::trackToolTip(double depth) const
+{
+  return QStringLiteral("%1: %2%3")
+      .arg(title(), QString::number(depth, 'f', 1),
+           m_depthUnitLabel.isEmpty() ? QStringLiteral(" m") : QStringLiteral(" ") + m_depthUnitLabel);
+}
+
+int FormationTrack::intervalIndexAtDepth(float depth) const
+{
+  for (int i = 0; i < m_intervals.size(); ++i)
+  {
+    if (depth >= m_intervals.at(i).topDepth && depth <= m_intervals.at(i).bottomDepth)
+      return i;
+  }
+  return -1;
+}
+
+FormationInterval *FormationTrack::intervalAtDepth(float depth)
+{
+  const int idx = intervalIndexAtDepth(depth);
+  return idx >= 0 ? &m_intervals[idx] : nullptr;
+}
+
+QString FormationTrack::trackToolTip(double depth) const
+{
+  const int idx = intervalIndexAtDepth(depth);
+  if (idx < 0)
+    return title();
+  const auto &fi = m_intervals.at(idx);
+  return QStringLiteral("%1\n%2\n%3 ~ %4 m")
+      .arg(title(), fi.name,
+           QString::number(fi.topDepth, 'f', 1), QString::number(fi.bottomDepth, 'f', 1));
+}
+
+int LithologyTrack::intervalIndexAtDepth(float depth) const
+{
+  for (int i = 0; i < m_intervals.size(); ++i)
+  {
+    if (depth >= m_intervals.at(i).topDepth && depth <= m_intervals.at(i).bottomDepth)
+      return i;
+  }
+  return -1;
+}
+
+bool LithologyTrack::replaceIntervalAt(int idx, const LithologyInterval &interval)
+{
+  if (idx < 0 || idx >= m_intervals.size())
+    return false;
+  m_intervals[idx] = interval;
+  return true;
+}
+
+bool LithologyTrack::removeIntervalAt(int idx)
+{
+  if (idx < 0 || idx >= m_intervals.size())
+    return false;
+  m_intervals.removeAt(idx);
+  return true;
+}
+
+QString LithologyTrack::trackToolTip(double depth) const
+{
+  const int idx = intervalIndexAtDepth(depth);
+  if (idx < 0)
+    return title();
+  const auto &li = m_intervals.at(idx);
+  return QStringLiteral("%1\n%2\n%3 ~ %4 m")
+      .arg(title(), li.lithoName,
+           QString::number(li.topDepth, 'f', 1), QString::number(li.bottomDepth, 'f', 1));
+}
+
+int FaciesCompoundTrack::intervalIndexAtDepth(float depth) const
+{
+  for (int i = 0; i < m_intervals.size(); ++i)
+  {
+    if (depth >= m_intervals.at(i).topDepth && depth <= m_intervals.at(i).bottomDepth)
+      return i;
+  }
+  return -1;
+}
+
+bool FaciesCompoundTrack::replaceIntervalAt(int idx, const FaciesInterval &interval)
+{
+  if (idx < 0 || idx >= m_intervals.size())
+    return false;
+  m_intervals[idx] = interval;
+  return true;
+}
+
+QString FaciesCompoundTrack::trackToolTip(double depth) const
+{
+  const int idx = intervalIndexAtDepth(depth);
+  if (idx < 0)
+    return title();
+  const auto &fi = m_intervals.at(idx);
+  return QStringLiteral("%1\n相: %2\n亚: %3\n微: %4")
+      .arg(title(), fi.majorFacies, fi.subFacies, fi.microFacies);
 }
 
 } // namespace WellComposite

@@ -115,8 +115,15 @@ bool PaleoOnnxService::loadModel( const QString &name, QString *error )
     Ort::SessionOptions options;
     options.SetIntraOpNumThreads( 1 );
     options.SetGraphOptimizationLevel( GraphOptimizationLevel::ORT_ENABLE_BASIC );
+#ifdef _WIN32
+    // Windows 的 Ort::Session 路径参数是 wchar_t（ORTCHAR_T）；toStdWString
+    // 临时量存活到本语句结束，Session 构造期即拷贝路径，安全。
+    const std::wstring pathW = path.toStdWString();
+    auto *session = new Ort::Session( ortEnv(), pathW.c_str(), options );
+#else
     const QByteArray pathUtf8 = path.toUtf8();
     auto *session = new Ort::Session( ortEnv(), pathUtf8.constData(), options );
+#endif
     // All-or-nothing: only swap in after successful construction so a failed
     // load never clobbers a working session.
     delete static_cast<Ort::Session *>( m_session );

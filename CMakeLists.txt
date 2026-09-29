@@ -189,11 +189,22 @@ target_compile_definitions(paleo_selfcheck PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}
 # ---- ONNX Runtime (vendored; spike ET4) — 先于模块库定义，paleo_ai 依赖它 ----
 find_path(ORT_INCLUDE onnxruntime_cxx_api.h PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/include)
 find_library(ORT_LIB onnxruntime PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib)
-if(ORT_INCLUDE AND ORT_LIB)
+if(WIN32)
+  # Windows 上 find_library 命中的是导入库 .lib；SHARED IMPORTED 要求
+  # IMPORTED_LOCATION=DLL、IMPORTED_IMPLIB=.lib，否则 configure 期报
+  # "IMPORTED_IMPLIB not set"。dll 与 .lib 同居 lib/（manifest layout.bin）。
+  find_file(ORT_DLL onnxruntime.dll PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib)
+endif()
+if(ORT_INCLUDE AND ORT_LIB AND (NOT WIN32 OR ORT_DLL))
   set(PALEO_HAVE_ORT TRUE)
   add_library(ort_vendored SHARED IMPORTED)
-  set_target_properties(ort_vendored PROPERTIES IMPORTED_LOCATION ${ORT_LIB}
-    INTERFACE_INCLUDE_DIRECTORIES ${ORT_INCLUDE})
+  if(WIN32)
+    set_target_properties(ort_vendored PROPERTIES IMPORTED_LOCATION ${ORT_DLL}
+      IMPORTED_IMPLIB ${ORT_LIB} INTERFACE_INCLUDE_DIRECTORIES ${ORT_INCLUDE})
+  else()
+    set_target_properties(ort_vendored PROPERTIES IMPORTED_LOCATION ${ORT_LIB}
+      INTERFACE_INCLUDE_DIRECTORIES ${ORT_INCLUDE})
+  endif()
   add_library(paleo_ai STATIC src/ai/onnxpredictionservice.cpp src/ai/remotepredictionservice.cpp)
   target_link_libraries(paleo_ai PUBLIC paleo_deps ort_vendored)
   target_compile_definitions(paleo_ai PUBLIC PALEO_HAVE_ORT=1)
@@ -624,7 +635,10 @@ add_paleo_test(tst_segy_fixture LIBS paleo_io)   # 合成最小 SEG-Y 夹具：�
 target_compile_definitions(tst_segy_fixture PRIVATE
   TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
 add_paleo_test(tst_algorithm_harness LIBS paleo_algorithms)  # AlgorithmTestBase harness + ≥3 算法用例
-add_paleo_test(tst_perfbudget LIBS paleo_services paleo_qgis)     # 非 UI 性能预算：工程打开/folder 枚举/save 200 版本
+add_paleo_test(tst_perfbudget LIBS paleo_services paleo_qgis)
+# 墙钟预算门禁在 CI 并行负载下必抖（实测 525ms>500ms，预热救不了 CPU
+# 争抢）——计时测试串行跑，对齐 tst_correlation_full 先例。
+set_tests_properties(tst_perfbudget PROPERTIES RUN_SERIAL TRUE)     # 非 UI 性能预算：工程打开/folder 枚举/save 200 版本
 target_compile_definitions(tst_perfbudget PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 

@@ -79,8 +79,13 @@ switch ($Verb) {
     }
     foreach ($required in @('apps\qgis\include\qgsapplication.h',
                            'apps\qgis\lib\qgis_core.lib',
+                           'apps\qgis\lib\qgis_gui.lib',
                            'apps\qt6\lib\cmake\Qt6\Qt6Config.cmake',
                            'apps\qt6\plugins\sqldrivers\qsqloci.dll',
+                           # qgscodeeditor.h（qgis-devel 头链）需要 QSci 头，
+                           # 由 qscintilla-qt6-devel 提供在 Qt6 include 前缀下
+                           'apps\Qt6\include\Qsci\qsciapis.h',
+                           'apps\Qt6\lib\qscintilla2_qt6.lib',
                            'include\gdal.h', 'lib\gdal.lib',
                            'include\sqlite3.h')) {
       if (-not (Test-Path (Join-Path $osgeo $required))) { throw "OSGeo4W closure missing $required" }

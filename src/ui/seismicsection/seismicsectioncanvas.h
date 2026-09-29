@@ -128,8 +128,12 @@ signals:
     void traceHovered(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
     void traceClicked(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
     void zoomChanged(double zoomFactor);
+    // 键盘 PgUp/PgDn 请求切片步进（±1）；切片索引归 dock 的滑杆所有。
+    void sliceStepRequested(int delta);
 
 protected:
+    bool event(QEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;

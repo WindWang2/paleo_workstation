@@ -1,10 +1,13 @@
 // 层：视图
 #include "ui/seismicsection/seismicsectioncanvas.h"
 
+#include "ui/paleotheme.h"
+
 #include <QPainter>
 #include <QPaintEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
+#include <QKeyEvent>
 #include <QFontDatabase>
 #include <algorithm>
 #include <cmath>
@@ -28,6 +31,57 @@ SeismicSectionCanvas::SeismicSectionCanvas(QWidget *parent)
     setFocusPolicy(Qt::StrongFocus);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMinimumSize(400, 300);
+    setToolTip(tr("左键拖拽平移；滚轮平移（Shift+滚轮横向）；Ctrl+滚轮缩放；双击适应窗口\n"
+                  "方向键平移；+/- 缩放；PgUp/PgDn 步进切片"));
+}
+
+bool SeismicSectionCanvas::event(QEvent *event) {
+    // 主题切换（palette 风暴）时重绘：ruler/角标/文字等 chrome 色在 paint 里
+    // 现取 tokens()，这里只负责触发重绘。
+    if (event->type() == QEvent::ApplicationPaletteChange) {
+        update();
+    }
+    return QWidget::event(event);
+}
+
+void SeismicSectionCanvas::keyPressEvent(QKeyEvent *event) {
+    constexpr double kPanStepPx = 32.0;
+    switch (event->key()) {
+    case Qt::Key_Left:
+        m_panX += kPanStepPx;
+        break;
+    case Qt::Key_Right:
+        m_panX -= kPanStepPx;
+        break;
+    case Qt::Key_Up:
+        m_panY += kPanStepPx;
+        break;
+    case Qt::Key_Down:
+        m_panY -= kPanStepPx;
+        break;
+    case Qt::Key_Plus:
+    case Qt::Key_Equal:
+        zoomIn();
+        event->accept();
+        return;
+    case Qt::Key_Minus:
+        zoomOut();
+        event->accept();
+        return;
+    case Qt::Key_PageUp:
+        emit sliceStepRequested(-1);
+        event->accept();
+        return;
+    case Qt::Key_PageDown:
+        emit sliceStepRequested(+1);
+        event->accept();
+        return;
+    default:
+        QWidget::keyPressEvent(event);
+        return;
+    }
+    update();
+    event->accept();
 }
 
 void SeismicSectionCanvas::setSectionData(
@@ -451,12 +505,16 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
+    // chrome 色每次 paint 现取 tokens()——主题切换后 update() 即跟随。
+    const auto &tok = PaleoTheme::tokens();
     const QRect vp = viewportRect();
-    const QFont monoFont(QStringLiteral("JetBrains Mono"), 8);
-    const QFont bodyFont(QStringLiteral("Noto Sans SC"), 8);
+    QFont monoFont = PaleoTheme::monoFont();
+    monoFont.setPointSize(PaleoTheme::kLabelPt);
+    QFont bodyFont = PaleoTheme::bodyFont();
+    bodyFont.setPointSize(PaleoTheme::kLabelPt);
 
     // 1. Clear background
-    p.fillRect(rect(), QColor(QStringLiteral("#FFFFFF")));
+    p.fillRect(rect(), tok.surface);
 
     // 2. Render seismic image inside viewport
     p.save();
@@ -471,7 +529,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
 
         p.drawImage(imgDest, m_cachedImage);
     } else {
-        p.setPen(QColor(QStringLiteral("#5D6E80")));
+        p.setPen(tok.textMuted);
         p.setFont(bodyFont);
         p.drawText(vp, Qt::AlignCenter, tr("未加载地震剖面数据\n（支持拖拽测线或从地图生成连井/任意剖面）"));
     }
@@ -500,12 +558,12 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 if (wx < vp.left() - 40 || wx > vp.right() + 40 || wy < vp.top() - 40 || wy > vp.bottom() + 40)
                     continue;
 
-                // Borehole target marker (halo, blue circle, white crosshair)
-                p.setPen(QPen(QColor(QStringLiteral("#FFFFFF")), 4.0));
-                p.setBrush(QColor(QStringLiteral("#1B73D0")));
+                // Borehole target marker (halo, neutral disc, white crosshair)
+                p.setPen(QPen(tok.onPrimary, 4.0));
+                p.setBrush(tok.text);
                 p.drawEllipse(QPointF(wx, wy), 5.5, 5.5);
 
-                p.setPen(QPen(QColor(QStringLiteral("#FFFFFF")), 1.5));
+                p.setPen(QPen(tok.onPrimary, 1.5));
                 p.drawLine(QPointF(wx - 4.0, wy), QPointF(wx + 4.0, wy));
                 p.drawLine(QPointF(wx, wy - 4.0), QPointF(wx, wy + 4.0));
 
@@ -529,11 +587,11 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 const int tw = fm.horizontalAdvance(wellTag);
                 const QRectF tagRect(wx + 8.0, wy - 9.0, tw + 8.0, 18.0);
 
-                p.setBrush(QColor(QStringLiteral("#FFFFFF")));
-                p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0));
+                p.setBrush(tok.surface);
+                p.setPen(QPen(tok.border, 1.0));
                 p.drawRoundedRect(tagRect, 3.0, 3.0);
 
-                p.setPen(QColor(QStringLiteral("#1B73D0")));
+                p.setPen(tok.text);
                 p.drawText(tagRect, Qt::AlignCenter, wellTag);
             }
         } else {
@@ -545,17 +603,17 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 if (wx < vp.left() - 60 || wx > vp.right() + 60)
                     continue;
 
-                // Draw vertical wellbore trajectory line (1px white halo under 2px #1B73D0)
+                // Draw vertical wellbore trajectory line (halo under neutral ink)
                 const double bottomTwt = well.totalDepth > 0.0
                     ? m_tdModel.DepthToTwtMs(well.totalDepth)
                     : (m_t0Ms + m_samples * m_dtMs);
                 const double wellTopY = timeToPixelY(m_t0Ms);
                 const double wellBotY = std::min(timeToPixelY(bottomTwt), static_cast<double>(vp.bottom()));
 
-                p.setPen(QPen(QColor(QStringLiteral("#FFFFFF")), 4.0));
+                p.setPen(QPen(tok.onPrimary, 4.0));
                 p.drawLine(QPointF(wx, wellTopY), QPointF(wx, wellBotY));
 
-                p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 2.0));
+                p.setPen(QPen(tok.text, 2.0));
                 p.drawLine(QPointF(wx, wellTopY), QPointF(wx, wellBotY));
 
                 // Formation tops
@@ -566,9 +624,9 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                             continue;
 
                         // Horizontal top cross tick
-                        p.setPen(QPen(QColor(QStringLiteral("#FFFFFF")), 4.0));
+                        p.setPen(QPen(tok.onPrimary, 4.0));
                         p.drawLine(QPointF(wx - 8.0, ty), QPointF(wx + 8.0, ty));
-                        p.setPen(QPen(top.color.isValid() ? top.color : QColor(QStringLiteral("#1B73D0")), 2.0));
+                        p.setPen(QPen(top.color.isValid() ? top.color : tok.textMuted, 2.0));
                         p.drawLine(QPointF(wx - 8.0, ty), QPointF(wx + 8.0, ty));
 
                         // Marker label
@@ -578,11 +636,11 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                         const int tw = fm.horizontalAdvance(tagText);
                         const QRectF tagRect(wx + 10.0, ty - 8.0, tw + 8.0, 16.0);
 
-                        p.setBrush(QColor(QStringLiteral("#E8F0FE")));
-                        p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0));
+                        p.setBrush(tok.surfaceAltRaised);
+                        p.setPen(QPen(tok.border, 1.0));
                         p.drawRoundedRect(tagRect, 3.0, 3.0);
 
-                        p.setPen(QColor(QStringLiteral("#1B73D0")));
+                        p.setPen(tok.text);
                         p.drawText(tagRect, Qt::AlignCenter, tagText);
                     }
                 }
@@ -623,7 +681,9 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
 
     // 4. Crosshairs inside viewport
     if (m_hasHover && vp.contains(m_currentMousePos)) {
-        p.setPen(QPen(QColor(27, 115, 208, 140), 1.0, Qt::DashLine));
+        QColor cross = tok.focusRing;
+        cross.setAlpha(140);
+        p.setPen(QPen(cross, 1.0, Qt::DashLine));
         p.drawLine(QPointF(vp.left(), m_currentMousePos.y()), QPointF(vp.right(), m_currentMousePos.y()));
         p.drawLine(QPointF(m_currentMousePos.x(), vp.top()), QPointF(m_currentMousePos.x(), vp.bottom()));
     }
@@ -632,8 +692,8 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
 
     // 5. Render Top Horizontal Ruler (Distance & Well Pins)
     const QRect topRulerRect(m_leftMargin, 0, vp.width(), m_topMargin);
-    p.fillRect(topRulerRect, QColor(QStringLiteral("#F5F7FA")));
-    p.setPen(QColor(QStringLiteral("#DFE5EC")));
+    p.fillRect(topRulerRect, tok.surfaceAlt);
+    p.setPen(tok.border);
     p.drawLine(QPoint(m_leftMargin, m_topMargin), QPoint(vp.right(), m_topMargin));
 
     if (hasData()) {
@@ -652,13 +712,13 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 if (tk.pixelPos < m_leftMargin || tk.pixelPos > vp.right())
                     continue;
 
-                p.setPen(QColor(QStringLiteral("#5D6E80")));
+                p.setPen(tok.textMuted);
                 if (tk.isMajor) {
                     p.drawLine(QPointF(tk.pixelPos, m_topMargin - 12.0), QPointF(tk.pixelPos, m_topMargin));
                     const QString xlLabel = QStringLiteral("XL %1").arg(qRound(tk.value));
                     const QFontMetrics fm(monoFont);
                     const int tw = fm.horizontalAdvance(xlLabel);
-                    p.setPen(QColor(QStringLiteral("#24303E")));
+                    p.setPen(tok.text);
                     p.drawText(QPointF(tk.pixelPos - tw * 0.5, m_topMargin - 16.0), xlLabel);
                 } else {
                     p.drawLine(QPointF(tk.pixelPos, m_topMargin - 6.0), QPointF(tk.pixelPos, m_topMargin));
@@ -682,7 +742,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 if (tk.pixelPos < m_leftMargin || tk.pixelPos > vp.right())
                     continue;
 
-                p.setPen(QColor(QStringLiteral("#5D6E80")));
+                p.setPen(tok.textMuted);
                 if (tk.isMajor) {
                     p.drawLine(QPointF(tk.pixelPos, m_topMargin - 12.0), QPointF(tk.pixelPos, m_topMargin));
                     QString distLabel;
@@ -693,7 +753,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                     }
                     const QFontMetrics fm(monoFont);
                     const int tw = fm.horizontalAdvance(distLabel);
-                    p.setPen(QColor(QStringLiteral("#24303E")));
+                    p.setPen(tok.text);
                     p.drawText(QPointF(tk.pixelPos - tw * 0.5, m_topMargin - 16.0), distLabel);
                 } else {
                     p.drawLine(QPointF(tk.pixelPos, m_topMargin - 6.0), QPointF(tk.pixelPos, m_topMargin));
@@ -715,7 +775,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                         QPointF(wx + 5.0, m_topMargin - 8.0),
                         QPointF(wx, m_topMargin - 1.0)
                     });
-                    p.setBrush(QColor(QStringLiteral("#1B73D0")));
+                    p.setBrush(tok.text);
                     p.setPen(Qt::NoPen);
                     p.drawPolygon(triangle);
 
@@ -728,11 +788,11 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                     const int tw = fm.horizontalAdvance(pinText);
                     const QRectF badge(wx - tw * 0.5 - 4.0, 4.0, tw + 8.0, 18.0);
 
-                    p.setBrush(QColor(QStringLiteral("#E8F0FE")));
-                    p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0));
+                    p.setBrush(tok.surfaceAltRaised);
+                    p.setPen(QPen(tok.border, 1.0));
                     p.drawRoundedRect(badge, 4.0, 4.0);
 
-                    p.setPen(QColor(QStringLiteral("#1B73D0")));
+                    p.setPen(tok.text);
                     p.drawText(badge, Qt::AlignCenter, pinText);
                 }
             }
@@ -741,8 +801,8 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
 
     // 6. Render Left Vertical Ruler (TWT ms or Depth m, or Inline for TimeSlice)
     const QRect leftRulerRect(0, m_topMargin, m_leftMargin, vp.height());
-    p.fillRect(leftRulerRect, QColor(QStringLiteral("#F5F7FA")));
-    p.setPen(QColor(QStringLiteral("#DFE5EC")));
+    p.fillRect(leftRulerRect, tok.surfaceAlt);
+    p.setPen(tok.border);
     p.drawLine(QPoint(m_leftMargin, m_topMargin), QPoint(m_leftMargin, height()));
 
     if (hasData()) {
@@ -760,13 +820,13 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 if (py < m_topMargin || py > height())
                     continue;
 
-                p.setPen(QColor(QStringLiteral("#5D6E80")));
+                p.setPen(tok.textMuted);
                 if (tk.isMajor) {
                     p.drawLine(QPointF(m_leftMargin - 10.0, py), QPointF(m_leftMargin, py));
                     const QString label = QStringLiteral("IL %1").arg(qRound(tk.value));
                     const QFontMetrics fm(monoFont);
                     const int tw = fm.horizontalAdvance(label);
-                    p.setPen(QColor(QStringLiteral("#24303E")));
+                    p.setPen(tok.text);
                     p.drawText(QPointF(m_leftMargin - 14.0 - tw, py + 4.0), label);
                 } else {
                     p.drawLine(QPointF(m_leftMargin - 5.0, py), QPointF(m_leftMargin, py));
@@ -774,15 +834,15 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
             }
 
             // Top-left corner box
-            p.fillRect(QRect(0, 0, m_leftMargin, m_topMargin), QColor(QStringLiteral("#EDF1F5")));
-            p.setPen(QColor(QStringLiteral("#DFE5EC")));
+            p.fillRect(QRect(0, 0, m_leftMargin, m_topMargin), tok.surfaceAlt);
+            p.setPen(tok.border);
             p.drawRect(QRect(0, 0, m_leftMargin, m_topMargin));
 
             p.setFont(bodyFont);
-            p.setPen(QColor(QStringLiteral("#1B73D0")));
+            p.setPen(tok.text);
             const QString cornerStr = m_vertUnit == SectionVerticalUnit::TwoWayTimeMs
-                ? QStringLiteral("时间切片\n%1 ms").arg(m_currentTimeMs, 0, 'f', 1)
-                : QStringLiteral("深度切片\n%1 m").arg(m_tdModel.TwtMsToDepth(m_currentTimeMs), 0, 'f', 1);
+                ? tr("时间切片\n%1 ms").arg(m_currentTimeMs, 0, 'f', 1)
+                : tr("深度切片\n%1 m").arg(m_tdModel.TwtMsToDepth(m_currentTimeMs), 0, 'f', 1);
             p.drawText(QRect(2, 2, m_leftMargin - 4, m_topMargin - 4), Qt::AlignCenter, cornerStr);
         } else {
             const double minTime = pixelToTime(m_topMargin);
@@ -795,13 +855,13 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                     if (tk.pixelPos < m_topMargin || tk.pixelPos > height())
                         continue;
 
-                    p.setPen(QColor(QStringLiteral("#5D6E80")));
+                    p.setPen(tok.textMuted);
                     if (tk.isMajor) {
                         p.drawLine(QPointF(m_leftMargin - 10.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
                         const QString label = QStringLiteral("%1").arg(qRound(tk.value));
                         const QFontMetrics fm(monoFont);
                         const int tw = fm.horizontalAdvance(label);
-                        p.setPen(QColor(QStringLiteral("#24303E")));
+                        p.setPen(tok.text);
                         p.drawText(QPointF(m_leftMargin - 14.0 - tw, tk.pixelPos + 4.0), label);
                     } else {
                         p.drawLine(QPointF(m_leftMargin - 5.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
@@ -816,13 +876,13 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                     if (tk.pixelPos < m_topMargin || tk.pixelPos > height())
                         continue;
 
-                    p.setPen(QColor(QStringLiteral("#5D6E80")));
+                    p.setPen(tok.textMuted);
                     if (tk.isMajor) {
                         p.drawLine(QPointF(m_leftMargin - 10.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
                         const QString label = QStringLiteral("%1").arg(qRound(tk.value));
                         const QFontMetrics fm(monoFont);
                         const int tw = fm.horizontalAdvance(label);
-                        p.setPen(QColor(QStringLiteral("#24303E")));
+                        p.setPen(tok.text);
                         p.drawText(QPointF(m_leftMargin - 14.0 - tw, tk.pixelPos + 4.0), label);
                     } else {
                         p.drawLine(QPointF(m_leftMargin - 5.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
@@ -831,15 +891,15 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
             }
 
             // Axis unit label in top-left corner box
-            p.fillRect(QRect(0, 0, m_leftMargin, m_topMargin), QColor(QStringLiteral("#EDF1F5")));
-            p.setPen(QColor(QStringLiteral("#DFE5EC")));
+            p.fillRect(QRect(0, 0, m_leftMargin, m_topMargin), tok.surfaceAlt);
+            p.setPen(tok.border);
             p.drawRect(QRect(0, 0, m_leftMargin, m_topMargin));
 
             p.setFont(bodyFont);
-            p.setPen(QColor(QStringLiteral("#5D6E80")));
+            p.setPen(tok.textMuted);
             const QString unitStr = m_vertUnit == SectionVerticalUnit::TwoWayTimeMs
-                ? QStringLiteral("TWT (ms)")
-                : QStringLiteral("深度 (m)");
+                ? tr("TWT (ms)")
+                : tr("深度 (m)");
             p.drawText(QRect(2, 2, m_leftMargin - 4, m_topMargin - 4), Qt::AlignCenter, unitStr);
         }
     }
@@ -847,17 +907,19 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
     // 7. Render Right Color Bar (色标)
     const int colorBarX = width() - m_rightMargin;
     const QRect rightBarRect(colorBarX, 0, m_rightMargin, height());
-    p.fillRect(rightBarRect, QColor(QStringLiteral("#F5F7FA")));
-    p.setPen(QColor(QStringLiteral("#DFE5EC")));
+    p.fillRect(rightBarRect, tok.surfaceAlt);
+    p.setPen(tok.border);
     p.drawLine(QPoint(colorBarX, 0), QPoint(colorBarX, height()));
 
     // Title at the top of the color bar
-    p.setFont(QFont(QStringLiteral("Noto Sans SC"), 8, QFont::Bold));
-    p.setPen(QColor(QStringLiteral("#24303E")));
+    QFont barTitleFont = bodyFont;
+    barTitleFont.setBold(true);
+    p.setFont(barTitleFont);
+    p.setPen(tok.text);
     p.drawText(QRect(colorBarX, 8, m_rightMargin, 16), Qt::AlignCenter, tr("色标"));
 
-    p.setFont(QFont(QStringLiteral("Noto Sans SC"), 7));
-    p.setPen(QColor(QStringLiteral("#5D6E80")));
+    p.setFont(bodyFont);
+    p.setPen(tok.textMuted);
     p.drawText(QRect(colorBarX, 24, m_rightMargin, 14), Qt::AlignCenter, tr("振幅"));
 
     if (hasData()) {
@@ -885,12 +947,12 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
 
         const QRectF colorBarRect(barLeft, barTop, barW, barH);
         p.setBrush(grad);
-        p.setPen(QPen(QColor(QStringLiteral("#DFE5EC")), 1.0));
+        p.setPen(QPen(tok.border, 1.0));
         p.drawRoundedRect(colorBarRect, 2.0, 2.0);
 
         // Labels next to the bar
-        p.setFont(QFont(QStringLiteral("JetBrains Mono"), 7));
-        p.setPen(QColor(QStringLiteral("#24303E")));
+        p.setFont(monoFont);
+        p.setPen(tok.text);
 
         const float absMax = std::max(std::abs(m_slice.valueMin), std::abs(m_slice.valueMax));
         const QString maxStr = absMax >= 10000.0f
@@ -915,8 +977,8 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
         p.drawLine(QPointF(barLeft + barW, barBottom), QPointF(barLeft + barW + 3, barBottom));
         p.drawText(QRectF(barLeft + barW + 4, barBottom - 7, m_rightMargin - barW - 12, 14), Qt::AlignLeft | Qt::AlignVCenter, minStr);
 
-        // Peak / Trough text annotations
-        p.setFont(QFont(QStringLiteral("Noto Sans SC"), 7));
+        // Peak / Trough text annotations（色=数据符号色，不属 chrome token）
+        p.setFont(bodyFont);
         if (m_colorMap == SectionColorMapType::RedWhiteBlue) {
             p.setPen(QColor(220, 38, 38));
             p.drawText(QRectF(colorBarX, barTop - 13, m_rightMargin - 6, 12), Qt::AlignRight, tr("波峰+"));
@@ -966,26 +1028,40 @@ void SeismicSectionCanvas::wheelEvent(QWheelEvent *event) {
     if (std::abs(delta) < 1.0)
         return;
 
-    const double zoomFactor = std::pow(1.15, delta / 120.0);
-    const QPointF anchor = event->position();
+    if (event->modifiers() & Qt::ControlModifier) {
+        // Ctrl+滚轮：以光标为锚缩放（与 correlationpanel 惯例对齐）
+        const double zoomFactor = std::pow(1.15, delta / 120.0);
+        const QPointF anchor = event->position();
 
-    const double anchorTrace = pixelToTrace(anchor.x());
-    const double anchorY = (m_orientation == SectionOrientation::TimeSlice)
-        ? pixelToInline(anchor.y())
-        : pixelToTime(anchor.y());
+        const double anchorTrace = pixelToTrace(anchor.x());
+        const double anchorY = (m_orientation == SectionOrientation::TimeSlice)
+            ? pixelToInline(anchor.y())
+            : pixelToTime(anchor.y());
 
-    m_zoomX = std::clamp(m_zoomX * zoomFactor, 0.12, 64.0);
-    m_zoomY = std::clamp(m_zoomY * zoomFactor, 0.12, 64.0);
+        m_zoomX = std::clamp(m_zoomX * zoomFactor, 0.12, 64.0);
+        m_zoomY = std::clamp(m_zoomY * zoomFactor, 0.12, 64.0);
 
-    m_panX = anchor.x() - m_leftMargin - anchorTrace * m_zoomX;
-    if (m_orientation == SectionOrientation::TimeSlice) {
-        const double rowIdx = (static_cast<double>(m_inlineMax) - anchorY) / std::max(1, m_inlineMax - m_inlineMin) * std::max(1, m_samples - 1);
-        m_panY = anchor.y() - m_topMargin - rowIdx * m_zoomY;
-    } else {
-        m_panY = anchor.y() - m_topMargin - ((anchorY - m_t0Ms) / m_dtMs) * m_zoomY;
+        m_panX = anchor.x() - m_leftMargin - anchorTrace * m_zoomX;
+        if (m_orientation == SectionOrientation::TimeSlice) {
+            const double rowIdx = (static_cast<double>(m_inlineMax) - anchorY) / std::max(1, m_inlineMax - m_inlineMin) * std::max(1, m_samples - 1);
+            m_panY = anchor.y() - m_topMargin - rowIdx * m_zoomY;
+        } else {
+            m_panY = anchor.y() - m_topMargin - ((anchorY - m_t0Ms) / m_dtMs) * m_zoomY;
+        }
+
+        emit zoomChanged(m_zoomX);
+        updateHoverInfo(event->position().toPoint());
+        update();
+        return;
     }
 
-    emit zoomChanged(m_zoomX);
+    // 裸滚轮平移（Shift+滚轮横向）
+    const double stepPx = (delta / 120.0) * 48.0;
+    if (event->modifiers() & Qt::ShiftModifier) {
+        m_panX += stepPx;
+    } else {
+        m_panY += stepPx;
+    }
     updateHoverInfo(event->position().toPoint());
     update();
 }

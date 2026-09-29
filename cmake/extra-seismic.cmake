@@ -38,3 +38,9 @@ target_sources(paleo_ui PRIVATE
 
 # P5 Phase 3 三维：colormap/堆叠体渲染/拖面联动/井位/多体/相机书签/回退/fps
 add_paleo_test(tst_seismic_3dui LIBS paleo_ui)
+
+# P5 Phase 4 解释：拾取面板
+target_sources(paleo_ui PRIVATE src/ui/seismicsection/seismicpickpanel.cpp)
+
+# P5 Phase 4 解释：追踪/网格化/会话/资产登记全链路/undo/CSV
+add_paleo_test(tst_seismic_interpret LIBS paleo_ui paleo_store)

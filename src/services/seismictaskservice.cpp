@@ -24,6 +24,11 @@
 #include "Engine/Types.h"
 #include "Engine/WorkspaceFormat.h"
 
+#include <QCryptographicHash>
+#include <QUuid>
+#include <QDir>
+
+#include "catalog/datacatalog.h"
 #include "domain/seismic/sgyindexbuilder.h"
 #include "domain/seismic/sgyindexcache.h"
 #include "domain/seismic/sgyio.h"
@@ -1683,4 +1688,514 @@ SeismicTraceHeaderInfo SeismicTaskService::readTraceHeader(const QString &sgyPat
   return info;
 }
 
+
+// ---- Phase 4 解释工具 ---------------------------------------------------------
+
+namespace {
+
+// 归一化互相关（Pearson）：种子波形 w vs 候选 c；返回 -1..1（无方差 → 0）
+double NormalizedCorrelation(const float *w, const float *c, int n)
+{
+  double sw = 0, sc = 0, sww = 0, scc = 0, swc = 0;
+  int valid = 0;
+  for (int i = 0; i < n; ++i)
+  {
+    if (!std::isfinite(w[i]) || !std::isfinite(c[i]))
+      continue;
+    sw += w[i]; sc += c[i];
+    sww += double(w[i]) * w[i]; scc += double(c[i]) * c[i];
+    swc += double(w[i]) * c[i];
+    ++valid;
+  }
+  if (valid < 4)
+    return 0.0;
+  const double cov = swc - sw * sc / valid;
+  const double varW = sww - sw * sw / valid;
+  const double varC = scc - sc * sc / valid;
+  const double denom = std::sqrt(varW * varC);
+  return denom > 1e-12 ? cov / denom : 0.0;
+}
+
+QString horizonCsvLine(const SeismicPick &p)
+{
+  return QStringLiteral("%1,%2,%3,%4")
+      .arg(p.inlineNo).arg(p.xlineNo)
+      .arg(QString::number(p.twtMs, 'f', 2))
+      .arg(QString::number(p.confidence, 'f', 3));
+}
+
+QString sha256OfFile(const QString &path)
+{
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly))
+    return QString();
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  if (!hash.addData(&f))
+    return QString();
+  return QString::fromLatin1(hash.result().toHex());
+}
+
+} // namespace
+
+QStringList SeismicInterpretationSession::horizonNames() const
+{
+  QStringList names;
+  for (const SeismicPick &p : picks)
+    if (!names.contains(p.horizonName))
+      names << p.horizonName;
+  return names;
+}
+
+const SeismicPick *SeismicInterpretationSession::pickById(int id) const
+{
+  for (const SeismicPick &p : picks)
+    if (p.id == id)
+      return &p;
+  return nullptr;
+}
+
+QList<SeismicPick> SeismicTaskService::trackHorizon(
+    const SgySliceImage &slice,
+    SgySliceType sectionType, int sectionIndex,
+    int colMin, int colMax,
+    int seedTraceCol, int seedSample,
+    const SeismicTrackOptions &options,
+    const QString &interpreter, const QString &horizonName,
+    float sampleIntervalMs)
+{
+  QList<SeismicPick> result;
+  if (slice.width <= 0 || slice.height <= 0 || slice.values.empty())
+    return result;
+  const int w = std::min(int(options.windowSamples), int(slice.height));
+  if (w < 4 || seedTraceCol < 0 || seedTraceCol >= slice.width)
+    return result;
+
+  const auto columnValue = [&](int col, int sample) -> float {
+    return slice.values[static_cast<std::size_t>(sample) * slice.width + col];
+  };
+
+  // 种子波形（中心在 seedSample，向上/向下各取一半窗）
+  const int seedTop = std::max(0, seedSample - w / 2);
+  const int seedBottom = std::min(slice.height - 1, seedTop + w - 1);
+  if (seedBottom - seedTop + 1 < 4)
+    return result;
+  std::vector<float> seedWave(static_cast<std::size_t>(seedBottom - seedTop + 1));
+  for (int y = seedTop; y <= seedBottom; ++y)
+    seedWave[static_cast<std::size_t>(y - seedTop)] = columnValue(seedTraceCol, y);
+
+  const auto toPick = [&](int col, int sample, double conf) -> SeismicPick {
+    SeismicPick p;
+    p.inlineNo = sectionType == SgySliceType::Inline ? sectionIndex : colMin + col;
+    p.xlineNo = sectionType == SgySliceType::Inline ? colMin + col : sectionIndex;
+    p.sampleIndex = sample;
+    p.twtMs = sample * double(sampleIntervalMs);
+    p.confidence = float(std::clamp(conf, 0.0, 1.0));
+    p.interpreter = interpreter;
+    p.horizonName = horizonName;
+    return p;
+  };
+
+  // 种子点本身
+  result.append(toPick(seedTraceCol, seedSample, 1.0));
+
+  // 双向追踪：向左/向右逐道，上一道拾取位置附近搜索最大相关
+  const int dirs[2] = {-1, +1};
+  for (int dir : dirs)
+  {
+    int prevSample = seedSample;
+    for (int col = seedTraceCol + dir; col >= 0 && col < slice.width; col += dir)
+    {
+      double bestCorr = -2.0;
+      int bestSample = -1;
+      // 搜索窗围绕上一道窗口顶（prevSample），钳到体积界——不是种子窗
+      // （否则同相轴漂移超过一个窗长后永远追不上）。
+      // 注意：行主序布局里一条道窗口是「跨行」段——候选必须按列跨步取数，
+      // 不能拿行内连续指针当窗口（那是横向跨道的噪声条）。
+      const int winLen = int(seedWave.size());
+      const int searchLo = std::max(0, prevSample - options.maxSearchSamples);
+      const int searchHi = std::min(int(slice.height) - winLen,
+                                    prevSample + options.maxSearchSamples);
+      std::vector<float> candidate(static_cast<std::size_t>(winLen));
+      for (int s = searchLo; s <= searchHi; ++s)
+      {
+        for (int i = 0; i < winLen; ++i)
+          candidate[static_cast<std::size_t>(i)] = columnValue(col, s + i);
+        const double corr = NormalizedCorrelation(
+            seedWave.data(), candidate.data(), winLen);
+        if (corr > bestCorr)
+        {
+          bestCorr = corr;
+          bestSample = s + winLen / 2; // 窗口中心 = 拾取位置
+        }
+      }
+      if (bestSample < 0 || bestCorr < options.correlationThreshold)
+        break; // 同相轴丢失：停（不硬凑）
+      SeismicPick p = toPick(col, bestSample, bestCorr);
+      p.id = 0; // 由会话分配
+      result.append(p);
+      prevSample = bestSample - int(seedWave.size()) / 2;
+    }
+  }
+  return result;
+}
+
+SeismicHorizonGrid SeismicTaskService::gridPicks(const QList<SeismicPick> &picks)
+{
+  SeismicHorizonGrid grid;
+  if (picks.isEmpty())
+    return grid;
+  int ilMin = picks.first().inlineNo, ilMax = ilMin;
+  int xlMin = picks.first().xlineNo, xlMax = xlMin;
+  for (const SeismicPick &p : picks)
+  {
+    ilMin = std::min(ilMin, p.inlineNo); ilMax = std::max(ilMax, p.inlineNo);
+    xlMin = std::min(xlMin, p.xlineNo); xlMax = std::max(xlMax, p.xlineNo);
+  }
+  // 步长：同轴不同值之间的最小间隔（全部相同则 1）
+  const auto axisStep = [](QList<int> values) {
+    std::sort(values.begin(), values.end());
+    values.erase(std::unique(values.begin(), values.end()), values.end());
+    if (values.size() < 2)
+      return 1;
+    int step = values[1] - values[0];
+    for (int i = 2; i < values.size(); ++i)
+      step = std::min(step, values[i] - values[i - 1]);
+    return std::max(1, step);
+  };
+  QList<int> ils, xls;
+  for (const SeismicPick &p : picks)
+  {
+    ils << p.inlineNo;
+    xls << p.xlineNo;
+  }
+  grid.inlineStep = axisStep(ils);
+  grid.xlineStep = axisStep(xls);
+  grid.inlineMin = ilMin;
+  grid.inlineCount = (ilMax - ilMin) / grid.inlineStep + 1;
+  grid.xlineMin = xlMin;
+  grid.xlineCount = (xlMax - xlMin) / grid.xlineStep + 1;
+  const std::size_t n = std::size_t(grid.inlineCount) * grid.xlineCount;
+  grid.twtMs.assign(n, std::numeric_limits<double>::quiet_NaN());
+  grid.confidence.assign(n, 0.0f);
+
+  // IDW：power=2；样本即拾取点
+  for (int gi = 0; gi < grid.inlineCount; ++gi)
+  {
+    for (int gx = 0; gx < grid.xlineCount; ++gx)
+    {
+      const int il = grid.inlineMin + gi * grid.inlineStep;
+      const int xl = grid.xlineMin + gx * grid.xlineStep;
+      double num = 0.0, den = 0.0, bestConf = 0.0;
+      for (const SeismicPick &p : picks)
+      {
+        const double dil = double(p.inlineNo - il) / std::max(1, grid.inlineStep);
+        const double dxl = double(p.xlineNo - xl) / std::max(1, grid.xlineStep);
+        const double d2 = dil * dil + dxl * dxl;
+        if (d2 < 1e-12)
+        {
+          num = p.twtMs;
+          den = 1.0;
+          bestConf = p.confidence;
+          break;
+        }
+        const double wgt = 1.0 / d2;
+        num += wgt * p.twtMs;
+        den += wgt;
+        bestConf = std::max(bestConf, double(p.confidence));
+      }
+      if (den > 0)
+      {
+        grid.twtMs[std::size_t(gi) * grid.xlineCount + gx] = num / den;
+        grid.confidence[std::size_t(gi) * grid.xlineCount + gx] = float(bestConf);
+      }
+    }
+  }
+  return grid;
+}
+
+QString SeismicTaskService::registerHorizonAsset(
+    DataCatalog *catalog, const QString &seismicAssetId,
+    const QString &seismicVersionId, const QString &horizonName,
+    const QList<SeismicPick> &picks, const QString &outputDir,
+    QString *error)
+{
+  if (!catalog || picks.isEmpty())
+  {
+    if (error)
+      *error = QStringLiteral("catalog 未设置或拾取集为空");
+    return QString();
+  }
+  const SeismicHorizonGrid grid = gridPicks(picks);
+  if (!grid.isValid())
+  {
+    if (error)
+      *error = QStringLiteral("拾取网格化失败");
+    return QString();
+  }
+  QDir().mkpath(outputDir);
+  const QString fileName = QStringLiteral("%1_%2_horizon.csv")
+                               .arg(QFileInfo(outputDir).fileName() == QStringLiteral("interpretation")
+                                        ? QStringLiteral("seismic")
+                                        : QFileInfo(outputDir).fileName())
+                               .arg(horizonName);
+  const QString filePath = outputDir + QLatin1Char('/') + fileName;
+  QFile f(filePath);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    if (error)
+      *error = QStringLiteral("无法写层位文件 %1").arg(filePath);
+    return QString();
+  }
+  f.write("inline,xline,twt_ms,confidence\n");
+  for (int gi = 0; gi < grid.inlineCount; ++gi)
+    for (int gx = 0; gx < grid.xlineCount; ++gx)
+    {
+      const double twt = grid.twtMs[std::size_t(gi) * grid.xlineCount + gx];
+      if (!std::isfinite(twt))
+        continue;
+      f.write(QStringLiteral("%1,%2,%3,%4\n")
+                  .arg(grid.inlineMin + gi * grid.inlineStep)
+                  .arg(grid.xlineMin + gx * grid.xlineStep)
+                  .arg(QString::number(twt, 'f', 2))
+                  .arg(QString::number(grid.confidence[std::size_t(gi) * grid.xlineCount + gx], 'f', 3))
+                  .toUtf8());
+    }
+  f.close();
+
+  // DERIVED 版本登记（外链托管：解释产物在工程 interpretation/ 目录）
+  CatalogAsset asset;
+  asset.id = QStringLiteral("seis_horizon_%1_%2").arg(seismicAssetId).arg(horizonName);
+  asset.type = QStringLiteral("horizon");
+  asset.format = QStringLiteral("csv");
+  asset.displayName = QStringLiteral("%1（地震拾取）").arg(horizonName);
+  catalog->addAsset(asset); // 已存在则失败被忽略（幂等语义）
+
+  CatalogVersion v;
+  v.id = QStringLiteral("ver_%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+  v.assetId = asset.id;
+  v.stage = QStringLiteral("DERIVED");
+  v.versionNumber = 1;
+  v.managed = false;
+  v.path = filePath;
+  v.sourceUri = seismicAssetId;
+  v.sha256 = sha256OfFile(filePath);
+  v.fileName = fileName;
+  v.parentVersionIds = QStringList{seismicVersionId};
+  v.extra.insert(QStringLiteral("origin"), QStringLiteral("seismic-interpretation"));
+  v.extra.insert(QStringLiteral("pickCount"), picks.size());
+  if (!catalog->addVersion(v))
+  {
+    // 版本可能已存在（重复登记）——按 (asset, version) 幂等返回路径
+    const CatalogVersion existing = catalog->versionBySha256(v.sha256);
+    if (!existing.id.isEmpty())
+      return DataCatalog::resolvedVersionPath(QString(), existing);
+    if (error)
+      *error = QStringLiteral("catalog 版本登记失败");
+    return QString();
+  }
+  return filePath;
+}
+
+QString SeismicTaskService::registerFaultAsset(
+    DataCatalog *catalog, const QString &seismicAssetId,
+    const QString &seismicVersionId, const QString &faultName,
+    const QList<SeismicFaultSegment> &faults, const QString &outputDir,
+    QString *error)
+{
+  if (!catalog || faults.isEmpty())
+  {
+    if (error)
+      *error = QStringLiteral("catalog 未设置或断层集为空");
+    return QString();
+  }
+  QDir().mkpath(outputDir);
+  const QString fileName = QStringLiteral("seismic_%1_fault.csv").arg(faultName);
+  const QString filePath = outputDir + QLatin1Char('/') + fileName;
+  QFile f(filePath);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    if (error)
+      *error = QStringLiteral("无法写断层文件 %1").arg(filePath);
+    return QString();
+  }
+  f.write("segment_id,section_type,section_index,trace_frac,twt_ms\n");
+  for (const SeismicFaultSegment &seg : faults)
+  {
+    const QString st = seg.sectionType == SgySliceType::Inline
+        ? QStringLiteral("inline")
+        : (seg.sectionType == SgySliceType::Xline ? QStringLiteral("xline")
+                                                  : QStringLiteral("time"));
+    for (const auto &pt : seg.points)
+      f.write(QStringLiteral("%1,%2,%3,%4,%5\n")
+                  .arg(seg.id).arg(st).arg(seg.sectionIndex)
+                  .arg(QString::number(pt.first, 'f', 4))
+                  .arg(QString::number(pt.second, 'f', 2))
+                  .toUtf8());
+  }
+  f.close();
+
+  CatalogAsset asset;
+  asset.id = QStringLiteral("seis_fault_%1_%2").arg(seismicAssetId).arg(faultName);
+  asset.type = QStringLiteral("fault");
+  asset.format = QStringLiteral("csv");
+  asset.displayName = QStringLiteral("%1（地震断层）").arg(faultName);
+  catalog->addAsset(asset);
+
+  CatalogVersion v;
+  v.id = QStringLiteral("ver_%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+  v.assetId = asset.id;
+  v.stage = QStringLiteral("DERIVED");
+  v.versionNumber = 1;
+  v.managed = false;
+  v.path = filePath;
+  v.sourceUri = seismicAssetId;
+  v.sha256 = sha256OfFile(filePath);
+  v.fileName = fileName;
+  v.parentVersionIds = QStringList{seismicVersionId};
+  v.extra.insert(QStringLiteral("origin"), QStringLiteral("seismic-interpretation"));
+  if (!catalog->addVersion(v))
+  {
+    if (error)
+      *error = QStringLiteral("catalog 版本登记失败");
+    return QString();
+  }
+  return filePath;
+}
+
+bool SeismicTaskService::saveSession(const SeismicInterpretationSession &session, QString *error)
+{
+  if (session.sourceSgyPath.isEmpty())
+  {
+    if (error)
+      *error = QStringLiteral("会话无源 SEG-Y 锚");
+    return false;
+  }
+  const QString path = session.sourceSgyPath + QStringLiteral(".seispicks.json");
+  QFile f(path);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    if (error)
+      *error = QStringLiteral("无法写会话文件 %1").arg(path);
+    return false;
+  }
+  QJsonObject root;
+  root.insert("format", QStringLiteral("paleo-seis-interpretation"));
+  root.insert("version", 1);
+  root.insert("name", session.name);
+  root.insert("source", session.sourceSgyPath);
+  root.insert("interpreters", QJsonArray::fromStringList(session.interpreters));
+  root.insert("nextId", session.nextId);
+  QJsonArray pickArr;
+  for (const SeismicPick &p : session.picks)
+  {
+    QJsonObject o;
+    o.insert("id", p.id);
+    o.insert("inline", p.inlineNo);
+    o.insert("xline", p.xlineNo);
+    o.insert("twtMs", p.twtMs);
+    o.insert("sample", p.sampleIndex);
+    o.insert("confidence", double(p.confidence));
+    o.insert("interpreter", p.interpreter);
+    o.insert("horizon", p.horizonName);
+    pickArr.append(o);
+  }
+  root.insert("picks", pickArr);
+  QJsonArray faultArr;
+  for (const SeismicFaultSegment &seg : session.faults)
+  {
+    QJsonObject o;
+    o.insert("id", seg.id);
+    o.insert("sectionType", int(seg.sectionType));
+    o.insert("sectionIndex", seg.sectionIndex);
+    o.insert("interpreter", seg.interpreter);
+    o.insert("name", seg.name);
+    QJsonArray pts;
+    for (const auto &pt : seg.points)
+    {
+      pts.append(QJsonArray{pt.first, pt.second});
+    }
+    o.insert("points", pts);
+    faultArr.append(o);
+  }
+  root.insert("faults", faultArr);
+  f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+  f.close();
+  return true;
+}
+
+bool SeismicTaskService::loadSession(const QString &sgyPath,
+                                     SeismicInterpretationSession &out, QString *error)
+{
+  const QString path = sgyPath + QStringLiteral(".seispicks.json");
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly))
+  {
+    if (error)
+      *error = QStringLiteral("无会话文件 %1").arg(path);
+    return false;
+  }
+  const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+  if (!doc.isObject())
+  {
+    if (error)
+      *error = QStringLiteral("会话文件损坏");
+    return false;
+  }
+  const QJsonObject root = doc.object();
+  out = SeismicInterpretationSession{};
+  out.name = root.value("name").toString();
+  out.sourceSgyPath = sgyPath;
+  out.nextId = root.value("nextId").toInt(1);
+  for (const auto &v : root.value("interpreters").toArray())
+    out.interpreters << v.toString();
+  for (const auto &v : root.value("picks").toArray())
+  {
+    const QJsonObject o = v.toObject();
+    SeismicPick p;
+    p.id = o.value("id").toInt();
+    p.inlineNo = o.value("inline").toInt();
+    p.xlineNo = o.value("xline").toInt();
+    p.twtMs = o.value("twtMs").toDouble();
+    p.sampleIndex = o.value("sample").toInt();
+    p.confidence = float(o.value("confidence").toDouble(1.0));
+    p.interpreter = o.value("interpreter").toString();
+    p.horizonName = o.value("horizon").toString();
+    out.picks.append(p);
+  }
+  for (const auto &v : root.value("faults").toArray())
+  {
+    const QJsonObject o = v.toObject();
+    SeismicFaultSegment seg;
+    seg.id = o.value("id").toInt();
+    seg.sectionType = static_cast<SgySliceType>(o.value("sectionType").toInt());
+    seg.sectionIndex = o.value("sectionIndex").toInt();
+    seg.interpreter = o.value("interpreter").toString();
+    seg.name = o.value("name").toString();
+    for (const auto &pv : o.value("points").toArray())
+    {
+      const QJsonArray pa = pv.toArray();
+      if (pa.size() == 2)
+        seg.points.append({pa[0].toDouble(), pa[1].toDouble()});
+    }
+    out.faults.append(seg);
+  }
+  return true;
+}
+
+bool SeismicTaskService::exportPicksCsv(const QList<SeismicPick> &picks,
+                                        const QString &filePath, QString *error)
+{
+  QFile f(filePath);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    if (error)
+      *error = QStringLiteral("无法写 %1").arg(filePath);
+    return false;
+  }
+  f.write("id,inline,xline,twt_ms,sample,confidence,interpreter,horizon\n");
+  for (const SeismicPick &p : picks)
+    f.write(QStringLiteral("%1,%2\n").arg(p.id).arg(horizonCsvLine(p)).toUtf8());
+  f.close();
+  return true;
+}
 } // namespace seismic

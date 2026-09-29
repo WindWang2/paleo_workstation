@@ -10,6 +10,7 @@
 #include "domain/seismic/sgyvolume.h"
 #include "domain/seismic/timedepthmodel.h"
 #include "domain/seismic/sectionwellprojector.h"
+#include "services/seismictaskservice.h"
 
 namespace seismic {
 
@@ -46,6 +47,23 @@ enum class SectionOrientation {
 struct SectionGainNode {
     double twtMs = 0.0;
     double gain = 1.0;
+};
+
+// D4.1 解释拾取模式：无 / 种子拾取 / 断层线绘制
+enum class SectionPickMode {
+    None = 0,
+    Seed = 1,   // 点击放层位种子点
+    Fault = 2   // 拖拽画断层折线
+};
+
+// D4.1 剖面身份（列号 → 测线号换算；IL 剖面列=XL 轴，XL 剖面列=IL 轴）
+struct SectionRef
+{
+    SgySliceType type = SgySliceType::Inline;
+    int index = 0;
+    int colMin = 0;
+    int colMax = 0;
+    bool valid = false;
 };
 
 // 剖面书签快照（D2.12）：线号 + 视口范围，canvas 与 dock 间往返
@@ -100,6 +118,14 @@ public:
     // D2.14：空数据/无效线号的原因态（无数据时的占位文案）
     void setNoDataReason(const QString &reason);
     QString noDataReason() const { return m_noDataReason; }
+
+    // ---- D4 解释 ----
+    void setPickMode(SectionPickMode mode);
+    SectionPickMode pickMode() const { return m_pickMode; }
+    void setSectionRef(const SectionRef &ref) { m_sectionRef = ref; }
+    SectionRef sectionRef() const { return m_sectionRef; }
+    // 叠加数据（画布只画不存——会话模型在 dock）
+    void setPickOverlays(const QList<SeismicPick> &picks, const QList<SeismicFaultSegment> &faults);
 
     // Wells and calibration
     void setWells(const std::vector<SectionWellInfo> &wells);
@@ -211,6 +237,9 @@ signals:
     void zoomChanged(double zoomFactor);
     // D2.10 卷帘拖动（状态栏读数用）
     void curtainMoved(double frac);
+    // D4.1/D4.4：拾取（列号+TWT；IL/XL 由 dock 经 SectionRef 解析）/ 断层折线
+    void pickPlaced(int traceCol, double twtMs);
+    void faultDrawn(const QVector<QPair<double, double>> &points); // (traceFrac, twtMs)
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -325,6 +354,13 @@ private:
     int m_leftMargin = 72;   // Vertical ruler width
     int m_topMargin = 60;    // Horizontal ruler and wellpins height
     int m_rightMargin = 64;  // Color bar width（双刻度时兼作深度轴）
+
+    // D4 解释状态
+    SectionPickMode m_pickMode = SectionPickMode::None;
+    SectionRef m_sectionRef;
+    QList<SeismicPick> m_pickOverlays;
+    QList<SeismicFaultSegment> m_faultOverlays;
+    QVector<QPair<double, double>> m_faultDraft; // 绘制中的断层折线
 
     // Interaction state
     bool m_isPanning = false;

@@ -1195,6 +1195,60 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
         p.drawLine(QPointF(m_currentMousePos.x(), vp.top()), QPointF(m_currentMousePos.x(), vp.bottom()));
     }
 
+    // D4.10/D4.4：解释叠加——拾取点按置信度着色 + 断层折线 + 绘制中草稿
+    for (const SeismicPick &pick : m_pickOverlays) {
+        // 只画属于当前剖面的拾取（IL 剖面：index 匹配 + 列=XL）
+        double px = -1.0, py = -1.0;
+        if (m_sectionRef.valid && m_sectionRef.type == SgySliceType::Inline &&
+            pick.inlineNo == m_sectionRef.index) {
+            const int col = pick.xlineNo - m_sectionRef.colMin;
+            if (col < 0 || col >= m_traces) continue;
+            px = traceToPixelX(col);
+            py = (m_orientation == SectionOrientation::TimeSlice) ? -1.0 : timeToPixelY(pick.twtMs);
+        } else if (m_sectionRef.valid && m_sectionRef.type == SgySliceType::Xline &&
+                   pick.xlineNo == m_sectionRef.index) {
+            const int col = pick.inlineNo - m_sectionRef.colMin;
+            if (col < 0 || col >= m_traces) continue;
+            px = traceToPixelX(col);
+            py = (m_orientation == SectionOrientation::TimeSlice) ? -1.0 : timeToPixelY(pick.twtMs);
+        }
+        if (px < vp.left() - 20 || px > vp.right() + 20 || py < vp.top() - 20 || py > vp.bottom() + 20)
+            continue;
+        if (py < 0) continue;
+        // D4.10 置信度着色：绿(1.0)→黄→红(<0.5)
+        const QColor confColor = pick.confidence >= 0.75
+            ? QColor(67, 160, 71)
+            : (pick.confidence >= 0.5 ? QColor(242, 153, 0) : QColor(229, 57, 53));
+        p.setPen(QPen(QColor(Qt::white), 3.0));
+        p.setBrush(confColor);
+        p.drawEllipse(QPointF(px, py), 4.2, 4.2);
+        p.setPen(QPen(confColor.darker(160), 1.4));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(QPointF(px, py), 5.4, 5.4);
+    }
+    // 断层：实线段（存档的按剖面匹配）+ 草稿虚线
+    p.setBrush(Qt::NoBrush);
+    for (const SeismicFaultSegment &seg : m_faultOverlays) {
+        if (!m_sectionRef.valid || seg.sectionType != m_sectionRef.type ||
+            seg.sectionIndex != m_sectionRef.index)
+            continue;
+        QPolygonF poly;
+        for (const auto &pt : seg.points)
+            poly.append(QPointF(traceToPixelX(pt.first * std::max(1, m_traces - 1)),
+                                timeToPixelY(pt.second)));
+        if (poly.size() >= 2) {
+            p.setPen(QPen(QColor(229, 57, 53), 2.2));
+            p.drawPolyline(poly);
+        }
+    }
+    if (m_faultDraft.size() >= 2) {
+        QPolygonF draft;
+        for (const auto &pt : m_faultDraft)
+            draft.append(QPointF(traceToPixelX(pt.first), timeToPixelY(pt.second)));
+        p.setPen(QPen(QColor(229, 57, 53, 180), 2.0, Qt::DashLine));
+        p.drawPolyline(draft);
+    }
+
     p.restore();
 
     // 5. Render Top Horizontal Ruler (Distance & Well Pins)
@@ -1529,6 +1583,23 @@ double SeismicSectionCanvas::curtainPixelX() const {
 }
 
 void SeismicSectionCanvas::mousePressEvent(QMouseEvent *event) {
+    // D4.1：种子拾取模式——点击放点（列号+TWT 交由 dock 解析测线号）
+    if (m_pickMode == SectionPickMode::Seed && event->button() == Qt::LeftButton &&
+        viewportRect().contains(event->pos()) && hasData()) {
+        const double twt = (m_orientation == SectionOrientation::TimeSlice)
+            ? m_currentTimeMs : pixelToTime(event->pos().y());
+        const int col = std::clamp(static_cast<int>(std::round(pixelToTrace(event->pos().x()))), 0, m_traces - 1);
+        emit pickPlaced(col, twt);
+        return;
+    }
+    // D4.4：断层模式——按下开始画折线
+    if (m_pickMode == SectionPickMode::Fault && event->button() == Qt::LeftButton &&
+        viewportRect().contains(event->pos()) && hasData()) {
+        m_faultDraft.clear();
+        m_faultDraft.append({pixelToTrace(event->pos().x()), pixelToTime(event->pos().y())});
+        m_isPanning = false;
+        return;
+    }
     if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton) {
         // D2.10：靠近卷帘分割线 → 拖帘，否则平移
         const double curtainX = curtainPixelX();
@@ -1557,6 +1628,12 @@ void SeismicSectionCanvas::mouseMoveEvent(QMouseEvent *event) {
         setCurtainPos(static_cast<double>(event->pos().x() - vp.left()) / std::max(1, vp.width()));
         return;
     }
+    // D4.4：断层折线跟踪
+    if (m_pickMode == SectionPickMode::Fault && !m_faultDraft.isEmpty()) {
+        m_faultDraft.append({pixelToTrace(event->pos().x()), pixelToTime(event->pos().y())});
+        update();
+        return;
+    }
     if (m_isPanning) {
         const QPoint delta = event->pos() - m_lastMousePos;
         m_panX += delta.x();
@@ -1580,9 +1657,20 @@ void SeismicSectionCanvas::mouseReleaseEvent(QMouseEvent *event) {
         m_isPanning = false;
         m_draggingCurtain = false;
         setCursor(Qt::CrossCursor);
+        // D4.4：断层折线收笔（≥2 点才算线）
+        if (m_pickMode == SectionPickMode::Fault && m_faultDraft.size() >= 2) {
+            QVector<QPair<double, double>> fracPts;
+            for (const auto &pt : m_faultDraft)
+                fracPts.append({pt.first / std::max(1, m_traces - 1), pt.second});
+            emit faultDrawn(fracPts);
+            m_faultDraft.clear();
+            update();
+            return;
+        }
+        m_faultDraft.clear();
         // D2.11：左键原地点击（未拖动）→ 道拾取事件（道头卡/解释拾取入口）
         if (event->button() == Qt::LeftButton && !m_pressMoved && hasData() &&
-            viewportRect().contains(event->pos())) {
+            viewportRect().contains(event->pos()) && m_pickMode == SectionPickMode::None) {
             const QPoint pos = event->pos();
             if (m_orientation == SectionOrientation::TimeSlice) {
                 const double trace = pixelToTrace(pos.x());
@@ -1638,6 +1726,23 @@ void SeismicSectionCanvas::wheelEvent(QWheelEvent *event) {
 
 void SeismicSectionCanvas::mouseDoubleClickEvent(QMouseEvent *) {
     fitToWindow();
+}
+
+// ---- D4 解释：拾取/断层模式 ----
+void SeismicSectionCanvas::setPickMode(SectionPickMode mode) {
+    if (m_pickMode != mode) {
+        m_pickMode = mode;
+        m_faultDraft.clear();
+        setCursor(mode == SectionPickMode::None ? Qt::CrossCursor : Qt::PointingHandCursor);
+        update();
+    }
+}
+
+void SeismicSectionCanvas::setPickOverlays(const QList<SeismicPick> &picks,
+                                           const QList<SeismicFaultSegment> &faults) {
+    m_pickOverlays = picks;
+    m_faultOverlays = faults;
+    update();
 }
 
 void SeismicSectionCanvas::leaveEvent(QEvent *) {

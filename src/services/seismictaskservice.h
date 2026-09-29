@@ -20,6 +20,7 @@
 
 class PaleoTask;
 class PaleoTaskService;
+class DataCatalog;
 
 namespace seismic {
 
@@ -141,6 +142,68 @@ struct SeismicWorkspaceProbe
   qint64 xlines = 0;
   QString error;                   // 不可读原因（版本/损坏）
   QString stateText() const;       // UI 文案：「未开始/已完成 N 块/续跑 N/M」
+};
+
+// ---- Phase 4 解释工具（D4.1–D4.10）数据模型 --------------------------------
+// 解释模型放服务层的理由：视图层 io/* include 白名单仅 lasdoc.h，解释模型
+// 必须从视图可达（拾取面板/画布叠加），services 属数据层且为本包独占文件。
+
+// 单个层位拾取点（D4.1）
+struct SeismicPick
+{
+  int id = 0;
+  int inlineNo = 0;
+  int xlineNo = 0;
+  double twtMs = 0.0;
+  int sampleIndex = 0;
+  float confidence = 1.0f;   // D4.10：追踪置信度 0..1（手动拾取 = 1）
+  QString interpreter;       // D4.9：解释者
+  QString horizonName;       // 所属层位名
+
+  bool operator==(const SeismicPick &o) const { return id == o.id; }
+};
+
+// 断层标记（D4.4）：剖面上的折线（traceFrac 0..1 剖面横向，twtMs 纵向）
+struct SeismicFaultSegment
+{
+  int id = 0;
+  SgySliceType sectionType = SgySliceType::Inline;
+  int sectionIndex = 0;
+  QVector<QPair<double, double>> points; // (traceFrac, twtMs)
+  QString interpreter;
+  QString name;
+};
+
+// 解释会话（D4.8）：拾取集 + 断层集 + 解释者名册，伴生文件持久化
+struct SeismicInterpretationSession
+{
+  QString name;
+  QString sourceSgyPath;               // 会话归属的 SEG-Y（伴生文件锚）
+  QStringList interpreters;            // D4.9 名册
+  QList<SeismicPick> picks;
+  QList<SeismicFaultSegment> faults;
+  int nextId = 1;
+
+  QStringList horizonNames() const;
+  const SeismicPick *pickById(int id) const;
+};
+
+// D4.2 局部互相关追踪参数
+struct SeismicTrackOptions
+{
+  int windowSamples = 24;        // 相关窗（种子波形长度）
+  int maxSearchSamples = 12;     // 逐道最大搜索半径
+  double correlationThreshold = 0.6; // 低于阈值的道不拾取
+};
+
+// D4.7 网格化结果（规则 il×xl 栅格 + 掩码）
+struct SeismicHorizonGrid
+{
+  int inlineMin = 0, inlineCount = 0, inlineStep = 1;
+  int xlineMin = 0, xlineCount = 0, xlineStep = 1;
+  std::vector<double> twtMs;     // inlineCount×xlineCount，NaN=无控制点
+  std::vector<float> confidence;
+  bool isValid() const { return inlineCount > 0 && xlineCount > 0; }
 };
 
 // services/ — SeismicTaskService: 地震数据异步任务协调服务
@@ -279,6 +342,46 @@ public:
   // 15. 道头查询（D2.11）：240B 道头解码。静态——无服务实例也可用（剖面
   //     dock 直接调用）。索引未命中时按二进制头推算道长（规则文件可靠）。
   static SeismicTraceHeaderInfo readTraceHeader(const QString &sgyPath, int traceIndex);
+
+  // ---- Phase 4 解释工具（同步 CPU 操作，量级 ≤ 单切片）----
+
+  // D4.2 局部互相关追踪：从种子道出发双向沿同相轴追踪。返回逐道拾取
+  // （confidence = 峰值相关系数；低于阈值的道缺席）。
+  static QList<SeismicPick> trackHorizon(
+      const SgySliceImage &slice,
+      SgySliceType sectionType, int sectionIndex,
+      int colMin, int colMax,          // 列号范围（IL 剖面列=XL，XL 剖面列=IL）
+      int seedTraceCol, int seedSample,
+      const SeismicTrackOptions &options,
+      const QString &interpreter, const QString &horizonName,
+      float sampleIntervalMs);
+
+  // D4.7 拾取网格化：IDW（反距离加权）插值成规则测网栅格。
+  // 既有算法层 ConstraintIDW 是 QgsProcessing 形态（需 Processing 上下文与
+  // 约束线），拾取网格化无约束语义——自实现纯 IDW（TODOS 登记合并点）。
+  static SeismicHorizonGrid gridPicks(const QList<SeismicPick> &picks);
+
+  // D4.3 拾取集 → 层位资产：写 CSV（inline,xline,twt_ms,confidence）+
+  // DERIVED 版本登记 catalog（父版本 = 源地震版本）。返回登记后的版本路径。
+  static QString registerHorizonAsset(
+      DataCatalog *catalog, const QString &seismicAssetId,
+      const QString &seismicVersionId, const QString &horizonName,
+      const QList<SeismicPick> &picks, const QString &outputDir,
+      QString *error);
+
+  // D4.4 断层段 → 矢量派生资产：CSV 折线（section,traceFrac,twtMs）+ 登记。
+  static QString registerFaultAsset(
+      DataCatalog *catalog, const QString &seismicAssetId,
+      const QString &seismicVersionId, const QString &faultName,
+      const QList<SeismicFaultSegment> &faults, const QString &outputDir,
+      QString *error);
+
+  // D4.8 会话持久化：伴生文件 <sgy>.seispicks.json（项目无关可携带）
+  static bool saveSession(const SeismicInterpretationSession &session, QString *error);
+  static bool loadSession(const QString &sgyPath, SeismicInterpretationSession &out, QString *error);
+
+  // D4.5 CSV 导出
+  static bool exportPicksCsv(const QList<SeismicPick> &picks, const QString &filePath, QString *error);
 
   // 转码完成后作废缓存条目：下次读取按磁盘现状重开（热切换）。
   void invalidateDataset(const QString &path);

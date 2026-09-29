@@ -32,7 +32,10 @@
 #include <cmath>
 
 #include "domain/seismic/sgysectionbuilder.h"
+#include <QUndoStack>
+
 #include "services/seismictaskservice.h"
+#include "ui/seismicsection/seismicpickpanel.h"
 
 namespace seismic {
 
@@ -238,6 +241,9 @@ void SeismicSectionDockWidget::setupUi() {
     m_canvas->setObjectName(QStringLiteral("seismicSectionCanvas"));
     mainLay->addWidget(m_canvas, 1);
 
+    // D4 解释面板（画布下方，默认折叠）
+    setupInterpretationUi(container);
+
     // ==========================================
     // 3. Bottom Status Bar (Monospace Readout)
     // ==========================================
@@ -340,6 +346,114 @@ void SeismicSectionDockWidget::setupUi() {
 
 // D2.2–D2.12 显示控制行：显示三模/阈值/极性/AGC/增益曲线/双刻度/拉伸/
 // 卷帘/书签/复制/打印。紧凑专业密度（DESIGN.md），全部即时生效。
+
+// ---- D4 解释工具 ---------------------------------------------------------------
+
+namespace {
+
+// undo 命令（D4.6）：对会话模型的原子操作 + 面板/叠加刷新
+class PickCommandBase : public QUndoCommand
+{
+public:
+    PickCommandBase(SeismicSectionDockWidget *dock, QUndoCommand *parent = nullptr)
+        : QUndoCommand(parent), m_dock(dock) {}
+
+protected:
+    void refresh()
+    {
+        if (m_dock && m_dock->pickPanel())
+            m_dock->pickPanel()->refreshFromSession();
+        if (m_dock)
+            m_dock->saveInterpretationSession(); // 自动保存（D4.8 会话持久化）
+    }
+    SeismicSectionDockWidget *m_dock;
+};
+
+class AddPicksCommand : public PickCommandBase
+{
+public:
+    AddPicksCommand(SeismicSectionDockWidget *dock, QList<SeismicPick> picks)
+        : PickCommandBase(dock), m_picks(std::move(picks))
+    {
+        setText(QObject::tr("添加 %1 个拾取").arg(m_picks.size()));
+    }
+    void undo() override
+    {
+        auto &session = m_dock->mutableSession();
+        for (const SeismicPick &p : m_picks)
+        {
+            const int idx = session.picks.indexOf(p);
+            if (idx >= 0)
+                session.picks.removeAt(idx);
+        }
+        refresh();
+    }
+    void redo() override
+    {
+        auto &session = m_dock->mutableSession();
+        for (SeismicPick p : m_picks)
+        {
+            p.id = session.nextId++;
+            session.picks.append(p);
+        }
+        m_dock->refreshInterpretationOverlay();
+        refresh();
+    }
+
+private:
+    QList<SeismicPick> m_picks;
+};
+
+class RemovePickCommand : public PickCommandBase
+{
+public:
+    RemovePickCommand(SeismicSectionDockWidget *dock, SeismicPick pick)
+        : PickCommandBase(dock), m_pick(pick)
+    {
+        setText(QObject::tr("删除拾取 %1").arg(pick.id));
+    }
+    void undo() override
+    {
+        m_dock->mutableSession().picks.append(m_pick);
+        refresh();
+    }
+    void redo() override
+    {
+        auto &session = m_dock->mutableSession();
+        const int idx = session.picks.indexOf(m_pick);
+        if (idx >= 0)
+            session.picks.removeAt(idx);
+        refresh();
+    }
+
+private:
+    SeismicPick m_pick;
+};
+
+class RenamePickCommand : public PickCommandBase
+{
+public:
+    RenamePickCommand(SeismicSectionDockWidget *dock, int pickId, QString oldName, QString newName)
+        : PickCommandBase(dock), m_id(pickId), m_old(std::move(oldName)), m_new(std::move(newName))
+    {
+        setText(QObject::tr("拾取 %1 改层位 %2→%3").arg(pickId).arg(m_old, m_new));
+    }
+    void apply(const QString &name)
+    {
+        for (SeismicPick &p : m_dock->mutableSession().picks)
+            if (p.id == m_id)
+                p.horizonName = name;
+        refresh();
+    }
+    void undo() override { apply(m_old); }
+    void redo() override { apply(m_new); }
+
+private:
+    int m_id;
+    QString m_old, m_new;
+};
+
+} // namespace
 void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     auto *bar = new QWidget(parent);
     bar->setStyleSheet(QStringLiteral("background: #FFFFFF; border-bottom: 1px solid #DFE5EC;"));
@@ -446,6 +560,20 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     m_sliderCurtain->setVisible(false);
     lay->addWidget(m_sliderCurtain);
 
+    // D4 解释：种子拾取/断层线模式
+    m_btnPickMode = new QToolButton(bar);
+    m_btnPickMode->setText(tr("● 拾取"));
+    m_btnPickMode->setCheckable(true);
+    m_btnPickMode->setToolTip(tr("解释模式：剖面点击放层位拾取点（拾取面板同步显示）"));
+    m_btnPickMode->setStyleSheet(btnStyle);
+    lay->addWidget(m_btnPickMode);
+    m_btnFaultMode = new QToolButton(bar);
+    m_btnFaultMode->setText(tr("✂ 断层"));
+    m_btnFaultMode->setCheckable(true);
+    m_btnFaultMode->setToolTip(tr("断层模式：剖面拖拽画断层折线（红色虚线跟踪，松手存档）"));
+    m_btnFaultMode->setStyleSheet(btnStyle);
+    lay->addWidget(m_btnFaultMode);
+
     lay->addStretch(1);
 
     // D2.12 书签
@@ -541,6 +669,18 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
         m_sliderCurtain->blockSignals(false);
     });
 
+    // D4 解释模式（互斥单选）
+    connect(m_btnPickMode, &QToolButton::toggled, this, [this](bool on) {
+        if (on)
+            m_btnFaultMode->setChecked(false);
+        setPickMode(on ? SectionPickMode::Seed : SectionPickMode::None);
+    });
+    connect(m_btnFaultMode, &QToolButton::toggled, this, [this](bool on) {
+        if (on)
+            m_btnPickMode->setChecked(false);
+        setPickMode(on ? SectionPickMode::Fault : SectionPickMode::None);
+    });
+
     // D2.12 书签
     connect(m_btnBookmarkAdd, &QToolButton::clicked, this, [this]() {
         bool ok = false;
@@ -569,6 +709,11 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
 
     m_sliceGroup->setEnabled(true);
     loadBookmarksFromSettings(); // D2.12：体身份确定后才有 settings 键
+    // D4.8：会话锚定到 SEG-Y 伴生文件（存在即自动恢复）
+    m_session = SeismicInterpretationSession{};
+    m_session.sourceSgyPath = QString::fromStdString(m_volume->Path().string());
+    SeismicTaskService::loadSession(m_session.sourceSgyPath, m_session, nullptr);
+    refreshInterpretationOverlay();
     onSectionModeChanged(m_cboSectionMode->currentIndex());
 }
 
@@ -745,6 +890,23 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
                 const float dtMs = vol->SampleIntervalUs() > 0 ? (vol->SampleIntervalUs() / 1000.0f) : 2.0f;
                 m_canvas->setSectionData(image, dtMs, 0.0);
             }
+            // D4：剖面身份 + 最近切片（拾取解析/追踪原料）
+            {
+                SectionRef ref;
+                ref.valid = true;
+                ref.type = type;
+                ref.index = index;
+                if (type == SgySliceType::Inline)
+                    ref.colMin = vol->XlineMin(), ref.colMax = vol->XlineMax();
+                else if (type == SgySliceType::Xline)
+                    ref.colMin = vol->InlineMin(), ref.colMax = vol->InlineMax();
+                else
+                    ref.colMin = vol->XlineMin(), ref.colMax = vol->XlineMax();
+                m_canvas->setSectionRef(ref);
+                if (type != SgySliceType::Time)
+                    m_lastSlice = image;
+            }
+            refreshInterpretationOverlay();
             emit sectionExtractionFinished(true, QString());
         }, Qt::QueuedConnection);
     });
@@ -1120,4 +1282,219 @@ void SeismicSectionDockWidget::onPrintImage() {
     painter.end();
 }
 
+
+void SeismicSectionDockWidget::setupInterpretationUi(QWidget *parent) {
+    // D4 解释面板：画布下方可折叠行
+    m_pickPanel = new SeismicPickPanel(this, parent);
+    m_pickPanel->setVisible(false);
+    if (auto *mainLay = qobject_cast<QVBoxLayout *>(parent->layout()))
+        mainLay->addWidget(m_pickPanel);
+
+    m_undoStack = new QUndoStack(this);
+    m_pickPanel->setUndoStack(m_undoStack);
+    connect(m_undoStack, &QUndoStack::canUndoChanged, this, [this](bool can) {
+        Q_UNUSED(can);
+    });
+    connect(m_pickPanel, &SeismicPickPanel::sessionChanged, this, [this]() {
+        refreshInterpretationOverlay();
+    });
+    connect(m_pickPanel, &SeismicPickPanel::locateRequested, this, [this](int pickId) {
+        const SeismicPick *p = m_session.pickById(pickId);
+        if (!p)
+            return;
+        // 跳到拾取所在剖面：IL 模式 + 线号 + 视口滚到 TWT
+        setSectionMode(0);
+        m_spinSlice->setValue(p->inlineNo);
+        const SectionViewState vs = m_canvas->viewState();
+        m_canvas->setViewState(vs);
+    });
+    connect(m_pickPanel, &SeismicPickPanel::trackRequested, this,
+            &SeismicSectionDockWidget::runTracking);
+
+    // 画布拾取/断层信号
+    connect(m_canvas, &SeismicSectionCanvas::pickPlaced, this,
+            &SeismicSectionDockWidget::addPickFromCanvas);
+    connect(m_canvas, &SeismicSectionCanvas::faultDrawn, this,
+            &SeismicSectionDockWidget::addFaultFromCanvas);
+}
+
+QString SeismicSectionDockWidget::sessionFilePath() const {
+    return m_session.sourceSgyPath.isEmpty() ? QString()
+        : m_session.sourceSgyPath + QStringLiteral(".seispicks.json");
+}
+
+void SeismicSectionDockWidget::setInterpretationCatalog(DataCatalog *catalog,
+                                                        const QString &assetId,
+                                                        const QString &versionId,
+                                                        const QString &outputDir) {
+    m_catalog = catalog;
+    m_catalogAssetId = assetId;
+    m_catalogVersionId = versionId;
+    m_interpretationDir = outputDir;
+}
+
+SeismicInterpretationSession &SeismicSectionDockWidget::mutableSession() {
+    return m_session; // undo 命令的写入口（友元路径）
+}
+
+void SeismicSectionDockWidget::refreshInterpretationOverlay() {
+    m_canvas->setPickOverlays(m_session.picks, m_session.faults);
+    if (m_pickPanel)
+        m_pickPanel->refreshFromSession();
+}
+
+void SeismicSectionDockWidget::setPickMode(SectionPickMode mode) {
+    m_canvas->setPickMode(mode);
+    if (m_pickPanel)
+        m_pickPanel->setVisible(mode != SectionPickMode::None);
+    if (mode != SectionPickMode::None && m_session.interpreters.isEmpty()) {
+        m_session.interpreters << QStringLiteral("解释员A");
+        if (m_pickPanel)
+            m_pickPanel->refreshFromSession();
+    }
+}
+
+void SeismicSectionDockWidget::addPickFromCanvas(int traceCol, double twtMs) {
+    const SectionRef ref = m_canvas->sectionRef();
+    if (!ref.valid || !m_volume || !m_volume->IsLoaded())
+        return;
+    const float dtMs = m_volume->SampleIntervalUs() > 0
+        ? m_volume->SampleIntervalUs() / 1000.0f : 2.0f;
+    SeismicPick pick;
+    pick.sampleIndex = qRound(twtMs / dtMs);
+    pick.twtMs = pick.sampleIndex * double(dtMs);
+    if (ref.type == SgySliceType::Inline) {
+        pick.inlineNo = ref.index;
+        pick.xlineNo = ref.colMin + traceCol;
+    } else if (ref.type == SgySliceType::Xline) {
+        pick.xlineNo = ref.index;
+        pick.inlineNo = ref.colMin + traceCol;
+    } else {
+        return; // 时间切片不拾取（水平向无 TWT 概念）
+    }
+    pick.confidence = 1.0f;
+    pick.interpreter = m_pickPanel ? m_pickPanel->currentInterpreter() : QString();
+    pick.horizonName = m_pickPanel ? m_pickPanel->currentHorizon() : QStringLiteral("H1");
+    if (pick.interpreter.isEmpty())
+        pick.interpreter = QStringLiteral("解释员A");
+    if (!m_session.interpreters.contains(pick.interpreter))
+        m_session.interpreters << pick.interpreter;
+    if (pick.horizonName.isEmpty())
+        pick.horizonName = QStringLiteral("H1");
+
+    m_undoStack->push(new AddPicksCommand(this, {pick}));
+    refreshInterpretationOverlay();
+}
+
+void SeismicSectionDockWidget::addPicks(const QList<SeismicPick> &picks) {
+    if (picks.isEmpty())
+        return;
+    m_undoStack->push(new AddPicksCommand(this, picks));
+    refreshInterpretationOverlay();
+}
+
+void SeismicSectionDockWidget::removePick(int id) {
+    const SeismicPick *p = m_session.pickById(id);
+    if (!p)
+        return;
+    m_undoStack->push(new RemovePickCommand(this, *p));
+    refreshInterpretationOverlay();
+}
+
+void SeismicSectionDockWidget::renamePickHorizon(int id, const QString &newName) {
+    const SeismicPick *p = m_session.pickById(id);
+    if (!p)
+        return;
+    m_undoStack->push(new RenamePickCommand(this, id, p->horizonName, newName));
+    refreshInterpretationOverlay();
+}
+
+void SeismicSectionDockWidget::addFaultFromCanvas(const QVector<QPair<double, double>> &points) {
+    const SectionRef ref = m_canvas->sectionRef();
+    if (!ref.valid || points.size() < 2)
+        return;
+    SeismicFaultSegment seg;
+    seg.id = m_session.nextId++;
+    seg.sectionType = ref.type;
+    seg.sectionIndex = ref.index;
+    seg.points = points;
+    seg.interpreter = m_pickPanel ? m_pickPanel->currentInterpreter() : QString();
+    seg.name = QStringLiteral("F%1").arg(m_session.faults.size() + 1);
+    m_session.faults.append(seg);
+    saveInterpretationSession();
+    refreshInterpretationOverlay();
+}
+
+bool SeismicSectionDockWidget::saveInterpretationSession(QString *error) {
+    if (m_session.sourceSgyPath.isEmpty())
+        return false;
+    return SeismicTaskService::saveSession(m_session, error);
+}
+
+bool SeismicSectionDockWidget::loadInterpretationSession(QString *error) {
+    if (m_session.sourceSgyPath.isEmpty())
+        return false;
+    return SeismicTaskService::loadSession(m_session.sourceSgyPath, m_session, error);
+}
+
+QString SeismicSectionDockWidget::registerCurrentHorizonAsset(QString *error) {
+    if (!m_catalog) {
+        if (error)
+            *error = tr("catalog 未注入（应用层需调 setInterpretationCatalog）");
+        return QString();
+    }
+    const QString horizon = m_pickPanel ? m_pickPanel->currentHorizon() : QString();
+    QList<SeismicPick> picks;
+    for (const SeismicPick &p : m_session.picks)
+        if (horizon.isEmpty() || p.horizonName == horizon)
+            picks << p;
+    return SeismicTaskService::registerHorizonAsset(
+        m_catalog, m_catalogAssetId, m_catalogVersionId,
+        horizon.isEmpty() ? QStringLiteral("H1") : horizon,
+        picks, m_interpretationDir, error);
+}
+
+QString SeismicSectionDockWidget::registerCurrentFaultAsset(QString *error) {
+    if (!m_catalog) {
+        if (error)
+            *error = tr("catalog 未注入（应用层需调 setInterpretationCatalog）");
+        return QString();
+    }
+    return SeismicTaskService::registerFaultAsset(
+        m_catalog, m_catalogAssetId, m_catalogVersionId,
+        QStringLiteral("F1"), m_session.faults, m_interpretationDir, error);
+}
+
+void SeismicSectionDockWidget::runTracking() {
+    // D4.2：种子 = m_trackSeedPick 指定或最后一个拾取；原料 = 最近剖面
+    const SeismicPick *seed = m_session.pickById(m_trackSeedPick);
+    if (!seed && !m_session.picks.isEmpty())
+        seed = &m_session.picks.last();
+    if (!seed || m_lastSlice.values.empty())
+        return;
+
+    const SectionRef ref = m_canvas->sectionRef();
+    if (!ref.valid)
+        return;
+    // 种子所在剖面上的列号
+    int seedCol = -1;
+    if (ref.type == SgySliceType::Inline && seed->inlineNo == ref.index)
+        seedCol = seed->xlineNo - ref.colMin;
+    else if (ref.type == SgySliceType::Xline && seed->xlineNo == ref.index)
+        seedCol = seed->inlineNo - ref.colMin;
+    if (seedCol < 0 || seedCol >= m_lastSlice.width)
+        return;
+
+    const float dtMs = m_volume && m_volume->SampleIntervalUs() > 0
+        ? m_volume->SampleIntervalUs() / 1000.0f : 2.0f;
+    const QString interpreter = seed->interpreter;
+    const QString horizon = seed->horizonName;
+    QList<SeismicPick> tracked = SeismicTaskService::trackHorizon(
+        m_lastSlice, ref.type, ref.index, ref.colMin, ref.colMax,
+        seedCol, seed->sampleIndex, m_trackOptions, interpreter, horizon, dtMs);
+    if (tracked.size() > 1) {
+        tracked.removeFirst(); // 种子已在会话中
+        addPicks(tracked);
+    }
+}
 } // namespace seismic

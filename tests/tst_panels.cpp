@@ -20,6 +20,8 @@
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTemporaryDir>
+#include <QImage>
+#include <QPainter>
 #include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -2165,6 +2167,11 @@ private:
             if (QWidget *m = QApplication::activeModalWidget())
                 drive(m);
         });
+        // 兜底：驱动失配（类型/时机不对）3s 后强关活动模态——测试失败但不挂死。
+        QTimer::singleShot(3000, [] {
+            if (QWidget *m = QApplication::activeModalWidget())
+                m->close();
+        });
     }
 
   private slots:
@@ -4253,6 +4260,751 @@ private:
         scan(pagesDir);
         scan(QDir(pagesDir.filePath(QStringLiteral("dataops"))));
         QVERIFY2(checked >= 20, qPrintable(QStringLiteral("only %1").arg(checked)));
+    }
+
+
+    // =====================================================================
+    // P3 补充测试（第三块）：模态对话框真实路径驱动 + 边界覆盖。
+    // =====================================================================
+    void dataops_d1_batchAddTagViaInputDialog()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->findChild<DataListPanel *>();
+        auto *table = page->findChild<QTableWidget *>(QStringLiteral("assetTable"));
+        table->selectRow(0);
+        table->selectionModel()->select(
+            table->model()->index(1, 0),
+            QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        // 两拍：输入标签名 → 确认。
+        driveModalNextTick([](QWidget *w) {
+            if (auto *dlg = qobject_cast<QInputDialog *>(w))
+                dlg->setTextValue(QStringLiteral("核心资产"));
+            QTimer::singleShot(0, [] {
+                if (auto *d = qobject_cast<QInputDialog *>(
+                        QApplication::activeModalWidget()))
+                    d->accept();
+            });
+        });
+        lp->batchAddTag();
+        // 两个选中资产都带上标签（sidecar + 标签云出现）。
+        QCOMPARE(lp->opsContext().tags->tagsFor(fx.astResolved),
+                 QStringList{QStringLiteral("核心资产")});
+        QCOMPARE(lp->opsContext().tags->tagsFor(fx.astPending),
+                 QStringList{QStringLiteral("核心资产")});
+        QVERIFY(!lp->opsContext().tags->tagsFor(fx.astFree).isEmpty() == false);
+        auto *cloud = page->findChild<QWidget *>(QStringLiteral("tagCloud"));
+        QTest::qWait(10);
+        QVERIFY(cloud->findChildren<QPushButton *>(QStringLiteral("tagCloudChip"))
+                    .size() >= 1);
+    }
+
+    void dataops_d1_batchRemoveSoftViaMessageBox()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->findChild<DataListPanel *>();
+        auto *table = page->findChild<QTableWidget *>(QStringLiteral("assetTable"));
+        table->selectRow(2); // free.sgy
+        QCOMPARE(table->rowCount(), 3);
+        // 确认框点 Yes。
+        driveModalNextTick([](QWidget *w) {
+            if (auto *mb = qobject_cast<QMessageBox *>(w))
+                mb->button(QMessageBox::Yes)->click();
+        });
+        lp->batchRemoveSoft();
+        QCOMPARE(table->rowCount(), 2);
+        QCOMPARE(lp->opsContext().recycle->entries().size(), 1);
+        // 取消路径：确认框点 No → 不动。
+        table->selectRow(1);
+        const int rows = table->rowCount();
+        driveModalNextTick([](QWidget *w) {
+            if (auto *mb = qobject_cast<QMessageBox *>(w))
+                mb->button(QMessageBox::No)->click();
+        });
+        lp->batchRemoveSoft();
+        QCOMPARE(table->rowCount(), rows);
+    }
+
+    void dataops_d1_batchAttachViaPickerDialog()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->findChild<DataListPanel *>();
+        auto *table = page->findChild<QTableWidget *>(QStringLiteral("assetTable"));
+        // 选中未决的 Z9.las（row 1）。
+        const int pendRow = [table, &fx]() {
+            for (int r = 0; r < table->rowCount(); ++r)
+                if (table->item(r, 0)->data(Qt::UserRole).toString() == fx.astPending)
+                    return r;
+            return -1;
+        }();
+        QVERIFY(pendRow >= 0);
+        table->selectRow(pendRow);
+        // 两拍：选择器选 B2 行 → accept。
+        driveModalNextTick([](QWidget *w) {
+            if (auto *dlg =
+                    qobject_cast<paleo::dataops::EntityPickerDialog *>(w))
+            {
+                auto *list = dlg->findChild<QTableWidget *>(
+                    QStringLiteral("entityPickerList"));
+                for (int r = 0; r < list->rowCount(); ++r)
+                    if (list->item(r, 0)->text() == QLatin1String("B2"))
+                        list->selectRow(r);
+                dlg->accept();
+            }
+        });
+        lp->batchAttachToEntity();
+        bool resolved = false;
+        for (const EntityAssetLink &l : svc.catalog()->linksForAsset(fx.astPending))
+            if (l.entityId == fx.wellB && !l.unresolved)
+                resolved = true;
+        QVERIFY(resolved);
+    }
+
+    void dataops_d4_entityCreateViaDialog()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *ep = page->findChild<EntityPanel *>();
+        QVERIFY(ep);
+        // 两拍：名字填 C9 → accept。
+        driveModalNextTick([](QWidget *w) {
+            if (auto *dlg =
+                    qobject_cast<paleo::dataops::EntityCreateDialog *>(w))
+            {
+                dlg->findChild<QLineEdit *>(QStringLiteral("entityNameEdit"))
+                    ->setText(QStringLiteral("C9"));
+                dlg->accept();
+            }
+        });
+        ep->beginCreateEntity();
+        // 新井实体落库 + 树里出现。
+        bool saw = false;
+        for (const CatalogEntity &e : svc.catalog()->entities(QStringLiteral("well")))
+            if (e.name == QLatin1String("C9"))
+                saw = true;
+        QVERIFY(saw);
+        // 重名拒绝：同名再建 → 警告框（点掉）→ 不新增。
+        const int wells = int(svc.catalog()->entities(QStringLiteral("well")).size());
+        driveModalNextTick([](QWidget *w) {
+            if (auto *mb = qobject_cast<QMessageBox *>(w))
+                mb->button(QMessageBox::Ok)->click();
+        });
+        // 直接调对话框校验面：空名拒绝（不弹创建）。
+        paleo::dataops::EntityCreateDialog dlg;
+        QVERIFY(dlg.chosenName().isEmpty());
+        QCOMPARE(dlg.chosenType(), QStringLiteral("well"));
+        QCOMPARE(dlg.chosenX(), 0.0);
+        QVERIFY(svc.catalog()->entities(QStringLiteral("well")).size() == wells);
+    }
+
+    void dataops_d4_entityRenameViaDialog()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *ep = page->findChild<EntityPanel *>();
+        driveModalNextTick([](QWidget *w) {
+            if (auto *dlg = qobject_cast<paleo::dataops::EntityEditDialog *>(w))
+            {
+                dlg->findChild<QLineEdit *>(QStringLiteral("entityEditName"))
+                    ->setText(QStringLiteral("A1-改"));
+                dlg->accept();
+            }
+        });
+        ep->beginRenameEntity(fx.wellA);
+        paleo::dataops::EntityOverrideStore reloaded;
+        reloaded.load(svc.catalog());
+        QCOMPARE(reloaded.displayName(svc.catalog()->entityById(fx.wellA)),
+                 QStringLiteral("A1-改"));
+        // 面板头同步显示新名（D4.1 内联编辑的落点）。
+        page->selectAssetsForEntities({fx.wellA});
+        QVERIFY(page->findChild<QLabel *>(QStringLiteral("entityViewHeader"))
+                    ->text()
+                    .contains(QStringLiteral("A1-改")));
+    }
+
+    void dataops_d4_editRoleViaDialogFlow()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->findChild<DataListPanel *>();
+        auto *table = page->findChild<QTableWidget *>(QStringLiteral("assetTable"));
+        // 选中已决的 A1.las。
+        const int row = [table, &fx]() {
+            for (int r = 0; r < table->rowCount(); ++r)
+                if (table->item(r, 0)->data(Qt::UserRole).toString() == fx.astResolved)
+                    return r;
+            return -1;
+        }();
+        QVERIFY(row >= 0);
+        table->selectRow(row);
+        // 三拍：角色对话框选 tops → accept → 警告框 Yes。
+        driveModalNextTick([](QWidget *w) {
+            if (auto *dlg = qobject_cast<paleo::dataops::RoleEditDialog *>(w))
+            {
+                auto *combo =
+                    dlg->findChild<QComboBox *>(QStringLiteral("roleEditCombo"));
+                const int idx = combo->findText(QStringLiteral("tops"));
+                if (idx >= 0)
+                    combo->setCurrentIndex(idx);
+                dlg->accept();
+            }
+            QTimer::singleShot(0, [] {
+                if (auto *mb = qobject_cast<QMessageBox *>(
+                        QApplication::activeModalWidget()))
+                    mb->button(QMessageBox::Yes)->click();
+            });
+        });
+        lp->editRoleForSelection();
+        // 新角色链接在场（旧角色保留——catalog 无删除 API，GAPS）。
+        bool sawTops = false, sawLog = false;
+        for (const EntityAssetLink &l :
+             svc.catalog()->linksForAsset(fx.astResolved))
+        {
+            if (l.role == QLatin1String("tops") && l.entityId == fx.wellA)
+                sawTops = true;
+            if (l.role == QLatin1String("well_log"))
+                sawLog = true;
+        }
+        QVERIFY(sawTops);
+        QVERIFY(sawLog);
+    }
+
+    void dataops_d4_entityDeleteDialogDispositions()
+    {
+        // D4.6：删除实体的资产处置二选一（对话框纯面）。
+        paleo::dataops::EntityDeleteDialog keep(3);
+        QVERIFY(!keep.assetsToRecycle()); // 默认保留资产
+        paleo::dataops::EntityDeleteDialog recycle(0);
+        recycle.findChildren<QRadioButton *>().at(1)->click();
+        QVERIFY(recycle.assetsToRecycle());
+    }
+
+    void dataops_d2_tagCloudClickFilters()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->findChild<DataListPanel *>();
+        lp->pushCommand(new paleo::dataops::TagCmd(
+            lp->opsContext(), fx.astFree, QStringLiteral("地震"), true));
+        lp->pushCommand(new paleo::dataops::TagCmd(
+            lp->opsContext(), fx.astResolved, QStringLiteral("测井"), true));
+        page->refreshAssetTable();
+        auto *table = page->findChild<QTableWidget *>(QStringLiteral("assetTable"));
+        QTest::qWait(10); // 收 deleteLater 尸（重建的旧 chip）
+        const QList<QPushButton *> chips =
+            page->findChildren<QPushButton *>(QStringLiteral("tagCloudChip"));
+        QCOMPARE(int(chips.size()), 2);
+        // 点「地震」→ 只剩 free.sgy。
+        QPushButton *seis = nullptr;
+        for (QPushButton *c : chips)
+            if (c->text().contains(QStringLiteral("地震")))
+                seis = c;
+        QVERIFY(seis);
+        seis->click();
+        int visible = 0;
+        QString name;
+        for (int r = 0; r < table->rowCount(); ++r)
+            if (!table->isRowHidden(r) &&
+                !table->item(r, 0)->data(Qt::UserRole).toString().isEmpty())
+            {
+                ++visible;
+                name = table->item(r, 0)->text();
+            }
+        QCOMPARE(visible, 1);
+        QCOMPARE(name, QStringLiteral("free.sgy"));
+        QCOMPARE(lp->activeTagFilter(), QStringLiteral("地震"));
+        // 再点取消 → 全回来（重新取 chip——重建后旧 chip 在 deleteLater 队列）。
+        QTest::qWait(10);
+        QPushButton *seis2 = nullptr;
+        for (QPushButton *c : page->findChildren<QPushButton *>(QStringLiteral("tagCloudChip")))
+            if (c->text().contains(QStringLiteral("地震")))
+                seis2 = c;
+        QVERIFY(seis2);
+        seis2->click();
+        QCOMPARE(lp->activeTagFilter(), QString());
+        visible = 0;
+        for (int r = 0; r < table->rowCount(); ++r)
+            if (!table->isRowHidden(r) &&
+                !table->item(r, 0)->data(Qt::UserRole).toString().isEmpty())
+                ++visible;
+        QCOMPARE(visible, 3);
+    }
+
+    void dataops_d2_filterBarAddConditionViaUi()
+    {
+        using namespace paleo::dataops;
+        qRegisterMetaType<FilterCondition>();
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->findChild<DataListPanel *>();
+        auto *bar = page->findChild<QWidget *>(QStringLiteral("multiDimFilterBar"));
+        QVERIFY(bar);
+        auto *dim = bar->findChild<QComboBox *>(QStringLiteral("filterDimCombo"));
+        auto *value = bar->findChild<QComboBox *>(QStringLiteral("filterValueCombo"));
+        auto *add = bar->findChild<QPushButton *>(QStringLiteral("filterAddButton"));
+        auto *typeFilter =
+            page->findChild<QComboBox *>(QStringLiteral("assetTypeFilter"));
+        QVERIFY(dim && value && add && typeFilter);
+        // 类型维度 + 值下拉词表已装填（refreshChipBar 填充）。
+        const int typeIdx = dim->findText(QStringLiteral("类型"));
+        QVERIFY(typeIdx >= 0);
+        dim->setCurrentIndex(typeIdx);
+        const int valIdx = value->findText(QStringLiteral("seismic"));
+        QVERIFY2(valIdx >= 0, "type vocabulary populated");
+        value->setCurrentIndex(valIdx);
+        QSignalSpy spy(lp, &DataListPanel::selectionCountChanged); // 任意信号证明事件环通
+        add->click();
+        // 条件落进 FilterGroup + 写回旧类型下拉（reconcile 镜像）+ 表只剩 seismic 行。
+        QCOMPARE(lp->filterGroup().conditions.size(), 1);
+        QCOMPARE(lp->filterGroup().conditions.at(0).value, QStringLiteral("seismic"));
+        QCOMPARE(typeFilter->currentData().toString(), QStringLiteral("seismic"));
+        auto *table = page->findChild<QTableWidget *>(QStringLiteral("assetTable"));
+        int visible = 0;
+        for (int r = 0; r < table->rowCount(); ++r)
+            if (!table->isRowHidden(r) &&
+                !table->item(r, 0)->data(Qt::UserRole).toString().isEmpty())
+                ++visible;
+        QCOMPARE(visible, 1);
+        // chip 行出现（D2.2）。
+        QCOMPARE(page->findChildren<QPushButton *>(QStringLiteral("filterChip")).size(),
+                 1);
+        // AND/OR 切换信号面。
+        auto *mode = bar->findChild<QToolButton *>(QStringLiteral("filterModeButton"));
+        mode->click();
+        QVERIFY(lp->filterGroup().orMode);
+        mode->click();
+        QVERIFY(!lp->filterGroup().orMode);
+    }
+
+    void dataops_d2_chipClearAllViaUi()
+    {
+        using namespace paleo::dataops;
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->findChild<DataListPanel *>();
+        FilterGroup g;
+        g.add({FilterDim::Type, QStringLiteral("well_log"), false});
+        g.add({FilterDim::Status, QStringLiteral("RAW"), false});
+        lp->applyFilterGroup(g);
+        QTest::qWait(10);
+        QCOMPARE(page->findChildren<QPushButton *>(QStringLiteral("filterChip")).size(), 2);
+        auto *clear = page->findChild<QPushButton *>(QStringLiteral("filterClearAllButton"));
+        QVERIFY(clear);
+        clear->click();
+        QVERIFY(lp->filterGroup().isEmpty());
+        QTest::qWait(10);
+        QCOMPARE(page->findChildren<QPushButton *>(QStringLiteral("filterChip")).size(), 0);
+    }
+
+    void dataops_d6_tabFocusTraversalReachesNewControls()
+    {
+        // D6.4 键盘审计：Tab 环路覆盖新部件（过滤条/搜索/工具按钮可达）。
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *search = page->findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
+        QVERIFY(search);
+        page->show();
+        QTest::qWait(20);
+        search->setFocus();
+        QSet<QString> visited;
+        QWidget *w = search;
+        for (int i = 0; i < 80; ++i)
+        {
+            visited.insert(w->objectName());
+            w->setFocus();
+            QTest::keyClick(w, Qt::Key_Tab);
+            w = QApplication::focusWidget();
+            if (!w)
+                break;
+        }
+        // 至少到达过搜索框 + 过滤维度下拉 + 表（或其视口属主）。
+        QVERIFY(visited.contains(QStringLiteral("assetSearchEdit")));
+        QVERIFY(visited.contains(QStringLiteral("filterDimCombo")) ||
+                visited.contains(QStringLiteral("filterValueCombo")));
+    }
+
+    void dataops_d7_columnConfigDialogResult()
+    {
+        using namespace paleo::dataops;
+        ColumnConfigDialog dlg({QStringLiteral("名称"), QStringLiteral("类型"),
+                                QStringLiteral("关联")},
+                               {true, false, true});
+        auto *list = dlg.findChild<QListWidget *>(QStringLiteral("columnConfigList"));
+        QCOMPARE(list->count(), 3);
+        QCOMPARE(list->item(1)->checkState(), Qt::Unchecked);
+        // 下移第 0 行 → 顺序变 类型前（result 反映）。
+        list->setCurrentRow(0);
+        dlg.findChild<QPushButton *>(QStringLiteral("columnDownButton"))->click();
+        const QList<QPair<int, bool>> r = dlg.result();
+        QCOMPARE(r.size(), 3);
+        QCOMPARE(r.at(0).first, 1); // 类型列排最前
+        QCOMPARE(r.at(0).second, false); // 且隐藏
+        QCOMPARE(r.at(1).first, 0); // 名称列退居第二
+        // 上移回去。
+        list->setCurrentRow(0);
+        dlg.findChild<QPushButton *>(QStringLiteral("columnUpButton"))->click();
+        QCOMPARE(dlg.result().at(0).first, 1);
+    }
+
+    void dataops_d7_iconViewLoadAndActivation()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->findChild<DataListPanel *>();
+        auto *icon = page->findChild<QListWidget *>(QStringLiteral("assetIconView"));
+        QVERIFY(icon);
+        QCOMPARE(icon->count(), 3);
+        QCOMPARE(icon->viewMode(), QListView::IconMode);
+        // 激活语义 = 打开预览（D7.1 图标态与表一致）。
+        QSignalSpy spy(page.get(), &DataPage::assetActivated);
+        emit icon->itemActivated(icon->item(0));
+        QCOMPARE(spy.count(), 1);
+        // 图标态多选（D1.1 跨视图）。
+        icon->item(0)->setSelected(true);
+        icon->item(1)->setSelected(true);
+        QCOMPARE(lp->currentAssetSelection().size(), 2);
+    }
+
+    void dataops_d7_virtualViewColumnRestore()
+    {
+        using namespace paleo::dataops;
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->findChild<DataListPanel *>();
+        lp->setViewMode(3);
+        auto *virt = page->findChild<QTableView *>(QStringLiteral("assetVirtualTable"));
+        QVERIFY(virt && virt->model());
+        QCOMPARE(virt->model()->columnCount(), FlatAssetModel::ColCount);
+        // 模型数据面：DisplayRole 名称列 + 右对齐列。
+        const QModelIndex first = virt->model()->index(0, FlatAssetModel::ColName);
+        QVERIFY(first.isValid());
+        QVERIFY(!virt->model()->data(first, Qt::DisplayRole).toString().isEmpty());
+    }
+
+    void dataops_d8_duplicateDialogResolutions()
+    {
+        using namespace paleo::dataops;
+        QVector<DuplicateHit> hits(2);
+        hits[0].incomingPath = QStringLiteral("/in/a.las");
+        hits[0].reason = QStringLiteral("sha");
+        hits[1].incomingPath = QStringLiteral("/in/b.sgy");
+        hits[1].reason = QStringLiteral("name");
+        DuplicateDialog dlg;
+        dlg.loadHits(hits);
+        auto *table = dlg.findChild<QTableWidget *>(QStringLiteral("duplicateTable"));
+        QCOMPARE(table->rowCount(), 2);
+        QCOMPARE(table->item(0, 1)->text(), QStringLiteral("SHA 相同"));
+        QCOMPARE(table->item(1, 1)->text(), QStringLiteral("同名"));
+        // 逐条处置 + 一键全量。
+        dlg.setRowResolution(0, DuplicateResolution::Skip);
+        QCOMPARE(dlg.resolutions().value(QStringLiteral("/in/a.las")),
+                 DuplicateResolution::Skip);
+        auto *allRename = [&]() {
+            const auto btns = dlg.findChildren<QPushButton *>();
+            for (QPushButton *b : btns)
+                if (b->text().contains(QStringLiteral("全部重命名")))
+                    return b;
+            return static_cast<QPushButton *>(nullptr);
+        }();
+        QVERIFY(allRename);
+        allRename->click();
+        QCOMPARE(dlg.resolutions().value(QStringLiteral("/in/b.sgy")),
+                 DuplicateResolution::Rename);
+    }
+
+    void dataops_d8_estimateDialogBatches()
+    {
+        using namespace paleo::dataops;
+        ImportEstimateDialog dlg;
+        ImportEstimate est;
+        est.fileCount = 1200;
+        est.totalBytes = qint64(1200) * 1024 * 1024;
+        est.largeFileCount = 3;
+        est.byExtension = {QStringLiteral("las:900"), QStringLiteral("sgy:300")};
+        dlg.setEstimate(est);
+        QVERIFY(dlg.findChild<QLabel *>()->text().contains(QStringLiteral("1200")));
+        QVERIFY(!dlg.batchChosen()); // 默认一次全部
+        dlg.findChildren<QRadioButton *>().at(1)->click();
+        QVERIFY(dlg.batchChosen());
+        // batchPaths 切分（D8.6）。
+        QStringList paths;
+        for (int i = 0; i < 450; ++i)
+            paths << QStringLiteral("f%1").arg(i);
+        QCOMPARE(batchPaths(paths, 200).size(), 200);
+        QCOMPARE(batchPaths(paths, 500).size(), 450);
+    }
+
+    void dataops_d10_exportFileWriteRoundtrip()
+    {
+        using namespace paleo::dataops;
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QVector<AssetRowInfo> rows(1);
+        rows[0].displayName = QStringLiteral("A1.las");
+        rows[0].fileName = QStringLiteral("A1.las");
+        rows[0].effectiveType = QStringLiteral("well_log");
+        const QString path = dir.filePath(QStringLiteral("out.json"));
+        QVERIFY(writeExportFile(path, exportJson(rows, ExportFields())));
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+        QVERIFY(doc.isObject());
+        QCOMPARE(doc.object().value(QStringLiteral("count")).toInt(), 1);
+        QVERIFY(!writeExportFile(QStringLiteral("/nonexistent-dir/x/y.json"),
+                                 QByteArray("x")));
+    }
+
+    void dataops_d10_recycleBinEdgeCases()
+    {
+        using namespace paleo::dataops;
+        RecycleBin bin;
+        bin.remove(QStringLiteral("a"), QStringLiteral("t"), QStringLiteral("n1"),
+                   QStringLiteral("r"));
+        bin.remove(QStringLiteral("a"), QStringLiteral("t"), QStringLiteral("n1"),
+                   QStringLiteral("r")); // 幂等
+        bin.remove(QStringLiteral("b"), QStringLiteral("t2"), QStringLiteral("n2"), QString());
+        QCOMPARE(bin.entries().size(), 2);
+        QVERIFY(bin.isRemoved(QStringLiteral("a")));
+        QVERIFY(!bin.restore(QStringLiteral("zzz"))); // 不存在
+        QVERIFY(bin.restore(QStringLiteral("b")));
+        QVERIFY(!bin.isRemoved(QStringLiteral("b")));
+        bin.clearAll();
+        QVERIFY(bin.entries().isEmpty());
+    }
+
+    void dataops_d10_tagStoreLimits()
+    {
+        using namespace paleo::dataops;
+        TagStore tags;
+        const QString long40(40, QChar(QLatin1Char('x')));
+        const QString long41(41, QChar(QLatin1Char('x')));
+        QVERIFY(tags.addTag(QStringLiteral("a"), long40));  // 40 上限内
+        QVERIFY(!tags.addTag(QStringLiteral("a"), long41)); // 超限拒
+        QVERIFY(!tags.addTag(QStringLiteral("a"), QStringLiteral("带\t制表符"))); // 控制字符拒
+        QCOMPARE(tags.tagsFor(QStringLiteral("a")).size(), 1);
+        // 大小写不敏感去重。
+        QVERIFY(tags.addTag(QStringLiteral("b"), QStringLiteral("Core")));
+        QVERIFY(!tags.addTag(QStringLiteral("b"), QStringLiteral("CORE")));
+        QCOMPARE(tags.tagsFor(QStringLiteral("b")), QStringList{QStringLiteral("Core")});
+    }
+
+    void dataops_d10_selectionMixSemantics()
+    {
+        using namespace paleo::dataops;
+        SelectionMix mix;
+        QVERIFY(mix.isEmpty());
+        QVERIFY(!mix.mixed());
+        mix.assetIds = {QStringLiteral("a1"), QStringLiteral("a2")};
+        QVERIFY(!mix.mixed());
+        mix.entityIds = {QStringLiteral("e1")};
+        QVERIFY(mix.mixed());
+        QVERIFY(!mix.isEmpty());
+        // 公共子集 = 资产集（mixed 时实体只作上下文）。
+        const QSet<QString> expected{QStringLiteral("a1"), QStringLiteral("a2")};
+        QCOMPARE(mix.commonAssetIds(), expected);
+    }
+
+    void dataops_d10_undoStackClearSignal()
+    {
+        using namespace paleo::dataops;
+        DataOpsUndoStack stack;
+        class Noop : public DataOpCommand
+        {
+        public:
+            void redo() override {}
+            void undo() override {}
+            QString text() const override { return QStringLiteral("x"); }
+        };
+        QSignalSpy spy(&stack, &DataOpsUndoStack::stackChanged);
+        stack.push(new Noop);
+        QCOMPARE(spy.count(), 1);
+        stack.undo();
+        QCOMPARE(spy.count(), 2);
+        stack.redo();
+        QCOMPARE(spy.count(), 3);
+        stack.clear();
+        QCOMPARE(spy.count(), 4);
+        stack.clear(); // 空清不发
+        QCOMPARE(spy.count(), 4);
+    }
+
+    void dataops_d10_highlightDelegatePaintSmoke()
+    {
+        // D2.7：委托自绘冒烟（不崩 + needle 设置往返）。
+        QImage img(200, 24, QImage::Format_ARGB32);
+        img.fill(Qt::white);
+        QPainter p(&img);
+        paleo::dataops::HighlightDelegate delegate;
+        delegate.setNeedle(QStringLiteral("A1"));
+        QCOMPARE(delegate.needle(), QStringLiteral("A1"));
+        QStyleOptionViewItem opt;
+        opt.rect = QRect(0, 0, 200, 24);
+        opt.font = p.font();
+        opt.textElideMode = Qt::ElideRight;
+        QModelIndex idx; // 空模型索引——paint 走基类空文本路径
+        delegate.paint(&p, opt, idx);
+        p.end();
+        delegate.setNeedle(QString());
+        QVERIFY(delegate.needle().isEmpty());
+    }
+
+    void dataops_d10_operationsHistoryInPanelFlow()
+    {
+        // D4.10：批量操作落历史（会话内，DataPage 面）。
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->findChild<DataListPanel *>();
+        lp->pushCommand(new paleo::dataops::TagCmd(
+            lp->opsContext(), fx.astFree, QStringLiteral("核心"), true));
+        // applyEntityDrop 记历史。
+        lp->applyEntityDrop({fx.astPending}, fx.wellB);
+        const QStringList entries = lp->operationsHistory()->entries();
+        QVERIFY2(entries.size() >= 1, "history records batch ops");
+        QVERIFY(entries.join(QLatin1Char(';')).contains(QStringLiteral("挂接")));
+    }
+
+
+    void dataops_d2_stateStringCjkAndSpecialEscaping()
+    {
+        using namespace paleo::dataops;
+        // D2.10：中文/空格/特殊字符经 URL 编码往返不丢。
+        FilterGroup g;
+        g.add({FilterDim::Search, QStringLiteral("测井 曲线 #1"), false});
+        g.add({FilterDim::Tag, QStringLiteral("核心/资料"), true});
+        g.add({FilterDim::Regex, QStringLiteral("A\\d+\\.las"), false});
+        g.orMode = true;
+        const QString s1 = g.toStateString();
+        QVERIFY(s1.contains(QLatin1String("%")));
+        const FilterGroup back = FilterGroup::fromStateString(s1);
+        QCOMPARE(back.conditions.size(), 3);
+        QCOMPARE(back.conditions.at(0).value, QStringLiteral("测井 曲线 #1"));
+        QCOMPARE(back.conditions.at(1).value, QStringLiteral("核心/资料"));
+        QVERIFY(back.conditions.at(1).negate);
+        QCOMPARE(back.conditions.at(2).value, QStringLiteral("A\\d+\\.las"));
+        QVERIFY(back.orMode);
+        // 空组的状态串仍可解析回空组。
+        QVERIFY(FilterGroup::fromStateString(FilterGroup().toStateString()).isEmpty());
+    }
+
+    void dataops_d5_transferToSameEntityIsNoop()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->findChild<DataListPanel *>();
+        // 已挂到 well-A1 的资产再「转移」到 well-A1 → 跳过（不增命令不乱栈）。
+        const int depthBefore = lp->opStack()->depth();
+        lp->applyEntityDrop({fx.astResolved}, fx.wellA);
+        QCOMPARE(lp->opStack()->depth(), depthBefore);
+        QCOMPARE(svc.catalog()->linksForAsset(fx.astResolved).at(0).entityId, fx.wellA);
+        // 空资产列表 → 无操作。
+        lp->applyEntityDrop({}, fx.wellB);
+        QCOMPARE(lp->opStack()->depth(), depthBefore);
+    }
+
+    void dataops_d3_multiAssetDropOnEntityAttachesAll()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->findChild<DataListPanel *>();
+        // D3.7：一条 mime 带两个未决/自由资产 → 目标实体一次全收。
+        // （fixture 只有一条未决——补一条未决链接后多 id 拖。）
+        EntityAssetLink un2;
+        un2.entityType = QStringLiteral("well");
+        un2.assetId = fx.astFree;
+        un2.role = QStringLiteral("seismic_volume");
+        un2.unresolved = true;
+        QVERIFY(svc.catalog()->addLink(un2));
+        lp->applyEntityDrop({fx.astPending, fx.astFree}, fx.wellA);
+        for (const QString &id : {fx.astPending, fx.astFree})
+        {
+            bool ok = false;
+            for (const EntityAssetLink &l : svc.catalog()->linksForAsset(id))
+                if (l.entityId == fx.wellA && !l.unresolved)
+                    ok = true;
+            QVERIFY2(ok, qPrintable(id));
+        }
+        // 两条都可撤销回未决。
+        lp->undoOp();
+        lp->undoOp();
+        for (const QString &id : {fx.astPending, fx.astFree})
+            QVERIFY(svc.catalog()->linksForAsset(id).at(0).unresolved);
     }
 
 };

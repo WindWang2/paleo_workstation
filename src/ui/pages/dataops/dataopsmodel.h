@@ -156,6 +156,10 @@ public:
     const QString t = tag.trimmed();
     if (t.isEmpty() || t.size() > 40)
       return false;
+    // 控制字符拒（标签会进 sidecar 键值与 UI chip 文案）。
+    for (const QChar &ch : t)
+      if (ch.category() == QChar::Other_Control || ch.category() == QChar::Other_Format)
+        return false;
     QStringList &list = m_tags[assetId];
     if (list.contains(t, Qt::CaseInsensitive))
       return false;

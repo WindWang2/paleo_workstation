@@ -1944,7 +1944,10 @@ void DataListPanel::buildDataOpsUi()
             applyListFilter();
             refreshChipBar();
           });
-  connect(m_tagCloud, &TagCloudWidget::tagClicked, this, [this](const QString &t, bool on) {
+  connect(m_tagCloud, &TagCloudWidget::tagClicked, this, [this](const QString &t, bool) {
+    // 开关态由处理器现算（点击的 chip 可能在重建 deleteLater 队列里——
+    // 其捕获的 active 态不作真相源）。
+    const bool on = m_activeTag != t;
     m_activeTag = on ? t : QString();
     applyListFilter();
     refreshTagCloud();
@@ -2317,17 +2320,54 @@ void DataListPanel::pushCommand(paleo::dataops::DataOpCommand *cmd)
 void DataListPanel::syncLegacyControlsIntoFilter()
 {
   using namespace paleo::dataops;
-  const auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
-  const auto *typeFilter = findChild<QComboBox *>(QStringLiteral("assetTypeFilter"));
-  const QString needle = search ? search->text().trimmed() : QString();
-  const QString type = typeFilter ? typeFilter->currentData().toString() : QString();
-  // Search/Type 维度由旧控件持有（兼容面）：每次应用前以控件值替换这两个维度。
-  m_filter.clearDim(FilterDim::Search);
-  if (!needle.isEmpty())
-    m_filter.conditions.prepend({FilterDim::Search, needle, false});
-  m_filter.clearDim(FilterDim::Type);
-  if (!type.isEmpty())
-    m_filter.conditions.prepend({FilterDim::Type, type, false});
+  // Search/Type 两维有双输入面：旧控件（assetSearchEdit/assetTypeFilter，
+  // 兼容面）与 FilterBar/预设/状态串。reconcile 双向：
+  //   1) FilterGroup 已有该维条件 → 写回旧控件（镜像一致）；
+  //   2) 控件有值而条件缺 → 从控件带入条件。
+  // 旧测试（直接打字/选类型）与新路径（FilterBar/预设/状态串）互不覆盖。
+  auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
+  auto *typeFilter = findChild<QComboBox *>(QStringLiteral("assetTypeFilter"));
+  const auto condValue = [this](FilterDim d) {
+    for (const FilterCondition &c : m_filter.conditions)
+      if (c.dim == d && !c.negate)
+        return c.value;
+    return QString();
+  };
+  if (search)
+  {
+    const QString inFilter = condValue(FilterDim::Search);
+    if (!inFilter.isEmpty() && inFilter != search->text().trimmed())
+    {
+      const QSignalBlocker b(search);
+      search->setText(inFilter);
+    }
+    else if (inFilter.isEmpty() && !search->text().trimmed().isEmpty())
+    {
+      m_filter.clearDim(FilterDim::Search);
+      m_filter.conditions.prepend(
+          {FilterDim::Search, search->text().trimmed(), false});
+    }
+    else if (inFilter.isEmpty() && search->text().trimmed().isEmpty())
+      m_filter.clearDim(FilterDim::Search);
+  }
+  if (typeFilter)
+  {
+    const QString inFilter = condValue(FilterDim::Type);
+    const QString combo = typeFilter->currentData().toString();
+    if (!inFilter.isEmpty() && inFilter != combo)
+    {
+      const QSignalBlocker b(typeFilter);
+      const int idx = typeFilter->findData(inFilter);
+      typeFilter->setCurrentIndex(idx >= 0 ? idx : 0);
+    }
+    else if (inFilter.isEmpty() && !combo.isEmpty())
+    {
+      m_filter.clearDim(FilterDim::Type);
+      m_filter.conditions.prepend({FilterDim::Type, combo, false});
+    }
+    else if (inFilter.isEmpty() && combo.isEmpty())
+      m_filter.clearDim(FilterDim::Type);
+  }
 }
 
 void DataListPanel::applyFilterGroup(const paleo::dataops::FilterGroup &g)

@@ -284,6 +284,10 @@ add_library(paleo_qgis STATIC
   src/qgis/factorstylewriter.cpp                    # m2(B)：单因素色带 .qml 落盘
   src/qgis/factorcontour.cpp                        # m2(B)：等值线 GDAL C API
   src/qgis/qgislayerprofile.cpp                     # 页面档案：QgsMapThemeCollection 封装 + 组档案表
+  src/qgis/previewmapcanvas.cpp                     # P2 D1.1 预览画布封装（私有层容器+CRS+历史栈+渐进渲染）
+  src/qgis/previewmaptools.cpp                      # P2 D1.2 预览工具注册表（量测/identify/剖面线）
+  src/qgis/previewrasteranalysis.cpp                # P2 D2.2/D5.x 预览栅格分析（统计/拉伸/直方图/剖面/极值）
+  src/qgis/previewidentify.cpp                      # P2 D7 identify 查询核心（空间索引缓存+栅格插值）
 )
 target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_store paleo_algorithms)
 

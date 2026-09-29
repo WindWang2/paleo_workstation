@@ -582,6 +582,12 @@ void PaleoMainWindow::buildShell()
         m_layerSvc, m_leftDock);
     m_profileSvc->setLayerTreeModel(m_layerPanel->layerTreeModel());
     m_profileBar = new LayerProfileBar(m_profileSvc, m_leftDock);
+    // 主题应用失败等面板内提示落到状态栏（用户可见反馈回路）。
+    connect(m_profileBar, &LayerProfileBar::statusMessage, this,
+            [this](const QString &text) {
+              if (statusBar())
+                statusBar()->showMessage(text, 8000);
+            });
     connect(m_layerPanel, &LayerTreePanel::propertiesRequested, m_layerProps,
             &LayerPropertiesDialog::openLayerProperties);
     connect(m_layerPanel, &LayerTreePanel::mappingPageRequested, this,

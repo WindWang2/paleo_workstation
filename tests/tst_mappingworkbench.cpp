@@ -230,6 +230,13 @@ private slots:
     QVERIFY2(!draft.isEmpty(), qPrintable(error));
     auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
     QVERIFY(layer);
+    QVERIFY(f.work.setLabelMode(draft, 0, &error));
+    QVERIFY(!layer->labelsEnabled());
+    f.work.styleLayer(draft);
+    QVERIFY(!layer->labelsEnabled());
+    QCOMPARE(f.work.labelMode(draft), 0);
+    QVERIFY(f.work.setLabelMode(draft, 3, &error));
+    QVERIFY(layer->labelsEnabled());
     auto rows = f.work.wellPredictions(draft);
     const auto well = rows[0].toMap();
     const auto wellId = well.value("id").toString();

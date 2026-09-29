@@ -144,7 +144,7 @@ private:
     // 把 m_slice.values 的 [x0,x0+w)×[y0,y0+h) 区域按当前色标/增益写入
     // m_cachedImage（瓦片流与整图重建共用一条上色路径）。
     void paintValueRegion(int x0, int y0, int w, int h);
-    void updateHoverInfo(const QPoint &pos);
+    void updateHoverInfo(const QPoint &pos, bool clicked = false);
     QRect viewportRect() const;
 
     // Data storage
@@ -192,6 +192,8 @@ private:
 
     // Interaction state
     bool m_isPanning = false;
+    QPoint m_pressPos;
+    bool m_dragged = false;
     QPoint m_lastMousePos;
     QPoint m_currentMousePos;
     bool m_hasHover = false;

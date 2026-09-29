@@ -1,8 +1,9 @@
 // 层：功能
 #include "seismicmaplink.h"
+#include "domain/seismic/sgycoordinatemapper.h"
+#include "domain/seismic/sgyvolume.h"
 #include "seismicsectiontool.h"
 #include "selectioncontext.h"
-#include "domain/seismic/sgyvolume.h"
 
 #include <QSignalBlocker>
 #include <cmath>
@@ -95,6 +96,24 @@ void SeismicMapLink::setGridGeometry(const SurveyGridGeometry &geom)
 void SeismicMapLink::setActiveVolume(std::shared_ptr<const seismic::SgyVolume> volume)
 {
   m_volume = volume;
+  m_gridGeom = {};
+  if (volume && volume->Index()) {
+    const auto mapper = seismic::SgyCoordinateMapper::Fit(*volume->Index());
+    if (mapper.valid()) {
+      const auto &f = mapper.fit();
+      m_gridGeom.valid = true;
+      m_gridGeom.a = f.b;
+      m_gridGeom.b = f.a;
+      m_gridGeom.c = f.e;
+      m_gridGeom.d = f.d;
+      m_gridGeom.p1x = f.c;
+      m_gridGeom.p1y = f.f;
+      m_gridGeom.inlineMin = volume->InlineMin();
+      m_gridGeom.inlineMax = volume->InlineMax();
+      m_gridGeom.xlineMin = volume->XlineMin();
+      m_gridGeom.xlineMax = volume->XlineMax();
+    }
+  }
   emit sectionVolumeChanged(volume);
 }
 
@@ -126,17 +145,32 @@ void SeismicMapLink::triggerSectionFromMapPolyline(const QVector<QgsPointXY> &ma
     return;
   }
 
+  if (m_canvas && m_canvas->mapSettings().destinationCrs().isGeographic()) {
+    emit sectionExtractedFromMap(
+        false,
+        tr("当前地图使用经纬度，请先切换到与井口及地震一致的米制坐标系"));
+    return;
+  }
   std::vector<glm::ivec2> pathPoints;
   std::vector<glm::dvec2> mapPolyline;
   for (const auto &pt : mapPoints)
   {
     int inl = 0, xl = 0;
     QString reason;
-    if (m_gridGeom.xyToInlineXline(pt.x(), pt.y(), &inl, &xl, &reason))
-    {
-      pathPoints.push_back({inl, xl});
-      mapPolyline.push_back({pt.x(), pt.y()});
+    if (!std::isfinite(pt.x()) || !std::isfinite(pt.y()) ||
+        !m_gridGeom.xyToInlineXline(pt.x(), pt.y(), &inl, &xl, &reason)) {
+      emit sectionExtractedFromMap(
+          false,
+          tr("节点位于地震范围外，保留完整路径后请重新绘制：%1").arg(reason));
+      return;
     }
+    if (!pathPoints.empty() && pathPoints.back() == glm::ivec2(inl, xl))
+      continue;
+    pathPoints.push_back({inl, xl});
+    // The extractor uses the snapped grid path, so overlays use that same path.
+    double x, y;
+    m_gridGeom.inlineXlineToXy(inl, xl, &x, &y);
+    mapPolyline.push_back({x, y});
   }
 
   if (pathPoints.size() < 2)
@@ -184,8 +218,7 @@ void SeismicMapLink::onSectionTraceHovered(
   if (!m_canvas)
     return;
 
-  if (std::abs(mapX) < 1e-4 && std::abs(mapY) < 1e-4)
-  {
+  if (!std::isfinite(mapX) || !std::isfinite(mapY)) {
     if (m_cursorMarker)
       m_cursorMarker->hide();
     return;
@@ -210,8 +243,7 @@ void SeismicMapLink::onSectionTraceClicked(
   if (!m_canvas)
     return;
 
-  if (std::abs(mapX) > 1e-4 || std::abs(mapY) > 1e-4)
-  {
+  if (std::isfinite(mapX) && std::isfinite(mapY)) {
     m_canvas->setCenter(QgsPointXY(mapX, mapY));
     m_canvas->refresh();
   }

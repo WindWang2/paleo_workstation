@@ -207,6 +207,16 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   actions->addWidget(m_editFacies, 4, 0);
   actions->addWidget(button("assignFacies", tr("应用到地图选中要素")), 4, 1);
   layout->addLayout(actions);
+  auto *labelMode = new QComboBox(body);
+  labelMode->setObjectName("faciesLabelMode");
+  labelMode->addItems({tr("隐藏标注"), tr("井名 / 要素序号"), tr("相名称"),
+                       tr("井名 / 序号 ＋ 相名称")});
+  labelMode->setCurrentIndex(3);
+  auto *labelRow = new QHBoxLayout;
+  labelRow->addWidget(new QLabel(tr("画布文本标注"), body));
+  labelRow->addWidget(labelMode, 1);
+  layout->addLayout(labelRow);
+  layout->addWidget(button("labels", tr("应用标注到选中图件")));
   m_details = label(tr("选择图件查看来源、生成参数和文件位置。"));
   m_details->setTextInteractionFlags(Qt::TextSelectableByMouse);
   m_details->setObjectName("workbenchDetails");
@@ -411,8 +421,8 @@ void MappingWorkbenchPage::refresh() {
   refreshInputs();
   updateState();
 }
-void MappingWorkbenchPage::showMessage(const QString &s) {
-  m_message->setText(s);
+void MappingWorkbenchPage::showMessage(const QString &message) {
+  m_message->setText(message);
 }
 void MappingWorkbenchPage::updateState() {
   const bool horizon = !m_horizon.isEmpty();
@@ -420,6 +430,11 @@ void MappingWorkbenchPage::updateState() {
                        ? m_results->currentItem()->data(0, Qt::UserRole).toMap()
                        : QVariantMap();
   const bool selected = !row.isEmpty();
+  if (auto *labels = findChild<QComboBox *>("faciesLabelMode")) {
+    const QSignalBlocker block(labels);
+    labels->setCurrentIndex(m_workbench->labelMode(selectedLayer()));
+    labels->setEnabled(selected && row.value("type") == "vector");
+  }
   auto gate = [this](const QString &name, bool enabled, const QString &reason) {
     if (auto *b = commandButton(name)) {
       b->setEnabled(enabled);
@@ -460,6 +475,9 @@ void MappingWorkbenchPage::updateState() {
   gate("welltracks",
        selected && !m_workbench->wellPredictions(selectedLayer()).isEmpty(),
        tr("选择包含井段的测井相预测或修订结果"));
+  gate("labels",
+       selected && row.value("type") == "vector" && !selectedSchema.isEmpty(),
+       tr("请选择矢量相面或测井相点图"));
   gate("show", selected, tr("请先选择图件"));
   gate("compare", selected, tr("请先选择图件"));
   gate("polygonize",
@@ -491,6 +509,8 @@ void MappingWorkbenchPage::updateState() {
   }
 }
 void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
+  if (action == "labels")
+    p["label_mode"] = findChild<QComboBox *>("faciesLabelMode")->currentIndex();
   p.insert("horizon", m_horizon);
   p.insert("layer", selectedLayer());
   p.insert("inputs", action == "copy" && m_mode != "compose" ? QStringList()

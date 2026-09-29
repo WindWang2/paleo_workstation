@@ -958,6 +958,25 @@ bool MappingWorkbench::generateContours(const QString &h, const QString &id,
     m_project->writeProject();
   return true;
 }
+int MappingWorkbench::labelMode(const QString &id) const {
+  return m_project && m_project->project()
+             ? m_project->project()->readNumEntry("paleo/faciesLabels", id, 3)
+             : 3;
+}
+bool MappingWorkbench::setLabelMode(const QString &id, int mode,
+                                    QString *error) {
+  auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->instantiate(id));
+  if (!layer || layer->fields().indexOf("facies_code") < 0 || mode < 0 ||
+      mode > 3) {
+    fail(error, tr("请选择井相点图或矢量相面；栅格请先转为相面。"));
+    return false;
+  }
+  MappingArtifactWriter::applyFaciesLabels(layer, mode);
+  if (m_project && m_project->project())
+    m_project->project()->writeEntry("paleo/faciesLabels", id, mode);
+  emit changed();
+  return true;
+}
 void MappingWorkbench::styleLayer(const QString &id) {
   const auto v = versionForLayer(id);
   if (!v.extra.value("mapping_product").toBool())
@@ -990,8 +1009,10 @@ void MappingWorkbench::styleLayer(const QString &id) {
     return;
   MappingArtifactWriter::applyFaciesStyle(layer,
                                           v.extra.value("facies").toList());
-  if (auto *vector = qobject_cast<QgsVectorLayer *>(layer))
+  if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {
+    MappingArtifactWriter::applyFaciesLabels(vector, labelMode(id));
     vector->setReadOnly(!id.startsWith("draft."));
+  }
 }
 
 QString MappingWorkbench::compose(const QString &h, const QStringList &ids,

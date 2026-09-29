@@ -23,6 +23,10 @@
 #include <qgsvectorfilewriter.h>
 #include <qgsvectorlayer.h>
 
+#include <qgspallabeling.h>
+#include <qgstextbuffersettings.h>
+#include <qgstextformat.h>
+#include <qgsvectorlayerlabeling.h>
 namespace MappingArtifactWriter {
 void restoreRasterCrs(QgsMapLayer *layer) {
   auto *raster = qobject_cast<QgsRasterLayer *>(layer);
@@ -234,6 +238,56 @@ bool syncFaciesAttributes(QgsVectorLayer *layer, const QVariantList &facies,
   }
   return true;
 }
+void applyFaciesLabels(QgsVectorLayer *layer, int mode) {
+  if (!layer || (layer->geometryType() != Qgis::GeometryType::Polygon &&
+                 layer->geometryType() != Qgis::GeometryType::Point))
+    return;
+  mode = std::clamp(mode, 0, 3);
+  layer->setCustomProperty("paleo/faciesLabelMode", mode);
+  if (!mode) {
+    layer->setLabelsEnabled(false);
+    layer->triggerRepaint();
+    return;
+  }
+  auto field = [layer](const QString &name) {
+    return layer->fields().indexOf(name) < 0
+               ? QStringLiteral("NULL")
+               : QStringLiteral("nullif(trim(to_string(%1)), '')")
+                     .arg(QgsExpression::quotedColumnRef(name));
+  };
+  const QString identifier =
+      QStringLiteral("coalesce(%1, %2, %3, to_string($id))")
+          .arg(field("name"), field("id"), field("fid"));
+  const QString facies =
+      QStringLiteral("coalesce(%1, %2, %3, %4, %5)")
+          .arg(field("facies_label"), field("microfacies"), field("subfacies"),
+               field("facies_name"),
+               QgsExpression::quotedString(QObject::tr("其他 / 未分类")));
+  QgsPalLayerSettings settings;
+  settings.isExpression = true;
+  settings.fieldName =
+      mode == 1   ? identifier
+      : mode == 2 ? facies
+                  : QStringLiteral("%1 || '\n' || %2").arg(identifier, facies);
+  settings.placement = layer->geometryType() == Qgis::GeometryType::Point
+                           ? Qgis::LabelPlacement::OrderedPositionsAroundPoint
+                           : Qgis::LabelPlacement::OverPoint;
+  QgsTextFormat format;
+  format.setFont(QFont(QStringLiteral("Noto Sans SC"), 9));
+  format.setSize(9);
+  format.setSizeUnit(Qgis::RenderUnit::Points);
+  format.setColor(QColor("#24303E"));
+  QgsTextBufferSettings buffer;
+  buffer.setEnabled(true);
+  buffer.setSize(.8);
+  buffer.setColor(Qt::white);
+  format.setBuffer(buffer);
+  settings.setFormat(format);
+  layer->setLabeling(new QgsVectorLayerSimpleLabeling(settings));
+  layer->setLabelsEnabled(true);
+  layer->triggerRepaint();
+}
+
 void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
   if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {
     if (vector->fields().indexOf("facies_code") < 0)
@@ -302,6 +356,8 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
     }
     vector->setRenderer(
         new QgsCategorizedSymbolRenderer("facies_code", categories));
+    applyFaciesLabels(
+        vector, vector->customProperty("paleo/faciesLabelMode", 3).toInt());
     const QStringList names{"facies_code", "facies_name",  "subfacies",
                             "microfacies", "facies_label", "texture"};
     const QStringList labels{QObject::tr("相编码"),   QObject::tr("相"),

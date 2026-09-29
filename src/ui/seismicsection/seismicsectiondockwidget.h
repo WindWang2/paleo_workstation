@@ -1,13 +1,16 @@
 // 层：视图
 #pragma once
 
-#include <QDockWidget>
-#include <QLabel>
-#include <QToolButton>
+#include "services/paleotaskservice.h"
+#include "services/seismictaskservice.h"
 #include <QComboBox>
-#include <QSlider>
+#include <QDockWidget>
 #include <QDoubleSpinBox>
+#include <QLabel>
+#include <QPointer>
 #include <QProgressBar>
+#include <QSlider>
+#include <QToolButton>
 #include <memory>
 
 #include "ui/seismicsection/seismicsectioncanvas.h"
@@ -31,6 +34,12 @@ public:
                         const std::vector<float> &columnDistancesM = {},
                         const std::vector<glm::dvec2> &mapCoords = {});
 
+    void setTimeOriginMs(double value) { m_timeOriginMs = value; }
+    void setTaskService(SeismicTaskService *service) {
+      m_taskService = service;
+    }
+    void refreshWellOverlay(const std::vector<SectionWellInfo> &wells);
+    bool hasRoute() const { return !m_route.empty(); }
     void setWells(const std::vector<SectionWellInfo> &wells);
     void setTimeDepthModel(const TimeDepthModel &model);
     void setLineTitle(const QString &title);
@@ -50,8 +59,9 @@ public:
         const std::vector<SectionWellInfo> &candidateWells = {});
 
 signals:
-    void sectionExtractionFinished(bool success, const QString &message);
-    void pointClickedOnMap(double x, double y);
+  void setupRequested();
+  void sectionExtractionFinished(bool success, const QString &message);
+  void pointClickedOnMap(double x, double y);
 
 private slots:
     void onZoomChanged(double zoom);
@@ -65,9 +75,12 @@ private:
 
     SeismicSectionCanvas *m_canvas = nullptr;
     std::shared_ptr<const SgyVolume> m_volume;
-    bool m_isExtractingSlice = false;
-    int m_pendingSliceIndex = -1;
-    SgySliceType m_pendingSliceType = SgySliceType::Inline;
+    SeismicTaskService *m_taskService = nullptr;
+    QPointer<PaleoTask> m_extraction;
+    quint64 m_generation = 0;
+    double m_timeOriginMs = 0;
+    std::vector<glm::dvec2> m_route;
+    std::vector<float> m_distances;
 
     // Toolbar widgets
     QLabel *m_lblTitle = nullptr;

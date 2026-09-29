@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <path d="M 5,15 Q 35,8 70,15 T 135,15" fill="none" stroke="#666" stroke-width="1.5"/>
+  <path d="M 5,30 Q 35,23 70,30 T 135,30" fill="none" stroke="#666" stroke-width="1.5"/>
+  <path d="M 5,45 Q 35,38 70,45 T 135,45" fill="none" stroke="#666" stroke-width="1.5"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">波状层理</text>
+</svg>

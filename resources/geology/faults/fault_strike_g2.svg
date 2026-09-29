@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <line x1="5" y1="35" x2="135" y2="35" stroke="#D71414" stroke-width="2" />
+  <polygon points="35.0,38 40.0,43 45.0,38" fill="#D71414"/><polygon points="35.0,32 40.0,27 45.0,32" fill="#D71414"/><polygon points="75.0,38 80.0,43 85.0,38" fill="#D71414"/><polygon points="75.0,32 80.0,27 85.0,32" fill="#D71414"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">二级平推断层</text>
+</svg>

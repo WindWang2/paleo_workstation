@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 70" width="120" height="70">
+  <rect width="120" height="70" fill="#fff"/>
+  <line x1="5" y1="35" x2="115" y2="35" stroke="#D71414" stroke-width="1.5" />
+  <path d="M 30,45 Q 35,40 40,45 Q 45,50 50,45" fill="none" stroke="#D71414" stroke-width="1"/>
+  <path d="M 60,45 Q 65,40 70,45 Q 75,50 80,45" fill="none" stroke="#D71414" stroke-width="1"/>
+  <path d="M 90,45 Q 95,40 100,45 Q 105,50 110,45" fill="none" stroke="#D71414" stroke-width="1"/>
+  <text x="60" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">地层剥蚀线</text>
+</svg>

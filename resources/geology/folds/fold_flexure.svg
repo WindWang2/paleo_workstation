@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 70" width="160" height="70">
+  <rect width="160" height="70" fill="#fff"/>
+  <path d="M 5,45 Q 40,15 80,45 Q 120,75 155,45" fill="none" stroke="#C87830" stroke-width="2"/>
+  <text x="80" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">挠曲</text>
+</svg>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 70" width="120" height="70">
+  <rect width="120" height="70" fill="#fff"/>
+  <line x1="5" y1="30" x2="115" y2="30" stroke="#333" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <line x1="5" y1="40" x2="115" y2="40" stroke="#333" stroke-width="1" stroke-dasharray="5,3"/>
+  <text x="60" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">推测不整合界线</text>
+</svg>

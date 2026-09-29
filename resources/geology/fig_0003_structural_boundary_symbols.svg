@@ -1,0 +1,347 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1400" width="1400" height="1400">
+  <defs>
+    <style>
+      .title { font-family: SimHei, Microsoft YaHei, sans-serif; font-size: 20px; font-weight: bold; fill: #1a1a1a; }
+      .subtitle { font-family: SimSun, serif; font-size: 13px; fill: #666; }
+      .category { font-family: SimHei, Microsoft YaHei, sans-serif; font-size: 15px; font-weight: bold; fill: #1a6b3c; }
+      .label { font-family: SimSun, serif; font-size: 12px; fill: #1a1a1a; }
+      .code { font-family: Arial, sans-serif; font-size: 10px; fill: #888; }
+      .desc { font-family: SimSun, serif; font-size: 11px; fill: #444; }
+      .remark { font-family: SimSun, serif; font-size: 10px; fill: #999; }
+      .cell-border { fill: none; stroke: #ccc; stroke-width: 0.5; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="1400" fill="#fafafa"/>
+
+  <!-- Title -->
+  <text x="700" y="35" text-anchor="middle" class="title">区域和局部构造界线符号库</text>
+  <text x="700" y="55" text-anchor="middle" class="subtitle">Regional &amp; Local Structural Boundary Symbol Library — Q/HS 1011—2016 附录 I.2 (表 I.2)</text>
+
+  <!-- ========== 盆地边界 Basin Boundaries ========== -->
+  <text x="20" y="85" class="category">一、盆地边界 (Basin Boundaries)</text>
+  <rect x="15" y="88" width="1370" height="100" class="cell-border"/>
+
+  <text x="30" y="115" class="label">盆地边界线</text>
+  <text x="30" y="130" class="desc">Basin Boundary Line</text>
+  <text x="30" y="143" class="code">PDJX-B2-1H/C</text>
+  <text x="350" y="130" class="remark">粗实线，绿色 #008000</text>
+  <g transform="translate(250, 100)">
+    <line x1="0" y1="15" x2="150" y2="15" stroke="#008000" stroke-width="3"/>
+  </g>
+
+  <text x="600" y="115" class="label">推测盆地边界线</text>
+  <text x="600" y="130" class="desc">Inferred Basin Boundary</text>
+  <text x="600" y="143" class="code">PDJX-B2-2H/C</text>
+  <text x="920" y="130" class="remark">粗虚线，绿色</text>
+  <g transform="translate(820, 100)">
+    <line x1="0" y1="15" x2="150" y2="15" stroke="#008000" stroke-width="3" stroke-dasharray="12,6"/>
+  </g>
+
+  <!-- ========== 超覆线 Overlap Lines ========== -->
+  <text x="20" y="200" class="category">二、超覆线 (Overlap Lines)</text>
+  <rect x="15" y="203" width="1370" height="110" class="cell-border"/>
+
+  <text x="30" y="230" class="label">地层超覆线</text>
+  <text x="30" y="245" class="desc">Stratigraphic Overlap Line</text>
+  <text x="30" y="258" class="code">CFX-B2-3H/C</text>
+  <text x="350" y="245" class="remark">带箭头的红色线，箭头指向超覆方向</text>
+  <g transform="translate(250, 215)">
+    <line x1="0" y1="15" x2="120" y2="15" stroke="#D71414" stroke-width="1.5"/>
+    <polygon points="115,10 125,15 115,20" fill="#D71414"/>
+    <!-- tick marks -->
+    <line x1="20" y1="8" x2="20" y2="22" stroke="#D71414" stroke-width="0.8"/>
+    <line x1="50" y1="8" x2="50" y2="22" stroke="#D71414" stroke-width="0.8"/>
+    <line x1="80" y1="8" x2="80" y2="22" stroke="#D71414" stroke-width="0.8"/>
+  </g>
+
+  <text x="600" y="230" class="label">推测地层超覆线</text>
+  <text x="600" y="245" class="desc">Inferred Overlap Line</text>
+  <text x="600" y="258" class="code">CFX-B2-4H/C</text>
+  <text x="920" y="245" class="remark">虚线+箭头</text>
+  <g transform="translate(820, 215)">
+    <line x1="0" y1="15" x2="120" y2="15" stroke="#D71414" stroke-width="1.5" stroke-dasharray="6,4"/>
+    <polygon points="115,10 125,15 115,20" fill="#D71414"/>
+    <line x1="20" y1="8" x2="20" y2="22" stroke="#D71414" stroke-width="0.8"/>
+    <line x1="50" y1="8" x2="50" y2="22" stroke="#D71414" stroke-width="0.8"/>
+    <line x1="80" y1="8" x2="80" y2="22" stroke="#D71414" stroke-width="0.8"/>
+  </g>
+
+  <!-- ========== 尖灭线 Pinchout Lines ========== -->
+  <text x="20" y="325" class="category">三、尖灭线 (Pinchout Lines)</text>
+  <rect x="15" y="328" width="1370" height="110" class="cell-border"/>
+
+  <text x="30" y="355" class="label">地层尖灭线</text>
+  <text x="30" y="370" class="desc">Stratigraphic Pinchout Line</text>
+  <text x="30" y="383" class="code">JMX-B2-5H/C</text>
+  <text x="350" y="370" class="remark">歼灭区和侵蚀区，带箭头</text>
+  <g transform="translate(250, 340)">
+    <line x1="0" y1="15" x2="120" y2="15" stroke="#D71414" stroke-width="1.5"/>
+    <polygon points="115,10 125,15 115,20" fill="#D71414"/>
+    <!-- V-shaped ticks pointing toward land -->
+    <polyline points="20,10 25,15 20,20" fill="none" stroke="#D71414" stroke-width="0.8"/>
+    <polyline points="50,10 55,15 50,20" fill="none" stroke="#D71414" stroke-width="0.8"/>
+    <polyline points="80,10 85,15 80,20" fill="none" stroke="#D71414" stroke-width="0.8"/>
+  </g>
+
+  <text x="600" y="355" class="label">推测地层尖灭线</text>
+  <text x="600" y="370" class="desc">Inferred Pinchout Line</text>
+  <text x="600" y="383" class="code">JMX-B2-6H/C</text>
+  <text x="920" y="370" class="remark">虚线+箭头</text>
+  <g transform="translate(820, 340)">
+    <line x1="0" y1="15" x2="120" y2="15" stroke="#D71414" stroke-width="1.5" stroke-dasharray="6,4"/>
+    <polygon points="115,10 125,15 115,20" fill="#D71414"/>
+    <polyline points="20,10 25,15 20,20" fill="none" stroke="#D71414" stroke-width="0.8"/>
+    <polyline points="50,10 55,15 50,20" fill="none" stroke="#D71414" stroke-width="0.8"/>
+  </g>
+
+  <!-- ========== 剥蚀线 Erosion Lines ========== -->
+  <text x="20" y="450" class="category">四、剥蚀线 (Erosion Lines)</text>
+  <rect x="15" y="453" width="1370" height="110" class="cell-border"/>
+
+  <text x="30" y="480" class="label">地层剥蚀线</text>
+  <text x="30" y="495" class="desc">Stratigraphic Erosion Line</text>
+  <text x="30" y="508" class="code">BSX-B2-7H/C</text>
+  <text x="350" y="495" class="remark">带波浪形符号</text>
+  <g transform="translate(250, 465)">
+    <line x1="0" y1="15" x2="120" y2="15" stroke="#D71414" stroke-width="1.5"/>
+    <!--波浪形侵蚀符号-->
+    <path d="M 20,25 Q 25,20 30,25 Q 35,30 40,25" fill="none" stroke="#D71414" stroke-width="1"/>
+    <path d="M 50,25 Q 55,20 60,25 Q 65,30 70,25" fill="none" stroke="#D71414" stroke-width="1"/>
+    <path d="M 80,25 Q 85,20 90,25 Q 95,30 100,25" fill="none" stroke="#D71414" stroke-width="1"/>
+  </g>
+
+  <text x="600" y="480" class="label">推测剥蚀线</text>
+  <text x="600" y="495" class="desc">Inferred Erosion Line</text>
+  <text x="600" y="508" class="code">BSX-B2-8H/C</text>
+  <text x="920" y="495" class="remark">虚线+波浪</text>
+  <g transform="translate(820, 465)">
+    <line x1="0" y1="15" x2="120" y2="15" stroke="#D71414" stroke-width="1.5" stroke-dasharray="6,4"/>
+    <path d="M 20,25 Q 25,20 30,25 Q 35,30 40,25" fill="none" stroke="#D71414" stroke-width="1"/>
+    <path d="M 50,25 Q 55,20 60,25 Q 65,30 70,25" fill="none" stroke="#D71414" stroke-width="1"/>
+  </g>
+
+  <text x="600" y="540" class="label">砂体</text>
+  <text x="600" y="555" class="desc">Sand Body (supplementary symbol)</text>
+  <text x="600" y="568" class="code">BSX-B2-9C</text>
+  <text x="920" y="555" class="remark">补充符号</text>
+  <g transform="translate(820, 535)">
+    <rect x="0" y="5" width="60" height="20" fill="#FFD700" stroke="#D71414" stroke-width="1"/>
+  </g>
+
+  <!-- ========== 构造分区线 Structural Zone Lines ========== -->
+  <text x="20" y="575" class="category">五、构造分区线 (Structural Zone Lines)</text>
+  <rect x="15" y="578" width="1370" height="200" class="cell-border"/>
+
+  <text x="30" y="605" class="label">一级构造分区线</text>
+  <text x="30" y="620" class="desc">1st Grade Structural Zone Boundary</text>
+  <text x="30" y="633" class="code">GZQX-B2-10H/C</text>
+  <text x="350" y="620" class="remark">红色粗线</text>
+  <g transform="translate(250, 595)">
+    <line x1="0" y1="15" x2="150" y2="15" stroke="#D71414" stroke-width="3"/>
+  </g>
+
+  <text x="30" y="665" class="label">推测一级构造分区线</text>
+  <text x="30" y="680" class="desc">Inferred 1st Grade Zone Boundary</text>
+  <text x="30" y="693" class="code">GZQX-B2-11H/C</text>
+  <g transform="translate(250, 655)">
+    <line x1="0" y1="15" x2="150" y2="15" stroke="#D71414" stroke-width="3" stroke-dasharray="12,6"/>
+  </g>
+
+  <text x="600" y="605" class="label">二级构造分区线</text>
+  <text x="600" y="620" class="desc">2nd Grade Structural Zone Boundary</text>
+  <text x="600" y="633" class="code">GZQX-B2-12H/C</text>
+  <g transform="translate(820, 595)">
+    <line x1="0" y1="15" x2="150" y2="15" stroke="#D71414" stroke-width="2.5"/>
+  </g>
+
+  <text x="600" y="665" class="label">三级构造分区线</text>
+  <text x="600" y="680" class="desc">3rd Grade Structural Zone Boundary</text>
+  <text x="600" y="693" class="code">GZQX-B2-14H/C</text>
+  <text x="920" y="680" class="remark">绿色 #006900</text>
+  <g transform="translate(820, 655)">
+    <line x1="0" y1="15" x2="150" y2="15" stroke="#006900" stroke-width="2"/>
+  </g>
+
+  <text x="30" y="745" class="label">鼻状构造</text>
+  <text x="30" y="760" class="desc">Nose Structure</text>
+  <text x="30" y="773" class="code">GZQX-B2-16H/C</text>
+  <text x="350" y="760" class="remark">棕黄色 #C87830</text>
+  <g transform="translate(250, 735)">
+    <path d="M 0,30 Q 30,0 60,30" fill="#FFE2BC" stroke="#C87830" stroke-width="1.5"/>
+  </g>
+
+  <text x="600" y="745" class="label">断层鼻状构造</text>
+  <text x="600" y="760" class="desc">Faulted Nose Structure</text>
+  <text x="600" y="773" class="code">GZQX-B2-17H/C</text>
+  <g transform="translate(820, 735)">
+    <path d="M 0,30 Q 30,0 60,30" fill="#FFE2BC" stroke="#C87830" stroke-width="1.5"/>
+    <line x1="40" y1="20" x2="40" y2="40" stroke="#D71414" stroke-width="1.5"/>
+  </g>
+
+  <text x="30" y="825" class="label">半背斜构造</text>
+  <text x="30" y="840" class="desc">Half Anticline Structure</text>
+  <text x="30" y="853" class="code">GZQX-B2-18H/C</text>
+  <g transform="translate(250, 815)">
+    <path d="M 0,35 Q 40,5 80,35" fill="#FFE2BC" stroke="#C87830" stroke-width="1.5"/>
+    <line x1="80" y1="35" x2="80" y2="5" stroke="#D71414" stroke-width="1.5"/>
+  </g>
+
+  <text x="600" y="825" class="label">背斜构造</text>
+  <text x="600" y="840" class="desc">Anticline Structure</text>
+  <text x="600" y="853" class="code">GZQX-B2-19H/C</text>
+  <g transform="translate(820, 815)">
+    <path d="M 0,35 Q 40,5 80,35" fill="#FFE2BC" stroke="#C87830" stroke-width="1.5"/>
+    <path d="M 80,35 Q 120,5 150,35" fill="#FFE2BC" stroke="#C87830" stroke-width="1.5"/>
+  </g>
+
+  <!-- ========== 等值线 Contour Lines ========== -->
+  <text x="20" y="900" class="category">六、等值线 (Contour Lines)</text>
+  <rect x="15" y="903" width="1370" height="100" class="cell-border"/>
+
+  <text x="30" y="930" class="label">确定等值线</text>
+  <text x="30" y="945" class="desc">Definite Contour Line</text>
+  <text x="30" y="958" class="code">DZX-B2-20H/C</text>
+  <text x="350" y="945" class="remark">棕黄色 #C87830</text>
+  <g transform="translate(250, 920)">
+    <path d="M 0,15 Q 30,0 60,15 T 120,15" fill="none" stroke="#C87830" stroke-width="1.5"/>
+  </g>
+
+  <text x="600" y="930" class="label">推测等值线</text>
+  <text x="600" y="945" class="desc">Inferred Contour Line</text>
+  <text x="600" y="958" class="code">DZX-B2-21H/C</text>
+  <g transform="translate(820, 920)">
+    <path d="M 0,15 Q 30,0 60,15 T 120,15" fill="none" stroke="#C87830" stroke-width="1.5" stroke-dasharray="8,4"/>
+  </g>
+
+  <text x="30" y="990" class="label">拼图线</text>
+  <text x="30" y="1005" class="desc">Map Suture Line</text>
+  <text x="30" y="1018" class="code">DZX-B2-22H/C</text>
+  <text x="350" y="1005" class="remark">黑色</text>
+  <g transform="translate(250, 985)">
+    <line x1="0" y1="15" x2="150" y2="15" stroke="#333" stroke-width="1" stroke-dasharray="3,3"/>
+  </g>
+
+  <!-- ========== 地层界线 Stratigraphic Boundaries ========== -->
+  <text x="20" y="1025" class="category">七、地层界线 (Stratigraphic Boundaries)</text>
+  <rect x="15" y="1028" width="1370" height="160" class="cell-border"/>
+
+  <text x="30" y="1055" class="label">地层不整合界线</text>
+  <text x="30" y="1070" class="desc">Stratigraphic Unconformity Boundary</text>
+  <text x="30" y="1083" class="code">DCJX-B2-23H/C</text>
+  <g transform="translate(250, 1045)">
+    <line x1="0" y1="15" x2="120" y2="15" stroke="#333" stroke-width="2"/>
+    <line x1="0" y1="25" x2="120" y2="25" stroke="#333" stroke-width="1" stroke-dasharray="5,3"/>
+  </g>
+
+  <text x="600" y="1055" class="label">推测不整合界线</text>
+  <text x="600" y="1070" class="desc">Inferred Unconformity Boundary</text>
+  <text x="600" y="1083" class="code">DCJX-B2-24H/C</text>
+  <g transform="translate(820, 1045)">
+    <line x1="0" y1="15" x2="120" y2="15" stroke="#333" stroke-width="1.5" stroke-dasharray="6,4"/>
+    <line x1="0" y1="25" x2="120" y2="25" stroke="#333" stroke-width="1" stroke-dasharray="5,3"/>
+  </g>
+
+  <text x="30" y="1120" class="label">地层产状</text>
+  <text x="30" y="1135" class="desc">Stratigraphic Attitude</text>
+  <text x="30" y="1148" class="code">DCJX-B2-25H/C</text>
+  <g transform="translate(250, 1110)">
+    <!-- strike and dip symbol -->
+    <line x1="30" y1="10" x2="80" y2="10" stroke="#333" stroke-width="1.5"/>
+    <line x1="55" y1="5" x2="55" y2="25" stroke="#333" stroke-width="1.5"/>
+    <text x="60" y="18" font-size="10" fill="#333">30°</text>
+    <text x="75" y="14" font-size="8" fill="#333">N</text>
+  </g>
+
+  <text x="600" y="1120" class="label">剖面位置线</text>
+  <text x="600" y="1135" class="desc">Section Location Line</text>
+  <text x="600" y="1148" class="code">DCJX-B2-26H</text>
+  <g transform="translate(820, 1110)">
+    <line x1="0" y1="15" x2="120" y2="15" stroke="#333" stroke-width="1" stroke-dasharray="8,4"/>
+    <text x="45" y="10" font-size="9" fill="#333">A—B</text>
+    <text x="45" y="28" font-size="9" fill="#333">剖面线</text>
+  </g>
+
+  <!-- ========== 构造类型 Structural Types ========== -->
+  <text x="20" y="1200" class="category">八、构造类型 (Structural Types)</text>
+  <rect x="15" y="1203" width="1370" height="185" class="cell-border"/>
+
+  <text x="30" y="1230" class="label">低隆起</text>
+  <text x="30" y="1245" class="desc">Low Uplift</text>
+  <text x="30" y="1258" class="code">GZ-B2-28C</text>
+  <text x="350" y="1245" class="remark">浅橙 #FFE2BC</text>
+  <g transform="translate(250, 1215)">
+    <ellipse cx="60" cy="20" rx="50" ry="15" fill="#FFE2BC" stroke="#E8C890" stroke-width="1"/>
+  </g>
+
+  <text x="600" y="1230" class="label">凸起</text>
+  <text x="600" y="1245" class="desc">Uplift</text>
+  <text x="600" y="1258" class="code">GZ-B2-29C</text>
+  <text x="920" y="1245" class="remark">浅橙 #FFEDa0</text>
+  <g transform="translate(820, 1215)">
+    <ellipse cx="60" cy="20" rx="50" ry="15" fill="#FFEDA0" stroke="#E8D080" stroke-width="1"/>
+  </g>
+
+  <text x="30" y="1290" class="label">低凸起</text>
+  <text x="30" y="1305" class="desc">Low Uplift</text>
+  <text x="30" y="1318" class="code">GZ-B2-30C</text>
+  <text x="350" y="1305" class="remark">更浅橙 #FFF7D6</text>
+  <g transform="translate(250, 1275)">
+    <ellipse cx="60" cy="20" rx="50" ry="15" fill="#FFF7D6" stroke="#F0E8C0" stroke-width="1"/>
+  </g>
+
+  <text x="600" y="1290" class="label">斜坡</text>
+  <text x="600" y="1305" class="desc">Slope</text>
+  <text x="600" y="1318" class="code">GZ-B2-31C / GZ-B2-32C</text>
+  <text x="920" y="1305" class="remark">浅橙 #FFE8C0</text>
+  <g transform="translate(820, 1275)">
+    <polygon points="0,10 120,10 120,30 0,30" fill="#FFE8C0" stroke="#E8D0A0" stroke-width="1"/>
+  </g>
+
+  <text x="30" y="1350" class="label">浅凹</text>
+  <text x="30" y="1365" class="desc">Shallow Depression</text>
+  <text x="30" y="1378" class="code">GZ-B2-33C</text>
+  <text x="350" y="1365" class="remark">浅蓝 #BFDD</text>
+  <g transform="translate(250, 1340)">
+    <ellipse cx="60" cy="20" rx="50" ry="15" fill="#BFDDFF" stroke="#A0C8FF" stroke-width="1"/>
+  </g>
+
+  <text x="600" y="1350" class="label">中凹</text>
+  <text x="600" y="1365" class="desc">Medium Depression</text>
+  <text x="600" y="1378" class="code">GZ-B2-34C</text>
+  <text x="920" y="1365" class="remark">中蓝 #8CC1FF</text>
+  <g transform="translate(820, 1340)">
+    <ellipse cx="60" cy="20" rx="50" ry="15" fill="#8CC1FF" stroke="#70AAFF" stroke-width="1"/>
+  </g>
+
+  <text x="1050" y="1230" class="label">深凹</text>
+  <text x="1050" y="1245" class="desc">Deep Depression</text>
+  <text x="1050" y="1258" class="code">GZ-B2-35C</text>
+  <text x="1250" y="1245" class="remark">深蓝 #429BFF</text>
+  <g transform="translate(1200, 1215)">
+    <ellipse cx="60" cy="20" rx="50" ry="15" fill="#429BFF" stroke="#3088FF" stroke-width="1"/>
+  </g>
+
+  <text x="1050" y="1290" class="label">一类圈闭</text>
+  <text x="1050" y="1305" class="desc">1st Class Trap</text>
+  <text x="1050" y="1318" class="code">QUANB-B2-36C</text>
+  <text x="1250" y="1305" class="remark">粉红 #FE9999</text>
+  <g transform="translate(1200, 1275)">
+    <polygon points="60,0 120,30 60,60 0,30" fill="#FE9999" stroke="#E87070" stroke-width="1"/>
+  </g>
+
+  <text x="1050" y="1350" class="label">二类圈闭</text>
+  <text x="1050" y="1365" class="desc">2nd Class Trap</text>
+  <text x="1050" y="1378" class="code">QUANB-B2-37C</text>
+  <text x="1250" y="1365" class="remark">黄色 #FE</text>
+  <g transform="translate(1200, 1340)">
+    <polygon points="60,0 120,30 60,60 0,30" fill="#FECC" stroke="#E0B000" stroke-width="1"/>
+  </g>
+
+  <!-- Footer -->
+  <text x="700" y="1395" text-anchor="middle" class="remark" fill="#888">
+    注：构造类型填充色按凹陷深度渐变（浅→深），圈闭按级别分色。
+  </text>
+</svg>

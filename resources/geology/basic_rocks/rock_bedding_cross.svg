@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <line x1="5" y1="50" x2="60" y2="5" stroke="#666" stroke-width="1.5"/>
+  <line x1="25" y1="55" x2="80" y2="10" stroke="#666" stroke-width="1.5"/>
+  <line x1="45" y1="58" x2="100" y2="13" stroke="#666" stroke-width="1.5"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">交错层理</text>
+</svg>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <line x1="5" y1="35" x2="135" y2="35" stroke="#333" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <circle cx="30" cy="35" r="4" fill="#333"/>
+  <circle cx="70" cy="35" r="4" fill="#00AA00"/>
+  <circle cx="110" cy="35" r="4" fill="#FF9900"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">连井剖面线</text>
+</svg>

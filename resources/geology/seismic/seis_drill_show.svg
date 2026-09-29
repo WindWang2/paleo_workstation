@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <circle cx="70" cy="32" r="18" fill="none" stroke="#FF6600" stroke-width="2"/>
+  <text x="70" y="38" text-anchor="middle" font-size="16" font-weight="bold" fill="#FF6600">显</text>
+  <circle cx="70" cy="22" r="5" fill="#FF6600" opacity="0.5"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">油气显示井</text>
+</svg>

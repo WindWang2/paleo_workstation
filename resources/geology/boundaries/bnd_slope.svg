@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 70" width="120" height="70">
+  <rect width="120" height="70" fill="#fff"/>
+  <polygon points="5,25 115,25 115,45 5,45" fill="#FFE8C0" stroke="#999" stroke-width="1"/>
+  <text x="60" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">斜坡</text>
+</svg>

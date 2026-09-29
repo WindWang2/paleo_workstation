@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <defs>
+    <pattern id="shale_thick" width="12" height="12" patternUnits="userSpaceOnUse">
+      <rect width="6" height="6" fill="#b8c5d6"/><line x1="0" y1="2" x2="6" y2="2" stroke="#8a9bb0" stroke-width="0.6"/><line x1="0" y1="5" x2="6" y2="5" stroke="#8a9bb0" stroke-width="0.6"/>
+    </pattern>
+  </defs>
+  <rect width="80" height="80" fill="#b8c5d6" opacity="0.3"/>
+  <rect x="4" y="4" width="72" height="72" fill="url(#shale_thick)" stroke="#999" stroke-width="0.5"/>
+  <text x="40" y="42" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#333" opacity="0.7">厚层页岩</text>
+</svg>

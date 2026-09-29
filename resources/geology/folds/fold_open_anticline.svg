@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 70" width="160" height="70">
+  <rect width="160" height="70" fill="#fff"/>
+  <path d="M 5,55 Q 80,5 155,55" fill="none" stroke="#C87830" stroke-width="2"/>
+  <text x="80" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">开阔背斜</text>
+</svg>

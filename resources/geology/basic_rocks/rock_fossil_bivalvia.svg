@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <ellipse cx="70" cy="30" rx="22" ry="12" fill="none" stroke="#666" stroke-width="1.5"/>
+  <line x1="70" y1="18" x2="70" y2="42" stroke="#666" stroke-width="1"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">瓣鳃类</text>
+</svg>

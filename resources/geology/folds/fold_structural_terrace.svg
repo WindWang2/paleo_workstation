@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 70" width="160" height="70">
+  <rect width="160" height="70" fill="#fff"/>
+  <polyline points="5,50 40,15 80,50 120,15 155,50" fill="none" stroke="#C87830" stroke-width="2"/>
+  <line x1="5" y1="55" x2="155" y2="55" stroke="#000" stroke-width="1.5"/>
+  <text x="80" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">构造阶地</text>
+</svg>

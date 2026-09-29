@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 70" width="160" height="70">
+  <rect width="160" height="70" fill="#fff"/>
+  <path d="M 5,50 Q 40,10 80,50 Q 120,10 155,50" fill="none" stroke="#C87830" stroke-width="2"/>
+  <line x1="80" y1="50" x2="80" y2="10" stroke="#000" stroke-width="1.5"/>
+  <polygon points="75,13 80,8 85,13" fill="#000"/>
+  <text x="80" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">背斜</text>
+</svg>

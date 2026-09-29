@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <ellipse cx="70" cy="30" rx="18" ry="10" fill="none" stroke="#666" stroke-width="1.5"/>
+  <line x1="52" y1="30" x2="35" y2="18" stroke="#666" stroke-width="1"/>
+  <line x1="52" y1="30" x2="35" y2="42" stroke="#666" stroke-width="1"/>
+  <line x1="88" y1="30" x2="105" y2="18" stroke="#666" stroke-width="1"/>
+  <line x1="88" y1="30" x2="105" y2="42" stroke="#666" stroke-width="1"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">三叶虫</text>
+</svg>

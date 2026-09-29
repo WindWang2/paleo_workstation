@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <path d="M 5,35 Q 20,20 35,35 Q 50,50 65,35 Q 80,20 95,35 Q 110,50 135,35" fill="none" stroke="#0071FF" stroke-width="3"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">河流</text>
+</svg>

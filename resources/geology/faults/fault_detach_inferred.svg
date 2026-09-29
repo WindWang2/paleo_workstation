@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 70" width="140" height="70">
+  <rect width="140" height="70" fill="#fff"/>
+  <line x1="5" y1="55" x2="135" y2="15" stroke="#D71414" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <polygon points="25.0,38 30.0,44 35.0,38" fill="#D71414"/><polygon points="55.0,38 60.0,44 65.0,38" fill="#D71414"/><polygon points="85.0,38 90.0,44 95.0,38" fill="#D71414"/>
+  <text x="70" y="65" text-anchor="middle" font-family="SimHei, Microsoft YaHei, sans-serif" font-size="9" fill="#555">推测冲断层</text>
+</svg>

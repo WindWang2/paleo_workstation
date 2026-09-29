@@ -134,7 +134,7 @@ void PreviewMeasureTool::canvasPressEvent( QgsMapMouseEvent *e )
   m_points.append( pt );
   m_hasPreview = false;
   rebuildRubberBand( false );
-  emitChanged( false );
+  emitChanged( false, true ); // 加点是离散事件：绕过节流即时出读数
 }
 
 void PreviewMeasureTool::canvasMoveEvent( QgsMapMouseEvent *e )
@@ -160,7 +160,7 @@ void PreviewMeasureTool::canvasDoubleClickEvent( QgsMapMouseEvent * )
   m_hasPreview = false;
   m_band->setLineStyle( Qt::SolidLine ); // 终局帧实线
   rebuildRubberBand( false );
-  emitChanged( true );
+  emitChanged( true, true );
 }
 
 void PreviewMeasureTool::keyPressEvent( QKeyEvent *e )
@@ -206,10 +206,11 @@ void PreviewMeasureTool::rebuildRubberBand( bool withPreview )
   m_band->update();
 }
 
-void PreviewMeasureTool::emitChanged( bool finished )
+void PreviewMeasureTool::emitChanged( bool finished, bool force )
 {
   const qint64 now = m_emitTimer.elapsed();
-  if ( !finished && now - m_lastEmitMs < 33 ) // ≤30Hz
+  // 节流只管 move 的连续读数；press/finish（离散事件）强制发帧。
+  if ( !finished && !force && m_lastEmitMs >= 0 && now - m_lastEmitMs < 33 ) // ≤30Hz
     return;
   m_lastEmitMs = now;
   QVector<QgsPointXY> pts = m_points;

@@ -3564,10 +3564,14 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   if (asset.type == QLatin1String("image_reference"))
   {
     // D2.7：有 world file/配准边车 → 栅格上图；未配准 → 图片查看器 + 引导。
-    const QString worldFile = PreviewMapStates::detectWorldFile(abs);
+    // 托管副本身旁没有边车、源目录有 → 成对搬进临时目录再上图（GDAL 只认
+    // 数据文件旁的边车）。
+    const auto georefPair =
+        PreviewMapStates::stageGeorefPairIfNeeded(abs, v.sourceUri, host);
+    const QString worldFile = georefPair.second;
     if (!worldFile.isEmpty())
     {
-      auto raster = std::make_unique<QgsRasterLayer>(abs, asset.displayName,
+      auto raster = std::make_unique<QgsRasterLayer>(georefPair.first, asset.displayName,
                                                      QStringLiteral("gdal"));
       if (raster->isValid() && !raster->extent().isEmpty())
       {

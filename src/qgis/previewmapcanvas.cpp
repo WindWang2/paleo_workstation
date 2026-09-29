@@ -91,13 +91,11 @@ PreviewMapCanvas::PreviewMapCanvas( QWidget *parent )
 
 PreviewMapCanvas::~PreviewMapCanvas()
 {
-  // D1.9 销毁安全：在飞渲染任务全部取消 + 卸下工具，无悬挂 job。
+  // D1.9 销毁安全：在飞渲染任务全部取消。工具不在此 unset——
+  // QgsMapCanvas::unsetMapTool 会构造 QCursor，进程收尾（平台拆除后）
+  // 构造 QCursor 即 qFatal（实测 SIGABRT）；画布析构自带工具回收。
   if ( m_canvas )
-  {
-    if ( QgsMapTool *tool = m_canvas->mapTool() )
-      m_canvas->unsetMapTool( tool );
     m_canvas->stopRendering();
-  }
 }
 
 void PreviewMapCanvas::setLayers( const QList<QgsMapLayer *> &layers )
@@ -262,12 +260,21 @@ QgsRectangle PreviewMapCanvas::fullExtent() const
     if ( !m_visible.value( l, true ) || !l )
       continue;
     const QgsRectangle le = l->extent();
-    if ( le.isEmpty() )
+    if ( le.isNull() )
       continue;
-    if ( ext.isNull() || ext.isEmpty() )
+    // 退化范围（单点/共线层）不视为空——井位单点层是真实场景。
+    if ( ext.isNull() )
       ext = le;
     else
       ext.combineExtentWith( le );
+  }
+  // 完全退化的联合范围（只有点层）扩 10 m 防零视口。
+  if ( !ext.isNull() && ( ext.width() <= 0.0 || ext.height() <= 0.0 ) )
+  {
+    ext.setXMinimum( ext.xMinimum() - 5.0 );
+    ext.setXMaximum( ext.xMaximum() + 5.0 );
+    ext.setYMinimum( ext.yMinimum() - 5.0 );
+    ext.setYMaximum( ext.yMaximum() + 5.0 );
   }
   return ext;
 }
@@ -307,12 +314,20 @@ void PreviewMapCanvas::zoomToLayer( const QgsMapLayer *layer )
 {
   if ( !layer )
     return;
-  const QgsRectangle ext = layer->extent();
-  if ( ext.isEmpty() )
+  QgsRectangle ext = layer->extent();
+  if ( ext.isNull() )
     return;
-  QgsRectangle grown = ext;
-  grown.scale( 1.08 );
-  setExtentInternal( grown );
+  if ( ext.width() <= 0.0 || ext.height() <= 0.0 )
+  {
+    // 单点/共线层：scale 无效，手动扩边距。
+    ext.setXMinimum( ext.xMinimum() - 50.0 );
+    ext.setXMaximum( ext.xMaximum() + 50.0 );
+    ext.setYMinimum( ext.yMinimum() - 50.0 );
+    ext.setYMaximum( ext.yMaximum() + 50.0 );
+  }
+  else
+    ext.scale( 1.08 );
+  setExtentInternal( ext );
 }
 
 void PreviewMapCanvas::zoomToRect( const QgsRectangle &rect )
@@ -322,6 +337,13 @@ void PreviewMapCanvas::zoomToRect( const QgsRectangle &rect )
   QgsRectangle grown = rect;
   grown.scale( 1.05 );
   setExtentInternal( grown );
+}
+
+void PreviewMapCanvas::setViewExtent( const QgsRectangle &rect )
+{
+  if ( rect.isEmpty() )
+    return;
+  setExtentInternal( rect );
 }
 
 void PreviewMapCanvas::pushHistory( const QgsRectangle &extent )
@@ -546,7 +568,7 @@ bool PreviewMapCanvas::eventFilter( QObject *watched, QEvent *event )
     if ( event->type() == QEvent::MouseMove )
     {
       const qint64 now = m_trackTimer.isValid() ? m_trackTimer.elapsed() : 0;
-      if ( now - m_lastTrackMs >= 33 ) // ≤30Hz
+      if ( now - m_lastTrackMs >= 33 ) // ≤30Hz（m_lastTrackMs 起步 0，首帧即过）
       {
         m_lastTrackMs = now;
         auto *me = static_cast<QMouseEvent *>( event );

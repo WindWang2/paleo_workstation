@@ -248,7 +248,7 @@ PreviewMapPage::PreviewMapPage( QWidget *parent )
 
   buildStatusBar();
 
-  lay->addWidget( m_toolBar );
+  lay->addWidget( m_toolBarRow );
   lay->addWidget( split, 1 );
   lay->addWidget( m_analysisTabs );
   lay->addWidget( m_statusBar );
@@ -368,6 +368,8 @@ PreviewMapPage::PreviewMapPage( QWidget *parent )
 PreviewMapPage::~PreviewMapPage()
 {
   m_toc->saveMemory();
+  // 工具条不再用 QWidgetAction（addWidget）：其析构序在 ~QToolBar 子链里
+  // 会对悬空按钮 releaseWidget（实测 SIGSEGV）；弹出按钮改挂扩展条。
 }
 
 void PreviewMapPage::buildToolBar()
@@ -382,6 +384,24 @@ void PreviewMapPage::buildToolBar()
       "QToolButton { background: transparent; border: none; padding: 3px; border-radius: 4px; }"
       "QToolButton:hover { background: #E2E8F0; }"
       "QToolButton:checked { background: #E1EFFE; border: 1px solid #1B73D0; }" ) );
+
+  // ---- 扩展条：弹出按钮直挂（不用 addWidget/QWidgetAction——销毁序雷区）----
+  m_toolBarExt = new QWidget( this );
+  m_toolBarExt->setObjectName( QStringLiteral( "previewMapToolBarExt" ) );
+  m_toolBarExt->setStyleSheet( QStringLiteral(
+      "background: #EDF1F5; border-bottom: 1px solid #DFE5EC;" ) );
+  auto *extLay = new QHBoxLayout( m_toolBarExt );
+  extLay->setContentsMargins( 4, 2, 4, 2 );
+  extLay->setSpacing( 2 );
+
+  // 行容器：工具条（QAction 区）+ 扩展条（直挂按钮区）同一视觉行。
+  m_toolBarRow = new QWidget( this );
+  m_toolBarRow->setObjectName( QStringLiteral( "previewMapToolBarRow" ) );
+  auto *rowLay = new QHBoxLayout( m_toolBarRow );
+  rowLay->setContentsMargins( 0, 0, 0, 0 );
+  rowLay->setSpacing( 0 );
+  rowLay->addWidget( m_toolBar );
+  rowLay->addWidget( m_toolBarExt, 1 );
 
   m_toolGroup = new QActionGroup( this );
   const auto addTool = [this]( const QString &id, const QString &text, const QString &icon,
@@ -449,6 +469,7 @@ void PreviewMapPage::buildToolBar()
   auto *copyCoordAction = new QAction(
       PaleoIcons::qgisTheme( QStringLiteral( "mActionEditCopy.svg" ) ),
       QObject::tr( "复制坐标" ), this );
+  copyCoordAction->setObjectName( QStringLiteral( "previewAction_copyCoord" ) );
   copyCoordAction->setToolTip( QObject::tr( "复制光标处工程坐标（右键菜单亦可）" ) );
   connect( copyCoordAction, &QAction::triggered, this, &PreviewMapPage::copyCoordinate );
   m_toolBar->addAction( copyCoordAction );
@@ -456,21 +477,22 @@ void PreviewMapPage::buildToolBar()
   auto *copyShotAction = new QAction(
       PaleoIcons::qgisTheme( QStringLiteral( "mActionSaveMapAsImage.svg" ) ),
       QObject::tr( "复制画布截图" ), this );
+  copyShotAction->setObjectName( QStringLiteral( "previewAction_copyShot" ) );
   connect( copyShotAction, &QAction::triggered, this, &PreviewMapPage::copyScreenshot );
   m_toolBar->addAction( copyShotAction );
 
   // ---- 书签菜单（D3.7）----
-  auto *bookmarkBtn = new QToolButton( m_toolBar );
+  auto *bookmarkBtn = new QToolButton( m_toolBarExt );
   bookmarkBtn->setObjectName( QStringLiteral( "previewBookmarkButton" ) );
   bookmarkBtn->setIcon( PaleoIcons::qgisTheme( QStringLiteral( "mActionAddBookmark.svg" ) ) );
   bookmarkBtn->setToolTip( QObject::tr( "书签：保存/跳转/删除视图" ) );
   bookmarkBtn->setPopupMode( QToolButton::InstantPopup );
   m_bookmarkMenu = new QMenu( bookmarkBtn );
   bookmarkBtn->setMenu( m_bookmarkMenu );
-  m_toolBar->addWidget( bookmarkBtn );
+  extLay->addWidget( bookmarkBtn );
 
   // ---- 装饰件菜单（D1.5）----
-  auto *decorBtn = new QToolButton( m_toolBar );
+  auto *decorBtn = new QToolButton( m_toolBarExt );
   decorBtn->setObjectName( QStringLiteral( "previewDecorButton" ) );
   decorBtn->setIcon( PaleoIcons::qgisTheme( QStringLiteral( "mActionDecorationGrid.svg" ) ) );
   decorBtn->setToolTip( QObject::tr( "画布装饰：比例尺/指北针/网格" ) );
@@ -491,7 +513,8 @@ void PreviewMapPage::buildToolBar()
   decorToggle( decorMenu, QStringLiteral( "northArrow" ), QObject::tr( "指北针" ), true );
   decorToggle( decorMenu, QStringLiteral( "grid" ), QObject::tr( "网格" ), false );
   decorBtn->setMenu( decorMenu );
-  m_toolBar->addWidget( decorBtn );
+  extLay->addWidget( decorBtn );
+  extLay->addStretch( 1 );
   m_decor->setScaleBarEnabled( true );
   m_decor->setNorthArrowEnabled( true );
 
@@ -551,7 +574,7 @@ void PreviewMapPage::addMapLayer( QgsMapLayer *layer, const QString &name,
   m_toc->addLayer( layer, name, sourcePath );
   if ( m_overview )
     m_overview->syncLayers( m_canvas->layers() );
-  emit mapLayersChanged();
+  // mapLayersChanged 由 canvas layersChanged 统一转发（不双发）。
 }
 
 void PreviewMapPage::removeMapLayer( QgsMapLayer *layer )
@@ -564,7 +587,6 @@ void PreviewMapPage::removeMapLayer( QgsMapLayer *layer )
   m_canvas->canvas()->refresh();
   if ( m_overview )
     m_overview->syncLayers( m_canvas->layers() );
-  emit mapLayersChanged();
 }
 
 void PreviewMapPage::clearMapLayers()
@@ -576,7 +598,6 @@ void PreviewMapPage::clearMapLayers()
   m_canvas->canvas()->refresh();
   if ( m_overview )
     m_overview->syncLayers( {} );
-  emit mapLayersChanged();
 }
 
 int PreviewMapPage::mapLayerCount() const
@@ -670,7 +691,7 @@ bool PreviewMapPage::jumpToBookmark( const QString &name )
   for ( const auto &bm : bms )
     if ( bm.name == name )
     {
-      m_canvas->zoomToRect( bm.extent );
+      m_canvas->setViewExtent( bm.extent ); // 精确复位（D3.7）
       return true;
     }
   return false;
@@ -724,13 +745,14 @@ void PreviewMapPage::setOverviewVisible( bool on )
     m_overview->syncLayers( m_canvas->layers() );
     m_overview->updateViewportRect();
   }
+  m_overviewOn = on;
   if ( m_overview )
     m_overview->setVisible( on );
 }
 
 bool PreviewMapPage::overviewVisible() const
 {
-  return m_overview && m_overview->isVisible();
+  return m_overviewOn; // 显式开关位：页未显示时也算「开」
 }
 
 void PreviewMapPage::setDecorationEnabled( const QString &name, bool on )
@@ -815,7 +837,8 @@ void PreviewMapPage::addToolBarSeparator()
 
 void PreviewMapPage::addToolBarWidget( QWidget *widget )
 {
-  m_toolBar->addWidget( widget );
+  if ( m_toolBarExt && widget )
+    m_toolBarExt->layout()->addWidget( widget ); // 直挂扩展条（无 QWidgetAction）
 }
 
 void PreviewMapPage::updateNavActions()

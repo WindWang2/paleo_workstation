@@ -584,6 +584,18 @@ target_compile_definitions(tst_seismic_section PRIVATE
 add_paleo_test(tst_timedeptool LIBS paleo_io)
 target_compile_definitions(tst_import PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_previewmap_canvas LIBS paleo_qgis)
+add_paleo_test(tst_previewmap_tools LIBS paleo_qgis)
+add_paleo_test(tst_previewmap_identify LIBS paleo_qgis)
+add_paleo_test(tst_previewmap_page LIBS paleo_ui)
+add_paleo_test(tst_previewmap_assets LIBS paleo_ui)
+target_compile_definitions(tst_previewmap_assets PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_previewmap_perf LIBS paleo_ui)
+target_compile_definitions(tst_previewmap_perf PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+# 墙钟预算断言（D6.7）——共享机负载下抖动关回串行基线（tst_correlation_full 先例）。
+set_tests_properties(tst_previewmap_perf PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_datapreview LIBS paleo_ui)
 target_compile_definitions(tst_datapreview PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")

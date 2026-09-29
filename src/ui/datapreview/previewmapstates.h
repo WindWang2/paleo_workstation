@@ -38,6 +38,13 @@ QWidget *buildBigRasterHintBar( const QString &hint, QWidget *parent );
 // 及同名 .wld）。返回存在的边车绝对路径；无 → 空串。
 QString detectWorldFile( const QString &imagePath );
 
+// D2.7 配准对落位：托管副本身旁没有 world file、但源文件身旁有 → 把
+// 「图片+边车」成对复制进 QTemporaryDir（owner 随 parent 生命周期），
+// 返回 {图片, 边车} 的新路径；不需要搬对时原样返回输入。
+QPair<QString, QString> stageGeorefPairIfNeeded( const QString &imagePath,
+                                                 const QString &sourceImagePath,
+                                                 QObject *parent );
+
 // D2.10 同目录组图：与 anchorPath 同目录、可地图化叠加的资产
 //（geojson / 带配准 image_reference / horizon——后两者按文件可上图判）。
 // resolveAbs 把版本解析成绝对路径（调用方持 PreviewDocService 门面）。
@@ -78,6 +85,8 @@ class PreviewStateMemory
     static void saveToc( const QString &assetKey,
                          const QStringList &orderTopToBottom,
                          const QHash<QString, TocLayerState> &states );
+    // 单层移除（TOC removeLayer 用——增量加层期间不能整表重写）。
+    static void removeTocLayer( const QString &assetKey, const QString &layerName );
     static void clearAsset( const QString &assetKey );
     // 测试清场。
     static void clearAll();

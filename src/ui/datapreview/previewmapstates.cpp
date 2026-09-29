@@ -10,6 +10,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QTemporaryDir>
 #include <QVBoxLayout>
 
 namespace
@@ -105,6 +106,45 @@ QWidget *buildUnsupportedPage( const QString &typeName, QWidget *parent )
   }
   lay->addStretch( 1 );
   return page;
+}
+
+namespace
+{
+// QTemporaryDir 不是 QObject——用小持有件把生命周期挂到预览宿主上。
+class TempDirHolder : public QObject
+{
+  public:
+    explicit TempDirHolder( QObject *parent )
+      : QObject( parent )
+      , dir( std::make_shared<QTemporaryDir>() )
+    {
+    }
+    std::shared_ptr<QTemporaryDir> dir;
+};
+} // namespace
+
+QPair<QString, QString> stageGeorefPairIfNeeded( const QString &imagePath,
+                                                 const QString &sourceImagePath,
+                                                 QObject *parent )
+{
+  const QString localWld = detectWorldFile( imagePath );
+  if ( !localWld.isEmpty() )
+    return { imagePath, localWld }; // 托管副本身旁已有边车
+  if ( sourceImagePath.isEmpty() )
+    return { imagePath, QString() };
+  const QString srcWld = detectWorldFile( sourceImagePath );
+  if ( srcWld.isEmpty() )
+    return { imagePath, QString() };
+  auto *holder = new TempDirHolder( parent );
+  const QString dirPath = holder->dir->path();
+  const QString baseName = QFileInfo( imagePath ).fileName();
+  const QString stagedImg = QDir( dirPath ).filePath( baseName );
+  const QString stagedWld = QDir( dirPath ).filePath(
+      QFileInfo( baseName ).completeBaseName() + QLatin1Char( '.' ) +
+      QFileInfo( srcWld ).suffix() );
+  if ( !QFile::copy( imagePath, stagedImg ) || !QFile::copy( srcWld, stagedWld ) )
+    return { imagePath, QString() };
+  return { stagedImg, stagedWld };
 }
 
 QWidget *buildBigRasterHintBar( const QString &hint, QWidget *parent )
@@ -260,6 +300,13 @@ void PreviewStateMemory::saveToc( const QString &assetKey, const QStringList &or
   AssetMemory &m = memoryStore()[assetKey];
   m.tocOrder = orderTopToBottom;
   m.tocStates = states;
+}
+
+void PreviewStateMemory::removeTocLayer( const QString &assetKey, const QString &layerName )
+{
+  AssetMemory &m = memoryStore()[assetKey];
+  m.tocOrder.removeAll( layerName );
+  m.tocStates.remove( layerName );
 }
 
 void PreviewStateMemory::clearAsset( const QString &assetKey )

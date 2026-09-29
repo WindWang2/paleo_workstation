@@ -73,7 +73,8 @@ class PreviewMeasureTool : public QgsMapTool
 
   private:
     void rebuildRubberBand( bool withPreview );
-    void emitChanged( bool finished );
+    // force=true 绕过节流（press/finish 是离散事件，读数必须即时）。
+    void emitChanged( bool finished, bool force = false );
 
     bool m_areaMode = false;
     QVector<QgsPointXY> m_points;
@@ -82,7 +83,7 @@ class PreviewMeasureTool : public QgsMapTool
     bool m_finished = false;
     QgsRubberBand *m_band = nullptr;
     QElapsedTimer m_emitTimer;
-    qint64 m_lastEmitMs = 0;
+    qint64 m_lastEmitMs = -1; // -1 = 尚未发过帧（首帧免节流）
 };
 
 // --------------------------------------------------------------- identify --

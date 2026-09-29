@@ -81,6 +81,8 @@ class PreviewMapCanvas : public QWidget
     void zoomToFullExtent();
     void zoomToLayer( const QgsMapLayer *layer );
     void zoomToRect( const QgsRectangle &rect );
+    // 精确复位（不另加边距）——书签跳转用（D3.7：存的就是当时的范围）。
+    void setViewExtent( const QgsRectangle &rect );
     bool canZoomBack() const;
     void zoomBack();
     bool canZoomForward() const;

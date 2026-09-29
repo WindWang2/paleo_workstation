@@ -126,6 +126,7 @@ class PreviewMapPage : public QWidget
     class PreviewOverviewMap;
     friend class PreviewOverviewMap;
     PreviewOverviewMap *m_overview = nullptr;
+    bool m_overviewOn = false; // 显式开关位（ isVisible 受父链影响，不承载语义）
 
     PreviewMapCanvas *m_canvas = nullptr;
     PreviewMapToolManager *m_tools = nullptr;
@@ -136,6 +137,9 @@ class PreviewMapPage : public QWidget
     PreviewIdentifyCore *m_identifyCore = nullptr;
 
     QToolBar *m_toolBar = nullptr;
+    QWidget *m_toolBarRow = nullptr;    // 工具条 + 扩展按钮条并排容器
+    QWidget *m_toolBarExt = nullptr;    // 扩展按钮条（QToolButton 直挂——
+                                        // 避免 QWidgetAction 的销毁序悬空）
     QStackedWidget *m_mapStack = nullptr;
     QWidget *m_errorPage = nullptr;
     QTabWidget *m_sideTabs = nullptr;

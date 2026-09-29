@@ -58,8 +58,9 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
     const int row = m_list->row( item );
     if ( row < 0 || row >= m_rows.size() )
       return;
-    emit layerVisibilityChanged( m_rows.at( row ).layer,
-                                 item->checkState() == Qt::Checked );
+    // 记账与 UI 同步（saveMemory 读的是 row.visible——不同步就存错）。
+    m_rows[row].visible = item->checkState() == Qt::Checked;
+    emit layerVisibilityChanged( m_rows.at( row ).layer, m_rows[row].visible );
     saveMemory();
   } );
   connect( m_list, &QListWidget::currentRowChanged, this, [this]( int ) { rebuildQuickPanel(); } );
@@ -334,7 +335,8 @@ void PreviewTocPanel::addLayer( QgsMapLayer *layer, const QString &name, const Q
   rebuildList();
   if ( !visible )
     emit layerVisibilityChanged( layer, false );
-  saveMemory();
+  // 注意：这里不 saveMemory——增量加层期间整表重写会把「尚未加回的层」
+  // 的记忆清掉（实测 D4.7 回归）。落盘时机：用户驱动的变化与页析构。
 }
 
 void PreviewTocPanel::removeLayer( QgsMapLayer *layer )
@@ -342,11 +344,13 @@ void PreviewTocPanel::removeLayer( QgsMapLayer *layer )
   for ( int i = 0; i < m_rows.size(); ++i )
     if ( m_rows.at( i ).layer == layer )
     {
+      // 单层出记忆（其余层状态保留）。
+      if ( !m_assetKey.isEmpty() )
+        PreviewStateMemory::removeTocLayer( m_assetKey, m_rows.at( i ).name );
       m_rows.removeAt( i );
       break;
     }
   rebuildList();
-  saveMemory();
 }
 
 void PreviewTocPanel::clear()

@@ -6,7 +6,11 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QLabel>
+#include <QTemporaryDir>
 #include <QToolButton>
+#include <QtEndian>
+
+#include <algorithm>
 
 #include <glm/gtc/matrix_inverse.hpp>
 
@@ -33,6 +37,7 @@ private slots:
     void sliceRendererGeometryAndSlots();
     void viewPanelUiAndInteractions();
     void viewPanelAsyncSliceLoading();
+    void steppedSurveySnapsInitialSlices();
     void openGLHeadlessRender();
 
 private:
@@ -246,6 +251,73 @@ void TestSeismic3D::viewPanelAsyncSliceLoading() {
     // Adjusting inline triggers async extraction
     panel.setInline(vol->InlineMin());
     QTRY_VERIFY_WITH_TIMEOUT(taskSvc.tasks().size() >= 2, 2000);
+}
+
+void TestSeismic3D::steppedSurveySnapsInitialSlices() {
+    auto base = loadFixtureVolume();
+    QVERIFY(base != nullptr);
+    QVERIFY(base->IsLoaded());
+
+    // 把 fixture 改造成「真实线号带缺口」的体：INLINE@188 / XLINE@192
+    // 标准字非零即被直接采用（SgyIo.h 约定；双零才走序号回退）。
+    // 末条 inline 故意再跳 100 → 数值中点必落空。修复前面板拿中点直接
+    // 提取 → 静默失败 → 视口只剩包围盒线框（用户报告的"只有三条线"）。
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("stepped.sgy"));
+    QVERIFY(QFile::copy(QStringLiteral(SEGY_FIXTURE_PATH), path));
+
+    const int traces = base->TraceCount();
+    const int ilCount = base->InlineCount();
+    QVERIFY(ilCount > 0 && traces % ilCount == 0); // 规则网格才谈得上每线道数
+    const int tpi = traces / ilCount;
+    int bps = 0;
+    switch (base->FormatCode()) {
+    case 1: case 2: case 5: bps = 4; break;
+    case 3: bps = 2; break;
+    case 8: bps = 1; break;
+    default: QFAIL("unsupported fixture format");
+    }
+    const qint64 stride = 240 + qint64(base->SampleCount()) * bps;
+
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::ReadWrite));
+    for (int t = 0; t < traces; ++t) {
+        const int ilIdx = t / tpi;
+        const int xlIdx = t % tpi;
+        const qint32 il = qToBigEndian<qint32>(
+            1000 + ilIdx * 2 + (ilIdx == ilCount - 1 ? 100 : 0));
+        const qint32 xl = qToBigEndian<qint32>(2000 + xlIdx);
+        const qint64 off = 3600 + qint64(t) * stride;
+        QVERIFY(f.seek(off + 188));
+        QCOMPARE(f.write(reinterpret_cast<const char *>(&il), 4), qint64(4));
+        QVERIFY(f.seek(off + 192));
+        QCOMPARE(f.write(reinterpret_cast<const char *>(&xl), 4), qint64(4));
+    }
+    f.close();
+
+    auto vol = std::make_shared<SgyVolume>();
+    std::string err;
+    QVERIFY2(vol->Load(path.toStdString(), err), err.c_str());
+    QVERIFY(vol->IsLoaded());
+
+    const auto &ils = vol->InlineValues();
+    const auto &xls = vol->XlineValues();
+    // 前置条件：数值中点确实不是真实线号（防测试白过）
+    const int midIl = (vol->InlineMin() + vol->InlineMax()) / 2;
+    QVERIFY(std::find(ils.begin(), ils.end(), midIl) == ils.end());
+
+    Seismic3DViewPanel panel;
+    panel.resize(800, 600);
+    panel.setVolume(vol);
+
+    // 初始值吸附到真实线号（修复前 = 落空的中点）
+    QVERIFY(std::find(ils.begin(), ils.end(), panel.currentInline()) != ils.end());
+    QVERIFY(std::find(xls.begin(), xls.end(), panel.currentCrossline()) != xls.end());
+
+    // 拖动/输入落到不存在线号 → 吸附回填到最近真实线号
+    panel.setInline(midIl);
+    QVERIFY(std::find(ils.begin(), ils.end(), panel.currentInline()) != ils.end());
 }
 
 void TestSeismic3D::openGLHeadlessRender() {

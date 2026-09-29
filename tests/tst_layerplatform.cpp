@@ -180,17 +180,22 @@ class TestLayerPlatform : public QObject
     // ---- 档案表：默认五页 + override 覆盖 ----
     void profileGroupTables()
     {
+      // 00_Data（井位等原始数据）是所有编图页的基准参考层，档案表显式携带
       QCOMPARE(QgisLayerProfileService::defaultProfileGroups(QStringLiteral("predict")),
-               QStringList({QStringLiteral("01_Base"), QStringLiteral("02_Prediction")}));
+               QStringList({QStringLiteral("00_Data"), QStringLiteral("01_Base"),
+                            QStringLiteral("02_Prediction")}));
       QCOMPARE(QgisLayerProfileService::defaultProfileGroups(QStringLiteral("constraint")),
-               QStringList({QStringLiteral("01_Base"), QStringLiteral("03_Constraints"),
+               QStringList({QStringLiteral("00_Data"), QStringLiteral("01_Base"),
+                            QStringLiteral("03_Constraints"),
                             QStringLiteral("04_SingleFactor")}));
       QCOMPARE(QgisLayerProfileService::defaultProfileGroups(QStringLiteral("compose")),
-               QStringList({QStringLiteral("01_Base"), QStringLiteral("03_Constraints"),
+               QStringList({QStringLiteral("00_Data"), QStringLiteral("01_Base"),
+                            QStringLiteral("03_Constraints"),
                             QStringLiteral("04_SingleFactor"), QStringLiteral("05_PaleoMap"),
                             QStringLiteral("06_Reference")}));
       QCOMPARE(QgisLayerProfileService::defaultProfileGroups(QStringLiteral("validate")),
-               QStringList({QStringLiteral("01_Base"), QStringLiteral("07_Validation")}));
+               QStringList({QStringLiteral("00_Data"), QStringLiteral("01_Base"),
+                            QStringLiteral("07_Validation")}));
       QCOMPARE(QgisLayerProfileService::defaultProfileGroups(QStringLiteral("data")),
                QStringList());
       QCOMPARE(QgisLayerProfileService::defaultProfileGroups(QStringLiteral("bogus")),

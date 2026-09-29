@@ -1509,14 +1509,14 @@ void FaciesCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   const qreal col2X = col1X + col1W;
   const qreal col3X = col2X + col2W;
 
-  // 绘制竖向分割线
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  // 绘制竖向分割线（#DFE5EC 在白底上近乎不可见，加深一档）
+  painter.setPen(QColor(QStringLiteral("#B0BEC5")));
   painter.drawLine(QPointF(col2X, bodyRect.top()), QPointF(col2X, bodyRect.bottom()));
   painter.drawLine(QPointF(col3X, bodyRect.top()), QPointF(col3X, bodyRect.bottom()));
   painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
 
   QFont fBody = painter.font();
-  fBody.setPointSize(8);
+  fBody.setPointSize(9);
   fBody.setBold(true);
   painter.setFont(fBody);
 
@@ -1548,7 +1548,7 @@ void FaciesCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     const QRectF box(col1X, y0, col1W, qMax<qreal>(4.0, y1 - y0));
 
     painter.fillRect(box, grp.color);
-    painter.setPen(QPen(QColor(QStringLiteral("#78909C")), 1.0));
+    painter.setPen(QPen(QColor(QStringLiteral("#546E7A")), 1.4));
     painter.drawLine(box.topLeft(), box.topRight());
     painter.drawLine(box.bottomLeft(), box.bottomRight());
 
@@ -1596,7 +1596,7 @@ void FaciesCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     const QRectF box(col2X, y0, col2W, qMax<qreal>(4.0, y1 - y0));
 
     painter.fillRect(box, grp.color);
-    painter.setPen(QPen(QColor(QStringLiteral("#90A4AE")), 1.0));
+    painter.setPen(QPen(QColor(QStringLiteral("#78909C")), 1.2));
     painter.drawLine(box.topLeft(), box.topRight());
     painter.drawLine(box.bottomLeft(), box.bottomRight());
 

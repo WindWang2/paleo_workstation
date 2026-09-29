@@ -320,7 +320,8 @@ void SeismicSectionDockWidget::onSectionModeChanged(int modeIndex) {
         m_lblSliceIndex->setText(tr("纵测线:"));
         m_sliderSlice->setRange(m_volume->InlineMin(), m_volume->InlineMax());
         m_spinSlice->setRange(m_volume->InlineMin(), m_volume->InlineMax());
-        const int mid = (m_volume->InlineMin() + m_volume->InlineMax()) / 2;
+        const int mid = m_volume->FindNearestInlineValue(
+            (m_volume->InlineMin() + m_volume->InlineMax()) / 2.0); // 吸附真实线号
         m_sliderSlice->setValue(mid);
         m_spinSlice->setValue(mid);
         m_lblTimeMs->setVisible(false);
@@ -332,7 +333,8 @@ void SeismicSectionDockWidget::onSectionModeChanged(int modeIndex) {
         m_lblSliceIndex->setText(tr("横测线:"));
         m_sliderSlice->setRange(m_volume->XlineMin(), m_volume->XlineMax());
         m_spinSlice->setRange(m_volume->XlineMin(), m_volume->XlineMax());
-        const int mid = (m_volume->XlineMin() + m_volume->XlineMax()) / 2;
+        const int mid = m_volume->FindNearestXlineValue(
+            (m_volume->XlineMin() + m_volume->XlineMax()) / 2.0);
         m_sliderSlice->setValue(mid);
         m_spinSlice->setValue(mid);
         m_lblTimeMs->setVisible(false);
@@ -366,8 +368,19 @@ void SeismicSectionDockWidget::onSliceSliderChanged(int value) {
 
     const int mode = m_cboSectionMode->currentIndex();
     if (mode == 0) {
+        // 吸附到真实测线号（测网步长>1 时滑杆中点/拖动值可能不存在）
+        const int snapped = m_volume->FindNearestInlineValue(value);
+        if (snapped != value) {
+            m_sliderSlice->setValue(snapped); // 重发 valueChanged，spin 同步后本函数再入
+            return;
+        }
         extractSliceAsync(SgySliceType::Inline, value);
     } else if (mode == 1) {
+        const int snapped = m_volume->FindNearestXlineValue(value);
+        if (snapped != value) {
+            m_sliderSlice->setValue(snapped);
+            return;
+        }
         extractSliceAsync(SgySliceType::Xline, value);
     } else if (mode == 2) {
         const double ms = value * (m_volume->SampleIntervalUs() / 1000.0);

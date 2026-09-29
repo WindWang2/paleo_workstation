@@ -3447,52 +3447,52 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>MamclTool</name>
     <message>
-        <location filename="../src/workflow/mamcltool.cpp" line="137"/>
+        <location filename="../src/workflow/mamcltool.cpp" line="168"/>
         <source>未找到内置 MAMCL 程序包：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mamcltool.cpp" line="156"/>
+        <location filename="../src/workflow/mamcltool.cpp" line="187"/>
         <source>首次运行：正在解包 MAMCL 程序…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mamcltool.cpp" line="168"/>
+        <location filename="../src/workflow/mamcltool.cpp" line="199"/>
         <source>正在创建 Python 虚拟环境…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mamcltool.cpp" line="179"/>
+        <location filename="../src/workflow/mamcltool.cpp" line="210"/>
         <source>正在安装 MAMCL 依赖（含 PyTorch，首次较慢）…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mamcltool.cpp" line="187"/>
+        <location filename="../src/workflow/mamcltool.cpp" line="218"/>
         <source>无法写入依赖清单：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mamcltool.cpp" line="209"/>
+        <location filename="../src/workflow/mamcltool.cpp" line="241"/>
         <source>MAMCL 已启动</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mamcltool.cpp" line="210"/>
+        <location filename="../src/workflow/mamcltool.cpp" line="242"/>
         <source>MAMCL 启动失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mamcltool.cpp" line="227"/>
+        <location filename="../src/workflow/mamcltool.cpp" line="259"/>
         <source>MAMCL 程序包解包失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mamcltool.cpp" line="238"/>
+        <location filename="../src/workflow/mamcltool.cpp" line="270"/>
         <source>Python 虚拟环境创建失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mamcltool.cpp" line="248"/>
+        <location filename="../src/workflow/mamcltool.cpp" line="280"/>
         <source>MAMCL 依赖安装失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7247,28 +7247,28 @@ SHA-256：%2</source>
 <context>
     <name>PythonEnvService</name>
     <message>
-        <location filename="../src/services/pythonenv.cpp" line="70"/>
+        <location filename="../src/services/pythonenv.cpp" line="99"/>
         <source>另一项 Python 环境操作仍在进行</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/pythonenv.cpp" line="96"/>
+        <location filename="../src/services/pythonenv.cpp" line="125"/>
         <source>无法启动进程：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/pythonenv.cpp" line="108"/>
+        <location filename="../src/services/pythonenv.cpp" line="137"/>
         <source>%1 退出码 %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/pythonenv.cpp" line="122"/>
-        <location filename="../src/services/pythonenv.cpp" line="150"/>
+        <location filename="../src/services/pythonenv.cpp" line="151"/>
+        <location filename="../src/services/pythonenv.cpp" line="179"/>
         <source>找不到可用的 Python 解释器（可设 PALEO_PYTHON 指定）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/pythonenv.cpp" line="136"/>
+        <location filename="../src/services/pythonenv.cpp" line="165"/>
         <source>venv 尚未创建：%1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7686,17 +7686,17 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/layervocabulary.h" line="108"/>
+        <location filename="../src/qgis/layervocabulary.h" line="112"/>
         <source>基础底图层（01_Base）不属于任何编图页</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/layervocabulary.h" line="110"/>
+        <location filename="../src/qgis/layervocabulary.h" line="114"/>
         <source>该图层未编入图层组，无法确定所属编图页</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/layervocabulary.h" line="112"/>
+        <location filename="../src/qgis/layervocabulary.h" line="116"/>
         <source>图层组「%1」没有对应的编图页</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7972,97 +7972,97 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="291"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="301"/>
         <source>其他 / 未分类</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="297"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="307"/>
         <source>相编码</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="297"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="307"/>
         <source>相</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="298"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="308"/>
         <source>亚相</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="298"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="308"/>
         <source>微相</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="299"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="309"/>
         <source>类别名称</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="299"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="309"/>
         <source>纹理</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="318"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="328"/>
         <source>其他（%1）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="345"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="355"/>
         <source>请选择编图输入与相分类</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="355"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="365"/>
         <source>连续单因素需要按相类别顺序填写 N−1 个严格递增分相阈值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="358"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="368"/>
         <source>分相阈值必须为有限数值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="365"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="375"/>
         <source>所有编图输入须使用本工程局部米制坐标</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="380"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="390"/>
         <source>编图网格超过 400 万像元，请先裁剪输入范围</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="384"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="394"/>
         <source>编图输入坐标不一致，请先配准</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="389"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="399"/>
         <source>无法读取编图栅格</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="402"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="412"/>
         <source>相栅格含当前层位未定义的编码；请统一相分类或将其作为参考图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="410"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="420"/>
         <source>自动融合支持相栅格、单因素栅格与预测相点；已有相面请用“复制底图并编辑”</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="420"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="430"/>
         <source>相点含当前层位未定义的编码</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="425"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="435"/>
         <source>预测相点为空</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8599,7 +8599,7 @@ SHA-256：%2</source>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="53"/>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="480"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="493"/>
         <source>测线: 未加载</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8736,58 +8736,58 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="332"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="333"/>
         <source>横测线:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="344"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="346"/>
         <source>时间采样:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="443"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="456"/>
         <source>切片提取失败: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="520"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="533"/>
         <source>导出剖面图件</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="521"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="534"/>
         <source>PNG 图像 (*.png);;JPEG 图像 (*.jpg *.jpeg)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="528"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="541"/>
         <source>导出成功</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="528"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="541"/>
         <source>剖面图件已成功保存到:
 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="530"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="543"/>
         <source>导出失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="530"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="543"/>
         <source>保存图像文件失败，请检查文件写入权限。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="550"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="563"/>
         <source>剖面抽取中...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="603"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="616"/>
         <source>剖面抽取失败</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10181,108 +10181,113 @@ SHA-256：%2</source>
 <context>
     <name>seismic::Seismic3DViewPanel</name>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="68"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="74"/>
         <source>等轴测</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="68"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="74"/>
         <source>切换至等轴测视角</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="69"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="75"/>
         <source>俯视</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="69"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="75"/>
         <source>切换至俯视 (平面) 视角</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="70"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="76"/>
         <source>正视</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="70"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="76"/>
         <source>切换至正视视角</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="71"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="77"/>
         <source>侧视</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="71"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="77"/>
         <source>切换至侧视视角</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="72"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="78"/>
         <source>居中复位</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="72"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="78"/>
         <source>居中并重置相机视角</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="85"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="91"/>
         <source>包围盒</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="85"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="91"/>
         <source>显示/隐藏工区三维包围线框</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="86"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="92"/>
         <source>纵测线 (IL)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="86"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="92"/>
         <source>显示/隐藏纵测线切片</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="87"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="93"/>
         <source>横测线 (XL)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="87"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="93"/>
         <source>显示/隐藏横测线切片</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="88"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="94"/>
         <source>时间切片 (Z)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="88"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="94"/>
         <source>显示/隐藏时间切片</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="120"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="127"/>
         <source>纵测线 (IL):</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="134"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="141"/>
         <source>横测线 (XL):</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="148"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="155"/>
         <source>时间 (Z):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="493"/>
+        <source>地震切片提取失败（槽位 %1，索引 %2）：%3</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

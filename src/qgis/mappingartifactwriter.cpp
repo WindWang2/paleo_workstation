@@ -277,8 +277,18 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
       if (!texture.isEmpty()) {
         if (vector->geometryType() == Qgis::GeometryType::Polygon)
           symbol->changeSymbolLayer(0, new QgsSVGFillSymbolLayer(texture, 10));
-        else if (vector->geometryType() == Qgis::GeometryType::Point)
-          symbol->changeSymbolLayer(0, new QgsSvgMarkerSymbolLayer(texture, 7));
+        // 点层不换 SVG 插图标记：strat_*.svg 是带文字的插图，缩到标记尺寸后
+        // 是不可读噪点。保持实心圆（相色已由 setColor 上），放大 + 白描边
+        // 保证浅色相色在底图上可辨（对照井位点样式 qgisstyleservice）。
+      }
+      if (vector->geometryType() == Qgis::GeometryType::Point) {
+        auto *marker = static_cast<QgsMarkerSymbol *>(symbol);
+        marker->setSize(3.2);
+        if (auto *simple =
+                dynamic_cast<QgsSimpleMarkerSymbolLayer *>(marker->symbolLayer(0))) {
+          simple->setStrokeColor(QColor(QStringLiteral("#FFFFFF")));
+          simple->setStrokeWidth(0.6);
+        }
       }
       categories.append(QgsRendererCategory(f.value("code"), symbol,
                                             f.value("name").toString()));

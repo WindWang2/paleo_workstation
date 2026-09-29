@@ -11,6 +11,8 @@
 #include <QFrame>
 #include <QTimer>
 
+#include <qgsmessagelog.h>
+
 namespace seismic {
 
 namespace {
@@ -21,6 +23,10 @@ QToolButton *createToolBtn(const QString &text, const QString &tooltip, bool che
     btn->setToolTip(tooltip);
     btn->setCheckable(checkable);
     btn->setChecked(checked);
+    // 允许横向压缩：9 个文字按钮的最小宽曾是 dock 宽度下限（688px）的来源；
+    // 用户主动收窄时文字裁切、tooltip 仍在，总比调不动强。
+    btn->setMinimumWidth(0);
+    btn->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     btn->setStyleSheet(
         QStringLiteral(
             "QToolButton {"
@@ -28,7 +34,7 @@ QToolButton *createToolBtn(const QString &text, const QString &tooltip, bool che
             "  color: #24303E;"
             "  border: 1px solid #DFE5EC;"
             "  border-radius: 4px;"
-            "  padding: 3px 8px;"
+            "  padding: 3px 5px;"
             "  font-size: 9pt;"
             "}"
             "QToolButton:hover {"
@@ -97,6 +103,7 @@ void Seismic3DViewPanel::buildUi() {
     qualityLabel_->setObjectName(QStringLiteral("seismic3DLodLabel"));
     qualityLabel_->setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
     qualityLabel_->setStyleSheet(QStringLiteral("color: #5D6E80; padding: 0 4px;"));
+    qualityLabel_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     topLay->addWidget(qualityLabel_);
 
     mainLay->addWidget(topBar);
@@ -331,7 +338,9 @@ void Seismic3DViewPanel::setVolume(std::shared_ptr<SgyVolume> volume) {
     inlineSpin_->blockSignals(true);
     inlineSlider_->setRange(inlMin, inlMax);
     inlineSpin_->setRange(inlMin, inlMax);
-    const int midInl = (inlMin + inlMax) / 2;
+    // 数值中点未必是真实测线号（测网步长>1/边缘缺线很常见），吸附到
+    // 最近真实线号——否则初始提取静默失败，视口只剩包围盒线框。
+    const int midInl = volume->FindNearestInlineValue((inlMin + inlMax) / 2.0);
     inlineSlider_->setValue(midInl);
     inlineSpin_->setValue(midInl);
     inlineSlider_->blockSignals(false);
@@ -341,7 +350,7 @@ void Seismic3DViewPanel::setVolume(std::shared_ptr<SgyVolume> volume) {
     xlineSpin_->blockSignals(true);
     xlineSlider_->setRange(xlMin, xlMax);
     xlineSpin_->setRange(xlMin, xlMax);
-    const int midXl = (xlMin + xlMax) / 2;
+    const int midXl = volume->FindNearestXlineValue((xlMin + xlMax) / 2.0);
     xlineSlider_->setValue(midXl);
     xlineSpin_->setValue(midXl);
     xlineSlider_->blockSignals(false);
@@ -394,11 +403,26 @@ int Seismic3DViewPanel::currentTimeSample() const {
 }
 
 void Seismic3DViewPanel::onInlineSliderChanged(int val) {
+    if (auto vol = volume(); vol && vol->IsLoaded()) {
+        const int snapped = vol->FindNearestInlineValue(val);
+        if (snapped != val) {
+            // 回填真实线号（重发 valueChanged → spin 同步 + 本函数以吸附值再入）
+            inlineSlider_->setValue(snapped);
+            return;
+        }
+    }
     requestSliceUpdate(SeismicSliceSlot::Inline, SgySliceType::Inline, val);
     emit inlineChanged(val);
 }
 
 void Seismic3DViewPanel::onCrosslineSliderChanged(int val) {
+    if (auto vol = volume(); vol && vol->IsLoaded()) {
+        const int snapped = vol->FindNearestXlineValue(val);
+        if (snapped != val) {
+            xlineSlider_->setValue(snapped);
+            return;
+        }
+    }
     requestSliceUpdate(SeismicSliceSlot::Crossline, SgySliceType::Xline, val);
     emit crosslineChanged(val);
 }
@@ -450,7 +474,7 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
         // 回调经服务的任务终态发射；面板可能已先析构（测试 teardown / 关页），
         // QPointer 守卫避免对已亡视口贴图。
         QPointer<Seismic3DViewPanel> guard(this);
-        taskSvc_->startSliceExtraction(vol, type, index, [guard, slot, type, index](bool success, std::shared_ptr<const SgySliceImage> image, const QString &/*error*/) {
+        taskSvc_->startSliceExtraction(vol, type, index, [guard, slot, type, index](bool success, std::shared_ptr<const SgySliceImage> image, const QString &error) {
             if (!guard)
                 return;
             if (slot == SeismicSliceSlot::Inline) {
@@ -463,6 +487,12 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
 
             if (success && image) {
                 guard->viewport_->updateSlice(slot, type, index, *image);
+            } else {
+                // 提取失败必须留痕——静默失败的表现是"只剩包围盒线框"。
+                QgsMessageLog::logMessage(
+                    tr("地震切片提取失败（槽位 %1，索引 %2）：%3")
+                        .arg(static_cast<int>(slot)).arg(index).arg(error),
+                    QStringLiteral("Seismic3D"), Qgis::MessageLevel::Warning);
             }
             // Drain pending request if user moved slider during extraction
             if (slot == SeismicSliceSlot::Inline && guard->pendingInline_ >= 0) {

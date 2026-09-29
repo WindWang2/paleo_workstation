@@ -71,19 +71,23 @@ inline bool profileContains(const QStringList &profileGroups, const QString &dec
 
 // 页面档案表（页 → canonical 组集合）。data 页无地图不操作画布 → 空；
 // 未知页空（由调用面拒绝）。
+// 注：「00_Data」（井位等原始数据组）不在 canonical 七组内，canonicalize 原样
+// 透传；井位是所有编图页的基准参考层，故四张地图页档案都显式带上它——否则
+// stageTreeVisibility 会把表外层整体隐藏（井位点在地图上消失）。
 inline QStringList profileGroupsForPage(const QString &pageId)
 {
+  const QString data = QStringLiteral("00_Data");
   if (pageId == QLatin1String("predict"))
-    return {QStringLiteral("01_Base"), QStringLiteral("02_Prediction")};
+    return {data, QStringLiteral("01_Base"), QStringLiteral("02_Prediction")};
   if (pageId == QLatin1String("constraint"))
-    return {QStringLiteral("01_Base"), QStringLiteral("03_Constraints"),
+    return {data, QStringLiteral("01_Base"), QStringLiteral("03_Constraints"),
             QStringLiteral("04_SingleFactor")};
   if (pageId == QLatin1String("compose"))
-    return {QStringLiteral("01_Base"), QStringLiteral("03_Constraints"),
+    return {data, QStringLiteral("01_Base"), QStringLiteral("03_Constraints"),
             QStringLiteral("04_SingleFactor"), QStringLiteral("05_PaleoMap"),
             QStringLiteral("06_Reference")};
   if (pageId == QLatin1String("validate"))
-    return {QStringLiteral("01_Base"), QStringLiteral("07_Validation")};
+    return {data, QStringLiteral("01_Base"), QStringLiteral("07_Validation")};
   return {};
 }
 

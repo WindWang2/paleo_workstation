@@ -15,6 +15,14 @@ public:
         Reset
     };
 
+    // D3.6 相机书签快照
+    struct CameraState {
+        float yaw = -45.0f;
+        float pitch = 35.0f;
+        float distance = 9.0f;
+        glm::vec3 target{0.0f};
+    };
+
     SeismicCameraController();
 
     [[nodiscard]] glm::mat4 BuildViewMatrix() const;
@@ -42,6 +50,10 @@ public:
     void SetPitch(float pitch);
     void SetDistance(float dist);
     void SetTarget(const glm::vec3 &target) { target_ = target; }
+
+    // D3.6：状态快照存/取（书签用）
+    [[nodiscard]] CameraState state() const { return CameraState{yaw_, pitch_, distance_, target_}; }
+    void setState(const CameraState &st);
 
 private:
     float yaw_ = -45.0f;

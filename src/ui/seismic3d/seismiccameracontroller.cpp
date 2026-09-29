@@ -138,4 +138,11 @@ void SeismicCameraController::SetDistance(float dist) {
     distance_ = std::clamp(dist, kMinCameraDistance, kMaxCameraDistance);
 }
 
+void SeismicCameraController::setState(const CameraState &st) {
+    yaw_ = st.yaw;
+    SetPitch(st.pitch);   // 走 setter 以复用钳制
+    SetDistance(st.distance);
+    target_ = st.target;
+}
+
 } // namespace seismic

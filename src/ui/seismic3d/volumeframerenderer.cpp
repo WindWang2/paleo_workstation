@@ -138,14 +138,7 @@ void VolumeFrameRenderer::UpdateFromVolume(QOpenGLFunctions_3_3_Core *gl, const 
     if (!gl || !initialized_ || !volume.IsLoaded()) {
         return;
     }
-
-    const std::vector<LineVertex> vertices = BuildFrameVertices(volume);
-    frameVertexCount_ = static_cast<GLsizei>(vertices.size());
-    vertexCount_ = frameVertexCount_;
-
-    gl->glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-    gl->glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(sizeof(LineVertex) * vertices.size()), vertices.data(), GL_DYNAMIC_DRAW);
-    gl->glBindBuffer(GL_ARRAY_BUFFER, 0);
+    Upload(gl, volume);
 }
 
 void VolumeFrameRenderer::UpdateLineSection(
@@ -155,32 +148,97 @@ void VolumeFrameRenderer::UpdateLineSection(
     if (!gl || !initialized_ || !volume.IsLoaded() || drawPathPoints.size() < 2) {
         return;
     }
+    linePath_ = drawPathPoints;
+    Upload(gl, volume);
+}
 
+void VolumeFrameRenderer::ClearLineSection() {
+    linePath_.clear();
+    vertexCount_ = frameVertexCount_; // 旧语义：立即回退到仅包围盒计数
+}
+
+// ---- D3.4 井位标记 ----
+void VolumeFrameRenderer::UpdateWells(QOpenGLFunctions_3_3_Core *gl, const SgyVolume &volume,
+                                      const std::vector<Seismic3DWell> &wells) {
+    wells_ = wells;
+    if (gl && initialized_ && volume.IsLoaded())
+        Upload(gl, volume);
+}
+
+void VolumeFrameRenderer::ClearWells(QOpenGLFunctions_3_3_Core *gl, const SgyVolume &volume) {
+    wells_.clear();
+    if (gl && initialized_ && volume.IsLoaded())
+        Upload(gl, volume);
+}
+
+// ---- D3.12 多体叠加轮廓 ----
+void VolumeFrameRenderer::SetSecondaryVolume(QOpenGLFunctions_3_3_Core *gl, const SgyVolume &primary,
+                                             std::shared_ptr<const SgyVolume> secondary) {
+    secondary_ = std::move(secondary);
+    if (gl && initialized_ && primary.IsLoaded())
+        Upload(gl, primary);
+}
+
+// 统一重建：frame(+line path)+井+第二体 → 一次上传
+void VolumeFrameRenderer::Upload(QOpenGLFunctions_3_3_Core *gl, const SgyVolume &volume) {
     const float horizontalScale = SeismicSliceRenderer::HorizontalScale();
     const float heightScale = SeismicSliceRenderer::HeightScale();
     const float yTop = heightScale * 0.5f + 0.003f;
-    const glm::vec3 sectionColor(0.95f, 0.60f, 0.00f);
 
     std::vector<LineVertex> vertices = BuildFrameVertices(volume);
     frameVertexCount_ = static_cast<GLsizei>(vertices.size());
 
-    for (size_t i = 1; i < drawPathPoints.size(); ++i) {
-        const float ax = Normalize(drawPathPoints[i - 1].y, volume.XlineMin(), volume.XlineMax(), horizontalScale);
-        const float az = Normalize(drawPathPoints[i - 1].x, volume.InlineMin(), volume.InlineMax(), horizontalScale);
-        const float bx = Normalize(drawPathPoints[i].y, volume.XlineMin(), volume.XlineMax(), horizontalScale);
-        const float bz = Normalize(drawPathPoints[i].x, volume.InlineMin(), volume.InlineMax(), horizontalScale);
-        AddLine(vertices, glm::vec3(ax, yTop, az), glm::vec3(bx, yTop, bz), sectionColor);
+    // 任意线路径高亮（顶面橙色路径）
+    if (linePath_.size() >= 2) {
+        const glm::vec3 sectionColor(0.95f, 0.60f, 0.00f);
+        for (size_t i = 1; i < linePath_.size(); ++i) {
+            const float ax = Normalize(linePath_[i - 1].y, volume.XlineMin(), volume.XlineMax(), horizontalScale);
+            const float az = Normalize(linePath_[i - 1].x, volume.InlineMin(), volume.InlineMax(), horizontalScale);
+            const float bx = Normalize(linePath_[i].y, volume.XlineMin(), volume.XlineMax(), horizontalScale);
+            const float bz = Normalize(linePath_[i].x, volume.InlineMin(), volume.InlineMax(), horizontalScale);
+            AddLine(vertices, glm::vec3(ax, yTop, az), glm::vec3(bx, yTop, bz), sectionColor);
+        }
+    }
+
+    // D3.4 井轨迹（垂直线）+ 标志层十字标
+    for (const Seismic3DWell &well : wells_) {
+        const float x = Normalize(well.xlineNo, volume.XlineMin(), volume.XlineMax(), horizontalScale);
+        const float z = Normalize(well.inlineNo, volume.InlineMin(), volume.InlineMax(), horizontalScale);
+        const float yTopWell = heightScale * 0.5f;
+        const float yBottomWell = heightScale * 0.5f - std::clamp(well.bottomFrac, 0.02f, 1.0f) * heightScale;
+        // 白色光晕 + 蓝主色（与 2D 剖面井筒一致）
+        AddLine(vertices, glm::vec3(x, yTopWell, z), glm::vec3(x, yBottomWell, z),
+                glm::vec3(0.95f, 0.95f, 1.0f));
+        AddLine(vertices, glm::vec3(x, yTopWell, z), glm::vec3(x, yBottomWell, z),
+                glm::vec3(0.11f, 0.45f, 0.82f));
+        // 标志层：短水平十字
+        for (const Seismic3DWellTop &top : well.tops) {
+            const float y = heightScale * 0.5f - std::clamp(top.sampleFrac, 0.0f, 1.0f) * heightScale;
+            const QColor c = top.color.isValid() ? top.color : QColor(0x1B73D0);
+            const glm::vec3 col(c.redF(), c.greenF(), c.blueF());
+            AddLine(vertices, glm::vec3(x - 0.10f, y, z), glm::vec3(x + 0.10f, y, z), col);
+            AddLine(vertices, glm::vec3(x, y, z - 0.10f), glm::vec3(x, y, z + 0.10f), col);
+        }
+    }
+
+    // D3.12 第二工区轮廓（青色虚线观感——线段断续）
+    if (secondary_ && secondary_->IsLoaded()) {
+        const glm::vec3 secondaryColor(0.20f, 0.80f, 0.85f);
+        const float xMin = Normalize(secondary_->XlineMin(), volume.XlineMin(), volume.XlineMax(), horizontalScale);
+        const float xMax = Normalize(secondary_->XlineMax(), volume.XlineMin(), volume.XlineMax(), horizontalScale);
+        const float zMin = Normalize(secondary_->InlineMin(), volume.InlineMin(), volume.InlineMax(), horizontalScale);
+        const float zMax = Normalize(secondary_->InlineMax(), volume.InlineMin(), volume.InlineMax(), horizontalScale);
+        const float yT = heightScale * 0.5f + 0.006f;
+        AddLine(vertices, glm::vec3(xMin, yT, zMin), glm::vec3(xMax, yT, zMin), secondaryColor);
+        AddLine(vertices, glm::vec3(xMax, yT, zMin), glm::vec3(xMax, yT, zMax), secondaryColor);
+        AddLine(vertices, glm::vec3(xMax, yT, zMax), glm::vec3(xMin, yT, zMax), secondaryColor);
+        AddLine(vertices, glm::vec3(xMin, yT, zMax), glm::vec3(xMin, yT, zMin), secondaryColor);
     }
 
     vertexCount_ = static_cast<GLsizei>(vertices.size());
-
     gl->glBindBuffer(GL_ARRAY_BUFFER, vbo_);
     gl->glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(sizeof(LineVertex) * vertices.size()), vertices.data(), GL_DYNAMIC_DRAW);
     gl->glBindBuffer(GL_ARRAY_BUFFER, 0);
-}
-
-void VolumeFrameRenderer::ClearLineSection() {
-    vertexCount_ = frameVertexCount_;
 }
 
 void VolumeFrameRenderer::Render(

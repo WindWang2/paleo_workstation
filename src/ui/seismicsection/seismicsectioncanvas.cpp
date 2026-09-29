@@ -430,8 +430,9 @@ void SeismicSectionCanvas::setCompareData(const SgySliceImage &image, const QStr
     m_compareSlice = image;
     m_compareLabel = label;
     m_compareImage = QImage();
-    if (m_compareEnabled && image.width > 0 && image.height > 0) {
-        // B 图按当前显示参数上色（复用 LUT 路径）
+    if (m_compareEnabled && image.width > 0 && image.height > 0 &&
+        !image.values.empty()) {
+        // B 图按当前显示参数上色（复用 LUT 路径；字节级写 RGBA）
         m_compareImage = QImage(image.width, image.height, QImage::Format_ARGB32_Premultiplied);
         const float absMax = std::max(std::abs(image.valueMin), std::abs(image.valueMax));
         const float baseScale = absMax > 1e-8f ? 1.0f / absMax : 1.0f;

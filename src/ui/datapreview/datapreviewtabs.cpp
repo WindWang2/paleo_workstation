@@ -3005,6 +3005,16 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
       if (panel3dGuard && svc)
         panel3dGuard->setTaskService(svc);
+        // D3.2：三维切片拖动联动 2D——IL/XL 变化走 openSeismicLine（拨线号并
+        // 聚焦 2D 页），T 变化拨时间片采样值
+        QObject::connect(panel3dGuard, &seismic::Seismic3DViewPanel::inlineChanged,
+                         panel3dGuard, [this, abs](int inlineNo) {
+          openSeismicLine(abs, QStringLiteral("inline"), inlineNo, 0.0);
+        });
+        QObject::connect(panel3dGuard, &seismic::Seismic3DViewPanel::crosslineChanged,
+                         panel3dGuard, [this, abs](int xlineNo) {
+          openSeismicLine(abs, QStringLiteral("crossline"), xlineNo, 0.0);
+        });
 
       if (!svc)
       {

@@ -29,3 +29,12 @@ add_paleo_test(tst_seismic_transcode)
 # P5 Phase 2 剖面 2D：三模/阈值极性/AGC/曲线/双刻度/纹理缓存/LOD 预算/
 # 8 档色标/导出/卷帘/道头卡/书签/复制/原因态
 add_paleo_test(tst_seismic_sectionui LIBS paleo_ui)
+
+# P5 Phase 3 三维：colormap（D3.5）与 GL 回退件（D3.9）源挂进 paleo_ui
+# （根模块表只读；新文件经此处追加，与测试挂载同模式）
+target_sources(paleo_ui PRIVATE
+  src/ui/seismic3d/seismic3dcolormap.cpp
+  src/ui/seismic3d/seismic3dfallback.cpp)
+
+# P5 Phase 3 三维：colormap/堆叠体渲染/拖面联动/井位/多体/相机书签/回退/fps
+add_paleo_test(tst_seismic_3dui LIBS paleo_ui)

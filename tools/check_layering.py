@@ -216,7 +216,9 @@ def run_check(strict=False, baseline_path=None):
     failures = []      # baseline 外的真违规
     for path in iter_sources():
         rel = os.path.relpath(path, SRC).replace(os.sep, "/")
-        rel_src = os.path.join("src", rel)
+        # 统一正斜杠：os.path.join 在 Windows 产出 src\io/x.cpp 混合分隔符，
+        # 与 baseline（正斜杠）永不相等——残留匹配与 selftest 全失效。
+        rel_src = "src/" + rel
         for rule, lineno, text in check_file(path):
             if rule in baseline.get(rel_src, set()):
                 hits.setdefault(rel_src, set()).add(rule)

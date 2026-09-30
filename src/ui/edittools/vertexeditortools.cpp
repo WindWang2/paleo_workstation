@@ -386,11 +386,16 @@ void PaleoVertexTool::canvasPressEvent( QgsMapMouseEvent *e )
   }
 
   // Prime the previews with the (so far zero-length) move, same math as move.
+  updateDragPreviews( e->mapPoint() );
+}
+
+void PaleoVertexTool::updateDragPreviews( const QgsPointXY &mapPoint )
+{
   for ( auto lit = mDraggingVertex->originalByFid.begin();
         lit != mDraggingVertex->originalByFid.end(); ++lit )
   {
     QgsVectorLayer *writeLayer = lit.key();
-    const QgsPointXY lp = toLayerCoordinates( writeLayer, e->mapPoint() );
+    const QgsPointXY lp = toLayerCoordinates( writeLayer, mapPoint );
     for ( auto fit = lit.value().begin(); fit != lit.value().end(); ++fit )
     {
       QgsGeometry preview = fit.value();
@@ -430,20 +435,7 @@ void PaleoVertexTool::canvasMoveEvent( QgsMapMouseEvent *e )
       m->setCenter( e->mapPoint() );
   }
 
-  for ( auto lit = mDraggingVertex->originalByFid.begin();
-        lit != mDraggingVertex->originalByFid.end(); ++lit )
-  {
-    QgsVectorLayer *writeLayer = lit.key();
-    const QgsPointXY lp = toLayerCoordinates( writeLayer, e->mapPoint() );
-    for ( auto fit = lit.value().begin(); fit != lit.value().end(); ++fit )
-    {
-      QgsGeometry preview = fit.value();
-      for ( const CoincidentMember &member : std::as_const( mDraggingVertex->coincident ) )
-        if ( member.layer == writeLayer && member.fid == fit.key() )
-          preview.moveVertex( lp.x(), lp.y(), member.vertexNr );
-      mDraggingVertex->previewBands.value( writeLayer ).value( fit.key() )->setToGeometry( preview, writeLayer );
-    }
-  }
+  updateDragPreviews( e->mapPoint() );
 }
 
 // Right-button release and Delete/Backspace share this batch delete (single

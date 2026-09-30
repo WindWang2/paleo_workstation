@@ -21,6 +21,7 @@ class QSpinBox;
 class QLabel;
 class QToolButton;
 class QTimer;
+class QShowEvent;
 
 namespace seismic {
 
@@ -88,6 +89,10 @@ private slots:
     void onTimeSliderChanged(int val);
     void onSliderPressed();
     void onSliderReleased();
+
+protected:
+    // D3.9：GL 看门狗在首个 show 才武装（dock 构造即隐藏，提前计时必误判）。
+    void showEvent(QShowEvent *event) override;
 
 private:
     void buildUi();

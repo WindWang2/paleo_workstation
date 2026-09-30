@@ -24,6 +24,7 @@
 #include <QSpinBox>
 #include <QLabel>
 #include <QFrame>
+#include <QShowEvent>
 #include <QTimer>
 
 #include <qgsmessagelog.h>
@@ -316,15 +317,27 @@ void Seismic3DViewPanel::buildUi() {
             timeSlider_->setValue(newIndex);
     });
 
-    // D3.9 GL 看门狗：3 秒仍无 GL 上下文 → 2D 拼接回退（不崩不空白）
+    // D3.9 GL 看门狗：显示后 3 秒仍无 GL 上下文 → 2D 拼接回退（不崩不空白）。
+    // 计时在首个 showEvent 才武装——3D dock 构造时是隐藏的，QOpenGLWidget
+    // 要等真正可见才会建上下文，提前计时必误判成 GL 失败。
     glWatchTimer_ = new QTimer(this);
     glWatchTimer_->setSingleShot(true);
     glWatchTimer_->setInterval(3000);
     connect(glWatchTimer_, &QTimer::timeout, this, [this]() {
-        if (!viewport_->isGlReady())
-            activateFallback();
+        if (viewport_->isGlReady())
+            return;
+        if (!viewport_->isVisible())
+            return; // 又藏起来了——下次 showEvent 再武装
+        activateFallback();
     });
-    glWatchTimer_->start();
+}
+
+void Seismic3DViewPanel::showEvent(QShowEvent *event) {
+    QWidget::showEvent(event);
+    // D3.9：看门狗只在真显示后计时（dock 初始隐藏，GL 要等首个 show 才建）。
+    if (!fallbackActive_ && !viewport_->isGlReady() && glWatchTimer_ &&
+        !glWatchTimer_->isActive())
+        glWatchTimer_->start();
 }
 
 void Seismic3DViewPanel::setTaskService(SeismicTaskService *taskSvc) {

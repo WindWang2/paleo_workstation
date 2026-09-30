@@ -55,6 +55,9 @@ class DataListPanel : public QWidget
 
     // ---- D1/D5 共享面（DataPage 转发给 EntityPanel，实体侧操作共用栈/存储） ----
     paleo::dataops::DataOpsUndoStack *opStack() const { return m_opStack; }
+    // B2（wave/deepen-perf）：导入队列面板——壳接生产 runner
+    //（FolderImportQueueAdapter）用；队列未建时为 nullptr。
+    paleo::dataops::ImportQueuePanel *importQueuePanel() const { return m_importQueue; }
     const paleo::dataops::DataOpsContext &opsContext() const { return m_ctx; }
     paleo::dataops::OperationsHistory *operationsHistory() const { return m_history.get(); }
     // D6.2 命令注册表（DataPage 装配命令面板时读取）。

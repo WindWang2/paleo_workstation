@@ -387,6 +387,19 @@ void AppContext::refreshWellsLayer(bool zoomOnGrowth)
   }
   layer->reload();         // 文件可能刚被重写——数据源重读要素
   QgisStyleService::applyWellLayerStyle(layer);
+  // C3（wave/deepen-perf）：井头带类别字段时按 Q/HS 1011—2016 表 K.1 十二类
+  // 探井分类渲染；无字段保持通用「探井」符号——不造假类别。
+  for (const QString &field : {QStringLiteral("well_class"),
+                               QStringLiteral("well_category"),
+                               QStringLiteral("category"),
+                               QStringLiteral("类别")})
+  {
+    if (layer->fields().lookupField(field) >= 0)
+    {
+      QgisStyleService::applyWellCategoryStyle(layer, field);
+      break;
+    }
+  }
   layer->triggerRepaint();
   if (m_wellLink)
     m_wellLink->setWellLayer(layer, QStringLiteral("id"));

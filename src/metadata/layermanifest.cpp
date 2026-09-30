@@ -2,8 +2,6 @@
 #include "layermanifest.h"
 #include "metastore.h"
 
-#include <QDir>
-#include <QFileInfo>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -32,38 +30,8 @@ namespace
   // method work even if the caller skipped open().
   bool ensureOpen(const QString &path, QString *error)
   {
-    const QString connName = connectionNameFor(path);
-    QSqlDatabase db = QSqlDatabase::contains(connName)
-                          ? QSqlDatabase::database(connName)
-                          : QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connName);
-
+    QSqlDatabase db = MetaStore::openConnection(path, connectionNameFor(path), error);
     if (!db.isValid())
-    {
-      setError(error, QStringLiteral("QSQLITE driver is not available"));
-      return false;
-    }
-
-    if (!db.isOpen())
-    {
-      const QDir dir = QFileInfo(path).absoluteDir();
-      if (!dir.exists() && !dir.mkpath(QStringLiteral(".")))
-      {
-        setError(error, QStringLiteral("cannot create directory for %1").arg(path));
-        return false;
-      }
-      db.setDatabaseName(path);
-      if (!db.open())
-      {
-        setError(error, db.lastError().text());
-        return false;
-      }
-    }
-    // 共享 schema 门（docs/SCHEMA_MIGRATION.md）：新库/遗留库采纳当前
-    // user_version，未来版本拒开——在建任何表之前执行。T7 矩阵暴露的洞：
-    // 检查原先只在首次 open 时跑，拒开后连接留在注册表里处于 open 态，
-    // 之后的读调用（all()/latest()...）经缓存的 open 连接绕过版本门直接
-    // 建表。移到连接确保之后每次执行（一次 PRAGMA，幂等便宜）。
-    if ( !MetaStore::ensureUserVersion(db, error ) )
       return false;
 
     QSqlQuery schema(db);

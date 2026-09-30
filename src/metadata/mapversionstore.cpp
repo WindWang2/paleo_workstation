@@ -56,35 +56,8 @@ namespace
   // forward-compatible: absent columns keep NULL defaults on old rows).
   bool ensureOpen( const QString &path, QString *error )
   {
-    const QString connName = connectionNameFor( path );
-    QSqlDatabase db = QSqlDatabase::contains( connName )
-                          ? QSqlDatabase::database( connName )
-                          : QSqlDatabase::addDatabase( QStringLiteral( "QSQLITE" ), connName );
-    if ( !db.isValid() )
-    {
-      setError( error, QStringLiteral( "QSQLITE driver is not available" ) );
-      return false;
-    }
-    if ( !db.isOpen() )
-    {
-      const QDir dir = QFileInfo( path ).absoluteDir();
-      if ( !dir.exists() && !dir.mkpath( QStringLiteral( "." ) ) )
-      {
-        setError( error, QStringLiteral( "cannot create directory for %1" ).arg( path ) );
-        return false;
-      }
-      db.setDatabaseName( path );
-      if ( !db.open() )
-      {
-        setError( error, db.lastError().text() );
-        return false;
-      }
-    }
-    // 共享 schema 门（docs/SCHEMA_MIGRATION.md）：建表/补列之前执行。
-    // T7 矩阵暴露的洞：检查原先只在首次 open 时跑——拒开后连接留在注册表
-    // 里处于 open 态，之后的读调用经缓存连接绕过版本门直接建表。移到连接
-    // 确保之后每次执行（一次 PRAGMA，幂等便宜）。
-    if ( !MetaStore::ensureUserVersion( db, error ) )
+    QSqlDatabase db = MetaStore::openConnection(path, connectionNameFor(path), error);
+    if (!db.isValid())
       return false;
 
     QSqlQuery schema( db );

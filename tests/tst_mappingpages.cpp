@@ -15,6 +15,7 @@
 
 #include "../src/services/singlefactordef.h"
 #include "../src/ui/pages/pagepanels.h"
+#include "../src/workflow/boundarysemantics.h" // C2：相界语义类型词表（单类型首发）
 
 // m2/mapping-pages — 三个编图页（预测/单因素/智能编图）的贯通测试。
 // 约定与 tst_panels 相同：面板只发意图信号，测试用 nullptr/null 服务栈 +
@@ -906,6 +907,20 @@ void ComposePageTests::faciesAttrAreaSavesPayload()
   QCOMPARE(attrs.value(QStringLiteral("facies_code")), QVariant(3));
   QCOMPARE(attrs.value(QStringLiteral("facies_type")).toString(), QStringLiteral("辫状河三角洲"));
   QCOMPARE(attrs.value(QStringLiteral("comment")).toString(), QStringLiteral("备注"));
+
+  // C2（wave/deepen-perf）：相界类型单类型首发（断层切割）——「无」不携带键，
+  // 选中断层切割 → payload 带 boundary_kind=fault_cut（词面 = 词表 title）。
+  auto *kind = page.findChild<QComboBox *>(QStringLiteral("faciesBoundaryKindCombo"));
+  QVERIFY(kind != nullptr);
+  QCOMPARE(kind->count(), 1 + BoundarySemantics::activeKinds().size());
+  QCOMPARE(kind->itemData(1).toString(), QStringLiteral("fault_cut"));
+  QCOMPARE(kind->itemText(1), QStringLiteral("断层切割"));
+  QVERIFY(!attrs.contains(QStringLiteral("boundary_kind"))); // 「无」= 不带键
+  kind->setCurrentIndex(1);
+  save->click();
+  QCOMPARE(spy.count(), 2);
+  QCOMPARE(spy.last().at(1).toMap().value(QStringLiteral("boundary_kind")).toString(),
+           QStringLiteral("fault_cut"));
 }
 
 void ComposePageTests::faciesTargetAdoptsSoleDeclaredFacies()

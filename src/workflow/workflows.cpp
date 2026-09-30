@@ -12,7 +12,9 @@
 // ---- m2(B): 单因素生成链（ConstraintWorkflow::generateFactor/generateContours）----
 #include "../qgis/factorcontour.h"
 #include "../qgis/factorstylewriter.h"
+#include "../qgis/qgisstyleservice.h" // C2：applyFaciesBoundaryStyle（相界语义符号）
 #include "../services/singlefactordef.h"
+#include "boundarysemantics.h" // C2：相界地质语义类型词表
 // ---- m2(B) end ----
 #include "../services/projectdata.h"
 #include "derivedassets.h"
@@ -64,6 +66,20 @@ namespace
   {
     if ( error )
       *error = text;
+  }
+
+  // C4（wave/deepen-perf）：layerId↔assetId 关联的写侧——派生产物 commit 成功
+  // 后把 catalog assetId 盖到已实例化的图层对象（paleoAssetId 自定义属性，
+  // 随 .qgz 持久化；LayerPropertiesDialog 业务页 assetIdForLayer 读侧消费）。
+  // 层未实例化时跳过（不为了盖章而提前 materialize——首跑由 catalog 版本
+  // extra 的 manifest_layer_id 兜底，重跑同 layerId 幂等补章）。
+  void stampLayerAssetLink( QgisLayerService *layers, const QString &layerId,
+                            const QString &assetId )
+  {
+    if ( !layers || layerId.isEmpty() || assetId.isEmpty() )
+      return;
+    if ( QgsMapLayer *l = layers->layer( layerId ) )
+      l->setCustomProperty( QStringLiteral( "paleoAssetId" ), assetId );
   }
 
   QgisProcessingService *procOf( const QObject *wf )
@@ -1022,6 +1038,7 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
   if ( !layers->declare( decl, error ) )
     return false;
 
+  stampLayerAssetLink( layers, decl.layerId, st.assetId ); // C4：已实例化层补盖资产关联
   emit factorDone( horizon, decl.layerId );
   return true;
 }
@@ -1073,13 +1090,17 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     return false;
   }
 
-  // 主线6：按引擎分派参数整形。冻结契约的未接入引擎显式拒绝——不静默
-  // 降级成 IDW（那会产出语义错误的栅格）；契约全文见 docs/progress/mapping.md。
-  if ( def.processingAlgId == SingleFactorContracts::welldistEngineId()
-       || def.processingAlgId == SingleFactorContracts::confidenceEngineId() )
+  // 主线6 + C5（wave/deepen-perf）：按引擎分派参数整形。welldist 距离变换
+  // 引擎已按冻结契约实现（src/algorithms/distancetransform.cpp）——注册面
+  // 缺失时仍显式拒绝（不静默降级成 IDW，那会产出语义错误的栅格）；confidence
+  // 的前置在 onnxpredictionservice（只读首个输出张量，无置信度通道），维持
+  // 冻结拒绝。契约全文见 docs/progress/mapping.md。
+  if ( def.processingAlgId == SingleFactorContracts::welldistEngineId() )
+    return generateDistanceFactor( horizon, factorId, def, params, error );
+  if ( def.processingAlgId == SingleFactorContracts::confidenceEngineId() )
   {
-    setError( error, tr( "单因素 %1 的引擎 %2 尚未接入（参数契约已冻结，"
-                         "实现属数据方向版图；见 docs/progress/mapping.md）" )
+    setError( error, tr( "单因素 %1 的引擎 %2 尚未接入（前置在 ONNX 置信度"
+                         "通道，当前会话只读首个输出张量；见 docs/progress/mapping.md）" )
                          .arg( factorId, def.processingAlgId ) );
     return false;
   }
@@ -1186,6 +1207,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
 
   QVariantMap extra;
   extra.insert("mapping_product",true);extra.insert("layer_id","product."+st.versionId);
+  extra.insert("manifest_layer_id",QStringLiteral("factor.%1.%2").arg(horizon,factorId)); // C4：catalog 侧权威反链（清单 layerId）
   extra.insert("layer_type","raster");extra.insert("title",tr("%1·%2").arg(def.title,horizon));extra.insert("group","04_SingleFactor");
   extra.insert( QStringLiteral( "factor_id" ), factorId );
   extra.insert( QStringLiteral( "field" ), field );
@@ -1228,6 +1250,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
   if ( !layers->declare( decl, error ) )
     return false;
 
+  stampLayerAssetLink( layers, decl.layerId, st.assetId ); // C4：已实例化层补盖资产关联
   emit factorGenerated( horizon, factorId, decl.layerId );
   return true;
 }
@@ -1342,6 +1365,151 @@ bool ConstraintWorkflow::generateIsopachFactor( const QString &horizon, const QS
   if ( !layers->declare( decl, error ) )
     return false;
 
+  stampLayerAssetLink( layers, decl.layerId, st.assetId ); // C4：已实例化层补盖资产关联
+  emit factorGenerated( horizon, factorId, decl.layerId );
+  return true;
+}
+
+bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const QString &factorId,
+                                                 const SingleFactorDefinition &def,
+                                                 const QVariantMap &params, QString *error )
+{
+  QgisProcessingService *proc = procOf( this );
+  QgisLayerService *layers = layersOf( this );
+  if ( !proc || !layers )
+  {
+    setError( error, tr( "constraint workflow is not bound to services" ) );
+    return false;
+  }
+
+  // 引擎按冻结契约 id 解析；注册面缺失 → 显式拒绝（不静默降级 IDW）。
+  if ( !proc->algorithmIds().contains( def.processingAlgId ) )
+  {
+    setError( error, tr( "单因素 %1 的引擎 %2 尚未注册（参数契约已冻结；"
+                         "见 docs/progress/mapping.md）" )
+                         .arg( factorId, def.processingAlgId ) );
+    return false;
+  }
+
+  const double cellSize = params.value( QStringLiteral( "cellSize" ),
+                                        def.defaultParams.value( QStringLiteral( "cellSize" ), 1.0 ) )
+                              .toDouble();
+  if ( !( cellSize > 0.0 ) )
+  {
+    setError( error, tr( "像元大小必须是正数" ) );
+    return false;
+  }
+
+  const QString overridePoints = params.value( QStringLiteral( "pointsLayerId" ) ).toString();
+  const QString pointsId = overridePoints.isEmpty() ? wellsLayerIdFor( layers, horizon )
+                                                    : overridePoints;
+  if ( pointsId.isEmpty() )
+  {
+    setError( error, tr( "层位 %1 没有井点图层" ).arg( horizon ) );
+    return false;
+  }
+  QgsMapLayer *points = layers->instantiate( pointsId, error );
+  if ( !points )
+    return false;
+
+  QString regErr;
+  DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
+  if ( !registrar.isBound() )
+  {
+    setError( error, regErr );
+    return false;
+  }
+  const DerivedStaging st = registrar.stage(
+      QStringLiteral( "single_factor_raster" ), tr( "%1·%2" ).arg( def.title, horizon ),
+      QStringLiteral( "FACTOR_%1_%2.tif" ).arg( factorId, horizon ), &regErr );
+  if ( !st.isValid() )
+  {
+    setError( error, regErr );
+    return false;
+  }
+  QStringList parentPaths{ points->source().section( QLatin1Char( '|' ), 0, 0 ) };
+
+  QVariantMap runParams;
+  runParams.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( points ) );
+  runParams.insert( QStringLiteral( "CELL_SIZE" ), cellSize );
+  runParams.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
+
+  // 约束图层随行（绕障语义在算法侧按 type 分拣：仅 break_line 阻断）。
+  QVector<LayerDeclaration> declared;
+  QString manifestErr;
+  if ( !layers->tryDeclared( &declared, &manifestErr ) )
+  {
+    setError( error, manifestErr.isEmpty() ? tr( "无法读取图层清单" ) : manifestErr );
+    return false;
+  }
+  const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( horizon );
+  const bool hasConstraints = std::any_of(
+      declared.cbegin(), declared.cend(),
+      [&constraintLayerId]( const LayerDeclaration &d ) { return d.layerId == constraintLayerId; } );
+  if ( hasConstraints )
+  {
+    QString constraintErr;
+    QgsMapLayer *constraints = layers->instantiate( constraintLayerId, &constraintErr );
+    if ( !constraints )
+    {
+      setError( error, constraintErr.isEmpty()
+                           ? tr( "无法加载约束图层 %1" ).arg( constraintLayerId )
+                           : constraintErr );
+      return false;
+    }
+    runParams.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( constraints ) );
+    parentPaths.append( constraints->source().section( QLatin1Char( '|' ), 0, 0 ) );
+  }
+
+  const QVariantMap results = proc->run( def.processingAlgId, runParams, error );
+  if ( results.isEmpty() )
+    return false;
+  const QString outPath = outputPathOf( results );
+  if ( outPath.isEmpty() )
+  {
+    setError( error, tr( "单因素生成未返回输出路径" ) );
+    return false;
+  }
+
+  QVariantMap extra;
+  extra.insert( QStringLiteral( "factor_id" ), factorId );
+  extra.insert( QStringLiteral( "engine" ), def.processingAlgId );
+  extra.insert( QStringLiteral( "cell_size" ), cellSize );
+  extra.insert( QStringLiteral( "constrained" ), hasConstraints );
+  extra.insert( QStringLiteral( "horizon" ), horizon );
+  extra.insert( QStringLiteral( "kind" ), QStringLiteral( "single_factor_raster" ) );
+  extra.insert( QStringLiteral( "manifest_layer_id" ),
+                QStringLiteral( "factor.%1.%2" ).arg( horizon, factorId ) ); // C4 反链
+  extra.insert( QStringLiteral( "points_layer_id" ), pointsId );
+  QString commitErr;
+  if ( !registrar.commitExternal( st, outPath, registrar.parentVersionIdsFor( parentPaths ),
+                                  def.processingAlgId, extra, &commitErr ) )
+  {
+    setError( error, commitErr );
+    return false;
+  }
+
+  // 色带样式落盘（welldist 绿→灰预设已备；best-effort，同 IDW 路径）。
+  if ( !registrar.projectDir().isEmpty() )
+  {
+    QString styleErr; // 降级不打断生成链
+    FactorStyleWriter::writeStyleQml( factorId, outPath,
+                                      QDir( registrar.projectDir() ).filePath( QStringLiteral( "styles" ) ),
+                                      &styleErr );
+  }
+
+  LayerDeclaration decl;
+  decl.layerId = QStringLiteral( "factor.%1.%2" ).arg( horizon, factorId );
+  decl.horizon = horizon;
+  decl.type = QStringLiteral( "raster" );
+  decl.source = outPath;
+  decl.group = QStringLiteral( "04_SingleFactor" );
+  decl.styleRef = def.styleRef;
+  decl.title = tr( "%1·%2" ).arg( def.title, horizon );
+  if ( !layers->declare( decl, error ) )
+    return false;
+
+  stampLayerAssetLink( layers, decl.layerId, st.assetId ); // C4：已实例化层补盖资产关联
   emit factorGenerated( horizon, factorId, decl.layerId );
   return true;
 }
@@ -1452,6 +1620,7 @@ bool ConstraintWorkflow::generateContours( const QString &horizon, const QString
   if ( !layers->declare( decl, error ) )
     return false;
 
+  stampLayerAssetLink( layers, decl.layerId, st.assetId ); // C4：已实例化层补盖资产关联
   emit contoursGenerated( horizon, factorLayerId, decl.layerId );
   return true;
 }
@@ -1551,6 +1720,7 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
   if ( !layers->declare( decl, error ) )
     return false;
 
+  stampLayerAssetLink( layers, decl.layerId, st.assetId ); // C4：已实例化层补盖资产关联
   emit compositionDone( horizon, decl.layerId );
   return true;
 }
@@ -1672,6 +1842,7 @@ bool CompositionWorkflow::deriveFaciesPolygons( const QString &horizon, const QS
                      : tr( "failed to declare facies layer '%1'" ).arg( decl.layerId ) );
   }
 
+  stampLayerAssetLink( layers, decl.layerId, st.assetId ); // C4：已实例化层补盖资产关联
   emit faciesPolygonsReady( h, decl.layerId );
   return true;
 }
@@ -1801,6 +1972,8 @@ bool CompositionWorkflow::saveFaciesAttributes( const QString &layerId, const QV
 
   // 字段词表：facies_code 是 polygonize 算法产物（int）；facies_type/comment
   // 为编辑面字段，缺则先补建（补建也在编辑会话内，各自成 undo 步）。
+  // boundary_kind 是相界地质语义类型（C2，词表 BoundarySemantics——值域
+  // 校验在页面下拉侧，这里按词面落库，未知词留给地质评审口径）。
   struct FieldSpec
   {
     const char *key;
@@ -1811,6 +1984,7 @@ bool CompositionWorkflow::saveFaciesAttributes( const QString &layerId, const QV
     { "facies_code", "facies_code", QVariant::Int },
     { "facies_type", "facies_type", QVariant::String },
     { "comment", "comment", QVariant::String },
+    { "boundary_kind", "boundary_kind", QVariant::String },
   };
 
   // 只写 attrs 携带的字段。
@@ -1846,6 +2020,11 @@ bool CompositionWorkflow::saveFaciesAttributes( const QString &layerId, const QV
     for ( const QgsFeatureId fid : selected )
       vl->changeAttributeValue( fid, w.first, w.second );
   vl->endEditCommand();
+
+  // C2：boundary_kind 变更即时反映到图面（相界语义符号映射——渲染器按
+  // boundary_kind 分类描边；无该字段的层为无操作）。
+  if ( attrs.contains( QLatin1String( "boundary_kind" ) ) )
+    QgisStyleService::applyFaciesBoundaryStyle( vl );
   vl->triggerRepaint();
   return true;
 }

@@ -105,6 +105,14 @@ class ConstraintWorkflow : public QObject
                                const SingleFactorDefinition &def, const QVariantMap &params,
                                QString *error = nullptr);
 
+    // C5（wave/deepen-perf）：welldist 的距离变换引擎分派
+    //（paleo:paleo_distance_transform，SingleFactorContracts 冻结契约）。无
+    // FIELD（距离不需属性值）；约束图层随行（仅 break_line 参与绕障，算法侧
+    // 按 type 分拣）；引擎未注册 → 显式拒绝（不静默降级 IDW）。
+    bool generateDistanceFactor(const QString &horizon, const QString &factorId,
+                                const SingleFactorDefinition &def, const QVariantMap &params,
+                                QString *error = nullptr);
+
   public:
 
     // 等值线（§12：GIS LineString 图层）。gdal:contour 在 C++ 嵌入运行时未注册

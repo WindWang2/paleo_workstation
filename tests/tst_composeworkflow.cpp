@@ -13,12 +13,14 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgiscanvascontroller.h"
+#include "../src/qgis/qgisstyleservice.h" // C2：applyFaciesBoundaryStyle 断言面
 #include "../src/metadata/layermanifest.h"
 #include "../src/workflow/workflows.h"
 
 #include <gdal.h>
 #include <cpl_conv.h>
 
+#include <qgscategorizedsymbolrenderer.h>
 #include <qgsfeature.h>
 #include <qgsfeatureiterator.h>
 #include <qgsfeaturerequest.h>
@@ -95,6 +97,72 @@ class TestComposeWorkflow : public QObject
     {
       delete m_win;
       m_win = nullptr;
+    }
+
+    // C2（wave/deepen-perf）：相界地质语义类型单类型（断层切割）垂直片——
+    // boundary_kind 字段补建 + 值进 edit buffer + 渲染器切到 boundary_kind
+    // 分类（断层红粗边类目存在）。无字段的层不接管渲染器。
+    void boundaryKindWritesAndStyles()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      QVERIFY2(m_ctx->projectSvc()->createProject(dir.filePath(QStringLiteral("b.qgz"))),
+               "createProject failed");
+      const QVector<float> px = {1, 1, 2, 2};
+      const QString path =
+          makeRaster(dir.filePath(QStringLiteral("coded_b.tif")), 2, 2, px);
+      QVERIFY(!path.isEmpty());
+      QString err;
+      QVERIFY2(m_ctx->layerSvc()->declare(
+                   decl(QStringLiteral("composite.T1"), QStringLiteral("T1"),
+                        QStringLiteral("raster"), path, QStringLiteral("03_Composite")),
+                   &err),
+               qPrintable(err));
+      QVERIFY2(m_ctx->compositionWf()->deriveFaciesPolygons(
+                   QStringLiteral("T1"), QStringLiteral("composite.T1"), QVariantMap(), &err),
+               qPrintable(err));
+      auto *vl = qobject_cast<QgsVectorLayer *>(
+          m_ctx->layerSvc()->instantiate(QStringLiteral("facies.T1")));
+      QVERIFY2(vl, "facies.T1 did not instantiate as a vector layer");
+
+      // 未写 boundary_kind 前：字段不存在 → applyFaciesBoundaryStyle 不接管。
+      QVERIFY(vl->fields().lookupField(QStringLiteral("boundary_kind")) < 0);
+      QgisStyleService::applyFaciesBoundaryStyle(vl);
+      QVERIFY(vl->renderer()->type() != QStringLiteral("categorizedSymbol"));
+
+      QgsFeature f;
+      QgsFeatureIterator it = vl->getFeatures();
+      QVERIFY(it.nextFeature(f));
+      vl->select(f.id());
+      QVERIFY2(m_ctx->compositionWf()->saveFaciesAttributes(
+                   QStringLiteral("facies.T1"),
+                   QVariantMap{{QStringLiteral("boundary_kind"),
+                                QStringLiteral("fault_cut")}},
+                   &err),
+               qPrintable(err));
+
+      // 字段补建 + 值落 edit buffer。
+      QVERIFY(vl->fields().lookupField(QStringLiteral("boundary_kind")) >= 0);
+      QgsFeature got;
+      QVERIFY(vl->getFeatures(QgsFeatureRequest(f.id())).nextFeature(got));
+      QCOMPARE(got.attribute(QStringLiteral("boundary_kind")).toString(),
+               QStringLiteral("fault_cut"));
+
+      // 符号映射：渲染器切到 boundary_kind 分类，断层切割类目在册。
+      QCOMPARE(vl->renderer()->type(), QStringLiteral("categorizedSymbol"));
+      auto *cat = static_cast<QgsCategorizedSymbolRenderer *>(vl->renderer());
+      QCOMPARE(cat->classAttribute(), QStringLiteral("boundary_kind"));
+      bool hasFault = false;
+      for (const QgsRendererCategory &c : cat->categories())
+        if (c.value().toString() == QStringLiteral("fault_cut"))
+          hasFault = true;
+      QVERIFY2(hasFault, "fault_cut category present");
+
+      // 会话卫生：undo 后取消编辑会话（同 z3 口径）。
+      while (vl->undoStack()->canUndo())
+        vl->undoStack()->undo();
+      if (auto *tb = m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+        tb->cancelEditing();
     }
 
     // 相属性回写：选中要素的三字段（facies_code 已有 / facies_type+comment

@@ -172,13 +172,14 @@ class TestFactorWorkflow : public QObject
       const QStringList ids = f.proc.algorithmIds();
       QVERIFY2( ids.contains( QStringLiteral( "paleo:paleo_constraint_idw" ) ),
                 "paleo:paleo_constraint_idw must be registered" );
-      // 主线6 分级：已接入引擎（IDW/isopach）运行时必须注册；冻结契约的
-      // blocked 引擎（welldist 距离变换 / confidence 置信度面）恰相反——
-      // 注册了反而说明契约被人抢注，生成链的显式拒绝就失真了。
+      // 主线6 + C5（wave/deepen-perf）分级：已接入引擎（IDW/isopach/welldist
+      // 距离变换）运行时必须注册——welldist 已按 SingleFactorContracts 冻结
+      // 契约实装（src/algorithms/distancetransform.cpp）；confidence 置信度面
+      // 仍冻结（前置在 ONNX 置信度通道），注册了反而说明契约被人抢注，
+      // 生成链的显式拒绝就失真了。
       for ( const SingleFactorDefinition &d : SingleFactorRegistry::builtins() )
       {
-        if ( d.processingAlgId == SingleFactorContracts::welldistEngineId()
-             || d.processingAlgId == SingleFactorContracts::confidenceEngineId() )
+        if ( d.processingAlgId == SingleFactorContracts::confidenceEngineId() )
         {
           QVERIFY2( !ids.contains( d.processingAlgId ),
                     qPrintable( QStringLiteral( "blocked engine %1 must NOT be registered yet" )
@@ -407,18 +408,44 @@ class TestFactorWorkflow : public QObject
       ConstraintWorkflow wf( &f.proc, &f.layers );
       wf.setCatalog( &f.catalog, f.dir.path() );
 
-      // welldist/confidence：冻结契约引擎显式拒绝（不静默降级 IDW）。
-      for ( const char *factorId : { "welldist", "confidence" } )
-      {
-        err.clear();
-        QVERIFY2( !wf.generateFactor( QStringLiteral( "T1" ), QString::fromLatin1( factorId ),
-                                      QVariantMap(), &err ),
-                  "blocked engine must refuse" );
-        QVERIFY2( err.contains( QStringLiteral( "尚未接入" ) ), qPrintable( err ) );
-        QVERIFY2( err.contains( QString::fromLatin1( factorId ) ), qPrintable( err ) );
-        QVERIFY( findDecl( f.layers, QStringLiteral( "factor.T1.%1" ).arg(
-                               QString::fromLatin1( factorId ) ) ) == nullptr );
-      }
+      // C5（wave/deepen-perf）：welldist 距离变换引擎已按冻结契约实装并
+      // 注册——生成链走真引擎（无 FIELD，距离不需属性值），声明
+      // factor.<h>.welldist 进 04_SingleFactor + DERIVED 版本登记。
+      QSignalSpy generated( &wf, &ConstraintWorkflow::factorGenerated );
+      QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "welldist" ),
+                                   QVariantMap(), &err ),
+                qPrintable( err ) );
+      QCOMPARE( generated.count(), 1 );
+      QCOMPARE( generated.at( 0 ).at( 2 ).toString(), QStringLiteral( "factor.T1.welldist" ) );
+      const LayerDeclaration *wd = findDecl( f.layers, QStringLiteral( "factor.T1.welldist" ) );
+      QVERIFY2( wd != nullptr, "welldist factor declaration missing" );
+      QVERIFY2( wd->type == QLatin1String( "raster" ) && QFile::exists( wd->source ),
+                qPrintable( wd->source ) );
+
+      // C4：资产关联盖章——层已实例化后重跑（同 layerId 幂等 upsert），生成
+      // 侧把 catalog assetId 盖到图层对象（paleoAssetId；属性页读侧消费）。
+      QgsMapLayer *wdLayer = f.layers.instantiate( QStringLiteral( "factor.T1.welldist" ), &err );
+      QVERIFY2( wdLayer != nullptr, qPrintable( err ) );
+      QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "welldist" ),
+                                   QVariantMap(), &err ),
+                qPrintable( err ) );
+      const QString stampedAsset =
+          wdLayer->customProperty( QStringLiteral( "paleoAssetId" ) ).toString();
+      QVERIFY2( !stampedAsset.isEmpty(),
+                "instantiated factor layer must carry paleoAssetId after regeneration" );
+      QVERIFY2( derivedVersionRegistered( f.catalog, QStringLiteral( "single_factor_raster" ),
+                                          wd->source ),
+                qPrintable( wd->source ) );
+
+      // confidence：ONNX 只读首个输出张量（无置信度通道）——冻结契约引擎
+      // 维持显式拒绝（不静默降级 IDW）。
+      err.clear();
+      QVERIFY2( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "confidence" ),
+                                    QVariantMap(), &err ),
+                "blocked engine must refuse" );
+      QVERIFY2( err.contains( QStringLiteral( "尚未接入" ) ), qPrintable( err ) );
+      QVERIFY2( err.contains( QStringLiteral( "confidence" ) ), qPrintable( err ) );
+      QVERIFY( findDecl( f.layers, QStringLiteral( "factor.T1.confidence" ) ) == nullptr );
     }
 
     void failurePaths()

@@ -6,6 +6,7 @@
 #include "../paleotheme.h" // DESIGN.md token 出口：胶囊样式
 
 #include "../../workflow/workflows.h"    // signal names
+#include "../../workflow/boundarysemantics.h" // C2：相界地质语义类型词表（单类型首发）
 #include "../../qgis/layervocabulary.h"
 #include "../../qgis/qgislayerservice.h" // declared() — forward-declares Qgs*, none included
 #include "../../metadata/layermanifest.h" // LayerDeclaration fields
@@ -236,12 +237,23 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
     comment->setPlaceholderText(tr("备注"));
     al->addWidget(comment);
 
+    // ---- C2（wave/deepen-perf）：相界地质语义类型——单类型首发（断层切割）。
+    // 词面来自 BoundarySemantics；「无」= 不写 boundary_kind（保持未分类）。
+    // 其余类型（整合接触/尖灭/相变）在 activeKinds 登记后自动出现在此。
+    auto *boundaryKind = new QComboBox(attrSection);
+    boundaryKind->setObjectName(QStringLiteral("faciesBoundaryKindCombo"));
+    boundaryKind->setAccessibleName(tr("相界类型"));
+    boundaryKind->addItem(tr("无（未分类）"), QString());
+    for (const QString &kind : BoundarySemantics::activeKinds())
+      boundaryKind->addItem(BoundarySemantics::titleFor(kind), kind);
+    al->addWidget(boundaryKind);
+
     auto *save = new QPushButton(tr("保存相属性"), attrSection);
     save->setObjectName(QStringLiteral("faciesAttrSaveButton"));
     save->setAccessibleName(tr("保存相属性"));
     save->setEnabled(false);
     save->setToolTip(tr("先矢量化生成相界图层"));
-    connect(save, &QPushButton::clicked, this, [this, code, faciesType, comment] {
+    connect(save, &QPushButton::clicked, this, [this, code, faciesType, comment, boundaryKind] {
       const QString layerId = property(kFaciesTargetProp).toString();
       const QString codeText = code->text().trimmed();
       auto *status = child<QLabel>(this, "statusLabel");
@@ -269,6 +281,11 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
         attrs.insert(QStringLiteral("facies_type"), faciesType->text().trimmed());
       if (!comment->text().trimmed().isEmpty())
         attrs.insert(QStringLiteral("comment"), comment->text().trimmed());
+      // C2：相界类型（「无」= 不携带该键——不把已标类型清空成空串，清类型
+      // 走后续轮次的显式清除动作）。
+      const QString kind = boundaryKind->currentData().toString();
+      if (!kind.isEmpty())
+        attrs.insert(QStringLiteral("boundary_kind"), kind);
       emit faciesAttributesSaveRequested(layerId, attrs);
       if (status)
         status->setText(tr("已提交相属性：%1（图层当前选中要素）").arg(layerId));

@@ -168,7 +168,18 @@ PaleoProjectStore::WriteResult PaleoProjectStore::saveAll( const std::function<W
       //    is regenerable.
       if ( result.ok )
       {
-        result = writeQgz();
+        try
+        {
+          result = writeQgz();
+        }
+        catch ( const std::exception &e )
+        {
+          result = { false, tr( "工程文件写入异常终止：%1" ).arg( QString::fromUtf8( e.what() ) ) };
+        }
+        catch ( ... )
+        {
+          result = { false, tr( "工程文件写入异常终止（未知异常）" ) };
+        }
         if ( result.ok )
           pending.append( { false, m_qgzPath, QString() } );
         else

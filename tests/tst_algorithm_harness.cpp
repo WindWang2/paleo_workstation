@@ -658,6 +658,8 @@ private slots:
                   QStringLiteral( "paleo:paleo_constraint_idw" ), params, &log, &fb ).isEmpty(),
               "canceled run must fail" );
     QVERIFY2( log.contains( QStringLiteral( "Canceled" ) ), qPrintable( log ) );
+    // GTiff 未写块读回 = nodata 需要 GDAL>=3.x（稀疏块按 nodata 填充）；
+    // 本仓 vendored QGIS 4.2 面的 GDAL 满足。
     // 未写块 = nodata；若 BFS 不可取消，第 0 行会写出混合值（有限正值）。
     QCOMPARE( AlgorithmTestBase::rasterCell( out, 0, 0 ), -9999.0f );
 
@@ -832,6 +834,12 @@ private slots:
     int w = 0, h = 0;
     QVector<float> px;
     QVERIFY( AlgorithmTestBase::readRaster( out, w, h, px ) );
+    // 两重合近井 (5,2±1e-6) 等权混合 = 5；远井 (9,2) 只在其邻域抬值——
+    // 中列（距远井 ≥3 格）应为 5.0±0.1，其余格有限。
+    int midCol = w / 2;
+    for ( int r = 0; r < h; ++r )
+      QVERIFY2( std::fabs( px[r * w + midCol] - 5.0f ) < 0.1f,
+                qPrintable( QStringLiteral( "mid col r%1 = %2" ).arg( r ).arg( px[r * w + midCol] ) ) );
     for ( int i = 0; i < px.size(); ++i )
     {
       QVERIFY2( std::isfinite( px[i] ) || px[i] == -9999.0f,

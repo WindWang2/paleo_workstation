@@ -614,13 +614,15 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
         valueSum += w * s.z;
       }
       // 非有限值（各向异性极端化/数值溢出产出的 inf/NaN）一律落 nodata——
-      // 不把 NaN 写进栅格毒化下游（NaN 不是 nodata）。
+      // 不把 NaN 写进栅格毒化下游（NaN 不是 nodata）。float 化后再查一次：
+      // |z|>FLT_MAX 的有限 double 也会溢出成 ±inf。
       double cell = std::numeric_limits<double>::quiet_NaN();
       if ( exact )
         cell = exactValue;
       else if ( weightSum > 0.0 )
         cell = valueSum / weightSum;
-      rowBuf[c] = std::isfinite( cell ) ? static_cast<float>( cell ) : PALEO_NODATA;
+      const float out = static_cast<float>( cell );
+      rowBuf[c] = std::isfinite( out ) ? out : PALEO_NODATA;
     }
     if ( GDALRasterIO( outBand, GF_Write, 0, r, nCols, 1, rowBuf.data(),
                        nCols, 1, GDT_Float32, 0, 0 ) != CE_None )

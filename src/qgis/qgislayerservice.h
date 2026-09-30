@@ -23,6 +23,8 @@ class QgisLayerService : public QObject
     // releaseHorizon 遇到仍在编辑的图层时，经编辑服务回滚（busy 标记随会话
     // 释放）。未注入时维持旧行为（直接 rollBack，无 busy 释放）——测试裸用
     // 层服务的路径不受影响。
+    // 裸指针非拥有：调用方须保证编辑服务活得比本服务久（组装根中两者同为
+    // AppContext 子对象，构造序先 layer 后 edit，析构反序，成立）。
     void setEditingService(QgisEditingService *editSvc) { m_editSvc = editSvc; }
 
     bool declare(const LayerDeclaration &decl, QString *error = nullptr);

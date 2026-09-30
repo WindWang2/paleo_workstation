@@ -560,7 +560,8 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
     return QString();
   };
 
-  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
+  // quiet：切片提取是视口交互内嵌取数，不拉起任务中心。
+  PaleoTask *task = startBounded(title, work, QString(), /*quiet=*/true); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [this, task, key, pagedPath, outImage, onFinished]() {
     if (task->state() == PaleoTask::State::Succeeded)
     {
@@ -695,7 +696,8 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
     return QString();
   };
 
-  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
+  // quiet：剖面条拖动是交互内嵌取数，不拉起任务中心。
+  PaleoTask *task = startBounded(title, work, QString(), /*quiet=*/true); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this,
           [this, task, outImage, outStats, onFinished, volume, pathPoints]() {
     if (task->state() == PaleoTask::State::Succeeded)
@@ -1317,7 +1319,8 @@ PaleoTask *SeismicTaskService::startTimeSliceTiled(
     return QObject::tr("瓦片时间片读取失败：%1").arg(QString::fromStdString(status.message));
   };
 
-  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
+  // quiet：时间片瓦片是拖动交互取数，不拉起任务中心。
+  PaleoTask *task = startBounded(title, work, QString(), /*quiet=*/true); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, outImage, onFinished]() {
     if (!onFinished)
       return;
@@ -1373,7 +1376,8 @@ PaleoTask *SeismicTaskService::startVoxelWindow(
     return QObject::tr("体素窗口读取失败：%1").arg(QString::fromStdString(status.message));
   };
 
-  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
+  // quiet：三维体窗取数是视口交互取数，不拉起任务中心。
+  PaleoTask *task = startBounded(title, work, QString(), /*quiet=*/true); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, outWindow, onFinished]() {
     if (!onFinished)
       return;
@@ -1459,7 +1463,8 @@ PaleoTask *SeismicTaskService::startLodSwitch(
     return QString();
   };
 
-  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
+  // quiet：拖动期 LOD 切换是视口交互取数，不拉起任务中心。
+  PaleoTask *task = startBounded(title, work, QString(), /*quiet=*/true); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, quality, onFinished]() {
     if (!onFinished)
       return;
@@ -2512,7 +2517,7 @@ qint64 SeismicTaskService::estimatedMemoryBytes() const
 // 携带：服务析构时在途 worker 安全退出（同 registry 析构竞态模式）。
 PaleoTask *SeismicTaskService::startBounded(const QString &title,
                                             const std::function<QString(PaleoTask *)> &work,
-                                            const QString &layerId)
+                                            const QString &layerId, bool quiet)
 {
   const auto gate = gate_; // shared_ptr：析构安全
   gate->active.fetch_add(1);
@@ -2523,7 +2528,7 @@ PaleoTask *SeismicTaskService::startBounded(const QString &title,
         gate->slotSemaphore.release();
         return err;
       };
-  PaleoTask *task = taskService_->start(title, gated, layerId);
+  PaleoTask *task = taskService_->start(title, gated, layerId, quiet);
   QObject::connect(task, &PaleoTask::finished, this, [gate]() {
     gate->active.fetch_sub(1);
   });

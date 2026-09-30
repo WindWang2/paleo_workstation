@@ -620,8 +620,11 @@ void PreviewDocService::requestSection(const QString &assetId,
 
   if (m_taskSvc)
   {
+    // quiet：换测线是交互内嵌解码（控件组自带「正在建立道索引」挂起态），
+    // 不拉起任务中心。
     auto *task = m_taskSvc->start(
-        QStringLiteral("解码剖面 %1").arg(QFileInfo(absPath).fileName()), work);
+        QStringLiteral("解码剖面 %1").arg(QFileInfo(absPath).fileName()), work,
+        QString(), /*quiet=*/true);
     m_decodeTask[assetId] = task;
     connect(task, &PaleoTask::finished, this,
             [apply, task]() { apply(task->state(), task->errorText()); });
@@ -683,8 +686,10 @@ void PreviewDocService::requestLas(const QString &key, const QString &absPath)
 
   if (m_taskSvc)
   {
+    // quiet：点开曲线页是交互内嵌解析，不拉起任务中心。
     auto *task = m_taskSvc->start(
-        QStringLiteral("解析测井 %1").arg(QFileInfo(absPath).fileName()), work);
+        QStringLiteral("解析测井 %1").arg(QFileInfo(absPath).fileName()), work,
+        QString(), /*quiet=*/true);
     m_lasTask[key] = task;
     connect(task, &PaleoTask::finished, this,
             [apply, task]() { apply(task->state(), task->errorText()); });
@@ -724,7 +729,8 @@ int PreviewDocService::prefetch(const QStringList &absPaths)
                        LasCache::shared().load(p);
                        return QString();
                      },
-                     QString(), PaleoTask::Priority::Low);
+                     QString(), PaleoTask::Priority::Low,
+                     /*quiet=*/true); // 后台预取不拉起任务中心
     ++submitted;
   }
   return submitted;

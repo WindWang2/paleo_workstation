@@ -183,9 +183,10 @@ PaleoTaskService::~PaleoTaskService()
 
 PaleoTask *PaleoTaskService::start(const QString &title,
                                    std::function<QString(PaleoTask *)> work,
-                                   const QString &layerId)
+                                   const QString &layerId, bool quiet)
 {
   auto *task = new PaleoTask(m_nextId++, title, layerId, this);
+  task->m_quiet = quiet; // taskAdded 同步发射——必须在 emit 前落位
   m_tasks.append(task);
   if (m_store && !layerId.isEmpty())
     m_store->markLayerBusy(layerId, QStringLiteral("task-%1").arg(task->id()),
@@ -200,9 +201,11 @@ PaleoTask *PaleoTaskService::start(const QString &title,
 
 PaleoTask *PaleoTaskService::start(const QString &title,
                                    std::function<QString(PaleoTask *)> work,
-                                   const QString &layerId, PaleoTask::Priority priority)
+                                   const QString &layerId, PaleoTask::Priority priority,
+                                   bool quiet)
 {
   auto *task = new PaleoTask(m_nextId++, title, layerId, this);
+  task->m_quiet = quiet; // taskAdded 同步发射——必须在 emit 前落位
   m_tasks.append(task);
   if (m_store && !layerId.isEmpty())
     m_store->markLayerBusy(layerId, QStringLiteral("task-%1").arg(task->id()),

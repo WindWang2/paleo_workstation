@@ -417,10 +417,11 @@ public:
   // 排队 = 信号量等待不耗 CPU；入池前已取消的任务直接跳过执行）
   static constexpr int kMaxConcurrentTasks = 4;
   int activeTaskCount() const; // 在途任务数（含信号量排队中）
-  // 提交一个受 ≤4 并发闸约束的地震任务（测试/扩展面；常规走各 start*）
+  // 提交一个受 ≤4 并发闸约束的地震任务（测试/扩展面；常规走各 start*）。
+  // quiet=true：交互内嵌取数（切片/剖面/LOD/瓦片/体窗）不拉起任务中心。
   PaleoTask *startBounded(const QString &title,
                           const std::function<QString(PaleoTask *)> &work,
-                          const QString &layerId = QString());
+                          const QString &layerId = QString(), bool quiet = false);
 
   // ---- Phase 5 井震与任意线 ----
 

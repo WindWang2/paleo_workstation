@@ -878,6 +878,11 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     loadBookmarksFromSettings();
 }
 
+void SeismicSectionDockWidget::clearRoute() {
+  m_route.clear();
+  m_distances.clear();
+}
+
 void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume) {
   if (m_extraction)
     m_extraction->requestCancel();

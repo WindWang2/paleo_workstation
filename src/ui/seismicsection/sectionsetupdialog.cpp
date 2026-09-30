@@ -55,6 +55,10 @@ SectionSetupDialog::SectionSetupDialog(QWidget *parent) : QDialog(parent) {
   auto *draw = new QPushButton(tr("地图绘制任意折线"), this);
   draw->setObjectName("drawArbitrarySection");
   left->addWidget(draw);
+  auto *clear = new QPushButton(tr("清除剖面连线"), this);
+  clear->setObjectName("clearSectionRoute");
+  clear->setToolTip(tr("移除地图上的剖面路线；剖面视图保留至下一次提取"));
+  left->addWidget(clear);
   auto *right = new QGroupBox(tr("选中井 · 时深对齐"), this);
   columns->addWidget(right, 2);
   auto *form = new QFormLayout(right);
@@ -141,6 +145,8 @@ SectionSetupDialog::SectionSetupDialog(QWidget *parent) : QDialog(parent) {
   });
   connect(draw, &QPushButton::clicked, this,
           &SectionSetupDialog::drawRequested);
+  connect(clear, &QPushButton::clicked, this,
+          &SectionSetupDialog::clearRequested);
   connect(apply, &QPushButton::clicked, this, [this] {
     if (auto *item = m_wells->currentItem())
       emit calibrationRequested(

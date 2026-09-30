@@ -127,6 +127,8 @@ void SeismicMapLink::activateSectionCaptureTool()
     m_tool = new SeismicSectionTool(m_canvas);
     connect(m_tool, &SeismicSectionTool::sectionPathCaptured,
             this, &SeismicMapLink::onSectionPathCaptured);
+    connect(m_tool, &SeismicSectionTool::captureCancelled,
+            this, &SeismicMapLink::sectionCaptureCancelled);
   }
   m_canvas->setMapTool(m_tool);
 }

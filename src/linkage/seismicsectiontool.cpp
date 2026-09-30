@@ -91,6 +91,7 @@ void SeismicSectionTool::keyPressEvent(QKeyEvent *e) {
   if (e->key() == Qt::Key_Escape) {
     m_points.clear();
     redraw();
+    emit captureCancelled();
     if (canvas())
       canvas()->unsetMapTool(this);
   } else if (e->key() == Qt::Key_Backspace || e->key() == Qt::Key_Delete) {

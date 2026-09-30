@@ -21,6 +21,8 @@ public:
 
 signals:
   void sectionPathCaptured(const QVector<QgsPointXY> &points);
+  // Esc 取消：壳据此把为绘制而隐藏的设置对话框唤回。
+  void captureCancelled();
 
 protected:
   void canvasPressEvent(QgsMapMouseEvent *e) override;

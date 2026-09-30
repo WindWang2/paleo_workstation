@@ -675,9 +675,11 @@ private slots:
     dock.setTaskService(&svc);
     QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
     dock.setVolume(vol);
-    // 任意线请求（排队中，未执行）
+    // 任意线请求（测网内真实线号 + 非空地图折线：hasRoute() 判定有效——
+    // 若迟到结果未被世代号丢弃，route 会落下且画布变成 ~7 列的剖面）
     dock.extractSectionFromVolumeAsync(
-        vol, {{0, 1000}, {2, 1002}, {4, 1004}}, QStringLiteral("late"));
+        vol, {{1000, 2000}, {1002, 2002}, {1004, 2004}}, QStringLiteral("late"),
+        {{0.0, 0.0}, {1500.0, 0.0}, {3000.0, 900.0}});
     // 切回 IL 模式：切片顶替任意线
     dock.setSectionMode(0);
     QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }, 15000));

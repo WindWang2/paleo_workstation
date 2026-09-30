@@ -92,7 +92,7 @@
 
 ## 2. 验证底账
 
-- `tst_seismic_sectionui` 23/23（15 既有 + 8 新治理用例）×3 遍全绿：
+- `tst_seismic_sectionui` 23/23（14 既有用例 + 7 个新治理用例 + init/cleanup）×3 遍全绿：
   服务通道/LRU 命中（hits 计数）/闸饱和下顶替取消（Cancelled≥1、Succeeded=1、
   无失败信号）/销毁存活/切体丢弃陈旧结果（traceCount 归属判定）/换线回头命中/
   卷帘邻线跟随/任意线迟到结果守卫。
@@ -123,7 +123,27 @@ worktree 并行构建），绝对值偏保守但两侧同条件。
 方向一致偏优（dock 直读路径迁移后与数据页/3D 共享 LRU，暖读面变大）。
 tst_seismic_perf / tst_seismic_budgets 两侧 6/6、9/9 全过，阈值未动。
 
-## 4. 递延 / 不属于本包
+## 4. 独立 review 结论与修复（reviewer subagent，未参与实现）
+
+- **P1（已修）**：`extractSliceAsync` 的 `++m_generation` 位于去抖判定之前——重复请求
+  （本意「什么都不做」）会毒化它要去重的在途任务（回调被世代号丢弃→进度条不收、
+  无失败信号、画布停旧）；`onSectionModeChanged(3)` 同病（只推世代号不清切片任务，
+  3→0 回切去抖命中已毒化请求→静默空白）。修复：世代号推进移到去抖之后；模式 3
+  分支与 setVolume 同构（取消摘牌切片/卷帘 + 去抖键作废）。
+- **P2（已修）**：进度连接无请求身份——被顶替任务的 `changed()` 连接存活到终态，
+  会把旧线百分比写进新请求的进度条且每请求积一条死连接。修复：进度 lambda 捕获
+  请求号，`m_sliceRequest != request` 即 no-op。
+- **P3（已修）**：①dock 析构不取消在途任务（注入共享服务时占闸到读完）——析构体
+  补三任务 requestCancel；②任意线守卫测试用网外点+空折线（断言弱）——改测网内
+  真实线号 + 非空 mapPolyline 使 `hasRoute()` 判定有效；③文档计数 8→7 修正。
+- **P3（记档不修）**：dock 切片现与 3D/数据页共享 PaleoTaskService 池与 ≤4 闸
+  （BASE 用独立 globalInstance 池）——被顶替任务入池即退出 + 在途逐线检查点退出，
+  放大有限；共享闸是有意收敛（三路径同一治理域），记入 SECTION §6。
+- 确认干净面：回调全主线程投递（守卫态无数据竞争）；同步失败路径与守卫次序
+  兼容；完成回调→updateCompareSlice 递归有界；QPointer 生命周期全覆盖；
+  Windows 无敌面；无新增违规 include。
+
+## 5. 递延 / 不属于本包
 
 - perf/baseline 共享夹具的**首代竞态根治**（夹具改名或生成加文件锁）：属测试基建
   域（WP4 邻域），本包以运行口径规避并记档。

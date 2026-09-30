@@ -28,7 +28,7 @@
   **2026-09-30 对账（goal/seismic-runtime-closure 轮 1）**：IL/XL/Time + 卷帘 B 图全部迁
   `startSliceExtraction`（闸/取消/共享 LRU/Auto 回落）；顶替=requestCancel+请求号守卫
   （cancelled≠failed 静默丢弃）；切体/任意线/切片三方互顶替双向取消；顺带修复既有反向缺陷
-  （任意线迟到结果覆盖切片显示）。回归：tst_seismic_sectionui 23/23（含 8 个新治理用例）。
+  （任意线迟到结果覆盖切片显示）。回归：tst_seismic_sectionui 23/23（含 7 个新治理用例）。
 - **Why:** 同体数据三条取数路径两条有治理一条裸奔；转码工作区热切换后直调路径吃不到后端红利。
 - **Pros:** 三后端一致的空态/取消/回落语义（SECTION §6 对照表已列差值）。
 - **Cons:** seismicsection dock 属交互热路径，迁移要过一轮拖动延迟回归。

@@ -452,8 +452,10 @@ enable_testing()
 # 已知边界：Windows NativeFormat 走注册表不受 env 控制——Windows 侧仍靠
 # 串行 ctest（ci.yml windows leg 未开并行）；文档见 BUILDING.md。
 # 注意 set_tests_properties 的 ENVIRONMENT 是整体覆盖非追加：外部对本函数
-# 注入环境做扩展必须用 set_property(TEST ... APPEND PROPERTY ...)，
-# 不能再整体 set（CMakeLists 下方 tst_onnx* 即此坑的修复点）。
+# 注入环境做扩展，非路径变量用 set_property(TEST ... APPEND PROPERTY ...)；
+# LD_LIBRARY_PATH 等路径变量必须走 ENVIRONMENT_MODIFICATION 的
+# path_list_prepend（APPEND 一条整体赋值仍会替换外部注入值，见下方
+# tst_onnx 的修复注记）。
 function(paleo_test_sandbox name)
   set(_home ${CMAKE_BINARY_DIR}/ctest-home/${name})
   file(MAKE_DIRECTORY "${_home}/config" "${_home}/data" "${_home}/cache")

@@ -57,6 +57,22 @@ SeismicSectionDockWidget::SeismicSectionDockWidget(const QString &title, QWidget
     m_taskService = new SeismicTaskService(tasks, 256, this);
 }
 
+// 迟到回调由 QPointer 守卫兜底（无 UAF）；这里取消是为归还并发闸——
+// 注入共享服务时（app 装配），排队/在途读取不随 dock 析构消失，
+// 不主动取消会占住 ≤4 闸直到读完。
+SeismicSectionDockWidget::~SeismicSectionDockWidget() {
+    if (m_sliceTask) {
+        m_sliceTask->requestCancel();
+        m_sliceTask.clear();
+    }
+    if (m_compareTask) {
+        m_compareTask->requestCancel();
+        m_compareTask.clear();
+    }
+    if (m_extraction)
+        m_extraction->requestCancel();
+}
+
 void SeismicSectionDockWidget::setupUi() {
     auto *container = new QWidget(this);
     auto *mainLay = new QVBoxLayout(container);
@@ -924,6 +940,18 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
 void SeismicSectionDockWidget::onSectionModeChanged(int modeIndex) {
     if (modeIndex == 3) {
         if (m_extraction) m_extraction->requestCancel();
+        // 任意线顶替切片显示：在途切片/卷帘一并取消摘牌、去抖键作废——
+        // 只推世代号不清任务会让切片在途结果被自己的世代号毒化丢弃
+        //（3→0 回切时去抖命中一个已注定被丢弃的请求 → 静默空白）。
+        if (m_sliceTask) {
+            m_sliceTask->requestCancel();
+            m_sliceTask.clear();
+        }
+        if (m_compareTask) {
+            m_compareTask->requestCancel();
+            m_compareTask.clear();
+        }
+        m_sliceIndex = -1;
         ++m_generation;
         m_progressBar->hide();
         m_sliceGroup->hide();
@@ -1026,21 +1054,22 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
     if (!m_volume || !m_volume->IsLoaded() || !m_taskService)
         return;
 
-    // 切片顶替任意线显示：取消其在途任务并推进世代号——迟到的任意线
-    // 结果不再覆盖已应用的切片（旧实现无此守卫，属真实缺陷）。
+    // 切片顶替任意线显示：取消其在途任务——迟到的任意线结果不再覆盖已
+    // 应用的切片（旧实现无此守卫，属真实缺陷）。世代号在去抖判定之后才
+    // 推进：重复请求走早退，不能毒化它本想去重的那个在途任务。
     if (m_extraction) {
         m_extraction->requestCancel();
         m_extraction.clear();
     }
-    ++m_generation;
 
     // 同型同号在途时去抖（滑杆吸附重入 / slider 与 spin 双发同值）。
     if (m_sliceTask && m_sliceType == type && m_sliceIndex == index)
         return;
-    // 顶替旧在途：协作取消——worker 在逐线进度检查点退出，被顶替的读取
-    // 不再占并发闸（取代旧的「单待发槽」去抖：旧方案要等整条线读完）。
-    // 先摘牌再启新：服务的立即失败路径会同步回调，此时任务身份守卫以
-    // 「m_sliceTask 为空」放行如实报错。
+    // 走到这里必然是顶替或新请求：推进世代号作废被取消的任意线迟到回调，
+    // 再顶替旧切片在途（协作取消——worker 逐线检查点退出，不再占并发闸）。
+    // 先摘牌再启新：服务的立即失败路径会同步回调，此时请求号守卫以
+    // 「计数已推进」放行如实报错。
+    ++m_generation;
     if (m_sliceTask) {
         m_sliceTask->requestCancel();
         m_sliceTask.clear();
@@ -1143,12 +1172,15 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
     m_sliceTask = rawTask;
 
     // 进度条由任务字节进度驱动（quiet 任务照常 reportBytes；直读后端逐线
-    // 上报、引擎后端完成时一次上报）。任务身份捕获——被顶替的旧任务不再
-    // 干扰新任务的进度显示。
+    // 上报、引擎后端完成时一次上报）。按请求号守卫：被顶替的旧任务其
+    // changed() 连接仍存活到任务终态，无守卫会把旧线的百分比写进新请求
+    // 的进度条（fast sweep 时可见回跳）。
     if (rawTask) {
         QPointer<PaleoTask> progressTask = rawTask;
-        connect(rawTask, &PaleoTask::changed, this, [this, progressTask]() {
-            if (progressTask && progressTask->bytesTotal() > 0)
+        connect(rawTask, &PaleoTask::changed, this, [this, progressTask, request]() {
+            if (!progressTask || m_sliceRequest != request)
+                return;
+            if (progressTask->bytesTotal() > 0)
                 m_progressBar->setValue(std::max(0, progressTask->percent()));
         });
     }

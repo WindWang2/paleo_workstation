@@ -40,7 +40,7 @@ class SeismicSectionDockWidget : public QDockWidget {
 public:
     explicit SeismicSectionDockWidget(QWidget *parent = nullptr);
     explicit SeismicSectionDockWidget(const QString &title, QWidget *parent = nullptr);
-    ~SeismicSectionDockWidget() override = default;
+    ~SeismicSectionDockWidget() override;
 
     SeismicSectionCanvas *canvas() const { return m_canvas; }
 

@@ -29,6 +29,16 @@ case "$verb" in
       export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
       export LD_LIBRARY_PATH="$PWD/vendor/prefix/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     fi
+    # 闭包 GDAL 的格式插件（gdal_PNG/JPEG/...）不在编译期默认搜索路径上：
+    # 不注入则栅格类测试（tst_previewmap_assets 的 world-file 图等）静默
+    # 丢驱动。vendor/prefix 与外部 QGIS_PREFIX_PATH 两种来源都覆盖；用户
+    # 已显式给 GDAL_DRIVER_PATH 时不抢。
+    prefix_lib="${QGIS_PREFIX_PATH:-}"
+    if [ -n "$prefix_lib" ] && [ -z "${GDAL_DRIVER_PATH:-}" ]; then
+      for cand in "$prefix_lib/lib/gdalplugins" "$prefix_lib/lib/x86_64-linux-gnu/gdalplugins"; do
+        if [ -d "$cand" ]; then export GDAL_DRIVER_PATH="$cand"; break; fi
+      done
+    fi
     # ctest 默认并行到核数（T2：每测试有独立 XDG 沙箱，并行安全）；
     # 传 --parallel/-j 或 RERUN 语义时用户参数照传。
     if [ "$#" -eq 0 ]; then

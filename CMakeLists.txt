@@ -617,10 +617,14 @@ if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnxworkflow LIBS paleo_workflow)
   target_compile_definitions(tst_onnxworkflow PRIVATE
     PROJECT_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
-  # LD_LIBRARY_PATH 必须用 APPEND：paleo_test_sandbox 注入的 XDG/HOME 沙箱
-  # 挂在 ENVIRONMENT 上，这里整体 set 会把它抹掉（原整体覆盖即竞态坑来源）。
-  set_property(TEST tst_onnx tst_onnxworkflow APPEND PROPERTY ENVIRONMENT
-    "LD_LIBRARY_PATH=${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
+  # ORT 运行库目录必须补进 LD_LIBRARY_PATH，但 ENVIRONMENT 是整变量替换：
+  # 会把继承值里闭包 prefix 的库路径抹掉（deb/OSGeo 闭包路的 libqgis_core
+  # 还需要 libdraco 等闭包库——2026-10 闭包环境实测 tst_onnx* 启动即挂）。
+  # ENVIRONMENT_MODIFICATION 的 path_list_append 才是「追加到继承值之后」，
+  # 且不碰 paleo_test_sandbox 挂在 ENVIRONMENT 上的 XDG/HOME 沙箱。
+  set_property(TEST tst_onnx tst_onnxworkflow APPEND PROPERTY
+    ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_append:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()
 
 # ---- wave/mapping-pipeline (阶段C+E 编图链路) ----

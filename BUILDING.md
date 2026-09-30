@@ -56,8 +56,10 @@ QGIS 4.2.x · Qt ≥6.6 · GDAL · PROJ · GEOS · QCA-qt6 · QtKeychain-qt6 · 
   relink（对比数据 docs/progress/devex.md）。首模块决定 ctest `LABELS`
   （`ctest -L io` / `-LE core` 分步筛选）。
 - **QGIS prefix**：测试 main() 统一读环境 `QGIS_PREFIX_PATH`（缺省 `/usr`）；
-  `./paleo-dev test` 在 deb 闭包路（`vendor/prefix` 存在）自动注入 prefix 与
-  `LD_LIBRARY_PATH`。
+  `./paleo-dev test` 在 deb 闭包路（`vendor/prefix` 存在）自动注入 prefix、
+  `LD_LIBRARY_PATH` 与 `GDAL_DRIVER_PATH`（闭包 GDAL 的格式插件不在编译期
+  默认搜索路径上，不注入则 PNG/JPEG 等栅格驱动静默缺失）；外部 prefix
+  （`QGIS_PREFIX_PATH` 预导出）同样自动补 `GDAL_DRIVER_PATH`。
 - **并行安全**：每个 ctest 项自动获得独立 `XDG_CONFIG_HOME`/`XDG_DATA_HOME`/
   `HOME` 沙箱（`build/ctest-home/<test>/`），QSettings 不再互踩真实用户配置
   ——`ctest -j$(nproc)` 默认安全。**已知边界：Windows NativeFormat 走注册表

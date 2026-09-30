@@ -142,9 +142,13 @@ private:
 
     SeismicSectionCanvas *m_canvas = nullptr;
     std::shared_ptr<const SgyVolume> m_volume;
-    bool m_isExtractingSlice = false;       // 提取去抖：在途时新请求入待发槽
-    int m_pendingSliceIndex = -1;
-    SgySliceType m_pendingSliceType = SgySliceType::Inline;
+    // IL/XL/Time 切片在途任务（SeismicTaskService 通道）：同型同号去抖 +
+    // 新请求 requestCancel 顶替旧在途（被顶替的读取在逐线检查点退出，
+    // 不再占并发闸）。完成回调按「世代号+请求号」守卫丢弃陈旧结果。
+    QPointer<PaleoTask> m_sliceTask;
+    SgySliceType m_sliceType = SgySliceType::Inline;
+    int m_sliceIndex = -1;
+    quint64 m_sliceRequest = 0;
     SeismicTaskService *m_taskService = nullptr;
     QPointer<PaleoTask> m_extraction;
     quint64 m_generation = 0;
@@ -203,8 +207,9 @@ private:
     // D2.12 书签
     QList<SectionBookmark> m_bookmarks;
 
-    // D2.10 卷帘 B 图提取状态
-    bool m_extractingCompare = false;
+    // D2.10 卷帘 B 图提取状态（同一切片通道，独立在途任务 + 请求号守卫）
+    QPointer<PaleoTask> m_compareTask;
+    quint64 m_compareRequest = 0;
 
     // ---- D5 ----
     std::vector<SectionWellInfo> m_candidateWells;

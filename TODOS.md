@@ -22,9 +22,13 @@
 - **Priority:** P3
 - **Depends on:** catalog.sqlite 条目（如届时已落，写路径一并设计）
 
-## P2 — 剖面 dock 取数迁 SeismicTaskService（from wave/deepen-perf A 报告, 2026-09-30）
+## ~~P2 — 剖面 dock 取数迁 SeismicTaskService~~（已落地：goal/seismic-runtime-closure, 2026-09-30）
 
-- **What:** 主窗口剖面 dock 的 IL/XL/Time 切换仍裸 QThreadPool 直调——无并发闸、无取消、无 LRU、progressCb 恒 true；迁到 SeismicTaskService 现有通道（闸/取消/LRU/回落齐备）。
+- ~~**What:** 主窗口剖面 dock 的 IL/XL/Time 切换仍裸 QThreadPool 直调——无并发闸、无取消、无 LRU、progressCb 恒 true；迁到 SeismicTaskService 现有通道（闸/取消/LRU/回落齐备）。~~
+  **2026-09-30 对账（goal/seismic-runtime-closure 轮 1）**：IL/XL/Time + 卷帘 B 图全部迁
+  `startSliceExtraction`（闸/取消/共享 LRU/Auto 回落）；顶替=requestCancel+请求号守卫
+  （cancelled≠failed 静默丢弃）；切体/任意线/切片三方互顶替双向取消；顺带修复既有反向缺陷
+  （任意线迟到结果覆盖切片显示）。回归：tst_seismic_sectionui 23/23（含 8 个新治理用例）。
 - **Why:** 同体数据三条取数路径两条有治理一条裸奔；转码工作区热切换后直调路径吃不到后端红利。
 - **Pros:** 三后端一致的空态/取消/回落语义（SECTION §6 对照表已列差值）。
 - **Cons:** seismicsection dock 属交互热路径，迁移要过一轮拖动延迟回归。

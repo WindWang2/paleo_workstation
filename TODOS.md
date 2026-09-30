@@ -6,10 +6,54 @@
 - **Why:** ADR 0056 把 sqlite 定义为可重建索引，避免打开工程时扫 JSON。
 - **Pros:** 资产变多后列表和校验不用每次解析整份 catalog。
 - **Cons:** 20 口井的第一段用 JSON 就够；提前做会多一个必须和 catalog.json 对齐的存储。
-- **Context:** `docs/PROJECT_AREA_PLAN.md` 第 3 节。触发条件：资产数量或列表查询变慢。
+- **Context:** `docs/PROJECT_AREA_PLAN.md` 第 3 节。触发条件：资产数量或列表查询变慢。**2026-09-30 对账（wave/deepen-perf B4）**：10k/100k 夹具实测查询面零劣化（entityById/linksForEntity/列表/计数全 O(1)，打开 10k 136ms / 100k 1408ms 线性）——触发条件未达，记档收工（数据 docs/perf/BASELINE.md §6）；**新发现** mutator 写路径超线性（10k 6.2s→100k 949.7s，疑二次）另立条目。
 - **Effort:** human: M / CC: S
 - **Priority:** P3
 - **Depends on:** catalog.json 受管 RAW 已能往返
+
+## P3 — catalog mutator 写路径超线性 profiling（from wave/deepen-perf B4, 2026-09-30）
+
+- **What:** catalog.json 写路径（BatchSave/导入灌库）规模超线性：10k 资产 6.2s、100k 949.7s（≈153×，疑二次——疑与全量重扫/重序列化次数有关）。
+- **Why:** 查询面已 O(1)（邻接索引），写面成为 >50k 资产目录的下一瓶颈。
+- **Pros:** 大目录导入/保存不再分钟级卡住。
+- **Cons:** 20 井工区（百级资产）远未触达；过早优化挤占域功能。
+- **Context:** 夹具 `makeSyntheticCatalogDir`（tst_catalog_scale，`PALEO_CATALOG_SCALE` 门控）。触发条件：资产 >50k 或实测导入超分钟。
+- **Effort:** human: M / CC: M
+- **Priority:** P3
+- **Depends on:** catalog.sqlite 条目（如届时已落，写路径一并设计）
+
+## P2 — 剖面 dock 取数迁 SeismicTaskService（from wave/deepen-perf A 报告, 2026-09-30）
+
+- **What:** 主窗口剖面 dock 的 IL/XL/Time 切换仍裸 QThreadPool 直调——无并发闸、无取消、无 LRU、progressCb 恒 true；迁到 SeismicTaskService 现有通道（闸/取消/LRU/回落齐备）。
+- **Why:** 同体数据三条取数路径两条有治理一条裸奔；转码工作区热切换后直调路径吃不到后端红利。
+- **Pros:** 三后端一致的空态/取消/回落语义（SECTION §6 对照表已列差值）。
+- **Cons:** seismicsection dock 属交互热路径，迁移要过一轮拖动延迟回归。
+- **Context:** docs/seismic/SECTION.md §6 记档；D2 生命周期测试已覆盖事件面。触发条件：剖面交互预算超限或后端不一致 bug。
+- **Effort:** human: M / CC: M
+- **Priority:** P2
+- **Depends on:** 无
+
+## P3 — 标准导出流图签块（from wave/deepen-perf D4 评估, 2026-09-30）
+
+- **What:** `buildHorizonMapLayout`（workflow/mapexport.cpp）补编制/审核/日期图签块（QgsLayoutItemLabel，约 30 行）。
+- **Why:** D4 评估结论：简化 composer 不建——标准导出流已两步全自动 + 完整设计器已裁剪；四要素唯一缺口是图签。
+- **Pros:** 关闭「规范图件四要素」缺口而无需新 UI。
+- **Cons:** 图签栏目（编制/审核/日期/单位名）需业务确认字段来源。
+- **Context:** docs/progress/deepen-perf.md D4 行；触发条件：发布门要求图签或用户提出。
+- **Effort:** human: S / CC: S
+- **Priority:** P3
+- **Depends on:** 无
+
+## P3 — 表 K.1 十二类探井符号地质评审（from wave/deepen-perf C3, 2026-09-30）
+
+- **What:** C3 按 prompt 指名 6 类 + resources/geology/catalog.json 语义色补全 6 类的原生矢量符号做一轮图式 fidelity 评审（对照 Q/HS 1011—2016 表 K.1 正式图式）。
+- **Why:** 符号已数据字段驱动落地并可扩展（`wellCategoryDefinitions()`），但 12 类的笔画细节未经地质专家核对。
+- **Pros:** 图面规范合规；评审只需对符号表不动代码结构。
+- **Cons:** 占用地质专家时间；工区数据暂无类别字段（生产层无 well_class 列，接线已按「有字段才启用」探测）。
+- **Context:** `QgisStyleService::applyWellCategoryStyle` + appcontext 类别字段探测；触发条件：真工区井头数据带类别字段上图。
+- **Effort:** human: S / CC: S
+- **Priority:** P3
+- **Depends on:** 井头数据带类别字段
 
 
 ## P2 — 多 realization / 不确定性支持（deferred from CEO review D6, 2026-09-25)
@@ -29,7 +73,7 @@
 - **Why:** 真实古地理图的边界有地质含义；不同边界类型的编辑行为和符号不同。
 - **Pros:** 编图专业正确性；验证模块可按类型核查。
 - **Cons:** 数据模型与编辑工具复杂度上升；需要地质专家参与定义。
-- **Context:** 文档 §14–15 目前把相界当普通 polygon 拓扑处理。先做单一"相界线"类型跑通，再扩类型。
+- **Context:** 文档 §14–15 目前把相界当普通 polygon 拓扑处理。先做单一"相界线"类型跑通，再扩类型。**2026-09-30 进展（wave/deepen-perf C2）**：4 类词面已冻结（`src/workflow/boundarysemantics.h`），单类型断层切割 fault_cut 已跑通（boundary_kind 属性 schema → composepage 下拉 → `applyFaciesBoundaryStyle` 断层红粗边）；kind 落要素级，逐弧段需 boundary-graph 线层；其余三类的差异化编辑行为仍需地质专家定义。
 - **Effort:** human: L / CC: M
 - **Priority:** P2
 - **Depends on:** P0 矢量编辑落地
@@ -83,23 +127,23 @@
 
 - **clang-tidy include-order CI**：分层检查器只管方向不管序；include 排序规范化递延。触发条件：分层落地后代码风格再收一轮。Effort: S / Priority: P3
 - **`DataImportService` using 别名删除**：`FolderPreviewRow`/`FolderRowResult` 解嵌套后保留源码兼容别名一期（保护 tst_import 22 处用点）；二期删除别名、调用点全改 `domain/importrows.h`。触发条件：W2 落地后的下个迭代。Effort: S / Priority: P3 / Depends on: UI_LAYER_PLAN W2
-- **大 LAS 同步 `lasAt` 的 UI 线程延迟悬崖**：correlation 侧按路径同步解析保留现状 UX；大文件会阻塞 GUI 线程（现状已存在，分层不恶化）。触发条件：实测大 LAS 连井剖面卡顿。Effort: M / Priority: P3
-- **文件夹导入扫描期进度 UX**：本轮只定「忙碌光标 + 状态栏一行」契约；真进度条（文件计数/ETA）递延。触发条件：大文件夹导入实测等待过长。Effort: S / Priority: P3
+- ~~**大 LAS 同步 `lasAt` 的 UI 线程延迟悬崖**~~ — 已落地（wave/deepen-perf B1）：correlation 链路改 PaleoTaskService quiet 异步 + per-well 世代号 + 同井协作取消，59MB 调用点阻塞 442ms→0ms（见 docs/progress/deepen-perf.md）。
+- ~~**文件夹导入扫描期进度 UX**~~ — 已落地（wave/deepen-perf B2）：队列整体进度/ETA/全部取消 + `FolderImportQueueAdapter` 生产 runner（GAPS G-2.3 收口）。
 - **include 级护栏的调用级补强**：单一 `paleo_core` 静态库下 `check_layering.py` 只挡 include 挡不住「不带 include 直接 new」；若要挡需 clang 插件或拆库。触发条件：发现绕过 include 的违规实例。Effort: M / Priority: P4
 - **图层平台 · 旧组名词表迁移**：`workflows.cpp` 产层仍用 `01_Prediction`/`02_Constraints`/`03_Predict`/`03_Composite`/`00_Data`，页面档案表（`QgisLayerProfileService`）按 canonical 词表（`02_Prediction`/`03_Constraints`/`05_PaleoMap`/`07_Validation`…）匹配，旧组名层在档案应用时按表外隐藏。触发条件：编图链产出层迁移到 canonical 组。Effort: S / Priority: P2
 - **图层平台 · 主题重命名**：QgsMapThemeCollection 无 rename API，档案工具条管理对话框已注记「重命名暂未支持」。触发条件：QGIS 提供 rename 或 `QgisLayerProfileService` 增加记录复制通道。Effort: S / Priority: P3
-- **图层平台 · layerId↔assetId 关联面**：`LayerDeclaration` 无 asset 字段，属性对话框业务页关联资产恒「未关联」（按钮禁用+reason tooltip）；`LayerPropertiesDialog::assetIdForLayer()` 预留单点扩展。触发条件：catalog 增图层-资产显式关联。Effort: M / Priority: P2
-- **图层平台 · 图层创建时间**：manifest 无时间戳，业务页恒「—」。触发条件：layer_declarations 表加 created_at（schema 变更需评审）。Effort: S / Priority: P3
+- ~~**图层平台 · layerId↔assetId 关联面**~~ — 已落地（wave/deepen-perf C4）：七个产物出口 commit 后盖图层自定义属性 `paleoAssetId`（随 .qgz 持久化）+ catalog extra `manifest_layer_id` 权威反链；`LayerPropertiesDialog::assetIdForLayer()` 业务页开闸。catalog 显式关联表（schema 级）仍按原触发条件递延；首跑盖章缺口（层未实例化则盖不上）由 extra 反链兜底 + 重跑幂等补章。
+- ~~**图层平台 · 图层创建时间**~~ — 已落地核实（wave/deepen-perf C4 对账）：`paleoCreatedAt` 盖章链基线已存在，业务页显示正常，无需 schema 变更。
 - **图层平台 · 「删除选中」语义**：QGIS 默认动作只摘树节点不 `removeMapLayer`；若需「删树即删层」，壳侧补工程注销接线。触发条件：用户实测困惑。Effort: S / Priority: P3
 
 ## P3 — m2/mapping-pages 递延（wave/mapping-pages, 2026-09-27）
 
 - **置信度伴生栅格**：算法侧无真实置信度输出（ONNX 仅读首个输出张量、paleo:\* 均确定性单输出栅格）——不造假数据；接入点已留（`PredictionWorkflow::confidenceCompanionAvailable()` 恒 false + 声明位）。触发条件：出现带置信度/方差输出的算法。Effort: S / Priority: P3
-- **非 IDW 单因素引擎**：welldist（距离变换）/confidence（预测结果直取）/strathick（`paleo:paleo_isopach` 双栅格链）v1 统一走井点 IDW，注册表 algorithm 标签已注「待接入」。触发条件：对应资产链就绪。Effort: M / Priority: P3
+- **非 IDW 单因素引擎**：~~welldist（距离变换）~~ 已落地（wave/deepen-perf C5）：`paleo:paleo_distance_transform` 绕障距离引擎（无屏障=精确欧氏与 paleo_welldist 零容差对拍；break_line 屏障=8 邻接 Dijkstra），注册表标签已翻「绕障距离变换」；confidence 维持冻结拒绝（ONNX 仅读首个输出张量，无置信度通道——记档 docs/ALGORITHM_AUDIT.md §3a）；strathick 核实主线 6 已接（paleo_isopach 双栅格链），无需动作。
 - ~~**PaleoEditingToolbar `mEditLayer` 裸指针**~~ — 已落地：`mEditLayer` 与 `mLayers` 均已切为 `QPointer<QgsVectorLayer>`（`src/ui/edittools/editingtoolbar.h:134,137`）。
-- **ctest -j2 跨二进制 QSettings 竞态**：多测试二进制共享落盘 `paleo/paleo` 配置，`-j2` 下 `lastPage` 读写交错偶发 `tst_ui::windowStateAndExtentPersist` 红、串行全绿。触发条件：并行 ctest 再现。Effort: S / Priority: P4
+- ~~**ctest -j2 跨二进制 QSettings 竞态**~~ — 已核实根治（wave/deepen-perf B5）：四轮全量 `ctest -j4`（127 项）历史竞态点全绿——`add_paleo_test` 的 XDG/HOME 沙箱已根治（证据 docs/perf/BASELINE.md §6）；四个测试 main 的 `setPath` /tmp 重定向属历史残留可清理。
 - **native processing provider 注册**：C++ 嵌入运行时 Processing 注册表仅 `paleo:\*`（`gdal:contour` 属 Python provider）；等值线已走 GDAL C API（gdal:contour 同一底层引擎）交付，native provider 按需引入。Effort: M / Priority: P4
-- **SBM Engine 剩余入口**：`QuickOpen` 秒级首屏预览、`ReadTimeSliceTiled` 瓦片渐进发布、渐进 LOD（progressiveLod + `SetActiveLod`）、`ReadVoxelWindow` 三维窗口取数。已接：sdk::Dataset 切片/剖面路由、TranscodeJob（预览页「转码工作区」按钮）。触发条件：工区实测瓶颈或交互预算超限。Effort: M–L / Priority: P2
+- ~~**SBM Engine 剩余入口**~~ — 已落地对账关闭（wave/deepen-perf A1）：QuickOpen/ReadTimeSliceTiled/progressiveLod+SetActiveLod 前序 wave 已接，本轮补齐唯一缺口 ReadVoxelWindow 消费侧（3D 16 层堆叠取数 16 请求→1 体窗任务）；四入口消费核账表 docs/seismic/ARCHITECTURE.md §9b。
 - **SBM 未 vendor 面**：`Mesh/`（CgalHorizonMeshBuilder，GPL/LGPL 双许可 CGAL 可选）、`Model/`、`Data/HorizonTextReader`（层位面三维渲染/文本导入——现阶段层位走 QGIS 图层，暂不引）。`Engine/SdkC.h` C ABI 已随库编译但未导出消费方。Effort: S / Priority: P3
 
 ## Completed
@@ -133,14 +177,17 @@ P1 单井综合柱状图深度升级（D1–D8 全量交付）。逐项决策与
 - **分层接缝裁决**：ui→io include 被护栏白名单挡死且词表只读 → 派生 XML
   写回（`io::writeComprehensiveWellXml*`）、井斜/时深表解析落 io 层由测试
   直驱全链路；运行时面板发 `derivedDocumentReady(doc, 摘要)` 意图信号，
-  壳接 catalog DERIVED 版本落盘——**递延**：壳侧接线（catalog 版本登记）
-  待下一 wave。sidecar/会话持久化以视图层存储助手
+  壳接 catalog DERIVED 版本落盘——~~递延：壳侧接线~~ 已落地（wave/deepen-perf
+  D1：`WellCompositeDerivedSink` + attach 分段 + 组装根 io 注入）。
+  sidecar/会话持久化以视图层存储助手
   （`wellcompositestore`，QtCore 文件 IO）落地——**递延**：迁移 services
   门面（届时 ui 白名单只需放行新门面头）。
 - **井斜/时深运行时数据路径**：`ComprehensiveWellData`（domain，冻结不动）
   无井斜/时深字段 → io 解析函数产出独立类型；运行时注入走
-  `DepthTransform` API（壳从资产解析后喂面板）——**递延**：壳把
-  `parseDeviationSurvey/parseTimeDepthTable` 接进装配链。
+  `DepthTransform` API（壳从资产解析后喂面板）——~~递延：壳把
+  `parseDeviationSurvey/parseTimeDepthTable` 接进装配链~~ 已落地
+  （wave/deepen-perf D1：sink `setDepthTableParsers` 装配期注入，
+  装载完成自动喂表）。
 - **D1.12/D2.9 合并**：单画布内多道天然共享深度轴（标尺道即坐标源）；
   「Y 缩放联动开关」语义落位多画布锁步（MultiWellView::setLinkScroll）。
 - **D5.4 datum 校平语义**：各井滚动使同名标志层同屏高（视口 40%），
@@ -148,8 +195,10 @@ P1 单井综合柱状图深度升级（D1–D8 全量交付）。逐项决策与
   需渲染管线深度函数化，**递延**。
 - **D4.7 SVG**：QSvgGenerator 可用已交付；SVG 档用固定 8px/m 简化比例
   （矢量无损缩放，比例尺语义由 PDF/PNG 承担）。
-- **D4.8 打印对话框**：offscreen 无打印环境，打印入口降级为 PDF 导出
-  （QPdfWriter 即打印数据流）；原生 QPrintDialog 接线**递延**至壳。
+- **D4.8 打印对话框**：~~原生 QPrintDialog 接线递延~~ 已落地（wave/deepen-perf D3）：
+  `exportToPagedDevice(QPagedPaintDevice&)` 共用管线（QPdfWriter/QPrinter 同源，
+  设备 dpi 换算比例尺）+ `nativePrintAvailable()` 探测；无打印环境降级 PDF
+  并如实告知（offscreen 测试直驱打印管线）。
 - **D7.3 暗色**：柱状图画布保持纸面白底（DESIGN.md 2026-09-29 翻案条的
   wellcomposite 豁免），面板/对话框 chrome 已随主题 token；道内数据符号
   色不跟随（数据符号语义）。
@@ -164,6 +213,8 @@ P1 单井综合柱状图深度升级（D1–D8 全量交付）。逐项决策与
   Latin-1 乱码（chronostrat/patterncatalog 曾中招）——中文字面量一律
   QStringLiteral 或 QString::fromUtf8。
 
-- **2026-09-29 · IO/服务层性能与缓存体系（wave/io-perf-cache P4）递延**：预算治理只挡 include 层，「不带 include 直接 new」的大缓冲挡不住（与分层护栏同一遗留口径，后续可引入分配钩子审计）；Pyramid DERIVED 版本登记接口已备（RasterPyramidService 路径面），导入侧 ensureRasterPyramidVersion 批量接线随视图层 P2 瓦片消费一并落；D7.8 网络盘超时只有 slow-path 探测设计位（见 docs/perf/BENCHMARKS.md），NFS 自动降级等真实工区再实装；catalog.sqlite（T3 既有递延）——10k 打开 145ms 已达标，留作 >100k 目录的下一步；SEG-Y 坏道跳过仅固定道长布局生效，变道长文件保持旧契约（整索引报错），放宽需单独评审。
+- **2026-09-29 · IO/服务层性能与缓存体系（wave/io-perf-cache P4）递延**（2026-09-30 wave/deepen-perf 部分对账）：预算治理只挡 include 层，「不带 include 直接 new」的大缓冲挡不住（与分层护栏同一遗留口径，后续可引入分配钩子审计）；~~Pyramid 消费侧~~ 已落地（B3：导入 Lazy ensure + GDAL .ovr + 预览预热，4096² 读块 14ms→4ms）；D7.8 网络盘超时只有 slow-path 探测设计位（见 docs/perf/BENCHMARKS.md），NFS 自动降级等真实工区再实装；~~catalog.sqlite 触发条件~~ 已评估未达（B4：查询面 10k→100k 零劣化，见上条记档）；~~SEG-Y 坏道跳过~~ 固定步长布局已放宽对齐并行语义（B6），变道长布局保持整索引报错（契约表 docs/perf/INDEX_FORMAT.md §3）。
 
 - **2026-09-29 · P5 地震链路升级（wave/seismic-chain-deep）**：Phase 0–7 全量交付。Phase 0 架构账本+220MB 生产形状体基线实测（`docs/seismic/ARCHITECTURE.md`/`BASELINE.md`，冷索引 146ms/切片 27ms/sf3c 转码 2.3s/fps 15000/峰值 RSS 686MiB）；Phase 1 转码 D1.1–D1.10（分阶段加权进度+ETA、断点续跑 UI 三态探测、vendor P6 并行分片编码池≤4〔修复关队竞态〕、质量报告〔道数/覆盖率/丢弃率/值域/坏道样〕、meta 版本探测与重建、同输出互斥、vendor P8 Auto 只认完整 meta 堵假完成态、sf3p 金字塔层数按体量自适应〔<64MiB 无 LOD/≥16GiB L3〕、PALEO-SEISMIC-TRANSCODE 结构化 JSON 日志）；Phase 2 剖面 D2.1–D2.14（切片纹理 LRU≤4、密度/wiggle/混合三模、阈值+极性、AGC+手动增益曲线、TWT+深度双刻度、LOD 抽稀 2.2ms/帧、纵向拉伸、8 档色标+反转、PNG 导出、相邻线卷帘、240B 道头卡〔`readTraceHeader`〕、书签 QSettings 按体持久化、复制/打印、空数据原因态）；Phase 3 三维 D3.1–D3.12（16 层切片堆叠体渲染〔拖动降 4 层〕、切片面拾取拖拽联动 2D、透明度 uniform+值域 discard、井轨迹+标志层十字、colormap 编辑器〔CPU 重着色路径，修复 rgba 字节级写入〕、相机书签、截图、内存预算提示〔体>RAM/2〕、GL 3s 看门狗→2D 拼接回退件、fps 读数、惯性旋转、多体轮廓）；Phase 4 解释 D4.1–D4.10（画布拾取/断层模式、Pearson 互相关追踪〔修复两个算法 bug：候选窗列跨步、搜索窗钳体积界〕、拾取→DERIVED 层位/断层资产→catalog 登记〔父版本=地震 RAW〕、列表面板〔定位/删除/重命名/CSV〕、QUndoStack undo/redo、IDW 网格化、`<sgy>.seispicks.json` 会话伴生文件自动保存、多解释者名册、置信度红黄绿着色；解释模型落服务层裁决：视图 io/* 白名单仅 lasdoc.h）；Phase 5 井震 D5.1–D5.7（任意线节点表编辑器、服务层任意线 LRU≤4〔51ms→0ms〕、井顶/底独立投影斜井轨迹、AC+DEN→Ricker 合成记录〔缺曲线降级注记〕、沿井分层标注〔既有〕、井旁道 wiggle 小图、最近 N 井过滤）；Phase 6 D6.1–D6.8（切片时延预算入基线〔miss 27ms<500/hit 26ms<50〕、3D LOD ≥15fps、内存治理自建同形接口〔P4 管理器不存在；合并点=统一管理器落地后委托〕、SeismicConcurrencyGate 4 槽信号量并发闸〔全部 12 个 start* 走闸；实测 8 任务最大并发 4；shared_ptr 防析构竞态〕、取消全链路〔短操作补边界检查+排队即取消跳过〕、错误五级分类、会话/转码自动保存点）；Phase 7 文档 6 份（ARCHITECTURE/BASELINE/TRANSCODE/SECTION/3D/INTERPRETATION）+ vendor PATCHES.md 补丁 P6–P9 登记。新增测试 6 套 71 用例（transcode 13/sectionui 16/3dui 8/interpret 11/welltie 7/budgets 9 + baseline 9 实测）；ctest -R 'seismic|datapreview|layering' 18/18 绿。**递延**：catalog 注入 `setInterpretationCatalog` 待 app 层接线（paleomainwindow 非 P5 领地）；IDW 与 ConstraintIDW 合并点；meta 真迁移工具（版本真升级时）；P4 内存管理器合并。
+
+- **2026-09-30 · 域深化 + 性能完善（wave/deepen-perf，四轨并行 + lead 集成）**：A 地震链路——ReadVoxelWindow 消费接线（3D 堆叠取数 16 请求→1）、拖动链路 supersede 取消+脏槽位精化+350ms 自动升层（手势请求 5→3）、时间切片失败原因态+同路径在途取代取消、966MiB 真工区复测刷新（BASELINE §8）；TODOS P2「SBM Engine 剩余入口」关闭。B IO/缓存——大 LAS 解阻（59MB 调用点 442ms→0ms）、导入队列真进度+生产 runner（GAPS G-2.3 收口）、金字塔消费侧（.ovr，4096² 读块 14→4ms）、catalog 100k 评估记档（查询零劣化）+ mutator 超线性发现、QSettings -j2 竞态沙箱根治核实、SEG-Y 坏道跳过放宽。C 编图——ConstraintIDW break_line 屏障/direction_line 各向异性（逐位向后兼容）、相界 fault_cut 单类型跑通（词面 4 类冻结）、表 K.1 十二类探井符号、paleoAssetId 关联激活、paleo_distance_transform 绕障距离引擎（welldist 实装）。D 井综合——WellCompositeDerivedSink 派生登记+深度装配（壳接线+组装根注入）、连井剖面生命周期 9 用例穷举（发现并修 SeismicSectionTool 析构悬空）、打印原生管线（QPagedPaintDevice 共用+降级 PDF）、简化 composer 评估记档不建、D5.4 datum 校平修复。lead 集成 7 处接线 + tst_wellcomposite_visual 钉死渲染环境重生成 golden。新增测试 54 函数（7 套新 + 多套件扩展）；详见 docs/progress/deepen-perf.md（含语义决策与递延清单）。

@@ -130,6 +130,7 @@ bool SegyReader::open(const QString &path, QString *error,
   }
 
   m_binLineNo = beI32(bin + 4);
+  m_sawVariableNs = false;
   const qint16 binDt = beI16(bin + 16);
   const qint16 binNs = beI16(bin + 20);
   m_formatCode = beI16(bin + 24);
@@ -221,7 +222,13 @@ bool SegyReader::open(const QString &path, QString *error,
       else if (v != first)
         varies = true;
       const qint16 traceNs = beI16(h + 114);
-      if (traceNs < 0) break; // the main indexing pass reports the corruption
+      // B6：负 ns 在固定步长前缀下按坏道跳过（与主扫描同语义），探测不再
+      // 提前截断；变道长布局仍由主扫描的严格校验兜底。
+      if (traceNs < 0)
+      {
+        probeOffset += 240 + static_cast<qint64>(binNs) * 4;
+        continue;
+      }
       const int ns = traceNs > 0 ? traceNs : binNs;
       probeOffset += 240 + static_cast<qint64>(ns) * 4;
     }
@@ -267,12 +274,27 @@ bool SegyReader::open(const QString &path, QString *error,
     const qint16 traceDt = beI16(trHdr + 116);
     if (traceNs < 0)
     {
-      if (error)
-        *error = QStringLiteral("Corrupt trace ns (%1) at trace index %2").arg(traceNs).arg(m_index.size());
-      m_index.clear();
-      return false;
+      // B6（wave/deepen-perf）坏道跳过放宽：固定步长布局（此前所有道
+      // ns==binNs 或 0）下，负 ns 与并行/resume 路径同语义——跳过并记录，
+      // 不整体作废；变道长布局下坏道的后续边界不可恢复，保持整索引报错
+      //（契约记录 docs/perf/INDEX_FORMAT.md §3）。
+      if (m_sawVariableNs)
+      {
+        if (error)
+          *error = QStringLiteral("Corrupt trace ns (%1) at trace index %2 in a "
+                                  "variable-trace-length layout (alignment unrecoverable)")
+                       .arg(traceNs)
+                       .arg(m_index.size());
+        m_index.clear();
+        return false;
+      }
+      m_badTraceOffsets.append(offset); // D2.7/B6：固定步长下可安全跳过
+      offset += 240 + static_cast<qint64>(binNs) * 4;
+      continue;
     }
     const int ns = traceNs > 0 ? traceNs : binNs;
+    if (traceNs > 0 && traceNs != binNs)
+      m_sawVariableNs = true; // B6：变道长布局观察——checkpoint 契约门用
     if (m_sampleIntervalUs <= 0.0f && traceDt > 0)
       m_sampleIntervalUs = static_cast<float>(traceDt);
     if (ns <= 0)
@@ -678,6 +700,7 @@ void SegyReader::resetState()
   m_binLineNo = 0;
   m_lastScanPartial = false;
   m_scannedOffset = 0;
+  m_sawVariableNs = false;
 }
 
 void SegyReader::rebuildLineHashes()
@@ -1169,7 +1192,9 @@ bool SegyReader::openCached(const QString &path, const QString &indexCacheDir,
         ordinal = false;
         break;
       }
-    if (!ordinal && !m_index.isEmpty())
+    // B6：变道长布局不落 checkpoint——resumeScan 按固定步长推进，变道长的
+    // 断点续扫会把错位的道头当好道收进索引（宁可重扫，不装作可续）。
+    if (!ordinal && !m_index.isEmpty() && !m_sawVariableNs)
     {
       SegyIndexStore::StoredIndex cp;
       if (snapshot(&cp))

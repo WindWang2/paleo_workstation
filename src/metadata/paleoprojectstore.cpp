@@ -117,9 +117,13 @@ PaleoProjectStore::WriteResult PaleoProjectStore::saveAll( const std::function<W
     {
       // 2. .qgz backup — .qgz is equally protected (a truncated zip is a
       //    corrupt project file). First save has nothing to back up.
-      result = backupQgz();
-      if ( !result.ok )
+      if ( const WriteResult backup = backupQgz(); !backup.ok )
+      {
+        // no-op（无 .qgz 可备份）时不覆写 result——保留上游 ok 态与文案
+        // （与收口前的两份内联块语义逐字一致）。
+        result = backup;
         pending.append( { true, m_qgzPath, result.error } );
+      }
 
       // 3. .qgz atomic write (temp+rename is the callback's responsibility —
       //    QgisProjectService::writeProject implements it). Failure here is
@@ -373,9 +377,13 @@ PaleoProjectStore::WriteResult PaleoProjectStore::commitAll(
     // 单元 2：.qgz 备份 + 原子写（备份语义与 saveAll 一致）。
     if ( result.ok && rank < 2 )
     {
-      result = backupQgz();
-      if ( !result.ok )
+      if ( const WriteResult backup = backupQgz(); !backup.ok )
+      {
+        // no-op（无 .qgz 可备份）时不覆写 result——保留上游 ok 态与文案
+        // （与收口前的两份内联块语义逐字一致）。
+        result = backup;
         pending.append( { true, m_qgzPath, result.error } );
+      }
 
       if ( result.ok )
       {

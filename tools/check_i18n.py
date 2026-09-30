@@ -18,13 +18,19 @@ import re
 import sys
 from pathlib import Path
 
+# Windows 控制台缺省 cp1252 无法编码中文输出（CI 上 UnicodeEncodeError 即
+# 失败）——与 tools/check_layering.py 同款守卫。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # 用户可见文案入口：方法名后第一个字符串参数位置（0 = 第一参）。
 SETTER_PATTERNS = [
-    r"setText\s*\(", r"setToolTip\s*\(", r"setWindowModality\s*$",
-    r"setWindowTitle\s*\(", r"setPlaceholderText\s*\(", r"setWhatsThis\s*\(",
-    r"setStatusTip\s*\(", r"setAccessibleName\s*\(", r"setAccessibleDescription\s*\(",
+    r"setText\s*\(", r"setToolTip\s*\(", r"setWindowTitle\s*\(",
+    r"setPlaceholderText\s*\(", r"setWhatsThis\s*\(", r"setStatusTip\s*\(",
+    r"setAccessibleName\s*\(", r"setAccessibleDescription\s*\(",
     r"setLabelText\s*\(", r"setTitle\s*\(", r"setSubject\s*\(",
-    r"setButtonText\s*\(", r"setInformativeText\s*\(", r"setTextVisible\s*$",
+    r"setButtonText\s*\(", r"setInformativeText\s*\(",
 ]
 # 构造函数：类名( "literal", ... ) 的首参文案（后续参数多为 objectName/parent，
 # 只查首参）。
@@ -37,7 +43,7 @@ CTOR_PATTERNS = [
 ACTION_PATTERNS = [r"\baddAction\s*\(", r"\baddTab\s*\(", r"\baddSubmenu\s*\("]
 
 LITERAL_RE = re.compile(
-    r'^(?:QStringLiteral|QLatin1String|QString::fromLatin1)\s*\(\s*"((?:[^"\\]|\\.)*)"'
+    r'^(?:QStringLiteral|QLatin1String|QString::fromLatin1|QString)\s*\(\s*"((?:[^"\\]|\\.)*)"'
     r'|^(?:u8)?"((?:[^"\\]|\\.)*)"'
 )
 

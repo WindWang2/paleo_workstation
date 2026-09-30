@@ -510,6 +510,14 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --strict)
   add_test(NAME layering_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --selftest)
+  # ---- i18n 裸字面量门禁（WP4/#44：原「无门禁」收口）----
+  # 只挡用户可见文案入口的裸字面量回归（判定规则见脚本头注释：CJK 或
+  # ≥3 字母 ASCII 词才算文案，纯占位模板放行）；selftest 防扫描器自身
+  # 坏掉静默变绿（口径同 layering_selftest）。
+  add_test(NAME i18n COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_i18n.py --src ${CMAKE_SOURCE_DIR}/src)
+  add_test(NAME i18n_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_i18n.py --selftest)
 endif()
 
 # ---- 测试注册（devex T1 链接瘦身：LIBS = 各测试 include 面的最小闭包，见

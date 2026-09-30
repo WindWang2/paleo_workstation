@@ -9,6 +9,7 @@
 #include <QClipboard>
 #include <QApplication>
 #include <QPrinterInfo>
+#include <QCoreApplication>
 #include <QSvgGenerator>
 
 #include "wellcompositecanvas.h"
@@ -397,7 +398,7 @@ QString ExportEngine::exportCanvas(const WellCompositeCanvas &canvas,
     gen.setSize(QSize(qMax(64, qRound(exportTracksWidth(tracks) + 2)),
                       qMax(64, qRound(headerRowH + (opt.bottomDepth - opt.topDepth) * 8.0))));
     gen.setViewBox(QRect(0, 0, gen.size().width(), gen.size().height()));
-    gen.setTitle(QStringLiteral("综合柱状图 %1").arg(opt.wellName));
+    gen.setTitle(QCoreApplication::translate("WellCompositeExport", "综合柱状图 %1").arg(opt.wellName));
     QPainter p(&gen);
     applyExportRenderHints(p);
     CurvePenGuard penGuard(tracks);
@@ -419,7 +420,7 @@ QString ExportEngine::exportCanvas(const WellCompositeCanvas &canvas,
   writer.setResolution(opt.dpi);
   writer.setPageLayout(QPageLayout(QPageSize(QPageSize::A4), QPageLayout::Portrait,
                                    QMarginsF(12, 14, 12, 14), QPageLayout::Millimeter));
-  writer.setTitle(QStringLiteral("综合柱状图 %1").arg(opt.wellName));
+  writer.setTitle(QCoreApplication::translate("WellCompositeExport", "综合柱状图 %1").arg(opt.wellName));
   writer.setCreator(QStringLiteral("Paleo Workstation"));
   return exportToPagedDevice(canvas, data, writer, opt);
 }

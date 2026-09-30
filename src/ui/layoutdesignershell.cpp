@@ -42,6 +42,7 @@
 #include <qgslayoutruler.h>
 #include <qgslayoutundostack.h>
 #include <qgslayoutview.h>
+#include <qgslayoutviewtooladditem.h>
 #include <qgslayoutviewtooleditnodes.h>
 #include <qgslayoutviewtoolmoveitemcontent.h>
 #include <qgslayoutviewtoolselect.h>
@@ -224,7 +225,21 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
   connectLayoutSync();
 
   // Default interaction: selection tool.
-  m_view->setTool( new QgsLayoutViewToolSelect( m_view ) );
+  // QgsLayoutViewToolSelect::setLayout() 在场景上创建 QgsLayoutMouseHandles
+  // (qgslayoutdesignerdialog.cpp:1210)——缺了它 mMouseHandles 为空，鼠标
+  // 在画布上移动即 SEGV（QgsLayoutViewToolSelect::layoutMoveEvent）。
+  auto *selectTool = new QgsLayoutViewToolSelect( m_view );
+  if ( m_layout )
+    selectTool->setLayout( m_layout );
+  m_selectTool = selectTool;
+  m_view->setTool( selectTool );
+
+  // 元素放置完成后回到选择工具（QGIS designer 惯例: createdItem -> Select）。
+  if ( auto *addTool = m_palette->addItemTool() )
+    connect( addTool, &QgsLayoutViewToolAddItem::createdItem, this, [this] {
+      if ( m_selectTool && m_view )
+        m_view->setTool( m_selectTool );
+    } );
 
   // Keep rulers in sync with view zoom.
   connect( m_view, &QgsLayoutView::zoomLevelChanged, this, [this]() {

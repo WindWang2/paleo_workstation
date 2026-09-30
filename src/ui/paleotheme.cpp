@@ -324,6 +324,8 @@ namespace PaleoTheme
     const ThemeTokens &t = tokens(theme);
     return QStringLiteral(
                "QMainWindow { background: %1; }"
+               "QMainWindow::separator { width: 6px; height: 6px; background: %4; }"
+               "QMainWindow::separator:hover { background: %3; }"
                "QDockWidget::title { background: %1; color: %2; padding: 6px 10px; }"
                "QStatusBar { background: %1; color: %3; }"
                "QWidget#mapInteractionContext { background: %1; color: %3;"
@@ -435,11 +437,15 @@ namespace PaleoTheme
                // primaryText（暗色提亮，保证深底对比度）。
                "SARibbonToolButton[paleoRun=\"true\"] { color: %5; }"
                "SARibbonToolButton[paleoRun=\"true\"]:disabled { color: %4; }"
-               "SARibbonPanelLabel { font-size: 8pt; }"
-               "SARibbonTabBar::tab { font-size: 9pt; }"
+               "SARibbonPanelLabel { font-size: 8pt; color: %8; }"
+               "SARibbonSeparatorWidget { color: %6; background: transparent;"
+               " border: none; border-left: 1px solid %6; margin: 4px 0; }"
+               "SARibbonTabBar::tab { font-size: 9pt; color: %8;"
+               " border: none; border-bottom: 2px solid transparent; }"
+               "SARibbonTabBar::tab:selected { color: %5; border-bottom: 2px solid %5; }"
                "SARibbonButtonGroupWidget > QToolButton { padding: 0 6px; }"
                "SARibbonPanel QComboBox { border: 1px solid %6; border-radius: 4px;"
-               " background: %7; padding: 1px 6px; min-width: 132px; }"
+               " background: %7; color: %1; padding: 1px 6px; min-width: 132px; }"
                "SARibbonPanel QLabel#ribbonEditState { color: %8; }")
         .arg(qssHex(t.text), qssHex(t.primary), qssHex(t.surfaceAltRaised),
              qssHex(t.textDisabled), qssHex(t.primaryText), qssHex(t.border),

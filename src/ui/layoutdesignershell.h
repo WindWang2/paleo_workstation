@@ -8,6 +8,8 @@
 
 class QAction;
 class QDockWidget;
+class QMainWindow;
+class PaleoDockManager;
 class QLabel;
 class QMenu;
 class QMenuBar;
@@ -193,7 +195,8 @@ class PaleoLayoutDesignerShell : public QDialog
 
     QMenuBar *m_menuBar = nullptr;
     QWidget *m_toolBarRow = nullptr;
-    QWidget *m_dockArea = nullptr;
+    QMainWindow *m_dockArea = nullptr;
+    PaleoDockManager *m_dockManager = nullptr;
 
     QPointer<QMenu> m_fileMenu;
     QPointer<QMenu> m_layoutMenu;

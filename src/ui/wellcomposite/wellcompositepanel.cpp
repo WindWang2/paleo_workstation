@@ -1,5 +1,6 @@
 // 层：视图
 #include "wellcompositepanel.h"
+#include "../paleoviewport.h"
 #include "curveconfigdialog.h"
 #include "wellpositionlegendwidget.h"
 #include "../paleotheme.h"
@@ -242,7 +243,7 @@ void WellCompositePanel::setupUi()
   });
   topLay->addWidget(m_lblStatus);
 
-  rootLay->addWidget(topBar);
+  rootLay->addWidget(new PaleoToolRow(topBar, this));
 
   // 中央综合柱状图画布
   m_canvas = new WellCompositeCanvas(this);
@@ -256,7 +257,7 @@ void WellCompositePanel::setupUi()
   // 底部位置显示与比例尺图例综合控制栏
   m_legendWidget = new WellPositionLegendWidget(this);
   m_legendWidget->setObjectName(QStringLiteral("wellPositionLegendWidget"));
-  rootLay->addWidget(m_legendWidget);
+  rootLay->addWidget(new PaleoToolRow(m_legendWidget, this));
 
   // ---- 事件与信号绑定 ----
   connect(m_btnZoomIn, &QToolButton::clicked, m_canvas, &WellCompositeCanvas::zoomIn);

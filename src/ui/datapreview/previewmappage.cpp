@@ -1,5 +1,9 @@
 // 层：视图
 #include "previewmappage.h"
+#include "../paleodockmanager.h"
+#include "../paleoviewport.h"
+#include <QMainWindow>
+#include <QDockWidget>
 
 #include "../../qgis/previewrendercache.h"
 
@@ -178,7 +182,7 @@ PreviewMapPage::PreviewMapPage( QWidget *parent )
   m_decor = new PaleoDecorationManager( m_canvas->canvas(), m_canvas->canvas() );
   m_decor->setObjectName( QStringLiteral( "previewDecorManager" ) );
 
-  m_mapStack = new QStackedWidget( this );
+  m_mapStack = new PaleoViewportStack( this );
   m_mapStack->setObjectName( QStringLiteral( "previewMapStack" ) );
   m_mapStack->addWidget( m_canvas );
 
@@ -233,25 +237,32 @@ PreviewMapPage::PreviewMapPage( QWidget *parent )
   m_sideTabs->addTab( m_identify, QObject::tr( "识别" ) );
   m_sideTabs->addTab( m_profile, QObject::tr( "剖面" ) );
 
-  auto *split = new QSplitter( Qt::Horizontal, this );
-  split->setObjectName( QStringLiteral( "previewBodySplitter" ) );
-  split->addWidget( m_mapStack );
-  split->addWidget( m_sideTabs );
-  split->setStretchFactor( 0, 1 );
-  split->setStretchFactor( 1, 0 );
-  split->setSizes( { 640, 260 } );
+  m_dockWorkspace = new QMainWindow(this);
+  m_dockWorkspace->setWindowFlags(Qt::Widget);
+  m_dockWorkspace->setObjectName(QStringLiteral("previewDockWorkspace"));
+  m_dockWorkspace->setWindowTitle(tr("当前预览面板"));
+  m_dockWorkspace->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+  m_dockWorkspace->setCentralWidget(m_mapStack);
+  m_dockManager = new PaleoDockManager(m_dockWorkspace, QStringLiteral("ui/layout/preview"));
+  auto *sideDock = new QDockWidget(tr("图层 / 识别 / 剖面"), m_dockWorkspace);
+  sideDock->setObjectName(QStringLiteral("previewSideDock"));
+  sideDock->setWidget(m_sideTabs);
+  m_dockManager->addDock(Qt::RightDockWidgetArea, sideDock);
 
-  // 分析页签（D5.x 分支挂载；无页签时隐藏）
-  m_analysisTabs = new QTabWidget( this );
-  m_analysisTabs->setObjectName( QStringLiteral( "previewAnalysisTabs" ) );
-  m_analysisTabs->setVisible( false );
+  m_analysisTabs = new QTabWidget(this);
+  m_analysisTabs->setObjectName(QStringLiteral("previewAnalysisTabs"));
+  m_analysisDock = new QDockWidget(tr("统计与分析"), m_dockWorkspace);
+  m_analysisDock->setObjectName(QStringLiteral("previewAnalysisDock"));
+  m_analysisDock->setWidget(m_analysisTabs);
+  m_dockManager->addDock(Qt::BottomDockWidgetArea, m_analysisDock);
+  m_analysisDock->hide();
+  m_dockWorkspace->resizeDocks({sideDock}, {240}, Qt::Horizontal);
+  m_dockManager->captureDefaultLayout();
 
   buildStatusBar();
-
-  lay->addWidget( m_toolBarRow );
-  lay->addWidget( split, 1 );
-  lay->addWidget( m_analysisTabs );
-  lay->addWidget( m_statusBar );
+  lay->addWidget(new PaleoToolRow(m_toolBarRow, this));
+  lay->addWidget(m_dockWorkspace, 1);
+  lay->addWidget(new PaleoToolRow(m_statusBar, this));
 
   // ---- identify 核心（D7 + D6.4 空间索引缓存）----
   m_identifyCore = new PreviewIdentifyCore( this );
@@ -662,7 +673,11 @@ void PreviewMapPage::setProfileEnabled( bool on )
 void PreviewMapPage::addAnalysisTab( const QString &title, QWidget *w )
 {
   m_analysisTabs->addTab( w, title );
-  m_analysisTabs->setVisible( m_analysisTabs->count() > 0 );
+  if (m_analysisTabs->count() == 1) {
+    m_analysisDock->show();
+    m_dockWorkspace->resizeDocks({m_analysisDock}, {200}, Qt::Vertical);
+    m_dockManager->captureDefaultLayout();
+  }
 }
 
 void PreviewMapPage::setAssetKey( const QString &key )

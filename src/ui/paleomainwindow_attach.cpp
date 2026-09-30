@@ -154,6 +154,12 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   {
     auto *pl = new QVBoxLayout(dataProps);
     pl->setContentsMargins(8, 8, 8, 8); // spacing.sm
+    auto *previewDetails = new QWidget(dataProps);
+    previewDetails->setObjectName(QStringLiteral("previewDetailsHost"));
+    auto *detailsLayout = new QVBoxLayout(previewDetails);
+    detailsLayout->setContentsMargins(0, 0, 0, 0);
+    pl->addWidget(previewDetails);
+    m_previewTabs->setDetailsHost(previewDetails);
     if (m_dataListHost)
     {
       m_dataListHost->layout()->addWidget(dataPage);

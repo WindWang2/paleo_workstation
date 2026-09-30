@@ -23,10 +23,8 @@ namespace PaleoRibbon
   // 但不允许它自己跟着系统暗色模式自作主张）。
   void prepareLibrary();
 
-  // DESIGN.md 调色板（浅/暗随当前主题）套 office2021 模板，再整体替换为
-  // 「PaleoTheme::ribbonStyleSheet() + 壳样式 shellQss」一份完整样式表
-  // （SA::applyRibbonTheme 会整体覆盖窗口样式表，所以壳样式只能跟在它
-  // 后面一起落；整体替换保证主题来回切换不累积）。主题切换时由壳重调。
+  // DESIGN.md 调色板套 office2021 模板，再叠加 ribbon 细节与壳样式。
+  // 每次从新模板开始，保留基础按钮/分隔样式，主题来回切换不累积。
   void applyTheme(SARibbonMainWindow *win, const QString &shellQss);
 
   // 镜像绑定：action 的 enabled / tooltip（按钮无 tooltip 时保留 action 自己

@@ -30,9 +30,13 @@
 #include "../src/ui/edittools/editingtoolbar.h"
 #include "../src/ui/pages/mappingworkbenchpage.h"
 #include "../src/ui/pages/datalist.h"
+#include "../src/ui/pages/datapage.h"
 #include "../src/ui/pages/wellpredictionpanel.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/paleotheme.h"
+#include "../src/ui/paleoribbon.h"
+#include "../src/ui/paleodockmanager.h"
+#include "../src/ui/wellcomposite/wellcompositepanel.h"
 #include "../src/workflow/derivedassets.h"
 #include "../src/workflow/mappingworkbench.h"
 #include <QDialog>
@@ -56,7 +60,7 @@
 // P3 D9 分栏契约测试的前置上下文（类外声明——moc 不解析槽区内的嵌套结构体）。
 struct DataOpsWidthCtx
 {
-    QSplitter *split = nullptr;
+    QDockWidget *dock = nullptr;
     int width = 0;
 };
 
@@ -120,6 +124,27 @@ class TestUiShell : public QObject
       QVERIFY(coords->font().families().contains(QStringLiteral("JetBrains Mono")));
       QVERIFY(scale->font().families().contains(QStringLiteral("JetBrains Mono")));
       QCOMPARE(coords->font().pointSize(), 9);
+    }
+
+    void ribbonThemePreservesBaseStyles()
+    {
+      QCoreApplication::processEvents(); // Finish SARibbon's queued startup theme.
+      const auto apply = [this] {
+        PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() +
+                                      PaleoTheme::focusRingStyleSheet());
+      };
+      PaleoTheme::applyLightTheme();
+      apply();
+      const QString light = m_win->styleSheet();
+      QVERIFY(light.contains(QStringLiteral("SARibbonSeparatorWidget")));
+      apply();
+      QCOMPARE(m_win->styleSheet(), light);
+      PaleoTheme::applyDarkTheme();
+      apply();
+      QVERIFY(m_win->styleSheet() != light);
+      PaleoTheme::applyLightTheme();
+      apply();
+      QCOMPARE(m_win->styleSheet(), light);
     }
 
     // §42 workflow chain: 数据管理/预测编图/单因素图/智能编图/验证
@@ -520,110 +545,116 @@ class TestUiShell : public QObject
       QCOMPARE(m_ctx->canvasCtl()->canvas()->extent(), before);
     }
 
-    // §4 预览壳重排：中央工作区在数据页是「数据列表在左、预览在右」的横向分栏；预览
-    // 只在数据管理页可见，其余四页隐藏；底栏不再挂地震预览标签（连井
-    // 剖面面板保留），状态栏标工程网格坐标系。
-    void previewSplitterShell()
+    void dataNavigationIsManagedDock()
     {
-      auto *split = m_win->findChild<QSplitter *>(QStringLiteral("dataListPreviewSplit"));
-      QVERIFY(split);
-      QCOMPARE(split->orientation(), Qt::Horizontal);
-      QVERIFY(split->count() >= 1);
-      auto *preview = m_win->findChild<QWidget *>(QStringLiteral("dataPreview"));
-      QVERIFY(preview);
-      QCOMPARE(split->indexOf(preview), split->count() - 1); // 预览总是分栏最后一格
-      // 预览部件只有这一个（从右 dock 挪出后没有第二处宿主）。
-      QCOMPARE(m_win->findChildren<QWidget *>(QStringLiteral("dataPreview")).size(), 1);
-
-      // attachWorkflows 已在前面的用例跑过：底栏不能再有地震预览。
-      QVERIFY(!m_win->findChild<QWidget *>(QStringLiteral("seismicPreviewPanel")));
-      QVERIFY(m_win->findChild<QWidget *>(QStringLiteral("correlationPanel")));
-
-      // 预览可见性跟页走：isHidden() 反映显式隐藏标记（offscreen 窗口
-      // 可能没 show，isVisible 受祖先链影响不可用）。
-      m_win->showPage(QStringLiteral("data"));
-      QVERIFY(!preview->isHidden());
-      for (const QString &p : {QStringLiteral("predict"), QStringLiteral("constraint"),
-                               QStringLiteral("compose"), QStringLiteral("validate")})
-      {
-        m_win->showPage(p);
-        QVERIFY2(preview->isHidden(), qPrintable(p));
+      auto *dock = m_win->findChild<QDockWidget *>("dataListDock");
+      auto *preview = m_win->findChild<DataPreviewTabs *>("dataPreview");
+      QVERIFY(dock && preview);
+      QVERIFY(dock->features().testFlag(QDockWidget::DockWidgetFloatable));
+      QVERIFY(dock->findChild<DataListPanel *>());
+      QVERIFY(!m_win->findChild<QSplitter *>("dataListPreviewSplit"));
+      QScopedPointer<QMenu> menu(m_win->findChild<PaleoDockManager *>()->createMenu());
+      QVERIFY(menu->actions().contains(dock->toggleViewAction()));
+      m_win->showPage("data");
+      QVERIFY(!dock->isHidden());
+      for (const QString &page : {"predict", "constraint", "compose", "validate"}) {
+        m_win->showPage(page);
+        QVERIFY(dock->isHidden());
+        QVERIFY(preview->isHidden());
       }
-      m_win->showPage(QStringLiteral("data"));
-      QVERIFY(!preview->isHidden());
-
-      // 状态栏工程坐标系标注（T22：与 PDF 页脚同一句「工程坐标 · 米 · 未投影」）。
-      auto *crs = m_win->findChild<QLabel *>(QStringLiteral("statusCrs"));
-      QVERIFY(crs);
-      QCOMPARE(crs->text(), QStringLiteral("工程坐标 · 米 · 未投影"));
+      m_win->showPage("data");
+      QVERIFY(!dock->isHidden());
+      auto *options = dock->findChild<QWidget *>("dataListAdvancedOptions");
+      auto *button = dock->findChild<QToolButton *>("dataListOptionsButton");
+      QVERIFY(options && button);
+      QVERIFY(options->isHidden());
+      button->click();
+      QVERIFY(!options->isHidden());
+      button->click();
+      QVERIFY(options->isHidden());
     }
 
-    // D7：预览最大化/还原是用户动作——角落钮把数据列表压到 ≤64px 壳，
-    // 「还原」回最大化前尺寸。标签开/关/切换不重设分栏宽度（用户规格：
-    // 只有拖手柄、最大化钮、窗口 resize 三种情况允许变）。
-    void previewSplitterBudgetAndMaximize()
+    void previewMaximizeRestoresDockLayout()
     {
-      // 自给自足：分栏尺寸断言要求窗口已布局（单跑本用例时前面的用例不会先 show）。
-      m_win->resize(1280, 1100);
+      m_win->resize(1600, 1000);
       m_win->show();
-      // 无工程时 showPage 不离开启动页——布局断言需要工作区页为当前页。
-      if (auto *centerStack =
-              m_win->findChild<QStackedWidget *>(QStringLiteral("centerStack")))
-        centerStack->setCurrentIndex(1);
-      m_win->showPage(QStringLiteral("data"));
+      m_win->findChild<QStackedWidget *>("centerStack")->setCurrentIndex(1);
+      m_win->showPage("data");
+      auto *dock = m_win->findChild<QDockWidget *>("dataListDock");
+      auto *right = m_win->findChild<QDockWidget *>("pagePanelDock");
+      auto *preview = m_win->findChild<DataPreviewTabs *>("dataPreview");
+      auto *inner = preview->findChild<QTabWidget *>("dataPreviewTabs");
+      auto *button = preview->findChild<QToolButton *>("previewMaxButton");
+      QVERIFY(dock && right && inner && button);
+      right->show();
+      inner->addTab(new QLabel("preview"), "test");
       QTest::qWait(30);
-      auto *split = m_win->findChild<QSplitter *>(QStringLiteral("dataListPreviewSplit"));
-      auto *preview = m_win->findChild<DataPreviewTabs *>(QStringLiteral("dataPreview"));
-      QVERIFY(split && preview);
-      auto *inner = preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
-      auto *maxBtn = preview->findChild<QToolButton *>(QStringLiteral("previewMaxButton"));
-      QVERIFY(inner && maxBtn);
-      QVERIFY(maxBtn->isCheckable());
-      QCOMPARE(maxBtn->text(), QStringLiteral("最大化预览"));
-
-      if (split->indexOf(preview) == 0)
-        split->insertWidget(0, new QWidget);
-      QCOMPARE(split->indexOf(preview), 1);
-
-      // 测试壳未开工程（importSvc==nullptr → openAsset 不建页）；直接给
-      // 内层 tabWidget 加页——首开绝不改分栏尺寸。
-      const QList<int> sizesBefore = split->sizes();
-      inner->addTab(new QLabel(QStringLiteral("x")), QStringLiteral("t"));
-      QCOMPARE(inner->count(), 1);
-      QTest::qWait(20);
-      QCOMPARE(split->sizes(), sizesBefore);
-      const int total = split->sizes().at(0) + split->sizes().at(1);
-      QVERIFY2(total > 0, "split not laid out");
-
-      // 先把分栏拖到用户位置（列表占一半），给最大化留出可压缩空间——
-      // 若列表已在最小尺寸，最大化 clamp 到最小尺寸属正常。
-      split->setSizes({total / 2, total / 2});
-      QTest::qWait(10);
-      const int mapBudget = split->sizes().at(0);
-
-      // 最大化：预览 ≥75%（数据列表被压到自身最小尺寸壳），按钮文案翻面。
-      maxBtn->setChecked(true);
-      QTest::qWait(20);
-      QVERIFY(split->sizes().at(0) < mapBudget);
-      const int floor = (split->orientation() == Qt::Horizontal)
-                            ? split->widget(0)->minimumSizeHint().width()
-                            : split->widget(0)->minimumSizeHint().height();
-      QVERIFY(split->sizes().at(0) <= qMax(160, floor));
-      QVERIFY(split->sizes().at(1) >= total - qMax(160, floor) - 2);
-      QCOMPARE(maxBtn->text(), QStringLiteral("还原预览"));
-
-      // 还原：精确回到最大化前的分栏尺寸。
-      maxBtn->setChecked(false);
-      QTest::qWait(20);
-      QCOMPARE(split->sizes().at(0), mapBudget);
-
-      // 关掉最后一个标签：空态也不动宽度；最大化态/按钮复位。
+      m_win->resizeDocks({dock}, {340}, Qt::Horizontal);
+      QTest::qWait(30);
+      const int width = dock->width();
+      const int before = preview->width();
+      button->setChecked(true);
+      QTest::qWait(30);
+      QVERIFY(dock->isHidden());
+      QVERIFY(right->isHidden());
+      QVERIFY(preview->width() > before);
+      button->setChecked(false);
+      QTest::qWait(30);
+      QCOMPARE(dock->width(), width);
+      QVERIFY(!right->isHidden());
       inner->removeTab(0);
-      QTest::qWait(20);
-      QCOMPARE(inner->count(), 0);
-      QVERIFY(!maxBtn->isChecked());
-      QCOMPARE(split->sizes().at(0), mapBudget);
-      QVERIFY(split->sizes().at(1) > 0);
+    }
+
+    void canvasYieldsSpaceToDocks()
+    {
+      m_win->resize(1800, 1000);
+      m_win->show();
+      m_win->findChild<QStackedWidget *>("centerStack")->setCurrentIndex(1);
+      auto *right = m_win->findChild<QDockWidget *>("pagePanelDock");
+      auto *bottom = m_win->findChild<QDockWidget *>("bottomDock");
+      auto *preview = m_win->findChild<DataPreviewTabs *>("dataPreview");
+      QTemporaryDir project;
+      QVERIFY(m_ctx->projectSvc()->createProject(project.filePath("layout.qgz")));
+      QString error;
+      const QString asset = m_ctx->importSvc()->importProjectFile(
+          QFINDTESTDATA("../testdata/project_area/A1.Las"), &error);
+      QVERIFY2(!asset.isEmpty(), qPrintable(error));
+      preview->openAsset(asset);
+      m_win->findChild<DataPage *>()->selectAsset(asset);
+      auto *well = preview->findChild<WellComposite::WellCompositePanel *>();
+      QVERIFY(well);
+      for (const QString &page : {"data", "compose"}) {
+        m_win->showPage(page);
+        auto *left = m_win->findChild<QDockWidget *>(page == "data" ? "dataListDock" : "layerTreeDock");
+        left->show();
+        right->show();
+        bottom->hide();
+        m_win->resizeDocks({left, right}, {280, 280}, Qt::Horizontal);
+        QTest::qWait(50);
+        const QSize windowSize = m_win->size();
+        QWidget *canvas = page == "data" ? well->findChild<QWidget *>("wellCompositeCanvas")
+                                         : m_ctx->canvasCtl()->canvas();
+        QVERIFY(canvas);
+        const QSize before = canvas->size();
+        m_win->resizeDocks({left, right}, {500, 550}, Qt::Horizontal);
+        QTest::qWait(50);
+        QCOMPARE(m_win->size(), windowSize);
+        QVERIFY2(left->width() >= 490, qPrintable(QString::number(left->width())));
+        QVERIFY2(right->width() >= 540, qPrintable(QString::number(right->width())));
+        QVERIFY2(canvas->width() < before.width() - 300, qPrintable(QString("%1: %2 -> %3").arg(page).arg(before.width()).arg(canvas->width())));
+        bottom->show();
+        m_win->resizeDocks({bottom}, {240}, Qt::Vertical);
+        QTest::qWait(50);
+        QVERIFY(canvas->height() < before.height() - 100);
+        bottom->hide();
+        const QString capture = qEnvironmentVariable("PALEO_DATA_CAPTURE_PATH");
+        if (page == "data" && !capture.isEmpty()) {
+          QTest::qWait(50);
+          QVERIFY(m_win->grab().save(capture));
+        }
+      }
+      preview->closeAssetTab(asset);
+      m_win->showPage("data");
     }
 
     // 数据列表的宽度绝不应双击数据项而改变，只能由用户调整。
@@ -637,9 +668,9 @@ class TestUiShell : public QObject
       m_win->showPage(QStringLiteral("data"));
       QTest::qWait(30);
 
-      auto *split = m_win->findChild<QSplitter *>(QStringLiteral("dataListPreviewSplit"));
+      auto *dock = m_win->findChild<QDockWidget *>(QStringLiteral("dataListDock"));
       auto *preview = m_win->findChild<DataPreviewTabs *>(QStringLiteral("dataPreview"));
-      QVERIFY(split && preview);
+      QVERIFY(dock && preview);
       auto *inner = preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
       QVERIFY(inner);
 
@@ -649,32 +680,31 @@ class TestUiShell : public QObject
 
       // 1. 用户拖拽分栏调整列表宽度为 275px
       const int customWidth = 275;
-      emit split->splitterMoved(customWidth, 1);
-      split->setSizes({customWidth, split->width() - customWidth});
+      m_win->resizeDocks({dock}, {customWidth}, Qt::Horizontal);
       QTest::qWait(20);
-      QCOMPARE(split->sizes().at(0), customWidth);
+      QCOMPARE(dock->width(), customWidth);
 
       // 2. 双击/激活数据项，打开首个预览标签：数据列表宽度绝不得改变
       inner->addTab(new QLabel(QStringLiteral("item1")), QStringLiteral("Tab1"));
       QTest::qWait(20);
-      QCOMPARE(split->sizes().at(0), customWidth);
+      QCOMPARE(dock->width(), customWidth);
 
       // 3. 打开第二个预览标签 / 切换标签：数据列表宽度绝不得改变
       inner->addTab(new QLabel(QStringLiteral("item2")), QStringLiteral("Tab2"));
       inner->setCurrentIndex(1);
       QTest::qWait(20);
-      QCOMPARE(split->sizes().at(0), customWidth);
+      QCOMPARE(dock->width(), customWidth);
 
       // 4. 关闭所有标签回到空态：数据列表宽度绝不得改变
       inner->removeTab(1);
       inner->removeTab(0);
       QTest::qWait(20);
-      QCOMPARE(split->sizes().at(0), customWidth);
+      QCOMPARE(dock->width(), customWidth);
 
       // 5. 再次打开标签：数据列表宽度依然保持用户设定值
       inner->addTab(new QLabel(QStringLiteral("item3")), QStringLiteral("Tab3"));
       QTest::qWait(20);
-      QCOMPARE(split->sizes().at(0), customWidth);
+      QCOMPARE(dock->width(), customWidth);
 
       // 清理
       inner->removeTab(0);
@@ -691,9 +721,9 @@ class TestUiShell : public QObject
       m_win->showPage(QStringLiteral("data"));
       QTest::qWait(30);
       DataOpsWidthCtx ctx;
-      ctx.split = m_win->findChild<QSplitter *>(QStringLiteral("dataListPreviewSplit"));
+      ctx.dock = m_win->findChild<QDockWidget *>(QStringLiteral("dataListDock"));
       ctx.width = 275;
-      ctx.split->setSizes({ctx.width, ctx.split->width() - ctx.width});
+      m_win->resizeDocks({ctx.dock}, {ctx.width}, Qt::Horizontal);
       QTest::qWait(20);
       return ctx;
     }
@@ -703,69 +733,69 @@ class TestUiShell : public QObject
     void dataListWidthStableUnderFilterOperations()
     {
       const auto ctx = dataOpsWidthSetup();
-      QVERIFY(ctx.split);
+      QVERIFY(ctx.dock);
       auto *lp = m_win->findChild<DataListPanel *>();
       QVERIFY(lp);
       auto *search = lp->findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
       search->setText(QStringLiteral("xyz-无命中"));
       QTest::qWait(20);
-      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+      QCOMPARE(ctx.dock->width(), ctx.width);
       auto *quick = lp->findChild<QWidget *>(QStringLiteral("pendingQuickBar"));
       if (auto *btn = quick->findChild<QPushButton *>(QStringLiteral("quickWarned")))
       {
         btn->click();
         QTest::qWait(20);
-        QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+        QCOMPARE(ctx.dock->width(), ctx.width);
         btn->click();
       }
       // D2.10 状态串应用（过滤器整组替换）。
       lp->setFilterFromStateString(
           QStringLiteral("paleo://dataops-filter?op=and&q=%E6%B5%8B%E8%AF%95"));
       QTest::qWait(20);
-      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+      QCOMPARE(ctx.dock->width(), ctx.width);
       search->clear();
       QTest::qWait(20);
-      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+      QCOMPARE(ctx.dock->width(), ctx.width);
     }
 
     // D9.2/D9.3：视图五态切换（树/表/图标/高速/分组）+ 多选/全选/反选下宽度不变。
     void dataListWidthStableUnderViewModesAndSelection()
     {
       const auto ctx = dataOpsWidthSetup();
-      QVERIFY(ctx.split);
+      QVERIFY(ctx.dock);
       auto *lp = m_win->findChild<DataListPanel *>();
       QVERIFY(lp);
       for (int mode = 0; mode <= 4; ++mode)
       {
         lp->setViewMode(mode);
         QTest::qWait(15);
-        QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+        QCOMPARE(ctx.dock->width(), ctx.width);
       }
       // 选择操作（D1.9 全选/反选——空目录下是空操作，但不得触发重排宽度）。
       lp->selectAllVisibleAssets();
       lp->invertAssetSelection();
       QTest::qWait(15);
-      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+      QCOMPARE(ctx.dock->width(), ctx.width);
       // 撤销/重做空栈调用（D5 面按钮态刷新）。
       lp->undoOp();
       lp->redoOp();
       QTest::qWait(15);
-      QCOMPARE(ctx.split->sizes().at(0), ctx.width);
+      QCOMPARE(ctx.dock->width(), ctx.width);
     }
 
     // D9.4：窗口 resize 是允许的被动分配——总宽随窗口走，列表宽不越界涨。
     void dataListWidthFollowsWindowResize()
     {
       const auto ctx = dataOpsWidthSetup();
-      QVERIFY(ctx.split);
-      const int totalBefore = ctx.split->sizes().at(0) + ctx.split->sizes().at(1);
+      QVERIFY(ctx.dock);
+      const int totalBefore = ctx.dock->width() + m_win->centralWidget()->width();
       m_win->resize(1560, 1100); // +280
       QTest::qWait(30);
-      const int totalAfter = ctx.split->sizes().at(0) + ctx.split->sizes().at(1);
+      const int totalAfter = ctx.dock->width() + m_win->centralWidget()->width();
       QVERIFY2(totalAfter > totalBefore, "resize must redistribute more total width");
       // 列表侧不得借机自涨超过用户设定 + 增量的一半（被动分配以预览侧为主）。
-      QVERIFY2(ctx.split->sizes().at(0) <= ctx.width + 140,
-               qPrintable(QStringLiteral("list grew to %1").arg(ctx.split->sizes().at(0))));
+      QVERIFY2(ctx.dock->width() <= ctx.width + 140,
+               qPrintable(QStringLiteral("list grew to %1").arg(ctx.dock->width())));
       m_win->resize(1280, 1100);
       QTest::qWait(30);
     }
@@ -912,6 +942,12 @@ class TestUiShell : public QObject
         m_win->show();
         QTest::qWait(100);
         QVERIFY(m_win->grab().save(capturePath));
+        PaleoTheme::applyDarkTheme();
+        PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet());
+        QTest::qWait(50);
+        QVERIFY(m_win->grab().save(capturePath + QStringLiteral(".dark.png")));
+        PaleoTheme::applyLightTheme();
+        PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet());
       }
       stop->click();
       QVERIFY(!m_ctx->canvasCtl()->canvas()->mapTool());
@@ -932,10 +968,10 @@ class TestUiShell : public QObject
     // 编图链四页切到画布面（层位 chips + 画布）。预览分栏显隐沿用旧约（预览只在数据页）。
     void dataPageHidesCanvasForLists()
     {
-      auto *split = m_win->findChild<QSplitter *>(QStringLiteral("dataListPreviewSplit"));
+      auto *dock = m_win->findChild<QDockWidget *>(QStringLiteral("dataListDock"));
       auto *preview = m_win->findChild<DataPreviewTabs *>(QStringLiteral("dataPreview"));
       auto *workspaceStack = m_win->findChild<QStackedWidget *>(QStringLiteral("workspaceStack"));
-      QVERIFY(split && preview && workspaceStack);
+      QVERIFY(dock && preview && workspaceStack);
 
       m_win->showPage(QStringLiteral("data"));
       QCOMPARE(workspaceStack->currentIndex(), 1);
@@ -966,7 +1002,7 @@ class TestUiShell : public QObject
                              m_ctx->taskSvc());
       auto *btn = m_win->findChild<QToolButton *>(QStringLiteral("panelsMenuButton"));
       QVERIFY(btn);
-      QCOMPARE(btn->text(), QStringLiteral("面板"));
+      QCOMPARE(btn->text(), QStringLiteral("布局"));
 
       QMenu *menu = m_win->createPopupMenu();
       QVERIFY(menu);

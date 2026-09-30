@@ -1,6 +1,7 @@
 # wave/ux-polish — UX 方向新源文件/测试/翻译挂点（CMakeLists 模块表禁改，见
 # CMakeLists.txt「并行开发挂点」注释）。
 target_sources(paleo_ui PRIVATE
+  src/ui/paleodockmanager.cpp
   src/ui/paleoemptystate.cpp # 共享空态卡片（T31 收敛，layertreepanel 迁移见 docs/progress/ux.md seam 表）
 )
 
@@ -20,3 +21,5 @@ add_custom_target(paleo_translations
 if(NOT PALEO_LUPDATE)
   message(STATUS "lupdate 不在常见路径——paleo_translations target 仍可用（脚本自行探测），构建不受影响")
 endif()
+
+add_paleo_test(tst_dockmanager LIBS paleo_ui)

@@ -10,6 +10,7 @@
 #include "../domain/importrows.h"   // FolderPreviewRow / FolderRowResult（T22 静态面，W2 下沉 domain）
 #include "../services/seismictaskservice.h" // m_seismicTaskSvc unique_ptr 需完整类型
 
+class PaleoDockManager;
 class QComboBox;
 class QDialog;
 class QLabel;
@@ -117,6 +118,7 @@ class PaleoMainWindow : public SARibbonMainWindow
                     SelectionContext *selection,
                     QWidget *parent = nullptr);
     ~PaleoMainWindow() override;
+    void addDockWidget(Qt::DockWidgetArea area, QDockWidget *dock);
 
     // Page ids: "data" | "predict" | "constraint" | "compose" | "validate" (+ "startup")
     void showPage(const QString &pageId);
@@ -203,6 +205,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     void contextMenuEvent(QContextMenuEvent *event) override;
 
   private:
+    PaleoDockManager *m_dockManager = nullptr;
     void buildShell();
     // ribbon 骨架：五个页签、「文件」菜单、右侧按钮组（面板/Web 服务）。
     // 页签内的命令组依赖页面板与服务，由 buildRibbonPanels 在 attachWorkflows
@@ -271,11 +274,11 @@ class PaleoMainWindow : public SARibbonMainWindow
 
     QStackedWidget *m_centerStack = nullptr;   // page0=startup, page1=workspace
     QStackedWidget *m_workspaceStack = nullptr; // page0=画布面（chip 条+画布），page1=数据面
-    QSplitter *m_centerSplit = nullptr;        // 数据面：数据列表 / 数据预览 竖向分栏（§4）
-    QWidget *m_dataListHost = nullptr;         // 分栏上格——DataPage 由 attachWorkflows 挂入
-    DataPreviewTabs *m_previewTabs = nullptr;  // 分栏下格——只在数据管理页可见
-    bool m_previewMaximized = false;           // D7：预览最大化态（列表留一行壳）
-    QList<int> m_preMaxSplitSizes;             // 最大化前的分栏尺寸（还原用）
+    PaleoDockWidget *m_dataListDock = nullptr;
+    QWidget *m_dataListHost = nullptr;
+    DataPreviewTabs *m_previewTabs = nullptr;
+    bool m_previewMaximized = false;
+    QByteArray m_preMaxWindowState;
     PaleoDockWidget *m_leftDock = nullptr;
     QDockWidget *m_rightDock = nullptr;
     PaleoDockWidget *m_bottomDock = nullptr;

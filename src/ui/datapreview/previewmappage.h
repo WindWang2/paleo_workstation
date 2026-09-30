@@ -14,6 +14,9 @@ class QLabel;
 class QMenu;
 class QStackedWidget;
 class QTabWidget;
+class QMainWindow;
+class QDockWidget;
+class PaleoDockManager;
 class QToolBar;
 class QAction;
 class QActionGroup;
@@ -136,6 +139,9 @@ class PreviewMapPage : public QWidget
     PreviewProfilePanel *m_profile = nullptr;
     PreviewIdentifyCore *m_identifyCore = nullptr;
 
+    QMainWindow *m_dockWorkspace = nullptr;
+    PaleoDockManager *m_dockManager = nullptr;
+    QDockWidget *m_analysisDock = nullptr;
     QToolBar *m_toolBar = nullptr;
     QWidget *m_toolBarRow = nullptr;    // 工具条 + 扩展按钮条并排容器
     QWidget *m_toolBarExt = nullptr;    // 扩展按钮条（QToolButton 直挂——

@@ -300,7 +300,6 @@ DataListPanel::DataListPanel(QWidget *parent)
     importLay->addWidget(btn);
   }
   lay->addWidget(importSection);
-  lay->addSpacing(16); // spacing.md between groups
 
   // 列表面表头：标题 + 折叠/展开 + 视图切换
   auto *header = new QWidget(listSection);
@@ -599,6 +598,39 @@ DataListPanel::DataListPanel(QWidget *parent)
   // P3 dataops 增量 UI（过滤条/队列/视图页/徽标/命令登记）。
   m_history = std::make_shared<paleo::dataops::OperationsHistory>();
   buildDataOpsUi();
+
+  // Default surface: one search row and the data view. Infrequent operations
+  // remain available behind an explicit disclosure instead of seven tool rows.
+  auto *advanced = new QWidget(listSection);
+  advanced->setObjectName(QStringLiteral("dataListAdvancedOptions"));
+  auto *advancedLayout = new QVBoxLayout(advanced);
+  advancedLayout->setContentsMargins(0, 0, 0, 0);
+  advancedLayout->setSpacing(4);
+  for (const char *name : {"dataListHeader", "dataOpsToolbar", "dataViewModeRow"})
+    if (auto *row = findChild<QWidget *>(QLatin1String(name))) {
+      listLay->removeWidget(row);
+      advancedLayout->addWidget(row);
+    }
+  auto *typeRow = new QWidget(advanced);
+  auto *typeLayout = new QHBoxLayout(typeRow);
+  typeLayout->setContentsMargins(0, 0, 0, 0);
+  typeLayout->addWidget(typeFilter, 1);
+  typeLayout->addWidget(count);
+  advancedLayout->addWidget(typeRow);
+  if (auto *filters = findChild<QWidget *>(QStringLiteral("filterWrap"))) {
+    listLay->removeWidget(filters);
+    advancedLayout->addWidget(filters);
+  }
+  listLay->insertWidget(listLay->indexOf(searchRow) + 1, advanced);
+  advanced->hide();
+  auto *options = new QToolButton(searchRow);
+  options->setObjectName(QStringLiteral("dataListOptionsButton"));
+  options->setText(tr("选项"));
+  options->setToolTip(tr("展开筛选、视图、排序与标签选项"));
+  options->setAccessibleName(options->toolTip());
+  options->setCheckable(true);
+  srl->addWidget(options);
+  connect(options, &QToolButton::toggled, advanced, &QWidget::setVisible);
   m_treeSort = paleo::dataops::recalledTreeSort();
 
   applyListFilter();   // 空表也写计数

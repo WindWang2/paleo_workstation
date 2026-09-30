@@ -118,9 +118,11 @@ namespace PaleoRibbon
     palette.loadFromJson(PaleoTheme::ribbonPaletteJson());
     SA::applyRibbonTheme(win, win->ribbonBar(), SARibbonTheme::RibbonThemeOffice2021Blue,
                          palette);
-    // 整体替换（不是追加）：SA::applyRibbonTheme 会覆盖窗口样式表，这里
-    // 重设一份完整的「ribbon 细节 + 壳样式」；主题来回切换不会累积。
-    win->setStyleSheet(PaleoTheme::ribbonStyleSheet() + QLatin1Char('\n') +
+    // applyRibbonTheme has just replaced the stylesheet with a fresh template.
+    // Keep its flat buttons/separators; append only our token-level overrides.
+    // Repeated theme changes start from that fresh template, never accumulate.
+    win->setStyleSheet(win->styleSheet() + QLatin1Char('\n') +
+                       PaleoTheme::ribbonStyleSheet() + QLatin1Char('\n') +
                        shellQss);
   }
 

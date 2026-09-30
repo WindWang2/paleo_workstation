@@ -9,6 +9,9 @@
 
 #include <QAction>
 #include <QDialog>
+#include "paleodockmanager.h"
+#include <QMainWindow>
+#include <QCursor>
 #include <QDockWidget>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -127,9 +130,10 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
 
   // --- body: left palette | center rulers+view | right properties ----------
 
-  auto *body = new QHBoxLayout();
-  body->setContentsMargins( 0, 0, 0, 0 );
-  body->setSpacing( 0 );
+  m_dockArea = new QMainWindow(this);
+  m_dockArea->setWindowFlags(Qt::Widget);
+  m_dockArea->setObjectName(QStringLiteral("designerDockWorkspace"));
+  m_dockManager = new PaleoDockManager(m_dockArea, QStringLiteral("ui/layout/designer"));
 
   // Left: element palette (subtask A). Constructed BEFORE the properties
   // panel on purpose: the palette registers QGIS's native item GUI metadata,
@@ -142,7 +146,10 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
   leftLay->setSpacing( 0 );
   m_palette = new PaleoLayoutItemPalette( leftHost );
   leftLay->addWidget( m_palette );
-  body->addWidget( leftHost );
+  auto *paletteDock = new QDockWidget(tr("图件元素"), m_dockArea);
+  paletteDock->setObjectName(QStringLiteral("designerPaletteDock"));
+  paletteDock->setWidget(leftHost);
+  m_dockManager->addDock(Qt::LeftDockWidgetArea, paletteDock);
 
   // Center: view with rulers (unchanged from the original shell).
   m_view = new QgsLayoutView( this );
@@ -167,7 +174,7 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
   grid->addWidget( m_view, 1, 1 );
   grid->setColumnStretch( 1, 1 );
   grid->setRowStretch( 1, 1 );
-  body->addWidget( center, 1 );
+  m_dockArea->setCentralWidget(center);
 
   // Right: item properties panel (subtask B) above the adoptable dock area.
   auto *rightHost = new QWidget( this );
@@ -178,15 +185,12 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
   m_itemPanel = new PaleoLayoutItemPanel( rightHost );
   rightLay->addWidget( m_itemPanel );
 
-  m_dockArea = new QWidget( rightHost );
-  auto *dockLayout = new QVBoxLayout( m_dockArea );
-  dockLayout->setContentsMargins( 0, 0, 0, 0 );
-  dockLayout->setSpacing( 0 );
-  m_dockArea->hide();
-  rightLay->addWidget( m_dockArea );
-  body->addWidget( rightHost );
-
-  outer->addLayout( body, 1 );
+  auto *propertiesDock = new QDockWidget(tr("元素属性"), m_dockArea);
+  propertiesDock->setObjectName(QStringLiteral("designerPropertiesDock"));
+  propertiesDock->setWidget(rightHost);
+  m_dockManager->addDock(Qt::RightDockWidgetArea, propertiesDock);
+  outer->addWidget(m_dockArea, 1);
+  m_dockManager->captureDefaultLayout();
 
   // Bottom: status bar with page navigator + zoom controls.
   m_statusBar = new QStatusBar( this );
@@ -212,6 +216,11 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
   m_palette->attach( m_view );
 
   buildChrome();
+  settingsMenu()->addAction(tr("布局与面板…"), this, [this] {
+    auto *menu = m_dockManager->createMenu(this);
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    menu->popup(QCursor::pos());
+  });
   connectLayoutSync();
 
   // Default interaction: selection tool.
@@ -542,16 +551,12 @@ QToolBar *PaleoLayoutDesignerShell::atlasToolbar() { return toolBarFor( m_atlasT
 
 void PaleoLayoutDesignerShell::addDockWidget( Qt::DockWidgetArea area, QDockWidget *dock )
 {
-  Q_UNUSED( area );
   if ( !dock )
     return;
   if ( dock->objectName().isEmpty() )
     dock->setObjectName( QStringLiteral( "paleoDock_%1" ).arg( dock->windowTitle() ) );
-  dock->setParent( m_dockArea );
-  dock->setFeatures( QDockWidget::NoDockWidgetFeatures ); // fixed inside the dialog
-  m_dockArea->layout()->addWidget( dock );
+  m_dockManager->addDock(area, dock);
   m_extraDocks.append( dock );
-  m_dockArea->show();
   dock->show();
 }
 
@@ -559,11 +564,10 @@ void PaleoLayoutDesignerShell::removeDockWidget( QDockWidget *dock )
 {
   if ( !dock )
     return;
-  m_dockArea->layout()->removeWidget( dock );
+  m_dockManager->removeDock(dock);
   m_extraDocks.removeAll( dock );
   dock->setParent( nullptr );
-  if ( m_extraDocks.isEmpty() )
-    m_dockArea->hide();
+
 }
 
 void PaleoLayoutDesignerShell::activateTool( QgsLayoutDesignerInterface::StandardTool tool )

@@ -38,6 +38,9 @@ class TestPreviewMapPage : public QObject
       m_page->resize(800, 600);
     }
 
+    // Destroy QGIS widgets before QgisRuntime shuts down QApplication.
+    void cleanup() { m_page.reset(); }
+
     void toolBarButtonsExist();
     void toolActionActivationIsExclusive();
     void toolVisibleHidesActionAndFallsBackToPan();

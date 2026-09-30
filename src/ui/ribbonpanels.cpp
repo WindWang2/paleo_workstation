@@ -94,12 +94,6 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     return p;
   };
 
-  if (auto *sections = findChild<QAction *>("sectionWorkbenchAction")) {
-    for (const auto &page : {"data", "predict", "constraint", "compose"})
-      if (auto *cat = categoryForPage(QString::fromLatin1(page)))
-        large(panel(cat, tr("井震剖面"), "ribbonPanel.sections"), sections);
-  }
-
   // ---- 共享动作（多个页签复用同一颗 QAction）----
   // 「参数」= 右侧 dock 的 toggleViewAction：文案随页（预测参数/单因素参数…）。
   QAction *paramsAct = m_rightDock ? m_rightDock->toggleViewAction() : nullptr;
@@ -402,6 +396,12 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       large(panel(cat, tr("发布"), "ribbonPanel.validate.release"), releaseAct);
   }
 
+  if (auto *sections = findChild<QAction *>("sectionWorkbenchAction")) {
+    for (const auto &page : {"data", "predict", "constraint", "compose"})
+      if (auto *cat = categoryForPage(QString::fromLatin1(page)))
+        large(panel(cat, tr("井震剖面"), "ribbonPanel.sections"), sections);
+  }
+
   bar->endUpdate();
   bar->updateRibbonGeometry();
 }
@@ -421,6 +421,9 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   combo->setAccessibleName(tr("当前矢量图层"));
   combo->setToolTip(tr("与图层树同步；选择要素不进入编辑，修改要素时自动开始编辑"));
   combo->setPlaceholderText(tr("选择可编辑图层"));
+  combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+  combo->setMinimumContentsLength(12);
+  combo->setMaximumWidth(200);
   combo->setModel(master->model());
   auto *state = new QLabel(p);
   state->setObjectName(QStringLiteral("ribbonEditState"));
@@ -430,6 +433,7 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   const auto sync = [combo, state, master, editTb] {
     combo->setCurrentIndex(master->currentIndex());
     state->setText(editTb->stateLabel()->text());
+    state->setToolTip(state->text());
   };
   connect(master, &QComboBox::currentIndexChanged, combo, sync);
   connect(editTb, &PaleoEditingToolbar::stateChanged, combo, sync);
@@ -441,8 +445,14 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   connect(editTb, &PaleoEditingToolbar::editingStarted, combo, sync, Qt::QueuedConnection);
   connect(editTb, &PaleoEditingToolbar::editingStopped, combo, sync, Qt::QueuedConnection);
   sync();
-  p->addSmallWidget(combo);
-  p->addSmallWidget(state);
+  auto *context = category->addPanel(tr("编辑图层"));
+  context->setObjectName(QStringLiteral("ribbonEditContextPanel"));
+  // Insert the context before the tools to keep the workflow left-to-right.
+  category->movePanel(category->panelIndex(context), category->panelIndex(p));
+  state->setMaximumWidth(200);
+  state->setToolTip(editTb->stateLabel()->text());
+  context->addSmallWidget(combo);
+  context->addSmallWidget(state);
 
   p->addLargeAction(editTb->actionSelect());
   p->addLargeAction(editTb->actionAddFeature(), QToolButton::InstantPopup);
@@ -450,7 +460,9 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   p->addSmallAction(editTb->actionMove());
   p->addSmallAction(editTb->actionDeleteFeatures());
   p->addSmallAction(editTb->actionVertexEdit());
-  p->addSmallAction(editTb->actionTopological()); // 共边节点联动开关
-  p->addSmallAction(editTb->actionSave());
-  p->addSmallAction(editTb->actionCancel());
+  auto *session = category->addPanel(tr("编辑会话"));
+  session->setObjectName(QStringLiteral("ribbonEditSessionPanel"));
+  session->addSmallAction(editTb->actionTopological());
+  session->addSmallAction(editTb->actionSave());
+  session->addSmallAction(editTb->actionCancel());
 }

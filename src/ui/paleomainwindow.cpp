@@ -1,5 +1,7 @@
 // 层：视图
 #include "paleomainwindow.h"
+#include "paleodockmanager.h"
+#include "paleoviewport.h"
 
 #include "paleotheme.h" // T32：焦点环/mono 数字面 token 出口；暗色翻案 token 全集
 #include "paleoemptystate.h" // T31 空态卡片共享组件（本文件旧匿名类收敛于此）
@@ -324,6 +326,7 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
     }
   }
 
+  m_dockManager->captureDefaultLayout();
   showStartup(); // §42.1: first-run lands on the startup page
   restoreWindowState();
 }
@@ -338,13 +341,19 @@ void PaleoMainWindow::applyCurrentPageProfile()
   m_profileSvc->applyPageProfile(m_currentPage);
 }
 
+void PaleoMainWindow::addDockWidget(Qt::DockWidgetArea area, QDockWidget *dock)
+{
+  m_dockManager->addDock(area, dock);
+}
+
 void PaleoMainWindow::buildShell()
 {
+  m_dockManager = new PaleoDockManager(this, QStringLiteral("ui/layout/workbench"));
   updateWindowTitle(); // 「<工程名> — Paleo Workbench [*]」（无工程时只有产品名）
   setMinimumSize(1280, 800); // §42.11 a11y floor
 
   // ---- center: startup page stacked under the workspace ----
-  m_centerStack = new QStackedWidget(this);
+  m_centerStack = new PaleoViewportStack(this);
   m_centerStack->setObjectName(QStringLiteral("centerStack"));
 
   QWidget *startup = makeStartupPage();
@@ -352,8 +361,8 @@ void PaleoMainWindow::buildShell()
 
   // 工作区两面（用户裁决：数据管理是列表面，另外四页以 QGIS 画布为主）：
   //   0 画布面 = 层位 chip 条 + QgsMapCanvas（预测编图/单因素图/智能编图/验证）
-  //   1 数据面 = 「数据列表」在上 +「数据预览」在下的竖向分栏（数据管理）
-  m_workspaceStack = new QStackedWidget(m_centerStack);
+  //   1 数据面 = 可视化预览；数据列表独立停靠在主窗口左侧（数据管理）
+  m_workspaceStack = new PaleoViewportStack(m_centerStack);
   m_workspaceStack->setObjectName(QStringLiteral("workspaceStack"));
 
   auto *canvasPane = new QWidget(m_workspaceStack);
@@ -428,74 +437,44 @@ void PaleoMainWindow::buildShell()
     canvasLay->addStretch(1);
   m_workspaceStack->addWidget(canvasPane); // 0
 
-  // §4 预览壳：数据管理区左侧数据列表树、右侧预览标签页；双击树节点在右侧打开预览（D7）。
-  m_centerSplit = new QSplitter(Qt::Horizontal, m_workspaceStack);
-  m_centerSplit->setObjectName(QStringLiteral("dataListPreviewSplit"));
-  m_centerSplit->setChildrenCollapsible(false);
-  m_dataListHost = new QWidget(m_centerSplit);
+  // Data navigation participates in the same native dock layout as map panels.
+  m_dataListDock = new PaleoDockWidget(tr("数据列表"), this);
+  m_dataListDock->setObjectName(QStringLiteral("dataListDock"));
+  m_dataListHost = new QWidget(m_dataListDock);
   m_dataListHost->setObjectName(QStringLiteral("dataListPanel"));
-  m_dataListHost->setAccessibleName(tr("数据列表"));
-  m_dataListHost->setMinimumWidth(0);
-  m_dataListHost->setMinimumHeight(0);
   auto *listHostLay = new QVBoxLayout(m_dataListHost);
   listHostLay->setContentsMargins(0, 0, 0, 0);
-  m_centerSplit->addWidget(m_dataListHost);
-  m_previewTabs = new DataPreviewTabs(m_centerSplit);
+  m_dataListDock->setWidget(m_dataListHost);
+  addDockWidget(Qt::LeftDockWidgetArea, m_dataListDock);
+  m_previewTabs = new DataPreviewTabs(m_workspaceStack);
   m_previewTabs->setObjectName(QStringLiteral("dataPreview"));
   m_previewTabs->setAccessibleName(tr("数据预览"));
-  m_previewTabs->setMinimumWidth(0);
-  m_previewTabs->setMinimumHeight(0);
-  m_centerSplit->addWidget(m_previewTabs);
-  m_centerSplit->setStretchFactor(0, 0);
-  m_centerSplit->setStretchFactor(1, 1);
-  m_workspaceStack->addWidget(m_centerSplit); // 1
-  m_centerStack->addWidget(m_workspaceStack); // index 1
+  m_previewTabs->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+  m_workspaceStack->addWidget(m_previewTabs); // 1: all remaining space is visualization
+  m_centerStack->addWidget(m_workspaceStack);
 
   // 画布装饰管理器（D11 临时配准水印等）：parent 到 canvas，renderComplete
   // 自连；各项默认关，按需 setEnabled。
   if (m_canvasCtl && m_canvasCtl->canvas())
     m_decorMgr = new PaleoDecorationManager(m_canvasCtl->canvas(), this);
 
-  // 分栏宽度只在三种情况下变化：用户拖 splitter 手柄、用户点
-  // 「最大化/还原预览」（本 lambda）、外层窗口尺寸改变（stretchFactor
-  // 0:1 → 列表保宽度、预览吃增量）。标签开/关、页签切换等其余事件都
-  // 不重设分栏尺寸。
   connect(m_previewTabs, &DataPreviewTabs::previewMaximizeToggled, this,
           [this](bool on) {
-            m_previewMaximized = on;
-            if (!m_centerSplit || m_centerSplit->count() < 2)
-              return;
-            if (on)
-            {
-              m_preMaxSplitSizes = m_centerSplit->sizes();
-              const int total = m_centerSplit->orientation() == Qt::Horizontal
-                                    ? m_centerSplit->width()
-                                    : m_centerSplit->height();
-              const int listFloor = qMin(64, qMax(1, total / 10));
-              m_centerSplit->setSizes({listFloor, qMax(1, total - listFloor)});
-            }
-            else if (!m_preMaxSplitSizes.isEmpty())
-            {
-              m_centerSplit->setSizes(m_preMaxSplitSizes);
-            }
-          });
-
-  // 标签全部关掉时清理最大化态并还原用户分栏——此刻预览只剩空态
-  // 提示、恢复尺寸不算动用户布局；其余标签事件绝不重设分栏宽度。
-  if (auto *inner =
-          m_previewTabs->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs")))
+    m_previewMaximized = on;
+    if (on) {
+      m_preMaxWindowState = saveState();
+      m_dataListDock->setProgrammaticVisible(false);
+      m_rightDock->hide();
+    } else if (!m_preMaxWindowState.isEmpty()) {
+      restoreState(m_preMaxWindowState);
+      m_preMaxWindowState.clear();
+    }
+  });
+  if (auto *inner = m_previewTabs->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs")))
     connect(inner, &QTabWidget::currentChanged, this, [this, inner](int) {
-      if (inner->count() > 0 || !m_previewMaximized)
-        return;
-      m_previewMaximized = false;
-      if (auto *maxBtn = m_previewTabs->findChild<QToolButton *>(
-              QStringLiteral("previewMaxButton")))
-        maxBtn->setChecked(false);
-      if (m_centerSplit && !m_preMaxSplitSizes.isEmpty())
-      {
-        m_centerSplit->setSizes(m_preMaxSplitSizes);
-        m_preMaxSplitSizes.clear();
-      }
+      if (inner->count() == 0 && m_previewMaximized)
+        if (auto *button = m_previewTabs->findChild<QToolButton *>(QStringLiteral("previewMaxButton")))
+          button->setChecked(false);
     });
 
   // ---- T31 空态：地图没有图层时画布上的居中指引（共享组件）----
@@ -849,6 +828,9 @@ void PaleoMainWindow::buildRibbon()
   if (!bar)
     return;
   bar->setRibbonStyle(SARibbonBar::RibbonStyleCompactThreeRow);
+  bar->setPanelSpacing(8);
+  bar->setPanelToolButtonIconSize(QSize(16, 16), QSize(24, 24));
+  bar->setEnableWordWrap(false);
   bar->setTabDoubleClickToMinimumMode(true); // 双击页签收起/展开 ribbon（Office 惯例）
   if (SARibbonTabBar *tabs = bar->ribbonTabBar())
   {
@@ -922,12 +904,11 @@ void PaleoMainWindow::buildRibbon()
   slotLay->setContentsMargins(0, 1, 6, 1);
   right->addWidget(locatorSlot);
 
-  // 面板管理入口（右键 dock 标题栏是同一菜单——contextMenuEvent）。菜单
-  // 每次点击现建——createPopupMenu 反映当下 dock 集。
+  // 布局管理入口：右键 dock 标题栏使用同一菜单，包含显隐与布局命令。
   auto *panelsBtn = new QToolButton(right);
   panelsBtn->setObjectName(QStringLiteral("panelsMenuButton"));
-  panelsBtn->setText(tr("面板"));
-  panelsBtn->setAccessibleName(tr("面板显隐菜单"));
+  panelsBtn->setText(tr("布局"));
+  panelsBtn->setAccessibleName(tr("布局与面板管理"));
   panelsBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionShowAllLayers.svg")));
   panelsBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   connect(panelsBtn, &QToolButton::clicked, this, [this, panelsBtn] {
@@ -957,13 +938,8 @@ SARibbonCategory *PaleoMainWindow::categoryForPage(const QString &pageId) const
 
 void PaleoMainWindow::showPanelMenu(const QPoint &globalPos)
 {
-  // createPopupMenu() 是 QMainWindow 原生面板清单：列出每个 dock 的
-  // toggleViewAction（+注册的 QToolBar——本壳没有；编辑条是 ribbon 行内
-  // 控件，页作用域归 showPage 管，故意不进可关清单）。菜单生命周期归
-  // WA_DeleteOnClose。
-  // 「视图」节：面板清单之后附主题切换（缺省浅色；勾选即深色——写盘只
-  // 在用户显式切换时发生，见 setDarkThemeEnabled）。
-  if (QMenu *menu = createPopupMenu())
+  // 每次现建，反映动态注册的面板与已保存的布局。
+  if (QMenu *menu = m_dockManager->createMenu(this))
   {
     menu->setAttribute(Qt::WA_DeleteOnClose);
     menu->addSeparator();
@@ -1008,6 +984,9 @@ void PaleoMainWindow::showPage(const QString &pageId)
     qWarning() << "PaleoMainWindow::showPage — unknown page id:" << pageId;
     return;
   }
+  if (pageId != QLatin1String("data") && m_previewMaximized)
+    if (auto *button = m_previewTabs->findChild<QToolButton *>(QStringLiteral("previewMaxButton")))
+      button->setChecked(false);
   m_currentPage = pageId;
 
   // 页签 = 页：切到对应 ribbon 页签（currentRibbonTabChanged 回到这里时
@@ -1016,23 +995,12 @@ void PaleoMainWindow::showPage(const QString &pageId)
     if (ribbonBar()->currentIndex() != ribbonBar()->categoryIndex(cat))
       ribbonBar()->raiseCategory(cat);
 
-  // 切页只换 dock 内容不换宽度：新页 sizeHint 不同不该把用户拖好的
-  // 「数据属性」宽度带走——栈切页后钉回原宽（窗口 resize 时才跟随）。
-  const int dockW = (m_rightDock && m_rightDock->isVisible() && !m_rightDock->isFloating())
-                        ? m_rightDock->width()
-                        : -1;
+  // Scroll hosts isolate content hints; switching a page never resizes a dock.
   if (auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost")))
     if (auto *stack = static_cast<QStackedLayout *>(host->layout()))
       stack->setCurrentIndex(idx);
   if (m_rightDock)
-  {
     m_rightDock->setWindowTitle(pageDockTitles().at(idx));
-    if (dockW > 0 && m_rightDock->width() != dockW)
-      QTimer::singleShot(0, this, [this, dockW]() {
-        if (m_rightDock && m_rightDock->isVisible() && !m_rightDock->isFloating())
-          resizeDocks({m_rightDock}, {dockW}, Qt::Horizontal);
-      });
-  }
 
   // ---- m2(D): 页面图层档案——切到编图页即应用该页档案（数据页 no-op）。
   // 档案表在 QgisLayerProfileService（predict/constraint/compose/validate）。
@@ -1050,6 +1018,9 @@ void PaleoMainWindow::showPage(const QString &pageId)
     m_workspaceStack->setCurrentIndex(pageId == QLatin1String("data") ? 1 : 0);
   if (m_previewTabs)
     m_previewTabs->setVisible(pageId == QLatin1String("data"));
+
+  m_dataListDock->setProgrammaticVisible(pageId == QLatin1String("data") &&
+                                        m_dataListDock->userWantsVisible() && !m_previewMaximized);
 
   // 数据页面纯三栏布局（数据导航树 | 预览可视化 | 属性面板），不要图层树与底部的横向面板（日志/任务等）。
   // 离开数据页面切到编图页面时，恢复用户期望的图层树与底栏状态。
@@ -1246,6 +1217,8 @@ bool PaleoMainWindow::openPath(const QString &path)
 void PaleoMainWindow::showStartup()
 {
   m_currentPage = QStringLiteral("startup");
+  if (m_dataListDock)
+    m_dataListDock->setProgrammaticVisible(false);
   if (m_centerStack)
     m_centerStack->setCurrentIndex(0);
 }

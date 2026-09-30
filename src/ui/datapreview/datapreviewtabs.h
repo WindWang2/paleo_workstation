@@ -51,6 +51,7 @@ class DataPreviewTabs : public QWidget
     void setImportService(DataImportService *svc);
     void setDocService(PreviewDocService *doc);
     void setProject(QgsProject *project);
+    void setDetailsHost(QWidget *host);
 
     // 打开测区全景地图画布（可以用 QGIS 画布）
     void openSurveyArea();
@@ -101,6 +102,10 @@ class DataPreviewTabs : public QWidget
     void requestShowOnMainCanvas();
 
   private:
+    void syncDetails();
+    void clearDetails(const QString &assetId);
+    QPointer<QWidget> m_detailsHost;
+    QHash<QString, QPointer<QWidget>> m_detailsOfAsset;
     QWidget *buildContent(const QString &assetId, QWidget *page);
     QWidget *buildSurveyAreaContent(QWidget *page);
     void rebuildAssetTab(const QString &assetId); // 「重试」/PDF 转换完成后重建内容

@@ -1,5 +1,6 @@
 // 层：视图
 #include "datapreviewtabs.h"
+#include "../paleoviewport.h"
 
 #include "../paleotheme.h" // DESIGN.md token 出口（颜色/字阶/活体样式共用）
 #include "../paleoicons.h" // 角落最大化/还原自绘图标
@@ -1354,7 +1355,10 @@ QString DataPreviewTabs::coordinateStatusText(const QString &status)
 void DataPreviewTabs::setHorizonOnMap(const QString &layerId, bool on)
 {
   // T29 双向同步：所有绑到该 layerId 的「在地图上显示」按钮跟随图层可见性。
-  for (QPushButton *btn : findChildren<QPushButton *>(QStringLiteral("showOnMapBtn")))
+  auto buttons = findChildren<QPushButton *>(QStringLiteral("showOnMapBtn"));
+  if (m_detailsHost)
+    buttons.append(m_detailsHost->findChildren<QPushButton *>(QStringLiteral("showOnMapBtn")));
+  for (QPushButton *btn : buttons)
     if (btn->property("layerId").toString() == layerId)
     {
       btn->setProperty("onMap", on);
@@ -1392,6 +1396,7 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   connect(m_tabs, &QTabWidget::currentChanged, this, [this](int index) {
     if (index >= 0)
       focusWellIfNeeded(assetIdAt(index), m_tabs->widget(index));
+    syncDetails();
   });
   // D7 最大化 affordance：右上角 checkable 钮，切换时只发意图信号——实际
   // 分栏尺寸由 shell 决定。空态时 tabs 隐藏，按钮随之隐藏。
@@ -1400,14 +1405,14 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   maxBtn->setCheckable(true);
   maxBtn->setText(tr("最大化预览"));
   maxBtn->setAccessibleName(tr("最大化预览"));
-  maxBtn->setToolTip(tr("预览占满数据面（列表留一行）"));
+  maxBtn->setToolTip(tr("暂时收起数据列表和属性面板，让预览占满工作区"));
   // QGIS 主题没有最大化/还原语义——PaleoIcons 自绘，随勾选态切换。
   maxBtn->setIcon(PaleoIcons::maximize());
   maxBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   connect(maxBtn, &QToolButton::toggled, this, [this, maxBtn](bool on) {
     maxBtn->setText(on ? tr("还原预览") : tr("最大化预览"));
     maxBtn->setIcon(on ? PaleoIcons::restore() : PaleoIcons::maximize());
-    maxBtn->setToolTip(on ? tr("恢复列表/预览分栏") : tr("预览占满数据面（列表留一行）"));
+    maxBtn->setToolTip(on ? tr("恢复最大化前的面板布局") : tr("暂时收起数据列表和属性面板，让预览占满工作区"));
     emit previewMaximizeToggled(on);
   });
   m_tabs->setCornerWidget(maxBtn, Qt::TopRightCorner);
@@ -1420,6 +1425,37 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
 }
 
 DataPreviewTabs::~DataPreviewTabs() = default;
+
+void DataPreviewTabs::setDetailsHost(QWidget *host)
+{
+  m_detailsHost = host;
+  syncDetails();
+}
+
+void DataPreviewTabs::clearDetails(const QString &assetId)
+{
+  if (auto old = m_detailsOfAsset.take(assetId)) {
+    old->hide();
+    old->setParent(nullptr);
+    old->deleteLater();
+  }
+  syncDetails();
+}
+
+void DataPreviewTabs::syncDetails()
+{
+  const QString active = assetIdAt(m_tabs->currentIndex());
+  bool any = false;
+  for (auto it = m_detailsOfAsset.cbegin(); it != m_detailsOfAsset.cend(); ++it)
+    if (it.value()) {
+      const bool show = it.key() == active;
+      it.value()->setVisible(show);
+      any |= show;
+    }
+  if (m_detailsHost)
+    m_detailsHost->setVisible(any);
+}
+
 
 void DataPreviewTabs::setImportService(DataImportService *svc)
 {
@@ -1709,7 +1745,7 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
                                     [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   tbLay->addWidget(crsLabel);
 
-  lay->addWidget(topBar);
+  lay->addWidget(new PaleoToolRow(topBar, w));
   lay->addWidget(mapPage, 1);
 
   auto zoomFull = [canvas, surveyGeom]() {
@@ -1782,6 +1818,7 @@ void DataPreviewTabs::closeAssetTab(const QString &assetId)
   if (idx >= 0)
     m_tabs->removeTab(idx);
   m_pageOfAsset.remove(assetId);
+  clearDetails(assetId);
   m_wellEntityOfAsset.remove(assetId);
   m_titleSuffixOfAsset.remove(assetId);
   m_chosenVersionOfAsset.remove(assetId);
@@ -1912,6 +1949,7 @@ void DataPreviewTabs::rebuildAssetTab(const QString &assetId)
   auto *pageLay = qobject_cast<QVBoxLayout *>(page->layout());
   if (!pageLay)
     return;
+  clearDetails(assetId);
   while (QLayoutItem *it = pageLay->takeAt(0))
   {
     if (QWidget *w = it->widget())
@@ -2348,7 +2386,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       }
     });
 
-    singleLay->addWidget(topBar);
+    singleLay->addWidget(new PaleoToolRow(topBar, singlePage));
     singleLay->addWidget(chipScroll);
     singleLay->addWidget(panel, 1);
 
@@ -2504,7 +2542,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     switchLay->addWidget(btnSingle);
     switchLay->addStretch(1);
 
-    lay->addWidget(viewSwitchBar);
+    lay->addWidget(new PaleoToolRow(viewSwitchBar, host));
     lay->addWidget(viewStack, 1);
     return host;
   }
@@ -2632,20 +2670,35 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
                        QString::number(derived.extra.value(QStringLiteral("z_max")).toDouble(), 'f', 1))
                   .arg(derived.extra.value(QStringLiteral("rejected")).toInt())
                   .arg(derived.extra.value(QStringLiteral("collisions")).toInt());
-    lay->addWidget(caption8(tr("层位 %1").arg(sb.name.isEmpty() ? asset.displayName : sb.name), host));
-    auto *grid = new QLabel(gridTxt, host);
+    // In the workbench, metadata and version controls live in Data Properties.
+    // Standalone previews retain the same controls locally.
+    auto *details = new QWidget(m_detailsHost ? m_detailsHost.data() : host);
+    details->setObjectName(QStringLiteral("horizonPreviewDetails"));
+    auto *detailLayout = new QVBoxLayout(details);
+    detailLayout->setContentsMargins(0, 0, 0, 0);
+    detailLayout->setSpacing(4);
+    if (m_detailsHost) {
+      m_detailsHost->layout()->addWidget(details);
+      connect(host, &QObject::destroyed, details, &QObject::deleteLater);
+      m_detailsOfAsset.insert(assetId, details);
+      syncDetails();
+    } else {
+      lay->addWidget(details);
+    }
+    detailLayout->addWidget(caption8(tr("层位 %1").arg(sb.name.isEmpty() ? asset.displayName : sb.name), details));
+    auto *grid = new QLabel(gridTxt, details);
     PaleoTheme::applyThemedStyleSheet(grid, [] {
       return QStringLiteral("color: %1;").arg(qssHex(PaleoTheme::tokens().text));
     });
     grid->setWordWrap(true);
-    lay->addWidget(grid);
+    detailLayout->addWidget(grid);
     if (!pendingNote.isEmpty())
     {
-      auto *p = warnLabel(pendingNote, host);
-      lay->addWidget(p);
+      auto *p = warnLabel(pendingNote, details);
+      detailLayout->addWidget(p);
     }
     // 「在地图上显示」（§4/T29，语义原样）。
-    auto *btn = new QPushButton(tr("在地图上显示"), host);
+    auto *btn = new QPushButton(tr("在地图上显示"), details);
     btn->setObjectName(QStringLiteral("showOnMapBtn"));
     btn->setAccessibleName(tr("在地图上显示层位 %1").arg(sb.name.isEmpty()
                                                               ? asset.displayName
@@ -2663,7 +2716,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         emit showHorizonOnMapRequested(layerId);
       });
     }
-    lay->addWidget(btn, 0, Qt::AlignLeft);
+    detailLayout->addWidget(btn, 0, Qt::AlignLeft);
 
     // ---- D2.9 版本切换：≥2 个版本才给下拉；选 RAW → 散点信息卡。
     CatalogVersion chosen;
@@ -2678,7 +2731,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     const int totalVersions = deriveds.size() + (raw.id.isEmpty() ? 0 : 1);
     if (totalVersions > 1)
     {
-      auto *verBar = new QWidget(host);
+      auto *verBar = new QWidget(details);
       auto *verLay = new QHBoxLayout(verBar);
       verLay->setContentsMargins(0, 0, 0, 0);
       verLay->addWidget(caption8(tr("版本"), verBar));
@@ -2702,7 +2755,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
               });
       verLay->addWidget(verCombo);
       verLay->addStretch(1);
-      lay->addWidget(verBar);
+      detailLayout->addWidget(verBar);
     }
 
     const bool chosenIsDerived = chosen.stage == QLatin1String("DERIVED");
@@ -3410,7 +3463,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     refreshBackendStatus();
 
     timeBarLay->addStretch(1);
-    layTime->addWidget(timeBar);
+    layTime->addWidget(new PaleoToolRow(timeBar, wTime));
 
     auto *timeCanvas = new seismic::SeismicSectionCanvas(wTime);
     timeCanvas->setObjectName(QStringLiteral("timeSliceCanvas"));
@@ -4019,7 +4072,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
           .arg(qssHex(PaleoTheme::tokens().error));
     });
     topLay->addWidget(warnLbl);
-    lay->addWidget(topBar);
+    lay->addWidget(new PaleoToolRow(topBar, host));
 
     // 「读不出坐标范围」错误就地可见（原实现创建了警告标签却没加进任何布局）。
     auto *boundsErr = warnLabel(QString(), host);

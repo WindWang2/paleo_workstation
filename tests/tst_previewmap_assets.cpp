@@ -44,6 +44,9 @@
 #include <QTableWidget>
 #include <QToolBar>
 #include <QToolButton>
+#include <QDockWidget>
+#include <QMainWindow>
+#include <QVBoxLayout>
 
 // P2 资产覆盖集成测试（fixture 驱动，tst_datapreview 同栈同夹具）：
 // horizon 地图页（等值线/统计/直方图/版本切换/极值）、geojson（图例/标注/
@@ -67,6 +70,8 @@ class TestPreviewMapAssets : public QObject
     void initTestCase() { QVERIFY(QgisRuntime::isInitialized()); }
 
     void horizonPageCarriesFramework();
+    void propertiesOwnVersionControls();
+    void previewDocksResizeCanvas();
     void horizonContourLayerInToc();
     void horizonStatsPanelShowsValues();
     void horizonHistogramRefreshesOnBins();
@@ -182,6 +187,76 @@ void TestPreviewMapAssets::horizonPageCarriesFramework()
   QCOMPARE(analysis->count(), 4); // 统计/直方图/等值线/极值
   auto *renderLabel = page->findChild<QLabel *>(QStringLiteral("previewRenderLabel"));
   QVERIFY(renderLabel);
+}
+
+void TestPreviewMapAssets::propertiesOwnVersionControls()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath("proj"));
+  QVERIFY(st);
+  QWidget details;
+  new QVBoxLayout(&details);
+  st->preview->setDetailsHost(&details);
+  const Imported ids = importAll(*st, tmp);
+  st->preview->openAsset(ids.d61);
+  QVERIFY(!st->preview->findChild<QComboBox *>("previewVersionCombo"));
+  QVERIFY(!details.isHidden());
+  auto *combo = details.findChild<QComboBox *>("previewVersionCombo");
+  auto *mapButton = details.findChild<QPushButton *>("showOnMapBtn");
+  QVERIFY(combo && mapButton);
+  st->preview->setHorizonOnMap(mapButton->property("layerId").toString(), true);
+  QVERIFY(mapButton->property("onMap").toBool());
+  const QString derived = combo->currentData().toString();
+  combo->setCurrentIndex(combo->count() - 1); // RAW version is last.
+  QTest::qWait(50);
+  QVERIFY(!st->preview->findChild<QgsMapCanvas *>("horizonMapCanvas"));
+  combo = details.findChild<QComboBox *>("previewVersionCombo");
+  QVERIFY(combo);
+  combo->setCurrentIndex(combo->findData(derived));
+  QTest::qWait(50);
+  QVERIFY(st->preview->findChild<QgsMapCanvas *>("horizonMapCanvas"));
+  st->preview->openAsset(ids.las);
+  QVERIFY(details.isHidden());
+  st->preview->openAsset(ids.d61);
+  QVERIFY(!details.isHidden());
+  st->preview->closeAssetTab(ids.d61);
+  QVERIFY(details.isHidden());
+}
+
+void TestPreviewMapAssets::previewDocksResizeCanvas()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath("proj"));
+  QVERIFY(st);
+  const Imported ids = importAll(*st, tmp);
+  st->preview->openAsset(ids.d61);
+  st->preview->resize(1400, 1000);
+  st->preview->show();
+  QTest::qWait(100);
+  auto *workspace = st->preview->findChild<QMainWindow *>("previewDockWorkspace");
+  auto *side = st->preview->findChild<QDockWidget *>("previewSideDock");
+  auto *bottom = st->preview->findChild<QDockWidget *>("previewAnalysisDock");
+  auto *canvas = st->preview->findChild<QgsMapCanvas *>("horizonMapCanvas");
+  QVERIFY(workspace && side && bottom && canvas);
+  workspace->resizeDocks({side}, {240}, Qt::Horizontal);
+  workspace->resizeDocks({bottom}, {160}, Qt::Vertical);
+  QTest::qWait(30);
+  const QSize before = canvas->size();
+  const QSize outer = st->preview->size();
+  workspace->resizeDocks({side}, {520}, Qt::Horizontal);
+  workspace->resizeDocks({bottom}, {320}, Qt::Vertical);
+  QTest::qWait(30);
+  QCOMPARE(st->preview->size(), outer);
+  QVERIFY(side->width() >= 510);
+  QVERIFY(bottom->height() >= 310);
+  QVERIFY(canvas->width() < before.width() - 200);
+  QVERIFY(canvas->height() < before.height() - 100);
+  side->setFloating(true);
+  side->show();
+  st->preview->openAsset(ids.las);
+  QVERIFY(side->isHidden());
+  st->preview->openAsset(ids.d61);
+  QVERIFY(!side->isHidden());
 }
 
 void TestPreviewMapAssets::horizonContourLayerInToc()

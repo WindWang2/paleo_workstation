@@ -126,4 +126,32 @@ manifest_layer_id 反链）→ 实例化（paleoLayerId/paleoAssetId 双向链�
 
 ## 验证
 
-（最终两轮数字后填充）
+口径：本地组装环境（QGIS 4.2.0 vendored + GDAL 39/PROJ/GEOS SDK，
+GDAL_DRIVER_PATH 补齐）；`-j4`；CTEST 并行 4。
+
+- **基线（BASE_SHA `ac882cf`，Debug）**：119/127 绿，8 红全部归因环境——
+  2 红（tst_datapreview/tst_previewmap_assets）为 GDAL 插件路径缺失
+  （补 `GDAL_DRIVER_PATH` 后绿），1 红（tst_seismic_baseline）为 -j4 下
+  并行夹具竞态（单跑绿），5 红（tst_cache_las/tst_perf_las/
+  tst_perf_segyindex/tst_perf_regress/tst_correlation_full）为 Debug 构建
+  超性能预算 1.4%~2.7%（预算口径为 RelWithDebInfo）。功能面零红。
+- **最终轮 1（HEAD `5b7ed58`，Debug，全量 ctest -j4）**：122/127 绿；
+  红集 = 基线 5 个既有性能红（无新增失败、无消失的失败被掩盖）。
+- **最终轮 2（HEAD，RelWithDebInfo，全量 ctest -j4）**：首跑 123/127——
+  5 红复验归类：tst_panels（对话框交互 flake，单跑+批量绿）、
+  tst_factorworkflow（单次 SEGFAULT，满载 65s 崩，单跑/批量/次轮全量均
+  绿，不复现）、tst_seismic_perf / tst_seismic_baseline（负载 flake，
+  单跑绿）、tst_correlation_full（3.0s 计时门 3246–3322ms，BASE 同超，
+  本分支未触碰 correlation——TODOS 记载该门 3041/3000ms 抖动史）。
+  **复跑 126/127**：唯一失败即 tst_correlation_full 计时门（同上归因，
+  非本分支回归）。
+- **重点套件多遍**：tst_algorithm_harness / tst_runtime / tst_layerservice
+  / tst_factorworkflow 在修复前（BASE 生产码）与修复后各跑 ≥1 遍——修复
+  前失败证据 5 条（预算无报错/CRS 无告警/ANISO 静默接受/两阶段取消失效），
+  修复后全绿；宽回归网（mapping/editing/version/layer/panel 相关 20 套件）
+  全绿。
+- **门禁**：`check_layering.py --strict` 绿；`tools/check_tidy.py` 绿
+  （本分支改动 TU 全过）；`git diff --check` 绿；`paleo_selfcheck` 全绿
+  （providers 17/srs.db/fixture/渲染管线 510ms）。
+- 共享夹具卫生：`testdata/fixture.gpkg` 在最终轮后 `git status` 干净
+  （编辑类新用例改用夹具副本）。

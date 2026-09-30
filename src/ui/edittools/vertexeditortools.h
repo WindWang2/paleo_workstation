@@ -9,6 +9,7 @@
 class QgsMapCanvas;
 class QgsVectorLayer;
 class QgsMapMouseEvent;
+class QgsSnapIndicator;
 class QKeyEvent;
 class QgisTopologicalIndex;
 
@@ -37,6 +38,13 @@ class QgisTopologicalIndex;
 //     included) — QGIS geometry minimums, not Paleo math;
 //   · Esc cancels an in-flight drag (or emits editAborted when idle — owner
 //     tears the tool down, §42.15 pattern).
+//
+// Snapping: every canvas gesture first calls QgsMapMouseEvent::snapPoint(),
+// so mapPoint() is the canvas snappingUtils-snapped position (vertex|segment,
+// all layers — config installed by QgisCanvasController::nativeSnappingConfig)
+// for grab hit-test, drag preview, commit and insert alike. A QgsSnapIndicator
+// mirrors the event's match so the snapped target is visible while hovering
+// and dragging — same affordance as upstream QgsVertexTool.
 //
 // Topological editing (QGIS QgsVertexTool semantics, same-layer scope):
 // when enabled, vertex gestures apply to every vertex in the layer whose XY
@@ -180,6 +188,7 @@ class PaleoVertexTool : public QgsMapToolEdit
     bool mCrossLayerTopology = false;
     bool mCommitting = false;
     std::unique_ptr<QgisTopologicalIndex> mTopoIndex; // lazily created
+    std::unique_ptr<QgsSnapIndicator> mSnapIndicator; // canvas snap feedback
     // Canvas-item markers, owned via canvas parenting; tracked for teardown.
     QList<class QgsVertexMarker *> mMarkers;
 };

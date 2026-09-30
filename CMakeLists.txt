@@ -617,10 +617,13 @@ if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnxworkflow LIBS paleo_workflow)
   target_compile_definitions(tst_onnxworkflow PRIVATE
     PROJECT_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
-  # LD_LIBRARY_PATH 必须用 APPEND：paleo_test_sandbox 注入的 XDG/HOME 沙箱
-  # 挂在 ENVIRONMENT 上，这里整体 set 会把它抹掉（原整体覆盖即竞态坑来源）。
-  set_property(TEST tst_onnx tst_onnxworkflow APPEND PROPERTY ENVIRONMENT
-    "LD_LIBRARY_PATH=${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
+  # ORT 运行库目录必须出现在 LD_LIBRARY_PATH：用 ENVIRONMENT_MODIFICATION
+  # 的 path_list_prepend 前置，而不是 APPEND 一条整体 LD_LIBRARY_PATH 赋值
+  # ——后者仍会替换外部注入的值（deb 闭包路 paleo-dev 注入的 vendored
+  # QGIS/Qt 目录会被吞掉，间接依赖落到系统 Qt 上产生版本冲突——本机
+  # Arch Qt6.11 + vendored Qt6.10 即此症状）。
+  set_tests_properties(tst_onnx tst_onnxworkflow PROPERTIES ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()
 
 # ---- wave/mapping-pipeline (阶段C+E 编图链路) ----

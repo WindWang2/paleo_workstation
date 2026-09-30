@@ -1197,10 +1197,12 @@ int main(int argc, char *argv[])
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
 
-  // Keep QSettings writes out of the real user profile.
+  // 每运行一次的临时目录（对齐 tst_seismic_sectionui 惯例）：既隔离直跑时
+  // 的真实用户配置，也消除固定 /tmp 路径跨运行/跨用户的陈旧状态向量
+  // （ctest 路径另有 add_paleo_test 的 XDG/HOME 沙箱兜底）。
+  static QTemporaryDir settingsDir;
   QSettings::setDefaultFormat(QSettings::IniFormat);
-  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
-                     QDir::temp().filePath(QStringLiteral("paleo_tst_ui_settings")));
+  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
 
   AppContext ctx(QStringLiteral("/usr"));
   if (!ctx.ready())

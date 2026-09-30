@@ -7845,94 +7845,94 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="288"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="298"/>
         <source>井段与地图相点已更新；保存修订版本后登记文件。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="291"/>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="314"/>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="451"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="301"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="313"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="450"/>
         <source>请先结束其他图层的编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="371"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="370"/>
         <source>更改此要素的相</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="406"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="405"/>
         <source>无法修改；请先结束其他图层的编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="412"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="411"/>
         <source>相类别已更新，可撤销；保存编辑后登记新版本。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="448"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="447"/>
         <source>请先用画布选择工具选中要素</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="466"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="465"/>
         <source>副本已创建，请先结束其他图层的编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="476"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="475"/>
         <source>画布编辑未能提交，请检查编辑提示</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="479"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="478"/>
         <source>请先保存正在编辑的图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="485"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="484"/>
         <source>导入局部米制约束线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="486"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="485"/>
         <source>矢量文件 (*.gpkg *.geojson *.json *.shp)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="494"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="493"/>
         <source>在画布逐点绘制约束线，右键结束；Esc 取消。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="498"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="497"/>
         <source>约束绘制工具不可用</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="516"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="515"/>
         <source>预测已提交；完成后自动登记并显示图件。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="517"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="516"/>
         <source>操作完成，图件与版本已更新。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="518"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="517"/>
         <source>操作未完成，请检查输入。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="584"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="583"/>
         <source>画布编辑已保存并生成图件新版本。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="587"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="586"/>
         <source>画布编辑已保存，并登记了新的图件版本。</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12996,97 +12996,87 @@ SHA-256：%2</source>
     </message>
     <message>
         <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="30"/>
-        <source>创建修订副本</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="33"/>
         <source>撤销修订</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="36"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="33"/>
         <source>保存修订版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="53"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="50"/>
         <source>顶深 m</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="53"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="50"/>
         <source>底深 m</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="53"/>
-        <source>预测类别</source>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="50"/>
+        <source>相类别</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="53"/>
-        <source>修订类别</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="64"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="61"/>
         <source>应用到选中井段</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="112"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="106"/>
         <source>适应井段</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="116"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="110"/>
         <source>自适应</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="125"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="119"/>
         <source>撤销上一次修订</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="125"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="119"/>
         <source>没有可撤销的修订</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="154"/>
-        <source>预测原件保留，新建独立修订副本</source>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="149"/>
+        <source>保存修订版本并登记图件文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="150"/>
+        <source>首次修订自动保留预测原件并切换到修订副本</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="164"/>
+        <source>选择井段与相类别；首次修订自动保留预测原件并切换到修订副本</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="173"/>
+        <source>预测为 Mock；地图相点按井段累计厚度最大的类别显示并在画布标注类别。%1点击井道或表格选择井段，选择相类别后直接应用修订；首次修订自动保留预测原件。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="233"/>
+        <source>预测相</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="168"/>
-        <source>在修订副本中选择井段与相类别</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="172"/>
         <source>选择测井预测结果以查看井道与相井段。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="178"/>
-        <source>预测为 Mock；地图相点按井段累计厚度最大的类别显示。%1点击井道或表格选择井段，再应用修订。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="182"/>
         <source>当前深度为模拟范围 0–120 m。 </source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="241"/>
-        <source>预测相（Mock）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="242"/>
-        <source>人工修订相</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

@@ -98,11 +98,19 @@ private:
     void buildUi();
     void buildDisplayBar();          // D3.x 显示控制行
     void requestSliceUpdate(SeismicSliceSlot slot, SgySliceType type, int index);
-    void requestStackLayers();       // D3.1 堆叠层提取
+    void requestStackLayers();       // D3.1 堆叠层提取（A1/A2：体窗合并通道 + 逐层回落）
+    void requestStackLayersPerLayer(const std::vector<int> &samples); // A1 回落：每层一次窄读
     void recolorizeSlice(SeismicSliceSlot slot); // D3.5/D3.3 重着色+上传
     void updateTimeMsLabel(int sampleIdx);
     void switchLod(int level, bool refreshAfter);
-    void refreshVisibleSlices();
+    // A2：精化重取。onlyStale=true 时跳过「内容已是 L0 且索引未变」的槽位
+    // （拖动只动了一个滑杆——未动的两个槽位整组重取是冗余请求）。
+    void refreshVisibleSlices(bool onlyStale = false);
+    // A1：体窗堆叠通道的体量估算（paged 按激活 LOD 的 IL/XL 面积因子缩减；
+    // 直读无 LOD 全量）。超预算 → 逐层切片回落（窄读）。
+    [[nodiscard]] qint64 estimateStackWindowBytes() const;
+    // A2：顶替在途切片读（协作取消 + 回调免告警标记）
+    void supersedeInFlightSlice(std::size_t slotIndex);
     void updateQualityLabel(const QString &quality);
     void activateFallback();         // D3.9
     void checkMemoryBudget();        // D3.8
@@ -145,6 +153,15 @@ private:
     bool inlineExtracting_ = false;
     bool crosslineExtracting_ = false;
     bool timeExtracting_ = false;
+
+    // A2（wave/deepen-perf）拖动链路取数合并：
+    // slotTasks_     —— 在途任务句柄：新请求顶替时 requestCancel（引擎协作
+    //                  中止，不再为已被拖过的索引跑完全程）
+    // slotSuperseded_—— 本端主动取消标记（回调据此免打「提取失败」告警）
+    // slotCoarse_    —— 槽位内容取自粗 LOD（松手精化只需重取这些槽位）
+    std::array<QPointer<PaleoTask>, 3> slotTasks_{};
+    std::array<bool, 3> slotSuperseded_{};
+    std::array<bool, 3> slotCoarse_{};
 
     // D3.x 显示控制行控件
     QComboBox *cboColorMap_ = nullptr;

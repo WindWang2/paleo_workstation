@@ -2,6 +2,8 @@
 #pragma once
 
 #include <QObject>
+#include <QHash>
+#include <QPointer>
 #include <QSemaphore>
 #include <QSet>
 #include <atomic>
@@ -346,6 +348,15 @@ public:
   //     dock 直接调用）。索引未命中时按二进制头推算道长（规则文件可靠）。
   static SeismicTraceHeaderInfo readTraceHeader(const QString &sgyPath, int traceIndex);
 
+  // 15b. 体窗平面平移（wave/deepen-perf A1）：ReadVoxelWindow 结果的一个
+  //     采样平面 → 时间片方向约定的 SgySliceImage（width=XL 数、height=IL 数、
+  //     行 0=最大 inline 的显示向，与引擎 ReadTimeSlice 逐位同构）。
+  //     values-only：rgba 由调用方 SgyVolume::Recolorize 预烘焙（与切片通道
+  //     同一色彩语义）。sampleIndex 为窗口内相对采样号；越界返回 false。
+  //     3D 体渲染堆叠层消费（16 层合并为单次体窗请求）。
+  static bool slicePlaneFromWindow(const engine::VoxelWindow &window,
+                                   int sampleIndex, SgySliceImage &out);
+
   // ---- Phase 4 解释工具（同步 CPU 操作，量级 ≤ 单切片）----
 
   // D4.2 局部互相关追踪：从种子道出发双向沿同相轴追踪。返回逐道拾取
@@ -493,6 +504,12 @@ private:
   mutable quint64 sectionCacheClock_ = 0;
   static qint64 sectionCacheKey(const std::vector<glm::ivec2> &pathPoints,
                                 std::shared_ptr<const SgyVolume> volume);
+
+  // A3（wave/deepen-perf）同路径瓦片请求取代：startTimeSliceTiled 对同一
+  // .sf3p 的新请求启动即取消旧在途任务（引擎按瓦片粒度协作中止——被顶替
+  // 的整图读取不再排队占并发闸）。仅服务所在线程访问（start/finished 均
+  // 队列回主线程）。
+  QHash<QString, QPointer<PaleoTask>> inFlightTiledTasks_;
 };
 
 // D6.4 并发闸：≤4 槽信号量 + 在途计数。shared_ptr 由 worker 携带——

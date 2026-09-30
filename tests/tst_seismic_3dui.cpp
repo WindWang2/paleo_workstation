@@ -7,6 +7,8 @@
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QPainter>
+#include <QSlider>
+#include <QThread>
 #include <QtEndian>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
@@ -16,9 +18,12 @@
 
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <limits>
 
 #include "../src/domain/seismic/sgyvolume.h"
+#include "../src/services/paleotaskservice.h"
+#include "../src/services/seismictaskservice.h"
 #include "../src/ui/seismic3d/seismic3dcolormap.h"
 #include "../src/ui/seismic3d/seismic3dfallback.h"
 #include "../src/ui/seismic3d/seismiccameracontroller.h"
@@ -27,6 +32,35 @@
 #include "../src/ui/seismic3d/seismic3dviewpanel.h"
 
 using namespace seismic;
+
+namespace {
+
+// wave/deepen-perf A2：按标题前缀统计任务数（拖动链路请求数对照的量尺）。
+int countTasksByTitle(const PaleoTaskService &svc, const QString &prefix)
+{
+  int n = 0;
+  for (const PaleoTask *t : svc.tasks())
+    if (t->title().startsWith(prefix))
+      ++n;
+  return n;
+}
+
+// 事件循环等待（面板任务异步收尾）。
+bool waitForQuiet(std::function<bool()> done, int timeoutMs = 8000)
+{
+  QElapsedTimer clock;
+  clock.start();
+  while (!done())
+  {
+    if (clock.elapsed() > timeoutMs)
+      return false;
+    QApplication::processEvents(QEventLoop::AllEvents, 20);
+    QThread::msleep(5);
+  }
+  return true;
+}
+
+} // namespace
 
 namespace {
 
@@ -284,7 +318,7 @@ private slots:
     panel.resize(800, 600);
     panel.show();
     panel.setVolume(volume); // 无任务服务 → 同步提取
-    QTest::qWaitFor([&]() { return !panel.isFallbackActive(); }, 4000);
+    QVERIFY(QTest::qWaitFor([&]() { return !panel.isFallbackActive(); }, 4000));
 
     // 模拟视口拖切片面：直接在视口中心按下拖动（应命中某切片面）
     QWidget *vp = panel.viewport();
@@ -322,7 +356,7 @@ private slots:
     panel.resize(800, 600);
     panel.show();
     panel.setVolume(volume);
-    QTest::qWaitFor([&]() { return !panel.isFallbackActive(); }, 4000);
+    QVERIFY(QTest::qWaitFor([&]() { return !panel.isFallbackActive(); }, 4000));
 
     // D3.5：切换预设 colormap（缓存重着色路径）
     panel.setColorMap(Seismic3DColorMap::preset(QStringLiteral("彩虹谱")));
@@ -357,6 +391,144 @@ private slots:
     QVERIFY(panel.viewport()->isFpsVisible());
     panel.viewport()->setInertiaEnabled(false);
     QVERIFY(!panel.viewport()->isInertiaEnabled());
+  }
+
+  // ---- wave/deepen-perf A2：拖动链路取数合并 ----
+  // 契约：paged 通道拖动期 = 粗层 + 仅被拖槽位重取；松手 350ms 精化只补
+  // 「内容取自粗层」的槽位（未被拖的两个槽位保留 L0 内容，不再整组重取）。
+  // 量化口径：一次拖放手势期间（press → 8 次 setValue → release → 精化收尾）
+  // 新增的切片任务数与 LOD 切换任务数。
+  void panelDragCoalescesAndRefinesOnlyStale()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("dragmerge.sgy");
+    QVERIFY(writeTestSegy(sgy, 24, 24, 128));
+    const QString l0 = sgy + QStringLiteral(".sf3p");
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    bool transcoded = false;
+    svc.startPagedTranscode(sgy, l0, /*buildLod=*/true,
+                            [&](bool ok, const QString &, const QString &) { transcoded = ok; });
+    QVERIFY(waitForQuiet([&] { return transcoded; }, 30000));
+
+    auto volume = std::make_shared<SgyVolume>();
+    std::string err;
+    QVERIFY(volume->Load(sgy.toStdString(), err));
+
+    Seismic3DViewPanel panel;
+    QSignalSpy lodSpy(&panel, &Seismic3DViewPanel::lodChanged);
+    panel.resize(800, 600);
+    panel.setTaskService(&svc);
+    panel.setPagedWorkspace(l0); // progressive 打开：粗层起步
+    panel.setVolume(volume);
+    // 初始装载 + 自动精化收尾（A2：粗层首见后静止 350ms 升 L0）
+    QVERIFY(waitForQuiet([&] {
+      return svc.activeTaskCount() == 0 && panel.activeLodLevel() == 0 &&
+             lodSpy.count() >= 2; // 粗层标签 + L0 标签
+    }, 10000));
+
+    const int sliceBase = countTasksByTitle(tasks, QStringLiteral("提取地震切片"));
+    const int lodBase = countTasksByTitle(tasks, QStringLiteral("切换 LOD 层级"));
+
+    auto *slider = panel.findChild<QSlider *>(QStringLiteral("inlineSlider"));
+    QVERIFY(slider != nullptr);
+    // 直接发 slider 信号：offscreen 下 groove 点击不产生 sliderPressed/Released
+    // （handle 命中才有），元调用保持手势语义确定性。
+    QMetaObject::invokeMethod(slider, "sliderPressed");
+    const int target = slider->maximum();
+    for (int step = 1; step <= 8; ++step) // 拖动 8 步（不回事件循环——真实拖动同帧连发）
+      slider->setValue(slider->minimum() + (target - slider->minimum()) * step / 8);
+    QMetaObject::invokeMethod(slider, "sliderReleased");
+    QTest::qWait(600); // 松手 350ms 精化定时器触发 + 任务收尾
+    QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }, 10000));
+
+    const int sliceTasks = countTasksByTitle(tasks, QStringLiteral("提取地震切片")) - sliceBase;
+    const int lodTasks = countTasksByTitle(tasks, QStringLiteral("切换 LOD 层级")) - lodBase;
+    qInfo("drag gesture: %d slice tasks (was 5 pre-merge), %d lod switches", sliceTasks, lodTasks);
+    QCOMPARE(lodTasks, 2);           // 按下切粗层 + 松手升 L0
+    // 两种合法交错（改前恒 5）：典型 = 被顶替取消 1 + 粗层终值 1 + 松手精化 1；
+    // 若终值读派发晚于松手精化（activeLod 已回 0），则该读直接产出 L0 终态，
+    // 精化重取按 onlyStale 判定跳过 → 2。未拖的两个槽位两种交错下都不重取。
+    QVERIFY2(sliceTasks >= 2 && sliceTasks <= 3,
+             qPrintable(QStringLiteral("slice tasks %1 outside [2,3]").arg(sliceTasks)));
+    QVERIFY(panel.activeLodLevel() == 0);
+  }
+
+  // ---- wave/deepen-perf A1：体渲染堆叠层体窗合并通道 ----
+  // paged 通道预算内：1 次 ReadVoxelWindow 取全 16 层（替代 16 次逐层切片请求）。
+  void panelStackFetchVoxelMerge()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("stackvoxel.sgy");
+    QVERIFY(writeTestSegy(sgy, 16, 16, 64));
+    const QString l0 = sgy + QStringLiteral(".sf3p");
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    bool transcoded = false;
+    svc.startPagedTranscode(sgy, l0, /*buildLod=*/true,
+                            [&](bool ok, const QString &, const QString &) { transcoded = ok; });
+    QVERIFY(waitForQuiet([&] { return transcoded; }, 30000));
+
+    auto volume = std::make_shared<SgyVolume>();
+    std::string err;
+    QVERIFY(volume->Load(sgy.toStdString(), err));
+
+    Seismic3DViewPanel panel;
+    panel.resize(800, 600);
+    panel.setTaskService(&svc);
+    panel.setPagedWorkspace(l0);
+    panel.setVolume(volume);
+    QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0 && panel.activeLodLevel() == 0; }, 10000));
+
+    const int sliceBase = countTasksByTitle(tasks, QStringLiteral("提取地震切片"));
+    QElapsedTimer fetchClock;
+    fetchClock.start();
+    panel.setStackModeEnabled(true);
+    QVERIFY(panel.isStackModeEnabled());
+    QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }, 10000));
+    const double fetchMs = double(fetchClock.elapsed());
+
+    const int voxelTasks = countTasksByTitle(tasks, QStringLiteral("读取三维体素窗口"));
+    const int sliceTasks = countTasksByTitle(tasks, QStringLiteral("提取地震切片")) - sliceBase;
+    qInfo("stack fetch: %.1f ms, %d voxel tasks, %d per-layer slice tasks (was 16 pre-merge)",
+          fetchMs, voxelTasks, sliceTasks);
+    QCOMPARE(voxelTasks, 1); // 16 层合并为单次体窗请求
+    QCOMPARE(sliceTasks, 0);
+
+    panel.setStackModeEnabled(false);
+  }
+
+  // ---- wave/deepen-perf A2：粗层首见后静止自动精化（不等用户拖动）----
+  void panelPagedAutoRefineAfterCoarseOpen()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("autorefine.sgy");
+    QVERIFY(writeTestSegy(sgy, 12, 12, 96));
+    const QString l0 = sgy + QStringLiteral(".sf3p");
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    bool transcoded = false;
+    svc.startPagedTranscode(sgy, l0, /*buildLod=*/true,
+                            [&](bool ok, const QString &, const QString &) { transcoded = ok; });
+    QVERIFY(waitForQuiet([&] { return transcoded; }, 30000));
+
+    auto volume = std::make_shared<SgyVolume>();
+    std::string err;
+    QVERIFY(volume->Load(sgy.toStdString(), err));
+
+    Seismic3DViewPanel panel;
+    panel.resize(800, 600);
+    panel.setTaskService(&svc);
+    panel.setPagedWorkspace(l0);
+    // progressive 打开后 activeLod 应为最粗层（本夹具 L1+L2 → 2）
+    QVERIFY(waitForQuiet([&] { return panel.activeLodLevel() > 0; }, 10000));
+    panel.setVolume(volume);
+    // 初始三槽切片走粗层；静止 350ms 后自动升 L0（A2 前需要用户拖一次才精化）
+    QVERIFY(waitForQuiet([&] { return panel.activeLodLevel() == 0; }, 10000));
+    QVERIFY(countTasksByTitle(tasks, QStringLiteral("切换 LOD 层级 0")) >= 1);
   }
 };
 

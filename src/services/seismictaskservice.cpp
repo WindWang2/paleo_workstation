@@ -1262,6 +1262,12 @@ PaleoTask *SeismicTaskService::startTimeSliceTiled(
     return nullptr;
   }
 
+  // A3（wave/deepen-perf）同路径取代语义：拖动连发的新瓦片请求立即取消旧
+  // 在途任务——引擎按瓦片粒度协作中止，被顶替的整图读取不再占并发闸排队
+  // （消费侧另有采样号世代过滤，双保险）。
+  if (QPointer<PaleoTask> stale = inFlightTiledTasks_.value(sf3pPath))
+    stale->requestCancel();
+
   const QString title = tr("瓦片渐进时间片 (采样 %1)").arg(sampleIndex);
   auto outImage = std::make_shared<SgySliceImage>();
   const QPointer<SeismicTaskService> self(this); // 仅作瓦片投递目标；条目走 registry
@@ -1321,7 +1327,11 @@ PaleoTask *SeismicTaskService::startTimeSliceTiled(
 
   // quiet：时间片瓦片是拖动交互取数，不拉起任务中心。
   PaleoTask *task = startBounded(title, work, QString(), /*quiet=*/true); // D6.4 ≤4 并发闸
-  connect(task, &PaleoTask::finished, this, [task, outImage, onFinished]() {
+  inFlightTiledTasks_.insert(sf3pPath, task); // A3 取代登记（同键新值顶替旧句柄）
+  connect(task, &PaleoTask::finished, this, [this, sf3pPath, task, outImage, onFinished]() {
+    // A3：终态即出取代表（仅当仍指向本任务——后来者已顶替则留给后来者清理）
+    if (inFlightTiledTasks_.value(sf3pPath) == task)
+      inFlightTiledTasks_.remove(sf3pPath);
     if (!onFinished)
       return;
     if (task->state() == PaleoTask::State::Succeeded)
@@ -1389,6 +1399,57 @@ PaleoTask *SeismicTaskService::startVoxelWindow(
       onFinished(false, engine::VoxelWindow{}, task->errorText());
   });
   return task;
+}
+
+// A1（wave/deepen-perf）体窗平面平移：窗口布局
+// values[((ilIdx)*xlineCount + xlIdx)*sampleCount + sIdx]（ilIdx 沿轴值升序），
+// 时间片显示约定 width=XL 数 / height=IL 数 / 行 0=最大 inline →
+// out.values[row*xlineCount + col]，row = inlineCount-1-ilIdx。
+// 与引擎 ReadTimeSlice 逐位同构（tst_seismic_engine::voxelWindowPlanesMatchTimeSlice 锁定）。
+bool SeismicTaskService::slicePlaneFromWindow(const engine::VoxelWindow &window,
+                                              int sampleIndex, SgySliceImage &out)
+{
+  const engine::VoxelWindowRequest &box = window.box;
+  if (sampleIndex < 0 || sampleIndex >= box.sampleCount || box.inlineCount <= 0 ||
+      box.xlineCount <= 0 ||
+      window.values.size() < std::size_t(box.inlineCount) * box.xlineCount * box.sampleCount)
+    return false;
+
+  out = SgySliceImage{};
+  out.width = box.xlineCount;
+  out.height = box.inlineCount;
+  const std::size_t plane = std::size_t(box.inlineCount) * box.xlineCount;
+  out.values.assign(plane, std::numeric_limits<float>::quiet_NaN());
+  bool anyFinite = false;
+  float vmin = std::numeric_limits<float>::max();
+  float vmax = std::numeric_limits<float>::lowest();
+  for (int il = 0; il < box.inlineCount; ++il)
+  {
+    const int row = box.inlineCount - 1 - il; // 行 0 = 最大 inline（显示向）
+    for (int xl = 0; xl < box.xlineCount; ++xl)
+    {
+      const float v = window.values[(std::size_t(il) * box.xlineCount + xl) *
+                                    box.sampleCount + sampleIndex];
+      out.values[std::size_t(row) * box.xlineCount + xl] = v;
+      if (std::isfinite(v))
+      {
+        anyFinite = true;
+        vmin = std::min(vmin, v);
+        vmax = std::max(vmax, v);
+      }
+    }
+  }
+  if (anyFinite)
+  {
+    out.valueMin = vmin;
+    out.valueMax = vmax;
+  }
+  else
+  {
+    out.valueMin = 0.0f;
+    out.valueMax = 1.0f;
+  }
+  return true;
 }
 
 PaleoTask *SeismicTaskService::startPagedOpen(

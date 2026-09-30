@@ -26,7 +26,6 @@ protected:
 signals:
   void logRequested(const QString &versionId);
   void reviseRequested(const QString &wellId, int interval, int code);
-  void copyRequested();
   void saveRequested();
   void undoRequested();
   void featureSelected(qint64 featureId);
@@ -40,6 +39,6 @@ private:
   QComboBox *m_well, *m_facies;
   QTableWidget *m_intervals;
   QLabel *m_status;
-  QPushButton *m_apply, *m_copy, *m_save, *m_undo;
+  QPushButton *m_apply, *m_save, *m_undo;
   WellComposite::WellCompositeCanvas *m_canvas;
 };

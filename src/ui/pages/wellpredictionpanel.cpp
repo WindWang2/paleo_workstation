@@ -27,9 +27,6 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
   m_well = new QComboBox(this);
   m_well->setObjectName("predictionWell");
   bar->addWidget(m_well, 1);
-  m_copy = new QPushButton(tr("创建修订副本"), this);
-  bar->addWidget(m_copy);
-  m_copy->setObjectName("copyWellPrediction");
   m_undo = new QPushButton(tr("撤销修订"), this);
   bar->addWidget(m_undo);
   m_undo->setObjectName("undoWellPrediction");
@@ -47,10 +44,10 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
   right->setAutoFillBackground(true);
   auto *rl = new QVBoxLayout(right);
   rl->setContentsMargins(8, 0, 0, 0);
-  m_intervals = new QTableWidget(0, 4, right);
+  m_intervals = new QTableWidget(0, 3, right);
   m_intervals->setObjectName("predictionIntervals");
   m_intervals->setHorizontalHeaderLabels(
-      {tr("顶深 m"), tr("底深 m"), tr("预测类别"), tr("修订类别")});
+      {tr("顶深 m"), tr("底深 m"), tr("相类别")});
   m_intervals->setSelectionBehavior(QAbstractItemView::SelectRows);
   m_intervals->setSelectionMode(QAbstractItemView::SingleSelection);
   m_intervals->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -68,8 +65,6 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
   split->setStretchFactor(1, 2);
   connect(m_well, &QComboBox::currentIndexChanged, this,
           [this] { refreshWell(); });
-  connect(m_copy, &QPushButton::clicked, this,
-          &WellPredictionPanel::copyRequested);
   connect(m_save, &QPushButton::clicked, this,
           &WellPredictionPanel::saveRequested);
   connect(m_undo, &QPushButton::clicked, this,
@@ -82,8 +77,7 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
   });
   connect(m_intervals, &QTableWidget::currentCellChanged, this,
           [this](int row) {
-            m_apply->setEnabled(m_layer.startsWith("draft.") && row >= 0 &&
-                                m_facies->count() > 0);
+            m_apply->setEnabled(row >= 0 && m_facies->count() > 0);
             if (row >= 0 && m_well->currentIndex() >= 0) {
               auto intervals = m_wells[m_well->currentIndex()]
                                    .toMap()
@@ -147,12 +141,13 @@ void WellPredictionPanel::setResult(const QString &id,
   for (const auto &v : schema) {
     auto f = v.toMap();
     m_facies->addItem(
-        QIcon(FaciesCatalog::resourcePath(f.value("texture").toString())),
+        QIcon(FaciesCatalog::resourcePath(f.value("icon", f.value("texture")).toString())),
         f.value("name").toString(), f.value("code").toInt());
   }
-  m_copy->setEnabled(!wells.isEmpty() && !id.startsWith("draft."));
-  m_copy->setToolTip(tr("预测原件保留，新建独立修订副本"));
   m_save->setEnabled(id.startsWith("draft."));
+  m_save->setToolTip(id.startsWith("draft.")
+                         ? tr("保存修订版本并登记图件文件")
+                         : tr("首次修订自动保留预测原件并切换到修订副本"));
   setUndoAvailable(false);
   refreshWell();
   if (interval >= 0 && interval < m_intervals->rowCount())
@@ -165,7 +160,8 @@ void WellPredictionPanel::setLog(const LasDoc &log) {
 void WellPredictionPanel::refreshWell() {
   m_intervals->setRowCount(0);
   m_apply->setEnabled(false);
-  m_apply->setToolTip(tr("在修订副本中选择井段与相类别"));
+  m_apply->setToolTip(
+      tr("选择井段与相类别；首次修订自动保留预测原件并切换到修订副本"));
   m_log = {};
   if (m_well->currentIndex() < 0) {
     m_canvas->clearTracks();
@@ -173,33 +169,29 @@ void WellPredictionPanel::refreshWell() {
     return;
   }
   const auto well = m_wells[m_well->currentIndex()].toMap();
-  const auto rows = well.value("intervals").toList(),
-             predicted = well.value("predicted").toList();
+  const auto rows = well.value("intervals").toList();
   m_status->setText(tr("预测为 "
-                       "Mock；地图相点按井段累计厚度最大的类别显示。%"
-                       "1点击井道或表格选择井段，再应用修订。")
+                       "Mock；地图相点按井段累计厚度最大的类别显示并在画布标"
+                       "注类别。%1点击井道或表格选择井段，选择相类别后直接应"
+                       "用修订；首次修订自动保留预测原件。")
                         .arg(well.value("depth_mock").toBool()
                                  ? tr("当前深度为模拟范围 0–120 m。 ")
                                  : QString()));
   m_intervals->setRowCount(rows.size());
   for (int i = 0; i < rows.size(); ++i) {
     auto r = rows[i].toMap();
-    auto prediction = i < predicted.size() ? predicted[i].toMap() : r;
     m_intervals->setItem(i, 0,
                          new QTableWidgetItem(QString::number(
                              r.value("top").toDouble(), 'f', 2)));
     m_intervals->setItem(i, 1,
                          new QTableWidgetItem(QString::number(
                              r.value("bottom").toDouble(), 'f', 2)));
-    for (int col : {2, 3}) {
-      auto f = FaciesCatalog::find(m_schema,
-                                   (col == 2 ? prediction : r).value("code"));
-      m_intervals->setItem(
-          i, col,
-          new QTableWidgetItem(
-              QIcon(FaciesCatalog::resourcePath(f.value("texture").toString())),
-              f.value("name").toString()));
-    }
+    auto f = FaciesCatalog::find(m_schema, r.value("code"));
+    m_intervals->setItem(
+        i, 2,
+        new QTableWidgetItem(
+            QIcon(FaciesCatalog::resourcePath(f.value("icon", f.value("texture")).toString())),
+            f.value("name").toString()));
   }
   rebuildTracks();
   m_intervals->selectRow(0);
@@ -236,31 +228,28 @@ void WellPredictionPanel::rebuildTracks() {
     m_canvas->addTrack(track);
   }
   const auto well = m_wells[m_well->currentIndex()].toMap();
-  for (const auto &key : {"predicted", "intervals"}) {
-    auto track = std::make_shared<FaciesCompoundTrack>(
-        key == QStringLiteral("predicted") ? tr("预测相（Mock）")
-                                           : tr("人工修订相"),
-        240);
-    QVector<FaciesInterval> items;
-    for (const auto &v : well.value(key).toList()) {
-      auto r = v.toMap();
-      auto f = FaciesCatalog::find(m_schema, r.value("code"));
-      FaciesInterval item;
-      item.topDepth = r.value("top").toDouble();
-      item.bottomDepth = r.value("bottom").toDouble();
-      item.majorFacies = f.value("facies", f.value("name")).toString();
-      item.subFacies = f.value("subfacies").toString();
-      item.microFacies = f.value("microfacies").toString();
-      if (item.microFacies.isEmpty())
-        item.microFacies = f.value("name").toString();
-      item.patternType = f.value("texture").toString();
-      item.majorColor = item.subColor = item.microColor =
-          QColor(f.value("color").toString());
-      items << item;
-    }
-    track->setIntervals(items);
-    m_canvas->addTrack(track);
+  // 单一预测相道（井道图式样 相|亚|微）：显示当前生效井段；修订直接在预测相
+  // 上进行，首次修订由主窗自动保留预测原件并切换到修订副本。
+  auto track = std::make_shared<FaciesCompoundTrack>(tr("预测相"), 240);
+  QVector<FaciesInterval> items;
+  for (const auto &v : well.value("intervals").toList()) {
+    auto r = v.toMap();
+    auto f = FaciesCatalog::find(m_schema, r.value("code"));
+    FaciesInterval item;
+    item.topDepth = r.value("top").toDouble();
+    item.bottomDepth = r.value("bottom").toDouble();
+    item.majorFacies = f.value("facies", f.value("name")).toString();
+    item.subFacies = f.value("subfacies").toString();
+    item.microFacies = f.value("microfacies").toString();
+    if (item.microFacies.isEmpty())
+      item.microFacies = f.value("name").toString();
+    item.patternType = f.value("texture").toString();
+    item.majorColor = item.subColor = item.microColor =
+        QColor(f.value("color").toString());
+    items << item;
   }
+  track->setIntervals(items);
+  m_canvas->addTrack(track);
   auto rows = well.value("intervals").toList();
   if (!rows.isEmpty())
     m_canvas->setDepthRange(rows.first().toMap().value("top").toDouble(),

@@ -278,29 +278,28 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
               v->selectByIds({fid});
           });
   connect(wellPanel, &WellPredictionPanel::reviseRequested, this,
-          [this, workbench, wellPanel, beginEdit](const QString &well,
-                                                  int interval, int code) {
+          [this, workbench, wellPanel, beginEdit, openWells](
+              const QString &well, int interval, int code) {
             QString error;
-            if (beginEdit(wellPanel->layerId()) &&
-                workbench->reviseWellInterval(wellPanel->layerId(), well,
-                                              interval, code, &error))
+            auto id = wellPanel->layerId();
+            if (!id.startsWith("draft.")) {
+              // 直接在预测相上修订：预测原件不可变，首次修订自动创建修订副本
+              // 并切换到副本（与画布右键改相同一条路径）。
+              id = workbench->copyForEditing(id, {}, &error);
+              if (id.isEmpty()) {
+                statusBar()->showMessage(error, 10000);
+                return;
+              }
+              openWells(id);
+            }
+            if (beginEdit(id) &&
+                workbench->reviseWellInterval(id, well, interval, code, &error))
               statusBar()->showMessage(
                   tr("井段与地图相点已更新；保存修订版本后登记文件。"), 10000);
             else
               statusBar()->showMessage(
                   error.isEmpty() ? tr("请先结束其他图层的编辑") : error,
                   10000);
-          });
-  connect(wellPanel, &WellPredictionPanel::copyRequested, this,
-          [workbench, wellPanel, openWells, beginEdit]() {
-            QString error;
-            const auto id =
-                workbench->copyForEditing(wellPanel->layerId(), {}, &error);
-            if (!id.isEmpty()) {
-              beginEdit(id);
-              openWells(id);
-            } else
-              emit workbench->errorOccurred(error);
           });
   connect(wellPanel, &WellPredictionPanel::saveRequested, this,
           [this, workbench, wellPanel, edit] {
@@ -374,7 +373,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
         for (const auto &entry : schema) {
           auto f = entry.toMap();
           auto *action = changes->addAction(
-              QIcon(FaciesCatalog::resourcePath(f.value("texture").toString())),
+              QIcon(FaciesCatalog::resourcePath(f.value("icon", f.value("texture")).toString())),
               f.value("name").toString());
           connect(
               action, &QAction::triggered, this,

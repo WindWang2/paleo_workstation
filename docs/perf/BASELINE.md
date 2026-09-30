@@ -69,3 +69,56 @@
   读取登记 `noteLargeAllocation`（selfcheck `budget_used_bytes` 可查）。
 - 本机实测：全部基准跑完 `budget_used_bytes` ≈ 0.6MB（合成夹具小；真实
   59MB LAS 单井 doc ≈ 27MB 值内存，在 64MB 层内）。
+
+## 6. wave/deepen-perf Track B 增量（2026-09-30）
+
+### B1 大 LAS UI 线程解阻（correlation quiet 异步）
+
+| 口径 | 改前（同步 lasAt 阻塞） | 改后（quiet 任务受理时延） |
+|---|---|---|
+| 合成 59MB（740k 行 × 5 曲线） | 345–441 ms | **0 ms**（解析 342–399 ms 在池内继续） |
+| 真工区 井曲线/A13.Las（59MB） | **442 ms** | **0 ms** |
+
+复现：`ctest -R correlation_async`（含
+`PALEO_REAL_PROJECT_AREA=<project_area> ./build-b/tst_correlation_async`）。
+
+### B3 栅格金字塔消费侧
+
+- 导入侧批量接线：`DataImportService::{ensureRasterPyramids, buildRasterOverviews}`；
+  image_reference 栅格 + horizon DERIVED tif 入库即 Lazy ensure（近零开销）。
+- 消费生效面 = GDAL 外部 `.ovr` 概览（只读打开 → 边车，**受管 RAW 字节不动**，
+  SHA 留底契约保持）；`PreviewDocService::ensureRasterPyramidVersion`（quiet
+  任务，进度/取消）由大图预览页（>50MB 无金字塔提示条路径）触发，完成后
+  `reload()+triggerRepaint()`，本会话后续渲染走概览。
+- 合成 4096² f32（64MB）读块对照（`ctest -R pyramid_consume`）：概览构建
+  86–112 ms；全图视口读块 **14 ms → 4 ms**（≈3.5×，温页缓存口径）。
+
+### B4 catalog.sqlite 触发条件实测（ADR 0056 / TODOS P3）
+
+`tests/tst_catalog_scale.cpp`（`PALEO_CATALOG_SCALE=<n>` 按需跑，默认 SKIP）：
+
+| 规模 | 灌库（100k 受管文件 + JSON 落盘） | 打开 | 列表枚举 | 1000× entityById | 1000× linksForEntity | countsByType |
+|---|---|---|---|---|---|---|
+| 10k | 6.2 s | 136 ms | 0 ms | 0 ms | 0 ms | 0 ms |
+| 100k | 949.7 s（**超线性**，见下） | 1,408 ms（线性） | 0 ms | 0 ms | 0 ms | 0 ms |
+
+- **结论（ADR 0056 触发条件）**：查询面零劣化——entityById/linksForEntity/
+  列表/类型计数在 100k 仍 O(1)/O(n) 一次性（0ms 级）；打开线性放大到
+  1.4 s（10k 的 10.3×），单工区真实规模（38 实体）无压力。**未达触发条件，
+  不落 sqlite 索引**；触发条件建议改挂「真实工程 catalog 打开 >2s」。
+- **新观察（写路径）**：灌库 10k→100k 用时 6.2s→949.7s（≈153×，超线性/
+  疑二次）——`DataCatalog` mutator（add* 系列在 BatchSave 下的维护成本）
+  在 >50k 规模需 profiling；对读查询无影响，登记为后续项。
+- 复现：`PALEO_CATALOG_SCALE=100000 ctest -R catalog_scale`（约 16 分钟；
+  默认不设 env 时 SKIP）。
+
+### B5 ctest -j2 QSettings 竞态复测
+
+4 轮全量 `ctest -j4`（127 测试，共享 build-b）：历史竞态点
+`tst_ui::windowStateAndExtentPersist` 全绿；仅有的失败为 `tst_panels`
+（dataops 焦点遍历，**串行也红、基线 dataopsimportui.h 同红**——非本轨引入）
+与 `tst_wellcomposite_visual`（D 轨 WIP 领地）。结论：跨二进制 QSettings
+落盘已由 `paleo_test_sandbox`（每测试独立 XDG_CONFIG_HOME/XDG_DATA_HOME/
+HOME）根治；建议后续清掉四个测试 main 里残留的 `setPath` 固定 /tmp 重定向
+（tst_ui/tst_uxtheme/tst_procdialog/tst_seismic_sectionui——沙箱已覆盖其
+用途，残留是跨次运行的陈旧状态面）。

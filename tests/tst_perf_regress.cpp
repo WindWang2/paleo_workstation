@@ -28,6 +28,7 @@ class PerfRegressTests : public QObject
     void segyIndexHitRatioWithinGate();
     void shaCacheHitRatioWithinGate();
     void catalogQueryScalingWithinGate();
+    void catalogBuildScalingWithinGate(); // WP2：写路径线性化门
     void coldVsHotBothReported();
     void htmlReportRenders();
     void jsonReportParses();
@@ -74,6 +75,7 @@ void PerfRegressTests::baselinesPresentAndWellFormed()
       QStringLiteral("segy_cached_vs_rebuild_max"),
       QStringLiteral("sha_cached_vs_hash_max"),
       QStringLiteral("catalog_query_5k_vs_1k_max"),
+      QStringLiteral("catalog_build_5k_vs_1k_max"),
   };
   for (const QString &k : required)
     QVERIFY2(b.contains(k), qPrintable(QStringLiteral("baseline 缺键 %1").arg(k)));
@@ -189,6 +191,35 @@ void PerfRegressTests::catalogQueryScalingWithinGate()
   const double gate = ratioGate(b, QStringLiteral("catalog_query_5k_vs_1k_max")) * 1.2;
   QVERIFY2(ratio <= gate,
            qPrintable(QStringLiteral("5k/1k=%1 > 门限 %2（索引退化成线性？）")
+                          .arg(ratio, 0, 'f', 2)
+                          .arg(gate, 0, 'f', 2)));
+}
+
+void PerfRegressTests::catalogBuildScalingWithinGate()
+{
+  // WP2：catalog 写路径线性化回归门——5k vs 1k 灌库（BatchSave 批内
+  // 4×N 次 mutator + N 个受管文件 + 一次全量 JSON save）的耗时比。
+  // 线性实现 ≈5×（数据量比）；二次实现 ~25×（旧 mutator 全表快照的
+  // COW detach——BASE 实测红，WP2 修复后绿）。与查询门同一容差口径。
+  const QJsonObject b = loadBaselines();
+  if (b.isEmpty())
+    QSKIP("baseline 缺失");
+  const QString dir1 = m_dir.filePath("b1k");
+  const QString dir5 = m_dir.filePath("b5k");
+  QString err;
+  QElapsedTimer t;
+  t.start();
+  QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir1, 1000, &err));
+  const double t1 = t.nsecsElapsed() / 1.0e6;
+  t.restart();
+  QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir5, 5000, &err));
+  const double t5 = t.nsecsElapsed() / 1.0e6;
+  qInfo("catalog build 1k=%.1fms 5k=%.1fms ratio=%.2f", t1, t5,
+        t1 > 0 ? t5 / t1 : -1.0);
+  const double ratio = t1 > 0 ? t5 / t1 : 99.0;
+  const double gate = ratioGate(b, QStringLiteral("catalog_build_5k_vs_1k_max")) * 1.2;
+  QVERIFY2(ratio <= gate,
+           qPrintable(QStringLiteral("5k/1k=%1 > 门限 %2（mutator 写路径退化成二次？）")
                           .arg(ratio, 0, 'f', 2)
                           .arg(gate, 0, 'f', 2)));
 }

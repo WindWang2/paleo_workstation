@@ -27,6 +27,9 @@ class PerfCatalogTests : public QObject
     void backupRecoveryFromCorruptMain();
     void atomicSaveKeepsOldOnFailure();
     void rollbackKeepsIndexConsistent();
+    // WP2（写路径线性化）——精确 undo 回滚与索引化查询的语义钉子：
+    void mutatorRollbackUndoesExactly();      // 六 mutator 失败回滚逐项还原
+    void entitySeqAndShaLookupsAfterReload(); // nextEntityId/versionBySha256 语义（含重开）
 
   private:
     QTemporaryDir m_dir;
@@ -365,6 +368,201 @@ void PerfCatalogTests::rollbackKeepsIndexConsistent()
   QVERIFY(cat.indexHealthy());
   QVERIFY(cat.hasEntity(QStringLiteral("w2")));
   Q_UNUSED(main);
+}
+
+void PerfCatalogTests::mutatorRollbackUndoesExactly()
+{
+  // WP2：六 mutator 从「全表快照还原」改为「精确 undo 还原」——此测试把
+  // 失败回滚的语义逐项钉死：save 失败后内存态、索引、revision 与失败前
+  // 完全一致（含 supersede 引发的下游 stale 标记与主关联降级的复原）。
+  const QString dir = m_dir.filePath("p_undo");
+  QString err;
+  QDir().mkpath(dir);
+  DataCatalog cat;
+  QVERIFY(cat.open(dir, &err));
+  QVERIFY(cat.addEntity(mkEntity(QStringLiteral("w1")), &err));
+  QVERIFY(cat.addAsset(mkAsset(QStringLiteral("ast-1")), &err));
+  QVERIFY(cat.addAsset(mkAsset(QStringLiteral("ast-2")), &err));
+  CatalogVersion raw = mkVersion(QStringLiteral("ver-1"), QStringLiteral("ast-1"));
+  QVERIFY(cat.addVersion(raw, &err));
+  CatalogVersion derived = mkVersion(QStringLiteral("ver-2"), QStringLiteral("ast-2"));
+  derived.stage = QStringLiteral("DERIVED");
+  derived.parentVersionIds << QStringLiteral("ver-1");
+  QVERIFY(cat.addVersion(derived, &err));
+  EntityAssetLink primary;
+  primary.entityType = QStringLiteral("well");
+  primary.entityId = QStringLiteral("w1");
+  primary.assetId = QStringLiteral("ast-1");
+  primary.role = QStringLiteral("well_log");
+  primary.isPrimary = true;
+  QVERIFY(cat.addLink(primary, &err));
+  EntityAssetLink secondary;
+  secondary.entityType = QStringLiteral("well");
+  secondary.entityId = QStringLiteral("w1");
+  secondary.assetId = QStringLiteral("ast-2");
+  secondary.role = QStringLiteral("horizon");
+  secondary.isPrimary = false;
+  QVERIFY(cat.addLink(secondary, &err));
+  EntityAssetLink pending;
+  pending.entityType = QStringLiteral("well");
+  pending.entityId = QString();
+  pending.assetId = QStringLiteral("ast-2");
+  pending.role = QStringLiteral("well_log"); // 词表内角色——不触诊断注记
+  pending.unresolved = true;
+  pending.note = QStringLiteral("未匹配：SYNTH-XX");
+  QVERIFY(cat.addLink(pending, &err));
+  const int linkCount = cat.links().size();
+  const int pendingRow = 2; // 第三条 = 未决链接
+
+  // undo 栈多入栈前置布局（review P3）：同一 DERIVED 下游行被两个 superseded
+  // 父版本先后标记——逆序还原必须落在最初值（正序还原会停在中间值，后断言必红）。
+  // ast-3 ver-4(RAW,vn1) ← ver-6(DERIVED, parents=[ver-4,ver-5])；ver-5(RAW,vn2)
+  // 入库时成功把 ver-6 标为 reasonA 并落盘。
+  QVERIFY(cat.addAsset(mkAsset(QStringLiteral("ast-3")), &err));
+  CatalogVersion v4 = mkVersion(QStringLiteral("ver-4"), QStringLiteral("ast-3"));
+  QVERIFY(cat.addVersion(v4, &err));
+  CatalogVersion v6 = mkVersion(QStringLiteral("ver-6"), QStringLiteral("ast-1"));
+  v6.stage = QStringLiteral("DERIVED");
+  v6.parentVersionIds << QStringLiteral("ver-4") << QStringLiteral("ver-5");
+  QVERIFY(cat.addVersion(v6, &err));
+  CatalogVersion v5 = mkVersion(QStringLiteral("ver-5"), QStringLiteral("ast-3"));
+  v5.versionNumber = 2;
+  QVERIFY(cat.addVersion(v5, &err));
+  const QString reasonA = cat.versionById(QStringLiteral("ver-6"))
+                              .extra.value(QStringLiteral("staleReason"))
+                              .toString();
+  QVERIFY2(reasonA.contains(QStringLiteral("ver-5")),
+           "前置失败：ver-6 未被 ver-5 的入库标记");
+  const int versionCountWithV6 = cat.versions().size();
+  const int revisionWithV6 = cat.catalogRevision();
+
+  cat.setLockedReadOnly(true); // 任何 save 必失败 → 走回滚路径
+
+  // addVersion：ver-3 取代 ver-1 → ver-2 应被标 stale；回滚后两处都得复原。
+  CatalogVersion superseder = mkVersion(QStringLiteral("ver-3"), QStringLiteral("ast-1"));
+  superseder.versionNumber = 2;
+  QVERIFY(!cat.addVersion(superseder, &err));
+  QCOMPARE(int(cat.versions().size()), versionCountWithV6);
+  QVERIFY(cat.versionById(QStringLiteral("ver-3")).id.isEmpty());
+  QVERIFY2(!cat.versionById(QStringLiteral("ver-2"))
+                .extra.contains(QStringLiteral("stale")),
+           "supersede stale 标记未被回滚");
+  QVERIFY2(cat.indexHealthy(&err), qPrintable(err));
+
+  // undo 栈多入栈：ver-7(vn3) 同时取代 ver-4/ver-5——ver-6 被推入 undo 两次，
+  // 回滚后 staleReason 必须仍为 reasonA（LIFO 唯一正确序）。
+  CatalogVersion v7 = mkVersion(QStringLiteral("ver-7"), QStringLiteral("ast-3"));
+  v7.versionNumber = 3;
+  QVERIFY(!cat.addVersion(v7, &err));
+  QCOMPARE(int(cat.versions().size()), versionCountWithV6);
+  const CatalogVersion restored = cat.versionById(QStringLiteral("ver-6"));
+  QVERIFY(restored.extra.value(QStringLiteral("stale")).toBool());
+  QCOMPARE(restored.extra.value(QStringLiteral("staleReason")).toString(), reasonA);
+  QVERIFY2(cat.indexHealthy(&err), qPrintable(err));
+
+  // addLink：同角色新主关联（会降级既有主关联）→ 回滚后降级复原、链接数不变。
+  EntityAssetLink dupPrimary = primary;
+  dupPrimary.assetId = QStringLiteral("ast-2");
+  QVERIFY(!cat.addLink(dupPrimary, &err));
+  QCOMPARE(int(cat.links().size()), linkCount);
+  QVERIFY(cat.linksForEntity(QStringLiteral("w1")).at(0).isPrimary);
+  QVERIFY2(cat.indexHealthy(&err), qPrintable(err));
+
+  // attachLink：未决挂接失败 → 未决态与备注原样保留；挂接本会降级既有
+  // 主关联（同井同角色 well_log）——回滚后主关联复原。
+  QVERIFY(!cat.attachLink(pendingRow, QStringLiteral("w1"), &err));
+  const EntityAssetLink stillPending = cat.links().at(pendingRow);
+  QVERIFY(stillPending.unresolved);
+  QVERIFY(stillPending.entityId.isEmpty());
+  QCOMPARE(stillPending.note, QStringLiteral("未匹配：SYNTH-XX"));
+  QVERIFY(cat.links().at(0).isPrimary);
+  QVERIFY2(cat.indexHealthy(&err), qPrintable(err));
+
+  // setLinkPrimary：提升非主关联失败 → 主关联不变量原样。
+  QVERIFY(!cat.setLinkPrimary(1, &err));
+  QVERIFY(cat.links().at(0).isPrimary);
+  QVERIFY(!cat.links().at(1).isPrimary);
+  QVERIFY2(cat.indexHealthy(&err), qPrintable(err));
+
+  // markDownstreamStale：落盘失败 → stale 标记不残留。
+  QVERIFY(!cat.markDownstreamStale(QStringLiteral("ver-1"),
+                                   QStringLiteral("测试失效原因"), &err));
+  QVERIFY2(!cat.versionById(QStringLiteral("ver-2"))
+                .extra.contains(QStringLiteral("stale")),
+           "markDownstreamStale 失败后残留 stale 标记");
+
+  QCOMPARE(cat.catalogRevision(), revisionWithV6); // 锁定期零次成功落盘
+
+  // 解锁后同操作成功——回滚没有留下阻止后续写入的脏态。
+  cat.setLockedReadOnly(false);
+  QVERIFY(cat.addVersion(superseder, &err));
+  QCOMPARE(int(cat.versions().size()), versionCountWithV6 + 1);
+  QVERIFY(cat.versionById(QStringLiteral("ver-2"))
+              .extra.value(QStringLiteral("stale")).toBool());
+  QVERIFY2(cat.indexHealthy(&err), qPrintable(err));
+}
+
+void PerfCatalogTests::entitySeqAndShaLookupsAfterReload()
+{
+  // WP2：nextEntityId 走前缀序号索引、versionBySha256 走 sha 行集索引——
+  // 语义与旧线性扫描逐项一致，且重开（索引自 JSON 重建）后仍成立。
+  const QString dir = m_dir.filePath("p_seq");
+  QString err;
+  QDir().mkpath(dir);
+  DataCatalog cat;
+  QVERIFY(cat.open(dir, &err));
+  DataCatalog::BatchSave batch(&cat);
+  // 前缀序号面：well-10 是 well 前缀最大序号；well-x 非数字不计；
+  // grp-3-4 归 grp-3 前缀（「最后一个 '-'」拆解＝旧扫描的余段 toInt 口径）。
+  for (const QString &id : {QStringLiteral("well-1"), QStringLiteral("well-2"),
+                            QStringLiteral("well-10"), QStringLiteral("well-x"),
+                            QStringLiteral("grp-3-4"), QStringLiteral("aux-1")})
+    QVERIFY(cat.addEntity(mkEntity(id), &err));
+  // sha 面：两个受管版本同内容同 sha（受管文件必须真实存在——命中后
+  // versionBySha256 会复核文件并重哈希）。
+  QVERIFY(cat.addAsset(mkAsset(QStringLiteral("ast-1")), &err));
+  QVERIFY(cat.addAsset(mkAsset(QStringLiteral("ast-2")), &err));
+  const QByteArray payload = QByteArrayLiteral("WP2 sha lookup payload\n");
+  for (int k = 1; k <= 2; ++k)
+  {
+    CatalogVersion v =
+        mkVersion(QStringLiteral("ver-%1").arg(k), QStringLiteral("ast-%1").arg(k));
+    v.managed = true;
+    v.fileName = QStringLiteral("dup.dat");
+    v.path = DataCatalog::managedPath(QStringLiteral("RAW"),
+                                      QStringLiteral("ast-%1").arg(k),
+                                      QStringLiteral("ver-%1").arg(k),
+                                      QStringLiteral("dup.dat"));
+    const QString abs = dir + QLatin1Char('/') + v.path;
+    QDir().mkpath(QFileInfo(abs).absolutePath());
+    QFile f(abs);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    QVERIFY(f.write(payload) == payload.size());
+    f.close();
+    v.sha256 = DataCatalog::sha256FileHex(abs, &err);
+    QVERIFY2(!v.sha256.isEmpty(), qPrintable(err));
+    QVERIFY(cat.addVersion(v, &err));
+  }
+  QVERIFY(batch.flush(&err));
+
+  QCOMPARE(cat.nextEntityId(QStringLiteral("well")), QStringLiteral("well-11"));
+  QCOMPARE(cat.nextEntityId(QStringLiteral("grp-3")), QStringLiteral("grp-3-5"));
+  QCOMPARE(cat.nextEntityId(QStringLiteral("aux")), QStringLiteral("aux-2"));
+  QCOMPARE(cat.nextEntityId(QStringLiteral("brandnew")), QStringLiteral("brandnew-1"));
+  // sha 查询：大小写不敏感；「第一个匹配」＝表序最先（ver-1）。
+  QCOMPARE(cat.versionBySha256(cat.versions().at(0).sha256).id, QStringLiteral("ver-1"));
+  QCOMPARE(cat.versionBySha256(cat.versions().at(0).sha256.toUpper()).id,
+           QStringLiteral("ver-1"));
+  QVERIFY(cat.versionBySha256(QString("deadbeef")).id.isEmpty());
+
+  // 重开：索引自 JSON 全量重建——同一组断言再钉一遍。
+  DataCatalog reopened;
+  QVERIFY(reopened.open(dir, &err));
+  QCOMPARE(reopened.nextEntityId(QStringLiteral("well")), QStringLiteral("well-11"));
+  QCOMPARE(reopened.nextEntityId(QStringLiteral("grp-3")), QStringLiteral("grp-3-5"));
+  QCOMPARE(reopened.versionBySha256(reopened.versions().at(0).sha256).id,
+           QStringLiteral("ver-1"));
+  QVERIFY2(reopened.indexHealthy(&err), qPrintable(err));
 }
 
 QTEST_MAIN(PerfCatalogTests)

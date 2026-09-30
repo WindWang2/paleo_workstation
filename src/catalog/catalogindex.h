@@ -73,6 +73,21 @@ class CatalogIndex
       return m_childrenByParent.value(versionId);
     }
 
+    // ---- WP2：写路径线性化的两个派生查询 ----
+    // sha256（小写归一）→ 命中行集（升序——首行即表序最先，保证
+    // versionBySha256 的「第一个匹配」语义）。空 sha 恒空集。
+    QVector<int> versionRowsForSha(const QString &sha256Lower) const
+    {
+      return m_rowsBySha.value(sha256Lower);
+    }
+    // "<prefix>-N" 实体 id 的前缀最大序号（nextEntityId 的 O(1) 面）。
+    // 语义与旧线性扫描一致：只认「prefix 后跟 '-' 且余段纯数字」的 id；
+    // 未登记的前缀回 0（即从 1 起号）。
+    int maxEntitySeqForPrefix(const QString &prefix) const
+    {
+      return m_entitySeqByPrefix.value(prefix, 0);
+    }
+
     // D5.3 类型计数（不再全量算）。
     int entityCountByType(const QString &type) const
     {
@@ -90,6 +105,7 @@ class CatalogIndex
 
   private:
     void indexLinkRow(int row, const EntityAssetLink &l);
+    void indexEntitySeq(const QString &id); // WP2：<prefix>-N 序号登记
 
     QHash<QString, int> m_entityRow;
     QHash<QString, int> m_assetRow;
@@ -99,6 +115,8 @@ class CatalogIndex
     QHash<QString, QVector<int>> m_linksByAsset;
     QHash<QString, QVector<int>> m_entitiesByType;
     QHash<QString, QStringList> m_childrenByParent;
+    QHash<QString, QVector<int>> m_rowsBySha;      // WP2：sha(lower) → 行集（升序）
+    QHash<QString, int> m_entitySeqByPrefix;       // WP2：prefix → 已见最大 N
     QHash<QString, int> m_entityCount; // 冗余计数（entitiesByType.size() 即是——
                                        // 保字段省一次哈希）
     int m_linkCount = 0;

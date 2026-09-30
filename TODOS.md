@@ -21,6 +21,12 @@
 - **Effort:** human: M / CC: M
 - **Priority:** P3
 - **Depends on:** catalog.sqlite 条目（如届时已落，写路径一并设计）
+- **2026-10-01 关闭（WP2 goal/data-io-catalog-closure）**：根因=六 mutator 的
+  全表快照 COW detach（O(N)/次）+ markStale/nextEntityId/sha/快照查询面线性扫；
+  修复=精确 undo 回滚 + 索引化（语义等价由测试钉死）。同机 A/B（RelWithDebInfo）：
+  100k 灌库 3,518s→9.28s（379×）、10k 17.1s→1.14s（15.0×）、10k→100k 倍率
+  205.5×→8.1×（≤15× 目标达成）、查询面零变化、峰值 RSS ≈1.0GB 无 N 份复制。
+  证据 docs/perf/BASELINE.md B7 / docs/progress/data-io-catalog-closure.md。
 
 ## P2 — 剖面 dock 取数迁 SeismicTaskService（from wave/deepen-perf A 报告, 2026-09-30）
 

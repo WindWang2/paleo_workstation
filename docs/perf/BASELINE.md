@@ -112,6 +112,33 @@
 - 复现：`PALEO_CATALOG_SCALE=100000 ctest -R catalog_scale`（约 16 分钟；
   默认不设 env 时 SKIP）。
 
+### B7 WP2 mutator 写路径线性化（goal/data-io-catalog-closure）
+
+根因（profile 实证）：六个 mutator 的全表 `previousVersions/previousLinks`
+快照使每次 append 触发 QVector COW detach 的 O(N) 深拷贝——N 次导入 O(N²)；
+次级：markStaleDownstreamOf 每调用全表建哈希、nextEntityId/versionBySha256
+线性扫、CatalogReadSnapshot 四查询面线性扫（导入 plan 构建 O(N²)）。
+
+修复：精确 undo（新增行 removeLast + 被改行原值逆序还原，回滚语义等价由
+tst_perf_catalog::mutatorRollbackUndoesExactly 钉死）；索引面 +sha 行集 +
+前缀序号表（verifyAgainst 同步对账）；快照四查询面 fromCatalog 一次建哈希。
+
+同机同夹具 A/B（RelWithDebInfo，BASE=独立 worktree @ `ac882cf`）：
+
+| 项 | BASE | WP2 后 | 倍率 |
+|---|---|---|---|
+| 10k 灌库 | 17.1 s | 1.14 s | **15.0×** |
+| 100k 灌库 | **3,518 s** | **9.28 s** | **379×** |
+| 10k→100k 倍率 | 205.5×（超线性） | **8.1×** | 目标 ≤15× ✅ |
+| 100k 打开 / 1000× 查询 | 2.1 s / 0-1 ms | 2.5 s / 0-1 ms | 查询面零变化 ✅ |
+| 100k 峰值 RSS | — | ≈1,004 MB | 无 N 份复制 ✅ |
+
+Debug 全量对照同方向（10k 38.6s→1.18s；BASE 100k >60 分钟超时未完成 vs
+HEAD 12.7s）。回归门：`ratios.json` 新增 `catalog_build_5k_vs_1k_max=8.0`
+（实测 5.2-5.4，二次态 ~25 必红，tst_perf_regress 看护）。
+复现：`PALEO_CATALOG_SCALE=100000 ctest -R catalog_scale`（WP2 后 ~15 s；
+`PALEO_CATALOG_PROFILE=1` 附 mutator 分段计时）。
+
 ### B5 ctest -j2 QSettings 竞态复测
 
 4 轮全量 `ctest -j4`（127 测试，共享 build-b）：历史竞态点

@@ -11,6 +11,7 @@
 #include "ui/wellcomposite/wellcompositepanel.h"
 #include "ui/wellcomposite/exportengine.h"
 #include "ui/wellcomposite/wellcompositestore.h"
+#include "ui/paleotheme.h" // initTestCase 钉死渲染环境
 #include "domain/wellcompositemodel.h"
 #include "qgis/qgisruntime.h"
 
@@ -64,6 +65,11 @@ class TestWellCompositeVisual : public QObject
   Q_OBJECT
 
 private slots:
+  // 渲染环境钉死（fe7f226 同款）：vendor 字体 + Fusion + 浅色 palette——
+  // 黄金图跨机器可复现的前提（本 wave 前缺此钉死，跨机色差 10-66/255
+  // 超 22 容差；基线图随本提交在钉死环境重生成）。
+  void initTestCase() { PaleoTheme::pinRenderEnvironment(); }
+
   // ---- D4.1 国际年代色标 ----
   void testChronostratCounts()
   {
@@ -500,6 +506,7 @@ private slots:
 
     int diffs = 0;
     const int total = 8 * 6;
+    QStringList diffDetail; // 诊断输出：超容差点的网格坐标与两侧均值色
     for (int gy = 0; gy < 6; ++gy)
     {
       for (int gx = 0; gx < 8; ++gx)
@@ -511,9 +518,15 @@ private slots:
         // 大色块均值容差：22/255（抗 AA 与光栅化差异）
         if (std::abs(a.red() - b.red()) > 22 || std::abs(a.green() - b.green()) > 22 ||
             std::abs(a.blue() - b.blue()) > 22)
+        {
           ++diffs;
+          diffDetail << QStringLiteral("gx=%1 gy=%2 golden=%3 cur=%4")
+                            .arg(QString::number(gx), QString::number(gy), a.name(), b.name());
+        }
       }
     }
+    if (diffs > 4)
+      qInfo() << "GOLDEN-DIFF" << diffDetail.join(QStringLiteral(", "));
     // ≥ 44/48 抽样点稳定一致（允许 4 个网格点跨文字/线条）
     QVERIFY2(diffs <= 4, qPrintable(QStringLiteral("%1/48 抽样点超容差").arg(diffs)));
   }

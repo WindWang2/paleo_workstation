@@ -2,9 +2,30 @@
 #pragma once
 #include <qgsprocessingalgorithm.h>
 #include <qgsprocessingprovider.h>
+#include <qgsrectangle.h>
 
 // algorithms/ — production Paleo Processing algorithms (C++ only, no Python).
 // Registered on PaleoProvider (id "paleo"), distinct from the spikes provider.
+
+// CELL_SIZE × 输入范围 → 输出网格维度的公共守卫（ConstraintIDW /
+// welldist / distance_transform 三引擎同口径）。维度超出 int 或像元总数
+// 超出 1 亿上限（与 io/horizonbinner 的 kMaxCellCount 同口径）时抛
+// QgsProcessingException——防 double→int 截断 UB 与整网格前置分配失控
+//（极小 CELL_SIZE 触发的 OOM/bad_alloc 不被转成 Processing 错误的问题，
+// Issue #33 的算法侧同款）。
+namespace PaleoAlgoGuards
+{
+  struct GridDims
+  {
+    int cols = 0;
+    int rows = 0;
+  };
+  GridDims gridDimsForExtent( const QgsRectangle &extent, double cellSize );
+
+  // 地理 CRS 的单位告警文案（度 ≠ 米）。算法不因此拒绝——行为保持兼容
+  //（历史数据/测试即用 4326 直算），原因态经 Processing feedback 透出。
+  QString geographicCrsWarning( const QString &crsIdentifier );
+}
 
 // ConstraintIDW: IDW interpolation of point z-values honoring typed constraint
 // line geometries (C1 semantics, 'type' column of the ConstraintStore layer):

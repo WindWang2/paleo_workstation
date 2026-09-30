@@ -491,6 +491,545 @@ private slots:
     delete empty;
   }
 
+  // ---- WP3 Round 1：输入域/预算/取消/CRS 守卫 --------------------------------
+
+  // 1d) 网格预算守卫：极小 CELL_SIZE × 常规范围（>1 亿像元）必须显式拒绝，
+  //     而不是 double→int 截断 UB / 整网格前置分配失控（OOM）。三个引擎
+  //     同口径（constraint_idw / welldist / distance_transform）。
+  void gridBudgetRejection()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 0, 0 ), 1.0 }, { QgsPointXY( 10, 10 ), 2.0 } } );
+    QVERIFY( wells->isValid() );
+
+    // 范围 [0,10]² 外扩后 ≈ 11×11，CELL_SIZE=1e-6 → ≈1.2e14 像元。
+    const QStringList engines = { QStringLiteral( "paleo:paleo_constraint_idw" ),
+                                  QStringLiteral( "paleo:paleo_welldist" ),
+                                  QStringLiteral( "paleo:paleo_distance_transform" ) };
+    for ( const QString &id : engines )
+    {
+      QVariantMap params;
+      params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+      if ( id.endsWith( QLatin1String( "constraint_idw" ) ) )
+        params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "CELL_SIZE" ), 1e-6 );
+      params.insert( QStringLiteral( "OUTPUT" ),
+                     mDir.filePath( QStringLiteral( "budget_%1.tif" ).arg(
+                         id.section( u':', 1 ) ) ) );
+      QString log;
+      QVERIFY2( AlgorithmTestBase::run( id, params, &log ).isEmpty(),
+                qPrintable( QStringLiteral( "%1 must reject an oversized grid" ).arg( id ) ) );
+      QVERIFY2( log.contains( QStringLiteral( "cell budget" ) ),
+                qPrintable( QStringLiteral( "%1: %2" ).arg( id, log ) ) );
+    }
+    delete wells;
+  }
+
+  // 1e) 地理 CRS：不拒绝（历史兼容），但 Processing feedback 必须给出单位
+  //     原因态（度 ≠ 米）。三个引擎同文案。
+  void geographicCrsWarningSurfaced()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 0, 0 ), 1.0 }, { QgsPointXY( 4, 4 ), 2.0 } } );
+    QVERIFY( wells->isValid() );
+
+    const QStringList engines = { QStringLiteral( "paleo:paleo_constraint_idw" ),
+                                  QStringLiteral( "paleo:paleo_welldist" ),
+                                  QStringLiteral( "paleo:paleo_distance_transform" ) };
+    for ( const QString &id : engines )
+    {
+      QVariantMap params;
+      params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+      if ( id.endsWith( QLatin1String( "constraint_idw" ) ) )
+        params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+      params.insert( QStringLiteral( "OUTPUT" ),
+                     mDir.filePath( QStringLiteral( "geo_%1.tif" ).arg(
+                         id.section( u':', 1 ) ) ) );
+      QString log, fbText;
+      QVERIFY2( !AlgorithmTestBase::run( id, params, &log, nullptr, &fbText ).isEmpty(),
+                qPrintable( log ) );
+      QVERIFY2( fbText.contains( QStringLiteral( "geographic" ) ) &&
+                    fbText.contains( QStringLiteral( "degrees" ) ),
+                qPrintable( QStringLiteral( "%1: %2" ).arg( id, fbText ) ) );
+    }
+    delete wells;
+  }
+
+  // 1f) ANISO_RATIO 上界：极端比值（>1000）拒绝并给原因，不静默产出
+  //     全 nodata / NaN 面。
+  void anisoRatioUpperBoundRejected()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 0, 0 ), 1.0 }, { QgsPointXY( 4, 0 ), 3.0 } } );
+    const QList<QgsPointXY> dir = { QgsPointXY( 0, 2 ), QgsPointXY( 4, 2 ) };
+    auto *dirs = AlgorithmTestBase::makeTypedLineLayer(
+        QStringLiteral( "dirs" ), { dir },
+        QStringList{ QStringLiteral( "direction_line" ) } );
+    QVERIFY( wells->isValid() && dirs->isValid() );
+
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( dirs ) );
+    params.insert( QStringLiteral( "ANISO_RATIO" ), 2000.0 );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    params.insert( QStringLiteral( "OUTPUT" ),
+                    mDir.filePath( QStringLiteral( "aniso_big.tif" ) ) );
+    QString log;
+    QVERIFY2( AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_constraint_idw" ), params, &log ).isEmpty(),
+              "oversized ANISO_RATIO must be rejected" );
+    QVERIFY2( log.contains( QStringLiteral( "ANISO_RATIO" ) ), qPrintable( log ) );
+
+    delete wells;
+    delete dirs;
+  }
+
+  // 1g) 取消粒度：distance_transform 的绕障阶段（屏障栅格化 + Dijkstra）
+  //     必须可取消。setProgressHook 在第一次 setProgress 即取消——修复后
+  //     第一次 setProgress 发生在 Dijkstra 节流点（行写出之前），输出栅格
+  //     第 0 行保持未写（GTiff 稀疏读 0.0）；修复前第一次 setProgress 在
+  //     第 0 行写出之后，第 0 行是真距离值（>0）。
+  void dtCancellationHonoredBeforeRowWrite()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 10, 10 ), 0.0 }, { QgsPointXY( 90, 90 ), 0.0 } } );
+    // 单条竖墙贯穿网格外（x=50，y 跨 [-10,110]）；网格 [2,98]² = 96×96。
+    const QList<QgsPointXY> wall = { QgsPointXY( 50, -10 ), QgsPointXY( 50, 110 ) };
+    auto *typed = AlgorithmTestBase::makeTypedLineLayer(
+        QStringLiteral( "typed" ), { wall },
+        QStringList{ QStringLiteral( "break_line" ) } );
+    QVERIFY( wells->isValid() && typed->isValid() );
+
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+    params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( typed ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    const QString out = mDir.filePath( QStringLiteral( "dt_cancel.tif" ) );
+    params.insert( QStringLiteral( "OUTPUT" ), out );
+
+    // 第一次 progressChanged 即取消。修复后第一次 setProgress 发生在
+    // Dijkstra 节流点（行写出之前）——GTiff 未写块读回 nodata(-9999)；
+    // 修复前第一次 setProgress 在第 0 行写出之后——角格是真实距离(>0)。
+    QgsProcessingFeedback fb;
+    QVERIFY( QObject::connect( &fb, &QgsFeedback::progressChanged, &fb,
+                               [&fb]( double ) { fb.cancel(); } ) );
+    QString log;
+    QVERIFY2( AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_distance_transform" ), params, &log, &fb ).isEmpty(),
+              "canceled run must fail" );
+    QVERIFY2( log.contains( QStringLiteral( "Canceled" ) ), qPrintable( log ) );
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 0, 0 ), -9999.0f );
+
+    delete wells;
+    delete typed;
+  }
+
+  void idwBfsCancellationHonoredBeforeRowWrite()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 10, 10 ), 5.0 }, { QgsPointXY( 90, 90 ), 9.0 } } );
+    // 单墙贯穿网格外：hull 退化为线（不裁剪 ROI），BFS 仍有 ~9100 格可走。
+    const QList<QgsPointXY> wall = { QgsPointXY( 50, -10 ), QgsPointXY( 50, 110 ) };
+    auto *typed = AlgorithmTestBase::makeTypedLineLayer(
+        QStringLiteral( "typed" ), { wall },
+        QStringList{ QStringLiteral( "break_line" ) } );
+    QVERIFY( wells->isValid() && typed->isValid() );
+
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( typed ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    const QString out = mDir.filePath( QStringLiteral( "idw_cancel.tif" ) );
+    params.insert( QStringLiteral( "OUTPUT" ), out );
+
+    QgsProcessingFeedback fb;
+    QVERIFY( QObject::connect( &fb, &QgsFeedback::progressChanged, &fb,
+                               [&fb]( double ) { fb.cancel(); } ) );
+    QString log;
+    QVERIFY2( AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_constraint_idw" ), params, &log, &fb ).isEmpty(),
+              "canceled run must fail" );
+    QVERIFY2( log.contains( QStringLiteral( "Canceled" ) ), qPrintable( log ) );
+    // 未写块 = nodata；若 BFS 不可取消，第 0 行会写出混合值（有限正值）。
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 0, 0 ), -9999.0f );
+
+    delete wells;
+    delete typed;
+  }
+
+  // ---- WP3 Round 3：ConstraintIDW 合成几何边界矩阵 --------------------------
+
+  // 3a) 多 break_line：两道平行竖墙把网格分成三区——左右两区各有井直取本区
+  //     井值，中区无井整片 nodata（不造混合值），墙列本身 nodata。
+  void constraintIdwMultipleBreakLines()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 1, 2 ), 0.0 }, { QgsPointXY( 9, 2 ), 10.0 } } );
+    // 同一条竖墙拆成两段共线 break_line（x=5.5，y∈[0,2] 与 y∈[2,4]）：
+    // 每一段都必须各自参与屏障栅格化——只处理第一条要素时上半格会漏。
+    // 共线两段的 unaryUnion 仍是线（凸包退化为非多边形）→ 无 ROI 裁剪，
+    // 与单墙（1b）同一外显。
+    const QList<QgsPointXY> segLow = { QgsPointXY( 5.5, 0 ), QgsPointXY( 5.5, 2 ) };
+    const QList<QgsPointXY> segHigh = { QgsPointXY( 5.5, 2 ), QgsPointXY( 5.5, 4 ) };
+    auto *typed = AlgorithmTestBase::makeTypedLineLayer(
+        QStringLiteral( "typed" ), { segLow, segHigh },
+        QStringList{ QStringLiteral( "break_line" ), QStringLiteral( "break_line" ) } );
+    QVERIFY( wells->isValid() && typed->isValid() );
+
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( typed ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    const QString out = mDir.filePath( QStringLiteral( "idw_multi_break.tif" ) );
+    params.insert( QStringLiteral( "OUTPUT" ), out );
+    QString log;
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_constraint_idw" ), params, &log ).isEmpty(),
+              qPrintable( log ) );
+
+    // 网格 [0.2,9.8]×[1,3]（10 列 × 2 行）；墙 x=5.5→col5。
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 0, 0 ), 0.0f );    // 左区直取
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 1, 4 ), 0.0f );
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 0, 5 ), -9999.0f ); // 上半墙段
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 1, 5 ), -9999.0f ); // 下半墙段
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 0, 6 ), 10.0f );   // 右区直取
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 1, 9 ), 10.0f );
+
+    delete wells;
+    delete typed;
+  }
+
+  // 3b) 凹形/孔洞：四面墙围出的闭合口袋内有一口井——口袋内部只从口袋井
+  //     插值；口袋外左右两区互不污染；墙格 nodata。二维封锁（纵墙封列、
+  //     横墙封行）是本例与 3a（纯平行墙）的区别。
+  void constraintIdwWalledPocketIsolated()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 1, 1 ), 0.0 },
+          { QgsPointXY( 5, 2 ), 100.0 },
+          { QgsPointXY( 9, 3 ), 10.0 } } );
+    // 网格 [0.2,9.8]×[0.8,3.2]（10 列 × 3 行）。口袋 x∈[4,7]、y∈[1,3]：
+    // 纵墙 x=4→col3、x=7→col6（y 跨越整格高）；横墙 y=3→row0、y=1→row2
+    // （x 跨 [3.6,6.8]，不越进右区）。内部自由格 = (r1,c4),(r1,c5)；口袋井
+    // (5,2)→(r1,c4)。
+    // 注：≥2 条 break_line 的凸包成为多边形 ROI（「屏障即边界」的 C1 冻结
+    // 语义）——口袋墙凸包 = [4,7]×[1,3]，口袋外整片裁成 nodata（外侧井不
+    // 参与）。本案钉的是：四面墙全部各自生效 + 口袋内部只从口袋井插值。
+    auto *typed = AlgorithmTestBase::makeTypedLineLayer(
+        QStringLiteral( "pocket" ),
+        { { QgsPointXY( 4, 0.5 ), QgsPointXY( 4, 3.5 ) },
+          { QgsPointXY( 7, 0.5 ), QgsPointXY( 7, 3.5 ) },
+          { QgsPointXY( 3.6, 3 ), QgsPointXY( 6.8, 3 ) },
+          { QgsPointXY( 3.6, 1 ), QgsPointXY( 6.8, 1 ) } },
+        QStringList{ QStringLiteral( "break_line" ), QStringLiteral( "break_line" ),
+                     QStringLiteral( "break_line" ), QStringLiteral( "break_line" ) } );
+    QVERIFY( wells->isValid() && typed->isValid() );
+
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( typed ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    const QString out = mDir.filePath( QStringLiteral( "idw_pocket.tif" ) );
+    params.insert( QStringLiteral( "OUTPUT" ), out );
+    QString log;
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_constraint_idw" ), params, &log ).isEmpty(),
+              qPrintable( log ) );
+
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 1, 4 ), 100.0f ); // 口袋内部
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 1, 5 ), 100.0f );
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 1, 3 ), -9999.0f ); // 纵墙
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 1, 6 ), -9999.0f );
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 0, 4 ), -9999.0f ); // 横墙
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 2, 4 ), -9999.0f );
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 1, 0 ), -9999.0f ); // 凸包外（ROI 裁剪）
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 1, 8 ), -9999.0f );
+
+    delete wells;
+    delete typed;
+  }
+
+  // 3c) 重合井：同位两口井（z=3 先入、z=7 后入）——井格 d²=0 命中第一口
+  //     （要素迭代序），连跑两遍一致（确定性钉死并列规则）。
+  void constraintIdwCoincidentWellsFirstWinsDeterministic()
+  {
+    // 精确命中分支：同位两口井 (5,4)（z=3 先入、z=7 后入）+ 两口对称远井
+    // (2,1)/(8,7) 使 bbox 中心 = (5,4)；CELL_SIZE=2.4 下 3×3 网格的中心格
+    // 格心恰为 (5,4) → d²=0 命中第一口（要素序）。连跑两遍逐位一致。
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 5, 4 ), 3.0 },
+          { QgsPointXY( 5, 4 ), 7.0 },
+          { QgsPointXY( 2, 1 ), 50.0 },
+          { QgsPointXY( 8, 7 ), 90.0 } } );
+    QVERIFY( wells->isValid() );
+
+    auto runOnce = [this, wells]( const QString &out ) {
+      QVariantMap params;
+      params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+      params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "CELL_SIZE" ), 2.4 );
+      params.insert( QStringLiteral( "OUTPUT" ), out );
+      QString log;
+      QVERIFY2( !AlgorithmTestBase::run(
+                    QStringLiteral( "paleo:paleo_constraint_idw" ), params, &log ).isEmpty(),
+                qPrintable( log ) );
+    };
+    const QString outA = mDir.filePath( QStringLiteral( "idw_coin_a.tif" ) );
+    const QString outB = mDir.filePath( QStringLiteral( "idw_coin_b.tif" ) );
+    runOnce( outA );
+    runOnce( outB );
+
+    int w = 0, h = 0;
+    QVector<float> px;
+    QVERIFY( AlgorithmTestBase::readRaster( outA, w, h, px ) );
+    QCOMPARE( w, 3 );
+    QCOMPARE( h, 3 );
+    QCOMPARE( AlgorithmTestBase::rasterCell( outA, 1, 1 ), 3.0f ); // 井位格心 → 第一口
+    for ( int i = 0; i < px.size(); ++i )
+      QVERIFY2( std::isfinite( px[i] ), qPrintable( QString::number( px[i] ) ) );
+    AlgorithmTestBase::RasterDiff diff;
+    QVERIFY2( AlgorithmTestBase::compareRasters( outA, outB, 0.0, &diff ),
+              qPrintable( diff.message ) );
+
+    delete wells;
+  }
+
+  // 3d) 极近井：两口井相距 2e-6——输出全格有限（无 inf/NaN 毒化；非井格
+  //     的 IDW 混合权重 1/d² 仍在 double 范围内）。
+  void constraintIdwNearWellsFiniteOutput()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 5, 2.000001 ), 1.0 },
+          { QgsPointXY( 5, 1.999999 ), 9.0 },
+          { QgsPointXY( 9, 2 ), 5.0 } } );
+    QVERIFY( wells->isValid() );
+
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    const QString out = mDir.filePath( QStringLiteral( "idw_near.tif" ) );
+    params.insert( QStringLiteral( "OUTPUT" ), out );
+    QString log;
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_constraint_idw" ), params, &log ).isEmpty(),
+              qPrintable( log ) );
+
+    int w = 0, h = 0;
+    QVector<float> px;
+    QVERIFY( AlgorithmTestBase::readRaster( out, w, h, px ) );
+    for ( int i = 0; i < px.size(); ++i )
+    {
+      QVERIFY2( std::isfinite( px[i] ) || px[i] == -9999.0f,
+                qPrintable( QStringLiteral( "cell %1 = %2" ).arg( i ).arg( px[i] ) ) );
+    }
+    delete wells;
+  }
+
+  // 3e) 单井：无约束时整面 = 井值（IDW 退化平面），网格退化轴（单点零宽）
+  //     仍得 2×2 有效格。
+  void constraintIdwSingleWellConstantPlane()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ), { { QgsPointXY( 5, 5 ), 42.0 } } );
+    QVERIFY( wells->isValid() );
+
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    const QString out = mDir.filePath( QStringLiteral( "idw_single.tif" ) );
+    params.insert( QStringLiteral( "OUTPUT" ), out );
+    QString log;
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_constraint_idw" ), params, &log ).isEmpty(),
+              qPrintable( log ) );
+
+    int w = 0, h = 0;
+    QVector<float> px;
+    QVERIFY( AlgorithmTestBase::readRaster( out, w, h, px ) );
+    QCOMPARE( w, 2 );
+    QCOMPARE( h, 2 );
+    for ( int i = 0; i < px.size(); ++i )
+      QCOMPARE( px[i], 42.0f );
+    delete wells;
+  }
+
+  // 3f) 非有限 z 跳过：NaN/Inf/非数值属性的井不参与插值（不毒化权重和）；
+  //     全部井不可用时显式拒绝。
+  void constraintIdwNonFiniteZSkippedAndAllInvalidRejected()
+  {
+    auto *mixed = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "mixed" ),
+        { { QgsPointXY( 3, 2 ), std::numeric_limits<double>::quiet_NaN() },
+          { QgsPointXY( 7, 2 ), 5.0 } } );
+    QVERIFY( mixed->isValid() );
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( mixed ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    const QString out = mDir.filePath( QStringLiteral( "idw_nan_skip.tif" ) );
+    params.insert( QStringLiteral( "OUTPUT" ), out );
+    QString log;
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_constraint_idw" ), params, &log ).isEmpty(),
+              qPrintable( log ) );
+    int w = 0, h = 0;
+    QVector<float> px;
+    QVERIFY( AlgorithmTestBase::readRaster( out, w, h, px ) );
+    for ( int i = 0; i < px.size(); ++i )
+      QCOMPARE( px[i], 5.0f ); // 唯一可用井 → 常数面
+    delete mixed;
+
+    auto *allBad = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "allbad" ),
+        { { QgsPointXY( 3, 2 ), std::numeric_limits<double>::infinity() },
+          { QgsPointXY( 7, 2 ), std::numeric_limits<double>::quiet_NaN() } } );
+    QVariantMap paramsBad;
+    paramsBad.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( allBad ) );
+    paramsBad.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    paramsBad.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    paramsBad.insert( QStringLiteral( "OUTPUT" ),
+                      mDir.filePath( QStringLiteral( "idw_all_bad.tif" ) ) );
+    QVERIFY2( AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_constraint_idw" ), paramsBad, &log ).isEmpty(),
+              "all-non-finite z must be rejected" );
+    QVERIFY2( log.contains( QStringLiteral( "no usable point features" ) ),
+              qPrintable( log ) );
+    delete allBad;
+  }
+
+  // ---- WP3 Round 4：distance transform 边界矩阵 -----------------------------
+
+  // 4a) 种子重合 + 确定性：三口井其中两口完全同位——多源 Dijkstra 起点重合
+  //     无异常，两次运行输出逐像元一致。
+  void dtCoincidentSeedsDeterministic()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 2, 2 ), 0.0 },
+          { QgsPointXY( 2, 2 ), 0.0 },
+          { QgsPointXY( 8, 5 ), 0.0 } } );
+    QVERIFY( wells->isValid() );
+
+    auto runOnce = [this, wells]( const QString &out ) {
+      QVariantMap params;
+      params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+      params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+      params.insert( QStringLiteral( "OUTPUT" ), out );
+      QString log;
+      QVERIFY2( !AlgorithmTestBase::run(
+                    QStringLiteral( "paleo:paleo_distance_transform" ), params, &log ).isEmpty(),
+                qPrintable( log ) );
+    };
+    const QString outA = mDir.filePath( QStringLiteral( "dt_coin_a.tif" ) );
+    const QString outB = mDir.filePath( QStringLiteral( "dt_coin_b.tif" ) );
+    runOnce( outA );
+    runOnce( outB );
+    AlgorithmTestBase::RasterDiff diff;
+    QVERIFY2( AlgorithmTestBase::compareRasters( outA, outB, 0.0, &diff ),
+              qPrintable( diff.message ) );
+    delete wells;
+  }
+
+  // 4b) 分辨率一致性：同一几何 CELL_SIZE=1 与 0.5 的无屏障输出在同一世界
+  //     点上的距离一致（格心偏移 ≤ 半粗格对角，tol=0.8）。
+  void dtGridResolutionConsistency()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 0, 0 ), 0.0 }, { QgsPointXY( 10, 10 ), 0.0 } } );
+    QVERIFY( wells->isValid() );
+
+    const QString outCoarse = mDir.filePath( QStringLiteral( "dt_res_c.tif" ) );
+    const QString outFine = mDir.filePath( QStringLiteral( "dt_res_f.tif" ) );
+    QString log;
+    QVariantMap paramsC;
+    paramsC.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+    paramsC.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    paramsC.insert( QStringLiteral( "OUTPUT" ), outCoarse );
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_distance_transform" ), paramsC, &log ).isEmpty(),
+              qPrintable( log ) );
+    QVariantMap paramsF = paramsC;
+    paramsF.insert( QStringLiteral( "CELL_SIZE" ), 0.5 );
+    paramsF.insert( QStringLiteral( "OUTPUT" ), outFine );
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_distance_transform" ), paramsF, &log ).isEmpty(),
+              qPrintable( log ) );
+
+    // 井 bbox [0,10]² 外扩 10% → 粗/细格都是 [-1,11]²（cell 1 / 0.5）。
+    // 粗格 (3,3) 格心 (2.5,7.5)；细格 (7,7) 格心 (2.75,7.25)。
+    const auto expectedAt = []( double cx, double cy ) -> double {
+      const double d1 = std::hypot( cx - 0.0, cy - 0.0 );
+      const double d2 = std::hypot( cx - 10.0, cy - 10.0 );
+      return std::min( d1, d2 );
+    };
+    // 粗格 (3.7,6.2)→col floor(3.5)=3,row floor(9.8-6.2)=3；细格→col floor(7.2)=7,row floor(7.4)=7。
+    const float vc = AlgorithmTestBase::rasterCell( outCoarse, 3, 3 );
+    const float vf = AlgorithmTestBase::rasterCell( outFine, 7, 7 );
+    QVERIFY2( std::fabs( vc - expectedAt( 2.5, 7.5 ) ) < 0.2,
+              qPrintable( QString::number( vc ) ) );
+    QVERIFY2( std::fabs( vf - expectedAt( 2.75, 7.25 ) ) < 0.2,
+              qPrintable( QString::number( vf ) ) );
+    QVERIFY2( std::fabs( vc - vf ) < 0.8,
+              qPrintable( QStringLiteral( "coarse %1 vs fine %2" ).arg( vc ).arg( vf ) ) );
+    delete wells;
+  }
+
+  // 4c) 不可达区：四面墙围出的闭合口袋内没有井——口袋内部 nodata（无路
+  //     可达），口袋外距离面正常（有限值）。
+  void dtUnreachablePocketNodata()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 1, 1 ), 0.0 }, { QgsPointXY( 9, 3 ), 0.0 } } );
+    auto *typed = AlgorithmTestBase::makeTypedLineLayer(
+        QStringLiteral( "pocket" ),
+        { { QgsPointXY( 4, 0.5 ), QgsPointXY( 4, 3.5 ) },
+          { QgsPointXY( 7, 0.5 ), QgsPointXY( 7, 3.5 ) },
+          { QgsPointXY( 3.6, 3 ), QgsPointXY( 6.8, 3 ) },
+          { QgsPointXY( 3.6, 1 ), QgsPointXY( 6.8, 1 ) } },
+        QStringList{ QStringLiteral( "break_line" ), QStringLiteral( "break_line" ),
+                     QStringLiteral( "break_line" ), QStringLiteral( "break_line" ) } );
+    QVERIFY( wells->isValid() && typed->isValid() );
+
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+    params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( typed ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    const QString out = mDir.filePath( QStringLiteral( "dt_pocket.tif" ) );
+    params.insert( QStringLiteral( "OUTPUT" ), out );
+    QString log;
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_distance_transform" ), params, &log ).isEmpty(),
+              qPrintable( log ) );
+
+    // 同 3b 的网格/口袋几何：内部自由格 (r1,c4),(r1,c5) 不可达 → nodata。
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 1, 4 ), -9999.0f );
+    QCOMPARE( AlgorithmTestBase::rasterCell( out, 1, 5 ), -9999.0f );
+    // 口袋外正常：左下角格到井 (1,1) 的绕障距离有限且 > 0。
+    const float outside = AlgorithmTestBase::rasterCell( out, 1, 0 );
+    QVERIFY2( std::isfinite( outside ) && outside > 0.0f,
+              qPrintable( QString::number( outside ) ) );
+    delete wells;
+    delete typed;
+  }
+
   // 2) Isopach：top−base 手工算出期望栅格，对拍（tol=1e-4）。
   void isopachMatchesHandComputedRaster()
   {

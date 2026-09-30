@@ -14,6 +14,7 @@
 #include <qgsgeometry.h>
 #include <qgspointxy.h>
 #include <qgsrectangle.h>
+#include <qgscoordinatereferencesystem.h>
 
 #include <gdal.h>
 #include <cpl_conv.h>
@@ -91,6 +92,9 @@ QVariantMap PaleoWellDistanceAlgorithm::processAlgorithm( const QVariantMap &par
   const double cellSize = parameterAsDouble( parameters, QStringLiteral( "CELL_SIZE" ), context );
   if ( cellSize <= 0.0 || !std::isfinite( cellSize ) )
     throw QgsProcessingException( QStringLiteral( "CELL_SIZE must be > 0" ) );
+  if ( source->sourceCrs().isGeographic() && feedback )
+    feedback->pushWarning( PaleoAlgoGuards::geographicCrsWarning(
+        source->sourceCrs().userFriendlyIdentifier() ) );
 
   const QString outPath = parameterAsOutputLayer( parameters, QStringLiteral( "OUTPUT" ), context );
   if ( outPath.isEmpty() )
@@ -120,8 +124,10 @@ QVariantMap PaleoWellDistanceAlgorithm::processAlgorithm( const QVariantMap &par
   const double yPad = raw.height() > 0.0 ? raw.height() * 0.1 : cellSize;
   const QgsRectangle extent( raw.xMinimum() - xPad, raw.yMinimum() - yPad,
                              raw.xMaximum() + xPad, raw.yMaximum() + yPad );
-  const int nCols = std::max( 1, static_cast<int>( std::ceil( extent.width() / cellSize ) ) );
-  const int nRows = std::max( 1, static_cast<int>( std::ceil( extent.height() / cellSize ) ) );
+  const PaleoAlgoGuards::GridDims dims =
+      PaleoAlgoGuards::gridDimsForExtent( extent, cellSize );
+  const int nCols = dims.cols;
+  const int nRows = dims.rows;
 
   const double gt[6] = { extent.xMinimum(), cellSize, 0.0,
                          extent.yMaximum(), 0.0, -cellSize };

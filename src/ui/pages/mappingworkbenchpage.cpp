@@ -244,7 +244,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   for (const auto &v : FaciesCatalog::library()) {
     auto f = v.toMap();
     library->addItem(
-        QIcon(FaciesCatalog::resourcePath(f.value("texture").toString())),
+        QIcon(FaciesCatalog::resourcePath(f.value("icon", f.value("texture")).toString())),
         f.value("category").toString() + " · " + f.value("name").toString(), f);
   }
   sbl->addWidget(library);
@@ -464,7 +464,7 @@ void MappingWorkbenchPage::updateState() {
   for (const auto &v : selectedSchema) {
     auto f = v.toMap();
     m_editFacies->addItem(
-        QIcon(FaciesCatalog::resourcePath(f.value("texture").toString())),
+        QIcon(FaciesCatalog::resourcePath(f.value("icon", f.value("texture")).toString())),
         f.value("name").toString(), f.value("code").toInt());
   }
   int oldIndex = m_editFacies->findData(oldCode);

@@ -269,6 +269,14 @@
   <file alias="strata/strat_shallow_marine.svg">geology/strata/strat_shallow_marine.svg</file>
   <file alias="strata/strat_silurian.svg">geology/strata/strat_silurian.svg</file>
   <file alias="strata/strat_triassic.svg">geology/strata/strat_triassic.svg</file>
+  <file alias="strata/strat_aeolian_fill.svg">geology/strata/strat_aeolian_fill.svg</file>
+  <file alias="strata/strat_alluvial_fan_fill.svg">geology/strata/strat_alluvial_fan_fill.svg</file>
+  <file alias="strata/strat_coastal_fill.svg">geology/strata/strat_coastal_fill.svg</file>
+  <file alias="strata/strat_delta_fill.svg">geology/strata/strat_delta_fill.svg</file>
+  <file alias="strata/strat_deltaic_fill.svg">geology/strata/strat_deltaic_fill.svg</file>
+  <file alias="strata/strat_fluvial_fill.svg">geology/strata/strat_fluvial_fill.svg</file>
+  <file alias="strata/strat_glacial_fill.svg">geology/strata/strat_glacial_fill.svg</file>
+  <file alias="strata/strat_lacustrine_fill.svg">geology/strata/strat_lacustrine_fill.svg</file>
   <file alias="textures/tex_coal.svg">geology/textures/tex_coal.svg</file>
   <file alias="textures/tex_conglomerate_cobble.svg">geology/textures/tex_conglomerate_cobble.svg</file>
   <file alias="textures/tex_conglomerate_pebble.svg">geology/textures/tex_conglomerate_pebble.svg</file>

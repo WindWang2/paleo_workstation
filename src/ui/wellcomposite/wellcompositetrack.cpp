@@ -355,7 +355,7 @@ QPixmap FaciesPatternFactory::createPatternPixmap(const QString &patternType, co
 
 QBrush FaciesPatternFactory::getBrush(const QString &patternTypeOrName, const QColor &baseBg)
 {
-  const auto path = FaciesCatalog::resourcePath(patternTypeOrName);
+  const auto path = FaciesCatalog::fillPath(patternTypeOrName);
   if (!path.isEmpty()) {
     QPixmap tile(96, 48);
     tile.fill(baseBg.isValid() ? baseBg : Qt::white);

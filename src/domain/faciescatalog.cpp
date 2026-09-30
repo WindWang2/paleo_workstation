@@ -19,6 +19,14 @@ QString resourcePath(const QString &texture) {
   const auto path = QStringLiteral(":/geology/") + texture;
   return QFile::exists(path) ? path : QString();
 }
+QString fillPath(const QString &texture) {
+  if (texture.isEmpty() || texture.contains("..") || texture.startsWith('/'))
+    return {};
+  if (texture.endsWith(QStringLiteral("_fill.svg")))
+    return resourcePath(texture);
+  return resourcePath(QString(texture).replace(QStringLiteral(".svg"),
+                                               QStringLiteral("_fill.svg")));
+}
 QVariantList library() {
   static const QVariantList items = [] {
     initGeology();
@@ -36,10 +44,16 @@ QVariantList library() {
     for (const auto &v :
          QJsonDocument::fromJson(file.readAll()).toVariant().toList()) {
       auto f = v.toMap();
-      const auto texture = paths.value(f.value("file").toString());
-      if (texture.isEmpty())
+      const auto card = paths.value(f.value("file").toString());
+      if (card.isEmpty())
         continue;
-      f.insert("texture", texture);
+      f.insert("icon", card);
+      // 可平铺填充变体 <base>_fill.svg：图签卡（带相名的插图）不参与纹理
+      // 填充，缺变体即纯色填充、相名走 label 标注。
+      const auto base = f.value("file").toString();
+      f.insert("texture",
+               paths.value(QString(base).replace(QStringLiteral(".svg"),
+                                                 QStringLiteral("_fill.svg"))));
       f.insert("name", f.value("chinese_name"));
       out << f;
     }

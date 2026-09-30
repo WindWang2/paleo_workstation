@@ -6,6 +6,7 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/ui/pages/mappingworkbenchpage.h"
 #include "../src/ui/pages/wellpredictionpanel.h"
+#include "../src/ui/wellcomposite/wellcompositecanvas.h"
 #include "../src/workflow/derivedassets.h"
 #include "../src/workflow/mappingworkbench.h"
 #include "../src/workflow/workflows.h"
@@ -29,6 +30,7 @@
 #include <qgsrasterrenderer.h>
 #include <qgsvectordataprovider.h>
 #include <qgsvectorlayer.h>
+#include <qgsvectorlayerlabeling.h>
 
 class DelayedPredictionService : public RemotePredictionService {
 public:
@@ -211,6 +213,14 @@ private slots:
     }
     renderer->stopRender(context);
     QCOMPARE(visible, 3);
+    // 相图标注：点层在 QGIS 画布上标注类别名称（白底胶囊底衬）。
+    QVERIFY(layer.labelsEnabled());
+    auto *labeling =
+        dynamic_cast<QgsVectorLayerSimpleLabeling *>(layer.labeling());
+    QVERIFY(labeling);
+    // 标注表达式按字段可用性回退，相名走 facies_label 通道。
+    QVERIFY(labeling->settings().fieldName.contains(QStringLiteral("facies_label")));
+    QVERIFY(labeling->settings().format().background().enabled());
   }
   void wellIntervalsReviewUndoAndPersistence() {
     Fixture f;
@@ -288,6 +298,14 @@ private slots:
     auto *table = panel.findChild<QTableWidget *>("predictionIntervals");
     QVERIFY(table);
     QCOMPARE(table->rowCount(), 12);
+    // 单一预测相道：预测与人工修订不再分道显示。
+    auto *canvas = panel.findChild<WellComposite::WellCompositeCanvas *>();
+    QVERIFY(canvas);
+    int faciesTracks = 0;
+    for (const auto &track : canvas->tracks())
+      if (track->type() == WellComposite::TrackType::FaciesCompound)
+        ++faciesTracks;
+    QCOMPARE(faciesTracks, 1);
     auto *choice = panel.findChild<QComboBox *>("wellFaciesChoice");
     QVERIFY(choice);
     choice->setCurrentIndex(choice->findData(code));

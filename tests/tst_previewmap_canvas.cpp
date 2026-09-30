@@ -11,6 +11,7 @@
 #include <qgsvectorlayer.h>
 #include <qgsrectangle.h>
 
+#include <cmath>
 #include <memory>
 
 // P2 D1.1 PreviewMapCanvas 契约测试：私有层容器（不进 QgsProject）、CRS 钉死、
@@ -161,6 +162,21 @@ void TestPreviewMapCanvas::layersNeverRegisteredInProject()
   QVERIFY(!proj->mapLayers().contains(a->id())); // 私有层约定
 }
 
+// QgsMapCanvas::setExtent 会按画布纵横比重排 extent，同一矩形两次重排的
+// 结果可差最后几个 ulp（实测 xmax 差 2.8e-13）——QCOMPARE 的精确相等在
+// 部分工具链上必红。用与 PreviewMapCanvas::sameExtent 同级的相对容差。
+namespace
+{
+bool extentFuzzyEqual(const QgsRectangle &a, const QgsRectangle &b)
+{
+  const double tol = std::max(std::abs(a.width()), 1.0) * 1e-9;
+  return std::abs(a.xMinimum() - b.xMinimum()) < tol &&
+         std::abs(a.yMinimum() - b.yMinimum()) < tol &&
+         std::abs(a.width() - b.width()) < tol &&
+         std::abs(a.height() - b.height()) < tol;
+}
+} // namespace
+
 void TestPreviewMapCanvas::zoomHistoryBackForward()
 {
   auto *a = makePointLayer(4, QStringLiteral("a"));
@@ -172,10 +188,14 @@ void TestPreviewMapCanvas::zoomHistoryBackForward()
   const QgsRectangle second = m_canvas->currentExtent();
   QVERIFY(m_canvas->canZoomBack());
   m_canvas->zoomBack();
-  QCOMPARE(m_canvas->currentExtent(), first);
+  QVERIFY2(extentFuzzyEqual(m_canvas->currentExtent(), first),
+           qPrintable(QStringLiteral("zoomBack extent %1 vs %2")
+                          .arg(m_canvas->currentExtent().toString(), first.toString())));
   QVERIFY(m_canvas->canZoomForward());
   m_canvas->zoomForward();
-  QCOMPARE(m_canvas->currentExtent(), second);
+  QVERIFY2(extentFuzzyEqual(m_canvas->currentExtent(), second),
+           qPrintable(QStringLiteral("zoomForward extent %1 vs %2")
+                          .arg(m_canvas->currentExtent().toString(), second.toString())));
   m_canvas->clearHistory();
   QVERIFY(!m_canvas->canZoomBack());
   QVERIFY(!m_canvas->canZoomForward());

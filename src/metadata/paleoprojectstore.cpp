@@ -82,7 +82,21 @@ PaleoProjectStore::WriteResult PaleoProjectStore::enqueueWrite( const std::funct
   WriteResult result;
   {
     QMutexLocker locker( &m_writeMutex );
-    result = fn();
+    // 写任务内的异常（provider/GDAL 抛出）转成失败结果——异常裸穿会让
+    // 调用方的收尾（如 commitEdit 的 busy 标记释放）被跳过，且 writeFailed
+    // 信号丢失。单写者语义下失败也是一次完整的「写完成尝试」。
+    try
+    {
+      result = fn();
+    }
+    catch ( const std::exception &e )
+    {
+      result = { false, tr( "写入任务异常终止：%1" ).arg( QString::fromUtf8( e.what() ) ) };
+    }
+    catch ( ... )
+    {
+      result = { false, tr( "写入任务异常终止（未知异常）" ) };
+    }
   }
 
   // Target is unknown to the store for a free-form write — empty string.
@@ -106,8 +120,21 @@ PaleoProjectStore::WriteResult PaleoProjectStore::saveAll( const std::function<W
     QMutexLocker locker( &m_writeMutex );
 
     // 1. gpkg commit — the authoritative data state. Failure aborts the whole
-    //    sequence before any .qgz mutation happens.
-    result = gpkgCommit();
+    //    sequence before any .qgz mutation happens. Exceptions are converted
+    //    to a failure result for the same reason as enqueueWrite: the
+    //    abort-before-qgz ordering must survive a throwing commit lambda.
+    try
+    {
+      result = gpkgCommit();
+    }
+    catch ( const std::exception &e )
+    {
+      result = { false, tr( "数据提交异常终止：%1" ).arg( QString::fromUtf8( e.what() ) ) };
+    }
+    catch ( ... )
+    {
+      result = { false, tr( "数据提交异常终止（未知异常）" ) };
+    }
     if ( result.ok )
       pending.append( { false, m_gpkgPath, QString() } );
     else

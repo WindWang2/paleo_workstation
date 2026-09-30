@@ -492,152 +492,152 @@
 <context>
     <name>CompositionWorkflow</name>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1651"/>
-        <location filename="../src/workflow/workflows.cpp" line="1740"/>
-        <location filename="../src/workflow/workflows.cpp" line="1860"/>
-        <location filename="../src/workflow/workflows.cpp" line="1938"/>
+        <location filename="../src/workflow/workflows.cpp" line="1624"/>
+        <location filename="../src/workflow/workflows.cpp" line="1713"/>
+        <location filename="../src/workflow/workflows.cpp" line="1833"/>
+        <location filename="../src/workflow/workflows.cpp" line="1911"/>
         <source>composition workflow is not bound to services</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1656"/>
+        <location filename="../src/workflow/workflows.cpp" line="1629"/>
         <source>no factor layers supplied for fusion</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1681"/>
+        <location filename="../src/workflow/workflows.cpp" line="1654"/>
         <source>%1 相融合</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1700"/>
+        <location filename="../src/workflow/workflows.cpp" line="1673"/>
         <source>facies fusion returned no output path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1742"/>
+        <location filename="../src/workflow/workflows.cpp" line="1715"/>
         <source>no raster layer supplied for facies polygons</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1747"/>
-        <location filename="../src/workflow/workflows.cpp" line="1867"/>
+        <location filename="../src/workflow/workflows.cpp" line="1720"/>
+        <location filename="../src/workflow/workflows.cpp" line="1840"/>
         <source>无法读取图层清单</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1761"/>
+        <location filename="../src/workflow/workflows.cpp" line="1734"/>
         <source>raster layer &apos;%1&apos; is not declared</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1765"/>
+        <location filename="../src/workflow/workflows.cpp" line="1738"/>
         <source>cannot derive facies polygons without a horizon</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1772"/>
+        <location filename="../src/workflow/workflows.cpp" line="1745"/>
         <source>failed to instantiate raster &apos;%1&apos;</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1782"/>
+        <location filename="../src/workflow/workflows.cpp" line="1755"/>
         <source>%1 相多边形</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1807"/>
+        <location filename="../src/workflow/workflows.cpp" line="1780"/>
         <source>failed to instantiate constraints &apos;%1&apos;</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1818"/>
+        <location filename="../src/workflow/workflows.cpp" line="1791"/>
         <source>facies polygonize produced no results</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1822"/>
+        <location filename="../src/workflow/workflows.cpp" line="1795"/>
         <source>facies polygonize returned no output path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1842"/>
+        <location filename="../src/workflow/workflows.cpp" line="1815"/>
         <source>failed to declare facies layer &apos;%1&apos;</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1862"/>
-        <location filename="../src/workflow/workflows.cpp" line="1940"/>
+        <location filename="../src/workflow/workflows.cpp" line="1835"/>
+        <location filename="../src/workflow/workflows.cpp" line="1913"/>
         <source>no facies layer supplied</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1880"/>
+        <location filename="../src/workflow/workflows.cpp" line="1853"/>
         <source>layer &apos;%1&apos; is not declared</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1894"/>
+        <location filename="../src/workflow/workflows.cpp" line="1867"/>
         <source>无法定位工程目录来铺相界工作副本（%1）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1902"/>
+        <location filename="../src/workflow/workflows.cpp" line="1875"/>
         <source>cannot create %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1904"/>
+        <location filename="../src/workflow/workflows.cpp" line="1877"/>
         <source>cannot replace stale working copy %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1906"/>
+        <location filename="../src/workflow/workflows.cpp" line="1879"/>
         <source>cannot copy %1 → %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1947"/>
+        <location filename="../src/workflow/workflows.cpp" line="1920"/>
         <source>layer &apos;%1&apos; is not a vector layer</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1952"/>
+        <location filename="../src/workflow/workflows.cpp" line="1925"/>
         <source>先在地图上选中要改相属性的要素（%1）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1961"/>
+        <location filename="../src/workflow/workflows.cpp" line="1934"/>
         <source>cannot start editing on &apos;%1&apos;（%2）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1966"/>
+        <location filename="../src/workflow/workflows.cpp" line="1939"/>
         <source>failed to re-instantiate &apos;%1&apos; after preparing edit copy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1970"/>
+        <location filename="../src/workflow/workflows.cpp" line="1943"/>
         <source>cannot start editing on &apos;%1&apos;</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="2003"/>
+        <location filename="../src/workflow/workflows.cpp" line="1976"/>
         <source>相代码须是整数：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="2010"/>
+        <location filename="../src/workflow/workflows.cpp" line="1983"/>
         <source>cannot add field &apos;%1&apos; to %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="2013"/>
+        <location filename="../src/workflow/workflows.cpp" line="1986"/>
         <source>field &apos;%1&apos; not visible after add</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="2018"/>
+        <location filename="../src/workflow/workflows.cpp" line="1991"/>
         <source>编辑相属性</source>
         <translation type="unfinished"></translation>
     </message>
@@ -924,7 +924,7 @@
     <name>ConstraintWorkflow</name>
     <message>
         <location filename="../src/workflow/workflows.cpp" line="745"/>
-        <location filename="../src/workflow/workflows.cpp" line="1523"/>
+        <location filename="../src/workflow/workflows.cpp" line="1496"/>
         <source>constraint workflow is not bound to a layer service</source>
         <translation type="unfinished"></translation>
     </message>
@@ -941,8 +941,8 @@
     <message>
         <location filename="../src/workflow/workflows.cpp" line="933"/>
         <location filename="../src/workflow/workflows.cpp" line="1082"/>
-        <location filename="../src/workflow/workflows.cpp" line="1266"/>
-        <location filename="../src/workflow/workflows.cpp" line="1381"/>
+        <location filename="../src/workflow/workflows.cpp" line="1246"/>
+        <location filename="../src/workflow/workflows.cpp" line="1341"/>
         <source>constraint workflow is not bound to services</source>
         <translation type="unfinished"></translation>
     </message>
@@ -960,7 +960,7 @@
     <message>
         <location filename="../src/workflow/workflows.cpp" line="948"/>
         <location filename="../src/workflow/workflows.cpp" line="1122"/>
-        <location filename="../src/workflow/workflows.cpp" line="1399"/>
+        <location filename="../src/workflow/workflows.cpp" line="1359"/>
         <source>像元大小必须是正数</source>
         <translation type="unfinished"></translation>
     </message>
@@ -972,15 +972,15 @@
     <message>
         <location filename="../src/workflow/workflows.cpp" line="987"/>
         <location filename="../src/workflow/workflows.cpp" line="1169"/>
-        <location filename="../src/workflow/workflows.cpp" line="1442"/>
-        <location filename="../src/workflow/workflows.cpp" line="1542"/>
+        <location filename="../src/workflow/workflows.cpp" line="1402"/>
+        <location filename="../src/workflow/workflows.cpp" line="1515"/>
         <source>无法读取图层清单</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/workflow/workflows.cpp" line="1001"/>
         <location filename="../src/workflow/workflows.cpp" line="1190"/>
-        <location filename="../src/workflow/workflows.cpp" line="1456"/>
+        <location filename="../src/workflow/workflows.cpp" line="1416"/>
         <source>无法加载约束图层 %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1001,18 +1001,16 @@
     </message>
     <message>
         <location filename="../src/workflow/workflows.cpp" line="1131"/>
-        <location filename="../src/workflow/workflows.cpp" line="1408"/>
+        <location filename="../src/workflow/workflows.cpp" line="1368"/>
         <source>层位 %1 没有井点图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/workflow/workflows.cpp" line="1149"/>
         <location filename="../src/workflow/workflows.cpp" line="1211"/>
-        <location filename="../src/workflow/workflows.cpp" line="1249"/>
-        <location filename="../src/workflow/workflows.cpp" line="1306"/>
-        <location filename="../src/workflow/workflows.cpp" line="1364"/>
-        <location filename="../src/workflow/workflows.cpp" line="1423"/>
-        <location filename="../src/workflow/workflows.cpp" line="1508"/>
+        <location filename="../src/workflow/workflows.cpp" line="1286"/>
+        <location filename="../src/workflow/workflows.cpp" line="1383"/>
+        <location filename="../src/workflow/workflows.cpp" line="1481"/>
         <source>%1·%2</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1023,58 +1021,58 @@
     </message>
     <message>
         <location filename="../src/workflow/workflows.cpp" line="1204"/>
-        <location filename="../src/workflow/workflows.cpp" line="1470"/>
+        <location filename="../src/workflow/workflows.cpp" line="1430"/>
         <source>单因素生成未返回输出路径</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1279"/>
+        <location filename="../src/workflow/workflows.cpp" line="1259"/>
         <source>等厚引擎需要顶/底构造面图层（topLayerId/baseLayerId）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1294"/>
+        <location filename="../src/workflow/workflows.cpp" line="1274"/>
         <source>顶/底输入必须是栅格图层：%1 / %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1329"/>
+        <location filename="../src/workflow/workflows.cpp" line="1309"/>
         <source>等厚生成未返回输出路径</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1388"/>
+        <location filename="../src/workflow/workflows.cpp" line="1348"/>
         <source>单因素 %1 的引擎 %2 尚未注册（参数契约已冻结；见 docs/progress/mapping.md）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1528"/>
+        <location filename="../src/workflow/workflows.cpp" line="1501"/>
         <source>缺少单因素图层 id</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1533"/>
+        <location filename="../src/workflow/workflows.cpp" line="1506"/>
         <source>等值线间距必须是正数</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1556"/>
+        <location filename="../src/workflow/workflows.cpp" line="1529"/>
         <source>图层 %1 未在清单声明</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1561"/>
+        <location filename="../src/workflow/workflows.cpp" line="1534"/>
         <source>等值线输入必须是栅格图层：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1581"/>
-        <location filename="../src/workflow/workflows.cpp" line="1619"/>
+        <location filename="../src/workflow/workflows.cpp" line="1554"/>
+        <location filename="../src/workflow/workflows.cpp" line="1592"/>
         <source>等值线·%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1598"/>
+        <location filename="../src/workflow/workflows.cpp" line="1571"/>
         <source>%1 等值线</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4606,38 +4604,38 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>MapVersionController</name>
     <message>
-        <location filename="../src/workflow/mapversioncontroller.cpp" line="178"/>
-        <location filename="../src/workflow/mapversioncontroller.cpp" line="187"/>
+        <location filename="../src/workflow/mapversioncontroller.cpp" line="87"/>
+        <location filename="../src/workflow/mapversioncontroller.cpp" line="96"/>
         <source>图层 %1 提交编辑失败：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mapversioncontroller.cpp" line="213"/>
+        <location filename="../src/workflow/mapversioncontroller.cpp" line="122"/>
         <source>未绑定版本存储</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mapversioncontroller.cpp" line="263"/>
+        <location filename="../src/workflow/mapversioncontroller.cpp" line="172"/>
         <source>无 %1 分层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mapversioncontroller.cpp" line="267"/>
+        <location filename="../src/workflow/mapversioncontroller.cpp" line="176"/>
         <source>无时深表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mapversioncontroller.cpp" line="282"/>
+        <location filename="../src/workflow/mapversioncontroller.cpp" line="191"/>
         <source>层位 %1 还没有时间栅格</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mapversioncontroller.cpp" line="296"/>
+        <location filename="../src/workflow/mapversioncontroller.cpp" line="205"/>
         <source>井位不在测网内</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mapversioncontroller.cpp" line="299"/>
+        <location filename="../src/workflow/mapversioncontroller.cpp" line="208"/>
         <source>井位落在空道</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5372,115 +5370,115 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>MappingWorkflow</name>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="442"/>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="631"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="350"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="539"/>
         <source>未绑定项目数据（读侧门面）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="447"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="355"/>
         <source>厚度计算需要层位与基面（%1→%2）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="483"/>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="485"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="391"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="393"/>
         <source>无 %1 分层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="487"/>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="489"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="395"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="397"/>
         <source>缺 %1 TVD</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="504"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="412"/>
         <source>两层时间差非正（dt=%1ms）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="506"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="414"/>
         <source>两层 TVD 差非正（%1m）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="508"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="416"/>
         <source>分层点与井口都无坐标</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="586"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="494"/>
         <source>%1 厚度井位</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="612"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="520"/>
         <source>厚度井位</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="633"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="541"/>
         <source>编图工作流未绑定服务</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="635"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="543"/>
         <source>编图链未绑定数据目录（catalog）——派生产物无法登记到工程</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="640"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="548"/>
         <source>层位 %1 没有厚度基面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="656"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="564"/>
         <source>没有厚度样本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="656"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="564"/>
         <source>厚度样本不足以成面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="724"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="632"/>
         <source>%1 井点厚度</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="729"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="637"/>
         <source>井点厚度栅格写入失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="748"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="656"/>
         <source>无法声明井点厚度图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="758"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="666"/>
         <source>无法读取 %1/%2 的时间栅格</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="760"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="668"/>
         <source>%1 与 %2 的尺寸、geotransform 或 nodata 不一致，不写等厚</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="810"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="718"/>
         <source>%1–%2 等厚</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="815"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="723"/>
         <source>等厚栅格写入失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="836"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="744"/>
         <source>无法声明等厚图层</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5496,23 +5494,23 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoAddFeatureTool</name>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="52"/>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="183"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="40"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="171"/>
         <source>添加要素</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="165"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="153"/>
         <source>无法添加要素：%1 不在编辑状态</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="166"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="154"/>
         <source>无法添加要素：没有目标图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="174"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="162"/>
         <source>绘制的要素</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5559,28 +5557,28 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoDeleteFeatureTool</name>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="512"/>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="572"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="500"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="560"/>
         <source>删除要素</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="543"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="531"/>
         <source>无法删除要素：%1 不在编辑状态</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="544"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="532"/>
         <source>无法删除要素：没有目标图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="568"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="556"/>
         <source>点击位置没有可删除的要素</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="579"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="567"/>
         <source>已删除 %1 个要素</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5676,12 +5674,12 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoDrawCircleTool</name>
     <message>
-        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="121"/>
+        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="87"/>
         <source>绘制圆形约束</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="187"/>
+        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="143"/>
         <source>无法将约束圆转换到地图坐标</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5689,12 +5687,12 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoDrawConstraintTool</name>
     <message>
-        <location filename="../src/ui/maptools/paleomaptools.cpp" line="45"/>
+        <location filename="../src/ui/maptools/paleomaptools.cpp" line="22"/>
         <source>绘制约束线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/maptools/paleomaptools.cpp" line="104"/>
+        <location filename="../src/ui/maptools/paleomaptools.cpp" line="71"/>
         <source>无法将约束线转换到地图坐标</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5702,12 +5700,12 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoDrawEllipseTool</name>
     <message>
-        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="236"/>
+        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="190"/>
         <source>绘制椭圆约束</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="301"/>
+        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="245"/>
         <source>无法将约束椭圆转换到地图坐标</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5715,12 +5713,12 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoDrawPointTool</name>
     <message>
-        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="49"/>
+        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="27"/>
         <source>绘制点约束</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="104"/>
+        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="72"/>
         <source>无法将约束点转换到地图坐标</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5728,12 +5726,12 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoDrawPolygonTool</name>
     <message>
-        <location filename="../src/ui/maptools/paleomaptools.cpp" line="140"/>
+        <location filename="../src/ui/maptools/paleomaptools.cpp" line="105"/>
         <source>绘制多边形约束</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/maptools/paleomaptools.cpp" line="199"/>
+        <location filename="../src/ui/maptools/paleomaptools.cpp" line="154"/>
         <source>无法将约束多边形转换到地图坐标</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5741,12 +5739,12 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoDrawRectTool</name>
     <message>
-        <location filename="../src/ui/maptools/paleomaptools.cpp" line="236"/>
+        <location filename="../src/ui/maptools/paleomaptools.cpp" line="189"/>
         <source>绘制矩形约束</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/maptools/paleomaptools.cpp" line="311"/>
+        <location filename="../src/ui/maptools/paleomaptools.cpp" line="254"/>
         <source>无法将约束矩形转换到地图坐标</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6073,135 +6071,135 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoLayerConfigPage</name>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="134"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="135"/>
         <source>图层 ID</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="136"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="137"/>
         <source>所属组</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="138"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="139"/>
         <source>层位</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="140"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="141"/>
         <source>关联资产</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="141"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="142"/>
         <source>未关联</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="143"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="144"/>
         <source>来源</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="150"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="151"/>
         <source>创建时间</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="157"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="158"/>
         <source>在数据页查看资产</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="163"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="164"/>
         <source>该图层未关联数据资产（图层清单暂无关联登记）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="205"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="206"/>
         <source>样式</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="216"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="217"/>
         <source>保存当前样式为预设</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="220"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="323"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="221"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="324"/>
         <source>从预设恢复</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="222"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="223"/>
         <source>导出 .qml…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="224"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="225"/>
         <source>导入 .qml…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="272"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="273"/>
         <source>预设1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="284"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="305"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="285"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="306"/>
         <source>保存样式预设</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="284"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="285"/>
         <source>预设名：</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="306"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="307"/>
         <source>保存预设失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="324"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="325"/>
         <source>无法应用预设：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="335"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="345"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="350"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="336"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="346"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="351"/>
         <source>导出样式 .qml</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="336"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="359"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="337"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="360"/>
         <source>QGIS 样式文件 (*.qml)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="351"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="352"/>
         <source>无法写入文件：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="359"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="365"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="372"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="377"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="360"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="366"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="373"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="378"/>
         <source>导入样式 .qml</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="366"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="367"/>
         <source>无法读取文件：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="372"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="373"/>
         <source>不是有效的样式文件。</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6950,9 +6948,9 @@ Crossline: %3 ~ %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="654"/>
         <location filename="../src/ui/paleomainwindow_attach.cpp" line="1268"/>
         <location filename="../src/ui/paleomainwindow_attach.cpp" line="1271"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="654"/>
         <source>任务</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7224,8 +7222,8 @@ Crossline: %3 ~ %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1323"/>
         <location filename="../src/ui/paleomainwindow_attach.cpp" line="460"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1323"/>
         <source>取消</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8099,34 +8097,34 @@ SHA-256：%2</source>
 <context>
     <name>PaleoMoveTool</name>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="323"/>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="455"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="311"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="443"/>
         <source>移动要素</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="358"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="346"/>
         <source>无法移动要素：%1 不在编辑状态</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="359"/>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="440"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="347"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="428"/>
         <source>无法移动要素：没有目标图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="367"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="355"/>
         <source>请先选择要移动的要素</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="390"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="378"/>
         <source>所选要素没有可移动的几何</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="439"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="427"/>
         <source>无法移动要素：%1 已不在编辑状态</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8160,6 +8158,14 @@ SHA-256：%2</source>
     </message>
 </context>
 <context>
+    <name>PaleoPageFactory</name>
+    <message>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="414"/>
+        <source>Paleo 业务</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>PaleoProjectStore</name>
     <message>
         <location filename="../src/metadata/paleoprojectstore.cpp" line="81"/>
@@ -8172,85 +8178,83 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="127"/>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="397"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="461"/>
         <source>Failed to back up %1 to %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="133"/>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="403"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="465"/>
         <source>Failed to replace backup %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="199"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="185"/>
         <source>no project paths set — commit journal has no home</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="205"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="191"/>
         <source>cannot create commit journal dir %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="224"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="210"/>
         <source>cannot write %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="233"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="219"/>
         <source>short write to %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="239"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="225"/>
         <source>cannot replace %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="331"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="317"/>
         <source>工程目录被另一个实例锁定——本实例只读，工程提交被拒绝</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="335"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="321"/>
         <source>commitAll: both commit units are required</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="337"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="323"/>
         <source>commitAll: unsafe or empty op id: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="339"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="325"/>
         <source>commitAll: no project paths set — cannot locate commit journal</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="354"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="340"/>
         <source>commit journal %1 is unreadable or has an unknown stage — refusing to resume</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="357"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="343"/>
         <source>commit op %1 journaled with different inputs — refusing to resume</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="366"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="352"/>
         <source>cannot write commit journal %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="382"/>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="419"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="368"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="391"/>
         <source>commit journal advance failed for op %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/metadata/paleoprojectstore.cpp" line="433"/>
+        <location filename="../src/metadata/paleoprojectstore.cpp" line="405"/>
         <source>commit finished but final journal mark failed: %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8258,23 +8262,23 @@ SHA-256：%2</source>
 <context>
     <name>PaleoReshapeTool</name>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="205"/>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="277"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="193"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="265"/>
         <source>整形要素</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="258"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="246"/>
         <source>无法整形：%1 不在编辑状态</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="259"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="247"/>
         <source>无法整形：没有目标图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtools.cpp" line="267"/>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="255"/>
         <source>请先选择要整形的要素</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8344,72 +8348,72 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="456"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="448"/>
         <source>请先开始编辑，再删除节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="489"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="481"/>
         <source>无法删除节点：要素将变为无效</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="541"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="533"/>
         <source>无法删除节点：共边要素将变为无效</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="565"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="557"/>
         <source>删除节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="631"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="623"/>
         <source>部分图层拒绝了节点删除</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="632"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="624"/>
         <source>无法删除节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="661"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="653"/>
         <source>编辑已停止——节点移动已丢弃</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="701"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="693"/>
         <source>移动节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="729"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="721"/>
         <source>部分图层的编辑已停止——这些移动已丢弃</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="730"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="722"/>
         <source>无法移动节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="747"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="739"/>
         <source>请先开始编辑，再添加节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="806"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="798"/>
         <source>添加节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="838"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="830"/>
         <source>部分图层拒绝了节点插入</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="839"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="831"/>
         <source>无法添加节点</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8837,7 +8841,7 @@ SHA-256：%2</source>
     </message>
     <message>
         <location filename="../src/qgis/qgiseditingservice.cpp" line="78"/>
-        <location filename="../src/workflow/mapversioncontroller.cpp" line="171"/>
+        <location filename="../src/workflow/mapversioncontroller.cpp" line="80"/>
         <source>commitChanges failed for layer &apos;%1&apos;</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9578,42 +9582,42 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="251"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="224"/>
         <source>GTiff 驱动不可用</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="258"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="231"/>
         <source>无法创建栅格 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="277"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="250"/>
         <source>栅格写入失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="404"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="312"/>
         <source>井点 GeoJSON 写入失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="880"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="788"/>
         <source>无 %1 分层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="904"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="812"/>
         <source>井位不在测网内</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mappingworkflow.cpp" line="911"/>
+        <location filename="../src/workflow/mappingworkflow.cpp" line="819"/>
         <source>井位落在空道</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/mapversioncontroller.cpp" line="344"/>
+        <location filename="../src/workflow/mapversioncontroller.cpp" line="253"/>
         <source>存在过时下游产物（%1 个）——不阻断本次发布，请确认后继续</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10652,6 +10656,11 @@ SHA-256：%2</source>
     <message>
         <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="1078"/>
         <source>体窗堆叠取数失败，回落逐层切片：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/app/main.cpp" line="128"/>
+        <source>Paleo 上次异常退出</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -12618,42 +12627,42 @@ SHA-256：%2</source>
 <context>
     <name>ValidationWorkflow</name>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="2075"/>
+        <location filename="../src/workflow/workflows.cpp" line="2048"/>
         <source>无法读取图层清单</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="2093"/>
+        <location filename="../src/workflow/workflows.cpp" line="2066"/>
         <source>已声明图层 %1 的源文件在磁盘上不存在：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="2122"/>
+        <location filename="../src/workflow/workflows.cpp" line="2095"/>
         <source>层位名冲突（归一化后相同）：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="2139"/>
+        <location filename="../src/workflow/workflows.cpp" line="2112"/>
         <source>图层 %1 正忙：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="2173"/>
+        <location filename="../src/workflow/workflows.cpp" line="2146"/>
         <source>层位 %1 还没有时间栅格</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="2175"/>
+        <location filename="../src/workflow/workflows.cpp" line="2148"/>
         <source>层位 %1 的时间栅格不可用</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="2215"/>
+        <location filename="../src/workflow/workflows.cpp" line="2188"/>
         <source>，目标测线 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="2216"/>
+        <location filename="../src/workflow/workflows.cpp" line="2189"/>
         <source>井 %1 %2 时间残差 %3ms（井 %4ms vs 栅格 %5ms%6）</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13327,62 +13336,62 @@ SHA-256：%2</source>
 <context>
     <name>WellComposite::WellCompositeBody</name>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1115"/>
+        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1095"/>
         <source>钉注</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1192"/>
+        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1172"/>
         <source>比例尺: %1 (1cm≈%2m)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1199"/>
+        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1179"/>
         <source>[%1~%2m] 跨度:%3m</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1430"/>
+        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1410"/>
         <source>编辑钉注…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1431"/>
+        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1411"/>
         <source>跳转到该深度</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1432"/>
+        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1412"/>
         <source>删除钉注</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1481"/>
+        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1461"/>
         <source>隐藏该道</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1482"/>
+        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1462"/>
         <source>复制该道</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1483"/>
+        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1463"/>
         <source>导出该道 CSV…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1485"/>
+        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1465"/>
         <source>跳转到深度…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1486"/>
+        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1466"/>
         <source>道配置…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1488"/>
+        <location filename="../src/ui/wellcomposite/wellcompositecanvas.cpp" line="1468"/>
         <source>删除该道</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14116,6 +14125,15 @@ SHA-256：%2</source>
     <message>
         <location filename="../src/ui/wellcomposite/multiwellview.cpp" line="385"/>
         <source>测区井（蓝）/ 参考井（琥珀）</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>WellCompositeExport</name>
+    <message>
+        <location filename="../src/ui/wellcomposite/exportengine.cpp" line="401"/>
+        <location filename="../src/ui/wellcomposite/exportengine.cpp" line="423"/>
+        <source>综合柱状图 %1</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

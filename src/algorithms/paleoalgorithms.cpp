@@ -410,7 +410,8 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
       for ( const QgsPolylineXY &pl : mpl )
         for ( int i = 1; i < pl.size(); ++i )
         {
-          const QgsPointXY a = pl[i - 1], b = pl[i];
+          const QgsPointXY &a = pl[i - 1];
+          const QgsPointXY &b = pl[i];
           const double len = a.distance( b );
           const int steps = std::max( 1, static_cast<int>( std::ceil( len / ( cellSize * 0.5 ) ) ) );
           for ( int s = 0; s <= steps; ++s )

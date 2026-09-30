@@ -40,6 +40,14 @@ jobs:
           sudo apt-get install -y qgis qgis-providers libqgis-dev qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev qt6-webengine-dev qt6-pdf-dev libgdal-dev
       - name: Configure (compile_commands.json only)
         run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      # .cpp 内 Q_OBJECT 类靠 `#include "*.moc"`（AUTOMOC 产物）；只 configure
+      # 不 build 时该文件不存在，clang-tidy 报 clang-diagnostic-error。
+      # 先生成全部 *_autogen 目标（只跑 moc/uic，不编译，秒级）。
+      - name: Generate AUTOMOC stubs (.cpp 内 Q_OBJECT 的 .moc 包含)
+        run: |
+          targets=$(cmake --build build --target help | grep -oE '[A-Za-z0-9_-]+_autogen' | sort -u)
+          echo "autogen targets: $targets"
+          cmake --build build --target $targets
       - name: clang-tidy gate (changed src/ TUs vs merge-base)
         env:
           PALEO_CLANG_TIDY: clang-tidy-20

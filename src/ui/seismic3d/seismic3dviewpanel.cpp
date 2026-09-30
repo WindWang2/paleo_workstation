@@ -693,10 +693,10 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
 
 // A2（wave/deepen-perf）：新请求顶替在途读——协作取消（引擎 CancelToken 轮询
 // 谓词 / 直读 progress 回调），被拖过的索引不再占用整段读取时长。
-void Seismic3DViewPanel::supersedeInFlightSlice(std::size_t si)
+void Seismic3DViewPanel::supersedeInFlightSlice(std::size_t slotIndex)
 {
-    if (auto *inFlight = slotTasks_[si].data()) {
-        slotSuperseded_[si] = true;
+    if (auto *inFlight = slotTasks_[slotIndex].data()) {
+        slotSuperseded_[slotIndex] = true;
         inFlight->requestCancel();
     }
 }

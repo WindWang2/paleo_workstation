@@ -8,6 +8,7 @@
 #include <QPdfWriter>
 #include <QClipboard>
 #include <QApplication>
+#include <QPrinterInfo>
 #include <QSvgGenerator>
 
 #include "wellcompositecanvas.h"
@@ -413,25 +414,40 @@ QString ExportEngine::exportCanvas(const WellCompositeCanvas &canvas,
     return QString();
   }
 
-  // ---- PDF（QPdfWriter 矢量，多页）----
+  // ---- PDF（QPdfWriter 矢量，多页；D3 后与原生打印共用分页管线）----
   QPdfWriter writer(path);
   writer.setResolution(opt.dpi);
   writer.setPageLayout(QPageLayout(QPageSize(QPageSize::A4), QPageLayout::Portrait,
                                    QMarginsF(12, 14, 12, 14), QPageLayout::Millimeter));
   writer.setTitle(QStringLiteral("综合柱状图 %1").arg(opt.wellName));
   writer.setCreator(QStringLiteral("Paleo Workstation"));
+  return exportToPagedDevice(canvas, data, writer, opt);
+}
 
-  QPainter p(&writer);
+QString ExportEngine::exportToPagedDevice(const WellCompositeCanvas &canvas,
+                                          const ComprehensiveWellData &data,
+                                          QPagedPaintDevice &device, const Options &opt)
+{
+  const QList<std::shared_ptr<WellTrack>> tracks = exportableTracks(canvas);
+  if (tracks.isEmpty())
+    return QStringLiteral("无可导出的道（全部隐藏或关闭打印）");
+
+  const qreal headerRowH = 72.0;
+
+  QPainter p(&device);
   applyExportRenderHints(p);
   CurvePenGuard penGuard(tracks);
 
+  // 设备实际分辨率优先（QPrinter 300/QPrinterInfo 高分辨率档与 opt.dpi 可能
+  // 不同——比例尺语义按设备 dpi 换算，不按导出参数硬套）。
+  const int dpi = device.logicalDpiY() > 0 ? device.logicalDpiY() : opt.dpi;
   bool okDenom = false;
   const int denom = opt.scaleRatio.startsWith(QLatin1String("1:"))
                         ? opt.scaleRatio.mid(2).toInt(&okDenom)
                         : 500;
-  const double pxPerMeter = 39.3701 * opt.dpi / (okDenom && denom > 0 ? denom : 500);
+  const double pxPerMeter = 39.3701 * dpi / (okDenom && denom > 0 ? denom : 500);
 
-  const QRectF pageRect = QRectF(0, 0, writer.width(), writer.height());
+  const QRectF pageRect = QRectF(0, 0, device.width(), device.height());
   const qreal headBlockH = opt.includeHeader ? 26.0 : 2.0;
   const qreal legendBlockH = opt.includeLegend ? 150.0 : 2.0;
   const qreal contentH = pageRect.height() - headBlockH - legendBlockH - 4.0;
@@ -446,18 +462,17 @@ QString ExportEngine::exportCanvas(const WellCompositeCanvas &canvas,
   for (int page = 0; page < totalPages; ++page)
   {
     if (page > 0)
-      writer.newPage();
+      device.newPage();
 
     const double pTop = opt.topDepth + page * pageMeters;
     const double pBottom = std::min(opt.bottomDepth, pTop + pageMeters);
-    const QRectF thisPageRect = QRectF(0, 0, writer.width(), writer.height());
+    const QRectF thisPageRect = QRectF(0, 0, device.width(), device.height());
 
     if (opt.includeHeader)
       paintPageHeader(p, QRectF(thisPageRect.left() + 1, thisPageRect.top() + 2,
                                 thisPageRect.width() - 2, 20),
                       opt, page + 1, totalPages);
 
-    // 首页带图例标题区（图例放尾页底部更符合图幅惯例——统一放每页底）
     paintTracksRegion(p, tracks, pTop, pBottom, pxPerMeter,
                       QPointF(1.0, headBlockH), headerRowH);
 
@@ -473,6 +488,11 @@ QString ExportEngine::exportCanvas(const WellCompositeCanvas &canvas,
   }
   p.end();
   return QString();
+}
+
+bool ExportEngine::nativePrintAvailable()
+{
+  return !QPrinterInfo::availablePrinters().isEmpty();
 }
 
 } // namespace WellComposite

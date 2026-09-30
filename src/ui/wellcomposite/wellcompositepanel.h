@@ -6,12 +6,14 @@
 #include <QToolButton>
 #include <QWidget>
 
+#include <limits>
 #include <memory>
 
 #include "wellcompositecanvas.h"
 #include "domain/wellcompositemodel.h"
 #include "wellcompositestore.h"
 #include "depthtools.h"
+#include "depthtransform.h"
 #include "exportengine.h"
 
 // ui/wellcomposite/ — WellCompositePanel: ResFormStar 风格单井综合柱状图总装面板
@@ -75,6 +77,23 @@ public:
   void setGapThresholdMeters(double meters);                   // D2.12
   double gapThresholdMeters() const { return m_gapThresholdM; }
 
+  // ---- D1 深度装配链（wave/deepen-perf）：壳/derivedsink 经 io 解析后喂 ----
+  // 井斜表（MD/井斜/方位）→ DepthTransform TVD；时深对（TVD m, TWT ms）→
+  // TWT 副刻度 + 读数条。任一为空 = 该能力禁用（不猜表）。
+  void applyDepthTables(const QVector<DeviationStation> &stations,
+                        const QVector<QPair<double, double>> &tvdTwtPairs,
+                        double kbElevation = std::numeric_limits<double>::quiet_NaN());
+  bool hasDeviationSurvey() const { return m_depthTransform.hasDeviationSurvey(); }
+  bool hasTimeDepthTable() const { return m_depthTransform.hasTimeDepthTable(); }
+  double mdToTvd(double md) const { return m_depthTransform.mdToTvd(md); }
+  double twtAtDepth(double md) const
+  {
+    return m_depthTransform.twtAtTvd(m_depthTransform.mdToTvd(md));
+  }
+  void clearDepthTables(); // 换井/换源时复位
+  // D1：读数条尾缀（TVD/TWT；无表回空）——测试与壳侧状态显示共用
+  QString depthReadoutSuffix(double md) const;
+
   // D2.3 标注钉（含持久化）
   QList<DepthPin> pins() const { return m_canvas ? m_canvas->pins() : QList<DepthPin>(); }
   void addPinAt(double depth, const QString &text);
@@ -105,8 +124,12 @@ public:
 
 signals:
   void wellLoaded(const QString &wellName);
-  // D3.3 派生版本意图：编辑落盘由壳/测试接（视图不写工程目录）
-  void derivedDocumentReady(const WellComposite::ComprehensiveWellData &doc, const QString &auditSummary);
+  // D3.3 派生版本意图：编辑落盘由壳/测试接（视图不写工程目录）。
+  // D1（wave/deepen-perf）：追加 auditLines——壳侧 DERIVED 登记把逐条审计
+  // 写进派生 XML「编辑审计」工作表（摘要字符串只够展示，不够落档）。
+  void derivedDocumentReady(const WellComposite::ComprehensiveWellData &doc,
+                            const QString &auditSummary,
+                            const QStringList &auditLines);
 
 public slots:
   // D2.7 Ctrl+G
@@ -132,6 +155,7 @@ private:
   void setupTracksFromData(const ComprehensiveWellData &data);
   void rebuildLegendData();
   void syncSessionToTracks(); // 编辑会话数据 → 画布道重同步
+  void refreshTwtLabels();    // D1：时深表 → 深度标尺道 TWT 副刻度
 
   // D1.8 会话记忆读写（按井+项目）
   void saveSessionState() const;
@@ -155,6 +179,7 @@ private:
   bool m_depthFeet = false;   // D6.3
   double m_gapThresholdM = 0.0; // D2.12
   bool m_highContrast = false; // D7.4
+  DepthTransform m_depthTransform; // D1：井斜/时深装配（壳喂）
 
   QList<DepthBookmark> m_bookmarks;
   std::unique_ptr<WellCompositeStore> m_store;
@@ -174,6 +199,7 @@ private:
   QToolButton *m_btnSnap = nullptr;
   QToolButton *m_btnExport = nullptr;   // D4.5–D4.10 导出菜单入口
   QToolButton *m_btnEdit = nullptr;     // D3.1/D3.14 TOPs 编辑模式
+  QToolButton *m_btnSaveDerived = nullptr; // D1：保存派生版本（→壳 DERIVED 登记）
   QLabel *m_lblStatus = nullptr;
   QLabel *m_lblReadout = nullptr;       // D2.11
 

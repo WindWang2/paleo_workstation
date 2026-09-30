@@ -755,7 +755,7 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 setNodeChecked(layerId, false);
               }
             });
-    // 三入口（物源线/展布线/控制点）：类型化捕获工具（type 列落地质类型词表）。
+    // 类型化约束线两入口（方向线/打断线）：类型化捕获工具（type 列落地质类型词表）。
     if (m_canvasCtl)
     {
       auto *typedCtl = new TypedConstraintDrawController(m_canvasCtl, constraint, this);

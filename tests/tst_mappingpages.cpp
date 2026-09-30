@@ -687,22 +687,19 @@ void FactorPageTests::typedDrawEntries()
   spin->setValue( 7 );
 
   QSignalSpy spy( &page, &ConstraintPage::drawTypedConstraintRequested );
-  auto *provenance = page.findChild<QPushButton *>(QStringLiteral("provenanceButton"));
-  auto *distribution = page.findChild<QPushButton *>(QStringLiteral("distributionButton"));
-  auto *controlPoint = page.findChild<QPushButton *>(QStringLiteral("controlPointButton"));
-  QVERIFY( provenance && distribution && controlPoint );
+  auto *direction = page.findChild<QPushButton *>(QStringLiteral("directionButton"));
+  auto *breakLine = page.findChild<QPushButton *>(QStringLiteral("breakLineButton"));
+  QVERIFY( direction && breakLine );
 
-  provenance->click();
-  distribution->click();
-  controlPoint->click();
-  QCOMPARE( spy.count(), 3 );
+  direction->click();
+  breakLine->click();
+  QCOMPARE( spy.count(), 2 );
   QCOMPARE( spy.at( 0 ).at( 0 ).toString(), QStringLiteral( "D61" ) );
   QCOMPARE( spy.at( 0 ).at( 1 ).toString(), QStringLiteral( "line" ) );
-  QCOMPARE( spy.at( 0 ).at( 2 ).toString(), QStringLiteral( "provenance_line" ) );
+  QCOMPARE( spy.at( 0 ).at( 2 ).toString(), QStringLiteral( "direction_line" ) );
   QCOMPARE( spy.at( 0 ).at( 3 ).toInt(), 7 );
-  QCOMPARE( spy.at( 1 ).at( 2 ).toString(), QStringLiteral( "distribution_line" ) );
-  QCOMPARE( spy.at( 2 ).at( 1 ).toString(), QStringLiteral( "point" ) );
-  QCOMPARE( spy.at( 2 ).at( 2 ).toString(), QStringLiteral( "control_point" ) );
+  QCOMPARE( spy.at( 1 ).at( 1 ).toString(), QStringLiteral( "line" ) );
+  QCOMPARE( spy.at( 1 ).at( 2 ).toString(), QStringLiteral( "break_line" ) );
 
   // 旧绘制链共存（drawButton → drawConstraintRequested，tst_panels 详测，此处冒烟）。
   QSignalSpy legacy( &page, &ConstraintPage::drawConstraintRequested );

@@ -17,7 +17,7 @@ class QShowEvent;
 //   · 等值线行 contourIntervalSpin + contourButton → contourRequested(
 //     factorLayerId, interval)（§12：GIS LineString，不是画布临时线）
 //   · 勾选态变化 → factorVisibilityRequested(layerId, visible)（互斥上图意图）
-//   · 三入口 provenanceButton/distributionButton/controlPointButton →
+//   · 类型化约束线两入口 directionButton/breakLineButton →
 //     drawTypedConstraintRequested(horizon, shape, constraintType, faciesCode)
 // 旧链保留不动：drawConstraintRequested/runIdwRequested（idw* objectName
 // 全保留）；厚度样本表挪进 CollapsibleSection（objectName 不变，默认展开），

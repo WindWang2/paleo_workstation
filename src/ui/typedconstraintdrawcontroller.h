@@ -8,10 +8,10 @@ class ConstraintWorkflow;
 class QgsMapTool;
 class QgsAdvancedDigitizingDockWidget;
 
-// ui/typedconstraintdrawcontroller.h — 类型化约束捕获（m2(B) 三入口：
-// 物源线/展布线/控制点）。与 ConstraintDrawController（§42 通用约束，type
+// ui/typedconstraintdrawcontroller.h — 类型化约束线捕获（约束页两入口：
+// 方向线/打断线）。与 ConstraintDrawController（§42 通用约束，type
 // 列落 shape 词）同构，但提交时 ConstraintStore 的 type 列落**地质类型词表**
-// （provenance_line/distribution_line/control_point），shape 只决定画布工具。
+// （direction_line/break_line），shape 只决定画布工具。
 // CAD dock 由首个控制器懒建后注入共享（避免双 dock）；无注入时自建。
 // 层：视图
 class TypedConstraintDrawController : public QObject

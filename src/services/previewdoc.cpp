@@ -146,6 +146,15 @@ QString PreviewDocService::relocateVersionSource(const QString &versionId,
                : QString();
 }
 
+QString PreviewDocService::importSingleFile(const QString &kind,
+                                            const QString &sourcePath,
+                                            QString *error)
+{
+  // B2：直通 io 层单文件导入（可在任务池线程执行——import* 系列内部经
+  // catInvoke marshal 回 catalog 线程，见 dataimportservice.h 线程规则）。
+  return m_svc ? m_svc->importFile(kind, sourcePath, error) : QString();
+}
+
 void PreviewDocService::setTaskService(PaleoTaskService *svc)
 {
   m_taskSvc = svc;
@@ -734,4 +743,83 @@ int PreviewDocService::prefetch(const QStringList &absPaths)
     ++submitted;
   }
   return submitted;
+}
+
+// ---------------------------------------------------------------------------
+// B3（wave/deepen-perf）：栅格金字塔版本预热。
+// ---------------------------------------------------------------------------
+bool PreviewDocService::rasterPyramidReady(const QString &assetId) const
+{
+  return m_pyramidState.value(assetId, int(PyramidState::None)) ==
+         int(PyramidState::Ready);
+}
+
+void PreviewDocService::ensureRasterPyramidVersion(const QString &assetId)
+{
+  if (assetId.isEmpty() || !m_svc)
+    return;
+  const int st = m_pyramidState.value(assetId, int(PyramidState::None));
+  if (st == int(PyramidState::InFlight) || st == int(PyramidState::Ready))
+    return; // 在途合并 / 会话内已就绪——幂等
+
+  // 解析当前版本的栅格绝对路径（GUI 线程读 catalog——同步快照）。
+  DataCatalog *cat = m_svc->catalog();
+  if (!cat)
+    return;
+  const CatalogAsset asset = cat->assetById(assetId);
+  if (asset.id.isEmpty())
+    return;
+  const CatalogVersion version = cat->currentVersion(assetId);
+  if (version.id.isEmpty())
+    return;
+  const QString ext = QFileInfo(version.fileName).suffix().toLower();
+  const bool rasterExt = ext == QLatin1String("tif") || ext == QLatin1String("tiff") ||
+                         ext == QLatin1String("png") || ext == QLatin1String("jpg") ||
+                         ext == QLatin1String("jpeg");
+  if (!rasterExt)
+    return;
+  const QString abs = m_svc->absolutePathForVersion(version);
+  if (abs.isEmpty() || !QFileInfo::exists(abs))
+    return;
+  // 外链源不建 .ovr（不往用户目录写边车）；受管副本才建。
+  const bool managed = version.managed;
+
+  const auto work = [io = m_svc, abs, managed](PaleoTask *t) -> QString {
+    QString err;
+    io->ensureRasterPyramids({abs}, &err);
+    if (managed)
+    {
+      const qint64 size = QFileInfo(abs).size();
+      io->buildRasterOverviews(
+          abs, &err,
+          [t, size](double fraction) {
+            if (t)
+              t->reportBytes(qint64(fraction * size), size); // 0..1 → 字节面
+            return !(t && t->cancelRequested());
+          });
+    }
+    return err;
+  };
+  const auto apply = [this, assetId](bool ok) {
+    m_pyramidState[assetId] = int(ok ? PyramidState::Ready : PyramidState::Failed);
+    emit rasterPyramidFinished(assetId, ok);
+  };
+
+  if (m_taskSvc)
+  {
+    m_pyramidState[assetId] = int(PyramidState::InFlight);
+    // quiet：交互内嵌预热（大图预览打开时的后台加速），不拉起任务中心。
+    auto *task = m_taskSvc->start(
+        QStringLiteral("构建栅格金字塔 %1").arg(QFileInfo(abs).fileName()), work,
+        QString(), /*quiet=*/true);
+    m_pyramidTask[assetId] = task;
+    connect(task, &PaleoTask::finished, this, [apply, task] {
+      apply(task->state() == PaleoTask::State::Succeeded);
+    });
+  }
+  else
+  {
+    // 无任务服务（测试/小环境）：同步旧路径。
+    apply(work(nullptr).isEmpty());
+  }
 }

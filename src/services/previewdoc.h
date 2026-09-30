@@ -58,6 +58,11 @@ class PreviewDocService : public QObject
     QString catalogOpenError() const;
     QStringList assetIds(const QString &type = QString()) const; // svc->assets
     QString assetSource(const QString &assetId) const;           // svc->assetSource
+    // B2（wave/deepen-perf）：单文件导入门面——导入队列 runner 的生产绑定面
+    //（视图层不直接 include io/dataimportservice.h）。语义直通
+    // DataImportService::importFile：返回资产 id（空 = 失败 + *error）。
+    QString importSingleFile(const QString &kind, const QString &sourcePath,
+                             QString *error = nullptr);
     // 外链「重新定位文件」执行半边（datalist/标签共用口径）。
     QString relocateVersionSource(const QString &versionId, const QString &pickedPath,
                                   QString *error);
@@ -167,6 +172,17 @@ class PreviewDocService : public QObject
     // 释放该 key 的世代号；进行中的解析请求取消——结果没人等了。
     void releaseLas(const QString &key);
 
+    // ---- B3（wave/deepen-perf）：栅格金字塔版本预热（quiet 异步）----
+    // 对资产当前版本的栅格（受管 tif/png/jpg；horizon DERIVED tif 同口径）
+    // 后台构建瓦片金字塔（Lazy→Eager 补齐）+ GDAL 外部 .ovr 概览——
+    // 完成后 QGIS 渲染自动走概览，大图全图首渲不再整幅降采样重读。
+    // 幂等：已就绪/在途/已失败（会话内）不重复；同一资产在途时新请求合并。
+    // 无任务服务时同步执行（测试/小环境）。外链源不建 .ovr（不写用户目录
+    // 外的边车），仅工程内瓦片缓存。
+    void ensureRasterPyramidVersion(const QString &assetId);
+    // 会话内是否已就绪（含同步路径）；视图可据此决定是否提示。
+    bool rasterPyramidReady(const QString &assetId) const;
+
     // ---- D1.3 批量预取：后台低优先级把一批 LAS 解析进缓存 ----
     // 不发 lasReady（调用方按需再 requestLas 即命中缓存）；任务服务空时同步
     // 逐个装载（测试/小环境）。返回提交的任务数（0 = 无任务服务同步完成）。
@@ -194,6 +210,8 @@ class PreviewDocService : public QObject
                   const QList<LasCurve> &curves);
     void lasFailed(const QString &key, const QString &reason);
     void lasCancelled(const QString &key);
+    // B3：栅格金字塔版本预热终态（ok = 瓦片 + 概览均就绪或无需建）。
+    void rasterPyramidFinished(const QString &assetId, bool ok);
 
   private:
     DataImportService *m_svc = nullptr;
@@ -213,6 +231,12 @@ class PreviewDocService : public QObject
     // 任务指针（新请求取消旧任务）——与 m_decodeSeq/m_decodeTask 同一模式。
     QHash<QString, int> m_lasSeq;
     QHash<QString, QPointer<PaleoTask>> m_lasTask;
+
+    // B3 栅格金字塔预热：按资产的会话状态（Ready/Failed 不重复）与在途
+    // 任务指针（同资产新请求合并——在途即视为已受理）。
+    enum class PyramidState { None, InFlight, Ready, Failed };
+    QHash<QString, int> m_pyramidState;
+    QHash<QString, QPointer<PaleoTask>> m_pyramidTask;
 };
 
 // 解码结果经信号跨线程交接（任务池路径）——注册 metatype 供排队连接/QSignalSpy。

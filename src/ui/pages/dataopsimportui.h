@@ -14,6 +14,7 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QElapsedTimer>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QHeaderView>
@@ -22,6 +23,7 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRadioButton>
@@ -128,6 +130,31 @@ public:
     m_table->setMaximumHeight(180);
     lay->addWidget(m_table);
 
+    // B2（wave/deepen-perf）真进度条面：整体进度 + 线性 ETA + 全部取消。
+    // ETA 依「本批已完成项 / 已耗时」外推（estimateRemainingMs），没有完成
+    // 样本时如实显示「--」；进度 = 已结束项 / 总项（非字节数——队列粒度是文件）。
+    m_overall = new QProgressBar(this);
+    m_overall->setObjectName(QStringLiteral("importQueueOverall"));
+    m_overall->setRange(0, 100);
+    m_overall->setTextVisible(true);
+    m_overall->setStyleSheet(QStringLiteral("QProgressBar { max-height: 12px; }"));
+    m_eta = new QLabel(this);
+    m_eta->setObjectName(QStringLiteral("importQueueEta"));
+    PaleoTheme::applyThemedStyleSheet(m_eta,
+                                      [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+    m_cancelAll = new QPushButton(tr("全部取消"), this);
+    m_cancelAll->setObjectName(QStringLiteral("importQueueCancelAll"));
+    m_cancelAll->setToolTip(tr("取消所有排队和进行中的导入"));
+    auto *overallRow = new QWidget(this);
+    auto *ol = new QHBoxLayout(overallRow);
+    ol->setContentsMargins(0, 0, 0, 0);
+    ol->setSpacing(6);
+    ol->addWidget(m_overall, 1);
+    ol->addWidget(m_eta);
+    ol->addWidget(m_cancelAll);
+    lay->addWidget(overallRow);
+    connect(m_cancelAll, &QPushButton::clicked, this, [this] { cancelAll(); });
+
     connect(m_report, &QPushButton::clicked, this, [this] {
       ImportReportDialog dlg(m_queue.summaryText(), this);
       dlg.exec();
@@ -143,7 +170,7 @@ public:
                                      tr("还有未完成项，仍要收起面板？")) == QMessageBox::Yes)
         hide();
     });
-    // RetryWait → Queued 的自动驱动拍（D8.2 自动重试）。
+    // RetryWait → Queued 的自动驱动拍（D8.2 自动重试）；同时刷整体 ETA（B2）。
     m_timer = new QTimer(this);
     m_timer->setInterval(1500);
     connect(m_timer, &QTimer::timeout, this, [this] {
@@ -152,6 +179,8 @@ public:
         refresh();
         runPending();
       }
+      else
+        refreshOverall(); // 无状态迁移也要让 ETA 走表
     });
   }
 
@@ -194,6 +223,16 @@ public slots:
     refresh();
     if (!m_queue.hasPending())
       m_timer->stop();
+  }
+
+  // B2：全部取消——排队/等待重试直接 Canceled；进行中的经 cancelHook 协作
+  // 取消底层任务后落 Canceled（取消不进自动重试）。
+  void cancelAll()
+  {
+    const QVector<ImportQueueItem> snapshot = m_queue.items();
+    for (int i = 0; i < snapshot.size(); ++i)
+      m_queue.cancelItem(i);
+    refresh();
   }
 
   void refresh()
@@ -279,6 +318,45 @@ public slots:
     }
     m_count->setText(tr("%1 项 · 待处理 %2").arg(items.size()).arg(pending));
     setVisible(items.size() > 0);
+    refreshOverall();
+  }
+
+  // B2：整体进度 + ETA（refresh 与重试拍共用出口）。
+  void refreshOverall()
+  {
+    const QVector<ImportQueueItem> items = m_queue.items();
+    int pending = 0, finished = 0;
+    for (const ImportQueueItem &it : items)
+    {
+      if (it.state == ImportItemState::Queued || it.state == ImportItemState::Running ||
+          it.state == ImportItemState::RetryWait)
+        ++pending;
+      else if (it.state == ImportItemState::Done || it.state == ImportItemState::Skipped)
+        ++finished;
+    }
+    const int total = items.size();
+    m_overall->setValue(total > 0 ? finished * 100 / total : 0);
+    m_cancelAll->setVisible(pending > 0);
+    if (pending > 0)
+    {
+      if (!m_batchActive)
+      {
+        // 新批次：起表 + 记基线（已结束项不算本批速率样本）。
+        m_batchActive = true;
+        m_batchFinishedBase = finished;
+        m_batchClock.start();
+      }
+      const int done = qMax(0, finished - m_batchFinishedBase);
+      m_eta->setText(tr("剩余 %1 项 · %2")
+                         .arg(pending)
+                         .arg(etaDisplayText(
+                             estimateRemainingMs(done, pending, m_batchClock.elapsed()))));
+    }
+    else
+    {
+      m_batchActive = false;
+      m_eta->setText(total > 0 ? tr("已完成 %1 项").arg(finished) : QString());
+    }
   }
 
 private:
@@ -290,6 +368,13 @@ private:
   QPushButton *m_report = nullptr;
   QPushButton *m_clear = nullptr;
   QToolButton *m_close = nullptr;
+  // B2：整体进度面。
+  QProgressBar *m_overall = nullptr;
+  QLabel *m_eta = nullptr;
+  QPushButton *m_cancelAll = nullptr;
+  QElapsedTimer m_batchClock;
+  int m_batchFinishedBase = 0;
+  bool m_batchActive = false;
 };
 
 // ---- D8.3 导入预设对话框 --------------------------------------------------------

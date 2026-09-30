@@ -18,6 +18,8 @@
 #include <QVariantMap>
 #include <QVector>
 
+#include <functional>
+
 #include "../../../catalog/datacatalog.h"
 #include "dataopsmodel.h"
 
@@ -206,6 +208,32 @@ inline QStringList batchPaths(const QStringList &paths, int batch)
   return paths.mid(0, batch);
 }
 
+// ---- B2（wave/deepen-perf）：队列级 ETA 纯函数 ---------------------------------
+// 依据「本批已完成项数 / 本批已耗时」线性外推剩余时间（与 PaleoTask 的
+// 字节速率 ETA 同一诚实口径：没有完成样本就返回 -1，不编数字）。
+//   done       本批已完成项数（Done/Skipped 计入；Failed/Canceled 不计——
+//              它们的耗时不能代表后续项）
+//   remaining  待处理项数（Queued/Running/RetryWait）
+//   elapsedMs  本批自首个 Running 起的耗时
+// 返回剩余毫秒估计；不可估（done==0 或 remaining==0）返回 -1。
+inline qint64 estimateRemainingMs(int done, int remaining, qint64 elapsedMs)
+{
+  if (done <= 0 || remaining <= 0 || elapsedMs <= 0)
+    return -1;
+  const double meanPerItem = static_cast<double>(elapsedMs) / done;
+  return qMax<qint64>(0, static_cast<qint64>(meanPerItem * remaining + 0.5));
+}
+
+// ETA 展示文案：「约 Ns」/「约 Nm」/「--」（未知）。
+inline QString etaDisplayText(qint64 remainingMs)
+{
+  if (remainingMs < 0)
+    return QStringLiteral("--");
+  if (remainingMs < 60'000)
+    return QObject::tr("约 %1 秒").arg(qMax<qint64>(1, remainingMs / 1000));
+  return QObject::tr("约 %1 分").arg((remainingMs + 59'999) / 60'000);
+}
+
 // ---- D8.1/D8.2 导入队列条目 + 重试队列状态机 ---------------------------------
 enum class ImportItemState
 {
@@ -228,6 +256,9 @@ struct ImportQueueItem
   int retryCount = 0;          // 已重试次数
   int autoRetriesLeft = 2;     // D8.2 自动重试（默认 2 次）
   QString resultingAssetId;    // 成功后回填
+  // B2（wave/deepen-perf）：异步执行器（runner）启动该项时挂上——面板
+  // cancelItem 对 Running 态先调它协作取消底层任务，再落 Canceled 状态。
+  std::function<void()> cancelHook;
 
   static QString stateText(ImportItemState s)
   {
@@ -263,14 +294,17 @@ public:
     return -1;
   }
 
-  // D8.1 单项取消：Queued/RetryWait → Canceled（Running 的取消由执行器
-  // 协作处理，状态在此落 Canceled）。
+  // D8.1 单项取消：Queued/RetryWait → Canceled；Running 先调 cancelHook
+  // （B2：runner 挂的底层任务协作取消）再落 Canceled——取消不是失败，
+  // 不进自动重试。
   bool cancelItem(int i)
   {
     ImportQueueItem *it = at(i);
     if (!it || it->state == ImportItemState::Done ||
         it->state == ImportItemState::Canceled)
       return false;
+    if (it->state == ImportItemState::Running && it->cancelHook)
+      it->cancelHook(); // 底层取消是异步协作——状态先落 Canceled，终态回调不再改写
     it->state = ImportItemState::Canceled;
     it->progressPercent = 0;
     return true;

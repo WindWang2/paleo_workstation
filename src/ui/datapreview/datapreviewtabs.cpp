@@ -2884,7 +2884,23 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     // D2.11 大图（>50MB 无金字塔）提示条：降级仍可用（低清先行 + 全图照渲）。
     const QString bigHint = PreviewRasterAnalysis::bigRasterHint(raster.get());
     if (!bigHint.isEmpty())
+    {
       lay->addWidget(PreviewMapStates::buildBigRasterHintBar(bigHint, host));
+      // B3（wave/deepen-perf）：消费侧预热——quiet 任务后台建瓦片金字塔 +
+      // GDAL 外部 .ovr 概览；完成后重载层 + 刷新画布，本会话后续渲染走概览。
+      if (m_doc)
+      {
+        QPointer<QgsRasterLayer> rasterGuard(raster.get());
+        connect(m_doc, &PreviewDocService::rasterPyramidFinished, host,
+                [this, rasterGuard, assetId](const QString &doneId, bool ok) {
+                  if (doneId != assetId || !ok || !rasterGuard)
+                    return;
+                  rasterGuard->reload(); // 重开数据源——让 provider 发现 .ovr
+                  rasterGuard->triggerRepaint();
+                });
+        m_doc->ensureRasterPyramidVersion(assetId);
+      }
+    }
 
     // ---- P2 地图正文：统一 PreviewMapPage（D1.x 框架全套） ----
     auto *page = new PreviewMapPage(host);
@@ -3779,25 +3795,40 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
                                         vol->XlineMin(), vol->XlineMax());
         m_tiledCanvas = timeCanvas;
         m_tiledSample = sampleIndex;
+        // A3（wave/deepen-perf）：失败如实显示原因态（不再留整幅 NaN 灰无解释）；
+        // 被新请求顶替的取消回调经世代过滤（*pendingIdx 已是最新采样号）丢弃。
         svc->startTimeSliceTiled(
             *sharedPaged, sampleIndex, 64, focusInl, focusXl,
             [canvasGuard, pendingIdx, sampleIndex](bool ok,
                                                    std::shared_ptr<const seismic::SgySliceImage> img,
-                                                   const QString &) {
-              if (!ok || !img || !canvasGuard || *pendingIdx != sampleIndex)
+                                                   const QString &error) {
+              if (!canvasGuard || *pendingIdx != sampleIndex)
+                return; // 陈旧请求（已被顶替/换采样）——静默丢弃
+              if (!ok || !img) {
+                canvasGuard->clearData();
+                canvasGuard->setNoDataReason(
+                    QObject::tr("时间切片获取失败（分页通道）\n%1").arg(error));
                 return;
+              }
               canvasGuard->finishTimeSliceTiled(*img);
             });
         return;
       }
       if (svc)
       {
+        // A3：直读/工作区通道同一空态语义（失败原因上屏，不留旧图冒充新采样）
         svc->startSliceExtraction(
             vol, seismic::SgySliceType::Time, sampleIndex,
             [canvasGuard, pendingIdx, sampleIndex, ms, vol](
-                bool ok, std::shared_ptr<const seismic::SgySliceImage> img, const QString &) {
-              if (!ok || !img || !canvasGuard || *pendingIdx != sampleIndex)
+                bool ok, std::shared_ptr<const seismic::SgySliceImage> img, const QString &error) {
+              if (!canvasGuard || *pendingIdx != sampleIndex)
                 return;
+              if (!ok || !img) {
+                canvasGuard->clearData();
+                canvasGuard->setNoDataReason(
+                    QObject::tr("时间切片获取失败\n%1").arg(error));
+                return;
+              }
               canvasGuard->setTimeSliceData(*img, ms, vol->InlineMin(), vol->InlineMax(),
                                             vol->XlineMin(), vol->XlineMax());
             });
@@ -3885,7 +3916,22 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         // D2.11 大图（>50MB 无金字塔）提示：降级仍可用。
         const QString bigHint = PreviewRasterAnalysis::bigRasterHint(rasterRaw);
         if (!bigHint.isEmpty())
+        {
           lay->addWidget(PreviewMapStates::buildBigRasterHintBar(bigHint, host));
+          // B3：消费侧预热（同层位栅格页口径——.ovr 完成后重载层刷新）。
+          if (m_doc)
+          {
+            QPointer<QgsRasterLayer> rasterGuard(rasterRaw);
+            connect(m_doc, &PreviewDocService::rasterPyramidFinished, host,
+                    [rasterGuard, assetId](const QString &doneId, bool ok) {
+                      if (doneId != assetId || !ok || !rasterGuard)
+                        return;
+                      rasterGuard->reload();
+                      rasterGuard->triggerRepaint();
+                    });
+            m_doc->ensureRasterPyramidVersion(assetId);
+          }
+        }
         lay->addWidget(page, 1);
         lay->addWidget(caption8(tr("已按配准边车 %1 上图（RGB 影像原色）")
                                     .arg(QFileInfo(worldFile).fileName()),

@@ -73,8 +73,14 @@ src/ui/datapreview（seismic 分支）—— 数据页地震资产：秒开/转�
 |---|---|---|
 | 直读 | SgyVolume::ExtractSlice（P2 mmap 并行解码） | 应用级 SgyDataCache LRU 256MB（key=kind+fileSize+sliceIndex） |
 | .sf3c | sdk::Dataset::ReadInline/ReadCrossline/ReadTimeSlice | 引擎 ChunkCache 256MB + SliceCache 64MB（每 Dataset） |
-| .sf3p | 同上 + ReadTimeSliceTiled（瓦片流）+ ReadVoxelWindow（3D） | 同上 + LOD 激活切换时重置 |
+| .sf3p | 同上 + ReadTimeSliceTiled（瓦片流）+ ReadVoxelWindow（3D 堆叠层合并取数） | 同上 + LOD 激活切换时重置 |
 | 任意线 | sdk::Dataset::ReadSection（useReadPlan：去重+升序+范围合并）；失败回落 BuildLineSection | 无切片缓存（D5.2 缺口：每线全扫） |
+
+**ReadVoxelWindow 消费（wave/deepen-perf A1）**：3D 体渲染堆叠层在 paged
+通道预算内（估算 ≤256MB，按激活 LOD 面积因子 16^level 缩减）走单次全窗
+体素读取，`SeismicTaskService::slicePlaneFromWindow` 切 16 层平面（与
+ReadTimeSlice 逐位同构，`voxelWindowPlanesMatchTimeSlice` 锁定）；直读/
+工作区后端保持逐层切片（引擎体窗在直读源是逐道顺序整读，无窄读优势）。
 
 ### 3.2 数据形状
 
@@ -135,6 +141,16 @@ sf3c 转码/QuickOpen/sf3p 转码/瓦片/体素（7 处）。
 - 纪律：取消后不发布不完整结果；StatusCode::Cancelled → 任务终态 Cancelled；
   服务析构对在途任务 requestCancel+detach。
 
+**wave/deepen-perf 追加（A2/A3 取代语义）**：
+
+- 3D 面板：槽位在提取中新值到来 → 在途任务 `requestCancel()`（被顶替读
+  协作中止，不跑完全程）；本端主动取消不刷告警日志（`slotSuperseded_`）。
+- `startTimeSliceTiled`：同 `.sf3p` 新请求启动即取消旧在途任务
+  （`inFlightTiledTasks_`，瓦片粒度 unwind——被顶替的整图不再排队占闸；
+  消费侧采样号世代过滤双保险）。`serviceTiledSupersedeCancelsStale` 锁定。
+- paged 体窗的取消粒度 = 整个 ReadBox（引擎单段调用，无瓦片回调）——
+  3D 堆叠层单请求即单段，可接受；直读源体窗按道粒度轮询谓词。
+
 ## 7. 线程并发纪律
 
 - 所有任务跑 `QThreadPool::globalInstance()`，**无专用上限**（与 LAS/层位等
@@ -163,6 +179,15 @@ sf3c 转码/QuickOpen/sf3p 转码/瓦片/体素（7 处）。
 - 时深转换：TimeDepthModel/TD 表插值（seismicmapping 契约：不外推、双向）。
 - 3D 完全无井。
 - 地图↔剖面联动：SeismicMapLink 画线拉剖面 + 悬停返投地图十字。
+
+## 9b. 消费侧接线对照（wave/deepen-perf A1 核账）
+
+| 引擎入口 | 服务通道 | 消费视图 |
+|---|---|---|
+| QuickOpenSegyPreview | startQuickOpen | 数据页地震资产秒开行 + 中央测线缩略进 2D 剖面 |
+| ReadTimeSliceTiled | startTimeSliceTiled | 数据页时间切片页（瓦片渐进 + A3 取代取消/空态） |
+| progressiveLod / SetActiveLod | startPagedOpen / startLodSwitch | 3D 面板（粗开→拖动粗层→静止精化；A2 自动精化） |
+| ReadVoxelWindow | startVoxelWindow + slicePlaneFromWindow | 3D 体渲染堆叠层（paged 预算内单请求切 16 层） |
 
 ## 10. 缺口总账（D 系列对照）
 

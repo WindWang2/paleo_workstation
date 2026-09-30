@@ -26,6 +26,7 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <numbers> // std::numbers::pi——M_PI 在 MSVC <cmath> 下不定义
 #include <vector>
 
 // ---------------------------------------------------------------------------
@@ -137,11 +138,20 @@ QString ConstraintIDWAlgorithm::shortHelpString() const
   return QStringLiteral(
     "Inverse-distance-weighted (power = 2) interpolation of a numeric z-field on a "
     "point layer. The output grid covers the input extent grown by 10%% on every side, "
-    "using CELL_SIZE cells. If CONSTRAINTS line features are supplied, output cells "
-    "outside the convex hull of the constraint geometry are set to nodata "
-    "(constraints act as a region-of-influence clip). Barrier-aware distance around "
-    "constraint lines is reserved for a future release. FACIES_CODE is recorded as "
-    "raster metadata (PALEO_FACIES_CODE)." );
+    "using CELL_SIZE cells. CONSTRAINTS line features are classified by their 'type' "
+    "attribute (the ConstraintStore vocabulary): 'break_line' features are hard "
+    "barriers — they contribute to the region-of-interest clip AND block interpolation "
+    "(cells only see samples reachable without crossing a barrier; barrier cells "
+    "themselves become nodata; reachability is evaluated on the output grid, so "
+    "detours around barrier ends are honored at cell resolution). 'direction_line' "
+    "features supply a length-weighted mean direction field: with ANISO_RATIO r, "
+    "distances are stretched to d2 = u^2/r^2 + v^2*r^2 (u along, v across the field), "
+    "elongating the interpolated surface along the supply direction. Features with "
+    "any other or missing type keep the legacy behavior: they only clip output to "
+    "the convex hull of the constraint geometry. FACIES_CODE is recorded as raster "
+    "metadata (PALEO_FACIES_CODE), barrier/direction counts as PALEO_BREAK_LINES / "
+    "PALEO_DIRECTION_LINES, and the resolved field as PALEO_ANISO_RATIO / "
+    "PALEO_ANISO_ANGLE_DEG." );
 }
 
 void ConstraintIDWAlgorithm::initAlgorithm( const QVariantMap & )
@@ -162,6 +172,11 @@ void ConstraintIDWAlgorithm::initAlgorithm( const QVariantMap & )
   addParameter( new QgsProcessingParameterNumber(
       QStringLiteral( "CELL_SIZE" ), QStringLiteral( "Cell size (map units)" ),
       Qgis::ProcessingNumberParameterType::Double, 1.0 ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "ANISO_RATIO" ),
+      QStringLiteral( "Anisotropy ratio along direction lines (>= 1, only used when "
+                      "direction_line constraints exist)" ),
+      Qgis::ProcessingNumberParameterType::Double, 2.0, true, 0.0 ) );
   addParameter( new QgsProcessingParameterRasterDestination(
       QStringLiteral( "OUTPUT" ), QStringLiteral( "Interpolated raster" ) ) );
 }
@@ -184,6 +199,13 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   const double cellSize = parameterAsDouble( parameters, QStringLiteral( "CELL_SIZE" ), context );
   if ( cellSize <= 0.0 || !std::isfinite( cellSize ) )
     throw QgsProcessingException( QStringLiteral( "CELL_SIZE must be > 0" ) );
+  // ANISO_RATIO only takes effect when direction_line constraints exist; values
+  // below 1.0 are clamped to 1.0 (isotropic) — a sub-unit ratio is the same
+  // field with the direction rotated by 90°, which direction_line already
+  // expresses directly.
+  double anisoRatio = parameterAsDouble( parameters, QStringLiteral( "ANISO_RATIO" ), context );
+  if ( !std::isfinite( anisoRatio ) || anisoRatio < 1.0 )
+    anisoRatio = 1.0;
 
   const QString outPath = parameterAsOutputLayer( parameters, QStringLiteral( "OUTPUT" ), context );
   if ( outPath.isEmpty() )
@@ -217,20 +239,20 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   if ( samples.empty() )
     throw QgsProcessingException( QStringLiteral( "INPUT contains no usable point features" ) );
 
-  // ---- constraint hull (region-of-influence clip) ---------------------------
-  // P1 simplification: constraints clip output to the convex hull of the
-  // constraint line geometry. True barrier-aware IDW (distance measured around
-  // constraint lines) is RESERVED — the parameter is part of the stable
-  // interface and is fully consumed here, but only the convex-region clip is
-  // applied. If the hull is degenerate/unavailable the output passes through
-  // unclipped.
-  QgsGeometry hull;
+  // ---- constraints: typed semantics (C1) ------------------------------------
+  // The ConstraintStore 'type' column classifies each constraint line:
+  //   'break_line'     hard barrier — contributes to the ROI clip AND blocks
+  //                    interpolation (see the connectivity pass below);
+  //   'direction_line' anisotropy direction field — no clip, no barrier;
+  //   other/missing    legacy §11 behavior — convex-hull ROI clip only.
+  // Unknown-type layers therefore keep bit-identical behavior with the
+  // pre-C1 algorithm.
+  QVector<QgsGeometry> breakGeoms, directionGeoms, hullGeoms;
   {
     std::unique_ptr<QgsProcessingFeatureSource> constraints(
         parameterAsSource( parameters, QStringLiteral( "CONSTRAINTS" ), context ) );
     if ( constraints )
     {
-      QVector<QgsGeometry> geoms;
       const QgsCoordinateReferenceSystem from = constraints->sourceCrs();
       const QgsCoordinateReferenceSystem to = source->sourceCrs();
       std::unique_ptr<QgsCoordinateTransform> xform;
@@ -246,6 +268,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
               QStringLiteral( "Cannot transform constraints into the well CRS: %1" ).arg( e.what() ) );
         }
       }
+      const int typeIdx = constraints->fields().lookupField( QStringLiteral( "type" ) );
       QgsFeatureIterator cit = constraints->getFeatures( QgsFeatureRequest() );
       QgsFeature cf;
       while ( cit.nextFeature( cf ) )
@@ -260,14 +283,23 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
             throw QgsProcessingException(
                 QStringLiteral( "Constraint geometry failed to transform into the well CRS" ) );
         }
-        geoms.append( g );
+        const QString ctype = typeIdx >= 0 ? cf.attribute( typeIdx ).toString().trimmed() : QString();
+        if ( ctype == QLatin1String( "break_line" ) )
+          breakGeoms.append( g );
+        else if ( ctype == QLatin1String( "direction_line" ) )
+          directionGeoms.append( g );
+        else
+          hullGeoms.append( g );
       }
-      if ( geoms.size() == 1 )
-        hull = geoms.at( 0 ).convexHull();
-      else if ( geoms.size() > 1 )
-        hull = QgsGeometry::unaryUnion( geoms ).convexHull();
+      // break_lines also bound the region of influence (a barrier is a boundary).
+      hullGeoms += breakGeoms;
     }
   }
+  QgsGeometry hull;
+  if ( hullGeoms.size() == 1 )
+    hull = hullGeoms.at( 0 ).convexHull();
+  else if ( hullGeoms.size() > 1 )
+    hull = QgsGeometry::unaryUnion( hullGeoms ).convexHull();
   const bool clipToHull = !hull.isNull() && !hull.isEmpty() &&
                           QgsWkbTypes::geometryType( hull.wkbType() ) == Qgis::GeometryType::Polygon;
 
@@ -299,11 +331,166 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
     GDALSetMetadataItem( outDs, "PALEO_FACIES_CODE", v.constData(), nullptr );
   }
 
+  // ---- direction_line field: length-weighted mean direction (C1) -----------
+  // Each segment votes with its length at doubled angle (a line has no
+  // forward/backward distinction), giving the mean axis θ mod π.
+  bool hasAniso = false;
+  double cosTheta = 1.0, sinTheta = 0.0;
+  if ( !directionGeoms.isEmpty() && anisoRatio > 1.0 )
+  {
+    double sumCos = 0.0, sumSin = 0.0, totalLen = 0.0;
+    for ( const QgsGeometry &g : directionGeoms )
+    {
+      const QgsMultiPolylineXY mpl = g.isMultipart()
+                                         ? g.asMultiPolyline()
+                                         : QgsMultiPolylineXY{ g.asPolyline() };
+      for ( const QgsPolylineXY &pl : mpl )
+        for ( int i = 1; i < pl.size(); ++i )
+        {
+          const double dx = pl[i].x() - pl[i - 1].x();
+          const double dy = pl[i].y() - pl[i - 1].y();
+          const double len = std::hypot( dx, dy );
+          if ( len <= 0.0 )
+            continue;
+          const double a2 = 2.0 * std::atan2( dy, dx );
+          sumCos += std::cos( a2 ) * len;
+          sumSin += std::sin( a2 ) * len;
+          totalLen += len;
+        }
+    }
+    if ( totalLen > 0.0 )
+    {
+      const double theta = 0.5 * std::atan2( sumSin, sumCos );
+      cosTheta = std::cos( theta );
+      sinTheta = std::sin( theta );
+      hasAniso = true;
+    }
+  }
+  GDALSetMetadataItem( outDs, "PALEO_BREAK_LINES",
+                       QString::number( breakGeoms.size() ).toUtf8().constData(), nullptr );
+  GDALSetMetadataItem( outDs, "PALEO_DIRECTION_LINES",
+                       QString::number( directionGeoms.size() ).toUtf8().constData(), nullptr );
+  if ( hasAniso )
+  {
+    GDALSetMetadataItem( outDs, "PALEO_ANISO_RATIO",
+                         QString::number( anisoRatio ).toUtf8().constData(), nullptr );
+    GDALSetMetadataItem( outDs, "PALEO_ANISO_ANGLE_DEG",
+                         QString::number( std::atan2( sinTheta, cosTheta ) * 180.0 /
+                                          std::numbers::pi )
+                             .toUtf8()
+                             .constData(),
+                         nullptr );
+  }
+
+  // ---- break_line barriers: grid reachability (C1) --------------------------
+  // Barriers are rasterized onto the output grid (half-cell supersampled walk
+  // keeps the wall closed against diagonal leaks); non-barrier cells are
+  // labeled by 4-connectivity BFS. A cell only interpolates from samples in
+  // its own component — detours around barrier ends are therefore honored at
+  // cell resolution. Within one component the plain Euclidean distance is
+  // used (a straight line may still cross a concave barrier; documented
+  // approximation, weight semantics only).
+  const bool hasBarriers = !breakGeoms.isEmpty();
+  std::vector<int> comp;        // per cell: >=0 component id, -2 barrier
+  std::vector<int> sampleComp;  // per sample: component id, -1 unreachable
+  auto cellOf = [&]( double x, double y, int &c, int &r ) {
+    c = static_cast<int>( std::floor( ( x - extent.xMinimum() ) / cellSize ) );
+    r = static_cast<int>( std::floor( ( extent.yMaximum() - y ) / cellSize ) );
+    return c >= 0 && c < nCols && r >= 0 && r < nRows;
+  };
+  if ( hasBarriers )
+  {
+    const qsizetype cellCount = static_cast<qsizetype>( nCols ) * nRows;
+    comp.assign( static_cast<size_t>( cellCount ), -1 );
+    for ( const QgsGeometry &g : breakGeoms )
+    {
+      const QgsMultiPolylineXY mpl = g.isMultipart()
+                                         ? g.asMultiPolyline()
+                                         : QgsMultiPolylineXY{ g.asPolyline() };
+      for ( const QgsPolylineXY &pl : mpl )
+        for ( int i = 1; i < pl.size(); ++i )
+        {
+          const QgsPointXY a = pl[i - 1], b = pl[i];
+          const double len = a.distance( b );
+          const int steps = std::max( 1, static_cast<int>( std::ceil( len / ( cellSize * 0.5 ) ) ) );
+          for ( int s = 0; s <= steps; ++s )
+          {
+            int c = 0, r = 0;
+            if ( cellOf( a.x() + ( b.x() - a.x() ) * s / steps,
+                         a.y() + ( b.y() - a.y() ) * s / steps, c, r ) )
+              comp[static_cast<qsizetype>( r ) * nCols + c] = -2;
+          }
+        }
+    }
+    int nextComp = 0;
+    std::vector<qsizetype> queue;
+    queue.reserve( static_cast<size_t>( cellCount ) );
+    for ( qsizetype start = 0; start < cellCount; ++start )
+    {
+      if ( comp[static_cast<size_t>( start )] != -1 )
+        continue;
+      comp[static_cast<size_t>( start )] = nextComp;
+      queue.clear();
+      queue.push_back( start );
+      while ( !queue.empty() )
+      {
+        const qsizetype cur = queue.back();
+        queue.pop_back();
+        const int cr = static_cast<int>( cur / nCols ), cc = static_cast<int>( cur % nCols );
+        const int nr[4] = { cr - 1, cr + 1, cr, cr };
+        const int nc[4] = { cc, cc, cc - 1, cc + 1 };
+        for ( int k = 0; k < 4; ++k )
+        {
+          if ( nr[k] < 0 || nr[k] >= nRows || nc[k] < 0 || nc[k] >= nCols )
+            continue;
+          const qsizetype n = static_cast<qsizetype>( nr[k] ) * nCols + nc[k];
+          if ( comp[static_cast<size_t>( n )] == -1 )
+          {
+            comp[static_cast<size_t>( n )] = nextComp;
+            queue.push_back( n );
+          }
+        }
+      }
+      ++nextComp;
+    }
+    // Snap each sample to its component; a sample on a barrier cell takes a
+    // 4-neighbor component (a well pinched onto the line still belongs to the
+    // side it can be reached from); fully walled-in samples are unreachable.
+    sampleComp.resize( samples.size(), -1 );
+    for ( size_t si = 0; si < samples.size(); ++si )
+    {
+      int c = 0, r = 0;
+      if ( !cellOf( samples[si].x, samples[si].y, c, r ) )
+        continue; // outside the grid (margin math guarantees this does not happen)
+      const auto cellComp = [&]( int cc, int rr ) {
+        return ( cc < 0 || cc >= nCols || rr < 0 || rr >= nRows )
+                   ? -3
+                   : comp[static_cast<qsizetype>( rr ) * nCols + cc];
+      };
+      const int own = cellComp( c, r );
+      if ( own >= 0 )
+      {
+        sampleComp[si] = own;
+        continue;
+      }
+      const int around[4] = { cellComp( c - 1, r ), cellComp( c + 1, r ),
+                              cellComp( c, r - 1 ), cellComp( c, r + 1 ) };
+      for ( int k = 0; k < 4; ++k )
+        if ( around[k] >= 0 )
+        {
+          sampleComp[si] = around[k];
+          break;
+        }
+    }
+  }
+
   GDALRasterBandH outBand = GDALGetRasterBand( outDs, 1 );
 
-  // ---- plain IDW (power = 2) -------------------------------------------------
+  // ---- plain IDW (power = 2) honoring barriers + anisotropy ------------------
   // O(rows * cols * points); adequate for P1-scale inputs. A spatial index /
   // neighbor cutoff is a documented optimization path for large point sets.
+  const double invAniso2 = 1.0 / ( anisoRatio * anisoRatio );
+  const double aniso2 = anisoRatio * anisoRatio;
   QVector<float> rowBuf( nCols );
   for ( int r = 0; r < nRows; ++r )
   {
@@ -316,6 +503,12 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
     for ( int c = 0; c < nCols; ++c )
     {
       const double x = extent.xMinimum() + ( c + 0.5 ) * cellSize;
+      const qsizetype cellIdx = static_cast<qsizetype>( r ) * nCols + c;
+      if ( hasBarriers && comp[static_cast<size_t>( cellIdx )] < 0 )
+      {
+        rowBuf[c] = PALEO_NODATA; // barrier cell (or walled-in) — no interpolation
+        continue;
+      }
       if ( clipToHull && !hull.contains( x, y ) )
       {
         rowBuf[c] = PALEO_NODATA;
@@ -324,10 +517,21 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
       double weightSum = 0.0, valueSum = 0.0;
       bool exact = false;
       double exactValue = 0.0;
-      for ( const Sample &s : samples )
+      for ( size_t si = 0; si < samples.size(); ++si )
       {
+        if ( hasBarriers && sampleComp[si] != comp[static_cast<size_t>( cellIdx )] )
+          continue; // separated by a break_line barrier
+        const Sample &s = samples[si];
         const double dx = s.x - x, dy = s.y - y;
-        const double d2 = dx * dx + dy * dy;
+        double d2 = dx * dx + dy * dy;
+        if ( hasAniso )
+        {
+          // Stretch across / squeeze along the direction field axis:
+          // u = along, v = across → d2 = u²/r² + v²·r² (r=1 isotropic).
+          const double u = dx * cosTheta + dy * sinTheta;
+          const double v = -dx * sinTheta + dy * cosTheta;
+          d2 = u * u * invAniso2 + v * v * aniso2;
+        }
         if ( d2 == 0.0 )
         {
           exact = true;
@@ -338,8 +542,10 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
         weightSum += w;
         valueSum += w * s.z;
       }
-      rowBuf[c] = exact ? static_cast<float>( exactValue )
-                        : static_cast<float>( valueSum / weightSum );
+      rowBuf[c] = exact    ? static_cast<float>( exactValue )
+                  : weightSum > 0.0
+                      ? static_cast<float>( valueSum / weightSum )
+                      : PALEO_NODATA; // no reachable sample on this side
     }
     if ( GDALRasterIO( outBand, GF_Write, 0, r, nCols, 1, rowBuf.data(),
                        nCols, 1, GDT_Float32, 0, 0 ) != CE_None )
@@ -823,6 +1029,7 @@ QVariantMap IsopachAlgorithm::processAlgorithm( const QVariantMap &parameters,
 void PaleoProvider::loadAlgorithms()
 {
   addAlgorithm( new PaleoWellDistanceAlgorithm() ); // welldist 核（welldist.cpp）
+  addAlgorithm( new PaleoDistanceTransformAlgorithm() ); // welldist 绕障引擎（distancetransform.cpp，C5）
   addAlgorithm( new ConstraintIDWAlgorithm() );
   addAlgorithm( new FaciesFusionAlgorithm() );
   addAlgorithm( new GeologicalSmoothingAlgorithm() );

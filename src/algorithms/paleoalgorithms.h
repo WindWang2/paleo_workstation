@@ -6,10 +6,19 @@
 // algorithms/ — production Paleo Processing algorithms (C++ only, no Python).
 // Registered on PaleoProvider (id "paleo"), distinct from the spikes provider.
 
-// ConstraintIDW: IDW interpolation of point z-values honoring constraint
-// line geometries as soft barriers — distance measured around barriers.
+// ConstraintIDW: IDW interpolation of point z-values honoring typed constraint
+// line geometries (C1 semantics, 'type' column of the ConstraintStore layer):
+//   · break_line — hard barrier: ROI hull contribution + grid-reachability
+//     blocking (a cell only interpolates from samples on its side of the
+//     barrier; barrier cells become nodata; detours around barrier ends are
+//     honored at cell resolution);
+//   · direction_line — anisotropy axis: length-weighted mean direction θ,
+//     effective distance d² = u²/r² + v²·r² (u along θ, v across, r=ANISO_RATIO)
+//     elongating the surface along the supply direction; no clip, no barrier;
+//   · other/missing type — legacy convex-hull ROI clip only (pre-C1 behavior).
 // Params: INPUT (points, z-field), CONSTRAINTS (lines), FACIES_CODE (int),
-//         CELL_SIZE (double), OUTPUT (raster destination).
+//         CELL_SIZE (double), ANISO_RATIO (double, optional, default 2.0),
+//         OUTPUT (raster destination).
 class ConstraintIDWAlgorithm : public QgsProcessingAlgorithm
 {
   public:
@@ -118,6 +127,28 @@ class PaleoWellDistanceAlgorithm : public QgsProcessingAlgorithm
     QString groupId() const override { return QStringLiteral("singlefactor"); }
     QString shortHelpString() const override;
     PaleoWellDistanceAlgorithm *createInstance() const override { return new PaleoWellDistanceAlgorithm(); }
+    void initAlgorithm(const QVariantMap &configuration = QVariantMap()) override;
+    QVariantMap processAlgorithm(const QVariantMap &parameters, QgsProcessingContext &context,
+                                 QgsProcessingFeedback *feedback) override;
+};
+
+// PaleoDistanceTransform — welldist 单因素的绕障距离引擎（C5；id/参数面按
+// SingleFactorContracts::welldistEngineId() 冻结契约）：无 CONSTRAINTS 时
+// 逐格精确欧氏距离（与 paleo_welldist 同口径）；CONSTRAINTS 含 break_line
+// 时为 8 邻接 Dijkstra 栅格路径距离（边权 1/√2 格，井格多源起 0；屏障格与
+// 无路可达格 → nodata）。direction_line/无 type 的约束线对距离面不参与
+// （与 ConstraintIDW 的 typed 语义一致）。
+// Params: INPUT (wells point layer), CONSTRAINTS (lines, optional),
+//         CELL_SIZE (double), OUTPUT (raster destination).
+class PaleoDistanceTransformAlgorithm : public QgsProcessingAlgorithm
+{
+  public:
+    QString name() const override { return QStringLiteral("paleo_distance_transform"); }
+    QString displayName() const override { return QStringLiteral("Paleo: Distance transform"); }
+    QString group() const override { return QStringLiteral("Single factor"); }
+    QString groupId() const override { return QStringLiteral("singlefactor"); }
+    QString shortHelpString() const override;
+    PaleoDistanceTransformAlgorithm *createInstance() const override { return new PaleoDistanceTransformAlgorithm(); }
     void initAlgorithm(const QVariantMap &configuration = QVariantMap()) override;
     QVariantMap processAlgorithm(const QVariantMap &parameters, QgsProcessingContext &context,
                                  QgsProcessingFeedback *feedback) override;

@@ -39,12 +39,12 @@
 | Plan 条目（§节） | 需要 | 现状 | native/provider 名 | C++/GDAL 实现在哪 | 缺口 | 建议 |
 |---|---|---|---|---|---|---|
 | 普通 IDW（§10.1） | 井点→栅格 | **已覆盖** | `paleo:paleo_constraint_idw`（不带 CONSTRAINTS 即普通 IDW） | 自研，src/algorithms/paleoalgorithms.cpp | 无 | 无需 `qgis:idwinterpolation`（Python-only）；plan §10.1 的「优先调 QGIS Interpolation Provider」修订为「用自家 constraint_idw 无约束档」 |
-| 约束 IDW（§11） | 井点+物源/展布线+地质边界 | **部分实现** | `paleo:paleo_constraint_idw` | 自研（凸包 ROI 裁剪；软屏障绕行距离 RESERVED） | 软屏障绕行距离未实现（凸包内未阻断插值） | 软屏障绕行距离为保留参数，当前几何做凸包 ROI 裁剪（对齐 help string 与实现） |
+| 约束 IDW（§11） | 井点+物源/展布线+地质边界 | **已实现（typed 语义）** | `paleo:paleo_constraint_idw` | 自研（见 2026-09-30 增补） | 无 | C1 语义差分已落地：break_line 贯通屏障（栅格连通域阻断 + ROI 凸包贡献）、direction_line 各向异性方向场（d²=u²/r²+v²·r²，ANISO_RATIO 参数）；无 type/旧 shape 词保持凸包 ROI 裁剪旧行为 |
 | 相融合（§11） | N 单相栅格→编码栅格 | **已实现** | `paleo:paleo_facies_fusion` | 自研 | 无 | — |
 | 地质光滑（§11） | 编码栅格多数滤波 | **已实现** | `paleo:paleo_geological_smoothing` | 自研（3×3 众数，不跨相插值） | 无 | — |
 | 地层/砂体厚度（§10） | top−base | **已实现** | `paleo:paleo_isopach` | 自研 | 无 | — |
 | 相多边形化（§36） | 栅格→可编辑面 | **已实现** | `paleo:paleo_facies_polygonize` | 自研（GDALPolygonize+GEOS coverage） | 无 | — |
-| **最近井距离（§10）** | 井位→距离面 | **缺口** | `native:distancetonearesthub` / `native:distancematrix` | native（C++）**已存在**，但应用未注册 provider | provider 未注册；hub 线→栅格还差一步 rasterize | 注册 QgsNativeAlgorithms 后：`native:distancetonearesthub`（点→hub 连线+距离）+ `native:rasterize`；或自研 `paleo:distance_to_wells`（井点场 GDALComputeProximity——**GDAL C API，libgdal 已链接**，工作量 S） |
+| **最近井距离（§10）** | 井位→距离面 | **已覆盖** | `paleo:paleo_welldist` + `paleo:paleo_distance_transform`（C5） | 自研（精确欧氏 + 绕障 Dijkstra 两档） | 无 | welldist 单因素冻结契约引擎已实装（绕障=break_line 约束线；无屏障时与 paleo_welldist 逐像元一致，测试对拍）；native:distancetonearesthub 路线不再需要 |
 | 预测置信度（§10） | ONNX 输出面 | 自研 ONNX 服务 | —（不走 Processing） | src/ai/onnxpredictionservice.cpp | 无（B 包 D15 领域） | — |
 | **TIN 插值（§12）** | 保离散控制点插值 | **缺口** | `qgis:tininterpolation`（Python provider） | C++ 数学内核在（qgis_analysis `QgsTinInterpolator`/`QgsInterpolator`），Processing 封装是 Python | 无 C++ Processing 算法 | 触发条件未满足（编图链用 IDW 已够）：需要时自研 `paleo:tin` 直调 QgsTinInterpolator（工作量 M） |
 | **等值线（§12）** | 栅格→等值线要素 | **缺口** | `gdal:contour`（Python provider） | **GDAL C API `GDALContourGenerate`——libgdal 已链接** | 无 C++ Processing 封装 | TODOS P1 点名的 raster contour 缺口：自研 `paleo:contour` 包 `GDALContourGenerate`（工作量 S，参数 interval/base→线要素 gpkg） |
@@ -63,10 +63,51 @@
 3. **S（一个算法）**：`paleo:ratio` 或最小逐像元 A/B——补砂地比/比率类
    单因素图；通用栅格计算器递延。
 4. **M（递延，触发条件已写）**：`paleo:tin`（直调 qgis_analysis 的
-   QgsTinInterpolator）；`paleo:distance_to_wells` 若 native 两步管线
-   （hub→rasterize）精度/性能不满足再做 GDALComputeProximity 单步版。
+   QgsTinInterpolator）。
 5. **不做**：gdal:grid（用例被 constraint_idw 覆盖）、任何对 Python
    provider 的依赖（架构红线）。
+
+## 3a. 增补：约束 IDW typed 语义 + welldist 距离变换引擎（2026-09-30，wave/deepen-perf C1/C5）
+
+本节随算法实现改动更新（区别于上方 2026-09-26 的只读审计快照）。
+
+### paleo:paleo_constraint_idw —— 约束线语义差分（C1）
+
+按 ConstraintStore `type` 列分拣（词表：direction_line/break_line/旧 §42
+shape 词），无 type 列或未知词保持旧行为（凸包 ROI 裁剪，逐位兼容）：
+
+- **break_line = 贯通屏障**：① 参与 ROI 凸包（屏障即边界）；② 栅格连通域
+  阻断——屏障线半格超采样栅格化（对角不漏）后 4-连通 BFS 标号，格只从
+  同连通域井点插值；屏障格本身 nodata；无同侧井点的格 nodata（不造假混
+  合）。绕行语义以输出格分辨率兑现（屏障端点绕行自动生效）。
+  近似声明：同连通域内仍用直线欧氏距离（凹形屏障下低估路径长度）——
+  只影响权重，不影响阻断正确性。
+- **direction_line = 各向异性方向场**：长度加权平均方向 θ（倍角合成解
+  mod π 歧义），有效距离 d² = u²/r² + v²·r²（u 沿 θ、v 垂直，r=ANISO_RATIO
+  可选参数，默认 2.0，<1 钳到 1）。效果：插值面沿物源方向拉长。
+- 元数据：PALEO_BREAK_LINES / PALEO_DIRECTION_LINES / PALEO_ANISO_RATIO /
+  PALEO_ANISO_ANGLE_DEG（provenance + 测试断言面）。
+- 测试：tests/tst_algorithm_harness.cpp `constraintIdwBreakLineBarrier` /
+  `constraintIdwDirectionAniso`（屏障分侧直取、屏障列 nodata、方向场偏置
+  数值断言、方向线不进凸包、旧行为混合值对照）；harness 增
+  makeTypedLineLayer / rasterCell 原语。
+
+### paleo:paleo_distance_transform —— welldist 冻结契约引擎（C5）
+
+按 `SingleFactorContracts::welldistEngineId()` 冻结 id/参数面实装
+（src/algorithms/distancetransform.cpp）：
+
+- 无 CONSTRAINTS（或无 break_line）→ 逐格精确欧氏距离，与 paleo_welldist
+  逐像元一致（测试零容差对拍）——welldist 单因素由此点亮（生成链分派见
+  ConstraintWorkflow::generateDistanceFactor，tst_factorworkflow 反向断言已
+  翻转）。
+- CONSTRAINTS 含 break_line → 8-邻接 Dijkstra 栅格路径距离（边权 1/√2 格、
+  井格多源起 0；屏障格与无路可达格 nodata）。「绕障=约束线」的契约细化为
+  「绕障=break_line 约束线」（与 ConstraintIDW typed 语义一致）。
+- confidence 置信度面维持冻结拒绝：前置在 onnxpredictionservice 暴露真实
+  置信度输出（当前只读首个输出张量，src/ai 非 C 域）——依据
+  docs/progress/mapping.md「跨方向契约」节 + PredictionWorkflow::
+  confidenceCompanionAvailable 恒 false 的既有调查结论。
 
 ## 4. 与 plan 文本的差异备忘（供编排会话对账）
 

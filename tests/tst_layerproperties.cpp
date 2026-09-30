@@ -287,6 +287,47 @@ class TestLayerProperties : public QObject
       delete manualPage;
     }
 
+    // (f2) C4（wave/deepen-perf）：layerId↔assetId 关联激活——图层对象带
+    // paleoAssetId 自定义属性（生成侧 stampLayerAssetLink 盖章）→ 业务页
+    // 显示资产 id、按钮开闸、点击发 assetInspectionRequested；无属性 → 未关联。
+    void businessPageShowsStampedAssetLink()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+      QVERIFY(manifest.open());
+      QgisLayerService svc(nullptr, &manifest);
+      QVERIFY(svc.declare(decl(QStringLiteral("factor.T1.sandthick"), QStringLiteral("T1"))));
+      QgsMapLayer *layer = svc.instantiate(QStringLiteral("factor.T1.sandthick"));
+      QVERIFY(layer != nullptr);
+      layer->setCustomProperty(QStringLiteral("paleoAssetId"),
+                               QStringLiteral("ast-000042"));
+
+      LayerPropertiesDialog dlg(&svc, LayerPropertiesDialog::Deps{});
+      QPointer<QWidget> page(dlg.createBusinessPage(QStringLiteral("factor.T1.sandthick")));
+      QVERIFY(page != nullptr);
+      QCOMPARE(page->findChild<QLabel *>(QStringLiteral("paleoPropAsset"))->text(),
+               QStringLiteral("ast-000042"));
+      auto *btn = page->findChild<QPushButton *>(QStringLiteral("paleoInspectAssetButton"));
+      QVERIFY(btn != nullptr);
+      QVERIFY2(btn->isEnabled(), "stamped asset link must enable the button");
+      QVERIFY(btn->toolTip().isEmpty()); // 开闸后无禁用 reason
+      QSignalSpy inspectSpy(&dlg, &LayerPropertiesDialog::assetInspectionRequested);
+      btn->click();
+      QCOMPARE(inspectSpy.count(), 1);
+      QCOMPARE(inspectSpy.first().at(0).toString(), QStringLiteral("ast-000042"));
+
+      // 摘掉属性 → 回到未关联（禁用 + reason）。
+      layer->removeCustomProperty(QStringLiteral("paleoAssetId"));
+      QPointer<QWidget> page2(dlg.createBusinessPage(QStringLiteral("factor.T1.sandthick")));
+      QVERIFY(page2 != nullptr);
+      QCOMPARE(page2->findChild<QLabel *>(QStringLiteral("paleoPropAsset"))->text(),
+               QStringLiteral("未关联"));
+      QVERIFY(!page2->findChild<QPushButton *>(QStringLiteral("paleoInspectAssetButton"))->isEnabled());
+      delete page;
+      delete page2;
+    }
+
     // (g) 保存预设：offscreen QInputDialog no-op → 默认名来自 manifest
     // styleRef 的 basename 去目录去 .qml（styles/facies.T1.qml → facies.T1）；
     // 无声明层 → 「预设1」；保存后下拉列出该预设。

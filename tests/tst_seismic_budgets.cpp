@@ -166,6 +166,36 @@ private slots:
     QVERIFY2(fps >= kFpsBudget,
              qPrintable(QStringLiteral("%1 fps under budget %2").arg(fps).arg(kFpsBudget)));
 
+    // ---- A2（wave/deepen-perf）：体渲染满配帧率基线（16 堆叠层 + 混合 + 线框）----
+    // 数字入 docs/seismic/BASELINE.md §4（堆叠开 vs 关的栅格化成本差）。
+    for (int layer = 0; layer < SeismicSliceRenderer::kMaxStackLayers; ++layer) {
+      const int sample = static_cast<int>((layer + 0.5) / SeismicSliceRenderer::kMaxStackLayers *
+                                          (volume.SampleMax() + 1));
+      SgySliceImage layerImg;
+      QVERIFY(volume.ExtractSlice(SgySliceType::Time, sample, layerImg, err));
+      QVERIFY(renderer.UpdateStackLayer(&gl, layer, volume, sample, layerImg));
+    }
+    renderer.SetStackVisible(true);
+    for (int i = 0; i < 5; ++i) { // 预热（含混合路径）
+      gl.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+      renderer.Render(&gl, camera.BuildViewMatrix(), proj);
+      frame.Render(&gl, camera.BuildViewMatrix(), proj);
+    }
+    gl.glFinish();
+    clock.restart();
+    for (int i = 0; i < kFrames; i++) {
+      camera.Rotate(-0.3f, 0.1f);
+      gl.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+      renderer.Render(&gl, camera.BuildViewMatrix(), proj);
+      frame.Render(&gl, camera.BuildViewMatrix(), proj);
+      gl.glFinish();
+    }
+    const double stackFps = kFrames * 1000.0 / clock.elapsed();
+    qInfo("3D fps (stack16, synced): %.1f (budget %.0f)", stackFps, kFpsBudget);
+    QVERIFY2(stackFps >= kFpsBudget,
+             qPrintable(QStringLiteral("stack16 %1 fps under budget %2").arg(stackFps).arg(kFpsBudget)));
+    renderer.SetStackVisible(false);
+
     gl.glBindFramebuffer(GL_FRAMEBUFFER, 0);
     gl.glDeleteFramebuffers(1, &fbo);
     gl.glDeleteTextures(1, &colorTex);

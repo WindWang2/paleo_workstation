@@ -58,6 +58,8 @@
 #include <qgspoint.h>
 #include <qgsproject.h>
 #include <qgsrectangle.h>
+#include <qgssnappingconfig.h>
+#include <qgssnappingutils.h>
 #include <qgsvectorlayer.h>
 #include <qgsvectorlayereditbuffer.h>
 #include <qgsvertexmarker.h>
@@ -136,6 +138,8 @@ class TestEditTools : public QObject
     // b) vertex drag
     void vertexMarkersFollowSelectionLifecycle();
     void vertexDragMovesSingleVertexAndUndoRestores();
+    void vertexDragSnapsToSnapTargetVertex();
+    void vertexDragWithoutSnapConfigKeepsRawPoint();
 
     // c) reshape + vertex add/delete
     void reshapeChangesSelectedFeatureOnly();
@@ -641,6 +645,131 @@ void TestEditTools::vertexDragMovesSingleVertexAndUndoRestores()
   QVERIFY( lsu );
   QVERIFY( qgsDoubleNear( lsu->xAt( 0 ), p1.x(), 1e-6 ) );
   QVERIFY( qgsDoubleNear( lsu->yAt( 0 ), p1.y(), 1e-6 ) );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexDragSnapsToSnapTargetVertex()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "LineString?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "edit" ), QStringLiteral( "memory" ) );
+  QVERIFY( layer.isValid() );
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { mapPt( canvas, 40, 140 ), mapPt( canvas, 100, 100 ), mapPt( canvas, 160, 60 ) } ) );
+  QgsVectorLayer snapSrc( QStringLiteral( "Point?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "snap-src" ), QStringLiteral( "memory" ) );
+  QVERIFY( snapSrc.isValid() );
+  const QgsPointXY target = mapPt( canvas, 150, 80 );
+  seedFeature( snapSrc, QgsGeometry::fromPointXY( target ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer, &snapSrc } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+  // AllLayers 模式的吸附索引走 QgsProject::instance() 的层注册表——与应用
+  // 侧真实路径一致（生产层都在工程里）。
+  QgsProject::instance()->addMapLayer( &layer, false, false );
+  QgsProject::instance()->addMapLayer( &snapSrc, false, false );
+
+  // Same shape as QgisCanvasController::nativeSnappingConfig() (AllLayers,
+  // vertex+segment, pixel tolerance) — installed here directly because the
+  // bare-canvas fixture never goes through the controller.
+  QgsSnappingConfig cfg = canvas.snappingUtils()->config();
+  cfg.setEnabled( true );
+  cfg.setMode( Qgis::SnappingMode::AllLayers );
+  cfg.setTypeFlag( Qgis::SnappingType::Vertex | Qgis::SnappingType::Segment );
+  cfg.setTolerance( 10.0 );
+  cfg.setUnits( Qgis::MapToolUnit::Pixels );
+  canvas.snappingUtils()->setConfig( cfg );
+
+  TestVertexTool tool( &canvas, &layer );
+  canvas.setMapTool( &tool );
+
+  // 吸附索引（QgsPointLocator）惰性/异步构建——先探到索引就绪再注入事件，
+  // 否则首个 snapToMap 还在建索引时返回空匹配，断言会偶发失败。
+  QgsPointLocator::Match warm;
+  for ( int i = 0; i < 200 && !warm.isValid(); ++i )
+  {
+    warm = canvas.snappingUtils()->snapToMap( mapPt( canvas, 152, 82 ) );
+    if ( !warm.isValid() )
+      QTest::qWait( 10 );
+  }
+  QVERIFY2( warm.isValid(), "snap locator never prepared" );
+
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, QPoint( 40, 140 ), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY2( tool.isDragging(), "press on a vertex must arm the drag" );
+
+  // Drop 2px off the snap source's vertex — inside the 10px tolerance, so the
+  // commit must land on the exact vertex, not the raw cursor position.
+  QgsMapMouseEvent move( &canvas, QEvent::MouseMove, QPoint( 152, 82 ), Qt::NoButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasMoveEvent( &move );
+  QVERIFY2( move.isSnapped(), "move within tolerance must register a snap match" );
+
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, QPoint( 152, 82 ), Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+  QVERIFY( !tool.isDragging() );
+
+  const QgsGeometry g = layer.getFeature( fid ).geometry();
+  const QgsLineString *ls = asLineString( g );
+  QVERIFY( ls );
+  QVERIFY( qgsDoubleNear( ls->xAt( 0 ), target.x(), 1e-9 ) );
+  QVERIFY( qgsDoubleNear( ls->yAt( 0 ), target.y(), 1e-9 ) );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexDragWithoutSnapConfigKeepsRawPoint()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "LineString?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "edit" ), QStringLiteral( "memory" ) );
+  QVERIFY( layer.isValid() );
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { mapPt( canvas, 40, 140 ), mapPt( canvas, 100, 100 ), mapPt( canvas, 160, 60 ) } ) );
+  QgsVectorLayer snapSrc( QStringLiteral( "Point?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "snap-src" ), QStringLiteral( "memory" ) );
+  QVERIFY( snapSrc.isValid() );
+  const QgsPointXY target = mapPt( canvas, 150, 80 );
+  seedFeature( snapSrc, QgsGeometry::fromPointXY( target ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer, &snapSrc } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  // Explicitly disabled: default QgsSnappingConfig is off, pin it anyway so
+  // the raw-drop contract cannot silently change with upstream defaults.
+  QgsSnappingConfig cfg = canvas.snappingUtils()->config();
+  cfg.setEnabled( false );
+  canvas.snappingUtils()->setConfig( cfg );
+
+  TestVertexTool tool( &canvas, &layer );
+  canvas.setMapTool( &tool );
+
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, QPoint( 40, 140 ), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY( tool.isDragging() );
+
+  QgsMapMouseEvent move( &canvas, QEvent::MouseMove, QPoint( 152, 82 ), Qt::NoButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasMoveEvent( &move );
+  QVERIFY( !move.isSnapped() );
+
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, QPoint( 152, 82 ), Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+
+  // No snapping → the raw cursor position commits.
+  const QgsPointXY raw = mapPt( canvas, 152, 82 );
+  const QgsGeometry g = layer.getFeature( fid ).geometry();
+  const QgsLineString *ls = asLineString( g );
+  QVERIFY( ls );
+  QVERIFY( qgsDoubleNear( ls->xAt( 0 ), raw.x(), 1e-6 ) );
+  QVERIFY( qgsDoubleNear( ls->yAt( 0 ), raw.y(), 1e-6 ) );
 
   canvas.unsetMapTool( &tool );
   layer.rollBack();

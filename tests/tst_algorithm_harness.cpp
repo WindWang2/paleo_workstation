@@ -217,6 +217,280 @@ private slots:
     delete pts;
   }
 
+  // 1b) C1 break_line 屏障：竖直打断线把两口井分居两侧——左半格直取左井值、
+  //     右半格直取右井值、屏障列 nodata；同一几何不带 break_line 类型
+  //     （旧 shape 词）时中间格是两口井的混合（旧行为逐位保持）。
+  void constraintIdwBreakLineBarrier()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 1, 2 ), 0.0 }, { QgsPointXY( 9, 2 ), 10.0 } } );
+    QVERIFY( wells->isValid() );
+    // 竖直打断线 x=5.5，纵贯网格高度（extent y∈[1,3]，线跨 [0,4]）。
+    const QList<QgsPointXY> wall = { QgsPointXY( 5.5, 0 ), QgsPointXY( 5.5, 4 ) };
+
+    auto *typed = AlgorithmTestBase::makeTypedLineLayer(
+        QStringLiteral( "typed" ), { wall },
+        QStringList{ QStringLiteral( "break_line" ) } );
+    auto *legacy = AlgorithmTestBase::makeLineLayer( QStringLiteral( "legacy" ), { wall } );
+    QVERIFY( typed->isValid() && legacy->isValid() );
+
+    auto runIdw = [this, wells]( QgsVectorLayer *constraints, const QString &out ) {
+      QVariantMap params;
+      params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+      params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+      params.insert( QStringLiteral( "OUTPUT" ), out );
+      if ( constraints )
+        params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( constraints ) );
+      QString log;
+      QVERIFY2( !AlgorithmTestBase::run(
+                    QStringLiteral( "paleo:paleo_constraint_idw" ), params, &log ).isEmpty(),
+                qPrintable( log ) );
+    };
+
+    const QString outB = mDir.filePath( QStringLiteral( "idw_break.tif" ) );
+    const QString outL = mDir.filePath( QStringLiteral( "idw_legacy.tif" ) );
+    runIdw( typed, outB );
+    runIdw( legacy, outL );
+
+    // 10 列（extent [0.2,9.8]）；col 5 = 屏障（x=5.5 落在 [5.2,6.2)）。
+    QCOMPARE( AlgorithmTestBase::rasterCell( outB, 0, 0 ), 0.0f );
+    QCOMPARE( AlgorithmTestBase::rasterCell( outB, 1, 0 ), 0.0f );
+    QCOMPARE( AlgorithmTestBase::rasterCell( outB, 0, 4 ), 0.0f ); // 屏障左侧只剩 z=0 井
+    QCOMPARE( AlgorithmTestBase::rasterCell( outB, 0, 9 ), 10.0f );
+    QCOMPARE( AlgorithmTestBase::rasterCell( outB, 1, 6 ), 10.0f ); // 屏障右侧只剩 z=10 井
+    QCOMPARE( AlgorithmTestBase::rasterCell( outB, 0, 5 ), -9999.0f ); // 屏障列本身
+    QCOMPARE( AlgorithmTestBase::rasterCell( outB, 1, 5 ), -9999.0f );
+
+    // 旧行为：无 type 列 → 不屏障，中间列是 0/10 的混合（严格介于两者）。
+    const float mid = AlgorithmTestBase::rasterCell( outL, 0, 5 );
+    QVERIFY2( mid > 0.0f && mid < 10.0f,
+              qPrintable( QStringLiteral( "legacy middle cell %1 must be a blend" ).arg( mid ) ) );
+
+    // 元数据：屏障/方向条数落 PALEO_BREAK_LINES / PALEO_DIRECTION_LINES。
+    GDALDatasetH ds = GDALOpen( outB.toUtf8().constData(), GA_ReadOnly );
+    QVERIFY2( ds != nullptr, "open idw_break.tif for metadata" );
+    const char *nBreak = GDALGetMetadataItem( ds, "PALEO_BREAK_LINES", nullptr );
+    const char *nDir = GDALGetMetadataItem( ds, "PALEO_DIRECTION_LINES", nullptr );
+    QVERIFY2( nBreak && QByteArray( nBreak ) == QByteArrayLiteral( "1" ), "PALEO_BREAK_LINES=1" );
+    QVERIFY2( nDir && QByteArray( nDir ) == QByteArrayLiteral( "0" ), "PALEO_DIRECTION_LINES=0" );
+    GDALClose( ds );
+
+    delete wells;
+    delete typed;
+    delete legacy;
+  }
+
+  // 1c) C1 direction_line 方向场：仅方向线（无打断线）时——① 不参与 ROI 凸包
+  //     裁剪（同几何不带类型会裁掉角格）；② 各向异性权重把等距两井的混合值
+  //     沿方向轴偏置（无方向场时恰为 50/50）。
+  void constraintIdwDirectionAniso()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 5.5, 3.0 ), 0.0 },   // 测试格正下方（横向 across）
+          { QgsPointXY( 8.0, 5.5 ), 10.0 } } ); // 测试格正右方（沿方向 along）
+    QVERIFY( wells->isValid() );
+    // 测试格 (row0,col0) 中心 (5.75,5.25)：到两井距离平方均为 5.125。
+    // 横向方向线 y=5.5 → θ=0；r=2 时 along 井（右）权重≈13×across 井（下）。
+
+    const QList<QgsPointXY> axis = { QgsPointXY( 5.25, 5.5 ), QgsPointXY( 8.25, 5.5 ) };
+    auto *dirLines = AlgorithmTestBase::makeTypedLineLayer(
+        QStringLiteral( "dir" ), { axis },
+        QStringList{ QStringLiteral( "direction_line" ) } );
+    auto *plainLines = AlgorithmTestBase::makeLineLayer( QStringLiteral( "plain" ), { axis } );
+    QVERIFY( dirLines->isValid() && plainLines->isValid() );
+
+    auto runWith = [this, wells]( QgsVectorLayer *constraints, const QString &out ) {
+      QVariantMap params;
+      params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+      params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+      params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( constraints ) );
+      params.insert( QStringLiteral( "OUTPUT" ), out );
+      QString log;
+      QVERIFY2( !AlgorithmTestBase::run(
+                    QStringLiteral( "paleo:paleo_constraint_idw" ), params, &log ).isEmpty(),
+                qPrintable( log ) );
+    };
+
+    const QString outA = mDir.filePath( QStringLiteral( "idw_aniso.tif" ) );
+    const QString outL = mDir.filePath( QStringLiteral( "idw_noline.tif" ) );
+    runWith( dirLines, outA );
+    // 无约束基线：50/50 混合 → 5.0。
+    QVariantMap paramsN;
+    paramsN.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+    paramsN.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    paramsN.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    paramsN.insert( QStringLiteral( "OUTPUT" ), outL );
+    QString logN;
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_constraint_idw" ), paramsN, &logN ).isEmpty(),
+              qPrintable( logN ) );
+
+    const float base = AlgorithmTestBase::rasterCell( outL, 0, 0 );
+    QVERIFY2( std::fabs( base - 5.0f ) < 1e-3f,
+              qPrintable( QStringLiteral( "isotropic equidistant mix %1" ).arg( base ) ) );
+    const float aniso = AlgorithmTestBase::rasterCell( outA, 0, 0 );
+    QVERIFY2( aniso > 9.0f,
+              qPrintable( QStringLiteral( "anisotropic mix %1 must lean along-axis" ).arg( aniso ) ) );
+
+    // 元数据：方向条数 + 各向异性参数。
+    GDALDatasetH ds = GDALOpen( outA.toUtf8().constData(), GA_ReadOnly );
+    QVERIFY2( ds != nullptr, "open idw_aniso.tif for metadata" );
+    QCOMPARE( QByteArray( GDALGetMetadataItem( ds, "PALEO_DIRECTION_LINES", nullptr ) ),
+              QByteArrayLiteral( "1" ) );
+    QCOMPARE( QByteArray( GDALGetMetadataItem( ds, "PALEO_BREAK_LINES", nullptr ) ),
+              QByteArrayLiteral( "0" ) );
+    QVERIFY2( GDALGetMetadataItem( ds, "PALEO_ANISO_RATIO", nullptr ) != nullptr,
+              "PALEO_ANISO_RATIO present" );
+    GDALClose( ds );
+
+    // ① 方向线不参与凸包裁剪：两条交叉方向线的凸包是正方形（会裁掉角格），
+    //    带方向类型时角格仍有值；同一对线不带类型（旧行为）时角格 nodata。
+    auto *wells2 = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells2" ),
+        { { QgsPointXY( 1, 1 ), 5.0 }, { QgsPointXY( 9, 9 ), 5.0 } } );
+    const QList<QgsPointXY> cross1 = { QgsPointXY( 1, 9 ), QgsPointXY( 9, 1 ) };
+    const QList<QgsPointXY> cross2 = { QgsPointXY( 1, 1 ), QgsPointXY( 9, 9 ) };
+    auto *crossTyped = AlgorithmTestBase::makeTypedLineLayer(
+        QStringLiteral( "xt" ), { cross1, cross2 },
+        QStringList{ QStringLiteral( "direction_line" ), QStringLiteral( "direction_line" ) } );
+    auto *crossPlain = AlgorithmTestBase::makeLineLayer(
+        QStringLiteral( "xp" ), { cross1, cross2 } );
+
+    auto runCross = [this, wells2]( QgsVectorLayer *constraints, const QString &out ) {
+      QVariantMap params;
+      params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells2 ) );
+      params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+      params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( constraints ) );
+      params.insert( QStringLiteral( "OUTPUT" ), out );
+      QString log;
+      QVERIFY2( !AlgorithmTestBase::run(
+                    QStringLiteral( "paleo:paleo_constraint_idw" ), params, &log ).isEmpty(),
+                qPrintable( log ) );
+    };
+    const QString outXt = mDir.filePath( QStringLiteral( "idw_xt.tif" ) );
+    const QString outXp = mDir.filePath( QStringLiteral( "idw_xp.tif" ) );
+    runCross( crossTyped, outXt );
+    runCross( crossPlain, outXp );
+    QVERIFY2( AlgorithmTestBase::rasterCell( outXt, 0, 0 ) != -9999.0f,
+              "direction lines must not clip the ROI hull" );
+    QCOMPARE( AlgorithmTestBase::rasterCell( outXp, 0, 0 ), -9999.0f ); // 旧语义：凸包裁剪
+
+    delete wells;
+    delete dirLines;
+    delete plainLines;
+    delete wells2;
+    delete crossTyped;
+    delete crossPlain;
+  }
+
+  // 1d) C5 paleo:paleo_distance_transform（welldist 冻结契约引擎）：
+  //     ① 无约束（或约束无 break_line）时与 paleo:paleo_welldist 逐像元一致
+  //        （精确欧氏口径相同）；② break_line 绕障：Dijkstra 路径距离
+  //        （井格 0、正交邻格 1、对角 √2）；③ 屏障格 nodata；④ 元数据
+  //        PALEO_BARRIER_AWARE 反映是否绕障。
+  void distanceTransformContract()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 0, 0 ), 0.0 }, { QgsPointXY( 10, 0 ), 0.0 } } );
+    QVERIFY( wells->isValid() );
+
+    auto baseParams = []( QgsVectorLayer *input, const QString &out ) {
+      QVariantMap params;
+      params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( input ) );
+      params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+      params.insert( QStringLiteral( "OUTPUT" ), out );
+      return params;
+    };
+    const QString outPlain = mDir.filePath( QStringLiteral( "dt_plain.tif" ) );
+    const QString outWelldist = mDir.filePath( QStringLiteral( "dt_welldist.tif" ) );
+    QString log;
+    QVariantMap paramsPlain = baseParams( wells, outPlain );
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_distance_transform" ), paramsPlain, &log ).isEmpty(),
+              qPrintable( log ) );
+    QVariantMap paramsW = baseParams( wells, outWelldist );
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_welldist" ), paramsW, &log ).isEmpty(),
+              qPrintable( log ) );
+    AlgorithmTestBase::RasterDiff diff;
+    QVERIFY2( AlgorithmTestBase::compareRasters( outPlain, outWelldist, 0.0, &diff ),
+              qPrintable( diff.message ) );
+
+    // 无 break_line 的约束层（旧 shape 词 + direction_line）不改变距离面。
+    const QList<QgsPointXY> stray = { QgsPointXY( -1, -1 ), QgsPointXY( 11, 1 ) };
+    auto *notBreak = AlgorithmTestBase::makeTypedLineLayer(
+        QStringLiteral( "nb" ), { stray, stray },
+        QStringList{ QStringLiteral( "line" ), QStringLiteral( "direction_line" ) } );
+    const QString outNoBreak = mDir.filePath( QStringLiteral( "dt_nobreak.tif" ) );
+    QVariantMap paramsNb = baseParams( wells, outNoBreak );
+    paramsNb.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( notBreak ) );
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_distance_transform" ), paramsNb, &log ).isEmpty(),
+              qPrintable( log ) );
+    QVERIFY2( AlgorithmTestBase::compareRasters( outNoBreak, outWelldist, 0.0, &diff ),
+              qPrintable( diff.message ) );
+
+    // break_line 绕障：两口井 + 竖直墙（与 1b 同几何）。
+    auto *wells2 = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells2" ),
+        { { QgsPointXY( 1, 2 ), 0.0 }, { QgsPointXY( 9, 2 ), 0.0 } } );
+    const QList<QgsPointXY> wall = { QgsPointXY( 5.5, 0 ), QgsPointXY( 5.5, 4 ) };
+    auto *typed = AlgorithmTestBase::makeTypedLineLayer(
+        QStringLiteral( "typed" ), { wall },
+        QStringList{ QStringLiteral( "break_line" ) } );
+    QVERIFY( wells2->isValid() && typed->isValid() );
+
+    const QString outBarrier = mDir.filePath( QStringLiteral( "dt_barrier.tif" ) );
+    QVariantMap paramsB = baseParams( wells2, outBarrier );
+    paramsB.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( typed ) );
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_distance_transform" ), paramsB, &log ).isEmpty(),
+              qPrintable( log ) );
+
+    // 网格 [0.2,9.8]×[1,3]（10×2）：井 (1,2)→格(r1,c0)、井 (9,2)→格(r1,c8)。
+    const float wellCell = AlgorithmTestBase::rasterCell( outBarrier, 1, 0 );
+    QVERIFY2( std::fabs( wellCell ) < 1e-4f, qPrintable( QString::number( wellCell ) ) );
+    const float ortho = AlgorithmTestBase::rasterCell( outBarrier, 0, 0 );
+    QVERIFY2( std::fabs( ortho - 1.0f ) < 1e-4f, qPrintable( QString::number( ortho ) ) );
+    const float diag = AlgorithmTestBase::rasterCell( outBarrier, 0, 9 );
+    QVERIFY2( std::fabs( diag - std::sqrt( 2.0f ) ) < 1e-3f,
+              qPrintable( QString::number( diag ) ) );
+    QCOMPARE( AlgorithmTestBase::rasterCell( outBarrier, 0, 5 ), -9999.0f ); // 屏障列
+    QCOMPARE( AlgorithmTestBase::rasterCell( outBarrier, 1, 5 ), -9999.0f );
+
+    GDALDatasetH ds = GDALOpen( outBarrier.toUtf8().constData(), GA_ReadOnly );
+    QVERIFY2( ds != nullptr, "open dt_barrier.tif for metadata" );
+    QCOMPARE( QByteArray( GDALGetMetadataItem( ds, "PALEO_BARRIER_AWARE", nullptr ) ),
+              QByteArrayLiteral( "1" ) );
+    QCOMPARE( QByteArray( GDALGetMetadataItem( ds, "PALEO_BREAK_LINES", nullptr ) ),
+              QByteArrayLiteral( "1" ) );
+    GDALClose( ds );
+    ds = GDALOpen( outPlain.toUtf8().constData(), GA_ReadOnly );
+    QVERIFY2( ds != nullptr, "open dt_plain.tif for metadata" );
+    QCOMPARE( QByteArray( GDALGetMetadataItem( ds, "PALEO_BARRIER_AWARE", nullptr ) ),
+              QByteArrayLiteral( "0" ) );
+    GDALClose( ds );
+
+    // 空输入拒绝（契约同 welldist）。
+    auto *empty = AlgorithmTestBase::makePointLayer( QStringLiteral( "empty" ), {} );
+    QVariantMap paramsE = baseParams( empty, mDir.filePath( QStringLiteral( "dt_e.tif" ) ) );
+    QVERIFY2( AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_distance_transform" ), paramsE, &log ).isEmpty(),
+              qPrintable( log ) ); // 期望失败：返回空 map
+
+    delete wells;
+    delete notBreak;
+    delete wells2;
+    delete typed;
+    delete empty;
+  }
+
   // 2) Isopach：top−base 手工算出期望栅格，对拍（tol=1e-4）。
   void isopachMatchesHandComputedRaster()
   {

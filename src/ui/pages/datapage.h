@@ -31,6 +31,8 @@ class DataPage : public QWidget
     void openShortcutsDialog();                   // ? 键
     bool vimModeEnabled() const;
     void setVimModeEnabled(bool on);
+    // B2（wave/deepen-perf）：列表面板露出——壳接导入队列生产 runner 用。
+    DataListPanel *listPanel() const { return m_listPanel; }
 
   public slots:
     void refreshAssetTable();                     // 资产表/树 + 实体视图一并重取

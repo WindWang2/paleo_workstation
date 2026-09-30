@@ -130,6 +130,29 @@ class DataImportService : public QObject
     // 旧签名（mainwindow importRequested 接线）：kind 仅用于信号，不再决定行为。
     QString importFile(const QString &kind, const QString &sourcePath, QString *error = nullptr);
 
+    // ---- B3（wave/deepen-perf）：栅格金字塔批量接线 ----
+    // 工程级瓦片金字塔根 <project>/artifacts/pyramids（RasterPyramidService；
+    // 源身份 mtime/size 变化自动重建）。Lazy ensure：只铺目录 + 状态表，
+    // 瓦片由消费侧首次取用时生成——导入期近零开销。
+    QString pyramidCacheDir() const;
+    // 批量 ensure（RasterPyramidService::ensure Lazy）。返回成功条数；单文件
+    // 失败不中断（记 warning）；progress(done, total, path) 返回 false = 协作
+    // 取消（已 ensure 的保留）。空工程目录 → 0（无缓存根，如实不做事）。
+    int ensureRasterPyramids(const QStringList &absPaths, QString *error = nullptr,
+                             const std::function<bool(int done, int total,
+                                                      const QString &path)> &progress = {});
+    // GDAL 外部概览（<file>.ovr 边车）构建——消费侧渲染加速的真实生效面：
+    // QGIS/GDAL 渲染自动发现并使用 .ovr，全图首渲不再整幅降采样重读。
+    // 层级 2,4,8,… 至最小维 <512px；小图无层级 = 立即成功（无事可做）。
+    // 外部 .ovr 绝不改受管 RAW 字节（入库 SHA 留底保持有效）。progress 同上
+    //（单文件粒度）+ buildProgress(0..1) 经 ensureRasterPyramidVersion 接任务。
+    int buildRasterOverviews(const QStringList &absPaths, QString *error = nullptr,
+                             const std::function<bool(int done, int total,
+                                                      const QString &path)> &progress = {});
+    // 单文件版（含 0..1 构建进度回调，返回 false = 取消）。
+    bool buildRasterOverviews(const QString &absPath, QString *error = nullptr,
+                              const std::function<bool(double fraction)> &buildProgress = {});
+
     DataCatalog *catalog() const { return m_catalog; }
 
     // 版本路径 → 工程内绝对路径（外链原样返回）。

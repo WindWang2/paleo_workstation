@@ -86,14 +86,20 @@ DeclMatch findDeclaration(QgisLayerService *svc, const QString &layerId)
     return m;
 }
 
-// layerId ↔ assetId 的关联面：ProjectDataFacade/DataCatalog 只有
-// 实体↔资产（EntityAssetLink）一条关联链，LayerDeclaration 无 asset 字段
-// ——当前无关联面（汇报降级项）。按钮走「未关联」禁用态，此函数留出
-// 接线 E 扩展点（不改 manifest schema / catalog 结构）。
-QString assetIdForLayer(const QString &layerId)
+// layerId ↔ assetId 的关联面（C4/wave-deepen-perf 激活）：数据链在生成侧——
+// 派生产物 commit 后 workflow 把 catalog assetId 盖到已实例化图层对象
+//（paleoAssetId 自定义属性，workflows.cpp stampLayerAssetLink；随 .qgz
+// 持久化）。此处按同一解析链（实例缓存 → 工程 paleoLayerId 扫描）读回；
+// 层未实例化或非派生产物 → 空 = 未关联（按钮禁用 + reason tooltip）。
+// catalog 侧显式关联表（LayerDeclaration.asset 字段 / 链表）仍是递延项
+//（TODOS「图层平台」节），本函数即其预留单点扩展。
+QString assetIdForLayer(QgisLayerService *svc, const QString &layerId)
 {
-    Q_UNUSED(layerId);
-    return QString();
+    QgsMapLayer *layer = resolveLayer(svc, layerId);
+    if (!layer)
+        return QString();
+    const QString assetId = layer->customProperty(QStringLiteral("paleoAssetId")).toString();
+    return assetId;
 }
 
 // ---- Paleo 业务页：只读字段 + 样式管理（QgsMapLayerStyleManager） ----
@@ -105,11 +111,12 @@ class PaleoLayerConfigPage : public QgsMapLayerConfigWidget
 
   public:
     PaleoLayerConfigPage(QgsMapLayer *layer, QgsMapCanvas *canvas, const QString &layerId,
-                         const LayerDeclaration &decl, bool declFound, QWidget *parent = nullptr)
+                         const LayerDeclaration &decl, bool declFound,
+                         const QString &assetId, QWidget *parent = nullptr)
         : QgsMapLayerConfigWidget(layer, canvas, parent)
         , m_decl(decl)
         , m_declFound(declFound)
-        , m_assetId(assetIdForLayer(layerId))
+        , m_assetId(assetId) // C4：assetIdForLayer（生成侧 paleoAssetId 盖章链）
     {
         setObjectName(QStringLiteral("paleoBusinessPage"));
         // surface 底走应用 palette（PaleoTheme::designLightPalette 的 Window=
@@ -455,7 +462,7 @@ QWidget *LayerPropertiesDialog::createBusinessPage(const QString &layerId, QWidg
 
     auto *page = new PaleoLayerConfigPage(
         layer, m_canvas, layerId, decl.found ? decl.decl : LayerDeclaration(), decl.found,
-        parent);
+        assetIdForLayer(m_layerService, layerId), parent);
 
     // 意图信号：按钮 → 数据页资产检视（接线 E 订阅；assetId 空 = 未关联，
     // 按钮已禁用，此守卫双保险）。

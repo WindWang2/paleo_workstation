@@ -79,13 +79,14 @@ QVector<SingleFactorDefinition> SingleFactorRegistry::builtins()
     makeDef( QStringLiteral( "perm" ), QStringLiteral( "渗透率" ),
              QStringLiteral( "well_log" ), QStringLiteral( "IDW 井点插值" ),
              QStringLiteral( "perm" ) ),
-    // blocked（主线6）：距离变换算法属数据方向（src/algorithms/）——契约已冻结
-    //（SingleFactorContracts::welldistEngineId），生成链显式拒绝。
+    // welldist：绕障距离引擎已落地（paleo:paleo_distance_transform，
+    // wave/deepen-perf C5）——契约 SingleFactorContracts::welldistEngineId
+    // 即引擎注册 id，生成链分派见 workflows::generateDistanceFactor。
     [&]() {
       SingleFactorDefinition d = makeDef( QStringLiteral( "welldist" ),
                                           QStringLiteral( "距井距离" ),
                                           QStringLiteral( "wells" ),
-                                          QStringLiteral( "距离变换（待接入）" ),
+                                          QStringLiteral( "绕障距离变换" ),
                                           QStringLiteral( "welldist" ) );
       d.processingAlgId = SingleFactorContracts::welldistEngineId();
       return d;

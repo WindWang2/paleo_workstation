@@ -45,6 +45,9 @@ public:
   int percent() const;
   QString etaText() const; // 「约 Ns」/「约 Nm」/「--」（速率未知或已结束）
   bool running() const { return m_state == State::Running; }
+  // quiet：交互内嵌任务（切片/剖面解码/预取等）——照常进任务页列表、可取消，
+  // 但不触发主窗口任务中心自动露出（交互控件自带进度语义，弹出会打断操作）。
+  bool quiet() const { return m_quiet; }
 
   Q_INVOKABLE void requestCancel() { m_cancel.store(true); }
   bool cancelRequested() const { return m_cancel.load(); }
@@ -78,6 +81,7 @@ private:
   QString m_stage;
   int m_stagePercent = -1;
   State m_state = State::Running;
+  bool m_quiet = false;
   std::atomic_bool m_cancel{false};
   qint64 m_bytesDone = 0, m_bytesTotal = -1;
   double m_rateBytesPerSec = -1.0; // 最近 ≤10s 窗口字节速率；-1 不可估
@@ -95,14 +99,16 @@ public:
 
   // layerId 非空时在 store busy 注册表挂账（§35 工具门在任务期挡该层），
   // 任务终态自动 markLayerFree。返回的 task 属本服务，finished() 信号可接。
+  // quiet=true：任务仍注册/可取消，但不拉起任务中心——交互内嵌取数专用。
   PaleoTask *start(const QString &title,
                    std::function<QString(PaleoTask *)> work,
-                   const QString &layerId = QString());
+                   const QString &layerId = QString(), bool quiet = false);
 
   // D4.6 带优先级启动（预取 Low / 用户点击 High）。同签名 3 参版默认 Normal。
   PaleoTask *start(const QString &title,
                    std::function<QString(PaleoTask *)> work,
-                   const QString &layerId, PaleoTask::Priority priority);
+                   const QString &layerId, PaleoTask::Priority priority,
+                   bool quiet = false);
 
   QVector<PaleoTask *> tasks() const { return m_tasks; }
   void clearFinished(); // 移除非运行态行（运行中任务永不删）

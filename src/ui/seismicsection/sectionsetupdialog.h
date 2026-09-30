@@ -18,6 +18,8 @@ public:
 signals:
   void buildRequested(const QStringList &ids);
   void drawRequested();
+  // 清除地图上的剖面连线（rubber band + 壳侧路线状态）。
+  void clearRequested();
   void calibrationRequested(const QString &id, bool constant, double velocity,
                             double shift);
   void saveRequested(const QString &name);

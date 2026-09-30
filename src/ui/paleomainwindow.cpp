@@ -1376,7 +1376,9 @@ void PaleoMainWindow::syncBottomDockForTasks()
   bool anyRunning = false;
   if (m_taskSvc)
     for (const PaleoTask *t : m_taskSvc->tasks())
-      anyRunning |= t->running();
+      // quiet 交互任务（三维切片/剖面解码/预取）不拉起任务中心——交互控件
+      // 自带进度语义，弹出反而打断操作。
+      anyRunning |= t->running() && !t->quiet();
   if (anyRunning)
   {
     // 有活动任务且底栏藏着 → 程序化露出并切到任务页（不动

@@ -79,6 +79,30 @@ i64[bad] badTraceOffsets    损坏被跳过的道头偏移
 任一不符删文件弃用。续扫判据（`loadForResume`）：inode 一致 + 前缀指纹一致
 + 增长量为整道（`(size - scannedOffset) % traceSize == 0`）。
 
+### 变道长布局契约（B6，wave/deepen-perf 评审落档）
+
+变道长文件（任一道头 `ns > 0` 且 ≠ 二进制头 `ns`）的现行契约与放宽：
+
+| 能力 | 固定道长布局 | 变道长布局 |
+|---|---|---|
+| 顺序扫描（`open()`） | 支持；坏道（负 ns）跳过 + 记录（B6 起，原为整索引报错） | 支持（逐道按各自 ns 推进）；坏道整索引报错 |
+| 并行扫描（`scanParallel`） | 支持（>1MB） | 不适用（步长假设） |
+| checkpoint / 续扫 | 支持 | **不落 checkpoint**（B6 起；`SegyReader::variableTraceLayout()` 门） |
+| 坏道跳过 | 三路径（顺序/并行/续扫）一致：`ns < 0` 或 `ns > binNs` → 跳过 + 记 `badTraceOffsets` | **不跳**——负 ns 后道边界不可恢复，宁可整索引报错 |
+
+- 顺序路径坏道跳过（B6）：仅当扫描前缀尚未观察到变道长（所有道
+  `ns == binNs` 或 `0`）时，负 ns 按固定步长 `240 + binNs*4` 跳过——与
+  并行/resume 路径的 D2.7 语义对齐（此前小文件顺序路径坏道=整索引报错，
+  大文件并行路径却跳过，口径不一致）。
+- 变道长不落 checkpoint 的理由：`resumeScan` 按固定步长推进，变道长断点
+  续扫会把错位的道头当好道收进索引（静默坏数据）——宁可重扫。落盘侧由
+  `openCached` 的 `!variableTraceLayout()` 闸保证；旧版本已落的变道长
+  checkpoint 由 loadForResume 的整道判据兜底（增长量恰为固定步长整数倍的
+  碰撞窗口接受为残余边界，读侧审计闸仍在）。
+- 测试：`tst_cache_segyindex::{sequentialBadTraceSkipMatchesParallelContract,
+  variableLayoutFlagSurfaces, variableLayoutKeepsHardErrorOnCorruptNs,
+  variableLayoutWritesNoCheckpoint}`。
+
 ## 4. 金字塔层级包 `z<N>.bin`（magic `PYRL`，追加式，不走 cachecore 头）
 
 ```

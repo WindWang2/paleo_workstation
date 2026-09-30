@@ -2,8 +2,11 @@
 #include "seismic3dviewpanel.h"
 
 #include "../paleotheme.h"
+#include "services/paleotaskservice.h" // PaleoTask 完整类型（QPointer 在途句柄）
 
+#include <QApplication>
 #include <QCheckBox>
+#include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -24,6 +27,7 @@
 #include <QSpinBox>
 #include <QLabel>
 #include <QFrame>
+#include <QShowEvent>
 #include <QTimer>
 
 #include <qgsmessagelog.h>
@@ -316,15 +320,27 @@ void Seismic3DViewPanel::buildUi() {
             timeSlider_->setValue(newIndex);
     });
 
-    // D3.9 GL 看门狗：3 秒仍无 GL 上下文 → 2D 拼接回退（不崩不空白）
+    // D3.9 GL 看门狗：显示后 3 秒仍无 GL 上下文 → 2D 拼接回退（不崩不空白）。
+    // 计时在首个 showEvent 才武装——3D dock 构造时是隐藏的，QOpenGLWidget
+    // 要等真正可见才会建上下文，提前计时必误判成 GL 失败。
     glWatchTimer_ = new QTimer(this);
     glWatchTimer_->setSingleShot(true);
     glWatchTimer_->setInterval(3000);
     connect(glWatchTimer_, &QTimer::timeout, this, [this]() {
-        if (!viewport_->isGlReady())
-            activateFallback();
+        if (viewport_->isGlReady())
+            return;
+        if (!viewport_->isVisible())
+            return; // 又藏起来了——下次 showEvent 再武装
+        activateFallback();
     });
-    glWatchTimer_->start();
+}
+
+void Seismic3DViewPanel::showEvent(QShowEvent *event) {
+    QWidget::showEvent(event);
+    // D3.9：看门狗只在真显示后计时（dock 初始隐藏，GL 要等首个 show 才建）。
+    if (!fallbackActive_ && !viewport_->isGlReady() && glWatchTimer_ &&
+        !glWatchTimer_->isActive())
+        glWatchTimer_->start();
 }
 
 void Seismic3DViewPanel::setTaskService(SeismicTaskService *taskSvc) {
@@ -355,6 +371,10 @@ void Seismic3DViewPanel::setPagedWorkspace(const QString &sf3pPath) {
         guard->activeLod_ = status.activeLod;
         guard->updateQualityLabel(status.quality);
         guard->refreshVisibleSlices();
+        // A2（wave/deepen-perf）：粗层首见后静止自动精化——此前要等用户拖一次
+        // 滑杆才升 L0，默认视图永远停在 progressive 打开的最粗层。
+        if (guard->activeLod_ != 0)
+            guard->lodRefineTimer_->start();
     });
 }
 
@@ -390,17 +410,28 @@ void Seismic3DViewPanel::switchLod(int level, bool refreshAfter) {
         guard->activeLod_ = level;
         guard->updateQualityLabel(quality);
         if (refreshAfter)
-            guard->refreshVisibleSlices();
+            guard->refreshVisibleSlices(/*onlyStale=*/true); // A2：只补粗层槽位
     });
 }
 
-void Seismic3DViewPanel::refreshVisibleSlices() {
+void Seismic3DViewPanel::refreshVisibleSlices(bool onlyStale) {
     auto vol = volume();
     if (!vol || !vol->IsLoaded())
         return;
-    requestSliceUpdate(SeismicSliceSlot::Inline, SgySliceType::Inline, currentInline());
-    requestSliceUpdate(SeismicSliceSlot::Crossline, SgySliceType::Xline, currentCrossline());
-    requestSliceUpdate(SeismicSliceSlot::Time, SgySliceType::Time, currentTimeSample());
+    const struct { SeismicSliceSlot slot; SgySliceType type; int index; } wanted[3] = {
+        {SeismicSliceSlot::Inline, SgySliceType::Inline, currentInline()},
+        {SeismicSliceSlot::Crossline, SgySliceType::Xline, currentCrossline()},
+        {SeismicSliceSlot::Time, SgySliceType::Time, currentTimeSample()},
+    };
+    for (int i = 0; i < 3; ++i) {
+        // A2（wave/deepen-perf）：内容已是当前 LOD 层级（slotCoarse_=false 即
+        // L0 产物）且索引未变的槽位跳过——拖动只动一个滑杆时，另外两个槽位
+        // 的整组重取是纯冗余（改前每手势固定 3 请求，改后 1 请求）。
+        if (onlyStale && !slotCoarse_[std::size_t(i)] && cachedReady_[std::size_t(i)] &&
+            cachedIndex_[std::size_t(i)] == wanted[i].index)
+            continue;
+        requestSliceUpdate(wanted[i].slot, wanted[i].type, wanted[i].index);
+    }
 }
 
 void Seismic3DViewPanel::updateQualityLabel(const QString &quality) {
@@ -545,22 +576,26 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
     }
 
     if (taskSvc_) {
+        const std::size_t si = static_cast<std::size_t>(slot) % 3;
         // Track extracting flag per slot to avoid flooding
         if (slot == SeismicSliceSlot::Inline) {
             if (inlineExtracting_) {
                 pendingInline_ = index;
+                supersedeInFlightSlice(si); // A2：被顶替的读协作中止，不跑完全程
                 return;
             }
             inlineExtracting_ = true;
         } else if (slot == SeismicSliceSlot::Crossline) {
             if (crosslineExtracting_) {
                 pendingCrossline_ = index;
+                supersedeInFlightSlice(si);
                 return;
             }
             crosslineExtracting_ = true;
         } else if (slot == SeismicSliceSlot::Time) {
             if (timeExtracting_) {
                 pendingTime_ = index;
+                supersedeInFlightSlice(si);
                 return;
             }
             timeExtracting_ = true;
@@ -569,7 +604,10 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
         // 回调经服务的任务终态发射；面板可能已先析构（测试 teardown / 关页），
         // QPointer 守卫避免对已亡视口贴图。
         QPointer<Seismic3DViewPanel> guard(this);
-        taskSvc_->startSliceExtraction(vol, type, index, [guard, slot, type, index](bool success, std::shared_ptr<const SgySliceImage> image, const QString &error) {
+        const int lodAtDispatch = activeLod_; // A2：判定内容粗细以派发时层级为准
+        PaleoTask *task = taskSvc_->startSliceExtraction(
+            vol, type, index,
+            [guard, slot, si, type, index, lodAtDispatch](bool success, std::shared_ptr<const SgySliceImage> image, const QString &error) {
             if (!guard)
                 return;
             if (slot == SeismicSliceSlot::Inline) {
@@ -579,13 +617,16 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
             } else if (slot == SeismicSliceSlot::Time) {
                 guard->timeExtracting_ = false;
             }
+            const bool superseded = guard->slotSuperseded_[si];
+            guard->slotSuperseded_[si] = false;
+            guard->slotTasks_[si] = nullptr;
 
             if (success && image) {
                 // D3.5/D3.3：缓存 values 保真副本（重着色/值域裁剪的原料）
-                const std::size_t si = static_cast<std::size_t>(slot) % 3;
                 guard->cachedSlices_[si] = *image;
                 guard->cachedIndex_[si] = index;
                 guard->cachedReady_[si] = true;
+                guard->slotCoarse_[si] = lodAtDispatch != 0; // A2：粗层产物标记（精化需重取）
                 if (guard->customCmapActive_)
                     guard->recolorizeSlice(slot);
                 else
@@ -600,10 +641,13 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
                 }
             } else {
                 // 提取失败必须留痕——静默失败的表现是"只剩包围盒线框"。
-                QgsMessageLog::logMessage(
-                    tr("地震切片提取失败（槽位 %1，索引 %2）：%3")
-                        .arg(static_cast<int>(slot)).arg(index).arg(error),
-                    QStringLiteral("Seismic3D"), Qgis::MessageLevel::Warning);
+                // A2 例外：本端主动顶替触发的取消不是失败（新请求已在路上）。
+                if (!superseded) {
+                    QgsMessageLog::logMessage(
+                        tr("地震切片提取失败（槽位 %1，索引 %2）：%3")
+                            .arg(static_cast<int>(slot)).arg(index).arg(error),
+                        QStringLiteral("Seismic3D"), Qgis::MessageLevel::Warning);
+                }
             }
             // Drain pending request if user moved slider during extraction
             if (slot == SeismicSliceSlot::Inline && guard->pendingInline_ >= 0) {
@@ -620,6 +664,7 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
                 guard->requestSliceUpdate(slot, type, next);
             }
         }, pagedPath_);
+        slotTasks_[si] = task; // A2：在途句柄（缓存命中同步回调时 task 已终态，QPointer 自清）
     } else {
         // Synchronous fallback (e.g. testing)
         SgySliceImage image;
@@ -629,6 +674,7 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
             cachedSlices_[si] = image;
             cachedIndex_[si] = index;
             cachedReady_[si] = true;
+            slotCoarse_[si] = false;
             if (customCmapActive_)
                 recolorizeSlice(slot);
             else
@@ -642,6 +688,16 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
                                     QStringLiteral("%1 %2").arg(fs == 0 ? "IL" : (fs == 1 ? "XL" : "T")).arg(index));
             }
         }
+    }
+}
+
+// A2（wave/deepen-perf）：新请求顶替在途读——协作取消（引擎 CancelToken 轮询
+// 谓词 / 直读 progress 回调），被拖过的索引不再占用整段读取时长。
+void Seismic3DViewPanel::supersedeInFlightSlice(std::size_t slotIndex)
+{
+    if (auto *inFlight = slotTasks_[slotIndex].data()) {
+        slotSuperseded_[slotIndex] = true;
+        inFlight->requestCancel();
     }
 }
 
@@ -956,6 +1012,26 @@ void Seismic3DViewPanel::setStackModeEnabled(bool enabled) {
         requestStackLayers();
 }
 
+// A1/A2（wave/deepen-perf）堆叠层取数通道：
+// - paged 通道且体量估算 ≤ 256MB：一次 ReadVoxelWindow 取整窗（按激活 LOD
+//   降采样 IL/XL），16 层平面就地切出——16 次逐层请求 → 1 次体窗请求
+//   （页面读取/解码只走一遍）。
+// - 其余（直读/工作区后端、或大体量细层超预算）：逐层切片回落。直读后端的
+//   引擎体窗是逐道顺序整读（无 mmap 并行窄读优势），逐层反而更省。
+qint64 Seismic3DViewPanel::estimateStackWindowBytes() const {
+    auto vol = volume();
+    if (!vol || !vol->IsLoaded())
+        return 0;
+    qint64 bytes = qint64(vol->InlineCount()) * vol->XlineCount() *
+                   (vol->SampleMax() + 1) * 4;
+    if (pagedPath_.isEmpty() || activeLod_ <= 0)
+        return bytes;
+    // LOD 面积因子：L1=4×4、L2=8×8、L3=16×16 → 16^level（采样轴因子恒 1）
+    for (int level = 0; level < activeLod_; ++level)
+        bytes /= 16;
+    return bytes;
+}
+
 void Seismic3DViewPanel::requestStackLayers() {
     if (!stackMode_ || stackExtracting_)
         return;
@@ -966,36 +1042,97 @@ void Seismic3DViewPanel::requestStackLayers() {
     if (sampleMax <= 0)
         return;
     constexpr int kLayers = SeismicSliceRenderer::kMaxStackLayers;
-    stackExtracting_ = true;
-    stackTargetLayers_ = kLayers;
-    int dispatched = 0;
+    std::vector<int> samples;
+    samples.reserve(kLayers);
     for (int layer = 0; layer < kLayers; ++layer) {
         const int sample = static_cast<int>((layer + 0.5) / kLayers * (sampleMax + 1));
-        if (sample > sampleMax)
-            continue;
-        const int layerIdx = layer;
+        if (sample <= sampleMax)
+            samples.push_back(sample);
+    }
+    const int layerCount = int(samples.size());
+
+    constexpr qint64 kStackWindowBudgetBytes = 256ll * 1024 * 1024;
+    if (taskSvc_ && !pagedPath_.isEmpty() && estimateStackWindowBytes() <= kStackWindowBudgetBytes) {
+        // 体窗合并通道：全网格 × 全采样（引擎按激活 LOD 映射到粗层轴）
+        engine::VoxelWindowRequest request;
+        request.inlineBegin = vol->InlineMin();
+        request.xlineBegin = vol->XlineMin();
+        request.sampleBegin = 0;
+        request.inlineCount = vol->InlineCount();
+        request.xlineCount = vol->XlineCount();
+        request.sampleCount = sampleMax + 1;
+        stackExtracting_ = true;
+        stackTargetLayers_ = layerCount;
         QPointer<Seismic3DViewPanel> guard(this);
-        auto dispatch = [this, guard, vol, sample, layerIdx]() {
+        taskSvc_->startVoxelWindow(
+            pagedPath_, request,
+            [guard, samples](bool ok, const engine::VoxelWindow &window, const QString &error) {
+                if (!guard)
+                    return;
+                guard->stackExtracting_ = false;
+                const QString cancelledMark =
+                    QCoreApplication::translate("SeismicTaskService", "体素窗口读取已取消");
+                if (!ok || window.empty()) {
+                    if (error != cancelledMark) {
+                        QgsMessageLog::logMessage(
+                            QObject::tr("体窗堆叠取数失败，回落逐层切片：%1").arg(error),
+                            QStringLiteral("Seismic3D"), Qgis::MessageLevel::Warning);
+                        guard->requestStackLayersPerLayer(samples); // 如实回落（非取消态）
+                    }
+                    return;
+                }
+                auto volume = guard->volume();
+                for (int i = 0; i < int(samples.size()); ++i) {
+                    SgySliceImage plane;
+                    if (!SeismicTaskService::slicePlaneFromWindow(window, samples[std::size_t(i)], plane))
+                        continue;
+                    if (volume)
+                        volume->Recolorize(plane); // 与切片通道同一份预烘焙色彩
+                    guard->viewport_->updateStackLayer(i, samples[std::size_t(i)], plane);
+                }
+            });
+        return;
+    }
+    requestStackLayersPerLayer(samples);
+}
+
+// 逐层切片通道（原 D3.1 路径：每层一次窄读时间片）
+void Seismic3DViewPanel::requestStackLayersPerLayer(const std::vector<int> &samples) {
+    auto vol = volume();
+    if (!vol || !vol->IsLoaded())
+        return;
+    const int layerCount = int(samples.size());
+    stackExtracting_ = true;
+    stackTargetLayers_ = layerCount;
+    auto remaining = std::make_shared<int>(layerCount);
+    for (int i = 0; i < layerCount; ++i) {
+        const int sample = samples[std::size_t(i)];
+        const int layerIdx = i;
+        QPointer<Seismic3DViewPanel> guard(this);
+        auto dispatch = [this, guard, vol, sample, layerIdx, remaining]() {
             if (taskSvc_) {
                 taskSvc_->startSliceExtraction(
                     vol, SgySliceType::Time, sample,
-                    [guard, layerIdx, sample](bool ok, std::shared_ptr<const SgySliceImage> img, const QString &) {
-                        if (!guard || !ok || !img)
-                            return;
-                        guard->viewport_->updateStackLayer(layerIdx, sample, *img);
+                    [guard, layerIdx, sample, remaining](bool ok, std::shared_ptr<const SgySliceImage> img, const QString &) {
+                        if (ok && img && guard)
+                            guard->viewport_->updateStackLayer(layerIdx, sample, *img);
+                        if (guard && --(*remaining) == 0)
+                            guard->stackExtracting_ = false;
                     }, pagedPath_);
             } else {
                 SgySliceImage img;
                 std::string err;
                 if (vol->ExtractSlice(SgySliceType::Time, sample, img, err))
-                    guard->viewport_->updateStackLayer(layerIdx, sample, img);
+                    if (guard)
+                        guard->viewport_->updateStackLayer(layerIdx, sample, img);
+                if (guard && --(*remaining) == 0)
+                    guard->stackExtracting_ = false;
             }
         };
         dispatch();
-        ++dispatched;
     }
-    stackExtracting_ = false;
-    (void)dispatched;
+    if (!taskSvc_ && layerCount == 0)
+        stackExtracting_ = false;
 }
 
 // ---- D3.6 相机书签 ----

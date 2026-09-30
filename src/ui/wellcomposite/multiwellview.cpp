@@ -270,6 +270,11 @@ bool MultiWellView::alignToDatum(const QString &markerName)
   // 校平是「各井各滚各的」——临时断开锁步广播，否则后设的井滚动会把前面的井拉回
   const bool wasLinked = m_linkScroll;
   m_linkScroll = false;
+  // D5.4 语义修正：同名标志层「同屏高」按像素对齐——共同深度偏移 K 取第一
+  // 个有该标志层井的 0.4×span，各井 scroll = marker − K。旧实现各井用自己
+  // 的 span，双栏体高差几像素（布局圆整/滚动条不对称）就把 40% 位错开
+  //（tst_wellcomposite_multiwell::testDatumAlign 实测 y1−y2≈5.6px）。
+  double commonOffset = -1.0;
   for (auto *p : m_panels)
   {
     if (!p)
@@ -283,9 +288,10 @@ bool MultiWellView::alignToDatum(const QString &markerName)
     }();
     if (markerDepth < 0)
       continue;
-    // 视口使标志层位于 40% 高度
-    const double span = canvas->visibleDepthSpan();
-    canvas->setScrollDepth(markerDepth - span * 0.4);
+    if (commonOffset < 0.0)
+      commonOffset = canvas->visibleDepthSpan() * 0.4;
+    // 视口使标志层位于共同基准位（同 ppm 下像素级同高）
+    canvas->setScrollDepth(markerDepth - commonOffset);
     any = true;
   }
   m_linkScroll = wasLinked;

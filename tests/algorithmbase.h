@@ -8,6 +8,7 @@
 #include <QVariantMap>
 #include <QVector>
 #include <cmath>
+#include <limits>
 
 #include <gdal.h>
 #include <cpl_conv.h>
@@ -245,6 +246,43 @@ class AlgorithmTestBase
       layer->dataProvider()->addFeatures( feats );
       layer->updateExtents();
       return layer;
+    }
+
+    // 线图层（内存）带 type 属性——ConstraintStore 词面（direction_line /
+    // break_line / 任意旧 shape 词）的约束层工厂（C1 语义差分用例）。
+    // types 与 lines 按序一一对应（长度不齐 → 空层）。
+    static QgsVectorLayer *makeTypedLineLayer( const QString &name,
+                                               const QList<QList<QgsPointXY>> &lines,
+                                               const QStringList &types )
+    {
+      auto *layer = new QgsVectorLayer(
+          QStringLiteral( "LineString?crs=EPSG:4326&field=type:string" ),
+          name, QStringLiteral( "memory" ) );
+      if ( !layer->isValid() || types.size() != lines.size() )
+        return layer;
+      QList<QgsFeature> feats;
+      for ( int i = 0; i < lines.size(); ++i )
+      {
+        QgsFeature f( layer->fields() );
+        f.setGeometry( QgsGeometry::fromPolylineXY( lines.at( i ) ) );
+        f.setAttribute( QStringLiteral( "type" ), types.at( i ) );
+        feats << f;
+      }
+      layer->dataProvider()->addFeatures( feats );
+      layer->updateExtents();
+      return layer;
+    }
+
+    // 读 band 1 单像元值（row/col）；越界或读失败 → NaN。
+    static float rasterCell( const QString &path, int row, int col )
+    {
+      int w = 0, h = 0;
+      QVector<float> px;
+      if ( !readRaster( path, w, h, px ) )
+        return std::numeric_limits<float>::quiet_NaN();
+      if ( row < 0 || row >= h || col < 0 || col >= w )
+        return std::numeric_limits<float>::quiet_NaN();
+      return px.at( static_cast<qsizetype>( row ) * w + col );
     }
 
     // ---- comparisons ----

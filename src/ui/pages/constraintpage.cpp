@@ -265,34 +265,27 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
                                   shape->currentData().toString(), spin->value() );
   } );
 
-  // ---- m2(B)：三入口（物源线/展布线/控制点——03_Constraints 组的类型化
+  // ---- 类型化约束线两入口（方向线/打断线——03_Constraints 组的类型化
   // 约束；shape 决定画布工具，constraintType 进 ConstraintStore 词表）------
-  // 三个类型化入口是同组次要动作——归并为一行工具排，不再各占全宽。
+  // 两个类型化入口是同组次要动作——归并为一行工具排，不再各占全宽。
   auto *typedRow = new QHBoxLayout();
   typedRow->setSpacing( 4 ); // xs
-  auto *provenance = new QPushButton( tr( "画物源线" ), this );
-  provenance->setObjectName( QStringLiteral( "provenanceButton" ) );
-  typedRow->addWidget( provenance );
-  connect( provenance, &QPushButton::clicked, this, [this, horizons, spin] {
+  auto *direction = new QPushButton( tr( "画方向线" ), this );
+  direction->setObjectName( QStringLiteral( "directionButton" ) );
+  typedRow->addWidget( direction );
+  connect( direction, &QPushButton::clicked, this, [this, horizons, spin] {
     emit drawTypedConstraintRequested( horizons->currentText(), QStringLiteral( "line" ),
-                                       QStringLiteral( "provenance_line" ), spin->value() );
+                                       QStringLiteral( "direction_line" ), spin->value() );
   } );
-  auto *distribution = new QPushButton( tr( "画展布线" ), this );
-  distribution->setObjectName( QStringLiteral( "distributionButton" ) );
-  typedRow->addWidget( distribution );
-  connect( distribution, &QPushButton::clicked, this, [this, horizons, spin] {
+  auto *breakLine = new QPushButton( tr( "画打断线" ), this );
+  breakLine->setObjectName( QStringLiteral( "breakLineButton" ) );
+  typedRow->addWidget( breakLine );
+  connect( breakLine, &QPushButton::clicked, this, [this, horizons, spin] {
     emit drawTypedConstraintRequested( horizons->currentText(), QStringLiteral( "line" ),
-                                       QStringLiteral( "distribution_line" ), spin->value() );
-  } );
-  auto *controlPoint = new QPushButton( tr( "画控制点" ), this );
-  controlPoint->setObjectName( QStringLiteral( "controlPointButton" ) );
-  typedRow->addWidget( controlPoint );
-  connect( controlPoint, &QPushButton::clicked, this, [this, horizons, spin] {
-    emit drawTypedConstraintRequested( horizons->currentText(), QStringLiteral( "point" ),
-                                       QStringLiteral( "control_point" ), spin->value() );
+                                       QStringLiteral( "break_line" ), spin->value() );
   } );
   lay->addLayout( typedRow );
-  // ---- m2(B) 三入口 end ----------------------------------------------------
+  // ---- 类型化约束线 end ----------------------------------------------------
 
   // 旧 IDW 行（objectName 保留；runIdwRequested 原语义不动）。
   lay->addSpacing( 16 ); // spacing.md：约束区与 IDW 区分组

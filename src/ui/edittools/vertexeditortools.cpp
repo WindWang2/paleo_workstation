@@ -11,9 +11,12 @@
 #include <qgsgeometry.h>
 #include <qgsmapcanvas.h>
 #include <qgsmapmouseevent.h>
+#include <qgspointlocator.h>
 #include <qgsproject.h>
 #include <qgsrectangle.h>
 #include <qgsrubberband.h>
+#include <qgssnapindicator.h>
+#include <qgssnappingutils.h>
 #include <qgsvectorlayer.h>
 #include <qgsvertexmarker.h>
 #include <qgswkbtypes.h>
@@ -179,6 +182,7 @@ PaleoVertexTool::PaleoVertexTool( QgsMapCanvas *canvas, QgsVectorLayer *layer )
 {
   setToolName( tr( "编辑节点" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
+  mSnapIndicator = std::make_unique<QgsSnapIndicator>( canvas );
 }
 
 PaleoVertexTool::~PaleoVertexTool()
@@ -247,6 +251,8 @@ void PaleoVertexTool::deactivate()
 {
   clearDragState();
   clearMarkers();
+  if ( mSnapIndicator )
+    mSnapIndicator->setMatch( QgsPointLocator::Match() ); // invalid → hidden
   QgsMapToolEdit::deactivate();
 }
 
@@ -268,6 +274,11 @@ void PaleoVertexTool::canvasPressEvent( QgsMapMouseEvent *e )
 {
   if ( e->button() != Qt::LeftButton )
     return; // right-button delete commits on release; other buttons ignored
+
+  // Native snapping first — mapPoint() becomes the snapped position (see
+  // header notes); the indicator shows what the grab/drop will bind to.
+  e->snapPoint();
+  mSnapIndicator->setMatch( e->mapPointMatch() );
 
   QgsVectorLayer *layer = targetLayer();
   if ( !layer || !layer->isEditable() )
@@ -393,6 +404,11 @@ void PaleoVertexTool::canvasPressEvent( QgsMapMouseEvent *e )
 
 void PaleoVertexTool::canvasMoveEvent( QgsMapMouseEvent *e )
 {
+  // Hover and drag alike: refresh the snap match so mapPoint() is snapped
+  // and the indicator follows the cursor (upstream vertex-tool behavior).
+  e->snapPoint();
+  mSnapIndicator->setMatch( e->mapPointMatch() );
+
   if ( !mDraggingVertex )
     return;
 
@@ -623,6 +639,9 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
 
 void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
 {
+  e->snapPoint();
+  mSnapIndicator->setMatch( e->mapPointMatch() );
+
   // Right-button: delete the vertex under the cursor (QGIS gesture convention:
   // the delete fires on release, not press).
   if ( e->button() == Qt::RightButton )
@@ -719,6 +738,9 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
 
 void PaleoVertexTool::canvasDoubleClickEvent( QgsMapMouseEvent *e )
 {
+  e->snapPoint();
+  mSnapIndicator->setMatch( e->mapPointMatch() );
+
   QgsVectorLayer *layer = targetLayer();
   if ( !layer || !layer->isEditable() )
   {
@@ -827,7 +849,12 @@ void PaleoVertexTool::keyPressEvent( QKeyEvent *e )
   if ( ( e->key() == Qt::Key_Delete || e->key() == Qt::Key_Backspace ) && !mDraggingVertex )
   {
     // QGIS 节点工具惯例：键盘删除作用于光标下的节点（画布最后已知鼠标位置）。
-    deleteVertexAtMapPoint( toMapCoordinates( mCanvas->mouseLastXY() ) );
+    // 与鼠标路径一致先过吸附——命中时删除吸附目标而非裸坐标下的顶点。
+    QgsPointXY p = toMapCoordinates( mCanvas->mouseLastXY() );
+    const QgsPointLocator::Match match = mCanvas->snappingUtils()->snapToMap( p );
+    if ( match.isValid() )
+      p = match.point();
+    deleteVertexAtMapPoint( p );
     e->accept();
     return;
   }

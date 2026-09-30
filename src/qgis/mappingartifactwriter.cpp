@@ -17,16 +17,16 @@
 #include <qgsmarkersymbol.h>
 #include <qgsmarkersymbollayer.h>
 #include <qgspalettedrasterrenderer.h>
+#include <qgspallabeling.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
 #include <qgsvectordataprovider.h>
 #include <qgsvectorfilewriter.h>
 #include <qgsvectorlayer.h>
+#include <qgsvectorlayerlabeling.h>
 
-#include <qgspallabeling.h>
 #include <qgstextbuffersettings.h>
 #include <qgstextformat.h>
-#include <qgsvectorlayerlabeling.h>
 namespace MappingArtifactWriter {
 void restoreRasterCrs(QgsMapLayer *layer) {
   auto *raster = qobject_cast<QgsRasterLayer *>(layer);
@@ -282,6 +282,15 @@ void applyFaciesLabels(QgsVectorLayer *layer, int mode) {
   buffer.setSize(.8);
   buffer.setColor(Qt::white);
   format.setBuffer(buffer);
+  // 白底胶囊底衬：纹理填充之上相名/井号仍可辨。
+  QgsTextBackgroundSettings background;
+  background.setEnabled(true);
+  background.setType(QgsTextBackgroundSettings::ShapeRectangle);
+  background.setSizeType(QgsTextBackgroundSettings::SizeBuffer);
+  background.setSize(QSizeF(1.2, 0.6));
+  background.setRadii(QSizeF(0.6, 0.6)); // 圆角胶囊
+  background.setFillColor(QColor(255, 255, 255, 220));
+  format.setBackground(background);
   settings.setFormat(format);
   layer->setLabeling(new QgsVectorLayerSimpleLabeling(settings));
   layer->setLabelsEnabled(true);
@@ -327,7 +336,7 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
         continue;
       symbol->setColor(QColor(f.value("color").toString()));
       const auto texture =
-          FaciesCatalog::resourcePath(f.value("texture").toString());
+          FaciesCatalog::fillPath(f.value("texture").toString());
       if (!texture.isEmpty()) {
         if (vector->geometryType() == Qgis::GeometryType::Polygon)
           symbol->changeSymbolLayer(0, new QgsSVGFillSymbolLayer(texture, 10));

@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QColor>
+#include <QPagedPaintDevice>
 #include <QString>
 
 #include <QList>
@@ -54,6 +55,16 @@ public:
   // 成功返回空串；失败返回错误原因。
   static QString exportCanvas(const WellCompositeCanvas &canvas, const ComprehensiveWellData &data,
                               Format format, const QString &path, const Options &opt);
+
+  // D3（wave/deepen-perf）原生打印接线：分页绘制到任意 QPagedPaintDevice
+  //（QPdfWriter 与 QPrinter 共用——打印与 PDF 导出同一渲染管线；标题/布局
+  // 由调用方在 device 上预设）。成功返回空串。
+  static QString exportToPagedDevice(const WellCompositeCanvas &canvas,
+                                     const ComprehensiveWellData &data,
+                                     QPagedPaintDevice &device, const Options &opt);
+
+  // D3：系统打印机探测（offscreen/无打印服务 → false → 打印入口降级 PDF）
+  static bool nativePrintAvailable();
 
   // D4.6 PNG ≥dpi 等效分辨率渲染（返回空图 = 失败）
   static QImage renderToImage(const WellCompositeCanvas &canvas, const ComprehensiveWellData &data,

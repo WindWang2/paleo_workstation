@@ -44,6 +44,7 @@
 #include <qgssymbol.h>
 #include <qgsfillsymbol.h>
 #include <qgsmarkersymbol.h>
+#include <qgsmarkersymbollayer.h>
 #include <qgslinesymbol.h>
 #include <qgspallabeling.h>
 #include <qgsvectorlayerlabeling.h>
@@ -51,6 +52,7 @@
 #include <QButtonGroup>
 #include <QTimer>
 
+#include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QElapsedTimer>
@@ -138,6 +140,31 @@ namespace
     });
     l->setWordWrap(true);
     return l;
+  }
+
+  // 「用系统程序打开」兜底行：按钮 + 就地错误文本（打开失败时浮现）。
+  // 预览页不再常驻——只在无内嵌预览或需开原件（office 转换件）时用。
+  QWidget *makeOpenExternalRow(const QString &absPath, QWidget *parent)
+  {
+    auto *row = new QWidget(parent);
+    auto *rl = new QHBoxLayout(row);
+    rl->setContentsMargins(0, 0, 0, 0);
+    rl->setSpacing(6);
+    auto *btn = new QPushButton(QObject::tr("用系统程序打开"), row);
+    btn->setObjectName(QStringLiteral("openExternalBtn"));
+    auto *openErr = warnLabel(QString(), row);
+    openErr->setObjectName(QStringLiteral("openErrorText"));
+    openErr->setVisible(false);
+    QObject::connect(btn, &QPushButton::clicked, row, [absPath, openErr]() {
+      if (!QDesktopServices::openUrl(QUrl::fromLocalFile(absPath)))
+      {
+        openErr->setText(QObject::tr("系统没有打开这个文件\n%1").arg(absPath));
+        openErr->setVisible(true);
+      }
+    });
+    rl->addWidget(btn);
+    rl->addWidget(openErr, 1);
+    return row;
   }
 
   // DESIGN.md mono：数值/坐标/深度一律 JetBrains Mono 9pt tnum。
@@ -339,6 +366,30 @@ namespace
     vl->updateExtents();
   }
 
+  // 井名标注（name 字段直排 + 白晕缓冲）。井位/分层顶点/测区全景共用。
+  void applyPointNameLabels( QgsVectorLayer *vl )
+  {
+    if ( !vl )
+      return;
+    vl->setLabelsEnabled( true );
+    QgsPalLayerSettings pal;
+    pal.fieldName = QStringLiteral( "name" );
+    pal.isExpression = false;
+    QgsTextFormat fmt;
+    QFont font( QStringLiteral( "Noto Sans SC" ), 9, QFont::Medium );
+    fmt.setFont( font );
+    fmt.setSize( 9.0 );
+    fmt.setSizeUnit( Qgis::RenderUnit::Points );
+    fmt.setColor( QColor( QStringLiteral( "#24303E" ) ) );
+    QgsTextBufferSettings buf;
+    buf.setEnabled( true );
+    buf.setSize( 1.5 );
+    buf.setColor( Qt::white );
+    fmt.setBuffer( buf );
+    pal.setFormat( fmt );
+    vl->setLabeling( new QgsVectorLayerSimpleLabeling( pal ) );
+  }
+
   // 点层符号：普通井 #1B73D0 空心圆 + 高亮井加粗描边 + 名称标注开关。
   void stylePointLayer( QgsVectorLayer *vl, bool withLabels )
   {
@@ -362,26 +413,33 @@ namespace
                                       QgsMarkerSymbol::createSimple( hprops ).release(),
                                       QObject::tr( "当前井" ) ) );
     vl->setRenderer( new QgsCategorizedSymbolRenderer( QStringLiteral( "role" ), cats ) );
-    vl->setLabelsEnabled( withLabels );
     if ( withLabels )
-    {
-      QgsPalLayerSettings pal;
-      pal.fieldName = QStringLiteral( "name" );
-      pal.isExpression = false;
-      QgsTextFormat fmt;
-      QFont font( QStringLiteral( "Noto Sans SC" ), 9, QFont::Medium );
-      fmt.setFont( font );
-      fmt.setSize( 9.0 );
-      fmt.setSizeUnit( Qgis::RenderUnit::Points );
-      fmt.setColor( QColor( QStringLiteral( "#24303E" ) ) );
-      QgsTextBufferSettings buf;
-      buf.setEnabled( true );
-      buf.setSize( 1.5 );
-      buf.setColor( Qt::white );
-      fmt.setBuffer( buf );
-      pal.setFormat( fmt );
-      vl->setLabeling( new QgsVectorLayerSimpleLabeling( pal ) );
-    }
+      applyPointNameLabels( vl );
+  }
+
+  // 测区全景井位符号：Q/HS 1011—2016《勘探管理图件图册编制规范》表 K.1
+  // 通用「探井」图式（TJLBD1-5）——外细圆环 + 内实心圆盘靶标（圆盘≈0.73
+  // 外径，与环间留细缝）。规范默认黑墨；彩色工作图用应用蓝 #1B73D0。
+  // 全景是固定内容画布，井位层只有「井位」一种符号。
+  void styleSurveyWellLayer( QgsVectorLayer *vl )
+  {
+    if ( !vl )
+      return;
+    QVariantMap ring;
+    ring[QStringLiteral( "name" )] = QStringLiteral( "circle" );
+    ring[QStringLiteral( "color" )] = QStringLiteral( "255,255,255,0" );
+    ring[QStringLiteral( "outline_color" )] = QStringLiteral( "#1B73D0" );
+    ring[QStringLiteral( "outline_width" )] = QStringLiteral( "0.5" );
+    ring[QStringLiteral( "size" )] = QStringLiteral( "6" );
+    std::unique_ptr<QgsMarkerSymbol> sym = QgsMarkerSymbol::createSimple( ring );
+    QVariantMap disk;
+    disk[QStringLiteral( "name" )] = QStringLiteral( "circle" );
+    disk[QStringLiteral( "color" )] = QStringLiteral( "#1B73D0" );
+    disk[QStringLiteral( "outline_style" )] = QStringLiteral( "no" );
+    disk[QStringLiteral( "size" )] = QStringLiteral( "4.4" );
+    sym->appendSymbolLayer( QgsSimpleMarkerSymbolLayer::create( disk ) );
+    vl->setRenderer( new QgsSingleSymbolRenderer( sym.release() ) );
+    applyPointNameLabels( vl );
   }
 
   // 等值线层（D2.1/D5.7）：FactorContourService 产出的 GPKG → 线符号 +
@@ -1525,9 +1583,30 @@ void DataPreviewTabs::openSurveyArea()
   if (QWidget *existing = m_pageOfAsset.value(key))
   {
     m_tabs->setCurrentIndex(m_tabs->indexOf(existing));
-    if (auto *cv = existing->findChild<QgsMapCanvas *>())
+    // 井位是固定私有层——重开时重灌（会话中可能又导入了井）。
+    if (auto *vl = existing->findChild<QgsVectorLayer *>(QStringLiteral("surveyWellsLayer")))
     {
-      cv->zoomToFullExtent();
+      vl->dataProvider()->truncate();
+      if (m_doc && m_doc->catalog())
+        for (const CatalogEntity &well : m_doc->catalog()->entities(QStringLiteral("well")))
+          if (well.hasSurface && std::isfinite(well.surfaceX) && std::isfinite(well.surfaceY))
+            addMemoryPoint(vl, well.surfaceX, well.surfaceY, well.name, QStringLiteral("well"));
+      vl->updateExtents();
+    }
+    if (auto *cv = existing->findChild<QgsMapCanvas *>(QStringLiteral("surveyMapCanvas")))
+    {
+      QgsRectangle target;
+      if (auto *band = existing->findChild<QgsRubberBand *>(QStringLiteral("surveyAreaRubberBand")))
+        target = band->asGeometry().boundingBox();
+      if (!target.isNull() && !target.isEmpty())
+      {
+        target.grow(qMax(target.width(), target.height()) * 0.08);
+        cv->setExtent(target);
+      }
+      else
+      {
+        cv->zoomToFullExtent();
+      }
       cv->refresh();
     }
     return;
@@ -1658,9 +1737,35 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   QgsMapCanvas *canvas = mapPage->mapCanvas()->canvas();
   canvas->setObjectName(QStringLiteral("surveyMapCanvas"));
 
-  QgsProject *proj = m_project ? m_project.data() : QgsProject::instance();
-  if (proj)
-    mapPage->mapCanvas()->attachProjectLayers(proj);
+  // 全景页不出鹰眼（固定幅面不需要总览缩略图），工具条开关一并摘掉。
+  if (auto *ovAction = mapPage->findChild<QAction *>(QStringLiteral("previewOverviewAction")))
+  {
+    ovAction->setChecked(false); // toggled → setOverviewVisible(false)
+    ovAction->setVisible(false);
+  }
+  else
+  {
+    mapPage->setOverviewVisible(false);
+  }
+
+  // 全景是固定内容画布：只挂私有井位层 + 工区范围 rubber band——不桥接
+  // QgsProject 图层树（其它画布/图层服务实例化的图层不外溢进来，也不联动）。
+  auto *wellsVl = makeMemoryPointLayer(tr("井位"), w);
+  wellsVl->setObjectName(QStringLiteral("surveyWellsLayer"));
+  QgsRectangle wellsExtent;
+  if (m_doc && m_doc->catalog())
+  {
+    for (const CatalogEntity &well : m_doc->catalog()->entities(QStringLiteral("well")))
+    {
+      if (!well.hasSurface || !std::isfinite(well.surfaceX) || !std::isfinite(well.surfaceY))
+        continue;
+      addMemoryPoint(wellsVl, well.surfaceX, well.surfaceY, well.name, QStringLiteral("well"));
+      wellsExtent.combineExtentWith(QgsRectangle(well.surfaceX, well.surfaceY,
+                                                 well.surfaceX, well.surfaceY));
+    }
+  }
+  styleSurveyWellLayer(wellsVl);
+  mapPage->addMapLayer(wellsVl, tr("井位"), QString());
 
   // 装饰管理器（页内建，测区命名保持既有测试面）
   PaleoDecorationManager *decorMgr = mapPage->decorations();
@@ -1692,16 +1797,12 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
     surveyGeom = QgsGeometry::fromRect(QgsRectangle(survey.inlineMin, survey.xlineMin,
                                                     survey.inlineMax, survey.xlineMax));
   }
-  else if (proj && !proj->mapLayers().isEmpty())
+  else if (!wellsExtent.isNull())
   {
-    QgsRectangle ext;
-    for (auto *layer : proj->mapLayers())
-    {
-      if (layer && !layer->extent().isEmpty())
-        ext.combineExtentWith(layer->extent());
-    }
-    if (!ext.isEmpty())
-      surveyGeom = QgsGeometry::fromRect(ext);
+    // 无 survey 几何：井位并集做兜底范围（单井退化范围扩 50 m 边）。
+    if (wellsExtent.isEmpty())
+      wellsExtent.grow(50.0);
+    surveyGeom = QgsGeometry::fromRect(wellsExtent);
   }
   if (surveyGeom.isNull())
   {
@@ -2783,7 +2884,23 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     // D2.11 大图（>50MB 无金字塔）提示条：降级仍可用（低清先行 + 全图照渲）。
     const QString bigHint = PreviewRasterAnalysis::bigRasterHint(raster.get());
     if (!bigHint.isEmpty())
+    {
       lay->addWidget(PreviewMapStates::buildBigRasterHintBar(bigHint, host));
+      // B3（wave/deepen-perf）：消费侧预热——quiet 任务后台建瓦片金字塔 +
+      // GDAL 外部 .ovr 概览；完成后重载层 + 刷新画布，本会话后续渲染走概览。
+      if (m_doc)
+      {
+        QPointer<QgsRasterLayer> rasterGuard(raster.get());
+        connect(m_doc, &PreviewDocService::rasterPyramidFinished, host,
+                [this, rasterGuard, assetId](const QString &doneId, bool ok) {
+                  if (doneId != assetId || !ok || !rasterGuard)
+                    return;
+                  rasterGuard->reload(); // 重开数据源——让 provider 发现 .ovr
+                  rasterGuard->triggerRepaint();
+                });
+        m_doc->ensureRasterPyramidVersion(assetId);
+      }
+    }
 
     // ---- P2 地图正文：统一 PreviewMapPage（D1.x 框架全套） ----
     auto *page = new PreviewMapPage(host);
@@ -3151,6 +3268,25 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     auto *panel3d = new seismic::Seismic3DViewPanel(modeTabs);
     panel3d->setObjectName(QStringLiteral("seismic3DPanel"));
     modeTabs->addTab(panel3d, tr("三维立体 (3D)"));
+
+    // D3.2：三维切片拖动/剖面条联动 2D——只拨同页 2D 测线控件（控件自己的
+    // decode 链换测线）。不开新标签、不切回 2D 子页签。
+    connect(panel3d, &seismic::Seismic3DViewPanel::inlineChanged,
+            panel3d, [mode, no](int inlineNo) {
+      const int want = mode->findData(QStringLiteral("inline"));
+      if (want >= 0 && mode->currentIndex() != want)
+        mode->setCurrentIndex(want);
+      if (no->value() != inlineNo)
+        no->setValue(inlineNo);
+    });
+    connect(panel3d, &seismic::Seismic3DViewPanel::crosslineChanged,
+            panel3d, [mode, no](int xlineNo) {
+      const int want = mode->findData(QStringLiteral("crossline"));
+      if (want >= 0 && mode->currentIndex() != want)
+        mode->setCurrentIndex(want);
+      if (no->value() != xlineNo)
+        no->setValue(xlineNo);
+    });
 
     // ---- 引擎通道状态（先于转码区声明）：两段式体加载 + 显式 .sf3p 通道 ----
     auto sharedVol = std::make_shared<std::shared_ptr<seismic::SgyVolume>>();
@@ -3527,16 +3663,6 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
       if (panel3dGuard && svc)
         panel3dGuard->setTaskService(svc);
-        // D3.2：三维切片拖动联动 2D——IL/XL 变化走 openSeismicLine（拨线号并
-        // 聚焦 2D 页），T 变化拨时间片采样值
-        QObject::connect(panel3dGuard, &seismic::Seismic3DViewPanel::inlineChanged,
-                         panel3dGuard, [this, abs](int inlineNo) {
-          openSeismicLine(abs, QStringLiteral("inline"), inlineNo, 0.0);
-        });
-        QObject::connect(panel3dGuard, &seismic::Seismic3DViewPanel::crosslineChanged,
-                         panel3dGuard, [this, abs](int xlineNo) {
-          openSeismicLine(abs, QStringLiteral("crossline"), xlineNo, 0.0);
-        });
 
       if (!svc)
       {
@@ -3669,25 +3795,40 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
                                         vol->XlineMin(), vol->XlineMax());
         m_tiledCanvas = timeCanvas;
         m_tiledSample = sampleIndex;
+        // A3（wave/deepen-perf）：失败如实显示原因态（不再留整幅 NaN 灰无解释）；
+        // 被新请求顶替的取消回调经世代过滤（*pendingIdx 已是最新采样号）丢弃。
         svc->startTimeSliceTiled(
             *sharedPaged, sampleIndex, 64, focusInl, focusXl,
             [canvasGuard, pendingIdx, sampleIndex](bool ok,
                                                    std::shared_ptr<const seismic::SgySliceImage> img,
-                                                   const QString &) {
-              if (!ok || !img || !canvasGuard || *pendingIdx != sampleIndex)
+                                                   const QString &error) {
+              if (!canvasGuard || *pendingIdx != sampleIndex)
+                return; // 陈旧请求（已被顶替/换采样）——静默丢弃
+              if (!ok || !img) {
+                canvasGuard->clearData();
+                canvasGuard->setNoDataReason(
+                    QObject::tr("时间切片获取失败（分页通道）\n%1").arg(error));
                 return;
+              }
               canvasGuard->finishTimeSliceTiled(*img);
             });
         return;
       }
       if (svc)
       {
+        // A3：直读/工作区通道同一空态语义（失败原因上屏，不留旧图冒充新采样）
         svc->startSliceExtraction(
             vol, seismic::SgySliceType::Time, sampleIndex,
             [canvasGuard, pendingIdx, sampleIndex, ms, vol](
-                bool ok, std::shared_ptr<const seismic::SgySliceImage> img, const QString &) {
-              if (!ok || !img || !canvasGuard || *pendingIdx != sampleIndex)
+                bool ok, std::shared_ptr<const seismic::SgySliceImage> img, const QString &error) {
+              if (!canvasGuard || *pendingIdx != sampleIndex)
                 return;
+              if (!ok || !img) {
+                canvasGuard->clearData();
+                canvasGuard->setNoDataReason(
+                    QObject::tr("时间切片获取失败\n%1").arg(error));
+                return;
+              }
               canvasGuard->setTimeSliceData(*img, ms, vol->InlineMin(), vol->InlineMax(),
                                             vol->XlineMin(), vol->XlineMax());
             });
@@ -3775,7 +3916,22 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         // D2.11 大图（>50MB 无金字塔）提示：降级仍可用。
         const QString bigHint = PreviewRasterAnalysis::bigRasterHint(rasterRaw);
         if (!bigHint.isEmpty())
+        {
           lay->addWidget(PreviewMapStates::buildBigRasterHintBar(bigHint, host));
+          // B3：消费侧预热（同层位栅格页口径——.ovr 完成后重载层刷新）。
+          if (m_doc)
+          {
+            QPointer<QgsRasterLayer> rasterGuard(rasterRaw);
+            connect(m_doc, &PreviewDocService::rasterPyramidFinished, host,
+                    [rasterGuard, assetId](const QString &doneId, bool ok) {
+                      if (doneId != assetId || !ok || !rasterGuard)
+                        return;
+                      rasterGuard->reload();
+                      rasterGuard->triggerRepaint();
+                    });
+            m_doc->ensureRasterPyramidVersion(assetId);
+          }
+        }
         lay->addWidget(page, 1);
         lay->addWidget(caption8(tr("已按配准边车 %1 上图（RGB 影像原色）")
                                     .arg(QFileInfo(worldFile).fileName()),
@@ -3821,25 +3977,9 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 
   if (asset.type == QLatin1String("document"))
   {
-    lay->addWidget(caption8(tr("文件"), host));
-    lay->addWidget(valueLabel(asset.displayName, host));
-    lay->addWidget(caption8(tr("类型"), host));
-    lay->addWidget(valueLabel(asset.format.toUpper(), host));
-    auto *openErr = warnLabel(QString(), host);
-    openErr->setObjectName(QStringLiteral("openErrorText"));
-    openErr->setVisible(false);
-    auto *btn = new QPushButton(tr("用系统程序打开"), host);
-    connect(btn, &QPushButton::clicked, host, [abs, openErr]() {
-      if (!QDesktopServices::openUrl(QUrl::fromLocalFile(abs)))
-      {
-        openErr->setText(QObject::tr("系统没有打开这个文件\n%1").arg(abs));
-        openErr->setVisible(true);
-      }
-    });
-    lay->addWidget(btn, 0, Qt::AlignLeft);
-    lay->addWidget(openErr);
-
-    // PDF 预览：pdf 原件直接渲染；office 格式经 soffice → DERIVED 懒转换。
+    // 文件名/类型等属性信息由右侧属性面板承担，预览页不再重复占空间；
+    // 「用系统程序打开」只在无内嵌预览（转换失败/无门面）或需要打开
+    // office 原件时作兜底出口。
     QString pdfAbs;
     if (asset.format == QLatin1String("pdf"))
       pdfAbs = abs;
@@ -3856,6 +3996,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
               stateLabel(tr("无 PDF 预览：%1").arg(m_doc->documentPdfError(assetId)),
                          host),
               1);
+          lay->addWidget(makeOpenExternalRow(abs, host));
           break;
         default: // Pending（None 不可达——ensure 刚入队或已记失败）
           lay->addWidget(stateLabel(tr("正在转换为 PDF 预览…"), host), 1);
@@ -3863,7 +4004,10 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       }
     }
     else
+    {
       lay->addWidget(stateLabel(tr("无法生成 PDF 预览"), host), 1);
+      lay->addWidget(makeOpenExternalRow(abs, host));
+    }
 
     if (!pdfAbs.isEmpty())
     {
@@ -3876,12 +4020,18 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         view->setPageMode(QPdfView::PageMode::MultiPage);
         lay->addWidget(view, 1);
         if (asset.format != QLatin1String("pdf"))
+        {
           lay->addWidget(
               caption8(tr("预览为 PDF 转换件；原件经「用系统程序打开」"), host));
+          lay->addWidget(makeOpenExternalRow(abs, host), 0, Qt::AlignLeft);
+        }
       }
       else
+      {
         lay->addWidget(
             stateLabel(tr("PDF 转换件无法加载\n%1").arg(pdfAbs), host), 1);
+        lay->addWidget(makeOpenExternalRow(abs, host));
+      }
     }
     lay->addWidget(warnLabel(tr("未配准，不加入地图"), host)); // §4
     return host;
@@ -4389,8 +4539,10 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     return host;
   }
 
-  // ---- 辅助/参考与未知类型（§4 阶段 D）：文件名 + 类型 + 系统打开 +
-  // 「未配准，不加入地图」；HZ28-6-1 XML 额外写「不对应 A1–A20」。----
+  // ---- 辅助/参考与未知类型（§4 阶段 D）：预览内容为主，文件名/类型等属性
+  // 信息由右侧属性面板承担（不再重复占空间）；「未配准，不加入地图」警告照旧；
+  // HZ28-6-1 XML 额外写「不对应 A1–A20」；无内嵌预览时留「用系统程序打开」
+  // 兜底出口。----
   {
     QString auxName;
     for (const EntityAssetLink &l : links)
@@ -4399,24 +4551,6 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         auxName = cat->entityById(l.entityId).name;
         break;
       }
-    lay->addWidget(caption8(tr("文件"), host));
-    lay->addWidget(valueLabel(asset.displayName, host));
-    lay->addWidget(caption8(tr("类型"), host));
-    lay->addWidget(valueLabel(asset.format.isEmpty() ? asset.type : asset.format.toUpper(),
-                              host));
-    auto *openErr = warnLabel(QString(), host);
-    openErr->setObjectName(QStringLiteral("openErrorText"));
-    openErr->setVisible(false);
-    auto *btn = new QPushButton(tr("用系统程序打开"), host);
-    connect(btn, &QPushButton::clicked, host, [abs, openErr]() {
-      if (!QDesktopServices::openUrl(QUrl::fromLocalFile(abs)))
-      {
-        openErr->setText(QObject::tr("系统没有打开这个文件\n%1").arg(abs));
-        openErr->setVisible(true);
-      }
-    });
-    lay->addWidget(btn, 0, Qt::AlignLeft);
-    lay->addWidget(openErr);
     lay->addWidget(warnLabel(tr("未配准，不加入地图"), host));
     // 参考资料/ 下 HZ28-6-1 的 XML：不按内容挂井、不并进 A1–A20（§3 固定规则）。
     if (asset.displayName.contains(QStringLiteral("HZ28-6-1")) ||
@@ -4445,6 +4579,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       lay->addWidget(PreviewMapStates::buildUnsupportedPage(asset.type, host), 1);
     else
       lay->addStretch(1);
+    lay->addWidget(makeOpenExternalRow(abs, host), 0, Qt::AlignLeft);
     return host;
   }
 }

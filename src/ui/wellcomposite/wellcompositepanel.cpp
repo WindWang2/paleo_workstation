@@ -16,12 +16,15 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QPrinter>
+#include <QPrintDialog>
 #include <QPushButton>
 #include <QLineEdit>
 #include <QShortcut>
 #include <QTextStream>
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 #include "curveconfigdialog.h"
@@ -30,6 +33,7 @@
 #include "hiddentrackbar.h"
 #include "intervaleditor.h"
 #include "intervalstatistics.h"
+#include "derivedsink.h"
 #include "trackconfigdialog.h"
 #include "trackops.h"
 #include "stratassignment.h"
@@ -47,6 +51,10 @@ WellCompositePanel::WellCompositePanel(QWidget *parent)
   // D2.7 Ctrl+G 跳深度
   auto *shortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+G")), this);
   connect(shortcut, &QShortcut::activated, this, &WellCompositePanel::openGotoDepthDialog);
+
+  // D1：登记进活跃面板表并挂接默认 sink（壳 attachWorkflows 先于预览页建立；
+  // sink 迟装时由 setDefault 补挂）。
+  WellCompositeDerivedSink::registerPanel(this);
 }
 
 WellCompositePanel::~WellCompositePanel()
@@ -225,6 +233,20 @@ void WellCompositePanel::setupUi()
   m_btnEdit->setStyleSheet(btnStyle);
   topLay->addWidget(m_btnEdit);
 
+  // ---- D1 保存派生版本：意图信号 → 壳 derivedsink 落 catalog DERIVED ----
+  m_btnSaveDerived = new QToolButton(topBar);
+  m_btnSaveDerived->setObjectName(QStringLiteral("btnCompSaveDerived"));
+  m_btnSaveDerived->setText(tr("保存派生"));
+  m_btnSaveDerived->setToolTip(
+      tr("把当前编辑保存为派生版本：壳登记 catalog（父版本=源井数据 RAW），"
+         "审计历史写入派生 XML 的「编辑审计」工作表"));
+  m_btnSaveDerived->setStyleSheet(btnStyle);
+  connect(m_btnSaveDerived, &QToolButton::clicked, this, [this]() {
+    if (!saveDerived())
+      m_lblStatus->setText(tr("无可保存的编辑（先在 TOPs 编辑模式修改数据）"));
+  });
+  topLay->addWidget(m_btnSaveDerived);
+
   topLay->addStretch(1);
 
   // D2.11 当前深度读数条：大字号 mono 深度 + 最近标志层名
@@ -296,8 +318,9 @@ void WellCompositePanel::setupUi()
   });
 
   connect(m_canvas, &WellCompositeCanvas::depthHovered, this, [this](double d) {
-    // D2.11 读数条：深度 + 最近标志层名
-    m_lblReadout->setText(DepthTools::readoutText(qMax(0.0, d), m_canvas->markerLines()));
+    // D2.11 读数条：深度 + 最近标志层名；D1 追加 TVD/TWT（壳喂表后自动）
+    m_lblReadout->setText(DepthTools::readoutText(qMax(0.0, d), m_canvas->markerLines()) +
+                          depthReadoutSuffix(qMax(0.0, d)));
 
     if (d > 0.0)
     {
@@ -448,6 +471,7 @@ bool WellCompositePanel::loadComprehensiveXml(const QString &xmlPath)
   setupTracksFromData(data);
   if (m_legendWidget)
     m_legendWidget->setWellData(data);
+  clearDepthTables(); // D1：换源复位井斜/时深（wellLoaded 后 sink 按新源重喂）
 
   // D3.x 编辑会话：工作副本 + 源 mtime 跟踪（D3.10）
   m_editSession = std::make_unique<EditSession>(data, this);
@@ -468,6 +492,7 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
 {
   m_canvas->clearTracks();
   setWellName(wellName);
+  clearDepthTables(); // D1：换井复位（LAS 路径无井斜/时深表，保持禁用态）
 
   if (curves.isEmpty() && formations.isEmpty())
     return false;
@@ -1131,6 +1156,72 @@ void WellCompositePanel::setGapThresholdMeters(double meters)
 }
 
 // ----------------------------------------------------------------------------
+// D1 深度装配链（wave/deepen-perf）
+// ----------------------------------------------------------------------------
+void WellCompositePanel::applyDepthTables(const QVector<DeviationStation> &stations,
+                                          const QVector<QPair<double, double>> &tvdTwtPairs,
+                                          double kbElevation)
+{
+  if (!stations.isEmpty())
+    m_depthTransform.setDeviationSurvey(stations);
+  if (!tvdTwtPairs.isEmpty())
+    m_depthTransform.setTimeDepthTable(tvdTwtPairs);
+  if (!std::isnan(kbElevation))
+    m_depthTransform.setKbElevation(kbElevation);
+  refreshTwtLabels();
+  // 刷新读数条（悬停深度沿用当前值；无悬停时下次移动自然带出）
+  m_lblStatus->setText(
+      tr("深度装配：井斜表%1、时深表%2（TVD/TWT 副刻度已%3）")
+          .arg(hasDeviationSurvey() ? tr("已加载") : tr("缺失"))
+          .arg(hasTimeDepthTable() ? tr("已加载") : tr("缺失"))
+          .arg(hasTimeDepthTable() ? tr("启用") : tr("禁用")));
+}
+
+void WellCompositePanel::clearDepthTables()
+{
+  m_depthTransform = DepthTransform{};
+  refreshTwtLabels();
+}
+
+void WellCompositePanel::refreshTwtLabels()
+{
+  QVector<QPair<double, QString>> labels;
+  if (m_depthTransform.hasTimeDepthTable())
+  {
+    // 副刻度步长：深度跨度/12 取整到 1-2-5 序列（与标尺主刻度密度同量级）
+    const double span = qMax(1.0, m_canvas->maxDepth() - m_canvas->minDepth());
+    double step = span / 12.0;
+    double mag = std::pow(10.0, std::floor(std::log10(step)));
+    double norm = step / mag;
+    step = (norm <= 1.0 ? 1.0 : norm <= 2.0 ? 2.0 : norm <= 5.0 ? 5.0 : 10.0) * mag;
+    for (double md = std::ceil(m_canvas->minDepth() / step) * step;
+         md <= m_canvas->maxDepth(); md += step)
+    {
+      const double twt = twtAtDepth(md);
+      if (!std::isnan(twt) && twt > 0.0)
+        labels.append({md, QString::number(qRound(twt))});
+    }
+  }
+  m_canvas->setTwtLabels(labels);
+}
+
+QString WellCompositePanel::depthReadoutSuffix(double md) const
+{
+  if (!hasDeviationSurvey() && !hasTimeDepthTable())
+    return QString();
+  QString suffix;
+  if (hasDeviationSurvey())
+    suffix += QStringLiteral(" | TVD %1").arg(QString::number(mdToTvd(md), 'f', 1));
+  if (hasTimeDepthTable())
+  {
+    const double twt = twtAtDepth(md);
+    if (!std::isnan(twt))
+      suffix += QStringLiteral(" | %1 ms").arg(QString::number(twt, 'f', 0));
+  }
+  return suffix;
+}
+
+// ----------------------------------------------------------------------------
 // D3.x 编辑模式
 // ----------------------------------------------------------------------------
 void WellCompositePanel::setEditMode(bool on)
@@ -1164,7 +1255,8 @@ bool WellCompositePanel::saveDerived()
   // 直接断言信号携带的文档内容与审计摘要）
   const ComprehensiveWellData derived = m_editSession->buildDerivedDocument();
   const QString summary = m_editSession->buildManifestStyleSummary();
-  emit derivedDocumentReady(derived, summary);
+  // D1（wave/deepen-perf）：审计逐条随行——壳侧登记写「编辑审计」工作表
+  emit derivedDocumentReady(derived, summary, m_editSession->auditLines());
 
   // D3.11 审计摘要同步 sidecar（auditLog 在各编辑操作时已逐条累积）
   if (m_store)
@@ -1292,8 +1384,38 @@ void WellCompositePanel::exportCurrent(ExportEngine::Format format)
 
 void WellCompositePanel::printCurrent()
 {
-  // D4.8/D4.9 打印对话框 + 预览：经 ExportEngine 落 PDF 后交系统打印（无打印机
-  // 环境 offscreen 下降级为导出 PDF 提示）
+  // D3（wave/deepen-perf）原生打印接线：有系统打印机 → QPrintDialog + QPrinter
+  //（与 PDF 导出同一分页渲染管线 exportToPagedDevice；取消 = 用户意图静默返回）。
+  // 无打印环境（offscreen/无打印服务）→ 降级为 PDF 导出（QPdfWriter 即打印
+  // 数据流，wave/wellcomposite D4.8 决策语义保持）。
+  if (ExportEngine::nativePrintAvailable())
+  {
+    QPrinter printer(QPrinter::HighResolution);
+    printer.setPageLayout(QPageLayout(QPageSize(QPageSize::A4), QPageLayout::Portrait,
+                                      QMarginsF(12, 14, 12, 14), QPageLayout::Millimeter));
+    printer.setDocName(QStringLiteral("%1_综合柱状图").arg(
+        m_wellName.isEmpty() ? QStringLiteral("well") : m_wellName));
+    QPrintDialog dlg(&printer, this);
+    dlg.setWindowTitle(tr("打印综合柱状图"));
+    if (dlg.exec() != QDialog::Accepted)
+      return;
+
+    ExportEngine::Options opt;
+    opt.scaleRatio = m_canvas->scaleRatio();
+    opt.topDepth = m_canvas->minDepth();
+    opt.bottomDepth = m_canvas->maxDepth();
+    opt.includeHeader = true;
+    opt.includeLegend = true;
+    opt.wellName = m_wellName;
+    opt.projectName = m_projectName;
+    const QString err = ExportEngine::exportToPagedDevice(*m_canvas, m_data, printer, opt);
+    if (!err.isEmpty())
+      QMessageBox::warning(this, tr("打印失败"), err);
+    else
+      m_lblStatus->setText(tr("已发送到打印机: %1").arg(printer.printerName()));
+    return;
+  }
+  m_lblStatus->setText(tr("未检测到系统打印机——打印降级为导出 PDF"));
   exportCurrent(ExportEngine::Format::Pdf);
 }
 

@@ -28,6 +28,11 @@ class CacheSegyIndexTests : public QObject
     void badTraceSkipKeepsIndex();
     void gapStatsReportMissing();
     void publishFailureStillUsable();
+    // B6（wave/deepen-perf）：顺序路径坏道跳过放宽 + 变道长布局契约。
+    void sequentialBadTraceSkipMatchesParallelContract();
+    void variableLayoutFlagSurfaces();
+    void variableLayoutKeepsHardErrorOnCorruptNs();
+    void variableLayoutWritesNoCheckpoint();
 
   private:
     QTemporaryDir m_dir;
@@ -324,6 +329,109 @@ void CacheSegyIndexTests::publishFailureStillUsable()
   QString err;
   QVERIFY(r.openCached(sgy, idx, &err));
   QCOMPARE(r.traceCount(), 64);
+}
+
+// ---- B6（wave/deepen-perf）：坏道跳过放宽 + 变道长布局契约 --------------------
+
+namespace
+{
+// 把 offset 处道头的 ns 字（0 基 114，大端 i16）改为 val。
+void patchTraceNs(const QString &path, qint64 offset, qint16 val)
+{
+  QFile f(path);
+  QVERIFY(f.open(QIODevice::ReadWrite));
+  f.seek(offset + 114);
+  const quint16 v = static_cast<quint16>(val);
+  const char bytes[2] = {static_cast<char>(v >> 8), static_cast<char>(v & 0xFF)};
+  f.write(bytes, 2);
+  f.close();
+}
+} // namespace
+
+void CacheSegyIndexTests::sequentialBadTraceSkipMatchesParallelContract()
+{
+  // B6：小文件（<1MB → 顺序路径）固定道长布局中一道 ns 损坏 → 与并行路径
+  //（badTraceSkipKeepsIndex）同语义：跳过 + 记录，索引不作废。
+  const QString sgy = m_dir.filePath("m.sgy");
+  const int inl = 8, xl = 12, samples = 40; // 96 道 ≈ 38KB → 顺序路径
+  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, inl, xl, samples) > 0);
+  const qint64 traceSize = 240 + qint64(samples) * 4;
+  const qint64 badOffset = 3600 + 37 * traceSize;
+  patchTraceNs(sgy, badOffset, -32768);
+
+  SegyReader r;
+  QString err;
+  QVERIFY2(r.open(sgy, &err), qPrintable(err));
+  QCOMPARE(r.traceCount(), inl * xl - 1);
+  QCOMPARE(r.badTraceOffsets().size(), 1);
+  QCOMPARE(r.badTraceOffsets().first(), badOffset);
+  QCOMPARE(r.variableTraceLayout(), false);
+  // 坏道只少一道：8 条 inline 全在（各 11/12 道）。
+  QCOMPARE(r.inlineNumbers().size(), inl);
+}
+
+void CacheSegyIndexTests::variableLayoutFlagSurfaces()
+{
+  // B6：变道长布局（某道 ns>0 且 ≠ 二进制头 ns）顺序路径本就支持
+  //（逐道推进）——补断言 variableTraceLayout() 观察面。
+  const QString sgy = m_dir.filePath("n.sgy");
+  const int inl = 6, xl = 8, samples = 20;
+  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, inl, xl, samples) > 0);
+  // 道 0 的 ns 改 12（≠ 20）→ 首道变短，其余正常。
+  patchTraceNs(sgy, 3600, 12);
+
+  SegyReader r;
+  QString err;
+  QVERIFY2(r.open(sgy, &err), qPrintable(err));
+  QCOMPARE(r.traceCount(), inl * xl);
+  QCOMPARE(r.variableTraceLayout(), true);
+  QCOMPARE(r.badTraceOffsets().isEmpty(), true);
+}
+
+void CacheSegyIndexTests::variableLayoutKeepsHardErrorOnCorruptNs()
+{
+  // B6：变道长布局里的负 ns——后续道边界不可恢复，整索引报错（不静默跳）。
+  const QString sgy = m_dir.filePath("o.sgy");
+  const int inl = 6, xl = 8, samples = 20;
+  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, inl, xl, samples) > 0);
+  // 道 0 ns=12（变道长观察点）；扫描器视角的道 1 起点随之前移。
+  patchTraceNs(sgy, 3600, 12);
+  const qint64 trace1Offset = 3600 + 240 + qint64(12) * 4; // 道 0 实长
+  patchTraceNs(sgy, trace1Offset, -32768);
+
+  SegyReader r;
+  QString err;
+  QVERIFY(!r.open(sgy, &err));
+  QVERIFY2(err.contains(QStringLiteral("variable-trace-length")),
+           qPrintable(err));
+}
+
+void CacheSegyIndexTests::variableLayoutWritesNoCheckpoint()
+{
+  // B6：变道长布局的取消不落 checkpoint——resumeScan 按固定步长推进，
+  // 续扫会把错位道头当好道收进索引（契约见 docs/perf/INDEX_FORMAT.md §3）。
+  const QString sgy = m_dir.filePath("p.sgy");
+  const int inl = 12, xl = 12, samples = 20; // 144 道 ≈ 46KB → 顺序路径
+  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, inl, xl, samples) > 0);
+  patchTraceNs(sgy, 3600, 16); // 道 0 变短 → variable
+
+  const QString idx = cacheDir();
+  {
+    SegyReader r;
+    SegyOptions opts;
+    int checks = 0;
+    opts.cancel = [&checks] { return ++checks >= 2; }; // 128 道后再取消（已见 variable）
+    QString err;
+    QVERIFY(!r.openCached(sgy, idx, &err, &opts));
+    QVERIFY(r.lastScanPartial());
+    QCOMPARE(r.variableTraceLayout(), true);
+  }
+  // 固定布局的 checkpoint 会落盘（checkpointResumeAfterCancel 已证）；变道长
+  // 布局对本文件必须一个字节都不留（idx/ 里其它测试的 psx 按路径哈希命名，
+  // 互不相干）。
+  SegyIndexStore store(idx);
+  QVERIFY2(!QFile::exists(store.cacheFilePathFor(QFileInfo(sgy))),
+           "variable-trace-length layout must not publish a resumable checkpoint");
 }
 
 QTEST_MAIN(CacheSegyIndexTests)

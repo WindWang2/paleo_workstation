@@ -4716,7 +4716,14 @@ private:
         std::unique_ptr<DataPage> page(fx.makePage(&svc));
         auto *search = page->findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
         QVERIFY(search);
+        // 选项披露（dataListAdvancedOptions）默认收起——默认面只有搜索行和
+        // 数据视图；键盘审计先展开披露再走 Tab 环路（折叠态控件不在焦点链，
+        // wave/deepen-perf 修：原测试在默认收起态断言过滤条可达，过期红）。
+        auto *options = page->findChild<QToolButton *>(QStringLiteral("dataListOptionsButton"));
+        QVERIFY(options);
         page->show();
+        QTest::qWait(20);
+        options->click();
         QTest::qWait(20);
         search->setFocus();
         QSet<QString> visited;

@@ -37,11 +37,14 @@
 #include "attributetablepanel.h"
 #include "pages/pagepanels.h"
 #include "pages/pageshared.h" // kPageIds
+#include "pages/dataops/dataopsimportqueue.h" // B2：导入队列生产 runner（wave/deepen-perf）
+#include "pages/datalist.h" // B2：listPanel()->importQueuePanel() 需完整类型
 #include "constraintdrawcontroller.h"
 #include "typedconstraintdrawcontroller.h" // m2(B)：物源线/展布线/控制点类型化捕获
 #include "dialogs/folderconfirm.h"
 #include "correlationpanel.h"
 #include "datapreview/datapreviewtabs.h"
+#include "wellcomposite/derivedsink.h" // deepen-perf D1：井综合派生登记 sink
 #include "../catalog/datacatalog.h"
 #include "layoutdesignershell.h"
 #include "edittools/editingtoolbar.h"
@@ -101,6 +104,40 @@
 #include <QDialogButtonBox>
 
 #include <memory>
+
+namespace
+{
+// ---------------------------------------------------------------------------
+// 井综合派生登记（wave/deepen-perf D1，wellcomposite 分段）：
+// 全局默认 WellCompositeDerivedSink——预览页 WellCompositePanel 构造即挂接，
+// derivedDocumentReady 意图信号落成 catalog DERIVED 版本（受管路径 +
+// sha256 + 父版本=源井数据 RAW，审计行进派生 XML「编辑审计」工作表）。
+// io 序列化器/井斜时深解析器不在本 TU 绑定：ui→io include 白名单只放行
+// lasdoc.h，函数由组装根（src/app/main.cpp）装配期注入；未注入时 sink
+// 按错误路径如实回报（状态栏 + 消息日志），不静默回落。
+// ---------------------------------------------------------------------------
+void attachWellCompositeDerived(PaleoMainWindow *win, DataCatalog *catalog)
+{
+  if (!win || !catalog)
+    return;
+  auto *sink = new WellComposite::WellCompositeDerivedSink(win);
+  sink->bind(catalog, QString()); // 工程目录按 catalog 当前打开的工程解析（换工程自适应）
+  WellComposite::WellCompositeDerivedSink::setDefault(sink);
+  QObject::connect(sink, &WellComposite::WellCompositeDerivedSink::derivedRegistered, win,
+                   [win](const QString &path, const QString &versionId) {
+                     win->statusBar()->showMessage(
+                         QObject::tr("派生版本已登记 catalog：%1（%2）").arg(path, versionId),
+                         10000);
+                   });
+  QObject::connect(sink, &WellComposite::WellCompositeDerivedSink::derivedFailed, win,
+                   [win](const QString &reason) {
+                     QgsMessageLog::logMessage(reason, QStringLiteral("Paleo"),
+                                               Qgis::MessageLevel::Warning);
+                     win->statusBar()->showMessage(
+                         QObject::tr("派生版本登记失败：%1").arg(reason), 10000);
+                   });
+}
+} // namespace
 
 void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                                       CompositionWorkflow *compose, ValidationWorkflow *validate,
@@ -182,6 +219,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   stack->addWidget(validatePage);
 
   attachSections(seismicLink);
+  attachWellCompositeDerived(this, m_previewDoc ? m_previewDoc->catalog() : nullptr);
   WellCorrelationPanel *corrPanel = nullptr;
   if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
   {
@@ -189,6 +227,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     {
       corrPanel = new WellCorrelationPanel(m_selection, bottomTabs);
       corrPanel->setObjectName(QStringLiteral("correlationPanel"));
+      corrPanel->setTaskService(taskSvc); // B1：大 LAS 解析走 quiet 异步（nullptr 保持同步旧路径）
       bottomTabs->addTab(corrPanel, tr("测井对比"));
     }
   }
@@ -232,6 +271,14 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
             });
     dataPage->refreshAssetTable();
     syncSeismicVolumeToDocks();
+    // B2（wave/deepen-perf）：导入队列生产 runner（GAPS G-2.3 收口）——串行
+    // 驱动 + loud 任务池逐文件导入 + 取消/重试状态机。面板持有 runner 闭包
+    //（shared_ptr Hub 续命，GUI 线程投递），适配器本体随本栈析构不悬空。
+    if (taskSvc && dataPage->listPanel())
+    {
+      paleo::dataops::FolderImportQueueAdapter importRunner(m_previewDoc, taskSvc);
+      importRunner.attach(dataPage->listPanel()->importQueuePanel());
+    }
     // D6 地图→表联动：画布上拾取的实体（WellMapLink → ctx）→ 资产表选中
     // 其已决关联的行；选中走同一条 assetActivated → 预览照开。
     if (m_selection)
@@ -755,7 +802,7 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 setNodeChecked(layerId, false);
               }
             });
-    // 三入口（物源线/展布线/控制点）：类型化捕获工具（type 列落地质类型词表）。
+    // 类型化约束线两入口（方向线/打断线）：类型化捕获工具（type 列落地质类型词表）。
     if (m_canvasCtl)
     {
       auto *typedCtl = new TypedConstraintDrawController(m_canvasCtl, constraint, this);

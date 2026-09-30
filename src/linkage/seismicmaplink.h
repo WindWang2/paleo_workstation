@@ -65,6 +65,8 @@ class SeismicMapLink : public QObject
     void sectionExtractRequested(std::shared_ptr<const seismic::SgyVolume> volume,
                                  std::vector<glm::ivec2> pathPoints, QString title,
                                  std::vector<glm::dvec2> mapPolyline);
+    // 剖面捕获被 Esc 取消——壳据此唤回设置对话框。
+    void sectionCaptureCancelled();
 
   private slots:
     void onContextSelection(const QStringList &ids, const QString &origin);

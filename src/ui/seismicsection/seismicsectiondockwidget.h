@@ -60,6 +60,9 @@ public:
     void setWells(const std::vector<SectionWellInfo> &wells);
     void setTimeDepthModel(const TimeDepthModel &model);
     void setLineTitle(const QString &title);
+    // 清除已提交的剖面路线（地图连线语义）：hasRoute() 复归 false，
+    // 「保存剖面新版本」随之失效；画布图像保留至下一次提取。
+    void clearRoute();
 
     // Volume binding and extraction
     void setVolume(std::shared_ptr<const SgyVolume> volume);

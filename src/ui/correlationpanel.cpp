@@ -3,6 +3,7 @@
 #include "paleotheme.h"
 
 #include "../linkage/selectioncontext.h"
+#include "../services/paleotaskservice.h" // B1：quiet LAS 异步任务服务
 #include "../services/previewdoc.h" // LasParser 的唯一 UI 出口（W1）
 
 #include "correlation/correlationwellcolumn.h"
@@ -10,6 +11,8 @@
 #include "correlation/depthruler.h"
 
 #include <QEvent>
+#include <QFile>
+#include <QFileInfo>
 #include <QGraphicsPathItem>
 #include <QGraphicsRectItem>
 #include <QGraphicsScene>
@@ -25,6 +28,7 @@
 
 #include <cmath>
 #include <limits>
+#include <memory>
 
 // ---------------------------------------------------------------------------
 // Scene/view scaffold. Columns are the ONLY top-level scene items — the
@@ -373,8 +377,165 @@ WellCorrelationPanel::WellCorrelationPanel(SelectionContext *ctx, QWidget *paren
 
 WellCorrelationPanel::~WellCorrelationPanel()
 {
+  // B1：在途 LAS 解析请求协作取消（结果没人等了）；任务对象归任务服务所有。
+  for (auto it = m_lasTask.constBegin(); it != m_lasTask.constEnd(); ++it)
+    if (auto *t = it.value().data(); t && t->running())
+      t->requestCancel();
   qDeleteAll(m_columns);
   delete m_ruler;
+}
+
+void WellCorrelationPanel::setTaskService(PaleoTaskService *svc)
+{
+  m_taskSvc = svc;
+}
+
+bool WellCorrelationPanel::isLasLoadPending(const QString &wellId) const
+{
+  const auto *t = m_lasTask.value(wellId).data();
+  return t && t->running();
+}
+
+// B1：解析结果的回填出口——browser 列表 + m_lasByWell 快照。
+void WellCorrelationPanel::applyLasCurves(const QString &wellId,
+                                          const QList<LasCurve> &curves)
+{
+  m_lasByWell.insert(wellId, curves);
+  m_browser->setCurves(wellId, curves);
+}
+
+// B1：按曲线名上轨（loadWellLas 的解析后动作，同步/异步共用）。
+bool WellCorrelationPanel::applyLasTrack(const QString &wellId,
+                                         const QStringList &names,
+                                         const QList<LasCurve> &curves,
+                                         const QString &curveMnemonic)
+{
+  const QString want = curveMnemonic.trimmed();
+  int idx = -1;
+  for (int i = 0; i < names.size(); ++i)
+    if (names.at(i).compare(want, Qt::CaseInsensitive) == 0)
+    {
+      idx = i;
+      break;
+    }
+  if (idx < 0)
+    return false;
+
+  applyLasCurves(wellId, curves);
+
+  const LasCurve &depthCurve = curves.first(); // ~C column 0 is the DEPT index
+  const LasCurve &valueCurve = curves.at(idx);
+  QVector<float> depths(depthCurve.values.size());
+  for (qsizetype i = 0; i < depthCurve.values.size(); ++i)
+    depths[i] = static_cast<float>(depthCurve.values.at(i));
+  QVector<float> values(valueCurve.values.size());
+  for (qsizetype i = 0; i < valueCurve.values.size(); ++i)
+    values[i] = static_cast<float>(valueCurve.values.at(i));
+
+  addWellTrack(wellId, valueCurve.name, valueCurve.unit, depths, values);
+  m_browser->setChecked(valueCurve.name, true); // reflect state (idempotent when already on)
+  return true;
+}
+
+// B1：提交 quiet 异步解析。withTrack=false = setLasForWell（只填 browser）；
+// true = loadWellLas（再按 mnemonic 上轨）。同井新请求协作取消旧任务、
+// 世代号发射前丢弃陈旧结果——与 PreviewDocService::requestLas 同一纪律。
+bool WellCorrelationPanel::submitLasLoad(const QString &wellId,
+                                         const QString &lasPath, bool withTrack,
+                                         const QString &mnemonic)
+{
+  if (lasPath.isEmpty() || !QFile::exists(lasPath))
+    return false; // 快速失败留在同步侧：调用方当场拿到 false
+  PaleoTaskService *svc = m_taskSvc;
+  if (!svc)
+    return false;
+
+  const int seq = ++m_lasSeq[wellId];
+  if (auto *old = m_lasTask.value(wellId).data(); old && old->running())
+    old->requestCancel();
+
+  // worker 产出（跨线程交接；LasDoc 值拷贝经 LasCache 的 COW QVector 浅拷）。
+  struct Outcome
+  {
+    QStringList names;
+    QList<LasCurve> curves;
+    QString error;
+  };
+  auto out = std::make_shared<Outcome>();
+  auto *task = svc->start(
+      QStringLiteral("解析测井 %1").arg(QFileInfo(lasPath).fileName()),
+      [lasPath, out](PaleoTask *) -> QString {
+        // 纯解析在池线程跑（LasCache 线程安全 + 同文件并发合并）。
+        if (!PreviewDocService::lasAt(lasPath, &out->names, &out->curves,
+                                      &out->error))
+          return out->error.isEmpty() ? QStringLiteral("无法解析 LAS 文件")
+                                      : out->error;
+        return QString();
+      },
+      QString(), /*quiet=*/true); // 交互内嵌取数——不拉起任务中心
+  m_lasTask[wellId] = task;
+  connect(task, &PaleoTask::finished, this,
+          [this, wellId, seq, withTrack, mnemonic, out, task] {
+            if (seq != m_lasSeq.value(wellId))
+              return; // 陈旧结果丢弃：更新一代请求已接管
+            const bool ok = task->state() == PaleoTask::State::Succeeded;
+            if (ok && out->curves.isEmpty())
+            {
+              // lasAt 成功但 ~A 无曲线：与同步路径同语义（false）。
+              emit lasLoadFinished(wellId, false);
+              emit lasLoadError(wellId, QStringLiteral("LAS 无数据曲线"));
+              return;
+            }
+            if (!ok)
+            {
+              emit lasLoadFinished(wellId, false);
+              emit lasLoadError(wellId, task->errorText().isEmpty()
+                                            ? QStringLiteral("无法解析 LAS 文件")
+                                            : task->errorText());
+              return;
+            }
+            if (withTrack)
+            {
+              const bool trackOk = applyLasTrack(wellId, out->names, out->curves,
+                                                 mnemonic);
+              emit lasLoadFinished(wellId, trackOk);
+              if (!trackOk)
+                emit lasLoadError(wellId,
+                                  QStringLiteral("曲线不存在：%1").arg(mnemonic));
+            }
+            else
+            {
+              applyLasCurves(wellId, out->curves);
+              emit lasLoadFinished(wellId, true);
+            }
+          });
+  return true;
+}
+
+bool WellCorrelationPanel::setLasForWell(const QString &wellId, const QString &lasPath)
+{
+  if (m_taskSvc)
+    return submitLasLoad(wellId, lasPath, /*withTrack=*/false, QString());
+  QStringList names;
+  QList<LasCurve> curves;
+  if (!PreviewDocService::lasAt(lasPath, &names, &curves) || curves.isEmpty())
+    return false;
+  applyLasCurves(wellId, curves);
+  return true;
+}
+
+bool WellCorrelationPanel::loadWellLas(const QString &wellId, const QString &lasPath,
+                                       const QString &curveMnemonic)
+{
+  if (m_taskSvc)
+    return submitLasLoad(wellId, lasPath, /*withTrack=*/true, curveMnemonic);
+  QStringList names;
+  QList<LasCurve> curves;
+  if (!PreviewDocService::lasAt(lasPath, &names, &curves) || curves.isEmpty())
+    return false;
+  if (!applyLasTrack(wellId, names, curves, curveMnemonic))
+    return false;
+  return true;
 }
 
 void WellCorrelationPanel::setUpdatesEnabled(bool enabled)
@@ -547,53 +708,6 @@ QStringList WellCorrelationPanel::wellTrackMnemonics(const QString &wellId) cons
 {
   const CorrelationWellColumn *col = m_columns.value(wellId);
   return col ? col->mnemonics() : QStringList();
-}
-
-bool WellCorrelationPanel::setLasForWell(const QString &wellId, const QString &lasPath)
-{
-  QStringList names;
-  QList<LasCurve> curves;
-  if (!PreviewDocService::lasAt(lasPath, &names, &curves) || curves.isEmpty())
-    return false;
-  m_lasByWell.insert(wellId, curves);
-  m_browser->setCurves(wellId, curves);
-  return true;
-}
-
-bool WellCorrelationPanel::loadWellLas(const QString &wellId, const QString &lasPath,
-                                       const QString &curveMnemonic)
-{
-  QStringList names;
-  QList<LasCurve> curves;
-  if (!PreviewDocService::lasAt(lasPath, &names, &curves) || curves.isEmpty())
-    return false;
-
-  const QString want = curveMnemonic.trimmed();
-  int idx = -1;
-  for (int i = 0; i < names.size(); ++i)
-    if (names.at(i).compare(want, Qt::CaseInsensitive) == 0)
-    {
-      idx = i;
-      break;
-    }
-  if (idx < 0)
-    return false;
-
-  m_lasByWell.insert(wellId, curves);
-  m_browser->setCurves(wellId, curves);
-
-  const LasCurve &depthCurve = curves.first(); // ~C column 0 is the DEPT index
-  const LasCurve &valueCurve = curves.at(idx);
-  QVector<float> depths(depthCurve.values.size());
-  for (qsizetype i = 0; i < depthCurve.values.size(); ++i)
-    depths[i] = static_cast<float>(depthCurve.values.at(i));
-  QVector<float> values(valueCurve.values.size());
-  for (qsizetype i = 0; i < valueCurve.values.size(); ++i)
-    values[i] = static_cast<float>(valueCurve.values.at(i));
-
-  addWellTrack(wellId, valueCurve.name, valueCurve.unit, depths, values);
-  m_browser->setChecked(valueCurve.name, true); // reflect state (idempotent when already on)
-  return true;
 }
 
 void WellCorrelationPanel::setManifestHorizons(const QStringList &names)

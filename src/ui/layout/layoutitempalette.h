@@ -80,6 +80,9 @@ class PaleoLayoutItemPalette : public QWidget
     //! The view attach() last wired, if it is still alive.
     QgsLayoutView *attachedView() const;
 
+    //! The shared interactive add tool created by attach(), if attached.
+    QgsLayoutViewToolAddItem *addItemTool() const;
+
     //! Metadata ids behind the item buttons, in visual order; -1 entries are
     //! buttons whose type is unavailable in this QGIS build.
     QList<int> itemMetadataIds() const { return m_buttonMetadataIds; }

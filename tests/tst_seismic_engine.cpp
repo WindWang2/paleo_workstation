@@ -785,6 +785,115 @@ private slots:
     // Auto 语义：旁生 .sf3p 不影响——.sf3c 不存在时仍是直读
     QCOMPARE(probe.backendName, QStringLiteral("direct"));
   }
+  // ---- A3（wave/deepen-perf）瓦片取代语义：同路径新请求取消旧在途 ----
+  void serviceTiledSupersedeCancelsStale()
+  {
+    PaleotaskserviceFixture fix;
+    const QString sgy = tempDir_.filePath(QStringLiteral("svc_supersede.sgy"));
+    QVERIFY(writeStandardSegy(sgy, 48, 48, 256));
+    const QString l0 = sgy + QStringLiteral(".sf3p");
+
+    bool transcoded = false;
+    fix.seismic.startPagedTranscode(sgy, l0, false, [&](bool, const QString &, const QString &) {
+      transcoded = true;
+    });
+    QVERIFY(fix.waitFor([&] { return transcoded; }));
+
+    bool aDone = false, bDone = false;
+    bool aOk = false, bOk = false;
+    QString aErr, bErr;
+    PaleoTask *a = fix.seismic.startTimeSliceTiled(
+        l0, 100, /*tileSize=*/4, 1000, 2000,
+        [&](bool ok, std::shared_ptr<const seismic::SgySliceImage>, const QString &err) {
+          aOk = ok;
+          aErr = err;
+          aDone = true;
+        });
+    QVERIFY(a != nullptr);
+    // 紧接同路径新采样请求：A 必须被协作取消（瓦片粒度 unwind，不发布成品）
+    PaleoTask *b = fix.seismic.startTimeSliceTiled(
+        l0, 150, /*tileSize=*/8, 1000, 2000,
+        [&](bool ok, std::shared_ptr<const seismic::SgySliceImage>, const QString &err) {
+          bOk = ok;
+          bErr = err;
+          bDone = true;
+        });
+    QVERIFY(b != nullptr);
+    QVERIFY(fix.waitFor([&] { return aDone && bDone; }));
+    QCOMPARE(a->state(), PaleoTask::State::Cancelled); // 取代语义本体
+    QVERIFY(!aOk);
+    QVERIFY(aErr.contains(QStringLiteral("取消")));
+    QVERIFY(bOk); // 新请求照常成功（被取消的是旧请求）
+    QVERIFY(bErr.isEmpty());
+    QVERIFY(fix.waitFor([&] { return fix.seismic.activeTaskCount() == 0; }));
+  }
+
+  // ---- A1（wave/deepen-perf）体窗平面平移：与 ReadTimeSlice 逐位同构 ----
+  void voxelWindowPlanesMatchTimeSlice()
+  {
+    const QString l0 = tempDir_.filePath(QStringLiteral("paged_planes.sf3p"));
+    seismic::engine::PagedPipelineOptions options;
+    options.buildLod1 = false;
+    options.buildLod2 = false;
+    const auto built = seismic::engine::BuildPagedPyramid(
+        toPath(standardSgy_), toPath(l0), options, nullptr, {});
+    QVERIFY2(built.l0.status.ok(), built.l0.status.message.c_str());
+
+    namespace sdk = seismic::sdk;
+    seismic::engine::Status st;
+    auto ds = sdk::Dataset::Open(toPath(l0), sdk::OpenOptions{}, st);
+    QVERIFY(ds != nullptr);
+
+    // 全窗体素（24×24×128 夹具）
+    seismic::engine::VoxelWindowRequest req;
+    req.inlineBegin = 1000;
+    req.xlineBegin = 2000;
+    req.sampleBegin = 0;
+    req.inlineCount = 24;
+    req.xlineCount = 24;
+    req.sampleCount = 128;
+    seismic::engine::VoxelWindow window;
+    QVERIFY2(ds->ReadVoxelWindow(req, window).ok(), "full-grid voxel window");
+
+    // 方向单测：合成窗口 di 主序 → 平面行 0 = 最大 inline（显示向翻转）
+    {
+      seismic::engine::VoxelWindow synthetic;
+      synthetic.box = req;
+      synthetic.values.assign(24ull * 24 * 128, 0.0f);
+      for (int di = 0; di < 24; ++di)
+        for (int dj = 0; dj < 24; ++dj)
+          synthetic.values[(std::size_t(di) * 24 + dj) * 128 + 7] = float(di * 100 + dj);
+      seismic::SgySliceImage plane;
+      QVERIFY(seismic::SeismicTaskService::slicePlaneFromWindow(synthetic, 7, plane));
+      QCOMPARE(plane.width, 24);
+      QCOMPARE(plane.height, 24);
+      for (int di = 0; di < 24; ++di)
+        for (int dj = 0; dj < 24; ++dj)
+          QCOMPARE(plane.values[std::size_t(24 - 1 - di) * 24 + dj], float(di * 100 + dj));
+      // 越界采样 → false
+      seismic::SgySliceImage bad;
+      QVERIFY(!seismic::SeismicTaskService::slicePlaneFromWindow(synthetic, 128, bad));
+    }
+
+    // 与引擎 ReadTimeSlice 逐位一致（同一采样平面两路取数）
+    for (const int sample : {0, 64, 127}) {
+      seismic::engine::Slice2D slice;
+      QVERIFY2(ds->ReadTimeSlice(sample, slice).ok(), "reference time slice");
+      seismic::SgySliceImage plane;
+      QVERIFY(seismic::SeismicTaskService::slicePlaneFromWindow(window, sample, plane));
+      QCOMPARE(plane.width, slice.width);
+      QCOMPARE(plane.height, slice.height);
+      QCOMPARE(plane.values.size(), slice.values.size());
+      for (std::size_t i = 0; i < slice.values.size(); ++i) {
+        const float expect = slice.values[i];
+        const float actual = plane.values[i];
+        if (std::isnan(expect))
+          QVERIFY2(std::isnan(actual), "NaN must stay NaN (never zero amplitude)");
+        else
+          QCOMPARE(actual, expect);
+      }
+    }
+  }
 };
 
 QTEST_MAIN(TestSeismicEngine)

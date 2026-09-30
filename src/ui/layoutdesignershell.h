@@ -215,6 +215,7 @@ class PaleoLayoutDesignerShell : public QDialog
     QgsLayoutRuler *m_horizontalRuler = nullptr;
     QgsLayoutRuler *m_verticalRuler = nullptr;
 
+    QPointer<QgsLayoutViewTool> m_selectTool;
     QPointer<QgsLayoutViewTool> m_moveItemContentTool;
     QPointer<QgsLayoutViewTool> m_editNodesTool;
 

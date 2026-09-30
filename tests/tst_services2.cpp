@@ -3,6 +3,7 @@
 #include <QSignalSpy>
 
 #include <qgsapplication.h>
+#include <qgscategorizedsymbolrenderer.h>
 #include <qgsgeometry.h>
 #include <qgslayout.h>
 #include <qgslayoutitemlabel.h>
@@ -12,6 +13,7 @@
 #include <qgsprocessingregistry.h>
 #include <qgsproject.h>
 #include <qgsrenderer.h>
+#include <qgssinglesymbolrenderer.h>
 #include <qgsvectorlayer.h>
 
 #include "../src/algorithms/paleoalgorithms.h"
@@ -238,6 +240,107 @@ private slots:
     // null layer -> false + error
     QVERIFY(!svc.applyStyle(nullptr, QStringLiteral("redpoint"), &err));
     QVERIFY(!err.isEmpty());
+  }
+
+  // C3（wave/deepen-perf）：井类别符号（Q/HS 1011—2016 表 K.1 十二类）——
+  // 数据字段驱动分类渲染；无类别字段回落通用「探井」（单符号）；
+  // 词表 12 项 + 归一化（中文词面/同义词/未知原样）。
+  void wellCategoryStyleDataDriven()
+  {
+    QCOMPARE(QgisStyleService::wellCategoryDefinitions().size(), 12);
+    const QVariantMap first = QgisStyleService::wellCategoryDefinitions().first().toMap();
+    QCOMPARE(first.value(QStringLiteral("id")).toString(), QStringLiteral("wildcat"));
+    QCOMPARE(first.value(QStringLiteral("title")).toString(), QStringLiteral("预探井"));
+
+    // 归一化：规范 id / 中文词面 / 常见同义词 → id；未知原样；空 → 空。
+    QCOMPARE(QgisStyleService::normalizeWellCategory(QStringLiteral("wildcat")),
+             QStringLiteral("wildcat"));
+    QCOMPARE(QgisStyleService::normalizeWellCategory(QStringLiteral("预探井")),
+             QStringLiteral("wildcat"));
+    QCOMPARE(QgisStyleService::normalizeWellCategory(QStringLiteral("工业气流")),
+             QStringLiteral("gas_flow"));
+    QCOMPARE(QgisStyleService::normalizeWellCategory(QStringLiteral(" 评价井 ")),
+             QStringLiteral("appraisal"));
+    QCOMPARE(QgisStyleService::normalizeWellCategory(QStringLiteral("神秘井")),
+             QStringLiteral("神秘井"));
+    QVERIFY(QgisStyleService::normalizeWellCategory(QString()).isEmpty());
+
+    // 无字段 / 空字段名 → 单符号通用「探井」（外细环+实心盘两层）。
+    QgsVectorLayer noField(QStringLiteral("Point?crs=EPSG:4326&field=z:double"),
+                           QStringLiteral("w1"), QStringLiteral("memory"));
+    QVERIFY(noField.isValid());
+    QgisStyleService::applyWellCategoryStyle(&noField, QString());
+    QCOMPARE(noField.renderer()->type(), QStringLiteral("singleSymbol"));
+    auto *single = static_cast<QgsSingleSymbolRenderer *>(noField.renderer());
+    QCOMPARE(single->symbol()->symbolLayerCount(), 2);
+
+    // 有类别字段 → 分类渲染：id 与中文词面双桶；wildcat（双环）与
+    // gas_flow（红环+斜线）的符号层数构成可区分。
+    QgsVectorLayer withField(
+        QStringLiteral("Point?crs=EPSG:4326&field=well_class:string"),
+        QStringLiteral("w2"), QStringLiteral("memory"));
+    QVERIFY(withField.isValid());
+    QgisStyleService::applyWellCategoryStyle(&withField, QStringLiteral("well_class"));
+    QCOMPARE(withField.renderer()->type(), QStringLiteral("categorizedSymbol"));
+    auto *cat = static_cast<QgsCategorizedSymbolRenderer *>(withField.renderer());
+    QCOMPARE(cat->classAttribute(), QStringLiteral("well_class"));
+    QSet<QString> values;
+    int wildcatLayers = -1, gasFlowLayers = -1;
+    for (const QgsRendererCategory &c : cat->categories())
+    {
+      if (c.value().isValid() && !c.value().toString().isEmpty())
+        values.insert(c.value().toString());
+      if (c.value() == QVariant(QStringLiteral("wildcat")))
+        wildcatLayers = c.symbol()->symbolLayerCount();
+      if (c.value() == QVariant(QStringLiteral("gas_flow")))
+        gasFlowLayers = c.symbol()->symbolLayerCount();
+    }
+    QVERIFY(values.contains(QStringLiteral("wildcat")));
+    QVERIFY(values.contains(QStringLiteral("预探井"))); // 中文词面同桶命中
+    QVERIFY(values.contains(QStringLiteral("abandoned")));
+    QCOMPARE(wildcatLayers, 2); // 双环
+    QCOMPARE(gasFlowLayers, 2); // 红环 + 斜线
+    // 字段名不存在 → 同无字段路径（不抛、单符号）。
+    QgsVectorLayer ghost(QStringLiteral("Point?crs=EPSG:4326"), QStringLiteral("w3"),
+                         QStringLiteral("memory"));
+    QgisStyleService::applyWellCategoryStyle(&ghost, QStringLiteral("nope"));
+    QCOMPARE(ghost.renderer()->type(), QStringLiteral("singleSymbol"));
+  }
+
+  // C2（wave/deepen-perf）：相界语义符号——boundary_kind 分类渲染；无字段
+  // 的面层不接管；非面层不接管。
+  void faciesBoundaryStyleOnlyWithKindField()
+  {
+    QgsVectorLayer plain(QStringLiteral("Polygon?crs=EPSG:4326"), QStringLiteral("p1"),
+                         QStringLiteral("memory"));
+    QVERIFY(plain.isValid());
+    const QgsFeatureRenderer *before = plain.renderer();
+    QgisStyleService::applyFaciesBoundaryStyle(&plain);
+    QCOMPARE(plain.renderer(), before); // 无字段 → 渲染器不动
+
+    QgsVectorLayer withKind(QStringLiteral("Polygon?crs=EPSG:4326&field=boundary_kind:string"),
+                            QStringLiteral("p2"), QStringLiteral("memory"));
+    QVERIFY(withKind.isValid());
+    QgisStyleService::applyFaciesBoundaryStyle(&withKind);
+    QCOMPARE(withKind.renderer()->type(), QStringLiteral("categorizedSymbol"));
+    auto *cat = static_cast<QgsCategorizedSymbolRenderer *>(withKind.renderer());
+    QCOMPARE(cat->classAttribute(), QStringLiteral("boundary_kind"));
+    bool hasFault = false, hasEmpty = false;
+    for (const QgsRendererCategory &c : cat->categories())
+    {
+      if (c.value().toString() == QStringLiteral("fault_cut"))
+        hasFault = true;
+      if (c.value().type() == QVariant::String && c.value().toString().isEmpty())
+        hasEmpty = true; // 空串（未标类型）落常规相界
+    }
+    QVERIFY(hasFault);
+    QVERIFY(hasEmpty);
+
+    QgsVectorLayer points(QStringLiteral("Point?crs=EPSG:4326&field=boundary_kind:string"),
+                          QStringLiteral("pt"), QStringLiteral("memory"));
+    const QgsFeatureRenderer *beforePts = points.renderer();
+    QgisStyleService::applyFaciesBoundaryStyle(&points);
+    QCOMPARE(points.renderer(), beforePts); // 非面层不接管
   }
 
   // (h) layout lifecycle: create (duplicate rejected) -> pdf export -> remove

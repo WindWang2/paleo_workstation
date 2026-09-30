@@ -464,7 +464,7 @@ void PaleoFaciesLegendDecoration::render(const QgsMapSettings &, QgsRenderContex
   for(int i=0;i<facies.size();++i){const auto entry=facies[i].toMap();int top=y+8+(i+1)*row;
     p->setPen(PaleoDecorationTheme::border());p->setBrush(QColor(entry.value("color").toString()));p->drawRect(QRect(x+8,top+3,16,row-8));
     const auto texture =
-        FaciesCatalog::resourcePath(entry.value("texture").toString());
+        FaciesCatalog::fillPath(entry.value("texture").toString());
     if (!texture.isEmpty()) {
       QSvgRenderer svg(texture);
       svg.render(p, QRectF(x + 8, top + 3, 16, row - 8));

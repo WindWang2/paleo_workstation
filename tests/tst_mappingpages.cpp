@@ -15,6 +15,7 @@
 
 #include "../src/services/singlefactordef.h"
 #include "../src/ui/pages/pagepanels.h"
+#include "../src/workflow/boundarysemantics.h" // C2：相界语义类型词表（单类型首发）
 
 // m2/mapping-pages — 三个编图页（预测/单因素/智能编图）的贯通测试。
 // 约定与 tst_panels 相同：面板只发意图信号，测试用 nullptr/null 服务栈 +
@@ -687,22 +688,19 @@ void FactorPageTests::typedDrawEntries()
   spin->setValue( 7 );
 
   QSignalSpy spy( &page, &ConstraintPage::drawTypedConstraintRequested );
-  auto *provenance = page.findChild<QPushButton *>(QStringLiteral("provenanceButton"));
-  auto *distribution = page.findChild<QPushButton *>(QStringLiteral("distributionButton"));
-  auto *controlPoint = page.findChild<QPushButton *>(QStringLiteral("controlPointButton"));
-  QVERIFY( provenance && distribution && controlPoint );
+  auto *direction = page.findChild<QPushButton *>(QStringLiteral("directionButton"));
+  auto *breakLine = page.findChild<QPushButton *>(QStringLiteral("breakLineButton"));
+  QVERIFY( direction && breakLine );
 
-  provenance->click();
-  distribution->click();
-  controlPoint->click();
-  QCOMPARE( spy.count(), 3 );
+  direction->click();
+  breakLine->click();
+  QCOMPARE( spy.count(), 2 );
   QCOMPARE( spy.at( 0 ).at( 0 ).toString(), QStringLiteral( "D61" ) );
   QCOMPARE( spy.at( 0 ).at( 1 ).toString(), QStringLiteral( "line" ) );
-  QCOMPARE( spy.at( 0 ).at( 2 ).toString(), QStringLiteral( "provenance_line" ) );
+  QCOMPARE( spy.at( 0 ).at( 2 ).toString(), QStringLiteral( "direction_line" ) );
   QCOMPARE( spy.at( 0 ).at( 3 ).toInt(), 7 );
-  QCOMPARE( spy.at( 1 ).at( 2 ).toString(), QStringLiteral( "distribution_line" ) );
-  QCOMPARE( spy.at( 2 ).at( 1 ).toString(), QStringLiteral( "point" ) );
-  QCOMPARE( spy.at( 2 ).at( 2 ).toString(), QStringLiteral( "control_point" ) );
+  QCOMPARE( spy.at( 1 ).at( 1 ).toString(), QStringLiteral( "line" ) );
+  QCOMPARE( spy.at( 1 ).at( 2 ).toString(), QStringLiteral( "break_line" ) );
 
   // 旧绘制链共存（drawButton → drawConstraintRequested，tst_panels 详测，此处冒烟）。
   QSignalSpy legacy( &page, &ConstraintPage::drawConstraintRequested );
@@ -909,6 +907,20 @@ void ComposePageTests::faciesAttrAreaSavesPayload()
   QCOMPARE(attrs.value(QStringLiteral("facies_code")), QVariant(3));
   QCOMPARE(attrs.value(QStringLiteral("facies_type")).toString(), QStringLiteral("辫状河三角洲"));
   QCOMPARE(attrs.value(QStringLiteral("comment")).toString(), QStringLiteral("备注"));
+
+  // C2（wave/deepen-perf）：相界类型单类型首发（断层切割）——「无」不携带键，
+  // 选中断层切割 → payload 带 boundary_kind=fault_cut（词面 = 词表 title）。
+  auto *kind = page.findChild<QComboBox *>(QStringLiteral("faciesBoundaryKindCombo"));
+  QVERIFY(kind != nullptr);
+  QCOMPARE(kind->count(), 1 + BoundarySemantics::activeKinds().size());
+  QCOMPARE(kind->itemData(1).toString(), QStringLiteral("fault_cut"));
+  QCOMPARE(kind->itemText(1), QStringLiteral("断层切割"));
+  QVERIFY(!attrs.contains(QStringLiteral("boundary_kind"))); // 「无」= 不带键
+  kind->setCurrentIndex(1);
+  save->click();
+  QCOMPARE(spy.count(), 2);
+  QCOMPARE(spy.last().at(1).toMap().value(QStringLiteral("boundary_kind")).toString(),
+           QStringLiteral("fault_cut"));
 }
 
 void ComposePageTests::faciesTargetAdoptsSoleDeclaredFacies()

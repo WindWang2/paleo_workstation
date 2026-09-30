@@ -44,6 +44,8 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
     setup->raise();
     setup->activateWindow();
   };
+  // 绘制期间对话框隐藏；取消/失败时唤回（消息落在对话框状态行，藏着看不见）。
+  auto drawingFromSetup = std::make_shared<bool>(false);
   auto *action = new QAction(tr("连井 / 时深对齐"), this);
   action->setObjectName("sectionWorkbenchAction");
   action->setIcon(PaleoIcons::qgisTheme("mActionElevationProfile.svg"));
@@ -92,10 +94,43 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             locate(true, a, b, c, d, e, f);
           });
   connect(link, &SeismicMapLink::sectionExtractedFromMap, this,
-          [report](bool ok, const QString &error) {
+          [report, setup, drawingFromSetup](bool ok, const QString &error) {
+            if (*drawingFromSetup)
+            {
+              *drawingFromSetup = false;
+              if (!ok)
+              {
+                setup->show();
+                setup->raise();
+              }
+            }
             if (!ok)
               report(error);
           });
+  // Esc 取消绘制 → 唤回为绘制而隐藏的对话框。
+  connect(link, &SeismicMapLink::sectionCaptureCancelled, this,
+          [setup, report, drawingFromSetup] {
+            if (!*drawingFromSetup)
+              return;
+            *drawingFromSetup = false;
+            report(QObject::tr("已取消剖面绘制"));
+            setup->show();
+            setup->raise();
+          });
+  // 「清除剖面连线」：地图 rubber band + 路线 + dock 侧 route 一并清，
+  // 「保存剖面新版本」随 hasRoute() 复归而失效。
+  connect(setup, &SectionSetupDialog::clearRequested, this,
+          [band, route, dock, report] {
+            route->clear();
+            band->reset(Qgis::GeometryType::Line);
+            band->hide();
+            dock->clearRoute();
+            report(QObject::tr("已清除剖面连线"));
+          });
+  // 地图连线跟随剖面面板显隐：dock 收起时线随之隐藏，重新展开且有路线时恢复。
+  connect(dock, &QDockWidget::visibilityChanged, this, [band, route](bool visible) {
+    band->setVisible(visible && !route->empty());
+  });
   connect(link, &SeismicMapLink::sectionExtractRequested, dock,
           [this, dock, workbench, route, routeHorizon, band,
            setup](std::shared_ptr<const seismic::SgyVolume> volume,
@@ -125,11 +160,12 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
               report(error);
           });
   connect(setup, &SectionSetupDialog::drawRequested, this,
-          [this, setup, link, report] {
+          [this, setup, link, report, drawingFromSetup] {
             if (!link->activeVolume() || !link->gridGeometry().valid) {
               report(tr("请先导入带有效坐标的地震体"));
               return;
             }
+            *drawingFromSetup = true;
             showPage("constraint");
             setup->hide();
             link->activateSectionCaptureTool();

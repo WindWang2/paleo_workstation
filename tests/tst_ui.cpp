@@ -1139,14 +1139,15 @@ class TestUiShell : public QObject
       QCOMPARE(wellPanel->findChild<QTableWidget *>("predictionIntervals")
                    ->rowCount(),
                12);
-      wellPanel->findChild<QPushButton *>("copyWellPrediction")->click();
+      QVERIFY(!wellPanel->layerId().startsWith("draft."));
+      // 直接在预测相上修订：首次应用自动保留预测原件并切换到修订副本。
+      auto *choice = wellPanel->findChild<QComboBox *>("wellFaciesChoice");
+      choice->setCurrentIndex((choice->currentIndex() + 1) % choice->count());
+      wellPanel->findChild<QPushButton *>("applyWellFacies")->click();
       QVERIFY(wellPanel->layerId().startsWith("draft."));
       const auto wellDraft = wellPanel->layerId();
       auto beforeRevision =
           m_ctx->mappingWorkbench()->versionForLayer(wellDraft);
-      auto *choice = wellPanel->findChild<QComboBox *>("wellFaciesChoice");
-      choice->setCurrentIndex((choice->currentIndex() + 1) % choice->count());
-      wellPanel->findChild<QPushButton *>("applyWellFacies")->click();
       QVERIFY(editing->isEditing());
       wellPanel->findChild<QPushButton *>("saveWellPrediction")->click();
       QVERIFY(!editing->isEditing());

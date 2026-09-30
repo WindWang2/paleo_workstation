@@ -21,7 +21,9 @@ SeismicSectionTool::SeismicSectionTool(QgsMapCanvas *canvas)
 
 SeismicSectionTool::~SeismicSectionTool()
 {
-  delete m_rubberBand;
+  // 橡皮带属 canvas scene（决策①，PreviewMapCanvas 同款）：canvas 先死时
+  // delete 即悬空 SIGSEGV（wave/deepen-perf D2 生命周期测试实证）——scene
+  // 自会清理自己的项，工具不越权。
 }
 
 void SeismicSectionTool::activate()
@@ -91,6 +93,7 @@ void SeismicSectionTool::keyPressEvent(QKeyEvent *e) {
   if (e->key() == Qt::Key_Escape) {
     m_points.clear();
     redraw();
+    emit captureCancelled();
     if (canvas())
       canvas()->unsetMapTool(this);
   } else if (e->key() == Qt::Key_Backspace || e->key() == Qt::Key_Delete) {

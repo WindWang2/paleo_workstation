@@ -3,12 +3,15 @@
 #include <QHash>
 #include <QList>
 #include <QPair>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <QVector>
 #include <QWidget>
 
 #include "correlation/horizonmarkers.h"
+
+#include "../services/paleotaskservice.h" // B1：QPointer<PaleoTask/Service> 需完整类型
 
 #include <functional>
 
@@ -38,6 +41,8 @@ class CorrelationWellColumn;
 class CurveBrowser;
 class DepthRuler;
 class HorizonMarkerSet;
+class PaleoTask;
+class PaleoTaskService;
 struct LasCurve;
 
 class WellCorrelationPanel : public QWidget
@@ -76,6 +81,10 @@ class WellCorrelationPanel : public QWidget
     // Pull DEPT + `curveMnemonic` from a LAS file (io/LasParser), feed the
     // browser listing and add/replace that well's track for the mnemonic.
     // False on parse failure or an unknown mnemonic.
+    // B1（wave/deepen-perf）：任务服务在场时解析跑任务池（quiet——交互内嵌
+    // 取数不拉起任务中心），结果经 lasLoadFinished 回填；此时返回值只表示
+    // 「请求已受理」（路径空/文件不存在仍同步返回 false），解析成败看信号。
+    // 无任务服务时保持同步旧路径（返回值即解析结果，测试/小环境不变）。
     bool loadWellLas(const QString &wellId, const QString &lasPath,
                      const QString &curveMnemonic);
 
@@ -89,8 +98,16 @@ class WellCorrelationPanel : public QWidget
     // --- LAS curve browser ------------------------------------------------------
     // Parses `lasPath` and populates the browser listing for `wellId`
     // (no tracks added). False on parse failure.
+    // B1：任务服务在场时同 loadWellLas 的 quiet 异步语义（结果经
+    // lasLoadFinished 回填，返回值 = 请求受理/同步解析结果两口径）。
     bool setLasForWell(const QString &wellId, const QString &lasPath);
     CurveBrowser *curveBrowser() const { return m_browser; }
+
+    // --- B1：LAS 解析任务服务（quiet 异步；空 = 同步旧路径）---------------------
+    void setTaskService(PaleoTaskService *svc);
+    PaleoTaskService *taskService() const { return m_taskSvc; }
+    // 该井是否有 LAS 解析请求在途（异步模式；同步路径恒 false）。
+    bool isLasLoadPending(const QString &wellId) const;
 
     // --- horizon correlation lines + flatten ------------------------------------
     HorizonMarkerSet *markers() const { return m_markers; }
@@ -114,6 +131,11 @@ class WellCorrelationPanel : public QWidget
   signals:
     void wellClicked(const QString &wellId);
     void wellDoubleClicked(const QString &wellId);
+    // B1：quiet 异步 LAS 解析终态（ok = 解析成功且（loadWellLas 场合）曲线
+    // 已回填/上轨；false 附原因于 lasLoadError）。同步路径不发——调用方当场
+    // 拿到返回值。
+    void lasLoadFinished(const QString &wellId, bool ok);
+    void lasLoadError(const QString &wellId, const QString &reason);
 
   private:
     bool anyTracks() const;
@@ -121,6 +143,13 @@ class WellCorrelationPanel : public QWidget
     void relayoutMarkers();                     // rebuild marker lines for current geoms
     void computeDepthAxis();                    // display-space window incl. flatten offsets
     void applySelection(const QStringList &ids);
+    // B1：解析结果的 GUI 线程回填（同步/异步共用出口）。
+    void applyLasCurves(const QString &wellId, const QList<LasCurve> &curves);
+    bool applyLasTrack(const QString &wellId, const QStringList &names,
+                       const QList<LasCurve> &curves, const QString &mnemonic);
+    // B1：提交 quiet 异步解析；返回 false = 路径空/文件不存在（同步可判）。
+    bool submitLasLoad(const QString &wellId, const QString &lasPath,
+                       bool withTrack, const QString &mnemonic);
 
     qreal yForDepth(float displayDepth) const;  // display-space axis mapping
     float depthAtY(qreal y) const;
@@ -129,6 +158,11 @@ class WellCorrelationPanel : public QWidget
     QList<QPair<QString, QString>> m_wells;     // (id, name), section order
     QHash<QString, CorrelationWellColumn *> m_columns;      // id → column
     QHash<QString, QList<LasCurve>> m_lasByWell;            // id → last parsed LAS
+    // B1：quiet LAS 异步——任务服务、按井世代号（陈旧结果发射前丢弃）、在途
+    // 任务指针（同井新请求协作取消旧任务）。
+    QPointer<PaleoTaskService> m_taskSvc;
+    QHash<QString, int> m_lasSeq;
+    QHash<QString, QPointer<PaleoTask>> m_lasTask;
     QList<QGraphicsPathItem *> m_columnItems;              // current scene columns
     QList<HorizonMarkerSet::ColumnGeom> m_lastGeoms;        // geoms matching m_columnItems
     QGraphicsRectItem *m_chrome = nullptr;     // marker parent; only while markers visible

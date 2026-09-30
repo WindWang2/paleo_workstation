@@ -1,6 +1,8 @@
 // 层：组装根
 #include "appcontext.h"
 #include "../io/dataimportservice.h" // catalog() — attachMapping 的 OUTPUT 登记
+#include "../io/wellcompositexml.h" // D1：wellcomposite 序列化/深度表解析注入（wave/deepen-perf）
+#include "../ui/wellcomposite/derivedsink.h" // D1：派生登记 sink 默认实例
 #include "../services/crashreport.h" // wave4：启动早期装崩溃处理器 + 脏退出提示
 #include "../ui/paleomainwindow.h"
 #include "../ui/paleotheme.h" // T32：启动注册 vendor 字体 + 正文字体
@@ -83,6 +85,31 @@ int main(int argc, char *argv[])
                          ctx.compositionWf(), ctx.validationWf(), ctx.importSvc(),
                          ctx.seismicLink(), ctx.processingSvc(), ctx.store(),
                          ctx.editingSvc(), ctx.layoutSvc(), ctx.taskSvc());
+  // D1（wave/deepen-perf）：wellcomposite 派生登记/井斜时深装配的 io 注入——
+  // 组装根是唯一可同时 include io/ 与 ui/ 的非视图目录（视图侧白名单只放
+  // 行 io/lasdoc.h）。未注入时 sink 走诚实失败路径（状态栏+日志），不静默。
+  if (auto *sink = WellComposite::WellCompositeDerivedSink::defaultSink())
+  {
+    sink->setSerializer([](const WellComposite::ComprehensiveWellData &doc,
+                           const QStringList &auditLines) {
+      return WellComposite::writeComprehensiveWellXml(doc, auditLines);
+    });
+    sink->setDepthTableParsers(
+        [](const QString &path, QVector<WellComposite::DeviationStation> *out,
+           QString *error) {
+          QVector<WellComposite::XmlDeviationStation> parsed;
+          if (!WellComposite::parseDeviationSurvey(path, parsed, error))
+            return false;
+          out->reserve(parsed.size());
+          for (const auto &s : parsed)
+            out->append({s.md, s.inclinationDeg, s.azimuthDeg});
+          return true;
+        },
+        [](const QString &path, QVector<QPair<double, double>> *out,
+           QString *error) {
+          return WellComposite::parseTimeDepthTable(path, *out, error);
+        });
+  }
   window.attachMapping(ctx.mappingWf(), ctx.versionCtl(), ctx.versionStore(),
                        ctx.projectData(),
                        ctx.importSvc() ? ctx.importSvc()->catalog() : nullptr);

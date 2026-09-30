@@ -241,6 +241,11 @@ QgsLayoutView *PaleoLayoutItemPalette::attachedView() const
   return m_view;
 }
 
+QgsLayoutViewToolAddItem *PaleoLayoutItemPalette::addItemTool() const
+{
+  return m_addItemTool;
+}
+
 void PaleoLayoutItemPalette::requestItem( int itemMetadataId )
 {
   emit itemRequested( itemMetadataId );

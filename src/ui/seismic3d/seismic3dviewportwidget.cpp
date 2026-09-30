@@ -25,7 +25,7 @@ Seismic3DViewportWidget::Seismic3DViewportWidget(QWidget *parent)
 
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
-    setToolTip(tr("左键拖拽旋转；右键/Shift+左键拖拽平移；Ctrl+滚轮缩放；滚轮平移（Shift 横向）\n"
+    setToolTip(tr("左键拖拽旋转；右键/Shift+左键拖拽平移；滚轮缩放（Shift 横向平移）\n"
                   "方向键旋转；+/- 缩放；双击居中复位"));
 
     // D3.11 惯性旋转：松手后按速度衰减续转（16ms 节拍）
@@ -313,17 +313,12 @@ void Seismic3DViewportWidget::applyInertia() {
 
 void Seismic3DViewportWidget::wheelEvent(QWheelEvent *event) {
     const float delta = static_cast<float>(event->angleDelta().y()) / 120.0f;
-    if (event->modifiers() & Qt::ControlModifier) {
-        // Ctrl+滚轮：缩放（与剖面画布/correlationpanel 惯例对齐）
-        camera_.Zoom(delta);
+    if (event->modifiers() & Qt::ShiftModifier) {
+        // Shift+滚轮：横向平移（纵向平移由右键/中键拖拽承担）。
+        camera_.Pan(delta * 24.0f, 0.0f);
     } else {
-        // 裸滚轮平移（Shift+滚轮横向）
-        const float stepPx = delta * 24.0f;
-        if (event->modifiers() & Qt::ShiftModifier) {
-            camera_.Pan(stepPx, 0.0f);
-        } else {
-            camera_.Pan(0.0f, -stepPx);
-        }
+        // 裸滚轮（含 Ctrl）：缩放——3D 惯例；平移走右键/中键拖拽。
+        camera_.Zoom(delta);
     }
     update();
     emit cameraChanged();

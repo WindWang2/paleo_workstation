@@ -74,6 +74,10 @@ class SegyReader
     QVector<qint64> badTraceOffsets() const { return m_badTraceOffsets; }
     // 最近一次扫描是否因取消而保留部分索引（checkpoint 可用）。
     bool lastScanPartial() const { return m_lastScanPartial; }
+    // B6（wave/deepen-perf）：顺序扫描是否观察到变道长布局（任一道
+    // ns>0 且 ≠ 二进制头 ns）。变道长文件：checkpoint/resume 契约不适用
+    //（续扫按固定步长推进），openCached 侧据此不落 checkpoint。
+    bool variableTraceLayout() const { return m_sawVariableNs; }
 
   private:
     struct IndexEntry
@@ -111,4 +115,5 @@ class SegyReader
     QVector<qint64> m_badTraceOffsets; // D2.7
     bool m_lastScanPartial = false;    // open()/openCached() 取消后可 checkpoint
     qint64 m_scannedOffset = 0;        // 取消时的扫描位置
+    bool m_sawVariableNs = false;      // B6：变道长布局观察（checkpoint 契约门）
 };

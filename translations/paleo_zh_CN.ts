@@ -202,279 +202,289 @@
 <context>
     <name>ComposePage</name>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="55"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="56"/>
         <source>编图链（等时差 × 层间速度 → 等厚图）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="60"/>
-        <location filename="../src/ui/pages/composepage.cpp" line="64"/>
-        <location filename="../src/ui/pages/composepage.cpp" line="378"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="61"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="65"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="395"/>
         <source>生成等厚图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="63"/>
-        <location filename="../src/ui/pages/composepage.cpp" line="382"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="64"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="399"/>
         <source>先在顶部层位 chip 选择层位</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="69"/>
-        <location filename="../src/ui/pages/composepage.cpp" line="71"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="70"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="72"/>
         <source>导出层位图 PDF</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="75"/>
-        <location filename="../src/ui/pages/composepage.cpp" line="77"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="76"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="78"/>
         <source>在布局设计器中打开</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="81"/>
-        <location filename="../src/ui/pages/composepage.cpp" line="83"/>
-        <location filename="../src/ui/pages/composepage.cpp" line="365"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="82"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="84"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="382"/>
         <source>保存版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="86"/>
-        <location filename="../src/ui/pages/composepage.cpp" line="88"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="87"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="89"/>
         <source>发布</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="90"/>
-        <location filename="../src/ui/pages/composepage.cpp" line="341"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="91"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="358"/>
         <source>导出 PDF 后再保存</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="107"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="108"/>
         <source>版本发布状态</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="112"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="113"/>
         <source>单因素图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="115"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="116"/>
         <source>单因素图层列表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="121"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="122"/>
         <source>全选</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="123"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="124"/>
         <source>全选因素</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="128"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="129"/>
         <source>清空</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="130"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="131"/>
         <source>清空勾选</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="141"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="142"/>
         <source>合成编图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="152"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="153"/>
         <source>沉积相面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="155"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="156"/>
         <source>待转面的栅格</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="160"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="161"/>
         <source>碎屑面积阈值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="164"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="165"/>
         <source>最小面积 </source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="169"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="170"/>
         <source>边界简化容差</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="173"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="174"/>
         <source>简化容差 </source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="176"/>
-        <location filename="../src/ui/pages/composepage.cpp" line="178"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="177"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="179"/>
         <source>转为相多边形</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="185"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="186"/>
         <source>还没有可转面的栅格 — 先运行预测或合成编图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="206"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="207"/>
         <source>没有相编码栅格，这一工区不从厚度生成相</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="212"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="213"/>
         <source>相属性</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="223"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="224"/>
         <source>相代码</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="224"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="225"/>
         <source>相代码（整数）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="229"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="230"/>
         <source>相类型</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="230"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="231"/>
         <source>相类型（如 辫状河三角洲）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="235"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="236"/>
         <source>相备注</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="236"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="237"/>
         <source>备注</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="239"/>
-        <location filename="../src/ui/pages/composepage.cpp" line="241"/>
-        <source>保存相属性</source>
+        <location filename="../src/ui/pages/composepage.cpp" line="245"/>
+        <source>相界类型</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="243"/>
-        <location filename="../src/ui/pages/composepage.cpp" line="401"/>
-        <source>先矢量化生成相界图层</source>
+        <location filename="../src/ui/pages/composepage.cpp" line="246"/>
+        <source>无（未分类）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/pages/composepage.cpp" line="251"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="253"/>
+        <source>保存相属性</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/composepage.cpp" line="255"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="418"/>
+        <source>先矢量化生成相界图层</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/composepage.cpp" line="263"/>
         <source>还没有相属性目标层 — 先「转为相多边形」</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="261"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="273"/>
         <source>相代码须是整数：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="274"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="291"/>
         <source>已提交相属性：%1（图层当前选中要素）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="282"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="299"/>
         <source>参考图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="288"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="305"/>
         <source>参考图图层列表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="307"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="324"/>
         <source>合成完成：%1 → %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="311"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="328"/>
         <source>相多边形完成：%1 → %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="343"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="360"/>
         <source>还有 %1/%2 口井没有残差或原因 — 先在验证页运行验证</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="346"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="363"/>
         <source>先在验证页运行验证</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="355"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="372"/>
         <source>还没有保存的版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="356"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="373"/>
         <source>已发布 · v%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="357"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="374"/>
         <source>编辑中 · v%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="365"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="382"/>
         <source>保存新版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="367"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="384"/>
         <source>v%1 已发布、快照只读 — 继续保存会产生新版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="368"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="385"/>
         <source>把当前编图保存为版本快照</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="379"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="396"/>
         <source>生成 %1 等厚图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="383"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="400"/>
         <source>等时差（双向 ms）× 层间速度 IDW → 厚度栅格</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="396"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="413"/>
         <source>尚未矢量化相界图层 — 先「转为相多边形」</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/composepage.cpp" line="397"/>
+        <location filename="../src/ui/pages/composepage.cpp" line="414"/>
         <source>目标层：%1（保存图层当前选中要素）</source>
         <translation type="unfinished"></translation>
     </message>
@@ -482,152 +492,152 @@
 <context>
     <name>CompositionWorkflow</name>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1482"/>
-        <location filename="../src/workflow/workflows.cpp" line="1570"/>
-        <location filename="../src/workflow/workflows.cpp" line="1689"/>
-        <location filename="../src/workflow/workflows.cpp" line="1767"/>
+        <location filename="../src/workflow/workflows.cpp" line="1651"/>
+        <location filename="../src/workflow/workflows.cpp" line="1740"/>
+        <location filename="../src/workflow/workflows.cpp" line="1860"/>
+        <location filename="../src/workflow/workflows.cpp" line="1938"/>
         <source>composition workflow is not bound to services</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1487"/>
+        <location filename="../src/workflow/workflows.cpp" line="1656"/>
         <source>no factor layers supplied for fusion</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1512"/>
+        <location filename="../src/workflow/workflows.cpp" line="1681"/>
         <source>%1 相融合</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1531"/>
+        <location filename="../src/workflow/workflows.cpp" line="1700"/>
         <source>facies fusion returned no output path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1572"/>
+        <location filename="../src/workflow/workflows.cpp" line="1742"/>
         <source>no raster layer supplied for facies polygons</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1577"/>
-        <location filename="../src/workflow/workflows.cpp" line="1696"/>
+        <location filename="../src/workflow/workflows.cpp" line="1747"/>
+        <location filename="../src/workflow/workflows.cpp" line="1867"/>
         <source>无法读取图层清单</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1591"/>
+        <location filename="../src/workflow/workflows.cpp" line="1761"/>
         <source>raster layer &apos;%1&apos; is not declared</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1595"/>
+        <location filename="../src/workflow/workflows.cpp" line="1765"/>
         <source>cannot derive facies polygons without a horizon</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1602"/>
+        <location filename="../src/workflow/workflows.cpp" line="1772"/>
         <source>failed to instantiate raster &apos;%1&apos;</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1612"/>
+        <location filename="../src/workflow/workflows.cpp" line="1782"/>
         <source>%1 相多边形</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1637"/>
+        <location filename="../src/workflow/workflows.cpp" line="1807"/>
         <source>failed to instantiate constraints &apos;%1&apos;</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1648"/>
+        <location filename="../src/workflow/workflows.cpp" line="1818"/>
         <source>facies polygonize produced no results</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1652"/>
+        <location filename="../src/workflow/workflows.cpp" line="1822"/>
         <source>facies polygonize returned no output path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1672"/>
+        <location filename="../src/workflow/workflows.cpp" line="1842"/>
         <source>failed to declare facies layer &apos;%1&apos;</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1691"/>
-        <location filename="../src/workflow/workflows.cpp" line="1769"/>
+        <location filename="../src/workflow/workflows.cpp" line="1862"/>
+        <location filename="../src/workflow/workflows.cpp" line="1940"/>
         <source>no facies layer supplied</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1709"/>
+        <location filename="../src/workflow/workflows.cpp" line="1880"/>
         <source>layer &apos;%1&apos; is not declared</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1723"/>
+        <location filename="../src/workflow/workflows.cpp" line="1894"/>
         <source>无法定位工程目录来铺相界工作副本（%1）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1731"/>
+        <location filename="../src/workflow/workflows.cpp" line="1902"/>
         <source>cannot create %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1733"/>
+        <location filename="../src/workflow/workflows.cpp" line="1904"/>
         <source>cannot replace stale working copy %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1735"/>
+        <location filename="../src/workflow/workflows.cpp" line="1906"/>
         <source>cannot copy %1 → %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1776"/>
+        <location filename="../src/workflow/workflows.cpp" line="1947"/>
         <source>layer &apos;%1&apos; is not a vector layer</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1781"/>
+        <location filename="../src/workflow/workflows.cpp" line="1952"/>
         <source>先在地图上选中要改相属性的要素（%1）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1790"/>
+        <location filename="../src/workflow/workflows.cpp" line="1961"/>
         <source>cannot start editing on &apos;%1&apos;（%2）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1795"/>
+        <location filename="../src/workflow/workflows.cpp" line="1966"/>
         <source>failed to re-instantiate &apos;%1&apos; after preparing edit copy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1799"/>
+        <location filename="../src/workflow/workflows.cpp" line="1970"/>
         <source>cannot start editing on &apos;%1&apos;</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1829"/>
+        <location filename="../src/workflow/workflows.cpp" line="2003"/>
         <source>相代码须是整数：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1836"/>
+        <location filename="../src/workflow/workflows.cpp" line="2010"/>
         <source>cannot add field &apos;%1&apos; to %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1839"/>
+        <location filename="../src/workflow/workflows.cpp" line="2013"/>
         <source>field &apos;%1&apos; not visible after add</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1844"/>
+        <location filename="../src/workflow/workflows.cpp" line="2018"/>
         <source>编辑相属性</source>
         <translation type="unfinished"></translation>
     </message>
@@ -700,7 +710,7 @@
     <message>
         <location filename="../src/ui/pages/constraintpage.cpp" line="105"/>
         <location filename="../src/ui/pages/constraintpage.cpp" line="108"/>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="302"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="295"/>
         <source>井属性字段</source>
         <translation type="unfinished"></translation>
     </message>
@@ -807,110 +817,105 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="273"/>
-        <source>画物源线</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="280"/>
-        <source>画展布线</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="287"/>
-        <source>画控制点</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="299"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="292"/>
         <source>插值（IDW）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="303"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="296"/>
         <source>插值字段</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/pages/constraintpage.cpp" line="112"/>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="311"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="304"/>
         <source>像元大小</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="314"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="273"/>
+        <source>画方向线</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="280"/>
+        <source>画打断线</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="307"/>
         <source>插值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="334"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="327"/>
         <source>厚度样本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="340"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="333"/>
         <source>%1→%2 厚度样本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="348"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="341"/>
         <source>厚度样本表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="350"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="343"/>
         <source>井名</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="350"/>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="351"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="343"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="344"/>
         <source>%1 TVD</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="352"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="345"/>
         <source>层间速度或原因</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="368"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="361"/>
         <source>已添加约束 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="371"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="364"/>
         <source>单因素完成：%1 → %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="377"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="370"/>
         <source>单因素完成：%1 %2 → %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="381"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="374"/>
         <source>等值线完成：%1 → %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="421"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="414"/>
         <source>%1 m/s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="490"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="483"/>
         <source>已生成·%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="581"/>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="583"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="574"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="576"/>
         <source>先在清单中勾选一个单因素</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/constraintpage.cpp" line="594"/>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="587"/>
         <source>该因素尚未生成——先运行「生成单因素图」</source>
         <translation type="unfinished"></translation>
     </message>
@@ -918,145 +923,158 @@
 <context>
     <name>ConstraintWorkflow</name>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="729"/>
-        <location filename="../src/workflow/workflows.cpp" line="1355"/>
+        <location filename="../src/workflow/workflows.cpp" line="745"/>
+        <location filename="../src/workflow/workflows.cpp" line="1523"/>
         <source>constraint workflow is not bound to a layer service</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="734"/>
+        <location filename="../src/workflow/workflows.cpp" line="750"/>
         <source>constraint geometry WKT is empty</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="740"/>
+        <location filename="../src/workflow/workflows.cpp" line="756"/>
         <source>constraint geometry</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="917"/>
-        <location filename="../src/workflow/workflows.cpp" line="1065"/>
-        <location filename="../src/workflow/workflows.cpp" line="1243"/>
+        <location filename="../src/workflow/workflows.cpp" line="933"/>
+        <location filename="../src/workflow/workflows.cpp" line="1082"/>
+        <location filename="../src/workflow/workflows.cpp" line="1266"/>
+        <location filename="../src/workflow/workflows.cpp" line="1381"/>
         <source>constraint workflow is not bound to services</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="922"/>
+        <location filename="../src/workflow/workflows.cpp" line="938"/>
         <source>没有井点图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="927"/>
-        <location filename="../src/workflow/workflows.cpp" line="1096"/>
+        <location filename="../src/workflow/workflows.cpp" line="943"/>
+        <location filename="../src/workflow/workflows.cpp" line="1117"/>
         <source>插值字段为空</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="932"/>
-        <location filename="../src/workflow/workflows.cpp" line="1101"/>
+        <location filename="../src/workflow/workflows.cpp" line="948"/>
+        <location filename="../src/workflow/workflows.cpp" line="1122"/>
+        <location filename="../src/workflow/workflows.cpp" line="1399"/>
         <source>像元大小必须是正数</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="952"/>
+        <location filename="../src/workflow/workflows.cpp" line="968"/>
         <source>%1 约束 IDW</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="971"/>
-        <location filename="../src/workflow/workflows.cpp" line="1148"/>
-        <location filename="../src/workflow/workflows.cpp" line="1374"/>
+        <location filename="../src/workflow/workflows.cpp" line="987"/>
+        <location filename="../src/workflow/workflows.cpp" line="1169"/>
+        <location filename="../src/workflow/workflows.cpp" line="1442"/>
+        <location filename="../src/workflow/workflows.cpp" line="1542"/>
         <source>无法读取图层清单</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="985"/>
-        <location filename="../src/workflow/workflows.cpp" line="1169"/>
+        <location filename="../src/workflow/workflows.cpp" line="1001"/>
+        <location filename="../src/workflow/workflows.cpp" line="1190"/>
+        <location filename="../src/workflow/workflows.cpp" line="1456"/>
         <source>无法加载约束图层 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1000"/>
+        <location filename="../src/workflow/workflows.cpp" line="1016"/>
         <source>constraint IDW returned no output path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1072"/>
+        <location filename="../src/workflow/workflows.cpp" line="1089"/>
         <source>未知单因素 id：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1081"/>
-        <source>单因素 %1 的引擎 %2 尚未接入（参数契约已冻结，实现属数据方向版图；见 docs/progress/mapping.md）</source>
+        <location filename="../src/workflow/workflows.cpp" line="1102"/>
+        <source>单因素 %1 的引擎 %2 尚未接入（前置在 ONNX 置信度通道，当前会话只读首个输出张量；见 docs/progress/mapping.md）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1110"/>
+        <location filename="../src/workflow/workflows.cpp" line="1131"/>
+        <location filename="../src/workflow/workflows.cpp" line="1408"/>
         <source>层位 %1 没有井点图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1128"/>
-        <location filename="../src/workflow/workflows.cpp" line="1189"/>
-        <location filename="../src/workflow/workflows.cpp" line="1227"/>
-        <location filename="../src/workflow/workflows.cpp" line="1283"/>
-        <location filename="../src/workflow/workflows.cpp" line="1341"/>
+        <location filename="../src/workflow/workflows.cpp" line="1149"/>
+        <location filename="../src/workflow/workflows.cpp" line="1211"/>
+        <location filename="../src/workflow/workflows.cpp" line="1249"/>
+        <location filename="../src/workflow/workflows.cpp" line="1306"/>
+        <location filename="../src/workflow/workflows.cpp" line="1364"/>
+        <location filename="../src/workflow/workflows.cpp" line="1423"/>
+        <location filename="../src/workflow/workflows.cpp" line="1508"/>
         <source>%1·%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1163"/>
+        <location filename="../src/workflow/workflows.cpp" line="1184"/>
         <source>约束快照无法读取</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1183"/>
+        <location filename="../src/workflow/workflows.cpp" line="1204"/>
+        <location filename="../src/workflow/workflows.cpp" line="1470"/>
         <source>单因素生成未返回输出路径</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1256"/>
+        <location filename="../src/workflow/workflows.cpp" line="1279"/>
         <source>等厚引擎需要顶/底构造面图层（topLayerId/baseLayerId）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1271"/>
+        <location filename="../src/workflow/workflows.cpp" line="1294"/>
         <source>顶/底输入必须是栅格图层：%1 / %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1306"/>
+        <location filename="../src/workflow/workflows.cpp" line="1329"/>
         <source>等厚生成未返回输出路径</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1360"/>
+        <location filename="../src/workflow/workflows.cpp" line="1388"/>
+        <source>单因素 %1 的引擎 %2 尚未注册（参数契约已冻结；见 docs/progress/mapping.md）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/workflows.cpp" line="1528"/>
         <source>缺少单因素图层 id</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1365"/>
+        <location filename="../src/workflow/workflows.cpp" line="1533"/>
         <source>等值线间距必须是正数</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1388"/>
+        <location filename="../src/workflow/workflows.cpp" line="1556"/>
         <source>图层 %1 未在清单声明</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1393"/>
+        <location filename="../src/workflow/workflows.cpp" line="1561"/>
         <source>等值线输入必须是栅格图层：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1413"/>
-        <location filename="../src/workflow/workflows.cpp" line="1451"/>
+        <location filename="../src/workflow/workflows.cpp" line="1581"/>
+        <location filename="../src/workflow/workflows.cpp" line="1619"/>
         <source>等值线·%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1430"/>
+        <location filename="../src/workflow/workflows.cpp" line="1598"/>
         <source>%1 等值线</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1160,7 +1178,7 @@
 <context>
     <name>CurvePanel</name>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="998"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1057"/>
         <source>未勾选任何曲线 — 在上方选择要显示的曲线</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1168,12 +1186,12 @@
 <context>
     <name>DataCatalog</name>
     <message>
-        <location filename="../src/catalog/datacatalog.cpp" line="1242"/>
+        <location filename="../src/catalog/datacatalog.cpp" line="1245"/>
         <source>井点 GeoJSON 写入失败：%1（%2）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/catalog/datacatalog.cpp" line="1248"/>
+        <location filename="../src/catalog/datacatalog.cpp" line="1251"/>
         <source>井点 GeoJSON 写入失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1181,22 +1199,22 @@
 <context>
     <name>DataImportService</name>
     <message>
-        <location filename="../src/io/dataimportservice.cpp" line="1485"/>
+        <location filename="../src/io/dataimportservice.cpp" line="1654"/>
         <source>找不到 LibreOffice（soffice）——无法生成 PDF 预览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/io/dataimportservice.cpp" line="1498"/>
+        <location filename="../src/io/dataimportservice.cpp" line="1667"/>
         <source>原始文件缺失，无法转换</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/io/dataimportservice.cpp" line="1604"/>
+        <location filename="../src/io/dataimportservice.cpp" line="1773"/>
         <source>无法创建输出目录</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/io/dataimportservice.cpp" line="1606"/>
+        <location filename="../src/io/dataimportservice.cpp" line="1775"/>
         <source>soffice 退出码 %1，未产出 PDF</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1264,1008 +1282,1018 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="312"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="311"/>
         <source>数据列表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../src/ui/pages/datalist.cpp" line="316"/>
         <location filename="../src/ui/pages/datalist.cpp" line="317"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="318"/>
         <source>全部展开</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../src/ui/pages/datalist.cpp" line="326"/>
         <location filename="../src/ui/pages/datalist.cpp" line="327"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="328"/>
         <source>全部折叠</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="338"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="337"/>
         <source>树形</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="344"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="343"/>
         <source>列表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="362"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="361"/>
         <source>搜索名称、类型、关联井</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="363"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="362"/>
         <source>搜索数据</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="370"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="369"/>
         <source>按类型筛选</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="371"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="1060"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="370"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1092"/>
         <source>所有类型</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="403"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="402"/>
         <source>只显示未决资产</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="406"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="405"/>
         <source>清除过滤</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="420"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="419"/>
         <source>数据列表树</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="423"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="422"/>
         <source>数据导航</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="423"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="422"/>
         <source>类型 / 描述</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="455"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="454"/>
         <source>资产列表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="458"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="457"/>
         <source>名称</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="458"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="457"/>
         <source>类型</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="458"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="457"/>
         <source>关联</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="558"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="557"/>
         <source>已给 %1 个资产打标签「%2」（可撤销）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="726"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="628"/>
+        <source>选项</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/datalist.cpp" line="629"/>
+        <source>展开筛选、视图、排序与标签选项</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/datalist.cpp" line="758"/>
         <source>受管 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="727"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="759"/>
         <source>外部链接 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="755"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="824"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="787"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="856"/>
         <source>未决</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="764"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="765"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="796"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="797"/>
         <source>参考</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="836"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="1219"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="868"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1251"/>
         <source>未决关联</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="842"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="874"/>
         <source>挂到实体</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="844"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="876"/>
         <source>（选择井）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="844"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="876"/>
         <source>（选择实体）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="851"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="883"/>
         <source>挂到这口井</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="851"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="883"/>
         <source>挂接关联</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="855"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="887"/>
         <source>工程里还没有可挂的实体</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="870"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="902"/>
         <source>确认</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="872"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="904"/>
         <source>取消</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="894"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="964"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="926"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="996"/>
         <source>把「%1」挂到「%2」？</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="979"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="1739"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2275"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1011"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1771"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2307"/>
         <source>撤销</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="983"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1015"/>
         <source>撤回对「%1」的挂接（回到未决）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1027"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1059"/>
         <source>设为主版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1029"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1061"/>
         <source>同角色旧版本 — 把这条关联设为主关联</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1047"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1079"/>
         <source>没有未决资产 — 全部资产都已挂接</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1064"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1096"/>
         <source>测井曲线 (well_log)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1065"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1097"/>
         <source>井位/井身 (well_head)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1066"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1098"/>
         <source>井分层 (tops)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1067"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1099"/>
         <source>时深关系 (time_depth)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1068"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1100"/>
         <source>地震数据 (seismic)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1069"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1101"/>
         <source>层位解释 (horizon)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1070"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1102"/>
         <source>边界/相图 (boundary)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1071"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1103"/>
         <source>辅助/综合图 (auxiliary)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1104"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1136"/>
         <source>测区</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1105"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1137"/>
         <source>工区全景</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1112"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1144"/>
         <source>工区全景地图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1113"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1145"/>
         <source>QGIS地图画布</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1141"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1173"/>
         <source>井 (%1)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1142"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1174"/>
         <source>井位 / 测井曲线 / 分层 / 时深</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1188"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1220"/>
         <source>测井曲线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1194"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1226"/>
         <source>井分层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1200"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1232"/>
         <source>时深关系</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1206"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1238"/>
         <source>井身/井位</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1267"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1299"/>
         <source>测井 (%1)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1268"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1300"/>
         <source>综合柱状图 / 测井曲线 (LAS)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1276"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1308"/>
         <source>综合柱状图 (%1)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1277"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1309"/>
         <source>多井道地质综合柱状图 (ResFormStar 规范)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1286"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1318"/>
         <source>多井道地质综合柱状图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1296"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1328"/>
         <source>测井曲线 (%1)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1297"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1329"/>
         <source>LAS 连续测井曲线数据</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1325"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1357"/>
         <source>%1 · 井 %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1333"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1365"/>
         <source>测井曲线 (GR/AC/DEN/电阻率等)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1346"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1378"/>
         <source>地震 (%1)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1347"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1379"/>
         <source>三维地震数据体</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1372"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1404"/>
         <source>Inline 剖面 (主测线 %1–%2)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1373"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="1381"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1405"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1413"/>
         <source>双击预览剖面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1380"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1412"/>
         <source>Crossline 剖面 (联络线 %1–%2)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1390"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1422"/>
         <source>SEG-Y 地震数据</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1403"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1435"/>
         <source>层位 (%1)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1404"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1436"/>
         <source>解释层位数据</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1417"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1449"/>
         <source>层位网格</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1446"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1478"/>
         <source>辅助资料 (%1)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1447"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1479"/>
         <source>参考相图 / 文档 / 图片</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1453"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1485"/>
         <source>参考相图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1459"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1491"/>
         <source>参考资料</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1474"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1506"/>
         <source>GeoJSON 矢量相图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1476"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1508"/>
         <source>PDF 文档</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1478"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1510"/>
         <source>PPT 演示文稿</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1480"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1512"/>
         <source>图像</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1482"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1514"/>
         <source>XML 数据表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1493"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1525"/>
         <source>标签 (%1)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1494"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1526"/>
         <source>点击过滤 / 拖资产来打标签</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1541"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1573"/>
         <source>共 %1 条</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1542"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1574"/>
         <source>显示 %1 / 共 %2 条</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1570"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1602"/>
         <source>没有匹配的资产 — 试试放宽条件（当前 %1 个条件%2）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1573"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1605"/>
         <source> + 标签「%1」</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1743"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2284"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1775"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2316"/>
         <source>重做</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1756"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1788"/>
         <source>树排序方式（记忆到下次会话）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1757"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1789"/>
         <source>按名称</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1758"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1790"/>
         <source>按时间</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1759"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2878"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1791"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2910"/>
         <source>按类型</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1760"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1792"/>
         <source>按大小</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1772"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1804"/>
         <source>列</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1774"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1806"/>
         <source>配置列（显隐/顺序）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1805"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1837"/>
         <source>图标</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1806"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1838"/>
         <source>高速</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1807"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1839"/>
         <source>分组</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1895"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1927"/>
         <source>已应用过滤器预设「%1」</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1899"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1931"/>
         <source>保存过滤器</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1900"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1932"/>
         <source>预设名称:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1905"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1937"/>
         <source>过滤器已存为预设「%1」</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1911"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1943"/>
         <source>过滤器状态串已复制（paleo://dataops-filter?…）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1936"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1968"/>
         <source>已清除全部过滤条件</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1954"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1986"/>
         <source>按标签「%1」过滤</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="1954"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="1986"/>
         <source>已取消标签过滤</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2031"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2063"/>
         <source>Vim 风导航：开（j/k/g/G//）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2032"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2064"/>
         <source>Vim 风导航：关</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2067"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2964"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2099"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2996"/>
         <source>全选可见项</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2067"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2069"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2099"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2101"/>
         <source>选择</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2069"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2965"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2101"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2997"/>
         <source>反选</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2071"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2103"/>
         <source>批量挂接到实体</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2071"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2073"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2075"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2077"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2079"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2081"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2083"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2103"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2105"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2107"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2109"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2111"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2113"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2115"/>
         <source>批量</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2073"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2550"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2105"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2582"/>
         <source>批量改类型</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2075"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2107"/>
         <source>移除（软删）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2077"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2109"/>
         <source>导出清单 CSV/JSON</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2079"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2111"/>
         <source>批量打开预览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2081"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2113"/>
         <source>给选中打标签</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2083"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2115"/>
         <source>打开可回收清单</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2085"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2117"/>
         <source>清除全部过滤</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2085"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2092"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2098"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2117"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2124"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2130"/>
         <source>过滤</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2092"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2124"/>
         <source>过滤：未挂接</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2098"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2130"/>
         <source>过滤：有警告</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2104"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2136"/>
         <source>视图：树形</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2104"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2106"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2108"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2110"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2112"/>
-        <location filename="../src/ui/pages/datalist.cpp" line="2114"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2136"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2138"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2140"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2142"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2144"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2146"/>
         <source>视图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2106"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2138"/>
         <source>视图：列表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2108"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2140"/>
         <source>视图：图标</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2110"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2142"/>
         <source>视图：高速（大数据）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2112"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2144"/>
         <source>视图：分组</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2114"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2146"/>
         <source>刷新数据列表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2274"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2306"/>
         <source>撤销 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2277"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2309"/>
         <source>无可撤销操作</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2283"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2315"/>
         <source>重做 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2286"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2318"/>
         <source>无可重做操作</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2298"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2330"/>
         <source>已撤销：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2308"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2340"/>
         <source>已重做：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2415"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2447"/>
         <source>已选中全部 %1 个可见资产</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2460"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2492"/>
         <source>挂接失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2493"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2525"/>
         <source>批量挂接 %1（挂 %2 / 转移 %3 / 跳过 %4）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2496"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2528"/>
         <source>挂接到「%1」：新挂 %2、转移 %3、跳过 %4（可撤销）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2526"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2558"/>
         <source>改型写入视图层改写表（可撤销，可清除回原型）；catalog 资产记录的类型字段不动。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2543"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2575"/>
         <source>%1：sidecar 写入失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2548"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2580"/>
         <source>批量改类型 → %1（%2 项）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2552"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2584"/>
         <source>已把 %1 个资产类型改为 %2（可撤销）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2563"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2595"/>
         <source>移除资产</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2564"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2596"/>
         <source>把 %1 个资产移入可回收清单？
 （软删：可从「可回收清单」恢复，可撤销；catalog 记录保留）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2575"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2607"/>
         <source>批量移除 %1 项（软删）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2576"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2608"/>
         <source>已移除 %1 个资产到可回收清单（可撤销）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2602"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2634"/>
         <source>已恢复 %1 个资产</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2607"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2639"/>
         <source>已全部恢复</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2613"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2645"/>
         <source>可回收清单已清空（不可撤销）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2631"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2663"/>
         <source>清单已导出：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2645"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2677"/>
         <source>已打开前 %1 项预览；其余 %2 项未打开（防标签爆炸）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2657"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2689"/>
         <source>打标签</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2658"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2690"/>
         <source>标签名（选中 %1 个资产）:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2672"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2704"/>
         <source>打标签「%1」（%2 项）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2673"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2705"/>
         <source>已给 %1 个资产打标签「%2」</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2674"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2706"/>
         <source>标签未变化（已存在或为空）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2689"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2721"/>
         <source>已解挂 %1→%2（可撤销）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2692"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2724"/>
         <source>选中资产没有已决关联</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2713"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2745"/>
         <source>已把 %1 设为主关联（可撤销）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2717"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2749"/>
         <source>选中资产没有可提升的非主关联</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2737"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2769"/>
         <source>该资产没有已决关联可改角色</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2760"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2792"/>
         <source>角色变更（不可撤销）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2761"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2793"/>
         <source>将为「%1」新增角色关联 %2（原 %3 关联保留）。
 此操作不可撤销。继续？</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2776"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2808"/>
         <source>角色变更 %1：%2→%3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2779"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2811"/>
         <source>已新增角色关联 %1（原关联保留，不可撤销）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2783"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2815"/>
         <source>角色变更失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2820"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2852"/>
         <source>分批导入已确认（首批 %1 项）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2821"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2853"/>
         <source>整批导入已确认（%1 项）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2878"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2910"/>
         <source>按实体</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2878"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2910"/>
         <source>按标签</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2878"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2910"/>
         <source>按版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2881"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2913"/>
         <source>分组维度</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2881"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2913"/>
         <source>按什么分组:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2948"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2980"/>
         <source>打开预览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2949"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2981"/>
         <source>批量打开预览（前 8 项）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2950"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2982"/>
         <source>挂接到实体…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2951"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2983"/>
         <source>解除挂接</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2952"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2984"/>
         <source>设为主关联</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2953"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2985"/>
         <source>编辑挂接角色…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2954"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2986"/>
         <source>转移到其它实体…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2955"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2987"/>
         <source>打标签…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2956"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2988"/>
         <source>改类型…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2957"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2989"/>
         <source>导出清单 CSV/JSON…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2958"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2990"/>
         <source>移除（进可回收清单）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2959"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2991"/>
         <source>在文件管理器中显示</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2960"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2992"/>
         <source>重命名实体…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2961"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2993"/>
         <source>编辑坐标/备注…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2962"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2994"/>
         <source>删除实体…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2963"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2995"/>
         <source>定位选中实体</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="2966"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="2998"/>
         <source>可回收清单…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist.cpp" line="3085"/>
+        <location filename="../src/ui/pages/datalist.cpp" line="3117"/>
         <source>井 (</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2296,1061 +2324,1049 @@
 <context>
     <name>DataPreviewTabs</name>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1346"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1405"/>
         <source>坐标有效</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1348"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1407"/>
         <source>工程坐标 · 米 · 未投影</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1350"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1409"/>
         <source>坐标无效</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1351"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1410"/>
         <source>没有坐标</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1361"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1423"/>
         <source>已在地图上</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1361"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2648"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1423"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2802"/>
         <source>在地图上显示</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1376"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1438"/>
         <source>预览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1401"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1402"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1408"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1464"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1465"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1471"/>
         <source>最大化预览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1403"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1410"/>
-        <source>预览占满数据面（列表留一行）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1408"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1471"/>
         <source>还原预览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1410"/>
-        <source>恢复列表/预览分栏</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1416"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1479"/>
         <source>还没有打开的预览 — 在列表中选择一条数据</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1461"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1555"/>
         <source>已取消</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1506"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1621"/>
         <source>无法生成测区地图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1508"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1623"/>
         <source>测区全景地图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1529"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1644"/>
         <source>测区全景地图 (QGIS 画布)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1540"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3942"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1655"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4145"/>
         <source>全图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1541"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1656"/>
         <source>缩放到测区全景范围</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1548"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3950"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1663"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4153"/>
         <source>放大</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1549"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1664"/>
         <source>放大地图 (支持鼠标滚轮缩放)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1556"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3957"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1671"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4160"/>
         <source>缩小</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1557"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1672"/>
         <source>缩小地图 (支持鼠标滚轮缩放)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1564"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3964"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1679"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4167"/>
         <source>漫游</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1565"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1680"/>
         <source>按住鼠标左键拖拽平移地图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1573"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1688"/>
         <source>工区范围</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1574"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1689"/>
         <source>显示/隐藏工区范围边界多边形</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1583"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1698"/>
         <source>比例尺</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1584"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1699"/>
         <source>开启/关闭左下角动态比例尺</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1592"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1707"/>
         <source>指南针</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1593"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1708"/>
         <source>开启/关闭右上角指北针</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1601"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1716"/>
         <source>网格</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1602"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1717"/>
         <source>开启/关闭坐标方格网</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1610"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1725"/>
         <source>在主画布中查看</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1611"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1726"/>
         <source>切换到主工作区全屏 QGIS 地图画布</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1696"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1833"/>
         <source>工区范围: %1 km × %2 km · 局部工程坐标系统 (米)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1701"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1838"/>
         <source>局部工程坐标系统 (米)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1808"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1946"/>
         <source>找不到源文件</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1827"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1965"/>
         <source>找不到源文件
 重新定位失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1840"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1978"/>
         <source>正在读取
 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1856"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1994"/>
         <source>读取失败
 %1
 %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1857"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2725"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1995"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2879"/>
         <source>重试</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1903"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2041"/>
         <source>过时</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1932"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1964"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2071"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2103"/>
         <source>无法生成预览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2077"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2216"/>
         <source>找不到源文件
 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2080"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2219"/>
         <source>重新定位文件…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2085"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2224"/>
         <source>重新定位源文件</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2137"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2276"/>
         <source>这条曲线没有有效样点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2147"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2286"/>
         <source>曲线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2159"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2298"/>
         <source>这条曲线不在文件里</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2172"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2311"/>
         <source>缩小深度 (Ctrl+滚轮向下)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2185"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2324"/>
         <source>放大深度 (Ctrl+滚轮向上)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2189"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2328"/>
         <source>1:1 适应</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2190"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2329"/>
         <source>重置为全井深 (双击图道重置)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2195"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2334"/>
         <source>常规(GR/AC/DEN)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2196"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2335"/>
         <source>显示三孔隙/常规测井曲线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2200"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2339"/>
         <source>全选</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2201"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2340"/>
         <source>同时显示所有曲线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2205"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2344"/>
         <source>仅主选</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2206"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2345"/>
         <source>仅显示当前下拉框选中的单根曲线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2209"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2348"/>
         <source>主选曲线:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2216"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2355"/>
         <source>深度缩放:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2256"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2395"/>
         <source>多曲线叠合:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2475"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2614"/>
         <source>ResFormStar 综合多井道柱状图 (推荐)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2481"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2620"/>
         <source>单道叠合检视</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2502"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2641"/>
         <source>呈现模式:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2532"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2671"/>
         <source>工程里还没有井 — 先导入工区文件夹（井位表会建立井）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2533"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2672"/>
         <source>这个资产还没有挂到任何井 — 在数据页资产表的「未决」行，用「挂到这口井」把它挂上</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2546"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2549"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2685"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2688"/>
         <source>井</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2580"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4612"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2719"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4800"/>
         <source>先选择一口井</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2607"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2746"/>
         <source>未决层位 — 不进入编图 chip</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2626"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2765"/>
         <source>派生栅格：未生成</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2627"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2766"/>
         <source>网格 %1×%2 · Z %3 %4–%5 · 拒绝 %6 · 碰撞 %7</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2635"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2789"/>
         <source>层位 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2650"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2804"/>
         <source>在地图上显示层位 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2656"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2810"/>
         <source>还没有这个层位的栅格</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2684"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2838"/>
         <source>版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2688"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2842"/>
         <source>派生栅格 v%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2690"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2844"/>
         <source>原始散点 · %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2712"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2866"/>
         <source>原始散点文件</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2714"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2868"/>
         <source>选中「派生栅格」版本可看地图预览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2725"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2879"/>
         <source>无法读取层位栅格</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2792"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2962"/>
         <source>最小值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2793"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2963"/>
         <source>最大值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2794"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2964"/>
         <source>均值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2795"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2965"/>
         <source>标准差</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2796"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2966"/>
         <source>有效像元占比</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2798"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2968"/>
         <source>统计</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2820"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2990"/>
         <source>直方图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2832"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3002"/>
         <source> m</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2833"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3003"/>
         <source>等值线间距</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2836"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3006"/>
         <source>全部</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2837"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3007"/>
         <source>稀疏</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2838"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3008"/>
         <source>关</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2840"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3010"/>
         <source>标注密度</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2848"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3018"/>
         <source>等值线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2858"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3028"/>
         <source>峰值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2860"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3030"/>
         <source>洼地</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2868"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3038"/>
         <source>值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2905"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3075"/>
         <source>峰</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2905"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3075"/>
         <source>洼</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2923"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3093"/>
         <source>极值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2934"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3104"/>
         <source>剖面 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2951"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4209"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3121"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4412"/>
         <source>同目录叠加</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2952"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4210"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3122"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4413"/>
         <source>把同目录下的相图/配准图片/层位栅格叠加到本预览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3007"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3177"/>
         <source>测线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3008"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3178"/>
         <source>纵测线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3009"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3179"/>
         <source>横测线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3012"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3182"/>
         <source>测线号</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3027"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3197"/>
         <source>%1 %2 · %3 ms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3030"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3200"/>
         <source>%1 %2 · %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3034"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3204"/>
         <source>正在建立道索引</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3070"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3240"/>
         <source>%1 所在测线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3091"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3261"/>
         <source>选择一条测线解码</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3095"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3265"/>
         <source>二维测线 (2D)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3100"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3270"/>
         <source>三维立体 (3D)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3121"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3310"/>
         <source>水平时间切片 (TWT)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3124"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3313"/>
         <source>时间采样:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3171"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3360"/>
         <source>适应窗口</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3178"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3367"/>
         <source>转码工作区 (.sf3c)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3189"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3378"/>
         <source>继续转码 (.sf3c)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3190"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3379"/>
         <source>检测到未完成的 .sf3c 工作区（%1）。点击继续，已写分片自动跳过</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3196"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3385"/>
         <source>重建工作区 (.sf3c)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3197"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3386"/>
         <source>现有 .sf3c 工作区不可读（%1，格式版本 v%2）。再次转码将自动重建</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3198"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3387"/>
         <source>格式不支持</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3218"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3407"/>
         <source>继续转码 (.sf3p)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3219"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3408"/>
         <source>检测到未完成的 .sf3p 分页工作区（%1）。点击继续，已完成页自动跳过</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3303"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3492"/>
         <source>检测到未完成的 .sf3c 工作区（%1）。
 继续转码（已写分片自动跳过）？</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3306"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3495"/>
         <source>现有 .sf3c 工作区不可读（%1）。
 重新转码将自动重建，继续？</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3307"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3496"/>
         <source>格式版本不支持</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3316"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3375"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3505"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3564"/>
         <source>转码中…（可取消）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3364"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3553"/>
         <source>检测到未完成的 .sf3p 分页工作区（%1）。
 继续转码（已完成页自动跳过）？</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3367"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3556"/>
         <source>将 %1 转码为 .sf3p 分页工作区并按体量自适应构建金字塔
 （含瓦片渐进时间片与渐进 LOD；体积与源文件同量级）。
 过程可取消并续跑。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3371"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3560"/>
         <source>转码分页工作区</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3179"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3368"/>
         <source>将 SEG-Y 转码为 .sf3c 分片工作区（可续跑）；转码后切片与任意剖面走随机访问后端</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3206"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3395"/>
         <source>转码分页工作区 (.sf3p)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3207"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3396"/>
         <source>转码为 .sf3p 分页工作区并构建 L1/L2 金字塔（可续跑）；提供瓦片渐进时间片与拖动粗/静止细的渐进 LOD。Auto 后端不自动启用，需显式选择</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3234"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3423"/>
         <source>取消</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3312"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3501"/>
         <source>转码地震工作区</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3309"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3498"/>
         <source>将 %1 转码为 .sf3c 分片工作区（体积与源文件同量级）。
 过程可取消并续跑；完成后切片与任意剖面走随机访问后端。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3424"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3613"/>
         <source>水平时间切片 (Time Slice)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3746"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3955"/>
         <source>无法解析图片</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3765"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3833"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4367"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3974"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4036"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4554"/>
         <source>未配准，不加入地图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3771"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4349"/>
-        <source>文件</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2868"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3773"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4351"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3038"/>
         <source>类型</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3727"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3936"/>
         <source>已按配准边车 %1 上图（RGB 影像原色）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3752"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3961"/>
         <source>去配准…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3754"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3963"/>
         <source>把这张平面相图配准到工程测网</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3757"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3966"/>
         <source>去配准</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3758"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3967"/>
         <source>配准两条路：
 · 在图片旁放同名 world file（.wld/.pgw/.jgw，六参数文本）——重新打开预览即按栅格上图；
 · 或把相图界线转为 GeoJSON，用 D11「临时配准（手工仿射）」登记为 DERIVED 版本。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3778"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4357"/>
-        <source>用系统程序打开</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3803"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3996"/>
         <source>无 PDF 预览：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3808"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4002"/>
         <source>正在转换为 PDF 预览…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3813"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4008"/>
         <source>无法生成 PDF 预览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3827"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4025"/>
         <source>预览为 PDF 转换件；原件经「用系统程序打开」</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3831"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4032"/>
         <source>PDF 转换件无法加载
 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3907"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4110"/>
         <source>相图地图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3916"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4119"/>
         <source>属性列表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3932"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4475"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4594"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4135"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4663"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4782"/>
         <source>名称标注</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3933"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4136"/>
         <source>显示/隐藏要素名称标注</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3943"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4146"/>
         <source>缩放到相图完整范围</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3974"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4177"/>
         <source>渲染字段:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3997"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4200"/>
         <source>临时配准（手工仿射）…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3999"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4202"/>
         <source>临时配准</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4000"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4203"/>
         <source>手工输入仿射参数，把 GeoJSON 变换到工程局部测网</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4015"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4218"/>
         <source>经纬度，与本测网不是同一空间</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4035"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4238"/>
         <source>读不出坐标范围：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4042"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4245"/>
         <source>临时配准（手工仿射）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4045"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4248"/>
         <source>源坐标范围：X %1–%2 · Y %3–%4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4052"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4255"/>
         <source>目标：工程局部测网（约 X 0–12800 · Y 0–16400，单位米）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4077"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4280"/>
         <source>平移 X（米）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4078"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4281"/>
         <source>平移 Y（米）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4079"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4282"/>
         <source>缩放 X</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4080"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4283"/>
         <source>缩放 Y</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4081"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4284"/>
         <source>旋转（度）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4097"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4300"/>
         <source>变换后范围：X %1–%2 · Y %3–%4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4109"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4312"/>
         <source>登记为临时配准</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4259"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4462"/>
         <source>序号</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4259"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4462"/>
         <source>几何类型</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4314"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4517"/>
         <source>已截断，仅显示前 %1 条（共 %2 条）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4371"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4558"/>
         <source>不对应 A1–A20</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4423"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4611"/>
         <source>层名</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4423"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4611"/>
         <source>MD</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4423"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4611"/>
         <source>TVD</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2868"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4423"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4559"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3038"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4611"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4747"/>
         <source>X</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2868"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4423"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4560"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1466"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1473"/>
+        <source>暂时收起数据列表和属性面板，让预览占满工作区</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1473"/>
+        <source>恢复最大化前的面板布局</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3038"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4611"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4748"/>
         <source>Y</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4423"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4611"/>
         <source>Time(ms)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4446"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4634"/>
         <source>分层表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4447"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4635"/>
         <source>%1 的分层表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4462"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4471"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4650"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4659"/>
         <source>分层顶点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4462"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4650"/>
         <source>%1 分层顶点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4510"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4512"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4698"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4700"/>
         <source>无时深表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4513"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4701"/>
         <source>TIME–TVD</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4551"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4739"/>
         <source>井 %1 不在该井位文件中</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4558"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4746"/>
         <source>井名</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4561"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4749"/>
         <source>KB</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4562"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4750"/>
         <source>TD</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4563"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4751"/>
         <source>BottomX</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4565"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4753"/>
         <source>BottomY</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4567"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4755"/>
         <source>WellType</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4574"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4762"/>
         <source>坐标状态</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4576"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4764"/>
         <source>选中时地图同时高亮该井</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4579"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4590"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1753"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1768"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4767"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4778"/>
         <source>井位</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4735"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4923"/>
         <source>无法解码测线</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5570,14 +5586,102 @@ Crossline: %3 ~ %4</source>
     </message>
 </context>
 <context>
+    <name>PaleoDockManager</name>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="50"/>
+        <source>← 左侧停靠</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="50"/>
+        <source>右侧停靠 →</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="51"/>
+        <source>↑ 顶部停靠</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="51"/>
+        <source>↓ 底部停靠</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="140"/>
+        <source>布局与面板</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="142"/>
+        <source>自适应布局</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="143"/>
+        <source>保存当前布局</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="147"/>
+        <source>恢复保存的布局</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="153"/>
+        <source>恢复上次手动保存的面板位置与尺寸</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="154"/>
+        <source>请先保存当前布局</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="155"/>
+        <source>恢复默认布局</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="162"/>
+        <source>移动面板</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="163"/>
+        <source>停靠到左侧</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="163"/>
+        <source>停靠到右侧</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="163"/>
+        <source>停靠到顶部</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="163"/>
+        <source>停靠到底部</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="168"/>
+        <source>浮动窗口</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>PaleoDrawCircleTool</name>
     <message>
-        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="120"/>
+        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="121"/>
         <source>绘制圆形约束</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="186"/>
+        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="187"/>
         <source>无法将约束圆转换到地图坐标</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5598,12 +5702,12 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoDrawEllipseTool</name>
     <message>
-        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="235"/>
+        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="236"/>
         <source>绘制椭圆约束</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="300"/>
+        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="301"/>
         <source>无法将约束椭圆转换到地图坐标</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5611,12 +5715,12 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoDrawPointTool</name>
     <message>
-        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="48"/>
+        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="49"/>
         <source>绘制点约束</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="103"/>
+        <location filename="../src/ui/maptools/paleoshapetools.cpp" line="104"/>
         <source>无法将约束点转换到地图坐标</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5969,135 +6073,135 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoLayerConfigPage</name>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="127"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="134"/>
         <source>图层 ID</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="129"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="136"/>
         <source>所属组</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="131"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="138"/>
         <source>层位</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="133"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="140"/>
         <source>关联资产</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="134"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="141"/>
         <source>未关联</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="136"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="143"/>
         <source>来源</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="143"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="150"/>
         <source>创建时间</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="150"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="157"/>
         <source>在数据页查看资产</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="156"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="163"/>
         <source>该图层未关联数据资产（图层清单暂无关联登记）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="198"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="205"/>
         <source>样式</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="209"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="216"/>
         <source>保存当前样式为预设</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="213"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="316"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="220"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="323"/>
         <source>从预设恢复</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="215"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="222"/>
         <source>导出 .qml…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="217"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="224"/>
         <source>导入 .qml…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="265"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="272"/>
         <source>预设1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="277"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="298"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="284"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="305"/>
         <source>保存样式预设</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="277"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="284"/>
         <source>预设名：</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="299"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="306"/>
         <source>保存预设失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="317"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="324"/>
         <source>无法应用预设：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="328"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="338"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="343"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="335"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="345"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="350"/>
         <source>导出样式 .qml</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="329"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="352"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="336"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="359"/>
         <source>QGIS 样式文件 (*.qml)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="344"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="351"/>
         <source>无法写入文件：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="352"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="358"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="359"/>
         <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="365"/>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="370"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="372"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="377"/>
         <source>导入样式 .qml</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="359"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="366"/>
         <source>无法读取文件：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="365"/>
+        <location filename="../src/ui/layers/layerpropertiesdialog.cpp" line="372"/>
         <source>不是有效的样式文件。</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6105,153 +6209,168 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoLayoutDesignerShell</name>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="105"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="109"/>
         <source>%1 — 图件设计器</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="106"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="110"/>
         <source>图件设计器</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="240"/>
-        <source>上一页</source>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="150"/>
+        <source>图件元素</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="245"/>
-        <source>下一页</source>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="189"/>
+        <source>元素属性</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="256"/>
-        <source>关闭</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="263"/>
-        <source>放大</source>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="220"/>
+        <source>布局与面板…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/layoutdesignershell.cpp" line="264"/>
+        <source>上一页</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="269"/>
+        <source>下一页</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="280"/>
+        <source>关闭</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="287"/>
+        <source>放大</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="288"/>
         <source>缩小</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="265"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="289"/>
         <source>全图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="266"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="290"/>
         <source>适应宽度</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="267"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="291"/>
         <source>原始比例</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="302"/>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="378"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="326"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="402"/>
         <source>跳转到页</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="303"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="327"/>
         <source>页码</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="333"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="357"/>
         <source>内置模板(&amp;T)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="355"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="379"/>
         <source>添加 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="361"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="385"/>
         <source>页面属性…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="370"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="394"/>
         <source>跳转到页…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="378"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="402"/>
         <source>页码：</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="392"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="416"/>
         <source>显示标尺</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="529"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="553"/>
         <source>版面(&amp;L)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="530"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="554"/>
         <source>编辑(&amp;E)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="531"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="555"/>
         <source>视图(&amp;V)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="532"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="556"/>
         <source>项(&amp;I)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="533"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="557"/>
         <source>地图集(&amp;A)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="534"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="558"/>
         <source>报告(&amp;R)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="535"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="559"/>
         <source>设置(&amp;S)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="536"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="560"/>
         <source>文件(&amp;F)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="600"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="619"/>
         <source>第 %1 / %2 页</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="601"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="620"/>
         <source>暂无页面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="640"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="659"/>
         <source>版面还没有页面。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layoutdesignershell.cpp" line="651"/>
+        <location filename="../src/ui/layoutdesignershell.cpp" line="670"/>
         <source>页面属性</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6423,17 +6542,17 @@ Crossline: %3 ~ %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layout/layoutitempalette.cpp" line="268"/>
+        <location filename="../src/ui/layout/layoutitempalette.cpp" line="273"/>
         <source>创建%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layout/layoutitempalette.cpp" line="372"/>
+        <location filename="../src/ui/layout/layoutitempalette.cpp" line="377"/>
         <source>当前 QGIS 运行时不支持此元素类型。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/layout/layoutitempalette.cpp" line="379"/>
+        <location filename="../src/ui/layout/layoutitempalette.cpp" line="384"/>
         <source>添加%1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6623,400 +6742,400 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoMainWindow</name>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="144"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="146"/>
         <source>数据管理</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="145"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="147"/>
         <source>预测编图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="146"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="148"/>
         <source>单因素图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="147"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="149"/>
         <source>智能编图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="148"/>
-        <location filename="../src/ui/ribbonpanels.cpp" line="387"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="150"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="381"/>
         <source>验证</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="156"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="158"/>
         <source>数据属性</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="157"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="159"/>
         <source>预测参数</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="158"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="160"/>
         <source>单因素参数</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="159"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="161"/>
         <source>编图参数</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="160"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="162"/>
         <source>验证结果</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="219"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="221"/>
         <source>Paleo Workbench</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="224"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="226"/>
         <source>古地理编图工作台 — 新建工程或打开最近工程开始</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="226"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="228"/>
         <source>最近工程</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="229"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="231"/>
         <source>最近工程列表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="238"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="240"/>
         <source>（暂无最近工程）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="243"/>
-        <location filename="../src/ui/paleomainwindow.cpp" line="535"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="245"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="514"/>
         <source>新建工程</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="245"/>
-        <location filename="../src/ui/paleomainwindow.cpp" line="520"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="247"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="499"/>
         <source>打开工程</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="248"/>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1230"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="250"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1201"/>
         <source>从工区文件夹新建</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="372"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="381"/>
         <source>层位切换</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="398"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="407"/>
         <source>结束工具</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="399"/>
-        <location filename="../src/ui/paleomainwindow.cpp" line="416"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="408"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="425"/>
         <source>结束当前地图操作，保留尚未保存的图层编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="406"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="415"/>
         <source>浏览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="407"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="416"/>
         <source>未选择图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="409"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="418"/>
         <source>在地图中操作；结束工具后保留图层编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="410"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="419"/>
         <source>选择上方地图工具开始操作</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="411"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="420"/>
         <source>%1 · %2 — %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="417"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="426"/>
         <source>当前没有活动地图工具</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="437"/>
-        <location filename="../src/ui/ribbonpanels.cpp" line="192"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="441"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="186"/>
         <source>数据列表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="445"/>
-        <location filename="../src/ui/ribbonpanels.cpp" line="215"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="451"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="209"/>
         <source>数据预览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="506"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="485"/>
         <source>地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「预测编图」运行预测</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="527"/>
-        <location filename="../src/ui/paleomainwindow.cpp" line="562"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="506"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="541"/>
         <source>打开工程失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="539"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="518"/>
         <source>新建工程失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="552"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="531"/>
         <source>从工区文件夹新建工程</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="569"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="548"/>
         <source>图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="628"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="607"/>
         <source>未打开工程</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="655"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="634"/>
         <source> — 面板待实现</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="664"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="643"/>
         <source>日志 / 任务</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="668"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="647"/>
         <source>底部面板页签</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="670"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="649"/>
         <source>日志</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="674"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="653"/>
         <source>任务队列 — 待实现</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="675"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1215"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1218"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="654"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1268"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1271"/>
         <source>任务</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="682"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="661"/>
         <source>地震剖面 / 井震综合</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="689"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="668"/>
         <source>三维地震视口 (3D)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="701"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="680"/>
         <source>Web 服务</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="712"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="691"/>
         <source>Web 服务地址</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="713"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="692"/>
         <source>http:// 或 https:// 服务地址</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="715"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="694"/>
         <source>打开</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="766"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="745"/>
         <source>层位：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="900"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="882"/>
         <source>新建工程(&amp;N)…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="901"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="883"/>
         <source>打开工程(&amp;O)…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="902"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="884"/>
         <source>从工区文件夹新建(&amp;I)…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="905"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="887"/>
         <source>起始页(&amp;H)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="909"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="891"/>
         <source>退出(&amp;X)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="803"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="910"/>
+        <source>布局</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="911"/>
+        <source>布局与面板管理</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="782"/>
         <source>工程坐标 · 米 · 未投影</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="804"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="783"/>
         <source>局部工程坐标，单位米，未投影 — 不是经纬度</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="842"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="821"/>
         <source>已切换到深色模式</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="842"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="821"/>
         <source>已切换到浅色模式</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="856"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="838"/>
         <source>工作流步骤</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="888"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="870"/>
         <source>文件</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="889"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="871"/>
         <source>文件菜单</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="929"/>
-        <source>面板</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="930"/>
-        <source>面板显隐菜单</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="947"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="928"/>
         <source>Web 服务面板</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="970"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="946"/>
         <source>深色模式</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1101"/>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1131"/>
-        <location filename="../src/ui/ribbonpanels.cpp" line="179"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1072"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1102"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="173"/>
         <source>导入工区文件夹</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1132"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1103"/>
         <source>目录里没有可导入的文件</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1231"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1202"/>
         <source>工程已创建于 %1；导入服务未就绪，请在数据页手动导入该文件夹。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1296"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1269"/>
         <source>%1→%2 厚度样本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1299"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1272"/>
         <source>井名</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1299"/>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1299"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1272"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1272"/>
         <source>%1 TVD</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1300"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1273"/>
         <source>层间速度或原因</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1302"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1275"/>
         <source>%1 时间残差</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1305"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1278"/>
         <source>还没有计算 %1 残差</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1307"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1280"/>
         <source>%1 残差表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1309"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1282"/>
         <source>输出固定为 %1 工区网格 %2×%3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1344"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1317"/>
         <source>未保存的编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1345"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1318"/>
         <source>以下图层有未保存的编辑：
 %1
 
@@ -7024,326 +7143,326 @@ Crossline: %3 ~ %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1348"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1321"/>
         <source>保存</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1349"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1322"/>
         <source>放弃</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1368"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1341"/>
         <source>保存编辑失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1369"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1342"/>
         <source>图层「%1」的编辑未能提交，窗口不会关闭。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1395"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1368"/>
         <source>Paleo Workbench [*]</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1396"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1369"/>
         <source>%1 — Paleo Workbench [*]</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1521"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1496"/>
         <source>临时配准已上图：%1 · %2 个要素（手工仿射，非权威坐标）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="254"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="307"/>
         <source>数据目录打开失败 — 导入暂不可用（见状态栏）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="261"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="314"/>
         <source>数据目录打开失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="379"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="432"/>
         <source>地震数据文件 (*.sgy *.segy);;All files (*)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="381"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="434"/>
         <source>测井与柱状图文件 (*.las *.xml *.txt *.csv);;All files (*)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="382"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="435"/>
         <source>数据文件 (*.las *.xml *.csv *.dat *.gpkg *.shp *.tif *.img);;All files (*)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="384"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="437"/>
         <source>导入 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="391"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="444"/>
         <source>导入数据</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="395"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="448"/>
         <source>文件：%1
 识别类型：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="406"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="459"/>
         <source>导入</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="1350"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="407"/>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1323"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="460"/>
         <source>取消</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="487"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="540"/>
         <source>预测 %1 · %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="505"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="558"/>
         <source>已请求取消——预测运算无法中断，结果以实际完成为准</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="514"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="567"/>
         <source>预测失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="526"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="579"/>
         <source>预测</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="631"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="684"/>
         <source>图层服务未就绪</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="638"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="691"/>
         <source>无法读取图层清单</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="660"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="713"/>
         <source>层位 %1 没有井点图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="666"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="719"/>
         <source>约束插值失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="682"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="735"/>
         <source>单因素生成失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="699"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="752"/>
         <source>等值线生成失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="728"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="781"/>
         <source>单因素上图失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="817"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="870"/>
         <source>相界工作副本铺设失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="833"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="886"/>
         <source>相界就绪，已进入编辑：%1（顶点工具 — 选中要素改属性）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="842"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="895"/>
         <source>相界就绪：%1 — 请在「要素编辑」组手动进入编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="855"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="908"/>
         <source>相属性已写入编辑缓冲：%1（随「保存编辑」提交）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="861"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="914"/>
         <source>相属性保存失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="893"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="946"/>
         <source>布局服务未接入 — 无法打开图件设计器</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="899"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="952"/>
         <source>无打开工程 — 无法打开图件设计器</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="904"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="957"/>
         <source>编图布局</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="913"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1416"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="966"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1469"/>
         <source>创建布局失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1053"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1106"/>
         <source>搜索井位/层位  Ctrl+K</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1119"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1162"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1172"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1215"/>
         <source>保存工程</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1122"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1175"/>
         <source>保存工程（Ctrl+S）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1128"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1181"/>
         <source>无打开工程 — 无法保存</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1143"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1196"/>
         <source>工程已保存</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1143"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1196"/>
         <source>保存失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1199"/>
-        <location filename="../src/ui/ribbonpanels.cpp" line="379"/>
-        <location filename="../src/ui/ribbonpanels.cpp" line="402"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1252"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="373"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="396"/>
         <source>发布</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="340"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="542"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="393"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="595"/>
         <source>在地图上显示失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="186"/>
-        <location filename="../src/ui/ribbonpanels.cpp" line="126"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="231"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="120"/>
         <source>测井对比</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="492"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="545"/>
         <source>预测失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1083"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1136"/>
         <source>层位搜索：图层清单读取失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1149"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1202"/>
         <source>工程已保存：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1153"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1206"/>
         <source>保存工程失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1188"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1241"/>
         <source>发布面板：图层清单读取失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1237"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1290"/>
         <source>属性表面板：图层清单读取失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1259"/>
-        <location filename="../src/ui/ribbonpanels.cpp" line="129"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1312"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="123"/>
         <source>属性表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1273"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1326"/>
         <source>处理算法</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1274"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1327"/>
         <source>处理算法选择</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1362"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1415"/>
         <source>已显示操作图层：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1400"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1453"/>
         <source>图件设计</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1402"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1455"/>
         <source>新建布局并打开图件设计器</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1406"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1459"/>
         <source>无打开工程 — 无法创建布局</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1413"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1466"/>
         <source>布局 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1508"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1561"/>
         <source>先选择层位再发布</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1522"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1575"/>
         <source>发布版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1523"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1576"/>
         <source>发布 %1 v%2？
 
 PDF：%3
@@ -7353,71 +7472,71 @@ PDF：%3
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1527"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1580"/>
         <source>（未登记）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1532"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1585"/>
         <source>
 
 注意：</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1540"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1593"/>
         <source>已发布：%1 v%2 → %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1544"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1597"/>
         <source>发布失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1570"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1623"/>
         <source>编图链完成：%1 → %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1583"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1636"/>
         <source>先在顶部 chip 选择层位（本阶段目标 %1）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1605"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1658"/>
         <source>先在顶部 chip 选择层位再导出</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1650"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1703"/>
         <source>导出失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1651"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1704"/>
         <source>%1
 
 导出目标：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1667"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1720"/>
         <source>PDF 资产登记失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1680"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1733"/>
         <source>层位图已导出：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1681"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1734"/>
         <source>导出成功</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1682"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1735"/>
         <source>已导出层位图：
 %1
 
@@ -7425,315 +7544,315 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1709"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1762"/>
         <source>先选择层位再保存版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1719"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1772"/>
         <source>已保存版本：%1 v%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1723"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1776"/>
         <source>保存版本失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="109"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="103"/>
         <source>显示/隐藏右侧参数面板</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="100"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="402"/>
         <source>井震剖面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="127"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="121"/>
         <source>在底部面板对比多口井的测井曲线与分层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="130"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="124"/>
         <source>在底部面板打开图层属性表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="132"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="126"/>
         <source>发布记录</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="133"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="127"/>
         <source>在底部面板查看已发布的版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="134"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="128"/>
         <source>送交验证</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="135"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="129"/>
         <source>切到验证页，用井点残差检查当前成果</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="155"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="149"/>
         <source>平移</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="156"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="150"/>
         <source>拖动平移地图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="157"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="151"/>
         <source>放大</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="158"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="152"/>
         <source>点击或框选放大</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="159"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="153"/>
         <source>缩小</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="160"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="154"/>
         <source>点击或框选缩小</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="161"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="155"/>
         <source>全图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="161"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="155"/>
         <source>缩放到全部图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="168"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="162"/>
         <source>地图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="178"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="172"/>
         <source>数据导入</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="181"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="175"/>
         <source>导入井数据</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="183"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="177"/>
         <source>导入测井数据</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="185"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="179"/>
         <source>导入地震数据</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="187"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="181"/>
         <source>导入边界数据</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="193"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="187"/>
         <source>只看未决</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="194"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="188"/>
         <source>只显示还有未决关联的数据</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="201"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="195"/>
         <source>刷新列表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="202"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="196"/>
         <source>按数据目录重建列表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../src/ui/ribbonpanels.cpp" line="210"/>
         <location filename="../src/ui/ribbonpanels.cpp" line="216"/>
-        <location filename="../src/ui/ribbonpanels.cpp" line="222"/>
         <source>最大化预览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="222"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="216"/>
         <source>还原预览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="229"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="223"/>
         <source>预览占满数据面（列表留一行）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="230"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="224"/>
         <source>先在数据列表里选一条数据打开预览</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="237"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="231"/>
         <source>地震视口</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="238"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="232"/>
         <source>三维视口</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="239"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="233"/>
         <source>打开三维地震体立体视口</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="253"/>
-        <location filename="../src/ui/ribbonpanels.cpp" line="292"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="247"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="286"/>
         <source>地震剖面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="254"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="248"/>
         <source>打开二维地震与井震标定剖面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="268"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="262"/>
         <source>预测运行</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="269"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="263"/>
         <source>运行预测</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="275"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="269"/>
         <source>叠加对照</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="278"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="272"/>
         <source>三维地震</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="279"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="273"/>
         <source>打开三维地震立体视口</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="293"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="287"/>
         <source>打开地震与井震剖面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="305"/>
-        <location filename="../src/ui/ribbonpanels.cpp" line="345"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="299"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="339"/>
         <source>结果</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="311"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="305"/>
         <source>约束编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="316"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="310"/>
         <source>绘制约束</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="337"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="331"/>
         <source>插值计算</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="338"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="332"/>
         <source>计算单因素</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="342"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="336"/>
         <source>连井分析</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="351"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="345"/>
         <source>编图链</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="352"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="346"/>
         <source>生成等厚图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="355"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="349"/>
         <source>合成编图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="357"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="351"/>
         <source>转为相多边形</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="363"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="357"/>
         <source>图件输出</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="364"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="358"/>
         <source>导出 PDF</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="372"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="366"/>
         <source>打开图件设计器</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="376"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="370"/>
         <source>版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="377"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="371"/>
         <source>保存版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="388"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="382"/>
         <source>运行验证</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="392"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="386"/>
         <source>看这条剖面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbonpanels.cpp" line="396"/>
+        <location filename="../src/ui/ribbonpanels.cpp" line="390"/>
         <source>联动定位</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7755,6 +7874,16 @@ SHA-256：%2</source>
     <message>
         <location filename="../src/ui/ribbonpanels.cpp" line="423"/>
         <source>选择可编辑图层</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ribbonpanels.cpp" line="448"/>
+        <source>编辑图层</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ribbonpanels.cpp" line="463"/>
+        <source>编辑会话</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7845,124 +7974,124 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="288"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="298"/>
         <source>井段与地图相点已更新；保存修订版本后登记文件。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="291"/>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="314"/>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="451"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="301"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="313"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="450"/>
         <source>请先结束其他图层的编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="371"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="370"/>
         <source>更改此要素的相</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="406"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="405"/>
         <source>无法修改；请先结束其他图层的编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="412"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="411"/>
         <source>相类别已更新，可撤销；保存编辑后登记新版本。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="448"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="447"/>
         <source>请先用画布选择工具选中要素</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="466"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="465"/>
         <source>副本已创建，请先结束其他图层的编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="476"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="475"/>
         <source>画布编辑未能提交，请检查编辑提示</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="479"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="478"/>
         <source>请先保存正在编辑的图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="485"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="484"/>
         <source>导入局部米制约束线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="486"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="485"/>
         <source>矢量文件 (*.gpkg *.geojson *.json *.shp)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="494"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="493"/>
         <source>在画布逐点绘制约束线，右键结束；Esc 取消。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="498"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="497"/>
         <source>约束绘制工具不可用</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="516"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="515"/>
         <source>预测已提交；完成后自动登记并显示图件。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="517"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="516"/>
         <source>操作完成，图件与版本已更新。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="518"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="517"/>
         <source>操作未完成，请检查输入。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="584"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="583"/>
         <source>画布编辑已保存并生成图件新版本。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="587"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="586"/>
         <source>画布编辑已保存，并登记了新的图件版本。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_sections.cpp" line="47"/>
+        <location filename="../src/ui/paleomainwindow_sections.cpp" line="49"/>
         <source>连井 / 时深对齐</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_sections.cpp" line="51"/>
+        <location filename="../src/ui/paleomainwindow_sections.cpp" line="53"/>
         <source>按井顺序或地图折线提取地震剖面，叠加测井与分层并校正时深关系</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_sections.cpp" line="130"/>
+        <location filename="../src/ui/paleomainwindow_sections.cpp" line="165"/>
         <source>请先导入带有效坐标的地震体</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_sections.cpp" line="137"/>
+        <location filename="../src/ui/paleomainwindow_sections.cpp" line="173"/>
         <source>左键添加节点，右键完成；退格撤回节点，Esc 取消。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_sections.cpp" line="170"/>
+        <location filename="../src/ui/paleomainwindow_sections.cpp" line="206"/>
         <source>请先完成连井或任意折线剖面提取</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_sections.cpp" line="183"/>
+        <location filename="../src/ui/paleomainwindow_sections.cpp" line="219"/>
         <source>路线、逐井时深校正与来源关系已保存为工程新版本。</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8005,27 +8134,27 @@ SHA-256：%2</source>
 <context>
     <name>PaleoOnnxService</name>
     <message>
-        <location filename="../src/ai/onnxpredictionservice.cpp" line="110"/>
+        <location filename="../src/ai/onnxpredictionservice.cpp" line="115"/>
         <source>Model not found: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ai/onnxpredictionservice.cpp" line="181"/>
+        <location filename="../src/ai/onnxpredictionservice.cpp" line="186"/>
         <source>No model loaded</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ai/onnxpredictionservice.cpp" line="187"/>
+        <location filename="../src/ai/onnxpredictionservice.cpp" line="192"/>
         <source>Model has no outputs</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ai/onnxpredictionservice.cpp" line="204"/>
+        <location filename="../src/ai/onnxpredictionservice.cpp" line="209"/>
         <source>Inference produced no tensor output</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ai/onnxpredictionservice.cpp" line="207"/>
+        <location filename="../src/ai/onnxpredictionservice.cpp" line="212"/>
         <source>Output tensor is not float32</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8205,82 +8334,82 @@ SHA-256：%2</source>
 <context>
     <name>PaleoVertexTool</name>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="180"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="183"/>
         <source>编辑节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="275"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="286"/>
         <source>请先开始编辑，再移动节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="440"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="456"/>
         <source>请先开始编辑，再删除节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="473"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="489"/>
         <source>无法删除节点：要素将变为无效</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="525"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="541"/>
         <source>无法删除节点：共边要素将变为无效</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="549"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="565"/>
         <source>删除节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="615"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="631"/>
         <source>部分图层拒绝了节点删除</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="616"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="632"/>
         <source>无法删除节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="642"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="661"/>
         <source>编辑已停止——节点移动已丢弃</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="682"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="701"/>
         <source>移动节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="710"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="729"/>
         <source>部分图层的编辑已停止——这些移动已丢弃</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="711"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="730"/>
         <source>无法移动节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="725"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="747"/>
         <source>请先开始编辑，再添加节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="784"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="806"/>
         <source>添加节点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="816"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="838"/>
         <source>部分图层拒绝了节点插入</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="817"/>
+        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="839"/>
         <source>无法添加节点</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8464,76 +8593,94 @@ SHA-256：%2</source>
 <context>
     <name>PredictionWorkflow</name>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="446"/>
+        <location filename="../src/workflow/workflows.cpp" line="462"/>
         <source>prediction workflow is not bound to a layer service</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="448"/>
+        <location filename="../src/workflow/workflows.cpp" line="464"/>
         <source>no ONNX service bound; cannot run &apos;%1&apos;</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="450"/>
+        <location filename="../src/workflow/workflows.cpp" line="466"/>
         <source>onnx algorithm id &apos;%1&apos; carries no model name</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="454"/>
+        <location filename="../src/workflow/workflows.cpp" line="470"/>
         <source>failed to load ONNX model &apos;%1&apos;</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="482"/>
+        <location filename="../src/workflow/workflows.cpp" line="498"/>
         <source>ONNX model &apos;%1&apos; produced no output</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="493"/>
+        <location filename="../src/workflow/workflows.cpp" line="509"/>
         <source>cannot place ONNX output on a grid</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="502"/>
-        <location filename="../src/workflow/workflows.cpp" line="537"/>
+        <location filename="../src/workflow/workflows.cpp" line="518"/>
+        <location filename="../src/workflow/workflows.cpp" line="553"/>
         <source>%1 onnx %2 预测</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="512"/>
+        <location filename="../src/workflow/workflows.cpp" line="528"/>
         <source>failed to write ONNX prediction raster</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="541"/>
-        <location filename="../src/workflow/workflows.cpp" line="649"/>
+        <location filename="../src/workflow/workflows.cpp" line="557"/>
+        <location filename="../src/workflow/workflows.cpp" line="665"/>
         <source>failed to declare result layer &apos;%1&apos;</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="557"/>
+        <location filename="../src/workflow/workflows.cpp" line="573"/>
         <source>cannot run &apos;%1&apos;: this build lacks ONNX Runtime</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="568"/>
+        <location filename="../src/workflow/workflows.cpp" line="584"/>
         <source>prediction workflow is not bound to services</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="585"/>
-        <location filename="../src/workflow/workflows.cpp" line="643"/>
+        <location filename="../src/workflow/workflows.cpp" line="601"/>
+        <location filename="../src/workflow/workflows.cpp" line="659"/>
         <source>%1 %2 预测</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="599"/>
+        <location filename="../src/workflow/workflows.cpp" line="615"/>
         <source>prediction algorithm &apos;%1&apos; produced no results</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="611"/>
+        <location filename="../src/workflow/workflows.cpp" line="627"/>
         <source>prediction algorithm &apos;%1&apos; returned no output path</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>PreviewMapPage</name>
+    <message>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="243"/>
+        <source>当前预览面板</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="247"/>
+        <source>图层 / 识别 / 剖面</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="254"/>
+        <source>统计与分析</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -8695,146 +8842,162 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="355"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="407"/>
         <source>井位</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="362"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="414"/>
         <source>当前井</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="391"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2776"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="450"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2946"/>
         <source>等值线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1119"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1178"/>
         <source>无有效采样</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1169"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1228"/>
         <source>%1 道 · %2 样点 · %3 ms 采样 · t0 = %4 ms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1214"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1273"/>
         <source>尚未解码剖面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3256"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3445"/>
         <source>后端：探测失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3261"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3450"/>
         <source>.sf3c 工作区</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3263"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3452"/>
         <source>.sf3p 分页工作区</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3265"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3454"/>
         <source>直读 SEG-Y</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3266"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3455"/>
         <source>后端：%1%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3267"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3456"/>
         <source>（回退直读）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3325"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3514"/>
         <source>工作区已就绪</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3327"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3391"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3516"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3580"/>
         <source>（已热切换）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3332"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3521"/>
         <source>继续转码 (.sf3c)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3395"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3584"/>
         <source>继续转码 (.sf3p)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3335"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3810"/>
+        <source>时间切片获取失败（分页通道）
+%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3829"/>
+        <source>时间切片获取失败
+%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3524"/>
         <source>转码未完成</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3346"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="153"/>
+        <source>用系统程序打开</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3535"/>
         <source>转码包含坏道</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3347"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3536"/>
         <source>损坏源道 %1 条已跳过（NaN 填充），如 %2…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3385"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3574"/>
         <source>分页工作区已就绪</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3398"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3587"/>
         <source>分页转码未完成</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3406"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3595"/>
         <source>分页转码完成</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3504"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3683"/>
         <source>秒开失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3511"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3690"/>
         <source>秒开 %1 ms · IL %2–%3 · XL %4–%5 · %6 道 × %7 样点 · 预览 IL %8</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3520"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3699"/>
         <source>秒开 %1 ms · %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3561"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3740"/>
         <source>体加载失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3782"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4361"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="161"/>
         <source>系统没有打开这个文件
 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="453"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="512"/>
         <source>其他</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8940,7 +9103,7 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1612"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1678"/>
         <location filename="../src/ui/dialogs/folderconfirm.cpp" line="179"/>
         <source>失败</source>
         <translation type="unfinished"></translation>
@@ -9455,32 +9618,32 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="132"/>
+        <location filename="../src/workflow/workflows.cpp" line="148"/>
         <source>工作流未绑定数据目录（catalog）——派生产物无法登记到工程</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="251"/>
+        <location filename="../src/workflow/workflows.cpp" line="267"/>
         <source>ONNX output is empty</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="280"/>
+        <location filename="../src/workflow/workflows.cpp" line="296"/>
         <source>结果不是 %1×%2，没有写入栅格（实际 %3）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="300"/>
+        <location filename="../src/workflow/workflows.cpp" line="316"/>
         <source>GTiff driver is not available</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="308"/>
+        <location filename="../src/workflow/workflows.cpp" line="324"/>
         <source>cannot create prediction raster %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="348"/>
+        <location filename="../src/workflow/workflows.cpp" line="364"/>
         <source>failed to write prediction raster %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9541,97 +9704,97 @@ SHA-256：%2</source>
     </message>
     <message>
         <location filename="../src/qgis/mappingartifactwriter.cpp" line="265"/>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="355"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="364"/>
         <source>其他 / 未分类</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="363"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="372"/>
         <source>相编码</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="363"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="372"/>
         <source>相</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="364"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="373"/>
         <source>亚相</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="364"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="373"/>
         <source>微相</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="365"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="374"/>
         <source>类别名称</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="365"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="374"/>
         <source>纹理</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="384"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="393"/>
         <source>其他（%1）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="411"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="420"/>
         <source>请选择编图输入与相分类</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="421"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="430"/>
         <source>连续单因素需要按相类别顺序填写 N−1 个严格递增分相阈值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="424"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="433"/>
         <source>分相阈值必须为有限数值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="431"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="440"/>
         <source>所有编图输入须使用本工程局部米制坐标</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="446"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="455"/>
         <source>编图网格超过 400 万像元，请先裁剪输入范围</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="450"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="459"/>
         <source>编图输入坐标不一致，请先配准</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="455"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="464"/>
         <source>无法读取编图栅格</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="468"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="477"/>
         <source>相栅格含当前层位未定义的编码；请统一相分类或将其作为参考图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="476"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="485"/>
         <source>自动融合支持相栅格、单因素栅格与预测相点；已有相面请用“复制底图并编辑”</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="486"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="495"/>
         <source>相点含当前层位未定义的编码</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/mappingartifactwriter.cpp" line="491"/>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="500"/>
         <source>预测相点为空</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9642,100 +9805,100 @@ SHA-256：%2</source>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice.cpp" line="544"/>
-        <location filename="../src/services/seismictaskservice.cpp" line="1272"/>
-        <location filename="../src/services/seismictaskservice.cpp" line="1411"/>
-        <location filename="../src/services/seismictaskservice.cpp" line="1453"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1280"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1476"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1518"/>
         <source>分页工作区不可用：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="919"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="921"/>
         <source>规则探测未通过（%1），走全量索引流</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1147"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1149"/>
         <source>分页转码 %1 阶段失败：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1317"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1325"/>
         <source>瓦片时间片读取失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1356"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1369"/>
         <source>数据集不可用：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1373"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1386"/>
         <source>体素窗口读取失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1457"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1522"/>
         <source>LOD 切换失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1500"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1566"/>
         <source>打开数据集失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1602"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1668"/>
         <source>未开始</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1604"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1670"/>
         <source>已完成</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1606"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1672"/>
         <source>不可读（%1）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1606"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1672"/>
         <source>格式版本不支持</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1607"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1673"/>
         <source>已完成 %1/%2 块（可续跑）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1612"/>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3344"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1678"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3533"/>
         <source>转码完成</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1612"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1678"/>
         <source>已取消（可续跑）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1613"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1679"/>
         <source> · 道 %1 · 覆盖 %2% · 丢弃 %3%</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1618"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1684"/>
         <source> · 值域 [%1, %2]</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1622"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1688"/>
         <source> · 金字塔 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1624"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1690"/>
         <source> · 坏道 %1（%2…）</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9761,17 +9924,27 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="425"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="129"/>
+        <source>派生版本已登记 catalog：%1（%2）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="137"/>
+        <source>派生版本登记失败：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="478"/>
         <source>导入失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/domain/faciescatalog.cpp" line="76"/>
+        <location filename="../src/domain/faciescatalog.cpp" line="90"/>
         <source>未分类</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/domain/faciescatalog.cpp" line="77"/>
+        <location filename="../src/domain/faciescatalog.cpp" line="91"/>
         <source>其他类别（%1）</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9914,193 +10087,193 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="190"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="194"/>
         <source>缩放至图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="200"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="204"/>
         <source>复制坐标（%1）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="205"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="209"/>
         <source>无光标位置</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="207"/>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="479"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="211"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="490"/>
         <source>复制画布截图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="210"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="214"/>
         <source>把当前视图存为书签…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="214"/>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="714"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="218"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="729"/>
         <source>新建书签</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="214"/>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="714"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="218"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="729"/>
         <source>书签名</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="215"/>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="715"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="219"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="730"/>
         <source>视图 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="232"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="236"/>
         <location filename="../src/ui/datapreview/previewtocpanel.cpp" line="47"/>
         <source>图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="233"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="237"/>
         <source>识别</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="234"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="238"/>
         <source>剖面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="265"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="276"/>
         <source>渲染中…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="269"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="280"/>
         <source>%1 层 · %2 图元 · %3 ms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="308"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="319"/>
         <source>周长 %1 · 面积 %2%3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="311"/>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="315"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="322"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="326"/>
         <source> · 完成</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="313"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="324"/>
         <source>长度 %1%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="425"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="436"/>
         <source>漫游</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="427"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="438"/>
         <source>框选放大</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="429"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="440"/>
         <source>框选缩小</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="431"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="442"/>
         <source>识别要素</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="434"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="445"/>
         <source>距离测量</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="436"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="447"/>
         <source>面积测量</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="438"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="449"/>
         <source>层位剖面线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="453"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="464"/>
         <source>全图复位</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="454"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="465"/>
         <source>缩放到全部图层范围（快捷键 0）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="459"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="470"/>
         <source>上一视图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="463"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="474"/>
         <source>下一视图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="471"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="482"/>
         <source>复制坐标</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="473"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="484"/>
         <source>复制光标处工程坐标（右键菜单亦可）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="488"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="499"/>
         <source>书签：保存/跳转/删除视图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="498"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="509"/>
         <source>画布装饰：比例尺/指北针/网格</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="512"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="523"/>
         <source>比例尺</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="513"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="524"/>
         <source>指北针</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="514"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="525"/>
         <source>网格</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="524"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="535"/>
         <source>鹰眼</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="710"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="725"/>
         <source>保存当前视图…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="734"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="749"/>
         <source>删除「%1」</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10275,12 +10448,12 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataops/dataopscommands.h" line="406"/>
+        <location filename="../src/ui/pages/dataops/dataopscommands.h" line="409"/>
         <source>新建实体撤销</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataops/dataopscommands.h" line="411"/>
+        <location filename="../src/ui/pages/dataops/dataopscommands.h" line="414"/>
         <source>新建实体 %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10387,32 +10560,42 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_sections.cpp" line="114"/>
+        <location filename="../src/ui/paleomainwindow_sections.cpp" line="116"/>
+        <source>已取消剖面绘制</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_sections.cpp" line="128"/>
+        <source>已清除剖面连线</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_sections.cpp" line="149"/>
         <source>正在提取剖面；沿线井按各自时深关系叠加。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_sections.cpp" line="122"/>
+        <location filename="../src/ui/paleomainwindow_sections.cpp" line="157"/>
         <source>剖面已更新。可在“井与分层”设置偏距范围；未对齐或超范围的数据不叠加。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_sections.cpp" line="151"/>
+        <location filename="../src/ui/paleomainwindow_sections.cpp" line="187"/>
         <source>连井剖面 · %1 口井</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_sections.cpp" line="164"/>
+        <location filename="../src/ui/paleomainwindow_sections.cpp" line="200"/>
         <source>时深对齐已应用；保存剖面新版本后可在工程中恢复。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_sections.cpp" line="188"/>
+        <location filename="../src/ui/paleomainwindow_sections.cpp" line="224"/>
         <source>请先加载剖面使用的地震体</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_sections.cpp" line="207"/>
+        <location filename="../src/ui/paleomainwindow_sections.cpp" line="243"/>
         <source>恢复的剖面版本</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10429,6 +10612,46 @@ SHA-256：%2</source>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="617"/>
         <source>拾取 %1 改层位 %2→%3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="268"/>
+        <source>断层切割</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="270"/>
+        <source>常规相界</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="349"/>
+        <source>探井（通用）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/dataops/dataopsimportlogic.h" line="233"/>
+        <source>约 %1 秒</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/dataops/dataopsimportlogic.h" line="234"/>
+        <source>约 %1 分</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/dataops/dataopsimportqueue.h" line="106"/>
+        <source>导入 %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/dataops/dataopsimportqueue.h" line="166"/>
+        <source>导入服务未就绪</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="1078"/>
+        <source>体窗堆叠取数失败，回落逐层切片：%1</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -10630,32 +10853,92 @@ SHA-256：%2</source>
 <context>
     <name>QgisStyleService</name>
     <message>
-        <location filename="../src/qgis/qgisstyleservice.cpp" line="41"/>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="135"/>
+        <source>预探井</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="136"/>
+        <source>评价井</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="137"/>
+        <source>正钻井</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="138"/>
+        <source>待钻井</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="139"/>
+        <source>发现井</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="140"/>
+        <source>工业油流井</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="141"/>
+        <source>工业气流井</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="142"/>
+        <source>参数井</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="143"/>
+        <source>科学探索井</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="144"/>
+        <source>试油井</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="145"/>
+        <source>未见显示井</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="146"/>
+        <source>报废井</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="168"/>
         <source>cannot apply a style to a null layer</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/qgisstyleservice.cpp" line="46"/>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="173"/>
         <source>no styles root configured — call setStylesRoot() first</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/qgisstyleservice.cpp" line="51"/>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="178"/>
         <source>cannot apply an empty style reference</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/qgisstyleservice.cpp" line="61"/>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="188"/>
         <source>style &apos;%1&apos; not found at %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/qgisstyleservice.cpp" line="69"/>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="196"/>
         <source>loadNamedStyle(&apos;%1&apos;) failed: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/qgis/qgisstyleservice.cpp" line="70"/>
+        <location filename="../src/qgis/qgisstyleservice.cpp" line="197"/>
         <source>unknown error</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10867,17 +11150,17 @@ SHA-256：%2</source>
 <context>
     <name>SectionPanel</name>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1280"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1339"/>
         <source>色标</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1318"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1377"/>
         <source>波峰+</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1320"/>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1379"/>
         <source>波谷-</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10921,106 +11204,116 @@ SHA-256：%2</source>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="58"/>
+        <source>清除剖面连线</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="60"/>
+        <source>移除地图上的剖面路线；剖面视图保留至下一次提取</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="62"/>
         <source>选中井 · 时深对齐</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="66"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="70"/>
         <source>使用本井时深表（不外推）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="66"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="70"/>
         <source>常速近似（需复核）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="67"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="71"/>
         <source>对齐方式</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="73"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="77"/>
         <source>近似速度</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="79"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="83"/>
         <source>整体时间平移</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="80"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="84"/>
         <source>应用到当前剖面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="83"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="87"/>
         <source>正值向下平移。分层优先 TVD，测井按 MD；缺表或超出范围不绘制。左侧深度尺仅为公共常速参考，地震图像仍按 TWT 排列。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="92"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="96"/>
         <source>TVD (m)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="92"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="96"/>
         <source>MD (m)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="92"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="96"/>
         <source>TWT (ms)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="99"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="103"/>
         <source>剖面名称</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="102"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="106"/>
         <source>保存路线与对齐新版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="110"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="114"/>
         <source>恢复剖面版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="122"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="126"/>
         <source>至少勾选两口坐标不同的井</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="123"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="127"/>
         <source>按列表从上到下生成剖面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="187"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="193"/>
         <source>缺少有效井口坐标</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="204"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="210"/>
         <source>工程尚无已保存的剖面版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="219"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="225"/>
         <source>仅常速近似模式使用此速度</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="220"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="226"/>
         <source>请先导入井数据及关联时深表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="236"/>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="242"/>
         <source>缺失</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11126,38 +11419,941 @@ SHA-256：%2</source>
 <context>
     <name>SeismicMapLink</name>
     <message>
-        <location filename="../src/linkage/seismicmaplink.cpp" line="138"/>
+        <location filename="../src/linkage/seismicmaplink.cpp" line="140"/>
         <source>折线至少需要两个点</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/linkage/seismicmaplink.cpp" line="144"/>
+        <location filename="../src/linkage/seismicmaplink.cpp" line="146"/>
         <source>未加载有效地震体或测网几何</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/linkage/seismicmaplink.cpp" line="151"/>
+        <location filename="../src/linkage/seismicmaplink.cpp" line="153"/>
         <source>当前地图使用经纬度，请先切换到与井口及地震一致的米制坐标系</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/linkage/seismicmaplink.cpp" line="164"/>
+        <location filename="../src/linkage/seismicmaplink.cpp" line="166"/>
         <source>节点位于地震范围外，保留完整路径后请重新绘制：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/linkage/seismicmaplink.cpp" line="178"/>
+        <location filename="../src/linkage/seismicmaplink.cpp" line="180"/>
         <source>拾取的折线点位于地震工区有效范围外</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/linkage/seismicmaplink.cpp" line="185"/>
+        <location filename="../src/linkage/seismicmaplink.cpp" line="187"/>
         <source>地图折线剖面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/linkage/seismicmaplink.cpp" line="254"/>
+        <location filename="../src/linkage/seismicmaplink.cpp" line="256"/>
         <source>地图拾取任意剖面</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SeismicSectionCanvas</name>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="125"/>
+        <source>左键拖拽平移；滚轮平移（Shift+滚轮横向）；Ctrl+滚轮缩放；双击适应窗口
+方向键平移；+/- 缩放；PgUp/PgDn 步进切片</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1088"/>
+        <source>A · %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1088"/>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1088"/>
+        <source>当前</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1090"/>
+        <source>B · %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1101"/>
+        <source>未加载地震剖面数据
+（支持拖拽测线或从地图生成连井/任意剖面）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1225"/>
+        <source>合成记录不可用：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1557"/>
+        <source>时间切片
+%1 ms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1558"/>
+        <source>深度切片
+%1 m</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1615"/>
+        <source>TWT (ms)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1616"/>
+        <source>参考深度
+(m，常速)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1633"/>
+        <source>色标</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1637"/>
+        <source>振幅</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1691"/>
+        <source>波峰+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1693"/>
+        <source>波谷-</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1711"/>
+        <source>深度(m)</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SeismicSectionDockWidget</name>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="47"/>
+        <source>地震剖面 / 井震综合</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="93"/>
+        <source>连井 / 时深</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="94"/>
+        <source>选择连井顺序、绘制任意折线、调整逐井时深关系</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="100"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1144"/>
+        <source>测线: 未加载</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="112"/>
+        <source>纵测线 (IL)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="112"/>
+        <source>横测线 (XL)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="112"/>
+        <source>时间切片 (Time)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="112"/>
+        <source>任意测线/井剖面</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="127"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="932"/>
+        <source>纵测线:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="179"/>
+        <source>+ 放大</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="185"/>
+        <source>- 缩小</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="191"/>
+        <source>适应窗口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="197"/>
+        <source>1:1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="204"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="378"/>
+        <source>单位: TWT (ms)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="206"/>
+        <source>切换 TWT 与常速参考深度尺；井段仍按本井时深表对齐</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="211"/>
+        <source>色标:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="220"/>
+        <source>红白蓝 (双极)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="220"/>
+        <source>灰度 (单极)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="220"/>
+        <source>彩虹谱 (相图)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="221"/>
+        <source>蓝白红 (反双极)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="221"/>
+        <source>黑-白-蓝 (纸面)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="221"/>
+        <source>红-白-黑 (纸面)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="222"/>
+        <source>绿-白-品红</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="222"/>
+        <source>青-白-橙</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="232"/>
+        <source>增益:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="258"/>
+        <source>井与分层 ▼</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="263"/>
+        <source>显示井位</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="267"/>
+        <source>显示地层分层</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="271"/>
+        <source>显示测井曲线</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="276"/>
+        <source>缓冲半径: 200 m</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="277"/>
+        <source>缓冲半径: 500 m</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="278"/>
+        <source>缓冲半径: 1000 m</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="289"/>
+        <source>投影井数: 全部</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="290"/>
+        <source>投影井数: 最近 1 口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="291"/>
+        <source>投影井数: 最近 3 口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="293"/>
+        <source>井旁道小图（最近井）…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="294"/>
+        <source>任意线编辑器…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="304"/>
+        <source>导出图件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="349"/>
+        <source>道: -- | 距离: -- | TWT: -- ms | 深度: -- m | 振幅: -- | (X: --, Y: --)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="375"/>
+        <source>参考深度（常速）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="431"/>
+        <source>复制</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="432"/>
+        <source>复制剖面图到剪贴板（含坐标轴与色标）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="436"/>
+        <source>打印</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="649"/>
+        <source>显示:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="654"/>
+        <source>密度</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="654"/>
+        <source>波形变面积</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="654"/>
+        <source>混合</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="660"/>
+        <source>反转色标</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="665"/>
+        <source>阈值:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="672"/>
+        <source>低于该归一化阈值的振幅压为 0（压噪声底）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="677"/>
+        <source>极性 +/-</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="679"/>
+        <source>极性反转（波峰/波谷互换）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="685"/>
+        <source>AGC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="687"/>
+        <source>自动增益控制：滑动窗 RMS 归一（压掉道间能量差）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="695"/>
+        <source>AGC 时窗宽度（毫秒）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="701"/>
+        <source>增益曲线…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="702"/>
+        <source>手动增益曲线：TWT→倍数分段线性控制点编辑</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="707"/>
+        <source>纵向拉伸:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="715"/>
+        <source>纵向拉伸系数（1.0 = 适应窗口基线）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="721"/>
+        <source>双刻度 TWT+深度</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="723"/>
+        <source>左轴 TWT(ms) + 右缘深度(m) 同显（需有效时深模型）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="729"/>
+        <source>卷帘对比</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="731"/>
+        <source>相邻线卷帘对比：帘左当前线 / 帘右相邻线，画布内拖分割线</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="743"/>
+        <source>● 拾取</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="745"/>
+        <source>解释模式：剖面点击放层位拾取点（拾取面板同步显示）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="749"/>
+        <source>✂ 断层</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="751"/>
+        <source>断层模式：剖面拖拽画断层折线（红色虚线跟踪，松手存档）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="758"/>
+        <source>书签:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="767"/>
+        <source>存当前</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="771"/>
+        <source>删除</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="802"/>
+        <source>手动增益曲线（TWT ms → 倍数，分段线性）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="810"/>
+        <source>每行一个控制点：TWT毫秒 倍数
+例如：
+0 1.0
+500 1.5
+1500 3.0</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="865"/>
+        <source>保存剖面书签</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="866"/>
+        <source>书签名：</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="867"/>
+        <source>线 %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="945"/>
+        <source>横测线:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="958"/>
+        <source>时间采样:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1034"/>
+        <source>纵测线剖面 IL %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1036"/>
+        <source>横测线剖面 XL %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1039"/>
+        <source>水平时间切片 TWT %1 ms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1078"/>
+        <source>切片提取失败: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1080"/>
+        <source>剖面不可用
+%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1088"/>
+        <source>%1
+该线无有效地震道（工区覆盖范围外）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1089"/>
+        <source>空切片</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1159"/>
+        <source>横测线 (XL): %1 | 纵测线 (IL): %2 | 时间: %3 ms | 深度: %4 m | 振幅: %5</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1168"/>
+        <source>道: %1/%2 | TWT: %3 ms | 深度: %4 m | 振幅: %5</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1184"/>
+        <source>导出剖面图件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1185"/>
+        <source>PNG 图像 (*.png);;JPEG 图像 (*.jpg *.jpeg)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1192"/>
+        <source>导出成功</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1192"/>
+        <source>剖面图件已成功保存到:
+%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1194"/>
+        <source>导出失败</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1194"/>
+        <source>保存图像文件失败，请检查文件写入权限。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1229"/>
+        <source>%1 · 提取中…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1395"/>
+        <source>无相邻线</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1422"/>
+        <source>道头信息</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1428"/>
+        <source>字段</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1428"/>
+        <source>值</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1434"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1870"/>
+        <source>关闭</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1446"/>
+        <source>道序号（0 基）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1447"/>
+        <source>文件偏移 (B)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1448"/>
+        <source>INLINE (189-192)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1449"/>
+        <source>CROSSLINE (193-196)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1450"/>
+        <source>field record (9-12)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1451"/>
+        <source>CDP ensemble (21-24)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1452"/>
+        <source>CDP X (73-76)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1453"/>
+        <source>CDP Y (77-80)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1454"/>
+        <source>采样数 (115-116)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1455"/>
+        <source>采样间隔 (117-118, μs)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1457"/>
+        <source>错误</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1474"/>
+        <source>剖面图已复制到剪贴板</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1480"/>
+        <source>打印地震剖面</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1651"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1668"/>
+        <source>catalog 未注入（应用层需调 setInterpretationCatalog）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1760"/>
+        <source>%1（时深用默认均速——无实测检查点表）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1778"/>
+        <source>缺声波曲线 AC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1778"/>
+        <source>缺密度曲线 DEN</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1796"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1830"/>
+        <source>任意线编辑器</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1796"/>
+        <source>请先加载地震体。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1800"/>
+        <source>任意线编辑器（每行一个节点：inline xline）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1805"/>
+        <source>1000 2000
+1002 2005
+1005 2012</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1807"/>
+        <source>投影候选井（井震综合）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1830"/>
+        <source>至少需要 2 个有效节点。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1836"/>
+        <source>任意线（%1 节点）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1842"/>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1858"/>
+        <source>井旁道</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1842"/>
+        <source>无可用的候选井。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1858"/>
+        <source>道提取失败：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1864"/>
+        <source>井旁道 · %1（IL %2 / XL %3）</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SeismicTaskService</name>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="379"/>
+        <source>索引 SEG-Y: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="436"/>
+        <source>任务已取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="458"/>
+        <source>地震体未完成索引，无法提取切片</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="490"/>
+        <source>提取地震切片 (%1: %2)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="578"/>
+        <source>切片提取已取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="597"/>
+        <source>地震体未完成索引，无法提取剖面</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="608"/>
+        <source>提取任意测线/过井剖面 (%1 节点)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="714"/>
+        <source>剖面提取已取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="747"/>
+        <source>转码地震工作区: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="755"/>
+        <source>该工作区已有转码任务进行中（%1）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="799"/>
+        <source>阶段 %1 · 块 %2/%3 · 跳过 %4 · 总体 %5%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="833"/>
+        <location filename="../src/services/seismictaskservice.cpp" line="1188"/>
+        <source>任务提交失败</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="868"/>
+        <source>转码已取消（工作区可续跑）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="903"/>
+        <source>秒开预览 SEG-Y: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="950"/>
+        <source>秒开预览已取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="969"/>
+        <source>加载地震体: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="998"/>
+        <source>地震体加载已取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1040"/>
+        <source>转码分页工作区: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1050"/>
+        <source>该分页工作区已有转码任务进行中（%1）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1105"/>
+        <source>阶段 %1 · 块 %2/%3 · 已读道 %4 · 总体 %5%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1232"/>
+        <source>分页转码已取消（可续跑）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1271"/>
+        <source>瓦片渐进时间片 (采样 %1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1340"/>
+        <source>瓦片时间片已取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1359"/>
+        <source>读取三维体素窗口 (%1×%2×%3)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1397"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="1074"/>
+        <source>体素窗口读取已取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1466"/>
+        <source>打开分页工作区: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1489"/>
+        <source>打开分页工作区已取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1508"/>
+        <source>切换 LOD 层级 %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1535"/>
+        <source>LOD 切换已取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1553"/>
+        <source>探测地震后端: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1578"/>
+        <source>后端探测已取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1637"/>
+        <source>分页工作区头不可读：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice.cpp" line="1659"/>
+        <source>分页工作区断点文件不可读：%1</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -11422,42 +12618,42 @@ SHA-256：%2</source>
 <context>
     <name>ValidationWorkflow</name>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1896"/>
+        <location filename="../src/workflow/workflows.cpp" line="2075"/>
         <source>无法读取图层清单</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1914"/>
+        <location filename="../src/workflow/workflows.cpp" line="2093"/>
         <source>已声明图层 %1 的源文件在磁盘上不存在：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1943"/>
+        <location filename="../src/workflow/workflows.cpp" line="2122"/>
         <source>层位名冲突（归一化后相同）：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1960"/>
+        <location filename="../src/workflow/workflows.cpp" line="2139"/>
         <source>图层 %1 正忙：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1994"/>
+        <location filename="../src/workflow/workflows.cpp" line="2173"/>
         <source>层位 %1 还没有时间栅格</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="1996"/>
+        <location filename="../src/workflow/workflows.cpp" line="2175"/>
         <source>层位 %1 的时间栅格不可用</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="2036"/>
+        <location filename="../src/workflow/workflows.cpp" line="2215"/>
         <source>，目标测线 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/workflow/workflows.cpp" line="2037"/>
+        <location filename="../src/workflow/workflows.cpp" line="2216"/>
         <source>井 %1 %2 时间残差 %3ms（井 %4ms vs 栅格 %5ms%6）</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12194,296 +13390,358 @@ SHA-256：%2</source>
 <context>
     <name>WellComposite::WellCompositePanel</name>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="81"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="90"/>
         <source>比例尺:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="89"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="98"/>
         <source>比例尺</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="92"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="101"/>
         <source>自适应</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="104"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="113"/>
         <source>深度缩放:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="131"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="140"/>
         <source>缩小</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="132"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="141"/>
         <source>缩小深度 (Ctrl+滚轮下)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="148"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="157"/>
         <source>放大</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="149"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="158"/>
         <source>放大深度 (Ctrl+滚轮上)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="155"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="164"/>
         <source>全井适应</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="156"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="165"/>
         <source>双击道内任意位置或点击此键恢复全井段</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="163"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="172"/>
         <source>跳深度</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="164"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="173"/>
         <source>跳转到指定深度 (Ctrl+G)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="170"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="179"/>
         <source>书签</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="171"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="180"/>
         <source>深度书签：添加/跳转/删除</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="181"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="190"/>
         <source>吸附</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="182"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="191"/>
         <source>深度标尺吸附整刻度与标志层线（D2.1）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="191"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="200"/>
         <source>测井道配置</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="192"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="201"/>
         <source>打开测井道配置与排列管理：支持调整所有井道顺序、合并与解散测井曲线道</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="199"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="208"/>
         <source>导出</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="200"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="209"/>
         <source>导出 PDF/PNG/SVG、打印、导出预设管理</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="204"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="213"/>
         <source>导出 PDF…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="205"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="214"/>
         <source>导出 PNG (300dpi)…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="206"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="215"/>
         <source>导出 SVG…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="208"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="217"/>
         <source>打印…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="209"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="218"/>
         <source>导出预设…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="221"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="230"/>
         <source>TOPs 编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="222"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="231"/>
         <source>进入标志层/区间编辑模式：标志层线可拖拽改顶深，区间可编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="238"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="239"/>
+        <source>保存派生</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="241"/>
+        <source>把当前编辑保存为派生版本：壳登记 catalog（父版本=源井数据 RAW），审计历史写入派生 XML 的「编辑审计」工作表</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="246"/>
+        <source>无可保存的编辑（先在 TOPs 编辑模式修改数据）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="261"/>
         <source>就绪 | 支持按住拖拽漫游，Ctrl+滚轮缩放</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="303"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="327"/>
         <source>当前测深: %1 m | 井深跨度: %2 - %3 m</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="310"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="334"/>
         <source>井深跨度: %1 - %2 m | Ctrl+滚轮缩放 / 拖拽漫游</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="397"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="421"/>
         <source>井号: —</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="403"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="427"/>
         <source>参考井: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="405"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="429"/>
         <source>辅助资料中的参考井，不属于本测区井序列</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="409"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="433"/>
         <source>井号: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="794"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="820"/>
         <source>导出该道 CSV</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="804"/>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1287"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="830"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1380"/>
         <source>导出失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="804"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="830"/>
         <source>无法写入文件: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="809"/>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1289"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="835"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1382"/>
         <source>已导出: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="850"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="876"/>
         <source> 副本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="956"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="982"/>
         <source>区间统计 [%1~%2m]</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="968"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="994"/>
         <source>复制 TSV</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="969"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="995"/>
         <source>关闭</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="984"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1010"/>
         <source>添加深度标注</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="985"/>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1008"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1011"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1034"/>
         <source>深度 %1 m 的标注文字:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1007"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1033"/>
         <source>编辑深度标注</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1057"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1083"/>
         <source>在视口顶部添加书签…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1060"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1086"/>
         <source>添加书签</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1061"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1087"/>
         <source>书签名（深度 %1 m）:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1077"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1103"/>
         <source>清除全部书签</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1143"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1174"/>
+        <source>深度装配：井斜表%1、时深表%2（TVD/TWT 副刻度已%3）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1175"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1176"/>
+        <source>已加载</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1175"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1176"/>
+        <source>缺失</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1177"/>
+        <source>启用</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1177"/>
+        <source>禁用</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1235"/>
         <source>不可编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1145"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1237"/>
         <source>当前资产为只读（RAW 或未授权路径）。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1265"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1358"/>
         <source>PNG 图像 (*.png)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1266"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1359"/>
         <source>SVG 矢量 (*.svg)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1267"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1360"/>
         <source>PDF 文档 (*.pdf)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1271"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1364"/>
         <source>导出综合柱状图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1303"/>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1311"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1399"/>
+        <source>打印综合柱状图</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1413"/>
+        <source>打印失败</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1415"/>
+        <source>已发送到打印机: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1418"/>
+        <source>未检测到系统打印机——打印降级为导出 PDF</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1426"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1434"/>
         <source>导出预设</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1303"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1426"/>
         <source>加载井数据后可用（预设按源数据 sidecar 保存）。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1312"/>
+        <location filename="../src/ui/wellcomposite/wellcompositepanel.cpp" line="1435"/>
         <source>暂无预设。导出一次后可经 sidecar 保存。</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12851,12 +14109,12 @@ SHA-256：%2</source>
 <context>
     <name>WellComposite::WellSelectionDialog</name>
     <message>
-        <location filename="../src/ui/wellcomposite/multiwellview.cpp" line="375"/>
+        <location filename="../src/ui/wellcomposite/multiwellview.cpp" line="381"/>
         <source>选择对比井</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/multiwellview.cpp" line="379"/>
+        <location filename="../src/ui/wellcomposite/multiwellview.cpp" line="385"/>
         <source>测区井（蓝）/ 参考井（琥珀）</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12969,12 +14227,12 @@ SHA-256：%2</source>
 <context>
     <name>WellCorrelationPanel</name>
     <message>
-        <location filename="../src/ui/correlationpanel.cpp" line="299"/>
+        <location filename="../src/ui/correlationpanel.cpp" line="303"/>
         <source>连井剖面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/correlationpanel.cpp" line="316"/>
+        <location filename="../src/ui/correlationpanel.cpp" line="320"/>
         <source>选择井以构建剖面</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12996,97 +14254,87 @@ SHA-256：%2</source>
     </message>
     <message>
         <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="30"/>
-        <source>创建修订副本</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="33"/>
         <source>撤销修订</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="36"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="33"/>
         <source>保存修订版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="53"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="50"/>
         <source>顶深 m</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="53"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="50"/>
         <source>底深 m</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="53"/>
-        <source>预测类别</source>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="50"/>
+        <source>相类别</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="53"/>
-        <source>修订类别</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="64"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="61"/>
         <source>应用到选中井段</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="112"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="106"/>
         <source>适应井段</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="116"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="110"/>
         <source>自适应</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="125"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="119"/>
         <source>撤销上一次修订</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="125"/>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="119"/>
         <source>没有可撤销的修订</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="154"/>
-        <source>预测原件保留，新建独立修订副本</source>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="149"/>
+        <source>保存修订版本并登记图件文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="150"/>
+        <source>首次修订自动保留预测原件并切换到修订副本</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="164"/>
+        <source>选择井段与相类别；首次修订自动保留预测原件并切换到修订副本</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="173"/>
+        <source>预测为 Mock；地图相点按井段累计厚度最大的类别显示并在画布标注类别。%1点击井道或表格选择井段，选择相类别后直接应用修订；首次修订自动保留预测原件。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="233"/>
+        <source>预测相</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="168"/>
-        <source>在修订副本中选择井段与相类别</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="172"/>
         <source>选择测井预测结果以查看井道与相井段。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="178"/>
-        <source>预测为 Mock；地图相点按井段累计厚度最大的类别显示。%1点击井道或表格选择井段，再应用修订。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="182"/>
         <source>当前深度为模拟范围 0–120 m。 </source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="241"/>
-        <source>预测相（Mock）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/pages/wellpredictionpanel.cpp" line="242"/>
-        <source>人工修订相</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -13234,67 +14482,67 @@ SHA-256：%2</source>
 <context>
     <name>paleo::dataops::DuplicateDialog</name>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="367"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="452"/>
         <source>重复文件检测</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="371"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="456"/>
         <source>以下文件与库内资产重复（SHA-256 或同名）。逐条选择处置方式：</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="377"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="462"/>
         <source>新文件</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="377"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="462"/>
         <source>命中</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="377"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="462"/>
         <source>处置</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="387"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="472"/>
         <source>全部跳过</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="388"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="473"/>
         <source>全部重命名</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="389"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="474"/>
         <source>全部作新版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="421"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="506"/>
         <source>SHA 相同</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="422"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="507"/>
         <source>同名</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="428"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="513"/>
         <source>跳过</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="429"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="514"/>
         <source>重命名导入</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="430"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="515"/>
         <source>覆盖 → 派生新版本</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13645,28 +14893,28 @@ SHA-256：%2</source>
 <context>
     <name>paleo::dataops::ImportEstimateDialog</name>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="468"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="553"/>
         <source>导入预估</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="474"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="559"/>
         <source>一次全部导入</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="475"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="560"/>
         <source>分批导入（每批 200 个文件）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="486"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="571"/>
         <source>目录内共 %1 个文件 · 约 %2 MB%3
 扩展名分布：%4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="490"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="575"/>
         <source>（其中 %1 个 &gt;100MB）</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13674,37 +14922,37 @@ SHA-256：%2</source>
 <context>
     <name>paleo::dataops::ImportPresetDialog</name>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="304"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="389"/>
         <source>导入预设</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="310"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="395"/>
         <source>预设</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="310"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="395"/>
         <source>目录数</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="310"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="395"/>
         <source>类型映射</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="316"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="401"/>
         <source>把当前设置存为预设</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="318"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="403"/>
         <source>删除选中预设</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="320"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="405"/>
         <source>关闭</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13712,85 +14960,105 @@ SHA-256：%2</source>
 <context>
     <name>paleo::dataops::ImportQueuePanel</name>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="95"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="97"/>
         <source>导入队列</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="105"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="107"/>
         <source>摘要</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="107"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="109"/>
         <source>清已完成</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="112"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="114"/>
         <source>收起队列面板</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="120"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="122"/>
         <source>文件</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="120"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="122"/>
         <source>状态</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="120"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="122"/>
         <source>进度</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="120"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="122"/>
         <source>操作</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="142"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="145"/>
+        <source>全部取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="147"/>
+        <source>取消所有排队和进行中的导入</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="169"/>
         <source>导入进行中</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="143"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="170"/>
         <source>还有未完成项，仍要收起面板？</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="248"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="287"/>
         <source>取消</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="259"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="298"/>
         <source>重试</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="261"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="300"/>
         <source>跳过</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="280"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="319"/>
         <source>%1 项 · 待处理 %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="350"/>
+        <source>剩余 %1 项 · %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="358"/>
+        <source>已完成 %1 项</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
     <name>paleo::dataops::ImportReportDialog</name>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="49"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="51"/>
         <source>导入摘要</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="60"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="62"/>
         <source>复制</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13798,7 +15066,7 @@ SHA-256：%2</source>
 <context>
     <name>paleo::dataops::ImportRetryQueue</name>
     <message>
-        <location filename="../src/ui/pages/dataops/dataopsimportlogic.h" line="349"/>
+        <location filename="../src/ui/pages/dataops/dataopsimportlogic.h" line="383"/>
         <source>导入摘要：共 %1 项 — 成功 %2、失败 %3、跳过 %4、取消 %5</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14046,294 +15314,294 @@ SHA-256：%2</source>
 <context>
     <name>seismic::Seismic3DViewPanel</name>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="107"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="111"/>
         <source>等轴测</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="107"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="111"/>
         <source>切换至等轴测视角</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="108"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="112"/>
         <source>俯视</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="108"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="112"/>
         <source>切换至俯视 (平面) 视角</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="109"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="113"/>
         <source>正视</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="109"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="113"/>
         <source>切换至正视视角</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="110"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="114"/>
         <source>侧视</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="110"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="114"/>
         <source>切换至侧视视角</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="111"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="115"/>
         <source>居中复位</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="111"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="115"/>
         <source>居中并重置相机视角</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="127"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="131"/>
         <source>包围盒</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="127"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="131"/>
         <source>显示/隐藏工区三维包围线框</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="128"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="132"/>
         <source>纵测线 (IL)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="128"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="132"/>
         <source>显示/隐藏纵测线切片</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="129"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="133"/>
         <source>横测线 (XL)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="129"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="133"/>
         <source>显示/隐藏横测线切片</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="130"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="134"/>
         <source>时间切片 (Z)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="130"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="134"/>
         <source>显示/隐藏时间切片</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="174"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="178"/>
         <source>纵测线 (IL):</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="191"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="195"/>
         <source>横测线 (XL):</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="208"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="212"/>
         <source>时间 (Z):</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="604"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="647"/>
         <source>地震切片提取失败（槽位 %1，索引 %2）：%3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="660"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="716"/>
         <source>色标:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="665"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="721"/>
         <source>默认（引擎）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="667"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="723"/>
         <source>自定义…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="669"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="725"/>
         <source>编辑…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="669"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="725"/>
         <source>自定义 colormap 控制点（位置→颜色）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="673"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="729"/>
         <source>透明度:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="681"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="737"/>
         <source>值域:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="699"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="755"/>
         <source>体渲染</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="699"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="755"/>
         <source>切片堆叠体渲染：16 层水平切片半透明叠渲；
 拖动滑杆期间自动降到 4 层（交互降采样），静止后精渲</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="703"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="759"/>
         <source>fps</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="705"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="761"/>
         <source>显示帧率读数（调试）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="711"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="767"/>
         <source>视角:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="717"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="773"/>
         <source>存</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="717"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="773"/>
         <source>保存当前视角为书签</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="718"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="774"/>
         <source>删</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="718"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="774"/>
         <source>删除选中的视角书签</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="723"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="779"/>
         <source>截图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="723"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="779"/>
         <source>导出当前三维视口为 PNG</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="750"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="806"/>
         <source>自定义 colormap 控制点（位置 0..1，颜色 #RRGGBB）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="781"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="837"/>
         <source>自定义</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="817"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="873"/>
         <source>三维截图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="817"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="873"/>
         <source>当前处于 2D 回退模式，请使用右键另存。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="821"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="877"/>
         <source>导出三维视口截图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="822"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="878"/>
         <source>PNG 图像 (*.png)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="827"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="883"/>
         <source>截图失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="827"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="883"/>
         <source>OpenGL 帧缓冲不可用。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="831"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="887"/>
         <source>已导出</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="831"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="887"/>
         <source>三维视口已保存到:
 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="833"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="889"/>
         <source>导出失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="833"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="889"/>
         <source>保存 PNG 失败。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="839"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="895"/>
         <source>保存视角书签</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="840"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="896"/>
         <source>视角名：</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="841"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="897"/>
         <source>视角 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="1049"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="1186"/>
         <source>三维视口 GL 不可用，已切换 2D 切片拼接回退视图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="1077"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="1214"/>
         <source>体 %1 GB 超过内存预算（RAM/2 ≈ %2 GB）——建议「转码分页工作区 (.sf3p)」后启用分页通道</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="1079"/>
+        <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="1216"/>
         <source>体 %1 GB 超过内存预算——已启用 .sf3p 分页通道（按页取数，常驻内存受控）</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14342,7 +15610,7 @@ SHA-256：%2</source>
     <name>seismic::Seismic3DViewportWidget</name>
     <message>
         <location filename="../src/ui/seismic3d/seismic3dviewportwidget.cpp" line="28"/>
-        <source>左键拖拽旋转；右键/Shift+左键拖拽平移；Ctrl+滚轮缩放；滚轮平移（Shift 横向）
+        <source>左键拖拽旋转；右键/Shift+左键拖拽平移；滚轮缩放（Shift 横向平移）
 方向键旋转；+/- 缩放；双击居中复位</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14605,745 +15873,7 @@ SHA-256：%2</source>
     </message>
 </context>
 <context>
-    <name>seismic::SeismicSectionCanvas</name>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="125"/>
-        <source>左键拖拽平移；滚轮平移（Shift+滚轮横向）；Ctrl+滚轮缩放；双击适应窗口
-方向键平移；+/- 缩放；PgUp/PgDn 步进切片</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1088"/>
-        <source>A · %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1088"/>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1088"/>
-        <source>当前</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1090"/>
-        <source>B · %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1101"/>
-        <source>未加载地震剖面数据
-（支持拖拽测线或从地图生成连井/任意剖面）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1225"/>
-        <source>合成记录不可用：%1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1557"/>
-        <source>时间切片
-%1 ms</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1558"/>
-        <source>深度切片
-%1 m</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1615"/>
-        <source>TWT (ms)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1616"/>
-        <source>参考深度
-(m，常速)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1633"/>
-        <source>色标</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1637"/>
-        <source>振幅</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1691"/>
-        <source>波峰+</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1693"/>
-        <source>波谷-</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="1711"/>
-        <source>深度(m)</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
-    <name>seismic::SeismicSectionDockWidget</name>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="47"/>
-        <source>地震剖面 / 井震综合</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="93"/>
-        <source>连井 / 时深</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="94"/>
-        <source>选择连井顺序、绘制任意折线、调整逐井时深关系</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="100"/>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1139"/>
-        <source>测线: 未加载</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="112"/>
-        <source>纵测线 (IL)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="112"/>
-        <source>横测线 (XL)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="112"/>
-        <source>时间切片 (Time)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="112"/>
-        <source>任意测线/井剖面</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="127"/>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="927"/>
-        <source>纵测线:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="179"/>
-        <source>+ 放大</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="185"/>
-        <source>- 缩小</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="191"/>
-        <source>适应窗口</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="197"/>
-        <source>1:1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="204"/>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="378"/>
-        <source>单位: TWT (ms)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="206"/>
-        <source>切换 TWT 与常速参考深度尺；井段仍按本井时深表对齐</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="211"/>
-        <source>色标:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="220"/>
-        <source>红白蓝 (双极)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="220"/>
-        <source>灰度 (单极)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="220"/>
-        <source>彩虹谱 (相图)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="221"/>
-        <source>蓝白红 (反双极)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="221"/>
-        <source>黑-白-蓝 (纸面)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="221"/>
-        <source>红-白-黑 (纸面)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="222"/>
-        <source>绿-白-品红</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="222"/>
-        <source>青-白-橙</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="232"/>
-        <source>增益:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="258"/>
-        <source>井与分层 ▼</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="263"/>
-        <source>显示井位</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="267"/>
-        <source>显示地层分层</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="271"/>
-        <source>显示测井曲线</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="276"/>
-        <source>缓冲半径: 200 m</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="277"/>
-        <source>缓冲半径: 500 m</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="278"/>
-        <source>缓冲半径: 1000 m</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="289"/>
-        <source>投影井数: 全部</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="290"/>
-        <source>投影井数: 最近 1 口</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="291"/>
-        <source>投影井数: 最近 3 口</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="293"/>
-        <source>井旁道小图（最近井）…</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="294"/>
-        <source>任意线编辑器…</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="304"/>
-        <source>导出图件</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="349"/>
-        <source>道: -- | 距离: -- | TWT: -- ms | 深度: -- m | 振幅: -- | (X: --, Y: --)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="375"/>
-        <source>参考深度（常速）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="431"/>
-        <source>复制</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="432"/>
-        <source>复制剖面图到剪贴板（含坐标轴与色标）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="436"/>
-        <source>打印</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="649"/>
-        <source>显示:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="654"/>
-        <source>密度</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="654"/>
-        <source>波形变面积</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="654"/>
-        <source>混合</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="660"/>
-        <source>反转色标</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="665"/>
-        <source>阈值:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="672"/>
-        <source>低于该归一化阈值的振幅压为 0（压噪声底）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="677"/>
-        <source>极性 +/-</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="679"/>
-        <source>极性反转（波峰/波谷互换）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="685"/>
-        <source>AGC</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="687"/>
-        <source>自动增益控制：滑动窗 RMS 归一（压掉道间能量差）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="695"/>
-        <source>AGC 时窗宽度（毫秒）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="701"/>
-        <source>增益曲线…</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="702"/>
-        <source>手动增益曲线：TWT→倍数分段线性控制点编辑</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="707"/>
-        <source>纵向拉伸:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="715"/>
-        <source>纵向拉伸系数（1.0 = 适应窗口基线）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="721"/>
-        <source>双刻度 TWT+深度</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="723"/>
-        <source>左轴 TWT(ms) + 右缘深度(m) 同显（需有效时深模型）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="729"/>
-        <source>卷帘对比</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="731"/>
-        <source>相邻线卷帘对比：帘左当前线 / 帘右相邻线，画布内拖分割线</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="743"/>
-        <source>● 拾取</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="745"/>
-        <source>解释模式：剖面点击放层位拾取点（拾取面板同步显示）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="749"/>
-        <source>✂ 断层</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="751"/>
-        <source>断层模式：剖面拖拽画断层折线（红色虚线跟踪，松手存档）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="758"/>
-        <source>书签:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="767"/>
-        <source>存当前</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="771"/>
-        <source>删除</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="802"/>
-        <source>手动增益曲线（TWT ms → 倍数，分段线性）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="810"/>
-        <source>每行一个控制点：TWT毫秒 倍数
-例如：
-0 1.0
-500 1.5
-1500 3.0</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="865"/>
-        <source>保存剖面书签</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="866"/>
-        <source>书签名：</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="867"/>
-        <source>线 %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="940"/>
-        <source>横测线:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="953"/>
-        <source>时间采样:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1029"/>
-        <source>纵测线剖面 IL %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1031"/>
-        <source>横测线剖面 XL %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1034"/>
-        <source>水平时间切片 TWT %1 ms</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1073"/>
-        <source>切片提取失败: %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1075"/>
-        <source>剖面不可用
-%1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1083"/>
-        <source>%1
-该线无有效地震道（工区覆盖范围外）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1084"/>
-        <source>空切片</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1154"/>
-        <source>横测线 (XL): %1 | 纵测线 (IL): %2 | 时间: %3 ms | 深度: %4 m | 振幅: %5</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1163"/>
-        <source>道: %1/%2 | TWT: %3 ms | 深度: %4 m | 振幅: %5</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1179"/>
-        <source>导出剖面图件</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1180"/>
-        <source>PNG 图像 (*.png);;JPEG 图像 (*.jpg *.jpeg)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1187"/>
-        <source>导出成功</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1187"/>
-        <source>剖面图件已成功保存到:
-%1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1189"/>
-        <source>导出失败</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1189"/>
-        <source>保存图像文件失败，请检查文件写入权限。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1224"/>
-        <source>%1 · 提取中…</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1387"/>
-        <source>无相邻线</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1414"/>
-        <source>道头信息</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1420"/>
-        <source>字段</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1420"/>
-        <source>值</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1426"/>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1862"/>
-        <source>关闭</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1438"/>
-        <source>道序号（0 基）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1439"/>
-        <source>文件偏移 (B)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1440"/>
-        <source>INLINE (189-192)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1441"/>
-        <source>CROSSLINE (193-196)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1442"/>
-        <source>field record (9-12)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1443"/>
-        <source>CDP ensemble (21-24)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1444"/>
-        <source>CDP X (73-76)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1445"/>
-        <source>CDP Y (77-80)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1446"/>
-        <source>采样数 (115-116)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1447"/>
-        <source>采样间隔 (117-118, μs)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1449"/>
-        <source>错误</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1466"/>
-        <source>剖面图已复制到剪贴板</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1472"/>
-        <source>打印地震剖面</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1643"/>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1660"/>
-        <source>catalog 未注入（应用层需调 setInterpretationCatalog）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1752"/>
-        <source>%1（时深用默认均速——无实测检查点表）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1770"/>
-        <source>缺声波曲线 AC</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1770"/>
-        <source>缺密度曲线 DEN</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1788"/>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1822"/>
-        <source>任意线编辑器</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1788"/>
-        <source>请先加载地震体。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1792"/>
-        <source>任意线编辑器（每行一个节点：inline xline）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1797"/>
-        <source>1000 2000
-1002 2005
-1005 2012</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1799"/>
-        <source>投影候选井（井震综合）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1822"/>
-        <source>至少需要 2 个有效节点。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1828"/>
-        <source>任意线（%1 节点）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1834"/>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1850"/>
-        <source>井旁道</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1834"/>
-        <source>无可用的候选井。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1850"/>
-        <source>道提取失败：%1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="1856"/>
-        <source>井旁道 · %1（IL %2 / XL %3）</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
     <name>seismic::SeismicTaskService</name>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="379"/>
-        <source>索引 SEG-Y: %1</source>
-        <translation type="unfinished"></translation>
-    </message>
     <message>
         <location filename="../src/services/seismictaskservice.cpp" line="386"/>
         <source>检查本地磁盘索引缓存...</source>
@@ -15352,167 +15882,6 @@ SHA-256：%2</source>
     <message>
         <location filename="../src/services/seismictaskservice.cpp" line="401"/>
         <source>正在进行全卷道头扫描与几何提取...</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="436"/>
-        <source>任务已取消</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="458"/>
-        <source>地震体未完成索引，无法提取切片</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="490"/>
-        <source>提取地震切片 (%1: %2)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="577"/>
-        <source>切片提取已取消</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="596"/>
-        <source>地震体未完成索引，无法提取剖面</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="607"/>
-        <source>提取任意测线/过井剖面 (%1 节点)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="712"/>
-        <source>剖面提取已取消</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="745"/>
-        <source>转码地震工作区: %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="753"/>
-        <source>该工作区已有转码任务进行中（%1）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="797"/>
-        <source>阶段 %1 · 块 %2/%3 · 跳过 %4 · 总体 %5%</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="831"/>
-        <location filename="../src/services/seismictaskservice.cpp" line="1186"/>
-        <source>任务提交失败</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="866"/>
-        <source>转码已取消（工作区可续跑）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="901"/>
-        <source>秒开预览 SEG-Y: %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="948"/>
-        <source>秒开预览已取消</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="967"/>
-        <source>加载地震体: %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="996"/>
-        <source>地震体加载已取消</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1038"/>
-        <source>转码分页工作区: %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1048"/>
-        <source>该分页工作区已有转码任务进行中（%1）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1103"/>
-        <source>阶段 %1 · 块 %2/%3 · 已读道 %4 · 总体 %5%</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1230"/>
-        <source>分页转码已取消（可续跑）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1263"/>
-        <source>瓦片渐进时间片 (采样 %1)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1327"/>
-        <source>瓦片时间片已取消</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1346"/>
-        <source>读取三维体素窗口 (%1×%2×%3)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1383"/>
-        <source>体素窗口读取已取消</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1401"/>
-        <source>打开分页工作区: %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1424"/>
-        <source>打开分页工作区已取消</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1443"/>
-        <source>切换 LOD 层级 %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1469"/>
-        <source>LOD 切换已取消</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1487"/>
-        <source>探测地震后端: %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1512"/>
-        <source>后端探测已取消</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1571"/>
-        <source>分页工作区头不可读：%1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/services/seismictaskservice.cpp" line="1593"/>
-        <source>分页工作区断点文件不可读：%1</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

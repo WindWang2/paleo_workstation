@@ -341,10 +341,11 @@ void TestDataPreview::everyTypeOpensContent()
   st->preview->openAsset(ids.png);
   QVERIFY(!tabs->widget(tabs->currentIndex())->findChildren<QLabel *>().isEmpty());
   st->preview->openAsset(ids.pdf);
+  // 文档标签不再重复属性信息卡；pdf 原件直接内嵌预览——「用系统程序打开」
+  // 只在失败/转换件兜底路径出现。
   QVERIFY2(tabs->widget(tabs->currentIndex())
-                   ->findChildren<QPushButton *>()
-                   .size() >= 1,
-           "document tab needs open-externally button");
+                   ->findChild<QPdfView *>(QStringLiteral("pdfView")) != nullptr,
+           "document tab needs inline PDF preview");
   st->preview->openAsset(ids.geojson);
   bool sawSpace = false;
   for (QLabel *l : tabs->widget(tabs->currentIndex())->findChildren<QLabel *>())

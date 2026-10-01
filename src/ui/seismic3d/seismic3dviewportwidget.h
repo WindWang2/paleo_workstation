@@ -59,6 +59,11 @@ public:
     void setSliceAlpha(float alpha);
     [[nodiscard]] float sliceAlpha() const { return sliceRenderer_.sliceAlpha(); }
 
+    // D7.1 传递函数：lutRgba 256×4（enable=false 关 TF 路径恢复预烘焙色）。
+    // GL 未就绪时暂存，initializeGL 后补传；重传仅 LUT，切片值纹理不动。
+    void setTransferFunction(const std::vector<unsigned char> &lutRgba, bool enable);
+    [[nodiscard]] bool isTransferFunctionActive() const { return tfActive_; }
+
     // D3.7 截图导出（grabFramebuffer 封装）
     QImage grabViewportImage();
 
@@ -158,5 +163,9 @@ private:
 
     // D3.1 堆叠层数（交互降采样）
     int stackLayerCount_ = SeismicSliceRenderer::kMaxStackLayers;
+
+    // D7.1 TF（GL 前暂存 + initializeGL 补传）
+    std::vector<unsigned char> tfLutBytes_;
+    bool tfActive_ = false;
 };
 } // namespace seismic

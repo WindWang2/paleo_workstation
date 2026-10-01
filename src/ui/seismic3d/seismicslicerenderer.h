@@ -57,6 +57,14 @@ public:
     [[nodiscard]] bool IsSlotReady(SeismicSliceSlot slot) const;
     void ClearSlot(QOpenGLFunctions_3_3_Core *gl, SeismicSliceSlot slot);
 
+    // D7.1 传递函数（GPU 1D LUT）：enable=true 时切片/堆叠层/任意剖面纹理
+    // 改传归一化索引（GL_RG8），着色器按 LUT 取色取不透明度。lutRgba 为
+    // 256×4 straight-alpha RGBA；重传仅 256B——TF 修改零取数零重烘焙。
+    bool SetTransferFunction(QOpenGLFunctions_3_3_Core *gl,
+                             const std::vector<unsigned char> &lutRgba,
+                             bool enable);
+    [[nodiscard]] bool IsTransferFunctionEnabled() const { return tfEnabled_; }
+
     // D3.3 切片透明度（0..1；渲染期 uniform，重设纹理无关）
     void SetSliceAlpha(float alpha);
     [[nodiscard]] float sliceAlpha() const { return sliceAlpha_; }
@@ -78,6 +86,11 @@ public:
     static float HeightScale() { return 4.4f; }
 
 private:
+    // 纹理上传统一口：TF 模式传 GL_RG8 索引+掩码，否则 RGBA8 预烘焙色。
+    // 复用同尺寸纹理走 TexSubImage（避免重新分配）。
+    bool UploadSliceTexture(QOpenGLFunctions_3_3_Core *gl, GLuint texture,
+                            const SgySliceImage &image);
+
     std::unique_ptr<QOpenGLShaderProgram> program_;
     std::array<GLuint, 4> vaos_{};
     std::array<GLuint, 4> vbos_{};
@@ -98,6 +111,10 @@ private:
 
     // D3.3 透明度
     float sliceAlpha_ = 1.0f;
+
+    // D7.1 传递函数
+    GLuint tfLutTex_ = 0;
+    bool tfEnabled_ = false;
 
     bool initialized_ = false;
     bool visible_ = true;

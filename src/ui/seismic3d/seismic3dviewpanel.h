@@ -10,6 +10,7 @@
 
 #include "seismic3dcolormap.h"
 #include "seismic3dfallback.h"
+#include "seismic3dtf.h"
 #include "seismic3dviewportwidget.h"
 #include "../../services/seismictaskservice.h"
 
@@ -65,6 +66,13 @@ public:
     void setSliceAlpha(float alpha);
     void setValueRange(float minFrac, float maxFrac);
 
+    // D7.1 传递函数：启用后 3D 场景走 GPU LUT 路径（色彩+不透明度）；
+    // 修改只重传 256B LUT，切片/堆叠层值纹理不动（真·实时，零取数）。
+    void setTransferFunction(const Seismic3DTransferFunction &tf);
+    void setTransferFunctionEnabled(bool enabled);
+    [[nodiscard]] bool isTransferFunctionEnabled() const { return tfActive_; }
+    [[nodiscard]] const Seismic3DTransferFunction &transferFunction() const { return tf_; }
+
     // D3.9 回退态查询（GL 不可用时视口被 2D 拼接件替换）
     [[nodiscard]] bool isFallbackActive() const { return fallbackActive_; }
 
@@ -98,6 +106,7 @@ private:
     void buildUi();
     void buildDisplayBar();          // D3.x 显示控制行
     void requestSliceUpdate(SeismicSliceSlot slot, SgySliceType type, int index);
+    void applyTransferFunction();    // D7.1：LUT 重传 + 缓存切片/堆叠层值纹理重喂
     void requestStackLayers();       // D3.1 堆叠层提取（A1/A2：体窗合并通道 + 逐层回落）
     void requestStackLayersPerLayer(const std::vector<int> &samples); // A1 回落：每层一次窄读
     void recolorizeSlice(SeismicSliceSlot slot); // D3.5/D3.3 重着色+上传
@@ -166,6 +175,8 @@ private:
     // D3.x 显示控制行控件
     QComboBox *cboColorMap_ = nullptr;
     QToolButton *btnCmapEdit_ = nullptr;       // D3.5 自定义控制点编辑
+    QToolButton *btnTf_ = nullptr;             // D7.1 传递函数开关
+    QToolButton *btnTfEdit_ = nullptr;         // D7.1 TF 编辑器
     QSlider *sliderAlpha_ = nullptr;           // D3.3 透明度
     QDoubleSpinBox *spinRangeMin_ = nullptr;   // D3.3 值域裁剪
     QDoubleSpinBox *spinRangeMax_ = nullptr;
@@ -191,6 +202,14 @@ private:
     bool stackMode_ = false;
     bool stackExtracting_ = false;
     int stackTargetLayers_ = 0;
+
+    // D7.1 TF 状态 + 堆叠层 values 缓存（TF 翻转/修改时重喂值纹理的原料；
+    // 逐层与体窗两通道都在回调里落一份）
+    Seismic3DTransferFunction tf_;
+    bool tfActive_ = false;
+    std::array<SgySliceImage, SeismicSliceRenderer::kMaxStackLayers> cachedStackImages_{};
+    std::array<int, SeismicSliceRenderer::kMaxStackLayers> cachedStackSamples_{};
+    std::array<bool, SeismicSliceRenderer::kMaxStackLayers> cachedStackReady_{};
 
     // D3.9 回退
     bool fallbackActive_ = false;

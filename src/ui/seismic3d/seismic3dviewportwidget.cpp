@@ -53,6 +53,11 @@ void Seismic3DViewportWidget::initializeGL() {
     frameRenderer_.Initialize(this);
     glInitialized_ = true;
 
+    // D7.1：GL 前设置的 TF 在此补传（切片值纹理由面板 glReady 后重喂）
+    if (tfActive_ && tfLutBytes_.size() == 256 * 4) {
+        sliceRenderer_.SetTransferFunction(this, tfLutBytes_, true);
+    }
+
     if (volume_ && volume_->IsLoaded()) {
         frameRenderer_.UpdateFromVolume(this, *volume_);
         if (width() > 0 && height() > 0) {
@@ -508,6 +513,19 @@ void Seismic3DViewportWidget::setStackLayerCount(int count) {
 
 void Seismic3DViewportWidget::setSliceAlpha(float alpha) {
     sliceRenderer_.SetSliceAlpha(alpha);
+    update();
+}
+
+// D7.1：LUT 重传（256B）。enable 翻转时切片/堆叠层纹理需按新模式重喂——
+// 由面板持有 values 缓存方（cachedSlices_/堆叠缓存）负责，视口只管 LUT。
+void Seismic3DViewportWidget::setTransferFunction(const std::vector<unsigned char> &lutRgba, bool enable) {
+    tfLutBytes_ = lutRgba;
+    tfActive_ = enable;
+    if (!glInitialized_ || lutRgba.size() != 256 * 4)
+        return;
+    makeCurrent();
+    sliceRenderer_.SetTransferFunction(this, lutRgba, enable);
+    doneCurrent();
     update();
 }
 

@@ -2,6 +2,7 @@
 #include "seismic3dviewpanel.h"
 
 #include "../paleotheme.h"
+#include "seismic3dtfeditor.h"
 #include "services/paleotaskservice.h" // PaleoTask 完整类型（QPointer 在途句柄）
 
 #include <QApplication>
@@ -295,6 +296,9 @@ void Seismic3DViewPanel::buildUi() {
     connect(viewport_, &Seismic3DViewportWidget::glReady, this, [this]() {
         auto vol = volume();
         if (!vol || !vol->IsLoaded()) return;
+        // D7.1：GL 前设置的 TF 在 GL 就绪后补传 LUT（值纹理随切片重喂）
+        if (tfActive_)
+            viewport_->setTransferFunction(tf_.buildLutRgba(), true);
         if (!viewport_->isSlotReady(SeismicSliceSlot::Inline)) {
             requestSliceUpdate(SeismicSliceSlot::Inline, SgySliceType::Inline, currentInline());
         }
@@ -627,7 +631,10 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
                 guard->cachedIndex_[si] = index;
                 guard->cachedReady_[si] = true;
                 guard->slotCoarse_[si] = lodAtDispatch != 0; // A2：粗层产物标记（精化需重取）
-                if (guard->customCmapActive_)
+                if (guard->tfActive_) {
+                    // D7.1：TF 模式直传 values（渲染器 LUT 取色），CPU 零重烘焙
+                    guard->viewport_->updateSlice(slot, type, index, *image);
+                } else if (guard->customCmapActive_)
                     guard->recolorizeSlice(slot);
                 else
                     guard->viewport_->updateSlice(slot, type, index, *image);
@@ -675,7 +682,9 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
             cachedIndex_[si] = index;
             cachedReady_[si] = true;
             slotCoarse_[si] = false;
-            if (customCmapActive_)
+            if (tfActive_)
+                viewport_->updateSlice(slot, type, index, image); // D7.1 值直传
+            else if (customCmapActive_)
                 recolorizeSlice(slot);
             else
                 viewport_->updateSlice(slot, type, index, image);
@@ -750,6 +759,12 @@ void Seismic3DViewPanel::buildDisplayBar() {
     lay->addWidget(spinRangeMin_);
     lay->addWidget(new QLabel(QStringLiteral("–"), bar));
     lay->addWidget(spinRangeMax_);
+
+    // D7.1 传递函数（GPU LUT 体渲染）
+    btnTf_ = createToolBtn(tr("传递函数"), tr("体渲染传递函数：色彩+不透明度 LUT 实时作用于 3D 体\n（GPU 侧取色，修改零取数零重烘焙）"), true);
+    lay->addWidget(btnTf_);
+    btnTfEdit_ = createToolBtn(tr("TF…"), tr("编辑传递函数曲线（不透明度分段线性）"));
+    lay->addWidget(btnTfEdit_);
 
     // D3.1 体渲染（切片堆叠）
     btnStack_ = createToolBtn(tr("体渲染"), tr("切片堆叠体渲染：16 层水平切片半透明叠渲；\n拖动滑杆期间自动降到 4 层（交互降采样），静止后精渲"), true);
@@ -862,6 +877,50 @@ void Seismic3DViewPanel::buildDisplayBar() {
     connect(spinRangeMax_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
             [rangeChanged](double) { rangeChanged(); });
 
+    // D7.1 传递函数
+    connect(btnTf_, &QToolButton::toggled, this, [this](bool on) {
+        setTransferFunctionEnabled(on);
+    });
+    connect(btnTfEdit_, &QToolButton::clicked, this, [this]() {
+        // 编辑器对话框：预设 + 曲线（变更实时生效——每拖一下只重传 256B LUT）
+        if (!tf_.isValid())
+            tf_ = Seismic3DTransferFunction::preset(QStringLiteral("均匀半透明"));
+        QDialog dlg(this);
+        dlg.setWindowTitle(tr("体渲染传递函数（0=负峰 1=正峰）"));
+        dlg.setModal(false);
+        auto *lay = new QVBoxLayout(&dlg);
+        auto *presetRow = new QWidget(&dlg);
+        auto *presetLay = new QHBoxLayout(presetRow);
+        presetLay->setContentsMargins(0, 0, 0, 0);
+        presetLay->addWidget(new QLabel(tr("预设:"), presetRow));
+        auto *cboPreset = new QComboBox(presetRow);
+        cboPreset->addItem(QString());
+        cboPreset->addItems(Seismic3DTransferFunction::presetNames());
+        presetLay->addWidget(cboPreset);
+        presetLay->addStretch(1);
+        lay->addWidget(presetRow);
+        auto *editor = new Seismic3DTfEditorWidget(&dlg);
+        editor->setTransferFunction(tf_);
+        lay->addWidget(editor, 1);
+        auto *hint = new QLabel(
+            tr("拖圆点调位置/不透明度；双击插入停靠点；右键删除。"), &dlg);
+        hint->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8.5pt;"));
+        lay->addWidget(hint);
+        connect(cboPreset, &QComboBox::activated, this, [this, editor](int idx) {
+            if (idx <= 0)
+                return;
+            const auto tf = Seismic3DTransferFunction::preset(
+                Seismic3DTransferFunction::presetNames().value(idx - 1));
+            editor->setTransferFunction(tf);
+            setTransferFunction(tf);
+        });
+        connect(editor, &Seismic3DTfEditorWidget::transferFunctionChanged, this,
+                [this](const Seismic3DTransferFunction &tf) {
+                    setTransferFunction(tf); // 实时（拖动中逐帧生效）
+                });
+        dlg.exec();
+    });
+
     connect(btnStack_, &QToolButton::toggled, this, [this](bool on) {
         setStackModeEnabled(on);
     });
@@ -945,6 +1004,13 @@ void Seismic3DViewPanel::recolorizeSlice(SeismicSliceSlot slot) {
     const std::size_t si = static_cast<std::size_t>(slot) % 3;
     if (!cachedReady_[si] || !viewport_)
         return;
+    if (tfActive_) {
+        // D7.1：TF 模式色彩/不透明度全由 GPU LUT 决定——直传 values
+        const SgySliceType type0 = si == 0 ? SgySliceType::Inline
+                                 : (si == 1 ? SgySliceType::Xline : SgySliceType::Time);
+        viewport_->updateSlice(slot, type0, cachedIndex_[si], cachedSlices_[si]);
+        return;
+    }
     SgySliceImage img = cachedSlices_[si]; // values 保真副本
     if (customCmapActive_) {
         cmap_.colorizeSlice(img, 1.0f, 1.45f);
@@ -989,6 +1055,56 @@ void Seismic3DViewPanel::setSliceAlpha(float alpha) {
 void Seismic3DViewPanel::setValueRange(float minFrac, float maxFrac) {
     rangeMinFrac_ = std::clamp(std::min(minFrac, maxFrac), 0.0f, 1.0f);
     rangeMaxFrac_ = std::clamp(std::max(minFrac, maxFrac), 0.0f, 1.0f);
+}
+
+// ---- D7.1 传递函数 ----
+void Seismic3DViewPanel::setTransferFunction(const Seismic3DTransferFunction &tf) {
+    tf_ = tf;
+    if (!tfActive_)
+        setTransferFunctionEnabled(true);
+    else
+        applyTransferFunction();
+}
+
+void Seismic3DViewPanel::setTransferFunctionEnabled(bool enabled) {
+    if (tfActive_ == enabled)
+        return;
+    tfActive_ = enabled;
+    applyTransferFunction();
+}
+
+// LUT 重传（256B）+ 按当前模式重喂缓存切片/堆叠层（TF 开=值纹理、关=恢复
+// CPU 预烘焙色）。取数零新增——全部走面板既有 values 缓存。
+void Seismic3DViewPanel::applyTransferFunction() {
+    if (!viewport_)
+        return;
+    viewport_->setTransferFunction(tf_.buildLutRgba(), tfActive_);
+    for (int slot = 0; slot < 3; ++slot) {
+        if (!cachedReady_[static_cast<std::size_t>(slot)])
+            continue;
+        const SeismicSliceSlot s = static_cast<SeismicSliceSlot>(slot);
+        if (tfActive_) {
+            // 值纹理直传（渲染器按 LUT 取色）
+            const SgySliceType type = slot == 0 ? SgySliceType::Inline
+                                  : (slot == 1 ? SgySliceType::Xline : SgySliceType::Time);
+            viewport_->updateSlice(s, type, cachedIndex_[static_cast<std::size_t>(slot)],
+                                   cachedSlices_[static_cast<std::size_t>(slot)]);
+        } else if (customCmapActive_) {
+            recolorizeSlice(s);
+        } else {
+            // 引擎预烘焙 rgba 副本仍在缓存里
+            const SgySliceType type = slot == 0 ? SgySliceType::Inline
+                                  : (slot == 1 ? SgySliceType::Xline : SgySliceType::Time);
+            viewport_->updateSlice(s, type, cachedIndex_[static_cast<std::size_t>(slot)],
+                                   cachedSlices_[static_cast<std::size_t>(slot)]);
+        }
+    }
+    for (int layer = 0; layer < SeismicSliceRenderer::kMaxStackLayers; ++layer) {
+        if (!cachedStackReady_[static_cast<std::size_t>(layer)])
+            continue;
+        viewport_->updateStackLayer(layer, cachedStackSamples_[static_cast<std::size_t>(layer)],
+                                    cachedStackImages_[static_cast<std::size_t>(layer)]);
+    }
 }
 
 // ---- D3.4 / D3.12 ----
@@ -1086,8 +1202,11 @@ void Seismic3DViewPanel::requestStackLayers() {
                     SgySliceImage plane;
                     if (!SeismicTaskService::slicePlaneFromWindow(window, samples[std::size_t(i)], plane))
                         continue;
-                    if (volume)
+                    if (volume && !guard->tfActive_)
                         volume->Recolorize(plane); // 与切片通道同一份预烘焙色彩
+                    guard->cachedStackImages_[std::size_t(i)] = plane; // D7.1 values 缓存
+                    guard->cachedStackSamples_[std::size_t(i)] = samples[std::size_t(i)];
+                    guard->cachedStackReady_[std::size_t(i)] = true;
                     guard->viewport_->updateStackLayer(i, samples[std::size_t(i)], plane);
                 }
             });
@@ -1114,17 +1233,26 @@ void Seismic3DViewPanel::requestStackLayersPerLayer(const std::vector<int> &samp
                 taskSvc_->startSliceExtraction(
                     vol, SgySliceType::Time, sample,
                     [guard, layerIdx, sample, remaining](bool ok, std::shared_ptr<const SgySliceImage> img, const QString &) {
-                        if (ok && img && guard)
+                        if (ok && img && guard) {
+                            guard->cachedStackImages_[std::size_t(layerIdx)] = *img; // D7.1
+                            guard->cachedStackSamples_[std::size_t(layerIdx)] = sample;
+                            guard->cachedStackReady_[std::size_t(layerIdx)] = true;
                             guard->viewport_->updateStackLayer(layerIdx, sample, *img);
+                        }
                         if (guard && --(*remaining) == 0)
                             guard->stackExtracting_ = false;
                     }, pagedPath_);
             } else {
                 SgySliceImage img;
                 std::string err;
-                if (vol->ExtractSlice(SgySliceType::Time, sample, img, err))
-                    if (guard)
+                if (vol->ExtractSlice(SgySliceType::Time, sample, img, err)) {
+                    if (guard) {
+                        guard->cachedStackImages_[std::size_t(layerIdx)] = img; // D7.1
+                        guard->cachedStackSamples_[std::size_t(layerIdx)] = sample;
+                        guard->cachedStackReady_[std::size_t(layerIdx)] = true;
                         guard->viewport_->updateStackLayer(layerIdx, sample, img);
+                    }
+                }
                 if (guard && --(*remaining) == 0)
                     guard->stackExtracting_ = false;
             }

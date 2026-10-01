@@ -555,6 +555,10 @@ add_paleo_test(tst_workflows LIBS paleo_workflow)
 add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）
 add_paleo_test(tst_ui)                                      # 伞式（app 面全栈，兼容样本）
 add_paleo_test(tst_panels)                                  # 伞式（全栈，兼容样本）
+# RUN_SERIAL 独占机器跑：dataops_d2_filterPerformance10k 的 100ms 墙钟断言
+# 在 -j8 并行负载下偶发超限（108ms 实测）——同 tst_perf/tst_correlation_full
+# 的计时抖动关回串行基线先例（根治归 TEST-02 类递延）。
+set_tests_properties(tst_panels PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_mappingpages LIBS paleo_ui)
 add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
 add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式；伞式兼容样本）

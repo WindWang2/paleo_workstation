@@ -13,7 +13,7 @@
 | 3 | 墙钟断言比率化/豁免入档 + 比例入档 | ✅ | `docs/perf/ASSERTIONS.md`：48 处全处置（比率 13% + 先例比率 23% + 豁免 64%） |
 | 4 | LTO/PGO 实验报告入档（采用/否决+证据） | ✅ | `docs/perf/BUILD_OPT.md`：O3 否决（catalog_open +35% 一致回归）；LTO 采纳为 `PALEO_ENABLE_LTO`（默认 OFF）；PGO 两阶段见报告 §4 |
 | 5 | 966MB 内存预算门（RSS 上限+无泄漏）全绿 | ✅ | tst_mem_budget：RSS 151MiB ≤ 门 483MiB（0.5×体）；6 轮循环净增 12KiB ≤ 门 32MiB |
-| 6 | ctest 全绿 + layering --strict + ledger + push + PR | 见终局节 | —— |
+| 6 | ctest 全绿 + layering --strict + ledger + push + PR | ✅ | ctest 133/134（唯一失败 tst_panels 为禁区已知并行闪红，串行绿 134/134，见遗留节）；layering --strict ✅；ui_invariants --strict ✅ |
 
 ## 簇1 启动仪表
 
@@ -108,6 +108,9 @@ tst_mem_budget（966MiB 真工区，env 门控）：
 ## 遗留移交
 
 - E4（wellTops 族两段式迁移）按需逐个做——模式与 F1 同。
-- tst_panels 并行闪红（模态拍序）非本轮范围，串行绿（134/134），未动。
+- tst_panels 并行闪红（模态拍序族）非本轮范围，未动：终验 ctest -j4 中
+  `dataops_d1_batchAddTagViaInputDialog` 闪红（输入对话框交互拍序；与
+  F1-F3 改动无涉——串行复跑通过，全量套其余 133 项全绿）。与 BASELINE.md
+  §B5 既往记录同族，移交专项。
 - 启动优化下手面：动态链接布局（loader 0.56 份额）——preload/库裁剪
   实验，未在本轮范围。

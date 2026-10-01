@@ -446,7 +446,7 @@ public:
   // 支持（瞬时族需整道谱，时窗族需垂向窗，见 TODOS 递延）。onFinished 在
   // 服务所在线程回调。
   PaleoTask *startAttributeSlice(
-      std::shared_ptr<SgyVolume> volume,
+      std::shared_ptr<const SgyVolume> volume,
       SeismicAttrKind kind,
       const SeismicAttrParams &params,
       SgySliceType sliceType,

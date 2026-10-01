@@ -38,6 +38,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <thread>
 
 #include "algorithms/seismicattr.h"
 #include "catalog/datacatalog.h"
@@ -2219,7 +2220,7 @@ bool SeismicTaskService::seismicAttrNeedsNeighbors(SeismicAttrKind kind)
 }
 
 PaleoTask *SeismicTaskService::startAttributeSlice(
-    std::shared_ptr<SgyVolume> volume,
+    std::shared_ptr<const SgyVolume> volume,
     SeismicAttrKind kind,
     const SeismicAttrParams &params,
     SgySliceType sliceType,
@@ -2404,17 +2405,19 @@ PaleoTask *SeismicTaskService::startAttributeSlice(
     }
     else
     {
-      // 逐道族：列 → 时间序（切片 row 0 = 最深样）→ 核计算 → 写回 row 序。
+// 逐道族：列 → 时间序（切片 row 0 = 最深样）→ 核计算 → 写回 row 序。
+      // 列间独立——std::thread 分片并行（≤min(4,hw) 片，SgyVolume 时间片多
+      // 线程同先例）；进度由 0 号分片单调上报；取消全分片协作（原子标志）。
       const SgySliceImage &src = slices[0];
-      std::vector<float> trace(static_cast<std::size_t>(height));
-      std::vector<float> attr(static_cast<std::size_t>(height));
-      std::vector<float> aux; // 甜点需双输出（包络+频率）
-      for (int x = 0; x < width; ++x)
-      {
-        if (task->cancelRequested())
-          return QString();
+      const auto cancelled = [task]() { return task->cancelRequested(); };
+
+      // 单列：读列（翻时间序）→ 核 → 写回（翻回 row 序）。
+      auto processColumn = [&](int x) {
+        std::vector<float> trace(static_cast<std::size_t>(height));
+        std::vector<float> attr(static_cast<std::size_t>(height));
         for (int row = 0; row < height; ++row)
-          trace[std::size_t(height - 1 - row)] = src.values[std::size_t(row * width + x)];
+          trace[static_cast<std::size_t>(height - 1 - row)] =
+              src.values[static_cast<std::size_t>(row * width + x)];
 
         switch (kind)
         {
@@ -2435,13 +2438,8 @@ PaleoTask *SeismicTaskService::startAttributeSlice(
           else if (kind == SeismicAttrKind::InstQ)
             attr = ct.quality;
           else
-          {
-            aux.assign(static_cast<std::size_t>(height),
-                       std::numeric_limits<float>::quiet_NaN());
             paleo::seisattr::sweetness(ct.envelope.data(), ct.freqHz.data(),
-                                       height, aux.data());
-            attr = aux;
-          }
+                                       height, attr.data());
           break;
         }
         case SeismicAttrKind::Rms:
@@ -2462,12 +2460,37 @@ PaleoTask *SeismicTaskService::startAttributeSlice(
         }
 
         for (int row = 0; row < height; ++row)
-          out->values[std::size_t(row * width + x)] =
-              attr[std::size_t(height - 1 - row)];
-        if ((x & 15) == 0 || x == width - 1)
-          task->reportBytes(totalUnits - sliceUnits + qint64(x + 1) * height,
-                            totalUnits);
+          out->values[static_cast<std::size_t>(row * width + x)] =
+              attr[static_cast<std::size_t>(height - 1 - row)];
+      };
+
+      const unsigned int hw = std::thread::hardware_concurrency();
+      const int nThreads = std::max(1, std::min<int>(4, int(hw)));
+      const int chunk = (width + nThreads - 1) / nThreads;
+      auto runRange = [&](int x0, int xEnd, bool report) {
+        for (int x = x0; x < xEnd && !cancelled(); ++x)
+        {
+          processColumn(x);
+          if (report && ((x & 15) == 0 || x == xEnd - 1))
+            task->reportBytes(totalUnits - sliceUnits +
+                                  qint64(x - x0 + 1) * height,
+                              totalUnits);
+        }
+      };
+      std::vector<std::thread> workers;
+      for (int t = 1; t < nThreads; ++t)
+      {
+        const int x0 = std::min(width, t * chunk);
+        const int x1 = std::min(width, x0 + chunk);
+        if (x0 >= x1)
+          break;
+        workers.emplace_back(runRange, x0, x1, /*report=*/false);
       }
+      runRange(0, std::min(width, chunk), /*report=*/true);
+      for (auto &w : workers)
+        w.join();
+      if (cancelled())
+        return QString();
     }
     result->computeMs = double(clock.elapsed());
 

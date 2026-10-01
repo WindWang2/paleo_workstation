@@ -70,3 +70,12 @@ target_compile_definitions(tst_seismic_budgets PRIVATE
 # goal/seismic-attributes — 属性任务编排：几何/解析值/拒绝语义/入池取消/
 # 进度单调/SATR 资产登记 roundtrip（核函数数值面在 tst_seismicattr）
 add_paleo_test(tst_seismicattrsvc LIBS paleo_services)
+
+# goal/seismic-attributes — 属性面板源 + UI 面：面板意图信号/画布叠加生命
+# 周期/offscreen 全链（面板 → 任务 → 叠加上图，三类属性）/登记闭环
+target_sources(paleo_ui PRIVATE src/ui/seismicsection/seismicattrpanel.cpp)
+add_paleo_test(tst_seismicattrui LIBS paleo_ui)
+
+# goal/seismic-attributes — 性能面：合成体比率门（属性 ≤6× 切片提取基线，
+# 机器无关）+ PALEO_REAL_PROJECT_AREA 门控真机实测（BASELINE 行誊档案）
+add_paleo_test(tst_seismicattrperf LIBS paleo_services)

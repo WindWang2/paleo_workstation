@@ -1,5 +1,6 @@
 // 层：视图
 #include "ui/seismicsection/seismicsectiondockwidget.h"
+#include "ui/seismicsection/seismicattrpanel.h"
 
 #include <QAction>
 #include <QActionGroup>
@@ -802,6 +803,19 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     m_btnPickMode->setToolTip(tr("解释模式：剖面点击放层位拾取点（拾取面板同步显示）"));
     themedButtonStyle(m_btnPickMode);
     lay->addWidget(m_btnPickMode);
+
+    // goal/seismic-attributes：属性面板开关（计算属性并叠加当前剖面）
+    m_btnAttr = new QToolButton(bar);
+    m_btnAttr->setText(tr("◈ 属性"));
+    m_btnAttr->setObjectName(QStringLiteral("btnAttrPanel"));
+    m_btnAttr->setCheckable(true);
+    m_btnAttr->setToolTip(tr("属性计算面板：包络/瞬时/相干等属性计算并叠加显示"));
+    m_btnAttr->setStyleSheet(btnStyle);
+    lay->addWidget(m_btnAttr);
+    connect(m_btnAttr, &QToolButton::toggled, this, [this](bool on) {
+        if (m_attrPanel)
+            m_attrPanel->setVisible(on);
+    });
     m_btnFaultMode = new QToolButton(bar);
     m_btnFaultMode->setText(tr("✂ 断层"));
     m_btnFaultMode->setCheckable(true);
@@ -1662,6 +1676,104 @@ void SeismicSectionDockWidget::setupInterpretationUi(QWidget *parent) {
             &SeismicSectionDockWidget::addPickFromCanvas);
     connect(m_canvas, &SeismicSectionCanvas::faultDrawn, this,
             &SeismicSectionDockWidget::addFaultFromCanvas);
+
+    setupAttrPanelUi(parent);
+}
+
+// goal/seismic-attributes 属性面板：画布下方可折叠行（拾取面板同模式），
+// 面板只发意图信号，任务编排/叠加回填在本 dock。
+void SeismicSectionDockWidget::setupAttrPanelUi(QWidget *parent) {
+    m_attrPanel = new SeismicAttrPanel(this);
+    m_attrPanel->setVisible(false);
+    if (auto *mainLay = qobject_cast<QVBoxLayout *>(parent->layout()))
+        mainLay->addWidget(m_attrPanel);
+
+    connect(m_attrPanel, &SeismicAttrPanel::computeRequested, this,
+            [this](seismic::SeismicTaskService::SeismicAttrKind kind,
+                   const seismic::SeismicTaskService::SeismicAttrParams &params,
+                   double overlayAlpha) {
+                m_canvas->setAttrOverlayAlpha(overlayAlpha);
+                computeAttributeOnCurrentSection(kind, params);
+            });
+    connect(m_attrPanel, &SeismicAttrPanel::alphaChanged, this,
+            [this](double alpha) { m_canvas->setAttrOverlayAlpha(alpha); });
+    connect(m_attrPanel, &SeismicAttrPanel::cancelRequested, this, [this]() {
+        if (m_attrTask)
+            m_attrTask->requestCancel();
+    });
+    connect(m_attrPanel, &SeismicAttrPanel::registerRequested, this,
+            [this]() { registerCurrentAttributeAsset(); });
+}
+
+void SeismicSectionDockWidget::computeAttributeOnCurrentSection(
+    SeismicTaskService::SeismicAttrKind kind,
+    const SeismicTaskService::SeismicAttrParams &params) {
+    if (!m_attrPanel)
+        return;
+    if (!m_taskService) {
+        m_attrPanel->showResult(false, tr("任务服务未注入"));
+        return;
+    }
+    if (!m_volume) {
+        m_attrPanel->showResult(false, tr("地震体未加载（先打开 SEG-Y）"));
+        return;
+    }
+    const int mode = m_cboSectionMode ? m_cboSectionMode->currentIndex() : 0;
+    if (mode != 0 && mode != 1) {
+        m_attrPanel->showResult(
+            false, tr("属性计算支持 Inline/Crossline 剖面（时间片/任意线见 TODOS）"));
+        return;
+    }
+    const SgySliceType type = mode == 0 ? SgySliceType::Inline : SgySliceType::Xline;
+    const int index = m_spinSlice ? m_spinSlice->value() : 0;
+
+    m_lastAttrParams = params;
+    m_lastAttrSourcePath = QString::fromStdString(m_volume->Path().string());
+    m_attrPanel->setBusy(true);
+    PaleoTask *task = m_taskService->startAttributeSlice(
+        m_volume, kind, params, type, index,
+        [this](bool ok, const SeismicTaskService::SeismicAttrResult &r) {
+            if (!m_attrPanel)
+                return;
+            if (ok && r.image) {
+                m_lastAttrResult = r;
+                m_canvas->setAttrOverlay(*r.image);
+                m_attrPanel->showResult(
+                    true, tr("✓ %1 完成（读 %2ms / 算 %3ms，有效道 %4/%5）")
+                              .arg(r.attrId)
+                              .arg(int(r.readMs))
+                              .arg(int(r.computeMs))
+                              .arg(r.validTraceCount)
+                              .arg(r.traceCount));
+            } else {
+                m_attrPanel->showResult(false, r.error);
+            }
+        });
+    // 拒绝路径（缺线/边缘线/时间切片等）服务已同步回调具体原因——此处
+    // 不覆盖状态；task 为空的场景 progress 连接跳过即可。
+    m_attrTask = task;
+    if (task) {
+        connect(task, &PaleoTask::changed, this, [this, task]() {
+            if (m_attrPanel && task->running())
+                m_attrPanel->updateProgress(task->percent(), task->stage());
+        });
+    }
+}
+
+QString SeismicSectionDockWidget::registerCurrentAttributeAsset(QString *error) {
+    if (!m_catalog) {
+        if (error)
+            *error = tr("catalog 未注入（应用层需调 setInterpretationCatalog）");
+        return QString();
+    }
+    if (!m_lastAttrResult.ok || !m_lastAttrResult.image) {
+        if (error)
+            *error = tr("无可登记的成功属性结果");
+        return QString();
+    }
+    return SeismicTaskService::registerAttributeSliceAsset(
+        m_catalog, m_catalogAssetId, m_catalogVersionId, m_lastAttrResult,
+        m_lastAttrParams, m_lastAttrSourcePath, m_interpretationDir, error);
 }
 
 QString SeismicSectionDockWidget::sessionFilePath() const {

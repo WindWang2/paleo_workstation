@@ -235,6 +235,16 @@ public:
     double curtainPos() const { return m_curtainPos; }
     QString compareLabel() const { return m_compareLabel; }
 
+    // goal/seismic-attributes 属性叠加层：与剖面逐位同几何的半透明色层
+    // （画布只画不存——状态归 dock/面板）。attr 尺寸与当前剖面不一致时忽略
+    // 并告警（换剖面几何变化时自动清除防错位）。上色走当前色标 LUT，值域
+    // 用 attr 自带 valueMin/valueMax 归一（NaN=透明）。
+    void setAttrOverlay(const SgySliceImage &attr);
+    void setAttrOverlayAlpha(double alpha);
+    void clearAttrOverlay();
+    bool hasAttrOverlay() const { return !m_attrImage.isNull(); }
+    double attrOverlayAlpha() const { return m_attrAlpha; }
+
     // D2.9 导出：当前画布（图像+坐标轴+色标）按倍率渲染成 PNG
     bool exportPng(const QString &filePath, double scale = 2.0);
 
@@ -297,6 +307,8 @@ private:
     void rebuildDisplayValues();
     // D2.8 256 档 LUT（colormap + 反转）
     void rebuildColorLut();
+    // goal/seismic-attributes：attr.values → m_attrImage（NaN=透明）
+    void rebuildAttrImage();
     float gainAtTwt(double twtMs) const;
     void updateHoverInfo(const QPoint &pos, bool clicked = false);
     QRect viewportRect() const;
@@ -363,6 +375,10 @@ private:
     // D2.10 卷帘对比
     SgySliceImage m_compareSlice;
     QString m_compareLabel;
+    // goal/seismic-attributes 属性叠加层
+    SgySliceImage m_attrOverlay;   // 原值（NaN 语义保留）
+    QImage m_attrImage;            // 按 LUT/自带值域烘焙的叠加图
+    double m_attrAlpha = 0.65;
     bool m_compareEnabled = false;
     double m_curtainPos = 0.5;
     bool m_draggingCurtain = false;

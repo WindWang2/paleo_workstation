@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <vector>
 
 namespace
@@ -814,10 +815,11 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
   std::atomic_bool cancelled{false};
   QThreadPool pool;
   pool.setMaxThreadCount(maxThreads);
+  std::mutex progressMutex;
   for (int s = 0; s < shardCount; ++s)
   {
     Shard &sh = shards[static_cast<size_t>(s)];
-    pool.start([&sh, &cancelled, path, firstTraceOffset, traceSize, traceCount, &sidx, ns,
+    pool.start([&sh, &cancelled, &progressMutex, path, firstTraceOffset, traceSize, traceCount, &sidx, ns,
                 opts]() {
       QFile local(path);
       if (!local.open(QIODevice::ReadOnly))
@@ -860,7 +862,10 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
         sh.xs.append(static_cast<double>(beI32(h + 72)) * coordScale);
         sh.ys.append(static_cast<double>(beI32(h + 76)) * coordScale);
         if (opts && opts->progress && ((i - sh.from) % 128) == 0)
+        {
+          std::lock_guard<std::mutex> pLock(progressMutex);
           opts->progress(offset, firstTraceOffset + traceCount * traceSize);
+        }
       }
       sh.ok = true;
     });
@@ -881,7 +886,7 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
     {
       // 分片失败（取消/坏道头读失败）：保留「连续前缀」为部分索引。
       m_lastScanPartial = true;
-      m_scannedOffset = firstTraceOffset + static_cast<qint64>(m_index.size()) * traceSize;
+      m_scannedOffset = firstTraceOffset + static_cast<qint64>(m_index.size() + m_badTraceOffsets.size()) * traceSize;
       if (error)
         *error = sh.err;
       return false;

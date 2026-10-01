@@ -599,7 +599,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
         decl.type = QStringLiteral("raster");
         decl.source = DataCatalog::resolvedVersionPath(m_projectDir, derived);
         decl.group = QStringLiteral("00_Data");
-        catInvoke([&] { emit layerDeclared(decl); });
+        catInvoke([this, decl] { emit layerDeclared(decl); });
       }
     }
     QString aerr;
@@ -936,7 +936,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       decl.source = tifPath;
       decl.group = QStringLiteral("00_Data");
       // declare 写 layer manifest（sqlite）——marshal 回 GUI 线程执行。
-      catInvoke([&] { emit layerDeclared(decl); });
+      catInvoke([this, decl] { emit layerDeclared(decl); });
       manifestLayerId = decl.layerId;
     }
   }
@@ -1329,34 +1329,39 @@ DataImportService::executePlannedItem(const PlannedItem &item, QString *error)
   // 确认表口径（autoplan-dx）：未决=资产已存但实体 id 全空（没有任何已决
   // 关联——被同批新主关联降级的旧关联实体 id 仍非空，不算未决）；入库=写
   // 成了主关联；dedup 命中也记 Imported（message 已是「字节已在库」）。
-  QStringList names;
-  QStringList notes;
-  int resolved = 0;
-  catInvoke([&] {
+  struct ResolveSummary
+  {
+    QStringList names;
+    QStringList notes;
+    int resolved = 0;
+  };
+  const ResolveSummary summary = catInvoke([&]() -> ResolveSummary {
+    ResolveSummary s;
     for (const EntityAssetLink &l : m_catalog->linksForAsset(res.assetId))
     {
       if (l.unresolved)
       {
-        if (!l.note.isEmpty() && !notes.contains(l.note))
-          notes.append(l.note);
+        if (!l.note.isEmpty() && !s.notes.contains(l.note))
+          s.notes.append(l.note);
         continue;
       }
-      ++resolved;
+      ++s.resolved;
       const CatalogEntity e = m_catalog->entityById(l.entityId);
       const QString n = e.name.isEmpty() ? l.entityId : e.name;
-      if (!n.isEmpty() && !names.contains(n))
-        names.append(n);
+      if (!n.isEmpty() && !s.names.contains(n))
+        s.names.append(n);
     }
+    return s;
   });
-  row.entityName = names.join(QStringLiteral(", "));
-  row.outcome = res.outcome == ImportOutcome::Imported && resolved == 0
+  row.entityName = summary.names.join(QStringLiteral(", "));
+  row.outcome = res.outcome == ImportOutcome::Imported && summary.resolved == 0
                     ? FolderRowResult::Outcome::Unresolved
                     : FolderRowResult::Outcome::Imported;
-  if (!notes.isEmpty())
+  if (!summary.notes.isEmpty())
     row.message = row.message.isEmpty()
-                      ? notes.join(QStringLiteral("；"))
+                      ? summary.notes.join(QStringLiteral("；"))
                       : row.message + QStringLiteral("；") +
-                            notes.join(QStringLiteral("；"));
+                            summary.notes.join(QStringLiteral("；"));
 
   // shp 族：主件入库成功后把其余成员拷进同一受管 RAW 版本目录（外链版本的
   // 成员本就在源目录相邻，copyBundleMembersIntoVersion 自己不拷）。

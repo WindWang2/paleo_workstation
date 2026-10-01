@@ -289,6 +289,7 @@ add_library(paleo_qgis STATIC
   src/qgis/previewrasteranalysis.cpp                # P2 D2.2/D5.x 预览栅格分析（统计/拉伸/直方图/剖面/极值）
   src/qgis/previewidentify.cpp                      # P2 D7 identify 查询核心（空间索引缓存+栅格插值）
   src/qgis/previewrendercache.cpp                   # P2 D6.2/D6.6 渲染结果缓存（内存 LRU + QTemporaryDir PNG）
+  src/qgis/seismicsectiontool.cpp
 )
 target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_store paleo_algorithms)
 
@@ -324,7 +325,6 @@ add_library(paleo_linkage STATIC
   src/linkage/selectioncontext.cpp
   src/linkage/wellmaplink.cpp
   src/linkage/seismicmaplink.cpp
-  src/linkage/seismicsectiontool.cpp
   src/linkage/threewaylocator.cpp                  # 问题→三视图联动
 )
 target_link_libraries(paleo_linkage PUBLIC paleo_deps paleo_services paleo_qgis paleo_domain)
@@ -546,6 +546,7 @@ add_paleo_test(tst_taskpanel LIBS paleo_ui)
 add_paleo_test(tst_attrpanel LIBS paleo_ui)
 # ---- merged worktree waves ----
 add_paleo_test(tst_segy LIBS paleo_io)
+add_paleo_test(tst_las LIBS paleo_io)
 add_paleo_test(tst_constraintstore LIBS paleo_workflow)
 add_paleo_test(tst_shapetools LIBS paleo_ui)
 add_paleo_test(tst_edittools LIBS paleo_ui)
@@ -660,6 +661,7 @@ paleo_test_sandbox(polygonize)
 
 # ---- wave3/model-hardening (数据模型与测试基建加固) ----
 add_paleo_test(tst_metastore LIBS paleo_store)      # sqlite user_version：新库采纳/遗留升级/未来拒开
+add_paleo_test(tst_layermanifest LIBS paleo_store)  # P1-11 / ARCH-04 LayerManifest 线程亲和性与写队列调度门禁
 add_paleo_test(tst_segy_fixture LIBS paleo_io)   # 合成最小 SEG-Y 夹具：索引/单线/角点/范围门
 target_compile_definitions(tst_segy_fixture PRIVATE
   TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")

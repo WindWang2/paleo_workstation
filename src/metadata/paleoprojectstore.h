@@ -42,6 +42,9 @@ class PaleoProjectStore : public QObject
     // Serialized write: fn runs while holding the write mutex. Thread-safe enqueue.
     WriteResult enqueueWrite(const std::function<WriteResult()> &fn);
 
+    // Check if the current calling thread is within an active enqueueWrite / saveAll scope
+    static bool isWriteQueueActive();
+
     // Whole-save sequence per contract ordering. Backs up .qgz before rewriting.
     WriteResult saveAll(const std::function<WriteResult()> &gpkgCommit,
                         const std::function<WriteResult()> &writeQgz);

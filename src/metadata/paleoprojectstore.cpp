@@ -75,6 +75,16 @@ void PaleoProjectStore::setProjectPaths( const QString &qgzPath, const QString &
   m_metaPath = metaSqlitePath;
 }
 
+namespace
+{
+  thread_local bool s_inEnqueueWrite = false;
+}
+
+bool PaleoProjectStore::isWriteQueueActive()
+{
+  return s_inEnqueueWrite;
+}
+
 PaleoProjectStore::WriteResult PaleoProjectStore::enqueueWrite( const std::function<WriteResult()> &fn )
 {
   if ( m_readOnly )
@@ -82,6 +92,11 @@ PaleoProjectStore::WriteResult PaleoProjectStore::enqueueWrite( const std::funct
   WriteResult result;
   {
     QMutexLocker locker( &m_writeMutex );
+    struct ScopeGuard
+    {
+      ScopeGuard() { s_inEnqueueWrite = true; }
+      ~ScopeGuard() { s_inEnqueueWrite = false; }
+    } guard;
     result = fn();
   }
 
@@ -104,6 +119,11 @@ PaleoProjectStore::WriteResult PaleoProjectStore::saveAll( const std::function<W
 
   {
     QMutexLocker locker( &m_writeMutex );
+    struct ScopeGuard
+    {
+      ScopeGuard() { s_inEnqueueWrite = true; }
+      ~ScopeGuard() { s_inEnqueueWrite = false; }
+    } guard;
 
     // 1. gpkg commit — the authoritative data state. Failure aborts the whole
     //    sequence before any .qgz mutation happens.

@@ -4,6 +4,8 @@
 #include <QKeyEvent>
 #include <QPainter>
 
+#include "../paleotheme.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -41,6 +43,7 @@ Seismic3DViewportWidget::~Seismic3DViewportWidget() {
         makeCurrent();
         sliceRenderer_.Cleanup(this);
         frameRenderer_.Cleanup(this);
+        horizonRenderer_.Cleanup(this);
         doneCurrent();
     }
 }
@@ -54,11 +57,18 @@ void Seismic3DViewportWidget::initializeGL() {
 
     sliceRenderer_.Initialize(this);
     frameRenderer_.Initialize(this);
+    horizonRenderer_.Initialize(this);
     glInitialized_ = true;
 
     // D7.1：GL 前设置的 TF 在此补传（切片值纹理由面板 glReady 后重喂）
     if (tfActive_ && tfLutBytes_.size() == 256 * 4) {
         sliceRenderer_.SetTransferFunction(this, tfLutBytes_, true);
+    }
+
+    // D7.3：GL 前设置的层位面在此补传
+    if (horizonsPending_ && volume_ && volume_->IsLoaded()) {
+        horizonRenderer_.UpdateHorizons(this, *volume_, horizonItems_);
+        horizonsPending_ = false;
     }
 
     if (volume_ && volume_->IsLoaded()) {
@@ -118,6 +128,7 @@ void Seismic3DViewportWidget::paintGL() {
 
     sliceRenderer_.Render(this, view, proj, model);
     frameRenderer_.Render(this, view, proj, model);
+    horizonRenderer_.Render(this, view, proj, model);
 
     // D3.10 帧率读数（debug 开关；半秒滚动均值）
     ++fpsFrames_;
@@ -126,12 +137,56 @@ void Seismic3DViewportWidget::paintGL() {
         fpsFrames_ = 0;
         fpsClock_.restart();
     }
-    if (fpsVisible_) {
+    const bool needOverlay = fpsVisible_ || wellLabelsVisible_;
+    if (needOverlay) {
         QPainter p(this);
         p.setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
-        p.setPen(QColor(95, 165, 240));
-        p.drawText(rect().adjusted(6, 4, -6, -4), Qt::AlignTop | Qt::AlignRight,
-                   QStringLiteral("%1 fps").arg(fps_, 0, 'f', 1));
+        if (wellLabelsVisible_ && volume_ && volume_->IsLoaded()) {
+            // D7.3 井名标注：井口（或轨迹首点）投影到屏幕 + 半透明底卡
+            const float hScale = SeismicSliceRenderer::HorizontalScale();
+            const float vScale = SeismicSliceRenderer::HeightScale();
+            const auto norm = [&](float v, int lo, int hi, float scale) {
+                const float range = static_cast<float>(std::max(1, hi - lo));
+                return ((v - static_cast<float>(lo)) / range - 0.5f) * scale;
+            };
+            QFont labelFont = PaleoTheme::bodyFont();
+            labelFont.setPointSize(PaleoTheme::kLabelPt);
+            p.setFont(labelFont);
+            for (const Seismic3DWell &well : wellsForLabels_) {
+                float il = static_cast<float>(well.inlineNo);
+                float xl = static_cast<float>(well.xlineNo);
+                float frac = 0.0f; // 标注锚在井口（顶面）
+                if (!well.trajectory.empty()) {
+                    il = well.trajectory.front().inlineNo;
+                    xl = well.trajectory.front().xlineNo;
+                    frac = well.trajectory.front().sampleFrac;
+                }
+                const glm::vec3 world(
+                    norm(xl, volume_->XlineMin(), volume_->XlineMax(), hScale),
+                    vScale * 0.5f - std::clamp(frac, 0.0f, 1.0f) * vScale,
+                    norm(il, volume_->InlineMin(), volume_->InlineMax(), hScale));
+                const glm::vec4 clip = proj * view * glm::vec4(world, 1.0f);
+                if (clip.w <= 1e-3f)
+                    continue;
+                const QPointF screen((clip.x / clip.w * 0.5f + 0.5f) * width(),
+                                     (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * height());
+                const QString text = well.name;
+                const QFontMetrics fm(labelFont);
+                const QRect box = fm.boundingRect(text).adjusted(-3, -2, 3, 2)
+                                       .translated(screen.toPoint());
+                p.setPen(Qt::NoPen);
+                p.setBrush(QColor(255, 255, 255, 200));
+                p.drawRoundedRect(box, 4, 4);
+                p.setPen(QPen(PaleoTheme::tokens().text, 1));
+                p.drawText(box, Qt::AlignCenter, text);
+            }
+        }
+        if (fpsVisible_) {
+            p.setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
+            p.setPen(QColor(95, 165, 240));
+            p.drawText(rect().adjusted(6, 4, -6, -4), Qt::AlignTop | Qt::AlignRight,
+                       QStringLiteral("%1 fps").arg(fps_, 0, 'f', 1));
+        }
         p.end();
     }
 }
@@ -701,6 +756,7 @@ QImage Seismic3DViewportWidget::grabViewportImage() {
 }
 
 void Seismic3DViewportWidget::setWells(const std::vector<Seismic3DWell> &wells) {
+    wellsForLabels_ = wells; // D7.3 标注叠绘原料（无 GL 也更新）
     if (!volume_)
         return;
     if (glInitialized_) {
@@ -709,6 +765,44 @@ void Seismic3DViewportWidget::setWells(const std::vector<Seismic3DWell> &wells) 
         doneCurrent();
         update();
     }
+}
+
+// ---- D7.3 层位面 ----
+void Seismic3DViewportWidget::setHorizons(const std::vector<Seismic3DHorizonSurface> &items) {
+    horizonItems_ = items;
+    if (!volume_ || !volume_->IsLoaded())
+        return;
+    if (glInitialized_) {
+        makeCurrent();
+        horizonRenderer_.UpdateHorizons(this, *volume_, horizonItems_);
+        doneCurrent();
+        update();
+    } else {
+        horizonsPending_ = true; // initializeGL 补传
+    }
+}
+
+void Seismic3DViewportWidget::setHorizonVisible(int index, bool visible) {
+    if (index >= 0 && index < int(horizonItems_.size()))
+        horizonItems_[static_cast<std::size_t>(index)].visible = visible;
+    horizonRenderer_.SetHorizonVisible(index, visible);
+    update();
+}
+
+bool Seismic3DViewportWidget::isHorizonVisible(int index) const {
+    if (index < 0 || index >= int(horizonItems_.size()))
+        return false;
+    return horizonItems_[static_cast<std::size_t>(index)].visible;
+}
+
+void Seismic3DViewportWidget::setHorizonsVisible(bool visible) {
+    horizonRenderer_.SetVisible(visible);
+    update();
+}
+
+void Seismic3DViewportWidget::setWellLabelsVisible(bool visible) {
+    wellLabelsVisible_ = visible;
+    update();
 }
 
 void Seismic3DViewportWidget::setSecondaryVolume(std::shared_ptr<const SgyVolume> secondary) {

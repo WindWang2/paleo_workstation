@@ -3269,6 +3269,26 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     panel3d->setObjectName(QStringLiteral("seismic3DPanel"));
     modeTabs->addTab(panel3d, tr("三维立体 (3D)"));
 
+    // D7.3 解释层位面上图：伴生解释会话 <sgy>.seispicks.json 有拾取 →
+    // 按层位名分组 IDW 网格化 → 3D 面片（显隐走面板「解释」菜单/信号）。
+    {
+      seismic::SeismicInterpretationSession session;
+      if (seismic::SeismicTaskService::loadSession(abs, session, nullptr) &&
+          !session.picks.isEmpty()) {
+        QHash<QString, QList<seismic::SeismicPick>> byHorizon;
+        for (const seismic::SeismicPick &p : session.picks)
+          byHorizon[p.horizonName].append(p);
+        QStringList names;
+        std::vector<seismic::SeismicHorizonGrid> grids;
+        for (auto it = byHorizon.constBegin(); it != byHorizon.constEnd(); ++it) {
+          names << (it.key().isEmpty() ? tr("未命名层位") : it.key());
+          grids.push_back(seismic::SeismicTaskService::gridPicks(it.value()));
+        }
+        if (!grids.empty())
+          panel3d->setHorizons(names, grids);
+      }
+    }
+
     // D3.2：三维切片拖动/剖面条联动 2D——只拨同页 2D 测线控件（控件自己的
     // decode 链换测线）。不开新标签、不切回 2D 子页签。
     connect(panel3d, &seismic::Seismic3DViewPanel::inlineChanged,

@@ -10,6 +10,7 @@
 #include <QCheckBox>
 #include <QCoreApplication>
 #include <QDialog>
+#include <QMenu>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QLineEdit>
@@ -18,6 +19,7 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
+#include <QDir>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QVBoxLayout>
@@ -788,6 +790,35 @@ void Seismic3DViewPanel::buildDisplayBar() {
     btnSectionClear_ = createToolBtn(tr("清除剖面"), tr("移除 3D 场景中的任意剖面与顶面路径线"));
     lay->addWidget(btnSectionClear_);
 
+    // D7.3 解释 overlay：层位面/井轨迹/井名标注 checkable 菜单
+    btnOverlay_ = createToolBtn(tr("解释"), tr("层位面/井轨迹/井名标注的 3D 叠显与显隐"));
+    overlayMenu_ = new QMenu(this);
+    btnOverlay_->setPopupMode(QToolButton::InstantPopup);
+    btnOverlay_->setMenu(overlayMenu_);
+    lay->addWidget(btnOverlay_);
+
+    // D7.4 扫掠动画：轴向 + 帧率 + 播放/暂停 + PNG 序列导出
+    cboSweepAxis_ = new QComboBox(bar);
+    cboSweepAxis_->setObjectName(QStringLiteral("cbo3dSweepAxis"));
+    cboSweepAxis_->addItem(tr("T"));
+    cboSweepAxis_->addItem(tr("IL"));
+    cboSweepAxis_->addItem(tr("XL"));
+    cboSweepAxis_->setToolTip(tr("扫掠轴向：时间切片 / 纵测线 / 横测线"));
+    cboSweepAxis_->setFixedWidth(48);
+    lay->addWidget(cboSweepAxis_);
+    spinSweepFps_ = new QSpinBox(bar);
+    spinSweepFps_->setObjectName(QStringLiteral("spin3dSweepFps"));
+    spinSweepFps_->setRange(1, 30);
+    spinSweepFps_->setValue(8);
+    spinSweepFps_->setSuffix(tr(" fps"));
+    spinSweepFps_->setToolTip(tr("扫掠帧率（播放中可调，即时生效）"));
+    spinSweepFps_->setFixedWidth(64);
+    lay->addWidget(spinSweepFps_);
+    btnSweepPlay_ = createToolBtn(tr("扫掠"), tr("切片动画扫掠：按轴向逐帧推进\n（当前帧异步取数 + 前向预取，UI 不阻塞）"), true);
+    lay->addWidget(btnSweepPlay_);
+    btnSweepExport_ = createToolBtn(tr("导出序列"), tr("选择目录并导出扫掠 PNG 序列（frame_NNNNN.png）"));
+    lay->addWidget(btnSweepExport_);
+
     // D3.10 帧率（debug）
     chkFps_ = new QCheckBox(tr("fps"), bar);
     themedCaption(chkFps_);
@@ -931,6 +962,42 @@ void Seismic3DViewPanel::buildDisplayBar() {
     }
     connect(btnSectionClear_, &QToolButton::clicked, this, [this]() {
         clearLineSection();
+    });
+    // D7.4 扫掠
+    connect(btnSweepPlay_, &QToolButton::toggled, this, [this](bool on) {
+        if (on) {
+            const SgySliceType axis = cboSweepAxis_->currentIndex() == 1
+                ? SgySliceType::Inline
+                : (cboSweepAxis_->currentIndex() == 2 ? SgySliceType::Xline
+                                                      : SgySliceType::Time);
+            startSweep(axis, spinSweepFps_->value());
+            if (!isSweepRunning()) // 无体/空轴——按钮弹回
+                btnSweepPlay_->setChecked(false);
+        } else {
+            pauseSweep();
+        }
+    });
+    connect(cboSweepAxis_, QOverload<int>::of(&QComboBox::activated), this, [this](int idx) {
+        if (!isSweepRunning())
+            return;
+        const SgySliceType axis = idx == 1
+            ? SgySliceType::Inline
+            : (idx == 2 ? SgySliceType::Xline : SgySliceType::Time);
+        startSweep(axis, spinSweepFps_->value()); // 换轴重起
+    });
+    connect(spinSweepFps_, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int fps) {
+        if (sweepTimer_ && sweepTimer_->isActive())
+            sweepTimer_->setInterval(1000 / std::clamp(fps, 1, 60));
+    });
+    connect(btnSweepExport_, &QToolButton::clicked, this, [this]() {
+        const QString dir = QFileDialog::getExistingDirectory(
+            this, tr("选择扫掠 PNG 序列导出目录"));
+        if (dir.isEmpty())
+            return;
+        setSweepExportDir(dir);
+        QgsMessageLog::logMessage(
+            tr("扫掠序列将导出到：%1（frame_NNNNN.png，播放期间逐帧落盘）").arg(dir),
+            QStringLiteral("Seismic3D"), Qgis::MessageLevel::Info);
     });
     connect(btnTfEdit_, &QToolButton::clicked, this, [this]() {
         // 编辑器对话框：预设 + 曲线（变更实时生效——每拖一下只重传 256B LUT）
@@ -1233,9 +1300,247 @@ void Seismic3DViewPanel::clearLineSection() {
         viewport_->clearLineSection();
 }
 
-// ---- D3.4 / D3.12 ----
+// ---- D7.4 切片动画扫掠 ----
+int Seismic3DViewPanel::sweepOrdinalCount() const {
+    auto vol = volume();
+    if (!vol || !vol->IsLoaded())
+        return 0;
+    switch (sweepAxis_) {
+    case SgySliceType::Inline: return int(vol->InlineValues().size());
+    case SgySliceType::Xline: return int(vol->XlineValues().size());
+    default: return vol->SampleMax() + 1;
+    }
+}
+
+int Seismic3DViewPanel::sweepIndexAt(int ordinal) const {
+    auto vol = volume();
+    if (!vol || !vol->IsLoaded())
+        return 0;
+    switch (sweepAxis_) {
+    case SgySliceType::Inline: {
+        const auto &v = vol->InlineValues();
+        return ordinal >= 0 && ordinal < int(v.size()) ? v[std::size_t(ordinal)]
+                                                       : vol->InlineMin();
+    }
+    case SgySliceType::Xline: {
+        const auto &v = vol->XlineValues();
+        return ordinal >= 0 && ordinal < int(v.size()) ? v[std::size_t(ordinal)]
+                                                       : vol->XlineMin();
+    }
+    default:
+        return ordinal; // T：原始采样号
+    }
+}
+
+SeismicSliceSlot Seismic3DViewPanel::sweepSlot() const {
+    switch (sweepAxis_) {
+    case SgySliceType::Inline: return SeismicSliceSlot::Inline;
+    case SgySliceType::Xline: return SeismicSliceSlot::Crossline;
+    default: return SeismicSliceSlot::Time;
+    }
+}
+
+void Seismic3DViewPanel::startSweep(SgySliceType axis, int fps) {
+    auto vol = volume();
+    if (!vol || !vol->IsLoaded())
+        return;
+    sweepAxis_ = axis;
+    if (sweepOrdinalCount() <= 0)
+        return;
+    if (!sweepTimer_) {
+        sweepTimer_ = new QTimer(this);
+        sweepTimer_->setTimerType(Qt::CoarseTimer);
+        connect(sweepTimer_, &QTimer::timeout, this, [this]() { onSweepTick(); });
+    }
+    sweepTimer_->setInterval(1000 / std::clamp(fps, 1, 60));
+    sweepOrdinal_ = 0;
+    sweepPrefetchInFlight_ = 0;
+    sweepTimer_->start();
+    emit sweepFrameChanged(sweepIndexAt(0));
+}
+
+void Seismic3DViewPanel::pauseSweep() {
+    if (sweepTimer_)
+        sweepTimer_->stop();
+}
+
+void Seismic3DViewPanel::resumeSweep() {
+    auto vol = volume();
+    if (sweepTimer_ && !sweepTimer_->isActive() && vol && vol->IsLoaded() &&
+        sweepOrdinalCount() > 0)
+        sweepTimer_->start();
+}
+
+void Seismic3DViewPanel::stopSweep() {
+    if (sweepTimer_)
+        sweepTimer_->stop();
+    sweepPrefetchInFlight_ = 0;
+}
+
+void Seismic3DViewPanel::setSweepExportDir(const QString &dir) {
+    sweepExportDir_ = dir;
+}
+
+void Seismic3DViewPanel::onSweepTick() {
+    auto vol = volume();
+    const int count = sweepOrdinalCount();
+    if (!vol || !vol->IsLoaded() || count <= 0) {
+        stopSweep();
+        return;
+    }
+
+    // 1. 导出上一帧（先导后进：grabFramebuffer 同步渲染当前态；无 GL 回退
+    //    导缓存切片 rgba——数据帧序列，离屏/回退态仍可出片）
+    if (!sweepExportDir_.isEmpty()) {
+        QImage img = viewport_->grabViewportImage();
+        if (img.isNull()) {
+            const std::size_t si = static_cast<std::size_t>(sweepSlot()) % 3;
+            if (cachedReady_[si]) {
+                const SgySliceImage &c = cachedSlices_[si];
+                img = QImage(c.rgba.data(), c.width, c.height,
+                             c.width * 4, QImage::Format_RGBA8888).copy();
+            }
+        }
+        if (!img.isNull()) {
+            const QString path = QDir(sweepExportDir_).filePath(
+                QStringLiteral("frame_%1.png").arg(sweepExportedCount_, 5, 10, QLatin1Char('0')));
+            if (img.save(path, "PNG"))
+                ++sweepExportedCount_;
+        }
+    }
+
+    // 2. 帧推进（回绕）+ 滑杆跟手（slider 路径内建吸附/取数/changed 广播）
+    sweepOrdinal_ = (sweepOrdinal_ + 1) % count;
+    const int index = sweepIndexAt(sweepOrdinal_);
+    if (sweepAxis_ == SgySliceType::Inline)
+        setInline(index);
+    else if (sweepAxis_ == SgySliceType::Xline)
+        setCrossline(index);
+    else
+        setTimeSample(index);
+
+    // 3. 前向预取窗口（结果丢弃、只暖 SgyDataCache；在途 > 2×窗口 时让路
+    //    UI 交互取数——预取是播放加速，不该抢并发闸）
+    if (taskSvc_ && sweepPrefetchInFlight_ < kSweepPrefetchWindow * 2) {
+        for (int k = 1; k <= kSweepPrefetchWindow; ++k) {
+            const int ord = (sweepOrdinal_ + k) % count;
+            const int idx = sweepIndexAt(ord);
+            ++sweepPrefetchInFlight_;
+            QPointer<Seismic3DViewPanel> guard(this);
+            taskSvc_->startSliceExtraction(
+                vol, sweepAxis_, idx,
+                [guard](bool, std::shared_ptr<const SgySliceImage>, const QString &) {
+                    if (guard)
+                        --guard->sweepPrefetchInFlight_;
+                }, pagedPath_);
+        }
+    }
+    emit sweepFrameChanged(index);
+}
+
+// ---- D3.4 / D3.12 / D7.3 ----
 void Seismic3DViewPanel::setWells(const std::vector<Seismic3DWell> &wells) {
-    viewport_->setWells(wells);
+    lastWells_ = wells;
+    viewport_->setWells(wellsVisible_ ? wells : std::vector<Seismic3DWell>{});
+}
+
+// ---- D7.3 层位面 + overlay 显隐 ----
+void Seismic3DViewPanel::setHorizons(const QStringList &names,
+                                     const std::vector<SeismicHorizonGrid> &grids) {
+    std::vector<Seismic3DHorizonSurface> items;
+    items.reserve(grids.size());
+    // 层位兜底色板（数据符号色，非 UI token；主呈色是 twt→彩虹谱逐顶点映射）
+    const QColor kColors[] = {
+        QColor(46, 134, 193), QColor(231, 76, 60), QColor(39, 174, 96),
+        QColor(243, 156, 18), QColor(142, 68, 173), QColor(0, 172, 193),
+    };
+    overlayHorizonNames_.clear();
+    for (std::size_t i = 0; i < grids.size(); ++i) {
+        const SeismicHorizonGrid &g = grids[i];
+        Seismic3DHorizonSurface s;
+        s.name = names.value(int(i), tr("层位%1").arg(i + 1));
+        s.color = kColors[i % std::size(kColors)];
+        s.visible = true;
+        if (g.isValid() && g.twtMs.size() ==
+                               std::size_t(g.inlineCount) * std::size_t(g.xlineCount)) {
+            s.inlineMin = g.inlineMin;
+            s.inlineCount = g.inlineCount;
+            s.inlineStep = std::max(1, g.inlineStep);
+            s.xlineMin = g.xlineMin;
+            s.xlineCount = g.xlineCount;
+            s.xlineStep = std::max(1, g.xlineStep);
+            s.twtMs = g.twtMs;
+        }
+        overlayHorizonNames_ << s.name;
+        items.push_back(std::move(s));
+    }
+    viewport_->setHorizons(items);
+    rebuildOverlayMenu();
+}
+
+void Seismic3DViewPanel::setHorizonVisible(const QString &name, bool visible) {
+    const int idx = overlayHorizonNames_.indexOf(name);
+    if (idx < 0)
+        return;
+    viewport_->setHorizonVisible(idx, visible);
+    rebuildOverlayMenu();
+    emit horizonVisibilityChanged(name, visible);
+}
+
+bool Seismic3DViewPanel::isHorizonVisible(const QString &name) const {
+    const int idx = overlayHorizonNames_.indexOf(name);
+    return idx >= 0 && viewport_ && viewport_->isHorizonVisible(idx);
+}
+
+QStringList Seismic3DViewPanel::horizonNames() const {
+    return overlayHorizonNames_;
+}
+
+void Seismic3DViewPanel::setWellLabelsVisible(bool visible) {
+    viewport_->setWellLabelsVisible(visible);
+}
+
+bool Seismic3DViewPanel::wellLabelsVisible() const {
+    return viewport_ && viewport_->wellLabelsVisible();
+}
+
+// checkable 菜单：井/标注总开关 + 逐层位开关。动作态即真值——外部经
+// setHorizonVisible 改动后重建，菜单内点击只拨视口不重建（发射中删动作
+// 的悬空风险）。
+void Seismic3DViewPanel::rebuildOverlayMenu() {
+    if (!overlayMenu_)
+        return;
+    overlayMenu_->clear();
+    QAction *actWells = overlayMenu_->addAction(tr("井轨迹"));
+    actWells->setCheckable(true);
+    actWells->setChecked(wellsVisible_);
+    connect(actWells, &QAction::toggled, this, [this](bool on) {
+        wellsVisible_ = on;
+        viewport_->setWells(on ? lastWells_ : std::vector<Seismic3DWell>{});
+        emit wellVisibilityChanged(on);
+    });
+    QAction *actLabels = overlayMenu_->addAction(tr("井名标注"));
+    actLabels->setCheckable(true);
+    actLabels->setChecked(viewport_ && viewport_->wellLabelsVisible());
+    connect(actLabels, &QAction::toggled, this, [this](bool on) {
+        viewport_->setWellLabelsVisible(on);
+    });
+    if (!overlayHorizonNames_.isEmpty()) {
+        overlayMenu_->addSeparator();
+        const QStringList names = overlayHorizonNames_;
+        for (int i = 0; i < names.size(); ++i) {
+            const QString name = names[i];
+            QAction *act = overlayMenu_->addAction(name);
+            act->setCheckable(true);
+            act->setChecked(viewport_ && viewport_->isHorizonVisible(i));
+            connect(act, &QAction::toggled, this, [this, name](bool on) {
+                const int idx = overlayHorizonNames_.indexOf(name);
+                if (idx >= 0)
+                    viewport_->setHorizonVisible(idx, on);
+                emit horizonVisibilityChanged(name, on);
+            });
+        }
+    }
 }
 
 void Seismic3DViewPanel::setSecondaryVolume(std::shared_ptr<const SgyVolume> secondary) {

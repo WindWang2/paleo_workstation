@@ -36,10 +36,12 @@ target_sources(paleo_ui PRIVATE
   src/ui/seismic3d/seismic3dcolormap.cpp
   src/ui/seismic3d/seismic3dfallback.cpp)
 
-# wave/seismic-3d-viz：传递函数（D7.1 模型+编辑器）源挂 paleo_ui（同上模式）
+# wave/seismic-3d-viz：传递函数（D7.1 模型+编辑器）+ 层位面（D7.3）源挂
+# paleo_ui（同上模式）
 target_sources(paleo_ui PRIVATE
   src/ui/seismic3d/seismic3dtf.cpp
-  src/ui/seismic3d/seismic3dtfeditor.cpp)
+  src/ui/seismic3d/seismic3dtfeditor.cpp
+  src/ui/seismic3d/horizonsurfacerenderer.cpp)
 
 # P5 Phase 3 三维：colormap/堆叠体渲染/拖面联动/井位/多体/相机书签/回退/fps
 add_paleo_test(tst_seismic_3dui LIBS paleo_ui)

@@ -3,6 +3,9 @@
 
 #include "qgis/topologicalindex.h"
 
+#include <map>
+#include <tuple>
+
 #include <QKeyEvent>
 
 #include <qgis.h>
@@ -533,12 +536,59 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
     }
     writeSet = dedupedWriteSet;
 
+    // Group vertices to delete by their exact owning ring
+    struct RingKey
+    {
+      QgsVectorLayer *layer = nullptr;
+      qint64 fid = -1;
+      int part = 0;
+      int ring = 0;
+
+      bool operator<( const RingKey &other ) const
+      {
+        return std::tie( layer, fid, part, ring ) < std::tie( other.layer, other.fid, other.part, other.ring );
+      }
+      bool operator==( const RingKey &other ) const
+      {
+        return layer == other.layer && fid == other.fid && part == other.part && ring == other.ring;
+      }
+    };
+
+    std::map<RingKey, QSet<int>> ringDeletions;
     for ( const CoincidentMember &member : std::as_const( writeSet ) )
     {
-      const QgsFeature other = member.layer->getFeature( member.fid );
-      if ( !other.hasGeometry() || !ringFitsDelete( other.geometry(), member.vertexNr ) )
+      const QgsFeature feat = member.layer->getFeature( member.fid );
+      if ( !feat.hasGeometry() || !feat.geometry().constGet() )
+        continue;
+      QgsVertexId vid;
+      if ( feat.geometry().vertexIdFromVertexNr( member.vertexNr, vid ) )
       {
-        emit messageEmitted( tr( "无法删除节点：共边要素将变为无效" ),
+        ringDeletions[{ member.layer, member.fid, vid.part, vid.ring }].insert( member.vertexNr );
+      }
+    }
+
+    // Validate that after cumulative deletions, every touched ring satisfies the topological minimum
+    for ( const auto &[rk, vertexSet] : ringDeletions )
+    {
+      const QgsFeature other = rk.layer->getFeature( rk.fid );
+      if ( !other.hasGeometry() || !other.geometry().constGet() )
+      {
+        emit messageEmitted( tr( "无法删除节点：要素将变为无效" ), Qgis::MessageLevel::Warning );
+        return;
+      }
+      const QgsGeometry g = other.geometry();
+      const Qgis::GeometryType gt = QgsWkbTypes::geometryType( g.wkbType() );
+      const int ringVertices = g.constGet()->vertexCount( rk.part, rk.ring );
+      const int minRemaining = ( gt == Qgis::GeometryType::Polygon ) ? 4
+                               : ( gt == Qgis::GeometryType::Line ) ? 2
+                               : 1;
+
+      const int deleteCount = vertexSet.size();
+      if ( ringVertices - deleteCount < minRemaining )
+      {
+        const bool isSelf = ( rk.layer == layer && rk.fid == fid );
+        emit messageEmitted( isSelf ? tr( "无法删除节点：要素将变为无效" )
+                                    : tr( "无法删除节点：共边要素将变为无效" ),
                              Qgis::MessageLevel::Warning );
         return;
       }
@@ -606,6 +656,28 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
               if ( closingNr >= 0 )
                 mutated.moveVertex( newStart.x(), newStart.y(), closingNr );
             }
+          }
+        }
+
+        // Defense-in-depth: verify all rings in mutated geometry satisfy minimum counts
+        if ( layerOk && mutated.constGet() )
+        {
+          const Qgis::GeometryType gt = QgsWkbTypes::geometryType( mutated.wkbType() );
+          const int minAllowed = ( gt == Qgis::GeometryType::Polygon ) ? 4
+                                 : ( gt == Qgis::GeometryType::Line ) ? 2
+                                 : 1;
+          for ( int p = 0; p < mutated.constGet()->partCount(); ++p )
+          {
+            for ( int r = 0; r < mutated.constGet()->ringCount( p ); ++r )
+            {
+              if ( mutated.constGet()->vertexCount( p, r ) < minAllowed )
+              {
+                layerOk = false;
+                break;
+              }
+            }
+            if ( !layerOk )
+              break;
           }
         }
 

@@ -53,12 +53,6 @@
 
 namespace
 {
-  const char kProcProp[]        = "paleo.wf.proc";        // QObject* (QgisProcessingService)
-  const char kLayersProp[]      = "paleo.wf.layers";      // QObject* (QgisLayerService)
-  const char kOnnxProp[]        = "paleo.wf.onnx";        // QObject* (PaleoOnnxService)
-  const char kStoreProp[]       = "paleo.wf.store";       // QObject* (PaleoProjectStore)
-  const char kConstraintsProp[] = "paleo.wf.constraints"; // QVariantList of QVariantMap (Constraint::toMap + "horizon")
-  const char kSeqProp[]         = "paleo.wf.seq";         // int — constraint id sequence
   const char kCatalogProp[]     = "paleo.wf.catalog";     // QObject* (DataCatalog) — T26 派生产物登记
   const char kProjectDirProp[]  = "paleo.wf.projectdir";  // QString — 受管 artifacts/ 根
 
@@ -80,36 +74,6 @@ namespace
       return;
     if ( QgsMapLayer *l = layers->layer( layerId ) )
       l->setCustomProperty( QStringLiteral( "paleoAssetId" ), assetId );
-  }
-
-  QgisProcessingService *procOf( const QObject *wf )
-  {
-    return qobject_cast<QgisProcessingService *>( wf->property( kProcProp ).value<QObject *>() );
-  }
-
-  QgisLayerService *layersOf( const QObject *wf )
-  {
-    return qobject_cast<QgisLayerService *>( wf->property( kLayersProp ).value<QObject *>() );
-  }
-
-  PaleoProjectStore *storeOf( const QObject *wf )
-  {
-    return qobject_cast<PaleoProjectStore *>( wf->property( kStoreProp ).value<QObject *>() );
-  }
-
-#if PALEO_HAVE_ORT
-  // PaleoOnnxService methods exist only when the vendored runtime is linked;
-  // every call site below is guarded the same way so !ORT builds still link.
-  PaleoOnnxService *onnxOf( const QObject *wf )
-  {
-    return qobject_cast<PaleoOnnxService *>( wf->property( kOnnxProp ).value<QObject *>() );
-  }
-#endif
-
-  void bindProcessing( QObject *wf, QgisProcessingService *proc, QgisLayerService *layers )
-  {
-    wf->setProperty( kProcProp, QVariant::fromValue( static_cast<QObject *>( proc ) ) );
-    wf->setProperty( kLayersProp, QVariant::fromValue( static_cast<QObject *>( layers ) ) );
   }
 
   // T26：三个写出产物的 workflow 共享的登记通道（动态属性，见文件头注释）。
@@ -367,17 +331,44 @@ namespace
 void PaleoWorkflowBindDerivedCatalog( QObject *workflow, DataCatalog *catalog,
                                       const QString &projectDir )
 {
-  workflow->setProperty( kCatalogProp, QVariant::fromValue( static_cast<QObject *>( catalog ) ) );
-  workflow->setProperty( kProjectDirProp, projectDir );
+  if ( !workflow )
+    return;
+  if ( auto *pw = qobject_cast<PredictionWorkflow *>( workflow ) )
+    pw->setCatalog( catalog, projectDir );
+  else if ( auto *cw = qobject_cast<ConstraintWorkflow *>( workflow ) )
+    cw->setCatalog( catalog, projectDir );
+  else if ( auto *comp = qobject_cast<CompositionWorkflow *>( workflow ) )
+    comp->setCatalog( catalog, projectDir );
+  else
+  {
+    workflow->setProperty( kCatalogProp, QVariant::fromValue( static_cast<QObject *>( catalog ) ) );
+    workflow->setProperty( kProjectDirProp, projectDir );
+  }
 }
 
 DataCatalog *PaleoWorkflowDerivedCatalog( const QObject *workflow )
 {
+  if ( !workflow )
+    return nullptr;
+  if ( auto *pw = qobject_cast<const PredictionWorkflow *>( workflow ) )
+    return pw->catalog();
+  if ( auto *cw = qobject_cast<const ConstraintWorkflow *>( workflow ) )
+    return cw->catalog();
+  if ( auto *comp = qobject_cast<const CompositionWorkflow *>( workflow ) )
+    return comp->catalog();
   return qobject_cast<DataCatalog *>( workflow->property( kCatalogProp ).value<QObject *>() );
 }
 
 QString PaleoWorkflowDerivedProjectDir( const QObject *workflow )
 {
+  if ( !workflow )
+    return QString();
+  if ( auto *pw = qobject_cast<const PredictionWorkflow *>( workflow ) )
+    return pw->projectDir();
+  if ( auto *cw = qobject_cast<const ConstraintWorkflow *>( workflow ) )
+    return cw->projectDir();
+  if ( auto *comp = qobject_cast<const CompositionWorkflow *>( workflow ) )
+    return comp->projectDir();
   return workflow->property( kProjectDirProp ).toString();
 }
 
@@ -386,29 +377,55 @@ QString PaleoWorkflowDerivedProjectDir( const QObject *workflow )
 // ---------------------------------------------------------------------------
 
 PredictionWorkflow::PredictionWorkflow( QgisProcessingService *proc, QgisLayerService *layers, QObject *parent )
-  : QObject( parent )
+  : QObject( parent ), m_proc( proc ), m_layers( layers )
 {
-  bindProcessing( this, proc, layers );
 }
 
 void PredictionWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDir )
 {
-  PaleoWorkflowBindDerivedCatalog( this, catalog, projectDir );
+  m_catalog = catalog;
+  m_projectDir = projectDir;
 }
 
 void PredictionWorkflow::setOnnxService( PaleoOnnxService *onnx )
 {
-  setProperty( kOnnxProp, QVariant::fromValue( static_cast<QObject *>( onnx ) ) );
+#if PALEO_HAVE_ORT
+  m_onnx = onnx;
+#else
+  Q_UNUSED( onnx );
+#endif
+}
+
+#if PALEO_HAVE_ORT
+PaleoOnnxService *PredictionWorkflow::onnxService() const
+{
+  return m_onnx.data();
+}
+#endif
+
+DataCatalog *PredictionWorkflow::catalog() const
+{
+  return m_catalog.data();
+}
+
+QgisProcessingService *PredictionWorkflow::processingService() const
+{
+  return m_proc.data();
+}
+
+QgisLayerService *PredictionWorkflow::layerService() const
+{
+  return m_layers.data();
 }
 
 QStringList PredictionWorkflow::availableAlgorithms() const
 {
   QStringList ids;
-  if ( const QgisProcessingService *proc = procOf( this ) )
-    ids = proc->paleoAlgorithmIds();
+  if ( m_proc )
+    ids = m_proc->paleoAlgorithmIds();
 #if PALEO_HAVE_ORT
-  if ( const PaleoOnnxService *onnx = onnxOf( this ) )
-    for ( const QString &model : onnx->availableModels() )
+  if ( m_onnx )
+    for ( const QString &model : m_onnx->availableModels() )
       ids << QStringLiteral( "onnx:%1" ).arg( model );
 #endif
   return ids;
@@ -423,8 +440,8 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
   if ( algorithmId.startsWith( QLatin1String( "onnx:" ) ) )
   {
     const QString model = algorithmId.mid( 5 );
-    QgisLayerService *layers = layersOf( this );
-    PaleoOnnxService *onnx = onnxOf( this );
+    QgisLayerService *layers = m_layers.data();
+    PaleoOnnxService *onnx = m_onnx.data();
 
     const auto fail = [this, &horizon, error]( const QString &msg ) {
       setError( error, msg );
@@ -550,8 +567,8 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
   }
 #endif
 
-  QgisProcessingService *proc = procOf( this );
-  QgisLayerService *layers = layersOf( this );
+  QgisProcessingService *proc = m_proc.data();
+  QgisLayerService *layers = m_layers.data();
   if ( !proc || !layers )
   {
     const QString msg = tr( "prediction workflow is not bound to services" );
@@ -678,9 +695,8 @@ bool PredictionWorkflow::confidenceCompanionAvailable( const QString &algorithmI
 // ---------------------------------------------------------------------------
 
 ConstraintWorkflow::ConstraintWorkflow( QgisProcessingService *proc, QgisLayerService *layers, QObject *parent )
-  : QObject( parent )
+  : QObject( parent ), m_proc( proc ), m_layers( layers )
 {
-  bindProcessing( this, proc, layers );
 }
 
 ConstraintWorkflow::~ConstraintWorkflow() = default;
@@ -692,17 +708,37 @@ void ConstraintWorkflow::setConstraintStore( ConstraintStore *store )
 
 void ConstraintWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDir )
 {
-  PaleoWorkflowBindDerivedCatalog( this, catalog, projectDir );
+  m_catalog = catalog;
+  m_projectDir = projectDir;
 }
 
 void ConstraintWorkflow::setStore( PaleoProjectStore *store )
 {
-  setProperty( kStoreProp, QVariant::fromValue( static_cast<QObject *>( store ) ) );
   if ( m_projectStore != store )
   {
     m_projectStore = store;
     m_ownedConstraintStore.reset();
   }
+}
+
+DataCatalog *ConstraintWorkflow::catalog() const
+{
+  return m_catalog.data();
+}
+
+QgisProcessingService *ConstraintWorkflow::processingService() const
+{
+  return m_proc.data();
+}
+
+QgisLayerService *ConstraintWorkflow::layerService() const
+{
+  return m_layers.data();
+}
+
+PaleoProjectStore *ConstraintWorkflow::projectStore() const
+{
+  return m_projectStore.data();
 }
 
 ConstraintStore *ConstraintWorkflow::constraintStore() const
@@ -727,7 +763,7 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
                                         const QString &type, int faciesCode, QString *error,
                                         QString *constraintIdOut )
 {
-  QgisLayerService *layers = layersOf( this );
+  QgisLayerService *layers = m_layers.data();
   if ( !layers )
   {
     setError( error, tr( "constraint workflow is not bound to a layer service" ) );
@@ -750,8 +786,7 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
 
   // In-memory constraint record (member-equivalent state via property).
   Constraint c;
-  const int seq = property( kSeqProp ).toInt() + 1;
-  setProperty( kSeqProp, seq );
+  const int seq = ++m_inMemorySeq;
   c.id = QStringLiteral( "c-%1" ).arg( seq );
   c.type = type;
   c.wkt = wkt;
@@ -763,11 +798,10 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
     if ( !cs->append( horizon, c.id, wkt, type, faciesCode, error ) )
       return false;
 
-    QVariantList constraints = property( kConstraintsProp ).toList();
     QVariantMap rec = c.toMap();
     rec.insert( QStringLiteral( "horizon" ), horizon );
     rec.insert( QStringLiteral( "facies_code" ), faciesCode );
-    constraints.append( rec );
+    m_inMemoryConstraints.append( rec );
 
     LayerDeclaration decl;
     decl.layerId = QStringLiteral( "constraints.%1" ).arg( horizon );
@@ -782,7 +816,6 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
       return false;
     }
 
-    setProperty( kConstraintsProp, constraints );
     if ( constraintIdOut )
       *constraintIdOut = c.id;
     emit constraintAdded( c.id );
@@ -790,15 +823,13 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
   }
 
   // Fallback when no store is configured (preserves memory-layer compatibility)
-  QVariantList constraints = property( kConstraintsProp ).toList();
   QVariantMap rec = c.toMap();
   rec.insert( QStringLiteral( "horizon" ), horizon );
-  constraints.append( rec );
+  m_inMemoryConstraints.append( rec );
 
   QStringList wkts;
-  for ( const QVariant &v : constraints )
+  for ( const QVariantMap &m : m_inMemoryConstraints )
   {
-    const QVariantMap m = v.toMap();
     if ( m.value( QStringLiteral( "horizon" ) ).toString() == horizon )
       wkts << m.value( QStringLiteral( "wkt" ) ).toString();
   }
@@ -811,12 +842,10 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
   decl.group = QStringLiteral( "02_Constraints" );
   if ( !layers->declare( decl, error ) )
   {
-    constraints.removeLast();
-    setProperty( kConstraintsProp, constraints );
+    m_inMemoryConstraints.removeLast();
     return false;
   }
 
-  setProperty( kConstraintsProp, constraints );
   if ( constraintIdOut )
     *constraintIdOut = c.id;
   emit constraintAdded( c.id );
@@ -828,11 +857,9 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
   ConstraintStore *cs = constraintStore();
   if ( !cs )
   {
-    QVariantList list = property( kConstraintsProp ).toList();
     QVector<QVariantMap> res;
-    for ( const QVariant &v : list )
+    for ( const QVariantMap &m : m_inMemoryConstraints )
     {
-      const QVariantMap m = v.toMap();
       if ( horizon.isEmpty() || m.value( QStringLiteral( "horizon" ) ).toString() == horizon )
         res.append( m );
     }
@@ -841,24 +868,23 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
 
   QVector<QVariantMap> loaded = cs->load( horizon );
 
-  QVariantList constraints = property( kConstraintsProp ).toList();
   if ( horizon.isEmpty() )
   {
-    constraints.clear();
+    m_inMemoryConstraints.clear();
   }
   else
   {
-    for ( int i = constraints.size() - 1; i >= 0; --i )
+    for ( int i = m_inMemoryConstraints.size() - 1; i >= 0; --i )
     {
-      if ( constraints.at( i ).toMap().value( QStringLiteral( "horizon" ) ).toString() == horizon )
-        constraints.removeAt( i );
+      if ( m_inMemoryConstraints.at( i ).value( QStringLiteral( "horizon" ) ).toString() == horizon )
+        m_inMemoryConstraints.removeAt( i );
     }
   }
 
-  int maxSeq = property( kSeqProp ).toInt();
+  int maxSeq = m_inMemorySeq;
   for ( const QVariantMap &rec : loaded )
   {
-    constraints.append( rec );
+    m_inMemoryConstraints.append( rec );
     const QString id = rec.value( QStringLiteral( "id" ) ).toString();
     if ( id.startsWith( QStringLiteral( "c-" ) ) )
     {
@@ -868,10 +894,9 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
         maxSeq = num;
     }
   }
-  setProperty( kConstraintsProp, constraints );
-  setProperty( kSeqProp, maxSeq );
+  m_inMemorySeq = maxSeq;
 
-  QgisLayerService *layers = layersOf( this );
+  QgisLayerService *layers = m_layers.data();
   if ( layers && !loaded.isEmpty() )
   {
     if ( !horizon.isEmpty() )
@@ -914,8 +939,8 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
 bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString &pointsLayerId,
                                           const QString &field, double cellSize, QString *error )
 {
-  QgisProcessingService *proc = procOf( this );
-  QgisLayerService *layers = layersOf( this );
+  QgisProcessingService *proc = m_proc.data();
+  QgisLayerService *layers = m_layers.data();
   if ( !proc || !layers )
   {
     setError( error, tr( "constraint workflow is not bound to services" ) );
@@ -1063,8 +1088,8 @@ namespace
 bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &factorId,
                                          const QVariantMap &params, QString *error )
 {
-  QgisProcessingService *proc = procOf( this );
-  QgisLayerService *layers = layersOf( this );
+  QgisProcessingService *proc = m_proc.data();
+  QgisLayerService *layers = m_layers.data();
   if ( !proc || !layers )
   {
     setError( error, tr( "constraint workflow is not bound to services" ) );
@@ -1247,8 +1272,8 @@ bool ConstraintWorkflow::generateIsopachFactor( const QString &horizon, const QS
                                                 const SingleFactorDefinition &def,
                                                 const QVariantMap &params, QString *error )
 {
-  QgisProcessingService *proc = procOf( this );
-  QgisLayerService *layers = layersOf( this );
+  QgisProcessingService *proc = m_proc.data();
+  QgisLayerService *layers = m_layers.data();
   if ( !proc || !layers )
   {
     setError( error, tr( "constraint workflow is not bound to services" ) );
@@ -1362,8 +1387,8 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
                                                  const SingleFactorDefinition &def,
                                                  const QVariantMap &params, QString *error )
 {
-  QgisProcessingService *proc = procOf( this );
-  QgisLayerService *layers = layersOf( this );
+  QgisProcessingService *proc = m_proc.data();
+  QgisLayerService *layers = m_layers.data();
   if ( !proc || !layers )
   {
     setError( error, tr( "constraint workflow is not bound to services" ) );
@@ -1505,7 +1530,7 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
 bool ConstraintWorkflow::generateContours( const QString &horizon, const QString &factorLayerId,
                                            double interval, QString *error )
 {
-  QgisLayerService *layers = layersOf( this );
+  QgisLayerService *layers = m_layers.data();
   if ( !layers )
   {
     setError( error, tr( "constraint workflow is not bound to a layer service" ) );
@@ -1619,21 +1644,36 @@ bool ConstraintWorkflow::generateContours( const QString &horizon, const QString
 // ---------------------------------------------------------------------------
 
 CompositionWorkflow::CompositionWorkflow( QgisProcessingService *proc, QgisLayerService *layers, QObject *parent )
-  : QObject( parent )
+  : QObject( parent ), m_proc( proc ), m_layers( layers )
 {
-  bindProcessing( this, proc, layers );
 }
 
 void CompositionWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDir )
 {
-  PaleoWorkflowBindDerivedCatalog( this, catalog, projectDir );
+  m_catalog = catalog;
+  m_projectDir = projectDir;
+}
+
+DataCatalog *CompositionWorkflow::catalog() const
+{
+  return m_catalog.data();
+}
+
+QgisProcessingService *CompositionWorkflow::processingService() const
+{
+  return m_proc.data();
+}
+
+QgisLayerService *CompositionWorkflow::layerService() const
+{
+  return m_layers.data();
 }
 
 bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList &factorLayerIds,
                                        QString *error )
 {
-  QgisProcessingService *proc = procOf( this );
-  QgisLayerService *layers = layersOf( this );
+  QgisProcessingService *proc = m_proc.data();
+  QgisLayerService *layers = m_layers.data();
   if ( !proc || !layers )
   {
     setError( error, tr( "composition workflow is not bound to services" ) );
@@ -1722,8 +1762,8 @@ bool CompositionWorkflow::deriveFaciesPolygons( const QString &horizon, const QS
     return false;
   };
 
-  QgisProcessingService *proc = procOf( this );
-  QgisLayerService *layers = layersOf( this );
+  QgisProcessingService *proc = m_proc.data();
+  QgisLayerService *layers = m_layers.data();
   if ( !proc || !layers )
     return fail( tr( "composition workflow is not bound to services" ) );
   if ( rasterLayerId.isEmpty() )
@@ -1843,7 +1883,7 @@ QString CompositionWorkflow::prepareFaciesForEditing( const QString &layerId, QS
     return QString();
   };
 
-  QgisLayerService *layers = layersOf( this );
+  QgisLayerService *layers = m_layers.data();
   if ( !layers )
     return fail( tr( "composition workflow is not bound to services" ) );
   if ( layerId.isEmpty() )
@@ -1921,7 +1961,7 @@ bool CompositionWorkflow::saveFaciesAttributes( const QString &layerId, const QV
     return false;
   };
 
-  QgisLayerService *layers = layersOf( this );
+  QgisLayerService *layers = m_layers.data();
   if ( !layers )
     return fail( tr( "composition workflow is not bound to services" ) );
   if ( layerId.isEmpty() )
@@ -2023,32 +2063,45 @@ bool CompositionWorkflow::saveFaciesAttributes( const QString &layerId, const QV
 // ---------------------------------------------------------------------------
 
 ValidationWorkflow::ValidationWorkflow( QgisLayerService *layers, PaleoProjectStore *store, QObject *parent )
-  : QObject( parent )
+  : QObject( parent ), m_layers( layers ), m_store( store )
 {
-  setProperty( kLayersProp, QVariant::fromValue( static_cast<QObject *>( layers ) ) );
-  setProperty( kStoreProp, QVariant::fromValue( static_cast<QObject *>( store ) ) );
 }
 
 void ValidationWorkflow::setProjectData( ProjectDataFacade *projectData )
 {
-  setProperty( "paleo.wf.projectdata", QVariant::fromValue( static_cast<QObject *>( projectData ) ) );
+  m_projectData = projectData;
+}
+
+ProjectDataFacade *ValidationWorkflow::projectData() const
+{
+  return m_projectData.data();
 }
 
 void ValidationWorkflow::setResidualThresholdMs( double thresholdMs )
 {
-  setProperty( "paleo.wf.residualThresholdMs", thresholdMs );
+  m_residualThresholdMs = thresholdMs;
 }
 
 QVariantList ValidationWorkflow::lastResidualRows() const
 {
-  return property( "paleo.wf.residualRows" ).toList();
+  return m_residualRows;
+}
+
+QgisLayerService *ValidationWorkflow::layerService() const
+{
+  return m_layers.data();
+}
+
+PaleoProjectStore *ValidationWorkflow::projectStore() const
+{
+  return m_store.data();
 }
 
 QList<ValidationIssue> ValidationWorkflow::validate()
 {
   QList<ValidationIssue> issues;
-  QgisLayerService *layers = layersOf( this );
-  PaleoProjectStore *store = storeOf( this );
+  QgisLayerService *layers = m_layers.data();
+  PaleoProjectStore *store = m_store.data();
   QVector<LayerDeclaration> decls;
   if ( layers )
   {
@@ -2139,9 +2192,9 @@ QList<ValidationIssue> ValidationWorkflow::validate()
   {
     const QString tgtHorizon = AreaRules::active().targetHorizon;
     QVariantList rowMaps;
-    if ( auto *pd = qobject_cast<ProjectDataFacade *>( property( "paleo.wf.projectdata" ).value<QObject *>() ) )
+    if ( auto *pd = m_projectData.data() )
     {
-      const double prop = property( "paleo.wf.residualThresholdMs" ).toDouble();
+      const double prop = m_residualThresholdMs;
       const double threshold = prop > 0.0 ? prop : 10.0;
       const QList<TimeResidualRow> rows =
           computeTimeResiduals( pd, tgtHorizon, threshold );
@@ -2222,7 +2275,7 @@ QList<ValidationIssue> ValidationWorkflow::validate()
         issues.append( v );
       }
     }
-    setProperty( "paleo.wf.residualRows", rowMaps );
+    m_residualRows = rowMaps;
   }
 
   emit validationDone( issues.size() );

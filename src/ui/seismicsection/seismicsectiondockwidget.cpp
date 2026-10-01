@@ -21,9 +21,6 @@
 #include <QLineEdit>
 #include <QRegularExpression>
 #include <QTextEdit>
-#include <QThreadPool>
-#include <QPointer>
-#include <QMetaObject>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -31,6 +28,7 @@
 #include <QHBoxLayout>
 #include <QMenu>
 #include <QVBoxLayout>
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -59,13 +57,20 @@ SeismicSectionDockWidget::SeismicSectionDockWidget(const QString &title, QWidget
     m_taskService = new SeismicTaskService(tasks, 256, this);
 }
 
+// 迟到回调由 QPointer 守卫兜底（无 UAF）；这里取消是为归还并发闸——
+// 注入共享服务时（app 装配），排队/在途读取不随 dock 析构消失，
+// 不主动取消会占住 ≤4 闸直到读完。
 SeismicSectionDockWidget::~SeismicSectionDockWidget() {
-    if (m_activeCancelFlag) {
-        m_activeCancelFlag->store(true);
+    if (m_sliceTask) {
+        m_sliceTask->requestCancel();
+        m_sliceTask.clear();
     }
-    if (m_extraction) {
+    if (m_compareTask) {
+        m_compareTask->requestCancel();
+        m_compareTask.clear();
+    }
+    if (m_extraction)
         m_extraction->requestCancel();
-    }
 }
 
 void SeismicSectionDockWidget::setupUi() {
@@ -736,6 +741,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
 
     // D2.10 卷帘对比
     m_btnCurtain = new QToolButton(bar);
+    m_btnCurtain->setObjectName(QStringLiteral("btnSectionCurtain"));
     m_btnCurtain->setText(tr("卷帘对比"));
     m_btnCurtain->setCheckable(true);
     m_btnCurtain->setToolTip(tr("相邻线卷帘对比：帘左当前线 / 帘右相邻线，画布内拖分割线"));
@@ -896,6 +902,17 @@ void SeismicSectionDockWidget::clearRoute() {
 void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume) {
   if (m_extraction)
     m_extraction->requestCancel();
+  // 切片/卷帘在途任务一并取消并摘牌：切体后旧体的读取不再占并发闸，
+  // 迟到的结果由世代号+任务身份双重守卫丢弃（不出错、不闪旧图）。
+  if (m_sliceTask) {
+    m_sliceTask->requestCancel();
+    m_sliceTask.clear();
+  }
+  if (m_compareTask) {
+    m_compareTask->requestCancel();
+    m_compareTask.clear();
+  }
+  m_sliceIndex = -1; // 去抖键随体身份作废（同号线也不再等价）
   ++m_generation;
   m_route.clear();
   m_distances.clear();
@@ -923,6 +940,18 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
 void SeismicSectionDockWidget::onSectionModeChanged(int modeIndex) {
     if (modeIndex == 3) {
         if (m_extraction) m_extraction->requestCancel();
+        // 任意线顶替切片显示：在途切片/卷帘一并取消摘牌、去抖键作废——
+        // 只推世代号不清任务会让切片在途结果被自己的世代号毒化丢弃
+        //（3→0 回切时去抖命中一个已注定被丢弃的请求 → 静默空白）。
+        if (m_sliceTask) {
+            m_sliceTask->requestCancel();
+            m_sliceTask.clear();
+        }
+        if (m_compareTask) {
+            m_compareTask->requestCancel();
+            m_compareTask.clear();
+        }
+        m_sliceIndex = -1;
         ++m_generation;
         m_progressBar->hide();
         m_sliceGroup->hide();
@@ -1022,22 +1051,31 @@ void SeismicSectionDockWidget::setSectionMode(int modeIndex) {
 }
 
 void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
-    if (!m_volume || !m_volume->IsLoaded())
+    if (!m_volume || !m_volume->IsLoaded() || !m_taskService)
         return;
 
-    const uint64_t currentGen = ++m_sliceGeneration;
-    if (m_activeCancelFlag) {
-        m_activeCancelFlag->store(true);
+    // 切片顶替任意线显示：取消其在途任务——迟到的任意线结果不再覆盖已
+    // 应用的切片（旧实现无此守卫，属真实缺陷）。世代号在去抖判定之后才
+    // 推进：重复请求走早退，不能毒化它本想去重的那个在途任务。
+    if (m_extraction) {
+        m_extraction->requestCancel();
+        m_extraction.clear();
     }
 
-    if (m_isExtractingSlice) {
-        m_pendingSliceType = type;
-        m_pendingSliceIndex = index;
+    // 同型同号在途时去抖（滑杆吸附重入 / slider 与 spin 双发同值）。
+    if (m_sliceTask && m_sliceType == type && m_sliceIndex == index)
         return;
+    // 走到这里必然是顶替或新请求：推进世代号作废被取消的任意线迟到回调，
+    // 再顶替旧切片在途（协作取消——worker 逐线检查点退出，不再占并发闸）。
+    // 先摘牌再启新：服务的立即失败路径会同步回调，此时请求号守卫以
+    // 「计数已推进」放行如实报错。
+    ++m_generation;
+    if (m_sliceTask) {
+        m_sliceTask->requestCancel();
+        m_sliceTask.clear();
     }
-    m_isExtractingSlice = true;
-    m_activeCancelFlag = std::make_shared<std::atomic<bool>>(false);
-    auto cancelFlag = m_activeCancelFlag;
+    m_sliceType = type;
+    m_sliceIndex = index;
 
     // 常规 IL/XL/Time 切换：丢弃任意线旧状态（route/井叠加），
     // hasRoute() 复归 false（wave/sections 语义）。
@@ -1057,104 +1095,95 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
     }
     setLineTitle(title);
 
+    m_progressBar->setRange(0, 100);
     m_progressBar->setValue(0);
     m_progressBar->setVisible(true);
 
-    auto vol = m_volume;
+    // 体快照（SgyVolume 拷贝廉价：索引经 shared_ptr 不可变共享，服务通道
+    // 只走 const 面）。经 SeismicTaskService：≤4 并发闸 + 协作取消 +
+    // 切片 LRU + 引擎 Auto 后端（sf3c 工作区热切换后自动吃随机访问红利）。
+    auto vol = std::make_shared<SgyVolume>(*m_volume);
+    const auto generation = m_generation;
+    const auto request = ++m_sliceRequest;
     QPointer<SeismicSectionDockWidget> guard(this);
-    QThreadPool::globalInstance()->start([guard, vol, type, index, title, origin, currentGen, cancelFlag]() {
-        if (!guard)
-            return;
-        SgySliceImage image;
-        std::string err;
-        auto progressCb = [guard, cancelFlag](int processed, int total) -> bool {
-            if (!guard || (cancelFlag && cancelFlag->load()))
-                return false; // Early abort in SgyVolume::ExtractSlice
-            if (total > 0) {
-                const int pct = std::clamp(static_cast<int>(std::round(100.0 * processed / total)), 0, 100);
-                if (auto *dock = guard.data()) {
-                    QMetaObject::invokeMethod(dock, [guard, pct]() {
-                        if (guard && guard->m_progressBar) {
-                            guard->m_progressBar->setValue(pct);
-                        }
-                    }, Qt::QueuedConnection);
-                }
+
+    PaleoTask *rawTask = m_taskService->startSliceExtraction(
+        vol, type, index,
+        [guard, generation, request, vol, type, index, title, origin](
+            bool ok, std::shared_ptr<const SgySliceImage> image, const QString &error) {
+            // 双重守卫：世代号（切体/重开）+ 请求号（被更新的切片请求
+            // 顶替）。被顶替/取消的旧任务静默丢弃——cancelled 不是失败，
+            // 不弹误导错误、不覆盖新请求已应用的画面。
+            if (!guard || guard->m_generation != generation || guard->m_sliceRequest != request)
+                return;
+            guard->m_sliceTask.clear();
+            guard->m_progressBar->setVisible(false);
+
+            if (!ok) {
+                // D2.14：原因态——画布显示可读原因而非空白
+                guard->setLineTitle(guard->tr("切片提取失败: %1").arg(error));
+                guard->m_canvas->clearData();
+                guard->m_canvas->setNoDataReason(guard->tr("剖面不可用\n%1").arg(error));
+                emit guard->sectionExtractionFinished(false, error);
+                return;
             }
-            return true;
-        };
-
-        const bool ok = vol->ExtractSlice(type, index, image, err, progressCb);
-        if (!guard)
-            return;
-
-        if (auto *dock = guard.data()) {
-            QMetaObject::invokeMethod(dock, [guard, ok, image, type, index, title, vol, err, origin, currentGen]() {
-                if (!guard)
-                    return;
-                guard->m_isExtractingSlice = false;
-                if (guard->m_progressBar)
-                    guard->m_progressBar->setVisible(false);
-
-                if (guard->m_pendingSliceIndex >= 0) {
-                    const auto nextType = guard->m_pendingSliceType;
-                    const int nextIdx = guard->m_pendingSliceIndex;
-                    guard->m_pendingSliceIndex = -1;
-                    guard->extractSliceAsync(nextType, nextIdx);
-                    return;
-                }
-
-                if (guard->m_sliceGeneration != currentGen) {
-                    return;
-                }
-
-                if (!ok) {
-                    // D2.14：原因态——画布显示可读原因而非空白
-                    guard->setLineTitle(guard->tr("切片提取失败: %1").arg(QString::fromStdString(err)));
-                    guard->m_canvas->clearData();
-                    guard->m_canvas->setNoDataReason(guard->tr("剖面不可用\n%1").arg(QString::fromStdString(err)));
-                    emit guard->sectionExtractionFinished(false, QString::fromStdString(err));
-                    return;
-                }
-                if (image.width <= 0 || image.height <= 0 || image.values.empty()) {
-                    // D2.14：空数据原因态（如无有效道的线号）
-                    guard->setLineTitle(title);
-                    guard->m_canvas->clearData();
-                    guard->m_canvas->setNoDataReason(guard->tr("%1\n该线无有效地震道（工区覆盖范围外）").arg(title));
-                    emit guard->sectionExtractionFinished(false, guard->tr("空切片"));
-                    return;
-                }
-
+            if (!image || image->width <= 0 || image->height <= 0 || image->values.empty()) {
+                // D2.14：空数据原因态（如无有效道的线号）
                 guard->setLineTitle(title);
-                if (guard->m_btnCurtain && guard->m_btnCurtain->isChecked())
-                    guard->updateCompareSlice(); // D2.10：当前线变了，相邻线 B 图同步
-                if (type == SgySliceType::Time) {
-                    const double ms = origin + index * (vol->SampleIntervalUs() / 1000.0);
-                    guard->m_canvas->setTimeSliceData(image, ms, vol->InlineMin(), vol->InlineMax(), vol->XlineMin(), vol->XlineMax());
-                } else {
-                    const float dtMs = vol->SampleIntervalUs() > 0 ? (vol->SampleIntervalUs() / 1000.0f) : 2.0f;
-                    guard->m_canvas->setSectionData(image, dtMs, origin);
-                }
-                // D4：剖面身份 + 最近切片（拾取解析/追踪原料）
-                {
-                    SectionRef ref;
-                    ref.valid = true;
-                    ref.type = type;
-                    ref.index = index;
-                    if (type == SgySliceType::Inline)
-                        ref.colMin = vol->XlineMin(), ref.colMax = vol->XlineMax();
-                    else if (type == SgySliceType::Xline)
-                        ref.colMin = vol->InlineMin(), ref.colMax = vol->InlineMax();
-                    else
-                        ref.colMin = vol->XlineMin(), ref.colMax = vol->XlineMax();
-                    guard->m_canvas->setSectionRef(ref);
-                    if (type != SgySliceType::Time)
-                        guard->m_lastSlice = image;
-                }
-                guard->refreshInterpretationOverlay();
-                emit guard->sectionExtractionFinished(true, QString());
-            }, Qt::QueuedConnection);
-        }
-    });
+                guard->m_canvas->clearData();
+                guard->m_canvas->setNoDataReason(
+                    guard->tr("%1\n该线无有效地震道（工区覆盖范围外）").arg(title));
+                emit guard->sectionExtractionFinished(false, guard->tr("空切片"));
+                return;
+            }
+
+            guard->setLineTitle(title);
+            if (guard->m_btnCurtain && guard->m_btnCurtain->isChecked())
+                guard->updateCompareSlice(); // D2.10：当前线变了，相邻线 B 图同步
+            if (type == SgySliceType::Time) {
+                const double ms = origin + index * (vol->SampleIntervalUs() / 1000.0);
+                guard->m_canvas->setTimeSliceData(*image, ms, vol->InlineMin(),
+                                                  vol->InlineMax(), vol->XlineMin(),
+                                                  vol->XlineMax());
+            } else {
+                const float dtMs = vol->SampleIntervalUs() > 0
+                                       ? (vol->SampleIntervalUs() / 1000.0f) : 2.0f;
+                guard->m_canvas->setSectionData(*image, dtMs, origin);
+            }
+            // D4：剖面身份 + 最近切片（拾取解析/追踪原料）
+            {
+                SectionRef ref;
+                ref.valid = true;
+                ref.type = type;
+                ref.index = index;
+                if (type == SgySliceType::Inline)
+                    ref.colMin = vol->XlineMin(), ref.colMax = vol->XlineMax();
+                else if (type == SgySliceType::Xline)
+                    ref.colMin = vol->InlineMin(), ref.colMax = vol->InlineMax();
+                else
+                    ref.colMin = vol->XlineMin(), ref.colMax = vol->XlineMax();
+                guard->m_canvas->setSectionRef(ref);
+                if (type != SgySliceType::Time)
+                    guard->m_lastSlice = *image;
+            }
+            guard->refreshInterpretationOverlay();
+            emit guard->sectionExtractionFinished(true, QString());
+        });
+    m_sliceTask = rawTask;
+
+    // 进度条由任务字节进度驱动（quiet 任务照常 reportBytes；直读后端逐线
+    // 上报、引擎后端完成时一次上报）。按请求号守卫：被顶替的旧任务其
+    // changed() 连接仍存活到任务终态，无守卫会把旧线的百分比写进新请求
+    // 的进度条（fast sweep 时可见回跳）。
+    if (rawTask) {
+        QPointer<PaleoTask> progressTask = rawTask;
+        connect(rawTask, &PaleoTask::changed, this, [this, progressTask, request]() {
+            if (!progressTask || m_sliceRequest != request)
+                return;
+            if (progressTask->bytesTotal() > 0)
+                m_progressBar->setValue(std::max(0, progressTask->percent()));
+        });
+    }
 }
 
 void SeismicSectionDockWidget::setSectionData(
@@ -1252,6 +1281,17 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
     return;
   if (m_extraction)
     m_extraction->requestCancel();
+  // 任意线顶替切片显示：取消在途切片/卷帘任务并作废去抖键——迟到的
+  // 切片结果由世代号丢弃，旧体读取不再占并发闸。
+  if (m_sliceTask) {
+    m_sliceTask->requestCancel();
+    m_sliceTask.clear();
+  }
+  if (m_compareTask) {
+    m_compareTask->requestCancel();
+    m_compareTask.clear();
+  }
+  m_sliceIndex = -1;
   const auto generation = ++m_generation;
   m_volume = volume;
   m_route.clear();
@@ -1395,9 +1435,9 @@ void SeismicSectionDockWidget::loadBookmarksFromSettings() {
     }
 }
 
-// ---- D2.10 卷帘 B 图：相邻线提取 ----
+// ---- D2.10 卷帘 B 图：相邻线提取（同一切片服务通道） ----
 void SeismicSectionDockWidget::updateCompareSlice() {
-    if (!m_volume || !m_volume->IsLoaded() || m_extractingCompare)
+    if (!m_volume || !m_volume->IsLoaded() || !m_taskService)
         return;
     const int mode = m_cboSectionMode->currentIndex();
     if (mode != 0 && mode != 1)
@@ -1431,31 +1471,41 @@ void SeismicSectionDockWidget::updateCompareSlice() {
         return;
     }
 
-    m_extractingCompare = true;
-    auto vol = m_volume;
+    // 顶替旧在途相邻线请求（快速换线时不再排队）；与主切片共用切片 LRU——
+    // 相邻线一旦看过，滑到该线的主图即缓存命中。
+    if (m_compareTask) {
+        m_compareTask->requestCancel();
+        m_compareTask.clear();
+    }
+    auto vol = std::make_shared<SgyVolume>(*m_volume);
     const auto type = mode == 0 ? SgySliceType::Inline : SgySliceType::Xline;
+    const auto generation = m_generation;
+    const auto request = ++m_compareRequest;
     QPointer<SeismicSectionDockWidget> guard(this);
-    QThreadPool::globalInstance()->start([guard, vol, type, neighbor, label]() {
-        if (!guard)
-            return;
-        SgySliceImage image;
-        std::string err;
-        auto progressCb = [guard](int, int) -> bool {
-            return static_cast<bool>(guard);
-        };
-        vol->ExtractSlice(type, neighbor, image, err, progressCb);
-        if (!guard)
-            return;
-        if (auto *dock = guard.data()) {
-            QMetaObject::invokeMethod(dock, [guard, image, label]() {
-                if (!guard)
-                    return;
-                guard->m_extractingCompare = false;
-                if (guard->m_canvas)
-                    guard->m_canvas->setCompareData(image, label);
-            }, Qt::QueuedConnection);
-        }
-    });
+
+    PaleoTask *rawTask = m_taskService->startSliceExtraction(
+        vol, type, neighbor,
+        [guard, generation, request, label](bool ok,
+                                            std::shared_ptr<const SgySliceImage> image,
+                                            const QString &error) {
+            // 世代号（切体）+ 请求号（被新相邻线顶替）守卫：取消不弹错。
+            if (!guard || guard->m_generation != generation || guard->m_compareRequest != request)
+                return;
+            guard->m_compareTask.clear();
+            if (!ok) {
+                // 如实降级：失败给原因文案，不静默留空白帘（诚实失败契约）。
+                guard->m_canvas->setCompareData(
+                    SgySliceImage{}, guard->tr("相邻线提取失败: %1").arg(error));
+                return;
+            }
+            if (!image || image->values.empty()) {
+                guard->m_canvas->setCompareData(
+                    SgySliceImage{}, guard->tr("%1\n该线无有效地震道").arg(label));
+                return;
+            }
+            guard->m_canvas->setCompareData(*image, label);
+        });
+    m_compareTask = rawTask;
 }
 
 // ---- D2.11 道头信息卡 ----

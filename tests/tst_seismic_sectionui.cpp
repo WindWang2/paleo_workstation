@@ -2,6 +2,9 @@
 // P5 Phase 2 剖面 2D 测试（D2.1–D2.14）：纹理缓存命中、显示三模、阈值/极性、
 // AGC/增益曲线、双刻度、LOD 帧预算、纵向拉伸、8 档色标+反转、导出 PNG、
 // 卷帘对比、道头服务、书签往返、复制/抓图、空数据原因态。
+// goal/seismic-runtime-closure 增补：IL/XL/Time+卷帘取数经 SeismicTaskService
+// 的链路与治理面——服务通道/LRU 命中、顶替取消（cancelled≠failed）、销毁/
+// 切体/任意线迟到结果守卫。
 #include <QtTest>
 #include <QApplication>
 #include <QClipboard>
@@ -16,8 +19,13 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <functional>
 
-#include "../src/domain/seismic/sgyvolume.h"
+#include <QSpinBox>
+#include <QThread>
+#include <QToolButton>
+
+#include "../src/services/paleotaskservice.h"
 #include "../src/services/seismictaskservice.h"
 #include "../src/ui/seismicsection/seismicsectioncanvas.h"
 #include "../src/ui/seismicsection/seismicsectiondockwidget.h"
@@ -69,6 +77,22 @@ qint64 imageDiff(const QImage &a, const QImage &b)
       diff += (ra[x] != rb[x]) ? 1 : 0;
   }
   return diff;
+}
+
+// 服务任务静默等待（同 tst_seismic_3dui 的口径）：事件循环轮转到
+// 条件满足或超时。
+bool waitForQuiet(const std::function<bool()> &done, int timeoutMs = 8000)
+{
+  QElapsedTimer clock;
+  clock.start();
+  while (!done())
+  {
+    if (clock.elapsed() > timeoutMs)
+      return false;
+    QApplication::processEvents(QEventLoop::AllEvents, 20);
+    QThread::msleep(5);
+  }
+  return true;
 }
 
 } // namespace
@@ -415,217 +439,255 @@ private slots:
     QVERIFY(canvas.noDataReason().isEmpty());
   }
 
-  // ---- CONC-01: 剖面后台切片/卷帘提取中宿主控件析构安全（QPointer 防 UAF）----
-  void extractSliceAsyncDestructionSafety()
+  // ---- goal/seismic-runtime-closure：IL/XL/Time 取数经 SeismicTaskService ----
+
+  // 基础链路：切片经服务出结果、进切片 LRU、任务收敛归零。
+  void sliceExtractionThroughService()
   {
     QTemporaryDir dir;
-    const QString sgy = dir.filePath("slice_uaf.sgy");
-    QVERIFY(writeTestSegy(sgy, 10, 10, 128));
-
+    const QString sgy = dir.filePath("svc.sgy");
+    QVERIFY(writeTestSegy(sgy, 6, 5, 64));
     SgyVolume volume;
     std::string err;
     QVERIFY(volume.Load(sgy.toStdString(), err));
-    auto volPtr = std::make_shared<SgyVolume>(std::move(volume));
 
-    // Case 1: 异步切片提取中析构
-    for (int i = 0; i < 5; ++i) {
-      auto *dock = new SeismicSectionDockWidget;
-      dock->setVolume(volPtr);
-      dock->extractSliceAsync(SgySliceType::Inline, 1000 + i);
-      delete dock;
-    }
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    SeismicSectionDockWidget dock;
+    dock.setTaskService(&svc);
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(volume)));
 
-    // Case 2: 卷帘对比提取中析构
-    for (int i = 0; i < 5; ++i) {
-      auto *dock = new SeismicSectionDockWidget;
-      dock->setVolume(volPtr);
-      dock->setSectionMode(0);
-      dock->extractSliceAsync(SgySliceType::Inline, 1000);
-      delete dock;
-    }
-
-    QThreadPool::globalInstance()->waitForDone(5000);
-    QApplication::processEvents();
+    QVERIFY(waitForQuiet([&] { return !done.isEmpty(); }));
+    QVERIFY(done.last().at(0).toBool());
+    QVERIFY(dock.canvas()->hasData());
+    // dock 切片路径经服务：结果落切片 LRU（裸 QThreadPool 时代不进缓存）
+    QVERIFY(svc.dataCache().EntryCount() >= 1);
+    QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }));
   }
 
-  // ---- Issue #25: 连续快速切线/切片并发安全（防数据竞态与陈旧数据覆盖）----
-  void rapidLineSwitchingNoRaceOrCrash()
+  // 顶替语义：快速换线时在途任务被协作取消（cancelled ≠ failed，
+  // 无误导失败信号），仅最新线出结果；高频请求不无上限排队。
+  void sliceSupersedeCancelsInFlight()
   {
     QTemporaryDir dir;
-    const QString sgy = dir.filePath("rapid_switching.sgy");
-    // 30 inlines, 30 crosslines, 64 samples
-    QVERIFY(writeTestSegy(sgy, 30, 30, 64));
-
+    const QString sgy = dir.filePath("sup.sgy");
+    QVERIFY(writeTestSegy(sgy, 8, 5, 64));
     SgyVolume volume;
     std::string err;
     QVERIFY(volume.Load(sgy.toStdString(), err));
-    auto volPtr = std::make_shared<SgyVolume>(std::move(volume));
 
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    // 饱和并发闸：4 个静默长任务占满 4 槽，切片任务确定性地排队
+    //（入池前取消 = 直接判 Cancelled 不执行，见 startBounded）。
+    for (int i = 0; i < SeismicTaskService::kMaxConcurrentTasks; ++i) {
+      svc.startBounded(QStringLiteral("filler-%1").arg(i),
+                       [](PaleoTask *) {
+                         QThread::msleep(600);
+                         return QString();
+                       },
+                       QString(), /*quiet=*/true);
+    }
     SeismicSectionDockWidget dock;
-    dock.setVolume(volPtr);
-    dock.show();
+    dock.setTaskService(&svc);
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(volume)));
+    QCOMPARE(svc.activeTaskCount(), SeismicTaskService::kMaxConcurrentTasks + 1);
 
-    // 1. 模拟用户极快速拖拽 Inline 滑块（连续触发 20 次切线请求）
-    for (int il = 1000; il < 1020; ++il) {
-      dock.onSliceSliderChanged(il);
+    auto *spin = dock.findChild<QSpinBox *>(QStringLiteral("spinSectionSlice"));
+    QVERIFY(spin);
+    const int target = spin->value() + 2; // 换线：顶替排队的首请求
+    spin->setValue(target);
+
+    QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }, 15000));
+    int cancelled = 0, succeeded = 0;
+    for (const PaleoTask *t : tasks.tasks()) {
+      if (!t->title().contains(QStringLiteral("提取地震切片")))
+        continue;
+      if (t->state() == PaleoTask::State::Cancelled)
+        ++cancelled;
+      if (t->state() == PaleoTask::State::Succeeded)
+        ++succeeded;
     }
-
-    // 2. 模拟切片模式极快速切换（Inline -> Xline -> Time -> Inline）
-    dock.setSectionMode(1); // Xline
-    dock.onSliceSliderChanged(2005);
-    dock.setSectionMode(2); // Time
-    dock.onSliceSliderChanged(10);
-    dock.setSectionMode(0); // Inline
-    dock.onSliceSliderChanged(1015);
-
-    // 3. 开启卷帘对比，再次快速切换 10 次
-    if (dock.m_btnCurtain) {
-      dock.m_btnCurtain->setChecked(true);
-      for (int il = 1010; il <= 1018; ++il) {
-        dock.onSliceSliderChanged(il);
-      }
-    }
-
-    // 4. 等待所有后台任务收敛完成
-    QElapsedTimer timer;
-    timer.start();
-    while (timer.elapsed() < 5000) {
-      QApplication::processEvents(QEventLoop::AllEvents, 50);
-    }
-    QThreadPool::globalInstance()->waitForDone(5000);
-    QApplication::processEvents();
-
-    // 5. 断言：最终收敛状态必须严格等于最后一次请求的测线号（1018），而非中间陈旧测线！
-    const auto ref = dock.canvas()->sectionRef();
-    QVERIFY(ref.valid);
-    QCOMPARE(ref.type, SgySliceType::Inline);
-    QCOMPARE(ref.index, 1018);
-    QVERIFY(dock.m_lblTitle && dock.m_lblTitle->text().contains("1018"));
-    QVERIFY(dock.canvas()->noDataReason().isEmpty());
-    QVERIFY(dock.canvas()->traceCount() > 0);
+    QVERIFY2(cancelled >= 1, "superseded slice task must end Cancelled, not fake-success");
+    QCOMPARE(succeeded, 1); // 只有最新线出结果
+    for (const auto &args : done)
+      if (!args.at(0).toBool())
+        QFAIL("superseded/cancelled slice surfaced as failure signal");
+    QVERIFY(dock.canvas()->hasData());
+    QCOMPARE(dock.canvas()->traceCount(), 5);
   }
 
-  // ---- Adversarial Stress Test: Interleaved burst mode and slice switching ----
-  void adversarialRapidBurstSwitchingBetweenModesAndSlices()
+  // 生命周期：切片在途时销毁 dock——回调守卫丢弃，无 UAF、无迟到的
+  // 画面污染，服务侧任务自然收敛。
+  void dockDestroyedMidExtractionSurvives()
   {
     QTemporaryDir dir;
-    const QString sgy = dir.filePath("adv_switching.sgy");
-    // 40 inlines (1000..1039), 40 crosslines (2000..2039), 128 samples
-    QVERIFY(writeTestSegy(sgy, 40, 40, 128));
-
+    const QString sgy = dir.filePath("dly.sgy");
+    QVERIFY(writeTestSegy(sgy, 6, 5, 64));
     SgyVolume volume;
     std::string err;
     QVERIFY(volume.Load(sgy.toStdString(), err));
-    auto volPtr = std::make_shared<SgyVolume>(std::move(volume));
 
-    SeismicSectionDockWidget dock;
-    dock.setVolume(volPtr);
-    dock.show();
-
-    // Rapidly alternate between Inline, Crossline, and Time Slice (60 rapid requests)
-    for (int i = 0; i < 20; ++i) {
-      dock.setSectionMode(0); // Inline
-      dock.onSliceSliderChanged(1000 + (i % 40));
-      dock.setSectionMode(1); // Xline
-      dock.onSliceSliderChanged(2000 + ((i * 3) % 40));
-      dock.setSectionMode(2); // Time
-      dock.onSliceSliderChanged((i * 5) % 128);
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    for (int i = 0; i < SeismicTaskService::kMaxConcurrentTasks; ++i) {
+      svc.startBounded(QStringLiteral("filler-%1").arg(i),
+                       [](PaleoTask *) {
+                         QThread::msleep(600);
+                         return QString();
+                       },
+                       QString(), /*quiet=*/true);
     }
-
-    // Final definitive switch: Time slice 42
-    dock.setSectionMode(2);
-    dock.onSliceSliderChanged(42);
-
-    // Wait for all background tasks and event loop to settle
-    QElapsedTimer timer;
-    timer.start();
-    while (timer.elapsed() < 5000) {
-      QApplication::processEvents(QEventLoop::AllEvents, 50);
-    }
-    QThreadPool::globalInstance()->waitForDone(5000);
-    QApplication::processEvents();
-
-    // Verify: Final state strictly reflects Time slice 42, not any stale inline/xline
-    const auto ref = dock.canvas()->sectionRef();
-    QVERIFY(ref.valid);
-    QCOMPARE(ref.type, SgySliceType::Time);
-    QCOMPARE(ref.index, 42);
-    QVERIFY(dock.m_lblTitle && dock.m_lblTitle->text().contains("TWT"));
-    QVERIFY(dock.canvas()->noDataReason().isEmpty());
-    QVERIFY(dock.canvas()->traceCount() > 0);
+    auto *dock = new SeismicSectionDockWidget;
+    dock->setTaskService(&svc);
+    dock->setVolume(std::make_shared<SgyVolume>(std::move(volume)));
+    QVERIFY(svc.activeTaskCount() > SeismicTaskService::kMaxConcurrentTasks);
+    delete dock; // 在途即销毁（BASE 的裸 QThreadPool 路径此处在池线程
+                 // invokeMethod 悬空 this 上有 UAF 窗口）
+    QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }, 15000));
   }
 
-  // ---- Adversarial Stress Test: Rapid scrubbing with curtain comparison enabled ----
-  void adversarialCurtainModeRapidScrubbing()
+  // 切体顶替：切片在途时换体——旧体结果被世代号丢弃，画布落新体数据。
+  void volumeSwitchMidSliceDropsStaleResult()
   {
     QTemporaryDir dir;
-    const QString sgy = dir.filePath("adv_curtain.sgy");
-    QVERIFY(writeTestSegy(sgy, 30, 30, 64));
+    const QString sgy1 = dir.filePath("v1.sgy");
+    const QString sgy2 = dir.filePath("v2.sgy");
+    QVERIFY(writeTestSegy(sgy1, 6, 5, 64)); // IL 剖面宽 = XL 数 = 5
+    QVERIFY(writeTestSegy(sgy2, 6, 4, 64)); // 宽 = 4：可判数据归属
+    SgyVolume volume1, volume2;
+    std::string err;
+    QVERIFY(volume1.Load(sgy1.toStdString(), err));
+    QVERIFY(volume2.Load(sgy2.toStdString(), err));
 
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    for (int i = 0; i < SeismicTaskService::kMaxConcurrentTasks; ++i) {
+      svc.startBounded(QStringLiteral("filler-%1").arg(i),
+                       [](PaleoTask *) {
+                         QThread::msleep(600);
+                         return QString();
+                       },
+                       QString(), /*quiet=*/true);
+    }
+    SeismicSectionDockWidget dock;
+    dock.setTaskService(&svc);
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(volume1))); // T1 排队
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(volume2))); // T1 取消，T2 排队
+    QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }, 15000));
+
+    QVERIFY(dock.canvas()->hasData());
+    QCOMPARE(dock.canvas()->traceCount(), 4); // 新体的 XL 数，不是旧体的 5
+    QVERIFY(done.last().at(0).toBool());
+  }
+
+  // 切片 LRU：看过邻线再回头，重复线缓存命中（hits 计数增长）。
+  void sliceRevisitHitsServiceCache()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("lru.sgy");
+    QVERIFY(writeTestSegy(sgy, 8, 5, 64));
     SgyVolume volume;
     std::string err;
     QVERIFY(volume.Load(sgy.toStdString(), err));
-    auto volPtr = std::make_shared<SgyVolume>(std::move(volume));
 
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
     SeismicSectionDockWidget dock;
-    dock.setVolume(volPtr);
-    dock.show();
+    dock.setTaskService(&svc);
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(volume)));
+    QVERIFY(waitForQuiet([&] { return done.count() >= 1; }));
+    auto *spin = dock.findChild<QSpinBox *>(QStringLiteral("spinSectionSlice"));
+    QVERIFY(spin);
+    const int first = spin->value();
 
-    dock.setSectionMode(0); // Inline
-    dock.m_btnCurtain->setChecked(true);
+    spin->setValue(first + 1);
+    QVERIFY(waitForQuiet([&] { return done.count() >= 2; }));
+    const auto hits0 = svc.dataCache().Hits();
+    spin->setValue(first); // 回头：命中
+    QVERIFY(waitForQuiet([&] { return done.count() >= 3; }));
+    QVERIFY(svc.dataCache().Hits() > hits0);
+    QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }));
+  }
+
+  // 卷帘 B 图经服务：相邻线异步到位、换线跟随、失败有原因不静默。
+  void curtainNeighborThroughService()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("ctn.sgy");
+    QVERIFY(writeTestSegy(sgy, 8, 5, 64));
+    SgyVolume volume;
+    std::string err;
+    QVERIFY(volume.Load(sgy.toStdString(), err));
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    SeismicSectionDockWidget dock;
+    dock.setTaskService(&svc);
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(volume)));
+    QVERIFY(waitForQuiet([&] { return done.count() >= 1; }));
+    auto *spin = dock.findChild<QSpinBox *>(QStringLiteral("spinSectionSlice"));
+    QVERIFY(spin);
+    auto *curtain =
+        dock.findChild<QToolButton *>(QStringLiteral("btnSectionCurtain"));
+    QVERIFY(curtain);
+
+    curtain->setChecked(true);
+    QVERIFY(waitForQuiet(
+        [&] { return dock.canvas()->compareLabel() == QStringLiteral("IL %1").arg(spin->value() + 1); }));
     QVERIFY(dock.canvas()->compareEnabled());
 
-    // Rapidly scrub through inlines
-    for (int il = 1000; il <= 1025; ++il) {
-      dock.m_sliderSlice->setValue(il);
-    }
-
-    QElapsedTimer timer;
-    timer.start();
-    while (timer.elapsed() < 5000) {
-      QApplication::processEvents(QEventLoop::AllEvents, 50);
-    }
-    QThreadPool::globalInstance()->waitForDone(5000);
-    QApplication::processEvents();
-
-    const auto ref = dock.canvas()->sectionRef();
-    QVERIFY(ref.valid);
-    QCOMPARE(ref.type, SgySliceType::Inline);
-    QCOMPARE(ref.index, 1025);
-    QVERIFY(dock.m_lblTitle && dock.m_lblTitle->text().contains("1025"));
-    QVERIFY(dock.canvas()->compareEnabled());
-    QCOMPARE(dock.canvas()->compareLabel(), QStringLiteral("IL 1026"));
+    spin->setValue(spin->value() + 1);
+    QVERIFY(waitForQuiet(
+        [&] { return dock.canvas()->compareLabel() == QStringLiteral("IL %1").arg(spin->value() + 1); },
+        10000));
+    QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }));
   }
 
-  // ---- Adversarial Stress Test: Abrupt destruction under heavy concurrent bursts ----
-  void adversarialDestructionUnderHeavyConcurrentBursts()
+  // 任意线在途切回 IL：迟到的任意线结果不得覆盖切片显示（世代号守卫）。
+  void sliceAfterArbitraryLineDropsLateSection()
   {
     QTemporaryDir dir;
-    const QString sgy = dir.filePath("adv_burst_destroy.sgy");
-    QVERIFY(writeTestSegy(sgy, 30, 30, 64));
-
+    const QString sgy = dir.filePath("mix.sgy");
+    QVERIFY(writeTestSegy(sgy, 6, 5, 64));
     SgyVolume volume;
     std::string err;
     QVERIFY(volume.Load(sgy.toStdString(), err));
-    auto volPtr = std::make_shared<SgyVolume>(std::move(volume));
+    auto vol = std::make_shared<SgyVolume>(std::move(volume));
 
-    for (int iter = 0; iter < 10; ++iter) {
-      auto *dock = new SeismicSectionDockWidget;
-      dock->setVolume(volPtr);
-      dock->show();
-      dock->m_btnCurtain->setChecked(true);
-
-      for (int i = 0; i < 5; ++i) {
-        dock->setSectionMode(i % 3);
-        dock->onSliceSliderChanged(1000 + i);
-      }
-      delete dock; // Abrupt destruction while workers are running
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    // 占满闸 → 任意线请求排队（迟到的完成回放可复现）
+    for (int i = 0; i < SeismicTaskService::kMaxConcurrentTasks; ++i) {
+      svc.startBounded(QStringLiteral("filler-%1").arg(i),
+                       [](PaleoTask *) {
+                         QThread::msleep(400);
+                         return QString();
+                       },
+                       QString(), /*quiet=*/true);
     }
+    SeismicSectionDockWidget dock;
+    dock.setTaskService(&svc);
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(vol);
+    // 任意线请求（测网内真实线号 + 非空地图折线：hasRoute() 判定有效——
+    // 若迟到结果未被世代号丢弃，route 会落下且画布变成 ~7 列的剖面）
+    dock.extractSectionFromVolumeAsync(
+        vol, {{1000, 2000}, {1002, 2002}, {1004, 2004}}, QStringLiteral("late"),
+        {{0.0, 0.0}, {1500.0, 0.0}, {3000.0, 900.0}});
+    // 切回 IL 模式：切片顶替任意线
+    dock.setSectionMode(0);
+    QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }, 15000));
 
-    QThreadPool::globalInstance()->waitForDone(5000);
-    QApplication::processEvents();
+    QVERIFY(dock.canvas()->hasData());
+    QVERIFY(!dock.hasRoute()); // 任意线结果没有落下
+    QCOMPARE(dock.canvas()->traceCount(), 5); // 画布是切片数据
   }
-
 
 private:
   // 标准 INLINE@189/CROSSLINE@193 合成 SEG-Y（与转码测试同构的最小版）

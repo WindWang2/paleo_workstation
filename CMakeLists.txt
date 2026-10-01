@@ -220,7 +220,9 @@ if(ORT_INCLUDE AND ORT_LIB AND (NOT WIN32 OR ORT_DLL))
     set_target_properties(ort_vendored PROPERTIES IMPORTED_LOCATION ${ORT_LIB}
       INTERFACE_INCLUDE_DIRECTORIES ${ORT_INCLUDE})
   endif()
-  add_library(paleo_ai STATIC src/ai/onnxpredictionservice.cpp src/ai/remotepredictionservice.cpp)
+  add_library(paleo_ai STATIC src/ai/onnxpredictionservice.cpp src/ai/onnxfixture.cpp
+    src/ai/tileinference.cpp src/ai/horizonsuggest.cpp src/ai/modelregistry.cpp
+    src/ai/remotepredictionservice.cpp)
   target_link_libraries(paleo_ai PUBLIC paleo_deps ort_vendored)
   target_compile_definitions(paleo_ai PUBLIC PALEO_HAVE_ORT=1)
   target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
@@ -641,6 +643,8 @@ add_paleo_test(tst_webviewpanel LIBS paleo_ui)   # offscreen: engine unavailable
 add_paleo_test(tst_uxtheme LIBS paleo_ui)
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx LIBS paleo_ai)
+  add_paleo_test(tst_onnxsessions LIBS paleo_ai)
+  add_paleo_test(tst_tileinference LIBS paleo_ai paleo_services)
   add_paleo_test(tst_onnxworkflow LIBS paleo_workflow)
   target_compile_definitions(tst_onnxworkflow PRIVATE
     PROJECT_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
@@ -649,7 +653,8 @@ if(PALEO_HAVE_ORT)
   # ——后者仍会替换外部注入的值（deb 闭包路 paleo-dev 注入的 vendored
   # QGIS/Qt 目录会被吞掉，间接依赖落到系统 Qt 上产生版本冲突——本机
   # Arch Qt6.11 + vendored Qt6.10 即此症状）。
-  set_tests_properties(tst_onnx tst_onnxworkflow PROPERTIES ENVIRONMENT_MODIFICATION
+  set_tests_properties(tst_onnx tst_onnxworkflow tst_onnxsessions tst_tileinference PROPERTIES
+    ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()
 

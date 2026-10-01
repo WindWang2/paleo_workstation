@@ -59,15 +59,19 @@ void TimeDepthModel::setPoints(const std::vector<TdPoint> &points) {
 }
 
 double TimeDepthModel::DepthToTwtMs(double depthM) const {
-  if (!std::isfinite(depthM) ||
-      (m_strict &&
-       (depthM < m_points.front().depthM || depthM > m_points.back().depthM)))
+  if (!std::isfinite(depthM))
     return std::numeric_limits<double>::quiet_NaN();
 
   if (m_points.empty()) {
-    // Linear velocity formula: twt = 2000.0 * depth / velocity
-    return (depthM * 2000.0) / m_velocity;
+    // If strict mode is set without points, cannot interpolate/extrapolate.
+    // Otherwise fallback to constant velocity linear formula.
+    return m_strict ? std::numeric_limits<double>::quiet_NaN()
+                    : (depthM * 2000.0) / m_velocity;
   }
+
+  if (m_strict &&
+      (depthM < m_points.front().depthM || depthM > m_points.back().depthM))
+    return std::numeric_limits<double>::quiet_NaN();
 
     if (m_points.size() == 1) {
         const double v = m_points[0].depthM > 1e-3
@@ -106,14 +110,18 @@ double TimeDepthModel::DepthToTwtMs(double depthM) const {
 }
 
 double TimeDepthModel::TwtMsToDepth(double twtMs) const {
-  if (!std::isfinite(twtMs) || (m_strict && (twtMs < m_points.front().timeMs ||
-                                             twtMs > m_points.back().timeMs)))
+  if (!std::isfinite(twtMs))
     return std::numeric_limits<double>::quiet_NaN();
 
   if (m_points.empty()) {
     // depth = (twt * velocity) / 2000.0
-    return (twtMs * m_velocity) / 2000.0;
+    return m_strict ? std::numeric_limits<double>::quiet_NaN()
+                    : (twtMs * m_velocity) / 2000.0;
   }
+
+  if (m_strict && (twtMs < m_points.front().timeMs ||
+                   twtMs > m_points.back().timeMs))
+    return std::numeric_limits<double>::quiet_NaN();
 
     if (m_points.size() == 1) {
         const double v = m_points[0].depthM > 1e-3

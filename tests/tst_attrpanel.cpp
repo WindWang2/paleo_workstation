@@ -80,7 +80,8 @@ private slots:
     f.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(1, 2)));
     f.setAttribute(QStringLiteral("name"), QStringLiteral("W1"));
     f.setAttribute(QStringLiteral("z"), 12.5);
-    QVERIFY(vl->dataProvider()->addFeatures({f}));
+    QList<QgsFeature> feats{f}; // addFeatures 收非常量左值引用——花括号临时量不可绑定
+    QVERIFY(vl->dataProvider()->addFeatures(feats));
     AttributeTablePanel panel(
         &canvas, [vl](const QString &id) -> QgsVectorLayer * {
           return id == QLatin1String("wells") ? vl : nullptr;

@@ -24,6 +24,7 @@ static void captureIfAsked(const QImage &img, const QString &name)
 #include "ui/wellcomposite/wellpositionlegendwidget.h"
 #include "io/wellcompositexml.h"
 #include "qgis/qgisruntime.h"
+#include "uipolish_capture.h"
 
 using namespace WellComposite;
 
@@ -34,6 +35,15 @@ class TestWellComposite : public QObject
 private slots:
   void initTestCase()
   {
+  }
+
+  // goal/ui-experience-polish：面板 chrome（顶栏按钮/读数/状态条 token 化）
+  // 的修前/修后截图证据——空面板即可见顶栏与画布占位。
+  void captureEvidence()
+  {
+    WellCompositePanel panel;
+    uipolish::capturePanel(&panel, QStringLiteral("wellcomposite_empty"),
+                           QSize(1000, 700));
   }
 
   void testLithologyPatterns()

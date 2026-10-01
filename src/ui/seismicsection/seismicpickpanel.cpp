@@ -123,6 +123,8 @@ void SeismicPickPanel::buildUi()
     });
     lay->addWidget(emptyHint_, 0);
     lay->addWidget(table_, 1);
+    // 构造即空会话——指引常显（refreshFromSession 只在会话变化时跑）。
+    emptyHint_->setVisible(true);
 
     // 行 4：操作按钮
     auto *row4 = new QHBoxLayout();

@@ -408,7 +408,13 @@ namespace PaleoTheme
     const auto tables = root->findChildren<QTableView *>();
     for (QTableView *table : tables)
       if (QHeaderView *vh = table->verticalHeader())
+      {
+        // compact 档可低于样式缺省最小节高（21 左右）——密度是显式用户
+        // 选择，最小值跟随下压，不回升到样式缺省。
+        if (rowH < vh->minimumSectionSize())
+          vh->setMinimumSectionSize(rowH);
         vh->setDefaultSectionSize(rowH);
+      }
   }
 
   QString mutedCaptionStyleSheet(Theme theme)

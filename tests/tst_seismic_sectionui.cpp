@@ -132,8 +132,13 @@ private slots:
     auto *pickTable = dock.findChild<QTableWidget *>();
     if (!pickTable)
       QSKIP("该构造路径未挂拾取面板");
+    // goal/ui-experience-polish：空拾取不静默——指引标签可见。
+    auto *pickHint = dock.findChild<QLabel *>(QStringLiteral("pickEmptyHint"));
+    QVERIFY2(pickHint, "拾取面板空态指引应在位");
     dock.show();
     QVERIFY(QTest::qWaitForWindowExposed(&dock));
+    // pick 面板本体按解释模式显隐——空会话下指引不额外隐藏。
+    QVERIFY(!pickHint->isHidden());
     pickTable->setFocus();
     const int rows = pickTable->model()->rowCount();
     QTest::keyClick(pickTable, Qt::Key_Down);

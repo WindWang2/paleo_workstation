@@ -53,8 +53,17 @@ public:
     [[nodiscard]] int currentCrossline() const;
     [[nodiscard]] int currentTimeSample() const;
 
-    // D3.4 井位标记（调用者换算到 inline/xline + sampleFrac）
+    // D3.4 井位标记（调用者换算到 inline/xline + sampleFrac；D7.3 轨迹可选）
     void setWells(const std::vector<Seismic3DWell> &wells);
+
+    // D7.3 层位面上图：服务层 SeismicHorizonGrid（IDW 网格）→ 3D 面片
+    // （twt 色标映射）；逐层位显隐（层树/overlay 菜单联动入口）。
+    void setHorizons(const QStringList &names, const std::vector<SeismicHorizonGrid> &grids);
+    void setHorizonVisible(const QString &name, bool visible);
+    [[nodiscard]] bool isHorizonVisible(const QString &name) const;
+    [[nodiscard]] QStringList horizonNames() const;
+    void setWellLabelsVisible(bool visible);
+    [[nodiscard]] bool wellLabelsVisible() const;
     // D3.12 多体叠加：第二工区轮廓
     void setSecondaryVolume(std::shared_ptr<const SgyVolume> secondary);
     [[nodiscard]] bool hasSecondaryVolume() const;
@@ -97,6 +106,9 @@ signals:
     void crosslineChanged(int xlineNo);
     void timeChanged(int sampleIdx);
     void lodChanged(const QString &quality); // 质量标签变化（含直读/工作区态）
+    // D7.3：层位/井显隐变化（层树联动回写面）
+    void horizonVisibilityChanged(const QString &name, bool visible);
+    void wellVisibilityChanged(bool visible);
 
 private slots:
     void onInlineSliderChanged(int val);
@@ -187,6 +199,8 @@ private:
     QToolButton *btnOblique_ = nullptr;        // D7.2 斜剖面拾取（两点）
     QToolButton *btnFence_ = nullptr;          // D7.2 栅栏拾取（多点）
     QToolButton *btnSectionClear_ = nullptr;   // D7.2 清除剖面
+    QToolButton *btnOverlay_ = nullptr;        // D7.3 层位/井 overlay 菜单
+    class QMenu *overlayMenu_ = nullptr;       // D7.3 逐层位/井/标注 checkable 菜单
     QSlider *sliderAlpha_ = nullptr;           // D3.3 透明度
     QDoubleSpinBox *spinRangeMin_ = nullptr;   // D3.3 值域裁剪
     QDoubleSpinBox *spinRangeMax_ = nullptr;
@@ -225,6 +239,12 @@ private:
     SgySliceImage cachedLineImage_;
     std::vector<glm::ivec2> cachedLinePath_;
     bool cachedLineReady_ = false;
+
+    // D7.3 层位/井 overlay 状态
+    bool wellsVisible_ = true;
+    std::vector<Seismic3DWell> lastWells_;        // 显隐恢复的井集底稿
+    QStringList overlayHorizonNames_;             // 层位名序（与视口索引对齐）
+    void rebuildOverlayMenu(); // 层位集变化后重建 checkable 菜单
 
     // D3.9 回退
     bool fallbackActive_ = false;

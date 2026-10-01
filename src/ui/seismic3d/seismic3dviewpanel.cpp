@@ -10,6 +10,7 @@
 #include <QCheckBox>
 #include <QCoreApplication>
 #include <QDialog>
+#include <QMenu>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QLineEdit>
@@ -779,6 +780,13 @@ void Seismic3DViewPanel::buildDisplayBar() {
     btnSectionClear_ = createToolBtn(tr("清除剖面"), tr("移除 3D 场景中的任意剖面与顶面路径线"));
     lay->addWidget(btnSectionClear_);
 
+    // D7.3 解释 overlay：层位面/井轨迹/井名标注 checkable 菜单
+    btnOverlay_ = createToolBtn(tr("解释"), tr("层位面/井轨迹/井名标注的 3D 叠显与显隐"));
+    overlayMenu_ = new QMenu(this);
+    btnOverlay_->setPopupMode(QToolButton::InstantPopup);
+    btnOverlay_->setMenu(overlayMenu_);
+    lay->addWidget(btnOverlay_);
+
     // D3.10 帧率（debug）
     chkFps_ = new QCheckBox(tr("fps"), bar);
     chkFps_->setStyleSheet(lblStyle);
@@ -1221,9 +1229,109 @@ void Seismic3DViewPanel::clearLineSection() {
         viewport_->clearLineSection();
 }
 
-// ---- D3.4 / D3.12 ----
+// ---- D3.4 / D3.12 / D7.3 ----
 void Seismic3DViewPanel::setWells(const std::vector<Seismic3DWell> &wells) {
-    viewport_->setWells(wells);
+    lastWells_ = wells;
+    viewport_->setWells(wellsVisible_ ? wells : std::vector<Seismic3DWell>{});
+}
+
+// ---- D7.3 层位面 + overlay 显隐 ----
+void Seismic3DViewPanel::setHorizons(const QStringList &names,
+                                     const std::vector<SeismicHorizonGrid> &grids) {
+    std::vector<Seismic3DHorizonSurface> items;
+    items.reserve(grids.size());
+    // 层位兜底色板（数据符号色，非 UI token；主呈色是 twt→彩虹谱逐顶点映射）
+    const QColor kColors[] = {
+        QColor(46, 134, 193), QColor(231, 76, 60), QColor(39, 174, 96),
+        QColor(243, 156, 18), QColor(142, 68, 173), QColor(0, 172, 193),
+    };
+    overlayHorizonNames_.clear();
+    for (std::size_t i = 0; i < grids.size(); ++i) {
+        const SeismicHorizonGrid &g = grids[i];
+        Seismic3DHorizonSurface s;
+        s.name = names.value(int(i), tr("层位%1").arg(i + 1));
+        s.color = kColors[i % std::size(kColors)];
+        s.visible = true;
+        if (g.isValid() && g.twtMs.size() ==
+                               std::size_t(g.inlineCount) * std::size_t(g.xlineCount)) {
+            s.inlineMin = g.inlineMin;
+            s.inlineCount = g.inlineCount;
+            s.inlineStep = std::max(1, g.inlineStep);
+            s.xlineMin = g.xlineMin;
+            s.xlineCount = g.xlineCount;
+            s.xlineStep = std::max(1, g.xlineStep);
+            s.twtMs = g.twtMs;
+        }
+        overlayHorizonNames_ << s.name;
+        items.push_back(std::move(s));
+    }
+    viewport_->setHorizons(items);
+    rebuildOverlayMenu();
+}
+
+void Seismic3DViewPanel::setHorizonVisible(const QString &name, bool visible) {
+    const int idx = overlayHorizonNames_.indexOf(name);
+    if (idx < 0)
+        return;
+    viewport_->setHorizonVisible(idx, visible);
+    rebuildOverlayMenu();
+    emit horizonVisibilityChanged(name, visible);
+}
+
+bool Seismic3DViewPanel::isHorizonVisible(const QString &name) const {
+    const int idx = overlayHorizonNames_.indexOf(name);
+    return idx >= 0 && viewport_ && viewport_->isHorizonVisible(idx);
+}
+
+QStringList Seismic3DViewPanel::horizonNames() const {
+    return overlayHorizonNames_;
+}
+
+void Seismic3DViewPanel::setWellLabelsVisible(bool visible) {
+    viewport_->setWellLabelsVisible(visible);
+}
+
+bool Seismic3DViewPanel::wellLabelsVisible() const {
+    return viewport_ && viewport_->wellLabelsVisible();
+}
+
+// checkable 菜单：井/标注总开关 + 逐层位开关。动作态即真值——外部经
+// setHorizonVisible 改动后重建，菜单内点击只拨视口不重建（发射中删动作
+// 的悬空风险）。
+void Seismic3DViewPanel::rebuildOverlayMenu() {
+    if (!overlayMenu_)
+        return;
+    overlayMenu_->clear();
+    QAction *actWells = overlayMenu_->addAction(tr("井轨迹"));
+    actWells->setCheckable(true);
+    actWells->setChecked(wellsVisible_);
+    connect(actWells, &QAction::toggled, this, [this](bool on) {
+        wellsVisible_ = on;
+        viewport_->setWells(on ? lastWells_ : std::vector<Seismic3DWell>{});
+        emit wellVisibilityChanged(on);
+    });
+    QAction *actLabels = overlayMenu_->addAction(tr("井名标注"));
+    actLabels->setCheckable(true);
+    actLabels->setChecked(viewport_ && viewport_->wellLabelsVisible());
+    connect(actLabels, &QAction::toggled, this, [this](bool on) {
+        viewport_->setWellLabelsVisible(on);
+    });
+    if (!overlayHorizonNames_.isEmpty()) {
+        overlayMenu_->addSeparator();
+        const QStringList names = overlayHorizonNames_;
+        for (int i = 0; i < names.size(); ++i) {
+            const QString name = names[i];
+            QAction *act = overlayMenu_->addAction(name);
+            act->setCheckable(true);
+            act->setChecked(viewport_ && viewport_->isHorizonVisible(i));
+            connect(act, &QAction::toggled, this, [this, name](bool on) {
+                const int idx = overlayHorizonNames_.indexOf(name);
+                if (idx >= 0)
+                    viewport_->setHorizonVisible(idx, on);
+                emit horizonVisibilityChanged(name, on);
+            });
+        }
+    }
 }
 
 void Seismic3DViewPanel::setSecondaryVolume(std::shared_ptr<const SgyVolume> secondary) {

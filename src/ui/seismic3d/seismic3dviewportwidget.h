@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "seismiccameracontroller.h"
+#include "horizonsurfacerenderer.h"
 #include "seismicslicerenderer.h"
 #include "volumeframerenderer.h"
 #include "../../domain/seismic/sgyvolume.h"
@@ -87,6 +88,18 @@ public:
     // D3.4 井位
     void setWells(const std::vector<Seismic3DWell> &wells);
 
+    // D7.3 井名标注（paintGL 后 QPainter 叠绘；跟随井轨迹顶点）
+    void setWellLabelsVisible(bool visible);
+    [[nodiscard]] bool wellLabelsVisible() const { return wellLabelsVisible_; }
+
+    // D7.3 层位面上图：全量重建 + 逐层位显隐（GL 未就绪暂存，就绪后补传）
+    void setHorizons(const std::vector<Seismic3DHorizonSurface> &items);
+    void setHorizonVisible(int index, bool visible);
+    [[nodiscard]] bool isHorizonVisible(int index) const;
+    [[nodiscard]] int horizonCount() const { return int(horizonItems_.size()); }
+    [[nodiscard]] bool areHorizonsVisible() const { return horizonRenderer_.IsVisible(); }
+    void setHorizonsVisible(bool visible);
+
     // D3.12 多体叠加
     void setSecondaryVolume(std::shared_ptr<const SgyVolume> secondary);
     [[nodiscard]] bool hasSecondaryVolume() const { return secondaryVolume_ != nullptr; }
@@ -152,6 +165,7 @@ private:
     SeismicCameraController camera_;
     SeismicSliceRenderer sliceRenderer_;
     VolumeFrameRenderer frameRenderer_;
+    HorizonSurfaceRenderer horizonRenderer_;
     std::shared_ptr<SgyVolume> volume_;
     std::shared_ptr<const SgyVolume> secondaryVolume_;
 
@@ -192,5 +206,11 @@ private:
     glm::ivec2 sectionHoverPoint_{0, 0};
     bool sectionHoverValid_ = false;
     std::vector<glm::ivec2> activeSectionPath_; // 已贴剖面路径（取消拾取后恢复其顶面线）
+
+    // D7.3 层位/井标注（GL 前暂存 + initializeGL 补传；井列表供标注投影）
+    std::vector<Seismic3DHorizonSurface> horizonItems_;
+    bool horizonsPending_ = false;
+    std::vector<Seismic3DWell> wellsForLabels_;
+    bool wellLabelsVisible_ = false;
 };
 } // namespace seismic

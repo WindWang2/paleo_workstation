@@ -1,4 +1,6 @@
 #include <QtTest>
+#include <QAction>
+#include <QMenu>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions_3_3_Core>
@@ -17,6 +19,7 @@
 #include "../src/ui/seismic3d/seismic3dtf.h"
 #include "../src/ui/seismic3d/seismic3dtfeditor.h"
 #include "../src/ui/seismic3d/seismiccameracontroller.h"
+#include "../src/ui/seismic3d/horizonsurfacerenderer.h"
 #include "../src/ui/seismic3d/seismicslicerenderer.h"
 #include "../src/ui/seismic3d/volumeframerenderer.h"
 #include "../src/ui/seismic3d/seismic3dviewportwidget.h"
@@ -42,6 +45,11 @@ private slots:
     void lineSectionOffscreenPixels();
     void viewportObliquePickCommits();
     void panelLineSectionServicePath();
+
+    // ---- 块3 层位面 / 井轨迹 ----
+    void horizonSurfaceOffscreenPixels();
+    void wellTrajectoryVertexGrowth();
+    void panelHorizonWellOverlayLinkage();
 
 private:
     std::shared_ptr<SgyVolume> loadFixtureVolume();
@@ -510,6 +518,259 @@ void TestSeismic3DViz::panelLineSectionServicePath() {
     emit panel.viewport()->sectionPathCommitted(fence);
     QTRY_VERIFY_WITH_TIMEOUT(panel.isLineSectionReady(), 8000);
     QTRY_VERIFY_WITH_TIMEOUT(seismicSvc.activeTaskCount() == 0, 8000);
+}
+
+// ---- 块3（Oracle 3a）：层位面渲染——像素覆盖 / NaN 挖洞 / 逐层显隐 ----
+void TestSeismic3DViz::horizonSurfaceOffscreenPixels() {
+    QSurfaceFormat format;
+    format.setVersion(3, 3);
+    format.setProfile(QSurfaceFormat::CoreProfile);
+    QOffscreenSurface surface;
+    surface.setFormat(format);
+    surface.create();
+    if (!surface.isValid())
+        QSKIP("offscreen surface unavailable");
+    QOpenGLContext context;
+    context.setFormat(format);
+    if (!context.create() || !context.makeCurrent(&surface))
+        QSKIP("OpenGL context could not be created in this environment");
+    QOpenGLFunctions_3_3_Core gl;
+    if (!gl.initializeOpenGLFunctions())
+        QSKIP("OpenGL 3.3 Core functions not available");
+
+    auto vol = loadFixtureVolume();
+    QVERIFY(vol != nullptr);
+    const double maxMs = vol->SampleIntervalUs() / 1000.0 * vol->SampleMax();
+
+    // 满网格层位面（倾斜构造：twt 随 IL/XL 缓变）
+    Seismic3DHorizonSurface full;
+    full.name = QStringLiteral("H-full");
+    full.inlineMin = vol->InlineMin();
+    full.inlineCount = vol->InlineCount();
+    full.inlineStep = std::max(1, (vol->InlineMax() - vol->InlineMin()) /
+                                      std::max(1, vol->InlineCount() - 1));
+    full.xlineMin = vol->XlineMin();
+    full.xlineCount = vol->XlineCount();
+    full.xlineStep = std::max(1, (vol->XlineMax() - vol->XlineMin()) /
+                                     std::max(1, vol->XlineCount() - 1));
+    const auto fillGrid = [&](Seismic3DHorizonSurface &s, bool hole) {
+        s.twtMs.assign(std::size_t(s.inlineCount) * std::size_t(s.xlineCount), 0.0);
+        for (int i = 0; i < s.inlineCount; ++i) {
+            for (int x = 0; x < s.xlineCount; ++x) {
+                const bool inHole = hole && i == s.inlineCount / 2 && x == s.xlineCount / 2;
+                s.twtMs[std::size_t(i) * s.xlineCount + x] =
+                    inHole ? std::numeric_limits<double>::quiet_NaN()
+                           : maxMs * (0.3 + 0.05 * i - 0.04 * x);
+            }
+        }
+    };
+    fillGrid(full, /*hole=*/false);
+    Seismic3DHorizonSurface holed = full;
+    holed.name = QStringLiteral("H-holed");
+    fillGrid(holed, /*hole=*/true);
+
+    HorizonSurfaceRenderer renderer;
+    QVERIFY(renderer.Initialize(&gl));
+    QVERIFY(renderer.UpdateHorizons(&gl, *vol, {full}));
+    QVERIFY(renderer.TriangleCount() > 0);
+
+    // FBO 渲染（抄 budgets 基线模式）
+    const int W = 400, H = 300;
+    GLuint fbo = 0, colorTex = 0, depthRbo = 0;
+    gl.glGenFramebuffers(1, &fbo);
+    gl.glGenTextures(1, &colorTex);
+    gl.glBindTexture(GL_TEXTURE_2D, colorTex);
+    gl.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    gl.glGenRenderbuffers(1, &depthRbo);
+    gl.glBindRenderbuffer(GL_RENDERBUFFER, depthRbo);
+    gl.glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, W, H);
+    gl.glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    gl.glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTex, 0);
+    gl.glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthRbo);
+    if (gl.glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        QSKIP("baseline FBO incomplete");
+    gl.glViewport(0, 0, W, H);
+    gl.glClearColor(0.12f, 0.14f, 0.17f, 1.0f);
+    gl.glEnable(GL_DEPTH_TEST);
+
+    SeismicCameraController camera;
+    camera.FitToBounds(glm::vec3(-3, -2.2, -3), glm::vec3(3, 2.2, 3), double(W) / double(H));
+    const glm::mat4 proj = camera.BuildProjectionMatrix(double(W) / double(H));
+
+    const auto renderCount = [&]() {
+        gl.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        renderer.Render(&gl, camera.BuildViewMatrix(), proj);
+        gl.glFinish();
+        std::vector<unsigned char> pix(std::size_t(W) * H * 4);
+        gl.glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, pix.data());
+        int drawn = 0;
+        for (std::size_t i = 0; i < pix.size(); i += 4) {
+            if (!(std::abs(int(pix[i]) - 31) <= 2 && std::abs(int(pix[i + 1]) - 36) <= 2 &&
+                  std::abs(int(pix[i + 2]) - 43) <= 2))
+                ++drawn;
+        }
+        return drawn;
+    };
+
+    const int drawnFull = renderCount();
+    QVERIFY2(drawnFull > 500,
+             qPrintable(QStringLiteral("层位面应有实质覆盖（实得 %1 px）").arg(drawnFull)));
+
+    // 挖洞版：同覆盖规模略小（fixture 网格小，允许 >= —— 主断言是不炸+可渲）
+    QVERIFY(renderer.UpdateHorizons(&gl, *vol, {holed}));
+    const int drawnHoled = renderCount();
+    QVERIFY(drawnHoled > 500);
+
+    // 逐层位显隐：关 → 全背景
+    renderer.SetHorizonVisible(0, false);
+    const int drawnHidden = renderCount();
+    QCOMPARE(drawnHidden, 0);
+    renderer.SetHorizonVisible(0, true);
+
+    QVERIFY(gl.glGetError() == GL_NO_ERROR);
+    renderer.Cleanup(&gl);
+    gl.glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    gl.glDeleteFramebuffers(1, &fbo);
+    gl.glDeleteTextures(1, &colorTex);
+    gl.glDeleteRenderbuffers(1, &depthRbo);
+    context.doneCurrent();
+}
+
+// ---- 块3：井轨迹折线顶点计数（斜井 N 段 vs 垂直井基线）----
+void TestSeismic3DViz::wellTrajectoryVertexGrowth() {
+    QSurfaceFormat format;
+    format.setVersion(3, 3);
+    format.setProfile(QSurfaceFormat::CoreProfile);
+    QOffscreenSurface surface;
+    surface.setFormat(format);
+    surface.create();
+    if (!surface.isValid())
+        QSKIP("offscreen surface unavailable");
+    QOpenGLContext context;
+    context.setFormat(format);
+    if (!context.create() || !context.makeCurrent(&surface))
+        QSKIP("OpenGL context could not be created in this environment");
+    QOpenGLFunctions_3_3_Core gl;
+    if (!gl.initializeOpenGLFunctions())
+        QSKIP("OpenGL 3.3 Core functions not available");
+
+    auto vol = loadFixtureVolume();
+    QVERIFY(vol != nullptr);
+
+    VolumeFrameRenderer frame;
+    QVERIFY(frame.Initialize(&gl));
+    frame.UpdateFromVolume(&gl, *vol);
+    const GLsizei base = frame.VertexCount(); // 24（12 边 × 2）
+
+    // 垂直井：光晕+主色 2 线 = 4 顶点
+    Seismic3DWell vertical;
+    vertical.name = QStringLiteral("V1");
+    vertical.inlineNo = vol->InlineMin();
+    vertical.xlineNo = vol->XlineMin();
+    vertical.bottomFrac = 1.0f;
+    frame.UpdateWells(&gl, *vol, {vertical});
+    QCOMPARE(frame.VertexCount(), base + 4);
+
+    // 斜井轨迹 3 点（2 段）：垂直 4 + 轨迹 2×4 = 12 增量
+    Seismic3DWell deviated;
+    deviated.name = QStringLiteral("D1");
+    deviated.inlineNo = vol->InlineMin();
+    deviated.xlineNo = vol->XlineMin();
+    deviated.bottomFrac = 1.0f;
+    deviated.trajectory = {
+        {float(vol->InlineMin()), float(vol->XlineMin()), 0.0f},
+        {float((vol->InlineMin() + vol->InlineMax()) / 2),
+         float((vol->XlineMin() + vol->XlineMax()) / 2), 0.5f},
+        {float(vol->InlineMax()), float(vol->XlineMax()), 1.0f},
+    };
+    frame.UpdateWells(&gl, *vol, {vertical, deviated});
+    QCOMPARE(frame.VertexCount(), base + 4 + 12);
+
+    frame.Cleanup(&gl);
+    context.doneCurrent();
+}
+
+// ---- 块3（Oracle 3b）：fixture 层位/井上图 + 显隐联动（层树联动信号面）----
+void TestSeismic3DViz::panelHorizonWellOverlayLinkage() {
+    auto vol = loadFixtureVolume();
+    QVERIFY(vol != nullptr);
+
+    // fixture 层位：真实域路径——拾取点 → IDW 网格化（SeismicTaskService::gridPicks）
+    QList<SeismicPick> picks;
+    int nextId = 1;
+    const double maxMs = vol->SampleIntervalUs() / 1000.0 * vol->SampleMax();
+    for (int il : vol->InlineValues()) {
+        for (int xl : vol->XlineValues()) {
+            SeismicPick p;
+            p.id = nextId++;
+            p.inlineNo = il;
+            p.xlineNo = xl;
+            p.twtMs = maxMs * 0.35;
+            p.sampleIndex = int(p.twtMs / std::max(1.0, vol->SampleIntervalUs() / 1000.0));
+            p.horizonName = QStringLiteral("H1");
+            picks << p;
+        }
+    }
+    const SeismicHorizonGrid grid = SeismicTaskService::gridPicks(picks);
+    QVERIFY(grid.isValid());
+    QVERIFY(grid.inlineCount == vol->InlineCount());
+    QVERIFY(grid.xlineCount == vol->XlineCount());
+
+    Seismic3DViewPanel panel;
+    panel.resize(800, 600);
+    panel.setVolume(vol);
+
+    QSignalSpy horizonSpy(&panel, &Seismic3DViewPanel::horizonVisibilityChanged);
+    QSignalSpy wellSpy(&panel, &Seismic3DViewPanel::wellVisibilityChanged);
+
+    panel.setHorizons({QStringLiteral("H1"), QStringLiteral("H2")}, {grid, grid});
+    QCOMPARE(panel.horizonNames(), QStringList({QStringLiteral("H1"), QStringLiteral("H2")}));
+    QVERIFY(panel.isHorizonVisible(QStringLiteral("H1")));
+    QVERIFY(panel.viewport()->horizonCount() == 2);
+
+    // 显隐联动（层树/overlay 菜单同一入口）
+    panel.setHorizonVisible(QStringLiteral("H1"), false);
+    QVERIFY(!panel.isHorizonVisible(QStringLiteral("H1")));
+    QVERIFY(panel.isHorizonVisible(QStringLiteral("H2"))); // 兄弟层位不受牵连
+    QCOMPARE(horizonSpy.count(), 1);
+    QCOMPARE(horizonSpy.takeFirst().at(0).toString(), QStringLiteral("H1"));
+    panel.setHorizonVisible(QStringLiteral("H1"), true);
+    QVERIFY(panel.isHorizonVisible(QStringLiteral("H1")));
+
+    // 井轨迹上图（fixture 两口：垂直 + 斜井）+ 标注开关
+    Seismic3DWell w1;
+    w1.name = QStringLiteral("W-vert");
+    w1.inlineNo = vol->InlineMin();
+    w1.xlineNo = vol->XlineMin();
+    Seismic3DWell w2;
+    w2.name = QStringLiteral("W-dev");
+    w2.inlineNo = vol->InlineMax();
+    w2.xlineNo = vol->XlineMax();
+    w2.trajectory = {{float(vol->InlineMax()), float(vol->XlineMax()), 0.0f},
+                     {float(vol->InlineMin()), float(vol->XlineMin()), 1.0f}};
+    panel.setWells({w1, w2});
+
+    // overlay 菜单存在且含井/标注/逐层位动作
+    const QList<QMenu *> menus = panel.findChildren<QMenu *>();
+    QVERIFY(!menus.isEmpty());
+    QStringList actionTexts;
+    for (auto *m : menus)
+        for (QAction *a : m->actions())
+            actionTexts << a->text();
+    QVERIFY(actionTexts.contains(QStringLiteral("井轨迹")));
+    QVERIFY(actionTexts.contains(QStringLiteral("井名标注")));
+    QVERIFY(actionTexts.contains(QStringLiteral("H1")));
+    QVERIFY(actionTexts.contains(QStringLiteral("H2")));
+
+    // 菜单动作拨井显隐 → 信号外发（层树联动回写面）
+    for (auto *m : menus) {
+        for (QAction *a : m->actions()) {
+            if (a->text() == QStringLiteral("井轨迹"))
+                a->setChecked(false); // setChecked 即发 toggled（联动链路单发）
+        }
+    }
+    QCOMPARE(wellSpy.count(), 1);
+    QCOMPARE(wellSpy.takeFirst().at(0).toBool(), false);
 }
 
 QTEST_MAIN(TestSeismic3DViz)

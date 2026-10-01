@@ -5,6 +5,9 @@
 #include <QStringList>
 
 class QgsLayout;
+class QgsPrintLayout;
+class QgisLayerService;
+class QgisProjectService;
 
 // qgis/layoutexport — QgsLayoutExporter 的页选/多文件导出封装（QGIS 封装层）。
 // 从 ui/layout/layoutexportactions 抽出的逻辑核心：纯同步调用，无对话框、
@@ -56,5 +59,8 @@ struct ExportOutcome
 //   range    page selection (see PageRange); pass PageRange() for all pages
 ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format format,
                             double dpi, const PageRange &range );
+// Builds the thickness map print layout on project (A4 landscape with map, title, legend, scalebar, north arrow, CRS caption).
+QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectService *projectSvc,
+                                       const QString &horizon, QString *error = nullptr );
 
 } // namespace PaleoLayoutExport

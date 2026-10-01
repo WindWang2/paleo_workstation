@@ -118,7 +118,7 @@
 
 ## P3 — autoplan pass-2 递延（2026-09-26）
 
-- **人工验收清单（非代码）**：真机上点「Web 服务」dock 验证 QWebEngineView GPU/沙箱路径；真数据文件夹导入的确认对话框手测一遍；首个 966MB SEG-Y 预览的实际冻结时长（决定是否排期异步 IO）。触发条件：下次真机启动。Effort: S / Priority: P2
+- **人工验收清单（非代码）**：~~下次真机启动~~ 2026-10-01 真机已启动（master `c891dde`，真工区 `~/projects/paleo_project/data/project_area` 打开渲染正常）。**已验**：① `.running` 崩溃旗标生命周期闭环——强杀残留→下次脏检出、干净退出自清 pid 旗标；历史残留 `.running-*` 不自动清、`.running` 兜底常脏（与 issue #41 同族）。② 966MB SEG-Y 取数路径实测：索引缓存命中 open 271–275ms、IL 64ms/热 63ms、时间片 59/30ms、64³ 体窗 46ms、对角剖面 97ms——无冻结级时长，异步 IO 无需追加排期。③ QWebEngineView 真机探针（同 `AA_ShareOpenGLContexts`，xcb/XWayland）：渲染 OK、WebGL OK、QtWebEngineProcess/沙箱正常；GBM 不可用→Chromium 自动回落 Vulkan；外网 TLS 被本机网络拦（非缺陷）。**观测**：966MB 索引首发时 cache publish 两连败（verify-fail → ENOENT）第三次成功自愈——`ensureLegacyGlobalCacheDir` 护栏覆盖不全，记给 audit-issues 归属。**剩余人工项**：文件夹导入确认对话框手测 + Web 服务 dock 点开目检。触发条件：真机有人。Effort: S / Priority: P2
 - ~~**「重新定位文件」恢复路径**~~ — 已落地：`relocateVersionSource`（流式 SHA-256 复验、不一致拒解、同 SHA 追加外链版本）+ 预览「重新定位文件…」入口（wave-4 `2c1c8e1`）。
 - **第二工区参数化接缝**：~~外置 seam~~ 已落地——`AreaRules`（层序名单/分类器目录规则/SEG-Y 四偏移/ONNX 网格门，经 `project_area.json` 覆盖，默认=本工区值；`docs/AREA_PARAMETERS.md`，wave-4 `8fc7bb2`）。**遗留**：真接第二个工区时按该文档走通一遍验证 seam 完备性。触发条件：接入第二个工区。Effort: M / Priority: P3
 - **Onto 层位/边界文件的命名规范**：文件名不在 8 个层序界面时产未决层位实体、不进编图 chip——属已交付行为；名单经 `AreaRules.sequenceBoundaries` 可配（wave-4），命名规范文档化随第二工区处理。触发条件：新层序命名。Effort: S / Priority: P4

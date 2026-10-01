@@ -78,8 +78,12 @@ class PreviewMapPage::PreviewOverviewMap : public QWidget
       m_viewportBand->setWidth( 2 );
       m_viewportBand->show();
 
-      setStyleSheet( QStringLiteral(
-          "PreviewOverviewMap { border: 1px solid #DFE5EC; background: #FFFFFF; }" ) );
+      PaleoTheme::applyThemedStyleSheet( this, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral( "PreviewOverviewMap { border: 1px solid %1;"
+                               " background: %2; }" )
+            .arg( t.border.name(), t.surface.name() );
+      } );
       raise();
       show();
     }
@@ -390,17 +394,29 @@ void PreviewMapPage::buildToolBar()
   m_toolBar->setToolButtonStyle( Qt::ToolButtonIconOnly );
   m_toolBar->setIconSize( QSize( 18, 18 ) );
   m_toolBar->setMovable( false );
-  m_toolBar->setStyleSheet( QStringLiteral(
-      "QToolBar { background: #EDF1F5; border-bottom: 1px solid #DFE5EC; padding: 2px; }"
-      "QToolButton { background: transparent; border: none; padding: 3px; border-radius: 4px; }"
-      "QToolButton:hover { background: #E2E8F0; }"
-      "QToolButton:checked { background: #E1EFFE; border: 1px solid #1B73D0; }" ) );
+  // 工具条 chrome 走 token（活体注册随主题）。hover 用 border 档（surfaceAlt
+  // 底上可见）；checked = 活动地图工具惯例（primary 描边 + surfaceAltRaised
+  // 底，同 PaleoTheme::ribbonStyleSheet 的 checked 范式）。#E2E8F0/#E1EFFE
+  // 原字面量无对应 token——见 docs/progress/ui-polish.md §5 hover 档 token 提案。
+  PaleoTheme::applyThemedStyleSheet( m_toolBar, [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+        "QToolBar { background: %1; border-bottom: 1px solid %2; padding: 2px; }"
+        "QToolButton { background: transparent; border: none; padding: 3px; border-radius: 4px; }"
+        "QToolButton:hover { background: %2; }"
+        "QToolButton:checked { background: %3; border: 1px solid %4; }" )
+        .arg( t.surfaceAlt.name(), t.border.name(), t.surfaceAltRaised.name(),
+              t.primary.name() );
+  } );
 
   // ---- 扩展条：弹出按钮直挂（不用 addWidget/QWidgetAction——销毁序雷区）----
   m_toolBarExt = new QWidget( this );
   m_toolBarExt->setObjectName( QStringLiteral( "previewMapToolBarExt" ) );
-  m_toolBarExt->setStyleSheet( QStringLiteral(
-      "background: #EDF1F5; border-bottom: 1px solid #DFE5EC;" ) );
+  PaleoTheme::applyThemedStyleSheet( m_toolBarExt, [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral( "background: %1; border-bottom: 1px solid %2;" )
+        .arg( t.surfaceAlt.name(), t.border.name() );
+  } );
   auto *extLay = new QHBoxLayout( m_toolBarExt );
   extLay->setContentsMargins( 4, 2, 4, 2 );
   extLay->setSpacing( 2 );
@@ -544,20 +560,28 @@ void PreviewMapPage::buildStatusBar()
 {
   m_statusBar = new QWidget( this );
   m_statusBar->setObjectName( QStringLiteral( "previewMapStatusBar" ) );
-  m_statusBar->setStyleSheet( QStringLiteral(
-      "background: #EDF1F5; border-top: 1px solid #DFE5EC;" ) );
+  PaleoTheme::applyThemedStyleSheet( m_statusBar, [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral( "background: %1; border-top: 1px solid %2;" )
+        .arg( t.surfaceAlt.name(), t.border.name() );
+  } );
   auto *lay = new QHBoxLayout( m_statusBar );
   lay->setContentsMargins( 8, 2, 8, 2 );
   lay->setSpacing( 12 );
 
   m_renderLabel = new QLabel( m_statusBar );
   m_renderLabel->setObjectName( QStringLiteral( "previewRenderLabel" ) );
-  m_renderLabel->setStyleSheet( QStringLiteral( "color: #5D6E80; font-size: 8pt;" ) );
+  PaleoTheme::applyThemedStyleSheet( m_renderLabel, [] {
+    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral( " font-size: 8pt;" );
+  } );
   lay->addWidget( m_renderLabel );
 
   m_measureLabel = new QLabel( m_statusBar );
   m_measureLabel->setObjectName( QStringLiteral( "previewMeasureLabel" ) );
-  m_measureLabel->setStyleSheet( QStringLiteral( "color: #24303E; font-size: 8pt;" ) );
+  PaleoTheme::applyThemedStyleSheet( m_measureLabel, [] {
+    return QStringLiteral( "color: %1; font-size: 8pt;" )
+        .arg( PaleoTheme::tokens().text.name() );
+  } );
   lay->addWidget( m_measureLabel );
 
   lay->addStretch( 1 );
@@ -565,13 +589,17 @@ void PreviewMapPage::buildStatusBar()
   m_scaleLabel = new QLabel( m_statusBar );
   m_scaleLabel->setObjectName( QStringLiteral( "previewScaleLabel" ) );
   m_scaleLabel->setFont( PaleoTheme::monoFont() );
-  m_scaleLabel->setStyleSheet( QStringLiteral( "color: #24303E;" ) );
+  PaleoTheme::applyThemedStyleSheet( m_scaleLabel, [] {
+    return QStringLiteral( "color: %1;" ).arg( PaleoTheme::tokens().text.name() );
+  } );
   lay->addWidget( m_scaleLabel );
 
   m_coordLabel = new QLabel( m_statusBar );
   m_coordLabel->setObjectName( QStringLiteral( "previewCoordLabel" ) );
   m_coordLabel->setFont( PaleoTheme::monoFont() );
-  m_coordLabel->setStyleSheet( QStringLiteral( "color: #24303E;" ) );
+  PaleoTheme::applyThemedStyleSheet( m_coordLabel, [] {
+    return QStringLiteral( "color: %1;" ).arg( PaleoTheme::tokens().text.name() );
+  } );
   m_coordLabel->setMinimumWidth( 180 );
   lay->addWidget( m_coordLabel );
 }

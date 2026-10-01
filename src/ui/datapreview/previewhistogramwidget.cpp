@@ -43,7 +43,9 @@ PreviewHistogramWidget::PreviewHistogramWidget( bool compact, QWidget *parent )
     barLay->setSpacing( 8 );
 
     auto *binsLbl = new QLabel( QObject::tr( "分箱" ), bar );
-    binsLbl->setStyleSheet( QStringLiteral( "color: #5D6E80; font-size: 8pt;" ) );
+    PaleoTheme::applyThemedStyleSheet( binsLbl, [] {
+      return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral( " font-size: 8pt;" );
+    } );
     barLay->addWidget( binsLbl );
     m_binsSpin = new QSpinBox( bar );
     m_binsSpin->setObjectName( QStringLiteral( "histBinsSpin" ) );

@@ -1,4 +1,5 @@
 // 层：视图
+#include "../paleotheme.h"
 #include "depthtools.h"
 
 #include <QCheckBox>
@@ -235,7 +236,9 @@ GotoDepthDialog::GotoDepthDialog(double minDepth, double maxDepth, double curren
   m_lblHint = new QLabel(tr("井深范围 %1 ~ %2")
                              .arg(QString::number(lo, 'f', 1), QString::number(hi, 'f', 1)),
                          this);
-  m_lblHint->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8pt;"));
+  PaleoTheme::applyThemedStyleSheet(m_lblHint, [] {
+    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral(" font-size: 8pt;");
+  });
   root->addWidget(m_lblHint);
 
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);

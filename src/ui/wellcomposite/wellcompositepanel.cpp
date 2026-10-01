@@ -116,24 +116,21 @@ void WellCompositePanel::setupUi()
   });
   topLay->addWidget(lblZoomTitle);
 
+  // goal/ui-experience-polish：旧 btnStyle 字面量（含 :checked 蓝染底）收敛进
+  // 同一活体出口；checked 档换 token 范式（surfaceAltRaised 底 + primary
+  // 描边/字，同 ribbonStyleSheet）——主题化收口递延债清偿。
   const auto themedBtnStyle = [] {
     const auto &t = PaleoTheme::tokens();
     return QStringLiteral(
                "QToolButton { background: %1; border: 1px solid %2; border-radius: 4px; "
                "padding: 2px 7px; font-size: 8pt; color: %3; }"
                "QToolButton:hover { background: %4; border-color: %5; }"
-               "QToolButton:pressed { background: %2; }")
+               "QToolButton:pressed { background: %2; }"
+               "QToolButton:checked { background: %6; border-color: %7; color: %7; }")
         .arg(t.surface.name(), t.border.name(), t.text.name(),
-             t.surfaceAlt.name(), t.textDisabled.name());
+             t.surfaceAlt.name(), t.textDisabled.name(),
+             t.surfaceAltRaised.name(), t.primaryText.name());
   };
-  // D2.x 新增按钮仍走旧样式串（含 :checked 态——themedBtnStyle 未覆盖）；
-  // 主题化收口递延（见 TODOS）。
-  const QString btnStyle = QStringLiteral(
-      "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 4px; "
-      "padding: 2px 7px; font-size: 8pt; color: #24303E; }"
-      "QToolButton:hover { background: #EDF1F5; border-color: #9AA7B4; }"
-      "QToolButton:pressed { background: #DFE5EC; }"
-      "QToolButton:checked { background: #E8F0FE; border-color: #1B73D0; color: #1B73D0; }");
 
   m_btnZoomOut = new QToolButton(topBar);
   m_btnZoomOut->setObjectName(QStringLiteral("btnCompZoomOut"));
@@ -171,7 +168,7 @@ void WellCompositePanel::setupUi()
   m_btnGoto->setObjectName(QStringLiteral("btnCompGoto"));
   m_btnGoto->setText(tr("跳深度"));
   m_btnGoto->setToolTip(tr("跳转到指定深度 (Ctrl+G)"));
-  m_btnGoto->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnGoto, themedBtnStyle);
   topLay->addWidget(m_btnGoto);
 
   m_btnBookmarks = new QToolButton(topBar);
@@ -179,7 +176,7 @@ void WellCompositePanel::setupUi()
   m_btnBookmarks->setText(tr("书签"));
   m_btnBookmarks->setToolTip(tr("深度书签：添加/跳转/删除"));
   m_btnBookmarks->setPopupMode(QToolButton::InstantPopup);
-  m_btnBookmarks->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnBookmarks, themedBtnStyle);
   auto *bmMenu = new QMenu(m_btnBookmarks);
   m_btnBookmarks->setMenu(bmMenu);
   connect(bmMenu, &QMenu::aboutToShow, this, &WellCompositePanel::onBookmarkMenuAboutToShow);
@@ -191,7 +188,7 @@ void WellCompositePanel::setupUi()
   m_btnSnap->setToolTip(tr("深度标尺吸附整刻度与标志层线（D2.1）"));
   m_btnSnap->setCheckable(true);
   m_btnSnap->setChecked(false);
-  m_btnSnap->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnSnap, themedBtnStyle);
   topLay->addWidget(m_btnSnap);
 
   // 测井道配置与排列管理按钮
@@ -208,7 +205,7 @@ void WellCompositePanel::setupUi()
   m_btnExport->setText(tr("导出"));
   m_btnExport->setToolTip(tr("导出 PDF/PNG/SVG、打印、导出预设管理"));
   m_btnExport->setPopupMode(QToolButton::InstantPopup);
-  m_btnExport->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnExport, themedBtnStyle);
   auto *exportMenu = new QMenu(m_btnExport);
   QAction *actPdf = exportMenu->addAction(tr("导出 PDF…"));
   QAction *actPng = exportMenu->addAction(tr("导出 PNG (300dpi)…"));
@@ -230,7 +227,7 @@ void WellCompositePanel::setupUi()
   m_btnEdit->setText(tr("TOPs 编辑"));
   m_btnEdit->setToolTip(tr("进入标志层/区间编辑模式：标志层线可拖拽改顶深，区间可编辑"));
   m_btnEdit->setCheckable(true);
-  m_btnEdit->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnEdit, themedBtnStyle);
   topLay->addWidget(m_btnEdit);
 
   // ---- D1 保存派生版本：意图信号 → 壳 derivedsink 落 catalog DERIVED ----
@@ -240,7 +237,7 @@ void WellCompositePanel::setupUi()
   m_btnSaveDerived->setToolTip(
       tr("把当前编辑保存为派生版本：壳登记 catalog（父版本=源井数据 RAW），"
          "审计历史写入派生 XML 的「编辑审计」工作表"));
-  m_btnSaveDerived->setStyleSheet(btnStyle);
+  PaleoTheme::applyThemedStyleSheet(m_btnSaveDerived, themedBtnStyle);
   connect(m_btnSaveDerived, &QToolButton::clicked, this, [this]() {
     if (!saveDerived())
       m_lblStatus->setText(tr("无可保存的编辑（先在 TOPs 编辑模式修改数据）"));
@@ -252,9 +249,12 @@ void WellCompositePanel::setupUi()
   // D2.11 当前深度读数条：大字号 mono 深度 + 最近标志层名
   m_lblReadout = new QLabel(QStringLiteral("— m"), topBar);
   m_lblReadout->setObjectName(QStringLiteral("lblCompReadout"));
-  m_lblReadout->setStyleSheet(QStringLiteral(
-      "QLabel { font-family: 'JetBrains Mono, monospace'; font-size: 12pt; color: #24303E;"
-      " font-weight: 500; padding: 0 6px; }"));
+  PaleoTheme::applyThemedStyleSheet(m_lblReadout, [] {
+    return QStringLiteral(
+        "QLabel { font-family: 'JetBrains Mono, monospace'; font-size: 12pt; color: %1;"
+        " font-weight: 500; padding: 0 6px; }")
+        .arg(PaleoTheme::tokens().text.name());
+  });
   topLay->addWidget(m_lblReadout);
 
   // 状态信息显示（悬停深度等）

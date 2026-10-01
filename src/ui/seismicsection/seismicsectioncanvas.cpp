@@ -191,6 +191,9 @@ void SeismicSectionCanvas::setSectionData(
     m_columnDistances = columnDistancesM;
     m_mapCoords = mapCoords;
     m_noDataReason.clear(); // 有数据即清原因态
+    if (hasAttrOverlay() &&
+        (image.width != m_attrOverlay.width || image.height != m_attrOverlay.height))
+        clearAttrOverlay(); // 换剖面：旧属性层几何失配，防错位
 
     if (m_columnDistances.size() != static_cast<std::size_t>(m_traces)) {
         m_columnDistances.resize(m_traces);
@@ -375,6 +378,7 @@ void SeismicSectionCanvas::setColorMap(SectionColorMapType type) {
         m_colorMap = type;
         rebuildColorLut();
         rebuildImage();
+        rebuildAttrImage();
         update();
     }
 }
@@ -385,6 +389,7 @@ void SeismicSectionCanvas::setColorMapInverted(bool inverted) {
         m_cmapInverted = inverted;
         rebuildColorLut();
         rebuildImage();
+        rebuildAttrImage();
         update();
     }
 }
@@ -861,6 +866,64 @@ void SeismicSectionCanvas::rebuildColorLut() {
     }
 }
 
+void SeismicSectionCanvas::setAttrOverlay(const SgySliceImage &attr) {
+    // 几何必须与当前剖面逐位一致（服务保证同切片提取布局）
+    if (attr.width != m_traces || attr.height != m_samples || !hasData()) {
+        qWarning("setAttrOverlay: 尺寸不匹配（attr %dx%d vs 剖面 %dx%d），忽略",
+                 attr.width, attr.height, m_traces, m_samples);
+        return;
+    }
+    m_attrOverlay = attr;
+    rebuildAttrImage();
+    update();
+}
+
+void SeismicSectionCanvas::setAttrOverlayAlpha(double alpha) {
+    const double clamped = std::clamp(alpha, 0.0, 1.0);
+    if (std::abs(clamped - m_attrAlpha) < 1e-9)
+        return;
+    m_attrAlpha = clamped;
+    update();
+}
+
+void SeismicSectionCanvas::clearAttrOverlay() {
+    if (m_attrImage.isNull() && m_attrOverlay.values.empty())
+        return;
+    m_attrOverlay = SgySliceImage{};
+    m_attrImage = QImage();
+    update();
+}
+
+void SeismicSectionCanvas::rebuildAttrImage() {
+    if (m_attrOverlay.values.empty() || m_attrOverlay.width <= 0 ||
+        m_attrOverlay.height <= 0) {
+        m_attrImage = QImage();
+        return;
+    }
+    if (m_colorLut.empty())
+        rebuildColorLut();
+    m_attrImage = QImage(m_attrOverlay.width, m_attrOverlay.height,
+                         QImage::Format_ARGB32_Premultiplied);
+    const double lo = m_attrOverlay.valueMin;
+    const double hi = m_attrOverlay.valueMax;
+    const double span = (hi > lo) ? (hi - lo) : 1.0; // 退化值域：中档色
+    for (int y = 0; y < m_attrOverlay.height; ++y) {
+        auto *scan = reinterpret_cast<QRgb *>(m_attrImage.scanLine(y));
+        const float *row = m_attrOverlay.values.data() +
+                           std::size_t(y) * m_attrOverlay.width;
+        for (int x = 0; x < m_attrOverlay.width; ++x) {
+            const float v = row[x];
+            if (std::isnan(v)) {
+                scan[x] = 0; // 缺失=透明（不盖底图）
+                continue;
+            }
+            int idx = int((double(v) - lo) / span * 255.0 + 0.5);
+            idx = std::clamp(idx, 0, 255);
+            scan[x] = m_colorLut[std::size_t(idx)];
+        }
+    }
+}
+
 void SeismicSectionCanvas::paintValueRegion(int x0, int y0, int w, int h) {
     if (m_cachedImage.isNull() || m_slice.values.empty()) {
         return;
@@ -1090,6 +1153,14 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                        Qt::AlignLeft, tr("A · %1").arg(m_compareLabel.isEmpty() ? tr("当前") : tr("当前")));
             p.drawText(QRectF(vp.right() - 160.0, vp.top() + 2.0, 156.0, 16.0),
                        Qt::AlignRight, tr("B · %1").arg(m_compareLabel));
+        }
+
+        // goal/seismic-attributes：属性叠加层（同几何半透明色层，位于密度
+        // 之上、wiggle/解释要素之下——属性读图不遮挡相位轴与拾取）
+        if (hasAttrOverlay() && m_attrAlpha > 0.0) {
+            p.setOpacity(m_attrAlpha);
+            p.drawImage(imgDest, m_attrImage);
+            p.setOpacity(1.0);
         }
 
         // D2.2 wiggle 叠加（WiggleVA 全强 / Mixed 全强叠在淡密度上）

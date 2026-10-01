@@ -425,20 +425,18 @@ DataListPanel::DataListPanel(QWidget *parent)
   m_tree->setColumnWidth(1, 65);
   m_tree->header()->setStretchLastSection(false);
   m_tree->setTextElideMode(Qt::ElideRight);
-  m_tree->setAnimated(true);
+  // DESIGN.md Motion：Qt Widgets 以即时切换为主、无编排动画——树展开
+  // 动画属违例项，goal/ui-experience-polish 移除（原来开启着）。
+  m_tree->setAnimated(false);
   m_tree->setAlternatingRowColors(true);
-  // 树 chrome 走 token（活体注册随主题）；选中底浅色保留 #E6F0FA 原值、
-  // 暗色换 surfaceAltRaised；选中字浅色 primary / 暗色 primaryText（可读性）。
+  // 树 chrome 走 token（活体注册随主题）；选中态/hover/斑马纹由壳级
+  // PaleoTheme::itemViewStyleSheet 统一（primary 底 + onPrimary 字）——
+  // 这里不再自写 ::item:selected（原 #E6F0FA 与全局三分叉，已收敛）。
   PaleoTheme::applyThemedStyleSheet(m_tree, [] {
-    const bool dark = PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark;
     const auto &t = PaleoTheme::tokens();
     return QStringLiteral(
-               "QTreeWidget { border: 1px solid %1; background: %2; } "
-               "QTreeWidget::item { padding: 3px 0; } "
-               "QTreeWidget::item:selected { background-color: %3; color: %4; }")
-        .arg(t.border.name().toUpper(), t.surface.name().toUpper(),
-             dark ? t.surfaceAltRaised.name().toUpper() : QStringLiteral("#E6F0FA"),
-             (dark ? t.primaryText : t.primary).name().toUpper());
+               "QTreeWidget { border: 1px solid %1; background: %2; }")
+        .arg(t.border.name().toUpper(), t.surface.name().toUpper());
   });
   m_tree->installEventFilter(this);
   if (m_tree->viewport())

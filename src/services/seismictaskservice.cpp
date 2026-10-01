@@ -31,9 +31,16 @@
 #include "Engine/WorkspaceFormat.h"
 
 #include <QCryptographicHash>
+#include <QDataStream>
+#include <QDateTime>
 #include <QUuid>
 #include <QDir>
 
+#include <algorithm>
+#include <limits>
+#include <thread>
+
+#include "algorithms/seismicattr.h"
 #include "catalog/datacatalog.h"
 #include "domain/seismic/sgyindexbuilder.h"
 #include "domain/seismic/sgyindexcache.h"
@@ -2162,6 +2169,472 @@ QString SeismicTaskService::registerFaultAsset(
   v.fileName = fileName;
   v.parentVersionIds = QStringList{seismicVersionId};
   v.extra.insert(QStringLiteral("origin"), QStringLiteral("seismic-interpretation"));
+  if (!catalog->addVersion(v))
+  {
+    if (error)
+      *error = QStringLiteral("catalog 版本登记失败");
+    return QString();
+  }
+  return filePath;
+}
+
+// ---- 地震属性（goal/seismic-attributes）------------------------------------
+
+QString SeismicTaskService::seismicAttrId(SeismicAttrKind kind)
+{
+  switch (kind)
+  {
+  case SeismicAttrKind::Envelope:   return QStringLiteral("envelope");
+  case SeismicAttrKind::InstPhase:  return QStringLiteral("instphase");
+  case SeismicAttrKind::InstFreq:   return QStringLiteral("instfreq");
+  case SeismicAttrKind::InstQ:      return QStringLiteral("instq");
+  case SeismicAttrKind::Rms:        return QStringLiteral("rms");
+  case SeismicAttrKind::MaxAbs:     return QStringLiteral("maxabs");
+  case SeismicAttrKind::MeanEnergy: return QStringLiteral("energy");
+  case SeismicAttrKind::Coherence:  return QStringLiteral("coherence");
+  case SeismicAttrKind::Sweetness:  return QStringLiteral("sweetness");
+  }
+  return QStringLiteral("unknown");
+}
+
+QString SeismicTaskService::seismicAttrDisplayName(SeismicAttrKind kind)
+{
+  switch (kind)
+  {
+  case SeismicAttrKind::Envelope:   return QStringLiteral("包络");
+  case SeismicAttrKind::InstPhase:  return QStringLiteral("瞬时相位");
+  case SeismicAttrKind::InstFreq:   return QStringLiteral("瞬时频率");
+  case SeismicAttrKind::InstQ:      return QStringLiteral("瞬时Q（原型）");
+  case SeismicAttrKind::Rms:        return QStringLiteral("RMS 振幅");
+  case SeismicAttrKind::MaxAbs:     return QStringLiteral("最大绝对振幅");
+  case SeismicAttrKind::MeanEnergy: return QStringLiteral("平均能量");
+  case SeismicAttrKind::Coherence:  return QStringLiteral("相干（semblance）");
+  case SeismicAttrKind::Sweetness:  return QStringLiteral("甜点");
+  }
+  return QStringLiteral("未知属性");
+}
+
+bool SeismicTaskService::seismicAttrNeedsNeighbors(SeismicAttrKind kind)
+{
+  return kind == SeismicAttrKind::Coherence;
+}
+
+PaleoTask *SeismicTaskService::startAttributeSlice(
+    std::shared_ptr<const SgyVolume> volume,
+    SeismicAttrKind kind,
+    const SeismicAttrParams &params,
+    SgySliceType sliceType,
+    int sliceIndex,
+    std::function<void(bool success, const SeismicAttrResult &result)> onFinished)
+{
+  if (!taskService_)
+  {
+    if (onFinished)
+    {
+      SeismicAttrResult r;
+      r.error = QStringLiteral("PaleoTaskService not set");
+      onFinished(false, r);
+    }
+    return nullptr;
+  }
+  if (!volume || !volume->IsLoaded())
+  {
+    if (onFinished)
+    {
+      SeismicAttrResult r;
+      r.error = QStringLiteral("地震体未加载（先完成体加载）");
+      onFinished(false, r);
+    }
+    return nullptr;
+  }
+  if (sliceType == SgySliceType::Time)
+  {
+    // 瞬时族需整道谱、时窗族需垂向窗——时间切片（单采样面）不满足两者
+    // 的输入形状；整体扫描属性体是独立工作项（TODOS 递延）。
+    if (onFinished)
+    {
+      SeismicAttrResult r;
+      r.error = QStringLiteral("时间切片属性暂不支持（需整体扫描，见 TODOS）");
+      onFinished(false, r);
+    }
+    return nullptr;
+  }
+
+  const bool isInline = sliceType == SgySliceType::Inline;
+  int lineValue = 0;
+  if (!(isInline ? volume->ExactInlineValue(sliceIndex, lineValue)
+                 : volume->ExactXlineValue(sliceIndex, lineValue)))
+  {
+    if (onFinished)
+    {
+      SeismicAttrResult r;
+      r.error = isInline
+          ? QStringLiteral("inline %1 不在本体内（无最近线替代）").arg(sliceIndex)
+          : QStringLiteral("crossline %1 不在本体内（无最近线替代）").arg(sliceIndex);
+      onFinished(false, r);
+    }
+    return nullptr;
+  }
+
+  // 邻线解析（相干 3 线窗）：稀疏测网按轴值表相邻位取，不臆造 ±1 号。
+  std::vector<int> lineValues;
+  const bool needsNeighbors = seismicAttrNeedsNeighbors(kind);
+  if (needsNeighbors)
+  {
+    const std::vector<int> &axis =
+        isInline ? volume->InlineValues() : volume->XlineValues();
+    const auto it = std::find(axis.begin(), axis.end(), lineValue);
+    const std::size_t pos = std::size_t(it - axis.begin());
+    if (axis.size() < 3 || pos == 0 || pos + 1 >= axis.size())
+    {
+      if (onFinished)
+      {
+        SeismicAttrResult r;
+      r.error = QStringLiteral("%1 %2 处于测网边缘，无双侧邻线，相干不可用")
+                    .arg(isInline ? QStringLiteral("inline") : QStringLiteral("crossline"))
+                    .arg(lineValue);
+        onFinished(false, r);
+      }
+      return nullptr;
+    }
+    lineValues = {axis[pos - 1], lineValue, axis[pos + 1]};
+  }
+  else
+  {
+    lineValues = {lineValue};
+  }
+
+  auto result = std::make_shared<SeismicAttrResult>();
+  result->attrId = seismicAttrId(kind);
+  result->sectionType = sliceType;
+  result->sectionIndex = lineValue;
+
+  const QString title = tr("地震属性 %1（%2 %3）")
+                            .arg(seismicAttrDisplayName(kind))
+                            .arg(isInline ? QStringLiteral("Inline") : QStringLiteral("Crossline"))
+                            .arg(lineValue);
+  const double dtMs = double(volume->SampleIntervalUs()) / 1000.0;
+  const int width = isInline ? volume->XlineCount() : volume->InlineCount();
+  const int height = volume->SampleCount();
+  const int sliceCount = int(lineValues.size());
+
+  auto work = [volume, kind, params, sliceType, isInline, lineValues, result,
+               dtMs, width, height, sliceCount](PaleoTask *task) -> QString {
+    if (task->cancelRequested())
+      return QString();
+
+    const qint64 sliceUnits = qint64(width) * height;
+    const qint64 totalUnits = sliceUnits * sliceCount + sliceUnits; // 读 + 算
+    qint64 done = 0;
+
+    // ---- 读阶段：目标线（+相干邻线）逐列提取 ----
+    QElapsedTimer clock;
+    clock.start();
+    std::vector<SgySliceImage> slices(static_cast<std::size_t>(sliceCount));
+    for (int li = 0; li < sliceCount; ++li)
+    {
+      if (task->cancelRequested())
+        return QString();
+      auto sliceProgress = [&task, &done, sliceUnits, totalUnits](int processed,
+                                                                  int total) {
+        const qint64 col = total > 0 ? qint64(processed) * sliceUnits / total : 0;
+        task->reportBytes(done + col, totalUnits);
+        return !task->cancelRequested();
+      };
+      std::string extractErr;
+      if (!volume->ExtractSlice(sliceType, lineValues[std::size_t(li)],
+                                slices[std::size_t(li)], extractErr, sliceProgress))
+      {
+        if (task->cancelRequested())
+          return QString();
+        result->error = QString::fromStdString(extractErr);
+        return QStringLiteral("切片读取失败：%1").arg(result->error);
+      }
+      done += sliceUnits;
+      task->reportStage(QStringLiteral("read"), int(done * 100 / totalUnits));
+      task->reportBytes(done, totalUnits);
+    }
+    result->readMs = double(clock.elapsed());
+    result->traceCount = width;
+
+    // ---- 算阶段 ----
+    task->reportStage(QStringLiteral("compute"), 0);
+    clock.restart();
+    auto out = std::make_shared<SgySliceImage>();
+    out->width = slices[0].width;
+    out->height = slices[0].height;
+    out->values.assign(std::size_t(out->width) * out->height,
+                       std::numeric_limits<float>::quiet_NaN());
+    if (out->width != width || out->height != height)
+    {
+      result->error = QStringLiteral("切片几何异常（%1×%2，预期 %3×%4）")
+                          .arg(out->width).arg(out->height).arg(width).arg(height);
+      return result->error;
+    }
+
+    if (kind == SeismicAttrKind::Coherence)
+    {
+      // 组装 3 线小体：布局 [(lineIdx * width + x) * height + row]（row 空间
+      // ——垂直窗对称，行序与时序等价）。邻线轴 = mini 体 IL 轴（半窗恒 1，
+      // 恰覆 3 线）；沿剖轴的半窗按剖向映射：IL 剖→XL 向，XL 剖→IL 向。
+      std::vector<float> vol3(static_cast<std::size_t>(sliceCount * width * height));
+      // 切片是 [row][x] 行主序，必须转置拷入（内核按「道连续」读，平铺
+      // 拷贝会把行列搅混——轮2 实测教训：S=1/3 恒定假象）。
+      for (int li = 0; li < sliceCount; ++li)
+        for (int x = 0; x < width; ++x)
+          for (int row = 0; row < height; ++row)
+            vol3[static_cast<std::size_t>((li * width + x) * height + row)] =
+                slices[static_cast<std::size_t>(li)]
+                    .values[static_cast<std::size_t>(row * width + x)];
+      std::vector<float> coh(vol3.size(),
+                             std::numeric_limits<float>::quiet_NaN());
+      const int alongHalf =
+          isInline ? params.coherenceXlHalf : params.coherenceIlHalf;
+      paleo::seisattr::semblanceCoherence(
+          vol3.data(), sliceCount, width, height,
+          /*ilHalf=*/1, /*xlHalf=*/alongHalf, params.coherenceTimeHalf,
+          coh.data());
+      // 中线输出即目标线属性图（同 row-major 布局）。
+      // 中线（il=1）出图：coh 逐道连续 [x][row] → 图像行主序 [row][x]，
+      // 与组装侧对称的第二次转置（平铺拷贝会行列互换——轮2 教训二连）。
+      for (int x = 0; x < width; ++x)
+        for (int row = 0; row < height; ++row)
+          out->values[static_cast<std::size_t>(row * width + x)] =
+              coh[static_cast<std::size_t>((width + x) * height + row)];
+      task->reportBytes(totalUnits, totalUnits);
+    }
+    else
+    {
+// 逐道族：列 → 时间序（切片 row 0 = 最深样）→ 核计算 → 写回 row 序。
+      // 列间独立——std::thread 分片并行（≤min(4,hw) 片，SgyVolume 时间片多
+      // 线程同先例）；进度由 0 号分片单调上报；取消全分片协作（原子标志）。
+      const SgySliceImage &src = slices[0];
+      const auto cancelled = [task]() { return task->cancelRequested(); };
+
+      // 单列：读列（翻时间序）→ 核 → 写回（翻回 row 序）。
+      auto processColumn = [&](int x) {
+        std::vector<float> trace(static_cast<std::size_t>(height));
+        std::vector<float> attr(static_cast<std::size_t>(height));
+        for (int row = 0; row < height; ++row)
+          trace[static_cast<std::size_t>(height - 1 - row)] =
+              src.values[static_cast<std::size_t>(row * width + x)];
+
+        switch (kind)
+        {
+        case SeismicAttrKind::Envelope:
+        case SeismicAttrKind::InstPhase:
+        case SeismicAttrKind::InstFreq:
+        case SeismicAttrKind::InstQ:
+        case SeismicAttrKind::Sweetness:
+        {
+          const paleo::seisattr::ComplexTraceResult ct =
+              paleo::seisattr::complexTraceAnalysis(trace.data(), height, dtMs);
+          if (kind == SeismicAttrKind::Envelope)
+            attr = ct.envelope;
+          else if (kind == SeismicAttrKind::InstPhase)
+            attr = ct.phaseDeg;
+          else if (kind == SeismicAttrKind::InstFreq)
+            attr = ct.freqHz;
+          else if (kind == SeismicAttrKind::InstQ)
+            attr = ct.quality;
+          else
+            paleo::seisattr::sweetness(ct.envelope.data(), ct.freqHz.data(),
+                                       height, attr.data());
+          break;
+        }
+        case SeismicAttrKind::Rms:
+          paleo::seisattr::windowedRms(trace.data(), height,
+                                       params.windowHalfSamples, attr.data());
+          break;
+        case SeismicAttrKind::MaxAbs:
+          paleo::seisattr::windowedMaxAbs(trace.data(), height,
+                                          params.windowHalfSamples, attr.data());
+          break;
+        case SeismicAttrKind::MeanEnergy:
+          paleo::seisattr::windowedMeanEnergy(trace.data(), height,
+                                              params.windowHalfSamples,
+                                              attr.data());
+          break;
+        case SeismicAttrKind::Coherence:
+          break; // 已在上面整体处理
+        }
+
+        for (int row = 0; row < height; ++row)
+          out->values[static_cast<std::size_t>(row * width + x)] =
+              attr[static_cast<std::size_t>(height - 1 - row)];
+      };
+
+      const unsigned int hw = std::thread::hardware_concurrency();
+      const int nThreads = std::max(1, std::min<int>(4, int(hw)));
+      const int chunk = (width + nThreads - 1) / nThreads;
+      auto runRange = [&](int x0, int xEnd, bool report) {
+        for (int x = x0; x < xEnd && !cancelled(); ++x)
+        {
+          processColumn(x);
+          if (report && ((x & 15) == 0 || x == xEnd - 1))
+            task->reportBytes(totalUnits - sliceUnits +
+                                  qint64(x - x0 + 1) * height,
+                              totalUnits);
+        }
+      };
+      std::vector<std::thread> workers;
+      for (int t = 1; t < nThreads; ++t)
+      {
+        const int x0 = std::min(width, t * chunk);
+        const int x1 = std::min(width, x0 + chunk);
+        if (x0 >= x1)
+          break;
+        workers.emplace_back(runRange, x0, x1, /*report=*/false);
+      }
+      runRange(0, std::min(width, chunk), /*report=*/true);
+      for (auto &w : workers)
+        w.join();
+      if (cancelled())
+        return QString();
+    }
+    result->computeMs = double(clock.elapsed());
+
+    // 道统计（列粒度）+ 值域（NaN 感知）——色标/Recolorize 用；全 NaN 时
+    // 值域保持 0/0。
+    result->validTraceCount = 0;
+    float vMin = std::numeric_limits<float>::max();
+    float vMax = std::numeric_limits<float>::lowest();
+    for (int x = 0; x < width; ++x)
+    {
+      bool anyFinite = false;
+      for (int row = 0; row < height; ++row)
+      {
+        const float v = out->values[std::size_t(row * width + x)];
+        if (!std::isfinite(v))
+          continue;
+        anyFinite = true;
+        vMin = v < vMin ? v : vMin;
+        vMax = v > vMax ? v : vMax;
+      }
+      if (anyFinite)
+        ++result->validTraceCount;
+    }
+    if (vMin <= vMax)
+    {
+      out->valueMin = vMin;
+      out->valueMax = vMax;
+    }
+    result->ok = true;
+    result->image = out;
+    return QString();
+  };
+
+  PaleoTask *task = startBounded(title, work, QString(), /*quiet=*/false);
+  connect(task, &PaleoTask::finished, this, [task, result, onFinished]() {
+    if (!onFinished)
+      return;
+    if (task->state() == PaleoTask::State::Succeeded)
+      onFinished(true, *result);
+    else if (task->state() == PaleoTask::State::Cancelled)
+    {
+      SeismicAttrResult r;
+      r.attrId = result->attrId;
+      r.sectionType = result->sectionType;
+      r.sectionIndex = result->sectionIndex;
+      r.error = QStringLiteral("属性计算已取消");
+      onFinished(false, r);
+    }
+    else
+      onFinished(false, *result);
+  });
+  return task;
+}
+
+QString SeismicTaskService::registerAttributeSliceAsset(
+    DataCatalog *catalog, const QString &seismicAssetId,
+    const QString &seismicVersionId, const SeismicAttrResult &result,
+    const SeismicAttrParams &params, const QString &sourceSgyPath,
+    const QString &outputDir, QString *error)
+{
+  if (!catalog || !result.ok || !result.image)
+  {
+    if (error)
+      *error = QStringLiteral("catalog 未设置或属性结果无效");
+    return QString();
+  }
+  QDir().mkpath(outputDir);
+  const QString sectionKey =
+      result.sectionType == SgySliceType::Inline
+          ? QStringLiteral("il")
+          : QStringLiteral("xl");
+  const QString fileName = QStringLiteral("%1_%2_%3.sattr")
+                               .arg(result.attrId, sectionKey)
+                               .arg(result.sectionIndex);
+  const QString filePath = outputDir + QLatin1Char('/') + fileName;
+
+  // SATR 容器：魔数 + 版本 + width/height + JSON 头长 + JSON + 小端 f32 值块。
+  QJsonObject header;
+  header.insert(QStringLiteral("attrId"), result.attrId);
+  header.insert(QStringLiteral("section"), sectionKey);
+  header.insert(QStringLiteral("sectionIndex"), result.sectionIndex);
+  header.insert(QStringLiteral("width"), result.image->width);
+  header.insert(QStringLiteral("height"), result.image->height);
+  header.insert(QStringLiteral("valueMin"), double(result.image->valueMin));
+  header.insert(QStringLiteral("valueMax"), double(result.image->valueMax));
+  header.insert(QStringLiteral("traceCount"), result.traceCount);
+  header.insert(QStringLiteral("validTraceCount"), result.validTraceCount);
+  header.insert(QStringLiteral("readMs"), result.readMs);
+  header.insert(QStringLiteral("computeMs"), result.computeMs);
+  header.insert(QStringLiteral("sourceSgyPath"), sourceSgyPath);
+  header.insert(QStringLiteral("createdAt"),
+                QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+  QJsonObject p;
+  p.insert(QStringLiteral("windowHalfSamples"), params.windowHalfSamples);
+  p.insert(QStringLiteral("coherenceIlHalf"), params.coherenceIlHalf);
+  p.insert(QStringLiteral("coherenceXlHalf"), params.coherenceXlHalf);
+  p.insert(QStringLiteral("coherenceTimeHalf"), params.coherenceTimeHalf);
+  header.insert(QStringLiteral("params"), p);
+  const QByteArray json = QJsonDocument(header).toJson(QJsonDocument::Compact);
+
+  QFile f(filePath);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    if (error)
+      *error = QStringLiteral("无法写属性文件 %1").arg(filePath);
+    return QString();
+  }
+  QDataStream ds(&f);
+  ds.setByteOrder(QDataStream::LittleEndian);
+  ds.setFloatingPointPrecision(QDataStream::SinglePrecision);
+  ds.writeRawData("SATR", 4);
+  ds << quint32(1) << qint32(result.image->width) << qint32(result.image->height)
+     << quint32(json.size());
+  ds.writeRawData(json.constData(), json.size());
+  for (const float v : result.image->values)
+    ds << v;
+  f.close();
+
+  CatalogAsset asset;
+  asset.id = QStringLiteral("seis_attr_%1_%2_%3_%4")
+                 .arg(seismicAssetId, result.attrId, sectionKey)
+                 .arg(result.sectionIndex);
+  asset.type = QStringLiteral("seismic_attribute");
+  asset.format = QStringLiteral("sattr");
+  asset.displayName = QStringLiteral("%1 %2 %3（地震属性）")
+                          .arg(result.attrId, sectionKey)
+                          .arg(result.sectionIndex);
+  catalog->addAsset(asset);
+
+  CatalogVersion v;
+  v.id = QStringLiteral("ver_%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+  v.assetId = asset.id;
+  v.stage = QStringLiteral("DERIVED");
+  v.versionNumber = 1;
+  v.managed = false; // 外链：产物在调用方指定目录
+  v.path = filePath;
+  v.sourceUri = seismicAssetId;
+  v.sha256 = sha256OfFile(filePath);
+  v.fileName = fileName;
+  v.parentVersionIds = QStringList{seismicVersionId};
+  v.extra.insert(QStringLiteral("origin"), QStringLiteral("seismic-attributes"));
+  v.extra.insert(QStringLiteral("attrId"), result.attrId);
+  v.extra.insert(QStringLiteral("section"), sectionKey);
+  v.extra.insert(QStringLiteral("sectionIndex"), result.sectionIndex);
   if (!catalog->addVersion(v))
   {
     if (error)

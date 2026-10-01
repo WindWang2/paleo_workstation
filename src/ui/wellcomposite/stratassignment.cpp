@@ -1,4 +1,5 @@
 // 层：视图
+#include "../paleotheme.h"
 #include "stratassignment.h"
 
 #include <QCheckBox>
@@ -83,7 +84,9 @@ StratAssignmentDialog::StratAssignmentDialog(const QStringList &layerNames,
   auto *root = new QVBoxLayout(this);
   auto *hint = new QLabel(tr("未识别层名需显式指派系/统/组/段（程序不自动猜测）。指派保存到 sidecar，不改源数据。"), this);
   hint->setWordWrap(true);
-  hint->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8pt;"));
+  PaleoTheme::applyThemedStyleSheet(hint, [] {
+    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral(" font-size: 8pt;");
+  });
   root->addWidget(hint);
 
   m_table = new QTableWidget(layerNames.size(), 5, this);

@@ -53,7 +53,8 @@ PreviewIdentifyPanel::PreviewIdentifyPanel( QWidget *parent )
   barLay->setContentsMargins( 0, 0, 0, 0 );
   barLay->setSpacing( 6 );
   auto *title = new QLabel( QObject::tr( "识别结果" ), bar );
-  title->setStyleSheet( QStringLiteral( "font-weight: 600; color: #24303E;" ) );
+  PaleoTheme::applyThemedStyleSheet(
+      title, [] { return PaleoTheme::sectionTitleStyleSheet(); } );
   barLay->addWidget( title );
 
   auto *flashBtn = new QPushButton( QObject::tr( "定位闪烁" ), bar );
@@ -103,7 +104,8 @@ PreviewIdentifyPanel::PreviewIdentifyPanel( QWidget *parent )
   m_emptyLabel = new QLabel( QObject::tr( "未命中任何要素" ), this );
   m_emptyLabel->setObjectName( QStringLiteral( "identifyEmptyLabel" ) );
   m_emptyLabel->setAlignment( Qt::AlignCenter );
-  m_emptyLabel->setStyleSheet( QStringLiteral( "color: #5D6E80;" ) );
+  PaleoTheme::applyThemedStyleSheet(
+      m_emptyLabel, [] { return PaleoTheme::mutedCaptionStyleSheet(); } );
   m_emptyLabel->setVisible( false );
   lay->addWidget( m_emptyLabel, 1 );
 }

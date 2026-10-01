@@ -33,6 +33,10 @@ public:
     void setUndoStack(QUndoStack *stack);
     QString currentInterpreter() const;
     QString currentHorizon() const;
+    // goal/horizon-autotrack — 追踪在途态（按钮切「取消追踪」）与 QC 行
+    void setTrackingActive(bool active);
+    void showTrackReport(const SeismicTrackReport &report);
+    void showTrackError(const QString &error);
 
 signals:
     void sessionChanged();          // 模型变更（画布叠加/自动保存由 dock 响应）
@@ -58,6 +62,8 @@ private:
     QLineEdit *editHorizon_ = nullptr;
     QSpinBox *spinTrackWindow_ = nullptr;
     QDoubleSpinBox *spinTrackThreshold_ = nullptr;
+    QToolButton *btnTrack_ = nullptr;      // goal/horizon-autotrack：在途切「取消」
+    QLabel *lblTrackSummary_ = nullptr;    // goal/horizon-autotrack：覆盖率/置信度/停因
     QToolButton *btnUndo_ = nullptr;
     QToolButton *btnRedo_ = nullptr;
     QUndoStack *undoStack_ = nullptr;

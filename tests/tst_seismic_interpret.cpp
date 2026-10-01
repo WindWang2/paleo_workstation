@@ -2,19 +2,31 @@
 // P5 Phase 4 解释工具测试（D4.1–D4.10）：互相关追踪（合成倾斜同相轴已知
 // 位置）、相关丢失即停、IDW 网格化、会话伴生文件往返、拾取→DERIVED 层位
 // 资产→catalog 登记全链路（D7.4）、断层资产、dock 拾取+undo/redo、CSV 导出。
+// goal/horizon-autotrack：多种子合并/异步取消/追踪替换一步 undo/追踪产物
+// GeoTIFF+LayerDeclaration→QgisLayerService 上图闭环（offscreen）。
 #include <QtTest>
 #include <QApplication>
 #include <QElapsedTimer>
 #include <QFileInfo>
+#include <QLabel>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QUndoStack>
+
+#include <qgsapplication.h>
+#include <qgsmaplayer.h>
 
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <limits>
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/domain/seismic/sgyvolume.h"
+#include "../src/metadata/layermanifest.h"
+#include "../src/qgis/qgislayerservice.h"
+#include "../src/qgis/qgisprojectservice.h"
+#include "../src/services/paleotaskservice.h"
 #include "../src/services/seismictaskservice.h"
 #include "../src/ui/seismicsection/seismicsectiondockwidget.h"
 
@@ -22,7 +34,10 @@ using namespace seismic;
 
 namespace {
 
-// 合成剖面：倾斜同相轴——列 col 的波峰在 sample = base + slope*col
+// 合成剖面：倾斜同相轴——列 col 的波峰在 sample = base + slope*col（采样
+// 升序真值空间；断言都在这个空间）。写入按引擎行序（row 0 = 最大时间，
+// 同 SgyVolume::ExtractSlice 的 row = sampleCount-1-s 契约）——服务桥接
+// 负责行→采样翻转，夹具与真切片同构（D4.2 镜像 bug 的回归防线）。
 SgySliceImage makeDippingSlice(int cols, int rows, int baseSample, int slope,
                                int validCols = -1, float dtMs = 2.0f)
 {
@@ -39,15 +54,16 @@ SgySliceImage makeDippingSlice(int cols, int rows, int baseSample, int slope,
       const int peak = baseSample + slope * c;
       const int d = s - peak;
       // 同相轴宽度 ≥ 相关窗（24 样）：窗内是完整子波，窗间是弱噪声
-      if (std::abs(d) <= 14)
-        img.values[std::size_t(s) * cols + c] = std::cos(d / 14.0f * M_PI);
-      else
-        img.values[std::size_t(s) * cols + c] = 0.004f * std::sin(s * 0.3f + c);
+      const float v = std::abs(d) <= 14
+                          ? std::cos(d / 14.0f * M_PI)
+                          : 0.004f * std::sin(s * 0.3f + c);
+      img.values[std::size_t(rows - 1 - s) * cols + c] = v;
     }
   return img;
 }
 
-bool writeTestSegy(const QString &filePath, int inlines, int xlines, int ns)
+bool writeTestSegy(const QString &filePath, int inlines, int xlines, int ns,
+                   const std::function<float(int, int, int)> *sampleFn = nullptr)
 {
   QFile file(filePath);
   if (!file.open(QIODevice::WriteOnly))
@@ -81,7 +97,8 @@ bool writeTestSegy(const QString &filePath, int inlines, int xlines, int ns)
       QByteArray samples(ns * 4, 0);
       for (int k = 0; k < ns; ++k)
       {
-        const float val = float((i + 1) * 100 + j) + k * 0.25f;
+        const float val = sampleFn ? (*sampleFn)(i, j, k)
+                                   : float((i + 1) * 100 + j) + k * 0.25f;
         quint32 bits;
         std::memcpy(&bits, &val, 4);
         bits = qToBigEndian(bits);
@@ -91,6 +108,19 @@ bool writeTestSegy(const QString &filePath, int inlines, int xlines, int ns)
     }
   file.close();
   return QFileInfo(filePath).size() > 3600;
+}
+
+// goal/horizon-autotrack — 事件体：peakAt(ilIdx, xlIdx) 处锥形余弦同相轴
+// （半宽 14 样），其余为 0（追踪真值 = peakAt，容差 ±1 窗心舍入）
+bool writeEventSegy(const QString &filePath, int inlines, int xlines, int ns,
+                    const std::function<int(int, int)> &peakAt)
+{
+  const std::function<float(int, int, int)> sample =
+      [&peakAt](int i, int j, int k) {
+        const int d = k - peakAt(i, j);
+        return std::abs(d) <= 14 ? float(std::cos(d / 14.0 * M_PI)) : 0.0f;
+      };
+  return writeTestSegy(filePath, inlines, xlines, ns, &sample);
 }
 
 QList<SeismicPick> makeCornerPicks(int ilMin, int ilMax, int xlMin, int xlMax, double twt)
@@ -361,7 +391,8 @@ private slots:
     QVERIFY(QFileInfo::exists(dock.sessionFilePath()));
   }
 
-  // ---- D4.2 UI：dock 追踪（种子 → 同相轴扩展）----
+  // ---- D4.2 UI：dock 追踪（种子 → 同相轴扩展；goal/horizon-autotrack
+  //      升级异步任务，经 trackingFinished 终态信号等待）----
   void dockTrackingFromSeed()
   {
     QTemporaryDir dir;
@@ -384,9 +415,239 @@ private slots:
 
     dock.setTrackSeedPick(dock.interpretationSession().picks.first().id);
     dock.setTrackOptions({24, 12, 0.3});
+    QSignalSpy trackSpy(&dock, &SeismicSectionDockWidget::trackingFinished);
     dock.runTracking();
-    // 合成体（平滑梯度）相关度低——断言不崩 + 结果要么扩展要么 1（诚实停）
+    QVERIFY(trackSpy.wait(10000));
+    // 合成体（平滑梯度）相关度低——断言不炸 + 结果要么扩展要么 1（诚实停）
     QVERIFY(dock.interpretationSession().picks.size() >= 1);
+  }
+
+  // ---- goal/horizon-autotrack：多种子合并 + 追踪报告（服务层）----
+  void multiSeedTrackingAndReport()
+  {
+    // 双种子（两端）→ 合并后每列恰一拾取、全覆盖、真值 ±1
+    const int cols = 120;
+    const SgySliceImage slice = makeDippingSlice(cols, 400, 150, 1);
+    SeismicTrackReport report;
+    const QList<SeismicPick> picks = SeismicTaskService::trackHorizonMultiSeeds(
+        slice, SgySliceType::Inline, 1000, 2000, 2000 + cols - 1,
+        {{10, 160}, {100, 250}}, {24, 12, 0.6}, QStringLiteral("t"),
+        QStringLiteral("H1"), 2.0f, &report);
+    QCOMPARE(picks.size(), cols);
+    QCOMPARE(report.coveredTraces, cols);
+    QCOMPARE(report.totalTraces, cols);
+    QCOMPARE(report.stopSummary, QStringLiteral("全程覆盖"));
+    QSet<int> seenCols;
+    for (const SeismicPick &p : picks)
+    {
+      const int col = p.xlineNo - 2000;
+      QVERIFY2(!seenCols.contains(col), "同列重复拾取（合并失效）");
+      seenCols.insert(col);
+      QVERIFY(std::abs(p.sampleIndex - (150 + col)) <= 1);
+    }
+    // 手动种子置信度满格
+    for (const SeismicPick &p : picks)
+      if (p.xlineNo == 2010 || p.xlineNo == 2100)
+        QCOMPARE(p.confidence, 1.0f);
+
+    // 截断剖面 → 停因人话化（相关丢失 + 测线号）
+    const SgySliceImage truncated = makeDippingSlice(cols, 400, 150, 1, 40);
+    SeismicTrackReport stopReport;
+    const QList<SeismicPick> stopped = SeismicTaskService::trackHorizonMultiSeeds(
+        truncated, SgySliceType::Inline, 1000, 2000, 2000 + cols - 1,
+        {{10, 160}}, {24, 12, 0.6}, QStringLiteral("t"), QStringLiteral("H1"),
+        2.0f, &stopReport);
+    QVERIFY(stopped.size() >= 10);
+    QVERIFY(stopped.size() < 45);
+    QVERIFY(stopReport.coveredTraces < stopReport.totalTraces);
+    QVERIFY2(stopReport.stopSummary.contains(QStringLiteral("相关丢失")),
+             qPrintable(stopReport.stopSummary));
+    QVERIFY2(stopReport.stopSummary.contains(QStringLiteral("XL")),
+             qPrintable(stopReport.stopSummary));
+  }
+
+  // ---- goal/horizon-autotrack：异步追踪可取消（取消不发布半成品）----
+  void asyncTrackingCancellable()
+  {
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks);
+    const int cols = 400;
+    // rows 600：峰值 150+399=549 + 半宽 14 ≤ 599（事件全程在界内）
+    const SgySliceImage slice = makeDippingSlice(cols, 600, 150, 1);
+
+    bool called = false;
+    bool okVal = false;
+    int pickCount = -1;
+    PaleoTask *task = svc.startHorizonTracking(
+        slice, SgySliceType::Inline, 1000, 2000, 2000 + cols - 1,
+        {{200, 350}}, {24, 12, 0.6}, QStringLiteral("t"), QStringLiteral("H1"),
+        2.0f,
+        [&](bool ok, const QList<SeismicPick> &picks,
+            const SeismicTrackReport &, const QString &) {
+          called = true;
+          okVal = ok;
+          pickCount = picks.size();
+        });
+    QVERIFY(task != nullptr);
+    QSignalSpy finSpy(task, &PaleoTask::finished);
+    task->requestCancel(); // 入池即取消（worker 起点检查 + 逐道谓词双保险）
+    QVERIFY(finSpy.wait(10000));
+    QVERIFY(called);
+    QVERIFY(!okVal);
+    QCOMPARE(pickCount, 0); // 取消：不发布
+    QCOMPARE(task->state(), PaleoTask::State::Cancelled);
+
+    // 正常完成路径：发布全量 + 报告
+    called = false;
+    PaleoTask *task2 = svc.startHorizonTracking(
+        slice, SgySliceType::Inline, 1000, 2000, 2000 + cols - 1,
+        {{200, 350}}, {24, 12, 0.6}, QStringLiteral("t"), QStringLiteral("H1"),
+        2.0f,
+        [&](bool ok, const QList<SeismicPick> &picks,
+            const SeismicTrackReport &report, const QString &) {
+          called = true;
+          okVal = ok;
+          pickCount = picks.size();
+          QVERIFY(report.totalTraces == cols);
+        });
+    QVERIFY(task2 != nullptr);
+    QSignalSpy finSpy2(task2, &PaleoTask::finished);
+    QVERIFY(finSpy2.wait(10000));
+    QVERIFY(called);
+    QVERIFY(okVal);
+    QCOMPARE(pickCount, cols);
+    QCOMPARE(task2->state(), PaleoTask::State::Succeeded);
+  }
+
+  // ---- goal/horizon-autotrack：dock 多种子追踪 → 合并替换一步 undo/redo +
+  //      面板覆盖率 QC 行（offscreen 全链：体 → 剖面 → 种子 → 追踪 → 会话）----
+  void dockTrackingMergeUndoRedo()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("event.sgy");
+    // 事件峰 = 40 + xlIdx（XL 向倾角 1 样/道；与 IL 无关——初始剖面取中线）
+    QVERIFY(writeEventSegy(sgy, 6, 8, 128,
+                           [](int, int xl) { return 40 + xl; }));
+    auto volume = std::make_shared<SgyVolume>();
+    std::string verr;
+    QVERIFY(volume->Load(sgy.toStdString(), verr));
+
+    SeismicSectionDockWidget dock;
+    dock.resize(900, 650);
+    QSignalSpy finishedSpy(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(volume);
+    QVERIFY(finishedSpy.wait(10000));
+
+    dock.setPickMode(SectionPickMode::Seed);
+    // 两端手动种子（列 2/6，峰位 42/46 样 → 84/92ms）
+    dock.addPickFromCanvas(2, 84.0);
+    dock.addPickFromCanvas(6, 92.0);
+    QCOMPARE(dock.interpretationSession().picks.size(), 2);
+
+    QUndoStack *stack = dock.findChild<QUndoStack *>();
+    QVERIFY(stack != nullptr);
+
+    dock.setTrackSeedPick(dock.interpretationSession().picks.first().id);
+    dock.setTrackOptions({24, 12, 0.6});
+    QSignalSpy trackSpy(&dock, &SeismicSectionDockWidget::trackingFinished);
+    dock.runTracking();
+    QVERIFY(trackSpy.wait(10000));
+    QCOMPARE(trackSpy.value(0).at(0).toBool(), true);
+
+    // 全 8 列每列恰一拾取（两端种子双向 + 合并；手动列不被机器重复）
+    const QList<SeismicPick> afterTrack = dock.interpretationSession().picks;
+    QCOMPARE(afterTrack.size(), 8);
+    QSet<int> colsSeen;
+    for (const SeismicPick &p : afterTrack)
+    {
+      const int col = p.xlineNo - 2000;
+      QVERIFY2(!colsSeen.contains(col), "同列重复拾取");
+      colsSeen.insert(col);
+      QVERIFY2(std::abs(p.sampleIndex - (40 + col)) <= 1,
+               qPrintable(QStringLiteral("col %1 sample %2").arg(col).arg(p.sampleIndex)));
+    }
+    // 报告 + 面板 QC 行
+    QCOMPARE(dock.lastTrackReport().totalTraces, 8);
+    QCOMPARE(dock.lastTrackReport().coveredTraces, 8);
+    QLabel *summary = dock.findChild<QLabel *>(QStringLiteral("trackSummaryLabel"));
+    QVERIFY(summary != nullptr);
+    QVERIFY2(summary->text().contains(QStringLiteral("覆盖 8/8")),
+             qPrintable(summary->text()));
+
+    // 一步 undo：追踪机器拾取整体消失，回到 2 个手动种子
+    stack->undo();
+    const QList<SeismicPick> afterUndo = dock.interpretationSession().picks;
+    QCOMPARE(afterUndo.size(), 2);
+    for (const SeismicPick &p : afterUndo)
+      QCOMPARE(p.confidence, 1.0f);
+    // redo：8 个回来（id 可异，状态等价）
+    stack->redo();
+    QCOMPARE(dock.interpretationSession().picks.size(), 8);
+  }
+
+  // ---- goal/horizon-autotrack Oracle#2：剖面种子 → 追踪 → 拾取集成层位 →
+  //      GeoTIFF + LayerDeclaration → QgisLayerService 上图（offscreen）----
+  void trackedHorizonToMapClosure()
+  {
+    QTemporaryDir dir;
+    // 1) 双向追踪产出拾取集（单 IL 剖面 → 1×N 层位栅格）
+    const int cols = 64;
+    const SgySliceImage slice = makeDippingSlice(cols, 400, 150, 1);
+    SeismicTrackReport report;
+    const QList<SeismicPick> picks = SeismicTaskService::trackHorizonMultiSeeds(
+        slice, SgySliceType::Inline, 1000, 2000, 2000 + cols - 1, {{32, 182}},
+        {24, 12, 0.6}, QStringLiteral("t"), QStringLiteral("H1"), 2.0f,
+        &report);
+    QVERIFY(picks.size() >= cols * 0.9);
+
+    // 2) catalog 上下文（源地震资产 + RAW 版本）
+    DataCatalog catalog;
+    QString err;
+    QVERIFY(catalog.open(dir.path(), &err));
+    CatalogAsset seismicAsset;
+    seismicAsset.id = QStringLiteral("seis_track");
+    seismicAsset.type = QStringLiteral("seismic");
+    seismicAsset.format = QStringLiteral("sgy");
+    seismicAsset.displayName = QStringLiteral("event.sgy");
+    QVERIFY(catalog.addAsset(seismicAsset, &err));
+    CatalogVersion rawVersion;
+    rawVersion.id = QStringLiteral("rawver_track");
+    rawVersion.assetId = seismicAsset.id;
+    rawVersion.stage = QStringLiteral("RAW");
+    rawVersion.versionNumber = 1;
+    rawVersion.managed = false;
+    rawVersion.path = dir.filePath(QStringLiteral("event.sgy"));
+    QVERIFY(catalog.addVersion(rawVersion, &err));
+
+    // 3) 登记：CSV + GeoTIFF（经既有 horizonbinner 管线）+ 可上图声明
+    LayerDeclaration decl;
+    const QString outDir = dir.filePath(QStringLiteral("interpretation"));
+    const QString path = SeismicTaskService::registerHorizonAsset(
+        &catalog, seismicAsset.id, rawVersion.id, QStringLiteral("H1"), picks,
+        outDir, &err, &decl);
+    QVERIFY2(!path.isEmpty(), qPrintable(err));
+    QCOMPARE(decl.layerId, QStringLiteral("horizon.H1"));
+    QCOMPARE(decl.horizon, QStringLiteral("H1"));
+    QCOMPARE(decl.type, QStringLiteral("raster"));
+    QCOMPARE(decl.group, QStringLiteral("00_Data"));
+    QVERIFY(decl.source.endsWith(QStringLiteral(".tif")));
+    QVERIFY2(QFileInfo::exists(decl.source), qPrintable(decl.source));
+
+    // 4) 上图：manifest 声明 + QgisLayerService 实例化（gdal raster）
+    const QString projDir = dir.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projDir + QStringLiteral("/metadata")));
+    QgisProjectService projectSvc;
+    QVERIFY(projectSvc.createProject(projDir + QStringLiteral("/proj.qgz")));
+    LayerManifest manifest(projDir + QStringLiteral("/metadata/project.sqlite"));
+    QVERIFY(manifest.open(&err));
+    QgisLayerService layerSvc(&projectSvc, &manifest);
+    QString declErr;
+    QVERIFY2(layerSvc.declare(decl, &declErr), qPrintable(declErr));
+    QVERIFY(manifest.forHorizon(QStringLiteral("H1")).size() >= 1);
+    QgsMapLayer *layer = layerSvc.instantiate(decl.layerId, &declErr);
+    QVERIFY2(layer != nullptr, qPrintable(declErr));
+    QVERIFY2(layer->isValid(), qPrintable(declErr));
+    QCOMPARE(layer->type(), Qgis::LayerType::Raster);
   }
 
   // ---- D4.5：CSV 导出 ----
@@ -407,5 +668,17 @@ private slots:
   }
 };
 
-QTEST_MAIN(TestSeismicInterpret)
+// QgsApplication main（tst_canvas_tools 同式）：上图闭环用例需要 gdal
+// raster provider 与 QgsProject 实例化
+int main(int argc, char *argv[])
+{
+  QgsApplication app(argc, argv, false);
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")),
+                    true);
+  app.initQgis();
+  TestSeismicInterpret t;
+  const int rc = QTest::qExec(&t, argc, argv);
+  QgsApplication::exitQgis();
+  return rc;
+}
 #include "tst_seismic_interpret.moc"

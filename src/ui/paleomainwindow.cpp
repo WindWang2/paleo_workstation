@@ -677,6 +677,14 @@ void PaleoMainWindow::buildShell()
   addDockWidget(Qt::BottomDockWidgetArea, m_seismicSectionDock);
   tabifyDockWidget(m_bottomDock, m_seismicSectionDock);
   m_seismicSectionDock->hide();
+  // goal/horizon-autotrack — 追踪层位资产登记产出 → 层清单/画布上图
+  // （同 dataimport layerDeclared → declare 装配先例）
+  connect(m_seismicSectionDock, &seismic::SeismicSectionDockWidget::horizonLayerDeclared,
+          this, [this](const LayerDeclaration &decl) {
+            QString err;
+            if (!m_layerSvc->declare(decl, &err))
+              qWarning() << "horizon layer declare failed:" << decl.layerId << err;
+          });
 
   // ---- seismic 3D viewport dock ----
   m_seismic3dDock = new QDockWidget(tr("三维地震视口 (3D)"), this);

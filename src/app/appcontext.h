@@ -17,6 +17,7 @@ class QgisEditingService;
 class QgisStyleService;
 class ToolAvailabilityService;
 class PaleoOnnxService;
+class AiAssistWorkflow;
 class SelectionContext;
 class SeismicMapLink;
 class WellMapLink;
@@ -53,6 +54,8 @@ class AppContext : public QObject
     // ONNX 推理服务（PALEO_HAVE_ORT 构建下恒实例化并绑到 predictionWf；
     // 运行库/模型缺失由服务自身如实报告，!ORT 构建恒为 nullptr）。
     PaleoOnnxService *onnxSvc() const { return m_onnxSvc; }
+    // AI 辅助编排（tile 分类产品 + 追踪建议裁决）；无 ORT 构建下为 null。
+    AiAssistWorkflow *aiAssistWorkflow() const { return m_aiAssistWf; }
     SelectionContext *selection() const { return m_selection; }
     SeismicMapLink *seismicLink() const { return m_seismicLink; }
     // 井—地图联动（§31，预览壳重排接入）：画布拾取 ⇄ SelectionContext；
@@ -107,6 +110,7 @@ class AppContext : public QObject
     QgisStyleService *m_styleSvc = nullptr;
     ToolAvailabilityService *m_toolSvc = nullptr;
     PaleoOnnxService *m_onnxSvc = nullptr;
+    AiAssistWorkflow *m_aiAssistWf = nullptr;
     SelectionContext *m_selection = nullptr;
     SeismicMapLink *m_seismicLink = nullptr;
     WellMapLink *m_wellLink = nullptr;

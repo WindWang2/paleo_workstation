@@ -41,6 +41,10 @@
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/services/algoparamschema.h"
 
+#if PALEO_HAVE_ORT
+#include "../src/ai/onnxpredictionservice.h"
+#endif
+
 #include <qgsapplication.h>
 
 class PredictPageTests : public QObject
@@ -50,6 +54,7 @@ class PredictPageTests : public QObject
     void constructsWithNullServices(); // 基座冒烟：拆分后类仍可构造
     void predictTypeVocabulary();      // m2(A)：预测类型词表 + stable id
     void schemaRegistryMirrorsAlgorithmTruth(); // m2(A)：schema 注册表对照算法真值
+    void noOnnxModelsShowsHonestDegradation(); // ai-assist 范围5：未装模型如实降级
     void schemaFormBuildsPerAlgorithm();        // m2(A)：表单按 schema 动态建控件
     void schemaParamsCollectedIntoRunRequest(); // m2(A)：schema 控件 → QVariantMap
     void predictTypeSwitchRebuildsForm();       // m2(A)：类型切换联动重建（值保留）
@@ -62,6 +67,31 @@ class PredictPageTests : public QObject
     static LayerDeclaration makeDecl(const QString &layerId, const QString &horizon,
                                      const QString &group);
 };
+
+void PredictPageTests::noOnnxModelsShowsHonestDegradation()
+{
+  // setAlgorithms 是公开面——直接驱动，无需真 workflow 绑定（页面构造期
+  // 与工程打开后的刷新走同一条路径）。
+  PredictPage page(nullptr, nullptr);
+  auto *status = page.findChild<QLabel *>(QStringLiteral("statusLabel"));
+  QVERIFY(status);
+#if PALEO_HAVE_ORT
+  if (!PaleoOnnxService::runtimeAvailable())
+    QSKIP("vendored onnxruntime not present");
+  page.setAlgorithms({QStringLiteral("paleo:paleo_geological_smoothing")});
+  QVERIFY2(status->text().contains(QStringLiteral("未装模型")),
+           qPrintable(status->text()));
+  // 算法表正常承载 onnx 条目，降级文案随之消失。
+  page.setAlgorithms({QStringLiteral("paleo:paleo_geological_smoothing"),
+                      QStringLiteral("onnx:seg3")});
+  auto *algos = page.findChild<QComboBox *>(QStringLiteral("algoCombo"));
+  QVERIFY(algos && algos->count() == 2);
+  QCOMPARE(algos->itemText(1), QStringLiteral("seg3 (ONNX)"));
+  QVERIFY(!status->text().contains(QStringLiteral("未装模型")));
+#else
+  QSKIP("build lacks ORT");
+#endif
+}
 
 void PredictPageTests::constructsWithNullServices()
 {

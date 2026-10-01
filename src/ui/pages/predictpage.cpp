@@ -1,6 +1,10 @@
 // 层：视图
 #include "predictpage.h"
 
+#if PALEO_HAVE_ORT
+#include "../../ai/onnxpredictionservice.h" // runtimeAvailable() 降级文案用
+#endif
+
 #include "pageshared.h"
 
 #include "../../ai/onnxpredictionservice.h" // ORT-free header; runtimeAvailable 调用受 PALEO_HAVE_ORT 保护
@@ -216,6 +220,7 @@ void PredictPage::setHorizons(const QStringList &horizons)
 
 void PredictPage::setAlgorithms(const QStringList &algIds)
 {
+  bool hasOnnx = false;
   if (auto *combo = child<QComboBox>(this, "algoCombo"))
   {
     combo->clear();
@@ -223,11 +228,28 @@ void PredictPage::setAlgorithms(const QStringList &algIds)
     {
       QString display = id;
       if (id.startsWith(QLatin1String("onnx:")))
+      {
+        hasOnnx = true;
         display = tr("%1 (ONNX)").arg(id.mid(5));
+      }
       combo->addItem(display, id);
     }
     rebuildSchemaForm();
   }
+  // 缺模型如实降级（范围5）：运行库在而 models/ 无可用 .onnx → 写明原因，
+  // 不静默少列；模型可用时撤下降级文案（只撤我们自己写的——别的人写的
+  // 状态文案不动）。运行库缺失的文案在构造期（runtimeAvailable 分支）。
+  auto *status = child<QLabel>(this, "statusLabel");
+#if PALEO_HAVE_ORT
+  static const QString kDegrade = tr("未装模型");
+  if (status && PaleoOnnxService::runtimeAvailable())
+  {
+    if (!hasOnnx)
+      status->setText(tr("未装模型：<工程>/models 下无可用 .onnx（注册表如实降级，装入后重开工程）"));
+    else if (status->text().contains(kDegrade))
+      status->clear();
+  }
+#endif
 }
 
 QVariantMap PredictPage::parseInputParams()

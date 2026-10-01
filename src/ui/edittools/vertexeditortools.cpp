@@ -581,7 +581,9 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
                          : ( 1 + k );
       if ( ringVertices < minReq )
       {
-        emit messageEmitted( tr( "无法删除节点：共边要素将变为无效" ),
+        const bool isSelf = ( member.layer == layer && member.fid == fid );
+        emit messageEmitted( isSelf ? tr( "无法删除节点：要素将变为无效" )
+                                    : tr( "无法删除节点：共边要素将变为无效" ),
                              Qgis::MessageLevel::Warning );
         return;
       }
@@ -649,6 +651,28 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
               if ( closingNr >= 0 )
                 mutated.moveVertex( newStart.x(), newStart.y(), closingNr );
             }
+          }
+        }
+
+        // Defense-in-depth: verify all rings in mutated geometry satisfy minimum counts
+        if ( layerOk && mutated.constGet() )
+        {
+          const Qgis::GeometryType gt = QgsWkbTypes::geometryType( mutated.wkbType() );
+          const int minAllowed = ( gt == Qgis::GeometryType::Polygon ) ? 4
+                                 : ( gt == Qgis::GeometryType::Line ) ? 2
+                                 : 1;
+          for ( int p = 0; p < mutated.constGet()->partCount(); ++p )
+          {
+            for ( int r = 0; r < mutated.constGet()->ringCount( p ); ++r )
+            {
+              if ( mutated.constGet()->vertexCount( p, r ) < minAllowed )
+              {
+                layerOk = false;
+                break;
+              }
+            }
+            if ( !layerOk )
+              break;
           }
         }
 

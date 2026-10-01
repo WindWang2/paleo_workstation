@@ -251,7 +251,7 @@ void CacheSegyIndexTests::checkpointAuditRejectsTampered()
   QVERIFY(r.snapshot(&snap));
   // 伪 checkpoint：scannedOffset 越界（D2.8 审计应拒）。
   snap.complete = false;
-  snap.scannedOffset = 1 << 40;
+  snap.scannedOffset = qint64(1) << 40;
   QString err;
   store.save(snap, &err);
   QString reason;

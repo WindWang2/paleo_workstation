@@ -9,6 +9,7 @@ target_compile_definitions(tst_seismic_engine PRIVATE
 # 主线7 性能闸门：make_segy_fixture.py --mb 合成 ≥200MB 生产形状体（一次性
 # 生成缓存在构建目录，不入库）；QuickOpen/首剖面/时间片/任意剖面延迟预算。
 add_paleo_test(tst_seismic_perf)
+set_tests_properties(tst_seismic_perf PROPERTIES RUN_SERIAL TRUE)
 find_program(PALEO_PERF_PYTHON3 NAMES python3 python)
 target_compile_definitions(tst_seismic_perf PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
@@ -18,6 +19,7 @@ target_compile_definitions(tst_seismic_perf PRIVATE
 # P5 Phase 0 基线实测：索引冷/热、切片冷/热、双通道转码、体素、离屏 3D
 # 帧率、峰值 RSS（输出 = docs/seismic/BASELINE.md 数据源；共享夹具目录）。
 add_paleo_test(tst_seismic_baseline LIBS paleo_ui)
+set_tests_properties(tst_seismic_baseline PROPERTIES RUN_SERIAL TRUE)
 target_compile_definitions(tst_seismic_baseline PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
   PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
@@ -51,6 +53,7 @@ add_paleo_test(tst_seismic_welltie LIBS paleo_ui)
 # P5 Phase 6 性能与可靠性：时延/帧率预算入基线、错误分类、内存评估、
 # 并发闸 ≤4、取消无悬挂、自动保存点
 add_paleo_test(tst_seismic_budgets LIBS paleo_ui)
+set_tests_properties(tst_seismic_budgets PROPERTIES RUN_SERIAL TRUE)
 target_compile_definitions(tst_seismic_budgets PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
   PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"

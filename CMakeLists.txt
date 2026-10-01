@@ -85,22 +85,42 @@ find_path(GDAL_INCLUDE_DIR gdal.h HINTS
 find_library(GDAL_LIB gdal HINTS
   "${QGIS_PREFIX}/lib" "${QGIS_PREFIX}/usr/lib" PATHS /usr/lib REQUIRED)
 
-add_library(paleo_qgis_iface INTERFACE)
-target_include_directories(paleo_qgis_iface INTERFACE ${QGIS_INCLUDE_DIR})
+# ============================================================================
+# 4-Tier Dependency Architecture (ARCH-03 / P1-05)
+# Tier 1: paleo_qt_core        (Headless Qt Core/Gui/Xml/Sql/Concurrent/Network)
+# Tier 2: paleo_qgis_core_deps (Headless QGIS Core/Analysis + Tier 1)
+# Tier 3: paleo_deps           (Data Umbrella: Tier 2 + GDAL + src include)
+# Tier 4: paleo_ui_deps        (UI/Presentation: QGIS GUI + QtWidgets + UI tools)
+# Compatibility: paleo_qgis_iface (Combines Tier 2 + Tier 4)
+# ============================================================================
+
+add_library(paleo_qt_core INTERFACE)
+target_link_libraries(paleo_qt_core INTERFACE
+  Qt6::Core Qt6::Gui Qt6::Xml Qt6::Sql Qt6::Concurrent Qt6::Network Qt6::SerialPort Qt6::Positioning)
+
+add_library(paleo_qgis_core_deps INTERFACE)
+target_include_directories(paleo_qgis_core_deps INTERFACE ${QGIS_INCLUDE_DIR})
 if(QGIS_PREFIX)
   # OSGeo4W installs SQLite, GDAL, GEOS and other public QGIS header
   # dependencies in the prefix's shared include directory.
-  target_include_directories(paleo_qgis_iface INTERFACE "${QGIS_PREFIX}/include")
+  target_include_directories(paleo_qgis_core_deps INTERFACE "${QGIS_PREFIX}/include")
 endif()
-target_link_libraries(paleo_qgis_iface INTERFACE ${QGIS_CORE_LIB} ${QGIS_GUI_LIB} ${QGIS_ANALYSIS_LIB}
-  Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Xml Qt6::Sql Qt6::Concurrent Qt6::Svg Qt6::PrintSupport Qt6::Network Qt6::SerialPort Qt6::Positioning Qt6::UiTools Qt6::OpenGLWidgets Qt6::Pdf Qt6::PdfWidgets)
+target_link_libraries(paleo_qgis_core_deps INTERFACE
+  ${QGIS_CORE_LIB} ${QGIS_ANALYSIS_LIB} paleo_qt_core)
+
+add_library(paleo_ui_deps INTERFACE)
+target_link_libraries(paleo_ui_deps INTERFACE
+  ${QGIS_GUI_LIB} Qt6::Widgets Qt6::OpenGLWidgets Qt6::Svg Qt6::PrintSupport Qt6::UiTools Qt6::Pdf Qt6::PdfWidgets)
 if(TARGET Qt6::WebEngineWidgets)
-  target_link_libraries(paleo_qgis_iface INTERFACE Qt6::WebEngineWidgets)
-  target_compile_definitions(paleo_qgis_iface INTERFACE PALEO_HAVE_WEBENGINE=1)
+  target_link_libraries(paleo_ui_deps INTERFACE Qt6::WebEngineWidgets)
+  target_compile_definitions(paleo_ui_deps INTERFACE PALEO_HAVE_WEBENGINE=1)
   message(STATUS "Qt6 WebEngineWidgets found — embedded web shell enabled")
 else()
   message(STATUS "Qt6 WebEngineWidgets NOT found — WebViewPanel degrades to the external browser")
 endif()
+
+add_library(paleo_qgis_iface INTERFACE)
+target_link_libraries(paleo_qgis_iface INTERFACE paleo_qgis_core_deps paleo_ui_deps)
 
 # GPKG fixture fallback
 set(FIXTURE_GPKG ${CMAKE_SOURCE_DIR}/testdata/fixture.gpkg)
@@ -230,7 +250,7 @@ endif()
 # catalog↔metadata 互有 include（datacatalog→atomicfile / mapversionstore→datacatalog），
 # 同层环合并为 paleo_store。paleo_core 降为 INTERFACE 伞，旧链接方零改动。
 add_library(paleo_deps INTERFACE)
-target_link_libraries(paleo_deps INTERFACE paleo_qgis_iface ${GDAL_LIB})
+target_link_libraries(paleo_deps INTERFACE paleo_qgis_core_deps ${GDAL_LIB})
 target_include_directories(paleo_deps INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
 
 # ---- 数据层 ----
@@ -291,7 +311,7 @@ add_library(paleo_qgis STATIC
   src/qgis/previewrendercache.cpp                   # P2 D6.2/D6.6 渲染结果缓存（内存 LRU + QTemporaryDir PNG）
   src/qgis/seismicsectiontool.cpp
 )
-target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_store paleo_algorithms)
+target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms)
 
 add_library(paleo_io STATIC
   src/io/dataimportservice.cpp
@@ -413,7 +433,7 @@ add_library(paleo_ui STATIC
   resources/seismic_shaders.qrc
   resources/paleo_fonts.qrc
 )
-target_link_libraries(paleo_ui PUBLIC paleo_deps paleo_qgis paleo_workflow paleo_services
+target_link_libraries(paleo_ui PUBLIC paleo_deps paleo_ui_deps paleo_qgis paleo_workflow paleo_services
   paleo_store paleo_linkage paleo_domain paleo_io paleo_ai paleo_saribbon paleo_sbm)
 
 # ---- 组装根 ----
@@ -426,7 +446,7 @@ add_library(paleo_core INTERFACE)
 target_link_libraries(paleo_core INTERFACE
   paleo_app paleo_ui paleo_workflow paleo_linkage paleo_services paleo_io
   paleo_qgis paleo_store paleo_algorithms paleo_domain paleo_ai
-  paleo_saribbon paleo_sbm paleo_segyio paleo_glm ${GDAL_LIB})
+  paleo_saribbon paleo_sbm paleo_segyio paleo_glm ${GDAL_LIB} paleo_ui_deps)
 target_include_directories(paleo_core INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
 
 # ---- 实验性 unity build（devex T6）：PALEO_UNITY_BUILD=ON 时仅逐产品 target ----
@@ -456,9 +476,9 @@ enable_testing()
 # 不能再整体 set（CMakeLists 下方 tst_onnx* 即此坑的修复点）。
 function(paleo_test_sandbox name)
   set(_home ${CMAKE_BINARY_DIR}/ctest-home/${name})
-  file(MAKE_DIRECTORY "${_home}/config" "${_home}/data" "${_home}/cache")
+  file(MAKE_DIRECTORY "${_home}/config" "${_home}/data" "${_home}/cache" "${_home}/tmp")
   set_tests_properties(${name} PROPERTIES ENVIRONMENT
-    "QT_QPA_PLATFORM=offscreen;XDG_CONFIG_HOME=${_home}/config;XDG_DATA_HOME=${_home}/data;XDG_CACHE_HOME=${_home}/cache;HOME=${_home}")
+    "QT_QPA_PLATFORM=offscreen;XDG_CONFIG_HOME=${_home}/config;XDG_DATA_HOME=${_home}/data;XDG_CACHE_HOME=${_home}/cache;HOME=${_home};TMPDIR=${_home}/tmp;TEMP=${_home}/tmp;TMP=${_home}/tmp")
   if(PALEO_ENABLE_ASAN)
     set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
       "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:print_summary=1")
@@ -520,7 +540,7 @@ add_paleo_test(tst_layerservice LIBS paleo_qgis)            # catalog,metadata,q
 add_paleo_test(tst_canvas_tools LIBS paleo_services paleo_qgis) # metadata,qgis,services
 add_paleo_test(tst_domain LIBS paleo_domain)
 add_paleo_test(tst_linkage LIBS paleo_linkage)
-add_paleo_test(tst_algorithms LIBS paleo_algorithms)
+add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
 add_paleo_test(tst_services2 LIBS paleo_qgis)               # algorithms,metadata,qgis
 add_paleo_test(tst_workflows LIBS paleo_workflow)
 add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）
@@ -530,6 +550,8 @@ add_paleo_test(tst_mappingpages LIBS paleo_ui)
 add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
 add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式；伞式兼容样本）
 add_paleo_test(tst_perf LIBS paleo_qgis)
+set_tests_properties(tst_perf PROPERTIES RUN_SERIAL TRUE)
+set_tests_properties(tst_panels PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_locator LIBS paleo_ui)
 add_paleo_test(tst_layoutshell LIBS paleo_ui)
 add_paleo_test(tst_maptools LIBS paleo_ui)
@@ -665,7 +687,7 @@ add_paleo_test(tst_layermanifest LIBS paleo_store)  # P1-11 / ARCH-04 LayerManif
 add_paleo_test(tst_segy_fixture LIBS paleo_io)   # 合成最小 SEG-Y 夹具：索引/单线/角点/范围门
 target_compile_definitions(tst_segy_fixture PRIVATE
   TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
-add_paleo_test(tst_algorithm_harness LIBS paleo_algorithms)  # AlgorithmTestBase harness + ≥3 算法用例
+add_paleo_test(tst_algorithm_harness LIBS paleo_algorithms paleo_ui_deps)  # AlgorithmTestBase harness + ≥3 算法用例
 add_paleo_test(tst_perfbudget LIBS paleo_services paleo_qgis)
 # 墙钟预算门禁在 CI 并行负载下必抖（实测 525ms>500ms，预热救不了 CPU
 # 争抢）——计时测试串行跑，对齐 tst_correlation_full 先例。
@@ -716,7 +738,24 @@ add_paleo_test(tst_layerprofilebar LIBS paleo_ui)   # 主题下拉/保存/管理
 #   target_sources(paleo_<模块> PRIVATE src/.../foo.cpp)
 #   add_paleo_test(tst_foo)
 # 禁止直接改本文件的模块源列表——并行分支在此汇合零冲突。
-file(GLOB _paleo_extra CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/cmake/extra-*.cmake")
-foreach(_f IN LISTS _paleo_extra)
-  include(${_f})
+# 显式清单登记替代隐式 GLOB，根治构建目录漂移与测试漏注（P1-14 / TEST-01）
+set(_paleo_extra_manifest
+  "${CMAKE_SOURCE_DIR}/cmake/extra-data.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-a.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-b.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-c.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-d.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-io-perf.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-mamcl.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-mapping.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-prediction-facies.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-sections-alignment.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-seismic.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-ux.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-wellcomposite.cmake"
+)
+foreach(_f IN LISTS _paleo_extra_manifest)
+  if(EXISTS "${_f}")
+    include("${_f}")
+  endif()
 endforeach()

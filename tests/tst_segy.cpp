@@ -1,4 +1,4 @@
-#include <QApplication>
+#include <QCoreApplication>
 #include <QByteArray>
 #include <QFile>
 #include <QTemporaryDir>
@@ -599,7 +599,7 @@ int main(int argc, char *argv[])
 {
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
-  QApplication app(argc, argv);
+  QCoreApplication app(argc, argv);
   TestSegy tc;
   return QTest::qExec(&tc, argc, argv);
 }

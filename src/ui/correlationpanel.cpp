@@ -463,12 +463,12 @@ bool WellCorrelationPanel::submitLasLoad(const QString &wellId,
   };
   auto out = std::make_shared<Outcome>();
   auto *task = svc->start(
-      QStringLiteral("解析测井 %1").arg(QFileInfo(lasPath).fileName()),
+      tr("解析测井 %1").arg(QFileInfo(lasPath).fileName()),
       [lasPath, out](PaleoTask *) -> QString {
         // 纯解析在池线程跑（LasCache 线程安全 + 同文件并发合并）。
         if (!PreviewDocService::lasAt(lasPath, &out->names, &out->curves,
                                       &out->error))
-          return out->error.isEmpty() ? QStringLiteral("无法解析 LAS 文件")
+          return out->error.isEmpty() ? tr("无法解析 LAS 文件")
                                       : out->error;
         return QString();
       },
@@ -483,14 +483,14 @@ bool WellCorrelationPanel::submitLasLoad(const QString &wellId,
             {
               // lasAt 成功但 ~A 无曲线：与同步路径同语义（false）。
               emit lasLoadFinished(wellId, false);
-              emit lasLoadError(wellId, QStringLiteral("LAS 无数据曲线"));
+              emit lasLoadError(wellId, tr("LAS 无数据曲线"));
               return;
             }
             if (!ok)
             {
               emit lasLoadFinished(wellId, false);
               emit lasLoadError(wellId, task->errorText().isEmpty()
-                                            ? QStringLiteral("无法解析 LAS 文件")
+                                            ? tr("无法解析 LAS 文件")
                                             : task->errorText());
               return;
             }
@@ -501,7 +501,7 @@ bool WellCorrelationPanel::submitLasLoad(const QString &wellId,
               emit lasLoadFinished(wellId, trackOk);
               if (!trackOk)
                 emit lasLoadError(wellId,
-                                  QStringLiteral("曲线不存在：%1").arg(mnemonic));
+                                  tr("曲线不存在：%1").arg(mnemonic));
             }
             else
             {

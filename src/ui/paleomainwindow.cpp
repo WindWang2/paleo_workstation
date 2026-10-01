@@ -497,7 +497,7 @@ void PaleoMainWindow::buildShell()
         return;
       const QString p = QFileDialog::getOpenFileName(
           this, tr("打开工程"), QString(),
-          QStringLiteral("Paleo 工程 (*.paleo);;QGIS 工程 (*.qgz *.qgs)"));
+          tr("Paleo 工程 (*.paleo);;QGIS 工程 (*.qgz *.qgs)"));
       if (p.isEmpty())
         return;
       // §38 blocking-error contract: a failed open surfaces as a dialog, not
@@ -511,7 +511,7 @@ void PaleoMainWindow::buildShell()
       if (isOffscreen() || !m_projectSvc)
         return;
       const QString p = QFileDialog::getSaveFileName(
-          this, tr("新建工程"), QString(), QStringLiteral("Paleo 工程 (*.qgz)"));
+          this, tr("新建工程"), QString(), tr("Paleo 工程 (*.qgz)"));
       if (p.isEmpty())
         return;
       if (!m_projectSvc->createProject(p))

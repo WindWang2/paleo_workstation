@@ -36,7 +36,14 @@ def scan(root: Path):
     """返回 (violations, baseline_keys)：violations 带行号供定位，
     baseline_keys 形如 `<relpath>:<rule>` 与 baseline 文件对齐。"""
     violations = []
-    for path in sorted((root / "src" / "ui").rglob("*.?pp")):
+    ui_root = root / "src" / "ui"
+    if not ui_root.is_dir():
+        # 扫描根不存在 = 定位错误（ctest 的 cwd 是构建目录），不是「零违规」。
+        raise FileNotFoundError(f"scan root not found: {ui_root}")
+    files = sorted(ui_root.rglob("*.?pp"))
+    if not files:
+        raise FileNotFoundError(f"scan root has no sources: {ui_root}")
+    for path in files:
         rel = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8", errors="replace")
         # setStyleSheet(...) 实参可能跨行——先按语句聚合到调用起始行。
@@ -91,9 +98,11 @@ def main():
     if "--selftest" in args:
         return selftest()
     strict = "--strict" in args
-    root = Path(".").resolve()
+    # 用脚本自身位置定位仓库根（同 check_layering.py）——不依赖 cwd，
+    # ctest 在构建目录下运行也扫真源码树（#77）。
+    root = Path(__file__).resolve().parents[1]
     baseline_path = root / "tools" / "ui-invariants-baseline.txt"
-    i = 1
+    i = 0
     rest = []
     while i < len(args):
         if args[i] == "--src" and i + 1 < len(args):
@@ -118,7 +127,11 @@ def main():
             if ln and not ln.startswith("#"):
                 baseline.add(ln)
 
-    violations = scan(root)
+    try:
+        violations = scan(root)
+    except FileNotFoundError as e:
+        print("ERROR", e)
+        return 2
     keys = {k for k, _ in violations}
     fresh = [(k, d) for k, d in violations if k not in baseline]
     stale = sorted(baseline - keys)

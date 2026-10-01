@@ -431,8 +431,17 @@ class TestFactorWorkflow : public QObject
       QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "welldist" ),
                                    QVariantMap(), &err ),
                 qPrintable( err ) );
+      // 重生成换了 source（新版本产物路径）→ declare() 替换路径删掉旧层再
+      // 重建：重跑前的 wdLayer 已悬空，必须重新取（#81：并行轮 SegFault /
+      // 串行轮盖章为空的根因即解引用旧指针）。
       wdLayer = f.layers.layer( QStringLiteral( "factor.T1.welldist" ) );
       QVERIFY2( wdLayer != nullptr, "instantiated factor layer missing after regeneration" );
+      {
+        const LayerDeclaration *wd2 = findDecl( f.layers, QStringLiteral( "factor.T1.welldist" ) );
+        QVERIFY2( wd2 != nullptr, "welldist declaration missing after regeneration" );
+        QCOMPARE( wdLayer->source(), wd2->source ); // 缓存指向新层，而非旧层残留
+        delete wd2;
+      }
       const QString stampedAsset =
           wdLayer->customProperty( QStringLiteral( "paleoAssetId" ) ).toString();
       QVERIFY2( !stampedAsset.isEmpty(),

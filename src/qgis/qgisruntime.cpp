@@ -44,8 +44,10 @@ bool QgisRuntime::initialize( const QString &prefixPath )
   // 无界面模式，window.show() 不生效、exec() 立即返回（进程静默退出）。
   // 测试路径不经过这里（各自直接构造 QgsApplication），不受影响。
   s_app = new QgsApplication( s_argc, s_argv, /*GUIenabled=*/true );
-  QgsApplication::setPrefixPath( qEnvironmentVariable( "QGIS_PREFIX_PATH", prefixPath ),
-                                 /*useDefaultPaths=*/true );
+  QgsApplication::setPrefixPath(
+      qEnvironmentVariable( "QGIS_PREFIX_PATH",
+                            prefixPath.isEmpty() ? defaultPrefixPath() : prefixPath ),
+      /*useDefaultPaths=*/true );
   QgsApplication::initQgis();
   return true;
 }

@@ -3,6 +3,7 @@
 #include "../io/dataimportservice.h" // catalog() — attachMapping 的 OUTPUT 登记
 #include "../io/wellcompositexml.h" // D1：wellcomposite 序列化/深度表解析注入（wave/deepen-perf）
 #include "../ui/wellcomposite/derivedsink.h" // D1：派生登记 sink 默认实例
+#include "../qgis/qgisruntime.h" // defaultPrefixPath——默认 prefix 跟构建链接面走
 #include "../services/crashreport.h" // wave4：启动早期装崩溃处理器 + 脏退出提示
 #include "../ui/paleomainwindow.h"
 #include "../ui/paleotheme.h" // T32：启动注册 vendor 字体 + 正文字体
@@ -50,7 +51,7 @@ int main(int argc, char *argv[])
   const CrashReport::SessionStart session = CrashReport::installCrashHandler(
       QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
 
-  QString qgisPrefix = qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr"));
+  QString qgisPrefix = qEnvironmentVariable("QGIS_PREFIX_PATH", QgisRuntime::defaultPrefixPath());
   QString targetPath;
   for (int i = 1; i < argc; ++i)
   {

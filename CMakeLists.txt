@@ -91,6 +91,11 @@ if(QGIS_PREFIX)
   # OSGeo4W installs SQLite, GDAL, GEOS and other public QGIS header
   # dependencies in the prefix's shared include directory.
   target_include_directories(paleo_qgis_iface INTERFACE "${QGIS_PREFIX}/include")
+  # 默认运行时 prefix 随构建钉住：裸跑（无 QGIS_PREFIX_PATH env）时
+  # provider/srs.db 仍解析到二进制实际链接的 vendor prefix，不静默回落
+  # 系统栈（链接与运行资源栈分裂）。env/CLI 覆盖语义不变。
+  target_compile_definitions(paleo_qgis_iface INTERFACE
+    PALEO_QGIS_PREFIX_DEFAULT="${QGIS_PREFIX}")
 endif()
 target_link_libraries(paleo_qgis_iface INTERFACE ${QGIS_CORE_LIB} ${QGIS_GUI_LIB} ${QGIS_ANALYSIS_LIB}
   Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Xml Qt6::Sql Qt6::Concurrent Qt6::Svg Qt6::PrintSupport Qt6::Network Qt6::SerialPort Qt6::Positioning Qt6::UiTools Qt6::OpenGLWidgets Qt6::Pdf Qt6::PdfWidgets)
@@ -459,6 +464,12 @@ function(paleo_test_sandbox name)
   file(MAKE_DIRECTORY "${_home}/config" "${_home}/data" "${_home}/cache")
   set_tests_properties(${name} PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;XDG_CONFIG_HOME=${_home}/config;XDG_DATA_HOME=${_home}/data;XDG_CACHE_HOME=${_home}/cache;HOME=${_home}")
+  if(QGIS_PREFIX)
+    # vendor 构建下测试资源/provider 也走构建所链的 prefix（与二进制
+    # RUNPATH 一致），不借系统 /usr 栈——裸 ctest 即全 vendored。
+    set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
+      "QGIS_PREFIX_PATH=${QGIS_PREFIX}")
+  endif()
   if(PALEO_ENABLE_ASAN)
     set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
       "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:print_summary=1")

@@ -73,12 +73,18 @@ if(NOT SUPERBUILD_ENABLED)
 endif()
 
 # ---- 底座库（源码构建进同一 prefix，后者经 CMAKE_PREFIX_PATH 看见前者）----
+# INSTALL_RPATH：统一钉 $ORIGIN（lib/ 内互寻）+ $ORIGIN/../..（lib/qgis/plugins
+# 上溯回 lib/）——vendored .so 自包含，无 LD_LIBRARY_PATH 时传递依赖也不逃逸
+# 系统栈（libdir/soname 一致的前提下）。qt 等例外库仍走发行版路径。
+set(SUPERBUILD_RPATH_ARGS "-DCMAKE_INSTALL_RPATH=$ORIGIN\;$ORIGIN/../..")
+
 ExternalProject_Add(geos
   URL "${GEOS_URL}"
   URL_HASH SHA256=d5e5192a686d065eaed082de14dd26244c5c8e02bff16b2c6cce3265f648e00e
   CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${SUPERBUILD_PREFIX}
              -DCMAKE_BUILD_TYPE=Release
              -DBUILD_TESTING=OFF
+             ${SUPERBUILD_RPATH_ARGS}
   STAMP_DIR ${SUPERBUILD_STAMP}/geos
   BUILD_ALWAYS OFF)
 
@@ -91,6 +97,7 @@ ExternalProject_Add(proj
              -DBUILD_TESTING=OFF
              # proj.db 随包安装——QGIS 运行时要能解析到（plan §39 运行时数据文件）
              -DPROJ_DATA_PATH=${SUPERBUILD_PREFIX}/share/proj
+             ${SUPERBUILD_RPATH_ARGS}
   STAMP_DIR ${SUPERBUILD_STAMP}/proj
   BUILD_ALWAYS OFF)
 
@@ -102,6 +109,7 @@ ExternalProject_Add(gdal
              -DCMAKE_PREFIX_PATH=${SUPERBUILD_PREFIX}   # 找到已装的 geos/proj
              -DBUILD_TESTING=OFF
              -DBUILD_PYTHON_BINDINGS=OFF
+             ${SUPERBUILD_RPATH_ARGS}
   DEPENDS geos proj
   STAMP_DIR ${SUPERBUILD_STAMP}/gdal
   BUILD_ALWAYS OFF)
@@ -123,6 +131,7 @@ ExternalProject_Add(qgis
              -DWITH_INTERNAL_SPATIALINDEX=ON
              -DWITH_BINDINGS=OFF      # Paleo 是 C++ embed，无 Python
              -DBUILD_TESTING=OFF
+             ${SUPERBUILD_RPATH_ARGS}
   DEPENDS gdal
   STAMP_DIR ${SUPERBUILD_STAMP}/qgis
   BUILD_ALWAYS OFF)

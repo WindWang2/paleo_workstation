@@ -50,6 +50,11 @@ superbuild 明示禁止 qt-everywhere 整块编译；走发行版或 OSGeo4W 同
    `qgsapplication.h` 与 `-lqgis_{core,gui,analysis}`；
 3. 都没给 → 系统路径（`/usr/include/qgis`、`/usr/lib`）——仅兜底档。
 
+命中的 `QGIS_PREFIX` 还会编译进二进制（`PALEO_QGIS_PREFIX_DEFAULT`）：
+运行时 `QGIS_PREFIX_PATH` env 未设时，provider/srs.db 默认解析到构建所链的
+prefix（而非硬编码 `/usr`），vendored 库自身带 `$ORIGIN` RUNPATH——裸跑
+`build/paleo` 也是全 vendor 栈。ctest 沙箱同样注入 `QGIS_PREFIX_PATH`。
+
 vendor 路径对照（按策略优先级）：
 
 | 来源 | QGIS_PREFIX_PATH | 由谁准备 |

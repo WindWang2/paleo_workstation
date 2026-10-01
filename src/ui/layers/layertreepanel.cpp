@@ -186,7 +186,11 @@ QWidget *LayerTreePanel::buildToolbar()
   // 编辑会话中的图层先收尾（保存/放弃）再删——直接删会把未提交的编辑随
   // 图层析构静默丢弃。
   m_removeAction = new QAction(tr("删除所选图层/组"), this);
+  m_removeAction->setObjectName(QStringLiteral("layerTreeRemoveSelectedAction"));
   m_removeAction->setToolTip(removeAction->toolTip());
+  // goal/ui-experience-polish：Delete 键直达删除（桌面列表惯例；QAction 挂
+  // 键后菜单/工具条按钮同步显示快捷键提示）。
+  m_removeAction->setShortcut(Qt::Key_Delete);
   connect(m_removeAction, &QAction::triggered, this, [this, removeAction] {
     QList<QgsMapLayer *> selected =
         m_view ? m_view->selectedLayers() : QList<QgsMapLayer *>();

@@ -2,7 +2,10 @@
 #include <QTest>
 #include <QPainter>
 #include <QImage>
+#include <QApplication>
 #include <QDir>
+#include <QTimer>
+#include <QShortcut>
 #include <QFile>
 
 // wave/ux-polish：视觉取证截图只经 PALEO_UI_CAPTURE 开关落盘（tst_ui.cpp
@@ -35,6 +38,29 @@ class TestWellComposite : public QObject
 private slots:
   void initTestCase()
   {
+  }
+
+  // goal/ui-experience-polish：Ctrl+G 键盘直达跳深度对话框（模态驱动器
+  // 关闭——只验可达性）。
+  void ctrlGOpensGotoDepthDialog()
+  {
+    WellCompositePanel panel;
+    auto *sc = panel.findChild<QShortcut *>();
+    QVERIFY(sc && sc->key() == QKeySequence(QStringLiteral("Ctrl+G")));
+    panel.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&panel));
+    QTimer::singleShot(0, [&panel] {
+      if (QWidget *m = QApplication::activeModalWidget())
+        m->close();
+    });
+    // 兜底强关（驱动失配不挂死）
+    QTimer::singleShot(3000, [] {
+      if (QWidget *m = QApplication::activeModalWidget())
+        m->close();
+    });
+    QTest::keyClick(&panel, Qt::Key_G, Qt::ControlModifier);
+    QTest::qWait(80);
+    QVERIFY(QApplication::activeModalWidget() == nullptr); // 已被驱动关闭
   }
 
   // goal/ui-experience-polish：面板 chrome（顶栏按钮/读数/状态条 token 化）

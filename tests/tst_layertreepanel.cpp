@@ -70,6 +70,36 @@ class TestLayerTreePanel : public QObject
       uipolish::capturePanel(&panel, QStringLiteral("layertree_empty"));
     }
 
+    // goal/ui-experience-polish：Delete 键直达「删除所选图层/组」（QAction
+    // 挂键；非编辑态不弹框直接删）。
+    void deleteKeyRemovesCurrentLayer()
+    {
+      LayerTreePanel panel(QgsProject::instance(), nullptr, nullptr);
+      auto *act = panel.findChild<QAction *>(QStringLiteral("layerTreeRemoveSelectedAction"));
+      QVERIFY(act);
+      QCOMPARE(act->shortcut(), QKeySequence(Qt::Key_Delete));
+
+      auto *vl = new QgsVectorLayer(QStringLiteral("Point"),
+                                    QString::fromUtf8("临时井"), QStringLiteral("memory"));
+      QVERIFY(vl->isValid());
+      QgsProject::instance()->addMapLayer(vl);
+      panel.treeView()->setCurrentLayer(vl);
+      // 默认删除动作按「选中节点」取对象——补选区（仅 currentLayer 不够）。
+      const QModelIndex idx = panel.treeView()->currentIndex();
+      QVERIFY(idx.isValid());
+      panel.treeView()->selectionModel()->select(
+          idx, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      QApplication::setActiveWindow(&panel); // offscreen 下快捷键派发需要活动窗口
+      panel.treeView()->setFocus();
+      QCOMPARE(QgsProject::instance()->mapLayers().size(), 1);
+      QTest::keyClick(panel.treeView(), Qt::Key_Delete);
+      // QGIS 默认动作语义（E3 不重造）：从树摘节点（工程图层注册表不动——
+      // 那是「移除图层」另一档动作）。断言盯树模型。
+      QVERIFY(panel.treeView()->layerTreeModel()->rootGroup()->children().isEmpty());
+    }
+
     void cleanup()
     {
       // Tests share the QgsProject singleton (null-projectSvc fallback).

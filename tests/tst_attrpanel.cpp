@@ -68,6 +68,44 @@ private slots:
     panel.showLayer(QStringLiteral("x")); // must not crash
   }
 
+  // goal/ui-experience-polish：属性表键盘可达（原生 QgsAttributeTableView
+  // 行导航 ↓/↑）。
+  void keyboardNavigationOnAttributeRows()
+  {
+    QgsMapCanvas canvas;
+    auto *vl = new QgsVectorLayer(
+        QStringLiteral("Point?crs=EPSG:4326&field=name:string"),
+        QStringLiteral("wells"), QStringLiteral("memory"));
+    QVERIFY(vl->isValid());
+    for (int i = 0; i < 3; ++i)
+    {
+      QgsFeature f(vl->fields());
+      f.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(i, 2)));
+      f.setAttribute(QStringLiteral("name"), QStringLiteral("W%1").arg(i));
+      QList<QgsFeature> feats{f};
+      QVERIFY(vl->dataProvider()->addFeatures(feats));
+    }
+    AttributeTablePanel panel(
+        &canvas, [vl](const QString &id) -> QgsVectorLayer * {
+          return id == QLatin1String("wells") ? vl : nullptr;
+        });
+    panel.setLayerIds({QStringLiteral("wells")});
+    panel.showLayer(QStringLiteral("wells"));
+    auto *view = panel.findChild<QgsAttributeTableView *>(QStringLiteral("attrView"));
+    QVERIFY(view && view->model() && view->model()->rowCount() == 3);
+    panel.show();
+    QTest::qWaitForWindowExposed(&panel);
+    view->setFocus();
+    // 显式钉起点（窗口激活时序影响初始 currentIndex——offscreen 下不定）。
+    view->setCurrentIndex(view->model()->index(0, 0));
+    QCOMPARE(view->currentIndex().row(), 0);
+    QTest::keyClick(view, Qt::Key_Down);
+    QCOMPARE(view->currentIndex().row(), 1);
+    QTest::keyClick(view, Qt::Key_Up);
+    QCOMPARE(view->currentIndex().row(), 0);
+    delete vl;
+  }
+
   // goal/ui-experience-polish：属性表行 + 空态提示的修前/修后截图证据。
   void captureEvidence()
   {

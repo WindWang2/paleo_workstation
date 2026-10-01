@@ -56,7 +56,7 @@ DataPage::DataPage(QWidget *parent)
 }
 
 // P3 dataops 接线（wave/data-page-operations）：共享命令栈/存储、命令面板
-//（Ctrl+K）、快捷键表（?）、状态反馈信号、实体 CRUD 意图、多选批量概要。
+//（Ctrl+Shift+P）、快捷键表（?）、状态反馈信号、实体 CRUD 意图、多选批量概要。
 void DataPage::wireDataOps()
 {
   if (m_dataopsWired)
@@ -92,8 +92,12 @@ void DataPage::wireDataOps()
       m_entityPanel->setMultiContext({}, m_listPanel->currentAssetSelection().values());
   });
 
-  // D6.1 Ctrl+K 命令面板（数据页内）。
-  auto *paletteSc = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_K), this);
+  // D6.1 命令面板（数据页内）。goal/ui-experience-polish：原 Ctrl+K 与主窗
+  // 定位器（DESIGN.md QGIS 控件映射：搜索命令 Ctrl+K → QgsLocator）同键
+  // 同 WindowShortcut 上下文——Qt 歧义消解下两键全哑；命令面板让位改
+  // Ctrl+Shift+P（编辑器惯例），Ctrl+K 归定位器独占。
+  auto *paletteSc = new QShortcut(
+      QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P), this);
   paletteSc->setObjectName(QStringLiteral("scCommandPalette"));
   connect(paletteSc, &QShortcut::activated, this, &DataPage::openCommandPalette);
 }

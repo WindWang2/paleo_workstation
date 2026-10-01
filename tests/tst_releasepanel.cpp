@@ -134,6 +134,31 @@ private slots:
     QVERIFY(statusSpy.at(0).at(0).toString().contains(QString::fromUtf8("名称不能为空")));
   }
 
+  // goal/ui-experience-polish：发布树键盘可达（↓ 选中首行——键盘也能走
+  // 发布/对比流）。
+  void keyboardNavigationOnReleaseList()
+  {
+    QTemporaryDir dir;
+    const QString db = dir.filePath(QStringLiteral("meta.sqlite"));
+    ReleasePanel panel;
+    QVector<LayerDeclaration> manifest = {decl(QStringLiteral("facies.T1"))};
+    panel.setProviders([db] { return db; },
+                       [&manifest] { return manifest; });
+    panel.findChild<QLineEdit *>(QStringLiteral("releaseNameEdit"))
+        ->setText(QStringLiteral("v1"));
+    panel.findChild<QPushButton *>(QStringLiteral("createReleaseButton"))->click();
+    auto *list = panel.findChild<QTreeWidget *>(QStringLiteral("releaseList"));
+    QVERIFY(list && list->topLevelItemCount() == 1);
+    panel.show();
+    QTest::qWaitForWindowExposed(&panel);
+    list->setFocus();
+    // 显式清起点（窗口激活时序下树会自动选首行——offscreen 不定）。
+    list->setCurrentItem(nullptr);
+    QCOMPARE(list->currentIndex().row(), -1);
+    QTest::keyClick(list, Qt::Key_Down);
+    QCOMPARE(list->currentIndex().row(), 0);
+  }
+
   // goal/ui-experience-polish：发布树 + 表单的修前/修后截图证据。
   void captureEvidence()
   {

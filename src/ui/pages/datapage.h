@@ -27,7 +27,7 @@ class DataPage : public QWidget
     QWidget *entityViewSection() const { return m_entityPanel; }
 
     // ---- P3 D6：命令面板/快捷键面（壳与测试入口）----
-    void openCommandPalette();                    // Ctrl+K
+    void openCommandPalette();                    // Ctrl+Shift+P
     void openShortcutsDialog();                   // ? 键
     bool vimModeEnabled() const;
     void setVimModeEnabled(bool on);

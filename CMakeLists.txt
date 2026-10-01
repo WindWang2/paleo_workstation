@@ -259,6 +259,7 @@ target_link_libraries(paleo_domain PUBLIC paleo_deps paleo_sbm paleo_segyio pale
 add_library(paleo_algorithms STATIC
   src/algorithms/paleoalgorithms.cpp
   src/algorithms/faciespolygonize.cpp
+  src/algorithms/seismicattr.cpp
 )
 target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 
@@ -326,7 +327,7 @@ add_library(paleo_services STATIC
   src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排
   src/services/crashreport.cpp                      # 致命信号 fd 落盘 + .running 旗标
 )
-target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store)
+target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
 
 # ---- 功能层 ----
 add_library(paleo_linkage STATIC
@@ -547,6 +548,7 @@ add_paleo_test(tst_canvas_tools LIBS paleo_services paleo_qgis) # metadata,qgis,
 add_paleo_test(tst_domain LIBS paleo_domain)
 add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms)
+add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）
 add_paleo_test(tst_services2 LIBS paleo_qgis)               # algorithms,metadata,qgis
 add_paleo_test(tst_workflows LIBS paleo_workflow)
 add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）

@@ -25,6 +25,7 @@ class QUndoStack;
 namespace seismic {
 
 class SeismicPickPanel;
+class SeismicAttrPanel;
 
 // 剖面书签（D2.12）：命名线号 + 视口范围，QSettings 按体身份持久化
 struct SectionBookmark {
@@ -110,6 +111,15 @@ public:
     bool loadInterpretationSession(QString *error = nullptr);
     QString registerCurrentHorizonAsset(QString *error = nullptr);
     QString registerCurrentFaultAsset(QString *error = nullptr);
+
+    // ---- goal/seismic-attributes 属性计算 ----
+    SeismicAttrPanel *attrPanel() const { return m_attrPanel; }
+    // 面板意图 → 当前剖面的属性任务（进度/取消/叠加回填在此编排）
+    void computeAttributeOnCurrentSection(
+        SeismicTaskService::SeismicAttrKind kind,
+        const SeismicTaskService::SeismicAttrParams &params);
+    // 最近一次成功结果 → catalog 派生资产（登记上下文同解释登记注入）
+    QString registerCurrentAttributeAsset(QString *error = nullptr);
     void setTrackSeedPick(int pickId) { m_trackSeedPick = pickId; }
     void setTrackOptions(const SeismicTrackOptions &opt) { m_trackOptions = opt; }
     void runTracking();                                // D4.2 种子追踪
@@ -227,6 +237,15 @@ private:
     QString m_catalogVersionId;
     QString m_interpretationDir;
     void setupInterpretationUi(QWidget *parent);
+
+    // ---- goal/seismic-attributes ----
+    SeismicAttrPanel *m_attrPanel = nullptr;
+    QToolButton *m_btnAttr = nullptr;
+    QPointer<PaleoTask> m_attrTask;
+    SeismicTaskService::SeismicAttrResult m_lastAttrResult;
+    SeismicTaskService::SeismicAttrParams m_lastAttrParams;
+    QString m_lastAttrSourcePath;
+    void setupAttrPanelUi(QWidget *parent);
 };
 
 } // namespace seismic

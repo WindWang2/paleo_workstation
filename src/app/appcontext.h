@@ -111,6 +111,7 @@ class AppContext : public QObject
     SeismicMapLink *m_seismicLink = nullptr;
     WellMapLink *m_wellLink = nullptr;
     QString m_projectDir; // wells.geojson 输出根（projectOpened 时设置）
+    QString m_metaPath;   // 当前会话的 project.sqlite（切换/关闭时关连接，#80）
     QgsRectangle m_lastWellsExtent; // D6 zoom：上次井点范围（空 = 尚无井点）
     PaleoProjectStore *m_store = nullptr;
     LayerManifest *m_manifest = nullptr;

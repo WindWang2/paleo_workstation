@@ -598,6 +598,7 @@ add_paleo_test(tst_attrpanel LIBS paleo_ui)
 # ---- merged worktree waves ----
 add_paleo_test(tst_segy LIBS paleo_io)
 add_paleo_test(tst_las LIBS paleo_io)
+add_paleo_test(tst_snapshot_dedup LIBS paleo_io) # #84：快照/活对象 dedup 复核同一语义（真重哈希）
 add_paleo_test(tst_constraintstore LIBS paleo_workflow)
 add_paleo_test(tst_shapetools LIBS paleo_ui)
 add_paleo_test(tst_edittools LIBS paleo_ui)

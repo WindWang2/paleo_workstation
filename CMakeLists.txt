@@ -649,6 +649,7 @@ if(PALEO_HAVE_ORT)
   add_paleo_test(tst_modelregistry LIBS paleo_ai)
   add_paleo_test(tst_aiassistworkflow LIBS paleo_workflow)
   add_paleo_test(tst_remotepredictrouter LIBS paleo_ai)
+  add_paleo_test(tst_aiassist_perf LIBS paleo_ai paleo_sbm)
   add_paleo_test(tst_onnxworkflow LIBS paleo_workflow)
   target_compile_definitions(tst_onnxworkflow PRIVATE
     PROJECT_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
@@ -658,7 +659,7 @@ if(PALEO_HAVE_ORT)
   # QGIS/Qt 目录会被吞掉，间接依赖落到系统 Qt 上产生版本冲突——本机
   # Arch Qt6.11 + vendored Qt6.10 即此症状）。
   set_tests_properties(tst_onnx tst_onnxworkflow tst_onnxsessions tst_tileinference tst_modelregistry
-    tst_aiassistworkflow tst_remotepredictrouter PROPERTIES ENVIRONMENT_MODIFICATION
+    tst_aiassistworkflow tst_remotepredictrouter tst_aiassist_perf PROPERTIES ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()
 

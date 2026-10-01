@@ -349,6 +349,7 @@ add_library(paleo_workflow STATIC
   src/workflow/mappingworkflow.cpp                 # 厚度→约束IDW→相多边形链路
   src/workflow/mapexport.cpp                       # 层位图 PDF 导出
   src/workflow/mapversioncontroller.cpp            # 保存版本/发布编排
+  src/workflow/aiassistworkflow.cpp
   src/workflow/derivedassets.cpp                   # 派生产物 + DERIVED 版本登记
 )
 target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store paleo_io paleo_services paleo_domain paleo_ai)
@@ -645,6 +646,8 @@ if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx LIBS paleo_ai)
   add_paleo_test(tst_onnxsessions LIBS paleo_ai)
   add_paleo_test(tst_tileinference LIBS paleo_ai paleo_services)
+  add_paleo_test(tst_modelregistry LIBS paleo_ai)
+  add_paleo_test(tst_aiassistworkflow LIBS paleo_workflow)
   add_paleo_test(tst_onnxworkflow LIBS paleo_workflow)
   target_compile_definitions(tst_onnxworkflow PRIVATE
     PROJECT_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
@@ -653,8 +656,8 @@ if(PALEO_HAVE_ORT)
   # ——后者仍会替换外部注入的值（deb 闭包路 paleo-dev 注入的 vendored
   # QGIS/Qt 目录会被吞掉，间接依赖落到系统 Qt 上产生版本冲突——本机
   # Arch Qt6.11 + vendored Qt6.10 即此症状）。
-  set_tests_properties(tst_onnx tst_onnxworkflow tst_onnxsessions tst_tileinference PROPERTIES
-    ENVIRONMENT_MODIFICATION
+  set_tests_properties(tst_onnx tst_onnxworkflow tst_onnxsessions tst_tileinference tst_modelregistry
+    tst_aiassistworkflow PROPERTIES ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()
 

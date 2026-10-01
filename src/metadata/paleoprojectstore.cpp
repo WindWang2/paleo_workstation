@@ -144,22 +144,12 @@ PaleoProjectStore::WriteResult PaleoProjectStore::saveAll( const std::function<W
     {
       // 2. .qgz backup — .qgz is equally protected (a truncated zip is a
       //    corrupt project file). First save has nothing to back up.
-      if ( !m_qgzPath.isEmpty() && QFile::exists( m_qgzPath ) )
+      if ( const WriteResult backup = backupQgz(); !backup.ok )
       {
-        const QString bakPath = m_qgzPath + QStringLiteral( ".bak" );
-        const QString bakTmp = bakPath + QStringLiteral( ".tmp" );
-        QFile::remove( bakTmp );
-        if ( !QFile::copy( m_qgzPath, bakTmp ) )
-        {
-          result = { false, tr( "Failed to back up %1 to %2" ).arg( m_qgzPath, bakPath ) };
-          pending.append( { true, m_qgzPath, result.error } );
-        }
-        else if ( !paleoReplaceFile( bakTmp, bakPath ) )
-        {
-          QFile::remove( bakTmp );
-          result = { false, tr( "Failed to replace backup %1" ).arg( bakPath ) };
-          pending.append( { true, m_qgzPath, result.error } );
-        }
+        // no-op（无 .qgz 可备份）时不覆写 result——保留上游 ok 态与文案
+        // （与收口前的两份内联块语义逐字一致）。
+        result = backup;
+        pending.append( { true, m_qgzPath, result.error } );
       }
 
       // 3. .qgz atomic write (temp+rename is the callback's responsibility —
@@ -425,22 +415,12 @@ PaleoProjectStore::WriteResult PaleoProjectStore::commitAll(
     // 单元 2：.qgz 备份 + 原子写（备份语义与 saveAll 一致）。
     if ( result.ok && rank < 2 )
     {
-      if ( !m_qgzPath.isEmpty() && QFile::exists( m_qgzPath ) )
+      if ( const WriteResult backup = backupQgz(); !backup.ok )
       {
-        const QString bakPath = m_qgzPath + QStringLiteral( ".bak" );
-        const QString bakTmp = bakPath + QStringLiteral( ".tmp" );
-        QFile::remove( bakTmp );
-        if ( !QFile::copy( m_qgzPath, bakTmp ) )
-        {
-          result = { false, tr( "Failed to back up %1 to %2" ).arg( m_qgzPath, bakPath ) };
-          pending.append( { true, m_qgzPath, result.error } );
-        }
-        else if ( !paleoReplaceFile( bakTmp, bakPath ) )
-        {
-          QFile::remove( bakTmp );
-          result = { false, tr( "Failed to replace backup %1" ).arg( bakPath ) };
-          pending.append( { true, m_qgzPath, result.error } );
-        }
+        // no-op（无 .qgz 可备份）时不覆写 result——保留上游 ok 态与文案
+        // （与收口前的两份内联块语义逐字一致）。
+        result = backup;
+        pending.append( { true, m_qgzPath, result.error } );
       }
 
       if ( result.ok )
@@ -514,4 +494,21 @@ QVector<PaleoProjectStore::BusyEntry> PaleoProjectStore::busyLayers() const
   for ( auto it = m_busy.constBegin(); it != m_busy.constEnd(); ++it )
     out.append( { it.key(), it->first, it->second } );
   return out;
+}
+
+PaleoProjectStore::WriteResult PaleoProjectStore::backupQgz() const
+{
+  if ( m_qgzPath.isEmpty() || !QFile::exists( m_qgzPath ) )
+    return { true, QString() };
+  const QString bakPath = m_qgzPath + QStringLiteral( ".bak" );
+  const QString bakTmp = bakPath + QStringLiteral( ".tmp" );
+  QFile::remove( bakTmp );
+  if ( !QFile::copy( m_qgzPath, bakTmp ) )
+    return { false, tr( "Failed to back up %1 to %2" ).arg( m_qgzPath, bakPath ) };
+  if ( !paleoReplaceFile( bakTmp, bakPath ) )
+  {
+    QFile::remove( bakTmp );
+    return { false, tr( "Failed to replace backup %1" ).arg( bakPath ) };
+  }
+  return { true, QString() };
 }

@@ -128,7 +128,7 @@ int main(int argc, char *argv[])
   {
     auto *box = new QMessageBox(&window);
     box->setIcon(QMessageBox::Warning);
-    box->setWindowTitle(QStringLiteral("Paleo 上次异常退出"));
+    box->setWindowTitle(QObject::tr("Paleo 上次异常退出"));
     box->setText(notice);
     box->setModal(false);
     box->setAttribute(Qt::WA_DeleteOnClose);

@@ -1028,6 +1028,11 @@ private slots:
     QVERIFY(qAbs(db[0] - 850.0) < 1e-6 && qAbs(db[2] - 1000.0) < 1e-6);
     QVERIFY(qAbs(db[1] - 2000.0) < 1e-6 && qAbs(db[3] - 2200.0) < 1e-6);
 
+    double rereadBounds[4];
+    QVERIFY2(geoJsonBounds(out, rereadBounds, &err), qPrintable(err));
+    for (int i = 0; i < 4; ++i)
+      QCOMPARE(rereadBounds[i], db[i]);
+
     QFile rf(out);
     QVERIFY(rf.open(QIODevice::ReadOnly));
     const QJsonDocument doc = QJsonDocument::fromJson(rf.readAll());

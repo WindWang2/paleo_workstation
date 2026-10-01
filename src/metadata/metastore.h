@@ -18,6 +18,11 @@ namespace MetaStore
 {
   const int kUserVersion = 1;
 
+  // Reuses the caller's named connection, creates its directory if needed, and
+  // checks user_version even for an already-open connection. Invalid on failure.
+  QSqlDatabase openConnection(const QString &path, const QString &connectionName,
+                              QString *error);
+
   // 读 user_version；查询失败回 -1 并置 *error。
   int readUserVersion(QSqlDatabase &db, QString *error = nullptr);
 

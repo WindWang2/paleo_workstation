@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <stdexcept>
+#include <QDir>
 #include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -217,6 +218,58 @@ private slots:
     QFile cur( qgz );
     QVERIFY( cur.open( QIODevice::ReadOnly ) );
     QCOMPARE( cur.readAll(), QByteArray( "q2" ) );
+  }
+
+  void backupFailureStopsProjectWrite_data()
+  {
+    QTest::addColumn<bool>("journaled");
+    QTest::newRow("saveAll") << false;
+    QTest::newRow("commitAll") << true;
+  }
+
+  void backupFailureStopsProjectWrite()
+  {
+    QFETCH(bool, journaled);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString qgz = dir.filePath(QStringLiteral("proj.qgz"));
+    QFile original(qgz);
+    QVERIFY(original.open(QIODevice::WriteOnly));
+    QCOMPARE(original.write("original"), qint64(8));
+    original.close();
+    // A directory at the backup target deterministically rejects file replacement.
+    QVERIFY(QDir().mkpath(qgz + QStringLiteral(".bak")));
+    PaleoProjectStore store;
+    store.setProjectPaths(qgz, dir.filePath(QStringLiteral("proj.gpkg")),
+                          dir.filePath(QStringLiteral("meta.sqlite")));
+    QSignalSpy failed(&store, &PaleoProjectStore::writeFailed);
+    int commits = 0, writes = 0;
+    const auto commit = [&]() -> PaleoProjectStore::WriteResult {
+      ++commits;
+      return {true, QString()};
+    };
+    const auto write = [&]() -> PaleoProjectStore::WriteResult {
+      ++writes;
+      return {true, QString()};
+    };
+    const auto result = journaled
+        ? store.commitAll(QStringLiteral("backup-failure"), QStringLiteral("digest"), commit, write)
+        : store.saveAll(commit, write);
+    QVERIFY(!result.ok);
+    QVERIFY(result.error.contains(QStringLiteral("Failed to replace backup")));
+    QCOMPARE(commits, 1);
+    QCOMPARE(writes, 0);
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(failed.at(0).at(0).toString(), qgz);
+    QVERIFY(!QFile::exists(qgz + QStringLiteral(".bak.tmp")));
+    QVERIFY(original.open(QIODevice::ReadOnly));
+    QCOMPARE(original.readAll(), QByteArray("original"));
+    if (journaled)
+    {
+      const auto pending = store.recoverCommitJournal();
+      QCOMPARE(pending.size(), 1);
+      QCOMPARE(pending.first().stage, QStringLiteral("catalog_done"));
+    }
   }
 
   void saveAllGpkgFailureAborts()

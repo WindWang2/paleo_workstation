@@ -1,6 +1,5 @@
 #include <QtTest>
 #include <QApplication>
-#include <QDir>
 #include <QFile>
 #include <QFontDatabase>
 #include <QFontInfo>
@@ -9,6 +8,7 @@
 #include <QPainter>
 #include <QPalette>
 #include <QSettings>
+#include <QTemporaryDir>
 #include <QStyle>
 #include <QStyleFactory>
 #include <QVBoxLayout>
@@ -423,10 +423,12 @@ int main(int argc, char *argv[])
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
   QApplication app(argc, argv);
-  // QSettings 隔离（tst_ui 惯例）：主题读写测试不碰真实用户配置。
+  // 每运行一次的临时目录（对齐 tst_seismic_sectionui 惯例）：既隔离直跑时
+  // 的真实用户配置，也消除固定 /tmp 路径跨运行/跨用户的陈旧状态向量
+  // （ctest 路径另有 add_paleo_test 的 XDG/HOME 沙箱兜底）。
+  static QTemporaryDir settingsDir;
   QSettings::setDefaultFormat(QSettings::IniFormat);
-  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
-                     QDir::temp().filePath(QStringLiteral("paleo_tst_uxtheme_settings")));
+  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
   TestUxTheme tc;
   return QTest::qExec(&tc, argc, argv);
 }

@@ -1,6 +1,7 @@
 // 层：视图
 #include "layerpropertiesdialog.h"
 
+#include <QCoreApplication>
 #include <QComboBox>
 #include <QDialog>
 #include <QDomDocument>
@@ -409,7 +410,8 @@ class PaleoPageFactory : public QgsMapLayerConfigWidgetFactory
     explicit PaleoPageFactory(LayerPropertiesDialog *host, const QString &layerId)
         : m_host(host), m_layerId(layerId)
     {
-        setTitle(QStringLiteral("Paleo 业务")); // 选项列表页签名（非 tr：工厂非 QObject 上下文）
+        // 选项列表页签名；工厂非 QObject，无 tr() 上下文——显式 context 走 translate。
+        setTitle(QCoreApplication::translate("PaleoPageFactory", "Paleo 业务"));
     }
 
     bool supportLayerPropertiesDialog() const override { return true; }

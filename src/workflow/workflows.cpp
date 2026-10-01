@@ -1217,30 +1217,10 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     return false;
   }
 
-  // 色带样式落盘 <projectDir>/styles/factor_<factorId>.qml（best-effort：样式
-  // 写失败不拦栅格成果——styleRef 照常声明，样式面板可后补）。
-  if ( !registrar.projectDir().isEmpty() )
-  {
-    QString styleErr; // 降级不打断生成链
-    FactorStyleWriter::writeStyleQml( factorId, outPath,
-                                      QDir( registrar.projectDir() ).filePath( QStringLiteral( "styles" ) ),
-                                      &styleErr );
-  }
-
-  LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "factor.%1.%2" ).arg( horizon, factorId );
-  decl.horizon = horizon;
-  decl.type = QStringLiteral( "raster" );
-  decl.source = outPath;
-  decl.group = QStringLiteral( "04_SingleFactor" );
-  decl.styleRef = def.styleRef;
-  decl.title = tr( "%1·%2" ).arg( def.title, horizon );
-  if ( !layers->declare( decl, error ) )
-    return false;
-
-  stampLayerAssetLink( layers, decl.layerId, st.assetId ); // C4：已实例化层补盖资产关联
-  emit factorGenerated( horizon, factorId, decl.layerId );
-  return true;
+  // 色带样式落盘 <projectDir>/styles/factor_<factorId>.qml（best-effort）与
+  // 声明/盖章/通知收尾见 declareFactorResult（三引擎共用）。
+  return declareFactorResult( layers, horizon, factorId, def, outPath,
+                              registrar.projectDir(), st.assetId, error );
 }
 
 bool ConstraintWorkflow::generateIsopachFactor( const QString &horizon, const QString &factorId,
@@ -1334,28 +1314,8 @@ bool ConstraintWorkflow::generateIsopachFactor( const QString &horizon, const QS
     return false;
   }
 
-  if ( !registrar.projectDir().isEmpty() )
-  {
-    QString styleErr; // 降级不打断生成链
-    FactorStyleWriter::writeStyleQml( factorId, outPath,
-                                      QDir( registrar.projectDir() ).filePath( QStringLiteral( "styles" ) ),
-                                      &styleErr );
-  }
-
-  LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "factor.%1.%2" ).arg( horizon, factorId );
-  decl.horizon = horizon;
-  decl.type = QStringLiteral( "raster" );
-  decl.source = outPath;
-  decl.group = QStringLiteral( "04_SingleFactor" );
-  decl.styleRef = def.styleRef;
-  decl.title = tr( "%1·%2" ).arg( def.title, horizon );
-  if ( !layers->declare( decl, error ) )
-    return false;
-
-  stampLayerAssetLink( layers, decl.layerId, st.assetId ); // C4：已实例化层补盖资产关联
-  emit factorGenerated( horizon, factorId, decl.layerId );
-  return true;
+  return declareFactorResult( layers, horizon, factorId, def, outPath,
+                              registrar.projectDir(), st.assetId, error );
 }
 
 bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const QString &factorId,
@@ -1477,12 +1437,25 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
     return false;
   }
 
-  // 色带样式落盘（welldist 绿→灰预设已备；best-effort，同 IDW 路径）。
-  if ( !registrar.projectDir().isEmpty() )
+  // 色带样式落盘（welldist 绿→灰预设已备；best-effort）与收尾同 IDW 路径
+  // （declareFactorResult，三引擎共用）。
+  return declareFactorResult( layers, horizon, factorId, def, outPath,
+                              registrar.projectDir(), st.assetId, error );
+}
+// 三个单因素引擎（IDW / paleo_isopach / paleo_distance_transform）共用同一份
+// 收尾：样式 best-effort 落盘（写失败不拦栅格成果）+ factor.<horizon>.<factorId>
+// 栅格声明 + C4 资产关联补盖 + factorGenerated。声明失败不发成功信号。
+bool ConstraintWorkflow::declareFactorResult( QgisLayerService *layers,
+                                              const QString &horizon, const QString &factorId,
+                                              const SingleFactorDefinition &def,
+                                              const QString &outPath, const QString &projectDir,
+                                              const QString &assetId, QString *error )
+{
+  if ( !projectDir.isEmpty() )
   {
     QString styleErr; // 降级不打断生成链
     FactorStyleWriter::writeStyleQml( factorId, outPath,
-                                      QDir( registrar.projectDir() ).filePath( QStringLiteral( "styles" ) ),
+                                      QDir( projectDir ).filePath( QStringLiteral( "styles" ) ),
                                       &styleErr );
   }
 
@@ -1497,7 +1470,7 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
   if ( !layers->declare( decl, error ) )
     return false;
 
-  stampLayerAssetLink( layers, decl.layerId, st.assetId ); // C4：已实例化层补盖资产关联
+  stampLayerAssetLink( layers, decl.layerId, assetId ); // C4：已实例化层补盖资产关联
   emit factorGenerated( horizon, factorId, decl.layerId );
   return true;
 }

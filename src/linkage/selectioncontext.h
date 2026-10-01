@@ -30,6 +30,8 @@ class SelectionContext : public QObject
     void activeHorizonChanged(const QString &horizon);
 
   private:
+    void settlePending(const char *caller);
+
     QStringList m_ids;
     QString m_origin, m_horizon;
     int m_broadcastDepth = 0;

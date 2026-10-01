@@ -590,20 +590,33 @@ QVector<SegyTrace> SegyReader::readByIndexList(const QVector<int> &idxs,
     return out;
   out.reserve(idxs.size());
   int n = 0;
+  int failed = 0; // #42.1：丢道必须留痕——readInline/readCrossline 以行数差
+                  // 报「failed to decode N of M」，但 traces()/未来调用方拿到
+                  // 的是部分数据当成功。计数 + qWarning 是诚实降级的最低面
+                  //（取消路径除外——取消不算失败）。
+  bool cancelled = false;
   for (int i : idxs)
   {
     if (opts && (n % 64) == 0)
     {
       if (opts->cancel && opts->cancel())
-        return out; // 调用方把空/部分结果按取消处理
+      {
+        cancelled = true;
+        break; // 调用方把空/部分结果按取消处理
+      }
       if (opts->progress)
         opts->progress(n, idxs.size());
     }
     SegyTrace t;
     if (decodeTrace(file, m_index.at(i), &t))
       out.append(t);
+    else
+      ++failed;
     ++n;
   }
+  if (failed > 0 && !cancelled)
+    qWarning("segy: dropped %d of %d traces in %s (decode failed; partial result returned)",
+             failed, int(idxs.size()), qPrintable(m_path));
   return out;
 }
 

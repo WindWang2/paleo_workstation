@@ -130,6 +130,10 @@ class LiveCatalogSource : public IngestCatalogSource
 // COW 快照：catalog 线程上 fromCatalog() 拷出后任意线程只读。
 // versionBySha256 会重哈希版本文件（文件 IO 在调用线程执行——worker 上
 // 跑正合适，这正是要搬出 GUI 的重活之一）。
+// WP2：fromCatalog 一次性建四张命中索引（sha(lower)→行集、实体 id→行、
+// 规范化井名→id 列表、实体 id→链接行集）——buildIngestPlan 逐项调
+// versionBySha256/entityById/wellsMatchingName/linksForEntity，旧实现每次
+// 线性扫快照表，N 文件目录的 plan 构建即 O(N²)。
 class CatalogReadSnapshot : public IngestCatalogSource
 {
   public:
@@ -148,6 +152,10 @@ class CatalogReadSnapshot : public IngestCatalogSource
     QVector<CatalogEntity> m_entities;
     QVector<CatalogVersion> m_versions;
     QVector<EntityAssetLink> m_links;
+    QHash<QString, QVector<int>> m_rowsBySha;       // sha(lower) → 版本行集（升序）
+    QHash<QString, int> m_rowByEntityId;            // 实体 id → 行
+    QHash<QString, QStringList> m_wellIdsByNormName; // 规范化井名 → 井 id（表序）
+    QHash<QString, QVector<int>> m_rowsByEntityId;  // 实体 id → 链接行集（升序）
 };
 
 // 纯函数：root 可为目录（递归枚举）或单文件。catalog 只读面由调用方给

@@ -829,7 +829,6 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
   std::mutex progressMutex;
   QThreadPool pool;
   pool.setMaxThreadCount(maxThreads);
-  std::mutex progressMutex;
   for (int s = 0; s < shardCount; ++s)
   {
     Shard &sh = shards[static_cast<size_t>(s)];

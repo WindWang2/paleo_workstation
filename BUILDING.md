@@ -101,6 +101,7 @@ QGIS 4.2.x · Qt ≥6.6 · GDAL · PROJ · GEOS · QCA-qt6 · QtKeychain-qt6 · 
 | `PALEO_ENABLE_ASAN=ON` | ASAN 实验档；测试注入 `ASAN_OPTIONS=detect_leaks=0`（QGIS/Qt 设计内"泄漏"面，suppressions 见 `tools/lsan-suppressions.txt`） |
 | `PALEO_ENABLE_UBSAN=ON` | UBSAN 巡检档（可恢复，打印栈） |
 | `PALEO_UNITY_BUILD=ON` | 实验 unity build：逐产品 target、vendor 三家（sbm/segyio/saribbon）显式排除；有跨 TU 静态符号合批风险，仅供本地加速实验 |
+| `PALEO_ENABLE_LTO=ON` | 链接期优化档（`-flto=8 -ffat-lto-objects`，默认 OFF；配置期探测工具链支持）。2026-10-01 交错三轮实测：LAS 冷解析 -40.7%、SEG-Y 索引命中 -45.2%、catalog 灌库/查询 -18~25%，无一致回归；代价=全量链接 ~2.3×。证据与 -O3 否决记录见 `docs/perf/BUILD_OPT.md` |
 | clang-tidy 门禁 | `python3 tools/check_tidy.py`——只扫相对 merge-base 改动的 src/ TU；配置 `tools/.clang-tidy`；CI 钉 `clang-tidy-20` |
 
 PCH 评估结论（T6，定性）：模块静态库已把 Qt/QGIS 头的重压摊到 10 个

@@ -149,3 +149,42 @@ HEAD 12.7s）。回归门：`ratios.json` 新增 `catalog_build_5k_vs_1k_max=8.0
 HOME）根治；建议后续清掉四个测试 main 里残留的 `setPath` 固定 /tmp 重定向
 （tst_ui/tst_uxtheme/tst_procdialog/tst_seismic_sectionui——沙箱已覆盖其
 用途，残留是跨次运行的陈旧状态面）。
+
+## 7. goal/perf-systematize 增量（2026-10-01）
+
+### 7.1 启动分段（tools/measure_startup.sh，9 轮中位；有并行负载，比率稳）
+
+| 段 | 中位 ms | 份额（startup_ratios.json 门基线，×2.5 容差） |
+|---|---|---|
+| process→main（loader/重定位） | 1390 | 0.581（exec→首屏最大单段） |
+| pre_qt（崩溃处理器+参数） | 0.5 | —— |
+| qgis_app_init | 113.5 | 0.088 |
+| 服务装配 | 74.9 | 0.067 |
+| 主题 | 4.3 | —— |
+| 主窗构建 | 483.8 | —— |
+| show→首帧 paint | 379.5 | 0.40 |
+| main→首帧合计 | 1077.6 | —— |
+
+复测：`tools/measure_startup.sh ./build/paleo 9 docs/perf/baselines/startup_ratios.json`
+（份额直接可入档）。门测试：`ctest -R tst_startup_trace`（含注入 1500ms
+劣化必红的判别力证明）。
+
+### 7.2 真工区内存（tst_mem_budget，966MiB 体）
+
+- open + inline/time/crossline 三切片后 RSS **151 MiB（0.16×体）**——直读
+  后端不整载；门 0.5×体=483MiB。
+- open→2 切片→释放 ×6 轮净增 **12 KiB**；门 max(32MiB, 0.5%×体)。
+- 复现：`PALEO_REAL_PROJECT_AREA=<project_area> ctest -R tst_mem_budget`。
+
+### 7.3 真工区复测锚（tst_seismic_realarea，页缓存温态）
+
+open 106ms（冷盘口径见 §8 前值 271ms）/ inline 43→35ms / time 切片
+468→84ms / 暖开 90ms / voxel64 46ms / 任意剖面 65ms / 3D 同步帧率
+9231fps（缓存热态上界）。
+
+### 7.4 墙钟断言与构建实验
+
+- 断言处置比例与逐条豁免：`docs/perf/ASSERTIONS.md`（比率 13% / 先例
+  比率 23% / 豁免 64%）。
+- -O3 否决 / LTO 采纳（`PALEO_ENABLE_LTO`，默认 OFF）/ 启动份额与
+  codegen 无关：`docs/perf/BUILD_OPT.md`。

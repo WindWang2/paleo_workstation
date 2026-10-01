@@ -35,6 +35,27 @@ endif()
 # UBSAN 保持可恢复（只打印栈），做巡检不做门禁。
 option(PALEO_ENABLE_ASAN "AddressSanitizer 实验档（测试默认关 leak 检测）" OFF)
 option(PALEO_ENABLE_UBSAN "UndefinedBehaviorSanitizer 巡检档（可恢复）" OFF)
+# ---- goal/perf-systematize 簇4：LTO 实验档（默认 OFF）----
+# 依据（2026-10-01 本机交错三轮实测，docs/perf/BUILD_OPT.md）：LAS 冷解析
+# -40.7%、SEG-Y 索引命中 -45.2%、catalog 灌库 1k -24.9%/查询 -18.2%，
+# 无一致回归；代价 = 全量链接时间 ~2.3×（增量影响小）。-O3 已实验否决
+# （catalog_open_10k +35% 两轮一致回归）不入档为选项。
+option(PALEO_ENABLE_LTO "链接期优化档（-flto=8；热路径解析/索引收益 20-45%，默认 OFF）" OFF)
+if(PALEO_ENABLE_LTO)
+  if(MSVC)
+    message(FATAL_ERROR "PALEO_ENABLE_LTO 仅支持 GNU/Clang（MSVC 走 /GL /LTCG 手动档）")
+  endif()
+  include(CheckCXXSourceCompiles)
+  set(_lto_saved_cxx "${CMAKE_REQUIRED_FLAGS}")
+  set(CMAKE_REQUIRED_FLAGS "-flto=8")
+  check_cxx_source_compiles("int main(){return 0;}" PALEO_LTO_LINK_OK)
+  set(CMAKE_REQUIRED_FLAGS "${_lto_saved_cxx}")
+  if(NOT PALEO_LTO_LINK_OK)
+    message(FATAL_ERROR "PALEO_ENABLE_LTO：工具链不支持 -flto=8（探测失败）")
+  endif()
+  add_compile_options(-flto=8 -ffat-lto-objects)
+  add_link_options(-flto=8)
+endif()
 # ---- 实验性 unity build（devex T6）：逐 target opt-in，默认 OFF ----
 # paleo_sbm（-fno-char8_t TU 语义）/paleo_segyio（纯 C）/paleo_saribbon（vendor）
 # 显式排除；AUTOMOC 与 unity 的组合按 CMake 语义兼容，但跨 TU 静态同名符号

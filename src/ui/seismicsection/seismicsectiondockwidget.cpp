@@ -810,7 +810,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     m_btnAttr->setObjectName(QStringLiteral("btnAttrPanel"));
     m_btnAttr->setCheckable(true);
     m_btnAttr->setToolTip(tr("属性计算面板：包络/瞬时/相干等属性计算并叠加显示"));
-    m_btnAttr->setStyleSheet(btnStyle);
+    themedButtonStyle(m_btnAttr);
     lay->addWidget(m_btnAttr);
     connect(m_btnAttr, &QToolButton::toggled, this, [this](bool on) {
         if (m_attrPanel)

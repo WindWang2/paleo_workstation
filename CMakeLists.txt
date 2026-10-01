@@ -222,7 +222,7 @@ if(ORT_INCLUDE AND ORT_LIB AND (NOT WIN32 OR ORT_DLL))
   endif()
   add_library(paleo_ai STATIC src/ai/onnxpredictionservice.cpp src/ai/onnxfixture.cpp
     src/ai/tileinference.cpp src/ai/horizonsuggest.cpp src/ai/modelregistry.cpp
-    src/ai/remotepredictionservice.cpp)
+    src/ai/remotepredictionservice.cpp src/ai/remotepredictrouter.cpp)
   target_link_libraries(paleo_ai PUBLIC paleo_deps ort_vendored)
   target_compile_definitions(paleo_ai PUBLIC PALEO_HAVE_ORT=1)
   target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
@@ -648,6 +648,7 @@ if(PALEO_HAVE_ORT)
   add_paleo_test(tst_tileinference LIBS paleo_ai paleo_services)
   add_paleo_test(tst_modelregistry LIBS paleo_ai)
   add_paleo_test(tst_aiassistworkflow LIBS paleo_workflow)
+  add_paleo_test(tst_remotepredictrouter LIBS paleo_ai)
   add_paleo_test(tst_onnxworkflow LIBS paleo_workflow)
   target_compile_definitions(tst_onnxworkflow PRIVATE
     PROJECT_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
@@ -657,7 +658,7 @@ if(PALEO_HAVE_ORT)
   # QGIS/Qt 目录会被吞掉，间接依赖落到系统 Qt 上产生版本冲突——本机
   # Arch Qt6.11 + vendored Qt6.10 即此症状）。
   set_tests_properties(tst_onnx tst_onnxworkflow tst_onnxsessions tst_tileinference tst_modelregistry
-    tst_aiassistworkflow PROPERTIES ENVIRONMENT_MODIFICATION
+    tst_aiassistworkflow tst_remotepredictrouter PROPERTIES ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()
 

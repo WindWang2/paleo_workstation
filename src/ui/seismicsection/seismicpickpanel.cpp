@@ -1,6 +1,8 @@
 // 层：视图
 #include "seismicpickpanel.h"
 
+#include "../paleotheme.h"
+
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
@@ -21,18 +23,23 @@
 namespace seismic {
 
 namespace {
-const char *kBtnStyle =
-    "QToolButton { background: transparent; border: 1px solid #DFE5EC; border-radius: 4px;"
-    " padding: 2px 6px; font-size: 8.5pt; color: #24303E; }"
-    "QToolButton:hover { background: #EDF1F5; border-color: #1B73D0; }"
-    "QToolButton:disabled { color: #9AA7B4; }";
-
+// goal/ui-experience-polish：按钮 chrome 收敛 token（原 kBtnStyle 字面量），
+// 活体注册随主题重算。
 QToolButton *mkBtn(const QString &text, const QString &tooltip)
 {
     auto *btn = new QToolButton();
     btn->setText(text);
     btn->setToolTip(tooltip);
-    btn->setStyleSheet(QLatin1String(kBtnStyle));
+    PaleoTheme::applyThemedStyleSheet(btn, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral(
+            "QToolButton { background: transparent; border: 1px solid %1; border-radius: 4px;"
+            " padding: 2px 6px; font-size: 8.5pt; color: %2; }"
+            "QToolButton:hover { background: %3; border-color: %4; }"
+            "QToolButton:disabled { color: %5; }")
+            .arg(t.border.name(), t.text.name(), t.surfaceAlt.name(),
+                 t.primary.name(), t.textDisabled.name());
+    });
     return btn;
 }
 } // namespace

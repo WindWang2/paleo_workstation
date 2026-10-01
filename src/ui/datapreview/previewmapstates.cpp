@@ -2,6 +2,7 @@
 #include "previewmapstates.h"
 
 #include "../../catalog/datacatalog.h"
+#include "../paleotheme.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -21,7 +22,8 @@ namespace
     QFont f = l->font();
     f.setPointSize( 8 );
     l->setFont( f );
-    l->setStyleSheet( QStringLiteral( "color: #5D6E80;" ) );
+    PaleoTheme::applyThemedStyleSheet(
+        l, [] { return PaleoTheme::mutedCaptionStyleSheet(); } );
     l->setWordWrap( true );
     return l;
   }
@@ -43,7 +45,10 @@ QWidget *buildErrorPage( const QString &title, const QString &detail, QWidget *p
   titleLbl->setObjectName( QStringLiteral( "stateText" ) );
   titleLbl->setAlignment( Qt::AlignCenter );
   titleLbl->setWordWrap( true );
-  titleLbl->setStyleSheet( QStringLiteral( "color: #E53935; font-weight: 600;" ) );
+  PaleoTheme::applyThemedStyleSheet( titleLbl, [] {
+    return QStringLiteral( "color: %1; font-weight: 600;" )
+        .arg( PaleoTheme::tokens().error.name() );
+  } );
   lay->addWidget( titleLbl );
 
   if ( !detail.isEmpty() )
@@ -52,7 +57,8 @@ QWidget *buildErrorPage( const QString &title, const QString &detail, QWidget *p
     detailLbl->setObjectName( QStringLiteral( "previewErrorDetail" ) );
     detailLbl->setAlignment( Qt::AlignCenter );
     detailLbl->setWordWrap( true );
-    detailLbl->setStyleSheet( QStringLiteral( "color: #5D6E80;" ) );
+    PaleoTheme::applyThemedStyleSheet(
+        detailLbl, [] { return PaleoTheme::mutedCaptionStyleSheet(); } );
     lay->addWidget( detailLbl );
   }
   if ( !retryText.isEmpty() )
@@ -71,7 +77,11 @@ QWidget *buildErrorPage( const QString &title, const QString &detail, QWidget *p
   pageLay->setContentsMargins( 0, 0, 0, 0 );
   auto *frame = new QFrame( page );
   frame->setFrameShape( QFrame::StyledPanel );
-  frame->setStyleSheet( QStringLiteral( "QFrame { background: #FDEBEB; border: 1px solid #E53935; border-radius: 8px; }" ) );
+  PaleoTheme::applyThemedStyleSheet( frame, [] {
+    return QStringLiteral( "QFrame { background: %1; border: 1px solid %2;"
+                           " border-radius: 8px; }" )
+        .arg( PaleoTheme::tokens().errorBg.name(), PaleoTheme::tokens().error.name() );
+  } );
   auto *frameLay = new QVBoxLayout( frame );
   frameLay->setContentsMargins( 24, 24, 24, 24 );
   frameLay->addWidget( box );
@@ -93,7 +103,8 @@ QWidget *buildUnsupportedPage( const QString &typeName, QWidget *parent )
                             page );
   title->setObjectName( QStringLiteral( "stateText" ) );
   title->setAlignment( Qt::AlignCenter );
-  title->setStyleSheet( QStringLiteral( "color: #24303E; font-weight: 600;" ) );
+  PaleoTheme::applyThemedStyleSheet(
+      title, [] { return PaleoTheme::sectionTitleStyleSheet(); } );
   lay->addWidget( title );
 
   const QStringList supported = supportedPreviewTypes();
@@ -101,7 +112,8 @@ QWidget *buildUnsupportedPage( const QString &typeName, QWidget *parent )
   for ( const QString &s : supported )
   {
     auto *row = new QLabel( QStringLiteral( "· %1" ).arg( s ), page );
-    row->setStyleSheet( QStringLiteral( "color: #5D6E80;" ) );
+    PaleoTheme::applyThemedStyleSheet(
+        row, [] { return PaleoTheme::mutedCaptionStyleSheet(); } );
     lay->addWidget( row, 0, Qt::AlignHCenter );
   }
   lay->addStretch( 1 );
@@ -151,12 +163,17 @@ QWidget *buildBigRasterHintBar( const QString &hint, QWidget *parent )
 {
   auto *bar = new QWidget( parent );
   bar->setObjectName( QStringLiteral( "previewBigRasterHint" ) );
-  bar->setStyleSheet( QStringLiteral(
-      "background: #FFF4E0; border: 1px solid #F29900; border-radius: 4px;" ) );
+  PaleoTheme::applyThemedStyleSheet( bar, [] {
+    return QStringLiteral( "background: %1; border: 1px solid %2;"
+                           " border-radius: 4px;" )
+        .arg( PaleoTheme::tokens().warningBg.name(),
+              PaleoTheme::tokens().warning.name() );
+  } );
   auto *lay = new QHBoxLayout( bar );
   lay->setContentsMargins( 8, 4, 8, 4 );
   auto *lbl = new QLabel( hint, bar );
-  lbl->setStyleSheet( QStringLiteral( "color: #5D6E80;" ) );
+  PaleoTheme::applyThemedStyleSheet(
+      lbl, [] { return PaleoTheme::mutedCaptionStyleSheet(); } );
   lbl->setWordWrap( true );
   lay->addWidget( lbl );
   return bar;

@@ -45,7 +45,8 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
   lay->setSpacing( 4 );
 
   auto *title = new QLabel( QObject::tr( "图层" ), this );
-  title->setStyleSheet( QStringLiteral( "font-weight: 600; color: #24303E;" ) );
+  PaleoTheme::applyThemedStyleSheet(
+      title, [] { return PaleoTheme::sectionTitleStyleSheet(); } );
   lay->addWidget( title );
 
   m_list = new QListWidget( this );
@@ -89,7 +90,8 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
 
   auto *emptyPage = new QLabel( QObject::tr( "选择一个图层查看快调" ), m_quickPanel );
   emptyPage->setAlignment( Qt::AlignCenter );
-  emptyPage->setStyleSheet( QStringLiteral( "color: #5D6E80;" ) );
+  PaleoTheme::applyThemedStyleSheet(
+      emptyPage, [] { return PaleoTheme::mutedCaptionStyleSheet(); } );
   m_quickPanel->addWidget( emptyPage );
 
   // 页 1：栅格快调（D4.3 色带/拉伸/反转 + 手动值域）
@@ -230,7 +232,8 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
   auto *legendLay = new QVBoxLayout( m_legendBox );
   legendLay->setContentsMargins( 0, 6, 0, 0 );
   auto *legendTitle = new QLabel( QObject::tr( "图例" ), m_legendBox );
-  legendTitle->setStyleSheet( QStringLiteral( "font-weight: 600; color: #24303E;" ) );
+  PaleoTheme::applyThemedStyleSheet(
+      legendTitle, [] { return PaleoTheme::sectionTitleStyleSheet(); } );
   legendLay->addWidget( legendTitle );
   m_legendContent = new QLabel( m_legendBox );
   m_legendContent->setObjectName( QStringLiteral( "previewLegendContent" ) );

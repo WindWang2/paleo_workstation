@@ -118,6 +118,36 @@ namespace PaleoTheme
   QString shellStyleSheet(Theme theme = currentTheme());
   // 次级说明文字统一出口（“color: text-muted”），替代各面板字面量。
   QString mutedCaptionStyleSheet(Theme theme = currentTheme());
+  // 区块小标题统一出口（font-weight 600 + text 色）——datapreview 各页
+  // 原各自字面量，goal/ui-experience-polish 收敛。
+  QString sectionTitleStyleSheet(Theme theme = currentTheme());
+
+  // ---- 界面密度（goal/ui-experience-polish 新基建）----
+  // DESIGN.md「密度对齐专业 GIS 工具」：Comfort = 现行规格；Compact =
+  // 树/列表 item padding 收紧一档 + 表缺省行高收紧。持久化 ui/density
+  //（缺省 comfort，写只在用户显式切换时——同 theme 口径）。
+  enum class Density { Comfort, Compact };
+  Density currentDensity();
+  Density densityFromSettings();
+  void writeDensityToSettings(Density density);
+  // 密度切换：落 current + 活体样式全量重算（shell QSS 里的条目 padding
+  // 档随之变化）。表行高不走 QSS——由 applyDensityToViewTree 落。
+  void applyDensity(Density density);
+  // 密度度量（QSS/QHeaderView 用）：树/列表 item 纵向 padding、表缺省行高。
+  int itemViewPaddingY(Density density);
+  int tableRowHeight(Density density);
+  // root 下全部 QTableView/QTableWidget 的缺省行高按密度落一档；树/列表
+  // 行高由 itemViewStyleSheet 的 padding 承担。主窗装配后与切密度时各调
+  // 一次（后建的表不自动跟，reapplyThemeChrome 会补扫）。
+  void applyDensityToViewTree(QWidget *root, Density density = currentDensity());
+
+  // 条目视图统一 QSS（三类列表控件选中态/hover 一致化的唯一出口）：
+  // 选中 = primary 底 + onPrimary 字（palette 同款，QGIS 惯例——收敛各
+  // 面板自写 ::item:selected）；hover = surfaceAltRaised；斑马纹底 =
+  // surfaceAltRaised token；树/列表 item 纵向 padding 随密度。随主题与
+  // 密度活体重算（拼进 shellStyleSheet）。
+  QString itemViewStyleSheet(Theme theme = currentTheme(),
+                             Density density = currentDensity());
 
   // 活体主题样式：builder 现在跑一次 setStyleSheet；之后每次换主题
   // （ApplicationPaletteChange）自动重算重设。builder 里按

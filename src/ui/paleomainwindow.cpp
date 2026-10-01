@@ -283,6 +283,9 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
   // 设置时的缺省；窗口构造按 QSettings 显式钉一次（读取无副作用——写只
   // 发生在用户切换主题时，测试路径不产生新写者）。
   PaleoTheme::applyTheme(PaleoTheme::themeFromSettings());
+  // 密度同口径：构造按 QSettings 钉一次（缺省 comfort；表行高兜底扫在
+  // reapplyThemeChrome，覆盖 buildShell 后建的全部表）。
+  PaleoTheme::applyDensity(PaleoTheme::densityFromSettings());
   buildShell();
 
   // ---- m2(D): 页面图层档案（m1 接缝消费）----
@@ -807,6 +810,21 @@ void PaleoMainWindow::reapplyThemeChrome()
   const QString shellQss =
       PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet();
   PaleoRibbon::applyTheme(this, shellQss);
+  // 表行高不随 QSS 走——补扫一遍（新建的表也在此统一落档）。
+  PaleoTheme::applyDensityToViewTree(this);
+}
+
+void PaleoMainWindow::setCompactDensityEnabled(bool compact)
+{
+  // 唯一密度写者：只有用户显式切换（面板菜单「紧凑密度」勾选）才写盘。
+  PaleoTheme::writeDensityToSettings(
+      compact ? PaleoTheme::Density::Compact : PaleoTheme::Density::Comfort);
+  PaleoTheme::applyDensity(
+      compact ? PaleoTheme::Density::Compact : PaleoTheme::Density::Comfort);
+  reapplyThemeChrome();
+  if (statusBar())
+    statusBar()->showMessage(compact ? tr("已切换到紧凑密度") : tr("已切换到宽松密度"),
+                             4000);
 }
 
 void PaleoMainWindow::setDarkThemeEnabled(bool dark)
@@ -948,6 +966,12 @@ void PaleoMainWindow::showPanelMenu(const QPoint &globalPos)
     dark->setCheckable(true);
     dark->setChecked(PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark);
     connect(dark, &QAction::toggled, this, &PaleoMainWindow::setDarkThemeEnabled);
+    QAction *compact = menu->addAction(tr("紧凑密度"));
+    compact->setObjectName(QStringLiteral("densityToggleAction"));
+    compact->setCheckable(true);
+    compact->setChecked(PaleoTheme::currentDensity() == PaleoTheme::Density::Compact);
+    connect(compact, &QAction::toggled, this,
+            &PaleoMainWindow::setCompactDensityEnabled);
     menu->popup(globalPos);
   }
 }

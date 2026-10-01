@@ -305,7 +305,8 @@ PreviewProfilePanel::PreviewProfilePanel( QWidget *parent )
   barLay->setSpacing( 6 );
 
   auto *title = new QLabel( QObject::tr( "层位剖面" ), bar );
-  title->setStyleSheet( QStringLiteral( "font-weight: 600; color: #24303E;" ) );
+  PaleoTheme::applyThemedStyleSheet(
+      title, [] { return PaleoTheme::sectionTitleStyleSheet(); } );
   barLay->addWidget( title );
 
   auto *clearBtn = new QToolButton( bar );
@@ -327,7 +328,9 @@ PreviewProfilePanel::PreviewProfilePanel( QWidget *parent )
   barLay->addWidget( pngBtn );
 
   m_legend = new QLabel( bar );
-  m_legend->setStyleSheet( QStringLiteral( "color: #5D6E80; font-size: 8pt;" ) );
+  PaleoTheme::applyThemedStyleSheet( m_legend, [] {
+    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral( " font-size: 8pt;" );
+  } );
   barLay->addWidget( m_legend, 1 );
   lay->addWidget( bar );
 

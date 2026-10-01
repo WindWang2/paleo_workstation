@@ -77,14 +77,14 @@ void CurveConfigDialog::setupUi()
   m_tree->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
   m_tree->header()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
   m_tree->header()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
-  // 选中范式走 token：surface-alt-raised 底 + 正文色（不占用 primary 交互蓝）
+  // 选中态/hover 由壳级 PaleoTheme::itemViewStyleSheet 统一（primary 底 +
+  // onPrimary 字）——不再自写 ::item:selected（原 surfaceAltRaised 变体与
+  // 全局三分叉，goal/ui-experience-polish 收敛）。
   PaleoTheme::applyThemedStyleSheet(m_tree, [] {
     const auto &t = PaleoTheme::tokens();
     return QStringLiteral(
-               "QTreeWidget { border: 1px solid %1; border-radius: 4px; background: %2; font-size: 9pt; }"
-               "QTreeWidget::item { padding: 4px 0; }"
-               "QTreeWidget::item:selected { background-color: %3; color: %4; }")
-        .arg(t.border.name(), t.surface.name(), t.surfaceAltRaised.name(), t.text.name());
+               "QTreeWidget { border: 1px solid %1; border-radius: 4px; background: %2; font-size: 9pt; }")
+        .arg(t.border.name(), t.surface.name());
   });
   midLay->addWidget(m_tree, 1);
 

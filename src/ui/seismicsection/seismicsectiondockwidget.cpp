@@ -436,20 +436,27 @@ void SeismicSectionDockWidget::setupUi() {
 
     connect(m_btnExport, &QToolButton::clicked, this, &SeismicSectionDockWidget::onExportSnapshot);
 
-    // D2.13 复制/打印按钮（追加在主工具栏尾部）
-    const QString btnStyle = QStringLiteral(
-        "QToolButton { background: transparent; border: 1px solid #DFE5EC; border-radius: 4px; padding: 2px 6px; font-size: 8.5pt; color: #24303E; }"
-        "QToolButton:hover { background: #EDF1F5; border-color: #1B73D0; }"
-        "QToolButton:pressed { background: #E8F0FE; }"
-    );
+    // D2.13 复制/打印按钮（追加在主工具栏尾部）。chrome 走 token 活体注册；
+    // 原 #E8F0FE 蓝染按下底无 token——换 surfaceAltRaised + primary 描边范式
+    //（同 PaleoTheme::ribbonStyleSheet checked 档）。
+    const auto themedBtnStyle = [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral(
+            "QToolButton { background: transparent; border: 1px solid %1; border-radius: 4px;"
+            " padding: 2px 6px; font-size: 8.5pt; color: %2; }"
+            "QToolButton:hover { background: %3; border-color: %4; }"
+            "QToolButton:pressed { background: %5; border-color: %4; }")
+            .arg(t.border.name(), t.text.name(), t.surfaceAlt.name(),
+                 t.primary.name(), t.surfaceAltRaised.name());
+    };
     m_btnCopy = new QToolButton(toolbar);
     m_btnCopy->setText(tr("复制"));
     m_btnCopy->setToolTip(tr("复制剖面图到剪贴板（含坐标轴与色标）"));
-    m_btnCopy->setStyleSheet(btnStyle);
+    PaleoTheme::applyThemedStyleSheet(m_btnCopy, themedBtnStyle);
     toolLay->addWidget(m_btnCopy);
     m_btnPrint = new QToolButton(toolbar);
     m_btnPrint->setText(tr("打印"));
-    m_btnPrint->setStyleSheet(btnStyle);
+    PaleoTheme::applyThemedStyleSheet(m_btnPrint, themedBtnStyle);
     toolLay->addWidget(m_btnPrint);
     connect(m_btnCopy, &QToolButton::clicked, this, &SeismicSectionDockWidget::onCopyImage);
     connect(m_btnPrint, &QToolButton::clicked, this, &SeismicSectionDockWidget::onPrintImage);
@@ -647,38 +654,72 @@ private:
 };
 
 } // namespace
+
+namespace {
+// 显示条控件样式的 token 出口（goal/ui-experience-polish：原 btnStyle/
+// lblStyle 字面量收敛，活体注册随主题重算）。#E8F0FE 蓝染选中底无 token
+// ——换 surfaceAltRaised + primary 描边范式（同 ribbonStyleSheet checked 档）。
+void themedButtonStyle(QWidget *w)
+{
+    PaleoTheme::applyThemedStyleSheet(w, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral(
+            "QToolButton { background: transparent; border: 1px solid %1; border-radius: 4px;"
+            " padding: 1px 6px; font-size: 8.5pt; color: %2; }"
+            "QToolButton:hover { background: %3; border-color: %4; }"
+            "QToolButton:checked { background: %5; color: %4; border-color: %4; }")
+            .arg(t.border.name(), t.text.name(), t.surfaceAlt.name(),
+                 t.primaryText.name(), t.surfaceAltRaised.name());
+    });
+}
+void themedCaptionStyle(QWidget *w)
+{
+    PaleoTheme::applyThemedStyleSheet(w, [] {
+        return PaleoTheme::mutedCaptionStyleSheet() +
+               QStringLiteral(" font-size: 8.5pt;");
+    });
+}
+void themedComboStyle(QWidget *w)
+{
+    PaleoTheme::applyThemedStyleSheet(w, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral(
+            "QComboBox { border: 1px solid %1; border-radius: 4px;"
+            " padding: 1px 6px; font-size: 8.5pt; }")
+            .arg(t.border.name());
+    });
+}
+} // namespace
+
 void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     auto *bar = new QWidget(parent);
-    bar->setStyleSheet(QStringLiteral("background: #FFFFFF; border-bottom: 1px solid #DFE5EC;"));
+    PaleoTheme::applyThemedStyleSheet(bar, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral("background: %1; border-bottom: 1px solid %2;")
+            .arg(t.surface.name(), t.border.name());
+    });
     auto *lay = new QHBoxLayout(bar);
     lay->setContentsMargins(8, 2, 8, 2);
     lay->setSpacing(6);
 
-    const QString btnStyle = QStringLiteral(
-        "QToolButton { background: transparent; border: 1px solid #DFE5EC; border-radius: 4px; padding: 1px 6px; font-size: 8.5pt; color: #24303E; }"
-        "QToolButton:hover { background: #EDF1F5; border-color: #1B73D0; }"
-        "QToolButton:checked { background: #E8F0FE; color: #1B73D0; border-color: #1B73D0; }");
-    const QString lblStyle = QStringLiteral("color: #5D6E80; font-size: 8.5pt;");
-
     // D2.2 显示三模
     auto *lblMode = new QLabel(tr("显示:"), bar);
-    lblMode->setStyleSheet(lblStyle);
+    themedCaptionStyle(lblMode);
     lay->addWidget(lblMode);
     m_cboDisplayMode = new QComboBox(bar);
     m_cboDisplayMode->setObjectName(QStringLiteral("cboSectionDisplayMode"));
     m_cboDisplayMode->addItems({tr("密度"), tr("波形变面积"), tr("混合")});
-    m_cboDisplayMode->setStyleSheet(QStringLiteral(
-        "QComboBox { border: 1px solid #DFE5EC; border-radius: 4px; padding: 1px 6px; font-size: 8.5pt; }"));
+    themedComboStyle(m_cboDisplayMode);
     lay->addWidget(m_cboDisplayMode);
 
     // D2.8 反转
     m_chkInvert = new QCheckBox(tr("反转色标"), bar);
-    m_chkInvert->setStyleSheet(lblStyle);
+    themedCaptionStyle(m_chkInvert);
     lay->addWidget(m_chkInvert);
 
     // D2.3 阈值 + 极性
     auto *lblThreshold = new QLabel(tr("阈值:"), bar);
-    lblThreshold->setStyleSheet(lblStyle);
+    themedCaptionStyle(lblThreshold);
     lay->addWidget(lblThreshold);
     m_spinThreshold = new QDoubleSpinBox(bar);
     m_spinThreshold->setRange(0.0, 0.9);
@@ -692,7 +733,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     m_btnPolarity->setText(tr("极性 +/-"));
     m_btnPolarity->setCheckable(true);
     m_btnPolarity->setToolTip(tr("极性反转（波峰/波谷互换）"));
-    m_btnPolarity->setStyleSheet(btnStyle);
+    themedButtonStyle(m_btnPolarity);
     lay->addWidget(m_btnPolarity);
 
     // D2.4 AGC
@@ -700,7 +741,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     m_btnAgc->setText(tr("AGC"));
     m_btnAgc->setCheckable(true);
     m_btnAgc->setToolTip(tr("自动增益控制：滑动窗 RMS 归一（压掉道间能量差）"));
-    m_btnAgc->setStyleSheet(btnStyle);
+    themedButtonStyle(m_btnAgc);
     lay->addWidget(m_btnAgc);
     m_spinAgcWindow = new QSpinBox(bar);
     m_spinAgcWindow->setRange(20, 5000);
@@ -715,12 +756,12 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     m_btnGainCurve = new QToolButton(bar);
     m_btnGainCurve->setText(tr("增益曲线…"));
     m_btnGainCurve->setToolTip(tr("手动增益曲线：TWT→倍数分段线性控制点编辑"));
-    m_btnGainCurve->setStyleSheet(btnStyle);
+    themedButtonStyle(m_btnGainCurve);
     lay->addWidget(m_btnGainCurve);
 
     // D2.7 纵向拉伸
     auto *lblVExag = new QLabel(tr("纵向拉伸:"), bar);
-    lblVExag->setStyleSheet(lblStyle);
+    themedCaptionStyle(lblVExag);
     lay->addWidget(lblVExag);
     m_spinVExag = new QDoubleSpinBox(bar);
     m_spinVExag->setRange(0.1, 20.0);
@@ -736,7 +777,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     m_btnDualScale->setText(tr("双刻度 TWT+深度"));
     m_btnDualScale->setCheckable(true);
     m_btnDualScale->setToolTip(tr("左轴 TWT(ms) + 右缘深度(m) 同显（需有效时深模型）"));
-    m_btnDualScale->setStyleSheet(btnStyle);
+    themedButtonStyle(m_btnDualScale);
     lay->addWidget(m_btnDualScale);
 
     // D2.10 卷帘对比
@@ -745,7 +786,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     m_btnCurtain->setText(tr("卷帘对比"));
     m_btnCurtain->setCheckable(true);
     m_btnCurtain->setToolTip(tr("相邻线卷帘对比：帘左当前线 / 帘右相邻线，画布内拖分割线"));
-    m_btnCurtain->setStyleSheet(btnStyle);
+    themedButtonStyle(m_btnCurtain);
     lay->addWidget(m_btnCurtain);
     m_sliderCurtain = new QSlider(Qt::Horizontal, bar);
     m_sliderCurtain->setRange(2, 98);
@@ -759,33 +800,32 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     m_btnPickMode->setText(tr("● 拾取"));
     m_btnPickMode->setCheckable(true);
     m_btnPickMode->setToolTip(tr("解释模式：剖面点击放层位拾取点（拾取面板同步显示）"));
-    m_btnPickMode->setStyleSheet(btnStyle);
+    themedButtonStyle(m_btnPickMode);
     lay->addWidget(m_btnPickMode);
     m_btnFaultMode = new QToolButton(bar);
     m_btnFaultMode->setText(tr("✂ 断层"));
     m_btnFaultMode->setCheckable(true);
     m_btnFaultMode->setToolTip(tr("断层模式：剖面拖拽画断层折线（红色虚线跟踪，松手存档）"));
-    m_btnFaultMode->setStyleSheet(btnStyle);
+    themedButtonStyle(m_btnFaultMode);
     lay->addWidget(m_btnFaultMode);
 
     lay->addStretch(1);
 
     // D2.12 书签
     auto *lblBookmark = new QLabel(tr("书签:"), bar);
-    lblBookmark->setStyleSheet(lblStyle);
+    themedCaptionStyle(lblBookmark);
     lay->addWidget(lblBookmark);
     m_cboBookmark = new QComboBox(bar);
     m_cboBookmark->setFixedWidth(120);
-    m_cboBookmark->setStyleSheet(QStringLiteral(
-        "QComboBox { border: 1px solid #DFE5EC; border-radius: 4px; padding: 1px 6px; font-size: 8.5pt; }"));
+    themedComboStyle(m_cboBookmark);
     lay->addWidget(m_cboBookmark);
     m_btnBookmarkAdd = new QToolButton(bar);
     m_btnBookmarkAdd->setText(tr("存当前"));
-    m_btnBookmarkAdd->setStyleSheet(btnStyle);
+    themedButtonStyle(m_btnBookmarkAdd);
     lay->addWidget(m_btnBookmarkAdd);
     m_btnBookmarkDel = new QToolButton(bar);
     m_btnBookmarkDel->setText(tr("删除"));
-    m_btnBookmarkDel->setStyleSheet(btnStyle);
+    themedButtonStyle(m_btnBookmarkDel);
     lay->addWidget(m_btnBookmarkDel);
 
     // 显示控制行固定排在工具栏（index 0）之后、画布之前——setupDisplayBar

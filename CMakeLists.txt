@@ -527,6 +527,15 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --strict)
   add_test(NAME layering_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --selftest)
+  # goal/ui-experience-polish：UI 不变量闸门——DESIGN.md Motion 禁编排动画
+  #（src/ui 零 QPropertyAnimation/QEasingCurve/setAnimated(true)）+ QSS 裸
+  # hex 零容忍（token 单一真源 = paleotheme；baseline 只缩不涨，strict 防回升）。
+  add_test(NAME ui_invariants COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_invariants.py)
+  add_test(NAME ui_invariants_strict COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_invariants.py --strict)
+  add_test(NAME ui_invariants_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_invariants.py --selftest)
 endif()
 
 # ---- 测试注册（devex T1 链接瘦身：LIBS = 各测试 include 面的最小闭包，见

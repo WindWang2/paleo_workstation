@@ -715,16 +715,25 @@ void Seismic3DViewPanel::supersedeInFlightSlice(std::size_t slotIndex)
 // ---- D3.x 显示控制行 ----
 void Seismic3DViewPanel::buildDisplayBar() {
     auto *bar = new QWidget(this);
-    bar->setStyleSheet(QStringLiteral("background-color: #FFFFFF; border-bottom: 1px solid #DFE5EC;"));
+    PaleoTheme::applyThemedStyleSheet(bar, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral("background-color: %1; border-bottom: 1px solid %2;")
+            .arg(t.surface.name(), t.border.name());
+    });
     auto *lay = new QHBoxLayout(bar);
     lay->setContentsMargins(6, 2, 6, 2);
     lay->setSpacing(4);
 
-    const QString lblStyle = QStringLiteral("color: #5D6E80; font-size: 8.5pt;");
+    const auto themedCaption = [](QWidget *w) {
+        PaleoTheme::applyThemedStyleSheet(w, [] {
+            return PaleoTheme::mutedCaptionStyleSheet() +
+                   QStringLiteral(" font-size: 8.5pt;");
+        });
+    };
 
     // D3.5 colormap：默认（引擎预烘焙）+ 8 预设 + 自定义
     auto *lblCmap = new QLabel(tr("色标:"), bar);
-    lblCmap->setStyleSheet(lblStyle);
+    themedCaption(lblCmap);
     lay->addWidget(lblCmap);
     cboColorMap_ = new QComboBox(bar);
     cboColorMap_->setObjectName(QStringLiteral("cbo3dColorMap"));
@@ -737,7 +746,7 @@ void Seismic3DViewPanel::buildDisplayBar() {
 
     // D3.3 透明度 + 值域
     auto *lblAlpha = new QLabel(tr("透明度:"), bar);
-    lblAlpha->setStyleSheet(lblStyle);
+    themedCaption(lblAlpha);
     lay->addWidget(lblAlpha);
     sliderAlpha_ = new QSlider(Qt::Horizontal, bar);
     sliderAlpha_->setRange(10, 100);
@@ -745,7 +754,7 @@ void Seismic3DViewPanel::buildDisplayBar() {
     sliderAlpha_->setFixedWidth(70);
     lay->addWidget(sliderAlpha_);
     auto *lblRange = new QLabel(tr("值域:"), bar);
-    lblRange->setStyleSheet(lblStyle);
+    themedCaption(lblRange);
     lay->addWidget(lblRange);
     spinRangeMin_ = new QDoubleSpinBox(bar);
     spinRangeMin_->setRange(0.0, 0.9);
@@ -781,7 +790,7 @@ void Seismic3DViewPanel::buildDisplayBar() {
 
     // D3.10 帧率（debug）
     chkFps_ = new QCheckBox(tr("fps"), bar);
-    chkFps_->setStyleSheet(lblStyle);
+    themedCaption(chkFps_);
     chkFps_->setToolTip(tr("显示帧率读数（调试）"));
     lay->addWidget(chkFps_);
 
@@ -789,7 +798,7 @@ void Seismic3DViewPanel::buildDisplayBar() {
 
     // D3.6 相机书签
     auto *lblCam = new QLabel(tr("视角:"), bar);
-    lblCam->setStyleSheet(lblStyle);
+    themedCaption(lblCam);
     lay->addWidget(lblCam);
     cboCamBookmark_ = new QComboBox(bar);
     cboCamBookmark_->setFixedWidth(90);
@@ -946,7 +955,10 @@ void Seismic3DViewPanel::buildDisplayBar() {
         lay->addWidget(editor, 1);
         auto *hint = new QLabel(
             tr("拖圆点调位置/不透明度；双击插入停靠点；右键删除。"), &dlg);
-        hint->setStyleSheet(QStringLiteral("color: #5D6E80; font-size: 8.5pt;"));
+        PaleoTheme::applyThemedStyleSheet(hint, [] {
+            return PaleoTheme::mutedCaptionStyleSheet() +
+                   QStringLiteral(" font-size: 8.5pt;");
+        });
         lay->addWidget(hint);
         connect(cboPreset, &QComboBox::activated, this, [this, editor](int idx) {
             if (idx <= 0)
@@ -1459,8 +1471,10 @@ void Seismic3DViewPanel::checkMemoryBudget() {
               .arg(volumeBytes / gb, 0, 'f', 1);
     if (!memoryHintLabel_) {
         memoryHintLabel_ = new QLabel(this);
-        memoryHintLabel_->setStyleSheet(
-            QStringLiteral("color: #F29900; padding: 0 6px; font-size: 8.5pt;"));
+        PaleoTheme::applyThemedStyleSheet(memoryHintLabel_, [] {
+            return QStringLiteral("color: %1; padding: 0 6px; font-size: 8.5pt;")
+                .arg(PaleoTheme::tokens().warningText.name());
+        });
         memoryHintLabel_->setWordWrap(true);
         if (auto *mainLay = qobject_cast<QVBoxLayout *>(layout()))
             mainLay->addWidget(memoryHintLabel_);

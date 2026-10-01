@@ -7,12 +7,15 @@
 #include <QGraphicsSimpleTextItem>
 #include <QGraphicsView>
 #include <QLabel>
+#include <QTreeWidget>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
 #include <limits>
 
 #include "../src/ui/correlationpanel.h"
+#include "../src/ui/correlation/curvebrowser.h"
+#include "../src/io/lasdoc.h"
 #include "uipolish_capture.h"
 #include "../src/linkage/selectioncontext.h"
 
@@ -118,6 +121,37 @@ class TestCorrelation : public QObject
       QCOMPARE(panel.wellCount(), 3);
       panel.reorder(0, 2); // must not crash without a SelectionContext
       QCOMPARE(panel.wellAt(2), QStringLiteral("W1"));
+    }
+
+    // goal/ui-experience-polish：曲线浏览器键盘可达（注入 LAS 曲线后 ↓/↑
+    // 行导航——空态指引与列表焦点环）。
+    void curveBrowserKeyboardNavigation()
+    {
+      WellCorrelationPanel panel(nullptr);
+      auto *browser = panel.findChild<CurveBrowser *>(QStringLiteral("curveBrowser"));
+      QVERIFY(browser);
+      LasCurve c1;
+      c1.name = QStringLiteral("GR");
+      c1.unit = QStringLiteral("gAPI");
+      c1.descr = QStringLiteral("Gamma Ray");
+      c1.values = {1.0, 2.0, 3.0};
+      LasCurve c2;
+      c2.name = QStringLiteral("DT");
+      c2.unit = QStringLiteral("us/m");
+      c2.descr = QStringLiteral("Sonic");
+      c2.values = {80.0, 85.0, 90.0};
+      browser->setCurves(QStringLiteral("W1"), {c1, c2});
+      auto *list = browser->findChild<QTreeWidget *>();
+      QVERIFY(list && list->topLevelItemCount() >= 2);
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      list->setFocus();
+      list->setCurrentItem(list->topLevelItem(0));
+      QCOMPARE(list->currentIndex().row(), 0);
+      QTest::keyClick(list, Qt::Key_Down);
+      QCOMPARE(list->currentIndex().row(), 1);
+      QTest::keyClick(list, Qt::Key_Up);
+      QCOMPARE(list->currentIndex().row(), 0);
     }
 
     // goal/ui-experience-polish：空态指引 + 三井剖面的修前/修后截图证据。

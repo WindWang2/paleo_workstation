@@ -149,6 +149,24 @@ class TestChips : public QObject
         QVERIFY( bar.isChipActive( QStringLiteral( "D61" ) ) );
     }
 
+    // goal/ui-experience-polish：Space 键切换层位 chip（checkable
+    // QToolButton 的键盘等效——焦点环 2px 可见）。
+    void spaceKeyTogglesChip()
+    {
+        SelectionContext ctx;
+        HorizonChipBar bar( &ctx, nullptr );
+        bar.setAllowEmptyHorizons( true );
+        auto *chip = bar.findChild<QToolButton *>( QStringLiteral( "chip_C3" ) );
+        QVERIFY( chip && chip->isEnabled() );
+        bar.show();
+        QVERIFY( QTest::qWaitForWindowExposed( &bar ) );
+        chip->setFocus();
+        QVERIFY( !chip->isChecked() );
+        QTest::keyClick( chip, Qt::Key_Space );
+        QCOMPARE( ctx.activeHorizon(), QStringLiteral( "C3" ) );
+        QVERIFY( chip->isChecked() );
+    }
+
     // goal/ui-experience-polish：chip 条（可用/禁用/激活态）修前/修后证据。
     void captureEvidence()
     {

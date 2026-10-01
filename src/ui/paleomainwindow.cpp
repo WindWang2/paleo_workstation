@@ -874,6 +874,23 @@ void PaleoMainWindow::buildRibbon()
       showPage(paleo::pagesinternal::kPageIds.at(i));
     });
   }
+  // goal/ui-experience-polish：Ctrl+Tab / Ctrl+Shift+Tab 循环切页（桌面页签
+  // 惯例；与 Ctrl+1..5 互补——手不离开主行也能走完整工作流链）。
+  {
+    const auto cyclePage = [this](int step) {
+      const int idx = paleo::pagesinternal::kPageIds.indexOf(m_currentPage);
+      const int n = paleo::pagesinternal::kPageIds.size();
+      const int next = ((idx < 0 ? 0 : idx) + step + n) % n;
+      showPage(paleo::pagesinternal::kPageIds.at(next));
+    };
+    auto *nextSc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Tab")), this);
+    nextSc->setObjectName(QStringLiteral("pageShortcut.next"));
+    connect(nextSc, &QShortcut::activated, this, [cyclePage] { cyclePage(1); });
+    auto *prevSc =
+        new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+Tab")), this);
+    prevSc->setObjectName(QStringLiteral("pageShortcut.prev"));
+    connect(prevSc, &QShortcut::activated, this, [cyclePage] { cyclePage(-1); });
+  }
   connect(bar, &SARibbonBar::currentRibbonTabChanged, this, [this, bar](int idx) {
     SARibbonCategory *cat = bar->categoryByIndex(idx);
     const QString id = cat ? cat->property("paleo.pageId").toString() : QString();

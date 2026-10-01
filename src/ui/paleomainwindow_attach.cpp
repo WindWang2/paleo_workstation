@@ -228,6 +228,16 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
       corrPanel = new WellCorrelationPanel(m_selection, bottomTabs);
       corrPanel->setObjectName(QStringLiteral("correlationPanel"));
       corrPanel->setTaskService(taskSvc); // B1：大 LAS 解析走 quiet 异步（nullptr 保持同步旧路径）
+      // goal/ui-experience-polish：异步 LAS 解析失败此前全仓无消费者——井列
+      // 静默不出现对用户不可见；接状态栏 + MessageLog（错误可见，E1 弹窗豁免）。
+      connect(corrPanel, &WellCorrelationPanel::lasLoadError, this,
+              [this](const QString &wellId, const QString &reason) {
+                statusBar()->showMessage(
+                    tr("测井 %1 曲线加载失败：%2").arg(wellId, reason), 6000);
+                QgsMessageLog::logMessage(
+                    tr("连井剖面：井 %1 LAS 加载失败 — %2").arg(wellId, reason),
+                    QStringLiteral("Paleo"));
+              });
       bottomTabs->addTab(corrPanel, tr("测井对比"));
     }
   }

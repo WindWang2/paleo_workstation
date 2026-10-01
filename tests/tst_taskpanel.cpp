@@ -61,6 +61,32 @@ private slots:
     panel.refresh();
     uipolish::capturePanel(&panel, QStringLiteral("taskpanel"));
   }
+
+  // goal/ui-experience-polish：任务列表键盘可达（↓ 首选行、↓/↑ 移动）。
+  void keyboardNavigationOnBusyList()
+  {
+    PaleoProjectStore store;
+    TaskPanel panel(&store);
+    store.markLayerBusy(QStringLiteral("facies.T1"), QStringLiteral("task-7"),
+                        QStringLiteral("IDW interpolation"));
+    store.markLayerBusy(QStringLiteral("facies.T2"), QStringLiteral("task-8"),
+                        QStringLiteral("IDW interpolation"));
+    panel.refresh();
+    auto *list = panel.findChild<QTreeWidget *>(QStringLiteral("busyList"));
+    QVERIFY(list && list->topLevelItemCount() == 2);
+    panel.show();
+    QTest::qWaitForWindowExposed(&panel);
+    list->setFocus();
+    // 显式清起点（窗口激活时序下树会自动选首行——offscreen 不定）。
+    list->setCurrentItem(nullptr);
+    QCOMPARE(list->currentIndex().row(), -1);
+    QTest::keyClick(list, Qt::Key_Down);
+    QCOMPARE(list->currentIndex().row(), 0);
+    QTest::keyClick(list, Qt::Key_Down);
+    QCOMPARE(list->currentIndex().row(), 1);
+    QTest::keyClick(list, Qt::Key_Up);
+    QCOMPARE(list->currentIndex().row(), 0);
+  }
 };
 
 QTEST_MAIN(TestTaskPanel)

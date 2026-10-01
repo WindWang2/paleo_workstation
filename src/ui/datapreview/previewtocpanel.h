@@ -3,6 +3,8 @@
 
 #include <QWidget>
 
+class QLabel;
+
 #include "../../qgis/previewrasteranalysis.h"
 
 #include <functional>
@@ -92,6 +94,7 @@ class PreviewTocPanel : public QWidget
     QVector<LegendEntry> m_legendEntries;
 
     QListWidget *m_list = nullptr;
+    QLabel *m_listEmptyLabel = nullptr; // goal/ui-experience-polish：TOC 空态指引（PaleoEmptyStateLabel）
     QStackedWidget *m_quickPanel = nullptr;
     QLabel *m_propsLabel = nullptr;
     QWidget *m_legendBox = nullptr;

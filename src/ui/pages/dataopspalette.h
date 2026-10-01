@@ -1,6 +1,6 @@
 // 层：视图
 // ui/pages/dataopspalette — D6 键盘与命令面板。
-//   · DataCommandPalette：Ctrl+K 模糊搜资产/实体/动作/过滤器，回车执行
+//   · DataCommandPalette：Ctrl+Shift+P 模糊搜资产/实体/动作/过滤器，回车执行
 //   · ShortcutsDialog：快捷键表（? 键或帮助菜单）
 //   · 冲突提示（D6.6，检测在 CommandRegistry::shortcutConflicts）
 #pragma once

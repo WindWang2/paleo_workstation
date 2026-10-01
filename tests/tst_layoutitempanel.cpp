@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QApplication>
 #include <QLabel>
 #include <QPushButton>
 
@@ -22,6 +23,24 @@ class TestLayoutItemPanel : public QObject
     Q_OBJECT
 
   private slots:
+    // goal/ui-experience-polish：属性面板键盘可达（Tab 焦点链在面板内推进，
+    // 全局 2px 焦点环可见——无鼠标也能走完参数表单）。
+    void tabKeyMovesFocusInsidePanel()
+    {
+      QgsProject prj;
+      QgsPrintLayout layout(&prj);
+      std::unique_ptr<QgsLayoutItemLabel> item(new QgsLayoutItemLabel(&layout));
+      PaleoLayoutItemPanel panel;
+      panel.setItem(item.get());
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      QApplication::setActiveWindow(&panel);
+      auto *first = panel.focusWidget();
+      QVERIFY(first);
+      QTest::keyClick(first, Qt::Key_Tab);
+      QVERIFY(panel.focusWidget() != first); // 焦点前进了
+    }
+
     void setItemHostsNativeBaseWidget()
     {
       QgsProject project;

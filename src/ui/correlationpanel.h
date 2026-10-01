@@ -139,6 +139,11 @@ class WellCorrelationPanel : public QWidget
 
   private:
     bool anyTracks() const;
+    // goal/ui-experience-polish：LAS 失败的面板内可见化（空面板时全画面错误
+    // 态；setWells 复位回空态指引）。
+    bool columnsEmpty() const;
+    void showEmptyErrorIfIdle(const QString &wellId, const QString &reason);
+    void resetEmptyLabel();
     void rebuildScene();                        // selective: keeps chrome + marker items
     void relayoutMarkers();                     // rebuild marker lines for current geoms
     void computeDepthAxis();                    // display-space window incl. flatten offsets

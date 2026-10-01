@@ -234,6 +234,18 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
   m_selectTool = selectTool;
   m_view->setTool( selectTool );
 
+  // goal/ui-experience-polish：Delete 直删所选 layout 项（QgsLayoutView 原生
+  // 能力 deleteSelectedItems——QGIS designer 把它挂在 app 层动作上，这里补
+  // QAction 挂壳；方向键微调/Space 平移是视图内建，E3 不重复实现）。
+  auto *deleteAction = new QAction( tr( "删除所选项" ), this );
+  deleteAction->setObjectName( QStringLiteral( "layoutDeleteSelectedAction" ) );
+  deleteAction->setShortcut( Qt::Key_Delete );
+  connect( deleteAction, &QAction::triggered, this, [this] {
+    if ( m_view )
+      m_view->deleteSelectedItems();
+  } );
+  addAction( deleteAction );
+
   // 元素放置完成后回到选择工具（QGIS designer 惯例: createdItem -> Select）。
   if ( auto *addTool = m_palette->addItemTool() )
     connect( addTool, &QgsLayoutViewToolAddItem::createdItem, this, [this] {

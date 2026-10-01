@@ -211,6 +211,28 @@ class TestLayoutDesignerFull : public QObject
       QVERIFY( created->isSelected() );
     }
 
+    // goal/ui-experience-polish：Delete 键删除所选 layout 项（QAction 挂壳
+    // → QgsLayoutView::deleteSelectedItems；方向键微调是视图内建）。
+    void deleteKeyRemovesSelectedItem()
+    {
+      std::unique_ptr<QgsPrintLayout> layout( makeLayout() );
+      PaleoLayoutDesignerShell shell( layout.get() );
+      QgsLayoutItem *created = nullptr;
+      QVERIFY( PaleoLayoutItemPalette::addItemNow(
+          guiId( QgsLayoutItemRegistry::LayoutLabel ), layout.get(), &created ) );
+      QVERIFY( created && created->isSelected() );
+      auto *act = shell.findChild<QAction *>( QStringLiteral( "layoutDeleteSelectedAction" ) );
+      QVERIFY( act );
+      QCOMPARE( act->shortcut(), QKeySequence( Qt::Key_Delete ) );
+      shell.show();
+      QVERIFY( QTest::qWaitForWindowExposed( &shell ) );
+      shell.view()->setFocus();
+      QTest::keyClick( shell.view(), Qt::Key_Delete );
+      QList<QgsLayoutItem *> items;
+      layout->layoutItems( items );
+      QVERIFY( !items.contains( created ) );
+    }
+
     // --- B: panel hosting through the shell -----------------------------------
 
     void panelHostsBaseWidgetOnSelection()

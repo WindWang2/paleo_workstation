@@ -223,7 +223,7 @@ void CacheSegyIndexTests::incrementalRescanOnAppend()
   QVERIFY(f.open(QIODevice::Append));
   QFile src(sgy);
   // 复制首 40 道（道长 240+20*4=320B）。
-  src.open(QIODevice::ReadOnly);
+  QVERIFY(src.open(QIODevice::ReadOnly));
   src.seek(3600);
   const QByteArray traces = src.read(40 * 320);
   f.write(traces);
@@ -251,7 +251,7 @@ void CacheSegyIndexTests::checkpointAuditRejectsTampered()
   QVERIFY(r.snapshot(&snap));
   // 伪 checkpoint：scannedOffset 越界（D2.8 审计应拒）。
   snap.complete = false;
-  snap.scannedOffset = 1 << 40;
+  snap.scannedOffset = qint64(1) << 40;
   QString err;
   store.save(snap, &err);
   QString reason;

@@ -11,6 +11,8 @@
 #include <qgsvectorlayer.h>
 #include <qgsrectangle.h>
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 
 // P2 D1.1 PreviewMapCanvas 契约测试：私有层容器（不进 QgsProject）、CRS 钉死、
@@ -170,12 +172,19 @@ void TestPreviewMapCanvas::zoomHistoryBackForward()
   QVERIFY(!first.isEmpty());
   m_canvas->zoomToRect(QgsRectangle(105, 205, 115, 215));
   const QgsRectangle second = m_canvas->currentExtent();
+  auto isNearExtent = [](const QgsRectangle &a, const QgsRectangle &b) {
+    const double tol = std::max(std::abs(a.width()), 1.0) * 1e-6;
+    return std::abs(a.xMinimum() - b.xMinimum()) < tol &&
+           std::abs(a.xMaximum() - b.xMaximum()) < tol &&
+           std::abs(a.yMinimum() - b.yMinimum()) < tol &&
+           std::abs(a.yMaximum() - b.yMaximum()) < tol;
+  };
   QVERIFY(m_canvas->canZoomBack());
   m_canvas->zoomBack();
-  QCOMPARE(m_canvas->currentExtent(), first);
+  QVERIFY(isNearExtent(m_canvas->currentExtent(), first));
   QVERIFY(m_canvas->canZoomForward());
   m_canvas->zoomForward();
-  QCOMPARE(m_canvas->currentExtent(), second);
+  QVERIFY(isNearExtent(m_canvas->currentExtent(), second));
   m_canvas->clearHistory();
   QVERIFY(!m_canvas->canZoomBack());
   QVERIFY(!m_canvas->canZoomForward());

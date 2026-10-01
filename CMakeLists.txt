@@ -461,9 +461,9 @@ enable_testing()
 # 不能再整体 set（CMakeLists 下方 tst_onnx* 即此坑的修复点）。
 function(paleo_test_sandbox name)
   set(_home ${CMAKE_BINARY_DIR}/ctest-home/${name})
-  file(MAKE_DIRECTORY "${_home}/config" "${_home}/data" "${_home}/cache")
+  file(MAKE_DIRECTORY "${_home}/config" "${_home}/data" "${_home}/cache" "${_home}/tmp")
   set_tests_properties(${name} PROPERTIES ENVIRONMENT
-    "QT_QPA_PLATFORM=offscreen;XDG_CONFIG_HOME=${_home}/config;XDG_DATA_HOME=${_home}/data;XDG_CACHE_HOME=${_home}/cache;HOME=${_home}")
+    "QT_QPA_PLATFORM=offscreen;XDG_CONFIG_HOME=${_home}/config;XDG_DATA_HOME=${_home}/data;XDG_CACHE_HOME=${_home}/cache;HOME=${_home};TMPDIR=${_home}/tmp;TEMP=${_home}/tmp;TMP=${_home}/tmp")
   if(QGIS_PREFIX)
     # vendor 构建下测试资源/provider 也走构建所链的 prefix（与二进制
     # RUNPATH 一致），不借系统 /usr 栈——裸 ctest 即全 vendored。
@@ -541,6 +541,7 @@ add_paleo_test(tst_mappingpages LIBS paleo_ui)
 add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
 add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式；伞式兼容样本）
 add_paleo_test(tst_perf LIBS paleo_qgis)
+set_tests_properties(tst_perf PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_locator LIBS paleo_ui)
 add_paleo_test(tst_layoutshell LIBS paleo_ui)
 add_paleo_test(tst_maptools LIBS paleo_ui)

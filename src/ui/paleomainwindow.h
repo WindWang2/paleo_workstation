@@ -6,6 +6,7 @@
 #include <QMap>
 #include <QVector>
 #include <functional>
+#include <QPointer>
 
 #include "../domain/importrows.h"   // FolderPreviewRow / FolderRowResult（T22 静态面，W2 下沉 domain）
 #include "../services/seismictaskservice.h" // m_seismicTaskSvc unique_ptr 需完整类型
@@ -15,6 +16,7 @@ class QComboBox;
 class QDialog;
 class QLabel;
 class QTableWidget;
+class QTimer;
 
 class QgisCanvasController;
 class QgisProjectService;
@@ -27,6 +29,7 @@ class LayerTreePanel;
 class LayerProfileBar;
 class LayerPropertiesDialog;
 class QgsLayoutItemMap;
+class QgsRubberBand;
 #include <QDockWidget>
 
 namespace seismic {
@@ -317,4 +320,6 @@ class PaleoMainWindow : public SARibbonMainWindow
     int m_provisionalLayers = 0;   // 已上图的临时配准图层数（>0 → 水印）
     QString m_currentPage;
     bool m_isProjectReadOnly = false;
+    QPointer<QgsRubberBand> m_horizonFlashBand;
+    QPointer<QTimer> m_horizonFlashTimer;
 };

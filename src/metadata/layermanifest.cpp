@@ -1,10 +1,15 @@
 // 层：数据
 #include "layermanifest.h"
 #include "metastore.h"
+#include "paleoprojectstore.h"
 
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QThread>
 #include <QVariant>
 
 namespace
@@ -15,7 +20,9 @@ namespace
   // which is what makes reopen/roundtrip semantics work.
   QString connectionNameFor(const QString &path)
   {
-    return QStringLiteral("paleo_layermanifest_") + QString::number(qHash(path));
+    const quintptr tid = reinterpret_cast<quintptr>(QThread::currentThread());
+    return QStringLiteral("paleo_layermanifest_") + QString::number(qHash(path)) +
+           QStringLiteral("_") + QString::number(tid);
   }
 
   void setError(QString *error, const QString &text)
@@ -97,6 +104,14 @@ bool LayerManifest::upsert(const LayerDeclaration &decl, QString *error)
     setError(error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，图层清单写入被拒绝"));
     return false;
   }
+  const bool isMainThread = QCoreApplication::instance()
+                                ? (QThread::currentThread() == QCoreApplication::instance()->thread())
+                                : true;
+  if (m_writeQueueEnforced && !isMainThread && !PaleoProjectStore::isWriteQueueActive())
+  {
+    setError(error, QStringLiteral("LayerManifest 写入必须通过主线程或 PaleoProjectStore::enqueueWrite 调度（requested database does not belong to the calling thread）"));
+    return false;
+  }
   if (decl.layerId.isEmpty())
   {
     setError(error, QStringLiteral("layer declaration requires a non-empty layerId"));
@@ -129,6 +144,14 @@ bool LayerManifest::remove(const QString &layerId, QString *error)
   if (m_readOnly)
   {
     setError(error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，图层清单写入被拒绝"));
+    return false;
+  }
+  const bool isMainThread = QCoreApplication::instance()
+                                ? (QThread::currentThread() == QCoreApplication::instance()->thread())
+                                : true;
+  if (m_writeQueueEnforced && !isMainThread && !PaleoProjectStore::isWriteQueueActive())
+  {
+    setError(error, QStringLiteral("LayerManifest 写入必须通过主线程或 PaleoProjectStore::enqueueWrite 调度（requested database does not belong to the calling thread）"));
     return false;
   }
   if (!ensureOpen(m_dbPath, error))

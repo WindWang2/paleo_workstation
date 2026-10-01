@@ -75,6 +75,16 @@ void PaleoProjectStore::setProjectPaths( const QString &qgzPath, const QString &
   m_metaPath = metaSqlitePath;
 }
 
+namespace
+{
+  thread_local bool s_inEnqueueWrite = false;
+}
+
+bool PaleoProjectStore::isWriteQueueActive()
+{
+  return s_inEnqueueWrite;
+}
+
 PaleoProjectStore::WriteResult PaleoProjectStore::enqueueWrite( const std::function<WriteResult()> &fn )
 {
   if ( m_readOnly )
@@ -82,6 +92,11 @@ PaleoProjectStore::WriteResult PaleoProjectStore::enqueueWrite( const std::funct
   WriteResult result;
   {
     QMutexLocker locker( &m_writeMutex );
+    struct ScopeGuard
+    {
+      ScopeGuard() { s_inEnqueueWrite = true; }
+      ~ScopeGuard() { s_inEnqueueWrite = false; }
+    } guard;
     // 写任务内的异常（provider/GDAL 抛出）转成失败结果——异常裸穿会让
     // 调用方的收尾（如 commitEdit 的 busy 标记释放）被跳过，且 writeFailed
     // 信号丢失。单写者语义下失败也是一次完整的「写完成尝试」。
@@ -118,6 +133,11 @@ PaleoProjectStore::WriteResult PaleoProjectStore::saveAll( const std::function<W
 
   {
     QMutexLocker locker( &m_writeMutex );
+    struct ScopeGuard
+    {
+      ScopeGuard() { s_inEnqueueWrite = true; }
+      ~ScopeGuard() { s_inEnqueueWrite = false; }
+    } guard;
 
     // 1. gpkg commit — the authoritative data state. Failure aborts the whole
     //    sequence before any .qgz mutation happens. Exceptions are converted

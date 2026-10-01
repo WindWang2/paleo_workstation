@@ -4,9 +4,11 @@
 #include <QMutex>
 #include <QString>
 #include <QVector>
+#include <QWaitCondition>
 
 #include "cachecore.h" // CacheStats / EvictableCache 所需口径
 
+#include <atomic>
 #include <functional>
 
 // io/ — 全局缓存预算治理（wave/io-perf-cache D6）。
@@ -26,6 +28,14 @@ class EvictableCache
     virtual CacheStats stats() const = 0;
     // 最近一次 get/insert 的墙钟（ms）——预算超限时按「最远未用的缓存先收缩」。
     virtual qint64 lastAccessMs() const = 0;
+
+    // CONC-03: 二阶段锁存与逐出活动引用计数
+    void addEvictionRef() { m_activeEvictions.fetch_add(1, std::memory_order_relaxed); }
+    void releaseEvictionRef() { m_activeEvictions.fetch_sub(1, std::memory_order_release); }
+    int activeEvictionRefs() const { return m_activeEvictions.load(std::memory_order_acquire); }
+
+  private:
+    std::atomic<int> m_activeEvictions{0};
 };
 
 // D6.1 全局预算：默认 512MB，QSettings("paleo","paleo") 的 cache/budgetMiB
@@ -88,6 +98,7 @@ class CacheBudgetManager
     void notifyPressure();
 
     mutable QMutex m_mutex; // 保护下面全部字段（缓存注册/处理器/审计）
+    QWaitCondition m_evictionZeroCond;
     QVector<EvictableCache *> m_caches;
     qint64 m_budgetBytes = kDefaultBudgetMiB * 1024 * 1024;
     int m_lastNotifiedTier = 0; // 0=安全 1=>75% 2=>90%；跨档才广播，防刷屏

@@ -11,6 +11,7 @@
 #include <qgspointxy.h>
 
 #include "../services/seismicmapping.h"
+#include "../qgis/seismicsectiontool.h"
 
 class QgsMapCanvas;
 class QgsVectorLayer;

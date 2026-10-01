@@ -876,7 +876,7 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
         sh.ys.append(static_cast<double>(beI32(h + 76)) * coordScale);
         if (opts && opts->progress && ((i - sh.from) % 128) == 0)
         {
-          std::lock_guard<std::mutex> lock(progressMutex);
+          std::lock_guard<std::mutex> pLock(progressMutex);
           opts->progress(offset, firstTraceOffset + traceCount * traceSize);
         }
       }

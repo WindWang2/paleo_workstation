@@ -26,7 +26,7 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/domain/seismic/sgyvolume.h"
 #include "../src/linkage/seismicmaplink.h"
-#include "../src/linkage/seismicsectiontool.h"
+#include "../src/qgis/seismicsectiontool.h"
 #include "../src/linkage/selectioncontext.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/seismicsection/seismicsectiondockwidget.h"
@@ -431,6 +431,60 @@ private slots:
     QApplication::processEvents();
     QVERIFY(s->isVisible());
     s->hide();
+  }
+
+  // Empirical stress-testing: SeismicSectionTool activation/deactivation and map tool switching
+  void seismicSectionToolActivationAndSwitchingStress()
+  {
+    // 1. Tool constructed with nullptr canvas
+    {
+      auto *orphanTool = new SeismicSectionTool(nullptr);
+      QVERIFY(orphanTool->canvas() == nullptr);
+      // QgsMapTool::activate() dereferences canvas()->setCursor(), so orphan tool cannot be activated
+      delete orphanTool;
+    }
+
+    // 2. Map tool switching and activation cycling on real canvas
+    auto *canvas = m_ctx->canvasCtl()->canvas();
+    QVERIFY(canvas != nullptr);
+
+    auto *toolA = new SeismicSectionTool(canvas);
+    auto *toolB = new SeismicSectionTool(canvas);
+
+    QSignalSpy cancelSpy(toolA, &SeismicSectionTool::captureCancelled);
+    QSignalSpy pathSpy(toolA, &SeismicSectionTool::sectionPathCaptured);
+
+    // Rapid activation/deactivation cycling
+    for (int i = 0; i < 50; ++i)
+    {
+      toolA->activate();
+      toolA->deactivate();
+    }
+
+    // Tool switching via canvas
+    canvas->setMapTool(toolA);
+    QCOMPARE(canvas->mapTool(), toolA);
+
+    // Switch away to toolB
+    canvas->setMapTool(toolB);
+    QCOMPARE(canvas->mapTool(), toolB);
+
+    // Switch back to toolA
+    canvas->setMapTool(toolA);
+    QCOMPARE(canvas->mapTool(), toolA);
+
+    // Send Escape key event to trigger captureCancelled and unsetMapTool
+    QKeyEvent escEvent(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    QApplication::sendEvent(canvas, &escEvent);
+    // Directly invoking keyPressEvent on tool to verify signal
+    QMetaObject::invokeMethod(toolA, "keyPressEvent", Q_ARG(QKeyEvent *, &escEvent));
+    QCOMPARE(cancelSpy.count(), 1);
+
+    // Clean up
+    canvas->unsetMapTool(toolA);
+    canvas->unsetMapTool(toolB);
+    delete toolA;
+    delete toolB;
   }
 };
 

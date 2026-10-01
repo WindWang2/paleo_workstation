@@ -9,6 +9,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <cstring>
 
 namespace
 {
@@ -39,8 +40,15 @@ namespace
     }
     for (const LasCurve &c : doc.curves)
     {
+#if Q_BYTE_ORDER == Q_LITTLE_ENDIAN
+      const qint64 byteCount = static_cast<qint64>(c.values.size()) * static_cast<qint64>(sizeof(double));
+      const int oldSize = out.size();
+      out.resize(oldSize + static_cast<int>(byteCount));
+      std::memcpy(out.data() + oldSize, c.values.constData(), static_cast<size_t>(byteCount));
+#else
       for (double v : c.values)
         cacheio::putF64(&out, v);
+#endif
     }
     return out;
   }
@@ -71,13 +79,21 @@ namespace
     }
     if (!ok)
       return false;
+    const qint64 curveBytes = static_cast<qint64>(rowCount) * static_cast<qint64>(sizeof(double));
     for (quint32 i = 0; i < curveCount && ok; ++i)
     {
+      if (pos + curveBytes > payload.size())
+        return false;
       QVector<double> vals;
-      vals.reserve(static_cast<int>(rowCount));
+      vals.resize(static_cast<int>(rowCount));
+#if Q_BYTE_ORDER == Q_LITTLE_ENDIAN
+      std::memcpy(vals.data(), payload.constData() + pos, static_cast<size_t>(curveBytes));
+      pos += curveBytes;
+#else
       for (quint32 r = 0; r < rowCount && ok; ++r)
-        vals.append(cacheio::f64(payload, &pos, &ok));
-      doc->curves[int(i)].values = vals;
+        vals[r] = cacheio::f64(payload, &pos, &ok);
+#endif
+      doc->curves[int(i)].values = std::move(vals);
     }
     if (!ok)
       return false; // 截断——自愈

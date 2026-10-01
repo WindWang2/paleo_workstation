@@ -49,6 +49,8 @@
 #include <qgsproject.h>
 #include <qgsmapcanvas.h>
 #include <qgsrectangle.h>
+#include <qgsrubberband.h>
+#include <QGraphicsItem>
 
 #include <qgslayertreeview.h>
 #include <qgslayertree.h>
@@ -461,6 +463,106 @@ class TestUiShell : public QObject
 
       // 不把图层泄漏给后续用例（空态测试断言 mapLayers().isEmpty()）。
       m_ctx->projectSvc()->project()->removeMapLayer(layer->id());
+    }
+
+    // (i) P1-06 / MEM-03: Rapid re-entrant calls to flashHorizonLayer must cleanly
+    // clean up prior rubber bands without leaking orphaned items on the canvas or scene.
+    void showOnMapRapidReentrantFlashDoesNotLeakRubberBand()
+    {
+      if (!m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+        m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                               m_ctx->compositionWf(), m_ctx->validationWf(),
+                               m_ctx->importSvc(), m_ctx->seismicLink(),
+                               m_ctx->processingSvc(), m_ctx->store(),
+                               m_ctx->editingSvc(), m_ctx->layoutSvc(),
+                               m_ctx->taskSvc());
+
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      QVERIFY2(m_ctx->projectSvc()->createProject(
+                   dir.filePath(QStringLiteral("proj_reentrant.qgz"))),
+               "need a live project for manifest writes");
+
+      LayerDeclaration d;
+      d.layerId = QStringLiteral("horizon.reentrant");
+      d.horizon = QStringLiteral("D61");
+      d.type = QStringLiteral("vector");
+      d.source = QStringLiteral(FIXTURE_GPKG) + QStringLiteral("|layername=basin");
+      d.group = QStringLiteral("03_Composite");
+      QString declErr;
+      QVERIFY2(m_ctx->layerSvc()->declare(d, &declErr), qPrintable(declErr));
+
+      auto *preview = m_win->findChild<QWidget *>(QStringLiteral("dataPreview"));
+      QVERIFY(preview);
+
+      auto *cv = m_ctx->canvasCtl()->canvas();
+      QVERIFY(cv);
+
+      auto countSceneRubberBands = [cv]() -> int {
+        int count = 0;
+        if (cv && cv->scene())
+        {
+          for (auto *item : cv->scene()->items())
+          {
+            if (dynamic_cast<QgsRubberBand *>(item))
+              ++count;
+          }
+        }
+        return count;
+      };
+
+      auto countFlashRubberBands = [cv]() -> int {
+        int count = 0;
+        if (cv && cv->scene())
+        {
+          for (auto *item : cv->scene()->items())
+          {
+            if (auto *rb = dynamic_cast<QgsRubberBand *>(item))
+            {
+              if (rb->objectName() == QStringLiteral("horizonFlashRubberBand"))
+                ++count;
+            }
+          }
+        }
+        return count;
+      };
+
+      const int baseSceneBands = countSceneRubberBands();
+
+      // Initial state: 0 horizon flash rubber bands on scene or canvas
+      QCOMPARE(countFlashRubberBands(), 0);
+      QCOMPARE(cv->findChildren<QgsRubberBand *>(QStringLiteral("horizonFlashRubberBand")).count(), 0);
+
+      // Re-entrancy stress: trigger rapid successive horizon flash requests (4 times, 20ms apart)
+      for (int i = 0; i < 4; ++i)
+      {
+        QVERIFY(QMetaObject::invokeMethod(
+            preview, "showHorizonOnMapRequested",
+            Q_ARG(QString, QStringLiteral("horizon.reentrant"))));
+        QTest::qWait(20);
+
+        // Invariant: prior in-flight rubber band must be cleaned up; exactly 1 flash band on scene and canvas
+        QCOMPARE(countFlashRubberBands(), 1);
+        QCOMPARE(countSceneRubberBands(), baseSceneBands + 1);
+        auto *activeBand = cv->findChild<QgsRubberBand *>(QStringLiteral("horizonFlashRubberBand"));
+        QVERIFY(activeBand != nullptr);
+      }
+
+      QVERIFY(m_win->property("horizonFlashActive").toBool());
+
+      // Allow flash animation to complete (~400ms duration)
+      QTest::qWait(600);
+      QVERIFY(!m_win->property("horizonFlashActive").toBool());
+
+      // Invariant: strictly 0 horizon flash rubber bands remain on canvas or scene after completion
+      QCOMPARE(cv->findChild<QgsRubberBand *>(QStringLiteral("horizonFlashRubberBand")), nullptr);
+      QCOMPARE(cv->findChildren<QgsRubberBand *>(QStringLiteral("horizonFlashRubberBand")).count(), 0);
+      QCOMPARE(countFlashRubberBands(), 0);
+      QCOMPARE(countSceneRubberBands(), baseSceneBands);
+
+      QgsMapLayer *layer = m_ctx->layerSvc()->layer(QStringLiteral("horizon.reentrant"));
+      if (layer)
+        m_ctx->projectSvc()->project()->removeMapLayer(layer->id());
     }
 
     // T20 恢复链路：坏 catalog → 告警 + 导入禁用；重开好工程（AppContext

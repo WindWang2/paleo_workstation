@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <limits>
+#include <vector>
 
 qint64 LasParser::s_fileSizeLimit = 500LL * 1024 * 1024;
 
@@ -653,6 +654,7 @@ bool LasParser::parseRange(const QString &path, qint64 rowFrom, qint64 rowTo,
   if (!scanHeaderFromFile(f, &header, error, issues, path))
     return false;
   const QStringList &names = header.header.curveNames;
+  f.seek(0);
   const qint64 asciiOff = header.asciiDataOffset + bomAdjustment(f.peek(3));
 
   if (f.size() <= 8 * 1024 * 1024)
@@ -760,6 +762,7 @@ bool LasParser::parseDepthRange(const QString &path, double fromDepth, double to
 
   // 流式逐行：DEPT 落在 [from,to] 内的行收；DEPT 单调递增时越过 to 即停。
   const qint64 fileSize = f.size();
+  f.seek(0);
   qint64 pos = header.asciiDataOffset + bomAdjustment(f.peek(3));
   constexpr qint64 kChunk = 4 * 1024 * 1024;
   QByteArray carry;
@@ -790,10 +793,10 @@ bool LasParser::parseDepthRange(const QString &path, double fromDepth, double to
         ++eol;
       if (eol > i)
       {
-        double rowVals[64];
+        std::vector<double> rowVals(nCurves, nan());
         int col = 0;
         qint64 p = i;
-        while (p < eol && col < 64)
+        while (p < eol && col < nCurves)
         {
           while (p < eol && (chunk.at(p) == ' ' || chunk.at(p) == '\t'))
             ++p;

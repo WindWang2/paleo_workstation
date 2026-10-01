@@ -6,3 +6,4 @@ add_paleo_test(tst_velocitymodel LIBS paleo_algorithms)
 add_paleo_test(tst_depthconversion LIBS paleo_workflow)
 target_compile_definitions(tst_depthconversion PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_timedepthperf LIBS paleo_workflow)

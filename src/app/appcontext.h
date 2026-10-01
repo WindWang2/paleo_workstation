@@ -7,6 +7,7 @@
 
 // app/ — AppContext wires the service graph together (composition root).
 // Construct once in main(); owns all services; PaleoMainWindow receives them.
+#include "metadata/faultsetstore.h"
 class ProjectDirLock;
 class QgisRuntime;
 class QgisCanvasController;
@@ -28,6 +29,9 @@ class PredictionWorkflow;
 class ConstraintWorkflow;
 class CompositionWorkflow;
 class ValidationWorkflow;
+namespace paleo::fault {
+class FaultInterpretationController;
+}
 class ProjectDataFacade;
 class MappingWorkflow;
 class MappingWorkbench;
@@ -73,6 +77,11 @@ class AppContext : public QObject
     MappingWorkflow *mappingWf() const { return m_mappingWf; }
     MapVersionStore *versionStore() const { return m_versionStore; }
     MapVersionController *versionCtl() const { return m_versionCtl; }
+
+    // goal/fault-interpretation：断层解释编排器（FaultSet 模型 + 撤销栈 +
+    // SelectionContext 联动 + 切割镜像层）。存储随工程打开重绑（值成员，
+    // 控制器持有稳定地址）。
+    paleo::fault::FaultInterpretationController *faultCtl() const { return m_faultCtl; }
 
     // pass-2 D1/D2：异步任务注册中心（QThreadPool 执行 + 字节进度 + 10s 窗口
     // ETA + 协作取消），任务页轮询它渲染进度条；长 IO 经它上 worker。
@@ -125,6 +134,8 @@ class AppContext : public QObject
     MappingWorkflow *m_mappingWf = nullptr;
     MapVersionStore *m_versionStore = nullptr;
     MapVersionController *m_versionCtl = nullptr;
+    FaultSetStore m_faultStore{QString(), nullptr}; // projectOpened 值重绑
+    paleo::fault::FaultInterpretationController *m_faultCtl = nullptr;
     PaleoTaskService *m_taskSvc = nullptr;
     std::unique_ptr<ProjectDirLock> m_projectLock;
     bool m_lastReadOnlyNotified = false; // 上次广播的只读态（去重）

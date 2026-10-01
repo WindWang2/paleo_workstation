@@ -93,6 +93,8 @@ int main(int argc, char *argv[])
                          ctx.compositionWf(), ctx.validationWf(), ctx.importSvc(),
                          ctx.seismicLink(), ctx.processingSvc(), ctx.store(),
                          ctx.editingSvc(), ctx.layoutSvc(), ctx.taskSvc());
+  // goal/fault-interpretation：剖面断层拾取/断层管理面板接编排器
+  window.attachFaults(ctx.faultCtl());
   // D1（wave/deepen-perf）：wellcomposite 派生登记/井斜时深装配的 io 注入——
   // 组装根是唯一可同时 include io/ 与 ui/ 的非视图目录（视图侧白名单只放
   // 行 io/lasdoc.h）。未注入时 sink 走诚实失败路径（状态栏+日志），不静默。

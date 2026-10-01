@@ -26,6 +26,7 @@
 #include "../io/dataimportservice.h"
 #include "../qgis/qgislayoutservice.h"
 #include "../workflow/workflows.h"
+#include "../workflow/faultinterpretationcontroller.h" // goal/fault-interpretation
 #include "../services/projectdata.h"
 #include "../workflow/mappingworkflow.h"
 #include "../metadata/mapversionstore.h"
@@ -150,6 +151,10 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_styleSvc = new QgisStyleService(this);
   m_toolSvc = new ToolAvailabilityService(m_store, this);
   m_selection = new SelectionContext(this);
+
+  // goal/fault-interpretation：断层解释编排器（存储值成员在 projectOpened
+  // 重绑到本工程 meta 库；控制器地址稳定，撤销栈不因重开工程丢失）。
+  m_faultCtl = new paleo::fault::FaultInterpretationController(&m_faultStore, m_selection, this);
 
   // 地震—地图联动: binds the selection context to the canvas. Forcing canvas()
   // here materializes the widget early; the main window reparents it into the
@@ -372,6 +377,38 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             // 井点写 GeoJSON、声明「wells」、实例化后绑给 WellMapLink。
             m_projectDir = fi.absolutePath();
             refreshWellsLayer(false); // 打开时视野归 .qgz 恢复态，不抢
+
+            // goal/fault-interpretation：FaultSet 存储值重绑本工程 meta 库并
+            // 读回；工程有断层时切割镜像层上图（内存层由模型整刷）。
+            // catalog 角色：有 seismic_survey 实体及其地震体资产时挂上下文
+            //（首次写断层时 ensure "fault" 角色链接，幂等）。
+            m_faultStore = FaultSetStore(metaPath, m_store);
+            m_faultStore.setReadOnly(!writable); // 值重绑带回可写默认——重设
+            QString faultStoreErr;
+            if (!m_faultStore.open(&faultStoreErr))
+              qWarning() << "AppContext: fault set store open failed" << metaPath
+                         << faultStoreErr;
+            QString faultErr;
+            if (!m_faultCtl->reload(&faultErr))
+              qWarning() << "AppContext: fault set reload failed" << faultErr;
+            if (m_import && m_import->catalog()) {
+              DataCatalog *cat = m_import->catalog();
+              const auto surveys = cat->entities(QStringLiteral("seismic_survey"));
+              if (!surveys.isEmpty()) {
+                const QString surveyId = surveys.first().id;
+                QString volumeAssetId;
+                for (const EntityAssetLink &l : cat->linksForEntity(surveyId)) {
+                  if (l.role == QLatin1String("seismic_volume") && !l.assetId.isEmpty()) {
+                    volumeAssetId = l.assetId;
+                    break;
+                  }
+                }
+                if (!volumeAssetId.isEmpty())
+                  m_faultCtl->setCatalogContext(cat, surveyId, volumeAssetId);
+              }
+            }
+            if (m_faultCtl->faultSet().faultCount() > 0)
+              m_faultCtl->ensureMapLayer(m_projectSvc->project()->crs().authid());
           });
   StartupTrace::mark(QStringLiteral("services_ready")); // 服务装配完（簇1 仪表）
 }

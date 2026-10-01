@@ -81,3 +81,17 @@ add_paleo_test(tst_seismicattrui LIBS paleo_ui)
 # goal/seismic-attributes — 性能面：合成体比率门（属性 ≤6× 切片提取基线，
 # 机器无关）+ PALEO_REAL_PROJECT_AREA 门控真机实测（BASELINE 行誊档案）
 add_paleo_test(tst_seismicattrperf LIBS paleo_services)
+
+# goal/horizon-autotrack — 层位自动追踪核（纯数值：互相关主干+相干门+
+# 多种子合并+3D 前沿扫掠+协作取消）；数值面测试在 tst_horizontrack
+target_sources(paleo_algorithms PRIVATE src/algorithms/horizontrack.cpp)
+add_paleo_test(tst_horizontrack LIBS paleo_algorithms)
+
+# goal/horizon-autotrack — 追踪性能面：比率门（≤8× 切片提取基线）+
+# 966MB 生产形状（411×641×901@2ms）逐道追踪速率实测（BASELINE 行誊
+# docs/progress/horizon-autotrack.md；夹具一次性生成缓存在构建目录）
+add_paleo_test(tst_horizontrackperf LIBS paleo_services)
+target_compile_definitions(tst_horizontrackperf PRIVATE
+  PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
+  PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
+  PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")

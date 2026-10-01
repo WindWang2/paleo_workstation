@@ -8,9 +8,9 @@
 //
 // 语义：
 //   · 首次 mark 前自动起步（无需显式 begin；main 第一行 mark("main_entry")）。
-//   · mark 只在 PALEO_STARTUP_TRACE 已设时才记录时间戳？不——记录恒发生
-//     （一次 QElapsedTimer::elapsed + vector append，纳秒级），落盘才受 env
-//     门控：产品路径（env 未设）finish() 直接 no-op，零可观测开销。
+//   · mark 恒记录（一次 QElapsedTimer::elapsed + vector append，纳秒级）；
+//     落盘才受 env 门控——产品路径（PALEO_STARTUP_TRACE 未设）finish()
+//     直接 no-op，零可观测开销。
 //   · process→main 段读 /proc/self/stat starttime 与 /proc/uptime 之差
 //     （动态链接器 + 重定位 + 静态初始化的真实墙钟——LTO/PGO 启动实验的
 //     观测面）；非 Linux 或读不到 → -1，不补假值。

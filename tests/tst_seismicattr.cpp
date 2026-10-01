@@ -262,7 +262,7 @@ void TestSeismicAttr::coherenceIdenticalTraces()
       vol[std::size_t(p * nS + s)] = w[std::size_t(s)];
 
   std::vector<float> out(std::size_t(vol.size()));
-  semblanceCoherence(vol.data(), nIl, nXl, nS, 1, 2, out.data());
+  semblanceCoherence(vol.data(), nIl, nXl, nS, 1, 1, 2, out.data());
 
   const auto at = [&](int il, int xl, int s)
   { return out[std::size_t((il * nXl + xl) * nS + s)]; };
@@ -300,7 +300,7 @@ void TestSeismicAttr::coherenceDirectionalFault()
     }
 
   std::vector<float> out(std::size_t(vol.size()));
-  semblanceCoherence(vol.data(), nIl, nXl, nS, 1, 2, out.data());
+  semblanceCoherence(vol.data(), nIl, nXl, nS, 1, 1, 2, out.data());
 
   const auto at = [&](int il, int xl, int s)
   { return out[std::size_t((il * nXl + xl) * nS + s)]; };
@@ -328,7 +328,7 @@ void TestSeismicAttr::coherenceDirectionalFault()
                                       vol[std::size_t(((p / nXl) * nXl + 0) * nS + s)];
   // xl=0 是左块波形（峰 64）：全体取它 = 无断层参照体。
   std::vector<float> out0(std::size_t(vol0.size()));
-  semblanceCoherence(vol0.data(), nIl, nXl, nS, 1, 2, out0.data());
+  semblanceCoherence(vol0.data(), nIl, nXl, nS, 1, 1, 2, out0.data());
   const auto at0 = [&](int il, int xl, int s)
   { return out0[std::size_t((il * nXl + xl) * nS + s)]; };
   for (int xl = 1; xl < nXl - 1; ++xl)
@@ -348,7 +348,7 @@ void TestSeismicAttr::coherenceRandomNoise()
     v = dist(rng);
 
   std::vector<float> out(std::size_t(vol.size()));
-  semblanceCoherence(vol.data(), nIl, nXl, nS, 1, 2, out.data());
+  semblanceCoherence(vol.data(), nIl, nXl, nS, 1, 1, 2, out.data());
 
   // 白噪 9 道 × T=5 时样：期望 S≈1/T=0.2 量级（叠加无增益）。门 <0.5。
   const auto at = [&](int il, int xl, int s)

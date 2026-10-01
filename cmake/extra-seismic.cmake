@@ -66,3 +66,7 @@ target_compile_definitions(tst_seismic_budgets PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
   PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
   PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")
+
+# goal/seismic-attributes — 属性任务编排：几何/解析值/拒绝语义/入池取消/
+# 进度单调/SATR 资产登记 roundtrip（核函数数值面在 tst_seismicattr）
+add_paleo_test(tst_seismicattrsvc LIBS paleo_services)

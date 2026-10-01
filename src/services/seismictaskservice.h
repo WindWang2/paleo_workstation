@@ -397,6 +397,72 @@ public:
   // D4.5 CSV 导出
   static bool exportPicksCsv(const QList<SeismicPick> &picks, const QString &filePath, QString *error);
 
+  // ---- 地震属性（goal/seismic-attributes）--------------------------------
+  // 属性核在 src/algorithms/seismicattr.h（纯数值）；此处只做任务编排：
+  // 切片/邻线读取 → 核计算 → SgySliceImage 属性图（与源切片逐位同几何，
+  // 可直接叠加显示），进度/取消复用 PaleoTask 语义。
+
+  enum class SeismicAttrKind
+  {
+    Envelope,   // 包络 |a|（Taner 1979）
+    InstPhase,  // 瞬时相位（度）
+    InstFreq,   // 瞬时频率（Hz，Barnes 2007 差分法）
+    InstQ,      // 瞬时 Q 原型（不稳定处 NaN）
+    Rms,        // 时窗 RMS 振幅
+    MaxAbs,     // 时窗最大绝对振幅
+    MeanEnergy, // 时窗平均能量
+    Coherence,  // semblance C2 相干（Marfurt 1998）
+    Sweetness   // 甜点 env/sqrt(f)（Radovich & Oliveros 1998）
+  };
+
+  static QString seismicAttrId(SeismicAttrKind kind);          // "envelope"|...（catalog/面板键）
+  static QString seismicAttrDisplayName(SeismicAttrKind kind); // 中文显示名
+  static bool seismicAttrNeedsNeighbors(SeismicAttrKind kind); // 相干需邻线（3 线窗）
+
+  struct SeismicAttrParams
+  {
+    int windowHalfSamples = 8;   // 时窗族半窗（样，闭窗 [i-h,i+h]）
+    int coherenceIlHalf = 1;     // 相干 inline 向半窗（道）
+    int coherenceXlHalf = 1;     // 相干 crossline 向半窗（道）
+    int coherenceTimeHalf = 2;   // 相干垂直半窗（样）
+  };
+
+  struct SeismicAttrResult
+  {
+    bool ok = false;
+    QString error;
+    QString attrId;
+    SgySliceType sectionType = SgySliceType::Inline;
+    int sectionIndex = 0;        // 实际解析出的测线号/采样号
+    int traceCount = 0;          // 参与计算的道数（含 NaN 道）
+    int validTraceCount = 0;     // 有限值道数
+    double readMs = 0.0;         // 切片读取耗时（实测表用）
+    double computeMs = 0.0;      // 核计算耗时
+    std::shared_ptr<const SgySliceImage> image; // 属性图（values 行主序，NaN=无效）
+  };
+
+  // 异步属性切片：volume 为已加载体（startVolumeLoad 产物）；sliceIndex 为
+  // inline/xline 号（稀疏测网按精确值解析，缺线如实失败）；Time 切片暂不
+  // 支持（瞬时族需整道谱，时窗族需垂向窗，见 TODOS 递延）。onFinished 在
+  // 服务所在线程回调。
+  PaleoTask *startAttributeSlice(
+      std::shared_ptr<SgyVolume> volume,
+      SeismicAttrKind kind,
+      const SeismicAttrParams &params,
+      SgySliceType sliceType,
+      int sliceIndex,
+      std::function<void(bool success, const SeismicAttrResult &result)> onFinished);
+
+  // 属性图 → 派生资产：写 <outputDir>/<attr>_<il|xl>_<idx>.sattr（"SATR"
+  // 魔数 + 版本 + width/height + JSON 头 + 小端 f32 值块）+ DERIVED 版本登记
+  // （父版本 = 源地震 RAW 版本）。返回登记后的文件路径（空 = 失败）。
+  static QString registerAttributeSliceAsset(
+      DataCatalog *catalog, const QString &seismicAssetId,
+      const QString &seismicVersionId, const SeismicAttrResult &result,
+      const SeismicAttrParams &params, const QString &sourceSgyPath,
+      const QString &outputDir, QString *error);
+
+
   // ---- Phase 6 性能与可靠性 ----
 
   // D6.6 错误分类：文件缺/索引坏/内存超限/GL 不可用分级

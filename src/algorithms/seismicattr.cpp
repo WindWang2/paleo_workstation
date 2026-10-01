@@ -306,25 +306,26 @@ void windowedMeanEnergy(const float *x, int n, int halfWindow, float *out)
 }
 
 void semblanceCoherence(const float *volume, int nIl, int nXl, int nS,
-                        int spatialHalf, int timeHalf, float *out)
+                        int ilHalf, int xlHalf, int timeHalf, float *out)
 {
   if (!volume || !out || nIl <= 0 || nXl <= 0 || nS <= 0 ||
-      spatialHalf < 0 || timeHalf < 0)
+      ilHalf < 0 || xlHalf < 0 || timeHalf < 0)
     return;
   const int nOut = nIl * nXl * nS;
   for (int i = 0; i < nOut; ++i)
     out[i] = kNaN;
-  if (spatialHalf == 0 && timeHalf == 0)
+  if (ilHalf == 0 && xlHalf == 0 && timeHalf == 0)
     return; // 退化窗：单道单样 semblance 恒 1 无意义，保持 NaN
 
   const int traceStride = nS;                      // (il,xl) 相邻道步长
   const int rowStride = nXl * nS;                  // 相邻 il 步长
-  const int spatialDiam = 2 * spatialHalf + 1;
-  const double jTraces = double(spatialDiam) * double(spatialDiam);
+  const int ilDiam = 2 * ilHalf + 1;
+  const int xlDiam = 2 * xlHalf + 1;
+  const double jTraces = double(ilDiam) * double(xlDiam);
 
-  for (int il = spatialHalf; il < nIl - spatialHalf; ++il)
+  for (int il = ilHalf; il < nIl - ilHalf; ++il)
   {
-    for (int xl = spatialHalf; xl < nXl - spatialHalf; ++xl)
+    for (int xl = xlHalf; xl < nXl - xlHalf; ++xl)
     {
       const int traceBase = il * rowStride + xl * traceStride;
       const int outBase = traceBase;
@@ -338,9 +339,9 @@ void semblanceCoherence(const float *volume, int nIl, int nXl, int nS,
         for (int t = lo; t <= hi && valid; ++t)
         {
           double stack = 0.0;
-          for (int dil = -spatialHalf; dil <= spatialHalf; ++dil)
+          for (int dil = -ilHalf; dil <= ilHalf; ++dil)
           {
-            for (int dxl = -spatialHalf; dxl <= spatialHalf; ++dxl)
+            for (int dxl = -xlHalf; dxl <= xlHalf; ++dxl)
             {
               const double v = double(volume[traceBase + dil * rowStride +
                                              dxl * traceStride + t]);

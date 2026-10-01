@@ -62,15 +62,16 @@ void windowedMaxAbs(const float *x, int n, int halfWindow, float *out);
 void windowedMeanEnergy(const float *x, int n, int halfWindow, float *out);
 
 // ---- 相干体（semblance C2）----------------------------------------------------
-// 对每个 (il, xl, s)：取空间 (2*spatialHalf+1)² 道窗（IL/XL 双向）× 垂直
-// [s-timeHalf, s+timeHalf] 时窗（边缘缩窗），J = 道数：
+// 对每个 (il, xl, s)：取空间 (2*ilHalf+1)×(2*xlHalf+1) 道窗（IL/XL 向半窗
+// 分开设——两向道距不等时各取各的）× 垂直 [s-timeHalf, s+timeHalf] 时窗
+// （边缘缩窗），J = 道数：
 //   S = Σ_t ( Σ_j u_j(t) )²  /  ( J · Σ_t Σ_j u_j(t)² )   ∈ [0, 1]
 // 完全同相（J 道波形一致，任意波形）→ S=1；道间能量全无序 → 趋近 0。
 // 体内任一道窗样点 NaN → 输出 NaN；空间窗越界（体边界的道）→ NaN（相干体
-// 标准边界带）；分母≈0（全零窗，数学上 0/0 未定义）→ NaN。
+// 标准边界带）；全零窗（数学上 0/0 未定义，精确零判）→ NaN。
 // out 尺寸 nIl*nXl*nS，布局同输入。
 void semblanceCoherence(const float *volume, int nIl, int nXl, int nS,
-                        int spatialHalf, int timeHalf, float *out);
+                        int ilHalf, int xlHalf, int timeHalf, float *out);
 
 // ---- 甜点 ---------------------------------------------------------------------
 // sweetness = envelope / sqrt(max(freqHz, fMin))，fMin=1e-3 Hz（负瞬时频率

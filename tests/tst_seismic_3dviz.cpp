@@ -457,14 +457,14 @@ void TestSeismic3DViz::viewportObliquePickCommits() {
         QVERIFY(p.y >= vol->XlineMin() && p.y <= vol->XlineMax());
     }
 
-    // 栅栏模式：多点 + 回车提交
+    // 栅栏模式：多点 + 回车提交（对角三击——fixture 网格 3×4 取必异格）
     viewport.setSectionPickMode(true, /*autoCommitAtTwo=*/false);
-    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 100));
-    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 100));
+    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(320, 60));
+    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(320, 60));
     QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
     QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
-    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(100, 200));
-    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(100, 200));
+    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(80, 240));
+    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(80, 240));
     QCOMPARE(committed.count(), 0); // 未回车不提交
     QTest::keyClick(&viewport, Qt::Key_Return);
     QTRY_COMPARE_WITH_TIMEOUT(committed.count(), 1, 1000);

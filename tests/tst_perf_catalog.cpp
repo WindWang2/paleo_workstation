@@ -230,7 +230,11 @@ void PerfCatalogTests::queryScalingSubLinear()
 
 void PerfCatalogTests::open10kUnder500ms()
 {
-  // D5.7：10k 资产 catalog 打开 <500ms（fixture 生成慢但一次性）。
+  // D5.7：10k 资产 catalog 打开。goal/perf-systematize 簇3：绝对 500ms
+  //（实测 108-145ms，余量 ~4×，慢机可抖）改双门——
+  //   比率门：10k/1k 打开耗时比 ≤ 25（线性 ≈10×；实测 10-14×；超线性
+  //           解析回归（如逐实体重扫全文）时 → 数百倍必红）；
+  //   sanity：500ms 上限保留（拦挂死，不判回归）。
   const QString dir = m_dir.filePath("open10k");
   QString err;
   QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir, 10000, &err));
@@ -239,6 +243,18 @@ void PerfCatalogTests::open10kUnder500ms()
   t.start();
   QVERIFY(cat.open(dir, &err));
   const double ms = t.nsecsElapsed() / 1.0e6;
+
+  const QString dir1k = m_dir.filePath("open1k");
+  QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir1k, 1000, &err));
+  DataCatalog cat1k;
+  t.restart();
+  QVERIFY(cat1k.open(dir1k, &err));
+  const double ms1k = double(t.nsecsElapsed()) / 1.0e6;
+  qInfo("catalog open 1k=%.1fms 10k=%.1fms ratio=%.1f", ms1k, ms,
+        ms1k > 0 ? ms / ms1k : -1.0);
+  QVERIFY2(ms1k > 0 && ms / ms1k <= 25.0,
+           qPrintable(QStringLiteral("open 10k/1k=%1 > 25（打开退化成超线性？）")
+                          .arg(ms1k > 0 ? ms / ms1k : -1.0, 0, 'f', 1)));
   QVERIFY2(ms < 500.0, qPrintable(QStringLiteral("open 10k = %1ms >= 500ms").arg(ms)));
   QCOMPARE(cat.entities().size(), 10000);
   QVERIFY(cat.indexHealthy());

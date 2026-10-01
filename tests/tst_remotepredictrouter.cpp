@@ -13,6 +13,7 @@
 
 #include <cmath>
 #include <limits>
+#include <memory>
 
 #include "../src/ai/onnxfixture.h"
 #include "../src/ai/onnxpredictionservice.h"
@@ -60,17 +61,13 @@ class LoopbackServer : public QObject
         return;
       }
       if ( mode == Mode::Slow )
-      {
-        m_sockets.append( sock ); // 挂起不答——逼超时路径
-        return;
-      }
-      auto *buf = new QByteArray;
-      m_sockets.append( sock );
-      connect( sock, &QTcpSocket::disconnected, this, [this, sock] {
-        m_sockets.removeOne( sock );
-        sock->deleteLater();
-      } );
-      connect( sock, &QTcpSocket::readyRead, this, [this, sock, buf] {
+        return; // 挂起不答（socket 是 server 子对象，随其析构关闭）——逼超时路径
+      // 连接生命周期全部挂在 socket 自身上：缓冲是 socket 子对象（随其释放），
+      // 信号 receiver 也是 socket（销毁自动断连）——不维护手工指针列表，
+      // 崩溃面（悬垂 removeOne）从结构上移除。
+      const auto buf = std::make_shared<QByteArray>();
+      connect( sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater );
+      connect( sock, &QTcpSocket::readyRead, sock, [this, sock, buf] {
         buf->append( sock->readAll() );
         const int headerEnd = buf->indexOf( "\r\n\r\n" );
         if ( headerEnd < 0 )
@@ -121,7 +118,6 @@ class LoopbackServer : public QObject
     }
 
     QTcpServer m_server;
-    QList<QTcpSocket *> m_sockets;
 };
 
 class TestRemotePredictionRouter : public QObject

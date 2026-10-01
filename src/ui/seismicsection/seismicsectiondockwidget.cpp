@@ -22,6 +22,7 @@
 #include <QRegularExpression>
 #include <QTextEdit>
 #include <QThreadPool>
+#include <QPointer>
 #include <QMetaObject>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -56,6 +57,15 @@ SeismicSectionDockWidget::SeismicSectionDockWidget(const QString &title, QWidget
     setupUi();
     auto *tasks = new PaleoTaskService(nullptr, this);
     m_taskService = new SeismicTaskService(tasks, 256, this);
+}
+
+SeismicSectionDockWidget::~SeismicSectionDockWidget() {
+    if (m_activeCancelFlag) {
+        m_activeCancelFlag->store(true);
+    }
+    if (m_extraction) {
+        m_extraction->requestCancel();
+    }
 }
 
 void SeismicSectionDockWidget::setupUi() {
@@ -1015,12 +1025,19 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
     if (!m_volume || !m_volume->IsLoaded())
         return;
 
+    const uint64_t currentGen = ++m_sliceGeneration;
+    if (m_activeCancelFlag) {
+        m_activeCancelFlag->store(true);
+    }
+
     if (m_isExtractingSlice) {
         m_pendingSliceType = type;
         m_pendingSliceIndex = index;
         return;
     }
     m_isExtractingSlice = true;
+    m_activeCancelFlag = std::make_shared<std::atomic<bool>>(false);
+    auto cancelFlag = m_activeCancelFlag;
 
     // 常规 IL/XL/Time 切换：丢弃任意线旧状态（route/井叠加），
     // hasRoute() 复归 false（wave/sections 语义）。
@@ -1044,81 +1061,99 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
     m_progressBar->setVisible(true);
 
     auto vol = m_volume;
-    QThreadPool::globalInstance()->start([this, vol, type, index, title, origin]() {
+    QPointer<SeismicSectionDockWidget> guard(this);
+    QThreadPool::globalInstance()->start([guard, vol, type, index, title, origin, currentGen, cancelFlag]() {
+        if (!guard)
+            return;
         SgySliceImage image;
         std::string err;
-        auto progressCb = [this](int processed, int total) -> bool {
+        auto progressCb = [guard, cancelFlag](int processed, int total) -> bool {
+            if (!guard || (cancelFlag && cancelFlag->load()))
+                return false; // Early abort in SgyVolume::ExtractSlice
             if (total > 0) {
                 const int pct = std::clamp(static_cast<int>(std::round(100.0 * processed / total)), 0, 100);
-                QMetaObject::invokeMethod(this, [this, pct]() {
-                    m_progressBar->setValue(pct);
-                }, Qt::QueuedConnection);
+                if (auto *dock = guard.data()) {
+                    QMetaObject::invokeMethod(dock, [guard, pct]() {
+                        if (guard && guard->m_progressBar) {
+                            guard->m_progressBar->setValue(pct);
+                        }
+                    }, Qt::QueuedConnection);
+                }
             }
             return true;
         };
 
         const bool ok = vol->ExtractSlice(type, index, image, err, progressCb);
+        if (!guard)
+            return;
 
-        QMetaObject::invokeMethod(this, [this, ok, image, type, index, title, vol, err, origin]() {
-            m_isExtractingSlice = false;
-            m_progressBar->setVisible(false);
+        if (auto *dock = guard.data()) {
+            QMetaObject::invokeMethod(dock, [guard, ok, image, type, index, title, vol, err, origin, currentGen]() {
+                if (!guard)
+                    return;
+                guard->m_isExtractingSlice = false;
+                if (guard->m_progressBar)
+                    guard->m_progressBar->setVisible(false);
 
-            if (m_pendingSliceIndex >= 0) {
-                const auto nextType = m_pendingSliceType;
-                const int nextIdx = m_pendingSliceIndex;
-                m_pendingSliceIndex = -1;
-                extractSliceAsync(nextType, nextIdx);
-                if (nextType != type) {
+                if (guard->m_pendingSliceIndex >= 0) {
+                    const auto nextType = guard->m_pendingSliceType;
+                    const int nextIdx = guard->m_pendingSliceIndex;
+                    guard->m_pendingSliceIndex = -1;
+                    guard->extractSliceAsync(nextType, nextIdx);
                     return;
                 }
-            }
 
-            if (!ok) {
-                // D2.14：原因态——画布显示可读原因而非空白
-                setLineTitle(tr("切片提取失败: %1").arg(QString::fromStdString(err)));
-                m_canvas->clearData();
-                m_canvas->setNoDataReason(tr("剖面不可用\n%1").arg(QString::fromStdString(err)));
-                emit sectionExtractionFinished(false, QString::fromStdString(err));
-                return;
-            }
-            if (image.width <= 0 || image.height <= 0 || image.values.empty()) {
-                // D2.14：空数据原因态（如无有效道的线号）
-                setLineTitle(title);
-                m_canvas->clearData();
-                m_canvas->setNoDataReason(tr("%1\n该线无有效地震道（工区覆盖范围外）").arg(title));
-                emit sectionExtractionFinished(false, tr("空切片"));
-                return;
-            }
+                if (guard->m_sliceGeneration != currentGen) {
+                    return;
+                }
 
-            setLineTitle(title);
-            if (m_btnCurtain && m_btnCurtain->isChecked())
-                updateCompareSlice(); // D2.10：当前线变了，相邻线 B 图同步
-            if (type == SgySliceType::Time) {
-                const double ms = origin + index * (vol->SampleIntervalUs() / 1000.0);
-                m_canvas->setTimeSliceData(image, ms, vol->InlineMin(), vol->InlineMax(), vol->XlineMin(), vol->XlineMax());
-            } else {
-                const float dtMs = vol->SampleIntervalUs() > 0 ? (vol->SampleIntervalUs() / 1000.0f) : 2.0f;
-                m_canvas->setSectionData(image, dtMs, origin);
-            }
-            // D4：剖面身份 + 最近切片（拾取解析/追踪原料）
-            {
-                SectionRef ref;
-                ref.valid = true;
-                ref.type = type;
-                ref.index = index;
-                if (type == SgySliceType::Inline)
-                    ref.colMin = vol->XlineMin(), ref.colMax = vol->XlineMax();
-                else if (type == SgySliceType::Xline)
-                    ref.colMin = vol->InlineMin(), ref.colMax = vol->InlineMax();
-                else
-                    ref.colMin = vol->XlineMin(), ref.colMax = vol->XlineMax();
-                m_canvas->setSectionRef(ref);
-                if (type != SgySliceType::Time)
-                    m_lastSlice = image;
-            }
-            refreshInterpretationOverlay();
-            emit sectionExtractionFinished(true, QString());
-        }, Qt::QueuedConnection);
+                if (!ok) {
+                    // D2.14：原因态——画布显示可读原因而非空白
+                    guard->setLineTitle(guard->tr("切片提取失败: %1").arg(QString::fromStdString(err)));
+                    guard->m_canvas->clearData();
+                    guard->m_canvas->setNoDataReason(guard->tr("剖面不可用\n%1").arg(QString::fromStdString(err)));
+                    emit guard->sectionExtractionFinished(false, QString::fromStdString(err));
+                    return;
+                }
+                if (image.width <= 0 || image.height <= 0 || image.values.empty()) {
+                    // D2.14：空数据原因态（如无有效道的线号）
+                    guard->setLineTitle(title);
+                    guard->m_canvas->clearData();
+                    guard->m_canvas->setNoDataReason(guard->tr("%1\n该线无有效地震道（工区覆盖范围外）").arg(title));
+                    emit guard->sectionExtractionFinished(false, guard->tr("空切片"));
+                    return;
+                }
+
+                guard->setLineTitle(title);
+                if (guard->m_btnCurtain && guard->m_btnCurtain->isChecked())
+                    guard->updateCompareSlice(); // D2.10：当前线变了，相邻线 B 图同步
+                if (type == SgySliceType::Time) {
+                    const double ms = origin + index * (vol->SampleIntervalUs() / 1000.0);
+                    guard->m_canvas->setTimeSliceData(image, ms, vol->InlineMin(), vol->InlineMax(), vol->XlineMin(), vol->XlineMax());
+                } else {
+                    const float dtMs = vol->SampleIntervalUs() > 0 ? (vol->SampleIntervalUs() / 1000.0f) : 2.0f;
+                    guard->m_canvas->setSectionData(image, dtMs, origin);
+                }
+                // D4：剖面身份 + 最近切片（拾取解析/追踪原料）
+                {
+                    SectionRef ref;
+                    ref.valid = true;
+                    ref.type = type;
+                    ref.index = index;
+                    if (type == SgySliceType::Inline)
+                        ref.colMin = vol->XlineMin(), ref.colMax = vol->XlineMax();
+                    else if (type == SgySliceType::Xline)
+                        ref.colMin = vol->InlineMin(), ref.colMax = vol->InlineMax();
+                    else
+                        ref.colMin = vol->XlineMin(), ref.colMax = vol->XlineMax();
+                    guard->m_canvas->setSectionRef(ref);
+                    if (type != SgySliceType::Time)
+                        guard->m_lastSlice = image;
+                }
+                guard->refreshInterpretationOverlay();
+                emit guard->sectionExtractionFinished(true, QString());
+            }, Qt::QueuedConnection);
+        }
     });
 }
 
@@ -1399,14 +1434,27 @@ void SeismicSectionDockWidget::updateCompareSlice() {
     m_extractingCompare = true;
     auto vol = m_volume;
     const auto type = mode == 0 ? SgySliceType::Inline : SgySliceType::Xline;
-    QThreadPool::globalInstance()->start([this, vol, type, neighbor, label]() {
+    QPointer<SeismicSectionDockWidget> guard(this);
+    QThreadPool::globalInstance()->start([guard, vol, type, neighbor, label]() {
+        if (!guard)
+            return;
         SgySliceImage image;
         std::string err;
-        vol->ExtractSlice(type, neighbor, image, err);
-        QMetaObject::invokeMethod(this, [this, image, label]() {
-            m_extractingCompare = false;
-            m_canvas->setCompareData(image, label);
-        }, Qt::QueuedConnection);
+        auto progressCb = [guard](int, int) -> bool {
+            return static_cast<bool>(guard);
+        };
+        vol->ExtractSlice(type, neighbor, image, err, progressCb);
+        if (!guard)
+            return;
+        if (auto *dock = guard.data()) {
+            QMetaObject::invokeMethod(dock, [guard, image, label]() {
+                if (!guard)
+                    return;
+                guard->m_extractingCompare = false;
+                if (guard->m_canvas)
+                    guard->m_canvas->setCompareData(image, label);
+            }, Qt::QueuedConnection);
+        }
     });
 }
 

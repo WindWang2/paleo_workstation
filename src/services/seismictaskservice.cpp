@@ -2585,12 +2585,15 @@ PaleoTask *SeismicTaskService::startBounded(const QString &title,
   const std::function<QString(PaleoTask *)> gated =
       [gate, work](PaleoTask *task) -> QString {
         gate->slotSemaphore.acquire();
-        const QString err = task->cancelRequested() ? QString() : work(task);
-        gate->slotSemaphore.release();
-        return err;
+        struct SemaphoreGuard {
+          QSemaphore &sem;
+          ~SemaphoreGuard() { sem.release(); }
+        } guard{gate->slotSemaphore};
+
+        return (task && task->cancelRequested()) ? QString() : (work ? work(task) : QString());
       };
   PaleoTask *task = taskService_->start(title, gated, layerId, quiet);
-  QObject::connect(task, &PaleoTask::finished, this, [gate]() {
+  QObject::connect(task, &PaleoTask::finished, task, [gate]() {
     gate->active.fetch_sub(1);
   });
   return task;

@@ -45,3 +45,5 @@ class LayerManifest
     QString m_dbPath;
     bool m_readOnly = false;
 };
+
+Q_DECLARE_METATYPE(LayerDeclaration)

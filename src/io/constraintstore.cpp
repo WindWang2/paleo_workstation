@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QPointer>
 
 #include <mutex>
 #include <vector>
@@ -47,8 +48,14 @@ ConstraintStore::ConstraintStore(const QString &gpkgPath, PaleoProjectStore *sto
 {
   if (store)
   {
-    m_enqueue = [store](const WriteFn &fn) {
-      return store->enqueueWrite(fn);
+    QPointer<PaleoProjectStore> safeStore(store);
+    m_enqueue = [safeStore](const WriteFn &fn) -> PaleoProjectStore::WriteResult {
+      PaleoProjectStore *storePtr = safeStore.data();
+      if (!storePtr)
+      {
+        return {false, QStringLiteral("PaleoProjectStore destroyed or unavailable")};
+      }
+      return storePtr->enqueueWrite(fn);
     };
   }
 }

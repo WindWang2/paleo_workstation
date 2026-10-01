@@ -98,9 +98,14 @@ class TestPanels : public QObject
       PaleoProjectStore store;
       DataImportService svc;
       FolderStack(const QString &manifestPath, const QString &projectDir)
-        : manifest(manifestPath), layers(nullptr, &manifest), svc(&layers, &store)
+        : manifest(manifestPath), layers(nullptr, &manifest), svc(&store)
       {
         manifest.open();
+        QObject::connect(&svc, &DataImportService::layerDeclared,
+                         &layers, [this](const LayerDeclaration &decl) {
+                           QString err;
+                           layers.declare(decl, &err);
+                         });
         svc.setProjectDir(projectDir);
       }
     };

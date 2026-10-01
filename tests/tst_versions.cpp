@@ -16,6 +16,7 @@
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/mapversionstore.h"
 #include "../src/metadata/paleoprojectstore.h"
+#include "../src/qgis/qgiseditingservice.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/workflow/mapversioncontroller.h"
@@ -359,7 +360,7 @@ class TestVersions : public QObject
         // 继续编辑产生下一版本；发布 v3，v2 快照原样保留。
         const QByteArray v1PdfBytes = [] ( const QString &dir ) {
             QFile pf( QDir( dir ).filePath( QDir( dir ).entryList( { QStringLiteral( "*.pdf" ) }, QDir::Files ).first() ) );
-            pf.open( QIODevice::ReadOnly );
+            (void)pf.open( QIODevice::ReadOnly );
             const QByteArray b = pf.readAll();
             pf.close();
             return b;
@@ -435,6 +436,64 @@ class TestVersions : public QObject
             QVERIFY( q.value( 1 ).isNull() ); // 新列补上但旧行保持 NULL
         }
         QSqlDatabase::removeDatabase( conn );
+    }
+
+    // ---- Issue #27: saveVersion 写队列路由与 dual-key busy token 彻底释放 ----
+    void saveVersionRoutesThroughWriteQueueAndReleasesAllTokens()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+        f.controller.setProjectStore( &f.store );
+        QgisEditingService editSvc( &f.store );
+        f.controller.setEditingService( &editSvc );
+
+        const QString gpkg = makeFaciesGpkg( f.dir.filePath( QStringLiteral( "facies27.gpkg" ) ) );
+        QVERIFY( !gpkg.isEmpty() );
+
+        LayerDeclaration decl;
+        decl.layerId = QStringLiteral( "facies.D61" );
+        decl.horizon = QStringLiteral( "D61" );
+        decl.type = QStringLiteral( "vector" );
+        decl.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( gpkg );
+        decl.group = QStringLiteral( "05_PaleoMap" );
+        QString err;
+        QVERIFY2( f.layers.declare( decl, &err ), qPrintable( err ) );
+
+        auto *vl = qobject_cast<QgsVectorLayer *>( f.layers.instantiate(
+            QStringLiteral( "facies.D61" ), &err ) );
+        QVERIFY2( vl != nullptr, qPrintable( err ) );
+
+        // 1. 通过 editSvc 开启编辑会话（对 d.layerId 和 vl->id() 建立 busy 标记）
+        QVERIFY( editSvc.beginEdit( vl, &err ) );
+        QVERIFY( vl->isEditable() );
+        QVERIFY( f.store.layerBusy( decl.layerId ) );
+
+        QVariantMap prov;
+        prov.insert( QStringLiteral( "step" ), QStringLiteral( "test27" ) );
+
+        // 2. 模拟写队列被置为只读（如工程被另一实例持锁降级模式）
+        f.store.setReadOnly( true );
+        MapVersion vFail = f.controller.saveVersion( QStringLiteral( "D61" ), prov, &err );
+        // 写队列拒绝保存版本
+        QCOMPARE( vFail.version, 0 );
+        QVERIFY( !err.isEmpty() );
+
+        // 断言：即使保存版本因写队列拒绝而失败，所有图层的 busy token 均必须被安全清除（无永久锁死）
+        QVERIFY( !f.store.layerBusy( decl.layerId ) );
+        QVERIFY( !f.store.layerBusy( vl->id() ) );
+
+        // 3. 恢复可写后正常保存版本，验证通过写队列完成保存并清空 busy 标记
+        f.store.setReadOnly( false );
+        f.store.markLayerBusy( decl.layerId, QStringLiteral( "edit" ), QStringLiteral( "editing" ) );
+        f.store.markLayerBusy( vl->id(), QStringLiteral( "edit" ), QStringLiteral( "editing" ) );
+        QVERIFY( f.store.layerBusy( decl.layerId ) );
+        QVERIFY( vl->isEditable() );
+
+        MapVersion vSuccess = f.controller.saveVersion( QStringLiteral( "D61" ), prov, &err );
+        QVERIFY2( vSuccess.version == 1, qPrintable( err ) );
+        QVERIFY( !vl->isEditable() );
+        QVERIFY( !f.store.layerBusy( decl.layerId ) );
+        QVERIFY( !f.store.layerBusy( vl->id() ) );
     }
 };
 

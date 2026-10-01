@@ -9,7 +9,6 @@
 #include "../catalog/datacatalog.h"
 #include "../metadata/layermanifest.h"
 #include "../metadata/paleoprojectstore.h"
-#include "../qgis/qgislayerservice.h"
 #include "../domain/arearules.h"
 #include "horizonbinner.h"
 #include "ingestplan.h"
@@ -102,10 +101,8 @@ namespace
   }
 } // namespace
 
-DataImportService::DataImportService(QgisLayerService *layers, PaleoProjectStore *store,
-                                     QObject *parent)
+DataImportService::DataImportService(PaleoProjectStore *store, QObject *parent)
   : QObject(parent)
-  , m_layers(layers)
   , m_store(store)
   , m_catalog(new DataCatalog(this))
 {
@@ -502,7 +499,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
     return res;
   };
 
-  if (!m_layers || !m_store)
+  if (!m_store)
     return fail(QStringLiteral("import service is not fully wired"));
   if (m_projectDir.isEmpty())
     return fail(QStringLiteral("project dir is not set"));
@@ -602,9 +599,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
         decl.type = QStringLiteral("raster");
         decl.source = DataCatalog::resolvedVersionPath(m_projectDir, derived);
         decl.group = QStringLiteral("00_Data");
-        QString derr;
-        if (!catInvoke([&] { return m_layers->declare(decl, &derr); }))
-          return fail(derr.isEmpty() ? QStringLiteral("manifest declare failed") : derr);
+        catInvoke([&] { emit layerDeclared(decl); });
       }
     }
     QString aerr;
@@ -940,10 +935,8 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       decl.type = QStringLiteral("raster");
       decl.source = tifPath;
       decl.group = QStringLiteral("00_Data");
-      QString derr;
       // declare 写 layer manifest（sqlite）——marshal 回 GUI 线程执行。
-      if (!catInvoke([&] { return m_layers->declare(decl, &derr); }))
-        return fail(derr.isEmpty() ? QStringLiteral("manifest declare failed") : derr);
+      catInvoke([&] { emit layerDeclared(decl); });
       manifestLayerId = decl.layerId;
     }
   }
@@ -1179,7 +1172,7 @@ DataImportService::importFolder(
   QVector<FolderRowResult> rows;
   if (error)
     error->clear(); // 成功路径不写 error——先清掉调用方复用的旧值
-  if (!m_layers || !m_store)
+  if (!m_store)
   {
     setError(error, QStringLiteral("import service is not fully wired"));
     return rows;

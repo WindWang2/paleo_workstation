@@ -186,7 +186,12 @@ private slots:
     QVERIFY(manifest.open(&err));
     QgisLayerService layerSvc(&projectSvc, &manifest);
     PaleoProjectStore store;
-    DataImportService importSvc(&layerSvc, &store);
+    DataImportService importSvc(&store);
+    QObject::connect(&importSvc, &DataImportService::layerDeclared,
+                     &layerSvc, [&layerSvc](const LayerDeclaration &decl) {
+                       QString err;
+                       layerSvc.declare(decl, &err);
+                     });
     importSvc.setProjectDir(projectDir);
 
     // 预热一次：CI 共享 runner 磁盘/页缓存冷态下首次枚举会抖过预算

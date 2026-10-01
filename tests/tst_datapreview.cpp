@@ -67,7 +67,12 @@ class TestDataPreview : public QObject
       return nullptr;
     s->layerSvc = std::make_unique<QgisLayerService>(&s->projectSvc, s->manifest.get());
     s->store = std::make_unique<PaleoProjectStore>();
-    s->importSvc = std::make_unique<DataImportService>(s->layerSvc.get(), s->store.get());
+    s->importSvc = std::make_unique<DataImportService>(s->store.get());
+    QObject::connect(s->importSvc.get(), &DataImportService::layerDeclared,
+                     s->layerSvc.get(), [layerSvc = s->layerSvc.get()](const LayerDeclaration &decl) {
+                       QString err;
+                       layerSvc->declare(decl, &err);
+                     });
     s->importSvc->setProjectDir(projectDir);
     s->preview = std::make_unique<DataPreviewTabs>();
     s->preview->setImportService(s->importSvc.get());

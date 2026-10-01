@@ -84,6 +84,7 @@ class AppContext : public QObject
     // setReadOnly/setLockedReadOnly 接线在本组装根）；UI 态反映经信号
     // projectReadOnlyChanged（壳侧可绑标题「（只读）」/禁用保存动作）。
     bool isProjectReadOnly() const;
+    void closeProject();
 
   signals:
     void projectReadOnlyChanged(bool readOnly);

@@ -532,7 +532,6 @@ void PreviewDocService::requestSection(const QString &assetId,
   if (auto *old = m_decodeTask.value(assetId).data(); old && old->running())
   {
     old->requestCancel();
-    m_segyReaders.remove(assetId);
   }
 
   // worker 产出（跨线程交接，GUI 只读 finished 后的快照）。

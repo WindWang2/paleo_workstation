@@ -27,10 +27,14 @@ class PaleoProjectStore : public QObject
 
     void setProjectPaths(const QString &qgzPath, const QString &gpkgPath, const QString &metaSqlitePath);
 
-    // 单写实例降级（T4/SCHEMA_MIGRATION.md §6）：工程目录被另一实例持锁时
-    // 由组装根置 true——enqueueWrite/saveAll/commitAll（gpkg/qgz/journal 的
-    // 全部落盘路径）如实失败，读面与 busy 注册表照常。
-    void setReadOnly(bool readOnly) { m_readOnly = readOnly; }
+    void setReadOnly(bool readOnly)
+    {
+      if (m_readOnly != readOnly)
+      {
+        m_readOnly = readOnly;
+        emit readOnlyChanged(readOnly);
+      }
+    }
     bool isReadOnly() const { return m_readOnly; }
     QString gpkgPath() const { return m_gpkgPath; }
     QString metaDbPath() const { return m_metaPath; }
@@ -91,6 +95,7 @@ class PaleoProjectStore : public QObject
     QVector<BusyEntry> busyLayers() const; // snapshot for UI (task panel)
 
   signals:
+    void readOnlyChanged(bool readOnly);
     void writeCompleted(const QString &target);
     void writeFailed(const QString &target, const QString &error);
 

@@ -113,8 +113,10 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     m_decorMgr->setFaciesLegend(title, h.isEmpty() ? QVariantList() : schema);
   };
   auto shown = std::make_shared<QHash<QString, QString>>();
-  connect(m_projectSvc, &QgisProjectService::projectOpened, this,
-          [shown] { shown->clear(); });
+  if (m_projectSvc) {
+    connect(m_projectSvc, &QgisProjectService::projectOpened, this,
+            [shown] { shown->clear(); });
+  }
   auto show = [this, workbench, legend, shown](const QString &id,
                                                QString *error) {
     const auto d = workbench->declaration(id);
@@ -139,20 +141,23 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     }
     // Focus one generated result while retaining base data. History stays in
     // the result list and can be compared in independent windows.
-    for (const auto &other : m_layerSvc->declared())
-      if (other.layerId != id && other.horizon == d.horizon &&
-          (other.layerId.startsWith("product.") ||
-           other.layerId.startsWith("factor.") ||
-           other.layerId.startsWith("contours.") ||
-           other.layerId.startsWith("draft."))) {
-        if (auto *old = m_layerSvc->layer(other.layerId))
-          if (auto *node = m_projectSvc->project()->layerTreeRoot()->findLayer(
-                  old->id()))
-            node->setItemVisibilityChecked(false);
-      }
-    if (auto *node =
-            m_projectSvc->project()->layerTreeRoot()->findLayer(layer->id()))
-      node->setItemVisibilityCheckedParentRecursive(true);
+    auto *treeRoot = (m_projectSvc && m_projectSvc->project())
+                         ? m_projectSvc->project()->layerTreeRoot()
+                         : nullptr;
+    if (treeRoot) {
+      for (const auto &other : m_layerSvc->declared())
+        if (other.layerId != id && other.horizon == d.horizon &&
+            (other.layerId.startsWith("product.") ||
+             other.layerId.startsWith("factor.") ||
+             other.layerId.startsWith("contours.") ||
+             other.layerId.startsWith("draft."))) {
+          if (auto *old = m_layerSvc->layer(other.layerId))
+            if (auto *node = treeRoot->findLayer(old->id()))
+              node->setItemVisibilityChecked(false);
+        }
+      if (auto *node = treeRoot->findLayer(layer->id()))
+        node->setItemVisibilityCheckedParentRecursive(true);
+    }
     if (auto *tree = findChild<QgsLayerTreeView *>())
       tree->setCurrentLayer(layer);
     canvas->setCurrentLayer(layer);
@@ -344,11 +349,13 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             wellPanel->clear();
             wellDock->hide();
           });
-  connect(m_projectSvc, &QgisProjectService::projectOpened, wellPanel,
-          [wellPanel, wellDock] {
-            wellPanel->clear();
-            wellDock->hide();
-          });
+  if (m_projectSvc) {
+    connect(m_projectSvc, &QgisProjectService::projectOpened, wellPanel,
+            [wellPanel, wellDock] {
+              wellPanel->clear();
+              wellDock->hide();
+            });
+  }
   connect(
       m_canvasCtl->canvas(), &QgsMapCanvas::contextMenuAboutToShow, this,
       [this, workbench, show, beginEdit](QMenu *menu, QgsMapMouseEvent *event) {
@@ -571,7 +578,9 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             [this, workbench, pages](const QString &nativeId, bool saved) {
               if (!saved)
                 return;
-              auto *layer = m_projectSvc->project()->mapLayer(nativeId);
+              auto *layer = (m_projectSvc && m_projectSvc->project())
+                                ? m_projectSvc->project()->mapLayer(nativeId)
+                                : nullptr;
               const auto id =
                   layer ? layer->customProperty("paleoLayerId").toString()
                         : QString();

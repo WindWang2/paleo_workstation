@@ -42,3 +42,5 @@ XDG_CONFIG_HOME/XDG_DATA_HOME 沙箱（QSettings 并行竞态根治；Windows
 NativeFormat 走注册表不受 env 控制，Windows 侧保持串行）。
 构建加速与实验档（ccache launcher / PALEO_ENABLE_ASAN / PALEO_ENABLE_UBSAN /
 PALEO_UNITY_BUILD）见 BUILDING.md。
+依赖来源：尽量不依赖系统库，尽量自编译 vendored——superbuild 首选 /
+钉哈希闭包加速档 / 系统包仅兜底（政策全文 BUILDING.md「依赖来源策略」）。

@@ -22,6 +22,7 @@
 #   5. 层标记：每个 src/ 文件头三行内必须有 `// 层：<词表之一>` 且与所属目录对应。
 #      词表外置在 tools/layering_vocab.json——新增顶层模块先登记词表
 #      （scripts/new_module.sh 会同步），否则全量判违规。
+#   6. 数据层禁令：数据层模块禁止 include qgis/*。
 #
 # 合法残留走 tools/layering-baseline.txt（格式：每行 `<path>:<rule>`，
 # `#` 开头注释）。命中 baseline 的违规降级为提示；baseline 里已修复的条目
@@ -181,6 +182,8 @@ def check_file(path):
                         violations.append(("ui-algorithms-include", n, line.strip()))
                 elif layer_dir in NON_VIEW and dst == "ui":
                     violations.append(("reverse-ui-include", n, line.strip()))
+                elif (LAYERS.get(layer_dir) == "数据" or layer_dir in {"domain", "catalog", "io", "metadata", "services", "algorithms"}) and dst == "qgis":
+                    violations.append(("data-qgis-include", n, line.strip()))
 
             if layer_dir in QTWIDGETS_BAN:
                 name = inc.group(1)
@@ -298,6 +301,9 @@ def selftest():
         ("io/x.cpp",
          '// 层：数据\n#include <QtWidgets/QDialog>\n',
          {"qtwidgets-include"}),
+        ("io/x.cpp",
+         '// 层：数据\n#include "../qgis/qgislayerservice.h"\n',
+         {"data-qgis-include"}),
         ("qgis/x.cpp",
          '// 层：QGIS 封装\n#include <QWidget>\n',
          set()),  # qgis 豁免 QtWidgets

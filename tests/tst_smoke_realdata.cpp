@@ -63,7 +63,12 @@ void TestSmokeRealdata::importsWholeWorkarea()
   QVERIFY(manifest.open());
   QgisLayerService layerSvc(&projectSvc, &manifest);
   PaleoProjectStore store;
-  DataImportService svc(&layerSvc, &store);
+  DataImportService svc(&store);
+  QObject::connect(&svc, &DataImportService::layerDeclared,
+                   &layerSvc, [&layerSvc](const LayerDeclaration &decl) {
+                     QString err;
+                     layerSvc.declare(decl, &err);
+                   });
   svc.setProjectDir(projectDir);
 
   // 按目录序导入全部文件（井位→井曲线→井分层→时深→层位→地震→参考）。

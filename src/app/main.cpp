@@ -81,6 +81,8 @@ int main(int argc, char *argv[])
 
   PaleoMainWindow window(ctx.canvasCtl(), ctx.projectSvc(), ctx.layerSvc(),
                          ctx.toolSvc(), ctx.selection());
+  QObject::connect(&ctx, &AppContext::projectReadOnlyChanged,
+                   &window, &PaleoMainWindow::setProjectReadOnly);
   window.attachWorkflows(ctx.predictionWf(), ctx.constraintWf(),
                          ctx.compositionWf(), ctx.validationWf(), ctx.importSvc(),
                          ctx.seismicLink(), ctx.processingSvc(), ctx.store(),

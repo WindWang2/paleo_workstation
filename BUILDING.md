@@ -10,11 +10,34 @@
 
 - **TTHW 目标：vendor 引导完成后，首次绿色测试 2–5 分钟**（configure+build+
   ctest，8 核基线机；当前全套 84 测试（以 ctest -N 为准）实测 ~48s，余量给增量编译）。
-- 引导本身（一次性）：binary 路 ~10min（OSGeo4W / deb 闭包 / onnxruntime
-  pin）；superbuild 回退路 ≤2h、磁盘 ≥60GB——仅在 binary 路不可用时启用
-  （`vendor/superbuild/README.md` 回退条款）。
+- 引导本身（一次性）：binary 加速档 ~10min（OSGeo4W / deb 闭包 / onnxruntime
+  pin）；superbuild 首选路 ≤2h、磁盘 ≥60GB（启用步骤见
+  `vendor/superbuild/README.md`，政策见下「依赖来源策略」）。
 - 本机已装 QGIS 4.2.x 开发包（如 Arch `qgis 4.2.2`）时 bootstrap 短路 QGIS
-  腿，只剩 onnxruntime 下载。
+  腿，只剩 onnxruntime 下载——注意这属**兜底档**，见下「依赖来源策略」。
+
+## 依赖来源策略（2026-10-01 起）
+
+**原则：尽量不依赖系统库，尽量自编译 vendored。** 优先级：
+
+1. **自编译 vendor（superbuild，首选）**——GEOS→PROJ→GDAL→QGIS 按源码
+   tarball + SHA256 pin 构建进 `vendor/superbuild/prefix`（启用步骤见其
+   README；URL/SHA256 回填是 TODOS 待办）。动机：系统包状态不受本仓
+   控制——发行版升级/卸载即破坏构建与运行（2026-10-01 本机实证：Arch
+   系统 qgis/cmake 被卸载后，二进制缺 `libqgis_core.so.4.2.2` 无法启动，
+   构建工具链同步失踪）；自编译 prefix 把版本、ABI、裁剪面钉进仓库，
+   任何机器可复现。
+2. **钉哈希的二进制 vendor 闭包（加速档）**——`vendor/prefix`（deb 闭包）
+   / OSGeo4W（Windows）。仍是仓控 prefix 而非系统库；TTHW 快，作为 CI
+   与新机的务实选择保留。
+3. **系统包（仅兜底）**——发行版 QGIS 4.2.x 开发包只在上述两路都不可用
+   时作临时兜底；CI 与发布构建禁止依赖系统包提供 QGIS/GDAL/PROJ/GEOS。
+
+例外（不 vendored，沿用系统/官方二进制）：Qt6（体积与构建时长，
+superbuild 明示禁止 qt-everywhere 整块编译；走发行版或 OSGeo4W 同源）、
+编译器工具链与构建依赖（flex/bison/nasm/python3）、glibc/libstdc++
+（ABI floor，无法 vendored）、ONNX Runtime（官方 release SHA256 pin，
+与 QGIS 路线正交）。
 
 ## QGIS prefix 解析顺序（CMakeLists.txt:16 起）
 
@@ -25,24 +48,24 @@
    `CMAKE_PREFIX_PATH`，再在 `<prefix>/apps/qgis/include`、
    `<prefix>/include/qgis`、`<prefix>/usr/include/qgis` 等布局里找
    `qgsapplication.h` 与 `-lqgis_{core,gui,analysis}`；
-3. 都没给 → 系统路径（`/usr/include/qgis`、`/usr/lib`）。
+3. 都没给 → 系统路径（`/usr/include/qgis`、`/usr/lib`）——仅兜底档。
 
-vendor 路径对照：
+vendor 路径对照（按策略优先级）：
 
 | 来源 | QGIS_PREFIX_PATH | 由谁准备 |
 |---|---|---|
-| 发行版系统包（Arch 等） | 不需要（系统路径即可） | 发行版包管理器 |
-| qgis.org deb 闭包 | `<repo>/vendor/prefix/usr` | `./vendor/fetch-deps.sh`（lock 锁 SHA256） |
+| superbuild 自编译（首选） | `<repo>/vendor/superbuild/prefix` | `vendor/superbuild/`（见其 README） |
+| qgis.org deb 闭包（加速档） | `<repo>/vendor/prefix/usr` | `./vendor/fetch-deps.sh`（lock 锁 SHA256） |
 | OSGeo4W（Windows CI） | bootstrap 注入（`apps/qgis` 布局） | `./paleo-dev.ps1 bootstrap` |
-| superbuild（回退，未启用） | `<repo>/vendor/superbuild/prefix` | `vendor/superbuild/`（见其 README） |
+| 发行版系统包（仅兜底） | 不需要（系统路径即可） | 发行版包管理器 |
 
 ## 平台 × 版本矩阵
 
 | 平台 | 状态 | 依赖来源 |
 |------|------|----------|
-| Linux x86_64 (glibc≥2.41: Debian13/Ubuntu26.04/Arch) | Arch 本机通过；Ubuntu 26.04 CI | qgis.org deb 闭包 → `vendor/prefix/usr`；或发行版原生 QGIS 4.2.x 开发包 |
+| Linux x86_64 (glibc≥2.41: Debian13/Ubuntu26.04/Arch) | Arch 本机通过；Ubuntu 26.04 CI | superbuild 自编译 prefix（首选）→ deb 闭包 `vendor/prefix/usr`（加速档）；发行版 QGIS 4.2.x 仅兜底 |
 | Windows x86_64 | CI leg（本机未实测） | OSGeo4W `qgis` + `qgis-devel` 4.2.x + `qt6-devel`，MSVC /MD |
-| 更低 glibc 宿主 | 不支持 | 回退条款：ExternalProject superbuild-on-oldest-target |
+| 更低 glibc 宿主 | 不支持 | superbuild-on-oldest-target（ExternalProject） |
 
 ## 依赖（vendor manifest pin）
 

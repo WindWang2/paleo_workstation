@@ -127,6 +127,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     SARibbonCategory *categoryForPage(const QString &pageId) const;
     void showStartup();            // first-run: recent projects + new/open
     void onProjectOpened();        // called after project opens: swap startup->workspace
+    void setProjectReadOnly(bool readOnly);
+    bool isProjectReadOnly() const { return m_isProjectReadOnly; }
     // 打开工程文件（.paleo / .qgz）或工区目录（已有工程则打开，全新工区则建工程并唤起导入）。
     bool openPath(const QString &path);
 
@@ -310,4 +312,5 @@ class PaleoMainWindow : public SARibbonMainWindow
     PaleoDecorationManager *m_decorMgr = nullptr; // D11 临时配准水印等画布装饰
     int m_provisionalLayers = 0;   // 已上图的临时配准图层数（>0 → 水印）
     QString m_currentPage;
+    bool m_isProjectReadOnly = false;
 };

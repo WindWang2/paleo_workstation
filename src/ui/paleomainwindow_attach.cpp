@@ -247,6 +247,14 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   // Re-sync visible page index with current tab.
   const int idx = paleo::pagesinternal::kPageIds.indexOf(m_currentPage);
   stack->setCurrentIndex(idx >= 0 ? idx : 0);
+
+  if (store)
+  {
+    connect(store, &PaleoProjectStore::readOnlyChanged, this, &PaleoMainWindow::setProjectReadOnly);
+    if (store->isReadOnly())
+      setProjectReadOnly(true);
+  }
+
   m_workflowsAttached = true; // 走到末尾才算接线完成（幂等守卫置位）
 }
 // ---------------------------------------------------------------------------
@@ -399,11 +407,10 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                     m_canvasCtl->zoomToLayer(layerId);
                     flashHorizonLayer(layer);
                   }
-                  QgsProject *proj =
-                      m_projectSvc ? m_projectSvc->project() : nullptr;
+                  QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr;
+                  QgsLayerTree *treeRoot = proj ? proj->layerTreeRoot() : nullptr;
                   if (QgsLayerTreeLayer *node =
-                          proj ? proj->layerTreeRoot()->findLayer(layer->id())
-                               : nullptr)
+                          treeRoot ? treeRoot->findLayer(layer->id()) : nullptr)
                   {
                     node->setItemVisibilityChecked(true); // 显示意图（可能已在）
                     // 重复点击同一图层不叠加 connect：节点属性作去重标记
@@ -599,8 +606,9 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
               if (m_canvasCtl)
                 m_canvasCtl->zoomToLayer(layerId);
               QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr;
+              QgsLayerTree *treeRoot = proj ? proj->layerTreeRoot() : nullptr;
               if (QgsLayerTreeLayer *node =
-                      proj ? proj->layerTreeRoot()->findLayer(layer->id()) : nullptr)
+                      treeRoot ? treeRoot->findLayer(layer->id()) : nullptr)
                 node->setItemVisibilityChecked(true); // 显示意图（可能已在）
             });
     // ---- m2(A) end ----
@@ -762,13 +770,14 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
               if (!m_layerSvc || layerId.isEmpty())
                 return;
               QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr;
-              if (!proj)
+              QgsLayerTree *treeRoot = proj ? proj->layerTreeRoot() : nullptr;
+              if (!treeRoot)
                 return;
-              const auto setNodeChecked = [this, proj](const QString &id, bool checked) {
+              const auto setNodeChecked = [this, treeRoot](const QString &id, bool checked) {
                 QgsMapLayer *layer = m_layerSvc->layer(id); // 只拨已实例化层
                 if (!layer)
                   return;
-                if (QgsLayerTreeLayer *node = proj->layerTreeRoot()->findLayer(layer->id()))
+                if (QgsLayerTreeLayer *node = treeRoot->findLayer(layer->id()))
                   node->setItemVisibilityChecked(checked);
               };
               if (visible)
@@ -947,7 +956,7 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
                                           QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
                 return;
               }
-              if (m_projectSvc->projectPath().isEmpty())
+              if (!m_projectSvc || m_projectSvc->projectPath().isEmpty())
               {
                 QgsMessageLog::logMessage(tr("无打开工程 — 无法打开图件设计器"),
                                           QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
@@ -1176,7 +1185,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       // §41.2 ordering through the write queue: gpkg commit (no-op until edit
       // buffers report dirty state) then the atomic .qgz write.
       auto saveFn = [this, store]() {
-        if (m_projectSvc->projectPath().isEmpty())
+        if (!m_projectSvc || m_projectSvc->projectPath().isEmpty())
         {
           QgsMessageLog::logMessage(tr("无打开工程 — 无法保存"),
                                   QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
@@ -1247,8 +1256,9 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
               [](const QString &msg) {
                 QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Info);
               });
-      connect(m_projectSvc, &QgisProjectService::projectOpened, releasePanel,
-              &ReleasePanel::refresh);
+      if (m_projectSvc)
+        connect(m_projectSvc, &QgisProjectService::projectOpened, releasePanel,
+                &ReleasePanel::refresh);
       bottomTabs->addTab(releasePanel, tr("发布"));
     }
 
@@ -1307,8 +1317,9 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
                   if (!cur.isEmpty() && (!m_layerSvc->isInstantiated(cur) || !m_layerSvc->layer(cur)))
                     attrPanel->showLayer(cur);
                 });
-        connect(m_projectSvc, &QgisProjectService::projectOpened, this,
-                [refreshIds](const QString &) { refreshIds(); });
+        if (m_projectSvc)
+          connect(m_projectSvc, &QgisProjectService::projectOpened, this,
+                  [refreshIds](const QString &) { refreshIds(); });
         bottomTabs->addTab(attrPanel, tr("属性表"));
       }
     }
@@ -1406,7 +1417,8 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
     // The selected tree layer, canvas target and ribbon target form one context.
     QgsMapCanvas *canvas = m_canvasCtl->canvas();
     connect(canvas, &QgsMapCanvas::mapToolSet, this, [this, canvas](QgsMapTool *tool, QgsMapTool *) {
-      if (!tool || !tool->property("paleo-action").isValid() || !canvas->currentLayer() || !m_projectSvc)
+      if (!tool || !tool->property("paleo-action").isValid() || !canvas->currentLayer() ||
+          !m_projectSvc || !m_projectSvc->project() || !m_projectSvc->project()->layerTreeRoot())
         return;
       auto *node = m_projectSvc->project()->layerTreeRoot()->findLayer(canvas->currentLayer()->id());
       if (node && !node->isVisible())
@@ -1454,7 +1466,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       designerAct->setObjectName(QStringLiteral("ribbonDesignerAction"));
       designerAct->setToolTip(tr("新建布局并打开图件设计器"));
       connect(designerAct, &QAction::triggered, this, [this, layoutSvc] {
-        if (m_projectSvc->projectPath().isEmpty())
+        if (!m_projectSvc || m_projectSvc->projectPath().isEmpty())
         {
           QgsMessageLog::logMessage(tr("无打开工程 — 无法创建布局"),
                                   QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);

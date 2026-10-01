@@ -17,6 +17,7 @@
 #include <cstring>
 #include <limits>
 
+#include "../src/domain/seismic/sgyvolume.h"
 #include "../src/services/seismictaskservice.h"
 #include "../src/ui/seismicsection/seismicsectioncanvas.h"
 #include "../src/ui/seismicsection/seismicsectiondockwidget.h"
@@ -412,6 +413,96 @@ private slots:
     canvas.setSectionData(makeSection(16, 64), 2.0f);
     QVERIFY(canvas.hasData());
     QVERIFY(canvas.noDataReason().isEmpty());
+  }
+
+  // ---- CONC-01: 剖面后台切片/卷帘提取中宿主控件析构安全（QPointer 防 UAF）----
+  void extractSliceAsyncDestructionSafety()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("slice_uaf.sgy");
+    QVERIFY(writeTestSegy(sgy, 10, 10, 128));
+
+    SgyVolume volume;
+    std::string err;
+    QVERIFY(volume.Load(sgy.toStdString(), err));
+    auto volPtr = std::make_shared<SgyVolume>(std::move(volume));
+
+    // Case 1: 异步切片提取中析构
+    for (int i = 0; i < 5; ++i) {
+      auto *dock = new SeismicSectionDockWidget;
+      dock->setVolume(volPtr);
+      dock->extractSliceAsync(SgySliceType::Inline, 1000 + i);
+      delete dock;
+    }
+
+    // Case 2: 卷帘对比提取中析构
+    for (int i = 0; i < 5; ++i) {
+      auto *dock = new SeismicSectionDockWidget;
+      dock->setVolume(volPtr);
+      dock->setSectionMode(0);
+      dock->extractSliceAsync(SgySliceType::Inline, 1000);
+      delete dock;
+    }
+
+    QThreadPool::globalInstance()->waitForDone(5000);
+    QApplication::processEvents();
+  }
+
+  // ---- Issue #25: 连续快速切线/切片并发安全（防数据竞态与陈旧数据覆盖）----
+  void rapidLineSwitchingNoRaceOrCrash()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("rapid_switching.sgy");
+    // 30 inlines, 30 crosslines, 64 samples
+    QVERIFY(writeTestSegy(sgy, 30, 30, 64));
+
+    SgyVolume volume;
+    std::string err;
+    QVERIFY(volume.Load(sgy.toStdString(), err));
+    auto volPtr = std::make_shared<SgyVolume>(std::move(volume));
+
+    SeismicSectionDockWidget dock;
+    dock.setVolume(volPtr);
+    dock.show();
+
+    // 1. 模拟用户极快速拖拽 Inline 滑块（连续触发 20 次切线请求）
+    for (int il = 1000; il < 1020; ++il) {
+      dock.onSliceSliderChanged(il);
+    }
+
+    // 2. 模拟切片模式极快速切换（Inline -> Xline -> Time -> Inline）
+    dock.setSectionMode(1); // Xline
+    dock.onSliceSliderChanged(2005);
+    dock.setSectionMode(2); // Time
+    dock.onSliceSliderChanged(10);
+    dock.setSectionMode(0); // Inline
+    dock.onSliceSliderChanged(1015);
+
+    // 3. 开启卷帘对比，再次快速切换 10 次
+    if (dock.m_btnCurtain) {
+      dock.m_btnCurtain->setChecked(true);
+      for (int il = 1010; il <= 1018; ++il) {
+        dock.onSliceSliderChanged(il);
+      }
+    }
+
+    // 4. 等待所有后台任务收敛完成
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < 5000) {
+      QApplication::processEvents(QEventLoop::AllEvents, 50);
+    }
+    QThreadPool::globalInstance()->waitForDone(5000);
+    QApplication::processEvents();
+
+    // 5. 断言：最终收敛状态必须严格等于最后一次请求的测线号（1018），而非中间陈旧测线！
+    const auto ref = dock.canvas()->sectionRef();
+    QVERIFY(ref.valid);
+    QCOMPARE(ref.type, SgySliceType::Inline);
+    QCOMPARE(ref.index, 1018);
+    QVERIFY(dock.m_lblTitle && dock.m_lblTitle->text().contains("1018"));
+    QVERIFY(dock.canvas()->noDataReason().isEmpty());
+    QVERIFY(dock.canvas()->traceCount() > 0);
   }
 
 private:

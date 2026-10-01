@@ -1,20 +1,23 @@
-# vendor/superbuild — ExternalProject 回退路线（骨架）
+# vendor/superbuild — ExternalProject 自编译路线（策略首选，待启用）
 
-状态：**骨架（Phase 0 §39/E3 交付物）——未启用，不承诺完整构建。**
-默认依赖路线是 binary vendoring：`vendor/bootstrap.sh`（OSGeo4W / onnxruntime）
-与 `vendor/fetch-deps.sh`（qgis.org deb 闭包 → `vendor/prefix`）。对比与决策
-记录见 `docs/phase0/et0-vendor-comparison.md`（D7：批准 binary vendoring）。
+状态：**首选依赖路线（2026-10-01 政策升级）——待启用，URL/SHA256 未回填前
+不承诺完整构建。** 2026-10-01 起「尽量不依赖系统库、尽量自编译 vendored」
+是仓库级依赖策略（BUILDING.md「依赖来源策略」），本路线取代 binary
+vendoring 成为首选；`vendor/fetch-deps.sh`（deb 闭包）/ OSGeo4W 降为加速
+档，发行版系统包仅兜底。历史对比与旧决策（D7：批准 binary vendoring）见
+`docs/phase0/et0-vendor-comparison.md`（保留作底账，优先级以新政策为准）。
 
-## 何时启用本路线（回退条款）
+## 启用依据（原回退条款，2026-10-01 重写）
 
-满足**任一**条件才启用（plan §39 回退条款）：
+原回退条款要求满足下列任一条件才启用，现已作废为历史记录：
 
 1. `fetch-deps.sh` 的 `apt-get download libqgis-dev=4.2.*` 验证失败（上游
    包不可得 / SHA256 对不上且无旧档）；
 2. 必须支持比 binary floor 更老的宿主——binary 路要求 glibc ≥ 2.41（Debian
    13 / Ubuntu 25.04 级）；superbuild 即 "superbuild-on-oldest-target"。
 
-不满足时本目录保持骨架状态。启用动作本身要留决策记录（issue/PR body）。
+新政策下本路线即默认路线，无需触发条件；启用动作仍要留决策记录
+（issue/PR body）。
 
 ## 启用步骤
 
@@ -45,9 +48,9 @@
 | 开关 | 值 | 依据 |
 |---|---|---|
 | `WITH_3D` | OFF | `src/` 无 `qgis_3d`/`Qgs3D` 引用（grep 零命中） |
-| `WITH_MESH` | OFF | `src/` 无 `QgsMesh` 引用（grep 零命中） |
+| `WITH_MESH` | —（无此开关） | QGIS 4.2.2 无 `WITH_MESH` option（tarball CMakeLists option 清单实证：不存在该 cache 变量；mesh 已并入 core，无裁剪面）——原「`src/` 无 `QgsMesh` 引用」的裁剪意图无从落地 |
 | `WITH_PDAL` | OFF | `src/` 无 pdal 引用；产品面无点云（plan §10–12 算法面亦无） |
-| `WITH_APP` | OFF | Paleo 只链 `qgis_core`/`qgis_gui`/`qgis_analysis`，不装桌面 App |
+| `WITH_APP` | OFF | Paleo 只链 `qgis_core`/`qgis_gui`/`qgis_analysis`，不装桌面 App；QGIS 4.2.2 无 `WITH_APP` option，本仓开关实际映射其真名 `WITH_DESKTOP=FALSE` |
 | `WITH_GUI` | ON | 嵌入式 GUI（`paleo_qgis_iface` 链 `qgis_gui`） |
 | `WITH_ANALYSIS` | ON | 主 `CMakeLists.txt:37` 链接 `qgis_analysis` |
 

@@ -1,4 +1,4 @@
-# Project: paleo_workstation Deep Review & Issue Resolution
+# Project: paleo_workstation Core P0 & P1 Issue Resolution (#25, #26, #27, #28)
 
 ## Architecture Overview
 The authoritative architecture plan is `docs/PALEO_QGIS_PLAN.md` and `docs/UI_LAYER_PLAN.md`.
@@ -10,86 +10,102 @@ The codebase strictly adheres to 5 layer categories across 13 modules:
 - **组装根 (Assembly Root)**: `src/app`
 - **测试壳 (Test Shell)**: `src/selfcheck`
 
-Guardrails:
-- `tools/check_layering.py` enforces header comments, forbidden includes, and whitelist compliance.
+Strict guardrails:
+- `tools/check_layering.py --strict` enforces header comments (`// 层：...`), forbidden includes, and whitelist compliance.
 - `tools/layering-baseline.txt` enforces zero legacy violations.
-- CMake/CTest tests verify functionality across 84 test cases.
+- CMake/CTest tests verify functionality.
 
 ---
 
-## Feature & Issue Inventory
-| # | Issue / Feature | Description | Milestone | Source |
-|---|-----------------|-------------|-----------|--------|
-| 1 | SingleFactorDef Layer Mismatch | `src/services/singlefactordef.{h,cpp}` marked `// 层：功能`, must be `// 层：数据` | M1 | Survey (Explorer 1) |
-| 2 | PanelShared Duplicate Header | `src/ui/pages/panelshared.h` line 7 has duplicate `// 层：视图` | M1 | Survey (Explorer 1) |
-| 3 | Check Layering Tooling Blindspot | `tools/check_layering.py` only checks vocabulary, doesn't enforce directory correspondence | M1 | Survey (Explorer 1) |
-| 4 | Polygon Ring Closure Move Break | Non-topological drag of vertex 0 leaves vertex N unmoved, unclosing polygon ring | M2 | Survey (Explorer 2) |
-| 5 | Polygon Ring Closure Delete Break | Deleting closure vertex removes both 0 and N or leaves ring open | M2 | Survey (Explorer 2) |
-| 6 | Canvas Marker Desync on Undo/Redo | PaleoVertexTool does not connect to undoStack indexChanged, geometryChanged, or afterRollBack | M2 | Survey (Explorer 2) |
-| 7 | Frozen TopoMarkers During Drag | `mDraggingVertex->topoMarkers` not updated in `canvasMoveEvent` | M2 | Survey (Explorer 2) |
-| 8 | PaleoVertexTool Pointer Lifecycle | Raw pointer `mLayer` and missing `clearMarkers()`/`clearDragState()` in destructor | M2 | Survey (Explorer 2) |
-| 9 | Null Pointer Hazards in VertexTool | `geometry.constGet()` unchecked before `vertexAt()` | M2 | Survey (Explorer 2) |
-| 10 | Multi-Part Boundary Crossing in VertexTool | Double-click segment search crosses multipart/ring boundary without check | M2 | Survey (Explorer 2) |
-| 11 | VertexTool Unit Tests | Unit tests in `tests/tst_edittools.cpp` for ring closure, marker sync, topo drag | M2 | Survey (Explorer 2) |
-| 12 | Correlation Full Performance Failure | `fiftyWellsRenderUnderThreeSeconds` flakiness due to 100 rebuilds, 5050 pixmap conversions, float hashing | M3 | Survey (Explorer 3) |
-| 13 | PaleoTaskService Orphaned Task Leak | Running tasks detached on destruction without `deleteLater()` upon completion | M3 | Survey (Explorer 3) |
-| 14 | SeismicMapLink / WellMapLink Dangling Pointers | Raw `QgsVectorLayer*` and double-free hazard on canvas-parented markers/tools | M3 | Survey (Explorer 3) |
-| 15 | GDAL Raster Band Null Dereference | `mappingworkflow.cpp` & `mapversioncontroller.cpp` lack `GDALGetRasterCount >= 1` check | M3 | Survey (Explorer 3) |
-| 16 | SeismicTaskService Lambda `this` Capture | Background thread worker captures `this` solely for `tr()` | M3 | Survey (Explorer 3) |
-| 17 | Full CTest & Layering Gate Validation | 100% test pass (84/84) and 0 layering violations | M4 | Survey (All) |
-| 18 | Atomic Git Commits & Resolution Report | Clean commits per module and comprehensive issue resolution document | M4 | Survey (All) |
+## Feature Inventory
+| # | Feature | Description | Milestone | Source |
+|---|---------|-------------|-----------|--------|
+| 1 | R1: CONC-01 & CONC-02 Fixes | Worker UAF on dock closure in `SeismicSectionDockWidget` & RAII release of `slotSemaphore` in `SeismicTaskService::startBounded` | M1 | Survey (Explorer 1) |
+| 2 | R1: MEM-01 Fix | Eliminate write queue UAF and `void*` property smuggling in `ConstraintStore` and `workflows.cpp` | M1 | Survey (Explorer 1) |
+| 3 | R1: ARCH-01 Decoupling | Disconnect Data layer (`src/io/dataimportservice`) from QGIS wrapper (`src/qgis/qgislayerservice`), adhere to `UI_LAYER_PLAN.md` | M1 | Survey (Explorer 1) |
+| 4 | R2: Issue #25 Line Switching Cancellation | Safely cancel in-flight `vol->ExtractSlice` via `progressCb` when switching inline/crossline/time slices in `SeismicSectionDockWidget` | M2 | Survey (Explorer 1) |
+| 5 | R2: Issue #25 Stale Render Elimination | Fix line 1088-1096 in `SeismicSectionDockWidget` to return when `nextType == type` and drop stale slice renders | M2 | Survey (Explorer 1) |
+| 6 | R2: Issue #25 Reader Cache Preservation | Preserve `m_segyReaders` across cancellations in `PreviewDocService` using generation checks rather than evicting reader | M2 | Survey (Explorer 1) |
+| 7 | R2: Issue #25 Automated Regression Test | Add `testRapidLineSwitchingNoRaceOrCrash()` in `tests/tst_seismic_sectionui.cpp` verifying continuous line switching | M2 | Survey (Explorer 1) |
+| 8 | R3: Issue #26 Pre-Creation Lock Check | Prevent `QgisProjectService::createProject` from clobbering existing project files before `ProjectDirLock::tryLock` is evaluated | M3 | Survey (Explorer 2) |
+| 9 | R3: Issue #26 User Lock Notice & Dialog | Display clear user-facing error dialog in `AppContext` / `PaleoMainWindow` when lock is held, gracefully abort or downgrade to read-only | M3 | Survey (Explorer 2) |
+| 10 | R3: Issue #26 Read-Only UI & Title Binding | Connect `PaleoMainWindow` to `AppContext::projectReadOnlyChanged` to disable save/edit actions and update window title | M3 | Survey (Explorer 2) |
+| 11 | R3: Issue #26 Clean Lock Release | Implement `AppContext::closeProject()` to cleanly release `ProjectDirLock` when returning to startup or switching projects | M3 | Survey (Explorer 2) |
+| 12 | R3: Issue #26 Concurrent Open Unit Test | Add automated unit test verifying concurrent project open detection and refusal in `tests/tst_projectsvc.cpp` or `tests/tst_appcontext.cpp` | M3 | Survey (Explorer 2) |
+| 13 | R4: Issue #27 EnqueueWrite Routing | Route `MapVersionController::saveVersion` operations through `PaleoProjectStore::enqueueWrite` rather than bypassing the write queue | M4 | Survey (Explorer 2) |
+| 14 | R4: Issue #27 Edit Token Cleanup | Ensure `"edit"` busy token is reliably cleared with dual-key (`d.layerId` and `layer->id()`) on commit success or failure | M4 | Survey (Explorer 2) |
+| 15 | R4: Issue #27 EditingToolbar Signal Binding | Connect `PaleoEditingToolbar` to `QgisEditingService::editCommitted` and `editRolledBack` to keep toolbar state in sync | M4 | Survey (Explorer 2) |
+| 16 | R4: Issue #27 Version Saving Regression Test | Add regression test verifying version saving releases edit tokens and processes through queue in `tests/tst_versions.cpp` | M4 | Survey (Explorer 2) |
+| 17 | R5: Issue #28 Shared Context & Feedback | Transition `m_context` and `m_feedback` to `std::shared_ptr` tied to task `destroyed` signal in `PaleoAlgorithmWidget` | M5 | Survey (Explorer 3) |
+| 18 | R5: Issue #28 CloseEvent Safety Abort | Update `PaleoAlgorithmWidget::closeEvent` to call `e->ignore()` while worker task is running, deferring close until completion | M5 | Survey (Explorer 3) |
+| 19 | R5: Issue #28 Algorithm Destructor Safety | Ensure destructor cancels running task and never deletes `m_feedback` or `m_context` while worker thread executes | M5 | Survey (Explorer 3) |
+| 20 | R5: Issue #28 Dialog Lifetime Regression Test | Add automated test simulating dialog closure during active algorithm execution in `tests/tst_procdialog.cpp` | M5 | Survey (Explorer 3) |
+| 21 | Final Verification & Zero Layering Violations | Full CTest regression pass, zero compiler warnings, 100% adherence to `check_layering.py --strict` | M6 | Survey (All) |
 
 ---
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Layering & Header Enforcement | Fix `singlefactordef.*`, clean `panelshared.h`, harden `check_layering.py` + selftests | None | DONE |
-| M2 | VertexEditorTools Stabilization | Complete topology editing, ring closure integrity, undo/redo marker sync, `tst_edittools` | M1 | DONE |
-| M3 | Correlation & Core Defect Fixes | Optimize WellCorrelationPanel for `tst_correlation_full`, fix TaskService, MapLinks, GDAL guards | M1 | DONE |
-| M4 | Validation, Atomic Commits & Report | Validate via ctest & check_layering, atomic git commits per module, final report | M1, M2, M3 | DONE |
+| M1 | Finalize & Validate In-Flight P0 Fixes (R1) | Validate CONC-01, CONC-02, MEM-01, ARCH-01 in tree, run strict layering & targeted tests | None | DONE |
+| M2 | Issue #25 (R2): SEG-Y Line Switching Race | Generation-tracking & cancellation in `SeismicSectionDockWidget`, cache preservation in `PreviewDocService`, `tst_seismic_sectionui` | M1 | PLANNED |
+| M3 | Issue #26 (R3): ProjectDirLock Application Flow | Pre-creation lock check in `QgisProjectService`, UI dialog/read-only binding in `AppContext`/`PaleoMainWindow`, `closeProject()`, lock test | M1 | PLANNED |
+| M4 | Issue #27 (R4): Save Version Queue & Token | Route saveVersion via `enqueueWrite`, dual-key edit token cleanup, `PaleoEditingToolbar` signal sync, `tst_versions` | M1 | PLANNED |
+| M5 | Issue #28 (R5): Algorithm Dialog Lifetime | Shared `TaskPayload` for `context`/`feedback`, `closeEvent` ignore guard, safe cancellation in `PaleoAlgorithmWidget`, `tst_procdialog` | M1 | PLANNED |
+| M6 | Comprehensive Verification & Gate Validation | Strict layering check, clean build, automated regression testing across all new and existing suites | M2, M3, M4, M5 | PLANNED |
 
 ---
 
 ## Code Layout & Write Boundaries
-- **M1 (Layering & Tools)**:
-  - `src/services/singlefactordef.h`
-  - `src/services/singlefactordef.cpp`
-  - `src/ui/pages/panelshared.h`
-  - `tools/check_layering.py`
-- **M2 (Topology Editing & Edit Tools)**:
-  - `src/ui/edittools/vertexeditortools.h`
-  - `src/ui/edittools/vertexeditortools.cpp`
-  - `tests/tst_edittools.cpp`
-- **M3 (Core Defects & Correlation Panel)**:
-  - `src/ui/correlationpanel.h`
-  - `src/ui/correlationpanel.cpp`
-  - `src/ui/correlation/correlationtrack.h`
-  - `src/ui/correlation/correlationwellcolumn.h`
-  - `src/services/paleotaskservice.cpp`
+- **R1 (In-Flight P0 Fixes)**:
+  - `src/ui/seismicsection/seismicsectiondockwidget.h/.cpp`
   - `src/services/seismictaskservice.cpp`
-  - `src/linkage/seismicmaplink.h`
-  - `src/linkage/seismicmaplink.cpp`
-  - `src/linkage/wellmaplink.h`
-  - `src/linkage/wellmaplink.cpp`
-  - `src/workflow/mappingworkflow.cpp`
+  - `src/io/constraintstore.cpp`
+  - `src/workflow/workflows.h/.cpp`
+  - `src/io/dataimportservice.h/.cpp`
+  - `src/app/appcontext.cpp`
+  - `CMakeLists.txt`
+  - `tests/tst_constraintstore.cpp`, `tests/tst_seismic_sectionui.cpp`, `tests/tst_seismic_budgets.cpp`, `tests/tst_import.cpp`
+- **R2 (Issue #25)**:
+  - `src/ui/seismicsection/seismicsectiondockwidget.h/.cpp`
+  - `src/services/previewdoc.cpp`
+  - `src/services/seismictaskservice.cpp` (if needed for task serialization)
+  - `tests/tst_seismic_sectionui.cpp`
+- **R3 (Issue #26)**:
+  - `src/qgis/qgisprojectservice.h/.cpp`
+  - `src/app/appcontext.h/.cpp`
+  - `src/ui/paleomainwindow.h/.cpp`
+  - `tests/tst_projectsvc.cpp` or `tests/tst_appcontext.cpp`
+- **R4 (Issue #27)**:
   - `src/workflow/mapversioncontroller.cpp`
-- **M4 (Validation & Documentation)**:
-  - All test targets, git staging/commits, final issue resolution report.
+  - `src/ui/edittools/editingtoolbar.h/.cpp`
+  - `src/metadata/paleoprojectstore.h/.cpp` (if token clearing helper needed)
+  - `tests/tst_versions.cpp`
+- **R5 (Issue #28)**:
+  - `src/qgis/qgisprocessingservice.cpp`
+  - `tests/tst_procdialog.cpp`
 
 ---
 
 ## Interface Contracts
-### PaleoVertexTool ↔ QgsVectorLayer / QgsMapCanvas
-- `mLayer` held as `QPointer<QgsVectorLayer>`.
-- Layer signal subscriptions: `selectionChanged`, `geometryChanged`, `layerModified`, `mLayer->undoStack()->indexChanged`.
-- All visual markers (`TaggedVertexMarker`, `QgsVertexMarker`) and rubber bands (`QgsRubberBand`) must be safely destroyed on tool deactivation and destructor.
-- Any polygon ring vertex move/delete must preserve topological ring closure (`v0 == vN`).
+### SeismicSectionDockWidget ↔ Background Worker
+- Generation counter `m_sliceGeneration` incremented on every `extractSliceAsync`.
+- `std::shared_ptr<std::atomic<bool>> cancelFlag` passed into worker lambda.
+- `progressCb` returns `false` if `*cancelFlag` is true, immediately halting `vol->ExtractSlice`.
+- GUI completion checks generation; if stale, returns early without updating canvas or triggering compare extraction.
 
-### WellCorrelationPanel ↔ CorrelationWellColumn
-- `WellCorrelationPanel` provides batch updates (`setUpdatesEnabled(bool)`) to prevent quadratic `rebuildScene()` during multi-well/track loading.
-- `CorrelationTrack::depths()` and `values()` return `const QVector<float>&`.
-- `CachedImage` caches both `QImage` and `QPixmap` to eliminate duplicate format conversions.
+### AppContext ↔ QgisProjectService ↔ ProjectDirLock
+- `QgisProjectService::createProject` checks `ProjectDirLock::isLocked(projectDir)` before clearing or writing files.
+- `AppContext` handles `projectLockRefused` by prompting user (with headless fallback to read-only downgrade or abort) and setting project read-only.
+- `PaleoMainWindow` connects to `AppContext::projectReadOnlyChanged(bool)` to toggle save actions, edit tools, and window title (`[*] (只读)`).
+- `AppContext::closeProject()` cleans up `m_projectLock`.
 
-### PaleoTask ↔ PaleoTaskService
-- Tasks detached on service destruction must self-destruct via `deleteLater()` upon completion if `!parent()`.
+### MapVersionController ↔ PaleoProjectStore
+- `MapVersionController::saveVersion` executes `m_store->saveVersion` inside `m_projectStore->enqueueWrite([this, ...])`.
+- On version save completion or failure, all horizon vector layers have their `"edit"` tokens cleared using both `d.layerId` and `layer->id()`.
+- `PaleoEditingToolbar` connects to `QgisEditingService::editCommitted` and `editRolledBack` to synchronize active edit layer status.
+
+### PaleoAlgorithmWidget ↔ QgsProcessingAlgRunnerTask
+- Context and feedback managed via `std::shared_ptr<QgsProcessingContext>` and `std::shared_ptr<QgsProcessingFeedback>`.
+- Shared `TaskPayload` bound to task lifecycle via `connect(task, &QObject::destroyed, ...)`.
+- `closeEvent()` calls `e->ignore()` if task is still running, deferring window closure until completion.

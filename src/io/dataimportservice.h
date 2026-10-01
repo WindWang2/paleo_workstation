@@ -16,7 +16,7 @@
 #include "../catalog/datacatalog.h" // catInvoke 模板需完整类型（thread()/invokeMethod）
 #include "../domain/importrows.h"   // FolderPreviewRow / FolderRowResult（domain 瞬态 DTO）
 
-class QgisLayerService;
+struct LayerDeclaration;
 class PaleoProjectStore;
 class QProcess;
 struct PlannedItem; // io/ingestplan.h（前向声明——C 包 plan 项按引用传）
@@ -36,7 +36,7 @@ class DataImportService : public QObject
       QString forceType;         // 非空 → 跳过分类器结果改用此类型（确认表「改类型」）
     };
 
-    DataImportService(QgisLayerService *layers, PaleoProjectStore *store, QObject *parent = nullptr);
+    explicit DataImportService(PaleoProjectStore *store = nullptr, QObject *parent = nullptr);
     ~DataImportService() override;
 
     void setProjectDir(const QString &dir);   // where the project lives
@@ -192,6 +192,7 @@ class DataImportService : public QObject
                                   QString *error = nullptr);
 
   signals:
+    void layerDeclared(const LayerDeclaration &decl);
     void imported(const QString &kind, const QString &assetId, const QString &layerId);
     void importFailed(const QString &kind, const QString &path, const QString &error);
     // setProjectDir 里 catalog open 失败即发；成功打开后 catalogOpenError() 清空。
@@ -282,7 +283,6 @@ class DataImportService : public QObject
     void startNextDocumentPdf();
     void finishDocumentPdf(int exitCode);
 
-    QgisLayerService *m_layers;
     PaleoProjectStore *m_store;
     QString m_projectDir;
     DataCatalog *m_catalog = nullptr;

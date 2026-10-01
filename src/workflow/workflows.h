@@ -1,17 +1,19 @@
 // 层：功能
 #pragma once
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
 #include <QVector>
+#include <memory>
 #include "../domain/types.h"
+#include "../metadata/paleoprojectstore.h"
 #include "../services/singlefactordef.h"
 
 class QgisProcessingService;
 class QgisLayerService;
 class SelectionContext;
-class PaleoProjectStore;
 class PaleoOnnxService;
 class ConstraintStore;
 class ProjectDataFacade;
@@ -74,6 +76,7 @@ class ConstraintWorkflow : public QObject
   Q_OBJECT
   public:
     explicit ConstraintWorkflow(QgisProcessingService *proc, QgisLayerService *layers, QObject *parent = nullptr);
+    ~ConstraintWorkflow() override;
     void setConstraintStore(ConstraintStore *store);
     void setStore(PaleoProjectStore *store);
     ConstraintStore *constraintStore() const;
@@ -129,6 +132,11 @@ class ConstraintWorkflow : public QObject
     void factorGenerated(const QString &horizon, const QString &factorId, const QString &layerId);
     void contoursGenerated(const QString &horizon, const QString &factorLayerId,
                            const QString &contourLayerId);
+
+  private:
+    QPointer<PaleoProjectStore> m_projectStore;
+    mutable std::unique_ptr<ConstraintStore> m_ownedConstraintStore;
+    ConstraintStore *m_externalConstraintStore = nullptr;
 };
 
 // ③综合编图 — fuse declared single-factor rasters into composite facies layer.

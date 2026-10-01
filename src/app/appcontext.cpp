@@ -30,12 +30,17 @@
 #include "../metadata/mapversionstore.h"
 #include "../workflow/mapversioncontroller.h"
 
+#include <QApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QSet>
 #include <QDebug>
 
+#include <qgsproject.h>
 #include <qgsmaplayer.h>
 #include <qgsmessagelog.h>
 #include <qgsvectorlayer.h>
@@ -118,7 +123,14 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
         return m_layerSvc->tryDeclared(out, error);
       });
 
-  m_import = new DataImportService(m_layerSvc, m_store, this);
+  m_import = new DataImportService(m_store, this);
+  connect(m_import, &DataImportService::layerDeclared, this,
+          [this](const LayerDeclaration &decl) {
+            if (m_layerSvc) {
+              QString derr;
+              m_layerSvc->declare(decl, &derr);
+            }
+          });
 
   m_canvasCtl = new QgisCanvasController(this);
   m_canvasCtl->setLayerResolver([this](const QString &layerId) -> QgsMapLayer * {
@@ -189,7 +201,8 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             const QFileInfo fi(qgzPath);
             m_projectLock = std::make_unique<ProjectDirLock>(fi.absolutePath());
             QString lockErr;
-            if (!m_projectLock->tryLock(&lockErr))
+            const bool lockRefused = !m_projectLock->tryLock(&lockErr);
+            if (lockRefused)
             {
               qWarning() << "AppContext: project lock refused:" << lockErr;
               QgsMessageLog::logMessage(
@@ -197,6 +210,30 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
                      "导入/保存/图层清单/版本登记都会被拒绝")
                       .arg(lockErr),
                   QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+
+              const bool isHeadless = (QGuiApplication::platformName() == QStringLiteral("offscreen") ||
+                                       QGuiApplication::platformName() == QStringLiteral("minimal") ||
+                                       !qobject_cast<QApplication*>(QCoreApplication::instance()));
+              if (!isHeadless)
+              {
+                QMessageBox box;
+                box.setIcon(QMessageBox::Warning);
+                box.setWindowTitle(tr("工程已被另一个实例锁定"));
+                box.setText(tr("工程目录正被另一个 Paleo 实例编辑：\n%1\n\n同一工程同时只允许一个写实例。\n是否以只读模式继续打开？").arg(lockErr));
+                auto *btnReadOnly = box.addButton(tr("只读打开"), QMessageBox::AcceptRole);
+                auto *btnCancel = box.addButton(tr("取消"), QMessageBox::RejectRole);
+                box.setDefaultButton(btnReadOnly);
+                box.exec();
+                if (box.clickedButton() == btnCancel)
+                {
+                  QMetaObject::invokeMethod(this, [this]() {
+                    if (m_projectSvc && m_projectSvc->project())
+                      m_projectSvc->project()->clear();
+                    closeProject();
+                  }, Qt::QueuedConnection);
+                  return;
+                }
+              }
             }
             // T4 单写实例降级：锁失败 = 真只读。四个落盘面全部接线——
             // catalog（save/mutator 回滚）、工程存储（gpkg/qgz/journal）、
@@ -330,6 +367,20 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 bool AppContext::isProjectReadOnly() const
 {
   return m_projectLock && !m_projectLock->isHeld();
+}
+
+void AppContext::closeProject()
+{
+  m_projectLock.reset();
+  m_lastReadOnlyNotified = false;
+  if (m_store)
+    m_store->setReadOnly(false);
+  if (m_import)
+  {
+    if (DataCatalog *cat = m_import->catalog())
+      cat->setLockedReadOnly(false);
+  }
+  emit projectReadOnlyChanged(false);
 }
 
 void AppContext::refreshWellsLayer(bool zoomOnGrowth)

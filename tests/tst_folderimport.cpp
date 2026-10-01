@@ -68,7 +68,12 @@ class TestFolderImport : public QObject
     s->store->setProjectPaths(QDir(projectDir).filePath(QStringLiteral("proj.qgz")),
                               QDir(projectDir).filePath(QStringLiteral("project.gpkg")),
                               s->metaPath);
-    s->importSvc = std::make_unique<DataImportService>(s->layerSvc.get(), s->store.get());
+    s->importSvc = std::make_unique<DataImportService>(s->store.get());
+    QObject::connect(s->importSvc.get(), &DataImportService::layerDeclared,
+                     s->layerSvc.get(), [layerSvc = s->layerSvc.get()](const LayerDeclaration &decl) {
+                       QString err;
+                       layerSvc->declare(decl, &err);
+                     });
     s->importSvc->setProjectDir(projectDir);
     return s;
   }

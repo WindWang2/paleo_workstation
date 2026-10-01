@@ -11,6 +11,7 @@
 #include <QProgressBar>
 #include <QSlider>
 #include <QToolButton>
+#include <atomic>
 #include <memory>
 
 #include "services/seismictaskservice.h"
@@ -21,6 +22,7 @@ class QCheckBox;
 class QDialog;
 class QTableWidget;
 class QUndoStack;
+class TestSeismicSectionUi;
 
 namespace seismic {
 
@@ -36,11 +38,12 @@ struct SectionBookmark {
 
 class SeismicSectionDockWidget : public QDockWidget {
     Q_OBJECT
+    friend class ::TestSeismicSectionUi;
 
 public:
     explicit SeismicSectionDockWidget(QWidget *parent = nullptr);
     explicit SeismicSectionDockWidget(const QString &title, QWidget *parent = nullptr);
-    ~SeismicSectionDockWidget() override = default;
+    ~SeismicSectionDockWidget() override;
 
     SeismicSectionCanvas *canvas() const { return m_canvas; }
 
@@ -121,12 +124,14 @@ signals:
   void sectionExtractionFinished(bool success, const QString &message);
   void pointClickedOnMap(double x, double y);
 
+public slots:
+    void onSliceSliderChanged(int value);
+
 private slots:
     void onZoomChanged(double zoom);
     void onTraceHovered(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
     void onExportSnapshot();
     void onSectionModeChanged(int modeIndex);
-    void onSliceSliderChanged(int value);
     void onTraceClicked(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
     void onCopyImage();
     void onPrintImage();
@@ -145,6 +150,8 @@ private:
     bool m_isExtractingSlice = false;       // 提取去抖：在途时新请求入待发槽
     int m_pendingSliceIndex = -1;
     SgySliceType m_pendingSliceType = SgySliceType::Inline;
+    uint64_t m_sliceGeneration = 0;
+    std::shared_ptr<std::atomic<bool>> m_activeCancelFlag;
     SeismicTaskService *m_taskService = nullptr;
     QPointer<PaleoTask> m_extraction;
     quint64 m_generation = 0;

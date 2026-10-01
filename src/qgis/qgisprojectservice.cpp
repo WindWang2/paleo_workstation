@@ -4,6 +4,7 @@
 #include "manifestprojection.h"
 #include "../metadata/atomicfile.h"
 #include "../metadata/paleoprojectfile.h"
+#include "../metadata/projectlock.h"
 
 #include <QDir>
 #include <QFile>
@@ -124,6 +125,16 @@ bool QgisProjectService::createProject( const QString &qgzPath )
     m_errors << tr( "Cannot create a project with an empty path" );
     return false;
   }
+
+  const QString projectDir = QFileInfo( qgzPath ).absolutePath();
+  ProjectDirLock lockCheck( projectDir );
+  QString lockErr;
+  if ( !lockCheck.tryLock( &lockErr ) )
+  {
+    m_errors << tr( "工程目录已被另一个实例锁定（%1），创建被拒绝" ).arg( lockErr );
+    return false;
+  }
+  lockCheck.unlock();
 
   m_project->clear();
   m_path = qgzPath;

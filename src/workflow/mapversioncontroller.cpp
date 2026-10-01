@@ -138,67 +138,123 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
   const QString json = QJsonDocument( QJsonObject::fromVariantMap( provenance ) )
                            .toJson( QJsonDocument::Compact );
 
-  // 编辑会话 commit（§1223 版本提交边界）：该层位全部矢量图层逐一提交；
-  // commitChanges 原生清 undo 栈，undoStack()->clear() 再兜底一次，保证
-  // undo 不跨版本边界。栅格图层无编辑缓冲，跳过。
+  // 收集属于该层位的全部矢量图层候选（无论成功失败均保证清理 busy 标记）
+  QVector<QPair<QString, QPointer<QgsVectorLayer>>> horizonVectorLayers;
+  QVector<LayerDeclaration> declared;
+  bool declaredOk = false;
   if ( m_layers )
   {
-    QVector<LayerDeclaration> declared;
-    if ( !m_layers->tryDeclared( &declared, error ) )
-      return MapVersion(); // 清单读失败时不得在未提交编辑的情况下出版本
-    for ( const LayerDeclaration &d : declared )
+    declaredOk = m_layers->tryDeclared( &declared, error );
+    if ( declaredOk )
     {
-      if ( d.horizon != horizon )
-        continue;
-      if ( d.type.compare( QStringLiteral( "vector" ), Qt::CaseInsensitive ) != 0 )
-        continue;
-      QString instantiateErr;
-      QgsMapLayer *layer = m_layers->instantiate( d.layerId, &instantiateErr );
-      auto *vl = qobject_cast<QgsVectorLayer *>( layer );
-      if ( !vl )
-        continue; // 声明暂不可实例化（如源未落盘）不影响其他图层的提交
-      if ( vl->isEditable() )
+      for ( const LayerDeclaration &d : declared )
       {
-        if ( m_editSvc )
+        if ( d.horizon == horizon && d.type.compare( QStringLiteral( "vector" ), Qt::CaseInsensitive ) == 0 )
         {
-          if ( !m_editSvc->commitEdit( vl, error ) )
-            return MapVersion();
-        }
-        else if ( m_projectStore )
-        {
-          const auto res = m_projectStore->enqueueWrite( [vl]() -> PaleoProjectStore::WriteResult {
-            if ( !vl->commitChanges() )
-              return { false, QObject::tr( "commitChanges failed for layer '%1'" ).arg( vl->id() ) };
-            return { true, QString() };
-          } );
-          m_projectStore->markLayerFree( d.layerId );
-          if ( !res.ok )
-          {
-            if ( error )
-              *error = tr( "图层 %1 提交编辑失败：%2" ).arg( d.layerId, res.error );
-            return MapVersion();
-          }
-        }
-        else
-        {
-          if ( !vl->commitChanges() )
-          {
-            if ( error )
-              *error = tr( "图层 %1 提交编辑失败：%2" )
-                           .arg( d.layerId, vl->commitErrors().join( QLatin1Char( ';' ) ) );
-            return MapVersion();
-          }
+          QString instErr;
+          QgsMapLayer *layer = m_layers->instantiate( d.layerId, &instErr );
+          auto *vl = qobject_cast<QgsVectorLayer *>( layer );
+          horizonVectorLayers.append( { d.layerId, vl } );
         }
       }
-      else if ( m_projectStore )
-      {
-        m_projectStore->markLayerFree( d.layerId );
-      }
-      vl->undoStack()->clear();
     }
   }
 
-  MapVersion v = m_store ? m_store->saveVersion( horizon, json, error ) : MapVersion();
+  auto clearAllTokens = [&]() {
+    if ( !m_projectStore )
+      return;
+    for ( const auto &item : horizonVectorLayers )
+    {
+      m_projectStore->markLayerFree( item.first );
+      if ( item.second )
+        m_projectStore->markLayerFree( item.second->id() );
+    }
+  };
+
+  if ( m_layers && !declaredOk )
+  {
+    clearAllTokens();
+    return MapVersion(); // 清单读失败时不得在未提交编辑的情况下出版本
+  }
+
+  // 编辑会话 commit（§1223 版本提交边界）：该层位全部矢量图层逐一提交；
+  // commitChanges 原生清 undo 栈，undoStack()->clear() 再兜底一次，保证
+  // undo 不跨版本边界。栅格图层无编辑缓冲，跳过。
+  bool commitFailed = false;
+  for ( const auto &item : horizonVectorLayers )
+  {
+    auto *vl = item.second.data();
+    if ( !vl )
+      continue;
+    if ( vl->isEditable() )
+    {
+      if ( m_editSvc )
+      {
+        if ( !m_editSvc->commitEdit( vl, error ) )
+          commitFailed = true;
+      }
+      else if ( m_projectStore )
+      {
+        const auto res = m_projectStore->enqueueWrite( [vl]() -> PaleoProjectStore::WriteResult {
+          if ( !vl->commitChanges() )
+            return { false, QObject::tr( "commitChanges failed for layer '%1'" ).arg( vl->id() ) };
+          return { true, QString() };
+        } );
+        if ( !res.ok )
+        {
+          if ( error && error->isEmpty() )
+            *error = tr( "图层 %1 提交编辑失败：%2" ).arg( item.first, res.error );
+          commitFailed = true;
+        }
+      }
+      else
+      {
+        if ( !vl->commitChanges() )
+        {
+          if ( error && error->isEmpty() )
+            *error = tr( "图层 %1 提交编辑失败：%2" )
+                         .arg( item.first, vl->commitErrors().join( QLatin1Char( ';' ) ) );
+          commitFailed = true;
+        }
+      }
+    }
+    vl->undoStack()->clear();
+  }
+
+  if ( commitFailed )
+  {
+    clearAllTokens();
+    return MapVersion();
+  }
+
+  // §41.2 sole write choke point：saveVersion 路由进 m_projectStore->enqueueWrite
+  MapVersion v;
+  if ( m_projectStore )
+  {
+    QString storeErr;
+    const auto res = m_projectStore->enqueueWrite( [&]() -> PaleoProjectStore::WriteResult {
+      if ( !m_store )
+        return { false, QObject::tr( "MapVersionStore is null" ) };
+      v = m_store->saveVersion( horizon, json, &storeErr );
+      if ( v.version <= 0 )
+        return { false, storeErr.isEmpty() ? QObject::tr( "saveVersion failed" ) : storeErr };
+      return { true, QString() };
+    } );
+    if ( !res.ok )
+    {
+      if ( error && error->isEmpty() )
+        *error = res.error;
+      clearAllTokens();
+      return MapVersion();
+    }
+  }
+  else if ( m_store )
+  {
+    v = m_store->saveVersion( horizon, json, error );
+  }
+
+  clearAllTokens();
+
   if ( v.version > 0 )
     emit versionSaved( horizon, v.version );
   return v;

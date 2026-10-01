@@ -2,15 +2,79 @@
 #include <QDialog>
 #include <QLabel>
 #include <QPointer>
+#include <QPushButton>
 #include <QSettings>
+#include <QThread>
+
+#include <atomic>
 
 #include <qgsapplication.h>
 #include <qgsprocessingalgorithm.h>
 #include <qgsprocessingalgorithmwidgetbase.h>
+#include <qgsprocessingfeedback.h>
 #include <qgsprocessingparameterswidget.h>
+#include <qgsprocessingprovider.h>
 #include <qgsprocessingregistry.h>
 
 #include "../src/qgis/qgisprocessingservice.h"
+
+class StoppableTestAlgorithm : public QgsProcessingAlgorithm
+{
+public:
+  static inline std::atomic<bool> s_started{false};
+  static inline std::atomic<bool> s_completed{false};
+  static inline std::atomic<bool> s_sawCancel{false};
+
+  QString name() const override { return QStringLiteral("stoppable_test"); }
+  QString displayName() const override { return QStringLiteral("Stoppable Test Algorithm"); }
+  QString group() const override { return QStringLiteral("Test"); }
+  QString groupId() const override { return QStringLiteral("test"); }
+  StoppableTestAlgorithm *createInstance() const override { return new StoppableTestAlgorithm(); }
+  Qgis::ProcessingAlgorithmFlags flags() const override
+  {
+    return QgsProcessingAlgorithm::flags() | Qgis::ProcessingAlgorithmFlag::CanCancel;
+  }
+
+  void initAlgorithm(const QVariantMap &) override {}
+
+  QVariantMap processAlgorithm(const QVariantMap &parameters, QgsProcessingContext &context,
+                               QgsProcessingFeedback *feedback) override
+  {
+    Q_UNUSED(parameters);
+    s_started = true;
+    s_completed = false;
+    s_sawCancel = false;
+
+    for (int i = 0; i < 300; ++i)
+    {
+      if (feedback && feedback->isCanceled())
+      {
+        s_sawCancel = true;
+        break;
+      }
+      if (feedback)
+      {
+        feedback->setProgress(i);
+        feedback->pushInfo(QStringLiteral("Working"));
+      }
+      (void)context.project();
+      QThread::msleep(10);
+    }
+    s_completed = true;
+    return QVariantMap();
+  }
+};
+
+class StoppableTestProvider : public QgsProcessingProvider
+{
+public:
+  QString id() const override { return QStringLiteral("paleotest"); }
+  QString name() const override { return QStringLiteral("Paleo Test Provider"); }
+  void loadAlgorithms() override
+  {
+    addAlgorithm(new StoppableTestAlgorithm());
+  }
+};
 
 // Acceptance for the native Processing algorithm-dialog wiring:
 //   * the service ctor registers the PaleoProvider, so paleo:* ids resolve;
@@ -24,6 +88,11 @@ class TestProcDialog : public QObject
   Q_OBJECT
 
 private slots:
+
+  void initTestCase()
+  {
+    QgsApplication::processingRegistry()->addProvider(new StoppableTestProvider());
+  }
 
   void knownAlgorithmCreatesNativeDialog()
   {
@@ -116,6 +185,82 @@ private slots:
     QVERIFY(!svc.showAlgorithmDialog(QStringLiteral("qgis:buffer"), QVariantMap(),
                                      nullptr, &error));
     QVERIFY(!error.isEmpty());
+  }
+
+  void closeEventCancelsRunningAlgorithmGracefully()
+  {
+    QgisProcessingService svc(nullptr);
+    QString error;
+    QVERIFY2(svc.showAlgorithmDialog(
+                 QStringLiteral("paleotest:stoppable_test"),
+                 QVariantMap(), nullptr, &error),
+             qPrintable(error));
+
+    QWidget *w = svc.lastAlgorithmDialog();
+    QVERIFY(w);
+    auto *algWidget = qobject_cast<QgsProcessingAlgorithmWidgetBase *>(w);
+    QVERIFY(algWidget);
+
+    StoppableTestAlgorithm::s_started = false;
+    StoppableTestAlgorithm::s_completed = false;
+    StoppableTestAlgorithm::s_sawCancel = false;
+
+    QVERIFY(algWidget->runButton());
+    algWidget->runButton()->click();
+
+    QTRY_VERIFY_WITH_TIMEOUT(StoppableTestAlgorithm::s_started.load(), 3000);
+    QVERIFY(algWidget->isRunning());
+
+    // Close window while running
+    w->window()->close();
+
+    // Cancellation should be triggered and worker should observe cancel
+    QTRY_VERIFY_WITH_TIMEOUT(StoppableTestAlgorithm::s_completed.load(), 4000);
+    QVERIFY(StoppableTestAlgorithm::s_sawCancel.load());
+
+    // Window should complete its delayed close once worker finishes
+    QTRY_VERIFY_WITH_TIMEOUT(!algWidget->isRunning(), 3000);
+
+    w->deleteLater();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QCoreApplication::processEvents();
+  }
+
+  void widgetDestructionDuringActiveExecutionDoesNotCrashOrUaf()
+  {
+    QgisProcessingService svc(nullptr);
+    QString error;
+    QWidget *w = svc.createAlgorithmDialog(
+        QStringLiteral("paleotest:stoppable_test"),
+        QVariantMap(), nullptr, &error);
+    QVERIFY2(w, qPrintable(error));
+
+    auto *algWidget = qobject_cast<QgsProcessingAlgorithmWidgetBase *>(w);
+    QVERIFY(algWidget);
+
+    StoppableTestAlgorithm::s_started = false;
+    StoppableTestAlgorithm::s_completed = false;
+    StoppableTestAlgorithm::s_sawCancel = false;
+
+    QVERIFY(algWidget->runButton());
+    algWidget->runButton()->click();
+
+    // Wait until background task is actively running and executing processAlgorithm()
+    QTRY_VERIFY_WITH_TIMEOUT(StoppableTestAlgorithm::s_started.load(), 3000);
+    QVERIFY(algWidget->isRunning());
+
+    // Destroy the widget immediately while the worker thread is in the middle of
+    // loop iterations accessing context and calling feedback->setProgress()/pushInfo()
+    QPointer<QWidget> topWindow = w->window();
+    delete w;
+    if (topWindow)
+      delete topWindow;
+
+    // With TaskPayload and proper lifetime decoupling, the background task safely
+    // finishes without heap-use-after-free, double-free, or crash.
+    QTRY_VERIFY_WITH_TIMEOUT(StoppableTestAlgorithm::s_completed.load(), 5000);
+
+    QCoreApplication::processEvents();
   }
 };
 

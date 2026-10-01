@@ -311,15 +311,19 @@ namespace
               QgsProcessingAlgorithmWidgetBase::WidgetFlag::NoDocking,
               Qgis::DockableWidgetInitialState::ForceDialog)
       {
+        m_context = std::make_shared<QgsProcessingContext>();
         QgsProject *resolved = project ? project : QgsProject::instance();
         if (resolved)
         {
-          m_context.setProject(resolved);
-          m_context.setTransformContext(resolved->transformContext());
+          m_context->setProject(resolved);
+          m_context->setTransformContext(resolved->transformContext());
         }
         setAlgorithm(algorithm);
-        auto *panel = new PaleoAlgorithmParametersPanel(algorithm, this, &m_context);
+        auto *panel = new PaleoAlgorithmParametersPanel(algorithm, this, m_context.get());
         setMainWidget(panel);
+
+        if (QWidget *top = window())
+          top->installEventFilter(this);
       }
 
       ~PaleoAlgorithmWidget() override
@@ -327,9 +331,38 @@ namespace
         if (m_running && m_currentTask)
         {
           m_currentTask->cancel();
-          m_currentTask->waitForFinished(5000);
+          m_currentTask->waitForFinished(3000);
         }
-        delete m_feedback;
+        // Worker pointer safety: context and feedback lifetimes are bound to the
+        // runner task's destroyed signal via TaskPayload, so even if background
+        // execution outlives this widget, no dangling pointer or use-after-free
+        // occurs. Do NOT call delete m_feedback.
+      }
+
+      void showEvent(QShowEvent *e) override
+      {
+        QgsProcessingAlgorithmWidgetBase::showEvent(e);
+        if (QWidget *top = window())
+          top->installEventFilter(this);
+      }
+
+      bool eventFilter(QObject *watched, QEvent *e) override
+      {
+        if (watched == window() && e->type() == QEvent::Close)
+        {
+          if (m_running && m_currentTask)
+          {
+            m_currentTask->cancel();
+            if (!m_currentTask->waitForFinished(500))
+            {
+              m_closeRequested = true;
+              e->ignore();
+              setInfo(tr("Algorithm cancellation requested. Waiting for background worker to terminate..."), false);
+              return true;
+            }
+          }
+        }
+        return QgsProcessingAlgorithmWidgetBase::eventFilter(watched, e);
       }
 
       void closeEvent(QCloseEvent *e) override
@@ -337,7 +370,13 @@ namespace
         if (m_running && m_currentTask)
         {
           m_currentTask->cancel();
-          m_currentTask->waitForFinished(5000);
+          if (!m_currentTask->waitForFinished(500))
+          {
+            m_closeRequested = true;
+            e->ignore();
+            setInfo(tr("Algorithm cancellation requested. Waiting for background worker to terminate..."), false);
+            return;
+          }
         }
         QgsProcessingAlgorithmWidgetBase::closeEvent(e);
       }
@@ -351,7 +390,7 @@ namespace
         return QVariantMap();
       }
 
-      QgsProcessingContext *processingContext() override { return &m_context; }
+      QgsProcessingContext *processingContext() override { return m_context.get(); }
 
       void setParameters(const QVariantMap &values) override
       {
@@ -378,7 +417,7 @@ namespace
           return; // already reported on the message bar by the panel
 
         QString message;
-        if (!algorithm()->checkParameterValues(params, m_context, &message))
+        if (!algorithm()->checkParameterValues(params, *m_context, &message))
         {
           // Message bar instead of QMessageBox: static QMessageBox helpers exec
           // a nested event loop, which hangs offscreen test runs.
@@ -388,10 +427,9 @@ namespace
           return;
         }
 
-        delete m_feedback;
-        m_feedback = createFeedback();
+        m_feedback = std::shared_ptr<QgsProcessingFeedback>(createFeedback());
 
-        applyContextOverrides(&m_context);
+        applyContextOverrides(m_context.get());
         blockControlsWhileRunning();
         setExecutedAnyResult(true);
         cancelButton()->setEnabled(
@@ -407,13 +445,30 @@ namespace
                 false, false);
 
         m_running = true;
-        auto *task = new QgsProcessingAlgRunnerTask(algorithm(), params, m_context, m_feedback);
+        auto *task = new QgsProcessingAlgRunnerTask(algorithm(), params, *m_context, m_feedback.get());
         m_currentTask = task;
+
+        auto payload = std::make_shared<TaskPayload>();
+        payload->context = m_context;
+        payload->feedback = m_feedback;
+
+        connect(task, &QObject::destroyed, task, [payload]() mutable {
+          payload.reset();
+        });
+
         connect(task, &QgsProcessingAlgRunnerTask::executed, this,
                 [this](bool successful, const QVariantMap &results) {
                   m_running = false;
                   m_currentTask = nullptr;
-                  finished(successful, results, m_context, m_feedback);
+                  finished(successful, results, *m_context, m_feedback.get());
+                  if (m_closeRequested)
+                  {
+                    m_closeRequested = false;
+                    if (window())
+                      window()->close();
+                    else
+                      close();
+                  }
                 });
         // If prepare() failed inside the task ctor the task self-cancels; the
         // task manager still runs its finished() → executed(false) path, so the
@@ -447,9 +502,16 @@ namespace
         return static_cast<PaleoAlgorithmParametersPanel *>(mainWidget());
       }
 
-      QgsProcessingContext m_context;
-      QgsProcessingFeedback *m_feedback = nullptr; // owned, freed between runs
+      struct TaskPayload
+      {
+        std::shared_ptr<QgsProcessingContext> context;
+        std::shared_ptr<QgsProcessingFeedback> feedback;
+      };
+
+      std::shared_ptr<QgsProcessingContext> m_context;
+      std::shared_ptr<QgsProcessingFeedback> m_feedback;
       bool m_running = false;
+      bool m_closeRequested = false;
       QPointer<QgsProcessingAlgRunnerTask> m_currentTask;
   };
 

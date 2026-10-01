@@ -237,6 +237,77 @@ private slots:
     // Clean up temporary directory
     QDir( tempDir ).removeRecursively();
   }
+
+  // ---- MEM-01: PaleoProjectStore 析构弱引用安全（QPointer 防 UAF）----
+  void testProjectStoreDestructionWeakRefSafety()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const QString gpkgPath = dir.filePath( QStringLiteral( "test_weakref.gpkg" ) );
+
+    auto projectStore = std::make_unique<PaleoProjectStore>();
+    ConstraintStore store( gpkgPath, projectStore.get() );
+
+    QString err;
+    // When projectStore is alive, append works normally
+    QVERIFY( store.append( QStringLiteral( "T1" ), QStringLiteral( "c-1" ),
+                           QStringLiteral( "LINESTRING(0 0, 10 0)" ),
+                           QStringLiteral( "line" ), 1, &err ) );
+
+    // Now destroy the projectStore (simulates project close / unload)
+    projectStore.reset();
+
+    // Subsequent write operations must fail safely without crashing (UAF prevented by QPointer)
+    err.clear();
+    const bool appendResult = store.append( QStringLiteral( "T1" ), QStringLiteral( "c-2" ),
+                                           QStringLiteral( "LINESTRING(10 0, 20 0)" ),
+                                           QStringLiteral( "line" ), 1, &err );
+    QVERIFY( !appendResult );
+    QCOMPARE( err, QStringLiteral( "PaleoProjectStore destroyed or unavailable" ) );
+
+    err.clear();
+    const bool removeResult = store.remove( QStringLiteral( "c-1" ), &err );
+    QVERIFY( !removeResult );
+    QCOMPARE( err, QStringLiteral( "PaleoProjectStore destroyed or unavailable" ) );
+  }
+
+  // ---- MEM-01: ConstraintWorkflow 类型化生命周期管理与无动态属性走私 ----
+  void testConstraintWorkflowTypedOwnershipAndLifecycle()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const QString qgz = dir.filePath( QStringLiteral( "project.qgz" ) );
+    const QString gpkg = dir.filePath( QStringLiteral( "constraints.gpkg" ) );
+    const QString meta = dir.filePath( QStringLiteral( "meta.json" ) );
+
+    ConstraintWorkflow wf( nullptr, nullptr );
+    QVERIFY( wf.constraintStore() == nullptr );
+
+    // Scope block with PaleoProjectStore
+    {
+      PaleoProjectStore store;
+      store.setProjectPaths( qgz, gpkg, meta );
+      wf.setStore( &store );
+
+      QVERIFY( wf.constraintStore() != nullptr );
+      QCOMPARE( wf.constraintStore()->gpkgPath(), gpkg );
+
+      // Assert no dynamic properties are used for pointer smuggling
+      QVERIFY( !wf.property( "paleo.wf.constraintstore" ).isValid() );
+      QVERIFY( !wf.property( "paleo.wf.owned_constraintstore" ).isValid() );
+    }
+
+    // store is now destroyed; constraintStore() must gracefully return nullptr
+    QVERIFY( wf.constraintStore() == nullptr );
+
+    // External store override
+    ConstraintStore externalStore( gpkg, static_cast<PaleoProjectStore *>( nullptr ) );
+    wf.setConstraintStore( &externalStore );
+    QCOMPARE( wf.constraintStore(), &externalStore );
+
+    wf.setConstraintStore( nullptr );
+    QVERIFY( wf.constraintStore() == nullptr );
+  }
 };
 
 int main( int argc, char *argv[] )

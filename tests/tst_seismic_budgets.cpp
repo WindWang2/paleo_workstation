@@ -336,6 +336,41 @@ private slots:
     QCOMPARE(restored.picks.first().twtMs, 64.0);
   }
 
+  // ---- CONC-02: 信号量槽位在异常下必须自动释放（RAII 防死锁）----
+  void semaphoreReleasesOnException()
+  {
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks);
+
+    // 4 个任务全部抛出异常，耗尽初始 4 个槽位
+    for (int i = 0; i < 4; ++i) {
+      svc.startBounded(QStringLiteral("异常任务 %1").arg(i),
+                       [](PaleoTask *) -> QString {
+                         throw std::runtime_error("simulated worker failure");
+                       });
+    }
+
+    // 等待 4 个异常任务收尾
+    QElapsedTimer clock;
+    clock.start();
+    while (svc.activeTaskCount() > 0 && clock.elapsed() < 5000)
+      QApplication::processEvents(QEventLoop::AllEvents, 20);
+    QCOMPARE(svc.activeTaskCount(), 0);
+
+    // 提交第 5 个正常任务。如果信号量未被 RAII 释放，则必定永久死锁阻塞在 acquire()！
+    std::atomic<bool> fifthRan{false};
+    svc.startBounded(QStringLiteral("恢复后任务"),
+                     [&](PaleoTask *) -> QString {
+                       fifthRan.store(true);
+                       return QString();
+                     });
+
+    clock.restart();
+    while (!fifthRan.load() && clock.elapsed() < 5000)
+      QApplication::processEvents(QEventLoop::AllEvents, 20);
+    QVERIFY2(fifthRan.load(), "Task deadlocked: semaphore permit was leaked on exception!");
+  }
+
 private:
   QString bigSgy_;
 };

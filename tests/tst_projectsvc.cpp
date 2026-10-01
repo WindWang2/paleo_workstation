@@ -7,6 +7,7 @@
 #include "../src/qgis/qgisruntime.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/metadata/paleoprojectfile.h"
+#include "../src/metadata/projectlock.h"
 
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
@@ -208,6 +209,72 @@ private slots:
     const QStringList missing = missingMembers( dir.path(), back );
     QVERIFY( missing.join( ' ' ).contains( QStringLiteral( "catalog" ) ) );
     QVERIFY( missing.join( ' ' ).contains( QStringLiteral( "qgz" ) ) );
+  }
+
+  // ---- Issue #26: 工程目录锁互斥与并发创建/打开检测 ----
+
+  void createProjectRefusedWhenDirectoryLocked()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const QString qgz = dir.filePath( QStringLiteral( "proj.qgz" ) );
+
+    // 实例 1 持有目录锁
+    ProjectDirLock lock1( dir.path() );
+    QString lockErr;
+    QVERIFY( lock1.tryLock( &lockErr ) );
+    QVERIFY( lock1.isHeld() );
+
+    // 实例 2 尝试在已锁定目录创建工程 → 必须被拒绝且不破坏盘上状态
+    QgisProjectService svc2;
+    QVERIFY( !svc2.createProject( qgz ) );
+    QVERIFY( !svc2.lastErrors().isEmpty() );
+    QVERIFY( svc2.lastErrors().first().contains( QStringLiteral( "锁定" ) ) );
+    QVERIFY( !QFile::exists( qgz ) );
+
+    // 实例 1 释放锁后，创建工程成功
+    lock1.unlock();
+    QVERIFY( !lock1.isHeld() );
+    QVERIFY( svc2.createProject( qgz ) );
+    QVERIFY( QFile::exists( qgz ) );
+  }
+
+  void concurrentProjectOpenRefusedAndDetected()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const QString qgz = dir.filePath( QStringLiteral( "concurrent.qgz" ) );
+
+    // 创建工程
+    QgisProjectService svc;
+    QVERIFY( svc.createProject( qgz ) );
+
+    // 模拟首实例打开并锁定工程
+    ProjectDirLock primaryLock( dir.path() );
+    QString primaryErr;
+    QVERIFY( primaryLock.tryLock( &primaryErr ) );
+    QVERIFY( primaryLock.isHeld() );
+
+    // 第二实例尝试取锁打开 → 必须被探测并拒绝
+    ProjectDirLock secondaryLock( dir.path() );
+    QString secondaryErr;
+    QVERIFY( !secondaryLock.tryLock( &secondaryErr ) );
+    QVERIFY( !secondaryLock.isHeld() );
+    QVERIFY( secondaryErr.contains( QStringLiteral( "另一个实例" ) ) ||
+             secondaryErr.contains( QStringLiteral( "pid" ) ) );
+
+    // 第二实例尝试创建同名工程覆盖 → 必须被拒
+    QgisProjectService secondarySvc;
+    QVERIFY( !secondarySvc.createProject( qgz ) );
+    QVERIFY( secondarySvc.lastErrors().first().contains( QStringLiteral( "锁定" ) ) );
+
+    // 首实例关闭并释放锁
+    primaryLock.unlock();
+    QVERIFY( !primaryLock.isHeld() );
+
+    // 第二实例重新取锁 → 成功取得独占写锁
+    QVERIFY( secondaryLock.tryLock() );
+    QVERIFY( secondaryLock.isHeld() );
   }
 };
 

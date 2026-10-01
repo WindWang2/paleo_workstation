@@ -331,7 +331,37 @@ void PaleoEditingToolbar::setLayerFilter( LayerFilter filter )
 
 void PaleoEditingToolbar::setEditingService( QgisEditingService *service )
 {
+  if ( mEditingService == service )
+    return;
+  if ( mEditingService )
+    disconnect( mEditingService, nullptr, this, nullptr );
+
   mEditingService = service;
+  if ( !mEditingService )
+    return;
+
+  auto syncExternalEditEnd = [this]( const QString &layerId, bool saved ) {
+    if ( mEditLayer && ( mEditLayer->id() == layerId ||
+         mEditLayer->customProperty( QStringLiteral( "paleoLayerId" ) ).toString() == layerId ) )
+    {
+      const QString id = mEditLayer->id();
+      mEditLayer = nullptr;
+      installTool( nullptr );
+      uncheckEditTools( this );
+      emit editingStopped( id, saved );
+      refreshCombo();
+      updateActionStates();
+    }
+  };
+
+  connect( mEditingService, &QgisEditingService::editCommitted, this,
+           [syncExternalEditEnd]( const QString &layerId ) {
+             syncExternalEditEnd( layerId, true );
+           } );
+  connect( mEditingService, &QgisEditingService::editRolledBack, this,
+           [syncExternalEditEnd]( const QString &layerId ) {
+             syncExternalEditEnd( layerId, false );
+           } );
 }
 
 QgsVectorLayer *PaleoEditingToolbar::currentLayer() const

@@ -92,36 +92,9 @@ namespace
     return qobject_cast<QgisLayerService *>( wf->property( kLayersProp ).value<QObject *>() );
   }
 
-  const char kConstraintStoreProp[]      = "paleo.wf.constraintstore";      // void* (ConstraintStore*)
-  const char kOwnedConstraintStoreProp[] = "paleo.wf.owned_constraintstore"; // void* (ConstraintStore*)
-
   PaleoProjectStore *storeOf( const QObject *wf )
   {
     return qobject_cast<PaleoProjectStore *>( wf->property( kStoreProp ).value<QObject *>() );
-  }
-
-  ConstraintStore *constraintStoreOf( const QObject *wf )
-  {
-    QVariant v = wf->property( kConstraintStoreProp );
-    if ( v.isValid() && v.value<void *>() )
-      return static_cast<ConstraintStore *>( v.value<void *>() );
-
-    PaleoProjectStore *store = storeOf( wf );
-    if ( store && !store->gpkgPath().isEmpty() )
-    {
-      QVariant ov = wf->property( kOwnedConstraintStoreProp );
-      if ( ov.isValid() && ov.value<void *>() )
-      {
-        auto *owned = static_cast<ConstraintStore *>( ov.value<void *>() );
-        if ( owned->gpkgPath() == store->gpkgPath() )
-          return owned;
-        delete owned;
-      }
-      auto *owned = new ConstraintStore( store->gpkgPath(), store );
-      const_cast<QObject *>( wf )->setProperty( kOwnedConstraintStoreProp, QVariant::fromValue( static_cast<void *>( owned ) ) );
-      return owned;
-    }
-    return nullptr;
   }
 
 #if PALEO_HAVE_ORT
@@ -708,16 +681,13 @@ ConstraintWorkflow::ConstraintWorkflow( QgisProcessingService *proc, QgisLayerSe
   : QObject( parent )
 {
   bindProcessing( this, proc, layers );
-  connect( this, &QObject::destroyed, [this]() {
-    QVariant ov = property( kOwnedConstraintStoreProp );
-    if ( ov.isValid() && ov.value<void *>() )
-      delete static_cast<ConstraintStore *>( ov.value<void *>() );
-  } );
 }
+
+ConstraintWorkflow::~ConstraintWorkflow() = default;
 
 void ConstraintWorkflow::setConstraintStore( ConstraintStore *store )
 {
-  setProperty( kConstraintStoreProp, QVariant::fromValue( static_cast<void *>( store ) ) );
+  m_externalConstraintStore = store;
 }
 
 void ConstraintWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDir )
@@ -728,11 +698,29 @@ void ConstraintWorkflow::setCatalog( DataCatalog *catalog, const QString &projec
 void ConstraintWorkflow::setStore( PaleoProjectStore *store )
 {
   setProperty( kStoreProp, QVariant::fromValue( static_cast<QObject *>( store ) ) );
+  if ( m_projectStore != store )
+  {
+    m_projectStore = store;
+    m_ownedConstraintStore.reset();
+  }
 }
 
 ConstraintStore *ConstraintWorkflow::constraintStore() const
 {
-  return constraintStoreOf( this );
+  if ( m_externalConstraintStore )
+    return m_externalConstraintStore;
+
+  if ( m_projectStore && !m_projectStore->gpkgPath().isEmpty() )
+  {
+    if ( m_ownedConstraintStore && m_ownedConstraintStore->gpkgPath() == m_projectStore->gpkgPath() )
+      return m_ownedConstraintStore.get();
+
+    m_ownedConstraintStore = std::make_unique<ConstraintStore>( m_projectStore->gpkgPath(), m_projectStore.data() );
+    return m_ownedConstraintStore.get();
+  }
+
+  m_ownedConstraintStore.reset();
+  return nullptr;
 }
 
 bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &wkt,
@@ -769,7 +757,7 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
   c.wkt = wkt;
   c.targetFaciesCode = faciesCode;
 
-  ConstraintStore *cs = constraintStoreOf( this );
+  ConstraintStore *cs = constraintStore();
   if ( cs )
   {
     if ( !cs->append( horizon, c.id, wkt, type, faciesCode, error ) )
@@ -837,7 +825,7 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
 
 QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon )
 {
-  ConstraintStore *cs = constraintStoreOf( this );
+  ConstraintStore *cs = constraintStore();
   if ( !cs )
   {
     QVariantList list = property( kConstraintsProp ).toList();

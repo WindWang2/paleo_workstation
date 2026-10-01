@@ -304,7 +304,7 @@ add_library(paleo_io STATIC
   src/io/wellcompositexml.cpp
   src/io/ingestplan.cpp                             # C 包：纯 plan + 幂等执行器
 )
-target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store paleo_qgis)
+target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 
 add_library(paleo_services STATIC
   src/services/toolavailability.cpp
@@ -536,7 +536,7 @@ add_paleo_test(tst_maptools LIBS paleo_ui)
 add_paleo_test(tst_correlation LIBS paleo_ui)
 add_paleo_test(tst_decorations LIBS paleo_ui)
 add_paleo_test(tst_manifestproj LIBS paleo_qgis)
-add_paleo_test(tst_import LIBS paleo_io)
+add_paleo_test(tst_import LIBS paleo_io paleo_qgis)
 add_paleo_test(tst_drawctl LIBS paleo_ui)
 add_paleo_test(tst_procdialog LIBS paleo_qgis)
 add_paleo_test(tst_rehydrate)                               # 伞式（app 面全栈，兼容样本）

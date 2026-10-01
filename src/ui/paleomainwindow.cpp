@@ -1216,6 +1216,7 @@ bool PaleoMainWindow::openPath(const QString &path)
 
 void PaleoMainWindow::showStartup()
 {
+  setProjectReadOnly(false);
   m_currentPage = QStringLiteral("startup");
   if (m_dataListDock)
     m_dataListDock->setProgrammaticVisible(false);
@@ -1365,8 +1366,38 @@ void PaleoMainWindow::updateWindowTitle()
   QString name;
   if (m_projectSvc && !m_projectSvc->projectPath().isEmpty())
     name = QFileInfo(m_projectSvc->projectPath()).completeBaseName();
-  setWindowTitle(name.isEmpty() ? tr("Paleo Workbench [*]")
-                                : tr("%1 — Paleo Workbench [*]").arg(name));
+  if (m_isProjectReadOnly)
+  {
+    setWindowTitle(name.isEmpty() ? tr("Paleo Workbench [只读]")
+                                  : tr("%1 — Paleo Workbench [只读]").arg(name));
+  }
+  else
+  {
+    setWindowTitle(name.isEmpty() ? tr("Paleo Workbench [*]")
+                                  : tr("%1 — Paleo Workbench [*]").arg(name));
+  }
+}
+
+void PaleoMainWindow::setProjectReadOnly(bool readOnly)
+{
+  m_isProjectReadOnly = readOnly;
+  updateWindowTitle();
+
+  if (auto *saveAct = findChild<QAction *>(QStringLiteral("saveProjectAction")))
+  {
+    saveAct->setEnabled(!readOnly);
+    saveAct->setToolTip(readOnly ? tr("工程处于只读模式（另一个实例持有写锁）") : tr("保存工程（Ctrl+S）"));
+  }
+
+  if (auto *editTb = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+  {
+    editTb->setEnabled(!readOnly);
+  }
+
+  if (statusBar() && readOnly)
+  {
+    statusBar()->showMessage(tr("工程以只读模式运行（写操作已禁用）"), 10000);
+  }
 }
 
 void PaleoMainWindow::syncBottomDockForTasks()
@@ -1425,7 +1456,7 @@ void PaleoMainWindow::restoreWindowState()
 
 void PaleoMainWindow::saveCanvasExtent()
 {
-  if (!m_canvasCtl || !m_projectSvc || m_projectSvc->projectPath().isEmpty())
+  if (!m_canvasCtl || !m_projectSvc || !m_projectSvc->project() || m_projectSvc->projectPath().isEmpty())
     return;
   QgsMapCanvas *cv = m_canvasCtl->canvas();
   const QgsRectangle e = cv->extent();

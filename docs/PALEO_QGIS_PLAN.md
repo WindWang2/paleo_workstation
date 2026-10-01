@@ -1285,7 +1285,7 @@ Facies Polygon Layer (可编辑)
 
 **Phase 0 — go/no-go 三个 spike（E3 已定 + 工程评审 D3/D7 修订，先于 P0）**：
 
-0. **Vendor 策略对比（DX 评审 D7 + ET0 已决 → `docs/phase0/et0-vendor-comparison.md`）**：评估完成，**批准 binary vendoring（混合源）**——Windows = OSGeo4W `qgis`+`qgis-devel-4.2.x`+dep 闭包（URL/SHA512 pin）；Linux = qgis.org deb 闭包（`libqgis-dev`+依赖，发行版钉 resolute/trixie）解包进 vendor prefix；ONNX Runtime = 官方 GitHub release（自建 SHA256）。**Linux 宿主 floor = Debian 13/Ubuntu 25.04+ 级 glibc**（QGIS 4.x 需 Qt≥6.6，qgis.org 不为更老发行版出包）——产品约束已接受。Windows ABI 钉 MSVC v14x + /MD；Qt 用 vendor 同源（OSGeo4W qt6-devel / distro qt6-base-dev）。**回退条款**：`apt-get download libqgis-dev=4.2.*` 验证失败或须支持老宿主 → ExternalProject superbuild-on-oldest-target。
+0. **Vendor 策略对比（DX 评审 D7 + ET0 已决 → `docs/phase0/et0-vendor-comparison.md`）**：评估完成，**批准 binary vendoring（混合源）**——Windows = OSGeo4W `qgis`+`qgis-devel-4.2.x`+dep 闭包（URL/SHA512 pin）；Linux = qgis.org deb 闭包（`libqgis-dev`+依赖，发行版钉 resolute/trixie）解包进 vendor prefix；ONNX Runtime = 官方 GitHub release（自建 SHA256）。**Linux 宿主 floor = Debian 13/Ubuntu 25.04+ 级 glibc**（QGIS 4.x 需 Qt≥6.6，qgis.org 不为更老发行版出包）——产品约束已接受。Windows ABI 钉 MSVC v14x + /MD；Qt 用 vendor 同源（OSGeo4W qt6-devel / distro qt6-base-dev）。**回退条款**：`apt-get download libqgis-dev=4.2.*` 验证失败或须支持老宿主 → ExternalProject superbuild-on-oldest-target。**2026-10-01 政策修订**：优先级反转——尽量不依赖系统库、尽量自编译 vendored，superbuild 升首选、binary 闭包降加速档、系统包仅兜底（BUILDING.md「依赖来源策略」）；本条 D7 记录保留为历史底账。
 1. **Vendor boot spike**：vendored QGIS 在进程内启动。**验收标准（二值判定）**：目标平台矩阵 = Linux x86_64 + Windows x86_64（最低集）；通过 = `QgsApplication` 初始化返回 + provider registry 非空 + `srs.db`/`proj.db`/`GDAL_DATA` 解析成功 + `QgsMapCanvas` 渲染一个 GPKG 图层且输出像素非纯色 + 无阻塞对话框。产出：vendor superbuild 骨架（ExternalProject/构建 flags/依赖清单）、**初始化顺序文档**（env vars → prefixPath → QgsApplication 构造次序，即 P0 boot 规范）、启动自检（§38 第一实例）、CI headless 模式（`QT_QPA_PLATFORM=offscreen`）。**Windows leg 环境**：本机 POSIX 工具链（bootstrap.sh）默认 Linux；Windows 验收在 CI runner（windows-latest + MSVC）上跑，本地 Windows 开发用 git-bash 兼容层或 `paleo-dev.ps1` 对等脚本（spike 交付物之一）。**本地开发机基线**：Linux x86_64、8 核、≥60GB 空闲磁盘 —— TTHW ≤2h 预算以此为准，Windows CI 另计。
 2. **算法封装 spike**：一个 `QgsProcessingAlgorithm` 子类封装 `GDALPolygonize` 跑通——证明 C++-only 算法路径成立。
 3. **AI 运行时 mini-spike（工程评审 D7 新增）**：候选运行时（默认 ONNX Runtime）编入 vendor 树，进程内跑一个 toy 模型——使 §40 "运行时由 Phase 0 钉定"成为实证而非假设。
@@ -1374,7 +1374,7 @@ Facies Polygon Layer (可编辑)
 
 ### 44.1 TTHW 目标与魔法时刻（DX2/DX3）
 
-- **TTHW 目标**：干净机器 clone 之后**仅一条人工命令** `./paleo-dev bootstrap` —— 它跑 vendor 下载+解包（binary 路线；回退为源码构建），尾部自动执行 `selfcheck` 收尾输出全绿。**binary 路 ~10min；superbuild 回退 ≤2h**（基线机：Linux x86_64、glibc≥2.41 级发行版、8 核、磁盘 binary 路 ≥15GB / superbuild 路 ≥60GB；Windows 走 CI runner 另计）。「干净机器」= 发行版 + 编译工具链已装（preflight 兜底）。编译耗时是依赖树的物理下限；DX 杠杆压在「人工步骤 = 1」与「失败可诊断」上。
+- **TTHW 目标**：干净机器 clone 之后**仅一条人工命令** `./paleo-dev bootstrap` —— 它跑 vendor 下载+解包（binary 加速档；superbuild 自编译——2026-10-01 起为政策首选，见 BUILDING.md「依赖来源策略」），尾部自动执行 `selfcheck` 收尾输出全绿。**binary 加速档 ~10min；superbuild 首选路 ≤2h**（基线机：Linux x86_64、glibc≥2.41 级发行版、8 核、磁盘 binary 路 ≥15GB / superbuild 路 ≥60GB；Windows 走 CI runner 另计）。「干净机器」= 发行版 + 编译工具链已装（preflight 兜底）。编译耗时是依赖树的物理下限；DX 杠杆压在「人工步骤 = 1」与「失败可诊断」上。
 - **Magical moment**：`selfcheck` 不止输出 checklist，还把一个 GPKG 图层（repo 内自带的最小 fixture，见 ET12）离屏渲染到 `vendor/logs/map.png` —— 工程师亲眼看到一张真地图。该 PNG 同时充当：§39 spike 验收证据（非均匀像素断言）、CI artifact、视觉确认。
 - selfcheck checklist 输出格式：`✓ providers=N ✓ srs.db loaded ✓ GPKG layer loaded ✓ rendered → <path>`，并打印各阶段耗时。
 
@@ -1395,8 +1395,8 @@ repo 根单一可发现入口脚本（薄壳转发，不遮蔽底层工具；逃
 
 ### 44.3 Bootstrap 预检与可恢复契约
 
-- `paleo-dev bootstrap` 先做 **preflight**（随路线分档）：通用 = 磁盘空闲（binary ≥15GB / superbuild ≥60GB）、cmake ≥ 最低版本、编译器（Linux GCC14+/Windows MSVC v143 /MD）、ninja、pkg-config、OpenSSL 头文件、Linux 端 X11/GL dev 头、**glibc ≥ 2.41 检查**（binary 路必需）、网络可达性；superbuild 回退路追加 = flex+bison、nasm/python。失败项逐项输出「问题 + 原因 + 修复命令」后退出，不允许进行到一半才爆。
-- **断点续跑**：binary 路 = 已下载+校验过的包跳过（URL/SHA256 清单为幂等依据）；superbuild 回退路 = ExternalProject stamp 目录（`ninja` 天然增量）。**不手写 `.done` 标记**。`clean-vendor <dep>` = 删该 dep 的 vendor 子目录（binary）或 stamp+build 子目录（superbuild）即可触发单项重建。
+- `paleo-dev bootstrap` 先做 **preflight**（随路线分档）：通用 = 磁盘空闲（binary ≥15GB / superbuild ≥60GB）、cmake ≥ 最低版本、编译器（Linux GCC14+/Windows MSVC v143 /MD）、ninja、pkg-config、OpenSSL 头文件、Linux 端 X11/GL dev 头、**glibc ≥ 2.41 检查**（binary 路必需）、网络可达性；superbuild 首选路追加 = flex+bison、nasm/python。失败项逐项输出「问题 + 原因 + 修复命令」后退出，不允许进行到一半才爆。
+- **断点续跑**：binary 路 = 已下载+校验过的包跳过（URL/SHA256 清单为幂等依据）；superbuild 首选路 = ExternalProject stamp 目录（`ninja` 天然增量）。**不手写 `.done` 标记**。`clean-vendor <dep>` = 删该 dep 的 vendor 子目录（binary）或 stamp+build 子目录（superbuild）即可触发单项重建。
 - 构建日志统一落 `vendor/logs/<dep>.log`；失败时 bootstrap 尾部输出最后 40 行 + 完整日志路径。
 
 ### 44.4 文档面（Pass 4）

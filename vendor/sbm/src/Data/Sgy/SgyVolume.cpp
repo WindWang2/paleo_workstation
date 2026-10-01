@@ -207,8 +207,12 @@ const SgyRuleLayout& SgyVolume::Rule() const {
 }
 
 void SgyVolume::EnsureTimeSliceGrid() const {
-    if(!timeGridCache_) {
-        timeGridCache_ = std::make_shared<TimeGridCache>();
+    {
+        static std::mutex initMutex;
+        std::lock_guard<std::mutex> initLock(initMutex);
+        if(!timeGridCache_) {
+            timeGridCache_ = std::make_shared<TimeGridCache>();
+        }
     }
     std::lock_guard<std::mutex> lock(timeGridCache_->mutex);
     if(!timeGridCache_->traceIndices.empty()) {

@@ -55,6 +55,12 @@ private slots:
     void sweepAnimationNonBlockingExport();
     void sweepCacheHitRatio();
 
+    // ---- 块5 GL 护栏 ----
+    void noGlTeardownClean();
+
+    // ---- 性能实测（Oracle 6，比率门；env 门控不进常规 CI）----
+    void sweepPerfBigFixture();
+
 private:
     std::shared_ptr<SgyVolume> loadFixtureVolume();
 };
@@ -886,6 +892,116 @@ void TestSeismic3DViz::sweepCacheHitRatio() {
              qPrintable(QStringLiteral("扫掠缓存命中率 %1 < 0.8").arg(ratio)));
 
     QTRY_VERIFY_WITH_TIMEOUT(seismicSvc.activeTaskCount() == 0, 8000);
+}
+
+// ---- 块5（Oracle 5）：无 GL 环境优雅降级 + teardown 干净 ----
+// offscreen 下 QOpenGLWidget 永不建上下文：切片/剖面/层位/TF 全走暂存路径，
+// 析构不 crash 不挂死；带在途任务的先亡面板靠 QPointer 守卫安全着陆。
+void TestSeismic3DViz::noGlTeardownClean() {
+    auto vol = loadFixtureVolume();
+    QVERIFY(vol != nullptr);
+
+    {
+        Seismic3DViewportWidget viewport;
+        viewport.resize(400, 300);
+        viewport.setVolume(vol);
+        QVERIFY(!viewport.isGlReady());
+
+        // 各 pending 通道灌满（GL 前暂存语义）
+        SgySliceImage img;
+        std::string err;
+        QVERIFY(vol->ExtractSlice(SgySliceType::Time, 1, img, err));
+        QVERIFY(viewport.updateSlice(SeismicSliceSlot::Time, SgySliceType::Time, 1, img));
+        QVERIFY(viewport.updateLineSlice(
+            {{vol->InlineMin(), vol->XlineMin()}, {vol->InlineMax(), vol->XlineMax()}}, img));
+        QVERIFY(viewport.isLineSectionReady()); // pending 也算就绪
+
+        Seismic3DHorizonSurface h;
+        h.name = QStringLiteral("H");
+        h.inlineMin = vol->InlineMin();
+        h.inlineCount = 2;
+        h.inlineStep = 1;
+        h.xlineMin = vol->XlineMin();
+        h.xlineCount = 2;
+        h.xlineStep = 1;
+        h.twtMs = {10.0, 10.0, 12.0, std::numeric_limits<double>::quiet_NaN()};
+        viewport.setHorizons({h});
+        QCOMPARE(viewport.horizonCount(), 1);
+
+        viewport.setTransferFunction(std::vector<unsigned char>(256 * 4, 128), true);
+        viewport.setSectionPickMode(true, true);
+        QVERIFY(viewport.isSectionPickMode());
+        viewport.setWellLabelsVisible(true);
+    } // 无 GL 析构（cleanup 分支不进 makeCurrent）
+
+    PaleoProjectStore store;
+    PaleoTaskService taskSvc(&store);
+    SeismicTaskService seismicSvc(&taskSvc, 16 * 1024 * 1024);
+    {
+        Seismic3DViewPanel panel;
+        panel.setTaskService(&seismicSvc);
+        panel.setVolume(vol);
+        panel.setWells({});
+        panel.startSweep(SgySliceType::Inline, 30); // 在途预取进行中
+        QTest::qWait(50); // 至少一帧 + 预取入池
+    } // 面板先于服务析构（回调守卫路径）
+    QTRY_VERIFY_WITH_TIMEOUT(seismicSvc.activeTaskCount() == 0, 8000); // 无悬挂
+}
+
+// ---- 性能实测（Oracle 6）：大体 1 秒扫掠——帧推进/命中率/事件循环活性 ----
+// env PALEO_SEISMIC_SWEEP_PERF=<sgy> 触发（220MB 生产形状夹具或真工区体）；
+// 常规 CI 不设即 skip。门全比率化（帧率达标比、命中率、探针存活），
+// 不卡墙钟绝对值（机器负载容差）。
+void TestSeismic3DViz::sweepPerfBigFixture() {
+    const QString bigPath = qEnvironmentVariable("PALEO_SEISMIC_SWEEP_PERF");
+    if (bigPath.isEmpty() || !QFile::exists(bigPath))
+        QSKIP("sweep perf not requested (set PALEO_SEISMIC_SWEEP_PERF=<sgy>)");
+
+    QElapsedTimer loadClock;
+    loadClock.start();
+    auto vol = std::make_shared<SgyVolume>();
+    std::string err;
+    QVERIFY2(vol->Load(bigPath.toStdString(), err), err.c_str());
+    const double loadMs = loadClock.elapsed();
+    qInfo("volume load: %.0f ms (traces=%lld samples=%d)", loadMs,
+          vol->TraceCount(), vol->SampleCount());
+
+    PaleoProjectStore store;
+    PaleoTaskService taskSvc(&store);
+    SeismicTaskService seismicSvc(&taskSvc, 64 * 1024 * 1024);
+    Seismic3DViewPanel panel;
+    panel.setTaskService(&seismicSvc);
+    panel.setVolume(vol);
+    QTRY_VERIFY_WITH_TIMEOUT(seismicSvc.activeTaskCount() == 0, 60000);
+
+    QSignalSpy frames(&panel, &Seismic3DViewPanel::sweepFrameChanged);
+    QTimer probe;
+    probe.setInterval(1);
+    int probeTicks = 0;
+    QObject::connect(&probe, &QTimer::timeout, &probe, [&probeTicks]() { ++probeTicks; });
+
+    const int fps = 30;
+    const std::size_t hits0 = seismicSvc.dataCache().Hits();
+    panel.startSweep(SgySliceType::Time, fps);
+    probe.start();
+    QTest::qWait(1000);
+    probe.stop();
+    panel.stopSweep();
+    const std::size_t hits1 = seismicSvc.dataCache().Hits();
+    QTRY_VERIFY_WITH_TIMEOUT(seismicSvc.activeTaskCount() == 0, 30000);
+
+    const int advanced = frames.count();
+    const double fpsRatio = double(advanced) / double(fps); // 1s 窗口
+    const std::size_t hitDelta = hits1 - hits0;
+    const double hitPerFrame = double(hitDelta) / double(std::max(1, advanced));
+    qInfo("sweep 1s @%dfps target: frames=%d (%.0f%%) probe=%d cacheHits=%zu (%.2f/frame)",
+          fps, advanced, fpsRatio * 100.0, probeTicks, hitDelta, hitPerFrame);
+    QVERIFY2(fpsRatio >= 0.6,
+             qPrintable(QStringLiteral("帧推进率 %1%").arg(fpsRatio * 100.0, 0, 'f', 0)));
+    // 事件循环活性：1ms 档 QTimer 受 Qt 粗粒度合并（Linux 实际 ~10ms/跳），
+    // 健康循环 ≥50 跳/s；真阻塞趋零。比率门而非墙钟。
+    QVERIFY2(probeTicks >= 50,
+             qPrintable(QStringLiteral("事件循环探针 %1/1000ms").arg(probeTicks)));
 }
 
 QTEST_MAIN(TestSeismic3DViz)

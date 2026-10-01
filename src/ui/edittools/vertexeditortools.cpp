@@ -4,6 +4,7 @@
 #include "qgis/topologicalindex.h"
 
 #include <QKeyEvent>
+#include <QHash>
 
 #include <qgis.h>
 #include <qgsfeature.h>
@@ -149,6 +150,22 @@ bool isPolygonClosureVertex( const QgsGeometry &g, int nr, int &part, int &ring,
     return true;
   }
   return false;
+}
+
+struct RingKey
+{
+  QgsVectorLayer *layer = nullptr;
+  qint64 fid = -1;
+  int part = 0;
+  int ring = 0;
+  bool operator==( const RingKey &o ) const
+  {
+    return layer == o.layer && fid == o.fid && part == o.part && ring == o.ring;
+  }
+};
+inline size_t qHash( const RingKey &k, size_t seed = 0 )
+{
+  return qHashMulti( seed, k.layer, k.fid, k.part, k.ring );
 }
 } // namespace
 
@@ -533,10 +550,44 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
     }
     writeSet = dedupedWriteSet;
 
+    // Group deletion quota by (layer, fid, part, ring) to prevent multiple
+    // coincident deletions from collapsing a ring below its minimum vertex count.
+    QHash<RingKey, int> deleteCountPerRing;
+    for ( const CoincidentMember &member : std::as_const( writeSet ) )
+    {
+      const QgsFeature feat = member.layer->getFeature( member.fid );
+      if ( !feat.hasGeometry() || !feat.geometry().constGet() )
+        continue;
+      QgsVertexId vid;
+      if ( feat.geometry().vertexIdFromVertexNr( member.vertexNr, vid ) )
+      {
+        deleteCountPerRing[{ member.layer, member.fid, vid.part, vid.ring }]++;
+      }
+    }
+
     for ( const CoincidentMember &member : std::as_const( writeSet ) )
     {
       const QgsFeature other = member.layer->getFeature( member.fid );
-      if ( !other.hasGeometry() || !ringFitsDelete( other.geometry(), member.vertexNr ) )
+      if ( !other.hasGeometry() || !other.geometry().constGet() )
+      {
+        emit messageEmitted( tr( "无法删除节点：共边要素将变为无效" ),
+                             Qgis::MessageLevel::Warning );
+        return;
+      }
+      QgsVertexId vid;
+      if ( !other.geometry().vertexIdFromVertexNr( member.vertexNr, vid ) )
+      {
+        emit messageEmitted( tr( "无法删除节点：共边要素将变为无效" ),
+                             Qgis::MessageLevel::Warning );
+        return;
+      }
+      const int k = deleteCountPerRing.value( { member.layer, member.fid, vid.part, vid.ring }, 1 );
+      const int ringVertices = other.geometry().constGet()->vertexCount( vid.part, vid.ring );
+      const Qgis::GeometryType gt = QgsWkbTypes::geometryType( other.geometry().wkbType() );
+      const int minReq = ( gt == Qgis::GeometryType::Polygon ) ? ( 4 + k )
+                         : ( gt == Qgis::GeometryType::Line ) ? ( 2 + k )
+                         : ( 1 + k );
+      if ( ringVertices < minReq )
       {
         emit messageEmitted( tr( "无法删除节点：共边要素将变为无效" ),
                              Qgis::MessageLevel::Warning );

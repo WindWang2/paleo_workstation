@@ -389,6 +389,37 @@ private slots:
     QTest::qWait(500);
     QCoreApplication::processEvents();
   }
+
+  // (P1-13 / RUNTIME-02): verify that destroying dialog disconnects task signals safely
+  void widgetDestructionDisconnectsTaskSignalsCleanly()
+  {
+    QgisProcessingService svc(nullptr);
+    QString error;
+    QWidget *w = svc.createAlgorithmDialog(
+        QStringLiteral("paleotest:persistent_worker"),
+        QVariantMap(), nullptr, &error);
+    QVERIFY2(w, qPrintable(error));
+
+    auto *algWidget = qobject_cast<QgsProcessingAlgorithmWidgetBase *>(w);
+    QVERIFY(algWidget);
+
+    PersistentWorkerAlgorithm::s_started = false;
+    PersistentWorkerAlgorithm::s_completed = false;
+
+    QVERIFY(algWidget->runButton());
+    algWidget->runButton()->click();
+
+    QTRY_VERIFY_WITH_TIMEOUT(PersistentWorkerAlgorithm::s_started.load(), 3000);
+    QVERIFY(algWidget->isRunning());
+
+    // Destroy the widget while algorithm is actively running
+    delete w;
+
+    // After widget deletion, processing events must not trigger any callbacks or crashes
+    QCoreApplication::processEvents();
+    QTRY_VERIFY_WITH_TIMEOUT(PersistentWorkerAlgorithm::s_completed.load(), 5000);
+    QCoreApplication::processEvents();
+  }
 };
 
 int main(int argc, char *argv[])

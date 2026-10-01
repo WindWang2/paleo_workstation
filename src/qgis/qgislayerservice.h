@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QString>
 #include <QHash>
+#include <QPointer>
 #include "../metadata/layermanifest.h"
 
 class QgsMapLayer;
@@ -52,6 +53,6 @@ class QgisLayerService : public QObject
 
     QgisProjectService *m_projectSvc;
     LayerManifest *m_manifest;
-    QHash<QString, QgsMapLayer *> m_instances; // layerId -> layer (owned by QgsProject)
+    QHash<QString, QPointer<QgsMapLayer>> m_instances; // layerId -> safe guarded layer
     QString m_activeHorizon;
 };

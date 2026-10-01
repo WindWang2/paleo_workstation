@@ -331,8 +331,20 @@ namespace
         if (m_running && m_currentTask)
         {
           m_currentTask->cancel();
-          m_currentTask->waitForFinished(3000);
+          if (!m_currentTask->waitForFinished(3000))
+          {
+            // Timeout elapsed while worker still running: explicitly disconnect all
+            // signal connections to this widget to prevent post-destruction callbacks.
+            m_currentTask->disconnect(this);
+          }
         }
+        if (m_currentTask)
+        {
+          m_currentTask->disconnect(this);
+          m_currentTask = nullptr;
+        }
+        m_running = false;
+        disconnect(this);
         // Worker pointer safety: context and feedback lifetimes are bound to the
         // runner task's destroyed signal via TaskPayload, so even if background
         // execution outlives this widget, no dangling pointer or use-after-free

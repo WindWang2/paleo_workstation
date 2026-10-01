@@ -1150,10 +1150,25 @@ void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
   if (!m_canvasCtl || !layer)
     return;
   QgsMapCanvas *cv = m_canvasCtl->canvas();
+  if (!cv)
+    return;
+
+  // Clean up previous in-flight flash timer and rubber band if active
+  if (auto *oldTimer = findChild<QTimer *>(QStringLiteral("horizonFlashTimer")))
+  {
+    oldTimer->stop();
+    delete oldTimer;
+  }
+  if (auto *oldBand = cv->findChild<QgsRubberBand *>(QStringLiteral("horizonFlashRubberBand")))
+  {
+    delete oldBand;
+  }
+
   // 闪烁定位（T29 spec ~300–500ms）：#1B73D0 半透明多边形橡皮带盖住图层
   // 范围，100ms 一闪 ×4 后自毁。交互蓝只做交互反馈，不做常驻装饰
   // （DESIGN.md：交互色不兼装饰）。
   auto *band = new QgsRubberBand(cv, Qgis::GeometryType::Polygon);
+  band->setObjectName(QStringLiteral("horizonFlashRubberBand"));
   band->setToGeometry(QgsGeometry::fromRect(layer->extent()),
                       qobject_cast<QgsVectorLayer *>(layer));
   band->setColor(QColor(27, 115, 208, 60)); // #1B73D0 @ ~24% 填充透明度
@@ -1163,13 +1178,21 @@ void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
   auto *timer = new QTimer(this);
   timer->setObjectName(QStringLiteral("horizonFlashTimer"));
   int blinks = 4;
-  connect(timer, &QTimer::timeout, this, [this, timer, band, blinks]() mutable {
-    band->setVisible(band->isVisible() ? false : true);
+  QPointer<QgsRubberBand> safeBand(band);
+  connect(timer, &QTimer::timeout, this, [this, timer, safeBand, blinks]() mutable {
+    if (!safeBand)
+    {
+      timer->stop();
+      timer->deleteLater();
+      setProperty("horizonFlashActive", false);
+      return;
+    }
+    safeBand->setVisible(!safeBand->isVisible());
     if (--blinks <= 0)
     {
       timer->stop();
       timer->deleteLater();
-      delete band; // 画布条目直接删——不在信号发送者栈上
+      delete safeBand.data(); // 画布条目直接删——不在信号发送者栈上
       setProperty("horizonFlashActive", false);
     }
   });

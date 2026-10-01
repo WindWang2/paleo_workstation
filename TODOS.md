@@ -1,3 +1,19 @@
+## P3 — 层位自动追踪 3D 服务暴露 + 显式倾角引导（from goal/horizon-autotrack, 2026-10-02）
+
+- **What:** 3D 前沿扫掠（algorithms/horizontrack::propagateVolume，数值核 +
+  合成断言已落）暴露为 SeismicTaskService 异步任务并接画布层位面叠加；
+  追踪核补显式斜率扫描倾角引导（当前隐式：搜索窗中心跟随前一道）。
+- **Why:** 2D 剖面闭环已完成；面扩散是解释效率下一档（单种子 → 整层位面）。
+  追踪器无事件唯一性校验，近距平行同相轴可滑落——显式倾角先验是现行
+  阈值/相干门之外的第三道防线。
+- **Pros:** 单种子出整面（分钟级人工拾取 → 秒级）；**Cons:** 体窗内存调度
+  （IL 邻域滑窗）+ 画布层位面渲染是新工作量。
+- **Context:** docs/progress/horizon-autotrack.md「已知边界/递延」；kernel
+  propagateVolume 已含死列不复生/限步长/取消语义（tst_horizontrack 3 例）。
+- **Effort:** human: M / CC: M
+- **Priority:** P3
+- **Depends on:** goal/horizon-autotrack 已落核/2D 闭环/GeoTIFF 上图管线
+
 # TODOS — paleo_workstation
 
 ## P3 — 地震属性体（时间切片/整体扫描）+ 属性图层入层树（from goal/seismic-attributes, 2026-10-01）

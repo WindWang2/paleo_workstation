@@ -38,6 +38,11 @@ private slots:
     void tfOffscreenRealtimePixels();
     void panelTfZeroRefetch();
 
+    // ---- 块2 任意斜剖面 / 栅栏 ----
+    void lineSectionOffscreenPixels();
+    void viewportObliquePickCommits();
+    void panelLineSectionServicePath();
+
 private:
     std::shared_ptr<SgyVolume> loadFixtureVolume();
 };
@@ -315,6 +320,193 @@ void TestSeismic3DViz::panelTfZeroRefetch() {
     QVERIFY(!panel.isTransferFunctionEnabled());
     QTest::qWait(100);
     QCOMPARE(taskSvc.tasks().size(), tasksBefore);
+}
+
+// ---- 块2（Oracle 2a）：任意剖面渲染像素非空 ----
+// BuildLineSection 取数（对角斜剖面）→ UpdateLineSlice 贴入 → 等轴视角下
+// 帷幕面在渲染结果中占实质像素（非背景）且 GL 无错误。
+void TestSeismic3DViz::lineSectionOffscreenPixels() {
+    QSurfaceFormat format;
+    format.setVersion(3, 3);
+    format.setProfile(QSurfaceFormat::CoreProfile);
+    QOffscreenSurface surface;
+    surface.setFormat(format);
+    surface.create();
+    if (!surface.isValid())
+        QSKIP("offscreen surface unavailable");
+    QOpenGLContext context;
+    context.setFormat(format);
+    if (!context.create() || !context.makeCurrent(&surface))
+        QSKIP("OpenGL context could not be created in this environment");
+    QOpenGLFunctions_3_3_Core gl;
+    if (!gl.initializeOpenGLFunctions())
+        QSKIP("OpenGL 3.3 Core functions not available");
+
+    auto vol = loadFixtureVolume();
+    QVERIFY(vol != nullptr);
+
+    // 对角斜剖面（起止线）+ 栅栏（三段折线）各取一次
+    const std::vector<glm::ivec2> oblique = {
+        {vol->InlineMin(), vol->XlineMin()}, {vol->InlineMax(), vol->XlineMax()}};
+    const std::vector<glm::ivec2> fence = {
+        {vol->InlineMin(), vol->XlineMin()},
+        {vol->InlineMax(), vol->XlineMin() + (vol->XlineMax() - vol->XlineMin()) / 2},
+        {vol->InlineMin() + (vol->InlineMax() - vol->InlineMin()) / 2, vol->XlineMax()},
+        {vol->InlineMin(), vol->XlineMax()}};
+
+    SgySliceImage obliqueImg, fenceImg;
+    SgySectionStats stats;
+    std::string err;
+    QVERIFY2(BuildLineSection(*vol, oblique, SgySectionOptions{}, obliqueImg, stats, err),
+             err.c_str());
+    QVERIFY(obliqueImg.width > 1);
+    QVERIFY2(BuildLineSection(*vol, fence, SgySectionOptions{}, fenceImg, stats, err),
+             err.c_str());
+    QVERIFY(fenceImg.width > obliqueImg.width); // 多段折线列数更多（栅栏更长）
+
+    SeismicSliceRenderer renderer;
+    QVERIFY(renderer.Initialize(&gl));
+    QVERIFY(renderer.UpdateLineSlice(&gl, *vol, oblique, obliqueImg));
+    QVERIFY(renderer.IsSlotReady(SeismicSliceSlot::Line));
+
+    const int W = 400, H = 300;
+    GLuint fbo = 0, colorTex = 0, depthRbo = 0;
+    gl.glGenFramebuffers(1, &fbo);
+    gl.glGenTextures(1, &colorTex);
+    gl.glBindTexture(GL_TEXTURE_2D, colorTex);
+    gl.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    gl.glGenRenderbuffers(1, &depthRbo);
+    gl.glBindRenderbuffer(GL_RENDERBUFFER, depthRbo);
+    gl.glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, W, H);
+    gl.glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    gl.glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTex, 0);
+    gl.glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthRbo);
+    if (gl.glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        QSKIP("baseline FBO incomplete");
+    gl.glViewport(0, 0, W, H);
+    gl.glClearColor(0.12f, 0.14f, 0.17f, 1.0f);
+    gl.glEnable(GL_DEPTH_TEST);
+
+    SeismicCameraController camera; // 默认等轴（-45°, 35°）——帷幕面斜对镜头
+    const glm::mat4 proj = camera.BuildProjectionMatrix(double(W) / double(H));
+    gl.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    renderer.Render(&gl, camera.BuildViewMatrix(), proj);
+    gl.glFinish();
+    QVERIFY(gl.glGetError() == GL_NO_ERROR);
+
+    std::vector<unsigned char> pix(std::size_t(W) * H * 4);
+    gl.glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, pix.data());
+    int drawn = 0;
+    for (std::size_t i = 0; i < pix.size(); i += 4) {
+        if (!(std::abs(int(pix[i]) - 31) <= 2 && std::abs(int(pix[i + 1]) - 36) <= 2 &&
+              std::abs(int(pix[i + 2]) - 43) <= 2))
+            ++drawn;
+    }
+    QVERIFY2(drawn > 200, qPrintable(QStringLiteral("剖面帷幕应有实质像素（实得 %1）").arg(drawn)));
+
+    // 换栅栏路径重贴（动态几何重建路径）——无 GL 错误、仍就绪
+    QVERIFY(renderer.UpdateLineSlice(&gl, *vol, fence, fenceImg));
+    gl.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    renderer.Render(&gl, camera.BuildViewMatrix(), proj);
+    gl.glFinish();
+    QVERIFY(gl.glGetError() == GL_NO_ERROR);
+
+    renderer.Cleanup(&gl);
+    gl.glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    gl.glDeleteFramebuffers(1, &fbo);
+    gl.glDeleteTextures(1, &colorTex);
+    gl.glDeleteRenderbuffers(1, &depthRbo);
+    context.doneCurrent();
+}
+
+// ---- 块2（Oracle 2b）：两点拾取 → 提交信号（纯数学路径，无需 GL）----
+void TestSeismic3DViz::viewportObliquePickCommits() {
+    auto vol = loadFixtureVolume();
+    QVERIFY(vol != nullptr);
+
+    Seismic3DViewportWidget viewport;
+    viewport.resize(400, 300);
+    viewport.setVolume(vol);
+
+    QSignalSpy committed(&viewport, &Seismic3DViewportWidget::sectionPathCommitted);
+    QSignalSpy modeChanged(&viewport, &Seismic3DViewportWidget::sectionPickModeChanged);
+
+    viewport.setSectionPickMode(true, /*autoCommitAtTwo=*/true);
+    QVERIFY(viewport.isSectionPickMode());
+    QCOMPARE(modeChanged.count(), 1);
+
+    // 两击（视口中心附近 → 右下象限）：两点自动提交
+    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
+    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
+    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 200));
+    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 200));
+
+    QTRY_COMPARE_WITH_TIMEOUT(committed.count(), 1, 1000);
+    QVERIFY(!viewport.isSectionPickMode()); // 提交后自动退出拾取
+    QCOMPARE(modeChanged.count(), 2);
+
+    const QVariant arg = committed.takeFirst().at(0);
+    const std::vector<glm::ivec2> path = arg.value<std::vector<glm::ivec2>>();
+    QCOMPARE(path.size(), std::size_t(2));
+    // 拾取点吸附在体的真实线号范围内
+    for (const auto &p : path) {
+        QVERIFY(p.x >= vol->InlineMin() && p.x <= vol->InlineMax());
+        QVERIFY(p.y >= vol->XlineMin() && p.y <= vol->XlineMax());
+    }
+
+    // 栅栏模式：多点 + 回车提交
+    viewport.setSectionPickMode(true, /*autoCommitAtTwo=*/false);
+    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
+    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
+    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 200));
+    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 200));
+    QCOMPARE(committed.count(), 0); // 未回车不提交
+    QTest::keyClick(&viewport, Qt::Key_Return);
+    QTRY_COMPARE_WITH_TIMEOUT(committed.count(), 1, 1000);
+    const std::vector<glm::ivec2> fence =
+        committed.takeFirst().at(0).value<std::vector<glm::ivec2>>();
+    QCOMPARE(fence.size(), std::size_t(3));
+}
+
+// ---- 块2（Oracle 2c）：取数路径断言——服务调用被触发 → 剖面贴入 ----
+void TestSeismic3DViz::panelLineSectionServicePath() {
+    auto vol = loadFixtureVolume();
+    QVERIFY(vol != nullptr);
+
+    PaleoProjectStore store;
+    PaleoTaskService taskSvc(&store);
+    SeismicTaskService seismicSvc(&taskSvc, 16 * 1024 * 1024);
+
+    Seismic3DViewPanel panel;
+    panel.setTaskService(&seismicSvc);
+    panel.setVolume(vol);
+
+    // 等初始切片任务收敛
+    QTRY_VERIFY_WITH_TIMEOUT(seismicSvc.activeTaskCount() == 0, 8000);
+    QTest::qWait(200);
+    const int tasksBefore = taskSvc.tasks().size();
+
+    // 视口信号 → 面板 → 服务（两点斜剖面）
+    const std::vector<glm::ivec2> path = {
+        {vol->InlineMin(), vol->XlineMin()}, {vol->InlineMax(), vol->XlineMax()}};
+    emit panel.viewport()->sectionPathCommitted(path);
+
+    QTRY_VERIFY_WITH_TIMEOUT(taskSvc.tasks().size() > tasksBefore, 3000); // 服务被触发
+    QTRY_VERIFY_WITH_TIMEOUT(panel.isLineSectionReady(), 8000);           // 剖面贴入（含暂存）
+    QTRY_VERIFY_WITH_TIMEOUT(seismicSvc.activeTaskCount() == 0, 8000);
+
+    // 栅栏（多段）走同一通道
+    panel.clearLineSection();
+    QVERIFY(!panel.isLineSectionReady());
+    const std::vector<glm::ivec2> fence = {
+        {vol->InlineMin(), vol->XlineMin()},
+        {vol->InlineMax(), vol->XlineMax()},
+        {vol->InlineMin(), vol->XlineMax()}};
+    emit panel.viewport()->sectionPathCommitted(fence);
+    QTRY_VERIFY_WITH_TIMEOUT(panel.isLineSectionReady(), 8000);
+    QTRY_VERIFY_WITH_TIMEOUT(seismicSvc.activeTaskCount() == 0, 8000);
 }
 
 QTEST_MAIN(TestSeismic3DViz)

@@ -2,6 +2,7 @@
 #include "seismic3dviewpanel.h"
 
 #include "../paleotheme.h"
+#include "domain/seismic/sgysectionbuilder.h"
 #include "seismic3dtfeditor.h"
 #include "services/paleotaskservice.h" // PaleoTask 完整类型（QPointer 在途句柄）
 
@@ -770,6 +771,14 @@ void Seismic3DViewPanel::buildDisplayBar() {
     btnStack_ = createToolBtn(tr("体渲染"), tr("切片堆叠体渲染：16 层水平切片半透明叠渲；\n拖动滑杆期间自动降到 4 层（交互降采样），静止后精渲"), true);
     lay->addWidget(btnStack_);
 
+    // D7.2 任意剖面（两点斜剖面 / 多点栅栏）
+    btnOblique_ = createToolBtn(tr("斜剖面"), tr("任意斜剖面：顶面拾取起止两点 → 后端取数 → 剖面贴入 3D 场景"), true);
+    lay->addWidget(btnOblique_);
+    btnFence_ = createToolBtn(tr("栅栏"), tr("栅栏剖面：顶面拾取多段折线，回车/双击提交 → 折线剖面贴入 3D 场景"), true);
+    lay->addWidget(btnFence_);
+    btnSectionClear_ = createToolBtn(tr("清除剖面"), tr("移除 3D 场景中的任意剖面与顶面路径线"));
+    lay->addWidget(btnSectionClear_);
+
     // D3.10 帧率（debug）
     chkFps_ = new QCheckBox(tr("fps"), bar);
     chkFps_->setStyleSheet(lblStyle);
@@ -880,6 +889,39 @@ void Seismic3DViewPanel::buildDisplayBar() {
     // D7.1 传递函数
     connect(btnTf_, &QToolButton::toggled, this, [this](bool on) {
         setTransferFunctionEnabled(on);
+    });
+    // D7.2 任意剖面：斜剖面/栅栏互斥；拾取结束（提交/取消）回写按钮态
+    connect(btnOblique_, &QToolButton::toggled, this, [this](bool on) {
+        if (on) {
+            btnFence_->setChecked(false);
+            enterObliqueSectionPick();
+        } else if (viewport_ && viewport_->isSectionPickMode()) {
+            viewport_->setSectionPickMode(false);
+        }
+    });
+    connect(btnFence_, &QToolButton::toggled, this, [this](bool on) {
+        if (on) {
+            btnOblique_->setChecked(false);
+            enterFenceSectionPick();
+        } else if (viewport_ && viewport_->isSectionPickMode()) {
+            viewport_->setSectionPickMode(false);
+        }
+    });
+    if (viewport_) {
+        QObject::connect(viewport_, &Seismic3DViewportWidget::sectionPickModeChanged,
+                         this, [this](bool active) {
+                             if (!active) {
+                                 btnOblique_->setChecked(false);
+                                 btnFence_->setChecked(false);
+                             }
+                         });
+        QObject::connect(viewport_, &Seismic3DViewportWidget::sectionPathCommitted,
+                         this, [this](const std::vector<glm::ivec2> &points) {
+                             requestLineSection(points);
+                         });
+    }
+    connect(btnSectionClear_, &QToolButton::clicked, this, [this]() {
+        clearLineSection();
     });
     connect(btnTfEdit_, &QToolButton::clicked, this, [this]() {
         // 编辑器对话框：预设 + 曲线（变更实时生效——每拖一下只重传 256B LUT）
@@ -1105,6 +1147,78 @@ void Seismic3DViewPanel::applyTransferFunction() {
         viewport_->updateStackLayer(layer, cachedStackSamples_[static_cast<std::size_t>(layer)],
                                     cachedStackImages_[static_cast<std::size_t>(layer)]);
     }
+    if (cachedLineReady_ && cachedLinePath_.size() >= 2)
+        viewport_->updateLineSlice(cachedLinePath_, cachedLineImage_); // D7.2 重喂
+}
+
+// ---- D7.2 任意斜剖面 / 栅栏 ----
+void Seismic3DViewPanel::enterObliqueSectionPick() {
+    if (!viewport_ || !volume() || !volume()->IsLoaded())
+        return;
+    viewport_->setSectionPickMode(true, /*autoCommitAtTwo=*/true);
+}
+
+void Seismic3DViewPanel::enterFenceSectionPick() {
+    if (!viewport_ || !volume() || !volume()->IsLoaded())
+        return;
+    viewport_->setSectionPickMode(true, /*autoCommitAtTwo=*/false);
+}
+
+// 拾取路径 → 任意剖面取数（服务异步；BuildLineSection 同步回落）→ 贴入 3D。
+// 两点=斜剖面、N 点=栅栏——同一通道（BuildLineSection 原生多段折线）。
+void Seismic3DViewPanel::requestLineSection(const std::vector<glm::ivec2> &pathPoints) {
+    auto vol = volume();
+    if (!vol || !vol->IsLoaded() || pathPoints.size() < 2)
+        return;
+
+    if (taskSvc_) {
+        QPointer<Seismic3DViewPanel> guard(this);
+        SgySectionOptions options; // 默认：≤2048 列、最近道（数值可靠）
+        taskSvc_->startSectionExtraction(
+            vol, pathPoints, options,
+            [guard, pathPoints](bool success, std::shared_ptr<const SgySliceImage> image,
+                                const SgySectionStats &stats, const QString &error) {
+                if (!guard)
+                    return;
+                if (success && image && image->width > 1) {
+                    guard->cachedLineImage_ = *image;
+                    guard->cachedLinePath_ = pathPoints;
+                    guard->cachedLineReady_ = true;
+                    guard->viewport_->updateLineSlice(pathPoints, *image);
+                } else if (success) {
+                    QgsMessageLog::logMessage(
+                        QObject::tr("任意剖面提取列数不足（路径可能全部落空）：%1 列")
+                            .arg(stats.columns),
+                        QStringLiteral("Seismic3D"), Qgis::MessageLevel::Warning);
+                } else {
+                    QgsMessageLog::logMessage(
+                        QObject::tr("任意剖面提取失败：%1").arg(error),
+                        QStringLiteral("Seismic3D"), Qgis::MessageLevel::Warning);
+                }
+            });
+        return;
+    }
+
+    // 同步回落（测试/无服务）：BuildLineSection 直取
+    SgySliceImage image;
+    SgySectionStats stats;
+    std::string err;
+    if (BuildLineSection(*vol, pathPoints, SgySectionOptions{}, image, stats, err)) {
+        cachedLineImage_ = image;
+        cachedLinePath_ = pathPoints;
+        cachedLineReady_ = true;
+        viewport_->updateLineSlice(pathPoints, image);
+    } else {
+        QgsMessageLog::logMessage(tr("任意剖面提取失败：%1").arg(QString::fromStdString(err)),
+                                  QStringLiteral("Seismic3D"), Qgis::MessageLevel::Warning);
+    }
+}
+
+void Seismic3DViewPanel::clearLineSection() {
+    cachedLineReady_ = false;
+    cachedLinePath_.clear();
+    if (viewport_)
+        viewport_->clearLineSection();
 }
 
 // ---- D3.4 / D3.12 ----

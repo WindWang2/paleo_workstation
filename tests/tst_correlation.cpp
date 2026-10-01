@@ -13,6 +13,7 @@
 #include <limits>
 
 #include "../src/ui/correlationpanel.h"
+#include "uipolish_capture.h"
 #include "../src/linkage/selectioncontext.h"
 
 // 连井剖面 (well correlation section) — the constraint page's linked
@@ -117,6 +118,15 @@ class TestCorrelation : public QObject
       QCOMPARE(panel.wellCount(), 3);
       panel.reorder(0, 2); // must not crash without a SelectionContext
       QCOMPARE(panel.wellAt(2), QStringLiteral("W1"));
+    }
+
+    // goal/ui-experience-polish：空态指引 + 三井剖面的修前/修后截图证据。
+    void captureEvidence()
+    {
+      WellCorrelationPanel panel(nullptr);
+      uipolish::capturePanel(&panel, QStringLiteral("correlation_empty"));
+      panel.setWells(threeWells());
+      uipolish::capturePanel(&panel, QStringLiteral("correlation_wells"));
     }
 
     void emptyStateShowsGuidance()

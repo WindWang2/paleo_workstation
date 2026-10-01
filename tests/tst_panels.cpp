@@ -38,6 +38,7 @@
 #include "../src/ui/pages/pagepanels.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/workflow/workflows.h"
+#include "uipolish_capture.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
@@ -2267,8 +2268,44 @@ private:
         QVERIFY(ids.contains(fx.astResolved) || ids.contains(fx.astPending));
     }
 
-    void dataops_d1_selectionBadgeAndCountSignal()
+    // goal/ui-experience-polish：数据页（树/表选中态）+ 验证页（残差胶囊表）
+    // 的修前/修后截图证据（PALEO_UI_CAPTURE 未设时零开销直通）。
+    void uipolish_captureEvidence()
     {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *table = page->findChild<QTableWidget *>(QStringLiteral("assetTable"));
+        auto *tree = page->findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+        if (table && table->model()->rowCount() > 0)
+            table->selectRow(0);
+        if (tree && tree->topLevelItemCount() > 0)
+            tree->setCurrentItem(tree->topLevelItem(0));
+        uipolish::capturePanel(page.get(), QStringLiteral("datapage"), QSize(980, 640));
+
+        ValidatePage vp(nullptr);
+        QVariantList rows;
+        QVariantMap pass;
+        pass.insert(QStringLiteral("well_name"), QStringLiteral("A1"));
+        pass.insert(QStringLiteral("status"), QStringLiteral("pass"));
+        pass.insert(QStringLiteral("residual_ms"), 3.2);
+        rows.append(pass);
+        QVariantMap exceed;
+        exceed.insert(QStringLiteral("well_name"), QStringLiteral("A2"));
+        exceed.insert(QStringLiteral("status"), QStringLiteral("exceed"));
+        exceed.insert(QStringLiteral("residual_ms"), 22.5);
+        rows.append(exceed);
+        auto *resTable = vp.findChild<QTableWidget *>(QStringLiteral("residualTable"));
+        if (resTable)
+            ValidatePage::fillResidualTable(resTable, rows);
+        uipolish::capturePanel(&vp, QStringLiteral("validatepage"), QSize(560, 420));
+    }
+
+    void dataops_d1_selectionBadgeAndCountSignal()    {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         DataImportService svc(nullptr, nullptr);

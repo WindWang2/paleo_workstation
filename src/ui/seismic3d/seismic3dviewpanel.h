@@ -73,6 +73,13 @@ public:
     [[nodiscard]] bool isTransferFunctionEnabled() const { return tfActive_; }
     [[nodiscard]] const Seismic3DTransferFunction &transferFunction() const { return tf_; }
 
+    // D7.2 任意剖面：两点=斜剖面 / N 点=栅栏（视口拾取 → 服务取数 → 贴入 3D）
+    void enterObliqueSectionPick();   // 两点自动提交
+    void enterFenceSectionPick();     // 回车/双击提交
+    void requestLineSection(const std::vector<glm::ivec2> &pathPoints);
+    void clearLineSection();
+    [[nodiscard]] bool isLineSectionReady() const { return viewport_ && viewport_->isLineSectionReady(); }
+
     // D3.9 回退态查询（GL 不可用时视口被 2D 拼接件替换）
     [[nodiscard]] bool isFallbackActive() const { return fallbackActive_; }
 
@@ -177,6 +184,9 @@ private:
     QToolButton *btnCmapEdit_ = nullptr;       // D3.5 自定义控制点编辑
     QToolButton *btnTf_ = nullptr;             // D7.1 传递函数开关
     QToolButton *btnTfEdit_ = nullptr;         // D7.1 TF 编辑器
+    QToolButton *btnOblique_ = nullptr;        // D7.2 斜剖面拾取（两点）
+    QToolButton *btnFence_ = nullptr;          // D7.2 栅栏拾取（多点）
+    QToolButton *btnSectionClear_ = nullptr;   // D7.2 清除剖面
     QSlider *sliderAlpha_ = nullptr;           // D3.3 透明度
     QDoubleSpinBox *spinRangeMin_ = nullptr;   // D3.3 值域裁剪
     QDoubleSpinBox *spinRangeMax_ = nullptr;
@@ -210,6 +220,11 @@ private:
     std::array<SgySliceImage, SeismicSliceRenderer::kMaxStackLayers> cachedStackImages_{};
     std::array<int, SeismicSliceRenderer::kMaxStackLayers> cachedStackSamples_{};
     std::array<bool, SeismicSliceRenderer::kMaxStackLayers> cachedStackReady_{};
+
+    // D7.2 任意剖面缓存（TF 翻转/修改重喂值纹理）
+    SgySliceImage cachedLineImage_;
+    std::vector<glm::ivec2> cachedLinePath_;
+    bool cachedLineReady_ = false;
 
     // D3.9 回退
     bool fallbackActive_ = false;

@@ -20,6 +20,7 @@
 #include "../src/metadata/layermanifest.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/ui/layers/layertreepanel.h"
+#include "uipolish_capture.h"
 
 // Fixture path: prefer the build-provided define, else derive from this file's
 // location so standalone g++ builds work too (tst_layerservice convention).
@@ -59,6 +60,14 @@ class TestLayerTreePanel : public QObject
       QVERIFY(QgsApplication::instance() != nullptr);
       QVERIFY2(QFile::exists(fixtureGpkg()),
                qPrintable(QStringLiteral("fixture missing: %1").arg(fixtureGpkg())));
+    }
+
+    // goal/ui-experience-polish：空态卡 + 层行选中态的修前/修后证据
+    //（PALEO_UI_CAPTURE 未设时零开销直通）。
+    void captureEvidence()
+    {
+      LayerTreePanel panel(QgsProject::instance(), nullptr, nullptr);
+      uipolish::capturePanel(&panel, QStringLiteral("layertree_empty"));
     }
 
     void cleanup()

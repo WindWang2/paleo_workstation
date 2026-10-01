@@ -14,6 +14,7 @@
 #include "../src/qgis/qgisruntime.h"
 #include "../src/qgis/qgiseditingservice.h"
 #include "../src/metadata/paleoprojectstore.h"
+#include "uipolish_capture.h"
 
 #include <qgsattributetablefiltermodel.h>
 #include <QSignalSpy>
@@ -65,6 +66,29 @@ private slots:
     QgsMapCanvas canvas;
     AttributeTablePanel panel(&canvas, {});
     panel.showLayer(QStringLiteral("x")); // must not crash
+  }
+
+  // goal/ui-experience-polish：属性表行 + 空态提示的修前/修后截图证据。
+  void captureEvidence()
+  {
+    QgsMapCanvas canvas;
+    auto *vl = new QgsVectorLayer(
+        QStringLiteral("Point?crs=EPSG:4326&field=name:string&field=z:double"),
+        QStringLiteral("wells"), QStringLiteral("memory"));
+    QVERIFY(vl->isValid());
+    QgsFeature f(vl->fields());
+    f.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(1, 2)));
+    f.setAttribute(QStringLiteral("name"), QStringLiteral("W1"));
+    f.setAttribute(QStringLiteral("z"), 12.5);
+    QVERIFY(vl->dataProvider()->addFeatures({f}));
+    AttributeTablePanel panel(
+        &canvas, [vl](const QString &id) -> QgsVectorLayer * {
+          return id == QLatin1String("wells") ? vl : nullptr;
+        });
+    panel.setLayerIds({QStringLiteral("wells")});
+    panel.showLayer(QStringLiteral("wells"));
+    uipolish::capturePanel(&panel, QStringLiteral("attrpanel"));
+    delete vl;
   }
 
   // ---- mapping 主线4：属性表编辑入管线 ----

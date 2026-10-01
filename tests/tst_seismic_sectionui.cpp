@@ -29,6 +29,7 @@
 #include "../src/services/seismictaskservice.h"
 #include "../src/ui/seismicsection/seismicsectioncanvas.h"
 #include "../src/ui/seismicsection/seismicsectiondockwidget.h"
+#include "uipolish_capture.h"
 
 using namespace seismic;
 
@@ -107,7 +108,11 @@ private:
 private slots:
   void initTestCase()
   {
-    qputenv("PALEO_UI_CAPTURE", "0");
+    // goal/ui-experience-polish：显式给了取证目录就尊重（captureEvidence 用），
+    // 仅未设置时钉 "0" 防渲染循环型用例误落盘。
+    const QString cap = qEnvironmentVariable("PALEO_UI_CAPTURE");
+    if (cap.isEmpty())
+      qputenv("PALEO_UI_CAPTURE", "0");
     // 书签/相机态走 QSettings() 默认构造：测试进程没设组织名，Windows
     // NativeFormat（注册表）在空组织名下的行为不可靠且污染宿主注册表——
     // 钉死为沙箱内 IniFormat，两平台同一路径语义。
@@ -116,6 +121,15 @@ private slots:
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
                        m_settingsDir.path());
+  }
+
+  // goal/ui-experience-polish：空体占位 + 拾取面板的修前/修后截图证据
+  //（无体态：画布占位文案 + pick 面板空表——本轮补空态的对象）。
+  void captureEvidence()
+  {
+    SeismicSectionDockWidget dock;
+    uipolish::capturePanel(&dock, QStringLiteral("seismicsection_empty"),
+                           QSize(900, 650));
   }
 
   // ---- D2.2 显示三模：密度 / wiggle / 混合渲染互异 ----

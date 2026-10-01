@@ -45,6 +45,14 @@ public:
         const std::vector<glm::ivec2> &pathPoints,
         const SgySliceImage &image);
 
+    // D7.2 任意剖面拾取：顶面（时间切片平面）射线求交 → (inline, xline)。
+    // autoCommitAtTwo=true 两点即提交（斜剖面）；false 多点累积，回车/双击
+    // 提交（栅栏），Esc 取消。预览橡皮线走顶面路径线（UpdateLineSection）。
+    void setSectionPickMode(bool enabled, bool autoCommitAtTwo = true);
+    [[nodiscard]] bool isSectionPickMode() const { return sectionPickActive_; }
+    [[nodiscard]] bool isLineSectionReady() const;
+    void clearLineSection();
+
     void setSlotVisible(SeismicSliceSlot slot, bool visible);
     [[nodiscard]] bool isSlotVisible(SeismicSliceSlot slot) const;
     [[nodiscard]] bool isSlotReady(SeismicSliceSlot slot) const;
@@ -96,6 +104,9 @@ signals:
     // D3.2 切片面拖动（联动 2D 剖面：面板更新滑杆并广播 changed 信号）
     void sliceDragged(SeismicSliceSlot slot, int newIndex);
     void sliceHovered(SeismicSliceSlot slot, int index);
+    // D7.2 拾取完成（两点=斜剖面；N 点=栅栏）——面板接去服务取数
+    void sectionPathCommitted(const std::vector<glm::ivec2> &points);
+    void sectionPickModeChanged(bool active);
 
 protected:
     void initializeGL() override;
@@ -132,6 +143,12 @@ private:
     int draggedSliceIndex(SeismicSliceSlot slot, const QPointF &delta) const;
     void applyInertia();
 
+    // D7.2：屏幕点 → 顶面射线求交 → (inline, xline)（吸附真实线号）
+    bool pickTopPlaneGrid(const QPointF &pos, glm::ivec2 &outGrid) const;
+    void updateSectionPreview();          // 已拾点+悬停点 → 顶面橡皮线
+    void commitSectionPath();
+    void cancelSectionPick();
+
     SeismicCameraController camera_;
     SeismicSliceRenderer sliceRenderer_;
     VolumeFrameRenderer frameRenderer_;
@@ -167,5 +184,13 @@ private:
     // D7.1 TF（GL 前暂存 + initializeGL 补传）
     std::vector<unsigned char> tfLutBytes_;
     bool tfActive_ = false;
+
+    // D7.2 剖面拾取（两点=斜剖面自动提交；多点=栅栏回车/双击提交）
+    bool sectionPickActive_ = false;
+    bool sectionAutoCommitTwo_ = true;
+    std::vector<glm::ivec2> sectionPickPoints_;
+    glm::ivec2 sectionHoverPoint_{0, 0};
+    bool sectionHoverValid_ = false;
+    std::vector<glm::ivec2> activeSectionPath_; // 已贴剖面路径（取消拾取后恢复其顶面线）
 };
 } // namespace seismic

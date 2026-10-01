@@ -7,6 +7,7 @@
 #include <QTreeWidget>
 
 #include "../src/ui/releasepanel.h"
+#include "uipolish_capture.h"
 
 // ReleasePanel is a pure-Qt shell over ReleaseStore — providers inject the
 // project store path and the current manifest snapshot, so the panel is fully
@@ -131,6 +132,21 @@ private slots:
     QCOMPARE(createdSpy.count(), 0);
     QCOMPARE(statusSpy.count(), 1);
     QVERIFY(statusSpy.at(0).at(0).toString().contains(QString::fromUtf8("名称不能为空")));
+  }
+
+  // goal/ui-experience-polish：发布树 + 表单的修前/修后截图证据。
+  void captureEvidence()
+  {
+    QTemporaryDir dir;
+    const QString db = dir.filePath(QStringLiteral("meta.sqlite"));
+    ReleasePanel panel;
+    QVector<LayerDeclaration> manifest = {decl(QStringLiteral("facies.T1"))};
+    panel.setProviders([db] { return db; },
+                       [&manifest] { return manifest; });
+    panel.findChild<QLineEdit *>(QStringLiteral("releaseNameEdit"))
+        ->setText(QStringLiteral("v1"));
+    panel.findChild<QPushButton *>(QStringLiteral("createReleaseButton"))->click();
+    uipolish::capturePanel(&panel, QStringLiteral("releasepanel"));
   }
 };
 

@@ -9,6 +9,7 @@
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/ui/horizonchipbar.h"
+#include "uipolish_capture.h"
 
 #include <qgsapplication.h>
 #include <qgsvectorlayer.h>
@@ -146,6 +147,21 @@ class TestChips : public QObject
         d61->click();
         QCOMPARE( ctx.activeHorizon(), QStringLiteral( "D61" ) );
         QVERIFY( bar.isChipActive( QStringLiteral( "D61" ) ) );
+    }
+
+    // goal/ui-experience-polish：chip 条（可用/禁用/激活态）修前/修后证据。
+    void captureEvidence()
+    {
+        QTemporaryDir dir;
+        QgisProjectService projectSvc;
+        QVERIFY( projectSvc.createProject( dir.filePath( QStringLiteral( "proj.qgz" ) ) ) );
+        LayerManifest manifest{ dir.filePath( QStringLiteral( "m.sqlite" ) ) };
+        QVERIFY( manifest.open() );
+        QgisLayerService layers{ &projectSvc, &manifest };
+        SelectionContext ctx;
+        HorizonChipBar bar( &ctx, &layers );
+        bar.setAllowEmptyHorizons( true ); // 全 chip 可点，捕获完整胶囊样式
+        uipolish::capturePanel( &bar, QStringLiteral( "horizonchips" ), QSize( 560, 48 ) );
     }
 };
 

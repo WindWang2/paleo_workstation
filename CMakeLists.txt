@@ -35,6 +35,27 @@ endif()
 # UBSAN 保持可恢复（只打印栈），做巡检不做门禁。
 option(PALEO_ENABLE_ASAN "AddressSanitizer 实验档（测试默认关 leak 检测）" OFF)
 option(PALEO_ENABLE_UBSAN "UndefinedBehaviorSanitizer 巡检档（可恢复）" OFF)
+# ---- goal/perf-systematize 簇4：LTO 实验档（默认 OFF）----
+# 依据（2026-10-01 本机交错三轮实测，docs/perf/BUILD_OPT.md）：LAS 冷解析
+# -40.7%、SEG-Y 索引命中 -45.2%、catalog 灌库 1k -24.9%/查询 -18.2%，
+# 无一致回归；代价 = 全量链接时间 ~2.3×（增量影响小）。-O3 已实验否决
+# （catalog_open_10k +35% 两轮一致回归）不入档为选项。
+option(PALEO_ENABLE_LTO "链接期优化档（-flto=8；热路径解析/索引收益 20-45%，默认 OFF）" OFF)
+if(PALEO_ENABLE_LTO)
+  if(MSVC)
+    message(FATAL_ERROR "PALEO_ENABLE_LTO 仅支持 GNU/Clang（MSVC 走 /GL /LTCG 手动档）")
+  endif()
+  include(CheckCXXSourceCompiles)
+  set(_lto_saved_cxx "${CMAKE_REQUIRED_FLAGS}")
+  set(CMAKE_REQUIRED_FLAGS "-flto=8")
+  check_cxx_source_compiles("int main(){return 0;}" PALEO_LTO_LINK_OK)
+  set(CMAKE_REQUIRED_FLAGS "${_lto_saved_cxx}")
+  if(NOT PALEO_LTO_LINK_OK)
+    message(FATAL_ERROR "PALEO_ENABLE_LTO：工具链不支持 -flto=8（探测失败）")
+  endif()
+  add_compile_options(-flto=8 -ffat-lto-objects)
+  add_link_options(-flto=8)
+endif()
 # ---- 实验性 unity build（devex T6）：逐 target opt-in，默认 OFF ----
 # paleo_sbm（-fno-char8_t TU 语义）/paleo_segyio（纯 C）/paleo_saribbon（vendor）
 # 显式排除；AUTOMOC 与 unity 的组合按 CMake 语义兼容，但跨 TU 静态同名符号
@@ -326,6 +347,7 @@ add_library(paleo_services STATIC
   src/services/seismicmapping.cpp                   # 测网几何↔inline/xline/CDP
   src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排
   src/services/crashreport.cpp                      # 致命信号 fd 落盘 + .running 旗标
+  src/services/startuptrace.cpp                     # goal/perf-systematize 簇1：启动分段仪表
 )
 target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
 
@@ -675,6 +697,15 @@ target_compile_definitions(tst_seismicmapping PRIVATE
 add_executable(paleo src/app/main.cpp)
 target_link_libraries(paleo PRIVATE paleo_core)
 
+# ---- goal/perf-systematize 簇1：启动分段仪表 + 比率门 ----
+# 真实 paleo 二进制 offscreen 起停（首帧即退），PALEO_STARTUP_TRACE 落盘
+# JSON → 段完整性 + 机器无关比率门（startup_ratios.json ×1.5）；另起一次
+# 注入 1500ms 劣化断言门必红（判别力）。计时面挂串行，对齐 tst_perfbudget。
+add_paleo_test(tst_startup_trace LIBS paleo_services)
+target_compile_definitions(tst_startup_trace PRIVATE
+  PALEO_APP_BINARY="$<TARGET_FILE:paleo>")
+set_tests_properties(tst_startup_trace PROPERTIES RUN_SERIAL TRUE)
+
 add_executable(paleo_seismic_demo tools/seismic_showcase.cpp)
 target_link_libraries(paleo_seismic_demo PRIVATE paleo_core)
 
@@ -717,6 +748,13 @@ add_paleo_test(tst_entityview LIBS paleo_store)
 # 新增源与测试集中在此块；并行包合并冲突时保留双方行。
 add_paleo_test(tst_crashreport LIBS paleo_services)
 add_paleo_test(tst_relocate LIBS paleo_ui)
+
+# ---- goal/perf-systematize 簇2：UI 线程阻塞动态验证 ----
+# F1 well_log 两段式 / F2 综合柱状图 XML 两段式 / F3 GeoJSON 流式统计：
+# 页构建/受理耗时 < 0.5 × 同文件整份解析（比率门）+ 事件循环探活分片。
+# 计时面挂串行（对齐 tst_perfbudget/tst_correlation_full 先例）。
+add_paleo_test(tst_ui_blocking LIBS paleo_ui)
+set_tests_properties(tst_ui_blocking PROPERTIES RUN_SERIAL TRUE)
 target_compile_definitions(tst_relocate PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 

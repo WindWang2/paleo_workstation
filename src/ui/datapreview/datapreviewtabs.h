@@ -4,6 +4,7 @@
 #include <QPointer>
 #include <QString>
 #include <QWidget>
+#include <functional>
 #include <memory>
 
 #include "../../services/previewdoc.h"   // 数据页预览的唯一数据门面（W1）
@@ -125,6 +126,9 @@ class DataPreviewTabs : public QWidget
     void onSectionReady(const QString &assetId,
                         const PreviewDocService::SectionDoc &doc);
     void onSectionFailed(const QString &assetId, const QString &reason);
+    // F1：LAS 数据行到达/失败/取消（requestLas；key=assetId）。
+    void onLasReady(const QString &key, const QStringList &names, const QList<LasCurve> &curves);
+    void onLasFailed(const QString &key, const QString &reason);
 
     // D2.10 同目录组图：把另一资产的地图层叠进本预览页（geojson/带配准
     // 图片/层位栅格；不支持的类型如实跳过）。
@@ -161,6 +165,20 @@ class DataPreviewTabs : public QWidget
       bool hasTie = false;
     };
     QHash<QString, SectionPending> m_pendingSection;
+
+    // F1（goal/perf-systematize 簇2）：well_log 两段式——页骨架（曲线名/
+    // 控件/分层）由 lasHeaderAt 秒铺（代价只与头部行数成正比），整份数据
+    // 行 requestLas 池内解析，lasReady 到达后经 fill 回调补曲线数据与单位
+    //（单道检视 + ResFormStar 综合柱状图两个消费方一次装齐）。fill 闭包内
+    // 持 QPointer 护栏随页生死；页关闭/重建即作废，服务侧世代号保证到达的
+    // 是最新代。无任务服务时 requestLas 同步执行、返回前信号已发——小夹具
+    // 测试环境与旧同步路径行为一致。
+    struct LasPending
+    {
+      QPointer<QWidget> page; // 页根（失败换装用）
+      std::function<void(const QList<LasCurve> &)> fill;
+    };
+    QHash<QString, LasPending> m_pendingLas;
 
     // 瓦片渐进时间片（wave/seismic-engine-deep 主线2）：服务信号是广播的，
     // 这里只记最新一次瓦片请求的目标画布 + 世代（采样号）——旧请求/其他

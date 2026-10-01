@@ -1554,6 +1554,14 @@ void DataPreviewTabs::attachDoc(PreviewDocService *doc)
           [this](const QString &assetId) {
             onSectionFailed(assetId, tr("已取消"));
           });
+  // F1（goal/perf-systematize 簇2）：LAS 数据行异步填充结果（key=assetId；
+  // 陈旧结果已在服务内按世代号丢弃）。
+  connect(m_doc, &PreviewDocService::lasReady, this,
+          &DataPreviewTabs::onLasReady);
+  connect(m_doc, &PreviewDocService::lasFailed, this,
+          &DataPreviewTabs::onLasFailed);
+  connect(m_doc, &PreviewDocService::lasCancelled, this,
+          [this](const QString &key) { onLasFailed(key, tr("已取消")); });
   // B 包 staleness-lite：stale 标记可能来自其它标签的 sha 复验或上游版本
   // 取代——catalog 任一变更后重算已开标签的「过时」徽标（GUI 线程直连，
   // 不必重建标签）。换绑服务时先断旧 catalog（上面已断）。
@@ -1926,8 +1934,12 @@ void DataPreviewTabs::closeAssetTab(const QString &assetId)
   // D1：标签关掉即释放该资产的索引缓存（持有文件句柄级状态）与世代号；
   // 进行中的解码任务请求取消——结果没人等了。
   if (m_doc)
+  {
     m_doc->releaseSection(assetId);
+    m_doc->releaseLas(assetId); // F1：同口径释放 LAS 解析世代号/取消在途
+  }
   m_pendingSection.remove(assetId);
+  m_pendingLas.remove(assetId);
   page->setParent(nullptr); // 摘出子树再推迟删除，关闭后 findChild 不再命中
   page->deleteLater();
   if (m_tabs->count() == 0)
@@ -2258,14 +2270,19 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       m_wellEntityOfAsset[assetId] = linkedWell;
       m_titleSuffixOfAsset[assetId] = wells.front().second;
     }
-    QStringList names;
-    QList<LasCurve> curves;
+    // F1 两段式（goal/perf-systematize 簇2）：lasHeaderAt 只读 ~V/~W/~C 到
+    // ~A 段头（代价与头部行数成正比、与数据行数无关）——曲线名秒出，整页
+    // 控件骨架同步铺完；数据行 requestLas 池内解析（大文件冷解析曾 400ms+
+    // 阻塞 UI），lasReady 到达后补数据与单位。无任务服务时 requestLas 同步
+    // 执行、返回前信号已发——测试环境行为与旧路径一致。
+    LasHeaderInfo header;
     QString perr;
-    if (!m_doc->lasAt(abs, &names, &curves, &perr))
+    if (!m_doc->lasHeaderAt(abs, &header, &perr))
     {
       lay->addWidget(failureState(assetId, perr, host), 1);
       return host;
     }
+    const QStringList names = header.curveNames;
     auto *singlePage = new QWidget(host);
     auto *singleLay = new QVBoxLayout(singlePage);
     singleLay->setContentsMargins(0, 0, 0, 0);
@@ -2369,14 +2386,8 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     if (defaultShown.isEmpty() && names.size() > 1)
       defaultShown.insert(names.at(1));
 
-    // 添加所有曲线数据至面板
-    for (int i = 1; i < names.size(); ++i)
-    {
-      const QString &cname = names.at(i);
-      const QColor col = pickCurveColor(cname, i - 1);
-      panel->addCurve(cname, curves.at(i).unit, curves.at(i).values,
-                      curves.at(0).values, col, defaultShown.contains(cname));
-    }
+    // 曲线数据本体（values/unit）两段式第二段到达后经 fill 回调补装——
+    // 此处只建骨架（chips/下拉/缩放/呈现切换），不碰数据行。
 
     // 2. 曲线多选 Chips 栏（横向滚动条，支持单击自由切换各曲线可见性）
     auto *chipScroll = new QScrollArea(singlePage);
@@ -2422,7 +2433,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       chip->setCheckable(true);
       const bool isChecked = defaultShown.contains(cname);
       chip->setChecked(isChecked);
-      chip->setToolTip(QStringLiteral("%1 (%2)").arg(cname, curves.at(i).unit));
+      chip->setToolTip(cname); // 单位两段式第二段（lasReady）随数据补写
 
       PaleoTheme::applyThemedStyleSheet(chip, [chipStyle, chip, col] {
         return chipStyle(col, chip->isChecked());
@@ -2491,54 +2502,9 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     singleLay->addWidget(chipScroll);
     singleLay->addWidget(panel, 1);
 
-    // ResFormStar 多井道综合柱状图总装
+    // ResFormStar 多井道综合柱状图总装（骨架即建；曲线数据两段式第二段补装）
     auto *compPanel = new WellComposite::WellCompositePanel(host);
     compPanel->setObjectName(QStringLiteral("wellCompositePanel"));
-
-    QVector<WellComposite::CurveData> compCurves;
-    if (!curves.isEmpty())
-    {
-      const auto &depList = curves.at(0).values;
-      QVector<float> depVec;
-      depVec.reserve(depList.size());
-      for (double d : depList)
-        depVec.append(static_cast<float>(d));
-
-      for (int i = 1; i < names.size(); ++i)
-      {
-        const auto &src = curves.at(i);
-        WellComposite::CurveData cd;
-        cd.name = names.at(i);
-        cd.unit = src.unit;
-        cd.color = pickCurveColor(cd.name, i - 1);
-        cd.depths = depVec;
-        cd.values.reserve(src.values.size());
-        float valMin = 1e9f, valMax = -1e9f;
-        for (double v : src.values)
-        {
-          if (v <= -999.0 || v >= 99999.0)
-          {
-            cd.values.append(-9999.0f);
-            continue;
-          }
-          float fv = static_cast<float>(v);
-          cd.values.append(fv);
-          if (fv < valMin) valMin = fv;
-          if (fv > valMax) valMax = fv;
-        }
-        if (valMin < valMax)
-        {
-          cd.minScale = valMin;
-          cd.maxScale = valMax;
-        }
-        else
-        {
-          cd.minScale = 0.0f;
-          cd.maxScale = 100.0f;
-        }
-        compCurves.append(cd);
-      }
-    }
 
     // 查询该井是否有关联分层数据 (DC.dat)
     QVector<WellComposite::FormationInterval> formationIntervals;
@@ -2589,7 +2555,87 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     }
 
     const QString wellTitle = wells.isEmpty() ? asset.displayName : wells.front().second;
-    compPanel->loadLasCurves(wellTitle, compCurves, formationIntervals);
+
+    // 两段式期间如实占位：数据行池内解析中（DESIGN.md 诚实状态；秒级内
+    // 换装真实曲线，无骨架闪空）。
+    auto *lasPendingHint = new QLabel(tr("正在后台解析数据行…"), host);
+    lasPendingHint->setObjectName(QStringLiteral("lasPendingHint"));
+    PaleoTheme::applyThemedStyleSheet(lasPendingHint, [] {
+      return PaleoTheme::mutedCaptionStyleSheet();
+    });
+    const QPointer<QLabel> hintFill(lasPendingHint);
+
+    // ---- F1 两段式第二段挂起：数据到达后一次装齐两个消费方 ----
+    // 单道检视（addCurve+单位 tooltip）与 ResFormStar 综合柱状图（loadLasCurves）
+    // 共用同一份 curves；换装逻辑与旧同步路径逐字节一致（仅时机后移）。
+    const QPointer<CurvePanel> panelFill(panel);
+    const QPointer<WellComposite::WellCompositePanel> compFill(compPanel);
+    const auto chipMapFill = chipMap; // shared_ptr 副本（闭包与页内 chips 同源）
+    const std::function<void(const QList<LasCurve> &)> fillCurves =
+        [this, panelFill, compFill, chipMapFill, hintFill, names, defaultShown,
+         wellTitle, formationIntervals](const QList<LasCurve> &curves) {
+          if (hintFill)
+            hintFill->hide(); // 数据到齐，占位提示退场
+          if (curves.size() != names.size())
+            return; // 头/整份契约：lasHeaderAt 与 lasAt 曲线名逐项一致——不符不装
+          if (panelFill)
+          {
+            for (int i = 1; i < names.size(); ++i)
+            {
+              const QString &cname = names.at(i);
+              panelFill->addCurve(cname, curves.at(i).unit, curves.at(i).values,
+                                  curves.at(0).values, pickCurveColor(cname, i - 1),
+                                  defaultShown.contains(cname));
+              if (auto *chip = chipMapFill->value(cname))
+                chip->setToolTip(QStringLiteral("%1 (%2)").arg(cname, curves.at(i).unit));
+            }
+          }
+          if (compFill)
+          {
+            QVector<WellComposite::CurveData> compCurves;
+            const auto &depList = curves.at(0).values;
+            QVector<float> depVec;
+            depVec.reserve(depList.size());
+            for (double d : depList)
+              depVec.append(static_cast<float>(d));
+
+            for (int i = 1; i < names.size(); ++i)
+            {
+              const auto &src = curves.at(i);
+              WellComposite::CurveData cd;
+              cd.name = names.at(i);
+              cd.unit = src.unit;
+              cd.color = pickCurveColor(cd.name, i - 1);
+              cd.depths = depVec;
+              cd.values.reserve(src.values.size());
+              float valMin = 1e9f, valMax = -1e9f;
+              for (double v : src.values)
+              {
+                if (v <= -999.0 || v >= 99999.0)
+                {
+                  cd.values.append(-9999.0f);
+                  continue;
+                }
+                float fv = static_cast<float>(v);
+                cd.values.append(fv);
+                if (fv < valMin) valMin = fv;
+                if (fv > valMax) valMax = fv;
+              }
+              if (valMin < valMax)
+              {
+                cd.minScale = valMin;
+                cd.maxScale = valMax;
+              }
+              else
+              {
+                cd.minScale = 0.0f;
+                cd.maxScale = 100.0f;
+              }
+              compCurves.append(cd);
+            }
+            compFill->loadLasCurves(wellTitle, compCurves, formationIntervals);
+          }
+        };
 
     // 视图模式切换条与堆叠容器：选中 = chip 语义（primary 描边 + 浮起面底，
     // 同 ribbonStyleSheet checked 范式）；样式挂切换条一份，:checked 自动生效。
@@ -2644,7 +2690,14 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     switchLay->addStretch(1);
 
     lay->addWidget(new PaleoToolRow(viewSwitchBar, host));
+    lay->addWidget(lasPendingHint);
     lay->addWidget(viewStack, 1);
+
+    // F1 二段挂起注册 + 数据请求（页根 = viewStack：整份解析失败时栈内容
+    // 换成「读取失败」面，重试=重建标签再走一遍两段式）。无任务服务时
+    // requestLas 同步执行、返回前信号已发——测试环境行为与旧路径一致。
+    m_pendingLas.insert(assetId, {viewStack, fillCurves});
+    m_doc->requestLas(assetId, abs);
     return host;
   }
 
@@ -4559,14 +4612,40 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 
     if (abs.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive))
     {
+      // F2 两段式（goal/perf-systematize 簇2）：XML 解析进任务池（综合图可
+      // 含数 MB 曲线数据，同步解析阻塞 UI 线程），面板骨架 + 「解析中」提示
+      // 即时上屏；无任务服务时 loadComprehensiveXmlAsync 同步执行——失败
+      // 返回 false 走原有不支持预览 fall-through（测试环境行为不变）。
       auto *compositePanel = new WellComposite::WellCompositePanel(host);
       compositePanel->setObjectName(QStringLiteral("wellCompositePanel"));
-      if (compositePanel->loadComprehensiveXml(abs))
+      auto *xmlPendingHint = new QLabel(tr("正在后台解析综合柱状图…"), host);
+      xmlPendingHint->setObjectName(QStringLiteral("xmlPendingHint"));
+      PaleoTheme::applyThemedStyleSheet(xmlPendingHint, [] {
+        return PaleoTheme::mutedCaptionStyleSheet();
+      });
+      const QPointer<QLabel> xmlHintG(xmlPendingHint);
+      const QPointer<WellComposite::WellCompositePanel> compG(compositePanel);
+      connect(compositePanel, &WellComposite::WellCompositePanel::comprehensiveXmlLoaded,
+              host, [this, assetId, host, lay, xmlHintG, compG](bool ok) {
+                if (xmlHintG)
+                  xmlHintG->hide();
+                // 异步失败（截断/坏 XML）：换成「读取失败」面（重试=重建标签）。
+                if (!ok && compG)
+                {
+                  lay->removeWidget(compG);
+                  compG->deleteLater();
+                  lay->addWidget(failureState(assetId, tr("综合柱状图 XML 无法解析"), host), 1);
+                }
+              });
+      lay->addWidget(xmlPendingHint);
+      if (compositePanel->loadComprehensiveXmlAsync(
+              abs, m_doc ? m_doc->taskService() : nullptr))
       {
         lay->addWidget(compositePanel, 1);
         return host;
       }
       delete compositePanel;
+      delete xmlPendingHint;
     }
     // P2 D2.12 未知类型：统一「不支持预览」态 + 可支持类型清单（不再留白）。
     static const QStringList kKnownTypes = {
@@ -4930,5 +5009,36 @@ void DataPreviewTabs::onSectionFailed(const QString &assetId,
   {
     pend.spin->setEnabled(true);
     pend.spin->setToolTip(QString());
+  }
+}
+
+void DataPreviewTabs::onLasReady(const QString &key, const QStringList &, const QList<LasCurve> &curves)
+{
+  // F1（goal/perf-systematize 簇2）：数据行到达——fill 闭包内自带 QPointer
+  // 护栏（页没了就不装）；服务侧世代号已保证这是最新一代。
+  if (!m_pendingLas.contains(key))
+    return;
+  const LasPending pend = m_pendingLas.take(key);
+  if (pend.fill)
+    pend.fill(curves);
+}
+
+void DataPreviewTabs::onLasFailed(const QString &key, const QString &reason)
+{
+  // 头部能解但整份解析失败（截断/坏行）：页面骨架已建好——把视图栈内容
+  // 换成「读取失败」面（带重试=重建标签重走两段式），与其它失败态同一
+  // 形态（§4）。呈现切换条保留（重试成功后仍有用）。
+  if (!m_pendingLas.contains(key))
+    return;
+  const LasPending pend = m_pendingLas.take(key);
+  if (auto *stack = qobject_cast<QStackedWidget *>(pend.page.data()))
+  {
+    while (stack->count() > 0)
+    {
+      QWidget *w = stack->widget(0);
+      stack->removeWidget(w);
+      w->deleteLater();
+    }
+    stack->addWidget(failureState(key, reason.isEmpty() ? tr("无法解析 LAS 文件") : reason, stack));
   }
 }

@@ -325,6 +325,7 @@ add_library(paleo_services STATIC
   src/services/seismicmapping.cpp                   # 测网几何↔inline/xline/CDP
   src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排
   src/services/crashreport.cpp                      # 致命信号 fd 落盘 + .running 旗标
+  src/services/startuptrace.cpp                     # goal/perf-systematize 簇1：启动分段仪表
 )
 target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store)
 
@@ -673,6 +674,15 @@ target_compile_definitions(tst_seismicmapping PRIVATE
 add_executable(paleo src/app/main.cpp)
 target_link_libraries(paleo PRIVATE paleo_core)
 
+# ---- goal/perf-systematize 簇1：启动分段仪表 + 比率门 ----
+# 真实 paleo 二进制 offscreen 起停（首帧即退），PALEO_STARTUP_TRACE 落盘
+# JSON → 段完整性 + 机器无关比率门（startup_ratios.json ×1.5）；另起一次
+# 注入 1500ms 劣化断言门必红（判别力）。计时面挂串行，对齐 tst_perfbudget。
+add_paleo_test(tst_startup_trace LIBS paleo_services)
+target_compile_definitions(tst_startup_trace PRIVATE
+  PALEO_APP_BINARY="$<TARGET_FILE:paleo>")
+set_tests_properties(tst_startup_trace PROPERTIES RUN_SERIAL TRUE)
+
 add_executable(paleo_seismic_demo tools/seismic_showcase.cpp)
 target_link_libraries(paleo_seismic_demo PRIVATE paleo_core)
 
@@ -715,6 +725,13 @@ add_paleo_test(tst_entityview LIBS paleo_store)
 # 新增源与测试集中在此块；并行包合并冲突时保留双方行。
 add_paleo_test(tst_crashreport LIBS paleo_services)
 add_paleo_test(tst_relocate LIBS paleo_ui)
+
+# ---- goal/perf-systematize 簇2：UI 线程阻塞动态验证 ----
+# F1 well_log 两段式 / F2 综合柱状图 XML 两段式 / F3 GeoJSON 流式统计：
+# 页构建/受理耗时 < 0.5 × 同文件整份解析（比率门）+ 事件循环探活分片。
+# 计时面挂串行（对齐 tst_perfbudget/tst_correlation_full 先例）。
+add_paleo_test(tst_ui_blocking LIBS paleo_ui)
+set_tests_properties(tst_ui_blocking PROPERTIES RUN_SERIAL TRUE)
 target_compile_definitions(tst_relocate PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 

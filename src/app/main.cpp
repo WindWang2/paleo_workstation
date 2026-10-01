@@ -5,6 +5,7 @@
 #include "../ui/wellcomposite/derivedsink.h" // D1：派生登记 sink 默认实例
 #include "../qgis/qgisruntime.h" // defaultPrefixPath——默认 prefix 跟构建链接面走
 #include "../services/crashreport.h" // wave4：启动早期装崩溃处理器 + 脏退出提示
+#include "../services/startuptrace.h" // goal/perf-systematize 簇1：启动分段仪表
 #include "../ui/paleomainwindow.h"
 #include "../ui/paleotheme.h" // T32：启动注册 vendor 字体 + 正文字体
 
@@ -23,6 +24,8 @@
 // the instance once it exists.
 int main(int argc, char *argv[])
 {
+  StartupTrace::mark(QStringLiteral("main_entry"));
+
   // OpenGL 3.3 Core Profile default format must precede QApplication / QgsApplication
   // so that shared OpenGL contexts across the application (including QtWebEngine,
   // QGIS Map Canvas, and Seismic 3D Viewport) have compatible Core Profile contexts.
@@ -50,6 +53,7 @@ int main(int argc, char *argv[])
   QCoreApplication::setOrganizationName(QStringLiteral("paleo"));
   const CrashReport::SessionStart session = CrashReport::installCrashHandler(
       QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
+  StartupTrace::mark(QStringLiteral("pre_qt_ready"));
 
   QString qgisPrefix = qEnvironmentVariable("QGIS_PREFIX_PATH", QgisRuntime::defaultPrefixPath());
   QString targetPath;
@@ -79,6 +83,7 @@ int main(int argc, char *argv[])
   // T32 + 浅色默认主题：vendor 字体注册（缺失时 PaleoTheme 内如实告警降级）、
   // DESIGN.md 浅色 palette 钉死——不跟随系统深色模式。
   PaleoTheme::applyLightTheme();
+  StartupTrace::mark(QStringLiteral("theme_ready"));
 
   PaleoMainWindow window(ctx.canvasCtl(), ctx.projectSvc(), ctx.layerSvc(),
                          ctx.toolSvc(), ctx.selection());
@@ -117,7 +122,38 @@ int main(int argc, char *argv[])
                        ctx.projectData(),
                        ctx.importSvc() ? ctx.importSvc()->catalog() : nullptr);
   window.attachWorkbench(ctx.mappingWorkbench());
+  StartupTrace::mark(QStringLiteral("main_window_ready"));
   window.show();
+  StartupTrace::mark(QStringLiteral("window_shown"));
+
+  // goal/perf-systematize 簇1：首帧 paint 打点（事件循环内的首个主窗 Paint
+  // ≈ 首帧上屏）。offscreen/真实平台都会对 shown 顶层窗投递 Paint。落盘
+  // 一次；PALEO_STARTUP_EXIT_AFTER_FRAME=1 时测完即退（自动化口径，产品
+  // 路径不设此 env）。
+  class FirstPaintMarker : public QObject
+  {
+    public:
+      explicit FirstPaintMarker(QObject *parent) : QObject(parent) {}
+      bool eventFilter(QObject *watched, QEvent *ev) override
+      {
+        if (!m_done && ev->type() == QEvent::Paint)
+        {
+          m_done = true;
+          StartupTrace::mark(QStringLiteral("first_paint"));
+          StartupTrace::finish();
+          if (qEnvironmentVariableIsSet("PALEO_STARTUP_EXIT_AFTER_FRAME"))
+            QCoreApplication::exit(0);
+          if (QObject *w = watched)
+            w->removeEventFilter(this);
+        }
+        return false;
+      }
+    private:
+      bool m_done = false;
+  };
+  auto *firstPaint = new FirstPaintMarker(&window);
+  window.installEventFilter(firstPaint);
+
   if (!targetPath.isEmpty())
     window.openPath(targetPath);
 

@@ -331,7 +331,18 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
   restoreWindowState();
 }
 
-PaleoMainWindow::~PaleoMainWindow() = default;
+PaleoMainWindow::~PaleoMainWindow()
+{
+  if (m_horizonFlashTimer)
+  {
+    m_horizonFlashTimer->stop();
+    delete m_horizonFlashTimer.data();
+  }
+  if (m_horizonFlashBand)
+  {
+    delete m_horizonFlashBand.data();
+  }
+}
 
 void PaleoMainWindow::applyCurrentPageProfile()
 {
@@ -1154,12 +1165,21 @@ void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
     return;
 
   // Clean up previous in-flight flash timer and rubber band if active
-  if (auto *oldTimer = findChild<QTimer *>(QStringLiteral("horizonFlashTimer")))
+  if (m_horizonFlashTimer)
+  {
+    m_horizonFlashTimer->stop();
+    delete m_horizonFlashTimer.data();
+  }
+  else if (auto *oldTimer = findChild<QTimer *>(QStringLiteral("horizonFlashTimer")))
   {
     oldTimer->stop();
     delete oldTimer;
   }
-  if (auto *oldBand = cv->findChild<QgsRubberBand *>(QStringLiteral("horizonFlashRubberBand")))
+  if (m_horizonFlashBand)
+  {
+    delete m_horizonFlashBand.data();
+  }
+  else if (auto *oldBand = cv->findChild<QgsRubberBand *>(QStringLiteral("horizonFlashRubberBand")))
   {
     delete oldBand;
   }
@@ -1168,7 +1188,9 @@ void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
   // 范围，100ms 一闪 ×4 后自毁。交互蓝只做交互反馈，不做常驻装饰
   // （DESIGN.md：交互色不兼装饰）。
   auto *band = new QgsRubberBand(cv, Qgis::GeometryType::Polygon);
+  band->setParent(cv);
   band->setObjectName(QStringLiteral("horizonFlashRubberBand"));
+  m_horizonFlashBand = band;
   band->setToGeometry(QgsGeometry::fromRect(layer->extent()),
                       qobject_cast<QgsVectorLayer *>(layer));
   band->setColor(QColor(27, 115, 208, 60)); // #1B73D0 @ ~24% 填充透明度
@@ -1177,21 +1199,29 @@ void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
   setProperty("horizonFlashActive", true);
   auto *timer = new QTimer(this);
   timer->setObjectName(QStringLiteral("horizonFlashTimer"));
+  m_horizonFlashTimer = timer;
   int blinks = 4;
   QPointer<QgsRubberBand> safeBand(band);
-  connect(timer, &QTimer::timeout, this, [this, timer, safeBand, blinks]() mutable {
+  QPointer<QTimer> safeTimer(timer);
+  connect(timer, &QTimer::timeout, this, [this, safeTimer, safeBand, blinks]() mutable {
     if (!safeBand)
     {
-      timer->stop();
-      timer->deleteLater();
+      if (safeTimer)
+      {
+        safeTimer->stop();
+        safeTimer->deleteLater();
+      }
       setProperty("horizonFlashActive", false);
       return;
     }
     safeBand->setVisible(!safeBand->isVisible());
     if (--blinks <= 0)
     {
-      timer->stop();
-      timer->deleteLater();
+      if (safeTimer)
+      {
+        safeTimer->stop();
+        safeTimer->deleteLater();
+      }
       delete safeBand.data(); // 画布条目直接删——不在信号发送者栈上
       setProperty("horizonFlashActive", false);
     }

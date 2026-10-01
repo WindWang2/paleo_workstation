@@ -278,9 +278,10 @@ QString MapVersionController::publish( const QString &horizon, const QString &re
   return dir;
 }
 
-QString MapVersionController::residualSummaryJson( const ProjectDataFacade *pd,
+QString MapVersionController::residualSummaryJson( const ProjectDataFacade *projectData,
                                                    const QString &horizon )
 {
+  const ProjectDataFacade *pd = projectData;
   QJsonObject summary;
   summary.insert( QStringLiteral( "horizon" ), horizon );
   QJsonArray rows;

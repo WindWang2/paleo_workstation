@@ -429,6 +429,8 @@ class TestFactorWorkflow : public QObject
       QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "welldist" ),
                                    QVariantMap(), &err ),
                 qPrintable( err ) );
+      wdLayer = f.layers.layer( QStringLiteral( "factor.T1.welldist" ) );
+      QVERIFY2( wdLayer != nullptr, "instantiated factor layer missing after regeneration" );
       const QString stampedAsset =
           wdLayer->customProperty( QStringLiteral( "paleoAssetId" ) ).toString();
       QVERIFY2( !stampedAsset.isEmpty(),

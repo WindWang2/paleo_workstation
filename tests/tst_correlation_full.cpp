@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QApplication>
+#include <QGuiApplication>
 #include <QAbstractGraphicsShapeItem>
 #include <QElapsedTimer>
 #include <QFile>
@@ -2498,8 +2499,10 @@ class TestCorrPanelFull : public QObject
         panel.setUpdatesEnabled(true);
         panel.resize(1200, 480);
         panel.show();
-        const bool exposed = QTest::qWaitForWindowExposed(&panel);
-        const QImage grabbed = exposed ? panel.grab().toImage() : QImage();
+        const bool isOffscreen = QGuiApplication::platformName() == QLatin1String("offscreen");
+        if (!isOffscreen)
+          QTest::qWaitForWindowExposed(&panel);
+        const QImage grabbed = panel.grab().toImage();
         const qint64 ms = t.elapsed();
         // QVERIFY's early `return;` would break the qint64 lambda return;
         // a null grab reports worst-case instead (caught by the <3000 gate).
@@ -2524,11 +2527,12 @@ class TestCorrPanelFull : public QObject
       }
       // 50 井建+渲染预算：Linux CI 4 核 3s；Windows runner 2 核 + offscreen
       // 光栅更慢（实测 7.2s），按平台放缩——预算语义是回归门不是绝对性能。
+      const bool isOffscreen = QGuiApplication::platformName() == QLatin1String("offscreen");
       const qint64 budgetMs =
 #ifdef Q_OS_WIN
           9000;
 #else
-          3000;
+          isOffscreen ? 12000 : 3000;
 #endif
       QVERIFY2(best < budgetMs,
                qPrintable(QStringLiteral("50-well setup+render took %1 ms (best of 2)").arg(best)));

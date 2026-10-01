@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <vector>
 
 namespace
@@ -812,12 +813,13 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
   }
 
   std::atomic_bool cancelled{false};
+  std::mutex progressMutex;
   QThreadPool pool;
   pool.setMaxThreadCount(maxThreads);
   for (int s = 0; s < shardCount; ++s)
   {
     Shard &sh = shards[static_cast<size_t>(s)];
-    pool.start([&sh, &cancelled, path, firstTraceOffset, traceSize, traceCount, &sidx, ns,
+    pool.start([&sh, &cancelled, &progressMutex, path, firstTraceOffset, traceSize, traceCount, &sidx, ns,
                 opts]() {
       QFile local(path);
       if (!local.open(QIODevice::ReadOnly))
@@ -852,15 +854,18 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
         const qint16 scal = beI16(h + 70);
         const double coordScale =
             (scal == 0 || scal == 1) ? 1.0
-                                     : (scal > 0 ? static_cast<double>(scal)
-                                                 : 1.0 / -static_cast<double>(scal));
+                                      : (scal > 0 ? static_cast<double>(scal)
+                                                  : 1.0 / -static_cast<double>(scal));
         sh.inlines.append(beI32(h + sidx.inlineWordOffset));
         sh.xlines.append(beI32(h + sidx.crosslineWordOffset));
         sh.offsets.append(offset);
         sh.xs.append(static_cast<double>(beI32(h + 72)) * coordScale);
         sh.ys.append(static_cast<double>(beI32(h + 76)) * coordScale);
         if (opts && opts->progress && ((i - sh.from) % 128) == 0)
+        {
+          std::lock_guard<std::mutex> lock(progressMutex);
           opts->progress(offset, firstTraceOffset + traceCount * traceSize);
+        }
       }
       sh.ok = true;
     });
@@ -881,7 +886,7 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
     {
       // 分片失败（取消/坏道头读失败）：保留「连续前缀」为部分索引。
       m_lastScanPartial = true;
-      m_scannedOffset = firstTraceOffset + static_cast<qint64>(m_index.size()) * traceSize;
+      m_scannedOffset = firstTraceOffset + static_cast<qint64>(m_index.size() + m_badTraceOffsets.size()) * traceSize;
       if (error)
         *error = sh.err;
       return false;
@@ -1109,6 +1114,7 @@ bool SegyReader::openCached(const QString &path, const QString &indexCacheDir,
                                  traceCountTotal - 1};
         qint32 firstInline = 0;
         bool haveFirst = false;
+        bool anyDifferent = false;
         for (qint64 t : probes)
         {
           uchar h[240];
@@ -1124,12 +1130,13 @@ bool SegyReader::openCached(const QString &path, const QString &indexCacheDir,
             firstInline = v;
             haveFirst = true;
           }
-          else if (v == firstInline)
+          else if (v != firstInline)
           {
-            eligible = false; // 全程不变——ordinal 方言
-            break;
+            anyDifferent = true;
           }
         }
+        if (eligible && haveFirst && !anyDifferent)
+          eligible = false; // 全程不变——ordinal 方言
         for (qint64 t = 0; eligible && t < 8 && t < traceCountTotal; ++t)
         {
           uchar h[240];

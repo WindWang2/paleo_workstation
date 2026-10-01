@@ -13,7 +13,7 @@ The codebase strictly adheres to 5 layer categories across 13 modules:
 Strict guardrails:
 - `tools/check_layering.py --strict` enforces header comments (`// 层：...`), forbidden includes, and whitelist compliance.
 - `tools/layering-baseline.txt` enforces zero legacy violations.
-- CMake/CTest tests verify functionality.
+- CMake/CTest tests verify functionality across all test suites.
 
 ---
 
@@ -48,11 +48,12 @@ Strict guardrails:
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
 | M1 | Finalize & Validate In-Flight P0 Fixes (R1) | Validate CONC-01, CONC-02, MEM-01, ARCH-01 in tree, run strict layering & targeted tests | None | DONE |
-| M2 | Issue #25 (R2): SEG-Y Line Switching Race | Generation-tracking & cancellation in `SeismicSectionDockWidget`, cache preservation in `PreviewDocService`, `tst_seismic_sectionui` | M1 | PLANNED |
-| M3 | Issue #26 (R3): ProjectDirLock Application Flow | Pre-creation lock check in `QgisProjectService`, UI dialog/read-only binding in `AppContext`/`PaleoMainWindow`, `closeProject()`, lock test | M1 | PLANNED |
-| M4 | Issue #27 (R4): Save Version Queue & Token | Route saveVersion via `enqueueWrite`, dual-key edit token cleanup, `PaleoEditingToolbar` signal sync, `tst_versions` | M1 | PLANNED |
-| M5 | Issue #28 (R5): Algorithm Dialog Lifetime | Shared `TaskPayload` for `context`/`feedback`, `closeEvent` ignore guard, safe cancellation in `PaleoAlgorithmWidget`, `tst_procdialog` | M1 | PLANNED |
-| M6 | Comprehensive Verification & Gate Validation | Strict layering check, clean build, automated regression testing across all new and existing suites | M2, M3, M4, M5 | PLANNED |
+| M2 | Issue #25 (R2): SEG-Y Line Switching Race | Generation-tracking & cancellation in `SeismicSectionDockWidget`, cache preservation in `PreviewDocService`, `tst_seismic_sectionui` | M1 | DONE |
+| M3 | Issue #26 (R3): ProjectDirLock Application Flow | Pre-creation lock check in `QgisProjectService`, UI dialog/read-only binding in `AppContext`/`PaleoMainWindow`, `closeProject()`, lock test | M1 | DONE |
+| M4 | Issue #27 (R4): Save Version Queue & Token | Route saveVersion via `enqueueWrite`, dual-key edit token cleanup, `PaleoEditingToolbar` signal sync, `tst_versions` | M1 | DONE |
+| M5 | Issue #28 (R5): Algorithm Dialog Lifetime | Shared `TaskPayload` for `context`/`feedback`, `closeEvent` ignore guard, safe cancellation in `PaleoAlgorithmWidget`, `tst_procdialog` | M1 | DONE |
+| M6 | Comprehensive Verification & Gate Validation | Strict layering check, clean build, automated regression testing across all new and existing suites | M2, M3, M4, M5 | DONE |
+| M7 | Full Codebase Master Review & Audit | Deep audit of all 420 source files across 13 modules, defect register P0-P3, docs/CODE_REVIEW_REPORT.md | None | DONE |
 
 ---
 
@@ -69,17 +70,19 @@ Strict guardrails:
 - **R2 (Issue #25)**:
   - `src/ui/seismicsection/seismicsectiondockwidget.h/.cpp`
   - `src/services/previewdoc.cpp`
-  - `src/services/seismictaskservice.cpp` (if needed for task serialization)
+  - `vendor/sbm/src/Data/Sgy/SgyVolume.cpp`
+  - `src/ui/seismicsection/seismicsectioncanvas.cpp`
   - `tests/tst_seismic_sectionui.cpp`
 - **R3 (Issue #26)**:
   - `src/qgis/qgisprojectservice.h/.cpp`
+  - `src/metadata/paleoprojectstore.h`
   - `src/app/appcontext.h/.cpp`
   - `src/ui/paleomainwindow.h/.cpp`
-  - `tests/tst_projectsvc.cpp` or `tests/tst_appcontext.cpp`
+  - `src/ui/paleomainwindow_attach.cpp`, `src/ui/paleomainwindow_workbench.cpp`
+  - `tests/tst_projectsvc.cpp`, `tests/tst_rehydrate.cpp`, `tests/tst_ui.cpp`
 - **R4 (Issue #27)**:
   - `src/workflow/mapversioncontroller.cpp`
   - `src/ui/edittools/editingtoolbar.h/.cpp`
-  - `src/metadata/paleoprojectstore.h/.cpp` (if token clearing helper needed)
   - `tests/tst_versions.cpp`
 - **R5 (Issue #28)**:
   - `src/qgis/qgisprocessingservice.cpp`

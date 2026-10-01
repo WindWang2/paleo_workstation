@@ -505,6 +505,128 @@ private slots:
     QVERIFY(dock.canvas()->traceCount() > 0);
   }
 
+  // ---- Adversarial Stress Test: Interleaved burst mode and slice switching ----
+  void adversarialRapidBurstSwitchingBetweenModesAndSlices()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("adv_switching.sgy");
+    // 40 inlines (1000..1039), 40 crosslines (2000..2039), 128 samples
+    QVERIFY(writeTestSegy(sgy, 40, 40, 128));
+
+    SgyVolume volume;
+    std::string err;
+    QVERIFY(volume.Load(sgy.toStdString(), err));
+    auto volPtr = std::make_shared<SgyVolume>(std::move(volume));
+
+    SeismicSectionDockWidget dock;
+    dock.setVolume(volPtr);
+    dock.show();
+
+    // Rapidly alternate between Inline, Crossline, and Time Slice (60 rapid requests)
+    for (int i = 0; i < 20; ++i) {
+      dock.setSectionMode(0); // Inline
+      dock.onSliceSliderChanged(1000 + (i % 40));
+      dock.setSectionMode(1); // Xline
+      dock.onSliceSliderChanged(2000 + ((i * 3) % 40));
+      dock.setSectionMode(2); // Time
+      dock.onSliceSliderChanged((i * 5) % 128);
+    }
+
+    // Final definitive switch: Time slice 42
+    dock.setSectionMode(2);
+    dock.onSliceSliderChanged(42);
+
+    // Wait for all background tasks and event loop to settle
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < 5000) {
+      QApplication::processEvents(QEventLoop::AllEvents, 50);
+    }
+    QThreadPool::globalInstance()->waitForDone(5000);
+    QApplication::processEvents();
+
+    // Verify: Final state strictly reflects Time slice 42, not any stale inline/xline
+    const auto ref = dock.canvas()->sectionRef();
+    QVERIFY(ref.valid);
+    QCOMPARE(ref.type, SgySliceType::Time);
+    QCOMPARE(ref.index, 42);
+    QVERIFY(dock.m_lblTitle && dock.m_lblTitle->text().contains("TWT"));
+    QVERIFY(dock.canvas()->noDataReason().isEmpty());
+    QVERIFY(dock.canvas()->traceCount() > 0);
+  }
+
+  // ---- Adversarial Stress Test: Rapid scrubbing with curtain comparison enabled ----
+  void adversarialCurtainModeRapidScrubbing()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("adv_curtain.sgy");
+    QVERIFY(writeTestSegy(sgy, 30, 30, 64));
+
+    SgyVolume volume;
+    std::string err;
+    QVERIFY(volume.Load(sgy.toStdString(), err));
+    auto volPtr = std::make_shared<SgyVolume>(std::move(volume));
+
+    SeismicSectionDockWidget dock;
+    dock.setVolume(volPtr);
+    dock.show();
+
+    dock.setSectionMode(0); // Inline
+    dock.m_btnCurtain->setChecked(true);
+    QVERIFY(dock.canvas()->compareEnabled());
+
+    // Rapidly scrub through inlines
+    for (int il = 1000; il <= 1025; ++il) {
+      dock.m_sliderSlice->setValue(il);
+    }
+
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < 5000) {
+      QApplication::processEvents(QEventLoop::AllEvents, 50);
+    }
+    QThreadPool::globalInstance()->waitForDone(5000);
+    QApplication::processEvents();
+
+    const auto ref = dock.canvas()->sectionRef();
+    QVERIFY(ref.valid);
+    QCOMPARE(ref.type, SgySliceType::Inline);
+    QCOMPARE(ref.index, 1025);
+    QVERIFY(dock.m_lblTitle && dock.m_lblTitle->text().contains("1025"));
+    QVERIFY(dock.canvas()->compareEnabled());
+    QCOMPARE(dock.canvas()->compareLabel(), QStringLiteral("IL 1026"));
+  }
+
+  // ---- Adversarial Stress Test: Abrupt destruction under heavy concurrent bursts ----
+  void adversarialDestructionUnderHeavyConcurrentBursts()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("adv_burst_destroy.sgy");
+    QVERIFY(writeTestSegy(sgy, 30, 30, 64));
+
+    SgyVolume volume;
+    std::string err;
+    QVERIFY(volume.Load(sgy.toStdString(), err));
+    auto volPtr = std::make_shared<SgyVolume>(std::move(volume));
+
+    for (int iter = 0; iter < 10; ++iter) {
+      auto *dock = new SeismicSectionDockWidget;
+      dock->setVolume(volPtr);
+      dock->show();
+      dock->m_btnCurtain->setChecked(true);
+
+      for (int i = 0; i < 5; ++i) {
+        dock->setSectionMode(i % 3);
+        dock->onSliceSliderChanged(1000 + i);
+      }
+      delete dock; // Abrupt destruction while workers are running
+    }
+
+    QThreadPool::globalInstance()->waitForDone(5000);
+    QApplication::processEvents();
+  }
+
+
 private:
   // 标准 INLINE@189/CROSSLINE@193 合成 SEG-Y（与转码测试同构的最小版）
   static bool writeTestSegy(const QString &filePath, int inlines, int xlines, int ns)

@@ -4,7 +4,21 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 BUILD_DIR=build
-usage() { sed -n '3,12p' "$0"; exit "${1:-0}"; }
+
+# 依赖来源策略（BUILDING.md「依赖来源策略」）：superbuild 首选 > deb 闭包
+# 加速档 > 系统包兜底。显式 QGIS_PREFIX_PATH 优先，不覆盖；注入后
+# build/test/selfcheck 全部 verb 自动走 vendored prefix，无需手工导出。
+if [ -z "${QGIS_PREFIX_PATH:-}" ]; then
+  if [ -d vendor/superbuild/prefix/lib ]; then
+    export QGIS_PREFIX_PATH="$PWD/vendor/superbuild/prefix"
+    export LD_LIBRARY_PATH="$PWD/vendor/superbuild/prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  elif [ -d vendor/prefix/usr ]; then
+    export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
+    export LD_LIBRARY_PATH="$PWD/vendor/prefix/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  fi
+fi
+
+usage() { awk '/^# paleo-dev —/{print;next} /^# verbs:/{p=1} p&&/^$/{exit} p' "$0"; exit "${1:-0}"; }
 # verbs:
 #   bootstrap    preflight -> vendor fetch/build -> selfcheck (the one-command TTHW path)
 #   build        incremental build
@@ -22,13 +36,8 @@ case "$verb" in
     cmake --build "$BUILD_DIR" "$@"
     ;;
   test)
-    # ET1 消费侧：deb 闭包路（vendor/prefix 存在）自动注入 prefix 与动态库
-    # 路径——测试 main() 读 QGIS_PREFIX_PATH（缺省 /usr），无需手工导出。
-    # 仅在用户显式 bootstrap 过 deb 路时接管；想回系统包 rm -rf vendor/prefix。
-    if [ -d vendor/prefix/usr ]; then
-      export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
-      export LD_LIBRARY_PATH="$PWD/vendor/prefix/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-    fi
+    # prefix 注入已上提到脚本头部（superbuild 首选 / deb 闭包加速档；
+    # 显式 QGIS_PREFIX_PATH 优先）——测试 main() 读 QGIS_PREFIX_PATH（缺省 /usr）。
     # ctest 默认并行到核数（T2：每测试有独立 XDG 沙箱，并行安全）；
     # 传 --parallel/-j 或 RERUN 语义时用户参数照传。
     if [ "$#" -eq 0 ]; then
@@ -43,7 +52,7 @@ case "$verb" in
     ;;
   clean-vendor)
     dep=${1:-}
-    if [ -z "$dep" ]; then rm -rf vendor/build vendor/prefix vendor/onnxruntime; echo "vendor build tree cleared (archives kept)";
+    if [ -z "$dep" ]; then rm -rf vendor/build vendor/prefix vendor/superbuild/prefix vendor/onnxruntime; echo "vendor build tree cleared (archives kept)";
     else
       case "$dep" in
         .|..|*[!A-Za-z0-9._-]*) echo "invalid vendor dependency name: $dep" >&2; exit 2 ;;

@@ -134,6 +134,9 @@ Debian 闭包升级时，在目标发行版且已配置 QGIS 官方 apt 源的�
 
 ## 实测值（Phase 0，本机 Arch/qgis-4.2.2 已装）
 
+- superbuild 首轮全量 ≈ 56min（含一次 libspatialindex 门禁失败重试）；主构建
+  切 `vendor/superbuild/prefix` 重编 789 targets ≈ 11min；ctest 129/129 ≈ 37s；
+  `paleo_selfcheck` 8/8，357ms（底账 docs/progress/vendor-superbuild.md）
 - 首次 configure+build（3 个目标）：<1min（依赖已装）
 - `tst_boot`：init+providers+srs.db+渲染 非均匀像素断言 — PASS（102ms）
 - `tst_polygonize`：provider 注册+GDALPolygonize C++ 路径 — PASS

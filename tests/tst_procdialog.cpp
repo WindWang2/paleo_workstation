@@ -65,6 +65,56 @@ public:
   }
 };
 
+class PersistentWorkerAlgorithm : public QgsProcessingAlgorithm
+{
+public:
+  static inline std::atomic<bool> s_started{false};
+  static inline std::atomic<bool> s_completed{false};
+  static inline std::atomic<int> s_iterationsAfterDestruction{0};
+  static inline std::atomic<bool> s_widgetDestroyed{false};
+
+  QString name() const override { return QStringLiteral("persistent_worker"); }
+  QString displayName() const override { return QStringLiteral("Persistent Worker Algorithm"); }
+  QString group() const override { return QStringLiteral("Test"); }
+  QString groupId() const override { return QStringLiteral("test"); }
+  PersistentWorkerAlgorithm *createInstance() const override { return new PersistentWorkerAlgorithm(); }
+  Qgis::ProcessingAlgorithmFlags flags() const override
+  {
+    return QgsProcessingAlgorithm::flags() | Qgis::ProcessingAlgorithmFlag::CanCancel;
+  }
+
+  void initAlgorithm(const QVariantMap &) override {}
+
+  QVariantMap processAlgorithm(const QVariantMap &parameters, QgsProcessingContext &context,
+                               QgsProcessingFeedback *feedback) override
+  {
+    Q_UNUSED(parameters);
+    s_started = true;
+    s_completed = false;
+    s_iterationsAfterDestruction = 0;
+
+    // 此 Worker 故意在收到 cancel 时不立即退出（模拟耗时计算步骤），
+    // 持续访问 context 与 feedback
+    for (int i = 0; i < 35; ++i)
+    {
+      if (s_widgetDestroyed.load())
+      {
+        s_iterationsAfterDestruction++;
+      }
+      if (feedback)
+      {
+        feedback->setProgress(i * 2.8);
+        feedback->pushInfo(QStringLiteral("Persistent step %1").arg(i));
+      }
+      (void)context.project();
+      (void)context.transformContext();
+      QThread::msleep(20);
+    }
+    s_completed = true;
+    return QVariantMap();
+  }
+};
+
 class StoppableTestProvider : public QgsProcessingProvider
 {
 public:
@@ -73,6 +123,7 @@ public:
   void loadAlgorithms() override
   {
     addAlgorithm(new StoppableTestAlgorithm());
+    addAlgorithm(new PersistentWorkerAlgorithm());
   }
 };
 
@@ -260,6 +311,82 @@ private slots:
     // finishes without heap-use-after-free, double-free, or crash.
     QTRY_VERIFY_WITH_TIMEOUT(StoppableTestAlgorithm::s_completed.load(), 5000);
 
+    QCoreApplication::processEvents();
+  }
+
+  // ---- Challenger 2 Adversarial Stress Test: Persistent Worker Outliving UI Destruction ----
+  void adversarialPersistentWorkerDestructionSafety()
+  {
+    QgisProcessingService svc(nullptr);
+    QString error;
+    QWidget *w = svc.createAlgorithmDialog(
+        QStringLiteral("paleotest:persistent_worker"),
+        QVariantMap(), nullptr, &error);
+    QVERIFY2(w, qPrintable(error));
+
+    auto *algWidget = qobject_cast<QgsProcessingAlgorithmWidgetBase *>(w);
+    QVERIFY(algWidget);
+
+    PersistentWorkerAlgorithm::s_started = false;
+    PersistentWorkerAlgorithm::s_completed = false;
+    PersistentWorkerAlgorithm::s_widgetDestroyed = false;
+
+    QVERIFY(algWidget->runButton());
+    algWidget->runButton()->click();
+
+    // 等待后台 Worker 已经开始并正在执行循环
+    QTRY_VERIFY_WITH_TIMEOUT(PersistentWorkerAlgorithm::s_started.load(), 3000);
+    QVERIFY(algWidget->isRunning());
+
+    // 标记 Widget 即将被销毁
+    PersistentWorkerAlgorithm::s_widgetDestroyed = true;
+
+    // 立即直接销毁 Widget 及顶层窗口
+    QPointer<QWidget> topWindow = w->window();
+    delete w;
+    if (topWindow)
+      delete topWindow;
+
+    // 断言：由于 TaskPayload 安全绑定生命周期，即使 UI 控件已销毁，
+    // 后台持续访问 context/feedback 的 Worker 也绝不发生野指针/崩溃，顺利执行完成
+    QTRY_VERIFY_WITH_TIMEOUT(PersistentWorkerAlgorithm::s_completed.load(), 5000);
+    QVERIFY(PersistentWorkerAlgorithm::s_iterationsAfterDestruction.load() > 0);
+
+    QCoreApplication::processEvents();
+  }
+
+  // ---- Challenger 2 Adversarial Stress Test: Rapid Create-Run-Destroy Churn Under Concurrency ----
+  void adversarialRapidDialogCreateRunDestroyUnderStress()
+  {
+    QgisProcessingService svc(nullptr);
+    QString error;
+
+    for (int iter = 0; iter < 5; ++iter)
+    {
+      QWidget *w = svc.createAlgorithmDialog(
+          QStringLiteral("paleotest:stoppable_test"),
+          QVariantMap(), nullptr, &error);
+      QVERIFY2(w, qPrintable(error));
+
+      auto *algWidget = qobject_cast<QgsProcessingAlgorithmWidgetBase *>(w);
+      QVERIFY(algWidget);
+
+      QVERIFY(algWidget->runButton());
+      algWidget->runButton()->click();
+
+      // 在 Worker 刚刚启动或调度时立即销毁窗口，极限测试 TaskPayload 绑定与断开时序
+      QThread::msleep(15);
+
+      QPointer<QWidget> topWindow = w->window();
+      delete w;
+      if (topWindow)
+        delete topWindow;
+
+      QCoreApplication::processEvents();
+    }
+
+    // 确认所有后台 Task 安全退出，无崩溃与悬挂
+    QTest::qWait(500);
     QCoreApplication::processEvents();
   }
 };

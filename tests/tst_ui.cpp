@@ -233,6 +233,25 @@ class TestUiShell : public QObject
       QCOMPARE(recent->item(0)->data(Qt::UserRole).toString(), path);
     }
 
+    void readOnlyProjectTogglesUiAndTitle()
+    {
+      m_win->setProjectReadOnly(true);
+      QVERIFY(m_win->windowTitle().contains(QStringLiteral("[只读]")));
+      auto *saveAct = m_win->findChild<QAction *>(QStringLiteral("saveProjectAction"));
+      if (saveAct)
+        QVERIFY(!saveAct->isEnabled());
+      auto *editTb = m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar"));
+      if (editTb)
+        QVERIFY(!editTb->isEnabled());
+
+      m_win->setProjectReadOnly(false);
+      QVERIFY(!m_win->windowTitle().contains(QStringLiteral("[只读]")));
+      if (saveAct)
+        QVERIFY(saveAct->isEnabled());
+      if (editTb)
+        QVERIFY(editTb->isEnabled());
+    }
+
     // Processing entry point: attachWorkflows with the processing service adds
     // a top-bar "处理算法" button whose menu surfaces the paleo:* algorithms
     // (full-registry ids live in per-provider submenus).

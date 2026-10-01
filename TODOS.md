@@ -1,23 +1,5 @@
 # TODOS — paleo_workstation
 
-## P2 — superbuild 回填 pin 并启用（from 依赖来源政策, 2026-10-01）
-
-- **What:** `vendor/superbuild/CMakeLists.txt` 回填 GEOS/PROJ/GDAL/QGIS 源码
-  tarball URL + `URL_HASH SHA256`，preflight 补 flex/bison/nasm/python3，
-  构建进 `vendor/superbuild/prefix`，主构建 `QGIS_PREFIX_PATH` 指向该
-  prefix 并过一轮全量 ctest。
-- **Why:** 依赖来源政策（BUILDING.md「依赖来源策略」）：尽量不依赖系统库，
-  自编译 vendored 为首选路线；binary 闭包降加速档，系统包仅兜底。
-- **Pros:** 版本/ABI/裁剪面仓控，换机可复现；系统包漂移（升级/卸载）不再
-  破坏构建与运行。
-- **Cons:** 首次 ~2h 无人值守 + ≥60GB 磁盘；CI 需缓存 superbuild 产物，
-  否则每个 job 重编不可接受。
-- **Context:** 启用步骤与裁剪表（WITH_3D/MESH/PDAL off，代码取证已冻结）见
-  `vendor/superbuild/README.md`；Qt6 例外沿用发行版/官方二进制。
-- **Effort:** human: M / CC: M
-- **Priority:** P2
-- **Depends on:** 无
-
 ## P3 — catalog.sqlite 查询索引（deferred from /autoplan SELECTIVE EXPANSION, 2026-09-25）
 
 - **What:** 由 `catalog.json` 重建 `catalog.sqlite`，作为资产、版本、关联的查询索引。

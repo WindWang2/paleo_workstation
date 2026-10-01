@@ -9,6 +9,8 @@
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
+#include "../src/metadata/projectlock.h"
+#include "../src/metadata/paleoprojectstore.h"
 
 // §37 recovery — the SQLite manifest store is authoritative, but a .qgz moved
 // or shared WITHOUT its ".project.sqlite" sidecar must still recover its full
@@ -163,6 +165,44 @@ private slots:
     QVERIFY2( ctx.projectSvc()->openProject( qgz ),
               qPrintable( ctx.projectSvc()->lastErrors().join( ';' ) ) );
     QVERIFY( ctx.manifest()->all().isEmpty() );
+  }
+
+  // ---- Issue #26: AppContext 目录锁生命周期与并发只读降级 ----
+  void appContextLockLifecycleAndReadOnlyDowngrade()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const QString qgz = dir.filePath( QStringLiteral( "lock_test.qgz" ) );
+
+    // 1. 创建工程
+    {
+      QgisProjectService svc;
+      QVERIFY( svc.createProject( qgz ) );
+    }
+
+    // 2. 实例 1 打开工程（首实例取得独占锁）
+    AppContext ctx1( QStringLiteral( "/usr" ) );
+    QVERIFY( ctx1.ready() );
+    QVERIFY( ctx1.projectSvc()->openProject( qgz ) );
+    QVERIFY( !ctx1.isProjectReadOnly() );
+    QVERIFY( ctx1.store() && !ctx1.store()->isReadOnly() );
+
+    // 3. 实例 2 打开同一工程（无头环境自动降级为只读）
+    AppContext ctx2( QStringLiteral( "/usr" ) );
+    QVERIFY( ctx2.ready() );
+    QVERIFY( ctx2.projectSvc()->openProject( qgz ) );
+    QVERIFY( ctx2.isProjectReadOnly() );
+    QVERIFY( ctx2.store() && ctx2.store()->isReadOnly() );
+
+    // 4. 实例 1 执行 closeProject()，验证锁被干净释放
+    ctx1.closeProject();
+    QVERIFY( !ctx1.isProjectReadOnly() );
+
+    // 5. 实例 3 尝试取锁，能够直接成功
+    ProjectDirLock lock3( dir.path() );
+    QVERIFY( lock3.tryLock() );
+    QVERIFY( lock3.isHeld() );
+    lock3.unlock();
   }
 };
 

@@ -276,6 +276,115 @@ private slots:
     QVERIFY( secondaryLock.tryLock() );
     QVERIFY( secondaryLock.isHeld() );
   }
+
+  // ---- Adversarial Stress Test: Concurrent createProject on existing locked dir preserves all files ----
+  void concurrentCreateOnExistingLockedProjectPreservesDiskFiles()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const QString qgz = dir.filePath( QStringLiteral( "existing.qgz" ) );
+
+    // 1. 创建完整工程并写入初始数据
+    QgisProjectService primarySvc;
+    QVERIFY( primarySvc.createProject( qgz ) );
+    QVERIFY( QFile::exists( qgz ) );
+
+    auto *vl = new QgsVectorLayer( QStringLiteral( "Point?crs=epsg:4326" ), QStringLiteral( "test_layer" ), QStringLiteral( "memory" ) );
+    primarySvc.project()->addMapLayer( vl );
+    QVERIFY( primarySvc.writeProject() );
+
+    const qint64 origQgzSize = QFileInfo( qgz ).size();
+    QVERIFY( origQgzSize > 0 );
+    const QByteArray origQgzData = [&]() {
+      QFile f( qgz );
+      f.open( QIODevice::ReadOnly );
+      return f.readAll();
+    }();
+
+    const QString paleoPath = dir.filePath( QStringLiteral( "project.paleo" ) );
+    QVERIFY( QFile::exists( paleoPath ) );
+    const QByteArray origPaleoData = [&]() {
+      QFile f( paleoPath );
+      f.open( QIODevice::ReadOnly );
+      return f.readAll();
+    }();
+
+    // 2. 模拟首实例持有目录锁
+    ProjectDirLock primaryLock( dir.path() );
+    QVERIFY( primaryLock.tryLock() );
+    QVERIFY( primaryLock.isHeld() );
+
+    // 3. 次实例多次尝试对同一路径甚至同一目录不同名称执行 createProject
+    QgisProjectService secondarySvc;
+    QVERIFY( !secondarySvc.createProject( qgz ) );
+    QVERIFY( !secondarySvc.lastErrors().isEmpty() );
+    QVERIFY( secondarySvc.lastErrors().first().contains( QStringLiteral( "锁定" ) ) );
+
+    const QString otherQgz = dir.filePath( QStringLiteral( "intruder.qgz" ) );
+    QVERIFY( !secondarySvc.createProject( otherQgz ) );
+    QVERIFY( !QFile::exists( otherQgz ) );
+
+    // 4. 断言：已有工程文件必须 100% 保持原样，内容与大小无任何篡改或截断！
+    QCOMPARE( QFileInfo( qgz ).size(), origQgzSize );
+    {
+      QFile f( qgz );
+      f.open( QIODevice::ReadOnly );
+      QCOMPARE( f.readAll(), origQgzData );
+    }
+    {
+      QFile f( paleoPath );
+      f.open( QIODevice::ReadOnly );
+      QCOMPARE( f.readAll(), origPaleoData );
+    }
+
+    // 5. 锁释放后，重新尝试才可以执行
+    primaryLock.unlock();
+    QVERIFY( !primaryLock.isHeld() );
+  }
+
+  // ---- Adversarial Stress Test: Multiple instances competing for lock lifecycle ----
+  void multiInstanceLockContentionAndSequentialHandover()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+
+    ProjectDirLock lockA( dir.path() );
+    ProjectDirLock lockB( dir.path() );
+    ProjectDirLock lockC( dir.path() );
+
+    // Instance A acquires lock
+    QVERIFY( lockA.tryLock() );
+    QVERIFY( lockA.isHeld() );
+
+    // Instances B and C must be refused
+    QString errB, errC;
+    QVERIFY( !lockB.tryLock( &errB ) );
+    QVERIFY( !lockB.isHeld() );
+    QVERIFY( !lockC.tryLock( &errC ) );
+    QVERIFY( !lockC.isHeld() );
+
+    // Instance A releases lock
+    lockA.unlock();
+    QVERIFY( !lockA.isHeld() );
+
+    // Instance B now successfully acquires lock
+    QVERIFY( lockB.tryLock( &errB ) );
+    QVERIFY( lockB.isHeld() );
+
+    // Instance C still refused
+    QVERIFY( !lockC.tryLock( &errC ) );
+
+    // Instance B releases lock
+    lockB.unlock();
+    QVERIFY( !lockB.isHeld() );
+
+    // Instance C now successfully acquires lock
+    QVERIFY( lockC.tryLock( &errC ) );
+    QVERIFY( lockC.isHeld() );
+
+    lockC.unlock();
+    QVERIFY( !lockC.isHeld() );
+  }
 };
 
 int main( int argc, char *argv[] )

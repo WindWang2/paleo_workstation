@@ -495,6 +495,152 @@ class TestVersions : public QObject
         QVERIFY( !f.store.layerBusy( decl.layerId ) );
         QVERIFY( !f.store.layerBusy( vl->id() ) );
     }
+
+    // ---- Challenger 2 Adversarial Stress Test: Genuine Write Queue Serialization ----
+    void adversarialWriteQueueGenuineSerialization()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+        f.controller.setProjectStore( &f.store );
+
+        const QString gpkg = makeFaciesGpkg( f.dir.filePath( QStringLiteral( "facies_ser.gpkg" ) ) );
+        QVERIFY( !gpkg.isEmpty() );
+
+        LayerDeclaration decl;
+        decl.layerId = QStringLiteral( "facies.D61_ser" );
+        decl.horizon = QStringLiteral( "D61" );
+        decl.type = QStringLiteral( "vector" );
+        decl.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( gpkg );
+        decl.group = QStringLiteral( "05_PaleoMap" );
+        QString err;
+        QVERIFY( f.layers.declare( decl, &err ) );
+
+        std::atomic<bool> holdQueue{ true };
+        std::atomic<bool> queueActive{ false };
+
+        // 1. 模拟另一线程正在持有写队列
+        std::thread blockerThread( [&]() {
+            f.store.enqueueWrite( [&]() -> PaleoProjectStore::WriteResult {
+                queueActive = true;
+                while ( holdQueue.load() )
+                {
+                    QThread::msleep( 10 );
+                }
+                return { true, QString() };
+            } );
+        } );
+
+        QTRY_VERIFY( queueActive.load() );
+
+        // 2. 启动计时器，并在 250ms 后释放写队列
+        QElapsedTimer timer;
+        timer.start();
+
+        std::thread releaserThread( [&]() {
+            QThread::msleep( 250 );
+            holdQueue = false;
+        } );
+
+        // 3. 在主线程调用 saveVersion：必须等待写队列释放后方能进入执行
+        QVariantMap prov;
+        prov.insert( QStringLiteral( "step" ), QStringLiteral( "serialization_test" ) );
+        QString saveErr;
+        MapVersion v = f.controller.saveVersion( QStringLiteral( "D61" ), prov, &saveErr );
+        const qint64 elapsed = timer.elapsed();
+
+        blockerThread.join();
+        releaserThread.join();
+
+        // 4. 严谨断言：saveVersion 耗时必须 >= 200ms，证明其确实在写队列中等待锁释放，绝未绕过！
+        QVERIFY2( elapsed >= 200,
+                  qPrintable( QStringLiteral( "saveVersion bypassed queue! Elapsed: %1 ms" ).arg( elapsed ) ) );
+        QVERIFY( v.version > 0 );
+        QCOMPARE( f.versions.latest( QStringLiteral( "D61" ) ).version, 1 );
+    }
+
+    // ---- Challenger 2 Adversarial Stress Test: Multi-layer Partial Commit Failure Token Cleanup ----
+    void adversarialMultiLayerPartialCommitFailureReleasesAllTokens()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+        f.controller.setProjectStore( &f.store );
+        QgisEditingService editSvc( &f.store );
+        f.controller.setEditingService( &editSvc );
+
+        const QString gpkg1 = makeFaciesGpkg( f.dir.filePath( QStringLiteral( "facies_p1.gpkg" ) ) );
+        const QString gpkg2 = makeFaciesGpkg( f.dir.filePath( QStringLiteral( "facies_p2.gpkg" ) ) );
+        const QString gpkg3 = makeFaciesGpkg( f.dir.filePath( QStringLiteral( "facies_p3.gpkg" ) ) );
+        QVERIFY( !gpkg1.isEmpty() && !gpkg2.isEmpty() && !gpkg3.isEmpty() );
+
+        LayerDeclaration d1, d2, d3, dGhost;
+        d1.layerId = QStringLiteral( "layer1.D61" );
+        d1.horizon = QStringLiteral( "D61" );
+        d1.type = QStringLiteral( "vector" );
+        d1.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( gpkg1 );
+
+        d2.layerId = QStringLiteral( "layer2.D61" );
+        d2.horizon = QStringLiteral( "D61" );
+        d2.type = QStringLiteral( "vector" );
+        d2.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( gpkg2 );
+
+        d3.layerId = QStringLiteral( "layer3.D61" );
+        d3.horizon = QStringLiteral( "D61" );
+        d3.type = QStringLiteral( "vector" );
+        d3.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( gpkg3 );
+
+        // 注册一个损坏/不存在的数据源作为幽灵图层
+        dGhost.layerId = QStringLiteral( "layerGhost.D61" );
+        dGhost.horizon = QStringLiteral( "D61" );
+        dGhost.type = QStringLiteral( "vector" );
+        dGhost.source = QStringLiteral( "/nonexistent/path.gpkg|layername=none" );
+
+        QString err;
+        QVERIFY( f.layers.declare( d1, &err ) );
+        QVERIFY( f.layers.declare( d2, &err ) );
+        QVERIFY( f.layers.declare( d3, &err ) );
+        QVERIFY( f.layers.declare( dGhost, &err ) );
+
+        auto *vl1 = qobject_cast<QgsVectorLayer *>( f.layers.instantiate( d1.layerId, &err ) );
+        auto *vl2 = qobject_cast<QgsVectorLayer *>( f.layers.instantiate( d2.layerId, &err ) );
+        auto *vl3 = qobject_cast<QgsVectorLayer *>( f.layers.instantiate( d3.layerId, &err ) );
+        QVERIFY( vl1 && vl2 && vl3 );
+
+        // 开始编辑会话
+        QVERIFY( editSvc.beginEdit( vl1, &err ) );
+        QVERIFY( editSvc.beginEdit( vl2, &err ) );
+        QVERIFY( editSvc.beginEdit( vl3, &err ) );
+
+        // 建立 dual-key busy token
+        f.store.markLayerBusy( d1.layerId, QStringLiteral( "edit" ), QStringLiteral( "editing" ) );
+        f.store.markLayerBusy( vl1->id(), QStringLiteral( "edit" ), QStringLiteral( "editing" ) );
+        f.store.markLayerBusy( d2.layerId, QStringLiteral( "edit" ), QStringLiteral( "editing" ) );
+        f.store.markLayerBusy( vl2->id(), QStringLiteral( "edit" ), QStringLiteral( "editing" ) );
+        f.store.markLayerBusy( d3.layerId, QStringLiteral( "edit" ), QStringLiteral( "editing" ) );
+        f.store.markLayerBusy( vl3->id(), QStringLiteral( "edit" ), QStringLiteral( "editing" ) );
+        f.store.markLayerBusy( dGhost.layerId, QStringLiteral( "edit" ), QStringLiteral( "ghost editing" ) );
+
+        // 模拟 vl2 提交失败（利用 QGIS 原生 setAllowCommit(false)）
+        vl2->setAllowCommit( false );
+
+        // 执行 saveVersion
+        QVariantMap prov;
+        prov.insert( QStringLiteral( "step" ), QStringLiteral( "partial_failure_test" ) );
+        MapVersion v = f.controller.saveVersion( QStringLiteral( "D61" ), prov, &err );
+
+        // 断言：由于 layer2 提交失败，saveVersion 应当失败返回版本 0
+        QCOMPARE( v.version, 0 );
+        QVERIFY( !err.isEmpty() );
+
+        // 核心断言：无论提交成功或失败，所有图层的 busy token（包括 layer1、layer2、layer3 和幽灵图层）
+        // 以及双键（manifest d.layerId 与 QgsMapLayer id）均必须被完全释放，杜绝永久锁定！
+        QVERIFY( !f.store.layerBusy( d1.layerId ) );
+        QVERIFY( !f.store.layerBusy( vl1->id() ) );
+        QVERIFY( !f.store.layerBusy( d2.layerId ) );
+        QVERIFY( !f.store.layerBusy( vl2->id() ) );
+        QVERIFY( !f.store.layerBusy( d3.layerId ) );
+        QVERIFY( !f.store.layerBusy( vl3->id() ) );
+        QVERIFY( !f.store.layerBusy( dGhost.layerId ) );
+    }
 };
 
 int main( int argc, char *argv[] )

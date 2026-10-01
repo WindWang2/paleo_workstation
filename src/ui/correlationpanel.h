@@ -103,6 +103,11 @@ class WellCorrelationPanel : public QWidget
     bool setLasForWell(const QString &wellId, const QString &lasPath);
     CurveBrowser *curveBrowser() const { return m_browser; }
 
+    // goal/petrophysics-logs：把计算产物曲线并入该井曲线集（browser 出现为
+    // 可选行；同名替换旧算，异名追加）。不动已有轨道——上轨由用户勾选
+    // mnemonicToggled 驱动。
+    void mergeComputedCurves(const QString &wellId, const QList<LasCurve> &computed);
+
     // --- B1：LAS 解析任务服务（quiet 异步；空 = 同步旧路径）---------------------
     void setTaskService(PaleoTaskService *svc);
     PaleoTaskService *taskService() const { return m_taskSvc; }

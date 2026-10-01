@@ -5,7 +5,9 @@ target_sources(paleo_algorithms PRIVATE
   src/algorithms/curveexpr.cpp)
 target_sources(paleo_io PRIVATE src/io/laswriter.cpp)
 target_sources(paleo_services PRIVATE src/services/petrophyscomputeservice.cpp)
+target_sources(paleo_ui PRIVATE src/ui/correlation/petrophyspanel.cpp)
 
 add_paleo_test(tst_petrophys LIBS paleo_algorithms)   # 公式/对齐/QC 核（解析断言）
 add_paleo_test(tst_curveexpr LIBS paleo_algorithms)   # 表达式引擎（null 传播/报错路径）
 add_paleo_test(tst_petrophysbatch LIBS paleo_services) # 批处理编排（进度/取消/catalog/写队列）
+add_paleo_test(tst_petrophyspanel LIBS paleo_ui)      # 参数面板（意图信号/回填门控，offscreen）

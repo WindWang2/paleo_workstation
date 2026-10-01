@@ -122,12 +122,20 @@ void CachePyramidTests::tileLruHitFast()
   QString err;
   RasterPyramidService::Tile tile;
   pyr.ensure(tif);
+  QElapsedTimer cold;
+  cold.start();
   QVERIFY(pyr.tile(tif, 1, 0, 0, &tile, &err)); // 首建
+  const double coldMs = cold.nsecsElapsed() / 1.0e6;
   QElapsedTimer t;
   t.start();
   RasterPyramidService::Tile again;
   QVERIFY(pyr.tile(tif, 1, 0, 0, &again, &err)); // LRU 命中
-  QVERIFY(t.nsecsElapsed() / 1.0e6 < 2.0);
+  const double warmMs = t.nsecsElapsed() / 1.0e6;
+  // TEST-02：原 <2ms 绝对预算在多 worktree 并行争用下偶发超（内存拷贝被
+  // 抢占）——比率门（LRU 命中须显著快于首建）随负载同侧伸缩，缓存失效
+  // （回退磁盘/重建）时仍红。
+  QVERIFY2(warmMs < coldMs / 2.0,
+           qPrintable(QStringLiteral("lru hit %1ms >= cold/2 %2ms").arg(warmMs).arg(coldMs / 2.0)));
   QCOMPARE(again.samples, tile.samples);
   QVERIFY(pyr.cacheStats().hits >= 1);
 }

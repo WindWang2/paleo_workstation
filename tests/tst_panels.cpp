@@ -2305,7 +2305,8 @@ private:
         uipolish::capturePanel(&vp, QStringLiteral("validatepage"), QSize(560, 420));
     }
 
-    void dataops_d1_selectionBadgeAndCountSignal()    {
+    void dataops_d1_selectionBadgeAndCountSignal()
+    {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         DataImportService svc(nullptr, nullptr);

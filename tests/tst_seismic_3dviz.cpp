@@ -51,6 +51,10 @@ private slots:
     void wellTrajectoryVertexGrowth();
     void panelHorizonWellOverlayLinkage();
 
+    // ---- 块4 扫掠动画 ----
+    void sweepAnimationNonBlockingExport();
+    void sweepCacheHitRatio();
+
 private:
     std::shared_ptr<SgyVolume> loadFixtureVolume();
 };
@@ -771,6 +775,117 @@ void TestSeismic3DViz::panelHorizonWellOverlayLinkage() {
     }
     QCOMPARE(wellSpy.count(), 1);
     QCOMPARE(wellSpy.takeFirst().at(0).toBool(), false);
+}
+
+// ---- 块4（Oracle 4）：扫掠播放——UI 事件循环不阻塞 + 暂停/恢复 + PNG 序列 ----
+void TestSeismic3DViz::sweepAnimationNonBlockingExport() {
+    auto vol = loadFixtureVolume();
+    QVERIFY(vol != nullptr);
+
+    PaleoProjectStore store;
+    PaleoTaskService taskSvc(&store);
+    SeismicTaskService seismicSvc(&taskSvc, 16 * 1024 * 1024);
+
+    Seismic3DViewPanel panel;
+    panel.setTaskService(&seismicSvc);
+    panel.setVolume(vol);
+    panel.resize(800, 600);
+    QTRY_VERIFY_WITH_TIMEOUT(seismicSvc.activeTaskCount() == 0, 8000);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    panel.setSweepExportDir(dir.path());
+
+    QSignalSpy frames(&panel, &Seismic3DViewPanel::sweepFrameChanged);
+
+    // 事件循环活性探针：1ms 定时器——播放期间持续进账 = UI 线程未被取数卡死
+    QTimer probe;
+    probe.setInterval(1);
+    int probeTicks = 0;
+    QObject::connect(&probe, &QTimer::timeout, &probe, [&probeTicks]() { ++probeTicks; });
+    probe.start();
+
+    // IL 轴（fixture 3 条线——回绕快、秒级完成多圈）
+    panel.startSweep(SgySliceType::Inline, 20);
+    QVERIFY(panel.isSweepRunning());
+    QTest::qWait(600);
+    probe.stop();
+
+    QVERIFY2(frames.count() >= 8,
+             qPrintable(QStringLiteral("帧推进不足：%1").arg(frames.count())));
+    QVERIFY2(probeTicks > 30,
+             qPrintable(QStringLiteral("UI 事件循环疑似阻塞：探针 %1 次/600ms").arg(probeTicks)));
+
+    // 暂停：帧计数静止
+    panel.pauseSweep();
+    QVERIFY(!panel.isSweepRunning());
+    const int frozen = frames.count();
+    QTest::qWait(250);
+    QCOMPARE(frames.count(), frozen);
+
+    // 恢复：继续推进
+    panel.resumeSweep();
+    QVERIFY(panel.isSweepRunning());
+    QTest::qWait(250);
+    QVERIFY(frames.count() > frozen);
+
+    // 停止 + 取数收敛（异步预取全部终态，无悬挂）
+    panel.stopSweep();
+    QVERIFY(!panel.isSweepRunning());
+    QTRY_VERIFY_WITH_TIMEOUT(seismicSvc.activeTaskCount() == 0, 8000);
+
+    // PNG 序列：导出计数与磁盘文件一致且非空
+    QVERIFY(panel.sweepExportedCount() > 0);
+    const auto pngs = QDir(dir.path()).entryList(
+        {QStringLiteral("frame_*.png")}, QDir::Files, QDir::Name);
+    QCOMPARE(pngs.size(), panel.sweepExportedCount());
+    for (const QString &name : pngs) {
+        QImage img(dir.filePath(name));
+        QVERIFY2(!img.isNull(), qPrintable(name));
+    }
+}
+
+// ---- 块4（Oracle 6 比率门）：扫掠取数缓存命中率（预取窗口生效）----
+// 第二圈起帧与预取全走 SgyDataCache 命中——hits/请求 ≥ 0.8（fixture 门）。
+void TestSeismic3DViz::sweepCacheHitRatio() {
+    auto vol = loadFixtureVolume();
+    QVERIFY(vol != nullptr);
+
+    PaleoProjectStore store;
+    PaleoTaskService taskSvc(&store);
+    SeismicTaskService seismicSvc(&taskSvc, 16 * 1024 * 1024);
+
+    Seismic3DViewPanel panel;
+    panel.setTaskService(&seismicSvc);
+    panel.setVolume(vol);
+    QTRY_VERIFY_WITH_TIMEOUT(seismicSvc.activeTaskCount() == 0, 8000);
+
+    QSignalSpy frames(&panel, &Seismic3DViewPanel::sweepFrameChanged);
+    const int ilCount = int(vol->InlineValues().size());
+    QVERIFY(ilCount >= 2);
+
+    // 第一圈（冷缓存暖机）：走满 ilCount 帧
+    panel.startSweep(SgySliceType::Inline, 30);
+    QTRY_COMPARE_WITH_TIMEOUT(frames.count(), ilCount, 5000);
+
+    // 第二圈起测量（全部应命中）
+    const std::size_t hits0 = seismicSvc.dataCache().Hits();
+    QTest::qWait(400); // 30fps ≈ 12 帧（≈4 圈）
+    panel.stopSweep();
+    const std::size_t hits1 = seismicSvc.dataCache().Hits();
+    const int measuredFrames = frames.count() - ilCount;
+    QVERIFY2(measuredFrames >= 6, "测量窗帧数不足");
+
+    // 帧路径命中下界：每帧滑杆路径查一次缓存（预取暖过的帧即命中）。
+    // 预取请求本身也计入 hits/miss，但第二圈起全命中——门 0.8 留容差。
+    const std::size_t hitDelta = hits1 - hits0;
+    const double ratio = double(hitDelta) / double(measuredFrames);
+    qInfo("sweep hit ratio: %.2f (%zu hits / %d frames)",
+          ratio, hitDelta, measuredFrames);
+    QVERIFY2(ratio >= 0.8,
+             qPrintable(QStringLiteral("扫掠缓存命中率 %1 < 0.8").arg(ratio)));
+
+    QTRY_VERIFY_WITH_TIMEOUT(seismicSvc.activeTaskCount() == 0, 8000);
 }
 
 QTEST_MAIN(TestSeismic3DViz)

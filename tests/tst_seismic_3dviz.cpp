@@ -427,6 +427,9 @@ void TestSeismic3DViz::viewportObliquePickCommits() {
     Seismic3DViewportWidget viewport;
     viewport.resize(400, 300);
     viewport.setVolume(vol);
+    // 俯视预设：屏幕→顶面映射确定（等轴视角下屏幕上方射线不交顶面——
+    // 地平线以上不可拾取是既定行为）
+    viewport.setPresetView(SeismicCameraController::PresetView::Top);
 
     QSignalSpy committed(&viewport, &Seismic3DViewportWidget::sectionPathCommitted);
     QSignalSpy modeChanged(&viewport, &Seismic3DViewportWidget::sectionPickModeChanged);
@@ -435,11 +438,11 @@ void TestSeismic3DViz::viewportObliquePickCommits() {
     QVERIFY(viewport.isSectionPickMode());
     QCOMPARE(modeChanged.count(), 1);
 
-    // 两击（视口中心附近 → 右下象限）：两点自动提交
-    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
-    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
-    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 200));
-    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 200));
+    // 两击（俯视下分落体两侧——fixture 网格 3×4，取映射后必不同格的两点）
+    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 150));
+    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 150));
+    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(100, 250));
+    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(100, 250));
 
     QTRY_COMPARE_WITH_TIMEOUT(committed.count(), 1, 1000);
     QVERIFY(!viewport.isSectionPickMode()); // 提交后自动退出拾取
@@ -456,12 +459,12 @@ void TestSeismic3DViz::viewportObliquePickCommits() {
 
     // 栅栏模式：多点 + 回车提交
     viewport.setSectionPickMode(true, /*autoCommitAtTwo=*/false);
-    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
-    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 100));
+    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 100));
     QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
     QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
-    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 200));
-    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 200));
+    QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(100, 200));
+    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(100, 200));
     QCOMPARE(committed.count(), 0); // 未回车不提交
     QTest::keyClick(&viewport, Qt::Key_Return);
     QTRY_COMPARE_WITH_TIMEOUT(committed.count(), 1, 1000);

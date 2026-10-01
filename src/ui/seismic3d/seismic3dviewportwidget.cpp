@@ -453,10 +453,6 @@ bool Seismic3DViewportWidget::pickTopPlaneGrid(const QPointF &pos, glm::ivec2 &o
     };
     int il = toGrid(hit.z, volume_->InlineMin(), volume_->InlineMax());
     int xl = toGrid(hit.x, volume_->XlineMin(), volume_->XlineMax());
-    qWarning("DBG pick hit=(%.2f,%.2f,%.2f) il=%d xl=%d range il[%d..%d] xl[%d..%d]",
-             hit.x, hit.y, hit.z, il, xl,
-             volume_->InlineMin(), volume_->InlineMax(),
-             volume_->XlineMin(), volume_->XlineMax());
     il = std::clamp(il, volume_->InlineMin(), volume_->InlineMax());
     xl = std::clamp(xl, volume_->XlineMin(), volume_->XlineMax());
     il = volume_->FindNearestInlineValue(il);

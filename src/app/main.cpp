@@ -93,6 +93,9 @@ int main(int argc, char *argv[])
                          ctx.compositionWf(), ctx.validationWf(), ctx.importSvc(),
                          ctx.seismicLink(), ctx.processingSvc(), ctx.store(),
                          ctx.editingSvc(), ctx.layoutSvc(), ctx.taskSvc());
+  // goal/time-depth-velocity：层树深度域转换入口（壳接线在 AppContext 绑定
+  // catalog 之后重绑生效——rebind 随工程打开）。
+  window.attachDepthConversion(ctx.depthConversionWf());
   // D1（wave/deepen-perf）：wellcomposite 派生登记/井斜时深装配的 io 注入——
   // 组装根是唯一可同时 include io/ 与 ui/ 的非视图目录（视图侧白名单只放
   // 行 io/lasdoc.h）。未注入时 sink 走诚实失败路径（状态栏+日志），不静默。

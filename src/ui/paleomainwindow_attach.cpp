@@ -15,6 +15,8 @@
 #include "../qgis/qgislayerservice.h"
 #include "../services/toolavailability.h"
 #include "../linkage/selectioncontext.h"
+#include "layers/layertreepanel.h"
+#include "../workflow/depthconversionworkflow.h"
 #include "../workflow/workflows.h"
 #include "../domain/arearules.h"
 #include "../domain/projectclassifier.h"
@@ -138,6 +140,65 @@ void attachWellCompositeDerived(PaleoMainWindow *win, DataCatalog *catalog)
                    });
 }
 } // namespace
+
+// goal/time-depth-velocity：层树「转换为深度域…」意图信号 → 建模/换算/登记
+// 全在 DepthConversionWorkflow（功能层）；壳只解析声明与反馈状态。
+void PaleoMainWindow::attachDepthConversion(DepthConversionWorkflow *depth)
+{
+  m_depthWf = depth;
+  if (!depth || !m_layerPanel)
+    return;
+  connect(m_layerPanel, &LayerTreePanel::depthConversionRequested, this,
+          [this, depth](const QString &layerId) {
+    const auto status = [this](const QString &text, bool warn) {
+      QgsMessageLog::logMessage(text, QStringLiteral("Paleo"),
+                                warn ? Qgis::MessageLevel::Warning : Qgis::MessageLevel::Info);
+      if (statusBar())
+        statusBar()->showMessage(text, 8000);
+    };
+    const QString horizon = layerId.mid(QStringLiteral("horizon.").size());
+    if (!m_layerSvc)
+    {
+      status(tr("层服务不可用——深度域转换未接线"), true);
+      return;
+    }
+    QString timeRaster;
+    for (const LayerDeclaration &d : m_layerSvc->declared())
+      if (d.layerId == layerId)
+        timeRaster = d.source;
+    if (timeRaster.isEmpty())
+    {
+      status(tr("找不到层位 %1 的时间域栅格声明").arg(horizon), true);
+      return;
+    }
+    // 模型优先复用最新存档；缺则从 catalog 井控制数据先建层间平均模型。
+    QString modelPath = depth->latestModelPath();
+    if (modelPath.isEmpty())
+    {
+      const VelocityModelBuildRequest req = depth->requestFromCatalog();
+      if (req.topsFilePaths.isEmpty() && req.tdFilePaths.isEmpty())
+      {
+        status(tr("没有可用的井分层/校验炮数据——先导入再转换"), true);
+        return;
+      }
+      QString err;
+      modelPath = depth->buildAndStoreModel(req, &err);
+      if (modelPath.isEmpty())
+      {
+        status(tr("速度模型建立失败：%1").arg(err), true);
+        return;
+      }
+      status(tr("已建立并存档速度模型（层间平均）"), false);
+    }
+    QString convertedId, err;
+    if (!depth->convertRasterToDepth(horizon, timeRaster, modelPath, &convertedId, &err))
+    {
+      status(tr("深度域转换失败：%1").arg(err), true);
+      return;
+    }
+    status(tr("深度域转换完成：%1 → %2").arg(horizon, convertedId), false);
+  });
+}
 
 void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                                       CompositionWorkflow *compose, ValidationWorkflow *validate,

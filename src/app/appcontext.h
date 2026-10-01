@@ -18,6 +18,7 @@ class QgisStyleService;
 class ToolAvailabilityService;
 class PaleoOnnxService;
 class SelectionContext;
+class DepthConversionWorkflow;
 class SeismicMapLink;
 class WellMapLink;
 class PaleoProjectStore;
@@ -71,6 +72,7 @@ class AppContext : public QObject
     ProjectDataFacade *projectData() const { return m_projectData; }
     MappingWorkbench *mappingWorkbench() const { return m_mappingWorkbench; }
     MappingWorkflow *mappingWf() const { return m_mappingWf; }
+    DepthConversionWorkflow *depthConversionWf() const { return m_depthWf; }
     MapVersionStore *versionStore() const { return m_versionStore; }
     MapVersionController *versionCtl() const { return m_versionCtl; }
 
@@ -123,6 +125,7 @@ class AppContext : public QObject
     ProjectDataFacade *m_projectData = nullptr;
     MappingWorkbench *m_mappingWorkbench = nullptr;
     MappingWorkflow *m_mappingWf = nullptr;
+    DepthConversionWorkflow *m_depthWf = nullptr;
     MapVersionStore *m_versionStore = nullptr;
     MapVersionController *m_versionCtl = nullptr;
     PaleoTaskService *m_taskSvc = nullptr;

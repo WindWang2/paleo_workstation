@@ -297,6 +297,21 @@ void LayerTreePanel::buildContextMenu()
       emit mappingPageRequested(page);
   });
   m_menu->addAction(m_openPageAction);
+
+  // goal/time-depth-velocity：时间域层位 → 深度域（意图信号，编排在壳外）。
+  m_depthConvertAction = new QAction(tr("转换为深度域…"), m_menu);
+  m_depthConvertAction->setObjectName(QStringLiteral("layerTreeDepthConvertAction"));
+  connect(m_depthConvertAction, &QAction::triggered, this, [this]() {
+    QgsMapLayer *layer = m_view->layerTreeModel() ? m_view->currentLayer() : nullptr;
+    if (!layer)
+      return;
+    const QString paleoId =
+        layer->customProperty(QStringLiteral("paleoLayerId")).toString();
+    if (!paleoId.startsWith(QStringLiteral("horizon.")))
+      return; // 仅时间域层位（守卫与可用态同口径）
+    emit depthConversionRequested(paleoId);
+  });
+  m_menu->addAction(m_depthConvertAction);
 }
 
 void LayerTreePanel::updatePaleoActionStates()
@@ -306,6 +321,16 @@ void LayerTreePanel::updatePaleoActionStates()
   m_duplicateAction->setEnabled(layer != nullptr);
   m_exportStyleAction->setEnabled(layer != nullptr);
   m_importStyleAction->setEnabled(layer != nullptr);
+
+  // 深度域转换只对时间域层位层开（paleoLayerId "horizon.*"；手工层/深度
+  // 产物/矢量层不给入口——DESIGN.md 禁用带 reason）。
+  const QString paleoId =
+      layer ? layer->customProperty(QStringLiteral("paleoLayerId")).toString() : QString();
+  const bool convertible = paleoId.startsWith(QStringLiteral("horizon."));
+  m_depthConvertAction->setEnabled(convertible);
+  m_depthConvertAction->setToolTip(
+      convertible ? QString()
+                  : tr("仅时间域层位栅格可转换为深度域（先导入井分层/校验炮）"));
 
   if (!layer)
   {

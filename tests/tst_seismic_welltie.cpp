@@ -221,6 +221,42 @@ private slots:
     QCOMPARE(canvas.wellTrajectories().front().bottomTracePos, 22.0);
   }
 
+  // ---- goal/time-depth-velocity：深度标尺反投影（非常速模型贴准） ----
+  // 常速模型深度刻度线性；校验炮分段模型同一深度刻度反解 TWT 的像素位置
+  // 不同——两幅深度模式渲染必须可区分（修前左缘深度刻度按常速线性近似，
+  // 两模型渲染相同）。悬停深度也走同一模型口径。
+  void depthRulerBackProjection()
+  {
+    SeismicSectionCanvas canvas;
+    canvas.resize(800, 600);
+    SgySliceImage img;
+    img.width = 64;
+    img.height = 256;
+    img.valueMin = -1;
+    img.valueMax = 1;
+    img.values.assign(std::size_t(64) * 256, 0.0f);
+    img.rgba.assign(std::size_t(64) * 256 * 4, 255);
+    canvas.setSectionData(img, 4.0f); // 0..1020ms
+    canvas.setVerticalUnit(SectionVerticalUnit::DepthMeters);
+
+    canvas.setTimeDepthModel(seismic::TimeDepthModel(2500.0)); // 常速
+    const QImage linear = renderCanvas(canvas);
+    QVERIFY(!linear.isNull());
+
+    seismic::TimeDepthModel piecewise;
+    QVERIFY(piecewise.setCheckshots({{0.0, 0.0},
+                                     {500.0, 750.0},   // 上段 Vint=3000
+                                     {1020.0, 1705.0}})); // 下段 Vint≈2625
+    canvas.setTimeDepthModel(piecewise);
+    const QImage nonlinear = renderCanvas(canvas);
+    QVERIFY(!nonlinear.isNull());
+    QVERIFY(imageDiff(linear, nonlinear) > 50); // 刻度位置变化可见
+
+    // 时间模式渲染不受模型影响切换面仍在：切回时间轴可渲染（信号面冒烟）。
+    canvas.setVerticalUnit(SectionVerticalUnit::TwoWayTimeMs);
+    QVERIFY(!renderCanvas(canvas).isNull());
+  }
+
   // ---- D5.7 多井开关：最近 N 过滤渲染差异 ----
   void multiWellToggle()
   {

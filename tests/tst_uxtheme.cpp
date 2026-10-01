@@ -1,6 +1,5 @@
 #include <QtTest>
 #include <QApplication>
-#include <QDir>
 #include <QFile>
 #include <QFontDatabase>
 #include <QFontInfo>
@@ -9,8 +8,11 @@
 #include <QPainter>
 #include <QPalette>
 #include <QSettings>
+#include <QTemporaryDir>
 #include <QStyle>
 #include <QStyleFactory>
+#include <QHeaderView>
+#include <QTableWidget>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -29,6 +31,60 @@ class TestUxTheme : public QObject
     void initTestCase()
     {
       QVERIFY2(PaleoTheme::ensureApplicationFonts(), "vendored fonts must register");
+    }
+
+    // ---- goal/ui-experience-polish：密度切换与条目视图统一 QSS ----
+
+    // 密度：设置往返守恒 + 活体 builder 随 applyDensity 重算档位。
+    void densityRoundTripAndLiveRelayout()
+    {
+      QCOMPARE(PaleoTheme::densityFromSettings(), PaleoTheme::Density::Comfort);
+      QCOMPARE(PaleoTheme::itemViewPaddingY(PaleoTheme::Density::Comfort), 3);
+      QCOMPARE(PaleoTheme::itemViewPaddingY(PaleoTheme::Density::Compact), 1);
+      QCOMPARE(PaleoTheme::tableRowHeight(PaleoTheme::Density::Comfort), 26);
+      QCOMPARE(PaleoTheme::tableRowHeight(PaleoTheme::Density::Compact), 20);
+
+      QWidget host;
+      PaleoTheme::applyThemedStyleSheet(
+          &host, [] { return PaleoTheme::itemViewStyleSheet(); });
+      QVERIFY(host.styleSheet().contains(QStringLiteral("padding: 3px")));
+      PaleoTheme::applyDensity(PaleoTheme::Density::Compact);
+      QCOMPARE(PaleoTheme::currentDensity(), PaleoTheme::Density::Compact);
+      QVERIFY(host.styleSheet().contains(QStringLiteral("padding: 1px")));
+      PaleoTheme::applyDensity(PaleoTheme::Density::Comfort);
+      QVERIFY(host.styleSheet().contains(QStringLiteral("padding: 3px")));
+    }
+
+    // 条目视图三件套：选中（primary 一致化）/hover/斑马纹双主题 token。
+    void itemViewSheetUnifiesSelectionHoverZebra()
+    {
+      const QString light =
+          PaleoTheme::itemViewStyleSheet(PaleoTheme::Theme::Light);
+      QVERIFY(light.contains(QStringLiteral("alternate-background-color: #EDF1F5")));
+      QVERIFY(light.contains(QStringLiteral("::item:hover { background: #EDF1F5; }")));
+      QVERIFY(light.contains(
+          QStringLiteral("::item:selected { background: #1B73D0; color: #FFFFFF; }")));
+      const QString dark = PaleoTheme::itemViewStyleSheet(PaleoTheme::Theme::Dark);
+      QVERIFY(dark.contains(QStringLiteral("::item:hover { background: #2A313B; }")));
+      QVERIFY(dark.contains(
+          QStringLiteral("::item:selected { background: #1B73D0; color: #FFFFFF; }")));
+      QVERIFY(dark.contains(QStringLiteral("alternate-background-color: #2A313B")));
+      // 壳级全量拼进了三件套（主窗/父挂对话框全覆盖）。
+      QVERIFY(PaleoTheme::shellStyleSheet(PaleoTheme::Theme::Light)
+                  .contains(QStringLiteral("::item:hover")));
+    }
+
+    // 表行高密度落档：applyDensityToViewTree 扫 QTableView 族。
+    void densityAppliesRowHeightsToTables()
+    {
+      QWidget host;
+      auto *lay = new QVBoxLayout(&host);
+      auto *table = new QTableWidget(&host);
+      lay->addWidget(table);
+      PaleoTheme::applyDensityToViewTree(&host, PaleoTheme::Density::Compact);
+      QCOMPARE(table->verticalHeader()->defaultSectionSize(), 20);
+      PaleoTheme::applyDensityToViewTree(&host, PaleoTheme::Density::Comfort);
+      QCOMPARE(table->verticalHeader()->defaultSectionSize(), 26);
     }
 
     // vendor 字体真的进了 QFontDatabase（不是系统字体顶包）。
@@ -423,10 +479,12 @@ int main(int argc, char *argv[])
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
   QApplication app(argc, argv);
-  // QSettings 隔离（tst_ui 惯例）：主题读写测试不碰真实用户配置。
+  // 每运行一次的临时目录（对齐 tst_seismic_sectionui 惯例）：既隔离直跑时
+  // 的真实用户配置，也消除固定 /tmp 路径跨运行/跨用户的陈旧状态向量
+  // （ctest 路径另有 add_paleo_test 的 XDG/HOME 沙箱兜底）。
+  static QTemporaryDir settingsDir;
   QSettings::setDefaultFormat(QSettings::IniFormat);
-  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
-                     QDir::temp().filePath(QStringLiteral("paleo_tst_uxtheme_settings")));
+  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
   TestUxTheme tc;
   return QTest::qExec(&tc, argc, argv);
 }

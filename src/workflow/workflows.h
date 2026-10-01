@@ -152,6 +152,14 @@ class ConstraintWorkflow : public QObject
                                 const SingleFactorDefinition &def, const QVariantMap &params,
                                 QString *error = nullptr);
 
+    // 三个单因素引擎共用的收尾：样式 best-effort 落盘 + factor 栅格声明 +
+    // C4 资产关联补盖 + factorGenerated（声明失败不发成功信号）。
+    bool declareFactorResult(QgisLayerService *layers, const QString &horizon,
+                             const QString &factorId,
+                             const SingleFactorDefinition &def, const QString &outPath,
+                             const QString &projectDir, const QString &assetId,
+                             QString *error);
+
   public:
 
     // 等值线（§12：GIS LineString 图层）。gdal:contour 在 C++ 嵌入运行时未注册

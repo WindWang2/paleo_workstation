@@ -35,6 +35,27 @@ endif()
 # UBSAN 保持可恢复（只打印栈），做巡检不做门禁。
 option(PALEO_ENABLE_ASAN "AddressSanitizer 实验档（测试默认关 leak 检测）" OFF)
 option(PALEO_ENABLE_UBSAN "UndefinedBehaviorSanitizer 巡检档（可恢复）" OFF)
+# ---- goal/perf-systematize 簇4：LTO 实验档（默认 OFF）----
+# 依据（2026-10-01 本机交错三轮实测，docs/perf/BUILD_OPT.md）：LAS 冷解析
+# -40.7%、SEG-Y 索引命中 -45.2%、catalog 灌库 1k -24.9%/查询 -18.2%，
+# 无一致回归；代价 = 全量链接时间 ~2.3×（增量影响小）。-O3 已实验否决
+# （catalog_open_10k +35% 两轮一致回归）不入档为选项。
+option(PALEO_ENABLE_LTO "链接期优化档（-flto=8；热路径解析/索引收益 20-45%，默认 OFF）" OFF)
+if(PALEO_ENABLE_LTO)
+  if(MSVC)
+    message(FATAL_ERROR "PALEO_ENABLE_LTO 仅支持 GNU/Clang（MSVC 走 /GL /LTCG 手动档）")
+  endif()
+  include(CheckCXXSourceCompiles)
+  set(_lto_saved_cxx "${CMAKE_REQUIRED_FLAGS}")
+  set(CMAKE_REQUIRED_FLAGS "-flto=8")
+  check_cxx_source_compiles("int main(){return 0;}" PALEO_LTO_LINK_OK)
+  set(CMAKE_REQUIRED_FLAGS "${_lto_saved_cxx}")
+  if(NOT PALEO_LTO_LINK_OK)
+    message(FATAL_ERROR "PALEO_ENABLE_LTO：工具链不支持 -flto=8（探测失败）")
+  endif()
+  add_compile_options(-flto=8 -ffat-lto-objects)
+  add_link_options(-flto=8)
+endif()
 # ---- 实验性 unity build（devex T6）：逐 target opt-in，默认 OFF ----
 # paleo_sbm（-fno-char8_t TU 语义）/paleo_segyio（纯 C）/paleo_saribbon（vendor）
 # 显式排除；AUTOMOC 与 unity 的组合按 CMake 语义兼容，但跨 TU 静态同名符号
@@ -56,8 +77,12 @@ if(PALEO_ENABLE_UBSAN)
   add_link_options(-fsanitize=undefined)
 endif()
 
+# QGIS_PREFIX 必须进 cache：CMakeLists 变更时 make 自动重配，若依赖 env
+# 则任何无 QGIS_PREFIX_PATH 的 shell（含并发 agent 会话）重配会静默丢
+# vendor 定位——PALEO_QGIS_PREFIX_DEFAULT/测试 env 注入全失效，回落系统栈。
+set(QGIS_PREFIX "" CACHE PATH "QGIS install prefix（vendor superbuild/deb 闭包；空=系统兜底）")
 if(NOT QGIS_PREFIX AND DEFINED ENV{QGIS_PREFIX_PATH})
-  set(QGIS_PREFIX "$ENV{QGIS_PREFIX_PATH}")
+  set(QGIS_PREFIX "$ENV{QGIS_PREFIX_PATH}" CACHE PATH "QGIS install prefix" FORCE)
 endif()
 if(QGIS_PREFIX)
   list(PREPEND CMAKE_PREFIX_PATH "${QGIS_PREFIX}" "${QGIS_PREFIX}/apps/qt6")
@@ -91,6 +116,11 @@ if(QGIS_PREFIX)
   # OSGeo4W installs SQLite, GDAL, GEOS and other public QGIS header
   # dependencies in the prefix's shared include directory.
   target_include_directories(paleo_qgis_iface INTERFACE "${QGIS_PREFIX}/include")
+  # 默认运行时 prefix 随构建钉住：裸跑（无 QGIS_PREFIX_PATH env）时
+  # provider/srs.db 仍解析到二进制实际链接的 vendor prefix，不静默回落
+  # 系统栈（链接与运行资源栈分裂）。env/CLI 覆盖语义不变。
+  target_compile_definitions(paleo_qgis_iface INTERFACE
+    PALEO_QGIS_PREFIX_DEFAULT="${QGIS_PREFIX}")
 endif()
 target_link_libraries(paleo_qgis_iface INTERFACE ${QGIS_CORE_LIB} ${QGIS_GUI_LIB} ${QGIS_ANALYSIS_LIB}
   Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Xml Qt6::Sql Qt6::Concurrent Qt6::Svg Qt6::PrintSupport Qt6::Network Qt6::SerialPort Qt6::Positioning Qt6::UiTools Qt6::OpenGLWidgets Qt6::Pdf Qt6::PdfWidgets)
@@ -250,6 +280,7 @@ target_link_libraries(paleo_domain PUBLIC paleo_deps paleo_sbm paleo_segyio pale
 add_library(paleo_algorithms STATIC
   src/algorithms/paleoalgorithms.cpp
   src/algorithms/faciespolygonize.cpp
+  src/algorithms/seismicattr.cpp
 )
 target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 
@@ -317,8 +348,9 @@ add_library(paleo_services STATIC
   src/services/seismicmapping.cpp                   # 测网几何↔inline/xline/CDP
   src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排
   src/services/crashreport.cpp                      # 致命信号 fd 落盘 + .running 旗标
+  src/services/startuptrace.cpp                     # goal/perf-systematize 簇1：启动分段仪表
 )
-target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store)
+target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
 
 # ---- 功能层 ----
 add_library(paleo_linkage STATIC
@@ -452,13 +484,21 @@ enable_testing()
 # 已知边界：Windows NativeFormat 走注册表不受 env 控制——Windows 侧仍靠
 # 串行 ctest（ci.yml windows leg 未开并行）；文档见 BUILDING.md。
 # 注意 set_tests_properties 的 ENVIRONMENT 是整体覆盖非追加：外部对本函数
-# 注入环境做扩展必须用 set_property(TEST ... APPEND PROPERTY ...)，
-# 不能再整体 set（CMakeLists 下方 tst_onnx* 即此坑的修复点）。
+# 注入环境做扩展，非路径变量用 set_property(TEST ... APPEND PROPERTY ...)；
+# LD_LIBRARY_PATH 等路径变量必须走 ENVIRONMENT_MODIFICATION 的
+# path_list_prepend（APPEND 一条整体赋值仍会替换外部注入值，见下方
+# tst_onnx 的修复注记）。
 function(paleo_test_sandbox name)
   set(_home ${CMAKE_BINARY_DIR}/ctest-home/${name})
-  file(MAKE_DIRECTORY "${_home}/config" "${_home}/data" "${_home}/cache")
+  file(MAKE_DIRECTORY "${_home}/config" "${_home}/data" "${_home}/cache" "${_home}/tmp")
   set_tests_properties(${name} PROPERTIES ENVIRONMENT
-    "QT_QPA_PLATFORM=offscreen;XDG_CONFIG_HOME=${_home}/config;XDG_DATA_HOME=${_home}/data;XDG_CACHE_HOME=${_home}/cache;HOME=${_home}")
+    "QT_QPA_PLATFORM=offscreen;XDG_CONFIG_HOME=${_home}/config;XDG_DATA_HOME=${_home}/data;XDG_CACHE_HOME=${_home}/cache;HOME=${_home};TMPDIR=${_home}/tmp;TEMP=${_home}/tmp;TMP=${_home}/tmp")
+  if(QGIS_PREFIX)
+    # vendor 构建下测试资源/provider 也走构建所链的 prefix（与二进制
+    # RUNPATH 一致），不借系统 /usr 栈——裸 ctest 即全 vendored。
+    set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
+      "QGIS_PREFIX_PATH=${QGIS_PREFIX}")
+  endif()
   if(PALEO_ENABLE_ASAN)
     set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
       "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:print_summary=1")
@@ -510,6 +550,15 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --strict)
   add_test(NAME layering_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --selftest)
+  # goal/ui-experience-polish：UI 不变量闸门——DESIGN.md Motion 禁编排动画
+  #（src/ui 零 QPropertyAnimation/QEasingCurve/setAnimated(true)）+ QSS 裸
+  # hex 零容忍（token 单一真源 = paleotheme；baseline 只缩不涨，strict 防回升）。
+  add_test(NAME ui_invariants COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_invariants.py)
+  add_test(NAME ui_invariants_strict COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_invariants.py --strict)
+  add_test(NAME ui_invariants_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_invariants.py --selftest)
 endif()
 
 # ---- 测试注册（devex T1 链接瘦身：LIBS = 各测试 include 面的最小闭包，见
@@ -521,6 +570,7 @@ add_paleo_test(tst_canvas_tools LIBS paleo_services paleo_qgis) # metadata,qgis,
 add_paleo_test(tst_domain LIBS paleo_domain)
 add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms)
+add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）
 add_paleo_test(tst_services2 LIBS paleo_qgis)               # algorithms,metadata,qgis
 add_paleo_test(tst_workflows LIBS paleo_workflow)
 add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）
@@ -530,6 +580,7 @@ add_paleo_test(tst_mappingpages LIBS paleo_ui)
 add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
 add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式；伞式兼容样本）
 add_paleo_test(tst_perf LIBS paleo_qgis)
+set_tests_properties(tst_perf PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_locator LIBS paleo_ui)
 add_paleo_test(tst_layoutshell LIBS paleo_ui)
 add_paleo_test(tst_maptools LIBS paleo_ui)
@@ -618,10 +669,13 @@ if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnxworkflow LIBS paleo_workflow)
   target_compile_definitions(tst_onnxworkflow PRIVATE
     PROJECT_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
-  # LD_LIBRARY_PATH 必须用 APPEND：paleo_test_sandbox 注入的 XDG/HOME 沙箱
-  # 挂在 ENVIRONMENT 上，这里整体 set 会把它抹掉（原整体覆盖即竞态坑来源）。
-  set_property(TEST tst_onnx tst_onnxworkflow APPEND PROPERTY ENVIRONMENT
-    "LD_LIBRARY_PATH=${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
+  # ORT 运行库目录必须出现在 LD_LIBRARY_PATH：用 ENVIRONMENT_MODIFICATION
+  # 的 path_list_prepend 前置，而不是 APPEND 一条整体 LD_LIBRARY_PATH 赋值
+  # ——后者仍会替换外部注入的值（deb 闭包路 paleo-dev 注入的 vendored
+  # QGIS/Qt 目录会被吞掉，间接依赖落到系统 Qt 上产生版本冲突——本机
+  # Arch Qt6.11 + vendored Qt6.10 即此症状）。
+  set_tests_properties(tst_onnx tst_onnxworkflow PROPERTIES ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()
 
 # ---- wave/mapping-pipeline (阶段C+E 编图链路) ----
@@ -643,6 +697,15 @@ target_compile_definitions(tst_seismicmapping PRIVATE
 # ---- application ----
 add_executable(paleo src/app/main.cpp)
 target_link_libraries(paleo PRIVATE paleo_core)
+
+# ---- goal/perf-systematize 簇1：启动分段仪表 + 比率门 ----
+# 真实 paleo 二进制 offscreen 起停（首帧即退），PALEO_STARTUP_TRACE 落盘
+# JSON → 段完整性 + 机器无关比率门（startup_ratios.json ×1.5）；另起一次
+# 注入 1500ms 劣化断言门必红（判别力）。计时面挂串行，对齐 tst_perfbudget。
+add_paleo_test(tst_startup_trace LIBS paleo_services)
+target_compile_definitions(tst_startup_trace PRIVATE
+  PALEO_APP_BINARY="$<TARGET_FILE:paleo>")
+set_tests_properties(tst_startup_trace PROPERTIES RUN_SERIAL TRUE)
 
 add_executable(paleo_seismic_demo tools/seismic_showcase.cpp)
 target_link_libraries(paleo_seismic_demo PRIVATE paleo_core)
@@ -687,6 +750,13 @@ add_paleo_test(tst_entityview LIBS paleo_store)
 # 新增源与测试集中在此块；并行包合并冲突时保留双方行。
 add_paleo_test(tst_crashreport LIBS paleo_services)
 add_paleo_test(tst_relocate LIBS paleo_ui)
+
+# ---- goal/perf-systematize 簇2：UI 线程阻塞动态验证 ----
+# F1 well_log 两段式 / F2 综合柱状图 XML 两段式 / F3 GeoJSON 流式统计：
+# 页构建/受理耗时 < 0.5 × 同文件整份解析（比率门）+ 事件循环探活分片。
+# 计时面挂串行（对齐 tst_perfbudget/tst_correlation_full 先例）。
+add_paleo_test(tst_ui_blocking LIBS paleo_ui)
+set_tests_properties(tst_ui_blocking PROPERTIES RUN_SERIAL TRUE)
 target_compile_definitions(tst_relocate PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 

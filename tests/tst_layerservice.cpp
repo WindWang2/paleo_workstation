@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QSignalSpy>
 
 #include <qgsapplication.h>
 #include <qgscoordinatereferencesystem.h>
@@ -11,6 +12,8 @@
 #include <qgsvectorlayer.h>
 
 #include "../src/catalog/datacatalog.h"
+#include "../src/qgis/qgiseditingservice.h"
+#include "../src/metadata/paleoprojectstore.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/qgis/qgislayerservice.h"
@@ -159,6 +162,44 @@ private slots:
     QVERIFY(!svc.isInstantiated(QStringLiteral("facies.T2")));
     QCOMPARE(QgsProject::instance()->mapLayers().size(), 0);
     QCOMPARE(manifest.all().size(), 3);
+  }
+
+  // (h) releaseHorizon 遇编辑中图层：经编辑服务回滚——busy 标记随会话释放，
+  //     图层仍被工程正常注销。未注入服务的裸用路径维持旧行为（rollback 照做）。
+  void releaseHorizonRollsBackThroughEditingService()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    // 编辑会话会在源文件上开写句柄——用夹具副本，不动共享 testdata。
+    const QString gpkgCopy = tmp.filePath(QStringLiteral("facies_copy.gpkg"));
+    QVERIFY2(QFile::copy(fixtureGpkg(), gpkgCopy), qPrintable(gpkgCopy));
+    LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+    QVERIFY(manifest.open());
+    QgisLayerService svc(nullptr, &manifest);
+    LayerDeclaration editable = decl(QStringLiteral("facies.T1"), QStringLiteral("T1"));
+    editable.source = gpkgCopy + QStringLiteral("|layername=basin");
+    QVERIFY(svc.declare(editable));
+    QCOMPARE(svc.instantiateHorizon(QStringLiteral("T1")), 1);
+    auto *vl = qobject_cast<QgsVectorLayer *>(svc.layer(QStringLiteral("facies.T1")));
+    QVERIFY(vl != nullptr && vl->isValid());
+
+    PaleoProjectStore store;
+    QgisEditingService editSvc(&store);
+    svc.setEditingService(&editSvc);
+
+    QString err;
+    QVERIFY2(editSvc.beginEdit(vl, &err), qPrintable(err));
+    QVERIFY(store.layerBusy(QStringLiteral("facies.T1"))); // busyKey = paleoLayerId 盖章值
+    QVERIFY(vl->isEditable());
+
+    QSignalSpy rolledSpy(&editSvc, &QgisEditingService::editRolledBack);
+    svc.releaseHorizon(QStringLiteral("T1"));
+
+    QVERIFY(!store.layerBusy(QStringLiteral("facies.T1"))); // busy 随会话释放
+    QCOMPARE(rolledSpy.count(), 1);
+    QVERIFY(!svc.isInstantiated(QStringLiteral("facies.T1")));
+    QCOMPARE(QgsProject::instance()->mapLayers().size(), 0);
+    QCOMPARE(manifest.all().size(), 1); // 声明仍是权威
   }
 
   // (d) manifest roundtrip: a fresh LayerManifest over the same sqlite file

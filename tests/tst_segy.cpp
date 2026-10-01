@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QByteArray>
 #include <QFile>
+#include <QRegularExpression>
 #include <QTemporaryDir>
 #include <QtEndian>
 #include <QtTest>
@@ -593,6 +594,51 @@ class TestSegy : public QObject
                                 .arg(finalSnap.offsets[i - 1])));
       }
     }
+    // e) #42.1 收口（WP2）：open 成功后文件被截断（索引已建）——丢道不再
+    //    静默：readInline 以「failed to decode N of M」如实失败，且
+    //    readByIndexList 对被丢弃的道 qWarning 留痕（诚实降级面——
+    //    traces()/未来调用方拿部分结果时日志里有账可查）。
+    void postOpenTruncationDroppedTracesSurface()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+
+      SyntheticSegyConfig cfg;
+      cfg.formatCode = 5;
+      cfg.binNs = 64;
+      cfg.traceCount = 3;
+      cfg.customTraces = {{1, 101, 10, 0, 0, {}},
+                          {2, 102, 10, 0, 0, {}},
+                          {3, 103, 10, 0, 0, {}}};
+      const QByteArray full = buildSyntheticSegy(cfg);
+      const QString p = dir.filePath(QStringLiteral("trunc_post_open.sgy"));
+      QVERIFY(writeSegyFile(p, full));
+      SegyReader r;
+      QString err;
+      QVERIFY(r.open(p, &err));
+      QVector<SegyTrace> line;
+      QVERIFY2(r.readInline(10, &line, &err), qPrintable(err));
+      QCOMPARE(int(line.size()), 3);
+
+      // 截断第三道中部（道字节 = 240 头 + 64*4 样本；留头 + 64 样本字节）。
+      const int traceBytes = 240 + 64 * 4;
+      QFile f(p);
+      QVERIFY(f.open(QIODevice::ReadWrite));
+      QVERIFY(f.resize(3600 + 2 * traceBytes + 240 + 64));
+      f.close();
+
+      line.clear();
+      err.clear();
+      QTest::ignoreMessage(QtWarningMsg,
+                           QRegularExpression("dropped 1 of 3 traces"));
+      QVERIFY(!r.readInline(10, &line, &err));
+      QVERIFY2(err.contains(QStringLiteral("failed to decode 1 of 3")),
+               qPrintable(err));
+    }
+
+    // f) SeismicPreviewPanel::loadLineFromFile integration test removed with
+    //    T30 — the panel is retired; single-line preview + SHA verify live on
+    //    the data-page preview tabs (datapreviewtabs).
 };
 
 int main(int argc, char *argv[])

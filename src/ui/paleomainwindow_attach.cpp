@@ -228,6 +228,16 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
       corrPanel = new WellCorrelationPanel(m_selection, bottomTabs);
       corrPanel->setObjectName(QStringLiteral("correlationPanel"));
       corrPanel->setTaskService(taskSvc); // B1：大 LAS 解析走 quiet 异步（nullptr 保持同步旧路径）
+      // goal/ui-experience-polish：异步 LAS 解析失败此前全仓无消费者——井列
+      // 静默不出现对用户不可见；接状态栏 + MessageLog（错误可见，E1 弹窗豁免）。
+      connect(corrPanel, &WellCorrelationPanel::lasLoadError, this,
+              [this](const QString &wellId, const QString &reason) {
+                statusBar()->showMessage(
+                    tr("测井 %1 曲线加载失败：%2").arg(wellId, reason), 6000);
+                QgsMessageLog::logMessage(
+                    tr("连井剖面：井 %1 LAS 加载失败 — %2").arg(wellId, reason),
+                    QStringLiteral("Paleo"));
+              });
       bottomTabs->addTab(corrPanel, tr("测井对比"));
     }
   }
@@ -1154,6 +1164,18 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
         return hs;
       };
       HorizonLocatorFilter::ActivateFn activate = [this](const QString &h) {
+        // 与 HorizonChipBar 同一拦截口径：编辑中切层位会在 releaseHorizon
+        // 里静默回滚丢编辑成果（历史上还绕过 busy 释放）。定位器入口必须
+        // 同样拒绝并说明原因，而不是开一条丢数据的旁路。
+        QString editingName;
+        if (m_layerSvc && m_layerSvc->isEditingAnyLayer(&editingName))
+        {
+          QgsMessageLog::logMessage(
+              tr("正在编辑「%1」——先保存或放弃编辑，再切换层位（定位器切换已拒绝）")
+                  .arg(editingName),
+              QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+          return;
+        }
         if (m_selection)
           m_selection->setActiveHorizon(h);
         if (m_layerSvc)

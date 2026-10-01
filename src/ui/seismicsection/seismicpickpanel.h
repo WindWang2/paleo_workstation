@@ -53,6 +53,7 @@ private:
 
     SeismicSectionDockWidget *dock_ = nullptr;
     QTableWidget *table_ = nullptr;
+    QLabel *emptyHint_ = nullptr; // goal/ui-experience-polish：空拾取指引
     QComboBox *cboInterpreter_ = nullptr;
     QLineEdit *editHorizon_ = nullptr;
     QSpinBox *spinTrackWindow_ = nullptr;

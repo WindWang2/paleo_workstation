@@ -233,6 +233,9 @@ namespace
                 {
                   m_state = State::InProperties;
                   m_propDepth = 0;
+                  // 新对象首键前无分隔符——复位（上一要素遗留的 false 会把
+                  // 本对象首键误判成值字符串而丢键）。
+                  m_lastPropSep = true;
                 }
                 else if (m_lastWasTypeKey)
                 {
@@ -283,7 +286,14 @@ namespace
             }
             case State::InProperties:
               if (c == '{')
+              {
                 ++m_propDepth;
+                // 新 properties 对象：键分隔符复位（否则上一要素遗留的 false
+                // 会把本对象首键误判成值字符串——goal/perf-systematize F3
+                // 等价性测试抓到的丢键 bug）。
+                if (m_propDepth == 1)
+                  m_lastPropSep = true;
+              }
               else if (c == '}')
               {
                 if (m_propDepth == 0)
@@ -310,11 +320,11 @@ namespace
                 m_state = State::InPropKeyEscape;
               else if (c == '"')
               {
+                // 全长收键（与 DOM 口径一致；旧 <24 截断会静默丢/截长键）。
                 m_state = State::InProperties;
-                if (m_lastString.size() < 48 && m_pendingString.size() < 24)
-                  m_propKeys.insert(m_pendingString);
+                m_propKeys.insert(m_pendingString);
               }
-              else if (m_pendingString.size() < 24)
+              else
                 m_pendingString.append(c);
               break;
             case State::InPropKeyEscape:

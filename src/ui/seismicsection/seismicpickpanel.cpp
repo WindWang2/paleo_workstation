@@ -1,6 +1,8 @@
 // 层：视图
 #include "seismicpickpanel.h"
 
+#include "../paleotheme.h"
+
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
@@ -21,18 +23,23 @@
 namespace seismic {
 
 namespace {
-const char *kBtnStyle =
-    "QToolButton { background: transparent; border: 1px solid #DFE5EC; border-radius: 4px;"
-    " padding: 2px 6px; font-size: 8.5pt; color: #24303E; }"
-    "QToolButton:hover { background: #EDF1F5; border-color: #1B73D0; }"
-    "QToolButton:disabled { color: #9AA7B4; }";
-
+// goal/ui-experience-polish：按钮 chrome 收敛 token（原 kBtnStyle 字面量），
+// 活体注册随主题重算。
 QToolButton *mkBtn(const QString &text, const QString &tooltip)
 {
     auto *btn = new QToolButton();
     btn->setText(text);
     btn->setToolTip(tooltip);
-    btn->setStyleSheet(QLatin1String(kBtnStyle));
+    PaleoTheme::applyThemedStyleSheet(btn, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral(
+            "QToolButton { background: transparent; border: 1px solid %1; border-radius: 4px;"
+            " padding: 2px 6px; font-size: 8.5pt; color: %2; }"
+            "QToolButton:hover { background: %3; border-color: %4; }"
+            "QToolButton:disabled { color: %5; }")
+            .arg(t.border.name(), t.text.name(), t.surfaceAlt.name(),
+                 t.primary.name(), t.textDisabled.name());
+    });
     return btn;
 }
 } // namespace
@@ -106,7 +113,18 @@ void SeismicPickPanel::buildUi()
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->verticalHeader()->setVisible(false);
+    // goal/ui-experience-polish：静默空表补空态指引（拾取为空时可见）。
+    emptyHint_ = new QLabel(tr("还没有拾取——在剖面上按住 Ctrl+左键 拾取同相轴，或「载入会话」恢复上次解释"));
+    emptyHint_->setObjectName(QStringLiteral("pickEmptyHint"));
+    emptyHint_->setAlignment(Qt::AlignCenter);
+    emptyHint_->setWordWrap(true);
+    PaleoTheme::applyThemedStyleSheet(emptyHint_, [] {
+        return PaleoTheme::mutedCaptionStyleSheet();
+    });
+    lay->addWidget(emptyHint_, 0);
     lay->addWidget(table_, 1);
+    // 构造即空会话——指引常显（refreshFromSession 只在会话变化时跑）。
+    emptyHint_->setVisible(true);
 
     // 行 4：操作按钮
     auto *row4 = new QHBoxLayout();
@@ -158,6 +176,8 @@ void SeismicPickPanel::refreshFromSession()
         return;
     const SeismicInterpretationSession &session = dock_->interpretationSession();
     table_->setRowCount(0);
+    if (emptyHint_)
+        emptyHint_->setVisible(session.picks.isEmpty());
     for (const SeismicPick &p : session.picks)
     {
         const int row = table_->rowCount();

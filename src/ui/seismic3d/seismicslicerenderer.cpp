@@ -1,6 +1,8 @@
 // 层：视图
 #include "seismicslicerenderer.h"
 
+#include "seismic3dtf.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -73,6 +75,12 @@ SeismicSliceRenderer::~SeismicSliceRenderer() {
 void SeismicSliceRenderer::Cleanup(QOpenGLFunctions_3_3_Core *gl) {
     if (!gl) return;
 
+    if (tfLutTex_) {
+        gl->glDeleteTextures(1, &tfLutTex_);
+        tfLutTex_ = 0;
+    }
+    tfEnabled_ = false;
+
     for (GLuint &tex : textures_) {
         if (tex) {
             gl->glDeleteTextures(1, &tex);
@@ -138,11 +146,20 @@ void main() {
 #version 330 core
 in vec2 vUv;
 uniform sampler2D sliceTexture;
+uniform sampler1D uTfLut;   // D7.1 传递函数 256×1 RGBA8
+uniform bool uUseTf;        // D7.1 TF 模式：值纹理（R=索引 G=有效掩码）
 uniform float uAlpha;      // D3.3 切片透明度
 out vec4 fragColor;
 void main() {
-    vec4 tex = texture(sliceTexture, vUv);
-    if (tex.a < 0.02) discard;   // D3.3 值域裁剪（CPU 侧把带外像素 alpha 置 0）
+    vec4 tex;
+    if (uUseTf) {
+        vec2 sv = texture(sliceTexture, vUv).rg;
+        if (sv.g < 0.5) discard;          // NaN/缺失（掩码通道）
+        tex = texture(uTfLut, sv.r);      // 色彩+不透明度都由 LUT 出
+    } else {
+        tex = texture(sliceTexture, vUv);
+        if (tex.a < 0.02) discard;   // D3.3 值域裁剪（CPU 侧把带外像素 alpha 置 0）
+    }
     fragColor = vec4(tex.rgb, tex.a * uAlpha);
 }
 )GLSL";
@@ -226,9 +243,11 @@ bool SeismicSliceRenderer::UpdateStackLayer(
     const SgyVolume &volume,
     int sampleIndex,
     const SgySliceImage &image) {
+    const std::size_t expectBytes = static_cast<std::size_t>(image.width) * image.height * 4;
+    const bool rgbaUsable = image.rgba.size() == expectBytes;
+    const bool valuesUsable = tfEnabled_ && !image.values.empty();
     if (!gl || !initialized_ || layerIdx < 0 || layerIdx >= kMaxStackLayers ||
-        image.width <= 0 || image.height <= 0 ||
-        image.rgba.size() != static_cast<std::size_t>(image.width) * image.height * 4) {
+        image.width <= 0 || image.height <= 0 || (!rgbaUsable && !valuesUsable)) {
         return false;
     }
     const auto vertices = BuildSliceVertices(volume, SgySliceType::Time, sampleIndex);
@@ -236,11 +255,10 @@ bool SeismicSliceRenderer::UpdateStackLayer(
     gl->glBindVertexArray(stackVaos_[layer]);
     gl->glBindBuffer(GL_ARRAY_BUFFER, stackVbos_[layer]);
     gl->glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(sizeof(SliceVertex) * vertices.size()), vertices.data());
-    gl->glBindTexture(GL_TEXTURE_2D, stackTextures_[layer]);
-    gl->glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    gl->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, image.width, image.height, 0,
-                     GL_RGBA, GL_UNSIGNED_BYTE, image.rgba.data());
-    gl->glBindTexture(GL_TEXTURE_2D, 0);
+    if (!UploadSliceTexture(gl, stackTextures_[layer], image)) {
+        gl->glBindVertexArray(0);
+        return false;
+    }
     gl->glBindVertexArray(0);
     stackReady_[layer] = true;
     return true;
@@ -255,6 +273,73 @@ void SeismicSliceRenderer::SetSliceAlpha(float alpha) {
     sliceAlpha_ = std::clamp(alpha, 0.05f, 1.0f);
 }
 
+// D7.1 TF LUT 上传（GL_TEXTURE_1D，256×1 RGBA8，线性过滤+钳位——索引在
+// 0..1 连续，边界外无意义）。enable=false 仅关分支不删纹理（再开免重建）。
+bool SeismicSliceRenderer::SetTransferFunction(
+    QOpenGLFunctions_3_3_Core *gl,
+    const std::vector<unsigned char> &lutRgba,
+    bool enable) {
+    if (!gl || !initialized_ || lutRgba.size() != 256 * 4) {
+        return false;
+    }
+    if (!tfLutTex_) {
+        gl->glGenTextures(1, &tfLutTex_);
+    }
+    gl->glActiveTexture(GL_TEXTURE1);
+    gl->glBindTexture(GL_TEXTURE_1D, tfLutTex_);
+    gl->glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA8, 256, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, lutRgba.data());
+    gl->glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    gl->glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    gl->glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    gl->glBindTexture(GL_TEXTURE_1D, 0);
+    gl->glActiveTexture(GL_TEXTURE0);
+    tfEnabled_ = enable;
+    return true;
+}
+
+// 统一纹理上传：TF 模式 GL_RG8（R=LUT 索引 G=有效掩码，256 档与 LUT 同
+// 位深——索引无更高精度诉求）；否则引擎/CPU 预烘焙 RGBA8 原样直传。
+bool SeismicSliceRenderer::UploadSliceTexture(
+    QOpenGLFunctions_3_3_Core *gl,
+    GLuint texture,
+    const SgySliceImage &image) {
+    gl->glBindTexture(GL_TEXTURE_2D, texture);
+    gl->glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    if (tfEnabled_ && !image.values.empty()) {
+        const std::vector<unsigned char> bytes =
+            Seismic3DTransferFunction::buildIndexBytes(image);
+        if (bytes.empty())
+            return false;
+        GLint oldWidth = 0, oldHeight = 0;
+        gl->glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &oldWidth);
+        gl->glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &oldHeight);
+        if (oldWidth == image.width && oldHeight == image.height) {
+            gl->glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, image.width, image.height,
+                                GL_RG, GL_UNSIGNED_BYTE, bytes.data());
+        } else {
+            gl->glTexImage2D(GL_TEXTURE_2D, 0, GL_RG8, image.width, image.height, 0,
+                             GL_RG, GL_UNSIGNED_BYTE, bytes.data());
+        }
+    } else {
+        if (image.rgba.size() != static_cast<std::size_t>(image.width) * image.height * 4)
+            return false;
+        GLint oldWidth = 0, oldHeight = 0;
+        gl->glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &oldWidth);
+        gl->glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &oldHeight);
+        if (oldWidth == image.width && oldHeight == image.height) {
+            gl->glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, image.width, image.height,
+                                GL_RGBA, GL_UNSIGNED_BYTE, image.rgba.data());
+        } else {
+            gl->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, image.width, image.height, 0,
+                             GL_RGBA, GL_UNSIGNED_BYTE, image.rgba.data());
+        }
+    }
+    gl->glBindTexture(GL_TEXTURE_2D, 0);
+    return true;
+}
+
 bool SeismicSliceRenderer::UpdateSlice(
     QOpenGLFunctions_3_3_Core *gl,
     SeismicSliceSlot slot,
@@ -262,8 +347,11 @@ bool SeismicSliceRenderer::UpdateSlice(
     SgySliceType type,
     int index,
     const SgySliceImage &image) {
+    const std::size_t expectBytes = static_cast<std::size_t>(image.width) * image.height * 4;
+    const bool rgbaUsable = image.rgba.size() == expectBytes;
+    const bool valuesUsable = tfEnabled_ && !image.values.empty();
     if (!gl || !initialized_ || image.width <= 0 || image.height <= 0 ||
-        image.rgba.size() != static_cast<std::size_t>(image.width) * image.height * 4) {
+        (!rgbaUsable && !valuesUsable)) {
         return false;
     }
 
@@ -283,23 +371,10 @@ bool SeismicSliceRenderer::UpdateSlice(
     gl->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
     indexCounts_[slotIndex] = 6;
 
-    gl->glBindTexture(GL_TEXTURE_2D, textures_[slotIndex]);
-    gl->glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-
-    GLint oldWidth = 0, oldHeight = 0;
-    gl->glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &oldWidth);
-    gl->glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &oldHeight);
-
-    if (oldWidth == image.width && oldHeight == image.height) {
-        gl->glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, image.width, image.height,
-                            GL_RGBA, GL_UNSIGNED_BYTE, image.rgba.data());
-    } else {
-        gl->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, image.width, image.height, 0,
-                         GL_RGBA, GL_UNSIGNED_BYTE, image.rgba.data());
+    if (!UploadSliceTexture(gl, textures_[slotIndex], image)) {
+        gl->glBindVertexArray(0);
+        return false;
     }
-
-    gl->glBindTexture(GL_TEXTURE_2D, 0);
-    gl->glBindVertexArray(0);
 
     slotReady_[slotIndex] = true;
     return true;
@@ -310,7 +385,10 @@ bool SeismicSliceRenderer::UpdateLineSlice(
     const SgyVolume &volume,
     const std::vector<glm::ivec2> &pathPoints,
     const SgySliceImage &image) {
-    if (!gl || !initialized_ || image.width <= 1 || image.height <= 0 || image.rgba.empty() || pathPoints.size() < 2) {
+    const bool rgbaUsable = !image.rgba.empty();
+    const bool valuesUsable = tfEnabled_ && !image.values.empty();
+    if (!gl || !initialized_ || image.width <= 1 || image.height <= 0 ||
+        (!rgbaUsable && !valuesUsable) || pathPoints.size() < 2) {
         return false;
     }
 
@@ -384,11 +462,10 @@ bool SeismicSliceRenderer::UpdateLineSlice(
     gl->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[slotIndex]);
     gl->glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(sizeof(unsigned int) * indices.size()), indices.data(), GL_DYNAMIC_DRAW);
 
-    gl->glBindTexture(GL_TEXTURE_2D, textures_[slotIndex]);
-    gl->glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    gl->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, image.width, image.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.rgba.data());
-    gl->glBindTexture(GL_TEXTURE_2D, 0);
-    gl->glBindVertexArray(0);
+    if (!UploadSliceTexture(gl, textures_[slotIndex], image)) {
+        gl->glBindVertexArray(0);
+        return false;
+    }
 
     indexCounts_[slotIndex] = static_cast<GLsizei>(indices.size());
     slotReady_[slotIndex] = true;
@@ -412,6 +489,13 @@ void SeismicSliceRenderer::Render(
     gl->glUniformMatrix4fv(gl->glGetUniformLocation(progId, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     gl->glUniform1i(gl->glGetUniformLocation(progId, "sliceTexture"), 0);
     gl->glUniform1f(gl->glGetUniformLocation(progId, "uAlpha"), sliceAlpha_); // D3.3
+    gl->glUniform1i(gl->glGetUniformLocation(progId, "uTfLut"), 1);
+    gl->glUniform1i(gl->glGetUniformLocation(progId, "uUseTf"), tfEnabled_ ? 1 : 0);
+    if (tfEnabled_ && tfLutTex_) {
+        gl->glActiveTexture(GL_TEXTURE1);
+        gl->glBindTexture(GL_TEXTURE_1D, tfLutTex_);
+        gl->glActiveTexture(GL_TEXTURE0);
+    }
 
     gl->glDisable(GL_CULL_FACE);
     gl->glEnable(GL_BLEND);

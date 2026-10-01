@@ -1,5 +1,20 @@
 # TODOS — paleo_workstation
 
+## P3 — 地震属性体（时间切片/整体扫描）+ 属性图层入层树（from goal/seismic-attributes, 2026-10-01）
+
+- **What:** 属性计算扩到时间切片/整体属性体（当前仅 IL/XL 剖面属性切片）；
+  时间切片属性（IL×XL 地理栅格）入 layermanifest 层树。附带：相干沿剖轴
+  道距加权（当前等权）、属性结果同参数去重缓存、SATR 读回器（当前只写）。
+- **Why:** 瞬时族需整道谱/时窗族需垂向窗——时间切片（单采样面）不满足输入
+  形状，需全测网分块扫描；层树条目需诚实栅格 URI，剖面属性图非地理参考。
+- **Pros:** 属性解释工作流完整（平面展布+体透视）；**Cons:** 分块扫描调度 +
+  体格式（.sattr 体化）是新工作量。
+- **Context:** docs/progress/seismic-attributes.md「已知边界/递延」；SATR 容器
+  头已带参数/几何（读回信息齐备）。
+- **Effort:** human: L / CC: M
+- **Priority:** P3
+- **Depends on:** goal/seismic-attributes 已落核函数库/任务编排/SATR（可复用）
+
 ## P3 — catalog.sqlite 查询索引（deferred from /autoplan SELECTIVE EXPANSION, 2026-09-25）
 
 - **What:** 由 `catalog.json` 重建 `catalog.sqlite`，作为资产、版本、关联的查询索引。
@@ -21,10 +36,20 @@
 - **Effort:** human: M / CC: M
 - **Priority:** P3
 - **Depends on:** catalog.sqlite 条目（如届时已落，写路径一并设计）
+- **2026-10-01 关闭（WP2 goal/data-io-catalog-closure）**：根因=六 mutator 的
+  全表快照 COW detach（O(N)/次）+ markStale/nextEntityId/sha/快照查询面线性扫；
+  修复=精确 undo 回滚 + 索引化（语义等价由测试钉死）。同机 A/B（RelWithDebInfo）：
+  100k 灌库 3,518s→9.28s（379×）、10k 17.1s→1.14s（15.0×）、10k→100k 倍率
+  205.5×→8.1×（≤15× 目标达成）、查询面零变化、峰值 RSS ≈1.0GB 无 N 份复制。
+  证据 docs/perf/BASELINE.md B7 / docs/progress/data-io-catalog-closure.md。
 
-## P2 — 剖面 dock 取数迁 SeismicTaskService（from wave/deepen-perf A 报告, 2026-09-30）
+## ~~P2 — 剖面 dock 取数迁 SeismicTaskService~~（已落地：goal/seismic-runtime-closure, 2026-09-30）
 
-- **What:** 主窗口剖面 dock 的 IL/XL/Time 切换仍裸 QThreadPool 直调——无并发闸、无取消、无 LRU、progressCb 恒 true；迁到 SeismicTaskService 现有通道（闸/取消/LRU/回落齐备）。
+- ~~**What:** 主窗口剖面 dock 的 IL/XL/Time 切换仍裸 QThreadPool 直调——无并发闸、无取消、无 LRU、progressCb 恒 true；迁到 SeismicTaskService 现有通道（闸/取消/LRU/回落齐备）。~~
+  **2026-09-30 对账（goal/seismic-runtime-closure 轮 1）**：IL/XL/Time + 卷帘 B 图全部迁
+  `startSliceExtraction`（闸/取消/共享 LRU/Auto 回落）；顶替=requestCancel+请求号守卫
+  （cancelled≠failed 静默丢弃）；切体/任意线/切片三方互顶替双向取消；顺带修复既有反向缺陷
+  （任意线迟到结果覆盖切片显示）。回归：tst_seismic_sectionui 23/23（含 7 个新治理用例）。
 - **Why:** 同体数据三条取数路径两条有治理一条裸奔；转码工作区热切换后直调路径吃不到后端红利。
 - **Pros:** 三后端一致的空态/取消/回落语义（SECTION §6 对照表已列差值）。
 - **Cons:** seismicsection dock 属交互热路径，迁移要过一轮拖动延迟回归。
@@ -118,7 +143,7 @@
 
 ## P3 — autoplan pass-2 递延（2026-09-26）
 
-- **人工验收清单（非代码）**：真机上点「Web 服务」dock 验证 QWebEngineView GPU/沙箱路径；真数据文件夹导入的确认对话框手测一遍；首个 966MB SEG-Y 预览的实际冻结时长（决定是否排期异步 IO）。触发条件：下次真机启动。Effort: S / Priority: P2
+- **人工验收清单（非代码）**：~~下次真机启动~~ 2026-10-01 真机已启动（master `c891dde`，真工区 `~/projects/paleo_project/data/project_area` 打开渲染正常）。**已验**：① `.running` 崩溃旗标生命周期闭环——强杀残留→下次脏检出、干净退出自清 pid 旗标；历史残留 `.running-*` 不自动清、`.running` 兜底常脏（与 issue #41 同族）。② 966MB SEG-Y 取数路径实测：索引缓存命中 open 271–275ms、IL 64ms/热 63ms、时间片 59/30ms、64³ 体窗 46ms、对角剖面 97ms——无冻结级时长，异步 IO 无需追加排期。③ QWebEngineView 真机探针（同 `AA_ShareOpenGLContexts`，xcb/XWayland）：渲染 OK、WebGL OK、QtWebEngineProcess/沙箱正常；GBM 不可用→Chromium 自动回落 Vulkan；外网 TLS 被本机网络拦（非缺陷）。**观测**：966MB 索引首发时 cache publish 两连败（verify-fail → ENOENT）第三次成功自愈——`ensureLegacyGlobalCacheDir` 护栏覆盖不全，记给 audit-issues 归属。**剩余人工项**：文件夹导入确认对话框手测 + Web 服务 dock 点开目检。触发条件：真机有人。Effort: S / Priority: P2
 - ~~**「重新定位文件」恢复路径**~~ — 已落地：`relocateVersionSource`（流式 SHA-256 复验、不一致拒解、同 SHA 追加外链版本）+ 预览「重新定位文件…」入口（wave-4 `2c1c8e1`）。
 - **第二工区参数化接缝**：~~外置 seam~~ 已落地——`AreaRules`（层序名单/分类器目录规则/SEG-Y 四偏移/ONNX 网格门，经 `project_area.json` 覆盖，默认=本工区值；`docs/AREA_PARAMETERS.md`，wave-4 `8fc7bb2`）。**遗留**：真接第二个工区时按该文档走通一遍验证 seam 完备性。触发条件：接入第二个工区。Effort: M / Priority: P3
 - **Onto 层位/边界文件的命名规范**：文件名不在 8 个层序界面时产未决层位实体、不进编图 chip——属已交付行为；名单经 `AreaRules.sequenceBoundaries` 可配（wave-4），命名规范文档化随第二工区处理。触发条件：新层序命名。Effort: S / Priority: P4
@@ -218,3 +243,4 @@ P1 单井综合柱状图深度升级（D1–D8 全量交付）。逐项决策与
 - **2026-09-29 · P5 地震链路升级（wave/seismic-chain-deep）**：Phase 0–7 全量交付。Phase 0 架构账本+220MB 生产形状体基线实测（`docs/seismic/ARCHITECTURE.md`/`BASELINE.md`，冷索引 146ms/切片 27ms/sf3c 转码 2.3s/fps 15000/峰值 RSS 686MiB）；Phase 1 转码 D1.1–D1.10（分阶段加权进度+ETA、断点续跑 UI 三态探测、vendor P6 并行分片编码池≤4〔修复关队竞态〕、质量报告〔道数/覆盖率/丢弃率/值域/坏道样〕、meta 版本探测与重建、同输出互斥、vendor P8 Auto 只认完整 meta 堵假完成态、sf3p 金字塔层数按体量自适应〔<64MiB 无 LOD/≥16GiB L3〕、PALEO-SEISMIC-TRANSCODE 结构化 JSON 日志）；Phase 2 剖面 D2.1–D2.14（切片纹理 LRU≤4、密度/wiggle/混合三模、阈值+极性、AGC+手动增益曲线、TWT+深度双刻度、LOD 抽稀 2.2ms/帧、纵向拉伸、8 档色标+反转、PNG 导出、相邻线卷帘、240B 道头卡〔`readTraceHeader`〕、书签 QSettings 按体持久化、复制/打印、空数据原因态）；Phase 3 三维 D3.1–D3.12（16 层切片堆叠体渲染〔拖动降 4 层〕、切片面拾取拖拽联动 2D、透明度 uniform+值域 discard、井轨迹+标志层十字、colormap 编辑器〔CPU 重着色路径，修复 rgba 字节级写入〕、相机书签、截图、内存预算提示〔体>RAM/2〕、GL 3s 看门狗→2D 拼接回退件、fps 读数、惯性旋转、多体轮廓）；Phase 4 解释 D4.1–D4.10（画布拾取/断层模式、Pearson 互相关追踪〔修复两个算法 bug：候选窗列跨步、搜索窗钳体积界〕、拾取→DERIVED 层位/断层资产→catalog 登记〔父版本=地震 RAW〕、列表面板〔定位/删除/重命名/CSV〕、QUndoStack undo/redo、IDW 网格化、`<sgy>.seispicks.json` 会话伴生文件自动保存、多解释者名册、置信度红黄绿着色；解释模型落服务层裁决：视图 io/* 白名单仅 lasdoc.h）；Phase 5 井震 D5.1–D5.7（任意线节点表编辑器、服务层任意线 LRU≤4〔51ms→0ms〕、井顶/底独立投影斜井轨迹、AC+DEN→Ricker 合成记录〔缺曲线降级注记〕、沿井分层标注〔既有〕、井旁道 wiggle 小图、最近 N 井过滤）；Phase 6 D6.1–D6.8（切片时延预算入基线〔miss 27ms<500/hit 26ms<50〕、3D LOD ≥15fps、内存治理自建同形接口〔P4 管理器不存在；合并点=统一管理器落地后委托〕、SeismicConcurrencyGate 4 槽信号量并发闸〔全部 12 个 start* 走闸；实测 8 任务最大并发 4；shared_ptr 防析构竞态〕、取消全链路〔短操作补边界检查+排队即取消跳过〕、错误五级分类、会话/转码自动保存点）；Phase 7 文档 6 份（ARCHITECTURE/BASELINE/TRANSCODE/SECTION/3D/INTERPRETATION）+ vendor PATCHES.md 补丁 P6–P9 登记。新增测试 6 套 71 用例（transcode 13/sectionui 16/3dui 8/interpret 11/welltie 7/budgets 9 + baseline 9 实测）；ctest -R 'seismic|datapreview|layering' 18/18 绿。**递延**：catalog 注入 `setInterpretationCatalog` 待 app 层接线（paleomainwindow 非 P5 领地）；IDW 与 ConstraintIDW 合并点；meta 真迁移工具（版本真升级时）；P4 内存管理器合并。
 
 - **2026-09-30 · 域深化 + 性能完善（wave/deepen-perf，四轨并行 + lead 集成）**：A 地震链路——ReadVoxelWindow 消费接线（3D 堆叠取数 16 请求→1）、拖动链路 supersede 取消+脏槽位精化+350ms 自动升层（手势请求 5→3）、时间切片失败原因态+同路径在途取代取消、966MiB 真工区复测刷新（BASELINE §8）；TODOS P2「SBM Engine 剩余入口」关闭。B IO/缓存——大 LAS 解阻（59MB 调用点 442ms→0ms）、导入队列真进度+生产 runner（GAPS G-2.3 收口）、金字塔消费侧（.ovr，4096² 读块 14→4ms）、catalog 100k 评估记档（查询零劣化）+ mutator 超线性发现、QSettings -j2 竞态沙箱根治核实、SEG-Y 坏道跳过放宽。C 编图——ConstraintIDW break_line 屏障/direction_line 各向异性（逐位向后兼容）、相界 fault_cut 单类型跑通（词面 4 类冻结）、表 K.1 十二类探井符号、paleoAssetId 关联激活、paleo_distance_transform 绕障距离引擎（welldist 实装）。D 井综合——WellCompositeDerivedSink 派生登记+深度装配（壳接线+组装根注入）、连井剖面生命周期 9 用例穷举（发现并修 SeismicSectionTool 析构悬空）、打印原生管线（QPagedPaintDevice 共用+降级 PDF）、简化 composer 评估记档不建、D5.4 datum 校平修复。lead 集成 7 处接线 + tst_wellcomposite_visual 钉死渲染环境重生成 golden。新增测试 54 函数（7 套新 + 多套件扩展）；详见 docs/progress/deepen-perf.md（含语义决策与递延清单）。
+- **2026-10-01 · 地震属性引擎（goal/seismic-attributes-20261001）**：属性核函数库 `src/algorithms/seismicattr`（自研 radix-2 FFT + 镜像填充频域 Hilbert；瞬时族/时窗振幅族/semblance C2 相干〔IL/XL 半窗分设〕/甜点/瞬时 Q 原型；有限道 Hilbert 折点尾效应定量 ~1/d）；`SeismicTaskService.startAttributeSlice` 任务编排（≤4 并发闸、读/算两段单调进度、三检查点协作取消、逐道 ≤4 线程分片、Time 切片如实拒绝、稀疏测网邻线按轴值表解析）+ SATR 派生资产登记；剖面画布属性叠加层（NaN=透明/几何失配防线）+ SeismicAttrPanel + dock「◈ 属性」闭环；966MB 真机实测全属性 <100ms（包络 36ms/相干 78ms/IL 基线 14ms）。新增测试 4 套 30 用例；详见 docs/progress/seismic-attributes.md。

@@ -4,6 +4,7 @@
 #include "../catalog/datacatalog.h"
 
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QtEndian>
@@ -196,6 +197,11 @@ bool populateSyntheticCatalog(DataCatalog *catalog, int nAssets, QString *error)
   }
   const QString projectDir = QFileInfo(catalog->catalogPath()).absolutePath().section(
       QStringLiteral("/artifacts/metadata"), 0, 0);
+  // WP2：分段计时（PALEO_CATALOG_PROFILE 非空即开）——mutator 超线性归因用；
+  // 关闭时零开销（两次 env 查询 + 每资产 5 次 elapsed 判断）。
+  const bool profile = !qEnvironmentVariableIsEmpty("PALEO_CATALOG_PROFILE");
+  QElapsedTimer phase;
+  qint64 tEntity = 0, tAsset = 0, tVersion = 0, tLink = 0, tFiles = 0;
   DataCatalog::BatchSave batch(catalog);
   for (int i = 0; i < nAssets; ++i)
   {
@@ -206,15 +212,19 @@ bool populateSyntheticCatalog(DataCatalog *catalog, int nAssets, QString *error)
     e.hasSurface = true;
     e.surfaceX = 500000.0 + i * 13.0;
     e.surfaceY = 4000000.0 + i * 7.0;
+    if (profile) phase.start();
     if (!catalog->addEntity(e, error))
       return false;
+    if (profile) tEntity += phase.nsecsElapsed();
     CatalogAsset a;
     a.id = QStringLiteral("ast-%1").arg(i + 1);
     a.type = QStringLiteral("well_log");
     a.format = QStringLiteral("las");
     a.displayName = QStringLiteral("synth_%1.las").arg(i + 1);
+    if (profile) phase.start();
     if (!catalog->addAsset(a, error))
       return false;
+    if (profile) tAsset += phase.nsecsElapsed();
     CatalogVersion v;
     v.id = QStringLiteral("ver-%1").arg(i + 1);
     v.assetId = a.id;
@@ -223,24 +233,37 @@ bool populateSyntheticCatalog(DataCatalog *catalog, int nAssets, QString *error)
     v.managed = true;
     v.fileName = QStringLiteral("synth_%1.las").arg(i + 1);
     v.path = DataCatalog::managedPath(QStringLiteral("RAW"), a.id, v.id, v.fileName);
+    if (profile) phase.start();
     if (v.path.isEmpty() || !catalog->addVersion(v, error))
       return false;
+    if (profile) tVersion += phase.nsecsElapsed();
     // 受管文件落盘（小内容即可——catalog 查询基准不读它们）。
+    if (profile) phase.start();
     const QString abs = projectDir + QLatin1Char('/') + v.path;
     QDir().mkpath(QFileInfo(abs).absolutePath());
     QFile file(abs);
     if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
       file.write(QStringLiteral("SYNTH fixture payload %1\n").arg(i).toUtf8());
+    if (profile) tFiles += phase.nsecsElapsed();
     EntityAssetLink l;
     l.entityType = QStringLiteral("well");
     l.entityId = e.id;
     l.assetId = a.id;
     l.role = QStringLiteral("well_log");
     l.isPrimary = true;
+    if (profile) phase.start();
     if (!catalog->addLink(l, error))
       return false;
+    if (profile) tLink += phase.nsecsElapsed();
   }
-  return batch.flush(error);
+  if (profile) phase.start();
+  const bool ok = batch.flush(error);
+  if (profile)
+    qInfo("PERF populate phases(ms) n=%d entity=%.1f asset=%.1f version=%.1f "
+          "files=%.1f link=%.1f flush=%.1f",
+          nAssets, tEntity / 1.0e6, tAsset / 1.0e6, tVersion / 1.0e6,
+          tFiles / 1.0e6, tLink / 1.0e6, phase.nsecsElapsed() / 1.0e6);
+  return ok;
 }
 
 bool makeSyntheticCatalogDir(const QString &dir, int nAssets, QString *error)

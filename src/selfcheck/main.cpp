@@ -8,6 +8,7 @@
 //   paleo_selfcheck perf [--json <path>]  数据层性能基准（无 QGIS 初始化，
 //                                JSON 到 stdout/文件，超预算退出码 1）
 #include "perfgroup.h"
+#include "../qgis/qgisruntime.h" // defaultPrefixPath
 
 #include <qgsapplication.h>
 #include <qgsproviderregistry.h>
@@ -33,7 +34,7 @@ static int runQgisGroup(int argc, char *argv[])
 {
   QElapsedTimer total; total.start();
   QgsApplication app(argc, argv, false);
-  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true);
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QgisRuntime::defaultPrefixPath()), true);
   app.initQgis();
 
   std::printf("paleo selfcheck\n");

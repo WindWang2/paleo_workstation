@@ -283,6 +283,9 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
   // 设置时的缺省；窗口构造按 QSettings 显式钉一次（读取无副作用——写只
   // 发生在用户切换主题时，测试路径不产生新写者）。
   PaleoTheme::applyTheme(PaleoTheme::themeFromSettings());
+  // 密度同口径：构造按 QSettings 钉一次（缺省 comfort；表行高兜底扫在
+  // reapplyThemeChrome，覆盖 buildShell 后建的全部表）。
+  PaleoTheme::applyDensity(PaleoTheme::densityFromSettings());
   buildShell();
 
   // ---- m2(D): 页面图层档案（m1 接缝消费）----
@@ -508,7 +511,7 @@ void PaleoMainWindow::buildShell()
         return;
       const QString p = QFileDialog::getOpenFileName(
           this, tr("打开工程"), QString(),
-          QStringLiteral("Paleo 工程 (*.paleo);;QGIS 工程 (*.qgz *.qgs)"));
+          tr("Paleo 工程 (*.paleo);;QGIS 工程 (*.qgz *.qgs)"));
       if (p.isEmpty())
         return;
       // §38 blocking-error contract: a failed open surfaces as a dialog, not
@@ -522,7 +525,7 @@ void PaleoMainWindow::buildShell()
       if (isOffscreen() || !m_projectSvc)
         return;
       const QString p = QFileDialog::getSaveFileName(
-          this, tr("新建工程"), QString(), QStringLiteral("Paleo 工程 (*.qgz)"));
+          this, tr("新建工程"), QString(), tr("Paleo 工程 (*.qgz)"));
       if (p.isEmpty())
         return;
       if (!m_projectSvc->createProject(p))
@@ -818,6 +821,21 @@ void PaleoMainWindow::reapplyThemeChrome()
   const QString shellQss =
       PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet();
   PaleoRibbon::applyTheme(this, shellQss);
+  // 表行高不随 QSS 走——补扫一遍（新建的表也在此统一落档）。
+  PaleoTheme::applyDensityToViewTree(this);
+}
+
+void PaleoMainWindow::setCompactDensityEnabled(bool compact)
+{
+  // 唯一密度写者：只有用户显式切换（面板菜单「紧凑密度」勾选）才写盘。
+  PaleoTheme::writeDensityToSettings(
+      compact ? PaleoTheme::Density::Compact : PaleoTheme::Density::Comfort);
+  PaleoTheme::applyDensity(
+      compact ? PaleoTheme::Density::Compact : PaleoTheme::Density::Comfort);
+  reapplyThemeChrome();
+  if (statusBar())
+    statusBar()->showMessage(compact ? tr("已切换到紧凑密度") : tr("已切换到宽松密度"),
+                             4000);
 }
 
 void PaleoMainWindow::setDarkThemeEnabled(bool dark)
@@ -866,6 +884,23 @@ void PaleoMainWindow::buildRibbon()
     connect(sc, &QShortcut::activated, this, [this, i] {
       showPage(paleo::pagesinternal::kPageIds.at(i));
     });
+  }
+  // goal/ui-experience-polish：Ctrl+Tab / Ctrl+Shift+Tab 循环切页（桌面页签
+  // 惯例；与 Ctrl+1..5 互补——手不离开主行也能走完整工作流链）。
+  {
+    const auto cyclePage = [this](int step) {
+      const int idx = paleo::pagesinternal::kPageIds.indexOf(m_currentPage);
+      const int n = paleo::pagesinternal::kPageIds.size();
+      const int next = ((idx < 0 ? 0 : idx) + step + n) % n;
+      showPage(paleo::pagesinternal::kPageIds.at(next));
+    };
+    auto *nextSc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Tab")), this);
+    nextSc->setObjectName(QStringLiteral("pageShortcut.next"));
+    connect(nextSc, &QShortcut::activated, this, [cyclePage] { cyclePage(1); });
+    auto *prevSc =
+        new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+Tab")), this);
+    prevSc->setObjectName(QStringLiteral("pageShortcut.prev"));
+    connect(prevSc, &QShortcut::activated, this, [cyclePage] { cyclePage(-1); });
   }
   connect(bar, &SARibbonBar::currentRibbonTabChanged, this, [this, bar](int idx) {
     SARibbonCategory *cat = bar->categoryByIndex(idx);
@@ -959,6 +994,12 @@ void PaleoMainWindow::showPanelMenu(const QPoint &globalPos)
     dark->setCheckable(true);
     dark->setChecked(PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark);
     connect(dark, &QAction::toggled, this, &PaleoMainWindow::setDarkThemeEnabled);
+    QAction *compact = menu->addAction(tr("紧凑密度"));
+    compact->setObjectName(QStringLiteral("densityToggleAction"));
+    compact->setCheckable(true);
+    compact->setChecked(PaleoTheme::currentDensity() == PaleoTheme::Density::Compact);
+    connect(compact, &QAction::toggled, this,
+            &PaleoMainWindow::setCompactDensityEnabled);
     menu->popup(globalPos);
   }
 }

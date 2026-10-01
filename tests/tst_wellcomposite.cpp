@@ -2,7 +2,10 @@
 #include <QTest>
 #include <QPainter>
 #include <QImage>
+#include <QApplication>
 #include <QDir>
+#include <QTimer>
+#include <QShortcut>
 #include <QFile>
 
 // wave/ux-polish：视觉取证截图只经 PALEO_UI_CAPTURE 开关落盘（tst_ui.cpp
@@ -24,6 +27,7 @@ static void captureIfAsked(const QImage &img, const QString &name)
 #include "ui/wellcomposite/wellpositionlegendwidget.h"
 #include "io/wellcompositexml.h"
 #include "qgis/qgisruntime.h"
+#include "uipolish_capture.h"
 
 using namespace WellComposite;
 
@@ -34,6 +38,38 @@ class TestWellComposite : public QObject
 private slots:
   void initTestCase()
   {
+  }
+
+  // goal/ui-experience-polish：Ctrl+G 键盘直达跳深度对话框（模态驱动器
+  // 关闭——只验可达性）。
+  void ctrlGOpensGotoDepthDialog()
+  {
+    WellCompositePanel panel;
+    auto *sc = panel.findChild<QShortcut *>();
+    QVERIFY(sc && sc->key() == QKeySequence(QStringLiteral("Ctrl+G")));
+    panel.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&panel));
+    QTimer::singleShot(0, [&panel] {
+      if (QWidget *m = QApplication::activeModalWidget())
+        m->close();
+    });
+    // 兜底强关（驱动失配不挂死）
+    QTimer::singleShot(3000, [] {
+      if (QWidget *m = QApplication::activeModalWidget())
+        m->close();
+    });
+    QTest::keyClick(&panel, Qt::Key_G, Qt::ControlModifier);
+    QTest::qWait(80);
+    QVERIFY(QApplication::activeModalWidget() == nullptr); // 已被驱动关闭
+  }
+
+  // goal/ui-experience-polish：面板 chrome（顶栏按钮/读数/状态条 token 化）
+  // 的修前/修后截图证据——空面板即可见顶栏与画布占位。
+  void captureEvidence()
+  {
+    WellCompositePanel panel;
+    uipolish::capturePanel(&panel, QStringLiteral("wellcomposite_empty"),
+                           QSize(1000, 700));
   }
 
   void testLithologyPatterns()

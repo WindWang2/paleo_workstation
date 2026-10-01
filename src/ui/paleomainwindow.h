@@ -232,6 +232,10 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 为目标态；写盘走 PaleoTheme::writeThemeToSettings（唯一写者）。
     void setDarkThemeEnabled(bool dark);
     void reapplyThemeChrome();
+    // 界面密度（goal/ui-experience-polish）：切 comfort/compact = QSS 条目
+    // padding 档 + 表缺省行高（PaleoTheme::applyDensity / applyDensityToViewTree）。
+    // 写盘走 PaleoTheme::writeDensityToSettings（唯一写者 = 用户切换动作）。
+    void setCompactDensityEnabled(bool compact);
     // 窗口标题 = 「<工程名> — Paleo Workbench [*]」（QGIS 惯例；[*] 配
     // setWindowModified，工程 isDirtyChanged/projectSaved 驱动）。无工程时
     // 只有产品名。工程打开/保存后由接线刷新。

@@ -1,5 +1,6 @@
 // 层：功能
 #include "mapversioncontroller.h"
+#include "mappingsamples.h"
 
 #include "../io/timedeptool.h"
 #include "../io/wellfileparsers.h"
@@ -30,98 +31,6 @@ namespace
       *error = text;
   }
 
-  // TD 表 → TIME(ms)：TimeDepthTool（文件顺序、不排序、不外推）。分层 TVD
-  // 有效时查 TVD 列；TVD 空改用 MD 对 MD 列兜底——与 mappingworkflow.cpp
-  // 的残差口径共用同一个插值器/同一组原因文案。
-  TimeDepthTool::TdResult tdResultForTop( const QVector<TdSample> &td, const WellTop &top )
-  {
-    TimeDepthTool::TdResult none; // status=NoTable
-    if ( td.isEmpty() )
-      return none;
-    TimeDepthTable table;
-    table.rows.reserve( td.size() );
-    for ( const TdSample &s : td )
-    {
-      TdRow row;
-      row.timeMs = s.timeMs;
-      row.tvd = s.tvd;
-      row.md = s.md;
-      row.hasTvd = !qIsNaN( s.tvd ); // NaN 透传 -99999/缺列 → 不进插值
-      row.hasMd = !qIsNaN( s.md );
-      table.rows.append( row );
-    }
-    if ( !qIsNaN( top.tvd ) )
-      return TimeDepthTool::interpolateTimeMs( table, top.tvd, /*useMd=*/false );
-    if ( !qIsNaN( top.md ) )
-      return TimeDepthTool::interpolateTimeMs( table, top.md, /*useMd=*/true );
-    return none;
-  }
-
-  enum class CellSample
-  {
-    Outside, // 井位落在测网矩形之外
-    Nodata,  // 包含像元是空道（nodata）
-    Value,   // 采到数值
-  };
-
-  // 井/分层的采样点：分层 X/Y 优先，缺省退井口——与 mappingworkflow.cpp
-  // pickSamplePoint 同一份逻辑（T25：发布门与验证表必须采同一个点）。
-  void pickSamplePointForWell( const ProjectWell &well, const WellTop *top,
-                               double *x, double *y )
-  {
-    if ( top && std::isfinite( top->x ) && std::isfinite( top->y ) )
-    {
-      *x = top->x;
-      *y = top->y;
-    }
-    else
-    {
-      *x = well.surfaceX;
-      *y = well.surfaceY;
-    }
-  }
-
-  // 包含像元采样（左闭右开；恰在外边界归末像元，1 ULP 容差）——与
-  // mappingworkflow.cpp sampleRasterAt 同一套算法，逐行对齐勿分叉：
-  // 发布门残差必须与验证表同口径（T25），仅返回值分支命名不同。
-  CellSample sampleCellAt( GDALDatasetH ds, double x, double y, double *value )
-  {
-    if ( !std::isfinite( x ) || !std::isfinite( y ) )
-      return CellSample::Outside;
-    double gt[6] = { 0, 0, 0, 0, 0, 0 };
-    GDALGetGeoTransform( ds, gt );
-    const int cols = GDALGetRasterXSize( ds );
-    const int rows = GDALGetRasterYSize( ds );
-    int col = static_cast<int>( std::floor( ( x - gt[0] ) / gt[1] ) );
-    int row = static_cast<int>( std::floor( ( y - gt[3] ) / gt[5] ) );
-    const double xmax = gt[0] + gt[1] * cols;
-    const double ymin = gt[3] + gt[5] * rows;
-    const double ulpX =
-        std::nextafter( xmax, std::numeric_limits<double>::infinity() ) - xmax;
-    const double ulpY =
-        std::nextafter( ymin, std::numeric_limits<double>::infinity() ) - ymin;
-    if ( col == cols && qAbs( x - xmax ) <= ulpX )
-      col = cols - 1; // 恰在外边界 → 最后一列
-    if ( row == rows && qAbs( y - ymin ) <= ulpY )
-      row = rows - 1; // 恰在外边界 → 最后一行
-    if ( col < 0 || row < 0 || col >= cols || row >= rows )
-      return CellSample::Outside;
-    if ( GDALGetRasterCount( ds ) < 1 )
-      return CellSample::Nodata;
-    GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
-    if ( !band )
-      return CellSample::Nodata;
-    float v = 0.0f;
-    if ( GDALRasterIO( band, GF_Read, col, row, 1, 1, &v, 1, 1, GDT_Float32, 0, 0 ) != CE_None )
-      return CellSample::Nodata;
-    int hasNodata = 0;
-    const double nodata = GDALGetRasterNoDataValue( band, &hasNodata );
-    if ( std::isnan( v ) || ( hasNodata && qAbs( static_cast<double>( v ) - nodata ) < 1e-6 ) )
-      return CellSample::Nodata;
-    if ( value )
-      *value = v;
-    return CellSample::Value;
-  }
 } // namespace
 
 MapVersionController::MapVersionController( MapVersionStore *store, QgisLayerService *layers,
@@ -278,26 +187,27 @@ QString MapVersionController::publish( const QString &horizon, const QString &re
   return dir;
 }
 
-QString MapVersionController::residualSummaryJson( const ProjectDataFacade *pd,
+QString MapVersionController::residualSummaryJson( const ProjectDataFacade *projectData,
                                                    const QString &horizon )
 {
+  const ProjectDataFacade *pd = projectData;
   QJsonObject summary;
   summary.insert( QStringLiteral( "horizon" ), horizon );
   QJsonArray rows;
   QJsonArray missing;
   int total = 0, covered = 0;
 
-  if ( pd )
+  if ( projectData )
   {
     // 结构面栅格：走到采样步的井才需要它；无栅格的井记入 missing（缺的是
     // 残差本身，不是原因——发布门按「每口井都有残差或原因」卡住）。
-    const HorizonRasterInfo raster = pd->horizonRasterDecl( horizon );
+    const HorizonRasterInfo raster = projectData->horizonRasterDecl( horizon );
     GDALAllRegister();
     GDALDatasetH ds = raster.valid
                           ? GDALOpen( raster.path.toUtf8().constData(), GA_ReadOnly )
                           : nullptr;
 
-    for ( const ProjectWell &well : pd->wells() )
+    for ( const ProjectWell &well : projectData->wells() )
     {
       ++total;
       QJsonObject row;
@@ -305,14 +215,14 @@ QString MapVersionController::residualSummaryJson( const ProjectDataFacade *pd,
       row.insert( QStringLiteral( "name" ), well.name );
       row.insert( QStringLiteral( "kind" ), QStringLiteral( "reason" ) );
 
-      const QVector<WellTop> tops = pd->topsFor( well.id );
+      const QVector<WellTop> tops = projectData->topsFor( well.id );
       const WellTop *pick = nullptr;
       for ( const WellTop &top : tops )
         if ( top.horizon == horizon )
           pick = &top;
 
       const QVector<TdSample> td =
-          pick ? pd->tdTableFor( well.id ) : QVector<TdSample>();
+          pick ? projectData->tdTableFor( well.id ) : QVector<TdSample>();
       if ( !pick || ( qIsNaN( pick->tvd ) && qIsNaN( pick->md ) ) )
       {
         row.insert( QStringLiteral( "reason" ),
@@ -324,7 +234,7 @@ QString MapVersionController::residualSummaryJson( const ProjectDataFacade *pd,
       }
       else
       {
-        const TimeDepthTool::TdResult tdResult = tdResultForTop( td, *pick );
+        const TimeDepthTool::TdResult tdResult = MappingSamples::timeForTop( td, *pick );
         if ( !tdResult.ok() )
         {
           row.insert( QStringLiteral( "reason" ),
@@ -343,18 +253,18 @@ QString MapVersionController::residualSummaryJson( const ProjectDataFacade *pd,
         {
           // T25：与验证表同一点——分层 X/Y 优先，井口兜底（不是永远井口）。
           double sx = well.surfaceX, sy = well.surfaceY;
-          pickSamplePointForWell( well, pick, &sx, &sy );
+          MappingSamples::pickSamplePoint( well, pick, &sx, &sy );
           double rasterMs = qQNaN();
-          const CellSample cell = sampleCellAt( ds, sx, sy, &rasterMs );
+          const MappingSamples::SampleOutcome cell = MappingSamples::sampleRasterAt( ds, sx, sy, &rasterMs );
           switch ( cell )
           {
-            case CellSample::Outside:
+            case MappingSamples::SampleOutcome::Outside:
               row.insert( QStringLiteral( "reason" ), tr( "井位不在测网内" ) );
               break;
-            case CellSample::Nodata:
+            case MappingSamples::SampleOutcome::Nodata:
               row.insert( QStringLiteral( "reason" ), tr( "井位落在空道" ) );
               break;
-            case CellSample::Value:
+            case MappingSamples::SampleOutcome::Ok:
               row.insert( QStringLiteral( "kind" ), QStringLiteral( "residual" ) );
               row.insert( QStringLiteral( "residual_ms" ), tdResult.timeMs - rasterMs );
               break;

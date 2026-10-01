@@ -108,6 +108,41 @@ class TestUiShell : public QObject
       QVERIFY(m_win->minimumHeight() >= 800);
     }
 
+    // goal/ui-experience-polish：W5 快捷键族——Ctrl+1..5 直切、Ctrl+Tab/
+    // Ctrl+Shift+Tab 循环（含末→首环绕）、密度切换菜单动作在位。
+    void pageShortcutsTabCycleAndDensityToggle()
+    {
+      m_win->show();
+      QTest::qWait(10);
+      // 起点不限（首启是 startup 页）；Ctrl+3 → 单因素图。
+      QTest::keyClick(m_win, Qt::Key_3, Qt::ControlModifier);
+      QCOMPARE(m_win->currentPage(), QStringLiteral("constraint"));
+      // Ctrl+Tab → 智能编图
+      QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier);
+      QCOMPARE(m_win->currentPage(), QStringLiteral("compose"));
+      // Ctrl+Tab → 验证；再进一格环绕回数据管理
+      QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier);
+      QCOMPARE(m_win->currentPage(), QStringLiteral("validate"));
+      QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier);
+      QCOMPARE(m_win->currentPage(), QStringLiteral("data"));
+      // Ctrl+Shift+Tab 从首页环绕到末页
+      QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier | Qt::ShiftModifier);
+      QCOMPARE(m_win->currentPage(), QStringLiteral("validate"));
+      // 密度切换（菜单 action objectName 契约 + 行为等价的公共面）：
+      // applyDensity 切档 → QSS padding 档位即时跟随；settings 往返守恒。
+      PaleoTheme::applyDensity(PaleoTheme::Density::Compact);
+      QCOMPARE(PaleoTheme::currentDensity(), PaleoTheme::Density::Compact);
+      QVERIFY(PaleoTheme::itemViewStyleSheet().contains(QStringLiteral("padding: 1px")));
+      PaleoTheme::writeDensityToSettings(PaleoTheme::Density::Compact);
+      QCOMPARE(PaleoTheme::densityFromSettings(), PaleoTheme::Density::Compact);
+      PaleoTheme::applyDensity(PaleoTheme::Density::Comfort);
+      PaleoTheme::writeDensityToSettings(PaleoTheme::Density::Comfort);
+      QCOMPARE(PaleoTheme::densityFromSettings(), PaleoTheme::Density::Comfort);
+      QVERIFY(PaleoTheme::itemViewStyleSheet().contains(QStringLiteral("padding: 3px")));
+      // Ctrl+K 归定位器独占（数据页命令面板改键的断言在 tst_panels
+      // uipolish_commandPaletteShortcutMoved——裸壳不构建 DataPage）。
+    }
+
     // T32：全局焦点环进主窗样式表（2px #1B73D0）；工作流标签溢出走滚动
     // 按钮；状态栏坐标/比例尺是 JetBrains Mono 9pt 数字面。
     void focusRingScrollButtonsAndStatusMono()
@@ -1318,10 +1353,12 @@ int main(int argc, char *argv[])
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
 
-  // Keep QSettings writes out of the real user profile.
+  // 每运行一次的临时目录（对齐 tst_seismic_sectionui 惯例）：既隔离直跑时
+  // 的真实用户配置，也消除固定 /tmp 路径跨运行/跨用户的陈旧状态向量
+  // （ctest 路径另有 add_paleo_test 的 XDG/HOME 沙箱兜底）。
+  static QTemporaryDir settingsDir;
   QSettings::setDefaultFormat(QSettings::IniFormat);
-  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
-                     QDir::temp().filePath(QStringLiteral("paleo_tst_ui_settings")));
+  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
 
   AppContext ctx(QStringLiteral("/usr"));
   if (!ctx.ready())

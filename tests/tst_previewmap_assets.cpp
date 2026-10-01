@@ -268,6 +268,7 @@ void TestPreviewMapAssets::horizonContourLayerInToc()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.d61);
   auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
@@ -286,6 +287,7 @@ void TestPreviewMapAssets::horizonStatsPanelShowsValues()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.d61);
   auto *page = st->preview->findChild<QWidget *>(QStringLiteral("horizonPreviewPage"));
@@ -304,6 +306,7 @@ void TestPreviewMapAssets::horizonHistogramRefreshesOnBins()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.d61);
   auto *page = st->preview->findChild<QWidget *>(QStringLiteral("horizonPreviewPage"));
@@ -322,6 +325,7 @@ void TestPreviewMapAssets::horizonExtremaToggleDrawsBand()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.d61);
   auto *page = st->preview->findChild<QWidget *>(QStringLiteral("horizonPreviewPage"));
@@ -343,6 +347,7 @@ void TestPreviewMapAssets::contourIntervalRegeneratesLayer()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.d61);
   auto *page = st->preview->findChild<QWidget *>(QStringLiteral("horizonPreviewPage"));
@@ -362,6 +367,7 @@ void TestPreviewMapAssets::horizonVersionComboListsVersions()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.d61);
   auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
@@ -388,6 +394,7 @@ void TestPreviewMapAssets::horizonVersionSwitchesToRawAndBack()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.d61);
   auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
@@ -427,6 +434,7 @@ void TestPreviewMapAssets::tocRasterStretchChangesRenderer()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.d61);
   auto *page = st->preview->findChild<QWidget *>(QStringLiteral("horizonPreviewPage"));
@@ -469,6 +477,7 @@ void TestPreviewMapAssets::tocOpacitySliderChangesLayerOpacity()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.d61);
   auto *page = st->preview->findChild<QWidget *>(QStringLiteral("horizonPreviewPage"));
@@ -489,6 +498,7 @@ void TestPreviewMapAssets::tocStatePersistsAcrossRebuild()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.d61);
   auto *page = st->preview->findChild<QWidget *>(QStringLiteral("horizonPreviewPage"));
@@ -540,6 +550,7 @@ void TestPreviewMapAssets::geojsonLegendSidebarEntries()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.geojson);
   auto *page = st->preview->findChild<QWidget *>(QStringLiteral("faciesPreviewPage"));
@@ -554,6 +565,7 @@ void TestPreviewMapAssets::geojsonLabelToggle()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.geojson);
   auto *page = st->preview->findChild<QWidget *>(QStringLiteral("faciesPreviewPage"));
@@ -577,6 +589,7 @@ void TestPreviewMapAssets::geojsonTocCategorizedFieldSwitch()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.geojson);
   auto *page = st->preview->findChild<QWidget *>(QStringLiteral("faciesPreviewPage"));
@@ -603,6 +616,7 @@ void TestPreviewMapAssets::imageUngeoreferencedShowsGuide()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.png);
   auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
@@ -648,6 +662,7 @@ void TestPreviewMapAssets::wellHeadMapShowsHighlight()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.wellHead);
   auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
@@ -678,6 +693,7 @@ void TestPreviewMapAssets::topsMapShowsPointsWhenCoords()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.tops);
   auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
@@ -722,6 +738,7 @@ void TestPreviewMapAssets::attributeTableDialogFilters()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.geojson);
   auto *page = st->preview->findChild<QWidget *>(QStringLiteral("faciesPreviewPage"));
@@ -847,6 +864,7 @@ void TestPreviewMapAssets::documentTabNotMapFramework()
   // 回归保护：非地图资产（document）不挂地图框架件。
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.pdf);
   auto *page = st->preview->findChild<QWidget *>(QStringLiteral("pdfView"));
@@ -861,6 +879,7 @@ void TestPreviewMapAssets::wellHeadMapLabelToggleWorks()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
   const Imported ids = importAll(*st, tmp);
   st->preview->openAsset(ids.wellHead);
   auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));

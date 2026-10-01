@@ -12,6 +12,7 @@
 #include "../qgis/qgisstyleservice.h"
 #include "../services/toolavailability.h"
 #include "../services/paleotaskservice.h"
+#include "../services/startuptrace.h" // goal/perf-systematize 簇1：启动分段打点
 #include "../services/crashreport.h" // wave4：projectOpened → 报告头工程路径
 #include "../domain/arearules.h"         // wave4 接线点：projectOpened → setProjectDir
 #include "../linkage/selectioncontext.h"
@@ -31,6 +32,7 @@
 #include "../workflow/mapversioncontroller.h"
 
 #include <QApplication>
+#include <QThread>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -104,6 +106,12 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
                << ") — all service accessors will return nullptr";
     return;
   }
+  // 判别力测试缝（goal/perf-systematize 簇1）：注入已知劣化进 qgis 初始化
+  // 段——它是启动比率门 qgis_init_share 的分子，tst_startup_trace 用它证明
+  // 门对真实进程劣化必红。产品路径不设此 env。
+  if (const QByteArray inj = qgetenv("PALEO_STARTUP_INJECT_DELAY_MS"); !inj.isEmpty())
+    QThread::msleep(qMax<qint64>(0, inj.toLongLong()));
+  StartupTrace::mark(QStringLiteral("qgis_app_ready")); // QgsApplication+initQgis 完
 
   m_store = new PaleoProjectStore(this);
   m_taskSvc = new PaleoTaskService(m_store, this);
@@ -194,6 +202,9 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_versionCtl = new MapVersionController(m_versionStore, m_layerSvc, this);
   m_versionCtl->setEditingService(m_editSvc);
   m_versionCtl->setProjectStore(m_store);
+  // releaseHorizon 遇编辑中图层时经服务回滚（busy 随会话释放）——与
+  // versionCtl 同一编辑服务实例。
+  m_layerSvc->setEditingService(m_editSvc);
 
   // ensureManifest-on-open: first point a per-project path is derivable.
   connect(m_projectSvc, &QgisProjectService::projectOpened, this,
@@ -362,6 +373,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             m_projectDir = fi.absolutePath();
             refreshWellsLayer(false); // 打开时视野归 .qgz 恢复态，不抢
           });
+  StartupTrace::mark(QStringLiteral("services_ready")); // 服务装配完（簇1 仪表）
 }
 
 bool AppContext::isProjectReadOnly() const

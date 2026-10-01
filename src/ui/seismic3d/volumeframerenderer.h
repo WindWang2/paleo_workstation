@@ -21,12 +21,22 @@ struct Seismic3DWellTop {
     QColor color;
 };
 
+// D7.3 井轨迹点：连续测网坐标（斜井/侧钻逐点）+ 归一采样位（0=顶 1=底）。
+// 调用方负责 XY→(inline,xline) 与时深→sampleFrac 换算（SurveyGridGeometry/体采样率）。
+struct Seismic3DWellTrajPoint {
+    float inlineNo = 0.0f;
+    float xlineNo = 0.0f;
+    float sampleFrac = 0.0f;
+};
+
 struct Seismic3DWell {
     QString name;
     int inlineNo = 0;
     int xlineNo = 0;
     float bottomFrac = 1.0f;  // 井底（0=体积顶，1=体积底）
     std::vector<Seismic3DWellTop> tops;
+    // D7.3 轨迹（≥2 点走折线；空 = D3.4 垂直井简化）
+    std::vector<Seismic3DWellTrajPoint> trajectory;
 };
 
 class VolumeFrameRenderer {

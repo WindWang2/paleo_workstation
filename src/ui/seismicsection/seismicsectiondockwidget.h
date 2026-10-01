@@ -11,7 +11,6 @@
 #include <QProgressBar>
 #include <QSlider>
 #include <QToolButton>
-#include <atomic>
 #include <memory>
 
 #include "services/seismictaskservice.h"
@@ -22,11 +21,11 @@ class QCheckBox;
 class QDialog;
 class QTableWidget;
 class QUndoStack;
-class TestSeismicSectionUi;
 
 namespace seismic {
 
 class SeismicPickPanel;
+class SeismicAttrPanel;
 
 // 剖面书签（D2.12）：命名线号 + 视口范围，QSettings 按体身份持久化
 struct SectionBookmark {
@@ -38,7 +37,6 @@ struct SectionBookmark {
 
 class SeismicSectionDockWidget : public QDockWidget {
     Q_OBJECT
-    friend class ::TestSeismicSectionUi;
 
 public:
     explicit SeismicSectionDockWidget(QWidget *parent = nullptr);
@@ -113,6 +111,15 @@ public:
     bool loadInterpretationSession(QString *error = nullptr);
     QString registerCurrentHorizonAsset(QString *error = nullptr);
     QString registerCurrentFaultAsset(QString *error = nullptr);
+
+    // ---- goal/seismic-attributes 属性计算 ----
+    SeismicAttrPanel *attrPanel() const { return m_attrPanel; }
+    // 面板意图 → 当前剖面的属性任务（进度/取消/叠加回填在此编排）
+    void computeAttributeOnCurrentSection(
+        SeismicTaskService::SeismicAttrKind kind,
+        const SeismicTaskService::SeismicAttrParams &params);
+    // 最近一次成功结果 → catalog 派生资产（登记上下文同解释登记注入）
+    QString registerCurrentAttributeAsset(QString *error = nullptr);
     void setTrackSeedPick(int pickId) { m_trackSeedPick = pickId; }
     void setTrackOptions(const SeismicTrackOptions &opt) { m_trackOptions = opt; }
     void runTracking();                                // D4.2 种子追踪
@@ -124,14 +131,12 @@ signals:
   void sectionExtractionFinished(bool success, const QString &message);
   void pointClickedOnMap(double x, double y);
 
-public slots:
-    void onSliceSliderChanged(int value);
-
 private slots:
     void onZoomChanged(double zoom);
     void onTraceHovered(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
     void onExportSnapshot();
     void onSectionModeChanged(int modeIndex);
+    void onSliceSliderChanged(int value);
     void onTraceClicked(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
     void onCopyImage();
     void onPrintImage();
@@ -147,11 +152,13 @@ private:
 
     SeismicSectionCanvas *m_canvas = nullptr;
     std::shared_ptr<const SgyVolume> m_volume;
-    bool m_isExtractingSlice = false;       // 提取去抖：在途时新请求入待发槽
-    int m_pendingSliceIndex = -1;
-    SgySliceType m_pendingSliceType = SgySliceType::Inline;
-    uint64_t m_sliceGeneration = 0;
-    std::shared_ptr<std::atomic<bool>> m_activeCancelFlag;
+    // IL/XL/Time 切片在途任务（SeismicTaskService 通道）：同型同号去抖 +
+    // 新请求 requestCancel 顶替旧在途（被顶替的读取在逐线检查点退出，
+    // 不再占并发闸）。完成回调按「世代号+请求号」守卫丢弃陈旧结果。
+    QPointer<PaleoTask> m_sliceTask;
+    SgySliceType m_sliceType = SgySliceType::Inline;
+    int m_sliceIndex = -1;
+    quint64 m_sliceRequest = 0;
     SeismicTaskService *m_taskService = nullptr;
     QPointer<PaleoTask> m_extraction;
     quint64 m_generation = 0;
@@ -210,8 +217,9 @@ private:
     // D2.12 书签
     QList<SectionBookmark> m_bookmarks;
 
-    // D2.10 卷帘 B 图提取状态
-    bool m_extractingCompare = false;
+    // D2.10 卷帘 B 图提取状态（同一切片通道，独立在途任务 + 请求号守卫）
+    QPointer<PaleoTask> m_compareTask;
+    quint64 m_compareRequest = 0;
 
     // ---- D5 ----
     std::vector<SectionWellInfo> m_candidateWells;
@@ -229,6 +237,15 @@ private:
     QString m_catalogVersionId;
     QString m_interpretationDir;
     void setupInterpretationUi(QWidget *parent);
+
+    // ---- goal/seismic-attributes ----
+    SeismicAttrPanel *m_attrPanel = nullptr;
+    QToolButton *m_btnAttr = nullptr;
+    QPointer<PaleoTask> m_attrTask;
+    SeismicTaskService::SeismicAttrResult m_lastAttrResult;
+    SeismicTaskService::SeismicAttrParams m_lastAttrParams;
+    QString m_lastAttrSourcePath;
+    void setupAttrPanelUi(QWidget *parent);
 };
 
 } // namespace seismic

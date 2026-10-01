@@ -1,4 +1,5 @@
 // 层：视图
+#include "../paleotheme.h"
 #include "multiwellview.h"
 
 #include <QCheckBox>
@@ -150,8 +151,12 @@ void MultiWellView::relayout()
     const int col = (m_mode == LayoutMode::Quad) ? (i % 2) : i;
     auto *placeholder = new QLabel(tr("槽位 %1：从井选择器加入井").arg(i + 1), this);
     placeholder->setAlignment(Qt::AlignCenter);
-    placeholder->setStyleSheet(QStringLiteral(
-        "color: #9AA7B4; border: 1px dashed #DFE5EC; border-radius: 4px; font-size: 9pt;"));
+    PaleoTheme::applyThemedStyleSheet(placeholder, [] {
+      const auto &t = PaleoTheme::tokens();
+      return QStringLiteral(
+          "color: %1; border: 1px dashed %2; border-radius: 4px; font-size: 9pt;")
+          .arg(t.textDisabled.name(), t.border.name());
+    });
     lay->addWidget(placeholder, row, col);
   }
 

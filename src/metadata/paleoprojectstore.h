@@ -103,6 +103,8 @@ class PaleoProjectStore : public QObject
     void writeFailed(const QString &target, const QString &error);
 
   private:
+    // Caller holds m_writeMutex; emission remains outside the lock.
+    WriteResult backupQgz() const;
     QString projectDir() const;
     QString commitJournalPath(const QString &opId) const;
     bool writeCommitJournal(const QString &opId, const QString &stage,

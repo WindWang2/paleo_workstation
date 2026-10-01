@@ -321,7 +321,15 @@ WellCorrelationPanel::WellCorrelationPanel(SelectionContext *ctx, QWidget *paren
   m_emptyLabel->setObjectName(QStringLiteral("emptyLabel"));
   m_emptyLabel->setAlignment(Qt::AlignCenter);
   m_emptyLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
-  PaleoTheme::applyThemedStyleSheet(m_emptyLabel, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+  // goal/ui-experience-polish：空态/错误态双档活体样式（errorState 属性供
+  // 测试与 a11y 分辨；错误文案带下一步指引）。
+  m_emptyLabel->setProperty("errorState", false);
+  PaleoTheme::applyThemedStyleSheet(m_emptyLabel, [this] {
+    if (m_emptyLabel->property("errorState").toBool())
+      return QStringLiteral("color: %1;")
+          .arg(PaleoTheme::tokens().errorText.name());
+    return PaleoTheme::mutedCaptionStyleSheet();
+  });
   grid->addWidget(m_emptyLabel, 0, 0);
   m_emptyLabel->setVisible(true);
 
@@ -463,12 +471,12 @@ bool WellCorrelationPanel::submitLasLoad(const QString &wellId,
   };
   auto out = std::make_shared<Outcome>();
   auto *task = svc->start(
-      QStringLiteral("解析测井 %1").arg(QFileInfo(lasPath).fileName()),
+      tr("解析测井 %1").arg(QFileInfo(lasPath).fileName()),
       [lasPath, out](PaleoTask *) -> QString {
         // 纯解析在池线程跑（LasCache 线程安全 + 同文件并发合并）。
         if (!PreviewDocService::lasAt(lasPath, &out->names, &out->curves,
                                       &out->error))
-          return out->error.isEmpty() ? QStringLiteral("无法解析 LAS 文件")
+          return out->error.isEmpty() ? tr("无法解析 LAS 文件")
                                       : out->error;
         return QString();
       },
@@ -483,15 +491,18 @@ bool WellCorrelationPanel::submitLasLoad(const QString &wellId,
             {
               // lasAt 成功但 ~A 无曲线：与同步路径同语义（false）。
               emit lasLoadFinished(wellId, false);
-              emit lasLoadError(wellId, QStringLiteral("LAS 无数据曲线"));
+              emit lasLoadError(wellId, tr("LAS 无数据曲线"));
+              showEmptyErrorIfIdle(wellId, tr("LAS 无数据曲线"));
               return;
             }
             if (!ok)
             {
+              const QString why = task->errorText().isEmpty()
+                                      ? tr("无法解析 LAS 文件")
+                                      : task->errorText();
               emit lasLoadFinished(wellId, false);
-              emit lasLoadError(wellId, task->errorText().isEmpty()
-                                            ? QStringLiteral("无法解析 LAS 文件")
-                                            : task->errorText());
+              emit lasLoadError(wellId, why);
+              showEmptyErrorIfIdle(wellId, why);
               return;
             }
             if (withTrack)
@@ -501,7 +512,7 @@ bool WellCorrelationPanel::submitLasLoad(const QString &wellId,
               emit lasLoadFinished(wellId, trackOk);
               if (!trackOk)
                 emit lasLoadError(wellId,
-                                  QStringLiteral("曲线不存在：%1").arg(mnemonic));
+                                  tr("曲线不存在：%1").arg(mnemonic));
             }
             else
             {
@@ -553,9 +564,42 @@ void WellCorrelationPanel::setUpdatesEnabled(bool enabled)
   }
 }
 
+// goal/ui-experience-polish：LAS 异步失败的面板内可见化——面板尚无任何井
+// 列时，把空态标签切错误档（有井列的局部失败不遮画布，由壳层状态栏提示）。
+bool WellCorrelationPanel::columnsEmpty() const
+{
+  return m_columns.isEmpty();
+}
+
+void WellCorrelationPanel::showEmptyErrorIfIdle(const QString &wellId,
+                                                const QString &reason)
+{
+  if (!m_emptyLabel)
+    return;
+  if (!columnsEmpty())
+    return; // 已有成功井列：不遮挡内容
+  m_emptyLabel->setProperty("errorState", true);
+  m_emptyLabel->setText(tr("测井 %1 曲线加载失败：%2\n重新选择井，或检查 LAS 文件后重试")
+                            .arg(wellId, reason));
+  // 活体样式已在构造注册（读 errorState 属性）——这里即时重算一次。
+  m_emptyLabel->setStyleSheet(QStringLiteral("color: %1;")
+                                  .arg(PaleoTheme::tokens().errorText.name()));
+  m_emptyLabel->setVisible(true);
+}
+
+void WellCorrelationPanel::resetEmptyLabel()
+{
+  if (!m_emptyLabel)
+    return;
+  m_emptyLabel->setProperty("errorState", false);
+  m_emptyLabel->setText(tr("选择井以构建剖面"));
+  m_emptyLabel->setStyleSheet(PaleoTheme::mutedCaptionStyleSheet());
+}
+
 void WellCorrelationPanel::setWells(const QList<QPair<QString, QString>> &wells)
 {
   m_wells = wells;
+  resetEmptyLabel();
 
   QSet<QString> ids;
   for (const auto &w : wells)

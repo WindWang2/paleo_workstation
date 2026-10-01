@@ -28,6 +28,8 @@
 #include "../src/qgis/qgisstyleservice.h"
 #include "../src/services/singlefactordef.h"
 #include "../src/workflow/workflows.h"
+#include "../src/workflow/mapversioncontroller.h"
+#include "../src/metadata/mapversionstore.h"
 
 // m2(B) 单因素图页 — 真实栈（tst_workflows 模式：临时 manifest+catalog+真实
 // QGIS 引导）。覆盖：注册表 processingAlgId 在运行时可用（algorithmIds 核实）、
@@ -429,6 +431,8 @@ class TestFactorWorkflow : public QObject
       QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "welldist" ),
                                    QVariantMap(), &err ),
                 qPrintable( err ) );
+      wdLayer = f.layers.layer( QStringLiteral( "factor.T1.welldist" ) );
+      QVERIFY2( wdLayer != nullptr, "instantiated factor layer missing after regeneration" );
       const QString stampedAsset =
           wdLayer->customProperty( QStringLiteral( "paleoAssetId" ) ).toString();
       QVERIFY2( !stampedAsset.isEmpty(),
@@ -446,6 +450,133 @@ class TestFactorWorkflow : public QObject
       QVERIFY2( err.contains( QStringLiteral( "尚未接入" ) ), qPrintable( err ) );
       QVERIFY2( err.contains( QStringLiteral( "confidence" ) ), qPrintable( err ) );
       QVERIFY( findDecl( f.layers, QStringLiteral( "factor.T1.confidence" ) ) == nullptr );
+    }
+
+    // WP3 Phase D：lineage 端到端——source 声明 → welldist 因素生成 → 派生
+    // 登记（assetId/version/sha/manifest_layer_id）→ 图层实例化（paleoAssetId
+    // 双向链）→ saveVersion → 重开（全新 manifest/catalog 实例）后逐跳信息
+    // 仍完整。任何一跳缺信息都必须让断言红掉，不允许 silent success。
+    void welldistLineageEndToEndReopen()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      QVERIFY2( setupWells( f, &err ), qPrintable( err ) );
+
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "welldist" ),
+                                   QVariantMap(), &err ),
+                qPrintable( err ) );
+
+      // --- 跳 1：图层声明（layerId/horizon/type/group/styleRef/path）---------
+      const LayerDeclaration *d = findDecl( f.layers, QStringLiteral( "factor.T1.welldist" ) );
+      QVERIFY2( d != nullptr, "factor declaration missing" );
+      QCOMPARE( d->horizon, QStringLiteral( "T1" ) );
+      QCOMPARE( d->type, QStringLiteral( "raster" ) );
+      QCOMPARE( d->group, QStringLiteral( "04_SingleFactor" ) );
+      QVERIFY2( !d->styleRef.isEmpty(), "styleRef must be recorded" );
+      QVERIFY2( QFile::exists( d->source ), qPrintable( d->source ) );
+      QVERIFY2( d->source.contains( QStringLiteral( "artifacts/derived/" ) ),
+                qPrintable( d->source ) ); // managed/derived 边界
+
+      // --- 跳 2：catalog 派生版本（assetId/version/sha/反链）----------------
+      QString assetId;
+      CatalogVersion derivedVersion;
+      bool versionFound = false;
+      for ( const CatalogAsset &a : f.catalog.assets() )
+      {
+        if ( a.type != QStringLiteral( "single_factor_raster" ) )
+          continue;
+        for ( const CatalogVersion &v : f.catalog.versionsForAsset( a.id ) )
+        {
+          if ( d->source.endsWith( QLatin1Char( '/' ) + v.fileName ) && d->source.contains( v.id ) )
+          {
+            assetId = a.id;
+            derivedVersion = v;
+            versionFound = true;
+          }
+        }
+      }
+      QVERIFY2( versionFound, "derived version must be registered for the factor raster" );
+      QCOMPARE( derivedVersion.stage, QStringLiteral( "DERIVED" ) );
+      QVERIFY( derivedVersion.managed );
+      QVERIFY2( !derivedVersion.sha256.isEmpty(), "sha256 must be recorded" );
+      QCOMPARE( derivedVersion.extra.value( QStringLiteral( "kind" ) ).toString(),
+                QStringLiteral( "single_factor_raster" ) );
+      QCOMPARE( derivedVersion.extra.value( QStringLiteral( "engine" ) ).toString(),
+                SingleFactorContracts::welldistEngineId() );
+      QCOMPARE( derivedVersion.extra.value( QStringLiteral( "manifest_layer_id" ) ).toString(),
+                QStringLiteral( "factor.T1.welldist" ) ); // C4 权威反链
+
+      // --- 跳 3：图层实例化（paleoAssetId/paleoLayerId 双向链）-------------
+      QgsMapLayer *layer = f.layers.instantiate( QStringLiteral( "factor.T1.welldist" ), &err );
+      QVERIFY2( layer != nullptr, qPrintable( err ) );
+      QCOMPARE( layer->customProperty( QStringLiteral( "paleoLayerId" ) ).toString(),
+                QStringLiteral( "factor.T1.welldist" ) );
+      QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "welldist" ),
+                                   QVariantMap(), &err ),
+                qPrintable( err ) ); // 重跑幂等补章（层已实例化）
+      // 重跑可能换版本文件路径并替换实例（declare 的 replace 分支）——
+      // 重新取当前实例与当前声明，不持旧指针。
+      layer = f.layers.layer( QStringLiteral( "factor.T1.welldist" ) );
+      QVERIFY2( layer != nullptr, "factor layer must stay instantiated after regeneration" );
+      QCOMPARE( layer->customProperty( QStringLiteral( "paleoAssetId" ) ).toString(),
+                assetId );
+      const LayerDeclaration *d2 = findDecl( f.layers, QStringLiteral( "factor.T1.welldist" ) );
+      QVERIFY2( d2 != nullptr, "declaration must survive regeneration" );
+      QVERIFY2( QFile::exists( d2->source ), qPrintable( d2->source ) );
+
+      // --- 跳 4：版本边界（saveVersion）--------------------------------------
+      MapVersionStore versions( f.dir.filePath( QStringLiteral( "project.sqlite" ) ) );
+      QVERIFY2( versions.open( &err ), qPrintable( err ) );
+      MapVersionController controller( &versions, &f.layers );
+      controller.setProjectStore( &f.store );
+      QVariantMap provenance;
+      provenance.insert( QStringLiteral( "steps" ),
+                         QStringLiteral( "wells->welldist-factor" ) );
+      const MapVersion v = controller.saveVersion( QStringLiteral( "T1" ), provenance, &err );
+      QVERIFY2( v.version >= 1, qPrintable( err ) );
+
+      // --- 跳 5：重开（全新实例）后 lineage 仍完整 ---------------------------
+      LayerManifest reopenedManifest( f.dir.filePath( QStringLiteral( "project.sqlite" ) ) );
+      QVERIFY2( reopenedManifest.open( &err ), qPrintable( err ) );
+      bool declIntact = false;
+      for ( const LayerDeclaration &rd : reopenedManifest.all() )
+      {
+        if ( rd.layerId != QStringLiteral( "factor.T1.welldist" ) )
+          continue;
+        declIntact = rd.horizon == QStringLiteral( "T1" ) &&
+                     rd.type == QStringLiteral( "raster" ) &&
+                     rd.group == QStringLiteral( "04_SingleFactor" ) &&
+                     rd.source == d2->source && rd.styleRef == d2->styleRef;
+      }
+      QVERIFY2( declIntact, "reopened manifest must keep the factor declaration intact" );
+      delete d;
+      delete d2;
+
+      DataCatalog reopenedCatalog;
+      QVERIFY2( reopenedCatalog.open( f.dir.path() ), "reopen catalog over the project dir" );
+      bool lineageIntact = false;
+      for ( const CatalogAsset &a : reopenedCatalog.assets() )
+      {
+        if ( a.id != assetId )
+          continue;
+        for ( const CatalogVersion &v : reopenedCatalog.versionsForAsset( a.id ) )
+        {
+          if ( v.id != derivedVersion.id )
+            continue;
+          lineageIntact = v.sha256 == derivedVersion.sha256 &&
+                          v.stage == QStringLiteral( "DERIVED" ) &&
+                          v.extra.value( QStringLiteral( "manifest_layer_id" ) ).toString() ==
+                              QStringLiteral( "factor.T1.welldist" );
+        }
+      }
+      QVERIFY2( lineageIntact, "reopened catalog must keep asset/version/sha/reverse-link intact" );
+
+      MapVersionStore reopenedVersions( f.dir.filePath( QStringLiteral( "project.sqlite" ) ) );
+      QVERIFY2( reopenedVersions.open( &err ), qPrintable( err ) );
+      QVERIFY( reopenedVersions.currentVersion( QStringLiteral( "T1" ) ) >= 1 );
     }
 
     void failurePaths()

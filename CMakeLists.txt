@@ -56,8 +56,12 @@ if(PALEO_ENABLE_UBSAN)
   add_link_options(-fsanitize=undefined)
 endif()
 
+# QGIS_PREFIX 必须进 cache：CMakeLists 变更时 make 自动重配，若依赖 env
+# 则任何无 QGIS_PREFIX_PATH 的 shell（含并发 agent 会话）重配会静默丢
+# vendor 定位——PALEO_QGIS_PREFIX_DEFAULT/测试 env 注入全失效，回落系统栈。
+set(QGIS_PREFIX "" CACHE PATH "QGIS install prefix（vendor superbuild/deb 闭包；空=系统兜底）")
 if(NOT QGIS_PREFIX AND DEFINED ENV{QGIS_PREFIX_PATH})
-  set(QGIS_PREFIX "$ENV{QGIS_PREFIX_PATH}")
+  set(QGIS_PREFIX "$ENV{QGIS_PREFIX_PATH}" CACHE PATH "QGIS install prefix" FORCE)
 endif()
 if(QGIS_PREFIX)
   list(PREPEND CMAKE_PREFIX_PATH "${QGIS_PREFIX}" "${QGIS_PREFIX}/apps/qt6")

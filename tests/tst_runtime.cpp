@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <stdexcept>
 #include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -82,6 +83,59 @@ private slots:
     QCOMPARE( order, ( QStringList { QStringLiteral( "A" ), QStringLiteral( "B" ) } ) );
     QCOMPARE( QFile( dir.filePath( QStringLiteral( "a.out" ) ) ).size(), qint64( 1 ) );
     QCOMPARE( QFile( dir.filePath( QStringLiteral( "b.out" ) ) ).size(), qint64( 1 ) );
+  }
+
+  // WP3 Round 2：写队列异常兜底——enqueueWrite/saveAll 内的异常必须转成
+  // 失败结果（调用方的 busy 释放/writeFailed 信号不因裸异常被跳过），队列
+  // 在异常后仍可用。
+  void enqueueWriteConvertsExceptionsToFailure()
+  {
+    PaleoProjectStore store;
+    QSignalSpy failedSpy( &store, &PaleoProjectStore::writeFailed );
+    QSignalSpy doneSpy( &store, &PaleoProjectStore::writeCompleted );
+
+    const char *msg = "boom from provider";
+    const auto r1 = store.enqueueWrite(
+        [msg]() -> PaleoProjectStore::WriteResult { throw std::runtime_error( msg ); } );
+    QVERIFY( !r1.ok );
+    QVERIFY2( r1.error.contains( QLatin1String( msg ) ), qPrintable( r1.error ) );
+
+    const auto r2 = store.enqueueWrite(
+        []() -> PaleoProjectStore::WriteResult { throw 42; } ); // 非 std::exception
+    QVERIFY( !r2.ok );
+    QVERIFY2( !r2.error.isEmpty(), "unknown-exception conversion must still carry a reason" );
+
+    QCOMPARE( failedSpy.count(), 2 );
+    QCOMPARE( doneSpy.count(), 0 );
+
+    // 异常不腐蚀队列：后续正常写照常。
+    const auto r3 = store.enqueueWrite(
+        []() -> PaleoProjectStore::WriteResult { return { true, QString() }; } );
+    QVERIFY( r3.ok );
+    QCOMPARE( doneSpy.count(), 1 );
+  }
+
+  // gpkg 提交抛异常时，saveAll 必须在触碰 .qgz 之前中止（abort-before-qgz
+  // 排序对异常同样成立），并以 writeFailed 收尾。
+  void saveAllGpkgExceptionAbortsBeforeQgz()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    PaleoProjectStore store;
+    store.setProjectPaths( dir.filePath( QStringLiteral( "p.qgz" ) ),
+                           dir.filePath( QStringLiteral( "p.gpkg" ) ),
+                           dir.filePath( QStringLiteral( "meta.sqlite" ) ) );
+    int qgzCalls = 0;
+    QSignalSpy failedSpy( &store, &PaleoProjectStore::writeFailed );
+    const auto r = store.saveAll(
+        []() -> PaleoProjectStore::WriteResult { throw std::runtime_error( "gpkg exploded" ); },
+        [&qgzCalls]() -> PaleoProjectStore::WriteResult {
+          ++qgzCalls;
+          return { true, QString() };
+        } );
+    QVERIFY( !r.ok );
+    QCOMPARE( qgzCalls, 0 );
+    QVERIFY2( failedSpy.count() >= 1, "writeFailed must fire for a throwing gpkg commit" );
   }
 
   void saveAllQgzFailureKeepsGpkgCommit()

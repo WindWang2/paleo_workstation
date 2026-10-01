@@ -6,7 +6,9 @@
 #include "../metadata/layermanifest.h"
 
 class QgsMapLayer;
+class QgsVectorLayer;
 class QgisProjectService;
+class QgisEditingService;
 
 // P0 spine service — instantiates QgsMapLayer objects on demand per horizon (§37).
 // Manifest declares the full set; only the ACTIVE horizon's layers are materialized.
@@ -14,9 +16,16 @@ class QgisProjectService;
 // explicitly; layers instantiated on demand are released after use.
 class QgisLayerService : public QObject
 {
-  Q_OBJECT
+    Q_OBJECT
   public:
     QgisLayerService(QgisProjectService *projectSvc, LayerManifest *manifest, QObject *parent = nullptr);
+
+    // releaseHorizon 遇到仍在编辑的图层时，经编辑服务回滚（busy 标记随会话
+    // 释放）。未注入时维持旧行为（直接 rollBack，无 busy 释放）——测试裸用
+    // 层服务的路径不受影响。
+    // 裸指针非拥有：调用方须保证编辑服务活得比本服务久（组装根中两者同为
+    // AppContext 子对象，构造序先 layer 后 edit，析构反序，成立）。
+    void setEditingService(QgisEditingService *editSvc) { m_editSvc = editSvc; }
 
     bool declare(const LayerDeclaration &decl, QString *error = nullptr);
     QVector<LayerDeclaration> declared() const { return m_manifest->all(); }
@@ -52,6 +61,7 @@ class QgisLayerService : public QObject
 
     QgisProjectService *m_projectSvc;
     LayerManifest *m_manifest;
+    QgisEditingService *m_editSvc = nullptr;
     QHash<QString, QgsMapLayer *> m_instances; // layerId -> layer (owned by QgsProject)
     QString m_activeHorizon;
 };

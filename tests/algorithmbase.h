@@ -110,8 +110,12 @@ class AlgorithmTestBase
     // 按 id 调算法（如 "paleo:paleo_isopach"）。算法抛出的 QgsProcessingException
     // 被捕获并把文本写进 *log（结果回空 map）——测试用 QVERIFY2(!res.isEmpty(),
     // qPrintable(log)) 断言失败面。算法不存在 → log 说明并回空。
+    // feedbackOverride：传入自定义 feedback（如取消计数器）时 run() 不再自建；
+    // feedbackText 非空时回传 feedback 累积文本（告警/日志断言面）。
     static QVariantMap run( const QString &algorithmId, const QVariantMap &params,
-                            QString *log = nullptr )
+                            QString *log = nullptr,
+                            QgsProcessingFeedback *feedbackOverride = nullptr,
+                            QString *feedbackText = nullptr )
     {
       ensurePaleoProvider();
       const QgsProcessingAlgorithm *alg =
@@ -123,19 +127,22 @@ class AlgorithmTestBase
         return {};
       }
       QgsProcessingContext ctx;
-      QgsProcessingFeedback fb;
+      QgsProcessingFeedback localFb;
+      QgsProcessingFeedback *fb = feedbackOverride ? feedbackOverride : &localFb;
       bool ok = false;
       QVariantMap res;
       try
       {
         // catchExceptions=false：失败以 QgsProcessingException 抛出——比
         // 静默空 map 好断言；run() 内部自带 prepare/runPrepared/postProcess。
-        res = alg->run( params, ctx, &fb, &ok, QVariantMap(), false );
+        res = alg->run( params, ctx, fb, &ok, QVariantMap(), false );
       }
       catch ( const QgsException &e )
       {
         if ( log )
           *log = QStringLiteral( "%1 failed: %2" ).arg( algorithmId, e.what() );
+        if ( feedbackText )
+          *feedbackText = fb->textLog();
         return {};
       }
       catch ( const std::exception &e )
@@ -143,21 +150,27 @@ class AlgorithmTestBase
         if ( log )
           *log = QStringLiteral( "%1 failed: %2" )
                      .arg( algorithmId, QString::fromUtf8( e.what() ) );
+        if ( feedbackText )
+          *feedbackText = fb->textLog();
         return {};
       }
       catch ( ... )
       {
         if ( log )
           *log = QStringLiteral( "%1 failed with an unknown exception" ).arg( algorithmId );
+        if ( feedbackText )
+          *feedbackText = fb->textLog();
         return {};
       }
+      if ( feedbackText )
+        *feedbackText = fb->textLog();
       if ( !ok )
       {
         if ( log )
           *log = QStringLiteral( "%1 failed without an exception: %2" )
                      .arg( algorithmId,
-                           fb.textLog().isEmpty() ? QStringLiteral( "(no feedback text)" )
-                                                  : fb.textLog() );
+                           fb->textLog().isEmpty() ? QStringLiteral( "(no feedback text)" )
+                                                   : fb->textLog() );
         return {};
       }
       return res;

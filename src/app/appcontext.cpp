@@ -194,6 +194,9 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_versionCtl = new MapVersionController(m_versionStore, m_layerSvc, this);
   m_versionCtl->setEditingService(m_editSvc);
   m_versionCtl->setProjectStore(m_store);
+  // releaseHorizon 遇编辑中图层时经服务回滚（busy 随会话释放）——与
+  // versionCtl 同一编辑服务实例。
+  m_layerSvc->setEditingService(m_editSvc);
 
   // ensureManifest-on-open: first point a per-project path is derivable.
   connect(m_projectSvc, &QgisProjectService::projectOpened, this,

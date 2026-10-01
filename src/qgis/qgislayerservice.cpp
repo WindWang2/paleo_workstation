@@ -2,6 +2,7 @@
 #include "qgislayerservice.h"
 
 #include "qgisprojectservice.h"
+#include "qgiseditingservice.h"
 #include "mappingartifactwriter.h"
 
 #include <QSet>
@@ -204,7 +205,15 @@ void QgisLayerService::releaseHorizon(const QString &horizon)
       if (auto *vl = qobject_cast<QgsVectorLayer *>(l))
       {
         if (vl->isEditable())
-          vl->rollBack();
+        {
+          // 经服务回滚：busy 标记随会话释放（Issue #27 残留——直接 rollBack
+          // 会让该层位的「editing in progress」门控永久滞留）。未注入服务的
+          // 裸用路径维持旧行为。
+          if (m_editSvc)
+            m_editSvc->rollbackEdit(vl);
+          else
+            vl->rollBack();
+        }
       }
       proj->removeMapLayer(l); // project-owned: removal deletes the layer
     }

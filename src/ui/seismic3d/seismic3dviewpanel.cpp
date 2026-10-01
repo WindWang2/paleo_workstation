@@ -650,11 +650,19 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
             } else {
                 // 提取失败必须留痕——静默失败的表现是"只剩包围盒线框"。
                 // A2 例外：本端主动顶替触发的取消不是失败（新请求已在路上）。
+                // goal/ui-experience-polish：留痕升级——MessageLog 之外面板内
+                // warning 行可见（用户不打开日志窗口也能看到失败原因）。
                 if (!superseded) {
+                    const QString why = tr("地震切片提取失败（槽位 %1，索引 %2）：%3")
+                                            .arg(static_cast<int>(slot))
+                                            .arg(index)
+                                            .arg(error);
                     QgsMessageLog::logMessage(
-                        tr("地震切片提取失败（槽位 %1，索引 %2）：%3")
-                            .arg(static_cast<int>(slot)).arg(index).arg(error),
-                        QStringLiteral("Seismic3D"), Qgis::MessageLevel::Warning);
+                        why, QStringLiteral("Seismic3D"), Qgis::MessageLevel::Warning);
+                    if (guard)
+                        QMetaObject::invokeMethod(
+                            guard.data(), [guard, why] { guard->showInlineWarning(why); },
+                            Qt::QueuedConnection);
                 }
             }
             // Drain pending request if user moved slider during extraction
@@ -1482,5 +1490,23 @@ void Seismic3DViewPanel::checkMemoryBudget() {
     memoryHintLabel_->setText(hint);
     memoryHintLabel_->setVisible(true);
     QgsMessageLog::logMessage(hint, QStringLiteral("Seismic3D"), Qgis::MessageLevel::Warning);
+}
+
+// goal/ui-experience-polish：非阻塞行内告警（切片提取失败等）——复用内存
+// 提示条控件；新告警覆盖旧文案，成功路径不再自动清（下次装配重建）。
+void Seismic3DViewPanel::showInlineWarning(const QString &text)
+{
+    if (!memoryHintLabel_) {
+        memoryHintLabel_ = new QLabel(this);
+        PaleoTheme::applyThemedStyleSheet(memoryHintLabel_, [] {
+            return QStringLiteral("color: %1; padding: 0 6px; font-size: 8.5pt;")
+                .arg(PaleoTheme::tokens().warningText.name());
+        });
+        memoryHintLabel_->setWordWrap(true);
+        if (auto *mainLay = qobject_cast<QVBoxLayout *>(layout()))
+            mainLay->addWidget(memoryHintLabel_);
+    }
+    memoryHintLabel_->setText(text);
+    memoryHintLabel_->setVisible(true);
 }
 } // namespace seismic

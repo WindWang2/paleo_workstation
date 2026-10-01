@@ -113,6 +113,15 @@ void SeismicPickPanel::buildUi()
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->verticalHeader()->setVisible(false);
+    // goal/ui-experience-polish：静默空表补空态指引（拾取为空时可见）。
+    emptyHint_ = new QLabel(tr("还没有拾取——在剖面上按住 Ctrl+左键 拾取同相轴，或「载入会话」恢复上次解释"));
+    emptyHint_->setObjectName(QStringLiteral("pickEmptyHint"));
+    emptyHint_->setAlignment(Qt::AlignCenter);
+    emptyHint_->setWordWrap(true);
+    PaleoTheme::applyThemedStyleSheet(emptyHint_, [] {
+        return PaleoTheme::mutedCaptionStyleSheet();
+    });
+    lay->addWidget(emptyHint_, 0);
     lay->addWidget(table_, 1);
 
     // 行 4：操作按钮
@@ -165,6 +174,8 @@ void SeismicPickPanel::refreshFromSession()
         return;
     const SeismicInterpretationSession &session = dock_->interpretationSession();
     table_->setRowCount(0);
+    if (emptyHint_)
+        emptyHint_->setVisible(session.picks.isEmpty());
     for (const SeismicPick &p : session.picks)
     {
         const int row = table_->rowCount();

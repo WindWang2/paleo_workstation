@@ -72,6 +72,7 @@ class PreviewAttributeTableDialog : public QWidget
 
     QgsVectorLayer *m_layer = nullptr;
     QTableWidget *m_table = nullptr;
+    QLabel *m_emptyLabel = nullptr; // goal/ui-experience-polish：过滤空结果指引
     QLineEdit *m_filterEdit = nullptr;
     QComboBox *m_filterColumn = nullptr;
     QLabel *m_pageLabel = nullptr;

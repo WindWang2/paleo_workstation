@@ -16,7 +16,7 @@
 |---|---|---|
 | `-O3` | **否决（不设默认/不接开关）** | 收益面大但存在一致回归项：`catalog_open_10k` +35%（两轮 +37%/+37% 复现），`sha_hash_64mb` +12% |
 | `-flto=8`（LTO） | **采纳为实验档**：`PALEO_ENABLE_LTO=ON`（默认 OFF） | 11/18 项 -5% 以上，热路径收益稳定且无一致回归 |
-| PGO（`-fprofile-generate/use`） | 见 §4 | —— |
+| PGO（`-fprofile-generate/use`） | **否决** | 对 -O2 无一致实质收益（las 冷解析 -1.1%），segy_index_build +26.1% 回归；训练集代表性不足 |
 | 启动段 | 三者份额一致 | codegen 不改变 .so 装载/重定位构成；启动优化战场在链接布局/预加载，不在 -O 级别 |
 
 ## 1. -O3（否决）——交错三轮中位数
@@ -61,9 +61,25 @@ O2 自身方差内）；pyramid_lazy_ensure 高方差（36-129ms 全构建皆然
 codegen 级别不动启动构成；loader 份额 ~0.56（exec→首屏最大单段）的
 下手面是动态链接布局（预加载/prelink/库裁剪），已登记 BASELINE.md §7。
 
-## 4. PGO（两阶段）
+## 4. PGO（两阶段）——否决
 
-（实验跑批中——`tools/pgo_experiment.sh`，结果回填。）
+方法：`tools/pgo_experiment.sh`（-fprofile-generate 编 paleo_selfcheck →
+perf 组 ×2 训练 → -fprofile-use -fprofile-correction 重编）。公平对比同
+§1/§2 交错协议（O2↔PGO ×3 轮中位）。
+
+| 基准 | O2 | PGO | Δ |
+|---|---|---|---|
+| catalog_query_1k_ids_ms | 0.78 | 0.63 | -19.5% |
+| segy_index_cached_ms | 0.87 | 0.80 | -8.6% |
+| las_cold_parse_ms | 14.2 | 14.0 | -1.1%（无感） |
+| **segy_index_build_ms** | **5.07** | **6.39** | **+26.1%（回归）** |
+| pyramid_lazy_ensure_ms | 68.4 | 77.9 | +13.8%（高方差项） |
+| 其余 12 项 | —— | —— | ±6% 噪声带 |
+
+**判定：否决。** 训练集（合成夹具基准）对真实负载代表性不足，热路径
+（las 冷解析）零收益且有 segy 索引建库回归；两阶段构建成本 + profile
+时效管理（换代码需重训）使 ROI 不成立。若后续重评：用真工区负载训练
+（PALEO_REAL_PROJECT_AREA 跑批），并考虑 LTO+PGO 组合档。
 
 ## 复现
 

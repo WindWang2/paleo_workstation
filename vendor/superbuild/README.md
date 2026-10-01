@@ -13,17 +13,18 @@ vendoring 成为首选；`vendor/fetch-deps.sh`（deb 闭包）/ OSGeo4W 降为�
 
 1. `fetch-deps.sh` 的 `apt-get download libqgis-dev=4.2.*` 验证失败（上游
    包不可得 / SHA256 对不上且无旧档）；
-2. 必须支持比 binary floor 更老的宿主——binary 路要求 glibc ≥ 2.41（Debian
-   13 / Ubuntu 25.04 级）；superbuild 即 "superbuild-on-oldest-target"。
+2. 必须支持比 binary floor 更老的宿主——binary 路（已提交的 deb 闭包锁）
+   要求 glibc ≥ 2.43（Ubuntu 26.04 级；Debian 13 的 glibc 2.41 不够）；
+   superbuild 即 "superbuild-on-oldest-target"。
 
 新政策下本路线即默认路线，无需触发条件；启用动作仍要留决策记录
 （issue/PR body）。
 
 ## 启用步骤
 
-1. 回填 `CMakeLists.txt` 里四个 `*_URL`（GEOS/PROJ/GDAL/QGIS 源码 tarball），
-   同时给每个 `ExternalProject_Add` 补 `URL_HASH SHA256=<...>`——URL 与
-   SHA256 一起才算钉死（pin 后 TTHW 不依赖上游 URL 存活）。
+1. `CMakeLists.txt` 里四个 `*_URL`（GEOS 3.15.0 / PROJ 9.8.1 / GDAL 3.13.3 /
+   QGIS 4.2.2）与对应 `URL_HASH SHA256=<...>` 已成对钉死；升级版本时两者
+   必须一起改（pin 后 TTHW 不依赖上游 URL 存活）。
 2. preflight 追加检查（plan §44.1 superbuild 档）：flex、bison、nasm、python3。
 3. 配置与构建（ninja 增量 = 断点续跑；**不手写 `.done` 标记**，进度即
    ExternalProject stamp 目录）：

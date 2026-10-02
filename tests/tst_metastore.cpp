@@ -17,7 +17,7 @@
 // wave3/model-hardening — metadata/project.sqlite 的 PRAGMA user_version 门
 // （docs/SCHEMA_MIGRATION.md 最小落地）。三个 store（LayerManifest /
 // MapVersionStore / ReleaseStore）共享同一个 sqlite 文件；打开时：
-//   新库/遗留库（user_version=0）→ 推进到当前版本；
+//   新库/遗留库（user_version < 当前版本，含 0 与 1）→ 推进到当前版本；
 //   user_version > 本构建认识的版本 → 拒开（store open 失败 + 错误文案），
 //   文件保持原样（没有任何写入发生）。
 class TestMetaStore : public QObject
@@ -108,7 +108,7 @@ private:
   }
 
 private slots:
-  // 新库：LayerManifest open 后 user_version 被写成当前版本（1）。
+  // 新库：LayerManifest open 后 user_version 被写成当前版本（2）。
   void freshDbAdoptsUserVersion()
   {
     QTemporaryDir dir;
@@ -118,10 +118,10 @@ private slots:
     QString err;
     QVERIFY2(manifest.open(&err), qPrintable(err));
     QCOMPARE(rawUserVersion(dbPath), MetaStore::kUserVersion);
-    QCOMPARE(rawUserVersion(dbPath), 1); // 当前版本号就是 1
+    QCOMPARE(rawUserVersion(dbPath), 2); // 当前版本号就是 2（fault_set.surface）
   }
 
-  // 遗留库（表在、user_version=0）：open 推进到 1，旧表原样保留。
+  // 遗留库（表在、user_version=0）：open 推进到当前版本，旧表原样保留。
   void legacyZeroVersionUpgradedInPlace()
   {
     QTemporaryDir dir;
@@ -248,14 +248,19 @@ private slots:
     QVERIFY2(again.tryLock(&err), qPrintable(err)); // 解锁后可重取
   }
 // ---- wave/data-foundation T7：user_version 前向/后向矩阵扩全 -------------
-  // 组合矩阵：{0(遗留), 1(当前), 2/99(未来)} × {LayerManifest, MapVersionStore,
-  // ReleaseStore}——0→采纳并保持可写；1→原样通过（幂等）；>1→拒开且零表创建。
+  // 组合矩阵：{0(遗留), 1(上一版，升级), kUserVersion(当前),
+  // kUserVersion+1/99(未来)} × {LayerManifest, MapVersionStore, ReleaseStore}。
+  // 低于当前版本的库采纳并保持可写；当前版本原样通过；更高版本拒开且零表创建。
   // （"absent" 在 sqlite 上等价 0——全新文件 PRAGMA 读 0，已由 fresh 案覆盖。）
   void userVersionMatrixAcrossStores()
   {
     struct Row { int version; bool shouldOpen; };
     const QVector<Row> matrix = {
-        {0, true}, {1, true}, {2, false}, {99, false}};
+        {0, true},
+        {1, true},
+        {MetaStore::kUserVersion, true},
+        {MetaStore::kUserVersion + 1, false},
+        {99, false}};
 
     for (const Row &row : matrix)
     {
@@ -330,7 +335,7 @@ private slots:
     }
   }
 
-  // T7 补充：采纳后重开幂等（user_version 已是 1 → 再开不动版本号）+ 写后
+  // T7 补充：采纳后重开幂等（user_version 已是当前版本 → 再开不动版本号）+ 写后
   // 重开数据仍在（迁移不丢数据）。
   void adoptedDbReopensStable()
   {

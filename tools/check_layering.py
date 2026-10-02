@@ -23,6 +23,7 @@
 #      词表外置在 tools/layering_vocab.json——新增顶层模块先登记词表
 #      （scripts/new_module.sh 会同步），否则全量判违规。
 #   6. 数据层禁令：数据层模块禁止 include qgis/*。
+#   7. 数据层禁令：数据层模块禁止 include 功能层（workflow/*, linkage/*, ai/*）。
 #
 # 合法残留走 tools/layering-baseline.txt（格式：每行 `<path>:<rule>`，
 # `#` 开头注释）。命中 baseline 的违规降级为提示；baseline 里已修复的条目
@@ -184,6 +185,8 @@ def check_file(path):
                     violations.append(("reverse-ui-include", n, line.strip()))
                 elif (LAYERS.get(layer_dir) == "数据" or layer_dir in {"domain", "catalog", "io", "metadata", "services", "algorithms"}) and dst == "qgis":
                     violations.append(("data-qgis-include", n, line.strip()))
+                elif (LAYERS.get(layer_dir) == "数据" or layer_dir in {"domain", "catalog", "io", "metadata", "services", "algorithms"}) and (LAYERS.get(dst) == "功能" or dst in {"workflow", "linkage", "ai"}):
+                    violations.append(("data-functional-include", n, line.strip()))
 
             if layer_dir in QTWIDGETS_BAN:
                 name = inc.group(1)
@@ -304,6 +307,12 @@ def selftest():
         ("io/x.cpp",
          '// 层：数据\n#include "../qgis/qgislayerservice.h"\n',
          {"data-qgis-include"}),
+        ("io/x.cpp",
+         '// 层：数据\n#include "../workflow/sectionworkbench.h"\n',
+         {"data-functional-include"}),
+        ("domain/x.cpp",
+         '// 层：数据\n#include "../linkage/linkagewidget.h"\n',
+         {"data-functional-include"}),
         ("qgis/x.cpp",
          '// 层：QGIS 封装\n#include <QWidget>\n',
          set()),  # qgis 豁免 QtWidgets

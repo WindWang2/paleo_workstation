@@ -97,6 +97,16 @@ double FaultStick::twtMaxMs() const
     return v;
 }
 
+QString verticalDomainToString(VerticalDomain domain)
+{
+    return domain == VerticalDomain::Depth ? QStringLiteral("depth") : QStringLiteral("twt");
+}
+
+VerticalDomain verticalDomainFromString(const QString &s)
+{
+    return s == QLatin1String("depth") ? VerticalDomain::Depth : VerticalDomain::TwtMs;
+}
+
 QVariantMap FaultStick::toMap() const
 {
     QVariantMap m;
@@ -104,6 +114,8 @@ QVariantMap FaultStick::toMap() const
     m[QStringLiteral("section")] = section.toMap();
     m[QStringLiteral("points")] = pointsToList(points);
     m[QStringLiteral("interpreter")] = interpreter;
+    // 缺省 TWT 也落盘，旧 JSON 缺键仍按 TWT 读（fromMap）。
+    m[QStringLiteral("verticalDomain")] = verticalDomainToString(verticalDomain);
     return m;
 }
 
@@ -114,6 +126,7 @@ FaultStick FaultStick::fromMap(const QVariantMap &m)
     stick.section = FaultSectionRef::fromMap(m.value(QStringLiteral("section")).toMap());
     stick.points = pointsFromList(m.value(QStringLiteral("points")));
     stick.interpreter = m.value(QStringLiteral("interpreter")).toString();
+    stick.verticalDomain = verticalDomainFromString(m.value(QStringLiteral("verticalDomain")).toString());
     return stick;
 }
 
@@ -121,7 +134,7 @@ bool FaultStick::operator==(const FaultStick &o) const
 {
     return id == o.id && section.matchKey() == o.section.matchKey() &&
            section.displayName == o.section.displayName && points == o.points &&
-           interpreter == o.interpreter;
+           interpreter == o.interpreter && verticalDomain == o.verticalDomain;
 }
 
 // ---- FaultHorizonCut ----
@@ -173,6 +186,89 @@ FaultHangingSide FaultHorizonCut::hangingSideFromString(const QString &s)
     return FaultHangingSide::Unknown;
 }
 
+// ---- FaultSurfaceMesh ----
+
+bool FaultSurfaceVertex::operator==(const FaultSurfaceVertex &o) const
+{
+    return x == o.x && y == o.y && z == o.z && stickId == o.stickId && pointIndex == o.pointIndex;
+}
+
+QVariantMap FaultSurfaceMesh::toMap() const
+{
+    QVariantMap m;
+    QVariantList verts;
+    verts.reserve(vertices.size());
+    for (const FaultSurfaceVertex &v : vertices) {
+        QVariantMap vm;
+        vm[QStringLiteral("x")] = v.x;
+        vm[QStringLiteral("y")] = v.y;
+        vm[QStringLiteral("z")] = v.z;
+        vm[QStringLiteral("stickId")] = v.stickId;
+        vm[QStringLiteral("pointIndex")] = v.pointIndex;
+        verts.append(vm);
+    }
+    m[QStringLiteral("vertices")] = verts;
+    // Qt6 JSON 会把嵌套 QVariantList 拍平。三角形写成 {a,b,c} 对象，往返不丢索引。
+    QVariantList tris;
+    tris.reserve(triangles.size());
+    for (const FaultSurfaceTriangle &t : triangles) {
+        QVariantMap tri;
+        tri[QStringLiteral("a")] = t.a;
+        tri[QStringLiteral("b")] = t.b;
+        tri[QStringLiteral("c")] = t.c;
+        tris.append(tri);
+    }
+    m[QStringLiteral("triangles")] = tris;
+    QVariantList order;
+    for (const QString &id : stickOrder)
+        order.append(id);
+    m[QStringLiteral("stickOrder")] = order;
+    return m;
+}
+
+FaultSurfaceMesh FaultSurfaceMesh::fromMap(const QVariantMap &m)
+{
+    FaultSurfaceMesh mesh;
+    const QVariantList verts = m.value(QStringLiteral("vertices")).toList();
+    for (const QVariant &v : verts) {
+        const QVariantMap vm = v.toMap();
+        FaultSurfaceVertex vert;
+        vert.x = vm.value(QStringLiteral("x")).toDouble();
+        vert.y = vm.value(QStringLiteral("y")).toDouble();
+        vert.z = vm.value(QStringLiteral("z")).toDouble();
+        vert.stickId = vm.value(QStringLiteral("stickId")).toString();
+        vert.pointIndex = vm.value(QStringLiteral("pointIndex"), -1).toInt();
+        mesh.vertices.append(vert);
+    }
+    const QVariantList tris = m.value(QStringLiteral("triangles")).toList();
+    for (const QVariant &v : tris) {
+        FaultSurfaceTriangle t;
+        const QVariantMap asMap = v.toMap();
+        if (asMap.contains(QStringLiteral("a"))) {
+            t.a = asMap.value(QStringLiteral("a")).toInt();
+            t.b = asMap.value(QStringLiteral("b")).toInt();
+            t.c = asMap.value(QStringLiteral("c")).toInt();
+        } else {
+            const QVariantList tri = v.toList();
+            if (tri.size() < 3)
+                continue;
+            t.a = tri.at(0).toInt();
+            t.b = tri.at(1).toInt();
+            t.c = tri.at(2).toInt();
+        }
+        mesh.triangles.append(t);
+    }
+    const QVariantList order = m.value(QStringLiteral("stickOrder")).toList();
+    for (const QVariant &v : order)
+        mesh.stickOrder.append(v.toString());
+    return mesh;
+}
+
+bool FaultSurfaceMesh::operator==(const FaultSurfaceMesh &o) const
+{
+    return vertices == o.vertices && triangles == o.triangles && stickOrder == o.stickOrder;
+}
+
 // ---- Fault ----
 
 const FaultStick *Fault::stickById(const QString &stickId) const
@@ -200,6 +296,8 @@ QVariantMap Fault::toMap() const
     for (const FaultHorizonCut &c : cuts)
         cutList.append(c.toMap());
     m[QStringLiteral("cuts")] = cutList;
+    if (!surface.isEmpty())
+        m[QStringLiteral("surface")] = surface.toMap();
     if (!extra.isEmpty())
         m[QStringLiteral("extra")] = extra;
     return m;
@@ -218,6 +316,7 @@ Fault Fault::fromMap(const QVariantMap &m)
     const QVariantList cutList = m.value(QStringLiteral("cuts")).toList();
     for (const QVariant &v : cutList)
         f.cuts.append(FaultHorizonCut::fromMap(v.toMap()));
+    f.surface = FaultSurfaceMesh::fromMap(m.value(QStringLiteral("surface")).toMap());
     f.extra = m.value(QStringLiteral("extra")).toMap();
     return f;
 }
@@ -412,6 +511,72 @@ bool FaultSet::removeCut(const QString &faultId, const QString &horizon)
         }
     }
     return false;
+}
+
+bool FaultSet::setSurface(const QString &faultId, const FaultSurfaceMesh &mesh)
+{
+    for (Fault &f : m_faults) {
+        if (f.id == faultId) {
+            f.surface = mesh;
+            return true;
+        }
+    }
+    return false;
+}
+
+void FaultSet::clearSurfaces()
+{
+    for (Fault &f : m_faults)
+        f.surface = FaultSurfaceMesh();
+}
+
+FaultSet FaultSet::withoutSurfaces() const
+{
+    FaultSet copy = *this;
+    copy.clearSurfaces();
+    return copy;
+}
+
+QByteArray FaultSet::surfacesJson() const
+{
+    QJsonObject root;
+    for (const Fault &f : m_faults) {
+        if (!f.surface.isEmpty())
+            root.insert(f.id, QJsonObject::fromVariantMap(f.surface.toMap()));
+    }
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+bool FaultSet::applySurfacesJson(const QByteArray &json, QString *error)
+{
+    if (json.trimmed().isEmpty() || json.trimmed() == QByteArray("null")) {
+        clearSurfaces();
+        return true;
+    }
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(json, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        if (error)
+            *error = QStringLiteral("FaultSet 断面 JSON 解析失败: %1").arg(parseError.errorString());
+        return false;
+    }
+    const QJsonObject root = doc.object();
+    for (auto it = root.begin(); it != root.end(); ++it) {
+        if (faultById(it.key()) == nullptr) {
+            if (error)
+                *error = QStringLiteral("断面 JSON 指向未知断层 %1").arg(it.key());
+            return false;
+        }
+        if (!it.value().isObject()) {
+            if (error)
+                *error = QStringLiteral("断层 %1 的断面不是对象").arg(it.key());
+            return false;
+        }
+    }
+    clearSurfaces();
+    for (auto it = root.begin(); it != root.end(); ++it)
+        setSurface(it.key(), FaultSurfaceMesh::fromMap(it.value().toObject().toVariantMap()));
+    return true;
 }
 
 const FaultHorizonCut *FaultSet::cut(const QString &faultId, const QString &horizon) const

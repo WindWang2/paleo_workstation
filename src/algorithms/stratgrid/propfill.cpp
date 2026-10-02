@@ -1,6 +1,8 @@
 // 层：数据
 #include "propfill.h"
 
+#include "../faultsurface/faultsurface.h"
+
 #include <QJsonDocument>
 #include <QtEndian>
 
@@ -384,6 +386,194 @@ bool projectToSection(const PropertyVolume &volume, const SectionGeometry &secti
     *valueMin = any ? vmin : 0;
   if (valueMax)
     *valueMax = any ? vmax : 0;
+  return true;
+}
+
+bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds, const std::vector<FaultTriangle> &mesh,
+             double power, PropertyVolume *out, const FillProgress &progress, QString *error)
+{
+  if (!out)
+  {
+    setError(error, QStringLiteral("充填输出为空"));
+    return false;
+  }
+  if (!(power > 0.0) || !std::isfinite(power))
+  {
+    setError(error, QStringLiteral("IDW 幂次须为正有限值"));
+    return false;
+  }
+  if (grid.nk < 1 || grid.ni < 1 || grid.nj < 1)
+  {
+    setError(error, QStringLiteral("格架为空"));
+    return false;
+  }
+
+  std::vector<paleo::faultsurf::Triangle3> tris;
+  tris.reserve(mesh.size());
+  for (const FaultTriangle &t : mesh)
+    tris.push_back(paleo::faultsurf::Triangle3{t.ax, t.ay, t.az, t.bx, t.by, t.bz, t.cx, t.cy, t.cz});
+
+  const auto blocked = [&](int i0, int j0, int k0, int i1, int j1, int k1) {
+    Point3 a;
+    Point3 b;
+    if (!cellCenter(grid, i0, j0, k0, &a) || !cellCenter(grid, i1, j1, k1, &b))
+      return true;
+    return paleo::faultsurf::segmentIntersectsTriangles(a.x, a.y, a.z, b.x, b.y, b.z, tris);
+  };
+
+  PropertyVolume local;
+  local.grid = grid;
+  const int nCell = grid.cellCount();
+  local.cellBlock.assign(static_cast<std::size_t>(nCell), -1);
+  local.columnBlock.assign(static_cast<std::size_t>(grid.ni * grid.nj), -1);
+  int next = 0;
+  const int di[6] = {-1, 1, 0, 0, 0, 0};
+  const int dj[6] = {0, 0, -1, 1, 0, 0};
+  const int dk[6] = {0, 0, 0, 0, -1, 1};
+  for (int k = 0; k < grid.nk; ++k)
+  {
+    for (int j = 0; j < grid.nj; ++j)
+    {
+      for (int i = 0; i < grid.ni; ++i)
+      {
+        const int start = grid.cellIndex(i, j, k);
+        if (!grid.columnLive(i, j) || local.cellBlock[static_cast<std::size_t>(start)] >= 0)
+          continue;
+        std::queue<Index3> q;
+        q.push(Index3{i, j, k});
+        local.cellBlock[static_cast<std::size_t>(start)] = next;
+        while (!q.empty())
+        {
+          const Index3 cur = q.front();
+          q.pop();
+          for (int e = 0; e < 6; ++e)
+          {
+            const int ni = cur.i + di[e];
+            const int nj = cur.j + dj[e];
+            const int nk = cur.k + dk[e];
+            if (!grid.inRange(ni, nj, nk) || !grid.columnLive(ni, nj))
+              continue;
+            const int idx = grid.cellIndex(ni, nj, nk);
+            if (local.cellBlock[static_cast<std::size_t>(idx)] >= 0)
+              continue;
+            if (blocked(cur.i, cur.j, cur.k, ni, nj, nk))
+              continue;
+            local.cellBlock[static_cast<std::size_t>(idx)] = next;
+            q.push(Index3{ni, nj, nk});
+          }
+        }
+        ++next;
+      }
+    }
+  }
+  local.blockCount = next;
+  for (int j = 0; j < grid.nj; ++j)
+  {
+    for (int i = 0; i < grid.ni; ++i)
+    {
+      if (!grid.columnLive(i, j))
+        continue;
+      local.columnBlock[static_cast<std::size_t>(grid.columnIndex(i, j))] =
+          local.cellBlock[static_cast<std::size_t>(grid.cellIndex(i, j, 0))];
+    }
+  }
+
+  const float kNan = std::numeric_limits<float>::quiet_NaN();
+  local.values.assign(static_cast<std::size_t>(nCell), kNan);
+  std::vector<std::vector<Seed>> byBlock(static_cast<std::size_t>(std::max(next, 0)));
+  for (const Seed &seed : seeds)
+  {
+    if (!grid.columnLive(seed.i, seed.j) || seed.k < 0 || seed.k >= grid.nk || !std::isfinite(seed.value))
+      continue;
+    const int block = local.cellBlock[static_cast<std::size_t>(grid.cellIndex(seed.i, seed.j, seed.k))];
+    if (block < 0)
+      continue;
+    byBlock[static_cast<std::size_t>(block)].push_back(seed);
+  }
+
+  double verticalStep = 1.0;
+  {
+    double thickSum = 0.0;
+    int nLive = 0;
+    for (int j = 0; j < grid.nj; ++j)
+    {
+      for (int i = 0; i < grid.ni; ++i)
+      {
+        if (!grid.columnLive(i, j))
+          continue;
+        thickSum += layerThickness(grid, i, j, 0);
+        ++nLive;
+      }
+    }
+    if (nLive > 0)
+      verticalStep = thickSum / static_cast<double>(nLive);
+  }
+
+  int filled = 0;
+  int unfilled = 0;
+  for (int j = 0; j < grid.nj; ++j)
+  {
+    for (int i = 0; i < grid.ni; ++i)
+    {
+      if (!grid.columnLive(i, j))
+        continue;
+      for (int k = 0; k < grid.nk; ++k)
+      {
+        const int idx = grid.cellIndex(i, j, k);
+        const int block = local.cellBlock[static_cast<std::size_t>(idx)];
+        if (block < 0 || byBlock[static_cast<std::size_t>(block)].empty())
+        {
+          ++unfilled;
+          continue;
+        }
+        const std::vector<Seed> &bucket = byBlock[static_cast<std::size_t>(block)];
+        double exactSum = 0;
+        int exactN = 0;
+        double wsum = 0;
+        double vsum = 0;
+        for (const Seed &seed : bucket)
+        {
+          if (i == seed.i && j == seed.j && k == seed.k)
+          {
+            exactSum += seed.value;
+            ++exactN;
+            continue;
+          }
+          const double hx = static_cast<double>(i - seed.i) * grid.dx;
+          const double hy = static_cast<double>(j - seed.j) * grid.dy;
+          const double hz = static_cast<double>(k - seed.k) * verticalStep;
+          const double d2 = hx * hx + hy * hy + hz * hz;
+          if (!(d2 > 0.0))
+          {
+            exactSum += seed.value;
+            ++exactN;
+            continue;
+          }
+          const double w = 1.0 / std::pow(d2, power * 0.5);
+          wsum += w;
+          vsum += w * seed.value;
+        }
+        float value = kNan;
+        if (exactN > 0)
+          value = static_cast<float>(exactSum / static_cast<double>(exactN));
+        else if (wsum > 0.0)
+          value = static_cast<float>(vsum / wsum);
+        local.values[static_cast<std::size_t>(idx)] = value;
+        if (std::isfinite(value))
+          ++filled;
+        else
+          ++unfilled;
+      }
+    }
+    if (progress && !progress(static_cast<double>(j + 1) / static_cast<double>(grid.nj)))
+    {
+      setError(error, QStringLiteral("已取消"));
+      return false;
+    }
+  }
+  local.filledCells = filled;
+  local.unfilledLiveCells = unfilled;
+  *out = std::move(local);
   return true;
 }
 

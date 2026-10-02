@@ -1,0 +1,10 @@
+# goal/fault-surface — 断棒成面、断距与体域阻断。
+# 源文件与测试集中在此。根 CMakeLists 的模块源列表不改；清单只加本文件。
+# faultsurface 是既有 algorithms 模块下的子目录，不走 scripts/new_module.sh。
+
+target_sources(paleo_algorithms PRIVATE
+  src/algorithms/faultsurface/faultsurface.cpp)
+
+# 成面几何、断距、剖面交线、体域阻断、100×200 墙钟。主体是功能断言，串行防抖动。
+add_paleo_test(tst_faultsurface LIBS paleo_algorithms)
+set_tests_properties(tst_faultsurface PROPERTIES RUN_SERIAL TRUE)

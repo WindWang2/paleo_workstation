@@ -276,8 +276,8 @@ WellLegendDialog::WellLegendDialog(const ComprehensiveWellData &wellData, QWidge
 void WellLegendDialog::setupUi(const ComprehensiveWellData &data)
 {
   auto *rootLay = new QVBoxLayout(this);
-  rootLay->setContentsMargins(12, 12, 12, 12);
-  rootLay->setSpacing(10);
+  rootLay->setContentsMargins(16, 16, 16, 16);
+  rootLay->setSpacing(8);
 
   auto *tabWidget = new QTabWidget(this);
 
@@ -566,12 +566,8 @@ WellPositionLegendWidget::WellPositionLegendWidget(QWidget *parent)
     const auto &t = PaleoTheme::tokens();
     return QStringLiteral(
                "#wellPositionLegendWidget { background: %1; border-top: 1px solid %2; }"
-               "QLabel { color: %3; font-size: 8pt; }"
-               "QToolButton { background: %1; border: 1px solid %2; border-radius: 3px; padding: 1px 6px; font-size: 8pt; color: %3; font-weight: 500; }"
-               "QToolButton:hover { background: %4; border-color: %5; }"
-               "QToolButton:pressed { background: %2; }")
-        .arg(t.surface.name(), t.border.name(), t.text.name(),
-             t.surfaceAlt.name(), t.textDisabled.name());
+               "QLabel { color: %3; font-size: 8pt; }")
+        .arg(t.surface.name(), t.border.name(), t.text.name()) + PaleoTheme::toolButtonStyleSheet();
   });
 
   auto *mainLay = new QHBoxLayout(this);

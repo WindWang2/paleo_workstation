@@ -37,6 +37,7 @@
 #include "domain/seismic/sectiongeometry.h"
 #include "domain/seismic/sgysectionbuilder.h"
 #include "ui/paleotheme.h"
+#include "ui/paleoviewport.h"
 #include <QUndoStack>
 
 #include "services/seismictaskservice.h"
@@ -96,23 +97,16 @@ void SeismicSectionDockWidget::setupUi() {
     });
     auto *toolLay = new QHBoxLayout(toolbar);
     toolLay->setContentsMargins(8, 4, 8, 4);
-    toolLay->setSpacing(6);
+    toolLay->setSpacing(8);
 
     auto applyBtnStyle = [](QToolButton *btn) {
-        PaleoTheme::applyThemedStyleSheet(btn, [] {
-            const auto &t = PaleoTheme::tokens();
-            return QStringLiteral(
-                "QToolButton { background: transparent; border: 1px solid %1; border-radius: 4px; padding: 2px 6px; font-size: 8pt; color: %2; }"
-                "QToolButton:hover { background: %3; }"
-                "QToolButton:pressed { background: %4; }")
-                .arg(t.border.name().toUpper(), t.text.name().toUpper(),
-                     t.surfaceAlt.name().toUpper(), t.surfaceAltRaised.name().toUpper());
-        });
+        PaleoTheme::applyThemedStyleSheet(btn, [] { return PaleoTheme::toolButtonStyleSheet(); });
     };
     auto *setup = new QToolButton(toolbar);
     setup->setObjectName("sectionSetupButton");
     setup->setText(tr("连井 / 时深"));
     setup->setToolTip(tr("选择连井顺序、绘制任意折线、调整逐井时深关系"));
+    applyBtnStyle(setup);
     toolLay->addWidget(setup);
     connect(setup, &QToolButton::clicked, this,
             &SeismicSectionDockWidget::setupRequested);
@@ -188,7 +182,7 @@ void SeismicSectionDockWidget::setupUi() {
 
     toolLay->addWidget(m_sliceGroup);
     toolLay->addStretch(1);
-    mainLay->addWidget(toolbar);
+    mainLay->addWidget(new PaleoToolRow(toolbar, container));
     toolbar = new QWidget(container);
     toolLay = new QHBoxLayout(toolbar);
     toolLay->setContentsMargins(8, 4, 8, 4);
@@ -326,7 +320,7 @@ void SeismicSectionDockWidget::setupUi() {
     applyBtnStyle(m_btnExport);
     toolLay->addWidget(m_btnExport);
 
-    mainLay->addWidget(toolbar);
+    mainLay->addWidget(new PaleoToolRow(toolbar, container));
 
     // ==========================================
     // 2. Center Canvas（先建——Display Bar 的控件以 m_canvas 为接收者）
@@ -442,19 +436,7 @@ void SeismicSectionDockWidget::setupUi() {
 
     connect(m_btnExport, &QToolButton::clicked, this, &SeismicSectionDockWidget::onExportSnapshot);
 
-    // D2.13 复制/打印按钮（追加在主工具栏尾部）。chrome 走 token 活体注册；
-    // 原 #E8F0FE 蓝染按下底无 token——换 surfaceAltRaised + primary 描边范式
-    //（同 PaleoTheme::ribbonStyleSheet checked 档）。
-    const auto themedBtnStyle = [] {
-        const auto &t = PaleoTheme::tokens();
-        return QStringLiteral(
-            "QToolButton { background: transparent; border: 1px solid %1; border-radius: 4px;"
-            " padding: 2px 6px; font-size: 8.5pt; color: %2; }"
-            "QToolButton:hover { background: %3; border-color: %4; }"
-            "QToolButton:pressed { background: %5; border-color: %4; }")
-            .arg(t.border.name(), t.text.name(), t.surfaceAlt.name(),
-                 t.primary.name(), t.surfaceAltRaised.name());
-    };
+    const auto themedBtnStyle = [] { return PaleoTheme::toolButtonStyleSheet(); };
     m_btnCopy = new QToolButton(toolbar);
     m_btnCopy->setText(tr("复制"));
     m_btnCopy->setToolTip(tr("复制剖面图到剪贴板（含坐标轴与色标）"));
@@ -717,27 +699,15 @@ private:
 } // namespace
 
 namespace {
-// 显示条控件样式的 token 出口（goal/ui-experience-polish：原 btnStyle/
-// lblStyle 字面量收敛，活体注册随主题重算）。#E8F0FE 蓝染选中底无 token
-// ——换 surfaceAltRaised + primary 描边范式（同 ribbonStyleSheet checked 档）。
+// 显示条共用中性工具按钮与次级标签，随主题重算。
 void themedButtonStyle(QWidget *w)
 {
-    PaleoTheme::applyThemedStyleSheet(w, [] {
-        const auto &t = PaleoTheme::tokens();
-        return QStringLiteral(
-            "QToolButton { background: transparent; border: 1px solid %1; border-radius: 4px;"
-            " padding: 1px 6px; font-size: 8.5pt; color: %2; }"
-            "QToolButton:hover { background: %3; border-color: %4; }"
-            "QToolButton:checked { background: %5; color: %4; border-color: %4; }")
-            .arg(t.border.name(), t.text.name(), t.surfaceAlt.name(),
-                 t.primaryText.name(), t.surfaceAltRaised.name());
-    });
+    PaleoTheme::applyThemedStyleSheet(w, [] { return PaleoTheme::toolButtonStyleSheet(); });
 }
 void themedCaptionStyle(QWidget *w)
 {
     PaleoTheme::applyThemedStyleSheet(w, [] {
-        return PaleoTheme::mutedCaptionStyleSheet() +
-               QStringLiteral(" font-size: 8.5pt;");
+        return PaleoTheme::mutedCaptionStyleSheet();
     });
 }
 void themedComboStyle(QWidget *w)
@@ -746,7 +716,7 @@ void themedComboStyle(QWidget *w)
         const auto &t = PaleoTheme::tokens();
         return QStringLiteral(
             "QComboBox { border: 1px solid %1; border-radius: 4px;"
-            " padding: 1px 6px; font-size: 8.5pt; }")
+            " padding: 1px 6px; font-size: 8pt; }")
             .arg(t.border.name());
     });
 }
@@ -761,7 +731,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     });
     auto *lay = new QHBoxLayout(bar);
     lay->setContentsMargins(8, 2, 8, 2);
-    lay->setSpacing(6);
+    lay->setSpacing(8);
 
     // D2.2 显示三模
     auto *lblMode = new QLabel(tr("显示:"), bar);
@@ -906,7 +876,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     // 在画布创建之后才调用（m_canvas 作接收者的连接需要它先在），但视觉
     // 位置不变。
     if (auto *mainLay = qobject_cast<QVBoxLayout *>(parent->layout())) {
-        mainLay->insertWidget(1, bar);
+        mainLay->insertWidget(1, new PaleoToolRow(bar, parent));
     }
 
     // ---- 信号接线 ----

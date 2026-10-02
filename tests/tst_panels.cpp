@@ -2252,12 +2252,15 @@ private:
     {
         QTimer::singleShot(0, [drive] {
             if (QWidget *m = QApplication::activeModalWidget())
+            {
+                // 兜底只绑定本次对话框；不能在 3s 后误关后续用例的模态。
+                QPointer<QWidget> guard(m);
+                QTimer::singleShot(3000, m, [guard] {
+                    if (guard && guard->isVisible())
+                        guard->close();
+                });
                 drive(m);
-        });
-        // 兜底：驱动失配（类型/时机不对）3s 后强关活动模态——测试失败但不挂死。
-        QTimer::singleShot(3000, [] {
-            if (QWidget *m = QApplication::activeModalWidget())
-                m->close();
+            }
         });
     }
 

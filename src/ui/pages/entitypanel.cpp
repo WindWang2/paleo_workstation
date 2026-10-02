@@ -98,7 +98,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   viewContent->setObjectName(QStringLiteral("entityViewContent"));
   auto *vcl = new QVBoxLayout(viewContent);
   vcl->setContentsMargins(0, 0, 0, 0);
-  vcl->setSpacing(6);
+  vcl->setSpacing(8);
 
   auto *entityHeader = new QLabel(viewContent);
   entityHeader->setObjectName(QStringLiteral("entityViewHeader"));
@@ -399,7 +399,7 @@ void EntityPanel::buildD4Ui()
       statsLabel->setObjectName(QStringLiteral("propStatsText"));
       statsLabel->setWordWrap(true);
       PaleoTheme::applyThemedStyleSheet(statsLabel, [] {
-        return QStringLiteral("color: %1; font-size: 8.5pt;")
+        return QStringLiteral("color: %1; font-size: 8pt;")
             .arg(PaleoTheme::tokens().text.name().toUpper());
       });
       secStats->containerLayout()->addWidget(statsLabel);

@@ -30,16 +30,7 @@ QToolButton *mkBtn(const QString &text, const QString &tooltip)
     auto *btn = new QToolButton();
     btn->setText(text);
     btn->setToolTip(tooltip);
-    PaleoTheme::applyThemedStyleSheet(btn, [] {
-        const auto &t = PaleoTheme::tokens();
-        return QStringLiteral(
-            "QToolButton { background: transparent; border: 1px solid %1; border-radius: 4px;"
-            " padding: 2px 6px; font-size: 8.5pt; color: %2; }"
-            "QToolButton:hover { background: %3; border-color: %4; }"
-            "QToolButton:disabled { color: %5; }")
-            .arg(t.border.name(), t.text.name(), t.surfaceAlt.name(),
-                 t.primary.name(), t.textDisabled.name());
-    });
+    PaleoTheme::applyThemedStyleSheet(btn, [] { return PaleoTheme::toolButtonStyleSheet(); });
     return btn;
 }
 } // namespace

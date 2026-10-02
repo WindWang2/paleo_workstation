@@ -9,6 +9,7 @@
 #include <QVariantMap>
 
 #include <qgscategorizedsymbolrenderer.h>
+#include <qgsexpression.h>
 #include <qgsfillsymbol.h>
 #include <qgsmaplayer.h>
 #include <qgsmarkersymbol.h>
@@ -227,13 +228,65 @@ void QgisStyleService::applyWellLayerStyle(QgsVectorLayer *layer)
   layer->setRenderer(
       new QgsSingleSymbolRenderer(QgsMarkerSymbol::createSimple(props).release()));
 
+  // 标记保持这一套圆点。文字在有沉积相字段时加一行相名，没有则仍只标井名。
+  auto columnOrNull = [layer](const QString &name) -> QString {
+    if (layer->fields().lookupField(name) < 0)
+      return QString();
+    return QStringLiteral("nullif(trim(to_string(%1)), '')")
+        .arg(QgsExpression::quotedColumnRef(name));
+  };
+  QStringList faciesExprs;
+  for (const QString &field : {QStringLiteral("facies_label"), QStringLiteral("microfacies"),
+                               QStringLiteral("subfacies"), QStringLiteral("facies_name"),
+                               QStringLiteral("facies"), QStringLiteral("沉积相"),
+                               QStringLiteral("微相"), QStringLiteral("亚相"),
+                               QStringLiteral("相")})
+  {
+    const QString expr = columnOrNull(field);
+    if (!expr.isEmpty())
+      faciesExprs << expr;
+  }
+  QString nameExpr;
+  for (const QString &field : {QStringLiteral("name"), QStringLiteral("well_name"),
+                               QStringLiteral("井名")})
+  {
+    nameExpr = columnOrNull(field);
+    if (!nameExpr.isEmpty())
+      break;
+  }
+
   QgsPalLayerSettings lbl;
-  lbl.fieldName = QStringLiteral("name");
-  lbl.isExpression = false;
+  if (faciesExprs.isEmpty())
+  {
+    lbl.fieldName = QStringLiteral("name");
+    lbl.isExpression = false;
+  }
+  else
+  {
+    const QString faciesExpr =
+        QStringLiteral("coalesce(%1)").arg(faciesExprs.join(QStringLiteral(", ")));
+    lbl.isExpression = true;
+    lbl.fieldName = QStringLiteral(
+                        "with_variable('nm', %1, with_variable('fc', %2, "
+                        "CASE WHEN @nm IS NULL AND @fc IS NULL THEN '' "
+                        "WHEN @nm IS NULL THEN @fc "
+                        "WHEN @fc IS NULL THEN @nm "
+                        "ELSE @nm || '\\n' || @fc END))")
+                        .arg(nameExpr.isEmpty() ? QStringLiteral("NULL") : nameExpr, faciesExpr);
+    lbl.placement = Qgis::LabelPlacement::OrderedPositionsAroundPoint;
+  }
   QgsTextFormat fmt;
   fmt.setSize(9.0);
   fmt.setSizeUnit(Qgis::RenderUnit::Points);
   fmt.setColor(QColor(QStringLiteral("#24303E")));
+  if (!faciesExprs.isEmpty())
+  {
+    QgsTextBufferSettings buffer;
+    buffer.setEnabled(true);
+    buffer.setSize(0.8);
+    buffer.setColor(Qt::white);
+    fmt.setBuffer(buffer);
+  }
   lbl.setFormat(fmt);
   layer->setLabeling(new QgsVectorLayerSimpleLabeling(lbl));
   layer->setLabelsEnabled(true);

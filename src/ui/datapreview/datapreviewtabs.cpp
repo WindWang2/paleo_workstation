@@ -36,6 +36,7 @@
 #include <qgscolorrampimpl.h>
 #include <qgssinglebandpseudocolorrenderer.h>
 #include <qgsrubberband.h>
+#include <qgsexpression.h>
 #include <qgsgeometry.h>
 #include <qgsvectorlayer.h>
 #include <qgsfields.h>
@@ -484,6 +485,31 @@ namespace
 
   // 相字段分类渲染（geojson 预览与 D2.10 同目录叠加共用；D2.4 图例的
   // category 数据也从渲染器读回）。
+  // 测井点只用一套圆点。相的差别放在文字上，不放在标记颜色上。
+  std::unique_ptr<QgsSymbol> unifiedWellPointSymbol()
+  {
+    QVariantMap props;
+    props[QStringLiteral( "name" )] = QStringLiteral( "circle" );
+    props[QStringLiteral( "color" )] = QStringLiteral( "#24303E" );
+    props[QStringLiteral( "outline_color" )] = QStringLiteral( "#FFFFFF" );
+    props[QStringLiteral( "outline_width" )] = QStringLiteral( "0.4" );
+    props[QStringLiteral( "size" )] = QStringLiteral( "3" );
+    return QgsMarkerSymbol::createSimple( props );
+  }
+
+  QString firstExistingField( QgsVectorLayer *vlayer, std::initializer_list<QString> names )
+  {
+    if ( !vlayer )
+      return {};
+    for ( const QString &name : names )
+    {
+      const int idx = vlayer->fields().lookupField( name );
+      if ( idx >= 0 )
+        return vlayer->fields().at( idx ).name();
+    }
+    return {};
+  }
+
   void applyFaciesRendererToLayer( QgsVectorLayer *vlayer, const QString &fieldName )
   {
     if ( !vlayer || !vlayer->isValid() || fieldName.isEmpty() )
@@ -491,6 +517,7 @@ namespace
     const int fieldIdx = vlayer->fields().lookupField( fieldName );
     if ( fieldIdx < 0 )
       return;
+    const bool point = vlayer->geometryType() == Qgis::GeometryType::Point;
     QSet<QString> uniqueVals;
     QgsFeatureIterator it = vlayer->getFeatures();
     QgsFeature feat;
@@ -503,18 +530,44 @@ namespace
     QgsCategoryList categories;
     for ( const QString &val : uniqueVals )
     {
-      const QColor col = faciesColor( val );
-      std::unique_ptr<QgsSymbol> sym = createFaciesSymbol( vlayer->geometryType(), col );
+      std::unique_ptr<QgsSymbol> sym =
+          point ? unifiedWellPointSymbol()
+                : createFaciesSymbol( vlayer->geometryType(), faciesColor( val ) );
       categories.append( QgsRendererCategory( val, sym.release(), val ) );
     }
     std::unique_ptr<QgsSymbol> defSym =
-        createFaciesSymbol( vlayer->geometryType(), QColor( QStringLiteral( "#CFD8DC" ) ) );
+        point ? unifiedWellPointSymbol()
+              : createFaciesSymbol( vlayer->geometryType(), QColor( QStringLiteral( "#CFD8DC" ) ) );
     categories.append( QgsRendererCategory( QVariant(), defSym.release(), QObject::tr( "其他" ) ) );
     vlayer->setRenderer( new QgsCategorizedSymbolRenderer( fieldName, categories ) );
 
+    const QString labelField = vlayer->fields().at( fieldIdx ).name();
+    const QString nameField = firstExistingField(
+        vlayer, { QStringLiteral( "name" ), QStringLiteral( "well_name" ),
+                  QStringLiteral( "井名" ) } );
     QgsPalLayerSettings palSettings;
-    palSettings.fieldName = fieldName;
-    palSettings.isExpression = false;
+    if ( point && !nameField.isEmpty() &&
+         nameField.compare( labelField, Qt::CaseInsensitive ) != 0 )
+    {
+      const auto nullif = []( const QString &field ) {
+        return QStringLiteral( "nullif(trim(to_string(%1)), '')" )
+            .arg( QgsExpression::quotedColumnRef( field ) );
+      };
+      palSettings.isExpression = true;
+      palSettings.fieldName = QStringLiteral(
+          "with_variable('nm', %1, with_variable('fc', %2, "
+          "CASE WHEN @nm IS NULL AND @fc IS NULL THEN '' "
+          "WHEN @nm IS NULL THEN @fc "
+          "WHEN @fc IS NULL THEN @nm "
+          "ELSE @nm || '\\n' || @fc END))" )
+                                  .arg( nullif( nameField ), nullif( labelField ) );
+      palSettings.placement = Qgis::LabelPlacement::OrderedPositionsAroundPoint;
+    }
+    else
+    {
+      palSettings.fieldName = labelField;
+      palSettings.isExpression = false;
+    }
     QgsTextFormat txtFmt;
     QFont font( QStringLiteral( "Noto Sans SC" ), 9, QFont::Medium );
     txtFmt.setFont( font );
@@ -4206,7 +4259,10 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     auto *btnLabels = new QToolButton(topBar);
     btnLabels->setObjectName(QStringLiteral("btnToggleLabels"));
     btnLabels->setText(tr("名称标注"));
-    btnLabels->setToolTip(tr("显示/隐藏要素名称标注"));
+    btnLabels->setToolTip(
+        vlayer && vlayer->geometryType() == Qgis::GeometryType::Point
+            ? tr("显示或隐藏文字标注。点标记保持统一；有沉积相字段时标出相名")
+            : tr("显示/隐藏要素名称标注"));
     btnLabels->setCheckable(true);
     btnLabels->setChecked(true);
     btnLabels->setToolButtonStyle(Qt::ToolButtonTextOnly);

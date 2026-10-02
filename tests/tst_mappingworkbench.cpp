@@ -194,6 +194,16 @@ private slots:
         dynamic_cast<QgsCategorizedSymbolRenderer *>(layer.renderer());
     QVERIFY(renderer);
     QVERIFY(renderer->categories().last().value().isNull());
+    // 测井点标记统一成同一圆点；相名只出现在文字标注里。
+    QColor unified;
+    for (const QgsRendererCategory &cat : renderer->categories()) {
+      QVERIFY(cat.symbol());
+      if (!unified.isValid())
+        unified = cat.symbol()->color();
+      else
+        QCOMPARE(cat.symbol()->color(), unified);
+    }
+    QCOMPARE(unified.name().toUpper(), QStringLiteral("#24303E"));
     QVERIFY(renderer->categories().last().symbol());
     QgsRenderContext context;
     renderer->startRender(context, layer.fields());

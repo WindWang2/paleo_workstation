@@ -334,19 +334,23 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
       QgsSymbol *symbol = QgsSymbol::defaultSymbol(vector->geometryType());
       if (!symbol)
         continue;
-      symbol->setColor(QColor(f.value("color").toString()));
+      const bool point = vector->geometryType() == Qgis::GeometryType::Point;
+      // 测井点标记统一：不按相改颜色、不换 SVG。相名走文字标注。
+      // 面仍用相色和纹理填充。
+      if (!point)
+        symbol->setColor(QColor(f.value("color").toString()));
+      else
+        symbol->setColor(QColor(QStringLiteral("#24303E")));
       const auto texture =
           FaciesCatalog::fillPath(f.value("texture").toString());
-      if (!texture.isEmpty()) {
+      if (!texture.isEmpty() && !point) {
         if (vector->geometryType() == Qgis::GeometryType::Polygon)
           symbol->changeSymbolLayer(0, new QgsSVGFillSymbolLayer(texture, 10));
-        // 点层不换 SVG 插图标记：strat_*.svg 是带文字的插图，缩到标记尺寸后
-        // 是不可读噪点。保持实心圆（相色已由 setColor 上），放大 + 白描边
-        // 保证浅色相色在底图上可辨（对照井位点样式 qgisstyleservice）。
       }
-      if (vector->geometryType() == Qgis::GeometryType::Point) {
+      if (point) {
         auto *marker = static_cast<QgsMarkerSymbol *>(symbol);
         marker->setSize(3.2);
+        marker->setColor(QColor(QStringLiteral("#24303E")));
         if (auto *simple =
                 dynamic_cast<QgsSimpleMarkerSymbolLayer *>(marker->symbolLayer(0))) {
           simple->setStrokeColor(QColor(QStringLiteral("#FFFFFF")));
@@ -359,7 +363,18 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
     // A default category includes both NULL and codes missing from the schema.
     auto *fallback = QgsSymbol::defaultSymbol(vector->geometryType());
     if (fallback) {
-      fallback->setColor(QColor("#9AA7B4"));
+      const bool point = vector->geometryType() == Qgis::GeometryType::Point;
+      fallback->setColor(point ? QColor(QStringLiteral("#24303E"))
+                               : QColor(QStringLiteral("#9AA7B4")));
+      if (point) {
+        auto *marker = static_cast<QgsMarkerSymbol *>(fallback);
+        marker->setSize(3.2);
+        if (auto *simple =
+                dynamic_cast<QgsSimpleMarkerSymbolLayer *>(marker->symbolLayer(0))) {
+          simple->setStrokeColor(QColor(QStringLiteral("#FFFFFF")));
+          simple->setStrokeWidth(0.6);
+        }
+      }
       categories.append(QgsRendererCategory(QVariant(), fallback,
                                             QObject::tr("其他 / 未分类")));
     }

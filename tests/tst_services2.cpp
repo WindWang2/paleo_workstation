@@ -4,6 +4,8 @@
 
 #include <qgsapplication.h>
 #include <qgscategorizedsymbolrenderer.h>
+#include <qgsexpression.h>
+#include <qgsexpressioncontext.h>
 #include <qgsgeometry.h>
 #include <qgslayout.h>
 #include <qgslayoutitemlabel.h>
@@ -15,6 +17,7 @@
 #include <qgsrenderer.h>
 #include <qgssinglesymbolrenderer.h>
 #include <qgsvectorlayer.h>
+#include <qgsvectorlayerlabeling.h>
 
 #include "../src/algorithms/paleoalgorithms.h"
 #include "../src/metadata/paleoprojectstore.h"
@@ -240,6 +243,50 @@ private slots:
     // null layer -> false + error
     QVERIFY(!svc.applyStyle(nullptr, QStringLiteral("redpoint"), &err));
     QVERIFY(!err.isEmpty());
+  }
+
+  // 测井点：标记保持统一圆点；有沉积相字段时文字标注带相名。
+  void wellPointLabelShowsFacies()
+  {
+    QgsVectorLayer layer(
+        QStringLiteral("Point?field=name:string&field=facies_label:string&field=microfacies:string&crs=EPSG:4326"),
+        QStringLiteral("wells"), QStringLiteral("memory"));
+    QVERIFY(layer.isValid());
+    QgsFeature feature(layer.fields());
+    feature.setAttribute(QStringLiteral("name"), QStringLiteral("A1"));
+    feature.setAttribute(QStringLiteral("facies_label"), QString::fromUtf8("水下分流河道"));
+    feature.setAttribute(QStringLiteral("microfacies"), QString::fromUtf8("河口坝"));
+    feature.setGeometry(QgsGeometry::fromWkt(QStringLiteral("POINT(1 2)")));
+    QVERIFY(layer.dataProvider()->addFeature(feature));
+
+    QgisStyleService::applyWellLayerStyle(&layer);
+    auto *single = dynamic_cast<QgsSingleSymbolRenderer *>(layer.renderer());
+    QVERIFY(single);
+    QVERIFY(single->symbol());
+    QCOMPARE(single->symbol()->color().name().toUpper(), QStringLiteral("#24303E"));
+    QVERIFY(layer.labelsEnabled());
+    QVERIFY(layer.labeling());
+    QVERIFY(layer.labeling()->settings().isExpression);
+    QgsExpression expr(layer.labeling()->settings().fieldName);
+    QVERIFY2(!expr.hasParserError(), qPrintable(expr.parserErrorString()));
+    QgsExpressionContext ctx;
+    ctx.setFields(layer.fields());
+    ctx.setFeature(feature);
+    QCOMPARE(expr.evaluate(&ctx).toString(), QString::fromUtf8("A1\n水下分流河道"));
+    feature.setAttribute(QStringLiteral("facies_label"), QString());
+    ctx.setFeature(feature);
+    QCOMPARE(expr.evaluate(&ctx).toString(), QString::fromUtf8("A1\n河口坝"));
+
+    QgsVectorLayer plain(QStringLiteral("Point?field=name:string&crs=EPSG:4326"),
+                         QStringLiteral("plain"), QStringLiteral("memory"));
+    QVERIFY(plain.isValid());
+    QgisStyleService::applyWellLayerStyle(&plain);
+    QVERIFY(plain.labeling());
+    QVERIFY(!plain.labeling()->settings().isExpression);
+    QCOMPARE(plain.labeling()->settings().fieldName, QStringLiteral("name"));
+    auto *plainSymbol = dynamic_cast<QgsSingleSymbolRenderer *>(plain.renderer());
+    QVERIFY(plainSymbol);
+    QCOMPARE(plainSymbol->symbol()->color().name().toUpper(), QStringLiteral("#24303E"));
   }
 
   // C3（wave/deepen-perf）：井类别符号（Q/HS 1011—2016 表 K.1 十二类）——

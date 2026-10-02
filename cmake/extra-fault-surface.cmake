@@ -5,6 +5,12 @@
 target_sources(paleo_algorithms PRIVATE
   src/algorithms/faultsurface/faultsurface.cpp)
 
+target_sources(paleo_workflow PRIVATE
+  src/workflow/faultsurfaceworkflow.cpp)
+target_link_libraries(paleo_workflow PUBLIC paleo_algorithms)
+
 # 成面几何、断距、剖面交线、体域阻断、100×200 墙钟。主体是功能断言，串行防抖动。
 add_paleo_test(tst_faultsurface LIBS paleo_algorithms)
 set_tests_properties(tst_faultsurface PROPERTIES RUN_SERIAL TRUE)
+
+add_paleo_test(tst_faultsurfaceworkflow LIBS paleo_workflow)

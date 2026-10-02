@@ -56,9 +56,10 @@
 - **Priority:** P3
 - **Depends on:** goal/seismic-attributes 已落核函数库/任务编排/SATR（可复用）
 
-## P3 — catalog.sqlite 查询索引（deferred from /autoplan SELECTIVE EXPANSION, 2026-09-25）
+## ~~P3 — catalog.sqlite 查询索引（deferred from /autoplan SELECTIVE EXPANSION, 2026-09-25）~~（已落地：goal/catalog-sqlite, 2026-10-02）
 
-- **What:** 由 `catalog.json` 重建 `catalog.sqlite`，作为资产、版本、关联的查询索引。
+- ~~**What:** 由 `catalog.json` 重建 `catalog.sqlite`，作为资产、版本、关联的查询索引。~~
+  **2026-10-02 交叉注记**：持久化已迁到独立 `artifacts/metadata/catalog.sqlite`（内存四表仍是查询事实源，不是可重建查询索引）。邻条 mutator 写路径超线性 profiling 保持 2026-10-01 关闭，不重开。
 - **Why:** ADR 0056 把 sqlite 定义为可重建索引，避免打开工程时扫 JSON。
 - **Pros:** 资产变多后列表和校验不用每次解析整份 catalog。
 - **Cons:** 20 口井的第一段用 JSON 就够；提前做会多一个必须和 catalog.json 对齐的存储。

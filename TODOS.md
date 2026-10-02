@@ -1,3 +1,19 @@
+## P3 — 地层格架后续：断块网格 / 随机模拟 / 壳层菜单（from goal/property-modeling, 2026-10-02）
+
+- **What:** V1 只做等比例 IJK 格架 + 井曲线粗化 + 断层竖帘阻断的 IDW。
+  未做 pillar/断块错位网格、Y 型断层、沉积相带/对象建模、序贯高斯模拟，
+  也未做变差函数克里金。壳层还没把 PropertyModelPanel 接进主窗菜单
+  （信号、剖面 setZoneOverlay、3D updatePropertySlice 均已单测）。
+- **Why:** 工区从解释到建模的最小闭环要先钉住地层坐标和断层阻断口径；
+  断块网格和随机模拟是另一立项，和 goal/synthetic-welltie 抢主窗接线
+  会互相踩文件。
+- **Pros:** 等比例格架和 IDW 已能出 DERIVED 属性体；**Cons:** 斜井轨迹、
+  断距错位和相控仍要另做。
+- **Context:** docs/progress/property-modeling.md「递延」。
+- **Effort:** human: L / CC: L
+- **Priority:** P3
+- **Depends on:** goal/property-modeling 的格架核与属性体容器
+
 ## P3 — 层位自动追踪 3D 服务暴露 + 显式倾角引导（from goal/horizon-autotrack, 2026-10-02）
 
 - **What:** 3D 前沿扫掠（algorithms/horizontrack::propagateVolume，数值核 +

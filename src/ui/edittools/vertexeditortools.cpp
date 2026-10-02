@@ -3,8 +3,6 @@
 
 #include "qgis/topologicalindex.h"
 
-#include <map>
-#include <tuple>
 
 #include <QKeyEvent>
 #include <QHash>
@@ -584,15 +582,14 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
                          : ( 1 + k );
       if ( ringVertices < minReq )
       {
-        emit messageEmitted( tr( "无法删除节点：共边要素将变为无效" ),
+        const bool isSelf = ( member.layer == layer && member.fid == fid );
+        emit messageEmitted( isSelf ? tr( "无法删除节点：要素将变为无效" )
+                                    : tr( "无法删除节点：共边要素将变为无效" ),
                              Qgis::MessageLevel::Warning );
         return;
       }
     }
 
-    mCommitting = true;
-    // One edit command per touched layer (native undo stacks are per-layer;
-    // cross-layer gestures undo layer by layer — see header notes).
     mCommitting = true;
     // One edit command per touched layer (native undo stacks are per-layer;
     // cross-layer gestures undo layer by layer — see header notes).

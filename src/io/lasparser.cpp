@@ -657,8 +657,8 @@ bool LasParser::parseRange(const QString &path, qint64 rowFrom, qint64 rowTo,
   if (!scanHeaderFromFile(f, &header, error, issues, path))
     return false;
   const QStringList &names = header.header.curveNames;
-  f.seek(0);
-  const qint64 asciiOff = header.asciiDataOffset + bomAdjustment(f.peek(3));
+  // asciiDataOffset 在 scanHeader 内已含 BOM 补偿（绝对字节偏移）——勿再加。
+  const qint64 asciiOff = header.asciiDataOffset;
 
   if (f.size() <= 8 * 1024 * 1024)
   {
@@ -765,8 +765,8 @@ bool LasParser::parseDepthRange(const QString &path, double fromDepth, double to
 
   // 流式逐行：DEPT 落在 [from,to] 内的行收；DEPT 单调递增时越过 to 即停。
   const qint64 fileSize = f.size();
-  f.seek(0);
-  qint64 pos = header.asciiDataOffset + bomAdjustment(f.peek(3));
+  // asciiDataOffset 已是含 BOM 补偿的绝对偏移——勿再 peek+加。
+  qint64 pos = header.asciiDataOffset;
   // #78：块尾半行不留 carry——下一块直接从 pos + usable（即半行起点）重读。
   // 旧实现 carry + 从 base+usable 重读，会把半行字节拼两次：块边界行错列，
   // 截断点落在深度 token 中间时还会拼出越界深度、触发「越界即停」静默截断。

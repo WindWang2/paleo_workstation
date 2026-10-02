@@ -90,6 +90,11 @@
 - 栅格预算：工作流层 4M 格闸 + 核层 1e8 格闸。
 - 约束线不参与克里金/SGS 求解（v1 语义：硬屏障连通/绕距是独立度量，
   见 faultpath），产物 extra 如实不含屏障计数——递延见下。
+- **「方法参数入 lineParams 持久化往返」的实现口径**：方法级参数（不是
+  逐线语义参数）走 params → QC `parameters` 节 → 参数指纹 → catalog
+  extra 落盘，测试断言写读一致（tst_geostat_workflow）。逐线
+  params_json 的语义白名单（knownConstraintSemantic）未扩展——往里面塞
+  方法级键会破坏逐线 schema 的兼容承诺，属另一变更面。
 
 ## 本机命令
 

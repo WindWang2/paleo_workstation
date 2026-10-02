@@ -404,6 +404,8 @@ bool InversionWorkflow::prepareInversionJob(const InversionJobRequest &req, Inve
         return setError(error, QStringLiteral("地震体路径无效: %1").arg(req.seismicPath));
     if (!(req.lowCutHz > 0.0))
         return setError(error, QStringLiteral("lowCutHz 必须 > 0"));
+    if (req.maxThreads < 0)
+        return setError(error, QStringLiteral("maxThreads 必须 >= 0"));
 
     paleo::inversion::Wavelet wavelet = req.wavelet;
     if (!req.hasWaveletValue) {
@@ -524,7 +526,10 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
     std::atomic<bool> aborted{false};
     std::mutex progressMutex;
     const int total = traces.size();
-    const int nThreads = std::max(1, std::min(4, int(std::thread::hardware_concurrency())));
+    const int autoThreads = std::max(1, std::min(4, int(std::thread::hardware_concurrency())));
+    const int nThreads = job->req.maxThreads > 0
+                             ? std::min(64, job->req.maxThreads)
+                             : autoThreads;
     const int chunk = (total + nThreads - 1) / nThreads;
 
     // 线程局部聚合（join 后合并），避免跨线程浮点累加竞态。

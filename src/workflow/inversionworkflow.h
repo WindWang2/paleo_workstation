@@ -85,6 +85,7 @@ public:
         double lowCutHz = 8.0;
         double lambda = 0.0;        // sparse；<=0 → 自动
         int maxIterations = 200;    // sparse
+        int maxThreads = 0;         // 道并行上限；0 = auto（min(4, 硬件)），>0 夹 [1,64]
         double waveletLengthMs = 128.0; // 兜底理论 Ricker 用（无子波文件时拒绝，不留暗兜底）
         std::vector<LowFreqWellInput> lowFreqWells; // 可空 → 无低频（带限口径，如实记）
         std::vector<paleo::inversion::HorizonTwtGrid> horizons; // 可空 → 全局趋势回退

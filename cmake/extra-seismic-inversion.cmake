@@ -30,3 +30,11 @@ target_sources(paleo_ui PRIVATE
 
 # 面板是薄表单（信号/回填/诚实文案），offscreen 可测。
 add_paleo_test(tst_inversion_panel LIBS paleo_ui)
+
+# 性能门：263k 级合成体全量反演墙钟 + 道并行加速比（RUN_SERIAL 防抖动）。
+add_paleo_test(tst_inversion_perf LIBS paleo_workflow)
+set_tests_properties(tst_inversion_perf PROPERTIES RUN_SERIAL TRUE)
+
+# 真工区实测：env 门控（PALEO_REAL_PROJECT_AREA / PALEO_SEISMIC_REAL_SGY），
+# 只读契约，墙钟记账不设硬门。
+add_paleo_test(tst_inversion_realarea LIBS paleo_workflow)

@@ -136,7 +136,10 @@ public:
     QString registerCurrentAttributeAsset(QString *error = nullptr);
     void setTrackSeedPick(int pickId) { m_trackSeedPick = pickId; }
     void setTrackOptions(const SeismicTrackOptions &opt) { m_trackOptions = opt; }
-    void runTracking();                                // D4.2 种子追踪
+    void runTracking();                                // D4.2 种子追踪（异步）
+    void cancelTracking();                             // 取消在途追踪
+    bool trackingActive() const { return m_trackTask != nullptr; }
+    const SeismicTrackReport &lastTrackReport() const { return m_lastTrackReport; }
     SeismicPickPanel *pickPanel() const { return m_pickPanel; }
     void setPickMode(SectionPickMode mode);
 
@@ -144,6 +147,12 @@ signals:
   void setupRequested();
   void sectionExtractionFinished(bool success, const QString &message);
   void pointClickedOnMap(double x, double y);
+  // goal/horizon-autotrack — 追踪任务终态（ok=false：取消/失败；报告经
+  // lastTrackReport()/面板覆盖率行取）
+  void trackingFinished(bool ok);
+  // goal/horizon-autotrack — 层位资产登记产出可上图声明（app 装配接
+  // QgisLayerService::declare）
+  void horizonLayerDeclared(const LayerDeclaration &decl);
 
 private slots:
     void onZoomChanged(double zoom);
@@ -249,6 +258,8 @@ private:
     SgySliceImage m_lastSlice;                 // 追踪原料（最近一次剖面提取）
     int m_trackSeedPick = -1;
     SeismicTrackOptions m_trackOptions;
+    QPointer<PaleoTask> m_trackTask;           // goal/horizon-autotrack 异步追踪
+    SeismicTrackReport m_lastTrackReport;
     DataCatalog *m_catalog = nullptr;          // 资产登记上下文（app 层注入）
     QString m_catalogAssetId;
     QString m_catalogVersionId;

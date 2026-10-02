@@ -41,9 +41,12 @@ class PerfRegressTests : public QObject
 
 QJsonObject PerfRegressTests::loadBaselines()
 {
-  // 源树内固定路径（PROJECT_FIXTURE_DIR 之外的第二个注入宏不可加——直接从
-  // 编译期已知的源码相对路径找：测试 CWD = build 目录，源树在上两级）。
+  // 首选编译期注入的源码树绝对路径（审计 01 M5：构建目录在源码树外也命中）；
+  // 相对 CWD 的候选保留作兼容回落。
   const QStringList candidates = {
+#ifdef PALEO_SOURCE_DIR
+      QStringLiteral(PALEO_SOURCE_DIR "/docs/perf/baselines/ratios.json"),
+#endif
       QStringLiteral("../docs/perf/baselines/ratios.json"),
       QStringLiteral("../../docs/perf/baselines/ratios.json"),
       QStringLiteral("docs/perf/baselines/ratios.json"),

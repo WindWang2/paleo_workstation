@@ -564,6 +564,12 @@ QString PaleoOnnxService::vendorRuntimeDir()
     if ( !dir.cdUp() )
       break;
   }
+#ifdef PALEO_ORT_ROOT
+  // Build dir outside the source tree (audit 01 M5): fall back to the ORT
+  // root CMake found at configure time.
+  if ( QFileInfo::exists( QStringLiteral( PALEO_ORT_ROOT ) ) )
+    return QStringLiteral( PALEO_ORT_ROOT );
+#endif
   // Last resort: relative to the working directory, found or not — callers
   // get a meaningful path to report in errors.
   return QDir::current().absoluteFilePath( QStringLiteral( "vendor/onnxruntime" ) );

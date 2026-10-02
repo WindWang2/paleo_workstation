@@ -266,6 +266,10 @@ if(ORT_INCLUDE AND ORT_LIB AND (NOT WIN32 OR ORT_DLL))
     src/ai/remotepredictionservice.cpp src/ai/remotepredictrouter.cpp)
   target_link_libraries(paleo_ai PUBLIC paleo_deps ort_vendored)
   target_compile_definitions(paleo_ai PUBLIC PALEO_HAVE_ORT=1)
+  # 审计 01 M5：vendorRuntimeDir() 从可执行文件往上找 vendor/onnxruntime，构建目录在
+  # 源码树外（-B ../b-asan）时找不到——编译期注入 ORT 根作为向上查找后的回落。
+  get_filename_component(_paleo_ort_root "${ORT_INCLUDE}" DIRECTORY)
+  target_compile_definitions(paleo_ai PRIVATE PALEO_ORT_ROOT="${_paleo_ort_root}")
   target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
   set(CMAKE_BUILD_RPATH "${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 else()
@@ -754,7 +758,8 @@ target_link_libraries(paleo PRIVATE paleo_core)
 # 注入 1500ms 劣化断言门必红（判别力）。计时面挂串行，对齐 tst_perfbudget。
 add_paleo_test(tst_startup_trace LIBS paleo_services)
 target_compile_definitions(tst_startup_trace PRIVATE
-  PALEO_APP_BINARY="$<TARGET_FILE:paleo>")
+  PALEO_APP_BINARY="$<TARGET_FILE:paleo>"
+  PALEO_SOURCE_DIR="${CMAKE_SOURCE_DIR}") # 审计 01 M5：基线不靠 CWD 相对路径
 set_tests_properties(tst_startup_trace PROPERTIES RUN_SERIAL TRUE)
 
 add_executable(paleo_seismic_demo tools/seismic_showcase.cpp)

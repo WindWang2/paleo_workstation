@@ -128,6 +128,9 @@ StartupTraceTests::AppRun StartupTraceTests::launchApp(const QString &tracePath,
 QJsonObject StartupTraceTests::loadBaselineRatios()
 {
     const QStringList candidates = {
+#ifdef PALEO_SOURCE_DIR
+        QStringLiteral(PALEO_SOURCE_DIR "/docs/perf/baselines/startup_ratios.json"),
+#endif
         QStringLiteral("../docs/perf/baselines/startup_ratios.json"),
         QStringLiteral("../../docs/perf/baselines/startup_ratios.json"),
         QStringLiteral("docs/perf/baselines/startup_ratios.json"),

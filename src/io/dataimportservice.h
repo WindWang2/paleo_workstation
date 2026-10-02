@@ -215,41 +215,60 @@ class DataImportService : public QObject
 
   public:
     // 线程规则（D1b/D1c 异步导入）：import* 系列可在 worker 线程执行——内部
-    // 对 catalog 的每一次读写经 catInvoke marshal 回 catalog 所在线程（GUI）。
-    // GUI 线程调用 = 直调零成本；worker 线程 = 异步 QueuedConnection (void) 或
-    // BlockingQueuedConnection (非 void)。catalog 因此永远只被它自己的线程触碰。
+    // 对 catalog 的每一次读写经 catInvoke/catWrite marshal 回 catalog 所在线程
+    // （GUI）。GUI 线程调用 = 直调零成本；worker 线程 = BlockingQueuedConnection。
+    // catalog 因此永远只被它自己的线程触碰。
+    //
+    // 审计 02 M-8：catInvoke 只用于「有返回值」的调用（读、或返回 bool 的写）；
+    // 无返回值的异步投递不再允许（写的成败会被丢掉）——纯通知（emit）走
+    // catNotify。派发失败（无事件循环/目标线程已退出）不再静默返回默认值。
+    // 已知边界：worker 阻塞等待期间若 GUI 线程同步等这个 worker 会互锁——
+    // 当前无此调用路径；关停时 PaleoTaskService::shutdown 泵事件规避。彻底
+    // 消除需要「worker 产出 plan、GUI 一次性提交」的重构（未做）。
     template <typename Fn> auto catInvoke(Fn &&fn) const
     {
-      using R = std::invoke_result_t<Fn>;
+      return catInvokeChecked(std::forward<Fn>(fn), nullptr);
+    }
+
+    // catalog 写：fn 返回 bool（写成功）并自行填 error。派发失败或 fn 返回
+    // false 却没给原因时补一条明确错误——worker 侧导入绝不「失败但无因」。
+    template <typename Fn> bool catWrite(Fn &&fn, QString *error) const
+    {
+      bool dispatched = true;
+      if (catInvokeChecked(std::forward<Fn>(fn), &dispatched))
+        return true;
+      if (error && error->isEmpty())
+        *error = dispatched ? QStringLiteral("catalog 写入失败（未给出原因）")
+                            : QStringLiteral("catalog 写入未能派发到 catalog 线程");
+      return false;
+    }
+
+    // 纯通知（信号）投递到 catalog 线程：不触碰 catalog 数据，不需要结果。
+    template <typename Fn> void catNotify(Fn &&fn) const
+    {
       if (QThread::currentThread() == m_catalog->thread())
-      {
-        if constexpr (std::is_void_v<R>)
-        {
-          fn();
-          return;
-        }
-        else
-          return fn();
-      }
-      if constexpr (std::is_void_v<R>)
-      {
-        QMetaObject::invokeMethod(m_catalog, std::forward<Fn>(fn),
-                                  Qt::QueuedConnection);
-      }
+        fn();
       else
-      {
-        R result{};
-        const bool ok = QMetaObject::invokeMethod(m_catalog, [&result, &fn] { result = fn(); },
-                                                  Qt::BlockingQueuedConnection);
-        if (!ok)
-        {
-          qWarning("DataImportService::catInvoke: deadlock or dispatch failure detected");
-        }
-        return result;
-      }
+        QMetaObject::invokeMethod(m_catalog, std::forward<Fn>(fn), Qt::QueuedConnection);
     }
 
   private:
+    template <typename Fn> auto catInvokeChecked(Fn &&fn, bool *dispatched) const
+    {
+      using R = std::invoke_result_t<Fn>;
+      static_assert(!std::is_void_v<R>,
+                    "catInvoke needs a result; use catNotify for fire-and-forget emits");
+      if (QThread::currentThread() == m_catalog->thread())
+        return fn();
+      R result{};
+      const bool ok = QMetaObject::invokeMethod(m_catalog, [&result, &fn] { result = fn(); },
+                                                Qt::BlockingQueuedConnection);
+      if (!ok)
+        qWarning("DataImportService::catInvoke: dispatch to catalog thread failed");
+      if (dispatched)
+        *dispatched = ok;
+      return result;
+    }
 
     struct WellBind
     {

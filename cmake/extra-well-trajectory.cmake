@@ -4,3 +4,4 @@ target_sources(paleo_domain PRIVATE src/domain/deviationsurvey.cpp)
 
 add_paleo_test(tst_deviation LIBS paleo_domain)
 add_paleo_test(tst_deviation_import LIBS paleo_io)
+add_paleo_test(tst_welllogset_tvd LIBS paleo_services)

@@ -2,6 +2,7 @@
 #include "projectdata.h"
 
 #include "../catalog/datacatalog.h"
+#include "../io/wellcompositexml.h"
 #include "../io/wellfileparsers.h"
 #include "../metadata/layermanifest.h"
 
@@ -188,6 +189,54 @@ QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const
     out.append(s);
   }
   return out;
+}
+
+std::optional<paleo::WellDeviationSurvey>
+ProjectDataFacade::trajectoryFor(const QString &wellId) const
+{
+  const QString path = assetFilePathFor(wellId, QStringLiteral("trajectory"));
+  if (path.isEmpty() || !QFile::exists(path))
+    return std::nullopt; // 无链接 = 直井语义，不记错误（与 topsFor/tdTableFor 同口径）
+
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly))
+  {
+    m_lastError = tr("测斜文件无法读取：%1").arg(path);
+    return std::nullopt;
+  }
+  const QByteArray text = f.readAll();
+  f.close();
+
+  QVector<paleo::DeviationStation> stations;
+  if (QFileInfo(path).suffix().compare(QLatin1String("xml"), Qt::CaseInsensitive) == 0)
+  {
+    QVector<WellComposite::XmlDeviationStation> parsed;
+    QString perr;
+    if (!WellComposite::parseDeviationSurvey(path, parsed, &perr))
+    {
+      m_lastError = tr("测斜 XML 解析失败：%1（%2）").arg(path, perr);
+      return std::nullopt;
+    }
+    stations.reserve(parsed.size());
+    for (const auto &st : parsed)
+      stations.append({st.md, st.inclinationDeg, st.azimuthDeg});
+  }
+  else
+  {
+    const DeviationTable table = parseDeviationText(text);
+    stations.reserve(table.stations.size());
+    for (const DeviationStationRecord &r : table.stations)
+      stations.append({r.md, r.inclinationDeg, r.azimuthDeg});
+  }
+
+  QString serr;
+  auto survey = paleo::WellDeviationSurvey::fromStations(stations, &serr);
+  if (!survey)
+  {
+    m_lastError = tr("测斜站表无效：%1（%2）").arg(path, serr);
+    return std::nullopt;
+  }
+  return survey;
 }
 
 HorizonRasterInfo ProjectDataFacade::horizonRasterDecl(const QString &horizon) const

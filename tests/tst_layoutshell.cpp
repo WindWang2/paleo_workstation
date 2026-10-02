@@ -7,6 +7,8 @@
 #include "../src/qgis/qgisruntime.h"
 
 #include <qgslayoutitemlabel.h>
+#include <qgslayoutitempage.h>
+#include <qgslayoutpagecollection.h>
 #include <qgslayoutview.h>
 #include <qgsmasterlayoutinterface.h>
 #include <qgsmessagebar.h>
@@ -24,6 +26,34 @@ class TestLayoutShell : public QObject
   Q_OBJECT
 
   private slots:
+    void initialZoomWaitsForVisibleViewportAndReopenPreservesZoom()
+    {
+      QgsProject project;
+      QgsPrintLayout layout(&project);
+      layout.initializeDefaults();
+      PaleoLayoutDesignerShell shell(&layout);
+      // 先处理隐藏期间的队列，复现以前纸面缩成一个点的初始化顺序。
+      QCoreApplication::processEvents();
+      shell.show();
+      auto *view = shell.view();
+      // 首帧的适配通过 queued invocation 执行；完成它后再模拟用户缩放。
+      QCoreApplication::sendPostedEvents(view, QEvent::MetaCall);
+      QCoreApplication::processEvents();
+      const auto paperFits = [&] {
+        const auto rect = view->mapFromScene(layout.pageCollection()->page(0)->sceneBoundingRect())
+                              .boundingRect();
+        return rect.width() > 100 && rect.height() > 100 &&
+               rect.width() <= view->viewport()->width() && rect.height() <= view->viewport()->height();
+      };
+      QTRY_VERIFY(paperFits());
+      view->setZoomLevel(0.7);
+      const QTransform zoom = view->transform();
+      shell.hide();
+      shell.show();
+      QCoreApplication::processEvents();
+      QCOMPARE(view->transform(), zoom);
+    }
+
     void interfaceAccessors()
     {
       QgsProject project;

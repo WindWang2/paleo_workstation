@@ -46,7 +46,7 @@ void CurveConfigDialog::setupUi()
 {
   auto *rootLay = new QVBoxLayout(this);
   rootLay->setContentsMargins(16, 16, 16, 16);
-  rootLay->setSpacing(12);
+  rootLay->setSpacing(16);
 
   // 顶部说明提示
   m_lblInfo = new QLabel(
@@ -65,7 +65,7 @@ void CurveConfigDialog::setupUi()
   auto *midWidget = new QWidget(this);
   auto *midLay = new QHBoxLayout(midWidget);
   midLay->setContentsMargins(0, 0, 0, 0);
-  midLay->setSpacing(12);
+  midLay->setSpacing(16);
 
   m_tree = new QTreeWidget(midWidget);
   m_tree->setHeaderLabels({tr("井道 / 测井曲线"), tr("井道类别 / 单位"), tr("道宽 / 显示范围"), tr("形态"), tr("颜色"), tr("数据点数")});
@@ -92,7 +92,7 @@ void CurveConfigDialog::setupUi()
   auto *btnBox = new QWidget(midWidget);
   auto *btnLay = new QVBoxLayout(btnBox);
   btnLay->setContentsMargins(0, 0, 0, 0);
-  btnLay->setSpacing(6);
+  btnLay->setSpacing(8);
 
   const auto themedBtnStyle = [] {
     const auto &t = PaleoTheme::tokens();

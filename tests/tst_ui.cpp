@@ -26,6 +26,13 @@
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
+#include "../src/ui/dialogs/folderconfirm.h"
+#include "../src/ui/faults/faultmanagerpanel.h"
+#include "../src/ui/layoutdesignershell.h"
+#include "../src/ui/seismicsection/sectionsetupdialog.h"
+#include "../src/ui/seismicsection/seismicsectiondockwidget.h"
+#include "../src/ui/propertymodel/propertymodelpanel.h"
+#include "../src/ui/wellcomposite/curveconfigdialog.h"
 #include "../src/ui/decorations/paleodecorations.h"
 #include "../src/ui/edittools/editingtoolbar.h"
 #include "../src/ui/pages/mappingworkbenchpage.h"
@@ -47,6 +54,7 @@
 #include <qgsmapmouseevent.h>
 
 #include <qgsproject.h>
+#include <qgsprintlayout.h>
 #include <qgsmapcanvas.h>
 #include <qgsrectangle.h>
 #include <qgsrubberband.h>
@@ -1264,6 +1272,62 @@ class TestUiShell : public QObject
       PaleoTheme::applyLightTheme();
       PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() +
                                      PaleoTheme::focusRingStyleSheet());
+    }
+
+    void secondarySurfaceAuditSnapshots()
+    {
+      const QString dir = qEnvironmentVariable("PALEO_SECONDARY_CAPTURE");
+      if (dir.isEmpty())
+        QSKIP("Set PALEO_SECONDARY_CAPTURE to capture native secondary surfaces");
+      QVERIFY(QDir().mkpath(dir));
+      QgsPrintLayout layout(m_ctx->projectSvc()->project());
+      layout.initializeDefaults();
+      PaleoLayoutDesignerShell designer(&layout);
+      QDialog folder;
+      FolderPreviewRow log;
+      log.path = QStringLiteral("/audit/测井/示例井.las");
+      log.classifiedType = QStringLiteral("well_log");
+      log.sizeBytes = 4096;
+      PaleoFolderConfirm::buildFolderConfirmDialog(&folder, QStringLiteral("/audit"), {log}, {});
+      SectionSetupDialog setup;
+      seismic::SeismicSectionDockWidget section;
+      paleo::fault::FaultManagerPanel faults(nullptr, nullptr);
+      WellComposite::CurveData curve;
+      curve.name = QStringLiteral("GR");
+      curve.unit = QStringLiteral("API");
+      curve.depths = {1000, 1010, 1020, 1030, 1040};
+      curve.values = {30, 45, 80, 50, 20};
+      WellComposite::WellCompositePanel well;
+      well.setProjectName(QStringLiteral("visual-audit"));
+      QVERIFY(well.loadLasCurves(QStringLiteral("示例井（合成资料）"), {curve}));
+      well.resize(1100, 700);
+      WellComposite::CurveConfigDialog curves(well.canvas());
+      PropertyModelPanel properties;
+      properties.resize(420, 500);
+      section.resize(1440, 700);
+      faults.resize(800, 450);
+      const QList<QPair<QString, QWidget *>> surfaces{
+          {QStringLiteral("06-import"), &folder},
+          {QStringLiteral("07-section-setup"), &setup},
+          {QStringLiteral("08-section"), &section},
+          {QStringLiteral("09-faults"), &faults},
+          {QStringLiteral("10-designer"), &designer},
+          {QStringLiteral("11-well"), &well},
+          {QStringLiteral("12-curves"), &curves},
+          {QStringLiteral("13-property-model"), &properties}};
+      for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark})
+      {
+        PaleoTheme::applyTheme(theme);
+        for (const auto &surface : surfaces)
+        {
+          surface.second->show();
+          QTest::qWait(100);
+          QVERIFY(surface.second->grab().save(dir + QLatin1Char('/') + surface.first +
+              (theme == PaleoTheme::Theme::Light ? "-light.png" : "-dark.png")));
+          surface.second->hide();
+        }
+      }
+      PaleoTheme::applyLightTheme();
     }
 
     void mappingWorkbenchCanvasRibbonAndReferences()

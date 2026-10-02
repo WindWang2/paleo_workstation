@@ -163,6 +163,9 @@ class PaleoLayoutDesignerShell : public QDialog
   public slots:
     void showRulers( bool visible );
 
+  protected:
+    void showEvent( QShowEvent *event ) override;
+
   private:
     void buildChrome();
     void buildFileMenu();
@@ -189,6 +192,7 @@ class PaleoLayoutDesignerShell : public QDialog
     PaleoLayoutUndoStack *m_undoStack = nullptr;
 
     QgsLayoutView *m_view = nullptr;
+    bool m_initialZoomDone = false;
     QgsMessageBar *m_messageBar = nullptr;
     QStatusBar *m_statusBar = nullptr;
 

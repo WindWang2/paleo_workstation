@@ -151,7 +151,7 @@ namespace
     auto *row = new QWidget(parent);
     auto *rl = new QHBoxLayout(row);
     rl->setContentsMargins(0, 0, 0, 0);
-    rl->setSpacing(6);
+    rl->setSpacing(8);
     auto *btn = new QPushButton(QObject::tr("用系统程序打开"), row);
     btn->setObjectName(QStringLiteral("openExternalBtn"));
     auto *openErr = warnLabel(QString(), row);
@@ -1779,7 +1779,7 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   auto *topBar = new QWidget(w);
   auto *tbLay = new QHBoxLayout(topBar);
   tbLay->setContentsMargins(8, 4, 8, 4);
-  tbLay->setSpacing(6);
+  tbLay->setSpacing(8);
   stylePreviewToolBar(topBar);
 
   auto *lblTitle = new QLabel(tr("测区全景地图 (QGIS 画布)"), topBar);
@@ -2351,7 +2351,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   QWidget *host = new QWidget(this);
   auto *lay = new QVBoxLayout(host);
   lay->setContentsMargins(0, 0, 0, 0);
-  lay->setSpacing(6);
+  lay->setSpacing(8);
 
   // 外链/受管缺失态（§4：「找不到源文件」+路径）。外链版本（wave4）多给一个
   // 「重新定位文件…」出口——服务层流式 SHA-256 复验，内容一致才重接，不一致
@@ -2419,7 +2419,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     auto *singlePage = new QWidget(host);
     auto *singleLay = new QVBoxLayout(singlePage);
     singleLay->setContentsMargins(0, 0, 0, 0);
-    singleLay->setSpacing(6);
+    singleLay->setSpacing(8);
 
     auto *panel = new CurvePanel(singlePage);
     panel->setObjectName(QStringLiteral("curvePanel"));
@@ -2429,7 +2429,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     auto *topBar = new QWidget(singlePage);
     auto *topLay = new QHBoxLayout(topBar);
     topLay->setContentsMargins(0, 0, 0, 0);
-    topLay->setSpacing(6);
+    topLay->setSpacing(8);
 
     auto *combo = new QComboBox(topBar);
     combo->setObjectName(QStringLiteral("curveCombo"));
@@ -2535,7 +2535,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     chipContainer->setStyleSheet(QStringLiteral("background: transparent;"));
     auto *chipLay = new QHBoxLayout(chipContainer);
     chipLay->setContentsMargins(0, 0, 0, 0);
-    chipLay->setSpacing(6);
+    chipLay->setSpacing(8);
     chipLay->addWidget(caption8(tr("多曲线叠合:"), chipContainer));
 
     // 曲线 chip：描边/字色用曲线数据色（数据符号，豁免）；底/边/悬停走 chrome
@@ -3488,7 +3488,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     auto *w2d = new QWidget(modeTabs);
     w2d->setObjectName(QStringLiteral("seismic2DContainer"));
     auto *lay2d = new QVBoxLayout(w2d);
-    lay2d->setContentsMargins(6, 6, 6, 6);
+    lay2d->setContentsMargins(8, 8, 8, 8);
     lay2d->setSpacing(4);
     lay2d->addWidget(caption8(tr("选择一条测线解码"), w2d));
     lay2d->addWidget(bar);
@@ -3551,7 +3551,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     auto *wTime = new QWidget(modeTabs);
     wTime->setObjectName(QStringLiteral("seismicTimeSliceContainer"));
     auto *layTime = new QVBoxLayout(wTime);
-    layTime->setContentsMargins(6, 6, 6, 6);
+    layTime->setContentsMargins(8, 8, 8, 8);
     layTime->setSpacing(4);
 
     auto *timeBar = new QWidget(wTime);
@@ -4353,7 +4353,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     auto *topBar = new QWidget(host);
     auto *topLay = new QHBoxLayout(topBar);
     topLay->setContentsMargins(8, 4, 8, 4);
-    topLay->setSpacing(6);
+    topLay->setSpacing(8);
     stylePreviewToolBar(topBar);
 
     // 视图切换器: 相图地图 / 属性列表
@@ -4884,7 +4884,7 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
     auto *holder = new QWidget(parent);
     auto *hl = new QVBoxLayout(holder);
     hl->setContentsMargins(0, 0, 0, 0);
-    hl->setSpacing(6);
+    hl->setSpacing(8);
     // §4：层名、MD、TVD、X、Y；Time 列为空就显示空，不填 -99999，也不填假时间。
     auto *table = new QTableWidget(0, 6, holder);
     table->setObjectName(QStringLiteral("topsTable"));
@@ -4992,7 +4992,7 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
     auto *holder = new QWidget(parent);
     auto *hl = new QVBoxLayout(holder);
     hl->setContentsMargins(0, 0, 0, 0);
-    hl->setSpacing(6);
+    hl->setSpacing(8);
     auto *info = new QWidget(holder);
     auto *grid = new QVBoxLayout(info);
     grid->setContentsMargins(0, 0, 0, 0);

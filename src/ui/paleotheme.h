@@ -114,11 +114,17 @@ namespace PaleoTheme
 
   // ---- 壳级样式表（原散在 paleomainwindow/paleoribbon 的字面量收编）----
   // 主窗壳 QSS：QMainWindow/QDockWidget 标题/QStatusBar/地图上下文行/
-  // 层位 chip 行。浅色值与旧版逐字节一致（tst_ui 断言过焦点环）。
+  // 层位 chip 行及共用原生控件。
   QString shellStyleSheet(Theme theme = currentTheme());
+  // 原生表单、普通页签和表头共用的中性 chrome；应用级与 ribbon 壳级
+  // 同时安装，独立窗口与主窗口不再继承不同的默认样式。
+  QString controlStyleSheet(Theme theme = currentTheme());
+  // 紧凑工具按钮（剖面、断层、井道导航）：正文 9pt、4px 圆角，完整
+  // hover/pressed/checked/disabled/focus 状态，不使用装饰性蓝色。
+  QString toolButtonStyleSheet(Theme theme = currentTheme());
   // 次级说明文字统一出口（“color: text-muted”），替代各面板字面量。
   QString mutedCaptionStyleSheet(Theme theme = currentTheme());
-  // 区块小标题统一出口（font-weight 600 + text 色）——datapreview 各页
+  // 区块标题统一出口（12pt + font-weight 600 + text 色）——datapreview 各页
   // 原各自字面量，goal/ui-experience-polish 收敛。
   QString sectionTitleStyleSheet(Theme theme = currentTheme());
 

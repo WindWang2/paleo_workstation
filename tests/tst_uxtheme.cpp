@@ -1,5 +1,10 @@
 #include <QtTest>
 #include <QApplication>
+#include <QComboBox>
+#include <QDialog>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QToolButton>
 #include <QFile>
 #include <QFontDatabase>
 #include <QFontInfo>
@@ -109,6 +114,39 @@ class TestUxTheme : public QObject
       QVERIFY(caption->styleSheet() != light);
       QVERIFY(caption->styleSheet().contains(PaleoTheme::tokens().textMuted.name().toUpper()));
       PaleoTheme::applyLightTheme();
+    }
+
+    void existingIndependentDialogFollowsThemeWithoutLosingInput()
+    {
+      PaleoTheme::applyLightTheme();
+      QDialog dialog;
+      auto *layout = new QVBoxLayout(&dialog);
+      auto *input = new QLineEdit(QStringLiteral("保留参数"), &dialog);
+      auto *combo = new QComboBox(&dialog);
+      combo->addItems({QStringLiteral("选项一"), QStringLiteral("选项二")});
+      combo->setCurrentIndex(1);
+      auto *button = new QPushButton(QStringLiteral("应用"), &dialog);
+      auto *tool = new QToolButton(&dialog);
+      tool->setText(QStringLiteral("撤销"));
+      PaleoTheme::applyThemedStyleSheet(tool, [] { return PaleoTheme::toolButtonStyleSheet(); });
+      layout->addWidget(input);
+      layout->addWidget(combo);
+      layout->addWidget(button);
+      layout->addWidget(tool);
+      dialog.show();
+      const auto background = [button] { return button->grab().toImage().pixelColor(5, 5); };
+      QTRY_COMPARE(background(), PaleoTheme::tokens().surface);
+      PaleoTheme::applyDarkTheme();
+      QTRY_COMPARE(background(), PaleoTheme::tokens().surface);
+      QCOMPARE(input->text(), QStringLiteral("保留参数"));
+      QCOMPARE(combo->currentIndex(), 1);
+      QCOMPARE(tool->font().pointSize(), PaleoTheme::kBodyPt);
+      tool->setEnabled(false);
+      tool->ensurePolished();
+      QCOMPARE(tool->palette().color(QPalette::Disabled, QPalette::ButtonText),
+               PaleoTheme::tokens().textDisabled);
+      PaleoTheme::applyLightTheme();
+      QTRY_COMPARE(background(), PaleoTheme::tokens().surface);
     }
 
     void panelViewportOnlyMeasuresCurrentPage()
@@ -228,9 +266,8 @@ class TestUxTheme : public QObject
     void renderEnvironmentIsPinnedAndDeterministic()
     {
       PaleoTheme::pinRenderEnvironment();
-      QCOMPARE(qApp->style()->objectName().compare(QLatin1String("Fusion"),
-                                                   Qt::CaseInsensitive),
-               0);
+      // 应用级 QSS 为 Fusion 加上 Qt 的样式代理，objectName 不再是底层样式名。
+      QVERIFY(qApp->style()->inherits("QStyleSheetStyle"));
       QCOMPARE(qApp->font().pointSize(), PaleoTheme::kBodyPt);
 
       const auto render = [] {
@@ -254,9 +291,8 @@ class TestUxTheme : public QObject
     void lightThemePaletteIsExplicit()
     {
       PaleoTheme::applyLightTheme();
-      QCOMPARE(qApp->style()->objectName().compare(QLatin1String("Fusion"),
-                                                   Qt::CaseInsensitive),
-               0);
+      // 应用级 QSS 为 Fusion 加上 Qt 的样式代理，objectName 不再是底层样式名。
+      QVERIFY(qApp->style()->inherits("QStyleSheetStyle"));
       QCOMPARE(qApp->font().pointSize(), PaleoTheme::kBodyPt);
 
       for (const auto group : {QPalette::Active, QPalette::Inactive,
@@ -312,9 +348,8 @@ class TestUxTheme : public QObject
     {
       PaleoTheme::applyDarkTheme();
       QCOMPARE(PaleoTheme::currentTheme(), PaleoTheme::Theme::Dark);
-      QCOMPARE(qApp->style()->objectName().compare(QLatin1String("Fusion"),
-                                                   Qt::CaseInsensitive),
-               0);
+      // 应用级 QSS 为 Fusion 加上 Qt 的样式代理，objectName 不再是底层样式名。
+      QVERIFY(qApp->style()->inherits("QStyleSheetStyle"));
       for (const auto group : {QPalette::Active, QPalette::Inactive,
                                QPalette::Disabled})
       {

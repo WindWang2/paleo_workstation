@@ -26,6 +26,7 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QSignalBlocker>
+#include <QShowEvent>
 #include <QUndoStack>
 #include <QVBoxLayout>
 
@@ -260,7 +261,18 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
   } );
 
   updatePageNavigator();
-  QMetaObject::invokeMethod( m_view, &QgsLayoutView::zoomFull, Qt::QueuedConnection );
+}
+
+void PaleoLayoutDesignerShell::showEvent( QShowEvent *event )
+{
+  QDialog::showEvent( event );
+  // 初次可见后视口才有实际尺寸。隐藏期间排队缩放会把纸面缩成一个点；
+  // 之后重新打开保留用户的缩放与平移。
+  if ( !m_initialZoomDone && m_layout )
+  {
+    m_initialZoomDone = true;
+    QMetaObject::invokeMethod( m_view, &QgsLayoutView::zoomFull, Qt::QueuedConnection );
+  }
 }
 
 PaleoLayoutDesignerShell::~PaleoLayoutDesignerShell()

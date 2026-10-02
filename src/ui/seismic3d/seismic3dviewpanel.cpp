@@ -56,36 +56,7 @@ QToolButton *createToolBtn(const QString &text, const QString &tooltip, bool che
     // 用户主动收窄时文字裁切、tooltip 仍在，总比调不动强。
     btn->setMinimumWidth(0);
     btn->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-    // chrome 全 token + 活体注册；checked 态用 primary 填充属 DESIGN 允许的
-    // 「选中 chip」用途。
-    PaleoTheme::applyThemedStyleSheet(btn, [] {
-        const auto &t = PaleoTheme::tokens();
-        return QStringLiteral(
-            "QToolButton {"
-            "  background-color: %1;"
-            "  color: %2;"
-            "  border: 1px solid %3;"
-            "  border-radius: 4px;"
-            "  padding: 3px 5px;"
-            "  font-size: 9pt;"
-            "}"
-            "QToolButton:hover {"
-            "  background-color: %4;"
-            "}"
-            "QToolButton:checked {"
-            "  background-color: %5;"
-            "  color: %6;"
-            "  border-color: %5;"
-            "}"
-            "QToolButton:pressed {"
-            "  background-color: %7;"
-            "  color: %6;"
-            "}")
-            .arg(t.surface.name().toUpper(), t.text.name().toUpper(),
-                 t.border.name().toUpper(), t.surfaceAlt.name().toUpper(),
-                 t.primary.name().toUpper(), t.onPrimary.name().toUpper(),
-                 t.primaryHover.name().toUpper());
-    });
+    PaleoTheme::applyThemedStyleSheet(btn, [] { return PaleoTheme::toolButtonStyleSheet(); });
     return btn;
 }
 
@@ -736,8 +707,7 @@ void Seismic3DViewPanel::buildDisplayBar() {
 
     const auto themedCaption = [](QWidget *w) {
         PaleoTheme::applyThemedStyleSheet(w, [] {
-            return PaleoTheme::mutedCaptionStyleSheet() +
-                   QStringLiteral(" font-size: 8.5pt;");
+            return PaleoTheme::mutedCaptionStyleSheet();
         });
     };
 
@@ -1031,8 +1001,7 @@ void Seismic3DViewPanel::buildDisplayBar() {
         auto *hint = new QLabel(
             tr("拖圆点调位置/不透明度；双击插入停靠点；右键删除。"), &dlg);
         PaleoTheme::applyThemedStyleSheet(hint, [] {
-            return PaleoTheme::mutedCaptionStyleSheet() +
-                   QStringLiteral(" font-size: 8.5pt;");
+            return PaleoTheme::mutedCaptionStyleSheet();
         });
         lay->addWidget(hint);
         connect(cboPreset, &QComboBox::activated, this, [this, editor](int idx) {
@@ -1537,7 +1506,7 @@ void Seismic3DViewPanel::rebuildOverlayMenu() {
         overlayMenu_->addSeparator();
         const QStringList names = overlayHorizonNames_;
         for (int i = 0; i < names.size(); ++i) {
-            const QString name = names[i];
+            const QString &name = names[i];
             QAction *act = overlayMenu_->addAction(name);
             act->setCheckable(true);
             act->setChecked(viewport_ && viewport_->isHorizonVisible(i));
@@ -1785,7 +1754,7 @@ void Seismic3DViewPanel::checkMemoryBudget() {
     if (!memoryHintLabel_) {
         memoryHintLabel_ = new QLabel(this);
         PaleoTheme::applyThemedStyleSheet(memoryHintLabel_, [] {
-            return QStringLiteral("color: %1; padding: 0 6px; font-size: 8.5pt;")
+            return QStringLiteral("color: %1; padding: 0 6px; font-size: 8pt;")
                 .arg(PaleoTheme::tokens().warningText.name());
         });
         memoryHintLabel_->setWordWrap(true);
@@ -1804,7 +1773,7 @@ void Seismic3DViewPanel::showInlineWarning(const QString &text)
     if (!memoryHintLabel_) {
         memoryHintLabel_ = new QLabel(this);
         PaleoTheme::applyThemedStyleSheet(memoryHintLabel_, [] {
-            return QStringLiteral("color: %1; padding: 0 6px; font-size: 8.5pt;")
+            return QStringLiteral("color: %1; padding: 0 6px; font-size: 8pt;")
                 .arg(PaleoTheme::tokens().warningText.name());
         });
         memoryHintLabel_->setWordWrap(true);

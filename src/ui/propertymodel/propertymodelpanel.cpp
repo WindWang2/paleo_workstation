@@ -72,9 +72,11 @@ void PropertyModelPanel::buildUi()
   m_build->setText(tr("建立属性体"));
   m_build->setToolTip(tr("按当前参数发建模意图。计算在功能层，面板不改网格。"));
   {
-    QPalette pal = m_build->palette();
-    pal.setColor(QPalette::ButtonText, PaleoTheme::kColorPrimary);
-    m_build->setPalette(pal);
+    PaleoTheme::applyThemedStyleSheet(m_build, [] {
+      return PaleoTheme::toolButtonStyleSheet() +
+          QStringLiteral("QToolButton { color: %1; } QToolButton:disabled { color: %2; }")
+              .arg(PaleoTheme::tokens().primaryText.name(), PaleoTheme::tokens().textDisabled.name());
+    });
     QFont font = m_build->font();
     font.setWeight(QFont::Medium);
     m_build->setFont(font);

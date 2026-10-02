@@ -294,6 +294,12 @@ namespace PaleoTheme
     set(QPalette::Link, t.primaryText, disabledText);
     set(QPalette::LinkVisited, t.primaryHover, disabledText);
     set(QPalette::BrightText, t.error, disabledText);
+    // Fusion 的原生箭头、分隔线与滚动条也读取这些角色，不能沿用系统灰阶。
+    set(QPalette::Light, t.surface, t.surface);
+    set(QPalette::Midlight, t.surfaceAltRaised, t.surfaceAltRaised);
+    set(QPalette::Mid, t.border, t.border);
+    set(QPalette::Dark, t.border, t.border);
+    set(QPalette::Shadow, t.textMuted, t.textMuted);
     return p;
   }
 
@@ -306,6 +312,8 @@ namespace PaleoTheme
     themeRef() = theme;
     QApplication::setPalette(palette(theme));
     QApplication::setFont(bodyFont());
+    qApp->setStyleSheet(controlStyleSheet(theme) + itemViewStyleSheet(theme) +
+                       focusRingStyleSheet(theme));
     // 活体样式统一重算（palette 事件不保证送达隐藏子控件——见 relay 注释）。
     ThemedStyleSheetRelay::instance()->reapplyAll();
   }
@@ -344,7 +352,60 @@ namespace PaleoTheme
                     qssHex(t.border), qssHex(t.surface))
         // 条目视图三件套（选中/hover/斑马纹/密度 padding）统一出口——
         // goal/ui-experience-polish：三类列表控件不再各写选中态。
-        + itemViewStyleSheet(theme);
+        + controlStyleSheet(theme) + itemViewStyleSheet(theme);
+  }
+
+  QString controlStyleSheet(Theme theme)
+  {
+    const ThemeTokens &t = tokens(theme);
+    // 不重画 QGIS 图标/箭头/复选指示器，也不覆盖地图和地质纸面画布。
+    return QStringLiteral(
+        "QLabel, QCheckBox, QRadioButton { color: %2; }"
+        "QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled { color: %6; }"
+        "QPushButton { background: %1; color: %2; border: 1px solid %3;"
+        " border-radius: 4px; padding: 4px 8px; }"
+        "QPushButton:hover { background: %4; }"
+        "QPushButton:pressed, QPushButton:checked { background: %4; border-color: %5; }"
+        "QPushButton:disabled { color: %6; background: %4; }"
+        "QLineEdit, QComboBox { background: %1; color: %2;"
+        " border: 1px solid %3; border-radius: 4px; padding: 2px 8px; }"
+        "QLineEdit:disabled, QComboBox:disabled {"
+        " color: %6; background: %4; }"
+        "QAbstractSpinBox QLineEdit { border: none; padding: 0; background: transparent; }"
+        "QTextEdit, QPlainTextEdit, QAbstractItemView { background: %1; color: %2;"
+        " border: 1px solid %3; selection-background-color: %7; selection-color: %8; }"
+        "QTableView { gridline-color: %3; }"
+        "QHeaderView::section { background: %4; color: %2; border: none;"
+        " border-right: 1px solid %3; border-bottom: 1px solid %3; padding: 4px 8px; }"
+        "QTableCornerButton::section { background: %4; border: 1px solid %3; }"
+        "QGroupBox { border: 1px solid %3; border-radius: 4px; margin-top: 8px;"
+        " padding-top: 8px; }"
+        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; color: %2; }"
+        "QTabWidget::pane { border: 1px solid %3; background: %1; }"
+        "QTabWidget > QTabBar::tab { background: %4; color: %5; border: 1px solid %3;"
+        " padding: 4px 8px; border-top-left-radius: 4px; border-top-right-radius: 4px; }"
+        "QTabWidget > QTabBar::tab:selected { background: %1; color: %2; border-bottom-color: %1; }"
+        "QTabWidget > QTabBar::tab:hover { color: %2; }"
+        "QTabWidget > QTabBar::tab:disabled { color: %6; }"
+        "QToolTip { background: %1; color: %2; border: 1px solid %3; padding: 4px 8px; }")
+        .arg(qssHex(t.surface), qssHex(t.text), qssHex(t.border),
+             qssHex(t.surfaceAltRaised), qssHex(t.textMuted), qssHex(t.textDisabled),
+             qssHex(t.primary), qssHex(t.onPrimary));
+  }
+
+  QString toolButtonStyleSheet(Theme theme)
+  {
+    const ThemeTokens &t = tokens(theme);
+    return QStringLiteral(
+        "QToolButton { background: %1; color: %2; border: 1px solid %3;"
+        " border-radius: 4px; padding: 2px 8px; font-size: 9pt; }"
+        "QToolButton:hover { background: %4; }"
+        "QToolButton:pressed { background: %4; border-color: %5; }"
+        "QToolButton:checked { background: %4; border-color: %5; color: %2; }"
+        "QToolButton:disabled { color: %6; border-color: %3; background: %1; }")
+        .arg(qssHex(t.surface), qssHex(t.text), qssHex(t.border),
+             qssHex(t.surfaceAltRaised), qssHex(t.textMuted), qssHex(t.textDisabled))
+        + focusRingStyleSheet(theme);
   }
 
   QString itemViewStyleSheet(Theme theme, Density density)
@@ -397,6 +458,8 @@ namespace PaleoTheme
   {
     // 先落 current 再全量重算：shell QSS 的 builder 读 currentDensity()。
     densityRef() = density;
+    qApp->setStyleSheet(controlStyleSheet() + itemViewStyleSheet() +
+                       focusRingStyleSheet());
     ThemedStyleSheetRelay::instance()->reapplyAll();
   }
 
@@ -419,12 +482,12 @@ namespace PaleoTheme
 
   QString mutedCaptionStyleSheet(Theme theme)
   {
-    return QStringLiteral("color: %1;").arg(qssHex(tokens(theme).textMuted));
+    return QStringLiteral("color: %1; font-size: 8pt;").arg(qssHex(tokens(theme).textMuted));
   }
 
   QString sectionTitleStyleSheet(Theme theme)
   {
-    return QStringLiteral("font-weight: 600; color: %1;")
+    return QStringLiteral("font-size: 12pt; font-weight: 600; color: %1;")
         .arg(qssHex(tokens(theme).text));
   }
 

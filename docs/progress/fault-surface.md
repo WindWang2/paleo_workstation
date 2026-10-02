@@ -98,6 +98,32 @@ Qt5 conda）。`QT_QPA_PLATFORM=offscreen`。
 
 `tst_faultsurface` 合计 10/10，43 ms（含上面的 24 ms 成面）。
 
+## 本机全量
+
+vendor 前缀 ninja（`-k 0`）退出码 1。`error C` 只有三份既有测试：
+`tst_mem_budget.cpp(58)` 的 `malloc_trim`、`tst_gridsolver.cpp(66)` 的
+`std::numbers::pi`、`tst_velocitymodel.cpp(297)` 的 `qQNaN()` 收窄。
+这三项没有 exe。断面源文件没有新的编译警告。
+
+排除这三项后的 ctest：
+
+```
+ctest -j1 --output-on-failure -E "tst_mem_budget|tst_gridsolver|tst_velocitymodel"
+```
+
+`84% tests passed, 27 tests failed out of 174`（147 通过，真实时间 724.39 s，退出码 1）。
+通过的包括 layering / layering_strict / layering_selftest、ui_invariants /
+ui_invariants_strict、i18n、tst_faultset、tst_faultsetstore、tst_faultinterp、
+tst_faultsectionui、tst_faultsurface（0.10 s）、tst_faultsurfaceworkflow、
+tst_faultsurfaceview、tst_stratgrid、tst_propfill、tst_propworkflow。
+
+失败分类：`tst_runtime` 与 `boot` 缺 `resources/srs.db`；`tst_metastore` 只败在
+`staleLockAutoRecovered`（13 通过、1 失败）；`tst_import` 的
+`manyConcurrentImportsDoNotDeadlock` 比较值不同（48 通过、1 失败、2 跳过）；
+`tst_cache_las` 套件内失败一次、立刻重跑通过；`tst_panels` 在
+`validatePage_populatesAndLocates` 段错误；其余 22 项退出码 `0xC0000139`
+（Qt 6.11.2 已在 PATH 最前）。这些失败不在本分支改过的源文件里。
+
 ## 递延
 
 - Y 型、多分支、断面自动生长、从断层多边形反插。检测后失败，不生成假面。

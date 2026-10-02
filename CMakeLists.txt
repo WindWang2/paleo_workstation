@@ -856,6 +856,7 @@ add_paleo_test(tst_layerprofilebar LIBS paleo_ui)   # 主题下拉/保存/管理
 # 禁止直接改本文件的模块源列表——并行分支在此汇合零冲突。
 # 显式清单登记替代隐式 GLOB，根治构建目录漂移与测试漏注（P1-14 / TEST-01）
 set(_paleo_extra_manifest
+  "${CMAKE_SOURCE_DIR}/cmake/extra-catalog-sqlite.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-crossplot-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-data.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-a.cmake"
@@ -875,6 +876,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-surfaceops.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-time-depth.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-ux.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-well-logset.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-wellcomposite.cmake"
 )
 foreach(_f IN LISTS _paleo_extra_manifest)
@@ -906,7 +908,7 @@ set(_paleo_perf_tests
   tst_ui_blocking tst_mem_budget tst_perf_las tst_perf_segyindex tst_perf_catalog
   tst_perf_regress tst_petrophysperf tst_seismic_perf tst_seismic_baseline
   tst_seismic_budgets tst_seismicattrperf tst_horizontrackperf tst_timedepthperf
-  tst_wellcomposite_perf tst_cache_las)
+  tst_wellcomposite_perf tst_cache_las tst_welllogset_perf)
 foreach(_t IN LISTS _paleo_perf_tests)
   if(TEST ${_t})
     set_property(TEST ${_t} APPEND PROPERTY LABELS perf)

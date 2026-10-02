@@ -439,29 +439,34 @@ void TestPreviewDoc::catalogRecoveredFromBackupForwards()
     QVERIFY(tmp.isValid());
     auto stack = TestPreviewDoc::makeStack(tmp.path());
     QVERIFY(stack != nullptr);
-    const QString catPath = QDir(tmp.path()).filePath(
-        QStringLiteral("artifacts/metadata/catalog.json"));
-    QVERIFY(QFile::exists(catPath));
-    // 先制造一代 .bak（再导入一次触发 save 轮转），再损坏主文件。
+    const QString sqlite = stack->importSvc->catalog()->sqliteCatalogPath();
+    QVERIFY(QFile::exists(sqlite));
     QString ierr;
     QVERIFY(!stack->importSvc
                   ->importProjectFile(TestPreviewDoc::fixture(QStringLiteral("A1.Las")), &ierr)
                   .isEmpty());
-    QVERIFY(QFile::exists(catPath + QStringLiteral(".bak")));
+    // 备份在下一次打开健康 sqlite 时做，不在 import 的 save。
+    stack->importSvc->setProjectDir(tmp.path());
+    QVERIFY(QFile::exists(sqlite + QStringLiteral(".bak")));
 
     PreviewDocService doc(stack->importSvc.get());
     QSignalSpy recovered(&doc, &PreviewDocService::catalogRecoveredFromBackup);
     QSignalSpy openFailed(&doc, &PreviewDocService::catalogOpenFailed);
+    // 先把 catalog 连接挪走，再截断主库（Windows 锁）。
+    QTemporaryDir parked;
+    QVERIFY(parked.isValid());
+    stack->importSvc->setProjectDir(parked.path());
+    QFile::remove(sqlite + QStringLiteral("-wal"));
+    QFile::remove(sqlite + QStringLiteral("-shm"));
     {
-      QFile f(catPath);
-      QVERIFY(f.open(QIODevice::WriteOnly));
+      QFile f(sqlite);
+      QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
       f.write("{broken");
     }
-    stack->importSvc->setProjectDir(tmp.path()); // 重开 → .bak 回退
+    stack->importSvc->setProjectDir(tmp.path());
     QCOMPARE(recovered.count(), 1);
     QCOMPARE(openFailed.count(), 0); // 恢复成功不算打开失败
-    QVERIFY(recovered.at(0).at(0).toString().contains(
-        QStringLiteral("catalog.json"))); // 原因 = 主文件路径 + 解析错误
+    QVERIFY(recovered.at(0).at(0).toString().contains(QStringLiteral("catalog.sqlite")));
     QVERIFY(doc.catalog()->isOpen());
     QVERIFY(doc.catalog()->recoveredFromBackup());
   }

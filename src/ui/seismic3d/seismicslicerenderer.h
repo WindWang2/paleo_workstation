@@ -21,6 +21,17 @@ enum class SeismicSliceSlot {
     Line = 3
 };
 
+// 属性体砖块的 IJK 轴范围（末下标，不是个数）。i→xline 轴，j→inline 轴，
+// k→采样轴。与地震体共用同一套归一化立方体和切片着色器。
+struct PropertyBrickAxes {
+    int iMin = 0;
+    int iMax = 1;
+    int jMin = 0;
+    int jMax = 1;
+    int kMin = 0;
+    int kMax = 1;
+};
+
 class SeismicSliceRenderer {
 public:
     SeismicSliceRenderer() = default;
@@ -38,6 +49,22 @@ public:
         const SgyVolume &volume,
         SgySliceType type,
         int index,
+        const SgySliceImage &image);
+
+    // 属性体切片：几何走砖块 IJK，纹理/着色器与地震切片同一条路径。
+    // NaN 由调用方把 alpha 写成 0（着色器 discard）。
+    bool UpdatePropertySlice(
+        QOpenGLFunctions_3_3_Core *gl,
+        SeismicSliceSlot slot,
+        const PropertyBrickAxes &axes,
+        SgySliceType type,
+        int index,
+        const SgySliceImage &image);
+    bool UpdatePropertyStackLayer(
+        QOpenGLFunctions_3_3_Core *gl,
+        int layerIdx,
+        const PropertyBrickAxes &axes,
+        int kIndex,
         const SgySliceImage &image);
 
     bool UpdateLineSlice(

@@ -65,6 +65,51 @@ std::array<SliceVertex, 4> BuildSliceVertices(const SgyVolume &volume, SgySliceT
     }};
 }
 
+std::array<SliceVertex, 4> BuildBrickVertices(const PropertyBrickAxes &axes, SgySliceType type, int index) {
+    const float horizontalScale = SeismicSliceRenderer::HorizontalScale();
+    const float heightScale = SeismicSliceRenderer::HeightScale();
+    // 单层/单列时 max==min，归一化跨度为 0，切片面会退化成一条线。
+    // 显示上把末下标抬 1，只影响立方体厚度，不改纹理里的 IJK 取值。
+    const int iMax = axes.iMax > axes.iMin ? axes.iMax : axes.iMin + 1;
+    const int jMax = axes.jMax > axes.jMin ? axes.jMax : axes.jMin + 1;
+    const int kMax = axes.kMax > axes.kMin ? axes.kMax : axes.kMin + 1;
+    const float xMin = Normalize(axes.iMin, axes.iMin, iMax, horizontalScale);
+    const float xMax = Normalize(iMax, axes.iMin, iMax, horizontalScale);
+    const float zMin = Normalize(axes.jMin, axes.jMin, jMax, horizontalScale);
+    const float zMax = Normalize(jMax, axes.jMin, jMax, horizontalScale);
+    const auto yOf = [&](int k) {
+        return -Normalize(k, axes.kMin, kMax, heightScale);
+    };
+    const float yTop = yOf(axes.kMin);
+    const float yBottom = yOf(axes.kMax);
+
+    if (type == SgySliceType::Inline) {
+        const float z = Normalize(index, axes.jMin, axes.jMax, horizontalScale);
+        return {{
+            {{xMin, yBottom, z}, {0.0f, 0.0f}},
+            {{xMax, yBottom, z}, {1.0f, 0.0f}},
+            {{xMax, yTop, z}, {1.0f, 1.0f}},
+            {{xMin, yTop, z}, {0.0f, 1.0f}},
+        }};
+    }
+    if (type == SgySliceType::Xline) {
+        const float x = Normalize(index, axes.iMin, axes.iMax, horizontalScale);
+        return {{
+            {{x, yBottom, zMin}, {0.0f, 0.0f}},
+            {{x, yBottom, zMax}, {1.0f, 0.0f}},
+            {{x, yTop, zMax}, {1.0f, 1.0f}},
+            {{x, yTop, zMin}, {0.0f, 1.0f}},
+        }};
+    }
+    const float y = yOf(index);
+    return {{
+        {{xMin, y, zMin}, {0.0f, 1.0f}},
+        {{xMax, y, zMin}, {1.0f, 1.0f}},
+        {{xMax, y, zMax}, {1.0f, 0.0f}},
+        {{xMin, y, zMax}, {0.0f, 0.0f}},
+    }};
+}
+
 } // namespace
 
 SeismicSliceRenderer::~SeismicSliceRenderer() {
@@ -377,6 +422,68 @@ bool SeismicSliceRenderer::UpdateSlice(
     }
 
     slotReady_[slotIndex] = true;
+    return true;
+}
+
+bool SeismicSliceRenderer::UpdatePropertySlice(
+    QOpenGLFunctions_3_3_Core *gl,
+    SeismicSliceSlot slot,
+    const PropertyBrickAxes &axes,
+    SgySliceType type,
+    int index,
+    const SgySliceImage &image) {
+    const std::size_t expectBytes = static_cast<std::size_t>(image.width) * image.height * 4;
+    const bool rgbaUsable = image.rgba.size() == expectBytes;
+    const bool valuesUsable = tfEnabled_ && !image.values.empty();
+    if (!gl || !initialized_ || image.width <= 0 || image.height <= 0 ||
+        (!rgbaUsable && !valuesUsable) || axes.iMax < axes.iMin || axes.jMax < axes.jMin ||
+        axes.kMax < axes.kMin) {
+        return false;
+    }
+    const size_t slotIndex = static_cast<size_t>(slot);
+    if (slotIndex >= vaos_.size() || slot == SeismicSliceSlot::Line) {
+        return false;
+    }
+    const auto vertices = BuildBrickVertices(axes, type, index);
+    gl->glBindVertexArray(vaos_[slotIndex]);
+    gl->glBindBuffer(GL_ARRAY_BUFFER, vbos_[slotIndex]);
+    gl->glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(sizeof(SliceVertex) * vertices.size()), vertices.data());
+    const unsigned int indices[] = {0, 1, 2, 0, 2, 3};
+    gl->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[slotIndex]);
+    gl->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+    indexCounts_[slotIndex] = 6;
+    if (!UploadSliceTexture(gl, textures_[slotIndex], image)) {
+        gl->glBindVertexArray(0);
+        return false;
+    }
+    slotReady_[slotIndex] = true;
+    return true;
+}
+
+bool SeismicSliceRenderer::UpdatePropertyStackLayer(
+    QOpenGLFunctions_3_3_Core *gl,
+    int layerIdx,
+    const PropertyBrickAxes &axes,
+    int kIndex,
+    const SgySliceImage &image) {
+    const std::size_t expectBytes = static_cast<std::size_t>(image.width) * image.height * 4;
+    const bool rgbaUsable = image.rgba.size() == expectBytes;
+    const bool valuesUsable = tfEnabled_ && !image.values.empty();
+    if (!gl || !initialized_ || layerIdx < 0 || layerIdx >= kMaxStackLayers ||
+        image.width <= 0 || image.height <= 0 || (!rgbaUsable && !valuesUsable)) {
+        return false;
+    }
+    const auto vertices = BuildBrickVertices(axes, SgySliceType::Time, kIndex);
+    const std::size_t layer = static_cast<std::size_t>(layerIdx);
+    gl->glBindVertexArray(stackVaos_[layer]);
+    gl->glBindBuffer(GL_ARRAY_BUFFER, stackVbos_[layer]);
+    gl->glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(sizeof(SliceVertex) * vertices.size()), vertices.data());
+    if (!UploadSliceTexture(gl, stackTextures_[layer], image)) {
+        gl->glBindVertexArray(0);
+        return false;
+    }
+    gl->glBindVertexArray(0);
+    stackReady_[layer] = true;
     return true;
 }
 

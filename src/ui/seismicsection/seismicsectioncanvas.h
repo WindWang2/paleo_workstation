@@ -257,6 +257,14 @@ public:
     bool hasAttrOverlay() const { return !m_attrImage.isNull(); }
     double attrOverlayAlpha() const { return m_attrAlpha; }
 
+    // goal/property-modeling：层段属性叠加。几何必须与当前剖面逐道逐样一致
+    // （IJK 投影由功能层做完再送进来）。NaN = 透明，不盖地震底图。
+    void setZoneOverlay(const SgySliceImage &zone);
+    void setZoneOverlayAlpha(double alpha);
+    void clearZoneOverlay();
+    bool hasZoneOverlay() const { return !m_zoneImage.isNull(); }
+    double zoneOverlayAlpha() const { return m_zoneAlpha; }
+
     // D2.9 导出：当前画布（图像+坐标轴+色标）按倍率渲染成 PNG
     bool exportPng(const QString &filePath, double scale = 2.0);
 
@@ -321,6 +329,8 @@ private:
     void rebuildColorLut();
     // goal/seismic-attributes：attr.values → m_attrImage（NaN=透明）
     void rebuildAttrImage();
+    QImage bakeOverlay(const SgySliceImage &src);
+    void rebuildZoneImage();
     float gainAtTwt(double twtMs) const;
     void updateHoverInfo(const QPoint &pos, bool clicked = false);
     QRect viewportRect() const;
@@ -391,6 +401,10 @@ private:
     SgySliceImage m_attrOverlay;   // 原值（NaN 语义保留）
     QImage m_attrImage;            // 按 LUT/自带值域烘焙的叠加图
     double m_attrAlpha = 0.65;
+    // goal/property-modeling 层段叠加（与属性层分立，画在属性之上）
+    SgySliceImage m_zoneOverlay;
+    QImage m_zoneImage;
+    double m_zoneAlpha = 0.65;
     bool m_compareEnabled = false;
     double m_curtainPos = 0.5;
     bool m_draggingCurtain = false;

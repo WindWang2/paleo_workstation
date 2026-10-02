@@ -48,10 +48,13 @@ public:
                                            WellLogWarnings *warnings = nullptr);
 
   // 跨文件并集。不含深度索引列（column 0）。
-  // 同名跨文件：主文件列保留原名且 canonical=true，其余为 <mnemonic>@<completeBaseName>。
-  // 同文件同名：全部保留，第二条起 mnemonic 改为 <名>#<列号>，并记 warning，不覆盖。
+  // 同名跨文件：主文件上有该列时，主文件列保留原名且 canonical=true，
+  // 其余为 <mnemonic>@<completeBaseName>。主文件没有该列，或没有主关联时，
+  // 重名列全部加别名，canonical 保持 false（不选举主文件）。
+  // 别名仍撞车时再追加 #<versionId>。
+  // 同文件同名：全部保留，第一条用原名，其后 mnemonic 改为 <名>#<列号>，并记 warning。
   // 只出现在非主文件、且没有重名的曲线保留原名，canonical=false。
-  // 无已决链接 → 空，warnings 不因此增加。无主关联时没有任何 canonical=true。
+  // 无已决链接 → 空，warnings 不因此增加。catalog 未打开记一条「catalog 未打开」。
   static QVector<WellCurveRef> wellCurveIndex(const DataCatalog *catalog,
                                               const QString &projectDir,
                                               const QString &wellId,

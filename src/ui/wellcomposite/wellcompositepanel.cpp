@@ -892,7 +892,7 @@ void WellCompositePanel::onTrackConfigRequested(int trackIndex)
   if (trackIndex < 0 || trackIndex >= m_canvas->trackCount())
     return;
 
-  const auto &track = m_canvas->tracks().at(trackIndex);
+  const auto track = m_canvas->tracks().at(trackIndex); // 拷贝 shared_ptr：tracks() 按值返回，后续跨 exec()
   TrackSpec initial = TrackRegistry::instance().captureSpec(track);
   if (initial.typeId.isEmpty())
     initial.typeId = TrackRegistry::typeIdForEnum(track->type());

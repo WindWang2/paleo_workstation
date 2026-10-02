@@ -755,7 +755,7 @@ void WellCompositeHeader::paintEvent(QPaintEvent * /*event*/)
   qreal curX = -m_canvas->hScrollOffset();
   for (int vi = 0; vi < vis.size(); ++vi)
   {
-    const auto &t = m_canvas->tracks().at(vis.at(vi));
+    const auto t = m_canvas->tracks().at(vis.at(vi)); // 拷贝 shared_ptr：tracks() 按值返回
     const qreal tw = t->width();
     const QRectF trackHeadRect(curX, 0, tw, height());
 
@@ -1017,7 +1017,7 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
   const QList<int> vis = m_canvas->visibleTrackIndices();
   for (int vi = 0; vi < vis.size(); ++vi)
   {
-    const auto &t = m_canvas->tracks().at(vis.at(vi));
+    const auto t = m_canvas->tracks().at(vis.at(vi)); // 拷贝 shared_ptr：tracks() 按值返回
     const qreal tw = t->width();
     const QRectF trackBodyRect(curX, 0, tw, height());
 
@@ -1454,7 +1454,7 @@ void WellCompositeBody::contextMenuEvent(QContextMenuEvent *event)
 void WellCompositeBody::openTrackContextMenu(const QPoint &pos, int trackIndex)
 {
   m_lastContextMenuTrack = trackIndex;
-  const auto &track = m_canvas->tracks().at(trackIndex);
+  const auto track = m_canvas->tracks().at(trackIndex); // 拷贝 shared_ptr：tracks() 按值返回，后续跨 exec()
   QMenu menu(this);
   menu.setObjectName(QStringLiteral("wellCompositeTrackMenu"));
 

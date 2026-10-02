@@ -158,6 +158,37 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells() {
       return result;
     };
     out.bottomTwtMs = timeFor(out.totalDepth, true);
+    // goal/well-trajectory：有测斜 → 剖面井轨按真实轨迹（xy = 井口 + 位移，
+    // twt 优先 TVD 校准回退 MD）；无测斜 → trajectory 空，视图保持垂直简化
+    // （不虚构造斜）。井底坐标同步补齐（平面轨迹线/两点简化的数据源）。
+    const auto survey = m_data.trajectoryFor(w.id);
+    if (survey)
+    {
+      const auto trajTwt = [&](const paleo::TrajectoryPoint &pt) {
+        const double viaTvd = timeFor(pt.tvd, false);
+        return std::isfinite(viaTvd) ? viaTvd : timeFor(pt.md, true);
+      };
+      for (const paleo::TrajectoryPoint &sp : survey->points())
+      {
+        seismic::WellTrajSample sample;
+        sample.md = sp.md;
+        sample.tvd = sp.tvd;
+        sample.x = w.surfaceX + sp.east;
+        sample.y = w.surfaceY + sp.north;
+        sample.twtMs = trajTwt(sp);
+        out.trajectory.push_back(sample);
+        if (std::isfinite(sample.twtMs))
+          out.bottomTwtMs = std::isfinite(out.bottomTwtMs)
+                                ? std::max(out.bottomTwtMs, sample.twtMs)
+                                : sample.twtMs;
+      }
+      if (out.totalDepth > 0.0)
+      {
+        const paleo::TrajectoryPoint tip = survey->pointAt(out.totalDepth);
+        out.bottomX = w.surfaceX + tip.east;
+        out.bottomY = w.surfaceY + tip.north;
+      }
+    }
     for (const auto &t : m_data.topsFor(w.id)) {
       seismic::WellTopItem top;
       top.topName = t.horizon;

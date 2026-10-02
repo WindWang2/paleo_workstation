@@ -28,6 +28,17 @@ struct WellCurveItem {
     QColor color = QColor(QStringLiteral("#43A047"));
 };
 
+// 测斜轨迹折线顶点（goal/well-trajectory）：井口平移后绝对坐标 + 深度对。
+// twtMs NaN = 未对齐（投影端决定显示口径）；空 trajectory = 无测斜井，
+// 消费面保持垂直简化——直井回退是显式语义。
+struct WellTrajSample {
+    double md = 0.0;
+    double tvd = 0.0;
+    double x = 0.0;   // 井口 X + 东向位移（局部米）
+    double y = 0.0;   // 井口 Y + 北向位移
+    double twtMs = 0.0;
+};
+
 struct SectionWellInfo {
     QString wellId;
     QString wellName;
@@ -51,6 +62,7 @@ struct SectionWellInfo {
 
     std::vector<WellTopItem> tops;
     std::vector<WellCurveItem> curves;
+    std::vector<WellTrajSample> trajectory; // 测斜站折线（空 = 无测斜，垂直简化）
 };
 
 // Projects 2D/3D well locations and trajectory markers onto an arbitrary seismic section polyline.

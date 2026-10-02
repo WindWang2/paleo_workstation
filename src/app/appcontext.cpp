@@ -1,6 +1,7 @@
 // 层：组装根
 #include "appcontext.h"
 #include "../workflow/mappingworkbench.h"
+#include "../workflow/welltrajectorylayer.h" // goal/well-trajectory 轨迹线层组装
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header; instantiation is PALEO_HAVE_ORT-guarded
 #if PALEO_HAVE_ORT
@@ -42,6 +43,10 @@
 #include <QApplication>
 #include <QThread>
 #include <QDir>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -178,8 +183,10 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   // 刷新图层——稳定指针（catalog 由 importSvc 持有，open 原地重绑）。
   // D6：导入使井点范围变大时 zoom-to-content（无关变更只重写同一份
   // geojson，范围不变不抢视野）。
-  connect(m_import->catalog(), &DataCatalog::changed, this,
-          [this] { refreshWellsLayer(true); });
+  connect(m_import->catalog(), &DataCatalog::changed, this, [this] {
+    refreshWellsLayer(true);
+    refreshWellTrajectoriesLayer();
+  });
 
   // Workflow orchestrators — thin bindings over the services above.
   // Layout service rides the service-owned QgsProject (eager — valid already).
@@ -425,6 +432,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             // 井点写 GeoJSON、声明「wells」、实例化后绑给 WellMapLink。
             m_projectDir = fi.absolutePath();
             refreshWellsLayer(false); // 打开时视野归 .qgz 恢复态，不抢
+            refreshWellTrajectoriesLayer();
 
             // goal/fault-interpretation：FaultSet 存储值重绑本工程 meta 库并
             // 读回；工程有断层时切割镜像层上图（内存层由模型整刷）。
@@ -485,6 +493,93 @@ void AppContext::closeProject()
       cat->setLockedReadOnly(false);
   }
   emit projectReadOnlyChanged(false);
+}
+
+void AppContext::refreshWellTrajectoriesLayer()
+{
+  if (m_projectDir.isEmpty() || !m_import || !m_layerSvc || !m_projectData)
+    return;
+  DataCatalog *cat = m_import->catalog();
+  if (!cat)
+    return;
+  const bool readOnly = m_projectLock && !m_projectLock->isHeld();
+
+  const QString trajPath = QDir(m_projectDir).filePath(
+      QStringLiteral("artifacts/layers/well_trajectories.geojson"));
+  if (!readOnly)
+  {
+    // 组装在功能层纯函数（wellTrajectoriesGeoJson，可测）；这里只落盘 +
+    // 声明 + 上图。读坏测斜的井如实进日志（不阻断其余井的层产出）。
+    QString terr;
+    const QByteArray bytes = paleo::wellTrajectoriesGeoJson(m_projectData, cat, &terr);
+    if (!terr.isEmpty())
+      qWarning() << "AppContext: well trajectories skipped broken surveys:" << terr;
+    const QByteArray finalBytes = bytes.isEmpty()
+                                      ? QByteArray() // 无任何已决测斜
+                                      : bytes;
+    if (!finalBytes.isEmpty())
+    {
+      QDir().mkpath(QFileInfo(trajPath).absolutePath());
+      QSaveFile file(trajPath);
+      file.setDirectWriteFallback(false);
+      if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+      {
+        if (file.write(finalBytes) == finalBytes.size() && file.commit())
+        {
+          LayerDeclaration decl;
+          decl.layerId = QStringLiteral("well_trajectories");
+          decl.type = QStringLiteral("vector");
+          decl.source = trajPath;
+          decl.group = QStringLiteral("00_Data");
+          decl.title = tr("井轨迹投影");
+          QString derr;
+          if (!m_layerSvc->declare(decl, &derr))
+            qWarning() << "AppContext: well trajectories layer declare failed:" << derr;
+        }
+        else
+        {
+          qWarning() << "AppContext: well trajectories geojson write failed";
+        }
+      }
+    }
+    else if (QFile::exists(trajPath))
+    {
+      // 曾有轨迹、现已全部解除：覆写空 FeatureCollection——声明保留（无
+      // undeclare 面），图层如实渲染零要素，不留旧轨迹假象。
+      QJsonObject root;
+      root.insert(QStringLiteral("type"), QStringLiteral("FeatureCollection"));
+      QJsonObject crsProps;
+      crsProps.insert(QStringLiteral("name"), DataCatalog::localGridCrsWkt());
+      QJsonObject crs;
+      crs.insert(QStringLiteral("type"), QStringLiteral("name"));
+      crs.insert(QStringLiteral("properties"), crsProps);
+      root.insert(QStringLiteral("crs"), crs);
+      root.insert(QStringLiteral("features"), QJsonArray());
+      QSaveFile file(trajPath);
+      file.setDirectWriteFallback(false);
+      if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+      {
+        const QByteArray emptyBytes = QJsonDocument(root).toJson();
+        if (!(file.write(emptyBytes) == emptyBytes.size() && file.commit()))
+          qWarning() << "AppContext: well trajectories geojson rewrite failed";
+      }
+    }
+  }
+  else if (!QFile::exists(trajPath))
+  {
+    return; // 只读且无可复用产物——不造数据，也不算失败
+  }
+  QString ierr;
+  auto *layer = qobject_cast<QgsVectorLayer *>(
+      m_layerSvc->instantiate(QStringLiteral("well_trajectories"), &ierr));
+  if (!layer)
+  {
+    // 声明缺位（可写实例首跑前）或文件为空——不算失败，仅无层可上图。
+    return;
+  }
+  layer->reload();
+  QgisStyleService::applyTrajectoryLayerStyle(layer);
+  layer->triggerRepaint();
 }
 
 void AppContext::refreshWellsLayer(bool zoomOnGrowth)

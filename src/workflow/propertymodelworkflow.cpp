@@ -3,6 +3,7 @@
 
 #include "../catalog/datacatalog.h"
 #include "../io/lasparser.h"
+#include "../services/projectdata.h"
 #include "../services/welllogset.h"
 #include "derivedassets.h"
 
@@ -521,6 +522,7 @@ PropertyModelWorkflow::runCompute(const PropertyModelRequest &request,
   prov.insert(QStringLiteral("n_layers"), request.nLayers);
   prov.insert(QStringLiteral("idw_power"), request.idwPower);
   prov.insert(QStringLiteral("n_wells"), static_cast<int>(request.wells.size()));
+  prov.insert(QStringLiteral("n_trajectory_wells"), request.trajectoryWellCount);
   prov.insert(QStringLiteral("n_fault_segments"), static_cast<int>(request.faults.size()));
   const QByteArray blob = paleo::stratgrid::writePropertyBlob(volume, prov);
   if (blob.isEmpty())
@@ -671,6 +673,13 @@ PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &to
   req.idwPower = idwPower;
   req.useEmbeddedSurfaces = false;
 
+  // goal/well-trajectory：井有测斜 → 井筒站点走真实三维轨迹（x/y = 井口 +
+  // 位移，z = TVD）；无测斜 → 原垂直路径（x/y 恒井口、z = MD）。直井回退
+  // 是显式语义（trajectoryFor nullopt），绝不虚构造斜。
+  ProjectDataFacade facade;
+  facade.setCatalog(m_catalog, m_projectDir);
+  int trajectoryWells = 0;
+
   for (const CatalogEntity &ent : m_catalog->entities(QStringLiteral("well")))
   {
     if (!ent.hasSurface)
@@ -727,22 +736,54 @@ PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &to
     paleo::stratgrid::WellCurve well;
     well.wellId = ent.id;
     well.curveName = curveMnemonic;
-    const auto stationAt = [&](double md) {
-      paleo::stratgrid::WellStation station;
-      station.md = md;
-      station.x = ent.surfaceX;
-      station.y = ent.surfaceY;
-      station.z = md;
-      return station;
-    };
-    well.stations.push_back(stationAt(samples.front().md));
-    if (samples.back().md > samples.front().md)
-      well.stations.push_back(stationAt(samples.back().md));
+    const double firstMd = samples.front().md;
+    const double lastMd = samples.back().md;
+    const auto survey = facade.trajectoryFor(ent.id);
+    if (survey)
+    {
+      ++trajectoryWells;
+      // 站集 = 曲线 MD 端点 + 区间内测斜站（严格递增，去重邻接同值）。
+      const auto pushStationAt = [&](double md) {
+        if (!well.stations.empty() && md - well.stations.back().md <= 1e-9)
+          return;
+        const paleo::TrajectoryPoint p = survey->pointAt(md);
+        paleo::stratgrid::WellStation station;
+        station.md = md;
+        station.x = ent.surfaceX + p.east;
+        station.y = ent.surfaceY + p.north;
+        station.z = p.tvd;
+        well.stations.push_back(station);
+      };
+      pushStationAt(firstMd);
+      for (const paleo::TrajectoryPoint &sp : survey->points())
+        pushStationAt(sp.md);
+      pushStationAt(lastMd);
+      if (lastMd > firstMd && well.stations.size() < 2)
+      {
+        // 端点重合护栏：曲线区间退化在单一测斜站邻域时补插值站，保住站距。
+        pushStationAt(0.5 * (firstMd + lastMd) + 1e-6);
+      }
+    }
+    else
+    {
+      const auto stationAt = [&](double md) {
+        paleo::stratgrid::WellStation station;
+        station.md = md;
+        station.x = ent.surfaceX;
+        station.y = ent.surfaceY;
+        station.z = md;
+        return station;
+      };
+      well.stations.push_back(stationAt(firstMd));
+      if (lastMd > firstMd)
+        well.stations.push_back(stationAt(lastMd));
+    }
     well.curve.reserve(samples.size());
     for (const Sample &sample : samples)
       well.curve.push_back(paleo::stratgrid::CurvePoint{sample.md, sample.value});
     req.wells.push_back(std::move(well));
   }
+  req.trajectoryWellCount = trajectoryWells;
   return req;
 }
 

@@ -21,6 +21,9 @@ class QgisStyleService : public QObject
     QStringList availableStyles() const;               // basenames under stylesRoot
 
     static void applyWellLayerStyle(class QgsVectorLayer *layer);
+    // goal/well-trajectory：井底位移轨迹线（DESIGN.md text 墨色实线——
+    // 实测轨迹不是不确定面，不用虚线）。
+    static void applyTrajectoryLayerStyle(class QgsVectorLayer *layer);
 
     // ---- C2（wave/deepen-perf）：相界地质语义符号 --------------------------
     // 相多边形图层按 boundary_kind 分类描边：断层切割（fault_cut）= 断层红

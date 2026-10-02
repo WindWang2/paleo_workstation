@@ -9,106 +9,44 @@ namespace WellComposite
 {
 
 namespace {
-
-// 实际最小曲率 TVD 增量闭合式：ΔTVD = ΔMD/2 · (cosI1+cosI2) · RF
-double tvdIncrement(double md1, double inc1Deg, double md2, double inc2Deg)
-{
-  const double dMd = md2 - md1;
-  if (dMd <= 0.0)
-    return 0.0;
-
-  const double i1 = inc1Deg * std::numbers::pi / 180.0;
-  const double i2 = inc2Deg * std::numbers::pi / 180.0;
-
-  double cosDog = std::cos(i2 - i1);
-  cosDog = std::min(1.0, std::max(-1.0, cosDog));
-  const double dogleg = std::acos(cosDog);
-
-  if (dogleg < 1e-9)
-    return dMd * 0.5 * (std::cos(i1) + std::cos(i2));
-
-  const double rf = (2.0 / dogleg) * std::tan(dogleg * 0.5);
-  return dMd * 0.5 * (std::cos(i1) + std::cos(i2)) * rf;
-}
-
 } // namespace
+
 
 void DepthTransform::setDeviationSurvey(const QVector<DeviationStation> &stations)
 {
-  m_tvdStations.clear();
+  m_survey.reset();
+  m_deviationInvalidReason.clear();
   if (stations.isEmpty())
     return;
-
-  auto sorted = stations;
-  std::sort(sorted.begin(), sorted.end(),
-            [](const DeviationStation &a, const DeviationStation &b) { return a.md < b.md; });
-
-  // 首站前视为垂直井段：TVD 基准取地表（与 MD 同基准，非相对首站）
-  double tvd = sorted.first().md * std::cos(sorted.first().inclinationDeg * std::numbers::pi / 180.0);
-  m_tvdStations.append({sorted.first().md, tvd});
-  for (int i = 1; i < sorted.size(); ++i)
-  {
-    tvd += tvdIncrement(sorted.at(i - 1).md, sorted.at(i - 1).inclinationDeg,
-                        sorted.at(i).md, sorted.at(i).inclinationDeg);
-    m_tvdStations.append({sorted.at(i).md, tvd});
-  }
+  QVector<paleo::DeviationStation> conv;
+  conv.reserve(stations.size());
+  for (const DeviationStation &s : stations)
+    conv.append({s.md, s.inclinationDeg, s.azimuthDeg});
+  QString err;
+  auto survey = paleo::WellDeviationSurvey::fromStations(conv, &err);
+  if (survey)
+    m_survey = std::move(*survey);
+  else
+    m_deviationInvalidReason = err; // 站表在但坏：禁用 + 如实原因，不静默降级
 }
 
 QString DepthTransform::deviationUnavailableReason() const
 {
   if (hasDeviationSurvey())
     return QString();
+  if (!m_deviationInvalidReason.isEmpty())
+    return QStringLiteral("井斜站表无效：") + m_deviationInvalidReason;
   return QStringLiteral("井斜测量表缺失：TVD 换算需 .clw/井斜数据（当前井无 deviates 表）");
 }
 
 double DepthTransform::mdToTvd(double md) const
 {
-  if (m_tvdStations.isEmpty())
-    return md; // 无井斜 = 垂直井，TVD ≡ MD
-  if (md <= m_tvdStations.first().first)
-    return md - m_tvdStations.first().first + m_tvdStations.first().second;
-  if (md >= m_tvdStations.last().first)
-  {
-    // 末段线性外延
-    const int n = m_tvdStations.size();
-    const double dm = m_tvdStations.at(n - 1).first - m_tvdStations.at(n - 2).first;
-    const double dt = m_tvdStations.at(n - 1).second - m_tvdStations.at(n - 2).second;
-    const double ratio = dm > 1e-9 ? dt / dm : 1.0;
-    return m_tvdStations.last().second + (md - m_tvdStations.last().first) * ratio;
-  }
-  for (int i = 1; i < m_tvdStations.size(); ++i)
-  {
-    if (md <= m_tvdStations.at(i).first)
-    {
-      const double dm = m_tvdStations.at(i).first - m_tvdStations.at(i - 1).first;
-      const double dt = m_tvdStations.at(i).second - m_tvdStations.at(i - 1).second;
-      if (dm <= 1e-9)
-        return m_tvdStations.at(i).second;
-      const double t = (md - m_tvdStations.at(i - 1).first) / dm;
-      return m_tvdStations.at(i - 1).second + t * dt;
-    }
-  }
-  return md;
+  return m_survey ? m_survey->tvdAt(md) : md; // 无井斜 = 垂直井，TVD ≡ MD
 }
 
 double DepthTransform::tvdToMd(double tvd) const
 {
-  if (m_tvdStations.isEmpty())
-    return tvd;
-  // 二分站间反插
-  for (int i = 1; i < m_tvdStations.size(); ++i)
-  {
-    if (tvd <= m_tvdStations.at(i).second)
-    {
-      const double dm = m_tvdStations.at(i).first - m_tvdStations.at(i - 1).first;
-      const double dt = m_tvdStations.at(i).second - m_tvdStations.at(i - 1).second;
-      if (dt <= 1e-9)
-        return m_tvdStations.at(i).first;
-      const double t = (tvd - m_tvdStations.at(i - 1).second) / dt;
-      return m_tvdStations.at(i - 1).first + t * dm;
-    }
-  }
-  return tvd;
+  return m_survey ? m_survey->tvdToMd(tvd) : tvd;
 }
 
 void DepthTransform::setKbElevation(double kbMeters)

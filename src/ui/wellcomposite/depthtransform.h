@@ -6,6 +6,9 @@
 
 #include <QPair>
 
+#include <optional>
+
+#include "domain/deviationsurvey.h"
 #include "domain/wellcompositemodel.h"
 
 // ui/wellcomposite/depthtransform — D6.x 深度变换与查询
@@ -33,7 +36,7 @@ class DepthTransform
 public:
   // ---- D6.1 MD→TVD ----
   void setDeviationSurvey(const QVector<DeviationStation> &stations);
-  bool hasDeviationSurvey() const { return !m_tvdStations.isEmpty(); }
+  bool hasDeviationSurvey() const { return m_survey.has_value(); }
   // 缺表禁用原因（tooltip/禁用态文案）
   QString deviationUnavailableReason() const;
   double mdToTvd(double md) const;      // 站间线性插值；表外延用末段比
@@ -79,8 +82,10 @@ public:
   }
 
 private:
-  // TVD 计算后的站点表（md, tvd）
-  QVector<QPair<double, double>> m_tvdStations;
+  // goal/well-trajectory：MD↔TVD 统一走域模型最小曲率（全狗腿含方位）。
+  // 站表无效（重复 MD/越界角等）→ 保持在禁用态并记原因（面板如实显示）。
+  std::optional<paleo::WellDeviationSurvey> m_survey;
+  QString m_deviationInvalidReason;
   QVector<QPair<double, double>> m_twtStations;
   bool m_hasKb = false;
   double m_kb = 0.0;

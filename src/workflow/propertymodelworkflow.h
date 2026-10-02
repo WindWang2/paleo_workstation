@@ -37,6 +37,7 @@ struct PropertyModelRequest
   double idwPower = 2.0;
   std::vector<paleo::stratgrid::WellCurve> wells;
   std::vector<paleo::stratgrid::FaultSegment> faults;
+  int trajectoryWellCount = 0; // 井筒站点来自测斜轨迹的井数（provenance 面）
 };
 
 struct PropertyModelOutput

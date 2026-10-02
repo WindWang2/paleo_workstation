@@ -843,17 +843,32 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-b.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-c.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-d.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-faultinterp.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-install.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-io-perf.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-mamcl.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-mapping.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-petrophys.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-prediction-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-sections-alignment.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-seismic.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-surfaceops.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-time-depth.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-ux.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-wellcomposite.cmake"
 )
 foreach(_f IN LISTS _paleo_extra_manifest)
   if(EXISTS "${_f}")
     include("${_f}")
+  endif()
+endforeach()
+# 防漏登记对账：磁盘上的 extra-*.cmake 必须全部在清单内（显式清单防的是
+# 构建目录漂移，不是删文件——漏登记的模块会静默丢源文件/测试，曾致
+# mincurvature.cpp 未编译 → vtable 链接失败）。
+file(GLOB _paleo_extra_ondisk CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/cmake/extra-*.cmake")
+foreach(_f IN LISTS _paleo_extra_ondisk)
+  if(NOT _f IN_LIST _paleo_extra_manifest)
+    message(FATAL_ERROR "cmake/$(notdir ${_f}) 未登记进 _paleo_extra_manifest——"
+      "请补进上面的显式清单（防漂移约定不变：include 仍只走清单）")
   endif()
 endforeach()

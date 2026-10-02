@@ -50,6 +50,7 @@ struct SgyScanStats {
     std::uint64_t recordsSkipped = 0;  // 0/0 header traces
     std::uint64_t checkpointWrites = 0;
     std::uint64_t checkpointBytes = 0;
+    std::uint64_t checkpointFailures = 0; // publish attempts that had to be abandoned
     std::uint64_t resumedFromRecord = 0;
     std::uint64_t resumedFromByte = 0;
     std::size_t peakBufferBytes = 0;
@@ -68,6 +69,11 @@ struct SgyScanResult {
     // result is resumable progress, not an error and not a complete index.
     bool bounded = false;
     std::string message;
+    // Non-empty when checkpoint persistence failed and was switched off for the
+    // rest of the scan. A checkpoint is a resumability optimisation: it must
+    // never turn into a fatal scan error (see docs/progress/data-perf.md), so a
+    // failure is reported here instead of through `message`.
+    std::string checkpointNote;
     SgyScanStats stats;
 };
 

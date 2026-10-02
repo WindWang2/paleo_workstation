@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -9,6 +10,7 @@
 #include <limits>
 #include <sstream>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -166,24 +168,51 @@ bool WriteAll(const std::filesystem::path& path, const std::vector<unsigned char
     return true;
 }
 
+// A publish replaces one path with another; transient OS states (Windows
+// sharing violations, POSIX EBUSY) are worth a bounded retry, and the failure
+// must always carry the OS detail — a bare "publishing failed" left decades of
+// field reports undiagnosable.
+constexpr int kReplaceAttempts = 3;
+constexpr int kReplaceRetryBackoffMs = 5;
+
 bool ReplaceFileAtomically(const std::filesystem::path& from, const std::filesystem::path& to, std::string& errorMessage) {
+    const std::filesystem::path targetDir = to.parent_path();
+    if(!targetDir.empty()) {
+        std::error_code dirError;
+        std::filesystem::create_directories(targetDir, dirError);
+        std::error_code existsError;
+        if(!std::filesystem::exists(targetDir, existsError)) {
+            errorMessage = "The cache directory is unusable (" + targetDir.u8string() +
+                           ": " + dirError.message() + ").";
+            return false;
+        }
+    }
+    std::string detail;
+    for(int attempt = 0; attempt < kReplaceAttempts; ++attempt) {
 #ifdef _WIN32
-    if(MoveFileExW(from.wstring().c_str(), to.wstring().c_str(),
-                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0) {
-        return true;
-    }
-    errorMessage = "Publishing the cache file failed (MoveFileEx error " +
-                   std::to_string(GetLastError()) + ").";
-    return false;
+        if(MoveFileExW(from.wstring().c_str(), to.wstring().c_str(),
+                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0) {
+            return true;
+        }
+        detail = "MoveFileEx error " + std::to_string(static_cast<unsigned long>(GetLastError()));
 #else
-    std::error_code ec;
-    std::filesystem::rename(from, to, ec);
-    if(ec) {
-        errorMessage = "Publishing the cache file failed: " + ec.message();
-        return false;
-    }
-    return true;
+        std::error_code ec;
+        std::filesystem::rename(from, to, ec);
+        if(!ec) {
+            return true;
+        }
+        detail = ec.message();
 #endif
+        std::error_code stillThere;
+        if(!std::filesystem::exists(from, stillThere)) {
+            break; // the source was consumed elsewhere; retrying cannot help
+        }
+        if(attempt + 1 < kReplaceAttempts) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(kReplaceRetryBackoffMs));
+        }
+    }
+    errorMessage = "Publishing the cache file failed (" + detail + ").";
+    return false;
 }
 
 } // namespace
@@ -694,18 +723,44 @@ bool SgyIndexCache::Save(const SgyIndexPtr& index, std::string& errorMessage,
         return false;
     }
 
-    // Re-read and verify the temporary file before publishing it.
-    {
-        std::string verifyReason;
+    // Re-read and verify the temporary file before publishing it. The reopen
+    // itself gets one retry: on Windows the freshly closed write handle can be
+    // momentarily re-scanned by anti-malware filters, which used to surface as
+    // "Cache verification after writing failed" even though nothing about the
+    // bytes was wrong — and skipping verification would have hidden real
+    // corruption, so the honest fix is a bounded reopen retry plus a distinct
+    // message for the two failure shapes.
+    std::vector<unsigned char> reread;
+    bool reopened = false;
+    std::string reopenNote;
+    for(int attempt = 0; attempt < 2 && !reopened; ++attempt) {
         std::ifstream verify(tempPath, std::ios::binary);
-        std::vector<unsigned char> reread(
-            (std::istreambuf_iterator<char>(verify)), std::istreambuf_iterator<char>());
-        if(reread.size() != buffer.size() || std::memcmp(reread.data(), buffer.data(), buffer.size()) != 0) {
-            std::error_code removeError;
-            std::filesystem::remove(tempPath, removeError);
-            errorMessage = "Cache verification after writing failed.";
-            return false;
+        if(verify) {
+            reread.assign((std::istreambuf_iterator<char>(verify)),
+                          std::istreambuf_iterator<char>());
+            if(!verify.bad()) {
+                reopened = true;
+                break;
+            }
+            reopenNote = "re-reading the temporary file failed mid-stream";
+        } else {
+            reopenNote = "the written temporary file cannot be reopened";
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    if(!reopened || reread.size() != buffer.size() ||
+       (buffer.empty() ? false : std::memcmp(reread.data(), buffer.data(), buffer.size()) != 0)) {
+        std::error_code removeError;
+        std::filesystem::remove(tempPath, removeError);
+        errorMessage = "Cache verification after writing failed";
+        if(!reopened) {
+            errorMessage += " (" + reopenNote + ")";
+        } else {
+            errorMessage += " (expected " + std::to_string(buffer.size()) +
+                            " bytes, re-read " + std::to_string(reread.size()) + ")";
+        }
+        errorMessage += ".";
+        return false;
     }
 
     if(!ReplaceFileAtomically(tempPath, cachePath, errorMessage)) {

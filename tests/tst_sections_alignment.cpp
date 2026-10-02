@@ -28,12 +28,34 @@ class TestSectionsAlignment : public QObject {
   Q_OBJECT
 private slots:
   void strictTimeDepth() {
+    // BIZ-12: Defensive check ordering for empty model and non-finite inputs
+    seismic::TimeDepthModel emptyModel;
+    QVERIFY(std::isnan(emptyModel.DepthToTwtMs(std::numeric_limits<double>::quiet_NaN())));
+    QVERIFY(std::isnan(emptyModel.DepthToTwtMs(std::numeric_limits<double>::infinity())));
+    QVERIFY(std::isnan(emptyModel.DepthToTwtMs(-std::numeric_limits<double>::infinity())));
+    QVERIFY(std::isnan(emptyModel.TwtMsToDepth(std::numeric_limits<double>::quiet_NaN())));
+    QVERIFY(std::isnan(emptyModel.TwtMsToDepth(std::numeric_limits<double>::infinity())));
+    QVERIFY(std::isnan(emptyModel.TwtMsToDepth(-std::numeric_limits<double>::infinity())));
+    emptyModel.setVelocity(2000.0);
+    QCOMPARE(emptyModel.DepthToTwtMs(100.0), 100.0);
+    QCOMPARE(emptyModel.TwtMsToDepth(100.0), 100.0);
+
     seismic::TimeDepthModel model;
     QVERIFY(model.setCheckshots({{100, 80}, {200, 130}, {500, 250}}));
+    QCOMPARE(model.DepthToTwtMs(100.0), 80.0);   // exact front
+    QCOMPARE(model.DepthToTwtMs(500.0), 250.0);  // exact back
+    QCOMPARE(model.TwtMsToDepth(80.0), 100.0);   // exact front
+    QCOMPARE(model.TwtMsToDepth(250.0), 500.0);  // exact back
     QCOMPARE(model.DepthToTwtMs(350), 190.0);
     QCOMPARE(model.TwtMsToDepth(190), 350.0);
     QVERIFY(std::isnan(model.DepthToTwtMs(501)));
+    QVERIFY(std::isnan(model.DepthToTwtMs(99.9)));
     QVERIFY(std::isnan(model.TwtMsToDepth(79)));
+    QVERIFY(std::isnan(model.TwtMsToDepth(250.1)));
+    QVERIFY(std::isnan(model.DepthToTwtMs(std::numeric_limits<double>::quiet_NaN())));
+    QVERIFY(std::isnan(model.DepthToTwtMs(std::numeric_limits<double>::infinity())));
+    QVERIFY(std::isnan(model.TwtMsToDepth(std::numeric_limits<double>::quiet_NaN())));
+    QVERIFY(std::isnan(model.TwtMsToDepth(std::numeric_limits<double>::infinity())));
     QVERIFY(!model.setCheckshots({{100, 100}, {200, 90}}));
     QVERIFY(!model.setCheckshots({{100, 100}, {100, 150}}));
     QVERIFY(!model.setCheckshots({{100, 100}}));

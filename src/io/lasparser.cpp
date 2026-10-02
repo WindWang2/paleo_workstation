@@ -316,10 +316,20 @@ namespace
     issues->append(issue);
   }
 
+  // raw 含 BOM 时 asciiDataOffset 要加回 BOM 长度（stripBom 前的坐标系）。
+  qint64 bomAdjustment(const QByteArray &raw)
+  {
+    if (raw.size() >= 3 && static_cast<uchar>(raw[0]) == 0xEF &&
+        static_cast<uchar>(raw[1]) == 0xBB && static_cast<uchar>(raw[2]) == 0xBF)
+      return 3;
+    return 0;
+  }
+
   struct HeaderScanResult
   {
       LasHeaderInfo header;
-      qint64 asciiDataOffset = -1; // ~A 段头行之后首数据行字节偏移；无 ~A = -1
+      qint64 asciiDataOffset = -1; // ~A 段头行之后首数据行字节偏移（对齐源文件/raw 绝对偏移）；无 ~A = -1
+      int bomBytes = 0;            // UTF-8 BOM 长度（0 或 3）
       bool sawWrapYes = false;
       bool sawCurves = false;
       QList<QPair<QString, QString>> curveNameUnits; // (name, unit) 有序
@@ -331,6 +341,7 @@ namespace
   HeaderScanResult scanHeaderBytes(const QByteArray &raw, QList<LasIssue> *issues)
   {
     HeaderScanResult out;
+    out.bomBytes = static_cast<int>(bomAdjustment(raw));
     enum class Section { None, Version, Well, Curves, Other };
     Section section = Section::None;
 
@@ -371,7 +382,7 @@ namespace
         else if (code == QLatin1Char('A'))
         {
           out.header.sawAscii = true;
-          out.asciiDataOffset = pos; // BOM 偏移差在 stripBom 后坐标系内——调用方用原始 raw 时需加回
+          out.asciiDataOffset = pos + out.bomBytes; // 直接调整为源文件/raw 的绝对字节偏移
           return out;                // 数据节开始——头部扫描到此为止
         }
         else                               section = Section::Other;
@@ -420,14 +431,6 @@ namespace
     return out;
   }
 
-  // raw 含 BOM 时 asciiDataOffset 要加回 BOM 长度（stripBom 前的坐标系）。
-  qint64 bomAdjustment(const QByteArray &raw)
-  {
-    if (raw.size() >= 3 && static_cast<uchar>(raw[0]) == 0xEF &&
-        static_cast<uchar>(raw[1]) == 0xBB && static_cast<uchar>(raw[2]) == 0xBF)
-      return 3;
-    return 0;
-  }
 } // namespace
 
 bool LasParser::scanSections(const QByteArray &raw, SectionMap *out, QList<LasIssue> *issues)
@@ -436,7 +439,7 @@ bool LasParser::scanSections(const QByteArray &raw, SectionMap *out, QList<LasIs
   out->error.clear();
   const HeaderScanResult h = scanHeaderBytes(raw, issues);
   out->header = h.header;
-  out->asciiDataOffset = h.asciiDataOffset >= 0 ? h.asciiDataOffset + bomAdjustment(raw) : -1;
+  out->asciiDataOffset = h.asciiDataOffset;
   out->sawWrapYes = h.sawWrapYes;
   if (!h.error.isEmpty())
   {
@@ -586,7 +589,7 @@ LasDoc LasParser::parseDoc(const QString &path, QList<LasIssue> *issues)
     return doc;
   }
   qint64 rowsTotal = 0;
-  const qint64 asciiOff = header.asciiDataOffset + bomAdjustment(raw);
+  const qint64 asciiOff = header.asciiDataOffset;
   doc.curves = parseAsciiRows(raw, asciiOff, header.header.curveNames,
                               header.header.nullValue, 0, -1, &rowsTotal, issues);
   for (int i = 0; i < doc.curves.size(); ++i)
@@ -769,6 +772,7 @@ bool LasParser::parseDepthRange(const QString &path, double fromDepth, double to
   // 截断点落在深度 token 中间时还会拼出越界深度、触发「越界即停」静默截断。
   constexpr qint64 kChunk = 4 * 1024 * 1024;
   bool stopped = false;
+  std::vector<double> rowVals(nCurves);
   while (pos < fileSize && !stopped)
   {
     f.seek(pos);

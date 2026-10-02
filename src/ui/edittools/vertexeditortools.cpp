@@ -3,6 +3,9 @@
 
 #include "qgis/topologicalindex.h"
 
+#include <map>
+#include <tuple>
+
 #include <QKeyEvent>
 #include <QHash>
 
@@ -590,6 +593,9 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
     mCommitting = true;
     // One edit command per touched layer (native undo stacks are per-layer;
     // cross-layer gestures undo layer by layer — see header notes).
+    mCommitting = true;
+    // One edit command per touched layer (native undo stacks are per-layer;
+    // cross-layer gestures undo layer by layer — see header notes).
     QHash<QgsVectorLayer *, QList<CoincidentMember>> byLayer;
     for ( const CoincidentMember &member : std::as_const( writeSet ) )
       byLayer[member.layer].append( member );
@@ -649,6 +655,28 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
               if ( closingNr >= 0 )
                 mutated.moveVertex( newStart.x(), newStart.y(), closingNr );
             }
+          }
+        }
+
+        // Defense-in-depth: verify all rings in mutated geometry satisfy minimum counts
+        if ( layerOk && mutated.constGet() )
+        {
+          const Qgis::GeometryType gt = QgsWkbTypes::geometryType( mutated.wkbType() );
+          const int minAllowed = ( gt == Qgis::GeometryType::Polygon ) ? 4
+                                 : ( gt == Qgis::GeometryType::Line ) ? 2
+                                 : 1;
+          for ( int p = 0; p < mutated.constGet()->partCount(); ++p )
+          {
+            for ( int r = 0; r < mutated.constGet()->ringCount( p ); ++r )
+            {
+              if ( mutated.constGet()->vertexCount( p, r ) < minAllowed )
+              {
+                layerOk = false;
+                break;
+              }
+            }
+            if ( !layerOk )
+              break;
           }
         }
 

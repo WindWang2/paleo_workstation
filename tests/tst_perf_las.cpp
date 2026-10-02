@@ -1,6 +1,7 @@
 // tst_perf_las — wave/io-perf-cache D1.4-D1.9：LAS 快解析性能、区间查询、
 // 错误分类、大文件防护、空曲线策略、别名归一。
 #include <QtTest>
+#include <cmath>
 
 #include "io/lasalias.h"
 #include "io/lasparser.h"
@@ -32,6 +33,11 @@ class PerfLasTests : public QObject
     void bomLasHandled();
     void parseRangeFullFileAgrees();
     void customNullValueMapped();
+    void parseDepthRangeManyCurves();
+    void parseDepthRangeBomOffset();
+    void parseDepthRange100Curves();
+    void parseDepthRangeBomVariousHeaders();
+    void parseDepthRangeChunkBoundaryStress();
 
   private:
     QTemporaryDir m_dir;
@@ -373,6 +379,287 @@ void PerfLasTests::customNullValueMapped()
   QVERIFY(doc.ok);
   QVERIFY(doc.curves.at(1).values.at(0) != doc.curves.at(1).values.at(0)); // NaN
   QCOMPARE(doc.curves.at(1).values.at(1), 7.0);
+}
+
+void PerfLasTests::parseDepthRangeManyCurves()
+{
+  // BIZ-01: 验证 >64 条曲线时 parseDepthRange 不发生静默截断为 NaN
+  const QString las = m_dir.filePath("many_curves.las");
+  const int nCurves = 75; // 超过 64 条
+  QStringList curves;
+  curves.append(QStringLiteral("DEPT"));
+  for (int i = 1; i < nCurves; ++i)
+    curves.append(QStringLiteral("C%1").arg(i, 2, 10, QLatin1Char('0')));
+
+  const int rows = 20;
+  const double startDepth = 1000.0;
+  const double stepDepth = 0.5;
+
+  QFile f(las);
+  QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  QByteArray content;
+  content += "~VERSION\nVERS. 2.0 : CWLS\nWRAP. NO : no\n~WELL\nNULL. -999.25\nWELL. WELL-75\n~CURVE\n";
+  for (const QString &c : curves)
+    content += QStringLiteral("%1.M : %1 curve\n").arg(c).toUtf8();
+  content += "~A\n";
+  for (int r = 0; r < rows; ++r)
+  {
+    const double depth = startDepth + r * stepDepth;
+    QString line = QString::number(depth, 'f', 3);
+    for (int c = 1; c < nCurves; ++c)
+    {
+      const double v = 10.0 + c + r * 0.1;
+      line += QStringLiteral(" %1").arg(QString::number(v, 'f', 2));
+    }
+    content += line.toUtf8();
+    content += '\n';
+  }
+  f.write(content);
+  f.close();
+
+  QStringList parsedNames;
+  QList<LasCurve> parsedCurves;
+  QString err;
+  QVERIFY2(LasParser::parseDepthRange(las, 1002.0, 1005.0, parsedNames, parsedCurves, &err), qPrintable(err));
+  QCOMPARE(parsedNames.size(), nCurves);
+  QCOMPARE(parsedCurves.size(), nCurves);
+
+  // 1002.0 到 1005.0 (含端点，步长 0.5) 共 7 行
+  const int expectedRows = 7;
+  for (int c = 0; c < nCurves; ++c)
+  {
+    QCOMPARE(parsedCurves.at(c).values.size(), expectedRows);
+    for (int r = 0; r < expectedRows; ++r)
+    {
+      const double v = parsedCurves.at(c).values.at(r);
+      QVERIFY2(!std::isnan(v), qPrintable(QStringLiteral("Curve %1 ('%2') row %3 is unexpectedly NaN (BIZ-01 truncation)")
+                                          .arg(c).arg(parsedNames.at(c)).arg(r)));
+    }
+  }
+
+  // 重点验证边界曲线索引：第 63 条（旧上限边缘）、第 64 条（旧逻辑首个截断点）、第 74 条（尾部曲线）
+  QVERIFY(!std::isnan(parsedCurves.at(63).values.at(0)));
+  QVERIFY(!std::isnan(parsedCurves.at(64).values.at(0)));
+  QVERIFY(!std::isnan(parsedCurves.at(74).values.at(0)));
+}
+
+void PerfLasTests::parseDepthRangeBomOffset()
+{
+  // BIZ-02: 验证带 UTF-8 BOM 的文件在流式 parseDepthRange / parseRange 中偏移对齐无 3 字节错位
+  const QString las = m_dir.filePath("bom_streaming.las");
+  QFile f(las);
+  QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  f.write("\xEF\xBB\xBF"); // UTF-8 BOM
+  f.write("~VERSION\n"
+          "VERS. 2.0 : CWLS log ASCII Standard\n"
+          "WRAP. NO  : one line per depth step\n"
+          "~WELL\n"
+          "STRT.M 1000.000 : first depth\n"
+          "STOP.M 1001.000 : last depth\n"
+          "NULL. -999.25 : null\n"
+          "WELL. BOM-TEST-WELL\n"
+          "~CURVE\n"
+          "DEPT.M : depth\n"
+          "GR.GAPI : gamma\n"
+          "DT.US/M : sonic\n"
+          "~A\n"
+          "1000.000 45.500 65.200\n"
+          "1000.250 46.100 64.800\n"
+          "1000.500 47.300 63.900\n"
+          "1000.750 48.000 63.500\n"
+          "1001.000 49.200 62.100\n");
+  f.close();
+
+  // 1. parseDepthRange 从起始深度 1000.0 开始读取
+  QStringList names;
+  QList<LasCurve> curves;
+  QString err;
+  QVERIFY2(LasParser::parseDepthRange(las, 1000.0, 1000.5, names, curves, &err), qPrintable(err));
+  QCOMPARE(names.size(), 3);
+  QCOMPARE(curves.size(), 3);
+  // 应包含 1000.000, 1000.250, 1000.500 共 3 行
+  QCOMPARE(curves.at(0).values.size(), 3);
+
+  // 首行数值严密校验（若偏移少 3 字节，首行会解析 ~A 尾部碎片导致 DEPT 为 NaN 或深度错位）
+  QCOMPARE(curves.at(0).values.at(0), 1000.000);
+  QCOMPARE(curves.at(1).values.at(0), 45.500);
+  QCOMPARE(curves.at(2).values.at(0), 65.200);
+
+  // 2. parseRange 也必须对齐
+  QStringList rangeNames;
+  QList<LasCurve> rangeCurves;
+  QVERIFY2(LasParser::parseRange(las, 0, 2, rangeNames, rangeCurves, &err), qPrintable(err));
+  QCOMPARE(rangeCurves.at(0).values.size(), 2);
+  QCOMPARE(rangeCurves.at(0).values.at(0), 1000.000);
+  QCOMPARE(rangeCurves.at(1).values.at(0), 45.500);
+  QCOMPARE(rangeCurves.at(2).values.at(0), 65.200);
+}
+
+void PerfLasTests::parseDepthRange100Curves()
+{
+  // BIZ-01 Stress Test: 100 curves (exceeding 64, 70, 75)
+  const QString las = m_dir.filePath("stress_100_curves.las");
+  const int nCurves = 100;
+  QStringList curves;
+  curves.append(QStringLiteral("DEPT"));
+  for (int i = 1; i < nCurves; ++i)
+    curves.append(QStringLiteral("CRV%1").arg(i, 3, 10, QLatin1Char('0')));
+
+  const int rows = 15;
+  const double startDepth = 2000.0;
+  const double stepDepth = 1.0;
+
+  QFile f(las);
+  QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  QByteArray content;
+  content += "~VERSION\nVERS. 2.0 : CWLS\nWRAP. NO : no\n~WELL\nNULL. -999.25\nWELL. WELL-100\n~CURVE\n";
+  for (const QString &c : curves)
+    content += QStringLiteral("%1.M : %1 curve\n").arg(c).toUtf8();
+  content += "~A\n";
+  for (int r = 0; r < rows; ++r)
+  {
+    const double depth = startDepth + r * stepDepth;
+    QString line = QString::number(depth, 'f', 3);
+    for (int c = 1; c < nCurves; ++c)
+    {
+      const double v = 100.0 * c + r;
+      line += QStringLiteral(" %1").arg(QString::number(v, 'f', 1));
+    }
+    content += line.toUtf8();
+    content += '\n';
+  }
+  f.write(content);
+  f.close();
+
+  QStringList parsedNames;
+  QList<LasCurve> parsedCurves;
+  QString err;
+  QVERIFY2(LasParser::parseDepthRange(las, 2002.0, 2006.0, parsedNames, parsedCurves, &err), qPrintable(err));
+  QCOMPARE(parsedNames.size(), 100);
+  QCOMPARE(parsedCurves.size(), 100);
+
+  // 2002.0 to 2006.0 is 5 rows (r=2 to r=6)
+  const int expectedRows = 5;
+  for (int c = 0; c < nCurves; ++c)
+  {
+    QCOMPARE(parsedCurves.at(c).values.size(), expectedRows);
+    for (int r = 0; r < expectedRows; ++r)
+    {
+      const double val = parsedCurves.at(c).values.at(r);
+      QVERIFY(!std::isnan(val));
+      const double expected = (c == 0) ? (2002.0 + r) : (100.0 * c + (r + 2));
+      QCOMPARE(val, expected);
+    }
+  }
+
+  // Specifically check critical curve boundary indices
+  // c=63 (curve 64, former boundary), c=64 (former truncation point), c=99 (last curve)
+  QCOMPARE(parsedCurves.at(63).values.at(0), 100.0 * 63 + 2);
+  QCOMPARE(parsedCurves.at(64).values.at(0), 100.0 * 64 + 2);
+  QCOMPARE(parsedCurves.at(99).values.at(0), 100.0 * 99 + 2);
+}
+
+void PerfLasTests::parseDepthRangeBomVariousHeaders()
+{
+  // BIZ-02 Stress Test: BOM with various header lengths and comments
+  const int headerSizes[] = {100, 2000, 32000};
+  for (int hIdx = 0; hIdx < 3; ++hIdx)
+  {
+    const QString las = m_dir.filePath(QStringLiteral("bom_header_%1.las").arg(hIdx));
+    QFile f(las);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    f.write("\xEF\xBB\xBF"); // UTF-8 BOM
+    f.write("~VERSION\nVERS. 2.0 : CWLS\nWRAP. NO : no\n~WELL\nNULL. -999.25\nWELL. BOM-WELL\n");
+    // Add padding comment lines to vary header length
+    QByteArray padding;
+    int padTarget = headerSizes[hIdx];
+    while (padding.size() < padTarget)
+    {
+      padding += "# Some UTF-8 comment text with multi-byte chars: 测井曲线测试 注释信息\n";
+    }
+    f.write(padding);
+    f.write("~CURVE\nDEPT.M : depth\nGR.GAPI : gamma\nNPHI.V/V : porosity\n~A\n");
+    f.write("1500.000 75.20 0.18\n");
+    f.write("1500.500 78.10 0.22\n");
+    f.write("1501.000 81.30 0.25\n");
+    f.close();
+
+    QStringList names;
+    QList<LasCurve> curves;
+    QString err;
+    QVERIFY2(LasParser::parseDepthRange(las, 1500.0, 1501.0, names, curves, &err), qPrintable(err));
+    QCOMPARE(names.size(), 3);
+    QCOMPARE(curves.at(0).values.size(), 3);
+    QCOMPARE(curves.at(0).values.at(0), 1500.000);
+    QCOMPARE(curves.at(1).values.at(0), 75.20);
+    QCOMPARE(curves.at(2).values.at(0), 0.18);
+  }
+}
+
+void PerfLasTests::parseDepthRangeChunkBoundaryStress()
+{
+  // Empirical stress test: file exceeding 4MB (kChunk) chunk boundary
+  // Verifying chunk boundary traversal in parseDepthRange
+  const QString las = m_dir.filePath("chunk_boundary_stress.las");
+  QFile f(las);
+  QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  f.write("~VERSION\nVERS. 2.0 : CWLS\nWRAP. NO : no\n~WELL\nNULL. -999.25\nWELL. CHUNK-WELL\n");
+  f.write("~CURVE\nDEPT.M : depth\nGR.GAPI : gamma\nRHOB.G/C3 : density\n~A\n");
+
+  // Vary row length so chunk boundary cuts mid-row and mid-token
+  const int totalRows = 300000;
+  const double startDepth = 100.0;
+  const double step = 0.1;
+  {
+    QByteArray buffer;
+    buffer.reserve(256 * 1024);
+    for (int r = 0; r < totalRows; ++r)
+    {
+      const double d = startDepth + r * step;
+      const double gr = 50.0 + (r % 100) * 0.512345; // Varying decimal lengths
+      const double rhob = 2.2 + (r % 77) * 0.0137;
+      buffer += QByteArray::number(d, 'f', 3);
+      buffer += ' ';
+      buffer += QByteArray::number(gr, 'f', (r % 5));
+      buffer += ' ';
+      buffer += QByteArray::number(rhob, 'f', (r % 4));
+      buffer += '\n';
+      if (buffer.size() >= 200 * 1024)
+      {
+        f.write(buffer);
+        buffer.clear();
+      }
+    }
+    if (!buffer.isEmpty())
+      f.write(buffer);
+  }
+  f.close();
+  qDebug() << "Generated file size:" << QFileInfo(las).size() << "bytes";
+
+  // Query depth range across the entire file (all 180,000 rows)
+  QStringList names;
+  QList<LasCurve> curves;
+  QString err;
+  const double endDepth = startDepth + (totalRows - 1) * step;
+  bool ok = LasParser::parseDepthRange(las, startDepth, endDepth, names, curves, &err);
+  QVERIFY2(ok, qPrintable(err));
+  QCOMPARE(names.size(), 3);
+  QCOMPARE(curves.size(), 3);
+
+  QCOMPARE(curves.at(0).values.size(), totalRows);
+
+  // Verify monotonicity and correct values across chunk boundary
+  for (int r = 0; r < totalRows; ++r)
+  {
+    const double expectedD = startDepth + r * step;
+    const double actualD = curves.at(0).values.at(r);
+    if (std::abs(actualD - expectedD) > 1e-3)
+    {
+      qWarning() << "Mismatch at row" << r << "expected" << expectedD << "got" << actualD;
+      QCOMPARE(actualD, expectedD);
+      break;
+    }
+  }
 }
 
 QTEST_MAIN(PerfLasTests)

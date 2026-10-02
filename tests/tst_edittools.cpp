@@ -168,6 +168,8 @@ class TestEditTools : public QObject
     void vertexDeleteMultiCoincidentRingQuotaRefused();
     void vertexMoveAndDeletePolygonHoleInvariants();
     void vertexTopoSharedClosureMultiFeatureInvariants();
+    void vertexTopoDeleteCoincidentPinchPointRefused();
+    void vertexTopoDeleteCoincidentPinchPointAllowedOnHexagon();
     void vertexInFlightDragAbortedByExternalUndo();
     void vertexAdversarialTopoMarkersDynamicTracking();
     void vertexAdversarialRebuildOnRollbackSync();
@@ -2238,6 +2240,101 @@ void TestEditTools::vertexTopoSharedClosureMultiFeatureInvariants()
   layer.undoStack()->redo();
   QCOMPARE( vertexTotal( layer, fidA ), 4 );
   QCOMPARE( vertexTotal( layer, fidB ), 4 );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexTopoDeleteCoincidentPinchPointRefused()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                        QStringLiteral( "topo-pinch-refuse" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+
+  // Construct a polygon with 5 vertices (including closure) having a coincident pinch point:
+  // V0: (20, 20), V1: (50, 50), V2: (50, 80), V3: (50, 50) [coincident with V1], V4: (20, 20) [closure]
+  const QString pinchWkt = QStringLiteral( "Polygon ((20 20, 50 50, 50 80, 50 50, 20 20))" );
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromWkt( pinchWkt ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( true );
+  canvas.setMapTool( &tool );
+
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+  QSignalSpy msgSpy( &tool, &QgsMapTool::messageEmitted );
+
+  QCOMPARE( vertexTotal( layer, fid ), 5 );
+
+  // Right-click at the coincident pinch-point coordinate (50, 50).
+  // In topological mode, both vertex 1 and vertex 3 match the coordinate.
+  // Deleting both would drop ring count to 5 - 2 = 3 vertices (2 distinct points),
+  // which collapses below the polygon minimum (>= 4 vertices).
+  // The operation MUST defend the ring and reject the deletion cleanly.
+  click( tool, canvas, pxAt( canvas, 50, 50 ), Qt::RightButton );
+
+  // Verify deletion is refused:
+  QCOMPARE( editedSpy.count(), 0 );           // No commit
+  QVERIFY( msgSpy.count() >= 1 );              // Warning emitted
+  QCOMPARE( tool.editedCount(), 0 );
+  QCOMPARE( layer.undoStack()->count(), 0 );   // Undo stack untouched
+  QCOMPARE( vertexTotal( layer, fid ), 5 );    // Geometry untouched (5 vertices preserved)
+
+  // Verify geometry remains untouched
+  const QgsGeometry g = layer.getFeature( fid ).geometry();
+  QVERIFY( g.constGet() != nullptr );
+  QCOMPARE( g.constGet()->vertexCount( 0, 0 ), 5 );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+void TestEditTools::vertexTopoDeleteCoincidentPinchPointAllowedOnHexagon()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ),
+                        QStringLiteral( "topo-pinch-allow" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+
+  // 6 vertices: V0: (20,20), V1: (50,50), V2: (50,80), V3: (50,50), V4: (20,80), V5: (20,20)
+  // Deleting coincident V1 and V3 leaves 6 - 2 = 4 vertices (triangle: (20,20), (50,80), (20,80), (20,20)),
+  // which is a valid polygon!
+  const QString pinchWkt = QStringLiteral( "Polygon ((20 20, 50 50, 50 80, 50 50, 20 80, 20 20))" );
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromWkt( pinchWkt ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( true );
+  canvas.setMapTool( &tool );
+
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+  QSignalSpy msgSpy( &tool, &QgsMapTool::messageEmitted );
+
+  QCOMPARE( vertexTotal( layer, fid ), 6 );
+
+  click( tool, canvas, pxAt( canvas, 50, 50 ), Qt::RightButton );
+
+  // Verify deletion succeeds and yields a valid triangle:
+  QCOMPARE( editedSpy.count(), 1 );
+  QCOMPARE( msgSpy.count(), 0 );
+  QCOMPARE( vertexTotal( layer, fid ), 4 );
+  const QgsGeometry g = layer.getFeature( fid ).geometry();
+  QVERIFY( g.isGeosValid() );
 
   canvas.unsetMapTool( &tool );
   layer.rollBack();

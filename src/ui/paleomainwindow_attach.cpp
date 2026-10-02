@@ -1407,6 +1407,10 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
               }
             });
     // 等值线（§12 GIS LineString）：horizon 从 factor layerId 前缀取（"factor.<h>.<fid>"）。
+    connect(constraint, &ConstraintWorkflow::contoursGenerated, this,
+            [this](const QString &, const QString &, const QString &layerId) {
+              revealDeclaredLayer(layerId, true);
+            });
     connect(constraintPage, &ConstraintPage::contourRequested, this,
             [this, constraint, constraintPage](const QString &factorLayerId, double interval) {
               const QString horizon = factorLayerId.startsWith(QStringLiteral("factor."))
@@ -1525,6 +1529,10 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
     // gpkg 按 T26 纪律只读——进编辑前先铺
     // 可编辑工作副本（prepareFaciesForEditing）。编辑条缺席（无画布环境）
     // → 降级为选中层 + 状态文案提示手动进入编辑。
+    connect(compose, &CompositionWorkflow::compositionDone, this,
+            [this](const QString &, const QString &layerId) {
+              revealDeclaredLayer(layerId, true);
+            });
     connect(compose, &CompositionWorkflow::faciesPolygonsReady, this,
             [this, compose, composePage](const QString &h, const QString &layerId) {
               Q_UNUSED(h);
@@ -1540,6 +1548,7 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
                     Qgis::MessageLevel::Warning);
               else
                 target = prepared;
+              revealDeclaredLayer(target, true);
               QgsMapLayer *l = m_layerSvc->instantiate(target);
               auto *vl = qobject_cast<QgsVectorLayer *>(l);
               auto *status = composePage->findChild<QLabel *>(QStringLiteral("statusLabel"));
@@ -1653,6 +1662,38 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
 // ---------------------------------------------------------------------------
 // m2(C) 接缝：版面地图项钉页面档案主题（实现说明见 paleomainwindow.h）
 // ---------------------------------------------------------------------------
+bool PaleoMainWindow::revealDeclaredLayer(const QString &layerId, bool zoomTo)
+{
+  if (!m_layerSvc || layerId.isEmpty())
+    return false;
+  QString err;
+  QgsMapLayer *layer = m_layerSvc->instantiate(layerId, &err);
+  if (!layer)
+  {
+    QgsMessageLog::logMessage(tr("图层上图失败：%1").arg(err.isEmpty() ? layerId : err),
+                              QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+    return false;
+  }
+  QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr;
+  QgsLayerTree *tree = proj ? proj->layerTreeRoot() : nullptr;
+  if (tree)
+  {
+    if (QgsLayerTreeLayer *node = tree->findLayer(layer->id()))
+    {
+      node->setItemVisibilityCheckedParentRecursive(true);
+      if (auto *view = findChild<QgsLayerTreeView *>(QStringLiteral("layerTreeView")))
+        view->setCurrentLayer(layer);
+    }
+  }
+  if (zoomTo && m_canvasCtl)
+  {
+    if (QgsMapCanvas *canvas = m_canvasCtl->canvas())
+      canvas->setCurrentLayer(layer);
+    m_canvasCtl->zoomToLayer(layerId);
+  }
+  return true;
+}
+
 void PaleoMainWindow::pinLayoutTheme(QgsLayoutItemMap *mapItem, const QString &pageId)
 {
   const QString theme = QgisLayerProfileService::pageThemeName(pageId);
@@ -1680,6 +1721,11 @@ void PaleoMainWindow::attachValidatePage(ValidatePage *validatePage,
     // 切页打开（threewaylocator.h）。缺面板的字段自动跳过。
     auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
     auto *threeWay = new ThreeWayLocator(m_canvasCtl, this);
+    // 验证定位先挂上声明图层，再缩放。问题行的 layerId 是清单 id，不是临时画布对象。
+    connect(validatePage, &ValidatePage::locateRequested, this,
+            [this](const QString &layerId, const QString &, const QVariantMap &) {
+              revealDeclaredLayer(layerId, false);
+            });
     connect(validatePage, &ValidatePage::locateRequested, threeWay,
             &ThreeWayLocator::locate);
     // 联动器的意图信号回壳订阅：底栏切到连井剖面页 + 滚到井分层。
@@ -2308,6 +2354,7 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
           [this, composePage, status](const QString &h, const QString &layerId) {
             status(tr("编图链完成：%1 → %2").arg(h, layerId));
             composePage->refreshFactors();
+            revealDeclaredLayer(layerId, true);
           });
   connect(mapping, &MappingWorkflow::chainFailed, this,
           [status](const QString &, const QString &error) { status(error); });

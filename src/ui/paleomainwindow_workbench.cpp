@@ -159,6 +159,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             (other.layerId.startsWith("product.") ||
              other.layerId.startsWith("factor.") ||
              other.layerId.startsWith("contours.") ||
+             other.layerId.startsWith("cartographic.") ||
              other.layerId.startsWith("draft."))) {
           if (auto *old = m_layerSvc->layer(other.layerId))
             if (auto *node = treeRoot->findLayer(old->id()))

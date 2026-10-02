@@ -5,6 +5,7 @@
 #include "../catalog/datacatalog.h"      // localGridCrsWkt — ONNX 栅格落在局部测网
 #include "../io/constraintstore.h"
 #include "../domain/arearules.h"
+#include "../domain/singlefactorrequest.h" // 制图工作场不进融合/分相
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/qgiseditingservice.h" // 拓扑提交门（geometryCommitError）
 #include "../qgis/qgislayerservice.h"
@@ -1658,11 +1659,38 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
     return false;
   }
 
+  QVector<LayerDeclaration> decls;
+  QString readErr;
+  if ( !layers->tryDeclared( &decls, &readErr ) )
+  {
+    setError( error, readErr.isEmpty() ? tr( "无法读取图层清单" ) : readErr );
+    return false;
+  }
+
   QVariantList inputs;
   inputs.reserve( factorLayerIds.size() );
   QStringList parentPaths;
   for ( const QString &layerId : factorLayerIds )
   {
+    const LayerDeclaration *decl = nullptr;
+    for ( const LayerDeclaration &d : decls )
+    {
+      if ( d.layerId == layerId )
+      {
+        decl = &d;
+        break;
+      }
+    }
+    if ( !decl )
+    {
+      setError( error, tr( "图层 %1 未在清单声明" ).arg( layerId ) );
+      return false;
+    }
+    if ( paleo::singlefactor::isCartographicProductLayer( layerId, decl->group ) )
+    {
+      setError( error, tr( "解释性制图工作场不能参与连续融合、分相或厚度统计" ) );
+      return false;
+    }
     QgsMapLayer *layer = layers->instantiate( layerId, error );
     if ( !layer )
       return false;
@@ -1748,18 +1776,22 @@ bool CompositionWorkflow::deriveFaciesPolygons( const QString &horizon, const QS
     return fail( manifestErr.isEmpty() ? tr( "无法读取图层清单" ) : manifestErr );
 
   QString declHorizon;
+  QString declGroup;
   bool found = false;
   for ( const LayerDeclaration &d : declared )
   {
     if ( d.layerId == rasterLayerId )
     {
       declHorizon = d.horizon;
+      declGroup = d.group;
       found = true;
       break;
     }
   }
   if ( !found )
     return fail( tr( "raster layer '%1' is not declared" ).arg( rasterLayerId ) );
+  if ( paleo::singlefactor::isCartographicProductLayer( rasterLayerId, declGroup ) )
+    return fail( tr( "解释性制图工作场不能参与分相或转面" ) );
 
   const QString h = !declHorizon.isEmpty() ? declHorizon : horizon;
   if ( h.isEmpty() )

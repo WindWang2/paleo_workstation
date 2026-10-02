@@ -887,6 +887,20 @@ class TestPanels : public QObject
       QVERIFY(dir.isValid());
       LayerManifest manifest(dir.filePath(QStringLiteral("m.sqlite")));
       seedManifest(&manifest, 2, 1);
+      LayerDeclaration cartographic;
+      cartographic.layerId = QStringLiteral("cartographic.T1.sand");
+      cartographic.horizon = QStringLiteral("T1");
+      cartographic.type = QStringLiteral("raster");
+      cartographic.source = QStringLiteral("memory|carto");
+      cartographic.group = QStringLiteral("04_SingleFactor/Cartographic");
+      QVERIFY(manifest.upsert(cartographic));
+      LayerDeclaration contours;
+      contours.layerId = QStringLiteral("contours.T1.f0");
+      contours.horizon = QStringLiteral("T1");
+      contours.type = QStringLiteral("vector");
+      contours.source = QStringLiteral("memory|contours");
+      contours.group = QStringLiteral("04_SingleFactor/Contours");
+      QVERIFY(manifest.upsert(contours));
       QgisLayerService layers(nullptr, &manifest); // null project svc: manifest only
 
       ComposePage page(nullptr, &layers);
@@ -896,8 +910,10 @@ class TestPanels : public QObject
       for (int i = 0; i < list->count(); ++i)
       {
         QVERIFY(list->item(i)->flags() & Qt::ItemIsUserCheckable);
-        QVERIFY(list->item(i)->data(Qt::UserRole).toString().startsWith(
-            QStringLiteral("factor.")));
+        const QString id = list->item(i)->data(Qt::UserRole).toString();
+        QVERIFY(id.startsWith(QStringLiteral("factor.")));
+        QVERIFY(!id.startsWith(QStringLiteral("cartographic.")));
+        QVERIFY(!id.startsWith(QStringLiteral("contours.")));
       }
 
       list->item(0)->setCheckState(Qt::Checked);
@@ -1027,6 +1043,7 @@ class TestPanels : public QObject
       ValidatePage page(&wf);
       auto *table = page.findChild<QTableWidget *>(QStringLiteral("issueTable"));
       page.findChild<QPushButton *>(QStringLiteral("runButton"))->click();
+      QTest::qWait(1); // 运行验证把清单刷新排到下一事件回合
       QCOMPARE(table->rowCount(), 1);
       QCOMPARE(table->item(0, 1)->text(), QStringLiteral("SRC_MISSING"));
 

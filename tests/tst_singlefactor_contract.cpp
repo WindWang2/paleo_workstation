@@ -12,6 +12,7 @@ class SingleFactorContractTests : public QObject
 private slots:
   void legacyRolesStayDistinct();
   void cartographicWorkIsNotQuantitative();
+  void cartographicProductLayerIsSeparate();
   void parameterHashIsCanonical();
 };
 
@@ -49,6 +50,16 @@ void SingleFactorContractTests::cartographicWorkIsNotQuantitative()
   QVERIFY( rejectsQuantitativeUse( u"single_factor_cartographic_work", QStringView() ) );
   QVERIFY( rejectsQuantitativeUse( u"single_factor_cartographic_contour", u"cartographic_work" ) );
   QVERIFY( !rejectsQuantitativeUse( u"facies_raster", QStringView() ) );
+}
+
+void SingleFactorContractTests::cartographicProductLayerIsSeparate()
+{
+  using paleo::singlefactor::isCartographicProductLayer;
+  QVERIFY( !isCartographicProductLayer( u"factor.D61.sandthick", u"04_SingleFactor" ) );
+  QVERIFY( !isCartographicProductLayer( u"contours.D61.sandthick", u"04_SingleFactor/Contours" ) );
+  QVERIFY( isCartographicProductLayer( u"cartographic.D61.sandthick", u"04_SingleFactor/Cartographic" ) );
+  QVERIFY( isCartographicProductLayer( u"factor.D61.sandthick", u"04_SingleFactor/Cartographic" ) );
+  QVERIFY( !isCartographicProductLayer( u"composite.D61", u"05_PaleoMap" ) );
 }
 
 void SingleFactorContractTests::parameterHashIsCanonical()

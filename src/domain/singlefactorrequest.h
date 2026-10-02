@@ -44,6 +44,16 @@ inline bool isAnalysisFactorRaster( QStringView kind, QStringView valueSource )
   return kind == u"single_factor_raster" && !rejectsQuantitativeUse( kind, valueSource );
 }
 
+// 制图成果使用独立图层：id 前缀 cartographic.，或组 04_SingleFactor/Cartographic。
+// 分析场仍是 factor.<层位>.<因素>，组就是 04_SingleFactor。
+inline bool isCartographicProductLayer( QStringView layerId, QStringView group )
+{
+  if ( layerId.startsWith( u"cartographic." ) )
+    return true;
+  return group == u"04_SingleFactor/Cartographic" ||
+         group.startsWith( u"04_SingleFactor/Cartographic/" );
+}
+
 // 键按 UTF-8 字节序排序。数值用 general/17。NaN 与 Inf 拒绝。数组顺序保留。
 // 成功时 canonical 是不含耗时、路径和创建时间的规范化 JSON；sha256 是其十六进制摘要。
 struct ParameterHash

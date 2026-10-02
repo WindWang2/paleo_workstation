@@ -195,6 +195,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     // QgisLayerProfileService::setLayoutMapTheme（含记录修剪），缺席时直写
     // QGIS 原生 follow-visibility 预设（与 m1 兜底分支同语义）。
     void pinLayoutTheme(QgsLayoutItemMap *mapItem, const QString &pageId);
+    // 把清单图层实例化并勾选到图层树。zoomTo 为真时再缩放到该层。
+    // 单因素等值线、综合编图成果和验证定位都走这条，不另建显示路径。
+    bool revealDeclaredLayer(const QString &layerId, bool zoomTo);
     // 壳面（locator/保存/底栏面板/处理算法/编辑条/图件设计）；返回编辑条
     // 逻辑宿主供 buildRibbonPanels 镜像。
     PaleoEditingToolbar *attachShellSurfaces(PaleoProjectStore *store,

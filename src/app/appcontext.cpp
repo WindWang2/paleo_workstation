@@ -34,6 +34,7 @@
 #include "../services/projectdata.h"
 #include "../workflow/mappingworkflow.h"
 #include "../workflow/depthconversionworkflow.h"
+#include "../workflow/propertymodelworkflow.h"
 #include "../metadata/mapversionstore.h"
 #include "../metadata/metastore.h"
 #include "../workflow/mapversioncontroller.h"
@@ -213,6 +214,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_projectData = new ProjectDataFacade(this);
   m_mappingWf = new MappingWorkflow(m_constraintWf, m_compositionWf, m_layerSvc, this);
   m_depthWf = new DepthConversionWorkflow(nullptr, QString(), this); // catalog 绑定随工程打开
+  m_propModelWf = new PropertyModelWorkflow(nullptr, QString(), this); // catalog 绑定随工程打开
   m_mappingWf->setProjectData(m_projectData);
   m_validationWf->setProjectData(m_projectData); // validate() 增加时间残差
   m_validationWf->setResidualThresholdMs(10.0);  // autoplan §5C：D61 残差阈值 10 ms
@@ -380,6 +382,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               // goal/time-depth-velocity：同一 catalog 实例纪律（整文件重写，
               // 交错写互覆）——层深转换产物落 artifacts/derived/。
               m_depthWf->rebind(derivedCatalog, fi.absolutePath());
+              m_propModelWf->rebind(derivedCatalog, fi.absolutePath());
             }
 #if PALEO_HAVE_ORT
             // onnx:* 模型按层位钉在 <工程目录>/models/*.onnx。

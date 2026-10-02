@@ -35,6 +35,21 @@ public:
         int index,
         const SgySliceImage &image);
 
+    // 属性体挂到现成切片槽 / 堆叠层。GL 未就绪时暂存，initializeGL 后补传。
+    // values 有、rgba 空时在这里烘焙（NaN = alpha 0）。不要求已加载地震体。
+    bool updatePropertySlice(
+        SeismicSliceSlot slot,
+        SgySliceType type,
+        int index,
+        const PropertyBrickAxes &axes,
+        const SgySliceImage &image);
+    bool updatePropertyStackLayer(
+        int layerIdx,
+        int kIndex,
+        const PropertyBrickAxes &axes,
+        const SgySliceImage &image);
+    [[nodiscard]] bool hasPendingPropertySlice() const { return !pendingProperty_.empty(); }
+
     // D3.1 体渲染堆叠层贴图
     bool updateStackLayer(int layerIdx, int sampleIndex, const SgySliceImage &image);
     void setStackVisible(bool visible);
@@ -150,6 +165,16 @@ private:
         bool valid = false;
     };
 
+    struct PendingPropertySlice {
+        SeismicSliceSlot slot = SeismicSliceSlot::Inline;
+        SgySliceType type = SgySliceType::Inline;
+        int index = 0;
+        PropertyBrickAxes axes;
+        SgySliceImage image;
+        bool stack = false;
+        int stackLayer = 0;
+    };
+
     // D3.2：屏幕坐标是否落在某可见切片面内（四角投影 + 点在四边形内测试）
     SeismicSliceSlot pickSliceAt(const QPointF &pos) const;
     // D3.2：拖动增量 → 新切片索引
@@ -171,6 +196,7 @@ private:
 
     std::map<SeismicSliceSlot, PendingSlice> pendingSlices_;
     PendingLineSlice pendingLineSlice_;
+    std::vector<PendingPropertySlice> pendingProperty_;
 
     // 当前三向切片索引（拖动换算基准；面板 setSlice 时同步喂）
     int sliceIndex_[3] = {0, 0, 0};

@@ -17,6 +17,9 @@
 #include "../linkage/selectioncontext.h"
 #include "layers/layertreepanel.h"
 #include "../workflow/depthconversionworkflow.h"
+#include "../workflow/propertymodelworkflow.h"
+#include "../workflow/faultinterpretationcontroller.h"
+#include "propertymodel/propertymodelpanel.h"
 #include "../workflow/workflows.h"
 #include "../domain/arearules.h"
 #include "../domain/projectclassifier.h"
@@ -85,6 +88,7 @@
 #include <qgsprocessingalgorithm.h>
 #include <qgsprocessingregistry.h>
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
@@ -424,6 +428,165 @@ void PaleoMainWindow::attachDepthConversion(DepthConversionWorkflow *depth)
     }
     status(tr("深度域转换完成：%1 → %2").arg(horizon, convertedId), false);
   });
+}
+
+void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
+                                           paleo::fault::FaultInterpretationController *faults)
+{
+  m_propModelWf = wf;
+  m_propModelFaults = faults;
+  if (m_propModelDock)
+    return;
+
+  m_propModelPanel = new PropertyModelPanel(this);
+  m_propModelDock = new QDockWidget(tr("属性建模"), this);
+  m_propModelDock->setObjectName(QStringLiteral("propertyModelDock"));
+  m_propModelDock->setWidget(m_propModelPanel);
+  addDockWidget(Qt::RightDockWidgetArea, m_propModelDock);
+  if (m_rightDock)
+    tabifyDockWidget(m_rightDock, m_propModelDock);
+  m_propModelDock->hide();
+
+  connect(m_propModelPanel, &PropertyModelPanel::cancelRequested, this, [this]() {
+    m_propModelCancel = true;
+  });
+  connect(m_propModelPanel, &PropertyModelPanel::alphaChanged, this, [this](double alpha) {
+    if (m_seismicSectionDock && m_seismicSectionDock->canvas())
+      m_seismicSectionDock->canvas()->setZoneOverlayAlpha(alpha);
+  });
+  connect(m_propModelPanel, &PropertyModelPanel::buildRequested, this,
+          [this](const QString &top, const QString &bot, const QString &curve, int nLayers,
+                 int aggregator, double idwPower, double overlayAlpha) {
+            if (m_propModelDock)
+            {
+              m_propModelDock->show();
+              m_propModelDock->raise();
+            }
+            if (!m_propModelWf || m_propModelRunning || !m_propModelPanel)
+              return;
+
+            m_propModelRunning = true;
+            struct RunningReset
+            {
+              bool &flag;
+              ~RunningReset() { flag = false; }
+            } runningReset{m_propModelRunning};
+            m_propModelCancel = false;
+            m_propModelPanel->setBusy(true);
+
+            QString err;
+            PropertyModelRequest req = m_propModelWf->requestFromCatalog(
+                top, bot, curve, nLayers, static_cast<paleo::stratgrid::Aggregator>(aggregator),
+                idwPower, &err);
+            if (!err.isEmpty())
+            {
+              m_propModelPanel->showResult(false, err);
+              if (statusBar())
+                statusBar()->showMessage(tr("属性建模失败：%1").arg(err), 8000);
+              return;
+            }
+            if (m_propModelFaults)
+            {
+              const auto segs =
+                  PropertyModelWorkflow::segmentsFromFaultSet(m_propModelFaults->faultSet());
+              req.faults.insert(req.faults.end(), segs.begin(), segs.end());
+            }
+
+            const PropertyModelOutput out = m_propModelWf->run(
+                req, [this](double fraction, const QString &stage) {
+                  if (m_propModelPanel)
+                    m_propModelPanel->updateProgress(static_cast<int>(fraction * 100.0), stage);
+                  QCoreApplication::processEvents();
+                  return !m_propModelCancel;
+                });
+            if (!out.ok)
+            {
+              const QString why = out.error.isEmpty() ? tr("属性建模失败") : out.error;
+              m_propModelPanel->showResult(false, why);
+              if (statusBar())
+                statusBar()->showMessage(tr("属性建模失败：%1").arg(why), 8000);
+              return;
+            }
+
+            const QString fileName = QFileInfo(out.path).fileName();
+            m_propModelPanel->showResult(
+                true, tr("已充填 %1 个单元 · %2").arg(out.filledCells).arg(fileName));
+            if (statusBar())
+              statusBar()->showMessage(
+                  tr("属性建模完成：%1（%2 个单元）").arg(fileName).arg(out.filledCells), 8000);
+
+            const int ni = out.volume.grid.ni;
+            const int nj = out.volume.grid.nj;
+            const int nk = out.volume.grid.nk;
+            if (ni <= 0 || nj <= 0 || nk <= 0)
+              return;
+
+            seismic::Seismic3DViewPanel *panel3d = m_seismic3dPanel;
+            if (!panel3d && m_seismic3dDock)
+              panel3d = qobject_cast<seismic::Seismic3DViewPanel *>(m_seismic3dDock->widget());
+            seismic::Seismic3DViewportWidget *vp = panel3d ? panel3d->viewport() : nullptr;
+            seismic::SeismicSectionCanvas *canvas =
+                m_seismicSectionDock ? m_seismicSectionDock->canvas() : nullptr;
+
+            seismic::PropertyBrickAxes axes;
+            axes.iMin = 0;
+            axes.iMax = ni - 1;
+            axes.jMin = 0;
+            axes.jMax = nj - 1;
+            axes.kMin = 0;
+            axes.kMax = nk - 1;
+
+            struct SlicePlan
+            {
+              int axis;
+              int index;
+              seismic::SeismicSliceSlot slot;
+              seismic::SgySliceType type;
+            };
+            const SlicePlan plans[3] = {
+                {0, ni / 2, seismic::SeismicSliceSlot::Crossline, seismic::SgySliceType::Xline},
+                {1, nj / 2, seismic::SeismicSliceSlot::Inline, seismic::SgySliceType::Inline},
+                {2, nk / 2, seismic::SeismicSliceSlot::Time, seismic::SgySliceType::Time},
+            };
+            seismic::SgySliceImage baked[3];
+            bool bakedOk[3] = {false, false, false};
+            for (int n = 0; n < 3; ++n)
+            {
+              QString sliceErr;
+              const auto slice = PropertyModelWorkflow::gridSlice(out.volume, plans[n].axis,
+                                                                  plans[n].index, &sliceErr);
+              if (!sliceErr.isEmpty() || slice.width <= 0 || slice.height <= 0 ||
+                  slice.values.empty())
+                continue;
+              seismic::SgySliceImage img;
+              img.width = slice.width;
+              img.height = slice.height;
+              img.valueMin = slice.valueMin;
+              img.valueMax = slice.valueMax;
+              img.values = slice.values;
+              baked[n] = std::move(img);
+              bakedOk[n] = true;
+              if (vp)
+                vp->updatePropertySlice(plans[n].slot, plans[n].type, plans[n].index, axes,
+                                        baked[n]);
+            }
+            if (!canvas || !canvas->hasData())
+              return;
+            const bool timeLike = canvas->orientation() == seismic::SectionOrientation::TimeSlice;
+            const int prefer[3] = {timeLike ? 2 : 1, timeLike ? 1 : 0, timeLike ? 0 : 2};
+            for (int n : prefer)
+            {
+              if (!bakedOk[n])
+                continue;
+              if (canvas->traceCount() == baked[n].width &&
+                  canvas->sampleCount() == baked[n].height)
+              {
+                canvas->setZoneOverlay(baked[n]);
+                canvas->setZoneOverlayAlpha(overlayAlpha);
+                break;
+              }
+            }
+          });
 }
 
 void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,

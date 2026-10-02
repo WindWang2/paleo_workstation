@@ -197,6 +197,9 @@ void SeismicSectionCanvas::setSectionData(
     if (hasAttrOverlay() &&
         (image.width != m_attrOverlay.width || image.height != m_attrOverlay.height))
         clearAttrOverlay(); // 换剖面：旧属性层几何失配，防错位
+    if (hasZoneOverlay() &&
+        (image.width != m_zoneOverlay.width || image.height != m_zoneOverlay.height))
+        clearZoneOverlay();
 
     if (m_columnDistances.size() != static_cast<std::size_t>(m_traces)) {
         m_columnDistances.resize(m_traces);
@@ -250,6 +253,9 @@ void SeismicSectionCanvas::setTimeSliceData(
     m_xlineMax = xlineMax;
     m_columnDistances.clear();
     m_mapCoords.clear();
+    if (hasZoneOverlay() &&
+        (image.width != m_zoneOverlay.width || image.height != m_zoneOverlay.height))
+        clearZoneOverlay();
 
     rebuildImage();
     fitToWindow();
@@ -341,6 +347,7 @@ void SeismicSectionCanvas::clearData() {
     m_cachedImage = QImage();
     m_displayValues.clear();
     m_lodStride = 0;
+    clearZoneOverlay();
     update();
 }
 
@@ -382,6 +389,8 @@ void SeismicSectionCanvas::setColorMap(SectionColorMapType type) {
         rebuildColorLut();
         rebuildImage();
         rebuildAttrImage();
+        if (!m_zoneOverlay.values.empty())
+            rebuildZoneImage();
         update();
     }
 }
@@ -393,6 +402,8 @@ void SeismicSectionCanvas::setColorMapInverted(bool inverted) {
         rebuildColorLut();
         rebuildImage();
         rebuildAttrImage();
+        if (!m_zoneOverlay.values.empty())
+            rebuildZoneImage();
         update();
     }
 }
@@ -897,24 +908,19 @@ void SeismicSectionCanvas::clearAttrOverlay() {
     update();
 }
 
-void SeismicSectionCanvas::rebuildAttrImage() {
-    if (m_attrOverlay.values.empty() || m_attrOverlay.width <= 0 ||
-        m_attrOverlay.height <= 0) {
-        m_attrImage = QImage();
-        return;
-    }
+QImage SeismicSectionCanvas::bakeOverlay(const SgySliceImage &src) {
+    if (src.values.empty() || src.width <= 0 || src.height <= 0)
+        return {};
     if (m_colorLut.empty())
         rebuildColorLut();
-    m_attrImage = QImage(m_attrOverlay.width, m_attrOverlay.height,
-                         QImage::Format_ARGB32_Premultiplied);
-    const double lo = m_attrOverlay.valueMin;
-    const double hi = m_attrOverlay.valueMax;
+    QImage image(src.width, src.height, QImage::Format_ARGB32_Premultiplied);
+    const double lo = src.valueMin;
+    const double hi = src.valueMax;
     const double span = (hi > lo) ? (hi - lo) : 1.0; // 退化值域：中档色
-    for (int y = 0; y < m_attrOverlay.height; ++y) {
-        auto *scan = reinterpret_cast<QRgb *>(m_attrImage.scanLine(y));
-        const float *row = m_attrOverlay.values.data() +
-                           std::size_t(y) * m_attrOverlay.width;
-        for (int x = 0; x < m_attrOverlay.width; ++x) {
+    for (int y = 0; y < src.height; ++y) {
+        auto *scan = reinterpret_cast<QRgb *>(image.scanLine(y));
+        const float *row = src.values.data() + std::size_t(y) * src.width;
+        for (int x = 0; x < src.width; ++x) {
             const float v = row[x];
             if (std::isnan(v)) {
                 scan[x] = 0; // 缺失=透明（不盖底图）
@@ -925,6 +931,42 @@ void SeismicSectionCanvas::rebuildAttrImage() {
             scan[x] = m_colorLut[std::size_t(idx)];
         }
     }
+    return image;
+}
+
+void SeismicSectionCanvas::rebuildAttrImage() {
+    m_attrImage = bakeOverlay(m_attrOverlay);
+}
+
+void SeismicSectionCanvas::setZoneOverlay(const SgySliceImage &zone) {
+    if (zone.width != m_traces || zone.height != m_samples || !hasData()) {
+        qWarning("setZoneOverlay: 尺寸不匹配（zone %dx%d vs 剖面 %dx%d），忽略",
+                 zone.width, zone.height, m_traces, m_samples);
+        return;
+    }
+    m_zoneOverlay = zone;
+    rebuildZoneImage();
+    update();
+}
+
+void SeismicSectionCanvas::setZoneOverlayAlpha(double alpha) {
+    const double clamped = std::clamp(alpha, 0.0, 1.0);
+    if (std::abs(clamped - m_zoneAlpha) < 1e-9)
+        return;
+    m_zoneAlpha = clamped;
+    update();
+}
+
+void SeismicSectionCanvas::clearZoneOverlay() {
+    if (m_zoneImage.isNull() && m_zoneOverlay.values.empty())
+        return;
+    m_zoneOverlay = SgySliceImage{};
+    m_zoneImage = QImage();
+    update();
+}
+
+void SeismicSectionCanvas::rebuildZoneImage() {
+    m_zoneImage = bakeOverlay(m_zoneOverlay);
 }
 
 void SeismicSectionCanvas::paintValueRegion(int x0, int y0, int w, int h) {
@@ -1163,6 +1205,12 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
         if (hasAttrOverlay() && m_attrAlpha > 0.0) {
             p.setOpacity(m_attrAlpha);
             p.drawImage(imgDest, m_attrImage);
+            p.setOpacity(1.0);
+        }
+        // 层段属性叠在地震属性之上。NaN 已在烘焙时写成透明像素。
+        if (hasZoneOverlay() && m_zoneAlpha > 0.0) {
+            p.setOpacity(m_zoneAlpha);
+            p.drawImage(imgDest, m_zoneImage);
             p.setOpacity(1.0);
         }
 

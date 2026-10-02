@@ -98,6 +98,8 @@ int main(int argc, char *argv[])
   // catalog 之后重绑生效——rebind 随工程打开）。
   window.attachDepthConversion(ctx.depthConversionWf());
   new paleo::crossplot::CrossplotController(&ctx, &window);
+  // goal/property-modeling：地层格架属性建模编排接线
+  window.attachPropertyModel(ctx.propertyModelWf(), ctx.faultCtl());
   // goal/fault-interpretation：剖面断层拾取/断层管理面板接编排器
   window.attachFaults(ctx.faultCtl());
   // D1（wave/deepen-perf）：wellcomposite 派生登记/井斜时深装配的 io 注入——

@@ -19,6 +19,49 @@ static void initSeismicResources() {
 
 namespace seismic {
 
+SgySliceImage bakePropertyRgba(const SgySliceImage &image) {
+    const std::size_t n = static_cast<std::size_t>(std::max(0, image.width) * std::max(0, image.height));
+    if (image.rgba.size() == n * 4 || image.values.size() != n || n == 0)
+        return image;
+    SgySliceImage baked = image;
+    float lo = 0.0f, hi = 1.0f;
+    bool any = false;
+    for (float v : baked.values) {
+        if (!std::isfinite(v))
+            continue;
+        if (!any) {
+            lo = hi = v;
+            any = true;
+        } else {
+            lo = std::min(lo, v);
+            hi = std::max(hi, v);
+        }
+    }
+    const float span = (hi > lo) ? (hi - lo) : 1.0f;
+    baked.rgba.resize(n * 4);
+    for (std::size_t i = 0; i < n; ++i) {
+        const float v = baked.values[i];
+        unsigned char *px = baked.rgba.data() + i * 4;
+        if (!std::isfinite(v)) {
+            px[0] = px[1] = px[2] = px[3] = 0;
+            continue;
+        }
+        const float t = std::clamp((v - lo) / span, 0.0f, 1.0f);
+        px[0] = static_cast<unsigned char>(40 + t * 200);
+        px[1] = static_cast<unsigned char>(80 + (1.0f - std::fabs(t - 0.5f) * 2.0f) * 80);
+        px[2] = static_cast<unsigned char>(180 - t * 150);
+        px[3] = 255;
+    }
+    if (!any) {
+        baked.valueMin = 0.0f;
+        baked.valueMax = 1.0f;
+    } else if (baked.valueMax <= baked.valueMin) {
+        baked.valueMin = lo;
+        baked.valueMax = hi;
+    }
+    return baked;
+}
+
 Seismic3DViewportWidget::Seismic3DViewportWidget(QWidget *parent)
     : QOpenGLWidget(parent) {
     initSeismicResources();
@@ -91,6 +134,18 @@ void Seismic3DViewportWidget::initializeGL() {
         frameRenderer_.UpdateLineSection(this, *volume_, pendingLineSlice_.pathPoints);
         pendingLineSlice_.valid = false;
     }
+
+    for (const PendingPropertySlice &pending : pendingProperty_) {
+        const SgySliceImage baked = bakePropertyRgba(pending.image);
+        if (pending.stack) {
+            // 上下文晚就绪时也要打开堆叠，否则层已上传但 stackVisible_ 仍为 false。
+            if (sliceRenderer_.UpdatePropertyStackLayer(this, pending.stackLayer, pending.axes, pending.index, baked))
+                sliceRenderer_.SetStackVisible(true);
+        } else {
+            sliceRenderer_.UpdatePropertySlice(this, pending.slot, pending.axes, pending.type, pending.index, baked);
+        }
+    }
+    pendingProperty_.clear();
 
     fpsClock_.start();
     emit glReady();
@@ -194,6 +249,7 @@ void Seismic3DViewportWidget::paintGL() {
 void Seismic3DViewportWidget::setVolume(std::shared_ptr<SgyVolume> volume) {
     volume_ = std::move(volume);
     pendingSlices_.clear();
+    pendingProperty_.clear(); // 属性切片与地震切片共用槽位，换体丢弃未上传的属性面
     pendingLineSlice_.valid = false;
     activeSectionPath_.clear();
     sectionPickPoints_.clear();
@@ -229,6 +285,72 @@ bool Seismic3DViewportWidget::updateSlice(
     const bool ok = sliceRenderer_.UpdateSlice(this, slot, *volume_, type, index, image);
     doneCurrent();
     if (ok) {
+        update();
+    }
+    return ok;
+}
+
+bool Seismic3DViewportWidget::updatePropertySlice(
+    SeismicSliceSlot slot,
+    SgySliceType type,
+    int index,
+    const PropertyBrickAxes &axes,
+    const SgySliceImage &image) {
+    if (slot == SeismicSliceSlot::Line || image.width <= 0 || image.height <= 0)
+        return false;
+    const SgySliceImage baked = bakePropertyRgba(image);
+    if (!glInitialized_) {
+        PendingPropertySlice pending;
+        pending.slot = slot;
+        pending.type = type;
+        pending.index = index;
+        pending.axes = axes;
+        pending.image = baked;
+        pendingProperty_.erase(std::remove_if(pendingProperty_.begin(), pendingProperty_.end(),
+                                              [&](const PendingPropertySlice &item) {
+                                                return !item.stack && item.slot == slot;
+                                              }),
+                               pendingProperty_.end());
+        pendingProperty_.push_back(std::move(pending));
+        return true;
+    }
+    makeCurrent();
+    const bool ok = sliceRenderer_.UpdatePropertySlice(this, slot, axes, type, index, baked);
+    doneCurrent();
+    if (ok)
+        update();
+    return ok;
+}
+
+bool Seismic3DViewportWidget::updatePropertyStackLayer(
+    int layerIdx,
+    int kIndex,
+    const PropertyBrickAxes &axes,
+    const SgySliceImage &image) {
+    if (layerIdx < 0 || layerIdx >= SeismicSliceRenderer::kMaxStackLayers)
+        return false;
+    const SgySliceImage baked = bakePropertyRgba(image);
+    if (!glInitialized_) {
+        PendingPropertySlice pending;
+        pending.stack = true;
+        pending.stackLayer = layerIdx;
+        pending.index = kIndex;
+        pending.axes = axes;
+        pending.image = baked;
+        // 同一 stackLayer 只留最后一次，GL 未就绪时不要无限追加。
+        pendingProperty_.erase(std::remove_if(pendingProperty_.begin(), pendingProperty_.end(),
+                                              [&](const PendingPropertySlice &item) {
+                                                return item.stack && item.stackLayer == layerIdx;
+                                              }),
+                               pendingProperty_.end());
+        pendingProperty_.push_back(std::move(pending));
+        return true;
+    }
+    makeCurrent();
+    const bool ok = sliceRenderer_.UpdatePropertyStackLayer(this, layerIdx, axes, kIndex, baked);
+    doneCurrent();
+    if (ok) {
+        sliceRenderer_.SetStackVisible(true);
         update();
     }
     return ok;

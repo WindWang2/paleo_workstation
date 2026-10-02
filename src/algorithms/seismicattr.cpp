@@ -1,9 +1,12 @@
 // 层：数据
 #include "seismicattr.h"
 
-// seismicattr 实现。FFT 为自研迭代 radix-2（double 内部精度）：仓库 vendor/
-// 系统/Qt 均无合规 FFT（FFTW double-only 头且未链接、破坏钉位策略，见
-// .goal-loop-ledger-seismic-attributes.md 轮0），自写是零新依赖的唯一路。
+// seismicattr 实现。FFT 用共享自研 radix-2（dsp/fft.h，double 内部精度）：
+// 仓库 vendor/系统/Qt 均无合规 FFT（FFTW double-only 头且未链接、破坏钉位
+// 策略，见 .goal-loop-ledger-seismic-attributes.md 轮0），自写是零新依赖的
+// 唯一路；seismic-inversion 轮0 把它从本文件提出共享。
+
+#include "algorithms/dsp/fft.h"
 
 #include <cmath>
 #include <cstddef>
@@ -15,66 +18,6 @@ namespace paleo::seisattr
 {
 namespace
 {
-
-// 迭代 Cooley-Tukey radix-2，原地。n 必须为 2 的幂。
-// forward: X[k] = Σ x[j]·e^{-i2πjk/n}；inverse 先逆变换再整体除 n。
-void fftRadix2(double *re, double *im, int n, bool inverse)
-{
-  for (int i = 1, j = 0; i < n; ++i)
-  {
-    int bit = n >> 1;
-    for (; j & bit; bit >>= 1)
-      j ^= bit;
-    j ^= bit;
-    if (i < j)
-    {
-      std::swap(re[i], re[j]);
-      std::swap(im[i], im[j]);
-    }
-  }
-  for (int len = 2; len <= n; len <<= 1)
-  {
-    const double ang = (inverse ? 2.0 : -2.0) * std::numbers::pi / double(len);
-    const double wr = std::cos(ang);
-    const double wi = std::sin(ang);
-    for (int base = 0; base < n; base += len)
-    {
-      double cr = 1.0;
-      double ci = 0.0;
-      for (int k = 0; k < len / 2; ++k)
-      {
-        const int a = base + k;
-        const int b = a + len / 2;
-        const double tr = re[b] * cr - im[b] * ci;
-        const double ti = re[b] * ci + im[b] * cr;
-        re[b] = re[a] - tr;
-        im[b] = im[a] - ti;
-        re[a] += tr;
-        im[a] += ti;
-        const double ncr = cr * wr - ci * wi;
-        ci = cr * wi + ci * wr;
-        cr = ncr;
-      }
-    }
-  }
-  if (inverse)
-  {
-    const double inv = 1.0 / double(n);
-    for (int i = 0; i < n; ++i)
-    {
-      re[i] *= inv;
-      im[i] *= inv;
-    }
-  }
-}
-
-int nextPowerOfTwoAtLeast(int v)
-{
-  int p = 1;
-  while (p < v)
-    p <<= 1;
-  return p;
-}
 
 // reflect（对称）镜像索引：把相对迹首的任意整数偏移 q 折回 [0, n)。
 // q ∈ [0,n) 恒等；越界按周期 2(n-1) 三角波镜像（同 numpy pad mode='reflect'）。
@@ -118,7 +61,7 @@ void analyticSignal(const float *trace, int n, float *outReal, float *outImag)
     return;
 
   // 局部缺失（NaN）以 0 参与谱计算，输出位诚实 NaN。
-  const int nFft = nextPowerOfTwoAtLeast(2 * n);
+  const int nFft = paleo::dsp::nextPowerOfTwoAtLeast(2 * n);
   const int leftPad = (nFft - n) / 2;
   std::vector<double> paddedRe(std::size_t(nFft), 0.0);
   std::vector<double> paddedIm(std::size_t(nFft), 0.0);
@@ -128,7 +71,7 @@ void analyticSignal(const float *trace, int n, float *outReal, float *outImag)
     paddedRe[std::size_t(j)] = std::isnan(v) ? 0.0 : v;
   }
 
-  fftRadix2(paddedRe.data(), paddedIm.data(), nFft, /*inverse=*/false);
+  paleo::dsp::fftRadix2(paddedRe.data(), paddedIm.data(), nFft, /*inverse=*/false);
 
   // 解析信号谱：正频 ×2、负频清零、DC/Nyquist 保留（scipy.signal.hilbert 同约）。
   for (int k = 1; k < nFft / 2; ++k)
@@ -139,7 +82,7 @@ void analyticSignal(const float *trace, int n, float *outReal, float *outImag)
     paddedIm[std::size_t(nFft - k)] = 0.0;
   }
 
-  fftRadix2(paddedRe.data(), paddedIm.data(), nFft, /*inverse=*/true);
+  paleo::dsp::fftRadix2(paddedRe.data(), paddedIm.data(), nFft, /*inverse=*/true);
 
   for (int i = 0; i < n; ++i)
   {

@@ -152,6 +152,11 @@ class ConstraintWorkflow : public QObject
                                 const SingleFactorDefinition &def, const QVariantMap &params,
                                 QString *error = nullptr);
 
+    // method=local_direction_idw。缺省 method 仍走旧 IDW，不进这里。
+    bool generateLocalDirectionFactor(const QString &horizon, const QString &factorId,
+                                      const SingleFactorDefinition &def, const QVariantMap &params,
+                                      QString *error);
+
     // 三个单因素引擎共用的收尾：样式 best-effort 落盘 + factor 栅格声明 +
     // C4 资产关联补盖 + factorGenerated（声明失败不发成功信号）。
     bool declareFactorResult(QgisLayerService *layers, const QString &horizon,
@@ -169,6 +174,11 @@ class ConstraintWorkflow : public QObject
     bool generateContours(const QString &horizon, const QString &factorLayerId,
                           double interval, QString *error = nullptr);
 
+    // 读已提交的分析栅格，另写制图工作场并声明 cartographic.<层位>.<因素>。
+    // 不覆盖 factor.<层位>.<因素>，也不改分析场字节。
+    bool generateCartographicWork(const QString &horizon, const QString &factorLayerId,
+                                  const QVector<double> &levels, QString *error = nullptr);
+
     DataCatalog *catalog() const;
     QString projectDir() const { return m_projectDir; }
     QgisProcessingService *processingService() const;
@@ -183,6 +193,8 @@ class ConstraintWorkflow : public QObject
     void factorGenerated(const QString &horizon, const QString &factorId, const QString &layerId);
     void contoursGenerated(const QString &horizon, const QString &factorLayerId,
                            const QString &contourLayerId);
+    void cartographicWorkGenerated(const QString &horizon, const QString &factorLayerId,
+                                   const QString &layerId);
 
   private:
     QPointer<QgisProcessingService> m_proc;
@@ -194,6 +206,9 @@ class ConstraintWorkflow : public QObject
     QString m_projectDir;
     QVector<QVariantMap> m_inMemoryConstraints;
     int m_inMemorySeq = 0;
+    // 本地方向 / 制图工作场发布代次。每次这类运行开始时加一，setStore 也加一。
+    // 提交前对不上就丢掉这次文件，不声明图层。
+    quint64 m_publishGeneration = 0;
 };
 
 // ③综合编图 — fuse declared single-factor rasters into composite facies layer.

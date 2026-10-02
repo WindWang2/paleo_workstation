@@ -312,6 +312,7 @@ add_library(paleo_algorithms STATIC
   src/algorithms/singlefactor/support.cpp
   src/algorithms/singlefactor/localidw.cpp
   src/algorithms/singlefactor/samples.cpp
+  src/algorithms/singlefactor/localdirectionalgorithm.cpp
 )
 target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 

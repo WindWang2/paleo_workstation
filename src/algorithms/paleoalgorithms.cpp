@@ -1,6 +1,7 @@
 // 层：数据
 #include "paleoalgorithms.h"
 #include "rasterout.h"
+#include "singlefactor/localdirectionalgorithm.h"
 #include "../catalog/datacatalog.h"
 #include "domain/singlefactorrequest.h"
 
@@ -95,20 +96,15 @@ void bandNodata( GDALRasterBandH band, bool &hasNodata, double &nodata )
   hasNodata = flag != 0;
 }
 
-} // namespace
-
-// 唯一实现（声明与契约见 rasterout.h）。
-GDALDatasetH PaleoRasterOut::createFloatRaster( const QString &outPath, int nCols, int nRows,
-                                const double geoTransform[6],
-                                const QgsCoordinateReferenceSystem &crs,
-                                double nodata )
+// 单波段 GeoTIFF。GeoTransform 与 CRS 只在这里写，float / byte 共用。
+GDALDatasetH createGTiff( const QString &outPath, int nCols, int nRows, GDALDataType type,
+                          const double geoTransform[6], const QgsCoordinateReferenceSystem &crs )
 {
   GDALAllRegister(); // idempotent — safe under an already-initialized QGIS runtime
   GDALDriverH drv = GDALGetDriverByName( "GTiff" );
   if ( !drv )
     return nullptr;
-  GDALDatasetH ds = GDALCreate( drv, outPath.toUtf8().constData(), nCols, nRows, 1,
-                                GDT_Float32, nullptr );
+  GDALDatasetH ds = GDALCreate( drv, outPath.toUtf8().constData(), nCols, nRows, 1, type, nullptr );
   if ( !ds )
     return nullptr;
   if ( GDALSetGeoTransform( ds, const_cast<double *>( geoTransform ) ) != CE_None )
@@ -120,15 +116,37 @@ GDALDatasetH PaleoRasterOut::createFloatRaster( const QString &outPath, int nCol
   {
     // QGIS's engineering CRS exporter can omit EDATUM; GeoTIFF then loses
     // the local datum and no longer compares equal to the project grid.
-    const auto local = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
-    const QByteArray wkt = ((crs == local || crs.toWkt()==local.toWkt()) ? DataCatalog::localGridCrsWkt()
-                                      : crs.toWkt(Qgis::CrsWktVariant::PreferredGdal)).toUtf8();
+    const auto local = QgsCoordinateReferenceSystem::fromWkt( DataCatalog::localGridCrsWkt() );
+    const QByteArray wkt = ( ( crs == local || crs.toWkt() == local.toWkt() )
+                                 ? DataCatalog::localGridCrsWkt()
+                                 : crs.toWkt( Qgis::CrsWktVariant::PreferredGdal ) )
+                               .toUtf8();
     GDALSetProjection( ds, wkt.constData() );
-    GDALSetMetadataItem(ds,"PALEO_CRS_WKT",wkt.constData(),nullptr);
+    GDALSetMetadataItem( ds, "PALEO_CRS_WKT", wkt.constData(), nullptr );
   }
-  GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
-  GDALSetRasterNoDataValue( band, nodata );
   return ds;
+}
+
+} // namespace
+
+// 唯一实现（声明与契约见 rasterout.h）。
+GDALDatasetH PaleoRasterOut::createFloatRaster( const QString &outPath, int nCols, int nRows,
+                                const double geoTransform[6],
+                                const QgsCoordinateReferenceSystem &crs,
+                                double nodata )
+{
+  GDALDatasetH ds = createGTiff( outPath, nCols, nRows, GDT_Float32, geoTransform, crs );
+  if ( !ds )
+    return nullptr;
+  GDALSetRasterNoDataValue( GDALGetRasterBand( ds, 1 ), nodata );
+  return ds;
+}
+
+GDALDatasetH PaleoRasterOut::createByteRaster( const QString &outPath, int nCols, int nRows,
+                                               const double geoTransform[6],
+                                               const QgsCoordinateReferenceSystem &crs )
+{
+  return createGTiff( outPath, nCols, nRows, GDT_Byte, geoTransform, crs );
 }
 
 // ---------------------------------------------------------------------------
@@ -1119,6 +1137,8 @@ void PaleoProvider::loadAlgorithms()
   addAlgorithm( new PaleoWellDistanceAlgorithm() ); // welldist 核（welldist.cpp）
   addAlgorithm( new PaleoDistanceTransformAlgorithm() ); // welldist 绕障引擎（distancetransform.cpp，C5）
   addAlgorithm( new ConstraintIDWAlgorithm() );
+  addAlgorithm( new LocalDirectionIdwAlgorithm() );
+  addAlgorithm( new CartographicWorkAlgorithm() );
   addAlgorithm( new FaciesFusionAlgorithm() );
   addAlgorithm( new GeologicalSmoothingAlgorithm() );
   addAlgorithm( new IsopachAlgorithm() );

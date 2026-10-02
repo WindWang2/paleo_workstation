@@ -16,6 +16,13 @@
 
 #include <gdal.h>
 #include <cpl_conv.h>
+#include <ogr_api.h>
+#include <ogr_srs_api.h>
+
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QRegularExpression>
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/metadata/layermanifest.h"
@@ -130,6 +137,173 @@ class TestFactorWorkflow : public QObject
                                err );
     }
 
+    struct PointRow
+    {
+      double x = 0;
+      double y = 0;
+      double z = 0;
+    };
+    struct LineRow
+    {
+      const char *id = "";
+      const char *type = "";
+      double x0 = 0;
+      double y0 = 0;
+      double x1 = 0;
+      double y1 = 0;
+    };
+
+    static OGRSpatialReferenceH makeSpatialRef( int epsg )
+    {
+      if ( epsg <= 0 )
+        return nullptr;
+      OGRSpatialReferenceH srs = OSRNewSpatialReference( nullptr );
+      if ( !srs || OSRImportFromEPSG( srs, epsg ) != OGRERR_NONE )
+      {
+        if ( srs )
+          OSRDestroySpatialReference( srs );
+        return nullptr;
+      }
+      OSRSetAxisMappingStrategy( srs, OAMS_TRADITIONAL_GIS_ORDER );
+      return srs;
+    }
+
+    static bool writePointGpkg( const QString &path, int epsg, const QVector<PointRow> &rows )
+    {
+      GDALDriverH driver = GDALGetDriverByName( "GPKG" );
+      if ( !driver )
+        return false;
+      GDALDatasetH dataset = GDALCreate( driver, path.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr );
+      if ( !dataset )
+        return false;
+      OGRSpatialReferenceH srs = makeSpatialRef( epsg );
+      if ( epsg > 0 && !srs )
+      {
+        GDALClose( dataset );
+        return false;
+      }
+      OGRLayerH layer = GDALDatasetCreateLayer( dataset, "wells", srs, wkbPoint, nullptr );
+      if ( !layer )
+      {
+        if ( srs )
+          OSRDestroySpatialReference( srs );
+        GDALClose( dataset );
+        return false;
+      }
+      OGRFieldDefnH field = OGR_Fld_Create( "z", OFTReal );
+      OGR_L_CreateField( layer, field, true );
+      OGR_Fld_Destroy( field );
+      for ( const PointRow &row : rows )
+      {
+        OGRFeatureH feature = OGR_F_Create( OGR_L_GetLayerDefn( layer ) );
+        OGR_F_SetFieldDouble( feature, 0, row.z );
+        OGRGeometryH geometry = OGR_G_CreateGeometry( wkbPoint );
+        OGR_G_SetPoint_2D( geometry, 0, row.x, row.y );
+        OGR_F_SetGeometry( feature, geometry );
+        OGR_G_DestroyGeometry( geometry );
+        const OGRErr written = OGR_L_CreateFeature( layer, feature );
+        OGR_F_Destroy( feature );
+        if ( written != OGRERR_NONE )
+        {
+          if ( srs )
+            OSRDestroySpatialReference( srs );
+          GDALClose( dataset );
+          return false;
+        }
+      }
+      if ( srs )
+        OSRDestroySpatialReference( srs );
+      GDALClose( dataset );
+      return QFile::exists( path );
+    }
+
+    static bool writeLineGpkg( const QString &path, int epsg, const QVector<LineRow> &rows )
+    {
+      GDALDriverH driver = GDALGetDriverByName( "GPKG" );
+      if ( !driver )
+        return false;
+      GDALDatasetH dataset = GDALCreate( driver, path.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr );
+      if ( !dataset )
+        return false;
+      OGRSpatialReferenceH srs = makeSpatialRef( epsg );
+      if ( epsg > 0 && !srs )
+      {
+        GDALClose( dataset );
+        return false;
+      }
+      OGRLayerH layer = GDALDatasetCreateLayer( dataset, "lines", srs, wkbLineString, nullptr );
+      if ( !layer )
+      {
+        if ( srs )
+          OSRDestroySpatialReference( srs );
+        GDALClose( dataset );
+        return false;
+      }
+      OGRFieldDefnH idField = OGR_Fld_Create( "id", OFTString );
+      OGR_L_CreateField( layer, idField, true );
+      OGR_Fld_Destroy( idField );
+      OGRFieldDefnH typeField = OGR_Fld_Create( "type", OFTString );
+      OGR_L_CreateField( layer, typeField, true );
+      OGR_Fld_Destroy( typeField );
+      for ( const LineRow &row : rows )
+      {
+        OGRFeatureH feature = OGR_F_Create( OGR_L_GetLayerDefn( layer ) );
+        OGR_F_SetFieldString( feature, 0, row.id );
+        OGR_F_SetFieldString( feature, 1, row.type );
+        OGRGeometryH geometry = OGR_G_CreateGeometry( wkbLineString );
+        OGR_G_AddPoint_2D( geometry, row.x0, row.y0 );
+        OGR_G_AddPoint_2D( geometry, row.x1, row.y1 );
+        OGR_F_SetGeometry( feature, geometry );
+        OGR_G_DestroyGeometry( geometry );
+        const OGRErr written = OGR_L_CreateFeature( layer, feature );
+        OGR_F_Destroy( feature );
+        if ( written != OGRERR_NONE )
+        {
+          if ( srs )
+            OSRDestroySpatialReference( srs );
+          GDALClose( dataset );
+          return false;
+        }
+      }
+      if ( srs )
+        OSRDestroySpatialReference( srs );
+      GDALClose( dataset );
+      return QFile::exists( path );
+    }
+
+    static QString layerUri( const QString &path, const QString &layerName )
+    {
+      return path + QStringLiteral( "|layername=" ) + layerName;
+    }
+
+    static bool findDerivedExtra( DataCatalog &catalog, const QString &assetType, const QString &absolutePath,
+                                  QVariantMap *extra )
+    {
+      for ( const CatalogAsset &asset : catalog.assets() )
+      {
+        if ( asset.type != assetType )
+          continue;
+        for ( const CatalogVersion &version : catalog.versionsForAsset( asset.id ) )
+        {
+          if ( absolutePath.endsWith( QLatin1Char( '/' ) + version.fileName ) &&
+               absolutePath.contains( version.id ) )
+          {
+            if ( extra )
+              *extra = version.extra;
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    static QString resolveProjectPath( const QString &projectDir, const QString &path )
+    {
+      if ( path.isEmpty() || QDir::isAbsolutePath( path ) )
+        return path;
+      return QDir( projectDir ).filePath( path );
+    }
+
   private:
     // 主线6：3×3 同网格构造面栅格（GTiff，GDAL C API——同 tst_algorithms 的
     // makeRaster 形）。
@@ -191,6 +365,10 @@ class TestFactorWorkflow : public QObject
         QVERIFY2( ids.contains( d.processingAlgId ),
                   qPrintable( QStringLiteral( "%1 not registered at runtime" ).arg( d.processingAlgId ) ) );
       }
+      QVERIFY2( ids.contains( QStringLiteral( "paleo:paleo_local_direction_idw" ) ),
+                "paleo:paleo_local_direction_idw must be registered" );
+      QVERIFY2( ids.contains( QStringLiteral( "paleo:paleo_cartographic_work" ) ),
+                "paleo:paleo_cartographic_work must be registered" );
     }
 
     void styleWriterPresets()
@@ -622,6 +800,241 @@ class TestFactorWorkflow : public QObject
       QVERIFY( !wf.generateContours( QStringLiteral( "T1" ), QStringLiteral( "wells.T1" ),
                                      5.0, &err ) );
       QVERIFY( !err.isEmpty() );
+    }
+
+    // 投影井点走本地方向插值，声明分析场；之后的制图工作场单独成层，
+    // 不改分析场字节，也不能进入融合。
+    void localDirectionPublishesAnalysisAndSeparateWorkField()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      const QString wellsPath = f.dir.filePath( QStringLiteral( "wells.gpkg" ) );
+      const QVector<PointRow> wells{
+          { 500000.0, 4000000.0, 1.0 },
+          { 500400.0, 4000000.0, 8.0 },
+          { 500000.0, 4000400.0, 4.0 },
+      };
+      QVERIFY( writePointGpkg( wellsPath, 3857, wells ) );
+      QString err;
+      QVERIFY2( f.layers.declare( decl( QStringLiteral( "wells.T1" ), QStringLiteral( "T1" ),
+                                        QStringLiteral( "vector" ), layerUri( wellsPath, QStringLiteral( "wells" ) ) ),
+                                  &err ),
+                qPrintable( err ) );
+
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QVariantMap params;
+      params.insert( QStringLiteral( "method" ), QStringLiteral( "local_direction_idw" ) );
+      params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "cellSize" ), 100.0 );
+      QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ),
+                qPrintable( err ) );
+
+      const LayerDeclaration *factor = findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) );
+      QVERIFY2( factor != nullptr, "local-direction factor declaration missing" );
+      QCOMPARE( factor->group, QStringLiteral( "04_SingleFactor" ) );
+      QCOMPARE( factor->type, QStringLiteral( "raster" ) );
+      const QString analysisPath = factor->source.section( QLatin1Char( '|' ), 0, 0 );
+      QVERIFY2( QFile::exists( analysisPath ), qPrintable( analysisPath ) );
+
+      QVariantMap extra;
+      QVERIFY2( findDerivedExtra( f.catalog, QStringLiteral( "single_factor_raster" ), analysisPath, &extra ),
+                "analysis version missing" );
+      QCOMPARE( extra.value( QStringLiteral( "value_source" ) ).toString(), QStringLiteral( "analysis" ) );
+      QCOMPARE( extra.value( QStringLiteral( "kind" ) ).toString(), QStringLiteral( "single_factor_raster" ) );
+      const QString parameterHash = extra.value( QStringLiteral( "parameter_hash" ) ).toString();
+      QVERIFY2( QRegularExpression( QStringLiteral( "^[0-9a-f]{64}$" ) ).match( parameterHash ).hasMatch(),
+                qPrintable( parameterHash ) );
+      QVERIFY( extra.value( QStringLiteral( "finite_cells" ) ).toInt() > 0 );
+
+      const QString supportPath =
+          resolveProjectPath( f.dir.path(), extra.value( QStringLiteral( "support_path" ) ).toString() );
+      const QString qcPath = resolveProjectPath( f.dir.path(), extra.value( QStringLiteral( "qc_path" ) ).toString() );
+      QVERIFY2( QFile::exists( supportPath ), qPrintable( supportPath ) );
+      QVERIFY2( QFile::exists( qcPath ), qPrintable( qcPath ) );
+      QCOMPARE( extra.value( QStringLiteral( "support_sha256" ) ).toString().toLower(),
+                DataCatalog::sha256FileHex( supportPath ).toLower() );
+      GDALDatasetH support = GDALOpen( supportPath.toUtf8().constData(), GA_ReadOnly );
+      QVERIFY( support != nullptr );
+      int hasNodata = 1;
+      GDALGetRasterNoDataValue( GDALGetRasterBand( support, 1 ), &hasNodata );
+      QCOMPARE( hasNodata, 0 );
+      GDALClose( support );
+
+      const QString linesPath = f.dir.filePath( QStringLiteral( "constraints.gpkg" ) );
+      const QVector<LineRow> lines{
+          { "stop1", "contour_stop", 499900.0, 4000200.0, 500500.0, 4000200.0 },
+          { "hb1", "hard_barrier", 500100.0, 3999900.0, 500100.0, 4000500.0 },
+      };
+      QVERIFY( writeLineGpkg( linesPath, 3857, lines ) );
+      QVERIFY2( f.layers.declare( decl( QStringLiteral( "constraints.T1" ), QStringLiteral( "T1" ),
+                                        QStringLiteral( "vector" ), layerUri( linesPath, QStringLiteral( "lines" ) ),
+                                        QStringLiteral( "03_Constraints" ) ),
+                                  &err ),
+                qPrintable( err ) );
+
+      const QString analysisSha = DataCatalog::sha256FileHex( analysisPath );
+      QVERIFY( !analysisSha.isEmpty() );
+      QSignalSpy workSpy( &wf, &ConstraintWorkflow::cartographicWorkGenerated );
+      QVERIFY2( wf.generateCartographicWork( QStringLiteral( "T1" ), QStringLiteral( "factor.T1.sandthick" ),
+                                             QVector<double>{ 2.0, 4.0, 6.0 }, &err ),
+                qPrintable( err ) );
+      QCOMPARE( DataCatalog::sha256FileHex( analysisPath ), analysisSha );
+      QCOMPARE( workSpy.count(), 1 );
+      QCOMPARE( workSpy.at( 0 ).at( 2 ).toString(), QStringLiteral( "cartographic.T1.sandthick" ) );
+
+      const LayerDeclaration *work = findDecl( f.layers, QStringLiteral( "cartographic.T1.sandthick" ) );
+      QVERIFY2( work != nullptr, "cartographic declaration missing" );
+      QCOMPARE( work->group, QStringLiteral( "04_SingleFactor/Cartographic" ) );
+      QCOMPARE( work->type, QStringLiteral( "raster" ) );
+      const QString workPath = work->source.section( QLatin1Char( '|' ), 0, 0 );
+      QVERIFY( workPath != analysisPath );
+      QVERIFY2( QFile::exists( workPath ), qPrintable( workPath ) );
+
+      const LayerDeclaration *factorAfter = findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) );
+      QVERIFY( factorAfter != nullptr );
+      QCOMPARE( factorAfter->source.section( QLatin1Char( '|' ), 0, 0 ), analysisPath );
+      QCOMPARE( factorAfter->group, QStringLiteral( "04_SingleFactor" ) );
+
+      QVariantMap workExtra;
+      QVERIFY2( findDerivedExtra( f.catalog, QStringLiteral( "single_factor_cartographic_work" ), workPath,
+                                  &workExtra ),
+                "cartographic version missing" );
+      QCOMPARE( workExtra.value( QStringLiteral( "value_source" ) ).toString(),
+                QStringLiteral( "cartographic_work" ) );
+      QCOMPARE( workExtra.value( QStringLiteral( "kind" ) ).toString(),
+                QStringLiteral( "single_factor_cartographic_work" ) );
+      QCOMPARE( workExtra.value( QStringLiteral( "analysis_sha256" ) ).toString(), analysisSha );
+      const QString workQc =
+          resolveProjectPath( f.dir.path(), workExtra.value( QStringLiteral( "qc_path" ) ).toString() );
+      QFile qcFile( workQc );
+      QVERIFY2( qcFile.open( QIODevice::ReadOnly ), qPrintable( workQc ) );
+      const QJsonArray ignored = QJsonDocument::fromJson( qcFile.readAll() ).object().value( QStringLiteral( "ignored" ) ).toArray();
+      bool sawUnknown = false;
+      for ( const QJsonValue &item : ignored )
+      {
+        const QString text = item.toString();
+        if ( text.contains( QStringLiteral( "unknown_type" ) ) && text.contains( QStringLiteral( "hard_barrier" ) ) )
+          sawUnknown = true;
+      }
+      QVERIFY2( sawUnknown, "hard_barrier without params_json must be listed as unknown_type" );
+
+      CompositionWorkflow composition( &f.proc, &f.layers );
+      QString fuseErr;
+      QVERIFY( !composition.fuseFactors( QStringLiteral( "T1" ),
+                                         { QStringLiteral( "cartographic.T1.sandthick" ) }, &fuseErr ) );
+      QVERIFY2( fuseErr.contains( QStringLiteral( "解释性制图" ) ), qPrintable( fuseErr ) );
+
+      delete factor;
+      delete work;
+      delete factorAfter;
+    }
+
+    void localDirectionCrsPolicy()
+    {
+      const QVector<PointRow> geographic{
+          { 0.0, 0.0, 1.0 },
+          { 4.0, 0.0, 8.0 },
+          { 0.0, 4.0, 4.0 },
+      };
+      const QVector<PointRow> local{
+          { 500000.0, 4000000.0, 1.0 },
+          { 500400.0, 4000000.0, 8.0 },
+          { 500000.0, 4000400.0, 4.0 },
+      };
+
+      {
+        Fixture f;
+        QVERIFY( initFixture( f ) );
+        const QString wellsPath = f.dir.filePath( QStringLiteral( "wells4326.gpkg" ) );
+        QVERIFY( writePointGpkg( wellsPath, 4326, geographic ) );
+        QString err;
+        QVERIFY2( f.layers.declare( decl( QStringLiteral( "wells.T1" ), QStringLiteral( "T1" ),
+                                          QStringLiteral( "vector" ),
+                                          layerUri( wellsPath, QStringLiteral( "wells" ) ) ),
+                                    &err ),
+                  qPrintable( err ) );
+        ConstraintWorkflow wf( &f.proc, &f.layers );
+        wf.setCatalog( &f.catalog, f.dir.path() );
+        QVariantMap params;
+        params.insert( QStringLiteral( "method" ), QStringLiteral( "local_direction_idw" ) );
+        params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+        params.insert( QStringLiteral( "cellSize" ), 1.0 );
+        params.insert( QStringLiteral( "localGrid" ), true );
+        QVERIFY( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ) );
+        QVERIFY2( err.contains( QStringLiteral( "经纬度必须先投影" ) ), qPrintable( err ) );
+        QVERIFY( findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) ) == nullptr );
+      }
+
+      {
+        Fixture f;
+        QVERIFY( initFixture( f ) );
+        const QString wellsPath = f.dir.filePath( QStringLiteral( "wells_nosrs.gpkg" ) );
+        QVERIFY( writePointGpkg( wellsPath, 0, local ) );
+        QString err;
+        QVERIFY2( f.layers.declare( decl( QStringLiteral( "wells.T1" ), QStringLiteral( "T1" ),
+                                          QStringLiteral( "vector" ),
+                                          layerUri( wellsPath, QStringLiteral( "wells" ) ) ),
+                                    &err ),
+                  qPrintable( err ) );
+        ConstraintWorkflow wf( &f.proc, &f.layers );
+        wf.setCatalog( &f.catalog, f.dir.path() );
+        QVariantMap params;
+        params.insert( QStringLiteral( "method" ), QStringLiteral( "local_direction_idw" ) );
+        params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+        params.insert( QStringLiteral( "cellSize" ), 100.0 );
+        QVERIFY( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ) );
+        QVERIFY2( err.contains( QStringLiteral( "投影" ) ) || err.contains( QStringLiteral( "局部" ) ),
+                  qPrintable( err ) );
+        QVERIFY( findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) ) == nullptr );
+      }
+
+      {
+        Fixture f;
+        QVERIFY( initFixture( f ) );
+        const QString wellsPath = f.dir.filePath( QStringLiteral( "wells_local.gpkg" ) );
+        QVERIFY( writePointGpkg( wellsPath, 0, local ) );
+        QString err;
+        QVERIFY2( f.layers.declare( decl( QStringLiteral( "wells.T1" ), QStringLiteral( "T1" ),
+                                          QStringLiteral( "vector" ),
+                                          layerUri( wellsPath, QStringLiteral( "wells" ) ) ),
+                                    &err ),
+                  qPrintable( err ) );
+        ConstraintWorkflow wf( &f.proc, &f.layers );
+        wf.setCatalog( &f.catalog, f.dir.path() );
+        QVariantMap params;
+        params.insert( QStringLiteral( "method" ), QStringLiteral( "local_direction_idw" ) );
+        params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+        params.insert( QStringLiteral( "cellSize" ), 100.0 );
+        params.insert( QStringLiteral( "localGrid" ), true );
+        QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "poro" ), params, &err ),
+                  qPrintable( err ) );
+        const LayerDeclaration *factor = findDecl( f.layers, QStringLiteral( "factor.T1.poro" ) );
+        QVERIFY( factor != nullptr );
+        QCOMPARE( factor->group, QStringLiteral( "04_SingleFactor" ) );
+        QVariantMap extra;
+        QVERIFY( findDerivedExtra( f.catalog, QStringLiteral( "single_factor_raster" ),
+                                   factor->source.section( QLatin1Char( '|' ), 0, 0 ), &extra ) );
+        QCOMPARE( extra.value( QStringLiteral( "value_source" ) ).toString(), QStringLiteral( "analysis" ) );
+        QCOMPARE( extra.value( QStringLiteral( "crs_mode" ) ).toString(), QStringLiteral( "local_engineering" ) );
+        delete factor;
+      }
+    }
+
+    void unknownMethodDoesNotDeclare()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      QVERIFY2( setupWells( f, &err ), qPrintable( err ) );
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QVariantMap params;
+      params.insert( QStringLiteral( "method" ), QStringLiteral( "kriging" ) );
+      params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+      QVERIFY( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ) );
+      QVERIFY2( err.contains( QStringLiteral( "未知" ) ), qPrintable( err ) );
+      QVERIFY( findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) ) == nullptr );
     }
 };
 

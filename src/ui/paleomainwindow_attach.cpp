@@ -1411,6 +1411,10 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
             [this](const QString &, const QString &, const QString &layerId) {
               revealDeclaredLayer(layerId, true);
             });
+    connect(constraint, &ConstraintWorkflow::cartographicWorkGenerated, this,
+            [this](const QString &, const QString &, const QString &layerId) {
+              revealDeclaredLayer(layerId, true);
+            });
     connect(constraintPage, &ConstraintPage::contourRequested, this,
             [this, constraint, constraintPage](const QString &factorLayerId, double interval) {
               const QString horizon = factorLayerId.startsWith(QStringLiteral("factor."))

@@ -373,6 +373,10 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
              [status]( const QString &h, const QString &, const QString &layerId ) {
                status->setText( tr( "等值线完成：%1 → %2" ).arg( h, layerId ) );
              } );
+    connect( wf, &ConstraintWorkflow::cartographicWorkGenerated, status,
+             [status]( const QString &h, const QString &, const QString &layerId ) {
+               status->setText( tr( "制图工作场完成：%1 → %2" ).arg( h, layerId ) );
+             } );
   }
 
   updateFactorActionStates();

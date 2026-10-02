@@ -1,8 +1,9 @@
 // 层：数据
 // PaleoWellDistanceAlgorithm（paleo:paleo_welldist）——实现见 paleoalgorithms.h
-// 类注。栅格写口与 paleoalgorithms.cpp 同一 GDAL C API 习惯；writer 辅助
-// 就地复制（那边是匿名命名空间，不跨编译单元共享）。
+// 类注。栅格写口走共享的 PaleoRasterOut::createFloatRaster（rasterout.h，
+// 恒写 CRS/GeoTransform）。
 #include "paleoalgorithms.h"
+#include "rasterout.h"
 
 #include <qgsprocessingparameters.h>
 #include <qgsprocessingcontext.h>
@@ -29,29 +30,6 @@ namespace
 {
 
 constexpr float PALEO_WELLDIST_NODATA = -9999.0f;
-
-// Single-band Float32 GeoTIFF（与 paleoalgorithms.cpp 的 createFloatRaster
-// 同一习惯）。
-GDALDatasetH createFloatRaster( const QString &outPath, int nCols, int nRows,
-                                const double geoTransform[6], double nodata )
-{
-  GDALAllRegister();
-  GDALDriverH drv = GDALGetDriverByName( "GTiff" );
-  if ( !drv )
-    return nullptr;
-  GDALDatasetH ds = GDALCreate( drv, outPath.toUtf8().constData(), nCols, nRows, 1,
-                                GDT_Float32, nullptr );
-  if ( !ds )
-    return nullptr;
-  if ( GDALSetGeoTransform( ds, const_cast<double *>( geoTransform ) ) != CE_None )
-  {
-    GDALClose( ds );
-    return nullptr;
-  }
-  GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
-  GDALSetRasterNoDataValue( band, nodata );
-  return ds;
-}
 
 } // namespace
 
@@ -131,8 +109,8 @@ QVariantMap PaleoWellDistanceAlgorithm::processAlgorithm( const QVariantMap &par
 
   const double gt[6] = { extent.xMinimum(), cellSize, 0.0,
                          extent.yMaximum(), 0.0, -cellSize };
-  GDALDatasetH outDs = createFloatRaster( outPath, nCols, nRows, gt,
-                                          PALEO_WELLDIST_NODATA );
+  GDALDatasetH outDs = PaleoRasterOut::createFloatRaster( outPath, nCols, nRows, gt, source->sourceCrs(),
+                                                          PALEO_WELLDIST_NODATA );
   if ( !outDs )
     throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );
   GDALRasterBandH outBand = GDALGetRasterBand( outDs, 1 );

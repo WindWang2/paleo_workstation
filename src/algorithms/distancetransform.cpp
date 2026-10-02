@@ -4,6 +4,7 @@
 //（src/services/singlefactordef.h：INPUT=井点图层，OUTPUT=栅格，CELL_SIZE=正数，
 // 绕障=约束线）。实现见 paleoalgorithms.h 类注。
 #include "paleoalgorithms.h"
+#include "rasterout.h"
 
 #include <qgsprocessingparameters.h>
 #include <qgsprocessingutils.h>
@@ -37,28 +38,6 @@ namespace
 {
 
 constexpr float PALEO_DT_NODATA = -9999.0f;
-
-// Single-band Float32 GeoTIFF（与 welldist.cpp 同一文件内复制习惯）。
-GDALDatasetH createFloatRaster( const QString &outPath, int nCols, int nRows,
-                                const double geoTransform[6], double nodata )
-{
-  GDALAllRegister();
-  GDALDriverH drv = GDALGetDriverByName( "GTiff" );
-  if ( !drv )
-    return nullptr;
-  GDALDatasetH ds = GDALCreate( drv, outPath.toUtf8().constData(), nCols, nRows, 1,
-                                GDT_Float32, nullptr );
-  if ( !ds )
-    return nullptr;
-  if ( GDALSetGeoTransform( ds, const_cast<double *>( geoTransform ) ) != CE_None )
-  {
-    GDALClose( ds );
-    return nullptr;
-  }
-  GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
-  GDALSetRasterNoDataValue( band, nodata );
-  return ds;
-}
 
 } // namespace
 
@@ -200,7 +179,8 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
 
   const double gt[6] = { extent.xMinimum(), cellSize, 0.0,
                          extent.yMaximum(), 0.0, -cellSize };
-  GDALDatasetH outDs = createFloatRaster( outPath, nCols, nRows, gt, PALEO_DT_NODATA );
+  GDALDatasetH outDs = PaleoRasterOut::createFloatRaster( outPath, nCols, nRows, gt, source->sourceCrs(),
+                                                          PALEO_DT_NODATA );
   if ( !outDs )
     throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );
   GDALSetMetadataItem( outDs, "PALEO_BREAK_LINES",

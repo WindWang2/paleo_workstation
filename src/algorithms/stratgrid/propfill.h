@@ -41,11 +41,21 @@ struct FaultSegment
   double y1 = 0;
 };
 
+// 断面三角（地图 XY，Z 向下为正）。体域充填用它做线段-三角形求交，
+// 不把断层当成无限深的竖帘。
+struct FaultTriangle
+{
+  double ax = 0, ay = 0, az = 0;
+  double bx = 0, by = 0, bz = 0;
+  double cx = 0, cy = 0, cz = 0;
+};
+
 struct PropertyVolume
 {
   ZoneGrid grid;
   std::vector<float> values;     // cellIndex，NaN = 死单元或未充填
   std::vector<int> columnBlock;  // ni*nj，死柱 = -1
+  std::vector<int> cellBlock;    // 仅断面重载填写：ni*nj*nk，死单元 = -1
   int blockCount = 0;
   int filledCells = 0;
   int unfilledLiveCells = 0;
@@ -56,6 +66,13 @@ using FillProgress = std::function<bool(double fraction)>;
 
 bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds,
              const std::vector<FaultSegment> &faults, double power, PropertyVolume *out,
+             const FillProgress &progress = {}, QString *error = nullptr);
+
+// 断面体域阻断：邻接按单元 6 连通，柱心连线与三角网相交则断开。
+// 平面 FaultSegment 重载仍是整柱竖帘。本重载的权威分块在 cellBlock。
+// 空的 {} 与竖帘重载二义，调用处写成具体的 vector 类型。
+bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds,
+             const std::vector<FaultTriangle> &mesh, double power, PropertyVolume *out,
              const FillProgress &progress = {}, QString *error = nullptr);
 
 // 粗化表 → 种子（无值或没有代表柱的层跳过）。

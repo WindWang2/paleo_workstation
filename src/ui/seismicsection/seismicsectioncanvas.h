@@ -167,6 +167,16 @@ public:
     // 测试/联动断言面：当前叠加的 FaultSet 棒（含高亮位）
     const QVector<FaultStickDisplay> &faultStickOverlays() const { return m_faultStickOverlays; }
 
+    // 断面与当前剖面的交线（非拾取剖面）。点列是 (traceFrac, 纵向样值)。
+    // 琥珀色虚线：派生交线待复核，和拾取棒 #E53935 分开。
+    struct FaultSurfaceCutDisplay
+    {
+        QVector<QPair<double, double>> points;
+        bool visible = true;
+    };
+    void setFaultSurfaceCut(const FaultSurfaceCutDisplay &cut);
+    const FaultSurfaceCutDisplay &faultSurfaceCut() const { return m_faultSurfaceCut; }
+
     // Wells and calibration
     void setWells(const std::vector<SectionWellInfo> &wells);
     void setTimeDepthModel(const TimeDepthModel &model);
@@ -435,6 +445,7 @@ private:
     QList<SeismicPick> m_pickOverlays;
     QList<SeismicFaultSegment> m_faultOverlays;
     QVector<FaultStickDisplay> m_faultStickOverlays; // FaultSet 棒（goal/fault-interpretation）
+    FaultSurfaceCutDisplay m_faultSurfaceCut;       // 断面-剖面交线（goal/fault-surface）
 
     // D5.3/D5.4/D5.7
     std::vector<WellTrajectory> m_wellTrajectories;

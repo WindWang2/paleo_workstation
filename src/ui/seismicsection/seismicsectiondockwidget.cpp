@@ -2010,6 +2010,12 @@ bool SeismicSectionDockWidget::currentFaultSection(paleo::fault::FaultSectionRef
     return true;
 }
 
+void SeismicSectionDockWidget::setFaultSurfaceCut(
+    const SeismicSectionCanvas::FaultSurfaceCutDisplay &cut) {
+    if (m_canvas)
+        m_canvas->setFaultSurfaceCut(cut);
+}
+
 void SeismicSectionDockWidget::refreshFaultStickOverlay() {
     if (!m_faultController) {
         m_canvas->setFaultStickOverlays({});

@@ -10,7 +10,7 @@
 |---|---|---|---|---|---|
 | `artifacts/metadata/catalog.json` | JSON 根键 `schema_version`（`CatalogStore::kJsonSchemaVersion`） | **1** | 缺键=当前版本；`1` 放行 | 不再是活库：只做迁入与 `CatalogStore::toJson` / `exportCatalogJson` 导出（§1、§8） | 值≠1 → 拒开迁入（原件保留，不建 sqlite） |
 | `artifacts/metadata/catalog.sqlite` | `catalog_meta.schema_epoch` = `CatalogStore::kSchemaEpoch`（**不是** `MetaStore::kUserVersion`） | **1** | 缺表/缺键 = 1 | 建库与每次写 meta 时写当前 epoch | epoch 更高 → 拒开，不回退 `.bak`。`PRAGMA user_version` 高于本构建 → 拒开，错误含子串 `newer than this build`，文件不动 |
-| `metadata/project.sqlite` | `PRAGMA user_version`（`MetaStore`） | **1** | `0`（新库/遗留库）→ 就地采纳为 1；列缺失 → `ALTER TABLE ADD COLUMN` | 打开连接后、任何建表前 | 更高版本 → 三个 store 全部拒开（零写入，文件不动） |
+| `metadata/project.sqlite` | `PRAGMA user_version`（`MetaStore`） | **2** | `0`/`1` → 就地采纳为 2；`fault_set` 缺 `surface` 列 → `ALTER TABLE ADD COLUMN`（旧行 NULL，棒/切割仍在 payload） | 打开连接后、任何建表前（补列在 FaultSetStore::open） | 更高版本 → store 全部拒开（零写入，文件不动） |
 | `project.gpkg` | GeoPackage 规范占用 `application_id`/`user_version`，Paleo **不用**它们；升级走加列/加表（OGR） | —（无 Paleo 版本号） | OGR 自然向前兼容（缺表 `CREATE IF NOT EXISTS`、缺列 `ensureField`） | 第一次破坏性变更时引入 `paleo_meta` 表（见 §3） | OGR 错误面如实上抛；工程级一致性由 catalog.sqlite（§8）+ 写锁兜底 |
 | `*.qgz` | QGIS 自带工程版本属性 | —（交给 QGIS） | QGIS 原生读旧工程 | 每次 `QgsProject::write()` | 写失败不破坏 gpkg 权威数据态；`.qgz.bak` + 临时文件+rename |
 
@@ -54,19 +54,24 @@
   - `ReleaseStore`（`releases`，src/metadata/releasestore.cpp）
 - 版本门：`MetaStore::ensureUserVersion`（src/metadata/metastore.h/.cpp），
   在每个 store 的连接打开后、**任何建表/补列之前**执行：
-  - `user_version == 0` → 新库或遗留库 → **就地写 1**（采纳）；
-  - `== kUserVersion(1)` → 放行；
-  - `> 1` → 本构建不认识 → 拒开，错误写明读到的版本号与构建支持的上限，
+  - `user_version == 0` 或 `1` → 新库或上一版本 → **就地写 2**（采纳）；
+  - `== kUserVersion(2)` → 放行；
+  - `> 2` → 本构建不认识 → 拒开，错误写明读到的版本号与构建支持的上限，
     此时没有发生过任何写入，**原件完整**（升级应用，而不是猜文件）。
+  - `1 → 2` 的结构差只有 `fault_set.surface`（TEXT，可空）。表还不存在时由
+    FaultSetStore 按新表头创建；表已在且缺列时 `ALTER TABLE ADD COLUMN`。
+    旧行 `surface` 为 NULL，payload 里的棒/切割不改写。
 - 列级迁移（版本内前向兼容）：`CREATE TABLE IF NOT EXISTS` + 逐列
   `PRAGMA table_info` 查缺后 `ALTER TABLE ADD COLUMN`（新列可空，旧行读默认）。
   现存实例：`layer_declarations.title`（layermanifest.cpp:73-87）、
   map_versions 的发布门列（mapversionstore.cpp `ensureColumn`）。
 - 失败行为：user_version 门拒绝 → 三个 store 的 `open()` 全部 false（各自
   错误串），后续读写全部失败；文件未被修改。
-- 升级流程（将来 bump 到 2 时）：改 `kUserVersion` + 在 `ensureUserVersion`
-  的采纳分支后加一段幂等迁移（`0/1 → 2`），同提交里更新
-  `futureVersionRefusedByAllStores` 的造库值。
+- 升级流程（将来 bump 到 3 时）：改 `kUserVersion` + 在采纳分支后加一段幂等
+  迁移（`2 → 3`），同提交里更新 `futureVersionRefusedByAllStores` 的造库值
+  （该测试用 `kUserVersion + 1`，随常量走）。
+- 当前 2：`src/metadata/faultsetstore.cpp` 补 `surface` 列。断面 mesh 不进
+  payload，避免旧读者把棒文档和网格绑死。
 - 测试背书：`tests/tst_metastore.cpp` `freshDbAdoptsUserVersion` /
   `legacyZeroVersionUpgradedInPlace` / `futureVersionRefusedByAllStores`
   （断言拒开后连表都没建）/ `currentVersionPassesIdempotently`。

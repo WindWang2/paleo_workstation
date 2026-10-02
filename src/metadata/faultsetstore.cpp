@@ -7,6 +7,7 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QVariant>
 
 namespace
 {
@@ -23,8 +24,20 @@ void setError(QString *error, const QString &text)
         *error = text;
 }
 
-// 幂等建表：open() 后调用，CREATE IF NOT EXISTS（schema 前向升级照
-// MapVersionStore 惯例走 PRAGMA table_info 补列；首版只有三列）。
+bool columnExists(QSqlDatabase &db, const QString &column)
+{
+    QSqlQuery info(db);
+    if (!info.exec(QStringLiteral("PRAGMA table_info(fault_set)")))
+        return false;
+    while (info.next()) {
+        if (info.value(1).toString() == column)
+            return true;
+    }
+    return false;
+}
+
+// 幂等建表。user_version 1→2 的列迁移：旧表没有 surface 时 ALTER 补上。
+// 棒/切割仍在 payload，断面只进 surface 列（可空）。
 bool ensureOpen(const QString &path, QString *error)
 {
     QSqlDatabase db = MetaStore::openConnection(path, connectionNameFor(path), error);
@@ -35,10 +48,18 @@ bool ensureOpen(const QString &path, QString *error)
             "CREATE TABLE IF NOT EXISTS fault_set ("
             "id TEXT PRIMARY KEY, "
             "payload TEXT NOT NULL, "
-            "updated_utc TEXT NOT NULL)")))
+            "updated_utc TEXT NOT NULL, "
+            "surface TEXT)")))
     {
         setError(error, schema.lastError().text());
         return false;
+    }
+    if (!columnExists(db, QStringLiteral("surface"))) {
+        QSqlQuery alter(db);
+        if (!alter.exec(QStringLiteral("ALTER TABLE fault_set ADD COLUMN surface TEXT"))) {
+            setError(error, alter.lastError().text());
+            return false;
+        }
     }
     return true;
 }
@@ -60,18 +81,23 @@ bool FaultSetStore::save(const paleo::fault::FaultSet &set, QString *error)
         setError(error, QStringLiteral("FaultSetStore 只读（工程被其他实例锁定）"));
         return false;
     }
-    const QByteArray payload = set.toJson();
+    const QByteArray payload = set.withoutSurfaces().toJson();
+    const QByteArray surfaces = set.surfacesJson();
     const QString nowUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
 
     const auto write = [&](QString *err) -> bool {
         if (!ensureOpen(m_dbPath, err))
             return false;
         QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
-        q.prepare(QStringLiteral("INSERT OR REPLACE INTO fault_set (id, payload, updated_utc) "
-                                 "VALUES (?, ?, ?)"));
+        q.prepare(QStringLiteral(
+            "INSERT OR REPLACE INTO fault_set (id, payload, updated_utc, surface) "
+            "VALUES (?, ?, ?, ?)"));
         q.addBindValue(QString::fromLatin1(kRowId));
         q.addBindValue(QString::fromUtf8(payload));
         q.addBindValue(nowUtc);
+        q.addBindValue(surfaces.isEmpty() || surfaces == QByteArray("{}")
+                           ? QVariant()
+                           : QVariant(QString::fromUtf8(surfaces)));
         if (!q.exec()) {
             setError(err, q.lastError().text());
             return false;
@@ -101,8 +127,11 @@ bool FaultSetStore::load(paleo::fault::FaultSet &set, QString *error) const
 {
     if (!ensureOpen(m_dbPath, error))
         return false;
-    QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
-    q.prepare(QStringLiteral("SELECT payload FROM fault_set WHERE id = ?"));
+    QSqlDatabase db = QSqlDatabase::database(connectionNameFor(m_dbPath));
+    const bool hasSurface = columnExists(db, QStringLiteral("surface"));
+    QSqlQuery q(db);
+    q.prepare(hasSurface ? QStringLiteral("SELECT payload, surface FROM fault_set WHERE id = ?")
+                         : QStringLiteral("SELECT payload FROM fault_set WHERE id = ?"));
     q.addBindValue(QString::fromLatin1(kRowId));
     if (!q.exec()) {
         setError(error, q.lastError().text());
@@ -112,5 +141,11 @@ bool FaultSetStore::load(paleo::fault::FaultSet &set, QString *error) const
         set.clear(); // 新工程：空集
         return true;
     }
-    return set.fromJson(q.value(0).toString().toUtf8(), error);
+    if (!set.fromJson(q.value(0).toString().toUtf8(), error))
+        return false;
+    if (!hasSurface || q.value(1).isNull()) {
+        set.clearSurfaces();
+        return true;
+    }
+    return set.applySurfacesJson(q.value(1).toString().toUtf8(), error);
 }

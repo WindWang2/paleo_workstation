@@ -6,6 +6,8 @@
 #include <QJsonObject>
 #include <QFile>
 #include <QDir>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 
 #include "../src/catalog/datacatalog.h"
 
@@ -18,7 +20,63 @@
 #include <windows.h>
 #endif
 
-// plan §3 数据模型：实体—关联—资产—版本，catalog.json 是唯一主存储。
+namespace
+{
+int g_catalogSqlConn = 0;
+
+bool withCatalogSqlite(const QString &path, const std::function<bool(QSqlDatabase &)> &fn)
+{
+  const QString name = QStringLiteral("tst_catalog_sql_%1").arg(++g_catalogSqlConn);
+  bool ok = false;
+  {
+    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), name);
+    db.setDatabaseName(path);
+    if (db.open())
+    {
+      QSqlQuery pragma(db);
+      pragma.exec(QStringLiteral("PRAGMA busy_timeout = 5000"));
+      ok = fn(db);
+    }
+    db.close();
+  }
+  QSqlDatabase::removeDatabase(name);
+  return ok;
+}
+
+int sqliteEntityCount(const QString &path)
+{
+  int n = -1;
+  withCatalogSqlite(path, [&](QSqlDatabase &db) {
+    QSqlQuery q(db);
+    if (!q.exec(QStringLiteral("SELECT count(*) FROM entities")) || !q.next())
+      return false;
+    n = q.value(0).toInt();
+    return true;
+  });
+  return n;
+}
+
+QString sqliteText(const QString &path, const QString &sql)
+{
+  QString out;
+  withCatalogSqlite(path, [&](QSqlDatabase &db) {
+    QSqlQuery q(db);
+    if (!q.exec(sql) || !q.next())
+      return false;
+    out = q.value(0).toString();
+    return true;
+  });
+  return out;
+}
+
+void dropSqliteSidecars(const QString &sqlite)
+{
+  QFile::remove(sqlite + QStringLiteral("-wal"));
+  QFile::remove(sqlite + QStringLiteral("-shm"));
+}
+} // namespace
+
+// plan §3 数据模型：实体—关联—资产—版本。查询走内存，盘上主库是 catalog.sqlite。
 // 覆盖：JSON round-trip、井名规范化身份解析、双候选不合并（unresolved 语义）、
 // 版本不可变递增、revision 单调。
 class TestCatalog : public QObject
@@ -471,33 +529,21 @@ void TestCatalog::managedCatalogLoadRejectsEscape()
   version.managed = true;
   version.path = QStringLiteral("artifacts/raw/ast-1/ver-1/file.dat");
   QVERIFY(catalog.addVersion(version));
-  QFile file(catalog.catalogPath());
-  QVERIFY(file.open(QIODevice::ReadOnly));
-  QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
-  file.close();
-  QJsonArray versions = root.value(QStringLiteral("versions")).toArray();
-  QJsonObject bad = versions.at(0).toObject();
-  bad.insert(QStringLiteral("path"), QStringLiteral("../../outside.dat"));
-  versions[0] = bad;
-  root.insert(QStringLiteral("versions"), versions);
-  QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
-  file.write(QJsonDocument(root).toJson());
-  file.close();
+  // 第一份 catalog 仍开着。第二连接改 sqlite，不用 MetaStore::closeConnectionsFor。
+  const QString sqlite = catalog.sqliteCatalogPath();
+  QVERIFY2(withCatalogSqlite(sqlite, [](QSqlDatabase &db) {
+             QSqlQuery q(db);
+             return q.exec(QStringLiteral(
+                 "UPDATE versions SET path='../../outside.dat' WHERE id='ver-1'"));
+           }),
+           "sql update of managed path");
   DataCatalog reloaded;
   QString error;
   // 坏段版本如实跳过且不写回：装载照常成功，越界版本不进内存（audit row 36/T33）。
-  QVERIFY(reloaded.open(dir.path(), &error));
+  QVERIFY2(reloaded.open(dir.path(), &error), qPrintable(error));
   QVERIFY(error.isEmpty());
   QVERIFY(reloaded.versionsForAsset(asset.id).isEmpty());
-  QJsonObject reloadedRoot;
-  {
-    QFile check(catalog.catalogPath());
-    QVERIFY(check.open(QIODevice::ReadOnly));
-    reloadedRoot = QJsonDocument::fromJson(check.readAll()).object();
-    check.close();
-  }
-  QCOMPARE(reloadedRoot.value(QStringLiteral("versions")).toArray().at(0).toObject()
-               .value(QStringLiteral("path")).toString(),
+  QCOMPARE(sqliteText(sqlite, QStringLiteral("SELECT path FROM versions WHERE id='ver-1'")),
            QStringLiteral("../../outside.dat"));
 }
 
@@ -731,39 +777,42 @@ void TestCatalog::refusesUnsupportedSchemaVersion()
   QVERIFY(legacyCat.addEntity(e, &err));
 }
 
-// T20c：每次 save 前把现有 catalog.json 轮转成 .bak——§9 回滚句有可恢复对象。
+// T20c：.bak 在下一次打开健康 sqlite 时拷出，不在第一次 addEntity。
+// 恢复点是上次打开的快照，不是上一次 save。
 void TestCatalog::rotatesBakAndVerifiesWrite()
 {
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
-  const QString catalogFile =
-      dir.filePath(QStringLiteral("artifacts/metadata/catalog.json"));
-  const QString bakFile = catalogFile + QStringLiteral(".bak");
+  const QString sqlite =
+      dir.filePath(QStringLiteral("artifacts/metadata/catalog.sqlite"));
+  const QString bakFile = sqlite + QStringLiteral(".bak");
+  const QString json = dir.filePath(QStringLiteral("artifacts/metadata/catalog.json"));
 
-  DataCatalog cat;
-  QVERIFY(cat.open(dir.path())); // 初次建 catalog：没有旧文件可轮转
-  QVERIFY(QFile::exists(catalogFile));
-  QVERIFY(!QFile::exists(bakFile));
-
-  CatalogEntity w;
-  w.id = QStringLiteral("well-A1");
-  w.entityType = QStringLiteral("well");
-  QVERIFY(cat.addEntity(w)); // save → 轮转空 catalog 进 .bak
-
-  QVERIFY(QFile::exists(bakFile));
-  QFile bak(bakFile);
-  QVERIFY(bak.open(QIODevice::ReadOnly));
-  const QJsonObject bakRoot = QJsonDocument::fromJson(bak.readAll()).object();
-  QCOMPARE(bakRoot.value(QStringLiteral("schema_version")).toInt(), 1);
-  QVERIFY(bakRoot.value(QStringLiteral("entities")).toArray().isEmpty());
-
-  QFile cur(catalogFile);
-  QVERIFY(cur.open(QIODevice::ReadOnly));
-  const QJsonObject curRoot = QJsonDocument::fromJson(cur.readAll()).object();
-  QCOMPARE(curRoot.value(QStringLiteral("entities")).toArray().size(), 1);
-  // .bak 是上一版：revision 严格小于当前。
-  QVERIFY(bakRoot.value(QStringLiteral("catalog_revision")).toInt() <
-          curRoot.value(QStringLiteral("catalog_revision")).toInt());
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path()));
+    QCOMPARE(cat.sqliteCatalogPath(), sqlite);
+    QVERIFY(QFile::exists(sqlite));
+    QVERIFY(!QFile::exists(bakFile));
+    QVERIFY(!QFile::exists(json));
+    CatalogEntity w;
+    w.id = QStringLiteral("well-A1");
+    w.entityType = QStringLiteral("well");
+    QVERIFY(cat.addEntity(w));
+    QVERIFY(!QFile::exists(bakFile));
+  }
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path()));
+    QVERIFY(QFile::exists(bakFile));
+    QCOMPARE(sqliteEntityCount(bakFile), 1);
+    CatalogEntity b;
+    b.id = QStringLiteral("well-B2");
+    b.entityType = QStringLiteral("well");
+    QVERIFY(cat.addEntity(b));
+    QCOMPARE(sqliteEntityCount(bakFile), 1); // 仍是打开时的 A1，不含 B2
+    QCOMPARE(sqliteEntityCount(sqlite), 2);
+  }
 }
 
 // T20a：catalog.json 损坏 → open 失败进拒绝写入态；所有 mutator 如实失败，
@@ -888,8 +937,7 @@ void TestCatalog::batchSaveCoalescesWrites()
   QVERIFY(cat.open(dir.path()));
   QSignalSpy spy(&cat, &DataCatalog::changed);
 
-  const QString catalogFile =
-      dir.filePath(QStringLiteral("artifacts/metadata/catalog.json"));
+  const QString catalogFile = cat.sqliteCatalogPath();
   const qint64 sizeBefore = QFileInfo(catalogFile).size();
 
   {
@@ -924,40 +972,63 @@ void TestCatalog::batchSaveCoalescesWrites()
   QCOMPARE(reloaded.links().size(), 1);
 }
 
-// T33：手改的 catalog 携带 '..' 受管路径——装载时如实跳过该版本（log+skip），
-// 不装进内存、不写回磁盘；干净版本不受影响。
+// T33：手改的 sqlite 携带 '..' 受管路径——装载时如实跳过该版本（log+skip），
+// 不装进内存；增量保存不 DELETE 盘上的坏行。干净版本不受影响。
 void TestCatalog::unsafeManagedPathSkippedOnLoad()
 {
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
-  QVERIFY(QDir().mkpath(dir.filePath(QStringLiteral("artifacts/metadata"))));
-  QFile f(dir.filePath(QStringLiteral("artifacts/metadata/catalog.json")));
-  QVERIFY(f.open(QIODevice::WriteOnly));
-  f.write(QByteArrayLiteral(
-      "{\"schema_version\":1,\"catalog_revision\":1,\"entities\":[],"
-      "\"assets\":[{\"id\":\"ast-1\",\"type\":\"well_log\",\"format\":\"las\","
-      "\"display_name\":\"A1.Las\"}],"
-      "\"versions\":["
-      "{\"id\":\"ver-1\",\"asset_id\":\"ast-1\",\"stage\":\"RAW\","
-      "\"version_number\":1,\"managed\":true,"
-      "\"path\":\"raw/ast-1/ver-1/A1.Las\",\"file_name\":\"A1.Las\"},"
-      "{\"id\":\"ver-2\",\"asset_id\":\"ast-1\",\"stage\":\"RAW\","
-      "\"version_number\":2,\"managed\":true,"
-      "\"path\":\"raw/ast-1/../../outside/evil.dat\",\"file_name\":\"evil.dat\"},"
-      "{\"id\":\"ver-3\",\"asset_id\":\"ast-1\",\"stage\":\"RAW\","
-      "\"version_number\":3,\"managed\":true,"
-      "\"path\":\"raw/ast-1/ver-3/ok.dat\",\"file_name\":\"..\"}"
-      "],\"entity_asset_links\":[]}"));
-  f.close();
-
   DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-1");
+  a.type = QStringLiteral("well_log");
+  a.format = QStringLiteral("las");
+  a.displayName = QStringLiteral("A1.Las");
+  QVERIFY(cat.addAsset(a));
+  CatalogVersion good;
+  good.id = QStringLiteral("ver-1");
+  good.assetId = a.id;
+  good.stage = QStringLiteral("RAW");
+  good.versionNumber = 1;
+  good.managed = true;
+  good.path = QStringLiteral("raw/ast-1/ver-1/A1.Las");
+  good.fileName = QStringLiteral("A1.Las");
+  QVERIFY(cat.addVersion(good));
+
+  // cat 仍开着。第二连接插入坏段，不用 MetaStore::closeConnectionsFor。
+  const QString sqlite = cat.sqliteCatalogPath();
+  QVERIFY2(withCatalogSqlite(sqlite, [](QSqlDatabase &db) {
+             QSqlQuery q(db);
+             if (!q.exec(QStringLiteral(
+                     "INSERT INTO versions (id, asset_id, stage, version_number, managed, path,"
+                     " source_uri, sha256, file_name, parent_version_ids_json, extra_json) VALUES "
+                     "('ver-2','ast-1','RAW',2,1,'raw/ast-1/../../outside/evil.dat','','',"
+                     "'evil.dat','[]','{}')")))
+               return false;
+             return q.exec(QStringLiteral(
+                 "INSERT INTO versions (id, asset_id, stage, version_number, managed, path,"
+                 " source_uri, sha256, file_name, parent_version_ids_json, extra_json) VALUES "
+                 "('ver-3','ast-1','RAW',3,1,'raw/ast-1/ver-3/ok.dat','','','..','[]','{}')"));
+           }),
+           "sql insert of unsafe versions");
+
+  DataCatalog reloaded;
   QString err;
-  QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
-  const auto versions = cat.versionsForAsset(QStringLiteral("ast-1"));
+  QVERIFY2(reloaded.open(dir.path(), &err), qPrintable(err));
+  const auto versions = reloaded.versionsForAsset(QStringLiteral("ast-1"));
   QCOMPARE(versions.size(), 1); // ver-2 的 '..' 段、ver-3 的坏 fileName 都被跳过
   QCOMPARE(versions.front().id, QStringLiteral("ver-1"));
   // 序号恢复只看装进内存的版本——ver-2/ver-3 被拒不占序号。
-  QCOMPARE(cat.nextVersionId(), QStringLiteral("ver-2"));
+  QCOMPARE(reloaded.nextVersionId(), QStringLiteral("ver-2"));
+  CatalogEntity extra;
+  extra.id = QStringLiteral("well-A1");
+  extra.entityType = QStringLiteral("well");
+  QVERIFY(reloaded.addEntity(extra));
+  QCOMPARE(sqliteText(sqlite, QStringLiteral("SELECT path FROM versions WHERE id='ver-2'")),
+           QStringLiteral("raw/ast-1/../../outside/evil.dat"));
+  QCOMPARE(sqliteText(sqlite, QStringLiteral("SELECT file_name FROM versions WHERE id='ver-3'")),
+           QStringLiteral(".."));
 }
 
 // D12：旧版 catalog 携带 uwi/aliases 键——打开不报错（键被忽略），井身份
@@ -988,12 +1059,14 @@ void TestCatalog::legacyCatalogFieldsIgnoredAndNotRewritten()
            QStringList{QStringLiteral("well-A1")});
   QCOMPARE(cat.entities(QStringLiteral("well")).size(), 1);
 
-  // 触发一次落盘（addAsset），回读原始 JSON：两键消失。
+  // 触发一次落盘（addAsset）。uwi/aliases 不在内存模型里，导出 JSON 不含这两键。
   CatalogAsset a;
   a.id = QStringLiteral("ast-1");
   a.type = QStringLiteral("well_log");
   QVERIFY(cat.addAsset(a));
-  QFile rf(cat.catalogPath());
+  const QString exported = dir.filePath(QStringLiteral("exported.json"));
+  QVERIFY2(cat.exportCatalogJson(exported, &err), qPrintable(err));
+  QFile rf(exported);
   QVERIFY(rf.open(QIODevice::ReadOnly));
   const QByteArray raw = rf.readAll();
   rf.close();
@@ -1001,7 +1074,7 @@ void TestCatalog::legacyCatalogFieldsIgnoredAndNotRewritten()
   QVERIFY(!raw.contains(QByteArrayLiteral("\"aliases\"")));
   QVERIFY(raw.contains(QByteArrayLiteral("\"name\""))); // 实体本身仍在
 
-  // 重开轮转后的文件仍然健康（.bak 是旧内容，catalog.json 是新 schema）。
+  // 重开 sqlite 仍然健康（迁移后的库，不靠 catalog.json）。
   DataCatalog cat2;
   QVERIFY2(cat2.open(dir.path(), &err), qPrintable(err));
   QCOMPARE(cat2.entities(QStringLiteral("well")).size(), 1);
@@ -1022,7 +1095,10 @@ void TestCatalog::newEntitySerializationOmitsLegacyKeys()
   well.coordinateStatus = QStringLiteral("missing");
   QVERIFY(cat.addEntity(well));
 
-  QFile rf(cat.catalogPath());
+  const QString exported = dir.filePath(QStringLiteral("exported.json"));
+  QString err;
+  QVERIFY2(cat.exportCatalogJson(exported, &err), qPrintable(err));
+  QFile rf(exported);
   QVERIFY(rf.open(QIODevice::ReadOnly));
   const QByteArray raw = rf.readAll();
   rf.close();
@@ -1217,67 +1293,74 @@ void TestCatalog::backupRecoveryChainDrill()
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
   const QString path = QDir(dir.path()).filePath(
-      QStringLiteral("artifacts/metadata/catalog.json"));
+      QStringLiteral("artifacts/metadata/catalog.sqlite"));
   const QString bak = path + QStringLiteral(".bak");
 
-  DataCatalog cat;
-  QVERIFY(cat.open(dir.path()));
-  CatalogEntity a1;
-  a1.id = QStringLiteral("well-A1");
-  a1.entityType = QStringLiteral("well");
-  a1.name = QStringLiteral("A1");
-  QVERIFY(cat.addEntity(a1));
-
-  // 第一轮：save 已轮转出 .bak → 损坏主文件 → reopen 恢复。
-  QVERIFY(QFile::exists(bak));
-  QVERIFY(cat.addEntity([] {
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path()));
+    CatalogEntity a1;
+    a1.id = QStringLiteral("well-A1");
+    a1.entityType = QStringLiteral("well");
+    a1.name = QStringLiteral("A1");
+    QVERIFY(cat.addEntity(a1));
+    QVERIFY(!QFile::exists(bak)); // 备份在下一次 open，不在 save
+  }
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path())); // bak = A1
+    QVERIFY(QFile::exists(bak));
     CatalogEntity b2;
     b2.id = QStringLiteral("well-B2");
     b2.entityType = QStringLiteral("well");
     b2.name = QStringLiteral("B2");
-    return b2;
-  }()));
-  {
-    QFile f(path);
-    QVERIFY(f.open(QIODevice::WriteOnly));
-    f.write("{ this is not json");
+    QVERIFY(cat.addEntity(b2));
   }
-  // .bak 语义（§9 回滚）：恢复点 = 最后一次成功 save 的「上一代」。B2 所在
-  // 的 v2 被损坏时，.bak 还是 v1（A1 only）——最近一轮增量如实丢失，这是
-  // 设计而非缺陷（QSaveFile 防写一半，.bak 防「写成功但内容错」）。
-  DataCatalog reopened;
-  QSignalSpy recovered(&reopened, &DataCatalog::backupRecovered);
-  QVERIFY(reopened.open(dir.path()));
-  QVERIFY(reopened.recoveredFromBackup());
-  QVERIFY(!reopened.lastBackupRecoveryReason().isEmpty());
-  QCOMPARE(recovered.count(), 1);
-  QVERIFY(reopened.hasEntity(QStringLiteral("well-A1")));
-  QVERIFY(!reopened.hasEntity(QStringLiteral("well-B2"))); // 最近一轮丢失（上一代恢复）
-
-  // 恢复后续存两轮：C3 save 后 .bak=恢复内容(A1)；D4 save 后 .bak=A1+C3。
-  CatalogEntity c3;
-  c3.id = QStringLiteral("well-C3");
-  c3.entityType = QStringLiteral("well");
-  c3.name = QStringLiteral("C3");
-  QVERIFY(reopened.addEntity(c3));
-  CatalogEntity d4;
-  d4.id = QStringLiteral("well-D4");
-  d4.entityType = QStringLiteral("well");
-  d4.name = QStringLiteral("D4");
-  QVERIFY(reopened.addEntity(d4));
-
-  // 第二轮：再损坏 → 再恢复（.bak 链一直可用；恢复点推进到 A1+C3 那代）。
+  // 恢复点 = 上次打开的快照（A1），不是上一次 save（A1+B2）。
+  dropSqliteSidecars(path);
   {
     QFile f(path);
-    QVERIFY(f.open(QIODevice::WriteOnly));
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    f.write("{ this is not a database");
+  }
+  QString err;
+  {
+    DataCatalog reopened;
+    QSignalSpy recovered(&reopened, &DataCatalog::backupRecovered);
+    QVERIFY2(reopened.open(dir.path(), &err), qPrintable(err));
+    QVERIFY(reopened.recoveredFromBackup());
+    QVERIFY(reopened.lastBackupRecoveryReason().contains(QStringLiteral("catalog.sqlite")));
+    QCOMPARE(recovered.count(), 1);
+    QVERIFY(reopened.hasEntity(QStringLiteral("well-A1")));
+    QVERIFY(!reopened.hasEntity(QStringLiteral("well-B2")));
+
+    CatalogEntity c3;
+    c3.id = QStringLiteral("well-C3");
+    c3.entityType = QStringLiteral("well");
+    c3.name = QStringLiteral("C3");
+    QVERIFY(reopened.addEntity(c3)); // 整表重写；bak 仍是 A1，直到下次 open
+  }
+  {
+    DataCatalog snap;
+    QVERIFY2(snap.open(dir.path(), &err), qPrintable(err)); // bak = A1+C3
+    CatalogEntity d4;
+    d4.id = QStringLiteral("well-D4");
+    d4.entityType = QStringLiteral("well");
+    d4.name = QStringLiteral("D4");
+    QVERIFY(snap.addEntity(d4));
+  }
+  dropSqliteSidecars(path);
+  {
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
     f.write("]]] corrupt again");
   }
   DataCatalog second;
-  QVERIFY(second.open(dir.path()));
+  QVERIFY2(second.open(dir.path(), &err), qPrintable(err));
   QVERIFY(second.recoveredFromBackup());
   QVERIFY(second.hasEntity(QStringLiteral("well-A1")));
-  QVERIFY(second.hasEntity(QStringLiteral("well-C3"))); // 倒数第二代全在
-  QVERIFY(!second.hasEntity(QStringLiteral("well-D4"))); // 最近一轮丢失
+  QVERIFY(second.hasEntity(QStringLiteral("well-C3")));
+  QVERIFY(!second.hasEntity(QStringLiteral("well-D4")));
   QCOMPARE(second.entities(QStringLiteral("well")).size(), 2);
 }
 
@@ -1317,35 +1400,45 @@ void TestCatalog::recoveryDoesNotRotateCorruptPrimaryIntoBak()
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
   const QString path = QDir(dir.path()).filePath(
-      QStringLiteral("artifacts/metadata/catalog.json"));
+      QStringLiteral("artifacts/metadata/catalog.sqlite"));
   const QString bak = path + QStringLiteral(".bak");
   {
     DataCatalog cat;
     QVERIFY(cat.open(dir.path()));
     QVERIFY(cat.addEntity(wellEntity(QStringLiteral("A1"))));
+  }
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path())); // bak = A1
     QVERIFY(cat.addEntity(wellEntity(QStringLiteral("B2"))));
   }
+  dropSqliteSidecars(path);
   corrupt(path, "{ broken");
 
-  DataCatalog reopened;
-  QVERIFY(reopened.open(dir.path()));
-  QVERIFY(reopened.recoveredFromBackup());
-  QVERIFY(reopened.hasEntity(QStringLiteral("well-A1")));
-  // 恢复后只发生一次 save。
-  QVERIFY(reopened.addEntity(wellEntity(QStringLiteral("C3"))));
+  {
+    DataCatalog reopened;
+    QString err;
+    QVERIFY2(reopened.open(dir.path(), &err), qPrintable(err));
+    QVERIFY(reopened.recoveredFromBackup());
+    QVERIFY(reopened.hasEntity(QStringLiteral("well-A1")));
+    QVERIFY(!reopened.hasEntity(QStringLiteral("well-B2")));
+    const qint64 bakBytes = QFileInfo(bak).size();
+    QVERIFY(reopened.addEntity(wellEntity(QStringLiteral("C3"))));
+    QCOMPARE(QFileInfo(bak).size(), bakBytes); // 坏主文件不进 .bak
+    QCOMPARE(sqliteEntityCount(path), 2);      // 重写后的主库是 A1+C3
+    const QStringList quarantined = QFileInfo(path).dir().entryList(
+        QStringList{QStringLiteral("catalog.sqlite.corrupt-*")}, QDir::Files);
+    QCOMPARE(quarantined.size(), 1);
+  }
 
-  QVERIFY2(parsesAsJsonObject(path), "primary must be rewritten with recovered content");
-  QVERIFY2(parsesAsJsonObject(bak), ".bak must not be the corrupt primary");
-  const QStringList quarantined = QFileInfo(path).dir().entryList(
-      QStringList{QStringLiteral("catalog.json.corrupt-*")}, QDir::Files);
-  QCOMPARE(quarantined.size(), 1); // 损坏现场隔离留证，不进 .bak 链
-
-  // 紧接着第二次损坏：.bak 仍可用 → 自动恢复。
+  dropSqliteSidecars(path);
   corrupt(path, "]]] again");
   DataCatalog second;
-  QVERIFY(second.open(dir.path()));
+  QString err;
+  QVERIFY2(second.open(dir.path(), &err), qPrintable(err));
   QVERIFY(second.recoveredFromBackup());
   QVERIFY(second.hasEntity(QStringLiteral("well-A1")));
+  QVERIFY(!second.hasEntity(QStringLiteral("well-C3"))); // bak 仍是恢复前的打开快照
 }
 
 // #79：.bak 也坏了时依次回退 .bak.2…，取第一份可解析的一代。
@@ -1354,16 +1447,25 @@ void TestCatalog::recoveryFallsBackToOlderGeneration()
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
   const QString path = QDir(dir.path()).filePath(
-      QStringLiteral("artifacts/metadata/catalog.json"));
+      QStringLiteral("artifacts/metadata/catalog.sqlite"));
   {
     DataCatalog cat;
     QVERIFY(cat.open(dir.path()));
     QVERIFY(cat.addEntity(wellEntity(QStringLiteral("A1"))));
+  }
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path())); // bak = A1
     QVERIFY(cat.addEntity(wellEntity(QStringLiteral("B2"))));
+  }
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path())); // bak = A1+B2，.bak.2 = A1
     QVERIFY(cat.addEntity(wellEntity(QStringLiteral("C3"))));
   }
-  // 现在：主 = A1+B2+C3，.bak = A1+B2，.bak.2 = A1。
-  QVERIFY(parsesAsJsonObject(path + QStringLiteral(".bak.2")));
+  QVERIFY(QFile::exists(path + QStringLiteral(".bak.2")));
+  QVERIFY(sqliteEntityCount(path + QStringLiteral(".bak.2")) == 1);
+  dropSqliteSidecars(path);
   corrupt(path, "nope");
   corrupt(path + QStringLiteral(".bak"), "also nope");
 
@@ -1382,7 +1484,7 @@ void TestCatalog::backupRecoveryRefusedOnSchemaMismatch()
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
   const QString path = QDir(dir.path()).filePath(
-      QStringLiteral("artifacts/metadata/catalog.json"));
+      QStringLiteral("artifacts/metadata/catalog.sqlite"));
 
   {
     DataCatalog cat;
@@ -1393,16 +1495,19 @@ void TestCatalog::backupRecoveryRefusedOnSchemaMismatch()
     w.name = QStringLiteral("A1");
     QVERIFY(cat.addEntity(w));
   }
-  // 主文件写成 schema_version=99（好 JSON、坏版本）。
   {
-    QFile f(path);
-    QVERIFY(f.open(QIODevice::WriteOnly));
-    f.write(R"({"schema_version": 99, "entities": []})");
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path())); // 好 .bak 在，schema 拒绝仍不得回退
   }
+  QVERIFY(withCatalogSqlite(path, [](QSqlDatabase &db) {
+    QSqlQuery q(db);
+    return q.exec(QStringLiteral("PRAGMA user_version = 99"));
+  }));
   DataCatalog cat;
   QString err;
   QVERIFY(!cat.open(dir.path(), &err));
-  QVERIFY(err.contains(QStringLiteral("unsupported catalog schema")));
+  QVERIFY(err.contains(QStringLiteral("newer than this build")) ||
+          err.contains(QStringLiteral("unsupported catalog schema")));
   QVERIFY(!cat.recoveredFromBackup());
   QVERIFY(cat.refusesWrites());
 }
@@ -1413,7 +1518,7 @@ void TestCatalog::bothCorruptRefusesWrites()
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
   const QString path = QDir(dir.path()).filePath(
-      QStringLiteral("artifacts/metadata/catalog.json"));
+      QStringLiteral("artifacts/metadata/catalog.sqlite"));
   {
     DataCatalog cat;
     QVERIFY(cat.open(dir.path()));
@@ -1424,15 +1529,12 @@ void TestCatalog::bothCorruptRefusesWrites()
     QVERIFY(cat.addEntity(w));
   }
   {
-    QFile f(path);
-    QVERIFY(f.open(QIODevice::WriteOnly));
-    f.write("nope");
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path())); // 造出 .bak，再把它和主库一起写坏
   }
-  {
-    QFile f(path + QStringLiteral(".bak"));
-    QVERIFY(f.open(QIODevice::WriteOnly));
-    f.write("also nope");
-  }
+  dropSqliteSidecars(path);
+  corrupt(path, "nope");
+  corrupt(path + QStringLiteral(".bak"), "also nope");
   DataCatalog cat;
   QString err;
   QVERIFY(!cat.open(dir.path(), &err));
@@ -1702,7 +1804,7 @@ void TestCatalog::stagingCopyJournalsWithoutTouchingLive()
   const int rev0 = live.catalogRevision();
   const quint64 seq0 = live.mutationSeq();
   const QByteArray disk0 = [&] {
-    QFile f(live.catalogPath());
+    QFile f(live.sqliteCatalogPath());
     return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
   }();
 
@@ -1730,7 +1832,7 @@ void TestCatalog::stagingCopyJournalsWithoutTouchingLive()
   QCOMPARE(live.catalogRevision(), rev0);
   QCOMPARE(live.mutationSeq(), seq0);
   {
-    QFile f(live.catalogPath());
+    QFile f(live.sqliteCatalogPath());
     QVERIFY(f.open(QIODevice::ReadOnly));
     QCOMPARE(f.readAll(), disk0);
   }

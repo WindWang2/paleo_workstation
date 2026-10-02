@@ -187,6 +187,20 @@ QStringList missingMembers(const QString &projectDir,
   {
     if (it.value().isEmpty())
       continue; // 未声明的成员不算缺失（工程早期没建属正常）
+    if (it.key() == QLatin1String("catalog"))
+    {
+      const bool present =
+          QFile::exists(dir.filePath(it.value())) ||
+          QFile::exists(dir.filePath(
+              QStringLiteral("artifacts/metadata/catalog.sqlite"))) ||
+          QFile::exists(dir.filePath(
+              QStringLiteral("artifacts/metadata/catalog.json"))) ||
+          QFile::exists(dir.filePath(
+              QStringLiteral("artifacts/metadata/catalog.json.migrated")));
+      if (!present)
+        missing.append(QStringLiteral("%1: %2").arg(it.key(), it.value()));
+      continue;
+    }
     if (!QFile::exists(dir.filePath(it.value())))
       missing.append(QStringLiteral("%1: %2").arg(it.key(), it.value()));
   }

@@ -1,0 +1,257 @@
+{
+  "version": 1,
+  "round": 2,
+  "document": "/home/kevin/projects/paleo_workstation/docs/designs/one-horizon-facies-edit.md",
+  "quality_score": 6,
+  "dimensions": {
+    "completeness": "ISSUES",
+    "consistency": "ISSUES",
+    "clarity": "ISSUES",
+    "scope": "PASS",
+    "feasibility": "PASS"
+  },
+  "findings": [
+    {
+      "id": "R2-1",
+      "dimension": "consistency",
+      "problem": "The note schema is still not one schema. Success Criteria says the note must match The Assignment, then requires the horizon name or 「未选出」 plus a reason, a statement that the area is the author's about-20-well project, elapsed time under the Recommended Approach clock, the generated single-factor layer names or an empty list, the first interruption or 「无」 or 「其他」 plus the blocker, and no product-code changes. The Assignment's note list is only 层位名, 用时, 生成的单因素图层名, and 第一处中断或「无」. Recommended Approach's early stop records 起点, the reason, and elapsed time, and does not require the horizon name or the layer list; the all-pass sentence adds 层位名, 用时, and the layer list with 中断「无」.",
+      "remedy": "Put one field list in Recommended Approach for both an early stop and an all-pass walk, in The Assignment, and in Success Criteria: horizon name or 「未选出」 and the reason, elapsed time under the clock rule, generated single-factor layer names or an empty list, and the first interruption, 「无」, or 「其他：」 plus the blocker. Keep the no-code-change rule as a gate, not as a note field. Delete the claim that the lists already match until they are the same."
+    },
+    {
+      "id": "R2-2",
+      "dimension": "consistency",
+      "problem": "Recommended Approach says the uninterrupted result happens 「若八步都通过」, but the walk is numbered 1 through 7, and the next sentence treats a stop outside steps 1–7 as 「其他」. No eighth step is defined, so the success condition does not name the checks that were passed.",
+      "remedy": "Replace 「八步」 with steps 1–7. State that 中断「无」 applies only when all seven pass."
+    },
+    {
+      "id": "R2-3",
+      "dimension": "consistency",
+      "problem": "Premises put only the single-factor maps this horizon does not yet have inside the walk (「补出这个层位还没有的单因素图」). Step 2 sets the collection to every single-factor map the workbench can already generate and says to run each existing generation command. Filling gaps and rerunning every command are different walks, different times, and different layer lists.",
+      "remedy": "Choose one rule: generate only factors that are missing, or rerun every existing generation command. Say whether a map that already exists is reused unchanged. Make the note's layer list match that rule."
+    },
+    {
+      "id": "R2-4",
+      "dimension": "consistency",
+      "problem": "Premise 2 locks the process as well facies and seismic facies, then single-factor maps, then editing the composite while consulting other maps. The numbered walk generates single-factor maps at step 2, checks well labels only at step 5, and never produces, opens, or records a seismic-facies artifact. The walk can leave step 2 with no seismic facies, and a well-facies failure is recorded only after the maps exist.",
+      "remedy": "Either reorder the walk to the Premise 2 sequence, or say that Premise 2 is geological context and the numbered list is a different diagnostic order. Name the existing seismic-facies artifact and the step that records its absence, or state that seismic facies is consumed inside the existing single-factor commands and is not a separate check."
+    },
+    {
+      "id": "R2-5",
+      "dimension": "consistency",
+      "problem": "Step 3's failure is that the reference window and this horizon's composite layer cannot be seen at the same time. Its pass sentence is a different test: 「两个窗口同时可见即通过」. Two visible windows can still hide the composite layer, and a visible reference window plus a visible layer need not be two windows. Open Questions says 「两个表面」, and The Assignment says the reference window and the composite layer.",
+      "remedy": "Use one pass/fail test everywhere: the reference window and this horizon's composite facies layer are, or are not, visible at the same time. Delete 「两个窗口」, or define those two windows as that same pair."
+    },
+    {
+      "id": "R2-6",
+      "dimension": "consistency",
+      "problem": "The Assignment says to finish the Recommended Approach order, then lists every single-factor map, the reference window, co-visibility, pinning when a composite exists, and one edit. That list does not say the first failed check stops later checks, and it omits step 1's horizon and PR 104 checks and step 5's well-facies check. Recommended Approach makes those omitted checks interruptions and says later checks are not done.",
+      "remedy": "Make The Assignment require the seven steps in order and a stop at the first failure, including steps 1 and 5. Remove the shorter action list, or rewrite it so it contains the same steps and the same stop rule."
+    },
+    {
+      "id": "R2-7",
+      "dimension": "consistency",
+      "problem": "Dependencies require wells in the author's project and say a missing horizon, missing wells, or a missing reference artifact is recorded at step 1 or step 3. Step 1 records only an unselectable horizon or a build without PR 104 labels and pin. Step 3 records only the reference window. No wells has no matching step.",
+      "remedy": "Name the step that records missing wells and add that check to the step text. State how zero wells differs from wells whose labels are only the well name."
+    },
+    {
+      "id": "R2-8",
+      "dimension": "consistency",
+      "problem": "The clock starts at step 2, but any stop before step 7 must record 起点 and elapsed time. A step 1 stop happens before the clock starts, and Success Criteria still always requires 用时. The early-stop time for that case is undefined.",
+      "remedy": "For a step 1 interruption, set the time field to an explicit value such as 0 or 「未开始」. Apply elapsed time from the step 2 start only when the stop is at step 2 or later."
+    },
+    {
+      "id": "R2-9",
+      "dimension": "completeness",
+      "problem": "Premises say a missing composite stops the walk at that step, and step 4 records no editable composite or a failed composite command. Steps 2 and 3 already require that layer: step 2 fails if generated maps are absent from 「综合相所在的编辑屏」, and step 3 fails if the composite layer cannot be seen with the reference window. The first-failure rule then prevents step 4 from being the recorded interruption. A missing composite is mislabeled as a single-factor or co-visibility failure.",
+      "remedy": "Decide whether the composite exists before the checks that use it. Name the edit screen without requiring a composite, such as the mapping workbench page, and move the missing-composite check ahead of any check that looks for that layer. Say that a missing composite is recorded at that earlier step and that later checks do not run."
+    },
+    {
+      "id": "R2-10",
+      "dimension": "completeness",
+      "problem": "The only allowed project is described as well GeoJSON with well name and coordinates and none of the listed facies fields. Step 5 then records 「没有相」, and the first-failure rule skips pin and the edit. The document still treats steps 6 and 7 as part of this walk's success path and does not say that, on these facts, pin occlusion and the edit are not observed.",
+      "remedy": "State the consequence for this project: if no listed facies field is present and no earlier step writes one, the expected interruption is 「没有相」 and steps 6 and 7 are not part of the observed result. If this note must observe pin and the edit, move those checks before step 5 and say so."
+    },
+    {
+      "id": "R2-11",
+      "dimension": "completeness",
+      "problem": "Step 2's set is every single-factor map the workbench can already generate. The document does not say what happens when that set is empty. An empty list is a legal note value, but it is not defined as either an interruption or a pass, so a horizon that can generate nothing has no stop rule before the reference step.",
+      "remedy": "State that zero generable single-factor maps is an interruption, naming that condition, or that it is a pass with an empty list and the walk continues to the reference step."
+    },
+    {
+      "id": "R2-12",
+      "dimension": "completeness",
+      "problem": "Step 1 has two failure conditions, an unselectable horizon and a build without PR 104 labels and pin, and says to record which one is missing. If both are missing, the first interruption is not unique, and Success Criteria' 「未选出」 covers only the horizon half.",
+      "remedy": "Give step 1 an order: record an unselectable horizon first, otherwise record the missing PR 104 behavior, and if both fail record both with the horizon condition as the first interruption."
+    },
+    {
+      "id": "R2-13",
+      "dimension": "clarity",
+      "problem": "Constraints say a same-group 「较低序号」 is not a failure, while the pinned layer is index 0. Status Quo and step 6 instead say layers placed below it in the same group are not the 「别的组压盖」 failure. If 序号 means the index, index 0 has no lower index; the layers below it have higher indices. The exception the walker must apply is not one rule.",
+      "remedy": "Say in Constraints, Status Quo, and step 6 that index 0 is the top of the group and that same-group layers drawn below that top layer are not the other-group occlusion failure. Do not call that case a lower index."
+    },
+    {
+      "id": "R2-14",
+      "dimension": "clarity",
+      "problem": "Step 2 says to run each existing generation command, and also that a failed command is the interruption. It does not say whether the first failed command stops the remaining factors or whether every command is still run and one interruption is written afterward. Those two readings produce different times and different generated-name lists. 「后面的检查不再做」 applies to later numbered checks, not clearly to the rest of this set.",
+      "remedy": "State that the first failed generation command aborts the remaining factors, or that the full set is attempted and the note then records the failed commands and the layers that did not appear. Say which names are listed in either case."
+    },
+    {
+      "id": "R2-15",
+      "dimension": "clarity",
+      "problem": "Step 6 says that a composite in no group, or more than one composite for the horizon, is recorded as 「其他中断」. The following rule reserves 「其他：」 plus the blocker for stops outside steps 1–7. Success Criteria' 「或其他」 does not say which of those step 6 results uses which wording, so the note text for an in-step exceptional case is not fixed.",
+      "remedy": "Give the no-group case and the multiple-composite case their own step 6 labels, including the observed tree state, and reserve 「其他：」 for stops outside steps 1–7. Use those same labels in Success Criteria."
+    },
+    {
+      "id": "R2-16",
+      "dimension": "clarity",
+      "problem": "Status Quo says the existing pin command moves the current layer to index 0 of its group. Step 6 opens by telling the walker to pin this horizon's composite, and only then says not to treat a missing group or multiple composites as a normal pin. The walk never says to make that composite the current layer first, so the command can pin whatever is current, including after the multiple-composite guard has already failed.",
+      "remedy": "Before any pin gesture, count this horizon's composite layers and check group membership. If there is not exactly one composite inside a group, record the step 6 exception and do not pin. If there is exactly one, select it so it is the current layer, then use the existing pin command."
+    },
+    {
+      "id": "R2-17",
+      "dimension": "clarity",
+      "problem": "The reference check names the existing command 「打开参考窗口」 and the artifact it opens. The composite check only says 「现有综合命令」 and 「可编辑的综合相图层」. It does not say which command to run, what on-screen result shows that the layer belongs to the chosen horizon, or what 「可编辑」 means beyond the later edit gesture. Step 4's failure and step 6's count of composites are not decidable from the document.",
+      "remedy": "Name the existing composite command the way the reference command is named, or state that the walker records the command they used. Define the composite layer as that command's output for the chosen horizon, and define 可编辑 as that layer accepting the step 7 gesture. Use that identity for the missing-layer, multiple-layer, pin, and co-visibility checks."
+    },
+    {
+      "id": "R2-18",
+      "dimension": "clarity",
+      "problem": "Status Quo says other single-factor layers are not the reference artifact; they are inputs viewed during the edit. Premise 2's edit is 「对着其他图」. No numbered step, interruption, or note field says whether the walker must view those layers, or whether an edit that never shows them still passes step 7. The only visibility check is the reference window, and it happens before the edit.",
+      "remedy": "State that other single-factor layers are context and do not have to be visible for this walk to pass, or add a check that names when they are viewed and how a failure there is recorded. Keep that choice distinct from the reference-window check."
+    },
+    {
+      "id": "R2-19",
+      "dimension": "clarity",
+      "problem": "Approach A says to follow 「下面的顺序」, then the document continues with Approach B. The seven steps are under Recommended Approach, not below Approach A. The approach section does not itself contain the order it commits to.",
+      "remedy": "Point Approach A at the Recommended Approach steps, or move the numbered order under Approach A and let the recommendation refer to it."
+    },
+    {
+      "id": "R2-20",
+      "dimension": "clarity",
+      "problem": "Success Criteria introduces its bullets with 「笔记里必须有」, and the last bullet is the gate 「在这张笔记存在之前，不改产品代码」. That gate is not something written in the note. The Assignment correctly places the same gate after the note fields, so the two sections also disagree about whether the gate is note content.",
+      "remedy": "Separate note fields from pass gates in Success Criteria. Keep the no-product-code rule as a gate beside The Assignment's gate, not as a line the note must contain."
+    }
+  ],
+  "prior": [
+    {
+      "id": "R1-1",
+      "status": "resolved",
+      "evidence": "The wedge, Constraints, Approach A, Recommended Approach, Success Criteria, Distribution Plan, and The Assignment all limit this pass to the walkthrough note and no product-code or UI changes. The wedge explicitly drops 「只修」 and the S / low-risk repair rating until after the note.",
+      "current_id": null
+    },
+    {
+      "id": "R1-2",
+      "status": "persisting",
+      "evidence": "Success Criteria still asserts that its note matches The Assignment, but its bullets add 「未选出」, the project identity, an empty layer list, and 「其他」, while The Assignment records only horizon name, time, generated layer names, and the first interruption or 「无」. Recommended Approach's early-stop sentence records a third, shorter set.",
+      "current_id": "R2-1"
+    },
+    {
+      "id": "R1-3",
+      "status": "resolved",
+      "evidence": "Step 2 now uses one predicate: a generation command failed, or a generated single-factor layer did not appear on the composite's edit screen. Success Criteria no longer records the separate 「没有进当前层位」 attachment test; it defers the interruption to that ordered check.",
+      "current_id": null
+    },
+    {
+      "id": "R1-4",
+      "status": "resolved",
+      "evidence": "Step 6 names the occlusion interruption 「别的组压盖」 and says same-group layers placed below the pinned layer are not that failure. Status Quo and Constraints also exclude same-group coverage from the other-group failure, and Success Criteria no longer says 「别的图层」.",
+      "current_id": null
+    },
+    {
+      "id": "R1-5",
+      "status": "resolved",
+      "evidence": "The rejected list says this pass builds no lightbox, that being unable to see the reference window and the composite layer together is an acceptable note result, and that the document does not claim a lightbox removes pin. Open Questions retires same-screen viewing as an open design hole.",
+      "current_id": null
+    },
+    {
+      "id": "R1-6",
+      "status": "resolved",
+      "evidence": "Step 3, The Assignment, and Open Questions all use simultaneous visibility of the reference window and the composite layer. Step 3 explicitly does not require the same screen and does not require the reference window to mirror the boundary being edited.",
+      "current_id": null
+    },
+    {
+      "id": "R1-7",
+      "status": "resolved",
+      "evidence": "Status Quo and Premise 2 state one process: well facies and seismic facies, then single-factor maps, then editing the composite while consulting other maps. The shorter Premise 2 wording is marked superseded. Premises put generating missing single-factor maps with existing commands inside this walk.",
+      "current_id": null
+    },
+    {
+      "id": "R1-8",
+      "status": "resolved",
+      "evidence": "Premises and step 4 say a missing editable composite, or a failed existing composite command, is a recorded interruption and that pin and edit are not assumed afterward.",
+      "current_id": null
+    },
+    {
+      "id": "R1-9",
+      "status": "resolved",
+      "evidence": "Recommended Approach says a stop outside steps 1–7 is recorded as 「其他：」 plus what blocked, and is not forced into an earlier category. Success Criteria includes that other-interruption value.",
+      "current_id": null
+    },
+    {
+      "id": "R1-10",
+      "status": "resolved",
+      "evidence": "Recommended Approach and Success Criteria both allow 中断「无」 when the walk's checks pass, and the all-pass sentence also records the horizon name, elapsed time, and generated single-factor layer names. A finished walk is no longer required to use a failure category.",
+      "current_id": null
+    },
+    {
+      "id": "R1-11",
+      "status": "resolved",
+      "evidence": "Step 2 defines the set as every single-factor map this horizon can already generate in the existing workbench, says production ends before the reference step, and requires the note to list the generated layer names. Success Criteria requires that list or an empty list.",
+      "current_id": null
+    },
+    {
+      "id": "R1-12",
+      "status": "resolved",
+      "evidence": "Step 7 defines the endpoint as one existing composite-facies edit gesture, gives a polygon-boundary example, stops the clock when that gesture completes, and says the narrowing from interactive edit to this one gesture is for observability and was not a separate author quote.",
+      "current_id": null
+    },
+    {
+      "id": "R1-13",
+      "status": "resolved",
+      "evidence": "Status Quo and step 3 identify 「打开参考窗口」 and the artifact it opens as the reference. Other single-factor layers are explicitly not that reference artifact.",
+      "current_id": null
+    },
+    {
+      "id": "R1-14",
+      "status": "resolved",
+      "evidence": "Step 6 pins this horizon's composite facies layer to index 0 of its group. Co-visibility uses that same layer. No group, or more than one composite, is recorded instead of pinning. Constraints define 层位 as the geological horizon and 图层 as the tree node.",
+      "current_id": null
+    },
+    {
+      "id": "R1-15",
+      "status": "resolved",
+      "evidence": "Status Quo names the PR 104 field order, says the fields are not bound to a horizon, and says a well-name-only label is 「没有相」 and is not a pass. Step 5 records that result. Inventing a facies name remains forbidden.",
+      "current_id": null
+    },
+    {
+      "id": "R1-16",
+      "status": "resolved",
+      "evidence": "Dependencies now require the author's existing about-20-well project, with at least one geological horizon, wells, and a reference artifact that 「打开参考窗口」 can open. The walker may not switch projects.",
+      "current_id": null
+    },
+    {
+      "id": "R1-17",
+      "status": "resolved",
+      "evidence": "Recommended Approach says a stop before step 7 records the start, the interruption, and elapsed time until that interruption, and does not also require a completed boundary edit. Success Criteria points 用时 at that clock rule.",
+      "current_id": null
+    },
+    {
+      "id": "R1-18",
+      "status": "resolved",
+      "evidence": "The Problem Statement marks the Petrel, Kingdom, g-Space, TGS, and literature sentences as unchecked background, cites the Petrel, TGS, and paper pages, and says they are not reasons for the wedge and not customer evidence. The wedge does not use them.",
+      "current_id": null
+    },
+    {
+      "id": "R1-19",
+      "status": "resolved",
+      "evidence": "What I noticed attributes the four-premise agreement and a reply of 「A」 to the author, and it says Approach A's step list was written by the recommendation and that the author did not supply a different step list.",
+      "current_id": null
+    },
+    {
+      "id": "R1-20",
+      "status": "resolved",
+      "evidence": "Approach A is note-only and no longer rates repairs as S or low risk. The wedge says cross-group occlusion and missing facies fields are not claimed to be fixable under the pin and no-invented-name constraints, and are not fixed in this pass.",
+      "current_id": null
+    }
+  ]
+}

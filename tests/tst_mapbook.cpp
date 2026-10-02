@@ -14,6 +14,7 @@
 #include <QSize>
 #include <QSpinBox>
 #include <QTemporaryDir>
+#include <cmath>
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/qgis/mapbooklayout.h"
@@ -228,6 +229,10 @@ class TestMapBook : public QObject
         QVERIFY2( layout->itemById( id ) != nullptr, qPrintable( id ) );
       auto *map = qobject_cast<QgsLayoutItemMap *>( layout->itemById( QStringLiteral( "map" ) ) );
       QVERIFY( map != nullptr );
+      // 图框按 spec.extent 长宽比收缩 → setExtent 后范围应精确等于请求格
+      //（无 NaN、无扩边；isfinite 断言兜住零尺寸 setExtent 的病态路径）。
+      QVERIFY( std::isfinite( map->extent().yMinimum() ) );
+      QVERIFY( std::isfinite( map->extent().yMaximum() ) );
       QCOMPARE( map->extent(), QgsRectangle( 0.0, 0.0, 1000.0, 1000.0 ) );
       // 范围原样输出的同时，地图框不得越出版面可用区（A4 横版 217 × 152 mm）。
       QVERIFY( map->sizeWithUnits().width() <= 217.0 + 1e-6 );
@@ -305,6 +310,10 @@ class TestMapBook : public QObject
       QgsLayoutItem *planItem = layout->itemById( QStringLiteral( "planMap" ) );
       QgsLayoutItem *sectionItem = layout->itemById( QStringLiteral( "sectionSnapshot" ) );
       QVERIFY( planItem != nullptr && sectionItem != nullptr );
+      auto *planMap = qobject_cast<QgsLayoutItemMap *>( planItem );
+      QVERIFY( planMap != nullptr );
+      QVERIFY( std::isfinite( planMap->extent().yMinimum() ) );
+      QVERIFY( planMap->extent().contains( spec.mapExtent ) );
       QVERIFY2( planItem->sceneBoundingRect().right() <=
                   sectionItem->sceneBoundingRect().left() + 0.5,
                 qPrintable( QStringLiteral( "左栏右边界 %1 压过右栏左边界 %2" )
@@ -551,6 +560,9 @@ class TestMapBook : public QObject
       QPushButton *cancel = panel.findChild<QPushButton *>( QStringLiteral( "mapbookCancel" ) );
       QVERIFY( cancel != nullptr );
       QVERIFY( cancel->isEnabled() );
+      cancel->click();
+      QCOMPARE( cancelled.count(), 0 ); // no running batch, cancel is disabled
+      panel.setBusy( true );
       cancel->click();
       QCOMPARE( cancelled.count(), 1 );
 

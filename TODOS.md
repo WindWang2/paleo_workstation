@@ -16,6 +16,18 @@
 
 # TODOS — paleo_workstation
 
+## P3 — 交会分类后续（from goal/crossplot-facies，2026-10-02）
+
+- **有监督分类 / SOM**：样本标注→训练→推理另立项；RemotePredictionRouter
+  沿 AI 方向深化。当前 k-means/GMM 只输出未解释簇编号，不自动赋地质相名。
+- **时深域交会**：需要单位、基准、速度模型与不确定性契约后再接跨域采样；
+  当前 SATR 只配时间层位（ms），深度栅格作为独立特征不能冒充时间。
+- **大规模 GMM / 伴生置信度**：工区 N×k 缓冲达到内存预算时改分块 EM；
+  分类服务已有真实置信度/距离向量，可按编图消费需要持久化伴生栅格。
+  当前 Byte 分类图只写类别与 provenance，井段写平均置信度。
+- **4D/时移、交会打印排版**：各自另立项，排版沿 mapbook 方向。
+  口径与验收证据见 `docs/progress/crossplot-facies.md`。
+
 ## P3 — 地震属性体（时间切片/整体扫描）+ 属性图层入层树（from goal/seismic-attributes, 2026-10-01）
 
 - **What:** 属性计算扩到时间切片/整体属性体（当前仅 IL/XL 剖面属性切片）；

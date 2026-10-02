@@ -135,6 +135,8 @@ QgsPrintLayout *buildTileLayout( QgsProject *project, const TileSpec &spec, QStr
     mapW = boxH / aspect;
   }
   map->attemptMove( QgsLayoutPoint( 10.0, 24.0, Qgis::LayoutUnit::Millimeters ) );
+  // 先按长宽比定框再 setExtent——框与范围同比例，extent 精确不重扩
+  //（zoomToExtent 会把范围扩到框比 → 相邻图幅互相覆盖，不可用）。
   map->attemptResize( QgsLayoutSize( mapW, mapH, Qgis::LayoutUnit::Millimeters ) );
   map->setExtent( spec.extent );
 
@@ -234,9 +236,9 @@ QgsPrintLayout *buildMontageLayout( QgsProject *project, const MontageSpec &spec
   auto *map = new QgsLayoutItemMap( layout );
   map->setId( QStringLiteral( "planMap" ) );
   map->setLayers( spec.mapLayers );
-  map->setExtent( spec.mapExtent );
   layout->addLayoutItem( map );
   map->attemptResize( QgsLayoutSize( leftW, planH, Qgis::LayoutUnit::Millimeters ) );
+  map->zoomToExtent( spec.mapExtent );
   map->attemptMove( QgsLayoutPoint( margin, bodyY, Qgis::LayoutUnit::Millimeters ) );
   addLabel( layout, QStringLiteral( "planMapCaption" ), spec.mapCaption, 9.0,
             margin, bodyY + planH + 2.0, leftW, captionH );

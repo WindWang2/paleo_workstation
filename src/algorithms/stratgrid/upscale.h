@@ -76,8 +76,9 @@ struct UpscaleTable
   }
 };
 
-bool upscaleWells(const ZoneGrid &grid, const std::vector<WellCurve> &wells, Aggregator aggregator,
-                  UpscaleTable *out, QString *error = nullptr);
+bool upscaleWells(const ZoneGrid &grid, const std::vector<WellCurve> &wells,
+                  Aggregator aggregator = Aggregator::ThicknessWeightedMean,
+                  UpscaleTable *out = nullptr, QString *error = nullptr);
 
 QString aggregatorId(Aggregator aggregator);
 

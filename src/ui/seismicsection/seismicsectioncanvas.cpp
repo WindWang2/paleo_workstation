@@ -250,6 +250,9 @@ void SeismicSectionCanvas::setTimeSliceData(
     m_xlineMax = xlineMax;
     m_columnDistances.clear();
     m_mapCoords.clear();
+    if (hasZoneOverlay() &&
+        (image.width != m_zoneOverlay.width || image.height != m_zoneOverlay.height))
+        clearZoneOverlay();
 
     rebuildImage();
     fitToWindow();
@@ -341,6 +344,7 @@ void SeismicSectionCanvas::clearData() {
     m_cachedImage = QImage();
     m_displayValues.clear();
     m_lodStride = 0;
+    clearZoneOverlay();
     update();
 }
 
@@ -382,6 +386,8 @@ void SeismicSectionCanvas::setColorMap(SectionColorMapType type) {
         rebuildColorLut();
         rebuildImage();
         rebuildAttrImage();
+        if (!m_zoneOverlay.values.empty())
+            rebuildZoneImage();
         update();
     }
 }
@@ -393,6 +399,8 @@ void SeismicSectionCanvas::setColorMapInverted(bool inverted) {
         rebuildColorLut();
         rebuildImage();
         rebuildAttrImage();
+        if (!m_zoneOverlay.values.empty())
+            rebuildZoneImage();
         update();
     }
 }

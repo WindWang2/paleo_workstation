@@ -137,10 +137,13 @@ void Seismic3DViewportWidget::initializeGL() {
 
     for (const PendingPropertySlice &pending : pendingProperty_) {
         const SgySliceImage baked = bakePropertyRgba(pending.image);
-        if (pending.stack)
-            sliceRenderer_.UpdatePropertyStackLayer(this, pending.stackLayer, pending.axes, pending.index, baked);
-        else
+        if (pending.stack) {
+            // 上下文晚就绪时也要打开堆叠，否则层已上传但 stackVisible_ 仍为 false。
+            if (sliceRenderer_.UpdatePropertyStackLayer(this, pending.stackLayer, pending.axes, pending.index, baked))
+                sliceRenderer_.SetStackVisible(true);
+        } else {
             sliceRenderer_.UpdatePropertySlice(this, pending.slot, pending.axes, pending.type, pending.index, baked);
+        }
     }
     pendingProperty_.clear();
 
@@ -246,6 +249,7 @@ void Seismic3DViewportWidget::paintGL() {
 void Seismic3DViewportWidget::setVolume(std::shared_ptr<SgyVolume> volume) {
     volume_ = std::move(volume);
     pendingSlices_.clear();
+    pendingProperty_.clear(); // 属性切片与地震切片共用槽位，换体丢弃未上传的属性面
     pendingLineSlice_.valid = false;
     activeSectionPath_.clear();
     sectionPickPoints_.clear();
@@ -333,6 +337,12 @@ bool Seismic3DViewportWidget::updatePropertyStackLayer(
         pending.index = kIndex;
         pending.axes = axes;
         pending.image = baked;
+        // 同一 stackLayer 只留最后一次，GL 未就绪时不要无限追加。
+        pendingProperty_.erase(std::remove_if(pendingProperty_.begin(), pendingProperty_.end(),
+                                              [&](const PendingPropertySlice &item) {
+                                                return item.stack && item.stackLayer == layerIdx;
+                                              }),
+                               pendingProperty_.end());
         pendingProperty_.push_back(std::move(pending));
         return true;
     }

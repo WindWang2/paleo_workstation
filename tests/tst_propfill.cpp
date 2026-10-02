@@ -44,6 +44,10 @@ private slots:
   void singleSeedFillsConstantField();
   void symmetricMidpointIsMean();
   void faultBlocksCrossTalk();
+  void polylineVertexSplitsEdge();
+  void collinearFaultBlocksOverlap();
+  void endpointTouchDoesNotIsolate();
+  void power2WeightsLock();
   void cancelLeavesOutputUntouched();
   void sectionProjectionAndBlobRoundTrip();
 };
@@ -90,7 +94,7 @@ void TestPropFill::symmetricMidpointIsMean()
   QCOMPARE(at(vol, 0, 0, 0), 2.0f);
   QCOMPARE(at(vol, 4, 0, 0), 8.0f);
 
-  // 垂向对称：k 方向中面同样是均值（IJK 距离，不是只在平面里插）。
+  // 垂向对称：层厚均匀时 k 中面两侧地图距离相等，中面仍是均值。
   const ZoneGrid tall = box(1, 1, 5);
   PropertyVolume vk;
   QVERIFY(fillIdw(tall, {Seed{0, 0, 0, 0.0}, Seed{0, 0, 4, 10.0}}, {}, 2.0, &vk, {}, nullptr));
@@ -121,6 +125,66 @@ void TestPropFill::faultBlocksCrossTalk()
   QVERIFY(fillIdw(grid, {Seed{0, 0, 0, 3.0}}, {wall}, 2.0, &oneSide, {}, nullptr));
   QCOMPARE(at(oneSide, 1, 0, 0), 3.0f);
   QVERIFY(std::isnan(at(oneSide, 4, 0, 0)));
+}
+
+void TestPropFill::polylineVertexSplitsEdge()
+{
+  // 柱心 (0.5,0.5)–(1.5,0.5)。折线在边内部 (1,0.5) 分开，两段都不是严格穿越。
+  const ZoneGrid grid = box(2, 1, 1);
+  const FaultSegment down{1.0, -2.0, 1.0, 0.5};
+  const FaultSegment up{1.0, 0.5, 1.0, 3.0};
+  PropertyVolume vol;
+  QVERIFY(fillIdw(grid, {Seed{0, 0, 0, 4.0}}, {down, up}, 2.0, &vol, {}, nullptr));
+  QCOMPARE(vol.blockCount, 2);
+  QCOMPARE(at(vol, 0, 0, 0), 4.0f);
+  QVERIFY(std::isnan(at(vol, 1, 0, 0)));
+}
+
+void TestPropFill::collinearFaultBlocksOverlap()
+{
+  // 柱心 x = 0.5、1.5、2.5。断层与 0.5–1.5、1.5–2.5 都有正长度重叠。
+  const ZoneGrid grid = box(3, 1, 1);
+  const FaultSegment fault{1.0, 0.5, 3.0, 0.5};
+  PropertyVolume vol;
+  QVERIFY(fillIdw(grid, {Seed{2, 0, 0, 8.0}}, {fault}, 2.0, &vol, {}, nullptr));
+  QVERIFY(std::isnan(at(vol, 0, 0, 0)));
+  QVERIFY(std::isnan(at(vol, 1, 0, 0)));
+  QCOMPARE(at(vol, 2, 0, 0), 8.0f);
+}
+
+void TestPropFill::endpointTouchDoesNotIsolate()
+{
+  // 只接到柱心 (0.5,0.5) 后向左离开，不把该柱和右邻拆开。
+  const ZoneGrid grid = box(3, 1, 1);
+  const FaultSegment away{0.5, 0.5, -2.0, 0.5};
+  PropertyVolume vol;
+  QVERIFY(fillIdw(grid, {Seed{1, 0, 0, 6.0}}, {away}, 2.0, &vol, {}, nullptr));
+  QCOMPARE(vol.blockCount, 1);
+  QCOMPARE(at(vol, 0, 0, 0), 6.0f);
+  QCOMPARE(at(vol, 1, 0, 0), 6.0f);
+
+  // 横穿只点到端点，同样不阻断。
+  const FaultSegment touch{0.5, 0.5, 0.5, -2.0};
+  PropertyVolume crossed;
+  QVERIFY(fillIdw(grid, {Seed{1, 0, 0, 6.0}}, {touch}, 2.0, &crossed, {}, nullptr));
+  QCOMPARE(at(crossed, 0, 0, 0), 6.0f);
+
+  // 零长度断层落在边内部也不阻断。
+  const FaultSegment degenerate{1.0, 0.5, 1.0, 0.5};
+  PropertyVolume zero;
+  QVERIFY(fillIdw(grid, {Seed{1, 0, 0, 6.0}}, {degenerate}, 2.0, &zero, {}, nullptr));
+  QCOMPARE(at(zero, 0, 0, 0), 6.0f);
+}
+
+void TestPropFill::power2WeightsLock()
+{
+  const ZoneGrid grid = box(6, 1, 1);
+  PropertyVolume vol;
+  QVERIFY(fillIdw(grid, {Seed{0, 0, 0, 1.0}, Seed{5, 0, 0, 9.0}}, {}, 2.0, &vol, {}, nullptr));
+  // d=2 → w=1/4，d=3 → w=1/9。(1/4 + 1) / (1/4 + 1/9) = 45/13 ≈ 3.4615。
+  QVERIFY(std::fabs(static_cast<double>(at(vol, 2, 0, 0)) - 3.4615) < 1e-3);
+  QCOMPARE(at(vol, 0, 0, 0), 1.0f);
+  QCOMPARE(at(vol, 5, 0, 0), 9.0f);
 }
 
 void TestPropFill::cancelLeavesOutputUntouched()

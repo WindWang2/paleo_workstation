@@ -75,7 +75,8 @@ PropertyModelRequest syntheticRequest(int cols, int rows, int layers, int wells)
   return req;
 }
 
-qint64 runOnce(PropertyModelWorkflow &wf, const PropertyModelRequest &req, bool *monotonic)
+// 纳秒。毫秒计时会把亚毫秒的大网格记成 0，比率门就被跳过。
+qint64 runOnceNs(PropertyModelWorkflow &wf, const PropertyModelRequest &req, bool *monotonic)
 {
   std::vector<double> seen;
   QElapsedTimer timer;
@@ -86,10 +87,10 @@ qint64 runOnce(PropertyModelWorkflow &wf, const PropertyModelRequest &req, bool 
     seen.push_back(fraction);
     return true;
   });
-  const qint64 ms = timer.elapsed();
+  const qint64 ns = timer.nsecsElapsed();
   if (!out.ok || seen.empty() || seen.back() != 1.0)
     *monotonic = false;
-  return out.ok ? ms : -1;
+  return out.ok ? ns : -1;
 }
 
 long rssKiB()
@@ -168,22 +169,36 @@ void TestPropModelPerf::cellCountRatio()
   bool monotonic = true;
   const PropertyModelRequest small = syntheticRequest(40, 40, 8, 8);
   const PropertyModelRequest large = syntheticRequest(80, 80, 8, 8);
-  qint64 smallMs = 0;
-  qint64 largeMs = 0;
-  for (int i = 0; i < 2; ++i)
+  constexpr qint64 kMinLargeNs = 50'000'000LL;
+  constexpr int kMinIters = 3;
+  constexpr int kMaxIters = 400;
+  qint64 totalSmallNs = 0;
+  qint64 totalLargeNs = 0;
+  int iters = 0;
+  while (iters < kMaxIters && (iters < kMinIters || totalLargeNs < kMinLargeNs))
   {
-    smallMs = runOnce(wf, small, &monotonic);
-    largeMs = runOnce(wf, large, &monotonic);
+    const qint64 smallNs = runOnceNs(wf, small, &monotonic);
+    const qint64 largeNs = runOnceNs(wf, large, &monotonic);
+    QVERIFY2(smallNs >= 0 && largeNs >= 0, "synthetic chain failed");
+    totalSmallNs += smallNs;
+    totalLargeNs += largeNs;
+    ++iters;
   }
   QVERIFY(monotonic);
-  QVERIFY2(smallMs >= 0 && largeMs >= 0, "synthetic chain failed");
+  QVERIFY2(totalLargeNs >= kMinLargeNs,
+           qPrintable(QStringLiteral("large cumulative %1 ns after %2 iters")
+                          .arg(totalLargeNs)
+                          .arg(iters)));
   // 4× 柱数（层数相同）。IDW 对单元线性；给调度噪声留到 8×。
-  if (largeMs >= 20)
-    QVERIFY2(largeMs < smallMs * 8,
-             qPrintable(QStringLiteral("ratio %1/%2").arg(largeMs).arg(smallMs)));
-  qInfo().noquote() << QStringLiteral("BASELINE property-model ratio small=%1ms large=%2ms")
-                           .arg(smallMs)
-                           .arg(largeMs);
+  QVERIFY2(totalSmallNs > 0 && totalLargeNs < totalSmallNs * 8,
+           qPrintable(QStringLiteral("ratio %1/%2 iters=%3")
+                          .arg(totalLargeNs)
+                          .arg(totalSmallNs)
+                          .arg(iters)));
+  qInfo().noquote() << QStringLiteral("BASELINE property-model ratio small=%1ms large=%2ms iters=%3")
+                           .arg(totalSmallNs / 1.0e6, 0, 'f', 2)
+                           .arg(totalLargeNs / 1.0e6, 0, 'f', 2)
+                           .arg(iters);
 }
 
 void TestPropModelPerf::realAreaChain()
@@ -281,6 +296,7 @@ void TestPropModelPerf::realAreaChain()
   QVERIFY(cat.open(tmp.path()));
   PropertyModelWorkflow wf(&cat, tmp.path());
   const long rss0 = rssKiB();
+  long peak = rss0;
   bool monotonic = true;
   QElapsedTimer timer;
   timer.start();
@@ -289,6 +305,9 @@ void TestPropModelPerf::realAreaChain()
     if (fraction + 1e-9 < prev)
       monotonic = false;
     prev = fraction;
+    const long now = rssKiB();
+    if (now > peak)
+      peak = now;
     return true;
   });
   const qint64 ms = timer.elapsed();
@@ -296,21 +315,30 @@ void TestPropModelPerf::realAreaChain()
   QVERIFY2(out.ok, qPrintable(out.error));
   QVERIFY(monotonic);
   QVERIFY(out.filledCells > 0);
+  if (out.liveColumns > 0)
+    QVERIFY2(static_cast<long long>(out.filledCells) * 2 > out.liveColumns,
+             qPrintable(QStringLiteral("filled=%1 live=%2")
+                            .arg(out.filledCells)
+                            .arg(out.liveColumns)));
   QVERIFY2(ms < 30000, qPrintable(QStringLiteral("chain %1 ms").arg(ms)));
   QVERIFY2(rss0 >= 0 && rss1 >= 0, "VmRSS unreadable");
-  const long delta = rss1 - rss0;
+  if (peak < rss0)
+    peak = rss0;
+  const long delta = std::max(rss1, peak) - rss0;
+  QVERIFY2(delta >= 0, qPrintable(QStringLiteral("rss delta %1 KiB").arg(delta)));
   QVERIFY2(delta < 2L * 1024 * 1024,
            qPrintable(QStringLiteral("rss delta %1 KiB").arg(delta)));
   qInfo().noquote() << QStringLiteral(
                            "BASELINE property-model real cells=%1 wells=%2 ms=%3 rss0=%4 rss1=%5 "
-                           "filled=%6 live=%7")
+                           "filled=%6 live=%7 peak=%8")
                            .arg(kCols * kRows * kLayers)
                            .arg(usedWells)
                            .arg(ms)
                            .arg(rss0)
                            .arg(rss1)
                            .arg(out.filledCells)
-                           .arg(out.liveColumns);
+                           .arg(out.liveColumns)
+                           .arg(peak);
 }
 
 int main(int argc, char *argv[])

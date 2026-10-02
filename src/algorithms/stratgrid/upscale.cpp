@@ -95,12 +95,46 @@ void addGridCrossings(double u0, double du, std::vector<double> *ts)
 
 double lerp(double a, double b, double t) { return a + t * (b - a); }
 
+// 非有限 MD 破坏严格弱序，不能进排序。同一 MD 上若有有限值，丢掉非有限值，
+// 只留稳定顺序下的最后一个有限值，加权括号才确定。
+std::vector<CurvePoint> prepareCurve(const std::vector<CurvePoint> &raw)
+{
+  std::vector<CurvePoint> curve;
+  curve.reserve(raw.size());
+  for (const CurvePoint &point : raw)
+  {
+    if (std::isfinite(point.md))
+      curve.push_back(point);
+  }
+  std::stable_sort(curve.begin(), curve.end(),
+                   [](const CurvePoint &a, const CurvePoint &b) { return a.md < b.md; });
+
+  std::vector<CurvePoint> collapsed;
+  collapsed.reserve(curve.size());
+  for (std::size_t i = 0; i < curve.size();)
+  {
+    std::size_t end = i + 1;
+    while (end < curve.size() && curve[end].md == curve[i].md)
+      ++end;
+    std::size_t lastFinite = end;
+    for (std::size_t k = i; k < end; ++k)
+    {
+      if (std::isfinite(curve[k].value))
+        lastFinite = k;
+    }
+    if (lastFinite < end)
+      collapsed.push_back(curve[lastFinite]);
+    else
+      collapsed.push_back(curve[i]);
+    i = end;
+  }
+  return collapsed;
+}
+
 void accumulateWell(const ZoneGrid &grid, const WellCurve &well, std::vector<Acc> *layers)
 {
   const int nk = grid.nk;
-  std::vector<CurvePoint> curve = well.curve;
-  std::sort(curve.begin(), curve.end(),
-            [](const CurvePoint &a, const CurvePoint &b) { return a.md < b.md; });
+  const std::vector<CurvePoint> curve = prepareCurve(well.curve);
 
   const auto atT = [&](const WellStation &a, const WellStation &b, double t, double *md, double *x,
                        double *y, double *z) {
@@ -188,13 +222,12 @@ void accumulateWell(const ZoneGrid &grid, const WellCurve &well, std::vector<Acc
         if (layer < 0)
           continue;
         Acc &acc = (*layers)[static_cast<std::size_t>(layer)];
-        const double len = std::fabs(mdB - mdA);
-        noteColumn(&acc, colI, colJ, len);
         double integ = 0, covered = 0;
         if (integrateLinear(curve, mdA, mdB, &integ, &covered))
         {
           acc.wsum += integ;
           acc.wlen += covered;
+          noteColumn(&acc, colI, colJ, covered);
         }
       }
     }
@@ -306,12 +339,14 @@ bool upscaleWells(const ZoneGrid &grid, const std::vector<WellCurve> &wells, Agg
     setError(error, QStringLiteral("粗化输出为空"));
     return false;
   }
+  const auto fail = [&](const QString &text) {
+    *out = UpscaleTable{};
+    setError(error, text);
+    return false;
+  };
   *out = UpscaleTable{};
   if (grid.nk < 1 || grid.liveColumns < 1)
-  {
-    setError(error, QStringLiteral("格架没有活柱，无法粗化"));
-    return false;
-  }
+    return fail(QStringLiteral("格架没有活柱，无法粗化"));
   out->nWells = static_cast<int>(wells.size());
   out->nLayers = grid.nk;
   out->cells.resize(static_cast<std::size_t>(out->nWells * out->nLayers));
@@ -326,17 +361,11 @@ bool upscaleWells(const ZoneGrid &grid, const std::vector<WellCurve> &wells, Agg
   {
     const WellCurve &well = wells[static_cast<std::size_t>(w)];
     if (well.stations.empty())
-    {
-      setError(error, QStringLiteral("井 %1 没有轨迹站").arg(well.wellId));
-      return false;
-    }
+      return fail(QStringLiteral("井 %1 没有轨迹站").arg(well.wellId));
     for (std::size_t s = 1; s < well.stations.size(); ++s)
     {
       if (!(well.stations[s].md > well.stations[s - 1].md))
-      {
-        setError(error, QStringLiteral("井 %1 轨迹 MD 未严格递增").arg(well.wellId));
-        return false;
-      }
+        return fail(QStringLiteral("井 %1 轨迹 MD 未严格递增").arg(well.wellId));
     }
     std::vector<Acc> layers(static_cast<std::size_t>(grid.nk));
     accumulateWell(grid, well, &layers);

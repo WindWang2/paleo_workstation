@@ -59,6 +59,9 @@ private slots:
   void wellMissingZoneIsAbsent();
   void gapIsNotBridged();
   void medianAndMode();
+  void deviatedNanDoesNotSeedColumn();
+  void duplicateMdNanOrderAgrees();
+  void failureClearsOutput();
   void realLasFixture();
 };
 
@@ -171,6 +174,90 @@ void TestUpscale::medianAndMode()
   UpscaleTable discarded;
   QVERIFY(!upscaleWells(grid, {bad}, Aggregator::Mean, &discarded, &err));
   QVERIFY(err.contains(QStringLiteral("轨迹")));
+}
+
+void TestUpscale::deviatedNanDoesNotSeedColumn()
+{
+  const ZoneGrid grid = zone(0.0f, 30.0f, 1);
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  WellCurve well;
+  well.wellId = QStringLiteral("DEV");
+  well.curveName = QStringLiteral("GR");
+  // 柱 0（x∈[0,10)）MD 很长但曲线全是 NaN；柱 1 只有较短的常数 6。
+  well.stations.push_back(WellStation{0.0, 1.0, 5.0, 5.0});
+  well.stations.push_back(WellStation{80.0, 9.0, 5.0, 5.0});
+  well.stations.push_back(WellStation{100.0, 15.0, 5.0, 5.0});
+  well.curve.push_back(CurvePoint{0.0, nan});
+  well.curve.push_back(CurvePoint{80.0, nan});
+  well.curve.push_back(CurvePoint{90.0, 6.0});
+  well.curve.push_back(CurvePoint{100.0, 6.0});
+
+  UpscaleTable table;
+  QString err;
+  QVERIFY2(upscaleWells(grid, {well}, Aggregator::ThicknessWeightedMean, &table, &err),
+           qPrintable(err));
+  QVERIFY(table.at(0, 0).hasValue);
+  QCOMPARE(table.at(0, 0).value, 6.0);
+  QCOMPARE(table.at(0, 0).columnI, 1);
+}
+
+void TestUpscale::duplicateMdNanOrderAgrees()
+{
+  const ZoneGrid grid = zone(0.0f, 10.0f, 1);
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  WellCurve nanThenFinite = vertical(QStringLiteral("W1"), 5.0, 5.0, 0.0, 10.0,
+                                     {{0.0, 1.0}, {5.0, nan}, {5.0, 0.0}, {10.0, 100.0}});
+  WellCurve finiteThenNan = vertical(QStringLiteral("W1"), 5.0, 5.0, 0.0, 10.0,
+                                     {{0.0, 1.0}, {5.0, 0.0}, {5.0, nan}, {10.0, 100.0}});
+  const CurvePoint nonFiniteMd{nan, 50.0};
+  nanThenFinite.curve.push_back(nonFiniteMd);
+  finiteThenNan.curve.push_back(nonFiniteMd);
+  nanThenFinite.curve.push_back(CurvePoint{std::numeric_limits<double>::infinity(), -50.0});
+  finiteThenNan.curve.push_back(CurvePoint{std::numeric_limits<double>::infinity(), -50.0});
+
+  UpscaleTable nanFirst;
+  UpscaleTable finiteFirst;
+  QVERIFY(upscaleWells(grid, {nanThenFinite}, Aggregator::ThicknessWeightedMean, &nanFirst,
+                       nullptr));
+  QVERIFY(upscaleWells(grid, {finiteThenNan}, Aggregator::ThicknessWeightedMean, &finiteFirst,
+                       nullptr));
+  QVERIFY(nanFirst.at(0, 0).hasValue);
+  QVERIFY(finiteFirst.at(0, 0).hasValue);
+  QVERIFY(std::fabs(nanFirst.at(0, 0).value - finiteFirst.at(0, 0).value) < 1e-12);
+  QVERIFY(std::fabs(nanFirst.at(0, 0).value - 25.25) < 1e-9);
+
+  // 同一 MD 的多个有限值保留输入顺序的最后一个。
+  const WellCurve keepLast = vertical(QStringLiteral("W1"), 5.0, 5.0, 0.0, 10.0,
+                                      {{0.0, 1.0}, {5.0, 3.0}, {5.0, 7.0}, {10.0, 100.0}});
+  const WellCurve keepOther = vertical(QStringLiteral("W1"), 5.0, 5.0, 0.0, 10.0,
+                                       {{0.0, 1.0}, {5.0, 7.0}, {5.0, 3.0}, {10.0, 100.0}});
+  UpscaleTable lastSeven;
+  UpscaleTable lastThree;
+  QVERIFY(upscaleWells(grid, {keepLast}, Aggregator::ThicknessWeightedMean, &lastSeven, nullptr));
+  QVERIFY(upscaleWells(grid, {keepOther}, Aggregator::ThicknessWeightedMean, &lastThree, nullptr));
+  QVERIFY(std::fabs(lastSeven.at(0, 0).value - 28.75) < 1e-9);
+  QVERIFY(std::fabs(lastThree.at(0, 0).value - 26.75) < 1e-9);
+}
+
+void TestUpscale::failureClearsOutput()
+{
+  const ZoneGrid grid = zone(0.0f, 10.0f, 1);
+  const WellCurve good = vertical(QStringLiteral("W1"), 5.0, 5.0, 0.0, 10.0,
+                                  {{0.0, 4.0}, {10.0, 4.0}});
+  WellCurve backwards = vertical(QStringLiteral("W2"), 5.0, 5.0, 0.0, 10.0,
+                                 {{0.0, 9.0}, {10.0, 9.0}});
+  backwards.stations.back().md = backwards.stations.front().md;
+
+  UpscaleTable table;
+  table.nWells = 1;
+  table.nLayers = 1;
+  table.cells.push_back(LayerValue{4.0, true, 1.0, 0, 0});
+  QString err;
+  QVERIFY(!upscaleWells(grid, {good, backwards}, Aggregator::ThicknessWeightedMean, &table, &err));
+  QVERIFY2(err.contains(QStringLiteral("MD")), qPrintable(err));
+  QCOMPARE(table.nWells, 0);
+  QCOMPARE(table.nLayers, 0);
+  QVERIFY(table.cells.empty());
 }
 
 void TestUpscale::realLasFixture()

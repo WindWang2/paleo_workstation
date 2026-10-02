@@ -81,7 +81,8 @@ std::array<SliceVertex, 4> BuildBrickVertices(const PropertyBrickAxes &axes, Sgy
         return -Normalize(k, axes.kMin, kMax, heightScale);
     };
     const float yTop = yOf(axes.kMin);
-    const float yBottom = yOf(axes.kMax);
+    // 单层时 axes.kMax==kMin，必须用上面展开过的 kMax，否则 inline/xline 四边形高度为 0。
+    const float yBottom = yOf(kMax);
 
     if (type == SgySliceType::Inline) {
         const float z = Normalize(index, axes.jMin, axes.jMax, horizontalScale);

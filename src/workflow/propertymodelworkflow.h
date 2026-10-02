@@ -50,6 +50,16 @@ struct PropertyModelOutput
   paleo::stratgrid::PropertyVolume volume;
 };
 
+// extractSlice 的值类型。失败时 width 为 0，values 空。
+struct PropertyGridSlice
+{
+  int width = 0;
+  int height = 0;
+  float valueMin = 0.f;
+  float valueMax = 0.f;
+  std::vector<float> values;
+};
+
 class PropertyModelWorkflow : public QObject
 {
   Q_OBJECT
@@ -58,13 +68,14 @@ public:
                                  QObject *parent = nullptr);
   void rebind(DataCatalog *catalog, const QString &projectDir);
 
-  // progress(fraction, stage) 返回 false → 取消，不登记版本。
+  // progress(fraction, stage)：fraction < 1 时返回 false 表示取消，不登记版本。
+  // fraction 1.0 是成功 commit 之后的完成通知，不是取消点（返回值忽略）。
   PropertyModelOutput run(const PropertyModelRequest &request,
                           const std::function<bool(double, const QString &)> &progress = {});
 
   static bool loadSurface(const QString &path, paleo::stratgrid::SurfaceGrid *out,
                           QString *error = nullptr);
-  // LINESTRING / POLYGON 外环 → 线段。解析不出点 → 空，不臆造。
+  // LINESTRING / POLYGON 外环 → 线段。Z 坐标只取 x,y。解析不出点 → 空，不臆造。
   static std::vector<paleo::stratgrid::FaultSegment> segmentsFromWkt(const QString &wkt);
   static std::vector<paleo::stratgrid::FaultSegment>
   segmentsFromFaultSet(const paleo::fault::FaultSet &faults);
@@ -73,6 +84,20 @@ public:
   static QString paramHash(const PropertyModelRequest &request,
                            const paleo::stratgrid::SurfaceGrid &top,
                            const paleo::stratgrid::SurfaceGrid &bot);
+
+  // 从已绑定 catalog 收集顶底层位栅格与井曲线。不读断层（壳层另加）。
+  // 层位缺失 → *error 并返回空请求；没有可用井曲线不算失败。
+  PropertyModelRequest requestFromCatalog(const QString &topHorizon,
+                                          const QString &bottomHorizon,
+                                          const QString &curveMnemonic,
+                                          int nLayers,
+                                          paleo::stratgrid::Aggregator aggregator,
+                                          double idwPower,
+                                          QString *error = nullptr) const;
+
+  // axis 0/1/2，语义同 stratgrid::extractSlice。失败 width = 0。
+  static PropertyGridSlice gridSlice(const paleo::stratgrid::PropertyVolume &volume,
+                                     int axis, int index, QString *error = nullptr);
 
 signals:
   void modelStored(const QString &path);

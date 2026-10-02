@@ -21,6 +21,7 @@ class PaleoOnnxService;
 class AiAssistWorkflow;
 class SelectionContext;
 class DepthConversionWorkflow;
+class PropertyModelWorkflow;
 class SeismicMapLink;
 class WellMapLink;
 class PaleoProjectStore;
@@ -80,6 +81,7 @@ class AppContext : public QObject
     MappingWorkbench *mappingWorkbench() const { return m_mappingWorkbench; }
     MappingWorkflow *mappingWf() const { return m_mappingWf; }
     DepthConversionWorkflow *depthConversionWf() const { return m_depthWf; }
+    PropertyModelWorkflow *propertyModelWf() const { return m_propModelWf; }
     MapVersionStore *versionStore() const { return m_versionStore; }
     MapVersionController *versionCtl() const { return m_versionCtl; }
 
@@ -140,6 +142,7 @@ class AppContext : public QObject
     MappingWorkbench *m_mappingWorkbench = nullptr;
     MappingWorkflow *m_mappingWf = nullptr;
     DepthConversionWorkflow *m_depthWf = nullptr;
+    PropertyModelWorkflow *m_propModelWf = nullptr;
     MapVersionStore *m_versionStore = nullptr;
     MapVersionController *m_versionCtl = nullptr;
     FaultSetStore m_faultStore{QString(), nullptr}; // projectOpened 值重绑

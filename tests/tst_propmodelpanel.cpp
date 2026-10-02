@@ -174,11 +174,47 @@ void TestPropModelPanel::zoneOverlayNanIsTransparent()
   canvas.setZoneOverlay(makeZone(16, 12, 1.0f, true));
   QVERIFY(imageDiff(baseline, renderCanvas(canvas)) > 500);
 
+  canvas.setColorMap(SectionColorMapType::Grayscale);
+  QVERIFY(canvas.hasZoneOverlay());
+  canvas.setColorMapInverted(true);
+  QVERIFY(canvas.hasZoneOverlay());
+  canvas.setColorMapInverted(false);
+  canvas.setColorMap(SectionColorMapType::RedWhiteBlue);
+
   canvas.setZoneOverlay(makeZone(3, 3, 1.0f, false));
   QVERIFY(canvas.hasZoneOverlay()); // 失配被忽略，上一层还在
 
   canvas.setSectionData(makeSection(8, 8), 2.0f);
   QVERIFY(!canvas.hasZoneOverlay());
+
+  canvas.setSectionData(makeSection(16, 12), 2.0f);
+  canvas.setZoneOverlay(makeZone(16, 12, 0.5f, false));
+  QVERIFY(canvas.hasZoneOverlay());
+  canvas.clearData();
+  QVERIFY(!canvas.hasZoneOverlay());
+
+  canvas.setSectionData(makeSection(16, 12), 2.0f);
+  canvas.setZoneOverlay(makeZone(16, 12, 0.5f, false));
+  canvas.setTimeSliceData(makeSection(16, 12), 120.0, 1, 12, 1, 16);
+  QVERIFY(canvas.hasZoneOverlay());
+  canvas.setTimeSliceData(makeSection(8, 6), 120.0, 1, 6, 1, 8);
+  QVERIFY(!canvas.hasZoneOverlay());
+
+  // 底图全是 NaN（不走 LUT）。换色标后叠层像素变了，说明是重烘焙而不是丢掉。
+  SeismicSectionCanvas lutCanvas;
+  lutCanvas.resize(320, 240);
+  SgySliceImage nanBase = makeSection(16, 12);
+  nanBase.values.assign(nanBase.values.size(), std::numeric_limits<float>::quiet_NaN());
+  lutCanvas.setSectionData(nanBase, 2.0f);
+  lutCanvas.setZoneOverlay(makeZone(16, 12, 1.0f, false));
+  const QImage beforeLut = renderCanvas(lutCanvas);
+  lutCanvas.setColorMap(SectionColorMapType::Grayscale);
+  QVERIFY(lutCanvas.hasZoneOverlay());
+  QVERIFY(imageDiff(beforeLut, renderCanvas(lutCanvas)) > 100);
+  const QImage gray = renderCanvas(lutCanvas);
+  lutCanvas.setColorMapInverted(true);
+  QVERIFY(lutCanvas.hasZoneOverlay());
+  QVERIFY(imageDiff(gray, renderCanvas(lutCanvas)) > 100);
 }
 
 void TestPropModelPanel::viewportQueuesPropertySlice()
@@ -193,6 +229,10 @@ void TestPropModelPanel::viewportQueuesPropertySlice()
   QVERIFY(view.updatePropertySlice(SeismicSliceSlot::Inline, SgySliceType::Inline, 1, axes, image));
   QVERIFY(view.hasPendingPropertySlice());
   QVERIFY(view.updatePropertyStackLayer(0, 2, axes, makeZone(4, 3, 0.2f, false)));
+  QVERIFY(view.updatePropertyStackLayer(0, 3, axes, makeZone(4, 3, 0.4f, false)));
+  QVERIFY(view.hasPendingPropertySlice());
+  view.setVolume({});
+  QVERIFY(!view.hasPendingPropertySlice());
 }
 
 void TestPropModelPanel::propertySliceUploadsOnGl()

@@ -2,12 +2,16 @@
 #include "propertymodelworkflow.h"
 
 #include "../catalog/datacatalog.h"
+#include "../io/lasparser.h"
 #include "derivedassets.h"
 
 #include <QCryptographicHash>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QStringList>
 #include <QVariantMap>
 
 #include <gdal.h>
@@ -32,6 +36,111 @@ void appendFloatHash(QCryptographicHash *hash, const std::vector<float> &values)
   if (!values.empty())
     hash->addData(reinterpret_cast<const char *>(values.data()),
                   static_cast<int>(values.size() * sizeof(float)));
+}
+
+QString resolveSurfacePath(const QString &projectDir, const QString &path)
+{
+  if (path.isEmpty())
+    return path;
+  if (QDir::isAbsolutePath(path))
+    return QDir::cleanPath(path);
+  return QDir::cleanPath(QFileInfo(QDir(projectDir).filePath(path)).absoluteFilePath());
+}
+
+std::vector<paleo::stratgrid::WellCurve>
+sortedWells(const std::vector<paleo::stratgrid::WellCurve> &wells)
+{
+  std::vector<paleo::stratgrid::WellCurve> out = wells;
+  std::stable_sort(out.begin(), out.end(),
+                   [](const paleo::stratgrid::WellCurve &a, const paleo::stratgrid::WellCurve &b) {
+                     return a.wellId < b.wellId;
+                   });
+  return out;
+}
+
+// 按 wellId 稳定排序后的去重曲线名（空名跳过）。provenance 与 catalog extra 共用。
+QString curveProvenance(const std::vector<paleo::stratgrid::WellCurve> &wells)
+{
+  QStringList names;
+  for (const paleo::stratgrid::WellCurve &well : sortedWells(wells))
+  {
+    if (well.curveName.isEmpty() || names.contains(well.curveName))
+      continue;
+    names.append(well.curveName);
+  }
+  return names.join(QLatin1Char(','));
+}
+
+struct HorizonPick
+{
+  QString path;
+  bool found = false;
+};
+
+bool stemMatchesToken(const QString &label, const QString &token, bool *exact)
+{
+  const QString stem = QFileInfo(label).completeBaseName();
+  if (token.isEmpty() || stem.isEmpty() || !stem.contains(token))
+    return false;
+  if (stem == token)
+    *exact = true;
+  return true;
+}
+
+HorizonPick findHorizonRaster(DataCatalog *catalog, const QString &projectDir, const QString &token)
+{
+  HorizonPick best;
+  if (!catalog || token.isEmpty())
+    return best;
+  bool have = false;
+  bool bestExact = false;
+  int bestVersion = -1;
+  QString bestAssetId;
+  for (const CatalogAsset &asset : catalog->assets())
+  {
+    if (asset.type != QLatin1String("horizon"))
+      continue;
+    const QVector<CatalogVersion> versions = catalog->versionsForAsset(asset.id);
+    CatalogVersion latest;
+    bool haveVer = false;
+    for (const CatalogVersion &version : versions)
+    {
+      if (!haveVer || version.versionNumber > latest.versionNumber)
+      {
+        latest = version;
+        haveVer = true;
+      }
+    }
+    if (!haveVer)
+      continue;
+    const QString path = DataCatalog::resolvedVersionPath(projectDir, latest);
+    if (path.isEmpty())
+      continue;
+    bool matched = false;
+    bool exact = false;
+    if (stemMatchesToken(asset.displayName, token, &exact))
+      matched = true;
+    for (const CatalogVersion &version : versions)
+    {
+      if (stemMatchesToken(version.fileName, token, &exact))
+        matched = true;
+    }
+    if (!matched)
+      continue;
+    const bool better = !have || (exact && !bestExact) ||
+                        (exact == bestExact && latest.versionNumber > bestVersion) ||
+                        (exact == bestExact && latest.versionNumber == bestVersion &&
+                         asset.id < bestAssetId);
+    if (!better)
+      continue;
+    have = true;
+    bestExact = exact;
+    bestVersion = latest.versionNumber;
+    bestAssetId = asset.id;
+    best.path = path;
+    best.found = true;
+  }
+  return best;
 }
 
 } // namespace
@@ -68,8 +177,13 @@ bool PropertyModelWorkflow::loadSurface(const QString &path, paleo::stratgrid::S
   }
   const int cols = GDALGetRasterXSize(ds);
   const int rows = GDALGetRasterYSize(ds);
-  double gt[6] = {0, 0, 0, 0, 0, 0};
-  GDALGetGeoTransform(ds, gt);
+  double gt[6] = {0, 1, 0, 0, 0, 1};
+  if (GDALGetGeoTransform(ds, gt) != CE_None)
+  {
+    GDALClose(ds);
+    setError(error, QStringLiteral("层位栅格没有地理参考（no georeference）：%1").arg(path));
+    return false;
+  }
   if (GDALGetRasterCount(ds) < 1 || cols < 1 || rows < 1)
   {
     GDALClose(ds);
@@ -129,24 +243,67 @@ std::vector<paleo::stratgrid::FaultSegment>
 PropertyModelWorkflow::segmentsFromWkt(const QString &wkt)
 {
   std::vector<paleo::stratgrid::FaultSegment> out;
-  if (wkt.trimmed().isEmpty())
+  const QString trimmed = wkt.trimmed();
+  if (trimmed.isEmpty())
     return out;
-  const bool closeRing = wkt.contains(QLatin1String("POLYGON"), Qt::CaseInsensitive);
-  const QStringList chunks = wkt.split(QLatin1Char('('));
+
+  const int paren = trimmed.indexOf(QLatin1Char('('));
+  QString geomType = (paren < 0 ? trimmed : trimmed.left(paren)).trimmed().toUpper();
+  const int semi = geomType.lastIndexOf(QLatin1Char(';'));
+  if (semi >= 0)
+    geomType = geomType.mid(semi + 1).trimmed();
+  const QStringList parts =
+      geomType.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+  geomType = parts.isEmpty() ? QString() : parts.front();
+  QString dim = parts.size() >= 2 ? parts.at(1) : QString();
+  if (dim.isEmpty())
+  {
+    if (geomType.endsWith(QLatin1String("ZM")))
+    {
+      dim = QStringLiteral("ZM");
+      geomType.chop(2);
+    }
+    else if (geomType.endsWith(QLatin1String("MZ")))
+    {
+      dim = QStringLiteral("MZ");
+      geomType.chop(2);
+    }
+    else if (geomType.endsWith(QLatin1Char('Z')))
+    {
+      dim = QStringLiteral("Z");
+      geomType.chop(1);
+    }
+    else if (geomType.endsWith(QLatin1Char('M')))
+    {
+      dim = QStringLiteral("M");
+      geomType.chop(1);
+    }
+  }
+  int stride = 2;
+  if (dim == QLatin1String("ZM") || dim == QLatin1String("MZ"))
+    stride = 4;
+  else if (dim == QLatin1String("Z") || dim == QLatin1String("M"))
+    stride = 3;
+  // POLYGON / MULTIPOLYGON 只取第一个至少两点的环（外环），孔洞不另作断帘。
+  const bool polygon =
+      geomType == QLatin1String("POLYGON") || geomType == QLatin1String("MULTIPOLYGON");
+
   static const QRegularExpression numRe(
       QStringLiteral("[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?"));
+  const QStringList chunks = trimmed.split(QLatin1Char('('));
+  const std::size_t step = static_cast<std::size_t>(stride);
   for (const QString &chunk : chunks)
   {
-    std::vector<std::pair<double, double>> pts;
     QRegularExpressionMatchIterator it = numRe.globalMatch(chunk);
     std::vector<double> nums;
     while (it.hasNext())
       nums.push_back(it.next().captured().toDouble());
-    for (std::size_t i = 0; i + 1 < nums.size(); i += 2)
+    std::vector<std::pair<double, double>> pts;
+    for (std::size_t i = 0; i + step <= nums.size(); i += step)
       pts.emplace_back(nums[i], nums[i + 1]);
     if (pts.size() < 2)
       continue;
-    if (closeRing)
+    if (polygon)
     {
       const auto &a = pts.front();
       const auto &b = pts.back();
@@ -163,6 +320,8 @@ PropertyModelWorkflow::segmentsFromWkt(const QString &wkt)
       if (seg.x0 != seg.x1 || seg.y0 != seg.y1)
         out.push_back(seg);
     }
+    if (polygon)
+      break;
   }
   return out;
 }
@@ -218,11 +377,7 @@ QString PropertyModelWorkflow::paramHash(const PropertyModelRequest &request,
   addGrid(top);
   addGrid(bot);
 
-  std::vector<paleo::stratgrid::WellCurve> wells = request.wells;
-  std::sort(wells.begin(), wells.end(),
-            [](const paleo::stratgrid::WellCurve &a, const paleo::stratgrid::WellCurve &b) {
-              return a.wellId < b.wellId;
-            });
+  const std::vector<paleo::stratgrid::WellCurve> wells = sortedWells(request.wells);
   for (const paleo::stratgrid::WellCurve &well : wells)
   {
     hash.addData(well.wellId.toUtf8());
@@ -307,12 +462,16 @@ PropertyModelWorkflow::run(const PropertyModelRequest &request,
 
   paleo::stratgrid::SurfaceGrid top = request.top;
   paleo::stratgrid::SurfaceGrid bot = request.bot;
+  QString topPath = request.topPath;
+  QString botPath = request.botPath;
   if (!request.useEmbeddedSurfaces)
   {
+    topPath = resolveSurfacePath(m_projectDir, request.topPath);
+    botPath = resolveSurfacePath(m_projectDir, request.botPath);
     QString err;
-    if (!loadSurface(request.topPath, &top, &err))
+    if (!loadSurface(topPath, &top, &err))
       return fail(err);
-    if (!loadSurface(request.botPath, &bot, &err))
+    if (!loadSurface(botPath, &bot, &err))
       return fail(err);
   }
   else if (top.z.empty() || bot.z.empty())
@@ -347,13 +506,13 @@ PropertyModelWorkflow::run(const PropertyModelRequest &request,
     return fail(result.error);
 
   const QString hash = paramHash(request, top, bot);
+  const QString curves = curveProvenance(request.wells);
   QJsonObject prov;
   prov.insert(QStringLiteral("param_hash"), hash);
   prov.insert(QStringLiteral("property"), request.propertyName);
   prov.insert(QStringLiteral("top"), request.topName);
   prov.insert(QStringLiteral("bot"), request.botName);
-  prov.insert(QStringLiteral("curve"),
-              request.wells.empty() ? QString() : request.wells.front().curveName);
+  prov.insert(QStringLiteral("curve"), curves);
   prov.insert(QStringLiteral("aggregator"), paleo::stratgrid::aggregatorId(request.aggregator));
   prov.insert(QStringLiteral("n_layers"), request.nLayers);
   prov.insert(QStringLiteral("idw_power"), request.idwPower);
@@ -381,9 +540,15 @@ PropertyModelWorkflow::run(const PropertyModelRequest &request,
   if (!st.isValid())
     return fail(stageErr);
   QFile out(st.absolutePath);
-  if (!out.open(QIODevice::WriteOnly) || out.write(blob) != blob.size())
+  if (!out.open(QIODevice::WriteOnly))
     return fail(QStringLiteral("属性体写入失败：%1").arg(st.absolutePath));
+  const qint64 wrote = out.write(blob);
+  const bool writeOk = wrote == static_cast<qint64>(blob.size());
+  // flush 失败先记下：close() 成功时会清掉 error()，截断文件不能 commit。
+  const bool flushOk = writeOk && out.flush();
   out.close();
+  if (!writeOk || !flushOk || out.error() != QFileDevice::NoError)
+    return fail(QStringLiteral("属性体写入失败：%1").arg(st.absolutePath));
 
   QVariantMap extra;
   extra.insert(QStringLiteral("param_hash"), hash);
@@ -399,14 +564,11 @@ PropertyModelWorkflow::run(const PropertyModelRequest &request,
   extra.insert(QStringLiteral("live_columns"), volume.grid.liveColumns);
   extra.insert(QStringLiteral("filled_cells"), volume.filledCells);
   extra.insert(QStringLiteral("unfilled_live_cells"), volume.unfilledLiveCells);
-  QStringList curves;
-  for (const paleo::stratgrid::WellCurve &well : request.wells)
-    if (!curves.contains(well.curveName) && !well.curveName.isEmpty())
-      curves.append(well.curveName);
-  extra.insert(QStringLiteral("curves"), curves.join(QLatin1Char(',')));
+  extra.insert(QStringLiteral("curves"), curves);
 
-  const QStringList parents =
-      registrar.parentVersionIdsFor(QStringList{request.topPath, request.botPath});
+  QStringList parents;
+  if (!request.useEmbeddedSurfaces)
+    parents = registrar.parentVersionIdsFor(QStringList{topPath, botPath});
   QString commitErr;
   if (!registrar.commit(st, parents, QStringLiteral("propertymodel/build"), extra, &commitErr))
     return fail(commitErr);
@@ -425,4 +587,157 @@ PropertyModelWorkflow::run(const PropertyModelRequest &request,
   result.volume = std::move(volume);
   emit modelStored(result.path);
   return result;
+}
+
+PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &topHorizon,
+                                                              const QString &bottomHorizon,
+                                                              const QString &curveMnemonic,
+                                                              int nLayers,
+                                                              paleo::stratgrid::Aggregator aggregator,
+                                                              double idwPower,
+                                                              QString *error) const
+{
+  if (error)
+    error->clear();
+  if (!m_catalog || !m_catalog->isOpen())
+  {
+    setError(error, QStringLiteral("属性建模未绑定 catalog"));
+    return {};
+  }
+
+  const HorizonPick top = findHorizonRaster(m_catalog, m_projectDir, topHorizon);
+  const HorizonPick bot = findHorizonRaster(m_catalog, m_projectDir, bottomHorizon);
+  if (!top.found || !bot.found)
+  {
+    QStringList missing;
+    if (!top.found)
+      missing << topHorizon;
+    if (!bot.found)
+      missing << bottomHorizon;
+    setError(error, QStringLiteral("找不到层位栅格 %1").arg(missing.join(QStringLiteral(" / "))));
+    return {};
+  }
+
+  PropertyModelRequest req;
+  req.topPath = top.path;
+  req.botPath = bot.path;
+  req.topName = topHorizon;
+  req.botName = bottomHorizon;
+  req.propertyName = curveMnemonic;
+  req.nLayers = nLayers;
+  req.aggregator = aggregator;
+  req.idwPower = idwPower;
+  req.useEmbeddedSurfaces = false;
+
+  for (const CatalogEntity &ent : m_catalog->entities(QStringLiteral("well")))
+  {
+    if (!ent.hasSurface)
+      continue;
+    QString lasPath;
+    bool havePrimary = false;
+    int bestNum = -1;
+    for (const EntityAssetLink &link : m_catalog->linksForEntity(ent.id))
+    {
+      if (link.unresolved || link.role != QLatin1String("well_log") || link.assetId.isEmpty())
+        continue;
+      const CatalogVersion ver = m_catalog->currentVersion(link.assetId);
+      if (ver.id.isEmpty())
+        continue;
+      const QString path = DataCatalog::resolvedVersionPath(m_projectDir, ver);
+      if (path.isEmpty())
+        continue;
+      const bool take = lasPath.isEmpty() || (link.isPrimary && !havePrimary) ||
+                        (link.isPrimary == havePrimary && ver.versionNumber > bestNum);
+      if (!take)
+        continue;
+      lasPath = path;
+      havePrimary = link.isPrimary;
+      bestNum = ver.versionNumber;
+    }
+    if (lasPath.isEmpty())
+      continue;
+
+    QStringList names;
+    QList<LasCurve> curves;
+    if (!LasParser::parse(lasPath, names, curves, nullptr) || curves.isEmpty())
+      continue;
+    int curveIdx = -1;
+    for (int i = 0; i < curves.size(); ++i)
+    {
+      if (curves.at(i).name.compare(curveMnemonic, Qt::CaseInsensitive) == 0)
+      {
+        curveIdx = i;
+        break;
+      }
+    }
+    if (curveIdx < 0)
+      continue;
+
+    const QVector<double> &depth = curves.at(0).values;
+    const QVector<double> &vals = curves.at(curveIdx).values;
+    const int n = static_cast<int>(std::min(depth.size(), vals.size()));
+    struct Sample
+    {
+      double md = 0;
+      double value = 0;
+    };
+    std::vector<Sample> samples;
+    samples.reserve(static_cast<std::size_t>(std::max(n, 0)));
+    bool anyFinite = false;
+    for (int i = 0; i < n; ++i)
+    {
+      const double md = depth.at(i);
+      if (!std::isfinite(md))
+        continue;
+      const double value = vals.at(i);
+      if (std::isfinite(value))
+        anyFinite = true;
+      // 保留 NaN 样点，粗化才不会把缺失段线性补上。
+      samples.push_back(Sample{md, value});
+    }
+    if (!anyFinite)
+      continue;
+    std::stable_sort(samples.begin(), samples.end(),
+                     [](const Sample &a, const Sample &b) { return a.md < b.md; });
+
+    paleo::stratgrid::WellCurve well;
+    well.wellId = ent.id;
+    well.curveName = curveMnemonic;
+    const auto stationAt = [&](double md) {
+      paleo::stratgrid::WellStation station;
+      station.md = md;
+      station.x = ent.surfaceX;
+      station.y = ent.surfaceY;
+      station.z = md;
+      return station;
+    };
+    well.stations.push_back(stationAt(samples.front().md));
+    if (samples.back().md > samples.front().md)
+      well.stations.push_back(stationAt(samples.back().md));
+    well.curve.reserve(samples.size());
+    for (const Sample &sample : samples)
+      well.curve.push_back(paleo::stratgrid::CurvePoint{sample.md, sample.value});
+    req.wells.push_back(std::move(well));
+  }
+  return req;
+}
+
+PropertyGridSlice PropertyModelWorkflow::gridSlice(const paleo::stratgrid::PropertyVolume &volume,
+                                                   int axis, int index, QString *error)
+{
+  PropertyGridSlice slice;
+  int width = 0;
+  int height = 0;
+  float vmin = 0.f;
+  float vmax = 0.f;
+  std::vector<float> values;
+  if (!paleo::stratgrid::extractSlice(volume, axis, index, &values, &width, &height, &vmin, &vmax,
+                                     error))
+    return slice;
+  slice.width = width;
+  slice.height = height;
+  slice.valueMin = vmin;
+  slice.valueMax = vmax;
+  slice.values = std::move(values);
+  return slice;
 }

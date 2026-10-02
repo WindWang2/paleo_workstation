@@ -200,6 +200,9 @@ void TestStratGrid::northUpDyRoundTrips()
   QCOMPARE(back.i, 1);
   QCOMPARE(back.j, 1);
   QCOMPARE(back.k, 1);
+  // dx=20，|dy|=40，层厚 (40-0)/2=20 → 16000。丢掉 fabs(dy) 则为负。
+  QVERIFY(cellVolume(grid, 1, 1, 1) > 0.0);
+  QCOMPARE(cellVolume(grid, 1, 1, 1), 16000.0);
 }
 
 QTEST_GUILESS_MAIN(TestStratGrid)

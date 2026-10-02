@@ -43,21 +43,71 @@ bool onSegment(double ax, double ay, double bx, double by, double px, double py)
          py >= std::min(ay, by) - eps && py <= std::max(ay, by) + eps;
 }
 
+bool samePoint(double ax, double ay, double bx, double by)
+{
+  const double scale = 1.0 + std::fabs(ax) + std::fabs(ay) + std::fabs(bx) + std::fabs(by);
+  const double eps = 1e-9 * scale;
+  const double dx = ax - bx;
+  const double dy = ay - by;
+  return dx * dx + dy * dy <= eps * eps;
+}
+
+// 共线且落在线段上，但不是该线段的端点。
+bool interiorPoint(double ax, double ay, double bx, double by, double px, double py)
+{
+  if (samePoint(ax, ay, px, py) || samePoint(bx, by, px, py))
+    return false;
+  return onSegment(ax, ay, bx, by, px, py);
+}
+
+// 共线区间的重叠长度。两端点重合的正长度区间算重叠；仅共享一个端点则长度为 0。
+double collinearOverlapLength(double ax, double ay, double bx, double by, double cx, double cy,
+                              double dx, double dy)
+{
+  const double abx = bx - ax;
+  const double aby = by - ay;
+  const double ab2 = abx * abx + aby * aby;
+  if (!(ab2 > 0.0))
+    return 0.0;
+  const double tC = ((cx - ax) * abx + (cy - ay) * aby) / ab2;
+  const double tD = ((dx - ax) * abx + (dy - ay) * aby) / ab2;
+  const double lo = std::max(0.0, std::min(tC, tD));
+  const double hi = std::min(1.0, std::max(tC, tD));
+  if (!(hi > lo))
+    return 0.0;
+  return (hi - lo) * std::sqrt(ab2);
+}
+
+// 柱心连线（闭区间）与断层段：严格穿越、端点落在对方内部、或共线重叠长度 > ε 才阻断。
+// 只共享端点不阻断。零长度断层不阻断。
 bool segmentsCross(double ax, double ay, double bx, double by, double cx, double cy, double dx,
                    double dy)
 {
+  const double cdx = dx - cx;
+  const double cdy = dy - cy;
+  const double faultScale = 1.0 + std::fabs(cx) + std::fabs(cy) + std::fabs(dx) + std::fabs(dy);
+  const double faultEps = 1e-9 * faultScale;
+  if (cdx * cdx + cdy * cdy <= faultEps * faultEps)
+    return false;
+
   const int o1 = orient(ax, ay, bx, by, cx, cy);
   const int o2 = orient(ax, ay, bx, by, dx, dy);
   const int o3 = orient(cx, cy, dx, dy, ax, ay);
   const int o4 = orient(cx, cy, dx, dy, bx, by);
+  if (o1 * o2 < 0 && o3 * o4 < 0)
+    return true;
+  if ((o1 == 0 && interiorPoint(ax, ay, bx, by, cx, cy)) ||
+      (o2 == 0 && interiorPoint(ax, ay, bx, by, dx, dy)) ||
+      (o3 == 0 && interiorPoint(cx, cy, dx, dy, ax, ay)) ||
+      (o4 == 0 && interiorPoint(cx, cy, dx, dy, bx, by)))
+    return true;
   if (o1 == 0 && o2 == 0 && o3 == 0 && o4 == 0)
   {
-    return (onSegment(ax, ay, bx, by, cx, cy) && onSegment(ax, ay, bx, by, dx, dy)) ||
-           (onSegment(cx, cy, dx, dy, ax, ay) && onSegment(cx, cy, dx, dy, bx, by)) ||
-           (onSegment(ax, ay, bx, by, cx, cy) && onSegment(cx, cy, dx, dy, ax, ay)) ||
-           (onSegment(ax, ay, bx, by, dx, dy) && onSegment(cx, cy, dx, dy, bx, by));
+    const double scale = 1.0 + std::fabs(ax) + std::fabs(ay) + std::fabs(bx) + std::fabs(by) +
+                         std::fabs(cx) + std::fabs(cy) + std::fabs(dx) + std::fabs(dy);
+    return collinearOverlapLength(ax, ay, bx, by, cx, cy, dx, dy) > 1e-8 * scale;
   }
-  return o1 * o2 < 0 && o3 * o4 < 0;
+  return false;
 }
 
 void columnCenter(const ZoneGrid &grid, int i, int j, double *x, double *y)
@@ -202,6 +252,25 @@ bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds,
     return false;
   }
 
+  // 垂向步长：活柱层厚 (bot−top)/nk 的柱平均。各柱内各层等厚，柱间可以不同。
+  double verticalStep = 1.0;
+  {
+    double thickSum = 0.0;
+    int nLive = 0;
+    for (int j = 0; j < grid.nj; ++j)
+    {
+      for (int i = 0; i < grid.ni; ++i)
+      {
+        if (!grid.columnLive(i, j))
+          continue;
+        thickSum += layerThickness(grid, i, j, 0);
+        ++nLive;
+      }
+    }
+    if (nLive > 0)
+      verticalStep = thickSum / static_cast<double>(nLive);
+  }
+
   const int rows = grid.nj;
   int filled = 0;
   int unfilled = 0;
@@ -227,11 +296,17 @@ bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds,
         double vsum = 0;
         for (const Seed &seed : bucket)
         {
-          const double di = static_cast<double>(i - seed.i);
-          const double dj = static_cast<double>(j - seed.j);
-          const double dk = static_cast<double>(k - seed.k);
-          const double d2 = di * di + dj * dj + dk * dk;
-          if (d2 == 0.0)
+          if (i == seed.i && j == seed.j && k == seed.k)
+          {
+            exactSum += seed.value;
+            ++exactN;
+            continue;
+          }
+          const double hx = static_cast<double>(i - seed.i) * grid.dx;
+          const double hy = static_cast<double>(j - seed.j) * grid.dy;
+          const double hz = static_cast<double>(k - seed.k) * verticalStep;
+          const double d2 = hx * hx + hy * hy + hz * hz;
+          if (!(d2 > 0.0))
           {
             exactSum += seed.value;
             ++exactN;

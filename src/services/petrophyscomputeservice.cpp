@@ -46,33 +46,61 @@ QString sanitizeToken(QString s)
   return out;
 }
 
-// 家族解析：先按 canonical 精确命中，再按 family 首个（DEN→RHOB、AC→DT
-// 这类别名井场常见；family 兜底防个别表外助记符漏配）。深度道跳过。
+// 并集显示名可能是 GR@file 或 GR#2。家族表只认识词干。
+QString mnemonicStem(const QString &mnemonic)
+{
+  int cut = mnemonic.size();
+  const int at = mnemonic.indexOf(QLatin1Char('@'));
+  const int hash = mnemonic.indexOf(QLatin1Char('#'));
+  if (at >= 0)
+    cut = std::min(cut, at);
+  if (hash >= 0)
+    cut = std::min(cut, hash);
+  return mnemonic.left(cut);
+}
+
+bool sameMnemonic(const QString &a, const QString &b)
+{
+  return a.compare(b, Qt::CaseInsensitive) == 0;
+}
+
+// 家族解析走词干：先精确词干（RHOB 压过更早出现的 DEN→RHOB），再 canonical
+// 别名，最后 family 首个。深度道跳过。
 const double *findCurve(const QList<LasCurve> &curves, const QString &canonical,
                         const QString &family)
 {
+  int alias = -1;
   int fallback = -1;
   for (int i = 1; i < curves.size(); ++i)
   {
-    const QString c = LasAliasMap::shared().canonicalCurve(curves.at(i).name);
-    if (c == canonical)
+    const QString stem = mnemonicStem(curves.at(i).name);
+    if (sameMnemonic(stem, canonical))
       return curves.at(i).values.constData();
-    if (fallback < 0 && LasAliasMap::shared().family(curves.at(i).name) == family)
+    const QString c = LasAliasMap::shared().canonicalCurve(stem);
+    if (alias < 0 && c == canonical)
+      alias = i;
+    if (fallback < 0 && LasAliasMap::shared().family(stem) == family)
       fallback = i;
   }
+  if (alias >= 0)
+    return curves.at(alias).values.constData();
   return fallback >= 0 ? curves.at(fallback).values.constData() : nullptr;
 }
 
-// 显式 mnemonic 解析（Sw 的 φ 输入）：canonical 等价命中即可。
+// 显式 mnemonic 解析（Sw 的 φ 输入）：精确词干优先，否则 canonical 等价。
 const double *findCurveByMnemonic(const QList<LasCurve> &curves, const QString &mnemonic)
 {
   const QString want = LasAliasMap::shared().canonicalCurve(mnemonic);
+  int alias = -1;
   for (int i = 1; i < curves.size(); ++i)
   {
-    if (LasAliasMap::shared().canonicalCurve(curves.at(i).name) == want)
+    const QString stem = mnemonicStem(curves.at(i).name);
+    if (sameMnemonic(stem, mnemonic))
       return curves.at(i).values.constData();
+    if (alias < 0 && LasAliasMap::shared().canonicalCurve(stem) == want)
+      alias = i;
   }
-  return nullptr;
+  return alias >= 0 ? curves.at(alias).values.constData() : nullptr;
 }
 
 QString sha256OfFile(const QString &path)
@@ -135,23 +163,6 @@ QString projectDirOf(const DataCatalog *catalog)
   if (!catalog)
     return {};
   return QDir::cleanPath(catalog->catalogPath() + QStringLiteral("/../../.."));
-}
-
-QString mnemonicStem(const QString &mnemonic)
-{
-  int cut = mnemonic.size();
-  const int at = mnemonic.indexOf(QLatin1Char('@'));
-  const int hash = mnemonic.indexOf(QLatin1Char('#'));
-  if (at >= 0)
-    cut = std::min(cut, at);
-  if (hash >= 0)
-    cut = std::min(cut, hash);
-  return mnemonic.left(cut);
-}
-
-bool sameMnemonic(const QString &a, const QString &b)
-{
-  return a.compare(b, Qt::CaseInsensitive) == 0;
 }
 
 // 表达式标识符（跳过函数名）。大小写保留，匹配曲线时再忽略大小写。
@@ -266,7 +277,8 @@ const WellCurveRef *uniqueExpressionRef(const QVector<WellCurveRef> &index,
   {
     for (const WellCurveRef &ref : index)
     {
-      if (!sameMnemonic(ref.mnemonic, id))
+      // 重名列的显示名是 RHOB@file。表达式写的是词干。
+      if (!sameMnemonic(ref.mnemonic, id) && !sameMnemonic(mnemonicStem(ref.mnemonic), id))
         continue;
       if (!hit || !sameMnemonic(hit->mnemonic, ref.mnemonic))
       {
@@ -775,31 +787,53 @@ bool PetroPhysTaskService::computeWell(const BatchRequest &req,
     }
     case Formula::Expression:
     {
-      // 变量表 = 原始助记符 + canonical 名（DEN 与 RHOB 都可写）；重复名
-      // 先到先得。含标识符外字符的助记符进不了词法，跳过（表达式里用不到）。
+      // 变量表按词干登记（RHOB@file、RHOB#2 都写成 RHOB），再补 canonical
+      // 别名（DEN 也能写成 RHOB）。精确词干占住的名字不再被更早的家族别名抢走。
+      // 含标识符外字符的助记符进不了词法，跳过。
+      const auto legalIdent = [](const QString &s) {
+        if (s.isEmpty())
+          return false;
+        const QChar c0 = s.at(0);
+        if (!c0.isLetter() && c0 != QLatin1Char('_'))
+          return false;
+        for (const QChar c : s)
+        {
+          if (!c.isLetterOrNumber() && c != QLatin1Char('_'))
+            return false;
+        }
+        return true;
+      };
       std::vector<std::string> vars;
       std::vector<std::pair<QString, const double *>> binding;
+      const auto bindName = [&](const QString &name, const double *data) {
+        if (!legalIdent(name))
+          return;
+        const std::string key = name.toStdString();
+        for (const auto &v : vars)
+        {
+          if (v == key)
+            return;
+        }
+        vars.push_back(key);
+        binding.push_back({name, data});
+      };
+      const auto stemOwned = [&](const QString &name) {
+        for (int i = 1; i < cs.size(); ++i)
+        {
+          if (sameMnemonic(mnemonicStem(cs.at(i).name), name))
+            return true;
+        }
+        return false;
+      };
+      for (int i = 1; i < cs.size(); ++i)
+        bindName(mnemonicStem(cs.at(i).name), cs.at(i).values.constData());
       for (int i = 1; i < cs.size(); ++i)
       {
-        const QString raw = cs.at(i).name;
-        const QString canon = LasAliasMap::shared().canonicalCurve(raw);
-        for (const QString &name : {raw, canon})
-        {
-          bool dup = false;
-          for (const auto &v : vars)
-          {
-            if (v == name.toStdString())
-            {
-              dup = true;
-              break;
-            }
-          }
-          if (!dup)
-          {
-            vars.push_back(name.toStdString());
-            binding.push_back({name, cs.at(i).values.constData()});
-          }
-        }
+        const QString stem = mnemonicStem(cs.at(i).name);
+        const QString canon = LasAliasMap::shared().canonicalCurve(stem);
+        if (sameMnemonic(canon, stem) || stemOwned(canon))
+          continue;
+        bindName(canon, cs.at(i).values.constData());
       }
       std::string compileErr;
       const curveexpr::CompiledExpr expr = curveexpr::CompiledExpr::compile(

@@ -140,6 +140,9 @@ class TestWellLogConsumers : public QObject
   Q_OBJECT
 private slots:
   void petrophys_readsRtFromNonPrimaryFile();
+  void petrophys_phiDensityUsesAliasedRhob();
+  void petrophys_expressionPrefersRealRhobOverDen();
+  void petrophys_expressionDrivesOnAliasedRhob();
   void propertymodel_requestUsesUnion();
   void sectionworkbench_showsNonPrimaryCurve();
 };
@@ -205,6 +208,183 @@ void TestWellLogConsumers::petrophys_readsRtFromNonPrimaryFile()
   }
   QVERIFY(finite >= 1);
   QVERIFY(sawFileB);
+}
+
+// 主文件没有 RHOB，另外两个文件都有：显示名变成 RHOB@file。φD 必须用上其中一条。
+void TestWellLogConsumers::petrophys_phiDensityUsesAliasedRhob()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString fileA = dir.filePath(QStringLiteral("fileA.las"));
+  const QString fileB = dir.filePath(QStringLiteral("fileB.las"));
+  const QString fileC = dir.filePath(QStringLiteral("fileC.las"));
+  const QVector<double> depth{1000, 1001, 1002};
+  QVERIFY(writeLas(fileA, {{QStringLiteral("DEPT"), depth},
+                           {QStringLiteral("GR"), {40, 50, 60}}}));
+  QVERIFY(writeLas(fileB, {{QStringLiteral("DEPT"), depth},
+                           {QStringLiteral("RHOB"), {2.30, 2.40, 2.50}}}));
+  QVERIFY(writeLas(fileC, {{QStringLiteral("DEPT"), depth},
+                           {QStringLiteral("RHOB"), {1.50, 1.50, 1.50}}}));
+
+  DataCatalog catalog;
+  QVERIFY(catalog.open(dir.path()));
+  QString err;
+  QVERIFY2(addWellLogs(&catalog, QStringLiteral("well-D"), 100, 200,
+                       {{QStringLiteral("ast-a"), QStringLiteral("ver-a"), fileA, true, 0},
+                        {QStringLiteral("ast-b"), QStringLiteral("ver-b"), fileB, false, 1},
+                        {QStringLiteral("ast-c"), QStringLiteral("ver-c"), fileC, false, 2}},
+                       &err),
+           qPrintable(err));
+
+  PaleoProjectStore store;
+  PaleoTaskService tasks(&store);
+  PetroPhysTaskService svc(&tasks, &store);
+  PetroPhysTaskService::BatchRequest req;
+  PetroPhysTaskService::WellRef well;
+  well.wellId = QStringLiteral("well-D");
+  well.lasPath = QFileInfo(fileA).absoluteFilePath();
+  well.sourceVersionId = QStringLiteral("ver-a");
+  req.wells.append(well);
+  req.formula = PetroPhysTaskService::Formula::PhiDensity;
+  req.params.rhoMa = 2.65;
+  req.params.rhoFluid = 1.0;
+  req.outputMnemonic = QStringLiteral("PHID");
+  req.writeProduct = false;
+
+  bool done = false;
+  PetroPhysTaskService::BatchResult batch;
+  PaleoTask *task = svc.startBatch(req, &catalog, QString(),
+                                   [&](bool, const PetroPhysTaskService::BatchResult &res) {
+                                     done = true;
+                                     batch = res;
+                                   });
+  QVERIFY(task);
+  QSignalSpy finishedSpy(task, &PaleoTask::finished);
+  QVERIFY(finishedSpy.wait(30000));
+  QVERIFY(done);
+  QCOMPARE(batch.wells.size(), 1);
+  QVERIFY2(batch.wells.at(0).ok, qPrintable(batch.wells.at(0).error));
+  const QVector<double> expect{(2.65 - 2.30) / 1.65, (2.65 - 2.40) / 1.65, (2.65 - 2.50) / 1.65};
+  QCOMPARE(batch.wells.at(0).values.size(), expect.size());
+  for (int i = 0; i < expect.size(); ++i)
+    QVERIFY2(std::fabs(batch.wells.at(0).values.at(i) - expect.at(i)) < 1e-6,
+             qPrintable(QString::number(batch.wells.at(0).values.at(i))));
+}
+
+// 主文件 DEN、另一文件真 RHOB。GR+RHOB 必须用真 RHOB，不能把 DEN 当成 RHOB。
+void TestWellLogConsumers::petrophys_expressionPrefersRealRhobOverDen()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString fileA = dir.filePath(QStringLiteral("fileA.las"));
+  const QString fileB = dir.filePath(QStringLiteral("fileB.las"));
+  const QVector<double> depth{1000, 1001, 1002};
+  QVERIFY(writeLas(fileA, {{QStringLiteral("DEPT"), depth},
+                           {QStringLiteral("GR"), {10, 20, 30}},
+                           {QStringLiteral("DEN"), {1.5, 1.5, 1.5}}}));
+  QVERIFY(writeLas(fileB, {{QStringLiteral("DEPT"), depth},
+                           {QStringLiteral("RHOB"), {2.3, 2.4, 2.5}}}));
+
+  DataCatalog catalog;
+  QVERIFY(catalog.open(dir.path()));
+  QString err;
+  QVERIFY2(addWellLogs(&catalog, QStringLiteral("well-E"), 100, 200,
+                       {{QStringLiteral("ast-a"), QStringLiteral("ver-a"), fileA, true, 0},
+                        {QStringLiteral("ast-b"), QStringLiteral("ver-b"), fileB, false, 1}},
+                       &err),
+           qPrintable(err));
+
+  PaleoProjectStore store;
+  PaleoTaskService tasks(&store);
+  PetroPhysTaskService svc(&tasks, &store);
+  PetroPhysTaskService::BatchRequest req;
+  PetroPhysTaskService::WellRef well;
+  well.wellId = QStringLiteral("well-E");
+  well.lasPath = QFileInfo(fileA).absoluteFilePath();
+  well.sourceVersionId = QStringLiteral("ver-a");
+  req.wells.append(well);
+  req.formula = PetroPhysTaskService::Formula::Expression;
+  req.expression = QStringLiteral("GR+RHOB");
+  req.outputMnemonic = QStringLiteral("SUM");
+  req.writeProduct = false;
+
+  bool done = false;
+  PetroPhysTaskService::BatchResult batch;
+  PaleoTask *task = svc.startBatch(req, &catalog, QString(),
+                                   [&](bool, const PetroPhysTaskService::BatchResult &res) {
+                                     done = true;
+                                     batch = res;
+                                   });
+  QVERIFY(task);
+  QSignalSpy finishedSpy(task, &PaleoTask::finished);
+  QVERIFY(finishedSpy.wait(30000));
+  QVERIFY(done);
+  QCOMPARE(batch.wells.size(), 1);
+  QVERIFY2(batch.wells.at(0).ok, qPrintable(batch.wells.at(0).error));
+  const QVector<double> expect{12.3, 22.4, 32.5};
+  QCOMPARE(batch.wells.at(0).values.size(), expect.size());
+  for (int i = 0; i < expect.size(); ++i)
+    QVERIFY2(std::fabs(batch.wells.at(0).values.at(i) - expect.at(i)) < 1e-6,
+             qPrintable(QString::number(batch.wells.at(0).values.at(i))));
+}
+
+// 两条 RHOB 都被加成 RHOB@file。表达式 RHOB 用先出现的那条文件做深度网格。
+void TestWellLogConsumers::petrophys_expressionDrivesOnAliasedRhob()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString fileA = dir.filePath(QStringLiteral("fileA.las"));
+  const QString fileB = dir.filePath(QStringLiteral("fileB.las"));
+  const QString fileC = dir.filePath(QStringLiteral("fileC.las"));
+  QVERIFY(writeLas(fileA, {{QStringLiteral("DEPT"), {1000, 1100, 1200}},
+                           {QStringLiteral("GR"), {10, 20, 30}}}));
+  QVERIFY(writeLas(fileB, {{QStringLiteral("DEPT"), {1000, 1001, 1002}},
+                           {QStringLiteral("RHOB"), {2, 4, 6}}}));
+  QVERIFY(writeLas(fileC, {{QStringLiteral("DEPT"), {1000, 1001, 1002}},
+                           {QStringLiteral("RHOB"), {9, 9, 9}}}));
+
+  DataCatalog catalog;
+  QVERIFY(catalog.open(dir.path()));
+  QString err;
+  QVERIFY2(addWellLogs(&catalog, QStringLiteral("well-F"), 100, 200,
+                       {{QStringLiteral("ast-a"), QStringLiteral("ver-a"), fileA, true, 0},
+                        {QStringLiteral("ast-b"), QStringLiteral("ver-b"), fileB, false, 1},
+                        {QStringLiteral("ast-c"), QStringLiteral("ver-c"), fileC, false, 2}},
+                       &err),
+           qPrintable(err));
+
+  PaleoProjectStore store;
+  PaleoTaskService tasks(&store);
+  PetroPhysTaskService svc(&tasks, &store);
+  PetroPhysTaskService::BatchRequest req;
+  PetroPhysTaskService::WellRef well;
+  well.wellId = QStringLiteral("well-F");
+  well.lasPath = QFileInfo(fileA).absoluteFilePath();
+  well.sourceVersionId = QStringLiteral("ver-a");
+  req.wells.append(well);
+  req.formula = PetroPhysTaskService::Formula::Expression;
+  req.expression = QStringLiteral("RHOB");
+  req.outputMnemonic = QStringLiteral("OUT");
+  req.writeProduct = false;
+
+  bool done = false;
+  PetroPhysTaskService::BatchResult batch;
+  PaleoTask *task = svc.startBatch(req, &catalog, QString(),
+                                   [&](bool, const PetroPhysTaskService::BatchResult &res) {
+                                     done = true;
+                                     batch = res;
+                                   });
+  QVERIFY(task);
+  QSignalSpy finishedSpy(task, &PaleoTask::finished);
+  QVERIFY(finishedSpy.wait(30000));
+  QVERIFY(done);
+  QCOMPARE(batch.wells.size(), 1);
+  QVERIFY2(batch.wells.at(0).ok, qPrintable(batch.wells.at(0).error));
+  const QVector<double> expect{2, 4, 6};
+  QCOMPARE(batch.wells.at(0).values.size(), expect.size());
+  for (int i = 0; i < expect.size(); ++i)
+    QVERIFY2(std::fabs(batch.wells.at(0).values.at(i) - expect.at(i)) < 1e-6,
+             qPrintable(QString::number(batch.wells.at(0).values.at(i))));
 }
 
 void TestWellLogConsumers::propertymodel_requestUsesUnion()

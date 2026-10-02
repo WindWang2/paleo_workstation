@@ -12,10 +12,31 @@
 
 namespace paleo::inversion
 {
+constexpr float kNan = std::numeric_limits<float>::quiet_NaN();
+
+// 中心移动平均：见 lowfreq.h 注释（lowCut 频段语义的公共低通核）。
+void lowCutMovingAverage(const float *x, int n, int half, float *out)
+{
+  for (int i = 0; i < n; ++i)
+  {
+    const int lo = std::max(0, i - half);
+    const int hi = std::min(n - 1, i + half);
+    double sum = 0.0;
+    int cnt = 0;
+    for (int k = lo; k <= hi; ++k)
+    {
+      if (std::isfinite(x[k]))
+      {
+        sum += double(x[k]);
+        ++cnt;
+      }
+    }
+    out[i] = cnt > 0 ? float(sum / double(cnt)) : kNan;
+  }
+}
+
 namespace
 {
-
-constexpr float kNan = std::numeric_limits<float>::quiet_NaN();
 
 double cellCenterX(const LowFreqModelInput &in, int il, int xl)
 {
@@ -50,28 +71,6 @@ void nearestCell(const LowFreqModelInput &in, double x, double y, int *il, int *
   }
   *il = bestIl;
   *xl = bestXl;
-}
-
-// 中心移动平均（奇数窗全宽，边缘缩窗）：窗内有限值均值；全窗缺失 → NaN。
-// 输出写回 out（长度 n，双缓冲由调用方给 raw）。
-void movingAverageFinite(const float *x, int n, int half, float *out)
-{
-  for (int i = 0; i < n; ++i)
-  {
-    const int lo = std::max(0, i - half);
-    const int hi = std::min(n - 1, i + half);
-    double sum = 0.0;
-    int cnt = 0;
-    for (int k = lo; k <= hi; ++k)
-    {
-      if (std::isfinite(x[k]))
-      {
-        sum += double(x[k]);
-        ++cnt;
-      }
-    }
-    out[i] = cnt > 0 ? float(sum / double(cnt)) : kNan;
-  }
 }
 
 // 横向 IDW：vals[i] 配 wells[i] 的 xy；query 在 (x,y)。d=0 精确命中；
@@ -200,7 +199,7 @@ LowFreqModelResult lowFreqImpedance(const LowFreqModelInput &input)
     std::vector<float> bufA(std::size_t(input.nS));
     for (LowFreqWellTrace &w : r.smoothedWells)
     {
-      movingAverageFinite(w.impedance.data(), input.nS, half, bufA.data());
+      lowCutMovingAverage(w.impedance.data(), input.nS, half, bufA.data());
       w.impedance = bufA;
     }
     r.ok = true;
@@ -382,7 +381,7 @@ void lowFreqTraceAt(const LowFreqModelResult &m, int il, int xl, float *out)
   }
   // smoothingWindowMs = 2·half·dt（见 lowFreqImpedance），反解 half。
   const int half = std::max(1, int(std::lround(m.smoothingWindowMs / m.dtMs * 0.5)));
-  movingAverageFinite(raw.data(), n, half, out);
+  lowCutMovingAverage(raw.data(), n, half, out);
 }
 
 } // namespace paleo::inversion

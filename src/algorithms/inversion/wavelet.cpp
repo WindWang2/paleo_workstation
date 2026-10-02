@@ -170,6 +170,42 @@ Wavelet makeRicker(double f0Hz, double sampleIntervalMs, double lengthMs)
   return w;
 }
 
+Wavelet rotateWaveletPhase(const Wavelet &wavelet, double phaseDeg)
+{
+  Wavelet out = wavelet;
+  const int n = wavelet.sampleCount();
+  if (n < 2)
+    return out;
+  // 解析信号单边谱旋转：正频乘 e^{iθ}、负频取共轭保持实信号、DC/Nyquist 不动。
+  const int nFft = paleo::dsp::nextPowerOfTwoAtLeast(4 * n);
+  std::vector<double> re(std::size_t(nFft), 0.0), im(std::size_t(nFft), 0.0);
+  for (int i = 0; i < n; ++i)
+    re[std::size_t(i)] = double(wavelet.samples[std::size_t(i)]);
+  paleo::dsp::fftRadix2(re.data(), im.data(), nFft, /*inverse=*/false);
+  const double theta = phaseDeg * std::numbers::pi / 180.0;
+  const double c = std::cos(theta);
+  const double s = std::sin(theta);
+  for (int k = 1; k < nFft / 2; ++k)
+  {
+    const double xr = re[std::size_t(k)] * c - im[std::size_t(k)] * s;
+    const double xi = re[std::size_t(k)] * s + im[std::size_t(k)] * c;
+    re[std::size_t(k)] = xr;
+    im[std::size_t(k)] = xi;
+    re[std::size_t(nFft - k)] = xr;
+    im[std::size_t(nFft - k)] = -xi;
+  }
+  paleo::dsp::fftRadix2(re.data(), im.data(), nFft, /*inverse=*/true);
+  double peak = 0.0;
+  for (int i = 0; i < n; ++i)
+    peak = std::max(peak, std::fabs(re[std::size_t(i)]));
+  if (peak > 0.0)
+  {
+    for (int i = 0; i < n; ++i)
+      out.samples[std::size_t(i)] = float(re[std::size_t(i)] / peak);
+  }
+  return out;
+}
+
 WaveletExtractResult extractWavelet(const float *trace, int nTrace, double traceT0Ms,
                                     double sampleIntervalMs, const ReflSpike *spikes,
                                     int nSpikes, double waveletT0Ms, int waveletSamples,

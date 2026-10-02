@@ -102,4 +102,9 @@ LowFreqModelResult lowFreqImpedance(const LowFreqModelInput &input);
 // 未 ok 的模型输出全 NaN（不崩）。
 void lowFreqTraceAt(const LowFreqModelResult &model, int il, int xl, float *out);
 
+// 中心移动平均（奇数窗全宽 2·halfWindow+1，边缘缩窗）：窗内有限值均值，
+// 全窗缺失 → NaN。这是 lowCut 频段语义的低通核（首零点 ≈ 1/(窗宽 ms)），
+// 低频模型与带限反演的高通/低通共用同一核。
+void lowCutMovingAverage(const float *x, int n, int halfWindow, float *out);
+
 } // namespace paleo::inversion

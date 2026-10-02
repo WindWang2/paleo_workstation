@@ -41,6 +41,10 @@ struct Wavelet
 // t=0，采样数为奇数使 t=0 恰有采样。lengthMs 会吸附到奇数采样步。
 Wavelet makeRicker(double f0Hz, double sampleIntervalMs, double lengthMs);
 
+// 相位旋转（Hilbert 解析信号单边谱相位 e^{iθ}）：w_rot = w·cosθ − H{w}·sinθ。
+// 振幅谱不变，用于混合相位正演对拍与相位扫描。θ=90° 时为零相位→奇对称化。
+Wavelet rotateWaveletPhase(const Wavelet &wavelet, double phaseDeg);
+
 // 单个反射系数尖峰（时间域 TWT ms）。
 struct ReflSpike
 {

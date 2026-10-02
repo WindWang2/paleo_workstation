@@ -335,7 +335,7 @@ bool makeSyntheticGeoTiff(const QString &path, int w, int h, bool withNodataHole
     return false;
   }
   const double gt[6] = {500000.0, 25.0, 0.0, 4000000.0, 0.0, -25.0};
-  GDALSetGeoTransform(ds, gt);
+  GDALSetGeoTransform(ds, const_cast<double *>(gt)); // GDAL<3.12 非 const 签名
   GDALSetProjection(ds, "ENGCRS[\"Paleo local engineering grid\",EDATUM[\"Local engineering datum\"],CS[Cartesian,2],AXIS[\"easting\",east,ORDER[1],LENGTHUNIT[\"metre\",1]],AXIS[\"northing\",north,ORDER[2],LENGTHUNIT[\"metre\",1]]]");
   GDALRasterBandH band = GDALGetRasterBand(ds, 1);
   const float nodata = -9999.0f;

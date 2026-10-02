@@ -7,7 +7,7 @@
 #include <QJsonObject>
 #include <QSignalSpy>
 
-#include <tuple>>
+#include <tuple>
 #include <QTemporaryDir>
 
 #include <gdal.h>

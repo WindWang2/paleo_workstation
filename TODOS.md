@@ -1,3 +1,15 @@
+## P3 — 断面 Y 型 / 分叉与自动生长（from goal/fault-surface, 2026-10-02）
+
+- **What:** 成面只接受沿走向单调的单支断棒条带。同一剖面上 trace 与纵向
+  同时重叠判为分叉并拒绝。走向转折超过 75° 拒绝。单剖面断层拒绝，
+  不向上下外推。不从断层多边形反插断面。
+- **Why:** Y 型、多分支和断面自动生长需要另一套拓扑，不是条带三角剖分。
+- **Pros:** 失败显式，不会把分叉画成一张假面；**Cons:** 分叉断层仍只有棒。
+- **Context:** docs/progress/fault-surface.md「递延」。
+- **Effort:** human: L / CC: L
+- **Priority:** P3
+- **Depends on:** goal/fault-surface 的条带成面核与 SurveyFrame
+
 ## P3 — 地层格架后续：断块网格 / 随机模拟（from goal/property-modeling, 2026-10-02）
 
 - **What:** V1 只做等比例 IJK 格架 + 井曲线粗化 + 断层竖帘阻断的 IDW。

@@ -882,6 +882,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-time-depth.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-ux.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-well-logset.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-well-trajectory.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-wellcomposite.cmake"
 )
 foreach(_f IN LISTS _paleo_extra_manifest)

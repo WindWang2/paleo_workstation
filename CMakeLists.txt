@@ -621,6 +621,10 @@ add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（�
 add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_perf LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_contours LIBS paleo_qgis)
+add_paleo_test(tst_singlefactor_contourbudget LIBS paleo_algorithms paleo_qgis)
+add_paleo_test(tst_singlefactor_guilatency LIBS paleo_algorithms paleo_services)
+add_paleo_test(tst_singlefactor_faults LIBS paleo_workflow)
+add_paleo_test(tst_singlefactor_asynccontour LIBS paleo_workflow)
 add_paleo_test(tst_singlefactor_parity LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_contract LIBS paleo_domain)
 add_paleo_test(tst_singlefactor_samples LIBS paleo_algorithms)
@@ -904,7 +908,7 @@ endforeach()
 # RUN_SERIAL，不打 perf（-LE perf 不应丢掉这些功能测试）。
 set(_paleo_perf_tests
   tst_perf tst_previewmap_perf tst_aiassist_perf tst_startup_trace tst_perfbudget
-  tst_singlefactor_perf
+  tst_singlefactor_perf tst_singlefactor_contourbudget tst_singlefactor_guilatency
   tst_ui_blocking tst_mem_budget tst_perf_las tst_perf_segyindex tst_perf_catalog
   tst_perf_regress tst_petrophysperf tst_seismic_perf tst_seismic_baseline
   tst_seismic_budgets tst_seismicattrperf tst_horizontrackperf tst_timedepthperf
@@ -917,6 +921,12 @@ foreach(_t IN LISTS _paleo_perf_tests)
 endforeach()
 if(TEST tst_singlefactor_perf)
   set_tests_properties(tst_singlefactor_perf PROPERTIES TIMEOUT 1200)
+endif()
+if(TEST tst_singlefactor_contourbudget)
+  set_tests_properties(tst_singlefactor_contourbudget PROPERTIES TIMEOUT 600)
+endif()
+if(TEST tst_singlefactor_guilatency)
+  set_tests_properties(tst_singlefactor_guilatency PROPERTIES TIMEOUT 180)
 endif()
 foreach(_t IN ITEMS tst_wellcomposite_visual)
   if(TEST ${_t})

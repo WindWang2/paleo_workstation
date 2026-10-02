@@ -37,6 +37,7 @@
 #include <qgsfield.h>
 #include <qgsgeometry.h>
 #include <qgsmaplayer.h>
+#include <qgsrasterlayer.h>
 #include <qgsvectorlayer.h> // ---- m2(C)：saveFaciesAttributes 的 edit buffer 回写 ------
 
 #include <gdal.h>
@@ -2097,57 +2098,91 @@ bool ConstraintWorkflow::declareFactorResult( QgisLayerService *layers,
 bool ConstraintWorkflow::generateContours( const QString &horizon, const QString &factorLayerId,
                                            double interval, QString *error )
 {
+  AnalysisContourJob job;
+  if ( !prepareAnalysisContourJob( horizon, factorLayerId, interval, {}, false, &job, error ) )
+    return false;
+  if ( !computeAnalysisContourJob( &job ) )
+  {
+    setError( error, job.error );
+    return false;
+  }
+  return publishAnalysisContourJob( job, error );
+}
+
+namespace
+{
+bool resolveDeclaredRaster( QgisLayerService *layers, const QString &layerId, QString *path, QString *error );
+
+void discardTempTree( const QString &path )
+{
+  if ( path.contains( QStringLiteral( "paleo-sf-" ) ) )
+    QDir( QFileInfo( path ).absolutePath() ).removeRecursively();
+}
+
+QString factorIdOf( const QString &horizon, const QString &factorLayerId )
+{
+  const QString factorPrefix = QStringLiteral( "factor.%1." ).arg( horizon );
+  if ( factorLayerId.startsWith( factorPrefix ) )
+    return factorLayerId.mid( factorPrefix.size() );
+  return factorLayerId;
+}
+} // namespace
+
+bool ConstraintWorkflow::prepareAnalysisContourJob( const QString &horizon, const QString &factorLayerId,
+                                                    double interval, const QVector<double> &levels,
+                                                    bool fixedLevels, AnalysisContourJob *job, QString *error )
+{
+  if ( !job )
+  {
+    setError( error, tr( "缺少等值线任务" ) );
+    return false;
+  }
+  *job = AnalysisContourJob();
+  if ( fixedLevels )
+  {
+    if ( levels.isEmpty() )
+    {
+      setError( error, tr( "等值级别为空" ) );
+      return false;
+    }
+    for ( double level : levels )
+    {
+      if ( !std::isfinite( level ) )
+      {
+        setError( error, tr( "等值级别必须为有限数值" ) );
+        return false;
+      }
+    }
+  }
+
   QgisLayerService *layers = m_layers.data();
   if ( !layers )
   {
     setError( error, tr( "constraint workflow is not bound to a layer service" ) );
     return false;
   }
-  if ( factorLayerId.isEmpty() )
+  if ( !fixedLevels )
   {
-    setError( error, tr( "缺少单因素图层 id" ) );
-    return false;
-  }
-  if ( !( interval > 0.0 ) )
-  {
-    setError( error, tr( "等值线间距必须是正数" ) );
-    return false;
-  }
-
-  // 输入必须是已声明的单因素栅格（等值线是对栅格的 §12 LineString 派生）。
-  QVector<LayerDeclaration> declared;
-  QString readErr;
-  if ( !layers->tryDeclared( &declared, &readErr ) )
-  {
-    setError( error, readErr.isEmpty() ? tr( "无法读取图层清单" ) : readErr );
-    return false;
-  }
-  const LayerDeclaration *factorDecl = nullptr;
-  for ( const LayerDeclaration &d : declared )
-  {
-    if ( d.layerId == factorLayerId )
+    if ( factorLayerId.isEmpty() )
     {
-      factorDecl = &d;
-      break;
+      setError( error, tr( "缺少单因素图层 id" ) );
+      return false;
+    }
+    if ( !( interval > 0.0 ) )
+    {
+      setError( error, tr( "等值线间距必须是正数" ) );
+      return false;
     }
   }
-  if ( !factorDecl )
-  {
-    setError( error, tr( "图层 %1 未在清单声明" ).arg( factorLayerId ) );
-    return false;
-  }
-  if ( factorDecl->type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) != 0 )
-  {
-    setError( error, tr( "等值线输入必须是栅格图层：%1" ).arg( factorLayerId ) );
-    return false;
-  }
-  const QString rasterPath = factorDecl->source.section( QLatin1Char( '|' ), 0, 0 );
 
-  // layerId "factor.<horizon>.<factorId>" → 尾段 factorId（命名失败安全退化）。
-  QString factorId = factorLayerId;
-  const QString factorPrefix = QStringLiteral( "factor.%1." ).arg( horizon );
-  if ( factorLayerId.startsWith( factorPrefix ) )
-    factorId = factorLayerId.mid( factorPrefix.size() );
+  QString rasterPath;
+  if ( !resolveDeclaredRaster( layers, factorLayerId, &rasterPath, error ) )
+    return false;
+  if ( factorLayerId.startsWith( QStringLiteral( "cartographic." ) ) )
+  {
+    setError( error, tr( "解释性制图成果不能当作分析场提取等值线" ) );
+    return false;
+  }
 
   QString regErr;
   DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
@@ -2156,60 +2191,193 @@ bool ConstraintWorkflow::generateContours( const QString &horizon, const QString
     setError( error, regErr );
     return false;
   }
-  const DerivedStaging st = registrar.stage(
-      QStringLiteral( "contour_lines" ),
-      tr( "等值线·%1" ).arg( SingleFactorRegistry::titleFor( factorId ) ),
-      QStringLiteral( "CONTOURS_%1_%2.gpkg" ).arg( factorId, horizon ), &regErr );
-  if ( !st.isValid() )
+
+  job->generation = ++m_publishGeneration;
+  job->horizon = horizon;
+  job->factorLayerId = factorLayerId;
+  job->factorId = factorIdOf( horizon, factorLayerId );
+  job->rasterPath = rasterPath;
+  job->parentPaths << rasterPath;
+  job->interval = interval;
+  job->levels = levels;
+  job->fixedLevels = fixedLevels;
+  job->prepared = true;
+  return true;
+}
+
+bool ConstraintWorkflow::computeAnalysisContourJob( AnalysisContourJob *job, const std::function<bool()> &cancelled )
+{
+  // 只写临时 GPKG。不碰 catalog、清单和发布代次。
+  if ( !job || !job->prepared )
   {
+    if ( job )
+      job->error = tr( "等值线任务尚未准备" );
+    return false;
+  }
+  const auto discard = [&job]() {
+    discardTempTree( job->outputPath );
+    job->ok = false;
+  };
+  if ( cancelled && cancelled() )
+  {
+    job->error = tr( "已取消" );
+    job->ok = false;
+    return false;
+  }
+
+  const QString tempDir = QDir( QDir::tempPath() )
+                              .filePath( QStringLiteral( "paleo-sf-contour-%1" )
+                                             .arg( QUuid::createUuid().toString( QUuid::Id128 ) ) );
+  if ( !QDir().mkpath( tempDir ) )
+  {
+    job->error = tr( "无法创建临时计算目录" );
+    job->ok = false;
+    return false;
+  }
+  job->outputPath = QDir( tempDir ).filePath( QStringLiteral( "contours.gpkg" ) );
+
+  QString contourErr;
+  const bool wrote = job->fixedLevels
+                         ? FactorContourService::generateFixedContours( job->rasterPath, job->outputPath, job->levels,
+                                                                        &contourErr )
+                         : FactorContourService::generateContours( job->rasterPath, job->outputPath, job->interval,
+                                                                   &contourErr );
+  if ( cancelled && cancelled() )
+  {
+    discard();
+    job->error = tr( "已取消" );
+    return false;
+  }
+  if ( !wrote )
+  {
+    discard();
+    job->error = contourErr;
+    return false;
+  }
+  job->ok = true;
+  job->error.clear();
+  return true;
+}
+
+bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &job, QString *error )
+{
+  const auto discardTemp = [&job]() { discardTempTree( job.outputPath ); };
+  if ( !job.ok || job.outputPath.isEmpty() )
+  {
+    discardTemp();
+    setError( error, job.error.isEmpty() ? tr( "等值线生成失败" ) : job.error );
+    return false;
+  }
+  if ( job.generation != m_publishGeneration )
+  {
+    discardTemp();
+    setError( error, tr( "发布代次已变，丢弃这次等值线" ) );
+    return false;
+  }
+  QgisLayerService *layers = m_layers.data();
+  if ( !layers )
+  {
+    discardTemp();
+    setError( error, tr( "constraint workflow is not bound to a layer service" ) );
+    return false;
+  }
+  QString regErr;
+  DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
+  if ( !registrar.isBound() )
+  {
+    discardTemp();
     setError( error, regErr );
     return false;
   }
-
-  QString contourErr;
-  if ( !FactorContourService::generateContours( rasterPath, st.absolutePath, interval, &contourErr ) )
+  const DerivedStaging st = registrar.stage(
+      QStringLiteral( "contour_lines" ), tr( "等值线·%1" ).arg( SingleFactorRegistry::titleFor( job.factorId ) ),
+      QStringLiteral( "CONTOURS_%1_%2.gpkg" ).arg( job.factorId, job.horizon ), &regErr );
+  if ( !st.isValid() )
   {
-    setError( error, contourErr );
+    discardTemp();
+    setError( error, regErr );
+    return false;
+  }
+  if ( sameFile( st.absolutePath, job.rasterPath ) )
+  {
+    discardTemp();
+    setError( error, tr( "等值线不能覆盖分析场文件" ) );
+    return false;
+  }
+  if ( job.generation != m_publishGeneration )
+  {
+    if ( !sameFile( st.absolutePath, job.rasterPath ) )
+      removeIfPresent( st.absolutePath );
+    discardTemp();
+    setError( error, tr( "发布代次已变，丢弃这次等值线" ) );
     return false;
   }
 
+  const QStringList parents = registrar.parentVersionIdsFor( { job.rasterPath } );
   QVariantMap extra;
-  extra.insert("mapping_product",true);extra.insert("layer_id","product."+st.versionId);extra.insert("horizon",horizon);extra.insert("kind","contour_lines");
-  extra.insert("layer_type","vector");extra.insert("source_suffix","|layername=contours");extra.insert("title",tr("%1 等值线").arg(horizon));extra.insert("group","04_SingleFactor/Contours");
-  extra.insert( QStringLiteral( "interval" ), interval );
-  extra.insert( QStringLiteral( "factor_layer_id" ), factorLayerId );
+  extra.insert( QStringLiteral( "mapping_product" ), true );
+  extra.insert( QStringLiteral( "layer_id" ), QStringLiteral( "product." ) + st.versionId );
+  extra.insert( QStringLiteral( "horizon" ), job.horizon );
+  extra.insert( QStringLiteral( "kind" ), QStringLiteral( "contour_lines" ) );
+  extra.insert( QStringLiteral( "layer_type" ), QStringLiteral( "vector" ) );
+  extra.insert( QStringLiteral( "source_suffix" ), QStringLiteral( "|layername=contours" ) );
+  extra.insert( QStringLiteral( "title" ), tr( "%1 等值线" ).arg( job.horizon ) );
+  extra.insert( QStringLiteral( "group" ), QStringLiteral( "04_SingleFactor/Contours" ) );
+  extra.insert( QStringLiteral( "factor_layer_id" ), job.factorLayerId );
   extra.insert( QStringLiteral( "value_source" ), QStringLiteral( "analysis" ) );
-  extra.insert( QStringLiteral( "manifest_layer_id" ), QStringLiteral( "contours.%1.%2" ).arg( horizon, factorId ) );
+  extra.insert( QStringLiteral( "manifest_layer_id" ),
+                QStringLiteral( "contours.%1.%2" ).arg( job.horizon, job.factorId ) );
+  if ( job.fixedLevels )
   {
-    QVariantList parents;
-    for ( const QString &id : registrar.parentVersionIdsFor( { rasterPath } ) )
-      parents << id;
-    extra.insert( QStringLiteral( "parent_version_ids" ), parents );
+    QVariantList levelList;
+    for ( double level : job.levels )
+      levelList << level;
+    extra.insert( QStringLiteral( "levels" ), levelList );
   }
-  if(auto *catalog=PaleoWorkflowDerivedCatalog(this))
-    for(const auto &id:registrar.parentVersionIdsFor({rasterPath}))
-      if(catalog->versionById(id).extra.value("mock").toBool())extra.insert("mock",true);
-  QString commitErr;
-  if ( !registrar.commitExternal( st, st.absolutePath,
-                                  registrar.parentVersionIdsFor( { rasterPath } ),
-                                  QStringLiteral( "gdal_contour_c_api" ), extra, &commitErr ) )
+  else
   {
+    extra.insert( QStringLiteral( "interval" ), job.interval );
+  }
+  QVariantList parentList;
+  for ( const QString &id : parents )
+    parentList << id;
+  extra.insert( QStringLiteral( "parent_version_ids" ), parentList );
+  if ( !job.fixedLevels )
+  {
+    if ( auto *catalog = PaleoWorkflowDerivedCatalog( this ) )
+    {
+      for ( const QString &id : parents )
+      {
+        if ( catalog->versionById( id ).extra.value( QStringLiteral( "mock" ) ).toBool() )
+          extra.insert( QStringLiteral( "mock" ), true );
+      }
+    }
+  }
+
+  QString commitErr;
+  if ( !registrar.commitExternal( st, job.outputPath, parents, QStringLiteral( "gdal_contour_c_api" ), extra,
+                                  &commitErr ) )
+  {
+    if ( !sameFile( st.absolutePath, job.rasterPath ) )
+      removeIfPresent( st.absolutePath );
+    discardTemp();
     setError( error, commitErr );
     return false;
   }
+  discardTemp();
 
   LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "contours.%1.%2" ).arg( horizon, factorId );
-  decl.horizon = horizon;
+  decl.layerId = QStringLiteral( "contours.%1.%2" ).arg( job.horizon, job.factorId );
+  decl.horizon = job.horizon;
   decl.type = QStringLiteral( "vector" );
   decl.source = QStringLiteral( "%1|layername=contours" ).arg( st.absolutePath );
   decl.group = QStringLiteral( "04_SingleFactor/Contours" );
-  decl.title = tr( "等值线·%1" ).arg( SingleFactorRegistry::titleFor( factorId ) );
+  decl.title = tr( "等值线·%1" ).arg( SingleFactorRegistry::titleFor( job.factorId ) );
   if ( !layers->declare( decl, error ) )
     return false;
 
-  stampLayerAssetLink( layers, decl.layerId, st.assetId ); // C4：已实例化层补盖资产关联
-  emit contoursGenerated( horizon, factorLayerId, decl.layerId );
+  stampLayerAssetLink( layers, decl.layerId, st.assetId );
+  emit contoursGenerated( job.horizon, job.factorLayerId, decl.layerId );
   return true;
 }
 
@@ -2589,29 +2757,97 @@ bool resolveDeclaredRaster( QgisLayerService *layers, const QString &layerId, QS
 bool ConstraintWorkflow::generateContoursAtLevels( const QString &horizon, const QString &factorLayerId,
                                                    const QVector<double> &levels, QString *error )
 {
+  AnalysisContourJob job;
+  if ( !prepareAnalysisContourJob( horizon, factorLayerId, 0.0, levels, true, &job, error ) )
+    return false;
+  if ( !computeAnalysisContourJob( &job ) )
+  {
+    setError( error, job.error );
+    return false;
+  }
+  return publishAnalysisContourJob( job, error );
+}
+
+bool ConstraintWorkflow::prepareInterpretiveContourJob( const QString &horizon, const QString &factorLayerId,
+                                                        const QVector<double> &levels, bool strict,
+                                                        InterpretiveContourJob *job, QString *error )
+{
+  if ( !job )
+  {
+    setError( error, tr( "缺少解释性等值线任务" ) );
+    return false;
+  }
+  *job = InterpretiveContourJob();
+
+  QgisProcessingService *proc = m_proc.data();
+  QgisLayerService *layers = m_layers.data();
+  if ( !proc || !layers )
+  {
+    setError( error, tr( "constraint workflow is not bound to services" ) );
+    return false;
+  }
+  if ( !proc->algorithmIds().contains( QStringLiteral( "paleo:paleo_cartographic_work" ) ) )
+  {
+    setError( error, tr( "制图工作场引擎尚未注册" ) );
+    return false;
+  }
+  if ( factorLayerId.isEmpty() )
+  {
+    setError( error, tr( "缺少单因素图层 id" ) );
+    return false;
+  }
   if ( levels.isEmpty() )
   {
     setError( error, tr( "等值级别为空" ) );
     return false;
   }
-  QgisLayerService *layers = m_layers.data();
-  if ( !layers )
+  for ( double level : levels )
   {
-    setError( error, tr( "constraint workflow is not bound to a layer service" ) );
+    if ( !std::isfinite( level ) )
+    {
+      setError( error, tr( "等值级别必须为有限数值" ) );
+      return false;
+    }
+  }
+
+  QVector<LayerDeclaration> declared;
+  QString readErr;
+  if ( !layers->tryDeclared( &declared, &readErr ) )
+  {
+    setError( error, readErr.isEmpty() ? tr( "无法读取图层清单" ) : readErr );
     return false;
   }
-  QString rasterPath;
-  if ( !resolveDeclaredRaster( layers, factorLayerId, &rasterPath, error ) )
-    return false;
-  if ( factorLayerId.startsWith( QStringLiteral( "cartographic." ) ) )
+  const LayerDeclaration *factorDecl = nullptr;
+  for ( const LayerDeclaration &d : declared )
   {
-    setError( error, tr( "解释性制图成果不能当作分析场提取等值线" ) );
+    if ( d.layerId == factorLayerId )
+    {
+      factorDecl = &d;
+      break;
+    }
+  }
+  if ( !factorDecl )
+  {
+    setError( error, tr( "图层 %1 未在清单声明" ).arg( factorLayerId ) );
     return false;
   }
-  QString factorId = factorLayerId;
-  const QString factorPrefix = QStringLiteral( "factor.%1." ).arg( horizon );
-  if ( factorLayerId.startsWith( factorPrefix ) )
-    factorId = factorLayerId.mid( factorPrefix.size() );
+  if ( paleo::singlefactor::isCartographicProductLayer( factorLayerId, factorDecl->group ) )
+  {
+    setError( error, tr( "解释性制图工作场不能当作分析场" ) );
+    return false;
+  }
+  if ( factorDecl->type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) != 0 )
+  {
+    setError( error, tr( "制图工作场输入必须是栅格图层：%1" ).arg( factorLayerId ) );
+    return false;
+  }
+  const QString rasterPath = factorDecl->source.section( QLatin1Char( '|' ), 0, 0 );
+  if ( !QFile::exists( rasterPath ) )
+  {
+    setError( error, tr( "分析场文件不存在：%1" ).arg( rasterPath ) );
+    return false;
+  }
+
   QString regErr;
   DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
   if ( !registrar.isBound() )
@@ -2619,152 +2855,532 @@ bool ConstraintWorkflow::generateContoursAtLevels( const QString &horizon, const
     setError( error, regErr );
     return false;
   }
-  const DerivedStaging st = registrar.stage(
-      QStringLiteral( "contour_lines" ), tr( "等值线·%1" ).arg( SingleFactorRegistry::titleFor( factorId ) ),
-      QStringLiteral( "CONTOURS_%1_%2.gpkg" ).arg( factorId, horizon ), &regErr );
-  if ( !st.isValid() )
+  if ( DataCatalog *catalog = PaleoWorkflowDerivedCatalog( this ) )
   {
+    for ( const CatalogVersion &version : catalog->versions() )
+    {
+      if ( !catalogPathMatches( registrar.projectDir(), version.path, rasterPath ) )
+        continue;
+      const QString kind = version.extra.value( QStringLiteral( "kind" ) ).toString();
+      const QString valueSource = version.extra.value( QStringLiteral( "value_source" ) ).toString();
+      if ( paleo::singlefactor::rejectsQuantitativeUse( kind, valueSource ) )
+      {
+        setError( error, tr( "解释性制图工作场不能当作分析场" ) );
+        return false;
+      }
+    }
+  }
+
+  QString shaErr;
+  const QString analysisSha = DataCatalog::sha256FileHex( rasterPath, &shaErr );
+  if ( analysisSha.isEmpty() )
+  {
+    setError( error, shaErr.isEmpty() ? tr( "分析场 sha256 计算失败" ) : shaErr );
+    return false;
+  }
+
+  QStringList parentPaths{ rasterPath };
+  const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( horizon );
+  const bool hasConstraints = std::any_of(
+      declared.cbegin(), declared.cend(),
+      [&constraintLayerId]( const LayerDeclaration &d ) { return d.layerId == constraintLayerId; } );
+  QString constraintUri;
+  bool frozenConstraints = false;
+  if ( hasConstraints )
+  {
+    const QString frozen = property( ( "paleo.constraint.snapshot." + horizon ).toUtf8().constData() ).toString();
+    if ( !frozen.isEmpty() )
+    {
+      constraintUri = frozen + QStringLiteral( "|layername=features" );
+      frozenConstraints = true;
+    }
+    else
+    {
+      for ( const LayerDeclaration &d : declared )
+      {
+        if ( d.layerId == constraintLayerId )
+        {
+          constraintUri = d.source;
+          break;
+        }
+      }
+      if ( constraintUri.isEmpty() )
+      {
+        setError( error, tr( "无法加载约束图层 %1" ).arg( constraintLayerId ) );
+        return false;
+      }
+    }
+    parentPaths.append( constraintUri.section( QLatin1Char( '|' ), 0, 0 ) );
+  }
+
+  job->generation = ++m_publishGeneration;
+  job->strict = strict;
+  job->horizon = horizon;
+  job->factorLayerId = factorLayerId;
+  job->factorId = factorIdOf( horizon, factorLayerId );
+  job->rasterPath = rasterPath;
+  job->constraintUri = constraintUri;
+  job->hasConstraints = hasConstraints;
+  job->frozenConstraints = frozenConstraints;
+  job->analysisSha = analysisSha;
+  job->parentPaths = parentPaths;
+  job->levels = levels;
+  job->prepared = true;
+  return true;
+}
+
+bool ConstraintWorkflow::computeInterpretiveContourJob( InterpretiveContourJob *job,
+                                                        const std::function<bool()> &cancelled )
+{
+  // 工作场和等值线都落在临时目录。不读发布代次，不登记。
+  if ( !job || !job->prepared )
+  {
+    if ( job )
+      job->error = tr( "解释性等值线任务尚未准备" );
+    return false;
+  }
+  const auto discard = [&job]() {
+    if ( !sameFile( job->workPath, job->rasterPath ) )
+      discardTempTree( job->workPath );
+    if ( !sameFile( job->contourPath, job->rasterPath ) )
+      discardTempTree( job->contourPath );
+    job->ok = false;
+  };
+  if ( cancelled && cancelled() )
+  {
+    job->error = tr( "已取消" );
+    job->ok = false;
+    return false;
+  }
+  QgisProcessingService *proc = m_proc.data();
+  if ( !proc )
+  {
+    job->error = tr( "constraint workflow is not bound to services" );
+    return false;
+  }
+
+  auto raster = std::make_unique<QgsRasterLayer>( job->rasterPath, QStringLiteral( "analysis" ),
+                                                  QStringLiteral( "gdal" ) );
+  if ( !raster->isValid() )
+  {
+    job->error = tr( "分析场无法读取" );
+    return false;
+  }
+  std::unique_ptr<QgsVectorLayer> constraints;
+  if ( job->hasConstraints )
+  {
+    constraints = std::make_unique<QgsVectorLayer>( job->constraintUri, QStringLiteral( "constraints" ),
+                                                    QStringLiteral( "ogr" ) );
+    if ( !constraints->isValid() )
+    {
+      job->error = job->frozenConstraints
+                       ? tr( "约束快照无法读取" )
+                       : tr( "无法加载约束图层 %1" ).arg( QStringLiteral( "constraints.%1" ).arg( job->horizon ) );
+      return false;
+    }
+  }
+  if ( cancelled && cancelled() )
+  {
+    job->error = tr( "已取消" );
+    job->ok = false;
+    return false;
+  }
+
+  const QString tempDir = QDir( QDir::tempPath() )
+                              .filePath( QStringLiteral( "paleo-sf-carto-%1" )
+                                             .arg( QUuid::createUuid().toString( QUuid::Id128 ) ) );
+  if ( !QDir().mkpath( tempDir ) )
+  {
+    job->error = tr( "无法创建临时计算目录" );
+    job->ok = false;
+    return false;
+  }
+  const QString tempWork = QDir( tempDir ).filePath( QStringLiteral( "work.tif" ) );
+  job->workPath = tempWork;
+  job->contourPath = QDir( tempDir ).filePath( QStringLiteral( "contours.gpkg" ) );
+
+  QStringList levelText;
+  for ( double level : job->levels )
+    levelText << QString::number( level, 'g', 17 );
+  QVariantMap runParams;
+  runParams.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( static_cast<QgsMapLayer *>( raster.get() ) ) );
+  runParams.insert( QStringLiteral( "LEVELS" ), levelText.join( QLatin1Char( ',' ) ) );
+  runParams.insert( QStringLiteral( "TRANSITION" ), 0.0 );
+  runParams.insert( QStringLiteral( "OUTPUT" ), tempWork );
+  if ( constraints )
+    runParams.insert( QStringLiteral( "CONSTRAINTS" ),
+                      QVariant::fromValue( static_cast<QgsMapLayer *>( constraints.get() ) ) );
+
+  QgisProcessingService::ProcessingHooks hooks;
+  hooks.cancelled = cancelled;
+  QString runErr;
+  const QVariantMap results =
+      proc->run( QStringLiteral( "paleo:paleo_cartographic_work" ), runParams, &runErr, hooks );
+  if ( cancelled && cancelled() )
+  {
+    discardTempTree( tempWork );
+    job->error = tr( "已取消" );
+    job->ok = false;
+    return false;
+  }
+
+  const QString outPath = results.value( QStringLiteral( "OUTPUT" ) ).toString();
+  QString qcPath = results.value( QStringLiteral( "QC" ) ).toString();
+  if ( qcPath.isEmpty() && !outPath.isEmpty() )
+    qcPath = fileStem( outPath ) + QStringLiteral( ".qc.json" );
+  if ( !outPath.isEmpty() )
+    job->workPath = outPath;
+  job->qcPath = qcPath;
+  if ( sameFile( outPath, job->rasterPath ) )
+  {
+    discardTempTree( tempWork );
+    job->error = tr( "制图工作场不能覆盖分析场文件" );
+    job->ok = false;
+    return false;
+  }
+  if ( results.isEmpty() || outPath.isEmpty() )
+  {
+    discard();
+    job->error = runErr.isEmpty() ? tr( "制图工作场未返回输出路径" ) : runErr;
+    return false;
+  }
+  if ( !QFile::exists( qcPath ) )
+  {
+    discard();
+    job->error = tr( "制图工作场缺少 QC" );
+    return false;
+  }
+
+  QString jsonErr;
+  const QVariantMap qc = readJsonObject( qcPath, &jsonErr );
+  if ( qc.isEmpty() )
+  {
+    discard();
+    job->error = jsonErr.isEmpty() ? tr( "制图工作场 QC 无法读取" ) : jsonErr;
+    return false;
+  }
+  job->unresolved = qc.value( QStringLiteral( "unresolved_crossings" ) ).toInt();
+  if ( cancelled && cancelled() )
+  {
+    discard();
+    job->error = tr( "已取消" );
+    return false;
+  }
+  if ( job->strict && job->unresolved > 0 )
+  {
+    discard();
+    job->error = tr( "未解决穿线 %1 条，严格模式不发布" ).arg( job->unresolved );
+    return false;
+  }
+
+  QString contourErr;
+  if ( !FactorContourService::generateFixedContours( job->workPath, job->contourPath, job->levels, &contourErr ) )
+  {
+    discard();
+    job->error = contourErr;
+    return false;
+  }
+  if ( cancelled && cancelled() )
+  {
+    discard();
+    job->error = tr( "已取消" );
+    return false;
+  }
+  job->ok = true;
+  job->error.clear();
+  return true;
+}
+
+bool ConstraintWorkflow::publishInterpretiveContourJob( const InterpretiveContourJob &job, QString *error )
+{
+  const auto discardTemp = [&job]() {
+    if ( !sameFile( job.workPath, job.rasterPath ) )
+      discardTempTree( job.workPath );
+    if ( !sameFile( job.contourPath, job.rasterPath ) )
+      discardTempTree( job.contourPath );
+  };
+  if ( !job.ok || job.workPath.isEmpty() || job.contourPath.isEmpty() )
+  {
+    discardTemp();
+    setError( error, job.error.isEmpty() ? tr( "解释性等值线生成失败" ) : job.error );
+    return false;
+  }
+  if ( job.generation != m_publishGeneration )
+  {
+    discardTemp();
+    setError( error, tr( "发布代次已变，丢弃这次制图工作场" ) );
+    return false;
+  }
+
+  QString shaErr;
+  const QString analysisShaAfter = DataCatalog::sha256FileHex( job.rasterPath, &shaErr );
+  if ( analysisShaAfter != job.analysisSha )
+  {
+    discardTemp();
+    setError( error, tr( "分析场在制图期间被改写，丢弃工作场" ) );
+    return false;
+  }
+  if ( sameFile( job.workPath, job.rasterPath ) || sameFile( job.contourPath, job.rasterPath ) )
+  {
+    discardTemp();
+    setError( error, tr( "制图工作场不能覆盖分析场文件" ) );
+    return false;
+  }
+
+  QgisLayerService *layers = m_layers.data();
+  if ( !layers )
+  {
+    discardTemp();
+    setError( error, tr( "constraint workflow is not bound to a layer service" ) );
+    return false;
+  }
+  QString regErr;
+  DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
+  if ( !registrar.isBound() )
+  {
+    discardTemp();
     setError( error, regErr );
     return false;
   }
-  QString contourErr;
-  if ( !FactorContourService::generateFixedContours( rasterPath, st.absolutePath, levels, &contourErr ) )
+
+  bool knownFactor = false;
+  const SingleFactorDefinition def = SingleFactorRegistry::byId( job.factorId, &knownFactor );
+  const QString title = SingleFactorRegistry::titleFor( job.factorId );
+  const DerivedStaging st = registrar.stage(
+      QStringLiteral( "single_factor_cartographic_work" ), tr( "制图工作场·%1" ).arg( title ),
+      QStringLiteral( "CARTOGRAPHIC_%1_%2.tif" ).arg( job.factorId, job.horizon ), &regErr );
+  if ( !st.isValid() )
   {
-    setError( error, contourErr );
+    discardTemp();
+    setError( error, regErr );
     return false;
   }
+  const QString stagedQc = fileStem( st.absolutePath ) + QStringLiteral( ".qc.json" );
+  if ( sameFile( st.absolutePath, job.rasterPath ) || sameFile( stagedQc, job.rasterPath ) )
+  {
+    discardTemp();
+    setError( error, tr( "制图工作场不能覆盖分析场文件" ) );
+    return false;
+  }
+  if ( job.generation != m_publishGeneration )
+  {
+    discardTemp();
+    setError( error, tr( "发布代次已变，丢弃这次制图工作场" ) );
+    return false;
+  }
+  if ( QFile::exists( stagedQc ) )
+    QFile::remove( stagedQc );
+  if ( !QFile::copy( job.qcPath, stagedQc ) )
+  {
+    removeIfPresent( stagedQc );
+    discardTemp();
+    setError( error, tr( "制图工作场缺少 QC" ) );
+    return false;
+  }
+
+  QString jsonErr;
+  const QVariantMap qc = readJsonObject( stagedQc, &jsonErr );
+  if ( qc.isEmpty() )
+  {
+    removeIfPresent( stagedQc );
+    discardTemp();
+    setError( error, jsonErr.isEmpty() ? tr( "制图工作场 QC 无法读取" ) : jsonErr );
+    return false;
+  }
+
   QVariantList levelList;
-  for ( double level : levels )
+  for ( double level : job.levels )
     levelList << level;
-  const QStringList parents = registrar.parentVersionIdsFor( { rasterPath } );
+  QStringList parentIds = registrar.parentVersionIdsFor( job.parentPaths );
+  parentIds.removeDuplicates();
+  parentIds.sort();
+  QVariantList parentList;
+  for ( const QString &id : parentIds )
+    parentList << id;
+  QVariantMap hashParams;
+  hashParams.insert( QStringLiteral( "algorithm_id" ), QStringLiteral( "paleo:paleo_cartographic_work" ) );
+  hashParams.insert( QStringLiteral( "value_source" ), QStringLiteral( "cartographic_work" ) );
+  hashParams.insert( QStringLiteral( "levels" ), qc.contains( QStringLiteral( "levels" ) ) ? qc.value( QStringLiteral( "levels" ) )
+                                                                                           : QVariant( levelList ) );
+  hashParams.insert( QStringLiteral( "transition_distance" ), qc.value( QStringLiteral( "transition_distance" ) ) );
+  hashParams.insert( QStringLiteral( "ignored" ), qc.value( QStringLiteral( "ignored" ) ) );
+  hashParams.insert( QStringLiteral( "used_constraints" ), qc.value( QStringLiteral( "used_constraints" ) ) );
+  hashParams.insert( QStringLiteral( "analysis_sha256" ), job.analysisSha );
+  hashParams.insert( QStringLiteral( "horizon" ), job.horizon );
+  hashParams.insert( QStringLiteral( "factor_id" ), job.factorId );
+  hashParams.insert( QStringLiteral( "parent_version_ids" ), parentList );
+  const paleo::singlefactor::ParameterHash hash = paleo::singlefactor::parameterHash( hashParams );
+  if ( !hash.ok )
+  {
+    removeIfPresent( stagedQc );
+    discardTemp();
+    setError( error, hash.error.isEmpty() ? tr( "参数指纹计算失败" ) : hash.error );
+    return false;
+  }
+  const QString qcSha = DataCatalog::sha256FileHex( stagedQc, &shaErr );
+  if ( qcSha.isEmpty() )
+  {
+    removeIfPresent( stagedQc );
+    discardTemp();
+    setError( error, shaErr.isEmpty() ? tr( "旁路文件 sha256 计算失败" ) : shaErr );
+    return false;
+  }
+  if ( job.generation != m_publishGeneration )
+  {
+    removeIfPresent( stagedQc );
+    discardTemp();
+    setError( error, tr( "发布代次已变，丢弃这次制图工作场" ) );
+    return false;
+  }
+
+  const QString workLayerId = QStringLiteral( "cartographic.%1.%2" ).arg( job.horizon, job.factorId );
+  const QDir projectDir( registrar.projectDir() );
   QVariantMap extra;
   extra.insert( QStringLiteral( "mapping_product" ), true );
-  extra.insert( QStringLiteral( "layer_id" ), QStringLiteral( "product." ) + st.versionId );
-  extra.insert( QStringLiteral( "manifest_layer_id" ), QStringLiteral( "contours.%1.%2" ).arg( horizon, factorId ) );
-  extra.insert( QStringLiteral( "horizon" ), horizon );
-  extra.insert( QStringLiteral( "kind" ), QStringLiteral( "contour_lines" ) );
-  extra.insert( QStringLiteral( "value_source" ), QStringLiteral( "analysis" ) );
-  extra.insert( QStringLiteral( "layer_type" ), QStringLiteral( "vector" ) );
-  extra.insert( QStringLiteral( "source_suffix" ), QStringLiteral( "|layername=contours" ) );
-  extra.insert( QStringLiteral( "title" ), tr( "%1 等值线" ).arg( horizon ) );
-  extra.insert( QStringLiteral( "group" ), QStringLiteral( "04_SingleFactor/Contours" ) );
-  extra.insert( QStringLiteral( "levels" ), levelList );
-  extra.insert( QStringLiteral( "factor_layer_id" ), factorLayerId );
-  QVariantList parentList;
-  for ( const QString &id : parents )
-    parentList << id;
-  extra.insert( QStringLiteral( "parent_version_ids" ), parentList );
+  extra.insert( QStringLiteral( "layer_id" ), workLayerId );
+  extra.insert( QStringLiteral( "manifest_layer_id" ), workLayerId );
+  extra.insert( QStringLiteral( "layer_type" ), QStringLiteral( "raster" ) );
+  extra.insert( QStringLiteral( "title" ), tr( "制图工作场·%1" ).arg( title ) );
+  extra.insert( QStringLiteral( "group" ), QStringLiteral( "04_SingleFactor/Cartographic" ) );
+  extra.insert( QStringLiteral( "horizon" ), job.horizon );
+  extra.insert( QStringLiteral( "factor_id" ), job.factorId );
+  extra.insert( QStringLiteral( "factor_layer_id" ), job.factorLayerId );
+  extra.insert( QStringLiteral( "kind" ), QStringLiteral( "single_factor_cartographic_work" ) );
+  extra.insert( QStringLiteral( "value_source" ), QStringLiteral( "cartographic_work" ) );
+  extra.insert( QStringLiteral( "parameter_hash" ), hash.sha256 );
+  extra.insert( QStringLiteral( "provenance_schema_version" ), 1 );
+  extra.insert( QStringLiteral( "algorithm_id" ), QStringLiteral( "paleo:paleo_cartographic_work" ) );
+  extra.insert( QStringLiteral( "analysis_sha256" ), job.analysisSha );
+  extra.insert( QStringLiteral( "qc_path" ), projectDir.relativeFilePath( stagedQc ) );
+  extra.insert( QStringLiteral( "qc_sha256" ), qcSha );
+  extra.insert( QStringLiteral( "modified_cells" ), qc.value( QStringLiteral( "modified_cells" ) ) );
+  extra.insert( QStringLiteral( "unchanged" ), qc.value( QStringLiteral( "unchanged" ) ) );
+  extra.insert( QStringLiteral( "unresolved_crossings" ), qc.value( QStringLiteral( "unresolved_crossings" ) ) );
+  extra.insert( QStringLiteral( "levels" ), hashParams.value( QStringLiteral( "levels" ) ) );
+  if ( auto *catalog = PaleoWorkflowDerivedCatalog( this ) )
+  {
+    for ( const QString &id : parentIds )
+    {
+      if ( catalog->versionById( id ).extra.value( QStringLiteral( "mock" ) ).toBool() )
+        extra.insert( QStringLiteral( "mock" ), true );
+    }
+  }
   QString commitErr;
-  if ( !registrar.commitExternal( st, st.absolutePath, parents, QStringLiteral( "gdal_contour_c_api" ), extra,
+  if ( !registrar.commitExternal( st, job.workPath, parentIds, QStringLiteral( "paleo:paleo_cartographic_work" ), extra,
                                   &commitErr ) )
   {
+    if ( !sameFile( st.absolutePath, job.rasterPath ) )
+      removeIfPresent( st.absolutePath );
+    if ( !sameFile( stagedQc, job.rasterPath ) )
+      removeIfPresent( stagedQc );
+    discardTemp();
     setError( error, commitErr );
     return false;
   }
-  LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "contours.%1.%2" ).arg( horizon, factorId );
-  decl.horizon = horizon;
-  decl.type = QStringLiteral( "vector" );
-  decl.source = QStringLiteral( "%1|layername=contours" ).arg( st.absolutePath );
-  decl.group = QStringLiteral( "04_SingleFactor/Contours" );
-  decl.title = tr( "等值线·%1" ).arg( SingleFactorRegistry::titleFor( factorId ) );
-  if ( !layers->declare( decl, error ) )
+
+  if ( !registrar.projectDir().isEmpty() )
+  {
+    QString styleErr;
+    FactorStyleWriter::writeStyleQml( job.factorId, st.absolutePath,
+                                      QDir( registrar.projectDir() ).filePath( QStringLiteral( "styles" ) ),
+                                      &styleErr );
+  }
+
+  LayerDeclaration workDecl;
+  workDecl.layerId = workLayerId;
+  workDecl.horizon = job.horizon;
+  workDecl.type = QStringLiteral( "raster" );
+  workDecl.source = st.absolutePath;
+  workDecl.group = QStringLiteral( "04_SingleFactor/Cartographic" );
+  workDecl.styleRef = knownFactor ? def.styleRef : QString();
+  workDecl.title = tr( "制图工作场·%1" ).arg( title );
+  if ( !layers->declare( workDecl, error ) )
+  {
+    discardTemp();
     return false;
-  stampLayerAssetLink( layers, decl.layerId, st.assetId );
-  emit contoursGenerated( horizon, factorLayerId, decl.layerId );
+  }
+  stampLayerAssetLink( layers, workDecl.layerId, st.assetId );
+  emit cartographicWorkGenerated( job.horizon, job.factorLayerId, workDecl.layerId );
+
+  const QString contourTitle = tr( "解释性等值线·%1" ).arg( title );
+  const QString contourLayerId = QStringLiteral( "cartographic.%1.%2.contours" ).arg( job.horizon, job.factorId );
+  const DerivedStaging contourSt = registrar.stage(
+      QStringLiteral( "single_factor_cartographic_contour" ), contourTitle,
+      QStringLiteral( "CARTO_CONTOURS_%1_%2.gpkg" ).arg( job.factorId, job.horizon ), &regErr );
+  if ( !contourSt.isValid() )
+  {
+    discardTemp();
+    setError( error, regErr );
+    return false;
+  }
+  if ( sameFile( contourSt.absolutePath, job.rasterPath ) )
+  {
+    discardTemp();
+    setError( error, tr( "制图工作场不能覆盖分析场文件" ) );
+    return false;
+  }
+  QStringList contourParents = registrar.parentVersionIdsFor( { job.rasterPath, st.absolutePath } );
+  contourParents.removeDuplicates();
+  contourParents.sort();
+  QVariantList contourParentList;
+  for ( const QString &id : contourParents )
+    contourParentList << id;
+  QVariantMap contourExtra;
+  contourExtra.insert( QStringLiteral( "mapping_product" ), true );
+  contourExtra.insert( QStringLiteral( "layer_id" ), contourLayerId );
+  contourExtra.insert( QStringLiteral( "manifest_layer_id" ), contourLayerId );
+  contourExtra.insert( QStringLiteral( "horizon" ), job.horizon );
+  contourExtra.insert( QStringLiteral( "kind" ), QStringLiteral( "single_factor_cartographic_contour" ) );
+  contourExtra.insert( QStringLiteral( "value_source" ), QStringLiteral( "cartographic_work" ) );
+  contourExtra.insert( QStringLiteral( "layer_type" ), QStringLiteral( "vector" ) );
+  contourExtra.insert( QStringLiteral( "source_suffix" ), QStringLiteral( "|layername=contours" ) );
+  contourExtra.insert( QStringLiteral( "title" ), contourTitle );
+  contourExtra.insert( QStringLiteral( "group" ), QStringLiteral( "04_SingleFactor/Cartographic" ) );
+  contourExtra.insert( QStringLiteral( "levels" ), levelList );
+  contourExtra.insert( QStringLiteral( "factor_layer_id" ), job.factorLayerId );
+  contourExtra.insert( QStringLiteral( "work_layer_id" ), workLayerId );
+  contourExtra.insert( QStringLiteral( "parent_version_ids" ), contourParentList );
+  contourExtra.insert( QStringLiteral( "unresolved_crossings" ), job.unresolved );
+  if ( !registrar.commitExternal( contourSt, job.contourPath, contourParents, QStringLiteral( "gdal_contour_c_api" ),
+                                  contourExtra, &commitErr ) )
+  {
+    if ( !sameFile( contourSt.absolutePath, job.rasterPath ) )
+      removeIfPresent( contourSt.absolutePath );
+    discardTemp();
+    setError( error, commitErr );
+    return false;
+  }
+
+  LayerDeclaration contourDecl;
+  contourDecl.layerId = contourLayerId;
+  contourDecl.horizon = job.horizon;
+  contourDecl.type = QStringLiteral( "vector" );
+  contourDecl.source = QStringLiteral( "%1|layername=contours" ).arg( contourSt.absolutePath );
+  contourDecl.group = QStringLiteral( "04_SingleFactor/Cartographic" );
+  contourDecl.title = contourTitle;
+  if ( !layers->declare( contourDecl, error ) )
+  {
+    discardTemp();
+    return false;
+  }
+  stampLayerAssetLink( layers, contourDecl.layerId, contourSt.assetId );
+  emit interpretiveContoursGenerated( job.horizon, job.factorLayerId, contourDecl.layerId );
+  discardTemp();
   return true;
 }
 
 bool ConstraintWorkflow::generateInterpretiveContours( const QString &horizon, const QString &factorLayerId,
                                                        const QVector<double> &levels, QString *error, bool strict )
 {
-  int unresolved = 0;
-  if ( !generateCartographicWork( horizon, factorLayerId, levels, error, strict, &unresolved ) )
+  InterpretiveContourJob job;
+  if ( !prepareInterpretiveContourJob( horizon, factorLayerId, levels, strict, &job, error ) )
     return false;
-  QgisLayerService *layers = m_layers.data();
-  if ( !layers )
+  if ( !computeInterpretiveContourJob( &job ) )
   {
-    setError( error, tr( "constraint workflow is not bound to a layer service" ) );
+    setError( error, job.error );
     return false;
   }
-  QString factorId = factorLayerId;
-  const QString factorPrefix = QStringLiteral( "factor.%1." ).arg( horizon );
-  if ( factorLayerId.startsWith( factorPrefix ) )
-    factorId = factorLayerId.mid( factorPrefix.size() );
-  const QString workId = QStringLiteral( "cartographic.%1.%2" ).arg( horizon, factorId );
-  QString workPath;
-  QString analysisPath;
-  if ( !resolveDeclaredRaster( layers, workId, &workPath, error ) )
-    return false;
-  if ( !resolveDeclaredRaster( layers, factorLayerId, &analysisPath, error ) )
-    return false;
-  QString regErr;
-  DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
-  if ( !registrar.isBound() )
-  {
-    setError( error, regErr );
-    return false;
-  }
-  const QString title = tr( "解释性等值线·%1" ).arg( SingleFactorRegistry::titleFor( factorId ) );
-  const DerivedStaging st = registrar.stage( QStringLiteral( "single_factor_cartographic_contour" ), title,
-                                             QStringLiteral( "CARTO_CONTOURS_%1_%2.gpkg" ).arg( factorId, horizon ),
-                                             &regErr );
-  if ( !st.isValid() )
-  {
-    setError( error, regErr );
-    return false;
-  }
-  QString contourErr;
-  if ( !FactorContourService::generateFixedContours( workPath, st.absolutePath, levels, &contourErr ) )
-  {
-    setError( error, contourErr );
-    return false;
-  }
-  const QString layerId = QStringLiteral( "cartographic.%1.%2.contours" ).arg( horizon, factorId );
-  QStringList parents = registrar.parentVersionIdsFor( { analysisPath, workPath } );
-  parents.removeDuplicates();
-  parents.sort();
-  QVariantList parentList;
-  for ( const QString &id : parents )
-    parentList << id;
-  QVariantList levelList;
-  for ( double level : levels )
-    levelList << level;
-  QVariantMap extra;
-  extra.insert( QStringLiteral( "mapping_product" ), true );
-  extra.insert( QStringLiteral( "layer_id" ), layerId );
-  extra.insert( QStringLiteral( "manifest_layer_id" ), layerId );
-  extra.insert( QStringLiteral( "horizon" ), horizon );
-  extra.insert( QStringLiteral( "kind" ), QStringLiteral( "single_factor_cartographic_contour" ) );
-  extra.insert( QStringLiteral( "value_source" ), QStringLiteral( "cartographic_work" ) );
-  extra.insert( QStringLiteral( "layer_type" ), QStringLiteral( "vector" ) );
-  extra.insert( QStringLiteral( "source_suffix" ), QStringLiteral( "|layername=contours" ) );
-  extra.insert( QStringLiteral( "title" ), title );
-  extra.insert( QStringLiteral( "group" ), QStringLiteral( "04_SingleFactor/Cartographic" ) );
-  extra.insert( QStringLiteral( "levels" ), levelList );
-  extra.insert( QStringLiteral( "factor_layer_id" ), factorLayerId );
-  extra.insert( QStringLiteral( "work_layer_id" ), workId );
-  extra.insert( QStringLiteral( "parent_version_ids" ), parentList );
-  extra.insert( QStringLiteral( "unresolved_crossings" ), unresolved );
-  QString commitErr;
-  if ( !registrar.commitExternal( st, st.absolutePath, parents, QStringLiteral( "gdal_contour_c_api" ), extra,
-                                  &commitErr ) )
-  {
-    setError( error, commitErr );
-    return false;
-  }
-  LayerDeclaration decl;
-  decl.layerId = layerId;
-  decl.horizon = horizon;
-  decl.type = QStringLiteral( "vector" );
-  decl.source = QStringLiteral( "%1|layername=contours" ).arg( st.absolutePath );
-  decl.group = QStringLiteral( "04_SingleFactor/Cartographic" );
-  decl.title = title;
-  if ( !layers->declare( decl, error ) )
-    return false;
-  stampLayerAssetLink( layers, decl.layerId, st.assetId );
-  emit interpretiveContoursGenerated( horizon, factorLayerId, decl.layerId );
-  return true;
+  return publishInterpretiveContourJob( job, error );
 }
 // ---- m2(B) end ----------------------------------------------------------------
 

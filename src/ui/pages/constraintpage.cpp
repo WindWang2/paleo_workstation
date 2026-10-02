@@ -854,12 +854,17 @@ void ConstraintPage::updateEngineRows()
 
 void ConstraintPage::updateFactorActionStates()
 {
+  const bool busy = property( "paleo.page.runbusy" ).toBool();
+  if ( auto *idw = child<QPushButton>( this, "runIdwButton" ) )
+  {
+    idw->setEnabled( !busy );
+    idw->setToolTip( busy ? tr( "正在计算，可取消" ) : QString() );
+  }
   auto *factors = child<QTableWidget>( this, "factorTable" );
   auto *generate = child<QPushButton>( this, "generateFactorButton" );
   auto *contour = child<QPushButton>( this, "contourButton" );
   if ( !factors || !generate || !contour )
     return;
-  const bool busy = property( "paleo.page.runbusy" ).toBool();
   auto *saveLine = child<QPushButton>( this, "constraintParamSaveButton" );
   auto *rows = child<QListWidget>( this, "constraintList" );
   if ( saveLine )

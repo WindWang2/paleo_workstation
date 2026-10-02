@@ -347,6 +347,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 读。task 是 PaleoTaskService 持有的对象，QPointer 防服务先析构。
     PropertyModelWorkflow::PropertyModelComputed m_propModelComputed;
     QPointer<PaleoTask> m_propModelTask;
+    // 单因素本地方向：准备和发布在界面线程，插值在任务池。
+    QPointer<PaleoTask> m_factorTask;
     void finishPropertyModelRun(double overlayAlpha);
     FolderImportWorkflow *m_folderImportWf = nullptr;   // W2 文件夹/单文件导入编排
     ProjectOpenWorkflow *m_projectOpenWf = nullptr;     // W2 打开/新建工程编排

@@ -617,6 +617,36 @@ std::vector<sf::ContourPolyline> contourAtLevels( GDALDatasetH source, const std
   return lines;
 }
 
+int unresolvedCrossings( GDALDatasetH dataset, const std::vector<double> &levels,
+                         const std::vector<sf::ConstraintLine> &lines )
+{
+  const std::vector<sf::ContourPolyline> contours = contourAtLevels( dataset, levels );
+  int crossings = 0;
+  for ( const sf::ConstraintLine &line : lines )
+  {
+    if ( !line.enabled )
+      continue;
+    if ( line.semantic != sf::Semantic::ContourStop && line.semantic != sf::Semantic::CartographicDetour )
+      continue;
+    if ( line.points.size() < 2 )
+      continue;
+    for ( const sf::ContourPolyline &poly : contours )
+    {
+      if ( poly.points.size() < 2 )
+        continue;
+      for ( std::size_t i = 1; i < poly.points.size(); ++i )
+      {
+        for ( std::size_t j = 1; j < line.points.size(); ++j )
+        {
+          if ( sf::segmentsCross( poly.points[i - 1], poly.points[i], line.points[j - 1], line.points[j] ) )
+            ++crossings;
+        }
+      }
+    }
+  }
+  return crossings;
+}
+
 } // namespace
 
 QString LocalDirectionIdwAlgorithm::shortHelpString() const
@@ -1052,6 +1082,15 @@ QVariantMap CartographicWorkAlgorithm::processAlgorithm( const QVariantMap &para
   guard.paths << outPath << qcPath;
   writeFloatGrid( outPath, grid, work.values, crs, "cartographic_work", "paleo:paleo_cartographic_work" );
 
+  int unresolved = 0;
+  {
+    GdalDataset written;
+    written.ds = GDALOpen( outPath.toUtf8().constData(), GA_ReadOnly );
+    if ( !written.ds )
+      throw QgsProcessingException( QStringLiteral( "无法回读制图工作场以统计穿线" ) );
+    unresolved = unresolvedCrossings( written.ds, levels, parsed.lines );
+  }
+
   QVariantList used;
   for ( const std::string &id : work.usedConstraintIds )
     used << utf8( id );
@@ -1066,6 +1105,7 @@ QVariantMap CartographicWorkAlgorithm::processAlgorithm( const QVariantMap &para
   qc.insert( QStringLiteral( "value_source" ), QStringLiteral( "cartographic_work" ) );
   qc.insert( QStringLiteral( "modified_cells" ), work.modifiedCells );
   qc.insert( QStringLiteral( "unchanged" ), work.unchanged );
+  qc.insert( QStringLiteral( "unresolved_crossings" ), unresolved );
   qc.insert( QStringLiteral( "used_constraints" ), used );
   qc.insert( QStringLiteral( "ignored" ), ignored );
   qc.insert( QStringLiteral( "levels" ), levelList );

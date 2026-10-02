@@ -531,6 +531,15 @@ SurfaceResult evaluateLocalIdw( const PreparedInput &input, const GridSpec &grid
   std::vector<int> regionCells( static_cast<std::size_t>( std::max( componentCount, 1 ) ), 0 );
   for ( int row = 0; row < grid.rows; ++row )
   {
+    if ( stopped( control ) )
+    {
+      result.status = Status::Cancelled;
+      result.message = "已取消";
+      result.values.clear();
+      result.marks.clear();
+      result.components.clear();
+      return result;
+    }
     for ( int column = 0; column < grid.cols; ++column )
     {
       const std::size_t index = static_cast<std::size_t>( row ) * static_cast<std::size_t>( grid.cols ) +

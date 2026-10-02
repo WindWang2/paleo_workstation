@@ -1,4 +1,6 @@
 #include <QtTest>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QDir>
 #include <QFile>
 #include <QSignalSpy>
@@ -307,6 +309,81 @@ private slots:
 
     wf.setConstraintStore( nullptr );
     QVERIFY( wf.constraintStore() == nullptr );
+  }
+
+  void testTypedLineParamsSurviveReopen()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const QString qgz = dir.filePath( QStringLiteral( "proj.qgz" ) );
+    const QString gpkg = dir.filePath( QStringLiteral( "project.gpkg" ) );
+    const QString meta = dir.filePath( QStringLiteral( "project.sqlite" ) );
+
+    QString savedId;
+    {
+      QgisProjectService projectSvc;
+      PaleoProjectStore store;
+      LayerManifest manifest{ meta };
+      QgisLayerService layers{ &projectSvc, &manifest };
+      QgisProcessingService proc{ &store };
+      QVERIFY( projectSvc.createProject( qgz ) );
+      QVERIFY( manifest.open() );
+      store.setProjectPaths( qgz, gpkg, meta );
+      ConstraintWorkflow wf( &proc, &layers );
+      wf.setStore( &store );
+      QString err;
+      QVariantMap soft;
+      soft.insert( QStringLiteral( "semantic" ), QStringLiteral( "interpretive_boundary" ) );
+      soft.insert( QStringLiteral( "softStrength" ), 0.5 );
+      soft.insert( QStringLiteral( "ratio" ), 4.0 );
+      QVERIFY2( wf.addConstraint( QStringLiteral( "T1" ), QStringLiteral( "LINESTRING(0 0, 10 0)" ),
+                                  QStringLiteral( "interpretive_boundary" ), 3, &err, &savedId, soft ),
+                qPrintable( err ) );
+      QVariantMap plain;
+      QString plainId;
+      QVERIFY2( wf.addConstraint( QStringLiteral( "T1" ), QStringLiteral( "LINESTRING(0 0, 0 10)" ),
+                                  QStringLiteral( "line" ), 1, &err, &plainId, plain ),
+                qPrintable( err ) );
+      const QVector<QVariantMap> fresh = wf.loadConstraints( QStringLiteral( "T1" ) );
+      QCOMPARE( fresh.size(), 2 );
+      const QVariantMap typed = fresh.at( 0 );
+      QCOMPARE( typed.value( QStringLiteral( "type" ) ).toString(), QStringLiteral( "interpretive_boundary" ) );
+      const QJsonObject json = QJsonDocument::fromJson( typed.value( QStringLiteral( "params_json" ) ).toString().toUtf8() ).object();
+      QCOMPARE( json.value( QStringLiteral( "semantic" ) ).toString(), QStringLiteral( "interpretive_boundary" ) );
+      QCOMPARE( json.value( QStringLiteral( "softStrength" ) ).toDouble(), 0.5 );
+      QVERIFY( fresh.at( 1 ).value( QStringLiteral( "params_json" ) ).toString().isEmpty() );
+
+      QVariantMap edited;
+      edited.insert( QStringLiteral( "semantic" ), QStringLiteral( "direction_guide" ) );
+      edited.insert( QStringLiteral( "ratio" ), 12.0 );
+      QVERIFY2( wf.updateConstraintLine( savedId, edited, &err ), qPrintable( err ) );
+    }
+
+    QgisProjectService projectSvc;
+    PaleoProjectStore store;
+    LayerManifest manifest{ meta };
+    QgisLayerService layers{ &projectSvc, &manifest };
+    QgisProcessingService proc{ &store };
+    QVERIFY( projectSvc.openProject( qgz ) );
+    QVERIFY( manifest.open() );
+    store.setProjectPaths( qgz, gpkg, meta );
+    ConstraintWorkflow reopened( &proc, &layers );
+    reopened.setStore( &store );
+    const QVector<QVariantMap> loaded = reopened.loadConstraints( QStringLiteral( "T1" ) );
+    QCOMPARE( loaded.size(), 2 );
+    bool found = false;
+    for ( const QVariantMap &row : loaded )
+    {
+      if ( row.value( QStringLiteral( "id" ) ).toString() != savedId )
+        continue;
+      found = true;
+      QCOMPARE( row.value( QStringLiteral( "type" ) ).toString(), QStringLiteral( "direction_line" ) );
+      const QJsonObject json = QJsonDocument::fromJson( row.value( QStringLiteral( "params_json" ) ).toString().toUtf8() ).object();
+      QCOMPARE( json.value( QStringLiteral( "semantic" ) ).toString(), QStringLiteral( "direction_guide" ) );
+      QCOMPARE( json.value( QStringLiteral( "ratio" ) ).toDouble(), 12.0 );
+      QCOMPARE( json.value( QStringLiteral( "schemaVersion" ) ).toInt(), 1 );
+    }
+    QVERIFY( found );
   }
 };
 

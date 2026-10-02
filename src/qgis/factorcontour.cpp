@@ -3,6 +3,9 @@
 
 #include <QByteArray>
 #include <QFile>
+#include <QStringList>
+
+#include <cmath>
 
 #include <cpl_conv.h>
 #include <cpl_string.h>
@@ -25,17 +28,14 @@ namespace
 namespace FactorContourService
 {
 
-bool generateContours( const QString &rasterPath, const QString &outputGpkg,
-                       double interval, QString *error )
+namespace
+{
+bool generateWithOption( const QString &rasterPath, const QString &outputGpkg,
+                         const QByteArray &levelOption, QString *error )
 {
   if ( rasterPath.isEmpty() || !QFile::exists( rasterPath ) )
   {
     setError( error, QStringLiteral( "contour input raster not found: %1" ).arg( rasterPath ) );
-    return false;
-  }
-  if ( !( interval > 0.0 ) )
-  {
-    setError( error, QStringLiteral( "contour interval must be positive (got %1)" ).arg( interval ) );
     return false;
   }
   if ( outputGpkg.isEmpty() )
@@ -100,9 +100,7 @@ bool generateContours( const QString &rasterPath, const QString &outputGpkg,
 
   // 与 gdal:contour 工具同参（LEVEL_INTERVAL/ID_FIELD/ELEV_FIELD 是
   // GDALContourGenerateEx 认的 option 名——utility 与 C API 共用底层）。
-  const QByteArray intervalOpt =
-      QByteArray( "LEVEL_INTERVAL=" ) + QByteArray::number( interval );
-  const char *options[] = { intervalOpt.constData(), "ID_FIELD=0", "ELEV_FIELD=1", nullptr };
+  const char *options[] = { levelOption.constData(), "ID_FIELD=0", "ELEV_FIELD=1", nullptr };
 
   const CPLErr rc = GDALContourGenerateEx( band, layer, options, nullptr, nullptr );
 
@@ -120,6 +118,41 @@ bool generateContours( const QString &rasterPath, const QString &outputGpkg,
     return false;
   }
   return true;
+}
+} // namespace
+
+bool generateContours( const QString &rasterPath, const QString &outputGpkg,
+                       double interval, QString *error )
+{
+  if ( !( interval > 0.0 ) )
+  {
+    setError( error, QStringLiteral( "contour interval must be positive (got %1)" ).arg( interval ) );
+    return false;
+  }
+  const QByteArray levelOption = QByteArray( "LEVEL_INTERVAL=" ) + QByteArray::number( interval );
+  return generateWithOption( rasterPath, outputGpkg, levelOption, error );
+}
+
+bool generateFixedContours( const QString &rasterPath, const QString &outputGpkg,
+                            const QVector<double> &levels, QString *error )
+{
+  if ( levels.isEmpty() )
+  {
+    setError( error, QStringLiteral( "contour levels are empty" ) );
+    return false;
+  }
+  QStringList text;
+  for ( double level : levels )
+  {
+    if ( !std::isfinite( level ) )
+    {
+      setError( error, QStringLiteral( "contour level must be finite" ) );
+      return false;
+    }
+    text << QString::number( level, 'g', 17 );
+  }
+  const QByteArray levelOption = QByteArray( "FIXED_LEVELS=" ) + text.join( QLatin1Char( ',' ) ).toUtf8();
+  return generateWithOption( rasterPath, outputGpkg, levelOption, error );
 }
 
 } // namespace FactorContourService

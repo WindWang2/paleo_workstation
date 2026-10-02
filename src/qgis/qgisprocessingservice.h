@@ -28,8 +28,16 @@ class QgisProcessingService : public QObject
     // back to QgsProject::instance() for tests that use the singleton.
     void setProject(QgsProject *project);
 
+    // 任务线程可在计算过程中请求取消，并把 0–100 的进度送回界面。
+    struct ProcessingHooks
+    {
+        std::function<bool()> cancelled;
+        std::function<void(double)> progress;
+    };
+
     // Synchronous run (tests + small tasks). Returns algorithm outputs map.
-    QVariantMap run(const QString &algorithmId, const QVariantMap &parameters, QString *error = nullptr);
+    QVariantMap run(const QString &algorithmId, const QVariantMap &parameters, QString *error = nullptr,
+                    const ProcessingHooks &hooks = {});
 
     // List available paleo:* algorithm ids.
     QStringList paleoAlgorithmIds() const;

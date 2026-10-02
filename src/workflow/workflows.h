@@ -6,6 +6,7 @@
 #include <QStringList>
 #include <QVariantMap>
 #include <QVector>
+#include <functional>
 #include <memory>
 #include "../domain/types.h"
 #include "../metadata/paleoprojectstore.h"
@@ -121,7 +122,10 @@ class ConstraintWorkflow : public QObject
     void setCatalog(DataCatalog *catalog, const QString &projectDir);
 
     bool addConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
-                       QString *error = nullptr, QString *constraintIdOut = nullptr);
+                       QString *error = nullptr, QString *constraintIdOut = nullptr,
+                       const QVariantMap &lineParams = {});
+    // 把逐线语义和半径写进 params_json。重开后 loadConstraints 读回同一份。
+    bool updateConstraintLine(const QString &id, const QVariantMap &lineParams, QString *error = nullptr);
     QVector<QVariantMap> loadConstraints(const QString &horizon = QString());
     bool runConstraintIDW(const QString &horizon, const QString &pointsLayerId, const QString &field,
                           double cellSize, QString *error = nullptr);
@@ -173,11 +177,48 @@ class ConstraintWorkflow : public QObject
     // 子组，layerId "contours.<horizon>.<factorId>"，幂等。
     bool generateContours(const QString &horizon, const QString &factorLayerId,
                           double interval, QString *error = nullptr);
+    // 显式级别的分析场等值线。layerId 仍是 contours.<层位>.<因素>。
+    bool generateContoursAtLevels(const QString &horizon, const QString &factorLayerId,
+                                  const QVector<double> &levels, QString *error = nullptr);
 
     // 读已提交的分析栅格，另写制图工作场并声明 cartographic.<层位>.<因素>。
     // 不覆盖 factor.<层位>.<因素>，也不改分析场字节。
+    // refuseUnresolved 为真且穿线数大于 0 时不提交、不声明。
     bool generateCartographicWork(const QString &horizon, const QString &factorLayerId,
-                                  const QVector<double> &levels, QString *error = nullptr);
+                                  const QVector<double> &levels, QString *error = nullptr,
+                                  bool refuseUnresolved = false, int *unresolvedOut = nullptr);
+
+    // 从制图工作场提线。图层 cartographic.<层位>.<因素>.contours，名称「解释性等值线」。
+    // 严格模式有未解决穿线时不发布工作场，也不发布线。
+    bool generateInterpretiveContours(const QString &horizon, const QString &factorLayerId,
+                                      const QVector<double> &levels, QString *error = nullptr,
+                                      bool strict = true);
+
+    // 本地方向：准备在界面线程，计算可在任务线程，发布回到 catalog 所属线程。
+    struct LocalDirectionJob
+    {
+        bool prepared = false;
+        bool ok = false;
+        quint64 generation = 0;
+        QString error;
+        QString horizon;
+        QString factorId;
+        QString field;
+        double cellSize = 1.0;
+        QString wellUri;
+        QString constraintUri;
+        bool hasConstraints = false;
+        QStringList parentPaths;
+        QVariantMap params;
+        QString outputPath;
+        QString supportPath;
+        QString qcPath;
+    };
+    bool prepareLocalDirectionJob(const QString &horizon, const QString &factorId,
+                                  const QVariantMap &params, LocalDirectionJob *job, QString *error = nullptr);
+    bool computeLocalDirectionJob(LocalDirectionJob *job, const std::function<bool()> &cancelled = {},
+                                  const std::function<void(double)> &progress = {});
+    bool publishLocalDirectionJob(const LocalDirectionJob &job, QString *error = nullptr);
 
     DataCatalog *catalog() const;
     QString projectDir() const { return m_projectDir; }
@@ -195,6 +236,9 @@ class ConstraintWorkflow : public QObject
                            const QString &contourLayerId);
     void cartographicWorkGenerated(const QString &horizon, const QString &factorLayerId,
                                    const QString &layerId);
+    void interpretiveContoursGenerated(const QString &horizon, const QString &factorLayerId,
+                                       const QString &layerId);
+    void constraintLineUpdated(const QString &constraintId);
 
   private:
     QPointer<QgisProcessingService> m_proc;

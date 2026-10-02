@@ -271,6 +271,60 @@ class TestFactorWorkflow : public QObject
       return QFile::exists( path );
     }
 
+    // 列号即值的 north-up 斜坡。等值线是竖线，用来摆一条不穿原线、却会穿过绕行肩带的停止线。
+    static bool writeRampTiff( const QString &path, int epsg, int cols, int rows, double originX,
+                               double originY, double cell )
+    {
+      GDALDriverH driver = GDALGetDriverByName( "GTiff" );
+      if ( !driver )
+        return false;
+      GDALDatasetH dataset = GDALCreate( driver, path.toUtf8().constData(), cols, rows, 1, GDT_Float32, nullptr );
+      if ( !dataset )
+        return false;
+      double geoTransform[6] = { originX, cell, 0.0, originY, 0.0, -cell };
+      if ( GDALSetGeoTransform( dataset, geoTransform ) != CE_None )
+      {
+        GDALClose( dataset );
+        return false;
+      }
+      OGRSpatialReferenceH srs = makeSpatialRef( epsg );
+      if ( !srs )
+      {
+        GDALClose( dataset );
+        return false;
+      }
+      char *wkt = nullptr;
+      OSRExportToWkt( srs, &wkt );
+      OSRDestroySpatialReference( srs );
+      if ( !wkt )
+      {
+        GDALClose( dataset );
+        return false;
+      }
+      const CPLErr projected = GDALSetProjection( dataset, wkt );
+      CPLFree( wkt );
+      if ( projected != CE_None )
+      {
+        GDALClose( dataset );
+        return false;
+      }
+      GDALRasterBandH band = GDALGetRasterBand( dataset, 1 );
+      GDALSetRasterNoDataValue( band, -9999.0 );
+      QVector<float> row( cols );
+      for ( int r = 0; r < rows; ++r )
+      {
+        for ( int c = 0; c < cols; ++c )
+          row[c] = static_cast<float>( c );
+        if ( GDALRasterIO( band, GF_Write, 0, r, cols, 1, row.data(), cols, 1, GDT_Float32, 0, 0 ) != CE_None )
+        {
+          GDALClose( dataset );
+          return false;
+        }
+      }
+      GDALClose( dataset );
+      return QFile::exists( path );
+    }
+
     static QString layerUri( const QString &path, const QString &layerName )
     {
       return path + QStringLiteral( "|layername=" ) + layerName;
@@ -1035,6 +1089,339 @@ class TestFactorWorkflow : public QObject
       QVERIFY( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ) );
       QVERIFY2( err.contains( QStringLiteral( "未知" ) ), qPrintable( err ) );
       QVERIFY( findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) ) == nullptr );
+    }
+
+    static QString analysisVersionId( DataCatalog &catalog, const QString &absolutePath )
+    {
+      for ( const CatalogAsset &asset : catalog.assets() )
+      {
+        if ( asset.type != QLatin1String( "single_factor_raster" ) )
+          continue;
+        for ( const CatalogVersion &version : catalog.versionsForAsset( asset.id ) )
+        {
+          if ( absolutePath.endsWith( QLatin1Char( '/' ) + version.fileName ) &&
+               absolutePath.contains( version.id ) )
+            return version.id;
+        }
+      }
+      return QString();
+    }
+
+    static bool publishProjectedFactor( Fixture &f, ConstraintWorkflow *wf, QString *error )
+    {
+      const QString wellsPath = f.dir.filePath( QStringLiteral( "wells.gpkg" ) );
+      const QVector<PointRow> wells{
+          { 500000.0, 4000000.0, 1.0 },
+          { 500400.0, 4000000.0, 8.0 },
+          { 500000.0, 4000400.0, 4.0 },
+      };
+      if ( !writePointGpkg( wellsPath, 3857, wells ) )
+        return false;
+      if ( !f.layers.declare( decl( QStringLiteral( "wells.T1" ), QStringLiteral( "T1" ),
+                                    QStringLiteral( "vector" ), layerUri( wellsPath, QStringLiteral( "wells" ) ) ),
+                              error ) )
+        return false;
+      wf->setCatalog( &f.catalog, f.dir.path() );
+      QVariantMap params;
+      params.insert( QStringLiteral( "method" ), QStringLiteral( "local_direction_idw" ) );
+      params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "cellSize" ), 100.0 );
+      return wf->generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, error );
+    }
+
+    void fixedLevelsKeepAnalysisIdentity()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      QString err;
+      QVERIFY2( publishProjectedFactor( f, &wf, &err ), qPrintable( err ) );
+      const LayerDeclaration *factor = findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) );
+      QVERIFY( factor != nullptr );
+      const QString analysisPath = factor->source.section( QLatin1Char( '|' ), 0, 0 );
+      const QString analysisSha = DataCatalog::sha256FileHex( analysisPath );
+      const QString versionId = analysisVersionId( f.catalog, analysisPath );
+      QVERIFY( !analysisSha.isEmpty() );
+      QVERIFY( !versionId.isEmpty() );
+
+      QSignalSpy contours( &wf, &ConstraintWorkflow::contoursGenerated );
+      QVERIFY2( wf.generateContoursAtLevels( QStringLiteral( "T1" ), QStringLiteral( "factor.T1.sandthick" ),
+                                             QVector<double>{ 2.0, 4.0, 6.0 }, &err ),
+                qPrintable( err ) );
+      QCOMPARE( contours.count(), 1 );
+      QCOMPARE( contours.at( 0 ).at( 2 ).toString(), QStringLiteral( "contours.T1.sandthick" ) );
+      QCOMPARE( DataCatalog::sha256FileHex( analysisPath ), analysisSha );
+      QCOMPARE( analysisVersionId( f.catalog, analysisPath ), versionId );
+
+      const LayerDeclaration *lines = findDecl( f.layers, QStringLiteral( "contours.T1.sandthick" ) );
+      QVERIFY( lines != nullptr );
+      QCOMPARE( lines->group, QStringLiteral( "04_SingleFactor/Contours" ) );
+      const QString contourPath = lines->source.section( QLatin1Char( '|' ), 0, 0 );
+      QVariantMap extra;
+      QVERIFY2( findDerivedExtra( f.catalog, QStringLiteral( "contour_lines" ), contourPath, &extra ),
+                "fixed-level contour version missing" );
+      QCOMPARE( extra.value( QStringLiteral( "value_source" ) ).toString(), QStringLiteral( "analysis" ) );
+      QCOMPARE( extra.value( QStringLiteral( "manifest_layer_id" ) ).toString(),
+                QStringLiteral( "contours.T1.sandthick" ) );
+      QVERIFY( extra.value( QStringLiteral( "layer_id" ) ).toString().startsWith( QStringLiteral( "product." ) ) );
+      QVERIFY( !extra.value( QStringLiteral( "parent_version_ids" ) ).toList().isEmpty() );
+
+      err.clear();
+      QVERIFY( !wf.generateContours( QStringLiteral( "T1" ), QStringLiteral( "factor.T1.sandthick" ), 0.0, &err ) );
+      QVERIFY2( err.contains( QStringLiteral( "正数" ) ), qPrintable( err ) );
+      delete factor;
+      delete lines;
+    }
+
+    void interpretiveContoursStayOffTheAnalysisField()
+    {
+      Fixture crossing;
+      QVERIFY( initFixture( crossing ) );
+      ConstraintWorkflow crossingWf( &crossing.proc, &crossing.layers );
+      QString err;
+      QVERIFY2( publishProjectedFactor( crossing, &crossingWf, &err ), qPrintable( err ) );
+      const LayerDeclaration *factor = findDecl( crossing.layers, QStringLiteral( "factor.T1.sandthick" ) );
+      QVERIFY( factor != nullptr );
+      const QString analysisPath = factor->source.section( QLatin1Char( '|' ), 0, 0 );
+      const QString analysisSha = DataCatalog::sha256FileHex( analysisPath );
+      const QString versionId = analysisVersionId( crossing.catalog, analysisPath );
+      const QString linesPath = crossing.dir.filePath( QStringLiteral( "constraints.gpkg" ) );
+      QVERIFY( writeLineGpkg( linesPath, 3857,
+                              { { "stop-cross", "contour_stop", 499000.0, 4000200.0, 501000.0, 4000200.0 } } ) );
+      QVERIFY2( crossing.layers.declare(
+                    decl( QStringLiteral( "constraints.T1" ), QStringLiteral( "T1" ), QStringLiteral( "vector" ),
+                          layerUri( linesPath, QStringLiteral( "lines" ) ), QStringLiteral( "03_Constraints" ) ),
+                    &err ),
+                qPrintable( err ) );
+      QSignalSpy crossSpy( &crossingWf, &ConstraintWorkflow::interpretiveContoursGenerated );
+      QVERIFY2( crossingWf.generateInterpretiveContours( QStringLiteral( "T1" ),
+                                                         QStringLiteral( "factor.T1.sandthick" ),
+                                                         QVector<double>{ 2.0, 4.0, 6.0 }, &err, true ),
+                qPrintable( err ) );
+      QCOMPARE( crossSpy.count(), 1 );
+      QCOMPARE( crossSpy.at( 0 ).at( 2 ).toString(), QStringLiteral( "cartographic.T1.sandthick.contours" ) );
+      QCOMPARE( DataCatalog::sha256FileHex( analysisPath ), analysisSha );
+      QCOMPARE( analysisVersionId( crossing.catalog, analysisPath ), versionId );
+
+      const LayerDeclaration *crossWork = findDecl( crossing.layers, QStringLiteral( "cartographic.T1.sandthick" ) );
+      const LayerDeclaration *crossDrawn =
+          findDecl( crossing.layers, QStringLiteral( "cartographic.T1.sandthick.contours" ) );
+      QVERIFY( crossWork != nullptr );
+      QVERIFY( crossDrawn != nullptr );
+      QCOMPARE( crossDrawn->title, QStringLiteral( "解释性等值线·砂体厚度" ) );
+      QCOMPARE( crossDrawn->group, QStringLiteral( "04_SingleFactor/Cartographic" ) );
+      QVariantMap crossWorkExtra;
+      QVERIFY( findDerivedExtra( crossing.catalog, QStringLiteral( "single_factor_cartographic_work" ),
+                                 crossWork->source.section( QLatin1Char( '|' ), 0, 0 ), &crossWorkExtra ) );
+      QCOMPARE( crossWorkExtra.value( QStringLiteral( "unresolved_crossings" ) ).toInt(), 0 );
+      QCOMPARE( crossWorkExtra.value( QStringLiteral( "unchanged" ) ).toBool(), false );
+      QVERIFY( crossWorkExtra.value( QStringLiteral( "modified_cells" ) ).toInt() > 0 );
+      QCOMPARE( crossWorkExtra.value( QStringLiteral( "analysis_sha256" ) ).toString(), analysisSha );
+      QVariantMap crossLineExtra;
+      QVERIFY( findDerivedExtra( crossing.catalog, QStringLiteral( "single_factor_cartographic_contour" ),
+                                 crossDrawn->source.section( QLatin1Char( '|' ), 0, 0 ), &crossLineExtra ) );
+      QCOMPARE( crossLineExtra.value( QStringLiteral( "value_source" ) ).toString(),
+                QStringLiteral( "cartographic_work" ) );
+      QCOMPARE( crossLineExtra.value( QStringLiteral( "unresolved_crossings" ) ).toInt(), 0 );
+      QVERIFY( crossLineExtra.value( QStringLiteral( "parent_version_ids" ) ).toList().size() >= 2 );
+      CompositionWorkflow crossingComposition( &crossing.proc, &crossing.layers );
+      QString crossFuseErr;
+      QVERIFY( !crossingComposition.fuseFactors( QStringLiteral( "T1" ),
+                                                 { QStringLiteral( "cartographic.T1.sandthick.contours" ) },
+                                                 &crossFuseErr ) );
+      QVERIFY2( crossFuseErr.contains( QStringLiteral( "解释性制图" ) ), qPrintable( crossFuseErr ) );
+      delete factor;
+      delete crossWork;
+      delete crossDrawn;
+
+      Fixture open;
+      QVERIFY( initFixture( open ) );
+      ConstraintWorkflow wf( &open.proc, &open.layers );
+      err.clear();
+      QVERIFY2( publishProjectedFactor( open, &wf, &err ), qPrintable( err ) );
+      const LayerDeclaration *openFactor = findDecl( open.layers, QStringLiteral( "factor.T1.sandthick" ) );
+      QVERIFY( openFactor != nullptr );
+      const QString openPath = openFactor->source.section( QLatin1Char( '|' ), 0, 0 );
+      const QString openSha = DataCatalog::sha256FileHex( openPath );
+      const QString openVersion = analysisVersionId( open.catalog, openPath );
+      const QString farPath = open.dir.filePath( QStringLiteral( "constraints.gpkg" ) );
+      QVERIFY( writeLineGpkg( farPath, 3857,
+                              { { "stop-far", "contour_stop", 0.0, 9000000.0, 10.0, 9000000.0 } } ) );
+      QVERIFY2( open.layers.declare(
+                    decl( QStringLiteral( "constraints.T1" ), QStringLiteral( "T1" ), QStringLiteral( "vector" ),
+                          layerUri( farPath, QStringLiteral( "lines" ) ), QStringLiteral( "03_Constraints" ) ),
+                    &err ),
+                qPrintable( err ) );
+      QSignalSpy interpretive( &wf, &ConstraintWorkflow::interpretiveContoursGenerated );
+      QVERIFY2( wf.generateInterpretiveContours( QStringLiteral( "T1" ), QStringLiteral( "factor.T1.sandthick" ),
+                                                 QVector<double>{ 2.0, 4.0, 6.0 }, &err, true ),
+                qPrintable( err ) );
+      QCOMPARE( interpretive.count(), 1 );
+      QCOMPARE( interpretive.at( 0 ).at( 2 ).toString(), QStringLiteral( "cartographic.T1.sandthick.contours" ) );
+      QCOMPARE( DataCatalog::sha256FileHex( openPath ), openSha );
+      QCOMPARE( analysisVersionId( open.catalog, openPath ), openVersion );
+
+      const LayerDeclaration *work = findDecl( open.layers, QStringLiteral( "cartographic.T1.sandthick" ) );
+      const LayerDeclaration *drawn = findDecl( open.layers, QStringLiteral( "cartographic.T1.sandthick.contours" ) );
+      QVERIFY( work != nullptr );
+      QVERIFY( drawn != nullptr );
+      QCOMPARE( work->group, QStringLiteral( "04_SingleFactor/Cartographic" ) );
+      QCOMPARE( drawn->group, QStringLiteral( "04_SingleFactor/Cartographic" ) );
+      QCOMPARE( drawn->title, QStringLiteral( "解释性等值线·砂体厚度" ) );
+      const QString workPath = work->source.section( QLatin1Char( '|' ), 0, 0 );
+      const QString drawnPath = drawn->source.section( QLatin1Char( '|' ), 0, 0 );
+      QVariantMap workExtra;
+      QVariantMap lineExtra;
+      QVERIFY( findDerivedExtra( open.catalog, QStringLiteral( "single_factor_cartographic_work" ), workPath,
+                                 &workExtra ) );
+      QVERIFY( findDerivedExtra( open.catalog, QStringLiteral( "single_factor_cartographic_contour" ), drawnPath,
+                                 &lineExtra ) );
+      QCOMPARE( workExtra.value( QStringLiteral( "unchanged" ) ).toBool(), true );
+      QCOMPARE( workExtra.value( QStringLiteral( "value_source" ) ).toString(),
+                QStringLiteral( "cartographic_work" ) );
+      QCOMPARE( lineExtra.value( QStringLiteral( "value_source" ) ).toString(),
+                QStringLiteral( "cartographic_work" ) );
+      QCOMPARE( lineExtra.value( QStringLiteral( "kind" ) ).toString(),
+                QStringLiteral( "single_factor_cartographic_contour" ) );
+      const QVariantList parents = lineExtra.value( QStringLiteral( "parent_version_ids" ) ).toList();
+      QVERIFY( parents.size() >= 2 );
+      const QString firstHash = workExtra.value( QStringLiteral( "parameter_hash" ) ).toString();
+      QVERIFY( firstHash.size() == 64 );
+
+      err.clear();
+      QVERIFY( !wf.generateContoursAtLevels( QStringLiteral( "T1" ), QStringLiteral( "cartographic.T1.sandthick" ),
+                                             QVector<double>{ 2.0 }, &err ) );
+      QVERIFY2( err.contains( QStringLiteral( "解释性制图" ) ), qPrintable( err ) );
+
+      CompositionWorkflow composition( &open.proc, &open.layers );
+      QString fuseErr;
+      QVERIFY( !composition.fuseFactors( QStringLiteral( "T1" ),
+                                         { QStringLiteral( "cartographic.T1.sandthick.contours" ) }, &fuseErr ) );
+      QVERIFY2( fuseErr.contains( QStringLiteral( "解释性制图" ) ), qPrintable( fuseErr ) );
+
+      QVERIFY2( wf.generateCartographicWork( QStringLiteral( "T1" ), QStringLiteral( "factor.T1.sandthick" ),
+                                             QVector<double>{ 3.0, 9.0 }, &err ),
+                qPrintable( err ) );
+      QCOMPARE( DataCatalog::sha256FileHex( openPath ), openSha );
+      QCOMPARE( analysisVersionId( open.catalog, openPath ), openVersion );
+      const LayerDeclaration *workAfter = findDecl( open.layers, QStringLiteral( "cartographic.T1.sandthick" ) );
+      QVERIFY( workAfter != nullptr );
+      QVariantMap afterExtra;
+      QVERIFY( findDerivedExtra( open.catalog, QStringLiteral( "single_factor_cartographic_work" ),
+                                 workAfter->source.section( QLatin1Char( '|' ), 0, 0 ), &afterExtra ) );
+      const QString secondHash = afterExtra.value( QStringLiteral( "parameter_hash" ) ).toString();
+      QVERIFY( secondHash.size() == 64 );
+      QVERIFY( secondHash != firstHash );
+      delete openFactor;
+      delete work;
+      delete drawn;
+      delete workAfter;
+    }
+
+    // 横停止线穿过竖等值线并改出肩带；竖停止线与原等值线平行，不参与绕行，
+    // 却会切过肩带上新的等值线。严格模式必须拒绝，且不声明制图成果。
+    void strictModeRefusesUnresolvedShoulderCrossing()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      const QString rasterPath = f.dir.filePath( QStringLiteral( "ramp.tif" ) );
+      const double originX = 500000.0;
+      const double originY = 4001000.0;
+      const double cell = 10.0;
+      QVERIFY( writeRampTiff( rasterPath, 3857, 80, 40, originX, originY, cell ) );
+      const QString analysisSha = DataCatalog::sha256FileHex( rasterPath );
+      QString err;
+      QVERIFY2( f.layers.declare( decl( QStringLiteral( "factor.T1.sandthick" ), QStringLiteral( "T1" ),
+                                        QStringLiteral( "raster" ), rasterPath, QStringLiteral( "04_SingleFactor" ) ),
+                                  &err ),
+                qPrintable( err ) );
+      const double stopY = originY - 20.0 * cell;
+      // 斜线段落在 10 与 30 两级原等值线之间，不穿原线；肩带把级别 30 的线弯过来后应切开它。
+      const QString linesPath = f.dir.filePath( QStringLiteral( "constraints.gpkg" ) );
+      QVERIFY( writeLineGpkg(
+          linesPath, 3857,
+          { { "stop-across", "contour_stop", originX - cell, stopY, originX + 80.0 * cell + cell, stopY },
+            { "stop-shoulder", "contour_stop", originX + 14.0 * cell, stopY + 75.0, originX + 27.0 * cell,
+              stopY + 115.0 } } ) );
+      QVERIFY2( f.layers.declare( decl( QStringLiteral( "constraints.T1" ), QStringLiteral( "T1" ),
+                                        QStringLiteral( "vector" ), layerUri( linesPath, QStringLiteral( "lines" ) ),
+                                        QStringLiteral( "03_Constraints" ) ),
+                                  &err ),
+                qPrintable( err ) );
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QVERIFY( !wf.generateInterpretiveContours( QStringLiteral( "T1" ), QStringLiteral( "factor.T1.sandthick" ),
+                                                 QVector<double>{ 10.0, 30.0, 50.0 }, &err, true ) );
+      QVERIFY2( err.contains( QStringLiteral( "未解决穿线" ) ), qPrintable( err ) );
+      QVERIFY( findDecl( f.layers, QStringLiteral( "cartographic.T1.sandthick" ) ) == nullptr );
+      QVERIFY( findDecl( f.layers, QStringLiteral( "cartographic.T1.sandthick.contours" ) ) == nullptr );
+      QCOMPARE( DataCatalog::sha256FileHex( rasterPath ), analysisSha );
+    }
+
+    void staleGenerationDropsLocalDirectionPublish()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      const QString wellsPath = f.dir.filePath( QStringLiteral( "wells.gpkg" ) );
+      QVERIFY( writePointGpkg( wellsPath, 3857,
+                               { { 500000.0, 4000000.0, 1.0 },
+                                 { 500400.0, 4000000.0, 8.0 },
+                                 { 500000.0, 4000400.0, 4.0 } } ) );
+      QString err;
+      QVERIFY2( f.layers.declare( decl( QStringLiteral( "wells.T1" ), QStringLiteral( "T1" ),
+                                        QStringLiteral( "vector" ), layerUri( wellsPath, QStringLiteral( "wells" ) ) ),
+                                  &err ),
+                qPrintable( err ) );
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QVariantMap params;
+      params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "cellSize" ), 200.0 );
+      ConstraintWorkflow::LocalDirectionJob first;
+      ConstraintWorkflow::LocalDirectionJob second;
+      QVERIFY2( wf.prepareLocalDirectionJob( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &first,
+                                             &err ),
+                qPrintable( err ) );
+      QVERIFY2( wf.computeLocalDirectionJob( &first ), qPrintable( first.error ) );
+      QVERIFY2( wf.prepareLocalDirectionJob( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &second,
+                                             &err ),
+                qPrintable( err ) );
+      QVERIFY2( wf.computeLocalDirectionJob( &second ), qPrintable( second.error ) );
+      QVERIFY( !wf.publishLocalDirectionJob( first, &err ) );
+      QVERIFY2( err.contains( QStringLiteral( "代次" ) ), qPrintable( err ) );
+      QVERIFY( findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) ) == nullptr );
+      QVERIFY2( wf.publishLocalDirectionJob( second, &err ), qPrintable( err ) );
+      const LayerDeclaration *published = findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) );
+      QVERIFY( published != nullptr );
+      delete published;
+    }
+
+    void realAreaDoesNotInventWellValues()
+    {
+      const QByteArray env = qgetenv( "PALEO_REAL_PROJECT_AREA" );
+      if ( env.isEmpty() )
+        QSKIP( "PALEO_REAL_PROJECT_AREA is unset. This skip is not an O12 pass." );
+      const QString wells = QDir( QString::fromLocal8Bit( env ) ).filePath( QStringLiteral( "artifacts/layers/wells.geojson" ) );
+      QFile file( wells );
+      QVERIFY2( file.open( QIODevice::ReadOnly ), qPrintable( wells ) );
+      const QJsonArray features = QJsonDocument::fromJson( file.readAll() ).object().value( QStringLiteral( "features" ) ).toArray();
+      QVERIFY( features.size() >= 1 );
+      QStringList numeric;
+      for ( const QJsonValue &feature : features )
+      {
+        const QJsonObject properties = feature.toObject().value( QStringLiteral( "properties" ) ).toObject();
+        for ( auto it = properties.begin(); it != properties.end(); ++it )
+        {
+          if ( it.value().isDouble() && !numeric.contains( it.key() ) )
+            numeric << it.key();
+        }
+      }
+      if ( numeric.size() < 2 )
+      {
+        QFAIL( qPrintable( QStringLiteral( "O12 gap: well-point numeric fields are [%1]. "
+                                           "Do not invent values or treat this as a pass." )
+                               .arg( numeric.join( QLatin1Char( ',' ) ) ) ) );
+      }
     }
 };
 

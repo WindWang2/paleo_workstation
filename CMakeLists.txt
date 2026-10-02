@@ -619,6 +619,8 @@ add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
 add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）
 add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_perf LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_contours LIBS paleo_qgis)
 add_paleo_test(tst_singlefactor_parity LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_contract LIBS paleo_domain)
 add_paleo_test(tst_singlefactor_samples LIBS paleo_algorithms)
@@ -900,6 +902,7 @@ endforeach()
 # RUN_SERIAL，不打 perf（-LE perf 不应丢掉这些功能测试）。
 set(_paleo_perf_tests
   tst_perf tst_previewmap_perf tst_aiassist_perf tst_startup_trace tst_perfbudget
+  tst_singlefactor_perf
   tst_ui_blocking tst_mem_budget tst_perf_las tst_perf_segyindex tst_perf_catalog
   tst_perf_regress tst_petrophysperf tst_seismic_perf tst_seismic_baseline
   tst_seismic_budgets tst_seismicattrperf tst_horizontrackperf tst_timedepthperf
@@ -910,6 +913,9 @@ foreach(_t IN LISTS _paleo_perf_tests)
     set_tests_properties(${_t} PROPERTIES RUN_SERIAL TRUE)
   endif()
 endforeach()
+if(TEST tst_singlefactor_perf)
+  set_tests_properties(tst_singlefactor_perf PROPERTIES TIMEOUT 1200)
+endif()
 foreach(_t IN ITEMS tst_wellcomposite_visual)
   if(TEST ${_t})
     set_property(TEST ${_t} APPEND PROPERTY LABELS golden)

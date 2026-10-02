@@ -2,6 +2,7 @@
 #pragma once
 #include <QString>
 #include <QVariantMap>
+#include <QVector>
 #include <QWidget>
 
 class ConstraintWorkflow;
@@ -40,6 +41,10 @@ class ConstraintPage : public QWidget
     void noteFactorLayer(const QString &factorId, const QString &layerId);
     // 当前勾选行因素的已生成 layerId（未勾选或未生成 → 空串）。
     QString checkedFactorLayerId() const;
+    // 长计算进行时禁用生成/等值线，并说明原因。取消按钮在忙时可用。
+    void setRunBusy(bool busy);
+    void noteRunStage(const QString &stage, int percent);
+    void refreshConstraintList();
   signals:
     void drawConstraintRequested(const QString &horizon, const QString &shape, int faciesCode);
     void runIdwRequested(const QString &horizon);
@@ -47,6 +52,8 @@ class ConstraintPage : public QWidget
     void generateFactorRequested(const QString &factorId, const QString &horizon,
                                  const QVariantMap &params);
     void contourRequested(const QString &factorLayerId, double interval);
+    void interpretiveContourRequested(const QString &factorLayerId, const QVector<double> &levels);
+    void runCancelRequested();
     void factorVisibilityRequested(const QString &layerId, bool visible);
     void drawTypedConstraintRequested(const QString &horizon, const QString &shape,
                                       const QString &constraintType, int faciesCode);
@@ -57,4 +64,7 @@ class ConstraintPage : public QWidget
     void updateFactorActionStates();
     // 主线6：等厚引擎行（顶/底构造面选择）的可见性与清单填充。
     void updateEngineRows();
+    void markInputsStale();
+    void loadSelectedConstraintLine();
+    QVariantMap selectedLineParams() const;
 };

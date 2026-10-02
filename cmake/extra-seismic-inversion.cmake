@@ -7,7 +7,8 @@ target_sources(paleo_algorithms PRIVATE
   src/algorithms/inversion/wavelet.cpp
   src/algorithms/inversion/lowfreq.cpp
   src/algorithms/inversion/bandlimit.cpp
-  src/algorithms/inversion/sparse.cpp)
+  src/algorithms/inversion/sparse.cpp
+  src/algorithms/inversion/volume.cpp)
 
 add_paleo_test(tst_inversion_wavelet LIBS paleo_algorithms)
 
@@ -16,3 +17,10 @@ add_paleo_test(tst_inversion_lowfreq LIBS paleo_algorithms)
 add_paleo_test(tst_inversion_bandlimit LIBS paleo_algorithms)
 
 add_paleo_test(tst_inversion_sparse LIBS paleo_algorithms)
+
+target_sources(paleo_workflow PRIVATE
+  src/workflow/inversionworkflow.cpp)
+
+# 三段式编排 + DERIVED 登记 + 并行确定性。串行防抖动（perf 类同款口径）。
+add_paleo_test(tst_inversion_workflow LIBS paleo_workflow)
+set_tests_properties(tst_inversion_workflow PROPERTIES RUN_SERIAL TRUE)

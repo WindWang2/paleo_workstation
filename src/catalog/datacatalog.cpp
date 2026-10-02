@@ -12,10 +12,13 @@
 #include <QHash>
 #include <QSaveFile>
 #include <QSet>
+#include <QThread>
+#include <QtGlobal>
 
 #include "../metadata/atomicfile.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 namespace
@@ -229,8 +232,174 @@ bool DataCatalog::ensureOpen(QString *error) const
   return false;
 }
 
+// ---- 审计 02 M-8：线程纪律 + staging 副本 + journal 重放 ----
+namespace
+{
+  std::atomic<int> g_threadViolations{0};
+
+  bool strictThreads()
+  {
+    static const bool strict = qEnvironmentVariableIntValue("PALEO_CATALOG_STRICT_THREADS") != 0;
+    return strict;
+  }
+} // namespace
+
+int DataCatalog::threadViolationCount()
+{
+  return g_threadViolations.load();
+}
+
+void DataCatalog::resetThreadViolationCount()
+{
+  g_threadViolations.store(0);
+}
+
+bool DataCatalog::checkWriteThread(const char *what, QString *error) const
+{
+  // staging 副本归单个 worker 独占（无线程亲和）；活 catalog 只认所属线程。
+  if (m_staging || !thread() || QThread::currentThread() == thread())
+    return true;
+  g_threadViolations.fetch_add(1);
+  if (strictThreads())
+    qFatal("DataCatalog::%s called off the catalog thread", what);
+  qCritical("DataCatalog::%s refused: called off the catalog thread", what);
+  setError(error, QStringLiteral("catalog 写入被拒绝：%1 不在 catalog 所属线程调用")
+                      .arg(QString::fromLatin1(what)));
+  return false;
+}
+
+void DataCatalog::noteRead(const char *what) const
+{
+  if (m_staging || !thread() || QThread::currentThread() == thread())
+    return;
+  const int n = g_threadViolations.fetch_add(1);
+  if (strictThreads())
+    qFatal("DataCatalog::%s read off the catalog thread", what);
+  if (n < 8) // 只告警前几次——诊断面是计数器
+    qWarning("DataCatalog::%s read off the catalog thread", what);
+}
+
+void DataCatalog::recordOp(CatalogOp op)
+{
+  ++m_mutationSeq;
+  if (!m_staging)
+    return;
+  if (op.kind == CatalogOp::Kind::AddVersion && op.version.managed)
+    m_overlayVersionIds.insert(op.version.id);
+  m_journal.append(std::move(op));
+}
+
+std::unique_ptr<DataCatalog> DataCatalog::createStagingCopy(const QString &overlayDir) const
+{
+  noteRead("createStagingCopy");
+  auto copy = std::make_unique<DataCatalog>();
+  copy->m_dir = m_dir;
+  copy->m_isOpen = m_isOpen;
+  copy->m_openError = m_openError;
+  copy->m_lockedReadOnly = m_lockedReadOnly;
+  copy->m_revision = m_revision;
+  copy->m_mutationSeq = m_mutationSeq;
+  copy->m_entities = m_entities; // COW：worker 首次写才 detach
+  copy->m_assets = m_assets;
+  copy->m_versions = m_versions;
+  copy->m_links = m_links;
+  copy->m_assetSeq = m_assetSeq;
+  copy->m_versionSeq = m_versionSeq;
+  copy->m_roles = m_roles;
+  copy->m_idx = m_idx;
+  copy->m_backupKeep = m_backupKeep;
+  copy->m_staging = true;
+  copy->m_overlayDir = overlayDir;
+  // 无线程亲和：由领到它的 worker 独占使用，析构线程不限。
+  copy->moveToThread(nullptr);
+  return copy;
+}
+
+QString DataCatalog::versionFilePath(const CatalogVersion &v) const
+{
+  if (m_staging && v.managed && m_overlayVersionIds.contains(v.id))
+    return resolvedVersionPath(m_overlayDir, v);
+  return resolvedVersionPath(m_dir, v);
+}
+
+bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
+{
+  if (!checkWriteThread("applyJournal", error))
+    return false;
+  if (m_staging)
+  {
+    setError(error, QStringLiteral("staging 副本不能作为提交目标"));
+    return false;
+  }
+  if (ops.isEmpty())
+    return true;
+  if (!ensureOpen(error))
+    return false;
+  // 事务快照：四表 COW + 序号 + 索引——失败时逐字段还原。
+  const QVector<CatalogEntity> entities0 = m_entities;
+  const QVector<CatalogAsset> assets0 = m_assets;
+  const QVector<CatalogVersion> versions0 = m_versions;
+  const QVector<EntityAssetLink> links0 = m_links;
+  const int assetSeq0 = m_assetSeq, versionSeq0 = m_versionSeq;
+  const CatalogIndex idx0 = m_idx;
+  const int depth0 = m_batchDepth;
+  const bool dirty0 = m_batchDirty;
+  const auto restore = [&] {
+    m_entities = entities0;
+    m_assets = assets0;
+    m_versions = versions0;
+    m_links = links0;
+    m_assetSeq = assetSeq0;
+    m_versionSeq = versionSeq0;
+    m_idx = idx0;
+    m_batchDepth = depth0;
+    m_batchDirty = dirty0;
+  };
+
+  beginBatch();
+  QString opErr;
+  for (int i = 0; i < ops.size(); ++i)
+  {
+    const CatalogOp &op = ops.at(i);
+    bool ok = false;
+    switch (op.kind)
+    {
+      case CatalogOp::Kind::AddEntity: ok = addEntity(op.entity, &opErr); break;
+      case CatalogOp::Kind::AddAsset: ok = addAsset(op.asset, &opErr); break;
+      case CatalogOp::Kind::AddVersion: ok = addVersion(op.version, &opErr); break;
+      case CatalogOp::Kind::AddLink: ok = addLink(op.link, &opErr); break;
+      case CatalogOp::Kind::AttachLink: ok = attachLink(op.index, op.id, &opErr); break;
+      case CatalogOp::Kind::SetLinkUnresolved: ok = setLinkUnresolved(op.index, &opErr); break;
+      case CatalogOp::Kind::SetLinkPrimary: ok = setLinkPrimary(op.index, &opErr); break;
+      case CatalogOp::Kind::MarkDownstreamStale:
+        ok = markDownstreamStale(op.id, op.reason, &opErr);
+        break;
+    }
+    if (!ok)
+    {
+      restore();
+      setError(error, QStringLiteral("catalog 提交第 %1/%2 项失败：%3")
+                          .arg(i + 1)
+                          .arg(ops.size())
+                          .arg(opErr.isEmpty() ? QStringLiteral("未给出原因") : opErr));
+      return false;
+    }
+  }
+  if (depth0 > 0)
+    return endBatch(error); // 嵌套在外层批次里：由外层结算（外层失败语义归外层）
+  QString saveErr;
+  if (!endBatch(&saveErr))
+  {
+    restore();
+    setError(error, saveErr.isEmpty() ? QStringLiteral("catalog 落盘失败") : saveErr);
+    return false;
+  }
+  return true;
+}
+
 bool DataCatalog::open(const QString &projectDir, QString *error)
 {
+  ++m_mutationSeq; // 重开 = 整表替换
   m_isOpen = false;
   m_openError.clear();
   m_recoveredFromBackup = false; // 恢复态是「本次 open」的属性，重开重新判
@@ -432,6 +601,10 @@ bool DataCatalog::save(QString *error)
     setError(error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，catalog 写入被拒绝"));
     return false;
   }
+  // staging 副本（审计 02 M-8）：内存即结果，不落盘、不发 changed()——
+  // 提交由 owner 线程 applyJournal 一次完成。
+  if (m_staging)
+    return true;
   // 批量作用域内：只记脏、不落盘——endBatch 统一结算（audit row 37）。
   if (m_batchDepth > 0)
   {
@@ -591,6 +764,8 @@ bool DataCatalog::BatchSave::flush(QString *error)
 
 bool DataCatalog::addEntity(const CatalogEntity &e, QString *error)
 {
+  if (!checkWriteThread("addEntity", error))
+    return false;
   if (!ensureOpen(error))
     return false;
   if (e.id.isEmpty() || hasEntity(e.id))
@@ -601,7 +776,13 @@ bool DataCatalog::addEntity(const CatalogEntity &e, QString *error)
   m_entities.append(e);
   m_idx.entityAdded(m_entities.size() - 1, e.id, e.entityType); // D5.2 增量
   if (save(error))
+  {
+    CatalogOp op;
+    op.kind = CatalogOp::Kind::AddEntity;
+    op.entity = e;
+    recordOp(std::move(op));
     return true;
+  }
   m_entities.removeLast();
   m_idx.rebuild(m_entities, m_assets, m_versions, m_links); // 回滚——罕见路径全量换正确性
   return false;
@@ -609,6 +790,8 @@ bool DataCatalog::addEntity(const CatalogEntity &e, QString *error)
 
 bool DataCatalog::addAsset(const CatalogAsset &a, QString *error)
 {
+  if (!checkWriteThread("addAsset", error))
+    return false;
   if (!ensureOpen(error))
     return false;
   if (a.id.isEmpty() || !assetById(a.id).id.isEmpty())
@@ -626,7 +809,13 @@ bool DataCatalog::addAsset(const CatalogAsset &a, QString *error)
   m_assets.append(a);
   m_idx.assetAdded(m_assets.size() - 1, a.id, a.type); // D5.2
   if (save(error))
+  {
+    CatalogOp op;
+    op.kind = CatalogOp::Kind::AddAsset;
+    op.asset = a;
+    recordOp(std::move(op));
     return true;
+  }
   m_assets.removeLast();
   m_idx.rebuild(m_entities, m_assets, m_versions, m_links);
   return false;
@@ -634,6 +823,8 @@ bool DataCatalog::addAsset(const CatalogAsset &a, QString *error)
 
 bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
 {
+  if (!checkWriteThread("addVersion", error))
+    return false;
   if (!ensureOpen(error))
     return false;
   if (v.id.isEmpty() || v.assetId.isEmpty())
@@ -707,7 +898,13 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
         pid, QStringLiteral("上游版本 %1 已被同资产新版本 %2 取代").arg(pid, v.id),
         &staleUndo);
   if (save(error))
+  {
+    CatalogOp op;
+    op.kind = CatalogOp::Kind::AddVersion;
+    op.version = v;
+    recordOp(std::move(op));
     return true;
+  }
   for (int i = staleUndo.size() - 1; i >= 0; --i) // 逆序：同行的最早原值最后落
     m_versions[staleUndo[i].first] = staleUndo[i].second;
   m_versions.removeLast();
@@ -717,6 +914,8 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
 
 bool DataCatalog::addLink(const EntityAssetLink &l, QString *error)
 {
+  if (!checkWriteThread("addLink", error))
+    return false;
   if (!ensureOpen(error))
     return false;
   // §3 修订：未决链接实体 id 留空（资产保留、不建不并）；已决链接仍必须有实体 id。
@@ -752,7 +951,11 @@ bool DataCatalog::addLink(const EntityAssetLink &l, QString *error)
   if (save(error))
   {
     m_idx.linkAdded(m_links.size() - 1, m_links.last()); // D5.2：纯追加——旧主关联
-    return true;                                          // 只降标志，邻接键不变
+    CatalogOp op;                                         // 只降标志，邻接键不变
+    op.kind = CatalogOp::Kind::AddLink;
+    op.link = l; // 重放走同一 addLink（诊断/降级在目标 catalog 上重算）
+    recordOp(std::move(op));
+    return true;
   }
   for (int i : demotedRows)
     m_links[i].isPrimary = true;
@@ -763,6 +966,8 @@ bool DataCatalog::addLink(const EntityAssetLink &l, QString *error)
 
 bool DataCatalog::attachLink(int index, const QString &entityId, QString *error)
 {
+  if (!checkWriteThread("attachLink", error))
+    return false;
   if (!ensureOpen(error))
     return false;
   if (index < 0 || index >= m_links.size())
@@ -805,6 +1010,11 @@ bool DataCatalog::attachLink(int index, const QString &entityId, QString *error)
   if (save(error))
   {
     m_idx.linksMutated(m_links); // entityId 获值——entity 邻接变化
+    CatalogOp op;
+    op.kind = CatalogOp::Kind::AttachLink;
+    op.index = index;
+    op.id = entityId;
+    recordOp(std::move(op));
     return true;
   }
   m_links[index] = previousLink;
@@ -816,6 +1026,8 @@ bool DataCatalog::attachLink(int index, const QString &entityId, QString *error)
 
 bool DataCatalog::setLinkUnresolved(int index, QString *error)
 {
+  if (!checkWriteThread("setLinkUnresolved", error))
+    return false;
   if (!ensureOpen(error))
     return false;
   if (index < 0 || index >= m_links.size())
@@ -839,6 +1051,10 @@ bool DataCatalog::setLinkUnresolved(int index, QString *error)
   if (save(error))
   {
     m_idx.linksMutated(m_links); // entityId 被清空——entity 邻接变化
+    CatalogOp op;
+    op.kind = CatalogOp::Kind::SetLinkUnresolved;
+    op.index = index;
+    recordOp(std::move(op));
     return true;
   }
   m_links[index] = previousLink;
@@ -848,6 +1064,8 @@ bool DataCatalog::setLinkUnresolved(int index, QString *error)
 
 bool DataCatalog::setLinkPrimary(int index, QString *error)
 {
+  if (!checkWriteThread("setLinkPrimary", error))
+    return false;
   if (!ensureOpen(error))
     return false;
   if (index < 0 || index >= m_links.size())
@@ -879,6 +1097,10 @@ bool DataCatalog::setLinkPrimary(int index, QString *error)
   if (save(error))
   {
     // 同上：纯标志位变化——零重索引。
+    CatalogOp op;
+    op.kind = CatalogOp::Kind::SetLinkPrimary;
+    op.index = index;
+    recordOp(std::move(op));
     return true;
   }
   m_links[index] = previousLink;
@@ -903,6 +1125,7 @@ QVector<EntityAssetLink> DataCatalog::invalidRoleLinks() const
 
 CatalogVersion DataCatalog::versionBySha256(const QString &sha256) const
 {
+  noteRead("versionBySha256");
   if (sha256.isEmpty())
     return CatalogVersion();
   // WP2：sha 命中行集走索引（旧实现线性全表扫——导入 dedup 每行调一次，
@@ -912,7 +1135,7 @@ CatalogVersion DataCatalog::versionBySha256(const QString &sha256) const
   for (int r : rows)
   {
     const CatalogVersion &v = m_versions.at(r);
-    const QString path = resolvedVersionPath(m_dir, v);
+    const QString path = versionFilePath(v); // staging：同批新增受管版本在暂存根
     if (path.isEmpty() || !QFileInfo(path).isFile()) continue;
     if (sha256FileHex(path).compare(sha256, Qt::CaseInsensitive) == 0)
       return v;
@@ -1013,11 +1236,13 @@ bool DataCatalog::isSafePathSegment(const QString &segment)
 
 bool DataCatalog::hasEntity(const QString &id) const
 {
+  noteRead("hasEntity");
   return m_idx.entityRow(id) >= 0; // D5.1 O(1)
 }
 
 QVector<CatalogEntity> DataCatalog::entities(const QString &entityType) const
 {
+  noteRead("entities");
   QVector<CatalogEntity> out;
   if (entityType.isEmpty())
     return m_entities;
@@ -1030,23 +1255,27 @@ QVector<CatalogEntity> DataCatalog::entities(const QString &entityType) const
 
 CatalogEntity DataCatalog::entityById(const QString &id) const
 {
+  noteRead("entityById");
   const int row = m_idx.entityRow(id); // D5.1 O(1)
   return row >= 0 ? m_entities.at(row) : CatalogEntity();
 }
 
 QVector<CatalogAsset> DataCatalog::assets() const
 {
+  noteRead("assets");
   return m_assets;
 }
 
 CatalogAsset DataCatalog::assetById(const QString &id) const
 {
+  noteRead("assetById");
   const int row = m_idx.assetRow(id); // D5.1 O(1)
   return row >= 0 ? m_assets.at(row) : CatalogAsset();
 }
 
 QVector<CatalogVersion> DataCatalog::versionsForAsset(const QString &assetId) const
 {
+  noteRead("versionsForAsset");
   QVector<CatalogVersion> out;
   const QVector<int> rows = m_idx.versionRowsForAsset(assetId); // D5.1 O(1)+收集
   out.reserve(rows.size());
@@ -1057,12 +1286,14 @@ QVector<CatalogVersion> DataCatalog::versionsForAsset(const QString &assetId) co
 
 CatalogVersion DataCatalog::versionById(const QString &id) const
 {
+  noteRead("versionById");
   const int row = m_idx.versionRow(id); // D5.1 O(1)
   return row >= 0 ? m_versions.at(row) : CatalogVersion();
 }
 
 CatalogVersion DataCatalog::currentVersion(const QString &assetId) const
 {
+  noteRead("currentVersion");
   CatalogVersion best;
   const QVector<int> rows = m_idx.versionRowsForAsset(assetId); // D5.1
   for (int r : rows)
@@ -1073,6 +1304,7 @@ CatalogVersion DataCatalog::currentVersion(const QString &assetId) const
 
 QVector<EntityAssetLink> DataCatalog::linksForEntity(const QString &entityId) const
 {
+  noteRead("linksForEntity");
   // audit row 35：空 id 不等于「全部未决链接」——未决集合走 unresolvedLinks()；
   // 这里如实返回空集，不然调用方拿空串查询会静默命中全部未决链接。
   if (entityId.isEmpty())
@@ -1103,6 +1335,7 @@ QVector<EntityAssetLink> DataCatalog::unresolvedLinks() const
 
 QVector<EntityAssetLink> DataCatalog::linksForAsset(const QString &assetId) const
 {
+  noteRead("linksForAsset");
   QVector<EntityAssetLink> out;
   const QVector<int> rows = m_idx.linkRowsForAsset(assetId); // D5.1（行升序）
   out.reserve(rows.size());
@@ -1113,6 +1346,7 @@ QVector<EntityAssetLink> DataCatalog::linksForAsset(const QString &assetId) cons
 
 QVector<EntityAssetLink> DataCatalog::links() const
 {
+  noteRead("links");
   return m_links;
 }
 
@@ -1179,6 +1413,8 @@ int DataCatalog::markStaleDownstreamOf(const QString &versionId, const QString &
 bool DataCatalog::markDownstreamStale(const QString &versionId, const QString &reason,
                                       QString *error)
 {
+  if (!checkWriteThread("markDownstreamStale", error))
+    return false;
   if (!ensureOpen(error))
     return false;
   if (versionId.isEmpty())
@@ -1199,7 +1435,14 @@ bool DataCatalog::markDownstreamStale(const QString &versionId, const QString &r
   if (markStaleDownstreamOf(versionId, why, &undo) == 0)
     return true; // 无下游或标记未变——不落盘、不空涨 revision
   if (save(error))
+  {
+    CatalogOp op;
+    op.kind = CatalogOp::Kind::MarkDownstreamStale;
+    op.id = versionId;
+    op.reason = reason;
+    recordOp(std::move(op));
     return true;
+  }
   for (int i = undo.size() - 1; i >= 0; --i)
     m_versions[undo[i].first] = undo[i].second; // 落盘失败回滚内存
   return false;
@@ -1220,6 +1463,7 @@ QString DataCatalog::normalizeWellName(const QString &name)
 
 QStringList DataCatalog::wellsMatchingName(const QString &name) const
 {
+  noteRead("wellsMatchingName");
   const QString needle = normalizeWellName(name);
   QStringList out;
   if (needle.isEmpty())
@@ -1246,6 +1490,8 @@ QString DataCatalog::managedPath(const QString &stage, const QString &assetId,
 
 QString DataCatalog::nextAssetId()
 {
+  noteRead("nextAssetId");
+  ++m_mutationSeq; // 分配 id 也是 owner 侧状态变化（提交基线要看见）
   QString id;
   do { id = QStringLiteral("ast-%1").arg(++m_assetSeq); }
   while (!assetById(id).id.isEmpty());
@@ -1254,6 +1500,8 @@ QString DataCatalog::nextAssetId()
 
 QString DataCatalog::nextVersionId()
 {
+  noteRead("nextVersionId");
+  ++m_mutationSeq; // 分配 id 也是 owner 侧状态变化（提交基线要看见）
   QString id;
   do { id = QStringLiteral("ver-%1").arg(++m_versionSeq); }
   while (!versionById(id).id.isEmpty());
@@ -1262,6 +1510,8 @@ QString DataCatalog::nextVersionId()
 
 QString DataCatalog::nextEntityId(const QString &prefix)
 {
+  noteRead("nextEntityId");
+  ++m_mutationSeq; // 分配 id 也是 owner 侧状态变化（提交基线要看见）
   // WP2：前缀最大序号走索引（旧实现线性扫全实体表——导入井/辅助实体逐个
   // 调用即 O(N²)）。语义等价：只认「prefix 后跟 '-' 且余段纯数字」的既有 id。
   const int max = m_idx.maxEntitySeqForPrefix(prefix);

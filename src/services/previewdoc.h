@@ -194,7 +194,14 @@ class PreviewDocService : public QObject
     // 同 key 新请求自动作废旧代，旧任务请求取消。无任务服务时同步执行、
     // 返回前信号已发（与 requestSection 同一降级口径）。GUI 消费路径建议
     // 先用 lasHeaderAt 铺曲线名，再 requestLas 补数据行。
-    void requestLas(const QString &key, const QString &absPath);
+    // siblingPaths 与 absPath 在同一次后台任务里解析数据体。某个兄弟文件
+    // 解析失败则跳过该文件，不让本次请求失败。空列表 = 只解析 absPath。
+    void requestLas(const QString &key, const QString &absPath,
+                    const QStringList &siblingPaths = {});
+    // 最近一次成功 requestLas 的兄弟文件（失败的不在表里）。当前文件仍由
+    // lasReady 的 curves 交付。只在 lasReady 槽里读；releaseLas / 同 key
+    // 新请求会清掉。
+    QHash<QString, LasDoc> lasSiblingDocs(const QString &key) const;
     // 释放该 key 的世代号；进行中的解析请求取消——结果没人等了。
     void releaseLas(const QString &key);
 
@@ -257,6 +264,7 @@ class PreviewDocService : public QObject
     // 任务指针（新请求取消旧任务）——与 m_decodeSeq/m_decodeTask 同一模式。
     QHash<QString, int> m_lasSeq;
     QHash<QString, QPointer<PaleoTask>> m_lasTask;
+    QHash<QString, QHash<QString, LasDoc>> m_lasSiblings;
 
     // B3 栅格金字塔预热：按资产的会话状态（Ready/Failed 不重复）与在途
     // 任务指针（同资产新请求合并——在途即视为已受理）。

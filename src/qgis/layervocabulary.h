@@ -61,12 +61,23 @@ inline QStringList groupFamily(const QString &canonical)
   return {canonical};
 }
 
-// 档案成员判定：声明组（可能是旧名）是否落在档案组集合（canonical）内。
+// 子组路径的根组：04_SingleFactor/Contours → 04_SingleFactor。无斜线时就是自身。
+inline QString groupRoot(const QString &group)
+{
+  const QString canonical = canonicalize(group);
+  const int slash = canonical.indexOf(QLatin1Char('/'));
+  return slash < 0 ? canonical : canonical.left(slash);
+}
+
+// 档案成员判定：声明组（可能是旧名或子组）是否落在档案组集合（canonical）内。
 // 档案应用旧 .qgz 时，"01_Prediction" 产层经此不再被表外隐藏。
+// 子组跟随根组：单因素等值线、制图工作场随 04_SingleFactor 出现在单因素页和编图页。
 inline bool profileContains(const QStringList &profileGroups, const QString &declGroup)
 {
+  const QString canonical = canonicalize(declGroup);
   return profileGroups.contains(declGroup)
-         || profileGroups.contains(canonicalize(declGroup));
+         || profileGroups.contains(canonical)
+         || profileGroups.contains(groupRoot(canonical));
 }
 
 // 页面档案表（页 → canonical 组集合）。data 页无地图不操作画布 → 空；
@@ -95,7 +106,7 @@ inline QStringList profileGroupsForPage(const QString &pageId)
 // 带禁用原因（DESIGN.md：禁用控件必须带 reason）。旧组名先 canonicalize。
 inline QString pageForGroup(const QString &group, QString *reason = nullptr)
 {
-  const QString canonical = canonicalize(group);
+  const QString canonical = groupRoot(group);
   if (reason)
     reason->clear();
   if (canonical == QLatin1String("02_Prediction"))

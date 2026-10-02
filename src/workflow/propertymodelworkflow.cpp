@@ -3,6 +3,7 @@
 
 #include "../catalog/datacatalog.h"
 #include "../io/lasparser.h"
+#include "../services/welllogset.h"
 #include "derivedassets.h"
 
 #include <QCryptographicHash>
@@ -674,48 +675,30 @@ PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &to
   {
     if (!ent.hasSurface)
       continue;
-    QString lasPath;
-    bool havePrimary = false;
-    int bestNum = -1;
-    for (const EntityAssetLink &link : m_catalog->linksForEntity(ent.id))
+    const QVector<WellCurveRef> curveIndex =
+        WellLogSet::wellCurveIndex(m_catalog, m_projectDir, ent.id);
+    int hit = -1;
+    for (int i = 0; i < curveIndex.size(); ++i)
     {
-      if (link.unresolved || link.role != QLatin1String("well_log") || link.assetId.isEmpty())
-        continue;
-      const CatalogVersion ver = m_catalog->currentVersion(link.assetId);
-      if (ver.id.isEmpty())
-        continue;
-      const QString path = DataCatalog::resolvedVersionPath(m_projectDir, ver);
-      if (path.isEmpty())
-        continue;
-      const bool take = lasPath.isEmpty() || (link.isPrimary && !havePrimary) ||
-                        (link.isPrimary == havePrimary && ver.versionNumber > bestNum);
-      if (!take)
-        continue;
-      lasPath = path;
-      havePrimary = link.isPrimary;
-      bestNum = ver.versionNumber;
+      if (curveIndex.at(i).mnemonic.compare(curveMnemonic, Qt::CaseInsensitive) == 0)
+      {
+        hit = i;
+        break;
+      }
     }
-    if (lasPath.isEmpty())
+    if (hit < 0)
+      continue;
+    const WellCurveRef ref = curveIndex.at(hit);
+    if (ref.column < 1 || ref.path.isEmpty())
       continue;
 
     QStringList names;
     QList<LasCurve> curves;
-    if (!LasParser::parse(lasPath, names, curves, nullptr) || curves.isEmpty())
-      continue;
-    int curveIdx = -1;
-    for (int i = 0; i < curves.size(); ++i)
-    {
-      if (curves.at(i).name.compare(curveMnemonic, Qt::CaseInsensitive) == 0)
-      {
-        curveIdx = i;
-        break;
-      }
-    }
-    if (curveIdx < 0)
+    if (!LasParser::parse(ref.path, names, curves, nullptr) || ref.column >= curves.size())
       continue;
 
     const QVector<double> &depth = curves.at(0).values;
-    const QVector<double> &vals = curves.at(curveIdx).values;
+    const QVector<double> &vals = curves.at(ref.column).values;
     const int n = static_cast<int>(std::min(depth.size(), vals.size()));
     struct Sample
     {

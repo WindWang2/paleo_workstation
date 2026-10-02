@@ -17,4 +17,10 @@ namespace PaleoRasterOut
                                   const double geoTransform[6],
                                   const QgsCoordinateReferenceSystem &crs,
                                   double nodata );
+
+  // 与 createFloatRaster 同一 GeoTransform / CRS 写口。不写 nodata，
+  // 像元值 0 会保留（支撑标记 0 是域外缺失，不是文件空值）。
+  GDALDatasetH createByteRaster( const QString &outPath, int nCols, int nRows,
+                                 const double geoTransform[6],
+                                 const QgsCoordinateReferenceSystem &crs );
 }

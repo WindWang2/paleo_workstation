@@ -1,0 +1,49 @@
+{
+  "referenceRevision": "27fdb998a32d7a7f50d7e6ef0d2ebb3a5d06378f",
+  "referenceRoot": "/home/kevin/projects/_refs/haiyou-visualization/Drawing",
+  "adapter": "generate_reference.py",
+  "adapterVersion": "1.0.0",
+  "python": "3.14.7 (main, Aug 14 2026, 06:38:32) [GCC 16.2.1 20260810]",
+  "platform": "Linux-7.2.8-2-cachyos-x86_64-with-glibc2.44",
+  "packages": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "shapely": "2.1.2"
+  },
+  "sources": [
+    {
+      "path": "drawing/constraint_semantics.py",
+      "sha256": "8f99235e03323d7eb96b926d24b1954065f94198e2c5ab8f96e3b344f4365e4e"
+    },
+    {
+      "path": "drawing/single_factor/constrained_engine.py",
+      "sha256": "ac60833f3d14f611bddf003803ac1847598d8a0ddfe5d93f4397d152baa4af35"
+    },
+    {
+      "path": "drawing/single_factor/continuous_metric.py",
+      "sha256": "fd4e0f5ab775242cd9cee43e630d7719c7c6be3242dd7e704b03a62d3a354256"
+    },
+    {
+      "path": "drawing/single_factor/surfer_idw.py",
+      "sha256": "a0ba6ff10d8a23a385f5bd65940d2f9d0db9d4e3f47012877d9da9ac6ffac6f3"
+    },
+    {
+      "path": "drawing/single_factor/structural_idw.py",
+      "sha256": "38ea77ffb3fd19e7b91ff9d66755301cb4ef5ec0e2ad6dfc30c7a229cedf0178"
+    },
+    {
+      "path": "drawing/single_factor/interpretive_boundary.py",
+      "sha256": "b5e70d617207473ff1ca2ff9f6e0f0e987760c1ce37c9acd50eb2ddc56a3f671"
+    },
+    {
+      "path": "drawing/single_factor/well_clusters.py",
+      "sha256": "7610658becf663de5ba42f6149a2816e50af770903c556e76be5429ab7b55090"
+    },
+    {
+      "path": "drawing/single_factor/contour_work_field.py",
+      "sha256": "4326b6d274a5098a970923a77052af5b7b95aa72f4b96998fe6b3435247bdfc5"
+    }
+  ],
+  "golden": "tests/fixtures/singlefactor/kernel_parity.json",
+  "goldenSha256": "58a7544cf441b6f8d6269b7e9229262641e60900775019da25526560734cf3bb"
+}

@@ -143,10 +143,15 @@ private:
   }
   static QByteArray catalogBytes( const Fixture &f )
   {
-    QFile fcat( f.catalog.catalogPath() );
-    if ( !fcat.open( QIODevice::ReadOnly ) )
-      return {};
-    return fcat.readAll();
+    const QString dir = QFileInfo( f.catalog.catalogPath() ).absolutePath();
+    QFile sqlite( dir + QStringLiteral( "/catalog.sqlite" ) );
+    if ( !sqlite.open( QIODevice::ReadOnly ) )
+      return QByteArray( "catalog.sqlite unreadable" );
+    QByteArray wal;
+    QFile walFile( dir + QStringLiteral( "/catalog.sqlite-wal" ) );
+    if ( walFile.open( QIODevice::ReadOnly ) )
+      wal = walFile.readAll();
+    return sqlite.readAll() + QByteArray( "\n--wal--\n" ) + wal;
   }
   static const LayerDeclaration *findDecl( QgisLayerService &layers, const QString &layerId )
   {
@@ -271,6 +276,7 @@ void TestAiAssistWorkflow::classificationFailureIsHonestAndWritesNothing()
   Fixture f;
   QVERIFY( initFixture( f ) );
   const QByteArray before = catalogBytes( f );
+  QVERIFY( before.startsWith( "SQLite format 3" ) );
   const int declaredBefore = f.layers.declared().size();
   auto badFetch = []( int, int, int, int, QVector<float> &, QString &err ) {
     err = QStringLiteral( "合成取数故障" );
@@ -338,6 +344,7 @@ void TestAiAssistWorkflow::suggestionsNeverAutoWrite()
   Fixture f;
   QVERIFY( initFixture( f ) );
   const QByteArray before = catalogBytes( f );
+  QVERIFY( before.startsWith( "SQLite format 3" ) );
   const int declaredBefore = f.layers.declared().size();
 
   const int seedIl = 5, seedXl = 5;
@@ -376,6 +383,7 @@ void TestAiAssistWorkflow::commitAcceptedWritesArtifact()
                                  &err ) );
   QVERIFY( f.wf.acceptSuggestion( QStringLiteral( "H3" ), seedIl + 1, seedXl + 1 ) );
   const QByteArray before = catalogBytes( f );
+  QVERIFY( before.startsWith( "SQLite format 3" ) );
 
   QSignalSpy committed( &f.wf, &AiAssistWorkflow::acceptedCommitted );
   QVERIFY2( f.wf.commitAccepted( QStringLiteral( "H3" ), &err ), qPrintable( err ) );
@@ -400,6 +408,7 @@ void TestAiAssistWorkflow::commitWithoutAcceptedFails()
   Fixture f;
   QVERIFY( initFixture( f ) );
   const QByteArray before = catalogBytes( f );
+  QVERIFY( before.startsWith( "SQLite format 3" ) );
   QString err;
   QVERIFY( !f.wf.commitAccepted( QStringLiteral( "Nope" ), &err ) );
   QVERIFY2( !err.isEmpty(), "honest error required" );
@@ -445,6 +454,7 @@ void TestAiAssistWorkflow::asyncClassificationCancelledWritesNothing()
   PaleoTaskService tasks;
   f.wf.setTaskService( &tasks );
   const QByteArray before = catalogBytes( f );
+  QVERIFY( before.startsWith( "SQLite format 3" ) );
   QSignalSpy done( &f.wf, &AiAssistWorkflow::tileClassificationDone );
 
   auto slowFetch = []( int, int, int rows, int cols, QVector<float> &out, QString & ) {

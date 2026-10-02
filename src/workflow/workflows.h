@@ -6,6 +6,7 @@
 #include <QStringList>
 #include <QVariantMap>
 #include <QVector>
+#include <functional>
 #include <memory>
 #include "../domain/types.h"
 #include "../metadata/paleoprojectstore.h"
@@ -121,7 +122,10 @@ class ConstraintWorkflow : public QObject
     void setCatalog(DataCatalog *catalog, const QString &projectDir);
 
     bool addConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
-                       QString *error = nullptr, QString *constraintIdOut = nullptr);
+                       QString *error = nullptr, QString *constraintIdOut = nullptr,
+                       const QVariantMap &lineParams = {});
+    // 把逐线语义和半径写进 params_json。重开后 loadConstraints 读回同一份。
+    bool updateConstraintLine(const QString &id, const QVariantMap &lineParams, QString *error = nullptr);
     QVector<QVariantMap> loadConstraints(const QString &horizon = QString());
     bool runConstraintIDW(const QString &horizon, const QString &pointsLayerId, const QString &field,
                           double cellSize, QString *error = nullptr);
@@ -152,6 +156,11 @@ class ConstraintWorkflow : public QObject
                                 const SingleFactorDefinition &def, const QVariantMap &params,
                                 QString *error = nullptr);
 
+    // method=local_direction_idw。缺省 method 仍走旧 IDW，不进这里。
+    bool generateLocalDirectionFactor(const QString &horizon, const QString &factorId,
+                                      const SingleFactorDefinition &def, const QVariantMap &params,
+                                      QString *error);
+
     // 三个单因素引擎共用的收尾：样式 best-effort 落盘 + factor 栅格声明 +
     // C4 资产关联补盖 + factorGenerated（声明失败不发成功信号）。
     bool declareFactorResult(QgisLayerService *layers, const QString &horizon,
@@ -168,6 +177,104 @@ class ConstraintWorkflow : public QObject
     // 子组，layerId "contours.<horizon>.<factorId>"，幂等。
     bool generateContours(const QString &horizon, const QString &factorLayerId,
                           double interval, QString *error = nullptr);
+    // 显式级别的分析场等值线。layerId 仍是 contours.<层位>.<因素>。
+    bool generateContoursAtLevels(const QString &horizon, const QString &factorLayerId,
+                                  const QVector<double> &levels, QString *error = nullptr);
+
+    // 读已提交的分析栅格，另写制图工作场并声明 cartographic.<层位>.<因素>。
+    // 不覆盖 factor.<层位>.<因素>，也不改分析场字节。
+    // refuseUnresolved 为真且穿线数大于 0 时不提交、不声明。
+    bool generateCartographicWork(const QString &horizon, const QString &factorLayerId,
+                                  const QVector<double> &levels, QString *error = nullptr,
+                                  bool refuseUnresolved = false, int *unresolvedOut = nullptr);
+
+    // 从制图工作场提线。图层 cartographic.<层位>.<因素>.contours，名称「解释性等值线」。
+    // 严格模式有未解决穿线时不发布工作场，也不发布线。
+    bool generateInterpretiveContours(const QString &horizon, const QString &factorLayerId,
+                                      const QVector<double> &levels, QString *error = nullptr,
+                                      bool strict = true);
+
+    // 本地方向：准备在界面线程，计算可在任务线程，发布回到 catalog 所属线程。
+    struct LocalDirectionJob
+    {
+        bool prepared = false;
+        bool ok = false;
+        quint64 generation = 0;
+        QString error;
+        QString horizon;
+        QString factorId;
+        QString field;
+        double cellSize = 1.0;
+        QString wellUri;
+        QString constraintUri;
+        bool hasConstraints = false;
+        QStringList parentPaths;
+        QVariantMap params;
+        QString outputPath;
+        QString supportPath;
+        QString qcPath;
+    };
+    bool prepareLocalDirectionJob(const QString &horizon, const QString &factorId,
+                                  const QVariantMap &params, LocalDirectionJob *job, QString *error = nullptr);
+    bool computeLocalDirectionJob(LocalDirectionJob *job, const std::function<bool()> &cancelled = {},
+                                  const std::function<void(double)> &progress = {});
+    bool publishLocalDirectionJob(const LocalDirectionJob &job, QString *error = nullptr);
+
+    // 分析场等值线：准备在调用线程，GDAL 可在任务线程，发布回到 catalog 所属线程。
+    // fixedLevels 为真时用 levels（空级别直接拒绝）；否则要求正间距。
+    struct AnalysisContourJob
+    {
+        bool prepared = false;
+        bool ok = false;
+        bool fixedLevels = false;
+        quint64 generation = 0;
+        QString error;
+        QString horizon;
+        QString factorLayerId;
+        QString factorId;
+        QString rasterPath;
+        QString analysisSha;
+        QStringList parentPaths;
+        double interval = 0.0;
+        QVector<double> levels;
+        QString outputPath;
+    };
+    bool prepareAnalysisContourJob(const QString &horizon, const QString &factorLayerId,
+                                   double interval, const QVector<double> &levels, bool fixedLevels,
+                                   AnalysisContourJob *job, QString *error = nullptr);
+    bool computeAnalysisContourJob(AnalysisContourJob *job, const std::function<bool()> &cancelled = {});
+    bool publishAnalysisContourJob(const AnalysisContourJob &job, QString *error = nullptr);
+
+    // 解释性等值线：工作场与提线可在任务线程写临时文件，登记仍回调用线程。
+    // strict 默认与 generateInterpretiveContours 相同，不改拒绝穿线的缺省。
+    struct InterpretiveContourJob
+    {
+        bool prepared = false;
+        bool ok = false;
+        bool strict = true;
+        bool hasConstraints = false;
+        bool frozenConstraints = false;
+        quint64 generation = 0;
+        int unresolved = 0;
+        QString error;
+        QString horizon;
+        QString factorLayerId;
+        QString factorId;
+        QString rasterPath;
+        QString constraintUri;
+        QString analysisSha;
+        QStringList parentPaths;
+        QVector<double> levels;
+        QString workPath;
+        QString qcPath;
+        QString contourPath;
+    };
+    bool prepareInterpretiveContourJob(const QString &horizon, const QString &factorLayerId,
+                                       const QVector<double> &levels, bool strict,
+                                       InterpretiveContourJob *job, QString *error = nullptr);
+    bool computeInterpretiveContourJob(InterpretiveContourJob *job,
+                                       const std::function<bool()> &cancelled = {});
+    bool publishInterpretiveContourJob(const InterpretiveContourJob &job, QString *error = nullptr);
 
     DataCatalog *catalog() const;
     QString projectDir() const { return m_projectDir; }
@@ -183,6 +290,11 @@ class ConstraintWorkflow : public QObject
     void factorGenerated(const QString &horizon, const QString &factorId, const QString &layerId);
     void contoursGenerated(const QString &horizon, const QString &factorLayerId,
                            const QString &contourLayerId);
+    void cartographicWorkGenerated(const QString &horizon, const QString &factorLayerId,
+                                   const QString &layerId);
+    void interpretiveContoursGenerated(const QString &horizon, const QString &factorLayerId,
+                                       const QString &layerId);
+    void constraintLineUpdated(const QString &constraintId);
 
   private:
     QPointer<QgisProcessingService> m_proc;
@@ -194,6 +306,9 @@ class ConstraintWorkflow : public QObject
     QString m_projectDir;
     QVector<QVariantMap> m_inMemoryConstraints;
     int m_inMemorySeq = 0;
+    // 发布代次。本地方向在准备入口加一；等值线与解释性等值线在校验通过后加一；
+    // setStore 也加一。提交前对不上就丢掉这次临时文件，不声明图层。
+    quint64 m_publishGeneration = 0;
 };
 
 // ③综合编图 — fuse declared single-factor rasters into composite facies layer.

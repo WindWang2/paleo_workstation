@@ -18,6 +18,7 @@
 #include <QCryptographicHash>
 #include <QFile>
 #include <QFileInfo>
+#include <QSet>
 
 namespace
 {
@@ -718,18 +719,23 @@ void PreviewDocService::releaseSection(const QString &assetId)
   m_decodeTask.remove(assetId);
 }
 
-void PreviewDocService::requestLas(const QString &key, const QString &absPath)
+void PreviewDocService::requestLas(const QString &key, const QString &absPath,
+                                    const QStringList &siblingPaths)
 {
   // 与 requestSection 同一世代号纪律：同 key 新请求作废旧代（旧任务协作
   // 取消，其结果按世代号在发射前丢弃）。
   const int seq = ++m_lasSeq[key];
+  m_lasSiblings.remove(key);
   if (auto *old = m_lasTask.value(key).data(); old && old->running())
     old->requestCancel();
 
   // worker 产出（跨线程交接，GUI 只读 finished 后的快照）。
+  // 当前文件失败 = 整次失败；兄弟文件失败只跳过该文件。
   auto names = std::make_shared<QStringList>();
   auto curves = std::make_shared<QList<LasCurve>>();
-  const auto work = [absPath, names, curves](PaleoTask *t) -> QString {
+  auto siblings = std::make_shared<QHash<QString, LasDoc>>();
+  const auto work = [absPath, siblingPaths, names, curves,
+                     siblings](PaleoTask *t) -> QString {
     // D1.1/D4.7：LasCache::load——同文件并发请求（不同 key 的两个标签、
     // 预取 + 点击）只解析一份，其余等 future 拷贝。
     const LasDoc doc = LasCache::shared().load(absPath);
@@ -737,19 +743,47 @@ void PreviewDocService::requestLas(const QString &key, const QString &absPath)
       return (t && t->cancelRequested()) ? QString() : doc.error;
     *names = doc.curveNames;
     *curves = doc.curves;
+    const QString current = QFileInfo(absPath).absoluteFilePath();
+    QSet<QString> seen;
+    for (const QString &sp : siblingPaths)
+    {
+      if (t && t->cancelRequested())
+        return QString();
+      if (sp.isEmpty())
+        continue;
+      const QString abs = QFileInfo(sp).absoluteFilePath();
+      if (abs.isEmpty() || abs == current || seen.contains(abs))
+        continue;
+      seen.insert(abs);
+      const LasDoc sib = LasCache::shared().load(sp);
+      if (!sib.ok)
+        continue;
+      siblings->insert(sp, sib);
+      if (abs != sp)
+        siblings->insert(abs, sib);
+    }
     return QString();
   };
-  const auto apply = [this, key, seq, names, curves](PaleoTask::State st,
-                                                     const QString &errText) {
+  const auto apply = [this, key, seq, names, curves,
+                      siblings](PaleoTask::State st, const QString &errText) {
     if (seq != m_lasSeq.value(key))
       return; // 陈旧结果丢弃：更新一代请求已接管（发射前压制）
     if (st == PaleoTask::State::Succeeded)
+    {
+      m_lasSiblings.insert(key, *siblings);
       emit lasReady(key, *names, *curves);
+    }
     else if (st == PaleoTask::State::Failed)
+    {
+      m_lasSiblings.remove(key);
       emit lasFailed(key, errText.isEmpty()
                               ? QStringLiteral("无法解析 LAS 文件") : errText);
+    }
     else
+    {
+      m_lasSiblings.remove(key);
       emit lasCancelled(key);
+    }
   };
 
   if (m_taskSvc)
@@ -771,10 +805,16 @@ void PreviewDocService::requestLas(const QString &key, const QString &absPath)
   }
 }
 
+QHash<QString, LasDoc> PreviewDocService::lasSiblingDocs(const QString &key) const
+{
+  return m_lasSiblings.value(key);
+}
+
 void PreviewDocService::releaseLas(const QString &key)
 {
   // 标签/调用方关掉即释放世代号；进行中的解析请求取消——结果没人等了。
   m_lasSeq.remove(key);
+  m_lasSiblings.remove(key);
   if (auto *t = m_lasTask.value(key).data(); t && t->running())
     t->requestCancel();
   m_lasTask.remove(key);

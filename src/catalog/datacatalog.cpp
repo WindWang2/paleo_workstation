@@ -1,8 +1,9 @@
 // 层：数据
 #include "datacatalog.h"
 
+#include "catalogstore.h"
+
 #include <QCryptographicHash>
-#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -15,16 +16,13 @@
 #include <QThread>
 #include <QtGlobal>
 
-#include "../metadata/atomicfile.h"
-
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <memory>
 
 namespace
 {
-  const int kSchemaVersion = 1;
-
   // wave/data-integrity：role 词表诊断标记。addLink/attachLink 把诊断写进
   // note 尾部，invalidRoleLinks() 按标记扫描——诊断因此随 catalog.json
   // round-trip，重开工程后诊断面仍可查。
@@ -65,164 +63,14 @@ namespace
       *error = text;
   }
 
-  QJsonArray cornersToJson(const QVector<QPair<double, double>> &cs)
-  {
-    QJsonArray a;
-    for (const auto &c : cs)
-    {
-      QJsonObject o;
-      o.insert(QStringLiteral("x"), c.first);
-      o.insert(QStringLiteral("y"), c.second);
-      a.append(o);
-    }
-    return a;
-  }
-
-  QVector<QPair<double, double>> cornersFromJson(const QJsonArray &a)
-  {
-    QVector<QPair<double, double>> cs;
-    for (const auto &v : a)
-    {
-      const QJsonObject o = v.toObject();
-      cs.append({o.value(QStringLiteral("x")).toDouble(), o.value(QStringLiteral("y")).toDouble()});
-    }
-    return cs;
-  }
-
-  QJsonObject entityToJson(const CatalogEntity &e)
-  {
-    QJsonObject o;
-    o.insert(QStringLiteral("id"), e.id);
-    o.insert(QStringLiteral("entity_type"), e.entityType);
-    o.insert(QStringLiteral("name"), e.name);
-    o.insert(QStringLiteral("surface_x"), e.surfaceX);
-    o.insert(QStringLiteral("surface_y"), e.surfaceY);
-    o.insert(QStringLiteral("has_surface"), e.hasSurface);
-    o.insert(QStringLiteral("kb"), e.kb);
-    o.insert(QStringLiteral("td"), e.td);
-    o.insert(QStringLiteral("coordinate_status"), e.coordinateStatus);
-    o.insert(QStringLiteral("inline_min"), e.inlineMin);
-    o.insert(QStringLiteral("inline_max"), e.inlineMax);
-    o.insert(QStringLiteral("xline_min"), e.xlineMin);
-    o.insert(QStringLiteral("xline_max"), e.xlineMax);
-    o.insert(QStringLiteral("sample_interval_us"), e.sampleIntervalUs);
-    o.insert(QStringLiteral("start_time_ms"), e.startTimeMs);
-    o.insert(QStringLiteral("corners"), cornersToJson(e.corners));
-    if (!e.extra.isEmpty())
-      o.insert(QStringLiteral("extra"), QJsonObject::fromVariantMap(e.extra));
-    return o;
-  }
-
-  CatalogEntity entityFromJson(const QJsonObject &o)
-  {
-    CatalogEntity e;
-    e.id = o.value(QStringLiteral("id")).toString();
-    e.entityType = o.value(QStringLiteral("entity_type")).toString();
-    e.name = o.value(QStringLiteral("name")).toString();
-    // D12：旧 catalog 的 "uwi"/"aliases" 键不读不报错——留在这里被静默丢弃。
-    e.surfaceX = o.value(QStringLiteral("surface_x")).toDouble();
-    e.surfaceY = o.value(QStringLiteral("surface_y")).toDouble();
-    e.hasSurface = o.value(QStringLiteral("has_surface")).toBool();
-    e.kb = o.value(QStringLiteral("kb")).toDouble();
-    e.td = o.value(QStringLiteral("td")).toDouble();
-    e.coordinateStatus = o.value(QStringLiteral("coordinate_status")).toString();
-    e.inlineMin = o.value(QStringLiteral("inline_min")).toDouble();
-    e.inlineMax = o.value(QStringLiteral("inline_max")).toDouble();
-    e.xlineMin = o.value(QStringLiteral("xline_min")).toDouble();
-    e.xlineMax = o.value(QStringLiteral("xline_max")).toDouble();
-    e.sampleIntervalUs = o.value(QStringLiteral("sample_interval_us")).toDouble();
-    e.startTimeMs = o.value(QStringLiteral("start_time_ms")).toDouble();
-    e.corners = cornersFromJson(o.value(QStringLiteral("corners")).toArray());
-    e.extra = o.value(QStringLiteral("extra")).toObject().toVariantMap();
-    return e;
-  }
-
-  QJsonObject linkToJson(const EntityAssetLink &l)
-  {
-    QJsonObject o;
-    o.insert(QStringLiteral("entity_type"), l.entityType);
-    o.insert(QStringLiteral("entity_id"), l.entityId);
-    o.insert(QStringLiteral("asset_id"), l.assetId);
-    o.insert(QStringLiteral("role"), l.role);
-    o.insert(QStringLiteral("is_primary"), l.isPrimary);
-    o.insert(QStringLiteral("unresolved"), l.unresolved);
-    o.insert(QStringLiteral("ordinal"), l.ordinal); // 恒写——与上游 C++ 落盘约定一致
-    o.insert(QStringLiteral("note"), l.note);
-    return o;
-  }
-
-  EntityAssetLink linkFromJson(const QJsonObject &o)
-  {
-    EntityAssetLink l;
-    l.entityType = o.value(QStringLiteral("entity_type")).toString();
-    l.entityId = o.value(QStringLiteral("entity_id")).toString();
-    l.assetId = o.value(QStringLiteral("asset_id")).toString();
-    l.role = o.value(QStringLiteral("role")).toString();
-    l.isPrimary = o.value(QStringLiteral("is_primary")).toBool(true);
-    l.unresolved = o.value(QStringLiteral("unresolved")).toBool(false);
-    l.ordinal = o.value(QStringLiteral("ordinal")).toInt(0); // 旧 catalog 无键 → 0
-    l.note = o.value(QStringLiteral("note")).toString();
-    return l;
-  }
-
-  QJsonObject versionToJson(const CatalogVersion &v)
-  {
-    QJsonObject o;
-    o.insert(QStringLiteral("id"), v.id);
-    o.insert(QStringLiteral("asset_id"), v.assetId);
-    o.insert(QStringLiteral("stage"), v.stage);
-    o.insert(QStringLiteral("version_number"), v.versionNumber);
-    o.insert(QStringLiteral("managed"), v.managed);
-    o.insert(QStringLiteral("path"), v.path);
-    o.insert(QStringLiteral("source_uri"), v.sourceUri);
-    o.insert(QStringLiteral("sha256"), v.sha256);
-    o.insert(QStringLiteral("file_name"), v.fileName);
-    o.insert(QStringLiteral("parent_version_ids"), QJsonArray::fromStringList(v.parentVersionIds));
-    if (!v.extra.isEmpty())
-      o.insert(QStringLiteral("extra"), QJsonObject::fromVariantMap(v.extra));
-    return o;
-  }
-
-  CatalogVersion versionFromJson(const QJsonObject &o)
-  {
-    CatalogVersion v;
-    v.id = o.value(QStringLiteral("id")).toString();
-    v.assetId = o.value(QStringLiteral("asset_id")).toString();
-    v.stage = o.value(QStringLiteral("stage")).toString();
-    v.versionNumber = o.value(QStringLiteral("version_number")).toInt(1);
-    v.managed = o.value(QStringLiteral("managed")).toBool(true);
-    v.path = o.value(QStringLiteral("path")).toString();
-    v.sourceUri = o.value(QStringLiteral("source_uri")).toString();
-    v.sha256 = o.value(QStringLiteral("sha256")).toString();
-    v.fileName = o.value(QStringLiteral("file_name")).toString();
-    for (const auto &p : o.value(QStringLiteral("parent_version_ids")).toArray())
-      v.parentVersionIds.append(p.toString());
-    v.extra = o.value(QStringLiteral("extra")).toObject().toVariantMap();
-    return v;
-  }
-
-  // §3 段校验（addVersion 与 catalog 装载共用）：fileName/stage/受管 path 的
-  // 每一段都须过 DataCatalog::isSafePathSegment；返回出问题的那段描述，
-  // 干净版本回空串。（外链 path 是文件系统绝对路径，含分隔符属正常，不查；
-  // 空 path 表示未落位，交给调用方兜底。）
-  QString unsafeVersionSegmentReason(const CatalogVersion &v)
-  {
-    if (!v.fileName.isEmpty() && !DataCatalog::isSafePathSegment(v.fileName))
-      return QStringLiteral("file name: %1").arg(v.fileName);
-    if (!v.stage.isEmpty() && !DataCatalog::isSafePathSegment(v.stage))
-      return QStringLiteral("stage: %1").arg(v.stage);
-    if (v.managed && !v.path.isEmpty())
-      for (const QString &seg : v.path.split(QLatin1Char('/')))
-        if (!DataCatalog::isSafePathSegment(seg))
-          return QStringLiteral("managed path segment: %1").arg(seg);
-    return QString();
-  }
 } // namespace
 
 DataCatalog::DataCatalog(QObject *parent)
   : QObject(parent)
 {
 }
+
+DataCatalog::~DataCatalog() = default;
 
 bool DataCatalog::ensureOpen(QString *error) const
 {
@@ -310,6 +158,7 @@ std::unique_ptr<DataCatalog> DataCatalog::createStagingCopy(const QString &overl
   copy->m_backupKeep = m_backupKeep;
   copy->m_staging = true;
   copy->m_overlayDir = overlayDir;
+  // m_store 不拷贝：副本默认空指针。save() 见 m_staging 即返回，不 open。
   // 无线程亲和：由领到它的 worker 独占使用，析构线程不限。
   copy->moveToThread(nullptr);
   return copy;
@@ -320,6 +169,11 @@ QString DataCatalog::versionFilePath(const CatalogVersion &v) const
   if (m_staging && v.managed && m_overlayVersionIds.contains(v.id))
     return resolvedVersionPath(m_overlayDir, v);
   return resolvedVersionPath(m_dir, v);
+}
+
+void DataCatalog::debugAbortJournalAfter(int k)
+{
+  m_debugAbortJournalAfter = k > 0 ? k : 0;
 }
 
 bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
@@ -344,6 +198,10 @@ bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
   const CatalogIndex idx0 = m_idx;
   const int depth0 = m_batchDepth;
   const bool dirty0 = m_batchDirty;
+  const QSet<QString> dirtyEntities0 = m_dirtyEntities;
+  const QSet<QString> dirtyAssets0 = m_dirtyAssets;
+  const QSet<QString> dirtyVersions0 = m_dirtyVersions;
+  const QSet<int> dirtyLinkOrds0 = m_dirtyLinkOrds;
   const auto restore = [&] {
     m_entities = entities0;
     m_assets = assets0;
@@ -354,6 +212,10 @@ bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
     m_idx = idx0;
     m_batchDepth = depth0;
     m_batchDirty = dirty0;
+    m_dirtyEntities = dirtyEntities0;
+    m_dirtyAssets = dirtyAssets0;
+    m_dirtyVersions = dirtyVersions0;
+    m_dirtyLinkOrds = dirtyLinkOrds0;
   };
 
   beginBatch();
@@ -382,6 +244,13 @@ bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
                           .arg(i + 1)
                           .arg(ops.size())
                           .arg(opErr.isEmpty() ? QStringLiteral("未给出原因") : opErr));
+      return false;
+    }
+    // 注入中止必须在 endBatch/save 之前：此时还没有 sqlite 事务，-wal 字节才不变。
+    if (m_debugAbortJournalAfter > 0 && (i + 1) == m_debugAbortJournalAfter)
+    {
+      restore();
+      setError(error, QStringLiteral("catalog 提交在第 %1 个 op 后中止（测试注入）").arg(i + 1));
       return false;
     }
   }
@@ -417,6 +286,11 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   m_assetSeq = m_versionSeq = 0;
   m_roles = RoleRegistry::defaults();
   m_idx.clear();
+  m_dirtyEntities.clear();
+  m_dirtyAssets.clear();
+  m_dirtyVersions.clear();
+  m_dirtyLinkOrds.clear();
+  m_forceFullSave = false;
 
   const auto fail = [&](const QString &msg) {
     setError(error, msg);
@@ -425,7 +299,11 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   };
 
   if (m_dir.isEmpty())
+  {
+    if (m_store)
+      m_store->close();
     return fail(QStringLiteral("project directory is empty"));
+  }
 
   // A 包角色词表：<projectDir>/project_area.json 的 roles 节做工程级覆盖；
   // 缺文件/解析失败/roles 非对象 → 静默留 defaults()。词表不是数据底座，
@@ -442,153 +320,87 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
     }
   }
 
-  QFile f(catalogPath());
-  if (!f.exists())
+  // 锁降级且盘上既没有 catalog.sqlite 也没有 catalog.json：openProject
+  // 成功返回空表且不建文件（#80）。查询为空；refusesWrites() 仍为真，
+  // 因为实例被锁，不是因为这次 open 失败。
+  if (!m_store)
+    m_store = std::make_unique<CatalogStore>();
+  else
+    m_store->close();
+
+  QString serr;
+  CatalogStore::Tables tables;
+  if (!m_store->openProject(m_dir, m_lockedReadOnly, &tables, &serr))
   {
-    // 初始化空 catalog（schema_version + revision 0）。落盘失败同样进
-    // 拒绝写入态——否则后续 mutator 会拿内存态反复尝试覆盖。
-    QString serr;
-    m_isOpen = true;
-    if (save(&serr))
-      return true;
-    m_isOpen = false;
-    return fail(serr.isEmpty() ? QStringLiteral("cannot initialize catalog") : serr);
+    m_store->close();
+    return fail(serr.isEmpty() ? QStringLiteral("cannot open catalog") : serr);
   }
 
-  // 装载一段已解析的 JSON 根（主文件与 .bak 回退共用）：schema 校验 +
-  // 四表读入 + 序号恢复。返回空串 = 成功；非空 = 拒因。
-  const auto loadFrom = [this](const QJsonObject &root) -> QString {
-    // T20b：缺键按当前版本处理（旧 catalog 照常打开）；显式写了且不等于
-    // kSchemaVersion（无论新旧）→ 如实拒绝，不读不写。
-    const QString schemaKey = QStringLiteral("schema_version");
-    if (root.contains(schemaKey) && root.value(schemaKey).toInt() != kSchemaVersion)
-      return QStringLiteral("unsupported catalog schema");
-    m_revision = root.value(QStringLiteral("catalog_revision")).toInt();
-    for (const auto &v : root.value(QStringLiteral("entities")).toArray())
-      m_entities.append(entityFromJson(v.toObject()));
-    for (const auto &v : root.value(QStringLiteral("assets")).toArray())
-    {
-      const CatalogAsset a{
-          v.toObject().value(QStringLiteral("id")).toString(),
-          v.toObject().value(QStringLiteral("type")).toString(),
-          v.toObject().value(QStringLiteral("format")).toString(),
-          v.toObject().value(QStringLiteral("display_name")).toString()};
-      m_assets.append(a);
-      bool ok = false;
-      const int n = QString(a.id).mid(4).toInt(&ok); // "ast-N"
-      if (ok)
-        m_assetSeq = qMax(m_assetSeq, n);
-    }
-    for (const auto &v : root.value(QStringLiteral("versions")).toArray())
-    {
-      const CatalogVersion cv = versionFromJson(v.toObject());
-      // 段校验（fileName/stage/受管 path）与 resolvedVersionPath 根包含检查：
-      // 坏段版本如实跳过且不写回，不静默沿用——与 addVersion 同一校验面
-      // （audit row 36/T33；resolvedVersionPath 另挡符号链接与越界绝对路径）。
-      QString badSeg = unsafeVersionSegmentReason(cv);
-      // D5.7（10k 资产打开预算）：装载期只做段校验——段已排除 ".."/绝对/
-      // 反斜杠，无符号链接不可能逃出根；符号链接逃逸检查推迟到
-      // resolvedVersionPath() 访问期（那里本来就查）。装载不再做 N 次文件
-      // 系统 stat（10k 版本 × 4 段 = 4 万次 stat 是打开预算的大头）。
-      if (!badSeg.isEmpty())
-      {
-        qWarning("catalog: skipping version %s with unsafe path segment: %s",
-                 qPrintable(cv.id), qPrintable(badSeg));
-        continue;
-      }
-      m_versions.append(cv);
-      bool ok = false;
-      const int n = cv.id.startsWith(QStringLiteral("ver-")) ? cv.id.mid(4).toInt(&ok) : 0;
-      if (ok && n > 0)
-        m_versionSeq = qMax(m_versionSeq, n);
-    }
-    for (const auto &v : root.value(QStringLiteral("entity_asset_links")).toArray())
-      m_links.append(linkFromJson(v.toObject()));
-    m_idx.rebuild(m_entities, m_assets, m_versions, m_links); // D5.1
-    return QString();
-  };
+  m_entities = std::move(tables.entities);
+  m_assets = std::move(tables.assets);
+  m_versions = std::move(tables.versions);
+  m_links = std::move(tables.links);
+  m_revision = tables.meta.revision;
+  m_assetSeq = qMax(m_assetSeq, tables.meta.assetSeq);
+  m_versionSeq = qMax(m_versionSeq, tables.meta.versionSeq);
+  if (tables.meta.hasMutationSeq)
+    m_mutationSeq = qMax(m_mutationSeq, tables.meta.mutationSeq + 1);
+  if (tables.meta.hasBackupKeep)
+    m_backupKeep = qBound(1, tables.meta.backupKeep, 9);
+  m_idx.rebuild(m_entities, m_assets, m_versions, m_links);
 
-  if (!f.open(QIODevice::ReadOnly))
-    return fail(QStringLiteral("cannot open catalog %1").arg(catalogPath()));
-  QJsonParseError pe;
-  const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &pe);
-  const bool mainParses = pe.error == QJsonParseError::NoError && doc.isObject();
-  const QString schemaKey = QStringLiteral("schema_version");
-  const bool mainSchemaOk =
-      !mainParses || !doc.object().contains(schemaKey) ||
-      doc.object().value(schemaKey).toInt() == kSchemaVersion;
-  if (mainParses && mainSchemaOk)
+  if (m_store->recovered())
   {
-    const QString rerr = loadFrom(doc.object());
-    if (!rerr.isEmpty())
-      return fail(QStringLiteral("%1 in %2").arg(rerr, catalogPath()));
-    m_isOpen = true;
-    emit changed();
-    return true;
-  }
-
-  // ---- 腐败恢复（.bak 回退）：只对「主文件解析失败」生效。schema 不匹配
-  // 是未来版本信号——.bak 与主文件同代，回退既救不了也不该静默降级数据。
-  if (mainParses)
-    return fail(QStringLiteral("unsupported catalog schema in %1").arg(catalogPath()));
-  // #79：依次尝试 .bak（最新）→ .bak.2 → … → .bak.9，取第一份可解析且
-  // schema 匹配的一代。只读 .bak 时，「.bak 恰好也坏了」会让仍完好的
-  // 更早一代白白躺在盘上。
-  const QString bakPath = catalogPath() + QStringLiteral(".bak");
-  QString bakDetail;
-  for (int gen = 1; gen <= 9; ++gen)
-  {
-    const QString candidate = gen == 1 ? bakPath : bakPath + QStringLiteral(".%1").arg(gen);
-    QFile bak(candidate);
-    if (!bak.exists())
-      continue;
-    if (!bak.open(QIODevice::ReadOnly))
-    {
-      bakDetail += QStringLiteral("%1: cannot open; ").arg(candidate);
-      continue;
-    }
-    QJsonParseError bpe;
-    const QJsonDocument bakDoc = QJsonDocument::fromJson(bak.readAll(), &bpe);
-    bak.close();
-    if (bpe.error != QJsonParseError::NoError || !bakDoc.isObject())
-    {
-      bakDetail += QStringLiteral("%1: corrupt backup: %2; ").arg(candidate, bpe.errorString());
-      continue;
-    }
-    // 上一代尝试失败可能已部分装载——每代从空表开始。
-    m_entities.clear();
-    m_assets.clear();
-    m_versions.clear();
-    m_links.clear();
-    m_assetSeq = 0;
-    m_versionSeq = 0;
-    m_revision = 0;
-    const QString rerr = loadFrom(bakDoc.object());
-    if (!rerr.isEmpty())
-    {
-      bakDetail += QStringLiteral("%1: %2; ").arg(candidate, rerr);
-      continue;
-    }
-    // 恢复成功：open 算成功（读面可用、可续存），损坏事实如实留底并
-    // 广播——UI/状态面向用户告警。下一次 save 把损坏的主文件隔离为
-    // .corrupt-<时间戳>（不进 .bak 链，#79），再写入恢复后的内容。
     m_recoveredFromBackup = true;
-    m_primaryCorruptOnDisk = true;
-    m_backupRecoveryReason = QStringLiteral("%1: %2").arg(catalogPath(), pe.errorString());
-    qWarning("catalog: primary %s is corrupt (%s) — recovered from %s",
-             qPrintable(catalogPath()), qPrintable(pe.errorString()), qPrintable(candidate));
+    m_backupRecoveryReason = m_store->recoveryReason();
+    m_primaryCorruptOnDisk = m_store->needsPrimaryRewrite();
+    m_forceFullSave = m_primaryCorruptOnDisk && !m_lockedReadOnly;
+    qWarning("catalog: recovered from backup (%s)", qPrintable(m_backupRecoveryReason));
     m_isOpen = true;
     emit backupRecovered(m_backupRecoveryReason);
     emit changed();
     return true;
   }
-  m_entities.clear();
-  m_assets.clear();
-  m_versions.clear();
-  m_links.clear();
-  return fail(QStringLiteral("corrupt catalog %1: %2 (no usable %3[.2..9]: %4)")
-                  .arg(catalogPath(), pe.errorString(), bakPath,
-                       bakDetail.isEmpty() ? QStringLiteral("backup missing") : bakDetail));
+
+  m_recoveredFromBackup = false;
+  m_primaryCorruptOnDisk = false;
+  m_backupRecoveryReason.clear();
+  m_forceFullSave = false;
+  m_isOpen = true;
+  emit changed();
+  return true;
+}
+
+bool DataCatalog::exportCatalogJson(const QString &path, QString *error) const
+{
+  CatalogStore::Tables tables;
+  tables.entities = m_entities;
+  tables.assets = m_assets;
+  tables.versions = m_versions;
+  tables.links = m_links;
+  tables.meta.revision = m_revision;
+  const QByteArray bytes =
+      QJsonDocument(CatalogStore::toJson(tables)).toJson(QJsonDocument::Indented);
+  QSaveFile f(path);
+  f.setDirectWriteFallback(false);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  {
+    setError(error, QStringLiteral("cannot write %1: %2").arg(path, f.errorString()));
+    return false;
+  }
+  if (f.write(bytes) != bytes.size())
+  {
+    const QString detail = f.errorString();
+    f.cancelWriting();
+    setError(error, QStringLiteral("short write to %1: %2").arg(path, detail));
+    return false;
+  }
+  if (!f.commit())
+  {
+    setError(error, QStringLiteral("cannot replace %1: %2").arg(path, f.errorString()));
+    return false;
+  }
+  return true;
 }
 
 bool DataCatalog::save(QString *error)
@@ -596,131 +408,117 @@ bool DataCatalog::save(QString *error)
   if (!ensureOpen(error))
     return false;
   // 单写实例降级（§6）：锁在别的实例手里——本实例只读，任何落盘如实拒绝。
+  // 必须在碰 store 之前返回，staging / 批次挂起同理。
   if (m_lockedReadOnly)
   {
     setError(error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，catalog 写入被拒绝"));
     return false;
   }
-  // staging 副本（审计 02 M-8）：内存即结果，不落盘、不发 changed()——
-  // 提交由 owner 线程 applyJournal 一次完成。
+  // staging 副本：内存即结果，不落盘、不碰 store、不发 changed()。
   if (m_staging)
     return true;
-  // 批量作用域内：只记脏、不落盘——endBatch 统一结算（audit row 37）。
+  // 批量作用域内：只记脏、不落盘——endBatch 统一结算。
   if (m_batchDepth > 0)
   {
     m_batchDirty = true;
     return true;
   }
-  const QDir dir = QFileInfo(catalogPath()).dir();
-  if (!dir.exists() && !dir.mkpath(QStringLiteral(".")))
+  return commitStore(error);
+}
+
+bool DataCatalog::commitStore(QString *error)
+{
+  const auto clearDirty = [this] {
+    m_dirtyEntities.clear();
+    m_dirtyAssets.clear();
+    m_dirtyVersions.clear();
+    m_dirtyLinkOrds.clear();
+  };
+  if (!m_store)
   {
-    setError(error, QStringLiteral("cannot create catalog directory %1").arg(dir.absolutePath()));
+    clearDirty();
+    setError(error, QStringLiteral("catalog store is not open"));
     return false;
   }
 
-  QJsonObject root;
-  root.insert(QStringLiteral("schema_version"), kSchemaVersion);
-  const int nextRevision = m_revision + 1;
-  root.insert(QStringLiteral("catalog_revision"), nextRevision);
-  QJsonArray ents, asts, vers, lnks;
-  for (const CatalogEntity &e : m_entities) ents.append(entityToJson(e));
-  for (const CatalogAsset &a : m_assets)
-  {
-    QJsonObject o;
-    o.insert(QStringLiteral("id"), a.id);
-    o.insert(QStringLiteral("type"), a.type);
-    o.insert(QStringLiteral("format"), a.format);
-    o.insert(QStringLiteral("display_name"), a.displayName);
-    asts.append(o);
-  }
-  for (const CatalogVersion &v : m_versions) vers.append(versionToJson(v));
-  for (const EntityAssetLink &l : m_links) lnks.append(linkToJson(l));
-  root.insert(QStringLiteral("entities"), ents);
-  root.insert(QStringLiteral("assets"), asts);
-  root.insert(QStringLiteral("versions"), vers);
-  root.insert(QStringLiteral("entity_asset_links"), lnks);
+  CatalogStore::Meta meta;
+  meta.revision = m_revision + 1;
+  meta.mutationSeq = m_mutationSeq; // recordOp 在 save 成功之后才 +1
+  meta.assetSeq = m_assetSeq;
+  meta.versionSeq = m_versionSeq;
+  meta.backupKeep = qBound(1, m_backupKeep, 9);
+  meta.hasMutationSeq = true;
+  meta.hasBackupKeep = true;
 
-  // QSaveFile writes beside the destination and replaces it only after a full
-  // successful write, preserving the last good catalog on short writes.
-  QSaveFile f(catalogPath());
-  f.setDirectWriteFallback(false);
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  if (m_forceFullSave || !m_store->isWritable())
   {
-    setError(error, QStringLiteral("cannot write %1: %2").arg(catalogPath(), f.errorString()));
-    return false;
-  }
-  // §9 回滚 + D5.6 备份轮转：替换前把现存 catalog 轮转一份 .bak——QSaveFile
-  // 防写一半，.bak 防「写成功了但内容是错的」需要一个上一代可回退。
-  // 轮转保留 backupKeepCount() 代：.bak（最新）→ .bak.2 → … → .bak.N；
-  // open() 的腐败回退只读 .bak（最新一代）。
-  if (m_primaryCorruptOnDisk && QFile::exists(catalogPath()))
-  {
-    // #79：盘上主文件是 open() 时已判定损坏的那份——不能轮转进 .bak 链
-    //（否则把好的 .bak 挤成 .bak.2，下一次损坏时 .bak 就是坏的）。隔离
-    // 留证据（best-effort），.bak 链保持原样，下面直接写恢复后的内容。
-    const QString quarantine =
-        catalogPath() + QStringLiteral(".corrupt-") +
-        QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddTHHmmsszzzZ"));
-    if (!QFile::copy(catalogPath(), quarantine))
-      qWarning("catalog: cannot quarantine corrupt primary %s to %s",
-               qPrintable(catalogPath()), qPrintable(quarantine));
-  }
-  else if (QFile::exists(catalogPath()))
-  {
-    // 代命名：gen1 = catalog.json.bak（最新），gen g>=2 = catalog.json.bak.g。
-    // keep=K：删除第 K 代 → 2..K-1 依次后移 → .bak 升为 .bak.2 → 现行内容成新 .bak。
-    const QString bak = catalogPath() + QStringLiteral(".bak");
-    const int keep = qBound(1, m_backupKeep, 9);
-    if (keep == 1)
+    CatalogStore::Tables tables;
+    tables.entities = m_entities;
+    tables.assets = m_assets;
+    tables.versions = m_versions;
+    tables.links = m_links;
+    tables.meta = meta;
+    if (!m_store->rewritePrimary(tables, m_primaryCorruptOnDisk, error))
     {
-      // 只留一代：全部扩展代清空。
-      for (int g = 2; g <= 9; ++g)
-        QFile::remove(bak + QStringLiteral(".%1").arg(g));
-    }
-    else
-    {
-      QFile::remove(bak + QStringLiteral(".%1").arg(keep));
-      for (int gen = keep - 1; gen >= 2; --gen)
-        if (QFile::exists(bak + QStringLiteral(".%1").arg(gen)))
-          paleoReplaceFile(bak + QStringLiteral(".%1").arg(gen),
-                           bak + QStringLiteral(".%1").arg(gen + 1));
-      if (QFile::exists(bak))
-        paleoReplaceFile(bak, bak + QStringLiteral(".2"));
-    }
-    const QString bakTmp = bak + QStringLiteral(".tmp");
-    QFile::remove(bakTmp);
-    // WP2 评估记录：这里试过硬链接（O(1) 备份）后否决——.bak 与主文件共享
-    // inode 时，主文件被原地写坏（直写回退/外部工具/位腐）会同步毁掉 .bak，
-    // 违背「上一代可回退」契约（tst 的腐败恢复演练正是原地截断主文件）。
-    // 保持整文件拷贝：磁盘带宽换恢复语义。
-    if (!QFile::copy(catalogPath(), bakTmp))
-    {
-      setError(error, QStringLiteral("cannot copy %1 to backup tmp %2").arg(catalogPath(), bakTmp));
+      clearDirty();
       return false;
     }
-    if (!paleoReplaceFile(bakTmp, bak))
+    m_forceFullSave = false;
+    m_primaryCorruptOnDisk = false;
+  }
+  else
+  {
+    if (!m_store->begin(error))
     {
-      QFile::remove(bakTmp);
-      setError(error, QStringLiteral("cannot rotate %1 to %2").arg(catalogPath(), bak));
+      m_store->rollback();
+      clearDirty();
       return false;
     }
+    const auto failTxn = [&] {
+      m_store->rollback();
+      clearDirty();
+      return false;
+    };
+    for (const QString &id : m_dirtyEntities)
+    {
+      const int row = m_idx.entityRow(id);
+      if (row < 0)
+        continue;
+      if (!m_store->upsertEntity(m_entities.at(row), error))
+        return failTxn();
+    }
+    for (const QString &id : m_dirtyAssets)
+    {
+      const int row = m_idx.assetRow(id);
+      if (row < 0)
+        continue;
+      if (!m_store->upsertAsset(m_assets.at(row), error))
+        return failTxn();
+    }
+    for (const QString &id : m_dirtyVersions)
+    {
+      const int row = m_idx.versionRow(id);
+      if (row < 0)
+        continue;
+      if (!m_store->upsertVersion(m_versions.at(row), error))
+        return failTxn();
+    }
+    for (int ord : m_dirtyLinkOrds)
+    {
+      if (ord < 0 || ord >= m_links.size())
+        continue;
+      if (!m_store->upsertLink(ord, m_links.at(ord), error))
+        return failTxn();
+    }
+    if (!m_store->writeMeta(meta, error))
+      return failTxn();
+    if (!m_store->commit(error))
+      return failTxn();
   }
 
-  const QByteArray bytes = QJsonDocument(root).toJson(QJsonDocument::Indented);
-  if (f.write(bytes) != bytes.size())
-  {
-    const QString detail = f.errorString();
-    f.cancelWriting();
-    setError(error, QStringLiteral("short write to %1: %2").arg(catalogPath(), detail));
-    return false;
-  }
-  if (!f.commit())
-  {
-    setError(error, QStringLiteral("cannot replace %1: %2").arg(catalogPath(), f.errorString()));
-    return false;
-  }
-  m_revision = nextRevision;
-  m_primaryCorruptOnDisk = false; // 主文件已是好内容——之后恢复正常轮转
+  m_revision = meta.revision;
+  clearDirty();
+  m_batchDirty = false; // 真正落盘（batch depth 已是 0）才清
   emit changed();
   return true;
 }
@@ -738,8 +536,7 @@ bool DataCatalog::endBatch(QString *error)
     return true; // 嵌套批次：只有最外层结算
   if (!m_batchDirty)
     return true;
-  m_batchDirty = false;
-  return save(error);
+  return save(error); // 成功时 commitStore 才清 m_batchDirty
 }
 
 DataCatalog::BatchSave::BatchSave(DataCatalog *catalog)
@@ -775,6 +572,7 @@ bool DataCatalog::addEntity(const CatalogEntity &e, QString *error)
   }
   m_entities.append(e);
   m_idx.entityAdded(m_entities.size() - 1, e.id, e.entityType); // D5.2 增量
+  m_dirtyEntities.insert(e.id);
   if (save(error))
   {
     CatalogOp op;
@@ -808,6 +606,7 @@ bool DataCatalog::addAsset(const CatalogAsset &a, QString *error)
   }
   m_assets.append(a);
   m_idx.assetAdded(m_assets.size() - 1, a.id, a.type); // D5.2
+  m_dirtyAssets.insert(a.id);
   if (save(error))
   {
     CatalogOp op;
@@ -897,6 +696,7 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
     markStaleDownstreamOf(
         pid, QStringLiteral("上游版本 %1 已被同资产新版本 %2 取代").arg(pid, v.id),
         &staleUndo);
+  m_dirtyVersions.insert(v.id);
   if (save(error))
   {
     CatalogOp op;
@@ -948,6 +748,9 @@ bool DataCatalog::addLink(const EntityAssetLink &l, QString *error)
         demotedRows.append(i);
         m_links[i].isPrimary = false;
       }
+  m_dirtyLinkOrds.insert(m_links.size() - 1);
+  for (int row : demotedRows)
+    m_dirtyLinkOrds.insert(row);
   if (save(error))
   {
     m_idx.linkAdded(m_links.size() - 1, m_links.last()); // D5.2：纯追加——旧主关联
@@ -1007,6 +810,9 @@ bool DataCatalog::attachLink(int index, const QString &entityId, QString *error)
       demotedRows.append(i);
       m_links[i].isPrimary = false;
     }
+  m_dirtyLinkOrds.insert(index);
+  for (int row : demotedRows)
+    m_dirtyLinkOrds.insert(row);
   if (save(error))
   {
     m_idx.linksMutated(m_links); // entityId 获值——entity 邻接变化
@@ -1048,6 +854,7 @@ bool DataCatalog::setLinkUnresolved(int index, QString *error)
   l.unresolved = true;
   l.isPrimary = false;
   l.note.clear();
+  m_dirtyLinkOrds.insert(index);
   if (save(error))
   {
     m_idx.linksMutated(m_links); // entityId 被清空——entity 邻接变化
@@ -1094,6 +901,9 @@ bool DataCatalog::setLinkPrimary(int index, QString *error)
       demotedRows.append(i);
       m_links[i].isPrimary = false;
     }
+  m_dirtyLinkOrds.insert(index);
+  for (int row : demotedRows)
+    m_dirtyLinkOrds.insert(row);
   if (save(error))
   {
     // 同上：纯标志位变化——零重索引。
@@ -1405,6 +1215,7 @@ int DataCatalog::markStaleDownstreamOf(const QString &versionId, const QString &
       undo->append({i, m});
     m.extra.insert(QStringLiteral("stale"), true);
     m.extra.insert(QStringLiteral("staleReason"), reason);
+    m_dirtyVersions.insert(m.id);
     ++changed;
   }
   return changed;

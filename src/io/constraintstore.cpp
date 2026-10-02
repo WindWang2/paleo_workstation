@@ -63,6 +63,20 @@ ConstraintStore::ConstraintStore(const QString &gpkgPath, PaleoProjectStore *sto
 bool ConstraintStore::append(const QString &horizon, const QString &id, const QString &wkt,
                              const QString &type, int faciesCode, QString *error, double weight)
 {
+  return appendInternal(horizon, id, wkt, type, faciesCode, nullptr, 0, error, weight);
+}
+
+bool ConstraintStore::appendExtended(const QString &horizon, const QString &id, const QString &wkt,
+                                     const QString &type, int faciesCode, const QString &paramsJson,
+                                     int schemaVersion, QString *error, double weight)
+{
+  return appendInternal(horizon, id, wkt, type, faciesCode, &paramsJson, schemaVersion, error, weight);
+}
+
+bool ConstraintStore::appendInternal(const QString &horizon, const QString &id, const QString &wkt,
+                                     const QString &type, int faciesCode, const QString *paramsJson,
+                                     int schemaVersion, QString *error, double weight)
+{
   auto runWrite = [this](const WriteFn &fn) -> PaleoProjectStore::WriteResult {
     if (m_enqueue)
       return m_enqueue(fn);
@@ -135,7 +149,9 @@ bool ConstraintStore::append(const QString &horizon, const QString &id, const QS
         || !ensureField(layer, "horizon", OFTString)
         || !ensureField(layer, "type", OFTString)
         || !ensureField(layer, "facies_code", OFTInteger)
-        || !ensureField(layer, "weight", OFTReal))
+        || !ensureField(layer, "weight", OFTReal)
+        || !ensureField(layer, "params_json", OFTString)
+        || !ensureField(layer, "schema_version", OFTInteger))
     {
       OGR_G_DestroyGeometry(geom);
       GDALClose(ds);
@@ -171,6 +187,16 @@ bool ConstraintStore::append(const QString &horizon, const QString &id, const QS
     int weightIdx = OGR_FD_GetFieldIndex(layerDefn, "weight");
     if (weightIdx >= 0)
       OGR_F_SetFieldDouble(feat, weightIdx, weight);
+
+    if (paramsJson)
+    {
+      const int paramsIdx = OGR_FD_GetFieldIndex(layerDefn, "params_json");
+      const int schemaIdx = OGR_FD_GetFieldIndex(layerDefn, "schema_version");
+      if (paramsIdx >= 0)
+        OGR_F_SetFieldString(feat, paramsIdx, paramsJson->toUtf8().constData());
+      if (schemaIdx >= 0)
+        OGR_F_SetFieldInteger(feat, schemaIdx, schemaVersion);
+    }
 
     OGR_F_SetGeometryDirectly(feat, geom);
 
@@ -223,6 +249,8 @@ QVector<QVariantMap> ConstraintStore::load(const QString &horizon) const
   int typeIdx = OGR_FD_GetFieldIndex(layerDefn, "type");
   int faciesIdx = OGR_FD_GetFieldIndex(layerDefn, "facies_code");
   int weightIdx = OGR_FD_GetFieldIndex(layerDefn, "weight");
+  int paramsIdx = OGR_FD_GetFieldIndex(layerDefn, "params_json");
+  int schemaIdx = OGR_FD_GetFieldIndex(layerDefn, "schema_version");
 
   OGR_L_ResetReading(layer);
   OGRFeatureH feat = nullptr;
@@ -274,6 +302,14 @@ QVector<QVariantMap> ConstraintStore::load(const QString &horizon) const
                     : 1.0;
     map.insert(QStringLiteral("weight"), wt);
 
+    if (paramsIdx >= 0 && OGR_F_IsFieldSetAndNotNull(feat, paramsIdx))
+    {
+      const char *params = OGR_F_GetFieldAsString(feat, paramsIdx);
+      map.insert(QStringLiteral("params_json"), params ? QString::fromUtf8(params) : QString());
+    }
+    if (schemaIdx >= 0 && OGR_F_IsFieldSetAndNotNull(feat, schemaIdx))
+      map.insert(QStringLiteral("schema_version"), OGR_F_GetFieldAsInteger(feat, schemaIdx));
+
     QString wktStr;
     OGRGeometryH geom = OGR_F_GetGeometryRef(feat);
     if (geom)
@@ -293,6 +329,96 @@ QVector<QVariantMap> ConstraintStore::load(const QString &horizon) const
 
   GDALClose(ds);
   return result;
+}
+
+bool ConstraintStore::updateParameters(const QString &id, const QString &paramsJson, int schemaVersion,
+                                       const QString &semanticType, QString *error)
+{
+  auto runWrite = [this](const WriteFn &fn) -> PaleoProjectStore::WriteResult {
+    if (m_enqueue)
+      return m_enqueue(fn);
+    return fn();
+  };
+
+  PaleoProjectStore::WriteResult res = runWrite([this, id, paramsJson, schemaVersion, semanticType]() {
+    ensureGdalRegistered();
+    if (!QFile::exists(m_gpkgPath))
+      return PaleoProjectStore::WriteResult{false, QStringLiteral("Constraint file does not exist")};
+
+    GDALDatasetH ds = GDALOpenEx(m_gpkgPath.toUtf8().constData(),
+                                 GDAL_OF_UPDATE | GDAL_OF_VECTOR, nullptr, nullptr, nullptr);
+    if (!ds)
+      return PaleoProjectStore::WriteResult{false, QStringLiteral("Failed to open constraint GeoPackage: %1")
+                     .arg(QString::fromUtf8(CPLGetLastErrorMsg()))};
+
+    OGRLayerH layer = GDALDatasetGetLayerByName(ds, "constraints");
+    if (!layer)
+    {
+      GDALClose(ds);
+      return PaleoProjectStore::WriteResult{false, QStringLiteral("Constraint layer is missing")};
+    }
+    if (GDALDatasetStartTransaction(ds, FALSE) != OGRERR_NONE)
+    {
+      GDALClose(ds);
+      return PaleoProjectStore::WriteResult{false, QStringLiteral("Failed to start constraint transaction")};
+    }
+    auto rollback = [&](const QString &message) {
+      GDALDatasetRollbackTransaction(ds);
+      GDALClose(ds);
+      return PaleoProjectStore::WriteResult{false, message};
+    };
+    if (!ensureField(layer, "params_json", OFTString) || !ensureField(layer, "schema_version", OFTInteger))
+      return rollback(QStringLiteral("Failed to extend constraint fields"));
+
+    OGRFeatureDefnH layerDefn = OGR_L_GetLayerDefn(layer);
+    const int idIdx = OGR_FD_GetFieldIndex(layerDefn, "id");
+    const int paramsIdx = OGR_FD_GetFieldIndex(layerDefn, "params_json");
+    const int schemaIdx = OGR_FD_GetFieldIndex(layerDefn, "schema_version");
+    const int typeIdx = OGR_FD_GetFieldIndex(layerDefn, "type");
+    if (idIdx < 0 || paramsIdx < 0 || schemaIdx < 0)
+      return rollback(QStringLiteral("Constraint parameter fields are missing"));
+
+    bool found = false;
+    OGR_L_ResetReading(layer);
+    OGRFeatureH feat = nullptr;
+    while ((feat = OGR_L_GetNextFeature(layer)) != nullptr)
+    {
+      const char *featId = OGR_F_GetFieldAsString(feat, idIdx);
+      if (featId && QString::fromUtf8(featId) == id)
+      {
+        found = true;
+        OGR_F_SetFieldString(feat, paramsIdx, paramsJson.toUtf8().constData());
+        OGR_F_SetFieldInteger(feat, schemaIdx, schemaVersion);
+        if (!semanticType.isEmpty() && typeIdx >= 0)
+          OGR_F_SetFieldString(feat, typeIdx, semanticType.toUtf8().constData());
+        if (OGR_L_SetFeature(layer, feat) != OGRERR_NONE)
+        {
+          OGR_F_Destroy(feat);
+          return rollback(QStringLiteral("Failed to update constraint parameters: %1")
+                              .arg(QString::fromUtf8(CPLGetLastErrorMsg())));
+        }
+      }
+      OGR_F_Destroy(feat);
+    }
+    if (!found)
+      return rollback(QStringLiteral("Constraint id was not found"));
+    if (GDALDatasetCommitTransaction(ds) != OGRERR_NONE)
+    {
+      GDALDatasetRollbackTransaction(ds);
+      GDALClose(ds);
+      return PaleoProjectStore::WriteResult{false, QStringLiteral("Failed to commit constraint parameters")};
+    }
+    GDALClose(ds);
+    return PaleoProjectStore::WriteResult{true, QString()};
+  });
+
+  if (!res.ok)
+  {
+    if (error)
+      *error = res.error;
+    return false;
+  }
+  return true;
 }
 
 bool ConstraintStore::remove(const QString &id, QString *error)

@@ -10,6 +10,34 @@
 - **Priority:** P3
 - **Depends on:** goal/fault-surface 的条带成面核与 SurveyFrame
 
+## P2 — 单因素原生算法后续（from goal/single-factor-native, 2026-10-02）
+
+- **What:** 克里金体系深化、完整 SFPKG 导入、外委 XML/XLSX 批量读取、
+  参考工程全部历史制图策略、时深域转换、监督分类、打印排版、
+  完整 Python GUI 嵌入，以及有限断层路径距离 `FaultPathMetric`。
+- **Why:** 本次交付只做 C++ 局部方向 IDW、软边界、井群权重、硬屏障栅格连通、
+  真实数值等值线和显式制图工作场。上游井数超过 80 等条件下的各向异性路径
+  会退成 IDW，不能把 UI 标签当成克里金。
+- **Pros:** P0/P1 保持可复算的分析场语义；**Cons:** 路径绕距、历史闭环补接
+  和批量外委格式要另立项。
+- **Context:** `docs/designs/single-factor-native-integration-plan.md` 第 1 节
+  与第 7.3 节。硬屏障模型是 `grid_connectivity_v1`，不是 `FaultPathMetric`。
+- **Effort:** human: L / CC: L
+- **Priority:** P2
+- **Depends on:** 单因素原生 P0 分析场进入目标基线
+
+## P3 — 多文件井曲线其余读口（from goal/well-logset, 2026-10-02）
+
+- **What:** 并集读面已接到岩石物理、属性建模、剖面井轨、交会清单和测井综合图。
+  相关对比与成图工作台仍按单资产或「有没有 well_log」。DLIS/LIS/BE 不读。
+  非驱动文件只做线性重采样，不做 MD/TVD 对齐。`attachLink` 仍把新挂链接升主。
+- **Why:** 本方向锁的是 LAS 已决链接的并集和导入序，不改 catalog 格式，也不改挂接不变量。
+- **Pros:** 第二份 LAS 的曲线能进计算和综合图；**Cons:** 走挂接而不是导入时主文件会换。
+- **Context:** docs/progress/well-logset.md「递延」。
+- **Effort:** human: M / CC: M
+- **Priority:** P3
+- **Depends on:** goal/well-logset 的 `WellLogSet` 读面
+
 ## P3 — 地层格架后续：断块网格 / 随机模拟（from goal/property-modeling, 2026-10-02）
 
 - **What:** V1 只做等比例 IJK 格架 + 井曲线粗化 + 断层竖帘阻断的 IDW。
@@ -68,9 +96,10 @@
 - **Priority:** P3
 - **Depends on:** goal/seismic-attributes 已落核函数库/任务编排/SATR（可复用）
 
-## P3 — catalog.sqlite 查询索引（deferred from /autoplan SELECTIVE EXPANSION, 2026-09-25）
+## ~~P3 — catalog.sqlite 查询索引（deferred from /autoplan SELECTIVE EXPANSION, 2026-09-25）~~（已落地：goal/catalog-sqlite, 2026-10-02）
 
-- **What:** 由 `catalog.json` 重建 `catalog.sqlite`，作为资产、版本、关联的查询索引。
+- ~~**What:** 由 `catalog.json` 重建 `catalog.sqlite`，作为资产、版本、关联的查询索引。~~
+  **2026-10-02 交叉注记**：持久化已迁到独立 `artifacts/metadata/catalog.sqlite`（内存四表仍是查询事实源，不是可重建查询索引）。邻条 mutator 写路径超线性 profiling 保持 2026-10-01 关闭，不重开。
 - **Why:** ADR 0056 把 sqlite 定义为可重建索引，避免打开工程时扫 JSON。
 - **Pros:** 资产变多后列表和校验不用每次解析整份 catalog。
 - **Cons:** 20 口井的第一段用 JSON 就够；提前做会多一个必须和 catalog.json 对齐的存储。

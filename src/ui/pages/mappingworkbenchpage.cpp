@@ -1,6 +1,7 @@
 // 层：视图
 #include "mappingworkbenchpage.h"
 #include "../../domain/faciescatalog.h"
+#include "../../domain/singlefactorrequest.h"
 #include "../../services/singlefactordef.h"
 #include "../../workflow/mappingworkbench.h"
 #include <QComboBox>
@@ -448,10 +449,16 @@ void MappingWorkbenchPage::updateState() {
        horizon && m_points && m_points->count() > 0 &&
            !m_field->text().trimmed().isEmpty(),
        tr("选择样点并填写数值字段"));
-  gate("contours",
-       selected && row.value("type") == "raster" &&
-           row.value("kind") == "single_factor_raster",
-       tr("先选择一个连续单因素栅格"));
+  const auto parameters = row.value("parameters").toMap();
+  const auto kind = row.value("kind").toString();
+  const auto valueSource = parameters.value("value_source").toString();
+  const bool analysisRaster =
+      paleo::singlefactor::isAnalysisFactorRaster(kind, valueSource);
+  const bool cartographic =
+      paleo::singlefactor::rejectsQuantitativeUse(kind, valueSource);
+  gate("contours", selected && row.value("type") == "raster" && analysisRaster,
+       cartographic ? tr("解释性制图成果不能当作分析场提取等值线")
+                    : tr("先选择一个连续单因素栅格"));
   gate("compose", horizon && !checkedInputs().isEmpty(),
        tr("请勾选本层位编图输入"));
   for (const auto &name : {"import", "draw", "schema"})
@@ -481,10 +488,10 @@ void MappingWorkbenchPage::updateState() {
   gate("show", selected, tr("请先选择图件"));
   gate("compare", selected, tr("请先选择图件"));
   gate("polygonize",
-       selected && row.value("type") == "raster" &&
-           row.value("kind") != "single_factor_raster" &&
-           !row.value("id").toString().startsWith("factor."),
-       tr("选择相类别栅格；连续单因素须先分相"));
+       selected && row.value("type") == "raster" && !analysisRaster &&
+           !cartographic && !row.value("id").toString().startsWith("factor."),
+       cartographic ? tr("解释性制图工作场不能参与分相或转面")
+                    : tr("选择相类别栅格；连续单因素须先分相"));
   gate("copy",
        selected && row.value("type") == "vector" &&
            !row.value("horizon").toString().isEmpty() &&

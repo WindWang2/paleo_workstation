@@ -1,4 +1,4 @@
-# Schema 迁移与并发策略（四类工程存储）
+# Schema 迁移与并发策略（五类工程存储）
 
 状态：**现行规范**（wave3/model-hardening；对应 TODOS P1「schema 迁移策略」与
 「两实例同开一工程的并发写」）。本文所有行为都有代码指针与测试背书；改动
@@ -8,15 +8,22 @@
 
 | 存储 | 版本机制 | 当前版本 | 读到旧版本 | 写新版本时机 | 迁移失败行为 |
 |---|---|---|---|---|---|
-| `artifacts/metadata/catalog.json` | JSON 根键 `schema_version` | **1** | 缺键=当前版本；`1` 放行 | 每次 `save()` 都写当前版本 | 值≠1 → 拒开、拒绝一切写（原件保留，`.bak` 在） |
+| `artifacts/metadata/catalog.json` | JSON 根键 `schema_version`（`CatalogStore::kJsonSchemaVersion`） | **1** | 缺键=当前版本；`1` 放行 | 不再是活库：只做迁入与 `CatalogStore::toJson` / `exportCatalogJson` 导出（§1、§8） | 值≠1 → 拒开迁入（原件保留，不建 sqlite） |
+| `artifacts/metadata/catalog.sqlite` | `catalog_meta.schema_epoch` = `CatalogStore::kSchemaEpoch`（**不是** `MetaStore::kUserVersion`） | **1** | 缺表/缺键 = 1 | 建库与每次写 meta 时写当前 epoch | epoch 更高 → 拒开，不回退 `.bak`。`PRAGMA user_version` 高于本构建 → 拒开，错误含子串 `newer than this build`，文件不动 |
 | `metadata/project.sqlite` | `PRAGMA user_version`（`MetaStore`） | **2** | `0`/`1` → 就地采纳为 2；`fault_set` 缺 `surface` 列 → `ALTER TABLE ADD COLUMN`（旧行 NULL，棒/切割仍在 payload） | 打开连接后、任何建表前（补列在 FaultSetStore::open） | 更高版本 → store 全部拒开（零写入，文件不动） |
-| `project.gpkg` | GeoPackage 规范占用 `application_id`/`user_version`，Paleo **不用**它们；升级走加列/加表（OGR） | —（无 Paleo 版本号） | OGR 自然向前兼容（缺表 `CREATE IF NOT EXISTS`、缺列 `ensureField`） | 第一次破坏性变更时引入 `paleo_meta` 表（见 §3） | OGR 错误面如实上抛；工程级一致性由 catalog.json + 写锁兜底 |
+| `project.gpkg` | GeoPackage 规范占用 `application_id`/`user_version`，Paleo **不用**它们；升级走加列/加表（OGR） | —（无 Paleo 版本号） | OGR 自然向前兼容（缺表 `CREATE IF NOT EXISTS`、缺列 `ensureField`） | 第一次破坏性变更时引入 `paleo_meta` 表（见 §3） | OGR 错误面如实上抛；工程级一致性由 catalog.sqlite（§8）+ 写锁兜底 |
 | `*.qgz` | QGIS 自带工程版本属性 | —（交给 QGIS） | QGIS 原生读旧工程 | 每次 `QgsProject::write()` | 写失败不破坏 gpkg 权威数据态；`.qgz.bak` + 临时文件+rename |
 
 版本递增规则（所有存储统一）：**只向前一小步、永不降级**。新版本号发布
 当且仅当伴随一段迁移代码；本构建不认识更高版本时一律拒开而不是猜。
 
-## 1. catalog.json（数据底座主存储）
+## 1. catalog.json（迁入与导出；活库见 §8）
+
+活库是独立的 `artifacts/metadata/catalog.sqlite`（§8），不并入
+`project.sqlite`。`catalog.json` 只做两件事：迁入（成功后改名为
+`catalog.json.migrated`）和导出（`CatalogStore::toJson` /
+`exportCatalogJson`）。sqlite 已在时 json 原样留着。下列读旧/拒开规则只约束
+这份 JSON，不描述活库。
 
 - 序列化面：`src/catalog/datacatalog.cpp`（`kSchemaVersion = 1`）。
 - 读旧兼容：
@@ -26,7 +33,9 @@
     所有 mutator 如实失败——**绝不让空 catalog 覆盖坏文件**；
   - 装载期坏段（手改出的 `..` 受管路径等）逐段跳过并 qWarning，不整卷拒开。
   - D12 之后旧文件里的 `uwi`/`aliases` 实体键装载时静默丢弃、不再回写。
-- 写新版时机：每次 `save()` 全量重写文件并写当前 `schema_version`。
+- 写新版时机：不再每次 `save()` 重写活文件。迁入成功后改名为
+  `catalog.json.migrated`；导出写 `schema_version` =
+  `CatalogStore::kJsonSchemaVersion`（1）。
 - 失败/回滚行为：
   - `QSaveFile` 原子替换（temp + rename，`setDirectWriteFallback(false)`）——
     写一半不落坏文件；
@@ -83,7 +92,7 @@
   表并写 `schema_version` 行，读门对齐 §2 的三段式（未知更高版本 → 经
   `PaleoProjectStore` 拒绝写路径）。这页更新时补实现指针。
 - 失败行为：OGR 错误如实上抛给调用方（无静默降级）；工程级「谁是对的」
-  由 catalog.json（§1）+ 工程写锁（§6）兜底。
+  由 catalog.sqlite（§8）+ 工程写锁（§6）兜底。catalog.json 只是迁入/导出。
 - 测试背书：`tests/tst_constraintstore.cpp`（列补建往返）、
   `tests/tst_runtime.cpp`（队列串行无 BUSY，§33 脊线）。
 
@@ -122,7 +131,7 @@
 
 | 选项 | 结论 |
 |---|---|
-| sqlite WAL | 只救 sqlite 两个库的并发读，救不了 catalog.json / .qgz 的跨进程写；且把「同工程双写」从错误变成难以察觉的竞态。**不采用**（WAL 仍可作为将来只读多开的性能优化单独评估）。 |
+| sqlite WAL | **`project.sqlite` 不采用 WAL。** 它只救 sqlite 并发读，救不了 gpkg / .qgz 的跨进程写；且把「同工程双写」从错误变成难以察觉的竞态。工程级单写者决议不变。**例外：** `artifacts/metadata/catalog.sqlite` 使用 WAL + `synchronous=FULL`，因为它是单文件、写期间仍有读者（`CatalogStore`，§8）。这不把 `project.sqlite` 改成 WAL，也不改变 gpkg / .qgz 的决议，也不开放第二个写实例。 |
 | 每存储锁 | 四类存储各自加锁=四套陈旧锁恢复逻辑，且仍挡不住「gpkg 提交了、catalog.json 没提交」的跨存储半截态。**不采用**。 |
 | **工程级单写者（采用）** | 一个工程目录同时至多一个写实例；第二个实例尝试作为写实例打开 → 明确拒绝并告诉用户谁在编辑。锁住的是「写权威」，只读浏览不受影响。 |
 
@@ -137,6 +146,8 @@
 进程内并发（不需要锁的部分）已经由既有机制覆盖：
 `PaleoProjectStore` 是唯一写汇聚点（进程级互斥，§41.2），`DataCatalog`
 所有落盘在主线程串行。跨进程剩下的口子就是「第二个实例」，由本锁关闭。
+catalog.sqlite 的 WAL 不改变这条：仍是单写者，变更集单事务提交；
+`synchronous=FULL`，禁止 `synchronous=OFF`。
 
 **接线点（一行，集成时落地）**：`AppContext::projectOpened` 绑定写路径处
 （src/app/appcontext.cpp `setProjectPaths` 调用旁）`ProjectDirLock::tryLock`，
@@ -152,7 +163,45 @@ appcontext.cpp：该文件同时被并行 UX 包与编排会话修改，接线�
 
 - project.gpkg 尚无 Paleo 级版本号（§3 的 `paleo_meta` 表在第一次破坏性
   变更时引入）；在此之前 gpkg 演进只允许加列/加表。
-- QSQLITE 连接未显式设 journal 模式（默认 journal）；单写者决议下无正确性
-  影响，若将来允许只读多开再评估 WAL。
+- `project.sqlite` 的 QSQLITE 连接未显式设 journal 模式（默认 journal）；单写者决议下无正确性
+  影响，若将来允许只读多开再评估 WAL。catalog.sqlite 是已落地的例外（§6、§8）：WAL + `synchronous=FULL`，不外推到 project.sqlite。
 - ~~`ProjectDirLock` 的 AppContext 接线未落地~~（已收口：appcontext.cpp
   建锁+`tryLock`、失败降级只读，qgisprojectservice.cpp 亦有检查）。
+
+## 8. artifacts/metadata/catalog.sqlite（第五个库）
+
+与 `metadata/project.sqlite` 不是同一个文件，也不走 `MetaStore::kUserVersion`
+做 catalog 的 schema 代际。代码：`src/catalog/catalogstore.h`（`kSchemaEpoch`）
+/ `src/catalog/catalogstore.cpp`（`kSchemaSql`、`applyWritablePragmas`）。
+
+- 路径：`<projectDir>/artifacts/metadata/catalog.sqlite`。
+- 查询事实源仍是内存里的四张表（`DataCatalog`）。本库只负责落盘。
+  变更集单事务提交。
+- **四表，无外键，无 BLOB**：`entities`、`entity_asset_links`、`assets`、
+  `versions`。角点、extra、父版本列表用 TEXT 装 JSON，不进 BLOB。
+  另有 `catalog_meta(key TEXT PRIMARY KEY, value TEXT)` 键值表。
+  `schema_epoch` 行 = `CatalogStore::kSchemaEpoch`（**1**）。同表还存
+  `catalog_revision` / `mutation_seq` / `asset_seq` / `version_seq` /
+  `backup_keep`，这些不是版本门。
+- 缺 `catalog_meta` 或缺 `schema_epoch` 视为 1（与 JSON 缺
+  `schema_version` 同口径）。
+- epoch 高于本构建 → 拒开，错误含 `unsupported catalog schema`。
+  **不回退 `.bak`**（那是降级，不是恢复），原件一个字节不动。
+- `PRAGMA user_version` 高于本构建同样拒开，错误含子串
+  `newer than this build`（连接经 `MetaStore::openConnection` 打出这句；
+  catalog 的代际仍是 `catalog_meta.schema_epoch`，不是
+  `MetaStore::kUserVersion`）。同样不回退 `.bak`，文件不动。
+- 日志：`PRAGMA journal_mode = WAL`，`PRAGMA synchronous = FULL`。
+  只这一库：单文件、写期间仍有读者。`project.sqlite` 维持 §6，不设 WAL；
+  gpkg / .qgz 的单写者决议不变。
+- `catalog.json` 只做迁入和导出（`CatalogStore::toJson` /
+  `exportCatalogJson`），不是活库。只有 json 时解析后单事务导入，成功则改名为
+  `catalog.json.migrated`。sqlite 已在：它是权威，json 原样留着。
+- 备份在 **open** 时做，不在每次 save 时做。`integrity_check` 通过之后才把
+  当前好库整文件拷进 `catalog.sqlite.bak` / `.bak.N`（保留代数与 JSON 时代
+  相同）。已损坏的主文件不进 `.bak` 链。
+- 测试背书：`tests/tst_catalogstore.cpp`
+  `futureUserVersionRefusesWithoutBak`（断言错误含子串
+  `newer than this build`，且 `.bak` 大小不变）/
+  `futureSchemaEpochRefusesWithoutBak`。
+

@@ -291,6 +291,7 @@ target_include_directories(paleo_deps INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_I
 
 # ---- 数据层 ----
 add_library(paleo_domain STATIC
+  src/domain/singlefactorrequest.cpp
   src/domain/types.cpp
   src/domain/wellcompositemodel.cpp
   src/domain/wellrecords.cpp                        # 井文本记录类型 + XML 嗅探（自 io 下沉）
@@ -307,6 +308,11 @@ add_library(paleo_algorithms STATIC
   src/algorithms/paleoalgorithms.cpp
   src/algorithms/faciespolygonize.cpp
   src/algorithms/seismicattr.cpp
+  src/algorithms/singlefactor/curvekernel.cpp
+  src/algorithms/singlefactor/support.cpp
+  src/algorithms/singlefactor/localidw.cpp
+  src/algorithms/singlefactor/samples.cpp
+  src/algorithms/singlefactor/localdirectionalgorithm.cpp
 )
 target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 
@@ -612,6 +618,17 @@ add_paleo_test(tst_domain LIBS paleo_domain)
 add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
 add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）
+add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_perf LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_contours LIBS paleo_qgis)
+add_paleo_test(tst_singlefactor_contourbudget LIBS paleo_algorithms paleo_qgis)
+add_paleo_test(tst_singlefactor_guilatency LIBS paleo_algorithms paleo_services)
+add_paleo_test(tst_singlefactor_faults LIBS paleo_workflow)
+add_paleo_test(tst_singlefactor_asynccontour LIBS paleo_workflow)
+add_paleo_test(tst_singlefactor_parity LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_contract LIBS paleo_domain)
+add_paleo_test(tst_singlefactor_samples LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_store LIBS paleo_io)
 add_paleo_test(tst_services2 LIBS paleo_qgis)               # algorithms,metadata,qgis
 add_paleo_test(tst_workflows LIBS paleo_workflow)
 add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）
@@ -843,6 +860,7 @@ add_paleo_test(tst_layerprofilebar LIBS paleo_ui)   # 主题下拉/保存/管理
 # 禁止直接改本文件的模块源列表——并行分支在此汇合零冲突。
 # 显式清单登记替代隐式 GLOB，根治构建目录漂移与测试漏注（P1-14 / TEST-01）
 set(_paleo_extra_manifest
+  "${CMAKE_SOURCE_DIR}/cmake/extra-catalog-sqlite.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-crossplot-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-data.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-a.cmake"
@@ -863,6 +881,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-surfaceops.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-time-depth.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-ux.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-well-logset.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-wellcomposite.cmake"
 )
 foreach(_f IN LISTS _paleo_extra_manifest)
@@ -890,16 +909,26 @@ endforeach()
 # RUN_SERIAL，不打 perf（-LE perf 不应丢掉这些功能测试）。
 set(_paleo_perf_tests
   tst_perf tst_previewmap_perf tst_aiassist_perf tst_startup_trace tst_perfbudget
+  tst_singlefactor_perf tst_singlefactor_contourbudget tst_singlefactor_guilatency
   tst_ui_blocking tst_mem_budget tst_perf_las tst_perf_segyindex tst_perf_catalog
   tst_perf_regress tst_petrophysperf tst_seismic_perf tst_seismic_baseline
   tst_seismic_budgets tst_seismicattrperf tst_horizontrackperf tst_timedepthperf
-  tst_wellcomposite_perf tst_cache_las)
+  tst_wellcomposite_perf tst_cache_las tst_welllogset_perf)
 foreach(_t IN LISTS _paleo_perf_tests)
   if(TEST ${_t})
     set_property(TEST ${_t} APPEND PROPERTY LABELS perf)
     set_tests_properties(${_t} PROPERTIES RUN_SERIAL TRUE)
   endif()
 endforeach()
+if(TEST tst_singlefactor_perf)
+  set_tests_properties(tst_singlefactor_perf PROPERTIES TIMEOUT 1200)
+endif()
+if(TEST tst_singlefactor_contourbudget)
+  set_tests_properties(tst_singlefactor_contourbudget PROPERTIES TIMEOUT 600)
+endif()
+if(TEST tst_singlefactor_guilatency)
+  set_tests_properties(tst_singlefactor_guilatency PROPERTIES TIMEOUT 180)
+endif()
 foreach(_t IN ITEMS tst_wellcomposite_visual)
   if(TEST ${_t})
     set_property(TEST ${_t} APPEND PROPERTY LABELS golden)

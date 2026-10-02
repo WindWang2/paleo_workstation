@@ -866,8 +866,8 @@ private slots:
     QCOMPARE(reloaded.linksForAsset(assetId).front().entityId, QStringLiteral("well-Ghost9"));
   }
 
-  // §3：新 SHA-256 追加不可变版本/新资产——同井同角色的旧主关联降级，
-  // 同一角色只留一条主关联。
+  // 新 SHA-256 仍追加新资产。已决 well_log 不再把后导入的那份顶成唯一
+  // 主关联：首份保持 isPrimary / ordinal 0，后份非主 / ordinal 1，两条都在。
   void newShaVersionDemotesPreviousPrimaryLink()
   {
     QTemporaryDir tmp;
@@ -881,7 +881,7 @@ private slots:
     const QString oldAsset = svc.importProjectFile(fixture(QStringLiteral("A1.Las")), &err);
     QVERIFY2(!oldAsset.isEmpty(), qPrintable(err));
 
-    // 同井新字节 → 新资产 + 新主关联
+    // 同井新字节 → 新资产；主关联仍是先导入的那份。
     const QString v2 = tmp.filePath(QStringLiteral("A1_v2.las"));
     QVERIFY(QFile::copy(fixture(QStringLiteral("A1.Las")), v2));
     {
@@ -894,20 +894,133 @@ private slots:
     QVERIFY(newAsset != oldAsset);
 
     DataCatalog *cat = svc.catalog();
+    QVERIFY(!cat->assetById(oldAsset).id.isEmpty());
+    QVERIFY(!cat->assetById(newAsset).id.isEmpty());
+    QCOMPARE(cat->linksForAsset(oldAsset).size(), 1);
+    QCOMPARE(cat->linksForAsset(newAsset).size(), 1);
+    const EntityAssetLink oldLink = cat->linksForAsset(oldAsset).front();
+    const EntityAssetLink newLink = cat->linksForAsset(newAsset).front();
+    QVERIFY(!oldLink.unresolved);
+    QVERIFY(!newLink.unresolved);
+    QVERIFY(oldLink.isPrimary);
+    QCOMPARE(oldLink.ordinal, 0);
+    QVERIFY(!newLink.isPrimary);
+    QCOMPARE(newLink.ordinal, 1);
+    int resolvedLogs = 0;
     int primaryLogs = 0;
-    QString primaryAsset;
     for (const EntityAssetLink &l : cat->linksForEntity(QStringLiteral("well-A1")))
     {
-      if (l.role != QLatin1String("well_log"))
+      if (l.role != QLatin1String("well_log") || l.unresolved)
         continue;
+      ++resolvedLogs;
       if (l.isPrimary)
-      {
         ++primaryLogs;
-        primaryAsset = l.assetId;
-      }
     }
-    QCOMPARE(primaryLogs, 1);              // 同一角色只留一条主关联
-    QCOMPARE(primaryAsset, newAsset);      // 且是新的那份
+    QCOMPARE(resolvedLogs, 2); // 降级不从链接表摘掉曲线
+    QCOMPARE(primaryLogs, 1);
+  }
+
+  // Oracle 3a：catalog 里先有一口同名井。连续导入两份不同内容的 LAS，
+  // 两条已决 well_log 共存；第一份为主且 ordinal 0，第二份非主且 ordinal 1。
+  void consecutiveResolvedLasKeepsFirstPrimary()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithSingleWell(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString firstPath = tmp.filePath(QStringLiteral("A1_first.las"));
+    const QString secondPath = tmp.filePath(QStringLiteral("A1_second.las"));
+    QVERIFY(writeFile(firstPath, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+    QVERIFY(writeFile(secondPath, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n250.5\n")));
+
+    QString err;
+    const QString firstId = svc.importProjectFile(firstPath, &err);
+    QVERIFY2(!firstId.isEmpty(), qPrintable(err));
+    const QString secondId = svc.importProjectFile(secondPath, &err);
+    QVERIFY2(!secondId.isEmpty(), qPrintable(err));
+    QVERIFY(firstId != secondId);
+
+    DataCatalog *cat = svc.catalog();
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 1);
+    QVERIFY(!cat->assetById(firstId).id.isEmpty());
+    QVERIFY(!cat->assetById(secondId).id.isEmpty());
+    QCOMPARE(cat->linksForAsset(firstId).size(), 1);
+    QCOMPARE(cat->linksForAsset(secondId).size(), 1);
+
+    const EntityAssetLink first = cat->linksForAsset(firstId).front();
+    const EntityAssetLink second = cat->linksForAsset(secondId).front();
+    QCOMPARE(first.entityId, QStringLiteral("well-A1"));
+    QCOMPARE(second.entityId, QStringLiteral("well-A1"));
+    QCOMPARE(first.role, QStringLiteral("well_log"));
+    QCOMPARE(second.role, QStringLiteral("well_log"));
+    QVERIFY(!first.unresolved);
+    QVERIFY(!second.unresolved);
+    QVERIFY(first.isPrimary);
+    QCOMPARE(first.ordinal, 0);
+    QVERIFY(!second.isPrimary);
+    QCOMPARE(second.ordinal, 1);
+
+    int resolvedLogs = 0;
+    for (const EntityAssetLink &l : cat->linksForEntity(QStringLiteral("well-A1")))
+      if (l.role == QLatin1String("well_log") && !l.unresolved)
+        ++resolvedLogs;
+    QCOMPARE(resolvedLogs, 2);
+  }
+
+  // Oracle 3b：catalog 没有井时 LAS 保持未决、entityId 为空，且不建井。
+  // 再导一份不同的未知井名，仍然未决，井实体数保持 0。
+  void consecutiveUnknownLasStayUnresolved()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString firstPath = tmp.filePath(QStringLiteral("Ghost9.las"));
+    const QString secondPath = tmp.filePath(QStringLiteral("OtherWell.las"));
+    QVERIFY(writeFile(firstPath, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. Ghost9 : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+    QVERIFY(writeFile(secondPath, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. OtherWell : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n200.0\n")));
+
+    QString err;
+    const QString firstId = svc.importProjectFile(firstPath, &err);
+    QVERIFY2(!firstId.isEmpty(), qPrintable(err));
+    DataCatalog *cat = svc.catalog();
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 0);
+    QCOMPARE(cat->linksForAsset(firstId).size(), 1);
+    QVERIFY(cat->linksForAsset(firstId).front().unresolved);
+    QVERIFY(cat->linksForAsset(firstId).front().entityId.isEmpty());
+
+    const QString secondId = svc.importProjectFile(secondPath, &err);
+    QVERIFY2(!secondId.isEmpty(), qPrintable(err));
+    QVERIFY(secondId != firstId);
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 0);
+    QCOMPARE(cat->assets().size(), 2);
+    QCOMPARE(cat->unresolvedLinks().size(), 2);
+    for (const QString &id : {firstId, secondId})
+    {
+      const QVector<EntityAssetLink> links = cat->linksForAsset(id);
+      QCOMPARE(links.size(), 1);
+      QVERIFY(links.front().unresolved);
+      QVERIFY(links.front().entityId.isEmpty());
+      QCOMPARE(links.front().role, QStringLiteral("well_log"));
+      QCOMPARE(links.front().ordinal, 0); // 未决不编号
+    }
+    QVERIFY(cat->linksForAsset(firstId).front().note.contains(QStringLiteral("ghost9")));
+    QVERIFY(cat->linksForAsset(secondId).front().note.contains(QStringLiteral("otherwell")));
   }
 
   // §3 路径卫生：文件名含换行/控制字符或 ".." → 这一行如实失败，不入库。
@@ -1151,7 +1264,7 @@ private slots:
     QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("ghost.las")), QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. Ghost9 : WELL\n"
         "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
-    // 同井第二份 LAS：它的主关联把 0A1.Las 的降级——降级≠未决，行仍算入库。
+    // 同井第二份 LAS：路径序在 0A1.Las 之后，非主、ordinal 顺延。两条都入库。
     QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("zzA1b.las")), QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
         "~Curve\nDEPT.M :\n~A DEPT\n101.0\n")));
@@ -1295,20 +1408,37 @@ private slots:
     QVERIFY(lastHead >= 0 && lastHead < firstOther);
 
     // catalog：A1+B2 两口井（ghost 不建井）；A1 恰好四条主关联（autoplan
-    // 「LAS 排前仍得四条主关联」）；空井口失败行不留链接；0A1.Las 的
-    // well_log 关联被 zzA1b.las 降级——同一角色只留一条主关联。
+    // 「LAS 排前仍得四条主关联」）；空井口失败行不留链接。路径序第一的
+    // 0A1.Las 保持 well_log 主关联（ordinal 0），zzA1b.las 非主（ordinal 1）。
     QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
     QVERIFY(cat->hasEntity(QStringLiteral("well-B2")));
     QStringList roles;
     int logLinks = 0;
+    EntityAssetLink firstLas;
+    EntityAssetLink secondLas;
     for (const EntityAssetLink &l : cat->linksForEntity(QStringLiteral("well-A1")))
     {
       if (l.isPrimary && !l.unresolved)
         roles.append(l.role);
       if (l.role == QLatin1String("well_log"))
+      {
         ++logLinks;
+        const QString name = cat->assetById(l.assetId).displayName;
+        if (name == QLatin1String("0A1.Las"))
+          firstLas = l;
+        else if (name == QLatin1String("zzA1b.las"))
+          secondLas = l;
+      }
     }
-    QCOMPARE(logLinks, 2); // 两条 well_log 链接，一条已降级
+    QCOMPARE(logLinks, 2); // 两条 well_log 链接都在
+    QVERIFY(!firstLas.assetId.isEmpty());
+    QVERIFY(!secondLas.assetId.isEmpty());
+    QVERIFY(firstLas.isPrimary);
+    QCOMPARE(firstLas.ordinal, 0);
+    QVERIFY(!secondLas.isPrimary);
+    QCOMPARE(secondLas.ordinal, 1);
+    QVERIFY(!cat->assetById(firstLas.assetId).id.isEmpty());
+    QVERIFY(!cat->assetById(secondLas.assetId).id.isEmpty());
     std::sort(roles.begin(), roles.end());
     QCOMPARE(roles, QStringList({QStringLiteral("time_depth"), QStringLiteral("tops"),
                                  QStringLiteral("well_head"), QStringLiteral("well_log")}));
@@ -2450,7 +2580,7 @@ private slots:
   }
 
   // buildIngestPlan 纯函数：catalog 不动——revision/实体/资产/链接/版本计数
-  // 与 catalog.json 落盘字节在构建前后完全一致。
+  // 与 catalog.sqlite（及 catalog.sqlite-wal）落盘字节在构建前后完全一致。
   void buildIngestPlanLeavesCatalogUntouched()
   {
     QTemporaryDir tmp;
@@ -2481,10 +2611,17 @@ private slots:
     int versionCount = 0;
     for (const CatalogAsset &a : cat->assets())
       versionCount += cat->versionsForAsset(a.id).size();
-    QFile json(cat->catalogPath());
-    QVERIFY(json.open(QIODevice::ReadOnly));
-    const QByteArray jsonBefore = json.readAll();
-    json.close();
+    const QString metaDir = QFileInfo(cat->catalogPath()).absolutePath();
+    QFile sqlite(metaDir + QStringLiteral("/catalog.sqlite"));
+    QVERIFY(sqlite.open(QIODevice::ReadOnly));
+    const QByteArray sqliteBefore = sqlite.readAll();
+    sqlite.close();
+    QByteArray walBefore;
+    {
+      QFile wal(metaDir + QStringLiteral("/catalog.sqlite-wal"));
+      if (wal.open(QIODevice::ReadOnly))
+        walBefore = wal.readAll();
+    }
 
     const IngestPlan plan = buildIngestPlan(root, *cat);
     QCOMPARE(plan.items.size(), 2);
@@ -2498,9 +2635,16 @@ private slots:
     for (const CatalogAsset &a : cat->assets())
       versionCount2 += cat->versionsForAsset(a.id).size();
     QCOMPARE(versionCount2, versionCount);
-    QVERIFY(json.open(QIODevice::ReadOnly));
-    QCOMPARE(json.readAll(), jsonBefore); // 没落盘
-    json.close();
+    QVERIFY(sqlite.open(QIODevice::ReadOnly));
+    QCOMPARE(sqlite.readAll(), sqliteBefore); // 没落盘
+    sqlite.close();
+    QByteArray walAfter;
+    {
+      QFile wal(metaDir + QStringLiteral("/catalog.sqlite-wal"));
+      if (wal.open(QIODevice::ReadOnly))
+        walAfter = wal.readAll();
+    }
+    QCOMPARE(walAfter, walBefore);
   }
 
   // PROJECT_FILE_DESIGN 就地工程：源目录==工程根（「从工区文件夹新建」

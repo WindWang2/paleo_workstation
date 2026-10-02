@@ -9,14 +9,19 @@
 #include "../../services/singlefactordef.h"
 #include "../../workflow/workflows.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
+#include <QRegularExpression>
+#include <QScrollArea>
 #include <QShowEvent>
 #include <QSpinBox>
 #include <QTableWidget>
@@ -57,10 +62,48 @@ namespace
 // ---------------------------------------------------------------------------
 // ConstraintPage — ②约束与单因素（m2(B) 单因素图页）
 // ---------------------------------------------------------------------------
+namespace
+{
+bool interpolantEngine( const QString &algorithmId )
+{
+  return algorithmId == QLatin1String( "paleo:paleo_constraint_idw" );
+}
+
+void useMono( QWidget *widget )
+{
+  if ( widget )
+    widget->setFont( PaleoTheme::monoFont() );
+}
+
+QVector<double> parseLevels( const QString &text )
+{
+  QVector<double> levels;
+  const QStringList parts = text.split( QRegularExpression( QStringLiteral( "[,，\\s]+" ) ), Qt::SkipEmptyParts );
+  for ( const QString &part : parts )
+  {
+    bool ok = false;
+    const double value = part.toDouble( &ok );
+    if ( ok )
+      levels << value;
+  }
+  return levels;
+}
+} // namespace
+
 ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   : QWidget( parent )
 {
-  auto *lay = panelLayout( this );
+  auto *scroll = new QScrollArea( this );
+  scroll->setObjectName( QStringLiteral( "constraintPageScroll" ) );
+  scroll->setWidgetResizable( true );
+  scroll->setFrameShape( QFrame::NoFrame );
+  auto *content = new QWidget( scroll );
+  content->setObjectName( QStringLiteral( "constraintPageBody" ) );
+  auto *lay = panelLayout( content );
+  scroll->setWidget( content );
+  auto *outer = new QVBoxLayout( this );
+  outer->setContentsMargins( 0, 0, 0, 0 );
+  outer->addWidget( scroll );
 
   lay->addWidget( caption( tr( "层位" ), this ) );
   auto *horizons = new QComboBox( this );
@@ -116,7 +159,94 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   cell->setDecimals( 4 );
   cell->setValue( 1.0 );
   cell->setAccessibleName( tr( "单因素像元大小" ) );
+  useMono( cell );
   lay->addWidget( cell );
+
+  auto *methodCaption = caption( tr( "成图方法" ), content );
+  methodCaption->setObjectName( QStringLiteral( "factorMethodCaption" ) );
+  lay->addWidget( methodCaption );
+  auto *method = new QComboBox( content );
+  method->setObjectName( QStringLiteral( "factorMethodCombo" ) );
+  method->addItem( tr( "本地方向插值" ), QStringLiteral( "local_direction_idw" ) );
+  method->addItem( tr( "原约束 IDW" ), QStringLiteral( "legacy" ) );
+  method->setAccessibleName( tr( "成图方法" ) );
+  lay->addWidget( method );
+
+  auto *coverageCaption = caption( tr( "覆盖方式" ), content );
+  coverageCaption->setObjectName( QStringLiteral( "factorCoverageCaption" ) );
+  lay->addWidget( coverageCaption );
+  auto *coverage = new QComboBox( content );
+  coverage->setObjectName( QStringLiteral( "factorCoverageCombo" ) );
+  coverage->addItem( tr( "井点支撑" ), QStringLiteral( "well_supported" ) );
+  coverage->addItem( tr( "域内外推" ), QStringLiteral( "domain_extrapolation" ) );
+  coverage->setAccessibleName( tr( "覆盖方式" ) );
+  lay->addWidget( coverage );
+
+  auto *advanced = new CollapsibleSection( tr( "高级参数" ), content );
+  advanced->setObjectName( QStringLiteral( "factorAdvancedSection" ) );
+  advanced->setExpanded( false );
+  lay->addWidget( advanced );
+  auto *adv = advanced->containerLayout();
+  auto *power = new QDoubleSpinBox( advanced->container() );
+  power->setObjectName( QStringLiteral( "factorPowerSpin" ) );
+  power->setRange( 0.01, 100.0 );
+  power->setDecimals( 2 );
+  power->setValue( 2.0 );
+  power->setToolTip( tr( "幂次建议 0.5–8。算法接受任意有限正数。" ) );
+  useMono( power );
+  adv->addWidget( caption( tr( "幂次" ), advanced->container() ) );
+  adv->addWidget( power );
+  auto *cluster = new QCheckBox( tr( "井群局部权重" ), advanced->container() );
+  cluster->setObjectName( QStringLiteral( "factorClusterCheck" ) );
+  cluster->setChecked( false );
+  cluster->setToolTip( tr( "默认关闭。打开后按井群距离降低边缘井的权重，不是无数据掩膜。" ) );
+  adv->addWidget( cluster );
+  auto *ratio = new QDoubleSpinBox( advanced->container() );
+  ratio->setObjectName( QStringLiteral( "factorDirectionRatioSpin" ) );
+  ratio->setRange( 1.0, 100.0 );
+  ratio->setDecimals( 2 );
+  ratio->setValue( 8.0 );
+  ratio->setToolTip( tr( "方向线的新任务默认比值。保存到选中的约束线。" ) );
+  useMono( ratio );
+  adv->addWidget( caption( tr( "方向比值" ), advanced->container() ) );
+  adv->addWidget( ratio );
+  auto *influence = new QDoubleSpinBox( advanced->container() );
+  influence->setObjectName( QStringLiteral( "factorInfluenceSpin" ) );
+  influence->setRange( 0.0, 1.0e12 );
+  influence->setDecimals( 2 );
+  influence->setSpecialValueText( tr( "自动" ) );
+  influence->setToolTip( tr( "0 表示按井距和线长自动取影响半径。" ) );
+  useMono( influence );
+  adv->addWidget( caption( tr( "方向影响半径" ), advanced->container() ) );
+  adv->addWidget( influence );
+  auto *core = new QDoubleSpinBox( advanced->container() );
+  core->setObjectName( QStringLiteral( "factorCoreSpin" ) );
+  core->setRange( 0.0, 1.0e12 );
+  core->setDecimals( 2 );
+  core->setSpecialValueText( tr( "自动" ) );
+  core->setToolTip( tr( "0 表示核心半径取影响半径的 0.3。" ) );
+  useMono( core );
+  adv->addWidget( caption( tr( "方向核心半径" ), advanced->container() ) );
+  adv->addWidget( core );
+  auto *softStrength = new QDoubleSpinBox( advanced->container() );
+  softStrength->setObjectName( QStringLiteral( "factorSoftStrengthSpin" ) );
+  softStrength->setRange( 0.0, 0.8 );
+  softStrength->setSingleStep( 0.05 );
+  softStrength->setDecimals( 2 );
+  softStrength->setValue( 0.35 );
+  softStrength->setToolTip( tr( "软边界强度。0 表示这条线不改变权重。" ) );
+  useMono( softStrength );
+  adv->addWidget( caption( tr( "软边界强度" ), advanced->container() ) );
+  adv->addWidget( softStrength );
+  auto *softRadius = new QDoubleSpinBox( advanced->container() );
+  softRadius->setObjectName( QStringLiteral( "factorSoftRadiusSpin" ) );
+  softRadius->setRange( 0.0, 1.0e12 );
+  softRadius->setDecimals( 2 );
+  softRadius->setSpecialValueText( tr( "自动" ) );
+  softRadius->setToolTip( tr( "0 表示自动软边界半径，与显示缓冲无关。" ) );
+  useMono( softRadius );
+  adv->addWidget( caption( tr( "软边界半径" ), advanced->container() ) );
+  adv->addWidget( softRadius );
 
   // 主线6：等厚引擎（strathick）专属行——顶/底构造面栅格选择。默认隐藏，
   // 勾选等厚引擎因素时展开（updateEngineRows 管可见性）。
@@ -145,8 +275,15 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   generate->setEnabled( false ); // 先勾选一个单因素（updateFactorActionStates 管 tooltip）
   markPrimaryButton( generate );
   lay->addWidget( generate );
+  auto *cancel = new QPushButton( tr( "取消" ), content );
+  cancel->setObjectName( QStringLiteral( "factorCancelButton" ) );
+  cancel->setEnabled( false );
+  cancel->setToolTip( tr( "当前没有正在运行的成图" ) );
+  lay->addWidget( cancel );
+  connect( cancel, &QPushButton::clicked, this, &ConstraintPage::runCancelRequested );
+
   connect( generate, &QPushButton::clicked, this,
-           [this, horizons, field, cell, factors, topCombo, baseCombo] {
+           [this, horizons, field, cell, factors, topCombo, baseCombo, method, coverage, power, cluster] {
     const int r = checkedRow( factors );
     if ( r < 0 )
       return;
@@ -159,6 +296,15 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
                        ? def.defaultParams.value( QStringLiteral( "field" ) )
                        : field->text().trimmed() );
     params.insert( QStringLiteral( "cellSize" ), cell->value() );
+    if ( known && interpolantEngine( def.processingAlgId ) )
+    {
+      const QString methodId = method->currentData().toString();
+      if ( methodId != QLatin1String( "legacy" ) )
+        params.insert( QStringLiteral( "method" ), methodId );
+      params.insert( QStringLiteral( "coverage" ), coverage->currentData().toString() );
+      params.insert( QStringLiteral( "power" ), power->value() );
+      params.insert( QStringLiteral( "wellClusterLocality" ), cluster->isChecked() );
+    }
     // 主线6：等厚引擎参数——顶/底构造面图层随 payload（空即工作流侧拒绝）。
     if ( def.processingAlgId == QLatin1String( "paleo:paleo_isopach" ) )
     {
@@ -176,16 +322,52 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   interval->setValue( 20.0 );
   interval->setSuffix( tr( " m" ) );
   interval->setAccessibleName( tr( "等值线间距" ) );
+  useMono( interval );
   lay->addWidget( interval );
 
-  auto *contour = new QPushButton( tr( "生成等值线" ), this );
+  lay->addWidget( caption( tr( "等值线来源" ), content ) );
+  auto *contourMode = new QComboBox( content );
+  contourMode->setObjectName( QStringLiteral( "factorContourModeCombo" ) );
+  contourMode->addItem( tr( "真实数值等值线" ), QStringLiteral( "analysis" ) );
+  contourMode->addItem( tr( "解释性绕行" ), QStringLiteral( "cartographic_detour" ) );
+  contourMode->setAccessibleName( tr( "等值线来源" ) );
+  lay->addWidget( contourMode );
+  auto *levelsEdit = new QLineEdit( content );
+  levelsEdit->setObjectName( QStringLiteral( "factorContourLevelsEdit" ) );
+  levelsEdit->setPlaceholderText( tr( "等值级别，例如 10, 20, 30" ) );
+  levelsEdit->setAccessibleName( tr( "等值级别" ) );
+  useMono( levelsEdit );
+  levelsEdit->setVisible( false );
+  lay->addWidget( levelsEdit );
+  auto *sourceNote = new QLabel( tr( "等值线取自分析场" ), content );
+  sourceNote->setObjectName( QStringLiteral( "factorContourSourceLabel" ) );
+  sourceNote->setWordWrap( true );
+  lay->addWidget( sourceNote );
+  connect( contourMode, &QComboBox::currentIndexChanged, this, [this, contourMode, levelsEdit, sourceNote] {
+    const bool interpretive = contourMode->currentData().toString() == QLatin1String( "cartographic_detour" );
+    levelsEdit->setVisible( interpretive );
+    sourceNote->setText( interpretive ? tr( "解释性等值线的值来自制图工作场，不能参与融合、分相或厚度统计" )
+                                      : tr( "等值线取自分析场" ) );
+    updateFactorActionStates();
+  } );
+  connect( levelsEdit, &QLineEdit::textChanged, this, [this] { updateFactorActionStates(); } );
+
+  auto *contour = new QPushButton( tr( "生成等值线" ), content );
   contour->setObjectName( QStringLiteral( "contourButton" ) );
   contour->setEnabled( false ); // 勾选且已生成的因素才有可等值线的栅格
   lay->addWidget( contour );
-  connect( contour, &QPushButton::clicked, this, [this, interval] {
+  connect( contour, &QPushButton::clicked, this, [this, interval, contourMode, levelsEdit] {
     const QString layerId = checkedFactorLayerId();
     if ( layerId.isEmpty() )
       return;
+    if ( contourMode->currentData().toString() == QLatin1String( "cartographic_detour" ) )
+    {
+      const QVector<double> levels = parseLevels( levelsEdit->text() );
+      if ( levels.isEmpty() )
+        return;
+      emit interpretiveContourRequested( layerId, levels );
+      return;
+    }
     emit contourRequested( layerId, interval->value() );
   } );
 
@@ -238,8 +420,53 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   list->setObjectName( QStringLiteral( "constraintList" ) );
   list->setAccessibleName( tr( "约束列表" ) );
   lay->addWidget( list, 1 );
+  connect( list, &QListWidget::currentItemChanged, this, [this]( QListWidgetItem *, QListWidgetItem * ) {
+    loadSelectedConstraintLine();
+  } );
 
-  lay->addWidget( caption( tr( "相代码" ), this ) );
+  lay->addWidget( caption( tr( "约束语义" ), content ) );
+  auto *semantic = new QComboBox( content );
+  semantic->setObjectName( QStringLiteral( "constraintSemanticCombo" ) );
+  semantic->addItem( tr( "硬屏障" ), QStringLiteral( "hard_barrier" ) );
+  semantic->addItem( tr( "方向引导" ), QStringLiteral( "direction_guide" ) );
+  semantic->addItem( tr( "解释软边界" ), QStringLiteral( "interpretive_boundary" ) );
+  semantic->addItem( tr( "等值停止" ), QStringLiteral( "contour_stop" ) );
+  semantic->addItem( tr( "制图绕行" ), QStringLiteral( "cartographic_detour" ) );
+  semantic->setAccessibleName( tr( "约束语义" ) );
+  lay->addWidget( semantic );
+  auto *saveLine = new QPushButton( tr( "保存约束参数" ), content );
+  saveLine->setObjectName( QStringLiteral( "constraintParamSaveButton" ) );
+  saveLine->setEnabled( false );
+  saveLine->setToolTip( tr( "先在约束列表中选择一条线" ) );
+  lay->addWidget( saveLine );
+  connect( saveLine, &QPushButton::clicked, this, [this, semantic, ratio, influence, core, softStrength, softRadius] {
+    auto *rows = child<QListWidget>( this, "constraintList" );
+    QListWidgetItem *item = rows ? rows->currentItem() : nullptr;
+    if ( !item )
+      return;
+    auto *bound = qobject_cast<ConstraintWorkflow *>( property( kWfProp ).value<QObject *>() );
+    if ( !bound )
+      return;
+    QVariantMap lineParams = selectedLineParams();
+    lineParams.insert( QStringLiteral( "semantic" ), semantic->currentData().toString() );
+    lineParams.insert( QStringLiteral( "ratio" ), ratio->value() );
+    lineParams.insert( QStringLiteral( "influenceRadius" ), influence->value() );
+    lineParams.insert( QStringLiteral( "coreRadius" ), core->value() );
+    lineParams.insert( QStringLiteral( "softStrength" ), softStrength->value() );
+    lineParams.insert( QStringLiteral( "softRadius" ), softRadius->value() );
+    lineParams.insert( QStringLiteral( "enabled" ), true );
+    QString err;
+    if ( !bound->updateConstraintLine( item->data( Qt::UserRole ).toString(), lineParams, &err ) )
+    {
+      auto *status = child<QLabel>( this, "statusLabel" );
+      if ( status )
+        status->setText( err.isEmpty() ? tr( "约束参数保存失败" ) : err );
+      return;
+    }
+    refreshConstraintList();
+  } );
+
+  lay->addWidget( caption( tr( "相代码" ), content ) );
   auto *spin = new QSpinBox( this );
   spin->setObjectName( QStringLiteral( "faciesCodeSpin" ) );
   spin->setRange( 0, 9999 );
@@ -285,11 +512,37 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
                                        QStringLiteral( "break_line" ), spin->value() );
   } );
   lay->addLayout( typedRow );
+  auto *softRow = new QHBoxLayout();
+  softRow->setSpacing( 4 );
+  auto *softButton = new QPushButton( tr( "画软边界" ), content );
+  softButton->setObjectName( QStringLiteral( "softBoundaryButton" ) );
+  softRow->addWidget( softButton );
+  connect( softButton, &QPushButton::clicked, this, [this, horizons, spin] {
+    emit drawTypedConstraintRequested( horizons->currentText(), QStringLiteral( "line" ),
+                                       QStringLiteral( "interpretive_boundary" ), spin->value() );
+  } );
+  auto *stopButton = new QPushButton( tr( "画等值停止" ), content );
+  stopButton->setObjectName( QStringLiteral( "contourStopButton" ) );
+  softRow->addWidget( stopButton );
+  connect( stopButton, &QPushButton::clicked, this, [this, horizons, spin] {
+    emit drawTypedConstraintRequested( horizons->currentText(), QStringLiteral( "line" ),
+                                       QStringLiteral( "contour_stop" ), spin->value() );
+  } );
+  auto *detourButton = new QPushButton( tr( "画制图绕行" ), content );
+  detourButton->setObjectName( QStringLiteral( "cartographicDetourButton" ) );
+  softRow->addWidget( detourButton );
+  connect( detourButton, &QPushButton::clicked, this, [this, horizons, spin] {
+    emit drawTypedConstraintRequested( horizons->currentText(), QStringLiteral( "line" ),
+                                       QStringLiteral( "cartographic_detour" ), spin->value() );
+  } );
+  lay->addLayout( softRow );
   // ---- 类型化约束线 end ----------------------------------------------------
 
   // 旧 IDW 行（objectName 保留；runIdwRequested 原语义不动）。
   lay->addSpacing( 16 ); // spacing.md：约束区与 IDW 区分组
-  lay->addWidget( caption( tr( "插值（IDW）" ), this ) );
+  auto *legacyCaption = caption( tr( "插值（IDW）" ), content );
+  legacyCaption->setObjectName( QStringLiteral( "factorLegacyIdwCaption" ) );
+  lay->addWidget( legacyCaption );
   auto *idwField = new QLineEdit( QStringLiteral( "z" ), this );
   idwField->setObjectName( QStringLiteral( "idwField" ) );
   idwField->setPlaceholderText( tr( "井属性字段" ) );
@@ -357,8 +610,13 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   if ( wf ) // workflow feedback lands on the status label
   {
     setProperty( kWfProp, QVariant::fromValue( static_cast<QObject *>( wf ) ) );
-    connect( wf, &ConstraintWorkflow::constraintAdded, status,
-             [status]( const QString &id ) { status->setText( tr( "已添加约束 %1" ).arg( id ) ); } );
+    connect( wf, &ConstraintWorkflow::constraintAdded, status, [this, status]( const QString &id ) {
+      status->setText( tr( "已添加约束 %1" ).arg( id ) );
+      refreshConstraintList();
+    } );
+    connect( wf, &ConstraintWorkflow::constraintLineUpdated, this, [this]( const QString & ) {
+      refreshConstraintList();
+    } );
     connect( wf, &ConstraintWorkflow::factorDone, status,
              [status]( const QString &h, const QString &layerId ) {
                status->setText( tr( "单因素完成：%1 → %2" ).arg( h, layerId ) );
@@ -373,8 +631,29 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
              [status]( const QString &h, const QString &, const QString &layerId ) {
                status->setText( tr( "等值线完成：%1 → %2" ).arg( h, layerId ) );
              } );
+    connect( wf, &ConstraintWorkflow::cartographicWorkGenerated, status,
+             [status]( const QString &h, const QString &, const QString &layerId ) {
+               status->setText( tr( "制图工作场完成：%1 → %2" ).arg( h, layerId ) );
+             } );
+    connect( wf, &ConstraintWorkflow::interpretiveContoursGenerated, status,
+             [status]( const QString &h, const QString &, const QString &layerId ) {
+               status->setText( tr( "解释性等值线完成：%1 → %2" ).arg( h, layerId ) );
+             } );
   }
 
+  const auto mark = [this] { markInputsStale(); };
+  if ( auto *edit = child<QLineEdit>( this, "factorFieldEdit" ) )
+    connect( edit, &QLineEdit::textEdited, this, mark );
+  if ( auto *spinBox = child<QDoubleSpinBox>( this, "factorCellSizeSpin" ) )
+    connect( spinBox, qOverload<double>( &QDoubleSpinBox::valueChanged ), this, [mark]( double ) { mark(); } );
+  if ( auto *combo = child<QComboBox>( this, "factorMethodCombo" ) )
+    connect( combo, qOverload<int>( &QComboBox::currentIndexChanged ), this, [mark]( int ) { mark(); } );
+  if ( auto *combo = child<QComboBox>( this, "factorCoverageCombo" ) )
+    connect( combo, qOverload<int>( &QComboBox::currentIndexChanged ), this, [mark]( int ) { mark(); } );
+  if ( auto *horizons = child<QComboBox>( this, "horizonCombo" ) )
+    connect( horizons, qOverload<int>( &QComboBox::currentIndexChanged ), this, [this]( int ) { refreshConstraintList(); } );
+
+  refreshConstraintList();
   updateFactorActionStates();
 }
 
@@ -382,6 +661,7 @@ void ConstraintPage::showEvent( QShowEvent *event )
 {
   QWidget::showEvent( event );
   refreshThicknessSamples();
+  refreshConstraintList();
 }
 
 void ConstraintPage::refreshThicknessSamples()
@@ -521,12 +801,24 @@ void ConstraintPage::updateEngineRows()
     return;
   const int r = checkedRow( factors );
   bool isopach = false;
+  bool interpolant = true;
   if ( r >= 0 )
   {
     bool known = false;
     const SingleFactorDefinition def =
         SingleFactorRegistry::byId( factorIdOfRow( factors, r ), &known );
     isopach = known && def.processingAlgId == QLatin1String( "paleo:paleo_isopach" );
+    interpolant = !known || interpolantEngine( def.processingAlgId );
+  }
+  const QStringList interpolationNames = {
+      QStringLiteral( "factorMethodCaption" ), QStringLiteral( "factorMethodCombo" ),
+      QStringLiteral( "factorCoverageCaption" ), QStringLiteral( "factorCoverageCombo" ),
+      QStringLiteral( "factorAdvancedSection" ), QStringLiteral( "factorLegacyIdwCaption" ),
+      QStringLiteral( "idwField" ), QStringLiteral( "idwCellSize" ), QStringLiteral( "runIdwButton" ) };
+  for ( const QString &name : interpolationNames )
+  {
+    if ( auto *widget = findChild<QWidget *>( name ) )
+      widget->setVisible( interpolant );
   }
   row->setVisible( isopach );
   if ( !isopach )
@@ -567,6 +859,18 @@ void ConstraintPage::updateFactorActionStates()
   auto *contour = child<QPushButton>( this, "contourButton" );
   if ( !factors || !generate || !contour )
     return;
+  const bool busy = property( "paleo.page.runbusy" ).toBool();
+  auto *saveLine = child<QPushButton>( this, "constraintParamSaveButton" );
+  auto *rows = child<QListWidget>( this, "constraintList" );
+  if ( saveLine )
+  {
+    const bool hasLine = rows && rows->currentItem();
+    saveLine->setEnabled( hasLine && !busy );
+    if ( busy )
+      saveLine->setToolTip( tr( "正在计算，可取消" ) );
+    else
+      saveLine->setToolTip( hasLine ? QString() : tr( "先在约束列表中选择一条线" ) );
+  }
   const int r = checkedRow( factors );
   if ( r < 0 )
   {
@@ -578,17 +882,157 @@ void ConstraintPage::updateFactorActionStates()
     return;
   }
   updateEngineRows();
-  generate->setEnabled( true );
-  generate->setToolTip( QString() );
+  if ( busy )
+  {
+    generate->setEnabled( false );
+    generate->setToolTip( tr( "正在计算，可取消" ) );
+    contour->setEnabled( false );
+    contour->setToolTip( tr( "正在计算，可取消" ) );
+    return;
+  }
+  bool known = false;
+  const SingleFactorDefinition def = SingleFactorRegistry::byId( factorIdOfRow( factors, r ), &known );
+  if ( known && def.processingAlgId == SingleFactorContracts::confidenceEngineId() )
+  {
+    generate->setEnabled( false );
+    generate->setToolTip( tr( "预测置信度引擎尚未接入" ) );
+  }
+  else
+  {
+    generate->setEnabled( true );
+    generate->setToolTip( QString() );
+  }
   const QString layerId = checkedFactorLayerId();
+  auto *mode = child<QComboBox>( this, "factorContourModeCombo" );
+  auto *levels = child<QLineEdit>( this, "factorContourLevelsEdit" );
+  const bool interpretive = mode && mode->currentData().toString() == QLatin1String( "cartographic_detour" );
+  const bool levelsReady = !interpretive || ( levels && !parseLevels( levels->text() ).isEmpty() );
   if ( layerId.isEmpty() )
   {
     contour->setEnabled( false );
     contour->setToolTip( tr( "该因素尚未生成——先运行「生成单因素图」" ) );
+  }
+  else if ( !levelsReady )
+  {
+    contour->setEnabled( false );
+    contour->setToolTip( tr( "解释性绕行需要填写等值级别" ) );
   }
   else
   {
     contour->setEnabled( true );
     contour->setToolTip( QString() );
   }
+}
+
+void ConstraintPage::setRunBusy( bool busy )
+{
+  setProperty( "paleo.page.runbusy", busy );
+  if ( auto *cancel = child<QPushButton>( this, "factorCancelButton" ) )
+  {
+    cancel->setEnabled( busy );
+    cancel->setToolTip( busy ? tr( "取消当前成图" ) : tr( "当前没有正在运行的成图" ) );
+  }
+  if ( busy )
+  {
+    if ( auto *status = child<QLabel>( this, "statusLabel" ) )
+      status->setText( tr( "正在准备" ) );
+  }
+  updateFactorActionStates();
+}
+
+void ConstraintPage::noteRunStage( const QString &stage, int percent )
+{
+  if ( auto *status = child<QLabel>( this, "statusLabel" ) )
+    status->setText( tr( "正在计算：%1 %2%" ).arg( stage ).arg( percent ) );
+}
+
+void ConstraintPage::markInputsStale()
+{
+  auto *factors = child<QTableWidget>( this, "factorTable" );
+  if ( !factors )
+    return;
+  const int r = checkedRow( factors );
+  if ( r < 0 )
+    return;
+  const QString factorId = factorIdOfRow( factors, r );
+  if ( property( kFactorGenProp ).toMap().value( factorId ).toString().isEmpty() )
+    return;
+  QTableWidgetItem *status = factors->item( r, 3 );
+  if ( !status )
+    return;
+  const QString suffix = tr( "（旧输入）" );
+  if ( !status->text().contains( suffix ) )
+  {
+    factors->blockSignals( true );
+    status->setText( status->text() + suffix );
+    factors->blockSignals( false );
+  }
+}
+
+QVariantMap ConstraintPage::selectedLineParams() const
+{
+  QVariantMap params;
+  auto *rows = child<QListWidget>( const_cast<ConstraintPage *>( this ), "constraintList" );
+  const QListWidgetItem *item = rows ? rows->currentItem() : nullptr;
+  if ( !item )
+    return params;
+  const QString json = item->data( Qt::UserRole + 1 ).toString();
+  if ( json.isEmpty() )
+    return params;
+  const QJsonDocument doc = QJsonDocument::fromJson( json.toUtf8() );
+  if ( !doc.isObject() )
+    return params;
+  return doc.object().toVariantMap();
+}
+
+void ConstraintPage::loadSelectedConstraintLine()
+{
+  const QVariantMap params = selectedLineParams();
+  auto *semantic = child<QComboBox>( this, "constraintSemanticCombo" );
+  if ( semantic && params.contains( QStringLiteral( "semantic" ) ) )
+  {
+    const int idx = semantic->findData( params.value( QStringLiteral( "semantic" ) ) );
+    if ( idx >= 0 )
+      semantic->setCurrentIndex( idx );
+  }
+  const auto setSpin = [this]( const char *name, const QString &key, const QVariantMap &source ) {
+    auto *spin = child<QDoubleSpinBox>( this, name );
+    if ( spin && source.contains( key ) )
+      spin->setValue( source.value( key ).toDouble() );
+  };
+  setSpin( "factorDirectionRatioSpin", QStringLiteral( "ratio" ), params );
+  setSpin( "factorInfluenceSpin", QStringLiteral( "influenceRadius" ), params );
+  setSpin( "factorCoreSpin", QStringLiteral( "coreRadius" ), params );
+  setSpin( "factorSoftStrengthSpin", QStringLiteral( "softStrength" ), params );
+  setSpin( "factorSoftRadiusSpin", QStringLiteral( "softRadius" ), params );
+  updateFactorActionStates();
+}
+
+void ConstraintPage::refreshConstraintList()
+{
+  auto *list = child<QListWidget>( this, "constraintList" );
+  if ( !list )
+    return;
+  const QString keep = list->currentItem() ? list->currentItem()->data( Qt::UserRole ).toString() : QString();
+  auto *wf = qobject_cast<ConstraintWorkflow *>( property( kWfProp ).value<QObject *>() );
+  auto *horizons = child<QComboBox>( this, "horizonCombo" );
+  const QString horizon = horizons ? horizons->currentText() : QString();
+  list->blockSignals( true );
+  list->clear();
+  if ( wf )
+  {
+    const QVector<QVariantMap> rows = wf->loadConstraints( horizon );
+    for ( const QVariantMap &row : rows )
+    {
+      const QString id = row.value( QStringLiteral( "id" ) ).toString();
+      const QString type = row.value( QStringLiteral( "type" ) ).toString();
+      auto *item = new QListWidgetItem( tr( "%1 · %2" ).arg( id, type ), list );
+      item->setData( Qt::UserRole, id );
+      item->setData( Qt::UserRole + 1, row.value( QStringLiteral( "params_json" ) ).toString() );
+      if ( id == keep )
+        list->setCurrentItem( item );
+    }
+  }
+  list->blockSignals( false );
+  updateFactorActionStates();
 }

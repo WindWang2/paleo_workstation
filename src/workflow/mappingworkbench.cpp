@@ -2,6 +2,7 @@
 #include "mappingworkbench.h"
 #include "../domain/faciescatalog.h"
 #include "../domain/mappinghorizons.h"
+#include "../domain/singlefactorrequest.h"
 #include "../io/constraintstore.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/mappingartifactwriter.h"
@@ -650,9 +651,14 @@ QString MappingWorkbench::polygonize(const QString &id, QString *error) {
   if (parent.isEmpty())
     return {};
   const auto sourceVersion = m_catalog->versionById(parent);
+  const auto sourceKind = sourceVersion.extra.value("kind").toString();
+  const auto valueSource = sourceVersion.extra.value("value_source").toString();
   if (id.startsWith("factor.") ||
-      sourceVersion.extra.value("kind").toString() == "single_factor_raster") {
-    fail(error, tr("连续单因素须先按阈值分相，再转为相面"));
+      sourceKind == QLatin1String("single_factor_raster") ||
+      paleo::singlefactor::rejectsQuantitativeUse(sourceKind, valueSource)) {
+    fail(error, paleo::singlefactor::rejectsQuantitativeUse(sourceKind, valueSource)
+                    ? tr("解释性制图工作场不能参与分相或转面")
+                    : tr("连续单因素须先按阈值分相，再转为相面"));
     return {};
   }
   QDir().mkpath(m_dir + "/artifacts/staging");
@@ -936,7 +942,14 @@ bool MappingWorkbench::generateContours(const QString &h, const QString &id,
     fail(error, tr("等值线输入必须属于当前层位"));
     return false;
   }
-  if (versionForLayer(id).extra.value("kind") != "single_factor_raster" &&
+  const auto contourExtra = versionForLayer(id).extra;
+  const auto contourKind = contourExtra.value("kind").toString();
+  const auto contourSource = contourExtra.value("value_source").toString();
+  if (paleo::singlefactor::rejectsQuantitativeUse(contourKind, contourSource)) {
+    fail(error, tr("解释性制图成果不能当作分析场提取等值线"));
+    return false;
+  }
+  if (contourKind != QLatin1String("single_factor_raster") &&
       !id.startsWith("factor.")) {
     fail(error, tr("请选择连续单因素栅格，类别相图不能生成等值线"));
     return false;
@@ -984,6 +997,12 @@ void MappingWorkbench::styleLayer(const QString &id) {
   auto *layer = m_layers->layer(id);
   if (!layer)
     return;
+  const auto styledKind = v.extra.value("kind").toString();
+  const auto styledSource = v.extra.value("value_source").toString();
+  const bool analysisRaster =
+      paleo::singlefactor::isAnalysisFactorRaster(styledKind, styledSource);
+  const bool cartographic =
+      paleo::singlefactor::rejectsQuantitativeUse(styledKind, styledSource);
   if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {
     vector->setReadOnly(!id.startsWith("draft."));
     if (id.startsWith("draft.") &&
@@ -1000,12 +1019,11 @@ void MappingWorkbench::styleLayer(const QString &id) {
               });
     }
   }
-  if (v.extra.value("kind") == "single_factor_raster")
+  if (analysisRaster || cartographic)
     FactorStyleWriter::applyTo(qobject_cast<QgsRasterLayer *>(layer),
                                v.extra.value("factor_id").toString());
-  if (v.extra.value("kind").toString().startsWith("constraint") ||
-      v.extra.value("kind") == "single_factor_raster" ||
-      v.extra.value("kind") == "contour_lines")
+  if (styledKind.startsWith(QLatin1String("constraint")) || analysisRaster ||
+      cartographic || styledKind == QLatin1String("contour_lines"))
     return;
   MappingArtifactWriter::applyFaciesStyle(layer,
                                           v.extra.value("facies").toList());
@@ -1041,8 +1059,14 @@ QString MappingWorkbench::compose(const QString &h, const QStringList &ids,
     parents << version;
     layers << layer;
     const auto v = m_catalog->versionById(version);
+    const auto inputKind = v.extra.value("kind").toString();
+    const auto inputSource = v.extra.value("value_source").toString();
+    if (paleo::singlefactor::rejectsQuantitativeUse(inputKind, inputSource)) {
+      fail(error, tr("解释性制图工作场不能参与连续融合、分相或厚度统计"));
+      return {};
+    }
     if (id.startsWith("factor.") || v.extra.contains("factor_id") ||
-        v.extra.value("kind").toString() == "single_factor_raster")
+        paleo::singlefactor::isAnalysisFactorRaster(inputKind, inputSource))
       continuous.insert(layer->id());
     else if (v.extra.contains("facies") &&
              v.extra.value("facies").toList() != facies(h)) {

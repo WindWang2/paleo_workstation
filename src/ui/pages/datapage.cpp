@@ -12,6 +12,7 @@
 
 #include <QDynamicPropertyChangeEvent>
 #include <QShortcut>
+#include <QTimer>
 
 using namespace paleo::pagesinternal;
 
@@ -77,6 +78,26 @@ void DataPage::wireDataOps()
   // 实体 CRUD 联动（实体侧改完请列表/实体视图重取）。
   connect(m_entityPanel, &EntityPanel::entityRefreshRequested, this,
           &DataPage::refreshAssetTable);
+  // 井曲线「设为主文件」：点击时按 assetId+role+entityId 重查下标。刷新延后到
+  // 点击返回之后，避免拆掉正在发信号的按钮。
+  connect(m_entityPanel, &EntityPanel::wellLogSetPrimaryRequested, this,
+          [this](const QString &entityId, const QString &assetId) {
+            DataCatalog *cat = nullptr;
+            if (PreviewDocService *doc = docService())
+              cat = doc->catalog();
+            if (!cat)
+              return;
+            const int idx = paleo::dataops::indexOfLink(
+                cat, assetId, QStringLiteral("well_log"), entityId);
+            QString err;
+            if (idx < 0 || !cat->setLinkPrimary(idx, &err))
+            {
+              emit statusMessage(tr("设为主文件失败：%1")
+                                     .arg(err.isEmpty() ? tr("找不到这条测井关联") : err));
+              return;
+            }
+            QTimer::singleShot(0, this, [this] { refreshAssetTable(); });
+          });
   // 树内 F2/菜单实体意图 → 实体面板执行（同一套对话框/命令栈）。
   connect(m_listPanel, &DataListPanel::entityRenameRequested, m_entityPanel,
           &EntityPanel::beginRenameEntity);

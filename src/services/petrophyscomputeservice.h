@@ -13,8 +13,9 @@
 // startAttributeSlice 同构：PaleoTaskService::start 池化 worker + 协作取消 +
 // 逐井进度；公式核在 algorithms/petrophys.h，服务只编排不画像素不解析数学）。
 //
-// 数据流：井集（catalog 解析的 LAS 路径）→ LasCache 载入 → 逐井公式/表达式
-// 计算（行对齐：同文档曲线共享 ~A 行）→ QC 统计+越界区间 → LAS 产物写出
+// 数据流：井集（catalog 解析的 LAS 路径）→ startBatch 用 WellLogSet 并集
+// 选驱动曲线所在文件做深度网格，其它文件的曲线重采样到该网格 → 逐井公式
+// （行对齐：交给 computeWell 的表共享这一深度网格）→ QC → LAS 产物写出
 // （经 PaleoProjectStore::enqueueWrite 单写者队列）→ catalog DERIVED 登记
 // （任务终态后在服务线程做——catalog 非线程安全，worker 不碰）。
 //
@@ -136,8 +137,9 @@ public:
                         const QString &outputDir,
                         std::function<void(bool ok, const BatchResult &)> onFinished);
 
-  // 井集 → 源 LAS 解析（主线程调用）：well 实体 → role="well_log" 链接
-  // （isPrimary 优先）→ currentVersion → resolvedVersionPath。解析不到的井
+  // 井集 → 一条 WellRef / 井（主线程）：已决 well_log，isPrimary 优先，
+  // 不读曲线体。startBatch 再按公式把 lasPath / sourceVersionId 改绑到
+  // 深度网格所在的那份文件（驱动曲线；单文件井即这份本身）。解析不到的井
   // 记入 missing（id + 原因），不抛错。
   static QVector<WellRef> resolveWellLas(DataCatalog *catalog,
                                          const QString &projectDir,

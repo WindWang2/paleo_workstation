@@ -12,7 +12,8 @@ class QgisLayerService;
 // objectName/信号签名/ctor 签名全保留）。
 // 层：视图
 // ③综合编图 — factor list (checkbox rows) + fuse button.
-// m2(C)：融合清单只列栅格因素（contours.* 矢量不算融合输入）；新增相属性区
+// m2(C)：融合清单只列 04_SingleFactor 组内的分析栅格（等值线子组与
+// cartographic.* 制图工作场只上图，不进融合）；新增相属性区
 // （faciesAttrArea）、参考图区（referenceArea）与布局设计器入口；矢量化成功
 // 后的自动编辑态由壳接线（setFaciesEditTarget 记录目标层）。
 class ComposePage : public QWidget

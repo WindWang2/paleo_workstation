@@ -14,10 +14,12 @@
 
 #include <memory>
 
+class CatalogStore;
+
 // catalog/ — project_area 数据底座（docs/PROJECT_AREA_PLAN.md §3）。
 // 对象链：实体 → 显式关联(entity_asset_links) → 数据资产 → 不可变版本。
-// catalog.json 是本阶段唯一主存储和查询源（ADR 0056 的 C++ 最小面；
-// catalog.sqlite 按计划递延，TODOS P3）。关系从不由标签推断——链接显式落表。
+// 查询事实源是内存四表。盘上主库是 catalog.sqlite（CatalogStore）；
+// catalog.json 只作迁移输入。关系从不由标签推断——链接显式落表。
 //
 // 实体类型：well（稳定 id+井名）、seismic_survey（打开时从道头冻结
 // 角点/inline/crossline 范围/采样间隔/起始时间）、sequence_boundary（层序界面）、
@@ -113,12 +115,14 @@ class DataCatalog : public QObject
   Q_OBJECT
   public:
     explicit DataCatalog(QObject *parent = nullptr);
+    ~DataCatalog() override;
 
-    // 打开（或初始化）<projectDir>/artifacts/metadata/catalog.json。
-    // 主文件解析失败且存在 .bak 时回退读 .bak（腐败恢复，只对「解析失败」
-    // 生效——schema 版本不匹配是「未来版本」信号，回退旧代数据等于静默
-    // 降级，不进该路径）；恢复成功后 recoveredFromBackup() 为真、
+    // 打开（或初始化）工程目录上的 catalog。盘上主库是
+    // artifacts/metadata/catalog.sqlite；catalog.json 只作迁移输入。
+    // 主库损坏且存在 sqlite .bak 时回退（schema / user_version 过新是未来
+    // 版本信号，不回退旧代）。恢复成功后 recoveredFromBackup() 为真、
     // lastBackupRecoveryReason() 带主文件损坏原因，open 仍算成功。
+    // catalogPath() 仍返回 catalog.json 路径，不表示这次打开写了 JSON。
     bool open(const QString &projectDir, QString *error = nullptr);
     bool isOpen() const { return m_isOpen; }
     // 拒绝写入态：open() 失败、从未成功 open 过、或被锁降级只读 → true。
@@ -127,6 +131,14 @@ class DataCatalog : public QObject
     bool refusesWrites() const { return !m_isOpen || m_lockedReadOnly; }
     QString openError() const { return m_openError; } // open() 失败原因（无则空）
     QString catalogPath() const { return m_dir + QStringLiteral("/artifacts/metadata/catalog.json"); }
+    // 即使 store 还没建也返回该路径。不表示文件一定存在。
+    QString sqliteCatalogPath() const
+    {
+      return m_dir + QStringLiteral("/artifacts/metadata/catalog.sqlite");
+    }
+    // 当前内存表写成 JSON。revision 用现值（不 +1）。不写 sqlite、不轮转
+    // bak、不涨 revision、不发 changed()。
+    bool exportCatalogJson(const QString &path, QString *error = nullptr) const;
 
     // ---- 单写实例降级（SCHEMA_MIGRATION.md §6：锁失败 = 真只读）----
     // 工程目录被另一实例持锁时由组装根置 true：save() 恒 false（锁错误文
@@ -323,6 +335,9 @@ class DataCatalog : public QObject
     // op 失败或落盘失败 → 内存逐字段还原、盘上不动（事务语义），返回 false。
     // 空 journal → true 且不落盘（不空涨 revision）。
     bool applyJournal(const QVector<CatalogOp> &ops, QString *error = nullptr);
+    // 测试注入：重放恰好成功 k 个 op 后、endBatch/落盘之前还原并失败。
+    // k<=0 记 0 并关闭。applyJournal 不自动清零（非零粘滞会让失败后的重试也中止）。
+    void debugAbortJournalAfter(int k);
 
   signals:
     void changed();      // 任一变更落盘后发射（UI 刷新资产表用）
@@ -336,6 +351,7 @@ class DataCatalog : public QObject
     void noteRead(const char *what) const;
     void recordOp(CatalogOp op);
     bool save(QString *error = nullptr);
+    bool commitStore(QString *error);
     void beginBatch();
     bool endBatch(QString *error = nullptr);
     // markDownstreamStale/addVersion 共用的内存段标记：只写 m_versions，
@@ -370,4 +386,12 @@ class DataCatalog : public QObject
     QString m_overlayDir;
     QSet<QString> m_overlayVersionIds;
     QVector<CatalogOp> m_journal;
+    // 活库连接。staging 副本不拷贝（默认空）——副本不 open、不落盘。
+    std::unique_ptr<CatalogStore> m_store;
+    bool m_forceFullSave = false; // 损坏主库已装入内存，下次 save 整表重写
+    int m_debugAbortJournalAfter = 0; // 见 debugAbortJournalAfter；0 = 关闭
+    QSet<QString> m_dirtyEntities;
+    QSet<QString> m_dirtyAssets;
+    QSet<QString> m_dirtyVersions;
+    QSet<int> m_dirtyLinkOrds;
 };

@@ -17,7 +17,9 @@
 
 #include <cmath>
 #include <filesystem>
+#if defined(__linux__)
 #include <malloc.h>
+#endif
 
 #include "Engine/Sdk.h"
 
@@ -55,7 +57,9 @@ qint64 currentRssBytes()
 
 qint64 sampleRssAfterTrim()
 {
+#if defined(__linux__)
   malloc_trim(0);
+#endif
   return currentRssBytes();
 }
 

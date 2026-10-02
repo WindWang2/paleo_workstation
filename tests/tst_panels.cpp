@@ -275,8 +275,8 @@ class TestPanels : public QObject
       QVERIFY(!table->findChild<QPushButton *>(QStringLiteral("undoAttachButton")));
     }
 
-    // 「设为主版本」：同井同角色的两条已决链接，非主那条给按钮；点击后主
-    // 关联换到该资产（不变量：同 (entityType,entityId,role) 只留一条主）。
+    // well_log 按钮是「设为主文件」。同井同角色的两条已决链接里，非主那条
+    // 给按钮；点击后主关联换到该资产（同 (entityType,entityId,role) 只留一条主）。
     void dataPage_setPrimaryLink()
     {
       QTemporaryDir dir;
@@ -315,14 +315,15 @@ class TestPanels : public QObject
       page.refreshAssetTable();
       auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
       QCOMPARE(table->rowCount(), 2);
-      // ast-1 是主链接行（纯文本无控件）；ast-2 行有「设为主版本」。
-      auto *primary = table->findChild<QPushButton *>(QStringLiteral("setPrimaryButton"));
+      // ast-1 是主链接行（纯文本无控件）；ast-2 行有「设为主文件」。
+      auto *primary = table->findChild<QPushButton *>(QStringLiteral("setWellLogPrimaryButton"));
       QVERIFY(primary);
+      QCOMPARE(primary->text(), QStringLiteral("设为主文件"));
       primary->click();
       QVERIFY(!cat->links().at(0).isPrimary);
       QVERIFY(cat->links().at(1).isPrimary);
-      // 刷新后角色互换：ast-1 成了非主旧版本，它的行拿到同一个按钮。
-      QVERIFY(table->findChild<QPushButton *>(QStringLiteral("setPrimaryButton")));
+      // 刷新后角色互换：ast-1 成了非主文件，它的行拿到同一个按钮。
+      QVERIFY(table->findChild<QPushButton *>(QStringLiteral("setWellLogPrimaryButton")));
     }
 
     // ---- T28：链接身份寻址 + undo 跨 reload 恢复 ----
@@ -887,6 +888,20 @@ class TestPanels : public QObject
       QVERIFY(dir.isValid());
       LayerManifest manifest(dir.filePath(QStringLiteral("m.sqlite")));
       seedManifest(&manifest, 2, 1);
+      LayerDeclaration cartographic;
+      cartographic.layerId = QStringLiteral("cartographic.T1.sand");
+      cartographic.horizon = QStringLiteral("T1");
+      cartographic.type = QStringLiteral("raster");
+      cartographic.source = QStringLiteral("memory|carto");
+      cartographic.group = QStringLiteral("04_SingleFactor/Cartographic");
+      QVERIFY(manifest.upsert(cartographic));
+      LayerDeclaration contours;
+      contours.layerId = QStringLiteral("contours.T1.f0");
+      contours.horizon = QStringLiteral("T1");
+      contours.type = QStringLiteral("vector");
+      contours.source = QStringLiteral("memory|contours");
+      contours.group = QStringLiteral("04_SingleFactor/Contours");
+      QVERIFY(manifest.upsert(contours));
       QgisLayerService layers(nullptr, &manifest); // null project svc: manifest only
 
       ComposePage page(nullptr, &layers);
@@ -896,8 +911,10 @@ class TestPanels : public QObject
       for (int i = 0; i < list->count(); ++i)
       {
         QVERIFY(list->item(i)->flags() & Qt::ItemIsUserCheckable);
-        QVERIFY(list->item(i)->data(Qt::UserRole).toString().startsWith(
-            QStringLiteral("factor.")));
+        const QString id = list->item(i)->data(Qt::UserRole).toString();
+        QVERIFY(id.startsWith(QStringLiteral("factor.")));
+        QVERIFY(!id.startsWith(QStringLiteral("cartographic.")));
+        QVERIFY(!id.startsWith(QStringLiteral("contours.")));
       }
 
       list->item(0)->setCheckState(Qt::Checked);
@@ -1027,6 +1044,7 @@ class TestPanels : public QObject
       ValidatePage page(&wf);
       auto *table = page.findChild<QTableWidget *>(QStringLiteral("issueTable"));
       page.findChild<QPushButton *>(QStringLiteral("runButton"))->click();
+      QTest::qWait(1); // 运行验证把清单刷新排到下一事件回合
       QCOMPARE(table->rowCount(), 1);
       QCOMPARE(table->item(0, 1)->text(), QStringLiteral("SRC_MISSING"));
 
@@ -1660,32 +1678,37 @@ class TestPanels : public QObject
       QVERIFY(header);
       QVERIFY(header->text().contains(QStringLiteral("A1")));
 
-      // 词表序 9 槽全枚举：井头打头、其他收尾。
-      QCOMPARE(roleTable->rowCount(), 9);
+      // 词表 9 槽仍全枚举。well_log 按文件拆行：主文件、未决、mid、old，
+      // 所以总行数是 12。井头打头，其他收尾。
+      QCOMPARE(roleTable->rowCount(), 12);
       QCOMPARE(roleTable->item(0, 0)->text(), QString::fromUtf8("井身/井位"));
       QCOMPARE(roleTable->item(1, 0)->text(), QString::fromUtf8("测井曲线"));
-      QCOMPARE(roleTable->item(8, 0)->text(), QString::fromUtf8("其他"));
+      QCOMPARE(roleTable->item(11, 0)->text(), QString::fromUtf8("其他"));
 
       // 井头槽：primary = 资产名 + 当前版本号（v3，非字面 v1）。
       const QString headPrimary = roleTable->item(0, 1)->text();
       QVERIFY(headPrimary.contains(QStringLiteral("A1.dat")));
       QVERIFY(headPrimary.contains(QStringLiteral("v3")));
 
-      // 测井槽：primary=主曲线；成员按 ordinal（mid(1) 在 old(5) 前，与入库
-      // 序相反）；未决资产名落到未决列。
-      const QString logPrimary = roleTable->item(1, 1)->text();
-      QVERIFY(logPrimary.contains(QStringLiteral("A1_main.las")));
-      QCOMPARE(roleTable->item(1, 2)->text(),
-               QStringLiteral("A1_mid.las、A1_old.las"));
-      QCOMPARE(roleTable->item(1, 3)->text(), QStringLiteral("A1x.las"));
+      // 测井按 ordinal：main(0)、未决 A1x(0)、mid(1)、old(5)。
+      QVERIFY(roleTable->item(1, 1)->text().contains(QStringLiteral("A1_main.las")));
+      QVERIFY(roleTable->item(1, 1)->text().contains(QString::fromUtf8("主文件")));
+      QVERIFY(roleTable->item(2, 1)->text().contains(QStringLiteral("A1x.las")));
+      QCOMPARE(roleTable->item(2, 3)->text(), QString::fromUtf8("未决关联"));
+      QVERIFY(roleTable->cellWidget(2, 2) == nullptr);
+      QVERIFY(roleTable->item(3, 1)->text().contains(QStringLiteral("A1_mid.las")));
+      QVERIFY(roleTable->item(3, 1)->text().contains(QString::fromUtf8("成员")));
+      QVERIFY(roleTable->cellWidget(3, 2) != nullptr);
+      QVERIFY(roleTable->item(4, 1)->text().contains(QStringLiteral("A1_old.las")));
+      QVERIFY(roleTable->item(4, 1)->text().contains(QString::fromUtf8("成员")));
 
       // 空槽（trajectory 等）：「缺失」占位 + 灰字克制样式（upstream
       // missing-source 可见性原则），不是空白行也不是凭空消失。
-      const QString trajPrimary = roleTable->item(2, 1)->text();
+      const QString trajPrimary = roleTable->item(5, 1)->text();
       QCOMPARE(trajPrimary, QString::fromUtf8("缺失"));
-      QCOMPARE(roleTable->item(2, 2)->text(), QStringLiteral("—"));
-      QCOMPARE(roleTable->item(2, 3)->text(), QStringLiteral("—"));
-      QVERIFY(roleTable->item(2, 1)->foreground().color().name()
+      QCOMPARE(roleTable->item(5, 2)->text(), QStringLiteral("—"));
+      QCOMPARE(roleTable->item(5, 3)->text(), QStringLiteral("—"));
+      QVERIFY(roleTable->item(5, 1)->foreground().color().name()
                   .compare(QStringLiteral("#5d6e80"), Qt::CaseInsensitive) == 0);
     }
 
@@ -1970,16 +1993,18 @@ class TestPanels : public QObject
       page.refreshAssetTable();
       QCOMPARE(cat->catalogRevision(), revBefore);
       QVERIFY(roleTable->item(1, 1)->text().contains(QStringLiteral("ast-main")));
-      QVERIFY(roleTable->item(1, 3)->text().contains(QStringLiteral("ast-pend")));
+      QVERIFY(roleTable->item(2, 1)->text().contains(QStringLiteral("ast-pend")));
+      QCOMPARE(roleTable->item(2, 3)->text(), QString::fromUtf8("未决关联"));
 
       // 挂接待定链接（catalog 变更）→ changed() 通路重取：新主关联是
-      // ast-pend，旧主关联落成员桶，未决列清空。
+      // ast-pend，旧主关联单独成行，未决行消失。
       QVERIFY(cat->attachLink(1, QStringLiteral("well-1")));
       page.refreshAssetTable();
       QVERIFY(roleTable->item(1, 1)->text().contains(QStringLiteral("pend")));
-      QVERIFY(roleTable->item(1, 2)->text().contains(QStringLiteral("main")));
-      QVERIFY(roleTable->item(1, 3)->text().isEmpty()
-              || roleTable->item(1, 3)->text() == QStringLiteral("—"));
+      QVERIFY(roleTable->item(1, 1)->text().contains(QString::fromUtf8("主文件")));
+      QVERIFY(roleTable->item(2, 1)->text().contains(QStringLiteral("main")));
+      QVERIFY(roleTable->item(2, 1)->text().contains(QString::fromUtf8("成员")));
+      QCOMPARE(roleTable->item(1, 3)->text(), QStringLiteral("—"));
     }
 
     void dataPage_surveyAreaFirstItemAndDoubleClicked()

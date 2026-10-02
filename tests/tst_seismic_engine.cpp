@@ -78,6 +78,37 @@ bool writeStandardSegy(const QString &filePath, int inlines, int xlines, int ns,
   return QFileInfo(filePath).size() == expected;
 }
 
+// 对角测网：第 i 道 inline=xline=i+1，ns=1。不同 inline/xline 号各 n 个，
+// inline×xline 网格为 n²（远大于道数）——SgyVolume 时间网格尺寸溢出回归用。
+bool writeDiagonalSegy(const QString &filePath, int n)
+{
+  QFile file(filePath);
+  if (!file.open(QIODevice::WriteOnly))
+    return false;
+  file.write(QByteArray(3200, ' '));
+  QByteArray binHdr(400, 0);
+  qToBigEndian<qint16>(4000, reinterpret_cast<uchar *>(binHdr.data()) + 16);
+  qToBigEndian<qint16>(1, reinterpret_cast<uchar *>(binHdr.data()) + 20);
+  qToBigEndian<qint16>(5, reinterpret_cast<uchar *>(binHdr.data()) + 24);
+  file.write(binHdr);
+  QByteArray trace(240 + 4, 0);
+  uchar *h = reinterpret_cast<uchar *>(trace.data());
+  const float one = 1.0f;
+  quint32 bits;
+  std::memcpy(&bits, &one, 4);
+  qToBigEndian<quint32>(bits, h + 240);
+  qToBigEndian<qint16>(1, h + 114);
+  qToBigEndian<qint16>(4000, h + 116);
+  for (int i = 0; i < n; ++i)
+  {
+    for (const int off : {0, 4, 8, 20, 188, 192})
+      qToBigEndian<qint32>(i + 1, h + off);
+    file.write(trace);
+  }
+  file.close();
+  return QFileInfo(filePath).size() == 3600 + static_cast<qint64>(n) * 244;
+}
+
 float sampleOf(int i, int j, int k)
 {
   return static_cast<float>((i + 1) * 1000 + j * 10) + k * 0.25f;
@@ -892,6 +923,42 @@ private slots:
         else
           QCOMPARE(actual, expect);
       }
+    }
+  }
+
+  // ---- 时间切片网格尺寸溢出回归：inline×xline 由文件内容决定，int*int 曾回绕成 0 后越界写 ----
+  void timeSliceGridOverflowRejected()
+  {
+    // 对照：20 道对角体时间切片正常（20×20 网格，仅对角线有值）
+    {
+      const QString path = tempDir_.filePath(QStringLiteral("diag20.sgy"));
+      QVERIFY(writeDiagonalSegy(path, 20));
+      seismic::SgyVolume volume;
+      std::string err;
+      QVERIFY2(volume.Load(toPath(path), err), err.c_str());
+      QCOMPARE(volume.InlineCount(), 20);
+      QCOMPARE(volume.XlineCount(), 20);
+      seismic::SgySliceImage image;
+      QVERIFY2(volume.ExtractSlice(seismic::SgySliceType::Time, 0, image, err), err.c_str());
+      QCOMPARE(image.width, 20);
+      QCOMPARE(image.height, 20);
+      QCOMPARE(image.values.size(), std::size_t(400));
+    }
+    // 65536 道对角体：65536² = 2^32，旧实现 int 乘积回绕为 0 → assign(0) 后按行列写越界（ASan SEGV）。
+    // 现在必须干净地拒绝并给出错误，而不是崩溃或分配 16 GiB。
+    {
+      const QString path = tempDir_.filePath(QStringLiteral("diag65536.sgy"));
+      QVERIFY(writeDiagonalSegy(path, 65536));
+      seismic::SgyVolume volume;
+      std::string err;
+      QVERIFY2(volume.Load(toPath(path), err), err.c_str());
+      QCOMPARE(volume.InlineCount(), 65536);
+      QCOMPARE(volume.XlineCount(), 65536);
+      seismic::SgySliceImage image;
+      err.clear();
+      QVERIFY(!volume.ExtractSlice(seismic::SgySliceType::Time, 0, image, err));
+      QVERIFY(!err.empty());
+      QVERIFY(image.values.empty());
     }
   }
 };

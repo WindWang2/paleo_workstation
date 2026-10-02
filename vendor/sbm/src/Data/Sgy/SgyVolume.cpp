@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <functional>
 #include <limits>
@@ -98,6 +99,22 @@ void ColorizeValues(SgySliceImage& image, float fixedAbsMax = 0.0f) {
         }
         image.rgba[offset + 3] = 255;
     }
+}
+
+// 切片/时间网格单元数上限（2^28 ≈ 2.7 亿格，float 值约 1 GiB）。超过即视为异常几何
+// （如对角稀疏测网），拒绝而非尝试分配；同时保证结果可安全收窄为 int 进度计数。
+constexpr std::uint64_t kMaxSliceCells = std::uint64_t{1} << 28;
+
+// a*b 的 64 位安全求积；任一非正或超过上限时返回 0。
+std::size_t GridCellCount(int a, int b) {
+    if(a <= 0 || b <= 0) {
+        return 0;
+    }
+    const std::uint64_t cells = static_cast<std::uint64_t>(a) * static_cast<std::uint64_t>(b);
+    if(cells > kMaxSliceCells) {
+        return 0;
+    }
+    return static_cast<std::size_t>(cells);
 }
 
 void FinishImage(std::vector<float>&& values, int width, int height, SgySliceImage& image) {
@@ -206,7 +223,7 @@ const SgyRuleLayout& SgyVolume::Rule() const {
     return index_ ? index_->rule : empty;
 }
 
-void SgyVolume::EnsureTimeSliceGrid() const {
+bool SgyVolume::EnsureTimeSliceGrid() const {
     {
         static std::mutex initMutex;
         std::lock_guard<std::mutex> initLock(initMutex);
@@ -216,14 +233,19 @@ void SgyVolume::EnsureTimeSliceGrid() const {
     }
     std::lock_guard<std::mutex> lock(timeGridCache_->mutex);
     if(!timeGridCache_->traceIndices.empty()) {
-        return;
+        return true;
     }
     const int inlCount = InlineCount();
     const int xlCount = XlineCount();
     if(inlCount <= 0 || xlCount <= 0) {
-        return;
+        return false;
     }
-    const std::size_t totalPixels = static_cast<std::size_t>(inlCount * xlCount);
+    // inline/xline 计数完全由文件内容决定：先在 64 位上求积并设上限，
+    // 防止 int*int 回绕成小值后按回绕尺寸分配、再按真实尺寸越界写。
+    const std::size_t totalPixels = GridCellCount(inlCount, xlCount);
+    if(totalPixels == 0) {
+        return false;
+    }
     timeGridCache_->traceIndices.assign(totalPixels, -1);
 
     const auto& inlVals = InlineValues();
@@ -234,10 +256,12 @@ void SgyVolume::EnsureTimeSliceGrid() const {
         const int inlineNo = inlVals[static_cast<std::size_t>(i)];
         for(int x = 0; x < xlCount; ++x) {
             const int xlineNo = xlVals[static_cast<std::size_t>(x)];
-            timeGridCache_->traceIndices[static_cast<std::size_t>(row * xlCount + x)] =
+            timeGridCache_->traceIndices[static_cast<std::size_t>(row) * static_cast<std::size_t>(xlCount) +
+                                         static_cast<std::size_t>(x)] =
                 FindTraceIndex(inlineNo, xlineNo);
         }
     }
+    return true;
 }
 
 bool SgyVolume::ValidateRuleTrace(segy_datasource* file, int traceIndex, std::string& errorMessage) const {
@@ -401,7 +425,12 @@ bool SgyVolume::ExtractSlice(
                            " is not present in this file (no nearest-trace substitution)";
             return false;
         }
-        values.assign(static_cast<std::size_t>(XlineCount() * sampleCount), std::numeric_limits<float>::quiet_NaN());
+        const std::size_t cells = GridCellCount(XlineCount(), sampleCount);
+        if(cells == 0) {
+            errorMessage = "inline slice size is invalid or exceeds the supported limit.";
+            return false;
+        }
+        values.assign(cells, std::numeric_limits<float>::quiet_NaN());
         for(int x = 0; x < XlineCount(); ++x) {
             if(progress && (x % 64 == 0) && !progress(x, XlineCount())) {
                 errorMessage = "Slice extraction cancelled by caller.";
@@ -413,7 +442,8 @@ bool SgyVolume::ExtractSlice(
             }
             for(int s = 0; s < sampleCount; ++s) {
                 const int row = sampleCount - 1 - s;
-                values[static_cast<std::size_t>(row * XlineCount() + x)] = traceSamples[static_cast<std::size_t>(s)];
+                values[static_cast<std::size_t>(row) * static_cast<std::size_t>(XlineCount()) +
+                       static_cast<std::size_t>(x)] = traceSamples[static_cast<std::size_t>(s)];
             }
         }
         FinishImage(std::move(values), XlineCount(), sampleCount, image);
@@ -427,7 +457,12 @@ bool SgyVolume::ExtractSlice(
                            " is not present in this file (no nearest-trace substitution)";
             return false;
         }
-        values.assign(static_cast<std::size_t>(InlineCount() * sampleCount), std::numeric_limits<float>::quiet_NaN());
+        const std::size_t cells = GridCellCount(InlineCount(), sampleCount);
+        if(cells == 0) {
+            errorMessage = "xline slice size is invalid or exceeds the supported limit.";
+            return false;
+        }
+        values.assign(cells, std::numeric_limits<float>::quiet_NaN());
         for(int i = 0; i < InlineCount(); ++i) {
             if(progress && (i % 64 == 0) && !progress(i, InlineCount())) {
                 errorMessage = "Slice extraction cancelled by caller.";
@@ -439,7 +474,8 @@ bool SgyVolume::ExtractSlice(
             }
             for(int s = 0; s < sampleCount; ++s) {
                 const int row = sampleCount - 1 - s;
-                values[static_cast<std::size_t>(row * InlineCount() + i)] = traceSamples[static_cast<std::size_t>(s)];
+                values[static_cast<std::size_t>(row) * static_cast<std::size_t>(InlineCount()) +
+                       static_cast<std::size_t>(i)] = traceSamples[static_cast<std::size_t>(s)];
             }
         }
         FinishImage(std::move(values), InlineCount(), sampleCount, image);
@@ -449,15 +485,22 @@ bool SgyVolume::ExtractSlice(
     const int sampleIndex = std::clamp(requestedIndex, 0, sampleCount - 1);
     const int inlCount = InlineCount();
     const int xlCount = XlineCount();
-    const std::size_t totalPixels = static_cast<std::size_t>(inlCount * xlCount);
-
-    EnsureTimeSliceGrid();
+    const std::size_t totalPixels = GridCellCount(inlCount, xlCount);
+    if(totalPixels == 0 || !EnsureTimeSliceGrid()) {
+        errorMessage = "time slice grid (inline x xline) is invalid or exceeds the supported limit.";
+        return false;
+    }
     const auto& gridTraceIndices = timeGridCache_->traceIndices;
+    if(gridTraceIndices.size() != totalPixels) {
+        errorMessage = "time slice grid does not match the volume geometry.";
+        return false;
+    }
 
     const unsigned long long trace0 = file.Get()->metadata.trace0;
     const int formatCode = FormatCode();
     const int formatSizeBytes = index_ ? index_->formatSizeBytes : 0;
-    const std::size_t traceSize = static_cast<std::size_t>(240 + sampleCount * formatSizeBytes);
+    const std::size_t traceSize = 240u + static_cast<std::size_t>(std::max(0, sampleCount)) *
+                                             static_cast<std::size_t>(std::max(0, formatSizeBytes));
 
     bool fastDone = false;
     QFile qfile(QString::fromStdString(sgyio::ToUtf8Path(index_->path)));
@@ -551,7 +594,8 @@ bool SgyVolume::ExtractSlice(
                 if(!ReadTraceAsFloat(file.Get(), traceIndex, traceSamples, errorMessage)) {
                     continue;
                 }
-                values[static_cast<std::size_t>(row * xlCount + x)] = traceSamples[static_cast<std::size_t>(sampleIndex)];
+                values[static_cast<std::size_t>(row) * static_cast<std::size_t>(xlCount) +
+                       static_cast<std::size_t>(x)] = traceSamples[static_cast<std::size_t>(sampleIndex)];
             }
         }
     }
@@ -667,7 +711,8 @@ bool SgyVolume::ExtractPreviewSlice(
         }
         for(int s = 0; s < sampleCount; ++s) {
             const int row = sampleCount - 1 - s;
-            values[static_cast<std::size_t>(row * outputWidth + outputColumn)] =
+            values[static_cast<std::size_t>(row) * static_cast<std::size_t>(outputWidth) +
+                   static_cast<std::size_t>(outputColumn)] =
                 traceSamples[static_cast<std::size_t>(s)];
         }
         loadedColumns.push_back(column);
@@ -907,7 +952,7 @@ bool SgyVolume::ExtractLineSlice(
     }
 
     std::vector<float> values(
-        static_cast<std::size_t>(sampleColumns * sampleCount),
+        static_cast<std::size_t>(sampleColumns) * static_cast<std::size_t>(sampleCount),
         std::numeric_limits<float>::quiet_NaN());
     std::vector<float> traceSamples;
     std::unordered_map<int, std::vector<float>> traceCache;
@@ -935,7 +980,8 @@ bool SgyVolume::ExtractLineSlice(
         const std::vector<float>& samples = cacheIt->second;
         for(int s = 0; s < sampleCount; ++s) {
             const int row = sampleCount - 1 - s;
-            values[static_cast<std::size_t>(row * sampleColumns + col)] = samples[static_cast<std::size_t>(s)];
+            values[static_cast<std::size_t>(row) * static_cast<std::size_t>(sampleColumns) +
+                   static_cast<std::size_t>(col)] = samples[static_cast<std::size_t>(s)];
         }
     }
 
@@ -991,7 +1037,7 @@ bool SgyVolume::ExtractLineSlice(
     }
 
     std::vector<float> values(
-        static_cast<std::size_t>(sampleColumns * sampleCount),
+        static_cast<std::size_t>(sampleColumns) * static_cast<std::size_t>(sampleCount),
         std::numeric_limits<float>::quiet_NaN());
     std::vector<float> traceSamples;
     std::unordered_map<int, std::vector<float>> traceCache;
@@ -1040,7 +1086,8 @@ bool SgyVolume::ExtractLineSlice(
         const std::vector<float>& samples = cacheIt->second;
         for(int s = 0; s < sampleCount; ++s) {
             const int row = sampleCount - 1 - s;
-            values[static_cast<std::size_t>(row * sampleColumns + col)] = samples[static_cast<std::size_t>(s)];
+            values[static_cast<std::size_t>(row) * static_cast<std::size_t>(sampleColumns) +
+                   static_cast<std::size_t>(col)] = samples[static_cast<std::size_t>(s)];
         }
     }
 

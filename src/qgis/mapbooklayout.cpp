@@ -121,10 +121,22 @@ QgsPrintLayout *buildTileLayout( QgsProject *project, const TileSpec &spec, QStr
   auto *map = new QgsLayoutItemMap( layout );
   map->setId( QStringLiteral( "map" ) );
   map->setLayers( spec.layers );
-  map->setExtent( spec.extent );
   layout->addLayoutItem( map );
-  map->attemptResize( QgsLayoutSize( pw - 80.0, ph - 58.0, Qgis::LayoutUnit::Millimeters ) );
+  // 地图框按格范围长宽比收进可用区域，再设范围：attemptResize 保持比例尺会把
+  // 范围扩到新长宽比（相邻图幅重叠）；setExtent 只按宽度调高度，故先定好框宽。
+  const double boxW = pw - 80.0;
+  const double boxH = ph - 58.0;
+  const double aspect = spec.extent.height() / spec.extent.width();
+  double mapW = boxW;
+  double mapH = boxW * aspect;
+  if ( mapH > boxH )
+  {
+    mapH = boxH;
+    mapW = boxH / aspect;
+  }
   map->attemptMove( QgsLayoutPoint( 10.0, 24.0, Qgis::LayoutUnit::Millimeters ) );
+  map->attemptResize( QgsLayoutSize( mapW, mapH, Qgis::LayoutUnit::Millimeters ) );
+  map->setExtent( spec.extent );
 
   addLabel( layout, QStringLiteral( "title" ), spec.title, 14.0, 10.0, 8.0, pw - 20.0, 12.0 );
 

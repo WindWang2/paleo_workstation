@@ -314,6 +314,7 @@ add_library(paleo_algorithms STATIC
   src/algorithms/singlefactor/samples.cpp
   src/algorithms/singlefactor/localdirectionalgorithm.cpp
   src/algorithms/singlefactor/corridor.cpp
+  src/algorithms/singlefactor/partition.cpp
 )
 target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 
@@ -621,6 +622,7 @@ add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
 add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）
 add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_corridor LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_partition LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_perf LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_contours LIBS paleo_qgis)
 add_paleo_test(tst_singlefactor_contourbudget LIBS paleo_algorithms paleo_qgis)

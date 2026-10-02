@@ -61,6 +61,13 @@ WellCompositePanel::WellCompositePanel(QWidget *parent)
 WellCompositePanel::~WellCompositePanel()
 {
   saveSessionState();
+  // 子控件由 ~QWidget 在本类析构完成之后才删除；期间画布刷新刻度、组合框失焦
+  // （editingFinished → setScaleRatio → scaleRatioChanged）等仍会发信号，进入捕获
+  // this 的 lambda 访问已析构成员（UBSan：member access … not WellCompositePanel）。
+  // 先断开所有子对象 → this 的连接；this 作为 context 的自动断开要到 ~QObject 才发生。
+  const auto kids = findChildren<QObject *>();
+  for (QObject *child : kids)
+    QObject::disconnect(child, nullptr, this, nullptr);
 }
 
 void WellCompositePanel::setupUi()

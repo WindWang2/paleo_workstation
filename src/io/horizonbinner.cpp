@@ -182,6 +182,77 @@ bool parseHorizonHeader(const QByteArray &text, HorizonHeader *out, QString *err
   return true;
 }
 
+HorizonScatter parseHorizonScatter(const QByteArray &text)
+{
+  HorizonScatter out;
+  bool ilSeen = false, xlSeen = false;
+  const QString data = QString::fromUtf8(text);
+  for (const QString &raw : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
+                                        Qt::SkipEmptyParts))
+  {
+    const QString line = raw.trimmed();
+    if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
+    {
+      ++out.skipped;
+      continue;
+    }
+    const QStringList t =
+        line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    if (t.size() < 3)
+    {
+      ++out.skipped;
+      continue;
+    }
+    bool okX = false, okY = false, okZ = false;
+    const double x = t.at(0).toDouble(&okX);
+    const double y = t.at(1).toDouble(&okY);
+    const float z = t.at(2).toFloat(&okZ);
+    if (!okX || !okY || !okZ || !std::isfinite(x) || !std::isfinite(y) ||
+        !std::isfinite(z) || z == kNoData)
+    {
+      ++out.skipped;
+      continue;
+    }
+    HorizonScatterPoint p;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    out.points.push_back(p);
+    if (t.size() >= 5)
+    {
+      bool okInl = false, okXl = false;
+      const int inl = t.at(3).toInt(&okInl);
+      const int xl = t.at(4).toInt(&okXl);
+      if (okInl && okXl)
+      {
+        if (!ilSeen)
+        {
+          out.inlineMin = out.inlineMax = inl;
+          ilSeen = true;
+        }
+        else
+        {
+          out.inlineMin = qMin(out.inlineMin, inl);
+          out.inlineMax = qMax(out.inlineMax, inl);
+        }
+        if (!xlSeen)
+        {
+          out.xlineMin = out.xlineMax = xl;
+          xlSeen = true;
+        }
+        else
+        {
+          out.xlineMin = qMin(out.xlineMin, xl);
+          out.xlineMax = qMax(out.xlineMax, xl);
+        }
+      }
+    }
+  }
+  out.hasInlineRange = ilSeen;
+  out.hasXlineRange = xlSeen;
+  return out;
+}
+
 bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error)
 {
   HorizonHeader h;

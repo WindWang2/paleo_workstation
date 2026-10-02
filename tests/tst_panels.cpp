@@ -2399,6 +2399,11 @@ private:
         QVERIFY(singleActs.contains(QStringLiteral("setPrimary")));
         QVERIFY(singleActs.contains(QStringLiteral("editRole")));
         QVERIFY(!singleActs.contains(QStringLiteral("removeSoft")));
+        // goal/gridding-surface-ops：非层位单资产不给「网格化」。
+        QVERIFY(!singleActs.contains(QStringLiteral("gridHorizon")));
+        ContextMenuSpec singleHorizon = singleResolved;
+        singleHorizon.singleAssetIsHorizon = true;
+        QVERIFY(contextMenuActions(singleHorizon).contains(QStringLiteral("gridHorizon")));
 
         ContextMenuSpec multi;
         multi.hasAssets = true;

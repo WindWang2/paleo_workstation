@@ -334,6 +334,7 @@ struct ContextMenuSpec
   int entityCount = 0;
   bool singleAssetUnresolved = false; // 单选且该资产有未决链接
   bool singleAssetResolved = false;   // 单选且有已决链接
+  bool singleAssetIsHorizon = false;  // 单选且是层位散点资产（网格化入口）
   bool hasRecycleEntries = false;
 };
 
@@ -346,6 +347,8 @@ inline QStringList contextMenuActions(const ContextMenuSpec &spec)
   {
     // 资产面（mixed 时给公共子集——资产操作；实体专属操作不给）。
     acts << QStringLiteral("openPreview");
+    if (spec.singleAssetIsHorizon)
+      acts << QStringLiteral("gridHorizon"); // goal/gridding-surface-ops：层位网格化
     if (spec.assetCount > 1)
       acts << QStringLiteral("openPreviewAll");
     if (spec.singleAssetUnresolved || spec.assetCount > 1)

@@ -2,12 +2,12 @@ build/
 # build-*/：实验构建目录（build-asan/build-unity 等，devex sanitizer/unity 档）
 build-*/
 vendor/onnxruntime
-vendor/prefix/
-vendor/build/
-vendor/superbuild/prefix/
-vendor/logs/
+vendor/prefix
+vendor/build
+vendor/superbuild/prefix
+vendor/logs
 vendor/ort.tgz
-vendor/cache/
+vendor/cache
 *.o
 symbology-style.db
 build-nowebengine/

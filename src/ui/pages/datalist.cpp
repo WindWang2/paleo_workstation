@@ -3006,6 +3006,7 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
       {
         spec.singleAssetUnresolved = r.unresolved;
         spec.singleAssetResolved = !r.entityNames.isEmpty();
+        spec.singleAssetIsHorizon = r.effectiveType == QLatin1String("horizon");
         break;
       }
   }
@@ -3021,6 +3022,7 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     const char *text;
   } kTitles[] = {
     {"openPreview", QT_TR_NOOP("打开预览")},
+    {"gridHorizon", QT_TR_NOOP("网格化…")},
     {"openPreviewAll", QT_TR_NOOP("批量打开预览（前 8 项）")},
     {"attachToEntity", QT_TR_NOOP("挂接到实体…")},
     {"detachLink", QT_TR_NOOP("解除挂接")},
@@ -3062,6 +3064,8 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
   const QString key = picked->data().toString();
   if (key == QLatin1String("openPreview") || key == QLatin1String("openPreviewAll"))
     batchOpenPreview();
+  else if (key == QLatin1String("gridHorizon"))
+    emit gridHorizonRequested(*mix.assetIds.constBegin()); // 意图信号回壳（视图不干活）
   else if (key == QLatin1String("attachToEntity"))
     batchAttachToEntity();
   else if (key == QLatin1String("detachLink"))

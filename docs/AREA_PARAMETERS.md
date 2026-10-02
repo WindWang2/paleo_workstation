@@ -15,7 +15,7 @@
 |---|---|---|
 | `sequenceBoundaries` | 8 层序界面：`C3 C6 D53 D61 D62 D63 D71 D72`（**有序，浅→深**） | `dataimportservice.cpp` `isKnownSequenceBoundary`（名单外层位产未决实体）+ `domain/mappinghorizons.h`（编图 chip 集合、厚度基面=下一界面；`mappingHorizons()` 直通此表） |
 | `targetHorizon` | `D61` | 标定层位：验证工作流时间残差、ONNX 结果落栅格的 `horizon.<target>` 声明前缀、时深 tie 井、相关面板文案。必须是 `sequenceBoundaries` 成员否则拒用 |
-| `classifier.datPathRules` | `.dat` 路径段规则表（按序）：段 `td`/含「时深」→ `time_depth`；含「层位」→ `horizon`；含「井分层」→ `well_stratification`；含「井位」或文件名含 `wellhead`/`well_head` → `well_head`；全不中 → `tabular` | `projectclassifier.cpp` `classifyProjectPath` |
+| `classifier.datPathRules` | `.dat` 路径段规则表（按序）：段 `td`/含「时深」→ `time_depth`；含「层位」→ `horizon`；含「井分层」→ `well_stratification`；含「井位」或文件名含 `wellhead`/`well_head` → `well_head`；段 `dev`/含「测斜」「井斜」或文件名含 `deviation`/`trajectory`/「井斜」→ `well_deviation`；全不中 → `tabular` | `projectclassifier.cpp` `classifyProjectPath` |
 | `classifier.referenceDirNames` | 目录段「参考资料」→ 默认「参考」角色 | `projectclassifier.cpp` `isDefaultReferencePath` |
 | `classifier.fixedAuxiliaryNameStem` | 基名含 `HZ28-6-1`（本工区井名）→ 固定辅助 | `projectclassifier.cpp` `isFixedAuxiliaryPath` |
 | `segy`（道号索引约定） | 道头 0 基偏移：inline 字 188、crossline 字 192、field record 字 8（= 冻结 inlineMin，本工区 1315）、CDP 字 20（道号序 crossline 来源） | `segyreader.cpp` `SegyReader::open`（inline 字恒定 → 道号序：inline = base + 道号/N） |
@@ -54,7 +54,8 @@
       {"exact_segments": ["td"], "segment_keywords": ["时深"], "type": "time_depth"},
       {"segment_keywords": ["层位"], "type": "horizon"},
       {"segment_keywords": ["井分层"], "type": "well_stratification"},
-      {"segment_keywords": ["井位"], "filename_keywords": ["wellhead", "well_head"], "type": "well_head"}
+      {"segment_keywords": ["井位"], "filename_keywords": ["wellhead", "well_head"], "type": "well_head"},
+      {"exact_segments": ["dev"], "segment_keywords": ["测斜", "井斜"], "filename_keywords": ["deviation", "trajectory", "井斜"], "type": "well_deviation"}
     ],
     "reference_dir_names": ["参考资料"],
     "fixed_auxiliary_name_stem": "HZ28-6-1"

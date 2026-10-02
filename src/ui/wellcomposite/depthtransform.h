@@ -39,8 +39,8 @@ public:
   bool hasDeviationSurvey() const { return m_survey.has_value(); }
   // 缺表禁用原因（tooltip/禁用态文案）
   QString deviationUnavailableReason() const;
-  double mdToTvd(double md) const;      // 站间线性插值；表外延用末段比
-  double tvdToMd(double tvd) const;
+  double mdToTvd(double md) const;      // 域模型最小曲率（站间子段 + 端站姿态外延）
+  double tvdToMd(double tvd) const;     // 同一正函数的数值反解
 
   // ---- D6.2 海拔基准 ----
   void setKbElevation(double kbMeters); // 补心高程（m，海拔基准）

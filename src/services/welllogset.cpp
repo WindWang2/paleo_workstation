@@ -10,9 +10,10 @@
 #include <algorithm>
 #include <cmath>
 
-// 已决 well_log 的只读并集。只走 LasParser::parseHeader（遇 ~A 即停），
-// 不读数据体、不写 catalog。wellLogFiles 与 wellCurveIndex 各扫一次，
-// 告警来自同一套判定。
+// 已决 well_log 的只读并集。wellLogFiles/wellCurveIndex 只走
+// LasParser::parseHeader（遇 ~A 即停），不读数据体、不写 catalog——例外是
+// readCurveTvd（goal/well-trajectory：按列读数据体 + 轨迹逐点 MD→TVD）。
+// wellLogFiles 与 wellCurveIndex 各扫一次，告警来自同一套判定。
 
 namespace
 {

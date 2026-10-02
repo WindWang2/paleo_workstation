@@ -203,6 +203,8 @@ void TestUiBlocking::geoJsonSummaryMatchesDomReference()
 
 // F1：openAsset 只付头部解析（构建耗时 ≪ 整份解析）；解析期间事件循环分片
 // 进出 ≥2 轮（UI 线程未被占用）；数据到达后占位隐藏、单位 tooltip 就位。
+// 计时前先热身一遍两段式——进程级一次性初始化（控件/theme/字体/池首启）
+// 不计入构建侧，比率门两侧才可比。
 void TestUiBlocking::wellLogPreviewBuildsHeaderOnlyWhileParsingInPool()
 {
   QTemporaryDir dir;
@@ -219,6 +221,20 @@ void TestUiBlocking::wellLogPreviewBuildsHeaderOnlyWhileParsingInPool()
   PaleoTaskService taskSvc;
   tabs.setTaskService(&taskSvc);
 
+  // 冷启动吸收：buildMs 曾含进程级一次性开销（首个页控件/theme tokens/
+  // 字体度量/任务池线程首启），慢机上 ~270ms 固定项把 0.5×parseMs 门打翻
+  // （parseMs 随文件线性伸缩、buildMs 固定不伸缩——比率分子不可比）。
+  // 先用小 LAS 完整走一遍两段式路径再计时大文件：比率两侧都稳定可比。
+  const QString warmLas = QDir(dir.path()).filePath(QStringLiteral("warm.las"));
+  QVERIFY2(PerfFixtures::makeSyntheticLas(warmLas, 50), "热身 LAS 合成失败");
+  const QString warmId = st->importSvc->importProjectFile(warmLas, &err);
+  QVERIFY2(!warmId.isEmpty(), qPrintable(err));
+  tabs.openAsset(warmId);
+  if (QLabel *warmHint = tabs.findChild<QLabel *>(QStringLiteral("lasPendingHint")))
+    waitUntil([warmHint] { return warmHint->isHidden(); }, 30000);
+  QApplication::processEvents(QEventLoop::AllEvents, 20); // deleteLater 入队页清完
+  tabs.closeAssetTab(warmId);
+
   QElapsedTimer t;
   t.start();
   tabs.openAsset(assetId);
@@ -233,6 +249,7 @@ void TestUiBlocking::wellLogPreviewBuildsHeaderOnlyWhileParsingInPool()
   const int laps = waitUntil([&hint] { return hint->isHidden(); }, 60000);
   const double doneAtMs = double(t.nsecsElapsed()) / 1.0e6;
   const double parseMs = doneAtMs - t0;
+  qInfo("F1 计时：build=%.1fms parse=%.1fms laps=%d", buildMs, parseMs, laps);
 
   QVERIFY2(parseMs > 30.0,
            qPrintable(QStringLiteral("整份解析仅 %1ms——夹具不足以判别（需 ≥30ms）")

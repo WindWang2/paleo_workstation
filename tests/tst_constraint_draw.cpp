@@ -4,6 +4,8 @@
 #include <QSignalSpy>
 
 #include <qgsmapcanvas.h>
+#include <qgssnappingconfig.h>
+#include <qgssnappingutils.h>
 
 #include "../src/metadata/layermanifest.h"
 #include "../src/qgis/qgiscanvascontroller.h"
@@ -57,6 +59,25 @@ class TestConstraintDraw : public QObject
 
 private slots:
   void initTestCase() { QVERIFY(QgisRuntime::isInitialized()); }
+
+  // 方向23：捕获工具激活时画布吸附已开（AllLayers、顶点+段）——绘制可吸
+  // 井位/已有约束线端点；断层棒是域模型非地图图层，不参与 QGIS 吸附。
+  void snappingActiveDuringCapture()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto s = makeStack(dir.filePath(QStringLiteral("p")));
+    QVERIFY(s != nullptr);
+    auto &ctl = *s->ctl;
+    ctl.startCapture(QStringLiteral("T1"), QStringLiteral("line"),
+                     QStringLiteral("direction_line"), 0);
+    const QgsSnappingConfig config = s->canvasCtl.canvas()->snappingUtils()->config();
+    QVERIFY(config.enabled());
+    QCOMPARE(config.mode(), Qgis::SnappingMode::AllLayers);
+    QVERIFY(config.typeFlag() & Qgis::SnappingType::Vertex);
+    QVERIFY(config.typeFlag() & Qgis::SnappingType::Segment);
+    ctl.cancel();
+  }
 
   // 五种语义全部可画：每个入口走 startCapture → onDrawn → 入库 → 回读一致。
   void fiveSemanticEntriesDrawAndRoundTrip()

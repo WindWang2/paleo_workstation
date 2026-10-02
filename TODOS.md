@@ -1,3 +1,15 @@
+## P3 — 多文件井曲线其余读口（from goal/well-logset, 2026-10-02）
+
+- **What:** 并集读面已接到岩石物理、属性建模、剖面井轨、交会清单和测井综合图。
+  相关对比与成图工作台仍按单资产或「有没有 well_log」。DLIS/LIS/BE 不读。
+  非驱动文件只做线性重采样，不做 MD/TVD 对齐。`attachLink` 仍把新挂链接升主。
+- **Why:** 本方向锁的是 LAS 已决链接的并集和导入序，不改 catalog 格式，也不改挂接不变量。
+- **Pros:** 第二份 LAS 的曲线能进计算和综合图；**Cons:** 走挂接而不是导入时主文件会换。
+- **Context:** docs/progress/well-logset.md「递延」。
+- **Effort:** human: M / CC: M
+- **Priority:** P3
+- **Depends on:** goal/well-logset 的 `WellLogSet` 读面
+
 ## P3 — 地层格架后续：断块网格 / 随机模拟（from goal/property-modeling, 2026-10-02）
 
 - **What:** V1 只做等比例 IJK 格架 + 井曲线粗化 + 断层竖帘阻断的 IDW。

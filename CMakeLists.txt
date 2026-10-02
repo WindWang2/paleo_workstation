@@ -838,6 +838,7 @@ add_paleo_test(tst_layerprofilebar LIBS paleo_ui)   # 主题下拉/保存/管理
 # 禁止直接改本文件的模块源列表——并行分支在此汇合零冲突。
 # 显式清单登记替代隐式 GLOB，根治构建目录漂移与测试漏注（P1-14 / TEST-01）
 set(_paleo_extra_manifest
+  "${CMAKE_SOURCE_DIR}/cmake/extra-crossplot-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-data.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-a.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-b.cmake"

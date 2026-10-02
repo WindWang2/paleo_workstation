@@ -49,6 +49,39 @@ private slots:
     QCOMPARE(failSpy.count(), 1);
   }
 
+  // #82：非 http/https scheme 被拒绝（不建引擎），降级面不提供外部打开。
+  void nonHttpSchemesRefused_data()
+  {
+    QTest::addColumn<QString>("url");
+    QTest::newRow("file") << QStringLiteral("file:///etc/passwd");
+    QTest::newRow("smb") << QStringLiteral("smb://host/share");
+    QTest::newRow("ftp") << QStringLiteral("ftp://host/x");
+    QTest::newRow("custom") << QStringLiteral("foo://bar");
+    QTest::newRow("javascript") << QStringLiteral("javascript:alert(1)");
+  }
+
+  void nonHttpSchemesRefused()
+  {
+    QFETCH(QString, url);
+    WebViewPanel panel;
+    QSignalSpy failSpy(&panel, &WebViewPanel::loadFailed);
+    QVERIFY(!panel.setUrl(QUrl(url)));
+    QVERIFY(!panel.engineAvailable());
+    QCOMPARE(failSpy.count(), 1);
+    QVERIFY(panel.url().isEmpty());
+    auto *btn = panel.findChild<QPushButton *>(QStringLiteral("webExternalButton"));
+    QVERIFY(btn && !btn->isVisibleTo(&panel)); // 外部打开不可用
+    QVERIFY(!WebViewPanel::isAllowedUrl(QUrl(url)));
+  }
+
+  void allowListAcceptsHttpAndHttps()
+  {
+    QVERIFY(WebViewPanel::isAllowedUrl(QUrl(QStringLiteral("http://localhost:8080/x"))));
+    QVERIFY(WebViewPanel::isAllowedUrl(QUrl(QStringLiteral("HTTPS://svc.internal/map"))));
+    QVERIFY(!WebViewPanel::isAllowedUrl(QUrl(QStringLiteral("http://"))));
+    QVERIFY(!WebViewPanel::isAllowedUrl(QUrl()));
+  }
+
   void emptyStateBeforeAnyUrl()
   {
     WebViewPanel panel;

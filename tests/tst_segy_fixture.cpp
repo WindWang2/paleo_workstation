@@ -3,6 +3,8 @@
 #include <QFile>
 #include <QTemporaryDir>
 
+#include <limits>
+
 #include "../src/io/segyreader.h"
 
 // wave3/model-hardening — 合成最小 SEG-Y 夹具（testdata/segy/synthetic_4x5.sgy，
@@ -141,6 +143,51 @@ private slots:
     QVERIFY(!reader.open(badPath, &err));
     QVERIFY2(err.contains(QStringLiteral("corner coordinate mismatch")),
              qPrintable(err));
+  }
+
+  // #83：同一 reader 先被取消、再成功重开——open() 必须完整复位，成功扫描
+  // 的 snapshot 不得沿用上次取消留下的 complete=false。
+  void reopenAfterCancelResetsScanState()
+  {
+    SegyReader reader;
+    QString err;
+    SegyOptions cancelNow;
+    cancelNow.cancel = [] { return true; };
+    QVERIFY(!reader.open(fixturePath(), &err, &cancelNow));
+    QCOMPARE(err, QStringLiteral("cancelled"));
+
+    err.clear();
+    QVERIFY2(reader.open(fixturePath(), &err), qPrintable(err));
+    QCOMPARE(reader.traceCount(), 20);
+    SegyIndexStore::StoredIndex snap;
+    QVERIFY(reader.snapshot(&snap));
+    QVERIFY2(snap.complete, "successful re-open must snapshot as complete");
+    QVERIFY(snap.badTraceOffsets.isEmpty());
+  }
+
+  // #83：首道 field record（inline 起点）取 qint32 极值——inline 编号
+  // base + 道号/N 会越过 qint32（有符号溢出 UB）。必须如实拒开而非溢出。
+  void extremeInlineBaseRejectedWithoutOverflow()
+  {
+    QFile src(fixturePath());
+    QVERIFY(src.open(QIODevice::ReadOnly));
+    QByteArray bytes = src.readAll();
+    src.close();
+    uchar *fieldRec = reinterpret_cast<uchar *>(bytes.data()) + 3600 + 8;
+    qToBigEndian<qint32>(std::numeric_limits<qint32>::max() - 1, fieldRec);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString badPath = dir.filePath(QStringLiteral("extreme_inline.sgy"));
+    QFile dst(badPath);
+    QVERIFY(dst.open(QIODevice::WriteOnly));
+    QVERIFY(dst.write(bytes) == bytes.size());
+    dst.close();
+
+    SegyReader reader;
+    QString err;
+    QVERIFY(!reader.open(badPath, &err));
+    QVERIFY2(err.contains(QStringLiteral("overflows")), qPrintable(err));
   }
 
   // CDP 顺序门：第二条线某道的 CDP 不再重复首线序列 → 拒开并点名。

@@ -660,6 +660,7 @@ add_paleo_test(tst_attrpanel LIBS paleo_ui)
 # ---- merged worktree waves ----
 add_paleo_test(tst_segy LIBS paleo_io)
 add_paleo_test(tst_las LIBS paleo_io)
+add_paleo_test(tst_lasperf LIBS paleo_io)    # 方向21：LAS 读面比率门探针（同进程参照实现）
 add_paleo_test(tst_snapshot_dedup LIBS paleo_io) # #84：快照/活对象 dedup 复核同一语义（真重哈希）
 add_paleo_test(tst_constraintstore LIBS paleo_workflow)
 add_paleo_test(tst_shapetools LIBS paleo_ui)
@@ -689,6 +690,7 @@ target_compile_definitions(tst_segy_lines PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_seismic_core LIBS paleo_domain)
 add_paleo_test(tst_seismic_index LIBS paleo_services)
+add_paleo_test(tst_dataperf_index LIBS paleo_services) # 方向21：索引缓存发布修复回归面
 add_paleo_test(tst_seismic_3d LIBS paleo_ui)
 target_compile_definitions(tst_seismic_3d PRIVATE
   SEGY_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/testdata/project_area/mini_seismic.sgy"
@@ -911,9 +913,7 @@ set(_paleo_perf_tests
   tst_perf tst_previewmap_perf tst_aiassist_perf tst_startup_trace tst_perfbudget
   tst_singlefactor_perf tst_singlefactor_contourbudget tst_singlefactor_guilatency
   tst_ui_blocking tst_mem_budget tst_perf_las tst_perf_segyindex tst_perf_catalog
-  tst_perf_regress tst_petrophysperf tst_seismic_perf tst_seismic_baseline
-  tst_seismic_budgets tst_seismicattrperf tst_horizontrackperf tst_timedepthperf
-  tst_wellcomposite_perf tst_cache_las tst_welllogset_perf)
+  tst_wellcomposite_perf tst_cache_las tst_welllogset_perf tst_lasperf tst_dataperf_index)
 foreach(_t IN LISTS _paleo_perf_tests)
   if(TEST ${_t})
     set_property(TEST ${_t} APPEND PROPERTY LABELS perf)

@@ -256,6 +256,8 @@ namespace
       return QStringLiteral("tops");
     if (type == QLatin1String("time_depth"))
       return QStringLiteral("time_depth");
+    if (type == QLatin1String("well_deviation"))
+      return QStringLiteral("trajectory");
     if (type == QLatin1String("horizon"))
       return QStringLiteral("horizon");
     if (type == QLatin1String("seismic"))
@@ -400,6 +402,21 @@ namespace
     proposeWell(item, {name, fileStem(item.path)}, catalog);
   }
 
+  // 井斜站表：井名读 '# Well :' 行（与 importOneFile 同序），零候选回退
+  // 文件名主名；XML 站表无井名行，直接文件名主名。
+  void proposeDeviation(PlannedItem &item, const IngestCatalogSource &catalog)
+  {
+    QString name = fileStem(item.path);
+    if (item.format != QLatin1String("xml"))
+    {
+      const QByteArray prefix = readFilePrefix(item.path, kIdentityPeekBytes);
+      const DeviationTable dev = parseDeviationText(prefix); // '# Well :' 在头部
+      if (!dev.wellName.isEmpty())
+        name = dev.wellName;
+    }
+    proposeWell(item, {name, fileStem(item.path)}, catalog);
+  }
+
   void proposeStratification(PlannedItem &item, const IngestCatalogSource &catalog)
   {
     QStringList names;
@@ -421,6 +438,8 @@ namespace
       proposeWellLog(item, catalog);
     else if (item.type == QLatin1String("time_depth"))
       proposeTimeDepth(item, catalog);
+    else if (item.type == QLatin1String("well_deviation"))
+      proposeDeviation(item, catalog);
     else if (item.type == QLatin1String("well_stratification"))
       proposeStratification(item, catalog);
     else if (item.type == QLatin1String("well_head"))

@@ -329,7 +329,16 @@ Rules defaults()
   wellHead.segmentKeywords = {QString::fromUtf8("井位")};
   wellHead.filenameKeywords = {QStringLiteral("wellhead"), QStringLiteral("well_head")};
   wellHead.type = QStringLiteral("well_head");
-  r.classifier.datPathRules = {timeDepth, horizon, strat, wellHead};
+  // goal/well-trajectory：井斜站表 .dat（目录段 dev/测斜/井斜，或文件名
+  // deviation/trajectory/井斜）。表序尾部追加——与既有四规则的判据无交集，
+  // 既有分类优先级零扰动。
+  DatPathRule deviation;
+  deviation.exactSegments = {QStringLiteral("dev")};
+  deviation.segmentKeywords = {QString::fromUtf8("测斜"), QString::fromUtf8("井斜")};
+  deviation.filenameKeywords = {QStringLiteral("deviation"), QStringLiteral("trajectory"),
+                                QString::fromUtf8("井斜")};
+  deviation.type = QStringLiteral("well_deviation");
+  r.classifier.datPathRules = {timeDepth, horizon, strat, wellHead, deviation};
 
   r.classifier.referenceDirNames = {QString::fromUtf8("参考资料")};
   r.classifier.fixedAuxiliaryNameStem = QStringLiteral("HZ28-6-1");

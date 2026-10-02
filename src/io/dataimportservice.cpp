@@ -15,6 +15,7 @@
 #include "lasparser.h"
 #include "../domain/projectclassifier.h"
 #include "segyreader.h"
+#include "wellcompositexml.h"
 #include "wellfileparsers.h"
 
 #include <QCryptographicHash>
@@ -1188,6 +1189,59 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
       link.entityType = QStringLiteral("well");
       link.assetId = assetId;
       link.role = role;
+      if (!bind.unresolved)
+      {
+        link.entityId = bind.entityId;
+        link.isPrimary = true;
+      }
+      else
+      {
+        link.unresolved = true;
+        link.note = bind.candidates.size() >= 2
+                        ? candidatesNote(cat, bind.candidates)
+                        : unmatchedNameNote(tried);
+      }
+      if (!cat->addLink(link, error))
+        return fail(*error);
+    }
+  }
+  else if (cls.type == QLatin1String("well_deviation"))
+  {
+    // 井斜站表：井名来自文本 '# Well :' 行（XML 站表无井名——文件名主名），
+    // 规则同时深：每井名一条 trajectory 链接；未决留空不建井，不猜。
+    QStringList names;
+    if (cls.format == QLatin1String("xml"))
+    {
+      QVector<WellComposite::XmlDeviationStation> parsed;
+      QString perr;
+      if (!WellComposite::parseDeviationSurvey(sourcePath, parsed, &perr))
+        return fail(QStringLiteral("no deviation stations in %1 (%2)")
+                        .arg(sourcePath, perr));
+      names.append(stem);
+    }
+    else
+    {
+      QFile f(sourcePath);
+      if (!f.open(QIODevice::ReadOnly))
+        return fail(QStringLiteral("cannot read %1").arg(sourcePath));
+      const DeviationTable dev = parseDeviationText(f.readAll());
+      names.append(dev.wellName.isEmpty() ? stem : dev.wellName);
+    }
+    if (names.isEmpty())
+      return fail(QStringLiteral("no well names in %1").arg(sourcePath));
+    for (const QString &n : names)
+    {
+      QStringList tried{n};
+      WellBind bind = resolveWell(cat, n);
+      if (bind.unresolved && bind.candidates.isEmpty() && names.size() == 1)
+      {
+        bind = resolveWell(cat, stem); // 单井文件的文件名主名回退
+        tried.append(stem);
+      }
+      EntityAssetLink link;
+      link.entityType = QStringLiteral("well");
+      link.assetId = assetId;
+      link.role = QStringLiteral("trajectory");
       if (!bind.unresolved)
       {
         link.entityId = bind.entityId;

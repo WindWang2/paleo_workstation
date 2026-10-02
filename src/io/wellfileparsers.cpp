@@ -160,3 +160,33 @@ TimeDepthTable parseTimeDepthText(const QByteArray &text)
   return table;
 }
 
+DeviationTable parseDeviationText(const QByteArray &text)
+{
+  DeviationTable table;
+  const QString data = withoutBom(text);
+  for (const QString &rawLine : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
+                                            Qt::SkipEmptyParts))
+  {
+    const QString line = rawLine.trimmed();
+    if (line.startsWith(QLatin1Char('#')))
+    {
+      const int idx = line.indexOf(QStringLiteral("Well :"), Qt::CaseInsensitive);
+      if (idx >= 0 && table.wellName.isEmpty())
+        table.wellName = line.mid(idx + 6).trimmed();
+      continue;
+    }
+    if (line.isEmpty())
+      continue;
+    const QStringList t = splitTokens(line);
+    if (t.size() < 3) // MD 井斜角 方位角
+      continue;
+    DeviationStationRecord r;
+    // 站点三元组缺一不可：任一列无效整行丢弃（区别于 tops 的可选列语义）。
+    if (!parseColumn(t.at(0), &r.md) || !parseColumn(t.at(1), &r.inclinationDeg) ||
+        !parseColumn(t.at(2), &r.azimuthDeg))
+      continue;
+    table.stations.append(r);
+  }
+  return table;
+}
+

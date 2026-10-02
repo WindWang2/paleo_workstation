@@ -153,8 +153,9 @@ void TestAreaRules::defaultsPinCurrentAreaValues()
                         QStringLiteral("D61"), QStringLiteral("D62"), QStringLiteral("D63"),
                         QStringLiteral("D71"), QStringLiteral("D72")}));
 
-  // .dat 路径段规则（projectclassifier.cpp 原表，按优先级序）
-  QCOMPARE(r.classifier.datPathRules.size(), 4);
+  // .dat 路径段规则（projectclassifier.cpp 原表，按优先级序；goal/well-trajectory
+  // 表序尾部追加井斜规则——与既有四规则判据无交集）
+  QCOMPARE(r.classifier.datPathRules.size(), 5);
   QCOMPARE(r.classifier.datPathRules.at(0).exactSegments, QStringList{QStringLiteral("td")});
   QCOMPARE(r.classifier.datPathRules.at(0).segmentKeywords,
            QStringList({QString::fromUtf8("时深")}));
@@ -171,6 +172,13 @@ void TestAreaRules::defaultsPinCurrentAreaValues()
   QCOMPARE(r.classifier.datPathRules.at(3).filenameKeywords,
            QStringList({QStringLiteral("wellhead"), QStringLiteral("well_head")}));
   QCOMPARE(r.classifier.datPathRules.at(3).type, QStringLiteral("well_head"));
+  QCOMPARE(r.classifier.datPathRules.at(4).exactSegments, QStringList{QStringLiteral("dev")});
+  QCOMPARE(r.classifier.datPathRules.at(4).segmentKeywords,
+           QStringList({QString::fromUtf8("测斜"), QString::fromUtf8("井斜")}));
+  QCOMPARE(r.classifier.datPathRules.at(4).filenameKeywords,
+           QStringList({QStringLiteral("deviation"), QStringLiteral("trajectory"),
+                        QString::fromUtf8("井斜")}));
+  QCOMPARE(r.classifier.datPathRules.at(4).type, QStringLiteral("well_deviation"));
 
   QCOMPARE(r.classifier.referenceDirNames, QStringList({QString::fromUtf8("参考资料")}));
   QCOMPARE(r.classifier.fixedAuxiliaryNameStem, QStringLiteral("HZ28-6-1"));

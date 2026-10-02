@@ -3,8 +3,11 @@
 
 #include "../metadata/paleoprojectstore.h"
 
+#include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QMetaObject>
 #include <QPointer>
+#include <QThread>
 #include <QThreadPool>
 
 namespace
@@ -165,20 +168,48 @@ PaleoTaskService::PaleoTaskService(PaleoProjectStore *store, QObject *parent)
 
 PaleoTaskService::~PaleoTaskService()
 {
-  // Orphan still-running tasks instead of deleting under their workers:
-  // request cancel and detach so the queued finish lands harmlessly during
-  // teardown. Finished rows die normally with the service.
+  // 析构前先排空：worker 闭包常捕获服务/仓储裸指针（folderimport 的
+  // DataImportService* 等），本服务一走、调用方随即析构依赖对象，仍在跑的
+  // worker 就会 use-after-free。不在析构里泵事件（派生/父对象可能已半毁）——
+  // AppContext 等宿主应先调 shutdown(…, pumpEvents=true) 显式排空。
+  if (!shutdown(kShutdownWaitMs, /*pumpEvents=*/false))
+  {
+    // 超时兜底（worker 不响应协作取消）：保留旧的孤儿化语义——任务脱父、
+    // 池泄漏，queued finish 在拆除期被无害丢弃；绝不在 worker 脚下 delete。
+    qWarning("PaleoTaskService: %d worker(s) still running after %d ms — orphaning pool",
+             m_pool->activeThreadCount(), kShutdownWaitMs);
+    for (PaleoTask *t : m_tasks)
+      if (t->running())
+        t->setParent(nullptr);
+    m_pool = nullptr;
+    return;
+  }
+  delete m_pool;
+  m_pool = nullptr;
+}
+
+bool PaleoTaskService::shutdown(int timeoutMs, bool pumpEvents)
+{
+  if (!m_pool)
+    return true;
   for (PaleoTask *t : m_tasks)
     if (t->running())
-    {
       t->requestCancel();
-      t->setParent(nullptr);
-    }
-  // D4.5：清空未开始的排队（运行中的协作取消已发）；池不再 delete——
-  // waitForDone 会卡住仍在跑的长任务，孤儿化池（线程随 expiry 退出）与
-  // 任务的孤儿化语义一致。
-  m_pool->clear();
-  m_pool->setParent(nullptr);
+  m_pool->clear(); // 未出队的任务直接丢弃（其闭包随 QRunnable 析构）
+  if (!pumpEvents || !QCoreApplication::instance() ||
+      QThread::currentThread() != QCoreApplication::instance()->thread())
+    return m_pool->waitForDone(timeoutMs);
+  // 主线程排空：worker 可能正 BlockingQueuedConnection 回主线程（catalog
+  // 读写），只阻塞等待会互锁到超时——等待期间泵事件让它们落地。
+  QElapsedTimer clock;
+  clock.start();
+  while (!m_pool->waitForDone(20))
+  {
+    if (timeoutMs >= 0 && clock.elapsed() > timeoutMs)
+      return false;
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
+  }
+  return true;
 }
 
 PaleoTask *PaleoTaskService::start(const QString &title,

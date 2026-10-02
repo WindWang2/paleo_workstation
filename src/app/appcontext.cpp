@@ -573,9 +573,18 @@ AppContext::~AppContext()
   // they must die while the runtime is still up. They are all direct
   // children; delete them explicitly before shutdown instead of leaving
   // them to ~QObject (which runs after this body).
+  //
+  // H-2：先排空任务池——worker 闭包捕获的是服务裸指针（DataImportService*、
+  // workflow* 等），必须在任何依赖对象析构之前让 worker 全部退出（泵事件：
+  // worker 可能正 BlockingQueuedConnection 回主线程读写 catalog）。
+  if (m_taskSvc && !m_taskSvc->shutdown())
+    qWarning("AppContext: task workers did not drain before teardown");
+  // 再按创建的逆序删除：后建者（workflow/linkage）依赖先建者（store/services），
+  // 依赖方先走。children() 是创建顺序，正序删除会让 m_taskSvc/m_store 先于
+  // DataImportService 等依赖方析构。
   const QObjectList kids = children();
-  for (QObject *kid : kids)
-    delete kid;
+  for (auto it = kids.crbegin(); it != kids.crend(); ++it)
+    delete *it;
 
   delete m_manifest; // not a QObject — plain path-holding value type
   m_manifest = nullptr;

@@ -2,6 +2,7 @@
 #pragma once
 
 #include "domain/faultset.h"
+#include "ui/seismicsection/inversionpanel.h"
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
 #include <QComboBox>
@@ -136,6 +137,12 @@ public:
         const SeismicTaskService::SeismicAttrParams &params);
     // 最近一次成功结果 → catalog 派生资产（登记上下文同解释登记注入）
     QString registerCurrentAttributeAsset(QString *error = nullptr);
+
+    // goal/seismic-inversion：最近井 AC×DEN+时深+井旁道 → 子波（DERIVED 登记）；
+    // 反演任务（InversionWorkflow 三段式，PaleoTaskService 通道）。
+    InversionPanel *inversionPanel() const { return m_invPanel; }
+    void extractWaveletFromNearestWell();
+    void runInversion(const InversionPanelParams &params);
     void setTrackSeedPick(int pickId) { m_trackSeedPick = pickId; }
     void setTrackOptions(const SeismicTrackOptions &opt) { m_trackOptions = opt; }
     void runTracking();                                // D4.2 种子追踪（异步）
@@ -270,12 +277,17 @@ private:
 
     // ---- goal/seismic-attributes ----
     SeismicAttrPanel *m_attrPanel = nullptr;
+    InversionPanel *m_invPanel = nullptr;
     QToolButton *m_btnAttr = nullptr;
     QPointer<PaleoTask> m_attrTask;
+    // goal/seismic-inversion：在途反演任务 + 世代号（陈旧发布丢弃）+ 最近子波
+    QPointer<PaleoTask> m_invTask;
+    quint64 m_invGeneration = 0;
     SeismicTaskService::SeismicAttrResult m_lastAttrResult;
     SeismicTaskService::SeismicAttrParams m_lastAttrParams;
     QString m_lastAttrSourcePath;
     void setupAttrPanelUi(QWidget *parent);
+    void setupInversionPanelUi(QWidget *parent);
 };
 
 } // namespace seismic

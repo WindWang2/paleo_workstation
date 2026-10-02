@@ -24,3 +24,9 @@ target_sources(paleo_workflow PRIVATE
 # 三段式编排 + DERIVED 登记 + 并行确定性。串行防抖动（perf 类同款口径）。
 add_paleo_test(tst_inversion_workflow LIBS paleo_workflow)
 set_tests_properties(tst_inversion_workflow PROPERTIES RUN_SERIAL TRUE)
+
+target_sources(paleo_ui PRIVATE
+  src/ui/seismicsection/inversionpanel.cpp)
+
+# 面板是薄表单（信号/回填/诚实文案），offscreen 可测。
+add_paleo_test(tst_inversion_panel LIBS paleo_ui)

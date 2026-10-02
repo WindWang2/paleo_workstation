@@ -17,7 +17,9 @@
 #include <ogr_srs_api.h>
 
 #include <sys/stat.h>
+#ifndef Q_OS_WIN
 #include <unistd.h>
+#endif
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/metadata/layermanifest.h"
@@ -63,14 +65,16 @@ bool canCreateFile( const QString &directory )
 struct ModeRestore
 {
   QString path;
-  mode_t mode = 0755;
+  // 读写位数走 Qt 的 permission 面而不是裸 POSIX mode_t：Windows 也有
+  // QFile::Permissions 语义（映射到只读属性），同一份断言在两侧同义。
+  QFile::Permissions mode = QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner;
   bool armed = false;
 
   void release()
   {
     if ( !armed )
       return;
-    ::chmod( QFile::encodeName( path ).constData(), mode );
+    QFile::setPermissions( path, mode );
     armed = false;
   }
 
@@ -79,16 +83,18 @@ struct ModeRestore
   bool restrictWrites( const QString &target, QString *error )
   {
     release();
-    struct stat st;
-    if ( ::stat( QFile::encodeName( target ).constData(), &st ) != 0 )
+    if ( !QFileInfo::exists( target ) )
     {
       if ( error )
         *error = QStringLiteral( "stat failed: %1" ).arg( target );
       return false;
     }
     path = target;
-    mode = st.st_mode & 07777;
-    if ( ::chmod( QFile::encodeName( target ).constData(), mode & ~mode_t( 0222 ) ) != 0 )
+    mode = QFile::permissions( target );
+    const QFile::Permissions writeBits =
+        QFile::WriteOwner | QFile::WriteUser | QFile::WriteGroup | QFile::WriteOther;
+    const QFile::Permissions restricted = mode & ~writeBits;
+    if ( !QFile::setPermissions( target, restricted ) )
     {
       if ( error )
         *error = QStringLiteral( "chmod failed: %1" ).arg( target );
@@ -332,8 +338,14 @@ void TestSingleFactorFaults::readOnlyArtifactsLeavePriorVersion()
   QVERIFY( guard.path != rasterPath );
   if ( canCreateFile( artifacts ) )
   {
+    // root（POSIX）忽略目录 mode 位，chmod 挡不住写——此时跳过而非伪通过。
+    // Windows 无 geteuid，按「非特权」处理（只读属性对普通用户有效）。
+    const bool elevated = false;
+#ifndef Q_OS_WIN
+    elevated = (::geteuid() == 0);
+#endif
     const QString message =
-        geteuid() == 0
+        elevated
             ? QStringLiteral( "cannot force a read-only artifact directory at %1 because euid is 0 and mode bits "
                               "are ignored. This skip is not a pass." )
                   .arg( artifacts )

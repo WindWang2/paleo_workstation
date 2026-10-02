@@ -275,8 +275,8 @@ class TestPanels : public QObject
       QVERIFY(!table->findChild<QPushButton *>(QStringLiteral("undoAttachButton")));
     }
 
-    // 「设为主版本」：同井同角色的两条已决链接，非主那条给按钮；点击后主
-    // 关联换到该资产（不变量：同 (entityType,entityId,role) 只留一条主）。
+    // well_log 按钮是「设为主文件」。同井同角色的两条已决链接里，非主那条
+    // 给按钮；点击后主关联换到该资产（同 (entityType,entityId,role) 只留一条主）。
     void dataPage_setPrimaryLink()
     {
       QTemporaryDir dir;
@@ -315,14 +315,15 @@ class TestPanels : public QObject
       page.refreshAssetTable();
       auto *table = page.findChild<QTableWidget *>(QStringLiteral("assetTable"));
       QCOMPARE(table->rowCount(), 2);
-      // ast-1 是主链接行（纯文本无控件）；ast-2 行有「设为主版本」。
-      auto *primary = table->findChild<QPushButton *>(QStringLiteral("setPrimaryButton"));
+      // ast-1 是主链接行（纯文本无控件）；ast-2 行有「设为主文件」。
+      auto *primary = table->findChild<QPushButton *>(QStringLiteral("setWellLogPrimaryButton"));
       QVERIFY(primary);
+      QCOMPARE(primary->text(), QStringLiteral("设为主文件"));
       primary->click();
       QVERIFY(!cat->links().at(0).isPrimary);
       QVERIFY(cat->links().at(1).isPrimary);
-      // 刷新后角色互换：ast-1 成了非主旧版本，它的行拿到同一个按钮。
-      QVERIFY(table->findChild<QPushButton *>(QStringLiteral("setPrimaryButton")));
+      // 刷新后角色互换：ast-1 成了非主文件，它的行拿到同一个按钮。
+      QVERIFY(table->findChild<QPushButton *>(QStringLiteral("setWellLogPrimaryButton")));
     }
 
     // ---- T28：链接身份寻址 + undo 跨 reload 恢复 ----

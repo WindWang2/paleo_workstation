@@ -17,6 +17,7 @@
 #include "dataopsviews.h"
 #include "dataopswidgets.h"
 #include "datanavtree.h"
+#include <algorithm>
 #include <QButtonGroup>
 #include <QClipboard>
 #include <QDesktopServices>
@@ -1095,9 +1096,14 @@ void DataListPanel::refreshAssetTable()
     {
       // 「将此版本设为主版本」：同（实体,角色）的旧版本资产可拿回主关联——
       // 只动链接的 isPrimary 标志，不复制版本字节（§4）。身份寻址（T28）。
-      auto *primary = new QPushButton(tr("设为主版本"), browse);
-      primary->setObjectName(QStringLiteral("setPrimaryButton"));
-      primary->setToolTip(tr("同角色旧版本 — 把这条关联设为主关联"));
+      // well_log 文案是「设为主文件」，点击仍按 assetId+role+entityId 重查。
+      const bool wellLogPrimary = promotableRole == QLatin1String("well_log");
+      auto *primary = new QPushButton(wellLogPrimary ? tr("设为主文件") : tr("设为主版本"),
+                                      browse);
+      primary->setObjectName(wellLogPrimary ? QStringLiteral("setWellLogPrimaryButton")
+                                            : QStringLiteral("setPrimaryButton"));
+      primary->setToolTip(wellLogPrimary ? tr("同井测井 — 把这份文件设为主文件")
+                                         : tr("同角色旧版本 — 把这条关联设为主关联"));
       connect(primary, &QPushButton::clicked, this,
               [this, cat, assetId = a.id, role = promotableRole,
                eid = promotableEntityId]() {
@@ -1238,9 +1244,16 @@ void DataListPanel::refreshAssetTree()
       return 4;
     };
     QVector<EntityAssetLink> sortedLinks = wLinks;
-    std::sort(sortedLinks.begin(), sortedLinks.end(), [roleOrder](const EntityAssetLink &a, const EntityAssetLink &b) {
-      return roleOrder(a.role) < roleOrder(b.role);
-    });
+    std::stable_sort(sortedLinks.begin(), sortedLinks.end(),
+                     [roleOrder](const EntityAssetLink &a, const EntityAssetLink &b) {
+                       const int ra = roleOrder(a.role);
+                       const int rb = roleOrder(b.role);
+                       if (ra != rb)
+                         return ra < rb;
+                       if (a.ordinal != b.ordinal)
+                         return a.ordinal < b.ordinal;
+                       return false;
+                     });
 
     for (const EntityAssetLink &l : sortedLinks)
     {
@@ -1282,8 +1295,17 @@ void DataListPanel::refreshAssetTree()
       {
         sub->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionOpenTable.svg")));
       }
-      sub->setText(0, QStringLiteral("%1 (%2)").arg(a.displayName, roleDisplay));
-      sub->setText(1, detailDisplay);
+      if (l.role == QLatin1String("well_log") && !l.unresolved)
+      {
+        const QString kind = l.isPrimary ? tr("主文件") : tr("成员");
+        sub->setText(0, tr("%1 · %2 (%3)").arg(a.displayName, kind, roleDisplay));
+        sub->setText(1, tr("%1 · %2").arg(kind, a.displayName));
+      }
+      else
+      {
+        sub->setText(0, QStringLiteral("%1 (%2)").arg(a.displayName, roleDisplay));
+        sub->setText(1, detailDisplay);
+      }
       if (l.unresolved)
       {
         sub->setForeground(0, PaleoTheme::tokens().warning); // 待复核色（现取随主题）

@@ -11,6 +11,7 @@
 #include "../../domain/sectiontrace.h"    // SegyTrace/SegySectionGrid（domain 纯数据）
 #include "../../io/lasdoc.h"              // LasCurve（白名单：数据模型）
 #include "../../services/previewdoc.h"    // 唯一数据门面——解析/解码/SHA/PDF 编排全经它（W1）
+#include "../../services/welllogset.h"    // 井曲线并集（综合柱状图；只读 ~C 头）
 #include "../../services/paleotaskservice.h" // PaleoTask 进度/取消（地震转码区）
 #include "../seismic3d/seismic3dviewpanel.h"
 #include "../seismicsection/seismicsectioncanvas.h"
@@ -1447,6 +1448,85 @@ namespace
     QString m_tieLabel;
   };
 
+  QString catalogProjectDir(const DataCatalog *cat)
+  {
+    if (!cat)
+      return {};
+    const QString path = cat->catalogPath();
+    const QString tail = QStringLiteral("/artifacts/metadata/catalog.json");
+    if (!path.endsWith(tail))
+      return {};
+    return path.left(path.size() - tail.size());
+  }
+
+  bool sameFilePath(const QString &a, const QString &b)
+  {
+    if (a.isEmpty() || b.isEmpty())
+      return false;
+    return QFileInfo(a).absoluteFilePath() == QFileInfo(b).absoluteFilePath();
+  }
+
+  // 当前文件体优先；兄弟文件只认本次任务带回且解析成功的文档。
+  const QList<LasCurve> *lasBodyFor(const QString &path, const QString &currentPath,
+                                    const QList<LasCurve> &current,
+                                    const QHash<QString, LasDoc> &siblings)
+  {
+    if (sameFilePath(path, currentPath))
+      return &current;
+    const auto direct = siblings.constFind(path);
+    if (direct != siblings.cend() && direct->ok && !direct->curves.isEmpty())
+      return &direct->curves;
+    const QString abs = QFileInfo(path).absoluteFilePath();
+    const auto byAbs = siblings.constFind(abs);
+    if (byAbs != siblings.cend() && byAbs->ok && !byAbs->curves.isEmpty())
+      return &byAbs->curves;
+    for (auto it = siblings.cbegin(); it != siblings.cend(); ++it)
+      if (it->ok && !it->curves.isEmpty() && sameFilePath(it.key(), path))
+        return &it->curves;
+    return nullptr;
+  }
+
+  WellComposite::CurveData compositeCurve(const QString &name, const QString &unit,
+                                         const QVector<double> &depths,
+                                         const QVector<double> &values, int colorIndex)
+  {
+    WellComposite::CurveData cd;
+    cd.name = name;
+    cd.unit = unit;
+    cd.color = pickCurveColor(name, colorIndex);
+    cd.depths.reserve(depths.size());
+    for (double d : depths)
+      cd.depths.append(static_cast<float>(d));
+    cd.values.reserve(values.size());
+    float valMin = 1e9f;
+    float valMax = -1e9f;
+    for (double v : values)
+    {
+      if (v <= -999.0 || v >= 99999.0)
+      {
+        cd.values.append(-9999.0f);
+        continue;
+      }
+      const float fv = static_cast<float>(v);
+      cd.values.append(fv);
+      if (fv < valMin)
+        valMin = fv;
+      if (fv > valMax)
+        valMax = fv;
+    }
+    if (valMin < valMax)
+    {
+      cd.minScale = valMin;
+      cd.maxScale = valMax;
+    }
+    else
+    {
+      cd.minScale = 0.0f;
+      cd.maxScale = 100.0f;
+    }
+    return cd;
+  }
+
 } // namespace
 
 // T27 中文化：coordinate_status 枚举 → §4 计划文案。untransformed 用与
@@ -2618,15 +2698,45 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     });
     const QPointer<QLabel> hintFill(lasPendingHint);
 
+    // 已决 well_log：综合图走井曲线并集。这里只读 ~C 头；兄弟文件数据体
+    // 放进下面同一次 requestLas，不在 GUI 线程 parse。
+    QString wellLogEntityId;
+    for (const EntityAssetLink &l : links)
+    {
+      if (!l.unresolved && l.role == QLatin1String("well_log") && !l.entityId.isEmpty())
+      {
+        wellLogEntityId = l.entityId;
+        break;
+      }
+    }
+    const bool compositeFromWell = !wellLogEntityId.isEmpty();
+    QVector<WellCurveRef> wellCurves;
+    QStringList siblingPaths;
+    if (compositeFromWell)
+    {
+      wellCurves = WellLogSet::wellCurveIndex(cat, catalogProjectDir(cat), wellLogEntityId);
+      const QString currentAbs = QFileInfo(abs).absoluteFilePath();
+      QSet<QString> seen;
+      for (const WellCurveRef &ref : wellCurves)
+      {
+        const QString p = QFileInfo(ref.path).absoluteFilePath();
+        if (p.isEmpty() || p == currentAbs || seen.contains(p))
+          continue;
+        seen.insert(p);
+        siblingPaths.append(ref.path);
+      }
+    }
+
     // ---- F1 两段式第二段挂起：数据到达后一次装齐两个消费方 ----
-    // 单道检视（addCurve+单位 tooltip）与 ResFormStar 综合柱状图（loadLasCurves）
-    // 共用同一份 curves；换装逻辑与旧同步路径逐字节一致（仅时机后移）。
+    // 单道检视仍只用当前文件。无已决 well_log 时综合图与旧路径一致；
+    // 有已决链接时综合图按 wellCurveIndex，每条曲线用自己文件的深度列。
     const QPointer<CurvePanel> panelFill(panel);
     const QPointer<WellComposite::WellCompositePanel> compFill(compPanel);
     const auto chipMapFill = chipMap; // shared_ptr 副本（闭包与页内 chips 同源）
-    const std::function<void(const QList<LasCurve> &)> fillCurves =
-        [this, panelFill, compFill, chipMapFill, hintFill, names, defaultShown,
-         wellTitle, formationIntervals](const QList<LasCurve> &curves) {
+    const std::function<void(const QList<LasCurve> &, const QHash<QString, LasDoc> &)> fillCurves =
+        [panelFill, compFill, chipMapFill, hintFill, names, defaultShown,
+         wellTitle, formationIntervals, wellCurves, compositeFromWell, abs](
+            const QList<LasCurve> &curves, const QHash<QString, LasDoc> &siblings) {
           if (hintFill)
             hintFill->hide(); // 数据到齐，占位提示退场
           if (curves.size() != names.size())
@@ -2646,45 +2756,62 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
           if (compFill)
           {
             QVector<WellComposite::CurveData> compCurves;
-            const auto &depList = curves.at(0).values;
-            QVector<float> depVec;
-            depVec.reserve(depList.size());
-            for (double d : depList)
-              depVec.append(static_cast<float>(d));
-
-            for (int i = 1; i < names.size(); ++i)
+            if (!compositeFromWell)
             {
-              const auto &src = curves.at(i);
-              WellComposite::CurveData cd;
-              cd.name = names.at(i);
-              cd.unit = src.unit;
-              cd.color = pickCurveColor(cd.name, i - 1);
-              cd.depths = depVec;
-              cd.values.reserve(src.values.size());
-              float valMin = 1e9f, valMax = -1e9f;
-              for (double v : src.values)
+              const auto &depList = curves.at(0).values;
+              QVector<float> depVec;
+              depVec.reserve(depList.size());
+              for (double d : depList)
+                depVec.append(static_cast<float>(d));
+
+              for (int i = 1; i < names.size(); ++i)
               {
-                if (v <= -999.0 || v >= 99999.0)
+                const auto &src = curves.at(i);
+                WellComposite::CurveData cd;
+                cd.name = names.at(i);
+                cd.unit = src.unit;
+                cd.color = pickCurveColor(cd.name, i - 1);
+                cd.depths = depVec;
+                cd.values.reserve(src.values.size());
+                float valMin = 1e9f, valMax = -1e9f;
+                for (double v : src.values)
                 {
-                  cd.values.append(-9999.0f);
-                  continue;
+                  if (v <= -999.0 || v >= 99999.0)
+                  {
+                    cd.values.append(-9999.0f);
+                    continue;
+                  }
+                  float fv = static_cast<float>(v);
+                  cd.values.append(fv);
+                  if (fv < valMin) valMin = fv;
+                  if (fv > valMax) valMax = fv;
                 }
-                float fv = static_cast<float>(v);
-                cd.values.append(fv);
-                if (fv < valMin) valMin = fv;
-                if (fv > valMax) valMax = fv;
+                if (valMin < valMax)
+                {
+                  cd.minScale = valMin;
+                  cd.maxScale = valMax;
+                }
+                else
+                {
+                  cd.minScale = 0.0f;
+                  cd.maxScale = 100.0f;
+                }
+                compCurves.append(cd);
               }
-              if (valMin < valMax)
+            }
+            else
+            {
+              int colorIndex = 0;
+              for (const WellCurveRef &ref : wellCurves)
               {
-                cd.minScale = valMin;
-                cd.maxScale = valMax;
+                const QList<LasCurve> *body = lasBodyFor(ref.path, abs, curves, siblings);
+                if (!body || body->isEmpty() || ref.column <= 0 || ref.column >= body->size())
+                  continue; // 兄弟文件解析失败：跳过，不让整页失败
+                const LasCurve &src = body->at(ref.column);
+                compCurves.append(compositeCurve(ref.mnemonic, src.unit, body->at(0).values,
+                                                 src.values, colorIndex));
+                ++colorIndex;
               }
-              else
-              {
-                cd.minScale = 0.0f;
-                cd.maxScale = 100.0f;
-              }
-              compCurves.append(cd);
             }
             compFill->loadLasCurves(wellTitle, compCurves, formationIntervals);
           }
@@ -2750,7 +2877,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     // 换成「读取失败」面，重试=重建标签再走一遍两段式）。无任务服务时
     // requestLas 同步执行、返回前信号已发——测试环境行为与旧路径一致。
     m_pendingLas.insert(assetId, {viewStack, fillCurves});
-    m_doc->requestLas(assetId, abs);
+    m_doc->requestLas(assetId, abs, siblingPaths);
     return host;
   }
 
@@ -5091,12 +5218,15 @@ void DataPreviewTabs::onSectionFailed(const QString &assetId,
 void DataPreviewTabs::onLasReady(const QString &key, const QStringList &, const QList<LasCurve> &curves)
 {
   // F1（goal/perf-systematize 簇2）：数据行到达——fill 闭包内自带 QPointer
-  // 护栏（页没了就不装）；服务侧世代号已保证这是最新一代。
+  // 护栏（页没了就不装）；服务侧世代号已保证这是最新一代。兄弟文件文档
+  // 在 lasReady 之前已写入门面，失败的不在表里。
   if (!m_pendingLas.contains(key))
     return;
   const LasPending pend = m_pendingLas.take(key);
+  const QHash<QString, LasDoc> siblings =
+      m_doc ? m_doc->lasSiblingDocs(key) : QHash<QString, LasDoc>();
   if (pend.fill)
-    pend.fill(curves);
+    pend.fill(curves, siblings);
 }
 
 void DataPreviewTabs::onLasFailed(const QString &key, const QString &reason)

@@ -863,6 +863,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-surfaceops.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-time-depth.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-ux.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-well-logset.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-wellcomposite.cmake"
 )
 foreach(_f IN LISTS _paleo_extra_manifest)
@@ -893,7 +894,7 @@ set(_paleo_perf_tests
   tst_ui_blocking tst_mem_budget tst_perf_las tst_perf_segyindex tst_perf_catalog
   tst_perf_regress tst_petrophysperf tst_seismic_perf tst_seismic_baseline
   tst_seismic_budgets tst_seismicattrperf tst_horizontrackperf tst_timedepthperf
-  tst_wellcomposite_perf tst_cache_las)
+  tst_wellcomposite_perf tst_cache_las tst_welllogset_perf)
 foreach(_t IN LISTS _paleo_perf_tests)
   if(TEST ${_t})
     set_property(TEST ${_t} APPEND PROPERTY LABELS perf)

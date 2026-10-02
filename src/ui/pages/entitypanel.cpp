@@ -48,6 +48,26 @@ namespace
 {
   // p5a 实体视图占位格（「缺失」/「—」）：缺源可见但样式克制（upstream
   // missing-source 原则——空角色如实显示为缺失槽位，灰字、不可交互）。
+
+  struct WellLogRow
+  {
+    EntityAssetLink link;
+    bool unresolved = false;
+  };
+
+  void clearCellWidgets(QTableWidget *table)
+  {
+    if (!table)
+      return;
+    for (int r = 0; r < table->rowCount(); ++r)
+      for (int c = 0; c < table->columnCount(); ++c)
+        if (QWidget *w = table->cellWidget(r, c))
+        {
+          table->removeCellWidget(r, c);
+          w->setParent(nullptr);
+          w->deleteLater();
+        }
+  }
   QTableWidgetItem *mutedCell(const QString &text)
   {
     auto *it = new QTableWidgetItem(text);
@@ -516,7 +536,10 @@ void EntityPanel::refreshMultiSummary()
             .arg(totalVersions)
             .arg(entsShown.isEmpty() ? tr("无") : entsShown.join(QStringLiteral("、"))));
   if (auto *roleTable = findChild<QTableWidget *>(QStringLiteral("entityRoleTable")))
+  {
+    clearCellWidgets(roleTable);
     roleTable->setRowCount(0);
+  }
   if (auto *derived = findChild<QTableWidget *>(QStringLiteral("derivedProductsTable")))
     derived->setRowCount(0);
   if (m_timeline)
@@ -797,6 +820,7 @@ void EntityPanel::refresh()
       propDetailsText->setText(details.join(QStringLiteral("\n")));
     }
 
+    clearCellWidgets(roleTable);
     roleTable->setRowCount(0);
     derived->setRowCount(0);
     missing->hide();
@@ -962,6 +986,7 @@ void EntityPanel::refresh()
       else
         propRoleSummary->setText(tr("已挂接 %1 条业务关联").arg(links.size()));
     }
+    clearCellWidgets(roleTable);
     roleTable->setRowCount(0);
     for (const EntityAssetLink &l : links)
     {
@@ -1209,13 +1234,78 @@ void EntityPanel::refresh()
     if (propRoleSummary)
       propRoleSummary->setText(tr("关联资产槽位（全 9 槽词表枚举）"));
 
+    clearCellWidgets(roleTable);
     roleTable->setRowCount(0);
     for (const RoleSlot &slot : view.roleSlots)
     {
-      const int r = roleTable->rowCount();
-      roleTable->insertRow(r);
       const bool slotEmpty = slot.primary.assetId.isEmpty() && slot.members.isEmpty() &&
                              slot.unresolved.isEmpty();
+      if (slot.def.role == QLatin1String("well_log") && !slotEmpty)
+      {
+        const QString roleLabel =
+            slot.def.display.isEmpty() ? slot.def.role : slot.def.display;
+        QVector<WellLogRow> logRows;
+        if (!slot.primary.assetId.isEmpty())
+          logRows.append(WellLogRow{slot.primary, false});
+        for (const EntityAssetLink &m : slot.members)
+          logRows.append(WellLogRow{m, false});
+        for (const EntityAssetLink &u : slot.unresolved)
+          logRows.append(WellLogRow{u, true});
+        std::stable_sort(logRows.begin(), logRows.end(),
+                         [](const WellLogRow &a, const WellLogRow &b) {
+                           return a.link.ordinal < b.link.ordinal;
+                         });
+        for (const WellLogRow &row : logRows)
+        {
+          const int r = roleTable->rowCount();
+          roleTable->insertRow(r);
+          auto *roleItem = new QTableWidgetItem(roleLabel);
+          roleItem->setFlags(roleItem->flags() & ~Qt::ItemIsEditable);
+          roleTable->setItem(r, 0, roleItem);
+
+          const CatalogAsset a = cat->assetById(row.link.assetId);
+          QString shown = a.displayName.isEmpty() ? row.link.assetId : a.displayName;
+          const CatalogVersion pv = cat->currentVersion(row.link.assetId);
+          if (!pv.id.isEmpty())
+            shown += tr(" v%1").arg(pv.versionNumber);
+          if (!row.unresolved)
+            shown = tr("%1 · %2").arg(shown, row.link.isPrimary ? tr("主文件") : tr("成员"));
+          auto *nameItem = new QTableWidgetItem(shown);
+          nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
+          roleTable->setItem(r, 1, nameItem);
+
+          if (row.unresolved)
+          {
+            roleTable->setItem(r, 2, mutedCell(QStringLiteral("—")));
+            auto *pending = new QTableWidgetItem(tr("未决关联"));
+            pending->setFlags(pending->flags() & ~Qt::ItemIsEditable);
+            if (!row.link.note.isEmpty())
+              pending->setToolTip(row.link.note);
+            roleTable->setItem(r, 3, pending);
+          }
+          else if (!row.link.isPrimary)
+          {
+            auto *btn = new QPushButton(tr("设为主文件"), roleTable);
+            btn->setObjectName(QStringLiteral("setWellLogPrimaryButton"));
+            const QString linkedAssetId = row.link.assetId;
+            connect(btn, &QPushButton::clicked, this, [this, entityId, linkedAssetId] {
+              emit wellLogSetPrimaryRequested(entityId, linkedAssetId);
+            });
+            roleTable->setCellWidget(r, 2, btn);
+            roleTable->setItem(r, 3, mutedCell(QStringLiteral("—")));
+            roleTable->resizeRowToContents(r);
+          }
+          else
+          {
+            roleTable->setItem(r, 2, mutedCell(QStringLiteral("—")));
+            roleTable->setItem(r, 3, mutedCell(QStringLiteral("—")));
+          }
+        }
+        continue;
+      }
+
+      const int r = roleTable->rowCount();
+      roleTable->insertRow(r);
       auto *roleItem = new QTableWidgetItem(
           slot.def.display.isEmpty() ? slot.def.role : slot.def.display);
       roleItem->setFlags(roleItem->flags() & ~Qt::ItemIsEditable);

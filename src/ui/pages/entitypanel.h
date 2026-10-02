@@ -54,6 +54,8 @@ class EntityPanel : public QWidget
   signals:
     void statusMessage(const QString &msg);          // D5.4 反馈（壳接状态栏）
     void entityRefreshRequested();                   // CRUD 后请列表/实体视图重取
+    // 井 well_log 非主文件「设为主文件」。面板不写 catalog，由创建方接 setLinkPrimary。
+    void wellLogSetPrimaryRequested(const QString &entityId, const QString &assetId);
 
   private:
     void buildD4Ui();          // CRUD 条/版本时间线/拓扑/统计段装配

@@ -294,7 +294,7 @@ void TestVelocityModel::gridConversionIdempotentAndCounts()
   const VelocityModel m = VelocityModel::fit({a}, ModelType::IntervalAverage);
   const int rows = 2, cols = 2;
   const double gt[6] = {0.0, 100.0, 0.0, 200.0, 0.0, -100.0};
-  QVector<float> t{400.0f, 800.0f, 1300.0f, qQNaN()};
+  QVector<float> t{400.0f, 800.0f, 1300.0f, static_cast<float>(qQNaN())};
   const DepthGridResult r1 = convertTimeGridToDepth(m, t, rows, cols, gt, -9999.0);
   const DepthGridResult r2 = convertTimeGridToDepth(m, t, rows, cols, gt, -9999.0);
   QCOMPARE(r1.nodataCells, 1);       // NaN 格

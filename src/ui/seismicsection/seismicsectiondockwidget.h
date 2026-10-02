@@ -2,7 +2,6 @@
 #pragma once
 
 #include "domain/faultset.h"
-#include "ui/seismicsection/inversionpanel.h"
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
 #include <QComboBox>
@@ -32,6 +31,8 @@ namespace seismic {
 
 class SeismicPickPanel;
 class SeismicAttrPanel;
+class InversionPanel;
+struct InversionPanelParams;
 
 // 剖面书签（D2.12）：命名线号 + 视口范围，QSettings 按体身份持久化
 struct SectionBookmark {

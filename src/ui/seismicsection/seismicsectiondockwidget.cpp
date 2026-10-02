@@ -2548,7 +2548,7 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
     m_invPanel->setBusy(true);
     m_invTask = m_taskService->startBounded(
         tr("地震反演"),
-        [this, gen, request, job](PaleoTask *task) -> QString {
+        [request, job](PaleoTask *task) -> QString {
             if (task->cancelRequested())
                 return tr("已取消");
             task->reportStage(QStringLiteral("build"), 2);

@@ -568,7 +568,9 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
   {
     auto stratTrack = std::make_shared<StratigraphyCompoundTrack>(QStringLiteral("地层"), 145.0);
     stratTrack->autoDeriveStratigraphy(formations, minD, maxD);
-    const bool anySystem = std::any_of(stratTrack->intervals().begin(), stratTrack->intervals().end(),
+    // intervals() 按值返回：先绑定到局部再取迭代器（两次调用 = 两个不同临时对象）。
+    const auto derived = stratTrack->intervals();
+    const bool anySystem = std::any_of(derived.cbegin(), derived.cend(),
                                        [](const StratigraphyInterval &si) { return !si.system.isEmpty(); });
     if (anySystem)
       m_canvas->addTrack(stratTrack);
@@ -689,7 +691,8 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
     else
     {
       stratTrack->autoDeriveStratigraphy(data.formationIntervals, data.minDepth, data.maxDepth);
-      const bool anySystem = std::any_of(stratTrack->intervals().begin(), stratTrack->intervals().end(),
+      const auto derived = stratTrack->intervals(); // 按值返回，绑定局部后再迭代
+      const bool anySystem = std::any_of(derived.cbegin(), derived.cend(),
                                          [](const StratigraphyInterval &si) { return !si.system.isEmpty(); });
       if (anySystem)
         m_canvas->addTrack(stratTrack);

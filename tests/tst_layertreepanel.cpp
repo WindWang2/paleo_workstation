@@ -129,6 +129,9 @@ class TestLayerTreePanel : public QObject
       QVERIFY(panel.findChild<QToolButton *>(QStringLiteral("layerTreeRemoveSelectedButton")));
       QVERIFY(panel.findChild<QToolButton *>(QStringLiteral("layerTreeExpandAllButton")));
       QVERIFY(panel.findChild<QToolButton *>(QStringLiteral("layerTreeCollapseAllButton")));
+      QVERIFY(panel.findChild<QToolButton *>(QStringLiteral("layerTreeMoveUpButton")));
+      QVERIFY(panel.findChild<QToolButton *>(QStringLiteral("layerTreeMoveDownButton")));
+      QVERIFY(panel.findChild<QAction *>(QStringLiteral("layerTreeMoveToTopAction")));
 
       auto *filterEdit = panel.findChild<QLineEdit *>(QStringLiteral("layerTreeFilterEdit"));
       QVERIFY(filterEdit);
@@ -166,6 +169,89 @@ class TestLayerTreePanel : public QObject
       QTRY_VERIFY(model->rootGroup()->findLayer(vl->id()) != nullptr);
       QVERIFY2(model->rootGroup()->findLayer(vl->id())->isExpanded(),
                "新增图层 legend 节点应展开");
+    }
+
+    // 上移/下移/置顶：序号 0 是所在组最上层（绘制盖住同组其余节点）。
+    void moveUpDownAndPinToTop()
+    {
+      LayerTreePanel panel(QgsProject::instance(), nullptr, nullptr);
+      auto *up = panel.findChild<QAction *>(QStringLiteral("layerTreeMoveUpAction"));
+      auto *down = panel.findChild<QAction *>(QStringLiteral("layerTreeMoveDownAction"));
+      auto *pin = panel.findChild<QAction *>(QStringLiteral("layerTreeMoveToTopAction"));
+      QVERIFY(up);
+      QVERIFY(down);
+      QVERIFY(pin);
+
+      auto *jia = new QgsVectorLayer(QStringLiteral("Point"),
+                                     QString::fromUtf8("甲"), QStringLiteral("memory"));
+      auto *yi = new QgsVectorLayer(QStringLiteral("Point"),
+                                    QString::fromUtf8("乙"), QStringLiteral("memory"));
+      auto *bing = new QgsVectorLayer(QStringLiteral("Point"),
+                                      QString::fromUtf8("丙"), QStringLiteral("memory"));
+      QVERIFY(jia->isValid() && yi->isValid() && bing->isValid());
+      QgsProject::instance()->addMapLayer(jia);
+      QgsProject::instance()->addMapLayer(yi);
+      QgsProject::instance()->addMapLayer(bing);
+
+      QgsLayerTreeGroup *root = panel.layerTreeModel()->rootGroup();
+      const auto namesOf = [root]() {
+        QStringList names;
+        for (QgsLayerTreeNode *node : root->children())
+        {
+          if (auto *layerNode = qobject_cast<QgsLayerTreeLayer *>(node))
+            names << layerNode->name();
+        }
+        return names;
+      };
+      const QStringList initial = namesOf();
+      QCOMPARE(initial.size(), 3);
+
+      const auto selectName = [&](const QString &name) -> bool {
+        for (QgsLayerTreeNode *node : root->children())
+        {
+          auto *layerNode = qobject_cast<QgsLayerTreeLayer *>(node);
+          if (!layerNode || layerNode->name() != name)
+            continue;
+          panel.treeView()->setCurrentNode(layerNode);
+          const QModelIndex idx = panel.layerTreeModel()->node2index(layerNode);
+          if (!idx.isValid())
+            return false;
+          panel.treeView()->selectionModel()->select(
+              idx, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+          return true;
+        }
+        return false;
+      };
+
+      const QString bottom = initial.last();
+      QVERIFY(selectName(bottom));
+      QVERIFY(up->isEnabled());
+      QVERIFY(pin->isEnabled());
+      up->trigger();
+      QStringList stepped = namesOf();
+      QCOMPARE(stepped.at(initial.size() - 2), bottom);
+      QCOMPARE(stepped.last(), initial.at(initial.size() - 2));
+
+      pin->trigger();
+      QCOMPARE(namesOf().first(), bottom);
+      QVERIFY(!up->isEnabled());
+      QVERIFY(!pin->isEnabled());
+      QVERIFY(down->isEnabled());
+      const QStringList pinned = namesOf();
+      up->trigger(); // 已在最上：动作触发也不改序
+      QCOMPARE(namesOf(), pinned);
+
+      QVERIFY(selectName(namesOf().last()));
+      QVERIFY(!down->isEnabled());
+      const QStringList beforeDown = namesOf();
+      down->trigger();
+      QCOMPARE(namesOf(), beforeDown);
+
+      QVERIFY(selectName(namesOf().first()));
+      QVERIFY(down->isEnabled());
+      const QString top = namesOf().first();
+      down->trigger();
+      QCOMPARE(namesOf().at(1), top);
     }
 
     // ---- 筛选：命中显示 / 未命中隐藏 / 组保留 / 空串恢复 ----

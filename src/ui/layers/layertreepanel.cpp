@@ -19,6 +19,7 @@
 #include <qgsproject.h>
 
 #include <QAction>
+#include <QItemSelectionModel>
 #include <QDomDocument>
 #include <QFile>
 #include <QFileDialog>
@@ -218,6 +219,31 @@ QWidget *LayerTreePanel::buildToolbar()
   lay->addWidget(mkButton(QStringLiteral("layerTreeAddGroupButton"), m_addGroupAction));
   lay->addWidget(mkButton(QStringLiteral("layerTreeRemoveSelectedButton"), m_removeAction));
 
+  // 列表序即绘制序：序号越小越靠上，也越后画（盖住下面的图层）。
+  m_moveUpAction = new QAction(tr("上移"), this);
+  m_moveUpAction->setObjectName(QStringLiteral("layerTreeMoveUpAction"));
+  connect(m_moveUpAction, &QAction::triggered, this, [this]() {
+    const int from = currentNodeIndex();
+    if (from > 0)
+      moveCurrentNode(from - 1);
+  });
+  m_moveDownAction = new QAction(tr("下移"), this);
+  m_moveDownAction->setObjectName(QStringLiteral("layerTreeMoveDownAction"));
+  connect(m_moveDownAction, &QAction::triggered, this, [this]() {
+    int count = 0;
+    const int from = currentNodeIndex(&count);
+    if (from >= 0 && from + 1 < count)
+      moveCurrentNode(from + 1);
+  });
+  m_moveTopAction = new QAction(tr("置顶（最上层）"), this);
+  m_moveTopAction->setObjectName(QStringLiteral("layerTreeMoveToTopAction"));
+  connect(m_moveTopAction, &QAction::triggered, this, [this]() {
+    if (currentNodeIndex() > 0)
+      moveCurrentNode(0);
+  });
+  lay->addWidget(mkButton(QStringLiteral("layerTreeMoveUpButton"), m_moveUpAction));
+  lay->addWidget(mkButton(QStringLiteral("layerTreeMoveDownButton"), m_moveDownAction));
+
   auto *expandAct = new QAction(tr("展开全部"), this);
   connect(expandAct, &QAction::triggered, m_view, &QgsLayerTreeView::expandAllNodes);
   lay->addWidget(mkButton(QStringLiteral("layerTreeExpandAllButton"), expandAct));
@@ -248,6 +274,10 @@ void LayerTreePanel::buildContextMenu()
     m_menu->addAction(acts->actionZoomToSelection(m_canvas, m_menu));
   }
   m_menu->addAction(acts->actionShowFeatureCount(m_menu));
+  m_menu->addSeparator();
+  m_menu->addAction(m_moveUpAction);
+  m_menu->addAction(m_moveDownAction);
+  m_menu->addAction(m_moveTopAction);
   m_menu->addSeparator();
   m_menu->addAction(acts->actionRenameGroupOrLayer(m_menu));
   // C6：右键菜单与工具条共用同一守卫版删除动作——编辑中的图层在任何
@@ -331,9 +361,72 @@ void LayerTreePanel::buildContextMenu()
   m_menu->addAction(m_depthConvertAction);
 }
 
+int LayerTreePanel::currentNodeIndex(int *siblingCount) const
+{
+  if (siblingCount)
+    *siblingCount = 0;
+  if (!m_view)
+    return -1;
+  QgsLayerTreeNode *node = m_view->currentNode();
+  auto *parent = node ? qobject_cast<QgsLayerTreeGroup *>(node->parent()) : nullptr;
+  if (!parent)
+    return -1;
+  const QList<QgsLayerTreeNode *> kids = parent->children();
+  if (siblingCount)
+    *siblingCount = kids.size();
+  return kids.indexOf(node);
+}
+
+void LayerTreePanel::moveCurrentNode(int toIndex)
+{
+  if (!m_view)
+    return;
+  QgsLayerTreeNode *node = m_view->currentNode();
+  auto *parent = node ? qobject_cast<QgsLayerTreeGroup *>(node->parent()) : nullptr;
+  if (!parent)
+    return;
+  const QList<QgsLayerTreeNode *> kids = parent->children();
+  const int from = kids.indexOf(node);
+  if (from < 0 || toIndex < 0 || toIndex >= kids.size() || toIndex == from)
+    return;
+  // insertChildNode 接管无父节点。先插入副本再摘掉原节点，避免 remove 把节点删掉。
+  QgsLayerTreeNode *placed = node->clone();
+  parent->insertChildNode(toIndex > from ? toIndex + 1 : toIndex, placed);
+  parent->removeChildNode(node);
+  m_view->setCurrentNode(placed);
+  if (QItemSelectionModel *sel = m_view->selectionModel())
+  {
+    const QModelIndex idx = m_view->layerTreeModel()->node2index(placed);
+    if (idx.isValid())
+      sel->select(idx, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+  }
+  refreshIndicators();
+  updatePaleoActionStates();
+}
+
 void LayerTreePanel::updatePaleoActionStates()
 {
   QgsMapLayer *layer = m_view->layerTreeModel() ? m_view->currentLayer() : nullptr;
+  int siblingCount = 0;
+  const int nodeIndex = currentNodeIndex(&siblingCount);
+  const bool hasNode = nodeIndex >= 0;
+  if (m_moveUpAction && m_moveDownAction && m_moveTopAction)
+  {
+    const bool canUp = nodeIndex > 0;
+    const bool canDown = hasNode && nodeIndex + 1 < siblingCount;
+    m_moveUpAction->setEnabled(canUp);
+    m_moveDownAction->setEnabled(canDown);
+    m_moveTopAction->setEnabled(canUp);
+    m_moveUpAction->setToolTip(
+        canUp ? tr("在所在组内上移一层。列表越靠上，绘制越靠上")
+              : (hasNode ? tr("已在所在组的最上层") : tr("未选中图层或组")));
+    m_moveDownAction->setToolTip(
+        canDown ? tr("在所在组内下移一层。列表越靠下，绘制越靠下")
+                : (hasNode ? tr("已在所在组的最下层") : tr("未选中图层或组")));
+    m_moveTopAction->setToolTip(
+        canUp ? tr("移到所在组的最上层。根上的图层即整个列表最上，盖住同组其他图层")
+              : (hasNode ? tr("已在所在组的最上层") : tr("未选中图层或组")));
+  }
   m_propertiesAction->setEnabled(layer != nullptr);
   m_duplicateAction->setEnabled(layer != nullptr);
   m_exportStyleAction->setEnabled(layer != nullptr);

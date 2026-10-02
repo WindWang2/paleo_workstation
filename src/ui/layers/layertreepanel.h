@@ -27,10 +27,11 @@ class QMenu;
 // 面板只渲染 + 发意图信号；显示/隐藏/排序/重命名/删除直接落在
 // QgsLayerTreeModel/View（唯一图层状态源），面板不自建可见性台账。
 //
-// 结构：顶部工具条（添加组/删除选中/展开全部/折叠全部/筛选输入框）+
+// 结构：顶部工具条（添加组/删除选中/上移/下移/展开全部/折叠全部/筛选输入框）+
 // QgsLayerTreeView（保留 AllowNodeReorder/Rename/ChangeVisibility 三 flag）
-// + 右键菜单（QgsLayerTreeViewDefaultActions 全量组 + Paleo 自加项）+
+// + 右键菜单（上移/下移/置顶 + QgsLayerTreeViewDefaultActions + Paleo 自加项）+
 // 空态 label（随工程图层集显隐）。
+// 列表越靠上绘制越靠上：上移减小序号，置顶落到所在组的第 0 位（根上即全图最上）。
 class LayerTreePanel : public QWidget
 {
   Q_OBJECT
@@ -85,6 +86,9 @@ class LayerTreePanel : public QWidget
     void duplicateCurrentLayer();
     void exportCurrentStyle();
     void importCurrentStyle();
+    // 在父组内重排当前节点。toIndex 是移动前的子序号；0 为所在组最上层。
+    void moveCurrentNode(int toIndex);
+    int currentNodeIndex(int *siblingCount = nullptr) const;
     // ---- indicator ----
     void scheduleIndicatorRefresh(); // 排队合并刷新（setActiveHorizon 时序）
 
@@ -99,6 +103,9 @@ class LayerTreePanel : public QWidget
     QMenu *m_menu = nullptr;
     QAction *m_addGroupAction = nullptr;       // 复用 defaultActions()
     QAction *m_removeAction = nullptr;         // 编辑守卫包装版（工具条+菜单共用）
+    QAction *m_moveUpAction = nullptr;         // objectName: layerTreeMoveUpAction
+    QAction *m_moveDownAction = nullptr;       // objectName: layerTreeMoveDownAction
+    QAction *m_moveTopAction = nullptr;        // objectName: layerTreeMoveToTopAction
     QAction *m_propertiesAction = nullptr;     // objectName: layerTreePropertiesAction
     QAction *m_duplicateAction = nullptr;      // objectName: layerTreeDuplicateAction
     QAction *m_surfaceOpsAction = nullptr;     // objectName: layerTreeSurfaceOpsAction（栅格面运算）

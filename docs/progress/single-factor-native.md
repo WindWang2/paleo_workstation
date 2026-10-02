@@ -82,6 +82,8 @@ python3 tools/check_tidy.py
 
 五个测试通过。`tst_factorworkflow` 18 通过、1 跳过，跳过文案写明这不是 O12 通过。提线预算预热 1 次后 3 次中位 66 ms、最大 67 ms（512²、10 级、8 条约束，改写像元 14408，门 ≤20000 ms）。GUI 用与性能测相同的 S/L 负载各跑 1 次：S p95=11 ms（wall 2103 ms），L p95=11 ms（wall 14618 ms），maxGap 都是 11 ms，门 ≤100 ms。故障测试覆盖无法识别的栅格、只读制品目录、只读清单和未登记的孤立文件；孤立文件重开后不是产品，文件本身还在。clang-tidy 通过本分支相对 master 的 2 个 TU。严格分层、i18n 和 UI 不变量通过。没有重跑 `tst_singlefactor_perf` 和全量 ctest。
 
+`8dff163` 补上分析等值线的分析场 SHA。prepare 在增加代数之前记 SHA；publish 在 stage 前和 commit 前再核对。栅格被改写则不声明等值线，文案含「分析场在等值线期间被改写」。`tst_singlefactor_asynccontour` 的 `rewrittenAnalysisDropsContourPublish` 通过（6 通过、0 跳过）。同一轮 `tst_factorworkflow` 仍是 18 通过、1 跳过。严格分层、i18n、UI 不变量和 clang-tidy 的 2 个 TU 通过。
+
 ## 尚未完成
 
 - O7 还没有 GDAL flush 中途失败、杀掉正在跑的进程，也没有自动回收孤立文件。关停和单调进度没有单独断言。

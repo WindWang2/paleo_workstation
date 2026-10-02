@@ -1672,24 +1672,28 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                     }
                 }
             } else {
-                // Depth unit
+                // Depth unit — 反投影贴准（与 D2.5 右缘深度轴同法）：深度刻度先
+                // 反解 TWT 再取像素，非常速（校验炮分段/压实）模型下刻度间距
+                // 如实非线性，不再按常速线性近似。
                 const double minDepth = m_tdModel.TwtMsToDepth(minTime);
                 const double maxDepth = m_tdModel.TwtMsToDepth(maxTime);
-                const auto ticks = NiceStep::GenerateTicks(minDepth, maxDepth, m_topMargin, height(), 8, QStringLiteral("%.0f"));
+                const auto ticks = NiceStep::GenerateTicks(std::min(minDepth, maxDepth), std::max(minDepth, maxDepth),
+                                                           m_topMargin, height(), 8, QStringLiteral("%.0f"));
                 for (const auto &tk : ticks) {
-                    if (tk.pixelPos < m_topMargin || tk.pixelPos > height())
+                    const double py = timeToPixelY(m_tdModel.DepthToTwtMs(tk.value));
+                    if (py < m_topMargin || py > height())
                         continue;
 
                     p.setPen(tok.textMuted);
                     if (tk.isMajor) {
-                        p.drawLine(QPointF(m_leftMargin - 10.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
+                        p.drawLine(QPointF(m_leftMargin - 10.0, py), QPointF(m_leftMargin, py));
                         const QString label = QStringLiteral("%1").arg(qRound(tk.value));
                         const QFontMetrics fm(monoFont);
                         const int tw = fm.horizontalAdvance(label);
                         p.setPen(tok.text);
-                        p.drawText(QPointF(m_leftMargin - 14.0 - tw, tk.pixelPos + 4.0), label);
+                        p.drawText(QPointF(m_leftMargin - 14.0 - tw, py + 4.0), label);
                     } else {
-                        p.drawLine(QPointF(m_leftMargin - 5.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
+                        p.drawLine(QPointF(m_leftMargin - 5.0, py), QPointF(m_leftMargin, py));
                     }
                 }
             }
@@ -1704,7 +1708,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
             const QString unitStr =
                 m_vertUnit == SectionVerticalUnit::TwoWayTimeMs
                     ? tr("TWT (ms)")
-                    : tr("参考深度\n(m，常速)");
+                    : tr("深度\n(m)");
             p.drawText(QRect(2, 2, m_leftMargin - 4, m_topMargin - 4), Qt::AlignCenter, unitStr);
         }
     }

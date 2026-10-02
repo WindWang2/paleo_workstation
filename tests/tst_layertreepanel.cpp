@@ -431,6 +431,47 @@ class TestLayerTreePanel : public QObject
       QCOMPARE(spy.takeFirst().at(0).toString(), manual->id());
     }
 
+    // ---- goal/time-depth-velocity：「转换为深度域…」意图信号 ----
+    // 仅时间域层位（paleoLayerId horizon.*）可用；深度产物/手工层不给入口。
+    void depthConvertActionEmitsIntent()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+      QVERIFY(manifest.open());
+      QgisLayerService svc(nullptr, &manifest);
+      LayerTreePanel panel(QgsProject::instance(), nullptr, &svc);
+      auto *view = panel.treeView();
+
+      auto *act = panel.findChild<QAction *>(QStringLiteral("layerTreeDepthConvertAction"));
+      QVERIFY(act);
+      QVERIFY2(!act->isEnabled(), "无选中图层时深度转换动作应禁用");
+      QVERIFY(!act->toolTip().isEmpty()); // DESIGN.md：禁用必须带 reason
+
+      auto *horizon = new QgsRasterLayer(QStringLiteral("/nonexistent/D61.tif"),
+                                         QString::fromUtf8("D61 时间构造图"),
+                                         QStringLiteral("gdal"));
+      horizon->setCustomProperty(QStringLiteral("paleoLayerId"), QStringLiteral("horizon.D61"));
+      QgsProject::instance()->addMapLayer(horizon);
+      auto *converted = new QgsRasterLayer(QStringLiteral("/nonexistent/DEPTH_D61.tif"),
+                                           QString::fromUtf8("D61 深度域"),
+                                           QStringLiteral("gdal"));
+      converted->setCustomProperty(QStringLiteral("paleoLayerId"), QStringLiteral("depth.D61"));
+      QgsProject::instance()->addMapLayer(converted);
+
+      QSignalSpy spy(&panel, &LayerTreePanel::depthConversionRequested);
+      view->setCurrentLayer(horizon);
+      QTRY_VERIFY(act->isEnabled());
+      act->trigger();
+      QCOMPARE(spy.count(), 1);
+      QCOMPARE(spy.takeFirst().at(0).toString(), QStringLiteral("horizon.D61"));
+
+      view->setCurrentLayer(converted);
+      QTRY_VERIFY(!act->isEnabled()); // 深度产物不可再转换
+      act->trigger();
+      QCOMPARE(spy.count(), 0);       // 已 takeFirst；禁用态触发不发意图
+    }
+
     // ---- 「在新页打开所属编图页」：组→页映射 + 禁用 reason ----
     void mappingPageActionResolvesGroupsAndReasons()
     {

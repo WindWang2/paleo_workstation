@@ -87,6 +87,7 @@ class ProjectDataFacade;
 class DataCatalog;
 class DataImportService;
 class PreviewDocService;
+class DepthConversionWorkflow;
 class FolderImportWorkflow;
 class ProjectOpenWorkflow;
 class RegistrationWorkflow;
@@ -151,6 +152,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     // Swap right-dock placeholder panels for the real page panels (§42.2),
     // bound to the workflow orchestrators. Call after AppContext assembly.
     void attachWorkbench(MappingWorkbench *workbench);
+    // goal/time-depth-velocity：层树「转换为深度域…」意图 → DepthConversionWorkflow。
+    // 独立于 attachWorkflows，避免动其签名（同 attachMapping 先例）。
+    void attachDepthConversion(DepthConversionWorkflow *depth);
     // goal/fault-interpretation：断层解释接线——剖面 dock 挂编排器 + 右栏
     // 断层管理面板 dock。幂等（m_faultPanelDock 已建则只重挂控制器）。
     void attachFaults(paleo::fault::FaultInterpretationController *controller);
@@ -323,6 +327,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     DataImportService *m_importSvc = nullptr; // attachWorkflows 注入；启动页「从工区文件夹新建」用
     // 壳唯一数据门面（W1）：dataPage 属性与 previewTabs 共用同一实例。
     PreviewDocService *m_previewDoc = nullptr;
+    DepthConversionWorkflow *m_depthWf = nullptr;
     FolderImportWorkflow *m_folderImportWf = nullptr;   // W2 文件夹/单文件导入编排
     ProjectOpenWorkflow *m_projectOpenWf = nullptr;     // W2 打开/新建工程编排
     RegistrationWorkflow *m_registrationWf = nullptr;   // W3 临时配准编排

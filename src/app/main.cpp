@@ -93,6 +93,9 @@ int main(int argc, char *argv[])
                          ctx.compositionWf(), ctx.validationWf(), ctx.importSvc(),
                          ctx.seismicLink(), ctx.processingSvc(), ctx.store(),
                          ctx.editingSvc(), ctx.layoutSvc(), ctx.taskSvc());
+  // goal/time-depth-velocity：层树深度域转换入口（壳接线在 AppContext 绑定
+  // catalog 之后重绑生效——rebind 随工程打开）。
+  window.attachDepthConversion(ctx.depthConversionWf());
   // goal/fault-interpretation：剖面断层拾取/断层管理面板接编排器
   window.attachFaults(ctx.faultCtl());
   // D1（wave/deepen-perf）：wellcomposite 派生登记/井斜时深装配的 io 注入——

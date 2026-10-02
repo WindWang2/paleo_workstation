@@ -4,6 +4,7 @@
 #include <QThreadPool>
 
 #include <algorithm>
+#include <atomic>
 #include <thread>
 #if defined(Q_OS_UNIX)
 #include <sys/stat.h> // mkfifo（文件夹导入的「非普通文件」行）
@@ -1406,6 +1407,59 @@ private slots:
     QVERIFY(err3.contains(QStringLiteral("已取消")));
   }
 
+  // 审计 02 M-8：worker 线程上的导入，catalog 落盘失败必须如实回到调用方
+  // （非空错误、返回空资产 id、catalog 内存态回滚），不能被异步投递吞掉。
+  void workerImportPropagatesCatalogWriteFailure()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+    QVERIFY(cat);
+    const QString las = tmp.filePath(QStringLiteral("w1.las"));
+    QVERIFY(writeFile(las, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. W1 : WELL\n"
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n101.0 51.0\n")));
+    const int assetsBefore = cat->assets().size();
+
+    // catalog 目录置只读：原子写（临时文件 + rename）在 save() 处失败。
+    const QString catDir = QFileInfo(cat->catalogPath()).absolutePath();
+    QVERIFY(QDir(catDir).exists());
+    const auto oldPerm = QFile::permissions(catDir);
+    QVERIFY(QFile::setPermissions(catDir, QFileDevice::ReadOwner | QFileDevice::ExeOwner));
+    {
+      QFile probe(QDir(catDir).filePath(QStringLiteral(".probe")));
+      if (probe.open(QIODevice::WriteOnly))
+      {
+        probe.close();
+        probe.remove();
+        QFile::setPermissions(catDir, oldPerm);
+        QSKIP("目录权限不生效（root 运行？）——无法制造落盘失败");
+      }
+    }
+
+    QString assetId;
+    QString err;
+    std::atomic_bool finished{false};
+    QThreadPool::globalInstance()->start([&] {
+      assetId = svc.importProjectFile(las, &err);
+      finished = true;
+    });
+    QElapsedTimer clock;
+    clock.start();
+    while (!finished && clock.elapsed() < 60000)
+      QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+    QFile::setPermissions(catDir, oldPerm);
+
+    QVERIFY2(finished.load(), "worker import did not finish (marshal deadlock?)");
+    QVERIFY2(assetId.isEmpty(), qPrintable(assetId));
+    QVERIFY2(!err.isEmpty(), "catalog write failure was swallowed");
+    QCOMPARE(cat->assets().size(), assetsBefore);
+  }
+
   void folderImportRejectsBadRoots()
   {
     QTemporaryDir tmp;
@@ -2208,8 +2262,9 @@ private slots:
     QVERIFY(!inner.issues.isEmpty());
   }
 
-  // P1-10 / CONC-06: catInvoke with void callable must dispatch asynchronously via
+  // P1-10 / CONC-06: fire-and-forget notifications must dispatch asynchronously via
   // Qt::QueuedConnection so worker threads do not deadlock when main thread waits.
+  // (审计 02 M-8：这条通道已从 catInvoke 拆成显式 catNotify——catInvoke 只收有返回值的调用。)
   void catInvokeVoidDispatchesAsyncWithoutDeadlock()
   {
     QTemporaryDir tmp;
@@ -2222,10 +2277,10 @@ private slots:
     std::atomic_bool workerFinished{false};
 
     std::thread worker([&]() {
-      stack->importSvc->catInvoke([&]() {
+      stack->importSvc->catNotify([&]() {
         invoked.store(true);
       });
-      // catInvoke returns immediately via QueuedConnection, before main thread pumps events!
+      // catNotify returns immediately via QueuedConnection, before main thread pumps events!
       workerFinished.store(true);
     });
 

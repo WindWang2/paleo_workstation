@@ -1,5 +1,6 @@
 // 层：数据
 #include "paleoalgorithms.h"
+#include "rasterout.h"
 #include "gridsolver.h"
 #include "../catalog/datacatalog.h"
 
@@ -26,48 +27,12 @@
 #include <memory>
 #include <vector>
 
-// paleoalgorithms.cpp 文件局部的共享助手（createFloatRaster 等）不跨翻译
-// 单元共享——三个引擎各自就地复制的既有口径（welldist.cpp:33 注释同认）。
-// 本文件只复制 createFloatRaster 一件。
+// GeoTIFF 写口走共享的 PaleoRasterOut::createFloatRaster（rasterout.h）。
 
 namespace
 {
 
 constexpr float PALEO_NODATA = -9999.0f;
-
-GDALDatasetH createFloatRaster( const QString &outPath, int nCols, int nRows,
-                                const double geoTransform[6],
-                                const QgsCoordinateReferenceSystem &crs, double nodata )
-{
-  GDALAllRegister();
-  GDALDriverH drv = GDALGetDriverByName( "GTiff" );
-  if ( !drv )
-    return nullptr;
-  GDALDatasetH ds = GDALCreate( drv, outPath.toUtf8().constData(), nCols, nRows, 1,
-                                GDT_Float32, nullptr );
-  if ( !ds )
-    return nullptr;
-  if ( GDALSetGeoTransform( ds, const_cast<double *>( geoTransform ) ) != CE_None )
-  {
-    GDALClose( ds );
-    return nullptr;
-  }
-  if ( crs.isValid() )
-  {
-    // QGIS 的工程 CRS 导出可丢 EDATUM（GeoTIFF 随之丢局部基准、与工程网格
-    // 不再相等）——与 paleoalgorithms.cpp 的 createFloatRaster 同款防御。
-    const auto local = QgsCoordinateReferenceSystem::fromWkt( DataCatalog::localGridCrsWkt() );
-    const QByteArray wkt = ( ( crs == local || crs.toWkt() == local.toWkt() )
-                                 ? DataCatalog::localGridCrsWkt()
-                                 : crs.toWkt( Qgis::CrsWktVariant::PreferredGdal ) )
-                               .toUtf8();
-    GDALSetProjection( ds, wkt.constData() );
-    GDALSetMetadataItem( ds, "PALEO_CRS_WKT", wkt.constData(), nullptr );
-  }
-  GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
-  GDALSetRasterNoDataValue( band, nodata );
-  return ds;
-}
 
 } // namespace
 
@@ -242,7 +207,7 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
   const double gt[6] = { extent.xMinimum(), cellSize, 0.0, extent.yMaximum(), 0.0,
                          -cellSize };
   GDALDatasetH outDs =
-      createFloatRaster( outPath, dims.cols, dims.rows, gt, source->sourceCrs(),
+      PaleoRasterOut::createFloatRaster( outPath, dims.cols, dims.rows, gt, source->sourceCrs(),
                          PALEO_NODATA );
   if ( !outDs )
     throw QgsProcessingException(

@@ -2,6 +2,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QDir>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtEndian>
@@ -9,6 +10,9 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#ifndef Q_OS_WIN
+#include <unistd.h>
+#endif
 
 #include "domain/seismic/sgydatacache.h"
 #include "domain/seismic/sgyindexbuilder.h"
@@ -101,6 +105,13 @@ private slots:
   void initTestCase()
   {
     QVERIFY(tempDir_.isValid());
+    // 审计 01 M4：索引缓存隔离到本测试的临时目录——直接运行（不经 ctest 沙箱）
+    // 也不碰用户/全局缓存目录。
+    const QString cacheDir = tempDir_.filePath(QStringLiteral("index-cache"));
+    QVERIFY(QDir().mkpath(cacheDir));
+    qputenv("SEISMIC_INDEX_CACHE_DIR", QFile::encodeName(cacheDir));
+    QCOMPARE(QString::fromStdU16String(seismic::SgyIndexCache::CacheDirectory().u16string()),
+             cacheDir);
     // 10 inlines x 10 crosslines = 100 traces
     testFilePath_ = tempDir_.filePath(QStringLiteral("test_grid_100.sgy"));
     QVERIFY(writeSyntheticVolume(testFilePath_, 1, 10, 1, 10));
@@ -115,6 +126,50 @@ private slots:
     std::string err;
     seismic::SgyIndexCache::Remove(testFilePath_.toStdString(), err);
     seismic::SgyIndexCache::Remove(largeFilePath_.toStdString(), err);
+  }
+
+  // 审计 01 M4：未显式覆盖时缓存目录必须是每用户的（XDG / ~/.cache），
+  // 不再是多用户共享的 <tmp>/paleo_workstation。
+  void cacheDirectoryIsPerUser()
+  {
+#ifdef Q_OS_WIN
+    QSKIP("POSIX 目录解析序；Windows 走 %LOCALAPPDATA%");
+#else
+    const QByteArray savedOverride = qgetenv("SEISMIC_INDEX_CACHE_DIR");
+    const QByteArray savedXdg = qgetenv("XDG_CACHE_HOME");
+    const bool hadXdg = qEnvironmentVariableIsSet("XDG_CACHE_HOME");
+    const QByteArray savedHome = qgetenv("HOME");
+    const auto cacheDirStr = [] {
+      return QString::fromStdU16String(seismic::SgyIndexCache::CacheDirectory().u16string());
+    };
+    QTemporaryDir fake;
+    QVERIFY(fake.isValid());
+    qunsetenv("SEISMIC_INDEX_CACHE_DIR");
+
+    qputenv("XDG_CACHE_HOME", QFile::encodeName(fake.filePath(QStringLiteral("xdg"))));
+    const QString viaXdg = cacheDirStr();
+    qunsetenv("XDG_CACHE_HOME");
+    qputenv("HOME", QFile::encodeName(fake.filePath(QStringLiteral("home"))));
+    const QString viaHome = cacheDirStr();
+    qputenv("XDG_CACHE_HOME", "relative/ignored"); // 非绝对路径按 XDG 规范忽略
+    const QString viaRelXdg = cacheDirStr();
+    qunsetenv("XDG_CACHE_HOME");
+    qunsetenv("HOME");
+    const QString viaTmp = cacheDirStr(); // 最后回落：tmp 下按 uid 分目录
+
+    qputenv("SEISMIC_INDEX_CACHE_DIR", savedOverride);
+    qputenv("HOME", savedHome);
+    if (hadXdg)
+      qputenv("XDG_CACHE_HOME", savedXdg);
+    else
+      qunsetenv("XDG_CACHE_HOME");
+
+    QCOMPARE(viaXdg, fake.filePath(QStringLiteral("xdg/paleo_workstation/index-cache")));
+    QCOMPARE(viaHome, fake.filePath(QStringLiteral("home/.cache/paleo_workstation/index-cache")));
+    QCOMPARE(viaRelXdg, viaHome);
+    QVERIFY2(viaTmp.contains(QStringLiteral("/paleo_workstation-%1/").arg(::getuid())),
+             qPrintable(viaTmp));
+#endif
   }
 
   void initialIndexingCreatesCacheFile()

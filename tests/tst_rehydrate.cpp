@@ -11,6 +11,10 @@
 #include "../src/qgis/qgisruntime.h"
 #include "../src/metadata/projectlock.h"
 #include "../src/metadata/paleoprojectstore.h"
+#include "../src/io/dataimportservice.h"
+#include "../src/services/paleotaskservice.h"
+
+#include <atomic>
 
 // §37 recovery — the SQLite manifest store is authoritative, but a .qgz moved
 // or shared WITHOUT its ".project.sqlite" sidecar must still recover its full
@@ -165,6 +169,37 @@ private slots:
     QVERIFY2( ctx.projectSvc()->openProject( qgz ),
               qPrintable( ctx.projectSvc()->lastErrors().join( ';' ) ) );
     QVERIFY( ctx.manifest()->all().isEmpty() );
+  }
+
+  // ---- H-2：AppContext 拆除时任务在途——worker 闭包捕获服务裸指针 ----
+  // 旧实现按创建顺序删子对象：m_taskSvc（孤儿化池、不等）先于
+  // DataImportService 被删，取消后仍在收尾的 worker 解引用已释放的服务
+  // （ASan heap-use-after-free）。现在 AppContext 先排空任务池再逆序删除。
+  void contextTeardownDrainsInFlightTasks()
+  {
+    std::atomic<int> started{0};
+    std::atomic<int> finished{0};
+    constexpr int kTasks = 3;
+    {
+      AppContext ctx( QStringLiteral( "/usr" ) );
+      QVERIFY( ctx.ready() );
+      QVERIFY( ctx.taskSvc() && ctx.importSvc() );
+      DataImportService *svc = ctx.importSvc();
+      for ( int i = 0; i < kTasks; ++i )
+        ctx.taskSvc()->start( QStringLiteral( "scan" ), [svc, &started, &finished]( PaleoTask *t ) {
+          started.fetch_add( 1 );
+          while ( !t->cancelRequested() )
+            QThread::msleep( 2 );
+          QThread::msleep( 30 );
+          // 取消后的收尾仍触碰服务（生产：previewFolder 返回途中）
+          const bool alive = svc->metaObject() != nullptr;
+          if ( alive )
+            finished.fetch_add( 1 );
+          return QString();
+        } );
+      QTRY_COMPARE_WITH_TIMEOUT( started.load(), kTasks, 5000 );
+    } // ctx 析构：任务在途
+    QCOMPARE( finished.load(), kTasks );
   }
 
   // ---- Issue #26: AppContext 目录锁生命周期与并发只读降级 ----

@@ -113,6 +113,14 @@ public:
   QVector<PaleoTask *> tasks() const { return m_tasks; }
   void clearFinished(); // 移除非运行态行（运行中任务永不删）
 
+  // 关停排空（H-2）：对所有运行中任务 requestCancel、清空排队，再等 worker
+  // 全部退出（≤timeoutMs；<0 不限时）。pumpEvents=true 且在主线程时等待期间
+  // 泵事件，避免与 BlockingQueuedConnection 回主线程的 worker 互锁。返回
+  // false = 超时仍有 worker 在跑。宿主（AppContext）应在析构依赖对象之前调用；
+  // 析构函数自身也会（不泵事件地）排空。幂等。
+  bool shutdown(int timeoutMs = kShutdownWaitMs, bool pumpEvents = true);
+  static constexpr int kShutdownWaitMs = 10000;
+
   // D4.5 线程池纪律：本服务任务跑专用池，工作线程上限 4（j4 资源纪律精神；
   // 不再与 UI 侧共用 globalInstance 的无上限默认）。返回池配置面（测试/诊断）。
   int maxWorkerThreads() const;

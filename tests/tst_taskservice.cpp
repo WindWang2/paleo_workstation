@@ -3,6 +3,8 @@
 #include <QProgressBar>
 #include <QSemaphore>
 #include <QThread>
+#include <QElapsedTimer>
+#include <atomic>
 #include <QTreeWidget>
 
 #include "../src/metadata/paleoprojectstore.h"
@@ -93,6 +95,54 @@ private slots:
     QVERIFY(fin.wait(5000));
     QCOMPARE(t->state(), PaleoTask::State::Failed);
     QCOMPARE(t->errorText(), QStringLiteral("boom"));
+  }
+
+  // H-2：服务析构必须先让 worker 全部退出——闭包捕获的对象（这里是堆上的
+  // 计数器，生产中是 DataImportService* 等）在服务析构后立即被调用方释放。
+  // 旧实现孤儿化池直接返回：worker 取消后继续访问已释放对象（ASan UAF）。
+  void destroyDrainsInFlightWorkers()
+  {
+    auto *svc = new PaleoTaskService;
+    auto *shared = new std::atomic<int>(0);
+    std::atomic<int> started{0};
+    constexpr int kTasks = 3;
+    for (int i = 0; i < kTasks; ++i)
+      svc->start(QStringLiteral("long"), [shared, &started](PaleoTask *task) {
+        started.fetch_add(1);
+        while (!task->cancelRequested())
+          QThread::msleep(2);
+        QThread::msleep(30); // 取消后仍有收尾工作，期间访问捕获对象
+        shared->fetch_add(1);
+        return QString();
+      });
+    QTRY_COMPARE_WITH_TIMEOUT(started.load(), kTasks, 5000);
+    delete svc; // 析构 = 取消 + 等 worker 退出
+    QCOMPARE(shared->load(), kTasks);
+    delete shared; // 此后不得再有 worker 触碰它
+  }
+
+  // 主线程排空时泵事件：worker 正 BlockingQueuedConnection 回主线程时，
+  // shutdown() 不得互锁到超时。
+  void shutdownPumpsEventsForBlockingWorker()
+  {
+    PaleoTaskService svc;
+    QObject mainThreadObj;
+    std::atomic<bool> started{false};
+    std::atomic<bool> marshalled{false};
+    svc.start(QStringLiteral("marshal"), [&](PaleoTask *task) {
+      started = true;
+      while (!task->cancelRequested())
+        QThread::msleep(2);
+      QMetaObject::invokeMethod(&mainThreadObj, [&] { marshalled = true; },
+                                Qt::BlockingQueuedConnection);
+      return QString();
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(started.load(), 5000);
+    QElapsedTimer clock;
+    clock.start();
+    QVERIFY(svc.shutdown(5000));
+    QVERIFY(marshalled.load());
+    QVERIFY2(clock.elapsed() < 4000, "shutdown() deadlocked against a BlockingQueued worker");
   }
 
   void panelRendersTaskRowWithProgress()

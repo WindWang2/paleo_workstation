@@ -75,3 +75,5 @@ add_paleo_test(tst_perf_catalog LIBS paleo_io)
 add_paleo_test(tst_cache_async LIBS paleo_services)
 add_paleo_test(tst_cache_io LIBS paleo_io)
 add_paleo_test(tst_perf_regress LIBS paleo_io paleo_store)
+# 审计 01 M5：基线按源码树绝对路径找（构建目录在源码树外也能命中）。
+target_compile_definitions(tst_perf_regress PRIVATE PALEO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

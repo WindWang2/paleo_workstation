@@ -590,7 +590,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
             return fail(error ? *error : QStringLiteral("horizon raster write failed"));
           QFile::setPermissions(dst, QFileDevice::ReadOwner | QFileDevice::ReadUser |
                                      QFileDevice::ReadGroup | QFileDevice::ReadOther);
-          if (!catInvoke([&] { return m_catalog->addVersion(derived, error); }))
+          if (!catWrite([&] { return m_catalog->addVersion(derived, error); }, error))
             return fail(error ? *error : QStringLiteral("catalog addVersion failed"));
         }
         LayerDeclaration decl;
@@ -599,7 +599,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
         decl.type = QStringLiteral("raster");
         decl.source = DataCatalog::resolvedVersionPath(m_projectDir, derived);
         decl.group = QStringLiteral("00_Data");
-        catInvoke([this, decl] { emit layerDeclared(decl); });
+        catNotify([this, decl] { emit layerDeclared(decl); });
       }
     }
     QString aerr;
@@ -635,7 +635,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
   asset.type = cls.type;
   asset.format = cls.format;
   asset.displayName = fi.fileName();
-  if (!catInvoke([&] { return m_catalog->addAsset(asset, error); }))
+  if (!catWrite([&] { return m_catalog->addAsset(asset, error); }, error))
     return fail(*error);
 
   CatalogVersion version;
@@ -663,7 +663,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
     version.path = relPath;
     version.sha256 = sha;
   }
-  if (!catInvoke([&] { return m_catalog->addVersion(version, error); }))
+  if (!catWrite([&] { return m_catalog->addVersion(version, error); }, error))
     return fail(*error);
 
   // ---- 实体解析与关联（角色沿用已有名字）----
@@ -700,7 +700,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       {
         link.unresolved = true;
         link.note = QStringLiteral("井口重名: %1").arg(norm);
-        if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
+        if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
           return fail(*error);
         continue;
       }
@@ -710,7 +710,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       {
         link.unresolved = true;
         link.note = catInvoke([&] { return candidatesNote(m_catalog, matches); });
-        if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
+        if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
           return fail(*error);
         continue;
       }
@@ -737,12 +737,12 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
         w.td = r.td;
         // 局部测网坐标：真投影参数出现前保持未变换（plan §3）。
         w.coordinateStatus = QStringLiteral("untransformed");
-        if (!catInvoke([&] { return m_catalog->addEntity(w, error); }))
+        if (!catWrite([&] { return m_catalog->addEntity(w, error); }, error))
           return fail(*error);
       }
       link.entityId = wid;
       link.isPrimary = true;
-      if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
+      if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
         return fail(*error);
     }
   }
@@ -780,7 +780,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
                         })
                       : unmatchedNameNote(tried);
     }
-    if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
+    if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
       return fail(*error);
   }
   else if (cls.type == QLatin1String("well_stratification") ||
@@ -841,7 +841,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
                           })
                         : unmatchedNameNote(tried);
       }
-      if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
+      if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
         return fail(*error);
     }
   }
@@ -857,7 +857,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       sb.name = stem.toUpper();
       if (!known)
         sb.extra.insert(QStringLiteral("pending"), true); // 未决层位，不进编图 chip
-      if (!catInvoke([&] { return m_catalog->addEntity(sb, error); }))
+      if (!catWrite([&] { return m_catalog->addEntity(sb, error); }, error))
         return fail(*error);
     }
     EntityAssetLink link;
@@ -867,7 +867,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
     link.role = QStringLiteral("horizon");
     link.isPrimary = true;
     link.unresolved = !known;
-    if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
+    if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
       return fail(*error);
 
     // 已知界面：装箱派生时间栅格（DERIVED，父版本=RAW）并登记图层清单。
@@ -925,7 +925,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       derived.extra.insert(QStringLiteral("z_min"), binned.zMin);
       derived.extra.insert(QStringLiteral("z_max"), binned.zMax);
       derived.extra.insert(QStringLiteral("filled_cells"), binned.filledCells);
-      if (!catInvoke([&] { return m_catalog->addVersion(derived, error); }))
+      if (!catWrite([&] { return m_catalog->addVersion(derived, error); }, error))
         return fail(*error);
 
       // 图层清单只登记要画的结果（§2）：北向上时间栅格 + 局部测网 CRS。
@@ -936,7 +936,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       decl.source = tifPath;
       decl.group = QStringLiteral("00_Data");
       // declare 写 layer manifest（sqlite）——marshal 回 GUI 线程执行。
-      catInvoke([this, decl] { emit layerDeclared(decl); });
+      catNotify([this, decl] { emit layerDeclared(decl); });
       manifestLayerId = decl.layerId;
     }
   }
@@ -963,7 +963,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       s.startTimeMs = g.startTimeMs;
       for (int i = 0; i < 4; ++i)
         s.corners.append({g.cornerX[i], g.cornerY[i]});
-      if (!catInvoke([&] { return m_catalog->addEntity(s, error); }))
+      if (!catWrite([&] { return m_catalog->addEntity(s, error); }, error))
         return fail(*error);
     }
     EntityAssetLink link;
@@ -972,7 +972,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
     link.assetId = assetId;
     link.role = QStringLiteral("seismic_volume");
     link.isPrimary = true;
-    if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
+    if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
       return fail(*error);
   }
   else
@@ -1011,7 +1011,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
         aux.extra.insert(QStringLiteral("legend"), legend);
       }
     }
-    if (!catInvoke([&] { return m_catalog->addEntity(aux, error); }))
+    if (!catWrite([&] { return m_catalog->addEntity(aux, error); }, error))
       return fail(*error);
     EntityAssetLink link;
     link.entityType = QStringLiteral("auxiliary");
@@ -1019,7 +1019,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
     link.assetId = assetId;
     link.role = auxRefRole;
     link.isPrimary = true;
-    if (!catInvoke([&] { return m_catalog->addLink(link, error); }))
+    if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
       return fail(*error);
   }
 
@@ -1878,7 +1878,7 @@ QString DataImportService::relocateVersionSource(const QString &versionId,
   relocated.fileName = fi.fileName();
   relocated.extra = v.extra;   // 外链夹带的图例等元数据随内容一起搬
   relocated.extra.insert(QStringLiteral("relocatedFrom"), v.id);
-  if (!catInvoke([&] { return m_catalog->addVersion(relocated, error); }))
+  if (!catWrite([&] { return m_catalog->addVersion(relocated, error); }, error))
     return fail(error->isEmpty() ? QStringLiteral("catalog addVersion failed") : *error);
   qInfo("relocate: %s -> %s (asset %s, from version %s)", qPrintable(v.path),
         qPrintable(abs), qPrintable(v.assetId), qPrintable(v.id));

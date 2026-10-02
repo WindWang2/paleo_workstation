@@ -167,6 +167,43 @@ private slots:
     delete empty;
   }
 
+  // 0b) 审计 02 M-2：welldist / distance_transform 原先各自复制的
+  //     createFloatRaster 不写 CRS——输出 GeoTIFF 无坐标系。收敛到共享写口后，
+  //     两者输出必须带上输入图层的 CRS（投影 + PALEO_CRS_WKT 元数据）。
+  void distanceOutputsCarryCrs()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells" ),
+        { { QgsPointXY( 0, 0 ), 0.0 }, { QgsPointXY( 10, 0 ), 0.0 } } );
+    QVERIFY( wells->isValid() );
+    QVERIFY( wells->crs().isValid() );
+    for ( const QString &alg : { QStringLiteral( "paleo:paleo_welldist" ),
+                                 QStringLiteral( "paleo:paleo_distance_transform" ) } )
+    {
+      const QString out = mDir.filePath( QStringLiteral( "crs_%1.tif" ).arg( alg.section( ':', 1 ) ) );
+      QVariantMap params;
+      params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+      params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+      params.insert( QStringLiteral( "OUTPUT" ), out );
+      QString log;
+      QVERIFY2( !AlgorithmTestBase::run( alg, params, &log ).isEmpty(), qPrintable( log ) );
+      GDALDatasetH ds = GDALOpen( out.toUtf8().constData(), GA_ReadOnly );
+      QVERIFY( ds );
+      const QString wkt = QString::fromUtf8( GDALGetProjectionRef( ds ) );
+      // 元数据串归 dataset 所有：GDALClose 前拷出（否则 UAF）。
+      const QString meta = QString::fromUtf8( GDALGetMetadataItem( ds, "PALEO_CRS_WKT", nullptr ) );
+      double gt[6] = {};
+      const bool hasGt = GDALGetGeoTransform( ds, gt ) == CE_None;
+      GDALClose( ds );
+      QVERIFY2( !wkt.isEmpty(), qPrintable( alg + QStringLiteral( ": output GeoTIFF has no CRS" ) ) );
+      QVERIFY2( !meta.isEmpty(), qPrintable( alg ) );
+      QCOMPARE( QgsCoordinateReferenceSystem::fromWkt( wkt ), wells->crs() );
+      QVERIFY( hasGt );
+      QCOMPARE( gt[1], 1.0 );
+    }
+    delete wells;
+  }
+
   // 1) IDW：同一输入连跑两次，输出逐像元一致（tol=0）；顺带校验一个
   //    已知中心的值（harness.makeRaster/readRaster 同时被本案覆盖）。
   void constraintIdwDeterministicRerun()

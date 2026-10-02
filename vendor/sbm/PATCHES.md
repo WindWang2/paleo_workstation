@@ -11,6 +11,12 @@
 - `LoadFromPath()` 独立接口、`Save(..., targetCachePath)` 可选落盘目标。
 - 缓存目录 `SeismicF3Viewer` → `paleo_workstation`（`%LOCALAPPDATA%`/平台等价物下）。
 - POSIX：`<unistd.h>`/`getpid()` 守护；路径转 UTF-8 走 `sgyio::ToUtf8Path`。
+- `CacheDirectory()` POSIX 解析序（审计 01 M4，2026-10）：`SEISMIC_INDEX_CACHE_DIR`
+  → `$XDG_CACHE_HOME/paleo_workstation/index-cache`（仅绝对路径）→
+  `$HOME/.cache/paleo_workstation/index-cache` → `<tmp>/paleo_workstation-<uid>/index-cache`。
+  原先固定 `<tmp>/paleo_workstation/index-cache`，多用户共享且不受 ctest XDG 沙箱隔离。
+  `src/io/segyindexstore.cpp` 直接调用本函数预建目录（不再复刻解析序），并把
+  `paleo_workstation*` 层收紧为 0700。
 
 ## P2 · `src/Data/Sgy/SgyVolume.{h,cpp}` — `TimeGridCache` + mmap 并行 `ReadSlice`
 

@@ -9,8 +9,9 @@
 # 产出：/tmp/buildopt_results/{o3,lto}/{perf.json,startup.json,startup_report.json}
 set -uo pipefail
 
-ROOT="/home/kevin/projects/paleo_workstation/.worktrees/perf-systematize"
-PREFIX="/home/kevin/projects/paleo_workstation/vendor/superbuild/prefix"
+# 审计 01 L1：不再写死开发机路径——PALEO_ROOT / QGIS_PREFIX 可覆盖，默认取本仓库。
+ROOT="${PALEO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+PREFIX="${QGIS_PREFIX:-$ROOT/vendor/superbuild/prefix}"
 OUT="/tmp/buildopt_results"
 mkdir -p "$OUT/o3" "$OUT/lto"
 

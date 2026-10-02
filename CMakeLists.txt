@@ -165,7 +165,7 @@ target_compile_definitions(paleo_saribbon PUBLIC
 target_link_libraries(paleo_saribbon PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets)
 target_compile_options(paleo_saribbon PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>) # 第三方源不改，静音其告警
 
-# ---- vendor/segyio: segyio v2.0.0-alpha.1 C library ----
+# ---- vendor/segyio: segyio v2.0.0-alpha.1 C library（本地补丁见 vendor/segyio/PATCHES.md）----
 add_library(paleo_segyio STATIC vendor/segyio/src/segy.c)
 target_include_directories(paleo_segyio SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/vendor/segyio/include)
 # 64 位 seek 宏按平台：MSVC 无 fseeko/ftello（LLP64 long=32bit 走
@@ -266,6 +266,10 @@ if(ORT_INCLUDE AND ORT_LIB AND (NOT WIN32 OR ORT_DLL))
     src/ai/remotepredictionservice.cpp src/ai/remotepredictrouter.cpp)
   target_link_libraries(paleo_ai PUBLIC paleo_deps ort_vendored)
   target_compile_definitions(paleo_ai PUBLIC PALEO_HAVE_ORT=1)
+  # 审计 01 M5：vendorRuntimeDir() 从可执行文件往上找 vendor/onnxruntime，构建目录在
+  # 源码树外（-B ../b-asan）时找不到——编译期注入 ORT 根作为向上查找后的回落。
+  get_filename_component(_paleo_ort_root "${ORT_INCLUDE}" DIRECTORY)
+  target_compile_definitions(paleo_ai PRIVATE PALEO_ORT_ROOT="${_paleo_ort_root}")
   target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
   set(CMAKE_BUILD_RPATH "${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 else()
@@ -754,7 +758,8 @@ target_link_libraries(paleo PRIVATE paleo_core)
 # 注入 1500ms 劣化断言门必红（判别力）。计时面挂串行，对齐 tst_perfbudget。
 add_paleo_test(tst_startup_trace LIBS paleo_services)
 target_compile_definitions(tst_startup_trace PRIVATE
-  PALEO_APP_BINARY="$<TARGET_FILE:paleo>")
+  PALEO_APP_BINARY="$<TARGET_FILE:paleo>"
+  PALEO_SOURCE_DIR="${CMAKE_SOURCE_DIR}") # 审计 01 M5：基线不靠 CWD 相对路径
 set_tests_properties(tst_startup_trace PROPERTIES RUN_SERIAL TRUE)
 
 add_executable(paleo_seismic_demo tools/seismic_showcase.cpp)
@@ -870,5 +875,30 @@ foreach(_f IN LISTS _paleo_extra_ondisk)
   if(NOT _f IN_LIST _paleo_extra_manifest)
     message(FATAL_ERROR "cmake/$(notdir ${_f}) 未登记进 _paleo_extra_manifest——"
       "请补进上面的显式清单（防漂移约定不变：include 仍只走清单）")
+  endif()
+endforeach()
+
+# ---- 审计 01 M6：计时/黄金图类测试打标签（放在所有 extra-*.cmake 之后统一登记）----
+# perf   = 墙钟预算/比率门/基准类：本机负载敏感。`ctest -LE perf` 可整体排除，
+#          `ctest -L perf` 单独串行重跑。阈值一律不动；统一 RUN_SERIAL 防并行抖动。
+# golden = 渲染像素比对类（字体/优化级别敏感）。
+# add_paleo_test 已按首模块设了 LABELS——这里 APPEND，不覆盖（CI 的 -L 分步不受影响）。
+# tst_panels / tst_correlation_full 只有个别计时断言、主体是功能覆盖：保持既有
+# RUN_SERIAL，不打 perf（-LE perf 不应丢掉这些功能测试）。
+set(_paleo_perf_tests
+  tst_perf tst_previewmap_perf tst_aiassist_perf tst_startup_trace tst_perfbudget
+  tst_ui_blocking tst_mem_budget tst_perf_las tst_perf_segyindex tst_perf_catalog
+  tst_perf_regress tst_petrophysperf tst_seismic_perf tst_seismic_baseline
+  tst_seismic_budgets tst_seismicattrperf tst_horizontrackperf tst_timedepthperf
+  tst_wellcomposite_perf tst_cache_las)
+foreach(_t IN LISTS _paleo_perf_tests)
+  if(TEST ${_t})
+    set_property(TEST ${_t} APPEND PROPERTY LABELS perf)
+    set_tests_properties(${_t} PROPERTIES RUN_SERIAL TRUE)
+  endif()
+endforeach()
+foreach(_t IN ITEMS tst_wellcomposite_visual)
+  if(TEST ${_t})
+    set_property(TEST ${_t} APPEND PROPERTY LABELS golden)
   endif()
 endforeach()

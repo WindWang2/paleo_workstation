@@ -556,13 +556,11 @@ class TestMapBook : public QObject
       QCOMPARE( started.count(), 1 ); // 视图只发信号，编排在功能层
 
       // 取消键只在忙碌态可用（禁用按钮的 click 不发信号）：先进入忙碌态再点。
+      // 视图只发信号——是否有真实批次在跑是功能层的事，面板不自我拦截。
       panel.setBusy( true );
       QPushButton *cancel = panel.findChild<QPushButton *>( QStringLiteral( "mapbookCancel" ) );
       QVERIFY( cancel != nullptr );
       QVERIFY( cancel->isEnabled() );
-      cancel->click();
-      QCOMPARE( cancelled.count(), 0 ); // no running batch, cancel is disabled
-      panel.setBusy( true );
       cancel->click();
       QCOMPARE( cancelled.count(), 1 );
 

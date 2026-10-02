@@ -3,8 +3,9 @@
 #   阶段1 build-x-pgo：-fprofile-generate 编 paleo_selfcheck，跑 perf 组产 .gcda
 #   阶段2 同目录重配 -fprofile-use，重建，跑 perf 组对比
 set -uo pipefail
-ROOT="/home/kevin/projects/paleo_workstation/.worktrees/perf-systematize"
-PREFIX="/home/kevin/projects/paleo_workstation/vendor/superbuild/prefix"
+# 审计 01 L1：不再写死开发机路径——PALEO_ROOT / QGIS_PREFIX 可覆盖，默认取本仓库。
+ROOT="${PALEO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+PREFIX="${QGIS_PREFIX:-$ROOT/vendor/superbuild/prefix}"
 OUT="/tmp/buildopt_results/pgo"
 mkdir -p "$OUT"
 DIR="$ROOT/build-x-pgo"

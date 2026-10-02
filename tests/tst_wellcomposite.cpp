@@ -259,13 +259,35 @@ private slots:
     QCOMPARE(canvas.trackCount(), 5);
   }
 
+  // 审计 01 L1：真实井综合柱状图 XML 路径不再写死开发机目录。
+  // PALEO_WELLCOMPOSITE_XML（直接指向文件）优先；否则 PALEO_REAL_PROJECT_AREA
+  // （与 tst_smoke_realdata 等同一约定）+ 工区内相对路径。
+  static QString realCompositeXml()
+  {
+    const QString direct = qEnvironmentVariable("PALEO_WELLCOMPOSITE_XML");
+    if (!direct.isEmpty())
+      return direct;
+    const QString area = qEnvironmentVariable("PALEO_REAL_PROJECT_AREA");
+    if (area.isEmpty())
+      return {};
+    return QDir(area).filePath(QStringLiteral(
+        "artifacts/raw/ast-28/ver-28/HZ28-6-1井综合柱状图-2021-沉积-地化室-未钻遇烃源岩层-测井-惠州勘探室.xml"));
+  }
+
+  static QString realCompositeSkipReason(const QString &xmlPath)
+  {
+    if (xmlPath.isEmpty())
+      return QStringLiteral("真实井综合柱状图 XML 未配置：设 PALEO_WELLCOMPOSITE_XML=<xml> 或 "
+                            "PALEO_REAL_PROJECT_AREA=<project_area> 以运行");
+    return QStringLiteral("真实井综合柱状图 XML 不存在：%1").arg(xmlPath);
+  }
+
   void testParseComprehensiveXmlRealData()
   {
-    const QString xmlPath = QStringLiteral(
-        "/home/kevin/projects/paleo_project/data/project_area/artifacts/raw/ast-28/ver-28/HZ28-6-1井综合柱状图-2021-沉积-地化室-未钻遇烃源岩层-测井-惠州勘探室.xml");
-    // 真实数据仅存在于开发机私有目录，CI/其他环境跳过而非 FAIL
-    if (!QFile::exists(xmlPath))
-      QSKIP("真实井综合柱状图 XML 不在本机，跳过");
+    const QString xmlPath = realCompositeXml();
+    // 真实数据不随仓库分发：未配置时跳过（跳过信息点名环境变量，不再静默）
+    if (xmlPath.isEmpty() || !QFile::exists(xmlPath))
+      QSKIP(qPrintable(realCompositeSkipReason(xmlPath)));
 
     ComprehensiveWellData data;
     QString err;
@@ -307,11 +329,10 @@ private slots:
 
   void testCompositePanelAssembly()
   {
-    const QString xmlPath = QStringLiteral(
-        "/home/kevin/projects/paleo_project/data/project_area/artifacts/raw/ast-28/ver-28/HZ28-6-1井综合柱状图-2021-沉积-地化室-未钻遇烃源岩层-测井-惠州勘探室.xml");
-    // 真实数据仅存在于开发机私有目录，CI/其他环境跳过而非 FAIL
-    if (!QFile::exists(xmlPath))
-      QSKIP("真实井综合柱状图 XML 不在本机，跳过");
+    const QString xmlPath = realCompositeXml();
+    // 真实数据不随仓库分发：未配置时跳过（跳过信息点名环境变量，不再静默）
+    if (xmlPath.isEmpty() || !QFile::exists(xmlPath))
+      QSKIP(qPrintable(realCompositeSkipReason(xmlPath)));
 
     WellCompositePanel panel;
     panel.resize(1200, 800);

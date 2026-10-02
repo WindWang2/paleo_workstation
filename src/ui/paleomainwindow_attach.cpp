@@ -44,6 +44,9 @@
 #include "constraintdrawcontroller.h"
 #include "typedconstraintdrawcontroller.h" // m2(B)：物源线/展布线/控制点类型化捕获
 #include "dialogs/folderconfirm.h"
+#include "dialogs/griddingdialog.h" // goal/gridding-surface-ops：网格化/面运算参数表
+#include "../workflow/surfacegridding.h"
+#include "layers/layertreepanel.h"
 #include "correlationpanel.h"
 #include "correlation/petrophyspanel.h" // goal/petrophysics-logs：测井计算面板（意图信号）
 #include "io/lasdoc.h"                  // LasCurve 值类型（ui io 白名单头）
@@ -120,6 +123,227 @@ namespace
 // lasdoc.h，函数由组装根（src/app/main.cpp）装配期注入；未注入时 sink
 // 按错误路径如实回报（状态栏 + 消息日志），不静默回落。
 // ---------------------------------------------------------------------------
+// goal/gridding-surface-ops：层位散点网格化 + 栅格面运算（壳接线）
+// 视图只发意图信号；这里串参数表 → 异步任务 → 受管派生 → manifest 声明。
+// ---------------------------------------------------------------------------
+
+// 层位资产 → 散点文本（读当前版本文件）。失败弹原因并返回 false；
+// 空文件如实返回 true + 空文本（由勘察阶段报「散点为空」）。
+bool readHorizonAssetText(PaleoMainWindow *win, DataCatalog *catalog,
+                          const QString &projectDir, const QString &assetId, QByteArray *out)
+{
+  const CatalogAsset a = catalog->assetById(assetId);
+  if (a.id.isEmpty())
+  {
+    QMessageBox::warning(win, QObject::tr("网格化"), QObject::tr("资产不存在：%1").arg(assetId));
+    return false;
+  }
+  if (a.type != QLatin1String("horizon"))
+  {
+    QMessageBox::warning(win, QObject::tr("网格化"),
+                         QObject::tr("「网格化」只适用于层位资产（%1 是 %2）").arg(a.displayName, a.type));
+    return false;
+  }
+  const CatalogVersion v = catalog->currentVersion(assetId);
+  const QString src = v.managed ? QDir(projectDir).absoluteFilePath(v.path) : v.path;
+  QFile f(src);
+  if (!f.open(QIODevice::ReadOnly))
+  {
+    QMessageBox::warning(win, QObject::tr("网格化"),
+                         QObject::tr("无法读取层位文件：%1").arg(src));
+    return false;
+  }
+  *out = f.readAll();
+  return true;
+}
+
+// 网格化结果/等厚栅格的 manifest 声明 + 实例化（rasterReady 排队回 GUI 后执行）。
+void declareGriddedRaster(PaleoMainWindow *win, QgisLayerService *layerSvc,
+                          const QString &layerId, const QString &source, const QString &title,
+                          const QString &horizon)
+{
+  Q_UNUSED(win);
+  LayerDeclaration decl;
+  decl.layerId = layerId;
+  decl.horizon = horizon;
+  decl.type = QStringLiteral("raster");
+  decl.source = source;
+  decl.title = title;
+  decl.group = QStringLiteral("00_Data"); // 与导入派生的层位栅格同组
+  QString err;
+  if (!layerSvc->declare(decl, &err))
+  {
+    QgsMessageLog::logMessage(QObject::tr("图层声明失败 %1：%2").arg(layerId, err),
+                              QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+    return;
+  }
+  QgsMapLayer *layer = layerSvc->instantiate(layerId, &err);
+  if (layer)
+    QgsMessageLog::logMessage(QObject::tr("%1 已上图（%2）").arg(title, layerId),
+                              QStringLiteral("Paleo"));
+  else
+    QgsMessageLog::logMessage(QObject::tr("图层实例化失败 %1：%2").arg(layerId, err),
+                              QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+}
+
+void runHorizonGridding(PaleoMainWindow *win, DataCatalog *catalog, const QString &projectDir,
+                        PaleoTaskService *taskSvc, QgisLayerService *layerSvc,
+                        const QString &constraintGpkg, const QString &assetId)
+{
+  QByteArray text;
+  if (!readHorizonAssetText(win, catalog, projectDir, assetId, &text))
+    return;
+  const CatalogAsset a = catalog->assetById(assetId);
+
+  // 参数表上下文：散点勘察下沉在 workflow（io 解析不许进视图层）。
+  const SurfaceGriddingWorkflow::Inspect ctxIn =
+      SurfaceGriddingWorkflow::inspectHorizonText(text, constraintGpkg);
+  if (!ctxIn.ok)
+  {
+    QMessageBox::warning(win, QObject::tr("网格化"),
+                         QObject::tr("层位 %1：%2").arg(a.displayName, ctxIn.error));
+    return;
+  }
+  PaleoGriddingDialog::RequestContext ctx;
+  ctx.horizonName = a.displayName;
+  ctx.minX = ctxIn.minX;
+  ctx.maxX = ctxIn.maxX;
+  ctx.minY = ctxIn.minY;
+  ctx.maxY = ctxIn.maxY;
+  ctx.hasHeaderCell = ctxIn.hasHeaderCell;
+  ctx.headerCellSize = ctxIn.headerCellSize;
+  ctx.hasConstraints = ctxIn.hasConstraints;
+  PaleoGriddingDialog::Request req;
+  if (!PaleoGriddingDialog::prompt(win, ctx, &req))
+    return;
+
+  auto *wf = new SurfaceGriddingWorkflow(layerSvc, win);
+  wf->setCatalog(catalog, projectDir);
+  wf->setBarrierSource(constraintGpkg);
+  QObject::connect(wf, &SurfaceGriddingWorkflow::rasterReady, win,
+                   [win, layerSvc](const QString &layerId, const QString &source,
+                                   const QString &title, const QString &horizon)
+                   { declareGriddedRaster(win, layerSvc, layerId, source, title, horizon); });
+  QObject::connect(wf, &SurfaceGriddingWorkflow::griddingFailed, win,
+                   [win](const QString &, const QString &error)
+                   {
+                     QgsMessageLog::logMessage(error, QStringLiteral("Paleo"),
+                                               Qgis::MessageLevel::Warning);
+                     win->statusBar()->showMessage(error, 10000);
+                   });
+
+  const QString horizon = a.displayName;
+  const QByteArray textCopy = text;
+  if (taskSvc)
+  {
+    taskSvc->start(QObject::tr("网格化 %1（最小曲率）").arg(horizon),
+                   [wf, horizon, textCopy, req](PaleoTask *t) -> QString
+                   {
+                     SurfaceGriddingWorkflow::Options opt;
+                     opt.cellSize = req.cellSize;
+                     opt.tension = req.tension;
+                     opt.maxSweeps = req.maxSweeps;
+                     opt.useBarriers = req.useBarriers;
+                     opt.runCrossValidation = req.runCrossValidation;
+                     opt.cvPoints = req.cvPoints;
+                     SurfaceGriddingWorkflow::Outcome o;
+                     const QString err = wf->gridHorizonText(
+                         horizon, textCopy, opt, [t] { return t->cancelRequested(); },
+                         [t](const QString &stage, int percent)
+                         { t->reportStage(stage, percent); },
+                         &o);
+                     if (err.isEmpty())
+                     {
+                       t->reportDetail(QObject::tr("网格 %1×%2，%3 遍%4，距数据最远 %5")
+                                           .arg(o.cols)
+                                           .arg(o.rows)
+                                           .arg(o.sweeps)
+                                           .arg(o.converged
+                                                    ? QObject::tr("（已收敛）")
+                                                    : QObject::tr("（达迭代上限未收敛）"))
+                                           .arg(o.distToDataMax, 0, 'f', 1));
+                       if (o.cvFolds > 0)
+                         t->reportDetail(QObject::tr("留一法 CV RMS = %1（%2 折）")
+                                             .arg(o.cvRms, 0, 'g', 4)
+                                             .arg(o.cvFolds));
+                     }
+                     return err;
+                   });
+  }
+  else
+  {
+    // 无任务服务（测试/退化环境）：同步跑，错误弹窗。
+    SurfaceGriddingWorkflow::Options opt;
+    opt.cellSize = req.cellSize;
+    opt.tension = req.tension;
+    opt.maxSweeps = req.maxSweeps;
+    opt.useBarriers = req.useBarriers;
+    opt.runCrossValidation = req.runCrossValidation;
+    opt.cvPoints = req.cvPoints;
+    SurfaceGriddingWorkflow::Outcome o;
+    const QString err = wf->gridHorizonText(horizon, text, opt, nullptr, nullptr, &o);
+    if (!err.isEmpty())
+      QMessageBox::warning(win, QObject::tr("网格化失败"), err);
+  }
+}
+
+// 图层树「面运算（等厚/体积）」：声明栅格两两组合 → 等厚 + 体积报告。
+void runSurfaceOps(PaleoMainWindow *win, QgisLayerService *layerSvc, DataCatalog *catalog,
+                   const QString &projectDir)
+{
+  QVector<LayerDeclaration> decls;
+  QString readErr;
+  if (!layerSvc || !layerSvc->tryDeclared(&decls, &readErr))
+  {
+    QMessageBox::warning(win, QObject::tr("面运算"), readErr);
+    return;
+  }
+  QVector<QPair<QString, QString>> candidates; // (title, source)
+  for (const LayerDeclaration &d : decls)
+    if (d.type == QLatin1String("raster") && !d.source.isEmpty())
+      candidates.append({d.title.isEmpty() ? d.layerId : d.title, d.source});
+  PaleoGriddingDialog::IsopachSelection sel;
+  if (!PaleoGriddingDialog::promptIsopach(win, candidates, &sel))
+    return;
+
+  auto *wf = new SurfaceGriddingWorkflow(layerSvc, win);
+  wf->setCatalog(catalog, projectDir);
+  QObject::connect(wf, &SurfaceGriddingWorkflow::rasterReady, win,
+                   [win, layerSvc](const QString &layerId, const QString &source,
+                                   const QString &title, const QString &horizon)
+                   { declareGriddedRaster(win, layerSvc, layerId, source, title, horizon); });
+
+  const QString label = QStringLiteral("%1–%2")
+                            .arg(PaleoGriddingDialog::safeAssetLabel(
+                                candidates.at(sel.topIndex).first),
+                                 PaleoGriddingDialog::safeAssetLabel(
+                                     candidates.at(sel.baseIndex).first));
+  SurfaceGriddingWorkflow::VolumeReport rep;
+  const QString err = wf->isopachBetweenRasters(
+      candidates.at(sel.topIndex).second, candidates.at(sel.baseIndex).second, label, &rep,
+      sel.writeManaged, nullptr);
+  if (!err.isEmpty())
+  {
+    QMessageBox::warning(win, QObject::tr("面运算失败"), err);
+    return;
+  }
+  QVector<QPair<QString, QString>> metrics;
+  metrics.append({QObject::tr("有效像元"), QString::number(rep.cells)});
+  metrics.append({QObject::tr("空值像元"), QString::number(rep.nullCells)});
+  metrics.append({QObject::tr("正厚度像元"), QString::number(rep.positiveCells)});
+  metrics.append({QObject::tr("负厚度像元（顶低于底）"), QString::number(rep.negativeCells)});
+  metrics.append({QObject::tr("面积"), QObject::tr("%1 m²").arg(rep.area, 0, 'g', 8)});
+  metrics.append({QObject::tr("体积（z 单位·m²）"),
+                  QObject::tr("%1（时间层位为 ms·m²，换算 m³ 需速度场）")
+                      .arg(rep.volume, 0, 'g', 8)});
+  metrics.append({QObject::tr("厚度范围"),
+                  QObject::tr("%1 ~ %2").arg(rep.minThickness, 0, 'g', 6)
+                                        .arg(rep.maxThickness, 0, 'g', 6)});
+  metrics.append({QObject::tr("平均厚度"), QString::number(rep.meanThickness, 'g', 6)});
+  PaleoGriddingDialog::showVolumeReport(
+      win, QObject::tr("等厚 / 体积报告：%1").arg(label), metrics, rep.csv());
+}
+
 void attachWellCompositeDerived(PaleoMainWindow *win, DataCatalog *catalog)
 {
   if (!win || !catalog)
@@ -416,6 +640,41 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   attachConstraintPage(constraintPage, constraint);
   attachComposePage(composePage, compose, layoutSvc);
   attachValidatePage(validatePage, validate, corrPanel, importSvc);
+
+  // goal/gridding-surface-ops：层位右键「网格化…」→ 参数表 → 异步任务 →
+  // 受管派生 + manifest 声明上图。视图只发意图信号（gridHorizonRequested）。
+  if (dataPage && dataPage->listPanel() && m_previewDoc && m_previewDoc->catalog())
+  {
+    const QString projectDir =
+        m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath() : QString();
+    const DataCatalog *catalogConst = m_previewDoc->catalog();
+    const QString gpkg = store ? store->gpkgPath() : QString();
+    connect(dataPage->listPanel(), &DataListPanel::gridHorizonRequested, this,
+            [this, catalogConst, projectDir, taskSvc, gpkg](const QString &assetId)
+            {
+              if (projectDir.isEmpty())
+              {
+                statusBar()->showMessage(tr("先打开工程再网格化（派生产物需要受管目录）"));
+                return;
+              }
+              runHorizonGridding(this, const_cast<DataCatalog *>(catalogConst), projectDir,
+                                 taskSvc, m_layerSvc, gpkg, assetId);
+            });
+    // 图层树栅格「面运算（等厚/体积）…」。
+    if (m_layerPanel)
+      connect(m_layerPanel, &LayerTreePanel::surfaceOpsRequested, this,
+              [this, catalogConst, projectDir](const QString &)
+              {
+                if (projectDir.isEmpty() || !m_layerSvc)
+                {
+                  statusBar()->showMessage(tr("面运算需要已打开的工程与图层声明"));
+                  return;
+                }
+                runSurfaceOps(this, m_layerSvc, const_cast<DataCatalog *>(catalogConst),
+                              projectDir);
+              });
+  }
+
   PaleoEditingToolbar *editTb =
       attachShellSurfaces(store, procSvc, editSvc, layoutSvc, taskSvc);
 

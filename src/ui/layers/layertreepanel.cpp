@@ -270,6 +270,23 @@ void LayerTreePanel::buildContextMenu()
   });
   m_menu->addAction(m_propertiesAction);
 
+  // goal/gridding-surface-ops：栅格图层 → 面运算（等厚/体积）入口
+  //（菜单每次右键重建，只对栅格当前层出现）。
+  if (QgsMapLayer *cur = m_view->layerTreeModel() ? m_view->currentLayer() : nullptr)
+  {
+    if (cur->type() == Qgis::LayerType::Raster)
+    {
+      m_surfaceOpsAction = new QAction(tr("面运算（等厚/体积）…"), m_menu);
+      m_surfaceOpsAction->setObjectName(QStringLiteral("layerTreeSurfaceOpsAction"));
+      connect(m_surfaceOpsAction, &QAction::triggered, this, [this, cur]() {
+        const QString paleoId =
+            cur->customProperty(QStringLiteral("paleoLayerId")).toString();
+        emit surfaceOpsRequested(paleoId.isEmpty() ? cur->id() : paleoId);
+      });
+      m_menu->addAction(m_surfaceOpsAction);
+    }
+  }
+
   m_duplicateAction = new QAction(tr("复制图层"), m_menu);
   m_duplicateAction->setObjectName(QStringLiteral("layerTreeDuplicateAction"));
   connect(m_duplicateAction, &QAction::triggered, this,

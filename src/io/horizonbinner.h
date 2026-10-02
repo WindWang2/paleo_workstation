@@ -42,6 +42,23 @@ struct BinnedHorizon
 // 从 '# Grid_size:411x641' / '# P1: ...' / '# Z_units: ms' 行取参数。
 bool parseHorizonHeader(const QByteArray &text, HorizonHeader *out, QString *error = nullptr);
 
+// 层位散点（网格化的原始输入）：每行字段 x y z inline crossline（与
+// binHorizon 同一行文法；注释/空行/字段不足或非法数值行跳过，计数入
+// *skipped）。z==nodata(-9999) 的行不产散点。inline/crossline 列可用时
+// 顺带回填 [ilMin,ilMax]/[xlMin,xlMax]（网格化结果的测网号域元数据）。
+struct HorizonScatterPoint
+{
+  double x = 0, y = 0, z = 0;
+};
+struct HorizonScatter
+{
+  QVector<HorizonScatterPoint> points;
+  int skipped = 0;          // 非数据行计数（含注释头）
+  bool hasInlineRange = false, hasXlineRange = false;
+  int inlineMin = 0, inlineMax = 0, xlineMin = 0, xlineMax = 0;
+};
+HorizonScatter parseHorizonScatter(const QByteArray &text);
+
 // 装箱：行=inline-p1Inline（0..rows-1），列=crossline-p1Xline。
 bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error = nullptr);
 

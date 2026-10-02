@@ -56,6 +56,8 @@ class LayerTreePanel : public QWidget
   signals:
     // 「属性…」→ 壳接 LayerPropertiesDialog::openLayerProperties
     void propertiesRequested(const QString &layerId);
+    // goal/gridding-surface-ops：栅格面运算（等厚/体积）入口——意图信号回壳。
+    void surfaceOpsRequested(const QString &layerId);
     // 主线5「删除选中」消歧：编辑中的图层被从树里删时拒绝并带原因
     //（壳接状态栏/消息条展示；收尾会话走编辑工具条/属性表面板）。
     void layerRemovalRefused(const QString &reason);
@@ -99,6 +101,7 @@ class LayerTreePanel : public QWidget
     QAction *m_removeAction = nullptr;         // 编辑守卫包装版（工具条+菜单共用）
     QAction *m_propertiesAction = nullptr;     // objectName: layerTreePropertiesAction
     QAction *m_duplicateAction = nullptr;      // objectName: layerTreeDuplicateAction
+    QAction *m_surfaceOpsAction = nullptr;     // objectName: layerTreeSurfaceOpsAction（栅格面运算）
     QAction *m_exportStyleAction = nullptr;    // objectName: layerTreeExportStyleAction
     QAction *m_importStyleAction = nullptr;    // objectName: layerTreeImportStyleAction
     QAction *m_openPageAction = nullptr;       // objectName: layerTreeOpenMappingPageAction

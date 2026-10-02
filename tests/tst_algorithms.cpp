@@ -3,6 +3,7 @@
 #include <qgsprocessingregistry.h>
 #include <qgsprocessingcontext.h>
 #include <qgsprocessingfeedback.h>
+#include <qgsfeedback.h>
 #include <qgsvectorlayer.h>
 #include <qgsvectordataprovider.h>
 #include <qgsrasterlayer.h>
@@ -146,6 +147,8 @@ private slots:
         QStringLiteral( "paleo:paleo_geological_smoothing" ) ) != nullptr );
     QVERIFY( QgsApplication::processingRegistry()->algorithmById(
         QStringLiteral( "paleo:paleo_isopach" ) ) != nullptr );
+    QVERIFY( QgsApplication::processingRegistry()->algorithmById(
+        QStringLiteral( "paleo:paleo_min_curvature" ) ) != nullptr );
     QVERIFY( QgsApplication::processingRegistry()->algorithmById(
         QStringLiteral( "paleo:paleo_facies_polygonize" ) ) != nullptr );
   }
@@ -522,6 +525,181 @@ private slots:
     delete rOdd;
     delete rTop;
     delete rBase;
+  }
+
+  // paleo:paleo_min_curvature — plane scattered samples reproduce the plane
+  // (RMS < 0.5% of range at zero tension); QC metadata lands in the GeoTIFF;
+  // break_line CONSTRAINTS produce nodata barrier cells + count metadata.
+  void minCurvaturePlane()
+  {
+    ensurePaleo();
+    auto *pts = new QgsVectorLayer(
+        QStringLiteral( "Point?crs=EPSG:3857&field=z:double" ),
+        QStringLiteral( "mc_pts" ), QStringLiteral( "memory" ) );
+    QVERIFY( pts->isValid() );
+    QList<QgsFeature> feats;
+    // plane z = 100 + 0.4x − 0.3y over [0,100]²；8×8 散点 @12.5（带半格偏移，
+    // 不与输出格心对齐——散点语义）。z 范围 [70, 140] → range 70。
+    for ( int i = 0; i < 8; ++i )
+      for ( int j = 0; j < 8; ++j )
+      {
+        const double x = 6.25 + 12.5 * i, y = 6.25 + 12.5 * j;
+        QgsFeature f( pts->fields() );
+        f.setGeometry( QgsGeometry::fromPointXY( QgsPointXY( x, y ) ) );
+        f.setAttribute( QStringLiteral( "z" ), 100.0 + 0.4 * x - 0.3 * y );
+        feats << f;
+      }
+    QVERIFY( pts->dataProvider()->addFeatures( feats ) );
+    pts->updateExtents();
+
+    const QString outPath = mDir.filePath( QStringLiteral( "mc_plane.tif" ) );
+    QgsProcessingContext ctx;
+    QgsProcessingFeedback fb;
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( pts ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "TENSION" ), 0.0 );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 2.5 );
+    params.insert( QStringLiteral( "OUTPUT" ), outPath );
+    const QVariantMap res = QgsApplication::processingRegistry()
+                                ->algorithmById( QStringLiteral( "paleo:paleo_min_curvature" ) )
+                                ->run( params, ctx, &fb );
+    QVERIFY2( !res.isEmpty(), qPrintable( fb.textLog() ) );
+    QVERIFY( res.value( QStringLiteral( "CONVERGED" ) ).toBool() );
+
+    int w = 0, h = 0;
+    QVector<float> px;
+    QVERIFY( readRaster( outPath, w, h, px ) );
+    // 点层范围 [6.25,93.75]² + 10% 外推 → [-2.5,102.5]² @2.5 → 42×42。
+    QCOMPARE( w, 42 );
+    QCOMPARE( h, 42 );
+    double sumSq = 0;
+    int m = 0;
+    for ( int r = 0; r < h; ++r )
+      for ( int c = 0; c < w; ++c )
+      {
+        const double cx = -2.5 + ( c + 0.5 ) * 2.5;
+        const double cy = 102.5 - ( r + 0.5 ) * 2.5;
+        if ( cx < 6.25 || cx > 93.75 || cy < 6.25 || cy > 93.75 )
+          continue; // 只在数据域内断言（边缘外是外推）
+        const double v = px[r * w + c];
+        if ( v == -9999.0f )
+          continue;
+        const double d = v - ( 100.0 + 0.4 * cx - 0.3 * cy );
+        sumSq += d * d;
+        ++m;
+      }
+    const double rms = std::sqrt( sumSq / m );
+    QVERIFY2( rms < 0.35, qPrintable( QStringLiteral( "plane RMS %1" ).arg( rms ) ) );
+
+    // QC 元数据。
+    GDALDatasetH ds = GDALOpen( outPath.toUtf8().constData(), GA_ReadOnly );
+    QVERIFY( ds );
+    QCOMPARE( GDALGetMetadataItem( ds, "PALEO_ALGORITHM", nullptr ),
+              QStringLiteral( "min_curvature" ) );
+    QCOMPARE( GDALGetMetadataItem( ds, "PALEO_CONVERGED", nullptr ), QStringLiteral( "1" ) );
+    QCOMPARE( GDALGetMetadataItem( ds, "PALEO_TENSION", nullptr ), QStringLiteral( "0" ) );
+    QVERIFY( GDALGetMetadataItem( ds, "PALEO_SWEEPS", nullptr ) != nullptr );
+    QVERIFY( GDALGetMetadataItem( ds, "PALEO_DIST_TO_DATA_MAX", nullptr ) != nullptr );
+    GDALClose( ds );
+
+    // ---- break_line 屏障：屏障格 nodata + 计数元数据 ----------------------
+    auto *lines = new QgsVectorLayer(
+        QStringLiteral( "LineString?crs=EPSG:3857&field=type:string" ),
+        QStringLiteral( "mc_cons" ), QStringLiteral( "memory" ) );
+    QVERIFY( lines->isValid() );
+    QgsFeature lf( lines->fields() );
+    lf.setGeometry( QgsGeometry::fromPolylineXY(
+        { QgsPointXY( 50, -10 ), QgsPointXY( 50, 110 ) } ) );
+    lf.setAttribute( QStringLiteral( "type" ), QStringLiteral( "break_line" ) );
+    QVERIFY( lines->dataProvider()->addFeatures( QList<QgsFeature>() << lf ) );
+    lines->updateExtents();
+
+    const QString outPath2 = mDir.filePath( QStringLiteral( "mc_barrier.tif" ) );
+    QVariantMap params2 = params;
+    params2.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( lines ) );
+    params2.insert( QStringLiteral( "OUTPUT" ), outPath2 );
+    const QVariantMap res2 = QgsApplication::processingRegistry()
+                                 ->algorithmById( QStringLiteral( "paleo:paleo_min_curvature" ) )
+                                 ->run( params2, ctx, &fb );
+    QVERIFY2( !res2.isEmpty(), qPrintable( fb.textLog() ) );
+    QVector<float> px2;
+    QVERIFY( readRaster( outPath2, w, h, px2 ) );
+    int nodataCells = 0;
+    for ( float v : px2 )
+      if ( v == -9999.0f )
+        ++nodataCells;
+    QVERIFY2( nodataCells >= h, // 竖直墙至少覆盖一列
+              qPrintable( QStringLiteral( "nodata cells %1" ).arg( nodataCells ) ) );
+    ds = GDALOpen( outPath2.toUtf8().constData(), GA_ReadOnly );
+    QVERIFY( ds );
+    QCOMPARE( GDALGetMetadataItem( ds, "PALEO_BREAK_LINES", nullptr ), QStringLiteral( "1" ) );
+    GDALClose( ds );
+
+    delete lines;
+    delete pts;
+  }
+
+  // paleo:paleo_min_curvature 守卫：超规模 CELL_SIZE 拒绝（Issue #33 算法侧
+  // 同口径——拒绝而非 OOM 分配）；进度单调。
+  void minCurvatureGuardAndProgress()
+  {
+    ensurePaleo();
+    auto *pts = new QgsVectorLayer(
+        QStringLiteral( "Point?crs=EPSG:3857&field=z:double" ),
+        QStringLiteral( "mc_guard_pts" ), QStringLiteral( "memory" ) );
+    QVERIFY( pts->isValid() );
+    QList<QgsFeature> feats;
+    for ( int i = 0; i < 4; ++i )
+      for ( int j = 0; j < 4; ++j )
+      {
+        QgsFeature f( pts->fields() );
+        f.setGeometry( QgsGeometry::fromPointXY(
+            QgsPointXY( 1000.0 * i / 3, 1000.0 * j / 3 ) ) );
+        f.setAttribute( QStringLiteral( "z" ), 10.0 * i + j );
+        feats << f;
+      }
+    QVERIFY( pts->dataProvider()->addFeatures( feats ) );
+    pts->updateExtents();
+
+    QgsProcessingContext ctx;
+    QgsProcessingFeedback fb;
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( pts ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "OUTPUT" ),
+                   mDir.filePath( QStringLiteral( "mc_oversize.tif" ) ) );
+    // 1000m 跨度 @1e-5 → ~1e8 × 1e8 格，远超 1 亿预算 → run 失败、不落盘。
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1e-5 );
+    const QVariantMap res = QgsApplication::processingRegistry()
+                                ->algorithmById( QStringLiteral( "paleo:paleo_min_curvature" ) )
+                                ->run( params, ctx, &fb );
+    QVERIFY( res.isEmpty() );
+    QVERIFY( !QFile::exists( params.value( "OUTPUT" ).toString() ) );
+
+    // 进度单调（Oracle 5）：正常跑记录进度序列（progressChanged 信号），
+    // 断言非降。
+    QgsProcessingFeedback rf;
+    QVector<double> progressLog;
+    QObject::connect( &rf, &QgsFeedback::progressChanged, &rf,
+                      [&progressLog]( double p ) { progressLog.append( p ); } );
+    QVariantMap params2 = params;
+    params2.insert( QStringLiteral( "CELL_SIZE" ), 40.0 );
+    params2.insert( QStringLiteral( "OUTPUT" ),
+                    mDir.filePath( QStringLiteral( "mc_progress.tif" ) ) );
+    const QVariantMap res2 = QgsApplication::processingRegistry()
+                                 ->algorithmById( QStringLiteral( "paleo:paleo_min_curvature" ) )
+                                 ->run( params2, ctx, &rf );
+    QVERIFY2( !res2.isEmpty(), qPrintable( rf.textLog() ) );
+    QVERIFY2( progressLog.size() >= 2,
+              qPrintable( QStringLiteral( "progress reports: %1" ).arg( progressLog.size() ) ) );
+    for ( int i = 1; i < progressLog.size(); ++i )
+      QVERIFY2( progressLog[i] >= progressLog[i - 1],
+                qPrintable( QStringLiteral( "progress %1 < %2" )
+                                .arg( progressLog[i] )
+                                .arg( progressLog[i - 1] ) ) );
+
+    delete pts;
   }
 
   // Three facies, shared edges, no overlap. Areas are the cell counts.

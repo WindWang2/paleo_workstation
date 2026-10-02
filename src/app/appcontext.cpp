@@ -3,6 +3,10 @@
 #include "../workflow/mappingworkbench.h"
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header; instantiation is PALEO_HAVE_ORT-guarded
+#if PALEO_HAVE_ORT
+#include "../ai/modelregistry.h" // 注册表如实扫描（未装模型降级）
+#include "../workflow/aiassistworkflow.h"
+#endif
 #include "../qgis/qgisruntime.h"
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
@@ -189,6 +193,12 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   // 指向 <工程目录>/models。
   m_onnxSvc = new PaleoOnnxService(this);
   m_predictionWf->setOnnxService(m_onnxSvc);
+  // AI 辅助编排（tile 分类产品/追踪建议）：推理服务 + 任务池都在场时即刻
+  // 绑定；catalog 通道随工程打开补绑（同 predictionWf 的 T26 位点）。
+  m_aiAssistWf = new AiAssistWorkflow(m_layerSvc, this);
+  m_aiAssistWf->setOnnxService(m_onnxSvc);
+  if (m_taskSvc)
+    m_aiAssistWf->setTaskService(m_taskSvc);
 #endif
   m_constraintWf = new ConstraintWorkflow(m_procSvc, m_layerSvc, this);
   m_constraintWf->setStore(m_store); // GeoPackage constraint persistence (wave/constraint-gpkg)
@@ -363,6 +373,10 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               m_constraintWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_compositionWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_mappingWorkbench->bindCatalog(derivedCatalog, fi.absolutePath());
+#if PALEO_HAVE_ORT
+              if (m_aiAssistWf)
+                m_aiAssistWf->setCatalog(derivedCatalog, fi.absolutePath());
+#endif
               // goal/time-depth-velocity：同一 catalog 实例纪律（整文件重写，
               // 交错写互覆）——层深转换产物落 artifacts/derived/。
               m_depthWf->rebind(derivedCatalog, fi.absolutePath());
@@ -370,7 +384,26 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 #if PALEO_HAVE_ORT
             // onnx:* 模型按层位钉在 <工程目录>/models/*.onnx。
             if (m_onnxSvc)
-              m_onnxSvc->setModelRoot(fi.absoluteDir().filePath(QStringLiteral("models")));
+            {
+              const QString modelsDir =
+                fi.absoluteDir().filePath(QStringLiteral("models"));
+              m_onnxSvc->setModelRoot(modelsDir);
+              // 模型注册表如实扫描（范围5）：未装模型静默降级；manifest 在而
+              // 坏/缺文件/指纹不符 → 消息日志逐条说明，不报错轰炸。
+              const ModelRegistryScan registry = ModelRegistry::scan(modelsDir);
+              if (!registry.manifestFound)
+                QgsMessageLog::logMessage(
+                  tr("未装模型：%1 无 manifest.json——AI 辅助按无模型降级").arg(modelsDir),
+                  QStringLiteral("Paleo"));
+              if (!registry.manifestError.isEmpty())
+                QgsMessageLog::logMessage(registry.manifestError, QStringLiteral("Paleo"),
+                                          Qgis::Critical);
+              for (const ModelRegistryEntry &e : registry.entries)
+                if (e.status != ModelRegistryEntry::Status::Ok)
+                  QgsMessageLog::logMessage(
+                    tr("模型 %1: %2 (%3)").arg(e.name, ModelRegistry::statusLabel(e.status), e.detail),
+                    QStringLiteral("Paleo"), Qgis::Warning);
+            }
 #endif
 
             // wave/mapping-pipeline：版本存储重绑到本工程 meta 库；读侧门面

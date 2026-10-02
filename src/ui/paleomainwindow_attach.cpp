@@ -699,6 +699,12 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
 {
   if (pred && predictPage)
   {
+    // 工程打开后 appcontext 已把 onnx 模型根重设到 <工程>/models——算法
+    // 列表随之刷新（未装模型 → 页面如实降级文案）。
+    connect(m_projectSvc, &QgisProjectService::projectOpened, this,
+            [this, pred, predictPage] {
+              predictPage->setAlgorithms(pred->availableAlgorithms());
+            });
     // ---- m2(A): 预测运行任务化 + 历史结果显示接线 ----
     // 任务池在场 → runPrediction 跑 worker 线程（模仿导入任务化样例：结果经
     // PaleoTask 终态回 GUI；changed→进度、finished→解忙+失败文案）；取消是

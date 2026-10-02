@@ -64,7 +64,8 @@ void CacheLasTests::secondOpenUnder5ms()
   QVERIFY2(coldMs < 2000.0,
            qPrintable(QStringLiteral("cold %1ms >= 2000ms（sanity：解析挂死/死循环）").arg(coldMs)));
 
-  // 二次打开（磁盘层）≤ 冷解析一半（D1.1 的机器无关形式）。
+  // 二次打开（磁盘层）≤ 冷解析一半（D1.1 的机器无关形式；TEST-02：
+  // 原 <5ms 绝对预算在并行争用下偶发抖动——比率门随负载同侧伸缩）。
   LasCache::shared().clearMemory();
   QElapsedTimer t;
   t.start();

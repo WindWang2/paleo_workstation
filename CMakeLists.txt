@@ -241,7 +241,9 @@ if(ORT_INCLUDE AND ORT_LIB AND (NOT WIN32 OR ORT_DLL))
     set_target_properties(ort_vendored PROPERTIES IMPORTED_LOCATION ${ORT_LIB}
       INTERFACE_INCLUDE_DIRECTORIES ${ORT_INCLUDE})
   endif()
-  add_library(paleo_ai STATIC src/ai/onnxpredictionservice.cpp src/ai/remotepredictionservice.cpp)
+  add_library(paleo_ai STATIC src/ai/onnxpredictionservice.cpp src/ai/onnxfixture.cpp
+    src/ai/tileinference.cpp src/ai/horizonsuggest.cpp src/ai/modelregistry.cpp
+    src/ai/remotepredictionservice.cpp src/ai/remotepredictrouter.cpp)
   target_link_libraries(paleo_ai PUBLIC paleo_deps ort_vendored)
   target_compile_definitions(paleo_ai PUBLIC PALEO_HAVE_ORT=1)
   target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
@@ -373,6 +375,7 @@ add_library(paleo_workflow STATIC
   src/workflow/mapbook.cpp                         # 地图册：AOI 格序列 + 模板变量（纯编排）
   src/workflow/mapbookqueue.cpp                    # 地图册：批量导出队列（任务服务 + 逐版记账）
   src/workflow/mapversioncontroller.cpp            # 保存版本/发布编排
+  src/workflow/aiassistworkflow.cpp
   src/workflow/derivedassets.cpp                   # 派生产物 + DERIVED 版本登记
 )
 target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store paleo_io paleo_services paleo_domain paleo_ai)
@@ -590,6 +593,10 @@ add_paleo_test(tst_workflows LIBS paleo_workflow)
 add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）
 add_paleo_test(tst_ui)                                      # 伞式（app 面全栈，兼容样本）
 add_paleo_test(tst_panels)                                  # 伞式（全栈，兼容样本）
+# RUN_SERIAL 独占机器跑：dataops_d2_filterPerformance10k 的 100ms 墙钟断言
+# 在 -j8 并行负载下偶发超限（108ms 实测）——同 tst_perf/tst_correlation_full
+# 的计时抖动关回串行基线先例（根治归 TEST-02 类递延）。
+set_tests_properties(tst_panels PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_mappingpages LIBS paleo_ui)
 add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
 add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式；伞式兼容样本）
@@ -682,6 +689,12 @@ add_paleo_test(tst_webviewpanel LIBS paleo_ui)   # offscreen: engine unavailable
 add_paleo_test(tst_uxtheme LIBS paleo_ui)
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx LIBS paleo_ai)
+  add_paleo_test(tst_onnxsessions LIBS paleo_ai)
+  add_paleo_test(tst_tileinference LIBS paleo_ai paleo_services)
+  add_paleo_test(tst_modelregistry LIBS paleo_ai)
+  add_paleo_test(tst_aiassistworkflow LIBS paleo_workflow)
+  add_paleo_test(tst_remotepredictrouter LIBS paleo_ai)
+  add_paleo_test(tst_aiassist_perf LIBS paleo_ai paleo_sbm)
   add_paleo_test(tst_onnxworkflow LIBS paleo_workflow)
   target_compile_definitions(tst_onnxworkflow PRIVATE
     PROJECT_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
@@ -690,7 +703,8 @@ if(PALEO_HAVE_ORT)
   # ——后者仍会替换外部注入的值（deb 闭包路 paleo-dev 注入的 vendored
   # QGIS/Qt 目录会被吞掉，间接依赖落到系统 Qt 上产生版本冲突——本机
   # Arch Qt6.11 + vendored Qt6.10 即此症状）。
-  set_tests_properties(tst_onnx tst_onnxworkflow PROPERTIES ENVIRONMENT_MODIFICATION
+  set_tests_properties(tst_onnx tst_onnxworkflow tst_onnxsessions tst_tileinference tst_modelregistry
+    tst_aiassistworkflow tst_remotepredictrouter tst_aiassist_perf PROPERTIES ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()
 

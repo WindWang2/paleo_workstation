@@ -344,6 +344,142 @@ void previewFolderAsyncOnTaskPool()
   QCOMPARE(activeSpy.at(1).at(0).toBool(), false);
 }
 
+// 审计 02 M-8：任务池在场的异步导入 = worker 只 produce、GUI 提交。多个
+// importFolder/importFile 同时发起 → FIFO 串行、全部回调、全部入库；worker
+// 从未碰活 catalog（线程违规计数 0）；importActiveChanged 成对、imported
+// 信号在对应作业回调之前发出（壳的逐文件标签抑制口径不变）。
+void concurrentWorkflowImportsCommitOnGuiThread()
+  {
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+  QVERIFY(QDir().mkpath(projectDir));
+  auto stack = makeStack(projectDir);
+  QVERIFY(stack != nullptr);
+  DataCatalog::resetThreadViolationCount();
+
+  constexpr int kFolders = 4;
+  constexpr int kFiles = 6;
+  QStringList folders, files;
+  const auto lasBytes = [](const QByteArray &well, int n) {
+    return QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. ") +
+           well + QByteArrayLiteral(" : WELL\n~Curve\nDEPT.M :\n~A DEPT\n") +
+           QByteArray::number(100 + n) + QByteArrayLiteral(".0\n");
+  };
+  for (int i = 0; i < kFolders; ++i)
+  {
+    const QString d = tmp.filePath(QStringLiteral("area%1").arg(i));
+    QVERIFY(QDir().mkpath(d));
+    for (int k = 0; k < 2; ++k)
+    {
+      QFile f(QDir(d).filePath(QStringLiteral("F%1_%2.las").arg(i).arg(k)));
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write(lasBytes("F" + QByteArray::number(i), i * 10 + k));
+    }
+    folders.append(d);
+  }
+  for (int i = 0; i < kFiles; ++i)
+  {
+    const QString p = tmp.filePath(QStringLiteral("single%1.las").arg(i));
+    QFile f(p);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(lasBytes("S" + QByteArray::number(i), 1000 + i));
+    files.append(p);
+  }
+
+  PaleoTaskService tasks(stack->store.get());
+  FolderImportWorkflow wf(stack->importSvc.get(), &tasks);
+  QSignalSpy activeSpy(&wf, &FolderImportWorkflow::importActiveChanged);
+  int importedSignals = 0;
+  QObject::connect(stack->importSvc.get(), &DataImportService::imported, &wf,
+                   [&importedSignals] { ++importedSignals; });
+  int doneCount = 0;
+  QStringList errors;
+  QVector<int> importedAtDone;
+  for (const QString &d : folders)
+    wf.importFolder(d, {}, [&](const QVector<FolderRowResult> &rows, const QString &e) {
+      ++doneCount;
+      importedAtDone.append(importedSignals);
+      if (!e.isEmpty())
+        errors.append(e);
+      for (const FolderRowResult &r : rows)
+        if (r.outcome == FolderRowResult::Outcome::Failed)
+          errors.append(r.message);
+    });
+  for (const QString &f : files)
+    wf.importFile(QStringLiteral("well_log"), f, [&](const QString &id, const QString &e) {
+      ++doneCount;
+      importedAtDone.append(importedSignals);
+      if (id.isEmpty())
+        errors.append(e.isEmpty() ? QStringLiteral("empty asset id") : e);
+    });
+  QVERIFY(wf.pendingImportJobs() >= 1);
+  QElapsedTimer clock;
+  clock.start();
+  while (doneCount < kFolders + kFiles && clock.elapsed() < 60000)
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+  QCOMPARE(doneCount, kFolders + kFiles);
+  QVERIFY2(errors.isEmpty(), qPrintable(errors.join(QLatin1Char('\n'))));
+  QCOMPARE(wf.pendingImportJobs(), 0);
+  QCOMPARE(stack->importSvc->catalog()->assets().size(), kFolders * 2 + kFiles);
+  QCOMPARE(importedSignals, kFolders * 2 + kFiles);
+  // FIFO：第 n 个作业回调时，此前作业 + 它自己的 imported 已全部发出。
+  QCOMPARE(importedAtDone.size(), kFolders + kFiles);
+  for (int i = 0; i < kFolders; ++i)
+    QCOMPARE(importedAtDone.at(i), (i + 1) * 2);
+  for (int i = 0; i < kFiles; ++i)
+    QCOMPARE(importedAtDone.at(kFolders + i), kFolders * 2 + i + 1);
+  QCOMPARE(activeSpy.count(), 2 * kFolders);
+  QCOMPARE(DataCatalog::threadViolationCount(), 0);
+  QVERIFY(!QDir(QDir(projectDir).filePath(QStringLiteral("artifacts/staging"))).exists());
+  QVERIFY(tasks.shutdown(5000));
+}
+
+// 审计 02 M-8：异步导入期间 GUI 侧另有 catalog 写入 → 提交冲突 → 作业用
+// 新 session 自动重做，结局正确（不丢 GUI 写入、不重复入库）。
+void workflowImportRetriesOnConcurrentCatalogWrite()
+  {
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+  QVERIFY(QDir().mkpath(projectDir));
+  auto stack = makeStack(projectDir);
+  QVERIFY(stack != nullptr);
+  const QString las = tmp.filePath(QStringLiteral("r1.las"));
+  {
+    QFile f(las);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. R1 : WELL\n"
+            "~Curve\nDEPT.M :\n~A DEPT\n100.0\n");
+  }
+  PaleoTaskService tasks(stack->store.get());
+  FolderImportWorkflow wf(stack->importSvc.get(), &tasks);
+  DataCatalog *cat = stack->importSvc->catalog();
+  bool done = false;
+  QString assetId, err;
+  wf.importFile(QStringLiteral("well_log"), las, [&](const QString &id, const QString &e) {
+    done = true;
+    assetId = id;
+    err = e;
+  });
+  // produce 已在 worker 上排队/在途：GUI 线程同步写一口井（revision 前进）。
+  CatalogEntity w;
+  w.id = cat->nextEntityId(QStringLiteral("well"));
+  w.entityType = QStringLiteral("well");
+  w.name = QStringLiteral("GUI-W");
+  QString werr;
+  QVERIFY2(cat->addEntity(w, &werr), qPrintable(werr));
+  QElapsedTimer clock;
+  clock.start();
+  while (!done && clock.elapsed() < 30000)
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+  QVERIFY(done);
+  QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+  QVERIFY(cat->hasEntity(w.id));
+  QCOMPARE(cat->assets().size(), 1);
+  QVERIFY(tasks.shutdown(5000));
+}
+
 // 「仍导入」改判：重复行默认 Skipped；forceImportPaths 翻成 as_new_version
 // 后结局 Imported（同字节结局 = AlreadyStored + 补挂口径）。
 void importFolderForceImportFlipsDuplicate()

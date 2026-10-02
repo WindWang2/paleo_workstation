@@ -12,12 +12,9 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
-#include <QMetaObject>
 #include <QSet>
-#include <QThread>
 
 #include <algorithm>
-#include <type_traits>
 #include <utility>
 
 // ---------------------------------------------------------------------------
@@ -63,33 +60,6 @@ namespace
     if (!f.open(QIODevice::ReadOnly))
       return QString();
     return QString::fromUtf8(f.readAll());
-  }
-
-  // catalog marshal：与 DataImportService::catInvoke 同一纪律——catalog 只被
-  // 它自己的线程触碰。自由函数摸不到服务的私有模板，按同一模式就地实现。
-  template <typename Fn> auto onCatalogThread(DataCatalog *cat, Fn &&fn)
-  {
-    using R = std::invoke_result_t<Fn>;
-    if (QThread::currentThread() == cat->thread())
-    {
-      if constexpr (std::is_void_v<R>)
-      {
-        fn();
-        return;
-      }
-      else
-        return fn();
-    }
-    if constexpr (std::is_void_v<R>)
-      QMetaObject::invokeMethod(cat, std::forward<Fn>(fn),
-                                Qt::BlockingQueuedConnection);
-    else
-    {
-      R result{};
-      QMetaObject::invokeMethod(cat, [&result, &fn] { result = fn(); },
-                                Qt::BlockingQueuedConnection);
-      return result;
-    }
   }
 
   QString fileStem(const QString &path)
@@ -791,37 +761,33 @@ QVector<EntityAssetLink> CatalogReadSnapshot::linksForEntity(const QString &enti
 }
 
 QVector<FolderRowResult>
-executeIngestPlan(const IngestPlan &plan, DataImportService &svc,
+executeIngestPlan(const IngestPlan &plan, ImportSession &session,
                   const IngestProgress &progress, QString *error)
 {
+  // 审计 02 M-8：produce 面——逐项写 session 的 staging 副本（任意线程），
+  // 活 catalog 零接触；入库 = owner 线程 commitImport 一次事务落盘（T33/
+  // audit row 37 的「整 plan 一次 save」口径由 applyJournal 的单批次保持）。
   if (error)
     error->clear();
   QVector<FolderRowResult> rows;
-  DataCatalog *cat = svc.catalog();
-  if (!cat)
+  if (!session.cat)
   {
     setPlanError(error, QStringLiteral("catalog unavailable"));
     return rows;
   }
-
-  // T33/audit row 37 口径不变：整个 plan 执行并成一个落盘批次——每项 ~5 次
-  // 全量 JSON 序列化收敛成一次 save() + 一次 changed()。BatchSave 的 RAII 摸
-  // catalog 私有态——构造/析构都 marshal 回 catalog 所在线程。
-  auto *batch = onCatalogThread(
-      cat, [&] { return new DataCatalog::BatchSave(cat); });
 
   bool cancelled = false;
   int doneCount = 0;
   for (const PlannedItem &item : plan.items)
   {
     QString ierr;
-    rows.append(svc.executePlannedItem(item, &ierr));
+    rows.append(DataImportService::produceItem(session, item, &ierr));
     ++doneCount;
     if (progress &&
         !progress(doneCount, static_cast<int>(plan.items.size()), item.path))
     {
       cancelled = true;
-      break; // 协作取消：已处理的行保留，未处理的不再动
+      break; // 协作取消：已处理的行保留（随提交入库），未处理的不再动
     }
   }
 
@@ -835,24 +801,32 @@ executeIngestPlan(const IngestPlan &plan, DataImportService &svc,
     row.message = s.note;
     rows.append(row);
   }
-
-  // 批次结算：析构即 flush——marshal 回 catalog 线程销毁（落盘失败如实写
-  // error；行里的 Imported 结局不变——内存态已是入库态，磁盘失败要 surfaced）。
-  QString berr;
-  const bool flushed = onCatalogThread(cat, [&] {
-    const bool ok = batch->flush(&berr);
-    delete batch;
-    return ok;
-  });
-  if (!flushed)
-  {
-    qWarning("executeIngestPlan: catalog batch save failed: %s",
-             qPrintable(berr));
-    setPlanError(error, berr.isEmpty()
-                            ? QStringLiteral("catalog batch save failed")
-                            : berr);
-  }
   if (cancelled)
     setPlanError(error, QStringLiteral("已取消（已入库的行保留）"));
   return rows;
+}
+
+QVector<FolderRowResult>
+executeIngestPlan(const IngestPlan &plan, DataImportService &svc,
+                  const IngestProgress &progress, QString *error)
+{
+  // owner 线程便捷面：begin → produce → commit。提交失败时行结局改写为
+  // Failed、error 带提交错误（failSession）。
+  if (error)
+    error->clear();
+  const std::shared_ptr<ImportSession> s = svc.beginImport();
+  if (!s)
+  {
+    setPlanError(error, DataImportService::offThreadError());
+    return {};
+  }
+  QString perr;
+  s->rows = executeIngestPlan(plan, *s, progress, &perr);
+  s->error = perr;
+  QString cerr;
+  if (svc.commitImport(*s, &cerr) != DataImportService::CommitStatus::Committed)
+    qWarning("executeIngestPlan: catalog commit failed: %s", qPrintable(cerr));
+  if (!s->error.isEmpty())
+    setPlanError(error, s->error);
+  return s->rows;
 }

@@ -151,9 +151,40 @@ QString PreviewDocService::importSingleFile(const QString &kind,
                                             const QString &sourcePath,
                                             QString *error)
 {
-  // B2：直通 io 层单文件导入（可在任务池线程执行——import* 系列内部经
-  // catInvoke marshal 回 catalog 线程，见 dataimportservice.h 线程规则）。
+  // B2：直通 io 层单文件导入（同步，只能在 catalog 所属线程调用——后台
+  // 导入走 prepareSingleFileImport，见 dataimportservice.h 线程规则）。
   return m_svc ? m_svc->importFile(kind, sourcePath, error) : QString();
+}
+
+std::shared_ptr<PreviewDocService::SingleFileImportJob>
+PreviewDocService::prepareSingleFileImport(const QString &kind, const QString &sourcePath)
+{
+  Q_UNUSED(kind); // 同 importFile：kind 只是旧签名，信号带真实分类类型
+  if (!m_svc)
+    return nullptr;
+  std::shared_ptr<ImportSession> session = m_svc->beginImport();
+  if (!session)
+    return nullptr;
+  auto job = std::make_shared<SingleFileImportJob>();
+  job->produce = [session, sourcePath] {
+    DataImportService::produceFile(*session, sourcePath, DataImportService::ImportOptions{});
+  };
+  QPointer<DataImportService> svc = m_svc;
+  job->commit = [session, svc](QString *error) -> QString {
+    if (!svc)
+    {
+      if (error)
+        *error = QStringLiteral("导入服务未就绪");
+      return QString();
+    }
+    QString cerr;
+    svc->commitImport(*session, &cerr, /*allowConflict=*/false);
+    const QString id = session->fileResult.assetId;
+    if (error)
+      *error = id.isEmpty() ? session->error : QString();
+    return id;
+  };
+  return job;
 }
 
 void PreviewDocService::setTaskService(PaleoTaskService *svc)

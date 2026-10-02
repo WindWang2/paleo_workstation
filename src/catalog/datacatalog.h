@@ -2,6 +2,7 @@
 #pragma once
 #include <QObject>
 #include <QPair>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -10,6 +11,8 @@
 #include "roleregistry.h"
 
 #include "catalogindex.h" // D5 邻接索引（纯派生加速结构，四张 QVector 仍是唯一事实源）
+
+#include <memory>
 
 // catalog/ — project_area 数据底座（docs/PROJECT_AREA_PLAN.md §3）。
 // 对象链：实体 → 显式关联(entity_asset_links) → 数据资产 → 不可变版本。
@@ -78,6 +81,33 @@ struct CatalogVersion
   QVariantMap extra;    // 如装箱栅格的碰撞计数
 };
 
+// 审计 02 M-8 produce-then-commit：catalog 变更日志项。staging 副本（见
+// DataCatalog::createStagingCopy）上每个成功的 mutator 记一条；owner 线程
+// applyJournal 按原序用同一批 mutator 重放（同一基线 mutationSeq ⇒ 同一结果）。
+// 纯值类型——跨线程交接安全。
+struct CatalogOp
+{
+  enum class Kind
+  {
+    AddEntity,
+    AddAsset,
+    AddVersion,
+    AddLink,
+    AttachLink,
+    SetLinkUnresolved,
+    SetLinkPrimary,
+    MarkDownstreamStale
+  };
+  Kind kind = Kind::AddAsset;
+  CatalogEntity entity;
+  CatalogAsset asset;
+  CatalogVersion version;
+  EntityAssetLink link;
+  int index = -1;   // Attach/SetLink*：links() 序号（基线 mutationSeq 下有效）
+  QString id;       // AttachLink 实体 id；MarkDownstreamStale 版本 id
+  QString reason;   // MarkDownstreamStale
+};
+
 class DataCatalog : public QObject
 {
   Q_OBJECT
@@ -109,6 +139,10 @@ class DataCatalog : public QObject
     bool recoveredFromBackup() const { return m_recoveredFromBackup; }
     QString lastBackupRecoveryReason() const { return m_backupRecoveryReason; }
     int catalogRevision() const { return m_revision; }
+    // 审计 02 M-8：内存变更序号——每次成功的 mutator 与 next*Id 分配都 +1
+    //（不落盘、不随批次延迟）。ImportSession 以它做提交基线：produce 期间
+    // owner 侧任何写入/分配都会让提交返回 Conflict。
+    quint64 mutationSeq() const { return m_mutationSeq; }
 
     // 工程角色词表（DATA_FABRIC_ADOPTION A 包）：open() 时读
     // <projectDir>/project_area.json 的 roles 节覆盖内置词表；缺文件/坏 JSON
@@ -263,6 +297,33 @@ class DataCatalog : public QObject
           "AXIS[\"northing\",north,ORDER[2],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]]]");
     }
 
+    // ---- 审计 02 M-8：produce-then-commit（导入 worker 不碰活 catalog）----
+    // 线程纪律：活 catalog 只被它所属线程（thread()）读写。跨线程写一律拒绝
+    // （return false + error，计入 threadViolationCount 并 qCritical；环境变量
+    // PALEO_CATALOG_STRICT_THREADS=1 时直接 qFatal）；跨线程读计数 + 告警。
+    static int threadViolationCount();
+    static void resetThreadViolationCount();
+
+    // owner 线程调用：拷一份「staging 副本」交给一个 worker 独占使用
+    // （四表/索引/序号 COW 拷贝）。副本的 save() 不落盘、只在内存生效；每个
+    // 成功的 mutator 记进 journal()。overlayDir 是 worker 写受管文件的私有
+    // 暂存根（与工程目录同构：<overlay>/artifacts/raw/...）——副本上新增的
+    // 受管版本按它解析文件（dedup 复核 / 同批派生件存在性），见 versionFilePath。
+    std::unique_ptr<DataCatalog> createStagingCopy(const QString &overlayDir) const;
+    bool isStaging() const { return m_staging; }
+    QVector<CatalogOp> journal() const { return m_journal; }
+    bool isStagedVersion(const QString &versionId) const
+    {
+      return m_overlayVersionIds.contains(versionId);
+    }
+    // 版本文件绝对路径：staging 副本上新增的受管版本解析到暂存根，其余同
+    // resolvedVersionPath(projectDir, v)。
+    QString versionFilePath(const CatalogVersion &v) const;
+    // owner 线程：把 journal 原样重放进本 catalog——全部成功才落一次盘；任一
+    // op 失败或落盘失败 → 内存逐字段还原、盘上不动（事务语义），返回 false。
+    // 空 journal → true 且不落盘（不空涨 revision）。
+    bool applyJournal(const QVector<CatalogOp> &ops, QString *error = nullptr);
+
   signals:
     void changed();      // 任一变更落盘后发射（UI 刷新资产表用）
     // open() 经 .bak 回退恢复成功后发射一次（主文件损坏原因随行）——UI/
@@ -271,6 +332,9 @@ class DataCatalog : public QObject
 
   private:
     bool ensureOpen(QString *error) const;
+    bool checkWriteThread(const char *what, QString *error) const;
+    void noteRead(const char *what) const;
+    void recordOp(CatalogOp op);
     bool save(QString *error = nullptr);
     void beginBatch();
     bool endBatch(QString *error = nullptr);
@@ -300,4 +364,10 @@ class DataCatalog : public QObject
     RoleRegistry m_roles;            // 见 roleRegistry()——open() 时装载
     CatalogIndex m_idx;              // D5 邻接索引（随 mutator 增量维护）
     int m_backupKeep = 3;            // D5.6 备份轮转代数
+    // 审计 02 M-8 staging 副本态（见 createStagingCopy）
+    bool m_staging = false;
+    quint64 m_mutationSeq = 0;
+    QString m_overlayDir;
+    QSet<QString> m_overlayVersionIds;
+    QVector<CatalogOp> m_journal;
 };

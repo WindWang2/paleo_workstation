@@ -2,6 +2,7 @@
 #include <QTemporaryDir>
 #include <QSignalSpy>
 #include <QThreadPool>
+#include <QDirIterator>
 
 #include <algorithm>
 #include <atomic>
@@ -1315,11 +1316,40 @@ private slots:
     QCOMPARE(cat->links().size(), 8);  // 2 井口 + 2 tops + 2 LAS + 1 ghost + 1 TD
   }
 
-  // 文件夹入口的目录级失败：不存在/是文件/空目录/选中了工程目录自身。
-  // D1b/D2：importFolder 整个在 worker 线程执行——catalog 读写经 catInvoke
-  // marshal 回 GUI 线程；progress 回调按行推进 + 返回 false 协作取消。
-  // 主线程跑事件泵（与 PaleoTaskService 的生产形态一致）才有 marshal 通路。
-  void folderImportFromWorkerThreadMarshalsCatalog()
+  // 审计 02 M-8 测试工具：GUI（owner）线程 beginImport → 专用池 worker 上
+  // produce → 主线程 **不泵事件** 地 waitForDone（旧 catInvoke/
+  // BlockingQueuedConnection 模型在这里必然死锁）→ owner 线程 commit。
+  static bool produceOnWorker(const std::shared_ptr<ImportSession> &s,
+                              const std::function<void(ImportSession &)> &produce)
+  {
+    QThreadPool pool;
+    pool.setMaxThreadCount(1);
+    std::atomic<QThread *> workerThread{nullptr};
+    pool.start([&] {
+      workerThread = QThread::currentThread();
+      produce(*s);
+    });
+    const bool ok = pool.waitForDone(120000);
+    return ok && workerThread.load() != QThread::currentThread();
+  }
+
+  static int countFiles(const QString &dir)
+  {
+    int n = 0;
+    QDirIterator it(dir, QDir::Files | QDir::Hidden, QDirIterator::Subdirectories);
+    while (it.hasNext())
+    {
+      it.next();
+      ++n;
+    }
+    return n;
+  }
+
+  // D1b/D2 + 审计 02 M-8：文件夹导入在 worker 上 produce（只碰 session 的
+  // staging 副本），主线程不泵事件也能等到它结束；提交前活 catalog 一字不
+  // 动、信号一个不发；owner 线程 commit 后一次入库、按原序发信号。progress
+  // 回调按行推进 + 返回 false 协作取消（已处理的行随提交保留）。
+  void folderImportProducedOnWorkerCommittedOnOwner()
   {
     QTemporaryDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
@@ -1327,6 +1357,7 @@ private slots:
     auto stack = makeStack(projectDir);
     QVERIFY(stack != nullptr);
     DataImportService &svc = *stack->importSvc;
+    DataCatalog::resetThreadViolationCount();
 
     const QString root = tmp.filePath(QStringLiteral("area"));
     QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
@@ -1338,51 +1369,64 @@ private slots:
                           "#Name      X     Y     KB    TotalDepth\n"
                           "A1           1.0   2.0   0.0   2000.0\n"
                           "B2           3.0   4.0   0.0   2100.0\n")));
+    DataCatalog *cat = svc.catalog();
+    QSignalSpy importedSpy(&svc, &DataImportService::imported);
 
     const auto runOnWorker =
-        [&](const std::function<bool(int, int, const QString &)> &progress)
+        [&](const std::function<bool(int, int, const QString &)> &progress,
+            int *assetsBeforeCommit = nullptr)
         -> std::tuple<QVector<FolderRowResult>, QString, bool> {
-      QVector<FolderRowResult> rows;
-      QString err;
-      std::atomic_bool finished{false};
-      QThreadPool::globalInstance()->start([&] {
-        rows = svc.importFolder(root, &err, QMap<QString, QString>{}, progress);
-        finished = true;
+      const std::shared_ptr<ImportSession> s = svc.beginImport();
+      if (!s)
+        return {{}, QStringLiteral("beginImport failed"), false};
+      const bool finished = produceOnWorker(s, [&](ImportSession &sess) {
+        DataImportService::produceFolder(sess, root, {}, {}, progress);
       });
-      QElapsedTimer clock;
-      clock.start();
-      while (!finished && clock.elapsed() < 60000)
-        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
-      return {rows, err, finished.load()};
+      if (assetsBeforeCommit)
+        *assetsBeforeCommit = cat->assets().size();
+      QString cerr;
+      const auto st = svc.commitImport(*s, &cerr);
+      if (st != DataImportService::CommitStatus::Committed)
+        return {s->rows, cerr, false};
+      return {s->rows, s->error, finished};
     };
 
-    // 全量：两行都入库，实体在 GUI 线程建成。progress 分两段（T2 扫描期
-    // 进度）：plan 哈希段 total==0（两个小文件各一次），执行段 total==2
-    // 递增到 2。
+    // 全量：两行都入库，实体在 owner 线程提交时建成。progress 分两段（T2
+    // 扫描期进度）：plan 哈希段 total==0（两个小文件各一次），执行段
+    // total==2 递增到 2。
     QVector<int> progressSeen;
     QVector<int> totalsSeen;
+    int assetsBeforeCommit = -1;
     auto [rows, err, done1] = runOnWorker(
         [&](int done, int total, const QString &) {
           progressSeen.append(done);
           totalsSeen.append(total);
           return true;
-        });
-    QVERIFY2(done1, "worker importFolder did not finish (marshal deadlock?)");
+        },
+        &assetsBeforeCommit);
+    QVERIFY2(done1, qPrintable(QStringLiteral("worker produce/commit failed: ") + err));
     QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(assetsBeforeCommit, 0); // produce 期活 catalog 零写入
     QCOMPARE(totalsSeen, QVector<int>({0, 0, 2, 2}));
     QCOMPARE(rows.size(), 2);
     QCOMPARE(progressSeen, QVector<int>({2, 2, 1, 2}));
+    QCOMPARE(importedSpy.count(), 2); // 提交后按原序发射
     using Outcome = FolderRowResult::Outcome;
     for (const auto &r : rows)
       QCOMPARE(r.outcome, Outcome::Imported);
-    DataCatalog *cat = svc.catalog();
     QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2); // A1 + B2
-    // LAS 行挂到 A1（井口先行建实体的两阶段语义在 worker 线程同样成立）。
+    // LAS 行挂到 A1（井口先行建实体的两阶段语义在 worker produce 同样成立）。
     const auto lasRow = std::find_if(rows.begin(), rows.end(), [](const auto &r) {
       return r.path.endsWith(QLatin1String("0A1.Las"));
     });
     QVERIFY(lasRow != rows.end());
     QCOMPARE(lasRow->entityName, QStringLiteral("A1"));
+    // 受管字节已从暂存根落位到工程目录，暂存根不留。
+    for (const CatalogVersion &v : cat->versionsForAsset(cat->assets().front().id))
+      if (v.managed)
+        QVERIFY2(QFileInfo::exists(DataCatalog::resolvedVersionPath(projectDir, v)),
+                 qPrintable(v.path));
+    QVERIFY(!QDir(QDir(projectDir).filePath(QStringLiteral("artifacts/staging"))).exists());
 
     // 协作取消：扫描段回调放行、执行段首行回调返回 false 即中止——已处理
     // 的行保留，err 记「已取消」（T2 前契约只回调执行段；现在扫描段也在
@@ -1405,11 +1449,13 @@ private slots:
     QVERIFY2(done3, "scan-cancel run did not finish");
     QVERIFY(rows3.isEmpty());
     QVERIFY(err3.contains(QStringLiteral("已取消")));
+    QCOMPARE(DataCatalog::threadViolationCount(), 0); // worker 从未碰活 catalog
   }
 
-  // 审计 02 M-8：worker 线程上的导入，catalog 落盘失败必须如实回到调用方
-  // （非空错误、返回空资产 id、catalog 内存态回滚），不能被异步投递吞掉。
-  void workerImportPropagatesCatalogWriteFailure()
+  // 审计 02 M-8：提交失败（catalog 落盘失败）必须如实回到调用方——非空
+  // 错误、结果改 Failed、发 importFailed 不发 imported、catalog 内存态与
+  // revision 原样、已落位的受管字节撤回、暂存根删除（不留孤儿文件）。
+  void failingCommitSurfacesErrorAndRollsBack()
   {
     QTemporaryDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
@@ -1424,6 +1470,19 @@ private slots:
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. W1 : WELL\n"
         "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n101.0 51.0\n")));
     const int assetsBefore = cat->assets().size();
+    const int revBefore = cat->catalogRevision();
+    const QString rawRoot = QDir(projectDir).filePath(QStringLiteral("artifacts/raw"));
+    const int rawFilesBefore = countFiles(rawRoot);
+
+    const std::shared_ptr<ImportSession> s = svc.beginImport();
+    QVERIFY(s);
+    QVERIFY(produceOnWorker(s, [&](ImportSession &sess) {
+      DataImportService::produceFile(sess, las, DataImportService::ImportOptions{});
+    }));
+    QVERIFY2(s->error.isEmpty(), qPrintable(s->error));
+    QCOMPARE(s->fileResult.outcome, DataImportService::ImportOutcome::Imported);
+    QVERIFY(QDir(s->stagingRoot).exists()); // 受管字节在暂存根
+    QCOMPARE(cat->assets().size(), assetsBefore);
 
     // catalog 目录置只读：原子写（临时文件 + rename）在 save() 处失败。
     const QString catDir = QFileInfo(cat->catalogPath()).absolutePath();
@@ -1440,24 +1499,246 @@ private slots:
         QSKIP("目录权限不生效（root 运行？）——无法制造落盘失败");
       }
     }
-
-    QString assetId;
-    QString err;
-    std::atomic_bool finished{false};
-    QThreadPool::globalInstance()->start([&] {
-      assetId = svc.importProjectFile(las, &err);
-      finished = true;
-    });
-    QElapsedTimer clock;
-    clock.start();
-    while (!finished && clock.elapsed() < 60000)
-      QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+    QSignalSpy importedSpy(&svc, &DataImportService::imported);
+    QSignalSpy failedSpy(&svc, &DataImportService::importFailed);
+    QString cerr;
+    const auto st = svc.commitImport(*s, &cerr);
     QFile::setPermissions(catDir, oldPerm);
 
-    QVERIFY2(finished.load(), "worker import did not finish (marshal deadlock?)");
-    QVERIFY2(assetId.isEmpty(), qPrintable(assetId));
-    QVERIFY2(!err.isEmpty(), "catalog write failure was swallowed");
+    QCOMPARE(st, DataImportService::CommitStatus::Failed);
+    QVERIFY2(!cerr.isEmpty(), "catalog write failure was swallowed");
+    QCOMPARE(s->error, cerr);
+    QCOMPARE(s->fileResult.outcome, DataImportService::ImportOutcome::Failed);
+    QVERIFY(s->fileResult.assetId.isEmpty());
+    QCOMPARE(importedSpy.count(), 0);
+    QVERIFY(failedSpy.count() >= 1);
     QCOMPARE(cat->assets().size(), assetsBefore);
+    QCOMPARE(cat->catalogRevision(), revBefore);
+    QCOMPARE(countFiles(rawRoot), rawFilesBefore); // 落位的字节已撤回
+    QVERIFY(!QDir(s->stagingRoot).exists());
+
+    // 同步入口同口径：权限恢复后同一文件照常入库。
+    QString err;
+    QVERIFY2(!svc.importProjectFile(las, &err).isEmpty(), qPrintable(err));
+    QCOMPARE(cat->assets().size(), assetsBefore + 1);
+  }
+
+  // 审计 02 M-8：工程切换后旧 session 不得提交进新工程。
+  void projectSwitchDiscardsSession()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    const QString las = tmp.filePath(QStringLiteral("w1.las"));
+    QVERIFY(writeFile(las, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. W1 : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+    const std::shared_ptr<ImportSession> s = svc.beginImport();
+    QVERIFY(s);
+    QVERIFY(produceOnWorker(s, [&](ImportSession &sess) {
+      DataImportService::produceFile(sess, las, DataImportService::ImportOptions{});
+    }));
+    svc.setProjectDir(projectDir); // 重开（epoch +1）
+    QString cerr;
+    QCOMPARE(svc.commitImport(*s, &cerr), DataImportService::CommitStatus::Failed);
+    QVERIFY(cerr.contains(QStringLiteral("工程已切换")));
+    QVERIFY(svc.catalog()->assets().isEmpty());
+    QVERIFY(!QDir(s->stagingRoot).exists());
+  }
+
+  // 审计 02 M-8：活 catalog 的写路径带线程亲和断言——非 owner 线程写入被
+  // 拒（返回 false + 错误）并计入违规计数；同步导入入口在别的线程如实
+  // 拒绝（不再 marshal），beginImport/commitImport 同理。
+  void liveCatalogRefusesWritesFromWorker()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+    const QString las = tmp.filePath(QStringLiteral("w1.las"));
+    QVERIFY(writeFile(las, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. W1 : WELL\n"
+        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+    DataCatalog::resetThreadViolationCount();
+
+    bool addOk = true;
+    QString addErr, importErr, assetId = QStringLiteral("x");
+    bool sessionNull = false;
+    std::thread worker([&] {
+      CatalogEntity e;
+      e.id = QStringLiteral("well-W9");
+      e.entityType = QStringLiteral("well");
+      e.name = QStringLiteral("W9");
+      addOk = cat->addEntity(e, &addErr);
+      assetId = svc.importProjectFile(las, &importErr);
+      sessionNull = svc.beginImport() == nullptr;
+    });
+    worker.join(); // 不泵事件：没有任何东西需要 owner 线程配合
+    QVERIFY(!addOk);
+    QVERIFY(!addErr.isEmpty());
+    QVERIFY(DataCatalog::threadViolationCount() >= 1);
+    QVERIFY(!cat->hasEntity(QStringLiteral("well-W9")));
+    QVERIFY(assetId.isEmpty());
+    QCOMPARE(importErr, DataImportService::offThreadError());
+    QVERIFY(sessionNull);
+    QVERIFY(cat->assets().isEmpty());
+    DataCatalog::resetThreadViolationCount();
+  }
+
+  // 审计 02 M-8：执行段中途取消 → 已处理的行随提交入库，未处理的不动；
+  // catalog 自洽（每个版本文件都在、每条链接指向存在的资产/实体、资产数
+  // 与入库行一致、暂存根不留），再跑一次补齐其余行。
+  void cancelMidImportLeavesCatalogConsistent()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+
+    const QString root = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
+    QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井位/heads.dat")),
+        QByteArrayLiteral("#WellHead File From SMI\n"
+                          "#Name      X     Y     KB    TotalDepth\n"
+                          "A1           1.0   2.0   0.0   2000.0\n"
+                          "B2           3.0   4.0   0.0   2100.0\n")));
+    for (int i = 0; i < 5; ++i)
+      QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("L%1.las").arg(i)),
+          QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+                            "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n") +
+              QByteArray::number(100 + i) + QByteArrayLiteral(".0 50.0\n")));
+
+    const auto checkConsistent = [&] {
+      QSet<QString> assetIds;
+      for (const CatalogAsset &a : cat->assets())
+      {
+        assetIds.insert(a.id);
+        const QVector<CatalogVersion> vs = cat->versionsForAsset(a.id);
+        QVERIFY2(!vs.isEmpty(), qPrintable(a.id));
+        for (const CatalogVersion &v : vs)
+          QVERIFY2(QFileInfo::exists(v.managed ? DataCatalog::resolvedVersionPath(projectDir, v)
+                                               : v.path),
+                   qPrintable(v.path));
+      }
+      for (const EntityAssetLink &l : cat->links())
+      {
+        QVERIFY2(assetIds.contains(l.assetId), qPrintable(l.assetId));
+        if (!l.unresolved)
+          QVERIFY2(cat->hasEntity(l.entityId), qPrintable(l.entityId));
+      }
+      QVERIFY(!QDir(QDir(projectDir).filePath(QStringLiteral("artifacts/staging"))).exists());
+      DataCatalog reread;
+      QString oerr;
+      QVERIFY2(reread.open(projectDir, &oerr), qPrintable(oerr));
+      QCOMPARE(reread.assets().size(), cat->assets().size());
+      QCOMPARE(reread.links().size(), cat->links().size());
+    };
+
+    const std::shared_ptr<ImportSession> s = svc.beginImport();
+    QVERIFY(s);
+    QVERIFY(produceOnWorker(s, [&](ImportSession &sess) {
+      DataImportService::produceFolder(sess, root, {}, {},
+                                       [](int done, int total, const QString &) {
+                                         return total == 0 || done < 3; // 第 3 行后取消
+                                       });
+    }));
+    QCOMPARE(s->rows.size(), 3);
+    QVERIFY(s->error.contains(QStringLiteral("已取消")));
+    QString cerr;
+    QCOMPARE(svc.commitImport(*s, &cerr), DataImportService::CommitStatus::Committed);
+    int imported = 0;
+    for (const FolderRowResult &r : s->rows)
+      if (r.outcome == FolderRowResult::Outcome::Imported ||
+          r.outcome == FolderRowResult::Outcome::Unresolved)
+        ++imported;
+    QCOMPARE(imported, 3);
+    QCOMPARE(cat->assets().size(), 3);
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
+    checkConsistent();
+
+    // 续跑：已入库的行幂等跳过，其余补齐。
+    QString err;
+    const QVector<FolderRowResult> rows2 = svc.importFolder(root, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(rows2.size(), 6);
+    QCOMPARE(cat->assets().size(), 6);
+    checkConsistent();
+  }
+
+  // 审计 02 M-8：大量并发导入不死锁。N 个 session 同时在多线程池里 produce，
+  // 主线程不泵事件地 waitForDone（旧模型：worker 阻塞等 GUI、GUI 阻塞等
+  // worker → 死锁）；随后 owner 线程逐个提交——基线变了的返回 Conflict，
+  // 用新 session 重做，直到全部入库。
+  void manyConcurrentImportsDoNotDeadlock()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+    DataCatalog::resetThreadViolationCount();
+
+    constexpr int kN = 12;
+    QStringList files;
+    for (int i = 0; i < kN; ++i)
+    {
+      const QString f = tmp.filePath(QStringLiteral("c%1.las").arg(i));
+      QVERIFY(writeFile(f, QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n"
+                                             "~Well\nWELL. C") +
+                               QByteArray::number(i) +
+                               QByteArrayLiteral(" : WELL\n~Curve\nDEPT.M :\n~A DEPT\n") +
+                               QByteArray::number(100 + i) + QByteArrayLiteral(".0\n")));
+      files.append(f);
+    }
+
+    QStringList pending = files;
+    int rounds = 0;
+    QSignalSpy importedSpy(&svc, &DataImportService::imported);
+    while (!pending.isEmpty() && rounds < kN + 1)
+    {
+      ++rounds;
+      QVector<std::shared_ptr<ImportSession>> sessions;
+      for (int i = 0; i < pending.size(); ++i)
+      {
+        sessions.append(svc.beginImport());
+        QVERIFY(sessions.back());
+      }
+      QThreadPool pool;
+      pool.setMaxThreadCount(8);
+      for (int i = 0; i < pending.size(); ++i)
+        pool.start([s = sessions[i], f = pending[i]] {
+          DataImportService::produceFile(*s, f, DataImportService::ImportOptions{});
+        });
+      QVERIFY2(pool.waitForDone(120000), "concurrent produce deadlocked");
+      QStringList retry;
+      for (int i = 0; i < pending.size(); ++i)
+      {
+        QString cerr;
+        const auto st = svc.commitImport(*sessions[i], &cerr, /*allowConflict=*/true);
+        if (st == DataImportService::CommitStatus::Conflict)
+          retry.append(pending[i]);
+        else
+          QVERIFY2(st == DataImportService::CommitStatus::Committed, qPrintable(cerr));
+      }
+      sessions.clear(); // 冲突 session 析构即删暂存
+      pending = retry;
+    }
+    QVERIFY(pending.isEmpty());
+    QCOMPARE(cat->assets().size(), kN);
+    QCOMPARE(importedSpy.count(), kN);
+    QCOMPARE(DataCatalog::threadViolationCount(), 0);
+    QVERIFY(!QDir(QDir(projectDir).filePath(QStringLiteral("artifacts/staging"))).exists());
   }
 
   void folderImportRejectsBadRoots()
@@ -2262,38 +2543,6 @@ private slots:
     QVERIFY(!inner.issues.isEmpty());
   }
 
-  // P1-10 / CONC-06: fire-and-forget notifications must dispatch asynchronously via
-  // Qt::QueuedConnection so worker threads do not deadlock when main thread waits.
-  // (审计 02 M-8：这条通道已从 catInvoke 拆成显式 catNotify——catInvoke 只收有返回值的调用。)
-  void catInvokeVoidDispatchesAsyncWithoutDeadlock()
-  {
-    QTemporaryDir tmp;
-    const QString projectDir = tmp.filePath(QStringLiteral("proj_deadlock_test"));
-    QVERIFY(QDir().mkpath(projectDir));
-    auto stack = makeStack(projectDir);
-    QVERIFY(stack != nullptr);
-
-    std::atomic_bool invoked{false};
-    std::atomic_bool workerFinished{false};
-
-    std::thread worker([&]() {
-      stack->importSvc->catNotify([&]() {
-        invoked.store(true);
-      });
-      // catNotify returns immediately via QueuedConnection, before main thread pumps events!
-      workerFinished.store(true);
-    });
-
-    // The main thread waits for worker thread to finish without pumping events yet
-    worker.join();
-    QVERIFY(workerFinished.load());
-    // Since main thread event loop has not run yet, QueuedConnection has not executed
-    QVERIFY(!invoked.load());
-
-    // Process queued events on main thread
-    QCoreApplication::processEvents();
-    QVERIFY(invoked.load());
-  }
 };
 
 int main(int argc, char *argv[])

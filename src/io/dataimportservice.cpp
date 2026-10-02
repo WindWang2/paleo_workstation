@@ -27,6 +27,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
+#include <QThread>
+#include <QUuid>
 
 #include <cpl_conv.h>
 #include <cpl_error.h>
@@ -138,6 +140,7 @@ void DataImportService::setProjectDir(const QString &dir)
   m_pdfErrors.clear();
 
   m_projectDir = dir;
+  ++m_catalogEpoch; // 在途 session 的产出不得提交进新工程
   // wave/io-perf-cache：工程级缓存根统一接线（P4）。
   //  · LAS 解析缓存 + SHA 摘要表落 <project>/artifacts/index/（工程私有，
   //    随工程迁移；损坏自愈见 lascache/shacache）。
@@ -302,23 +305,22 @@ int DataImportService::buildRasterOverviews(
 }
 
 IngestPlan DataImportService::planFor(
-    const QString &root,
-    const std::function<bool(int filesSeen, const QString &path)> &scanProgress) const
+    ImportSession &s, const QString &root,
+    const std::function<bool(int filesSeen, const QString &path)> &scanProgress)
 {
-  // T2：plan 期搬出 GUI。快照在 catalog 线程拷出（COW O(1)——唯一的跨线程
-  // 接触点）；扫描/分类/哈希/身份匹配/去重复核全在当前线程执行——worker
-  // 调用即整段离 GUI，catalog 仍只被它自己的线程触碰。
-  const CatalogReadSnapshot snap =
-      catInvoke([&] { return CatalogReadSnapshot::fromCatalog(*m_catalog); });
+  // T2 + 审计 02 M-8：plan 对 session 的 staging 副本构建（owner 线程在
+  // beginImport 里拷出）——扫描/分类/哈希/身份匹配/去重复核全在当前线程，
+  // 活 catalog 零接触，不再有任何跨线程 marshal。
   IngestScanProgress progress;
   if (scanProgress)
     progress = [scanProgress](int seen, const QString &path) {
       return scanProgress(seen, path);
     };
-  return buildIngestPlan(root, snap, progress);
+  return buildIngestPlan(root, LiveCatalogSource(s.cat.get()), progress);
 }
 
-DataImportService::WellBind DataImportService::resolveWell(const QString &name) const
+DataImportService::WellBind DataImportService::resolveWell(const DataCatalog *cat,
+                                                           const QString &name)
 {
   WellBind b;
   if (name.trimmed().isEmpty())
@@ -326,8 +328,7 @@ DataImportService::WellBind DataImportService::resolveWell(const QString &name) 
     b.unresolved = true;
     return b;
   }
-  const QStringList ids =
-      catInvoke([&] { return m_catalog->wellsMatchingName(name); });
+  const QStringList ids = cat->wellsMatchingName(name);
   if (ids.size() == 1)
   {
     b.entityId = ids.front();
@@ -338,9 +339,9 @@ DataImportService::WellBind DataImportService::resolveWell(const QString &name) 
   return b;
 }
 
-bool DataImportService::storeManagedRaw(const QString &sourcePath, const QString &assetId,
-                                        const QString &versionId, QString *relPathOut,
-                                        QString *shaOut, QString *error)
+bool DataImportService::storeManagedRaw(ImportSession &s, const QString &sourcePath,
+                                        const QString &assetId, const QString &versionId,
+                                        QString *relPathOut, QString *shaOut, QString *error)
 {
   QFile src(sourcePath);
   if (!src.open(QIODevice::ReadOnly))
@@ -361,7 +362,16 @@ bool DataImportService::storeManagedRaw(const QString &sourcePath, const QString
   CatalogVersion pending;
   pending.managed = true;
   pending.path = relPath;
-  const QString dst = DataCatalog::resolvedVersionPath(m_projectDir, pending);
+  // 审计 02 M-8：落 session 私有暂存根（与工程目录同构），owner 线程提交时
+  // 原子 rename 到 <project>/<relPath>。最终位置先按工程根校验一次安全性。
+  if (DataCatalog::resolvedVersionPath(s.projectDir, pending).isEmpty())
+  {
+    setError(error, QStringLiteral("unsafe managed destination: %1").arg(relPath));
+    return false;
+  }
+  if (!s.ensureStagingRoot(error))
+    return false;
+  const QString dst = DataCatalog::resolvedVersionPath(s.stagingRoot, pending);
   if (dst.isEmpty())
   {
     setError(error, QStringLiteral("unsafe managed destination: %1").arg(relPath));
@@ -373,7 +383,7 @@ bool DataImportService::storeManagedRaw(const QString &sourcePath, const QString
     setError(error, QStringLiteral("cannot create directory %1").arg(dir.absolutePath()));
     return false;
   }
-  if (DataCatalog::resolvedVersionPath(m_projectDir, pending).isEmpty())
+  if (DataCatalog::resolvedVersionPath(s.stagingRoot, pending).isEmpty())
   {
     setError(error, QStringLiteral("unsafe managed destination: %1").arg(relPath));
     return false;
@@ -445,37 +455,354 @@ DataImportService::importProjectFileEx(const QString &sourcePath, QString *error
   return importProjectFileEx(sourcePath, ImportOptions{}, error);
 }
 
-// C 包三段式入口（docs/DATA_FABRIC_ADOPTION.md）：单文件也先立 1 项 plan——
-// 同一 buildIngestPlan（分类/身份/plan 期 dedup 标记全走），重复项的
-// duplicateOfVersionId 如实标上。显式单文件导入的语义是「仍导入」：这里不走
-// 执行器的 skip/幂等分支，同字节结局由内部 dedup 消化（AlreadyStored+补挂，
-// 与既有测试同口径）。plan 不适用时（服务未接线/文件不存在/目录源）原路进
-// importOneFile——错误与 importFailed 信号口径不变。
-DataImportService::ImportResult
-DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOptions &options,
-                                       QString *error)
+// ===========================================================================
+// 审计 02 M-8：produce-then-commit。
+// ===========================================================================
+ImportSession::~ImportSession()
 {
-  if (m_catalog && m_catalogReady && !sourcePath.isEmpty() &&
-      QFileInfo(sourcePath).isFile())
+  if (!committed)
+    discardStaging();
+}
+
+bool ImportSession::ensureStagingRoot(QString *err)
+{
+  if (stagingRoot.isEmpty())
   {
-    const IngestPlan plan = planFor(sourcePath);
+    setError(err, QStringLiteral("no project directory"));
+    return false;
+  }
+  if (QDir(stagingRoot).exists() || QDir().mkpath(stagingRoot))
+    return true;
+  setError(err, QStringLiteral("cannot create directory %1").arg(stagingRoot));
+  return false;
+}
+
+void ImportSession::discardStaging()
+{
+  if (stagingRoot.isEmpty() || !QDir(stagingRoot).exists())
+    return;
+  // 受管字节落盘即只读——先放开写权限再删。
+  QDirIterator it(stagingRoot, QDir::Files | QDir::Hidden | QDir::System,
+                  QDirIterator::Subdirectories);
+  while (it.hasNext())
+  {
+    const QString f = it.next();
+    QFile::setPermissions(f, QFile::permissions(f) | QFileDevice::WriteOwner);
+  }
+  QDir(stagingRoot).removeRecursively();
+  // 空的 staging 父目录顺手收掉（其余 session 的目录在则 rmdir 失败，无害）。
+  QDir().rmdir(QFileInfo(stagingRoot).absolutePath());
+}
+
+void ImportSession::recordImported(const QString &kind, const QString &assetId,
+                                   const QString &layerId)
+{
+  ImportEvent e;
+  e.kind = ImportEvent::Kind::Imported;
+  e.assetKind = kind;
+  e.assetId = assetId;
+  e.layerId = layerId;
+  events.append(e);
+}
+
+void ImportSession::recordImportFailed(const QString &kind, const QString &path,
+                                       const QString &err)
+{
+  ImportEvent e;
+  e.kind = ImportEvent::Kind::ImportFailed;
+  e.assetKind = kind;
+  e.path = path;
+  e.error = err;
+  events.append(e);
+}
+
+void ImportSession::recordLayerDeclared(const LayerDeclaration &decl)
+{
+  ImportEvent e;
+  e.kind = ImportEvent::Kind::LayerDeclared;
+  e.decl = decl;
+  events.append(e);
+}
+
+QString DataImportService::offThreadError()
+{
+  return QStringLiteral(
+      "导入入口只能在 catalog 所属线程调用（后台导入请用 beginImport/produce*/commitImport）");
+}
+
+std::shared_ptr<ImportSession> DataImportService::beginImport()
+{
+  if (QThread::currentThread() != thread() || QThread::currentThread() != m_catalog->thread())
+  {
+    qWarning("DataImportService::beginImport called off the owner thread");
+    return nullptr;
+  }
+  auto s = std::make_shared<ImportSession>();
+  s->projectDir = m_projectDir;
+  s->wired = m_store != nullptr;
+  s->catalogReady = m_catalogReady;
+  s->catalogOpenError = m_catalogOpenError;
+  s->baseSeq = m_catalog->mutationSeq();
+  s->epoch = m_catalogEpoch;
+  if (!m_projectDir.isEmpty())
+    s->stagingRoot = QDir(m_projectDir).absoluteFilePath(
+        QStringLiteral("artifacts/staging/") +
+        QUuid::createUuid().toString(QUuid::WithoutBraces));
+  s->cat = m_catalog->createStagingCopy(s->stagingRoot);
+  return s;
+}
+
+std::shared_ptr<ImportSession>
+DataImportService::runInline(const std::function<void(ImportSession &)> &produce)
+{
+  std::shared_ptr<ImportSession> s = beginImport();
+  if (!s)
+    return nullptr;
+  produce(*s);
+  QString cerr;
+  commitImport(*s, &cerr, /*allowConflict=*/false);
+  return s;
+}
+
+bool DataImportService::moveStagedFiles(ImportSession &s, QStringList *moved,
+                                        QString *error) const
+{
+  if (s.stagingRoot.isEmpty() || !QDir(s.stagingRoot).exists())
+    return true;
+  const QDir root(s.stagingRoot);
+  const QDir project(s.projectDir);
+  QDirIterator it(s.stagingRoot, QDir::Files | QDir::Hidden | QDir::System,
+                  QDirIterator::Subdirectories);
+  QStringList files;
+  while (it.hasNext())
+    files.append(it.next());
+  std::sort(files.begin(), files.end());
+  for (const QString &f : std::as_const(files))
+  {
+    const QString rel = root.relativeFilePath(f);
+    if (!rel.startsWith(QLatin1String("artifacts/")) ||
+        rel.split(QLatin1Char('/')).contains(QStringLiteral("..")))
+    {
+      setError(error, QStringLiteral("暂存文件路径非法: %1").arg(rel));
+      return false;
+    }
+    if (f.endsWith(QLatin1String(".partial")))
+      continue; // 半截产物（produce 失败分支已删；兜底不提交）
+    const QString dst = project.absoluteFilePath(rel);
+    if (QFileInfo::exists(dst))
+    {
+      setError(error, QStringLiteral("受管目标已存在，拒绝覆盖: %1").arg(rel));
+      return false;
+    }
+    if (!QDir().mkpath(QFileInfo(dst).absolutePath()))
+    {
+      setError(error, QStringLiteral("cannot create directory %1")
+                          .arg(QFileInfo(dst).absolutePath()));
+      return false;
+    }
+    if (!QFile::rename(f, dst))
+    {
+      setError(error, QStringLiteral("cannot place %1").arg(dst));
+      return false;
+    }
+    moved->append(dst);
+  }
+  return true;
+}
+
+static void removeMovedFiles(const QStringList &moved)
+{
+  for (const QString &f : moved)
+  {
+    QFile::setPermissions(f, QFile::permissions(f) | QFileDevice::WriteOwner);
+    QFile::remove(f);
+    // 受管版本目录（raw/<ast>/<ver> 与 derived/…）空了顺手收掉。
+    QDir d = QFileInfo(f).absoluteDir();
+    for (int i = 0; i < 3 && d.isEmpty(); ++i)
+    {
+      const QString name = d.dirName();
+      if (!d.cdUp() || !d.rmdir(name))
+        break;
+    }
+  }
+}
+
+void DataImportService::emitSessionEvents(const ImportSession &s, bool committed)
+{
+  for (const ImportEvent &e : s.events)
+  {
+    switch (e.kind)
+    {
+    case ImportEvent::Kind::LayerDeclared:
+      if (committed)
+        emit layerDeclared(e.decl);
+      break;
+    case ImportEvent::Kind::Imported:
+      if (committed)
+        emit imported(e.assetKind, e.assetId, e.layerId);
+      break;
+    case ImportEvent::Kind::ImportFailed:
+      emit importFailed(e.assetKind, e.path, e.error);
+      break;
+    }
+  }
+}
+
+void DataImportService::failSession(ImportSession &s, const QString &message)
+{
+  // 整批未入库：produce 期「成功」的行/文件结局改为 Failed（错误如实带上），
+  // produce 期原本的失败事件照常发出，再为被回滚的条目补发 importFailed。
+  s.error = message;
+  emitSessionEvents(s, /*committed=*/false);
+  for (FolderRowResult &r : s.rows)
+  {
+    if (r.outcome != FolderRowResult::Outcome::Imported &&
+        r.outcome != FolderRowResult::Outcome::Unresolved)
+      continue;
+    r.outcome = FolderRowResult::Outcome::Failed;
+    r.message = message;
+    r.entityName.clear();
+    emit importFailed(r.classifiedType, r.path, message);
+  }
+  if (s.hasFileResult && s.fileResult.outcome != ImportOutcome::Failed)
+  {
+    s.fileResult.outcome = ImportOutcome::Failed;
+    s.fileResult.assetId.clear();
+    s.fileResult.linkAttached = false;
+    s.fileResult.message = message;
+    emit importFailed(QString(), s.fileSourcePath, message);
+  }
+  s.discardStaging();
+}
+
+DataImportService::CommitStatus
+DataImportService::commitImport(ImportSession &s, QString *error, bool allowConflict)
+{
+  if (error)
+    error->clear();
+  if (QThread::currentThread() != thread() || QThread::currentThread() != m_catalog->thread())
+  {
+    setError(error, offThreadError());
+    return CommitStatus::Failed; // 不动 session：owner 线程仍可提交
+  }
+  if (s.committed)
+    return CommitStatus::Committed;
+  if (s.epoch != m_catalogEpoch || s.projectDir != m_projectDir)
+  {
+    const QString msg = QStringLiteral("工程已切换，导入结果已丢弃");
+    failSession(s, msg);
+    setError(error, msg);
+    return CommitStatus::Failed;
+  }
+  const QVector<CatalogOp> ops = s.cat ? s.cat->journal() : QVector<CatalogOp>{};
+  if (m_catalog->mutationSeq() != s.baseSeq && !ops.isEmpty())
+  {
+    // produce 期间 owner 侧另有写入：staging 副本的决策（id 分配/dedup/井
+    // 解析）基于旧快照，不能盲目重放。
+    const QString msg = QStringLiteral("导入期间工程数据已被修改，请重试导入");
+    if (allowConflict)
+    {
+      setError(error, msg);
+      return CommitStatus::Conflict;
+    }
+    failSession(s, msg);
+    setError(error, msg);
+    return CommitStatus::Failed;
+  }
+
+  QStringList moved;
+  QString merr;
+  if (!moveStagedFiles(s, &moved, &merr))
+  {
+    removeMovedFiles(moved);
+    const QString msg = QStringLiteral("导入提交失败：%1").arg(merr);
+    failSession(s, msg);
+    setError(error, msg);
+    return CommitStatus::Failed;
+  }
+  QString aerr;
+  if (!m_catalog->applyJournal(ops, &aerr))
+  {
+    removeMovedFiles(moved);
+    const QString msg = QStringLiteral("导入提交失败：%1").arg(aerr);
+    failSession(s, msg);
+    setError(error, msg);
+    return CommitStatus::Failed;
+  }
+  s.committed = true;
+  s.discardStaging();
+  emitSessionEvents(s, /*committed=*/true);
+  // B3：派生/栅格资产 Lazy ensure 金字塔（近零开销）——最终路径已落位。
+  if (!s.pyramidTargets.isEmpty())
+  {
+    RasterPyramidService pyramids(pyramidCacheDir());
+    for (const QString &p : std::as_const(s.pyramidTargets))
+    {
+      if (!QFileInfo::exists(p))
+        continue;
+      QString perr;
+      if (!pyramids.ensure(p, nullptr, &perr))
+        qWarning("DataImportService: pyramid ensure failed for %s: %s", qPrintable(p),
+                 qPrintable(perr));
+    }
+  }
+  if (!s.error.isEmpty())
+    setError(error, s.error);
+  return CommitStatus::Committed;
+}
+
+void DataImportService::produceFile(ImportSession &s, const QString &sourcePath,
+                                    const ImportOptions &options)
+{
+  // C 包三段式入口（docs/DATA_FABRIC_ADOPTION.md）：单文件也先立 1 项 plan——
+  // 同一 buildIngestPlan（分类/身份/plan 期 dedup 标记全走），重复项的
+  // duplicateOfVersionId 如实标上。显式单文件导入的语义是「仍导入」：这里不走
+  // 执行器的 skip/幂等分支，同字节结局由内部 dedup 消化（AlreadyStored+补挂，
+  // 与既有测试同口径）。plan 不适用时（服务未接线/文件不存在/目录源）原路进
+  // importOneFile——错误与 importFailed 信号口径不变。
+  s.hasFileResult = true;
+  s.fileSourcePath = sourcePath;
+  QString err;
+  if (s.cat && s.catalogReady && !sourcePath.isEmpty() && QFileInfo(sourcePath).isFile())
+  {
+    const IngestPlan plan = planFor(s, sourcePath);
     if (!plan.items.isEmpty())
     {
       const PlannedItem &item = plan.items.constFirst();
       ImportOptions eff = options;
       if (eff.forceType.isEmpty())
         eff.forceType = item.type; // 生效类型取 plan 分类（与内部同口径）
-      return importOneFile(item.path, eff, error);
+      s.fileResult = importOneFile(s, item.path, eff, &err);
+      s.error = err;
+      return;
     }
   }
-  return importOneFile(sourcePath, options, error);
+  s.fileResult = importOneFile(s, sourcePath, options, &err);
+  s.error = err;
+}
+
+DataImportService::ImportResult
+DataImportService::importProjectFileEx(const QString &sourcePath, const ImportOptions &options,
+                                       QString *error)
+{
+  if (error)
+    error->clear();
+  const auto s = runInline(
+      [&](ImportSession &sess) { produceFile(sess, sourcePath, options); });
+  if (!s)
+  {
+    setError(error, offThreadError());
+    return {};
+  }
+  setError(error, s->error);
+  return s->fileResult;
 }
 
 // 单文件导入实体——plan 化前的 importProjectFileEx 主体：分类 → dedup →
 // 受管 RAW 复制/外链 → 实体解析 → 关联，语义原样未动。
 DataImportService::ImportResult
-DataImportService::importOneFile(const QString &sourcePath, const ImportOptions &options,
-                                 QString *error)
+DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
+                                 const ImportOptions &options, QString *error)
 {
   QString internalError;
   if (!error)
@@ -483,10 +810,13 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
   else
     error->clear();
 
+  // 审计 02 M-8：本函数在 produce 线程跑——只碰 session（staging 副本 +
+  // 暂存根 + 事件表）。信号记成事件，owner 线程提交成功后按原序发射。
+  DataCatalog *const cat = s.cat.get();
   ImportResult res;
   const auto fail = [&](const QString &msg) -> ImportResult {
     setError(error, msg);
-    emit importFailed(QString(), sourcePath, msg);
+    s.recordImportFailed(QString(), sourcePath, msg);
     res.outcome = ImportOutcome::Failed;
     res.message = msg;
     return res;
@@ -499,19 +829,19 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
     return res;
   };
 
-  if (!m_store)
+  if (!s.wired)
     return fail(QStringLiteral("import service is not fully wired"));
-  if (m_projectDir.isEmpty())
+  if (s.projectDir.isEmpty())
     return fail(QStringLiteral("project dir is not set"));
   // T20a：catalog 拒绝写入时提前如实失败——不等算完 SHA/复制完字节才撞墙。
-  if (!m_catalogReady)
+  if (!s.catalogReady)
     return fail(QStringLiteral("catalog 拒绝写入：%1")
-                    .arg(m_catalogOpenError.isEmpty()
+                    .arg(s.catalogOpenError.isEmpty()
                              ? QStringLiteral("catalog 打开失败")
-                             : m_catalogOpenError));
+                             : s.catalogOpenError));
   // 单写实例降级（T4）：锁在别的实例手里——受管字节还没开始复制就拒，
   // 不留「文件拷进 artifacts/ 而 catalog 拒登记」的孤儿。
-  if (m_catalog && m_catalog->isLockedReadOnly())
+  if (cat->isLockedReadOnly())
     return fail(QStringLiteral("工程目录被另一个实例锁定——本实例只读，导入被拒绝"));
   if (sourcePath.isEmpty() || !QFile::exists(sourcePath))
     return fail(QStringLiteral("找不到源文件: %1").arg(sourcePath));
@@ -534,11 +864,11 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
   // 文件仍在且重哈希一致的版本——受管文件丢失/被改的旧条目不再冒充命中，
   // 重导据此走全新导入（issue #5）。
   const CatalogVersion existing =
-      catInvoke([&] { return m_catalog->versionBySha256(sourceSha); });
+      cat->versionBySha256(sourceSha);
   if (!existing.id.isEmpty())
   {
     const CatalogAsset existingAsset =
-        catInvoke([&] { return m_catalog->assetById(existing.assetId); });
+        cat->assetById(existing.assetId);
     if (existingAsset.type == QLatin1String("horizon"))
     {
       const QString horizon = QFileInfo(existing.fileName.isEmpty() ? sourcePath : existing.fileName)
@@ -547,11 +877,11 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       {
         CatalogVersion derived;
         const QVector<CatalogVersion> siblings =
-            catInvoke([&] { return m_catalog->versionsForAsset(existing.assetId); });
+            cat->versionsForAsset(existing.assetId);
         for (const CatalogVersion &v : siblings)
           if (v.stage.compare(QStringLiteral("DERIVED"), Qt::CaseInsensitive) == 0 &&
               v.parentVersionIds.contains(existing.id) &&
-              QFileInfo::exists(DataCatalog::resolvedVersionPath(m_projectDir, v)))
+              QFileInfo::exists(cat->versionFilePath(v))) // 同批新增派生件在暂存根
           {
             derived = v;
             break;
@@ -564,11 +894,11 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
           BinnedHorizon binned;
           if (!binHorizon(source.readAll(), &binned, error))
             return fail(error ? *error : QStringLiteral("horizon binning failed"));
-          derived.id = catInvoke([&] { return m_catalog->nextVersionId(); });
+          derived.id = cat->nextVersionId();
           derived.assetId = existing.assetId;
           derived.stage = QStringLiteral("DERIVED");
           derived.versionNumber =
-              catInvoke([&] { return m_catalog->currentVersion(existing.assetId).versionNumber; }) + 1;
+              cat->currentVersion(existing.assetId).versionNumber + 1;
           derived.managed = true;
           derived.fileName = horizon + QStringLiteral(".tif");
           derived.path = QStringLiteral("artifacts/") + DataCatalog::managedPath(
@@ -583,29 +913,35 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
           derived.extra.insert(QStringLiteral("z_min"), binned.zMin);
           derived.extra.insert(QStringLiteral("z_max"), binned.zMax);
           derived.extra.insert(QStringLiteral("filled_cells"), binned.filledCells);
-          const QString dst = DataCatalog::resolvedVersionPath(m_projectDir, derived);
+          if (DataCatalog::resolvedVersionPath(s.projectDir, derived).isEmpty())
+            return fail(QStringLiteral("unsafe managed destination: %1").arg(derived.path));
+          if (!s.ensureStagingRoot(error))
+            return fail(*error);
+          const QString dst = DataCatalog::resolvedVersionPath(s.stagingRoot, derived);
           if (dst.isEmpty())
             return fail(QStringLiteral("unsafe managed destination: %1").arg(derived.path));
+          if (!QDir().mkpath(QFileInfo(dst).absolutePath()))
+            return fail(QStringLiteral("cannot create directory %1")
+                            .arg(QFileInfo(dst).absolutePath()));
           if (!writeHorizonGeoTiff(binned, dst, error))
             return fail(error ? *error : QStringLiteral("horizon raster write failed"));
           QFile::setPermissions(dst, QFileDevice::ReadOwner | QFileDevice::ReadUser |
                                      QFileDevice::ReadGroup | QFileDevice::ReadOther);
-          if (!catWrite([&] { return m_catalog->addVersion(derived, error); }, error))
+          if (!cat->addVersion(derived, error))
             return fail(error ? *error : QStringLiteral("catalog addVersion failed"));
         }
         LayerDeclaration decl;
         decl.layerId = QStringLiteral("horizon.%1").arg(horizon);
         decl.horizon = horizon;
         decl.type = QStringLiteral("raster");
-        decl.source = DataCatalog::resolvedVersionPath(m_projectDir, derived);
+        decl.source = DataCatalog::resolvedVersionPath(s.projectDir, derived); // 提交后的最终位置
         decl.group = QStringLiteral("00_Data");
-        catNotify([this, decl] { emit layerDeclared(decl); });
+        s.recordLayerDeclared(decl);
       }
     }
     QString aerr;
-    // 整个补挂过程 marshal 回 GUI 一次执行（内部原生访问 catalog）。
-    const int attached = catInvoke(
-        [&] { return attachResolvableLinks(existingAsset, sourcePath, &aerr); });
+    // 补挂在 staging 副本上执行（attachLink 记进 journal，提交时重放）。
+    const int attached = attachResolvableLinks(cat, existingAsset, sourcePath, &aerr);
     if (!aerr.isEmpty())
       qWarning("import dedup attach: %s", qPrintable(aerr));
     const QString msg =
@@ -614,7 +950,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
                               : QStringLiteral("没有新的关联"));
     qInfo("import: %s — %s", qPrintable(msg), qPrintable(sourcePath));
     res.linkAttached = attached > 0;
-    emit imported(existingAsset.type, existing.assetId, QString()); // 聚焦已有资产
+    s.recordImported(existingAsset.type, existing.assetId, QString()); // 聚焦已有资产
     return done(ImportOutcome::AlreadyStored, existing.assetId, msg);
   }
   const QByteArray xmlContent =
@@ -627,15 +963,15 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
     cls.type = options.forceType;
   const QString stem = fi.completeBaseName();
 
-  const QString assetId = catInvoke([&] { return m_catalog->nextAssetId(); });
-  const QString versionId = catInvoke([&] { return m_catalog->nextVersionId(); });
+  const QString assetId = cat->nextAssetId();
+  const QString versionId = cat->nextVersionId();
 
   CatalogAsset asset;
   asset.id = assetId;
   asset.type = cls.type;
   asset.format = cls.format;
   asset.displayName = fi.fileName();
-  if (!catWrite([&] { return m_catalog->addAsset(asset, error); }, error))
+  if (!cat->addAsset(asset, error))
     return fail(*error);
 
   CatalogVersion version;
@@ -658,12 +994,12 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
   else
   {
     QString relPath, sha;
-    if (!storeManagedRaw(sourcePath, assetId, versionId, &relPath, &sha, error))
+    if (!storeManagedRaw(s, sourcePath, assetId, versionId, &relPath, &sha, error))
       return fail(*error);
     version.path = relPath;
     version.sha256 = sha;
   }
-  if (!catWrite([&] { return m_catalog->addVersion(version, error); }, error))
+  if (!cat->addVersion(version, error))
     return fail(*error);
 
   // ---- 实体解析与关联（角色沿用已有名字）----
@@ -700,17 +1036,17 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       {
         link.unresolved = true;
         link.note = QStringLiteral("井口重名: %1").arg(norm);
-        if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
+        if (!cat->addLink(link, error))
           return fail(*error);
         continue;
       }
       const QStringList matches =
-          catInvoke([&] { return m_catalog->wellsMatchingName(r.name); });
+          cat->wellsMatchingName(r.name);
       if (matches.size() >= 2)
       {
         link.unresolved = true;
-        link.note = catInvoke([&] { return candidatesNote(m_catalog, matches); });
-        if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
+        link.note = candidatesNote(cat, matches);
+        if (!cat->addLink(link, error))
           return fail(*error);
         continue;
       }
@@ -723,9 +1059,8 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       {
         wid = QStringLiteral("well-%1").arg(r.name);
         // id 被别的规范化名占用（罕见）→ 让位于序号 id。
-        if (catInvoke([&] { return m_catalog->hasEntity(wid); }))
-          wid = catInvoke(
-              [&] { return m_catalog->nextEntityId(QStringLiteral("well")); });
+        if (cat->hasEntity(wid))
+          wid = cat->nextEntityId(QStringLiteral("well"));
         CatalogEntity w;
         w.id = wid;
         w.entityType = QStringLiteral("well");
@@ -737,12 +1072,12 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
         w.td = r.td;
         // 局部测网坐标：真投影参数出现前保持未变换（plan §3）。
         w.coordinateStatus = QStringLiteral("untransformed");
-        if (!catWrite([&] { return m_catalog->addEntity(w, error); }, error))
+        if (!cat->addEntity(w, error))
           return fail(*error);
       }
       link.entityId = wid;
       link.isPrimary = true;
-      if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
+      if (!cat->addLink(link, error))
         return fail(*error);
     }
   }
@@ -754,10 +1089,10 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
     if (cls.format == QLatin1String("las"))
       LasParser::readWellInfo(sourcePath, wellName);
     QStringList tried{wellName};
-    WellBind bind = resolveWell(wellName);
+    WellBind bind = resolveWell(cat, wellName);
     if (bind.unresolved && bind.candidates.isEmpty())
     {
-      bind = resolveWell(stem); // A1.Las → A1
+      bind = resolveWell(cat, stem); // A1.Las → A1
       if (bind.unresolved && bind.candidates.isEmpty())
         tried.append(stem);
     }
@@ -775,12 +1110,10 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
     {
       link.unresolved = true;
       link.note = bind.candidates.size() >= 2
-                      ? catInvoke([&] {
-                          return candidatesNote(m_catalog, bind.candidates);
-                        })
+                      ? candidatesNote(cat, bind.candidates)
                       : unmatchedNameNote(tried);
     }
-    if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
+    if (!cat->addLink(link, error))
       return fail(*error);
   }
   else if (cls.type == QLatin1String("well_stratification") ||
@@ -817,10 +1150,10 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
     for (const QString &n : names)
     {
       QStringList tried{n};
-      WellBind bind = resolveWell(n);
+      WellBind bind = resolveWell(cat, n);
       if (bind.unresolved && bind.candidates.isEmpty() && names.size() == 1)
       {
-        bind = resolveWell(stem); // 单井文件的文件名主名回退
+        bind = resolveWell(cat, stem); // 单井文件的文件名主名回退
         tried.append(stem);
       }
       EntityAssetLink link;
@@ -836,12 +1169,10 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       {
         link.unresolved = true;
         link.note = bind.candidates.size() >= 2
-                        ? catInvoke([&] {
-                            return candidatesNote(m_catalog, bind.candidates);
-                          })
+                        ? candidatesNote(cat, bind.candidates)
                         : unmatchedNameNote(tried);
       }
-      if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
+      if (!cat->addLink(link, error))
         return fail(*error);
     }
   }
@@ -849,7 +1180,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
   {
     const bool known = isKnownSequenceBoundary(stem);
     const QString sbId = QStringLiteral("sb-%1").arg(stem.toUpper());
-    if (!catInvoke([&] { return m_catalog->hasEntity(sbId); }))
+    if (!cat->hasEntity(sbId))
     {
       CatalogEntity sb;
       sb.id = sbId;
@@ -857,7 +1188,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       sb.name = stem.toUpper();
       if (!known)
         sb.extra.insert(QStringLiteral("pending"), true); // 未决层位，不进编图 chip
-      if (!catWrite([&] { return m_catalog->addEntity(sb, error); }, error))
+      if (!cat->addEntity(sb, error))
         return fail(*error);
     }
     EntityAssetLink link;
@@ -867,7 +1198,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
     link.role = QStringLiteral("horizon");
     link.isPrimary = true;
     link.unresolved = !known;
-    if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
+    if (!cat->addLink(link, error))
       return fail(*error);
 
     // 已知界面：装箱派生时间栅格（DERIVED，父版本=RAW）并登记图层清单。
@@ -881,7 +1212,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
         return fail(*error);
 
       const QString derivedVersionId =
-          catInvoke([&] { return m_catalog->nextVersionId(); });
+          cat->nextVersionId();
       const QString tifName = stem.toUpper() + QStringLiteral(".tif");
       const QString derivedRel = DataCatalog::managedPath(QStringLiteral("derived"), assetId,
                                                           derivedVersionId, tifName);
@@ -891,21 +1222,25 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       CatalogVersion pending;
       pending.managed = true;
       pending.path = relPath;
-      const QString tifPath = DataCatalog::resolvedVersionPath(m_projectDir, pending);
+      // 最终位置（提交后）——图层声明/金字塔用它；字节先写进暂存根。
+      const QString tifPath = DataCatalog::resolvedVersionPath(s.projectDir, pending);
       if (tifPath.isEmpty())
         return fail(QStringLiteral("unsafe managed destination: %1").arg(relPath));
-      if (!writeHorizonGeoTiff(binned, tifPath, error))
+      if (!s.ensureStagingRoot(error))
         return fail(*error);
-      QFile::setPermissions(tifPath, QFileDevice::ReadOwner | QFileDevice::ReadUser |
-                                         QFileDevice::ReadGroup | QFileDevice::ReadOther);
-      // B3：派生时间栅格同批接线——Lazy ensure 瓦片金字塔（近零开销）。
-      {
-        RasterPyramidService pyramids(pyramidCacheDir());
-        QString perr;
-        if (!pyramids.ensure(tifPath, nullptr, &perr))
-          qWarning("DataImportService: pyramid ensure failed for %s: %s",
-                   qPrintable(tifPath), qPrintable(perr));
-      }
+      const QString stagedTif = DataCatalog::resolvedVersionPath(s.stagingRoot, pending);
+      if (stagedTif.isEmpty())
+        return fail(QStringLiteral("unsafe managed destination: %1").arg(relPath));
+      if (!QDir().mkpath(QFileInfo(stagedTif).absolutePath()))
+        return fail(QStringLiteral("cannot create directory %1")
+                        .arg(QFileInfo(stagedTif).absolutePath()));
+      if (!writeHorizonGeoTiff(binned, stagedTif, error))
+        return fail(*error);
+      QFile::setPermissions(stagedTif, QFileDevice::ReadOwner | QFileDevice::ReadUser |
+                                           QFileDevice::ReadGroup | QFileDevice::ReadOther);
+      // B3：派生时间栅格同批接线——Lazy ensure 瓦片金字塔（近零开销）。提交
+      // 后在 owner 线程对最终路径执行（暂存路径不进金字塔身份表）。
+      s.pyramidTargets.append(tifPath);
 
       CatalogVersion derived;
       derived.id = derivedVersionId;
@@ -925,7 +1260,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       derived.extra.insert(QStringLiteral("z_min"), binned.zMin);
       derived.extra.insert(QStringLiteral("z_max"), binned.zMax);
       derived.extra.insert(QStringLiteral("filled_cells"), binned.filledCells);
-      if (!catWrite([&] { return m_catalog->addVersion(derived, error); }, error))
+      if (!cat->addVersion(derived, error))
         return fail(*error);
 
       // 图层清单只登记要画的结果（§2）：北向上时间栅格 + 局部测网 CRS。
@@ -935,8 +1270,8 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       decl.type = QStringLiteral("raster");
       decl.source = tifPath;
       decl.group = QStringLiteral("00_Data");
-      // declare 写 layer manifest（sqlite）——marshal 回 GUI 线程执行。
-      catNotify([this, decl] { emit layerDeclared(decl); });
+      // declare 写 layer manifest（sqlite）——提交成功后由 owner 线程发射。
+      s.recordLayerDeclared(decl);
       manifestLayerId = decl.layerId;
     }
   }
@@ -949,7 +1284,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       return fail(serr);
     const SegyGeometry g = reader.geometry();
     const QString surveyId = QStringLiteral("survey-%1").arg(stem);
-    if (!catInvoke([&] { return m_catalog->hasEntity(surveyId); }))
+    if (!cat->hasEntity(surveyId))
     {
       CatalogEntity s;
       s.id = surveyId;
@@ -963,7 +1298,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
       s.startTimeMs = g.startTimeMs;
       for (int i = 0; i < 4; ++i)
         s.corners.append({g.cornerX[i], g.cornerY[i]});
-      if (!catWrite([&] { return m_catalog->addEntity(s, error); }, error))
+      if (!cat->addEntity(s, error))
         return fail(*error);
     }
     EntityAssetLink link;
@@ -972,14 +1307,14 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
     link.assetId = assetId;
     link.role = QStringLiteral("seismic_volume");
     link.isPrimary = true;
-    if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
+    if (!cat->addLink(link, error))
       return fail(*error);
   }
   else
   {
     // document / image_reference / geojson / unknown / 参考资料 XML：辅助实体 + reference。
     const QString auxId =
-        catInvoke([&] { return m_catalog->nextEntityId(QStringLiteral("aux")); });
+        cat->nextEntityId(QStringLiteral("aux"));
     CatalogEntity aux;
     aux.id = auxId;
     aux.entityType = QStringLiteral("auxiliary");
@@ -1011,7 +1346,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
         aux.extra.insert(QStringLiteral("legend"), legend);
       }
     }
-    if (!catWrite([&] { return m_catalog->addEntity(aux, error); }, error))
+    if (!cat->addEntity(aux, error))
       return fail(*error);
     EntityAssetLink link;
     link.entityType = QStringLiteral("auxiliary");
@@ -1019,7 +1354,7 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
     link.assetId = assetId;
     link.role = auxRefRole;
     link.isPrimary = true;
-    if (!catWrite([&] { return m_catalog->addLink(link, error); }, error))
+    if (!cat->addLink(link, error))
       return fail(*error);
   }
 
@@ -1033,21 +1368,16 @@ DataImportService::importOneFile(const QString &sourcePath, const ImportOptions 
         ext == QLatin1String("png") || ext == QLatin1String("jpg") ||
         ext == QLatin1String("jpeg"))
     {
+      // 受管副本取提交后的最终位置；ensure 在 owner 线程提交成功后执行。
       const QString rasterAbs =
           external ? version.path
-                   : DataCatalog::resolvedVersionPath(m_projectDir, version);
-      if (!rasterAbs.isEmpty() && QFileInfo::exists(rasterAbs))
-      {
-        RasterPyramidService pyramids(pyramidCacheDir());
-        QString perr;
-        if (!pyramids.ensure(rasterAbs, nullptr, &perr))
-          qWarning("DataImportService: pyramid ensure failed for %s: %s",
-                   qPrintable(rasterAbs), qPrintable(perr));
-      }
+                   : DataCatalog::resolvedVersionPath(s.projectDir, version);
+      if (!rasterAbs.isEmpty())
+        s.pyramidTargets.append(rasterAbs);
     }
   }
 
-  emit imported(cls.type, assetId, manifestLayerId);
+  s.recordImported(cls.type, assetId, manifestLayerId);
   return done(ImportOutcome::Imported, assetId);
 }
 
@@ -1072,6 +1402,23 @@ QVector<FolderPreviewRow>
 DataImportService::previewFolder(const QString &dirPath, QString *error,
                                  const std::function<bool(int, const QString &)> &scanProgress)
 {
+  if (error)
+    error->clear();
+  // 审计 02 M-8：预览也只读 session 的 staging 副本；后台预览走
+  // beginImport + producePreview（FolderImportWorkflow::previewFolderAsync）。
+  const std::shared_ptr<ImportSession> s = beginImport();
+  if (!s)
+  {
+    setError(error, offThreadError());
+    return {};
+  }
+  return producePreview(*s, dirPath, error, scanProgress);
+}
+
+QVector<FolderPreviewRow>
+DataImportService::producePreview(ImportSession &sess, const QString &dirPath, QString *error,
+                                  const std::function<bool(int, const QString &)> &scanProgress)
+{
   QVector<FolderPreviewRow> rows;
   if (error)
     error->clear();
@@ -1083,7 +1430,7 @@ DataImportService::previewFolder(const QString &dirPath, QString *error,
   // C 包：预览即 plan。T2：经 COW 快照在当前线程构建（扫描/分类/族归组/
   // 身份匹配/去重/主建议）——GUI 直调等价旧路径，worker 调用（经
   // FolderImportWorkflow::previewFolderAsync）整段离 GUI。行序 = 执行序。
-  const IngestPlan plan = planFor(dirPath, scanProgress);
+  const IngestPlan plan = planFor(sess, dirPath, scanProgress);
   if (plan.cancelled)
   {
     setError(error, QStringLiteral("已取消"));
@@ -1169,25 +1516,41 @@ DataImportService::importFolder(
     const QStringList &forceImportPaths,
     const std::function<bool(int, int, const QString &)> &progress)
 {
-  QVector<FolderRowResult> rows;
   if (error)
     error->clear(); // 成功路径不写 error——先清掉调用方复用的旧值
-  if (!m_store)
+  const auto s = runInline([&](ImportSession &sess) {
+    produceFolder(sess, dirPath, typeOverrides, forceImportPaths, progress);
+  });
+  if (!s)
   {
-    setError(error, QStringLiteral("import service is not fully wired"));
-    return rows;
+    setError(error, offThreadError());
+    return {};
   }
-  if (m_projectDir.isEmpty())
-  {
-    setError(error, QStringLiteral("project dir is not set"));
-    return rows;
-  }
+  setError(error, s->error);
+  return s->rows;
+}
+
+void DataImportService::produceFolder(
+    ImportSession &sess, const QString &dirPath, const QMap<QString, QString> &typeOverrides,
+    const QStringList &forceImportPaths,
+    const std::function<bool(int, int, const QString &)> &progress)
+{
+  sess.rows.clear();
+  sess.error.clear();
+  const auto finish = [&sess](QVector<FolderRowResult> rows, const QString &err) {
+    sess.rows = std::move(rows);
+    sess.error = err;
+  };
+  QVector<FolderRowResult> rows;
+  if (!sess.wired)
+    return finish(rows, QStringLiteral("import service is not fully wired"));
+  if (sess.projectDir.isEmpty())
+    return finish(rows, QStringLiteral("project dir is not set"));
+  QString errText;
+  QString *const error = &errText;
 
   if (dirPath.isEmpty() || !QFileInfo(dirPath).isDir())
-  {
-    setError(error, QStringLiteral("找不到目录: %1").arg(dirPath));
-    return rows;
-  }
+    return finish(rows, QStringLiteral("找不到目录: %1").arg(dirPath));
 
   // C 包三段式：T2 起 plan 经 COW 快照在当前线程构建（扫描/分类/shp 归组/
   // 身份匹配/去重/主建议不再 marshal 回 GUI）。扫描期进度复用 progress 回
@@ -1199,22 +1562,20 @@ DataImportService::importFolder(
     const auto scanCb = [&progress](int seen, const QString &p) {
       return progress(seen, 0, p); // total=0：plan 扫描段
     };
-    plan = planFor(dirPath, scanCb);
+    plan = planFor(sess, dirPath, scanCb);
   }
   else
-    plan = planFor(dirPath);
+    plan = planFor(sess, dirPath);
   if (plan.cancelled)
   {
     // 扫描段取消：零行执行零行入库（执行段取消另有「保留已处理行」语义）。
-    setError(error, QStringLiteral("已取消"));
-    return rows;
+    return finish(rows, QStringLiteral("已取消"));
   }
   if (plan.items.isEmpty() && plan.skipped.isEmpty())
   {
-    setError(error, plan.issues.isEmpty()
-                        ? QStringLiteral("目录里没有可导入的文件: %1").arg(dirPath)
-                        : plan.issues.join(QStringLiteral("\n")));
-    return rows;
+    return finish(rows, plan.issues.isEmpty()
+                            ? QStringLiteral("目录里没有可导入的文件: %1").arg(dirPath)
+                            : plan.issues.join(QStringLiteral("\n")));
   }
 
   // 确认表「改类型」：合法 override 并进 item.type（生效类型）；非法 override
@@ -1246,10 +1607,12 @@ DataImportService::importFolder(
             QStringLiteral("用户改判：仍导入");
       }
 
-  // 执行面：executeIngestPlan 逐项 executePlannedItem + BatchSave 一次落盘 +
-  // progress 协作取消。幂等——decision==skip 或 (path,sha) 已注册的项不再
-  // 登记；重跑同目录每行 Skipped、目录零增量。
-  return executeIngestPlan(plan, *this, progress, error);
+  // 执行面：executeIngestPlan 逐项 produceItem（写 staging 副本）+ progress
+  // 协作取消；入库在 owner 线程 commitImport 一次事务落盘。幂等——
+  // decision==skip 或 (path,sha) 已注册的项不再登记；重跑同目录每行
+  // Skipped、目录零增量。
+  rows = executeIngestPlan(plan, sess, progress, error);
+  finish(std::move(rows), errText);
 }
 
 // ---------------------------------------------------------------------------
@@ -1262,6 +1625,35 @@ DataImportService::executePlannedItem(const PlannedItem &item, QString *error)
 {
   if (error)
     error->clear();
+  FolderRowResult row;
+  QString perr;
+  const auto s = runInline([&](ImportSession &sess) {
+    row = produceItem(sess, item, &perr);
+    sess.rows = {row};
+    sess.error = perr;
+  });
+  if (!s)
+  {
+    setError(error, offThreadError());
+    row = FolderRowResult{};
+    row.path = item.path;
+    row.classifiedType = item.type;
+    row.outcome = FolderRowResult::Outcome::Failed;
+    row.message = offThreadError();
+    return row;
+  }
+  // 提交失败会把行改写成 Failed（failSession）。
+  row = s->rows.value(0, row);
+  setError(error, s->error);
+  return row;
+}
+
+FolderRowResult
+DataImportService::produceItem(ImportSession &s, const PlannedItem &item, QString *error)
+{
+  if (error)
+    error->clear();
+  DataCatalog *const cat = s.cat.get();
   FolderRowResult row;
   row.path = item.path;
   row.classifiedType = item.type;
@@ -1290,7 +1682,7 @@ DataImportService::executePlannedItem(const PlannedItem &item, QString *error)
                                              : item.note);
     // shp 族补齐：重复跳过的族顺带把缺的成员拷进已注册版本目录（幂等修复）。
     if (!item.members.isEmpty() && !item.duplicateOfVersionId.isEmpty())
-      copyBundleMembersIntoVersion(item, item.duplicateOfVersionId, &row.message);
+      copyBundleMembersIntoVersion(s, item, item.duplicateOfVersionId, &row.message);
     return row;
   }
 
@@ -1301,14 +1693,14 @@ DataImportService::executePlannedItem(const PlannedItem &item, QString *error)
   if (!item.sha256.isEmpty() && item.decision != QLatin1String("as_new_version"))
   {
     const CatalogVersion hit =
-        catInvoke([&] { return m_catalog->versionBySha256(item.sha256); });
+        cat->versionBySha256(item.sha256);
     if (!hit.id.isEmpty() &&
         QDir::cleanPath(hit.sourceUri) == QDir::cleanPath(item.path))
     {
       row.outcome = FolderRowResult::Outcome::Skipped;
       row.message = QStringLiteral("已在库，幂等跳过");
       if (!item.members.isEmpty())
-        copyBundleMembersIntoVersion(item, hit.id, &row.message);
+        copyBundleMembersIntoVersion(s, item, hit.id, &row.message);
       return row;
     }
   }
@@ -1316,7 +1708,7 @@ DataImportService::executePlannedItem(const PlannedItem &item, QString *error)
   QString ferr;
   ImportOptions opts;
   opts.forceType = item.type; // 恒下传——与分类器同值时是无害同值
-  const ImportResult res = importOneFile(item.path, opts, &ferr);
+  const ImportResult res = importOneFile(s, item.path, opts, &ferr);
   row.message = res.message.isEmpty() ? ferr : res.message;
   if (res.outcome == ImportOutcome::Failed || res.assetId.isEmpty())
   {
@@ -1335,24 +1727,21 @@ DataImportService::executePlannedItem(const PlannedItem &item, QString *error)
     QStringList notes;
     int resolved = 0;
   };
-  const ResolveSummary summary = catInvoke([&]() -> ResolveSummary {
-    ResolveSummary s;
-    for (const EntityAssetLink &l : m_catalog->linksForAsset(res.assetId))
+  ResolveSummary summary;
+  for (const EntityAssetLink &l : cat->linksForAsset(res.assetId))
+  {
+    if (l.unresolved)
     {
-      if (l.unresolved)
-      {
-        if (!l.note.isEmpty() && !s.notes.contains(l.note))
-          s.notes.append(l.note);
-        continue;
-      }
-      ++s.resolved;
-      const CatalogEntity e = m_catalog->entityById(l.entityId);
-      const QString n = e.name.isEmpty() ? l.entityId : e.name;
-      if (!n.isEmpty() && !s.names.contains(n))
-        s.names.append(n);
+      if (!l.note.isEmpty() && !summary.notes.contains(l.note))
+        summary.notes.append(l.note);
+      continue;
     }
-    return s;
-  });
+    ++summary.resolved;
+    const CatalogEntity e = cat->entityById(l.entityId);
+    const QString n = e.name.isEmpty() ? l.entityId : e.name;
+    if (!n.isEmpty() && !summary.names.contains(n))
+      summary.names.append(n);
+  }
   row.entityName = summary.names.join(QStringLiteral(", "));
   row.outcome = res.outcome == ImportOutcome::Imported && summary.resolved == 0
                     ? FolderRowResult::Outcome::Unresolved
@@ -1367,13 +1756,14 @@ DataImportService::executePlannedItem(const PlannedItem &item, QString *error)
   // 成员本就在源目录相邻，copyBundleMembersIntoVersion 自己不拷）。
   if (!item.members.isEmpty() && res.outcome == ImportOutcome::Imported)
   {
-    const CatalogVersion raw = catInvoke([&] {
-      for (const CatalogVersion &v : m_catalog->versionsForAsset(res.assetId))
-        if (v.stage == QLatin1String("RAW") && v.managed)
-          return v;
-      return CatalogVersion{};
-    });
-    copyBundleMembersIntoVersion(item, raw.id, &row.message);
+    CatalogVersion raw;
+    for (const CatalogVersion &v : cat->versionsForAsset(res.assetId))
+      if (v.stage == QLatin1String("RAW") && v.managed)
+      {
+        raw = v;
+        break;
+      }
+    copyBundleMembersIntoVersion(s, item, raw.id, &row.message);
   }
   return row;
 }
@@ -1381,17 +1771,18 @@ DataImportService::executePlannedItem(const PlannedItem &item, QString *error)
 // shp 族成员落位：把 members 里除主件外的文件拷进指定受管版本目录。
 // 幂等——已存在同名成员跳过（受管文件只读，不覆盖）；失败成员名附进
 // *messageOut。非受管版本（外链）不拷：成员文件本就在源目录与主件相邻。
-void DataImportService::copyBundleMembersIntoVersion(const PlannedItem &item,
+void DataImportService::copyBundleMembersIntoVersion(ImportSession &s, const PlannedItem &item,
                                                      const QString &versionId,
                                                      QString *messageOut)
 {
   if (item.members.size() < 2 || versionId.isEmpty())
     return;
-  const CatalogVersion v =
-      catInvoke([&] { return m_catalog->versionById(versionId); });
+  const CatalogVersion v = s.cat->versionById(versionId);
   if (v.id.isEmpty() || !v.managed)
     return;
-  const QString abs = DataCatalog::resolvedVersionPath(m_projectDir, v);
+  // 本 session 新建的版本落在暂存根（随提交一起 rename）；已入库版本是
+  // 幂等补齐缺失成员（只增不改，与旧行为一致）。
+  const QString abs = s.cat->versionFilePath(v);
   if (abs.isEmpty())
     return;
   const QDir dir = QFileInfo(abs).absoluteDir();
@@ -1454,7 +1845,7 @@ DataImportService::importFolderRow(const QString &sourcePath, const QString &for
 // 一口井」的未决链接挂上去。名称来源与原导入各分支一致——SHA-256 相同 ⇒
 // 解析出的井名与顺序一致，未决链接按 links() 序与之一一配对。不建井、不并井。
 // ---------------------------------------------------------------------------
-int DataImportService::attachResolvableLinks(const CatalogAsset &asset,
+int DataImportService::attachResolvableLinks(DataCatalog *cat, const CatalogAsset &asset,
                                              const QString &sourcePath, QString *error)
 {
   if (asset.id.isEmpty())
@@ -1517,10 +1908,10 @@ int DataImportService::attachResolvableLinks(const CatalogAsset &asset,
   else
     return 0; // seismic/horizon/auxiliary：实体在入库时已确定，dedup 不补井关联。
 
-  const QVector<EntityAssetLink> links = m_catalog->links(); // 快照（attachLink 不增删）
+  const QVector<EntityAssetLink> links = cat->links(); // 快照（attachLink 不增删）
   // T33：一次 dedup 可能连挂多条链接——并入批次（嵌套在 importFolder 的
   // 外层批次里也安全，深度计数）。
-  DataCatalog::BatchSave batch(m_catalog);
+  DataCatalog::BatchSave batch(cat);
   int nameIdx = 0, attached = 0;
   for (int i = 0; i < links.size() && nameIdx < namesPerLink.size(); ++i)
   {
@@ -1533,7 +1924,7 @@ int DataImportService::attachResolvableLinks(const CatalogAsset &asset,
     QString target;
     for (const QString &n : tried)
     {
-      const QStringList ids = m_catalog->wellsMatchingName(n);
+      const QStringList ids = cat->wellsMatchingName(n);
       if (ids.size() == 1)
       {
         target = ids.front();
@@ -1546,13 +1937,13 @@ int DataImportService::attachResolvableLinks(const CatalogAsset &asset,
       continue;
     // 该 (well, role) 已有已决主关联 → 没有新的关联可补。
     bool hasPrimary = false;
-    for (const EntityAssetLink &o : m_catalog->linksForEntity(target))
+    for (const EntityAssetLink &o : cat->linksForEntity(target))
       if (o.role == l.role && o.isPrimary && !o.unresolved)
         hasPrimary = true;
     if (hasPrimary)
       continue;
     QString aerr;
-    if (!m_catalog->attachLink(i, target, &aerr))
+    if (!cat->attachLink(i, target, &aerr))
     {
       setError(error, aerr);
       continue;
@@ -1831,6 +2222,9 @@ QString DataImportService::relocateVersionSource(const QString &versionId,
     return QString();
   };
 
+  // 审计 02 M-8：活 catalog 只在 owner 线程读写——跨线程调用如实拒绝。
+  if (QThread::currentThread() != m_catalog->thread())
+    return fail(offThreadError());
   if (m_projectDir.isEmpty())
     return fail(QStringLiteral("project dir is not set"));
   if (!m_catalogReady)
@@ -1838,7 +2232,7 @@ QString DataImportService::relocateVersionSource(const QString &versionId,
                     .arg(m_catalogOpenError.isEmpty()
                              ? QStringLiteral("catalog 打开失败")
                              : m_catalogOpenError));
-  const CatalogVersion v = catInvoke([&] { return m_catalog->versionById(versionId); });
+  const CatalogVersion v = m_catalog->versionById(versionId);
   if (v.id.isEmpty())
     return fail(QStringLiteral("版本不存在: %1").arg(versionId));
   if (v.managed)
@@ -1866,11 +2260,11 @@ QString DataImportService::relocateVersionSource(const QString &versionId,
     return fail(QStringLiteral("文件内容与原版本不符（SHA-256 不一致）——已拒绝重定位"));
 
   CatalogVersion relocated;
-  relocated.id = catInvoke([&] { return m_catalog->nextVersionId(); });
+  relocated.id = m_catalog->nextVersionId();
   relocated.assetId = v.assetId;
   relocated.stage = v.stage.isEmpty() ? QStringLiteral("RAW") : v.stage;
   relocated.versionNumber =
-      catInvoke([&] { return m_catalog->currentVersion(v.assetId).versionNumber; }) + 1;
+      m_catalog->currentVersion(v.assetId).versionNumber + 1;
   relocated.managed = false;
   relocated.path = abs;
   relocated.sourceUri = abs;
@@ -1878,7 +2272,7 @@ QString DataImportService::relocateVersionSource(const QString &versionId,
   relocated.fileName = fi.fileName();
   relocated.extra = v.extra;   // 外链夹带的图例等元数据随内容一起搬
   relocated.extra.insert(QStringLiteral("relocatedFrom"), v.id);
-  if (!catWrite([&] { return m_catalog->addVersion(relocated, error); }, error))
+  if (!m_catalog->addVersion(relocated, error))
     return fail(error->isEmpty() ? QStringLiteral("catalog addVersion failed") : *error);
   qInfo("relocate: %s -> %s (asset %s, from version %s)", qPrintable(v.path),
         qPrintable(abs), qPrintable(v.assetId), qPrintable(v.id));

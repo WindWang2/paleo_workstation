@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
+#include <thread>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -66,6 +68,10 @@ private slots:
   void wellsGeoJsonKeepsOldFileOnFailedWrite();  // T6：写失败不截断旧文件
   void lockedReadOnlyRefusesMutationsButReadsFine(); // T4
   void thousandEntityQueryBudget();              // T3：catalog.sqlite 触发条件量化
+  // 审计 02 M-8：staging 副本 / journal / 事务重放 / 线程亲和。
+  void stagingCopyJournalsWithoutTouchingLive();
+  void applyJournalIsAtomicOnFailure();
+  void liveWritesRefusedOffOwnerThread();
 };
 
 void TestCatalog::roundTripsThroughJson()
@@ -1668,6 +1674,159 @@ void TestCatalog::thousandEntityQueryBudget()
   QVERIFY2(linksMs < 100, qPrintable(QString::number(linksMs)));
   QVERIFY2(currentMs < 100, qPrintable(QString::number(currentMs)));
   QVERIFY2(saveMs < 2000, qPrintable(QString::number(saveMs)));
+}
+
+// ---- 审计 02 M-8 ----
+
+namespace
+{
+  CatalogEntity wellEntity(const QString &id, const QString &name)
+  {
+    CatalogEntity e;
+    e.id = id;
+    e.entityType = QStringLiteral("well");
+    e.name = name;
+    return e;
+  }
+} // namespace
+
+// staging 副本上的写入只进副本 + journal（不落盘、不动活 catalog）；
+// applyJournal 在活 catalog 上按原序重放、一次落盘（revision +1）。
+void TestCatalog::stagingCopyJournalsWithoutTouchingLive()
+{
+  QTemporaryDir tmp;
+  DataCatalog live;
+  QString err;
+  QVERIFY2(live.open(tmp.path(), &err), qPrintable(err));
+  QVERIFY(live.addEntity(wellEntity(QStringLiteral("well-1"), QStringLiteral("A1")), &err));
+  const int rev0 = live.catalogRevision();
+  const quint64 seq0 = live.mutationSeq();
+  const QByteArray disk0 = [&] {
+    QFile f(live.catalogPath());
+    return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+  }();
+
+  std::unique_ptr<DataCatalog> st = live.createStagingCopy(tmp.filePath(QStringLiteral("stage")));
+  QVERIFY(st->isStaging());
+  QVERIFY(st->hasEntity(QStringLiteral("well-1")));
+  QVERIFY(st->addEntity(wellEntity(QStringLiteral("well-2"), QStringLiteral("B2")), &err));
+  CatalogAsset a;
+  a.id = st->nextAssetId();
+  a.type = QStringLiteral("well_log");
+  a.format = QStringLiteral("las");
+  QVERIFY2(st->addAsset(a, &err), qPrintable(err));
+  EntityAssetLink l;
+  l.entityType = QStringLiteral("well");
+  l.entityId = QStringLiteral("well-2");
+  l.assetId = a.id;
+  l.role = QStringLiteral("well_log");
+  l.isPrimary = true;
+  QVERIFY2(st->addLink(l, &err), qPrintable(err));
+  QCOMPARE(st->journal().size(), 3);
+
+  // 活 catalog 原样：内存、磁盘、revision、mutationSeq。
+  QVERIFY(!live.hasEntity(QStringLiteral("well-2")));
+  QVERIFY(live.assets().isEmpty());
+  QCOMPARE(live.catalogRevision(), rev0);
+  QCOMPARE(live.mutationSeq(), seq0);
+  {
+    QFile f(live.catalogPath());
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    QCOMPARE(f.readAll(), disk0);
+  }
+
+  QSignalSpy changed(&live, &DataCatalog::changed);
+  QVERIFY2(live.applyJournal(st->journal(), &err), qPrintable(err));
+  QVERIFY(live.hasEntity(QStringLiteral("well-2")));
+  QCOMPARE(live.assets().size(), 1);
+  QCOMPARE(live.linksForAsset(a.id).size(), 1);
+  QCOMPARE(live.catalogRevision(), rev0 + 1); // 整批一次落盘
+  QCOMPARE(changed.count(), 1);
+  QVERIFY(live.mutationSeq() != seq0);
+  QString mismatch;
+  QVERIFY2(live.indexHealthy(&mismatch), qPrintable(mismatch));
+  // 空 journal：不落盘、revision 不动。
+  QVERIFY(live.applyJournal({}, &err));
+  QCOMPARE(live.catalogRevision(), rev0 + 1);
+}
+
+// 重放中途失败 / 落盘失败 → 活 catalog 内存逐字段还原、错误带序号/原因。
+void TestCatalog::applyJournalIsAtomicOnFailure()
+{
+  QTemporaryDir tmp;
+  DataCatalog live;
+  QString err;
+  QVERIFY2(live.open(tmp.path(), &err), qPrintable(err));
+  QVERIFY(live.addEntity(wellEntity(QStringLiteral("well-1"), QStringLiteral("A1")), &err));
+  const int rev0 = live.catalogRevision();
+
+  std::unique_ptr<DataCatalog> st = live.createStagingCopy(QString());
+  QVERIFY(st->addEntity(wellEntity(QStringLiteral("well-2"), QStringLiteral("B2")), &err));
+  QVector<CatalogOp> ops = st->journal();
+  CatalogOp dup; // 第二条：重复 id → addEntity 失败
+  dup.kind = CatalogOp::Kind::AddEntity;
+  dup.entity = wellEntity(QStringLiteral("well-1"), QStringLiteral("dup"));
+  ops.append(dup);
+  QVERIFY(!live.applyJournal(ops, &err));
+  QVERIFY2(err.contains(QStringLiteral("2/2")), qPrintable(err));
+  QVERIFY(!live.hasEntity(QStringLiteral("well-2"))); // 第一条已回滚
+  QCOMPARE(live.entities().size(), 1);
+  QCOMPARE(live.catalogRevision(), rev0);
+  QString mismatch;
+  QVERIFY2(live.indexHealthy(&mismatch), qPrintable(mismatch));
+
+  // 落盘失败：catalog 目录只读。
+  const QString dir = QFileInfo(live.catalogPath()).absolutePath();
+  const auto perm = QFile::permissions(dir);
+  QVERIFY(QFile::setPermissions(dir, QFileDevice::ReadOwner | QFileDevice::ExeOwner));
+  QFile probe(QDir(dir).filePath(QStringLiteral(".probe")));
+  if (probe.open(QIODevice::WriteOnly))
+  {
+    probe.close();
+    probe.remove();
+    QFile::setPermissions(dir, perm);
+    QSKIP("目录权限不生效（root 运行？）");
+  }
+  err.clear();
+  const bool ok = live.applyJournal(st->journal(), &err);
+  QFile::setPermissions(dir, perm);
+  QVERIFY(!ok);
+  QVERIFY(!err.isEmpty());
+  QVERIFY(!live.hasEntity(QStringLiteral("well-2")));
+  QCOMPARE(live.catalogRevision(), rev0);
+  QVERIFY2(live.indexHealthy(&mismatch), qPrintable(mismatch));
+  // 权限恢复后同一 journal 可重放成功。
+  QVERIFY2(live.applyJournal(st->journal(), &err), qPrintable(err));
+  QVERIFY(live.hasEntity(QStringLiteral("well-2")));
+}
+
+// 活 catalog 只认所属线程写：别的线程写入被拒 + 计数；staging 副本无亲和。
+void TestCatalog::liveWritesRefusedOffOwnerThread()
+{
+  QTemporaryDir tmp;
+  DataCatalog live;
+  QString err;
+  QVERIFY2(live.open(tmp.path(), &err), qPrintable(err));
+  std::unique_ptr<DataCatalog> st = live.createStagingCopy(QString());
+  DataCatalog::resetThreadViolationCount();
+  bool liveOk = true, stagingOk = false, applyOk = true;
+  QString liveErr, stagingErr, applyErr;
+  std::thread worker([&] {
+    liveOk = live.addEntity(wellEntity(QStringLiteral("well-9"), QStringLiteral("W9")), &liveErr);
+    stagingOk =
+        st->addEntity(wellEntity(QStringLiteral("well-8"), QStringLiteral("W8")), &stagingErr);
+    applyOk = live.applyJournal(st->journal(), &applyErr);
+  });
+  worker.join();
+  QVERIFY(!liveOk);
+  QVERIFY(!liveErr.isEmpty());
+  QVERIFY2(stagingOk, qPrintable(stagingErr));
+  QVERIFY(!applyOk);
+  QVERIFY(!applyErr.isEmpty());
+  QCOMPARE(DataCatalog::threadViolationCount(), 2);
+  QVERIFY(!live.hasEntity(QStringLiteral("well-9")));
+  QVERIFY(!live.hasEntity(QStringLiteral("well-8")));
+  DataCatalog::resetThreadViolationCount();
 }
 
 QTEST_MAIN(TestCatalog)

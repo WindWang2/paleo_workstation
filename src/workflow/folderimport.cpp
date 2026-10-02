@@ -8,11 +8,88 @@
 #include <QFileInfo>
 #include <QPointer>
 
+// 审计 02 M-8：一次异步导入作业。produce 在 worker 上只碰 session；finish
+// 在 GUI 线程拿提交后的 session（行/结果已按提交结局改写）回壳。
+struct FolderImportWorkflow::ImportJob
+{
+  QString title;
+  std::function<void(ImportSession &, PaleoTask *)> produce;
+  std::function<void(ImportSession &)> finish;
+  std::function<void()> fail; // beginImport 不可用（服务未就绪等）
+  int attempts = 0;
+};
+
 FolderImportWorkflow::FolderImportWorkflow(DataImportService *svc,
                                            PaleoTaskService *taskSvc,
                                            QObject *parent)
     : QObject(parent), m_svc(svc), m_taskSvc(taskSvc)
 {
+}
+
+int FolderImportWorkflow::pendingImportJobs() const
+{
+  return static_cast<int>(m_importQueue.size()) + (m_activeImport ? 1 : 0);
+}
+
+void FolderImportWorkflow::enqueueImport(const std::shared_ptr<ImportJob> &job)
+{
+  m_importQueue.append(job);
+  pumpImports();
+}
+
+void FolderImportWorkflow::pumpImports()
+{
+  if (m_activeImport || m_importQueue.isEmpty())
+    return;
+  m_activeImport = m_importQueue.takeFirst();
+  runImportJob(m_activeImport);
+}
+
+void FolderImportWorkflow::runImportJob(const std::shared_ptr<ImportJob> &job)
+{
+  ++job->attempts;
+  std::shared_ptr<ImportSession> session = m_svc ? m_svc->beginImport() : nullptr;
+  if (!session || !m_taskSvc)
+  {
+    m_activeImport.reset();
+    if (job->fail)
+      job->fail();
+    pumpImports();
+    return;
+  }
+  PaleoTask *task = m_taskSvc->start(
+      job->title, [session, produce = job->produce](PaleoTask *t) -> QString {
+        produce(*session, t); // worker：只写 session，活 catalog 零接触
+        return session->error;
+      });
+  QPointer<DataImportService> svc = m_svc;
+  connect(task, &PaleoTask::finished, this, [this, job, session, task, svc] {
+    if (!svc)
+    {
+      m_activeImport.reset();
+      session->error = QStringLiteral("导入服务已关闭，导入结果已丢弃");
+      job->finish(*session);
+      pumpImports();
+      return;
+    }
+    // 取消过的作业不重做（用户已叫停）：冲突按失败落行。
+    const bool mayRetry =
+        job->attempts < kMaxImportAttempts && !task->cancelRequested();
+    QString cerr;
+    const DataImportService::CommitStatus st =
+        svc->commitImport(*session, &cerr, /*allowConflict=*/mayRetry);
+    if (st == DataImportService::CommitStatus::Conflict)
+    {
+      qInfo("FolderImportWorkflow: catalog changed during import, re-producing "
+            "(attempt %d/%d)",
+            job->attempts + 1, kMaxImportAttempts);
+      runImportJob(job); // 新 session、新基线；旧 session 析构即删暂存
+      return;
+    }
+    m_activeImport.reset();
+    job->finish(*session);
+    pumpImports();
+  });
 }
 
 QVector<FolderPreviewRow>
@@ -43,14 +120,22 @@ void FolderImportWorkflow::previewFolderAsync(
   // 无任务服务 → 同步旧路径（小环境/测试行为不变）。
   if (m_taskSvc)
   {
+    // 审计 02 M-8：预览也只读 session 的 staging 副本（GUI 上拷出）。
+    std::shared_ptr<ImportSession> session = m_svc->beginImport();
+    if (!session)
+    {
+      if (done)
+        done({}, DataImportService::offThreadError());
+      return;
+    }
     emit previewActiveChanged(true);
     auto outRows = std::make_shared<QVector<FolderPreviewRow>>();
     auto outErr = std::make_shared<QString>();
     PaleoTask *task = m_taskSvc->start(
         tr("扫描工区文件夹"),
-        [svc = m_svc, dir, outRows, outErr](PaleoTask *t) -> QString {
-          *outRows = svc->previewFolder(
-              dir, outErr.get(),
+        [session, dir, outRows, outErr](PaleoTask *t) -> QString {
+          *outRows = DataImportService::producePreview(
+              *session, dir, outErr.get(),
               [t](int seen, const QString &path) {
                 t->reportDetail(tr("扫描 %1").arg(QFileInfo(path).fileName()));
                 return !t->cancelRequested();
@@ -105,23 +190,19 @@ void FolderImportWorkflow::importFolder(const QString &dir,
       done({}, QStringLiteral("导入服务未就绪"));
     return;
   }
-  // D1b+T2：任务池在场 → 整个文件夹导入（plan 扫描/哈希 + LAS 解析/层位
-  // 装箱/SEG-Y 索引）跑 worker 线程——plan 期经 COW 快照不再 marshal 回
-  // GUI；catalog 写操作仍经服务内 marshal 回 GUI。进度口径：扫描段
-  // total==0（跑马灯 + 文件名 detail），执行段 total=行数。worker 的
-  // imported 信号排队顺序先于 finished——槽里抑制标签的标志在终态回调
-  // 复位，不会漏开逐文件标签。
+  // D1b+T2+审计 02 M-8：任务池在场 → 整个文件夹导入（plan 扫描/哈希 +
+  // LAS 解析/层位装箱/SEG-Y 索引）在 worker 上 produce 进 session 的
+  // staging 副本；finished（GUI）里 commitImport 一次事务入库，随后按原序
+  // 发 layerDeclared/imported/importFailed，再 importActiveChanged(false)
+  // ——抑制逐文件标签的标志在信号之后复位，不会漏开逐文件标签。进度口径：
+  // 扫描段 total==0（跑马灯 + 文件名 detail），执行段 total=行数。
   if (m_taskSvc)
   {
-    emit importActiveChanged(true);
-    auto outRows = std::make_shared<QVector<FolderRowResult>>();
-    auto outErr = std::make_shared<QString>();
-    PaleoTask *task = m_taskSvc->start(
-        tr("导入工区文件夹"),
-        [svc = m_svc, dir, overrides, forceImportPaths, outRows,
-         outErr](PaleoTask *t) -> QString {
-          *outRows = svc->importFolder(
-              dir, outErr.get(), overrides, forceImportPaths,
+    auto job = std::make_shared<ImportJob>();
+    job->title = tr("导入工区文件夹");
+    job->produce = [dir, overrides, forceImportPaths](ImportSession &s, PaleoTask *t) {
+          DataImportService::produceFolder(
+              s, dir, overrides, forceImportPaths,
               [t](int d, int total, const QString &p) {
                 if (total > 0)
                 {
@@ -134,14 +215,19 @@ void FolderImportWorkflow::importFolder(const QString &dir,
                 }
                 return !t->cancelRequested();
               });
-          return *outErr;
-        });
-    connect(task, &PaleoTask::finished, this,
-            [this, done, outRows, outErr] {
-              emit importActiveChanged(false);
-              if (done)
-                done(*outRows, *outErr);
-            });
+        };
+    job->finish = [this, done](ImportSession &s) {
+      emit importActiveChanged(false);
+      if (done)
+        done(s.rows, s.error);
+    };
+    job->fail = [this, done] {
+      emit importActiveChanged(false);
+      if (done)
+        done({}, DataImportService::offThreadError());
+    };
+    emit importActiveChanged(true);
+    enqueueImport(job);
     return;
   }
   emit importActiveChanged(true);
@@ -162,23 +248,26 @@ void FolderImportWorkflow::importFile(
       done(QString(), QStringLiteral("导入服务未就绪"));
     return;
   }
-  // D1b：LAS 解析/SEG-Y 索引等大文件在任务池跑——无任务服务时保持
-  // 同步旧路径。imported 信号照常排队回 GUI（预览标签在终态后开）。
+  // D1b：LAS 解析/SEG-Y 索引等大文件在任务池 produce——无任务服务时保持
+  // 同步旧路径。imported 信号在 GUI 提交后发（预览标签在终态后开）。
   if (m_taskSvc)
   {
-    auto outErr = std::make_shared<QString>();
-    auto outId = std::make_shared<QString>();
-    PaleoTask *task = m_taskSvc->start(
-        tr("导入 %1").arg(kind),
-        [svc = m_svc, kind, path, outId, outErr](PaleoTask *) -> QString {
-          *outId = svc->importFile(kind, path, outErr.get());
-          return outId->isEmpty() ? *outErr : QString();
-        });
-    connect(task, &PaleoTask::finished, this,
-            [done, outId, outErr] {
-              if (done)
-                done(*outId, *outErr);
-            });
+    auto job = std::make_shared<ImportJob>();
+    job->title = tr("导入 %1").arg(kind);
+    job->produce = [path](ImportSession &s, PaleoTask *) {
+      DataImportService::produceFile(s, path, DataImportService::ImportOptions{});
+      if (!s.fileResult.assetId.isEmpty())
+        s.error.clear(); // 任务态口径同旧：拿到资产 id 即成功
+    };
+    job->finish = [done](ImportSession &s) {
+      if (done)
+        done(s.fileResult.assetId, s.fileResult.assetId.isEmpty() ? s.error : QString());
+    };
+    job->fail = [done] {
+      if (done)
+        done(QString(), DataImportService::offThreadError());
+    };
+    enqueueImport(job);
     return;
   }
   QString err;

@@ -384,6 +384,7 @@ add_library(paleo_services STATIC
   src/services/algoparamschema.cpp                  # m2：算法参数 schema 注册表
   src/services/projectdata.cpp                      # 读侧门面（catalog.json + LayerManifest）
   src/services/paleotaskservice.cpp                 # D1/D2 异步任务框架
+  src/services/jobrunner.cpp                        # 方向20：统一三段式 JobRunner（作业框架）
   src/services/seismicmapping.cpp                   # 测网几何↔inline/xline/CDP
   src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排
   src/services/crashreport.cpp                      # 致命信号 fd 落盘 + .running 旗标
@@ -621,6 +622,7 @@ add_paleo_test(tst_projectsvc LIBS paleo_qgis)              # metadata,qgis
 add_paleo_test(tst_layerservice LIBS paleo_qgis)            # catalog,metadata,qgis
 add_paleo_test(tst_canvas_tools LIBS paleo_services paleo_qgis) # metadata,qgis,services
 add_paleo_test(tst_domain LIBS paleo_domain)
+add_paleo_test(tst_jobrunner LIBS paleo_services paleo_qgis)  # 方向20：JobRunner 三段式框架断言
 add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
 add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）

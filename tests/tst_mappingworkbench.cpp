@@ -13,6 +13,7 @@
 #include <QComboBox>
 #include <QCryptographicHash>
 #include <QFile>
+#include <QLabel>
 #include <QListWidget>
 #include <QPushButton>
 #include <QSignalSpy>
@@ -550,6 +551,61 @@ private slots:
     QVERIFY(f.latest("wells_prediction").isEmpty());
     QCOMPARE(failures.count(), 1);
   }
+  void panelGuidanceSelectionAndRefreshPreserveUserIntent() {
+    Fixture f;
+    QVERIFY(f.init());
+    MappingWorkbenchPage page("predict", &f.work);
+    page.setHorizon("D61");
+    auto *kind = page.findChild<QComboBox *>("predictionKind");
+    auto *inputs = page.findChild<QListWidget *>("workbenchInputs");
+    auto *select = page.findChild<QPushButton *>("workbenchSelectInputs");
+    auto *hint = page.findChild<QLabel *>("workbenchInputHint");
+    QVERIFY(kind && inputs && select && hint);
+    QVERIFY(!select->isEnabled());
+    QVERIFY(hint->text().contains(QStringLiteral("数据管理")));
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QVERIFY(!f.well("B", 30, 40).isEmpty());
+    kind->setCurrentIndex(1);
+    const int inputHeight = inputs->minimumHeight();
+    inputs->item(0)->setCheckState(Qt::Checked);
+    select->click(); // A partial selection becomes all, not none.
+    QCOMPARE(inputs->item(0)->checkState(), Qt::Checked);
+    QCOMPARE(inputs->item(1)->checkState(), Qt::Checked);
+    select->click();
+    QCOMPARE(inputs->item(0)->checkState(), Qt::Unchecked);
+    QCOMPARE(inputs->item(1)->checkState(), Qt::Unchecked);
+    QString error;
+    QVERIFY(f.work.predict("D61", "wells", {"A", "B"}, &error));
+    QTRY_VERIFY(!f.work.busy());
+    const auto id = f.latest("wells_prediction");
+    QVERIFY(!id.isEmpty());
+    page.selectLayer(id);
+    auto *labels = page.findChild<QComboBox *>("faciesLabelMode");
+    QVERIFY(labels && labels->isEnabled());
+    labels->setCurrentIndex(0);
+    inputs->item(0)->setCheckState(Qt::Checked);
+    page.refresh();
+    QCOMPARE(labels->currentIndex(), 0); // unrelated refresh must not reset it
+    QCOMPARE(inputs->minimumHeight(), inputHeight);
+    QSignalSpy intent(&page, &MappingWorkbenchPage::commandRequested);
+    page.commandButton("labels")->click();
+    QCOMPARE(intent.last()[1].toMap().value("label_mode").toInt(), 0);
+    QVERIFY(f.work.setLabelMode(id, 0, &error));
+    QVERIFY(f.work.setLabelMode(id, 2, &error));
+    QCOMPARE(labels->currentIndex(), 2); // saved state follows external changes
+
+    MappingWorkbenchPage compose("compose", &f.work);
+    compose.setHorizon("D61");
+    auto *list = compose.findChild<QListWidget *>("workbenchInputs");
+    QVERIFY(list && list->count() > 0);
+    list->setCurrentRow(0);
+    const auto selected = list->currentItem()->data(Qt::UserRole);
+    compose.refresh();
+    QVERIFY(list->currentItem());
+    QCOMPARE(list->currentItem()->data(Qt::UserRole), selected);
+    QVERIFY(!compose.findChild<QPushButton *>("workbenchMoveUp")->isEnabled());
+  }
+
   void panelSelectionAndBusyFollowActualState() {
     Fixture f;
     QVERIFY(f.init());

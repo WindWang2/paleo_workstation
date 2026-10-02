@@ -1219,6 +1219,53 @@ class TestUiShell : public QObject
       m_win->showPage(QStringLiteral("data"));
       QCOMPARE(workspaceStack->currentIndex(), 1);
     }
+    // Reproducible audit of the production shell, using native widgets and
+    // isolated synthetic project data. No user settings or files are touched.
+    void workflowAuditSnapshots()
+    {
+      const QString dir = qEnvironmentVariable("PALEO_WORKFLOW_CAPTURE");
+      if (dir.isEmpty())
+        QSKIP("Set PALEO_WORKFLOW_CAPTURE to capture the five workflow pages");
+      QVERIFY(QDir().mkpath(dir));
+      QTemporaryDir project;
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                            m_ctx->compositionWf(), m_ctx->validationWf(),
+                            m_ctx->importSvc(), m_ctx->seismicLink(),
+                            m_ctx->processingSvc(), m_ctx->store(),
+                            m_ctx->editingSvc(), m_ctx->layoutSvc(), m_ctx->taskSvc());
+      m_win->attachWorkbench(m_ctx->mappingWorkbench());
+      m_win->resize(1440, 900);
+      m_win->show();
+      QTest::qWait(100);
+      QVERIFY(m_win->grab().save(dir + "/00-startup.png"));
+      QVERIFY(m_ctx->projectSvc()->createProject(project.filePath("audit.qgz")));
+      auto *chip = m_win->findChild<QToolButton *>("chip_D61");
+      QVERIFY(chip && chip->isEnabled());
+      chip->click();
+      const QStringList pages{"data", "predict", "constraint", "compose", "validate"};
+      for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark})
+      {
+        if (theme == PaleoTheme::Theme::Light)
+          PaleoTheme::applyLightTheme();
+        else
+          PaleoTheme::applyDarkTheme();
+        PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() +
+                                       PaleoTheme::focusRingStyleSheet());
+        for (int i = 0; i < pages.size(); ++i)
+        {
+          m_win->showPage(pages[i]);
+          QTest::qWait(100);
+          QCOMPARE(m_win->currentPage(), pages[i]);
+          QVERIFY(m_win->grab().save(dir + QString("/%1-%2-%3.png")
+              .arg(i + 1, 2, 10, QLatin1Char('0')).arg(pages[i],
+                  theme == PaleoTheme::Theme::Light ? "light" : "dark")));
+        }
+      }
+      PaleoTheme::applyLightTheme();
+      PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() +
+                                     PaleoTheme::focusRingStyleSheet());
+    }
+
     void mappingWorkbenchCanvasRibbonAndReferences()
     {
       QTemporaryDir dir;

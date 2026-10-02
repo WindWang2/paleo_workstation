@@ -252,7 +252,8 @@ public:
   QStringList checkedVersionIds() const { return m_checked; }
 
 signals:
-  void diffRequested(const QString &versionIdA, const QString &versionIdB);
+  // moc uses _t1/_t2 in the generated definition; public names describe the payload.
+  void diffRequested(const QString &versionIdA, const QString &versionIdB); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
 private:
   QScrollArea *m_scroll = nullptr;
@@ -449,7 +450,8 @@ public:
   int nodeCount() const { return m_nodes.size(); }
 
 signals:
-  void nodeClicked(const QString &id, bool isEntity);
+  // moc uses _t1/_t2 in the generated definition; public names describe the payload.
+  void nodeClicked(const QString &id, bool isEntity); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
 protected:
   void mousePressEvent(QMouseEvent *event) override

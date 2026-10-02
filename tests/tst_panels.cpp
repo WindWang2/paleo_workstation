@@ -1044,14 +1044,13 @@ class TestPanels : public QObject
       ValidatePage page(&wf);
       auto *table = page.findChild<QTableWidget *>(QStringLiteral("issueTable"));
       page.findChild<QPushButton *>(QStringLiteral("runButton"))->click();
-      QTest::qWait(1); // 运行验证把清单刷新排到下一事件回合
-      QCOMPARE(table->rowCount(), 1);
+      QTRY_COMPARE(table->rowCount(), 1);
       QCOMPARE(table->item(0, 1)->text(), QStringLiteral("SRC_MISSING"));
 
       // Double-click on the row emits the locate intent with the stored data.
       QSignalSpy spy(&page, &ValidatePage::locateRequested);
       QVERIFY(QMetaObject::invokeMethod(
-          table, "itemDoubleClicked",
+          table, "itemActivated",
           Q_ARG(QTableWidgetItem *, table->item(0, 2))));
       QCOMPARE(spy.count(), 1);
       QCOMPARE(spy.first().at(0).toString(), QStringLiteral("predict.T1.gone"));
@@ -1917,7 +1916,7 @@ class TestPanels : public QObject
         QVERIFY(hint->isVisibleTo(&page));
         QVERIFY(hint->text().contains(QString::fromUtf8("工程还没打开")));
       }
-      // catalog 开了但未选实体：指引下一步（地图点选）。
+      // catalog 开了但未选实体：指引下一步（列表选择）。
       {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
@@ -1929,7 +1928,7 @@ class TestPanels : public QObject
         page.refreshAssetTable();
         auto *hint = page.findChild<QLabel *>(QStringLiteral("entityViewEmptyLabel"));
         QVERIFY(hint->isVisibleTo(&page));
-        QVERIFY(hint->text().contains(QString::fromUtf8("地图")));
+        QVERIFY(hint->text().contains(QString::fromUtf8("左侧数据列表")));
       }
       // 未知实体：如实说不在目录，带原 id，不猜。
       {

@@ -38,8 +38,9 @@ inline QLabel *caption(const QString &text, QWidget *parent)
   QFont f = l->font();
   f.setPointSize(8);
   l->setFont(f);
-  // text-muted——PaleoTheme 现取（每次 caption() 调用现算，天然随主题）。
-  l->setStyleSheet(PaleoTheme::mutedCaptionStyleSheet());
+  l->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+  // Register live: captions already on screen must follow theme changes.
+  PaleoTheme::applyThemedStyleSheet(l, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   return l;
 }
 
@@ -63,7 +64,6 @@ public:
     m_toggle->setChecked(true);
     m_toggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
     PaleoTheme::applyThemedStyleSheet(m_toggle, [] {
-      const bool dark = PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark;
       const auto &t = PaleoTheme::tokens();
       return QStringLiteral(
                  "QToolButton { "
@@ -79,7 +79,7 @@ public:
                  "QToolButton:hover { background: %4; }")
           .arg(t.text.name().toUpper(), t.surfaceAltRaised.name().toUpper(),
                t.border.name().toUpper(),
-               dark ? t.border.name().toUpper() : QStringLiteral("#E2E8F0"));
+               t.surfaceAlt.name().toUpper());
     });
     m_toggle->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
@@ -126,7 +126,7 @@ inline void markPrimaryButton(QPushButton *btn)
                "QPushButton:disabled { background: %4; color: %5; border-color: %4; }")
         .arg(t.primary.name().toUpper(), t.onPrimary.name().toUpper(),
              t.primaryHover.name().toUpper(), t.surfaceAltRaised.name().toUpper(),
-             t.textDisabled.name().toUpper());
+             t.textDisabled.name().toUpper()) + PaleoTheme::focusRingStyleSheet();
   });
 }
 

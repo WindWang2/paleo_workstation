@@ -162,7 +162,7 @@ void TestDataPreview::emptyStateBeforeAnyTab()
   auto *empty = pv.findChild<QLabel *>(QStringLiteral("previewEmptyLabel"));
   QVERIFY(empty);
   QVERIFY(empty->isVisible() || !empty->isHidden()); // 未开标签时可见
-  QCOMPARE(empty->text(), QStringLiteral("还没有打开的预览 — 在列表中选择一条数据"));
+  QCOMPARE(empty->text(), QStringLiteral("还没有打开的预览 — 从顶部导入数据，再在左侧列表选择一条数据"));
   QCOMPARE(pv.tabCount(), 0);
 }
 

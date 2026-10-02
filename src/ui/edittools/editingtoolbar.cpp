@@ -344,13 +344,7 @@ void PaleoEditingToolbar::setEditingService( QgisEditingService *service )
     if ( mEditLayer && ( mEditLayer->id() == layerId ||
          mEditLayer->customProperty( QStringLiteral( "paleoLayerId" ) ).toString() == layerId ) )
     {
-      const QString id = mEditLayer->id();
-      mEditLayer = nullptr;
-      installTool( nullptr );
-      uncheckEditTools( this );
-      emit editingStopped( id, saved );
-      refreshCombo();
-      updateActionStates();
+      finishSession(mEditLayer->id(), saved);
     }
   };
 
@@ -861,6 +855,20 @@ bool PaleoEditingToolbar::startEditing()
   return true;
 }
 
+void PaleoEditingToolbar::finishSession(const QString &id, bool saved)
+{
+  // Service commits synchronously notify us before saveEditing() returns.
+  // Consume the session once so each edit produces exactly one new version.
+  if (!mEditLayer || mEditLayer->id() != id)
+    return;
+  mEditLayer = nullptr;
+  installTool(nullptr);
+  uncheckEditTools(this);
+  emit editingStopped(id, saved);
+  refreshCombo();
+  updateActionStates();
+}
+
 bool PaleoEditingToolbar::saveEditing()
 {
   QgsVectorLayer *layer = mEditLayer;
@@ -870,6 +878,7 @@ bool PaleoEditingToolbar::saveEditing()
     return false;
   }
 
+  const QString id = layer->id();
   QString err;
   const bool ok = mEditingService ? mEditingService->commitEdit( layer, &err )
                                   : layer->commitChanges();
@@ -881,13 +890,7 @@ bool PaleoEditingToolbar::saveEditing()
     return false;
   }
 
-  const QString id = layer->id();
-  mEditLayer = nullptr;
-  installTool( nullptr ); // the edit tool rode the session — park the canvas
-  uncheckEditTools( this );
-  emit editingStopped( id, true );
-  refreshCombo();
-  updateActionStates(); // commit cleared the native stack → undo/redo off
+  finishSession(id, true);
   return true;
 }
 
@@ -897,6 +900,7 @@ void PaleoEditingToolbar::finalizeSession( const QString &reason )
   if ( !layer || !layer->isEditable() )
     return; // 无会话（或会话已在外部结束）：幂等
 
+  const QString id = layer->id();
   QString err;
   bool saved = mEditingService ? mEditingService->commitEdit( layer, &err )
                                : layer->commitChanges();
@@ -908,14 +912,8 @@ void PaleoEditingToolbar::finalizeSession( const QString &reason )
       emit editRefused( tr( "回滚图层 %1 失败" ).arg( layer->name() ) );
   }
 
-  const QString id = layer->id();
-  mEditLayer = nullptr;
-  installTool( nullptr );
-  uncheckEditTools( this );
-  emit editingStopped( id, saved );
+  finishSession(id, saved);
   emit editRefused( reason.arg( saved ? tr( "已提交" ) : tr( "已放弃" ) ) );
-  refreshCombo();
-  updateActionStates(); // 提交/回滚清空 native undo 栈
 }
 
 void PaleoEditingToolbar::watchProject( QgsProject *project )
@@ -968,6 +966,7 @@ bool PaleoEditingToolbar::cancelEditing()
     return false;
   }
 
+  const QString id = layer->id();
   const bool ok = mEditingService ? mEditingService->rollbackEdit( layer )
                                   : layer->rollBack();
   if ( !ok )
@@ -976,12 +975,6 @@ bool PaleoEditingToolbar::cancelEditing()
     return false;
   }
 
-  const QString id = layer->id();
-  mEditLayer = nullptr;
-  installTool( nullptr );
-  uncheckEditTools( this );
-  emit editingStopped( id, false );
-  refreshCombo();
-  updateActionStates();
+  finishSession(id, false);
   return true;
 }

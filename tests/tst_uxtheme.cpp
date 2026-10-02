@@ -17,6 +17,8 @@
 #include <QWidget>
 
 #include "../src/ui/paleotheme.h"
+#include "../src/ui/paleoviewport.h"
+#include "../src/ui/pages/pageshared.h"
 #include "../src/ui/paleoemptystate.h"
 #include "../src/ui/paleoicons.h"
 
@@ -85,6 +87,58 @@ class TestUxTheme : public QObject
       QCOMPARE(table->verticalHeader()->defaultSectionSize(), 20);
       PaleoTheme::applyDensityToViewTree(&host, PaleoTheme::Density::Comfort);
       QCOMPARE(table->verticalHeader()->defaultSectionSize(), 26);
+    }
+
+    void narrowEmptyStatesAndLiveCaptions()
+    {
+      PaleoTheme::applyLightTheme();
+      QWidget host;
+      host.resize(220, 180);
+      PaleoEmptyStateLabel empty(QStringLiteral("图层树为空，请先导入数据后再选择编图层位。"), &host);
+      host.show();
+      QTest::qWait(10);
+      QVERIFY(host.rect().contains(empty.geometry()));
+      empty.setDetailText(QStringLiteral("找不到源文件，请在数据管理中重新定位文件，再重试当前操作。"));
+      QVERIFY(host.rect().contains(empty.geometry()));
+      host.resize(160, 180);
+      QTest::qWait(10);
+      QVERIFY(host.rect().contains(empty.geometry()));
+      auto *caption = paleo::pagesinternal::caption(QStringLiteral("时间残差"), &host);
+      const auto light = caption->styleSheet();
+      PaleoTheme::applyDarkTheme();
+      QVERIFY(caption->styleSheet() != light);
+      QVERIFY(caption->styleSheet().contains(PaleoTheme::tokens().textMuted.name().toUpper()));
+      PaleoTheme::applyLightTheme();
+    }
+
+    void panelViewportOnlyMeasuresCurrentPage()
+    {
+      QScrollArea viewport;
+      viewport.setWidgetResizable(true);
+      viewport.resize(320, 400);
+      auto *host = new PaleoPanelHost;
+      auto *stack = static_cast<QStackedLayout *>(host->layout());
+      auto *longForm = new QWidget(host);
+      longForm->setMinimumHeight(1200);
+      auto *longContent = new QVBoxLayout(longForm);
+      auto *wrapped = new QLabel(QStringLiteral("长参数说明 ").repeated(200), longForm);
+      wrapped->setWordWrap(true);
+      longContent->addWidget(wrapped);
+      stack->addWidget(longForm);
+      auto *compact = new QWidget(host);
+      auto *content = new QVBoxLayout(compact);
+      auto *guidance = new QLabel(QStringLiteral("问题清单"), compact);
+      guidance->setWordWrap(true);
+      content->addWidget(guidance);
+      stack->addWidget(compact);
+      viewport.setWidget(host);
+      viewport.show();
+      QTRY_VERIFY(viewport.verticalScrollBar()->maximum() > 0);
+      stack->setCurrentWidget(compact);
+      QTRY_COMPARE(viewport.verticalScrollBar()->maximum(), 0);
+      QVERIFY(viewport.viewport()->height() >= compact->height());
+      stack->setCurrentWidget(longForm);
+      QTRY_VERIFY(viewport.verticalScrollBar()->maximum() > 0);
     }
 
     // vendor 字体真的进了 QFontDatabase（不是系统字体顶包）。
@@ -407,7 +461,7 @@ class TestUxTheme : public QObject
       auto *err = new PaleoEmptyStateLabel(QStringLiteral("加载失败"), &host,
                                            PaleoEmptyStateLabel::Kind::Error);
       QCOMPARE(err->objectName(), QStringLiteral("emptyStateCardError"));
-      QVERIFY(err->styleSheet().contains(QStringLiteral("#E53935")));
+      QVERIFY(err->styleSheet().contains(QStringLiteral("#C62828")));
       PaleoTheme::applyDarkTheme();
       QVERIFY2(card->styleSheet().contains(QStringLiteral("#A3B1BF")),
                qPrintable(card->styleSheet()));

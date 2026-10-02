@@ -63,6 +63,7 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
   auto *lay = panelLayout(this);
   auto *run = new QPushButton(tr("运行验证"), this);
   run->setObjectName(QStringLiteral("runButton"));
+  markPrimaryButton(run);
   lay->addWidget(run);
   connect(run, &QPushButton::clicked, this, [this, run] {
     // #85：validate() 读的是 owner-thread 的 store/服务门面（不能挪
@@ -87,6 +88,7 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
   auto *resSummary =
       new QLabel(tr("还没有计算 %1 残差").arg(PreviewDocService::targetHorizon()), this);
   resSummary->setObjectName(QStringLiteral("residualSummaryLabel"));
+  resSummary->setWordWrap(true);
   lay->addWidget(resSummary);
   auto *resCap =
       caption(tr("%1 时间残差").arg(PreviewDocService::targetHorizon()), this);
@@ -96,12 +98,15 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
   resTable->setObjectName(QStringLiteral("residualTable"));
   resTable->setAccessibleName(tr("%1 残差表").arg(PreviewDocService::targetHorizon()));
   resTable->setHorizontalHeaderLabels({tr("井名"), tr("残差或原因"), tr("阈值")});
+  resTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  resTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+  resTable->setSelectionMode(QAbstractItemView::SingleSelection);
   resTable->verticalHeader()->setVisible(false);
   resTable->horizontalHeader()->setStretchLastSection(true);
   lay->addWidget(resTable, 1);
   // T24：残差行双击与问题行同一条 locateRequested——列 0 上挂
   // layerId/WKT/payload（populate 写入），三视图按同一载荷联动。
-  connect(resTable, &QTableWidget::itemDoubleClicked, this, [this, resTable](QTableWidgetItem *it) {
+  connect(resTable, &QTableWidget::itemActivated, this, [this, resTable](QTableWidgetItem *it) {
     if (!it)
       return;
     auto *first = resTable->item(it->row(), 0);
@@ -111,25 +116,23 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
                            first->data(Qt::UserRole + 2).toMap());
   });
 
+  lay->addWidget(caption(tr("问题清单"), this));
+  auto *guidance = new QLabel(tr("还没有运行验证，请点击顶部「运行验证」。结果中可按回车或双击定位问题。"), this);
+  guidance->setObjectName(QStringLiteral("validationGuidance"));
+  guidance->setWordWrap(true);
+  PaleoTheme::applyThemedStyleSheet(guidance, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+  lay->addWidget(guidance);
   auto *table = new QTableWidget(0, 4, this);
   table->setObjectName(QStringLiteral("issueTable"));
   table->setAccessibleName(tr("验证问题列表"));
   table->setHorizontalHeaderLabels({tr("级别"), tr("代码"), tr("信息"), tr("图层")});
+  table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  table->setSelectionBehavior(QAbstractItemView::SelectRows);
+  table->setSelectionMode(QAbstractItemView::SingleSelection);
   table->verticalHeader()->setVisible(false);
   table->horizontalHeader()->setStretchLastSection(true);
   lay->addWidget(table, 1);
-  // 初始空态：不留白板——指引下一步（populate 重建行时会清掉它）。
-  {
-    table->insertRow(0);
-    auto *it = new QTableWidgetItem(
-        tr("还没有运行验证 — 点上方「运行验证」生成问题清单"));
-    it->setFlags(Qt::NoItemFlags);
-    it->setForeground(PaleoTheme::tokens().textMuted);
-    it->setTextAlignment(Qt::AlignCenter);
-    table->setItem(0, 0, it);
-    table->setSpan(0, 0, 1, table->columnCount());
-  }
-  connect(table, &QTableWidget::itemDoubleClicked, this, [this, table](QTableWidgetItem *it) {
+  connect(table, &QTableWidget::itemActivated, this, [this, table](QTableWidgetItem *it) {
     if (!it)
       return;
     auto *first = table->item(it->row(), 0); // issue data lives on column 0
@@ -206,12 +209,27 @@ void ValidatePage::populate()
   auto *table = child<QTableWidget>(this, "issueTable");
   if (!table)
     return;
+  // Clear both table selection payloads before repopulating; an empty result
+  // must never retain a previous row's section-navigation target.
+  auto *section = child<QPushButton>(this, "openSeismicSectionButton");
+  if (section) {
+    section->setEnabled(false);
+    section->setProperty("armedPayload", QVariantMap());
+    section->setText(tr("在数据页看这条剖面"));
+    section->setToolTip(tr("先在问题表或残差表中选一条含剖面位置的行"));
+  }
+  table->clearSpans();
   table->setRowCount(0);
   auto *wf = qobject_cast<ValidationWorkflow *>(
       property(kWfProp).value<QObject *>());
   if (!wf)
     return;
   const QList<ValidationIssue> issues = wf->validate();
+  if (auto *guidance = child<QLabel>(this, "validationGuidance"))
+    guidance->setText(issues.isEmpty()
+        ? tr("本次验证未发现问题。请结合残差与资料覆盖情况复核成果。")
+        : tr("共 %1 个问题 · 选中后按回车或双击定位；含剖面位置的行可在数据页查看。")
+              .arg(issues.size()));
   for (const ValidationIssue &v : issues)
   {
     const int row = table->rowCount();
@@ -237,6 +255,7 @@ void ValidatePage::populate()
     for (auto *it : {code, msg, layer})
       it->setFlags(it->flags() & ~Qt::ItemIsEditable);
     table->setItem(row, 1, code);
+    msg->setToolTip(v.message);
     table->setItem(row, 2, msg);
     table->setItem(row, 3, layer);
   }

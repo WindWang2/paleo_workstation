@@ -35,6 +35,9 @@ private:
   MappingWorkbench *m_workbench;
   QString m_mode, m_horizon;
   QLabel *m_heading, *m_message, *m_details;
+  QLabel *m_inputHint = nullptr, *m_resultHint = nullptr;
+  QString m_labelLayer;
+  bool m_labelModeDirty = false;
   QListWidget *m_inputs = nullptr;
   QTreeWidget *m_results;
   QComboBox *m_kind = nullptr, *m_points = nullptr, *m_factor = nullptr;

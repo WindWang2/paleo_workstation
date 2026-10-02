@@ -3,6 +3,7 @@
 
 #include "../paleoemptystate.h"
 #include "../paleotheme.h"
+#include "../paleoviewport.h"
 
 #include "../../qgis/layervocabulary.h"
 #include "../../qgis/qgislayerservice.h"
@@ -102,7 +103,7 @@ LayerTreePanel::LayerTreePanel(QgsProject *project, QgsMapCanvas *canvas,
   auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
   layout->setSpacing(0);
-  layout->addWidget(buildToolbar());
+  layout->addWidget(new PaleoToolRow(buildToolbar(), this));
   layout->addWidget(m_view, 1);
 
   buildContextMenu();

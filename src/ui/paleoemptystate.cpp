@@ -10,6 +10,7 @@ PaleoEmptyStateLabel::PaleoEmptyStateLabel(const QString &text, QWidget *host,
   : QLabel(text, host), m_kind(kind)
 {
     setAlignment(Qt::AlignCenter);
+    setTextFormat(Qt::PlainText);
     setWordWrap(true);
     setObjectName(kind == Kind::Error     ? QStringLiteral("emptyStateCardError")
                   : kind == Kind::Degraded ? QStringLiteral("emptyStateCardDegraded")
@@ -18,8 +19,8 @@ PaleoEmptyStateLabel::PaleoEmptyStateLabel(const QString &text, QWidget *host,
     // 圆角 8px（DESIGN.md 卡片档）。活体样式：换主题自动重算。
     PaleoTheme::applyThemedStyleSheet(this, [this] {
       const auto &t = PaleoTheme::tokens();
-      const QColor fg = m_kind == Kind::Error    ? t.error
-                        : m_kind == Kind::Degraded ? t.warning
+      const QColor fg = m_kind == Kind::Error    ? t.errorText
+                        : m_kind == Kind::Degraded ? t.warningText
                                                     : t.textMuted;
       return QStringLiteral(
                  "background: rgba(%1,%2,%3,0.9); color: %4; padding: 12px 16px;"
@@ -36,7 +37,12 @@ PaleoEmptyStateLabel::PaleoEmptyStateLabel(const QString &text, QWidget *host,
     }
 }
 
-void PaleoEmptyStateLabel::setDetailText(const QString &text) { setText(text); }
+void PaleoEmptyStateLabel::setDetailText(const QString &text)
+{
+    setText(text);
+    if (parentWidget())
+      recenter(parentWidget()->size());
+}
 
 bool PaleoEmptyStateLabel::eventFilter(QObject *obj, QEvent *ev)
 {
@@ -48,10 +54,12 @@ bool PaleoEmptyStateLabel::eventFilter(QObject *obj, QEvent *ev)
 
 void PaleoEmptyStateLabel::recenter(const QSize &host)
 {
-    const int maxW = qMax(160, host.width() - 24);
-    if (width() > maxW || height() > host.height())
-      resize(maxW, qMax(40, heightForWidth(maxW)));
-    adjustSize();
-    move(qMax(0, (host.width() - width()) / 2),
-         qMax(0, (host.height() - height()) / 2));
+    // Bound after measuring: adjustSize() after resize() restores the wide
+    // size hint and used to clip guidance in narrow docks.
+    const int maxW = qMax(1, host.width() - 24);
+    const int w = qMin(maxW, sizeHint().width());
+    const int h = qMin(qMax(1, host.height() - 8), qMax(40, heightForWidth(w)));
+    resize(w, h);
+    move(qMax(0, (host.width() - w) / 2),
+         qMax(0, (host.height() - h) / 2));
 }

@@ -1,8 +1,11 @@
 // 层：功能
 #pragma once
 
+#include <QByteArray>
 #include <QObject>
 #include <QString>
+#include <QStringList>
+#include <QVariantMap>
 
 #include <functional>
 #include <vector>
@@ -72,6 +75,28 @@ public:
   // fraction 1.0 是成功 commit 之后的完成通知，不是取消点（返回值忽略）。
   PropertyModelOutput run(const PropertyModelRequest &request,
                           const std::function<bool(double, const QString &)> &progress = {});
+
+  // #85 两段式拆分：计算段纯数据（读层位文件/建格架/粗化/IDW/序列化，
+  // worker 线程可跑，不碰 catalog）；登记段是 DerivedAssetRegistrar 的
+  // stage+commit——#106 owner-thread 写守卫下必须在 catalog 所属线程调。
+  // run() 就是两段直连（老调用点/测试不变），异步路径：worker runCompute →
+  // GUI finished 回调里 commitComputed。
+  struct PropertyModelComputed
+  {
+    bool ok = false;
+    QString error;
+    QByteArray blob;             // 已序列化属性体（含 provenance）
+    QString fileName;            // 受管落位文件名（PROP_<name>.pprop）
+    QString display;             // catalog 展示名
+    QStringList parentPaths;     // 层位栅格源路径（嵌入面时为空 → 无父版本）
+    QVariantMap extra;           // catalog 版本 extra（param_hash/参数/网格计数）
+    PropertyModelOutput out;     // volume/paramHash/计数已填；path/assetId/versionId 由 commit 回填
+  };
+  PropertyModelComputed runCompute(const PropertyModelRequest &request,
+                                   const std::function<bool(double, const QString &)> &progress = {});
+  // catalog owner 线程调用。成功 → computed.out 回填 path/assetId/versionId
+  // 并 emit modelStored；失败 → out.ok=false/out.error + emit modelFailed。
+  bool commitComputed(PropertyModelComputed *computed);
 
   static bool loadSurface(const QString &path, paleo::stratgrid::SurfaceGrid *out,
                           QString *error = nullptr);

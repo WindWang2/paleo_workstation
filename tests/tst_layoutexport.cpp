@@ -9,6 +9,7 @@
 #include "../src/ui/paleotheme.h" // 渲染稳定化：vendor 字体钉死
 #include "../src/ui/layout/layoutexportactions.h"
 #include "../src/ui/layout/layouttemplates.h"
+#include "../src/services/paleotaskservice.h" // #85 异步导出路径
 #include "../src/qgis/qgisruntime.h"
 
 #include <qgslayout.h>
@@ -383,6 +384,48 @@ class TestLayoutExport : public QObject
       QCOMPARE( spy.count(), 1 );
       QCOMPARE( spy.at( 0 ).at( 0 ).toString(), path );
       QCOMPARE( spy.at( 0 ).at( 1 ).toBool(), true );
+    }
+
+    // #85：注入任务服务后导出在 worker 上跑（版面 XML 快照 → 重建 → 导出），
+    // exportFinished 经任务 finished 回包送达——调用方线程不被导出阻塞。
+    void asyncExportViaTaskService()
+    {
+      PaleoTaskService tasks;
+      PaleoLayoutExportActions exports;
+      exports.setTaskService( &tasks );
+
+      QgsProject project;
+      QgsPrintLayout layout( &project );
+      layout.initializeDefaults();
+      addLabel( &layout, QStringLiteral( "ASYNC" ) );
+
+      QTemporaryDir dir;
+      QVERIFY( dir.isValid() );
+      const QString path = dir.filePath( QStringLiteral( "async.png" ) );
+
+      QSignalSpy spy( &exports, &PaleoLayoutExportActions::exportFinished );
+      QVERIFY2( exports.exportLayoutAsync( &layout, path,
+                                           PaleoLayoutExportActions::Format::Png, 96.0,
+                                           PaleoLayoutExportActions::PageRange() ),
+                "exportLayoutAsync refused to take the job" );
+      QCOMPARE( tasks.tasks().size(), 1 );
+
+      QVERIFY2( spy.wait( 30000 ), "exportFinished did not arrive from the worker task" );
+      QCOMPARE( spy.count(), 1 );
+      QCOMPARE( spy.at( 0 ).at( 0 ).toString(), path );
+      QCOMPARE( spy.at( 0 ).at( 1 ).toBool(), true );
+      QVERIFY( QFile::exists( path ) );
+      QVERIFY( !tasks.tasks().first()->running() );
+      QCOMPARE( tasks.tasks().first()->state(), PaleoTask::State::Succeeded );
+
+      // 无任务服务时该缝诚实拒绝（调用方回退同步路径）。
+      PaleoLayoutExportActions bare;
+      QVERIFY( !bare.exportLayoutAsync( &layout, QStringLiteral( "/tmp/nosvc.png" ),
+                                        PaleoLayoutExportActions::Format::Png, 96.0,
+                                        PaleoLayoutExportActions::PageRange() ) );
+      QVERIFY( !bare.exportLayoutAsync( nullptr, QStringLiteral( "/tmp/nosvc.png" ),
+                                        PaleoLayoutExportActions::Format::Png, 96.0,
+                                        PaleoLayoutExportActions::PageRange() ) );
     }
 
   private:

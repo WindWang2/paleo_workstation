@@ -22,6 +22,7 @@ class QgsLayoutItem;
 class QgsLayoutRuler;
 class QgsLayoutView;
 class QgsLayoutViewTool;
+class PaleoTaskService;
 class QgsMasterLayoutInterface;
 class QgsMessageBar;
 class PaleoLayoutDesignerShell;
@@ -108,6 +109,9 @@ class PaleoLayoutDesignerShell : public QDialog
   public:
     explicit PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *parent = nullptr );
     ~PaleoLayoutDesignerShell() override;
+
+    // #85：注入任务服务后导出经任务池 worker（版面快照 → 后台重建导出）。
+    void setTaskService( PaleoTaskService *service );
 
     //! The QgsLayoutDesignerInterface view of this shell (adapter, owned).
     QgsLayoutDesignerInterface *designerInterface() { return m_iface; }

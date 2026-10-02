@@ -12,6 +12,7 @@
 class QAction;
 class QStatusBar;
 class QgsLayout;
+class PaleoTaskService;
 
 // ui/layout — Task C: export actions for the bespoke layout designer shell.
 //
@@ -61,6 +62,18 @@ class PaleoLayoutExportActions : public QObject
     ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format format,
                                 double dpi, const PageRange &range );
 
+    // #85：注入任务服务后 action 导出走 worker——版面先存 XML 快照（GUI
+    // 线程、毫秒级），worker 重建私有 QgsLayout 再跑导出器，1200dpi 多页
+    // 不再卡主线程/泵事件。快照语义：导出内容是点击时刻的版面，编辑中的
+    // 后续改动不进该次导出。未注入时保持同步旧路径（测试壳/无服务宿主）。
+    void setTaskService( PaleoTaskService *service );
+
+    // 任务池导出路径（对话框之外的可测缝）：snapshot → worker 重建导出，
+    // 完成时 emit exportFinished + 状态条/打开文件夹由 finished 回包处理。
+    // 返回 false = 无任务服务或版面为空（调用方回退同步路径）。
+    bool exportLayoutAsync( QgsLayout *layout, const QString &outPath, Format format,
+                            double dpi, const PageRange &range );
+
     // UI wiring. The providers are only consulted by the action handlers —
     // exportLayout() itself takes its layout explicitly.
     void setLayoutProvider( const std::function<QgsLayout *()> &provider );
@@ -82,4 +95,9 @@ class PaleoLayoutExportActions : public QObject
     std::function<int()> m_currentPageProvider;
     QPointer<QStatusBar> m_statusTarget;
     bool m_openFolderEnabled = false;
+
+    PaleoTaskService *m_taskSvc = nullptr;
+    // worker 导出结果暂存：worker 写、finished 回包（GUI）读。
+    ExportOutcome m_pendingOutcome;
+    void reportExportOutcome( const ExportOutcome &outcome );
 };

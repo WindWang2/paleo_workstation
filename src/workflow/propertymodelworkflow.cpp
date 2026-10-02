@@ -430,16 +430,19 @@ QString PropertyModelWorkflow::paramHash(const PropertyModelRequest &request,
   return QString::fromLatin1(hash.result().toHex());
 }
 
-PropertyModelOutput
-PropertyModelWorkflow::run(const PropertyModelRequest &request,
-                           const std::function<bool(double, const QString &)> &progress)
+PropertyModelWorkflow::PropertyModelComputed
+PropertyModelWorkflow::runCompute(const PropertyModelRequest &request,
+                                  const std::function<bool(double, const QString &)> &progress)
 {
-  PropertyModelOutput result;
+  PropertyModelComputed computed;
+  PropertyModelOutput &result = computed.out;
   const auto fail = [&](const QString &why) {
+    computed.ok = false;
     result.ok = false;
     result.error = why;
+    computed.error = why;
     emit modelFailed(why);
-    return result;
+    return computed;
   };
   const auto report = [&](double fraction, const QString &stage) {
     if (progress && !progress(fraction, stage))
@@ -533,23 +536,6 @@ PropertyModelWorkflow::run(const PropertyModelRequest &request,
                                                                   : request.propertyName,
                                    request.topName, request.botName);
 
-  DerivedAssetRegistrar registrar(m_catalog, m_projectDir);
-  QString stageErr;
-  const DerivedStaging st = registrar.stage(QStringLiteral("property_volume"), display, fileName,
-                                            &stageErr);
-  if (!st.isValid())
-    return fail(stageErr);
-  QFile out(st.absolutePath);
-  if (!out.open(QIODevice::WriteOnly))
-    return fail(QStringLiteral("属性体写入失败：%1").arg(st.absolutePath));
-  const qint64 wrote = out.write(blob);
-  const bool writeOk = wrote == static_cast<qint64>(blob.size());
-  // flush 失败先记下：close() 成功时会清掉 error()，截断文件不能 commit。
-  const bool flushOk = writeOk && out.flush();
-  out.close();
-  if (!writeOk || !flushOk || out.error() != QFileDevice::NoError)
-    return fail(QStringLiteral("属性体写入失败：%1").arg(st.absolutePath));
-
   QVariantMap extra;
   extra.insert(QStringLiteral("param_hash"), hash);
   extra.insert(QStringLiteral("property"), request.propertyName);
@@ -566,27 +552,82 @@ PropertyModelWorkflow::run(const PropertyModelRequest &request,
   extra.insert(QStringLiteral("unfilled_live_cells"), volume.unfilledLiveCells);
   extra.insert(QStringLiteral("curves"), curves);
 
-  QStringList parents;
+  // 登记尾巴（DerivedAssetRegistrar）不在此做——worker 线程禁止写活
+  // catalog（#106 owner-thread 守卫）；由 commitComputed 在 owner 线程执行。
+  computed.blob = blob;
+  computed.fileName = fileName;
+  computed.display = display;
   if (!request.useEmbeddedSurfaces)
-    parents = registrar.parentVersionIdsFor(QStringList{topPath, botPath});
-  QString commitErr;
-  if (!registrar.commit(st, parents, QStringLiteral("propertymodel/build"), extra, &commitErr))
-    return fail(commitErr);
+    computed.parentPaths = QStringList{topPath, botPath};
+  computed.extra = extra;
 
-  if (progress)
-    progress(1.0, QStringLiteral("完成"));
-
-  result.ok = true;
-  result.path = st.absolutePath;
-  result.assetId = st.assetId;
-  result.versionId = st.versionId;
   result.paramHash = hash;
   result.liveColumns = volume.grid.liveColumns;
   result.filledCells = volume.filledCells;
   result.unfilledLiveCells = volume.unfilledLiveCells;
   result.volume = std::move(volume);
-  emit modelStored(result.path);
-  return result;
+  computed.ok = result.ok = true;
+  return computed;
+}
+
+bool PropertyModelWorkflow::commitComputed(PropertyModelComputed *computed)
+{
+  const auto fail = [this, computed](const QString &why) {
+    computed->ok = false;
+    computed->error = why;
+    computed->out.ok = false;
+    computed->out.error = why;
+    emit modelFailed(why);
+    return false;
+  };
+
+  if (!computed || !computed->ok)
+    return fail(computed ? computed->error : QStringLiteral("无计算结果"));
+
+  DerivedAssetRegistrar registrar(m_catalog, m_projectDir);
+  QString stageErr;
+  const DerivedStaging st = registrar.stage(QStringLiteral("property_volume"),
+                                            computed->display, computed->fileName, &stageErr);
+  if (!st.isValid())
+    return fail(stageErr);
+  QFile out(st.absolutePath);
+  if (!out.open(QIODevice::WriteOnly))
+    return fail(QStringLiteral("属性体写入失败：%1").arg(st.absolutePath));
+  const qint64 wrote = out.write(computed->blob);
+  const bool writeOk = wrote == static_cast<qint64>(computed->blob.size());
+  // flush 失败先记下：close() 成功时会清掉 error()，截断文件不能 commit。
+  const bool flushOk = writeOk && out.flush();
+  out.close();
+  if (!writeOk || !flushOk || out.error() != QFileDevice::NoError)
+    return fail(QStringLiteral("属性体写入失败：%1").arg(st.absolutePath));
+
+  const QStringList parents =
+      computed->parentPaths.isEmpty() ? QStringList()
+                                      : registrar.parentVersionIdsFor(computed->parentPaths);
+  QString commitErr;
+  if (!registrar.commit(st, parents, QStringLiteral("propertymodel/build"), computed->extra,
+                        &commitErr))
+    return fail(commitErr);
+
+  computed->out.path = st.absolutePath;
+  computed->out.assetId = st.assetId;
+  computed->out.versionId = st.versionId;
+  emit modelStored(computed->out.path);
+  return true;
+}
+
+PropertyModelOutput
+PropertyModelWorkflow::run(const PropertyModelRequest &request,
+                           const std::function<bool(double, const QString &)> &progress)
+{
+  PropertyModelComputed computed = runCompute(request, progress);
+  if (!computed.ok)
+    return computed.out;
+  if (!commitComputed(&computed))
+    return computed.out;
+  if (progress)
+    progress(1.0, QStringLiteral("完成"));
+  return computed.out;
 }
 
 PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &topHorizon,

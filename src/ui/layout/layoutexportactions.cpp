@@ -22,8 +22,14 @@
 #include <QUrl>
 #include <QVBoxLayout>
 
+#include <QDomDocument>
 #include <qgslayout.h>
 #include <qgslayoutpagecollection.h>
+#include <qgsprintlayout.h>
+#include <qgsproject.h>
+#include <qgsreadwritecontext.h>
+
+#include "../../services/paleotaskservice.h"
 
 namespace
 {
@@ -173,6 +179,11 @@ QAction *PaleoLayoutExportActions::exportPngAction() { return m_pngAction; }
 QAction *PaleoLayoutExportActions::exportPdfAction() { return m_pdfAction; }
 QAction *PaleoLayoutExportActions::exportSvgAction() { return m_svgAction; }
 
+void PaleoLayoutExportActions::setTaskService( PaleoTaskService *service )
+{
+  m_taskSvc = service;
+}
+
 void PaleoLayoutExportActions::setLayoutProvider( const std::function<QgsLayout *()> &provider )
 {
   m_layoutProvider = provider;
@@ -230,9 +241,11 @@ void PaleoLayoutExportActions::runExportUi( Format format )
   if ( dialog.exec() != QDialog::Accepted )
     return;
 
-  // 1200dpi 多页同步导出可能跑很久：模态忙等进度框（核心在 qgis/layoutexport，
-  // 内部一次性走完所有页面，拿不到分页进度——最小可靠版：不确定进度条、
-  // 不可取消，导出结束即关）。
+  if ( m_taskSvc && exportLayoutAsync( layout, path, format, dialog.dpi(), dialog.pageRange() ) )
+    return;
+
+  // 无任务服务（测试壳）：同步直跑。1200dpi 多页可能跑很久——模态忙等
+  // 进度框（导出核心无分页进度，不确定进度条、不可取消，结束即关）。
   QProgressDialog progress( tr( "正在导出版面，请稍候…" ), QString(), 0, 0, dialogParent );
   progress.setWindowTitle( tr( "导出版面" ) );
   progress.setWindowModality( Qt::WindowModal );
@@ -244,6 +257,55 @@ void PaleoLayoutExportActions::runExportUi( Format format )
   const ExportOutcome outcome = exportLayout( layout, path, format, dialog.dpi(), dialog.pageRange() );
   progress.reset();
 
+  reportExportOutcome( outcome );
+}
+
+bool PaleoLayoutExportActions::exportLayoutAsync( QgsLayout *layout, const QString &outPath,
+                                                  Format format, double dpi,
+                                                  const PageRange &range )
+{
+  if ( !m_taskSvc || !layout )
+    return false;
+
+  // 版面 XML 快照在 GUI 线程取；worker 重建私有 QgsLayout 后导出。
+  QDomDocument snapshot( QStringLiteral( "Layout" ) );
+  {
+    QgsReadWriteContext context;
+    snapshot.appendChild( layout->writeXml( snapshot, context ) );
+  }
+  QgsProject *project = layout->project();
+  QPointer<PaleoLayoutExportActions> self = this;
+  PaleoTask *task = m_taskSvc->start(
+      tr( "导出版面：%1" ).arg( QFileInfo( outPath ).fileName() ),
+      [self, snapshot, outPath, format, dpi, range, project]( PaleoTask * ) -> QString {
+        QgsPrintLayout rebuilt( project );
+        QgsReadWriteContext context;
+        if ( !rebuilt.readXml( snapshot.documentElement(), snapshot, context ) )
+          return tr( "版面快照重建失败" );
+        const PaleoLayoutExport::ExportOutcome outcome =
+            PaleoLayoutExport::exportLayout( &rebuilt, outPath, format, dpi, range );
+        if ( self )
+          self->m_pendingOutcome = outcome;
+        return outcome.ok ? QString() : outcome.error;
+      } );
+  if ( !task )
+  {
+    reportExportOutcome( ExportOutcome{ false, tr( "任务服务不可用" ), {}, outPath } );
+    return false;
+  }
+  connect( task, &PaleoTask::finished, this, [this] {
+    const ExportOutcome outcome = m_pendingOutcome;
+    m_pendingOutcome = ExportOutcome();
+    emit exportFinished( outcome.effectivePath, outcome.ok );
+    reportExportOutcome( outcome );
+  } );
+  if ( m_statusTarget )
+    m_statusTarget->showMessage( tr( "版面导出进行中…" ), 3000 );
+  return true;
+}
+
+void PaleoLayoutExportActions::reportExportOutcome( const ExportOutcome &outcome )
+{
   if ( m_statusTarget )
   {
     if ( outcome.ok )

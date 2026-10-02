@@ -12,6 +12,7 @@
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTimer>
 #include <QVBoxLayout>
 
 using namespace paleo::pagesinternal;
@@ -64,16 +65,20 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
   run->setObjectName(QStringLiteral("runButton"));
   lay->addWidget(run);
   connect(run, &QPushButton::clicked, this, [this, run] {
-    // 同步验证无进度回调：运行期间禁用 + 忙碌文案（禁用带 reason，§35），
-    // 先让忙碌态上屏再跑（populate 是同步路径）。
+    // #85：validate() 读的是 owner-thread 的 store/服务门面（不能挪
+    // worker）；processEvents 泵换成下一事件回合开跑——忙碌态照样先上屏，
+    // 但消除了重入风险（重入会在忙碌窗口里二次触发本槽）。
+    if (!run->isEnabled())
+      return;
     run->setEnabled(false);
     run->setText(tr("正在验证…"));
     run->setToolTip(tr("验证正在运行——完成后自动恢复"));
-    QCoreApplication::processEvents();
-    populate();
-    run->setText(tr("运行验证"));
-    run->setToolTip(QString());
-    run->setEnabled(true);
+    QTimer::singleShot(0, this, [this, run] {
+      populate();
+      run->setText(tr("运行验证"));
+      run->setToolTip(QString());
+      run->setEnabled(true);
+    });
   });
 
   // autoplan §5C：D61 残差表 —— 每口井一行（井名/残差或原因/阈值），

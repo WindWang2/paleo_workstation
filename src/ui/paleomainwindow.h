@@ -11,6 +11,7 @@
 #include "../domain/importrows.h"   // FolderPreviewRow / FolderRowResult（T22 静态面，W2 下沉 domain）
 #include "../services/seismictaskservice.h" // m_seismicTaskSvc unique_ptr 需完整类型
 #include "../services/petrophyscomputeservice.h" // m_petroPhysSvc unique_ptr 需完整类型
+#include "../workflow/propertymodelworkflow.h" // PropertyModelComputed 值成员需完整类型（#85 worker→GUI 交接）
 
 class PaleoDockManager;
 class QComboBox;
@@ -339,6 +340,11 @@ class PaleoMainWindow : public SARibbonMainWindow
     PropertyModelPanel *m_propModelPanel = nullptr;
     bool m_propModelRunning = false;
     bool m_propModelCancel = false;
+    // #85：计算段在任务池 worker 上跑；交接体由 worker 写、finished 回包（GUI）
+    // 读。task 是 PaleoTaskService 持有的对象，QPointer 防服务先析构。
+    PropertyModelWorkflow::PropertyModelComputed m_propModelComputed;
+    QPointer<PaleoTask> m_propModelTask;
+    void finishPropertyModelRun(double overlayAlpha);
     FolderImportWorkflow *m_folderImportWf = nullptr;   // W2 文件夹/单文件导入编排
     ProjectOpenWorkflow *m_projectOpenWf = nullptr;     // W2 打开/新建工程编排
     RegistrationWorkflow *m_registrationWf = nullptr;   // W3 临时配准编排

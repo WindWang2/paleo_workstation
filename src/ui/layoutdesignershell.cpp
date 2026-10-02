@@ -268,6 +268,11 @@ PaleoLayoutDesignerShell::~PaleoLayoutDesignerShell()
   delete m_lastExportResults;
 }
 
+void PaleoLayoutDesignerShell::setTaskService( PaleoTaskService *service )
+{
+  m_exportActions->setTaskService( service );
+}
+
 void PaleoLayoutDesignerShell::buildChrome()
 {
   // --- page navigation actions (needed by both the Layout menu and the

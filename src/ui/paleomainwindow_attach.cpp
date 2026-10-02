@@ -449,6 +449,8 @@ void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
 
   connect(m_propModelPanel, &PropertyModelPanel::cancelRequested, this, [this]() {
     m_propModelCancel = true;
+    if (m_propModelTask)
+      m_propModelTask->requestCancel();
   });
   connect(m_propModelPanel, &PropertyModelPanel::alphaChanged, this, [this](double alpha) {
     if (m_seismicSectionDock && m_seismicSectionDock->canvas())
@@ -464,15 +466,6 @@ void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
             }
             if (!m_propModelWf || m_propModelRunning || !m_propModelPanel)
               return;
-
-            m_propModelRunning = true;
-            struct RunningReset
-            {
-              bool &flag;
-              ~RunningReset() { flag = false; }
-            } runningReset{m_propModelRunning};
-            m_propModelCancel = false;
-            m_propModelPanel->setBusy(true);
 
             QString err;
             PropertyModelRequest req = m_propModelWf->requestFromCatalog(
@@ -492,101 +485,162 @@ void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
               req.faults.insert(req.faults.end(), segs.begin(), segs.end());
             }
 
-            const PropertyModelOutput out = m_propModelWf->run(
+            m_propModelRunning = true;
+            m_propModelCancel = false;
+            m_propModelPanel->setBusy(true);
+
+            if (m_taskSvc)
+            {
+              // #85：重计算段（格架/粗化/IDW）跑任务池 worker，不再占 GUI
+              // 线程。catalog 登记（#106 owner-thread 写守卫）与切片/叠置
+              // 留在 finished 回包——回包在 GUI 线程执行。
+              m_propModelTask = m_taskSvc->start(
+                  tr("属性建模：%1").arg(curve),
+                  [this, req](PaleoTask *task) -> QString {
+                    PropertyModelPanel *panel = m_propModelPanel;
+                    m_propModelComputed = m_propModelWf->runCompute(
+                        req, [task, panel](double fraction, const QString &stage) {
+                          task->reportStage(stage, static_cast<int>(fraction * 100.0));
+                          if (panel)
+                            QMetaObject::invokeMethod(
+                                panel,
+                                [panel, fraction, stage] {
+                                  panel->updateProgress(
+                                      static_cast<int>(fraction * 100.0), stage);
+                                },
+                                Qt::QueuedConnection);
+                          return !task->cancelRequested();
+                        });
+                    if (!m_propModelComputed.ok)
+                      return m_propModelComputed.error.isEmpty()
+                                 ? tr("属性建模失败")
+                                 : m_propModelComputed.error;
+                    return QString();
+                  });
+              if (m_propModelTask)
+                connect(m_propModelTask.data(), &PaleoTask::finished, this,
+                        [this, overlayAlpha] { finishPropertyModelRun(overlayAlpha); });
+              else
+                m_propModelRunning = false;
+              return;
+            }
+
+            // 无任务池（未接线壳/旧测试）：同步直跑，不泵事件。
+            m_propModelComputed = m_propModelWf->runCompute(
                 req, [this](double fraction, const QString &stage) {
                   if (m_propModelPanel)
                     m_propModelPanel->updateProgress(static_cast<int>(fraction * 100.0), stage);
-                  QCoreApplication::processEvents();
                   return !m_propModelCancel;
                 });
-            if (!out.ok)
-            {
-              const QString why = out.error.isEmpty() ? tr("属性建模失败") : out.error;
-              m_propModelPanel->showResult(false, why);
-              if (statusBar())
-                statusBar()->showMessage(tr("属性建模失败：%1").arg(why), 8000);
-              return;
-            }
-
-            const QString fileName = QFileInfo(out.path).fileName();
-            m_propModelPanel->showResult(
-                true, tr("已充填 %1 个单元 · %2").arg(out.filledCells).arg(fileName));
-            if (statusBar())
-              statusBar()->showMessage(
-                  tr("属性建模完成：%1（%2 个单元）").arg(fileName).arg(out.filledCells), 8000);
-
-            const int ni = out.volume.grid.ni;
-            const int nj = out.volume.grid.nj;
-            const int nk = out.volume.grid.nk;
-            if (ni <= 0 || nj <= 0 || nk <= 0)
-              return;
-
-            seismic::Seismic3DViewPanel *panel3d = m_seismic3dPanel;
-            if (!panel3d && m_seismic3dDock)
-              panel3d = qobject_cast<seismic::Seismic3DViewPanel *>(m_seismic3dDock->widget());
-            seismic::Seismic3DViewportWidget *vp = panel3d ? panel3d->viewport() : nullptr;
-            seismic::SeismicSectionCanvas *canvas =
-                m_seismicSectionDock ? m_seismicSectionDock->canvas() : nullptr;
-
-            seismic::PropertyBrickAxes axes;
-            axes.iMin = 0;
-            axes.iMax = ni - 1;
-            axes.jMin = 0;
-            axes.jMax = nj - 1;
-            axes.kMin = 0;
-            axes.kMax = nk - 1;
-
-            struct SlicePlan
-            {
-              int axis;
-              int index;
-              seismic::SeismicSliceSlot slot;
-              seismic::SgySliceType type;
-            };
-            const SlicePlan plans[3] = {
-                {0, ni / 2, seismic::SeismicSliceSlot::Crossline, seismic::SgySliceType::Xline},
-                {1, nj / 2, seismic::SeismicSliceSlot::Inline, seismic::SgySliceType::Inline},
-                {2, nk / 2, seismic::SeismicSliceSlot::Time, seismic::SgySliceType::Time},
-            };
-            seismic::SgySliceImage baked[3];
-            bool bakedOk[3] = {false, false, false};
-            for (int n = 0; n < 3; ++n)
-            {
-              QString sliceErr;
-              const auto slice = PropertyModelWorkflow::gridSlice(out.volume, plans[n].axis,
-                                                                  plans[n].index, &sliceErr);
-              if (!sliceErr.isEmpty() || slice.width <= 0 || slice.height <= 0 ||
-                  slice.values.empty())
-                continue;
-              seismic::SgySliceImage img;
-              img.width = slice.width;
-              img.height = slice.height;
-              img.valueMin = slice.valueMin;
-              img.valueMax = slice.valueMax;
-              img.values = slice.values;
-              baked[n] = std::move(img);
-              bakedOk[n] = true;
-              if (vp)
-                vp->updatePropertySlice(plans[n].slot, plans[n].type, plans[n].index, axes,
-                                        baked[n]);
-            }
-            if (!canvas || !canvas->hasData())
-              return;
-            const bool timeLike = canvas->orientation() == seismic::SectionOrientation::TimeSlice;
-            const int prefer[3] = {timeLike ? 2 : 1, timeLike ? 1 : 0, timeLike ? 0 : 2};
-            for (int n : prefer)
-            {
-              if (!bakedOk[n])
-                continue;
-              if (canvas->traceCount() == baked[n].width &&
-                  canvas->sampleCount() == baked[n].height)
-              {
-                canvas->setZoneOverlay(baked[n]);
-                canvas->setZoneOverlayAlpha(overlayAlpha);
-                break;
-              }
-            }
+            finishPropertyModelRun(overlayAlpha);
           });
+}
+
+void PaleoMainWindow::finishPropertyModelRun(double overlayAlpha)
+{
+  m_propModelRunning = false;
+  const bool cancelled =
+      m_propModelTask && m_propModelTask->state() == PaleoTask::State::Cancelled;
+  m_propModelTask = nullptr;
+  if (!m_propModelWf || !m_propModelPanel)
+    return;
+
+  // finished 回包/同步兜底都在 GUI 线程：catalog 登记（DerivedAssetRegistrar
+  // 的 owner-thread 写守卫）与 UI 更新在这里做。
+  PropertyModelOutput out;
+  if (!cancelled && m_propModelComputed.ok)
+    m_propModelWf->commitComputed(&m_propModelComputed);
+  out = m_propModelComputed.out;
+  if (cancelled)
+  {
+    out.ok = false;
+    out.error = tr("已取消");
+  }
+
+  if (!out.ok)
+  {
+    const QString why = out.error.isEmpty() ? tr("属性建模失败") : out.error;
+    m_propModelPanel->showResult(false, why);
+    if (statusBar())
+      statusBar()->showMessage(tr("属性建模失败：%1").arg(why), 8000);
+    return;
+  }
+
+  const QString fileName = QFileInfo(out.path).fileName();
+  m_propModelPanel->showResult(
+      true, tr("已充填 %1 个单元 · %2").arg(out.filledCells).arg(fileName));
+  if (statusBar())
+    statusBar()->showMessage(
+        tr("属性建模完成：%1（%2 个单元）").arg(fileName).arg(out.filledCells), 8000);
+
+  const int ni = out.volume.grid.ni;
+  const int nj = out.volume.grid.nj;
+  const int nk = out.volume.grid.nk;
+  if (ni <= 0 || nj <= 0 || nk <= 0)
+    return;
+
+  seismic::Seismic3DViewPanel *panel3d = m_seismic3dPanel;
+  if (!panel3d && m_seismic3dDock)
+    panel3d = qobject_cast<seismic::Seismic3DViewPanel *>(m_seismic3dDock->widget());
+  seismic::Seismic3DViewportWidget *vp = panel3d ? panel3d->viewport() : nullptr;
+  seismic::SeismicSectionCanvas *canvas =
+      m_seismicSectionDock ? m_seismicSectionDock->canvas() : nullptr;
+
+  seismic::PropertyBrickAxes axes;
+  axes.iMin = 0;
+  axes.iMax = ni - 1;
+  axes.jMin = 0;
+  axes.jMax = nj - 1;
+  axes.kMin = 0;
+  axes.kMax = nk - 1;
+
+  struct SlicePlan
+  {
+    int axis;
+    int index;
+    seismic::SeismicSliceSlot slot;
+    seismic::SgySliceType type;
+  };
+  const SlicePlan plans[3] = {
+      {0, ni / 2, seismic::SeismicSliceSlot::Crossline, seismic::SgySliceType::Xline},
+      {1, nj / 2, seismic::SeismicSliceSlot::Inline, seismic::SgySliceType::Inline},
+      {2, nk / 2, seismic::SeismicSliceSlot::Time, seismic::SgySliceType::Time},
+  };
+  seismic::SgySliceImage baked[3];
+  bool bakedOk[3] = {false, false, false};
+  for (int n = 0; n < 3; ++n)
+  {
+    QString sliceErr;
+    const auto slice =
+        PropertyModelWorkflow::gridSlice(out.volume, plans[n].axis, plans[n].index, &sliceErr);
+    if (!sliceErr.isEmpty() || slice.width <= 0 || slice.height <= 0 || slice.values.empty())
+      continue;
+    seismic::SgySliceImage img;
+    img.width = slice.width;
+    img.height = slice.height;
+    img.valueMin = slice.valueMin;
+    img.valueMax = slice.valueMax;
+    img.values = slice.values;
+    baked[n] = std::move(img);
+    bakedOk[n] = true;
+    if (vp)
+      vp->updatePropertySlice(plans[n].slot, plans[n].type, plans[n].index, axes, baked[n]);
+  }
+  if (!canvas || !canvas->hasData())
+    return;
+  const bool timeLike = canvas->orientation() == seismic::SectionOrientation::TimeSlice;
+  const int prefer[3] = {timeLike ? 2 : 1, timeLike ? 1 : 0, timeLike ? 0 : 2};
+  for (int n : prefer)
+  {
+    if (!bakedOk[n])
+      continue;
+    if (canvas->traceCount() == baked[n].width && canvas->sampleCount() == baked[n].height)
+    {
+      canvas->setZoneOverlay(baked[n]);
+      canvas->setZoneOverlayAlpha(overlayAlpha);
+      break;
+    }
+  }
 }
 
 void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
@@ -1587,6 +1641,7 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
                       qobject_cast<QgsLayoutItemMap *>(layout->itemById(QStringLiteral("map"))))
                 pinLayoutTheme(mapItem, QStringLiteral("compose"));
               auto *shell = new PaleoLayoutDesignerShell(layout, this);
+              shell->setTaskService(m_taskSvc); // #85：导出走任务池 worker
               shell->setAttribute(Qt::WA_DeleteOnClose);
               shell->setModal(false);
               shell->show();
@@ -2101,6 +2156,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
           return;
         }
         auto *shell = new PaleoLayoutDesignerShell(layout, this);
+        shell->setTaskService(m_taskSvc); // #85：导出走任务池 worker
         shell->setAttribute(Qt::WA_DeleteOnClose);
         shell->setModal(false);
         shell->show();

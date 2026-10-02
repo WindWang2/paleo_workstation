@@ -125,9 +125,15 @@ python3 tools/check_ui_invariants.py --strict
   b36cc4f（faultpath+surfer）→ 36109e6（buffer/regional/avoidance）→ c2049fb（UI
   编辑面）→ 本轮（对拍+吸附+收口）。
 
-全量回归：`QT_QPA_PLATFORM=offscreen ctest --test-dir build` 全绿（见 PR 描述）；
-`check_layering --strict`/`check_i18n`/`check_ui_invariants --strict` 通过；vendor 前缀
-全量构建零新警告（基线 421 条全部来自 vendored QGIS 头的 QMetaType 弃用告警，未新增）。
+全量回归：`QT_QPA_PLATFORM=offscreen ctest --test-dir build -j8` → 199/202 通过。
+三例失败与本分支无关，证据如下：`tst_import`、`tst_catalogstore` 在 **master 基线
+构建（4741115，主 checkout build/）上以同一断言失败**（tst_import
+`failingCommitSurfacesErrorAndRollsBack`、tst_catalogstore
+`Expected DataImportService::CommitStatus::Failed`）——存量问题待另行方向处理；
+`tst_startup_trace` 为已知并行负载抖动（#109 同款），空载 `-j1` 串行重跑通过。
+`check_layering --strict`/`check_i18n`/`check_ui_invariants --strict`/`check_tidy`
+通过；vendor 前缀全量构建零新警告（本分支 33 个改动/新增文件 0 条警告；基线 421 条
+全部来自 vendored QGIS 头的 QMetaType 弃用告警，未新增）。
 
 ## 仍递延项
 

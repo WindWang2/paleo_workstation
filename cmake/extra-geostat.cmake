@@ -17,3 +17,7 @@ add_paleo_test(tst_geostat_faultpath LIBS paleo_algorithms)
 # 编排面：workflows.cpp 属根 CMakeLists 既有源（本方向只改内容不挂新源）；
 # paleo_workflow→paleo_algorithms 链接由 extra-fault-surface.cmake 先例已建立。
 add_paleo_test(tst_geostat_workflow LIBS paleo_workflow)
+# 性能：规模线性度比率门（TEST-02 禁绝对墙钟）；绝对门在 tst_geostat_realarea
+#（PALEO_REAL_PROJECT_AREA env 门控真机口径）。
+add_paleo_test(tst_geostat_perf LIBS paleo_algorithms)
+add_paleo_test(tst_geostat_realarea LIBS paleo_algorithms paleo_io) # skips unless PALEO_REAL_PROJECT_AREA

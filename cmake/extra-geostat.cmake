@@ -4,6 +4,9 @@
 # 不走 scripts/new_module.sh。
 
 target_sources(paleo_algorithms PRIVATE
-  src/algorithms/geostat/variogram.cpp)
+  src/algorithms/geostat/variogram.cpp
+  src/algorithms/geostat/linsolve.cpp
+  src/algorithms/geostat/kriging.cpp)
 
 add_paleo_test(tst_geostat_variogram LIBS paleo_algorithms)
+add_paleo_test(tst_geostat_kriging LIBS paleo_algorithms)

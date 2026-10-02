@@ -10,7 +10,7 @@
 | 2 | Ubuntu 26.04（CI runner）× x86_64 | `qt6-base-dev` 等 dev 组 | qgis.org deb 源（`resolute` 套件）`libqgis-dev` + `paleo-dev bootstrap` | ✅ **CI 实测**（`.github/workflows/ci.yml` linux job；另有 lint job：clang-tidy-20 增量门禁 + deb 闭包 `--print-only` 冒烟） | 同上 + `paleo-dev selfcheck`（prefix/providers/srs.db/渲染断言） |
 | 3 | Windows Server（CI `windows-latest`）× x86_64 | OSGeo4W `qt6-devel`（与 QGIS 同源） | OSGeo4W `qgis` + `qgis-devel` 4.2.x（`vendor/manifest.json` pin 安装器 SHA256） | ✅ **CI 实测**（ci.yml windows job；本机无 Windows） | `paleo-dev.ps1 bootstrap/build/test`（MSVC `/MD`，offscreen；**ctest 串行**——QSettings NativeFormat 走注册表，XDG 沙箱 env 不适用） |
 | 4 | 其他 glibc ≥ 2.43 宿主 × x86_64（已提交的锁是 Ubuntu 26.04 resolute 闭包；Debian 13 glibc 2.41 **不满足**） | 发行版 qt6 dev | qgis.org deb 闭包解包进 `vendor/prefix/usr`（`vendor/deb-closure.lock` 锁 SHA256；pool 下架时回退 snapshot.ubuntu.com） | ⏳ 路线就绪未逐发行版实测；CI 目前未走此路（行 2 用系统包） | `./vendor/fetch-deps.sh` + `QGIS_PREFIX_PATH=vendor/prefix/usr` |
-| 5 | glibc < 2.43 宿主（含 Debian 13）× x86_64 | 发行版 | ExternalProject superbuild（源码自建） | 🧱 **待启用**（`vendor/superbuild/`；2026-10-01 起为政策首选路线，见 BUILDING.md「依赖来源策略」） | 启用依据见 `vendor/superbuild/README.md` |
+| 5 | glibc < 2.43 宿主（含 Debian 13）× x86_64 | 发行版 | ExternalProject superbuild（源码自建） | ✅ **已启用**（`vendor/superbuild/` prefix 已建成并实测；2026-10-01 起为政策首选路线，见 BUILDING.md「依赖来源策略」、docs/progress/vendor-superbuild.md） | 启用依据见 `vendor/superbuild/README.md` |
 | 6 | macOS / arm64 | — | — | ❌ 不在矩阵 | — |
 
 ## 版本约束（行 1–4 共同）

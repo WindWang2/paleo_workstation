@@ -41,7 +41,8 @@ pid: 12345
 
 - 无 execinfo 的平台（Windows）最后一节写
   `（此平台无 execinfo 回溯——仅旗标+时间戳报告）`，其余行一致。
-- `.running` 会话旗标同住该目录：`pid=<n>` + `started=<UTC 时间>`。
+- `.running` 会话旗标同住该目录：现行实现按 pid 分文件 `.running-<pid>`
+  （多实例并发互不踩，兼容旧单旗标），内容 `pid=<n>` + `started=<UTC 时间>`。
 
 ## 实现结构
 

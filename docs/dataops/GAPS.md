@@ -51,11 +51,11 @@
 - `DataPage::externalImportRequested(paths)` 已发——壳需接到
   FolderImportWorkflow（复用 T22 确认表）。
 
-### G-2.3 导入队列执行器注入
-- `ImportQueuePanel::setRunner` 是注入钩子；生产应由壳把
-  `FolderImportWorkflow` 的单行导入适配成 runner（逐文件 markProgress/
-  markDone/markFailed）——队列 UI/状态机/重试已就绪并测过。
-- 未注入时：队列条目停「排队」态（不误报）。
+### G-2.3 导入队列执行器注入（已收口 2026-10-01）
+- ~~`ImportQueuePanel::setRunner` 是注入钩子~~——已由
+  `FolderImportQueueAdapter`（`dataops/dataopsimportqueue.h`）实现并在
+  `paleomainwindow_attach.cpp` 生产注入；逐文件 markProgress/markDone/
+  markFailed 就位。详见 progress/deepen-perf.md B2。
 
 ### G-2.4 预览区/标签栏拖放宿主（D3.3）
 - 拖源 + mime（`application/x-paleo-asset-ids`）+ `assetDragStarted`

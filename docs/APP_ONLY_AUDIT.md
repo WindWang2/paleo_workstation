@@ -18,14 +18,14 @@ app-only 能力以源码移植或自研等价物落地。
 
 | 能力 | QGIS 来源（ET9） | Paleo 现状 | 判定 |
 |---|---|---|---|
-| 主窗壳/五页布局/焦点环/a11y | QgisApp（app-only，5k 行级，32 处自引用） | `src/ui/paleomainwindow.cpp` + `src/ui/pages/pagepanels.cpp` 自研 | app 层自研·必要 |
+| 主窗壳/五页布局/焦点环/a11y | QgisApp（app-only，5k 行级，32 处自引用） | `src/ui/paleomainwindow.cpp` + `src/ui/pages/{predictpage,constraintpage,composepage,validatepage,datapage}.cpp` 自研（W5b 后 `pagepanels.cpp` 已拆分为五页文件，仅剩 `pagepanels.h` 聚合头） | app 层自研·必要 |
 | 图层树视图 | `QgsLayerTreeView`/DefaultActions/MapCanvasBridge 全 gui | mainwindow 直接用 gui 视图；坏层/过滤等指示器未用（上游 8 个 indicator provider 全 app-only） | 已用 gui |
 | 定位器（搜索框） | widget `QgsLocatorWidget` gui；engine core；**11 个内置 filter 全 app-only** | gui widget + core engine 直用；业务过滤器自研 `src/ui/locator/paleolocatorfilters.cpp` | 已用 gui + app 层自研·必要（过滤器） |
 | 布局设计器 | dialog `QgsLayoutDesignerDialog` app-only（5029 行/32 QgisApp 引用）；**全部构件在 gui**（view/tools/item widgets/registry + `QgsLayoutDesignerInterface` 官方嵌入接口） | `src/ui/layoutdesignershell.cpp` 实现 `QgsLayoutDesignerInterface` + gui 组件自组 designer shell；导出走 core `QgsLayoutExporter`（`layoutexportactions.cpp`） | app 层自研·必要（官方意图路线，ET9 结论 ①） |
 | 高级数字化 dock | `QgsAdvancedDigitizingDockWidget` gui，0 QgisApp 引用 | `src/ui/edittools/*`/`paleoshapetools.cpp` 直用 | 已用 gui |
 | 编辑工具（顶点/移动/环/部件…） | 基类 `QgsMapToolCapture` 系 gui；具体几何编辑工具 app-only（~3 QgisApp 引用/个） | `src/ui/edittools/{editingtools,vertexeditortools}.cpp` 基于 gui 基类自研；`vertexeditorshim.cpp` 等价顶点编辑 | app 层自研·必要 |
 | Shape 数字化工具 | 框架 gui；24 个具体工具 app-only（薄，96–250 行/个） | `src/ui/maptools/paleoshapetools.cpp` 自研所需子集 | app 层自研·必要 |
-| Undo 面板 | `QgsUndoWidget` app-only（trivial，0 引用） | `src/ui/edittools/editingundostack.cpp`（跨层栈）+ `src/ui/pages/pagepanels.cpp` 的 `.paleo/undo_stack.json` vault | app 层自研·必要（含跨会话，超出上游能力） |
+| Undo 面板 | `QgsUndoWidget` app-only（trivial，0 引用） | `src/ui/edittools/editingundostack.cpp`（跨层栈）+ `src/ui/pages/`（W5b 拆分后的页文件集）的 `.paleo/undo_stack.json` vault | app 层自研·必要（含跨会话，超出上游能力） |
 | 属性表 | 内件 `QgsAttributeTableView/Model/FilterModel/DualView` 全 gui；容器 dialog app-only（23 引用） | `src/ui/attributetablepanel.cpp` 用 gui 内件自组容器 | 已用 gui + 容器 app 层自研·必要 |
 | Canvas 装饰（坐标/比例/指北针…） | 16 个 decoration app-only（painter overlay，薄） | `src/ui/decorations/paleodecorations.cpp` 自研 painter overlay | app 层自研·必要 |
 | 状态栏坐标/比例 widget | `QgsStatusBar` gui；三个具体 widget app-only | mainwindow 自研 `statusCoords`/`statusScale`（mono 主题） | app 层自研·必要（与 DESIGN.md 主题绑定） |

@@ -1,7 +1,7 @@
 # wave/deepen-perf — 域深化 + 性能完善（四轨并行 + lead 集成）
 
 > 分支 `wave/deepen-perf`（base master `a8c009c`，worktree ../pw-deepen）。
-> charter：`docs/agent-prompts/x1-deepen-perf.md`。四 worker 并行
+> charter：`docs/agent-prompts/x1-deepen-perf.md`（一次性工作指令，已随交付归档删除）。四 worker 并行
 >（A 地震链路 / B IO·缓存·目录 / C 编图域 / D 井综合·连井剖面），文件域
 > 互斥（cmake/extra-deepen-{a,b,c,d}.cmake 各自挂载零冲突），lead 负责接线、
 > 裁决与验收。本文是该 wave 的进度底账；TODOS.md 对账见同批提交。

@@ -1,3 +1,5 @@
+<!-- 原 PROJECT.md（geo-logic-enhancement 分支里程碑收口档）——2026-10-02 归档入 progress/；PR #89+#99 已全合 -->
+
 # Project: Geological IO & Logic Enhancement (BIZ-01, BIZ-02, BIZ-05, BIZ-12)
 
 ## Architecture
@@ -18,10 +20,10 @@
 | 2 | BIZ-02: LAS Streaming BOM Offset Accuracy | Store `bomBytes` directly in `HeaderScanResult` and compute accurate `asciiDataOffset` to eliminate 4MB peeking desynchronization. | M1 | AUDIT_ISSUES.md §5 |
 | 3 | BIZ-05: Topological Polygon Vertex Deletion Defense | Group deletions by `(layer, fid, part, ring)` and enforce `ringVertices - deleteCount >= minRemaining` to prevent ring collapse below 4 distinct vertices. | M1 | AUDIT_ISSUES.md §5, docs/CODE_REVIEW_REPORT.md |
 | 4 | BIZ-12: TimeDepthModel Check Ordering | Defensively check input finiteness (`!std::isfinite`) and point emptiness (`m_points.empty()`) before accessing `.front()` / `.back()`. | M1 | AUDIT_ISSUES.md §5 & §7.2 |
-| 5 | Adversarial LAS Unit Tests | Unit tests in `tests/tst_perf_las.cpp` for 70+ curves reading and UTF-8 BOM streaming offset accuracy. | M1 | ORIGINAL_REQUEST.md §2026-10-01T11:45:54Z |
-| 6 | Adversarial Polygon Topology Unit Tests | Unit tests in `tests/tst_edittools.cpp` verifying coincident pinch-point deletion defense (rejection on 5-vertex ring, success on 6-vertex ring). | M1 | ORIGINAL_REQUEST.md §2026-10-01T11:45:54Z |
-| 7 | Full Regression & Layering Gate | Verify 100% CTest pass (127+ suites, 0 failed, 0 skipped) under `-j4` and zero layering violations with `python3 tools/check_layering.py --strict`. | M1 | ORIGINAL_REQUEST.md §2026-10-01T11:45:54Z |
-| 8 | Git Commit, Push & Pull Request | Atomic semantic git commits on `feat/geological-io-enhancement`, push to remote, and create PR to `master` via `gh pr create`. | M1 | ORIGINAL_REQUEST.md §2026-10-01T11:45:54Z |
+| 5 | Adversarial LAS Unit Tests | Unit tests in `tests/tst_perf_las.cpp` for 70+ curves reading and UTF-8 BOM streaming offset accuracy. | M1 | 原任务简报（ORIGINAL_REQUEST.md，未入库） |
+| 6 | Adversarial Polygon Topology Unit Tests | Unit tests in `tests/tst_edittools.cpp` verifying coincident pinch-point deletion defense (rejection on 5-vertex ring, success on 6-vertex ring). | M1 | 原任务简报（ORIGINAL_REQUEST.md，未入库） |
+| 7 | Full Regression & Layering Gate | Verify 100% CTest pass (127+ suites, 0 failed, 0 skipped) under `-j4` and zero layering violations with `python3 tools/check_layering.py --strict`. | M1 | 原任务简报（ORIGINAL_REQUEST.md，未入库） |
+| 8 | Git Commit, Push & Pull Request | Atomic semantic git commits on `feat/geological-io-enhancement`, push to remote, and create PR to `master` via `gh pr create`. | M1 | 原任务简报（ORIGINAL_REQUEST.md，未入库） |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |

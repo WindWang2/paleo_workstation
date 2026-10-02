@@ -149,5 +149,5 @@ appcontext.cpp：该文件同时被并行 UX 包与编排会话修改，接线�
   变更时引入）；在此之前 gpkg 演进只允许加列/加表。
 - QSQLITE 连接未显式设 journal 模式（默认 journal）；单写者决议下无正确性
   影响，若将来允许只读多开再评估 WAL。
-- `ProjectDirLock` 的 AppContext 接线未落地（§6，一行改动 + UI 错误面，
-  归集成/UX 包）。
+- ~~`ProjectDirLock` 的 AppContext 接线未落地~~（已收口：appcontext.cpp
+  建锁+`tryLock`、失败降级只读，qgisprojectservice.cpp 亦有检查）。

@@ -462,8 +462,13 @@ Single Factor Layer
 
 ### 10.1 IDW
 
-优先调用 QGIS Interpolation Provider。
-QGIS 已经提供正式的 IDW 插值算法，因此普通空间 IDW 无需 Paleo 自己重写。
+~~优先调用 QGIS Interpolation Provider。~~（2026-10-01 修订：QGIS
+Interpolation Provider 是 Python-only 路径，C++ 仓不可复用——实测见
+docs/ALGORITHM_AUDIT.md。实际落线：约束 IDW 自研 `paleo_constraint_idw`
+QgsProcessingAlgorithm + 最小曲率 `paleo_min_curvature`
+〔goal/gridding-surface-ops〕+ 栅格代数 `src/algorithms/rasteralgebra.cpp`。）
+原表述保留为决策历史：QGIS 已经提供正式的 IDW 插值算法，因此普通空间 IDW
+曾计划无需 Paleo 自己重写。
 
 例如：
 
@@ -1275,7 +1280,7 @@ Facies Polygon Layer (可编辑)
 - **运行操作日志**：每次算法/任务/导出运行记录一条结构化日志——输入（id/hash）、参数、时长、输出 id、结果状态。与 provenance 互补：provenance 记"数据血缘"，操作日志记"代码做了什么"。
 - **错误呈现契约**：错误分级与去向统一——任务级错误进任务条目+日志页；阻断性错误（工程打不开、保存失败）模态提示；可恢复降级走状态栏。任何错误不得静默。
 - **会话诊断包**：一键导出（日志 + 工程状态 + 版本元数据 + vendor 版本），用于现场问题回溯。
-- **崩溃报告**：是否上报/如何上报（本地转储 or 回传）留作实现期决定，记录在 TODOS。
+- **崩溃报告**：已决——本地转储方案（`.running-<pid>` 会话旗标 + 崩溃报告目录 + 恢复告知，不上报外网）。规格见 docs/CRASH_REPORTING.md。
 
 ## 39. Greenfield 定位修正与 Phase 0（外部评审新增，E1/E3/E4/E2）
 

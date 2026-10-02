@@ -1,7 +1,7 @@
 # 工区参数分界（AreaRules）
 
 状态：wave4/area-parametrization 落地（TODOS「第二工区参数化接缝」，原 P3 提前
-实施）。`src/io/arearules.{h,cpp}` 是「每测区参数」的唯一权威来源；本文回答
+实施）。`src/domain/arearules.{h,cpp}` 是「每测区参数」的唯一权威来源（UI_LAYER_PLAN C-4 后由 io 平移到 domain）；本文回答
 三件事：什么参数随工区变、配置文件怎么写、接入第二个工区要做什么。
 
 ## 1. 每测区参数 vs 全局规则

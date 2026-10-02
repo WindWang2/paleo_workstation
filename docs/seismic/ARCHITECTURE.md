@@ -1,8 +1,12 @@
 # 地震链路架构（ARCHITECTURE）
 
-> wave/seismic-chain-deep · Phase 0 侦察产物 · 基线 master@e1c132e
-> 本文是转码/切片/渲染/缓存/取消全链路的权威事实账本，后续 D1–D6 改造
-> 均以本文为对照（改动请同步更新）。
+> ⚠️ **冻结基线档案**（2026-10-02 标注）：本文是 wave/seismic-chain-deep
+> Phase 0 侦察产物，基线 master@e1c132e——描述的是**改造前**状态快照，
+> 不再声称是现行权威账本（「改动请同步更新」声明作废）。D1–D6 后的现行
+> 架构看 `docs/progress/seismic-runtime-closure.md`、`seismic-attributes.md`、
+> `horizon-autotrack.md` 与 TRANSCODE/SECTION/INTERPRETATION/3D 交付文档；
+> 差异举例：剖面 dock 已改走 SeismicTaskService（非裸 QThreadPool）、
+> 服务通道已超 12 个、质量报告/任务互斥/属性叠加均已落地。
 
 ## 1. 总览
 

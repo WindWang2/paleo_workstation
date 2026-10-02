@@ -42,7 +42,10 @@ PaleoTask *FaciesClassifyWorkflow::classify(const ClassificationOptions &o) {
   cancel();
   const auto generation = ++m_generation;
   auto samples = m_samples;
-  auto previous = m_classification.labels;
+  auto previous = std::make_shared<Classification>(
+      o.method == Classifier::Hull || o.method == Classifier::Box
+          ? m_classification
+          : Classification{});
   auto result = std::make_shared<Classification>();
   emit busyChanged(true);
   auto *task = m_tasks->start(
@@ -51,7 +54,7 @@ PaleoTask *FaciesClassifyWorkflow::classify(const ClassificationOptions &o) {
             [task] { return task->cancelRequested(); },
             [task](double p) { task->reportBytes(qint64(p * 1000), 1000); }};
         *result =
-            FaciesClassificationService::classify(*samples, o, ctl, previous);
+            FaciesClassificationService::classify(*samples, o, ctl, *previous);
         return result->cancelled ? QString() : result->error;
       });
   m_task = task;
@@ -68,8 +71,10 @@ PaleoTask *FaciesClassifyWorkflow::classify(const ClassificationOptions &o) {
       m_classification = *result;
       emit classificationReady(m_classification);
     } else
-      emit failed(result->cancelled ? tr("分类已取消，未生成新成果")
-                                    : result->error);
+      emit failed(
+          task->state() == PaleoTask::State::Cancelled
+              ? tr("分类已取消，未生成新成果")
+              : (result->error.isEmpty() ? task->errorText() : result->error));
   });
   return task;
 }

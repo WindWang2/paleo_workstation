@@ -17,6 +17,7 @@
 #include <QListWidget>
 #include <QPushButton>
 #include <QTemporaryDir>
+#include <QThread>
 #include <QtTest>
 #include <qgsapplication.h>
 #include <qgsmapcanvas.h>
@@ -107,6 +108,21 @@ void TestController::endToEnd() {
   QVERIFY(!workflow->samples());
   QVERIFY(!run->isEnabled());
   QVERIFY(!write->isEnabled());
+  // Cancellation before the sampler runs still reports an explicit status.
+  context.taskSvc()->setMaxWorkerThreads(1);
+  auto *blocker = context.taskSvc()->start("block", [](PaleoTask *t) {
+    while (!t->cancelRequested())
+      QThread::msleep(1);
+    return QString();
+  });
+  panel->samplesRequested(sourceIds);
+  panel->cancelRequested();
+  blocker->requestCancel();
+  QTRY_COMPARE_WITH_TIMEOUT(context.taskSvc()->runningCount(), 0, 10000);
+  const auto labels = panel->findChildren<QLabel *>();
+  QVERIFY(std::any_of(labels.begin(), labels.end(), [](QLabel *label) {
+    return label->text() == QString::fromUtf8("抽样已取消");
+  }));
 }
 int main(int argc, char **argv) {
   QgsApplication app(argc, argv, false);

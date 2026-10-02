@@ -11,7 +11,6 @@
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QMap>
 #include <algorithm>
 #include <limits>
 #include <ogr_srs_api.h>
@@ -33,7 +32,8 @@ CrossplotSources::inventory(DataCatalog *cat, const QString &dir,
             continue;
           for (int i = 1; i < header.curveNames.size(); ++i) {
             SourceSpec s;
-            s.choice.id = version.id + QLatin1Char('|') + header.curveNames[i];
+            s.choice.id = entity.id + QLatin1Char('|') + version.id +
+                          QLatin1Char('|') + header.curveNames[i];
             s.choice.title = entity.name + QStringLiteral(" · ") +
                              header.curveNames[i] + QStringLiteral(" · ") +
                              QFileInfo(path).fileName();

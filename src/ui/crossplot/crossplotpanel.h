@@ -47,7 +47,7 @@ public:
   void setSources(const QVector<SourceChoice> &);
   void setDimensions(const QStringList &names);
   void setFrame(const PlotFrame &);
-  void setSelection(const Selection &, const QStringList &dimensions);
+  void setSelection(const Selection &, const QStringList &names);
   void setBusy(bool busy);
   void setProgress(int percent);
   void setMessage(const QString &);

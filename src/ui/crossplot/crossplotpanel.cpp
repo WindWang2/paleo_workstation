@@ -4,6 +4,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
@@ -106,7 +107,7 @@ void CrossplotCanvas::paintEvent(QPaintEvent *) {
                tr("三维投影 · Z：%1").arg(m_frame.zTitle));
   p.save();
   p.setClipRect(r);
-  auto screen = [&](float x, float y) {
+  auto screen = [&](double x, double y) {
     return QPointF(r.left() + x * r.width(), r.bottom() - y * r.height());
   };
   if (!m_density.isNull())
@@ -191,7 +192,8 @@ CrossplotPanel::CrossplotPanel(QWidget *parent) : QWidget(parent) {
   m_load = new QPushButton(tr("读取选中通道"), controls);
   m_load->setObjectName(QStringLiteral("crossplotLoad"));
   form->addWidget(m_load);
-  auto *axesRow = new QHBoxLayout;
+  auto *axesRow = new QFormLayout;
+  axesRow->setSpacing(8);
   m_x = new QComboBox(controls);
   m_y = new QComboBox(controls);
   m_z = new QComboBox(controls);
@@ -201,8 +203,10 @@ CrossplotPanel::CrossplotPanel(QWidget *parent) : QWidget(parent) {
     pair.first->setMinimumContentsLength(4);
     pair.first->setSizeAdjustPolicy(
         QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    axesRow->addWidget(pair.first);
   }
+  axesRow->addRow(tr("X 轴"), m_x);
+  axesRow->addRow(tr("Y 轴"), m_y);
+  axesRow->addRow(tr("Z 轴"), m_z);
   m_x->setAccessibleName(tr("X 轴"));
   m_y->setAccessibleName(tr("Y 轴"));
   m_z->setAccessibleName(tr("Z 轴"));
@@ -255,8 +259,7 @@ CrossplotPanel::CrossplotPanel(QWidget *parent) : QWidget(parent) {
   scroll->setWidget(controls);
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
-  scroll->setMinimumWidth(290);
-  scroll->setMaximumWidth(340);
+  scroll->setFixedWidth(320);
   outer->addWidget(scroll);
   auto *display = new QVBoxLayout;
   m_canvas = new CrossplotCanvas(this);
@@ -264,13 +267,16 @@ CrossplotPanel::CrossplotPanel(QWidget *parent) : QWidget(parent) {
   m_stats = new QLabel(tr("选区：N=0"), this);
   m_stats->setFont(PaleoTheme::monoFont());
   m_stats->setWordWrap(true);
+  m_stats->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   display->addWidget(m_stats);
   m_classes = new QLabel(this);
   m_classes->setWordWrap(true);
+  m_classes->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   display->addWidget(m_classes);
   m_message =
       new QLabel(tr("簇编号不代表地质相；写回后可在智能编图中矢量化。"), this);
   m_message->setWordWrap(true);
+  m_message->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   display->addWidget(m_message);
   outer->addLayout(display, 1);
   connect(m_load, &QPushButton::clicked, this, [this] {
@@ -340,7 +346,10 @@ void CrossplotPanel::setDimensions(const QStringList &names) {
   m_classified = false;
   setBusy(m_busy);
 }
-void CrossplotPanel::setFrame(const PlotFrame &f) { m_canvas->setFrame(f); }
+void CrossplotPanel::setFrame(const PlotFrame &f) {
+  m_lasso.clear();
+  m_canvas->setFrame(f);
+}
 void CrossplotPanel::setSelection(const Selection &s,
                                   const QStringList &names) {
   m_canvas->setSelection(s.indices);
@@ -353,6 +362,8 @@ void CrossplotPanel::setSelection(const Selection &s,
                        .arg(values.join(QStringLiteral("；"))));
 }
 void CrossplotPanel::setBusy(bool busy) {
+  if (busy && !m_busy)
+    m_progress->setValue(0);
   m_busy = busy;
   for (auto *w : QList<QWidget *>{m_sources, m_x, m_y, m_z, m_yaw, m_pitch,
                                   m_method, m_k, m_class, m_standardize})

@@ -14,6 +14,7 @@
 #include <QSize>
 #include <QSpinBox>
 #include <QTemporaryDir>
+#include <cmath>
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/qgis/mapbooklayout.h"
@@ -228,7 +229,12 @@ class TestMapBook : public QObject
         QVERIFY2( layout->itemById( id ) != nullptr, qPrintable( id ) );
       auto *map = qobject_cast<QgsLayoutItemMap *>( layout->itemById( QStringLiteral( "map" ) ) );
       QVERIFY( map != nullptr );
-      QCOMPARE( map->extent(), QgsRectangle( 0.0, 0.0, 1000.0, 1000.0 ) );
+      QVERIFY( std::isfinite( map->extent().yMinimum() ) );
+      QVERIFY( std::isfinite( map->extent().yMaximum() ) );
+      // QGIS expands to the map item's aspect ratio; the requested tile must
+      // remain fully covered and centered.
+      QVERIFY2( map->extent().contains( spec.extent ), qPrintable( map->extent().toString( 12 ) ) );
+      QCOMPARE( map->extent().center(), spec.extent.center() );
 
       QTemporaryDir dir;
       const QString path = dir.filePath( QStringLiteral( "tile_1_1.png" ) );
@@ -302,6 +308,10 @@ class TestMapBook : public QObject
       QgsLayoutItem *planItem = layout->itemById( QStringLiteral( "planMap" ) );
       QgsLayoutItem *sectionItem = layout->itemById( QStringLiteral( "sectionSnapshot" ) );
       QVERIFY( planItem != nullptr && sectionItem != nullptr );
+      auto *planMap = qobject_cast<QgsLayoutItemMap *>( planItem );
+      QVERIFY( planMap != nullptr );
+      QVERIFY( std::isfinite( planMap->extent().yMinimum() ) );
+      QVERIFY( planMap->extent().contains( spec.mapExtent ) );
       QVERIFY2( planItem->sceneBoundingRect().right() <=
                   sectionItem->sceneBoundingRect().left() + 0.5,
                 qPrintable( QStringLiteral( "左栏右边界 %1 压过右栏左边界 %2" )
@@ -545,6 +555,9 @@ class TestMapBook : public QObject
 
       QPushButton *cancel = panel.findChild<QPushButton *>( QStringLiteral( "mapbookCancel" ) );
       QVERIFY( cancel != nullptr );
+      cancel->click();
+      QCOMPARE( cancelled.count(), 0 ); // no running batch, cancel is disabled
+      panel.setBusy( true );
       cancel->click();
       QCOMPARE( cancelled.count(), 1 );
 

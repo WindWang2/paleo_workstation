@@ -2,6 +2,7 @@
 #include "ui/crossplot/crossplotpanel.h"
 #include "ui/paleotheme.h"
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QElapsedTimer>
 #include <QListWidget>
 #include <QPushButton>
@@ -67,6 +68,11 @@ void TestPanel::intents() {
   QCOMPARE(selected.indices.size(), 1);
   QCOMPARE(selected.means[0], .5);
   panel.setSelection(selected, samples.names);
+  panel.setFrame(frame);
+  panel.findChild<QComboBox *>("crossplotMethod")->setCurrentIndex(2);
+  panel.findChild<QPushButton *>("crossplotRun")->click();
+  QVERIFY(
+      qvariant_cast<ClassificationOptions>(run.last()[0]).selection.isEmpty());
 }
 void TestPanel::density() {
   CrossplotPanel panel;
@@ -100,6 +106,14 @@ void TestPanel::density() {
   qInfo("BASELINE crossplot_100k_project_paint_ms = %.3f", ms);
   timer.restart();
   Axes a{2, 0, 1, 70, 30};
+  panel.findChild<QComboBox *>("crossplotX")->setCurrentIndex(a.x);
+  panel.findChild<QComboBox *>("crossplotY")->setCurrentIndex(a.y);
+  panel.findChild<QComboBox *>("crossplotZ")->setCurrentIndex(a.z + 1);
+  auto spins = panel.findChildren<QDoubleSpinBox *>();
+  QCOMPARE(spins.size(), 2);
+  spins[0]->setValue(a.yaw);
+  spins[1]->setValue(a.pitch);
+  QCoreApplication::processEvents();
   frame = CrossplotSamples::project(samples, a);
   panel.setFrame(frame);
   panel.canvas()->grab();
@@ -113,6 +127,7 @@ void TestPanel::density() {
   QVERIFY(!frame.densityClass.isEmpty());
   panel.setFrame(frame);
   panel.setClassified(true, QVector<qint64>(8, 12500));
+  QCoreApplication::processEvents();
 
   if (auto path = qEnvironmentVariable("PALEO_CROSSPLOT_SCREENSHOT");
       !path.isEmpty())

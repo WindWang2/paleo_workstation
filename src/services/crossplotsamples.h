@@ -36,8 +36,8 @@ class CrossplotSamples {
 public:
   static SampleResult well(const QVector<Channel> &,
                            const cluster::Control & = {});
-  static SampleResult las(const QString &path, const QStringList &curves,
-                          const Location &well, const QString &versionId,
+  static SampleResult las(const QString &path, const QStringList &names,
+                          const Location &loc, const QString &version,
                           const cluster::Control & = {});
   static SampleResult planes(const QVector<Plane> &,
                              const cluster::Control & = {});
@@ -50,7 +50,7 @@ public:
   static PlotFrame project(const SampleSet &, const Axes &,
                            const std::vector<int> &labels = {});
   static Selection select(const SampleSet &, const PlotFrame &,
-                          const QVector<QPointF> &lasso);
+                          const QVector<QPointF> &polygon);
   static int nearest(const PlotFrame &, QPointF point, double radius);
   static bool validate(const SampleSet &, QString *error = nullptr);
 };

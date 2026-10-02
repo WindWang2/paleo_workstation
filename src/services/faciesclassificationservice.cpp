@@ -31,10 +31,29 @@ bool error(QString *e, const QString &t) {
     *e = t;
   return false;
 }
+bool validClassification(const SampleSet &s, const Classification &r) {
+  if (!r.ok || r.labels.size() != s.rows() || r.confidence.size() != s.rows() ||
+      r.squaredDistance.size() != s.rows())
+    return false;
+  QVector<qint64> counts;
+  for (std::size_t i = 0; i < s.rows(); ++i) {
+    if (r.labels[i] < -1 || r.labels[i] > 254 ||
+        !std::isfinite(r.confidence[i]) || r.confidence[i] < 0 ||
+        r.confidence[i] > 1 || !std::isfinite(r.squaredDistance[i]) ||
+        r.squaredDistance[i] < 0)
+      return false;
+    if (r.labels[i] >= 0) {
+      if (counts.size() <= r.labels[i])
+        counts.resize(r.labels[i] + 1);
+      ++counts[r.labels[i]];
+    }
+  }
+  return counts == r.counts;
+}
 } // namespace
 Classification FaciesClassificationService::classify(
     const SampleSet &s, const ClassificationOptions &o,
-    const cluster::Control &ctl, const std::vector<int> &previous) {
+    const cluster::Control &ctl, const Classification &previous) {
   QString validation;
   if (!CrossplotSamples::validate(s, &validation))
     return failed(validation);
@@ -117,9 +136,13 @@ Classification FaciesClassificationService::classify(
     auto selected = CrossplotSamples::select(s, frame, o.selection);
     if (selected.indices.isEmpty())
       return failed(QStringLiteral("选区内没有样本"));
-    r.labels = previous.size() == n ? previous : std::vector<int>(n, -1);
-    r.confidence.assign(n, 0);
-    r.squaredDistance.assign(n, 0);
+    const bool inherit = previous.ok;
+    if (inherit && !validClassification(s, previous))
+      return failed(QStringLiteral("已有分类与当前样本不一致"));
+    r.labels = inherit ? previous.labels : std::vector<int>(n, -1);
+    r.confidence = inherit ? previous.confidence : std::vector<double>(n, 0);
+    r.squaredDistance =
+        inherit ? previous.squaredDistance : std::vector<double>(n, 0);
     std::vector<cluster::Point> vertices;
     QVariantList polygon;
     for (auto p : o.selection) {
@@ -145,9 +168,11 @@ Classification FaciesClassificationService::classify(
       const bool inside = o.method == Classifier::Hull
                               ? cluster::inPolygon({p.x, p.y}, hull)
                               : cluster::inBox(s.values.data() + i * d, lo, hi);
-      if (inside)
+      if (inside) {
         r.labels[i] = o.manualClass;
-      r.confidence[i] = r.labels[i] >= 0 ? 1 : 0;
+        r.confidence[i] = 1;
+        r.squaredDistance[i] = 0;
+      }
     }
     params.insert("manualClass", o.manualClass);
     params.insert("lasso", polygon);
@@ -155,7 +180,21 @@ Classification FaciesClassificationService::classify(
                                        o.axes.pitch});
     params.insert("boxLo", list(lo));
     params.insert("boxHi", list(hi));
-    params.insert("confidence", "rule_membership_not_probability");
+    params.insert("confidence",
+                  inherit ? "rule_membership_with_inherited_confidence"
+                          : "rule_membership_not_probability");
+    if (inherit) {
+      params.insert("previousClassification", previous.provenance);
+      params.insert(
+          "previousLabelsHash",
+          QString::fromLatin1(
+              QCryptographicHash::hash(
+                  QByteArrayView(
+                      reinterpret_cast<const char *>(previous.labels.data()),
+                      qsizetype(previous.labels.size() * sizeof(int))),
+                  QCryptographicHash::Sha256)
+                  .toHex()));
+    }
   } else
     return failed(QStringLiteral("未知分类器"));
   if (std::any_of(r.labels.begin(), r.labels.end(),
@@ -194,7 +233,7 @@ QVector<WellInterval>
 FaciesClassificationService::intervals(const SampleSet &s,
                                        const Classification &r) {
   QVector<WellInterval> out;
-  if (!r.ok || r.labels.size() != s.rows() || r.confidence.size() != s.rows())
+  if (!CrossplotSamples::validate(s) || !validClassification(s, r))
     return out;
   int lastRow = -2;
   for (std::size_t i = 0; i < s.rows(); ++i) {
@@ -227,13 +266,9 @@ bool FaciesClassificationService::writeRaster(const QString &path,
                                               QString *e) {
   if (!PaleoProjectStore::isWriteQueueActive())
     return error(e, QStringLiteral("分类写入必须经过项目写队列"));
-  if (!CrossplotSamples::validate(s) || !r.ok || r.labels.size() != s.rows() ||
-      r.confidence.size() != s.rows() || r.squaredDistance.size() != s.rows() ||
+  if (!CrossplotSamples::validate(s) || !validClassification(s, r) ||
       !s.grid.spatial || s.grid.cols <= 0 || s.grid.rows <= 0)
     return error(e, QStringLiteral("分类或地图栅格几何无效"));
-  if (std::any_of(r.labels.begin(), r.labels.end(),
-                  [](int label) { return label < -1 || label > 254; }))
-    return error(e, QStringLiteral("类别编号超出 Byte palette 编码范围"));
   const auto size = std::size_t(s.grid.rows) * std::size_t(s.grid.cols);
   std::vector<unsigned char> labels(size, 255);
 
@@ -260,8 +295,9 @@ bool FaciesClassificationService::writeRaster(const QString &path,
        GDALSetProjection(ds.get(), s.grid.crs.toUtf8().constData()) != CE_None))
     return error(e, QStringLiteral("无法写栅格几何"));
   auto band = GDALGetRasterBand(ds.get(), 1);
-  GDALSetRasterNoDataValue(band, 255);
-  GDALSetRasterColorInterpretation(band, GCI_PaletteIndex);
+  if (GDALSetRasterNoDataValue(band, 255) != CE_None ||
+      GDALSetRasterColorInterpretation(band, GCI_PaletteIndex) != CE_None)
+    return error(e, QStringLiteral("分类 nodata 或 palette 类型写入失败"));
   auto table = GDALCreateColorTable(GPI_RGB);
   for (int i = 0; i < r.counts.size(); ++i) {
     const auto c = classColor(i);
@@ -270,13 +306,15 @@ bool FaciesClassificationService::writeRaster(const QString &path,
   }
   GDALColorEntry transparent{0, 0, 0, 0};
   GDALSetColorEntry(table, 255, &transparent);
-  GDALSetRasterColorTable(band, table);
+  const auto paletteResult = GDALSetRasterColorTable(band, table);
   GDALDestroyColorTable(table);
-  GDALSetMetadataItem(ds.get(), "PALEO_CLASSIFICATION",
-                      QJsonDocument::fromVariant(r.provenance)
-                          .toJson(QJsonDocument::Compact)
-                          .constData(),
-                      nullptr);
+  if (paletteResult != CE_None ||
+      GDALSetMetadataItem(ds.get(), "PALEO_CLASSIFICATION",
+                          QJsonDocument::fromVariant(r.provenance)
+                              .toJson(QJsonDocument::Compact)
+                              .constData(),
+                          nullptr) != CE_None)
+    return error(e, QStringLiteral("分类色表或 provenance 写入失败"));
   if (GDALRasterIO(band, GF_Write, 0, 0, s.grid.cols, s.grid.rows,
                    labels.data(), s.grid.cols, s.grid.rows, GDT_Byte, 0,
                    0) != CE_None)

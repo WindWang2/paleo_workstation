@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #include "crossplotmaplink.h"
 #include "catalog/datacatalog.h"
+#include <cmath>
 #include <qgscoordinatetransform.h>
 #include <qgsgeometry.h>
 #include <qgsmapcanvas.h>
@@ -26,6 +27,8 @@ bool CrossplotMapLink::coordinate(const SampleSet &s, int index, double *x,
       !s.locations[index].hasXY)
     return fail(tr("样本没有可定位的地图坐标"));
   const auto &loc = s.locations[index];
+  if (!std::isfinite(loc.x) || !std::isfinite(loc.y))
+    return fail(tr("样本坐标不是有限值"));
   auto source = QgsCoordinateReferenceSystem::fromWkt(
       s.grid.crs.isEmpty() ? DataCatalog::localGridCrsWkt() : s.grid.crs);
   if (!source.isValid())
@@ -42,18 +45,42 @@ bool CrossplotMapLink::coordinate(const SampleSet &s, int index, double *x,
   }
   *x = point.x();
   *y = point.y();
+  if (!std::isfinite(*x) || !std::isfinite(*y))
+    return fail(tr("坐标转换没有返回有限位置"));
   return true;
 }
 bool CrossplotMapLink::locate(const SampleSet &s, int sample, QString *e) {
   double x, y;
   if (!coordinate(s, sample, &x, &y, e))
     return false;
-  auto extent = m_canvas->extent();
-  double w = extent.width(), h = extent.height();
-  if (w <= 0 || h <= 0) {
-    w = h = 1000;
+  // A well gets a 1km window in the local engineering grid. Raster locations
+  // get a 16-pixel window. Transform its corners as well as its center so
+  // projected/geographic destination units never inherit a metre span.
+  const double dx =
+      s.grid.spatial
+          ? 8 * (std::abs(s.grid.transform[1]) + std::abs(s.grid.transform[2]))
+          : 500;
+  const double dy =
+      s.grid.spatial
+          ? 8 * (std::abs(s.grid.transform[4]) + std::abs(s.grid.transform[5]))
+          : 500;
+  SampleSet footprint;
+  footprint.grid = s.grid;
+  for (double sx : {-dx, dx})
+    for (double sy : {-dy, dy}) {
+      auto loc = s.locations[sample];
+      loc.x += sx;
+      loc.y += sy;
+      footprint.locations << loc;
+    }
+  QgsRectangle extent(x, y, x, y);
+  for (int i = 0; i < footprint.locations.size(); ++i) {
+    double px, py;
+    if (!coordinate(footprint, i, &px, &py, e))
+      return false;
+    extent.combineExtentWith(px, py);
   }
-  m_canvas->setExtent(QgsRectangle(x - w / 2, y - h / 2, x + w / 2, y + h / 2));
+  m_canvas->setExtent(extent);
   m_canvas->refresh();
   return true;
 }

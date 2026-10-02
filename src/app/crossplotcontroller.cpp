@@ -174,7 +174,10 @@ void CrossplotController::load(const QStringList &ids) {
     m_loadTask = nullptr;
     m_panel->setBusy(false);
     if (!result->ok || task->state() != PaleoTask::State::Succeeded) {
-      m_panel->setMessage(result->cancelled ? tr("抽样已取消") : result->error);
+      m_panel->setMessage(
+          task->state() == PaleoTask::State::Cancelled
+              ? tr("抽样已取消")
+              : (result->error.isEmpty() ? task->errorText() : result->error));
       return;
     }
     auto samples = std::make_shared<SampleSet>(std::move(result->samples));

@@ -121,10 +121,12 @@ QgsPrintLayout *buildTileLayout( QgsProject *project, const TileSpec &spec, QStr
   auto *map = new QgsLayoutItemMap( layout );
   map->setId( QStringLiteral( "map" ) );
   map->setLayers( spec.layers );
-  map->setExtent( spec.extent );
   layout->addLayoutItem( map );
   map->attemptResize( QgsLayoutSize( pw - 80.0, ph - 58.0, Qgis::LayoutUnit::Millimeters ) );
   map->attemptMove( QgsLayoutPoint( 10.0, 24.0, Qgis::LayoutUnit::Millimeters ) );
+  // A map starts at zero size. Set the range after sizing to avoid NaN and
+  // expand to the frame's aspect ratio so the entire tile remains visible.
+  map->zoomToExtent( spec.extent );
 
   addLabel( layout, QStringLiteral( "title" ), spec.title, 14.0, 10.0, 8.0, pw - 20.0, 12.0 );
 
@@ -222,9 +224,9 @@ QgsPrintLayout *buildMontageLayout( QgsProject *project, const MontageSpec &spec
   auto *map = new QgsLayoutItemMap( layout );
   map->setId( QStringLiteral( "planMap" ) );
   map->setLayers( spec.mapLayers );
-  map->setExtent( spec.mapExtent );
   layout->addLayoutItem( map );
   map->attemptResize( QgsLayoutSize( leftW, planH, Qgis::LayoutUnit::Millimeters ) );
+  map->zoomToExtent( spec.mapExtent );
   map->attemptMove( QgsLayoutPoint( margin, bodyY, Qgis::LayoutUnit::Millimeters ) );
   addLabel( layout, QStringLiteral( "planMapCaption" ), spec.mapCaption, 9.0,
             margin, bodyY + planH + 2.0, leftW, captionH );

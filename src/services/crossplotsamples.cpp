@@ -39,11 +39,20 @@ void xy(const Grid &g, int pixel, double &x, double &y) {
 }
 } // namespace
 bool CrossplotSamples::validate(const SampleSet &s, QString *error) {
-  const bool ok = !s.names.isEmpty() && s.units.size() == s.names.size() &&
-                  s.values.size() % std::size_t(s.names.size()) == 0 &&
-                  s.rows() == std::size_t(s.locations.size()) &&
-                  std::all_of(s.values.begin(), s.values.end(),
-                              [](double v) { return std::isfinite(v); });
+  const bool ok =
+      !s.names.isEmpty() && s.units.size() == s.names.size() &&
+      s.values.size() % std::size_t(s.names.size()) == 0 &&
+      s.rows() == std::size_t(s.locations.size()) &&
+      s.rows() <= std::size_t(std::numeric_limits<int>::max()) &&
+      (!s.grid.spatial || goodGrid(s.grid)) && s.rejected >= 0 &&
+      std::all_of(s.values.begin(), s.values.end(),
+                  [](double v) { return std::isfinite(v); }) &&
+      std::all_of(s.locations.begin(), s.locations.end(),
+                  [](const Location &loc) {
+                    return (!loc.hasXY ||
+                            (std::isfinite(loc.x) && std::isfinite(loc.y))) &&
+                           (loc.wellId.isEmpty() || std::isfinite(loc.depth));
+                  });
   if (!ok && error)
     *error = QStringLiteral("样本维度、位置或有限值契约不成立");
   return ok;
@@ -54,6 +63,8 @@ SampleResult CrossplotSamples::well(const QVector<Channel> &channels,
     return fail(QStringLiteral("交会至少需要两个通道"));
   SampleResult r;
   auto &s = r.samples;
+  s.samplingMetadata = {{"method", "reference_depth_linear_no_extrapolation"},
+                        {"nanPolicy", "joint_valid_rows_no_nan_bridging"}};
   for (const Channel &c : channels) {
     if (c.depths.size() != c.values.size() || c.wellId != channels[0].wellId)
       return fail(QStringLiteral("曲线长度或井标识不一致"));
@@ -287,6 +298,9 @@ SampleResult CrossplotSamples::rasters(const QVector<RasterSource> &sources,
   cluster::Control tail{ctl.cancelled,
                         [&](double p) { progress(ctl, .8 + .2 * p); }};
   auto r = CrossplotSamples::planes(planes, tail);
+  r.samples.samplingMetadata = {
+      {"method", "reference_pixel_center_containing_pixel"},
+      {"nanPolicy", "joint_finite_nodata_mask"}};
   for (const auto &s : sources)
     if (!s.layerId.isEmpty())
       r.samples.sourceLayerIds << s.layerId;
@@ -319,12 +333,13 @@ CrossplotSamples::attributeHorizon(const QVector<AttributeSection> &sections,
   SampleResult r;
   auto &s = r.samples;
   s.grid = grid;
-  s.samplingMetadata = {{"method", "nearest_attribute_at_time_horizon"},
-                        {"timeUnit", "ms"},
-                        {"startTimeMs", first.startTimeMs},
-                        {"stepMs", first.stepMs},
-                        {"geometryRmsResidual", first.geometryRmsResidual},
-                        {"geometryMaxResidual", first.geometryMaxResidual}};
+  s.samplingMetadata = {
+      {"method", "nearest_attribute_at_time_horizon_pixel_mean"},
+      {"timeUnit", "ms"},
+      {"startTimeMs", first.startTimeMs},
+      {"stepMs", first.stepMs},
+      {"geometryRmsResidual", first.geometryRmsResidual},
+      {"geometryMaxResidual", first.geometryMaxResidual}};
   for (const auto &a : sections) {
     s.names << a.plane.name;
     s.units << QString();
@@ -335,6 +350,17 @@ CrossplotSamples::attributeHorizon(const QVector<AttributeSection> &sections,
     s.units << QStringLiteral("ms");
     parent(s, h.versionId);
   }
+  QVariantList attributeAxes;
+  for (const auto &a : sections)
+    attributeAxes << QVariant(
+        QVariantMap{{"versionId", a.plane.versionId},
+                    {"startTimeMs", a.startTimeMs},
+                    {"stepMs", a.stepMs},
+                    {"geometryRmsResidual", a.geometryRmsResidual},
+                    {"geometryMaxResidual", a.geometryMaxResidual}});
+  s.samplingMetadata.insert("attributeAxes", attributeAxes);
+  QVector<int> pixelRows(grid.rows * grid.cols, -1), counts;
+  qint64 validTraces = 0;
   double inv[6];
   auto transform = grid.transform;
   if (!GDALInvGeoTransform(transform.data(), inv))
@@ -376,15 +402,31 @@ CrossplotSamples::attributeHorizon(const QVector<AttributeSection> &sections,
       ++s.rejected;
       continue;
     }
-    s.values.insert(s.values.end(), row.begin(), row.end());
-    Location loc;
-    loc.pixel = pixel;
-    loc.hasXY = true;
-    loc.x = point.x();
-    loc.y = point.y();
-    s.locations << loc;
+    ++validTraces;
+    int &sampleRow = pixelRows[pixel];
+    if (sampleRow < 0) {
+      sampleRow = s.locations.size();
+      counts << 1;
+      s.values.insert(s.values.end(), row.begin(), row.end());
+      Location loc;
+      loc.pixel = pixel;
+      loc.hasXY = true;
+      xy(grid, pixel, loc.x, loc.y);
+      s.locations << loc;
+    } else {
+      const double count = ++counts[sampleRow];
+      for (std::size_t j = 0; j < row.size(); ++j) {
+        auto &value = s.values[std::size_t(sampleRow) * row.size() + j];
+        value += (row[j] - value) / count;
+      }
+    }
     progress(ctl, double(col + 1) / first.traceXY.size());
   }
+  s.samplingMetadata.insert("validTraces", validTraces);
+  s.samplingMetadata.insert("uniquePixels", qint64(s.rows()));
+  s.samplingMetadata.insert("collapsedTraces", validTraces - qint64(s.rows()));
+  if (stop(ctl))
+    return fail(QStringLiteral("已取消"), true);
   r.ok = true;
   progress(ctl, 1);
   return r;
@@ -393,7 +435,12 @@ PlotFrame CrossplotSamples::project(const SampleSet &s, const Axes &a,
                                     const std::vector<int> &labels) {
   PlotFrame f;
   if (!validate(s) || a.x < 0 || a.y < 0 || a.x >= s.names.size() ||
-      a.y >= s.names.size() || a.z >= s.names.size())
+      a.y >= s.names.size() || a.z < -1 || a.z >= s.names.size() ||
+      !std::isfinite(a.yaw) || !std::isfinite(a.pitch) ||
+      (labels.size() == s.rows() &&
+       std::any_of(
+           labels.begin(), labels.end(),
+           [](int label) { return label < -1 || label > 254; })))
     return f;
   const auto d = std::size_t(s.names.size()), n = s.rows();
   f.xTitle = s.names[a.x];

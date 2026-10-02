@@ -65,6 +65,11 @@ void TestCluster::degenerate() {
   bad.k = 0;
   QVERIFY(!gmm({1, {1}}, bad).ok);
   QVERIFY(!predict({1, {1}}, {Method::Gmm, {1, {1}}, {0}, {1}}).ok);
+  QVERIFY(
+      !predict(
+           {1, {1}},
+           {Method::Gmm, {1, {1}}, {std::numeric_limits<double>::max()}, {1}})
+           .ok);
 }
 void TestCluster::gaussian() {
   Matrix x{2, {}};

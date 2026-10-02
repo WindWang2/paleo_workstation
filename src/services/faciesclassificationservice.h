@@ -8,7 +8,7 @@ public:
   static Classification classify(const SampleSet &,
                                  const ClassificationOptions &,
                                  const cluster::Control & = {},
-                                 const std::vector<int> &previous = {});
+                                 const Classification &previous = {});
   static QVector<WellInterval> intervals(const SampleSet &,
                                          const Classification &);
   // File writes must be called inside PaleoProjectStore::enqueueWrite by the

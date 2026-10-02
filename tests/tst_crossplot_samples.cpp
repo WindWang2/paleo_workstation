@@ -112,6 +112,11 @@ void TestSamples::projections() {
   f = CrossplotSamples::project(s, axes);
   QVERIFY(f.is3d);
   QCOMPARE(f.points.size(), 3);
+  axes.yaw = qQNaN();
+  QVERIFY(CrossplotSamples::project(s, axes).points.isEmpty());
+  s.locations[0].hasXY = true;
+  s.locations[0].x = qQNaN();
+  QVERIFY(!CrossplotSamples::validate(s));
 }
 void TestSamples::attributeHorizon() {
   Grid grid;
@@ -133,6 +138,17 @@ void TestSamples::attributeHorizon() {
   QCOMPARE(r.samples.values[2], 11.);
   QCOMPARE(r.samples.values[4], 22.);
   QCOMPARE(r.samples.locations[2].pixel, 2);
+  // Coarse horizon: two traces in one cell become one finite mean vector.
+  a.traceXY[1] = {.7, -.5};
+  auto coarse = CrossplotSamples::attributeHorizon({a}, {horizon});
+  QVERIFY2(coarse.ok, qPrintable(coarse.error));
+  QCOMPARE(coarse.samples.rows(), std::size_t(2));
+  QCOMPARE(coarse.samples.values[0], .5);
+  QCOMPARE(coarse.samples.locations[0].x, .5);
+  QCOMPARE(
+      coarse.samples.samplingMetadata.value("collapsedTraces").toLongLong(), 1);
+  QCOMPARE(coarse.samples.samplingMetadata.value("validTraces").toLongLong(),
+           3);
   a.stepMs = 0;
   QVERIFY(!CrossplotSamples::attributeHorizon({a}, {horizon}).ok);
 }

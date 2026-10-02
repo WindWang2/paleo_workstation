@@ -1742,9 +1742,19 @@ private slots:
     QString err;
     QElapsedTimer timer;
     timer.start();
-    const QVector<FolderRowResult> rows = svc.importFolder(src, &err);
-    QVERIFY2(err.isEmpty(), qPrintable(err));
-    QVERIFY(rows.size() >= 60); // 60 个数据文件 + 旧产物/工作区 json 参考行
+    // The live area also contains its own managed RAW/DERIVED tree. Import the
+    // original delivery directories so copies with hashed filenames cannot
+    // precede and de-duplicate the named horizon sources in this fixture.
+    QVector<FolderRowResult> rows;
+    for (const QString &sub : {QString::fromUtf8("井位"), QString::fromUtf8("井曲线"),
+                              QString::fromUtf8("井分层"), QString::fromUtf8("时深"),
+                              QString::fromUtf8("层位"), QString::fromUtf8("地震体"),
+                              QString::fromUtf8("参考相图"), QString::fromUtf8("参考资料")})
+    {
+      rows += svc.importFolder(QDir(src).filePath(sub), &err);
+      QVERIFY2(err.isEmpty(), qPrintable(err));
+    }
+    QVERIFY(rows.size() >= 60); // 原始交付数据；参考附件可随工区增长
 
     int nImported = 0, nUnresolved = 0, nFailed = 0, nSkipped = 0;
     bool sawWellHead = false, sawSeismic = false;

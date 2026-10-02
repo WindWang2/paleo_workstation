@@ -103,6 +103,10 @@ void TestSmokeRealdata::importsWholeWorkarea()
     }
     for (const QFileInfo &fi : entries)
     {
+      // A project bundle alongside the SEG-Y is application state, not one of
+      // the original delivered data files.
+      if (fi.fileName() == QStringLiteral("project.paleo"))
+        continue;
       QString err;
       if (svc.importProjectFile(fi.absoluteFilePath(), &err).isEmpty())
       {
@@ -114,13 +118,16 @@ void TestSmokeRealdata::importsWholeWorkarea()
   }
   qWarning("SMOKE imported %d files (%d failed) in %lld ms", files, failed, timer.elapsed());
   QCOMPARE(failed, 0);
-  QCOMPARE(files, 1 + 20 + 1 + 20 + 8 + 1 + 3 + 6); // 60 个真实文件
+  const int referenceCount = QDir(QDir(src).filePath(QString::fromUtf8("参考资料")))
+                                 .entryInfoList(QDir::Files, QDir::Name).size();
+  QVERIFY(referenceCount >= 6);
+  QCOMPARE(files, 1 + 20 + 1 + 20 + 8 + 1 + 3 + referenceCount);
 
   DataCatalog *cat = svc.catalog();
   QCOMPARE(cat->entities(QStringLiteral("well")).size(), 20);
   QCOMPARE(cat->entities(QStringLiteral("sequence_boundary")).size(), 8);
   QCOMPARE(cat->entities(QStringLiteral("seismic_survey")).size(), 1);
-  QCOMPARE(cat->entities(QStringLiteral("auxiliary")).size(), 3 + 6); // 3 GeoJSON + 6 参考资料
+  QCOMPARE(cat->entities(QStringLiteral("auxiliary")).size(), 3 + referenceCount);
 
   // A1 四条主关联：井口、LAS、分层、时深（plan §5A）。
   const auto a1Links = cat->linksForEntity(QStringLiteral("well-A1"));

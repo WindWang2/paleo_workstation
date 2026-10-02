@@ -99,7 +99,8 @@ Result predict(const Matrix &x, const Model &m, const Control &ctl) {
         second = v;
     }
     if (m.method == Method::Gmm) {
-      posterior(x.row(i), m, p);
+      if (!std::isfinite(posterior(x.row(i), m, p)))
+        return failure("Non-finite Gaussian posterior");
       winner = std::size_t(std::max_element(p.begin(), p.end()) - p.begin());
       r.confidence[i] = p[winner];
       best = distance(x.row(i), m.centers.row(winner), d);

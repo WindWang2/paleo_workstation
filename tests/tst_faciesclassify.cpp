@@ -168,6 +168,7 @@ void TestFacies::taskLifecycle() {
   PaleoTaskService tasks(&store);
   tasks.setMaxWorkerThreads(1);
   FaciesClassifyWorkflow wf(&tasks, &store, nullptr);
+  QSignalSpy messages(&wf, &FaciesClassifyWorkflow::failed);
   auto samples = std::make_shared<SampleSet>(rasterSamples());
   wf.setSamples(samples);
   auto *blocker = tasks.start("block", [](PaleoTask *t) {
@@ -183,6 +184,8 @@ void TestFacies::taskLifecycle() {
   if (!t->isFinished())
     QVERIFY(done.wait(10000));
   QCOMPARE(t->state(), PaleoTask::State::Cancelled);
+  QTRY_COMPARE(messages.count(), 1);
+  QVERIFY(messages.first()[0].toString().contains(QString::fromUtf8("取消")));
   QVERIFY(!wf.classification().ok);
   wf.setSamples(std::make_shared<SampleSet>());
   t = wf.classify({});
@@ -206,6 +209,29 @@ void TestFacies::manualRules() {
   r = FaciesClassificationService::classify(s, o);
   QVERIFY(r.ok);
   QCOMPARE(r.counts[4], 8);
+  auto previous = FaciesClassificationService::classify(s, {});
+  QVERIFY(previous.ok);
+  previous.confidence.back() = .37;
+  auto overlay = FaciesClassificationService::classify(s, o, {}, previous);
+  QVERIFY2(overlay.ok, qPrintable(overlay.error));
+  QCOMPARE(overlay.confidence.back(), .37);
+  QCOMPARE(overlay.labels.back(), previous.labels.back());
+  QCOMPARE(overlay.confidence[0], 1.);
+  QVERIFY(overlay.provenance.contains("previousLabelsHash"));
+  QVERIFY(overlay.provenance.value("parameterHash") !=
+          r.provenance.value("parameterHash"));
+  auto bad = overlay;
+  bad.counts[0]++;
+  PaleoProjectStore store;
+  QTemporaryDir dir;
+  QString error;
+  auto rejected = store.enqueueWrite([&] {
+    return PaleoProjectStore::WriteResult{
+        FaciesClassificationService::writeRaster(dir.filePath("invalid.tif"), s,
+                                                 bad, &error),
+        error};
+  });
+  QVERIFY(!rejected.ok);
   o.selection.clear();
   QVERIFY(!FaciesClassificationService::classify(s, o).ok);
 }
@@ -216,7 +242,9 @@ void TestFacies::mapLocation() {
   SampleSet s = rasterSamples();
   s.grid.crs = DataCatalog::localGridCrsWkt();
   QString error;
+  canvas->setExtent(QgsRectangle(-10000, -10000, 10000, 10000));
   QVERIFY2(link.locate(s, 0, &error), qPrintable(error));
+  QVERIFY(canvas->extent().width() < 100);
   const auto center = canvas->extent().center();
   QVERIFY(std::abs(center.x() - s.locations[0].x) < 1e-8);
   QVERIFY(std::abs(center.y() - s.locations[0].y) < 1e-8);

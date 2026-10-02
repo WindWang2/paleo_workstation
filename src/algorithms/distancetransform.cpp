@@ -103,6 +103,9 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
   const double cellSize = parameterAsDouble( parameters, QStringLiteral( "CELL_SIZE" ), context );
   if ( cellSize <= 0.0 || !std::isfinite( cellSize ) )
     throw QgsProcessingException( QStringLiteral( "CELL_SIZE must be > 0" ) );
+  if ( source->sourceCrs().isGeographic() && feedback )
+    feedback->pushWarning( PaleoAlgoGuards::geographicCrsWarning(
+        source->sourceCrs().userFriendlyIdentifier() ) );
 
   const QString outPath = parameterAsOutputLayer( parameters, QStringLiteral( "OUTPUT" ), context );
   if ( outPath.isEmpty() )
@@ -185,8 +188,10 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
   const double yPad = raw.height() > 0.0 ? raw.height() * 0.1 : cellSize;
   QgsRectangle extent( raw.xMinimum() - xPad, raw.yMinimum() - yPad,
                        raw.xMaximum() + xPad, raw.yMaximum() + yPad );
-  const int nCols = std::max( 1, static_cast<int>( std::ceil( extent.width() / cellSize ) ) );
-  const int nRows = std::max( 1, static_cast<int>( std::ceil( extent.height() / cellSize ) ) );
+  const PaleoAlgoGuards::GridDims dims =
+      PaleoAlgoGuards::gridDimsForExtent( extent, cellSize );
+  const int nCols = dims.cols;
+  const int nRows = dims.rows;
   auto cellOf = [&]( double x, double y, int &c, int &r ) {
     c = static_cast<int>( std::floor( ( x - extent.xMinimum() ) / cellSize ) );
     r = static_cast<int>( std::floor( ( extent.yMaximum() - y ) / cellSize ) );
@@ -249,6 +254,11 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
   for ( const QgsPolylineXY &pl : barrierPolylines )
     for ( int i = 1; i < pl.size(); ++i )
     {
+      if ( feedback && feedback->isCanceled() )
+      {
+        GDALClose( outDs );
+        throw QgsProcessingException( QStringLiteral( "Canceled" ) );
+      }
       const QgsPointXY a = pl[i - 1], b = pl[i];
       const double len = a.distance( b );
       const int steps = std::max( 1, static_cast<int>( std::ceil( len / ( cellSize * 0.5 ) ) ) );
@@ -281,12 +291,23 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
     }
   }
   const double ortho = cellSize, diag = cellSize * std::numbers::sqrt2;
+  qsizetype settled = 0; // 每 4096 次松弛查一次取消 + 报进度（虚调用节流）
   while ( !pq.empty() )
   {
     const Item cur = pq.top();
     pq.pop();
     if ( cur.first > dist[static_cast<size_t>( cur.second )] )
       continue; // stale entry
+    if ( feedback && ( ++settled & 4095 ) == 0 )
+    {
+      if ( feedback->isCanceled() )
+      {
+        GDALClose( outDs );
+        throw QgsProcessingException( QStringLiteral( "Canceled" ) );
+      }
+      feedback->setProgress( 100.0 * static_cast<double>( settled ) /
+                             static_cast<double>( cellCount ) );
+    }
     const int cr = static_cast<int>( cur.second / nCols );
     const int cc = static_cast<int>( cur.second % nCols );
     for ( int dr = -1; dr <= 1; ++dr )

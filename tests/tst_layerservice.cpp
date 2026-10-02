@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QSignalSpy>
 
 #include <qgsapplication.h>
 #include <qgscoordinatereferencesystem.h>
@@ -11,6 +12,8 @@
 #include <qgsvectorlayer.h>
 
 #include "../src/catalog/datacatalog.h"
+#include "../src/qgis/qgiseditingservice.h"
+#include "../src/metadata/paleoprojectstore.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/qgis/qgislayerservice.h"
@@ -161,6 +164,44 @@ private slots:
     QCOMPARE(manifest.all().size(), 3);
   }
 
+  // (h) releaseHorizon 遇编辑中图层：经编辑服务回滚——busy 标记随会话释放，
+  //     图层仍被工程正常注销。未注入服务的裸用路径维持旧行为（rollback 照做）。
+  void releaseHorizonRollsBackThroughEditingService()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    // 编辑会话会在源文件上开写句柄——用夹具副本，不动共享 testdata。
+    const QString gpkgCopy = tmp.filePath(QStringLiteral("facies_copy.gpkg"));
+    QVERIFY2(QFile::copy(fixtureGpkg(), gpkgCopy), qPrintable(gpkgCopy));
+    LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+    QVERIFY(manifest.open());
+    QgisLayerService svc(nullptr, &manifest);
+    LayerDeclaration editable = decl(QStringLiteral("facies.T1"), QStringLiteral("T1"));
+    editable.source = gpkgCopy + QStringLiteral("|layername=basin");
+    QVERIFY(svc.declare(editable));
+    QCOMPARE(svc.instantiateHorizon(QStringLiteral("T1")), 1);
+    auto *vl = qobject_cast<QgsVectorLayer *>(svc.layer(QStringLiteral("facies.T1")));
+    QVERIFY(vl != nullptr && vl->isValid());
+
+    PaleoProjectStore store;
+    QgisEditingService editSvc(&store);
+    svc.setEditingService(&editSvc);
+
+    QString err;
+    QVERIFY2(editSvc.beginEdit(vl, &err), qPrintable(err));
+    QVERIFY(store.layerBusy(QStringLiteral("facies.T1"))); // busyKey = paleoLayerId 盖章值
+    QVERIFY(vl->isEditable());
+
+    QSignalSpy rolledSpy(&editSvc, &QgisEditingService::editRolledBack);
+    svc.releaseHorizon(QStringLiteral("T1"));
+
+    QVERIFY(!store.layerBusy(QStringLiteral("facies.T1"))); // busy 随会话释放
+    QCOMPARE(rolledSpy.count(), 1);
+    QVERIFY(!svc.isInstantiated(QStringLiteral("facies.T1")));
+    QCOMPARE(QgsProject::instance()->mapLayers().size(), 0);
+    QCOMPARE(manifest.all().size(), 1); // 声明仍是权威
+  }
+
   // (d) manifest roundtrip: a fresh LayerManifest over the same sqlite file
   // sees the previously declared set intact
   void manifestSurvivesReopen()
@@ -305,6 +346,47 @@ private slots:
     QVERIFY2(!err.isEmpty(), "a manifest read failure must produce an error");
     QVERIFY2(!err.contains(QStringLiteral("no layer declaration")),
              qPrintable(err));
+  }
+
+  // (i) P1-07 / MEM-04: destroyed layer does not crash isEditingAnyLayer()
+  void destroyedLayerDoesNotCrashIsEditingAnyLayer()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString copyGpkg = tmp.filePath(QStringLiteral("fixture.gpkg"));
+    QVERIFY(QFile::copy(fixtureGpkg(), copyGpkg));
+
+    LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+    QString err;
+    QVERIFY2(manifest.open(&err), qPrintable(err));
+
+    LayerDeclaration d = decl(QStringLiteral("facies.T1"), QStringLiteral("T1"));
+    d.source = copyGpkg + QStringLiteral("|layername=basin");
+
+    QgisLayerService svc(nullptr, &manifest);
+    QVERIFY2(svc.declare(d, &err), qPrintable(err));
+
+    QgsMapLayer *ml = svc.instantiate(QStringLiteral("facies.T1"), &err);
+    QVERIFY2(ml, qPrintable(err));
+    auto *vl = qobject_cast<QgsVectorLayer *>(ml);
+    QVERIFY(vl);
+    QVERIFY(vl->startEditing());
+    QVERIFY(vl->isEditable());
+
+    QString editingName;
+    QVERIFY(svc.isEditingAnyLayer(&editingName));
+    QCOMPARE(svc.layer(QStringLiteral("facies.T1")), ml);
+    QVERIFY(svc.isInstantiated(QStringLiteral("facies.T1")));
+
+    // Externally remove / destroy the layer from QgsProject
+    QgsProject::instance()->removeMapLayer(ml->id());
+    // In QGIS, removeMapLayer deletes the QObject.
+    // QPointer automatically resets to nullptr.
+
+    // Calling isEditingAnyLayer() must NOT dereference dangling memory or crash
+    QVERIFY(!svc.isEditingAnyLayer(&editingName));
+    QCOMPARE(svc.layer(QStringLiteral("facies.T1")), nullptr);
+    QVERIFY(!svc.isInstantiated(QStringLiteral("facies.T1")));
   }
 };
 

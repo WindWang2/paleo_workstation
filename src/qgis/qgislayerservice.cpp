@@ -2,9 +2,11 @@
 #include "qgislayerservice.h"
 
 #include "qgisprojectservice.h"
+#include "qgiseditingservice.h"
 #include "mappingartifactwriter.h"
 
 #include <QSet>
+#include <QtGlobal>
 
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
@@ -48,7 +50,7 @@ QgisLayerService::QgisLayerService(QgisProjectService *projectSvc, LayerManifest
               {
                 // layersRemoved fires before the layers are deleted — id() is
                 // still readable here; destroyed() covers the rest.
-                if (removedIds.contains(it.value()->id()))
+                if (!it.value() || removedIds.contains(it.value()->id()))
                   it = m_instances.erase(it);
                 else
                   ++it;
@@ -69,16 +71,32 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
     setError(error, QStringLiteral("cannot declare a layer with an empty layerId"));
     return false;
   }
-  QgsMapLayer *previous=m_instances.value(decl.layerId);
-  const bool replace=previous && previous->source()!=decl.source;
-  if(replace) if(auto *vector=qobject_cast<QgsVectorLayer *>(previous);vector && vector->isEditable()) {
-    setError(error, tr("请先保存或取消该图层的编辑，再替换图件"));return false;
+  QgsMapLayer *previous = m_instances.value(decl.layerId).data();
+  const bool replace = previous && previous->source() != decl.source;
+  if (replace)
+  {
+    if (auto *vector = qobject_cast<QgsVectorLayer *>(previous))
+    {
+      if (vector->isEditable())
+      {
+        setError(error, tr("请先保存或取消该图层的编辑，再替换图件"));
+        return false;
+      }
+    }
   }
   if (!m_manifest->upsert(decl, error))
     return false;
-  if(replace) {
-    if(auto *project=resolveProject(m_projectSvc))project->removeMapLayer(previous->id());
-    instantiate(decl.layerId,error);
+  if (replace)
+  {
+    if (auto *project = resolveProject(m_projectSvc))
+      project->removeMapLayer(previous->id());
+    // previous 此后可能已被 QgsProject 删除——不得再解引用。重建失败不回滚
+    // 声明（清单已是新 source），但不能把失败文案塞进「成功」返回的 error，
+    // 记 warning 留痕。
+    QString reErr;
+    if (!instantiate(decl.layerId, &reErr))
+      qWarning("QgisLayerService::declare: re-instantiating '%s' after source change failed: %s",
+               qPrintable(decl.layerId), qPrintable(reErr));
   }
   emit layerDeclared(decl.layerId);
   return true;
@@ -86,7 +104,7 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
 
 QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *error)
 {
-  if (QgsMapLayer *existing = m_instances.value(layerId))
+  if (QgsMapLayer *existing = m_instances.value(layerId).data())
   {
     // Paranoia guard: compare pointer identity against the project's live set
     // without dereferencing — a layer destroyed between signal deliveries must
@@ -96,6 +114,10 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
     if (live.contains(existing))
       return existing;
     m_instances.remove(layerId); // stale entry — fall through and re-create
+  }
+  else
+  {
+    m_instances.remove(layerId); // purge null QPointer entry
   }
 
   // A manifest read failure is a READ failure, not "no declaration" — report
@@ -192,19 +214,27 @@ void QgisLayerService::releaseHorizon(const QString &horizon)
 
   QStringList toRelease;
   for (const LayerDeclaration &d : decls)
-    if (d.horizon == horizon && m_instances.contains(d.layerId))
+    if (d.horizon == horizon && isInstantiated(d.layerId))
       toRelease.append(d.layerId);
 
   QgsProject *proj = resolveProject(m_projectSvc);
   for (const QString &id : toRelease)
   {
-    QgsMapLayer *l = m_instances.take(id);
+    QgsMapLayer *l = m_instances.take(id).data();
     if (proj && l)
     {
       if (auto *vl = qobject_cast<QgsVectorLayer *>(l))
       {
         if (vl->isEditable())
-          vl->rollBack();
+        {
+          // 经服务回滚：busy 标记随会话释放（Issue #27 残留——直接 rollBack
+          // 会让该层位的「editing in progress」门控永久滞留）。未注入服务的
+          // 裸用路径维持旧行为。
+          if (m_editSvc)
+            m_editSvc->rollbackEdit(vl);
+          else
+            vl->rollBack();
+        }
       }
       proj->removeMapLayer(l); // project-owned: removal deletes the layer
     }
@@ -227,9 +257,18 @@ void QgisLayerService::trackInstance(const QString &layerId, QgsMapLayer *layer)
   m_instances.insert(layerId, layer);
   // The project owns the layer — if it is destroyed by ANY path (clear(),
   // removeMapLayer(), an external consumer), the cache entry dies with it.
-  connect(layer, &QObject::destroyed, this, [this, layerId] {
-    m_instances.remove(layerId);
-  });
+  if (layer)
+  {
+    // #81：只摘「仍指向这个已销毁对象（或已置空）」的条目。declare() 替换
+    // 路径会在同一 layerId 下先删旧层、再登记新层；旧层的 destroyed 若晚于
+    // 新层登记（延迟删除/外部持有者），按 layerId 无条件 remove 会把新层
+    // 从缓存里摘掉——之后 layer() 返回空、paleoAssetId 盖章静默落空。
+    connect(layer, &QObject::destroyed, this, [this, layerId](QObject *dead) {
+      const auto it = m_instances.find(layerId);
+      if (it != m_instances.end() && (it.value().isNull() || it.value().data() == dead))
+        m_instances.erase(it);
+    });
+  }
 }
 
 void QgisLayerService::purgeDanglingInstances()
@@ -239,8 +278,7 @@ void QgisLayerService::purgeDanglingInstances()
                                          : QList<QgsMapLayer *>();
   for (auto it = m_instances.begin(); it != m_instances.end();)
   {
-    // Pointer comparison only — entries may dangle and must not be dereferenced.
-    if (!live.contains(it.value()))
+    if (!it.value() || !live.contains(it.value().data()))
       it = m_instances.erase(it);
     else
       ++it;
@@ -249,19 +287,21 @@ void QgisLayerService::purgeDanglingInstances()
 
 QgsMapLayer *QgisLayerService::layer(const QString &layerId) const
 {
-  return m_instances.value(layerId);
+  return m_instances.value(layerId).data();
 }
 
 bool QgisLayerService::isInstantiated(const QString &layerId) const
 {
-  return m_instances.contains(layerId);
+  return m_instances.value(layerId) != nullptr;
 }
 
 bool QgisLayerService::isEditingAnyLayer(QString *layerName) const
 {
   for (auto it = m_instances.cbegin(); it != m_instances.cend(); ++it)
   {
-    if (auto *vl = qobject_cast<QgsVectorLayer *>(it.value()))
+    if (!it.value())
+      continue;
+    if (auto *vl = qobject_cast<QgsVectorLayer *>(it.value().data()))
     {
       if (vl->isEditable())
       {
@@ -289,6 +329,8 @@ void QgisLayerService::setActiveHorizon(const QString &horizon)
   QStringList orphanIds; // instantiated but declaration has since been removed
   for (auto it = m_instances.cbegin(); it != m_instances.cend(); ++it)
   {
+    if (!it.value())
+      continue;
     const auto hit = horizonOf.constFind(it.key());
     if (hit == horizonOf.constEnd())
       orphanIds.append(it.key());
@@ -300,7 +342,7 @@ void QgisLayerService::setActiveHorizon(const QString &horizon)
   QgsProject *proj = resolveProject(m_projectSvc);
   for (const QString &id : orphanIds)
   {
-    QgsMapLayer *l = m_instances.take(id);
+    QgsMapLayer *l = m_instances.take(id).data();
     if (proj && l)
     {
       if (auto *vl = qobject_cast<QgsVectorLayer *>(l))

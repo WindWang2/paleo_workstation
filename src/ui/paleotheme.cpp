@@ -5,6 +5,7 @@
 #include <QEvent>
 #include <QFont>
 #include <QFontDatabase>
+#include <QHeaderView>
 #include <QList>
 #include <QLabel>
 #include <QPalette>
@@ -12,6 +13,7 @@
 #include <QSettings>
 #include <QStyle>
 #include <QStyleFactory>
+#include <QTableView>
 
 // qrc 对象住在静态库 paleo_core 里——链接器不会自动拉入无引用的目标文件，
 // 显式引用其初始化符号把字体资源钉进每个最终二进制。
@@ -107,6 +109,13 @@ namespace
   {
     static PaleoTheme::Theme s_current = PaleoTheme::Theme::Light;
     return s_current;
+  }
+
+  // currentDensity() 的可写落点（同 themeRef 口径）。
+  PaleoTheme::Density &densityRef()
+  {
+    static PaleoTheme::Density s_density = PaleoTheme::Density::Comfort;
+    return s_density;
   }
 
   // 活体主题样式的注册表：换主题（palette 变更事件）时重跑 builder。
@@ -331,13 +340,92 @@ namespace PaleoTheme
                "QWidget#mapInteractionContext { background: %1; color: %3;"
                " border-bottom: 1px solid %4; }"
                "QWidget#horizonChipRow { background: %5; border-bottom: 1px solid %4; }")
-        .arg(qssHex(t.surfaceAlt), qssHex(t.text), qssHex(t.textMuted),
-             qssHex(t.border), qssHex(t.surface));
+               .arg(qssHex(t.surfaceAlt), qssHex(t.text), qssHex(t.textMuted),
+                    qssHex(t.border), qssHex(t.surface))
+        // 条目视图三件套（选中/hover/斑马纹/密度 padding）统一出口——
+        // goal/ui-experience-polish：三类列表控件不再各写选中态。
+        + itemViewStyleSheet(theme);
+  }
+
+  QString itemViewStyleSheet(Theme theme, Density density)
+  {
+    const ThemeTokens &t = tokens(theme);
+    // 树/列表行高走 padding；表行高走 verticalHeader（applyDensityToViewTree），
+    // 不给 QTableView::item 加 padding 以免平移单元格内嵌件。
+    return QStringLiteral(
+               "QAbstractItemView { alternate-background-color: %1; }"
+               "QTreeView::item, QListView::item { padding: %2px 3px; }"
+               "QAbstractItemView::item:hover { background: %1; }"
+               "QAbstractItemView::item:selected { background: %3; color: %4; }")
+        .arg(qssHex(t.surfaceAltRaised))
+        .arg(itemViewPaddingY(density))
+        .arg(qssHex(t.primary))
+        .arg(qssHex(t.onPrimary));
+  }
+
+  Density currentDensity() { return densityRef(); }
+
+  Density densityFromSettings()
+  {
+    // 读自由、写克制（同 theme 口径）。缺省 comfort。
+    QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
+    return s.value(QStringLiteral("ui/density")).toString() ==
+                   QLatin1String("compact")
+               ? Density::Compact
+               : Density::Comfort;
+  }
+
+  void writeDensityToSettings(Density density)
+  {
+    QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
+    s.setValue(QStringLiteral("ui/density"),
+               density == Density::Compact ? QStringLiteral("compact")
+                                           : QStringLiteral("comfort"));
+  }
+
+  int itemViewPaddingY(Density density)
+  {
+    return density == Density::Compact ? 1 : 3;
+  }
+
+  int tableRowHeight(Density density)
+  {
+    return density == Density::Compact ? 20 : 26;
+  }
+
+  void applyDensity(Density density)
+  {
+    // 先落 current 再全量重算：shell QSS 的 builder 读 currentDensity()。
+    densityRef() = density;
+    ThemedStyleSheetRelay::instance()->reapplyAll();
+  }
+
+  void applyDensityToViewTree(QWidget *root, Density density)
+  {
+    if (!root)
+      return;
+    const int rowH = tableRowHeight(density);
+    const auto tables = root->findChildren<QTableView *>();
+    for (QTableView *table : tables)
+      if (QHeaderView *vh = table->verticalHeader())
+      {
+        // compact 档可低于样式缺省最小节高（21 左右）——密度是显式用户
+        // 选择，最小值跟随下压，不回升到样式缺省。
+        if (rowH < vh->minimumSectionSize())
+          vh->setMinimumSectionSize(rowH);
+        vh->setDefaultSectionSize(rowH);
+      }
   }
 
   QString mutedCaptionStyleSheet(Theme theme)
   {
     return QStringLiteral("color: %1;").arg(qssHex(tokens(theme).textMuted));
+  }
+
+  QString sectionTitleStyleSheet(Theme theme)
+  {
+    return QStringLiteral("font-weight: 600; color: %1;")
+        .arg(qssHex(tokens(theme).text));
   }
 
   void applyThemedStyleSheet(QWidget *widget,

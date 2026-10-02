@@ -86,6 +86,15 @@ class PreviewProfilePanel::ProfileChart : public QWidget
         return;
       p.setPen( QColor( QStringLiteral( "#DFE5EC" ) ) );
       p.drawRect( pr );
+      // goal/ui-experience-polish：空序列不静默——画面心 muted 指引
+      //（有序列时不画）。#5D6E80 = DESIGN.md text-muted（chart 笔色出口）。
+      if ( m_host->m_series.isEmpty() )
+      {
+        p.setPen( QColor( QStringLiteral( "#5D6E80" ) ) );
+        p.drawText( pr, Qt::AlignCenter,
+                    QObject::tr( "还没有剖面——在预览地图上用「剖面」工具画一条线" ) );
+        return;
+      }
 
       // 轴刻度（nice steps，mono 标注）
       p.setFont( mono8() );
@@ -305,7 +314,8 @@ PreviewProfilePanel::PreviewProfilePanel( QWidget *parent )
   barLay->setSpacing( 6 );
 
   auto *title = new QLabel( QObject::tr( "层位剖面" ), bar );
-  title->setStyleSheet( QStringLiteral( "font-weight: 600; color: #24303E;" ) );
+  PaleoTheme::applyThemedStyleSheet(
+      title, [] { return PaleoTheme::sectionTitleStyleSheet(); } );
   barLay->addWidget( title );
 
   auto *clearBtn = new QToolButton( bar );
@@ -327,7 +337,9 @@ PreviewProfilePanel::PreviewProfilePanel( QWidget *parent )
   barLay->addWidget( pngBtn );
 
   m_legend = new QLabel( bar );
-  m_legend->setStyleSheet( QStringLiteral( "color: #5D6E80; font-size: 8pt;" ) );
+  PaleoTheme::applyThemedStyleSheet( m_legend, [] {
+    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral( " font-size: 8pt;" );
+  } );
   barLay->addWidget( m_legend, 1 );
   lay->addWidget( bar );
 

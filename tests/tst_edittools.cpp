@@ -165,6 +165,7 @@ class TestEditTools : public QObject
     void vertexDeleteEndClosureVertexInvariants();
     void vertexDeleteTriangleAllVerticesRejected();
     void vertexDeleteMultiFeaturePartialTriangleRefused();
+    void vertexDeleteMultiCoincidentRingQuotaRefused();
     void vertexMoveAndDeletePolygonHoleInvariants();
     void vertexTopoSharedClosureMultiFeatureInvariants();
     void vertexTopoDeleteCoincidentPinchPointRefused();
@@ -1980,6 +1981,91 @@ void TestEditTools::vertexDeleteMultiFeaturePartialTriangleRefused()
 
   canvas.unsetMapTool( &tool );
   layer.rollBack();
+}
+
+void TestEditTools::vertexDeleteMultiCoincidentRingQuotaRefused()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "pinch-polygon" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+
+  // Construct a 5-point self-touching / hourglass pinch polygon:
+  // (10,10) -> (50,50) -> (10,90) -> (50,50) [auto-closure appends (10,10)]
+  // Vertex 0: (10,10)
+  // Vertex 1: (50,50)
+  // Vertex 2: (10,90)
+  // Vertex 3: (50,50) [coincident with vertex 1]
+  // Vertex 4: (10,10) [closure]
+  // Total vertices: 5. Deleting (50,50) would delete BOTH vertex 1 and 3, reducing ring to 3 vertices (collapse!)
+  const QVector<QgsPointXY> pinchPts = {
+    mapPt( canvas, 10, 10 ),
+    mapPt( canvas, 50, 50 ),
+    mapPt( canvas, 10, 90 ),
+    mapPt( canvas, 50, 50 )
+  };
+  const QgsFeatureId fid = seedFeature( layer, QgsGeometry::fromPolygonXY( { pinchPts } ) );
+
+  layer.startEditing();
+  layer.selectByIds( { fid } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( true );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+  QSignalSpy msgSpy( &tool, &QgsMapTool::messageEmitted );
+
+  QCOMPARE( vertexTotal( layer, fid ), 5 );
+
+  // Right-click the pinch point at (50, 50):
+  // Both vertex 1 and 3 are coincident. Quota check must refuse because 5 < 4 + 2 = 6!
+  click( tool, canvas, QPoint( 50, 50 ), Qt::RightButton );
+
+  QCOMPARE( editedSpy.count(), 0 ); // Refused!
+  QVERIFY( msgSpy.count() >= 1 );   // Guard warning emitted
+  QCOMPARE( vertexTotal( layer, fid ), 5 ); // Invariant: not collapsed to 3!
+  QCOMPARE( layer.undoStack()->count(), 0 );
+
+  // Now verify that a 6-vertex polygon with coincident pinch point CAN be deleted down to 4 vertices (valid triangle):
+  // (10,10) -> (50,50) -> (90,50) -> (10,90) -> (50,50) [auto-closure appends (10,10)]
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+
+  QgsVectorLayer layer6( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "pinch6" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer6.isValid(), "memory polygon layer failed to initialize" );
+  const QVector<QgsPointXY> validPts = {
+    mapPt( canvas, 10, 10 ),
+    mapPt( canvas, 50, 50 ),
+    mapPt( canvas, 90, 50 ),
+    mapPt( canvas, 10, 90 ),
+    mapPt( canvas, 50, 50 )
+  };
+  const QgsFeatureId fid6 = seedFeature( layer6, QgsGeometry::fromPolygonXY( { validPts } ) );
+  layer6.startEditing();
+  layer6.selectByIds( { fid6 } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer6 } );
+  canvas.setCurrentLayer( &layer6 );
+  canvas.refresh();
+
+  TestVertexTool tool6( &canvas, &layer6 );
+  tool6.setTopologicalEditingEnabled( true );
+  canvas.setMapTool( &tool6 );
+  QSignalSpy editedSpy6( &tool6, &PaleoVertexTool::featureEdited );
+
+  QCOMPARE( vertexTotal( layer6, fid6 ), 6 );
+  click( tool6, canvas, QPoint( 50, 50 ), Qt::RightButton );
+  QCOMPARE( editedSpy6.count(), 1 ); // Accepted!
+  QCOMPARE( vertexTotal( layer6, fid6 ), 4 ); // 6 - 2 = 4 (valid triangle)
+
+  const QgsGeometry g6 = layer6.getFeature( fid6 ).geometry();
+  QVERIFY( g6.isGeosValid() );
+
+  canvas.unsetMapTool( &tool6 );
+  layer6.rollBack();
 }
 
 void TestEditTools::vertexMoveAndDeletePolygonHoleInvariants()

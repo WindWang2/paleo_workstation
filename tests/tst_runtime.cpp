@@ -1,4 +1,6 @@
 #include <QtTest>
+#include <stdexcept>
+#include <QDir>
 #include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -84,6 +86,59 @@ private slots:
     QCOMPARE( QFile( dir.filePath( QStringLiteral( "b.out" ) ) ).size(), qint64( 1 ) );
   }
 
+  // WP3 Round 2：写队列异常兜底——enqueueWrite/saveAll 内的异常必须转成
+  // 失败结果（调用方的 busy 释放/writeFailed 信号不因裸异常被跳过），队列
+  // 在异常后仍可用。
+  void enqueueWriteConvertsExceptionsToFailure()
+  {
+    PaleoProjectStore store;
+    QSignalSpy failedSpy( &store, &PaleoProjectStore::writeFailed );
+    QSignalSpy doneSpy( &store, &PaleoProjectStore::writeCompleted );
+
+    const char *msg = "boom from provider";
+    const auto r1 = store.enqueueWrite(
+        [msg]() -> PaleoProjectStore::WriteResult { throw std::runtime_error( msg ); } );
+    QVERIFY( !r1.ok );
+    QVERIFY2( r1.error.contains( QLatin1String( msg ) ), qPrintable( r1.error ) );
+
+    const auto r2 = store.enqueueWrite(
+        []() -> PaleoProjectStore::WriteResult { throw 42; } ); // 非 std::exception
+    QVERIFY( !r2.ok );
+    QVERIFY2( !r2.error.isEmpty(), "unknown-exception conversion must still carry a reason" );
+
+    QCOMPARE( failedSpy.count(), 2 );
+    QCOMPARE( doneSpy.count(), 0 );
+
+    // 异常不腐蚀队列：后续正常写照常。
+    const auto r3 = store.enqueueWrite(
+        []() -> PaleoProjectStore::WriteResult { return { true, QString() }; } );
+    QVERIFY( r3.ok );
+    QCOMPARE( doneSpy.count(), 1 );
+  }
+
+  // gpkg 提交抛异常时，saveAll 必须在触碰 .qgz 之前中止（abort-before-qgz
+  // 排序对异常同样成立），并以 writeFailed 收尾。
+  void saveAllGpkgExceptionAbortsBeforeQgz()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    PaleoProjectStore store;
+    store.setProjectPaths( dir.filePath( QStringLiteral( "p.qgz" ) ),
+                           dir.filePath( QStringLiteral( "p.gpkg" ) ),
+                           dir.filePath( QStringLiteral( "meta.sqlite" ) ) );
+    int qgzCalls = 0;
+    QSignalSpy failedSpy( &store, &PaleoProjectStore::writeFailed );
+    const auto r = store.saveAll(
+        []() -> PaleoProjectStore::WriteResult { throw std::runtime_error( "gpkg exploded" ); },
+        [&qgzCalls]() -> PaleoProjectStore::WriteResult {
+          ++qgzCalls;
+          return { true, QString() };
+        } );
+    QVERIFY( !r.ok );
+    QCOMPARE( qgzCalls, 0 );
+    QVERIFY2( failedSpy.count() >= 1, "writeFailed must fire for a throwing gpkg commit" );
+  }
+
   void saveAllQgzFailureKeepsGpkgCommit()
   {
     QTemporaryDir dir;
@@ -163,6 +218,58 @@ private slots:
     QFile cur( qgz );
     QVERIFY( cur.open( QIODevice::ReadOnly ) );
     QCOMPARE( cur.readAll(), QByteArray( "q2" ) );
+  }
+
+  void backupFailureStopsProjectWrite_data()
+  {
+    QTest::addColumn<bool>("journaled");
+    QTest::newRow("saveAll") << false;
+    QTest::newRow("commitAll") << true;
+  }
+
+  void backupFailureStopsProjectWrite()
+  {
+    QFETCH(bool, journaled);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString qgz = dir.filePath(QStringLiteral("proj.qgz"));
+    QFile original(qgz);
+    QVERIFY(original.open(QIODevice::WriteOnly));
+    QCOMPARE(original.write("original"), qint64(8));
+    original.close();
+    // A directory at the backup target deterministically rejects file replacement.
+    QVERIFY(QDir().mkpath(qgz + QStringLiteral(".bak")));
+    PaleoProjectStore store;
+    store.setProjectPaths(qgz, dir.filePath(QStringLiteral("proj.gpkg")),
+                          dir.filePath(QStringLiteral("meta.sqlite")));
+    QSignalSpy failed(&store, &PaleoProjectStore::writeFailed);
+    int commits = 0, writes = 0;
+    const auto commit = [&]() -> PaleoProjectStore::WriteResult {
+      ++commits;
+      return {true, QString()};
+    };
+    const auto write = [&]() -> PaleoProjectStore::WriteResult {
+      ++writes;
+      return {true, QString()};
+    };
+    const auto result = journaled
+        ? store.commitAll(QStringLiteral("backup-failure"), QStringLiteral("digest"), commit, write)
+        : store.saveAll(commit, write);
+    QVERIFY(!result.ok);
+    QVERIFY(result.error.contains(QStringLiteral("Failed to replace backup")));
+    QCOMPARE(commits, 1);
+    QCOMPARE(writes, 0);
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(failed.at(0).at(0).toString(), qgz);
+    QVERIFY(!QFile::exists(qgz + QStringLiteral(".bak.tmp")));
+    QVERIFY(original.open(QIODevice::ReadOnly));
+    QCOMPARE(original.readAll(), QByteArray("original"));
+    if (journaled)
+    {
+      const auto pending = store.recoverCommitJournal();
+      QCOMPARE(pending.size(), 1);
+      QCOMPARE(pending.first().stage, QStringLiteral("catalog_done"));
+    }
   }
 
   void saveAllGpkgFailureAborts()

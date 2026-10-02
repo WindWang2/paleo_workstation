@@ -3,9 +3,7 @@
 #include "metastore.h"
 
 #include <QDateTime>
-#include <QDir>
 #include <QHash>
-#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -32,34 +30,10 @@ namespace
 
   bool ensureOpen(const QString &path, QString *error)
   {
-    const QString connName = connectionNameFor(path);
-    QSqlDatabase db = QSqlDatabase::contains(connName)
-                          ? QSqlDatabase::database(connName)
-                          : QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connName);
+    QSqlDatabase db = MetaStore::openConnection(path, connectionNameFor(path), error);
     if (!db.isValid())
-    {
-      setError(error, QStringLiteral("QSQLITE driver is not available"));
       return false;
-    }
-    if (!db.isOpen())
-    {
-      const QDir dir = QFileInfo(path).absoluteDir();
-      if (!dir.exists() && !dir.mkpath(QStringLiteral(".")))
-      {
-        setError(error, QStringLiteral("cannot create directory for %1").arg(path));
-        return false;
-      }
-      db.setDatabaseName(path);
-      if (!db.open())
-      {
-        setError(error, db.lastError().text());
-        return false;
-      }
-    }
-    // 共享 schema 门（docs/SCHEMA_MIGRATION.md）：建表之前执行。每次调用
-    // 都查（缓存连接拒开后不得绕过版本门建表——与 layermanifest 同修）。
-    if (!MetaStore::ensureUserVersion(db, error))
-      return false;
+
     QSqlQuery schema(db);
     if (!schema.exec(QStringLiteral(
             "CREATE TABLE IF NOT EXISTS releases("

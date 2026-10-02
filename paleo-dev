@@ -8,13 +8,23 @@ BUILD_DIR=build
 # 依赖来源策略（BUILDING.md「依赖来源策略」）：superbuild 首选 > deb 闭包
 # 加速档 > 系统包兜底。显式 QGIS_PREFIX_PATH 优先，不覆盖；注入后
 # build/test/selfcheck 全部 verb 自动走 vendored prefix，无需手工导出。
+# deb 闭包里 Qt/GDAL 等库落在 multiarch 子目录（usr/lib/x86_64-linux-gnu），
+# 只导出 usr/lib 会让 vendored rcc/moc 回落加载宿主 Qt（#76）。
+paleo_multiarch() {
+  dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || echo "$(uname -m)-linux-gnu"
+}
+paleo_deb_libpath() {
+  local p="$PWD/vendor/prefix/usr/lib"
+  local ma="$p/$(paleo_multiarch)"
+  if [ -d "$ma" ]; then echo "$ma:$p"; else echo "$p"; fi
+}
 if [ -z "${QGIS_PREFIX_PATH:-}" ]; then
   if [ -d vendor/superbuild/prefix/lib ]; then
     export QGIS_PREFIX_PATH="$PWD/vendor/superbuild/prefix"
     export LD_LIBRARY_PATH="$PWD/vendor/superbuild/prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   elif [ -d vendor/prefix/usr ]; then
     export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
-    export LD_LIBRARY_PATH="$PWD/vendor/prefix/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    export LD_LIBRARY_PATH="$(paleo_deb_libpath)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   fi
 fi
 
@@ -36,8 +46,23 @@ case "$verb" in
     cmake --build "$BUILD_DIR" "$@"
     ;;
   test)
-    # prefix 注入已上提到脚本头部（superbuild 首选 / deb 闭包加速档；
-    # 显式 QGIS_PREFIX_PATH 优先）——测试 main() 读 QGIS_PREFIX_PATH（缺省 /usr）。
+    # ET1 消费侧：deb 闭包路（vendor/prefix 存在）自动注入 prefix 与动态库
+    # 路径——测试 main() 读 QGIS_PREFIX_PATH（缺省 /usr），无需手工导出。
+    # 仅在用户显式 bootstrap 过 deb 路时接管；想回系统包 rm -rf vendor/prefix。
+    if [ -d vendor/prefix/usr ]; then
+      export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
+      export LD_LIBRARY_PATH="$(paleo_deb_libpath)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+    # 闭包 GDAL 的格式插件（gdal_PNG/JPEG/...）不在编译期默认搜索路径上：
+    # 不注入则栅格类测试（tst_previewmap_assets 的 world-file 图等）静默
+    # 丢驱动。vendor/prefix 与外部 QGIS_PREFIX_PATH 两种来源都覆盖；用户
+    # 已显式给 GDAL_DRIVER_PATH 时不抢。
+    prefix_lib="${QGIS_PREFIX_PATH:-}"
+    if [ -n "$prefix_lib" ] && [ -z "${GDAL_DRIVER_PATH:-}" ]; then
+      for cand in "$prefix_lib/lib/gdalplugins" "$prefix_lib/lib/x86_64-linux-gnu/gdalplugins"; do
+        if [ -d "$cand" ]; then export GDAL_DRIVER_PATH="$cand"; break; fi
+      done
+    fi
     # ctest 默认并行到核数（T2：每测试有独立 XDG 沙箱，并行安全）；
     # 传 --parallel/-j 或 RERUN 语义时用户参数照传。
     if [ "$#" -eq 0 ]; then

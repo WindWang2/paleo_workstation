@@ -6,8 +6,45 @@
 #include <QSaveFile>
 #include <QJsonObject>
 #include <QtMath>
-#include <functional>
 #include <limits>
+
+namespace
+{
+struct CoordinateBounds
+{
+  double minX = std::numeric_limits<double>::max();
+  double minY = std::numeric_limits<double>::max();
+  double maxX = std::numeric_limits<double>::lowest();
+  double maxY = std::numeric_limits<double>::lowest();
+
+  // GeoJSON positions are [x,y,...]; nested arrays cover lines and rings.
+  void collect(const QJsonValue &value)
+  {
+    if (!value.isArray())
+      return;
+    const QJsonArray array = value.toArray();
+    if (array.size() >= 2 && array.at(0).isDouble() && array.at(1).isDouble())
+    {
+      minX = qMin(minX, array.at(0).toDouble());
+      maxX = qMax(maxX, array.at(0).toDouble());
+      minY = qMin(minY, array.at(1).toDouble());
+      maxY = qMax(maxY, array.at(1).toDouble());
+      return;
+    }
+    for (const QJsonValue &element : array)
+      collect(element);
+  }
+
+  bool empty() const { return minX > maxX || minY > maxY; }
+  void copyTo(double out[4]) const
+  {
+    out[0] = minX;
+    out[1] = minY;
+    out[2] = maxX;
+    out[3] = maxY;
+  }
+};
+} // namespace
 
 void geoAffineApply(const GeoAffineParams &p, double inX, double inY,
                     double *outX, double *outY)
@@ -75,10 +112,7 @@ bool geoAffineTransformFile(const QString &inPath, const QString &outPath,
     return false;
   }
 
-  double minX = std::numeric_limits<double>::max(),
-         minY = std::numeric_limits<double>::max(),
-         maxX = std::numeric_limits<double>::lowest(),
-         maxY = std::numeric_limits<double>::lowest();
+  CoordinateBounds bounds;
   QJsonArray out;
   for (const QJsonValue &fv : features)
   {
@@ -93,23 +127,7 @@ bool geoAffineTransformFile(const QString &inPath, const QString &outPath,
     feat.insert(QStringLiteral("geometry"), geom);
     out.append(feat);
 
-    // bounds：复用变换后数组（position 形状 [x,y,...] 递归收集）。
-    std::function<void(const QJsonValue &)> collect = [&](const QJsonValue &v) {
-      if (!v.isArray())
-        return;
-      const QJsonArray a = v.toArray();
-      if (a.size() >= 2 && a.at(0).isDouble() && a.at(1).isDouble())
-      {
-        minX = qMin(minX, a.at(0).toDouble());
-        maxX = qMax(maxX, a.at(0).toDouble());
-        minY = qMin(minY, a.at(1).toDouble());
-        maxY = qMax(maxY, a.at(1).toDouble());
-        return;
-      }
-      for (const QJsonValue &e : a)
-        collect(e);
-    };
-    collect(tc);
+    bounds.collect(tc);
   }
   root.insert(QStringLiteral("features"), out);
   root.insert(QStringLiteral("paleo_provisional_affine"),
@@ -135,12 +153,7 @@ bool geoAffineTransformFile(const QString &inPath, const QString &outPath,
   if (outFeatures)
     *outFeatures = out.size();
   if (outBounds)
-  {
-    outBounds[0] = minX;
-    outBounds[1] = minY;
-    outBounds[2] = maxX;
-    outBounds[3] = maxY;
-  }
+    bounds.copyTo(outBounds);
   return true;
 }
 
@@ -160,38 +173,17 @@ bool geoJsonBounds(const QString &inPath, double outBounds[4], QString *error)
       *error = QStringLiteral("GeoJSON 解析失败");
     return false;
   }
-  double minX = std::numeric_limits<double>::max(),
-         minY = std::numeric_limits<double>::max(),
-         maxX = std::numeric_limits<double>::lowest(),
-         maxY = std::numeric_limits<double>::lowest();
-  std::function<void(const QJsonValue &)> collect = [&](const QJsonValue &v) {
-    if (!v.isArray())
-      return;
-    const QJsonArray a = v.toArray();
-    if (a.size() >= 2 && a.at(0).isDouble() && a.at(1).isDouble())
-    {
-      minX = qMin(minX, a.at(0).toDouble());
-      maxX = qMax(maxX, a.at(0).toDouble());
-      minY = qMin(minY, a.at(1).toDouble());
-      maxY = qMax(maxY, a.at(1).toDouble());
-      return;
-    }
-    for (const QJsonValue &e : a)
-      collect(e);
-  };
+  CoordinateBounds bounds;
   for (const QJsonValue &f : doc.object().value(QStringLiteral("features")).toArray())
-    collect(f.toObject().value(QStringLiteral("geometry")).toObject()
+    bounds.collect(f.toObject().value(QStringLiteral("geometry")).toObject()
                 .value(QStringLiteral("coordinates")));
-  if (minX > maxX || minY > maxY)
+  if (bounds.empty())
   {
     if (error)
       *error = QStringLiteral("GeoJSON 没有坐标");
     return false;
   }
-  outBounds[0] = minX;
-  outBounds[1] = minY;
-  outBounds[2] = maxX;
-  outBounds[3] = maxY;
+  bounds.copyTo(outBounds);
   return true;
 }
 

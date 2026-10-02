@@ -2,6 +2,7 @@
 #include "datacatalog.h"
 
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -233,6 +234,7 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   m_isOpen = false;
   m_openError.clear();
   m_recoveredFromBackup = false; // 恢复态是「本次 open」的属性，重开重新判
+  m_primaryCorruptOnDisk = false;
   m_backupRecoveryReason.clear();
   // 注意：m_lockedReadOnly 不在此重置——实例级只读降级由拥有者管理（见头注）。
   m_batchDepth = 0;
@@ -360,39 +362,62 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   // 是未来版本信号——.bak 与主文件同代，回退既救不了也不该静默降级数据。
   if (mainParses)
     return fail(QStringLiteral("unsupported catalog schema in %1").arg(catalogPath()));
+  // #79：依次尝试 .bak（最新）→ .bak.2 → … → .bak.9，取第一份可解析且
+  // schema 匹配的一代。只读 .bak 时，「.bak 恰好也坏了」会让仍完好的
+  // 更早一代白白躺在盘上。
   const QString bakPath = catalogPath() + QStringLiteral(".bak");
-  QFile bak(bakPath);
   QString bakDetail;
-  if (bak.exists() && bak.open(QIODevice::ReadOnly))
+  for (int gen = 1; gen <= 9; ++gen)
   {
+    const QString candidate = gen == 1 ? bakPath : bakPath + QStringLiteral(".%1").arg(gen);
+    QFile bak(candidate);
+    if (!bak.exists())
+      continue;
+    if (!bak.open(QIODevice::ReadOnly))
+    {
+      bakDetail += QStringLiteral("%1: cannot open; ").arg(candidate);
+      continue;
+    }
     QJsonParseError bpe;
     const QJsonDocument bakDoc = QJsonDocument::fromJson(bak.readAll(), &bpe);
     bak.close();
-    if (bpe.error == QJsonParseError::NoError && bakDoc.isObject())
+    if (bpe.error != QJsonParseError::NoError || !bakDoc.isObject())
     {
-      const QString rerr = loadFrom(bakDoc.object());
-      if (rerr.isEmpty())
-      {
-        // 恢复成功：open 算成功（读面可用、可续存），损坏事实如实留底并
-        // 广播——UI/状态面向用户告警；下一次 save 会把恢复后的内容轮转成
-        // 新 .bak，主文件重写为好文件。
-        m_recoveredFromBackup = true;
-        m_backupRecoveryReason = QStringLiteral("%1: %2").arg(catalogPath(), pe.errorString());
-        qWarning("catalog: primary %s is corrupt (%s) — recovered from %s",
-                 qPrintable(catalogPath()), qPrintable(pe.errorString()), qPrintable(bakPath));
-        m_isOpen = true;
-        emit backupRecovered(m_backupRecoveryReason);
-        emit changed();
-        return true;
-      }
-      bakDetail = rerr;
+      bakDetail += QStringLiteral("%1: corrupt backup: %2; ").arg(candidate, bpe.errorString());
+      continue;
     }
-    else
+    // 上一代尝试失败可能已部分装载——每代从空表开始。
+    m_entities.clear();
+    m_assets.clear();
+    m_versions.clear();
+    m_links.clear();
+    m_assetSeq = 0;
+    m_versionSeq = 0;
+    m_revision = 0;
+    const QString rerr = loadFrom(bakDoc.object());
+    if (!rerr.isEmpty())
     {
-      bakDetail = QStringLiteral("corrupt backup: ").append(bpe.errorString());
+      bakDetail += QStringLiteral("%1: %2; ").arg(candidate, rerr);
+      continue;
     }
+    // 恢复成功：open 算成功（读面可用、可续存），损坏事实如实留底并
+    // 广播——UI/状态面向用户告警。下一次 save 把损坏的主文件隔离为
+    // .corrupt-<时间戳>（不进 .bak 链，#79），再写入恢复后的内容。
+    m_recoveredFromBackup = true;
+    m_primaryCorruptOnDisk = true;
+    m_backupRecoveryReason = QStringLiteral("%1: %2").arg(catalogPath(), pe.errorString());
+    qWarning("catalog: primary %s is corrupt (%s) — recovered from %s",
+             qPrintable(catalogPath()), qPrintable(pe.errorString()), qPrintable(candidate));
+    m_isOpen = true;
+    emit backupRecovered(m_backupRecoveryReason);
+    emit changed();
+    return true;
   }
-  return fail(QStringLiteral("corrupt catalog %1: %2 (no usable %3: %4)")
+  m_entities.clear();
+  m_assets.clear();
+  m_versions.clear();
+  m_links.clear();
+  return fail(QStringLiteral("corrupt catalog %1: %2 (no usable %3[.2..9]: %4)")
                   .arg(catalogPath(), pe.errorString(), bakPath,
                        bakDetail.isEmpty() ? QStringLiteral("backup missing") : bakDetail));
 }
@@ -455,7 +480,19 @@ bool DataCatalog::save(QString *error)
   // 防写一半，.bak 防「写成功了但内容是错的」需要一个上一代可回退。
   // 轮转保留 backupKeepCount() 代：.bak（最新）→ .bak.2 → … → .bak.N；
   // open() 的腐败回退只读 .bak（最新一代）。
-  if (QFile::exists(catalogPath()))
+  if (m_primaryCorruptOnDisk && QFile::exists(catalogPath()))
+  {
+    // #79：盘上主文件是 open() 时已判定损坏的那份——不能轮转进 .bak 链
+    //（否则把好的 .bak 挤成 .bak.2，下一次损坏时 .bak 就是坏的）。隔离
+    // 留证据（best-effort），.bak 链保持原样，下面直接写恢复后的内容。
+    const QString quarantine =
+        catalogPath() + QStringLiteral(".corrupt-") +
+        QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddTHHmmsszzzZ"));
+    if (!QFile::copy(catalogPath(), quarantine))
+      qWarning("catalog: cannot quarantine corrupt primary %s to %s",
+               qPrintable(catalogPath()), qPrintable(quarantine));
+  }
+  else if (QFile::exists(catalogPath()))
   {
     // 代命名：gen1 = catalog.json.bak（最新），gen g>=2 = catalog.json.bak.g。
     // keep=K：删除第 K 代 → 2..K-1 依次后移 → .bak 升为 .bak.2 → 现行内容成新 .bak。
@@ -479,6 +516,10 @@ bool DataCatalog::save(QString *error)
     }
     const QString bakTmp = bak + QStringLiteral(".tmp");
     QFile::remove(bakTmp);
+    // WP2 评估记录：这里试过硬链接（O(1) 备份）后否决——.bak 与主文件共享
+    // inode 时，主文件被原地写坏（直写回退/外部工具/位腐）会同步毁掉 .bak，
+    // 违背「上一代可回退」契约（tst 的腐败恢复演练正是原地截断主文件）。
+    // 保持整文件拷贝：磁盘带宽换恢复语义。
     if (!QFile::copy(catalogPath(), bakTmp))
     {
       setError(error, QStringLiteral("cannot copy %1 to backup tmp %2").arg(catalogPath(), bakTmp));
@@ -506,6 +547,7 @@ bool DataCatalog::save(QString *error)
     return false;
   }
   m_revision = nextRevision;
+  m_primaryCorruptOnDisk = false; // 主文件已是好内容——之后恢复正常轮转
   emit changed();
   return true;
 }
@@ -644,9 +686,12 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
     if (ok && n > 0)
       m_versionSeq = qMax(m_versionSeq, n);
   }
-  // 快照：staleness 标记与版本追加在同一原子写里同进同退——save 失败
-  // 不留「版本回滚了但 stale 标记还在」的半截内存态（与 addLink 同一纪律）。
-  const QVector<CatalogVersion> previousVersions = m_versions;
+  // WP2（catalog 写路径线性化）：不再全表快照 previousVersions——那会让
+  // 每次 append 触发 QVector COW detach 的 O(N) 深拷贝（N 次导入即 O(N²)，
+  // 100k 夹具实测 ~950s 的大头）。改精确 undo：新增行 removeLast 回退，
+  // staleness 标记经 markStaleDownstreamOf 的 undo 栈逆序还原——save 失败
+  // 仍是「版本与 stale 标记同进同退」的同一纪律，只是回退成本从 O(N)/次
+  // 降到 O(undo)/次（undo 大小 = 下游闭包命中数，通常个位数）。
   m_versions.append(v);
   m_idx.versionAdded(m_versions.size() - 1, v); // D5.2
   // B 包 staleness-lite：新版本入库 = 同资产 versionNumber 更低的旧版本被
@@ -656,12 +701,16 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
   for (int r : m_idx.versionRowsForAsset(v.assetId)) // D5.1 O(命中集) 非全表
     if (m_versions.at(r).versionNumber < v.versionNumber)
       superseded.append(m_versions.at(r).id);
+  QVector<QPair<int, CatalogVersion>> staleUndo;
   for (const QString &pid : superseded)
     markStaleDownstreamOf(
-        pid, QStringLiteral("上游版本 %1 已被同资产新版本 %2 取代").arg(pid, v.id));
+        pid, QStringLiteral("上游版本 %1 已被同资产新版本 %2 取代").arg(pid, v.id),
+        &staleUndo);
   if (save(error))
     return true;
-  m_versions = previousVersions;
+  for (int i = staleUndo.size() - 1; i >= 0; --i) // 逆序：同行的最早原值最后落
+    m_versions[staleUndo[i].first] = staleUndo[i].second;
+  m_versions.removeLast();
   m_idx.versionsMutated(m_versions);
   return false;
 }
@@ -681,26 +730,33 @@ bool DataCatalog::addLink(const EntityAssetLink &l, QString *error)
     setError(error, QStringLiteral("resolved link needs an entity id"));
     return false;
   }
-  const QVector<EntityAssetLink> previousLinks = m_links;
+  // WP2：同 addVersion——全表快照换精确 undo（O(命中集)），失败回退路径
+  // 语义不变：新链接摘除、被降级主关联复原。
   // 词表诊断先落 note（诚实降级——不拒收，见 invalidRoleLinks()）。
   EntityAssetLink stored = l;
   annotateRoleDiagnostics(stored, m_roles);
   m_links.append(stored);
   // §3：新的已决主关联入库后，同一 (entityType, entityId, role) 只保留这一条
   // 主关联——同角色旧主关联（例如同井同角色的旧版本资产）降级为非主。
+  QVector<int> demotedRows;
   if (stored.isPrimary && !stored.unresolved)
     for (int i : m_idx.linkRowsForEntity(stored.entityId)) // D5.1 O(命中集)
       if (i != m_links.size() - 1 && m_links[i].isPrimary && !m_links[i].unresolved &&
           m_links[i].entityType == stored.entityType &&
           m_links[i].entityId == stored.entityId &&
           m_links[i].role == stored.role)
+      {
+        demotedRows.append(i);
         m_links[i].isPrimary = false;
+      }
   if (save(error))
   {
     m_idx.linkAdded(m_links.size() - 1, m_links.last()); // D5.2：纯追加——旧主关联
     return true;                                          // 只降标志，邻接键不变
   }
-  m_links = previousLinks;
+  for (int i : demotedRows)
+    m_links[i].isPrimary = true;
+  m_links.removeLast();
   m_idx.linksMutated(m_links);
   return false;
 }
@@ -714,7 +770,8 @@ bool DataCatalog::attachLink(int index, const QString &entityId, QString *error)
     setError(error, QStringLiteral("link index out of range: %1").arg(index));
     return false;
   }
-  const QVector<EntityAssetLink> previousLinks = m_links;
+  // WP2：单行变更 + 命中集降级——快照换单行拷贝 + 降级行复原（O(命中集)）。
+  const EntityAssetLink previousLink = m_links.at(index);
   EntityAssetLink &l = m_links[index];
   if (!l.unresolved)
   {
@@ -736,17 +793,23 @@ bool DataCatalog::attachLink(int index, const QString &entityId, QString *error)
   // 与 addLink 同一不变量：同一 (entityType, entityId, role) 只留这一条主关联。
   // 注意：未决链接也可能带 entityId（上游约定——entity 邻接先于决议建立），
   // 行集可能包含 index 自身，须显式排除。
+  QVector<int> demotedRows;
   for (int i : m_idx.linkRowsForEntity(entityId)) // D5.1 O(命中集)
     if (i != index && m_links[i].isPrimary && !m_links[i].unresolved &&
         m_links[i].entityType == l.entityType && m_links[i].entityId == entityId &&
         m_links[i].role == l.role)
+    {
+      demotedRows.append(i);
       m_links[i].isPrimary = false;
+    }
   if (save(error))
   {
     m_idx.linksMutated(m_links); // entityId 获值——entity 邻接变化
     return true;
   }
-  m_links = previousLinks;
+  m_links[index] = previousLink;
+  for (int i : demotedRows)
+    m_links[i].isPrimary = true;
   m_idx.linksMutated(m_links);
   return false;
 }
@@ -760,7 +823,8 @@ bool DataCatalog::setLinkUnresolved(int index, QString *error)
     setError(error, QStringLiteral("link index out of range: %1").arg(index));
     return false;
   }
-  const QVector<EntityAssetLink> previousLinks = m_links;
+  // WP2：单行变更——快照换单行拷贝复原。
+  const EntityAssetLink previousLink = m_links.at(index);
   EntityAssetLink &l = m_links[index];
   if (l.unresolved)
   {
@@ -777,7 +841,7 @@ bool DataCatalog::setLinkUnresolved(int index, QString *error)
     m_idx.linksMutated(m_links); // entityId 被清空——entity 邻接变化
     return true;
   }
-  m_links = previousLinks;
+  m_links[index] = previousLink;
   m_idx.linksMutated(m_links);
   return false;
 }
@@ -791,7 +855,8 @@ bool DataCatalog::setLinkPrimary(int index, QString *error)
     setError(error, QStringLiteral("link index out of range: %1").arg(index));
     return false;
   }
-  const QVector<EntityAssetLink> previousLinks = m_links;
+  // WP2：单行标志变更 + 命中集降级——快照换单行拷贝 + 降级行复原。
+  const EntityAssetLink previousLink = m_links.at(index);
   EntityAssetLink &l = m_links[index];
   if (l.unresolved || l.entityId.isEmpty())
   {
@@ -802,17 +867,23 @@ bool DataCatalog::setLinkPrimary(int index, QString *error)
   // 与 addLink/attachLink 同一不变量：同一 (entityType, entityId, role) 只留
   // 这一条主关联——同井同角色的旧版本资产降级为非主，不复制字节。
   // 行集是提升前的快照——index 行本就在 entity 行集里，须显式排除。
+  QVector<int> demotedRows;
   for (int i : m_idx.linkRowsForEntity(l.entityId)) // D5.1 O(命中集)
     if (i != index && m_links[i].isPrimary && !m_links[i].unresolved &&
         m_links[i].entityType == l.entityType && m_links[i].entityId == l.entityId &&
         m_links[i].role == l.role)
+    {
+      demotedRows.append(i);
       m_links[i].isPrimary = false;
+    }
   if (save(error))
   {
     // 同上：纯标志位变化——零重索引。
     return true;
   }
-  m_links = previousLinks;
+  m_links[index] = previousLink;
+  for (int i : demotedRows)
+    m_links[i].isPrimary = true;
   m_idx.linksMutated(m_links);
   return false;
 }
@@ -834,14 +905,18 @@ CatalogVersion DataCatalog::versionBySha256(const QString &sha256) const
 {
   if (sha256.isEmpty())
     return CatalogVersion();
-  for (const CatalogVersion &v : m_versions)
-    if (v.sha256.compare(sha256, Qt::CaseInsensitive) == 0)
-    {
-      const QString path = resolvedVersionPath(m_dir, v);
-      if (path.isEmpty() || !QFileInfo(path).isFile()) continue;
-      if (sha256FileHex(path).compare(sha256, Qt::CaseInsensitive) == 0)
-        return v;
-    }
+  // WP2：sha 命中行集走索引（旧实现线性全表扫——导入 dedup 每行调一次，
+  // N 文件导入即 O(N²)）。行集升序＝表序——「第一个匹配」语义逐字节不变；
+  // 命中后照旧复核文件在且字节一致（死路径旧记录不冒充命中）。
+  const QVector<int> rows = m_idx.versionRowsForSha(sha256.toLower());
+  for (int r : rows)
+  {
+    const CatalogVersion &v = m_versions.at(r);
+    const QString path = resolvedVersionPath(m_dir, v);
+    if (path.isEmpty() || !QFileInfo(path).isFile()) continue;
+    if (sha256FileHex(path).compare(sha256, Qt::CaseInsensitive) == 0)
+      return v;
+  }
   return CatalogVersion();
 }
 
@@ -1072,13 +1147,10 @@ QVector<CatalogVersion> DataCatalog::downstreamClosure(const QString &versionId)
   return out;
 }
 
-int DataCatalog::markStaleDownstreamOf(const QString &versionId, const QString &reason)
+int DataCatalog::markStaleDownstreamOf(const QString &versionId, const QString &reason,
+                                       QVector<QPair<int, CatalogVersion>> *undo)
 {
   const QVector<CatalogVersion> downstream = downstreamClosure(versionId);
-  QHash<QString, int> indexOf;
-  indexOf.reserve(m_versions.size());
-  for (int i = 0; i < m_versions.size(); ++i)
-    indexOf.insert(m_versions[i].id, i);
   int changed = 0;
   for (const CatalogVersion &d : downstream)
   {
@@ -1086,13 +1158,17 @@ int DataCatalog::markStaleDownstreamOf(const QString &versionId, const QString &
     // 参与溯源穿透（DERIVED 的祖先可以是任意阶段），但自身不记 stale。
     if (d.stage != QLatin1String("DERIVED"))
       continue;
-    const int i = indexOf.value(d.id, -1);
+    // WP2：行号走邻接索引 O(1)——旧实现每次全表建 id→row QHash，是
+    // addVersion 路径隐藏的 O(N)/调用（N 次导入即 O(N²)）。
+    const int i = m_idx.versionRow(d.id);
     if (i < 0)
       continue; // 闭包快照自洽——防御性跳过
     CatalogVersion &m = m_versions[i];
     if (m.extra.value(QStringLiteral("stale")).toBool() &&
         m.extra.value(QStringLiteral("staleReason")).toString() == reason)
       continue; // 同一标记已在——不算变更（幂等，不空涨 revision）
+    if (undo)
+      undo->append({i, m});
     m.extra.insert(QStringLiteral("stale"), true);
     m.extra.insert(QStringLiteral("staleReason"), reason);
     ++changed;
@@ -1118,12 +1194,14 @@ bool DataCatalog::markDownstreamStale(const QString &versionId, const QString &r
   }
   const QString why =
       reason.isEmpty() ? QStringLiteral("上游版本源已失效") : reason;
-  const QVector<CatalogVersion> previousVersions = m_versions;
-  if (markStaleDownstreamOf(versionId, why) == 0)
+  // WP2：全表快照换 undo 栈（O(命中行)）——落盘失败逆序还原，纪律不变。
+  QVector<QPair<int, CatalogVersion>> undo;
+  if (markStaleDownstreamOf(versionId, why, &undo) == 0)
     return true; // 无下游或标记未变——不落盘、不空涨 revision
   if (save(error))
     return true;
-  m_versions = previousVersions; // 与 addLink 同一纪律：落盘失败回滚内存
+  for (int i = undo.size() - 1; i >= 0; --i)
+    m_versions[undo[i].first] = undo[i].second; // 落盘失败回滚内存
   return false;
 }
 
@@ -1184,16 +1262,9 @@ QString DataCatalog::nextVersionId()
 
 QString DataCatalog::nextEntityId(const QString &prefix)
 {
-  int max = 0;
-  for (const CatalogEntity &e : m_entities)
-  {
-    if (!e.id.startsWith(prefix + QLatin1Char('-')))
-      continue;
-    bool ok = false;
-    const int n = e.id.mid(prefix.size() + 1).toInt(&ok);
-    if (ok)
-      max = qMax(max, n);
-  }
+  // WP2：前缀最大序号走索引（旧实现线性扫全实体表——导入井/辅助实体逐个
+  // 调用即 O(N²)）。语义等价：只认「prefix 后跟 '-' 且余段纯数字」的既有 id。
+  const int max = m_idx.maxEntitySeqForPrefix(prefix);
   return QStringLiteral("%1-%2").arg(prefix).arg(max + 1);
 }
 

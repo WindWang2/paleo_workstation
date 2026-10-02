@@ -1,4 +1,5 @@
 // 层：视图
+#include "../paleotheme.h"
 #include "hiddentrackbar.h"
 
 #include <QHBoxLayout>
@@ -16,12 +17,17 @@ HiddenTrackBar::HiddenTrackBar(QWidget *parent)
   lay->setContentsMargins(8, 2, 8, 2);
   lay->setSpacing(4);
   // rebuild() 动态填充；样式遵循 DESIGN.md chip（胶囊、surface 底、text-muted）
-  setStyleSheet(QStringLiteral(
-      "HiddenTrackBar { background: #EDF1F5; border-top: 1px solid #DFE5EC; }"
-      "QToolButton { background: #FFFFFF; border: 1px solid #DFE5EC; border-radius: 9px;"
-      " padding: 1px 10px; color: #5D6E80; font-size: 8pt; }"
-      "QToolButton:hover { border-color: #1B73D0; color: #1B73D0; }"
-      "QLabel { color: #5D6E80; font-size: 8pt; }"));
+  PaleoTheme::applyThemedStyleSheet(this, [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+        "HiddenTrackBar { background: %1; border-top: 1px solid %2; }"
+        "QToolButton { background: %3; border: 1px solid %2; border-radius: 9px;"
+        " padding: 1px 10px; color: %4; font-size: 8pt; }"
+        "QToolButton:hover { border-color: %5; color: %6; }"
+        "QLabel { color: %4; font-size: 8pt; }")
+        .arg(t.surfaceAlt.name(), t.border.name(), t.surface.name(),
+             t.textMuted.name(), t.primary.name(), t.primaryText.name());
+  });
   hide();
 }
 

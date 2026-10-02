@@ -75,6 +75,16 @@ void PaleoProjectStore::setProjectPaths( const QString &qgzPath, const QString &
   m_metaPath = metaSqlitePath;
 }
 
+namespace
+{
+  thread_local bool s_inEnqueueWrite = false;
+}
+
+bool PaleoProjectStore::isWriteQueueActive()
+{
+  return s_inEnqueueWrite;
+}
+
 PaleoProjectStore::WriteResult PaleoProjectStore::enqueueWrite( const std::function<WriteResult()> &fn )
 {
   if ( m_readOnly )
@@ -82,7 +92,26 @@ PaleoProjectStore::WriteResult PaleoProjectStore::enqueueWrite( const std::funct
   WriteResult result;
   {
     QMutexLocker locker( &m_writeMutex );
-    result = fn();
+    struct ScopeGuard
+    {
+      ScopeGuard() { s_inEnqueueWrite = true; }
+      ~ScopeGuard() { s_inEnqueueWrite = false; }
+    } guard;
+    // 写任务内的异常（provider/GDAL 抛出）转成失败结果——异常裸穿会让
+    // 调用方的收尾（如 commitEdit 的 busy 标记释放）被跳过，且 writeFailed
+    // 信号丢失。单写者语义下失败也是一次完整的「写完成尝试」。
+    try
+    {
+      result = fn();
+    }
+    catch ( const std::exception &e )
+    {
+      result = { false, tr( "写入任务异常终止：%1" ).arg( QString::fromUtf8( e.what() ) ) };
+    }
+    catch ( ... )
+    {
+      result = { false, tr( "写入任务异常终止（未知异常）" ) };
+    }
   }
 
   // Target is unknown to the store for a free-form write — empty string.
@@ -104,10 +133,28 @@ PaleoProjectStore::WriteResult PaleoProjectStore::saveAll( const std::function<W
 
   {
     QMutexLocker locker( &m_writeMutex );
+    struct ScopeGuard
+    {
+      ScopeGuard() { s_inEnqueueWrite = true; }
+      ~ScopeGuard() { s_inEnqueueWrite = false; }
+    } guard;
 
     // 1. gpkg commit — the authoritative data state. Failure aborts the whole
-    //    sequence before any .qgz mutation happens.
-    result = gpkgCommit();
+    //    sequence before any .qgz mutation happens. Exceptions are converted
+    //    to a failure result for the same reason as enqueueWrite: the
+    //    abort-before-qgz ordering must survive a throwing commit lambda.
+    try
+    {
+      result = gpkgCommit();
+    }
+    catch ( const std::exception &e )
+    {
+      result = { false, tr( "数据提交异常终止：%1" ).arg( QString::fromUtf8( e.what() ) ) };
+    }
+    catch ( ... )
+    {
+      result = { false, tr( "数据提交异常终止（未知异常）" ) };
+    }
     if ( result.ok )
       pending.append( { false, m_gpkgPath, QString() } );
     else
@@ -117,22 +164,12 @@ PaleoProjectStore::WriteResult PaleoProjectStore::saveAll( const std::function<W
     {
       // 2. .qgz backup — .qgz is equally protected (a truncated zip is a
       //    corrupt project file). First save has nothing to back up.
-      if ( !m_qgzPath.isEmpty() && QFile::exists( m_qgzPath ) )
+      if ( const WriteResult backup = backupQgz(); !backup.ok )
       {
-        const QString bakPath = m_qgzPath + QStringLiteral( ".bak" );
-        const QString bakTmp = bakPath + QStringLiteral( ".tmp" );
-        QFile::remove( bakTmp );
-        if ( !QFile::copy( m_qgzPath, bakTmp ) )
-        {
-          result = { false, tr( "Failed to back up %1 to %2" ).arg( m_qgzPath, bakPath ) };
-          pending.append( { true, m_qgzPath, result.error } );
-        }
-        else if ( !paleoReplaceFile( bakTmp, bakPath ) )
-        {
-          QFile::remove( bakTmp );
-          result = { false, tr( "Failed to replace backup %1" ).arg( bakPath ) };
-          pending.append( { true, m_qgzPath, result.error } );
-        }
+        // no-op（无 .qgz 可备份）时不覆写 result——保留上游 ok 态与文案
+        // （与收口前的两份内联块语义逐字一致）。
+        result = backup;
+        pending.append( { true, m_qgzPath, result.error } );
       }
 
       // 3. .qgz atomic write (temp+rename is the callback's responsibility —
@@ -141,7 +178,18 @@ PaleoProjectStore::WriteResult PaleoProjectStore::saveAll( const std::function<W
       //    is regenerable.
       if ( result.ok )
       {
-        result = writeQgz();
+        try
+        {
+          result = writeQgz();
+        }
+        catch ( const std::exception &e )
+        {
+          result = { false, tr( "工程文件写入异常终止：%1" ).arg( QString::fromUtf8( e.what() ) ) };
+        }
+        catch ( ... )
+        {
+          result = { false, tr( "工程文件写入异常终止（未知异常）" ) };
+        }
         if ( result.ok )
           pending.append( { false, m_qgzPath, QString() } );
         else
@@ -387,22 +435,12 @@ PaleoProjectStore::WriteResult PaleoProjectStore::commitAll(
     // 单元 2：.qgz 备份 + 原子写（备份语义与 saveAll 一致）。
     if ( result.ok && rank < 2 )
     {
-      if ( !m_qgzPath.isEmpty() && QFile::exists( m_qgzPath ) )
+      if ( const WriteResult backup = backupQgz(); !backup.ok )
       {
-        const QString bakPath = m_qgzPath + QStringLiteral( ".bak" );
-        const QString bakTmp = bakPath + QStringLiteral( ".tmp" );
-        QFile::remove( bakTmp );
-        if ( !QFile::copy( m_qgzPath, bakTmp ) )
-        {
-          result = { false, tr( "Failed to back up %1 to %2" ).arg( m_qgzPath, bakPath ) };
-          pending.append( { true, m_qgzPath, result.error } );
-        }
-        else if ( !paleoReplaceFile( bakTmp, bakPath ) )
-        {
-          QFile::remove( bakTmp );
-          result = { false, tr( "Failed to replace backup %1" ).arg( bakPath ) };
-          pending.append( { true, m_qgzPath, result.error } );
-        }
+        // no-op（无 .qgz 可备份）时不覆写 result——保留上游 ok 态与文案
+        // （与收口前的两份内联块语义逐字一致）。
+        result = backup;
+        pending.append( { true, m_qgzPath, result.error } );
       }
 
       if ( result.ok )
@@ -476,4 +514,21 @@ QVector<PaleoProjectStore::BusyEntry> PaleoProjectStore::busyLayers() const
   for ( auto it = m_busy.constBegin(); it != m_busy.constEnd(); ++it )
     out.append( { it.key(), it->first, it->second } );
   return out;
+}
+
+PaleoProjectStore::WriteResult PaleoProjectStore::backupQgz() const
+{
+  if ( m_qgzPath.isEmpty() || !QFile::exists( m_qgzPath ) )
+    return { true, QString() };
+  const QString bakPath = m_qgzPath + QStringLiteral( ".bak" );
+  const QString bakTmp = bakPath + QStringLiteral( ".tmp" );
+  QFile::remove( bakTmp );
+  if ( !QFile::copy( m_qgzPath, bakTmp ) )
+    return { false, tr( "Failed to back up %1 to %2" ).arg( m_qgzPath, bakPath ) };
+  if ( !paleoReplaceFile( bakTmp, bakPath ) )
+  {
+    QFile::remove( bakTmp );
+    return { false, tr( "Failed to replace backup %1" ).arg( bakPath ) };
+  }
+  return { true, QString() };
 }

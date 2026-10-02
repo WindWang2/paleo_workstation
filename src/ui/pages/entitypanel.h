@@ -1,12 +1,15 @@
 // 层：视图
 #pragma once
 
+#include <QHash>
 #include <QString>
 #include <QStringList>
 #include <QWidget>
+#include <functional>
 
 #include "dataops/dataopscommands.h"
 #include "dataops/dataopsmodel.h"
+#include "../../services/previewdoc.h" // F3：GeoJsonSummary（异步统计挂起）
 
 class PreviewDocService;
 namespace paleo::dataops
@@ -55,11 +58,20 @@ class EntityPanel : public QWidget
   private:
     void buildD4Ui();          // CRUD 条/版本时间线/拓扑/统计段装配
     void refreshMultiSummary(); // D4.9 批量概要
+    // F3（goal/perf-systematize 簇2）：GeoJSON 统计单次请求——缓存命中直装；
+    // 无任务服务同步执行（测试：selectAsset 后立即断言，不经事件循环）。
+    // 返回 true = apply 已同步执行完（调用方跳过占位覆盖）；false = 异步
+    // 在途（到达时世代号防陈旧，装缓存后回调）。
+    bool requestGeoJsonSummary(
+        const QString &absPath,
+        const std::function<void(const PreviewDocService::GeoJsonSummary &)> &apply);
     PreviewDocService *m_doc = nullptr;
     QString m_entityId;
     QString m_assetId;
     QStringList m_multiEntityIds;  // D4.9
     QStringList m_multiAssetIds;   // D4.9
+    int m_geoSeq = 0;              // F3：统计世代号（新选择作废在途）
+    QHash<QString, PreviewDocService::GeoJsonSummary> m_geoSummaryCache; // 路径→统计
     paleo::dataops::DataOpsContext m_ctx;
     paleo::dataops::DataOpsUndoStack *m_stack = nullptr;
     paleo::dataops::OperationsHistory *m_history = nullptr;

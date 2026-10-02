@@ -28,6 +28,10 @@ class WebViewPanel : public QWidget
     // 开始加载 url。返回 true 表示引擎已建并开始加载（结果经 loadFinished
     // 信号）；false = 引擎不可用，已进入降级面，原因见 lastError()。
     bool setUrl(const QUrl &url);
+    // #82：内嵌与「用系统浏览器打开」共用的 scheme 白名单——只放行带主机名的
+    // http/https。file:// / smb:// / ftp:// / 自定义协议一律拒绝（不交给
+    // QWebEngineView，也不交给 QDesktopServices::openUrl 的系统协议处理器）。
+    static bool isAllowedUrl(const QUrl &url);
     QUrl url() const { return m_url; }
     bool engineAvailable() const { return m_engine != nullptr; }
     QString lastError() const { return m_lastError; }

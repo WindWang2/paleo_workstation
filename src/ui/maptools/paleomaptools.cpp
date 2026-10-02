@@ -1,46 +1,23 @@
 // 层：视图
 #include "paleomaptools.h"
+#include "capturehelpers.h"
 
 #include <algorithm>
 #include <memory>
 
 #include <QKeyEvent>
 
-#include <qgsadvanceddigitizingdockwidget.h>
 #include <qgscompoundcurve.h>
-#include <qgscoordinatereferencesystem.h>
-#include <qgscoordinatetransform.h>
 #include <qgscurve.h>
 #include <qgscurvepolygon.h>
-#include <qgsexception.h>
 #include <qgsgeometry.h>
 #include <qgslinestring.h>
 #include <qgsmapcanvas.h>
 #include <qgsmapmouseevent.h>
 #include <qgspolygon.h>
-#include <qgsproject.h>
-#include <qgsvectorlayer.h>
-
-namespace
-{
-QgsCoordinateTransformContext layerTransformContext(const QgsMapLayer *layer)
-{
-  if (layer && layer->project())
-    return layer->project()->transformContext();
-  return QgsProject::instance()->transformContext();
-}
-
-// QgsMapToolAdvancedDigitizing's ctor Q_ASSERTs a non-null dock and
-// activate()/canvasReleaseEvent() dereference it unconditionally — fabricate a
-// canvas-owned dock when the embedder does not inject a shared one.
-QgsAdvancedDigitizingDockWidget *resolveCadDock( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *given )
-{
-  return given ? given : new QgsAdvancedDigitizingDockWidget( canvas, canvas );
-}
-} // namespace
 
 PaleoDrawConstraintTool::PaleoDrawConstraintTool( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cadDock )
-  : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), CaptureLine )
+  : QgsMapToolCapture( canvas, CaptureHelpers::resolveCadDock( canvas, cadDock ), CaptureLine )
 {
   setToolName( tr( "绘制约束线" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
@@ -89,22 +66,10 @@ void PaleoDrawConstraintTool::lineCaptured( const QgsCurve *line )
   // captureCurve() stores coordinates in the current vector layer's CRS when
   // one is set; the signal contract is canvas CRS, so reproject if they differ.
   std::unique_ptr<QgsCurve> canvasCurve( line->clone() );
-  if ( QgsVectorLayer *vlayer = currentVectorLayer() )
+  if ( !CaptureHelpers::transformToCanvas( *canvasCurve, currentVectorLayer(), mCanvas ) )
   {
-    const QgsCoordinateReferenceSystem layerCrs = vlayer->crs();
-    const QgsCoordinateReferenceSystem canvasCrs = mCanvas->mapSettings().destinationCrs();
-    if ( layerCrs.isValid() && canvasCrs.isValid() && layerCrs != canvasCrs )
-    {
-      try
-      {
-        canvasCurve->transform( QgsCoordinateTransform( layerCrs, canvasCrs, layerTransformContext(vlayer) ) );
-      }
-      catch ( QgsCsException & )
-      {
-        emit messageEmitted( tr( "无法将约束线转换到地图坐标" ), Qgis::MessageLevel::Warning );
-        return;
-      }
-    }
+    emit messageEmitted( tr( "无法将约束线转换到地图坐标" ), Qgis::MessageLevel::Warning );
+    return;
   }
 
   // Straight-segment captures arrive wrapped in a one-segment QgsCompoundCurve;
@@ -135,7 +100,7 @@ void PaleoDrawConstraintTool::cadLineCaptureFinished()
 // ---------------------------------------------------------------------------
 
 PaleoDrawPolygonTool::PaleoDrawPolygonTool( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cadDock )
-  : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), CapturePolygon )
+  : QgsMapToolCapture( canvas, CaptureHelpers::resolveCadDock( canvas, cadDock ), CapturePolygon )
 {
   setToolName( tr( "绘制多边形约束" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
@@ -184,22 +149,10 @@ void PaleoDrawPolygonTool::polygonCaptured( const QgsCurvePolygon *polygon )
   // captureCurve() stores coordinates in the current vector layer's CRS when
   // one is set; the signal contract is canvas CRS, so reproject if they differ.
   std::unique_ptr<QgsCurvePolygon> canvasPolygon( polygon->clone() );
-  if ( QgsVectorLayer *vlayer = currentVectorLayer() )
+  if ( !CaptureHelpers::transformToCanvas( *canvasPolygon, currentVectorLayer(), mCanvas ) )
   {
-    const QgsCoordinateReferenceSystem layerCrs = vlayer->crs();
-    const QgsCoordinateReferenceSystem canvasCrs = mCanvas->mapSettings().destinationCrs();
-    if ( layerCrs.isValid() && canvasCrs.isValid() && layerCrs != canvasCrs )
-    {
-      try
-      {
-        canvasPolygon->transform( QgsCoordinateTransform( layerCrs, canvasCrs, layerTransformContext(vlayer) ) );
-      }
-      catch ( QgsCsException & )
-      {
-        emit messageEmitted( tr( "无法将约束多边形转换到地图坐标" ), Qgis::MessageLevel::Warning );
-        return;
-      }
-    }
+    emit messageEmitted( tr( "无法将约束多边形转换到地图坐标" ), Qgis::MessageLevel::Warning );
+    return;
   }
 
   const QgsCurve *ring = canvasPolygon->exteriorRing();
@@ -231,7 +184,7 @@ void PaleoDrawPolygonTool::cadPolygonCaptureFinished()
 // ---------------------------------------------------------------------------
 
 PaleoDrawRectTool::PaleoDrawRectTool( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cadDock )
-  : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), CapturePolygon )
+  : QgsMapToolCapture( canvas, CaptureHelpers::resolveCadDock( canvas, cadDock ), CapturePolygon )
 {
   setToolName( tr( "绘制矩形约束" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
@@ -296,22 +249,10 @@ void PaleoDrawRectTool::emitRectangle( const QgsPointXY *eventCorner )
   // captureCurve() stores coordinates in the current vector layer's CRS when
   // one is set; the signal contract is canvas CRS, so reproject if they differ.
   std::unique_ptr<QgsCurve> canvasCurve( curve->clone() );
-  if ( QgsVectorLayer *vlayer = currentVectorLayer() )
+  if ( !CaptureHelpers::transformToCanvas( *canvasCurve, currentVectorLayer(), mCanvas ) )
   {
-    const QgsCoordinateReferenceSystem layerCrs = vlayer->crs();
-    const QgsCoordinateReferenceSystem canvasCrs = mCanvas->mapSettings().destinationCrs();
-    if ( layerCrs.isValid() && canvasCrs.isValid() && layerCrs != canvasCrs )
-    {
-      try
-      {
-        canvasCurve->transform( QgsCoordinateTransform( layerCrs, canvasCrs, layerTransformContext(vlayer) ) );
-      }
-      catch ( QgsCsException & )
-      {
-        emit messageEmitted( tr( "无法将约束矩形转换到地图坐标" ), Qgis::MessageLevel::Warning );
-        return;
-      }
-    }
+    emit messageEmitted( tr( "无法将约束矩形转换到地图坐标" ), Qgis::MessageLevel::Warning );
+    return;
   }
 
   QgsPointSequence vertices;

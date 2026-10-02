@@ -130,6 +130,49 @@ void bandNodata( GDALRasterBandH band, bool &hasNodata, double &nodata )
 } // namespace
 
 // ---------------------------------------------------------------------------
+// PaleoAlgoGuards — CELL_SIZE × extent 的公共网格守卫（三引擎同口径）
+// ---------------------------------------------------------------------------
+
+namespace PaleoAlgoGuards
+{
+
+GridDims gridDimsForExtent( const QgsRectangle &extent, double cellSize )
+{
+  // 同 horizonbinner 的上限：1 亿像元（≈400MB float 带 + 守卫路径整网格
+  // 标注数组）。维度各自另守 INT_MAX，防 double→int 截断 UB。
+  constexpr double kMaxDim = 2147483647.0;
+  constexpr qint64 kMaxCellCount = 100'000'000;
+  const double colsD = std::ceil( extent.width() / cellSize );
+  const double rowsD = std::ceil( extent.height() / cellSize );
+  if ( !( colsD >= 1.0 ) || !( rowsD >= 1.0 ) || colsD > kMaxDim || rowsD > kMaxDim )
+    throw QgsProcessingException( QStringLiteral(
+        "CELL_SIZE (%1) is inconsistent with the input extent (%2 x %3)" )
+        .arg( cellSize )
+        .arg( extent.width() )
+        .arg( extent.height() ) );
+  const qint64 cells = static_cast<qint64>( colsD ) * static_cast<qint64>( rowsD );
+  if ( cells > kMaxCellCount )
+    throw QgsProcessingException( QStringLiteral(
+        "Requested output grid %1x%2 (%3 cells) exceeds the %4-cell budget — "
+        "increase CELL_SIZE or reduce the input extent" )
+        .arg( static_cast<qint64>( colsD ) )
+        .arg( static_cast<qint64>( rowsD ) )
+        .arg( cells )
+        .arg( kMaxCellCount ) );
+  return { static_cast<int>( colsD ), static_cast<int>( rowsD ) };
+}
+
+QString geographicCrsWarning( const QString &crsIdentifier )
+{
+  return QStringLiteral(
+      "Input CRS '%1' is geographic: CELL_SIZE and output distances are in "
+      "degrees, not meters. Reproject the input layer to a projected CRS for "
+      "metric distances." ).arg( crsIdentifier );
+}
+
+} // namespace PaleoAlgoGuards
+
+// ---------------------------------------------------------------------------
 // ConstraintIDWAlgorithm
 // ---------------------------------------------------------------------------
 
@@ -199,6 +242,9 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   const double cellSize = parameterAsDouble( parameters, QStringLiteral( "CELL_SIZE" ), context );
   if ( cellSize <= 0.0 || !std::isfinite( cellSize ) )
     throw QgsProcessingException( QStringLiteral( "CELL_SIZE must be > 0" ) );
+  if ( source->sourceCrs().isGeographic() && feedback )
+    feedback->pushWarning( PaleoAlgoGuards::geographicCrsWarning(
+        source->sourceCrs().userFriendlyIdentifier() ) );
   // ANISO_RATIO only takes effect when direction_line constraints exist; values
   // below 1.0 are clamped to 1.0 (isotropic) — a sub-unit ratio is the same
   // field with the direction rotated by 90°, which direction_line already
@@ -206,6 +252,12 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   double anisoRatio = parameterAsDouble( parameters, QStringLiteral( "ANISO_RATIO" ), context );
   if ( !std::isfinite( anisoRatio ) || anisoRatio < 1.0 )
     anisoRatio = 1.0;
+  // 上界：超过 ~1000:1 后各向异性距离退化（离轴权重塌成 0、轴向权重溢出
+  // 成 inf → NaN 格）——按非法参数拒绝，不静默产出全 nodata/NaN 面。
+  constexpr double kAnisoRatioMax = 1000.0;
+  if ( anisoRatio > kAnisoRatioMax )
+    throw QgsProcessingException( QStringLiteral(
+        "ANISO_RATIO must be <= %1 (got %2)" ).arg( kAnisoRatioMax ).arg( anisoRatio ) );
 
   const QString outPath = parameterAsOutputLayer( parameters, QStringLiteral( "OUTPUT" ), context );
   if ( outPath.isEmpty() )
@@ -312,8 +364,10 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   const double yPad = raw.height() > 0.0 ? raw.height() * 0.1 : cellSize;
   QgsRectangle extent( raw.xMinimum() - xPad, raw.yMinimum() - yPad,
                        raw.xMaximum() + xPad, raw.yMaximum() + yPad );
-  const int nCols = std::max( 1, static_cast<int>( std::ceil( extent.width() / cellSize ) ) );
-  const int nRows = std::max( 1, static_cast<int>( std::ceil( extent.height() / cellSize ) ) );
+  const PaleoAlgoGuards::GridDims dims =
+      PaleoAlgoGuards::gridDimsForExtent( extent, cellSize );
+  const int nCols = dims.cols;
+  const int nRows = dims.rows;
 
   const double gt[6] = { extent.xMinimum(), cellSize, 0.0,
                          extent.yMaximum(), 0.0, -cellSize };
@@ -410,6 +464,11 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
       for ( const QgsPolylineXY &pl : mpl )
         for ( int i = 1; i < pl.size(); ++i )
         {
+          if ( feedback && feedback->isCanceled() )
+          {
+            GDALClose( outDs );
+            throw QgsProcessingException( QStringLiteral( "Canceled" ) );
+          }
           const QgsPointXY &a = pl[i - 1];
           const QgsPointXY &b = pl[i];
           const double len = a.distance( b );
@@ -426,6 +485,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
     int nextComp = 0;
     std::vector<qsizetype> queue;
     queue.reserve( static_cast<size_t>( cellCount ) );
+    qsizetype bfsVisited = 0; // 节流：每 1024 格查一次取消，避免虚调用过密
     for ( qsizetype start = 0; start < cellCount; ++start )
     {
       if ( comp[static_cast<size_t>( start )] != -1 )
@@ -435,6 +495,16 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
       queue.push_back( start );
       while ( !queue.empty() )
       {
+        if ( feedback && ( ++bfsVisited & 1023 ) == 0 )
+        {
+          if ( feedback->isCanceled() )
+          {
+            GDALClose( outDs );
+            throw QgsProcessingException( QStringLiteral( "Canceled" ) );
+          }
+          feedback->setProgress( 100.0 * static_cast<double>( bfsVisited ) /
+                                 static_cast<double>( cellCount ) );
+        }
         const qsizetype cur = queue.back();
         queue.pop_back();
         const int cr = static_cast<int>( cur / nCols ), cc = static_cast<int>( cur % nCols );
@@ -533,7 +603,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
           const double v = -dx * sinTheta + dy * cosTheta;
           d2 = u * u * invAniso2 + v * v * aniso2;
         }
-        if ( d2 == 0.0 )
+        if ( d2 < 1e-12 )
         {
           exact = true;
           exactValue = s.z;
@@ -543,10 +613,16 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
         weightSum += w;
         valueSum += w * s.z;
       }
-      rowBuf[c] = exact    ? static_cast<float>( exactValue )
-                  : weightSum > 0.0
-                      ? static_cast<float>( valueSum / weightSum )
-                      : PALEO_NODATA; // no reachable sample on this side
+      // 非有限值（各向异性极端化/数值溢出产出的 inf/NaN）一律落 nodata——
+      // 不把 NaN 写进栅格毒化下游（NaN 不是 nodata）。float 化后再查一次：
+      // |z|>FLT_MAX 的有限 double 也会溢出成 ±inf。
+      double cell = std::numeric_limits<double>::quiet_NaN();
+      if ( exact )
+        cell = exactValue;
+      else if ( weightSum > 0.0 )
+        cell = valueSum / weightSum;
+      const float out = static_cast<float>( cell );
+      rowBuf[c] = std::isfinite( out ) ? out : PALEO_NODATA;
     }
     if ( GDALRasterIO( outBand, GF_Write, 0, r, nCols, 1, rowBuf.data(),
                        nCols, 1, GDT_Float32, 0, 0 ) != CE_None )

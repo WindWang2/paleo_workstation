@@ -213,11 +213,11 @@ class DataImportService : public QObject
         const std::function<bool(int filesSeen, const QString &path)> &scanProgress =
             {}) const;
 
+  public:
     // 线程规则（D1b/D1c 异步导入）：import* 系列可在 worker 线程执行——内部
     // 对 catalog 的每一次读写经 catInvoke marshal 回 catalog 所在线程（GUI）。
-    // GUI 线程调用 = 直调零成本；worker 线程 = BlockingQueuedConnection 排队
-    // 执行并等结果。catalog 因此永远只被它自己的线程触碰——GUI 侧其他调用点
-    // 不用改。对 m_layers（同在 GUI 线程）的 declare 也走它。
+    // GUI 线程调用 = 直调零成本；worker 线程 = 异步 QueuedConnection (void) 或
+    // BlockingQueuedConnection (非 void)。catalog 因此永远只被它自己的线程触碰。
     template <typename Fn> auto catInvoke(Fn &&fn) const
     {
       using R = std::invoke_result_t<Fn>;
@@ -232,16 +232,24 @@ class DataImportService : public QObject
           return fn();
       }
       if constexpr (std::is_void_v<R>)
+      {
         QMetaObject::invokeMethod(m_catalog, std::forward<Fn>(fn),
-                                  Qt::BlockingQueuedConnection);
+                                  Qt::QueuedConnection);
+      }
       else
       {
         R result{};
-        QMetaObject::invokeMethod(m_catalog, [&result, &fn] { result = fn(); },
-                                  Qt::BlockingQueuedConnection);
+        const bool ok = QMetaObject::invokeMethod(m_catalog, [&result, &fn] { result = fn(); },
+                                                  Qt::BlockingQueuedConnection);
+        if (!ok)
+        {
+          qWarning("DataImportService::catInvoke: deadlock or dispatch failure detected");
+        }
         return result;
       }
     }
+
+  private:
 
     struct WellBind
     {

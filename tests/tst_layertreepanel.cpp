@@ -20,6 +20,7 @@
 #include "../src/metadata/layermanifest.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/ui/layers/layertreepanel.h"
+#include "uipolish_capture.h"
 
 // Fixture path: prefer the build-provided define, else derive from this file's
 // location so standalone g++ builds work too (tst_layerservice convention).
@@ -59,6 +60,44 @@ class TestLayerTreePanel : public QObject
       QVERIFY(QgsApplication::instance() != nullptr);
       QVERIFY2(QFile::exists(fixtureGpkg()),
                qPrintable(QStringLiteral("fixture missing: %1").arg(fixtureGpkg())));
+    }
+
+    // goal/ui-experience-polish：空态卡 + 层行选中态的修前/修后证据
+    //（PALEO_UI_CAPTURE 未设时零开销直通）。
+    void captureEvidence()
+    {
+      LayerTreePanel panel(QgsProject::instance(), nullptr, nullptr);
+      uipolish::capturePanel(&panel, QStringLiteral("layertree_empty"));
+    }
+
+    // goal/ui-experience-polish：Delete 键直达「删除所选图层/组」（QAction
+    // 挂键；非编辑态不弹框直接删）。
+    void deleteKeyRemovesCurrentLayer()
+    {
+      LayerTreePanel panel(QgsProject::instance(), nullptr, nullptr);
+      auto *act = panel.findChild<QAction *>(QStringLiteral("layerTreeRemoveSelectedAction"));
+      QVERIFY(act);
+      QCOMPARE(act->shortcut(), QKeySequence(Qt::Key_Delete));
+
+      auto *vl = new QgsVectorLayer(QStringLiteral("Point"),
+                                    QString::fromUtf8("临时井"), QStringLiteral("memory"));
+      QVERIFY(vl->isValid());
+      QgsProject::instance()->addMapLayer(vl);
+      panel.treeView()->setCurrentLayer(vl);
+      // 默认删除动作按「选中节点」取对象——补选区（仅 currentLayer 不够）。
+      const QModelIndex idx = panel.treeView()->currentIndex();
+      QVERIFY(idx.isValid());
+      panel.treeView()->selectionModel()->select(
+          idx, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      QApplication::setActiveWindow(&panel); // offscreen 下快捷键派发需要活动窗口
+      panel.treeView()->setFocus();
+      QCOMPARE(QgsProject::instance()->mapLayers().size(), 1);
+      QTest::keyClick(panel.treeView(), Qt::Key_Delete);
+      // QGIS 默认动作语义（E3 不重造）：从树摘节点（工程图层注册表不动——
+      // 那是「移除图层」另一档动作）。断言盯树模型。
+      QVERIFY(panel.treeView()->layerTreeModel()->rootGroup()->children().isEmpty());
     }
 
     void cleanup()
@@ -390,6 +429,47 @@ class TestLayerTreePanel : public QObject
       act->trigger();
       QCOMPARE(spy.count(), 1);
       QCOMPARE(spy.takeFirst().at(0).toString(), manual->id());
+    }
+
+    // ---- goal/time-depth-velocity：「转换为深度域…」意图信号 ----
+    // 仅时间域层位（paleoLayerId horizon.*）可用；深度产物/手工层不给入口。
+    void depthConvertActionEmitsIntent()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+      QVERIFY(manifest.open());
+      QgisLayerService svc(nullptr, &manifest);
+      LayerTreePanel panel(QgsProject::instance(), nullptr, &svc);
+      auto *view = panel.treeView();
+
+      auto *act = panel.findChild<QAction *>(QStringLiteral("layerTreeDepthConvertAction"));
+      QVERIFY(act);
+      QVERIFY2(!act->isEnabled(), "无选中图层时深度转换动作应禁用");
+      QVERIFY(!act->toolTip().isEmpty()); // DESIGN.md：禁用必须带 reason
+
+      auto *horizon = new QgsRasterLayer(QStringLiteral("/nonexistent/D61.tif"),
+                                         QString::fromUtf8("D61 时间构造图"),
+                                         QStringLiteral("gdal"));
+      horizon->setCustomProperty(QStringLiteral("paleoLayerId"), QStringLiteral("horizon.D61"));
+      QgsProject::instance()->addMapLayer(horizon);
+      auto *converted = new QgsRasterLayer(QStringLiteral("/nonexistent/DEPTH_D61.tif"),
+                                           QString::fromUtf8("D61 深度域"),
+                                           QStringLiteral("gdal"));
+      converted->setCustomProperty(QStringLiteral("paleoLayerId"), QStringLiteral("depth.D61"));
+      QgsProject::instance()->addMapLayer(converted);
+
+      QSignalSpy spy(&panel, &LayerTreePanel::depthConversionRequested);
+      view->setCurrentLayer(horizon);
+      QTRY_VERIFY(act->isEnabled());
+      act->trigger();
+      QCOMPARE(spy.count(), 1);
+      QCOMPARE(spy.takeFirst().at(0).toString(), QStringLiteral("horizon.D61"));
+
+      view->setCurrentLayer(converted);
+      QTRY_VERIFY(!act->isEnabled()); // 深度产物不可再转换
+      act->trigger();
+      QCOMPARE(spy.count(), 0);       // 已 takeFirst；禁用态触发不发意图
     }
 
     // ---- 「在新页打开所属编图页」：组→页映射 + 禁用 reason ----

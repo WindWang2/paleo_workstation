@@ -39,6 +39,9 @@ QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectServ
 // catalog 为空 / projectDir 为空 / 复制失败 → 返回空 assetId + *error。
 // sha256Out 带出文件摘要；managedPathOut 带出受管副本的绝对路径（发布门
 // 登记与快照都应指向受管文件，而不是用户随手挪动的原件）。
+// assetFormat：入库的 format 字段，缺省 pdf（既有调用全为此值）。地图册出
+// PNG 册时须显式传 png——把 PNG 印成 pdf 属于谎报元数据。
 QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
                              const QString &pdfPath, QString *sha256Out = nullptr,
-                             QString *managedPathOut = nullptr, QString *error = nullptr );
+                             QString *managedPathOut = nullptr, QString *error = nullptr,
+                             const QString &assetFormat = QString() );

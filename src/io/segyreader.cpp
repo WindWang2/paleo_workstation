@@ -72,18 +72,26 @@ bool isEndTextRecord(const QByteArray &record)
   }
   return ascii.contains(marker);
 }
+
+// 四角 slot：(inlMin,xlMin)=0 (inlMin,xlMax)=1 (inlMax,xlMax)=2 (inlMax,xlMin)=3。
+// 中点二分近似——对整齐测网（inline/xline 单调）即精确四角。
+// #83：inline/xline 是不可信道头里的任意 qint32——`n * 2` 与 `min + max`
+// 在 32 位下会有符号溢出（UB），一律提升到 64 位比较。
+int cornerSlot(qint32 inlineNo, qint32 xlineNo, const SegyGeometry &g)
+{
+  const bool iLo = qint64(inlineNo) * 2 <= qint64(g.inlineMin) + qint64(g.inlineMax);
+  const bool xLo = qint64(xlineNo) * 2 <= qint64(g.xlineMin) + qint64(g.xlineMax);
+  return iLo ? (xLo ? 0 : 1) : (xLo ? 3 : 2);
+}
 } // namespace
 
 bool SegyReader::open(const QString &path, QString *error,
                       const SegyOptions *opts)
 {
-  m_index.clear();
-  m_byInline.clear();
-  m_byXline.clear();
-  m_samplesPerTrace = 0;
-  m_sampleIntervalUs = 0.0f;
-  m_geometry = SegyGeometry();
-  m_path.clear();
+  // #83：完整复位（含坏道列表、上次取消留下的 m_lastScanPartial/
+  // m_scannedOffset）——同一 reader 重开时不得累加坏道、不得把成功扫描的
+  // snapshot 写成 complete=false。
+  resetState();
 
   if (path.isEmpty())
   {
@@ -387,11 +395,7 @@ bool SegyReader::open(const QString &path, QString *error,
         if (e.xlineNo > m_geometry.xlineMax)
           m_geometry.xlineMax = e.xlineNo;
       }
-      // 四角 slot：(inlMin,xlMin)=0 (inlMin,xlMax)=1 (inlMax,xlMax)=2 (inlMax,xlMin)=3。
-      // 中点二分近似——对整齐测网（inline/xline 单调）即精确四角。
-      const bool iLo = e.inlineNo * 2 <= m_geometry.inlineMin + m_geometry.inlineMax;
-      const bool xLo = e.xlineNo * 2 <= m_geometry.xlineMin + m_geometry.xlineMax;
-      const int slot = iLo ? (xLo ? 0 : 1) : (xLo ? 3 : 2);
+      const int slot = cornerSlot(e.inlineNo, e.xlineNo, m_geometry);
       m_geometry.cornerX[slot] = cx;
       m_geometry.cornerY[slot] = cy;
     }
@@ -485,6 +489,16 @@ bool SegyReader::open(const QString &path, QString *error,
     // field record 为空时退回偏移 188 的恒定值。
     const qint32 base = firstFieldRec != 0 ? firstFieldRec : firstLineWord;
     const int lines = n / perLine;
+    // #83：base 来自不可信道头——base + lines - 1 越过 qint32 即有符号溢出（UB）。
+    if (qint64(base) + qint64(lines) - 1 > std::numeric_limits<qint32>::max())
+    {
+      if (error)
+        *error = QStringLiteral("inline numbering overflows qint32 (base %1, %2 lines)")
+                     .arg(base)
+                     .arg(lines);
+      m_index.clear();
+      return false;
+    }
     for (int i = 0; i < n; ++i)
       m_index[i].inlineNo = base + i / perLine;
 
@@ -590,20 +604,33 @@ QVector<SegyTrace> SegyReader::readByIndexList(const QVector<int> &idxs,
     return out;
   out.reserve(idxs.size());
   int n = 0;
+  int failed = 0; // #42.1：丢道必须留痕——readInline/readCrossline 以行数差
+                  // 报「failed to decode N of M」，但 traces()/未来调用方拿到
+                  // 的是部分数据当成功。计数 + qWarning 是诚实降级的最低面
+                  //（取消路径除外——取消不算失败）。
+  bool cancelled = false;
   for (int i : idxs)
   {
     if (opts && (n % 64) == 0)
     {
       if (opts->cancel && opts->cancel())
-        return out; // 调用方把空/部分结果按取消处理
+      {
+        cancelled = true;
+        break; // 调用方把空/部分结果按取消处理
+      }
       if (opts->progress)
         opts->progress(n, idxs.size());
     }
     SegyTrace t;
     if (decodeTrace(file, m_index.at(i), &t))
       out.append(t);
+    else
+      ++failed;
     ++n;
   }
+  if (failed > 0 && !cancelled)
+    qWarning("segy: dropped %d of %d traces in %s (decode failed; partial result returned)",
+             failed, int(idxs.size()), qPrintable(m_path));
   return out;
 }
 
@@ -863,7 +890,7 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
         sh.ys.append(static_cast<double>(beI32(h + 76)) * coordScale);
         if (opts && opts->progress && ((i - sh.from) % 128) == 0)
         {
-          std::lock_guard<std::mutex> lock(progressMutex);
+          std::lock_guard<std::mutex> pLock(progressMutex);
           opts->progress(offset, firstTraceOffset + traceCount * traceSize);
         }
       }
@@ -916,9 +943,7 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
         m_geometry.xlineMin = m_index.at(i).xlineNo;
       if (m_index.at(i).xlineNo > m_geometry.xlineMax)
         m_geometry.xlineMax = m_index.at(i).xlineNo;
-      const bool iLo = m_index.at(i).inlineNo * 2 <= m_geometry.inlineMin + m_geometry.inlineMax;
-      const bool xLo = m_index.at(i).xlineNo * 2 <= m_geometry.xlineMin + m_geometry.xlineMax;
-      const int slot = iLo ? (xLo ? 0 : 1) : (xLo ? 3 : 2);
+      const int slot = cornerSlot(m_index.at(i).inlineNo, m_index.at(i).xlineNo, m_geometry);
       m_geometry.cornerX[slot] = xs.at(i);
       m_geometry.cornerY[slot] = ys.at(i);
     }
@@ -1018,9 +1043,7 @@ bool SegyReader::resumeScan(QFile &file, const SegyIndexStore::StoredIndex &part
       m_geometry.inlineMax = qMax<qint32>(m_geometry.inlineMax, e.inlineNo);
       m_geometry.xlineMin = qMin<qint32>(m_geometry.xlineMin, e.xlineNo);
       m_geometry.xlineMax = qMax<qint32>(m_geometry.xlineMax, e.xlineNo);
-      const bool iLo = e.inlineNo * 2 <= m_geometry.inlineMin + m_geometry.inlineMax;
-      const bool xLo = e.xlineNo * 2 <= m_geometry.xlineMin + m_geometry.xlineMax;
-      const int slot = iLo ? (xLo ? 0 : 1) : (xLo ? 3 : 2);
+      const int slot = cornerSlot(e.inlineNo, e.xlineNo, m_geometry);
       m_geometry.cornerX[slot] = cx;
       m_geometry.cornerY[slot] = cy;
     }

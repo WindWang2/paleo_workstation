@@ -1,4 +1,4 @@
-// 层：功能
+// 层：QGIS 封装
 #pragma once
 
 #include <qgsmaptool.h>

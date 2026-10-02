@@ -27,6 +27,8 @@
 //   D2.2 区间统计对话框；D2.3 标注钉；D2.6 书签；D2.7 Ctrl+G；
 //   D2.11 深度读数条；D2.12 gap 阈值；D3.14 编辑模式工具条。
 
+class PaleoTaskService; // F2：两段式 XML 任务池（全局作用域——勿入 WellComposite）
+
 namespace WellComposite
 {
 
@@ -47,6 +49,11 @@ public:
 
   // 加载并装配中国石油标准综合柱状图 XML (SpreadsheetML)
   bool loadComprehensiveXml(const QString &xmlPath);
+  // F2（goal/perf-systematize 簇2）：两段式——XML 在任务池解析（综合图可含
+  // 数 MB 曲线数据，同步解析阻塞 UI 线程），结果 GUI 线程装配并发射
+  // comprehensiveXmlLoaded(ok)；无任务服务时同步执行、返回前信号已发
+  //（测试/小环境行为与旧路径一致）。文件不存在同步返回 false（快速失败）。
+  bool loadComprehensiveXmlAsync(const QString &xmlPath, PaleoTaskService *svc);
 
   // 加载并装配单井 LAS 曲线（支持关联地层分层道与 1-4 根曲线分道合并显示）
   bool loadLasCurves(const QString &wellName, const QVector<CurveData> &curves,
@@ -124,12 +131,15 @@ public:
 
 signals:
   void wellLoaded(const QString &wellName);
+  // F2（goal/perf-systematize 簇2）：两段式 XML 装配终态（含同步路径；
+  // ok=false = 解析失败——页面侧据此换装失败面）。
   // D3.3 派生版本意图：编辑落盘由壳/测试接（视图不写工程目录）。
   // D1（wave/deepen-perf）：追加 auditLines——壳侧 DERIVED 登记把逐条审计
   // 写进派生 XML「编辑审计」工作表（摘要字符串只够展示，不够落档）。
   void derivedDocumentReady(const WellComposite::ComprehensiveWellData &doc,
                             const QString &auditSummary,
                             const QStringList &auditLines);
+  void comprehensiveXmlLoaded(bool ok); // F2：两段式 XML 装配终态
 
 public slots:
   // D2.7 Ctrl+G
@@ -153,6 +163,8 @@ private slots:
 private:
   void setupUi();
   void setupTracksFromData(const ComprehensiveWellData &data);
+  // F2：已解析数据的 GUI 线程装配（同步/异步路径共用；不碰文件）。
+  void applyComprehensiveData(const ComprehensiveWellData &data, const QString &xmlPath);
   void rebuildLegendData();
   void syncSessionToTracks(); // 编辑会话数据 → 画布道重同步
   void refreshTwtLabels();    // D1：时深表 → 深度标尺道 TWT 副刻度
@@ -186,6 +198,7 @@ private:
 
   // D3.x 编辑会话（undo 栈/脏状态/审计；Phase 3 交付物）
   std::unique_ptr<EditSession> m_editSession;
+  int m_xmlLoadSeq = 0; // F2：两段式 XML 世代号（换源/重入后旧结果丢弃）
 
   QLabel *m_lblWellName = nullptr;
   QComboBox *m_scaleCombo = nullptr;

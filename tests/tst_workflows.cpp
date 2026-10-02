@@ -706,6 +706,188 @@ private slots:
         saw = v.severity == ValidationIssue::Error;
     QVERIFY( saw );
   }
+
+  // Empirical stress-testing: WorkflowExecutionContext default-initialized and workflows with null context fields
+  void workflowExecutionContextNullAndUninitializedStress()
+  {
+    // 1. Verify WorkflowExecutionContext struct default initialization
+    WorkflowExecutionContext ctx;
+    QVERIFY( ctx.proc.isNull() );
+    QVERIFY( ctx.layers.isNull() );
+    QVERIFY( ctx.store.isNull() );
+    QVERIFY( ctx.catalog.isNull() );
+#if PALEO_HAVE_ORT
+    QVERIFY( ctx.onnx.isNull() );
+#endif
+    QVERIFY( ctx.projectDir.isEmpty() );
+
+    // 2. PredictionWorkflow with null services
+    {
+      PredictionWorkflow pw( ctx.proc.data(), ctx.layers.data() );
+      QVERIFY( pw.processingService() == nullptr );
+      QVERIFY( pw.layerService() == nullptr );
+      QVERIFY( pw.catalog() == nullptr );
+#if PALEO_HAVE_ORT
+      QVERIFY( pw.onnxService() == nullptr );
+#endif
+      QVERIFY( pw.availableAlgorithms().isEmpty() );
+
+      QSignalSpy doneSpy( &pw, &PredictionWorkflow::predictionDone );
+      QSignalSpy failSpy( &pw, &PredictionWorkflow::predictionFailed );
+      QString err;
+      bool res = pw.runPrediction( QStringLiteral( "T1" ),
+                                   QStringLiteral( "paleo:paleo_geological_smoothing" ),
+                                   {}, &err );
+      QVERIFY( !res );
+      QVERIFY( !err.isEmpty() );
+      QCOMPARE( doneSpy.count(), 0 );
+      QCOMPARE( failSpy.count(), 1 );
+      QCOMPARE( failSpy.at( 0 ).at( 1 ).toString(), err );
+
+#if PALEO_HAVE_ORT
+      failSpy.clear();
+      err.clear();
+      res = pw.runPrediction( QStringLiteral( "T1" ),
+                              QStringLiteral( "onnx:dummy_model" ),
+                              {}, &err );
+      QVERIFY( !res );
+      QVERIFY( !err.isEmpty() );
+      QCOMPARE( failSpy.count(), 1 );
+#endif
+    }
+
+    // 3. ConstraintWorkflow with null services
+    {
+      ConstraintWorkflow cw( ctx.proc.data(), ctx.layers.data() );
+      QVERIFY( cw.processingService() == nullptr );
+      QVERIFY( cw.layerService() == nullptr );
+      QVERIFY( cw.projectStore() == nullptr );
+      QVERIFY( cw.constraintStore() == nullptr );
+      QVERIFY( cw.catalog() == nullptr );
+
+      QString err;
+      QString idOut;
+      bool res = cw.addConstraint( QStringLiteral( "T1" ), QStringLiteral( "POINT(0 0)" ),
+                                   QStringLiteral( "boundary" ), 1, &err, &idOut );
+      QVERIFY( !res );
+      QVERIFY( !err.isEmpty() );
+
+      QVector<QVariantMap> loaded = cw.loadConstraints( QStringLiteral( "T1" ) );
+      QVERIFY( loaded.isEmpty() );
+
+      err.clear();
+      res = cw.runConstraintIDW( QStringLiteral( "T1" ), QStringLiteral( "wells" ),
+                                 QStringLiteral( "z" ), 10.0, &err );
+      QVERIFY( !res );
+      QVERIFY( !err.isEmpty() );
+
+      err.clear();
+      res = cw.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "strathick" ),
+                               {}, &err );
+      QVERIFY( !res );
+      QVERIFY( !err.isEmpty() );
+
+      err.clear();
+      res = cw.generateContours( QStringLiteral( "T1" ), QStringLiteral( "factor.T1.strathick" ),
+                                 10.0, &err );
+      QVERIFY( !res );
+      QVERIFY( !err.isEmpty() );
+    }
+
+    // 4. CompositionWorkflow with null services
+    {
+      CompositionWorkflow comp( ctx.proc.data(), ctx.layers.data() );
+      QVERIFY( comp.processingService() == nullptr );
+      QVERIFY( comp.layerService() == nullptr );
+      QVERIFY( comp.catalog() == nullptr );
+
+      QSignalSpy doneSpy( &comp, &CompositionWorkflow::compositionDone );
+      QString err;
+      bool res = comp.fuseFactors( QStringLiteral( "T1" ), { QStringLiteral( "f1" ), QStringLiteral( "f2" ) }, &err );
+      QVERIFY( !res );
+      QVERIFY( !err.isEmpty() );
+      QCOMPARE( doneSpy.count(), 0 );
+
+      QSignalSpy readySpy( &comp, &CompositionWorkflow::faciesPolygonsReady );
+      QSignalSpy failSpy( &comp, &CompositionWorkflow::faciesPolygonsFailed );
+      err.clear();
+      res = comp.deriveFaciesPolygons( QStringLiteral( "T1" ), QStringLiteral( "composite.T1" ), {}, &err );
+      QVERIFY( !res );
+      QVERIFY( !err.isEmpty() );
+      QCOMPARE( readySpy.count(), 0 );
+      QCOMPARE( failSpy.count(), 1 );
+
+      err.clear();
+      QString editRes = comp.prepareFaciesForEditing( QStringLiteral( "facies.T1" ), &err );
+      QVERIFY( editRes.isEmpty() );
+      QVERIFY( !err.isEmpty() );
+
+      err.clear();
+      res = comp.saveFaciesAttributes( QStringLiteral( "facies.T1" ), {}, &err );
+      QVERIFY( !res );
+      QVERIFY( !err.isEmpty() );
+    }
+
+    // 5. ValidationWorkflow with null services
+    {
+      ValidationWorkflow vw( ctx.layers.data(), ctx.store.data() );
+      QVERIFY( vw.layerService() == nullptr );
+      QVERIFY( vw.projectStore() == nullptr );
+      QVERIFY( vw.projectData() == nullptr );
+
+      QSignalSpy valSpy( &vw, &ValidationWorkflow::validationDone );
+      const QList<ValidationIssue> issues = vw.validate();
+      QCOMPARE( valSpy.count(), 1 );
+      QCOMPARE( issues.size(), 0 );
+    }
+  }
+
+  // Empirical stress-testing: Services destroyed while workflow instances hold QPointer
+  void workflowExecutionContextLifecycleTeardownStress()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+
+    // Heap-allocate services and bind to workflows
+    auto *proc = new QgisProcessingService( &f.store );
+    auto *layers = new QgisLayerService( &f.projectSvc, &f.manifest );
+
+    PredictionWorkflow pw( proc, layers );
+    ConstraintWorkflow cw( proc, layers );
+    CompositionWorkflow comp( proc, layers );
+    ValidationWorkflow vw( layers, &f.store );
+
+    QVERIFY( pw.processingService() == proc );
+    QVERIFY( pw.layerService() == layers );
+    QVERIFY( cw.processingService() == proc );
+    QVERIFY( cw.layerService() == layers );
+    QVERIFY( comp.processingService() == proc );
+    QVERIFY( comp.layerService() == layers );
+    QVERIFY( vw.layerService() == layers );
+
+    // Now abruptly delete proc and layers to simulate mid-session teardown
+    delete proc;
+    delete layers;
+
+    // QPointer must automatically clear to nullptr
+    QVERIFY( pw.processingService() == nullptr );
+    QVERIFY( pw.layerService() == nullptr );
+    QVERIFY( cw.processingService() == nullptr );
+    QVERIFY( cw.layerService() == nullptr );
+    QVERIFY( comp.processingService() == nullptr );
+    QVERIFY( comp.layerService() == nullptr );
+    QVERIFY( vw.layerService() == nullptr );
+
+    // Now test that invoking workflow methods on these stale objects fails safely without crashing
+    QString err;
+    QVERIFY( !pw.runPrediction( QStringLiteral( "T1" ), QStringLiteral( "paleo:paleo_geological_smoothing" ), {}, &err ) );
+    QVERIFY( !cw.runConstraintIDW( QStringLiteral( "T1" ), QStringLiteral( "wells" ), QStringLiteral( "z" ), 10.0, &err ) );
+    QVERIFY( !comp.fuseFactors( QStringLiteral( "T1" ), { QStringLiteral( "f1" ) }, &err ) );
+    QVERIFY( !comp.deriveFaciesPolygons( QStringLiteral( "T1" ), QStringLiteral( "comp" ), {}, &err ) );
+    const QList<ValidationIssue> issues = vw.validate();
+    // No crash, runs cleanly
+    QVERIFY( issues.isEmpty() || !issues.isEmpty() );
+  }
 };
 
 int main( int argc, char *argv[] )

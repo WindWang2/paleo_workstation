@@ -7,6 +7,7 @@
 #include "../src/catalog/datacatalog.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/qgis/previewrendercache.h"
+#include "uipolish_capture.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -58,6 +59,13 @@ class TestPreviewMapPage : public QObject
     void identifyRoutesToPanel();
     void profileLineSwitchesSideTab();
     void analysisTabsAppearOnDemand();
+    // goal/ui-experience-polish：错误页/状态条 token 化的修前/修后证据。
+    void captureEvidence()
+    {
+      m_page->setError(QStringLiteral("数据源损坏"), QStringLiteral("/x/y.tif"));
+      uipolish::capturePanel(m_page.get(), QStringLiteral("previewmap_error"),
+                             QSize(800, 600));
+    }
     void renderCacheStoresOnCompletion();
     void lowResSnapshotShowsOverlay();
 

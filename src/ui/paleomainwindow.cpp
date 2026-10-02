@@ -283,6 +283,9 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
   // 设置时的缺省；窗口构造按 QSettings 显式钉一次（读取无副作用——写只
   // 发生在用户切换主题时，测试路径不产生新写者）。
   PaleoTheme::applyTheme(PaleoTheme::themeFromSettings());
+  // 密度同口径：构造按 QSettings 钉一次（缺省 comfort；表行高兜底扫在
+  // reapplyThemeChrome，覆盖 buildShell 后建的全部表）。
+  PaleoTheme::applyDensity(PaleoTheme::densityFromSettings());
   buildShell();
 
   // ---- m2(D): 页面图层档案（m1 接缝消费）----
@@ -331,7 +334,18 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
   restoreWindowState();
 }
 
-PaleoMainWindow::~PaleoMainWindow() = default;
+PaleoMainWindow::~PaleoMainWindow()
+{
+  if (m_horizonFlashTimer)
+  {
+    m_horizonFlashTimer->stop();
+    delete m_horizonFlashTimer.data();
+  }
+  if (m_horizonFlashBand)
+  {
+    delete m_horizonFlashBand.data();
+  }
+}
 
 void PaleoMainWindow::applyCurrentPageProfile()
 {
@@ -663,6 +677,14 @@ void PaleoMainWindow::buildShell()
   addDockWidget(Qt::BottomDockWidgetArea, m_seismicSectionDock);
   tabifyDockWidget(m_bottomDock, m_seismicSectionDock);
   m_seismicSectionDock->hide();
+  // goal/horizon-autotrack — 追踪层位资产登记产出 → 层清单/画布上图
+  // （同 dataimport layerDeclared → declare 装配先例）
+  connect(m_seismicSectionDock, &seismic::SeismicSectionDockWidget::horizonLayerDeclared,
+          this, [this](const LayerDeclaration &decl) {
+            QString err;
+            if (!m_layerSvc->declare(decl, &err))
+              qWarning() << "horizon layer declare failed:" << decl.layerId << err;
+          });
 
   // ---- seismic 3D viewport dock ----
   m_seismic3dDock = new QDockWidget(tr("三维地震视口 (3D)"), this);
@@ -807,6 +829,21 @@ void PaleoMainWindow::reapplyThemeChrome()
   const QString shellQss =
       PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet();
   PaleoRibbon::applyTheme(this, shellQss);
+  // 表行高不随 QSS 走——补扫一遍（新建的表也在此统一落档）。
+  PaleoTheme::applyDensityToViewTree(this);
+}
+
+void PaleoMainWindow::setCompactDensityEnabled(bool compact)
+{
+  // 唯一密度写者：只有用户显式切换（面板菜单「紧凑密度」勾选）才写盘。
+  PaleoTheme::writeDensityToSettings(
+      compact ? PaleoTheme::Density::Compact : PaleoTheme::Density::Comfort);
+  PaleoTheme::applyDensity(
+      compact ? PaleoTheme::Density::Compact : PaleoTheme::Density::Comfort);
+  reapplyThemeChrome();
+  if (statusBar())
+    statusBar()->showMessage(compact ? tr("已切换到紧凑密度") : tr("已切换到宽松密度"),
+                             4000);
 }
 
 void PaleoMainWindow::setDarkThemeEnabled(bool dark)
@@ -855,6 +892,23 @@ void PaleoMainWindow::buildRibbon()
     connect(sc, &QShortcut::activated, this, [this, i] {
       showPage(paleo::pagesinternal::kPageIds.at(i));
     });
+  }
+  // goal/ui-experience-polish：Ctrl+Tab / Ctrl+Shift+Tab 循环切页（桌面页签
+  // 惯例；与 Ctrl+1..5 互补——手不离开主行也能走完整工作流链）。
+  {
+    const auto cyclePage = [this](int step) {
+      const int idx = paleo::pagesinternal::kPageIds.indexOf(m_currentPage);
+      const int n = paleo::pagesinternal::kPageIds.size();
+      const int next = ((idx < 0 ? 0 : idx) + step + n) % n;
+      showPage(paleo::pagesinternal::kPageIds.at(next));
+    };
+    auto *nextSc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Tab")), this);
+    nextSc->setObjectName(QStringLiteral("pageShortcut.next"));
+    connect(nextSc, &QShortcut::activated, this, [cyclePage] { cyclePage(1); });
+    auto *prevSc =
+        new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+Tab")), this);
+    prevSc->setObjectName(QStringLiteral("pageShortcut.prev"));
+    connect(prevSc, &QShortcut::activated, this, [cyclePage] { cyclePage(-1); });
   }
   connect(bar, &SARibbonBar::currentRibbonTabChanged, this, [this, bar](int idx) {
     SARibbonCategory *cat = bar->categoryByIndex(idx);
@@ -948,6 +1002,12 @@ void PaleoMainWindow::showPanelMenu(const QPoint &globalPos)
     dark->setCheckable(true);
     dark->setChecked(PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark);
     connect(dark, &QAction::toggled, this, &PaleoMainWindow::setDarkThemeEnabled);
+    QAction *compact = menu->addAction(tr("紧凑密度"));
+    compact->setObjectName(QStringLiteral("densityToggleAction"));
+    compact->setCheckable(true);
+    compact->setChecked(PaleoTheme::currentDensity() == PaleoTheme::Density::Compact);
+    connect(compact, &QAction::toggled, this,
+            &PaleoMainWindow::setCompactDensityEnabled);
     menu->popup(globalPos);
   }
 }
@@ -1150,10 +1210,36 @@ void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
   if (!m_canvasCtl || !layer)
     return;
   QgsMapCanvas *cv = m_canvasCtl->canvas();
+  if (!cv)
+    return;
+
+  // Clean up previous in-flight flash timer and rubber band if active
+  if (m_horizonFlashTimer)
+  {
+    m_horizonFlashTimer->stop();
+    delete m_horizonFlashTimer.data();
+  }
+  else if (auto *oldTimer = findChild<QTimer *>(QStringLiteral("horizonFlashTimer")))
+  {
+    oldTimer->stop();
+    delete oldTimer;
+  }
+  if (m_horizonFlashBand)
+  {
+    delete m_horizonFlashBand.data();
+  }
+  else if (auto *oldBand = cv->findChild<QgsRubberBand *>(QStringLiteral("horizonFlashRubberBand")))
+  {
+    delete oldBand;
+  }
+
   // 闪烁定位（T29 spec ~300–500ms）：#1B73D0 半透明多边形橡皮带盖住图层
   // 范围，100ms 一闪 ×4 后自毁。交互蓝只做交互反馈，不做常驻装饰
   // （DESIGN.md：交互色不兼装饰）。
   auto *band = new QgsRubberBand(cv, Qgis::GeometryType::Polygon);
+  band->setParent(cv);
+  band->setObjectName(QStringLiteral("horizonFlashRubberBand"));
+  m_horizonFlashBand = band;
   band->setToGeometry(QgsGeometry::fromRect(layer->extent()),
                       qobject_cast<QgsVectorLayer *>(layer));
   band->setColor(QColor(27, 115, 208, 60)); // #1B73D0 @ ~24% 填充透明度
@@ -1162,14 +1248,30 @@ void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
   setProperty("horizonFlashActive", true);
   auto *timer = new QTimer(this);
   timer->setObjectName(QStringLiteral("horizonFlashTimer"));
+  m_horizonFlashTimer = timer;
   int blinks = 4;
-  connect(timer, &QTimer::timeout, this, [this, timer, band, blinks]() mutable {
-    band->setVisible(band->isVisible() ? false : true);
+  QPointer<QgsRubberBand> safeBand(band);
+  QPointer<QTimer> safeTimer(timer);
+  connect(timer, &QTimer::timeout, this, [this, safeTimer, safeBand, blinks]() mutable {
+    if (!safeBand)
+    {
+      if (safeTimer)
+      {
+        safeTimer->stop();
+        safeTimer->deleteLater();
+      }
+      setProperty("horizonFlashActive", false);
+      return;
+    }
+    safeBand->setVisible(!safeBand->isVisible());
     if (--blinks <= 0)
     {
-      timer->stop();
-      timer->deleteLater();
-      delete band; // 画布条目直接删——不在信号发送者栈上
+      if (safeTimer)
+      {
+        safeTimer->stop();
+        safeTimer->deleteLater();
+      }
+      delete safeBand.data(); // 画布条目直接删——不在信号发送者栈上
       setProperty("horizonFlashActive", false);
     }
   });

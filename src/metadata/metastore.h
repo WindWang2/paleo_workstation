@@ -18,6 +18,20 @@ namespace MetaStore
 {
   const int kUserVersion = 1;
 
+  // Reuses the caller's named connection, creates its directory if needed, and
+  // checks user_version even for an already-open connection. Invalid on failure.
+  //
+  // readOnly（#80，单写实例降级 §6）：以 QSQLITE_OPEN_READONLY 打开；文件不存在
+  // 时拒开（不 mkpath、不建库）；user_version 只读校验（未来版本仍拒开），
+  // 不推进。调用方须为只读连接使用独立连接名（与可写连接互不复用）。
+  QSqlDatabase openConnection(const QString &path, const QString &connectionName,
+                              QString *error, bool readOnly = false);
+
+  // #80：关闭并从 QtSql 注册表移除「当前线程拥有、databaseName 指向 path」的
+  // 全部命名连接（工程切换/关闭时调用，避免句柄常驻与同路径陈旧连接复用）。
+  // 调用时不得有存活的 QSqlQuery。返回移除的连接数。
+  int closeConnectionsFor(const QString &path);
+
   // 读 user_version；查询失败回 -1 并置 *error。
   int readUserVersion(QSqlDatabase &db, QString *error = nullptr);
 

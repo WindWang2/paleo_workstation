@@ -109,6 +109,45 @@ shape 词），无 type 列或未知词保持旧行为（凸包 ROI 裁剪，逐
   docs/progress/mapping.md「跨方向契约」节 + PredictionWorkflow::
   confidenceCompanionAvailable 恒 false 的既有调查结论。
 
+## 3b. 增补：输入域守卫与冻结语义钉板（2026-09-30，goal/mapping-editing-closure）
+
+三引擎（constraint_idw / welldist / distance_transform）同口径的输入域
+守卫，全部有 tst_algorithm_harness 现象级回归（修复前失败证据见
+docs/progress/mapping-editing-closure.md）：
+
+- **网格预算上限**：CELL_SIZE × 输入范围 → 像元总数 > 1 亿（与
+  io/horizonbinner 的 kMaxCellCount 同口径）或任一维度超 INT_MAX 时显式
+  报错（`PaleoAlgoGuards::gridDimsForExtent`）——防 double→int 截断 UB
+  与整网格前置分配失控（Issue #33 的算法侧同款；修复前极小 CELL_SIZE
+  会把失败延迟到 GDALCreate 或直接挂死逐格循环）。
+- **地理 CRS 原因态**：INPUT CRS 为地理坐标系时不拒绝（历史兼容——测试
+  夹具与旧数据即用 4326 直算），但 Processing feedback 落告警「度 ≠ 米，
+  请重投影到投影 CRS」（三引擎同文案，测试断言 feedback 文本）。
+- **ANISO_RATIO 合法域 [1, 1000]**：<1 或非有限钳到 1（既有行为）；>1000
+  拒绝——极端比值的各向异性距离退化（离轴权重塌 0、轴向溢出 inf → NaN
+  格）不静默产出。
+- **非有限输出落 nodata**：IDW 权重和算出的 inf/NaN 一律写 nodata（NaN
+  不是 nodata，写进栅格会毒化下游）。
+- **取消粒度补全**：DT 的屏障栅格化（逐段）与 Dijkstra 主传播（每 4096
+  次松弛）、IDW 的屏障栅格化（逐段）与 BFS 连通域标号（每 1024 格）现在
+  都检查 isCanceled；BFS/Dijkstra 阶段同时报进度（节流）。修复前这两段
+  不可中断，且大栅格取消会拖到行写出阶段才生效。
+- **重合井并列规则**（既有行为钉板，非新实现）：格心恰与井位重合时
+  （d²=0 精确命中分支）取要素迭代序第一口；同位井在非命中格等权混合。
+  测试以对称几何把井放到格心钉死该规则 + 连跑两遍逐位一致。
+
+### break_line 的 ROI 语义边界（冻结声明）
+
+C1 的「break_line 贡献 ROI 凸包」有两条此前未显式文档化的边界：
+
+- **单条开放 break_line**：直接 convexHull（不经 unaryUnion）退化为线段
+  ——非多边形，不裁剪（1b 用例口径）。**闭合环形单条线**或**≥2 条不共线
+  的 break_line**：凸包成为多边形 ROI——屏障即边界，**凸包外格点**整片
+  nodata。井样本不经 hull 过滤（只经连通域隔离）；凸包外有连通走廊时包
+  外井仍会参与包内格点插值——测试用四面墙口袋几何封死走廊钉板（口袋内
+  部只从口袋井插值，口袋外格点因 ROI 裁剪为 nodata）。这是冻结语义不是
+  缺陷；若产品要求「屏障不约束 ROI」或「井也按 hull 过滤」，需另立变更。
+
 ## 4. 与 plan 文本的差异备忘（供编排会话对账）
 
 - §10.1「优先调用 QGIS Interpolation Provider」：QGIS 的 interpolation

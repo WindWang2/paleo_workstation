@@ -656,23 +656,8 @@ QString projectDirOfCatalogPath(const QString &catalogPath)
   return d.absolutePath();
 }
 
-// linksForEntity 的快照重实现：DataCatalog 的口径 = 过滤 + 按 ordinal
-// stable_sort（不同角色保持入库序；ordinal 全 0 时与排序前逐项一致）。
-QVector<EntityAssetLink> linksForEntityFrom(const QVector<EntityAssetLink> &links,
-                                            const QString &entityId)
-{
-  if (entityId.isEmpty())
-    return {}; // audit row 35：空 id 如实回空集
-  QVector<EntityAssetLink> out;
-  for (const EntityAssetLink &l : links)
-    if (l.entityId == entityId)
-      out.append(l);
-  std::stable_sort(out.begin(), out.end(),
-                   [](const EntityAssetLink &a, const EntityAssetLink &b) {
-                     return a.ordinal < b.ordinal;
-                   });
-  return out;
-}
+// linksForEntity 的 ordinal 稳定排序（WP2 起快照走命中行集索引后仍是唯一
+// 排序口径；不同角色保持入库序，ordinal 全 0 时与排序前逐项一致）。
 } // namespace
 
 bool LiveCatalogSource::isOpen() const { return m_cat && m_cat->isOpen(); }
@@ -716,52 +701,93 @@ CatalogReadSnapshot CatalogReadSnapshot::fromCatalog(const DataCatalog &catalog)
     snap.m_entities = catalog.entities();
     snap.m_versions = catalog.versions();
     snap.m_links = catalog.links();
+    // WP2：一次 O(N) 建命中索引——plan 构建期逐项查询不再每次线性扫表。
+    snap.m_rowsBySha.reserve(snap.m_versions.size());
+    snap.m_rowByEntityId.reserve(snap.m_entities.size());
+    snap.m_rowsByEntityId.reserve(snap.m_links.size());
+    for (int i = 0; i < snap.m_versions.size(); ++i)
+      if (!snap.m_versions.at(i).sha256.isEmpty())
+        snap.m_rowsBySha[snap.m_versions.at(i).sha256.toLower()].append(i);
+    for (int i = 0; i < snap.m_entities.size(); ++i)
+    {
+      const CatalogEntity &e = snap.m_entities.at(i);
+      // 首个重复 id 行优先——与快照旧线性扫描的「第一个匹配」一致（重复 id
+      // 只会来自手改 catalog.json，addEntity 有 dup 门；live 索引同款 insert
+      // 覆盖语义差异在此不可观察）。规范化井名为空的井不入索引：旧扫描
+      // 对「查询名规范化为空」恒回零匹配，登记空键会让 "-" 这类井名被
+      // 空查询误命中（review P2）。
+      if (!e.id.isEmpty() && !snap.m_rowByEntityId.contains(e.id))
+        snap.m_rowByEntityId.insert(e.id, i);
+      if (e.entityType == QStringLiteral("well") && !e.name.isEmpty())
+      {
+        const QString norm = DataCatalog::normalizeWellName(e.name);
+        if (!norm.isEmpty())
+          snap.m_wellIdsByNormName[norm].append(e.id);
+      }
+    }
+    for (int i = 0; i < snap.m_links.size(); ++i)
+      if (!snap.m_links.at(i).entityId.isEmpty())
+        snap.m_rowsByEntityId[snap.m_links.at(i).entityId].append(i);
   }
   return snap;
 }
 
 QStringList CatalogReadSnapshot::wellsMatchingName(const QString &name) const
 {
+  // 命中序 = 表序（与 DataCatalog::wellsMatchingName 的行扫描序一致）。
+  // 空规范化（查询名只含空格/'-'/'_'）恒零匹配——与 live 版同一守卫。
   const QString needle = DataCatalog::normalizeWellName(name);
-  QStringList out;
   if (needle.isEmpty())
-    return out;
-  for (const CatalogEntity &e : m_entities)
-    if (e.entityType == QStringLiteral("well") &&
-        DataCatalog::normalizeWellName(e.name) == needle)
-      out.append(e.id);
-  return out;
+    return {};
+  return m_wellIdsByNormName.value(needle);
 }
 
 CatalogEntity CatalogReadSnapshot::entityById(const QString &id) const
 {
-  for (const CatalogEntity &e : m_entities)
-    if (e.id == id)
-      return e;
-  return CatalogEntity();
+  const int row = m_rowByEntityId.value(id, -1);
+  return row >= 0 ? m_entities.at(row) : CatalogEntity();
 }
 
 CatalogVersion CatalogReadSnapshot::versionBySha256(const QString &sha256) const
 {
   // 与 DataCatalog::versionBySha256 同口径：命中后复核文件仍在且字节一致
   // （受管文件丢失/被改的旧条目不冒充命中）——文件 IO 在调用线程执行。
+  // 行集升序＝表序，「第一个匹配」语义与旧线性扫描一致（WP2 索引化）。
   if (sha256.isEmpty())
     return CatalogVersion();
-  for (const CatalogVersion &v : m_versions)
-    if (v.sha256.compare(sha256, Qt::CaseInsensitive) == 0)
-    {
-      const QString path = DataCatalog::resolvedVersionPath(m_dir, v);
-      if (path.isEmpty() || !QFileInfo(path).isFile())
-        continue;
-      if (ShaCache::shared().sha256Hex(path).compare(sha256, Qt::CaseInsensitive) == 0) // D7.7
-        return v;
-    }
+  const QVector<int> rows = m_rowsBySha.value(sha256.toLower());
+  for (int r : rows)
+  {
+    const CatalogVersion &v = m_versions.at(r);
+    const QString path = DataCatalog::resolvedVersionPath(m_dir, v);
+    if (path.isEmpty() || !QFileInfo(path).isFile())
+      continue;
+    // #84：复核库内副本必须真重哈希（与 DataCatalog::versionBySha256 同一实现）。
+    // ShaCache 指纹（canon|mtime|size）不读内容——受管副本被保时间戳改写/位腐
+    // 时会冒充命中，目录导入与单文件导入的 dedup 结论就会分裂。ShaCache 只用于
+    // 「源文件取哈希」的加速，不用于「库内副本复核」。
+    if (DataCatalog::sha256FileHex(path).compare(sha256, Qt::CaseInsensitive) == 0)
+      return v;
+  }
   return CatalogVersion();
 }
 
 QVector<EntityAssetLink> CatalogReadSnapshot::linksForEntity(const QString &entityId) const
 {
-  return linksForEntityFrom(m_links, entityId);
+  // WP2：命中行集走索引（升序＝表序）；ordinal 稳定排序语义与
+  // linksForEntityFrom 的全表扫描版一致（audit row 35：空 id 回空集）。
+  if (entityId.isEmpty())
+    return {};
+  const QVector<int> rows = m_rowsByEntityId.value(entityId);
+  QVector<EntityAssetLink> out;
+  out.reserve(rows.size());
+  for (int r : rows)
+    out.append(m_links.at(r));
+  std::stable_sort(out.begin(), out.end(),
+                   [](const EntityAssetLink &a, const EntityAssetLink &b) {
+                     return a.ordinal < b.ordinal;
+                   });
+  return out;
 }
 
 QVector<FolderRowResult>

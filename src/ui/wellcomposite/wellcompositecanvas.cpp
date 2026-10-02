@@ -360,6 +360,11 @@ void WellCompositeCanvas::setZoomFactor(double factor, double anchorDepth)
   clampViewportToLimits(&m_scrollDepth, pxPerMeter());
 
   m_scaleRatio = calculateScaleRatioString();
+  refreshScaleTracks();
+}
+
+void WellCompositeCanvas::refreshScaleTracks()
+{
   for (auto &t : m_tracks)
   {
     if (t && t->type() == TrackType::DepthScale)
@@ -368,7 +373,6 @@ void WellCompositeCanvas::setZoomFactor(double factor, double anchorDepth)
       if (dst) dst->setScaleRatio(m_scaleRatio);
     }
   }
-
   syncScrollBars();
   updateAll();
   emit scaleRatioChanged(m_scaleRatio);
@@ -413,19 +417,7 @@ void WellCompositeCanvas::resetZoom()
   m_scaleRatio = m_baseScaleRatio == QStringLiteral("自适应") ? calculateScaleRatioString() : m_baseScaleRatio;
 
   m_scrollDepth = m_minDepth;
-  for (auto &t : m_tracks)
-  {
-    if (t && t->type() == TrackType::DepthScale)
-    {
-      auto dst = std::dynamic_pointer_cast<DepthScaleTrack>(t);
-      if (dst) dst->setScaleRatio(m_scaleRatio);
-    }
-  }
-  syncScrollBars();
-  updateAll();
-  emit scaleRatioChanged(m_scaleRatio);
-  emit zoomChanged(m_zoomFactor);
-  notifyViewportChanged();
+  refreshScaleTracks();
 }
 
 void WellCompositeCanvas::setScaleRatio(const QString &ratioStr)
@@ -438,19 +430,7 @@ void WellCompositeCanvas::setScaleRatio(const QString &ratioStr)
   m_zoomFactor = 1.0;
   m_scaleRatio = ratioStr == QStringLiteral("自适应") ? calculateScaleRatioString() : ratioStr;
 
-  for (auto &t : m_tracks)
-  {
-    if (t && t->type() == TrackType::DepthScale)
-    {
-      auto dst = std::dynamic_pointer_cast<DepthScaleTrack>(t);
-      if (dst) dst->setScaleRatio(m_scaleRatio);
-    }
-  }
-  syncScrollBars();
-  updateAll();
-  emit scaleRatioChanged(m_scaleRatio);
-  emit zoomChanged(m_zoomFactor);
-  notifyViewportChanged();
+  refreshScaleTracks();
 }
 
 void WellCompositeCanvas::setPins(const QList<DepthPin> &pins)

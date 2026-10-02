@@ -15,6 +15,8 @@
 #include "../qgis/qgislayerservice.h"
 #include "../services/toolavailability.h"
 #include "../linkage/selectioncontext.h"
+#include "layers/layertreepanel.h"
+#include "../workflow/depthconversionworkflow.h"
 #include "../workflow/workflows.h"
 #include "../domain/arearules.h"
 #include "../domain/projectclassifier.h"
@@ -43,6 +45,8 @@
 #include "typedconstraintdrawcontroller.h" // m2(B)：物源线/展布线/控制点类型化捕获
 #include "dialogs/folderconfirm.h"
 #include "correlationpanel.h"
+#include "correlation/petrophyspanel.h" // goal/petrophysics-logs：测井计算面板（意图信号）
+#include "io/lasdoc.h"                  // LasCurve 值类型（ui io 白名单头）
 #include "datapreview/datapreviewtabs.h"
 #include "wellcomposite/derivedsink.h" // deepen-perf D1：井综合派生登记 sink
 #include "../catalog/datacatalog.h"
@@ -139,6 +143,65 @@ void attachWellCompositeDerived(PaleoMainWindow *win, DataCatalog *catalog)
 }
 } // namespace
 
+// goal/time-depth-velocity：层树「转换为深度域…」意图信号 → 建模/换算/登记
+// 全在 DepthConversionWorkflow（功能层）；壳只解析声明与反馈状态。
+void PaleoMainWindow::attachDepthConversion(DepthConversionWorkflow *depth)
+{
+  m_depthWf = depth;
+  if (!depth || !m_layerPanel)
+    return;
+  connect(m_layerPanel, &LayerTreePanel::depthConversionRequested, this,
+          [this, depth](const QString &layerId) {
+    const auto status = [this](const QString &text, bool warn) {
+      QgsMessageLog::logMessage(text, QStringLiteral("Paleo"),
+                                warn ? Qgis::MessageLevel::Warning : Qgis::MessageLevel::Info);
+      if (statusBar())
+        statusBar()->showMessage(text, 8000);
+    };
+    const QString horizon = layerId.mid(QStringLiteral("horizon.").size());
+    if (!m_layerSvc)
+    {
+      status(tr("层服务不可用——深度域转换未接线"), true);
+      return;
+    }
+    QString timeRaster;
+    for (const LayerDeclaration &d : m_layerSvc->declared())
+      if (d.layerId == layerId)
+        timeRaster = d.source;
+    if (timeRaster.isEmpty())
+    {
+      status(tr("找不到层位 %1 的时间域栅格声明").arg(horizon), true);
+      return;
+    }
+    // 模型优先复用最新存档；缺则从 catalog 井控制数据先建层间平均模型。
+    QString modelPath = depth->latestModelPath();
+    if (modelPath.isEmpty())
+    {
+      const VelocityModelBuildRequest req = depth->requestFromCatalog();
+      if (req.topsFilePaths.isEmpty() && req.tdFilePaths.isEmpty())
+      {
+        status(tr("没有可用的井分层/校验炮数据——先导入再转换"), true);
+        return;
+      }
+      QString err;
+      modelPath = depth->buildAndStoreModel(req, &err);
+      if (modelPath.isEmpty())
+      {
+        status(tr("速度模型建立失败：%1").arg(err), true);
+        return;
+      }
+      status(tr("已建立并存档速度模型（层间平均）"), false);
+    }
+    QString convertedId, err;
+    if (!depth->convertRasterToDepth(horizon, timeRaster, modelPath, &convertedId, &err))
+    {
+      status(tr("深度域转换失败：%1").arg(err), true);
+      return;
+    }
+    status(tr("深度域转换完成：%1 → %2").arg(horizon, convertedId), false);
+  });
+}
+
 void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                                       CompositionWorkflow *compose, ValidationWorkflow *validate,
                                       DataImportService *importSvc, SeismicMapLink *seismicLink,
@@ -228,7 +291,122 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
       corrPanel = new WellCorrelationPanel(m_selection, bottomTabs);
       corrPanel->setObjectName(QStringLiteral("correlationPanel"));
       corrPanel->setTaskService(taskSvc); // B1：大 LAS 解析走 quiet 异步（nullptr 保持同步旧路径）
+      // goal/ui-experience-polish：异步 LAS 解析失败此前全仓无消费者——井列
+      // 静默不出现对用户不可见；接状态栏 + MessageLog（错误可见，E1 弹窗豁免）。
+      connect(corrPanel, &WellCorrelationPanel::lasLoadError, this,
+              [this](const QString &wellId, const QString &reason) {
+                statusBar()->showMessage(
+                    tr("测井 %1 曲线加载失败：%2").arg(wellId, reason), 6000);
+                QgsMessageLog::logMessage(
+                    tr("连井剖面：井 %1 LAS 加载失败 — %2").arg(wellId, reason),
+                    QStringLiteral("Paleo"));
+              });
       bottomTabs->addTab(corrPanel, tr("测井对比"));
+    }
+  }
+
+  // goal/petrophysics-logs：测井计算面板（视图只发意图信号）+ 壳层编排：
+  // 井集 = 连井面板当前井 → catalog 解析 LAS → PetroPhysTaskService 批任务
+  // （进度/取消/产物落盘走写队列 + catalog DERIVED 登记）→ 结果曲线并回
+  // 曲线集（mergeComputedCurves，上轨由用户勾选驱动）。
+  if (taskSvc && !m_petroPhysSvc)
+    m_petroPhysSvc = std::make_unique<paleo::petrophys::PetroPhysTaskService>(
+        taskSvc, store, this);
+  if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
+  {
+    auto *petroPanel = new paleo::petrophys::PetroPhysPanel(bottomTabs);
+    petroPanel->setObjectName(QStringLiteral("petrophysPanel"));
+    bottomTabs->addTab(petroPanel, tr("测井计算"));
+    if (m_petroPhysSvc)
+    {
+      connect(petroPanel, &paleo::petrophys::PetroPhysPanel::computeRequested, this,
+              [this, petroPanel, corrPanel](
+                  const paleo::petrophys::PetroPhysTaskService::BatchRequest &intent) {
+                if (!corrPanel || corrPanel->wellCount() == 0)
+                {
+                  petroPanel->showResult(
+                      false, tr("井集为空——先在数据页导入井（含 LAS）"));
+                  return;
+                }
+                QStringList wellIds;
+                for (int i = 0; i < corrPanel->wellCount(); ++i)
+                  wellIds.append(corrPanel->wellAt(i));
+                auto *catalog = m_previewDoc ? m_previewDoc->catalog() : nullptr;
+                // projectDir = catalogPath 去固定后缀（derivedsink.cpp 同先例；
+                // 形状异常 → 空 = 工程目录未解析，如实报错）
+                const QString catSuffix =
+                    QStringLiteral("/artifacts/metadata/catalog.json");
+                const QString catPath = catalog ? catalog->catalogPath() : QString();
+                const QString projDir =
+                    catPath.endsWith(catSuffix)
+                        ? catPath.left(catPath.size() - catSuffix.size())
+                        : QString();
+                QStringList missing;
+                paleo::petrophys::PetroPhysTaskService::BatchRequest req = intent;
+                if (catalog && !projDir.isEmpty())
+                {
+                  req.wells = paleo::petrophys::PetroPhysTaskService::resolveWellLas(
+                      catalog, projDir, wellIds, &missing);
+                }
+                petroPanel->setWellScope(corrPanel->wellCount(), req.wells.size());
+                if (req.wells.isEmpty())
+                {
+                  petroPanel->showResult(
+                      false, tr("无可解析 LAS 的井：%1").arg(missing.join(u'；')));
+                  return;
+                }
+                petroPanel->setBusy(true);
+                m_petroPhysTask = m_petroPhysSvc->startBatch(
+                    req, catalog, projDir + QStringLiteral("/artifacts/derived/petrophys"),
+                    [this, petroPanel, corrPanel, req](
+                        bool ok, const paleo::petrophys::PetroPhysTaskService::BatchResult &res) {
+                      int merged = 0;
+                      if (corrPanel)
+                      {
+                        for (const auto &w : res.wells)
+                        {
+                          if (!w.ok || w.values.isEmpty())
+                            continue;
+                          LasCurve depth;
+                          depth.name = QStringLiteral("DEPT");
+                          depth.values = w.depths;
+                          LasCurve c;
+                          c.name = req.outputMnemonic;
+                          c.unit = req.outputUnit;
+                          c.descr = req.outputDescr;
+                          c.values = w.values;
+                          corrPanel->mergeComputedCurves(w.wellId, {depth, c});
+                          ++merged;
+                        }
+                      }
+                      QString extra;
+                      if (!res.error.isEmpty())
+                        extra = tr("（%1）").arg(res.error);
+                      petroPanel->showResult(
+                          ok, tr("%1/%2 井完成，%3 条曲线并入曲线集%4")
+                                  .arg(res.succeeded)
+                                  .arg(res.wells.size())
+                                  .arg(merged)
+                                  .arg(extra));
+                    });
+                if (m_petroPhysTask)
+                {
+                  connect(m_petroPhysTask, &PaleoTask::changed, this,
+                          [this, petroPanel]() {
+                            if (PaleoTask *t = m_petroPhysTask.data())
+                              petroPanel->updateProgress(t->percent(), t->stage());
+                          });
+                }
+              });
+      connect(petroPanel, &paleo::petrophys::PetroPhysPanel::cancelRequested, this,
+              [this]() {
+                if (m_petroPhysTask)
+                  m_petroPhysTask->requestCancel();
+              });
+    }
+    else
+    {
+      petroPanel->setEnabled(false); // 无任务服务（测试/小环境）：不可用如实降级
     }
   }
 
@@ -1154,6 +1332,18 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
         return hs;
       };
       HorizonLocatorFilter::ActivateFn activate = [this](const QString &h) {
+        // 与 HorizonChipBar 同一拦截口径：编辑中切层位会在 releaseHorizon
+        // 里静默回滚丢编辑成果（历史上还绕过 busy 释放）。定位器入口必须
+        // 同样拒绝并说明原因，而不是开一条丢数据的旁路。
+        QString editingName;
+        if (m_layerSvc && m_layerSvc->isEditingAnyLayer(&editingName))
+        {
+          QgsMessageLog::logMessage(
+              tr("正在编辑「%1」——先保存或放弃编辑，再切换层位（定位器切换已拒绝）")
+                  .arg(editingName),
+              QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+          return;
+        }
         if (m_selection)
           m_selection->setActiveHorizon(h);
         if (m_layerSvc)

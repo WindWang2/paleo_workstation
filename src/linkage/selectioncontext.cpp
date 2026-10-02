@@ -35,6 +35,31 @@ void SelectionContext::setSelection(const QStringList &ids, const QString &origi
   emit selectionChanged(m_ids, m_origin);
   --m_broadcastDepth;
 
+  settlePending("setSelection");
+}
+
+void SelectionContext::setActiveHorizon(const QString &horizon)
+{
+  if (m_horizon == horizon)
+    return;
+  m_horizon = horizon;
+
+  // Same depth guard: a slot that calls setSelection() from here coalesces
+  // into the pending slot rather than re-entering; it is settled below.
+  ++m_broadcastDepth;
+  emit activeHorizonChanged(m_horizon);
+  --m_broadcastDepth;
+
+  settlePending("setActiveHorizon");
+}
+
+void SelectionContext::clear(const QString &origin)
+{
+  setSelection(QStringList(), origin);
+}
+
+void SelectionContext::settlePending(const char *caller)
+{
   // Settle pass: payloads coalesced during the broadcast fire once. The loop
   // covers a settle broadcast that itself triggers another re-set — each
   // generation still emits at most one merged payload. Bound at 4 iterations.
@@ -54,45 +79,7 @@ void SelectionContext::setSelection(const QStringList &ids, const QString &origi
   }
   if (m_pending)
   {
-    qWarning("SelectionContext::setSelection: settle iteration limit reached, dropped runaway pending selection");
+    qWarning("SelectionContext::%s: settle iteration limit reached, dropped runaway pending selection", caller);
     m_pending = false;
   }
-}
-
-void SelectionContext::setActiveHorizon(const QString &horizon)
-{
-  if (m_horizon == horizon)
-    return;
-  m_horizon = horizon;
-
-  // Same depth guard: a slot that calls setSelection() from here coalesces
-  // into the pending slot rather than re-entering; it is settled below.
-  ++m_broadcastDepth;
-  emit activeHorizonChanged(m_horizon);
-  --m_broadcastDepth;
-
-  int settleGenerations = 0;
-  constexpr int kMaxSettleGenerations = 4;
-  while (m_pending && settleGenerations < kMaxSettleGenerations)
-  {
-    ++settleGenerations;
-    m_pending = false;
-    if (m_ids == m_pendingIds && m_origin == m_pendingOrigin)
-      break;
-    m_ids = m_pendingIds;
-    m_origin = m_pendingOrigin;
-    ++m_broadcastDepth;
-    emit selectionChanged(m_ids, m_origin);
-    --m_broadcastDepth;
-  }
-  if (m_pending)
-  {
-    qWarning("SelectionContext::setActiveHorizon: settle iteration limit reached, dropped runaway pending selection");
-    m_pending = false;
-  }
-}
-
-void SelectionContext::clear(const QString &origin)
-{
-  setSelection(QStringList(), origin);
 }

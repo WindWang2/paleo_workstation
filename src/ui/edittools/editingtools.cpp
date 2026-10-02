@@ -1,5 +1,6 @@
 // 层：视图
 #include "editingtools.h"
+#include "../maptools/capturehelpers.h"
 
 #include "../../qgis/qgiseditingservice.h"
 
@@ -25,19 +26,6 @@
 #include <qgsvectorlayer.h>
 #include <qgswkbtypes.h>
 
-namespace
-{
-// QgsMapToolAdvancedDigitizing's ctor Q_ASSERTs a non-null dock and
-// activate()/event dispatch dereference it unconditionally — fabricate a
-// canvas-owned dock when the embedder does not inject a shared one. (Same
-// contract as PaleoDrawConstraintTool; kept local because sharing across
-// translation units would mean including paleomaptools.cpp.)
-QgsAdvancedDigitizingDockWidget *resolveCadDock( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *given )
-{
-  return given ? given : new QgsAdvancedDigitizingDockWidget( canvas, canvas );
-}
-} // namespace
-
 // ---------------------------------------------------------------------------
 // PaleoAddFeatureTool
 // ---------------------------------------------------------------------------
@@ -46,7 +34,7 @@ PaleoAddFeatureTool::PaleoAddFeatureTool( QgsMapCanvas *canvas,
     QgsAdvancedDigitizingDockWidget *cadDock,
     QgsMapToolCapture::CaptureMode mode,
     QgsVectorLayer *layer )
-  : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), mode )
+  : QgsMapToolCapture( canvas, CaptureHelpers::resolveCadDock( canvas, cadDock ), mode )
   , mLayer( layer )
 {
   setToolName( tr( "添加要素" ) );
@@ -199,7 +187,7 @@ bool PaleoAddFeatureTool::commitFeature( QgsGeometry geometry )
 PaleoReshapeTool::PaleoReshapeTool( QgsMapCanvas *canvas,
                                     QgsAdvancedDigitizingDockWidget *cadDock,
                                     QgsVectorLayer *layer )
-  : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), CaptureLine )
+  : QgsMapToolCapture( canvas, CaptureHelpers::resolveCadDock( canvas, cadDock ), CaptureLine )
   , mLayer( layer )
 {
   setToolName( tr( "整形要素" ) );

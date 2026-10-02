@@ -191,6 +191,9 @@ void SeismicSectionCanvas::setSectionData(
     m_columnDistances = columnDistancesM;
     m_mapCoords = mapCoords;
     m_noDataReason.clear(); // 有数据即清原因态
+    if (hasAttrOverlay() &&
+        (image.width != m_attrOverlay.width || image.height != m_attrOverlay.height))
+        clearAttrOverlay(); // 换剖面：旧属性层几何失配，防错位
 
     if (m_columnDistances.size() != static_cast<std::size_t>(m_traces)) {
         m_columnDistances.resize(m_traces);
@@ -375,6 +378,7 @@ void SeismicSectionCanvas::setColorMap(SectionColorMapType type) {
         m_colorMap = type;
         rebuildColorLut();
         rebuildImage();
+        rebuildAttrImage();
         update();
     }
 }
@@ -385,6 +389,7 @@ void SeismicSectionCanvas::setColorMapInverted(bool inverted) {
         m_cmapInverted = inverted;
         rebuildColorLut();
         rebuildImage();
+        rebuildAttrImage();
         update();
     }
 }
@@ -861,6 +866,64 @@ void SeismicSectionCanvas::rebuildColorLut() {
     }
 }
 
+void SeismicSectionCanvas::setAttrOverlay(const SgySliceImage &attr) {
+    // 几何必须与当前剖面逐位一致（服务保证同切片提取布局）
+    if (attr.width != m_traces || attr.height != m_samples || !hasData()) {
+        qWarning("setAttrOverlay: 尺寸不匹配（attr %dx%d vs 剖面 %dx%d），忽略",
+                 attr.width, attr.height, m_traces, m_samples);
+        return;
+    }
+    m_attrOverlay = attr;
+    rebuildAttrImage();
+    update();
+}
+
+void SeismicSectionCanvas::setAttrOverlayAlpha(double alpha) {
+    const double clamped = std::clamp(alpha, 0.0, 1.0);
+    if (std::abs(clamped - m_attrAlpha) < 1e-9)
+        return;
+    m_attrAlpha = clamped;
+    update();
+}
+
+void SeismicSectionCanvas::clearAttrOverlay() {
+    if (m_attrImage.isNull() && m_attrOverlay.values.empty())
+        return;
+    m_attrOverlay = SgySliceImage{};
+    m_attrImage = QImage();
+    update();
+}
+
+void SeismicSectionCanvas::rebuildAttrImage() {
+    if (m_attrOverlay.values.empty() || m_attrOverlay.width <= 0 ||
+        m_attrOverlay.height <= 0) {
+        m_attrImage = QImage();
+        return;
+    }
+    if (m_colorLut.empty())
+        rebuildColorLut();
+    m_attrImage = QImage(m_attrOverlay.width, m_attrOverlay.height,
+                         QImage::Format_ARGB32_Premultiplied);
+    const double lo = m_attrOverlay.valueMin;
+    const double hi = m_attrOverlay.valueMax;
+    const double span = (hi > lo) ? (hi - lo) : 1.0; // 退化值域：中档色
+    for (int y = 0; y < m_attrOverlay.height; ++y) {
+        auto *scan = reinterpret_cast<QRgb *>(m_attrImage.scanLine(y));
+        const float *row = m_attrOverlay.values.data() +
+                           std::size_t(y) * m_attrOverlay.width;
+        for (int x = 0; x < m_attrOverlay.width; ++x) {
+            const float v = row[x];
+            if (std::isnan(v)) {
+                scan[x] = 0; // 缺失=透明（不盖底图）
+                continue;
+            }
+            int idx = int((double(v) - lo) / span * 255.0 + 0.5);
+            idx = std::clamp(idx, 0, 255);
+            scan[x] = m_colorLut[std::size_t(idx)];
+        }
+    }
+}
+
 void SeismicSectionCanvas::paintValueRegion(int x0, int y0, int w, int h) {
     if (m_cachedImage.isNull() || m_slice.values.empty()) {
         return;
@@ -1090,6 +1153,14 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                        Qt::AlignLeft, tr("A · %1").arg(m_compareLabel.isEmpty() ? tr("当前") : tr("当前")));
             p.drawText(QRectF(vp.right() - 160.0, vp.top() + 2.0, 156.0, 16.0),
                        Qt::AlignRight, tr("B · %1").arg(m_compareLabel));
+        }
+
+        // goal/seismic-attributes：属性叠加层（同几何半透明色层，位于密度
+        // 之上、wiggle/解释要素之下——属性读图不遮挡相位轴与拾取）
+        if (hasAttrOverlay() && m_attrAlpha > 0.0) {
+            p.setOpacity(m_attrAlpha);
+            p.drawImage(imgDest, m_attrImage);
+            p.setOpacity(1.0);
         }
 
         // D2.2 wiggle 叠加（WiggleVA 全强 / Mixed 全强叠在淡密度上）
@@ -1374,6 +1445,24 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
         p.setPen(QPen(QColor(229, 57, 53, 180), 2.0, Qt::DashLine));
         p.drawPolyline(draft);
     }
+    // FaultSet 断层棒（goal/fault-interpretation）：剖面身份已在 dock 侧
+    // 过滤；选中断层加白色 halo（拾取点白描边同款视觉语言）+ 线宽提亮。
+    for (const FaultStickDisplay &stick : m_faultStickOverlays) {
+        QPolygonF poly;
+        for (const auto &pt : stick.points)
+            poly.append(QPointF(traceToPixelX(pt.first * std::max(1, m_traces - 1)),
+                                timeToPixelY(pt.second)));
+        if (poly.size() < 2)
+            continue;
+        if (stick.highlighted) {
+            p.setPen(QPen(QColor(Qt::white), 4.6));
+            p.drawPolyline(poly);
+            p.setPen(QPen(QColor(229, 57, 53), 2.6));
+        } else {
+            p.setPen(QPen(QColor(229, 57, 53), 2.2));
+        }
+        p.drawPolyline(poly);
+    }
 
     p.restore();
 
@@ -1583,24 +1672,28 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                     }
                 }
             } else {
-                // Depth unit
+                // Depth unit — 反投影贴准（与 D2.5 右缘深度轴同法）：深度刻度先
+                // 反解 TWT 再取像素，非常速（校验炮分段/压实）模型下刻度间距
+                // 如实非线性，不再按常速线性近似。
                 const double minDepth = m_tdModel.TwtMsToDepth(minTime);
                 const double maxDepth = m_tdModel.TwtMsToDepth(maxTime);
-                const auto ticks = NiceStep::GenerateTicks(minDepth, maxDepth, m_topMargin, height(), 8, QStringLiteral("%.0f"));
+                const auto ticks = NiceStep::GenerateTicks(std::min(minDepth, maxDepth), std::max(minDepth, maxDepth),
+                                                           m_topMargin, height(), 8, QStringLiteral("%.0f"));
                 for (const auto &tk : ticks) {
-                    if (tk.pixelPos < m_topMargin || tk.pixelPos > height())
+                    const double py = timeToPixelY(m_tdModel.DepthToTwtMs(tk.value));
+                    if (py < m_topMargin || py > height())
                         continue;
 
                     p.setPen(tok.textMuted);
                     if (tk.isMajor) {
-                        p.drawLine(QPointF(m_leftMargin - 10.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
+                        p.drawLine(QPointF(m_leftMargin - 10.0, py), QPointF(m_leftMargin, py));
                         const QString label = QStringLiteral("%1").arg(qRound(tk.value));
                         const QFontMetrics fm(monoFont);
                         const int tw = fm.horizontalAdvance(label);
                         p.setPen(tok.text);
-                        p.drawText(QPointF(m_leftMargin - 14.0 - tw, tk.pixelPos + 4.0), label);
+                        p.drawText(QPointF(m_leftMargin - 14.0 - tw, py + 4.0), label);
                     } else {
-                        p.drawLine(QPointF(m_leftMargin - 5.0, tk.pixelPos), QPointF(m_leftMargin, tk.pixelPos));
+                        p.drawLine(QPointF(m_leftMargin - 5.0, py), QPointF(m_leftMargin, py));
                     }
                 }
             }
@@ -1615,7 +1708,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
             const QString unitStr =
                 m_vertUnit == SectionVerticalUnit::TwoWayTimeMs
                     ? tr("TWT (ms)")
-                    : tr("参考深度\n(m，常速)");
+                    : tr("深度\n(m)");
             p.drawText(QRect(2, 2, m_leftMargin - 4, m_topMargin - 4), Qt::AlignCenter, unitStr);
         }
     }
@@ -1934,6 +2027,12 @@ void SeismicSectionCanvas::setPickOverlays(const QList<SeismicPick> &picks,
                                            const QList<SeismicFaultSegment> &faults) {
     m_pickOverlays = picks;
     m_faultOverlays = faults;
+    update();
+}
+
+void SeismicSectionCanvas::setFaultStickOverlays(
+    const QVector<SeismicSectionCanvas::FaultStickDisplay> &sticks) {
+    m_faultStickOverlays = sticks;
     update();
 }
 

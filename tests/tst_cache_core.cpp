@@ -11,6 +11,7 @@
 #include <QTemporaryDir>
 #include <QtConcurrent>
 #include <atomic>
+#include <thread>
 
 class CacheCoreTests : public QObject
 {
@@ -30,6 +31,7 @@ class CacheCoreTests : public QObject
     void budgetEnforceEvictsOldestAccess();
     void budgetPressureHandlers();
     void budgetLargeAllocAudit();
+    void twoPhaseLatchingAndEvictionRefCount();
 
     // ---- cachecore 版本化格式（D2.3 自愈）----
     void cacheFileRoundtrip();
@@ -186,6 +188,90 @@ void CacheCoreTests::budgetLargeAllocAudit()
   QCOMPARE(allocs.first().bytes, qint64(42 * 1024 * 1024));
   mgr->clearLargeAllocations();
   QVERIFY(mgr->largeAllocations().isEmpty());
+}
+
+namespace
+{
+class MockEvictableCache : public EvictableCache
+{
+public:
+  MockEvictableCache(QString id, qint64 bytes)
+    : m_id(std::move(id)), m_bytes(bytes)
+  {
+    CacheBudgetManager::instance()->registerCache(this);
+  }
+  ~MockEvictableCache() override
+  {
+    CacheBudgetManager::instance()->unregisterCache(this);
+  }
+  QString cacheId() const override { return m_id; }
+  qint64 bytes() const override { return m_bytes; }
+  qint64 capacity() const override { return 100000; }
+  CacheStats stats() const override { return {}; }
+  qint64 lastAccessMs() const override { return 1000; }
+
+  std::function<void()> onEvict;
+
+  qint64 evictLRUEntries(qint64 targetBytes) override
+  {
+    if (onEvict)
+      onEvict();
+    const qint64 freed = qMax<qint64>(0, m_bytes - targetBytes);
+    m_bytes -= freed;
+    return freed;
+  }
+
+private:
+  QString m_id;
+  qint64 m_bytes = 0;
+};
+} // namespace
+
+void CacheCoreTests::twoPhaseLatchingAndEvictionRefCount()
+{
+  CacheBudgetManager *mgr = CacheBudgetManager::instance();
+  const qint64 savedBudget = mgr->budgetBytes();
+
+  auto *mock = new MockEvictableCache(QStringLiteral("mock_evict"), 2000);
+  QCOMPARE(mock->activeEvictionRefs(), 0);
+
+  std::atomic_bool unregisterStarted{false};
+  std::atomic_bool unregisterDone{false};
+  std::atomic_bool evictionRefObserved{false};
+
+  mock->onEvict = [&]() {
+    if (mock->activeEvictionRefs() > 0)
+      evictionRefObserved.store(true);
+
+    // In a background thread, attempt to unregister mock while eviction is active
+    std::thread unregisterThread([&]() {
+      unregisterStarted.store(true);
+      mgr->unregisterCache(mock);
+      unregisterDone.store(true);
+    });
+    unregisterThread.detach();
+
+    // Give the unregister thread time to run and block on QWaitCondition
+    while (!unregisterStarted.load())
+    {
+      QTest::qSleep(5);
+    }
+    QTest::qSleep(40);
+    // Unregister must NOT have finished yet because eviction refs are active!
+    QVERIFY(!unregisterDone.load());
+  };
+
+  mgr->setBudgetBytes(1000); // Triggers enforce(), calling evictLRUEntries on mock
+  QVERIFY(evictionRefObserved.load());
+
+  // After enforce() finishes, eviction refs are released and unregister completes
+  for (int i = 0; i < 200 && !unregisterDone.load(); ++i)
+    QTest::qSleep(5);
+
+  QVERIFY(unregisterDone.load());
+  delete mock;
+
+  mgr->setBudgetBytes(savedBudget);
 }
 
 void CacheCoreTests::cacheFileRoundtrip()

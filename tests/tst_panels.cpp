@@ -38,6 +38,7 @@
 #include "../src/ui/pages/pagepanels.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/workflow/workflows.h"
+#include "uipolish_capture.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
@@ -2265,6 +2266,97 @@ private:
         const QSet<QString> ids = lp->currentAssetSelection();
         QCOMPARE(ids.size(), 2);
         QVERIFY(ids.contains(fx.astResolved) || ids.contains(fx.astPending));
+    }
+
+    // goal/ui-experience-polish：数据页（树/表选中态）+ 验证页（残差胶囊表）
+    // 的修前/修后截图证据（PALEO_UI_CAPTURE 未设时零开销直通）。
+    void uipolish_captureEvidence()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *table = page->findChild<QTableWidget *>(QStringLiteral("assetTable"));
+        auto *tree = page->findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+        if (table && table->model()->rowCount() > 0)
+            table->selectRow(0);
+        if (tree && tree->topLevelItemCount() > 0)
+            tree->setCurrentItem(tree->topLevelItem(0));
+        uipolish::capturePanel(page.get(), QStringLiteral("datapage"), QSize(980, 640));
+
+        ValidatePage vp(nullptr);
+        QVariantList rows;
+        QVariantMap pass;
+        pass.insert(QStringLiteral("well_name"), QStringLiteral("A1"));
+        pass.insert(QStringLiteral("status"), QStringLiteral("pass"));
+        pass.insert(QStringLiteral("residual_ms"), 3.2);
+        rows.append(pass);
+        QVariantMap exceed;
+        exceed.insert(QStringLiteral("well_name"), QStringLiteral("A2"));
+        exceed.insert(QStringLiteral("status"), QStringLiteral("exceed"));
+        exceed.insert(QStringLiteral("residual_ms"), 22.5);
+        rows.append(exceed);
+        auto *resTable = vp.findChild<QTableWidget *>(QStringLiteral("residualTable"));
+        if (resTable)
+            ValidatePage::fillResidualTable(resTable, rows);
+        uipolish::capturePanel(&vp, QStringLiteral("validatepage"), QSize(560, 420));
+    }
+
+    // goal/ui-experience-polish：键盘语义落地——Space 切换当前行选中态
+    //（D6.4 注释曾声称、实现缺失，本轮补上）、Delete 走软删确认流。
+    void uipolish_keyboardSpaceTogglesSelection()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->findChild<DataListPanel *>();
+        auto *table = page->findChild<QTableWidget *>(QStringLiteral("assetTable"));
+        QVERIFY(lp && table && table->model()->rowCount() >= 2);
+        table->setCurrentIndex(table->model()->index(0, 0));
+        table->selectionModel()->select(table->model()->index(0, 0),
+                                        QItemSelectionModel::Select |
+                                            QItemSelectionModel::Rows);
+        QVERIFY(lp->currentAssetSelection().size() >= 1);
+        // Space → 取消当前行选中
+        QTest::keyClick(table, Qt::Key_Space);
+        QVERIFY(lp->currentAssetSelection().isEmpty());
+        // Space → 重新选中
+        QTest::keyClick(table, Qt::Key_Space);
+        QVERIFY(lp->currentAssetSelection().size() >= 1);
+
+        // Delete → 软删确认模态（driveModalNextTick 驱动「是」）→ 选中清空。
+        const int rowsBefore = table->model()->rowCount();
+        driveModalNextTick([](QWidget *w) {
+            if (auto *mb = qobject_cast<QMessageBox *>(w))
+                if (auto *yes = mb->button(QMessageBox::Yes))
+                    yes->click();
+        });
+        QTest::keyClick(table, Qt::Key_Delete);
+        QTest::qWait(50);
+        QVERIFY(table->model()->rowCount() < rowsBefore ||
+                 lp->currentAssetSelection().isEmpty());
+    }
+
+    // 命令面板快捷键 = Ctrl+Shift+P（Ctrl+K 归定位器；同键歧义修复的回归钉）。
+    void uipolish_commandPaletteShortcutMoved()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *sc = page->findChild<QShortcut *>(QStringLiteral("scCommandPalette"));
+        QVERIFY(sc);
+        QCOMPARE(sc->key(), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P));
     }
 
     void dataops_d1_selectionBadgeAndCountSignal()

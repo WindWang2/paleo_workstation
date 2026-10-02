@@ -276,13 +276,19 @@ class DataCatalog : public QObject
     bool endBatch(QString *error = nullptr);
     // markDownstreamStale/addVersion 共用的内存段标记：只写 m_versions，
     // 不落盘；返回实际改动的版本数（已是同一标记的不计）。
-    int markStaleDownstreamOf(const QString &versionId, const QString &reason);
+    // undo 非空时，每个被改行在改前压入 (行号, 原版本拷贝)——调用方在
+    // save 失败回滚时逆序还原（同一行可能重复入栈，逆序恢复到最初原值）。
+    // 行号定位走 m_idx.versionRow（O(1)）——WP2：不再每次全表建 id→row 哈希
+    //（那是 addVersion 的隐藏 O(N)/调用，N 次导入即 O(N²)）。
+    int markStaleDownstreamOf(const QString &versionId, const QString &reason,
+                              QVector<QPair<int, CatalogVersion>> *undo = nullptr);
     QString m_dir;
     bool m_isOpen = false;
     QString m_openError;         // 最近一次 open() 失败原因（成功后清空）
     bool m_lockedReadOnly = false; // 见 setLockedReadOnly——实例级只读降级
     bool m_recoveredFromBackup = false; // open() 走了 .bak 回退（本次 open 内）
     QString m_backupRecoveryReason;     // 主文件损坏原因（恢复成功时留底）
+    bool m_primaryCorruptOnDisk = false; // 盘上主文件仍是损坏那份（首次成功 save 前，#79）
     int m_batchDepth = 0;        // >0 时 save() 挂起（BatchSave）
     bool m_batchDirty = false;   // 挂起期间有过变更 → endBatch 落一次盘
     int m_revision = 0;

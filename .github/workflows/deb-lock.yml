@@ -1,0 +1,28 @@
+# deb 闭包锁的可达性冒烟（#76）：Ubuntu pool 会下架被安全更新取代的旧版本，
+# 锁会悄悄"腐烂"。这里只对每个锁定 URL 做 HEAD 探测（pool 404 时探
+# snapshot.ubuntu.com 回退源），不下载 ~842 MiB 闭包，也不替代下载路径的
+# SHA-256 校验。独立 workflow，不进 required checks。
+name: deb-lock
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'   # 每周一 03:17 UTC
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'vendor/deb-closure.lock'
+      - 'vendor/deb-closure.snapshot'
+      - 'vendor/fetch-deps.sh'
+      - '.github/workflows/deb-lock.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check-urls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe locked deb URLs (pool → snapshot fallback)
+        run: ./vendor/fetch-deps.sh --check-urls

@@ -4,9 +4,14 @@
 #include <QKeyEvent>
 #include <QPainter>
 
+#include "../paleotheme.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
+
+#include <glm/ext/matrix_projection.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
 
 static void initSeismicResources() {
     Q_INIT_RESOURCE(seismic_shaders);
@@ -38,6 +43,7 @@ Seismic3DViewportWidget::~Seismic3DViewportWidget() {
         makeCurrent();
         sliceRenderer_.Cleanup(this);
         frameRenderer_.Cleanup(this);
+        horizonRenderer_.Cleanup(this);
         doneCurrent();
     }
 }
@@ -51,7 +57,19 @@ void Seismic3DViewportWidget::initializeGL() {
 
     sliceRenderer_.Initialize(this);
     frameRenderer_.Initialize(this);
+    horizonRenderer_.Initialize(this);
     glInitialized_ = true;
+
+    // D7.1：GL 前设置的 TF 在此补传（切片值纹理由面板 glReady 后重喂）
+    if (tfActive_ && tfLutBytes_.size() == 256 * 4) {
+        sliceRenderer_.SetTransferFunction(this, tfLutBytes_, true);
+    }
+
+    // D7.3：GL 前设置的层位面在此补传
+    if (horizonsPending_ && volume_ && volume_->IsLoaded()) {
+        horizonRenderer_.UpdateHorizons(this, *volume_, horizonItems_);
+        horizonsPending_ = false;
+    }
 
     if (volume_ && volume_->IsLoaded()) {
         frameRenderer_.UpdateFromVolume(this, *volume_);
@@ -110,6 +128,7 @@ void Seismic3DViewportWidget::paintGL() {
 
     sliceRenderer_.Render(this, view, proj, model);
     frameRenderer_.Render(this, view, proj, model);
+    horizonRenderer_.Render(this, view, proj, model);
 
     // D3.10 帧率读数（debug 开关；半秒滚动均值）
     ++fpsFrames_;
@@ -118,12 +137,56 @@ void Seismic3DViewportWidget::paintGL() {
         fpsFrames_ = 0;
         fpsClock_.restart();
     }
-    if (fpsVisible_) {
+    const bool needOverlay = fpsVisible_ || wellLabelsVisible_;
+    if (needOverlay) {
         QPainter p(this);
         p.setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
-        p.setPen(QColor(95, 165, 240));
-        p.drawText(rect().adjusted(6, 4, -6, -4), Qt::AlignTop | Qt::AlignRight,
-                   QStringLiteral("%1 fps").arg(fps_, 0, 'f', 1));
+        if (wellLabelsVisible_ && volume_ && volume_->IsLoaded()) {
+            // D7.3 井名标注：井口（或轨迹首点）投影到屏幕 + 半透明底卡
+            const float hScale = SeismicSliceRenderer::HorizontalScale();
+            const float vScale = SeismicSliceRenderer::HeightScale();
+            const auto norm = [&](float v, int lo, int hi, float scale) {
+                const float range = static_cast<float>(std::max(1, hi - lo));
+                return ((v - static_cast<float>(lo)) / range - 0.5f) * scale;
+            };
+            QFont labelFont = PaleoTheme::bodyFont();
+            labelFont.setPointSize(PaleoTheme::kLabelPt);
+            p.setFont(labelFont);
+            for (const Seismic3DWell &well : wellsForLabels_) {
+                float il = static_cast<float>(well.inlineNo);
+                float xl = static_cast<float>(well.xlineNo);
+                float frac = 0.0f; // 标注锚在井口（顶面）
+                if (!well.trajectory.empty()) {
+                    il = well.trajectory.front().inlineNo;
+                    xl = well.trajectory.front().xlineNo;
+                    frac = well.trajectory.front().sampleFrac;
+                }
+                const glm::vec3 world(
+                    norm(xl, volume_->XlineMin(), volume_->XlineMax(), hScale),
+                    vScale * 0.5f - std::clamp(frac, 0.0f, 1.0f) * vScale,
+                    norm(il, volume_->InlineMin(), volume_->InlineMax(), hScale));
+                const glm::vec4 clip = proj * view * glm::vec4(world, 1.0f);
+                if (clip.w <= 1e-3f)
+                    continue;
+                const QPointF screen((clip.x / clip.w * 0.5f + 0.5f) * width(),
+                                     (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * height());
+                const QString text = well.name;
+                const QFontMetrics fm(labelFont);
+                const QRect box = fm.boundingRect(text).adjusted(-3, -2, 3, 2)
+                                       .translated(screen.toPoint());
+                p.setPen(Qt::NoPen);
+                p.setBrush(QColor(255, 255, 255, 200));
+                p.drawRoundedRect(box, 4, 4);
+                p.setPen(QPen(PaleoTheme::tokens().text, 1));
+                p.drawText(box, Qt::AlignCenter, text);
+            }
+        }
+        if (fpsVisible_) {
+            p.setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
+            p.setPen(QColor(95, 165, 240));
+            p.drawText(rect().adjusted(6, 4, -6, -4), Qt::AlignTop | Qt::AlignRight,
+                       QStringLiteral("%1 fps").arg(fps_, 0, 'f', 1));
+        }
         p.end();
     }
 }
@@ -132,6 +195,9 @@ void Seismic3DViewportWidget::setVolume(std::shared_ptr<SgyVolume> volume) {
     volume_ = std::move(volume);
     pendingSlices_.clear();
     pendingLineSlice_.valid = false;
+    activeSectionPath_.clear();
+    sectionPickPoints_.clear();
+    sectionHoverValid_ = false;
     initialFitDone_ = false;
     if (glInitialized_ && volume_ && volume_->IsLoaded()) {
         makeCurrent();
@@ -174,6 +240,7 @@ bool Seismic3DViewportWidget::updateLineSlice(
     if (!volume_) {
         return false;
     }
+    activeSectionPath_ = pathPoints; // D7.2：取消拾取后恢复顶面线用
     if (!glInitialized_) {
         pendingLineSlice_ = {pathPoints, image, true};
         return true;
@@ -231,6 +298,23 @@ void Seismic3DViewportWidget::mousePressEvent(QMouseEvent *event) {
     lastMousePos_ = event->position();
     rotateVelocity_ = QPointF(0, 0);
     inertiaTimer_.stop();
+    // D7.2 剖面拾取模式：左键消费为拾取点（不进旋转/拖面分支）
+    if (sectionPickActive_ && event->button() == Qt::LeftButton &&
+        !(event->modifiers() & Qt::ControlModifier)) {
+        glm::ivec2 grid;
+        if (pickTopPlaneGrid(event->position(), grid)) {
+            // 与末点重合（抖动/双击次击）不入列
+            if (sectionPickPoints_.empty() || sectionPickPoints_.back() != grid) {
+                sectionPickPoints_.push_back(grid);
+                if (sectionAutoCommitTwo_ && sectionPickPoints_.size() >= 2) {
+                    commitSectionPath();
+                } else {
+                    updateSectionPreview();
+                }
+            }
+        }
+        return;
+    }
     if (event->button() == Qt::LeftButton && !(event->modifiers() & Qt::ShiftModifier)) {
         // D3.2：点中切片面 → 拖面（Ctrl 按住强制旋转，避免抢交互）
         if (event->modifiers() & Qt::ControlModifier) {
@@ -255,6 +339,16 @@ void Seismic3DViewportWidget::mousePressEvent(QMouseEvent *event) {
 }
 
 void Seismic3DViewportWidget::mouseMoveEvent(QMouseEvent *event) {
+    // D7.2 拾取悬停点刷新（橡皮线跟手）
+    if (sectionPickActive_ && !sectionPickPoints_.empty()) {
+        glm::ivec2 grid;
+        if (pickTopPlaneGrid(event->position(), grid) && grid != sectionHoverPoint_) {
+            sectionHoverPoint_ = grid;
+            sectionHoverValid_ = true;
+            updateSectionPreview();
+        }
+        return;
+    }
     if (dragMode_ == DragMode::None) {
         // D3.2 悬停高亮提示：落在切片面上给拖拽光标
         if (!sliceRenderer_.IsStackVisible()) {
@@ -325,6 +419,20 @@ void Seismic3DViewportWidget::wheelEvent(QWheelEvent *event) {
 }
 
 void Seismic3DViewportWidget::keyPressEvent(QKeyEvent *event) {
+    // D7.2 拾取模式键：回车=提交栅栏、Esc=取消（优先于相机快捷键）
+    if (sectionPickActive_) {
+        if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+            if (sectionPickPoints_.size() >= 2)
+                commitSectionPath();
+            event->accept();
+            return;
+        }
+        if (event->key() == Qt::Key_Escape) {
+            cancelSectionPick();
+            event->accept();
+            return;
+        }
+    }
     // 方向键旋转（12px 当量 ≈ 3°/次），+/- 缩放
     constexpr float kRotateStepPx = 12.0f;
     switch (event->key()) {
@@ -357,7 +465,124 @@ void Seismic3DViewportWidget::keyPressEvent(QKeyEvent *event) {
 }
 
 void Seismic3DViewportWidget::mouseDoubleClickEvent(QMouseEvent * /*event*/) {
+    // D7.2 拾取模式：双击提交栅栏（次击的重复点已由 mousePress 去重）
+    if (sectionPickActive_) {
+        if (sectionPickPoints_.size() >= 2)
+            commitSectionPath();
+        return;
+    }
     fitToBounds();
+}
+
+// ---- D7.2 任意剖面拾取：顶面射线求交 + 预览 + 提交/取消 ----
+
+// 屏幕 → NDC → 双深度反投影 → 与 y=+HeightScale/2 平面求交 → 测网格坐标。
+bool Seismic3DViewportWidget::pickTopPlaneGrid(const QPointF &pos, glm::ivec2 &outGrid) const {
+    if (!volume_ || !volume_->IsLoaded() || width() <= 0 || height() <= 0)
+        return false;
+    const float aspect = static_cast<float>(width()) / static_cast<float>(height());
+    const glm::mat4 proj = camera_.BuildProjectionMatrix(aspect);
+    const glm::mat4 view = camera_.BuildViewMatrix();
+    const glm::vec4 vp(0.0f, 0.0f, static_cast<float>(width()), static_cast<float>(height()));
+
+    // unProject 收窗口像素坐标（GL 惯例：左下原点——y 翻转；z 0/1 = 近远裁剪）
+    const glm::vec3 winNear(static_cast<float>(pos.x()), vp.w - static_cast<float>(pos.y()), 0.0f);
+    const glm::vec3 winFar(static_cast<float>(pos.x()), vp.w - static_cast<float>(pos.y()), 1.0f);
+    const glm::vec3 pNear = glm::unProject(winNear, view, proj, vp);
+    const glm::vec3 pFar = glm::unProject(winFar, view, proj, vp);
+    const glm::vec3 dir = pFar - pNear;
+    const float yTop = SeismicSliceRenderer::HeightScale() * 0.5f;
+    if (std::abs(dir.y) < 1e-6f)
+        return false;
+    const float t = (yTop - pNear.y) / dir.y;
+    if (t < 0.0f || t > 1.0f)
+        return false;
+    const glm::vec3 hit = pNear + dir * t;
+
+    // BuildSliceVertices 的逆映射（x↔xline、z↔inline，水平同尺度）
+    const float hScale = SeismicSliceRenderer::HorizontalScale();
+    const auto toGrid = [&](float coord, int minV, int maxV) {
+        const float range = static_cast<float>(std::max(1, maxV - minV));
+        const float raw = minV + (coord / hScale + 0.5f) * range;
+        return static_cast<int>(std::lround(raw));
+    };
+    int il = toGrid(hit.z, volume_->InlineMin(), volume_->InlineMax());
+    int xl = toGrid(hit.x, volume_->XlineMin(), volume_->XlineMax());
+    il = std::clamp(il, volume_->InlineMin(), volume_->InlineMax());
+    xl = std::clamp(xl, volume_->XlineMin(), volume_->XlineMax());
+    il = volume_->FindNearestInlineValue(il);
+    xl = volume_->FindNearestXlineValue(xl);
+    outGrid = glm::ivec2(il, xl);
+    return true;
+}
+
+// 顶面橡皮线：已拾点 + 悬停点（≥2 才画；GL 未就绪仅存内存）
+void Seismic3DViewportWidget::updateSectionPreview() {
+    std::vector<glm::ivec2> path = sectionPickPoints_;
+    if (sectionHoverValid_ && !sectionPickPoints_.empty())
+        path.push_back(sectionHoverPoint_);
+    if (path.size() < 2 || !volume_ || !volume_->IsLoaded())
+        return;
+    if (glInitialized_) {
+        makeCurrent();
+        frameRenderer_.UpdateLineSection(this, *volume_, path);
+        doneCurrent();
+        update();
+    }
+}
+
+void Seismic3DViewportWidget::commitSectionPath() {
+    const std::vector<glm::ivec2> path = sectionPickPoints_;
+    setSectionPickMode(false, sectionAutoCommitTwo_);
+    if (path.size() >= 2)
+        emit sectionPathCommitted(path);
+}
+
+void Seismic3DViewportWidget::cancelSectionPick() {
+    setSectionPickMode(false, sectionAutoCommitTwo_);
+    // 恢复已贴剖面的顶面线（无则清线）
+    if (glInitialized_ && volume_) {
+        makeCurrent();
+        if (activeSectionPath_.size() >= 2)
+            frameRenderer_.UpdateLineSection(this, *volume_, activeSectionPath_);
+        else
+            frameRenderer_.ClearLineSection();
+        doneCurrent();
+        update();
+    }
+}
+
+void Seismic3DViewportWidget::setSectionPickMode(bool enabled, bool autoCommitAtTwo) {
+    sectionPickActive_ = enabled;
+    sectionAutoCommitTwo_ = autoCommitAtTwo;
+    sectionPickPoints_.clear();
+    sectionHoverValid_ = false;
+    if (enabled) {
+        setCursor(Qt::CrossCursor);
+        setToolTip(tr("拾取模式：单击拾取剖面路径点（顶面）%1；Esc 取消")
+                       .arg(autoCommitAtTwo ? tr("，两点自动成剖") : tr("，回车/双击提交栅栏")));
+    } else {
+        setCursor(Qt::ArrowCursor);
+        setToolTip(tr("左键拖拽旋转；右键/Shift+左键拖拽平移；滚轮缩放（Shift 横向平移）\n"
+                      "方向键旋转；+/- 缩放；双击居中复位"));
+    }
+    emit sectionPickModeChanged(sectionPickActive_);
+}
+
+bool Seismic3DViewportWidget::isLineSectionReady() const {
+    return pendingLineSlice_.valid || sliceRenderer_.IsSlotReady(SeismicSliceSlot::Line);
+}
+
+void Seismic3DViewportWidget::clearLineSection() {
+    pendingLineSlice_.valid = false;
+    activeSectionPath_.clear();
+    if (glInitialized_) {
+        makeCurrent();
+        sliceRenderer_.ClearSlot(this, SeismicSliceSlot::Line);
+        frameRenderer_.ClearLineSection();
+        doneCurrent();
+    }
+    update();
 }
 
 // ---- D3.2 切片面拾取与拖拽换算 ----
@@ -511,6 +736,19 @@ void Seismic3DViewportWidget::setSliceAlpha(float alpha) {
     update();
 }
 
+// D7.1：LUT 重传（256B）。enable 翻转时切片/堆叠层纹理需按新模式重喂——
+// 由面板持有 values 缓存方（cachedSlices_/堆叠缓存）负责，视口只管 LUT。
+void Seismic3DViewportWidget::setTransferFunction(const std::vector<unsigned char> &lutRgba, bool enable) {
+    tfLutBytes_ = lutRgba;
+    tfActive_ = enable;
+    if (!glInitialized_ || lutRgba.size() != 256 * 4)
+        return;
+    makeCurrent();
+    sliceRenderer_.SetTransferFunction(this, lutRgba, enable);
+    doneCurrent();
+    update();
+}
+
 QImage Seismic3DViewportWidget::grabViewportImage() {
     if (!glInitialized_)
         return QImage();
@@ -518,6 +756,7 @@ QImage Seismic3DViewportWidget::grabViewportImage() {
 }
 
 void Seismic3DViewportWidget::setWells(const std::vector<Seismic3DWell> &wells) {
+    wellsForLabels_ = wells; // D7.3 标注叠绘原料（无 GL 也更新）
     if (!volume_)
         return;
     if (glInitialized_) {
@@ -526,6 +765,44 @@ void Seismic3DViewportWidget::setWells(const std::vector<Seismic3DWell> &wells) 
         doneCurrent();
         update();
     }
+}
+
+// ---- D7.3 层位面 ----
+void Seismic3DViewportWidget::setHorizons(const std::vector<Seismic3DHorizonSurface> &items) {
+    horizonItems_ = items;
+    if (!volume_ || !volume_->IsLoaded())
+        return;
+    if (glInitialized_) {
+        makeCurrent();
+        horizonRenderer_.UpdateHorizons(this, *volume_, horizonItems_);
+        doneCurrent();
+        update();
+    } else {
+        horizonsPending_ = true; // initializeGL 补传
+    }
+}
+
+void Seismic3DViewportWidget::setHorizonVisible(int index, bool visible) {
+    if (index >= 0 && index < int(horizonItems_.size()))
+        horizonItems_[static_cast<std::size_t>(index)].visible = visible;
+    horizonRenderer_.SetHorizonVisible(index, visible);
+    update();
+}
+
+bool Seismic3DViewportWidget::isHorizonVisible(int index) const {
+    if (index < 0 || index >= int(horizonItems_.size()))
+        return false;
+    return horizonItems_[static_cast<std::size_t>(index)].visible;
+}
+
+void Seismic3DViewportWidget::setHorizonsVisible(bool visible) {
+    horizonRenderer_.SetVisible(visible);
+    update();
+}
+
+void Seismic3DViewportWidget::setWellLabelsVisible(bool visible) {
+    wellLabelsVisible_ = visible;
+    update();
 }
 
 void Seismic3DViewportWidget::setSecondaryVolume(std::shared_ptr<const SgyVolume> secondary) {

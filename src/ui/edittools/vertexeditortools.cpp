@@ -7,6 +7,7 @@
 #include <tuple>
 
 #include <QKeyEvent>
+#include <QHash>
 
 #include <qgis.h>
 #include <qgsfeature.h>
@@ -152,6 +153,22 @@ bool isPolygonClosureVertex( const QgsGeometry &g, int nr, int &part, int &ring,
     return true;
   }
   return false;
+}
+
+struct RingKey
+{
+  QgsVectorLayer *layer = nullptr;
+  qint64 fid = -1;
+  int part = 0;
+  int ring = 0;
+  bool operator==( const RingKey &o ) const
+  {
+    return layer == o.layer && fid == o.fid && part == o.part && ring == o.ring;
+  }
+};
+inline size_t qHash( const RingKey &k, size_t seed = 0 )
+{
+  return qHashMulti( seed, k.layer, k.fid, k.part, k.ring );
 }
 } // namespace
 
@@ -389,11 +406,16 @@ void PaleoVertexTool::canvasPressEvent( QgsMapMouseEvent *e )
   }
 
   // Prime the previews with the (so far zero-length) move, same math as move.
+  updateDragPreviews( e->mapPoint() );
+}
+
+void PaleoVertexTool::updateDragPreviews( const QgsPointXY &mapPoint )
+{
   for ( auto lit = mDraggingVertex->originalByFid.begin();
         lit != mDraggingVertex->originalByFid.end(); ++lit )
   {
     QgsVectorLayer *writeLayer = lit.key();
-    const QgsPointXY lp = toLayerCoordinates( writeLayer, e->mapPoint() );
+    const QgsPointXY lp = toLayerCoordinates( writeLayer, mapPoint );
     for ( auto fit = lit.value().begin(); fit != lit.value().end(); ++fit )
     {
       QgsGeometry preview = fit.value();
@@ -433,20 +455,7 @@ void PaleoVertexTool::canvasMoveEvent( QgsMapMouseEvent *e )
       m->setCenter( e->mapPoint() );
   }
 
-  for ( auto lit = mDraggingVertex->originalByFid.begin();
-        lit != mDraggingVertex->originalByFid.end(); ++lit )
-  {
-    QgsVectorLayer *writeLayer = lit.key();
-    const QgsPointXY lp = toLayerCoordinates( writeLayer, e->mapPoint() );
-    for ( auto fit = lit.value().begin(); fit != lit.value().end(); ++fit )
-    {
-      QgsGeometry preview = fit.value();
-      for ( const CoincidentMember &member : std::as_const( mDraggingVertex->coincident ) )
-        if ( member.layer == writeLayer && member.fid == fit.key() )
-          preview.moveVertex( lp.x(), lp.y(), member.vertexNr );
-      mDraggingVertex->previewBands.value( writeLayer ).value( fit.key() )->setToGeometry( preview, writeLayer );
-    }
-  }
+  updateDragPreviews( e->mapPoint() );
 }
 
 // Right-button release and Delete/Backspace share this batch delete (single
@@ -536,25 +545,9 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
     }
     writeSet = dedupedWriteSet;
 
-    // Group vertices to delete by their exact owning ring
-    struct RingKey
-    {
-      QgsVectorLayer *layer = nullptr;
-      qint64 fid = -1;
-      int part = 0;
-      int ring = 0;
-
-      bool operator<( const RingKey &other ) const
-      {
-        return std::tie( layer, fid, part, ring ) < std::tie( other.layer, other.fid, other.part, other.ring );
-      }
-      bool operator==( const RingKey &other ) const
-      {
-        return layer == other.layer && fid == other.fid && part == other.part && ring == other.ring;
-      }
-    };
-
-    std::map<RingKey, QSet<int>> ringDeletions;
+    // Group deletion quota by (layer, fid, part, ring) to prevent multiple
+    // coincident deletions from collapsing a ring below its minimum vertex count.
+    QHash<RingKey, int> deleteCountPerRing;
     for ( const CoincidentMember &member : std::as_const( writeSet ) )
     {
       const QgsFeature feat = member.layer->getFeature( member.fid );
@@ -563,37 +556,43 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
       QgsVertexId vid;
       if ( feat.geometry().vertexIdFromVertexNr( member.vertexNr, vid ) )
       {
-        ringDeletions[{ member.layer, member.fid, vid.part, vid.ring }].insert( member.vertexNr );
+        deleteCountPerRing[{ member.layer, member.fid, vid.part, vid.ring }]++;
       }
     }
 
-    // Validate that after cumulative deletions, every touched ring satisfies the topological minimum
-    for ( const auto &[rk, vertexSet] : ringDeletions )
+    for ( const CoincidentMember &member : std::as_const( writeSet ) )
     {
-      const QgsFeature other = rk.layer->getFeature( rk.fid );
+      const QgsFeature other = member.layer->getFeature( member.fid );
       if ( !other.hasGeometry() || !other.geometry().constGet() )
       {
-        emit messageEmitted( tr( "无法删除节点：要素将变为无效" ), Qgis::MessageLevel::Warning );
+        emit messageEmitted( tr( "无法删除节点：共边要素将变为无效" ),
+                             Qgis::MessageLevel::Warning );
         return;
       }
-      const QgsGeometry g = other.geometry();
-      const Qgis::GeometryType gt = QgsWkbTypes::geometryType( g.wkbType() );
-      const int ringVertices = g.constGet()->vertexCount( rk.part, rk.ring );
-      const int minRemaining = ( gt == Qgis::GeometryType::Polygon ) ? 4
-                               : ( gt == Qgis::GeometryType::Line ) ? 2
-                               : 1;
-
-      const int deleteCount = vertexSet.size();
-      if ( ringVertices - deleteCount < minRemaining )
+      QgsVertexId vid;
+      if ( !other.geometry().vertexIdFromVertexNr( member.vertexNr, vid ) )
       {
-        const bool isSelf = ( rk.layer == layer && rk.fid == fid );
-        emit messageEmitted( isSelf ? tr( "无法删除节点：要素将变为无效" )
-                                    : tr( "无法删除节点：共边要素将变为无效" ),
+        emit messageEmitted( tr( "无法删除节点：共边要素将变为无效" ),
+                             Qgis::MessageLevel::Warning );
+        return;
+      }
+      const int k = deleteCountPerRing.value( { member.layer, member.fid, vid.part, vid.ring }, 1 );
+      const int ringVertices = other.geometry().constGet()->vertexCount( vid.part, vid.ring );
+      const Qgis::GeometryType gt = QgsWkbTypes::geometryType( other.geometry().wkbType() );
+      const int minReq = ( gt == Qgis::GeometryType::Polygon ) ? ( 4 + k )
+                         : ( gt == Qgis::GeometryType::Line ) ? ( 2 + k )
+                         : ( 1 + k );
+      if ( ringVertices < minReq )
+      {
+        emit messageEmitted( tr( "无法删除节点：共边要素将变为无效" ),
                              Qgis::MessageLevel::Warning );
         return;
       }
     }
 
+    mCommitting = true;
+    // One edit command per touched layer (native undo stacks are per-layer;
+    // cross-layer gestures undo layer by layer — see header notes).
     mCommitting = true;
     // One edit command per touched layer (native undo stacks are per-layer;
     // cross-layer gestures undo layer by layer — see header notes).

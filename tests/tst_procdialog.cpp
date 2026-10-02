@@ -5,6 +5,7 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QThread>
+#include <QTemporaryDir>
 
 #include <atomic>
 
@@ -389,6 +390,37 @@ private slots:
     QTest::qWait(500);
     QCoreApplication::processEvents();
   }
+
+  // (P1-13 / RUNTIME-02): verify that destroying dialog disconnects task signals safely
+  void widgetDestructionDisconnectsTaskSignalsCleanly()
+  {
+    QgisProcessingService svc(nullptr);
+    QString error;
+    QWidget *w = svc.createAlgorithmDialog(
+        QStringLiteral("paleotest:persistent_worker"),
+        QVariantMap(), nullptr, &error);
+    QVERIFY2(w, qPrintable(error));
+
+    auto *algWidget = qobject_cast<QgsProcessingAlgorithmWidgetBase *>(w);
+    QVERIFY(algWidget);
+
+    PersistentWorkerAlgorithm::s_started = false;
+    PersistentWorkerAlgorithm::s_completed = false;
+
+    QVERIFY(algWidget->runButton());
+    algWidget->runButton()->click();
+
+    QTRY_VERIFY_WITH_TIMEOUT(PersistentWorkerAlgorithm::s_started.load(), 3000);
+    QVERIFY(algWidget->isRunning());
+
+    // Destroy the widget while algorithm is actively running
+    delete w;
+
+    // After widget deletion, processing events must not trigger any callbacks or crashes
+    QCoreApplication::processEvents();
+    QTRY_VERIFY_WITH_TIMEOUT(PersistentWorkerAlgorithm::s_completed.load(), 5000);
+    QCoreApplication::processEvents();
+  }
 };
 
 int main(int argc, char *argv[])
@@ -396,10 +428,12 @@ int main(int argc, char *argv[])
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
 
-  // Keep QSettings writes out of the real user profile.
+  // 每运行一次的临时目录（对齐 tst_seismic_sectionui 惯例）：既隔离直跑时
+  // 的真实用户配置，也消除固定 /tmp 路径跨运行/跨用户的陈旧状态向量
+  // （ctest 路径另有 add_paleo_test 的 XDG/HOME 沙箱兜底）。
+  static QTemporaryDir settingsDir;
   QSettings::setDefaultFormat(QSettings::IniFormat);
-  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
-                     QDir::temp().filePath(QStringLiteral("paleo_tst_procdialog")));
+  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
 
   QgsApplication app(argc, argv, true); // GUI-enabled: dialog widgets required
   app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true); // distro install

@@ -200,6 +200,7 @@ protected:
   void keyPressEvent(QKeyEvent *event) override;
 
 private:
+  void refreshScaleTracks();
   friend class WellCompositeHeader;
   friend class WellCompositeBody;
 

@@ -4,6 +4,7 @@
 #include <QThreadPool>
 
 #include <algorithm>
+#include <thread>
 #if defined(Q_OS_UNIX)
 #include <sys/stat.h> // mkfifo（文件夹导入的「非普通文件」行）
 #endif
@@ -1027,6 +1028,11 @@ private slots:
     // 变换后 bbox：x' = -3y+1000 ∈ [850,1000]，y' = 2x+2000 ∈ [2000,2200]
     QVERIFY(qAbs(db[0] - 850.0) < 1e-6 && qAbs(db[2] - 1000.0) < 1e-6);
     QVERIFY(qAbs(db[1] - 2000.0) < 1e-6 && qAbs(db[3] - 2200.0) < 1e-6);
+
+    double rereadBounds[4];
+    QVERIFY2(geoJsonBounds(out, rereadBounds, &err), qPrintable(err));
+    for (int i = 0; i < 4; ++i)
+      QCOMPARE(rereadBounds[i], db[i]);
 
     QFile rf(out);
     QVERIFY(rf.open(QIODevice::ReadOnly));
@@ -2200,6 +2206,38 @@ private slots:
         QDir(projectDir).filePath(QStringLiteral("artifacts")), *cat);
     QVERIFY(inner.items.isEmpty());
     QVERIFY(!inner.issues.isEmpty());
+  }
+
+  // P1-10 / CONC-06: catInvoke with void callable must dispatch asynchronously via
+  // Qt::QueuedConnection so worker threads do not deadlock when main thread waits.
+  void catInvokeVoidDispatchesAsyncWithoutDeadlock()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj_deadlock_test"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+
+    std::atomic_bool invoked{false};
+    std::atomic_bool workerFinished{false};
+
+    std::thread worker([&]() {
+      stack->importSvc->catInvoke([&]() {
+        invoked.store(true);
+      });
+      // catInvoke returns immediately via QueuedConnection, before main thread pumps events!
+      workerFinished.store(true);
+    });
+
+    // The main thread waits for worker thread to finish without pumping events yet
+    worker.join();
+    QVERIFY(workerFinished.load());
+    // Since main thread event loop has not run yet, QueuedConnection has not executed
+    QVERIFY(!invoked.load());
+
+    // Process queued events on main thread
+    QCoreApplication::processEvents();
+    QVERIFY(invoked.load());
   }
 };
 

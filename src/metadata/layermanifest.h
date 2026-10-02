@@ -33,6 +33,10 @@ class LayerManifest
     void setReadOnly(bool readOnly) { m_readOnly = readOnly; }
     bool isReadOnly() const { return m_readOnly; }
 
+    // 强制写操作通过主线程或 PaleoProjectStore::enqueueWrite 调度（ARCH-04 / P1-11）
+    void setWriteQueueEnforced(bool enforced) { m_writeQueueEnforced = enforced; }
+    bool isWriteQueueEnforced() const { return m_writeQueueEnforced; }
+
     bool upsert(const LayerDeclaration &decl, QString *error = nullptr);
     bool remove(const QString &layerId, QString *error = nullptr);
     QVector<LayerDeclaration> all() const;                       // full declared set; empty on failure
@@ -44,6 +48,7 @@ class LayerManifest
   private:
     QString m_dbPath;
     bool m_readOnly = false;
+    bool m_writeQueueEnforced = true;
 };
 
 Q_DECLARE_METATYPE(LayerDeclaration)

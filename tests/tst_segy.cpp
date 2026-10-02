@@ -1,12 +1,14 @@
 #include <QApplication>
 #include <QByteArray>
 #include <QFile>
+#include <QRegularExpression>
 #include <QTemporaryDir>
 #include <QtEndian>
 #include <QtTest>
 #include <cmath>
 #include <cstring>
 
+#include "../src/io/perffixtures.h"
 #include "../src/io/segyreader.h"
 
 // ---------------------------------------------------------------------------
@@ -514,7 +516,127 @@ class TestSegy : public QObject
       QVERIFY(!errCorruptNs.isEmpty());
     }
 
-    // e) SeismicPreviewPanel::loadLineFromFile integration test removed with
+    // P1-03 / BIZ-03: Partial scan resumption with bad traces resumes from exact byte offset
+    void partialScanResumptionWithBadTraces()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      const QString path = dir.filePath(QStringLiteral("resume_bad.sgy"));
+      const QString cacheDir = dir.filePath(QStringLiteral("idx"));
+
+      const int inl = 60, xl = 60, samples = 40;
+      const int totalTraces = inl * xl;
+      QVERIFY(PerfFixtures::makeSyntheticSegy(path, inl, xl, samples) > 0);
+
+      const qint64 traceSize = 240 + samples * 4;
+      // Patch 2 bad traces within the first 256 traces (at trace 5 and trace 15)
+      QFile f(path);
+      QVERIFY(f.open(QIODevice::ReadWrite));
+      const qint64 badTrace1 = 3600 + 5 * traceSize;
+      const qint64 badTrace2 = 3600 + 15 * traceSize;
+      const char badNs[2] = {static_cast<char>(0x80), 0x00}; // -32768
+      f.seek(badTrace1 + 114);
+      f.write(badNs, 2);
+      f.seek(badTrace2 + 114);
+      f.write(badNs, 2);
+      f.close();
+
+      // Step 1: Scan with cancel triggered after 256 traces
+      SegyReader r1;
+      SegyOptions opts;
+      std::atomic_int shard0Traces{0};
+      opts.cancel = [&]() {
+        return shard0Traces.load() >= 256;
+      };
+      opts.progress = [&](qint64 current, qint64 total) {
+        Q_UNUSED(total);
+        const qint64 tr = (current - 3600) / traceSize;
+        if (tr >= 0 && tr < 500)
+        {
+          int prev = shard0Traces.load();
+          while (tr > prev && !shard0Traces.compare_exchange_weak(prev, static_cast<int>(tr)))
+            ;
+        }
+      };
+
+      QString err1;
+      const bool ok1 = r1.openCached(path, cacheDir, &err1, &opts);
+      QVERIFY(!ok1);
+      QVERIFY(r1.lastScanPartial());
+
+      SegyIndexStore::StoredIndex snap;
+      QVERIFY(r1.snapshot(&snap));
+      QCOMPARE(snap.badTraceOffsets.size(), 2);
+      // Validate that scannedOffset includes both valid traces and bad traces without lagging
+      const qint64 expectedScannedOffset =
+          3600 + static_cast<qint64>(snap.inlineNos.size() + snap.badTraceOffsets.size()) * traceSize;
+      QCOMPARE(snap.scannedOffset, expectedScannedOffset);
+
+      // Step 2: Resume scan to completion
+      SegyReader r2;
+      QString err2;
+      const bool ok2 = r2.openCached(path, cacheDir, &err2);
+      QVERIFY2(ok2, qPrintable(err2));
+      QVERIFY(!r2.lastScanPartial());
+      QCOMPARE(r2.traceCount(), totalTraces - 2);
+      QCOMPARE(r2.badTraceOffsets().size(), 2);
+
+      // Verify no duplicate or lagging reads: trace offsets must be strictly monotonically increasing
+      SegyIndexStore::StoredIndex finalSnap;
+      QVERIFY(r2.snapshot(&finalSnap));
+      QCOMPARE(finalSnap.offsets.size(), totalTraces - 2);
+      for (int i = 1; i < finalSnap.offsets.size(); ++i)
+      {
+        QVERIFY2(finalSnap.offsets[i] > finalSnap.offsets[i - 1],
+                 qPrintable(QStringLiteral("Duplicate or backward offset at index %1: %2 <= %3")
+                                .arg(i)
+                                .arg(finalSnap.offsets[i])
+                                .arg(finalSnap.offsets[i - 1])));
+      }
+    }
+    // e) #42.1 收口（WP2）：open 成功后文件被截断（索引已建）——丢道不再
+    //    静默：readInline 以「failed to decode N of M」如实失败，且
+    //    readByIndexList 对被丢弃的道 qWarning 留痕（诚实降级面——
+    //    traces()/未来调用方拿部分结果时日志里有账可查）。
+    void postOpenTruncationDroppedTracesSurface()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+
+      SyntheticSegyConfig cfg;
+      cfg.formatCode = 5;
+      cfg.binNs = 64;
+      cfg.traceCount = 3;
+      cfg.customTraces = {{1, 101, 10, 0, 0, {}},
+                          {2, 102, 10, 0, 0, {}},
+                          {3, 103, 10, 0, 0, {}}};
+      const QByteArray full = buildSyntheticSegy(cfg);
+      const QString p = dir.filePath(QStringLiteral("trunc_post_open.sgy"));
+      QVERIFY(writeSegyFile(p, full));
+      SegyReader r;
+      QString err;
+      QVERIFY(r.open(p, &err));
+      QVector<SegyTrace> line;
+      QVERIFY2(r.readInline(10, &line, &err), qPrintable(err));
+      QCOMPARE(int(line.size()), 3);
+
+      // 截断第三道中部（道字节 = 240 头 + 64*4 样本；留头 + 64 样本字节）。
+      const int traceBytes = 240 + 64 * 4;
+      QFile f(p);
+      QVERIFY(f.open(QIODevice::ReadWrite));
+      QVERIFY(f.resize(3600 + 2 * traceBytes + 240 + 64));
+      f.close();
+
+      line.clear();
+      err.clear();
+      QTest::ignoreMessage(QtWarningMsg,
+                           QRegularExpression("dropped 1 of 3 traces"));
+      QVERIFY(!r.readInline(10, &line, &err));
+      QVERIFY2(err.contains(QStringLiteral("failed to decode 1 of 3")),
+               qPrintable(err));
+    }
+
+    // f) SeismicPreviewPanel::loadLineFromFile integration test removed with
     //    T30 — the panel is retired; single-line preview + SHA verify live on
     //    the data-page preview tabs (datapreviewtabs).
 };

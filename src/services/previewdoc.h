@@ -100,6 +100,19 @@ class PreviewDocService : public QObject
     // 读整份 GeoJSON（要素表预览的消费形态：属性键集合由视图自己归并）。
     static bool geoJsonDocumentAt(const QString &absPath, QJsonDocument *out,
                                   QString *error = nullptr);
+    // F3（goal/perf-systematize 簇2）：属性面板统计出口——bounds + 要素计数
+    // + 属性键集合，两遍流式增量扫描（io/streaming：无 DOM、不整读、内存
+    // 平坦）。属性键为排序去重集合（确定性）。bounds 缺坐标只置
+    // hasBounds=false 不算失败（与旧视图口径一致）。
+    struct GeoJsonSummary
+    {
+        bool hasBounds = false;
+        double bounds[4] = {0, 0, 0, 0}; // [minX, minY, maxX, maxY]
+        qint64 featureCount = 0;
+        QStringList propKeys; // 排序去重
+    };
+    static bool geoJsonSummaryAt(const QString &absPath, GeoJsonSummary *out,
+                                 QString *error = nullptr);
     // 仿射预览：src 四角经 params（tx/ty/sx/sy/rotDeg）变换后的包围盒。
     static void affinePreviewBounds(const double src[4], const QVariantMap &params,
                                     double lo[2], double hi[2]);

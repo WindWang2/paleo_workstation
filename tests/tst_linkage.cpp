@@ -62,6 +62,59 @@ private slots:
     QVERIFY(!ctx.broadcasting());
   }
 
+  void horizonSelectionIsCoalesced()
+  {
+    SelectionContext ctx;
+    QSignalSpy spy(&ctx, &SelectionContext::selectionChanged);
+    connect(&ctx, &SelectionContext::activeHorizonChanged, &ctx, [&] {
+      QVERIFY(ctx.broadcasting());
+      ctx.setSelection({QStringLiteral("W1")}, QStringLiteral("first"));
+      ctx.setSelection({QStringLiteral("W2")}, QStringLiteral("last"));
+      QCOMPARE(spy.count(), 0);
+    });
+    ctx.setActiveHorizon(QStringLiteral("D61"));
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(ctx.selectedIds(), QStringList{QStringLiteral("W2")});
+    QCOMPARE(ctx.origin(), QStringLiteral("last"));
+    QVERIFY(!ctx.broadcasting());
+  }
+
+  void runawaySelectionIsBounded_data()
+  {
+    QTest::addColumn<bool>("fromHorizon");
+    QTest::newRow("selection") << false;
+    QTest::newRow("horizon") << true;
+  }
+
+  void runawaySelectionIsBounded()
+  {
+    QFETCH(bool, fromHorizon);
+    SelectionContext ctx;
+    int broadcasts = 0;
+    const auto echo = connect(&ctx, &SelectionContext::selectionChanged, &ctx, [&] {
+      QVERIFY(ctx.broadcasting());
+      ctx.setSelection({QString::number(++broadcasts)}, QStringLiteral("echo"));
+    });
+    connect(&ctx, &SelectionContext::activeHorizonChanged, &ctx, [&] {
+      ctx.setSelection({QStringLiteral("initial")}, QStringLiteral("horizon"));
+    });
+    QTest::ignoreMessage(QtWarningMsg, fromHorizon
+        ? "SelectionContext::setActiveHorizon: settle iteration limit reached, dropped runaway pending selection"
+        : "SelectionContext::setSelection: settle iteration limit reached, dropped runaway pending selection");
+    if (fromHorizon)
+      ctx.setActiveHorizon(QStringLiteral("D61"));
+    else
+      ctx.setSelection({QStringLiteral("initial")}, QStringLiteral("test"));
+    QCOMPARE(broadcasts, fromHorizon ? 4 : 5);
+    QVERIFY(!ctx.broadcasting());
+
+    disconnect(echo);
+    QSignalSpy spy(&ctx, &SelectionContext::selectionChanged);
+    ctx.setSelection({QStringLiteral("settled")}, QStringLiteral("test"));
+    QCOMPARE(spy.count(), 1); // The discarded pending payload must not leak.
+    QCOMPARE(ctx.selectedIds(), QStringList{QStringLiteral("settled")});
+  }
+
   // (b) WellMapLink direction B: ctx -> layer. setSelection from a foreign
   // origin selects the matching features on the wells layer.
   void directionBSelectsWells()

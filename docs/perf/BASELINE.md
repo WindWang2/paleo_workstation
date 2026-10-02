@@ -112,6 +112,33 @@
 - 复现：`PALEO_CATALOG_SCALE=100000 ctest -R catalog_scale`（约 16 分钟；
   默认不设 env 时 SKIP）。
 
+### B7 WP2 mutator 写路径线性化（goal/data-io-catalog-closure）
+
+根因（profile 实证）：六个 mutator 的全表 `previousVersions/previousLinks`
+快照使每次 append 触发 QVector COW detach 的 O(N) 深拷贝——N 次导入 O(N²)；
+次级：markStaleDownstreamOf 每调用全表建哈希、nextEntityId/versionBySha256
+线性扫、CatalogReadSnapshot 四查询面线性扫（导入 plan 构建 O(N²)）。
+
+修复：精确 undo（新增行 removeLast + 被改行原值逆序还原，回滚语义等价由
+tst_perf_catalog::mutatorRollbackUndoesExactly 钉死）；索引面 +sha 行集 +
+前缀序号表（verifyAgainst 同步对账）；快照四查询面 fromCatalog 一次建哈希。
+
+同机同夹具 A/B（RelWithDebInfo，BASE=独立 worktree @ `ac882cf`）：
+
+| 项 | BASE | WP2 后 | 倍率 |
+|---|---|---|---|
+| 10k 灌库 | 17.1 s | 1.14 s | **15.0×** |
+| 100k 灌库 | **3,518 s** | **9.28 s** | **379×** |
+| 10k→100k 倍率 | 205.5×（超线性） | **8.1×** | 目标 ≤15× ✅ |
+| 100k 打开 / 1000× 查询 | 2.1 s / 0-1 ms | 2.5 s / 0-1 ms | 查询面零变化 ✅ |
+| 100k 峰值 RSS | — | ≈1,004 MB | 无 N 份复制 ✅ |
+
+Debug 全量对照同方向（10k 38.6s→1.18s；BASE 100k >60 分钟超时未完成 vs
+HEAD 12.7s）。回归门：`ratios.json` 新增 `catalog_build_5k_vs_1k_max=8.0`
+（实测 5.2-5.4，二次态 ~25 必红，tst_perf_regress 看护）。
+复现：`PALEO_CATALOG_SCALE=100000 ctest -R catalog_scale`（WP2 后 ~15 s；
+`PALEO_CATALOG_PROFILE=1` 附 mutator 分段计时）。
+
 ### B5 ctest -j2 QSettings 竞态复测
 
 4 轮全量 `ctest -j4`（127 测试，共享 build-b）：历史竞态点
@@ -122,3 +149,42 @@
 HOME）根治；建议后续清掉四个测试 main 里残留的 `setPath` 固定 /tmp 重定向
 （tst_ui/tst_uxtheme/tst_procdialog/tst_seismic_sectionui——沙箱已覆盖其
 用途，残留是跨次运行的陈旧状态面）。
+
+## 7. goal/perf-systematize 增量（2026-10-01）
+
+### 7.1 启动分段（tools/measure_startup.sh，9 轮中位；有并行负载，比率稳）
+
+| 段 | 中位 ms | 份额（startup_ratios.json 门基线，×2.5 容差） |
+|---|---|---|
+| process→main（loader/重定位） | 1390 | 0.581（exec→首屏最大单段） |
+| pre_qt（崩溃处理器+参数） | 0.5 | —— |
+| qgis_app_init | 113.5 | 0.088 |
+| 服务装配 | 74.9 | 0.067 |
+| 主题 | 4.3 | —— |
+| 主窗构建 | 483.8 | —— |
+| show→首帧 paint | 379.5 | 0.40 |
+| main→首帧合计 | 1077.6 | —— |
+
+复测：`tools/measure_startup.sh ./build/paleo 9 docs/perf/baselines/startup_ratios.json`
+（份额直接可入档）。门测试：`ctest -R tst_startup_trace`（含注入 1500ms
+劣化必红的判别力证明）。
+
+### 7.2 真工区内存（tst_mem_budget，966MiB 体）
+
+- open + inline/time/crossline 三切片后 RSS **151 MiB（0.16×体）**——直读
+  后端不整载；门 0.5×体=483MiB。
+- open→2 切片→释放 ×6 轮净增 **12 KiB**；门 max(32MiB, 0.5%×体)。
+- 复现：`PALEO_REAL_PROJECT_AREA=<project_area> ctest -R tst_mem_budget`。
+
+### 7.3 真工区复测锚（tst_seismic_realarea，页缓存温态）
+
+open 106ms（冷盘口径见 §8 前值 271ms）/ inline 43→35ms / time 切片
+468→84ms / 暖开 90ms / voxel64 46ms / 任意剖面 65ms / 3D 同步帧率
+9231fps（缓存热态上界）。
+
+### 7.4 墙钟断言与构建实验
+
+- 断言处置比例与逐条豁免：`docs/perf/ASSERTIONS.md`（比率 13% / 先例
+  比率 23% / 豁免 64%）。
+- -O3 否决 / LTO 采纳（`PALEO_ENABLE_LTO`，默认 OFF）/ 启动份额与
+  codegen 无关：`docs/perf/BUILD_OPT.md`。

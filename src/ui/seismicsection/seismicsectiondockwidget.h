@@ -1,6 +1,7 @@
 // 层：视图
 #pragma once
 
+#include "domain/faultset.h"
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
 #include <QComboBox>
@@ -11,7 +12,6 @@
 #include <QProgressBar>
 #include <QSlider>
 #include <QToolButton>
-#include <atomic>
 #include <memory>
 
 #include "services/seismictaskservice.h"
@@ -22,11 +22,15 @@ class QCheckBox;
 class QDialog;
 class QTableWidget;
 class QUndoStack;
-class TestSeismicSectionUi;
+
+namespace paleo::fault {
+class FaultInterpretationController;
+}
 
 namespace seismic {
 
 class SeismicPickPanel;
+class SeismicAttrPanel;
 
 // 剖面书签（D2.12）：命名线号 + 视口范围，QSettings 按体身份持久化
 struct SectionBookmark {
@@ -38,7 +42,6 @@ struct SectionBookmark {
 
 class SeismicSectionDockWidget : public QDockWidget {
     Q_OBJECT
-    friend class ::TestSeismicSectionUi;
 
 public:
     explicit SeismicSectionDockWidget(QWidget *parent = nullptr);
@@ -109,13 +112,34 @@ public:
     void removePick(int id);
     void renamePickHorizon(int id, const QString &newName);
     void addFaultFromCanvas(const QVector<QPair<double, double>> &points);
+    // goal/fault-interpretation：注入编排器后，剖面断层拾取改走 FaultSet
+    // （undo 入编排器栈、落工程存储）；未注入时保持旧会话伴生文件路径。
+    void setFaultController(paleo::fault::FaultInterpretationController *controller);
+    paleo::fault::FaultInterpretationController *faultController() const {
+        return m_faultController;
+    }
+    // 当前剖面的断层定位身份：IL/XL 切片 → 线号；任意线 → m_lastPathPoints
+    // 点串（同路径重提取可复现）；时间切片/无剖面 → false。
+    bool currentFaultSection(paleo::fault::FaultSectionRef *out) const;
     bool saveInterpretationSession(QString *error = nullptr);
     bool loadInterpretationSession(QString *error = nullptr);
     QString registerCurrentHorizonAsset(QString *error = nullptr);
     QString registerCurrentFaultAsset(QString *error = nullptr);
+
+    // ---- goal/seismic-attributes 属性计算 ----
+    SeismicAttrPanel *attrPanel() const { return m_attrPanel; }
+    // 面板意图 → 当前剖面的属性任务（进度/取消/叠加回填在此编排）
+    void computeAttributeOnCurrentSection(
+        SeismicTaskService::SeismicAttrKind kind,
+        const SeismicTaskService::SeismicAttrParams &params);
+    // 最近一次成功结果 → catalog 派生资产（登记上下文同解释登记注入）
+    QString registerCurrentAttributeAsset(QString *error = nullptr);
     void setTrackSeedPick(int pickId) { m_trackSeedPick = pickId; }
     void setTrackOptions(const SeismicTrackOptions &opt) { m_trackOptions = opt; }
-    void runTracking();                                // D4.2 种子追踪
+    void runTracking();                                // D4.2 种子追踪（异步）
+    void cancelTracking();                             // 取消在途追踪
+    bool trackingActive() const { return m_trackTask != nullptr; }
+    const SeismicTrackReport &lastTrackReport() const { return m_lastTrackReport; }
     SeismicPickPanel *pickPanel() const { return m_pickPanel; }
     void setPickMode(SectionPickMode mode);
 
@@ -123,15 +147,19 @@ signals:
   void setupRequested();
   void sectionExtractionFinished(bool success, const QString &message);
   void pointClickedOnMap(double x, double y);
-
-public slots:
-    void onSliceSliderChanged(int value);
+  // goal/horizon-autotrack — 追踪任务终态（ok=false：取消/失败；报告经
+  // lastTrackReport()/面板覆盖率行取）
+  void trackingFinished(bool ok);
+  // goal/horizon-autotrack — 层位资产登记产出可上图声明（app 装配接
+  // QgisLayerService::declare）
+  void horizonLayerDeclared(const LayerDeclaration &decl);
 
 private slots:
     void onZoomChanged(double zoom);
     void onTraceHovered(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
     void onExportSnapshot();
     void onSectionModeChanged(int modeIndex);
+    void onSliceSliderChanged(int value);
     void onTraceClicked(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
     void onCopyImage();
     void onPrintImage();
@@ -147,11 +175,13 @@ private:
 
     SeismicSectionCanvas *m_canvas = nullptr;
     std::shared_ptr<const SgyVolume> m_volume;
-    bool m_isExtractingSlice = false;       // 提取去抖：在途时新请求入待发槽
-    int m_pendingSliceIndex = -1;
-    SgySliceType m_pendingSliceType = SgySliceType::Inline;
-    uint64_t m_sliceGeneration = 0;
-    std::shared_ptr<std::atomic<bool>> m_activeCancelFlag;
+    // IL/XL/Time 切片在途任务（SeismicTaskService 通道）：同型同号去抖 +
+    // 新请求 requestCancel 顶替旧在途（被顶替的读取在逐线检查点退出，
+    // 不再占并发闸）。完成回调按「世代号+请求号」守卫丢弃陈旧结果。
+    QPointer<PaleoTask> m_sliceTask;
+    SgySliceType m_sliceType = SgySliceType::Inline;
+    int m_sliceIndex = -1;
+    quint64 m_sliceRequest = 0;
     SeismicTaskService *m_taskService = nullptr;
     QPointer<PaleoTask> m_extraction;
     quint64 m_generation = 0;
@@ -210,8 +240,9 @@ private:
     // D2.12 书签
     QList<SectionBookmark> m_bookmarks;
 
-    // D2.10 卷帘 B 图提取状态
-    bool m_extractingCompare = false;
+    // D2.10 卷帘 B 图提取状态（同一切片通道，独立在途任务 + 请求号守卫）
+    QPointer<PaleoTask> m_compareTask;
+    quint64 m_compareRequest = 0;
 
     // ---- D5 ----
     std::vector<SectionWellInfo> m_candidateWells;
@@ -221,14 +252,28 @@ private:
     SeismicInterpretationSession m_session;
     QUndoStack *m_undoStack = nullptr;
     SeismicPickPanel *m_pickPanel = nullptr;
+    paleo::fault::FaultInterpretationController *m_faultController = nullptr;
+    std::vector<glm::ivec2> m_lastPathPoints; // 任意线剖面身份（IL/XL 点串）
+    void refreshFaultStickOverlay();          // FaultSet 棒 → 画布（按当前剖面过滤）
     SgySliceImage m_lastSlice;                 // 追踪原料（最近一次剖面提取）
     int m_trackSeedPick = -1;
     SeismicTrackOptions m_trackOptions;
+    QPointer<PaleoTask> m_trackTask;           // goal/horizon-autotrack 异步追踪
+    SeismicTrackReport m_lastTrackReport;
     DataCatalog *m_catalog = nullptr;          // 资产登记上下文（app 层注入）
     QString m_catalogAssetId;
     QString m_catalogVersionId;
     QString m_interpretationDir;
     void setupInterpretationUi(QWidget *parent);
+
+    // ---- goal/seismic-attributes ----
+    SeismicAttrPanel *m_attrPanel = nullptr;
+    QToolButton *m_btnAttr = nullptr;
+    QPointer<PaleoTask> m_attrTask;
+    SeismicTaskService::SeismicAttrResult m_lastAttrResult;
+    SeismicTaskService::SeismicAttrParams m_lastAttrParams;
+    QString m_lastAttrSourcePath;
+    void setupAttrPanelUi(QWidget *parent);
 };
 
 } // namespace seismic

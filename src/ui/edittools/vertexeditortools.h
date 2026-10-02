@@ -144,6 +144,7 @@ class PaleoVertexTool : public QgsMapToolEdit
     void rebuildMarkers();    // selection → markers (map CRS centers)
     void clearMarkers();
     void clearDragState();
+    void updateDragPreviews( const QgsPointXY &mapPoint );
     // Batch vertex delete under a map-CRS point — the right-button-release
     // gesture and the Delete/Backspace key share this single path.
     void deleteVertexAtMapPoint( const QgsPointXY &mapPoint );

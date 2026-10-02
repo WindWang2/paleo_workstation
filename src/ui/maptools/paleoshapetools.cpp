@@ -1,5 +1,6 @@
 // 层：视图
 #include "paleoshapetools.h"
+#include "capturehelpers.h"
 
 #include <cmath>
 #include <numbers> // std::numbers::pi——M_PI 在 MSVC <cmath> 下不定义
@@ -7,44 +8,21 @@
 
 #include <QKeyEvent>
 
-#include <qgsadvanceddigitizingdockwidget.h>
 #include <qgscompoundcurve.h>
-#include <qgscoordinatereferencesystem.h>
-#include <qgscoordinatetransform.h>
 #include <qgsellipse.h>
-#include <qgsexception.h>
 #include <qgsgeometry.h>
 #include <qgslinestring.h>
 #include <qgsmapcanvas.h>
 #include <qgsmapmouseevent.h>
 #include <qgspoint.h>
 #include <qgspolygon.h>
-#include <qgsproject.h>
-#include <qgsvectorlayer.h>
-
-namespace
-{
-QgsCoordinateTransformContext layerTransformContext(const QgsMapLayer *layer)
-{
-  if (layer && layer->project())
-    return layer->project()->transformContext();
-  return QgsProject::instance()->transformContext();
-}
-
-// QgsMapToolAdvancedDigitizing assertions require a non-null CAD dock widget.
-// Fabricate a canvas-owned dock when the embedder does not inject a shared one.
-QgsAdvancedDigitizingDockWidget *resolveCadDock( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *given )
-{
-  return given ? given : new QgsAdvancedDigitizingDockWidget( canvas, canvas );
-}
-} // namespace
 
 // ---------------------------------------------------------------------------
 // PaleoDrawPointTool
 // ---------------------------------------------------------------------------
 
 PaleoDrawPointTool::PaleoDrawPointTool( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cadDock )
-  : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), CapturePoint )
+  : QgsMapToolCapture( canvas, CaptureHelpers::resolveCadDock( canvas, cadDock ), CapturePoint )
 {
   setToolName( tr( "绘制点约束" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
@@ -89,22 +67,10 @@ void PaleoDrawPointTool::pointCaptured( const QgsPoint &point )
 
   // Reproject from current vector layer's CRS to canvas CRS if they differ
   QgsPoint canvasPt = point;
-  if ( QgsVectorLayer *vlayer = currentVectorLayer() )
+  if ( !CaptureHelpers::transformToCanvas( canvasPt, currentVectorLayer(), mCanvas ) )
   {
-    const QgsCoordinateReferenceSystem layerCrs = vlayer->crs();
-    const QgsCoordinateReferenceSystem canvasCrs = mCanvas->mapSettings().destinationCrs();
-    if ( layerCrs.isValid() && canvasCrs.isValid() && layerCrs != canvasCrs )
-    {
-      try
-      {
-        canvasPt.transform( QgsCoordinateTransform( layerCrs, canvasCrs, layerTransformContext(vlayer) ) );
-      }
-      catch ( QgsCsException & )
-      {
-        emit messageEmitted( tr( "无法将约束点转换到地图坐标" ), Qgis::MessageLevel::Warning );
-        return;
-      }
-    }
+    emit messageEmitted( tr( "无法将约束点转换到地图坐标" ), Qgis::MessageLevel::Warning );
+    return;
   }
 
   emit constraintDrawn( canvasPt.asWkt() );
@@ -116,7 +82,7 @@ void PaleoDrawPointTool::pointCaptured( const QgsPoint &point )
 // ---------------------------------------------------------------------------
 
 PaleoDrawCircleTool::PaleoDrawCircleTool( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cadDock )
-  : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), CapturePolygon )
+  : QgsMapToolCapture( canvas, CaptureHelpers::resolveCadDock( canvas, cadDock ), CapturePolygon )
 {
   setToolName( tr( "绘制圆形约束" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
@@ -172,22 +138,10 @@ void PaleoDrawCircleTool::emitCircle( const QgsPointXY *eventRadiusPoint )
     return;
 
   std::unique_ptr<QgsCurve> canvasCurve( curve->clone() );
-  if ( QgsVectorLayer *vlayer = currentVectorLayer() )
+  if ( !CaptureHelpers::transformToCanvas( *canvasCurve, currentVectorLayer(), mCanvas ) )
   {
-    const QgsCoordinateReferenceSystem layerCrs = vlayer->crs();
-    const QgsCoordinateReferenceSystem canvasCrs = mCanvas->mapSettings().destinationCrs();
-    if ( layerCrs.isValid() && canvasCrs.isValid() && layerCrs != canvasCrs )
-    {
-      try
-      {
-        canvasCurve->transform( QgsCoordinateTransform( layerCrs, canvasCrs, layerTransformContext(vlayer) ) );
-      }
-      catch ( QgsCsException & )
-      {
-        emit messageEmitted( tr( "无法将约束圆转换到地图坐标" ), Qgis::MessageLevel::Warning );
-        return;
-      }
-    }
+    emit messageEmitted( tr( "无法将约束圆转换到地图坐标" ), Qgis::MessageLevel::Warning );
+    return;
   }
 
   QgsPointSequence vertices;
@@ -231,7 +185,7 @@ void PaleoDrawCircleTool::emitCircle( const QgsPointXY *eventRadiusPoint )
 // ---------------------------------------------------------------------------
 
 PaleoDrawEllipseTool::PaleoDrawEllipseTool( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cadDock )
-  : QgsMapToolCapture( canvas, resolveCadDock( canvas, cadDock ), CapturePolygon )
+  : QgsMapToolCapture( canvas, CaptureHelpers::resolveCadDock( canvas, cadDock ), CapturePolygon )
 {
   setToolName( tr( "绘制椭圆约束" ) );
   setCursor( QCursor( Qt::CrossCursor ) );
@@ -286,22 +240,10 @@ void PaleoDrawEllipseTool::emitEllipse( const QgsPointXY *eventAxis2Point )
     return;
 
   std::unique_ptr<QgsCurve> canvasCurve( curve->clone() );
-  if ( QgsVectorLayer *vlayer = currentVectorLayer() )
+  if ( !CaptureHelpers::transformToCanvas( *canvasCurve, currentVectorLayer(), mCanvas ) )
   {
-    const QgsCoordinateReferenceSystem layerCrs = vlayer->crs();
-    const QgsCoordinateReferenceSystem canvasCrs = mCanvas->mapSettings().destinationCrs();
-    if ( layerCrs.isValid() && canvasCrs.isValid() && layerCrs != canvasCrs )
-    {
-      try
-      {
-        canvasCurve->transform( QgsCoordinateTransform( layerCrs, canvasCrs, layerTransformContext(vlayer) ) );
-      }
-      catch ( QgsCsException & )
-      {
-        emit messageEmitted( tr( "无法将约束椭圆转换到地图坐标" ), Qgis::MessageLevel::Warning );
-        return;
-      }
-    }
+    emit messageEmitted( tr( "无法将约束椭圆转换到地图坐标" ), Qgis::MessageLevel::Warning );
+    return;
   }
 
   QgsPointSequence vertices;

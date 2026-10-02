@@ -20,6 +20,26 @@ class ProjectDataFacade;
 class DataCatalog;
 struct ValidationIssue;
 
+struct WorkflowExecutionContext
+{
+  QPointer<QgisProcessingService> proc;
+  QPointer<QgisLayerService> layers;
+  QPointer<PaleoProjectStore> store;
+  QPointer<DataCatalog> catalog;
+  QString projectDir;
+#if PALEO_HAVE_ORT
+  QPointer<PaleoOnnxService> onnx;
+#endif
+};
+
+class ConstraintWorkflow;
+class PredictionWorkflow;
+class CompositionWorkflow;
+class ValidationWorkflow;
+using SingleFactorWorkflow = ConstraintWorkflow;
+using TrendWorkflow = ConstraintWorkflow;
+using SeismicWorkflow = PredictionWorkflow;
+
 // workflow/ — thin orchestrators binding UI actions to services/algorithms.
 // They never touch Qgs* directly beyond type names; heavy work runs via
 // QgisProcessingService (temp-then-merge) and layer declaration via
@@ -54,11 +74,27 @@ class PredictionWorkflow : public QObject
 
     bool runPrediction(const QString &horizon, const QString &algorithmId, const QVariantMap &params, QString *error = nullptr);
 
+    DataCatalog *catalog() const;
+    QString projectDir() const { return m_projectDir; }
+    QgisProcessingService *processingService() const;
+    QgisLayerService *layerService() const;
+#if PALEO_HAVE_ORT
+    PaleoOnnxService *onnxService() const;
+#endif
+
   signals:
     void predictionDone(const QString &horizon, const QString &resultLayerId);
     void predictionFailed(const QString &horizon, const QString &error);
 
   private:
+    QPointer<QgisProcessingService> m_proc;
+    QPointer<QgisLayerService> m_layers;
+#if PALEO_HAVE_ORT
+    QPointer<PaleoOnnxService> m_onnx;
+#endif
+    QPointer<DataCatalog> m_catalog;
+    QString m_projectDir;
+
     // m2/mapping-pages(A)：结果层 id 的稳定段（algorithmId 净化）——同一
     // horizon+algorithmId 重跑复用同一 layerId，manifest upsert 不新增重复行。
     static QString stableResultSuffix(const QString &algorithmId);
@@ -116,6 +152,14 @@ class ConstraintWorkflow : public QObject
                                 const SingleFactorDefinition &def, const QVariantMap &params,
                                 QString *error = nullptr);
 
+    // 三个单因素引擎共用的收尾：样式 best-effort 落盘 + factor 栅格声明 +
+    // C4 资产关联补盖 + factorGenerated（声明失败不发成功信号）。
+    bool declareFactorResult(QgisLayerService *layers, const QString &horizon,
+                             const QString &factorId,
+                             const SingleFactorDefinition &def, const QString &outPath,
+                             const QString &projectDir, const QString &assetId,
+                             QString *error);
+
   public:
 
     // 等值线（§12：GIS LineString 图层）。gdal:contour 在 C++ 嵌入运行时未注册
@@ -124,6 +168,13 @@ class ConstraintWorkflow : public QObject
     // 子组，layerId "contours.<horizon>.<factorId>"，幂等。
     bool generateContours(const QString &horizon, const QString &factorLayerId,
                           double interval, QString *error = nullptr);
+
+    DataCatalog *catalog() const;
+    QString projectDir() const { return m_projectDir; }
+    QgisProcessingService *processingService() const;
+    QgisLayerService *layerService() const;
+    PaleoProjectStore *projectStore() const;
+
   signals:
     void constraintAdded(const QString &constraintId);
     void factorDone(const QString &horizon, const QString &resultLayerId);
@@ -134,9 +185,15 @@ class ConstraintWorkflow : public QObject
                            const QString &contourLayerId);
 
   private:
+    QPointer<QgisProcessingService> m_proc;
+    QPointer<QgisLayerService> m_layers;
     QPointer<PaleoProjectStore> m_projectStore;
     mutable std::unique_ptr<ConstraintStore> m_ownedConstraintStore;
     ConstraintStore *m_externalConstraintStore = nullptr;
+    QPointer<DataCatalog> m_catalog;
+    QString m_projectDir;
+    QVector<QVariantMap> m_inMemoryConstraints;
+    int m_inMemorySeq = 0;
 };
 
 // ③综合编图 — fuse declared single-factor rasters into composite facies layer.
@@ -176,10 +233,22 @@ class CompositionWorkflow : public QObject
     // sha 不动。源本就可写或非文件源 → 原样返回 layerId；失败 → 空串 +
     // *error。重跑 derive 后再进编辑会用新派生文件重新铺工作副本。
     QString prepareFaciesForEditing(const QString &layerId, QString *error = nullptr);
+
+    DataCatalog *catalog() const;
+    QString projectDir() const { return m_projectDir; }
+    QgisProcessingService *processingService() const;
+    QgisLayerService *layerService() const;
+
   signals:
     void compositionDone(const QString &horizon, const QString &resultLayerId);
     void faciesPolygonsReady(const QString &horizon, const QString &layerId);
     void faciesPolygonsFailed(const QString &horizon, const QString &error);
+
+  private:
+    QPointer<QgisProcessingService> m_proc;
+    QPointer<QgisLayerService> m_layers;
+    QPointer<DataCatalog> m_catalog;
+    QString m_projectDir;
 };
 
 // ④验证 — run cross-horizon validation rules; instantiate layers on demand.
@@ -202,6 +271,18 @@ class ValidationWorkflow : public QObject
     // threshold_ms/x/y/inline/time_ms/raster_ms。未跑过或无门面 → 空表。
     QVariantList lastResidualRows() const;
 
+    QgisLayerService *layerService() const;
+    PaleoProjectStore *projectStore() const;
+    ProjectDataFacade *projectData() const;
+    double residualThresholdMs() const { return m_residualThresholdMs; }
+
   signals:
     void validationDone(int issueCount);
+
+  private:
+    QPointer<QgisLayerService> m_layers;
+    QPointer<PaleoProjectStore> m_store;
+    QPointer<ProjectDataFacade> m_projectData;
+    double m_residualThresholdMs = 10.0;
+    QVariantList m_residualRows;
 };

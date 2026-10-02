@@ -1,0 +1,7 @@
+{
+  "_meta": "goal/perf-systematize 簇1 启动比率门基线（实测产出，禁手调）：tools/measure_startup.sh ./build/paleo 9 的 share_ratios 中位数，2026-10-01，Arch x86_64 / GCC 16.2.1 / Qt 6.11 / QGIS 4.2.2 vendored，RelWithDebInfo -O2，offscreen。测量时本机有并行编译负载（总时长 3.9-9.8s 波动）——比率仍稳定（逐轮见 ledger），容差 ×2.0（tst_startup_trace）覆盖跨机/负载分母波动。loader_share 分母 = process_to_main + main→first_paint（exec→首屏全链路）。复测：tools/measure_startup.sh <paleo> 9 本文件路径。",
+  "qgis_init_share_max": 0.088,
+  "service_assembly_share_max": 0.067,
+  "show_to_paint_share_max": 0.40,
+  "loader_share_max": 0.581
+}

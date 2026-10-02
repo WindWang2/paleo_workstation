@@ -56,8 +56,10 @@ QString exportHorizonMapPdf( QgisLayerService *layers, QgisProjectService *proje
 
 QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
                              const QString &pdfPath, QString *sha256Out,
-                             QString *managedPathOut, QString *error )
+                             QString *managedPathOut, QString *error,
+                             const QString &assetFormat )
 {
+  const QString format = assetFormat.isEmpty() ? QStringLiteral( "pdf" ) : assetFormat;
   const auto fail = [error]( const QString &msg ) {
     if ( error )
       *error = msg;
@@ -123,8 +125,8 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
 
   CatalogAsset asset;
   asset.id = assetId;
-  asset.type = QStringLiteral( "document" ); // 图件 PDF 归 document 一类
-  asset.format = QStringLiteral( "pdf" );
+  asset.type = QStringLiteral( "document" ); // 图件（PDF/PNG）归 document 一类
+  asset.format = format;
   asset.displayName = fileName;
   if ( !catalog->addAsset( asset, error ) )
     return fail( error ? *error : QStringLiteral( "catalog addAsset failed" ) );

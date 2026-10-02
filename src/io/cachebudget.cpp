@@ -24,7 +24,13 @@ void CacheBudgetManager::registerCache(EvictableCache *cache)
 
 void CacheBudgetManager::unregisterCache(EvictableCache *cache)
 {
+  if (!cache)
+    return;
   QMutexLocker lock(&m_mutex);
+  while (cache->activeEvictionRefs() > 0)
+  {
+    m_evictionZeroCond.wait(&m_mutex);
+  }
   const int i = m_caches.indexOf(cache);
   if (i >= 0)
     m_caches.remove(i);
@@ -78,12 +84,42 @@ qint64 CacheBudgetManager::enforce()
     QMutexLocker lock(&m_mutex);
     budget = m_budgetBytes;
     snapshot = m_caches;
+    for (EvictableCache *c : snapshot)
+      c->addEvictionRef();
   }
+
+  // RAII Guard to ensure eviction refs are always decremented and waiters woken
+  struct EvictionRefScope
+  {
+    QMutex &mutex;
+    QWaitCondition &cond;
+    const QVector<EvictableCache *> &caches;
+    bool released = false;
+
+    void release()
+    {
+      if (!released)
+      {
+        QMutexLocker lock(&mutex);
+        for (EvictableCache *c : caches)
+          c->releaseEvictionRef();
+        cond.wakeAll();
+        released = true;
+      }
+    }
+
+    ~EvictionRefScope()
+    {
+      release();
+    }
+  } evictionScope{m_mutex, m_evictionZeroCond, snapshot};
+
   qint64 used = 0;
   for (const EvictableCache *c : snapshot)
     used += c->bytes();
   if (used <= budget)
   {
+    evictionScope.release();
     QMutexLocker lock(&m_mutex);
     m_lastNotifiedTier = 0;
     return 0;
@@ -109,6 +145,7 @@ qint64 CacheBudgetManager::enforce()
     freed += got;
     need -= got;
   }
+  evictionScope.release();
   notifyPressure();
   return freed;
 }

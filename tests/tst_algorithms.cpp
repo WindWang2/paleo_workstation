@@ -232,6 +232,116 @@ private slots:
     delete pts;
   }
 
+  // Stress-test BIZ-13: exact duplicate query points (d2 == 0), near-duplicate (d2 < 1e-12),
+  // duplicate sample points, anisotropy near-singularity, ensuring no NaN or Inf occurs.
+  void constraintIdwSingularityAndDuplicates()
+  {
+    ensurePaleo();
+    auto *pts = new QgsVectorLayer(
+        QStringLiteral( "Point?crs=EPSG:4326&field=z:double" ),
+        QStringLiteral( "singularity_pts" ), QStringLiteral( "memory" ) );
+    QVERIFY( pts->isValid() );
+
+    // Points layout with cellSize = 1.0:
+    // Raw extent: [0.5, 10.5] x [0.5, 10.5]
+    // 10% padding -> extent [-0.5, 11.5] x [-0.5, 11.5] -> 12x12 grid.
+    // Cell centers: x(c) = -0.5 + (c + 0.5) = c; y(r) = 11.5 - (r + 0.5) = 11 - r.
+    // Cell (r=10, c=1) center is exactly (1.0, 1.0).
+    // Cell (r=9, c=2) center is exactly (2.0, 2.0).
+    QList<QgsFeature> feats;
+    const QList<QPair<QgsPointXY, double>> data = {
+        { QgsPointXY( 0.5, 0.5 ), 10.0 },                     // Sets extent lower bound
+        { QgsPointXY( 10.5, 10.5 ), 50.0 },                   // Sets extent upper bound
+        { QgsPointXY( 1.0, 1.0 ), 100.0 },                    // Exact hit on cell (10, 1) center: d2 == 0.0
+        { QgsPointXY( 1.0, 1.0 ), 100.0 },                    // Duplicate sample point at exact same coords
+        { QgsPointXY( 2.0 + 1e-7, 2.0 + 1e-7 ), 200.0 }      // Near-singularity hit on cell (9, 2): d2 = 2e-14 < 1e-12
+    };
+    for ( const auto &d : data )
+    {
+      QgsFeature f( pts->fields() );
+      f.setGeometry( QgsGeometry::fromPointXY( d.first ) );
+      f.setAttribute( QStringLiteral( "z" ), d.second );
+      feats << f;
+    }
+    QVERIFY( pts->dataProvider()->addFeatures( feats ) );
+    pts->updateExtents();
+
+    // 1. Isotropic IDW run
+    const QString outPath = mDir.filePath( QStringLiteral( "idw_singularity.tif" ) );
+    QgsProcessingContext ctx;
+    QgsProcessingFeedback fb;
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( pts ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    params.insert( QStringLiteral( "OUTPUT" ), outPath );
+    const QVariantMap res = QgsApplication::processingRegistry()
+                                ->algorithmById( QStringLiteral( "paleo:paleo_constraint_idw" ) )
+                                ->run( params, ctx, &fb );
+    QVERIFY( !res.isEmpty() );
+    QVERIFY( QFile::exists( outPath ) );
+
+    int w = 0, h = 0;
+    QVector<float> px;
+    QVERIFY( readRaster( outPath, w, h, px ) );
+    QCOMPARE( w, 12 );
+    QCOMPARE( h, 12 );
+
+    // Verify cell (r=10, c=1) gets exact value 100.0f
+    QCOMPARE( px[10 * 12 + 1], 100.0f );
+
+    // Verify cell (r=9, c=2) gets near-exact value 200.0f (d2 < 1e-12 threshold hit)
+    QCOMPARE( px[9 * 12 + 2], 200.0f );
+
+    // Adversarial verification: NO cell in the grid should be NaN or Inf
+    for ( int i = 0; i < px.size(); ++i )
+    {
+      const float val = px[i];
+      QVERIFY2( !std::isnan( val ), qPrintable( QStringLiteral( "cell %1 is NaN" ).arg( i ) ) );
+      QVERIFY2( !std::isinf( val ), qPrintable( QStringLiteral( "cell %1 is Inf" ).arg( i ) ) );
+      QVERIFY2( val > 0.0f, qPrintable( QStringLiteral( "cell %1 value %2 invalid" ).arg( i ).arg( val ) ) );
+    }
+
+    // 2. Anisotropic IDW run with direction line
+    auto *lines = new QgsVectorLayer(
+        QStringLiteral( "LineString?crs=EPSG:4326&field=type:string" ),
+        QStringLiteral( "cons_aniso" ), QStringLiteral( "memory" ) );
+    QVERIFY( lines->isValid() );
+    QgsFeature lf( lines->fields() );
+    lf.setAttribute( QStringLiteral( "type" ), QStringLiteral( "direction_line" ) );
+    lf.setGeometry( QgsGeometry::fromPolylineXY( { QgsPointXY( 0, 0 ), QgsPointXY( 10, 10 ) } ) );
+    QVERIFY( lines->dataProvider()->addFeatures( QList<QgsFeature>() << lf ) );
+    lines->updateExtents();
+
+    const QString outPathAniso = mDir.filePath( QStringLiteral( "idw_singularity_aniso.tif" ) );
+    QVariantMap paramsAniso = params;
+    paramsAniso.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( lines ) );
+    paramsAniso.insert( QStringLiteral( "ANISOTROPY_RATIO" ), 2.5 );
+    paramsAniso.insert( QStringLiteral( "OUTPUT" ), outPathAniso );
+    const QVariantMap resAniso = QgsApplication::processingRegistry()
+                                     ->algorithmById( QStringLiteral( "paleo:paleo_constraint_idw" ) )
+                                     ->run( paramsAniso, ctx, &fb );
+    QVERIFY( !resAniso.isEmpty() );
+    QVector<float> pxAniso;
+    QVERIFY( readRaster( outPathAniso, w, h, pxAniso ) );
+
+    // Cell with d2 == 0 remains exact 100.0f under anisotropy
+    QCOMPARE( pxAniso[10 * 12 + 1], 100.0f );
+    // Cell with d2 < 1e-12 remains exact 200.0f under anisotropy
+    QCOMPARE( pxAniso[9 * 12 + 2], 200.0f );
+
+    // Verify all cells under anisotropy have no NaN or Inf
+    for ( int i = 0; i < pxAniso.size(); ++i )
+    {
+      const float val = pxAniso[i];
+      QVERIFY2( !std::isnan( val ), qPrintable( QStringLiteral( "aniso cell %1 is NaN" ).arg( i ) ) );
+      QVERIFY2( !std::isinf( val ), qPrintable( QStringLiteral( "aniso cell %1 is Inf" ).arg( i ) ) );
+    }
+
+    delete lines;
+    delete pts;
+  }
+
   // Two same-grid rasters fused with priority = input order.
   void faciesFusion()
   {

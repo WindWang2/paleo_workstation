@@ -2,7 +2,7 @@
 #include "seismicmaplink.h"
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/sgyvolume.h"
-#include "seismicsectiontool.h"
+#include "../qgis/seismicsectiontool.h"
 #include "selectioncontext.h"
 
 #include <QSignalBlocker>

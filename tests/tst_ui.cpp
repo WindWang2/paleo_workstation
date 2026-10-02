@@ -49,6 +49,8 @@
 #include <qgsproject.h>
 #include <qgsmapcanvas.h>
 #include <qgsrectangle.h>
+#include <qgsrubberband.h>
+#include <QGraphicsItem>
 
 #include <qgslayertreeview.h>
 #include <qgslayertree.h>
@@ -104,6 +106,41 @@ class TestUiShell : public QObject
     {
       QVERIFY(m_win->minimumWidth() >= 1280);
       QVERIFY(m_win->minimumHeight() >= 800);
+    }
+
+    // goal/ui-experience-polish：W5 快捷键族——Ctrl+1..5 直切、Ctrl+Tab/
+    // Ctrl+Shift+Tab 循环（含末→首环绕）、密度切换菜单动作在位。
+    void pageShortcutsTabCycleAndDensityToggle()
+    {
+      m_win->show();
+      QTest::qWait(10);
+      // 起点不限（首启是 startup 页）；Ctrl+3 → 单因素图。
+      QTest::keyClick(m_win, Qt::Key_3, Qt::ControlModifier);
+      QCOMPARE(m_win->currentPage(), QStringLiteral("constraint"));
+      // Ctrl+Tab → 智能编图
+      QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier);
+      QCOMPARE(m_win->currentPage(), QStringLiteral("compose"));
+      // Ctrl+Tab → 验证；再进一格环绕回数据管理
+      QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier);
+      QCOMPARE(m_win->currentPage(), QStringLiteral("validate"));
+      QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier);
+      QCOMPARE(m_win->currentPage(), QStringLiteral("data"));
+      // Ctrl+Shift+Tab 从首页环绕到末页
+      QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier | Qt::ShiftModifier);
+      QCOMPARE(m_win->currentPage(), QStringLiteral("validate"));
+      // 密度切换（菜单 action objectName 契约 + 行为等价的公共面）：
+      // applyDensity 切档 → QSS padding 档位即时跟随；settings 往返守恒。
+      PaleoTheme::applyDensity(PaleoTheme::Density::Compact);
+      QCOMPARE(PaleoTheme::currentDensity(), PaleoTheme::Density::Compact);
+      QVERIFY(PaleoTheme::itemViewStyleSheet().contains(QStringLiteral("padding: 1px")));
+      PaleoTheme::writeDensityToSettings(PaleoTheme::Density::Compact);
+      QCOMPARE(PaleoTheme::densityFromSettings(), PaleoTheme::Density::Compact);
+      PaleoTheme::applyDensity(PaleoTheme::Density::Comfort);
+      PaleoTheme::writeDensityToSettings(PaleoTheme::Density::Comfort);
+      QCOMPARE(PaleoTheme::densityFromSettings(), PaleoTheme::Density::Comfort);
+      QVERIFY(PaleoTheme::itemViewStyleSheet().contains(QStringLiteral("padding: 3px")));
+      // Ctrl+K 归定位器独占（数据页命令面板改键的断言在 tst_panels
+      // uipolish_commandPaletteShortcutMoved——裸壳不构建 DataPage）。
     }
 
     // T32：全局焦点环进主窗样式表（2px #1B73D0）；工作流标签溢出走滚动
@@ -426,6 +463,106 @@ class TestUiShell : public QObject
 
       // 不把图层泄漏给后续用例（空态测试断言 mapLayers().isEmpty()）。
       m_ctx->projectSvc()->project()->removeMapLayer(layer->id());
+    }
+
+    // (i) P1-06 / MEM-03: Rapid re-entrant calls to flashHorizonLayer must cleanly
+    // clean up prior rubber bands without leaking orphaned items on the canvas or scene.
+    void showOnMapRapidReentrantFlashDoesNotLeakRubberBand()
+    {
+      if (!m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+        m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                               m_ctx->compositionWf(), m_ctx->validationWf(),
+                               m_ctx->importSvc(), m_ctx->seismicLink(),
+                               m_ctx->processingSvc(), m_ctx->store(),
+                               m_ctx->editingSvc(), m_ctx->layoutSvc(),
+                               m_ctx->taskSvc());
+
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      QVERIFY2(m_ctx->projectSvc()->createProject(
+                   dir.filePath(QStringLiteral("proj_reentrant.qgz"))),
+               "need a live project for manifest writes");
+
+      LayerDeclaration d;
+      d.layerId = QStringLiteral("horizon.reentrant");
+      d.horizon = QStringLiteral("D61");
+      d.type = QStringLiteral("vector");
+      d.source = QStringLiteral(FIXTURE_GPKG) + QStringLiteral("|layername=basin");
+      d.group = QStringLiteral("03_Composite");
+      QString declErr;
+      QVERIFY2(m_ctx->layerSvc()->declare(d, &declErr), qPrintable(declErr));
+
+      auto *preview = m_win->findChild<QWidget *>(QStringLiteral("dataPreview"));
+      QVERIFY(preview);
+
+      auto *cv = m_ctx->canvasCtl()->canvas();
+      QVERIFY(cv);
+
+      auto countSceneRubberBands = [cv]() -> int {
+        int count = 0;
+        if (cv && cv->scene())
+        {
+          for (auto *item : cv->scene()->items())
+          {
+            if (dynamic_cast<QgsRubberBand *>(item))
+              ++count;
+          }
+        }
+        return count;
+      };
+
+      auto countFlashRubberBands = [cv]() -> int {
+        int count = 0;
+        if (cv && cv->scene())
+        {
+          for (auto *item : cv->scene()->items())
+          {
+            if (auto *rb = dynamic_cast<QgsRubberBand *>(item))
+            {
+              if (rb->objectName() == QStringLiteral("horizonFlashRubberBand"))
+                ++count;
+            }
+          }
+        }
+        return count;
+      };
+
+      const int baseSceneBands = countSceneRubberBands();
+
+      // Initial state: 0 horizon flash rubber bands on scene or canvas
+      QCOMPARE(countFlashRubberBands(), 0);
+      QCOMPARE(cv->findChildren<QgsRubberBand *>(QStringLiteral("horizonFlashRubberBand")).count(), 0);
+
+      // Re-entrancy stress: trigger rapid successive horizon flash requests (4 times, 20ms apart)
+      for (int i = 0; i < 4; ++i)
+      {
+        QVERIFY(QMetaObject::invokeMethod(
+            preview, "showHorizonOnMapRequested",
+            Q_ARG(QString, QStringLiteral("horizon.reentrant"))));
+        QTest::qWait(20);
+
+        // Invariant: prior in-flight rubber band must be cleaned up; exactly 1 flash band on scene and canvas
+        QCOMPARE(countFlashRubberBands(), 1);
+        QCOMPARE(countSceneRubberBands(), baseSceneBands + 1);
+        auto *activeBand = cv->findChild<QgsRubberBand *>(QStringLiteral("horizonFlashRubberBand"));
+        QVERIFY(activeBand != nullptr);
+      }
+
+      QVERIFY(m_win->property("horizonFlashActive").toBool());
+
+      // Allow flash animation to complete (~400ms duration)
+      QTest::qWait(600);
+      QVERIFY(!m_win->property("horizonFlashActive").toBool());
+
+      // Invariant: strictly 0 horizon flash rubber bands remain on canvas or scene after completion
+      QCOMPARE(cv->findChild<QgsRubberBand *>(QStringLiteral("horizonFlashRubberBand")), nullptr);
+      QCOMPARE(cv->findChildren<QgsRubberBand *>(QStringLiteral("horizonFlashRubberBand")).count(), 0);
+      QCOMPARE(countFlashRubberBands(), 0);
+      QCOMPARE(countSceneRubberBands(), baseSceneBands);
+
+      QgsMapLayer *layer = m_ctx->layerSvc()->layer(QStringLiteral("horizon.reentrant"));
+      if (layer)
+        m_ctx->projectSvc()->project()->removeMapLayer(layer->id());
     }
 
     // T20 恢复链路：坏 catalog → 告警 + 导入禁用；重开好工程（AppContext
@@ -1216,10 +1353,12 @@ int main(int argc, char *argv[])
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
 
-  // Keep QSettings writes out of the real user profile.
+  // 每运行一次的临时目录（对齐 tst_seismic_sectionui 惯例）：既隔离直跑时
+  // 的真实用户配置，也消除固定 /tmp 路径跨运行/跨用户的陈旧状态向量
+  // （ctest 路径另有 add_paleo_test 的 XDG/HOME 沙箱兜底）。
+  static QTemporaryDir settingsDir;
   QSettings::setDefaultFormat(QSettings::IniFormat);
-  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
-                     QDir::temp().filePath(QStringLiteral("paleo_tst_ui_settings")));
+  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
 
   AppContext ctx(QStringLiteral("/usr"));
   if (!ctx.ready())

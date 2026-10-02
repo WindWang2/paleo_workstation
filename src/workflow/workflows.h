@@ -220,6 +220,62 @@ class ConstraintWorkflow : public QObject
                                   const std::function<void(double)> &progress = {});
     bool publishLocalDirectionJob(const LocalDirectionJob &job, QString *error = nullptr);
 
+    // 分析场等值线：准备在调用线程，GDAL 可在任务线程，发布回到 catalog 所属线程。
+    // fixedLevels 为真时用 levels（空级别直接拒绝）；否则要求正间距。
+    struct AnalysisContourJob
+    {
+        bool prepared = false;
+        bool ok = false;
+        bool fixedLevels = false;
+        quint64 generation = 0;
+        QString error;
+        QString horizon;
+        QString factorLayerId;
+        QString factorId;
+        QString rasterPath;
+        QString analysisSha;
+        QStringList parentPaths;
+        double interval = 0.0;
+        QVector<double> levels;
+        QString outputPath;
+    };
+    bool prepareAnalysisContourJob(const QString &horizon, const QString &factorLayerId,
+                                   double interval, const QVector<double> &levels, bool fixedLevels,
+                                   AnalysisContourJob *job, QString *error = nullptr);
+    bool computeAnalysisContourJob(AnalysisContourJob *job, const std::function<bool()> &cancelled = {});
+    bool publishAnalysisContourJob(const AnalysisContourJob &job, QString *error = nullptr);
+
+    // 解释性等值线：工作场与提线可在任务线程写临时文件，登记仍回调用线程。
+    // strict 默认与 generateInterpretiveContours 相同，不改拒绝穿线的缺省。
+    struct InterpretiveContourJob
+    {
+        bool prepared = false;
+        bool ok = false;
+        bool strict = true;
+        bool hasConstraints = false;
+        bool frozenConstraints = false;
+        quint64 generation = 0;
+        int unresolved = 0;
+        QString error;
+        QString horizon;
+        QString factorLayerId;
+        QString factorId;
+        QString rasterPath;
+        QString constraintUri;
+        QString analysisSha;
+        QStringList parentPaths;
+        QVector<double> levels;
+        QString workPath;
+        QString qcPath;
+        QString contourPath;
+    };
+    bool prepareInterpretiveContourJob(const QString &horizon, const QString &factorLayerId,
+                                       const QVector<double> &levels, bool strict,
+                                       InterpretiveContourJob *job, QString *error = nullptr);
+    bool computeInterpretiveContourJob(InterpretiveContourJob *job,
+                                       const std::function<bool()> &cancelled = {});
+    bool publishInterpretiveContourJob(const InterpretiveContourJob &job, QString *error = nullptr);
+
     DataCatalog *catalog() const;
     QString projectDir() const { return m_projectDir; }
     QgisProcessingService *processingService() const;
@@ -250,8 +306,8 @@ class ConstraintWorkflow : public QObject
     QString m_projectDir;
     QVector<QVariantMap> m_inMemoryConstraints;
     int m_inMemorySeq = 0;
-    // 本地方向 / 制图工作场发布代次。每次这类运行开始时加一，setStore 也加一。
-    // 提交前对不上就丢掉这次文件，不声明图层。
+    // 发布代次。本地方向在准备入口加一；等值线与解释性等值线在校验通过后加一；
+    // setStore 也加一。提交前对不上就丢掉这次临时文件，不声明图层。
     quint64 m_publishGeneration = 0;
 };
 

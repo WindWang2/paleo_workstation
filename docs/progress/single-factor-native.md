@@ -1,6 +1,6 @@
 # 单因素图算法原生集成
 
-状态：P0 页面、异步分析场和 P1 解释性等值线已进分支，代码提交 `2e293d5`。未跑完的 Oracle 不记为通过。O12 跳过，O7 和 O11 只部分覆盖。这仍不是方案全文通过。
+状态：PR #109 已合并进 `56d643c`。后续代码提交 `38e4ed2` 把等间距等值线和解释性等值线拆到任务里，并补了故障注入、提线预算和 S/L 事件循环 p95。未跑完的 Oracle 不记为通过。O12 仍是跳过。这仍不是方案全文通过。
 
 ## 范围
 
@@ -68,11 +68,26 @@ cd .worktrees/single-factor-native && python3 tools/check_tidy.py
 
 全量 180/181 通过。`tst_startup_trace` 在并行负载下失败，空载单独重跑通过（11.56 秒）。未放宽启动比率门。clang-tidy 17 个改动 TU 通过。`tst_singlefactor_perf` 空载结果：S=2004 ms，scale1024=6885 ms，L=14334 ms，wells200=3129 ms，像元比 3.44，井数比 1.56，取消中位 1 ms、最大 2 ms，RSS 增量 15328 KiB。像元比比较的是同一批井和同一批约束，只把成图域扩成 1024 方格。L 的方向线和软边界更多，不用 L/S 充当像元比。`tst_singlefactor_contours` 通过常量场、斜面、nodata 孔、开放端、圆锥和非法级别。`tst_factorworkflow` 通过穿线绕行后分析 SHA 不变、严格模式拒绝剩余穿线，以及融合拒绝解释性等值线。`tst_mappingpages` 的离屏用例覆盖方法、等值线来源和忙碌态。
 
+等值线任务补丁 `38e4ed2` 在 `56d643c` 上另跑：
+
+```text
+cmake --build build -j2 --target tst_factorworkflow tst_singlefactor_asynccontour tst_singlefactor_faults tst_singlefactor_contourbudget tst_singlefactor_guilatency
+cd build && QT_QPA_PLATFORM=offscreen ctest --output-on-failure -V -j1 -R '^(tst_factorworkflow|tst_singlefactor_asynccontour|tst_singlefactor_faults|tst_singlefactor_contourbudget|tst_singlefactor_guilatency)$'
+python3 tools/check_layering.py --strict
+python3 tools/check_i18n.py
+python3 tools/check_ui_invariants.py --strict
+git diff --check
+python3 tools/check_tidy.py
+```
+
+五个测试通过。`tst_factorworkflow` 18 通过、1 跳过，跳过文案写明这不是 O12 通过。提线预算预热 1 次后 3 次中位 66 ms、最大 67 ms（512²、10 级、8 条约束，改写像元 14408，门 ≤20000 ms）。GUI 用与性能测相同的 S/L 负载各跑 1 次：S p95=11 ms（wall 2103 ms），L p95=11 ms（wall 14618 ms），maxGap 都是 11 ms，门 ≤100 ms。故障测试覆盖无法识别的栅格、只读制品目录、只读清单和未登记的孤立文件；孤立文件重开后不是产品，文件本身还在。clang-tidy 通过本分支相对 master 的 2 个 TU。严格分层、i18n 和 UI 不变量通过。没有重跑 `tst_singlefactor_perf` 和全量 ctest。
+
+`8dff163` 补上分析等值线的分析场 SHA。prepare 在增加代数之前记 SHA；publish 在 stage 前和 commit 前再核对。栅格被改写则不声明等值线，文案含「分析场在等值线期间被改写」。`tst_singlefactor_asynccontour` 的 `rewrittenAnalysisDropsContourPublish` 通过（6 通过、0 跳过）。同一轮 `tst_factorworkflow` 仍是 18 通过、1 跳过。严格分层、i18n、UI 不变量和 clang-tidy 的 2 个 TU 通过。
+
 ## 尚未完成
 
-- O7 只验证了过期代数丢弃发布。文件写入、GDAL flush、目录提交、清单声明和进程杀死恢复没有注入。
-- O11：本地方向计算已离开界面线程。解释性等值线和等间距等值线仍在界面线程生成。离屏测试不是双主题、窄 dock 和高 DPI 的真人点击。
-- O12：`PALEO_REAL_PROJECT_AREA` 未设置。只读工区 `/home/kevin/projects/paleo_project/data/project_area` 的井点属性只有 `coordinate_status`、`id`、`name`。环境未设置时测试 QSKIP。跳过不是通过，也没有编造井值。
-- O13 的计算门已测。GUI 事件循环 p95 和 512² 等值线 20 秒预算未测。
-- 分支落后 `origin/master` 的 `4f35600`，按方案不合并。
+- O7 还没有 GDAL flush 中途失败、杀掉正在跑的进程，也没有自动回收孤立文件。关停和单调进度没有单独断言。
+- O11：有任务服务时等值线计算离开界面线程。任务服务为空时仍同步。双主题、窄 dock、高 DPI 没有真人点击。
+- O12：`PALEO_REAL_PROJECT_AREA` 未设置。只读工区井点 GeoJSON 仍只有 `coordinate_status`、`id`、`name`。跳过不是通过，也没有编造井值。
+- O13 的分析中位仍是上一轮空载结果。本轮测的是 GUI p95 和提线/绕行中位。
 - P2（克里金、完整 SFPKG、外委 XML/XLSX、历史制图策略、时深转换、监督分类、打印排版、Python GUI、`FaultPathMetric`）在 `TODOS.md`，不在本分支实现。

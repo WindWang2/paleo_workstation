@@ -60,12 +60,20 @@ WebViewPanel::WebViewPanel(QWidget *parent)
   m_externalButton->setObjectName(QStringLiteral("webExternalButton"));
   m_externalButton->setVisible(false);
   connect(m_externalButton, &QPushButton::clicked, this, [this] {
-    if (m_url.isValid())
+    if (isAllowedUrl(m_url)) // 外部打开前用同一份白名单再校验一次（#82）
       QDesktopServices::openUrl(m_url);
   });
   lay->addWidget(m_externalButton, 0, Qt::AlignHCenter);
   lay->addStretch(1);
   m_stack->addWidget(statusPage);
+}
+
+bool WebViewPanel::isAllowedUrl(const QUrl &url)
+{
+  if (!url.isValid() || url.isEmpty() || url.host().isEmpty())
+    return false;
+  const QString scheme = url.scheme().toLower();
+  return scheme == QLatin1String("http") || scheme == QLatin1String("https");
 }
 
 bool WebViewPanel::setUrl(const QUrl &url)
@@ -75,6 +83,16 @@ bool WebViewPanel::setUrl(const QUrl &url)
   {
     m_lastError = tr("无效的 URL");
     showFallback(m_lastError); // visible feedback, not a silent no-op
+    emit loadFailed(m_lastError);
+    return false;
+  }
+  if (!isAllowedUrl(url))
+  {
+    // #82：本面板只嵌「已运行的 web 服务」——非 http/https 不加载，降级面
+    // 也不提供外部打开（m_url 清空 → showFallback 隐藏外部按钮）。
+    m_url = QUrl();
+    m_lastError = tr("仅支持 http:// 或 https:// 服务地址（已拒绝 %1:）").arg(url.scheme());
+    showFallback(m_lastError);
     emit loadFailed(m_lastError);
     return false;
   }
@@ -159,7 +177,7 @@ void WebViewPanel::showFallback(const QString &reason)
   if (m_statusLabel)
     m_statusLabel->setText(tr("内嵌浏览器不可用：%1").arg(reason));
   if (m_externalButton)
-    m_externalButton->setVisible(m_url.isValid() && !m_url.isEmpty());
+    m_externalButton->setVisible(isAllowedUrl(m_url));
   if (m_stack)
     m_stack->setCurrentIndex(0);
 }

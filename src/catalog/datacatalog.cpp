@@ -2,6 +2,7 @@
 #include "datacatalog.h"
 
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -233,6 +234,7 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   m_isOpen = false;
   m_openError.clear();
   m_recoveredFromBackup = false; // 恢复态是「本次 open」的属性，重开重新判
+  m_primaryCorruptOnDisk = false;
   m_backupRecoveryReason.clear();
   // 注意：m_lockedReadOnly 不在此重置——实例级只读降级由拥有者管理（见头注）。
   m_batchDepth = 0;
@@ -360,39 +362,62 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   // 是未来版本信号——.bak 与主文件同代，回退既救不了也不该静默降级数据。
   if (mainParses)
     return fail(QStringLiteral("unsupported catalog schema in %1").arg(catalogPath()));
+  // #79：依次尝试 .bak（最新）→ .bak.2 → … → .bak.9，取第一份可解析且
+  // schema 匹配的一代。只读 .bak 时，「.bak 恰好也坏了」会让仍完好的
+  // 更早一代白白躺在盘上。
   const QString bakPath = catalogPath() + QStringLiteral(".bak");
-  QFile bak(bakPath);
   QString bakDetail;
-  if (bak.exists() && bak.open(QIODevice::ReadOnly))
+  for (int gen = 1; gen <= 9; ++gen)
   {
+    const QString candidate = gen == 1 ? bakPath : bakPath + QStringLiteral(".%1").arg(gen);
+    QFile bak(candidate);
+    if (!bak.exists())
+      continue;
+    if (!bak.open(QIODevice::ReadOnly))
+    {
+      bakDetail += QStringLiteral("%1: cannot open; ").arg(candidate);
+      continue;
+    }
     QJsonParseError bpe;
     const QJsonDocument bakDoc = QJsonDocument::fromJson(bak.readAll(), &bpe);
     bak.close();
-    if (bpe.error == QJsonParseError::NoError && bakDoc.isObject())
+    if (bpe.error != QJsonParseError::NoError || !bakDoc.isObject())
     {
-      const QString rerr = loadFrom(bakDoc.object());
-      if (rerr.isEmpty())
-      {
-        // 恢复成功：open 算成功（读面可用、可续存），损坏事实如实留底并
-        // 广播——UI/状态面向用户告警；下一次 save 会把恢复后的内容轮转成
-        // 新 .bak，主文件重写为好文件。
-        m_recoveredFromBackup = true;
-        m_backupRecoveryReason = QStringLiteral("%1: %2").arg(catalogPath(), pe.errorString());
-        qWarning("catalog: primary %s is corrupt (%s) — recovered from %s",
-                 qPrintable(catalogPath()), qPrintable(pe.errorString()), qPrintable(bakPath));
-        m_isOpen = true;
-        emit backupRecovered(m_backupRecoveryReason);
-        emit changed();
-        return true;
-      }
-      bakDetail = rerr;
+      bakDetail += QStringLiteral("%1: corrupt backup: %2; ").arg(candidate, bpe.errorString());
+      continue;
     }
-    else
+    // 上一代尝试失败可能已部分装载——每代从空表开始。
+    m_entities.clear();
+    m_assets.clear();
+    m_versions.clear();
+    m_links.clear();
+    m_assetSeq = 0;
+    m_versionSeq = 0;
+    m_revision = 0;
+    const QString rerr = loadFrom(bakDoc.object());
+    if (!rerr.isEmpty())
     {
-      bakDetail = QStringLiteral("corrupt backup: ").append(bpe.errorString());
+      bakDetail += QStringLiteral("%1: %2; ").arg(candidate, rerr);
+      continue;
     }
+    // 恢复成功：open 算成功（读面可用、可续存），损坏事实如实留底并
+    // 广播——UI/状态面向用户告警。下一次 save 把损坏的主文件隔离为
+    // .corrupt-<时间戳>（不进 .bak 链，#79），再写入恢复后的内容。
+    m_recoveredFromBackup = true;
+    m_primaryCorruptOnDisk = true;
+    m_backupRecoveryReason = QStringLiteral("%1: %2").arg(catalogPath(), pe.errorString());
+    qWarning("catalog: primary %s is corrupt (%s) — recovered from %s",
+             qPrintable(catalogPath()), qPrintable(pe.errorString()), qPrintable(candidate));
+    m_isOpen = true;
+    emit backupRecovered(m_backupRecoveryReason);
+    emit changed();
+    return true;
   }
-  return fail(QStringLiteral("corrupt catalog %1: %2 (no usable %3: %4)")
+  m_entities.clear();
+  m_assets.clear();
+  m_versions.clear();
+  m_links.clear();
+  return fail(QStringLiteral("corrupt catalog %1: %2 (no usable %3[.2..9]: %4)")
                   .arg(catalogPath(), pe.errorString(), bakPath,
                        bakDetail.isEmpty() ? QStringLiteral("backup missing") : bakDetail));
 }
@@ -455,7 +480,19 @@ bool DataCatalog::save(QString *error)
   // 防写一半，.bak 防「写成功了但内容是错的」需要一个上一代可回退。
   // 轮转保留 backupKeepCount() 代：.bak（最新）→ .bak.2 → … → .bak.N；
   // open() 的腐败回退只读 .bak（最新一代）。
-  if (QFile::exists(catalogPath()))
+  if (m_primaryCorruptOnDisk && QFile::exists(catalogPath()))
+  {
+    // #79：盘上主文件是 open() 时已判定损坏的那份——不能轮转进 .bak 链
+    //（否则把好的 .bak 挤成 .bak.2，下一次损坏时 .bak 就是坏的）。隔离
+    // 留证据（best-effort），.bak 链保持原样，下面直接写恢复后的内容。
+    const QString quarantine =
+        catalogPath() + QStringLiteral(".corrupt-") +
+        QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddTHHmmsszzzZ"));
+    if (!QFile::copy(catalogPath(), quarantine))
+      qWarning("catalog: cannot quarantine corrupt primary %s to %s",
+               qPrintable(catalogPath()), qPrintable(quarantine));
+  }
+  else if (QFile::exists(catalogPath()))
   {
     // 代命名：gen1 = catalog.json.bak（最新），gen g>=2 = catalog.json.bak.g。
     // keep=K：删除第 K 代 → 2..K-1 依次后移 → .bak 升为 .bak.2 → 现行内容成新 .bak。
@@ -510,6 +547,7 @@ bool DataCatalog::save(QString *error)
     return false;
   }
   m_revision = nextRevision;
+  m_primaryCorruptOnDisk = false; // 主文件已是好内容——之后恢复正常轮转
   emit changed();
   return true;
 }

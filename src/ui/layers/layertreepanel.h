@@ -56,11 +56,16 @@ class LayerTreePanel : public QWidget
   signals:
     // 「属性…」→ 壳接 LayerPropertiesDialog::openLayerProperties
     void propertiesRequested(const QString &layerId);
+    // goal/gridding-surface-ops：栅格面运算（等厚/体积）入口——意图信号回壳。
+    void surfaceOpsRequested(const QString &layerId);
     // 主线5「删除选中」消歧：编辑中的图层被从树里删时拒绝并带原因
     //（壳接状态栏/消息条展示；收尾会话走编辑工具条/属性表面板）。
     void layerRemovalRefused(const QString &reason);
     // 「在新页打开所属编图页」→ 壳接 showPage（组→页映射在面板内定义）
     void mappingPageRequested(const QString &pageId);
+    // 「转换为深度域…」（时间域层位栅格右键）→ 壳接 DepthConversionWorkflow；
+    // 面板只发意图（layerId 形如 "horizon.D61"），建模/换算/登记在功能层。
+    void depthConversionRequested(const QString &layerId);
     // 「复制图层」直接落 QgsProject（克隆层 + 同组插入），不发信号。
     // 「导出/加载样式 .qml」经 QFileDialog + QgsMapLayer::export/importNamedStyle。
 
@@ -96,9 +101,11 @@ class LayerTreePanel : public QWidget
     QAction *m_removeAction = nullptr;         // 编辑守卫包装版（工具条+菜单共用）
     QAction *m_propertiesAction = nullptr;     // objectName: layerTreePropertiesAction
     QAction *m_duplicateAction = nullptr;      // objectName: layerTreeDuplicateAction
+    QAction *m_surfaceOpsAction = nullptr;     // objectName: layerTreeSurfaceOpsAction（栅格面运算）
     QAction *m_exportStyleAction = nullptr;    // objectName: layerTreeExportStyleAction
     QAction *m_importStyleAction = nullptr;    // objectName: layerTreeImportStyleAction
     QAction *m_openPageAction = nullptr;       // objectName: layerTreeOpenMappingPageAction
+    QAction *m_depthConvertAction = nullptr;   // objectName: layerTreeDepthConvertAction
     QString m_filterText;
     bool m_refreshQueued = false;
 };

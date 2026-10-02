@@ -35,6 +35,11 @@ elif [ -f vendor/prefix/usr/include/qgis/qgsapplication.h ]; then
 else
   echo "  qgis system package absent — deb-closure fetch (ET1):"
   [ "${free_gb:-0}" -ge 15 ] || fail "disk ${free_gb}GB < 15GB" "free space for the vendored QGIS closure"
+  # 已提交的锁是 Ubuntu 26.04 resolute 闭包，库链接到 GLIBC_2.43 符号（#76）：
+  # 更低 glibc 宿主能解包但运行时加载失败，提前拒绝而不是事后崩。
+  [ "$(printf '%s\n2.43\n' "$glibc" | sort -V | head -1)" = "2.43" ] || \
+    fail "glibc $glibc < 2.43 (deb closure lock is Ubuntu 26.04)" \
+         "install QGIS 4.2.x dev packages, or use the vendor/superbuild route"
   bash vendor/fetch-deps.sh
   export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
 fi

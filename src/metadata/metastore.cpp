@@ -19,8 +19,17 @@ namespace
 namespace MetaStore
 {
 
-QSqlDatabase openConnection(const QString &path, const QString &connectionName, QString *error)
+QSqlDatabase openConnection(const QString &path, const QString &connectionName, QString *error,
+                            bool readOnly)
 {
+  if (readOnly && !QFileInfo::exists(path))
+  {
+    // 只读实例不在被锁目录里建库（#80）。
+    setError(error, QStringLiteral("project.sqlite %1 does not exist (read-only instance does not "
+                                   "create it)")
+                        .arg(path));
+    return {};
+  }
   QSqlDatabase db = QSqlDatabase::contains(connectionName)
                         ? QSqlDatabase::database(connectionName)
                         : QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
@@ -31,24 +40,69 @@ QSqlDatabase openConnection(const QString &path, const QString &connectionName, 
   }
   if (!db.isOpen())
   {
-    const QDir dir = QFileInfo(path).absoluteDir();
-    if (!dir.exists() && !dir.mkpath(QStringLiteral(".")))
+    if (!readOnly)
     {
-      setError(error, QStringLiteral("cannot create directory for %1").arg(path));
-      return {};
+      const QDir dir = QFileInfo(path).absoluteDir();
+      if (!dir.exists() && !dir.mkpath(QStringLiteral(".")))
+      {
+        setError(error, QStringLiteral("cannot create directory for %1").arg(path));
+        return {};
+      }
     }
     db.setDatabaseName(path);
+    db.setConnectOptions(readOnly ? QStringLiteral("QSQLITE_OPEN_READONLY") : QString());
     if (!db.open())
     {
       setError(error, db.lastError().text());
       return {};
     }
   }
+  if (readOnly)
+  {
+    // 只读：校验不推进——未来版本拒开，旧/新库（<= 当前）照读。
+    const int v = readUserVersion(db, error);
+    if (v < 0)
+      return {};
+    if (v > kUserVersion)
+    {
+      setError(error,
+               QStringLiteral("project.sqlite schema user_version %1 is newer than this build "
+                              "supports (%2); refusing to open — upgrade the application")
+                   .arg(v)
+                   .arg(kUserVersion));
+      return {};
+    }
+    return db;
+  }
   // A rejected future schema leaves its connection in Qt's registry. Always
   // recheck the gate before allowing a store to create or alter any tables.
   if (!ensureUserVersion(db, error))
     return {};
   return db;
+}
+
+int closeConnectionsFor(const QString &path)
+{
+  if (path.isEmpty())
+    return 0;
+  const QString target = QFileInfo(path).absoluteFilePath();
+  QStringList victims;
+  for (const QString &name : QSqlDatabase::connectionNames())
+  {
+    // open=false：只查注册信息，不触发重连。别的线程拥有的连接在 Qt6 下
+    // 返回 invalid（并跳过）——只能由拥有线程关闭。
+    QSqlDatabase db = QSqlDatabase::database(name, false);
+    if (!db.isValid())
+      continue;
+    if (QFileInfo(db.databaseName()).absoluteFilePath() != target)
+      continue;
+    db.close();
+    victims.append(name);
+  }
+  // removeDatabase 前必须释放本地 QSqlDatabase 拷贝（上面循环体内已出作用域）。
+  for (const QString &name : victims)
+    QSqlDatabase::removeDatabase(name);
+  return victims.size();
 }
 
 int readUserVersion(QSqlDatabase &db, QString *error)

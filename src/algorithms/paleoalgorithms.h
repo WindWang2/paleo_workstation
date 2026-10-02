@@ -175,6 +175,29 @@ class PaleoDistanceTransformAlgorithm : public QgsProcessingAlgorithm
                                  QgsProcessingFeedback *feedback) override;
 };
 
+// MinimumCurvature — 连续曲率张力样条网格化（Smith & Wessel 1990 / GMT
+// surface 族，实现在 mincurvature.cpp，核在 gridsolver.h）。散点 → 平滑
+// 曲面栅格；数据点约束在数据点位（Briggs/GMT 语义，非格内均值冻结）。
+// CONSTRAINTS 的 break_line 为硬屏障（typed C1 词面，作输入消费）；其
+// 它 type 对网格化无语义。输出栅格带 QC 元数据（张力/迭代数/收敛标记/
+// 距数据距离统计）。网格规模守卫走 PaleoAlgoGuards（Issue #33 口径）。
+// Params: INPUT (points), FIELD, CONSTRAINTS (lines, optional), TENSION
+//         (double [0,1), default 0.25), MAX_SWEEPS (int, optional),
+//         CELL_SIZE (double), OUTPUT (raster destination).
+class MinimumCurvatureAlgorithm : public QgsProcessingAlgorithm
+{
+  public:
+    QString name() const override { return QStringLiteral("paleo_min_curvature"); }
+    QString displayName() const override { return QStringLiteral("Paleo: Minimum curvature gridding"); }
+    QString group() const override { return QStringLiteral("Single factor"); }
+    QString groupId() const override { return QStringLiteral("singlefactor"); }
+    QString shortHelpString() const override;
+    MinimumCurvatureAlgorithm *createInstance() const override { return new MinimumCurvatureAlgorithm(); }
+    void initAlgorithm(const QVariantMap &configuration = QVariantMap()) override;
+    QVariantMap processAlgorithm(const QVariantMap &parameters, QgsProcessingContext &context,
+                                 QgsProcessingFeedback *feedback) override;
+};
+
 // Production provider — replaces the spikes provider for real algorithms.
 class PaleoProvider : public QgsProcessingProvider
 {

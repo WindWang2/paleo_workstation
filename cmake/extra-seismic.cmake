@@ -9,6 +9,8 @@ target_compile_definitions(tst_seismic_engine PRIVATE
 # 主线7 性能闸门：make_segy_fixture.py --mb 合成 ≥200MB 生产形状体（一次性
 # 生成缓存在构建目录，不入库）；QuickOpen/首剖面/时间片/任意剖面延迟预算。
 add_paleo_test(tst_seismic_perf)
+# RUN_SERIAL：切片/索引墙钟基线在并行负载下偶发超限（tst_perf 先例）。
+set_tests_properties(tst_seismic_perf PROPERTIES RUN_SERIAL TRUE)
 find_program(PALEO_PERF_PYTHON3 NAMES python3 python)
 target_compile_definitions(tst_seismic_perf PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
@@ -18,6 +20,8 @@ target_compile_definitions(tst_seismic_perf PRIVATE
 # P5 Phase 0 基线实测：索引冷/热、切片冷/热、双通道转码、体素、离屏 3D
 # 帧率、峰值 RSS（输出 = docs/seismic/BASELINE.md 数据源；共享夹具目录）。
 add_paleo_test(tst_seismic_baseline LIBS paleo_ui)
+# RUN_SERIAL：BASELINE 墙钟量测在并行负载下失真（tst_perf 先例）。
+set_tests_properties(tst_seismic_baseline PROPERTIES RUN_SERIAL TRUE)
 target_compile_definitions(tst_seismic_baseline PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
   PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
@@ -64,6 +68,9 @@ add_paleo_test(tst_seismic_welltie LIBS paleo_ui)
 # P5 Phase 6 性能与可靠性：时延/帧率预算入基线、错误分类、内存评估、
 # 并发闸 ≤4、取消无悬挂、自动保存点
 add_paleo_test(tst_seismic_budgets LIBS paleo_ui)
+# RUN_SERIAL：时延/帧率墙钟预算在 -j8 并行负载下偶发超限（tst_perf 先例：
+# 计时抖动关回串行基线）。
+set_tests_properties(tst_seismic_budgets PROPERTIES RUN_SERIAL TRUE)
 target_compile_definitions(tst_seismic_budgets PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
   PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
@@ -81,3 +88,17 @@ add_paleo_test(tst_seismicattrui LIBS paleo_ui)
 # goal/seismic-attributes — 性能面：合成体比率门（属性 ≤6× 切片提取基线，
 # 机器无关）+ PALEO_REAL_PROJECT_AREA 门控真机实测（BASELINE 行誊档案）
 add_paleo_test(tst_seismicattrperf LIBS paleo_services)
+
+# goal/horizon-autotrack — 层位自动追踪核（纯数值：互相关主干+相干门+
+# 多种子合并+3D 前沿扫掠+协作取消）；数值面测试在 tst_horizontrack
+target_sources(paleo_algorithms PRIVATE src/algorithms/horizontrack.cpp)
+add_paleo_test(tst_horizontrack LIBS paleo_algorithms)
+
+# goal/horizon-autotrack — 追踪性能面：比率门（≤8× 切片提取基线）+
+# 966MB 生产形状（411×641×901@2ms）逐道追踪速率实测（BASELINE 行誊
+# docs/progress/horizon-autotrack.md；夹具一次性生成缓存在构建目录）
+add_paleo_test(tst_horizontrackperf LIBS paleo_services)
+target_compile_definitions(tst_horizontrackperf PRIVATE
+  PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
+  PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
+  PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")

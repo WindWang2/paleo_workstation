@@ -18,11 +18,14 @@ namespace
   // QtSql's connection registry: one named QSQLITE connection per sqlite file.
   // Repeated LayerManifest instances over the same path share the connection,
   // which is what makes reopen/roundtrip semantics work.
-  QString connectionNameFor(const QString &path)
+  // readOnly 实例走独立连接名（QSQLITE_OPEN_READONLY，#80）——同进程里可写
+  // 与只读实例不得复用同一条连接。
+  QString connectionNameFor(const QString &path, bool readOnly)
   {
     const quintptr tid = reinterpret_cast<quintptr>(QThread::currentThread());
     return QStringLiteral("paleo_layermanifest_") + QString::number(qHash(path)) +
-           QStringLiteral("_") + QString::number(tid);
+           QStringLiteral("_") + QString::number(tid) +
+           (readOnly ? QStringLiteral("_ro") : QString());
   }
 
   void setError(QString *error, const QString &text)
@@ -35,11 +38,14 @@ namespace
 
   // Lazily opens the connection and guarantees the schema. Lets every public
   // method work even if the caller skipped open().
-  bool ensureOpen(const QString &path, QString *error)
+  bool ensureOpen(const QString &path, bool readOnly, QString *error)
   {
-    QSqlDatabase db = MetaStore::openConnection(path, connectionNameFor(path), error);
+    QSqlDatabase db =
+        MetaStore::openConnection(path, connectionNameFor(path, readOnly), error, readOnly);
     if (!db.isValid())
       return false;
+    if (readOnly)
+      return true; // 只读实例不建表/不补列（#80）——schema 归写实例
 
     QSqlQuery schema(db);
     if (!schema.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS layer_declarations("
@@ -94,7 +100,7 @@ LayerManifest::LayerManifest(const QString &metaSqlitePath)
 
 bool LayerManifest::open(QString *error)
 {
-  return ensureOpen(m_dbPath, error);
+  return ensureOpen(m_dbPath, m_readOnly, error);
 }
 
 bool LayerManifest::upsert(const LayerDeclaration &decl, QString *error)
@@ -117,11 +123,11 @@ bool LayerManifest::upsert(const LayerDeclaration &decl, QString *error)
     setError(error, QStringLiteral("layer declaration requires a non-empty layerId"));
     return false;
   }
-  if (!ensureOpen(m_dbPath, error))
+  if (!ensureOpen(m_dbPath, m_readOnly, error))
     return false;
 
     // 'instantiated' is intentionally not written: schema has no column for it.
-  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath, m_readOnly)));
   q.prepare(QStringLiteral("INSERT OR REPLACE INTO layer_declarations(") + kColumns +
             QStringLiteral(") VALUES(?,?,?,?,?,?,?)"));
   q.addBindValue(decl.layerId);
@@ -154,10 +160,10 @@ bool LayerManifest::remove(const QString &layerId, QString *error)
     setError(error, QStringLiteral("LayerManifest 写入必须通过主线程或 PaleoProjectStore::enqueueWrite 调度（requested database does not belong to the calling thread）"));
     return false;
   }
-  if (!ensureOpen(m_dbPath, error))
+  if (!ensureOpen(m_dbPath, m_readOnly, error))
     return false;
 
-  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath, m_readOnly)));
   q.prepare(QStringLiteral("DELETE FROM layer_declarations WHERE layer_id=?"));
   q.addBindValue(layerId);
   if (!q.exec())
@@ -176,10 +182,10 @@ bool LayerManifest::readAll(QVector<LayerDeclaration> *out, QString *error) cons
     return false;
   }
   out->clear();
-  if (!ensureOpen(m_dbPath, error))
+  if (!ensureOpen(m_dbPath, m_readOnly, error))
     return false;
 
-  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath, m_readOnly)));
   if (!q.exec(QStringLiteral("SELECT ") + kColumns +
               QStringLiteral(" FROM layer_declarations ORDER BY layer_id")))
   {
@@ -201,11 +207,11 @@ QVector<LayerDeclaration> LayerManifest::all() const
 QVector<LayerDeclaration> LayerManifest::forHorizon(const QString &h) const
 {
   QVector<LayerDeclaration> out;
-  if (!ensureOpen(m_dbPath, nullptr))
+  if (!ensureOpen(m_dbPath, m_readOnly, nullptr))
     return out;
 
   // Horizon-agnostic declarations (horizon='') belong to every horizon view.
-  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath, m_readOnly)));
   q.prepare(QStringLiteral("SELECT ") + kColumns +
             QStringLiteral(" FROM layer_declarations WHERE horizon=? OR horizon='' ORDER BY layer_id"));
   q.addBindValue(h);
@@ -219,10 +225,10 @@ QVector<LayerDeclaration> LayerManifest::forHorizon(const QString &h) const
 QStringList LayerManifest::horizons() const
 {
   QStringList out;
-  if (!ensureOpen(m_dbPath, nullptr))
+  if (!ensureOpen(m_dbPath, m_readOnly, nullptr))
     return out;
 
-  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath, m_readOnly)));
   if (!q.exec(QStringLiteral("SELECT DISTINCT horizon FROM layer_declarations "
                              "WHERE horizon<>'' ORDER BY horizon")))
     return out;

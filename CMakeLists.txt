@@ -241,7 +241,9 @@ if(ORT_INCLUDE AND ORT_LIB AND (NOT WIN32 OR ORT_DLL))
     set_target_properties(ort_vendored PROPERTIES IMPORTED_LOCATION ${ORT_LIB}
       INTERFACE_INCLUDE_DIRECTORIES ${ORT_INCLUDE})
   endif()
-  add_library(paleo_ai STATIC src/ai/onnxpredictionservice.cpp src/ai/remotepredictionservice.cpp)
+  add_library(paleo_ai STATIC src/ai/onnxpredictionservice.cpp src/ai/onnxfixture.cpp
+    src/ai/tileinference.cpp src/ai/horizonsuggest.cpp src/ai/modelregistry.cpp
+    src/ai/remotepredictionservice.cpp src/ai/remotepredictrouter.cpp)
   target_link_libraries(paleo_ai PUBLIC paleo_deps ort_vendored)
   target_compile_definitions(paleo_ai PUBLIC PALEO_HAVE_ORT=1)
   target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
@@ -311,6 +313,7 @@ add_library(paleo_qgis STATIC
   src/qgis/qgisstyleservice.cpp
   src/qgis/qgislayoutservice.cpp
   src/qgis/layoutexport.cpp                         # 层位图/设计器导出核心（QgsLayoutExporter 封装）
+  src/qgis/mapbooklayout.cpp                        # 地图册：逐格/蒙太奇/索引页版面构建 + 落盘回读校验
   src/qgis/manifestprojection.cpp
   src/qgis/factorstylewriter.cpp                    # m2(B)：单因素色带 .qml 落盘
   src/qgis/factorcontour.cpp                        # m2(B)：等值线 GDAL C API
@@ -369,7 +372,10 @@ add_library(paleo_workflow STATIC
   src/workflow/registration.cpp                    # W3 临时配准编排
   src/workflow/mappingworkflow.cpp                 # 厚度→约束IDW→相多边形链路
   src/workflow/mapexport.cpp                       # 层位图 PDF 导出
+  src/workflow/mapbook.cpp                         # 地图册：AOI 格序列 + 模板变量（纯编排）
+  src/workflow/mapbookqueue.cpp                    # 地图册：批量导出队列（任务服务 + 逐版记账）
   src/workflow/mapversioncontroller.cpp            # 保存版本/发布编排
+  src/workflow/aiassistworkflow.cpp
   src/workflow/derivedassets.cpp                   # 派生产物 + DERIVED 版本登记
 )
 target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store paleo_io paleo_services paleo_domain paleo_ai)
@@ -410,6 +416,7 @@ add_library(paleo_ui STATIC
   src/ui/layout/layoutexportactions.cpp
   src/ui/layout/layouttemplates.cpp
   src/ui/layout/layoutundostack.cpp
+  src/ui/layout/mapbookpanel.cpp                    # goal/mapbook-reporting：批量参数面板（只发信号）
   src/ui/datapreview/datapreviewtabs.cpp           # §4 data-page preview tabs
   src/ui/datapreview/previewmappage.cpp            # P2 D1.x/D3.x 预览地图组合页（工具条/状态条/侧栏/鹰眼/书签）
   src/ui/datapreview/previewtocpanel.cpp           # P2 D4.x 迷你 TOC + 符号快调 + 图例
@@ -559,6 +566,16 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_ui_invariants.py --strict)
   add_test(NAME ui_invariants_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_ui_invariants.py --selftest)
+  # #77：i18n 裸字面量门禁（#44「无 CI 门禁」收口）。脚本按自身位置定位
+  # src/，WORKING_DIRECTORY 显式钉源码根作双保险。
+  add_test(NAME i18n COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_i18n.py)
+  add_test(NAME i18n_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_i18n.py --selftest)
+  set_tests_properties(layering layering_strict layering_selftest
+                       ui_invariants ui_invariants_strict ui_invariants_selftest
+                       i18n i18n_selftest
+                       PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()
 
 # ---- 测试注册（devex T1 链接瘦身：LIBS = 各测试 include 面的最小闭包，见
@@ -576,6 +593,10 @@ add_paleo_test(tst_workflows LIBS paleo_workflow)
 add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）
 add_paleo_test(tst_ui)                                      # 伞式（app 面全栈，兼容样本）
 add_paleo_test(tst_panels)                                  # 伞式（全栈，兼容样本）
+# RUN_SERIAL 独占机器跑：dataops_d2_filterPerformance10k 的 100ms 墙钟断言
+# 在 -j8 并行负载下偶发超限（108ms 实测）——同 tst_perf/tst_correlation_full
+# 的计时抖动关回串行基线先例（根治归 TEST-02 类递延）。
+set_tests_properties(tst_panels PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_mappingpages LIBS paleo_ui)
 add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
 add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式；伞式兼容样本）
@@ -598,6 +619,7 @@ add_paleo_test(tst_attrpanel LIBS paleo_ui)
 # ---- merged worktree waves ----
 add_paleo_test(tst_segy LIBS paleo_io)
 add_paleo_test(tst_las LIBS paleo_io)
+add_paleo_test(tst_snapshot_dedup LIBS paleo_io) # #84：快照/活对象 dedup 复核同一语义（真重哈希）
 add_paleo_test(tst_constraintstore LIBS paleo_workflow)
 add_paleo_test(tst_shapetools LIBS paleo_ui)
 add_paleo_test(tst_edittools LIBS paleo_ui)
@@ -610,6 +632,7 @@ set_tests_properties(tst_correlation_full PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_layoutpalette LIBS paleo_ui)
 add_paleo_test(tst_layoutitempanel LIBS paleo_ui)
 add_paleo_test(tst_layoutexport LIBS paleo_ui)
+add_paleo_test(tst_mapbook LIBS paleo_ui)              # goal/mapbook-reporting：格序列/模板/蒙太奇/批量队列
 add_paleo_test(tst_layoutundo LIBS paleo_ui)
 add_paleo_test(tst_layoutdesigner_full LIBS paleo_ui)
 # ---- wave/data-foundation ----
@@ -666,6 +689,12 @@ add_paleo_test(tst_webviewpanel LIBS paleo_ui)   # offscreen: engine unavailable
 add_paleo_test(tst_uxtheme LIBS paleo_ui)
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx LIBS paleo_ai)
+  add_paleo_test(tst_onnxsessions LIBS paleo_ai)
+  add_paleo_test(tst_tileinference LIBS paleo_ai paleo_services)
+  add_paleo_test(tst_modelregistry LIBS paleo_ai)
+  add_paleo_test(tst_aiassistworkflow LIBS paleo_workflow)
+  add_paleo_test(tst_remotepredictrouter LIBS paleo_ai)
+  add_paleo_test(tst_aiassist_perf LIBS paleo_ai paleo_sbm)
   add_paleo_test(tst_onnxworkflow LIBS paleo_workflow)
   target_compile_definitions(tst_onnxworkflow PRIVATE
     PROJECT_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
@@ -674,7 +703,8 @@ if(PALEO_HAVE_ORT)
   # ——后者仍会替换外部注入的值（deb 闭包路 paleo-dev 注入的 vendored
   # QGIS/Qt 目录会被吞掉，间接依赖落到系统 Qt 上产生版本冲突——本机
   # Arch Qt6.11 + vendored Qt6.10 即此症状）。
-  set_tests_properties(tst_onnx tst_onnxworkflow PROPERTIES ENVIRONMENT_MODIFICATION
+  set_tests_properties(tst_onnx tst_onnxworkflow tst_onnxsessions tst_tileinference tst_modelregistry
+    tst_aiassistworkflow tst_remotepredictrouter tst_aiassist_perf PROPERTIES ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()
 

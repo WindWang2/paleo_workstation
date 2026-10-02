@@ -3,6 +3,10 @@
 #include "../workflow/mappingworkbench.h"
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header; instantiation is PALEO_HAVE_ORT-guarded
+#if PALEO_HAVE_ORT
+#include "../ai/modelregistry.h" // 注册表如实扫描（未装模型降级）
+#include "../workflow/aiassistworkflow.h"
+#endif
 #include "../qgis/qgisruntime.h"
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
@@ -26,9 +30,12 @@
 #include "../io/dataimportservice.h"
 #include "../qgis/qgislayoutservice.h"
 #include "../workflow/workflows.h"
+#include "../workflow/faultinterpretationcontroller.h" // goal/fault-interpretation
 #include "../services/projectdata.h"
 #include "../workflow/mappingworkflow.h"
+#include "../workflow/depthconversionworkflow.h"
 #include "../metadata/mapversionstore.h"
+#include "../metadata/metastore.h"
 #include "../workflow/mapversioncontroller.h"
 
 #include <QApplication>
@@ -151,6 +158,10 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_toolSvc = new ToolAvailabilityService(m_store, this);
   m_selection = new SelectionContext(this);
 
+  // goal/fault-interpretation：断层解释编排器（存储值成员在 projectOpened
+  // 重绑到本工程 meta 库；控制器地址稳定，撤销栈不因重开工程丢失）。
+  m_faultCtl = new paleo::fault::FaultInterpretationController(&m_faultStore, m_selection, this);
+
   // 地震—地图联动: binds the selection context to the canvas. Forcing canvas()
   // here materializes the widget early; the main window reparents it into the
   // center stack. The link holds the context via its constructor — the
@@ -182,6 +193,12 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   // 指向 <工程目录>/models。
   m_onnxSvc = new PaleoOnnxService(this);
   m_predictionWf->setOnnxService(m_onnxSvc);
+  // AI 辅助编排（tile 分类产品/追踪建议）：推理服务 + 任务池都在场时即刻
+  // 绑定；catalog 通道随工程打开补绑（同 predictionWf 的 T26 位点）。
+  m_aiAssistWf = new AiAssistWorkflow(m_layerSvc, this);
+  m_aiAssistWf->setOnnxService(m_onnxSvc);
+  if (m_taskSvc)
+    m_aiAssistWf->setTaskService(m_taskSvc);
 #endif
   m_constraintWf = new ConstraintWorkflow(m_procSvc, m_layerSvc, this);
   m_constraintWf->setStore(m_store); // GeoPackage constraint persistence (wave/constraint-gpkg)
@@ -195,6 +212,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   // 同库（meta sqlite），路径在 projectOpened 时原地重绑。
   m_projectData = new ProjectDataFacade(this);
   m_mappingWf = new MappingWorkflow(m_constraintWf, m_compositionWf, m_layerSvc, this);
+  m_depthWf = new DepthConversionWorkflow(nullptr, QString(), this); // catalog 绑定随工程打开
   m_mappingWf->setProjectData(m_projectData);
   m_validationWf->setProjectData(m_projectData); // validate() 增加时间残差
   m_validationWf->setResidualThresholdMs(10.0);  // autoplan §5C：D61 残差阈值 10 ms
@@ -259,7 +277,13 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               m_lastReadOnlyNotified = !writable;
               emit projectReadOnlyChanged(!writable);
             }
+            // #80：先关上一会话（旧工程或同路径旧会话）在本线程的 sqlite 连接
+            // ——切换工程不留句柄；同路径重开不复用可能指向旧 inode 的连接。
+            // 各 store 的连接都是按调用懒开，关掉后下次访问自动重建。
+            if (!m_metaPath.isEmpty())
+              MetaStore::closeConnectionsFor(m_metaPath);
             const QString metaPath = manifestPathFor(qgzPath);
+            m_metaPath = metaPath;
             m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
 
             // data/commit-coord：提交 journal 恢复扫描。上次 commitAll 若在
@@ -349,11 +373,37 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               m_constraintWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_compositionWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_mappingWorkbench->bindCatalog(derivedCatalog, fi.absolutePath());
+#if PALEO_HAVE_ORT
+              if (m_aiAssistWf)
+                m_aiAssistWf->setCatalog(derivedCatalog, fi.absolutePath());
+#endif
+              // goal/time-depth-velocity：同一 catalog 实例纪律（整文件重写，
+              // 交错写互覆）——层深转换产物落 artifacts/derived/。
+              m_depthWf->rebind(derivedCatalog, fi.absolutePath());
             }
 #if PALEO_HAVE_ORT
             // onnx:* 模型按层位钉在 <工程目录>/models/*.onnx。
             if (m_onnxSvc)
-              m_onnxSvc->setModelRoot(fi.absoluteDir().filePath(QStringLiteral("models")));
+            {
+              const QString modelsDir =
+                fi.absoluteDir().filePath(QStringLiteral("models"));
+              m_onnxSvc->setModelRoot(modelsDir);
+              // 模型注册表如实扫描（范围5）：未装模型静默降级；manifest 在而
+              // 坏/缺文件/指纹不符 → 消息日志逐条说明，不报错轰炸。
+              const ModelRegistryScan registry = ModelRegistry::scan(modelsDir);
+              if (!registry.manifestFound)
+                QgsMessageLog::logMessage(
+                  tr("未装模型：%1 无 manifest.json——AI 辅助按无模型降级").arg(modelsDir),
+                  QStringLiteral("Paleo"));
+              if (!registry.manifestError.isEmpty())
+                QgsMessageLog::logMessage(registry.manifestError, QStringLiteral("Paleo"),
+                                          Qgis::Critical);
+              for (const ModelRegistryEntry &e : registry.entries)
+                if (e.status != ModelRegistryEntry::Status::Ok)
+                  QgsMessageLog::logMessage(
+                    tr("模型 %1: %2 (%3)").arg(e.name, ModelRegistry::statusLabel(e.status), e.detail),
+                    QStringLiteral("Paleo"), Qgis::Warning);
+            }
 #endif
 
             // wave/mapping-pipeline：版本存储重绑到本工程 meta 库；读侧门面
@@ -372,6 +422,38 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             // 井点写 GeoJSON、声明「wells」、实例化后绑给 WellMapLink。
             m_projectDir = fi.absolutePath();
             refreshWellsLayer(false); // 打开时视野归 .qgz 恢复态，不抢
+
+            // goal/fault-interpretation：FaultSet 存储值重绑本工程 meta 库并
+            // 读回；工程有断层时切割镜像层上图（内存层由模型整刷）。
+            // catalog 角色：有 seismic_survey 实体及其地震体资产时挂上下文
+            //（首次写断层时 ensure "fault" 角色链接，幂等）。
+            m_faultStore = FaultSetStore(metaPath, m_store);
+            m_faultStore.setReadOnly(!writable); // 值重绑带回可写默认——重设
+            QString faultStoreErr;
+            if (!m_faultStore.open(&faultStoreErr))
+              qWarning() << "AppContext: fault set store open failed" << metaPath
+                         << faultStoreErr;
+            QString faultErr;
+            if (!m_faultCtl->reload(&faultErr))
+              qWarning() << "AppContext: fault set reload failed" << faultErr;
+            if (m_import && m_import->catalog()) {
+              DataCatalog *cat = m_import->catalog();
+              const auto surveys = cat->entities(QStringLiteral("seismic_survey"));
+              if (!surveys.isEmpty()) {
+                const QString surveyId = surveys.first().id;
+                QString volumeAssetId;
+                for (const EntityAssetLink &l : cat->linksForEntity(surveyId)) {
+                  if (l.role == QLatin1String("seismic_volume") && !l.assetId.isEmpty()) {
+                    volumeAssetId = l.assetId;
+                    break;
+                  }
+                }
+                if (!volumeAssetId.isEmpty())
+                  m_faultCtl->setCatalogContext(cat, surveyId, volumeAssetId);
+              }
+            }
+            if (m_faultCtl->faultSet().faultCount() > 0)
+              m_faultCtl->ensureMapLayer(m_projectSvc->project()->crs().authid());
           });
   StartupTrace::mark(QStringLiteral("services_ready")); // 服务装配完（簇1 仪表）
 }
@@ -383,6 +465,13 @@ bool AppContext::isProjectReadOnly() const
 
 void AppContext::closeProject()
 {
+  // #80：关闭工程即释放本线程持有的 project.sqlite 句柄（Windows 上旧句柄
+  // 会阻止删除/移动刚关闭的工程目录）。
+  if (!m_metaPath.isEmpty())
+  {
+    MetaStore::closeConnectionsFor(m_metaPath);
+    m_metaPath.clear();
+  }
   m_projectLock.reset();
   m_lastReadOnlyNotified = false;
   if (m_store)

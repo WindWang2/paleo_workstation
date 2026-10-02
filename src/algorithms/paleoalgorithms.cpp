@@ -1111,5 +1111,6 @@ void PaleoProvider::loadAlgorithms()
   addAlgorithm( new FaciesFusionAlgorithm() );
   addAlgorithm( new GeologicalSmoothingAlgorithm() );
   addAlgorithm( new IsopachAlgorithm() );
+  addAlgorithm( new MinimumCurvatureAlgorithm() ); // 连续曲率张力样条网格化（mincurvature.cpp）
   addAlgorithm( new FaciesPolygonizeAlgorithm() );
 }

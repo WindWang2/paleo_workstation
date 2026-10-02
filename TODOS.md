@@ -1,3 +1,19 @@
+## P3 — 层位自动追踪 3D 服务暴露 + 显式倾角引导（from goal/horizon-autotrack, 2026-10-02）
+
+- **What:** 3D 前沿扫掠（algorithms/horizontrack::propagateVolume，数值核 +
+  合成断言已落）暴露为 SeismicTaskService 异步任务并接画布层位面叠加；
+  追踪核补显式斜率扫描倾角引导（当前隐式：搜索窗中心跟随前一道）。
+- **Why:** 2D 剖面闭环已完成；面扩散是解释效率下一档（单种子 → 整层位面）。
+  追踪器无事件唯一性校验，近距平行同相轴可滑落——显式倾角先验是现行
+  阈值/相干门之外的第三道防线。
+- **Pros:** 单种子出整面（分钟级人工拾取 → 秒级）；**Cons:** 体窗内存调度
+  （IL 邻域滑窗）+ 画布层位面渲染是新工作量。
+- **Context:** docs/progress/horizon-autotrack.md「已知边界/递延」；kernel
+  propagateVolume 已含死列不复生/限步长/取消语义（tst_horizontrack 3 例）。
+- **Effort:** human: M / CC: M
+- **Priority:** P3
+- **Depends on:** goal/horizon-autotrack 已落核/2D 闭环/GeoTIFF 上图管线
+
 # TODOS — paleo_workstation
 
 ## P3 — 地震属性体（时间切片/整体扫描）+ 属性图层入层树（from goal/seismic-attributes, 2026-10-01）
@@ -244,3 +260,4 @@ P1 单井综合柱状图深度升级（D1–D8 全量交付）。逐项决策与
 
 - **2026-09-30 · 域深化 + 性能完善（wave/deepen-perf，四轨并行 + lead 集成）**：A 地震链路——ReadVoxelWindow 消费接线（3D 堆叠取数 16 请求→1）、拖动链路 supersede 取消+脏槽位精化+350ms 自动升层（手势请求 5→3）、时间切片失败原因态+同路径在途取代取消、966MiB 真工区复测刷新（BASELINE §8）；TODOS P2「SBM Engine 剩余入口」关闭。B IO/缓存——大 LAS 解阻（59MB 调用点 442ms→0ms）、导入队列真进度+生产 runner（GAPS G-2.3 收口）、金字塔消费侧（.ovr，4096² 读块 14→4ms）、catalog 100k 评估记档（查询零劣化）+ mutator 超线性发现、QSettings -j2 竞态沙箱根治核实、SEG-Y 坏道跳过放宽。C 编图——ConstraintIDW break_line 屏障/direction_line 各向异性（逐位向后兼容）、相界 fault_cut 单类型跑通（词面 4 类冻结）、表 K.1 十二类探井符号、paleoAssetId 关联激活、paleo_distance_transform 绕障距离引擎（welldist 实装）。D 井综合——WellCompositeDerivedSink 派生登记+深度装配（壳接线+组装根注入）、连井剖面生命周期 9 用例穷举（发现并修 SeismicSectionTool 析构悬空）、打印原生管线（QPagedPaintDevice 共用+降级 PDF）、简化 composer 评估记档不建、D5.4 datum 校平修复。lead 集成 7 处接线 + tst_wellcomposite_visual 钉死渲染环境重生成 golden。新增测试 54 函数（7 套新 + 多套件扩展）；详见 docs/progress/deepen-perf.md（含语义决策与递延清单）。
 - **2026-10-01 · 地震属性引擎（goal/seismic-attributes-20261001）**：属性核函数库 `src/algorithms/seismicattr`（自研 radix-2 FFT + 镜像填充频域 Hilbert；瞬时族/时窗振幅族/semblance C2 相干〔IL/XL 半窗分设〕/甜点/瞬时 Q 原型；有限道 Hilbert 折点尾效应定量 ~1/d）；`SeismicTaskService.startAttributeSlice` 任务编排（≤4 并发闸、读/算两段单调进度、三检查点协作取消、逐道 ≤4 线程分片、Time 切片如实拒绝、稀疏测网邻线按轴值表解析）+ SATR 派生资产登记；剖面画布属性叠加层（NaN=透明/几何失配防线）+ SeismicAttrPanel + dock「◈ 属性」闭环；966MB 真机实测全属性 <100ms（包络 36ms/相干 78ms/IL 基线 14ms）。新增测试 4 套 30 用例；详见 docs/progress/seismic-attributes.md。
+- **2026-10-02 · 时深转换与速度建模（goal/time-depth-velocity-20261002）**：速度模型核 `src/algorithms/velocitymodel`（层间平均=插值语义锚点位级精确不外推 / V0-k 线性速度函数=TWT 域 2 参数 Gauss-Newton+闭合式可外推；power-2 IDW 空间查询命中即取；JSON 序列化无时间戳幂等；结点二分）；`DepthConversionWorkflow` 编排（catalog tops/time_depth/well_head 关联收集→velocity_model DERIVED 存档→层位时间栅格→depth_raster DERIVED+`depth.<H>` 声明，测网号域透传）；层树右键「转换为深度域…」意图信号+壳接线；剖面左缘深度标尺反投影修正（去常速近似）。真机实测：20 井 9666 结点建模 107ms、层位面 60ms/面（4.3 Mcells/s）、8 面共 489ms、剖面深度轴逐样 298ms。新增测试 4 处 35 用例；详见 docs/progress/time-depth.md。**递延**：TVDSS/KB 基准换算（井位表有 KB 列待确认口径）；V0-k 层段化/三参数与模型对比编辑 UI；时深转换对话框（模型选择/覆盖预览）；地震体整体时深转换（深部重采样）单独立项。

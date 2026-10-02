@@ -22,6 +22,7 @@
 #include "domain/seismic/sgydatacache.h"
 #include "domain/seismic/timedepthmodel.h"
 #include "domain/seismic/sgysectionbuilder.h"
+#include "metadata/layermanifest.h"
 
 class PaleoTask;
 class PaleoTaskService;
@@ -201,6 +202,15 @@ struct SeismicTrackOptions
   double correlationThreshold = 0.6; // 低于阈值的道不拾取
 };
 
+// goal/horizon-autotrack — 追踪执行报告（QC：覆盖率/均值置信度/双侧停因）
+struct SeismicTrackReport
+{
+  int coveredTraces = 0;     // 有拾取的剖面道数
+  int totalTraces = 0;       // 剖面总道数
+  float meanConfidence = 0.0f;
+  QString stopSummary;       // 人话停因（如「左：相关丢失@XL2031；右：到达边界」）
+};
+
 // D4.7 网格化结果（规则 il×xl 栅格 + 掩码）
 struct SeismicHorizonGrid
 {
@@ -360,7 +370,9 @@ public:
   // ---- Phase 4 解释工具（同步 CPU 操作，量级 ≤ 单切片）----
 
   // D4.2 局部互相关追踪：从种子道出发双向沿同相轴追踪。返回逐道拾取
-  // （confidence = 峰值相关系数；低于阈值的道缺席）。
+  // （confidence = 峰值相关系数；低于阈值的道缺席）。数值核在
+  // algorithms/horizontrack（goal/horizon-autotrack 下沉），此处为剖面
+  // 布局桥接 + 域映射。
   static QList<SeismicPick> trackHorizon(
       const SgySliceImage &slice,
       SgySliceType sectionType, int sectionIndex,
@@ -370,6 +382,33 @@ public:
       const QString &interpreter, const QString &horizonName,
       float sampleIntervalMs);
 
+  // goal/horizon-autotrack — 多种子双向追踪 + 合并（重叠道取高置信，
+  // 种子含在返回值中、id=0 由会话分配）。seeds = (剖面列号, 采样) 列表；
+  // report 可空。停因人话化（覆盖失败区如实留空的 QC 口径）。
+  static QList<SeismicPick> trackHorizonMultiSeeds(
+      const SgySliceImage &slice,
+      SgySliceType sectionType, int sectionIndex,
+      int colMin, int colMax,
+      const QList<QPair<int, int>> &seeds,
+      const SeismicTrackOptions &options,
+      const QString &interpreter, const QString &horizonName,
+      float sampleIntervalMs,
+      SeismicTrackReport *report = nullptr);
+
+  // goal/horizon-autotrack — 异步可取消追踪（PaleoTask，协作取消逐道生效；
+  // 取消不发布拾取——与服务「取消无半成品」纪律一致）。返回任务句柄。
+  PaleoTask *startHorizonTracking(
+      const SgySliceImage &slice,
+      SgySliceType sectionType, int sectionIndex,
+      int colMin, int colMax,
+      const QList<QPair<int, int>> &seeds,
+      const SeismicTrackOptions &options,
+      const QString &interpreter, const QString &horizonName,
+      float sampleIntervalMs,
+      std::function<void(bool ok, const QList<SeismicPick> &picks,
+                         const SeismicTrackReport &report,
+                         const QString &error)> onFinished);
+
   // D4.7 拾取网格化：IDW（反距离加权）插值成规则测网栅格。
   // 既有算法层 ConstraintIDW 是 QgsProcessing 形态（需 Processing 上下文与
   // 约束线），拾取网格化无约束语义——自实现纯 IDW（TODOS 登记合并点）。
@@ -377,11 +416,15 @@ public:
 
   // D4.3 拾取集 → 层位资产：写 CSV（inline,xline,twt_ms,confidence）+
   // DERIVED 版本登记 catalog（父版本 = 源地震版本）。返回登记后的版本路径。
+  // goal/horizon-autotrack：layerOut 非空时额外产层位栅格 GeoTIFF（拾取
+  // 网格化 → BinnedHorizon → horizonbinner 既有管线，不开平行格式）并回填
+  // LayerDeclaration（"horizon.<名>"，group 00_Data）供调用方声明上图。
   static QString registerHorizonAsset(
       DataCatalog *catalog, const QString &seismicAssetId,
       const QString &seismicVersionId, const QString &horizonName,
       const QList<SeismicPick> &picks, const QString &outputDir,
-      QString *error);
+      QString *error,
+      LayerDeclaration *layerOut = nullptr);
 
   // D4.4 断层段 → 矢量派生资产：CSV 折线（section,traceFrac,twtMs）+ 登记。
   static QString registerFaultAsset(

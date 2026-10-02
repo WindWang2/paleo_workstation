@@ -1,6 +1,7 @@
 // 层：视图
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 #include "ui/seismicsection/seismicattrpanel.h"
+#include "workflow/faultinterpretationcontroller.h"
 
 #include <QAction>
 #include <QActionGroup>
@@ -69,6 +70,10 @@ SeismicSectionDockWidget::~SeismicSectionDockWidget() {
     if (m_compareTask) {
         m_compareTask->requestCancel();
         m_compareTask.clear();
+    }
+    if (m_trackTask) {
+        m_trackTask->requestCancel();
+        m_trackTask.clear();
     }
     if (m_extraction)
         m_extraction->requestCancel();
@@ -654,6 +659,61 @@ private:
     QString m_old, m_new;
 };
 
+// goal/horizon-autotrack — 追踪合并替换（一步 undo）：redo = 移除被超越的
+// 机器拾取 + 添加新拾取；undo = 原样复原（被移拾取按原 id 回位）。
+// 手动拾取（conf==1，D4.10 语义）不参与替换——编排层已在入栈前滤除。
+class ReplacePicksCommand : public PickCommandBase
+{
+public:
+    ReplacePicksCommand(SeismicSectionDockWidget *dock,
+                        QList<SeismicPick> removed, QList<SeismicPick> added)
+        : PickCommandBase(dock), m_removed(std::move(removed)), m_added(std::move(added))
+    {
+        setText(QObject::tr("追踪替换 %1 个拾取").arg(m_added.size()));
+    }
+    void undo() override
+    {
+        auto &picks = m_dock->mutableSession().picks;
+        for (const int id : std::as_const(m_lastAddedIds))
+            for (int i = picks.size() - 1; i >= 0; --i)
+                if (picks[i].id == id)
+                {
+                    picks.removeAt(i);
+                    break;
+                }
+        for (const SeismicPick &p : std::as_const(m_removed))
+            picks.append(p); // 原 id 复原
+        m_dock->refreshInterpretationOverlay();
+        refresh();
+    }
+    void redo() override
+    {
+        auto &picks = m_dock->mutableSession().picks;
+        auto &session = m_dock->mutableSession();
+        for (const SeismicPick &p : std::as_const(m_removed))
+            for (int i = picks.size() - 1; i >= 0; --i)
+                if (picks[i].id == p.id)
+                {
+                    picks.removeAt(i);
+                    break;
+                }
+        m_lastAddedIds.clear();
+        for (SeismicPick p : std::as_const(m_added))
+        {
+            p.id = session.nextId++;
+            picks.append(p);
+            m_lastAddedIds.append(p.id);
+        }
+        m_dock->refreshInterpretationOverlay();
+        refresh();
+    }
+
+private:
+    QList<SeismicPick> m_removed;
+    QList<SeismicPick> m_added;
+    QList<int> m_lastAddedIds; // 最近一次 redo 分配的 id（undo 按此回收）
+};
+
 } // namespace
 
 namespace {
@@ -1135,6 +1195,7 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
     // hasRoute() 复归 false（wave/sections 语义）。
     m_route.clear();
     m_distances.clear();
+    m_lastPathPoints.clear(); // 断层剖面身份随之失效（goal/fault-interpretation）
     m_canvas->setWells({});
     const double origin = m_timeOriginMs;
 
@@ -1350,6 +1411,10 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
   m_volume = volume;
   m_route.clear();
   m_distances.clear();
+  // goal/fault-interpretation：任意线剖面身份 = 路径点串；同时作废 IL/XL
+  // 陈旧 SectionRef（旧实现任意线不设 ref，拾取/断层会误归属上一条线）。
+  m_lastPathPoints = pathPoints;
+  m_canvas->setSectionRef(SectionRef{});
   m_canvas->setWells({});
   m_cboSectionMode->blockSignals(true);
   m_cboSectionMode->setCurrentIndex(3);
@@ -1391,6 +1456,9 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
           guard->computeWellTrajectories(mapPolyline);
           guard->computeSyntheticOverlays();
         }
+        // 与切片路径同拍刷新解释叠加：剖面身份变了（任意线），
+        // FaultSet 棒按新身份重新过滤回显（goal/fault-interpretation）。
+        guard->refreshInterpretationOverlay();
         emit guard->sectionExtractionFinished(true, QString());
       });
 }
@@ -1799,6 +1867,7 @@ void SeismicSectionDockWidget::refreshInterpretationOverlay() {
     m_canvas->setPickOverlays(m_session.picks, m_session.faults);
     if (m_pickPanel)
         m_pickPanel->refreshFromSession();
+    refreshFaultStickOverlay(); // FaultSet 棒随会话刷新同拍更新
 }
 
 void SeismicSectionDockWidget::setPickMode(SectionPickMode mode) {
@@ -1868,8 +1937,23 @@ void SeismicSectionDockWidget::renamePickHorizon(int id, const QString &newName)
 }
 
 void SeismicSectionDockWidget::addFaultFromCanvas(const QVector<QPair<double, double>> &points) {
+    if (points.size() < 2)
+        return;
+    if (m_faultController) {
+        // goal/fault-interpretation：拾取落 FaultSet（undo 入编排器栈，
+        // 落工程存储）。不再双写会话伴生文件——FaultSet 是断层权威路径。
+        paleo::fault::FaultSectionRef section;
+        if (!currentFaultSection(&section))
+            return; // 时间切片等无剖面身份，不拾取
+        paleo::fault::FaultStick stick;
+        stick.section = section;
+        stick.points = points;
+        stick.interpreter = m_pickPanel ? m_pickPanel->currentInterpreter() : QString();
+        m_faultController->addStick(stick); // 模型变更经 faultSetChanged 回刷
+        return;
+    }
     const SectionRef ref = m_canvas->sectionRef();
-    if (!ref.valid || points.size() < 2)
+    if (!ref.valid)
         return;
     SeismicFaultSegment seg;
     seg.id = m_session.nextId++;
@@ -1881,6 +1965,68 @@ void SeismicSectionDockWidget::addFaultFromCanvas(const QVector<QPair<double, do
     m_session.faults.append(seg);
     saveInterpretationSession();
     refreshInterpretationOverlay();
+}
+
+void SeismicSectionDockWidget::setFaultController(
+    paleo::fault::FaultInterpretationController *controller) {
+    if (m_faultController == controller)
+        return;
+    m_faultController = controller;
+    if (!controller) {
+        refreshFaultStickOverlay();
+        return;
+    }
+    connect(controller, &paleo::fault::FaultInterpretationController::faultSetChanged, this,
+            &SeismicSectionDockWidget::refreshFaultStickOverlay);
+    connect(controller, &paleo::fault::FaultInterpretationController::faultSelectionChanged, this,
+            &SeismicSectionDockWidget::refreshFaultStickOverlay);
+    refreshFaultStickOverlay();
+}
+
+bool SeismicSectionDockWidget::currentFaultSection(paleo::fault::FaultSectionRef *out) const {
+    const SectionRef ref = m_canvas->sectionRef();
+    paleo::fault::FaultSectionRef section;
+    if (ref.valid && ref.type == SgySliceType::Inline) {
+        section.kind = paleo::fault::FaultSectionRef::Inline;
+        section.index = ref.index;
+        section.displayName = tr("IL %1").arg(ref.index);
+    } else if (ref.valid && ref.type == SgySliceType::Xline) {
+        section.kind = paleo::fault::FaultSectionRef::Xline;
+        section.index = ref.index;
+        section.displayName = tr("XL %1").arg(ref.index);
+    } else if (m_lastPathPoints.size() >= 2) {
+        // 任意线身份 = IL/XL 路径点串（同路径重提取 → 同 pathId → 棒回显）
+        QStringList pts;
+        for (const glm::ivec2 &p : m_lastPathPoints)
+            pts << QStringLiteral("%1,%2").arg(p.x).arg(p.y);
+        section.kind = paleo::fault::FaultSectionRef::Arbitrary;
+        section.pathId = pts.join(QLatin1Char(';'));
+        section.displayName = tr("任意线 %1").arg(section.pathId);
+    } else {
+        return false; // 时间切片 / 无剖面身份
+    }
+    if (out)
+        *out = section;
+    return true;
+}
+
+void SeismicSectionDockWidget::refreshFaultStickOverlay() {
+    if (!m_faultController) {
+        m_canvas->setFaultStickOverlays({});
+        return;
+    }
+    paleo::fault::FaultSectionRef section;
+    QVector<SeismicSectionCanvas::FaultStickDisplay> displays;
+    if (currentFaultSection(&section)) {
+        const QStringList selected = m_faultController->selectedFaultIds();
+        for (const auto &pair : m_faultController->faultSet().sticksForSection(section)) {
+            SeismicSectionCanvas::FaultStickDisplay d;
+            d.points = pair.second.points;
+            d.highlighted = selected.contains(pair.first);
+            displays.append(d);
+        }
+    }
+    m_canvas->setFaultStickOverlays(displays);
 }
 
 bool SeismicSectionDockWidget::saveInterpretationSession(QString *error) {
@@ -1906,10 +2052,15 @@ QString SeismicSectionDockWidget::registerCurrentHorizonAsset(QString *error) {
     for (const SeismicPick &p : m_session.picks)
         if (horizon.isEmpty() || p.horizonName == horizon)
             picks << p;
-    return SeismicTaskService::registerHorizonAsset(
+    // goal/horizon-autotrack：CSV + 层位栅格 GeoTIFF + 可上图声明
+    LayerDeclaration decl;
+    const QString path = SeismicTaskService::registerHorizonAsset(
         m_catalog, m_catalogAssetId, m_catalogVersionId,
         horizon.isEmpty() ? QStringLiteral("H1") : horizon,
-        picks, m_interpretationDir, error);
+        picks, m_interpretationDir, error, &decl);
+    if (!path.isEmpty() && !decl.layerId.isEmpty())
+        emit horizonLayerDeclared(decl);
+    return path;
 }
 
 QString SeismicSectionDockWidget::registerCurrentFaultAsset(QString *error) {
@@ -1924,7 +2075,11 @@ QString SeismicSectionDockWidget::registerCurrentFaultAsset(QString *error) {
 }
 
 void SeismicSectionDockWidget::runTracking() {
-    // D4.2：种子 = m_trackSeedPick 指定或最后一个拾取；原料 = 最近剖面
+    // goal/horizon-autotrack：多种子异步追踪（原 D4.2 单种子同步升级）。
+    // 种子集 = 当前剖面、同层位的手动拾取（conf==1，D4.10 语义）；种子
+    // pick 缺席时回落最后一个拾取。
+    if (m_trackTask)
+        return; // 在途中不重复触发（取消走 cancelTracking）
     const SeismicPick *seed = m_session.pickById(m_trackSeedPick);
     if (!seed && !m_session.picks.isEmpty())
         seed = &m_session.picks.last();
@@ -1934,26 +2089,100 @@ void SeismicSectionDockWidget::runTracking() {
     const SectionRef ref = m_canvas->sectionRef();
     if (!ref.valid)
         return;
-    // 种子所在剖面上的列号
-    int seedCol = -1;
-    if (ref.type == SgySliceType::Inline && seed->inlineNo == ref.index)
-        seedCol = seed->xlineNo - ref.colMin;
-    else if (ref.type == SgySliceType::Xline && seed->xlineNo == ref.index)
-        seedCol = seed->inlineNo - ref.colMin;
-    if (seedCol < 0 || seedCol >= m_lastSlice.width)
+    // 按值捕获（异步回调点火时本函数栈已退——引用捕获会悬垂）
+    const auto onSection = [ref](const SeismicPick &p) {
+        return ref.type == SgySliceType::Inline ? p.inlineNo == ref.index
+                                                : p.xlineNo == ref.index;
+    };
+    const auto colOf = [ref](const SeismicPick &p) {
+        return ref.type == SgySliceType::Inline ? p.xlineNo - ref.colMin
+                                                : p.inlineNo - ref.colMin;
+    };
+    const QString interpreter = seed->interpreter;
+    const QString horizon = seed->horizonName;
+    QList<QPair<int, int>> seeds;
+    for (const SeismicPick &p : m_session.picks)
+        if (p.horizonName == horizon && p.confidence == 1.0f && onSection(p))
+        {
+            const int col = colOf(p);
+            if (col >= 0 && col < m_lastSlice.width)
+                seeds.append({col, p.sampleIndex});
+        }
+    if (seeds.isEmpty())
         return;
 
     const float dtMs = m_volume && m_volume->SampleIntervalUs() > 0
         ? m_volume->SampleIntervalUs() / 1000.0f : 2.0f;
-    const QString interpreter = seed->interpreter;
-    const QString horizon = seed->horizonName;
-    QList<SeismicPick> tracked = SeismicTaskService::trackHorizon(
-        m_lastSlice, ref.type, ref.index, ref.colMin, ref.colMax,
-        seedCol, seed->sampleIndex, m_trackOptions, interpreter, horizon, dtMs);
-    if (tracked.size() > 1) {
-        tracked.removeFirst(); // 种子已在会话中
-        addPicks(tracked);
-    }
+    if (m_pickPanel)
+        m_pickPanel->setTrackingActive(true);
+    QPointer<SeismicSectionDockWidget> guard(this); // 注入共享服务时迟到回调守卫
+    m_trackTask = m_taskService->startHorizonTracking(
+        m_lastSlice, ref.type, ref.index, ref.colMin, ref.colMax, seeds,
+        m_trackOptions, interpreter, horizon, dtMs,
+        [this, guard, ref, horizon, colOf, onSection](bool ok, const QList<SeismicPick> &picks,
+                                                      const SeismicTrackReport &report,
+                                                      const QString &error) {
+            if (!guard)
+                return; // dock 已亡（取消后迟到回调）：丢弃
+            m_trackTask = nullptr;
+            m_lastTrackReport = report;
+            if (m_pickPanel)
+            {
+                m_pickPanel->setTrackingActive(false);
+                if (ok)
+                    m_pickPanel->showTrackReport(report);
+                else if (!error.isEmpty())
+                    m_pickPanel->showTrackError(error);
+            }
+            if (!ok)
+            {
+                emit trackingFinished(false);
+                return;
+            }
+            // 合并替换（一步 undo）：同列新旧机器拾取取高置信；手动列不动
+            QHash<int, const SeismicPick *> machineByCol;
+            QSet<int> manualCols;
+            for (const SeismicPick &p : m_session.picks)
+            {
+                if (p.horizonName != horizon || !onSection(p))
+                    continue;
+                const int col = colOf(p);
+                if (col < 0 || col >= m_lastSlice.width)
+                    continue;
+                if (p.confidence == 1.0f)
+                    manualCols.insert(col);
+                else if (!machineByCol.contains(col))
+                    machineByCol.insert(col, &p);
+            }
+            QList<SeismicPick> removed, added;
+            for (const SeismicPick &p : picks)
+            {
+                const int col = colOf(p);
+                if (manualCols.contains(col))
+                    continue; // 手动优先（含种子列）：不覆盖不重复
+                const auto it = machineByCol.constFind(col);
+                if (it != machineByCol.constEnd())
+                {
+                    if (p.confidence > (*it)->confidence)
+                    {
+                        removed << *(*it);
+                        added << p;
+                    }
+                }
+                else
+                {
+                    added << p;
+                }
+            }
+            if (!removed.isEmpty() || !added.isEmpty())
+                m_undoStack->push(new ReplacePicksCommand(this, removed, added));
+            emit trackingFinished(true);
+        });
+}
+
+void SeismicSectionDockWidget::cancelTracking() {
+    if (m_trackTask)
+        m_trackTask->requestCancel();
 }
 
 // ---- D5 井震与任意线 -----------------------------------------------------------

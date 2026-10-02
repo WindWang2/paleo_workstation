@@ -10,6 +10,7 @@
 
 #include "../domain/importrows.h"   // FolderPreviewRow / FolderRowResult（T22 静态面，W2 下沉 domain）
 #include "../services/seismictaskservice.h" // m_seismicTaskSvc unique_ptr 需完整类型
+#include "../services/petrophyscomputeservice.h" // m_petroPhysSvc unique_ptr 需完整类型
 
 class PaleoDockManager;
 class QComboBox;
@@ -36,6 +37,11 @@ namespace seismic {
 class SeismicSectionDockWidget;
 class Seismic3DViewPanel;
 class SeismicTaskService;
+}
+
+namespace paleo::fault {
+class FaultInterpretationController;
+class FaultManagerPanel;
 }
 
 class PaleoDockWidget : public QDockWidget
@@ -81,6 +87,7 @@ class ProjectDataFacade;
 class DataCatalog;
 class DataImportService;
 class PreviewDocService;
+class DepthConversionWorkflow;
 class FolderImportWorkflow;
 class ProjectOpenWorkflow;
 class RegistrationWorkflow;
@@ -145,6 +152,12 @@ class PaleoMainWindow : public SARibbonMainWindow
     // Swap right-dock placeholder panels for the real page panels (§42.2),
     // bound to the workflow orchestrators. Call after AppContext assembly.
     void attachWorkbench(MappingWorkbench *workbench);
+    // goal/time-depth-velocity：层树「转换为深度域…」意图 → DepthConversionWorkflow。
+    // 独立于 attachWorkflows，避免动其签名（同 attachMapping 先例）。
+    void attachDepthConversion(DepthConversionWorkflow *depth);
+    // goal/fault-interpretation：断层解释接线——剖面 dock 挂编排器 + 右栏
+    // 断层管理面板 dock。幂等（m_faultPanelDock 已建则只重挂控制器）。
+    void attachFaults(paleo::fault::FaultInterpretationController *controller);
     void attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                          CompositionWorkflow *compose, ValidationWorkflow *validate,
                          DataImportService *importSvc = nullptr,
@@ -301,13 +314,20 @@ class PaleoMainWindow : public SARibbonMainWindow
     seismic::SeismicSectionDockWidget *m_seismicSectionDock = nullptr;
     QDockWidget *m_seismic3dDock = nullptr;
     seismic::Seismic3DViewPanel *m_seismic3dPanel = nullptr;
+    // goal/fault-interpretation：断层管理面板 dock（attachFaults 建一次）
+    QDockWidget *m_faultPanelDock = nullptr;
+    paleo::fault::FaultManagerPanel *m_faultPanel = nullptr;
     std::unique_ptr<seismic::SeismicTaskService> m_seismicTaskSvc;
+    // goal/petrophysics-logs：测井计算批任务（面板只发意图，编排在此）。
+    std::unique_ptr<paleo::petrophys::PetroPhysTaskService> m_petroPhysSvc;
+    QPointer<class PaleoTask> m_petroPhysTask;
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
     QgisEditingService *m_editSvc = nullptr; // attachShellSurfaces 注入；closeEvent 保存/放弃走它
     DataImportService *m_importSvc = nullptr; // attachWorkflows 注入；启动页「从工区文件夹新建」用
     // 壳唯一数据门面（W1）：dataPage 属性与 previewTabs 共用同一实例。
     PreviewDocService *m_previewDoc = nullptr;
+    DepthConversionWorkflow *m_depthWf = nullptr;
     FolderImportWorkflow *m_folderImportWf = nullptr;   // W2 文件夹/单文件导入编排
     ProjectOpenWorkflow *m_projectOpenWf = nullptr;     // W2 打开/新建工程编排
     RegistrationWorkflow *m_registrationWf = nullptr;   // W3 临时配准编排

@@ -41,6 +41,8 @@
 #include <thread>
 
 #include "algorithms/seismicattr.h"
+#include "algorithms/horizontrack.h"
+#include "io/horizonbinner.h"
 #include "catalog/datacatalog.h"
 #include "domain/seismic/sgyindexbuilder.h"
 #include "domain/seismic/sgyindexcache.h"
@@ -1809,28 +1811,8 @@ SeismicTraceHeaderInfo SeismicTaskService::readTraceHeader(const QString &sgyPat
 
 namespace {
 
-// 归一化互相关（Pearson）：种子波形 w vs 候选 c；返回 -1..1（无方差 → 0）
-double NormalizedCorrelation(const float *w, const float *c, int n)
-{
-  double sw = 0, sc = 0, sww = 0, scc = 0, swc = 0;
-  int valid = 0;
-  for (int i = 0; i < n; ++i)
-  {
-    if (!std::isfinite(w[i]) || !std::isfinite(c[i]))
-      continue;
-    sw += w[i]; sc += c[i];
-    sww += double(w[i]) * w[i]; scc += double(c[i]) * c[i];
-    swc += double(w[i]) * c[i];
-    ++valid;
-  }
-  if (valid < 4)
-    return 0.0;
-  const double cov = swc - sw * sc / valid;
-  const double varW = sww - sw * sw / valid;
-  const double varC = scc - sc * sc / valid;
-  const double denom = std::sqrt(varW * varC);
-  return denom > 1e-12 ? cov / denom : 0.0;
-}
+// 归一化互相关已下沉 algorithms/horizontrack（goal/horizon-autotrack），
+// 服务层不再持有核副本。
 
 QString horizonCsvLine(const SeismicPick &p)
 {
@@ -1870,6 +1852,160 @@ const SeismicPick *SeismicInterpretationSession::pickById(int id) const
   return nullptr;
 }
 
+namespace {
+
+// goal/horizon-autotrack — SgySliceImage（行主序 row*width+col，引擎契约
+// 行 0 = 最大时间/时间底）→ 追踪核道主序、采样升序缓冲（trace*nS+s）。
+// 两个不可省的变换（D4.2 修复：旧实现把行序当采样序，真切片上追踪时间轴
+// 垂直镜像——种子（采样序）对不上行序事件，追踪诚实停）：
+//   1) 行→采样翻转：s = height-1-row（SeismicPick.sampleIndex/twtMs 是
+//      采样升序空间，画布/资产登记全链一致）；
+//   2) 转置：核里一道垂直窗是内存连续段，行主序直接喂会把「横向跨道条」
+//      当波形（seismic-attributes 轮2 同教训）。
+std::vector<float> traceMajorSection(const SgySliceImage &slice)
+{
+  std::vector<float> out(static_cast<std::size_t>(slice.width) * slice.height);
+  for (int col = 0; col < slice.width; ++col)
+    for (int s = 0; s < slice.height; ++s)
+      out[static_cast<std::size_t>(col) * slice.height + s] =
+          slice.values[static_cast<std::size_t>(slice.height - 1 - s) * slice.width + col];
+  return out;
+}
+
+QString trackStopText(paleo::hztrack::StopReason reason)
+{
+  switch (reason)
+  {
+  case paleo::hztrack::StopReason::CorrelationLoss:
+    return QObject::tr("相关丢失");
+  case paleo::hztrack::StopReason::CoherenceGate:
+    return QObject::tr("相干门槛");
+  case paleo::hztrack::StopReason::Cancelled:
+    return QObject::tr("已取消");
+  case paleo::hztrack::StopReason::Invalid:
+    return QObject::tr("输入无效");
+  case paleo::hztrack::StopReason::Completed:
+    return QObject::tr("到达边界");
+  }
+  return QString();
+}
+
+// 剖面列号 → 测线号标注（IL 剖面列=XL，XL 剖面列=IL）
+QString trackColLabel(int col, SgySliceType type, int colMin)
+{
+  return type == SgySliceType::Inline
+             ? QStringLiteral("@XL%1").arg(colMin + col)
+             : QStringLiteral("@IL%1").arg(colMin + col);
+}
+
+struct KernelTrackOutput
+{
+  QList<SeismicPick> picks;
+  SeismicTrackReport report;
+};
+
+// 追踪核编排（同步/异步任务共用）：逐种子 trackSection + 合并 + 域映射 +
+// 报告。cancelled 可空；task 非空时报进度（每种子一步）。
+KernelTrackOutput runKernelTracking(
+    const SgySliceImage &slice, SgySliceType sectionType, int sectionIndex,
+    int colMin, int colMax, const QList<QPair<int, int>> &seeds,
+    const SeismicTrackOptions &options, const QString &interpreter,
+    const QString &horizonName, float sampleIntervalMs,
+    const std::function<bool()> &cancelled, PaleoTask *task)
+{
+  KernelTrackOutput out;
+  out.report.totalTraces = slice.width;
+  if (slice.width <= 0 || slice.height <= 0 || slice.values.empty() ||
+      seeds.isEmpty())
+  {
+    out.report.stopSummary = QObject::tr("无剖面数据或无种子");
+    return out;
+  }
+  const std::vector<float> section = traceMajorSection(slice);
+  const paleo::hztrack::TrackOptions kernelOptions{
+      options.windowSamples, options.maxSearchSamples,
+      options.correlationThreshold, 0.0};
+  std::vector<paleo::hztrack::TrackResult> runs;
+  runs.reserve(static_cast<std::size_t>(seeds.size()));
+  bool sawCancel = false;
+  for (int i = 0; i < seeds.size(); ++i)
+  {
+    runs.push_back(paleo::hztrack::trackSection(
+        section.data(), slice.width, slice.height,
+        {seeds[i].first, seeds[i].second}, kernelOptions, nullptr, cancelled));
+    if (task)
+      task->reportBytes(i + 1, seeds.size());
+    if (runs.back().stopLeft.reason == paleo::hztrack::StopReason::Cancelled ||
+        runs.back().stopRight.reason == paleo::hztrack::StopReason::Cancelled)
+      sawCancel = true;
+  }
+  const std::vector<paleo::hztrack::TracedPick> merged =
+      paleo::hztrack::mergeTraced(runs);
+
+  const auto toPick = [&](const paleo::hztrack::TracedPick &p) {
+    SeismicPick pick;
+    pick.inlineNo =
+        sectionType == SgySliceType::Inline ? sectionIndex : colMin + p.trace;
+    pick.xlineNo =
+        sectionType == SgySliceType::Inline ? colMin + p.trace : sectionIndex;
+    pick.sampleIndex = p.sample;
+    pick.twtMs = p.sample * double(sampleIntervalMs);
+    pick.confidence = p.confidence;
+    pick.interpreter = interpreter;
+    pick.horizonName = horizonName;
+    return pick; // id=0 由会话分配
+  };
+  double confSum = 0.0;
+  out.picks.reserve(int(merged.size()));
+  for (const paleo::hztrack::TracedPick &p : merged)
+  {
+    out.picks.append(toPick(p));
+    confSum += p.confidence;
+  }
+  out.report.coveredTraces = int(merged.size());
+  out.report.meanConfidence =
+      merged.empty() ? 0.0f : float(confSum / double(merged.size()));
+  // 停因：两侧首个未覆盖道，取止于该道的种子结果（覆盖失败区如实留空）
+  if (sawCancel)
+    out.report.stopSummary = QObject::tr("已取消");
+  else if (out.report.coveredTraces == out.report.totalTraces)
+    out.report.stopSummary = QObject::tr("全程覆盖");
+  else
+  {
+    QStringList parts;
+    const auto sideStop = [&](bool left) {
+      if (merged.empty())
+        return;
+      const int gapTrace = left ? int(merged.front().trace) - 1
+                                : int(merged.back().trace) + 1;
+      if (gapTrace < 0 || gapTrace >= slice.width)
+        return; // 该侧扫满（无缺口）
+      for (const paleo::hztrack::TrackResult &r : runs)
+      {
+        const paleo::hztrack::TrackStop &stop =
+            left ? r.stopLeft : r.stopRight;
+        if (stop.trace == gapTrace)
+        {
+          parts << (left ? QObject::tr("左：%1%2")
+                              .arg(trackStopText(stop.reason),
+                                   trackColLabel(gapTrace, sectionType, colMin))
+                         : QObject::tr("右：%1%2")
+                              .arg(trackStopText(stop.reason),
+                                   trackColLabel(gapTrace, sectionType, colMin)));
+          return;
+        }
+      }
+    };
+    sideStop(true);
+    sideStop(false);
+    out.report.stopSummary =
+        parts.isEmpty() ? QObject::tr("部分覆盖") : parts.join(QStringLiteral("；"));
+  }
+  return out;
+}
+
+} // namespace
+
 QList<SeismicPick> SeismicTaskService::trackHorizon(
     const SgySliceImage &slice,
     SgySliceType sectionType, int sectionIndex,
@@ -1879,80 +2015,88 @@ QList<SeismicPick> SeismicTaskService::trackHorizon(
     const QString &interpreter, const QString &horizonName,
     float sampleIntervalMs)
 {
-  QList<SeismicPick> result;
-  if (slice.width <= 0 || slice.height <= 0 || slice.values.empty())
-    return result;
-  const int w = std::min(int(options.windowSamples), int(slice.height));
-  if (w < 4 || seedTraceCol < 0 || seedTraceCol >= slice.width)
-    return result;
+  // 数值核在 algorithms/horizontrack（goal/horizon-autotrack 下沉）：
+  // 单种子 = 多种子面的特例（含种子拾取，按道序升序）。
+  return trackHorizonMultiSeeds(slice, sectionType, sectionIndex, colMin,
+                                colMax, {{seedTraceCol, seedSample}}, options,
+                                interpreter, horizonName, sampleIntervalMs);
+}
 
-  const auto columnValue = [&](int col, int sample) -> float {
-    return slice.values[static_cast<std::size_t>(sample) * slice.width + col];
-  };
+QList<SeismicPick> SeismicTaskService::trackHorizonMultiSeeds(
+    const SgySliceImage &slice,
+    SgySliceType sectionType, int sectionIndex,
+    int colMin, int colMax,
+    const QList<QPair<int, int>> &seeds,
+    const SeismicTrackOptions &options,
+    const QString &interpreter, const QString &horizonName,
+    float sampleIntervalMs,
+    SeismicTrackReport *report)
+{
+  const KernelTrackOutput out =
+      runKernelTracking(slice, sectionType, sectionIndex, colMin, colMax,
+                        seeds, options, interpreter, horizonName,
+                        sampleIntervalMs, nullptr, nullptr);
+  if (report)
+    *report = out.report;
+  return out.picks;
+}
 
-  // 种子波形（中心在 seedSample，向上/向下各取一半窗）
-  const int seedTop = std::max(0, seedSample - w / 2);
-  const int seedBottom = std::min(slice.height - 1, seedTop + w - 1);
-  if (seedBottom - seedTop + 1 < 4)
-    return result;
-  std::vector<float> seedWave(static_cast<std::size_t>(seedBottom - seedTop + 1));
-  for (int y = seedTop; y <= seedBottom; ++y)
-    seedWave[static_cast<std::size_t>(y - seedTop)] = columnValue(seedTraceCol, y);
-
-  const auto toPick = [&](int col, int sample, double conf) -> SeismicPick {
-    SeismicPick p;
-    p.inlineNo = sectionType == SgySliceType::Inline ? sectionIndex : colMin + col;
-    p.xlineNo = sectionType == SgySliceType::Inline ? colMin + col : sectionIndex;
-    p.sampleIndex = sample;
-    p.twtMs = sample * double(sampleIntervalMs);
-    p.confidence = float(std::clamp(conf, 0.0, 1.0));
-    p.interpreter = interpreter;
-    p.horizonName = horizonName;
-    return p;
-  };
-
-  // 种子点本身
-  result.append(toPick(seedTraceCol, seedSample, 1.0));
-
-  // 双向追踪：向左/向右逐道，上一道拾取位置附近搜索最大相关
-  const int dirs[2] = {-1, +1};
-  for (int dir : dirs)
+PaleoTask *SeismicTaskService::startHorizonTracking(
+    const SgySliceImage &slice,
+    SgySliceType sectionType, int sectionIndex,
+    int colMin, int colMax,
+    const QList<QPair<int, int>> &seeds,
+    const SeismicTrackOptions &options,
+    const QString &interpreter, const QString &horizonName,
+    float sampleIntervalMs,
+    std::function<void(bool ok, const QList<SeismicPick> &picks,
+                       const SeismicTrackReport &report,
+                       const QString &error)> onFinished)
+{
+  if (!taskService_)
   {
-    int prevSample = seedSample;
-    for (int col = seedTraceCol + dir; col >= 0 && col < slice.width; col += dir)
-    {
-      double bestCorr = -2.0;
-      int bestSample = -1;
-      // 搜索窗围绕上一道窗口顶（prevSample），钳到体积界——不是种子窗
-      // （否则同相轴漂移超过一个窗长后永远追不上）。
-      // 注意：行主序布局里一条道窗口是「跨行」段——候选必须按列跨步取数，
-      // 不能拿行内连续指针当窗口（那是横向跨道的噪声条）。
-      const int winLen = int(seedWave.size());
-      const int searchLo = std::max(0, prevSample - options.maxSearchSamples);
-      const int searchHi = std::min(int(slice.height) - winLen,
-                                    prevSample + options.maxSearchSamples);
-      std::vector<float> candidate(static_cast<std::size_t>(winLen));
-      for (int s = searchLo; s <= searchHi; ++s)
-      {
-        for (int i = 0; i < winLen; ++i)
-          candidate[static_cast<std::size_t>(i)] = columnValue(col, s + i);
-        const double corr = NormalizedCorrelation(
-            seedWave.data(), candidate.data(), winLen);
-        if (corr > bestCorr)
-        {
-          bestCorr = corr;
-          bestSample = s + winLen / 2; // 窗口中心 = 拾取位置
-        }
-      }
-      if (bestSample < 0 || bestCorr < options.correlationThreshold)
-        break; // 同相轴丢失：停（不硬凑）
-      SeismicPick p = toPick(col, bestSample, bestCorr);
-      p.id = 0; // 由会话分配
-      result.append(p);
-      prevSample = bestSample - int(seedWave.size()) / 2;
-    }
+    if (onFinished)
+      onFinished(false, {}, SeismicTrackReport{},
+                 QStringLiteral("PaleoTaskService not set"));
+    return nullptr;
   }
-  return result;
+  const QString title = tr("层位追踪（%1 种子）").arg(seeds.size());
+  // worker 线程只取 values（rgba 不复制——追踪不需要着色缓冲）
+  auto sliceValues = std::make_shared<SgySliceImage>();
+  sliceValues->width = slice.width;
+  sliceValues->height = slice.height;
+  sliceValues->valueMin = slice.valueMin;
+  sliceValues->valueMax = slice.valueMax;
+  sliceValues->values = slice.values;
+  auto picksOut = std::make_shared<QList<SeismicPick>>();
+  auto reportOut = std::make_shared<SeismicTrackReport>();
+  auto work = [sliceValues, sectionType, sectionIndex, colMin, colMax, seeds,
+               options, interpreter, horizonName, sampleIntervalMs, picksOut,
+               reportOut](PaleoTask *task) -> QString {
+    const KernelTrackOutput out = runKernelTracking(
+        *sliceValues, sectionType, sectionIndex, colMin, colMax, seeds,
+        options, interpreter, horizonName, sampleIntervalMs,
+        [task]() { return task && task->cancelRequested(); }, task);
+    if (task && task->cancelRequested())
+      return QString(); // 取消不发布半成品
+    *picksOut = out.picks;
+    *reportOut = out.report;
+    return QString();
+  };
+  // 追踪是交互触发（面板按钮），不拉起任务中心；取消经任务句柄。
+  PaleoTask *task = startBounded(title, work, QString(), /*quiet=*/true);
+  connect(task, &PaleoTask::finished, this,
+          [task, picksOut, reportOut, onFinished]() {
+            if (!onFinished)
+              return;
+            if (task->state() == PaleoTask::State::Succeeded)
+              onFinished(true, *picksOut, *reportOut, QString());
+            else if (task->state() == PaleoTask::State::Cancelled)
+              onFinished(false, {}, SeismicTrackReport{}, tr("追踪已取消"));
+            else
+              onFinished(false, {}, SeismicTrackReport{}, task->errorText());
+          });
+  return task;
 }
 
 SeismicHorizonGrid SeismicTaskService::gridPicks(const QList<SeismicPick> &picks)
@@ -2033,7 +2177,7 @@ QString SeismicTaskService::registerHorizonAsset(
     DataCatalog *catalog, const QString &seismicAssetId,
     const QString &seismicVersionId, const QString &horizonName,
     const QList<SeismicPick> &picks, const QString &outputDir,
-    QString *error)
+    QString *error, LayerDeclaration *layerOut)
 {
   if (!catalog || picks.isEmpty())
   {
@@ -2077,6 +2221,59 @@ QString SeismicTaskService::registerHorizonAsset(
                   .toUtf8());
     }
   f.close();
+
+  // goal/horizon-autotrack — 层位栅格 GeoTIFF（拾取网格 → 既有 horizonbinner
+  // 管线装箱，不开平行层位格式）+ LayerDeclaration 回填供调用方声明上图。
+  if (layerOut)
+  {
+    BinnedHorizon binned;
+    binned.rows = grid.inlineCount;
+    binned.cols = grid.xlineCount;
+    // 局部测网：像元 = 测线步长（IL/XL 索引空间），P1 角 = (最小 IL, 最小 XL)
+    // 映射到局部 XY 原点——与 binHorizon 同装箱约定（行 0 = 最大 inline 北向上）
+    binned.dx = grid.xlineStep;
+    binned.dy = grid.inlineStep;
+    binned.originX = 0.0;
+    binned.originY = double(grid.inlineCount - 1) * binned.dy;
+    binned.hasInlineRange = binned.hasXlineRange = true;
+    binned.inlineMin = grid.inlineMin;
+    binned.inlineMax =
+        grid.inlineMin + (grid.inlineCount - 1) * grid.inlineStep;
+    binned.xlineMin = grid.xlineMin;
+    binned.xlineMax =
+        grid.xlineMin + (grid.xlineCount - 1) * grid.xlineStep;
+    binned.z.assign(std::size_t(binned.rows) * binned.cols, -9999.0f);
+    double zMin = std::numeric_limits<double>::infinity();
+    double zMax = -std::numeric_limits<double>::infinity();
+    for (int gi = 0; gi < grid.inlineCount; ++gi)
+      for (int gx = 0; gx < grid.xlineCount; ++gx)
+      {
+        const double twt = grid.twtMs[std::size_t(gi) * grid.xlineCount + gx];
+        if (!std::isfinite(twt))
+          continue; // 无控制点：nodata 如实留空（诚实失败，不插值填充）
+        const int row = (grid.inlineCount - 1) - gi; // 行 0 = 最大 inline
+        binned.z[std::size_t(row) * binned.cols + gx] = float(twt);
+        zMin = std::min(zMin, twt);
+        zMax = std::max(zMax, twt);
+      }
+    binned.zMin = std::isfinite(zMin) ? zMin : 0.0;
+    binned.zMax = std::isfinite(zMax) ? zMax : 0.0;
+    const QString tifName = fileName.chopped(4) + QStringLiteral(".tif");
+    const QString tifPath = outputDir + QLatin1Char('/') + tifName;
+    QString tifError;
+    if (!writeHorizonGeoTiff(binned, tifPath, &tifError))
+    {
+      if (error)
+        *error = QStringLiteral("层位 GeoTIFF 写出失败：%1").arg(tifError);
+      return QString();
+    }
+    layerOut->layerId = QStringLiteral("horizon.%1").arg(horizonName);
+    layerOut->horizon = horizonName;
+    layerOut->type = QStringLiteral("raster");
+    layerOut->source = tifPath;
+    layerOut->group = QStringLiteral("00_Data");
+    layerOut->title = QStringLiteral("%1（地震追踪层位）").arg(horizonName);
+  }
 
   // DERIVED 版本登记（外链托管：解释产物在工程 interpretation/ 目录）
   CatalogAsset asset;

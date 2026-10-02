@@ -6,10 +6,13 @@ target_sources(paleo_algorithms PRIVATE
   src/algorithms/dsp/fft.cpp
   src/algorithms/inversion/wavelet.cpp
   src/algorithms/inversion/lowfreq.cpp
-  src/algorithms/inversion/bandlimit.cpp)
+  src/algorithms/inversion/bandlimit.cpp
+  src/algorithms/inversion/sparse.cpp)
 
 add_paleo_test(tst_inversion_wavelet LIBS paleo_algorithms)
 
 add_paleo_test(tst_inversion_lowfreq LIBS paleo_algorithms)
 
 add_paleo_test(tst_inversion_bandlimit LIBS paleo_algorithms)
+
+add_paleo_test(tst_inversion_sparse LIBS paleo_algorithms)

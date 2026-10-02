@@ -10,6 +10,7 @@
 
 #include "../domain/importrows.h"   // FolderPreviewRow / FolderRowResult（T22 静态面，W2 下沉 domain）
 #include "../services/seismictaskservice.h" // m_seismicTaskSvc unique_ptr 需完整类型
+#include "../services/petrophyscomputeservice.h" // m_petroPhysSvc unique_ptr 需完整类型
 
 class PaleoDockManager;
 class QComboBox;
@@ -302,6 +303,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     QDockWidget *m_seismic3dDock = nullptr;
     seismic::Seismic3DViewPanel *m_seismic3dPanel = nullptr;
     std::unique_ptr<seismic::SeismicTaskService> m_seismicTaskSvc;
+    // goal/petrophysics-logs：测井计算批任务（面板只发意图，编排在此）。
+    std::unique_ptr<paleo::petrophys::PetroPhysTaskService> m_petroPhysSvc;
+    QPointer<class PaleoTask> m_petroPhysTask;
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
     QgisEditingService *m_editSvc = nullptr; // attachShellSurfaces 注入；closeEvent 保存/放弃走它

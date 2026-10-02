@@ -43,7 +43,8 @@ traceFrac 是路径的水平弧长比例。
 
 **体域阻断。** `fillIdw` 的 `FaultSegment` 重载仍是整柱竖帘。新增
 `FaultTriangle` 重载，6 连通按单元中心连线是否穿过三角形来分块，权威结果在
-`PropertyVolume::cellBlock`。
+`PropertyVolume::cellBlock`。空的 `{}` 与竖帘重载二义，调用处要写成具体的
+vector 类型。
 
 ## 接口
 

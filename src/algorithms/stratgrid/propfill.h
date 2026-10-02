@@ -70,6 +70,7 @@ bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds,
 
 // 断面体域阻断：邻接按单元 6 连通，柱心连线与三角网相交则断开。
 // 平面 FaultSegment 重载仍是整柱竖帘。本重载的权威分块在 cellBlock。
+// 空的 {} 与竖帘重载二义，调用处写成具体的 vector 类型。
 bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds,
              const std::vector<FaultTriangle> &mesh, double power, PropertyVolume *out,
              const FillProgress &progress = {}, QString *error = nullptr);

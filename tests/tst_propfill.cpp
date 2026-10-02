@@ -13,6 +13,9 @@ using namespace paleo::stratgrid;
 namespace
 {
 
+// 空花括号同时匹配 FaultSegment 与 FaultTriangle 两个 fillIdw。
+const std::vector<FaultSegment> kNoFaults;
+
 ZoneGrid box(int ni, int nj, int nk, float top = 0.0f, float bot = 10.0f, double dx = 1.0,
              double dy = 1.0)
 {
@@ -58,7 +61,7 @@ void TestPropFill::singleSeedFillsConstantField()
   PropertyVolume vol;
   QString err;
   std::vector<double> progress;
-  QVERIFY2(fillIdw(grid, {Seed{1, 1, 0, 4.0}}, {}, 2.0, &vol,
+  QVERIFY2(fillIdw(grid, {Seed{1, 1, 0, 4.0}}, kNoFaults, 2.0, &vol,
                    [&](double f) {
                      progress.push_back(f);
                      return true;
@@ -79,7 +82,7 @@ void TestPropFill::singleSeedFillsConstantField()
 
   // 没有种子：活单元保持 NaN，不补 0。
   PropertyVolume empty;
-  QVERIFY(fillIdw(grid, {}, {}, 2.0, &empty, {}, &err));
+  QVERIFY(fillIdw(grid, {}, kNoFaults, 2.0, &empty, {}, &err));
   QVERIFY(std::isnan(at(empty, 0, 0, 0)));
   QCOMPARE(empty.filledCells, 0);
   QVERIFY(empty.unfilledLiveCells > 0);
@@ -89,7 +92,7 @@ void TestPropFill::symmetricMidpointIsMean()
 {
   const ZoneGrid grid = box(5, 1, 1);
   PropertyVolume vol;
-  QVERIFY(fillIdw(grid, {Seed{0, 0, 0, 2.0}, Seed{4, 0, 0, 8.0}}, {}, 2.0, &vol, {}, nullptr));
+  QVERIFY(fillIdw(grid, {Seed{0, 0, 0, 2.0}, Seed{4, 0, 0, 8.0}}, kNoFaults, 2.0, &vol, {}, nullptr));
   QVERIFY(std::fabs(at(vol, 2, 0, 0) - 5.0f) < 1e-4f);
   QCOMPARE(at(vol, 0, 0, 0), 2.0f);
   QCOMPARE(at(vol, 4, 0, 0), 8.0f);
@@ -97,7 +100,7 @@ void TestPropFill::symmetricMidpointIsMean()
   // 垂向对称：层厚均匀时 k 中面两侧地图距离相等，中面仍是均值。
   const ZoneGrid tall = box(1, 1, 5);
   PropertyVolume vk;
-  QVERIFY(fillIdw(tall, {Seed{0, 0, 0, 0.0}, Seed{0, 0, 4, 10.0}}, {}, 2.0, &vk, {}, nullptr));
+  QVERIFY(fillIdw(tall, {Seed{0, 0, 0, 0.0}, Seed{0, 0, 4, 10.0}}, kNoFaults, 2.0, &vk, {}, nullptr));
   QVERIFY(std::fabs(at(vk, 0, 0, 2) - 5.0f) < 1e-4f);
 }
 
@@ -117,7 +120,7 @@ void TestPropFill::faultBlocksCrossTalk()
     QCOMPARE(at(blocked, i, 0, 0), 9.0f);
 
   PropertyVolume open;
-  QVERIFY(fillIdw(grid, seeds, {}, 2.0, &open, {}, nullptr));
+  QVERIFY(fillIdw(grid, seeds, kNoFaults, 2.0, &open, {}, nullptr));
   QVERIFY(std::fabs(at(open, 2, 0, 0) - 1.0f) > 0.5f);
 
   // 断层另一侧没有种子 → 保持 NaN，不被对侧拉动。
@@ -180,7 +183,7 @@ void TestPropFill::power2WeightsLock()
 {
   const ZoneGrid grid = box(6, 1, 1);
   PropertyVolume vol;
-  QVERIFY(fillIdw(grid, {Seed{0, 0, 0, 1.0}, Seed{5, 0, 0, 9.0}}, {}, 2.0, &vol, {}, nullptr));
+  QVERIFY(fillIdw(grid, {Seed{0, 0, 0, 1.0}, Seed{5, 0, 0, 9.0}}, kNoFaults, 2.0, &vol, {}, nullptr));
   // d=2 → w=1/4，d=3 → w=1/9。(1/4 + 1) / (1/4 + 1/9) = 45/13 ≈ 3.4615。
   QVERIFY(std::fabs(static_cast<double>(at(vol, 2, 0, 0)) - 3.4615) < 1e-3);
   QCOMPARE(at(vol, 0, 0, 0), 1.0f);
@@ -194,7 +197,7 @@ void TestPropFill::cancelLeavesOutputUntouched()
   vol.filledCells = 123;
   QString err;
   QVERIFY(!fillIdw(
-      grid, {Seed{0, 0, 0, 1.0}}, {}, 2.0, &vol, [](double) { return false; }, &err));
+      grid, {Seed{0, 0, 0, 1.0}}, kNoFaults, 2.0, &vol, [](double) { return false; }, &err));
   QVERIFY(err.contains(QStringLiteral("已取消")));
   QCOMPARE(vol.filledCells, 123);
   QVERIFY(vol.values.empty());
@@ -204,7 +207,7 @@ void TestPropFill::sectionProjectionAndBlobRoundTrip()
 {
   const ZoneGrid grid = box(3, 1, 2, 0.0f, 20.0f, 10.0, 10.0);
   PropertyVolume vol;
-  QVERIFY(fillIdw(grid, {Seed{1, 0, 0, 4.0}}, {}, 2.0, &vol, {}, nullptr));
+  QVERIFY(fillIdw(grid, {Seed{1, 0, 0, 4.0}}, kNoFaults, 2.0, &vol, {}, nullptr));
 
   SectionGeometry sec;
   sec.nTraces = 3;

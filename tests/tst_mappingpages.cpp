@@ -13,8 +13,11 @@
 #include <QToolButton>
 #include <QVariantMap>
 
+#include <QScrollArea>
+
 #include "../src/services/singlefactordef.h"
 #include "../src/ui/pages/pagepanels.h"
+#include "../src/ui/paleotheme.h"
 #include "../src/workflow/boundarysemantics.h" // C2：相界语义类型词表（单类型首发）
 
 // m2/mapping-pages — 三个编图页（预测/单因素/智能编图）的贯通测试。
@@ -447,6 +450,7 @@ class FactorPageTests : public QObject
     void contourRowGatingAndSignal();
     void thicknessSamplesInsideCollapsibleSection();
     void typedDrawEntries();
+    void nativeMethodContourAndBusyStates();
 };
 
 void FactorPageTests::constructsWithNullServices()
@@ -581,6 +585,7 @@ void FactorPageTests::strathickEngineRowsAndPayload()
   const QVariantMap params = spy.at( 0 ).at( 2 ).toMap();
   QVERIFY( params.contains( QStringLiteral( "topLayerId" ) ) );
   QVERIFY( params.contains( QStringLiteral( "baseLayerId" ) ) );
+  QVERIFY( !params.contains( QStringLiteral( "method" ) ) );
 }
 
 void FactorPageTests::generateFactorPayload()
@@ -736,6 +741,101 @@ void FactorPageTests::typedDrawEntries()
   QSignalSpy legacy( &page, &ConstraintPage::drawConstraintRequested );
   page.findChild<QPushButton *>(QStringLiteral("drawButton"))->click();
   QCOMPARE( legacy.count(), 1 );
+}
+
+void FactorPageTests::nativeMethodContourAndBusyStates()
+{
+  ConstraintPage page( nullptr );
+  page.resize( 280, 420 );
+  page.show();
+  QVERIFY( page.findChild<QScrollArea *>( QStringLiteral( "constraintPageScroll" ) ) != nullptr );
+  QVERIFY( page.findChild<QWidget *>( QStringLiteral( "constraintPageBody" ) ) != nullptr );
+  auto *method = page.findChild<QComboBox *>( QStringLiteral( "factorMethodCombo" ) );
+  auto *coverage = page.findChild<QComboBox *>( QStringLiteral( "factorCoverageCombo" ) );
+  auto *power = page.findChild<QDoubleSpinBox *>( QStringLiteral( "factorPowerSpin" ) );
+  auto *advanced = page.findChild<QWidget *>( QStringLiteral( "factorAdvancedSection" ) );
+  auto *cancel = page.findChild<QPushButton *>( QStringLiteral( "factorCancelButton" ) );
+  auto *save = page.findChild<QPushButton *>( QStringLiteral( "constraintParamSaveButton" ) );
+  auto *source = page.findChild<QLabel *>( QStringLiteral( "factorContourSourceLabel" ) );
+  QVERIFY( method && coverage && power && advanced && cancel && save && source );
+  QCOMPARE( method->currentData().toString(), QStringLiteral( "local_direction_idw" ) );
+  QCOMPARE( coverage->currentData().toString(), QStringLiteral( "well_supported" ) );
+  QCOMPARE( power->value(), 2.0 );
+  QVERIFY( power->toolTip().contains( QStringLiteral( "0.5" ) ) );
+  QCOMPARE( power->font().family(), PaleoTheme::monoFont().family() );
+  QVERIFY( !power->isVisibleTo( advanced ) );
+  QVERIFY( !cancel->isEnabled() );
+  QVERIFY( cancel->toolTip().contains( QStringLiteral( "没有正在运行" ) ) );
+  QVERIFY( !save->isEnabled() );
+  QVERIFY( save->toolTip().contains( QStringLiteral( "选择一条线" ) ) );
+  QCOMPARE( source->text(), QStringLiteral( "等值线取自分析场" ) );
+
+  auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
+  auto *horizons = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
+  horizons->addItem( QStringLiteral( "T1" ) );
+  horizons->setCurrentIndex( 0 );
+  factors->item( 0, 0 )->setCheckState( Qt::Checked );
+  QSignalSpy generated( &page, &ConstraintPage::generateFactorRequested );
+  page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) )->click();
+  QCOMPARE( generated.count(), 1 );
+  const QVariantMap local = generated.at( 0 ).at( 2 ).toMap();
+  QCOMPARE( local.value( QStringLiteral( "method" ) ).toString(), QStringLiteral( "local_direction_idw" ) );
+  QCOMPARE( local.value( QStringLiteral( "coverage" ) ).toString(), QStringLiteral( "well_supported" ) );
+  QCOMPARE( local.value( QStringLiteral( "power" ) ).toDouble(), 2.0 );
+  QCOMPARE( local.value( QStringLiteral( "wellClusterLocality" ) ).toBool(), false );
+  method->setCurrentIndex( method->findData( QStringLiteral( "legacy" ) ) );
+  page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) )->click();
+  QVERIFY( !generated.at( 1 ).at( 2 ).toMap().contains( QStringLiteral( "method" ) ) );
+
+  factors->item( 5, 0 )->setCheckState( Qt::Checked );
+  QVERIFY( !method->isVisibleTo( &page ) );
+  factors->item( 6, 0 )->setCheckState( Qt::Checked );
+  auto *generate = page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) );
+  QVERIFY( !generate->isEnabled() );
+  QVERIFY( generate->toolTip().contains( QStringLiteral( "尚未接入" ) ) );
+
+  factors->item( 0, 0 )->setCheckState( Qt::Checked );
+  page.noteFactorLayer( QStringLiteral( "sandthick" ), QStringLiteral( "factor.T1.sandthick" ) );
+  auto *mode = page.findChild<QComboBox *>( QStringLiteral( "factorContourModeCombo" ) );
+  auto *levels = page.findChild<QLineEdit *>( QStringLiteral( "factorContourLevelsEdit" ) );
+  auto *contour = page.findChild<QPushButton *>( QStringLiteral( "contourButton" ) );
+  mode->setCurrentIndex( mode->findData( QStringLiteral( "cartographic_detour" ) ) );
+  QVERIFY( source->text().contains( QStringLiteral( "制图工作场" ) ) );
+  QVERIFY( !contour->isEnabled() );
+  QVERIFY( contour->toolTip().contains( QStringLiteral( "等值级别" ) ) );
+  levels->setText( QStringLiteral( "10, 20, 30" ) );
+  QVERIFY( contour->isEnabled() );
+  QSignalSpy interpretive( &page, &ConstraintPage::interpretiveContourRequested );
+  contour->click();
+  QCOMPARE( interpretive.count(), 1 );
+  QCOMPARE( interpretive.at( 0 ).at( 0 ).toString(), QStringLiteral( "factor.T1.sandthick" ) );
+  QCOMPARE( interpretive.at( 0 ).at( 1 ).value<QVector<double>>(), ( QVector<double>{ 10.0, 20.0, 30.0 } ) );
+
+  page.setRunBusy( true );
+  QVERIFY( !generate->isEnabled() );
+  QVERIFY( generate->toolTip().contains( QStringLiteral( "可取消" ) ) );
+  QVERIFY( cancel->isEnabled() );
+  QSignalSpy cancelSpy( &page, &ConstraintPage::runCancelRequested );
+  cancel->click();
+  QCOMPARE( cancelSpy.count(), 1 );
+  page.noteRunStage( QStringLiteral( "正在插值" ), 40 );
+  QVERIFY( page.findChild<QLabel *>( QStringLiteral( "statusLabel" ) )->text().contains( QStringLiteral( "40%" ) ) );
+  page.setRunBusy( false );
+
+  QSignalSpy drawSpy( &page, &ConstraintPage::drawTypedConstraintRequested );
+  page.findChild<QPushButton *>( QStringLiteral( "softBoundaryButton" ) )->click();
+  page.findChild<QPushButton *>( QStringLiteral( "contourStopButton" ) )->click();
+  page.findChild<QPushButton *>( QStringLiteral( "cartographicDetourButton" ) )->click();
+  QCOMPARE( drawSpy.count(), 3 );
+  QCOMPARE( drawSpy.at( 0 ).at( 2 ).toString(), QStringLiteral( "interpretive_boundary" ) );
+  QCOMPARE( drawSpy.at( 1 ).at( 2 ).toString(), QStringLiteral( "contour_stop" ) );
+  QCOMPARE( drawSpy.at( 2 ).at( 2 ).toString(), QStringLiteral( "cartographic_detour" ) );
+
+  PaleoTheme::applyDarkTheme();
+  QVERIFY( page.findChild<QComboBox *>( QStringLiteral( "factorMethodCombo" ) ) != nullptr );
+  QCOMPARE( PaleoTheme::kColorPrimary, QColor( QStringLiteral( "#1B73D0" ) ) );
+  PaleoTheme::applyLightTheme();
+  QVERIFY( page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) ) != nullptr );
 }
 
 // ---- 任务 C（智能编图页）：融合清单栅格过滤/参考图/相属性/设计器入口。--

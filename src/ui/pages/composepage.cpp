@@ -7,6 +7,7 @@
 
 #include "../../workflow/workflows.h"    // signal names
 #include "../../workflow/boundarysemantics.h" // C2：相界地质语义类型词表（单类型首发）
+#include "../../domain/singlefactorrequest.h" // 制图工作场不进融合清单
 #include "../../qgis/layervocabulary.h"
 #include "../../qgis/qgislayerservice.h" // declared() — forward-declares Qgs*, none included
 #include "../../metadata/layermanifest.h" // LayerDeclaration fields
@@ -434,9 +435,11 @@ void ComposePage::refreshFactors()
   list->clear();
   for (const LayerDeclaration &d : declared)
   {
-    // m2(C)：融合输入只认栅格因素——B 的 contours.*（矢量，子组或平组）
-    // 不是融合输入。
-    if (!inGroup(d, "04_SingleFactor") || !isRaster(d))
+    // 融合只认 04_SingleFactor 组内的分析栅格。等值线在 Contours 子组，
+    // 制图工作场在 Cartographic 子组或 cartographic.*，只上图，不进融合。
+    if (d.group != QLatin1String("04_SingleFactor") || !isRaster(d))
+      continue;
+    if (paleo::singlefactor::isCartographicProductLayer(d.layerId, d.group))
       continue;
     auto *it = new QListWidgetItem(d.layerId, list);
     it->setData(Qt::UserRole, d.layerId);

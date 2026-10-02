@@ -1877,21 +1877,19 @@ void TestCatalog::applyJournalIsAtomicOnFailure()
   QString mismatch;
   QVERIFY2(live.indexHealthy(&mismatch), qPrintable(mismatch));
 
-  // 落盘失败：catalog 目录只读。
-  const QString dir = QFileInfo(live.catalogPath()).absolutePath();
-  const auto perm = QFile::permissions(dir);
-  QVERIFY(QFile::setPermissions(dir, QFileDevice::ReadOwner | QFileDevice::ExeOwner));
-  QFile probe(QDir(dir).filePath(QStringLiteral(".probe")));
-  if (probe.open(QIODevice::WriteOnly))
-  {
-    probe.close();
-    probe.remove();
-    QFile::setPermissions(dir, perm);
-    QSKIP("目录权限不生效（root 运行？）");
-  }
+  // 落盘失败注入：第二连接 BEGIN IMMEDIATE 占住写锁——catalog 提交撞
+  // SQLITE_BUSY。SQLite/WAL 只写已持有 fd 的文件，目录只读挡不住（JSON 时代
+  // chmod 目录的探针对 sqlite 无效，busy 锁才是介质无关的写失败面）。
   err.clear();
-  const bool ok = live.applyJournal(st->journal(), &err);
-  QFile::setPermissions(dir, perm);
+  bool ok = true;
+  QVERIFY(withCatalogSqlite(live.sqliteCatalogPath(), [&](QSqlDatabase &db) {
+    QSqlQuery q(db);
+    if (!q.exec(QStringLiteral("BEGIN IMMEDIATE")))
+      return false;
+    ok = live.applyJournal(st->journal(), &err);
+    q.exec(QStringLiteral("ROLLBACK"));
+    return true;
+  }));
   QVERIFY(!ok);
   QVERIFY(!err.isEmpty());
   QVERIFY(!live.hasEntity(QStringLiteral("well-2")));

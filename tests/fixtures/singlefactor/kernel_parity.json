@@ -1,0 +1,1110 @@
+{
+  "schema": "paleo_singlefactor_kernel_golden_v1",
+  "referenceRevision": "27fdb998a32d7a7f50d7e6ef0d2ebb3a5d06378f",
+  "note": "NaN is null. finite[] is the nodata mask. Hard barriers are not in these cases.",
+  "cases": [
+    {
+      "name": "plain_idw",
+      "profile": "reference_compatible",
+      "wells": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          4.0,
+          0.0,
+          3.0
+        ],
+        [
+          0.0,
+          4.0,
+          5.0
+        ],
+        [
+          4.0,
+          4.0,
+          9.0
+        ]
+      ],
+      "queries": [
+        [
+          1.0,
+          2.0
+        ],
+        [
+          4.0,
+          4.0
+        ],
+        [
+          2.0,
+          2.0
+        ],
+        [
+          8.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "power": 2.0,
+      "min_points": 1,
+      "max_points": 0,
+      "search_radius": null,
+      "cluster_span": 0.0,
+      "directions": [],
+      "soft": [],
+      "values": [
+        3.8333333333333335,
+        9.0,
+        4.5,
+        4.8500038768705895,
+        1.0
+      ],
+      "finite": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "influence": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "duplicate_rows",
+      "profile": "reference_compatible",
+      "wells": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          3.0
+        ],
+        [
+          4.0,
+          0.0,
+          9.0
+        ]
+      ],
+      "queries": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0
+        ],
+        [
+          2.0,
+          0.0
+        ]
+      ],
+      "power": 2.0,
+      "min_points": 1,
+      "max_points": 0,
+      "search_radius": null,
+      "cluster_span": 0.0,
+      "directions": [],
+      "soft": [],
+      "values": [
+        2.0,
+        2.3684210526315788,
+        4.333333333333333
+      ],
+      "finite": [
+        true,
+        true,
+        true
+      ],
+      "influence": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "max_points_truncation",
+      "profile": "reference_compatible",
+      "wells": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          4.0,
+          0.0,
+          3.0
+        ],
+        [
+          0.0,
+          4.0,
+          5.0
+        ],
+        [
+          4.0,
+          4.0,
+          9.0
+        ]
+      ],
+      "queries": [
+        [
+          1.0,
+          0.0
+        ],
+        [
+          2.0,
+          2.0
+        ]
+      ],
+      "power": 2.0,
+      "min_points": 1,
+      "max_points": 1,
+      "search_radius": null,
+      "cluster_span": 0.0,
+      "directions": [],
+      "soft": [],
+      "values": [
+        1.0,
+        null
+      ],
+      "finite": [
+        true,
+        false
+      ],
+      "influence": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "search_taper",
+      "profile": "product_explicit",
+      "wells": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          4.0,
+          0.0,
+          3.0
+        ],
+        [
+          0.0,
+          4.0,
+          5.0
+        ],
+        [
+          4.0,
+          4.0,
+          9.0
+        ]
+      ],
+      "queries": [
+        [
+          1.0,
+          1.0
+        ],
+        [
+          6.0,
+          0.0
+        ]
+      ],
+      "power": 2.0,
+      "min_points": 1,
+      "max_points": 0,
+      "search_radius": 3.0,
+      "cluster_span": 0.0,
+      "directions": [],
+      "soft": [],
+      "values": [
+        1.0,
+        3.0
+      ],
+      "finite": [
+        true,
+        true
+      ],
+      "influence": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "direction_local",
+      "profile": "reference_compatible",
+      "wells": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          4.0,
+          0.0,
+          3.0
+        ],
+        [
+          0.0,
+          4.0,
+          5.0
+        ],
+        [
+          4.0,
+          4.0,
+          9.0
+        ]
+      ],
+      "queries": [
+        [
+          1.0,
+          2.0
+        ],
+        [
+          4.0,
+          4.0
+        ],
+        [
+          2.0,
+          2.0
+        ],
+        [
+          8.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "power": 2.0,
+      "min_points": 1,
+      "max_points": 0,
+      "search_radius": null,
+      "cluster_span": 0.0,
+      "directions": [
+        {
+          "id": "d1",
+          "points": [
+            [
+              0.0,
+              1.0
+            ],
+            [
+              6.0,
+              1.0
+            ],
+            [
+              6.0,
+              3.0
+            ]
+          ],
+          "active": true,
+          "ratio": 8.0,
+          "influence_radius": 3.0,
+          "core_radius": 0.9
+        }
+      ],
+      "soft": [],
+      "values": [
+        3.6227143543777487,
+        9.0,
+        4.082468425330696,
+        4.849548901147199,
+        1.0
+      ],
+      "finite": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "influence": [
+        0.9248551100115171,
+        8.898313619858957e-07,
+        0.9812467971998717,
+        0.000791656606962158,
+        0.3795309131930702
+      ]
+    },
+    {
+      "name": "direction_ratio_one",
+      "profile": "reference_compatible",
+      "wells": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          4.0,
+          0.0,
+          3.0
+        ],
+        [
+          0.0,
+          4.0,
+          5.0
+        ],
+        [
+          4.0,
+          4.0,
+          9.0
+        ]
+      ],
+      "queries": [
+        [
+          1.0,
+          2.0
+        ],
+        [
+          4.0,
+          4.0
+        ],
+        [
+          2.0,
+          2.0
+        ],
+        [
+          8.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "power": 2.0,
+      "min_points": 1,
+      "max_points": 0,
+      "search_radius": null,
+      "cluster_span": 0.0,
+      "directions": [
+        {
+          "id": "d1",
+          "points": [
+            [
+              0.0,
+              1.0
+            ],
+            [
+              6.0,
+              1.0
+            ],
+            [
+              6.0,
+              3.0
+            ]
+          ],
+          "active": true,
+          "ratio": 1.0,
+          "influence_radius": 3.0,
+          "core_radius": 0.9
+        }
+      ],
+      "soft": [],
+      "values": [
+        3.8333333333333335,
+        9.0,
+        4.5,
+        4.8500038768705895,
+        1.0
+      ],
+      "finite": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "influence": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "direction_reversed",
+      "profile": "reference_compatible",
+      "wells": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          4.0,
+          0.0,
+          3.0
+        ],
+        [
+          0.0,
+          4.0,
+          5.0
+        ],
+        [
+          4.0,
+          4.0,
+          9.0
+        ]
+      ],
+      "queries": [
+        [
+          1.0,
+          2.0
+        ],
+        [
+          4.0,
+          4.0
+        ],
+        [
+          2.0,
+          2.0
+        ],
+        [
+          8.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "power": 2.0,
+      "min_points": 1,
+      "max_points": 0,
+      "search_radius": null,
+      "cluster_span": 0.0,
+      "directions": [
+        {
+          "id": "d1",
+          "points": [
+            [
+              6.0,
+              3.0
+            ],
+            [
+              6.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "active": true,
+          "ratio": 8.0,
+          "influence_radius": 3.0,
+          "core_radius": 0.9
+        }
+      ],
+      "soft": [],
+      "values": [
+        3.6227143543777482,
+        9.0,
+        4.082468425330696,
+        4.849548901147199,
+        1.0
+      ],
+      "finite": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "influence": [
+        0.9248551100115171,
+        8.898313619858963e-07,
+        0.9812467971998717,
+        0.000791656606962158,
+        0.3795309131930701
+      ]
+    },
+    {
+      "name": "direction_far",
+      "profile": "reference_compatible",
+      "wells": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          4.0,
+          0.0,
+          3.0
+        ],
+        [
+          0.0,
+          4.0,
+          5.0
+        ],
+        [
+          4.0,
+          4.0,
+          9.0
+        ]
+      ],
+      "queries": [
+        [
+          1.0,
+          2.0
+        ],
+        [
+          4.0,
+          4.0
+        ],
+        [
+          2.0,
+          2.0
+        ],
+        [
+          8.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "power": 2.0,
+      "min_points": 1,
+      "max_points": 0,
+      "search_radius": null,
+      "cluster_span": 0.0,
+      "directions": [
+        {
+          "id": "d1",
+          "points": [
+            [
+              100.0,
+              100.0
+            ],
+            [
+              130.0,
+              100.0
+            ]
+          ],
+          "active": true,
+          "ratio": 8.0,
+          "influence_radius": 3.0,
+          "core_radius": 0.9
+        }
+      ],
+      "soft": [],
+      "values": [
+        3.8333333333333335,
+        9.0,
+        4.5,
+        4.8500038768705895,
+        1.0
+      ],
+      "finite": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "influence": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "soft_boundary",
+      "profile": "reference_compatible",
+      "wells": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          4.0,
+          0.0,
+          3.0
+        ],
+        [
+          0.0,
+          4.0,
+          5.0
+        ],
+        [
+          4.0,
+          4.0,
+          9.0
+        ]
+      ],
+      "queries": [
+        [
+          1.0,
+          2.0
+        ],
+        [
+          4.0,
+          4.0
+        ],
+        [
+          2.0,
+          2.0
+        ],
+        [
+          8.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "power": 2.0,
+      "min_points": 1,
+      "max_points": 0,
+      "search_radius": null,
+      "cluster_span": 0.0,
+      "directions": [],
+      "soft": [
+        {
+          "points": [
+            [
+              2.0,
+              -1.0
+            ],
+            [
+              2.0,
+              5.0
+            ]
+          ],
+          "radius": 2.5,
+          "strength": 0.35
+        }
+      ],
+      "values": [
+        3.721482699624666,
+        9.0,
+        4.5,
+        4.8500038768705895,
+        1.0
+      ],
+      "finite": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "influence": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "soft_overlap",
+      "profile": "reference_compatible",
+      "wells": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          4.0,
+          0.0,
+          3.0
+        ],
+        [
+          0.0,
+          4.0,
+          5.0
+        ],
+        [
+          4.0,
+          4.0,
+          9.0
+        ]
+      ],
+      "queries": [
+        [
+          1.0,
+          2.0
+        ],
+        [
+          4.0,
+          4.0
+        ],
+        [
+          2.0,
+          2.0
+        ],
+        [
+          8.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "power": 2.0,
+      "min_points": 1,
+      "max_points": 0,
+      "search_radius": null,
+      "cluster_span": 0.0,
+      "directions": [],
+      "soft": [
+        {
+          "points": [
+            [
+              2.0,
+              -1.0
+            ],
+            [
+              2.0,
+              5.0
+            ]
+          ],
+          "radius": 2.5,
+          "strength": 0.35
+        },
+        {
+          "points": [
+            [
+              1.0,
+              -1.0
+            ],
+            [
+              1.0,
+              5.0
+            ]
+          ],
+          "radius": 2.5,
+          "strength": 0.5
+        }
+      ],
+      "values": [
+        3.833333333333334,
+        9.0,
+        4.573594796946314,
+        4.8500038768705895,
+        1.0
+      ],
+      "finite": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "influence": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "soft_strength_zero",
+      "profile": "reference_compatible",
+      "wells": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          4.0,
+          0.0,
+          3.0
+        ],
+        [
+          0.0,
+          4.0,
+          5.0
+        ],
+        [
+          4.0,
+          4.0,
+          9.0
+        ]
+      ],
+      "queries": [
+        [
+          1.0,
+          2.0
+        ],
+        [
+          4.0,
+          4.0
+        ],
+        [
+          2.0,
+          2.0
+        ],
+        [
+          8.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "power": 2.0,
+      "min_points": 1,
+      "max_points": 0,
+      "search_radius": null,
+      "cluster_span": 0.0,
+      "directions": [],
+      "soft": [
+        {
+          "points": [
+            [
+              2.0,
+              -1.0
+            ],
+            [
+              2.0,
+              5.0
+            ]
+          ],
+          "radius": 2.5,
+          "strength": 0.0
+        }
+      ],
+      "values": [
+        3.8333333333333335,
+        9.0,
+        4.5,
+        4.8500038768705895,
+        1.0
+      ],
+      "finite": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "influence": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "direction_and_soft",
+      "profile": "reference_compatible",
+      "wells": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          4.0,
+          0.0,
+          3.0
+        ],
+        [
+          0.0,
+          4.0,
+          5.0
+        ],
+        [
+          4.0,
+          4.0,
+          9.0
+        ]
+      ],
+      "queries": [
+        [
+          1.0,
+          2.0
+        ],
+        [
+          4.0,
+          4.0
+        ],
+        [
+          2.0,
+          2.0
+        ],
+        [
+          8.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "power": 2.0,
+      "min_points": 1,
+      "max_points": 0,
+      "search_radius": null,
+      "cluster_span": 0.0,
+      "directions": [
+        {
+          "id": "d1",
+          "points": [
+            [
+              0.0,
+              1.0
+            ],
+            [
+              6.0,
+              1.0
+            ],
+            [
+              6.0,
+              3.0
+            ]
+          ],
+          "active": true,
+          "ratio": 8.0,
+          "influence_radius": 3.0,
+          "core_radius": 0.9
+        }
+      ],
+      "soft": [
+        {
+          "points": [
+            [
+              2.0,
+              -1.0
+            ],
+            [
+              2.0,
+              5.0
+            ]
+          ],
+          "radius": 2.5,
+          "strength": 0.35
+        }
+      ],
+      "values": [
+        3.5437069380881443,
+        9.0,
+        4.082468425330696,
+        4.849548901147199,
+        1.0
+      ],
+      "finite": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "influence": [
+        0.9248551100115171,
+        8.898313619858957e-07,
+        0.9812467971998717,
+        0.000791656606962158,
+        0.3795309131930702
+      ]
+    },
+    {
+      "name": "well_clusters",
+      "profile": "reference_compatible",
+      "wells": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          1.0,
+          0.2,
+          2.0
+        ],
+        [
+          0.2,
+          1.0,
+          3.0
+        ],
+        [
+          20.0,
+          0.0,
+          8.0
+        ],
+        [
+          21.0,
+          0.4,
+          9.0
+        ],
+        [
+          20.3,
+          1.0,
+          10.0
+        ]
+      ],
+      "queries": [
+        [
+          0.4,
+          0.4
+        ],
+        [
+          10.0,
+          0.5
+        ],
+        [
+          40.0,
+          0.0
+        ]
+      ],
+      "power": 2.0,
+      "min_points": 1,
+      "max_points": 0,
+      "search_radius": null,
+      "cluster_span": 30.0,
+      "directions": [],
+      "soft": [],
+      "values": [
+        1.9273036790499312,
+        5.204401070279023,
+        7.63443398737476
+      ],
+      "finite": [
+        true,
+        true,
+        true
+      ],
+      "influence": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ]
+}

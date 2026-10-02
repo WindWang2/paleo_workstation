@@ -282,6 +282,10 @@ class TestLayerPlatform : public QObject
       QCOMPARE(canonicalize(QStringLiteral("00_Data")), QStringLiteral("00_Data"));
       QCOMPARE(canonicalize(QStringLiteral("04_SingleFactor/Contours")),
                QStringLiteral("04_SingleFactor/Contours"));
+      QCOMPARE(groupRoot(QStringLiteral("04_SingleFactor/Contours")),
+               QStringLiteral("04_SingleFactor"));
+      QCOMPARE(groupRoot(QStringLiteral("04_SingleFactor/Cartographic")),
+               QStringLiteral("04_SingleFactor"));
 
       // 家族 = canonical + 全部旧别名
       QCOMPARE(groupFamily(QStringLiteral("02_Prediction")),
@@ -293,9 +297,24 @@ class TestLayerPlatform : public QObject
       QVERIFY(profileContains(predict, QStringLiteral("01_Prediction")));
       QVERIFY(profileContains(predict, QStringLiteral("02_Prediction")));
       QVERIFY(!profileContains(predict, QStringLiteral("03_Constraints")));
+      const QStringList constraint = profileGroupsForPage(QStringLiteral("constraint"));
+      const QStringList compose = profileGroupsForPage(QStringLiteral("compose"));
+      const QStringList validate = profileGroupsForPage(QStringLiteral("validate"));
+      QVERIFY(profileContains(constraint, QStringLiteral("04_SingleFactor")));
+      QVERIFY(profileContains(constraint, QStringLiteral("04_SingleFactor/Contours")));
+      QVERIFY(profileContains(constraint, QStringLiteral("04_SingleFactor/Cartographic")));
+      QVERIFY(profileContains(compose, QStringLiteral("04_SingleFactor/Contours")));
+      QVERIFY(profileContains(compose, QStringLiteral("05_PaleoMap")));
+      QVERIFY(!profileContains(predict, QStringLiteral("04_SingleFactor/Contours")));
+      QVERIFY(!profileContains(validate, QStringLiteral("04_SingleFactor/Contours")));
 
-      // 组→页：旧名同样能跳页；01_Base/未知组带 reason
+      // 组→页：旧名同样能跳页；子组跟根组；01_Base/未知组带 reason
       QString reason;
+      QCOMPARE(pageForGroup(QStringLiteral("04_SingleFactor/Contours"), &reason),
+               QStringLiteral("constraint"));
+      QCOMPARE(pageForGroup(QStringLiteral("04_SingleFactor/Cartographic"), &reason),
+               QStringLiteral("constraint"));
+      QVERIFY(reason.isEmpty());
       QCOMPARE(pageForGroup(QStringLiteral("03_Predict"), &reason), QStringLiteral("predict"));
       QCOMPARE(pageForGroup(QStringLiteral("03_Composite"), &reason), QStringLiteral("compose"));
       QCOMPARE(pageForGroup(QStringLiteral("02_Constraints"), &reason), QStringLiteral("constraint"));

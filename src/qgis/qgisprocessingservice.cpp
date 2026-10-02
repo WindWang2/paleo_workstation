@@ -548,7 +548,32 @@ void QgisProcessingService::setProject(QgsProject *project)
   m_project = project;
 }
 
-QVariantMap QgisProcessingService::run(const QString &algorithmId, const QVariantMap &parameters, QString *error)
+namespace
+{
+class HookFeedback : public QgsProcessingFeedback
+{
+public:
+  explicit HookFeedback(const QgisProcessingService::ProcessingHooks &hooks)
+    : m_hooks(hooks)
+  {
+    // QgsFeedback::setProgress is not virtual. progressChanged fires on the
+    // same thread, after the 0.1% bucket changes, before the caller checks
+    // isCanceled().
+    connect(this, &QgsFeedback::progressChanged, this, [this](double progress) {
+      if (m_hooks.cancelled && m_hooks.cancelled())
+        cancel();
+      if (m_hooks.progress)
+        m_hooks.progress(progress);
+    });
+  }
+
+private:
+  QgisProcessingService::ProcessingHooks m_hooks;
+};
+} // namespace
+
+QVariantMap QgisProcessingService::run(const QString &algorithmId, const QVariantMap &parameters, QString *error,
+                                       const ProcessingHooks &hooks)
 {
   QgsProcessingRegistry *reg = QgsApplication::processingRegistry();
   const QgsProcessingAlgorithm *alg = reg ? reg->algorithmById(algorithmId) : nullptr;
@@ -589,7 +614,12 @@ QVariantMap QgisProcessingService::run(const QString &algorithmId, const QVarian
   }
 
   QgsProcessingContext context;
-  QgsProcessingFeedback feedback;
+  HookFeedback feedback(hooks);
+  if (hooks.cancelled && hooks.cancelled())
+  {
+    setError(error, tr("已取消"));
+    return QVariantMap();
+  }
   bool ok = false;
   QVariantMap results;
   try

@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #pragma once
 #include <QString>
+#include <QVector>
 
 // qgis/factorcontour.h — 单因素等值线（m2/mapping-pages 任务 B）。
 // PALEO_QGIS_PLAN §12：等值线是 GIS LineString 图层，不是画布临时线。
@@ -18,5 +19,9 @@ namespace FactorContourService
 // 输出文件已存在则覆盖（重生成幂等由调用方按 GPKG 路径 upsert 承载）。
 bool generateContours( const QString &rasterPath, const QString &outputGpkg,
                        double interval, QString *error = nullptr );
+
+// 显式级别。不改间距接口的行为。级别必须非空且全部有限。
+bool generateFixedContours( const QString &rasterPath, const QString &outputGpkg,
+                            const QVector<double> &levels, QString *error = nullptr );
 
 } // namespace FactorContourService

@@ -544,6 +544,22 @@ private slots:
                               { QStringLiteral( "factor.a.T1" ), QStringLiteral( "ghost.layer" ) },
                               &err ) );
     QCOMPARE( spy.count(), 1 );
+
+    // 制图工作场是独立图层，不能进入连续融合或转面。
+    QVERIFY( f.layers.declare( decl( QStringLiteral( "cartographic.T1.sand" ), QStringLiteral( "T1" ),
+                                     QStringLiteral( "raster" ), pA,
+                                     QStringLiteral( "04_SingleFactor/Cartographic" ) ), &err ) );
+    QVERIFY( !wf.fuseFactors( QStringLiteral( "T1" ),
+                              { QStringLiteral( "factor.a.T1" ), QStringLiteral( "cartographic.T1.sand" ) },
+                              &err ) );
+    QVERIFY( err.contains( QStringLiteral( "解释性制图" ) ) );
+    QCOMPARE( spy.count(), 1 );
+    QSignalSpy polyFailed( &wf, &CompositionWorkflow::faciesPolygonsFailed );
+    QVERIFY( !wf.deriveFaciesPolygons( QStringLiteral( "T1" ),
+                                       QStringLiteral( "cartographic.T1.sand" ),
+                                       QVariantMap(), &err ) );
+    QVERIFY( err.contains( QStringLiteral( "解释性制图" ) ) );
+    QCOMPARE( polyFailed.count(), 1 );
   }
 
   // ④ validation: SRC_MISSING error on a bogus source, BUSY info on a marked

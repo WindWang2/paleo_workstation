@@ -1,0 +1,18 @@
+# Frozen 2026-10-02 from an isolated venv at /tmp/sf-ref-venv.
+# Interpreter: CPython 3.14.7 (system /usr/bin/python3.14). Do not install into the system interpreter.
+# numpy 2.2.6 has no cp314 wheel and failed to build from source on GCC 16. These wheels are manylinux binaries.
+# Product builds and ctest do not install this lock. Only tools/reference/singlefactor uses it.
+#
+# numpy==2.5.3
+#   file: numpy-2.5.3-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+#   sha256: b0521d0f4aebb6e06189451025fa17a913287b13c03d5fe05c017333b654ea5b
+# scipy==1.18.1
+#   file: scipy-1.18.1-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+#   sha256: ac0333bdf38309aa3dcbe7e3fa7ea29e7a2c37c6ea306a757b700ded8e4596ad
+# shapely==2.1.2
+#   file: shapely-2.1.2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+#   sha256: 21952dc00df38a2c28375659b07a3979d22641aeb104751e769c3ee825aadecf
+
+numpy==2.5.3 --hash=sha256:b0521d0f4aebb6e06189451025fa17a913287b13c03d5fe05c017333b654ea5b
+scipy==1.18.1 --hash=sha256:ac0333bdf38309aa3dcbe7e3fa7ea29e7a2c37c6ea306a757b700ded8e4596ad
+shapely==2.1.2 --hash=sha256:21952dc00df38a2c28375659b07a3979d22641aeb104751e769c3ee825aadecf

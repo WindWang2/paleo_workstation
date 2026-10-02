@@ -316,6 +316,9 @@ add_library(paleo_algorithms STATIC
   src/algorithms/singlefactor/corridor.cpp
   src/algorithms/singlefactor/partition.cpp
   src/algorithms/singlefactor/faultpath.cpp
+  src/algorithms/singlefactor/buffertransition.cpp
+  src/algorithms/singlefactor/regionalcontours.cpp
+  src/algorithms/singlefactor/contouravoidance.cpp
 )
 target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 
@@ -625,6 +628,9 @@ add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_corridor LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_partition LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_faultpath LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_buffer LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_regional LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_avoidance LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_perf LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_contours LIBS paleo_qgis)
 add_paleo_test(tst_singlefactor_contourbudget LIBS paleo_algorithms paleo_qgis)

@@ -37,6 +37,9 @@ ClusterModel buildClusters( const std::vector<Sample> &samples, double span );
 
 Point2 cellCenter( const GridSpec &grid, int column, int row );
 
+// 点到折线的最近距离（折线为空返回 inf，单点按点距）。
+double distanceToPolyline( Point2 point, const std::vector<Point2> &points );
+
 bool gridBudgetOk( const GridSpec &grid, int sampleCount, std::string *error );
 
 // 版本 17 局部工作场。无实际穿线时 unchanged，不改数值。

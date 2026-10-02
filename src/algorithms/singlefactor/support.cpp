@@ -10,6 +10,32 @@
 // 层：数据
 namespace paleo::singlefactor
 {
+
+double distanceToPolyline( Point2 point, const std::vector<Point2> &points )
+{
+  double best = std::numeric_limits<double>::infinity();
+  for ( std::size_t i = 1; i < points.size(); ++i )
+  {
+    const Point2 a = points[i - 1];
+    const Point2 b = points[i];
+    const double vx = b.x - a.x;
+    const double vy = b.y - a.y;
+    const double len2 = vx * vx + vy * vy;
+    double dist = 0;
+    if ( !( len2 > 0.0 ) )
+      dist = std::hypot( point.x - a.x, point.y - a.y );
+    else
+    {
+      const double t = std::clamp( ( ( point.x - a.x ) * vx + ( point.y - a.y ) * vy ) / len2, 0.0, 1.0 );
+      dist = std::hypot( point.x - ( a.x + t * vx ), point.y - ( a.y + t * vy ) );
+    }
+    best = std::min( best, dist );
+  }
+  if ( points.size() == 1 )
+    best = std::hypot( point.x - points.front().x, point.y - points.front().y );
+  return best;
+}
+
 namespace
 {
 

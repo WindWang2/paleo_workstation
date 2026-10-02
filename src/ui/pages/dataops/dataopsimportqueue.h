@@ -8,8 +8,10 @@
 //     可取消）；item.cancelHook 桥接面板取消 → PaleoTask::requestCancel；
 //   · 终态回写 markDone/markFailed（失败进 D8.2 自动重试状态机）；取消
 //     不改写面板已落的 Canceled 态（取消 ≠ 失败，不重试）。
-// 生产绑定：默认经 PreviewDocService::importSingleFile（视图层不 include
-// io/dataimportservice.h——白名单纪律）；测试用 setImportFn 注入假执行面。
+// 生产绑定：默认经 PreviewDocService::prepareSingleFileImport（视图层不
+// include io/dataimportservice.h——白名单纪律）：GUI 上 prepare、任务池只
+// produce（不碰活 catalog，审计 02 M-8）、finished 回 GUI 再 commit 入库；
+// 测试用 setImportFn 注入假执行面（任务池线程调用）。
 //
 // 非 QObject：跨任务回调持 shared_ptr<Hub> 续命，连接上下文用面板
 //（GUI 线程投递 + 面板析构自动断连）。attach 后适配器本体可随壳析构，
@@ -101,11 +103,30 @@ class FolderImportQueueAdapter
             const QString path = item.path;
             auto outId = std::make_shared<QString>();
             auto outErr = std::make_shared<QString>();
+            // 生产绑定：GUI 上 prepare（拷 staging），worker 只 produce。
+            std::shared_ptr<PreviewDocService::SingleFileImportJob> job;
+            ImportFn fn = hub->fn;
+            if (!fn)
+            {
+                PreviewDocService *doc = hub->doc;
+                job = doc ? doc->prepareSingleFileImport(kind, path) : nullptr;
+                if (!job)
+                {
+                    hub->busy = false;
+                    queue->markFailed(index, QObject::tr("导入服务未就绪"));
+                    return;
+                }
+            }
             // loud：用户主动导入（任务中心可见 + 可取消）。
             PaleoTask *task = tasks->start(
                 QObject::tr("导入 %1").arg(QFileInfo(path).fileName()),
-                [hub, kind, path, outId, outErr](PaleoTask *) -> QString {
-                    *outId = runImport(hub, kind, path, outErr.get());
+                [fn, job, kind, path, outId, outErr](PaleoTask *) -> QString {
+                    if (job)
+                    {
+                        job->produce();
+                        return QString(); // 结局在 GUI 提交后定
+                    }
+                    *outId = fn(kind, path, outErr.get());
                     return outId->isEmpty() ? *outErr : QString();
                 });
             item.cancelHook = [task] {
@@ -113,9 +134,18 @@ class FolderImportQueueAdapter
                     task->requestCancel();
             };
             QObject::connect(task, &PaleoTask::finished, hub->panel,
-                             [hub, path, outId, outErr, task] {
-                                 finish(hub, path, task->state(),
-                                        task->errorText(), *outId, *outErr);
+                             [hub, path, outId, outErr, task, job] {
+                                 PaleoTask::State st = task->state();
+                                 if (job && st == PaleoTask::State::Succeeded)
+                                 {
+                                     // GUI 线程一处提交；取消的作业不提交
+                                     //（session 析构即删暂存）。
+                                     *outId = job->commit(outErr.get());
+                                     if (outId->isEmpty())
+                                         st = PaleoTask::State::Failed;
+                                 }
+                                 finish(hub, path, st, task->errorText(), *outId,
+                                        *outErr);
                              });
         }
 

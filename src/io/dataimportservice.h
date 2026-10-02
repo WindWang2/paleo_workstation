@@ -9,18 +9,16 @@
 #include <QStringList>
 #include <QVector>
 #include <functional>
-#include <type_traits>
-#include <utility>
-#include <QMetaObject>
-#include <QThread>
-#include "../catalog/datacatalog.h" // catInvoke 模板需完整类型（thread()/invokeMethod）
+#include <memory>
+#include "../catalog/datacatalog.h"
 #include "../domain/importrows.h"   // FolderPreviewRow / FolderRowResult（domain 瞬态 DTO）
+#include "../metadata/layermanifest.h" // LayerDeclaration（ImportEvent 按值携带）
 
-struct LayerDeclaration;
 class PaleoProjectStore;
 class QProcess;
 struct PlannedItem; // io/ingestplan.h（前向声明——C 包 plan 项按引用传）
 struct IngestPlan;  // io/ingestplan.h（planFor 返回值；定义侧 include）
+struct ImportSession; // 见文件尾：produce-then-commit 的一次导入（审计 02 M-8）
 
 // io/ — DataImportService 按 project_area 数据契约（docs/PROJECT_AREA_PLAN.md §3）
 // 导入外部文件：分类 → 解析元数据 → 解析/创建实体 → 受管 RAW 复制（边复制边算
@@ -203,72 +201,54 @@ class DataImportService : public QObject
     void documentPdfReady(const QString &assetId);
     void documentPdfFailed(const QString &assetId, const QString &error);
 
-  private:
-    // T2 plan 期搬出 GUI：catalog 线程上 COW 快照（O(1)）→ 当前线程跑
-    // buildIngestPlan（扫描/分类/哈希/身份匹配/去重复核）。worker 调用即
-    // plan 期整体离 GUI 线程——不再 BlockingQueuedConnection 把整段扫描
-    // marshal 回 GUI。scanProgress 可选（plan 构建期逐文件进度 + 取消）。
-    IngestPlan planFor(
-        const QString &root,
-        const std::function<bool(int filesSeen, const QString &path)> &scanProgress =
-            {}) const;
-
   public:
-    // 线程规则（D1b/D1c 异步导入）：import* 系列可在 worker 线程执行——内部
-    // 对 catalog 的每一次读写经 catInvoke/catWrite marshal 回 catalog 所在线程
-    // （GUI）。GUI 线程调用 = 直调零成本；worker 线程 = BlockingQueuedConnection。
-    // catalog 因此永远只被它自己的线程触碰。
-    //
-    // 审计 02 M-8：catInvoke 只用于「有返回值」的调用（读、或返回 bool 的写）；
-    // 无返回值的异步投递不再允许（写的成败会被丢掉）——纯通知（emit）走
-    // catNotify。派发失败（无事件循环/目标线程已退出）不再静默返回默认值。
-    // 已知边界：worker 阻塞等待期间若 GUI 线程同步等这个 worker 会互锁——
-    // 当前无此调用路径；关停时 PaleoTaskService::shutdown 泵事件规避。彻底
-    // 消除需要「worker 产出 plan、GUI 一次性提交」的重构（未做）。
-    template <typename Fn> auto catInvoke(Fn &&fn) const
-    {
-      return catInvokeChecked(std::forward<Fn>(fn), nullptr);
-    }
+    // ---- 审计 02 M-8：produce-then-commit 导入模型 ----
+    // 线程规则：活 catalog 只被它所属线程（owner，通常 GUI）读写；后台 worker
+    // 绝不触碰它——没有任何 BlockingQueuedConnection 回 owner 的读写。
+    //   1) beginImport()（owner 线程）：拷 staging 副本 + 定暂存根 → session；
+    //   2) produce*()（任意线程，静态函数——拿不到 this）：只读写 session：
+    //      staging 副本、暂存根里的受管字节、按序记下的信号事件；
+    //   3) commitImport()（owner 线程）：基线 mutationSeq 未变 → 暂存字节原子
+    //      rename 到工程目录 + journal 事务重放（一次落盘）→ 按原序发射
+    //      layerDeclared/imported/importFailed；任一步失败整批回滚，错误写进
+    //      行结果/ImportResult/error。基线已变（导入期间 owner 侧另有写入/id 分配）→
+    //      Conflict（allowConflict=true 时原样返回，调用方用新 session 重做；
+    //      否则按失败处理）。
+    // 同步入口（importProjectFile*/importFolder*/importFolderRow/
+    // executePlannedItem/previewFolder）= owner 线程上 begin→produce→commit
+    // 一气呵成；在别的线程调用如实失败（offThreadError()），不再 marshal。
+    enum class CommitStatus { Committed, Conflict, Failed };
+    static QString offThreadError();
 
-    // catalog 写：fn 返回 bool（写成功）并自行填 error。派发失败或 fn 返回
-    // false 却没给原因时补一条明确错误——worker 侧导入绝不「失败但无因」。
-    template <typename Fn> bool catWrite(Fn &&fn, QString *error) const
-    {
-      bool dispatched = true;
-      if (catInvokeChecked(std::forward<Fn>(fn), &dispatched))
-        return true;
-      if (error && error->isEmpty())
-        *error = dispatched ? QStringLiteral("catalog 写入失败（未给出原因）")
-                            : QStringLiteral("catalog 写入未能派发到 catalog 线程");
-      return false;
-    }
+    std::shared_ptr<ImportSession> beginImport(); // owner 线程；否则 nullptr
+    CommitStatus commitImport(ImportSession &session, QString *error = nullptr,
+                              bool allowConflict = false);
 
-    // 纯通知（信号）投递到 catalog 线程：不触碰 catalog 数据，不需要结果。
-    template <typename Fn> void catNotify(Fn &&fn) const
-    {
-      if (QThread::currentThread() == m_catalog->thread())
-        fn();
-      else
-        QMetaObject::invokeMethod(m_catalog, std::forward<Fn>(fn), Qt::QueuedConnection);
-    }
+    // produce 面（任意线程；只碰 session）。结果写进 session.rows /
+    // session.fileResult / session.error。
+    static void produceFolder(
+        ImportSession &s, const QString &dirPath, const QMap<QString, QString> &typeOverrides,
+        const QStringList &forceImportPaths,
+        const std::function<bool(int done, int total, const QString &path)> &progress = {});
+    static void produceFile(ImportSession &s, const QString &sourcePath,
+                            const ImportOptions &options);
+    static QVector<FolderPreviewRow> producePreview(
+        ImportSession &s, const QString &dirPath, QString *error,
+        const std::function<bool(int filesSeen, const QString &path)> &scanProgress = {});
+    // 单条 plan 项（executeIngestPlan 逐项调它）。
+    static FolderRowResult produceItem(ImportSession &s, const PlannedItem &item,
+                                       QString *error = nullptr);
 
   private:
-    template <typename Fn> auto catInvokeChecked(Fn &&fn, bool *dispatched) const
-    {
-      using R = std::invoke_result_t<Fn>;
-      static_assert(!std::is_void_v<R>,
-                    "catInvoke needs a result; use catNotify for fire-and-forget emits");
-      if (QThread::currentThread() == m_catalog->thread())
-        return fn();
-      R result{};
-      const bool ok = QMetaObject::invokeMethod(m_catalog, [&result, &fn] { result = fn(); },
-                                                Qt::BlockingQueuedConnection);
-      if (!ok)
-        qWarning("DataImportService::catInvoke: dispatch to catalog thread failed");
-      if (dispatched)
-        *dispatched = ok;
-      return result;
-    }
+    static IngestPlan planFor(
+        ImportSession &s, const QString &root,
+        const std::function<bool(int filesSeen, const QString &path)> &scanProgress = {});
+    // owner 线程内联：begin → produce → commit。off-thread → nullptr。
+    std::shared_ptr<ImportSession>
+    runInline(const std::function<void(ImportSession &)> &produce);
+    bool moveStagedFiles(ImportSession &s, QStringList *moved, QString *error) const;
+    void failSession(ImportSession &s, const QString &message);
+    void emitSessionEvents(const ImportSession &s, bool committed);
 
     struct WellBind
     {
@@ -281,28 +261,28 @@ class DataImportService : public QObject
     FolderRowResult folderRowFor(const QString &path, const QString &classifiedType,
                                 const QString &effectiveType);
 
-    WellBind resolveWell(const QString &name) const;
+    static WellBind resolveWell(const DataCatalog *cat, const QString &name);
 
     // 单文件导入实体（plan 化前的 importProjectFileEx 主体——分类→dedup→
     // 受管 RAW/外链→实体解析→关联，语义原样未动）。由单文件 wrapper 与
     // executePlannedItem 调用。
-    ImportResult importOneFile(const QString &sourcePath, const ImportOptions &options,
-                               QString *error);
+    static ImportResult importOneFile(ImportSession &s, const QString &sourcePath,
+                                      const ImportOptions &options, QString *error);
 
     // shp 族成员补齐：把主件之外的成员拷进指定受管版本目录（幂等——已存在
     // 跳过；外链版本不拷，源目录本是一族）。失败成员名附进 *messageOut。
-    void copyBundleMembersIntoVersion(const PlannedItem &item, const QString &versionId,
-                                      QString *messageOut);
+    static void copyBundleMembersIntoVersion(ImportSession &s, const PlannedItem &item,
+                                             const QString &versionId, QString *messageOut);
 
-    bool storeManagedRaw(const QString &sourcePath, const QString &assetId,
-                         const QString &versionId, QString *relPathOut, QString *shaOut,
-                         QString *error);
+    static bool storeManagedRaw(ImportSession &s, const QString &sourcePath,
+                                const QString &assetId, const QString &versionId,
+                                QString *relPathOut, QString *shaOut, QString *error);
 
     // dedup 补挂（§3）：同一 SHA-256 再导入时，按原导入的井名解析顺序重试
     // asset 的未决链接——现在恰好匹配一口井的挂上去（同名仍多候选/零匹配不动）。
     // 返回补挂条数。
-    int attachResolvableLinks(const CatalogAsset &asset, const QString &sourcePath,
-                              QString *error = nullptr);
+    static int attachResolvableLinks(DataCatalog *cat, const CatalogAsset &asset,
+                                     const QString &sourcePath, QString *error = nullptr);
 
     // 文档 PDF 转换：LibreOffice 单实例在共享 UserInstallation 下不可靠，
     // 一律串行（队列）。soffice 把输出写到 --outdir/<stem>.pdf。
@@ -315,6 +295,7 @@ class DataImportService : public QObject
     DataCatalog *m_catalog = nullptr;
     bool m_catalogReady = false;
     QString m_catalogOpenError;   // 最近一次 catalog open 失败原因（成功则空）
+    quint64 m_catalogEpoch = 0;   // setProjectDir 每次 +1——session 跨工程切换不提交
 
     QString m_converter;            // "" 未解析/不可用
     bool m_converterResolved = false;
@@ -326,4 +307,53 @@ class DataImportService : public QObject
     QString m_pdfOutFile;           // 期望产物绝对路径
     QSet<QString> m_pdfPending;
     QHash<QString, QString> m_pdfErrors;
+};
+
+// ---------------------------------------------------------------------------
+// 审计 02 M-8：一次导入的 produce-then-commit 载体。owner 线程 beginImport()
+// 建好（输入只读）；produce 线程独占填写产出；owner 线程 commitImport() 消费。
+// 交接靠 shared_ptr + 排队信号（PaleoTask::finished），session 本身无锁——
+// 同一时刻只被一个线程使用。未提交即析构 → 暂存根整体删除（不留孤儿字节）。
+// ---------------------------------------------------------------------------
+struct ImportEvent
+{
+  enum class Kind { LayerDeclared, Imported, ImportFailed };
+  Kind kind = Kind::Imported;
+  LayerDeclaration decl;           // LayerDeclared
+  QString assetKind, assetId, layerId; // Imported（assetKind = 分类类型）
+  QString path, error;             // ImportFailed
+};
+
+struct ImportSession
+{
+  ImportSession() = default;
+  ~ImportSession();
+  ImportSession(const ImportSession &) = delete;
+  ImportSession &operator=(const ImportSession &) = delete;
+
+  // ---- 输入（beginImport 填好，produce 期间只读）----
+  QString projectDir;
+  QString stagingRoot;          // <project>/artifacts/staging/<uuid>；用到才建
+  bool wired = false;           // 服务已接 store
+  bool catalogReady = false;
+  QString catalogOpenError;
+  quint64 baseSeq = 0;          // DataCatalog::mutationSeq() 基线
+  quint64 epoch = 0;
+  std::unique_ptr<DataCatalog> cat; // staging 副本：produce 线程独占
+
+  // ---- 产出（produce 写；commit 读/改写失败态）----
+  QVector<ImportEvent> events;  // 按发生序
+  QStringList pyramidTargets;   // 提交后对最终路径 Lazy ensure
+  QVector<FolderRowResult> rows;
+  DataImportService::ImportResult fileResult;
+  bool hasFileResult = false;
+  QString fileSourcePath;
+  QString error;
+  bool committed = false;
+
+  bool ensureStagingRoot(QString *error);
+  void discardStaging();
+  void recordImported(const QString &kind, const QString &assetId, const QString &layerId);
+  void recordImportFailed(const QString &kind, const QString &path, const QString &error);
+  void recordLayerDeclared(const LayerDeclaration &decl);
 };

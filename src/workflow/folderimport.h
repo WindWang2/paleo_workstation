@@ -6,11 +6,14 @@
 #include <QString>
 #include <QVector>
 #include <functional>
+#include <memory>
 
 #include "../domain/importrows.h" // FolderPreviewRow / FolderRowResult（domain 纯数据）
 
 class DataImportService;
 class PaleoTaskService;
+class PaleoTask;
+struct ImportSession;
 
 // workflow/folderimport — 「工区文件夹导入」+「单文件导入」编排（W2：从主窗下沉）。
 //
@@ -23,6 +26,13 @@ class PaleoTaskService;
 //   · importedWellHeadAsset —— 入库后按行文件名反查井口资产（catalog 读）。
 // 编排期间发 importActiveChanged(true/false)，壳据此抑制逐文件预览标签。
 // 本类不碰控件、不弹窗——全部视图出口经调用方给的回调回壳。
+//
+// 审计 02 M-8（produce-then-commit）：异步导入 = GUI 上 beginImport →
+// 任务池 worker 只跑 DataImportService::produce*（写 session 的 staging 副本，
+// 活 catalog 零接触）→ PaleoTask::finished（GUI）里 commitImport 一处入库。
+// 导入作业 FIFO 串行（一次一个，保持旧的逐批语义）；提交时基线 mutationSeq 已
+// 被别处写入改变 → 用新 session 重做（最多 kMaxImportAttempts 次，取消过的
+// 作业不重做、按失败落行）。
 class FolderImportWorkflow : public QObject
 {
   Q_OBJECT
@@ -62,6 +72,11 @@ class FolderImportWorkflow : public QObject
                     std::function<void(const QString &assetId, const QString &error)> done);
     // 按行源文件名反查刚入库的井口资产 id（找不到 → 空）。
     QString importedWellHeadAsset(const QString &rowPath) const;
+    // 测试/诊断：排队中 + 在途的异步导入作业数。
+    int pendingImportJobs() const;
+
+    static constexpr int kMaxImportAttempts = 3;
+
 
   signals:
     // 导入编排进行中（worker 或同步段）——壳把逐文件预览标签抑制挂上。
@@ -70,6 +85,13 @@ class FolderImportWorkflow : public QObject
     void previewActiveChanged(bool active);
 
   private:
+    struct ImportJob;
+    void enqueueImport(const std::shared_ptr<ImportJob> &job);
+    void pumpImports();
+    void runImportJob(const std::shared_ptr<ImportJob> &job);
+
     DataImportService *m_svc = nullptr;
     PaleoTaskService *m_taskSvc = nullptr;
+    QList<std::shared_ptr<ImportJob>> m_importQueue;
+    std::shared_ptr<ImportJob> m_activeImport;
 };

@@ -15,13 +15,13 @@
 //
 //   1) buildIngestPlan(root, catalog) 纯函数：扫描 → 分类 → shp 族归组 →
 //      身份匹配 → sha256 去重 → suggestedPrimary。不落盘不改 catalog
-//      （catalog 只读查询必须在它自己的线程调用——服务内用法经 catInvoke
-//      marshal，测试在 GUI 线程直调）。
+//      （活 catalog 只在它自己的线程查询；后台 produce 对 ImportSession 的
+//      staging 副本构建——审计 02 M-8）。
 //   2) 确认框按行展示决策（重复→跳过 / 重复→新版本；未决保持原显示）。
 //   3) executeIngestPlan 幂等执行：decision==skip 或 (path,sha) 已注册 →
 //      跳过；as_new_version 有意绕过幂等检查——同字节重登记由内部 dedup
-//      消化（AlreadyStored + 补挂）。走既有 catInvoke + BatchSave +
-//      协作取消口径。
+//      消化（AlreadyStored + 补挂）。produce 写 session 的 staging 副本 +
+//      协作取消；owner 线程 commitImport 一次事务入库。
 //
 // 与参考实现的已知差异：去重键是「sha 命中任一已注册版本」（我方 catalog
 // §3 dedup 口径），不是对方的 (source_uri, sha) 对——同字节不同来源再导入
@@ -97,8 +97,8 @@ using IngestScanProgress = std::function<bool(int filesSeen, const QString &path
 //     隐式共享 → O(1)），之后任意线程只读安全：worker 线程构建 plan 从此
 //     不经 BlockingQueuedConnection marshal 回 GUI——扫描/分类/哈希/身份
 //     匹配全在 worker，GUI 只收进度。快照是构建瞬间的一致性视图；执行
-//     期写回仍走 executeIngestPlan 的 marshal 口径，plan/执行间的 catalog
-//     变化由执行器的幂等检查（decision/sha 复核）兜底。
+//     期写入落 ImportSession 的 staging 副本，owner 线程提交时按基线
+//     revision 校验（变了 → Conflict，调用方重做）。
 class IngestCatalogSource
 {
   public:
@@ -171,9 +171,15 @@ IngestPlan buildIngestPlan(const QString &root, const DataCatalog &catalog);
 // 排好；确认表 override 改了类型之后要再调一次（改回 well_head 的行回阶段 1）。
 void orderIngestPlanItems(QVector<PlannedItem> &items);
 
-// 执行器：幂等（decision==skip 或 path+sha 已注册 → 跳过）、BatchSave 批次
-// 落盘、progress 协作取消。返回行结果与 importFolder 同一口径（plan.skipped
-// 行缀在最后）。catalog 经 marshal 只被它自己的线程触碰。
+// 执行器（produce 面，任意线程）：幂等（decision==skip 或 path+sha 已注册 →
+// 跳过）、progress 协作取消（已处理行保留，error=「已取消（已入库的行保
+// 留）」）。只写 session 的 staging 副本——返回行结果与 importFolder 同一
+// 口径（plan.skipped 行缀在最后），入库由 owner 线程 commitImport 完成。
+QVector<FolderRowResult>
+executeIngestPlan(const IngestPlan &plan, ImportSession &session,
+                  const IngestProgress &progress = {}, QString *error = nullptr);
+// owner 线程便捷面：beginImport → 上面的 produce → commitImport（整 plan
+// 一次事务落盘；提交失败 → 行改 Failed + error）。别的线程调用如实失败。
 QVector<FolderRowResult>
 executeIngestPlan(const IngestPlan &plan, DataImportService &svc,
                   const IngestProgress &progress = {}, QString *error = nullptr);

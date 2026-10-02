@@ -9,6 +9,7 @@
 #include <QStringList>
 #include <QVariantMap>
 #include <QVector>
+#include <functional>
 #include <memory>
 
 #include "../domain/sectiontrace.h"   // SegyTrace/SegySectionGrid（domain 纯数据）
@@ -63,6 +64,18 @@ class PreviewDocService : public QObject
     // DataImportService::importFile：返回资产 id（空 = 失败 + *error）。
     QString importSingleFile(const QString &kind, const QString &sourcePath,
                              QString *error = nullptr);
+    // 审计 02 M-8：单文件导入的 produce/commit 拆分面（导入队列 runner 用）。
+    // prepare 在 GUI 线程调（拷 catalog staging 副本）；produce() 可在任意线程
+    // 跑（只碰 staging，不碰活 catalog）；commit() 回 GUI 线程一处入库，返回
+    // 资产 id（空 = 失败 + *error；提交期 catalog 已被别处改动 → 失败并提示
+    // 重试，交队列 D8.2 自动重试）。服务未就绪 → nullptr。
+    struct SingleFileImportJob
+    {
+      std::function<void()> produce;
+      std::function<QString(QString *error)> commit;
+    };
+    std::shared_ptr<SingleFileImportJob> prepareSingleFileImport(const QString &kind,
+                                                                 const QString &sourcePath);
     // 外链「重新定位文件」执行半边（datalist/标签共用口径）。
     QString relocateVersionSource(const QString &versionId, const QString &pickedPath,
                                   QString *error);

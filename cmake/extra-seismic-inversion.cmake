@@ -4,6 +4,9 @@
 
 target_sources(paleo_algorithms PRIVATE
   src/algorithms/dsp/fft.cpp
-  src/algorithms/inversion/wavelet.cpp)
+  src/algorithms/inversion/wavelet.cpp
+  src/algorithms/inversion/lowfreq.cpp)
 
 add_paleo_test(tst_inversion_wavelet LIBS paleo_algorithms)
+
+add_paleo_test(tst_inversion_lowfreq LIBS paleo_algorithms)

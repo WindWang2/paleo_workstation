@@ -118,6 +118,8 @@ public:
     paleo::fault::FaultInterpretationController *faultController() const {
         return m_faultController;
     }
+    // 断面与当前剖面的交线。点列由功能层算好，dock 只转给画布。
+    void setFaultSurfaceCut(const SeismicSectionCanvas::FaultSurfaceCutDisplay &cut);
     // 当前剖面的断层定位身份：IL/XL 切片 → 线号；任意线 → m_lastPathPoints
     // 点串（同路径重提取可复现）；时间切片/无剖面 → false。
     bool currentFaultSection(paleo::fault::FaultSectionRef *out) const;

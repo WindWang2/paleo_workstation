@@ -1514,6 +1514,14 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
         }
         p.drawPolyline(poly);
     }
+    // 断面交线：#F29900 虚线（DESIGN warning，派生结果待复核），叠在拾取棒之上。
+    if (m_faultSurfaceCut.visible && m_faultSurfaceCut.points.size() >= 2) {
+        QPolygonF cut;
+        for (const auto &pt : m_faultSurfaceCut.points)
+            cut.append(QPointF(traceToPixelX(pt.first * std::max(1, m_traces - 1)), timeToPixelY(pt.second)));
+        p.setPen(QPen(QColor(242, 153, 0), 2.0, Qt::DashLine));
+        p.drawPolyline(cut);
+    }
 
     p.restore();
 
@@ -2084,6 +2092,12 @@ void SeismicSectionCanvas::setPickOverlays(const QList<SeismicPick> &picks,
 void SeismicSectionCanvas::setFaultStickOverlays(
     const QVector<SeismicSectionCanvas::FaultStickDisplay> &sticks) {
     m_faultStickOverlays = sticks;
+    update();
+}
+
+void SeismicSectionCanvas::setFaultSurfaceCut(
+    const SeismicSectionCanvas::FaultSurfaceCutDisplay &cut) {
+    m_faultSurfaceCut = cut;
     update();
 }
 

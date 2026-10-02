@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "seismiccameracontroller.h"
+#include "faultsurfacerenderer.h"
 #include "horizonsurfacerenderer.h"
 #include "seismicslicerenderer.h"
 #include "volumeframerenderer.h"
@@ -115,6 +116,14 @@ public:
     [[nodiscard]] bool areHorizonsVisible() const { return horizonRenderer_.IsVisible(); }
     void setHorizonsVisible(bool visible);
 
+    // 断面：半透明三角网 + 断棒线。场景坐标由 makeFaultSceneMesh 转入。
+    void setFaultSceneMesh(const FaultSceneMesh &mesh);
+    void clearFaultSceneMesh();
+    [[nodiscard]] int faultSceneTriangleCount() const;
+    void fitFaultSurfaces(float aspect = 1.f);
+    [[nodiscard]] bool faultSceneContainsBounds(float aspect = 1.f) const;
+    [[nodiscard]] const FaultSceneFit &faultSceneFit() const { return faultFit_; }
+
     // D3.12 多体叠加
     void setSecondaryVolume(std::shared_ptr<const SgyVolume> secondary);
     [[nodiscard]] bool hasSecondaryVolume() const { return secondaryVolume_ != nullptr; }
@@ -191,6 +200,10 @@ private:
     SeismicSliceRenderer sliceRenderer_;
     VolumeFrameRenderer frameRenderer_;
     HorizonSurfaceRenderer horizonRenderer_;
+    FaultSurfaceRenderer faultRenderer_;
+    FaultSceneMesh faultMesh_;
+    FaultSceneFit faultFit_;
+    bool faultMeshPending_ = false;
     std::shared_ptr<SgyVolume> volume_;
     std::shared_ptr<const SgyVolume> secondaryVolume_;
 

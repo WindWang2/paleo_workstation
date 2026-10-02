@@ -14,3 +14,8 @@ add_paleo_test(tst_faultsurface LIBS paleo_algorithms)
 set_tests_properties(tst_faultsurface PROPERTIES RUN_SERIAL TRUE)
 
 add_paleo_test(tst_faultsurfaceworkflow LIBS paleo_workflow)
+
+target_sources(paleo_ui PRIVATE
+  src/ui/seismic3d/faultsurfacerenderer.cpp)
+
+add_paleo_test(tst_faultsurfaceview LIBS paleo_ui)

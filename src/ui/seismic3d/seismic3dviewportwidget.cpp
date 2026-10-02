@@ -87,6 +87,7 @@ Seismic3DViewportWidget::~Seismic3DViewportWidget() {
         sliceRenderer_.Cleanup(this);
         frameRenderer_.Cleanup(this);
         horizonRenderer_.Cleanup(this);
+        faultRenderer_.Cleanup(this);
         doneCurrent();
     }
 }
@@ -101,6 +102,11 @@ void Seismic3DViewportWidget::initializeGL() {
     sliceRenderer_.Initialize(this);
     frameRenderer_.Initialize(this);
     horizonRenderer_.Initialize(this);
+    faultRenderer_.Initialize(this);
+    if (faultMeshPending_) {
+        faultRenderer_.Update(this, faultMesh_);
+        faultMeshPending_ = false;
+    }
     glInitialized_ = true;
 
     // D7.1：GL 前设置的 TF 在此补传（切片值纹理由面板 glReady 后重喂）
@@ -177,13 +183,16 @@ void Seismic3DViewportWidget::paintGL() {
     glDepthFunc(GL_LESS);
 
     const float aspect = height() > 0 ? static_cast<float>(width()) / static_cast<float>(height()) : 1.0f;
-    const glm::mat4 proj = camera_.BuildProjectionMatrix(aspect);
+    const glm::mat4 proj = faultFit_.valid
+                               ? camera_.BuildProjectionMatrix(aspect, 45.f, faultFit_.zNear, faultFit_.zFar)
+                               : camera_.BuildProjectionMatrix(aspect);
     const glm::mat4 view = camera_.BuildViewMatrix();
     const glm::mat4 model = glm::mat4(1.0f);
 
     sliceRenderer_.Render(this, view, proj, model);
     frameRenderer_.Render(this, view, proj, model);
     horizonRenderer_.Render(this, view, proj, model);
+    faultRenderer_.Render(this, view, proj);
 
     // D3.10 帧率读数（debug 开关；半秒滚动均值）
     ++fpsFrames_;
@@ -890,6 +899,38 @@ void Seismic3DViewportWidget::setWells(const std::vector<Seismic3DWell> &wells) 
 }
 
 // ---- D7.3 层位面 ----
+void Seismic3DViewportWidget::setFaultSceneMesh(const FaultSceneMesh &mesh) {
+    faultMesh_ = mesh;
+    faultRenderer_.setMesh(mesh);
+    if (glInitialized_) {
+        makeCurrent();
+        faultRenderer_.Update(this, mesh);
+        doneCurrent();
+        update();
+    } else {
+        faultMeshPending_ = true;
+    }
+}
+
+void Seismic3DViewportWidget::clearFaultSceneMesh() {
+    setFaultSceneMesh(FaultSceneMesh{});
+    faultFit_ = {};
+}
+
+int Seismic3DViewportWidget::faultSceneTriangleCount() const {
+    return faultRenderer_.triangleCount();
+}
+
+void Seismic3DViewportWidget::fitFaultSurfaces(float aspect) {
+    const float safeAspect = aspect > 0.f ? aspect : 1.f;
+    faultFit_ = fitFaultSceneCamera(camera_, faultMesh_, safeAspect);
+}
+
+bool Seismic3DViewportWidget::faultSceneContainsBounds(float aspect) const {
+    const float safeAspect = aspect > 0.f ? aspect : 1.f;
+    return faultSceneBoundsInsideFrustum(camera_, faultFit_, safeAspect);
+}
+
 void Seismic3DViewportWidget::setHorizons(const std::vector<Seismic3DHorizonSurface> &items) {
     horizonItems_ = items;
     if (!volume_ || !volume_->IsLoaded())

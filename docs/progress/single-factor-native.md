@@ -1,6 +1,6 @@
 # 单因素图算法原生集成
 
-状态：进行中。提交 `4caa1af` 是数值核切片。提交 `d7bf6dc` 把本地方向插值发布进已有因子图层，并另声明制图工作场。未跑的 Oracle 不记为通过。这仍不是全文 P0/P1。
+状态：P0 页面、异步分析场和 P1 解释性等值线已进分支，代码提交 `2e293d5`。未跑完的 Oracle 不记为通过。O12 跳过，O7 和 O11 只部分覆盖。这仍不是方案全文通过。
 
 ## 范围
 
@@ -10,7 +10,7 @@
 - 参考：`WWX9/haiyou-visualization` `27fdb998a32d7a7f50d7e6ef0d2ebb3a5d06378f`
 - 方案：`docs/designs/single-factor-native-integration-plan.md`
 
-`method=local_direction_idw` 走 `paleo:paleo_local_direction_idw`，把分析栅格、支撑标记和 QC 写入 DERIVED，并声明 `factor.<层位>.<因素>`。缺省 method 仍走 `paleo:paleo_constraint_idw`。`paleo:paleo_cartographic_work` 另写 `cartographic.<层位>.<因素>`，组为 `04_SingleFactor/Cartographic`，不改分析场字节。没有单独成图多边形时，输出范围矩形就是成图域。单因素页参数区、异步任务、真工区和性能门还没有做。
+`method=local_direction_idw` 走 `paleo:paleo_local_direction_idw`，把分析栅格、支撑标记和 QC 写入 DERIVED，并声明 `factor.<层位>.<因素>`。缺省 method 仍走 `paleo:paleo_constraint_idw`。`paleo:paleo_cartographic_work` 另写 `cartographic.<层位>.<因素>`，组为 `04_SingleFactor/Cartographic`，不改分析场字节。没有单独成图多边形时，输出范围矩形就是成图域。单因素页可以选择该方法、覆盖方式和等值线来源；本地方向计算走 `PaleoTaskService`。解释性等值线图层 id 是 `cartographic.<层位>.<因素>.contours`。真工区仍未验收。
 
 ## 已核对语义
 
@@ -57,9 +57,22 @@ python3 tools/check_ui_invariants.py --strict
 
 第一次 `tst_factorworkflow` 失败，算法报「成图域为空」。处理包装把输出范围矩形写入成图域后，同一测试通过（6.17 秒）。严格分层、i18n 和 UI 不变量通过。EPSG:3857 分析场落在组 `04_SingleFactor`，制图工作场落在 `04_SingleFactor/Cartographic`，分析场 SHA-256 不变，融合拒绝文案含「解释性制图」。`type=hard_barrier` 且没有 `params_json` 被记为 `unknown_type`。EPSG:4326 即使 `localGrid=true` 也拒绝，文案含「经纬度必须先投影」。无坐标系且未开局部网时拒绝；打开局部网后 `poro` 成功，`crs_mode=local_engineering`。`method=kriging` 拒绝且不声明图层。未设置 `PALEO_REAL_PROJECT_AREA`，真工区不记通过。
 
+页面、异步和等值线补丁 `2e293d5` 另跑：
+
+```text
+cd .worktrees/single-factor-native/build
+QT_QPA_PLATFORM=offscreen ctest --output-on-failure -j8
+QT_QPA_PLATFORM=offscreen ctest --output-on-failure -R '^tst_startup_trace$' -j1
+cd .worktrees/single-factor-native && python3 tools/check_tidy.py
+```
+
+全量 180/181 通过。`tst_startup_trace` 在并行负载下失败，空载单独重跑通过（11.56 秒）。未放宽启动比率门。clang-tidy 17 个改动 TU 通过。`tst_singlefactor_perf` 空载结果：S=2004 ms，scale1024=6885 ms，L=14334 ms，wells200=3129 ms，像元比 3.44，井数比 1.56，取消中位 1 ms、最大 2 ms，RSS 增量 15328 KiB。像元比比较的是同一批井和同一批约束，只把成图域扩成 1024 方格。L 的方向线和软边界更多，不用 L/S 充当像元比。`tst_singlefactor_contours` 通过常量场、斜面、nodata 孔、开放端、圆锥和非法级别。`tst_factorworkflow` 通过穿线绕行后分析 SHA 不变、严格模式拒绝剩余穿线，以及融合拒绝解释性等值线。`tst_mappingpages` 的离屏用例覆盖方法、等值线来源和忙碌态。
+
 ## 尚未完成
 
-- 单因素页参数区。开始改页面前要重读 `DESIGN.md`。
-- 异步 `PaleoTaskService`、产品等值线的固定级别接口、`addConstraint` 仍调用旧 `append()`。
-- `PALEO_REAL_PROJECT_AREA` 真工区和性能门。环境未设置时的跳过不能记为通过。
-- 全量 ctest、clang-tidy 和 PR。
+- O7 只验证了过期代数丢弃发布。文件写入、GDAL flush、目录提交、清单声明和进程杀死恢复没有注入。
+- O11：本地方向计算已离开界面线程。解释性等值线和等间距等值线仍在界面线程生成。离屏测试不是双主题、窄 dock 和高 DPI 的真人点击。
+- O12：`PALEO_REAL_PROJECT_AREA` 未设置。只读工区 `/home/kevin/projects/paleo_project/data/project_area` 的井点属性只有 `coordinate_status`、`id`、`name`。环境未设置时测试 QSKIP。跳过不是通过，也没有编造井值。
+- O13 的计算门已测。GUI 事件循环 p95 和 512² 等值线 20 秒预算未测。
+- 分支落后 `origin/master` 的 `4f35600`，按方案不合并。
+- P2（克里金、完整 SFPKG、外委 XML/XLSX、历史制图策略、时深转换、监督分类、打印排版、Python GUI、`FaultPathMetric`）在 `TODOS.md`，不在本分支实现。

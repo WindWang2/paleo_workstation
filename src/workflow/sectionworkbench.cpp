@@ -2,9 +2,12 @@
 #include "sectionworkbench.h"
 #include "derivedassets.h"
 #include "io/lasparser.h"
+#include "services/welllogset.h"
 #include <QDir>
 #include <QFile>
+#include <QHash>
 #include <QJsonDocument>
+#include <QStringList>
 #include <QSaveFile>
 #include <algorithm>
 #include <cmath>
@@ -168,50 +171,80 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells() {
                               : top.twtMs;
       out.tops.push_back(top);
     }
-    for (const auto &link : m_catalog->linksForEntity(w.id)) {
-      if (link.role != "well_log" || !link.isPrimary || link.unresolved)
+    const QVector<WellCurveRef> curveIndex =
+        WellLogSet::wellCurveIndex(m_catalog, projectDir(), w.id);
+    QStringList fileOrder;
+    QHash<QString, QVector<WellCurveRef>> byFile;
+    for (const WellCurveRef &ref : curveIndex) {
+      const QString key =
+          ref.sourceVersionId.isEmpty() ? ref.path : ref.sourceVersionId;
+      if (key.isEmpty() || ref.path.isEmpty())
         continue;
-      const auto version = m_catalog->currentVersion(link.assetId);
-      if (!m_logs.contains(version.id)) {
+      if (!byFile.contains(key))
+        fileOrder.append(key);
+      byFile[key].append(ref);
+    }
+    for (const QString &key : fileOrder) {
+      const QVector<WellCurveRef> refs = byFile.value(key);
+      if (refs.isEmpty())
+        continue;
+      const QString cacheKey = refs.first().sourceVersionId.isEmpty()
+                                   ? key
+                                   : refs.first().sourceVersionId;
+      if (!m_logs.contains(cacheKey)) {
         LasDoc doc;
-        doc.ok = LasParser::parse(
-            DataCatalog::resolvedVersionPath(projectDir(), version),
-            doc.curveNames, doc.curves, &doc.error);
-        m_logs.insert(version.id, doc);
+        doc.ok = LasParser::parse(refs.first().path, doc.curveNames, doc.curves,
+                                  &doc.error);
+        m_logs.insert(cacheKey, doc);
       }
-      const auto &doc = m_logs[version.id];
+      const auto &doc = m_logs[cacheKey];
       if (!doc.ok || doc.curves.size() < 2)
         continue;
-      const auto &names = doc.curveNames;
-      const auto &curves = doc.curves;
-      int index = names.indexOf("GR");
-      if (index < 1)
-        index = 1;
-      const auto &depths = curves[0];
-      const auto &values = curves[index];
+      const WellCurveRef *gr = nullptr;
+      const WellCurveRef *first = nullptr;
+      for (const WellCurveRef &ref : refs) {
+        if (ref.column < 1 || ref.column >= doc.curves.size())
+          continue;
+        if (!first || ref.column < first->column)
+          first = &ref;
+        const bool columnGr =
+            doc.curves.at(ref.column).name.compare("GR", Qt::CaseInsensitive) ==
+            0;
+        const bool mnemonicGr =
+            ref.mnemonic.compare("GR", Qt::CaseInsensitive) == 0;
+        if ((columnGr || mnemonicGr) && (!gr || ref.column < gr->column))
+          gr = &ref;
+      }
+      const WellCurveRef *chosen = gr ? gr : first;
+      if (!chosen)
+        continue;
+      const int column = chosen->column;
+      const QString curveName = chosen->mnemonic;
+      const auto &depths = doc.curves.at(0);
+      const auto &values = doc.curves.at(column);
       double scale = 1;
       const auto unit = depths.unit.trimmed().toUpper();
       if (unit == "FT" || unit == "F")
         scale = .3048;
       else if (unit != "M") {
+        // 单位未知只跳过这一份 LAS，同井其它文件继续。
         out.alignmentStatus += tr(" · 深度单位未知，曲线未叠加");
-        break;
+        continue;
       }
       seismic::WellCurveItem curve;
-      curve.curveName = values.name;
+      curve.curveName = curveName;
       const int size = std::min(depths.values.size(), values.values.size());
       const int step = std::max(1, size / 4000);
       for (int i = 0; i < size; i += step) {
         const double d = depths.values[i] * scale, t = timeFor(d, true);
         curve.depthsM.push_back(d);
         curve.twtMs.push_back(t);
-        curve.values.push_back(values.values[i]);
+        curve.values.push_back(static_cast<float>(values.values[i]));
         if (std::isfinite(t))
           out.bottomTwtMs =
               std::isfinite(out.bottomTwtMs) ? std::max(out.bottomTwtMs, t) : t;
       }
       out.curves.push_back(curve);
-      break;
     }
     if (partial && (mdOk || tvdOk))
       out.alignmentStatus += tr(" · 部分未对齐");

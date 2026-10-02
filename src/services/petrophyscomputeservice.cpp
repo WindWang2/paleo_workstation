@@ -6,6 +6,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QUuid>
 
 #include "algorithms/curveexpr.h"
@@ -15,8 +16,11 @@
 #include "io/laswriter.h"
 #include "metadata/paleoprojectstore.h"
 #include "paleotaskservice.h"
+#include "welllogset.h"
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <memory>
 
 namespace paleo::petrophys
@@ -122,6 +126,414 @@ QVariantMap paramsToMap(const PetroPhysTaskService::BatchRequest &req)
   if (req.formula == PetroPhysTaskService::Formula::Expression)
     m.insert(QStringLiteral("expression"), req.expression);
   return m;
+}
+
+const double kNan = std::numeric_limits<double>::quiet_NaN();
+
+QString projectDirOf(const DataCatalog *catalog)
+{
+  if (!catalog)
+    return {};
+  return QDir::cleanPath(catalog->catalogPath() + QStringLiteral("/../../.."));
+}
+
+QString mnemonicStem(const QString &mnemonic)
+{
+  int cut = mnemonic.size();
+  const int at = mnemonic.indexOf(QLatin1Char('@'));
+  const int hash = mnemonic.indexOf(QLatin1Char('#'));
+  if (at >= 0)
+    cut = std::min(cut, at);
+  if (hash >= 0)
+    cut = std::min(cut, hash);
+  return mnemonic.left(cut);
+}
+
+bool sameMnemonic(const QString &a, const QString &b)
+{
+  return a.compare(b, Qt::CaseInsensitive) == 0;
+}
+
+// 表达式标识符（跳过函数名）。大小写保留，匹配曲线时再忽略大小写。
+QStringList expressionIdentifiers(const QString &expression)
+{
+  QStringList ids;
+  const auto isFn = [](const QString &id) {
+    const QString k = id.toLower();
+    return k == QLatin1String("where") || k == QLatin1String("min") || k == QLatin1String("max")
+           || k == QLatin1String("abs") || k == QLatin1String("ln") || k == QLatin1String("log10")
+           || k == QLatin1String("sqrt") || k == QLatin1String("exp") || k == QLatin1String("pow")
+           || k == QLatin1String("clamp");
+  };
+  for (int i = 0; i < expression.size();)
+  {
+    const QChar c = expression.at(i);
+    if (c.isLetter() || c == QLatin1Char('_'))
+    {
+      int j = i + 1;
+      while (j < expression.size())
+      {
+        const QChar d = expression.at(j);
+        if (!d.isLetterOrNumber() && d != QLatin1Char('_'))
+          break;
+        ++j;
+      }
+      const QString id = expression.mid(i, j - i);
+      if (!isFn(id))
+      {
+        bool seen = false;
+        for (const QString &prev : ids)
+        {
+          if (sameMnemonic(prev, id))
+          {
+            seen = true;
+            break;
+          }
+        }
+        if (!seen)
+          ids.append(id);
+      }
+      i = j;
+    }
+    else
+    {
+      ++i;
+    }
+  }
+  return ids;
+}
+
+QString driverMnemonic(PetroPhysTaskService::Formula formula)
+{
+  using F = PetroPhysTaskService::Formula;
+  switch (formula)
+  {
+    case F::VshGrLinear:
+    case F::VshGrLarionovYoung:
+    case F::VshGrLarionovOld:
+    case F::VshGrClavier:
+      return QStringLiteral("GR");
+    case F::PhiDensity:
+      return QStringLiteral("RHOB");
+    case F::PhiNeutron:
+      return QStringLiteral("NPHI");
+    case F::PhiSonicWyllie:
+      return QStringLiteral("DT");
+    case F::SwArchie:
+      return QStringLiteral("RT");
+    case F::Expression:
+      break;
+  }
+  return {};
+}
+
+const WellCurveRef *findExactMnemonic(const QVector<WellCurveRef> &index, const QString &want)
+{
+  for (const WellCurveRef &ref : index)
+  {
+    if (sameMnemonic(ref.mnemonic, want))
+      return &ref;
+  }
+  return nullptr;
+}
+
+// 精确名没有时，接受规范名等于驱动名的别名（NGR→GR）。不按家族兜底
+// （RS 与 RT 同族，但 Sw 的驱动只认 RT）。
+const WellCurveRef *findAliasMnemonic(const QVector<WellCurveRef> &index, const QString &want)
+{
+  const WellCurveRef *fallback = nullptr;
+  for (const WellCurveRef &ref : index)
+  {
+    const QString stem = mnemonicStem(ref.mnemonic);
+    const QString canon = LasAliasMap::shared().canonicalCurve(stem);
+    if (!sameMnemonic(canon, want) && !sameMnemonic(stem, want))
+      continue;
+    if (ref.canonical)
+      return &ref;
+    if (!fallback)
+      fallback = &ref;
+  }
+  return fallback;
+}
+
+// 表达式里恰好一条 mnemonic 命中才用它的文件；零条或多条 → 调用方改走主文件。
+const WellCurveRef *uniqueExpressionRef(const QVector<WellCurveRef> &index,
+                                        const QString &expression)
+{
+  const WellCurveRef *hit = nullptr;
+  int distinct = 0;
+  for (const QString &id : expressionIdentifiers(expression))
+  {
+    for (const WellCurveRef &ref : index)
+    {
+      if (!sameMnemonic(ref.mnemonic, id))
+        continue;
+      if (!hit || !sameMnemonic(hit->mnemonic, ref.mnemonic))
+      {
+        ++distinct;
+        hit = &ref;
+      }
+      break;
+    }
+  }
+  return distinct == 1 ? hit : nullptr;
+}
+
+const WellCurveRef *pickDriverRef(const QVector<WellCurveRef> &index,
+                                  const PetroPhysTaskService::BatchRequest &req)
+{
+  if (req.formula == PetroPhysTaskService::Formula::Expression)
+    return uniqueExpressionRef(index, req.expression);
+  const QString want = driverMnemonic(req.formula);
+  if (want.isEmpty())
+    return nullptr;
+  if (const WellCurveRef *exact = findExactMnemonic(index, want))
+    return exact;
+  return findAliasMnemonic(index, want);
+}
+
+struct CurvePiece
+{
+  QString mnemonic;
+  QString path;
+  QString versionId;
+  int column = -1;
+};
+
+struct WellMergePlan
+{
+  bool active = false;
+  QString driverPath;
+  QString driverVersionId;
+  QVector<CurvePiece> pieces;
+};
+
+WellMergePlan planWellMerge(const DataCatalog *catalog, const QString &projectDir,
+                            const PetroPhysTaskService::WellRef &well,
+                            const PetroPhysTaskService::BatchRequest &req)
+{
+  WellMergePlan plan;
+  if (!catalog || well.wellId.isEmpty())
+    return plan;
+  const QVector<WellLogFile> files = WellLogSet::wellLogFiles(catalog, projectDir, well.wellId);
+  const QVector<WellCurveRef> index =
+      WellLogSet::wellCurveIndex(catalog, projectDir, well.wellId);
+  if (files.isEmpty() && index.isEmpty())
+    return plan;
+
+  const WellCurveRef *picked = pickDriverRef(index, req);
+  if (picked)
+  {
+    plan.driverPath = picked->path;
+    plan.driverVersionId = picked->sourceVersionId;
+  }
+  else
+  {
+    const WellLogFile *primary = nullptr;
+    const WellLogFile *first = nullptr;
+    for (const WellLogFile &file : files)
+    {
+      if (!first)
+        first = &file;
+      if (file.isPrimary && !primary)
+        primary = &file;
+    }
+    const WellLogFile *file = primary ? primary : first;
+    if (file)
+    {
+      plan.driverPath = file->path;
+      plan.driverVersionId = file->versionId;
+    }
+    else if (!index.isEmpty())
+    {
+      const WellCurveRef *fallback = &index.first();
+      for (const WellCurveRef &ref : index)
+      {
+        if (ref.canonical)
+        {
+          fallback = &ref;
+          break;
+        }
+      }
+      plan.driverPath = fallback->path;
+      plan.driverVersionId = fallback->sourceVersionId;
+    }
+  }
+  if (plan.driverPath.isEmpty())
+    return plan;
+  plan.active = true;
+  plan.pieces.reserve(index.size());
+  for (const WellCurveRef &ref : index)
+  {
+    CurvePiece piece;
+    piece.mnemonic = ref.mnemonic;
+    piece.path = ref.path;
+    piece.versionId = ref.sourceVersionId;
+    piece.column = ref.column;
+    plan.pieces.append(piece);
+  }
+  return plan;
+}
+
+bool depthUsable(const QVector<double> &depth)
+{
+  if (depth.isEmpty())
+    return false;
+  for (int i = 0; i < depth.size(); ++i)
+  {
+    if (!std::isfinite(depth.at(i)))
+      return false;
+    if (i > 0 && !(depth.at(i) > depth.at(i - 1)))
+      return false;
+  }
+  return true;
+}
+
+// 源深度须已通过 depthUsable。网格点在源范围外为 NaN，不外推。
+double sampleAt(const QVector<double> &depth, const QVector<double> &values, double t)
+{
+  const int n = depth.size();
+  if (n <= 0 || !std::isfinite(t) || t < depth.first() || t > depth.last())
+    return kNan;
+  int lo = 0;
+  int hi = n - 1;
+  while (lo + 1 < hi)
+  {
+    const int mid = lo + (hi - lo) / 2;
+    if (depth.at(mid) <= t)
+      lo = mid;
+    else
+      hi = mid;
+  }
+  const auto at = [&](int i) -> double {
+    if (i < 0 || i >= values.size())
+      return kNan;
+    return values.at(i);
+  };
+  if (hi == lo || depth.at(lo) == t)
+    return at(lo);
+  if (depth.at(hi) == t)
+    return at(hi);
+  const double v0 = at(lo);
+  const double v1 = at(hi);
+  if (!std::isfinite(v0) || !std::isfinite(v1))
+    return kNan;
+  const double span = depth.at(hi) - depth.at(lo);
+  if (!(span > 0.0))
+    return kNan;
+  return v0 + (v1 - v0) * ((t - depth.at(lo)) / span);
+}
+
+QVector<double> fitToGrid(const QVector<double> &values, int n)
+{
+  if (values.size() == n)
+    return values;
+  QVector<double> fitted(n, kNan);
+  const int m = std::min(n, static_cast<int>(values.size()));
+  for (int i = 0; i < m; ++i)
+    fitted[i] = values.at(i);
+  return fitted;
+}
+
+bool onDriverFile(const CurvePiece &piece, const WellMergePlan &plan)
+{
+  if (!plan.driverVersionId.isEmpty() && piece.versionId == plan.driverVersionId)
+    return true;
+  return QDir::cleanPath(piece.path) == QDir::cleanPath(plan.driverPath);
+}
+
+bool loadWellCurves(const PetroPhysTaskService::WellRef &well, const WellMergePlan &plan,
+                    QVector<LasCurve> *out, QString *error)
+{
+  if (!plan.active)
+  {
+    const LasDoc doc = LasCache::shared().load(well.lasPath);
+    if (!doc.ok || doc.curves.isEmpty())
+    {
+      *error = doc.ok ? QStringLiteral("LAS 无曲线") : doc.error;
+      return false;
+    }
+    *out = doc.curves;
+    return true;
+  }
+
+  const LasDoc driver = LasCache::shared().load(plan.driverPath);
+  if (!driver.ok || driver.curves.isEmpty())
+  {
+    *error = driver.ok ? QStringLiteral("LAS 无曲线") : driver.error;
+    return false;
+  }
+
+  QVector<LasCurve> merged;
+  merged.append(driver.curves.at(0));
+  const int n = merged.first().values.size();
+  const QVector<double> grid = merged.first().values;
+
+  QVector<CurvePiece> driverPieces;
+  QVector<CurvePiece> otherPieces;
+  for (const CurvePiece &piece : plan.pieces)
+  {
+    if (onDriverFile(piece, plan))
+      driverPieces.append(piece);
+    else
+      otherPieces.append(piece);
+  }
+  std::stable_sort(driverPieces.begin(), driverPieces.end(),
+                   [](const CurvePiece &a, const CurvePiece &b) { return a.column < b.column; });
+
+  for (const CurvePiece &piece : driverPieces)
+  {
+    LasCurve curve;
+    curve.name = piece.mnemonic;
+    if (piece.column >= 1 && piece.column < driver.curves.size())
+    {
+      const LasCurve &src = driver.curves.at(piece.column);
+      curve.unit = src.unit;
+      curve.descr = src.descr;
+      curve.values = fitToGrid(src.values, n);
+    }
+    else
+    {
+      curve.values = QVector<double>(n, kNan);
+    }
+    merged.append(curve);
+  }
+
+  QStringList pathOrder;
+  QHash<QString, QVector<CurvePiece>> byPath;
+  for (const CurvePiece &piece : otherPieces)
+  {
+    if (!byPath.contains(piece.path))
+      pathOrder.append(piece.path);
+    byPath[piece.path].append(piece);
+  }
+  for (const QString &path : pathOrder)
+  {
+    QVector<CurvePiece> pieces = byPath.value(path);
+    std::stable_sort(pieces.begin(), pieces.end(),
+                     [](const CurvePiece &a, const CurvePiece &b) { return a.column < b.column; });
+    const LasDoc doc = LasCache::shared().load(path);
+    const bool usable = doc.ok && !doc.curves.isEmpty() && depthUsable(doc.curves.at(0).values);
+    const QVector<double> srcDepth = usable ? doc.curves.at(0).values : QVector<double>();
+    for (const CurvePiece &piece : pieces)
+    {
+      LasCurve curve;
+      curve.name = piece.mnemonic;
+      curve.values = QVector<double>(n, kNan);
+      if (usable && piece.column >= 1 && piece.column < doc.curves.size())
+      {
+        const LasCurve &src = doc.curves.at(piece.column);
+        curve.unit = src.unit;
+        curve.descr = src.descr;
+        for (int i = 0; i < n; ++i)
+          curve.values[i] = sampleAt(srcDepth, src.values, grid.at(i));
+      }
+      merged.append(curve);
+    }
+  }
+
+  *out = std::move(merged);
+  return true;
 }
 
 } // namespace
@@ -591,14 +1003,34 @@ PaleoTask *PetroPhysTaskService::startBatch(
 
   const auto request = std::make_shared<BatchRequest>(req);
   const auto result = std::make_shared<BatchResult>();
+  const auto plans = std::make_shared<QHash<QString, WellMergePlan>>();
   const QString outDir = outputDir;
   PaleoProjectStore *store = m_store;
+  // 并集与驱动文件在服务线程定下来（worker 不碰 catalog）。无 catalog
+  // 或索不到已决 LAS 时计划为空，worker 仍只解析 WellRef::lasPath。
+  if (catalog)
+  {
+    const QString projectDir = projectDirOf(catalog);
+    for (WellRef &well : request->wells)
+    {
+      const WellMergePlan plan = planWellMerge(catalog, projectDir, well, *request);
+      if (!plan.active)
+        continue;
+      const QString oldPath = QDir::cleanPath(well.lasPath);
+      const QString newPath = QDir::cleanPath(plan.driverPath);
+      well.lasPath = plan.driverPath;
+      if (!plan.driverVersionId.isEmpty()
+          && (!well.sourceVersionId.isEmpty() || oldPath != newPath))
+        well.sourceVersionId = plan.driverVersionId;
+      plans->insert(well.wellId, plan);
+    }
+  }
 
   PaleoTask *task = m_taskSvc->start(
       QStringLiteral("测井计算：%1 × %2 井")
           .arg(formulaName(req.formula))
           .arg(req.wells.size()),
-      [request, result, outDir, store](PaleoTask *task) -> QString {
+      [request, result, outDir, store, plans](PaleoTask *task) -> QString {
         QElapsedTimer totalClock;
         totalClock.start();
         const qint64 totalUnits = qint64(request->wells.size()) * 1000;
@@ -622,22 +1054,24 @@ PaleoTask *PetroPhysTaskService::startBatch(
           QElapsedTimer parseClock;
           parseClock.start();
           task->reportStage(QStringLiteral("parse"));
-          const LasDoc doc = LasCache::shared().load(well.lasPath);
-          r.parseMs = nowMs(parseClock);
-          if (!doc.ok || doc.curves.size() < 1)
+          QVector<LasCurve> curves;
+          QString loadErr;
+          if (!loadWellCurves(well, plans->value(well.wellId), &curves, &loadErr))
           {
-            r.error = doc.ok ? QStringLiteral("LAS 无曲线") : doc.error;
+            r.parseMs = nowMs(parseClock);
+            r.error = loadErr;
             result->wells.append(r);
             task->reportBytes(qint64(w + 1) * 1000, totalUnits);
             task->reportDetail(QStringLiteral("%1：解析失败").arg(well.wellId));
             continue;
           }
+          r.parseMs = nowMs(parseClock);
 
           task->reportStage(QStringLiteral("compute"));
           QElapsedTimer computeClock;
           computeClock.start();
           QString err;
-          if (!computeWell(*request, doc.curves, &r, &err))
+          if (!computeWell(*request, curves, &r, &err))
           {
             r.error = err;
           }
@@ -646,7 +1080,7 @@ PaleoTask *PetroPhysTaskService::startBatch(
             r.computeMs = nowMs(computeClock);
             if (request->writeProduct)
             {
-              LasCurve depth = doc.curves.first();
+              LasCurve depth = curves.first();
               LasCurve outCurve;
               outCurve.name = request->outputMnemonic;
               outCurve.unit = request->outputUnit;

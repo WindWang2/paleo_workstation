@@ -2277,7 +2277,7 @@ bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function
     const QgsGeometry geometry = feature.geometry();
     if ( geometry.isNull() || geometry.isEmpty() )
       continue;
-    const QgsPointXY point = geometry.asPoint();
+    const QgsPointXY point = geometry.isMultipart() ? geometry.asMultiPoint().value( 0 ) : geometry.asPoint();
     const QVariant value = feature.attribute( fieldIndex );
     const double z = value.toDouble();
     if ( !std::isfinite( point.x() ) || !std::isfinite( point.y() ) || !std::isfinite( z ) )
@@ -2455,6 +2455,13 @@ bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function
   {
     cleanupTemp();
     job->error = tr( "变差函数模型参数无效" );
+    return false;
+  }
+  if ( model.nugget + model.sill <= 0 )
+  {
+    // 恒定场：零基台 → 克氏方程组全零无解。如实拒绝，不产空栅格。
+    cleanupTemp();
+    job->error = tr( "字段 %1 在井点上是常量（零基台），克里金无空间结构可解" ).arg( job->field );
     return false;
   }
 

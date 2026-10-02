@@ -1,5 +1,7 @@
 // 层：视图
 #include "mappingworkbenchpage.h"
+#include "pageshared.h"
+#include <qgscollapsiblegroupbox.h>
 #include "../../domain/faciescatalog.h"
 #include "../../domain/singlefactorrequest.h"
 #include "../../services/singlefactordef.h"
@@ -17,7 +19,6 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRegularExpression>
-#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QTableWidget>
 #include <QTreeWidget>
@@ -30,14 +31,9 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
                                            QWidget *parent)
     : QWidget(parent), m_workbench(workbench), m_mode(mode) {
   setObjectName("mappingWorkbench." + mode);
-  auto *outer = new QVBoxLayout(this);
-  outer->setContentsMargins(0, 0, 0, 0);
-  auto *scroll = new QScrollArea(this);
-  scroll->setWidgetResizable(true);
-  scroll->setFrameShape(QFrame::NoFrame);
-  outer->addWidget(scroll);
-  auto *body = new QWidget(scroll);
-  scroll->setWidget(body);
+  // The dock manager owns the viewport. A second scroll area here traps the
+  // wheel between nested ranges when the parameter groups are expanded.
+  auto *body = this;
   auto *layout = new QVBoxLayout(body);
   layout->setContentsMargins(8, 8, 8, 8);
   layout->setSpacing(8);
@@ -46,21 +42,28 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   title.setPointSize(12);
   title.setBold(true);
   m_heading->setFont(title);
+  m_heading->setTextFormat(Qt::PlainText);
   layout->addWidget(m_heading);
   auto label = [body, layout](const QString &text) {
     auto *w = new QLabel(text, body);
     w->setWordWrap(true);
+    w->setTextFormat(Qt::PlainText);
     layout->addWidget(w);
     return w;
   };
   auto button = [body, this](const QString &name, const QString &text) {
     auto *b = new QPushButton(text, body);
     b->setObjectName("workbench." + name);
+    b->setAccessibleName(text);
+    if (name == "predict" || name == "factor" || name == "compose")
+      paleo::pagesinternal::markPrimaryButton(b);
     connect(b, &QPushButton::clicked, this, [this, name] { issue(name); });
     return b;
   };
   auto *form = new QFormLayout;
+  form->setRowWrapPolicy(QFormLayout::WrapLongRows);
   form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+  layout->addWidget(paleo::pagesinternal::caption(tr("输入与参数"), body));
   layout->addLayout(form);
   if (mode == "predict") {
     label(tr("远端预测 · 模拟数据 · 待复核\n"
@@ -68,25 +71,31 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
              "生成。"));
     m_kind = new QComboBox(body);
     m_kind->setObjectName("predictionKind");
+    m_kind->setAccessibleName(tr("预测类型"));
     m_kind->addItem(tr("地震体 → 相栅格"), "seismic");
     m_kind->addItem(tr("测井 → 预测相点"), "wells");
     form->addRow(tr("预测类型"), m_kind);
     m_inputs = new QListWidget(body);
     m_inputs->setObjectName("workbenchInputs");
-    m_inputs->setMinimumHeight(120);
-    m_inputs->setMaximumHeight(200);
+    m_inputs->setFixedHeight(96);
+    m_inputs->setAccessibleName(tr("编图输入，按空格勾选"));
     layout->addWidget(m_inputs);
     connect(m_kind, &QComboBox::currentIndexChanged, this,
             [this] { refreshInputs(); });
-    auto *all = new QPushButton(tr("全选井 / 清空"), body);
+    auto *all = new QPushButton(body);
+    all->setObjectName("workbenchSelectInputs");
     layout->addWidget(all);
     connect(all, &QPushButton::clicked, this, [this] {
-      bool clear = !checkedInputs().isEmpty();
+      const bool clear = !checkedInputs().isEmpty() &&
+          (m_kind->currentData() == "seismic" ||
+           checkedInputs().size() == m_inputs->count());
+      const QSignalBlocker blocker(m_inputs);
       for (int i = 0; i < m_inputs->count(); ++i)
         m_inputs->item(i)->setCheckState(
             !clear && (m_kind->currentData() == "wells" || i == 0)
                 ? Qt::Checked
                 : Qt::Unchecked);
+      updateState();
     });
     auto *run = new QHBoxLayout;
     run->addWidget(button("predict", tr("运行预测")));
@@ -110,8 +119,10 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
              "生成连续单因素栅格，再提取等值线"));
     m_points = new QComboBox(body);
     m_points->setObjectName("workbenchPoints");
+    m_points->setAccessibleName(tr("样点图层"));
     form->addRow(tr("样点图层"), m_points);
     m_factor = new QComboBox(body);
+    m_factor->setAccessibleName(tr("单因素"));
     m_factor->addItem(tr("砂岩厚度"), "sandthick");
     m_factor->addItem(tr("砂地比"), "sandratio");
     m_factor->addItem(tr("地层厚度"), "strathick");
@@ -119,9 +130,11 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     m_factor->addItem(tr("渗透率"), "perm");
     form->addRow(tr("单因素"), m_factor);
     m_field = new QLineEdit(body);
+    m_field->setAccessibleName(tr("数值字段"));
     m_field->setPlaceholderText(tr("输入样点数值字段名"));
     form->addRow(tr("数值字段"), m_field);
     m_cell = new QDoubleSpinBox(body);
+    m_cell->setAccessibleName(tr("网格间距，米"));
     m_cell->setRange(.1, 100000);
     m_cell->setValue(100);
     m_cell->setSuffix(tr(" m"));
@@ -132,10 +145,14 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     layout->addLayout(constraints);
     layout->addWidget(button("factor", tr("生成单因素图")));
     m_interval = new QDoubleSpinBox(body);
+    m_interval->setAccessibleName(tr("等值线间隔"));
     m_interval->setRange(.001, 1000000);
     m_interval->setDecimals(3);
     m_interval->setValue(1);
-    form->addRow(tr("等值线间隔"), m_interval);
+    auto *contourForm = new QFormLayout;
+    contourForm->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    contourForm->addRow(tr("等值线间隔"), m_interval);
+    layout->addLayout(contourForm);
     layout->addWidget(button("contours", tr("从选中栅格生成等值线")));
     connect(m_field, &QLineEdit::textChanged, this, [this] { updateState(); });
     connect(m_points, &QComboBox::currentIndexChanged, this,
@@ -145,12 +162,13 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
              "邻；连续单因素按下方阈值分相。其他图件可打开独立参考窗口。"));
     m_inputs = new QListWidget(body);
     m_inputs->setObjectName("workbenchInputs");
-    m_inputs->setMinimumHeight(120);
-    m_inputs->setMaximumHeight(200);
+    m_inputs->setFixedHeight(96);
+    m_inputs->setAccessibleName(tr("编图输入，按空格勾选"));
     layout->addWidget(m_inputs);
     auto *order = new QHBoxLayout;
     for (bool up : {true, false}) {
       auto *b = new QPushButton(up ? tr("上移优先级") : tr("下移优先级"), body);
+      b->setObjectName(up ? "workbenchMoveUp" : "workbenchMoveDown");
       order->addWidget(b);
       connect(b, &QPushButton::clicked, this, [this, up] {
         int i = m_inputs->currentRow(), j = i + (up ? -1 : 1);
@@ -163,12 +181,21 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     }
     layout->addLayout(order);
     m_thresholds = new QLineEdit(body);
+    m_thresholds->setAccessibleName(tr("单因素分相阈值"));
     m_thresholds->setPlaceholderText(tr("例如 10, 25（3 类相）"));
     form->addRow(tr("单因素分相阈值"), m_thresholds);
     label(tr("不同量纲的单因素请分别分相。当前一次编图使用同一组阈值；相栅格和"
              "相点不使用阈值。"));
     layout->addWidget(button("compose", tr("生成综合相图与相面")));
   }
+  m_inputHint = label(QString());
+  m_inputHint->setObjectName("workbenchInputHint");
+  PaleoTheme::applyThemedStyleSheet(m_inputHint, [] {
+    return PaleoTheme::mutedCaptionStyleSheet();
+  });
+  if (m_inputs)
+    connect(m_inputs, &QListWidget::currentRowChanged, this,
+            [this] { updateState(); });
   if (m_inputs)
     connect(m_inputs, &QListWidget::itemChanged, this,
             [this](QListWidgetItem *item) {
@@ -183,17 +210,25 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
             });
   m_message = label(QString());
   m_message->setObjectName("workbenchMessage");
+  m_message->hide();
   m_message->setTextInteractionFlags(Qt::TextSelectableByMouse);
-  label(tr("本层位图件与版本 · 选中后操作"));
+  layout->addSpacing(8);
+  layout->addWidget(paleo::pagesinternal::caption(tr("图件与版本"), body));
   m_results = new QTreeWidget(body);
   m_results->setObjectName("workbenchResults");
   m_results->setHeaderLabels({tr("图件"), tr("版本")});
   m_results->setRootIsDecorated(false);
-  m_results->setMinimumHeight(160);
-  m_results->setMaximumHeight(260);
+  m_results->setAccessibleName(tr("本层位图件与版本，按回车显示"));
+  m_results->setSelectionMode(QAbstractItemView::SingleSelection);
+  m_results->setFixedHeight(120);
   m_results->header()->setSectionResizeMode(0, QHeaderView::Stretch);
   m_results->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
   layout->addWidget(m_results);
+  m_resultHint = label(QString());
+  m_resultHint->setObjectName("workbenchResultHint");
+  PaleoTheme::applyThemedStyleSheet(m_resultHint, [] {
+    return PaleoTheme::mutedCaptionStyleSheet();
+  });
   auto *actions = new QGridLayout;
   actions->addWidget(button("show", tr("显示 / 定位")), 0, 0);
   actions->addWidget(button("compare", tr("打开参考窗口")), 0, 1);
@@ -203,27 +238,49 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   if (mode == "predict")
     actions->addWidget(button("welltracks", tr("查看井道 / 修订测井相")), 3, 0,
                        1, 2);
-  m_editFacies = new QComboBox(body);
-  m_editFacies->setObjectName("mapFaciesChoice");
-  actions->addWidget(m_editFacies, 4, 0);
-  actions->addWidget(button("assignFacies", tr("应用到地图选中要素")), 4, 1);
   layout->addLayout(actions);
+  auto *appearance = new QgsCollapsibleGroupBox(tr("相类别与标注"), body);
+  appearance->setObjectName("workbenchAppearance");
+  appearance->setSaveCollapsedState(false);
+  auto *appearanceLayout = new QVBoxLayout(appearance);
+  auto *faciesRow = new QHBoxLayout;
+  m_editFacies = new QComboBox(appearance);
+  m_editFacies->setAccessibleName(tr("选中要素的相类别"));
+  m_editFacies->setObjectName("mapFaciesChoice");
+  faciesRow->addWidget(m_editFacies, 1);
+  faciesRow->addWidget(button("assignFacies", tr("应用到选中要素")));
+  appearanceLayout->addLayout(faciesRow);
   auto *labelMode = new QComboBox(body);
   labelMode->setObjectName("faciesLabelMode");
+  labelMode->setAccessibleName(tr("画布文本标注"));
+  connect(labelMode, &QComboBox::currentIndexChanged, this, [this] {
+    m_labelModeDirty = true;
+  });
   labelMode->addItems({tr("隐藏标注"), tr("井名 / 要素序号"), tr("相名称"),
                        tr("井名 / 序号 ＋ 相名称")});
   labelMode->setCurrentIndex(3);
   auto *labelRow = new QHBoxLayout;
   labelRow->addWidget(new QLabel(tr("画布文本标注"), body));
   labelRow->addWidget(labelMode, 1);
-  layout->addLayout(labelRow);
-  layout->addWidget(button("labels", tr("应用标注到选中图件")));
-  m_details = label(tr("选择图件查看来源、生成参数和文件位置。"));
+  appearanceLayout->addLayout(labelRow);
+  appearanceLayout->addWidget(button("labels", tr("应用标注到选中图件")));
+  layout->addWidget(appearance);
+  appearance->setCollapsed(false); // DESIGN.md: groups start expanded.
+  auto *details = new QgsCollapsibleGroupBox(tr("来源与生成参数"), body);
+  details->setObjectName("workbenchProvenance");
+  details->setSaveCollapsedState(false);
+  auto *detailsLayout = new QVBoxLayout(details);
+  m_details = new QLabel(tr("选择图件查看来源、生成参数和文件位置。"), details);
+  m_details->setTextFormat(Qt::PlainText);
+  m_details->setWordWrap(true);
+  detailsLayout->addWidget(m_details);
+  layout->addWidget(details);
+  details->setCollapsed(false);
   m_details->setTextInteractionFlags(Qt::TextSelectableByMouse);
   m_details->setObjectName("workbenchDetails");
-  auto *schema = new QGroupBox(tr("当前层位相分类（展开编辑）"), body);
-  schema->setCheckable(true);
-  schema->setChecked(false);
+  auto *schema = new QgsCollapsibleGroupBox(tr("当前层位相分类"), body);
+  schema->setObjectName("workbenchSchema");
+  schema->setSaveCollapsedState(false);
   auto *sl = new QVBoxLayout(schema);
   auto *schemaBody = new QWidget(schema);
   sl->addWidget(schemaBody);
@@ -231,6 +288,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   sbl->setContentsMargins(0, 0, 0, 0);
   m_facies = new QTableWidget(0, 7, schemaBody);
   m_facies->setObjectName("faciesSchema");
+  m_facies->setAccessibleName(tr("当前层位相分类"));
   m_facies->setHorizontalHeaderLabels({tr("编码"), tr("类别名称"), tr("颜色"),
                                        tr("相"), tr("亚相"), tr("微相"),
                                        tr("纹理")});
@@ -240,6 +298,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   sbl->addWidget(m_facies);
   auto *library = new QComboBox(schemaBody);
   library->setObjectName("faciesTextureLibrary");
+  library->setAccessibleName(tr("地质纹理库"));
   library->setEditable(true);
   library->setInsertPolicy(QComboBox::NoInsert);
   for (const auto &v : FaciesCatalog::library()) {
@@ -294,13 +353,12 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   });
   connect(remove, &QPushButton::clicked, this,
           [this] { m_facies->removeRow(m_facies->currentRow()); });
-  schemaBody->hide();
-  connect(schema, &QGroupBox::toggled, schemaBody, &QWidget::setVisible);
   layout->addWidget(schema);
+  schema->setCollapsed(false);
   layout->addStretch();
   connect(m_results, &QTreeWidget::currentItemChanged, this,
           [this] { updateState(); });
-  connect(m_results, &QTreeWidget::itemDoubleClicked, this,
+  connect(m_results, &QTreeWidget::itemActivated, this,
           [this] { issue("show"); });
   connect(workbench, &MappingWorkbench::changed, this,
           &MappingWorkbenchPage::refresh);
@@ -337,7 +395,7 @@ void MappingWorkbenchPage::setHorizon(const QString &h) {
   if (m_horizon == h)
     return;
   m_horizon = h;
-  m_message->clear();
+  showMessage(QString());
   refresh();
   const auto schema = m_workbench->facies(h);
   m_facies->setRowCount(schema.size());
@@ -355,6 +413,8 @@ void MappingWorkbenchPage::refreshInputs() {
   if (!m_inputs)
     return;
   const auto checked = checkedInputs();
+  const auto current = m_inputs->currentItem()
+      ? m_inputs->currentItem()->data(Qt::UserRole).toString() : QString();
   QStringList order;
   for (int i = 0; i < m_inputs->count(); ++i)
     order << m_inputs->item(i)->data(Qt::UserRole).toString();
@@ -378,18 +438,20 @@ void MappingWorkbenchPage::refreshInputs() {
       continue;
     auto *item = new QListWidgetItem(row.value("name").toString(), m_inputs);
     item->setData(Qt::UserRole, row.value("id"));
+    item->setToolTip(row.value("name").toString());
+    if (row.value("id").toString() == current)
+      m_inputs->setCurrentItem(item);
     item->setCheckState(checked.contains(row.value("id").toString())
                             ? Qt::Checked
                             : Qt::Unchecked);
   }
-  m_inputs->setFixedHeight(qBound(80, m_inputs->count() * 26 + 8, 160));
   updateState();
 }
 void MappingWorkbenchPage::refresh() {
   m_heading->setText(m_horizon.isEmpty()
                          ? tr("请选择编图层位")
                          : tr("%1 · %2").arg(m_horizon, m_mode == "predict"
-                                                            ? tr("智能预测")
+                                                            ? tr("预测编图")
                                                         : m_mode == "constraint"
                                                             ? tr("单因素图")
                                                             : tr("智能编图")));
@@ -417,13 +479,12 @@ void MappingWorkbenchPage::refresh() {
   }
   if (m_points && m_points->findData(pointId) >= 0)
     m_points->setCurrentIndex(m_points->findData(pointId));
-  m_results->setFixedHeight(
-      qBound(140, m_results->topLevelItemCount() * 24 + 30, 240));
   refreshInputs();
   updateState();
 }
 void MappingWorkbenchPage::showMessage(const QString &message) {
   m_message->setText(message);
+  m_message->setVisible(!message.isEmpty());
 }
 void MappingWorkbenchPage::updateState() {
   const bool horizon = !m_horizon.isEmpty();
@@ -433,8 +494,14 @@ void MappingWorkbenchPage::updateState() {
   const bool selected = !row.isEmpty();
   if (auto *labels = findChild<QComboBox *>("faciesLabelMode")) {
     const QSignalBlocker block(labels);
-    labels->setCurrentIndex(m_workbench->labelMode(selectedLayer()));
+    const int savedMode = m_workbench->labelMode(selectedLayer());
+    if (m_labelLayer != selectedLayer() || !m_labelModeDirty)
+      labels->setCurrentIndex(savedMode);
+    m_labelLayer = selectedLayer();
+    m_labelModeDirty = labels->currentIndex() != savedMode;
     labels->setEnabled(selected && row.value("type") == "vector");
+    labels->setToolTip(labels->isEnabled() ? tr("选择标注内容后，点击下方应用")
+                                         : tr("请先选择矢量相图"));
   }
   auto gate = [this](const QString &name, bool enabled, const QString &reason) {
     if (auto *b = commandButton(name)) {
@@ -442,8 +509,48 @@ void MappingWorkbenchPage::updateState() {
       b->setToolTip(enabled ? b->text() : reason);
     }
   };
-  gate("predict", horizon && !m_workbench->busy() && !checkedInputs().isEmpty(),
-       tr("先选择层位及可用输入；运行期间请等待或取消"));
+  const bool busy = m_workbench->busy();
+  const auto checked = checkedInputs();
+  const QString readiness = !horizon ? tr("请先在画布上方选择层位")
+      : busy ? tr("预测正在运行，可取消；完成后自动显示图件")
+      : m_inputs && m_inputs->count() == 0
+          ? (m_mode == "predict" ? tr("暂无可用输入，请在「数据管理」导入并关联地震体或测井数据")
+                                  : tr("本层位还没有编图输入，请先生成预测图或单因素图"))
+      : checked.isEmpty() ? tr("请勾选输入后运行；可用空格切换勾选")
+                          : tr("已选择 %1 项输入").arg(checked.size());
+  m_inputHint->setText(m_inputs ? readiness
+      : !horizon ? tr("请先在画布上方选择层位")
+      : m_points && m_points->count() == 0
+          ? tr("暂无样点，请先导入带数值字段的样点图层")
+          : tr("填写样点字段后生成单因素图，再选择结果提取等值线"));
+  gate("predict", horizon && !busy && !checked.isEmpty(), readiness);
+  if (auto *select = findChild<QPushButton *>("workbenchSelectInputs")) {
+    const bool wells = m_kind->currentData() == "wells";
+    const bool all = !checked.isEmpty() && (!wells || checked.size() == m_inputs->count());
+    select->setText(all ? tr("清空选择") : wells ? tr("全选井") : tr("选择首个地震体"));
+    select->setEnabled(!busy && m_inputs->count() > 0);
+    select->setToolTip(select->isEnabled() ? select->text() : readiness);
+  }
+  if (m_kind) {
+    m_kind->setEnabled(!busy);
+    m_kind->setToolTip(busy ? readiness : tr("选择预测所用的数据类型"));
+  }
+  if (m_inputs) {
+    m_inputs->setEnabled(m_mode != "predict" || !busy);
+    m_inputs->setToolTip(readiness);
+    for (bool up : {true, false}) {
+      if (auto *b = findChild<QPushButton *>(up ? "workbenchMoveUp" : "workbenchMoveDown")) {
+        const int row = m_inputs->currentRow();
+        b->setEnabled(row >= 0 && (up ? row > 0 : row + 1 < m_inputs->count()));
+        b->setToolTip(b->isEnabled() ? tr("调整选中输入的编图优先级")
+            : row < 0 ? tr("请先选中一项输入") : tr("已到列表边界"));
+      }
+    }
+  }
+  m_resultHint->setText(m_results->topLevelItemCount() == 0
+      ? tr("暂无图件，完成上方运行后，结果会自动显示在此处和画布上")
+      : tr("共 %1 项 · 选中后操作，回车或双击显示图件")
+            .arg(m_results->topLevelItemCount()));
   gate("cancel", m_workbench->busy(), tr("没有正在执行的预测"));
   gate("factor",
        horizon && m_points && m_points->count() > 0 &&
@@ -460,7 +567,7 @@ void MappingWorkbenchPage::updateState() {
        cartographic ? tr("解释性制图成果不能当作分析场提取等值线")
                     : tr("先选择一个连续单因素栅格"));
   gate("compose", horizon && !checkedInputs().isEmpty(),
-       tr("请勾选本层位编图输入"));
+       readiness);
   for (const auto &name : {"import", "draw", "schema"})
     gate(name, horizon, tr("请先选择层位"));
   const auto selectedSchema = m_workbench->versionForLayer(selectedLayer())
@@ -477,6 +584,9 @@ void MappingWorkbenchPage::updateState() {
   int oldIndex = m_editFacies->findData(oldCode);
   if (oldIndex >= 0)
     m_editFacies->setCurrentIndex(oldIndex);
+  m_editFacies->setEnabled(row.value("draft").toBool() && !selectedSchema.isEmpty());
+  m_editFacies->setToolTip(m_editFacies->isEnabled() ? tr("选择要赋予选中要素的相类别")
+                                                  : tr("请先复制相图为编辑副本"));
   gate("assignFacies", row.value("draft").toBool() && !selectedSchema.isEmpty(),
        tr("复制相图后，在画布选中要素，再选择相类别"));
   gate("welltracks",

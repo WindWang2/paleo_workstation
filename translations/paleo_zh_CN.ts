@@ -3368,6 +3368,41 @@
         <source>无法解码测线</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="2614"/>
+        <source>正在后台解析数据行…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="3390"/>
+        <source>未命名层位</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="5118"/>
+        <source>无法解析 LAS 文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1532"/>
+        <source>还没有打开的预览 — 从顶部导入数据，再在左侧列表选择一条数据</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4264"/>
+        <source>显示或隐藏文字标注。点标记保持统一；有沉积相字段时标出相名</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4697"/>
+        <source>正在后台解析综合柱状图…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="4713"/>
+        <source>综合柱状图 XML 无法解析</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>EntityPanel</name>
@@ -4226,6 +4261,47 @@ Crossline: %3 ~ %4</source>
     <message>
         <location filename="../src/ui/pages/entitypanel.cpp" line="1353"/>
         <source>血缘诊断：缺失源版本 %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="1408"/>
+        <source>统计 GeoJSON 属性</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="945"/>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="947"/>
+        <source>统计中…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="1017"/>
+        <source>要素个数: 统计中…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="1018"/>
+        <source>坐标范围: 统计中…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="1019"/>
+        <source>属性字段: 统计中…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="1020"/>
+        <source>相名字段: 统计中…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="731"/>
+        <source>工程还没打开 — 打开工程后在左侧列表选择实体，这里显示它的角色槽数据全貌</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="741"/>
+        <source>在左侧数据列表选择实体或资产，这里按角色词表显示它的数据全貌与派生产物</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -5364,6 +5440,174 @@ Crossline: %3 ~ %4</source>
     <message>
         <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="500"/>
         <source>已关联工程文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="71"/>
+        <source>输入与参数</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="86"/>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="171"/>
+        <source>编图输入，按空格勾选</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="142"/>
+        <source>网格间距，米</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="221"/>
+        <source>图件与版本</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="226"/>
+        <source>本层位图件与版本，按回车显示</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="247"/>
+        <source>相类别与标注</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="253"/>
+        <source>选中要素的相类别</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="256"/>
+        <source>应用到选中要素</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="274"/>
+        <source>来源与生成参数</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="286"/>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="296"/>
+        <source>当前层位相分类</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="306"/>
+        <source>地质纹理库</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="459"/>
+        <source>预测编图</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="508"/>
+        <source>选择标注内容后，点击下方应用</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="509"/>
+        <source>请先选择矢量相图</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="519"/>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="527"/>
+        <source>请先在画布上方选择层位</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="520"/>
+        <source>预测正在运行，可取消；完成后自动显示图件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="522"/>
+        <source>暂无可用输入，请在「数据管理」导入并关联地震体或测井数据</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="523"/>
+        <source>本层位还没有编图输入，请先生成预测图或单因素图</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="524"/>
+        <source>请勾选输入后运行；可用空格切换勾选</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="525"/>
+        <source>已选择 %1 项输入</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="529"/>
+        <source>暂无样点，请先导入带数值字段的样点图层</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="530"/>
+        <source>填写样点字段后生成单因素图，再选择结果提取等值线</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="535"/>
+        <source>清空选择</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="535"/>
+        <source>全选井</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="535"/>
+        <source>选择首个地震体</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="541"/>
+        <source>选择预测所用的数据类型</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="550"/>
+        <source>调整选中输入的编图优先级</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="551"/>
+        <source>请先选中一项输入</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="551"/>
+        <source>已到列表边界</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="556"/>
+        <source>暂无图件，完成上方运行后，结果会自动显示在此处和画布上</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="557"/>
+        <source>共 %1 项 · 选中后操作，回车或双击显示图件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="587"/>
+        <source>选择要赋予选中要素的相类别</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="588"/>
+        <source>请先复制相图为编辑副本</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -8091,6 +8335,218 @@ SHA-256：%2</source>
     <message>
         <location filename="../src/ui/paleomainwindow_sections.cpp" line="219"/>
         <source>路线、逐井时深校正与来源关系已保存为工程新版本。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="525"/>
+        <source>Paleo 工程 (*.paleo);;QGIS 工程 (*.qgz *.qgs)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="539"/>
+        <source>Paleo 工程 (*.qgz)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="856"/>
+        <source>已切换到紧凑密度</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="856"/>
+        <source>已切换到宽松密度</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1016"/>
+        <source>紧凑密度</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1484"/>
+        <source>Paleo Workbench [只读]</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1485"/>
+        <source>%1 — Paleo Workbench [只读]</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1502"/>
+        <source>工程处于只读模式（另一个实例持有写锁）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="1512"/>
+        <source>工程以只读模式运行（写操作已禁用）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="392"/>
+        <source>层服务不可用——深度域转换未接线</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="401"/>
+        <source>找不到层位 %1 的时间域栅格声明</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="411"/>
+        <source>没有可用的井分层/校验炮数据——先导入再转换</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="418"/>
+        <source>速度模型建立失败：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="421"/>
+        <source>已建立并存档速度模型（层间平均）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="426"/>
+        <source>深度域转换失败：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="429"/>
+        <source>深度域转换完成：%1 → %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="442"/>
+        <source>属性建模</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="478"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="565"/>
+        <source>属性建模失败：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="498"/>
+        <source>属性建模：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="516"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="562"/>
+        <source>属性建模失败</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="557"/>
+        <source>已取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="571"/>
+        <source>已充填 %1 个单元 · %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="574"/>
+        <source>属性建模完成：%1（%2 个单元）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="740"/>
+        <source>测井 %1 曲线加载失败：%2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="742"/>
+        <source>连井剖面：井 %1 LAS 加载失败 — %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="760"/>
+        <source>测井计算</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="769"/>
+        <source>井集为空——先在数据页导入井（含 LAS）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="796"/>
+        <source>无可解析 LAS 的井：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="825"/>
+        <source>（%1）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="827"/>
+        <source>%1/%2 井完成，%3 条曲线并入曲线集%4</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="874"/>
+        <source>先打开工程再网格化（派生产物需要受管目录）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="887"/>
+        <source>面运算需要已打开的工程与图层声明</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1825"/>
+        <source>正在编辑「%1」——先保存或放弃编辑，再切换层位（定位器切换已拒绝）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="526"/>
+        <source>已请求取消预测。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="528"/>
+        <source>已在画布显示并定位选中图件。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="530"/>
+        <source>已打开独立参考窗口，可继续对照当前图件。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="532"/>
+        <source>选中图件的标注已更新。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="534"/>
+        <source>当前层位相分类已保存，已有图件保留原分类。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="536"/>
+        <source>请在画布逐点绘制约束线，右键结束，Esc 取消。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="538"/>
+        <source>选中要素的相类别已更新，请保存编辑以登记新版本。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="540"/>
+        <source>已打开井道与测井相修订面板。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_faults.cpp" line="19"/>
+        <source>断层解释</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -12621,6 +13077,26 @@ SHA-256：%2</source>
         <location filename="../src/ui/pages/validatepage.cpp" line="333"/>
         <location filename="../src/ui/pages/validatepage.cpp" line="351"/>
         <source>%1 ms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/validatepage.cpp" line="119"/>
+        <source>问题清单</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/validatepage.cpp" line="120"/>
+        <source>还没有运行验证，请点击顶部「运行验证」。结果中可按回车或双击定位问题。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/validatepage.cpp" line="230"/>
+        <source>本次验证未发现问题。请结合残差与资料覆盖情况复核成果。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/validatepage.cpp" line="231"/>
+        <source>共 %1 个问题 · 选中后按回车或双击定位；含剖面位置的行可在数据页查看。</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

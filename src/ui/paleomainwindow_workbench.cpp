@@ -533,11 +533,29 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             legend(layer ? layer->customProperty("paleoLayerId").toString()
                          : QString());
           }
-          const auto message =
-              ok ? (action == "predict"
-                        ? tr("预测已提交；完成后自动登记并显示图件。")
-                        : tr("操作完成，图件与版本已更新。"))
-                 : (error.isEmpty() ? tr("操作未完成，请检查输入。") : error);
+          QString message;
+          if (!ok)
+            message = error.isEmpty() ? tr("操作未完成，请检查输入。") : error;
+          else if (action == "predict")
+            message = tr("预测已提交；完成后自动登记并显示图件。");
+          else if (action == "cancel")
+            message = tr("已请求取消预测。");
+          else if (action == "show")
+            message = tr("已在画布显示并定位选中图件。");
+          else if (action == "compare")
+            message = tr("已打开独立参考窗口，可继续对照当前图件。");
+          else if (action == "labels")
+            message = tr("选中图件的标注已更新。");
+          else if (action == "schema")
+            message = tr("当前层位相分类已保存，已有图件保留原分类。");
+          else if (action == "draw")
+            message = tr("请在画布逐点绘制约束线，右键结束，Esc 取消。");
+          else if (action == "assignFacies")
+            message = tr("选中要素的相类别已更新，请保存编辑以登记新版本。");
+          else if (action == "welltracks")
+            message = tr("已打开井道与测井相修订面板。");
+          else
+            message = tr("操作完成，图件与版本已更新。");
           page->showMessage(message);
           statusBar()->showMessage(message, 10000);
         });

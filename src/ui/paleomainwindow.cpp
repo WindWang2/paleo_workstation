@@ -215,8 +215,8 @@ namespace
     auto *page = new QWidget;
     page->setObjectName(QStringLiteral("startupPage"));
     auto *lay = new QVBoxLayout(page);
-    lay->setContentsMargins(64, 48, 64, 48);
-    lay->setSpacing(12);
+    lay->setContentsMargins(48, 48, 48, 48);
+    lay->setSpacing(8);
 
     auto *title = new QLabel(QCoreApplication::translate("PaleoMainWindow", "Paleo Workbench"), page);
     QFont f = title->font();
@@ -225,6 +225,9 @@ namespace
     title->setFont(f);
     auto *sub = new QLabel(QCoreApplication::translate("PaleoMainWindow", "古地理编图工作台 — 新建工程或打开最近工程开始"), page);
 
+    sub->setWordWrap(true);
+    PaleoTheme::applyThemedStyleSheet(sub, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+
     auto *recentLabel = new QLabel(QCoreApplication::translate("PaleoMainWindow", "最近工程"), page);
     auto *list = new QListWidget(page);
     list->setObjectName(QStringLiteral("recentProjectsList"));
@@ -232,7 +235,10 @@ namespace
     const QStringList recent = readRecentProjects();
     for (const QString &p : recent)
     {
-      auto *item = new QListWidgetItem(p, list);
+      const QFileInfo info(p);
+      auto *item = new QListWidgetItem(PaleoIcons::qgisTheme(QStringLiteral("mActionFileOpen.svg")),
+                                       info.completeBaseName() + QStringLiteral("\n") + info.absolutePath(), list);
+      item->setToolTip(p);
       item->setData(Qt::UserRole, p); // activation handler reads the path from here
     }
     if (recent.isEmpty()) // §42.4 empty state — guidance, not a blank panel
@@ -249,6 +255,10 @@ namespace
     auto *fromAreaBtn =
         new QPushButton(QCoreApplication::translate("PaleoMainWindow", "从工区文件夹新建"), page);
     fromAreaBtn->setObjectName(QStringLiteral("importFromFolderButton"));
+    paleo::pagesinternal::markPrimaryButton(newBtn);
+    newBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionFileNew.svg")));
+    openBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionFileOpen.svg")));
+    fromAreaBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mIconFolderOpen.svg")));
     btnRow->addWidget(newBtn);
     btnRow->addWidget(openBtn);
     btnRow->addWidget(fromAreaBtn);
@@ -257,9 +267,10 @@ namespace
     lay->addWidget(title);
     lay->addWidget(sub);
     lay->addSpacing(16);
+    lay->addLayout(btnRow);
+    lay->addSpacing(16);
     lay->addWidget(recentLabel);
     lay->addWidget(list, 1);
-    lay->addLayout(btnRow);
     return page;
   }
 // T31 空态标签已收敛为共享组件 ui/paleoemptystate（本文件旧匿名类删除）；
@@ -612,7 +623,7 @@ void PaleoMainWindow::buildShell()
     auto *layerLayout = new QVBoxLayout(layerHost);
     layerLayout->setContentsMargins(0, 0, 0, 0);
     layerLayout->setSpacing(0);
-    layerLayout->addWidget(m_profileBar);
+    layerLayout->addWidget(new PaleoToolRow(m_profileBar, layerHost));
     layerLayout->addWidget(m_layerPanel, 1);
     m_leftDock->setWidget(layerHost);
   }
@@ -640,9 +651,9 @@ void PaleoMainWindow::buildShell()
   // 标题随页（pageDockTitles()）；ribbon 里的「参数」钮就是它的 toggleViewAction。
   m_rightDock = new QDockWidget(pageDockTitles().first(), this);
   m_rightDock->setObjectName(QStringLiteral("pagePanelDock"));
-  auto *panelHost = new QWidget(m_rightDock);
+  auto *panelHost = new PaleoPanelHost(m_rightDock);
   panelHost->setObjectName(QStringLiteral("rightPanelHost"));
-  auto *panelStack = new QStackedLayout(panelHost);
+  auto *panelStack = static_cast<QStackedLayout *>(panelHost->layout());
   for (const QString &label : pageLabels())
   {
     auto *placeholder = new QLabel(label + tr(" — 面板待实现"), panelHost);
@@ -1697,4 +1708,3 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
     }
   }
 }
-

@@ -85,6 +85,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   auto *entityLay = new QVBoxLayout(this);
   entityLay->setContentsMargins(0, 0, 0, 0);
   entityLay->setSpacing(8);
+  entityLay->setAlignment(Qt::AlignTop);
   // ---- p5a：实体角色槽与资产属性视图 ----
   entityLay->addWidget(caption(tr("数据属性与设置"), this));
   auto *viewEmpty = new QLabel(this);
@@ -104,22 +105,21 @@ EntityPanel::EntityPanel(QWidget *parent)
   // 同值标签：实体名（往往是长文件名）不顶宽面板，宽度内换行。
   entityHeader->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   entityHeader->setWordWrap(true);
-  // 实体头：surfaceAltRaised 底 + 文字位主色（浅 #1B73D0 / 暗 primaryText）。
+  // 数据属性标题使用中性色，交互蓝只用于主操作与选中状态。
   PaleoTheme::applyThemedStyleSheet(entityHeader, [] {
-    const bool dark = PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark;
     const auto &t = PaleoTheme::tokens();
     return QStringLiteral(
                "QLabel { "
                "  background: %1; "
                "  color: %2; "
                "  font-weight: 600; "
-               "  font-size: 10pt; "
-               "  padding: 6px 10px; "
+               "  font-size: 12pt; "
+               "  padding: 8px 16px; "
                "  border-radius: 4px; "
                "  border: 1px solid %3; "
                "}")
         .arg(t.surfaceAltRaised.name().toUpper(),
-             (dark ? t.primaryText : t.primary).name().toUpper(),
+             t.text.name().toUpper(),
              t.border.name().toUpper());
   });
   vcl->addWidget(entityHeader);
@@ -249,6 +249,7 @@ EntityPanel::EntityPanel(QWidget *parent)
 
   buildD4Ui(); // P3 D4：CRUD 条/版本时间线/拓扑图/统计段
 
+  entityLay->addStretch(); // Absorb unused height while the content is hidden.
   refresh(); // 初始空态（未选实体）：指引行，不留白板
 }
 
@@ -750,7 +751,7 @@ void EntityPanel::refresh()
   // 空态：工程未开
   if (!cat || !cat->isOpen())
   {
-    empty->setText(tr("工程还没打开 — 打开工程后在地图上点选实体，"
+    empty->setText(tr("工程还没打开 — 打开工程后在左侧列表选择实体，"
                       "这里显示它的角色槽数据全貌"));
     empty->setVisible(true);
     content->setVisible(false);
@@ -760,7 +761,7 @@ void EntityPanel::refresh()
   // 实体与资产均未选：指引下一步（地图/列表点选）
   if (entityId.isEmpty() && assetId.isEmpty())
   {
-    empty->setText(tr("在地图上点选实体（如井），这里按角色词表显示"
+    empty->setText(tr("在左侧数据列表选择实体或资产，这里按角色词表显示"
                       "它的数据全貌与派生产物"));
     empty->setVisible(true);
     content->setVisible(false);

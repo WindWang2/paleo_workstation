@@ -1609,7 +1609,7 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   m_tabs->setCornerWidget(maxBtn, Qt::TopRightCorner);
   lay->addWidget(m_tabs);
 
-  m_emptyLabel = stateLabel(tr("还没有打开的预览 — 在列表中选择一条数据"), this);
+  m_emptyLabel = stateLabel(tr("还没有打开的预览 — 从顶部导入数据，再在左侧列表选择一条数据"), this);
   m_emptyLabel->setObjectName(QStringLiteral("previewEmptyLabel"));
   lay->addWidget(m_emptyLabel);
   m_tabs->setVisible(false);
@@ -2732,9 +2732,8 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     // 有已决链接时综合图按 wellCurveIndex，每条曲线用自己文件的深度列。
     const QPointer<CurvePanel> panelFill(panel);
     const QPointer<WellComposite::WellCompositePanel> compFill(compPanel);
-    const auto chipMapFill = chipMap; // shared_ptr 副本（闭包与页内 chips 同源）
     const std::function<void(const QList<LasCurve> &, const QHash<QString, LasDoc> &)> fillCurves =
-        [panelFill, compFill, chipMapFill, hintFill, names, defaultShown,
+        [panelFill, compFill, chipMapFill = chipMap, hintFill, names, defaultShown,
          wellTitle, formationIntervals, wellCurves, compositeFromWell, abs](
             const QList<LasCurve> &curves, const QHash<QString, LasDoc> &siblings) {
           if (hintFill)

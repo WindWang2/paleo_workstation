@@ -3,8 +3,46 @@
 #include <QLayout>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QStackedLayout>
 #include <QStackedWidget>
 #include <QStyle>
+
+// A dock has one scroll viewport. Only the visible panel may determine its
+// overflow; hidden long forms must not stretch a compact validation/data page.
+class PaleoPanelHost : public QWidget
+{
+public:
+  explicit PaleoPanelHost(QWidget *parent = nullptr) : QWidget(parent)
+  {
+    auto *stack = new QStackedLayout(this);
+    stack->setSizeConstraint(QLayout::SetNoConstraint);
+    connect(stack, &QStackedLayout::currentChanged, this, [this] { updateGeometry(); });
+  }
+  QSize minimumSizeHint() const override
+  {
+    auto *stack = qobject_cast<QStackedLayout *>(layout());
+    auto *page = stack ? stack->currentWidget() : nullptr;
+    return page ? page->minimumSizeHint().expandedTo(page->minimumSize()) : QSize(0, 0);
+  }
+  QSize sizeHint() const override
+  {
+    auto *stack = qobject_cast<QStackedLayout *>(layout());
+    auto *page = stack ? stack->currentWidget() : nullptr;
+    return page ? page->sizeHint().expandedTo(minimumSizeHint()) : QSize(0, 0);
+  }
+  bool hasHeightForWidth() const override
+  {
+    auto *stack = qobject_cast<QStackedLayout *>(layout());
+    auto *page = stack ? stack->currentWidget() : nullptr;
+    return page && page->hasHeightForWidth();
+  }
+  int heightForWidth(int width) const override
+  {
+    auto *stack = qobject_cast<QStackedLayout *>(layout());
+    auto *page = stack ? stack->currentWidget() : nullptr;
+    return page ? page->heightForWidth(width) : -1;
+  }
+};
 
 // A canvas uses the remaining space. Hidden pages and long tool rows must not
 // propagate their minimum widths to QMainWindow's dock splitter constraints.

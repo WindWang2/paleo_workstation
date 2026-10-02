@@ -33,6 +33,8 @@
 //     session) so the per-layer native undo stack starts pristine;
 //   · QgsProject::instance() is process-global — init()/cleanup() clear it.
 
+#include "../src/qgis/qgiseditingservice.h"
+#include "../src/metadata/paleoprojectstore.h"
 #include <algorithm>
 #include <memory>
 
@@ -191,6 +193,7 @@ class TestEditTools : public QObject
     void toolbarEditToolActionAutoStartsSession();
     void toolbarUndoRedoActionStates();
     void toolbarSavePersistsAndClearsUndo();
+    void toolbarServiceEndsEachSessionOnce();
     void toolbarCancelDiscardsEdits();
     void toolbarSaveRefusedOutsideSession();
     // ---- mapping 主线3：编辑会话生命周期加固 ----
@@ -3153,6 +3156,36 @@ void TestEditTools::toolbarUndoRedoActionStates()
   layer.rollBack();
   QVERIFY( !bar.actionUndo()->isEnabled() );
   QVERIFY( !bar.actionRedo()->isEnabled() );
+}
+
+void TestEditTools::toolbarServiceEndsEachSessionOnce()
+{
+  QgsMapCanvas canvas;
+  configureCanvas(canvas);
+  QgsVectorLayer layer("Point?crs=EPSG:4326", "service-session", "memory");
+  PaleoProjectStore store;
+  QgisEditingService service(&store);
+  PaleoEditingToolbar bar(&canvas);
+  bar.setLayers({&layer});
+  bar.setCurrentLayer(&layer);
+  bar.setEditingService(&service);
+  QSignalSpy stopped(&bar, &PaleoEditingToolbar::editingStopped);
+  QVERIFY(bar.startEditing());
+  QVERIFY(bar.saveEditing());
+  QCOMPARE(stopped.count(), 1);
+  QVERIFY(stopped.last()[1].toBool());
+  QVERIFY(bar.startEditing());
+  QVERIFY(bar.cancelEditing());
+  QCOMPARE(stopped.count(), 2);
+  QVERIFY(!stopped.last()[1].toBool());
+  QVERIFY(bar.startEditing());
+  QVERIFY(service.commitEdit(&layer)); // external service path still notifies
+  QCOMPARE(stopped.count(), 3);
+  QVERIFY(!bar.isEditing());
+  QVERIFY(bar.startEditing());
+  QVERIFY(service.rollbackEdit(&layer));
+  QCOMPARE(stopped.count(), 4);
+  QVERIFY(!bar.isEditing());
 }
 
 void TestEditTools::toolbarSavePersistsAndClearsUndo()

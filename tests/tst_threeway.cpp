@@ -241,7 +241,7 @@ class TestThreeWay : public QObject
         QVERIFY2( issueRow >= 0, "no TIME_RESIDUAL row in table" );
         // Repo pattern (tst_panels): invoke the signal with the real item.
         QVERIFY( QMetaObject::invokeMethod(
-            table, "itemDoubleClicked",
+            table, "itemActivated",
             Q_ARG( QTableWidgetItem *, table->item( issueRow, 0 ) ) ) );
 
         QCOMPARE( spy.count(), 1 );
@@ -277,7 +277,7 @@ class TestThreeWay : public QObject
         QCOMPARE( resTable->rowCount(), 1 ); // 井 A1 的逐井残差行
         spy.clear();
         QVERIFY( QMetaObject::invokeMethod(
-            resTable, "itemDoubleClicked",
+            resTable, "itemActivated",
             Q_ARG( QTableWidgetItem *, resTable->item( 0, 0 ) ) ) );
         QCOMPARE( spy.count(), 1 );
         const QVariantList rargs = spy.at( 0 );

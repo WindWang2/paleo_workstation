@@ -137,6 +137,7 @@ class PaleoEditingToolbar : public QWidget
     // 的会话收尾——先提交保住编辑成果，provider 拒绝则回滚，绝不把悬挂编辑
     // 缓冲留给图层析构。editingStopped(id, saved) 照常发出。
     void finalizeSession( const QString &reason );
+    void finishSession(const QString &id, bool saved);
     // 监听工程的 layersWillBeRemoved/cleared（null → 进程级 QgsProject::instance()）。
     void watchProject( QgsProject *project );
 

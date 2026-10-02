@@ -1445,6 +1445,24 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
         p.setPen(QPen(QColor(229, 57, 53, 180), 2.0, Qt::DashLine));
         p.drawPolyline(draft);
     }
+    // FaultSet 断层棒（goal/fault-interpretation）：剖面身份已在 dock 侧
+    // 过滤；选中断层加白色 halo（拾取点白描边同款视觉语言）+ 线宽提亮。
+    for (const FaultStickDisplay &stick : m_faultStickOverlays) {
+        QPolygonF poly;
+        for (const auto &pt : stick.points)
+            poly.append(QPointF(traceToPixelX(pt.first * std::max(1, m_traces - 1)),
+                                timeToPixelY(pt.second)));
+        if (poly.size() < 2)
+            continue;
+        if (stick.highlighted) {
+            p.setPen(QPen(QColor(Qt::white), 4.6));
+            p.drawPolyline(poly);
+            p.setPen(QPen(QColor(229, 57, 53), 2.6));
+        } else {
+            p.setPen(QPen(QColor(229, 57, 53), 2.2));
+        }
+        p.drawPolyline(poly);
+    }
 
     p.restore();
 
@@ -2005,6 +2023,12 @@ void SeismicSectionCanvas::setPickOverlays(const QList<SeismicPick> &picks,
                                            const QList<SeismicFaultSegment> &faults) {
     m_pickOverlays = picks;
     m_faultOverlays = faults;
+    update();
+}
+
+void SeismicSectionCanvas::setFaultStickOverlays(
+    const QVector<SeismicSectionCanvas::FaultStickDisplay> &sticks) {
+    m_faultStickOverlays = sticks;
     update();
 }
 

@@ -39,6 +39,11 @@ class Seismic3DViewPanel;
 class SeismicTaskService;
 }
 
+namespace paleo::fault {
+class FaultInterpretationController;
+class FaultManagerPanel;
+}
+
 class PaleoDockWidget : public QDockWidget
 {
   Q_OBJECT
@@ -146,6 +151,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     // Swap right-dock placeholder panels for the real page panels (§42.2),
     // bound to the workflow orchestrators. Call after AppContext assembly.
     void attachWorkbench(MappingWorkbench *workbench);
+    // goal/fault-interpretation：断层解释接线——剖面 dock 挂编排器 + 右栏
+    // 断层管理面板 dock。幂等（m_faultPanelDock 已建则只重挂控制器）。
+    void attachFaults(paleo::fault::FaultInterpretationController *controller);
     void attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                          CompositionWorkflow *compose, ValidationWorkflow *validate,
                          DataImportService *importSvc = nullptr,
@@ -302,6 +310,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     seismic::SeismicSectionDockWidget *m_seismicSectionDock = nullptr;
     QDockWidget *m_seismic3dDock = nullptr;
     seismic::Seismic3DViewPanel *m_seismic3dPanel = nullptr;
+    // goal/fault-interpretation：断层管理面板 dock（attachFaults 建一次）
+    QDockWidget *m_faultPanelDock = nullptr;
+    paleo::fault::FaultManagerPanel *m_faultPanel = nullptr;
     std::unique_ptr<seismic::SeismicTaskService> m_seismicTaskSvc;
     // goal/petrophysics-logs：测井计算批任务（面板只发意图，编排在此）。
     std::unique_ptr<paleo::petrophys::PetroPhysTaskService> m_petroPhysSvc;

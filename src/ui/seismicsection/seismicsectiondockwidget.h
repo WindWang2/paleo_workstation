@@ -1,6 +1,7 @@
 // 层：视图
 #pragma once
 
+#include "domain/faultset.h"
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
 #include <QComboBox>
@@ -21,6 +22,10 @@ class QCheckBox;
 class QDialog;
 class QTableWidget;
 class QUndoStack;
+
+namespace paleo::fault {
+class FaultInterpretationController;
+}
 
 namespace seismic {
 
@@ -107,6 +112,15 @@ public:
     void removePick(int id);
     void renamePickHorizon(int id, const QString &newName);
     void addFaultFromCanvas(const QVector<QPair<double, double>> &points);
+    // goal/fault-interpretation：注入编排器后，剖面断层拾取改走 FaultSet
+    // （undo 入编排器栈、落工程存储）；未注入时保持旧会话伴生文件路径。
+    void setFaultController(paleo::fault::FaultInterpretationController *controller);
+    paleo::fault::FaultInterpretationController *faultController() const {
+        return m_faultController;
+    }
+    // 当前剖面的断层定位身份：IL/XL 切片 → 线号；任意线 → m_lastPathPoints
+    // 点串（同路径重提取可复现）；时间切片/无剖面 → false。
+    bool currentFaultSection(paleo::fault::FaultSectionRef *out) const;
     bool saveInterpretationSession(QString *error = nullptr);
     bool loadInterpretationSession(QString *error = nullptr);
     QString registerCurrentHorizonAsset(QString *error = nullptr);
@@ -229,6 +243,9 @@ private:
     SeismicInterpretationSession m_session;
     QUndoStack *m_undoStack = nullptr;
     SeismicPickPanel *m_pickPanel = nullptr;
+    paleo::fault::FaultInterpretationController *m_faultController = nullptr;
+    std::vector<glm::ivec2> m_lastPathPoints; // 任意线剖面身份（IL/XL 点串）
+    void refreshFaultStickOverlay();          // FaultSet 棒 → 画布（按当前剖面过滤）
     SgySliceImage m_lastSlice;                 // 追踪原料（最近一次剖面提取）
     int m_trackSeedPick = -1;
     SeismicTrackOptions m_trackOptions;

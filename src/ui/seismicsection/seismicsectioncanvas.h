@@ -155,6 +155,18 @@ public:
     // 叠加数据（画布只画不存——会话模型在 dock）
     void setPickOverlays(const QList<SeismicPick> &picks, const QList<SeismicFaultSegment> &faults);
 
+    // ---- goal/fault-interpretation：FaultSet 断层棒回显 ----
+    // 剖面身份（IL/XL/任意线）由 dock 侧解析并过滤，画布只画点列；
+    // highlighted = 该棒所属断层在 SelectionContext 联动中被选中。
+    struct FaultStickDisplay
+    {
+        QVector<QPair<double, double>> points; // (traceFrac 0..1, twtMs)
+        bool highlighted = false;
+    };
+    void setFaultStickOverlays(const QVector<FaultStickDisplay> &sticks);
+    // 测试/联动断言面：当前叠加的 FaultSet 棒（含高亮位）
+    const QVector<FaultStickDisplay> &faultStickOverlays() const { return m_faultStickOverlays; }
+
     // Wells and calibration
     void setWells(const std::vector<SectionWellInfo> &wells);
     void setTimeDepthModel(const TimeDepthModel &model);
@@ -408,6 +420,7 @@ private:
     SectionRef m_sectionRef;
     QList<SeismicPick> m_pickOverlays;
     QList<SeismicFaultSegment> m_faultOverlays;
+    QVector<FaultStickDisplay> m_faultStickOverlays; // FaultSet 棒（goal/fault-interpretation）
 
     // D5.3/D5.4/D5.7
     std::vector<WellTrajectory> m_wellTrajectories;

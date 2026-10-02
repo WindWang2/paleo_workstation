@@ -46,6 +46,12 @@ void CrossplotCanvas::densityImage() {
       if (!count)
         continue;
       QColor color = ink;
+      if (!m_frame.densityClass.isEmpty() &&
+          m_frame.densityClass[y * m_frame.densitySide + x] >= 0) {
+        const auto c =
+            classColor(m_frame.densityClass[y * m_frame.densitySide + x]);
+        color = QColor(c.red, c.green, c.blue);
+      }
       color.setAlpha(
           int(40 + 215 * std::log1p(count) / std::log1p(m_frame.densityMax)));
       m_density.setPixelColor(x, m_frame.densitySide - 1 - y, color);
@@ -175,7 +181,7 @@ CrossplotPanel::CrossplotPanel(QWidget *parent) : QWidget(parent) {
   auto *form = new QVBoxLayout(controls);
   form->setContentsMargins(0, 0, 0, 0);
   form->setSpacing(8);
-  controls->setMaximumWidth(290);
+  controls->setMaximumWidth(320);
   m_sources = new QListWidget(controls);
   m_sources->setObjectName(QStringLiteral("crossplotSources"));
   m_sources->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -192,6 +198,9 @@ CrossplotPanel::CrossplotPanel(QWidget *parent) : QWidget(parent) {
   for (auto pair : {qMakePair(m_x, "crossplotX"), qMakePair(m_y, "crossplotY"),
                     qMakePair(m_z, "crossplotZ")}) {
     pair.first->setObjectName(QString::fromLatin1(pair.second));
+    pair.first->setMinimumContentsLength(4);
+    pair.first->setSizeAdjustPolicy(
+        QComboBox::AdjustToMinimumContentsLengthWithIcon);
     axesRow->addWidget(pair.first);
   }
   m_x->setAccessibleName(tr("X 轴"));
@@ -246,7 +255,8 @@ CrossplotPanel::CrossplotPanel(QWidget *parent) : QWidget(parent) {
   scroll->setWidget(controls);
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
-  scroll->setMinimumWidth(240);
+  scroll->setMinimumWidth(290);
+  scroll->setMaximumWidth(340);
   outer->addWidget(scroll);
   auto *display = new QVBoxLayout;
   m_canvas = new CrossplotCanvas(this);
@@ -364,8 +374,14 @@ void CrossplotPanel::setClassified(bool available,
                                    const QVector<qint64> &counts) {
   m_classified = available;
   QStringList items;
-  for (int i = 0; i < counts.size(); ++i)
-    items << tr("类别 %1：%2").arg(i).arg(counts[i]);
+  for (int i = 0; i < counts.size(); ++i) {
+    const auto color = classColor(i);
+    items << tr("<span style='color:%1'>■</span> 类别 %2：%3")
+                 .arg(QColor(color.red, color.green, color.blue).name())
+                 .arg(i)
+                 .arg(counts[i]);
+  }
+  m_classes->setTextFormat(Qt::RichText);
   m_classes->setText(items.join(QStringLiteral(" · ")));
   setBusy(m_busy);
 }

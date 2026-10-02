@@ -3,6 +3,7 @@
 #include <QMetaType>
 #include <QString>
 #include <QStringList>
+#include <QVariantMap>
 #include <QVector>
 #include <array>
 #include <cstddef>
@@ -20,12 +21,14 @@ struct Location {
   double depth = 0, x = 0, y = 0;
   bool hasXY = false;
   int pixel = -1;
+  int sourceRow = -1;
 };
 struct SampleSet {
   QStringList names, units, parentVersionIds, sourceLayerIds;
   std::vector<double> values; // finite, row-major, names.size() dimensions
   QVector<Location> locations;
   Grid grid;
+  QVariantMap samplingMetadata;
   qint64 rejected = 0;
   std::size_t rows() const {
     return names.isEmpty() ? 0 : values.size() / std::size_t(names.size());
@@ -36,13 +39,15 @@ struct Axes {
   double yaw = 30, pitch = 20;
 };
 struct PlotPoint {
-  float x = 0, y = 0;
+  double x = 0, y = 0;
   int sample = -1;
   int label = -1;
 };
 struct PlotFrame {
   QVector<PlotPoint> points; // normalized [0,1], also used for exact picking
-  QVector<int> density;      // row-major 256² bins when >=100k
+  QVector<int>
+      densityClass; // dominant class per density bin, -1 before classification
+  QVector<int> density; // row-major 256² bins when >=100k
   int densitySide = 256, densityMax = 0;
   QString xTitle, yTitle, zTitle;
   double xMin = 0, xMax = 1, yMin = 0, yMax = 1;

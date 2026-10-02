@@ -1,4 +1,9 @@
+#include "io/perffixtures.h"
 #include "services/crossplotsamples.h"
+#include "services/crossplotsources.h"
+#include <QDataStream>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 #include <QtTest>
 #include <gdal.h>
@@ -10,6 +15,7 @@ private slots:
   void rasterPairs();
   void projections();
   void attributeHorizon();
+  void satrSource();
 };
 void TestSamples::depthAlignment() {
   Channel a{"GR", "API", "well-A", "ver-a", {0, 1, 2, 3, 4}, {1, 2, 3, 4, 5},
@@ -129,6 +135,74 @@ void TestSamples::attributeHorizon() {
   QCOMPARE(r.samples.locations[2].pixel, 2);
   a.stepMs = 0;
   QVERIFY(!CrossplotSamples::attributeHorizon({a}, {horizon}).ok);
+}
+void TestSamples::satrSource() {
+  QTemporaryDir dir;
+  const auto source = dir.filePath("survey.sgy");
+  QCOMPARE(PerfFixtures::makeSyntheticSegy(source, 2, 4, 3), 8);
+  const auto attrPath = dir.filePath("rms.sattr");
+  QFile file(attrPath);
+  QVERIFY(file.open(QIODevice::WriteOnly));
+  QDataStream stream(&file);
+  stream.setByteOrder(QDataStream::LittleEndian);
+  stream.setFloatingPointPrecision(QDataStream::SinglePrecision);
+  const auto json = QJsonDocument(QJsonObject{{"section", "il"},
+                                              {"sectionIndex", 1000},
+                                              {"attrId", "RMS"},
+                                              {"sourceSgyPath", source}})
+                        .toJson(QJsonDocument::Compact);
+  stream.writeRawData("SATR", 4);
+  stream << quint32(1) << qint32(4) << qint32(3) << quint32(json.size());
+  stream.writeRawData(json.constData(), json.size());
+  for (int row = 0; row < 3; ++row)
+    for (int col = 0; col < 4; ++col)
+      stream << float(row * 10 + col);
+  file.close();
+  AttributeSection section;
+  QString error;
+  QVERIFY2(CrossplotSources::attributeSection(attrPath, &section, &error),
+           qPrintable(error));
+  QCOMPARE(section.traceXY.size(), 4);
+  // Existing survey fit accepts residuals up to 25m; 50m trace bins here.
+  QVERIFY(std::abs(section.traceXY[0].x() - 500000) < 25.);
+  qInfo("BASELINE satr_mapper_dy_m = %.9f", section.traceXY[0].y() - 4000000);
+  QVERIFY(std::abs(section.traceXY[0].y() - 4000000) < 25.);
+  QCOMPARE(section.stepMs, 2.);
+  const auto horizonPath = dir.filePath("horizon.tif");
+  GDALAllRegister();
+  auto ds =
+      GDALCreate(GDALGetDriverByName("GTiff"), horizonPath.toUtf8().constData(),
+                 4, 1, 1, GDT_Float32, nullptr);
+  QVERIFY(ds);
+  double gt[]{499975, 50, 0, 4000050, 0, -100};
+  QCOMPARE(GDALSetGeoTransform(ds, gt), CE_None);
+  float time[]{0, 2, 4, -9999};
+  auto band = GDALGetRasterBand(ds, 1);
+  GDALSetRasterNoDataValue(band, -9999);
+  QCOMPARE(
+      GDALRasterIO(band, GF_Write, 0, 0, 4, 1, time, 4, 1, GDT_Float32, 0, 0),
+      CE_None);
+  GDALClose(ds);
+  SourceSpec attr;
+  attr.choice = {"a", "RMS", "attribute"};
+  attr.path = attrPath;
+  attr.versionId = "va";
+  SourceSpec horizon;
+  horizon.choice = {"h", "TWT", "raster"};
+  horizon.path = horizonPath;
+  horizon.versionId = "vh";
+  horizon.timeHorizon = true;
+  auto r = CrossplotSources::load({attr, horizon});
+  QVERIFY2(r.ok, qPrintable(r.error));
+  QCOMPARE(r.samples.rows(), std::size_t(3));
+  QCOMPARE(r.samples.values[0], 20.);
+  QCOMPARE(r.samples.values[2], 11.);
+  QCOMPARE(r.samples.values[4], 2.);
+  QFile truncated(attrPath);
+  QVERIFY(truncated.open(QIODevice::WriteOnly));
+  truncated.write("SATR");
+  truncated.close();
+  QVERIFY(!CrossplotSources::attributeSection(attrPath, &section, &error));
 }
 QTEST_APPLESS_MAIN(TestSamples)
 #include "tst_crossplot_samples.moc"

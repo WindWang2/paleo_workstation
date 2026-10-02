@@ -82,6 +82,9 @@ void TestPanel::density() {
     samples.values.push_back(i / 1000);
     samples.values.push_back(i % 23);
   }
+  panel.setDimensions(samples.names);
+  panel.setSources(
+      {{"a", "VSH", "well"}, {"b", "PHI", "well"}, {"c", "RMS", "raster"}});
   QElapsedTimer timer;
   timer.start();
   auto frame = CrossplotSamples::project(samples, {});
@@ -103,6 +106,14 @@ void TestPanel::density() {
   qInfo("BASELINE crossplot_100k_axis_switch_3d_ms = %.3f",
         timer.nsecsElapsed() / 1e6);
   QVERIFY(frame.is3d);
+  std::vector<int> labels(samples.rows());
+  for (std::size_t i = 0; i < labels.size(); ++i)
+    labels[i] = int(i % 8);
+  frame = CrossplotSamples::project(samples, a, labels);
+  QVERIFY(!frame.densityClass.isEmpty());
+  panel.setFrame(frame);
+  panel.setClassified(true, QVector<qint64>(8, 12500));
+
   if (auto path = qEnvironmentVariable("PALEO_CROSSPLOT_SCREENSHOT");
       !path.isEmpty())
     QVERIFY(panel.grab().save(path));

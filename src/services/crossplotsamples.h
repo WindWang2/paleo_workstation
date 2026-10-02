@@ -25,6 +25,7 @@ struct AttributeSection {
   Plane plane;
   QVector<QPointF> traceXY;
   double startTimeMs = 0, stepMs = 0;
+  double geometryRmsResidual = 0, geometryMaxResidual = 0;
 };
 struct SampleResult {
   bool ok = false, cancelled = false;

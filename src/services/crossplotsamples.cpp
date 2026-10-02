@@ -97,7 +97,7 @@ SampleResult CrossplotSamples::well(const QVector<Channel> &channels,
     }
     s.values.insert(s.values.end(), row.begin(), row.end());
     s.locations.append({channels[0].wellId, depth, channels[0].x, channels[0].y,
-                        channels[0].hasXY, -1});
+                        channels[0].hasXY, -1, i});
   }
   if (stop(ctl))
     return fail(QStringLiteral("已取消"), true);
@@ -319,6 +319,12 @@ CrossplotSamples::attributeHorizon(const QVector<AttributeSection> &sections,
   SampleResult r;
   auto &s = r.samples;
   s.grid = grid;
+  s.samplingMetadata = {{"method", "nearest_attribute_at_time_horizon"},
+                        {"timeUnit", "ms"},
+                        {"startTimeMs", first.startTimeMs},
+                        {"stepMs", first.stepMs},
+                        {"geometryRmsResidual", first.geometryRmsResidual},
+                        {"geometryMaxResidual", first.geometryMaxResidual}};
   for (const auto &a : sections) {
     s.names << a.plane.name;
     s.units << QString();
@@ -419,6 +425,15 @@ PlotFrame CrossplotSamples::project(const SampleSet &s, const Axes &a,
   f.points.reserve(qsizetype(n));
   if (n >= 100000)
     f.density.fill(0, f.densitySide * f.densitySide);
+  const int classCount =
+      labels.size() == n ? 1 + *std::max_element(labels.begin(), labels.end())
+                         : 0;
+  std::vector<int> classBins;
+  if (!f.density.isEmpty() && classCount > 0 && classCount <= 255) {
+    classBins.assign(std::size_t(f.density.size()) * std::size_t(classCount),
+                     0);
+    f.densityClass.fill(-1, f.density.size());
+  }
   for (std::size_t i = 0; i < n; ++i) {
     double x = norm(i, a.x), y = norm(i, a.y);
     if (f.is3d) {
@@ -428,15 +443,25 @@ PlotFrame CrossplotSamples::project(const SampleSet &s, const Axes &a,
       x = .5 + rx / 1.8;
       y = .5 + (std::cos(pitch) * v - std::sin(pitch) * rz) / 1.8;
     }
-    f.points << PlotPoint{float(x), float(y), int(i),
-                          labels.size() == n ? labels[i] : -1};
+    f.points << PlotPoint{x, y, int(i), labels.size() == n ? labels[i] : -1};
     if (!f.density.isEmpty()) {
       const int col = std::clamp(int(x * f.densitySide), 0, f.densitySide - 1),
                 row = std::clamp(int(y * f.densitySide), 0, f.densitySide - 1);
       f.densityMax =
           std::max(f.densityMax, ++f.density[row * f.densitySide + col]);
+      if (!classBins.empty() && labels[i] >= 0)
+        ++classBins[std::size_t(row * f.densitySide + col) *
+                        std::size_t(classCount) +
+                    std::size_t(labels[i])];
     }
   }
+  if (!classBins.empty())
+    for (int bin = 0; bin < f.density.size(); ++bin) {
+      const auto begin = classBins.begin() + std::ptrdiff_t(bin) * classCount;
+      const auto winner = std::max_element(begin, begin + classCount);
+      if (*winner > 0)
+        f.densityClass[bin] = int(winner - begin);
+    }
   return f;
 }
 Selection CrossplotSamples::select(const SampleSet &s, const PlotFrame &f,

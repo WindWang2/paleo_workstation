@@ -1117,7 +1117,20 @@ int segy_collect_metadata(
     ds->metadata.trace0 = trace0;
 
     ds->metadata.samplecount = segy_samples( binheader );
-    ds->metadata.trace_bsize = ds->metadata.samplecount * ds->metadata.elemsize;
+    /*
+     * paleo local patch (S1/D3): samplecount may come from the rev2 32-bit
+     * extended field, so samplecount * elemsize can overflow int (UB, and a
+     * wrapped trace size later feeds offset/length math). Compute in 64 bits
+     * and reject sizes that cannot be represented together with a header.
+     */
+    {
+        const long long bsize = (long long)ds->metadata.samplecount
+                              * (long long)ds->metadata.elemsize;
+        if( ds->metadata.samplecount < 0
+            || bsize > (long long)INT_MAX - SEGY_TRACE_HEADER_SIZE )
+            return SEGY_INVALID_FIELD_VALUE;
+        ds->metadata.trace_bsize = (int)bsize;
+    }
 
     int traceheader_count;
     err = segy_traceheaders( binheader, &traceheader_count );
@@ -1832,7 +1845,10 @@ int segy_trace_bsize( int samples ) {
 int segy_trsize( int format, int samples ) {
     const int elemsize = segy_formatsize( format );
     if( elemsize < 0 ) return -1;
-    return samples * elemsize;
+    /* paleo local patch: overflow-checked (see segy_collect_metadata) */
+    const long long bsize = (long long)samples * (long long)elemsize;
+    if( samples < 0 || bsize > INT_MAX ) return -1;
+    return (int)bsize;
 }
 
 int segy_trace0(

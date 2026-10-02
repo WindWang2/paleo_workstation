@@ -165,7 +165,7 @@ target_compile_definitions(paleo_saribbon PUBLIC
 target_link_libraries(paleo_saribbon PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets)
 target_compile_options(paleo_saribbon PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>) # 第三方源不改，静音其告警
 
-# ---- vendor/segyio: segyio v2.0.0-alpha.1 C library ----
+# ---- vendor/segyio: segyio v2.0.0-alpha.1 C library（本地补丁见 vendor/segyio/PATCHES.md）----
 add_library(paleo_segyio STATIC vendor/segyio/src/segy.c)
 target_include_directories(paleo_segyio SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/vendor/segyio/include)
 # 64 位 seek 宏按平台：MSVC 无 fseeko/ftello（LLP64 long=32bit 走

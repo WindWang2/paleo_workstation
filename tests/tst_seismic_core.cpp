@@ -17,6 +17,8 @@
 #include "domain/seismic/sgysectionbuilder.h"
 #include "domain/seismic/seismiccolormap.h"
 
+#include <segyio/segy.h>
+
 class TestSeismicCore : public QObject
 {
   Q_OBJECT
@@ -317,6 +319,44 @@ private slots:
     QVERIFY(c1.r >= 0.0f && c1.r <= 1.0f);
     QVERIFY(c1.g >= 0.0f && c1.g <= 1.0f);
     QVERIFY(c1.b >= 0.0f && c1.b <= 1.0f);
+  }
+
+  // segyio 本地补丁（审计 03 D3）：rev2 扩展样点数（int32）× 样点字节数在 int 上溢出
+  // 是 UB（UBSan: segy.c:1120 "1289994496 * 4 cannot be represented in type 'int'"）。
+  // 现在 segy_collect_metadata 必须拒绝而不是带着回绕的 trace_bsize 继续。
+  void segyioRejectsOverflowingTraceSize()
+  {
+    auto makeHeader = [](quint16 samples, qint32 extSamples) {
+      QByteArray buf(3600 + 240 + 16, '\0');
+      std::memset(buf.data(), ' ', 3200);
+      uchar *bin = reinterpret_cast<uchar *>(buf.data()) + 3200;
+      qToBigEndian<quint16>(4000, bin + 16);      // 采样间隔 µs
+      qToBigEndian<quint16>(samples, bin + 20);   // SEGY_BIN_SAMPLES (3221)
+      qToBigEndian<qint16>(5, bin + 24);          // IEEE float, 4 字节
+      qToBigEndian<qint32>(extSamples, bin + 68); // SEGY_BIN_EXT_SAMPLES (3269)
+      return buf;
+    };
+    {
+      QByteArray ok = makeHeader(4, 0);
+      segy_datasource *ds =
+          segy_memopen(reinterpret_cast<unsigned char *>(ok.data()), size_t(ok.size()));
+      QVERIFY(ds);
+      QCOMPARE(segy_collect_metadata(ds, -1, -1, 0), int(SEGY_OK));
+      QCOMPARE(ds->metadata.samplecount, 4);
+      QCOMPARE(ds->metadata.trace_bsize, 16);
+      segy_close(ds);
+    }
+    {
+      // samples=0 → 采用扩展字段 1289994496；×4 字节 = 5.16e9 > INT_MAX
+      QByteArray bad = makeHeader(0, 1289994496);
+      segy_datasource *ds =
+          segy_memopen(reinterpret_cast<unsigned char *>(bad.data()), size_t(bad.size()));
+      QVERIFY(ds);
+      QVERIFY(segy_collect_metadata(ds, -1, -1, 0) != SEGY_OK);
+      segy_close(ds);
+    }
+    QCOMPARE(segy_trsize(SEGY_IEEE_FLOAT_4_BYTE, 1289994496), -1);
+    QCOMPARE(segy_trsize(SEGY_IEEE_FLOAT_4_BYTE, 1000), 4000);
   }
 };
 

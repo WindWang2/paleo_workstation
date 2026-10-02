@@ -233,6 +233,7 @@ class ConstraintWorkflow : public QObject
         QString factorLayerId;
         QString factorId;
         QString rasterPath;
+        QString analysisSha;
         QStringList parentPaths;
         double interval = 0.0;
         QVector<double> levels;

@@ -239,6 +239,34 @@ private slots:
     QVERIFY( findDecl( f.layers, QStringLiteral( "contours.T1.sandthick" ) ) == nullptr );
   }
 
+  void rewrittenAnalysisDropsContourPublish()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+    const QString rasterPath = f.dir.filePath( QStringLiteral( "ramp.tif" ) );
+    QVERIFY( writeNorthUpFloat32( rasterPath, 8, 4, 500000.0, 4001000.0, 10.0 ) );
+    QString err;
+    QVERIFY2( declareRaster( f, rasterPath, &err ), qPrintable( err ) );
+    ConstraintWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+
+    ConstraintWorkflow::AnalysisContourJob job;
+    QSignalSpy contours( &wf, &ConstraintWorkflow::contoursGenerated );
+    QVERIFY2( wf.prepareAnalysisContourJob( QStringLiteral( "T1" ), QStringLiteral( "factor.T1.sandthick" ), 0.0,
+                                            QVector<double>{ 2.0, 4.0 }, true, &job, &err ),
+              qPrintable( err ) );
+    QCOMPARE( job.analysisSha, DataCatalog::sha256FileHex( rasterPath ) );
+    QVERIFY( !job.analysisSha.isEmpty() );
+    QVERIFY2( wf.computeAnalysisContourJob( &job ), qPrintable( job.error ) );
+    QVERIFY( QFile::remove( rasterPath ) );
+    QVERIFY( writeNorthUpFloat32( rasterPath, 8, 6, 500000.0, 4001000.0, 10.0 ) );
+    QVERIFY( DataCatalog::sha256FileHex( rasterPath ) != job.analysisSha );
+    QVERIFY( !wf.publishAnalysisContourJob( job, &err ) );
+    QVERIFY2( err.contains( QStringLiteral( "分析场在等值线期间被改写" ) ), qPrintable( err ) );
+    QCOMPARE( contours.count(), 0 );
+    QVERIFY( findDecl( f.layers, QStringLiteral( "contours.T1.sandthick" ) ) == nullptr );
+  }
+
   void interpretiveCrossingKeepsAnalysisSha()
   {
     Fixture f;

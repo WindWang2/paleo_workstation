@@ -2192,11 +2192,20 @@ bool ConstraintWorkflow::prepareAnalysisContourJob( const QString &horizon, cons
     return false;
   }
 
+  QString shaErr;
+  const QString analysisSha = DataCatalog::sha256FileHex( rasterPath, &shaErr );
+  if ( analysisSha.isEmpty() )
+  {
+    setError( error, shaErr.isEmpty() ? tr( "分析场 sha256 计算失败" ) : shaErr );
+    return false;
+  }
+
   job->generation = ++m_publishGeneration;
   job->horizon = horizon;
   job->factorLayerId = factorLayerId;
   job->factorId = factorIdOf( horizon, factorLayerId );
   job->rasterPath = rasterPath;
+  job->analysisSha = analysisSha;
   job->parentPaths << rasterPath;
   job->interval = interval;
   job->levels = levels;
@@ -2274,6 +2283,14 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
     setError( error, tr( "发布代次已变，丢弃这次等值线" ) );
     return false;
   }
+  QString shaErr;
+  const QString analysisShaAfter = DataCatalog::sha256FileHex( job.rasterPath, &shaErr );
+  if ( analysisShaAfter != job.analysisSha )
+  {
+    discardTemp();
+    setError( error, tr( "分析场在等值线期间被改写，丢弃这次等值线" ) );
+    return false;
+  }
   QgisLayerService *layers = m_layers.data();
   if ( !layers )
   {
@@ -2312,6 +2329,15 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
     setError( error, tr( "发布代次已变，丢弃这次等值线" ) );
     return false;
   }
+  const QString analysisShaAtCommit = DataCatalog::sha256FileHex( job.rasterPath, &shaErr );
+  if ( analysisShaAtCommit != job.analysisSha )
+  {
+    if ( !sameFile( st.absolutePath, job.rasterPath ) )
+      removeIfPresent( st.absolutePath );
+    discardTemp();
+    setError( error, tr( "分析场在等值线期间被改写，丢弃这次等值线" ) );
+    return false;
+  }
 
   const QStringList parents = registrar.parentVersionIdsFor( { job.rasterPath } );
   QVariantMap extra;
@@ -2325,6 +2351,7 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
   extra.insert( QStringLiteral( "group" ), QStringLiteral( "04_SingleFactor/Contours" ) );
   extra.insert( QStringLiteral( "factor_layer_id" ), job.factorLayerId );
   extra.insert( QStringLiteral( "value_source" ), QStringLiteral( "analysis" ) );
+  extra.insert( QStringLiteral( "analysis_sha256" ), job.analysisSha );
   extra.insert( QStringLiteral( "manifest_layer_id" ),
                 QStringLiteral( "contours.%1.%2" ).arg( job.horizon, job.factorId ) );
   if ( job.fixedLevels )

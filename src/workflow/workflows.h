@@ -126,6 +126,13 @@ class ConstraintWorkflow : public QObject
                        const QVariantMap &lineParams = {});
     // 把逐线语义和半径写进 params_json。重开后 loadConstraints 读回同一份。
     bool updateConstraintLine(const QString &id, const QVariantMap &lineParams, QString *error = nullptr);
+    // 语义切换（五种 Semantic 词表）：改写 type 列 + params_json.semantic，
+    // 其余逐线参数原样保留。走 updateConstraintLine 同一持久化通道。
+    bool switchConstraintSemantic(const QString &constraintId, const QString &semantic,
+                                  QString *error = nullptr);
+    // 删除约束行（store 落盘删除，不静默清几何）；页面与图层经
+    // constraintRemoved 刷新。已实例化的 constraints.<horizon> 图层由壳侧重载。
+    bool removeConstraint(const QString &constraintId, QString *error = nullptr);
     QVector<QVariantMap> loadConstraints(const QString &horizon = QString());
     bool runConstraintIDW(const QString &horizon, const QString &pointsLayerId, const QString &field,
                           double cellSize, QString *error = nullptr);
@@ -304,6 +311,7 @@ class ConstraintWorkflow : public QObject
     void interpretiveContoursGenerated(const QString &horizon, const QString &factorLayerId,
                                        const QString &layerId);
     void constraintLineUpdated(const QString &constraintId);
+    void constraintRemoved(const QString &constraintId);
 
   private:
     QPointer<QgisProcessingService> m_proc;

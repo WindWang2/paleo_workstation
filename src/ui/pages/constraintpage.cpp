@@ -19,6 +19,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMenu>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScrollArea>
@@ -423,7 +424,42 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   lay->addWidget( list, 1 );
   connect( list, &QListWidget::currentItemChanged, this, [this]( QListWidgetItem *, QListWidgetItem * ) {
     loadSelectedConstraintLine();
+    if ( auto *removeButton = findChild<QPushButton *>( QStringLiteral( "constraintDeleteButton" ) ) )
+    {
+      auto *rows = findChild<QListWidget *>( QStringLiteral( "constraintList" ) );
+      removeButton->setEnabled( rows && rows->currentItem() );
+    }
   } );
+  // 方向23：列表右键——语义切换（五种 Semantic 词表）与删除。
+  list->setContextMenuPolicy( Qt::CustomContextMenu );
+  connect( list, &QListWidget::customContextMenuRequested, this,
+           [this, list]( const QPoint &pos ) {
+             QListWidgetItem *item = list->itemAt( pos );
+             if ( !item )
+               return;
+             const QString id = item->data( Qt::UserRole ).toString();
+             auto *horizons = child<QComboBox>( this, "horizonCombo" );
+             const QString horizon = horizons ? horizons->currentText() : QString();
+             QMenu menu( this );
+             QMenu *semanticMenu = menu.addMenu( tr( "切换语义" ) );
+             const QVector<QPair<QString, QString>> semantics{
+               { tr( "硬屏障" ), QStringLiteral( "hard_barrier" ) },
+               { tr( "方向引导" ), QStringLiteral( "direction_guide" ) },
+               { tr( "解释软边界" ), QStringLiteral( "interpretive_boundary" ) },
+               { tr( "等值停止" ), QStringLiteral( "contour_stop" ) },
+               { tr( "制图绕行" ), QStringLiteral( "cartographic_detour" ) },
+             };
+             for ( const auto &[label, token] : semantics )
+             {
+               connect( semanticMenu->addAction( label ), &QAction::triggered, this,
+                        [this, horizon, id, token] {
+                          emit constraintSemanticChangeRequested( horizon, id, token );
+                        } );
+             }
+             connect( menu.addAction( tr( "删除约束" ) ), &QAction::triggered, this,
+                      [this, horizon, id] { emit constraintDeleteRequested( horizon, id ); } );
+             menu.exec( list->viewport()->mapToGlobal( pos ) );
+           } );
 
   lay->addWidget( caption( tr( "约束语义" ), content ) );
   auto *semantic = new QComboBox( content );
@@ -537,6 +573,34 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
                                        QStringLiteral( "cartographic_detour" ), spin->value() );
   } );
   lay->addLayout( softRow );
+  // ---- 方向23：已绘约束线编辑面（顶点编辑 / 删除；语义切换走列表右键）------
+  auto *editRow = new QHBoxLayout();
+  editRow->setSpacing( 4 ); // xs
+  auto *vertexEdit = new QPushButton( tr( "编辑约束线" ), content );
+  vertexEdit->setObjectName( QStringLiteral( "constraintVertexEditButton" ) );
+  vertexEdit->setAccessibleName( tr( "编辑约束线" ) );
+  editRow->addWidget( vertexEdit );
+  connect( vertexEdit, &QPushButton::clicked, this, [this, horizons] {
+    emit editConstraintVerticesRequested( horizons->currentText() );
+  } );
+  auto *removeButton = new QPushButton( tr( "删除选中约束" ), content );
+  removeButton->setObjectName( QStringLiteral( "constraintDeleteButton" ) );
+  removeButton->setAccessibleName( tr( "删除选中约束" ) );
+  removeButton->setEnabled( false );
+  editRow->addWidget( removeButton );
+  const auto selectedConstraintId = [this]() -> QString {
+    auto *list = findChild<QListWidget *>( QStringLiteral( "constraintList" ) );
+    if ( !list )
+      return QString();
+    QListWidgetItem *item = list->currentItem();
+    return item ? item->data( Qt::UserRole ).toString() : QString();
+  };
+  connect( removeButton, &QPushButton::clicked, this, [this, horizons, selectedConstraintId] {
+    const QString id = selectedConstraintId();
+    if ( !id.isEmpty() )
+      emit constraintDeleteRequested( horizons->currentText(), id );
+  } );
+  lay->addLayout( editRow );
   // ---- 类型化约束线 end ----------------------------------------------------
 
   // 旧 IDW 行（objectName 保留；runIdwRequested 原语义不动）。
@@ -616,6 +680,10 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
       refreshConstraintList();
     } );
     connect( wf, &ConstraintWorkflow::constraintLineUpdated, this, [this]( const QString & ) {
+      refreshConstraintList();
+    } );
+    connect( wf, &ConstraintWorkflow::constraintRemoved, this, [this, status]( const QString &id ) {
+      status->setText( tr( "已删除约束 %1" ).arg( id ) );
       refreshConstraintList();
     } );
     connect( wf, &ConstraintWorkflow::factorDone, status,

@@ -18,8 +18,14 @@ class QShowEvent;
 //   · 等值线行 contourIntervalSpin + contourButton → contourRequested(
 //     factorLayerId, interval)（§12：GIS LineString，不是画布临时线）
 //   · 勾选态变化 → factorVisibilityRequested(layerId, visible)（互斥上图意图）
-//   · 类型化约束线两入口 directionButton/breakLineButton →
+//   · 类型化约束线五入口 directionButton/breakLineButton/softBoundaryButton/
+//     contourStopButton/cartographicDetourButton →
 //     drawTypedConstraintRequested(horizon, shape, constraintType, faciesCode)
+//     （五种 Semantic 枚举各一个绘制入口，type 落 ConstraintStore 词表）
+//   · 已绘约束线编辑面：顶点编辑入口 editConstraintVerticesRequested(horizon)
+//     （壳侧接编辑会话 + PaleoVertexTool + 撤销栈）、删除
+//     constraintDeleteRequested(horizon, id)、列表右键语义切换
+//     constraintSemanticChangeRequested(horizon, id, semantic)（五种词表）
 // 旧链保留不动：drawConstraintRequested/runIdwRequested（idw* objectName
 // 全保留）；厚度样本表挪进 CollapsibleSection（objectName 不变，默认展开），
 // 样本行仍由 MappingWorkflow 镜像到 ConstraintWorkflow 的
@@ -57,6 +63,11 @@ class ConstraintPage : public QWidget
     void factorVisibilityRequested(const QString &layerId, bool visible);
     void drawTypedConstraintRequested(const QString &horizon, const QString &shape,
                                       const QString &constraintType, int faciesCode);
+    // ---- 方向23：已绘约束线编辑面 ----
+    void editConstraintVerticesRequested(const QString &horizon);
+    void constraintDeleteRequested(const QString &horizon, const QString &constraintId);
+    void constraintSemanticChangeRequested(const QString &horizon, const QString &constraintId,
+                                           const QString &semantic);
   protected:
     void showEvent(QShowEvent *event) override;
   private:

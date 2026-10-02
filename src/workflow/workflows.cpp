@@ -1058,6 +1058,91 @@ bool ConstraintWorkflow::updateConstraintLine( const QString &id, const QVariant
   return true;
 }
 
+bool ConstraintWorkflow::switchConstraintSemantic( const QString &constraintId, const QString &semantic,
+                                                   QString *error )
+{
+  if ( !knownConstraintSemantic( semantic ) )
+  {
+    setError( error, tr( "未知约束语义：%1" ).arg( semantic ) );
+    return false;
+  }
+  // 读回既有逐线参数，只换语义，不动半径等用户设置。
+  const QVector<QVariantMap> rows = loadConstraints();
+  QVariantMap lineParams;
+  bool found = false;
+  for ( const QVariantMap &row : rows )
+  {
+    if ( row.value( QStringLiteral( "id" ) ).toString() != constraintId )
+      continue;
+    found = true;
+    const QString paramsText = row.value( QStringLiteral( "params_json" ) ).toString();
+    if ( !paramsText.trimmed().isEmpty() )
+    {
+      const QJsonDocument doc = QJsonDocument::fromJson( paramsText.toUtf8() );
+      if ( doc.isObject() )
+        lineParams = doc.object().toVariantMap();
+    }
+    break;
+  }
+  if ( !found )
+  {
+    setError( error, tr( "找不到约束 %1" ).arg( constraintId ) );
+    return false;
+  }
+  lineParams.insert( QStringLiteral( "semantic" ), semantic );
+  return updateConstraintLine( constraintId, lineParams, error );
+}
+
+bool ConstraintWorkflow::removeConstraint( const QString &constraintId, QString *error )
+{
+  if ( constraintId.trimmed().isEmpty() )
+  {
+    setError( error, tr( "缺少约束 id" ) );
+    return false;
+  }
+  ConstraintStore *cs = constraintStore();
+  if ( !cs )
+  {
+    const auto removed = std::remove_if(
+        m_inMemoryConstraints.begin(), m_inMemoryConstraints.end(),
+        [&constraintId]( const QVariantMap &rec ) {
+          return rec.value( QStringLiteral( "id" ) ).toString() == constraintId;
+        } );
+    if ( removed == m_inMemoryConstraints.end() )
+    {
+      setError( error, tr( "找不到约束 %1" ).arg( constraintId ) );
+      return false;
+    }
+    m_inMemoryConstraints.erase( removed, m_inMemoryConstraints.end() );
+    emit constraintRemoved( constraintId );
+    return true;
+  }
+  bool found = false;
+  for ( const QVariantMap &row : cs->load() )
+  {
+    if ( row.value( QStringLiteral( "id" ) ).toString() == constraintId )
+    {
+      found = true;
+      break;
+    }
+  }
+  if ( !found )
+  {
+    setError( error, tr( "找不到约束 %1" ).arg( constraintId ) );
+    return false;
+  }
+  if ( !cs->remove( constraintId, error ) )
+    return false;
+  const auto removed = std::remove_if(
+      m_inMemoryConstraints.begin(), m_inMemoryConstraints.end(),
+      [&constraintId]( const QVariantMap &rec ) {
+        return rec.value( QStringLiteral( "id" ) ).toString() == constraintId;
+      } );
+  m_inMemoryConstraints.erase( removed, m_inMemoryConstraints.end() );
+  emit constraintRemoved( constraintId );
+  return true;
+}
+
 QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon )
 {
   ConstraintStore *cs = constraintStore();

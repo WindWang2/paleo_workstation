@@ -2305,6 +2305,60 @@ private:
         uipolish::capturePanel(&vp, QStringLiteral("validatepage"), QSize(560, 420));
     }
 
+    // goal/ui-experience-polish：键盘语义落地——Space 切换当前行选中态
+    //（D6.4 注释曾声称、实现缺失，本轮补上）、Delete 走软删确认流。
+    void uipolish_keyboardSpaceTogglesSelection()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->findChild<DataListPanel *>();
+        auto *table = page->findChild<QTableWidget *>(QStringLiteral("assetTable"));
+        QVERIFY(lp && table && table->model()->rowCount() >= 2);
+        table->setCurrentIndex(table->model()->index(0, 0));
+        table->selectionModel()->select(table->model()->index(0, 0),
+                                        QItemSelectionModel::Select |
+                                            QItemSelectionModel::Rows);
+        QVERIFY(lp->currentAssetSelection().size() >= 1);
+        // Space → 取消当前行选中
+        QTest::keyClick(table, Qt::Key_Space);
+        QVERIFY(lp->currentAssetSelection().isEmpty());
+        // Space → 重新选中
+        QTest::keyClick(table, Qt::Key_Space);
+        QVERIFY(lp->currentAssetSelection().size() >= 1);
+
+        // Delete → 软删确认模态（driveModalNextTick 驱动「是」）→ 选中清空。
+        const int rowsBefore = table->model()->rowCount();
+        driveModalNextTick([](QWidget *w) {
+            if (auto *mb = qobject_cast<QMessageBox *>(w))
+                if (auto *yes = mb->button(QMessageBox::Yes))
+                    yes->click();
+        });
+        QTest::keyClick(table, Qt::Key_Delete);
+        QTest::qWait(50);
+        QVERIFY(table->model()->rowCount() < rowsBefore ||
+                 lp->currentAssetSelection().isEmpty());
+    }
+
+    // 命令面板快捷键 = Ctrl+Shift+P（Ctrl+K 归定位器；同键歧义修复的回归钉）。
+    void uipolish_commandPaletteShortcutMoved()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *sc = page->findChild<QShortcut *>(QStringLiteral("scCommandPalette"));
+        QVERIFY(sc);
+        QCOMPARE(sc->key(), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P));
+    }
+
     void dataops_d1_selectionBadgeAndCountSignal()
     {
         QTemporaryDir dir;

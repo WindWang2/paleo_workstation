@@ -57,24 +57,33 @@ void CacheLasTests::secondOpenUnder5ms()
   const LasDoc cold = LasCache::shared().load(las);
   QVERIFY(cold.ok);
   const double coldMs = LasCache::shared().lastTimings().coldParseNs / 1.0e6;
-  // 冷解析预算（D1.5）。
-  QVERIFY2(coldMs < 50.0, qPrintable(QStringLiteral("cold %1ms >= 50ms").arg(coldMs)));
+  // goal/perf-systematize 簇3：墙钟断言比率化——绝对预算（cold<50/warm<5，
+  // 余量仅 ~3×，慢机必抖）改在测参照比率门 + 防挂死 sanity 上限。
+  // 实测锚（docs/perf/BASELINE.md §2）：cold 13-17ms、warm ≈0.05ms、
+  // mem ≈0.03ms——比率余量 10×/500×；缓存退化（warm≈cold）时比率→1 必红。
+  QVERIFY2(coldMs < 2000.0,
+           qPrintable(QStringLiteral("cold %1ms >= 2000ms（sanity：解析挂死/死循环）").arg(coldMs)));
 
-  // 二次打开（磁盘层）快于重解析一半（D1.1 语义；TEST-02：原 <5ms 绝对
-  // 预算在多 worktree 并行争用下偶发 6-7ms——比率门随机器负载同侧伸缩，
-  // 磁盘缓存失效（回退到全量解析）时仍红）。
+  // 二次打开（磁盘层）≤ 冷解析一半（D1.1 的机器无关形式；TEST-02：
+  // 原 <5ms 绝对预算在并行争用下偶发抖动——比率门随负载同侧伸缩）。
   LasCache::shared().clearMemory();
   QElapsedTimer t;
   t.start();
   const LasDoc warm = LasCache::shared().load(las);
   const double warmMs = t.nsecsElapsed() / 1.0e6;
   QVERIFY(warm.ok);
-  QVERIFY2(warmMs < coldMs / 2.0,
-           qPrintable(QStringLiteral("disk hit %1ms >= cold/2 %2ms").arg(warmMs).arg(coldMs / 2.0)));
-  // 三次打开（内存层）亚毫秒。
+  QVERIFY2(coldMs > 0 && warmMs < 0.5 * coldMs,
+           qPrintable(QStringLiteral("disk hit %1ms >= 0.5×cold %2ms（缓存未生效）")
+                          .arg(warmMs, 0, 'f', 3)
+                          .arg(coldMs, 0, 'f', 3)));
+  // 三次打开（内存层）同口径 ≤ 0.5×cold。
   t.restart();
   LasCache::shared().load(las);
-  QVERIFY(t.nsecsElapsed() / 1.0e6 < 5.0);
+  const double memMs = t.nsecsElapsed() / 1.0e6;
+  QVERIFY2(memMs < 0.5 * coldMs,
+           qPrintable(QStringLiteral("memory hit %1ms >= 0.5×cold %2ms")
+                          .arg(memMs, 0, 'f', 3)
+                          .arg(coldMs, 0, 'f', 3)));
 }
 
 void CacheLasTests::mtimeChangeInvalidates()

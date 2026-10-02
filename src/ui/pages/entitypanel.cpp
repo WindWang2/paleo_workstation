@@ -3,6 +3,7 @@
 #include "pageshared.h"
 #include "../paleotheme.h"
 #include "../../services/previewdoc.h"
+#include "../../services/paleotaskservice.h" // F3：GeoJSON 统计任务池路径
 #include "../../catalog/datacatalog.h"
 #include "../../catalog/entityview.h"
 #include "dataopspanelextra.h"
@@ -16,6 +17,7 @@
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QToolButton>
@@ -36,6 +38,7 @@
 #include <QVBoxLayout>
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <tuple>
 #include "../paleotheme.h"
 
@@ -926,36 +929,10 @@ void EntityPanel::refresh()
     }
     else if (isGeoJson)
     {
-      double b[4] = {0, 0, 0, 0};
-      QString berr;
-      const bool hasB = (!abs.isEmpty() && QFile::exists(abs)) ? PreviewDocService::geoJsonBounds(abs, b, &berr) : false;
-
-      int featCount = 0;
-      QStringList propKeys, faciesKeys;
-      if (!abs.isEmpty() && QFile::exists(abs))
-      {
-        QFile gf(abs);
-        if (gf.open(QIODevice::ReadOnly))
-        {
-          const QJsonDocument gDoc = QJsonDocument::fromJson(gf.readAll());
-          if (gDoc.isObject())
-          {
-            const QJsonArray feats = gDoc.object().value(QStringLiteral("features")).toArray();
-            featCount = feats.size();
-            for (const QJsonValue &fv : feats)
-            {
-              const QJsonObject props = fv.toObject().value(QStringLiteral("properties")).toObject();
-              for (auto it = props.begin(); it != props.end(); ++it)
-                if (!propKeys.contains(it.key()))
-                  propKeys.append(it.key());
-            }
-            for (const QString &k : propKeys)
-              if (k.contains(QString::fromUtf8("相")))
-                faciesKeys.append(k);
-          }
-        }
-      }
-
+      // F3（goal/perf-systematize 簇2）：GeoJSON 统计（bounds/要素数/属性键）
+      // 迁单遍流式门面 + 异步任务（旧路径 readAll 整读 DOM 解析两遍，大相图
+      // 阻塞 UI 线程）。此处只铺静态文案，统计占位如实在场；summary 到达后
+      // 统一装填（见下方 details 块尾部的一次请求，两处消费共用）。
       if (propCrs)
       {
         if (v.extra.value(QStringLiteral("provisional")).toBool())
@@ -964,16 +941,9 @@ void EntityPanel::refresh()
           propCrs->setText(tr("WGS 84 (经纬度) · 经纬度，与本测网不是同一空间"));
       }
       if (propCoord)
-      {
-        if (hasB)
-          propCoord->setText(tr("X %1–%2, Y %3–%4")
-                                 .arg(QString::number(b[0], 'f', 2), QString::number(b[2], 'f', 2),
-                                      QString::number(b[1], 'f', 2), QString::number(b[3], 'f', 2)));
-        else
-          propCoord->setText(tr("未定义坐标"));
-      }
+        propCoord->setText(tr("统计中…"));
       if (propZRange) propZRange->setText(tr("—（平面矢量数据）"));
-      if (propGrid) propGrid->setText(tr("要素个数：%1").arg(featCount));
+      if (propGrid) propGrid->setText(tr("统计中…"));
     }
     else
     {
@@ -1019,6 +989,7 @@ void EntityPanel::refresh()
     if (propDetailsText)
     {
       QStringList details;
+      bool geoDetailsHandled = false; // F3：GeoJSON 详情文本由 applier 全权管理时置位
       details << tr("资产标识: %1").arg(a.id);
       details << tr("显示名称: %1").arg(a.displayName);
       if (!v.path.isEmpty())
@@ -1035,48 +1006,68 @@ void EntityPanel::refresh()
       }
       else if (isGeoJson)
       {
-        double b[4] = {0, 0, 0, 0};
-        QString berr;
-        const bool hasB = (!abs.isEmpty() && QFile::exists(abs)) ? PreviewDocService::geoJsonBounds(abs, b, &berr) : false;
+        // F3：详情行的 GeoJSON 段先铺占位（统计中…），非 Geo 行照常同步铺。
+        // 统计到达后由此处的 applier 用 detailsBeforeGeo 重建完整详情文本。
+        const QStringList detailsBeforeGeo = details;
+        const bool provisional = v.extra.value(QStringLiteral("provisional")).toBool();
+        const QString spatialHint = provisional
+            ? tr("空间提示: 已临时配准（手工仿射变换至工区测网）")
+            : tr("空间提示: 经纬度，与本测网不是同一空间（可使用「临时配准」功能）");
+        details << tr("要素个数: 统计中…")
+                << tr("坐标范围: 统计中…")
+                << tr("属性字段: 统计中…")
+                << tr("相名字段: 统计中…")
+                << spatialHint;
 
-        int featCount = 0;
-        QStringList propKeys, faciesKeys;
-        if (!abs.isEmpty() && QFile::exists(abs))
-        {
-          QFile gf(abs);
-          if (gf.open(QIODevice::ReadOnly))
-          {
-            const QJsonDocument gDoc = QJsonDocument::fromJson(gf.readAll());
-            if (gDoc.isObject())
-            {
-              const QJsonArray feats = gDoc.object().value(QStringLiteral("features")).toArray();
-              featCount = feats.size();
-              for (const QJsonValue &fv : feats)
-              {
-                const QJsonObject props = fv.toObject().value(QStringLiteral("properties")).toObject();
-                for (auto it = props.begin(); it != props.end(); ++it)
-                  if (!propKeys.contains(it.key()))
-                    propKeys.append(it.key());
-              }
-              for (const QString &k : propKeys)
+        // 一次请求装两处（属性标签 + 详情文本；世代号随选择变化作废旧代）。
+        const QPointer<EntityPanel> self(this);
+        const auto applySummary =
+            [self, detailsBeforeGeo, spatialHint](const PreviewDocService::GeoJsonSummary &s) {
+              if (!self)
+                return;
+              QStringList faciesKeys;
+              for (const QString &k : s.propKeys)
                 if (k.contains(QString::fromUtf8("相")))
                   faciesKeys.append(k);
-            }
-          }
+              if (QLabel *coord = self->findChild<QLabel *>(QStringLiteral("propCoord")))
+                coord->setText(s.hasBounds
+                                   ? tr("X %1–%2, Y %3–%4")
+                                         .arg(QString::number(s.bounds[0], 'f', 2),
+                                              QString::number(s.bounds[2], 'f', 2),
+                                              QString::number(s.bounds[1], 'f', 2),
+                                              QString::number(s.bounds[3], 'f', 2))
+                                   : tr("未定义坐标"));
+              if (QLabel *grid = self->findChild<QLabel *>(QStringLiteral("propGrid")))
+                grid->setText(tr("要素个数：%1").arg(s.featureCount));
+              if (QLabel *dt = self->findChild<QLabel *>(QStringLiteral("propDetailsText")))
+              {
+                QStringList d = detailsBeforeGeo;
+                d << tr("要素个数: %1").arg(s.featureCount);
+                if (s.hasBounds)
+                  d << tr("坐标范围: X %1–%2, Y %3–%4")
+                           .arg(QString::number(s.bounds[0], 'f', 2),
+                                QString::number(s.bounds[2], 'f', 2),
+                                QString::number(s.bounds[1], 'f', 2),
+                                QString::number(s.bounds[3], 'f', 2));
+                d << tr("属性字段: %1").arg(s.propKeys.isEmpty() ? tr("无") : s.propKeys.join(QStringLiteral(", ")));
+                d << tr("相名字段: %1").arg(faciesKeys.isEmpty() ? tr("无") : faciesKeys.join(QStringLiteral(", ")));
+                d << spatialHint;
+                dt->setText(d.join(QStringLiteral("\n")));
+              }
+            };
+        if (abs.isEmpty() || !QFile::exists(abs))
+        {
+          // 文件缺失：不留「统计中」悬置——空 summary 即回退（未定义坐标/0）。
+          applySummary(PreviewDocService::GeoJsonSummary{});
+          geoDetailsHandled = true;
         }
-        details << tr("要素个数: %1").arg(featCount);
-        if (hasB)
-          details << tr("坐标范围: X %1–%2, Y %3–%4")
-                         .arg(QString::number(b[0], 'f', 2), QString::number(b[2], 'f', 2),
-                              QString::number(b[1], 'f', 2), QString::number(b[3], 'f', 2));
-        details << tr("属性字段: %1").arg(propKeys.isEmpty() ? tr("无") : propKeys.join(QStringLiteral(", ")));
-        details << tr("相名字段: %1").arg(faciesKeys.isEmpty() ? tr("无") : faciesKeys.join(QStringLiteral(", ")));
-        if (v.extra.value(QStringLiteral("provisional")).toBool())
-          details << tr("空间提示: 已临时配准（手工仿射变换至工区测网）");
         else
-          details << tr("空间提示: 经纬度，与本测网不是同一空间（可使用「临时配准」功能）");
+        {
+          geoDetailsHandled = requestGeoJsonSummary(abs, applySummary);
+        }
       }
-      propDetailsText->setText(details.join(QStringLiteral("\n")));
+      if (!geoDetailsHandled) // F3：同步路径 applier 已装终态，跳过占位覆盖
+        propDetailsText->setText(details.join(QStringLiteral("\n")));
     }
 
     // 5. 派生产物
@@ -1388,6 +1379,45 @@ void EntityPanel::refresh()
     }
     return;
   }
+}
+
+bool EntityPanel::requestGeoJsonSummary(
+    const QString &absPath,
+    const std::function<void(const PreviewDocService::GeoJsonSummary &)> &apply)
+{
+  // F3（goal/perf-systematize 簇2）：缓存命中/无任务服务 = 同步直装（返回
+  // true，调用方跳过占位覆盖）；任务池路径异步回调（世代号防陈旧）。
+  if (auto it = m_geoSummaryCache.constFind(absPath); it != m_geoSummaryCache.constEnd())
+  {
+    apply(it.value());
+    return true;
+  }
+  PaleoTaskService *svc = m_doc ? m_doc->taskService() : nullptr;
+  if (!svc)
+  {
+    PreviewDocService::GeoJsonSummary sum;
+    PreviewDocService::geoJsonSummaryAt(absPath, &sum, nullptr); // 失败=空 summary（回退态）
+    m_geoSummaryCache.insert(absPath, sum);
+    apply(sum);
+    return true;
+  }
+  const int seq = ++m_geoSeq;
+  auto out = std::make_shared<PreviewDocService::GeoJsonSummary>();
+  auto *task = svc->start(
+      tr("统计 GeoJSON 属性"), [absPath, out](PaleoTask *) -> QString {
+        QString err;
+        if (!PreviewDocService::geoJsonSummaryAt(absPath, out.get(), &err) && !err.isEmpty())
+          return err;
+        return QString();
+      },
+      QString(), /*quiet=*/true); // 交互内嵌取数——不拉起任务中心
+  connect(task, &PaleoTask::finished, this, [this, seq, absPath, out, apply]() {
+    if (seq != m_geoSeq)
+      return; // 陈旧结果丢弃：新选择已接管
+    m_geoSummaryCache.insert(absPath, *out);
+    apply(*out);
+  });
+  return false;
 }
 // AUTOMOC：dataopspanelextra.h 的 Q_OBJECT 类（VersionTimeline/TopologyGraph/
 // 各对话框）——本 TU 持有 moc（datalist.cpp 已持 panelops/undo/views 等）。

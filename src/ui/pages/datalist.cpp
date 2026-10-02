@@ -41,6 +41,8 @@
 #include <QHBoxLayout>
 #include <QHash>
 #include <QHeaderView>
+#include <QItemSelectionModel>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMap>
@@ -654,6 +656,45 @@ DataListPanel::DataListPanel(QWidget *parent)
 }
 bool DataListPanel::eventFilter(QObject *watched, QEvent *event)
 {
+  // 键盘语义（D6.4 补实现——注释曾声称但未落地）：资产视图上
+  //   Space  = 切换当前行选中态（ExtendedSelection 下 Qt 内建无此语义）；
+  //   Delete = 软删当前选中（同 dataops.removeSoft 命令流，带确认与撤销）。
+  // 搜索框等编辑控件不受影响（过滤器只装在资产视图上）。
+  if (event && event->type() == QEvent::KeyPress)
+  {
+    QAbstractItemView *assetView = nullptr;
+    if (watched == m_tree)
+      assetView = m_tree;
+    else if (m_iconView && watched == m_iconView)
+      assetView = m_iconView;
+    else if (m_groupTree && watched == m_groupTree)
+      assetView = m_groupTree;
+    else if (auto *tbl = qobject_cast<QTableWidget *>(watched);
+             tbl && tbl->objectName() == QLatin1String("assetTable"))
+      assetView = tbl;
+    if (assetView)
+    {
+      auto *ke = static_cast<QKeyEvent *>(event);
+      if (ke->key() == Qt::Key_Space && ke->modifiers() == Qt::NoModifier)
+      {
+        const QModelIndex cur = assetView->currentIndex();
+        if (cur.isValid() && assetView->selectionModel())
+        {
+          const bool on = assetView->selectionModel()->isSelected(cur);
+          assetView->selectionModel()->select(
+              cur, on ? (QItemSelectionModel::Deselect | QItemSelectionModel::Rows)
+                      : (QItemSelectionModel::Select | QItemSelectionModel::Rows));
+        }
+        return true;
+      }
+      if ((ke->key() == Qt::Key_Delete || ke->key() == Qt::Key_Backspace) &&
+          ke->modifiers() == Qt::NoModifier && !currentAssetSelection().isEmpty())
+      {
+        batchRemoveSoft();
+        return true;
+      }
+    }
+  }
   if (event && event->type() == QEvent::Resize)
   {
     if (watched == m_tree || (m_tree && watched == m_tree->viewport()))
@@ -1732,7 +1773,7 @@ const ShortcutSpec kShortcutSpecs[] = {
   {"dataops.selectAll", QT_TR_NOOP("全选可见项"), "Ctrl+A", QT_TR_NOOP("选择")},
   {"dataops.invertSelection", QT_TR_NOOP("反选"), "Ctrl+Shift+A", QT_TR_NOOP("选择")},
   {"dataops.selectFiltered", QT_TR_NOOP("按过滤器选中"), "Ctrl+Shift+F", QT_TR_NOOP("选择")},
-  {"dataops.commandPalette", QT_TR_NOOP("命令面板"), "Ctrl+K", QT_TR_NOOP("工具")},
+  {"dataops.commandPalette", QT_TR_NOOP("命令面板"), "Ctrl+Shift+P", QT_TR_NOOP("工具")},
   {"dataops.shortcutsDialog", QT_TR_NOOP("快捷键表"), "?", QT_TR_NOOP("帮助")},
   {"dataops.focusSearch", QT_TR_NOOP("聚焦搜索"), "Ctrl+F", QT_TR_NOOP("工具")},
   {"dataops.vimToggle", QT_TR_NOOP("Vim 风导航开关"), "Ctrl+Alt+V", QT_TR_NOOP("工具")},
@@ -1856,6 +1897,10 @@ void DataListPanel::buildDataOpsUi()
   m_iconView = new AssetIconView(m_viewStack);
   m_virtualView = new AssetVirtualView(m_viewStack);
   m_groupTree = new AssetGroupTree(m_viewStack);
+  // 键盘语义与树/表一致（Space 切换选中态 / Delete 软删——D6.4 补实现）。
+  for (QAbstractItemView *v : {static_cast<QAbstractItemView *>(m_iconView),
+                               static_cast<QAbstractItemView *>(m_groupTree)})
+    v->installEventFilter(this);
   m_viewStack->addWidget(m_iconView);   // 2
   m_viewStack->addWidget(m_virtualView); // 3
   m_viewStack->addWidget(m_groupTree);  // 4

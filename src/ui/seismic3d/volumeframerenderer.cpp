@@ -24,6 +24,11 @@ float Normalize(int value, int minValue, int maxValue, float scale) {
     return ((static_cast<float>(value - minValue) / range) - 0.5f) * scale;
 }
 
+float NormalizeF(float value, int minValue, int maxValue, float scale) {
+    const float range = static_cast<float>(std::max(1, maxValue - minValue));
+    return ((value - static_cast<float>(minValue)) / range - 0.5f) * scale;
+}
+
 void AddLine(
     std::vector<LineVertex> &vertices,
     const glm::vec3 &a,
@@ -200,7 +205,7 @@ void VolumeFrameRenderer::Upload(QOpenGLFunctions_3_3_Core *gl, const SgyVolume 
         }
     }
 
-    // D3.4 井轨迹（垂直线）+ 标志层十字标
+    // D3.4 井轨迹（垂直线）+ 标志层十字标；D7.3 斜井折线轨迹
     for (const Seismic3DWell &well : wells_) {
         const float x = Normalize(well.xlineNo, volume.XlineMin(), volume.XlineMax(), horizontalScale);
         const float z = Normalize(well.inlineNo, volume.InlineMin(), volume.InlineMax(), horizontalScale);
@@ -211,6 +216,24 @@ void VolumeFrameRenderer::Upload(QOpenGLFunctions_3_3_Core *gl, const SgyVolume 
                 glm::vec3(0.95f, 0.95f, 1.0f));
         AddLine(vertices, glm::vec3(x, yTopWell, z), glm::vec3(x, yBottomWell, z),
                 glm::vec3(0.11f, 0.45f, 0.82f));
+        // D7.3 轨迹折线（白色光晕 + 蓝主色双描；轨迹深度用 sampleFrac）
+        if (well.trajectory.size() >= 2) {
+            const auto trajY = [&](float sampleFrac) {
+                return heightScale * 0.5f - std::clamp(sampleFrac, 0.0f, 1.0f) * heightScale;
+            };
+            for (size_t i = 1; i < well.trajectory.size(); ++i) {
+                const auto &a = well.trajectory[i - 1];
+                const auto &b = well.trajectory[i];
+                const glm::vec3 pa(NormalizeF(a.xlineNo, volume.XlineMin(), volume.XlineMax(), horizontalScale),
+                                   trajY(a.sampleFrac),
+                                   NormalizeF(a.inlineNo, volume.InlineMin(), volume.InlineMax(), horizontalScale));
+                const glm::vec3 pb(NormalizeF(b.xlineNo, volume.XlineMin(), volume.XlineMax(), horizontalScale),
+                                   trajY(b.sampleFrac),
+                                   NormalizeF(b.inlineNo, volume.InlineMin(), volume.InlineMax(), horizontalScale));
+                AddLine(vertices, pa, pb, glm::vec3(0.95f, 0.95f, 1.0f));
+                AddLine(vertices, pa, pb, glm::vec3(0.11f, 0.45f, 0.82f));
+            }
+        }
         // 标志层：短水平十字
         for (const Seismic3DWellTop &top : well.tops) {
             const float y = heightScale * 0.5f - std::clamp(top.sampleFrac, 0.0f, 1.0f) * heightScale;

@@ -40,10 +40,12 @@ target_sources(paleo_ui PRIVATE
   src/ui/seismic3d/seismic3dcolormap.cpp
   src/ui/seismic3d/seismic3dfallback.cpp)
 
-# wave/seismic-3d-viz：传递函数（D7.1 模型+编辑器）源挂 paleo_ui（同上模式）
+# wave/seismic-3d-viz：传递函数（D7.1 模型+编辑器）+ 层位面（D7.3）源挂
+# paleo_ui（同上模式）
 target_sources(paleo_ui PRIVATE
   src/ui/seismic3d/seismic3dtf.cpp
-  src/ui/seismic3d/seismic3dtfeditor.cpp)
+  src/ui/seismic3d/seismic3dtfeditor.cpp
+  src/ui/seismic3d/horizonsurfacerenderer.cpp)
 
 # P5 Phase 3 三维：colormap/堆叠体渲染/拖面联动/井位/多体/相机书签/回退/fps
 add_paleo_test(tst_seismic_3dui LIBS paleo_ui)
@@ -70,6 +72,33 @@ add_paleo_test(tst_seismic_budgets LIBS paleo_ui)
 # 计时抖动关回串行基线）。
 set_tests_properties(tst_seismic_budgets PROPERTIES RUN_SERIAL TRUE)
 target_compile_definitions(tst_seismic_budgets PRIVATE
+  PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
+  PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
+  PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")
+
+# goal/seismic-attributes — 属性任务编排：几何/解析值/拒绝语义/入池取消/
+# 进度单调/SATR 资产登记 roundtrip（核函数数值面在 tst_seismicattr）
+add_paleo_test(tst_seismicattrsvc LIBS paleo_services)
+
+# goal/seismic-attributes — 属性面板源 + UI 面：面板意图信号/画布叠加生命
+# 周期/offscreen 全链（面板 → 任务 → 叠加上图，三类属性）/登记闭环
+target_sources(paleo_ui PRIVATE src/ui/seismicsection/seismicattrpanel.cpp)
+add_paleo_test(tst_seismicattrui LIBS paleo_ui)
+
+# goal/seismic-attributes — 性能面：合成体比率门（属性 ≤6× 切片提取基线，
+# 机器无关）+ PALEO_REAL_PROJECT_AREA 门控真机实测（BASELINE 行誊档案）
+add_paleo_test(tst_seismicattrperf LIBS paleo_services)
+
+# goal/horizon-autotrack — 层位自动追踪核（纯数值：互相关主干+相干门+
+# 多种子合并+3D 前沿扫掠+协作取消）；数值面测试在 tst_horizontrack
+target_sources(paleo_algorithms PRIVATE src/algorithms/horizontrack.cpp)
+add_paleo_test(tst_horizontrack LIBS paleo_algorithms)
+
+# goal/horizon-autotrack — 追踪性能面：比率门（≤8× 切片提取基线）+
+# 966MB 生产形状（411×641×901@2ms）逐道追踪速率实测（BASELINE 行誊
+# docs/progress/horizon-autotrack.md；夹具一次性生成缓存在构建目录）
+add_paleo_test(tst_horizontrackperf LIBS paleo_services)
+target_compile_definitions(tst_horizontrackperf PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
   PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
   PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")

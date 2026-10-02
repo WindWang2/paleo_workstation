@@ -22,6 +22,7 @@
 #include <functional>
 
 #include <QSpinBox>
+#include <QTableWidget>
 #include <QThread>
 #include <QToolButton>
 
@@ -121,6 +122,28 @@ private slots:
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
                        m_settingsDir.path());
+  }
+
+  // goal/ui-experience-polish：拾取面板键盘安全网——空选时 Delete 不弹框
+  // 不崩溃；表格 ↓/↑ 行导航可达。
+  void pickPanelKeyboardSafety()
+  {
+    SeismicSectionDockWidget dock;
+    auto *pickTable = dock.findChild<QTableWidget *>();
+    if (!pickTable)
+      QSKIP("该构造路径未挂拾取面板");
+    // goal/ui-experience-polish：空拾取不静默——指引标签可见。
+    auto *pickHint = dock.findChild<QLabel *>(QStringLiteral("pickEmptyHint"));
+    QVERIFY2(pickHint, "拾取面板空态指引应在位");
+    dock.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&dock));
+    // pick 面板本体按解释模式显隐——空会话下指引不额外隐藏。
+    QVERIFY(!pickHint->isHidden());
+    pickTable->setFocus();
+    const int rows = pickTable->model()->rowCount();
+    QTest::keyClick(pickTable, Qt::Key_Down);
+    QTest::keyClick(pickTable, Qt::Key_Up);
+    QCOMPARE(pickTable->model()->rowCount(), rows); // 导航不改行数
   }
 
   // goal/ui-experience-polish：空体占位 + 拾取面板的修前/修后截图证据

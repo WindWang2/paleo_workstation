@@ -53,8 +53,17 @@ public:
     [[nodiscard]] int currentCrossline() const;
     [[nodiscard]] int currentTimeSample() const;
 
-    // D3.4 井位标记（调用者换算到 inline/xline + sampleFrac）
+    // D3.4 井位标记（调用者换算到 inline/xline + sampleFrac；D7.3 轨迹可选）
     void setWells(const std::vector<Seismic3DWell> &wells);
+
+    // D7.3 层位面上图：服务层 SeismicHorizonGrid（IDW 网格）→ 3D 面片
+    // （twt 色标映射）；逐层位显隐（层树/overlay 菜单联动入口）。
+    void setHorizons(const QStringList &names, const std::vector<SeismicHorizonGrid> &grids);
+    void setHorizonVisible(const QString &name, bool visible);
+    [[nodiscard]] bool isHorizonVisible(const QString &name) const;
+    [[nodiscard]] QStringList horizonNames() const;
+    void setWellLabelsVisible(bool visible);
+    [[nodiscard]] bool wellLabelsVisible() const;
     // D3.12 多体叠加：第二工区轮廓
     void setSecondaryVolume(std::shared_ptr<const SgyVolume> secondary);
     [[nodiscard]] bool hasSecondaryVolume() const;
@@ -80,6 +89,18 @@ public:
     void clearLineSection();
     [[nodiscard]] bool isLineSectionReady() const { return viewport_ && viewport_->isLineSectionReady(); }
 
+    // D7.4 切片动画扫掠：T/IL/XL 轴向帧推进（fps 可调、可暂停/恢复/停止、
+    // 可导出 PNG 序列）。当前帧走既有异步取数（协作取消/顶替内置），另发
+    // 前向 ±N 预取暖 SgyDataCache——播放期 UI 线程零阻塞。
+    void startSweep(SgySliceType axis, int fps);
+    void pauseSweep();
+    void resumeSweep();
+    void stopSweep();
+    [[nodiscard]] bool isSweepRunning() const { return sweepTimer_ && sweepTimer_->isActive(); }
+    void setSweepExportDir(const QString &dir); // 空 = 不导出
+    [[nodiscard]] QString sweepExportDir() const { return sweepExportDir_; }
+    [[nodiscard]] int sweepExportedCount() const { return sweepExportedCount_; }
+
     // D3.9 回退态查询（GL 不可用时视口被 2D 拼接件替换）
     [[nodiscard]] bool isFallbackActive() const { return fallbackActive_; }
 
@@ -97,6 +118,11 @@ signals:
     void crosslineChanged(int xlineNo);
     void timeChanged(int sampleIdx);
     void lodChanged(const QString &quality); // 质量标签变化（含直读/工作区态）
+    // D7.3：层位/井显隐变化（层树联动回写面）
+    void horizonVisibilityChanged(const QString &name, bool visible);
+    void wellVisibilityChanged(bool visible);
+    // D7.4：扫掠帧推进（index = 轴向当前体索引值）
+    void sweepFrameChanged(int index);
 
 private slots:
     void onInlineSliderChanged(int val);
@@ -187,6 +213,12 @@ private:
     QToolButton *btnOblique_ = nullptr;        // D7.2 斜剖面拾取（两点）
     QToolButton *btnFence_ = nullptr;          // D7.2 栅栏拾取（多点）
     QToolButton *btnSectionClear_ = nullptr;   // D7.2 清除剖面
+    QToolButton *btnOverlay_ = nullptr;        // D7.3 层位/井 overlay 菜单
+    class QMenu *overlayMenu_ = nullptr;       // D7.3 逐层位/井/标注 checkable 菜单
+    QComboBox *cboSweepAxis_ = nullptr;        // D7.4 扫掠轴向 T/IL/XL
+    QSpinBox *spinSweepFps_ = nullptr;         // D7.4 帧率
+    QToolButton *btnSweepPlay_ = nullptr;      // D7.4 播放/暂停
+    QToolButton *btnSweepExport_ = nullptr;    // D7.4 PNG 序列导出
     QSlider *sliderAlpha_ = nullptr;           // D3.3 透明度
     QDoubleSpinBox *spinRangeMin_ = nullptr;   // D3.3 值域裁剪
     QDoubleSpinBox *spinRangeMax_ = nullptr;
@@ -197,6 +229,9 @@ private:
     QToolButton *btnCamSave_ = nullptr;
     QToolButton *btnCamDel_ = nullptr;
     QLabel *memoryHintLabel_ = nullptr;        // D3.8
+    // goal/ui-experience-polish：行内告警通道（切片失败可见化）——与内存
+    // 提示共用一条 warning 条。
+    void showInlineWarning(const QString &text);
 
     // D3.5/D3.3 渲染状态
     Seismic3DColorMap cmap_;
@@ -225,6 +260,25 @@ private:
     SgySliceImage cachedLineImage_;
     std::vector<glm::ivec2> cachedLinePath_;
     bool cachedLineReady_ = false;
+
+    // D7.3 层位/井 overlay 状态
+    bool wellsVisible_ = true;
+    std::vector<Seismic3DWell> lastWells_;        // 显隐恢复的井集底稿
+    QStringList overlayHorizonNames_;             // 层位名序（与视口索引对齐）
+    void rebuildOverlayMenu(); // 层位集变化后重建 checkable 菜单
+
+    // D7.4 扫掠状态（T: 采样号轴；IL/XL: 真实线号值表序）
+    QTimer *sweepTimer_ = nullptr;
+    SgySliceType sweepAxis_ = SgySliceType::Time;
+    int sweepOrdinal_ = 0;
+    QString sweepExportDir_;
+    int sweepExportedCount_ = 0;
+    int sweepPrefetchInFlight_ = 0;
+    static constexpr int kSweepPrefetchWindow = 4; // 前向预取片数
+    [[nodiscard]] int sweepOrdinalCount() const;
+    [[nodiscard]] int sweepIndexAt(int ordinal) const;
+    [[nodiscard]] SeismicSliceSlot sweepSlot() const;
+    void onSweepTick();
 
     // D3.9 回退
     bool fallbackActive_ = false;

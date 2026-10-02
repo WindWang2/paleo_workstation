@@ -61,6 +61,9 @@ class LayerTreePanel : public QWidget
     void layerRemovalRefused(const QString &reason);
     // 「在新页打开所属编图页」→ 壳接 showPage（组→页映射在面板内定义）
     void mappingPageRequested(const QString &pageId);
+    // 「转换为深度域…」（时间域层位栅格右键）→ 壳接 DepthConversionWorkflow；
+    // 面板只发意图（layerId 形如 "horizon.D61"），建模/换算/登记在功能层。
+    void depthConversionRequested(const QString &layerId);
     // 「复制图层」直接落 QgsProject（克隆层 + 同组插入），不发信号。
     // 「导出/加载样式 .qml」经 QFileDialog + QgsMapLayer::export/importNamedStyle。
 
@@ -99,6 +102,7 @@ class LayerTreePanel : public QWidget
     QAction *m_exportStyleAction = nullptr;    // objectName: layerTreeExportStyleAction
     QAction *m_importStyleAction = nullptr;    // objectName: layerTreeImportStyleAction
     QAction *m_openPageAction = nullptr;       // objectName: layerTreeOpenMappingPageAction
+    QAction *m_depthConvertAction = nullptr;   // objectName: layerTreeDepthConvertAction
     QString m_filterText;
     bool m_refreshQueued = false;
 };

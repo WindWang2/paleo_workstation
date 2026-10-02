@@ -84,7 +84,8 @@ void SeismicPickPanel::buildUi()
     row1->addWidget(btnRedo_);
     lay->addLayout(row1);
 
-    // 行 2：追踪参数（D4.2）
+    // 行 2：追踪参数（D4.2）+ 追踪 QC 行（goal/horizon-autotrack：覆盖率/
+    // 均值置信度/双侧停因——失败区如实留空的口径）
     auto *row2 = new QHBoxLayout();
     row2->addWidget(new QLabel(tr("追踪窗(样):")));
     spinTrackWindow_ = new QSpinBox();
@@ -99,8 +100,14 @@ void SeismicPickPanel::buildUi()
     spinTrackThreshold_->setValue(0.6);
     spinTrackThreshold_->setFixedWidth(52);
     row2->addWidget(spinTrackThreshold_);
-    auto *btnTrack = mkBtn(tr("▶ 追踪同相轴"), tr("以选中拾取（或最后拾取）为种子，局部互相关沿同相轴双向追踪"));
-    row2->addWidget(btnTrack);
+    btnTrack_ = mkBtn(tr("▶ 追踪同相轴"), tr("以选中拾取（或最后拾取）为种子，局部互相关沿同相轴双向追踪"));
+    row2->addWidget(btnTrack_);
+    lblTrackSummary_ = new QLabel();
+    lblTrackSummary_->setObjectName(QStringLiteral("trackSummaryLabel"));
+    PaleoTheme::applyThemedStyleSheet(lblTrackSummary_, [] {
+        return PaleoTheme::mutedCaptionStyleSheet();
+    });
+    row2->addWidget(lblTrackSummary_, 1);
     row2->addStretch();
     lay->addLayout(row2);
 
@@ -113,7 +120,18 @@ void SeismicPickPanel::buildUi()
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->verticalHeader()->setVisible(false);
+    // goal/ui-experience-polish：静默空表补空态指引（拾取为空时可见）。
+    emptyHint_ = new QLabel(tr("还没有拾取——在剖面上按住 Ctrl+左键 拾取同相轴，或「载入会话」恢复上次解释"));
+    emptyHint_->setObjectName(QStringLiteral("pickEmptyHint"));
+    emptyHint_->setAlignment(Qt::AlignCenter);
+    emptyHint_->setWordWrap(true);
+    PaleoTheme::applyThemedStyleSheet(emptyHint_, [] {
+        return PaleoTheme::mutedCaptionStyleSheet();
+    });
+    lay->addWidget(emptyHint_, 0);
     lay->addWidget(table_, 1);
+    // 构造即空会话——指引常显（refreshFromSession 只在会话变化时跑）。
+    emptyHint_->setVisible(true);
 
     // 行 4：操作按钮
     auto *row4 = new QHBoxLayout();
@@ -148,7 +166,7 @@ void SeismicPickPanel::buildUi()
     connect(btnFault, &QToolButton::clicked, this, &SeismicPickPanel::onRegisterFault);
     connect(btnSave, &QToolButton::clicked, this, &SeismicPickPanel::onSaveSession);
     connect(btnLoad, &QToolButton::clicked, this, &SeismicPickPanel::onLoadSession);
-    connect(btnTrack, &QToolButton::clicked, this, &SeismicPickPanel::onTrackClicked);
+    connect(btnTrack_, &QToolButton::clicked, this, &SeismicPickPanel::onTrackClicked);
     connect(btnUndo_, &QToolButton::clicked, this, [this]() {
         if (undoStack_)
             undoStack_->undo();
@@ -165,6 +183,8 @@ void SeismicPickPanel::refreshFromSession()
         return;
     const SeismicInterpretationSession &session = dock_->interpretationSession();
     table_->setRowCount(0);
+    if (emptyHint_)
+        emptyHint_->setVisible(session.picks.isEmpty());
     for (const SeismicPick &p : session.picks)
     {
         const int row = table_->rowCount();
@@ -298,6 +318,12 @@ void SeismicPickPanel::onLoadSession()
 
 void SeismicPickPanel::onTrackClicked()
 {
+    // goal/horizon-autotrack：追踪在途 → 按钮即取消
+    if (dock_ && dock_->trackingActive())
+    {
+        dock_->cancelTracking();
+        return;
+    }
     // 种子 = 选中拾取，否则最后一条
     const auto sel = table_->selectionModel()->selectedRows();
     int seedId = -1;
@@ -307,6 +333,40 @@ void SeismicPickPanel::onTrackClicked()
     dock_->setTrackOptions({spinTrackWindow_->value(), 12,
                             spinTrackThreshold_->value()});
     emit trackRequested();
+}
+
+void SeismicPickPanel::setTrackingActive(bool active)
+{
+    if (btnTrack_)
+    {
+        btnTrack_->setText(active ? tr("■ 取消追踪") : tr("▶ 追踪同相轴"));
+        btnTrack_->setToolTip(active ? tr("取消在途追踪任务")
+                                     : tr("以选中拾取（或最后拾取）为种子，局部互相关沿同相轴双向追踪"));
+    }
+    if (active && lblTrackSummary_)
+        lblTrackSummary_->setText(tr("追踪中…"));
+}
+
+void SeismicPickPanel::showTrackReport(const SeismicTrackReport &report)
+{
+    if (!lblTrackSummary_)
+        return;
+    const int percent = report.totalTraces > 0
+                            ? report.coveredTraces * 100 / report.totalTraces
+                            : 0;
+    lblTrackSummary_->setText(
+        tr("覆盖 %1/%2 道（%3%）· 均值置信 %4 · %5")
+            .arg(report.coveredTraces)
+            .arg(report.totalTraces)
+            .arg(percent)
+            .arg(QString::number(report.meanConfidence, 'f', 2))
+            .arg(report.stopSummary.isEmpty() ? tr("—") : report.stopSummary));
+}
+
+void SeismicPickPanel::showTrackError(const QString &error)
+{
+    if (lblTrackSummary_)
+        lblTrackSummary_->setText(error);
 }
 
 } // namespace seismic

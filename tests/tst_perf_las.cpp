@@ -54,7 +54,22 @@ void PerfLasTests::parseDocUnder50ms()
   const LasDoc doc = LasParser::parseDoc(las);
   const double ms = t.nsecsElapsed() / 1.0e6;
   QVERIFY(doc.ok);
-  QVERIFY2(ms < 50.0, qPrintable(QStringLiteral("parseDoc %1ms >= 50ms (D1.5)").arg(ms)));
+  // goal/perf-systematize 簇3：比率化——同文件旧路径 parse() 为在测参照
+  //（实测 parseDoc/legacy ≈ 0.08，门 0.5 留 6× 余量；解析器退化回旧量级
+  // → 比率→1 必红）。sanity 上限只拦挂死，不判回归。
+  QStringList legacyNames;
+  QList<LasCurve> legacyCurves;
+  t.restart();
+  QVERIFY(LasParser::parse(las, legacyNames, legacyCurves));
+  const double legacyMs = double(t.nsecsElapsed()) / 1.0e6;
+  qInfo("parseDoc %.2fms vs legacy %.1fms (ratio %.3f)", ms, legacyMs,
+        legacyMs > 0 ? ms / legacyMs : -1.0);
+  QVERIFY2(legacyMs > 0 && ms < 0.5 * legacyMs,
+           qPrintable(QStringLiteral("parseDoc %1ms >= 0.5×legacy %2ms（D1.5 退化）")
+                          .arg(ms, 0, 'f', 2)
+                          .arg(legacyMs, 0, 'f', 1)));
+  QVERIFY2(ms < 2000.0,
+           qPrintable(QStringLiteral("parseDoc %1ms >= 2000ms（sanity）").arg(ms)));
   QCOMPARE(doc.curves.first().values.size(), 15581);
 }
 

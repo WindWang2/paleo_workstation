@@ -8,6 +8,7 @@
 #include "../io/lascache.h"
 #include "../io/lasparser.h"
 #include "../io/segyreader.h"
+#include "../io/streaming.h" // F3：GeoJSON 流式统计（无 DOM 增量扫描）
 #include "../io/timedeptool.h"
 #include "../io/wellcompositexml.h"
 #include "../io/wellfileparsers.h"
@@ -262,6 +263,34 @@ bool PreviewDocService::geoJsonBounds(const QString &absPath, double bounds[4],
                                       QString *error)
 {
   return ::geoJsonBounds(absPath, bounds, error);
+}
+
+bool PreviewDocService::geoJsonSummaryAt(const QString &absPath, GeoJsonSummary *out,
+                                         QString *error)
+{
+  // F3（goal/perf-systematize 簇2）：属性面板/详情的统计出口——bounds 与
+  // 要素计数/属性键各一遍流式增量扫描（io/streaming，无 DOM 不整读），
+  // 代替视图侧「geoJsonBounds DOM 解 + readAll 再 DOM 解」的双重整读。
+  // bounds 与计数独立成败（与旧视图口径一致：缺坐标 ≠ 计数失败）。
+  if (!out)
+    return false;
+  *out = GeoJsonSummary{};
+  QString berr;
+  double b[4] = {0, 0, 0, 0};
+  out->hasBounds = Streaming::geoJsonBoundsStreaming(absPath, b, nullptr, &berr);
+  if (out->hasBounds)
+    for (int i = 0; i < 4; ++i)
+      out->bounds[i] = b[i];
+  QString cerr;
+  out->featureCount =
+      Streaming::geoJsonFeatureCountStreaming(absPath, &out->propKeys, &cerr);
+  if (!out->hasBounds && out->featureCount < 0)
+  {
+    if (error)
+      *error = !berr.isEmpty() ? berr : cerr;
+    return false;
+  }
+  return true;
 }
 
 bool PreviewDocService::geoJsonDocumentAt(const QString &absPath,

@@ -347,6 +347,47 @@ private slots:
     QVERIFY2(!err.contains(QStringLiteral("no layer declaration")),
              qPrintable(err));
   }
+
+  // (i) P1-07 / MEM-04: destroyed layer does not crash isEditingAnyLayer()
+  void destroyedLayerDoesNotCrashIsEditingAnyLayer()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString copyGpkg = tmp.filePath(QStringLiteral("fixture.gpkg"));
+    QVERIFY(QFile::copy(fixtureGpkg(), copyGpkg));
+
+    LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+    QString err;
+    QVERIFY2(manifest.open(&err), qPrintable(err));
+
+    LayerDeclaration d = decl(QStringLiteral("facies.T1"), QStringLiteral("T1"));
+    d.source = copyGpkg + QStringLiteral("|layername=basin");
+
+    QgisLayerService svc(nullptr, &manifest);
+    QVERIFY2(svc.declare(d, &err), qPrintable(err));
+
+    QgsMapLayer *ml = svc.instantiate(QStringLiteral("facies.T1"), &err);
+    QVERIFY2(ml, qPrintable(err));
+    auto *vl = qobject_cast<QgsVectorLayer *>(ml);
+    QVERIFY(vl);
+    QVERIFY(vl->startEditing());
+    QVERIFY(vl->isEditable());
+
+    QString editingName;
+    QVERIFY(svc.isEditingAnyLayer(&editingName));
+    QCOMPARE(svc.layer(QStringLiteral("facies.T1")), ml);
+    QVERIFY(svc.isInstantiated(QStringLiteral("facies.T1")));
+
+    // Externally remove / destroy the layer from QgsProject
+    QgsProject::instance()->removeMapLayer(ml->id());
+    // In QGIS, removeMapLayer deletes the QObject.
+    // QPointer automatically resets to nullptr.
+
+    // Calling isEditingAnyLayer() must NOT dereference dangling memory or crash
+    QVERIFY(!svc.isEditingAnyLayer(&editingName));
+    QCOMPARE(svc.layer(QStringLiteral("facies.T1")), nullptr);
+    QVERIFY(!svc.isInstantiated(QStringLiteral("facies.T1")));
+  }
 };
 
 int main(int argc, char *argv[])

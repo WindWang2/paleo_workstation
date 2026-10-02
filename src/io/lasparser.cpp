@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <limits>
+#include <vector>
 
 qint64 LasParser::s_fileSizeLimit = 500LL * 1024 * 1024;
 
@@ -653,6 +654,7 @@ bool LasParser::parseRange(const QString &path, qint64 rowFrom, qint64 rowTo,
   if (!scanHeaderFromFile(f, &header, error, issues, path))
     return false;
   const QStringList &names = header.header.curveNames;
+  f.seek(0);
   const qint64 asciiOff = header.asciiDataOffset + bomAdjustment(f.peek(3));
 
   if (f.size() <= 8 * 1024 * 1024)
@@ -760,23 +762,32 @@ bool LasParser::parseDepthRange(const QString &path, double fromDepth, double to
 
   // 流式逐行：DEPT 落在 [from,to] 内的行收；DEPT 单调递增时越过 to 即停。
   const qint64 fileSize = f.size();
+  f.seek(0);
   qint64 pos = header.asciiDataOffset + bomAdjustment(f.peek(3));
+  // #78：块尾半行不留 carry——下一块直接从 pos + usable（即半行起点）重读。
+  // 旧实现 carry + 从 base+usable 重读，会把半行字节拼两次：块边界行错列，
+  // 截断点落在深度 token 中间时还会拼出越界深度、触发「越界即停」静默截断。
   constexpr qint64 kChunk = 4 * 1024 * 1024;
-  QByteArray carry;
   bool stopped = false;
   while (pos < fileSize && !stopped)
   {
     f.seek(pos);
-    QByteArray chunk = carry + f.read(kChunk);
+    const QByteArray chunk = f.read(kChunk);
     if (chunk.isEmpty())
       break;
-    const qint64 base = pos - carry.size();
     qint64 usable = chunk.size();
-    if (base + chunk.size() < fileSize)
+    if (pos + chunk.size() < fileSize)
     {
       const qint64 lastSep = qMax<qint64>(chunk.lastIndexOf('\n'), chunk.lastIndexOf('\r'));
       if (lastSep < 0)
+      {
+        // 单行超过块长——病态输入：如实返回已收行，但留痕（不静默成功）。
+        addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Truncated, 0,
+                 QStringLiteral("数据行超过 %1 字节，按深度读段在偏移 %2 处中止")
+                     .arg(kChunk)
+                     .arg(pos));
         usable = 0;
+      }
       else
         usable = lastSep + 1;
     }
@@ -790,10 +801,10 @@ bool LasParser::parseDepthRange(const QString &path, double fromDepth, double to
         ++eol;
       if (eol > i)
       {
-        double rowVals[64];
+        std::vector<double> rowVals(nCurves, nan());
         int col = 0;
         qint64 p = i;
-        while (p < eol && col < 64)
+        while (p < eol && col < nCurves)
         {
           while (p < eol && (chunk.at(p) == ' ' || chunk.at(p) == '\t'))
             ++p;
@@ -832,10 +843,8 @@ bool LasParser::parseDepthRange(const QString &path, double fromDepth, double to
       if (eol < usable && chunk.at(eol) == '\r' && i < usable && chunk.at(i) == '\n')
         ++i;
     }
-    carry = chunk.mid(static_cast<int>(usable));
-    pos = base + usable;
+    pos += usable;
   }
-  fillUnits(&curves, header);
   curves = cols;
   fillUnits(&curves, header);
   curveNames = names;

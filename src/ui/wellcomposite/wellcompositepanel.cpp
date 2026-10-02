@@ -5,6 +5,7 @@
 #include "wellpositionlegendwidget.h"
 #include "../paleotheme.h"
 #include "../../services/previewdoc.h" // 数据门面（W1：XML 解析入口不直触）
+#include "../../services/paleotaskservice.h" // F2：两段式 XML 任务池路径
 #include <QApplication>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -461,11 +462,18 @@ void WellCompositePanel::setSourceDataPath(const QString &path)
 // ----------------------------------------------------------------------------
 bool WellCompositePanel::loadComprehensiveXml(const QString &xmlPath)
 {
+  ++m_xmlLoadSeq; // 同步换源同样使在途异步结果作废
   ComprehensiveWellData data;
   QString err;
   if (!PreviewDocService::wellCompositeAt(xmlPath, &data, &err))
-    return false;
+    return false; // 同步失败语义保持：返回值即终态，不发信号（调用方直取）
+  applyComprehensiveData(data, xmlPath);
+  return true;
+}
 
+void WellCompositePanel::applyComprehensiveData(const ComprehensiveWellData &data,
+                                                const QString &xmlPath)
+{
   m_data = data;
   setWellName(data.wellName, true); // 综合柱状图 XML 只出现在辅助资料里，井名是参考井
   setupTracksFromData(data);
@@ -484,6 +492,40 @@ bool WellCompositePanel::loadComprehensiveXml(const QString &xmlPath)
   loadSidecar();
   restoreSessionState();
   emit wellLoaded(data.wellName);
+  emit comprehensiveXmlLoaded(true);
+}
+
+bool WellCompositePanel::loadComprehensiveXmlAsync(const QString &xmlPath,
+                                                   PaleoTaskService *svc)
+{
+  // 快速失败留在同步侧（与旧路径一致：文件不存在 false，不拉任务）。
+  if (xmlPath.isEmpty() || !QFile::exists(xmlPath))
+    return false;
+  if (!svc)
+    return loadComprehensiveXml(xmlPath); // 无任务服务：同步旧路径（测试）
+
+  const int seq = ++m_xmlLoadSeq;
+  // ComprehensiveWellData 值语义（QVector 底）——池线程产出、GUI 线程装配，
+  // shared_ptr 交接（与 WellCorrelationPanel::submitLasLoad 同一纪律）。
+  auto out = std::make_shared<ComprehensiveWellData>();
+  auto *task = svc->start(
+      tr("解析综合柱状图 %1").arg(QFileInfo(xmlPath).fileName()),
+      [xmlPath, out](PaleoTask *) -> QString {
+        QString err;
+        if (!PreviewDocService::wellCompositeAt(xmlPath, out.get(), &err))
+          return err.isEmpty() ? QObject::tr("无法解析综合柱状图 XML") : err;
+        return QString();
+      },
+      QString(), /*quiet=*/true); // 交互内嵌取数——不拉起任务中心
+  connect(task, &PaleoTask::finished, this,
+          [this, seq, out, xmlPath, task]() {
+            if (seq != m_xmlLoadSeq)
+              return; // 陈旧结果丢弃：换源/重入已接管
+            if (task->state() == PaleoTask::State::Succeeded)
+              applyComprehensiveData(*out, xmlPath);
+            else
+              emit comprehensiveXmlLoaded(false);
+          });
   return true;
 }
 

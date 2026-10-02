@@ -288,6 +288,7 @@ class DataCatalog : public QObject
     bool m_lockedReadOnly = false; // 见 setLockedReadOnly——实例级只读降级
     bool m_recoveredFromBackup = false; // open() 走了 .bak 回退（本次 open 内）
     QString m_backupRecoveryReason;     // 主文件损坏原因（恢复成功时留底）
+    bool m_primaryCorruptOnDisk = false; // 盘上主文件仍是损坏那份（首次成功 save 前，#79）
     int m_batchDepth = 0;        // >0 时 save() 挂起（BatchSave）
     bool m_batchDirty = false;   // 挂起期间有过变更 → endBatch 落一次盘
     int m_revision = 0;

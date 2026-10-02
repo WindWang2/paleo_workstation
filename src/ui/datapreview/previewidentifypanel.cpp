@@ -1,6 +1,7 @@
 // 层：视图
 #include "previewidentifypanel.h"
 
+#include "../paleoemptystate.h"
 #include "../paleotheme.h"
 
 #include <QApplication>
@@ -272,6 +273,10 @@ PreviewAttributeTableDialog::PreviewAttributeTableDialog( QgsVectorLayer *layer,
     m_table->setHorizontalHeaderLabels( headers );
   }
   m_table->horizontalHeader()->setStretchLastSection( true );
+  // goal/ui-experience-polish：静默空表补空态指引（与「0 / 0」页码互补）。
+  m_emptyLabel = new PaleoEmptyStateLabel(
+      QObject::tr( "没有匹配的要素——清除过滤或换个过滤列" ), m_table );
+  m_emptyLabel->setObjectName( QStringLiteral( "attrFullEmptyState" ) );
   lay->addWidget( m_table, 1 );
 
   auto *pageBar = new QWidget( this );
@@ -388,6 +393,8 @@ void PreviewAttributeTableDialog::rebuild()
   const int pages = pageCount();
   m_pageLabel->setText( pages > 0 ? QStringLiteral( "%1 / %2" ).arg( m_page + 1 ).arg( pages )
                                   : QStringLiteral( "0 / 0" ) );
+  if ( m_emptyLabel )
+    m_emptyLabel->setVisible( filteredFeatureIds().isEmpty() );
   m_prevBtn->setEnabled( m_page > 0 );
   m_nextBtn->setEnabled( m_page + 1 < pages );
 }

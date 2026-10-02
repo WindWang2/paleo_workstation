@@ -3,6 +3,7 @@
 
 #include "previewmapstates.h"
 
+#include "../paleoemptystate.h"
 #include "../paleotheme.h"
 
 #include <QCheckBox>
@@ -12,6 +13,7 @@
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QStackedLayout>
 #include <QListWidget>
 #include <QPushButton>
 #include <QSlider>
@@ -49,8 +51,13 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
       title, [] { return PaleoTheme::sectionTitleStyleSheet(); } );
   lay->addWidget( title );
 
+  // 列表空态指引（goal/ui-experience-polish：列表空时不静默）——共享
+  // PaleoEmptyStateLabel 叠在列表上居中，rebuildList 按行数显隐。
   m_list = new QListWidget( this );
   m_list->setObjectName( QStringLiteral( "previewTocList" ) );
+  m_listEmptyLabel = new PaleoEmptyStateLabel(
+      tr( "预览打开后图层会列在这里" ), m_list );
+  m_listEmptyLabel->setObjectName( QStringLiteral( "previewTocEmptyLabel" ) );
   m_list->setDragDropMode( QAbstractItemView::InternalMove ); // D4.1 拖拽排序
   m_list->setSelectionMode( QAbstractItemView::SingleSelection );
   connect( m_list, &QListWidget::itemChanged, this, [this]( QListWidgetItem *item ) {
@@ -426,10 +433,19 @@ void PreviewTocPanel::rebuildList()
     item->setToolTip( r.sourcePath );
   }
   m_suppressSignals = false;
+  // goal/ui-experience-polish：TOC 列表静默空态补指引（同页快调占位同款）。
   if ( m_list->count() > 0 )
+  {
     m_list->setCurrentRow( 0 );
+    if ( m_listEmptyLabel )
+      m_listEmptyLabel->hide();
+  }
   else
+  {
+    if ( m_listEmptyLabel )
+      m_listEmptyLabel->show();
     rebuildQuickPanel();
+  }
 }
 
 void PreviewTocPanel::rebuildQuickPanel()

@@ -603,7 +603,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
           const double v = -dx * sinTheta + dy * cosTheta;
           d2 = u * u * invAniso2 + v * v * aniso2;
         }
-        if ( d2 == 0.0 )
+        if ( d2 < 1e-12 )
         {
           exact = true;
           exactValue = s.z;

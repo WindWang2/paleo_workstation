@@ -59,6 +59,8 @@ private slots:
   // ---- wave/data-foundation：T5 .bak 腐败恢复 / T6 原子写 / T4 锁降级 /
   //      T3 千实体量化预算 ----
   void backupRecoveryChainDrill();               // T5+T7：连续两轮损坏→恢复→续存
+  void recoveryDoesNotRotateCorruptPrimaryIntoBak(); // #79：恢复后首次 save 不污染 .bak
+  void recoveryFallsBackToOlderGeneration();         // #79：.bak 坏时回退 .bak.2…
   void backupRecoveryRefusedOnSchemaMismatch();  // T5：未来版本不走 .bak 回退
   void bothCorruptRefusesWrites();               // T5：主/bak 都坏 → 拒写态
   void wellsGeoJsonKeepsOldFileOnFailedWrite();  // T6：写失败不截断旧文件
@@ -1271,6 +1273,101 @@ void TestCatalog::backupRecoveryChainDrill()
   QVERIFY(second.hasEntity(QStringLiteral("well-C3"))); // 倒数第二代全在
   QVERIFY(!second.hasEntity(QStringLiteral("well-D4"))); // 最近一轮丢失
   QCOMPARE(second.entities(QStringLiteral("well")).size(), 2);
+}
+
+namespace
+{
+  CatalogEntity wellEntity(const QString &name)
+  {
+    CatalogEntity e;
+    e.id = QStringLiteral("well-") + name;
+    e.entityType = QStringLiteral("well");
+    e.name = name;
+    return e;
+  }
+
+  bool parsesAsJsonObject(const QString &path)
+  {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+      return false;
+    QJsonParseError pe;
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &pe);
+    return pe.error == QJsonParseError::NoError && doc.isObject();
+  }
+
+  void corrupt(const QString &path, const QByteArray &junk)
+  {
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(junk);
+  }
+} // namespace
+
+// #79：恢复后的首次 save 不能把盘上仍损坏的主文件轮转成 .bak——否则
+// 好的 .bak 被挤成 .bak.2，紧接着的第二次损坏就无法自动恢复。
+void TestCatalog::recoveryDoesNotRotateCorruptPrimaryIntoBak()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = QDir(dir.path()).filePath(
+      QStringLiteral("artifacts/metadata/catalog.json"));
+  const QString bak = path + QStringLiteral(".bak");
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path()));
+    QVERIFY(cat.addEntity(wellEntity(QStringLiteral("A1"))));
+    QVERIFY(cat.addEntity(wellEntity(QStringLiteral("B2"))));
+  }
+  corrupt(path, "{ broken");
+
+  DataCatalog reopened;
+  QVERIFY(reopened.open(dir.path()));
+  QVERIFY(reopened.recoveredFromBackup());
+  QVERIFY(reopened.hasEntity(QStringLiteral("well-A1")));
+  // 恢复后只发生一次 save。
+  QVERIFY(reopened.addEntity(wellEntity(QStringLiteral("C3"))));
+
+  QVERIFY2(parsesAsJsonObject(path), "primary must be rewritten with recovered content");
+  QVERIFY2(parsesAsJsonObject(bak), ".bak must not be the corrupt primary");
+  const QStringList quarantined = QFileInfo(path).dir().entryList(
+      QStringList{QStringLiteral("catalog.json.corrupt-*")}, QDir::Files);
+  QCOMPARE(quarantined.size(), 1); // 损坏现场隔离留证，不进 .bak 链
+
+  // 紧接着第二次损坏：.bak 仍可用 → 自动恢复。
+  corrupt(path, "]]] again");
+  DataCatalog second;
+  QVERIFY(second.open(dir.path()));
+  QVERIFY(second.recoveredFromBackup());
+  QVERIFY(second.hasEntity(QStringLiteral("well-A1")));
+}
+
+// #79：.bak 也坏了时依次回退 .bak.2…，取第一份可解析的一代。
+void TestCatalog::recoveryFallsBackToOlderGeneration()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = QDir(dir.path()).filePath(
+      QStringLiteral("artifacts/metadata/catalog.json"));
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path()));
+    QVERIFY(cat.addEntity(wellEntity(QStringLiteral("A1"))));
+    QVERIFY(cat.addEntity(wellEntity(QStringLiteral("B2"))));
+    QVERIFY(cat.addEntity(wellEntity(QStringLiteral("C3"))));
+  }
+  // 现在：主 = A1+B2+C3，.bak = A1+B2，.bak.2 = A1。
+  QVERIFY(parsesAsJsonObject(path + QStringLiteral(".bak.2")));
+  corrupt(path, "nope");
+  corrupt(path + QStringLiteral(".bak"), "also nope");
+
+  DataCatalog cat;
+  QString err;
+  QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+  QVERIFY(cat.recoveredFromBackup());
+  QVERIFY(cat.hasEntity(QStringLiteral("well-A1")));
+  QVERIFY(!cat.hasEntity(QStringLiteral("well-B2")));
+  QCOMPARE(cat.entities(QStringLiteral("well")).size(), 1);
 }
 
 // T5：schema 不匹配（未来版本）不走 .bak 回退——那是数据降级不是恢复。

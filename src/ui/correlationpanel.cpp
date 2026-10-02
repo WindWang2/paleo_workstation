@@ -412,6 +412,32 @@ void WellCorrelationPanel::applyLasCurves(const QString &wellId,
   m_browser->setCurves(wellId, curves);
 }
 
+// goal/petrophysics-logs：计算产物并入曲线集（同名替换旧算，异名追加；
+// 上轨不动——用户勾选驱动）。
+void WellCorrelationPanel::mergeComputedCurves(const QString &wellId,
+                                               const QList<LasCurve> &computed)
+{
+  if (computed.isEmpty())
+    return;
+  QList<LasCurve> merged = m_lasByWell.value(wellId);
+  for (const LasCurve &c : computed)
+  {
+    bool replaced = false;
+    for (LasCurve &m : merged)
+    {
+      if (m.name.compare(c.name, Qt::CaseInsensitive) == 0)
+      {
+        m = c;
+        replaced = true;
+        break;
+      }
+    }
+    if (!replaced)
+      merged.append(c);
+  }
+  applyLasCurves(wellId, merged);
+}
+
 // B1：按曲线名上轨（loadWellLas 的解析后动作，同步/异步共用）。
 bool WellCorrelationPanel::applyLasTrack(const QString &wellId,
                                          const QStringList &names,

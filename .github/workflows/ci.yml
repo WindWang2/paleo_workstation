@@ -15,9 +15,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# #75：只有 PR 分支「新 push 取消旧运行」；master/main 的每个 push 都必须
+# 跑完（连续合并时旧逻辑会互相取消，master 拿不到任何完整结果）。
+# master 的 group 带上 sha，避免同 ref 的运行彼此排队等待。
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
@@ -52,6 +55,13 @@ jobs:
         env:
           PALEO_CLANG_TIDY: clang-tidy-20
         run: python3 tools/check_tidy.py --base origin/master
+      - name: Source gates (layering / ui invariants / i18n，按脚本位置定位源码根)
+        run: |
+          python3 tools/check_layering.py --strict
+          python3 tools/check_ui_invariants.py --strict
+          python3 tools/check_ui_invariants.py --selftest
+          python3 tools/check_i18n.py
+          python3 tools/check_i18n.py --selftest
       - name: deb-closure smoke (ET1：锁文件可解析、条目格式合法，零下载)
         run: ./vendor/fetch-deps.sh --print-only
 
@@ -91,20 +101,13 @@ jobs:
           LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
         # 并行轮失败时串行重跑失败项一次：QGIS 栈建/计时类在 -j 负载下
         # 有环境性抖动（本地串行全绿）；重跑仍挂才算真失败。::warning 留痕。
-        run: |
-          ./paleo-dev test -LE core -j "$(nproc)" || {
-            echo "::warning::并行轮有失败，串行重跑失败项排除负载抖动"
-            QT_QPA_PLATFORM=offscreen ctest --test-dir build -j1 --rerun-failed --output-on-failure
-          }
+        # #81：崩溃（SegFault/abort）不重跑，直接判红——见 tools/ci_ctest_gate.sh。
+        run: tools/ci_ctest_gate.sh -LE core
       - name: Test (full-stack umbrella tests)
         env:
           QT_QPA_PLATFORM: offscreen
           LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
-        run: |
-          ./paleo-dev test -L core -j "$(nproc)" || {
-            echo "::warning::并行轮有失败，串行重跑失败项排除负载抖动"
-            QT_QPA_PLATFORM=offscreen ctest --test-dir build -j1 --rerun-failed --output-on-failure
-          }
+        run: tools/ci_ctest_gate.sh -L core
       - name: Selfcheck
         env:
           QT_QPA_PLATFORM: offscreen

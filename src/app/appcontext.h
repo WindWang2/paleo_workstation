@@ -7,6 +7,7 @@
 
 // app/ — AppContext wires the service graph together (composition root).
 // Construct once in main(); owns all services; PaleoMainWindow receives them.
+#include "metadata/faultsetstore.h"
 class ProjectDirLock;
 class QgisRuntime;
 class QgisCanvasController;
@@ -29,6 +30,9 @@ class PredictionWorkflow;
 class ConstraintWorkflow;
 class CompositionWorkflow;
 class ValidationWorkflow;
+namespace paleo::fault {
+class FaultInterpretationController;
+}
 class ProjectDataFacade;
 class MappingWorkflow;
 class MappingWorkbench;
@@ -76,6 +80,11 @@ class AppContext : public QObject
     MapVersionStore *versionStore() const { return m_versionStore; }
     MapVersionController *versionCtl() const { return m_versionCtl; }
 
+    // goal/fault-interpretation：断层解释编排器（FaultSet 模型 + 撤销栈 +
+    // SelectionContext 联动 + 切割镜像层）。存储随工程打开重绑（值成员，
+    // 控制器持有稳定地址）。
+    paleo::fault::FaultInterpretationController *faultCtl() const { return m_faultCtl; }
+
     // pass-2 D1/D2：异步任务注册中心（QThreadPool 执行 + 字节进度 + 10s 窗口
     // ETA + 协作取消），任务页轮询它渲染进度条；长 IO 经它上 worker。
     PaleoTaskService *taskSvc() const { return m_taskSvc; }
@@ -113,6 +122,7 @@ class AppContext : public QObject
     SeismicMapLink *m_seismicLink = nullptr;
     WellMapLink *m_wellLink = nullptr;
     QString m_projectDir; // wells.geojson 输出根（projectOpened 时设置）
+    QString m_metaPath;   // 当前会话的 project.sqlite（切换/关闭时关连接，#80）
     QgsRectangle m_lastWellsExtent; // D6 zoom：上次井点范围（空 = 尚无井点）
     PaleoProjectStore *m_store = nullptr;
     LayerManifest *m_manifest = nullptr;
@@ -128,6 +138,8 @@ class AppContext : public QObject
     DepthConversionWorkflow *m_depthWf = nullptr;
     MapVersionStore *m_versionStore = nullptr;
     MapVersionController *m_versionCtl = nullptr;
+    FaultSetStore m_faultStore{QString(), nullptr}; // projectOpened 值重绑
+    paleo::fault::FaultInterpretationController *m_faultCtl = nullptr;
     PaleoTaskService *m_taskSvc = nullptr;
     std::unique_ptr<ProjectDirLock> m_projectLock;
     bool m_lastReadOnlyNotified = false; // 上次广播的只读态（去重）

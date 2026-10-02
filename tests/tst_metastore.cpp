@@ -429,6 +429,92 @@ private slots:
     QVERIFY(store.enqueueWrite(okUnit).ok);
   }
 
+  // ---- #80：只读实例 open 不建库、不建表、不推进 user_version ------------
+  void readOnlyOpenDoesNotCreateOrMigrate()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QString err;
+
+    // (a) 文件不存在：只读 open 失败，且不在被锁目录里建库。
+    const QString missing = dir.filePath(QStringLiteral("sub/missing.sqlite"));
+    LayerManifest m0(missing);
+    m0.setReadOnly(true);
+    QVERIFY(!m0.open(&err));
+    QVERIFY(!QFileInfo::exists(missing));
+    QVERIFY(!QFileInfo::exists(dir.filePath(QStringLiteral("sub"))));
+    MapVersionStore v0(missing);
+    v0.setReadOnly(true);
+    QVERIFY(!v0.open(&err));
+    QVERIFY(!QFileInfo::exists(missing));
+
+    // (b) 遗留空库（user_version=0、无表）：只读 open 成功但零写入。
+    const QString legacy = dir.filePath(QStringLiteral("legacy.sqlite"));
+    QVERIFY2(setRawUserVersion(legacy, 0, &err), qPrintable(err));
+    LayerManifest m(legacy);
+    m.setReadOnly(true);
+    QVERIFY2(m.open(&err), qPrintable(err));
+    MapVersionStore vs(legacy);
+    vs.setReadOnly(true);
+    QVERIFY2(vs.open(&err), qPrintable(err));
+    QCOMPARE(rawUserVersion(legacy), 0);
+    QVERIFY2(tablesOf(legacy).isEmpty(), qPrintable(tablesOf(legacy).join(',')));
+
+    // (c) 未来版本：只读同样拒开。
+    const QString future = dir.filePath(QStringLiteral("future.sqlite"));
+    QVERIFY(setRawUserVersion(future, MetaStore::kUserVersion + 1, &err));
+    LayerManifest mf(future);
+    mf.setReadOnly(true);
+    QVERIFY(!mf.open(&err));
+    QVERIFY(err.contains(QStringLiteral("newer than this build")));
+  }
+
+  // ---- #80：closeConnectionsFor 释放句柄；同路径重建后写进新文件 --------
+  void closeConnectionsReleasesHandlesAndRebinds()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString db = dir.filePath(QStringLiteral("p.sqlite"));
+    const auto connectionsOn = [](const QString &path) {
+      int n = 0;
+      for (const QString &name : QSqlDatabase::connectionNames())
+      {
+        const QSqlDatabase c = QSqlDatabase::database(name, false);
+        if (c.isValid() && QFileInfo(c.databaseName()).absoluteFilePath() ==
+                               QFileInfo(path).absoluteFilePath())
+          ++n;
+      }
+      return n;
+    };
+    QString err;
+    LayerDeclaration d;
+    d.layerId = QStringLiteral("L1");
+    d.type = QStringLiteral("vector");
+    {
+      LayerManifest m(db);
+      QVERIFY2(m.upsert(d, &err), qPrintable(err));
+      MapVersionStore vs(db);
+      QVERIFY2(vs.open(&err), qPrintable(err));
+      ReleaseStore rs(db);
+      QVERIFY2(rs.open(&err), qPrintable(err));
+    }
+    QVERIFY(connectionsOn(db) >= 3);
+    QVERIFY(MetaStore::closeConnectionsFor(db) >= 3);
+    QCOMPARE(connectionsOn(db), 0);
+
+    // 删除后在原路径重建：新实例写进新文件（不复用旧 inode 的陈旧连接）。
+    QVERIFY(QFile::remove(db));
+    LayerManifest fresh(db);
+    LayerDeclaration d2 = d;
+    d2.layerId = QStringLiteral("L2");
+    QVERIFY2(fresh.upsert(d2, &err), qPrintable(err));
+    QVERIFY(QFileInfo::exists(db));
+    const QVector<LayerDeclaration> all = fresh.all();
+    QCOMPARE(all.size(), 1);
+    QCOMPARE(all.first().layerId, QStringLiteral("L2"));
+    MetaStore::closeConnectionsFor(db);
+  }
+
 private:
   // 矩阵断言辅助（QCOMPARE + 版本号上下文）。
   void QCOMPARE2(bool actual, bool expected, const QString &err, int version)

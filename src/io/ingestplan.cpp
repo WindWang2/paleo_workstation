@@ -762,7 +762,11 @@ CatalogVersion CatalogReadSnapshot::versionBySha256(const QString &sha256) const
     const QString path = DataCatalog::resolvedVersionPath(m_dir, v);
     if (path.isEmpty() || !QFileInfo(path).isFile())
       continue;
-    if (ShaCache::shared().sha256Hex(path).compare(sha256, Qt::CaseInsensitive) == 0) // D7.7
+    // #84：复核库内副本必须真重哈希（与 DataCatalog::versionBySha256 同一实现）。
+    // ShaCache 指纹（canon|mtime|size）不读内容——受管副本被保时间戳改写/位腐
+    // 时会冒充命中，目录导入与单文件导入的 dedup 结论就会分裂。ShaCache 只用于
+    // 「源文件取哈希」的加速，不用于「库内副本复核」。
+    if (DataCatalog::sha256FileHex(path).compare(sha256, Qt::CaseInsensitive) == 0)
       return v;
   }
   return CatalogVersion();

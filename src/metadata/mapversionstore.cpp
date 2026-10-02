@@ -16,9 +16,11 @@
 
 namespace
 {
-  QString connectionNameFor( const QString &path )
+  // readOnly 实例走独立连接名（QSQLITE_OPEN_READONLY，#80）。
+  QString connectionNameFor( const QString &path, bool readOnly )
   {
-    return QStringLiteral( "paleo_mapversions_" ) + QString::number( qHash( path ) );
+    return QStringLiteral( "paleo_mapversions_" ) + QString::number( qHash( path ) ) +
+           ( readOnly ? QStringLiteral( "_ro" ) : QString() );
   }
 
   void setError( QString *error, const QString &text )
@@ -54,11 +56,14 @@ namespace
 
   // Lazily opens the connection and guarantees both tables (idempotent,
   // forward-compatible: absent columns keep NULL defaults on old rows).
-  bool ensureOpen( const QString &path, QString *error )
+  bool ensureOpen( const QString &path, bool readOnly, QString *error )
   {
-    QSqlDatabase db = MetaStore::openConnection(path, connectionNameFor(path), error);
-    if (!db.isValid())
+    QSqlDatabase db =
+        MetaStore::openConnection( path, connectionNameFor( path, readOnly ), error, readOnly );
+    if ( !db.isValid() )
       return false;
+    if ( readOnly )
+      return true; // 只读实例不建表/不补列（#80）——schema 归写实例
 
     QSqlQuery schema( db );
     if ( !schema.exec( QStringLiteral( "CREATE TABLE IF NOT EXISTS map_versions("
@@ -162,7 +167,7 @@ MapVersionStore::MapVersionStore( const QString &metaSqlitePath )
 
 bool MapVersionStore::open( QString *error )
 {
-  return ensureOpen( m_dbPath, error );
+  return ensureOpen( m_dbPath, m_readOnly, error );
 }
 
 int MapVersionStore::currentVersion( const QString &horizon ) const
@@ -172,9 +177,9 @@ int MapVersionStore::currentVersion( const QString &horizon ) const
 
 MapVersion MapVersionStore::latest( const QString &horizon ) const
 {
-  if ( !ensureOpen( m_dbPath, nullptr ) )
+  if ( !ensureOpen( m_dbPath, m_readOnly, nullptr ) )
     return MapVersion();
-  QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
+  QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath, m_readOnly ) ) );
   q.prepare( QStringLiteral( "SELECT " ) + QLatin1String( kSelectCols ) +
              QStringLiteral( " FROM map_versions WHERE horizon=? ORDER BY version DESC LIMIT 1" ) );
   q.addBindValue( horizon );
@@ -186,9 +191,9 @@ MapVersion MapVersionStore::latest( const QString &horizon ) const
 QVector<MapVersion> MapVersionStore::versions( const QString &horizon ) const
 {
   QVector<MapVersion> out;
-  if ( !ensureOpen( m_dbPath, nullptr ) )
+  if ( !ensureOpen( m_dbPath, m_readOnly, nullptr ) )
     return out;
-  QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
+  QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath, m_readOnly ) ) );
   q.prepare( QStringLiteral( "SELECT " ) + QLatin1String( kSelectCols ) +
              QStringLiteral( " FROM map_versions WHERE horizon=? ORDER BY version" ) );
   q.addBindValue( horizon );
@@ -207,10 +212,10 @@ MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &
     setError( error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，版本写入被拒绝") );
     return MapVersion();
   }
-  if ( !ensureOpen( m_dbPath, error ) )
+  if ( !ensureOpen( m_dbPath, m_readOnly, error ) )
     return MapVersion();
 
-  QSqlDatabase db = QSqlDatabase::database( connectionNameFor( m_dbPath ) );
+  QSqlDatabase db = QSqlDatabase::database( connectionNameFor( m_dbPath, m_readOnly ) );
 
   // 最近一次登记的 PDF 产物引用（asset_id + sha256）抄进新版本行；
   // 导出不改已冻结的版本行——下一次保存才继承产物引用（§260）。
@@ -267,9 +272,9 @@ bool MapVersionStore::recordLayoutProduct( const QString &horizon, const QString
     setError( error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，产物登记被拒绝") );
     return false;
   }
-  if ( !ensureOpen( m_dbPath, error ) )
+  if ( !ensureOpen( m_dbPath, m_readOnly, error ) )
     return false;
-  QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
+  QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath, m_readOnly ) ) );
   q.prepare( QStringLiteral( "INSERT INTO map_products(horizon,kind,path,created_utc,asset_id,sha256)"
                              " VALUES(?,'pdf',?,?,?,?)" ) );
   q.addBindValue( horizon );
@@ -287,9 +292,9 @@ bool MapVersionStore::recordLayoutProduct( const QString &horizon, const QString
 
 bool MapVersionStore::hasLayoutProduct( const QString &horizon ) const
 {
-  if ( !ensureOpen( m_dbPath, nullptr ) )
+  if ( !ensureOpen( m_dbPath, m_readOnly, nullptr ) )
     return false;
-  QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
+  QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath, m_readOnly ) ) );
   q.prepare( QStringLiteral( "SELECT COUNT(*) FROM map_products WHERE horizon=? AND kind='pdf'" ) );
   q.addBindValue( horizon );
   if ( !q.exec() || !q.next() )
@@ -299,9 +304,9 @@ bool MapVersionStore::hasLayoutProduct( const QString &horizon ) const
 
 QString MapVersionStore::latestLayoutProduct( const QString &horizon ) const
 {
-  if ( !ensureOpen( m_dbPath, nullptr ) )
+  if ( !ensureOpen( m_dbPath, m_readOnly, nullptr ) )
     return QString();
-  QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
+  QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath, m_readOnly ) ) );
   q.prepare( QStringLiteral( "SELECT path FROM map_products"
                              " WHERE horizon=? AND kind='pdf' ORDER BY id DESC LIMIT 1" ) );
   q.addBindValue( horizon );
@@ -358,7 +363,7 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
     return QString();
   }
 
-  if ( !ensureOpen( m_dbPath, error ) )
+  if ( !ensureOpen( m_dbPath, m_readOnly, error ) )
     return QString();
 
   const MapVersion latestV = latest( horizon );
@@ -438,7 +443,7 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
   // 已经在快照里」）；没有资产归属的旧产物行一并带上。
   {
     bool boundCopied = false;
-    QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
+    QSqlQuery q( QSqlDatabase::database( connectionNameFor( m_dbPath, m_readOnly ) ) );
     q.prepare( QStringLiteral( "SELECT path,asset_id FROM map_products"
                                " WHERE horizon=? AND kind='pdf' AND (asset_id=? OR asset_id IS NULL)" ) );
     q.addBindValue( horizon );
@@ -474,7 +479,7 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
     }
   }
 
-  QSqlQuery up( QSqlDatabase::database( connectionNameFor( m_dbPath ) ) );
+  QSqlQuery up( QSqlDatabase::database( connectionNameFor( m_dbPath, m_readOnly ) ) );
   up.prepare( QStringLiteral( "UPDATE map_versions SET state='Published', published_path=?,"
                               " residual_summary=? WHERE id=?" ) );
   up.addBindValue( snapDir );

@@ -11,7 +11,7 @@ git clone https://github.com/WindWang2/paleo_workstation.git && cd paleo_worksta
 
 成功标志：`SELFCHECK OK` + `vendor/logs/map.png` 是一张真的地图。
 
-**宿主要求**：Linux x86_64、glibc ≥ 2.41（Debian 13 / Ubuntu 25.04+ 级；Arch 天然满足）、≥15GB 磁盘；Windows 走 CI（windows-latest + MSVC v143）。
+**宿主要求**：Linux x86_64、glibc ≥ 2.41 可用发行版 QGIS 4.2.x 包或 superbuild；**vendored deb 闭包需 glibc ≥ 2.43**（Ubuntu 26.04 级，Debian 13 不满足；Arch 天然满足）、≥15GB 磁盘；Windows 走 CI（windows-latest + MSVC v143）。
 
 ## 开发入口 `./paleo-dev`
 

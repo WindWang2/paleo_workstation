@@ -45,6 +45,8 @@
 #include "typedconstraintdrawcontroller.h" // m2(B)：物源线/展布线/控制点类型化捕获
 #include "dialogs/folderconfirm.h"
 #include "correlationpanel.h"
+#include "correlation/petrophyspanel.h" // goal/petrophysics-logs：测井计算面板（意图信号）
+#include "io/lasdoc.h"                  // LasCurve 值类型（ui io 白名单头）
 #include "datapreview/datapreviewtabs.h"
 #include "wellcomposite/derivedsink.h" // deepen-perf D1：井综合派生登记 sink
 #include "../catalog/datacatalog.h"
@@ -300,6 +302,111 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                     QStringLiteral("Paleo"));
               });
       bottomTabs->addTab(corrPanel, tr("测井对比"));
+    }
+  }
+
+  // goal/petrophysics-logs：测井计算面板（视图只发意图信号）+ 壳层编排：
+  // 井集 = 连井面板当前井 → catalog 解析 LAS → PetroPhysTaskService 批任务
+  // （进度/取消/产物落盘走写队列 + catalog DERIVED 登记）→ 结果曲线并回
+  // 曲线集（mergeComputedCurves，上轨由用户勾选驱动）。
+  if (taskSvc && !m_petroPhysSvc)
+    m_petroPhysSvc = std::make_unique<paleo::petrophys::PetroPhysTaskService>(
+        taskSvc, store, this);
+  if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
+  {
+    auto *petroPanel = new paleo::petrophys::PetroPhysPanel(bottomTabs);
+    petroPanel->setObjectName(QStringLiteral("petrophysPanel"));
+    bottomTabs->addTab(petroPanel, tr("测井计算"));
+    if (m_petroPhysSvc)
+    {
+      connect(petroPanel, &paleo::petrophys::PetroPhysPanel::computeRequested, this,
+              [this, petroPanel, corrPanel](
+                  const paleo::petrophys::PetroPhysTaskService::BatchRequest &intent) {
+                if (!corrPanel || corrPanel->wellCount() == 0)
+                {
+                  petroPanel->showResult(
+                      false, tr("井集为空——先在数据页导入井（含 LAS）"));
+                  return;
+                }
+                QStringList wellIds;
+                for (int i = 0; i < corrPanel->wellCount(); ++i)
+                  wellIds.append(corrPanel->wellAt(i));
+                auto *catalog = m_previewDoc ? m_previewDoc->catalog() : nullptr;
+                // projectDir = catalogPath 去固定后缀（derivedsink.cpp 同先例；
+                // 形状异常 → 空 = 工程目录未解析，如实报错）
+                const QString catSuffix =
+                    QStringLiteral("/artifacts/metadata/catalog.json");
+                const QString catPath = catalog ? catalog->catalogPath() : QString();
+                const QString projDir =
+                    catPath.endsWith(catSuffix)
+                        ? catPath.left(catPath.size() - catSuffix.size())
+                        : QString();
+                QStringList missing;
+                paleo::petrophys::PetroPhysTaskService::BatchRequest req = intent;
+                if (catalog && !projDir.isEmpty())
+                {
+                  req.wells = paleo::petrophys::PetroPhysTaskService::resolveWellLas(
+                      catalog, projDir, wellIds, &missing);
+                }
+                petroPanel->setWellScope(corrPanel->wellCount(), req.wells.size());
+                if (req.wells.isEmpty())
+                {
+                  petroPanel->showResult(
+                      false, tr("无可解析 LAS 的井：%1").arg(missing.join(u'；')));
+                  return;
+                }
+                petroPanel->setBusy(true);
+                m_petroPhysTask = m_petroPhysSvc->startBatch(
+                    req, catalog, projDir + QStringLiteral("/artifacts/derived/petrophys"),
+                    [this, petroPanel, corrPanel, req](
+                        bool ok, const paleo::petrophys::PetroPhysTaskService::BatchResult &res) {
+                      int merged = 0;
+                      if (corrPanel)
+                      {
+                        for (const auto &w : res.wells)
+                        {
+                          if (!w.ok || w.values.isEmpty())
+                            continue;
+                          LasCurve depth;
+                          depth.name = QStringLiteral("DEPT");
+                          depth.values = w.depths;
+                          LasCurve c;
+                          c.name = req.outputMnemonic;
+                          c.unit = req.outputUnit;
+                          c.descr = req.outputDescr;
+                          c.values = w.values;
+                          corrPanel->mergeComputedCurves(w.wellId, {depth, c});
+                          ++merged;
+                        }
+                      }
+                      QString extra;
+                      if (!res.error.isEmpty())
+                        extra = tr("（%1）").arg(res.error);
+                      petroPanel->showResult(
+                          ok, tr("%1/%2 井完成，%3 条曲线并入曲线集%4")
+                                  .arg(res.succeeded)
+                                  .arg(res.wells.size())
+                                  .arg(merged)
+                                  .arg(extra));
+                    });
+                if (m_petroPhysTask)
+                {
+                  connect(m_petroPhysTask, &PaleoTask::changed, this,
+                          [this, petroPanel]() {
+                            if (PaleoTask *t = m_petroPhysTask.data())
+                              petroPanel->updateProgress(t->percent(), t->stage());
+                          });
+                }
+              });
+      connect(petroPanel, &paleo::petrophys::PetroPhysPanel::cancelRequested, this,
+              [this]() {
+                if (m_petroPhysTask)
+                  m_petroPhysTask->requestCancel();
+              });
+    }
+    else
+    {
+      petroPanel->setEnabled(false); // 无任务服务（测试/小环境）：不可用如实降级
     }
   }
 

@@ -19,6 +19,8 @@ class TestLas : public QObject
     void testExtremeCurveCount150();
     void testUtf8BomExactByteAlignment();
     void testEmptyLinesTrailingWhitespaceVariableColumns();
+    void testDepthRangeAcrossChunkBoundaries_data();
+    void testDepthRangeAcrossChunkBoundaries();
 
   private:
     QTemporaryDir m_tempDir;
@@ -463,6 +465,72 @@ void TestLas::testEmptyLinesTrailingWhitespaceVariableColumns()
       sawTruncatedIssue = true;
   }
   QVERIFY2(sawTruncatedIssue, "Should report LasIssue::Category::Truncated for malformed rows");
+}
+
+void TestLas::testDepthRangeAcrossChunkBoundaries_data()
+{
+  // #78：> 8MB（跨 2 个以上 4MB 块）。不同行宽让块边界落在不同 token 上：
+  // pad=1 时旧实现子区间读出 0 行；pad=5 时全区间静默截断到 292365 行。
+  QTest::addColumn<int>("pad");
+  QTest::newRow("pad1") << 1;
+  QTest::newRow("pad5") << 5;
+}
+
+void TestLas::testDepthRangeAcrossChunkBoundaries()
+{
+  QFETCH(int, pad);
+  const int rows = 450000;
+  const QString path = m_tempDir.filePath(QStringLiteral("chunk_boundary_%1.las").arg(pad));
+  {
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("~Version\nVERS. 2.0 :\nWRAP. NO :\n~Well\nNULL. -999.25 :\nWELL. W1 :\n"
+            "~Curve\nDEPT.M :\nGR.API :\nRT.OHMM :\n~A\n");
+    const QByteArray spaces(pad, ' ');
+    QByteArray buf;
+    for (int i = 0; i < rows; ++i)
+    {
+      buf += QByteArray::number(1000.0 + i * 0.1, 'f', 1) + ' ' +
+             QByteArray::number(50.0 + (i % 7), 'f', 4) + spaces + ' ' +
+             QByteArray::number(10.0 + (i % 3), 'f', 4) + '\n';
+      if (buf.size() > (1 << 20))
+      {
+        f.write(buf);
+        buf.clear();
+      }
+    }
+    f.write(buf);
+    QVERIFY(f.size() > 8 * 1024 * 1024);
+  }
+
+  QString error;
+  QStringList fullNames;
+  QList<LasCurve> full;
+  QVERIFY2(LasParser::parse(path, fullNames, full, &error), qPrintable(error));
+  QCOMPARE(full.size(), 3);
+  QCOMPARE(full[0].values.size(), qsizetype(rows));
+
+  QStringList names;
+  QList<LasCurve> ranged;
+  QVERIFY2(LasParser::parseDepthRange(path, 0.0, 1e9, names, ranged, &error), qPrintable(error));
+  QCOMPARE(ranged.size(), 3);
+  QCOMPARE(ranged[0].values.size(), full[0].values.size());
+  for (int c = 0; c < 3; ++c)
+    for (qsizetype r = 0; r < full[c].values.size(); ++r)
+      if (ranged[c].values[r] != full[c].values[r])
+        QFAIL(qPrintable(QStringLiteral("row %1 curve %2: %3 != %4")
+                             .arg(r).arg(c)
+                             .arg(ranged[c].values[r]).arg(full[c].values[r])));
+
+  // 子区间（单调深度 → 越界即停路径）：行数与按深度筛 parse() 一致。
+  const double lo = 1000.0 + rows * 0.05, hi = 1000.0 + rows * 0.08;
+  qsizetype expected = 0;
+  for (double d : full[0].values)
+    if (d >= lo && d <= hi)
+      ++expected;
+  QList<LasCurve> sub;
+  QVERIFY2(LasParser::parseDepthRange(path, lo, hi, names, sub, &error), qPrintable(error));
+  QCOMPARE(sub[0].values.size(), expected);
 }
 
 QTEST_MAIN(TestLas)

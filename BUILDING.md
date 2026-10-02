@@ -9,7 +9,7 @@
 ```
 
 - **TTHW 目标：vendor 引导完成后，首次绿色测试 2–5 分钟**（configure+build+
-  ctest，8 核基线机；当前全套 84 测试（以 ctest -N 为准）实测 ~48s，余量给增量编译）。
+  ctest，8 核基线机；全套测试数以 `ctest -N` 为准，不在此写死，实测 ~48s，余量给增量编译）。
 - 引导本身（一次性）：binary 加速档 ~10min（OSGeo4W / deb 闭包 / onnxruntime
   pin）；superbuild 首选路 ≤2h、磁盘 ≥60GB（启用步骤见
   `vendor/superbuild/README.md`，政策见下「依赖来源策略」）。
@@ -21,8 +21,8 @@
 **原则：尽量不依赖系统库，尽量自编译 vendored。** 优先级：
 
 1. **自编译 vendor（superbuild，首选）**——GEOS→PROJ→GDAL→QGIS 按源码
-   tarball + SHA256 pin 构建进 `vendor/superbuild/prefix`（启用步骤见其
-   README；URL/SHA256 回填是 TODOS 待办）。动机：系统包状态不受本仓
+   tarball + SHA256 pin（`URL_HASH`）构建进 `vendor/superbuild/prefix`
+   （启用步骤见其 README；尚无 CI 覆盖，端到端可用性未在干净环境验证）。动机：系统包状态不受本仓
    控制——发行版升级/卸载即破坏构建与运行（2026-10-01 本机实证：Arch
    系统 qgis/cmake 被卸载后，二进制缺 `libqgis_core.so.4.2.2` 无法启动，
    构建工具链同步失踪）；自编译 prefix 把版本、ABI、裁剪面钉进仓库，
@@ -32,6 +32,11 @@
    与新机的务实选择保留。
 3. **系统包（仅兜底）**——发行版 QGIS 4.2.x 开发包只在上述两路都不可用
    时作临时兜底；CI 与发布构建禁止依赖系统包提供 QGIS/GDAL/PROJ/GEOS。
+
+> **现状与策略的差距（#76）**：目前 `.github/workflows/ci.yml` 的 Linux job
+> 仍从 qgis.org apt 源安装系统 QGIS 包，并未走上面 1/2 路——即 CI 实际
+> 处于第 3 档，与本策略矛盾，待迁移。`fetch-deps.sh --check-urls` 可做锁
+> 文件可达性冒烟（只 HEAD 探测，不下载）。
 
 例外（不 vendored，沿用系统/官方二进制）：Qt6（体积与构建时长，
 superbuild 明示禁止 qt-everywhere 整块编译；走发行版或 OSGeo4W 同源）、
@@ -68,13 +73,13 @@ vendor 路径对照（按策略优先级）：
 
 | 平台 | 状态 | 依赖来源 |
 |------|------|----------|
-| Linux x86_64 (glibc≥2.41: Debian13/Ubuntu26.04/Arch) | Arch 本机通过；Ubuntu 26.04 CI | superbuild 自编译 prefix（首选）→ deb 闭包 `vendor/prefix/usr`（加速档）；发行版 QGIS 4.2.x 仅兜底 |
+| Linux x86_64：deb 闭包需 glibc≥2.43（Ubuntu 26.04 / 同代 Arch）；Debian 13（glibc 2.41）不能运行该闭包，须走 superbuild | Arch 本机通过；Ubuntu 26.04 CI（系统包，见上） | superbuild 自编译 prefix（首选）→ deb 闭包 `vendor/prefix/usr`（加速档）；发行版 QGIS 4.2.x 仅兜底 |
 | Windows x86_64 | CI leg（本机未实测） | OSGeo4W `qgis` + `qgis-devel` 4.2.x + `qt6-devel`，MSVC /MD |
 | 更低 glibc 宿主 | 不支持 | superbuild-on-oldest-target（ExternalProject） |
 
 ## 依赖（vendor manifest pin）
 
-QGIS 4.2.x · Qt ≥6.6 · GDAL · PROJ · GEOS · QCA-qt6 · QtKeychain-qt6 · libspatialindex · exiv2 · libzip · OpenSSL · sqlite3/spatialite · **ONNX Runtime 1.30.0**（官方 release，sha256 `a5ed5a3c…3b3fd`，manylinux_2_28）。Ubuntu 26.04 的 deb 完整闭包和 SHA-256 在 `vendor/deb-closure.lock`；OSGeo4W 安装器摘要在 `vendor/manifest.json`。
+QGIS 4.2.x · Qt ≥6.6 · GDAL · PROJ · GEOS · QCA-qt6 · QtKeychain-qt6 · libspatialindex · exiv2 · libzip · OpenSSL · sqlite3/spatialite · **ONNX Runtime 1.30.0**（官方 release，sha256 `a5ed5a3c…3b3fd`，manylinux_2_28）。Ubuntu 26.04 的 deb 完整闭包和 SHA-256 在 `vendor/deb-closure.lock`（库解包在 `vendor/prefix/usr/lib/<multiarch>`，`./paleo-dev` 已加入 `LD_LIBRARY_PATH`）；Ubuntu pool 会删除被安全更新取代的旧版本，因此 `fetch-deps.sh` 在 pool 404 时回退到 `https://snapshot.ubuntu.com/ubuntu/<ts>/`，时间戳记录在 `vendor/deb-closure.snapshot`（`--update-lock` 会刷新；可用 `PALEO_DEB_SNAPSHOT` 覆盖），内容仍由锁内 SHA-256 校验；OSGeo4W 安装器摘要在 `vendor/manifest.json`。
 
 ## 测试布线约定（devex）
 

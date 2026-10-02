@@ -24,8 +24,8 @@ namespace
   {
     public:
       ButtonMirror(QAction *action, QAbstractButton *button, bool syncText)
-        : QObject(action), m_action(action), m_button(button), m_syncText(syncText),
-          m_baseTip(action->toolTip())
+        : QObject(action), m_action(action), m_button(button), m_buttonId(button),
+          m_syncText(syncText), m_baseTip(action->toolTip())
       {
         setObjectName(QStringLiteral("paleoButtonMirror"));
         button->installEventFilter(this);
@@ -41,8 +41,11 @@ namespace
     protected:
       bool eventFilter(QObject *obj, QEvent *ev) override
       {
-        if (obj == m_button &&
-            (ev->type() == QEvent::EnabledChange || ev->type() == QEvent::ToolTipChange))
+        // 先看事件类型、再用裸身份指针比对：obj == QPointer<QAbstractButton> 会经
+        // QPointer::data() 把 obj 下转成 QAbstractButton——按钮析构途中（已退化为
+        // QWidget/QObject）收到的事件会触发 UBSan downcast（审计 L6）。
+        if ((ev->type() == QEvent::EnabledChange || ev->type() == QEvent::ToolTipChange) &&
+            obj == m_buttonId)
           sync();
         return QObject::eventFilter(obj, ev);
       }
@@ -66,6 +69,7 @@ namespace
 
       QPointer<QAction> m_action;
       QPointer<QAbstractButton> m_button;
+      const QObject *m_buttonId; // 仅作身份比对，从不解引用
       bool m_syncText;
       QString m_baseTip;
   };
@@ -75,7 +79,7 @@ namespace
   {
     public:
       VisibilityFollower(QAction *action, QWidget *widget)
-        : QObject(action), m_action(action), m_widget(widget)
+        : QObject(action), m_action(action), m_widgetId(widget)
       {
         widget->installEventFilter(this);
         action->setChecked(!widget->isHidden());
@@ -84,15 +88,15 @@ namespace
     protected:
       bool eventFilter(QObject *obj, QEvent *ev) override
       {
-        if (obj == m_widget && m_action &&
-            (ev->type() == QEvent::ShowToParent || ev->type() == QEvent::HideToParent))
+        if ((ev->type() == QEvent::ShowToParent || ev->type() == QEvent::HideToParent) &&
+            obj == m_widgetId && m_action)
           m_action->setChecked(ev->type() == QEvent::ShowToParent);
         return QObject::eventFilter(obj, ev);
       }
 
     private:
       QPointer<QAction> m_action;
-      QPointer<QWidget> m_widget;
+      const QObject *m_widgetId; // 仅作身份比对（同 ButtonMirror：不经 QPointer 下转）
   };
 } // namespace
 

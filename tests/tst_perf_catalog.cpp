@@ -292,24 +292,28 @@ void PerfCatalogTests::incrementalInvalidationOnAttach()
 
 void PerfCatalogTests::backupRotation()
 {
-  // D5.6：默认保留 3 代——第 4 次保存后最老的被轮掉。
+  // D5.6：默认保留 3 代。备份在健康库的下一次 open，不在每次 save。
   DataCatalog cat;
   QString err;
-  QDir().mkpath(m_dir.filePath("p7"));
-  QVERIFY(cat.open(m_dir.filePath("p7"), &err));
-  const QString bak = cat.catalogPath() + QStringLiteral(".bak");
-  for (int round = 0; round < 5; ++round)
+  const QString dir = m_dir.filePath(QStringLiteral("p7"));
+  QDir().mkpath(dir);
+  QVERIFY(cat.open(dir, &err));
+  const QString bak = cat.sqliteCatalogPath() + QStringLiteral(".bak");
+  QVERIFY(cat.addEntity(mkEntity(QStringLiteral("w0")), &err));
+  QVERIFY(!QFile::exists(bak));
+  for (int round = 0; round < 4; ++round)
   {
-    QVERIFY(cat.addEntity(mkEntity(QStringLiteral("w%1").arg(round)), &err));
+    QVERIFY2(cat.open(dir, &err), qPrintable(err));
     QVERIFY(QFile::exists(bak));
+    QVERIFY(cat.addEntity(mkEntity(QStringLiteral("w%1").arg(round + 1)), &err));
   }
   QVERIFY(QFile::exists(bak));
   QVERIFY(QFile::exists(bak + QStringLiteral(".2")));
   QVERIFY(QFile::exists(bak + QStringLiteral(".3")));
   QVERIFY(!QFile::exists(bak + QStringLiteral(".4"))); // 只留 3 代
-  // 自定义代数。
   cat.setBackupKeepCount(1);
-  QVERIFY(cat.addEntity(mkEntity(QStringLiteral("wX")), &err));
+  QVERIFY(cat.addEntity(mkEntity(QStringLiteral("wX")), &err)); // 把 backup_keep=1 写入 meta
+  QVERIFY2(cat.open(dir, &err), qPrintable(err));
   QVERIFY(!QFile::exists(bak + QStringLiteral(".2")));
   QVERIFY(!QFile::exists(bak + QStringLiteral(".3")));
   QVERIFY(QFile::exists(bak));
@@ -317,27 +321,31 @@ void PerfCatalogTests::backupRotation()
 
 void PerfCatalogTests::backupRecoveryFromCorruptMain()
 {
-  // D5.5 + 既有恢复语义：主文件写一半（截断）→ .bak 回退可用。
-  const QString dir = m_dir.filePath("p8");
+  // 主文件截断 → 上次打开留下的 sqlite .bak 可恢复。截断前必须关掉连接。
+  const QString dir = m_dir.filePath(QStringLiteral("p8"));
   QString err;
   QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir, 20, &err));
-  DataCatalog cat;
-  QVERIFY(cat.open(dir, &err));
-  const QString bak = cat.catalogPath() + QStringLiteral(".bak");
-  QVERIFY(QFile::exists(bak)); // open 初始化时 save 产生
-  // 再触发一次保存，让 .bak 更新。
-  QVERIFY(cat.addEntity(mkEntity(QStringLiteral("wextra")), &err));
-
-  // 截断主文件。
-  QFile f(cat.catalogPath());
+  const QString sqlite =
+      QDir(dir).filePath(QStringLiteral("artifacts/metadata/catalog.sqlite"));
+  const QString bak = sqlite + QStringLiteral(".bak");
+  {
+    DataCatalog cat;
+    QVERIFY2(cat.open(dir, &err), qPrintable(err));
+    QVERIFY(QFile::exists(bak));
+    QVERIFY(cat.addEntity(mkEntity(QStringLiteral("wextra")), &err));
+  }
+  QFile::remove(sqlite + QStringLiteral("-wal"));
+  QFile::remove(sqlite + QStringLiteral("-shm"));
+  QFile f(sqlite);
   QVERIFY(f.open(QIODevice::ReadWrite));
-  f.resize(f.size() / 3);
+  QVERIFY(f.resize(f.size() / 3));
   f.close();
 
   DataCatalog recovered;
-  QVERIFY(recovered.open(dir, &err));
+  QVERIFY2(recovered.open(dir, &err), qPrintable(err));
   QVERIFY(recovered.recoveredFromBackup());
   QVERIFY(recovered.entities().size() > 0);
+  QVERIFY(!recovered.hasEntity(QStringLiteral("wextra")));
 }
 
 void PerfCatalogTests::atomicSaveKeepsOldOnFailure()
@@ -348,14 +356,14 @@ void PerfCatalogTests::atomicSaveKeepsOldOnFailure()
   QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir, 5, &err));
   DataCatalog cat;
   QVERIFY(cat.open(dir, &err));
-  QFile beforeFile(cat.catalogPath());
+  QFile beforeFile(cat.sqliteCatalogPath());
   QVERIFY(beforeFile.open(QIODevice::ReadOnly));
   const QByteArray before = beforeFile.readAll();
   beforeFile.close();
   cat.setLockedReadOnly(true); // 拒写降级
   QVERIFY(!cat.addEntity(mkEntity(QStringLiteral("wfail")), &err));
   cat.setLockedReadOnly(false);
-  QFile afterFile(cat.catalogPath());
+  QFile afterFile(cat.sqliteCatalogPath());
   QVERIFY(afterFile.open(QIODevice::ReadOnly));
   QCOMPARE(afterFile.readAll(), before);
   QVERIFY(!cat.hasEntity(QStringLiteral("wfail")));

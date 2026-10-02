@@ -119,10 +119,12 @@ void TestEntityView::ordinalRoundTripsAndOrdersMembers()
     // 不同角色的链接按 ordinal 一起稳定排序（ordinal 相同保持入库序）。
     QVERIFY(cat.addLink(makeLink(QStringLiteral("well-A1"), QStringLiteral("ast-4"),
                                  QStringLiteral("tops"), 3, true)));
+    const QString exported = dir.filePath(QStringLiteral("ordinal-export.json"));
+    QVERIFY(cat.exportCatalogJson(exported));
   }
 
-  // catalog.json：每条链接恒写 "ordinal" 键。
-  QFile f(dir.filePath(QStringLiteral("artifacts/metadata/catalog.json")));
+  // 导出 JSON：每条链接恒写 "ordinal" 键（save 不再写 catalog.json）。
+  QFile f(dir.filePath(QStringLiteral("ordinal-export.json")));
   QVERIFY(f.open(QIODevice::ReadOnly));
   const QJsonArray links =
       QJsonDocument::fromJson(f.readAll())

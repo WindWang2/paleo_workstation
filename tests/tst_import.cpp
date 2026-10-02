@@ -2450,7 +2450,7 @@ private slots:
   }
 
   // buildIngestPlan 纯函数：catalog 不动——revision/实体/资产/链接/版本计数
-  // 与 catalog.json 落盘字节在构建前后完全一致。
+  // 与 catalog.sqlite（及 catalog.sqlite-wal）落盘字节在构建前后完全一致。
   void buildIngestPlanLeavesCatalogUntouched()
   {
     QTemporaryDir tmp;
@@ -2481,10 +2481,17 @@ private slots:
     int versionCount = 0;
     for (const CatalogAsset &a : cat->assets())
       versionCount += cat->versionsForAsset(a.id).size();
-    QFile json(cat->catalogPath());
-    QVERIFY(json.open(QIODevice::ReadOnly));
-    const QByteArray jsonBefore = json.readAll();
-    json.close();
+    const QString metaDir = QFileInfo(cat->catalogPath()).absolutePath();
+    QFile sqlite(metaDir + QStringLiteral("/catalog.sqlite"));
+    QVERIFY(sqlite.open(QIODevice::ReadOnly));
+    const QByteArray sqliteBefore = sqlite.readAll();
+    sqlite.close();
+    QByteArray walBefore;
+    {
+      QFile wal(metaDir + QStringLiteral("/catalog.sqlite-wal"));
+      if (wal.open(QIODevice::ReadOnly))
+        walBefore = wal.readAll();
+    }
 
     const IngestPlan plan = buildIngestPlan(root, *cat);
     QCOMPARE(plan.items.size(), 2);
@@ -2498,9 +2505,16 @@ private slots:
     for (const CatalogAsset &a : cat->assets())
       versionCount2 += cat->versionsForAsset(a.id).size();
     QCOMPARE(versionCount2, versionCount);
-    QVERIFY(json.open(QIODevice::ReadOnly));
-    QCOMPARE(json.readAll(), jsonBefore); // 没落盘
-    json.close();
+    QVERIFY(sqlite.open(QIODevice::ReadOnly));
+    QCOMPARE(sqlite.readAll(), sqliteBefore); // 没落盘
+    sqlite.close();
+    QByteArray walAfter;
+    {
+      QFile wal(metaDir + QStringLiteral("/catalog.sqlite-wal"));
+      if (wal.open(QIODevice::ReadOnly))
+        walAfter = wal.readAll();
+    }
+    QCOMPARE(walAfter, walBefore);
   }
 
   // PROJECT_FILE_DESIGN 就地工程：源目录==工程根（「从工区文件夹新建」

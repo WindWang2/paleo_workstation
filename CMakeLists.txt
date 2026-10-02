@@ -877,3 +877,28 @@ foreach(_f IN LISTS _paleo_extra_ondisk)
       "请补进上面的显式清单（防漂移约定不变：include 仍只走清单）")
   endif()
 endforeach()
+
+# ---- 审计 01 M6：计时/黄金图类测试打标签（放在所有 extra-*.cmake 之后统一登记）----
+# perf   = 墙钟预算/比率门/基准类：本机负载敏感。`ctest -LE perf` 可整体排除，
+#          `ctest -L perf` 单独串行重跑。阈值一律不动；统一 RUN_SERIAL 防并行抖动。
+# golden = 渲染像素比对类（字体/优化级别敏感）。
+# add_paleo_test 已按首模块设了 LABELS——这里 APPEND，不覆盖（CI 的 -L 分步不受影响）。
+# tst_panels / tst_correlation_full 只有个别计时断言、主体是功能覆盖：保持既有
+# RUN_SERIAL，不打 perf（-LE perf 不应丢掉这些功能测试）。
+set(_paleo_perf_tests
+  tst_perf tst_previewmap_perf tst_aiassist_perf tst_startup_trace tst_perfbudget
+  tst_ui_blocking tst_mem_budget tst_perf_las tst_perf_segyindex tst_perf_catalog
+  tst_perf_regress tst_petrophysperf tst_seismic_perf tst_seismic_baseline
+  tst_seismic_budgets tst_seismicattrperf tst_horizontrackperf tst_timedepthperf
+  tst_wellcomposite_perf tst_cache_las)
+foreach(_t IN LISTS _paleo_perf_tests)
+  if(TEST ${_t})
+    set_property(TEST ${_t} APPEND PROPERTY LABELS perf)
+    set_tests_properties(${_t} PROPERTIES RUN_SERIAL TRUE)
+  endif()
+endforeach()
+foreach(_t IN ITEMS tst_wellcomposite_visual)
+  if(TEST ${_t})
+    set_property(TEST ${_t} APPEND PROPERTY LABELS golden)
+  endif()
+endforeach()

@@ -29,6 +29,7 @@
 #include "../services/projectdata.h"
 #include "../workflow/mappingworkflow.h"
 #include "../metadata/mapversionstore.h"
+#include "../metadata/metastore.h"
 #include "../workflow/mapversioncontroller.h"
 
 #include <QApplication>
@@ -259,7 +260,13 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               m_lastReadOnlyNotified = !writable;
               emit projectReadOnlyChanged(!writable);
             }
+            // #80：先关上一会话（旧工程或同路径旧会话）在本线程的 sqlite 连接
+            // ——切换工程不留句柄；同路径重开不复用可能指向旧 inode 的连接。
+            // 各 store 的连接都是按调用懒开，关掉后下次访问自动重建。
+            if (!m_metaPath.isEmpty())
+              MetaStore::closeConnectionsFor(m_metaPath);
             const QString metaPath = manifestPathFor(qgzPath);
+            m_metaPath = metaPath;
             m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
 
             // data/commit-coord：提交 journal 恢复扫描。上次 commitAll 若在
@@ -383,6 +390,13 @@ bool AppContext::isProjectReadOnly() const
 
 void AppContext::closeProject()
 {
+  // #80：关闭工程即释放本线程持有的 project.sqlite 句柄（Windows 上旧句柄
+  // 会阻止删除/移动刚关闭的工程目录）。
+  if (!m_metaPath.isEmpty())
+  {
+    MetaStore::closeConnectionsFor(m_metaPath);
+    m_metaPath.clear();
+  }
   m_projectLock.reset();
   m_lastReadOnlyNotified = false;
   if (m_store)

@@ -3,8 +3,8 @@
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/sgyvolume.h"
 #include "io/lascache.h"
-#include "io/lasparser.h"
 #include "io/segyreader.h"
+#include "welllogset.h"
 #include <QDataStream>
 #include <QFile>
 #include <QFileInfo>
@@ -23,33 +23,26 @@ CrossplotSources::inventory(DataCatalog *cat, const QString &dir,
     return out;
   for (const auto &entity : cat->entities())
     if (entity.entityType == QLatin1String("well"))
-      for (const auto &link : cat->linksForEntity(entity.id))
-        if (!link.unresolved && link.role == QLatin1String("well_log")) {
-          const auto version = cat->currentVersion(link.assetId);
-          const auto path = DataCatalog::resolvedVersionPath(dir, version);
-          LasHeaderInfo header;
-          if (!LasParser::parseHeader(path, header))
-            continue;
-          for (int i = 1; i < header.curveNames.size(); ++i) {
-            SourceSpec s;
-            s.choice.id = entity.id + QLatin1Char('|') + version.id +
-                          QLatin1Char('|') + header.curveNames[i];
-            s.choice.title = entity.name + QStringLiteral(" · ") +
-                             header.curveNames[i] + QStringLiteral(" · ") +
-                             QFileInfo(path).fileName();
-            s.choice.kind = QStringLiteral("well");
-            s.path = path;
-            s.curve = header.curveNames[i];
-            s.versionId = version.id;
-            s.sha256 = version.sha256;
-            s.managed = version.managed;
-            s.well.wellId = entity.id;
-            s.well.x = entity.surfaceX;
-            s.well.y = entity.surfaceY;
-            s.well.hasXY = entity.hasSurface;
-            out << s;
-          }
-        }
+      for (const auto &ref : WellLogSet::wellCurveIndex(cat, dir, entity.id)) {
+        // 头解析失败的文件已由 WellLogSet 跳过。sha/managed 按源版本回查。
+        const CatalogVersion version = cat->versionById(ref.sourceVersionId);
+        SourceSpec s;
+        s.choice.id = entity.id + QLatin1Char('|') + ref.sourceVersionId +
+                      QLatin1Char('|') + ref.mnemonic;
+        s.choice.title = entity.name + QStringLiteral(" · ") + ref.mnemonic +
+                         QStringLiteral(" · ") + QFileInfo(ref.path).fileName();
+        s.choice.kind = QStringLiteral("well");
+        s.path = ref.path;
+        s.curve = ref.mnemonic;
+        s.versionId = ref.sourceVersionId;
+        s.sha256 = version.sha256;
+        s.managed = version.managed;
+        s.well.wellId = entity.id;
+        s.well.x = entity.surfaceX;
+        s.well.y = entity.surfaceY;
+        s.well.hasXY = entity.hasSurface;
+        out << s;
+      }
   for (const auto &asset : cat->assets()) {
     const auto version = cat->currentVersion(asset.id);
     const auto path = DataCatalog::resolvedVersionPath(dir, version);
@@ -193,17 +186,46 @@ SampleResult CrossplotSources::load(const QVector<SourceSpec> &specs,
       const auto doc = LasCache::shared().load(s.path);
       if (!doc.ok || doc.curves.isEmpty())
         return fail(doc.error);
-      auto it =
-          std::find_if(doc.curves.begin(), doc.curves.end(),
-                       [&](const LasCurve &c) { return c.name == s.curve; });
-      if (it == doc.curves.end())
+      // 并集名可能是 GR、GR#列号、GR@基名；文件里的列名仍是原助记符。
+      const LasCurve *curve = nullptr;
+      for (const LasCurve &c : doc.curves)
+        if (c.name == s.curve) {
+          curve = &c;
+          break;
+        }
+      if (!curve) {
+        QString raw = s.curve;
+        const int at = raw.indexOf(QLatin1Char('@'));
+        if (at >= 0)
+          raw.truncate(at);
+        int column = -1;
+        const int hash = raw.lastIndexOf(QLatin1Char('#'));
+        if (hash > 0) {
+          bool ok = false;
+          const int col = raw.mid(hash + 1).toInt(&ok);
+          if (ok && col > 0) {
+            column = col;
+            raw.truncate(hash);
+          }
+        }
+        if (column >= 0 && column < doc.curves.size() &&
+            doc.curves.at(column).name == raw)
+          curve = &doc.curves.at(column);
+        else
+          for (const LasCurve &c : doc.curves)
+            if (c.name == raw) {
+              curve = &c;
+              break;
+            }
+      }
+      if (!curve)
         return fail(QStringLiteral("曲线已不存在"));
       channels << Channel{s.curve,
-                          it->unit,
+                          curve->unit,
                           s.well.wellId,
                           s.versionId,
                           doc.curves[0].values,
-                          it->values,
+                          curve->values,
                           s.well.x,
                           s.well.y,
                           s.well.hasXY};

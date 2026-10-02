@@ -11,6 +11,7 @@
 #include <QFontDatabase>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 
 namespace seismic {
@@ -96,12 +97,14 @@ inline QRgb SampleColorMap(SectionColorMapType type, float t) {
 }
 
 // D2.1 纹理缓存键：内容指纹（值域 + 全值 FNV）× 显示参数
+// 哈希状态用无符号（回绕良定义；有符号乘法溢出是 UB），取位用 memcpy（无 strict-aliasing 违规）。
 qint64 SliceFingerprint(const SgySliceImage &img) {
-    qint64 h = 1469598103934665603ll;
+    quint64 h = 1469598103934665603ull;
     const auto mix = [&h](double v) {
-        const quint64 bits = *reinterpret_cast<const quint64 *>(&v);
-        h ^= static_cast<qint64>(bits);
-        h *= 1099511628211ll;
+        quint64 bits = 0;
+        std::memcpy(&bits, &v, sizeof bits);
+        h ^= bits;
+        h *= 1099511628211ull;
     };
     mix(img.valueMin);
     mix(img.valueMax);
@@ -110,7 +113,7 @@ qint64 SliceFingerprint(const SgySliceImage &img) {
         const double v = img.values[i];
         mix(std::isnan(v) ? -99999.0 : static_cast<double>(v));
     }
-    return h;
+    return static_cast<qint64>(h);
 }
 
 } // namespace

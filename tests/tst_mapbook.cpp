@@ -229,6 +229,9 @@ class TestMapBook : public QObject
       auto *map = qobject_cast<QgsLayoutItemMap *>( layout->itemById( QStringLiteral( "map" ) ) );
       QVERIFY( map != nullptr );
       QCOMPARE( map->extent(), QgsRectangle( 0.0, 0.0, 1000.0, 1000.0 ) );
+      // 范围原样输出的同时，地图框不得越出版面可用区（A4 横版 217 × 152 mm）。
+      QVERIFY( map->sizeWithUnits().width() <= 217.0 + 1e-6 );
+      QVERIFY( map->sizeWithUnits().height() <= 152.0 + 1e-6 );
 
       QTemporaryDir dir;
       const QString path = dir.filePath( QStringLiteral( "tile_1_1.png" ) );
@@ -543,12 +546,14 @@ class TestMapBook : public QObject
       start->click();
       QCOMPARE( started.count(), 1 ); // 视图只发信号，编排在功能层
 
+      // 取消键只在忙碌态可用（禁用按钮的 click 不发信号）：先进入忙碌态再点。
+      panel.setBusy( true );
       QPushButton *cancel = panel.findChild<QPushButton *>( QStringLiteral( "mapbookCancel" ) );
       QVERIFY( cancel != nullptr );
+      QVERIFY( cancel->isEnabled() );
       cancel->click();
       QCOMPARE( cancelled.count(), 1 );
 
-      panel.setBusy( true );
       panel.setProgress( 2, 12 );
       QCOMPARE( panel.findChild<QProgressBar *>( QStringLiteral( "mapbookProgress" ) )->value(), 2 );
       panel.setBusy( false );

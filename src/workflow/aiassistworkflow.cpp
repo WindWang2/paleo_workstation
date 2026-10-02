@@ -510,17 +510,21 @@ bool AiAssistWorkflow::commitAccepted( const QString &horizon, QString *error )
 {
   if ( error )
     error->clear();
+  // error 默认 nullptr（头文件）：所有失败路径经 fail 判空写入。
+  const auto fail = [error]( const QString &msg ) {
+    if ( error )
+      *error = msg;
+    return false;
+  };
   DerivedAssetRegistrar registrar( m_catalog, m_projectDir );
   if ( !registrar.isBound() )
   {
-    *error = tr( "AI 辅助未绑定 catalog 登记通道（T26）" );
-    return false;
+    return fail( tr( "AI 辅助未绑定 catalog 登记通道（T26）" ) );
   }
   const QVector<TrackingSuggestion> accepted = acceptedSuggestions( horizon );
   if ( accepted.isEmpty() )
   {
-    *error = tr( "层位 %1 没有已接受的建议可提交" ).arg( horizon );
-    return false;
+    return fail( tr( "层位 %1 没有已接受的建议可提交" ).arg( horizon ) );
   }
 
   QString stageErr;
@@ -529,8 +533,7 @@ bool AiAssistWorkflow::commitAccepted( const QString &horizon, QString *error )
     QStringLiteral( "AITRACK_%1.json" ).arg( safeSegment( horizon ) ), &stageErr );
   if ( !st.isValid() )
   {
-    *error = stageErr;
-    return false;
+    return fail( stageErr );
   }
 
   QJsonObject doc;
@@ -553,8 +556,7 @@ bool AiAssistWorkflow::commitAccepted( const QString &horizon, QString *error )
   QFile f( st.absolutePath );
   if ( !f.open( QIODevice::WriteOnly ) )
   {
-    *error = tr( "无法写入 %1: %2" ).arg( st.absolutePath, f.errorString() );
-    return false;
+    return fail( tr( "无法写入 %1: %2" ).arg( st.absolutePath, f.errorString() ) );
   }
   f.write( QJsonDocument( doc ).toJson( QJsonDocument::Indented ) );
   f.close();
@@ -566,8 +568,7 @@ bool AiAssistWorkflow::commitAccepted( const QString &horizon, QString *error )
   if ( !registrar.commitExternal( st, st.absolutePath, QStringList(),
                                   QStringLiteral( "aiassist/aitrack" ), extra, &commitErr ) )
   {
-    *error = commitErr;
-    return false;
+    return fail( commitErr );
   }
   emit acceptedCommitted( horizon, st.relativePath );
   return true;

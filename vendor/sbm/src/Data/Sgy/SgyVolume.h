@@ -192,7 +192,8 @@ private:
     // the expectation before its samples may be used.
     bool ValidateRuleTrace(segy_datasource* file, int traceIndex, std::string& errorMessage) const;
 
-    void EnsureTimeSliceGrid() const;
+    // false = 网格为空或 inline×xline 超出上限（不分配、不缓存）。
+    bool EnsureTimeSliceGrid() const;
 
     struct TimeGridCache {
         std::mutex mutex;

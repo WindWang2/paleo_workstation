@@ -1,5 +1,6 @@
 // 层：视图
 #include "ui/correlation/petrophyspanel.h"
+#include "ui/paleotheme.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -60,10 +61,17 @@ void PetroPhysPanel::buildUi()
     auto *b = new QToolButton(this);
     b->setText(text);
     b->setToolTip(tip);
-    b->setStyleSheet(primary
-                         ? QStringLiteral("QToolButton{color:#1B73D0;font-weight:500;}"
-                                          "QToolButton:hover{background:#EDF1F5;}")
-                         : QString());
+    // 主色文案走 PaleoTheme token（同 seismicattrpanel，#77）：裸 hex 在暗色主题下
+    // 不翻转；applyThemedStyleSheet 随主题切换活体重算。
+    if (primary)
+    {
+      PaleoTheme::applyThemedStyleSheet(b, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral("QToolButton{color:%1;font-weight:500;}"
+                              "QToolButton:hover{background:%2;}")
+            .arg(t.primaryText.name(), t.surfaceAltRaised.name());
+      });
+    }
     return b;
   };
   m_btnCompute = mkBtn(tr("▶ 批量计算"), tr("对当前井集逐井计算并写回结果曲线"),

@@ -308,14 +308,17 @@ void TestFaultInterp::catalogFaultRoleLinkEnsured()
     const QString f1 = m_ctl.addFault(QStringLiteral("F1"));
     m_ctl.addStick(inlineStick(120));
     faultLinks = 0;
+    // linksForAsset 按值返回：先落到局部，faultLink 才不会指向已销毁的临时容器。
+    const auto links = catalog.linksForAsset(asset.id);
     const EntityAssetLink *faultLink = nullptr;
-    for (const EntityAssetLink &l : catalog.linksForAsset(asset.id)) {
+    for (const EntityAssetLink &l : links) {
         if (l.role == QLatin1String("fault")) {
             ++faultLinks;
             faultLink = &l;
         }
     }
     QCOMPARE(faultLinks, 1);
+    QVERIFY(faultLink != nullptr);
     QCOMPARE(faultLink->entityId, entity.id);
     QCOMPARE(faultLink->entityType, QStringLiteral("seismic_survey"));
     Q_UNUSED(f1);

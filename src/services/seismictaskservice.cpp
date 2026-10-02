@@ -2983,10 +2983,11 @@ bool SeismicTaskService::exportPicksCsv(const QList<SeismicPick> &picks,
 qint64 SeismicTaskService::sectionCacheKey(const std::vector<glm::ivec2> &pathPoints,
                                            std::shared_ptr<const SgyVolume> volume)
 {
-  qint64 h = 1469598103934665603ll;
+  // FNV-1a 状态用无符号：有符号乘法溢出是 UB（UBSan），无符号回绕良定义且位模式不变。
+  quint64 h = 1469598103934665603ull;
   const auto mix = [&h](qint64 v) {
-    h ^= v;
-    h *= 1099511628211ll;
+    h ^= static_cast<quint64>(v);
+    h *= 1099511628211ull;
   };
   if (volume)
     mix(qint64(volume->Index() ? volume->Index()->fileSize : 0));
@@ -2995,7 +2996,7 @@ qint64 SeismicTaskService::sectionCacheKey(const std::vector<glm::ivec2> &pathPo
     mix(pt.x);
     mix(pt.y);
   }
-  return h;
+  return static_cast<qint64>(h);
 }
 
 std::shared_ptr<const SgySliceImage> SeismicTaskService::cachedSection(

@@ -404,6 +404,9 @@ void TestAiAssistWorkflow::commitWithoutAcceptedFails()
   QVERIFY( !f.wf.commitAccepted( QStringLiteral( "Nope" ), &err ) );
   QVERIFY2( !err.isEmpty(), "honest error required" );
   QCOMPARE( catalogBytes( f ), before );
+  // error 缺省为 nullptr：失败路径不得解引用空指针
+  QVERIFY( !f.wf.commitAccepted( QStringLiteral( "Nope" ) ) );
+  QCOMPARE( catalogBytes( f ), before );
 }
 
 void TestAiAssistWorkflow::asyncClassificationCompletesAndDeclares()

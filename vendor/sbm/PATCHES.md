@@ -85,6 +85,16 @@ INLINE@189/CROSSLINE@193 两字恒 0，实际编码为 field record@9（inline�
 后端并置 `FellBackToDirect()`（消费侧如实看到「伴生存在但未就绪」）。
 杜绝「半个有效 meta 的假完成态」被 Auto 当成品读出错。
 
+## P10 · `src/Data/Sgy/SgyVolume.{h,cpp}` — 切片/时间网格尺寸 64 位运算与上限
+
+inline/xline 计数由文件内容决定，`inlCount * xlCount`（int）可回绕：对角测网
+65536 道时乘积为 2^32 → 0，`assign(0)` 后按真实行列写越界（ASan SEGV）。
+
+- `GridCellCount(a, b)`：64 位求积，超过 2^28 格视为异常几何返回 0。
+- `EnsureTimeSliceGrid()` 改返回 `bool`；`ExtractSlice` 的 Time/Inline/Xline 分支在
+  分配前拒绝超限尺寸并给出错误，所有行列下标改为 `size_t` 运算。
+- 回归：`tests/tst_seismic_engine.cpp::timeSliceGridOverflowRejected`。
+
 ## 编译层适配（非源码补丁）
 
 - `paleo_sbm` 目标加 `-fno-char8_t`（MSVC `/Zc:char8_t-`）：上游 30 处

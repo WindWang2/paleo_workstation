@@ -61,6 +61,13 @@ WellCompositePanel::WellCompositePanel(QWidget *parent)
 WellCompositePanel::~WellCompositePanel()
 {
   saveSessionState();
+  // 子控件由 ~QWidget 在本类析构完成之后才删除；期间画布刷新刻度、组合框失焦
+  // （editingFinished → setScaleRatio → scaleRatioChanged）等仍会发信号，进入捕获
+  // this 的 lambda 访问已析构成员（UBSan：member access … not WellCompositePanel）。
+  // 先断开所有子对象 → this 的连接；this 作为 context 的自动断开要到 ~QObject 才发生。
+  const auto kids = findChildren<QObject *>();
+  for (QObject *child : kids)
+    QObject::disconnect(child, nullptr, this, nullptr);
 }
 
 void WellCompositePanel::setupUi()
@@ -568,7 +575,9 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
   {
     auto stratTrack = std::make_shared<StratigraphyCompoundTrack>(QStringLiteral("地层"), 145.0);
     stratTrack->autoDeriveStratigraphy(formations, minD, maxD);
-    const bool anySystem = std::any_of(stratTrack->intervals().begin(), stratTrack->intervals().end(),
+    // intervals() 按值返回：先绑定到局部再取迭代器（两次调用 = 两个不同临时对象）。
+    const auto derived = stratTrack->intervals();
+    const bool anySystem = std::any_of(derived.cbegin(), derived.cend(),
                                        [](const StratigraphyInterval &si) { return !si.system.isEmpty(); });
     if (anySystem)
       m_canvas->addTrack(stratTrack);
@@ -689,7 +698,8 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
     else
     {
       stratTrack->autoDeriveStratigraphy(data.formationIntervals, data.minDepth, data.maxDepth);
-      const bool anySystem = std::any_of(stratTrack->intervals().begin(), stratTrack->intervals().end(),
+      const auto derived = stratTrack->intervals(); // 按值返回，绑定局部后再迭代
+      const bool anySystem = std::any_of(derived.cbegin(), derived.cend(),
                                          [](const StratigraphyInterval &si) { return !si.system.isEmpty(); });
       if (anySystem)
         m_canvas->addTrack(stratTrack);
@@ -882,7 +892,7 @@ void WellCompositePanel::onTrackConfigRequested(int trackIndex)
   if (trackIndex < 0 || trackIndex >= m_canvas->trackCount())
     return;
 
-  const auto &track = m_canvas->tracks().at(trackIndex);
+  const auto track = m_canvas->tracks().at(trackIndex); // 拷贝 shared_ptr：tracks() 按值返回，后续跨 exec()
   TrackSpec initial = TrackRegistry::instance().captureSpec(track);
   if (initial.typeId.isEmpty())
     initial.typeId = TrackRegistry::typeIdForEnum(track->type());

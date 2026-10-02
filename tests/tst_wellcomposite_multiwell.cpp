@@ -272,7 +272,7 @@ private slots:
     WellCompositeStore reread(tmp);
     QVERIFY(reread.load());
     QCOMPARE(reread.comparisonTemplates().size(), 1);
-    const auto &back = reread.comparisonTemplates().first();
+    const auto back = reread.comparisonTemplates().first(); // 按值返回的容器：拷贝，勿绑引用
     QCOMPARE(back.name, QStringLiteral("连井剖面对比"));
     QCOMPARE(back.wells, (QStringList{QStringLiteral("A1"), QStringLiteral("A2")}));
     QCOMPARE(back.tracks.size(), 1);

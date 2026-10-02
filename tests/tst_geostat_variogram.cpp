@@ -183,6 +183,17 @@ void GeostatVariogramTests::modelShapes()
   model.type = VariogramModelType::Gaussian;
   QVERIFY( std::fabs( model.semivariance( 10 ) - ( 1 + 4 * ( 1 - std::exp( -3.0 ) ) ) ) < 1e-12 );
   QVERIFY( model.semivariance( 100 ) > 4.99 ); // 平台
+
+  // 几何各向异性：az=0（走向南北，长变程沿 y），ratio=2 → 垂直变程减半
+  VariogramModel anisotropic = model;
+  anisotropic.type = VariogramModelType::Spherical;
+  anisotropic.anisotropyRatio = 2;
+  anisotropic.azimuthDeg = 0;
+  QCOMPARE( anisotropic.semivariance( 0.0, 10.0 ), 5.0 ); // 沿走向 h=range → 总基台
+  QCOMPARE( anisotropic.semivariance( 10.0, 0.0 ), 5.0 ); // 垂直 h_eff=2×10 > range → 总基台
+  QVERIFY( anisotropic.semivariance( 4.9, 0.0 ) < 5.0 ); // 垂直方向变程 = range/2 = 5
+  QCOMPARE( anisotropic.semivariance( 6.0, 0.0 ), 5.0 ); // 垂直 6 > 5 → 基台
+  QVERIFY( anisotropic.semivariance( 0.0, 6.0 ) < 4.5 ); // 走向 6 < 10 → 仍在爬升
 }
 
 void GeostatVariogramTests::constantFieldIsZeroEverywhere()

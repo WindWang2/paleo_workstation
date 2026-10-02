@@ -34,6 +34,18 @@ double VariogramModel::semivariance( double h ) const
   return nugget + sill * shape;
 }
 
+double VariogramModel::semivariance( double dx, double dy ) const
+{
+  if ( !( anisotropyRatio > 1.0 ) )
+    return semivariance( std::hypot( dx, dy ) );
+  const double azimuthRad = azimuthDeg * std::numbers::pi / 180.0;
+  const double sinA = std::sin( azimuthRad );
+  const double cosA = std::cos( azimuthRad );
+  const double along = dx * sinA + dy * cosA; // 走向分量（长变程）
+  const double across = -dx * cosA + dy * sinA; // 垂直分量（短变程）
+  return semivariance( std::hypot( along, across * anisotropyRatio ) );
+}
+
 ExperimentalVariogram experimentalVariogram( const std::vector<Sample> &samples,
     double lag, int nLags, const VariogramDirection &direction )
 {

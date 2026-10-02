@@ -47,14 +47,22 @@ enum class VariogramModelType
 // sill 是拱高（partial sill），总基台 = nugget + sill。
 // range 口径 = 实用变程：球状模型 h ≥ range 时达总基台；指数/高斯取 ~95%
 // 基台距离（指数 shape = 1 − exp(−3h/range)，高斯 shape = 1 − exp(−3h²/range²)）。
+// 几何各向异性：anisotropyRatio ≥ 1 且 azimuthDeg = 长变程方向（走向，从北
+// 顺时针）时，垂直方向有效距离 ×ratio → 垂直变程 = range/ratio。
+// ratio = 1 时 semivariance(dx,dy) 与各向同性 semivariance(h) 严格一致。
 struct VariogramModel
 {
   VariogramModelType type = VariogramModelType::Spherical;
   double nugget = 0;
   double sill = 0;
   double range = 1;
+  double anisotropyRatio = 1;
+  double azimuthDeg = 0;
 
+  // 各向同性口径（诊断/全向/拟合）。
   double semivariance( double h ) const;
+  // 几何各向异性口径（克里金/SGS 方程组用：传坐标差）。
+  double semivariance( double dx, double dy ) const;
 };
 
 struct VariogramFit

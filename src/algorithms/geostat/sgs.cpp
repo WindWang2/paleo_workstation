@@ -256,15 +256,15 @@ bool solveSimpleKriging( const std::vector<GaussianPoint> &data, double x0, doub
         continue;
       }
       const double gamma = model.semivariance(
-          std::hypot( data[static_cast<std::size_t>( i )].x - data[static_cast<std::size_t>( j )].x,
-                      data[static_cast<std::size_t>( i )].y - data[static_cast<std::size_t>( j )].y ) );
+          data[static_cast<std::size_t>( i )].x - data[static_cast<std::size_t>( j )].x,
+          data[static_cast<std::size_t>( i )].y - data[static_cast<std::size_t>( j )].y );
       const double covariance = totalSill - gamma;
       a[static_cast<std::size_t>( i ) * n + j] = covariance;
       a[static_cast<std::size_t>( j ) * n + i] = covariance;
     }
     b[static_cast<std::size_t>( i )] =
-        totalSill - model.semivariance( std::hypot( data[static_cast<std::size_t>( i )].x - x0,
-                                                    data[static_cast<std::size_t>( i )].y - y0 ) );
+        totalSill - model.semivariance( data[static_cast<std::size_t>( i )].x - x0,
+                                        data[static_cast<std::size_t>( i )].y - y0 );
   }
   std::vector<double> weights;
   if ( !solveDenseLu( a, n, b, weights ) )

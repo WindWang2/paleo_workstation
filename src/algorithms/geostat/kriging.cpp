@@ -26,21 +26,19 @@ bool solveOrdinaryKriging( const std::vector<std::uint32_t> &neighborhood,
   const int n1 = n + 1;
   std::vector<double> a( static_cast<std::size_t>( n1 ) * n1, 0.0 );
   std::vector<double> b( static_cast<std::size_t>( n1 ), 0.0 );
-  std::vector<double> distances0( static_cast<std::size_t>( n ) );
   for ( int i = 0; i < n; ++i )
   {
     const Sample &si = index.point( neighborhood[static_cast<std::size_t>( i )] );
-    distances0[static_cast<std::size_t>( i )] = std::hypot( si.x - x0, si.y - y0 );
     for ( int j = i + 1; j < n; ++j )
     {
       const Sample &sj = index.point( neighborhood[static_cast<std::size_t>( j )] );
-      const double gamma = model.semivariance( std::hypot( si.x - sj.x, si.y - sj.y ) );
+      const double gamma = model.semivariance( si.x - sj.x, si.y - sj.y );
       a[static_cast<std::size_t>( i ) * n1 + j] = gamma;
       a[static_cast<std::size_t>( j ) * n1 + i] = gamma;
     }
     a[static_cast<std::size_t>( i ) * n1 + n] = 1.0;
     a[static_cast<std::size_t>( n ) * n1 + i] = 1.0;
-    b[static_cast<std::size_t>( i )] = model.semivariance( distances0[static_cast<std::size_t>( i )] );
+    b[static_cast<std::size_t>( i )] = model.semivariance( si.x - x0, si.y - y0 );
   }
   b[static_cast<std::size_t>( n )] = 1.0;
 

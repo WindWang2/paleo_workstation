@@ -14,3 +14,6 @@ add_paleo_test(tst_geostat_variogram LIBS paleo_algorithms)
 add_paleo_test(tst_geostat_kriging LIBS paleo_algorithms)
 add_paleo_test(tst_geostat_sgs LIBS paleo_algorithms)
 add_paleo_test(tst_geostat_faultpath LIBS paleo_algorithms)
+# 编排面：workflows.cpp 属根 CMakeLists 既有源（本方向只改内容不挂新源）；
+# paleo_workflow→paleo_algorithms 链接由 extra-fault-surface.cmake 先例已建立。
+add_paleo_test(tst_geostat_workflow LIBS paleo_workflow)

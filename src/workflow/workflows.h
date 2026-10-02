@@ -161,6 +161,12 @@ class ConstraintWorkflow : public QObject
                                       const SingleFactorDefinition &def, const QVariantMap &params,
                                       QString *error);
 
+    // method=kriging / sgs（方向18 地质统计学方法包）。样本不足阈值时计算段
+    // 自动降级 IDW 并在产物 extra 记 method_actual="idw"（诚实标注条款）。
+    bool generateGeostatFactor(const QString &horizon, const QString &factorId,
+                               const QString &method, const SingleFactorDefinition &def,
+                               const QVariantMap &params, QString *error = nullptr);
+
     // 三个单因素引擎共用的收尾：样式 best-effort 落盘 + factor 栅格声明 +
     // C4 资产关联补盖 + factorGenerated（声明失败不发成功信号）。
     bool declareFactorResult(QgisLayerService *layers, const QString &horizon,
@@ -219,6 +225,40 @@ class ConstraintWorkflow : public QObject
     bool computeLocalDirectionJob(LocalDirectionJob *job, const std::function<bool()> &cancelled = {},
                                   const std::function<void(double)> &progress = {});
     bool publishLocalDirectionJob(const LocalDirectionJob &job, QString *error = nullptr);
+
+    // 方向18 克里金/SGS：准备在界面线程（只解析 URI 与参数），计算可在任务
+    // 线程（纯数值核 + GDAL 写临时目录），发布回到 catalog 所属线程。
+    // method = "kriging" | "sgs"。params 词表：
+    //   field/cellSize（同其他方法）
+    //   variogramModel: spherical|exponential|gaussian（缺省 spherical）
+    //   nugget/sill/range: 数值，range>0 且 sill>0 视为显式模型；否则自动拟合
+    //   azimuth: 走向方位（度，从北顺时针）；<0 = 自动（全向拟合，各向同性）
+    //   maxPoints: 克里金/SGS 邻域上限（缺省 16）
+    //   realizations/seed: SGS 实现数（缺省 4）与种子（缺省 42）
+    struct GeostatJob
+    {
+        bool prepared = false;
+        bool ok = false;
+        bool degraded = false; // 样本不足 → 计算段降级 IDW（method_actual="idw"）
+        quint64 generation = 0;
+        QString error;
+        QString method; // "kriging" | "sgs"
+        QString horizon;
+        QString factorId;
+        QString field;
+        double cellSize = 1.0;
+        QString wellUri;
+        QStringList parentPaths;
+        QVariantMap params;
+        QString outputPath;
+        QString supportPath; // 克里金：估计方差场；SGS：实现间标准差场；降级：空
+        QString qcPath;
+    };
+    bool prepareGeostatJob(const QString &horizon, const QString &factorId, const QString &method,
+                           const QVariantMap &params, GeostatJob *job, QString *error = nullptr);
+    bool computeGeostatJob(GeostatJob *job, const std::function<bool()> &cancelled = {},
+                           const std::function<void(double)> &progress = {});
+    bool publishGeostatJob(const GeostatJob &job, QString *error = nullptr);
 
     // 分析场等值线：准备在调用线程，GDAL 可在任务线程，发布回到 catalog 所属线程。
     // fixedLevels 为真时用 levels（空级别直接拒绝）；否则要求正间距。

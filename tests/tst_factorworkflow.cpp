@@ -984,6 +984,79 @@ class TestFactorWorkflow : public QObject
       delete factorAfter;
     }
 
+    // 方向23：method=surfer_idw 走断层绕行引擎，硬屏障不丢弃跨断层样本。
+    void surferIdwUsesFaultPathEngineEndToEnd()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QVERIFY2( f.proc.algorithmIds().contains( QStringLiteral( "paleo:paleo_surfer_idw" ) ),
+                "paleo:paleo_surfer_idw must be registered" );
+      const QString wellsPath = f.dir.filePath( QStringLiteral( "wells.gpkg" ) );
+      const QVector<PointRow> wells{
+          { 500000.0, 4000000.0, 1.0 },
+          { 500400.0, 4000000.0, 8.0 },
+          { 500000.0, 4000400.0, 4.0 },
+      };
+      QVERIFY( writePointGpkg( wellsPath, 3857, wells ) );
+      // 硬屏障（break_line 类型列）竖在两口井之间：surfer 引擎按绕行距离
+      // 保留两侧样本，而不是像旧路径那样分仓丢弃。
+      const QString linesPath = f.dir.filePath( QStringLiteral( "constraints.gpkg" ) );
+      const QVector<LineRow> lines{
+          { "fault1", "break_line", 500200.0, 3999800.0, 500200.0, 4000600.0 },
+      };
+      QVERIFY( writeLineGpkg( linesPath, 3857, lines ) );
+      QString err;
+      QVERIFY2( f.layers.declare( decl( QStringLiteral( "wells.T1" ), QStringLiteral( "T1" ),
+                                        QStringLiteral( "vector" ), layerUri( wellsPath, QStringLiteral( "wells" ) ) ),
+                                  &err ),
+                qPrintable( err ) );
+      QVERIFY2( f.layers.declare( decl( QStringLiteral( "constraints.T1" ), QStringLiteral( "T1" ),
+                                        QStringLiteral( "vector" ), layerUri( linesPath, QStringLiteral( "lines" ) ) ),
+                                  &err ),
+                qPrintable( err ) );
+
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QVariantMap params;
+      params.insert( QStringLiteral( "method" ), QStringLiteral( "surfer_idw" ) );
+      params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "cellSize" ), 100.0 );
+      QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ),
+                qPrintable( err ) );
+
+      const LayerDeclaration *factor = findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) );
+      QVERIFY2( factor != nullptr, "surfer factor declaration missing" );
+      QCOMPARE( factor->group, QStringLiteral( "04_SingleFactor" ) );
+      const QString analysisPath = factor->source.section( QLatin1Char( '|' ), 0, 0 );
+      QVERIFY2( QFile::exists( analysisPath ), qPrintable( analysisPath ) );
+
+      QVariantMap extra;
+      QVERIFY2( findDerivedExtra( f.catalog, QStringLiteral( "single_factor_raster" ), analysisPath, &extra ),
+                "analysis version missing" );
+      QCOMPARE( extra.value( QStringLiteral( "algorithm_id" ) ).toString(),
+                QStringLiteral( "paleo:paleo_surfer_idw" ) );
+      QVERIFY( extra.value( QStringLiteral( "finite_cells" ) ).toInt() > 0 );
+
+      const QString qcPath = resolveProjectPath( f.dir.path(), extra.value( QStringLiteral( "qc_path" ) ).toString() );
+      QFile qcFile( qcPath );
+      QVERIFY2( qcFile.open( QIODevice::ReadOnly ), qPrintable( qcPath ) );
+      const QJsonObject qc = QJsonDocument::fromJson( qcFile.readAll() ).object();
+      const QJsonObject parameters = qc.value( QStringLiteral( "parameters" ) ).toObject();
+      QCOMPARE( parameters.value( QStringLiteral( "algorithm_id" ) ).toString(),
+                QStringLiteral( "paleo:paleo_surfer_idw" ) );
+      QCOMPARE( parameters.value( QStringLiteral( "semantic_profile" ) ).toString(),
+                QStringLiteral( "paleo_surfer_idw_v1" ) );
+      QCOMPARE( parameters.value( QStringLiteral( "hard_barrier_model" ) ).toString(),
+                QStringLiteral( "fault_path_metric_v1" ) );
+      // 绕行模型不丢仓：约束行进入参数记录且不被记为 unknown_type。
+      const QJsonArray ignored = parameters.value( QStringLiteral( "ignored" ) ).toArray();
+      for ( const QJsonValue &item : ignored )
+        QVERIFY2( !item.toString().contains( QStringLiteral( "fault1" ) ),
+                  qPrintable( item.toString() ) );
+
+      delete factor;
+    }
+
     void localDirectionCrsPolicy()
     {
       const QVector<PointRow> geographic{

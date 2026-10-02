@@ -1345,6 +1345,8 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
   const QString method = params.value( QStringLiteral( "method" ) ).toString();
   if ( method == QLatin1String( "local_direction_idw" ) )
     return generateLocalDirectionFactor( horizon, factorId, def, params, error );
+  if ( method == QLatin1String( "surfer_idw" ) )
+    return generateSurferIdwFactor( horizon, factorId, def, params, error );
   if ( !method.isEmpty() )
   {
     setError( error, tr( "未知单因素方法：%1" ).arg( method ) );
@@ -1684,7 +1686,7 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
 }
 bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const QString &factorId,
                                                     const QVariantMap &params, LocalDirectionJob *job,
-                                                    QString *error )
+                                                    QString *error, const QString &engineId )
 {
   if ( !job )
   {
@@ -1696,6 +1698,7 @@ bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const
   job->horizon = horizon;
   job->factorId = factorId;
   job->params = params;
+  job->engineId = engineId;
 
   QgisProcessingService *proc = m_proc.data();
   QgisLayerService *layers = m_layers.data();
@@ -1704,9 +1707,9 @@ bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const
     setError( error, tr( "constraint workflow is not bound to services" ) );
     return false;
   }
-  if ( !proc->algorithmIds().contains( QStringLiteral( "paleo:paleo_local_direction_idw" ) ) )
+  if ( !proc->algorithmIds().contains( job->engineId ) )
   {
-    setError( error, tr( "本地方向插值引擎尚未注册" ) );
+    setError( error, tr( "单因素引擎尚未注册：%1" ).arg( job->engineId ) );
     return false;
   }
   bool known = false;
@@ -1835,6 +1838,14 @@ bool ConstraintWorkflow::computeLocalDirectionJob( LocalDirectionJob *job, const
   runParams.insert( QStringLiteral( "MIN_POINTS" ), job->params.value( QStringLiteral( "minPoints" ), 3 ) );
   runParams.insert( QStringLiteral( "MAX_POINTS" ), job->params.value( QStringLiteral( "maxPoints" ), 12 ) );
   runParams.insert( QStringLiteral( "SEARCH_RADIUS" ), job->params.value( QStringLiteral( "searchRadius" ), 0.0 ) );
+  if ( job->engineId == QLatin1String( "paleo:paleo_surfer_idw" ) )
+  {
+    // 各向异性是 surfer 引擎专属参数；其余引擎不识别。
+    runParams.insert( QStringLiteral( "ANISOTROPY_RATIO" ),
+                      job->params.value( QStringLiteral( "anisotropyRatio" ), 1.0 ) );
+    runParams.insert( QStringLiteral( "ANISOTROPY_ANGLE" ),
+                      job->params.value( QStringLiteral( "anisotropyAngle" ), 0.0 ) );
+  }
   if ( job->params.contains( QStringLiteral( "valueUnit" ) ) )
     runParams.insert( QStringLiteral( "VALUE_UNIT" ), job->params.value( QStringLiteral( "valueUnit" ) ) );
   runParams.insert( QStringLiteral( "OUTPUT" ), job->outputPath );
@@ -1858,8 +1869,7 @@ bool ConstraintWorkflow::computeLocalDirectionJob( LocalDirectionJob *job, const
   hooks.cancelled = cancelled;
   hooks.progress = progress;
   QString runErr;
-  const QVariantMap results =
-      proc->run( QStringLiteral( "paleo:paleo_local_direction_idw" ), runParams, &runErr, hooks );
+  const QVariantMap results = proc->run( job->engineId, runParams, &runErr, hooks );
   job->supportPath = results.value( QStringLiteral( "SUPPORT" ) ).toString();
   job->qcPath = results.value( QStringLiteral( "QC" ) ).toString();
   const QString outPath = results.value( QStringLiteral( "OUTPUT" ) ).toString();
@@ -2014,7 +2024,7 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
   extra.insert( QStringLiteral( "value_source" ), QStringLiteral( "analysis" ) );
   extra.insert( QStringLiteral( "parameter_hash" ), hash.sha256 );
   extra.insert( QStringLiteral( "provenance_schema_version" ), 1 );
-  extra.insert( QStringLiteral( "algorithm_id" ), QStringLiteral( "paleo:paleo_local_direction_idw" ) );
+  extra.insert( QStringLiteral( "algorithm_id" ), job.engineId );
   extra.insert( QStringLiteral( "extent_source" ), qc.value( QStringLiteral( "extent_source" ) ) );
   extra.insert( QStringLiteral( "crs_mode" ), qc.value( QStringLiteral( "crs_mode" ) ) );
   extra.insert( QStringLiteral( "support_path" ), projectDir.relativeFilePath( stagedSupport ) );
@@ -2034,8 +2044,7 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
     }
   }
   QString commitErr;
-  if ( !registrar.commitExternal( st, job.outputPath, parentIds, QStringLiteral( "paleo:paleo_local_direction_idw" ),
-                                  extra, &commitErr ) )
+  if ( !registrar.commitExternal( st, job.outputPath, parentIds, job.engineId, extra, &commitErr ) )
   {
     discard();
     setError( error, commitErr );
@@ -2053,6 +2062,23 @@ bool ConstraintWorkflow::generateLocalDirectionFactor( const QString &horizon, c
   Q_UNUSED( def );
   LocalDirectionJob job;
   if ( !prepareLocalDirectionJob( horizon, factorId, params, &job, error ) )
+    return false;
+  if ( !computeLocalDirectionJob( &job ) )
+  {
+    setError( error, job.error );
+    return false;
+  }
+  return publishLocalDirectionJob( job, error );
+}
+
+bool ConstraintWorkflow::generateSurferIdwFactor( const QString &horizon, const QString &factorId,
+                                                  const SingleFactorDefinition &def,
+                                                  const QVariantMap &params, QString *error )
+{
+  Q_UNUSED( def );
+  LocalDirectionJob job;
+  if ( !prepareLocalDirectionJob( horizon, factorId, params, &job, error,
+                                  QStringLiteral( "paleo:paleo_surfer_idw" ) ) )
     return false;
   if ( !computeLocalDirectionJob( &job ) )
   {

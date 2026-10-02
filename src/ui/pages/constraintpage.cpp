@@ -168,6 +168,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   auto *method = new QComboBox( content );
   method->setObjectName( QStringLiteral( "factorMethodCombo" ) );
   method->addItem( tr( "本地方向插值" ), QStringLiteral( "local_direction_idw" ) );
+  method->addItem( tr( "Surfer IDW（断层绕行）" ), QStringLiteral( "surfer_idw" ) );
   method->addItem( tr( "原约束 IDW" ), QStringLiteral( "legacy" ) );
   method->setAccessibleName( tr( "成图方法" ) );
   lay->addWidget( method );

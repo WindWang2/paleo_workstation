@@ -161,6 +161,11 @@ class ConstraintWorkflow : public QObject
                                       const SingleFactorDefinition &def, const QVariantMap &params,
                                       QString *error);
 
+    // method=surfer_idw：Surfer 式全局 IDW，断层绕行测地距离（faultpath 内核）。
+    bool generateSurferIdwFactor(const QString &horizon, const QString &factorId,
+                                 const SingleFactorDefinition &def, const QVariantMap &params,
+                                 QString *error);
+
     // 三个单因素引擎共用的收尾：样式 best-effort 落盘 + factor 栅格声明 +
     // C4 资产关联补盖 + factorGenerated（声明失败不发成功信号）。
     bool declareFactorResult(QgisLayerService *layers, const QString &horizon,
@@ -195,6 +200,8 @@ class ConstraintWorkflow : public QObject
                                       bool strict = true);
 
     // 本地方向：准备在界面线程，计算可在任务线程，发布回到 catalog 所属线程。
+    // engineId 区分共享三段式的单因素引擎（paleo_local_direction_idw /
+    // paleo_surfer_idw）。
     struct LocalDirectionJob
     {
         bool prepared = false;
@@ -205,6 +212,7 @@ class ConstraintWorkflow : public QObject
         QString factorId;
         QString field;
         double cellSize = 1.0;
+        QString engineId = QStringLiteral( "paleo:paleo_local_direction_idw" );
         QString wellUri;
         QString constraintUri;
         bool hasConstraints = false;
@@ -215,7 +223,8 @@ class ConstraintWorkflow : public QObject
         QString qcPath;
     };
     bool prepareLocalDirectionJob(const QString &horizon, const QString &factorId,
-                                  const QVariantMap &params, LocalDirectionJob *job, QString *error = nullptr);
+                                  const QVariantMap &params, LocalDirectionJob *job, QString *error = nullptr,
+                                  const QString &engineId = QStringLiteral( "paleo:paleo_local_direction_idw" ));
     bool computeLocalDirectionJob(LocalDirectionJob *job, const std::function<bool()> &cancelled = {},
                                   const std::function<void(double)> &progress = {});
     bool publishLocalDirectionJob(const LocalDirectionJob &job, QString *error = nullptr);

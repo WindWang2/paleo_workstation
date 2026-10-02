@@ -1408,9 +1408,10 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                   status->setText(msg);
                 QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
               };
-              const bool local = params.value(QStringLiteral("method")).toString()
-                                 == QLatin1String("local_direction_idw");
-              if (!local || !m_taskSvc)
+              const QString methodId = params.value(QStringLiteral("method")).toString();
+              const bool taskPool = methodId == QLatin1String("local_direction_idw")
+                                 || methodId == QLatin1String("surfer_idw");
+              if (!taskPool || !m_taskSvc)
               {
                 QString err;
                 if (!constraint->generateFactor(horizon, factorId, params, &err))

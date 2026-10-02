@@ -3,6 +3,7 @@
 
 #include "cachecore.h"
 #include "pathcanon.h"
+#include "../domain/seismic/sgyindexcache.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -356,15 +357,18 @@ void SegyIndexStore::ensureLegacyGlobalCacheDir()
   if (done)
     return;
   done = true;
-  // vendor/sbm SgyIndexCache.cpp 的全局缓存目录解析序：SEISMIC_INDEX_CACHE_DIR
-  // → Windows LOCALAPPDATA → POSIX tmp + paleo_workstation/index-cache。它在
-  // rename 发布前不建父目录——我们把目录建好，它的原子发布不再 ENOENT（D2.1
-  // 的仓外根治）。
-  const QString env = qEnvironmentVariable("SEISMIC_INDEX_CACHE_DIR");
-  QString dir;
-  if (!env.isEmpty())
-    dir = env;
-  else
-    dir = QDir::temp().absoluteFilePath(QStringLiteral("paleo_workstation/index-cache"));
+  // vendor/sbm SgyIndexCache 在 rename 发布前不建父目录——我们把目录建好，它的
+  // 原子发布不再 ENOENT（D2.1 的仓外根治）。目录解析直接问 vendor（同一份
+  // 口径，不再在这里复刻）：SEISMIC_INDEX_CACHE_DIR → %LOCALAPPDATA% /
+  // $XDG_CACHE_HOME / ~/.cache → tmp/paleo_workstation-<uid>（审计 01：不再
+  // 落多用户共享的 /tmp/paleo_workstation）。
+  const QString dir =
+      QString::fromStdU16String(seismic::SgyIndexCache::CacheDirectory().u16string());
   QDir().mkpath(dir);
+  // 我们建的 paleo_workstation 层收紧为仅属主可访问（索引内容 = 工区文件路径与几何）。
+  const QString parent = QFileInfo(dir).absolutePath();
+  if (QFileInfo(parent).fileName().startsWith(QLatin1String("paleo_workstation")))
+    QFile::setPermissions(parent, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                      QFileDevice::ExeOwner | QFileDevice::ReadUser |
+                                      QFileDevice::WriteUser | QFileDevice::ExeUser);
 }

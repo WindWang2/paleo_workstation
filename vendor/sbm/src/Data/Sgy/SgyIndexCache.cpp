@@ -201,9 +201,28 @@ std::filesystem::path SgyIndexCache::CacheDirectory() {
         return std::filesystem::path(buffer) / "paleo_workstation" / "index-cache";
     }
 #endif
+#ifndef _WIN32
+    // paleo P11：POSIX 走每用户缓存目录（XDG），不再落共享的 /tmp——多用户机器上
+    // 别人可预置/篡改索引文件。$XDG_CACHE_HOME → $HOME/.cache → tmp/paleo_workstation-<uid>。
+    if(const char* xdg = std::getenv("XDG_CACHE_HOME")) {
+        if(xdg[0] == '/') {
+            return std::filesystem::path(xdg) / "paleo_workstation" / "index-cache";
+        }
+    }
+    if(const char* home = std::getenv("HOME")) {
+        if(home[0] == '/') {
+            return std::filesystem::path(home) / ".cache" / "paleo_workstation" / "index-cache";
+        }
+    }
+#endif
     std::error_code ec;
     const std::filesystem::path temp = std::filesystem::temp_directory_path(ec);
-    return (ec ? std::filesystem::path(".") : temp) / "paleo_workstation" / "index-cache";
+#ifndef _WIN32
+    const std::string perUser = "paleo_workstation-" + std::to_string(static_cast<unsigned long>(getuid()));
+#else
+    const std::string perUser = "paleo_workstation";
+#endif
+    return (ec ? std::filesystem::path(".") : temp) / perUser / "index-cache";
 }
 
 std::filesystem::path SgyIndexCache::CachePathFor(const std::filesystem::path& sgyPath) {

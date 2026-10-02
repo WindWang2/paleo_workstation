@@ -24,7 +24,8 @@ public:
     static constexpr std::uint32_t kCacheFormatVersion = 3;
     static constexpr std::uint32_t kAlgorithmVersion = 2;
 
-    // %LOCALAPPDATA%\SeismicF3Viewer\index-cache (override: SEISMIC_INDEX_CACHE_DIR).
+    // %LOCALAPPDATA%\paleo_workstation\index-cache; POSIX: $XDG_CACHE_HOME or ~/.cache
+    // /paleo_workstation/index-cache (override: SEISMIC_INDEX_CACHE_DIR). See PATCHES.md P1.
     static std::filesystem::path CacheDirectory();
     static std::filesystem::path CachePathFor(const std::filesystem::path& sgyPath);
     static std::filesystem::path CompanionPathFor(const std::filesystem::path& sgyPath);

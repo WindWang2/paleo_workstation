@@ -335,6 +335,9 @@ class DataCatalog : public QObject
     // op 失败或落盘失败 → 内存逐字段还原、盘上不动（事务语义），返回 false。
     // 空 journal → true 且不落盘（不空涨 revision）。
     bool applyJournal(const QVector<CatalogOp> &ops, QString *error = nullptr);
+    // 测试注入：重放恰好成功 k 个 op 后、endBatch/落盘之前还原并失败。
+    // k<=0 记 0 并关闭。applyJournal 不自动清零（非零粘滞会让失败后的重试也中止）。
+    void debugAbortJournalAfter(int k);
 
   signals:
     void changed();      // 任一变更落盘后发射（UI 刷新资产表用）
@@ -386,6 +389,7 @@ class DataCatalog : public QObject
     // 活库连接。staging 副本不拷贝（默认空）——副本不 open、不落盘。
     std::unique_ptr<CatalogStore> m_store;
     bool m_forceFullSave = false; // 损坏主库已装入内存，下次 save 整表重写
+    int m_debugAbortJournalAfter = 0; // 见 debugAbortJournalAfter；0 = 关闭
     QSet<QString> m_dirtyEntities;
     QSet<QString> m_dirtyAssets;
     QSet<QString> m_dirtyVersions;

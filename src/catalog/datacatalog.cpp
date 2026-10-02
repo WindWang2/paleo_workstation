@@ -171,6 +171,11 @@ QString DataCatalog::versionFilePath(const CatalogVersion &v) const
   return resolvedVersionPath(m_dir, v);
 }
 
+void DataCatalog::debugAbortJournalAfter(int k)
+{
+  m_debugAbortJournalAfter = k > 0 ? k : 0;
+}
+
 bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
 {
   if (!checkWriteThread("applyJournal", error))
@@ -239,6 +244,13 @@ bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
                           .arg(i + 1)
                           .arg(ops.size())
                           .arg(opErr.isEmpty() ? QStringLiteral("未给出原因") : opErr));
+      return false;
+    }
+    // 注入中止必须在 endBatch/save 之前：此时还没有 sqlite 事务，-wal 字节才不变。
+    if (m_debugAbortJournalAfter > 0 && (i + 1) == m_debugAbortJournalAfter)
+    {
+      restore();
+      setError(error, QStringLiteral("catalog 提交在第 %1 个 op 后中止（测试注入）").arg(i + 1));
       return false;
     }
   }

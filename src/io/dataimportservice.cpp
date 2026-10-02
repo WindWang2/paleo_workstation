@@ -101,6 +101,34 @@ namespace
     }
     return QStringLiteral("未匹配井名: ") + norm.join(QStringLiteral(", "));
   }
+
+  // 已决 well_log 的主标记与 ordinal。只数同一实体上 role==well_log 且
+  // !unresolved：没有则本条为主、ordinal 0；有成员但没有主则本条补主；
+  // 已有主则本条非主。ordinal = 这些成员的 max(ordinal)+1。不改既有链接。
+  void assignResolvedWellLogSlot(const DataCatalog *cat, EntityAssetLink &link)
+  {
+    bool any = false;
+    bool hasPrimary = false;
+    int maxOrdinal = 0;
+    for (const EntityAssetLink &existing : cat->linksForEntity(link.entityId))
+    {
+      if (existing.role != QLatin1String("well_log") || existing.unresolved)
+        continue;
+      if (!any || existing.ordinal > maxOrdinal)
+        maxOrdinal = existing.ordinal;
+      any = true;
+      if (existing.isPrimary)
+        hasPrimary = true;
+    }
+    if (!any)
+    {
+      link.isPrimary = true;
+      link.ordinal = 0;
+      return;
+    }
+    link.isPrimary = !hasPrimary;
+    link.ordinal = maxOrdinal + 1;
+  }
 } // namespace
 
 DataImportService::DataImportService(PaleoProjectStore *store, QObject *parent)
@@ -1104,7 +1132,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     if (!bind.unresolved)
     {
       link.entityId = bind.entityId;
-      link.isPrimary = true;
+      assignResolvedWellLogSlot(cat, link);
     }
     else
     {

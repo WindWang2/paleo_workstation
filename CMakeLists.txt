@@ -291,6 +291,7 @@ target_include_directories(paleo_deps INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_I
 
 # ---- 数据层 ----
 add_library(paleo_domain STATIC
+  src/domain/singlefactorrequest.cpp
   src/domain/types.cpp
   src/domain/wellcompositemodel.cpp
   src/domain/wellrecords.cpp                        # 井文本记录类型 + XML 嗅探（自 io 下沉）
@@ -307,6 +308,10 @@ add_library(paleo_algorithms STATIC
   src/algorithms/paleoalgorithms.cpp
   src/algorithms/faciespolygonize.cpp
   src/algorithms/seismicattr.cpp
+  src/algorithms/singlefactor/curvekernel.cpp
+  src/algorithms/singlefactor/support.cpp
+  src/algorithms/singlefactor/localidw.cpp
+  src/algorithms/singlefactor/samples.cpp
 )
 target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 
@@ -612,6 +617,11 @@ add_paleo_test(tst_domain LIBS paleo_domain)
 add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
 add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）
+add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_parity LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_contract LIBS paleo_domain)
+add_paleo_test(tst_singlefactor_samples LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_store LIBS paleo_io)
 add_paleo_test(tst_services2 LIBS paleo_qgis)               # algorithms,metadata,qgis
 add_paleo_test(tst_workflows LIBS paleo_workflow)
 add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）

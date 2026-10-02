@@ -1,5 +1,6 @@
 // 层：视图
 #include "../domain/faciescatalog.h"
+#include "../domain/singlefactorrequest.h"
 #include "../linkage/selectioncontext.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/mappingartifactwriter.h"
@@ -80,10 +81,16 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     const auto h = m_selection->activeHorizon();
     auto v = workbench->versionForLayer(id);
     auto d = workbench->declaration(id);
+    const auto legendKind = v.extra.value("kind").toString();
+    const auto legendSource = v.extra.value("value_source").toString();
+    const bool analysisRaster =
+        paleo::singlefactor::isAnalysisFactorRaster(legendKind, legendSource);
+    const bool cartographic =
+        paleo::singlefactor::rejectsQuantitativeUse(legendKind, legendSource);
     bool product = !v.id.isEmpty() && d.horizon == h &&
                    v.extra.contains("facies") &&
-                   !v.extra.value("kind").toString().startsWith("constraint") &&
-                   v.extra.value("kind") != "single_factor_raster";
+                   !legendKind.startsWith(QLatin1String("constraint")) &&
+                   !analysisRaster && !cartographic;
     auto schema =
         product ? v.extra.value("facies").toList() : workbench->facies(h);
     QString title = h.isEmpty() ? tr("请选择层位") : tr("%1 · 相图例").arg(h);
@@ -92,18 +99,20 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
           tr(" · v%1%2")
               .arg(v.versionNumber)
               .arg(v.extra.value("mock").toBool() ? tr(" Mock") : QString());
-    if (v.extra.value("kind") == "single_factor_raster") {
+    if (analysisRaster || cartographic) {
       schema.clear();
       if (auto *r = qobject_cast<QgsRasterLayer *>(m_layerSvc->layer(id));
           r && r->renderer())
         for (const auto &item : r->renderer()->legendSymbologyItems())
           schema << QVariantMap{{"name", item.first},
                                 {"color", item.second.name()}};
-      title = tr("%1 · 数值图例 v%2").arg(h).arg(v.versionNumber);
-    } else if (v.extra.value("kind").toString().startsWith("constraint") ||
-               v.extra.value("kind") == "contour_lines") {
+      title = cartographic
+                  ? tr("%1 · 解释性制图 v%2").arg(h).arg(v.versionNumber)
+                  : tr("%1 · 数值图例 v%2").arg(h).arg(v.versionNumber);
+    } else if (legendKind.startsWith(QLatin1String("constraint")) ||
+               legendKind == QLatin1String("contour_lines")) {
       schema.clear();
-      title = tr("%1 · %2").arg(h, v.extra.value("kind") == "contour_lines"
+      title = tr("%1 · %2").arg(h, legendKind == QLatin1String("contour_lines")
                                        ? tr("等值线")
                                        : tr("约束线"));
     }
@@ -212,12 +221,18 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     canvas->setMapTool(new QgsMapToolPan(canvas));
     auto v = workbench->versionForLayer(id);
     auto f = v.extra.value("facies", workbench->facies(d.horizon)).toList();
-    if (!v.extra.value("kind").toString().startsWith("constraint") &&
-        v.extra.value("kind") != "single_factor_raster")
+    const auto compareKind = v.extra.value("kind").toString();
+    const auto compareSource = v.extra.value("value_source").toString();
+    const bool compareAnalysis =
+        paleo::singlefactor::isAnalysisFactorRaster(compareKind, compareSource);
+    const bool compareCartographic =
+        paleo::singlefactor::rejectsQuantitativeUse(compareKind, compareSource);
+    if (!compareKind.startsWith(QLatin1String("constraint")) && !compareAnalysis &&
+        !compareCartographic)
       MappingArtifactWriter::applyFaciesStyle(layer, f);
     else {
       f.clear();
-      if (v.extra.value("kind") == "single_factor_raster")
+      if (compareAnalysis || compareCartographic)
         if (auto *r = qobject_cast<QgsRasterLayer *>(layer)) {
           FactorStyleWriter::applyTo(r, v.extra.value("factor_id").toString());
           if (r->renderer())

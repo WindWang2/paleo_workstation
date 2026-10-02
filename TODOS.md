@@ -1,3 +1,19 @@
+## P2 — 单因素原生算法后续（from goal/single-factor-native, 2026-10-02）
+
+- **What:** 克里金体系深化、完整 SFPKG 导入、外委 XML/XLSX 批量读取、
+  参考工程全部历史制图策略、时深域转换、监督分类、打印排版、
+  完整 Python GUI 嵌入，以及有限断层路径距离 `FaultPathMetric`。
+- **Why:** 本次交付只做 C++ 局部方向 IDW、软边界、井群权重、硬屏障栅格连通、
+  真实数值等值线和显式制图工作场。上游井数超过 80 等条件下的各向异性路径
+  会退成 IDW，不能把 UI 标签当成克里金。
+- **Pros:** P0/P1 保持可复算的分析场语义；**Cons:** 路径绕距、历史闭环补接
+  和批量外委格式要另立项。
+- **Context:** `docs/designs/single-factor-native-integration-plan.md` 第 1 节
+  与第 7.3 节。硬屏障模型是 `grid_connectivity_v1`，不是 `FaultPathMetric`。
+- **Effort:** human: L / CC: L
+- **Priority:** P2
+- **Depends on:** 单因素原生 P0 分析场进入目标基线
+
 ## P3 — 地层格架后续：断块网格 / 随机模拟（from goal/property-modeling, 2026-10-02）
 
 - **What:** V1 只做等比例 IJK 格架 + 井曲线粗化 + 断层竖帘阻断的 IDW。

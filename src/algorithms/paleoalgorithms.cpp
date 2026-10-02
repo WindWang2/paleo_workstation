@@ -2,6 +2,7 @@
 #include "paleoalgorithms.h"
 #include "rasterout.h"
 #include "../catalog/datacatalog.h"
+#include "domain/singlefactorrequest.h"
 
 #include <qgsprocessingparameters.h>
 #include <qgsprocessingutils.h> // QgsProcessingFeatureSource
@@ -337,12 +338,21 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
                 QStringLiteral( "Constraint geometry failed to transform into the well CRS" ) );
         }
         const QString ctype = typeIdx >= 0 ? cf.attribute( typeIdx ).toString().trimmed() : QString();
-        if ( ctype == QLatin1String( "break_line" ) )
-          breakGeoms.append( g );
-        else if ( ctype == QLatin1String( "direction_line" ) )
-          directionGeoms.append( g );
-        else
-          hullGeoms.append( g );
+        switch ( paleo::singlefactor::legacyConstraintRole( ctype ) )
+        {
+          case paleo::singlefactor::LegacyConstraintRole::HardBarrier:
+            breakGeoms.append( g );
+            break;
+          case paleo::singlefactor::LegacyConstraintRole::DirectionGuide:
+            directionGeoms.append( g );
+            break;
+          case paleo::singlefactor::LegacyConstraintRole::NotInLegacyEngine:
+            // interpretive_boundary / contour_stop / cartographic_detour 不参与旧 IDW。
+            break;
+          case paleo::singlefactor::LegacyConstraintRole::HullClip:
+            hullGeoms.append( g );
+            break;
+        }
       }
       // break_lines also bound the region of influence (a barrier is a boundary).
       hullGeoms += breakGeoms;

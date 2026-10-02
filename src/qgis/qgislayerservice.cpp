@@ -6,6 +6,7 @@
 #include "mappingartifactwriter.h"
 
 #include <QSet>
+#include <QtGlobal>
 
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
@@ -89,7 +90,13 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
   {
     if (auto *project = resolveProject(m_projectSvc))
       project->removeMapLayer(previous->id());
-    instantiate(decl.layerId, error);
+    // previous 此后可能已被 QgsProject 删除——不得再解引用。重建失败不回滚
+    // 声明（清单已是新 source），但不能把失败文案塞进「成功」返回的 error，
+    // 记 warning 留痕。
+    QString reErr;
+    if (!instantiate(decl.layerId, &reErr))
+      qWarning("QgisLayerService::declare: re-instantiating '%s' after source change failed: %s",
+               qPrintable(decl.layerId), qPrintable(reErr));
   }
   emit layerDeclared(decl.layerId);
   return true;
@@ -252,8 +259,14 @@ void QgisLayerService::trackInstance(const QString &layerId, QgsMapLayer *layer)
   // removeMapLayer(), an external consumer), the cache entry dies with it.
   if (layer)
   {
-    connect(layer, &QObject::destroyed, this, [this, layerId] {
-      m_instances.remove(layerId);
+    // #81：只摘「仍指向这个已销毁对象（或已置空）」的条目。declare() 替换
+    // 路径会在同一 layerId 下先删旧层、再登记新层；旧层的 destroyed 若晚于
+    // 新层登记（延迟删除/外部持有者），按 layerId 无条件 remove 会把新层
+    // 从缓存里摘掉——之后 layer() 返回空、paleoAssetId 盖章静默落空。
+    connect(layer, &QObject::destroyed, this, [this, layerId](QObject *dead) {
+      const auto it = m_instances.find(layerId);
+      if (it != m_instances.end() && (it.value().isNull() || it.value().data() == dead))
+        m_instances.erase(it);
     });
   }
 }

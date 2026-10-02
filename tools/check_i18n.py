@@ -107,13 +107,21 @@ def scan_file(path):
 
 
 def run(src_dir):
+    root = Path(src_dir)
+    if not root.is_dir():
+        # 扫描根不存在 = 定位错误（如 ctest 在构建目录下运行），不是「零违规」（#77）。
+        raise FileNotFoundError(f"scan root not found: {root}")
     violations = []
-    for path in sorted(Path(src_dir).rglob("*")):
+    scanned = 0
+    for path in sorted(root.rglob("*")):
         if path.suffix not in (".cpp", ".h", ".hpp"):
             continue
         if "vendor" in path.parts:
             continue
+        scanned += 1
         violations.extend(scan_file(path))
+    if scanned == 0:
+        raise FileNotFoundError(f"scan root has no sources: {root}")
     return violations
 
 
@@ -143,14 +151,19 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser(description="i18n 裸字面量门禁")
-    ap.add_argument("--src", default="src")
+    # 缺省按脚本位置定位仓库 src/（不依赖 cwd，同 check_layering.py）。
+    ap.add_argument("--src", default=str(Path(__file__).resolve().parents[1] / "src"))
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
 
     if args.selftest:
         sys.exit(0 if selftest() else 2)
 
-    violations = run(args.src)
+    try:
+        violations = run(args.src)
+    except FileNotFoundError as e:
+        print(f"ERROR {e}", file=sys.stderr)
+        return 2
     for path, lineno, call, lit in violations:
         print(f"{path}:{lineno}: {call}( \"{lit}\" ) —— 用户可见文案未走 tr()")
     if violations:

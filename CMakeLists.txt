@@ -559,6 +559,16 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_ui_invariants.py --strict)
   add_test(NAME ui_invariants_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_ui_invariants.py --selftest)
+  # #77：i18n 裸字面量门禁（#44「无 CI 门禁」收口）。脚本按自身位置定位
+  # src/，WORKING_DIRECTORY 显式钉源码根作双保险。
+  add_test(NAME i18n COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_i18n.py)
+  add_test(NAME i18n_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_i18n.py --selftest)
+  set_tests_properties(layering layering_strict layering_selftest
+                       ui_invariants ui_invariants_strict ui_invariants_selftest
+                       i18n i18n_selftest
+                       PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()
 
 # ---- 测试注册（devex T1 链接瘦身：LIBS = 各测试 include 面的最小闭包，见

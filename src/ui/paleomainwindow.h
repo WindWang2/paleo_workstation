@@ -11,6 +11,7 @@
 #include "../domain/importrows.h"   // FolderPreviewRow / FolderRowResult（T22 静态面，W2 下沉 domain）
 #include "../services/seismictaskservice.h" // m_seismicTaskSvc unique_ptr 需完整类型
 #include "../services/petrophyscomputeservice.h" // m_petroPhysSvc unique_ptr 需完整类型
+#include "../services/jobrunner.h" // m_propModelRunner 成员需完整类型（方向20）
 #include "../workflow/propertymodelworkflow.h" // PropertyModelComputed 值成员需完整类型（#85 worker→GUI 交接）
 
 class PaleoDockManager;
@@ -347,6 +348,11 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 读。task 是 PaleoTaskService 持有的对象，QPointer 防服务先析构。
     PropertyModelWorkflow::PropertyModelComputed m_propModelComputed;
     QPointer<PaleoTask> m_propModelTask;
+    // 方向20：属性建模改由统一 JobRunner 编排（忙则拒绝/取消传播/commit 强制
+    // owner 线程都由框架承担）。job 用 shared_ptr 与 commit 段共享同一份交接体
+    // —— 共享所有权正是「commit 段回填的登记结果，UI 段能读到」的前提。
+    paleo::jobs::JobRunner<PropertyModelWorkflow::PropertyModelJob> m_propModelRunner{this};
+    std::shared_ptr<PropertyModelWorkflow::PropertyModelJob> m_propModelJob;
     // 单因素本地方向：准备和发布在界面线程，插值在任务池。
     QPointer<PaleoTask> m_factorTask;
     void finishPropertyModelRun(double overlayAlpha);

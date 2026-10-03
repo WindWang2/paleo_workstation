@@ -1,7 +1,8 @@
 # 任务框架统一 + 巨型文件拆分（JobRunner）
 
-状态：**轮 0 勘察定案 + 轮 1 框架落地完成**（`tst_jobrunner` 11/11 绿）。
-轮 2（迁移）未开始。未跑完的 Oracle 不记为通过。
+状态：**轮 0 勘察定案 + 轮 1 框架 + 轮 2 迁移 propertymodelworkflow 完成**。
+`tst_jobrunner` 11/11、`tst_propworkflow` 15/15 绿。轮 3–5 未开始。
+未跑完的 Oracle 不记为通过。
 
 ## 范围
 
@@ -198,13 +199,13 @@ public:
 
 | # | Oracle | 状态 | 证据 |
 |---|--------|------|------|
-| 1 | 行为保留断言（信号序/取消/失败态） | 未开始（轮 2 起） | — |
-| 2 | `tst_jobrunner` 5 条框架断言 | **通过** | 11/11 PASS，见下「轮 1 实测」 |
-| 3 | 拆分后既有测试原样绿 | 未开始（轮 4） | — |
+| 1 | 行为保留断言（信号序/取消/失败态） | **部分通过**（1/4 组已迁） | 轮 2：`tst_propworkflow` 3 条异步断言 + 11 个既有用例原样绿 |
+| 2 | `tst_jobrunner` 5 条框架断言 | **通过** | 11/11 PASS，见「轮 1 实测」 |
+| 3 | 拆分后既有测试原样绿 | **部分通过** | 轮 2 已迁面的既有测试原样绿；拆分发生在轮 4 |
 | 4 | `datapreviewtabs` 拆后预览测试全绿 + 分发覆盖 | 未开始（轮 4） | — |
 | 5 | 探测面每条绿或红进 TODOS | 未开始（轮 5） | — |
 | 6 | 文件规模断言（单文件 ≤1500 行） | 未开始（轮 4） | — |
-| 7 | 全账 + 本文档收口 | 进行中 | 轮 0/1 已记账 |
+| 7 | 全账 + 本文档收口 | 进行中 | 轮 0–2 已记账 |
 
 ## 轮 1：JobRunner 框架 + tst_jobrunner
 
@@ -306,4 +307,89 @@ ui invariants: clean (violations=0, baseline=0)
 
 编译零新警告（`/W4`；`assertOwnerThread` 的 `where` 形参在 NDEBUG 下会变未引用，
 已用 `Q_UNUSED` 显式吞掉，避免与文件其余部分不一致的新警告）。
+
+## 轮 2：迁移 propertymodelworkflow（第一处迁移）
+
+### 迁移面与等价点
+
+`PropertyModelWorkflow` 新增 `startJob()`，把原来在 `paleomainwindow_attach.cpp`
+里手写的「起任务 → 判忙 → 连 finished → commit」编排换成框架调用。
+`runCompute`/`commitComputed`/`run` 三个既有符号**一行未动**——它们是同步契约，
+老调用点与既有测试照旧（`run()` 内部仍是两段直连）。
+
+| 维度 | 迁移前（attach.cpp 手写） | 迁移后（框架承担） | 等价性证据 |
+|------|------------------------|------------------|-----------|
+| 忙则拒绝 | `m_propModelRunning` 布尔 | 框架 `busy()` 门控（`start` 返回 nullptr） | `asyncJobRejectsWhenBusy…` (a) |
+| 取消传播 | `m_propModelCancel` 布尔 + `task->requestCancel()` | 框架 `requestCancel()`（置本代 cancel + 任务取消位） | `asyncJobCancelSkipsCommit` |
+| commit 线程 | finished 回调恰在 GUI 线程（事实） | 框架排队回 owner + `assertOwnerThread` 断言（机制） | `asyncJobSucceedsAndRegisters…` |
+| 失败态 | `computed.error` → `showResult(false, why)` | 同（失败仍进 commit，迁移点读 `job.error` 上 UI） | `asyncJobRejectsWhenBusy…` (b) |
+| 进度回包 | 手工 `reportStage` + `invokeMethod` 推面板 | 框架 50ms 节流 + `ProgressFn` → 面板 `updateProgress` | 面板侧槽位不变 |
+| 无池兜底 | `!m_taskSvc` 同步直连 | 同（`startJob` 返回 nullptr → 走老同步路径） | 由 (a) 同形覆盖 |
+
+### 三处需要判断的地方（都不是「顺手改语义」）
+
+1. **二次登记必须消掉**。迁移前 `finishPropertyModelRun` 自己调
+   `commitComputed`；迁移后 commit 段已登记，若 UI 段再调一次就是对同一份
+   staging 登记两次。判据用 `job->registered`（commit 段成功时置位），
+   **不用 `runner.busy()`**——commit 段在发 `finished` 之前就 `clearTask()` 了，
+   拿 busy 判会误判成「没登记过」。无池兜底路径不建 job，仍走直连登记。
+2. **`m_propModelJob` 每代必须 reset**，否则 UI 段会读到上一代的登记结果。
+3. **失败信号跨线程的现状照旧**。`runCompute` 的失败路径里有
+   `emit modelFailed(why)`，迁移后它仍从 worker 线程发出。生产代码无连接点
+   （只有 `tst_propworkflow` 用 QSignalSpy 听 `modelStored`），但这是**既有行为**，
+   重构不改——记录在此，不在本 PR 修正。
+
+### 实测输出
+
+```text
+$ ctest --test-dir build -R '^tst_propworkflow$'
+1/1 Test #158: tst_propworkflow .................   Passed   37.45 sec
+
+$ grep asyncJob build/tst_propworkflow-result.txt
+PASS   : TestPropWorkflow::asyncJobSucceedsAndRegistersOnOwnerThread()
+PASS   : TestPropWorkflow::asyncJobCancelSkipsCommit()
+PASS   : TestPropWorkflow::asyncJobRejectsWhenBusyAndReportsFailure()
+```
+
+同一次运行里 11 个既有用例（含 `chainRegistersDerivedAndIsReproducible`、
+`cancelAndProgressAreHonest` 等同步契约）**原样绿、断言未改**——
+这是 Oracle 1「行为保留」与 Oracle 3「不丢面」在本迁移点上的证据。
+
+顺带记一笔测试手法：`tst_propworkflow` 原先也没有 `-o` 落盘，失败时看不到
+是哪条红。已同样加上（ctest 无控制台下 QtTest 结果走 `OutputDebugString`）。
+
+### 已知阻塞：paleo_ui 全量链接缺 QScintilla 头（环境问题，非本方向引入）
+
+`paleo_ui` 目标在**我没碰过的** TU 上编译失败：
+
+```text
+qgsrasterattributetable.h(289): warning C4996 ...
+include/qgis/qgscodeeditor.h(30): fatal error C1083:
+  无法打开包括文件: “Qsci/qsciapis.h”: No such file or directory
+FAILED: CMakeFiles/paleo_ui.dir/src/ui/layers/layerpropertiesdialog.cpp.obj
+```
+
+诊断（`layerpropertiesdialog.cpp` 与本方向无关，`src/` 内无人引用
+`QgsCodeEditor` / `Qsci`）：
+
+- `qgscodeeditor.h` 于 2026-10-02 00:18 被更新，新引入 `#include <Qsci/qsciapis.h>`；
+- QScintilla 头只存在于 `C:/deps/qscintilla-install/include`，而 `CMakeLists.txt`
+  与 `cmake/*.cmake` **完全没有 QScintilla 接线**——`CMAKE_PREFIX_PATH` 里有
+  `qscintilla-install`，但那不会变成编译期 `-I`；
+- 既有 worktree（`fault-surface`）能编出 `paleo_ui.lib`，靠的是它没重编这个 TU
+  的陈旧 obj，不代表配置正确。
+
+**处置**：这是环境/构建配置问题，**不在本 PR 修**——按方向 20 的禁区「重构不改
+行为、不夹带无关改动」，修它属于另一个主题（要么给 QGIS 依赖补 QScintilla 的
+include 接线，要么把 `qgscodeeditor.h` 从不需要它的 TU 里断开）。
+
+**对本轮结论的影响**：无。迁移改动的两个 TU 均已在本轮成功编译成 obj
+（`propertymodelworkflow.cpp.obj` 09:47、`paleomainwindow_attach.cpp.obj` 09:51），
+且迁移的运行期行为由 `tst_propworkflow` 15/15 绿证明。**但 `paleo_ui` 的完整
+链接未验证**——故 Oracle 1 记为「部分通过」而非「通过」。
+
+顺带记一个 configure 坑：新 worktree 的**首次** configure 会漏掉 4 条 `vendor/`
+include（glm/saribbon/sbm/segyio），症状同样是后续 TU 报 QGIS 头找不到。**再
+configure 一次即恢复**。已在 skill `paleo-workstation-windows-build-env` 记录。
+
 

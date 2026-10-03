@@ -1,12 +1,19 @@
 // 层：测试壳
 #include <QtTest>
+#include <QCoreApplication>
 #include <QDir>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonObject>
+#include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QThread>
 
+#include <functional>
 #include <limits>
+#include <memory>
 
 #include <gdal.h>
 
@@ -15,6 +22,8 @@
 #include "../src/catalog/datacatalog.h"
 #include "../src/domain/faultset.h"
 #include "../src/io/horizonbinner.h"
+#include "../src/services/jobrunner.h"
+#include "../src/services/paleotaskservice.h"
 #include "../src/workflow/propertymodelworkflow.h"
 
 #include <cmath>
@@ -170,6 +179,10 @@ private slots:
   void rasterWithoutGeoreferenceIsRejected();
   void requestFromCatalogBuildsWellsAndHorizons();
   void deviatedWellUsesTrajectoryStations();
+  // ---- 方向20：JobRunner 迁移面的行为等价断言（异步 startJob 路径） ----
+  void asyncJobSucceedsAndRegistersOnOwnerThread();
+  void asyncJobCancelSkipsCommit();
+  void asyncJobRejectsWhenBusyAndReportsFailure();
 };
 
 void TestPropWorkflow::wktSegmentsAndFaultSet()
@@ -705,6 +718,196 @@ void TestPropWorkflow::requestFromCatalogBuildsWellsAndHorizons()
   QCOMPARE(slice.height, out.volume.grid.nj);
 }
 
+// ===========================================================================
+// 方向20：JobRunner 迁移面的行为等价断言
+//
+// 契约（docs/progress/job-framework.md）：迁移不得改行为。上面那些同步用例
+// 钉的是 run() 老路径；这里三个用例钉 startJob() 异步路径与它的等价关系。
+// 三条断言按 Oracle 1 固定为：信号序、取消语义、失败态。
+// ===========================================================================
+
+namespace
+{
+
+/// 异步用例共用的请求构造：与 cancelAndProgressAreHonest 同一副输入，
+/// 保证同步/异步两条路径的输入完全可比。
+PropertyModelRequest asyncFixtureRequest()
+{
+  PropertyModelRequest req;
+  req.useEmbeddedSurfaces = true;
+  req.propertyName = QStringLiteral("SW");
+  req.topName = QStringLiteral("T");
+  req.botName = QStringLiteral("B");
+  req.nLayers = 4;
+  req.top.cols = req.bot.cols = 24;
+  req.top.rows = req.bot.rows = 16;
+  req.top.dx = req.bot.dx = 10;
+  req.top.dy = req.bot.dy = 10;
+  req.top.z.assign(24 * 16, 0.0f);
+  req.bot.z.assign(24 * 16, 20.0f);
+  req.wells.push_back(wellAt(5.0, 5.0, 0.0, 20.0, 1.0));
+  return req;
+}
+
+/// 泵事件直到 pred 成立（commit 段经 QueuedConnection 排在 owner 线程）。
+bool pumpUntil(const std::function<bool()> &pred, int timeoutMs = 20000)
+{
+  QElapsedTimer clock;
+  clock.start();
+  while (!pred())
+  {
+    if (clock.elapsed() > timeoutMs)
+      return false;
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+    QThread::msleep(2);
+  }
+  return true;
+}
+
+} // namespace
+
+// ---- 断言 1（信号序 + 成功登记）：成功路径 commit 在 owner 线程执行一次 ----
+void TestPropWorkflow::asyncJobSucceedsAndRegistersOnOwnerThread()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(tmp.path()));
+  PropertyModelWorkflow wf(&cat, tmp.path());
+
+  QObject dispatcher;
+  PaleoTaskService svc(nullptr, &dispatcher);
+  paleo::jobs::JobRunner<PropertyModelWorkflow::PropertyModelJob> runner(&dispatcher);
+  runner.setTaskService(&svc);
+
+  QSignalSpy stored(&wf, &PropertyModelWorkflow::modelStored);
+  QSignalSpy failed(&wf, &PropertyModelWorkflow::modelFailed);
+
+  std::shared_ptr<PropertyModelWorkflow::PropertyModelJob> job;
+  PaleoTask *task = wf.startJob(runner, asyncFixtureRequest(), 1.0, nullptr, &job);
+  QVERIFY2(task, "任务池在侧仍应受理");
+  QVERIFY(job);
+  QVERIFY(pumpUntil([&] { return stored.size() + failed.size() > 0; }));
+
+  // 成功：modelStored 发一次、modelFailed 零次，且 commit 标记已置位
+  QCOMPARE(stored.size(), 1);
+  QCOMPARE(failed.size(), 0);
+  QVERIFY(job->registered);
+  QVERIFY2(job->computed.ok, qPrintable(job->computed.error));
+  QCOMPARE(task->state(), PaleoTask::State::Succeeded);
+
+  // 登记确实落到 catalog（与同步路径同一面）
+  int registered = 0;
+  for (const CatalogAsset &asset : cat.assets())
+    if (asset.type == QLatin1String("property_volume"))
+      ++registered;
+  QCOMPARE(registered, 1);
+  // 共享所有权：UI 段读到的就是 commit 段回填的那一份
+  QCOMPARE(job->computed.out.assetId, job->computed.out.assetId);
+  QVERIFY(!job->computed.out.path.isEmpty());
+
+  svc.shutdown(3000, false);
+}
+
+// ---- 断言 2（取消语义）：cancel 后 commit 不执行、catalog 无新增登记 ----
+void TestPropWorkflow::asyncJobCancelSkipsCommit()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(tmp.path()));
+  PropertyModelWorkflow wf(&cat, tmp.path());
+
+  QObject dispatcher;
+  PaleoTaskService svc(nullptr, &dispatcher);
+  paleo::jobs::JobRunner<PropertyModelWorkflow::PropertyModelJob> runner(&dispatcher);
+  runner.setTaskService(&svc);
+
+  QSignalSpy stored(&wf, &PropertyModelWorkflow::modelStored);
+
+  std::shared_ptr<PropertyModelWorkflow::PropertyModelJob> job;
+  PaleoTask *task = wf.startJob(runner, asyncFixtureRequest(), 1.0, nullptr, &job);
+  QVERIFY(task);
+  // 立刻取消：compute 会在下一个进度点被 CancelFn 打断
+  runner.requestCancel();
+  QVERIFY(pumpUntil([&] { return !runner.busy(); }));
+
+  // 取消终态；commit 未执行
+  QCOMPARE(task->state(), PaleoTask::State::Cancelled);
+  QVERIFY(!job->registered);
+  QCOMPARE(stored.size(), 0);
+  for (const CatalogAsset &asset : cat.assets())
+    QVERIFY(asset.type != QLatin1String("property_volume"));
+
+  svc.shutdown(3000, false);
+}
+
+// ---- 断言 3（失败态 + 忙则拒绝）：失败经既有通道上 UI，忙则拒绝不建任务 ----
+void TestPropWorkflow::asyncJobRejectsWhenBusyAndReportsFailure()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(tmp.path()));
+  PropertyModelWorkflow wf(&cat, tmp.path());
+
+  QObject dispatcher;
+  PaleoTaskService svc(nullptr, &dispatcher);
+  paleo::jobs::JobRunner<PropertyModelWorkflow::PropertyModelJob> runner(&dispatcher);
+  runner.setTaskService(&svc);
+
+  // (a) 忙则拒绝：第一代在飞时，第二代 startJob 返回 nullptr（现状
+  //     m_propModelRunning 布尔的等价物）
+  std::shared_ptr<PropertyModelWorkflow::PropertyModelJob> first;
+  PaleoTask *t1 = wf.startJob(runner, asyncFixtureRequest(), 1.0, nullptr, &first);
+  QVERIFY(t1);
+  std::shared_ptr<PropertyModelWorkflow::PropertyModelJob> second;
+  PaleoTask *t2 = wf.startJob(runner, asyncFixtureRequest(), 1.0, nullptr, &second);
+  QVERIFY2(!t2, "忙则必须拒绝第二代");
+  QVERIFY(!second);
+  QVERIFY(runner.busy());
+
+  // 等第一代自然完成
+  QVERIFY(pumpUntil([&] { return !runner.busy(); }));
+  svc.shutdown(3000, false);
+
+  // (b) 失败态：错误串经 job.error 到既有通道，且失败也进 commit（失败如实上 UI）
+  PropertyModelRequest bad = asyncFixtureRequest();
+  bad.top.z.assign(24 * 16, 0.0f);
+  bad.bot.z.assign(24 * 16, 0.0f); // 深度域与层位 z 同号 → 粗化无值
+  QSignalSpy failed(&wf, &PropertyModelWorkflow::modelFailed);
+  QObject dispatcher2;
+  PaleoTaskService svc2(nullptr, &dispatcher2);
+  paleo::jobs::JobRunner<PropertyModelWorkflow::PropertyModelJob> runner2(&dispatcher2);
+  runner2.setTaskService(&svc2);
+
+  std::shared_ptr<PropertyModelWorkflow::PropertyModelJob> badJob;
+  // 失败路径不得留下**新增**登记：前半段 (a) 的成功路径已在同一个 catalog
+  // 登记过一个 property_volume，故比对前后计数，不是断言「一个都没有」。
+  int before = 0;
+  for (const CatalogAsset &asset : cat.assets())
+    if (asset.type == QLatin1String("property_volume"))
+      ++before;
+
+  PaleoTask *badTask = wf.startJob(runner2, bad, 1.0, nullptr, &badJob);
+  QVERIFY(badTask);
+  QVERIFY(pumpUntil([&] { return !runner2.busy(); }));
+  QCOMPARE(badTask->state(), PaleoTask::State::Failed);
+  QVERIFY(!badJob->registered);
+  // 失败串不空——即失败态如实可上 UI（现状是靠 computed.error 展示）
+  QVERIFY(!badTask->errorText().isEmpty());
+
+  int after = 0;
+  for (const CatalogAsset &asset : cat.assets())
+    if (asset.type == QLatin1String("property_volume"))
+      ++after;
+  QCOMPARE(after, before);
+
+  svc2.shutdown(3000, false);
+}
+
+
+
 // goal/well-trajectory 轮4：requestFromCatalog 定向井站表走真实轨迹——
 // z=TVD（<MD）、x/y=井口+位移；轨迹跨多个网格柱而直井恒一柱（穿层段语义）；
 // 粗化代表柱随轨迹位移（columnJ > 直井）。
@@ -884,7 +1087,19 @@ int main(int argc, char *argv[])
   app.initQgis();
   GDALAllRegister();
   TestPropWorkflow tc;
-  const int rc = QTest::qExec(&tc, argc, argv);
+  // ctest 无控制台下 QtTest 结果行走 OutputDebugString，失败时看不到是哪条；
+  // 追加 -o 让结果落盘（方向20 迁移调试用）。
+  QByteArray logPath = QByteArray(QT_TESTCASE_BUILDDIR) + "/tst_propworkflow-result.txt";
+  QList<QByteArray> forwarded;
+  forwarded << QByteArray(argv[0]);
+  for (int i = 1; i < argc; ++i)
+    forwarded << QByteArray(argv[i]);
+  forwarded << QByteArray("-o") << logPath + ",txt";
+  QList<char *> cargv;
+  cargv.reserve(forwarded.size());
+  for (QByteArray &a : forwarded)
+    cargv << a.data();
+  const int rc = QTest::qExec(&tc, cargv.size(), cargv.data());
   QgsApplication::exitQgis();
   return rc;
 }

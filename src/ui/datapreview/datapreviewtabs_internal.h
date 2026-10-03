@@ -62,6 +62,56 @@
 #include <QVector>
 #include <QWidget>
 
+// ---- 项目内依赖（照 datapreviewtabs.cpp 的 include 列表，不逐个编译错误补）----
+#include "datapreviewtabs.h"
+#include "../paleotheme.h"
+#include "../../catalog/datacatalog.h"
+#include "../../services/previewdoc.h"
+#include "../../services/welllogset.h"
+#include "../seismic3d/seismic3dviewpanel.h"
+#include "../seismicsection/seismicsectioncanvas.h"
+#include "../wellcomposite/wellcompositepanel.h"
+#include "../decorations/paleodecorations.h"
+#include "previewhistogramwidget.h"
+#include "previewmappage.h"
+#include "previewmapstates.h"
+#include "previewprofilepanel.h"
+#include "previewtocpanel.h"
+#include "../../qgis/factorcontour.h"
+#include "../../qgis/previewrasteranalysis.h"
+
+// ---- QGIS 符号/图层（匿名命名空间用到 QgsMarkerSymbol/QgsLineSymbol 等）----
+#include <qgsfillsymbol.h>
+#include <qgslinesymbol.h>
+#include <qgsmarkersymbol.h>
+#include <qgssymbol.h>
+#include <qgsgeometry.h>
+#include <qgsfield.h>
+#include <qgsvectorlayer.h>
+#include <qgsrasterlayer.h>
+#include <qgsmaplayer.h>
+
+
+// ---- QGIS 头（类型→头用 grep 在本机 QGIS include 里反查，不靠命名规则猜）----
+#include <qgis.h>
+#include <qgscategorizedsymbolrenderer.h>
+#include <qgsexpression.h>
+#include <qgsfeature.h>
+#include <qgsfeatureiterator.h>
+#include <qgsfillsymbol.h>
+#include <qgsgeometry.h>
+#include <qgslinesymbol.h>
+#include <qgsmarkersymbol.h>
+#include <qgsmarkersymbollayer.h>
+#include <qgspointxy.h>
+#include <qgsproject.h>
+#include <qgssinglesymbolrenderer.h>
+#include <qgssymbol.h>
+#include <qgstextbuffersettings.h>
+#include <qgstextformat.h>
+#include <qgsvectorlayer.h>
+#include <qgsvectorlayerlabeling.h>
+
 namespace paleo::datapreview_detail {
 
 // token 色 → QSS 大写 #RRGGBB（与 paleotheme 内部 qssHex 同口径，逐字节可比）。

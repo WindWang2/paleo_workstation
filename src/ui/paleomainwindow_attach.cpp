@@ -20,6 +20,7 @@
 #include "../workflow/propertymodelworkflow.h"
 #include "../workflow/faultinterpretationcontroller.h"
 #include "propertymodel/propertymodelpanel.h"
+#include "faciesmapping/faciesmappingpanel.h"
 #include "../workflow/workflows.h"
 #include "../domain/arearules.h"
 #include "../domain/projectclassifier.h"
@@ -435,6 +436,181 @@ void PaleoMainWindow::attachDepthConversion(DepthConversionWorkflow *depth)
     }
     status(tr("深度域转换完成：%1 → %2").arg(horizon, convertedId), false);
   });
+}
+
+
+// ---- goal/facies-automapping：证据合成 + QA 报告面板 --------------------
+// 同 attachPropertyModel 形态：面板只发意图，链路在 FaciesMappingWorkflow
+//（约束装配/优势相/相界/合成/QA/登记全在功能层）。幂等：dock 已建则只
+// 更新 workflow 指针。
+void PaleoMainWindow::attachFaciesMapping(FaciesMappingWorkflow *wf)
+{
+  if (wf)
+    m_faciesMappingWf = wf;
+  if (m_faciesMappingDock)
+    return;
+
+  m_faciesMappingPanel = new FaciesMappingPanel(this);
+  m_faciesMappingDock = new QDockWidget(tr("相图合成"), this);
+  m_faciesMappingDock->setObjectName(QStringLiteral("faciesMappingDock"));
+  m_faciesMappingDock->setWidget(m_faciesMappingPanel);
+  addDockWidget(Qt::RightDockWidgetArea, m_faciesMappingDock);
+  if (m_rightDock)
+    tabifyDockWidget(m_rightDock, m_faciesMappingDock);
+  m_faciesMappingDock->hide();
+
+  connect(m_faciesMappingPanel, &FaciesMappingPanel::cancelRequested, this, [this]() {
+    m_faciesMappingRunner.requestCancel();
+    if (m_faciesMappingTask)
+      m_faciesMappingTask->requestCancel();
+  });
+
+  // QA 行点击 → 画布定位（问题逐条可定位；无画布时状态栏如实说明）。
+  connect(m_faciesMappingPanel, &FaciesMappingPanel::issueSelected, this,
+          [this](const QString &regionId, double x, double y) {
+            if (m_canvasCtl)
+            {
+              m_canvasCtl->zoomToPoint(x, y);
+              if (statusBar())
+                statusBar()->showMessage(tr("已定位到问题单元 %1").arg(regionId), 5000);
+            }
+            else if (statusBar())
+            {
+              statusBar()->showMessage(
+                  tr("画布不可用——问题单元 %1 位于 (%2, %3)").arg(regionId).arg(x).arg(y),
+                  8000);
+            }
+          });
+
+  connect(m_faciesMappingPanel, &FaciesMappingPanel::generateRequested, this,
+          [this](const QString &horizon, double wellWeight, double factorWeight,
+                 double predictionWeight, double assignThreshold, double minRegionArea,
+                 double minIslandArea, double wellCoverageRadius) {
+            if (!m_faciesMappingWf || m_faciesMappingRunning || !m_faciesMappingPanel)
+              return;
+            if (horizon.isEmpty())
+            {
+              m_faciesMappingPanel->showResult(false, tr("需要层位"));
+              return;
+            }
+
+            FaciesMappingWorkflow::DraftFaciesRequest request;
+            request.horizon = horizon;
+            request.wellWeight = wellWeight;
+            request.factorWeight = factorWeight;
+            request.predictionWeight = predictionWeight;
+            request.assignThreshold = assignThreshold;
+            request.minRegionArea = minRegionArea;
+            request.minIslandArea = minIslandArea;
+            request.wellCoverageRadius = wellCoverageRadius;
+            QString err;
+            if (!m_faciesMappingWf->assembleConstraintInputs(&request, &err))
+            {
+              m_faciesMappingPanel->showResult(false, err);
+              if (statusBar())
+                statusBar()->showMessage(tr("草稿相图失败：%1").arg(err), 8000);
+              return;
+            }
+
+            m_faciesMappingRunning = true;
+            m_faciesMappingPanel->setBusy(true);
+            if (m_taskSvc)
+            {
+              // JobRunner 三段式：compute 在任务池 worker，commit 回 owner 线程
+              //（catalog 登记线程亲和由框架断言）。
+              m_faciesMappingRunner.setTaskService(m_taskSvc);
+              m_faciesMappingJob.reset();
+              m_faciesMappingTask = m_faciesMappingWf->startJob(
+                  m_faciesMappingRunner, request, m_faciesMappingPanel, &m_faciesMappingJob);
+              if (m_faciesMappingTask)
+                connect(m_faciesMappingTask.data(), &PaleoTask::finished, this,
+                        [this] { finishFaciesMappingRun(); });
+              else
+                m_faciesMappingRunning = false;
+              return;
+            }
+
+            // 无任务池（未接线壳/旧测试）：同步直跑，不泵事件。
+            auto computed = m_faciesMappingWf->runCompute(
+                request, [this](double fraction, const QString &stage) {
+                  if (m_faciesMappingPanel)
+                    m_faciesMappingPanel->updateProgress(
+                        static_cast<int>(fraction * 100.0), stage);
+                  return true;
+                });
+            if (!computed.ok)
+            {
+              m_faciesMappingRunning = false;
+              m_faciesMappingPanel->showResult(false, computed.error);
+              return;
+            }
+            if (!m_faciesMappingWf->commitComputed(request, &computed))
+            {
+              m_faciesMappingRunning = false;
+              m_faciesMappingPanel->showResult(false, computed.error);
+              return;
+            }
+            m_faciesMappingJob = std::make_shared<FaciesMappingWorkflow::DraftFaciesJob>();
+            m_faciesMappingJob->computed = std::move(computed);
+            finishFaciesMappingRun();
+          });
+}
+
+void PaleoMainWindow::finishFaciesMappingRun()
+{
+  m_faciesMappingRunning = false;
+  const bool cancelled =
+      m_faciesMappingTask && m_faciesMappingTask->state() == PaleoTask::State::Cancelled;
+  m_faciesMappingTask = nullptr;
+  if (!m_faciesMappingPanel)
+    return;
+
+  // 三段式 commit 段成功时结果已在 job 里回填；同步兜底路径由调用方先行
+  // commit 再进这里（同 finishPropertyModelRun 的判据口径）。
+  const FaciesMappingWorkflow::DraftFaciesComputed *computed =
+      m_faciesMappingJob ? &m_faciesMappingJob->computed : nullptr;
+  if (cancelled)
+  {
+    m_faciesMappingPanel->showResult(false, tr("已取消"));
+    return;
+  }
+  if (!computed || !computed->ok)
+  {
+    const QString why = computed ? computed->error : tr("无计算结果");
+    m_faciesMappingPanel->showResult(false, why);
+    if (statusBar())
+      statusBar()->showMessage(tr("草稿相图失败：%1").arg(why), 8000);
+    return;
+  }
+
+  // QA 报告行喂表：工作流给的 issue 结构 → 面板行（视图不读文件、不判几何）。
+  QList<FaciesMappingPanel::QaRow> rows;
+  rows.reserve(static_cast<int>(computed->qaIssues.size()));
+  for (const paleo::faciesmapping::FaciesQaIssue &issue : computed->qaIssues)
+  {
+    FaciesMappingPanel::QaRow row;
+    row.type = QString::fromLatin1(paleo::faciesmapping::faciesQaIssueName(issue.type));
+    QStringList ids;
+    for (const std::string &id : issue.regionIds)
+      ids << QString::fromStdString(id);
+    row.regionIds = ids.join(QLatin1Char(';'));
+    QStringList related;
+    for (const std::string &id : issue.relatedIds)
+      related << QString::fromStdString(id);
+    row.related = related.join(QLatin1Char(';'));
+    row.metric = issue.metric;
+    row.x = issue.location.x;
+    row.y = issue.location.y;
+    rows.append(row);
+  }
+  m_faciesMappingPanel->setQaRows(rows);
+  const int regionCount = computed->extra.value(QStringLiteral("region_count")).toInt();
+  const int issues = static_cast<int>(computed->qaIssues.size());
+  m_faciesMappingPanel->showResult(
+      true, tr("草稿相图完成：%1 个单元 · %2 条 QA 问题").arg(regionCount).arg(issues));
+  if (statusBar())
+    statusBar()->showMessage(
+        tr("草稿相图完成：%1 个单元，QA 问题 %2 条").arg(regionCount).arg(issues), 8000);
 }
 
 void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,

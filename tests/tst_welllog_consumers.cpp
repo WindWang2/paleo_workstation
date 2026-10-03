@@ -144,6 +144,7 @@ private slots:
   void petrophys_expressionPrefersRealRhobOverDen();
   void petrophys_expressionDrivesOnAliasedRhob();
   void propertymodel_requestUsesUnion();
+  void propertymodel_ftDepthConvertedToMeters();
   void sectionworkbench_showsNonPrimaryCurve();
 };
 
@@ -426,6 +427,45 @@ void TestWellLogConsumers::propertymodel_requestUsesUnion()
   QVERIFY(std::fabs(req.wells[0].curve[0].value - 8.5) < 1e-6);
   QVERIFY(std::fabs(req.wells[0].curve[1].value - 9.5) < 1e-6);
   QVERIFY(std::fabs(req.wells[0].curve[2].value - 10.5) < 1e-6);
+}
+
+// #166：深度道 FT 的曲线进属性建模须换成米制 MD（旧代码把 3280.84 ft 当 3280.84 m）。
+void TestWellLogConsumers::propertymodel_ftDepthConvertedToMeters()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString fileFt = dir.filePath(QStringLiteral("ft.las"));
+  {
+    QFile f(fileFt);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream ts(&f);
+    ts << "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nNULL. -999.25:\n";
+    ts << "~Curve\nDEPT.FT :\nRT. :\n~ASCII\n";
+    ts << "3280.8399 8.5\n3284.1207 9.5\n3287.4016 10.5\n"; // 1000/1001/1002 m
+  }
+  DataCatalog catalog;
+  QVERIFY(catalog.open(dir.path()));
+  QString err;
+  QVERIFY2(addHorizon(&catalog, QStringLiteral("hz-top"), QStringLiteral("TOP"),
+                      dir.filePath(QStringLiteral("TOP.tif")), &err),
+           qPrintable(err));
+  QVERIFY2(addHorizon(&catalog, QStringLiteral("hz-bot"), QStringLiteral("BOT"),
+                      dir.filePath(QStringLiteral("BOT.tif")), &err),
+           qPrintable(err));
+  QVERIFY2(addWellLogs(&catalog, QStringLiteral("well-F"), 15, 25,
+                       {{QStringLiteral("ast-f"), QStringLiteral("ver-f"), fileFt, true, 0}},
+                       &err),
+           qPrintable(err));
+  PropertyModelWorkflow wf(&catalog, dir.path());
+  const PropertyModelRequest req = wf.requestFromCatalog(
+      QStringLiteral("TOP"), QStringLiteral("BOT"), QStringLiteral("RT"), 1,
+      paleo::stratgrid::Aggregator::ThicknessWeightedMean, 2.0, &err);
+  QVERIFY2(err.isEmpty(), qPrintable(err));
+  QCOMPARE(static_cast<int>(req.wells.size()), 1);
+  QCOMPARE(static_cast<int>(req.wells[0].curve.size()), 3);
+  QVERIFY2(std::fabs(req.wells[0].curve[0].md - 1000.0) < 1e-3,
+           qPrintable(QString::number(req.wells[0].curve[0].md)));
+  QVERIFY(std::fabs(req.wells[0].curve[2].md - 1002.0) < 1e-3);
 }
 
 void TestWellLogConsumers::sectionworkbench_showsNonPrimaryCurve()

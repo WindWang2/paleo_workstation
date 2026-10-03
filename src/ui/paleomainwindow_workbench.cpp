@@ -8,6 +8,7 @@
 #include "../qgis/qgislayerprofile.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprojectservice.h"
+#include "../services/paleotaskservice.h" // QPointer<PaleoTask>::running 需完整类型
 #include "../workflow/mappingworkbench.h"
 #include "decorations/paleodecorations.h"
 #include "edittools/editingtoolbar.h"
@@ -519,9 +520,14 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
               ok = false;
               error = tr("约束绘制工具不可用");
             }
-          } else if (action == "factor")
-            ok = workbench->generateFactor(h, p.value("factor").toString(), p,
-                                           &error);
+          } else if (action == "factor") {
+            if (m_factorTask && m_factorTask->running()) {
+              ok = false;
+              error = tr("已有单因素计算在进行");
+            } else
+              ok = workbench->generateFactor(h, p.value("factor").toString(), p,
+                                             &error);
+          }
           else if (action == "contours")
             ok = workbench->generateContours(
                 h, id, p.value("interval").toDouble(), &error);

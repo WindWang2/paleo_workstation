@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QThread>
 
 #include <qgsapplication.h>
 #include <qgsproject.h>
@@ -306,6 +307,121 @@ private slots:
 
     QCOMPARE( interpretive.count(), 1 );
     QVERIFY( interpretive.at( 0 ).at( 2 ).toString().startsWith( QStringLiteral( "cartographic." ) ) );
+    QCOMPARE( DataCatalog::sha256FileHex( rasterPath ), sha );
+    const LayerDeclaration *work = findDecl( f.layers, QStringLiteral( "cartographic.T1.sandthick" ) );
+    QVERIFY( work != nullptr );
+    const QFileInfo workInfo( work->source.section( QLatin1Char( '|' ), 0, 0 ) );
+    QFile qcFile( workInfo.absolutePath() + QLatin1Char( '/' ) + workInfo.completeBaseName() +
+                  QStringLiteral( ".qc.json" ) );
+    QVERIFY2( qcFile.open( QIODevice::ReadOnly ), qPrintable( qcFile.fileName() ) );
+    const QJsonObject qc = QJsonDocument::fromJson( qcFile.readAll() ).object();
+    QVERIFY2( qc.value( QStringLiteral( "modified_cells" ) ).toInt() > 0, "stop line should cross the ramp" );
+    QCOMPARE( qc.value( QStringLiteral( "unresolved_crossings" ) ).toInt(), 0 );
+    delete work;
+  }
+
+  void retargetedFactorDropsAnalysisContourPublish()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+    const QString rasterPath = f.dir.filePath( QStringLiteral( "ramp.tif" ) );
+    QVERIFY( writeNorthUpFloat32( rasterPath, 8, 4, 500000.0, 4001000.0, 10.0 ) );
+    QString err;
+    QVERIFY2( declareRaster( f, rasterPath, &err ), qPrintable( err ) );
+    ConstraintWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+
+    ConstraintWorkflow::AnalysisContourJob job;
+    QSignalSpy contours( &wf, &ConstraintWorkflow::contoursGenerated );
+    QVERIFY2( wf.prepareAnalysisContourJob( QStringLiteral( "T1" ), QStringLiteral( "factor.T1.sandthick" ), 0.0,
+                                            QVector<double>{ 2.0, 4.0 }, true, &job, &err ),
+              qPrintable( err ) );
+    QVERIFY2( wf.computeAnalysisContourJob( &job ), qPrintable( job.error ) );
+    const QString copied = f.dir.filePath( QStringLiteral( "ramp-retarget.tif" ) );
+    QVERIFY( QFile::copy( rasterPath, copied ) );
+    QCOMPARE( DataCatalog::sha256FileHex( copied ), job.analysisSha );
+    QVERIFY2( declareRaster( f, copied, &err ), qPrintable( err ) );
+    QVERIFY( !wf.publishAnalysisContourJob( job, &err ) );
+    QVERIFY2( err.contains( QStringLiteral( "分析场在等值线期间被改写" ) ), qPrintable( err ) );
+    QCOMPARE( contours.count(), 0 );
+    QVERIFY( findDecl( f.layers, QStringLiteral( "contours.T1.sandthick" ) ) == nullptr );
+  }
+
+  void retargetedFactorDropsInterpretiveContourPublish()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+    const QString rasterPath = f.dir.filePath( QStringLiteral( "ramp.tif" ) );
+    QVERIFY( writeNorthUpFloat32( rasterPath, 8, 4, 500000.0, 4001000.0, 10.0 ) );
+    QString err;
+    QVERIFY2( declareRaster( f, rasterPath, &err ), qPrintable( err ) );
+    ConstraintWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+
+    ConstraintWorkflow::InterpretiveContourJob job;
+    QSignalSpy interpretive( &wf, &ConstraintWorkflow::interpretiveContoursGenerated );
+    QVERIFY2( wf.prepareInterpretiveContourJob( QStringLiteral( "T1" ), QStringLiteral( "factor.T1.sandthick" ),
+                                               QVector<double>{ 2.0, 4.0 }, true, &job, &err ),
+              qPrintable( err ) );
+    QVERIFY2( wf.computeInterpretiveContourJob( &job ), qPrintable( job.error ) );
+    const QString copied = f.dir.filePath( QStringLiteral( "ramp-retarget.tif" ) );
+    QVERIFY( QFile::copy( rasterPath, copied ) );
+    QCOMPARE( DataCatalog::sha256FileHex( copied ), job.analysisSha );
+    QCOMPARE( DataCatalog::sha256FileHex( rasterPath ), job.analysisSha );
+    QVERIFY2( declareRaster( f, copied, &err ), qPrintable( err ) );
+    QVERIFY( !wf.publishInterpretiveContourJob( job, &err ) );
+    QVERIFY2( err.contains( QStringLiteral( "分析场在制图期间被改写" ) ), qPrintable( err ) );
+    QCOMPARE( interpretive.count(), 0 );
+    QVERIFY( findDecl( f.layers, QStringLiteral( "cartographic.T1.sandthick" ) ) == nullptr );
+    QVERIFY( findDecl( f.layers, QStringLiteral( "cartographic.T1.sandthick.contours" ) ) == nullptr );
+  }
+
+  void interpretiveComputeOnWorkerThreadPublishes()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+    const double originX = 500000.0;
+    const double originY = 4002000.0;
+    const double cell = 50.0;
+    const int cols = 24;
+    const int rows = 8;
+    const QString rasterPath = f.dir.filePath( QStringLiteral( "ramp.tif" ) );
+    QVERIFY( writeNorthUpFloat32( rasterPath, cols, rows, originX, originY, cell ) );
+    const QString sha = DataCatalog::sha256FileHex( rasterPath );
+    QVERIFY( !sha.isEmpty() );
+    QString err;
+    QVERIFY2( declareRaster( f, rasterPath, &err ), qPrintable( err ) );
+    const QString linesPath = f.dir.filePath( QStringLiteral( "constraints.gpkg" ) );
+    const double y = originY - 4.0 * cell;
+    QVERIFY( writeStopLine( linesPath, originX - cell, y, originX + cols * cell + cell, y ) );
+    LayerDeclaration stop;
+    stop.layerId = QStringLiteral( "constraints.T1" );
+    stop.horizon = QStringLiteral( "T1" );
+    stop.type = QStringLiteral( "vector" );
+    stop.source = linesPath + QStringLiteral( "|layername=lines" );
+    stop.group = QStringLiteral( "03_Constraints" );
+    QVERIFY2( f.layers.declare( stop, &err ), qPrintable( err ) );
+
+    ConstraintWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+    ConstraintWorkflow::InterpretiveContourJob job;
+    QVERIFY2( wf.prepareInterpretiveContourJob( QStringLiteral( "T1" ), QStringLiteral( "factor.T1.sandthick" ),
+                                               QVector<double>{ 4.0, 8.0, 16.0 }, true, &job, &err ),
+              qPrintable( err ) );
+    QVERIFY( !job.constraintLines.empty() );
+
+    bool ran = false;
+    QString computeError;
+    QThread *thread = QThread::create( [&] {
+      ran = wf.computeInterpretiveContourJob( &job );
+      computeError = job.error;
+    } );
+    thread->start();
+    QVERIFY( thread->wait( 60000 ) );
+    delete thread;
+    QVERIFY2( ran, qPrintable( computeError ) );
+    QVERIFY2( wf.publishInterpretiveContourJob( job, &err ), qPrintable( err ) );
+
     QCOMPARE( DataCatalog::sha256FileHex( rasterPath ), sha );
     const LayerDeclaration *work = findDecl( f.layers, QStringLiteral( "cartographic.T1.sandthick" ) );
     QVERIFY( work != nullptr );

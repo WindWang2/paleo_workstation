@@ -1341,6 +1341,11 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                   status->setText(msg);
                 QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
               };
+              if (m_factorTask && m_factorTask->running())
+              {
+                fail(tr("已有单因素计算在进行"));
+                return;
+              }
 
               QString field = QStringLiteral("z");
               if (auto *edit = constraintPage->findChild<QLineEdit *>(QStringLiteral("idwField")))
@@ -1409,6 +1414,11 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                   status->setText(msg);
                 QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
               };
+              if (m_factorTask && m_factorTask->running())
+              {
+                fail(tr("已有单因素计算在进行"));
+                return;
+              }
               const QString methodId = params.value(QStringLiteral("method")).toString();
               const bool taskPool = methodId == QLatin1String("local_direction_idw")
                                  || methodId == QLatin1String("surfer_idw");
@@ -1417,11 +1427,6 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 QString err;
                 if (!constraint->generateFactor(horizon, factorId, params, &err))
                   fail(err.isEmpty() ? tr("单因素生成失败") : err);
-                return;
-              }
-              if (m_factorTask && m_factorTask->running())
-              {
-                fail(tr("已有单因素计算在进行"));
                 return;
               }
               auto job = std::make_shared<ConstraintWorkflow::LocalDirectionJob>();
@@ -1534,7 +1539,7 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
             [this](const QString &, const QString &, const QString &layerId) {
               revealDeclaredLayer(layerId, true);
             });
-    // 等值线 / 解释性等值线：GDAL 与制图算法在任务线程，登记回到界面线程。
+    // 等值线 / 解释性等值线：GDAL 提线和制图核在任务线程，图层打开与登记留在界面线程。
     connect(constraintPage, &ConstraintPage::interpretiveContourRequested, this,
             [this, constraint, constraintPage](const QString &factorLayerId,
                                                const QVector<double> &levels) {

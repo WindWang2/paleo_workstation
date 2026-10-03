@@ -1,6 +1,6 @@
 # 单因素图算法原生集成
 
-状态：PR #109 已合并进 `56d643c`。后续代码提交 `38e4ed2` 把等间距等值线和解释性等值线拆到任务里，并补了故障注入、提线预算和 S/L 事件循环 p95。未跑完的 Oracle 不记为通过。O12 仍是跳过。这仍不是方案全文通过。
+状态：PR #109 已合并进 `56d643c`。后续代码提交 `38e4ed2` 把等间距等值线和解释性等值线拆到任务里，并补了故障注入、提线预算和 S/L 事件循环 p95。`587cd79` 在 `4741115` 上拒绝因子图层改指向后的等值线发布，并把解释性计算里的图层打开留在调用线程。未跑完的 Oracle 不记为通过。O12 仍是跳过。这仍不是方案全文通过。
 
 ## 范围
 
@@ -84,10 +84,25 @@ python3 tools/check_tidy.py
 
 `8dff163` 补上分析等值线的分析场 SHA。prepare 在增加代数之前记 SHA；publish 在 stage 前和 commit 前再核对。栅格被改写则不声明等值线，文案含「分析场在等值线期间被改写」。`tst_singlefactor_asynccontour` 的 `rewrittenAnalysisDropsContourPublish` 通过（6 通过、0 跳过）。同一轮 `tst_factorworkflow` 仍是 18 通过、1 跳过。严格分层、i18n、UI 不变量和 clang-tidy 的 2 个 TU 通过。
 
+`587cd79` 在 `4741115` 上补两条发布核对。因子图层被改指向到字节相同的新文件时，分析和解释性发布都拒绝，文案仍分别含「分析场在等值线期间被改写」和「分析场在制图期间被改写」。`declareFactorResult` 与 `runConstraintIDW` 在声明前增加发布代数。解释性准备在调用线程解析约束线；计算线程复制分析栅格，只跑 GDAL 提线和制图核。同步 `paleo:paleo_cartographic_work` 仍走 Processing，数值写入共用 `writeCartographicWorkFile`。旧插值按钮在忙碌时禁用。工作目录是 `.worktrees/single-factor-publish-guard`，分支 `goal/single-factor-publish-guard-20261003`。
+
+```text
+cmake --build /home/kevin/projects/paleo_workstation/.worktrees/single-factor-publish-guard/build -j2 --target tst_singlefactor_asynccontour tst_factorworkflow tst_mappingpages
+cd /home/kevin/projects/paleo_workstation/.worktrees/single-factor-publish-guard/build && QT_QPA_PLATFORM=offscreen ctest --output-on-failure -j1 -R '^(tst_singlefactor_asynccontour|tst_factorworkflow|tst_mappingpages)$'
+python3 tools/check_layering.py --strict
+python3 tools/check_i18n.py
+python3 tools/check_ui_invariants.py --strict
+git diff --check
+python3 tools/check_tidy.py --build-dir build
+```
+
+构建退出码 0。ctest 三个目标 100%。`tst_singlefactor_asynccontour` 9 通过、0 跳过。`tst_factorworkflow` 18 通过、1 跳过，跳过仍不是 O12 通过。`tst_mappingpages` 的因子页 13 通过、0 跳过；预测页 12 通过、1 跳过（构建没有 ORT）；综合编图页 9 通过、0 跳过。严格分层、i18n、UI 不变量通过。clang-tidy 通过本分支相对 master 的 5 个 TU。没有重跑性能中位、提线预算、GUI p95 和全量 ctest。
+
 ## 尚未完成
 
-- O7 还没有 GDAL flush 中途失败、杀掉正在跑的进程，也没有自动回收孤立文件。关停和单调进度没有单独断言。
-- O11：有任务服务时等值线计算离开界面线程。任务服务为空时仍同步。双主题、窄 dock、高 DPI 没有真人点击。
+- O7 还没有 GDAL flush 中途失败、杀掉正在跑的进程，也没有自动回收孤立文件。关停和单调进度没有单独断言。同字节改指向已经覆盖分析和解释性两条发布。
+- O11：解释性计算在 `QThread` 上跑过，发布回到测试线程。任务服务为空时仍同步。双主题、窄 dock、高 DPI 没有真人点击。
+- `addConstraint` 不增加发布代数。忙碌时绘制按钮仍可用。约束线只在准备阶段解析。
 - O12：`PALEO_REAL_PROJECT_AREA` 未设置。只读工区井点 GeoJSON 仍只有 `coordinate_status`、`id`、`name`。跳过不是通过，也没有编造井值。
-- O13 的分析中位仍是上一轮空载结果。本轮测的是 GUI p95 和提线/绕行中位。
+- O13 的分析中位、提线预算和 GUI p95 仍是上一轮测得的数。`587cd79` 没有重跑这些门。
 - P2（克里金、完整 SFPKG、外委 XML/XLSX、历史制图策略、时深转换、监督分类、打印排版、Python GUI、`FaultPathMetric`）在 `TODOS.md`，不在本分支实现。

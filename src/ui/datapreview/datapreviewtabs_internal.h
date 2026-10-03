@@ -80,14 +80,8 @@
 #include "../../qgis/factorcontour.h"
 #include "../../qgis/previewrasteranalysis.h"
 
-// ---- QGIS 符号/图层（匿名命名空间用到 QgsMarkerSymbol/QgsLineSymbol 等）----
-#include <qgsfillsymbol.h>
-#include <qgslinesymbol.h>
-#include <qgsmarkersymbol.h>
-#include <qgssymbol.h>
-#include <qgsgeometry.h>
+// ---- QGIS 符号/图层（与下方「类型→头」清单去重，此块只留不重复的三个）----
 #include <qgsfield.h>
-#include <qgsvectorlayer.h>
 #include <qgsrasterlayer.h>
 #include <qgsmaplayer.h>
 

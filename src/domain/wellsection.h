@@ -39,6 +39,14 @@ struct TimeDepth {
   double twtAt(double md) const;
 };
 
+// 相代码充填段：交会分类（crossplot 井层段）产物的按井深度段。
+// classId 对 12 色Wheel 取色（数据符号色，视图侧解析）。
+struct FaciesSegment {
+  double topMd = 0;
+  double baseMd = 0;
+  int classId = -1;
+};
+
 // 剖面上的一口井。tops 按 MD 升序（仅含有限 MD 的分层）。kb 为补心海拔
 // （米，海平面以上为正；缺数据 = 0 → 海拔模式退化为井深模式）。
 struct Well {
@@ -48,6 +56,7 @@ struct Well {
   double totalDepth = qQNaN();
   QVector<Top> tops;
   QVector<Curve> curves;
+  QVector<FaciesSegment> facies; // 交会分类井层段（catalog 派生资产）
   std::optional<TimeDepth> timeDepth;
   bool hasCoordinates() const; // 有限 x && y
   double topMd(const QString &name) const;            // 精确匹配；缺失 → NaN

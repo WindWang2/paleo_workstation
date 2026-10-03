@@ -447,6 +447,69 @@ class TestWellSectionUi : public QObject
               QStringLiteral("A5"));
     }
 
+    // ---- 相代码充填道 + 三曲线叠加道（渲染冒烟 + 模板 round-trip）----
+    void faciesTrackAndTripleCurve()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      // 每井两段相代码。
+      for (auto &w : wells) {
+        wellsection::FaciesSegment s1, s2;
+        s1.topMd = w.tops.first().md;
+        s1.baseMd = w.tops.at(2).md;
+        s1.classId = 2;
+        s2.topMd = w.tops.at(2).md;
+        s2.baseMd = w.tops.last().md;
+        s2.classId = 7;
+        w.facies = {s1, s2};
+      }
+      // 模板：三曲线道（GR/RD/RS）+ 相代码道。
+      wellsection::SectionTemplate t = panel.sectionTemplate();
+      for (auto &tr : t.tracks)
+        if (tr.kind == wellsection::TrackKind::Curve && tr.curves.size() == 2)
+        {
+          wellsection::CurveStyle c3;
+          c3.mnemonic = QStringLiteral("RS");
+          c3.min = 0.2;
+          c3.max = 20;
+          c3.logScale = true;
+          c3.color = QColor(QStringLiteral("#1F7A4D"));
+          tr.curves << c3;
+        }
+      wellsection::TrackSpec facies;
+      facies.kind = wellsection::TrackKind::Facies;
+      facies.width = 40;
+      t.tracks << facies;
+      panel.setSectionTemplate(t);
+      panel.setSection(wells);
+      // 曲线道 mnemonics 变了 → 重发数据请求（RS 加入）。
+      panel.setSection(wells); // 再喂一次数据（壳层回填路径）
+      bool foundTriple = false;
+      for (const auto &tr : panel.sectionTemplate().tracks)
+        if (tr.kind == wellsection::TrackKind::Curve && tr.curves.size() == 3)
+          foundTriple = true;
+      QVERIFY(foundTriple);
+      QCOMPARE(panel.sectionTemplate().tracks.last().kind,
+               wellsection::TrackKind::Facies);
+      // 渲染冒烟：含相代码道 + 三曲线道的图非空。
+      panel.resize(1200, 700);
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      const QImage img = panel.renderImage(1.0);
+      QVERIFY(!img.isNull());
+      QVERIFY(img.width() > 400);
+      // 模板 JSON round-trip 保三曲线 + 相代码道。
+      const wellsection::SectionTemplate rt =
+          wellsection::SectionTemplate::fromJson(t.toJson());
+      bool rtTriple = false;
+      for (const auto &tr : rt.tracks)
+        if (tr.kind == wellsection::TrackKind::Curve && tr.curves.size() == 3)
+          rtTriple = true;
+      QVERIFY(rtTriple);
+      QCOMPARE(rt.tracks.last().kind, wellsection::TrackKind::Facies);
+    }
+
     // ---- 断层投绘开关 ----
     void faultToggleAndOverlay()
     {

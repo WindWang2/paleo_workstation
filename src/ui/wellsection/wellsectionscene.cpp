@@ -1,6 +1,7 @@
 // 层：视图
 #include "wellsectionscene.h"
 
+#include "domain/faciesclassification.h"
 #include "domain/seismic/nicestep.h"
 #include "ui/paleotheme.h"
 
@@ -196,6 +197,9 @@ void ColumnItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
         break;
       case wellsection::TrackKind::Lithology:
         paintLithologyTrack(p, trRect, exposed, tr);
+        break;
+      case wellsection::TrackKind::Facies:
+        paintFaciesTrack(p, trRect, exposed);
         break;
     }
     x += tw;
@@ -496,6 +500,38 @@ void ColumnItem::paintLithologyTrack(QPainter *p, const QRectF &trackRect,
       p->fillRect(r, base);
       p->fillRect(r, QBrush(patternColor(base, m_st->theme.frame),
                             Qt::HorPattern));
+    }
+  }
+}
+
+void ColumnItem::paintFaciesTrack(QPainter *p, const QRectF &trackRect,
+                                  const QRectF &exposed)
+{
+  const wellsection::Well &w = m_st->wells[m_index];
+  if (w.facies.isEmpty())
+    return;
+  QFont f = p->font();
+  f.setPointSize(PaleoTheme::kLabelPt);
+  const QFontMetricsF fm(f);
+  for (const wellsection::FaciesSegment &seg : w.facies)
+  {
+    const double y0 = m_st->yForMd(m_index, seg.topMd);
+    const double y1 = m_st->yForMd(m_index, seg.baseMd);
+    if (y1 < exposed.top() || y0 > exposed.bottom())
+      continue;
+    const QRectF band(trackRect.left(), y0, trackRect.width(), y1 - y0);
+    // 12 色 Wheel（crossplot 数据符号色同源）+ 描边，段高足够时标类号。
+    const auto cc = paleo::crossplot::classColor(seg.classId);
+    QColor fill(cc.red, cc.green, cc.blue, 200);
+    p->fillRect(band, fill);
+    p->setPen(QPen(m_st->theme.frame, 0.5));
+    p->drawRect(band);
+    if (band.height() >= fm.height() + 4 && band.width() > 14)
+    {
+      p->setFont(f);
+      p->setPen(m_st->theme.text);
+      p->drawText(band, Qt::AlignCenter | Qt::TextSingleLine,
+                  QString::number(seg.classId));
     }
   }
 }
@@ -995,13 +1031,18 @@ int HeaderWidget::headerHeight() const
   {
     const double w = qBound(24, tr.width, 200) - 4.0;
     int n;
-    if (tr.kind == wellsection::TrackKind::Curve && tr.curves.size() == 2)
+    if (tr.kind == wellsection::TrackKind::Curve && tr.curves.size() >= 2)
     {
+      // N 曲线子格各自行数折算（子格高度为格高 1/N，行数上取整折 N 倍）。
       n = 0;
       for (const auto &cs : tr.curves)
-        n += wrapCaption(cs.label.isEmpty() ? cs.mnemonic : cs.label, w, fm)
-                 .size() +
-             wrapCaption(scaleOf(cs), w, fm).size();
+        n += qCeil(double(wrapCaption(cs.label.isEmpty() ? cs.mnemonic
+                                                         : cs.label,
+                                     w, fm)
+                               .size() +
+                           wrapCaption(scaleOf(cs), w, fm)
+                               .size()) /
+                   double(tr.curves.size()));
     }
     else
     {
@@ -1093,11 +1134,12 @@ void HeaderWidget::paintContents(QPainter *p, double xOffset) const
       p->save();
       p->setClipRect(cell.adjusted(1, 1, -1, -1));
       p->setFont(cellFont);
-      if (tr.kind == wellsection::TrackKind::Curve && tr.curves.size() == 2)
+      if (tr.kind == wellsection::TrackKind::Curve && tr.curves.size() >= 2)
       {
-        // 双曲线道：上下两个等分子格，各自标名+刻度（用曲线色，不重叠）。
-        const double subH = cell.height() / 2;
-        for (int c = 0; c < 2; ++c)
+        // 多曲线道：N 个等分子格，各自标名+刻度（用曲线色，不重叠）。
+        const int n = tr.curves.size();
+        const double subH = cell.height() / n;
+        for (int c = 0; c < n; ++c)
         {
           const wellsection::CurveStyle &cs = tr.curves[c];
           const QRectF sub(cell.left(), cell.top() + c * subH, cell.width(),

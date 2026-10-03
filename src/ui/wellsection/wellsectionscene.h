@@ -92,6 +92,8 @@ class ColumnItem : public QGraphicsItem
     void paintLithologyTrack(QPainter *p, const QRectF &trackRect,
                              const QRectF &exposed,
                              const wellsection::TrackSpec &tr);
+    void paintFaciesTrack(QPainter *p, const QRectF &trackRect,
+                          const QRectF &exposed);
 
     RenderState *m_st;
     int m_index;

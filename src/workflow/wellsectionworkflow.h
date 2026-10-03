@@ -66,6 +66,7 @@ private:
   void syncData() const;
   QString projectDir() const;
   static void loadCurveBodies(Shared &shared, PaleoTask *task);
+  void attachFaciesSegments(QVector<wellsection::Well> &wells) const;
 
   QPointer<DataCatalog> m_catalog;
   mutable ProjectDataFacade m_data;

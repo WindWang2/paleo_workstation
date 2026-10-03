@@ -472,6 +472,65 @@ private slots:
     QVERIFY(!bad.status.isEmpty());
   }
 
+  // 相代码充填段：catalog 派生资产 well_facies_intervals 最新版本 → 各井
+  // facies（升序、按 wellId 匹配；无资产 → 空）。
+  void faciesSegmentsAttached() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataCatalog cat;
+    QString err;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+
+    const QString jsonPath = dir.filePath(QStringLiteral("well-facies.json"));
+    QVERIFY(writeText(jsonPath, QStringLiteral(
+                                   "{\"schema\":1,\"intervals\":["
+                                   "{\"wellId\":\"well-2\",\"top\":120,\"base\":180,\"classId\":3,\"meanConfidence\":0.8,\"sampleCount\":12},"
+                                   "{\"wellId\":\"well-1\",\"top\":100,\"base\":150,\"classId\":0,\"meanConfidence\":0.7,\"sampleCount\":9},"
+                                   "{\"wellId\":\"well-1\",\"top\":150,\"base\":200,\"classId\":11,\"meanConfidence\":0.6,\"sampleCount\":8},"
+                                   "{\"wellId\":\"well-9\",\"top\":1,\"base\":2,\"classId\":1,\"meanConfidence\":0.5,\"sampleCount\":1}"
+                                   "]}")));
+    // 资产 + 两版（v1 旧数据，v2 新数据）——只取最新。
+    const QString v1 = dir.filePath(QStringLiteral("well-facies-v1.json"));
+    QVERIFY(writeText(v1, QStringLiteral(
+                                "{\"schema\":1,\"intervals\":["
+                                "{\"wellId\":\"well-1\",\"top\":1,\"base\":2,\"classId\":9,\"meanConfidence\":0.1,\"sampleCount\":1}"
+                                "]}")));
+    CatalogAsset a;
+    a.id = QStringLiteral("fa-1");
+    a.type = QStringLiteral("well_facies_intervals");
+    a.format = QStringLiteral("json");
+    a.displayName = QStringLiteral("well-facies.json");
+    QVERIFY2(cat.addAsset(a, &err), qPrintable(err));
+    for (const auto &vp : {std::pair<QString, QString>{QStringLiteral("fv-1"), v1},
+                           std::pair<QString, QString>{QStringLiteral("fv-2"), jsonPath}}) {
+      CatalogVersion v;
+      v.id = vp.first;
+      v.assetId = a.id;
+      v.managed = false;
+      v.path = vp.second;
+      v.stage = QStringLiteral("DERIVED");
+      v.versionNumber = vp.first == QLatin1String("fv-2") ? 2 : 1;
+      QVERIFY2(cat.addVersion(v, &err), qPrintable(err));
+    }
+
+    WellSectionWorkflow wf(&cat);
+    QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+    wf.request({QStringLiteral("well-1"), QStringLiteral("well-2")}, {});
+    QCOMPARE(spy.size(), 1);
+    const auto wells = spy[0][1].value<QVector<wellsection::Well>>();
+    QCOMPARE(wells.size(), 2);
+    // well-1：两段（v2 数据、非 v1），升序。
+    QCOMPARE(wells[0].facies.size(), 2);
+    QCOMPARE(wells[0].facies[0].topMd, 100.0);
+    QCOMPARE(wells[0].facies[0].classId, 0);
+    QCOMPARE(wells[0].facies[1].classId, 11);
+    // well-2：一段。
+    QCOMPARE(wells[1].facies.size(), 1);
+    QCOMPARE(wells[1].facies[0].classId, 3);
+    QVERIFY(wells[1].facies[0].baseMd > wells[1].facies[0].topMd);
+  }
+
   void workbenchCalibration() {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());

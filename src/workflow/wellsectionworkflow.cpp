@@ -13,7 +13,11 @@
 #include "services/welllogset.h"
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QHash>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSet>
 #include <algorithm>
 #include <cmath>
@@ -254,6 +258,7 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
     }
     shared->wells.push_back(well);
   }
+  attachFaciesSegments(shared->wells);
   shared->curves.resize(shared->entries.size());
   if (!m_tasks) {
     loadCurveBodies(*shared, nullptr);
@@ -336,6 +341,52 @@ void WellSectionWorkflow::loadCurveBodies(Shared &shared,
     if (shared.curves[i])
       shared.wells[shared.entries[i].wellIndex].curves.push_back(
           *shared.curves[i]);
+}
+
+// 交会分类井层段（catalog 派生资产 well_facies_intervals 的最新版本）挂到
+// 各井 facies；文件缺/坏 → 静默跳过（相代码道显示空，不出告警）。
+void WellSectionWorkflow::attachFaciesSegments(
+    QVector<wellsection::Well> &wells) const {
+  if (!m_catalog || wells.isEmpty())
+    return;
+  const CatalogVersion *best = nullptr;
+  for (const CatalogAsset &a : m_catalog->assets()) {
+    if (a.type != QLatin1String("well_facies_intervals"))
+      continue;
+    for (const CatalogVersion &v : m_catalog->versionsForAsset(a.id))
+      if (!best || v.versionNumber > best->versionNumber)
+        best = &v;
+  }
+  if (!best)
+    return;
+  QFile file(DataCatalog::resolvedVersionPath(projectDir(), *best));
+  if (!file.open(QIODevice::ReadOnly))
+    return;
+  const QJsonObject root =
+      QJsonDocument::fromJson(file.readAll()).object();
+  file.close();
+  QHash<QString, QVector<wellsection::FaciesSegment>> byWell;
+  for (const QJsonValue &iv : root.value(QLatin1String("intervals")).toArray()) {
+    const QJsonObject o = iv.toObject();
+    wellsection::FaciesSegment seg;
+    seg.topMd = o.value(QLatin1String("top")).toDouble();
+    seg.baseMd = o.value(QLatin1String("base")).toDouble();
+    seg.classId = o.value(QLatin1String("classId")).toInt(-1);
+    if (seg.classId < 0 || !(seg.baseMd > seg.topMd))
+      continue;
+    byWell[o.value(QLatin1String("wellId")).toString()].push_back(seg);
+  }
+  for (wellsection::Well &w : wells) {
+    const auto it = byWell.constFind(w.id);
+    if (it == byWell.constEnd())
+      continue;
+    w.facies = it.value();
+    std::sort(w.facies.begin(), w.facies.end(),
+              [](const wellsection::FaciesSegment &a,
+                 const wellsection::FaciesSegment &b) {
+                return a.topMd < b.topMd;
+              });
+  }
 }
 
 int WellSectionWorkflow::requestSeismic(

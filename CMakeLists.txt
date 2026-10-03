@@ -490,6 +490,7 @@ add_library(paleo_ui STATIC
   src/ui/ribbonpanels.cpp                          # W4 ribbon 命令组构建迁出
   src/ui/pages/datalist.cpp                        # W5 数据页·列表侧
   src/ui/pages/entitypanel.cpp                     # W5 数据页·实体视图侧
+  src/ui/pages/wellsitingpanel.cpp                 # 方向34：布井辅助面板（验证页页签）
   src/ui/pages/datapage.cpp                        # W5 DataPage 兼容薄壳
   src/ui/pages/predictpage.cpp                     # W5b ①智能预测
   src/ui/pages/constraintpage.cpp                  # W5b ②约束与单因素
@@ -499,6 +500,7 @@ add_library(paleo_ui STATIC
   src/ui/locator/paleolocatorfilters.cpp
   src/ui/layoutdesignershell.cpp
   src/ui/maptools/paleomaptools.cpp
+  src/ui/maptools/sitingpicktool.cpp               # 方向34：地图布点拾取工具
   src/ui/maptools/paleoshapetools.cpp              # wave/shapetools
   src/ui/correlationpanel.cpp
   src/ui/correlation/correlationtrack.cpp          # wave/correlation
@@ -722,6 +724,7 @@ add_paleo_test(tst_singlefactor_store LIBS paleo_io)
 add_paleo_test(tst_services2 LIBS paleo_qgis)               # algorithms,metadata,qgis
 add_paleo_test(tst_workflows LIBS paleo_workflow)
 add_paleo_test(tst_wellsiting_workflow LIBS paleo_workflow)  # 方向34：井网辅助编排（Oracle 2/4）
+add_paleo_test(tst_wellsiting_panel LIBS paleo_ui)         # 方向34：布井辅助面板（视图锚点/意图信号）
 add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）
 add_paleo_test(tst_ui)                                      # 伞式（app 面全栈，兼容样本）
 add_paleo_test(tst_panels)                                  # 伞式（全栈，兼容样本）

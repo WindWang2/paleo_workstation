@@ -178,6 +178,10 @@ class PaleoMainWindow : public SARibbonMainWindow
     // goal/fault-interpretation：断层解释接线——剖面 dock 挂编排器 + 右栏
     // 断层管理面板 dock。幂等（m_faultPanelDock 已建则只重挂控制器）。
     void attachFaults(paleo::fault::FaultInterpretationController *controller);
+    // 方向34：井网辅助——验证页收成「验证/布井辅助」双页签 + 地图布点
+    // 工具 + 导出对话框。独立于 attachWorkflows（同 attachDepthConversion
+    // 先例）；幂等（页签已建则只重挂指针）。
+    void attachWellSiting(class WellSitingWorkflow *wf);
     void attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                          CompositionWorkflow *compose, ValidationWorkflow *validate,
                          DataImportService *importSvc = nullptr,
@@ -316,6 +320,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     QPointer<WellCorrelationPanel> m_corrPanel; // 底栏测井对比（attachPages 创建）
 
     QgisCanvasController *m_canvasCtl;
+    class WellSitingWorkflow *m_wellSitingWf = nullptr; // 方向34（attachWellSiting 建一次）
+    class WellSitingPanel *m_wellSitingPanel = nullptr;
     QgisProjectService *m_projectSvc;
     QgisLayerService *m_layerSvc;
     ToolAvailabilityService *m_tools;

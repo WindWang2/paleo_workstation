@@ -107,6 +107,8 @@ int main(int argc, char *argv[])
   window.attachPropertyModel(ctx.propertyModelWf(), ctx.faultCtl());
   // goal/fault-interpretation：剖面断层拾取/断层管理面板接编排器
   window.attachFaults(ctx.faultCtl());
+  // 方向34：井网辅助（验证页「布井辅助」页签 + 地图布点工具）。
+  window.attachWellSiting(ctx.wellsitingWf());
   // D1（wave/deepen-perf）：wellcomposite 派生登记/井斜时深装配的 io 注入——
   // 组装根是唯一可同时 include io/ 与 ui/ 的非视图目录（视图侧白名单只放
   // 行 io/lasdoc.h）。未注入时 sink 走诚实失败路径（状态栏+日志），不静默。

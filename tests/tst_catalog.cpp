@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QDir>
 #include <QSqlDatabase>
+#include <QSqlError>
 #include <QSqlQuery>
 
 #include "../src/catalog/datacatalog.h"
@@ -126,6 +127,7 @@ private slots:
   void wellsGeoJsonKeepsOldFileOnFailedWrite();  // T6：写失败不截断旧文件
   void lockedReadOnlyRefusesMutationsButReadsFine(); // T4
   void thousandEntityQueryBudget();              // T3：catalog.sqlite 触发条件量化
+  void sqliteOpenCostAttribution();              // 方向21：sqlite 稳态 open 的成本归因
   // 审计 02 M-8：staging 副本 / journal / 事务重放 / 线程亲和。
   void stagingCopyJournalsWithoutTouchingLive();
   void applyJournalIsAtomicOnFailure();
@@ -1640,6 +1642,69 @@ void TestCatalog::lockedReadOnlyRefusesMutationsButReadsFine()
   QVERIFY(cat.hasEntity(QStringLiteral("well-B2")));
 }
 
+namespace
+{
+// 方向 21：合成 catalog.json（1000 井/2000 资产/3000 版本/4000 链接）抽成函数，
+// 让 thousandEntityQueryBudget（基线）与 sqliteOpenCostAttribution（归因）量
+// 的是同一份数据——不同规模的两组毫秒数放在一起比较没有意义。
+QByteArray syntheticCatalogJson()
+{
+  QJsonArray ents, asts, vers, lnks;
+  for (int i = 0; i < 1000; ++i)
+  {
+    QJsonObject e;
+    e.insert(QStringLiteral("id"), QStringLiteral("well-%1").arg(i));
+    e.insert(QStringLiteral("entity_type"), QStringLiteral("well"));
+    e.insert(QStringLiteral("name"), QStringLiteral("W%1").arg(i));
+    e.insert(QStringLiteral("surface_x"), 1000.0 + i);
+    e.insert(QStringLiteral("surface_y"), 2000.0 + i);
+    e.insert(QStringLiteral("has_surface"), true);
+    ents.append(e);
+  }
+  for (int i = 0; i < 2000; ++i)
+  {
+    QJsonObject a;
+    a.insert(QStringLiteral("id"), QStringLiteral("ast-%1").arg(i + 1));
+    a.insert(QStringLiteral("type"), QStringLiteral("well_log"));
+    a.insert(QStringLiteral("format"), QStringLiteral("las"));
+    a.insert(QStringLiteral("display_name"), QStringLiteral("log%1.las").arg(i));
+    asts.append(a);
+  }
+  for (int i = 0; i < 3000; ++i)
+  {
+    QJsonObject v;
+    v.insert(QStringLiteral("id"), QStringLiteral("ver-%1").arg(i + 1));
+    v.insert(QStringLiteral("asset_id"), QStringLiteral("ast-%1").arg(i / 3 + 1));
+    v.insert(QStringLiteral("stage"), QStringLiteral("RAW"));
+    v.insert(QStringLiteral("version_number"), i % 3 + 1);
+    v.insert(QStringLiteral("managed"), false);
+    v.insert(QStringLiteral("path"), QStringLiteral("/nonexistent/external/log%1.las").arg(i));
+    v.insert(QStringLiteral("sha256"),
+             QStringLiteral("%1").arg(i, 64, 16, QChar(QLatin1Char('0'))));
+    vers.append(v);
+  }
+  for (int i = 0; i < 4000; ++i)
+  {
+    QJsonObject l;
+    l.insert(QStringLiteral("entity_type"), QStringLiteral("well"));
+    l.insert(QStringLiteral("entity_id"), QStringLiteral("well-%1").arg(i % 1000));
+    l.insert(QStringLiteral("asset_id"), QStringLiteral("ast-%1").arg(i % 2000 + 1));
+    l.insert(QStringLiteral("role"), QStringLiteral("well_log"));
+    l.insert(QStringLiteral("is_primary"), i % 4 == 0);
+    l.insert(QStringLiteral("ordinal"), i % 4);
+    lnks.append(l);
+  }
+  QJsonObject root;
+  root.insert(QStringLiteral("schema_version"), 1);
+  root.insert(QStringLiteral("catalog_revision"), 1);
+  root.insert(QStringLiteral("entities"), ents);
+  root.insert(QStringLiteral("assets"), asts);
+  root.insert(QStringLiteral("versions"), vers);
+  root.insert(QStringLiteral("entity_asset_links"), lnks);
+  return QJsonDocument(root).toJson(QJsonDocument::Indented);
+}
+} // namespace
+
 // T3：catalog.sqlite 递延项的触发条件量化——合成 1000 井/2000 资产/3000 版本
 // /4000 链接的 catalog.json，量 open()/save()/各查询延迟。预算阈值 = 实测
 // 均值量级 × 大余量（防 CI 抖动假红），实测数记 qInfo 供 docs/progress/
@@ -1655,66 +1720,31 @@ void TestCatalog::thousandEntityQueryBudget()
 
   // 直接写合成 JSON（不经 mutator——逐条 add 是 O(n²) 全量重写，量的正是
   // 打开态查询，不是装载路径本身的写入放大）。
+  // 文本留一份在内存里：迁移会把盘上那份接管/轮转掉，后面的「JSON 时代」
+  // 对照测量还要用它另起一个干净工程目录。
+  const QByteArray jsonText = syntheticCatalogJson();
   {
-    QJsonArray ents, asts, vers, lnks;
-    for (int i = 0; i < 1000; ++i)
-    {
-      QJsonObject e;
-      e.insert(QStringLiteral("id"), QStringLiteral("well-%1").arg(i));
-      e.insert(QStringLiteral("entity_type"), QStringLiteral("well"));
-      e.insert(QStringLiteral("name"), QStringLiteral("W%1").arg(i));
-      e.insert(QStringLiteral("surface_x"), 1000.0 + i);
-      e.insert(QStringLiteral("surface_y"), 2000.0 + i);
-      e.insert(QStringLiteral("has_surface"), true);
-      ents.append(e);
-    }
-    for (int i = 0; i < 2000; ++i)
-    {
-      QJsonObject a;
-      a.insert(QStringLiteral("id"), QStringLiteral("ast-%1").arg(i + 1));
-      a.insert(QStringLiteral("type"), QStringLiteral("well_log"));
-      a.insert(QStringLiteral("format"), QStringLiteral("las"));
-      a.insert(QStringLiteral("display_name"), QStringLiteral("log%1.las").arg(i));
-      asts.append(a);
-    }
-    for (int i = 0; i < 3000; ++i)
-    {
-      QJsonObject v;
-      v.insert(QStringLiteral("id"), QStringLiteral("ver-%1").arg(i + 1));
-      v.insert(QStringLiteral("asset_id"), QStringLiteral("ast-%1").arg(i / 3 + 1));
-      v.insert(QStringLiteral("stage"), QStringLiteral("RAW"));
-      v.insert(QStringLiteral("version_number"), i % 3 + 1);
-      v.insert(QStringLiteral("managed"), false);
-      v.insert(QStringLiteral("path"),
-               QStringLiteral("/nonexistent/external/log%1.las").arg(i));
-      v.insert(QStringLiteral("sha256"),
-               QStringLiteral("%1").arg(i, 64, 16, QChar(QLatin1Char('0'))));
-      vers.append(v);
-    }
-    for (int i = 0; i < 4000; ++i)
-    {
-      QJsonObject l;
-      l.insert(QStringLiteral("entity_type"), QStringLiteral("well"));
-      l.insert(QStringLiteral("entity_id"), QStringLiteral("well-%1").arg(i % 1000));
-      l.insert(QStringLiteral("asset_id"), QStringLiteral("ast-%1").arg(i % 2000 + 1));
-      l.insert(QStringLiteral("role"), QStringLiteral("well_log"));
-      l.insert(QStringLiteral("is_primary"), i % 4 == 0);
-      l.insert(QStringLiteral("ordinal"), i % 4);
-      lnks.append(l);
-    }
-    QJsonObject root;
-    root.insert(QStringLiteral("schema_version"), 1);
-    root.insert(QStringLiteral("catalog_revision"), 1);
-    root.insert(QStringLiteral("entities"), ents);
-    root.insert(QStringLiteral("assets"), asts);
-    root.insert(QStringLiteral("versions"), vers);
-    root.insert(QStringLiteral("entity_asset_links"), lnks);
     QFile f(path);
     QVERIFY(f.open(QIODevice::WriteOnly));
-    f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    QCOMPARE(f.write(jsonText), static_cast<qint64>(jsonText.size()));
   }
   const qint64 jsonBytes = QFileInfo(path).size();
   QVERIFY(jsonBytes > 500 * 1024); // 合成库确实够大（>500KB）
+
+  // 方向 21：把「JSON 时代」的读数代价在同一进程、同一份文件上量出来，作为
+  // sqlite 口径的对照——不同机器/不同文件系统上的绝对毫秒没有可比性，
+  // 同进程内的相对关系才有。
+  double jsonParseMs = 0.0;
+  {
+    QFile jf(path);
+    QVERIFY(jf.open(QIODevice::ReadOnly));
+    const QByteArray bytes = jf.readAll();
+    QElapsedTimer jclock;
+    jclock.start();
+    for (int i = 0; i < 5; ++i)
+      QJsonDocument::fromJson(bytes);
+    jsonParseMs = double(jclock.elapsed()) / 5.0;
+  }
 
   DataCatalog cat;
   QElapsedTimer clock;
@@ -1760,16 +1790,83 @@ void TestCatalog::thousandEntityQueryBudget()
   QVERIFY(cat.addEntity(extra, &serr)); // 10001 行全量重写（1k 井 + 2000 资产 + 3001 版本 + 4000 链接）
   const qint64 saveMs = clock.elapsed();
 
-  qInfo("catalog thousand-entity budget: json=%lldKB open=%lldms wells=%lldms "
-        "match=%lldms shaMiss=%lldms links=%lldms current=%lldms save=%lldms",
-        static_cast<long long>(jsonBytes / 1024), static_cast<long long>(openMs),
+  // 稳态口径：sqlite 已落盘后的重开（真工区每次启动走的是这条，不是迁移那条）。
+  qint64 reopenMs = -1;
+  {
+    DataCatalog reopened;
+    QString rerr;
+    clock.start();
+    QVERIFY2(reopened.open(projectDir, &rerr), qPrintable(rerr));
+    reopenMs = clock.elapsed();
+    QCOMPARE(reopened.entities(QStringLiteral("well")).size(), 1001);
+  }
+
+  // 「JSON 时代」口径（同一台机器、同一份数据的公平对照）：删掉 sqlite 后以
+  // 只读锁降级打开——走的就是 #107 之前那条路：读 catalog.json → 建内存表 →
+  // 建索引，不建 sqlite。用它回答「sqlite 是不是比 JSON 慢」。
+  qint64 jsonLegacyOpenMs = -1;
+  {
+    const QString sqlitePath = QDir(metaDir).filePath(QStringLiteral("catalog.sqlite"));
+    QVERIFY2(QFileInfo::exists(sqlitePath), "migration should have written catalog.sqlite");
+    // 拿一个只有 catalog.json 的干净工程副本（不删原库：CatalogStore 的连接
+    // 还握着文件句柄，Windows 上删不掉，也不该为测量去动它）。
+    const QString legacyDir = QDir(dir.path()).filePath(QStringLiteral("json-legacy"));
+    const QString legacyMeta = QDir(legacyDir).filePath(QStringLiteral("artifacts/metadata"));
+    QVERIFY(QDir().mkpath(legacyMeta));
+    QFile staged(QDir(legacyMeta).filePath(QStringLiteral("catalog.json")));
+    QVERIFY2(staged.open(QIODevice::WriteOnly), "cannot stage the json-only project copy");
+    QCOMPARE(staged.write(jsonText), static_cast<qint64>(jsonText.size()));
+    staged.close();
+    DataCatalog jsonOnly;
+    jsonOnly.setLockedReadOnly(true); // #80：只读 + 只有 JSON → 进内存，不建库
+    QString rerr;
+    clock.start();
+    QVERIFY2(jsonOnly.open(legacyDir, &rerr), qPrintable(rerr));
+    jsonLegacyOpenMs = clock.elapsed();
+    QVERIFY2(jsonOnly.entities(QStringLiteral("well")).size() >= 1000, "json-only open lost rows");
+    QVERIFY(jsonOnly.refusesWrites());
+    // 只读 + 只有 JSON 的打开不得悄悄落一个库出来（#80 的契约）。
+    QVERIFY2(!QFileInfo::exists(QDir(legacyMeta).filePath(QStringLiteral("catalog.sqlite"))),
+             "a read-only json-only open must not create catalog.sqlite");
+  }
+
+  qInfo("catalog thousand-entity budget: json=%lldKB jsonParse=%.1fms open=%lldms "
+        "reopen=%lldms jsonLegacyOpen=%lldms wells=%lldms match=%lldms shaMiss=%lldms "
+        "links=%lldms current=%lldms save=%lldms",
+        static_cast<long long>(jsonBytes / 1024), jsonParseMs,
+        static_cast<long long>(openMs), static_cast<long long>(reopenMs),
+        static_cast<long long>(jsonLegacyOpenMs),
         static_cast<long long>(wellsMs), static_cast<long long>(matchMs),
         static_cast<long long>(shaMissMs), static_cast<long long>(linksMs),
         static_cast<long long>(currentMs), static_cast<long long>(saveMs));
 
   // 预算 = 实测量级的大余量（阈值依据见 docs/progress/data.md；中位数×N
   // 之外的绝对上限防宿主级抖动假红）。
+  // 方向 21 复核（#107 落地 sqlite 后重测，Windows/MSVC RelWithDebInfo 本机，
+  // 合成 1000 井/2000 资产/3000 版本/4000 链接 = json 2297KB / sqlite 1136KB）：
+  //   jsonParse≈13.4ms  open（含 JSON→sqlite 迁移）≈490ms
+  //   reopen（sqlite 稳态可写重开）≈45ms  jsonLegacyOpen（JSON 时代）≈29ms
+  //   各查询仍在亚毫秒级，save≈1-2ms。
+  // 稳态可写重开确实比 JSON 时代贵约 1.6×，根因不在 sqlite 本身而在每次可写
+  // open 必跑的写侧安全动作——归因见 sqliteOpenCostAttribution：
+  //   sqlite 只读口径 26ms < JSON 时代 29ms（读侧已经不比 JSON 慢）；
+  //   reopen 49ms − roCatalogOpen 26ms = 23ms 全在写侧（建表脚本 2ms +
+  //   integrity_check 8ms + checkpoint 1ms + 整库文件备份拷贝 1ms +
+  //   关连接/重 attach + 二次 loadTables）。
   QVERIFY2(openMs < 2000, qPrintable(QString::number(openMs)));
+  // 稳态重开不得比迁移重开更贵（多一遍迁移就不是稳态了）。
+  QVERIFY2(reopenMs <= openMs,
+           qPrintable(QStringLiteral("sqlite reopen %1ms > migration open %2ms")
+                          .arg(reopenMs)
+                          .arg(openMs)));
+  // sqlite 稳态重开 vs JSON 时代：比率门（不写死毫秒）。实测 ≈1.6×，门放在 3×
+  // ——超过说明写侧那套动作被放大了（备份轮转变贵 / 又加了全库扫描），要查
+  // 而不是放过。+20ms 的绝对项只是防「JSON 侧快到 0ms 时比率门失真」。
+  QVERIFY2(reopenMs <= jsonLegacyOpenMs * 3 + 20,
+           qPrintable(QStringLiteral("sqlite steady-state reopen %1ms is far more expensive than "
+                                     "the json-era open %2ms")
+                          .arg(reopenMs)
+                          .arg(jsonLegacyOpenMs)));
   QVERIFY2(wellsMs < 100, qPrintable(QString::number(wellsMs)));
   QVERIFY2(matchMs < 100, qPrintable(QString::number(matchMs)));
   QVERIFY2(shaMissMs < 100, qPrintable(QString::number(shaMissMs)));
@@ -1927,6 +2024,288 @@ void TestCatalog::liveWritesRefusedOffOwnerThread()
   QVERIFY(!live.hasEntity(QStringLiteral("well-9")));
   QVERIFY(!live.hasEntity(QStringLiteral("well-8")));
   DataCatalog::resetThreadViolationCount();
+}
+
+void TestCatalog::sqliteOpenCostAttribution()
+{
+  // 方向 21：把「sqlite 稳态 open 比 JSON 时代 open 慢约 1.6×」这个差归到具体
+  // 动作上，而不是停在猜测。可写 open 每次都要多走几件 JSON 时代没有的事：
+  // 建表脚本、PRAGMA integrity_check、wal_checkpoint(TRUNCATE)、备份轮转。
+  // 这里对同一份库分别计时：只读连接裸开（file open + WAL 恢复的下限）、
+  // integrity_check、整表读完；剩下的差额即「每次开都要跑的那套安全动作」。
+  // 数据与 thousandEntityQueryBudget 同一份（合成 1000 井/2000 资产/3000 版本
+  // /4000 链接），两组毫秒数才可比。
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString projectDir = dir.path();
+  const QString metaDir = QDir(projectDir).filePath(QStringLiteral("artifacts/metadata"));
+  QVERIFY(QDir().mkpath(metaDir));
+  {
+    const QByteArray jsonText = syntheticCatalogJson();
+    QFile f(QDir(metaDir).filePath(QStringLiteral("catalog.json")));
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    QCOMPARE(f.write(jsonText), static_cast<qint64>(jsonText.size()));
+  }
+
+  DataCatalog cat;
+  QElapsedTimer clock;
+  clock.start();
+  QString oerr;
+  QVERIFY2(cat.open(projectDir, &oerr), qPrintable(oerr));
+  const qint64 openMs = clock.elapsed(); // 首次 = JSON→sqlite 迁移口径
+  QCOMPARE(cat.entities(QStringLiteral("well")).size(), 1000);
+
+  // 稳态口径：真工区每次启动走的是这条（库已在盘上）。Oracle 要解释的
+  // 「sqlite 比 JSON 慢」就发生在这里，不是迁移那一次。
+  qint64 reopenMs = -1;
+  {
+    DataCatalog again;
+    QString rerr;
+    clock.start();
+    QVERIFY2(again.open(projectDir, &rerr), qPrintable(rerr));
+    reopenMs = clock.elapsed();
+    QCOMPARE(again.entities(QStringLiteral("well")).size(), 1000);
+  }
+
+  // 关键二分：同一份库用 #80 只读降级打开。这条走的是 readEpoch →
+  // integrity_check → loadTables，跳过 applyWritablePragmas / 建表脚本 /
+  // wal_checkpoint / 备份轮转 / 二次 attach。reopen - roCatalogOpen 就是
+  // 「每次可写 open 多付的那套动作」总价，不用再靠减法猜。
+  qint64 roCatalogMs = -1;
+  {
+    DataCatalog ro;
+    ro.setLockedReadOnly(true);
+    QString rerr;
+    clock.start();
+    QVERIFY2(ro.open(projectDir, &rerr), qPrintable(rerr));
+    roCatalogMs = clock.elapsed();
+    QCOMPARE(ro.entities(QStringLiteral("well")).size(), 1000);
+    QVERIFY(ro.refusesWrites());
+  }
+
+  // 「JSON 时代」口径（#107 之前那条路）：同一份数据、同一个进程，只读 + 只有
+  // catalog.json → 解析 JSON → 建内存表 → 建索引，不碰 sqlite。把两条口径放
+  // 在同一行输出里，sqlite 到底慢在哪一项才看得出。
+  qint64 jsonLegacyMs = -1;
+  {
+    const QString legacyDir = QDir(dir.path()).filePath(QStringLiteral("json-legacy"));
+    const QString legacyMeta = QDir(legacyDir).filePath(QStringLiteral("artifacts/metadata"));
+    QVERIFY(QDir().mkpath(legacyMeta));
+    const QByteArray jsonText = syntheticCatalogJson();
+    QFile staged(QDir(legacyMeta).filePath(QStringLiteral("catalog.json")));
+    QVERIFY2(staged.open(QIODevice::WriteOnly), "cannot stage the json-only project copy");
+    QCOMPARE(staged.write(jsonText), static_cast<qint64>(jsonText.size()));
+    staged.close();
+    DataCatalog jsonOnly;
+    jsonOnly.setLockedReadOnly(true);
+    QString rerr;
+    clock.start();
+    QVERIFY2(jsonOnly.open(legacyDir, &rerr), qPrintable(rerr));
+    jsonLegacyMs = clock.elapsed();
+    QCOMPARE(jsonOnly.entities(QStringLiteral("well")).size(), 1000);
+  }
+
+  const QString sqlitePath = QDir(metaDir).filePath(QStringLiteral("catalog.sqlite"));
+  QVERIFY2(QFileInfo::exists(sqlitePath), "catalog.sqlite should exist after a writable open");
+  const qint64 dbBytes = QFileInfo(sqlitePath).size();
+
+  // (1) 只读连接裸开：不含建表/备份/checkpoint，是「碰一下这个库」的下限。
+  qint64 roOpenMs = -1;
+  QSqlDatabase probe =
+      QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("dataperf_probe"));
+  probe.setDatabaseName(sqlitePath);
+  probe.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
+  {
+    clock.start();
+    const bool opened = probe.open();
+    roOpenMs = clock.elapsed();
+    QVERIFY2(opened, qPrintable(probe.lastError().text()));
+  }
+
+  qint64 integrityMs = -1;
+  {
+    QSqlQuery q(probe);
+    clock.start();
+    QVERIFY(q.exec(QStringLiteral("PRAGMA integrity_check")));
+    while (q.next())
+    {
+    }
+    integrityMs = clock.elapsed();
+  }
+  qint64 readAllMs = -1;
+  int rows = 0;
+  {
+    QSqlQuery q(probe);
+    clock.start();
+    QVERIFY(q.exec(QStringLiteral("SELECT * FROM entities")));
+    while (q.next())
+      ++rows;
+    readAllMs = clock.elapsed();
+  }
+  // 全表装载（loadTables 的等价物）：稳态 open 要把五张表全读进内存再建索引，
+  // 上面只量了 entities 一张，这里补齐。
+  qint64 readTablesMs = -1;
+  int tableRows = 0;
+  {
+    QSqlQuery q(probe);
+    clock.start();
+    for (const char *table : {"entities", "assets", "versions", "entity_asset_links",
+                              "catalog_meta"})
+    {
+      QVERIFY(q.exec(QString::fromLatin1("SELECT * FROM %1").arg(QLatin1String(table))));
+      while (q.next())
+        ++tableRows;
+    }
+    readTablesMs = clock.elapsed();
+  }
+
+  // 建表脚本（execScript(kSchemaSql)，每次可写 open 都整批跑一遍 CREATE TABLE
+  // IF NOT EXISTS / CREATE INDEX IF NOT EXISTS）：在只读连接上跑不了（要写锁），
+  // 所以把 sqlite_master 里的建表语句原样拿到一个临时库上重放一次计价。
+  qint64 schemaExecMs = -1;
+  int schemaStmts = 0;
+  {
+    QStringList ddl;
+    {
+      QSqlQuery q(probe);
+      QVERIFY(q.exec(QStringLiteral("SELECT sql FROM sqlite_master")));
+      while (q.next())
+      {
+        // sqlite_master 里存的是规范化后的 DDL（不含 IF NOT EXISTS），直接重放
+        // 会撞 "table already exists"。这里补回 IF NOT EXISTS——真实 open 跑的
+        // 正是带这个前缀的脚本，稳态下每条都是 no-op。
+        QString s = q.value(0).toString().trimmed();
+        if (s.isEmpty())
+          continue;
+        if (s.startsWith(QLatin1String("CREATE TABLE ")))
+          s.insert(13, QStringLiteral("IF NOT EXISTS "));
+        else if (s.startsWith(QLatin1String("CREATE INDEX ")) ||
+                 s.startsWith(QLatin1String("CREATE UNIQUE INDEX ")))
+          s.insert(s.indexOf(QLatin1String("INDEX ")) + 6, QStringLiteral("IF NOT EXISTS "));
+        ddl.append(s);
+      }
+    }
+    // 必须用「真库的副本」而不是空库：稳态下这些 CREATE TABLE IF NOT EXISTS
+    // 全是 no-op，在空库上重放量的却是建表本身，会把这项放大几十倍。
+    const QString scratch = QDir(metaDir).filePath(QStringLiteral("perf-scratch.sqlite"));
+    QFile::remove(scratch);
+    QVERIFY2(QFile::copy(sqlitePath, scratch), "cannot stage the schema-replay probe database");
+    QSqlDatabase sc =
+        QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("dataperf_scratch"));
+    sc.setDatabaseName(scratch);
+    QVERIFY2(sc.open(), qPrintable(sc.lastError().text()));
+    QString schemaErr;
+    clock.start();
+    for (const QString &s : ddl)
+    {
+      QSqlQuery q(sc);
+      if (q.exec(s))
+        ++schemaStmts;
+      else if (schemaErr.isEmpty())
+        schemaErr = q.lastError().text();
+    }
+    schemaExecMs = clock.elapsed();
+    if (!schemaErr.isEmpty())
+      qInfo("catalog schema replay: %d/%d statements ok, first error: %s", schemaStmts, ddl.size(),
+            qPrintable(schemaErr));
+    sc.close();
+    QSqlDatabase::removeDatabase(QStringLiteral("dataperf_scratch"));
+    QFile::remove(scratch);
+    QFile::remove(scratch + QStringLiteral("-wal"));
+    QFile::remove(scratch + QStringLiteral("-shm"));
+  }
+  probe.close();
+  QSqlDatabase::removeDatabase(QStringLiteral("dataperf_probe"));
+
+  // (2) 可写连接裸开 + wal_checkpoint(TRUNCATE)：稳态 open 每次必跑的那半套。
+  qint64 rwOpenMs = -1, checkpointMs = -1;
+  {
+    QSqlDatabase rw =
+        QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("dataperf_probe_rw"));
+    rw.setDatabaseName(sqlitePath);
+    clock.start();
+    const bool opened = rw.open();
+    rwOpenMs = clock.elapsed();
+    QVERIFY2(opened, qPrintable(rw.lastError().text()));
+    QSqlQuery q(rw);
+    clock.start();
+    q.exec(QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)"));
+    checkpointMs = clock.elapsed();
+    rw.close();
+    QSqlDatabase::removeDatabase(QStringLiteral("dataperf_probe_rw"));
+  }
+
+  // (3) 备份轮转：CatalogStore::rotateFiles 每次可写 open 都要 QFile::copy
+  //     一整份 primary（外加 .bak/.bak.2 两次改名）。这里量同尺寸文件拷贝的
+  //     本机代价，作为这项的下限（真轮转还多两次改名 + 一次重新 attach）。
+  qint64 copyMs = -1;
+  {
+    const QString tmp = sqlitePath + QStringLiteral(".perfcopy");
+    QFile::remove(tmp);
+    clock.start();
+    const bool copied = QFile::copy(sqlitePath, tmp);
+    copyMs = clock.elapsed();
+    QVERIFY2(copied, "cannot copy the catalog database for the rotation probe");
+    QFile::remove(tmp);
+  }
+
+  const qint64 accountedMs = roOpenMs + schemaExecMs + integrityMs + readTablesMs + checkpointMs +
+                             copyMs;
+  qInfo("catalog sqlite open attribution: db=%lldKB open(migration)=%lldms reopen=%lldms "
+        "roCatalogOpen=%lldms jsonLegacyOpen=%lldms writeOnlyExtras=%lldms "
+        "[roOpen=%lldms rwOpen=%lldms schemaExec=%lldms/%d stmts integrity_check=%lldms "
+        "readEntities=%lldms/%d rows readAllTables=%lldms/%d rows wal_checkpoint=%lldms "
+        "fullFileCopy=%lldms] accounted=%lldms residual=%lldms",
+        static_cast<long long>(dbBytes / 1024), static_cast<long long>(openMs),
+        static_cast<long long>(reopenMs), static_cast<long long>(roCatalogMs),
+        static_cast<long long>(jsonLegacyMs), static_cast<long long>(reopenMs - roCatalogMs),
+        static_cast<long long>(roOpenMs),
+        static_cast<long long>(rwOpenMs), static_cast<long long>(schemaExecMs), schemaStmts,
+        static_cast<long long>(integrityMs), static_cast<long long>(readAllMs), rows,
+        static_cast<long long>(readTablesMs), tableRows, static_cast<long long>(checkpointMs),
+        static_cast<long long>(copyMs), static_cast<long long>(accountedMs),
+        static_cast<long long>(reopenMs - accountedMs));
+
+  QCOMPARE(rows, 1000);
+  // 归因断言（结构关系，不写死毫秒）：
+  //  a) 整表读完必须快于稳态 open——open 的大头不在读表本身。读表若退化
+  //     （逐行往返 / 掉索引）这个关系会翻转。
+  QVERIFY2(readAllMs < reopenMs,
+           qPrintable(QStringLiteral("reading every entity row (%1ms) should cost less than a "
+                                     "steady-state open (%2ms)")
+                          .arg(readAllMs)
+                          .arg(reopenMs)));
+  //  b) 只读裸开（不带 integrity/checkpoint/备份）必须明显快于稳态 open：
+  //     差额就是每次开都跑的那套安全动作。若哪天两者接近，说明这套动作被
+  //     悄悄去掉了（或稳态 open 退化成只读口径），那时结论要重写。
+  QVERIFY2(roOpenMs * 4 < reopenMs || roOpenMs == 0,
+           qPrintable(QStringLiteral("a bare read-only sqlite open (%1ms) should be much cheaper "
+                                     "than a steady-state writable open (%2ms)")
+                          .arg(roOpenMs)
+                          .arg(reopenMs)));
+  //  c) 只读口径必须比可写口径便宜（readEpoch→integrity→load，跳过写侧那套）。
+  //     两者若走平，说明写侧动作被移除、上面这套归因要重写——用断言把这个
+  //     关系钉住，免得结论悄悄过期。
+  QVERIFY2(roCatalogMs < reopenMs,
+           qPrintable(QStringLiteral("a read-only sqlite open (%1ms) should be cheaper than a "
+                                     "writable one (%2ms)")
+                          .arg(roCatalogMs)
+                          .arg(reopenMs)));
+  //  d) 读侧口径不得反过来比 JSON 时代慢出一倍：JSON 时代那份要付 13ms 级解析，
+  //     sqlite 只读口径是 integrity_check + 读表，两者量级应当相当。
+  QVERIFY2(roCatalogMs <= jsonLegacyMs * 2 + 20,
+           qPrintable(QStringLiteral("read-only sqlite open %1ms is pathologically slower than "
+                                     "the json-era open %2ms")
+                          .arg(roCatalogMs)
+                          .arg(jsonLegacyMs)));
+  //  e) 迁移那次必然比稳态重开贵（多一遍 JSON 解析 + 全量 INSERT）。
+  QVERIFY2(reopenMs < openMs,
+           qPrintable(QStringLiteral("steady-state reopen %1ms should be cheaper than the "
+                                     "migrating open %2ms")
+                          .arg(reopenMs)
+                          .arg(openMs)));
+  // sanity 上限：只拦挂死，不做性能门。
+  QVERIFY2(openMs < 5000, qPrintable(QString::number(openMs)));
 }
 
 QTEST_MAIN(TestCatalog)

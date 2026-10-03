@@ -2,14 +2,17 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <limits>
 #include <set>
-#include <tuple>
+#include <string>
 #include <system_error>
+#include <thread>
+#include <tuple>
 
 #include <segyio/segy.h>
 
@@ -21,6 +24,8 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 #include "Data/Sgy/SgyFileReader.h"
@@ -82,25 +87,57 @@ std::filesystem::path LegacyPartialPathFor(const std::filesystem::path& checkpoi
     return partial;
 }
 
+// Publishing a progress marker must be robust against transient OS states
+// (Windows sharing violations, POSIX EBUSY) and must always report *why* it
+// failed: a bare "rename failed" string is undiagnosable in the field.
+constexpr int kReplaceAttempts = 3;
+constexpr int kReplaceRetryBackoffMs = 5;
+
 bool ReplaceFileAtomically(const std::filesystem::path& tmpPath,
                            const std::filesystem::path& targetPath,
                            std::string& errorMessage) {
+    // The destination directory must exist before replacing into it: otherwise
+    // the rename fails with ENOENT / ERROR_PATH_NOT_FOUND even though the
+    // temporary file itself was written successfully.
+    const std::filesystem::path targetDir = targetPath.parent_path();
+    if(!targetDir.empty()) {
+        std::error_code dirError;
+        std::filesystem::create_directories(targetDir, dirError);
+        std::error_code existsError;
+        if(!std::filesystem::exists(targetDir, existsError)) {
+            errorMessage = "the scan checkpoint directory is unusable (" +
+                           targetDir.u8string() + ": " + dirError.message() + ").";
+            return false;
+        }
+    }
+    std::string detail;
+    for(int attempt = 0; attempt < kReplaceAttempts; ++attempt) {
 #ifdef _WIN32
-    if(!MoveFileExW(tmpPath.c_str(), targetPath.c_str(),
-                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        errorMessage = "MoveFileExW failed while publishing a scan checkpoint.";
-        return false;
-    }
-    return true;
+        if(MoveFileExW(tmpPath.c_str(), targetPath.c_str(),
+                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0) {
+            return true;
+        }
+        detail = "MoveFileExW error " + std::to_string(static_cast<unsigned long>(GetLastError()));
 #else
-    std::error_code ec;
-    std::filesystem::rename(tmpPath, targetPath, ec);
-    if(ec) {
-        errorMessage = "rename failed while publishing a scan checkpoint.";
-        return false;
-    }
-    return true;
+        std::error_code ec;
+        std::filesystem::rename(tmpPath, targetPath, ec);
+        if(!ec) {
+            return true;
+        }
+        detail = ec.message();
 #endif
+        std::error_code stillThere;
+        if(!std::filesystem::exists(tmpPath, stillThere)) {
+            // The source vanished (cleaned up by another scanner publishing the
+            // same marker); there is nothing left to retry against.
+            break;
+        }
+        if(attempt + 1 < kReplaceAttempts) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(kReplaceRetryBackoffMs));
+        }
+    }
+    errorMessage = "rename failed while publishing a scan checkpoint (" + detail + ").";
+    return false;
 }
 
 void WriteU32(std::vector<unsigned char>& out, std::uint32_t value) {
@@ -171,7 +208,19 @@ bool SaveCheckpoint(const std::filesystem::path& checkpointPath,
     WriteU64(payload, state.coordBytes);
     WriteU64(payload, state.coordCrc);
 
-    const std::filesystem::path tmpPath = checkpointPath.wstring() + L".tmp";
+    unsigned long processId = 0;
+    static std::atomic<std::uint64_t> sequence{0};
+#ifdef _WIN32
+    processId = static_cast<unsigned long>(GetCurrentProcessId());
+#else
+    processId = static_cast<unsigned long>(::getpid());
+#endif
+    // Unique per process *and* per call: the marker name is derived from the
+    // source file name only (SgyIndexJob), so two concurrent scans of the same
+    // volume would otherwise publish through one shared ".tmp" path.
+    const std::filesystem::path tmpPath =
+        checkpointPath.wstring() + L".tmp" + std::to_wstring(processId) + L"_" +
+        std::to_wstring(sequence.fetch_add(1) + 1);
     {
         std::ofstream out(tmpPath, std::ios::binary | std::ios::trunc);
         if(!out) {
@@ -183,10 +232,17 @@ bool SaveCheckpoint(const std::filesystem::path& checkpointPath,
         out.flush();
         if(!out) {
             errorMessage = "cannot flush a scan checkpoint.";
+            std::error_code removeError;
+            std::filesystem::remove(tmpPath, removeError);
             return false;
         }
     }
-    return ReplaceFileAtomically(tmpPath, checkpointPath, errorMessage);
+    if(!ReplaceFileAtomically(tmpPath, checkpointPath, errorMessage)) {
+        std::error_code removeError;
+        std::filesystem::remove(tmpPath, removeError);
+        return false;
+    }
+    return true;
 }
 
 bool LoadCheckpoint(const std::filesystem::path& checkpointPath,
@@ -686,22 +742,42 @@ bool ScanSegySequentially(const std::filesystem::path& path,
                              options.checkpointIntervalBytes;
     }
 
+    // Checkpointing is a resumability optimisation, not a precondition for a
+    // usable index: losing it costs the *next* restart one extra scan, it must
+    // not invalidate the scan that already succeeded. Treating a publish
+    // failure as fatal (the prior behaviour) discarded a fully scanned volume
+    // whenever one rename hiccuped and therefore never published the
+    // persistent index cache either — every restart rescanned from scratch.
+    // See docs/progress/data-perf.md.
+    bool checkpointDisabled = false;
+    auto disableCheckpointing = [&](const std::string& reason) {
+        if(checkpointDisabled) {
+            return;
+        }
+        checkpointDisabled = true;
+        outResult.stats.checkpointFailures += 1;
+        outResult.checkpointNote = reason;
+    };
+
     auto writeCheckpoint = [&](std::uint64_t resumeRecord) -> bool {
         if(options.checkpointPath.empty() || options.checkpointIntervalBytes == 0) {
+            return true;
+        }
+        if(checkpointDisabled) {
             return true;
         }
         if(pairOut.is_open()) {
             pairOut.flush();
             if(!pairOut) {
-                outResult.message = "cannot flush the scan pair partial file.";
-                return false;
+                disableCheckpointing("cannot flush the scan pair partial file.");
+                return true;
             }
         }
         if(coordOut.is_open()) {
             coordOut.flush();
             if(!coordOut) {
-                outResult.message = "cannot flush the scan coordinate partial file.";
-                return false;
+                disableCheckpointing("cannot flush the scan coordinate partial file.");
+                return true;
             }
         }
         CheckpointState state;
@@ -717,8 +793,8 @@ bool ScanSegySequentially(const std::filesystem::path& path,
         std::string checkpointError;
         if(!SaveCheckpoint(options.checkpointPath, absolutePath, sourceSize, mtimeTicks,
                            bytesPerTrace, dataStart, state, checkpointError)) {
-            outResult.message = checkpointError;
-            return false;
+            disableCheckpointing(checkpointError);
+            return true;
         }
         outResult.stats.checkpointWrites += 1;
         outResult.stats.checkpointBytes += (pairBytes - lastCheckpointPairBytes) +
@@ -984,10 +1060,7 @@ bool ScanSegySequentially(const std::filesystem::path& path,
         ++windowsDone;
         if(options.checkpointIntervalBytes > 0 && !options.checkpointPath.empty() &&
            processedByte >= nextCheckpointByte) {
-            if(!writeCheckpoint(pairRecords)) {
-                failed = true;
-                break;
-            }
+            writeCheckpoint(pairRecords);
             nextCheckpointByte = processedByte + options.checkpointIntervalBytes;
         }
     }
@@ -1010,10 +1083,7 @@ bool ScanSegySequentially(const std::filesystem::path& path,
 
     const bool whole = !cancelled && windowLimit == totalWindows && processedByte >= dataBytes;
     if(!whole) {
-        if(!writeCheckpoint(pairRecords)) {
-            outResult.stats.wallMs = MsSince(wallStart);
-            return false;
-        }
+        writeCheckpoint(pairRecords);
         outResult.cancelled = cancelled;
         if(!cancelled) {
             outResult.bounded = true;

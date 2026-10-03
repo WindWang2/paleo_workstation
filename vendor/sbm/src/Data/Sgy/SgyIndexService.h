@@ -50,6 +50,10 @@ struct SgyIndexBuildOutcome {
     std::string strategy;
     std::string message; // error text when index is null
     std::string cacheNote;
+    // Non-empty when the sequential scan had to abandon checkpoint persistence.
+    // Surfaced instead of swallowed: the index itself is still valid, only the
+    // ability to resume a future interrupted scan was lost.
+    std::string checkpointNote;
     SgyScanStats scanStats;
     double wallMs = 0.0;
     std::uint64_t resumedFromRecord = 0;

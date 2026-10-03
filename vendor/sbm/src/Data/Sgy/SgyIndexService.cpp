@@ -146,6 +146,7 @@ SgyIndexBuildOutcome BuildSgyIndexAuto(const SgyIndexBuildRequest& request,
 
     outcome.scanStats = scanResult.stats;
     outcome.resumedFromRecord = scanResult.stats.resumedFromRecord;
+    outcome.checkpointNote = scanResult.checkpointNote;
     outcome.strategy = "sequential";
 
     if(scanResult.cancelled) {
@@ -197,6 +198,9 @@ SgyIndexBuildOutcome BuildSgyIndexAuto(const SgyIndexBuildRequest& request,
                   << " resumedFrom=" << scanResult.stats.resumedFromRecord
                   << " wall=" << outcome.wallMs << " ms"
                   << (outcome.cacheNote.empty() ? "" : (" | " + outcome.cacheNote))
+                  << (outcome.checkpointNote.empty()
+                          ? ""
+                          : (" | checkpoint disabled: " + outcome.checkpointNote))
                   << " | " << StorageNote(request) << std::endl;
     }
     return outcome;

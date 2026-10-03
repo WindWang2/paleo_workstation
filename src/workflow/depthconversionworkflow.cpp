@@ -12,6 +12,7 @@
 #include <QDir>
 #include <QFile>
 #include <QHash>
+#include <QSet>
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -413,22 +414,25 @@ QString DepthConversionWorkflow::latestModelPath(DataCatalog *catalog, const QSt
 {
   if (!catalog)
     return QString();
-  QString bestPath;
-  int bestNumber = -1;
+  // #127：不同模型类型是不同资产，versionNumber 各自从 1 起——跨资产比较会让
+  // 早期资产的 v2 永远压过后建资产的 v1。改用 catalog 版本表的提交序（行序，
+  // 增量落盘按行序写、重开稳定）：最后提交的 velocity_model 版本即「最新」。
+  QSet<QString> modelAssets;
   for (const CatalogAsset &asset : catalog->assets())
+    if (asset.type == QLatin1String("velocity_model"))
+      modelAssets.insert(asset.id);
+  if (modelAssets.isEmpty())
+    return QString();
+  const QVector<CatalogVersion> all = catalog->versions();
+  for (auto it = all.crbegin(); it != all.crend(); ++it)
   {
-    if (asset.type != QLatin1String("velocity_model"))
+    if (!modelAssets.contains(it->assetId))
       continue;
-    for (const CatalogVersion &v : catalog->versionsForAsset(asset.id))
-    {
-      if (v.versionNumber > bestNumber)
-      {
-        bestNumber = v.versionNumber;
-        bestPath = DataCatalog::resolvedVersionPath(projectDir, v);
-      }
-    }
+    const QString path = DataCatalog::resolvedVersionPath(projectDir, *it);
+    if (!path.isEmpty())
+      return path;
   }
-  return bestPath;
+  return QString();
 }
 
 QString DepthConversionWorkflow::latestModelPath() const

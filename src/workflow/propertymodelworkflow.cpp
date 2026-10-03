@@ -13,6 +13,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QStringList>
@@ -94,8 +95,16 @@ HorizonPick findHorizonRaster(DataCatalog *catalog, const QString &projectDir, c
     return best;
   bool have = false;
   bool bestExact = false;
-  int bestVersion = -1;
-  QString bestAssetId;
+  // #127 同型：versionNumber 是资产内局部序号，跨资产不可比。跨资产的「更新」
+  // 用 catalog 版本表的提交序（行序，重开稳定）。
+  QHash<QString, int> commitOrder;
+  {
+    const QVector<CatalogVersion> all = catalog->versions();
+    commitOrder.reserve(all.size());
+    for (int i = 0; i < all.size(); ++i)
+      commitOrder.insert(all.at(i).id, i);
+  }
+  int bestOrder = -1;
   for (const CatalogAsset &asset : catalog->assets())
   {
     if (asset.type != QLatin1String("horizon"))
@@ -127,16 +136,13 @@ HorizonPick findHorizonRaster(DataCatalog *catalog, const QString &projectDir, c
     }
     if (!matched)
       continue;
-    const bool better = !have || (exact && !bestExact) ||
-                        (exact == bestExact && latest.versionNumber > bestVersion) ||
-                        (exact == bestExact && latest.versionNumber == bestVersion &&
-                         asset.id < bestAssetId);
+    const int order = commitOrder.value(latest.id, -1);
+    const bool better = !have || (exact && !bestExact) || (exact == bestExact && order > bestOrder);
     if (!better)
       continue;
     have = true;
     bestExact = exact;
-    bestVersion = latest.versionNumber;
-    bestAssetId = asset.id;
+    bestOrder = order;
     best.path = path;
     best.found = true;
   }

@@ -154,6 +154,9 @@ switch ($Verb) {
   'test' {
     Enter-VendorEnvironment
     $env:QT_QPA_PLATFORM = 'offscreen'
+    # Python 门禁脚本在 Windows 默认 cp1252 下读写含中文的源码/输出会抛
+    # UnicodeEncodeError（ui_invariants_selftest）——统一 UTF-8 模式。
+    $env:PYTHONUTF8 = '1'
     $logDir = Join-Path $Vendor 'logs'
     New-Item -ItemType Directory -Force $logDir | Out-Null
     $log = Join-Path $logDir 'ctest.log'
@@ -175,7 +178,31 @@ switch ($Verb) {
         # QtTest 在无控制台的 Windows 上把结果走 OutputDebugString，
         # stdout 重定向收不到——用 -o 落文件再回放（崩溃栈仍走 stderr）。
         $qtout = Join-Path $logDir "$n.qtout.txt"
-        & $exe -o "$qtout,txt" 2>&1 | Tee-Object -FilePath $log -Append
+        # 直跑复现 ctest 环境（该测试的 ENVIRONMENT 属性 + 工作目录=构建目录），
+        # 否则「ctest 红、直跑绿」的环境性失败看不到 FAIL 行（tst_import 先例）。
+        $saved = @{}
+        try {
+          $json = & ctest --test-dir $Build -R "^$([regex]::Escape($n))`$" --show-only=json-v1 2>$null | Out-String | ConvertFrom-Json
+          foreach ($t in @($json.tests)) {
+            foreach ($p in @($t.properties)) {
+              if ($p.name -ne 'ENVIRONMENT') { continue }
+              foreach ($kv in @($p.value)) {
+                $i = $kv.IndexOf('=')
+                if ($i -le 0) { continue }
+                $k = $kv.Substring(0, $i)
+                $saved[$k] = [Environment]::GetEnvironmentVariable($k, 'Process')
+                [Environment]::SetEnvironmentVariable($k, $kv.Substring($i + 1), 'Process')
+              }
+            }
+          }
+        } catch { "  (ctest env 解析失败：$_)" | Tee-Object -FilePath $log -Append }
+        Push-Location $Build
+        try {
+          & $exe -o "$qtout,txt" 2>&1 | Tee-Object -FilePath $log -Append
+        } finally {
+          Pop-Location
+          foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k], 'Process') }
+        }
         if (Test-Path $qtout) {
           Get-Content $qtout | Tee-Object -FilePath $log -Append
           Remove-Item $qtout -Force

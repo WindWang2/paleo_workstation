@@ -664,6 +664,10 @@
         <source>约束提交失败</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>工程为只读，不能绘制约束</source>
+        <translation type="unfinished" />
+    </message>
 </context>
 <context>
     <name>ConstraintPage</name>
@@ -918,6 +922,58 @@
         <location filename="../src/ui/pages/constraintpage.cpp" line="587"/>
         <source>该因素尚未生成——先运行「生成单因素图」</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>删除约束</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>完全阻断</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>仅显示停线</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>不阻断</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>阻断方式</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>保留线条方向</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source> °</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>从北顺时针；保存时绕线条中心旋转几何，单因素使用同一条线的方向</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束方向角</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>所选约束批量改型</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>在列表中按 Ctrl 或 Shift 多选约束</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>正在计算，可取消</source>
+        <translation type="unfinished" />
     </message>
 </context>
 <context>
@@ -6371,6 +6427,66 @@ Crossline: %3 ~ %4</source>
         <source>工程已清空：编辑已丢弃</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>编辑模式</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>进入编辑；退出时保存或放弃本段编辑</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>退出编辑</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>本段编辑尚未确认保存。保存编辑，或放弃本段修改？</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source> px</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>捕捉容差</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>井点、层位边界与既有约束顶点/线段的屏幕捕捉容差</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>撤销栈深度</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>下一段编辑会话的最大撤销命令数；放弃编辑仍恢复整段起始快照</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束新增请使用约束页的类型化绘制入口</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束编辑使用单图层与 store 一致的撤销会话</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>保存</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>放弃</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>取消</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束编辑需要工程 store 同步服务</source>
+        <translation type="unfinished" />
+    </message>
 </context>
 <context>
     <name>PaleoLayerConfigPage</name>
@@ -8608,6 +8724,22 @@ SHA-256：%2</source>
         <location filename="../src/ui/paleomainwindow_faults.cpp" line="19"/>
         <source>断层解释</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>约束编辑不可用，请检查编辑会话与资产状态</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>捕捉与撤销</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>捕捉 </source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>撤销 </source>
+        <translation type="unfinished" />
     </message>
 </context>
 <context>
@@ -13059,6 +13191,10 @@ SHA-256：%2</source>
         <location filename="../src/ui/typedconstraintdrawcontroller.cpp" line="106"/>
         <source>类型化约束提交失败</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>工程为只读，不能绘制约束</source>
+        <translation type="unfinished" />
     </message>
 </context>
 <context>

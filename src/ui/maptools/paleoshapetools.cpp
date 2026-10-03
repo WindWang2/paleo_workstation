@@ -91,18 +91,33 @@ PaleoDrawCircleTool::PaleoDrawCircleTool( QgsMapCanvas *canvas, QgsAdvancedDigit
 
 void PaleoDrawCircleTool::activate()
 {
+  m_shapePreview = std::make_unique<PaleoShapePreview>(mCanvas);
   QgsMapToolCapture::activate();
   startCapturing();
 }
 
 void PaleoDrawCircleTool::deactivate()
 {
+  m_shapePreview.reset();
   stopCapturing();
   QgsMapToolCapture::deactivate();
 }
 
 void PaleoDrawCircleTool::keyPressEvent( QKeyEvent *e )
 {
+  if (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter)
+  {
+    const QgsGeometry geometry = m_shapePreview ? m_shapePreview->current() : QgsGeometry();
+    if (!geometry.isNull())
+    {
+      stopCapturing();
+      m_shapePreview->clear();
+      emit constraintDrawn(geometry.asWkt(17));
+    }
+    e->accept();
+    return;
+  }
+
   if ( e->key() == Qt::Key_Escape )
     emit drawAborted();
   QgsMapToolCapture::keyPressEvent( e );
@@ -110,6 +125,7 @@ void PaleoDrawCircleTool::keyPressEvent( QKeyEvent *e )
 
 void PaleoDrawCircleTool::cadCanvasReleaseEvent( QgsMapMouseEvent *e )
 {
+  e->snapPoint();
   if ( e->button() == Qt::RightButton )
   {
     if ( size() >= 1 )
@@ -131,53 +147,22 @@ void PaleoDrawCircleTool::cadCanvasReleaseEvent( QgsMapMouseEvent *e )
     emitCircle();
 }
 
-void PaleoDrawCircleTool::emitCircle( const QgsPointXY *eventRadiusPoint )
+void PaleoDrawCircleTool::cadCanvasMoveEvent(QgsMapMouseEvent *e)
 {
-  const QgsCompoundCurve *curve = captureCurve();
-  if ( !curve || size() < 1 )
+  e->snapPoint();
+  QgsMapToolCapture::cadCanvasMoveEvent(e);
+  m_shapePreview->update(QStringLiteral("circle"), captureCurve(), currentVectorLayer(), e);
+}
+
+void PaleoDrawCircleTool::emitCircle(const QgsPointXY *cursor)
+{
+  const auto geometry = PaleoShapePreview::geometry(QStringLiteral("circle"), captureCurve(),
+      currentVectorLayer(), mCanvas, cursor);
+  if (geometry.isNull())
     return;
-
-  std::unique_ptr<QgsCurve> canvasCurve( curve->clone() );
-  if ( !CaptureHelpers::transformToCanvas( *canvasCurve, currentVectorLayer(), mCanvas ) )
-  {
-    emit messageEmitted( tr( "无法将约束圆转换到地图坐标" ), Qgis::MessageLevel::Warning );
-    return;
-  }
-
-  QgsPointSequence vertices;
-  canvasCurve->points( vertices );
-  if ( vertices.isEmpty() )
-    return;
-
-  const QgsPointXY center( vertices.constFirst().x(), vertices.constFirst().y() );
-  QgsPointXY radPt;
-  if ( eventRadiusPoint )
-    radPt = *eventRadiusPoint;
-  else if ( vertices.size() >= 2 )
-    radPt = QgsPointXY( vertices.at( 1 ).x(), vertices.at( 1 ).y() );
-  else
-    return;
-
-  const double dx = radPt.x() - center.x();
-  const double dy = radPt.y() - center.y();
-  const double r = std::hypot( dx, dy );
-  if ( r <= 0.0 )
-    return;
-
-  const int numSegments = 24;
-  QVector<QgsPoint> ringPts;
-  ringPts.reserve( numSegments + 1 );
-  for ( int i = 0; i <= numSegments; ++i )
-  {
-    const double angle = 2.0 * std::numbers::pi * i / numSegments;
-    ringPts.append( QgsPoint( center.x() + r * std::cos( angle ),
-                              center.y() + r * std::sin( angle ) ) );
-  }
-
-  QgsPolygon poly;
-  poly.setExteriorRing( new QgsLineString( ringPts ) );
-  emit constraintDrawn( poly.asWkt() );
   stopCapturing();
+  m_shapePreview->clear();
+  emit constraintDrawn(geometry.asWkt(17));
 }
 
 // ---------------------------------------------------------------------------
@@ -194,18 +179,33 @@ PaleoDrawEllipseTool::PaleoDrawEllipseTool( QgsMapCanvas *canvas, QgsAdvancedDig
 
 void PaleoDrawEllipseTool::activate()
 {
+  m_shapePreview = std::make_unique<PaleoShapePreview>(mCanvas);
   QgsMapToolCapture::activate();
   startCapturing();
 }
 
 void PaleoDrawEllipseTool::deactivate()
 {
+  m_shapePreview.reset();
   stopCapturing();
   QgsMapToolCapture::deactivate();
 }
 
 void PaleoDrawEllipseTool::keyPressEvent( QKeyEvent *e )
 {
+  if (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter)
+  {
+    const QgsGeometry geometry = m_shapePreview ? m_shapePreview->current() : QgsGeometry();
+    if (!geometry.isNull())
+    {
+      stopCapturing();
+      m_shapePreview->clear();
+      emit constraintDrawn(geometry.asWkt(17));
+    }
+    e->accept();
+    return;
+  }
+
   if ( e->key() == Qt::Key_Escape )
     emit drawAborted();
   QgsMapToolCapture::keyPressEvent( e );
@@ -213,6 +213,7 @@ void PaleoDrawEllipseTool::keyPressEvent( QKeyEvent *e )
 
 void PaleoDrawEllipseTool::cadCanvasReleaseEvent( QgsMapMouseEvent *e )
 {
+  e->snapPoint();
   if ( e->button() == Qt::RightButton )
   {
     if ( size() >= 2 )
@@ -233,45 +234,20 @@ void PaleoDrawEllipseTool::cadCanvasReleaseEvent( QgsMapMouseEvent *e )
     emitEllipse();
 }
 
-void PaleoDrawEllipseTool::emitEllipse( const QgsPointXY *eventAxis2Point )
+void PaleoDrawEllipseTool::cadCanvasMoveEvent(QgsMapMouseEvent *e)
 {
-  const QgsCompoundCurve *curve = captureCurve();
-  if ( !curve || size() < 2 )
-    return;
+  e->snapPoint();
+  QgsMapToolCapture::cadCanvasMoveEvent(e);
+  m_shapePreview->update(QStringLiteral("ellipse"), captureCurve(), currentVectorLayer(), e);
+}
 
-  std::unique_ptr<QgsCurve> canvasCurve( curve->clone() );
-  if ( !CaptureHelpers::transformToCanvas( *canvasCurve, currentVectorLayer(), mCanvas ) )
-  {
-    emit messageEmitted( tr( "无法将约束椭圆转换到地图坐标" ), Qgis::MessageLevel::Warning );
+void PaleoDrawEllipseTool::emitEllipse(const QgsPointXY *cursor)
+{
+  const auto geometry = PaleoShapePreview::geometry(QStringLiteral("ellipse"), captureCurve(),
+      currentVectorLayer(), mCanvas, cursor);
+  if (geometry.isNull())
     return;
-  }
-
-  QgsPointSequence vertices;
-  canvasCurve->points( vertices );
-  if ( vertices.size() < 2 )
-    return;
-
-  const QgsPoint center( vertices.at( 0 ).x(), vertices.at( 0 ).y() );
-  const QgsPoint pt1( vertices.at( 1 ).x(), vertices.at( 1 ).y() );
-  QgsPoint pt2;
-  if ( eventAxis2Point )
-    pt2 = QgsPoint( eventAxis2Point->x(), eventAxis2Point->y() );
-  else if ( vertices.size() >= 3 )
-    pt2 = QgsPoint( vertices.at( 2 ).x(), vertices.at( 2 ).y() );
-  else
-    return;
-
-  if ( center.distance( pt1 ) <= 0.0 || center.distance( pt2 ) <= 0.0 )
-    return;
-
-  QgsEllipse elp = QgsEllipse::fromCenter2Points( center, pt1, pt2 );
-  if ( elp.isEmpty() )
-    return;
-
-  std::unique_ptr<QgsPolygon> poly( elp.toPolygon( 36 ) );
-  if ( !poly )
-    return;
-
-  emit constraintDrawn( poly->asWkt() );
   stopCapturing();
+  m_shapePreview->clear();
+  emit constraintDrawn(geometry.asWkt(17));
 }

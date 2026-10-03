@@ -39,6 +39,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QToolButton>
 
 // Ribbon 命令组：每个页签按「做事的顺序」排组——数据管理（导入 → 列表 →
@@ -485,6 +486,28 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   auto *session = category->addPanel(tr("编辑会话"));
   session->setObjectName(QStringLiteral("ribbonEditSessionPanel"));
   session->addSmallAction(editTb->actionTopological());
+  session->addSmallAction(editTb->actionEditMode());
   session->addSmallAction(editTb->actionSave());
   session->addSmallAction(editTb->actionCancel());
+  auto *settings = category->addPanel(tr("捕捉与撤销"));
+  settings->setObjectName(QStringLiteral("ribbonEditingSettingsPanel"));
+  const auto mirrorSpin = [settings](QSpinBox *source, const QString &name, const QString &prefix) {
+    auto *spin = new QSpinBox(settings);
+    spin->setObjectName(name);
+    spin->setRange(source->minimum(), source->maximum());
+    spin->setFont(source->font());
+    spin->setPrefix(prefix);
+    spin->setSuffix(source->suffix());
+    spin->setToolTip(source->toolTip());
+    spin->setAccessibleName(source->accessibleName());
+    spin->setValue(source->value());
+    QObject::connect(spin, &QSpinBox::valueChanged, source, &QSpinBox::setValue);
+    QObject::connect(source, &QSpinBox::valueChanged, spin, &QSpinBox::setValue);
+    settings->addSmallWidget(spin);
+  };
+  mirrorSpin(editTb->snapToleranceSpin(), QStringLiteral("ribbonEditingSnapToleranceSpin"), tr("捕捉 "));
+  mirrorSpin(editTb->undoDepthSpin(), QStringLiteral("ribbonEditingUndoDepthSpin"), tr("撤销 "));
+  settings->addSmallAction(editTb->actionUndo());
+  settings->addSmallAction(editTb->actionRedo());
+
 }

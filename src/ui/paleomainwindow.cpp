@@ -53,6 +53,8 @@
 #include "webviewpanel.h"
 #include "edittools/editingtoolbar.h"
 #include "layout/layoutexportactions.h" // ---- m2(C)：导出前版面地图项钉主题 ----
+#include "layout/mapbookcontroller.h" // #148：工程关闭时 resetProject
+#include "layout/mapbookpanel.h"
 #include "../qgis/qgislayerprofile.h" // ---- m2(C)：setLayoutMapTheme（m1 接缝）----
 #include "../qgis/qgislayoutservice.h"
 #include "../qgis/qgiseditingservice.h"
@@ -1692,6 +1694,16 @@ void PaleoMainWindow::resetProjectScopedState()
     m_sectionLink->setActiveVolume(nullptr);
   else if (m_seismicSectionDock)
     m_seismicSectionDock->setVolume(nullptr);
+
+  // #148：地图册在途一册取消（下一版边界停，不再碰旧工程图层），迟到结果
+  // 作废；范围清空，新工程下次打开面板时按画布范围重新预填。
+  if (m_mapBookCtl)
+    m_mapBookCtl->resetProject();
+  if (m_mapBookPanel)
+  {
+    m_mapBookPanel->setArea(PaleoMapBook::Area());
+    m_mapBookPanel->setOutputDir(QString());
+  }
 }
 
 void PaleoMainWindow::refreshCorrelationWells(const QString &loadLasForAssetId,

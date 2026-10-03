@@ -270,6 +270,12 @@ std::uint64_t SgyIndexCache::FingerprintFile(const std::filesystem::path& path, 
     std::uint64_t hash = 1469598103934665603ull;
     hash = Fnv1a(&fileSize, sizeof(fileSize), hash);
 
+    std::error_code regularError;
+    // POSIX opens directories successfully; in.read() would then throw
+    // std::__ios_failure. A non-regular source degrades to the size-only hash.
+    if(!std::filesystem::is_regular_file(path, regularError)) {
+        return hash;
+    }
     std::ifstream in(path, std::ios::binary);
     if(!in) {
         return hash;
@@ -318,7 +324,9 @@ SgyIndexPtr SgyIndexCache::LoadFromPath(const std::filesystem::path& cachePath,
                                         std::string& reason) {
     reason.clear();
     std::error_code ec;
-    if(!std::filesystem::exists(cachePath, ec) || ec) {
+    // is_regular_file, not exists: POSIX ifstream opens directories fine and
+    // the istreambuf read below would throw std::__ios_failure on EISDIR.
+    if(!std::filesystem::is_regular_file(cachePath, ec) || ec) {
         reason = "no cache file";
         return nullptr;
     }

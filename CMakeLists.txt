@@ -549,6 +549,8 @@ add_library(paleo_ui STATIC
   src/ui/wellcomposite/wellcompositepanel.cpp
   src/ui/wellcomposite/curveconfigdialog.cpp
   src/ui/wellcomposite/wellpositionlegendwidget.cpp
+  src/ui/sequenceframeworkcolumn.cpp               # 方向28：格架柱状视图（层级色带）
+  src/ui/sequenceframeworkpanel.cpp                # 方向28：格架树/标志层/诊断/建议面板
   src/ui/horizonchipbar.cpp                        # 8层位chip条（阶段E）
   src/ui/releasepanel.cpp
   src/ui/taskpanel.cpp

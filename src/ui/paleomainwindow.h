@@ -92,6 +92,8 @@ class PreviewDocService;
 class DepthConversionWorkflow;
 class PropertyModelWorkflow;
 class PropertyModelPanel;
+class PaleoMapBookPanel;
+class PaleoMapBookController;
 class FolderImportWorkflow;
 class ProjectOpenWorkflow;
 class RegistrationWorkflow;
@@ -361,6 +363,11 @@ class PaleoMainWindow : public SARibbonMainWindow
     paleo::fault::FaultInterpretationController *m_propModelFaults = nullptr;
     QDockWidget *m_propModelDock = nullptr;
     PropertyModelPanel *m_propModelPanel = nullptr;
+    // #148：地图册批量导出（「智能编图 › 图件输出 › 地图册」），工程关闭时
+    // resetProjectScopedState 里 resetProject。
+    QDockWidget *m_mapBookDock = nullptr;
+    PaleoMapBookPanel *m_mapBookPanel = nullptr;
+    PaleoMapBookController *m_mapBookCtl = nullptr;
     bool m_propModelRunning = false;
     bool m_propModelCancel = false;
     // #85：计算段在任务池 worker 上跑；交接体由 worker 写、finished 回包（GUI）

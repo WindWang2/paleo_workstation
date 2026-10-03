@@ -513,6 +513,7 @@ add_library(paleo_ui STATIC
   src/ui/layout/layoutexportactions.cpp
   src/ui/layout/layouttemplates.cpp
   src/ui/layout/layoutundostack.cpp
+  src/ui/layout/mapbookcontroller.cpp               # #148：地图册面板 ↔ 批量导出队列接线
   src/ui/layout/mapbookpanel.cpp                    # goal/mapbook-reporting：批量参数面板（只发信号）
   src/ui/datapreview/datapreviewtabs.cpp           # §4 data-page preview tabs
   src/ui/datapreview/datapreviewtabseismic.cpp     # 方向20 轮4：seismic 预览分支析出

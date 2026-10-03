@@ -403,6 +403,17 @@ class TestUiShell : public QObject
         QVERIFY2(btn, name);
         QVERIFY2(!btn->icon().isNull(), name);
       }
+      // #148：地图册入口在「智能编图 › 图件输出」（任务服务在场即接线）。
+      {
+        auto *mb = m_win->findChild<QToolButton *>(QStringLiteral("mapBookButton"));
+        QVERIFY2(mb, "mapBookButton");
+        QVERIFY(!mb->icon().isNull());
+        auto *dock = m_win->findChild<QDockWidget *>(QStringLiteral("mapBookDock"));
+        QVERIFY(dock);
+        mb->click();
+        QVERIFY(!dock->isHidden());
+        dock->hide();
+      }
       // designerButton 需要带 layoutSvc 的 attachWorkflows——套件内缺席则跳过。
       if (auto *d = m_win->findChild<QToolButton *>(QStringLiteral("designerButton")))
         QVERIFY(!d->icon().isNull());
@@ -1030,7 +1041,7 @@ class TestUiShell : public QObject
       for (const char *name : {"correlationPanel", "editingToolbar",
                                "releasePanel", "attributeTablePanel", "processingButton",
                                "statusCatalogError", "wellSectionDock",
-                               "wellSectionPanel"})
+                               "wellSectionPanel", "mapBookDock", "mapBookPanel"})
         QCOMPARE(namedCount(name), 1);
       auto *host = m_win->findChild<QWidget *>(QStringLiteral("rightPanelHost"));
       QVERIFY(host);
@@ -1042,7 +1053,7 @@ class TestUiShell : public QObject
       for (const char *name : {"correlationPanel", "editingToolbar",
                                "releasePanel", "attributeTablePanel", "processingButton",
                                "statusCatalogError", "wellSectionDock",
-                               "wellSectionPanel"})
+                               "wellSectionPanel", "mapBookDock", "mapBookPanel"})
         QCOMPARE(namedCount(name), 1);
       QCOMPARE(static_cast<QStackedLayout *>(host->layout())->count(), 5);
 

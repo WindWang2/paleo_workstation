@@ -8,6 +8,7 @@
 #include <QVector>
 #include <functional>
 #include <memory>
+#include "../algorithms/singlefactor/types.h"
 #include "../domain/types.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../services/singlefactordef.h"
@@ -302,6 +303,7 @@ class ConstraintWorkflow : public QObject
     bool publishAnalysisContourJob(const AnalysisContourJob &job, QString *error = nullptr);
 
     // 解释性等值线：工作场与提线可在任务线程写临时文件，登记仍回调用线程。
+    // 约束线在准备阶段解析。计算线程只读 constraintLines，不再打开图层。
     // strict 默认与 generateInterpretiveContours 相同，不改拒绝穿线的缺省。
     struct InterpretiveContourJob
     {
@@ -321,6 +323,8 @@ class ConstraintWorkflow : public QObject
         QString analysisSha;
         QStringList parentPaths;
         QVector<double> levels;
+        std::vector<paleo::singlefactor::ConstraintLine> constraintLines;
+        std::vector<std::string> ignoredConstraints;
         QString workPath;
         QString qcPath;
         QString contourPath;
@@ -364,7 +368,8 @@ class ConstraintWorkflow : public QObject
     QVector<QVariantMap> m_inMemoryConstraints;
     int m_inMemorySeq = 0;
     // 发布代次。本地方向在准备入口加一；等值线与解释性等值线在校验通过后加一；
-    // setStore 也加一。提交前对不上就丢掉这次临时文件，不声明图层。
+    // setStore 也加一。因子图层改指向新文件时，在 declare 之前加一。
+    // 提交前对不上就丢掉这次临时文件，不声明图层。
     quint64 m_publishGeneration = 0;
 };
 

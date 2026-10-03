@@ -836,6 +836,10 @@ void FactorPageTests::nativeMethodContourAndBusyStates()
   page.setRunBusy( true );
   QVERIFY( !generate->isEnabled() );
   QVERIFY( generate->toolTip().contains( QStringLiteral( "可取消" ) ) );
+  auto *idw = page.findChild<QPushButton *>( QStringLiteral( "runIdwButton" ) );
+  QVERIFY( idw != nullptr );
+  QVERIFY( !idw->isEnabled() );
+  QVERIFY( idw->toolTip().contains( QStringLiteral( "可取消" ) ) );
   QVERIFY( cancel->isEnabled() );
   QSignalSpy cancelSpy( &page, &ConstraintPage::runCancelRequested );
   cancel->click();
@@ -843,6 +847,7 @@ void FactorPageTests::nativeMethodContourAndBusyStates()
   page.noteRunStage( QStringLiteral( "正在插值" ), 40 );
   QVERIFY( page.findChild<QLabel *>( QStringLiteral( "statusLabel" ) )->text().contains( QStringLiteral( "40%" ) ) );
   page.setRunBusy( false );
+  QVERIFY( idw->isEnabled() );
 
   QSignalSpy drawSpy( &page, &ConstraintPage::drawTypedConstraintRequested );
   page.findChild<QPushButton *>( QStringLiteral( "softBoundaryButton" ) )->click();

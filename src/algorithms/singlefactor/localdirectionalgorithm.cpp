@@ -3,6 +3,7 @@
 #include "localdirectionalgorithm.h"
 #include "../paleoalgorithms.h"
 #include "../rasterout.h"
+#include "cartographicworkfile.h"
 #include "faultpath.h"
 #include "localidw.h"
 #include "samples.h"
@@ -21,12 +22,14 @@
 #include <qgsprocessingutils.h>
 #include <qgsrasterlayer.h>
 #include <qgsrectangle.h>
+#include <qgsvectorlayer.h>
 #include <qgswkbtypes.h>
 
 #include <cpl_conv.h>
 #include <gdal.h>
 #include <gdal_alg.h>
 #include <ogr_api.h>
+#include <ogr_srs_api.h>
 
 #include <QFile>
 #include <QFileInfo>
@@ -1295,6 +1298,209 @@ QVariantMap SurferIdwAlgorithm::processAlgorithm( const QVariantMap &parameters,
   return out;
 }
 
+namespace
+{
+QgsCoordinateReferenceSystem crsFromDatasetWkt( GDALDatasetH dataset )
+{
+  QgsCoordinateReferenceSystem crs;
+  if ( !dataset )
+    return crs;
+  const OGRSpatialReferenceH spatialRef = GDALGetSpatialRef( dataset );
+  if ( !spatialRef )
+    return crs;
+  OGRSpatialReferenceH clone = OSRClone( spatialRef );
+  char *wkt = nullptr;
+  if ( !clone || OSRExportToWkt( clone, &wkt ) != OGRERR_NONE || !wkt )
+  {
+    OSRDestroySpatialReference( clone );
+    CPLFree( wkt );
+    return crs;
+  }
+  crs = QgsCoordinateReferenceSystem::fromWkt( QString::fromUtf8( wkt ) );
+  CPLFree( wkt );
+  OSRDestroySpatialReference( clone );
+  return crs;
+}
+} // namespace
+
+paleo::singlefactor::CartographicConstraintParse paleo::singlefactor::parseCartographicConstraints(
+    const QString &vectorUri, const QgsCoordinateReferenceSystem &targetCrs )
+{
+  CartographicConstraintParse parsed;
+  if ( vectorUri.isEmpty() )
+  {
+    parsed.ok = true;
+    return parsed;
+  }
+  auto layer = std::make_unique<QgsVectorLayer>( vectorUri, QStringLiteral( "constraints" ), QStringLiteral( "ogr" ) );
+  if ( !layer->isValid() )
+    return parsed;
+  QgsProcessingContext context;
+  QgsProcessingFeatureSource source( layer.get(), context, false );
+  try
+  {
+    const ParsedConstraints read = readConstraintLines( &source, targetCrs, context );
+    parsed.lines = read.lines;
+    parsed.ignored = read.ignored;
+    parsed.ok = true;
+  }
+  catch ( const QgsProcessingException &ex )
+  {
+    parsed.error = ex.what();
+  }
+  catch ( const QgsException &ex )
+  {
+    parsed.error = ex.what();
+  }
+  return parsed;
+}
+
+paleo::singlefactor::CartographicWorkWritten paleo::singlefactor::writeCartographicWorkFile(
+    const CartographicWorkWrite &request )
+{
+  CartographicWorkWritten result;
+  try
+  {
+    if ( request.analysisPath.isEmpty() || request.outputPath.isEmpty() )
+      throw QgsProcessingException( QStringLiteral( "制图工作场未返回输出路径" ) );
+    if ( QFileInfo( request.analysisPath ).absoluteFilePath() == QFileInfo( request.outputPath ).absoluteFilePath() )
+      throw QgsProcessingException( QStringLiteral( "制图工作场不能覆盖分析场文件" ) );
+    if ( request.levels.empty() )
+      throw QgsProcessingException( QStringLiteral( "等值级别为空" ) );
+    for ( double level : request.levels )
+    {
+      if ( !std::isfinite( level ) )
+        throw QgsProcessingException( QStringLiteral( "等值级别必须为有限数值" ) );
+    }
+    if ( !std::isfinite( request.transition ) || request.transition < 0.0 )
+      throw QgsProcessingException( QStringLiteral( "过渡宽度无效" ) );
+
+    GdalDataset source;
+    source.ds = GDALOpen( request.analysisPath.toUtf8().constData(), GA_ReadOnly );
+    if ( !source.ds )
+      throw QgsProcessingException( QStringLiteral( "cannot open analysis raster '%1'" ).arg( request.analysisPath ) );
+    double geoTransform[6] = { 0, 0, 0, 0, 0, 0 };
+    if ( GDALGetGeoTransform( source.ds, geoTransform ) != CE_None )
+      throw QgsProcessingException( QStringLiteral( "分析场缺少 GeoTransform" ) );
+    const double axisTol = std::max( std::abs( geoTransform[1] ), std::abs( geoTransform[5] ) ) * 1e-9;
+    if ( std::abs( geoTransform[2] ) > axisTol || std::abs( geoTransform[4] ) > axisTol )
+      throw QgsProcessingException( QStringLiteral( "首版栅格仅支持 north-up、pixel-is-area" ) );
+    sf::GridSpec grid;
+    grid.cols = GDALGetRasterXSize( source.ds );
+    grid.rows = GDALGetRasterYSize( source.ds );
+    grid.originX = geoTransform[0];
+    grid.originY = geoTransform[3];
+    grid.pixelWidth = geoTransform[1];
+    grid.pixelHeight = geoTransform[5];
+    const QgsCoordinateReferenceSystem crs =
+        request.deriveCrsFromDataset ? crsFromDatasetWkt( source.ds ) : request.crs;
+    if ( crs.isValid() )
+    {
+      const QString name = crs.authid().isEmpty() ? crs.description() : crs.authid();
+      grid.crs = ( name.isEmpty() ? QStringLiteral( "projected" ) : name ).toUtf8().toStdString();
+    }
+    else
+    {
+      grid.crs = "local_engineering";
+    }
+    std::string budgetError;
+    if ( !sf::gridBudgetOk( grid, 0, &budgetError ) )
+      throw QgsProcessingException( utf8( budgetError ) );
+
+    GDALRasterBandH band = GDALGetRasterBand( source.ds, 1 );
+    if ( !band )
+      throw QgsProcessingException( QStringLiteral( "分析场缺少波段 1" ) );
+    const std::size_t cellCount = static_cast<std::size_t>( grid.cols ) * static_cast<std::size_t>( grid.rows );
+    std::vector<float> raw( cellCount );
+    if ( GDALRasterIO( band, GF_Read, 0, 0, grid.cols, grid.rows, raw.data(), grid.cols, grid.rows, GDT_Float32, 0,
+                       0 ) != CE_None )
+      throw QgsProcessingException( QStringLiteral( "无法读取分析场" ) );
+    int hasNodata = 0;
+    const double nodata = GDALGetRasterNoDataValue( band, &hasNodata );
+    std::vector<double> values( cellCount );
+    std::vector<std::uint8_t> valid( cellCount, 0 );
+    for ( std::size_t i = 0; i < cellCount; ++i )
+    {
+      const float sample = raw[i];
+      if ( !std::isfinite( sample ) || ( hasNodata && static_cast<double>( sample ) == nodata ) )
+      {
+        values[i] = std::numeric_limits<double>::quiet_NaN();
+        continue;
+      }
+      values[i] = sample;
+      valid[i] = 1;
+    }
+
+    const std::vector<sf::ContourPolyline> contours = contourAtLevels( source.ds, request.levels );
+    source.close();
+    if ( request.cancelled && request.cancelled() )
+      throw QgsProcessingException( QStringLiteral( "Canceled" ) );
+
+    const sf::WorkField work = sf::buildCartographicWork( grid, values, valid, request.lines, contours, request.levels,
+                                                          request.transition );
+    if ( work.status != sf::Status::Ok )
+      throw QgsProcessingException(
+          utf8( work.message.empty() ? std::string( sf::statusName( work.status ) ) : work.message ) );
+    if ( work.values.size() != cellCount )
+      throw QgsProcessingException( QStringLiteral( "工作场网格与分析场不一致" ) );
+
+    OutputGuard guard;
+    const QString qcPath = sidecarPath( request.outputPath, QStringLiteral( ".qc.json" ) );
+    guard.paths << request.outputPath << qcPath;
+    writeFloatGrid( request.outputPath, grid, work.values, crs, "cartographic_work", "paleo:paleo_cartographic_work" );
+
+    int unresolved = 0;
+    {
+      GdalDataset written;
+      written.ds = GDALOpen( request.outputPath.toUtf8().constData(), GA_ReadOnly );
+      if ( !written.ds )
+        throw QgsProcessingException( QStringLiteral( "无法回读制图工作场以统计穿线" ) );
+      unresolved = unresolvedCrossings( written.ds, request.levels, request.lines );
+    }
+
+    QVariantList used;
+    for ( const std::string &id : work.usedConstraintIds )
+      used << utf8( id );
+    QVariantList ignored;
+    for ( const std::string &item : request.ignored )
+      ignored << utf8( item );
+    QVariantList levelList;
+    for ( double level : request.levels )
+      levelList << level;
+    QVariantMap qc;
+    qc.insert( QStringLiteral( "schema_version" ), 1 );
+    qc.insert( QStringLiteral( "value_source" ), QStringLiteral( "cartographic_work" ) );
+    qc.insert( QStringLiteral( "modified_cells" ), work.modifiedCells );
+    qc.insert( QStringLiteral( "unchanged" ), work.unchanged );
+    qc.insert( QStringLiteral( "unresolved_crossings" ), unresolved );
+    qc.insert( QStringLiteral( "used_constraints" ), used );
+    qc.insert( QStringLiteral( "ignored" ), ignored );
+    qc.insert( QStringLiteral( "levels" ), levelList );
+    qc.insert( QStringLiteral( "transition_distance" ), work.transitionDistance );
+    writeJson( qcPath, qc );
+    guard.keep = true;
+
+    result.ok = true;
+    result.outputPath = request.outputPath;
+    result.qcPath = qcPath;
+    result.modifiedCells = work.modifiedCells;
+    result.unchanged = work.unchanged;
+    result.unresolvedCrossings = unresolved;
+  }
+  catch ( const QgsProcessingException &ex )
+  {
+    result.ok = false;
+    result.error = ex.what();
+    result.cancelled = result.error == QLatin1String( "Canceled" );
+  }
+  catch ( const QgsException &ex )
+  {
+    result.ok = false;
+    result.error = ex.what();
+  }
+  return result;
+}
+
 QString CartographicWorkAlgorithm::shortHelpString() const
 {
   return QStringLiteral(
@@ -1350,117 +1556,32 @@ QVariantMap CartographicWorkAlgorithm::processAlgorithm( const QVariantMap &para
   if ( !std::isfinite( transition ) || transition < 0.0 )
     throw QgsProcessingException( QStringLiteral( "过渡宽度无效" ) );
 
-  GdalDataset source;
-  source.ds = GDALOpen( inPath.toUtf8().constData(), GA_ReadOnly );
-  if ( !source.ds )
-    throw QgsProcessingException( QStringLiteral( "cannot open analysis raster '%1'" ).arg( inPath ) );
-  double geoTransform[6] = { 0, 0, 0, 0, 0, 0 };
-  if ( GDALGetGeoTransform( source.ds, geoTransform ) != CE_None )
-    throw QgsProcessingException( QStringLiteral( "分析场缺少 GeoTransform" ) );
-  const double axisTol = std::max( std::abs( geoTransform[1] ), std::abs( geoTransform[5] ) ) * 1e-9;
-  if ( std::abs( geoTransform[2] ) > axisTol || std::abs( geoTransform[4] ) > axisTol )
-    throw QgsProcessingException( QStringLiteral( "首版栅格仅支持 north-up、pixel-is-area" ) );
-  sf::GridSpec grid;
-  grid.cols = GDALGetRasterXSize( source.ds );
-  grid.rows = GDALGetRasterYSize( source.ds );
-  grid.originX = geoTransform[0];
-  grid.originY = geoTransform[3];
-  grid.pixelWidth = geoTransform[1];
-  grid.pixelHeight = geoTransform[5];
   const QgsCoordinateReferenceSystem crs = raster->crs();
-  if ( crs.isValid() )
-  {
-    const QString name = crs.authid().isEmpty() ? crs.description() : crs.authid();
-    grid.crs = ( name.isEmpty() ? QStringLiteral( "projected" ) : name ).toUtf8().toStdString();
-  }
-  else
-  {
-    grid.crs = "local_engineering";
-  }
-  std::string budgetError;
-  if ( !sf::gridBudgetOk( grid, 0, &budgetError ) )
-    throw QgsProcessingException( utf8( budgetError ) );
-
-  GDALRasterBandH band = GDALGetRasterBand( source.ds, 1 );
-  if ( !band )
-    throw QgsProcessingException( QStringLiteral( "分析场缺少波段 1" ) );
-  const std::size_t cellCount = static_cast<std::size_t>( grid.cols ) * static_cast<std::size_t>( grid.rows );
-  std::vector<float> raw( cellCount );
-  if ( GDALRasterIO( band, GF_Read, 0, 0, grid.cols, grid.rows, raw.data(), grid.cols, grid.rows, GDT_Float32, 0,
-                     0 ) != CE_None )
-    throw QgsProcessingException( QStringLiteral( "无法读取分析场" ) );
-  int hasNodata = 0;
-  const double nodata = GDALGetRasterNoDataValue( band, &hasNodata );
-  std::vector<double> values( cellCount );
-  std::vector<std::uint8_t> valid( cellCount, 0 );
-  for ( std::size_t i = 0; i < cellCount; ++i )
-  {
-    const float sample = raw[i];
-    if ( !std::isfinite( sample ) || ( hasNodata && static_cast<double>( sample ) == nodata ) )
-    {
-      values[i] = std::numeric_limits<double>::quiet_NaN();
-      continue;
-    }
-    values[i] = sample;
-    valid[i] = 1;
-  }
-
   std::unique_ptr<QgsProcessingFeatureSource> constraints(
       parameterAsSource( parameters, QStringLiteral( "CONSTRAINTS" ), context ) );
   const ParsedConstraints parsed = readConstraintLines( constraints.get(), crs, context );
-  std::vector<double> levels( levelValues.begin(), levelValues.end() );
-  const std::vector<sf::ContourPolyline> contours = contourAtLevels( source.ds, levels );
-  source.close();
-  if ( feedback && feedback->isCanceled() )
-    throw QgsProcessingException( QStringLiteral( "Canceled" ) );
 
-  const sf::WorkField work = sf::buildCartographicWork( grid, values, valid, parsed.lines, contours, levels, transition );
-  if ( work.status != sf::Status::Ok )
-    throw QgsProcessingException( utf8( work.message.empty() ? std::string( sf::statusName( work.status ) ) : work.message ) );
-  if ( work.values.size() != cellCount )
-    throw QgsProcessingException( QStringLiteral( "工作场网格与分析场不一致" ) );
-
-  OutputGuard guard;
-  const QString qcPath = sidecarPath( outPath, QStringLiteral( ".qc.json" ) );
-  guard.paths << outPath << qcPath;
-  writeFloatGrid( outPath, grid, work.values, crs, "cartographic_work", "paleo:paleo_cartographic_work" );
-
-  int unresolved = 0;
-  {
-    GdalDataset written;
-    written.ds = GDALOpen( outPath.toUtf8().constData(), GA_ReadOnly );
-    if ( !written.ds )
-      throw QgsProcessingException( QStringLiteral( "无法回读制图工作场以统计穿线" ) );
-    unresolved = unresolvedCrossings( written.ds, levels, parsed.lines );
-  }
-
-  QVariantList used;
-  for ( const std::string &id : work.usedConstraintIds )
-    used << utf8( id );
-  QVariantList ignored;
-  for ( const std::string &item : parsed.ignored )
-    ignored << utf8( item );
-  QVariantList levelList;
-  for ( double level : levels )
-    levelList << level;
-  QVariantMap qc;
-  qc.insert( QStringLiteral( "schema_version" ), 1 );
-  qc.insert( QStringLiteral( "value_source" ), QStringLiteral( "cartographic_work" ) );
-  qc.insert( QStringLiteral( "modified_cells" ), work.modifiedCells );
-  qc.insert( QStringLiteral( "unchanged" ), work.unchanged );
-  qc.insert( QStringLiteral( "unresolved_crossings" ), unresolved );
-  qc.insert( QStringLiteral( "used_constraints" ), used );
-  qc.insert( QStringLiteral( "ignored" ), ignored );
-  qc.insert( QStringLiteral( "levels" ), levelList );
-  qc.insert( QStringLiteral( "transition_distance" ), work.transitionDistance );
-  writeJson( qcPath, qc );
-  guard.keep = true;
+  sf::CartographicWorkWrite request;
+  request.analysisPath = inPath;
+  request.outputPath = outPath;
+  request.lines = parsed.lines;
+  request.ignored = parsed.ignored;
+  request.levels.assign( levelValues.cbegin(), levelValues.cend() );
+  request.transition = transition;
+  request.deriveCrsFromDataset = false;
+  request.crs = crs;
+  if ( feedback )
+    request.cancelled = [feedback]() { return feedback->isCanceled(); };
+  const sf::CartographicWorkWritten written = sf::writeCartographicWorkFile( request );
+  if ( !written.ok )
+    throw QgsProcessingException( written.error.isEmpty() ? QStringLiteral( "制图工作场未返回输出路径" )
+                                                          : written.error );
 
   QVariantMap out;
-  out.insert( QStringLiteral( "OUTPUT" ), outPath );
-  out.insert( QStringLiteral( "QC" ), qcPath );
-  out.insert( QStringLiteral( "MODIFIED_CELLS" ), work.modifiedCells );
-  out.insert( QStringLiteral( "UNCHANGED" ), work.unchanged );
+  out.insert( QStringLiteral( "OUTPUT" ), written.outputPath );
+  out.insert( QStringLiteral( "QC" ), written.qcPath );
+  out.insert( QStringLiteral( "MODIFIED_CELLS" ), written.modifiedCells );
+  out.insert( QStringLiteral( "UNCHANGED" ), written.unchanged );
   out.insert( QStringLiteral( "VALUE_SOURCE" ), QStringLiteral( "cartographic_work" ) );
   return out;
 }

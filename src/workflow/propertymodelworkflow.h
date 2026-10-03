@@ -100,6 +100,12 @@ public:
   };
   PropertyModelComputed runCompute(const PropertyModelRequest &request,
                                    const std::function<bool(double, const QString &)> &progress = {});
+  // runCompute 的纯函数形态：不读任何成员、不发信号——worker 线程用（#153）。
+  // projectDir/catalogOpen 由 owner 线程快照。
+  static PropertyModelComputed
+  computeSnapshot(const PropertyModelRequest &request, const QString &projectDir,
+                  bool catalogOpen,
+                  const std::function<bool(double, const QString &)> &progress = {});
   // catalog owner 线程调用。成功 → computed.out 回填 path/assetId/versionId
   // 并 emit modelStored；失败 → out.ok=false/out.error + emit modelFailed。
   bool commitComputed(PropertyModelComputed *computed);
@@ -109,9 +115,10 @@ public:
   // 任务池、自己查忙、自己判取消、自己排 finished 回包。startJob() 把同一契约
   // 接到统一框架上，行为等价点：
   //   * 忙则拒绝（现状 m_propModelRunning 布尔的等价物 → 框架 busy() 门控）；
-  //   * 取消在 compute 的进度回调里生效、commit 不执行（现状「发布是临界区」）；
-  //   * 失败态经既有通道上 UI：失败串落到 job.error，commit 段读到后由调用方
-  //     照旧 emit modelFailed / showResult(false, why)；
+  //   * 取消（runner.requestCancel / 任务页取消 / 工程切换开新任务会话）在
+  //     compute 的下一个进度点生效（#160），commit 不执行（「发布是临界区」）；
+  //   * 失败态经既有通道上 UI：失败串落到 computed.error，commit 段（失败态
+  //     也执行）emit modelFailed，UI 在 jobCompleted 后 showResult(false, why)；
   //   * 任务服务缺席时退化同步直连（现状无池兜底路径原样保留）。
   //
   // Job 结构体复用 PropertyModelComputed（它已经是「输入快照 + 中间产物 +
@@ -121,9 +128,12 @@ public:
     PropertyModelRequest request;
     PropertyModelComputed computed;
     double overlayAlpha = 1.0;
-    // 已登记标记。commit 段（成功时）置 true——UI 段据此判定「commit 已跑过」，
-    // 不再二次登记。比拿 runner.busy() 判更可靠：commit 段在发 finished 之前
-    // 就 clearTask() 了。
+    // owner 线程 prepare 段快照（#153）：worker 只读这两个字段，不读成员。
+    QString projectDir;
+    bool catalogOpen = false;
+    // 已登记标记：commit 段登记成功时置 true。UI 收尾接
+    // JobRunnerBase::jobCompleted（commit/drop 之后发，#159）读它与
+    // computed.out.ok/error 判成功、失败。
     bool registered = false;
   };
 
@@ -134,7 +144,6 @@ public:
   // 读登记结果。
   PaleoTask *startJob(paleo::jobs::JobRunner<PropertyModelJob> &runner,
                       const PropertyModelRequest &request, double overlayAlpha,
-                      QObject *progressSink = nullptr,
                       std::shared_ptr<PropertyModelJob> *started = nullptr);
 
   static bool loadSurface(const QString &path, paleo::stratgrid::SurfaceGrid *out,

@@ -25,7 +25,9 @@
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "../src/ui/correlationpanel.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
+#include "../src/catalog/datacatalog.h"
 #include "../src/ui/dialogs/folderconfirm.h"
 #include "../src/ui/faults/faultmanagerpanel.h"
 #include "../src/ui/layoutdesignershell.h"
@@ -767,6 +769,45 @@ class TestUiShell : public QObject
       QCOMPARE(dock->width(), width);
       QVERIFY(!right->isHidden());
       inner->removeTab(0);
+    }
+
+    // #154/#156：换工程清工程作用域视图——预览标签全关、测井对比井集清空；
+    // 重开工程时测井对比从 catalog 重灌（不依赖本会话的导入事件）。
+    void projectSwitchResetsProjectScopedViews()
+    {
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                             m_ctx->compositionWf(), m_ctx->validationWf(),
+                             m_ctx->importSvc(), m_ctx->seismicLink(),
+                             m_ctx->processingSvc(), m_ctx->store(),
+                             m_ctx->editingSvc(), m_ctx->layoutSvc(),
+                             m_ctx->taskSvc()); // 幂等：套件内已 attach 时为空操作
+      auto *preview = m_win->findChild<DataPreviewTabs *>(QStringLiteral("dataPreview"));
+      auto *corr = m_win->findChild<WellCorrelationPanel *>(QStringLiteral("correlationPanel"));
+      QVERIFY(preview && corr);
+
+      QTemporaryDir dirA, dirB;
+      const QString qgzA = dirA.filePath(QStringLiteral("a.qgz"));
+      QVERIFY(m_ctx->projectSvc()->createProject(qgzA));
+      QString error;
+      const QString asset = m_ctx->importSvc()->importProjectFile(
+          QFINDTESTDATA("../testdata/project_area/A1.Las"), &error);
+      QVERIFY2(!asset.isEmpty(), qPrintable(error));
+      preview->openAsset(asset);
+      QVERIFY(preview->tabCount() >= 1);
+      int wellLogs = 0;
+      for (const CatalogAsset &a : m_ctx->importSvc()->catalog()->assets())
+        if (a.type == QLatin1String("well_log"))
+          ++wellLogs;
+      QVERIFY(wellLogs >= 1);
+      corr->setWells({{asset, QStringLiteral("A1")}});
+      QCOMPARE(corr->wellCount(), 1);
+
+      QVERIFY(m_ctx->projectSvc()->createProject(dirB.filePath(QStringLiteral("b.qgz"))));
+      QCOMPARE(preview->tabCount(), 0);   // #154：旧工程标签不残留
+      QCOMPARE(corr->wellCount(), 0);     // #156：旧工程井集不残留
+
+      QVERIFY(m_ctx->projectSvc()->openProject(qgzA));
+      QTRY_COMPARE_WITH_TIMEOUT(corr->wellCount(), wellLogs, 3000); // #156：从 catalog 重灌
     }
 
     void canvasYieldsSpaceToDocks()

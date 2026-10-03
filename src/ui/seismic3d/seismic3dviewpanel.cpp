@@ -420,9 +420,19 @@ void Seismic3DViewPanel::updateQualityLabel(const QString &quality) {
 }
 
 void Seismic3DViewPanel::setVolume(std::shared_ptr<SgyVolume> volume) {
+    // #158：换体/清体先中止旧体在途的切片读取（结果按槽位句柄丢弃）。
+    for (std::size_t si = 0; si < slotTasks_.size(); ++si)
+        supersedeInFlightSlice(si);
     viewport_->setVolume(volume);
 
-    if (!volume || !volume->IsLoaded()) {
+    const bool loaded = volume && volume->IsLoaded();
+    // 无体（如切到无地震的工程）时切片控件禁用，不再对旧 SEG-Y 发起读取。
+    for (QWidget *w : {static_cast<QWidget *>(inlineSlider_), static_cast<QWidget *>(inlineSpin_),
+                       static_cast<QWidget *>(xlineSlider_), static_cast<QWidget *>(xlineSpin_),
+                       static_cast<QWidget *>(timeSlider_), static_cast<QWidget *>(timeSpin_)})
+        if (w)
+            w->setEnabled(loaded);
+    if (!loaded) {
         return;
     }
 

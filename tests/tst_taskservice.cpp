@@ -185,6 +185,81 @@ private slots:
     panel.refresh();
     QCOMPARE(list->topLevelItemCount(), 0);
   }
+
+  // #153：beginNewSession() 会话号自增、运行中任务被取消、排队未出队的
+  // 任务不跑 work（旧工程任务不在新工程里开工），终态均为 Cancelled。
+  void beginNewSessionCancelsRunningAndQueued()
+  {
+    PaleoTaskService svc(nullptr);
+    svc.setMaxWorkerThreads(1);
+    std::atomic_bool firstStarted{false};
+    std::atomic_bool secondRan{false};
+    auto *first = svc.start(QStringLiteral("old-1"), [&](PaleoTask *task) {
+      firstStarted.store(true);
+      QElapsedTimer c;
+      c.start();
+      while (!task->cancelRequested() && c.elapsed() < 3000)
+        QThread::msleep(2);
+      return QString();
+    });
+    auto *second = svc.start(QStringLiteral("old-2"), [&](PaleoTask *) {
+      secondRan.store(true);
+      return QString();
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(firstStarted.load(), 3000);
+    const quint64 s0 = first->session();
+    QCOMPARE(second->session(), s0);
+    QCOMPARE(svc.beginNewSession(), s0 + 1);
+    QCOMPARE(svc.session(), s0 + 1);
+    QTRY_VERIFY_WITH_TIMEOUT(!first->running() && !second->running(), 3000);
+    QCOMPARE(first->state(), PaleoTask::State::Cancelled);
+    QCOMPARE(second->state(), PaleoTask::State::Cancelled);
+    QVERIFY2(!secondRan.load(), "queued task ran its work after the session was reset");
+    auto *fresh = svc.start(QStringLiteral("new"), [](PaleoTask *) { return QString(); });
+    QCOMPARE(fresh->session(), s0 + 1);
+    QSignalSpy fin(fresh, &PaleoTask::finished);
+    QVERIFY(fin.wait(3000));
+    QCOMPARE(fresh->state(), PaleoTask::State::Succeeded);
+  }
+
+  // #164：终态非 quiet 任务按上限保留（删最旧），quiet 任务终态后自动移除；
+  // 运行中任务永不删。
+  void registryRetentionIsBounded()
+  {
+    PaleoTaskService svc(nullptr);
+    svc.setRetention(/*maxFinished=*/3, /*quietLingerMs=*/0);
+    QSemaphore hold;
+    auto *running = svc.start(QStringLiteral("long"), [&hold](PaleoTask *) {
+      hold.acquire();
+      return QString();
+    });
+    QVector<qint64> ids;
+    for (int i = 0; i < 8; ++i)
+    {
+      auto *t = svc.start(QStringLiteral("t%1").arg(i), [](PaleoTask *) { return QString(); });
+      ids << t->id();
+      QSignalSpy fin(t, &PaleoTask::finished);
+      QVERIFY(fin.wait(3000));
+    }
+    for (int i = 0; i < 6; ++i)
+    {
+      auto *q = svc.start(QStringLiteral("slice"), [](PaleoTask *) { return QString(); },
+                          QString(), /*quiet=*/true);
+      QSignalSpy fin(q, &PaleoTask::finished);
+      QVERIFY(fin.wait(3000));
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(svc.tasks().size(), 4, 3000); // long + 最近 3 条
+    QVERIFY(svc.tasks().contains(running));
+    QVector<qint64> kept;
+    for (PaleoTask *t : svc.tasks())
+      if (t != running)
+        kept << t->id();
+    QCOMPARE(kept, (QVector<qint64>{ids[5], ids[6], ids[7]}));
+    hold.release();
+    QSignalSpy fin(running, &PaleoTask::finished);
+    QVERIFY(fin.wait(3000));
+    QTRY_COMPARE_WITH_TIMEOUT(svc.tasks().size(), 3, 3000);
+  }
 };
 
 QTEST_MAIN(TestTaskService)

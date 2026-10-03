@@ -183,6 +183,9 @@ private slots:
   void asyncJobSucceedsAndRegistersOnOwnerThread();
   void asyncJobCancelSkipsCommit();
   void asyncJobRejectsWhenBusyAndReportsFailure();
+  void asyncJobRegisteredBeforeCallerFinishedSlot();
+  void asyncJobDroppedOnSessionReset();
+  void computeSnapshotIsPureAndCancellable();
 };
 
 void TestPropWorkflow::wktSegmentsAndFaultSet()
@@ -784,7 +787,7 @@ void TestPropWorkflow::asyncJobSucceedsAndRegistersOnOwnerThread()
   QSignalSpy failed(&wf, &PropertyModelWorkflow::modelFailed);
 
   std::shared_ptr<PropertyModelWorkflow::PropertyModelJob> job;
-  PaleoTask *task = wf.startJob(runner, asyncFixtureRequest(), 1.0, nullptr, &job);
+  PaleoTask *task = wf.startJob(runner, asyncFixtureRequest(), 1.0, &job);
   QVERIFY2(task, "任务池在侧仍应受理");
   QVERIFY(job);
   QVERIFY(pumpUntil([&] { return stored.size() + failed.size() > 0; }));
@@ -826,7 +829,7 @@ void TestPropWorkflow::asyncJobCancelSkipsCommit()
   QSignalSpy stored(&wf, &PropertyModelWorkflow::modelStored);
 
   std::shared_ptr<PropertyModelWorkflow::PropertyModelJob> job;
-  PaleoTask *task = wf.startJob(runner, asyncFixtureRequest(), 1.0, nullptr, &job);
+  PaleoTask *task = wf.startJob(runner, asyncFixtureRequest(), 1.0, &job);
   QVERIFY(task);
   // 立刻取消：compute 会在下一个进度点被 CancelFn 打断
   runner.requestCancel();
@@ -859,10 +862,10 @@ void TestPropWorkflow::asyncJobRejectsWhenBusyAndReportsFailure()
   // (a) 忙则拒绝：第一代在飞时，第二代 startJob 返回 nullptr（现状
   //     m_propModelRunning 布尔的等价物）
   std::shared_ptr<PropertyModelWorkflow::PropertyModelJob> first;
-  PaleoTask *t1 = wf.startJob(runner, asyncFixtureRequest(), 1.0, nullptr, &first);
+  PaleoTask *t1 = wf.startJob(runner, asyncFixtureRequest(), 1.0, &first);
   QVERIFY(t1);
   std::shared_ptr<PropertyModelWorkflow::PropertyModelJob> second;
-  PaleoTask *t2 = wf.startJob(runner, asyncFixtureRequest(), 1.0, nullptr, &second);
+  PaleoTask *t2 = wf.startJob(runner, asyncFixtureRequest(), 1.0, &second);
   QVERIFY2(!t2, "忙则必须拒绝第二代");
   QVERIFY(!second);
   QVERIFY(runner.busy());
@@ -889,7 +892,7 @@ void TestPropWorkflow::asyncJobRejectsWhenBusyAndReportsFailure()
     if (asset.type == QLatin1String("property_volume"))
       ++before;
 
-  PaleoTask *badTask = wf.startJob(runner2, bad, 1.0, nullptr, &badJob);
+  PaleoTask *badTask = wf.startJob(runner2, bad, 1.0, &badJob);
   QVERIFY(badTask);
   QVERIFY(pumpUntil([&] { return !runner2.busy(); }));
   QCOMPARE(badTask->state(), PaleoTask::State::Failed);
@@ -1078,6 +1081,91 @@ void TestPropWorkflow::deviatedWellUsesTrajectoryStations()
   QCOMPARE(cellD.value, 6.0);
   QVERIFY(cellD.columnJ >= 1);         // 代表柱已离开井口柱
   QVERIFY(cellD.supportLength > 0.0);
+}
+
+// ---- #159：调用方在 startJob 之后连的 task->finished 槽里，登记已完成 ----
+// （主窗口 finishPropertyModelRun 就是这样接的；旧 JobRunner 把 commit 再排
+// 一次队，收尾槽读到 registered=false / 空文件名。）
+void TestPropWorkflow::asyncJobRegisteredBeforeCallerFinishedSlot()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(tmp.path()));
+  PropertyModelWorkflow wf(&cat, tmp.path());
+
+  QObject dispatcher;
+  PaleoTaskService svc(nullptr, &dispatcher);
+  paleo::jobs::JobRunner<PropertyModelWorkflow::PropertyModelJob> runner(&dispatcher);
+  runner.setTaskService(&svc);
+
+  std::shared_ptr<PropertyModelWorkflow::PropertyModelJob> job;
+  PaleoTask *task = wf.startJob(runner, asyncFixtureRequest(), 1.0, &job);
+  QVERIFY(task);
+  int seen = -1;
+  QString seenPath;
+  QObject ctx;
+  connect(task, &PaleoTask::finished, &ctx, [&] {
+    seen = job->registered ? 1 : 0;
+    seenPath = job->computed.out.path;
+  });
+  bool completed = false;
+  connect(&runner, &paleo::jobs::JobRunnerBase::jobCompleted, &ctx,
+          [&](quint64, bool committed) { completed = committed; });
+  QVERIFY(pumpUntil([&] { return seen >= 0 && completed; }));
+  QCOMPARE(seen, 1);
+  QVERIFY(!seenPath.isEmpty());
+  svc.shutdown(3000, false);
+}
+
+// ---- #153：工程切换（任务服务开新会话）→ 在途属性建模被丢弃、不登记 ----
+void TestPropWorkflow::asyncJobDroppedOnSessionReset()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(tmp.path()));
+  PropertyModelWorkflow wf(&cat, tmp.path());
+
+  QObject dispatcher;
+  PaleoTaskService svc(nullptr, &dispatcher);
+  paleo::jobs::JobRunner<PropertyModelWorkflow::PropertyModelJob> runner(&dispatcher);
+  runner.setTaskService(&svc);
+  QSignalSpy stored(&wf, &PropertyModelWorkflow::modelStored);
+
+  std::shared_ptr<PropertyModelWorkflow::PropertyModelJob> job;
+  PaleoTask *task = wf.startJob(runner, asyncFixtureRequest(), 1.0, &job);
+  QVERIFY(task);
+  svc.beginNewSession(); // AppContext 在 projectAboutToClose 上调用
+  QVERIFY(pumpUntil([&] { return !runner.busy(); }));
+  QCOMPARE(task->state(), PaleoTask::State::Cancelled);
+  QVERIFY(!job->registered);
+  QCOMPARE(stored.size(), 0);
+  for (const CatalogAsset &asset : cat.assets())
+    QVERIFY(asset.type != QLatin1String("property_volume"));
+  svc.shutdown(3000, false);
+}
+
+// ---- #153：compute 只用 prepare 段快照的工程目录；compute 纯函数不读成员 ----
+void TestPropWorkflow::computeSnapshotIsPureAndCancellable()
+{
+  // 纯函数：catalog 未打开 → 如实失败，不发信号（worker 线程不 emit）
+  PropertyModelRequest req = asyncFixtureRequest();
+  const auto closed = PropertyModelWorkflow::computeSnapshot(req, QString(), false);
+  QVERIFY(!closed.ok);
+  QVERIFY(!closed.error.isEmpty());
+  // 进度回调返回 false（取消）→ 立即失败、错误为「已取消」
+  int calls = 0;
+  const auto cancelled = PropertyModelWorkflow::computeSnapshot(
+      req, QString(), true, [&calls](double, const QString &) {
+        ++calls;
+        return false;
+      });
+  QVERIFY(!cancelled.ok);
+  QCOMPARE(calls, 1);
+  QCOMPARE(cancelled.error, QStringLiteral("已取消"));
+  const auto ok = PropertyModelWorkflow::computeSnapshot(req, QString(), true);
+  QVERIFY2(ok.ok, qPrintable(ok.error));
 }
 
 int main(int argc, char *argv[])

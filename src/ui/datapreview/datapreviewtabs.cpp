@@ -664,6 +664,30 @@ void DataPreviewTabs::closeAssetTab(const QString &assetId)
   }
 }
 
+void DataPreviewTabs::closeAllTabs()
+{
+  const QStringList ids = m_pageOfAsset.keys();
+  for (const QString &id : ids)
+    closeAssetTab(id);
+  // 不在 m_pageOfAsset 里登记的页（理论上没有）一并摘掉，确保空态。
+  while (m_tabs->count() > 0)
+  {
+    QWidget *w = m_tabs->widget(0);
+    m_tabs->removeTab(0);
+    if (w)
+    {
+      w->setParent(nullptr);
+      w->deleteLater();
+    }
+  }
+  m_pendingSection.clear();
+  m_pendingLas.clear();
+  m_tiledCanvas.clear();
+  m_tiledSample = -1;
+  m_tabs->setVisible(false);
+  m_emptyLabel->setVisible(true);
+}
+
 bool DataPreviewTabs::isMissingSourceState(const QString &assetId) const
 {
   QWidget *page = m_pageOfAsset.value(assetId);

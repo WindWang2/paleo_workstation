@@ -393,6 +393,20 @@ WellCorrelationPanel::~WellCorrelationPanel()
   delete m_ruler;
 }
 
+void WellCorrelationPanel::resetProject()
+{
+  for (auto it = m_lasTask.constBegin(); it != m_lasTask.constEnd(); ++it)
+    if (auto *t = it.value().data(); t && t->running())
+      t->requestCancel();
+  m_lasTask.clear();
+  for (auto it = m_lasSeq.begin(); it != m_lasSeq.end(); ++it)
+    ++it.value();
+  m_lasByWell.clear();
+  if (m_browser)
+    m_browser->setCurves(QString(), {});
+  setWells({});
+}
+
 void WellCorrelationPanel::setTaskService(PaleoTaskService *svc)
 {
   m_taskSvc = svc;

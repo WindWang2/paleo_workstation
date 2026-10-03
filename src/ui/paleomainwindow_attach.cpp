@@ -509,12 +509,27 @@ void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
               // （原 m_propModelRunning 布尔的等价物）。
               m_propModelRunner.setTaskService(m_taskSvc);
               m_propModelTask = m_propModelWf->startJob(m_propModelRunner, req, overlayAlpha,
-                                                        m_propModelPanel, &m_propModelJob);
-              if (m_propModelTask)
-                connect(m_propModelTask.data(), &PaleoTask::finished, this,
-                        [this, overlayAlpha] { finishPropertyModelRun(overlayAlpha); });
-              else
+                                                        &m_propModelJob);
+              if (!m_propModelTask)
+              {
                 m_propModelRunning = false;
+                m_propModelPanel->setBusy(false);
+                return;
+              }
+              // #163：进度经任务对象回主线程（任务属服务，服务排空前不析构），
+              // 由主窗口转给面板——worker 不再持有面板裸指针。
+              const QPointer<PaleoTask> task = m_propModelTask;
+              const QPointer<PropertyModelPanel> panel = m_propModelPanel;
+              connect(m_propModelTask.data(), &PaleoTask::changed, this, [task, panel] {
+                if (task && panel && task->running())
+                  panel->updateProgress(qMax(0, task->stagePercent()), task->stage());
+              });
+              // #159：收尾接 jobCompleted（commit/drop 执行完之后发），而不是
+              // PaleoTask::finished——UI 段必须读到登记结果与登记失败。
+              // 框架忙则拒绝，同一时刻只有一代，单发连接即可。
+              connect(&m_propModelRunner, &paleo::jobs::JobRunnerBase::jobCompleted, this,
+                      [this, overlayAlpha](quint64, bool) { finishPropertyModelRun(overlayAlpha); },
+                      Qt::SingleShotConnection);
               return;
             }
 
@@ -538,17 +553,22 @@ void PaleoMainWindow::finishPropertyModelRun(double overlayAlpha)
   if (!m_propModelWf || !m_propModelPanel)
     return;
 
-  // finished 回包/同步兜底都在 GUI 线程。方向20 起 catalog 登记由 JobRunner 的
-  // commit 段完成（且已断言 owner 线程），本函数只负责把结果呈到 UI——不要再
-  // 无条件调 commitComputed，那会二次登记同一份 staging。
-  //
-  // 判据用 job->registered（commit 段成功时置位），不拿 runner.busy() 判：commit
-  // 段在发 finished 之前就 clearTask() 了，busy() 会误判成「没登记过」。
-  // 同步兜底路径（无任务池）压根不建 job，故仍需直连登记。
+  // 异步路径由 JobRunnerBase::jobCompleted 调到这里：commit（成功或失败）/
+  // drop 都已执行完（#159）。catalog 登记由 JobRunner 的 commit 段完成（已断言
+  // owner 线程），本函数只负责把结果呈到 UI——不要再调 commitComputed，那会
+  // 二次登记同一份 staging。登记失败时 commitComputed 已把 computed.out.ok
+  // 置假并回填错误串，下面按失败如实上 UI。
+  // 同步兜底路径（无任务池）不建 job，仍需直连登记。
   PropertyModelOutput out;
   if (m_propModelJob)
   {
     m_propModelComputed = m_propModelJob->computed; // 共享同一份，commit 已回填
+    if (!cancelled && m_propModelComputed.out.ok && !m_propModelJob->registered)
+    {
+      m_propModelComputed.out.ok = false; // 防御：未登记不报成功
+      if (m_propModelComputed.out.error.isEmpty())
+        m_propModelComputed.out.error = tr("属性体登记失败");
+    }
   }
   else if (!cancelled && m_propModelComputed.ok)
   {
@@ -748,6 +768,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                     QStringLiteral("Paleo"));
               });
       bottomTabs->addTab(corrPanel, tr("测井对比"));
+      m_corrPanel = corrPanel;
     }
   }
 
@@ -1155,20 +1176,10 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
               // 文件夹导入期间不逐文件开标签——确认后只开井口标签（§4）。
               if (previewForImport && !m_folderImportActive)
                 previewForImport->openAsset(assetId);
+              // LAS imports pull the GR curve into the column when present
+              // (#156：井集与工程打开同一来源——catalog 全部 well_log)。
               if (corrPanel && kind == QLatin1String("well_log"))
-              {
-                QList<QPair<QString, QString>> wells;
-                for (const QString &id : m_previewDoc->assetIds(QStringLiteral("well_log")))
-                  wells.append({id, m_previewDoc->assetSource(id)});
-                corrPanel->setWells(wells);
-                // LAS imports pull the GR curve into the column when present.
-                const QString src = m_previewDoc->assetSource(assetId);
-                if (src.endsWith(QLatin1String(".las"), Qt::CaseInsensitive))
-                  corrPanel->loadWellLas(assetId,
-                                         QDir(m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
-                                                           : QString()).absoluteFilePath(src),
-                                         QStringLiteral("GR"));
-              }
+                refreshCorrelationWells(assetId);
             });
 }
 

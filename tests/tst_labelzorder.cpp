@@ -75,7 +75,14 @@ static QgsVectorLayer *mkRectLayer(QgsProject *proj, const QString &name,
 }
 
 // 大字号黑底矩形标注：OrderedPositionsAroundPoint 固定 BottomRight，
-// 标注盒左上角锚在点位（像素坐标向右下展开），盒内全黑、无碰撞随机性。
+// 标注盒左上角锚在点位（像素坐标向右下展开），盒内全黑。
+// #138：标注盒宽度随字体变——"Sans" 解析到 DejaVu Sans（CI runner 只有它）时
+// 字更宽，A1 标注盒（img x 从 60 起）与 C 标注盒（x 从 120 起）交叠。补丁路径
+// 每层独立标注引擎、互不碰撞；原生路径共享一个 PAL 引擎，两枚冲突时 PAL
+// 丢掉 A1 → nativeLabelsStayOnTop 的 A1 探区无黑（CI 恒红的根因；本机用
+// DejaVu-only fontconfig + QGIS 4.2.3 deb 闭包复现，有 Noto 时字窄、不交叠、绿）。
+// 显式 AllowOverlapAtNoCost：两条路径都不做标注间避让，像素断言只测 z 序，
+// 不再依赖字体宽度与 PAL 冲突裁决。
 static void enableBigLabel(QgsVectorLayer *vl)
 {
   QgsPalLayerSettings s;
@@ -83,6 +90,7 @@ static void enableBigLabel(QgsVectorLayer *vl)
   s.placement = Qgis::LabelPlacement::OrderedPositionsAroundPoint;
   s.pointSettings().setPredefinedPositionOrder(
       {Qgis::LabelPredefinedPointPosition::BottomRight});
+  s.placementSettings().setOverlapHandling(Qgis::LabelOverlapHandling::AllowOverlapAtNoCost);
   QgsTextFormat fmt;
   fmt.setFont(QFont(QStringLiteral("Sans")));
   fmt.setSize(24);

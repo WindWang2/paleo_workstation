@@ -403,6 +403,9 @@ private slots:
     WellCompositePanel panel;
     panel.resize(900, 600);
     panel.show();
+    // #151：先等窗口真正 exposed，几何有效后再点击并强断言（旧的
+    // spy.count() >= 0 恒真，测不出任何回归）。
+    QVERIFY(QTest::qWaitForWindowExposed(&panel));
     QApplication::processEvents();
 
     QVERIFY(panel.legendWidget()->miniBar() != nullptr);
@@ -411,8 +414,11 @@ private slots:
 
     // 程序化点击中点 → 请求滚动（现有 handleMouseAt 行为）
     QWidget *bar = panel.legendWidget()->miniBar();
+    if (!bar->isVisible() || bar->width() <= 0)
+      QSKIP("迷你导航条在当前布局下不可见/无宽度，无法做点击断言");
     QTest::mouseClick(bar, Qt::LeftButton, Qt::NoModifier, QPoint(bar->width() / 2, bar->height() / 2));
-    QVERIFY(spy.count() >= 0); // 点击产生跳转请求（几何在隐藏窗口下可能 0——不强断言）
+    QCOMPARE(spy.count(), 1); // 按下发一次跳转请求，松开不再发
+    QVERIFY(std::isfinite(spy.first().at(0).toDouble()));
   }
 
   // ---- D2.9/D1.12 视口同步锁 ----

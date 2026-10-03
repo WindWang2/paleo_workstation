@@ -879,6 +879,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-prediction-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-sections-alignment.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-seismic.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-seismic-inversion.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-surfaceops.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-time-depth.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-ux.cmake"

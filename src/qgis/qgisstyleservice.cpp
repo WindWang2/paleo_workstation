@@ -320,6 +320,55 @@ void QgisStyleService::applyBoundaryLayerStyle(QgsVectorLayer *layer)
       new QgsSingleSymbolRenderer(QgsFillSymbol::createSimple(props).release()));
 }
 
+void QgisStyleService::applyPlannedWellLayerStyle(QgsVectorLayer *layer)
+{
+  if (!layer)
+    return;
+  // 空心橙虚线方框：部署建议（非实井），与实井实心圆点同图可分。
+  QVariantMap props;
+  props.insert(QStringLiteral("name"), QStringLiteral("square"));
+  props.insert(QStringLiteral("color"), QStringLiteral("transparent"));
+  props.insert(QStringLiteral("outline_color"), QStringLiteral("#F29900"));
+  props.insert(QStringLiteral("outline_width"), QStringLiteral("0.5"));
+  props.insert(QStringLiteral("outline_style"), QStringLiteral("dash"));
+  props.insert(QStringLiteral("size"), QStringLiteral("4.5"));
+  layer->setRenderer(
+      new QgsSingleSymbolRenderer(QgsMarkerSymbol::createSimple(props).release()));
+
+  if (layer->fields().lookupField(QStringLiteral("name")) < 0)
+    return;
+  QgsPalLayerSettings lbl;
+  lbl.fieldName = QStringLiteral("name");
+  lbl.isExpression = false;
+  QgsTextFormat fmt;
+  fmt.setSize(8.0);
+  fmt.setSizeUnit(Qgis::RenderUnit::Points);
+  fmt.setColor(QColor(QStringLiteral("#8A5A00")));
+  QgsTextBufferSettings buffer;
+  buffer.setEnabled(true);
+  buffer.setSize(0.8);
+  buffer.setColor(Qt::white);
+  fmt.setBuffer(buffer);
+  lbl.setFormat(fmt);
+  layer->setLabeling(new QgsVectorLayerSimpleLabeling(lbl));
+  layer->setLabelsEnabled(true);
+}
+
+void QgisStyleService::applyHoleLayerStyle(QgsVectorLayer *layer)
+{
+  if (!layer)
+    return;
+  // 警示橙半透明填 + 橙虚线描边（与配准临时层同调性）：诊断叠加层，
+  // 不遮挡下层井位/因素图。
+  QVariantMap props;
+  props.insert(QStringLiteral("color"), QStringLiteral("242,153,0,64"));
+  props.insert(QStringLiteral("outline_color"), QStringLiteral("#F29900"));
+  props.insert(QStringLiteral("outline_width"), QStringLiteral("0.5"));
+  props.insert(QStringLiteral("outline_style"), QStringLiteral("dash"));
+  layer->setRenderer(
+      new QgsSingleSymbolRenderer(QgsFillSymbol::createSimple(props).release()));
+}
+
 void QgisStyleService::applyConstraintLayerStyle(QgsVectorLayer *layer)
 {
   if (!layer || !layer->isValid())

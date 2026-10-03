@@ -111,6 +111,13 @@ class DataPreviewTabs : public QWidget
     QPointer<QWidget> m_detailsHost;
     QHash<QString, QPointer<QWidget>> m_detailsOfAsset;
     QWidget *buildContent(const QString &assetId, QWidget *page);
+    // 方向20 轮4：buildContent 的「geojson / boundary(.geojson)」分支析出到
+    // datapreviewtabgeojson.cpp。双条件匹配（geojson 类型，或 boundary 类型且
+    // 文件名以 .geojson 结尾）仍留在 buildContent 调用点。
+    QWidget *buildGeoJsonContent(DataCatalog *cat, const CatalogAsset &asset,
+                                 const CatalogVersion &v, const QString &abs,
+                                 const QString &assetId,
+                                 QWidget *host, QVBoxLayout *lay);
     // 方向20 轮4：buildContent 的「image_reference」分支析出到 datapreviewtabimage.cpp。
     QWidget *buildImageReferenceContent(DataCatalog *cat, const CatalogAsset &asset,
                                        const CatalogVersion &v, const QString &abs,

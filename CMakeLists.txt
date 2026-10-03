@@ -380,6 +380,7 @@ add_library(paleo_store STATIC
   src/metadata/layermanifest.cpp
   src/metadata/releasestore.cpp
   src/metadata/mapversionstore.cpp                  # 版本/发布状态机落表（meta sqlite）
+  src/metadata/layouttemplatestore.cpp              # 版式模板库语义索引（方向 25；catalog 存内容）
   src/metadata/metastore.cpp                        # project.sqlite user_version 门
   src/metadata/projectlock.cpp                      # 两实例同开一工程写互斥（QLockFile）
 )
@@ -466,6 +467,7 @@ add_library(paleo_workflow STATIC
   src/workflow/registration.cpp                    # W3 临时配准编排
   src/workflow/mappingworkflow.cpp                 # 厚度→约束IDW→相多边形链路
   src/workflow/mapexport.cpp                       # 层位图 PDF 导出
+  src/workflow/layouttemplatelibrary.cpp            # 版式模板库编排（qpt→catalog 版本 + 库表）
   src/workflow/mapbook.cpp                         # 地图册：AOI 格序列 + 模板变量（纯编排）
   src/workflow/mapbookqueue.cpp                    # 地图册：批量导出队列（任务服务 + 逐版记账）
   src/workflow/mapversioncontroller.cpp            # 保存版本/发布编排
@@ -759,6 +761,7 @@ add_paleo_test(tst_layoutundo LIBS paleo_ui)
 add_paleo_test(tst_layoutdesigner_full LIBS paleo_ui)
 add_paleo_test(tst_standardelements LIBS paleo_qgis) # 方向25：标准图件元素工厂 + 三类内容模板骨架
 add_paleo_test(tst_layoutpersistence LIBS paleo_qgis) # 方向25：布局随工程 QGZ round-trip
+add_paleo_test(tst_layouttemplatelibrary LIBS paleo_workflow) # 方向25：模板库（qpt→catalog 版本 + 库表）
 # ---- wave/data-foundation ----
 add_paleo_test(tst_catalog LIBS paleo_store)
 add_paleo_test(tst_projectparsers LIBS paleo_io)

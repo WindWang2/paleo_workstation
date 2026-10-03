@@ -87,6 +87,17 @@ endif()
 if(QGIS_PREFIX)
   list(PREPEND CMAKE_PREFIX_PATH "${QGIS_PREFIX}" "${QGIS_PREFIX}/apps/qt6")
 endif()
+# QScintilla：QGIS 的代码编辑器头（qgscodeeditor.h）传递包含它。它有自己的
+# 独立前缀（与 QGIS 分开安装），故也走 cache/env 解析；未显式给出时从既有的
+# CMAKE_PREFIX_PATH 逐个前缀自动发现——与上面 QGIS 的 find_* 同一套 HINTS 风格，
+# 不要求调用方额外记着传一个前缀。
+set(QSCINTILLA_PREFIX "" CACHE PATH "QScintilla install prefix（QGIS 代码编辑器头依赖；空=从 CMAKE_PREFIX_PATH 自动发现）")
+if(NOT QSCINTILLA_PREFIX AND DEFINED ENV{QSCINTILLA_PREFIX_PATH})
+  set(QSCINTILLA_PREFIX "$ENV{QSCINTILLA_PREFIX_PATH}" CACHE PATH "QScintilla install prefix" FORCE)
+endif()
+if(QSCINTILLA_PREFIX)
+  list(PREPEND CMAKE_PREFIX_PATH "${QSCINTILLA_PREFIX}")
+endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test Sql Xml Concurrent Svg PrintSupport Network SerialPort Positioning UiTools OpenGLWidgets Pdf PdfWidgets)
 # ---- wave3/ux-consistency D14 ----
@@ -109,6 +120,28 @@ find_path(GDAL_INCLUDE_DIR gdal.h HINTS
   PATHS /usr/include /usr/include/gdal REQUIRED)
 find_library(GDAL_LIB gdal HINTS
   "${QGIS_PREFIX}/lib" "${QGIS_PREFIX}/usr/lib" PATHS /usr/lib REQUIRED)
+# QGIS 的 qgscodeeditor.h 传递包含 <Qsci/qsciapis.h>。该包含是「QGIS 头 →
+# QScintilla 头」的形式，不在任何 *_INCLUDE_DIR 探测的范围内，故 QGIS 的
+# include 目录里并没有 Qsci/——头只存在于 QScintilla 自己的前缀里。缺这行时，
+# 任何（哪怕完全不用代码编辑器的）间接包含 qgscodeeditor.h 的 TU 都会报
+# C1083: 无法打开包括文件 "Qsci/qsciapis.h"。
+# 注意只需**头**，不需链库：QgsCodeEditor 继承 QsciScintilla，而 INDIC_MAX 是
+# 编译期常量；只有真正调用其成员函数的 TU 才需要 qscintilla2_qt6.lib。
+set(_qsci_hints "")
+foreach(_pfx IN LISTS CMAKE_PREFIX_PATH)
+  list(APPEND _qsci_hints "${_pfx}/include" "${_pfx}")
+endforeach()
+find_path(QSCINTILLA_INCLUDE_DIR Qsci/qsciapis.h HINTS
+  ${_qsci_hints} "${QGIS_PREFIX}/include"
+  "${QGIS_PREFIX}/apps/Qt6/include" "${QGIS_PREFIX}/apps/qt6/include"
+  PATHS /usr/include /usr/local/include)
+unset(_qsci_hints)
+if(QSCINTILLA_INCLUDE_DIR)
+  message(STATUS "QScintilla headers: ${QSCINTILLA_INCLUDE_DIR}")
+else()
+  message(WARNING "QScintilla headers not found — QGIS code editor headers "
+                  "(qgscodeeditor.h) will fail to compile if included transitively")
+endif()
 
 # ============================================================================
 # 4-Tier Dependency Architecture (ARCH-03 / P1-05)
@@ -125,6 +158,10 @@ target_link_libraries(paleo_qt_core INTERFACE
 
 add_library(paleo_qgis_core_deps INTERFACE)
 target_include_directories(paleo_qgis_core_deps INTERFACE ${QGIS_INCLUDE_DIR})
+# QScintilla 的头得跟着 QGIS 的头一起传播，见上面 find_path 处的说明。
+if(QSCINTILLA_INCLUDE_DIR)
+  target_include_directories(paleo_qgis_core_deps INTERFACE "${QSCINTILLA_INCLUDE_DIR}")
+endif()
 if(QGIS_PREFIX)
   # OSGeo4W installs SQLite, GDAL, GEOS and other public QGIS header
   # dependencies in the prefix's shared include directory.

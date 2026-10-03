@@ -56,7 +56,7 @@ struct SeedPoint
 struct TracedPick
 {
   int trace = 0;
-  int sample = 0;          // 窗口中心采样
+  int sample = 0;          // 同相轴锚点采样（贴边缩窗时不等于窗中心，#139）
   float confidence = 1.0f; // 语义见文件头；种子（手动）恒 1
 };
 

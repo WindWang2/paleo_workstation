@@ -1,5 +1,6 @@
 // 层：数据
 #include "services/seismictaskservice.h"
+#include "domain/seismic/sectionaxis.h"
 
 #include <QCoreApplication>
 #include <QFile>
@@ -1890,12 +1891,14 @@ QString trackStopText(paleo::hztrack::StopReason reason)
   return QString();
 }
 
-// 剖面列号 → 测线号标注（IL 剖面列=XL，XL 剖面列=IL）
-QString trackColLabel(int col, SgySliceType type, int colMin)
+// 剖面列号 → 测线号标注（IL 剖面列=XL，XL 剖面列=IL）；列轴见 sectionaxis.h（#147）
+QString trackColLabel(int col, SgySliceType type, int colMin, const std::vector<int> &lines)
 {
+  int lineNo = colMin + col;
+  seismic::sectionLineForColumn(lines, colMin, col, &lineNo);
   return type == SgySliceType::Inline
-             ? QStringLiteral("@XL%1").arg(colMin + col)
-             : QStringLiteral("@IL%1").arg(colMin + col);
+             ? QStringLiteral("@XL%1").arg(lineNo)
+             : QStringLiteral("@IL%1").arg(lineNo);
 }
 
 struct KernelTrackOutput
@@ -1944,12 +1947,14 @@ KernelTrackOutput runKernelTracking(
 
   const auto toPick = [&](const paleo::hztrack::TracedPick &p) {
     SeismicPick pick;
-    pick.inlineNo =
-        sectionType == SgySliceType::Inline ? sectionIndex : colMin + p.trace;
-    pick.xlineNo =
-        sectionType == SgySliceType::Inline ? colMin + p.trace : sectionIndex;
+    // 列 → 实际测线号（#147：非单位线距不能 colMin+col）；样点 → TWT 含记录延迟（#146）。
+    int lineNo = colMin + p.trace;
+    seismic::sectionLineForColumn(options.columnLines, colMin, p.trace, &lineNo);
+    pick.inlineNo = sectionType == SgySliceType::Inline ? sectionIndex : lineNo;
+    pick.xlineNo = sectionType == SgySliceType::Inline ? lineNo : sectionIndex;
     pick.sampleIndex = p.sample;
-    pick.twtMs = p.sample * double(sampleIntervalMs);
+    pick.twtMs = seismic::sectionTwtForSample(p.sample, options.startTimeMs,
+                                              double(sampleIntervalMs));
     pick.confidence = p.confidence;
     pick.interpreter = interpreter;
     pick.horizonName = horizonName;
@@ -1988,10 +1993,10 @@ KernelTrackOutput runKernelTracking(
         {
           parts << (left ? QObject::tr("左：%1%2")
                               .arg(trackStopText(stop.reason),
-                                   trackColLabel(gapTrace, sectionType, colMin))
+                                   trackColLabel(gapTrace, sectionType, colMin, options.columnLines))
                          : QObject::tr("右：%1%2")
                               .arg(trackStopText(stop.reason),
-                                   trackColLabel(gapTrace, sectionType, colMin)));
+                                   trackColLabel(gapTrace, sectionType, colMin, options.columnLines)));
           return;
         }
       }

@@ -33,3 +33,18 @@ class CartographicWorkAlgorithm : public QgsProcessingAlgorithm
     QVariantMap processAlgorithm( const QVariantMap &parameters, QgsProcessingContext &context,
                                   QgsProcessingFeedback *feedback ) override;
 };
+
+// Surfer 式全局 IDW：断层绕行测地距离替代「不可见即丢弃」（faultpath 内核）。
+class SurferIdwAlgorithm : public QgsProcessingAlgorithm
+{
+  public:
+    QString name() const override { return QStringLiteral( "paleo_surfer_idw" ); }
+    QString displayName() const override { return QStringLiteral( "Paleo: Surfer IDW (fault path)" ); }
+    QString group() const override { return QStringLiteral( "Single factor" ); }
+    QString groupId() const override { return QStringLiteral( "singlefactor" ); }
+    QString shortHelpString() const override;
+    SurferIdwAlgorithm *createInstance() const override { return new SurferIdwAlgorithm(); }
+    void initAlgorithm( const QVariantMap &configuration = QVariantMap() ) override;
+    QVariantMap processAlgorithm( const QVariantMap &parameters, QgsProcessingContext &context,
+                                  QgsProcessingFeedback *feedback ) override;
+};

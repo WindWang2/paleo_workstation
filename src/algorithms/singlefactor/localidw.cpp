@@ -2,6 +2,7 @@
 #include "localidw.h"
 
 #include "curvekernel.h"
+#include "partition.h"
 #include "support.h"
 
 #include <algorithm>
@@ -477,7 +478,13 @@ SurfaceResult evaluateLocalIdw( const PreparedInput &input, const GridSpec &grid
   BarrierGrid barriers;
   if ( useBarriers )
   {
-    barriers = labelHardBarriers( grid, input.constraints, input.samples, parameters.tolerance, &control );
+    // 屏障模型分派：grid_connectivity_v1（默认，有限端可绕行）或
+    // interpretation_partition_v1（自由端延界 + node-safe 洪泛，两侧不共享井）。
+    barriers = parameters.hardBarrierModel == "interpretation_partition_v1"
+                   ? labelInterpretationPartition( grid, input.constraints, input.samples,
+                                                   parameters.tolerance, &control )
+                   : labelHardBarriers( grid, input.constraints, input.samples,
+                                        parameters.tolerance, &control );
     if ( barriers.barrierCells < 0 )
     {
       result.status = Status::Cancelled;

@@ -85,6 +85,7 @@
 #include <qgsmessagelog.h>
 #include <qgslocatorwidget.h>
 #include <qgslocator.h>
+#include <qgsadvanceddigitizingdockwidget.h>
 #include <qgsvectorlayer.h>
 #include <qgslayertreelayer.h>
 #include <qgslayout.h>
@@ -1408,9 +1409,10 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                   status->setText(msg);
                 QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
               };
-              const bool local = params.value(QStringLiteral("method")).toString()
-                                 == QLatin1String("local_direction_idw");
-              if (!local || !m_taskSvc)
+              const QString methodId = params.value(QStringLiteral("method")).toString();
+              const bool taskPool = methodId == QLatin1String("local_direction_idw")
+                                 || methodId == QLatin1String("surfer_idw");
+              if (!taskPool || !m_taskSvc)
               {
                 QString err;
                 if (!constraint->generateFactor(horizon, factorId, params, &err))
@@ -1777,10 +1779,14 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 setNodeChecked(layerId, false);
               }
             });
-    // 类型化约束线两入口（方向线/打断线）：类型化捕获工具（type 列落地质类型词表）。
+    // 类型化约束线五入口（五种 Semantic 各一按钮）：类型化捕获工具
+    //（type 列落地质类型词表）。CAD dock 复用编辑条那只（方向23 收敛四处懒建）。
     if (m_canvasCtl)
     {
       auto *typedCtl = new TypedConstraintDrawController(m_canvasCtl, constraint, this);
+      if (auto *dock = findChild<QgsAdvancedDigitizingDockWidget *>(
+               QStringLiteral("paleo-editing-cad-dock")))
+        typedCtl->shareCadDock(dock);
       connect(constraintPage, &ConstraintPage::drawTypedConstraintRequested, typedCtl,
               [typedCtl](const QString &horizon, const QString &shape,
                          const QString &constraintType, int faciesCode) {
@@ -1791,6 +1797,67 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
               });
     }
+    // ---- 方向23：已绘约束线编辑面 ----
+    // 删除：store 落盘删除 + 已实例化的 constraints.<horizon> 图层重载。
+    connect(constraintPage, &ConstraintPage::constraintDeleteRequested, this,
+            [this, constraint, constraintPage](const QString &horizon, const QString &id) {
+              QString err;
+              if (!constraint->removeConstraint(id, &err))
+              {
+                QgsMessageLog::logMessage(err.isEmpty() ? tr("删除约束失败") : err,
+                                          QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+                return;
+              }
+              if (m_layerSvc)
+              {
+                const QString layerId = QStringLiteral("constraints.%1").arg(horizon);
+                if (auto *layer = m_layerSvc->instantiate(layerId))
+                {
+                  if (auto *vl = qobject_cast<QgsVectorLayer *>(layer))
+                  {
+                    vl->reload();
+                    vl->triggerRepaint();
+                  }
+                }
+              }
+              constraintPage->refreshConstraintList();
+            });
+    // 语义切换：走 updateConstraintLine 同一持久化通道（type 列 + params_json）。
+    connect(constraintPage, &ConstraintPage::constraintSemanticChangeRequested, this,
+            [constraint](const QString &, const QString &id, const QString &semantic) {
+              QString err;
+              if (!constraint->switchConstraintSemantic(id, semantic, &err))
+                QgsMessageLog::logMessage(err.isEmpty() ? tr("切换约束语义失败") : err,
+                                          QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+            });
+    // 顶点编辑：约束表是可写 GPKG（非派生只读），直接进编辑会话 + 顶点工具，
+    // 撤销/重做走编辑条的原生 undo 栈；提交后约束页重读列表。
+    connect(constraintPage, &ConstraintPage::editConstraintVerticesRequested, this,
+            [this, constraint, constraintPage](const QString &horizon) {
+              if (!m_layerSvc || !m_canvasCtl)
+                return;
+              const QString layerId = QStringLiteral("constraints.%1").arg(horizon);
+              QgsMapLayer *layer = m_layerSvc->instantiate(layerId);
+              auto *vl = qobject_cast<QgsVectorLayer *>(layer);
+              if (!vl)
+              {
+                QgsMessageLog::logMessage(tr("约束图层不可用：%1").arg(layerId),
+                                          QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+                return;
+              }
+              auto *editTb = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar"));
+              if (editTb)
+              {
+                editTb->refreshFromProject();
+                editTb->setCurrentLayer(vl);
+                editTb->actionVertexEdit()->trigger();
+                connect(editTb, &PaleoEditingToolbar::editingStopped, constraintPage,
+                        &ConstraintPage::refreshConstraintList, Qt::UniqueConnection);
+                if (editTb->isEditing() && editTb->currentLayer() == vl)
+                  return;
+              }
+              m_canvasCtl->canvas()->setCurrentLayer(vl);
+            });
     // ---- m2(B) end ----
   }
 }

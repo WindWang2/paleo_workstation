@@ -121,6 +121,12 @@ private slots:
   void nanSemantics();
   // 子波采样间隔与道不一致 → 显式失败。
   void dtMismatchFails();
+  // #141：低频模型为常数（不含层信息）时，带内阻抗细节必须按阻抗单位补回
+  //（旧实现无量纲相对阻抗直接相加，贡献 ≈0.05，形同只输出低频模型）。
+  void bandContributionInImpedanceUnits();
+  // #141：道振幅 ×1000 + 子波 amplitudeScale=1000 → 结果与未缩放一致（<1%）；
+  // 不给标定 → 反射系数大量越界，显式失败而非静默输出。
+  void amplitudeCalibrationScaleInvariant();
 };
 
 void TestInversionBandlimit::layeredClosedLoop()
@@ -277,6 +283,82 @@ void TestInversionBandlimit::dtMismatchFails()
   const BandlimitedResult r = bandlimitedInversion(trace.data(), kN, kDt, &bad, nullptr);
   QVERIFY(!r.ok);
   QVERIFY(!r.reason.empty());
+}
+
+void TestInversionBandlimit::bandContributionInImpedanceUnits()
+{
+  const Wavelet w = makeRicker(30.0, kDt, 128.0);
+  const std::vector<float> trace = synth(trueSpikes(), w);
+  const std::vector<float> truth = trueImpedance();
+  const int half = std::max(1, int(std::lround(1000.0 / 8.0 / kDt * 0.5)));
+  std::vector<float> lowTruth(std::size_t(kN), 0.0f);
+  lowCutMovingAverage(truth.data(), kN, half, lowTruth.data());
+  std::vector<float> truthHp(std::size_t(kN), 0.0f);
+  for (int i = 0; i < kN; ++i)
+    truthHp[std::size_t(i)] = truth[std::size_t(i)] - lowTruth[std::size_t(i)];
+
+  const std::vector<float> flatLow(std::size_t(kN), 6450.0f);
+  const BandlimitedResult r = bandlimitedInversion(trace.data(), kN, kDt, &w, flatLow.data());
+  QVERIFY2(r.ok, r.reason.c_str());
+  std::vector<float> band(std::size_t(kN), 0.0f);
+  double sdBand = 0.0, sdTruth = 0.0;
+  for (int i = 0; i < kN; ++i)
+  {
+    band[std::size_t(i)] = r.impedance[std::size_t(i)] - flatLow[std::size_t(i)];
+    sdBand += double(band[std::size_t(i)]) * double(band[std::size_t(i)]);
+    sdTruth += double(truthHp[std::size_t(i)]) * double(truthHp[std::size_t(i)]);
+  }
+  sdBand = std::sqrt(sdBand / kN);
+  sdTruth = std::sqrt(sdTruth / kN);
+  // 带内分量与高通真阻抗同形，且幅度同量级（阻抗单位，不是 0.05 的无量纲量）。
+  const double c = pearson(band, truthHp);
+  QVERIFY2(c >= 0.9, qPrintable(QString("带内分量与高通真阻抗相关 %1").arg(c)));
+  QVERIFY2(sdBand > 0.5 * sdTruth && sdBand < 2.0 * sdTruth,
+           qPrintable(QString("带内分量 σ=%1，高通真阻抗 σ=%2").arg(sdBand).arg(sdTruth)));
+  QVERIFY2(r.lowFreqVarianceFraction < 0.01,
+           qPrintable(QString("常数低频的方差占比应≈0，实际 %1").arg(r.lowFreqVarianceFraction)));
+}
+
+void TestInversionBandlimit::amplitudeCalibrationScaleInvariant()
+{
+  const Wavelet w = makeRicker(30.0, kDt, 128.0);
+  const std::vector<float> trace = synth(trueSpikes(), w);
+  const std::vector<float> truth = trueImpedance();
+  const int half = std::max(1, int(std::lround(1000.0 / 8.0 / kDt * 0.5)));
+  std::vector<float> low(std::size_t(kN), 0.0f);
+  lowCutMovingAverage(truth.data(), kN, half, low.data());
+
+  std::vector<float> scaled = trace;
+  for (float &v : scaled)
+    v *= 1000.0f;
+  Wavelet wk = w;
+  wk.amplitudeScale = 1000.0;
+
+  const BandlimitedResult ref = bandlimitedInversion(trace.data(), kN, kDt, &w, low.data());
+  const BandlimitedResult cal = bandlimitedInversion(scaled.data(), kN, kDt, &wk, low.data());
+  QVERIFY2(ref.ok && cal.ok, (ref.reason + cal.reason).c_str());
+  QVERIFY(cal.amplitudeCalibrated);
+  QVERIFY(!ref.amplitudeCalibrated);
+  for (int i = 0; i < kN; ++i)
+  {
+    const double a = ref.impedance[std::size_t(i)], b = cal.impedance[std::size_t(i)];
+    QVERIFY2(std::fabs(a - b) <= 0.01 * std::fabs(a),
+             qPrintable(QString("样 %1：%2 vs %3").arg(i).arg(a).arg(b)));
+  }
+
+  // 显式 options.amplitudeScale 与子波标定等价。
+  BandlimitedOptions opt;
+  opt.amplitudeScale = 1000.0;
+  const BandlimitedResult explicitCal =
+      bandlimitedInversion(scaled.data(), kN, kDt, &w, low.data(), opt);
+  QVERIFY2(explicitCal.ok, explicitCal.reason.c_str());
+  QVERIFY(std::fabs(explicitCal.impedance[700] - ref.impedance[700]) <= 0.01 * ref.impedance[700]);
+
+  // 未标定：缩放道直接当反射系数 → 越界比例高 → 显式失败。
+  const BandlimitedResult uncal = bandlimitedInversion(scaled.data(), kN, kDt, &w, low.data());
+  QVERIFY(!uncal.ok);
+  QVERIFY(!uncal.reason.empty());
+  QVERIFY(uncal.clampedFraction > 0.05);
 }
 
 QTEST_MAIN(TestInversionBandlimit)

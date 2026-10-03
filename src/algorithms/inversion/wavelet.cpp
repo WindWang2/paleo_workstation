@@ -248,8 +248,9 @@ WaveletExtractResult extractWavelet(const float *trace, int nTrace, double trace
     return result;
   }
 
-  // 子波首样在道网格上的偏移（取整吸附）。
-  const int offset = int(std::lround((waveletT0Ms - traceT0Ms) / sampleIntervalMs));
+  // 子波首样相对尖峰的样点时滞（取整吸附）。waveletT0Ms 是相对时滞，
+  // 不能再减道起始时间：spikeTrain 的样号 m 已按 (twt - traceT0)/dt 扣过一次（#140）。
+  const int offset = int(std::lround(waveletT0Ms / sampleIntervalMs));
   const int wl = waveletSamples;
 
   // Toeplitz 自相关 R[d]（d ∈ [0, wl)）与互相关 c[j]。
@@ -303,10 +304,12 @@ WaveletExtractResult extractWavelet(const float *trace, int nTrace, double trace
 
   Wavelet w;
   w.sampleIntervalMs = sampleIntervalMs;
-  w.t0Ms = traceT0Ms + double(offset) * sampleIntervalMs;
+  w.t0Ms = double(offset) * sampleIntervalMs;
   w.samples.resize(std::size_t(wl));
   for (int j = 0; j < wl; ++j)
     w.samples[std::size_t(j)] = float(waveD[std::size_t(j)] / peak);
+  // 归一化前的尺度即「道振幅 / 单位反射系数」，保存下来供反演标定（#141）。
+  w.amplitudeScale = peak;
 
   const std::vector<double> synth = forwardModel(spikeTrain, waveD, offset, nTrace);
   std::vector<double> traceD(std::size_t(nTrace), 0.0);
@@ -324,6 +327,8 @@ QByteArray waveletToJson(const Wavelet &wavelet, const QJsonObject &extra)
   QJsonObject root = extra;
   root.insert(QStringLiteral("sampleIntervalMs"), wavelet.sampleIntervalMs);
   root.insert(QStringLiteral("t0Ms"), wavelet.t0Ms);
+  if (wavelet.amplitudeScale > 0.0)
+    root.insert(QStringLiteral("amplitudeScale"), wavelet.amplitudeScale);
   QJsonArray arr;
   for (float v : wavelet.samples)
     arr.append(double(v));
@@ -357,6 +362,10 @@ bool waveletFromJson(const QByteArray &bytes, Wavelet *wavelet, QJsonObject *ext
   Wavelet w;
   w.sampleIntervalMs = dt;
   w.t0Ms = t0;
+  {
+    const double k = root.value(QStringLiteral("amplitudeScale")).toDouble(0.0);
+    w.amplitudeScale = (std::isfinite(k) && k > 0.0) ? k : 0.0;
+  }
   w.samples.resize(std::size_t(arr.size()));
   for (int i = 0; i < arr.size(); ++i)
   {
@@ -376,6 +385,7 @@ bool waveletFromJson(const QByteArray &bytes, Wavelet *wavelet, QJsonObject *ext
     QJsonObject rest = root;
     rest.remove(QStringLiteral("sampleIntervalMs"));
     rest.remove(QStringLiteral("t0Ms"));
+    rest.remove(QStringLiteral("amplitudeScale"));
     rest.remove(QStringLiteral("samples"));
     *extra = rest;
   }

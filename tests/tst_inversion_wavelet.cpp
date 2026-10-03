@@ -24,7 +24,7 @@ std::vector<float> synthTrace(const std::vector<ReflSpike> &spikes, const Wavele
   {
     const double rel = (sp.twtMs - traceT0Ms) / dtMs;
     const int m = int(std::lround(rel));
-    const int off = int(std::lround((w.t0Ms - traceT0Ms) / dtMs));
+    const int off = int(std::lround(w.t0Ms / dtMs)); // 子波 t0 为相对时滞
     for (int j = 0; j < w.sampleCount(); ++j)
     {
       const int i = m + off + j;
@@ -91,6 +91,9 @@ private slots:
   void degenerateInputsFail();
   // 4ms 采样同链可用（真工区体常见采样率）。
   void fourMsSampling();
+  // #140：道起始时间（记录延迟）非 0 时，同一合成道提取结果不变——
+  // 子波 t0 是相对尖峰的时滞，与道起始时间无关。
+  void extractIndependentOfTraceStartTime();
   // dsp::fft 共享后 seismicattr 的复数道链仍在（对拍 cos → Hilbert = sin）。
   void sharedFftCosineRoundtrip();
 };
@@ -175,6 +178,15 @@ void TestInversionWavelet::jsonRoundTrip()
   QCOMPARE(back.sampleCount(), w.sampleCount());
   QCOMPARE(back.sampleIntervalMs, w.sampleIntervalMs);
   QCOMPARE(back.t0Ms, w.t0Ms);
+  QCOMPARE(back.amplitudeScale, 0.0); // 解析子波未标定，不写键
+
+  Wavelet cal = w;
+  cal.amplitudeScale = 1234.5;
+  Wavelet calBack;
+  QJsonObject calExtra;
+  QVERIFY(waveletFromJson(waveletToJson(cal, extra), &calBack, &calExtra, &err));
+  QCOMPARE(calBack.amplitudeScale, 1234.5);
+  QVERIFY(!calExtra.contains(QStringLiteral("amplitudeScale")));
   for (int i = 0; i < w.sampleCount(); ++i)
     QCOMPARE(back.samples[std::size_t(i)], w.samples[std::size_t(i)]);
   QCOMPARE(extraBack.value(QStringLiteral("sourceWell")).toString(), QStringLiteral("well-A1"));
@@ -224,6 +236,31 @@ void TestInversionWavelet::fourMsSampling()
   const double c = corr(r.wavelet.samples, truth.samples);
   QVERIFY2(c >= 0.95, qPrintable(QString("4ms 相关 %1").arg(c)));
   QVERIFY(std::fabs(r.wavelet.dominantFreqHz() - 20.0) < 3.0);
+}
+
+void TestInversionWavelet::extractIndependentOfTraceStartTime()
+{
+  const Wavelet truth = makeRicker(25.0, 2.0, 128.0);
+  for (double traceT0 : {0.0, 100.0, 1000.0})
+  {
+    // 尖峰整体平移 traceT0，道也从 traceT0 开始采样 → 道样本与 traceT0=0 时完全相同。
+    std::vector<ReflSpike> spikes = fixtureSpikes();
+    for (ReflSpike &sp : spikes)
+      sp.twtMs += traceT0;
+    const std::vector<float> trace = synthTrace(spikes, truth, traceT0, 1501, 2.0);
+    const WaveletExtractResult r = extractWavelet(trace.data(), int(trace.size()), traceT0, 2.0,
+                                                  spikes.data(), int(spikes.size()), -64.0, 65);
+    QVERIFY2(r.ok, r.reason.c_str());
+    QVERIFY2(std::fabs(r.wavelet.t0Ms - (-64.0)) < 1e-9,
+             qPrintable(QString("traceT0=%1 t0=%2").arg(traceT0).arg(r.wavelet.t0Ms)));
+    const double c = corr(r.wavelet.samples, truth.samples);
+    QVERIFY2(c >= 0.95, qPrintable(QString("traceT0=%1 与真子波相关 %2").arg(traceT0).arg(c)));
+    QVERIFY2(r.fitCorrelation >= 0.99,
+             qPrintable(QString("traceT0=%1 拟合相关 %2").arg(traceT0).arg(r.fitCorrelation)));
+    // #141：振幅标定 = 归一化前的子波峰值（真子波峰 1、尖峰即反射系数 → ≈1）。
+    QVERIFY2(std::fabs(r.wavelet.amplitudeScale - 1.0) < 0.05,
+             qPrintable(QString("amplitudeScale %1").arg(r.wavelet.amplitudeScale)));
+  }
 }
 
 void TestInversionWavelet::sharedFftCosineRoundtrip()

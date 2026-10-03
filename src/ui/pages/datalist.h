@@ -7,6 +7,7 @@
 #include <QString>
 #include <QStringList>
 #include <QWidget>
+#include <functional>
 #include <memory>
 
 #include "dataops/dataopscommands.h"
@@ -48,6 +49,13 @@ class DataListPanel : public QWidget
   Q_OBJECT
 
   public:
+  // 方向34：计划井可见性过滤器（壳注入——siting 文档 retired 面与数据页
+  // 树保持一致；空 = 不过滤）。返回 false 的实体不出「计划井」组。
+  void setPlannedVisibilityFilter( std::function<bool( const QString &id )> visible )
+  {
+    m_plannedVisible = std::move( visible );
+  }
+
     explicit DataListPanel(QWidget *parent = nullptr);
 
     // 门面下发（DataPage 的 "paleo.page.importsvc" 动态属性 → 本面板）。
@@ -150,6 +158,8 @@ class DataListPanel : public QWidget
     bool eventFilter(QObject *watched, QEvent *event) override;
 
   private:
+    // 方向34：计划井可见性过滤器（setPlannedVisibilityFilter 注入，可空）。
+    std::function<bool(const QString &id)> m_plannedVisible;
     void buildDataOpsUi();          // P3 增量 UI（过滤条/队列/视图页）
     void refreshAssetTree();
     void rebuildRowSnapshot();      // m_rows 装配（stores + catalog）

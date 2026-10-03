@@ -29,6 +29,13 @@ class QgisStyleService : public QObject
     // 盖因素图与井点（地图域样式，DESIGN.md 例外条款）。
     static void applyBoundaryLayerStyle(class QgsVectorLayer *layer);
 
+    // ---- 方向 34：井网辅助图层符号 ----------------------------------------
+    // 计划井点：空心橙方框（非实井——与实井实心圆点在图上可分），name 标注。
+    static void applyPlannedWellLayerStyle(class QgsVectorLayer *layer);
+    // 井网覆盖空洞面：警示橙半透明填 + 橙虚线描边（registration 临时层
+    // 同调性；不遮挡下层井位/因素图）。
+    static void applyHoleLayerStyle(class QgsVectorLayer *layer);
+
     // 约束线图层按 type 字段语义分类渲染：方向线红实线、打断线墨实线、
     // 解释软边界橙虚线、等值线停线灰虚线、制图绕行蓝点划线；未标/旧
     // type=line 走常规细墨线。字段缺失 → 无操作。

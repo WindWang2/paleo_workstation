@@ -350,6 +350,7 @@ add_library(paleo_domain STATIC
   src/domain/wellrecords.cpp                        # 井文本记录类型 + XML 嗅探（自 io 下沉）
   src/domain/projectclassifier.cpp                  # §3 path/extension classifier + xml sniff
   src/domain/arearules.cpp                          # 工程级参数 seam（docs/AREA_PARAMETERS.md）
+  src/domain/wellsitingplan.cpp                     # 方向34：布井方案纯值类型（指标快照往返）
   src/domain/seismic/nicestep.cpp
   src/domain/seismic/timedepthmodel.cpp
   src/domain/seismic/sectionwellprojector.cpp
@@ -379,6 +380,7 @@ add_library(paleo_algorithms STATIC
   src/algorithms/singlefactor/cartographicsmooth.cpp # 上游制图平滑折线辅助（纯数学）
   src/algorithms/singlefactor/fieldcontours.cpp      # 上游 field_contours/contour_work_field 移植
   src/algorithms/singlefactor/contourlevels.cpp      # 上游等值线级别助手（_nice_number 等）
+  src/algorithms/wellsiting/wellsiting.cpp           # 方向34：井网覆盖诊断/候选/评估纯核
 )
 target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 
@@ -393,6 +395,7 @@ add_library(paleo_store STATIC
   src/metadata/releasestore.cpp
   src/metadata/mapversionstore.cpp                  # 版本/发布状态机落表（meta sqlite）
   src/metadata/metastore.cpp                        # project.sqlite user_version 门
+  src/metadata/wellsitingstore.cpp                  # 方向34：布井方案集单行文档表
   src/metadata/projectlock.cpp                      # 两实例同开一工程写互斥（QLockFile）
 )
 target_link_libraries(paleo_store PUBLIC paleo_deps)
@@ -482,6 +485,7 @@ add_library(paleo_workflow STATIC
   src/workflow/mapversioncontroller.cpp            # 保存版本/发布编排
   src/workflow/aiassistworkflow.cpp
   src/workflow/derivedassets.cpp                   # 派生产物 + DERIVED 版本登记
+  src/workflow/wellsitingworkflow.cpp               # 方向34：井网辅助编排（诊断/候选/方案/planned）
 )
 target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store paleo_io paleo_services paleo_domain paleo_ai)
 
@@ -494,6 +498,7 @@ add_library(paleo_ui STATIC
   src/ui/ribbonpanels.cpp                          # W4 ribbon 命令组构建迁出
   src/ui/pages/datalist.cpp                        # W5 数据页·列表侧
   src/ui/pages/entitypanel.cpp                     # W5 数据页·实体视图侧
+  src/ui/pages/wellsitingpanel.cpp                 # 方向34：布井辅助面板（验证页页签）
   src/ui/pages/datapage.cpp                        # W5 DataPage 兼容薄壳
   src/ui/pages/predictpage.cpp                     # W5b ①智能预测
   src/ui/pages/constraintpage.cpp                  # W5b ②约束与单因素
@@ -503,6 +508,7 @@ add_library(paleo_ui STATIC
   src/ui/locator/paleolocatorfilters.cpp
   src/ui/layoutdesignershell.cpp
   src/ui/maptools/paleomaptools.cpp
+  src/ui/maptools/sitingpicktool.cpp               # 方向34：地图布点拾取工具
   src/ui/maptools/paleoshapetools.cpp              # wave/shapetools
   src/ui/correlationpanel.cpp
   src/ui/correlation/correlationtrack.cpp          # wave/correlation
@@ -707,6 +713,7 @@ add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
 add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）
 add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
+add_paleo_test(tst_wellsiting_kernel LIBS paleo_algorithms)  # 方向34：井网辅助纯核（Oracle 1/3）
 add_paleo_test(tst_singlefactor_corridor LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_partition LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_faultpath LIBS paleo_algorithms)
@@ -731,6 +738,8 @@ add_paleo_test(tst_singlefactor_samples LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_store LIBS paleo_io)
 add_paleo_test(tst_services2 LIBS paleo_qgis)               # algorithms,metadata,qgis
 add_paleo_test(tst_workflows LIBS paleo_workflow)
+add_paleo_test(tst_wellsiting_workflow LIBS paleo_workflow)  # 方向34：井网辅助编排（Oracle 2/4）
+add_paleo_test(tst_wellsiting_panel LIBS paleo_ui)         # 方向34：布井辅助面板（视图锚点/意图信号）
 add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）
 add_paleo_test(tst_ui)                                      # 伞式（app 面全栈，兼容样本）
 add_paleo_test(tst_panels)                                  # 伞式（全栈，兼容样本）

@@ -32,6 +32,7 @@
 #include "../io/dataimportservice.h"
 #include "../qgis/qgislayoutservice.h"
 #include "../workflow/workflows.h"
+#include "../workflow/wellsitingworkflow.h"
 #include "../workflow/faultinterpretationcontroller.h" // goal/fault-interpretation
 #include "../services/projectdata.h"
 #include "../workflow/mappingworkflow.h"
@@ -218,6 +219,33 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_compositionWf = new CompositionWorkflow(m_procSvc, m_layerSvc, this);
   m_validationWf = new ValidationWorkflow(m_layerSvc, m_store, this);
 
+  // 方向34：井网辅助编排。约束/断层避让面经 provider 注入（随工程打开
+  // 刷新）；planned 计划井入 catalog（entityType=="planned"）。
+  m_wellsitingWf = new WellSitingWorkflow(m_layerSvc, m_store, this);
+  m_wellsitingWf->setConstraintProvider([this]() -> QList<SitingConstraintGeometry> {
+    QList<SitingConstraintGeometry> out;
+    if (!m_constraintWf)
+      return out;
+    for (const QVariantMap &row : m_constraintWf->loadConstraints()) {
+      SitingConstraintGeometry g;
+      g.wkt = row.value(QStringLiteral("wkt")).toString();
+      g.type = row.value(QStringLiteral("type")).toString();
+      if (!g.wkt.isEmpty())
+        out.append(g);
+    }
+    return out;
+  });
+  m_wellsitingWf->setFaultCutsProvider([this]() -> QStringList {
+    QStringList out;
+    if (!m_faultCtl)
+      return out;
+    for (const auto &fault : m_faultCtl->faultSet().faults())
+      for (const auto &cut : fault.cuts)
+        if (!cut.wkt.isEmpty())
+          out.append(cut.wkt);
+    return out;
+  });
+
   // wave/mapping-pipeline 阶段C+E — 读侧门面 / D61 编图链 / 版本状态机。
   // catalog.json 由数据底座包落位；这里只在工程目录里发现它时绑定（未合
   // 并期间手工放置合成 catalog 亦可驱动整条链）。版本存储与 LayerManifest
@@ -228,6 +256,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_propModelWf = new PropertyModelWorkflow(nullptr, QString(), this); // catalog 绑定随工程打开
   m_mappingWf->setProjectData(m_projectData);
   m_validationWf->setProjectData(m_projectData); // validate() 增加时间残差
+  m_wellsitingWf->setProjectData(m_projectData);   // 方向34：层位井控密度走 tops
   m_validationWf->setResidualThresholdMs(10.0);  // autoplan §5C：D61 残差阈值 10 ms
   m_versionStore = new MapVersionStore(QString());
   m_versionCtl = new MapVersionController(m_versionStore, m_layerSvc, this);
@@ -450,6 +479,18 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             QString faultErr;
             if (!m_faultCtl->reload(&faultErr))
               qWarning() << "AppContext: fault set reload failed" << faultErr;
+
+            // 方向34：布井方案集存储值重绑本工程 meta 库；编排器接上
+            // catalog（planned 实体）与 store。
+            m_wellsitingStore = WellSitingStore(metaPath, m_store);
+            m_wellsitingStore.setReadOnly(!writable); // 值重绑带回可写默认——重设
+            QString sitingStoreErr;
+            if (!m_wellsitingStore.open(&sitingStoreErr))
+              qWarning() << "AppContext: well siting store open failed" << metaPath
+                         << sitingStoreErr;
+            m_wellsitingWf->setSitingStore(&m_wellsitingStore);
+            if (m_import && m_import->catalog())
+              m_wellsitingWf->setCatalog(m_import->catalog(), fi.absolutePath());
             if (m_import && m_import->catalog()) {
               DataCatalog *cat = m_import->catalog();
               const auto surveys = cat->entities(QStringLiteral("seismic_survey"));

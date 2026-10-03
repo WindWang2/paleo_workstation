@@ -55,9 +55,12 @@ class TestLayoutExport : public QObject
       QVERIFY( !templates.saveAsTemplateAction()->text().isEmpty() );
       QVERIFY( !templates.loadFromTemplateAction()->text().isEmpty() );
 
+      // 方向 25：页面规格 5 键（补 A3 横/竖）+ 图件内容模板 12 复合键。
       const QStringList keys = PaleoLayoutTemplates::builtinKeys();
       QCOMPARE( keys, QStringList( { QStringLiteral( "a4_landscape" ),
                                      QStringLiteral( "a4_portrait" ),
+                                     QStringLiteral( "a3_landscape" ),
+                                     QStringLiteral( "a3_portrait" ),
                                      QStringLiteral( "a0_landscape" ) } ) );
       for ( const QString &key : keys )
       {
@@ -66,7 +69,16 @@ class TestLayoutExport : public QObject
         QVERIFY( a != nullptr );
         QVERIFY( !a->text().isEmpty() );
       }
+      const QStringList figureKeys = PaleoLayoutTemplates::figureBuiltinKeys();
+      QCOMPARE( figureKeys.size(), 12 );
+      QCOMPARE( figureKeys.first(), QStringLiteral( "well_position@a4_landscape" ) );
+      for ( const QString &key : figureKeys )
+      {
+        QVERIFY( !PaleoLayoutTemplates::builtinTitle( key ).isEmpty() );
+        QVERIFY( templates.applyBuiltinAction( key ) != nullptr );
+      }
       QCOMPARE( templates.applyBuiltinAction( QStringLiteral( "bogus" ) ), nullptr );
+      QCOMPARE( templates.applyBuiltinAction( QStringLiteral( "bogus@a4_landscape" ) ), nullptr );
 
       // Templates dir is relocatable; default is resolved lazily.
       templates.setTemplatesDir( QStringLiteral( "/tmp" ) );

@@ -14,6 +14,7 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPushButton>
 #include <QProgressDialog>
 #include <QRadioButton>
 #include <QSet>
@@ -67,8 +68,31 @@ namespace
         m_dpiSpin->setValue( 300 );
         m_dpiSpin->setSuffix( tr( " dpi" ) );
 
+        // 方向 25 M4：图件分辨率档位（150 屏阅 / 300 印刷 / 600 高精度），
+        // 一键回填自旋框——自旋框仍是唯一真值（档位外可手输）。
+        auto *presetRow = new QHBoxLayout;
+        presetRow->setSpacing( 4 ); // DESIGN spacing.xs
+        const struct
+        {
+            int dpi;
+            const char *objectName;
+        } dpiPresets[] = { { 150, "dpiPreset150Button" }, { 300, "dpiPreset300Button" },
+                           { 600, "dpiPreset600Button" } };
+        for ( const auto &preset : dpiPresets )
+        {
+          auto *btn = new QPushButton( tr( "%1 dpi" ).arg( preset.dpi ), this );
+          btn->setObjectName( QString::fromLatin1( preset.objectName ) );
+          btn->setToolTip( tr( "回填 %1 dpi 预设" ).arg( preset.dpi ) );
+          const int dpi = preset.dpi;
+          connect( btn, &QPushButton::clicked, this,
+                   [this, dpi] { m_dpiSpin->setValue( dpi ); } );
+          presetRow->addWidget( btn );
+        }
+        presetRow->addStretch();
+
         auto *form = new QFormLayout;
         form->addRow( tr( "分辨率" ), m_dpiSpin );
+        form->addRow( QString(), presetRow );
 
         const bool multiPage = pageCount > 1;
         QRadioButton *allRadio = new QRadioButton( tr( "全部页面" ), this );

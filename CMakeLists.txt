@@ -513,6 +513,7 @@ add_library(paleo_ui STATIC
   src/ui/layout/layoutexportactions.cpp
   src/ui/layout/layouttemplates.cpp
   src/ui/layout/layoutundostack.cpp
+  src/ui/layout/layoutitemtree.cpp                 # 方向25：元素树（原生 QgsLayoutModel 视图）
   src/ui/layout/mapbookpanel.cpp                    # goal/mapbook-reporting：批量参数面板（只发信号）
   src/ui/datapreview/datapreviewtabs.cpp           # §4 data-page preview tabs
   src/ui/datapreview/datapreviewtabseismic.cpp     # 方向20 轮4：seismic 预览分支析出

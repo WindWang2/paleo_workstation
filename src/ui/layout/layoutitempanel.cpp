@@ -11,16 +11,21 @@
 
 #include <qgscollapsiblegroupbox.h>
 #include <qgsgui.h>
+#include <qgslayout.h>
 #include <qgslayoutitem.h>
 #include <qgslayoutitemguiregistry.h>
 #include <qgslayoutitemlabel.h>
+#include <qgslayoutitemmap.h>
 #include <qgslayoutitemregistry.h>
 #include <qgslayoutitemscalebar.h>
 #include <qgslayoutitemwidget.h>
 #include <qgslayoutobject.h>
+#include <qgslayertree.h>
+#include <qgsmaplayer.h>
 #include <qgspanelwidgetstack.h>
 #include <qgsfillsymbol.h>
 #include <qgslinesymbol.h>
+#include <qgsproject.h>
 
 // ---------------------------------------------------------------------------
 // PaleoCommonItemWidget — fallback QgsLayoutItemBaseWidget for item types with
@@ -165,6 +170,25 @@ PaleoLayoutItemPanel::PaleoLayoutItemPanel( QWidget *parent )
   grid->addWidget( presetCaption, 1, 0, 1, 3 );
   grid->addLayout( presetRow, 2, 0, 1, 3 );
 
+  // 地图内容绑定（方向 25 M3）：快照（锁定当前层集）/ 实时（跟随图层树主题）。
+  auto *bindingCaption = new QLabel( tr( "地图内容" ), business );
+  auto *bindingRow = new QHBoxLayout();
+  bindingRow->setSpacing( 4 ); // DESIGN spacing.xs
+  m_mapSnapshotButton = new QPushButton( tr( "锁定快照" ), business );
+  m_mapSnapshotButton->setObjectName( QStringLiteral( "mapSnapshotButton" ) );
+  connect( m_mapSnapshotButton, &QPushButton::clicked, this,
+           [this] { applyMapContentBinding( true ); } );
+  m_mapLiveButton = new QPushButton( tr( "实时跟随" ), business );
+  m_mapLiveButton->setObjectName( QStringLiteral( "mapLiveButton" ) );
+  connect( m_mapLiveButton, &QPushButton::clicked, this,
+           [this] { applyMapContentBinding( false ); } );
+  bindingRow->addWidget( m_mapSnapshotButton );
+  bindingRow->addWidget( m_mapLiveButton );
+  bindingRow->addStretch( 1 );
+
+  grid->addWidget( bindingCaption, 3, 0, 1, 3 );
+  grid->addLayout( bindingRow, 4, 0, 1, 3 );
+
   root->addWidget( business );
 
   updateBusinessControls();
@@ -283,6 +307,37 @@ void PaleoLayoutItemPanel::applyScalebarPreset( int preset )
   emit itemChanged( m_item.data() );
 }
 
+bool PaleoLayoutItemPanel::applyMapContentBinding( bool snapshot )
+{
+  auto *map = qobject_cast<QgsLayoutItemMap *>( m_item.data() );
+  if ( !map )
+    return false;
+
+  if ( !snapshot )
+  {
+    map->setFollowVisibilityPreset( true ); // 主题名沿用已钉定的（含空名=当前层集）
+    emit itemChanged( m_item.data() );
+    return true;
+  }
+
+  // 快照：当前有效层集钉为显式层集。存储层集为空（跟随态）时从工程图层树
+  // 取勾选层——layout() 给不出工程时回退 QgsProject 单例（隔离测试壳同款）。
+  QList<QgsMapLayer *> pin = map->layers();
+  if ( pin.isEmpty() )
+  {
+    QgsProject *project = map->layout() && map->layout()->project()
+                              ? map->layout()->project()
+                              : QgsProject::instance();
+    if ( project && project->layerTreeRoot() )
+      pin = project->layerTreeRoot()->checkedLayers();
+  }
+  map->setFollowVisibilityPreset( false );
+  if ( !pin.isEmpty() )
+    map->setLayers( pin );
+  emit itemChanged( m_item.data() );
+  return true;
+}
+
 void PaleoLayoutItemPanel::hostItemWidget()
 {
   clearHostedWidget();
@@ -331,6 +386,18 @@ void PaleoLayoutItemPanel::updateBusinessControls()
     btn->setEnabled( scalebar != nullptr );
     btn->setToolTip( scalebar ? tr( "套用该比例尺样式预设" )
                               : tr( "仅当选中的版面项是比例尺时可用" ) );
+  }
+
+  auto *mapItem = qobject_cast<QgsLayoutItemMap *>( m_item.data() );
+  if ( m_mapSnapshotButton && m_mapLiveButton )
+  {
+    const bool isMap = mapItem != nullptr;
+    m_mapSnapshotButton->setEnabled( isMap );
+    m_mapLiveButton->setEnabled( isMap );
+    const QString reason = isMap ? QString()
+                                 : tr( "仅当选中的版面项是地图时可用" );
+    m_mapSnapshotButton->setToolTip( isMap ? tr( "停止跟随主题，把当前层集钉为快照" ) : reason );
+    m_mapLiveButton->setToolTip( isMap ? tr( "恢复跟随图层树主题（实时）" ) : reason );
   }
 
   m_horizonValue->setText( m_horizonTitle.isEmpty() ? tr( "未设置" ) : m_horizonTitle );

@@ -1193,7 +1193,7 @@ paleo::singlefactor::CartographicWorkWritten paleo::singlefactor::writeCartograp
     for ( std::size_t i = 0; i < cellCount; ++i )
     {
       const float sample = raw[i];
-      if ( !std::isfinite( sample ) || ( hasNodata && static_cast<double>( sample ) == nodata ) )
+      if ( !std::isfinite( sample ) || ( hasNodata && sample == static_cast<float>( nodata ) ) ) // #165
       {
         values[i] = std::numeric_limits<double>::quiet_NaN();
         continue;

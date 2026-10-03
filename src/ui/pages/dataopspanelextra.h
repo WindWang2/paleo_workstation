@@ -15,6 +15,7 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QHash>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPlainTextEdit>
@@ -377,6 +378,8 @@ public:
   {
     m_scene.clear();
     m_nodes.clear();
+    m_entityNodeIdx.clear();
+    m_assetNodeIdx.clear();
     if (!cat)
       return;
     const QVector<CatalogEntity> ents = cat->entities();
@@ -403,6 +406,7 @@ public:
       g->setData(0, e.id);
       g->setData(1, QStringLiteral("entity"));
       m_nodes.append(nd);
+      m_entityNodeIdx.insert(e.id, m_nodes.size() - 1);
       ++row;
     }
     row = 0;
@@ -421,6 +425,7 @@ public:
       g->setData(0, a.id);
       g->setData(1, QStringLiteral("asset"));
       m_nodes.append(nd);
+      m_assetNodeIdx.insert(a.id, m_nodes.size() - 1);
       ++row;
     }
     // 边：链接（未决 = 虚线 warning 色）。
@@ -440,12 +445,15 @@ public:
     m_scene.setSceneRect(0, 0, 460, height);
   }
 
+  // 索引查找（O(1)）：链接遍历每条要查两端节点，旧裸线性扫让 loadTopology
+  // 总代价 O(L×(N+M))——1200 实体实测 52-67ms 同步占 UI 线程（方向20 轮5）。
   const Node *nodeById(const QString &id, bool entity) const
   {
-    for (const Node &nd : m_nodes)
-      if (nd.id == id && nd.isEntity == entity)
-        return &nd;
-    return nullptr;
+    const QHash<QString, int> &idx = entity ? m_entityNodeIdx : m_assetNodeIdx;
+    const auto it = idx.constFind(id);
+    if (it == idx.constEnd() || it.value() >= m_nodes.size())
+      return nullptr;
+    return &m_nodes.at(it.value());
   }
   int nodeCount() const { return m_nodes.size(); }
 
@@ -466,6 +474,8 @@ protected:
 private:
   QGraphicsScene m_scene;
   QVector<Node> m_nodes;
+  QHash<QString, int> m_entityNodeIdx; // 实体 id → m_nodes 下标（nodeById 索引面）
+  QHash<QString, int> m_assetNodeIdx;  // 资产 id → m_nodes 下标
 };
 
 // ---- D4.6 实体 CRUD ---------------------------------------------------------------

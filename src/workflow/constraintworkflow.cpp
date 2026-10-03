@@ -70,9 +70,9 @@ using namespace paleo::constraint_detail;
 //
 // 共享面已就位（workflows_internal.h）：setError / stampLayerAssetLink /
 // derivedRegistrarOf / outputPathOf / isFileBackedSource / stamp 与 ORT 工区
-// 网格辅助。仍留在 workflows.cpp 匿名命名空间的是**本段独占**的 fileStem /
-// sameFile / catalogPathMatches / removeIfPresent / readJsonObject——它们没有
-// 第二个消费者，不进共享头。
+// 网格辅助。约束作业的 fileStem / sameFile / catalogPathMatches /
+// removeIfPresent / readJsonObject 单点定义在 constraintworkflow_internal.h，
+// 供约束编排与拆分作业复用；不再在 TU 内重复实现。
 
 
 // ---------------------------------------------------------------------------

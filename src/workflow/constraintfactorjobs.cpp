@@ -64,6 +64,50 @@ using namespace paleo::constraint_detail;
 // ---- m2(B) 单因素图页：generateFactor / generateContours ---------------------
 namespace
 {
+  // SHA 只比较输入字节；报错、代次/声明守卫与清理仍留在各发布路径，保持顺序。
+  bool analysisShaMatches( const QString &path, const QString &expected, QString *error )
+  {
+    return DataCatalog::sha256FileHex( path, error ) == expected;
+  }
+
+  void inheritMockFlag( DataCatalog *catalog, const QStringList &parents, QVariantMap &extra )
+  {
+    if ( !catalog )
+      return;
+    for ( const QString &id : parents )
+      if ( catalog->versionById( id ).extra.value( QStringLiteral( "mock" ) ).toBool() )
+        extra.insert( QStringLiteral( "mock" ), true );
+  }
+
+  QVariantMap contourMetadata( const QString &layerId, const QString &horizon,
+                               const QString &factorLayerId )
+  {
+    QVariantMap extra;
+    extra.insert( QStringLiteral( "mapping_product" ), true );
+    extra.insert( QStringLiteral( "layer_id" ), layerId );
+    extra.insert( QStringLiteral( "horizon" ), horizon );
+    extra.insert( QStringLiteral( "layer_type" ), QStringLiteral( "vector" ) );
+    extra.insert( QStringLiteral( "source_suffix" ), QStringLiteral( "|layername=contours" ) );
+    extra.insert( QStringLiteral( "factor_layer_id" ), factorLayerId );
+    return extra;
+  }
+
+  // 同步/异步制图工作场的相同 QC 指纹输入。层位/因素/父版本由调用方补齐。
+  QVariantMap cartographicHashParameters( const QVariantMap &qc, const QVariantList &levels,
+                                         const QString &analysisSha )
+  {
+    QVariantMap params;
+    params.insert( QStringLiteral( "algorithm_id" ), QStringLiteral( "paleo:paleo_cartographic_work" ) );
+    params.insert( QStringLiteral( "value_source" ), QStringLiteral( "cartographic_work" ) );
+    params.insert( QStringLiteral( "levels" ), qc.contains( QStringLiteral( "levels" ) )
+                                               ? qc.value( QStringLiteral( "levels" ) ) : QVariant( levels ) );
+    params.insert( QStringLiteral( "transition_distance" ), qc.value( QStringLiteral( "transition_distance" ) ) );
+    params.insert( QStringLiteral( "ignored" ), qc.value( QStringLiteral( "ignored" ) ) );
+    params.insert( QStringLiteral( "used_constraints" ), qc.value( QStringLiteral( "used_constraints" ) ) );
+    params.insert( QStringLiteral( "analysis_sha256" ), analysisSha );
+    return params;
+  }
+
   // 原壳（paleomainwindow runIdwRequested 接线）里的井点图层查找，挪进
   // workflow 侧：vector 声明、layerId 以 "wells" 开头，优先当前层位，其次
   // 层位无关（horizon-agnostic）声明。
@@ -839,14 +883,7 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
   extra.insert( QStringLiteral( "nodata_cells" ), counts.value( QStringLiteral( "nodata" ) ) );
   extra.insert( QStringLiteral( "extrapolated_cells" ), counts.value( QStringLiteral( "extrapolated" ) ) );
   extra.insert( QStringLiteral( "barrier_cells" ), counts.value( QStringLiteral( "barrier" ) ) );
-  if ( auto *catalog = PaleoWorkflowDerivedCatalog( this ) )
-  {
-    for ( const QString &id : parentIds )
-    {
-      if ( catalog->versionById( id ).extra.value( QStringLiteral( "mock" ) ).toBool() )
-        extra.insert( QStringLiteral( "mock" ), true );
-    }
-  }
+  inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
   QString commitErr;
   if ( !registrar.commitExternal( st, job.outputPath, parentIds, job.engineId, extra, &commitErr ) )
   {
@@ -1206,14 +1243,7 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
                 qc.value( QStringLiteral( "barrier_buffer_distance" ) ) );
   extra.insert( QStringLiteral( "contour_stop_buffer_distance" ),
                 qc.value( QStringLiteral( "contour_stop_buffer_distance" ) ) );
-  if ( auto *catalog = PaleoWorkflowDerivedCatalog( this ) )
-  {
-    for ( const QString &id : parentIds )
-    {
-      if ( catalog->versionById( id ).extra.value( QStringLiteral( "mock" ) ).toBool() )
-        extra.insert( QStringLiteral( "mock" ), true );
-    }
-  }
+  inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
   QString commitErr;
   if ( !registrar.commitExternal( st, outPath, parentIds, engineId, extra, &commitErr ) )
   {
@@ -1930,14 +1960,7 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
   }
   extra.insert( QStringLiteral( "qc_path" ), projectDir.relativeFilePath( stagedQc ) );
   extra.insert( QStringLiteral( "qc_sha256" ), qcSha );
-  if ( auto *catalog = PaleoWorkflowDerivedCatalog( this ) )
-  {
-    for ( const QString &id : parentIds )
-    {
-      if ( catalog->versionById( id ).extra.value( QStringLiteral( "mock" ) ).toBool() )
-        extra.insert( QStringLiteral( "mock" ), true );
-    }
-  }
+  inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
   QString commitErr;
   if ( !registrar.commitExternal( st, job.outputPath, parentIds, algorithmId, extra, &commitErr ) )
   {
@@ -2243,8 +2266,7 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
     return false;
   }
   QString shaErr;
-  const QString analysisShaAfter = DataCatalog::sha256FileHex( job.rasterPath, &shaErr );
-  if ( analysisShaAfter != job.analysisSha )
+  if ( !analysisShaMatches( job.rasterPath, job.analysisSha, &shaErr ) )
   {
     discardTemp();
     paleo::workflow_detail::setError( error, tr( "分析场在等值线期间被改写，丢弃这次等值线" ) );
@@ -2294,8 +2316,7 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
     paleo::workflow_detail::setError( error, tr( "发布代次已变，丢弃这次等值线" ) );
     return false;
   }
-  const QString analysisShaAtCommit = DataCatalog::sha256FileHex( job.rasterPath, &shaErr );
-  if ( analysisShaAtCommit != job.analysisSha ||
+  if ( !analysisShaMatches( job.rasterPath, job.analysisSha, &shaErr ) ||
        !declaredFactorPathMatches( layers, job.factorLayerId, job.rasterPath ) )
   {
     if ( !sameFile( st.absolutePath, job.rasterPath ) )
@@ -2306,16 +2327,10 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
   }
 
   const QStringList parents = registrar.parentVersionIdsFor( { job.rasterPath } );
-  QVariantMap extra;
-  extra.insert( QStringLiteral( "mapping_product" ), true );
-  extra.insert( QStringLiteral( "layer_id" ), QStringLiteral( "product." ) + st.versionId );
-  extra.insert( QStringLiteral( "horizon" ), job.horizon );
+  QVariantMap extra = contourMetadata( QStringLiteral( "product." ) + st.versionId, job.horizon, job.factorLayerId );
   extra.insert( QStringLiteral( "kind" ), QStringLiteral( "contour_lines" ) );
-  extra.insert( QStringLiteral( "layer_type" ), QStringLiteral( "vector" ) );
-  extra.insert( QStringLiteral( "source_suffix" ), QStringLiteral( "|layername=contours" ) );
   extra.insert( QStringLiteral( "title" ), tr( "%1 等值线" ).arg( job.horizon ) );
   extra.insert( QStringLiteral( "group" ), QStringLiteral( "04_SingleFactor/Contours" ) );
-  extra.insert( QStringLiteral( "factor_layer_id" ), job.factorLayerId );
   extra.insert( QStringLiteral( "value_source" ), QStringLiteral( "analysis" ) );
   extra.insert( QStringLiteral( "analysis_sha256" ), job.analysisSha );
   extra.insert( QStringLiteral( "manifest_layer_id" ),
@@ -2345,16 +2360,7 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
     parentList << id;
   extra.insert( QStringLiteral( "parent_version_ids" ), parentList );
   if ( !job.fixedLevels )
-  {
-    if ( auto *catalog = PaleoWorkflowDerivedCatalog( this ) )
-    {
-      for ( const QString &id : parents )
-      {
-        if ( catalog->versionById( id ).extra.value( QStringLiteral( "mock" ) ).toBool() )
-          extra.insert( QStringLiteral( "mock" ), true );
-      }
-    }
-  }
+    inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parents, extra );
 
   QString commitErr;
   if ( !registrar.commitExternal( st, job.outputPath, parents,
@@ -2598,8 +2604,7 @@ bool ConstraintWorkflow::generateCartographicWork( const QString &horizon, const
     return false;
   }
 
-  const QString analysisShaAfter = DataCatalog::sha256FileHex( rasterPath, &shaErr );
-  if ( analysisShaAfter != analysisSha )
+  if ( !analysisShaMatches( rasterPath, analysisSha, &shaErr ) )
   {
     discard();
     paleo::workflow_detail::setError( error, tr( "分析场在制图期间被改写，丢弃工作场" ) );
@@ -2629,15 +2634,7 @@ bool ConstraintWorkflow::generateCartographicWork( const QString &horizon, const
   QVariantList parentList;
   for ( const QString &id : parentIds )
     parentList << id;
-  QVariantMap hashParams;
-  hashParams.insert( QStringLiteral( "algorithm_id" ), QStringLiteral( "paleo:paleo_cartographic_work" ) );
-  hashParams.insert( QStringLiteral( "value_source" ), QStringLiteral( "cartographic_work" ) );
-  hashParams.insert( QStringLiteral( "levels" ), qc.contains( QStringLiteral( "levels" ) ) ? qc.value( QStringLiteral( "levels" ) )
-                                                                                           : QVariant( levelList ) );
-  hashParams.insert( QStringLiteral( "transition_distance" ), qc.value( QStringLiteral( "transition_distance" ) ) );
-  hashParams.insert( QStringLiteral( "ignored" ), qc.value( QStringLiteral( "ignored" ) ) );
-  hashParams.insert( QStringLiteral( "used_constraints" ), qc.value( QStringLiteral( "used_constraints" ) ) );
-  hashParams.insert( QStringLiteral( "analysis_sha256" ), analysisSha );
+  QVariantMap hashParams = cartographicHashParameters( qc, levelList, analysisSha );
   hashParams.insert( QStringLiteral( "horizon" ), horizon );
   hashParams.insert( QStringLiteral( "factor_id" ), factorId );
   hashParams.insert( QStringLiteral( "parent_version_ids" ), parentList );
@@ -2686,14 +2683,7 @@ bool ConstraintWorkflow::generateCartographicWork( const QString &horizon, const
   extra.insert( QStringLiteral( "unchanged" ), qc.value( QStringLiteral( "unchanged" ) ) );
   extra.insert( QStringLiteral( "unresolved_crossings" ), qc.value( QStringLiteral( "unresolved_crossings" ) ) );
   extra.insert( QStringLiteral( "levels" ), hashParams.value( QStringLiteral( "levels" ) ) );
-  if ( auto *catalog = PaleoWorkflowDerivedCatalog( this ) )
-  {
-    for ( const QString &id : parentIds )
-    {
-      if ( catalog->versionById( id ).extra.value( QStringLiteral( "mock" ) ).toBool() )
-        extra.insert( QStringLiteral( "mock" ), true );
-    }
-  }
+  inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
   QString commitErr;
   if ( !registrar.commitExternal( st, outPath, parentIds, QStringLiteral( "paleo:paleo_cartographic_work" ), extra,
                                   &commitErr ) )
@@ -3120,8 +3110,7 @@ bool ConstraintWorkflow::publishInterpretiveContourJob( const InterpretiveContou
   }
 
   QString shaErr;
-  const QString analysisShaAfter = DataCatalog::sha256FileHex( job.rasterPath, &shaErr );
-  if ( analysisShaAfter != job.analysisSha )
+  if ( !analysisShaMatches( job.rasterPath, job.analysisSha, &shaErr ) )
   {
     discardTemp();
     paleo::workflow_detail::setError( error, tr( "分析场在制图期间被改写，丢弃工作场" ) );
@@ -3210,15 +3199,7 @@ bool ConstraintWorkflow::publishInterpretiveContourJob( const InterpretiveContou
   QVariantList parentList;
   for ( const QString &id : parentIds )
     parentList << id;
-  QVariantMap hashParams;
-  hashParams.insert( QStringLiteral( "algorithm_id" ), QStringLiteral( "paleo:paleo_cartographic_work" ) );
-  hashParams.insert( QStringLiteral( "value_source" ), QStringLiteral( "cartographic_work" ) );
-  hashParams.insert( QStringLiteral( "levels" ), qc.contains( QStringLiteral( "levels" ) ) ? qc.value( QStringLiteral( "levels" ) )
-                                                                                           : QVariant( levelList ) );
-  hashParams.insert( QStringLiteral( "transition_distance" ), qc.value( QStringLiteral( "transition_distance" ) ) );
-  hashParams.insert( QStringLiteral( "ignored" ), qc.value( QStringLiteral( "ignored" ) ) );
-  hashParams.insert( QStringLiteral( "used_constraints" ), qc.value( QStringLiteral( "used_constraints" ) ) );
-  hashParams.insert( QStringLiteral( "analysis_sha256" ), job.analysisSha );
+  QVariantMap hashParams = cartographicHashParameters( qc, levelList, job.analysisSha );
   hashParams.insert( QStringLiteral( "horizon" ), job.horizon );
   hashParams.insert( QStringLiteral( "factor_id" ), job.factorId );
   hashParams.insert( QStringLiteral( "parent_version_ids" ), parentList );
@@ -3277,14 +3258,7 @@ bool ConstraintWorkflow::publishInterpretiveContourJob( const InterpretiveContou
   extra.insert( QStringLiteral( "unchanged" ), qc.value( QStringLiteral( "unchanged" ) ) );
   extra.insert( QStringLiteral( "unresolved_crossings" ), qc.value( QStringLiteral( "unresolved_crossings" ) ) );
   extra.insert( QStringLiteral( "levels" ), hashParams.value( QStringLiteral( "levels" ) ) );
-  if ( auto *catalog = PaleoWorkflowDerivedCatalog( this ) )
-  {
-    for ( const QString &id : parentIds )
-    {
-      if ( catalog->versionById( id ).extra.value( QStringLiteral( "mock" ) ).toBool() )
-        extra.insert( QStringLiteral( "mock" ), true );
-    }
-  }
+  inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
   QString commitErr;
   if ( !registrar.commitExternal( st, job.workPath, parentIds, QStringLiteral( "paleo:paleo_cartographic_work" ), extra,
                                   &commitErr ) )
@@ -3345,19 +3319,13 @@ bool ConstraintWorkflow::publishInterpretiveContourJob( const InterpretiveContou
   QVariantList contourParentList;
   for ( const QString &id : contourParents )
     contourParentList << id;
-  QVariantMap contourExtra;
-  contourExtra.insert( QStringLiteral( "mapping_product" ), true );
-  contourExtra.insert( QStringLiteral( "layer_id" ), contourLayerId );
+  QVariantMap contourExtra = contourMetadata( contourLayerId, job.horizon, job.factorLayerId );
   contourExtra.insert( QStringLiteral( "manifest_layer_id" ), contourLayerId );
-  contourExtra.insert( QStringLiteral( "horizon" ), job.horizon );
   contourExtra.insert( QStringLiteral( "kind" ), QStringLiteral( "single_factor_cartographic_contour" ) );
   contourExtra.insert( QStringLiteral( "value_source" ), QStringLiteral( "cartographic_work" ) );
-  contourExtra.insert( QStringLiteral( "layer_type" ), QStringLiteral( "vector" ) );
-  contourExtra.insert( QStringLiteral( "source_suffix" ), QStringLiteral( "|layername=contours" ) );
   contourExtra.insert( QStringLiteral( "title" ), contourTitle );
   contourExtra.insert( QStringLiteral( "group" ), QStringLiteral( "04_SingleFactor/Cartographic" ) );
   contourExtra.insert( QStringLiteral( "levels" ), levelList );
-  contourExtra.insert( QStringLiteral( "factor_layer_id" ), job.factorLayerId );
   contourExtra.insert( QStringLiteral( "work_layer_id" ), workLayerId );
   contourExtra.insert( QStringLiteral( "parent_version_ids" ), contourParentList );
   contourExtra.insert( QStringLiteral( "unresolved_crossings" ), job.unresolved );

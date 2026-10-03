@@ -182,7 +182,7 @@ private slots:
           QCOMPARE( d.source, expectedSource );
           QCOMPARE( d.horizon, QStringLiteral( "T1" ) );
           QCOMPARE( d.type, QStringLiteral( "vector" ) );
-          QCOMPARE( d.group, QStringLiteral( "02_Constraints" ) );
+          QCOMPARE( d.group, QStringLiteral( "03_Constraints" ) );
           break;
         }
       }

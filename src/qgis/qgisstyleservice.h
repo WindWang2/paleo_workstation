@@ -25,6 +25,19 @@ class QgisStyleService : public QObject
     // 实测轨迹不是不确定面，不用虚线）。
     static void applyTrajectoryLayerStyle(class QgsVectorLayer *layer);
 
+    // 测区范围/成图边界面：空心填 + text 墨色描边——置顶共享层上不遮
+    // 盖因素图与井点（地图域样式，DESIGN.md 例外条款）。
+    static void applyBoundaryLayerStyle(class QgsVectorLayer *layer);
+
+    // 约束线图层按 type 字段语义分类渲染：方向线红实线、打断线墨实线、
+    // 解释软边界橙虚线、等值线停线灰虚线、制图绕行蓝点划线；未标/旧
+    // type=line 走常规细墨线。字段缺失 → 无操作。
+    static void applyConstraintLayerStyle(class QgsVectorLayer *layer);
+
+    // 等值线图层：细灰线 + ELEV 小字号沿线标注（标注随图层 z 序补丁下
+    // 标注只压在同层等值线上）。字段缺失 → 只换线型不标注。
+    static void applyContourLayerStyle(class QgsVectorLayer *layer);
+
     // ---- C2（wave/deepen-perf）：相界地质语义符号 --------------------------
     // 相多边形图层按 boundary_kind 分类描边：断层切割（fault_cut）= 断层红
     // 粗描边（Q/HS 1011—2016 断层线用色，同 resources/geology/faults 调性），

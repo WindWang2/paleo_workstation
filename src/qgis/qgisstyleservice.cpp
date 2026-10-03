@@ -307,6 +307,103 @@ void QgisStyleService::applyWellLayerStyle(QgsVectorLayer *layer)
   layer->setLabelsEnabled(true);
 }
 
+void QgisStyleService::applyBoundaryLayerStyle(QgsVectorLayer *layer)
+{
+  if (!layer)
+    return;
+  QVariantMap props;
+  props.insert(QStringLiteral("style"), QStringLiteral("no")); // 空心填
+  props.insert(QStringLiteral("outline_color"), QStringLiteral("#24303E"));
+  props.insert(QStringLiteral("outline_width"), QStringLiteral("0.6"));
+  props.insert(QStringLiteral("outline_style"), QStringLiteral("solid"));
+  layer->setRenderer(
+      new QgsSingleSymbolRenderer(QgsFillSymbol::createSimple(props).release()));
+}
+
+void QgisStyleService::applyConstraintLayerStyle(QgsVectorLayer *layer)
+{
+  if (!layer || !layer->isValid())
+    return;
+  if (layer->geometryType() != Qgis::GeometryType::Line)
+    return;
+  if (layer->fields().lookupField(QStringLiteral("type")) < 0)
+    return; // 无语义字段：不接管渲染器
+
+  // 地图域数据符号色（DESIGN.md 例外条款）：方向线红实线、打断线墨实线、
+  // 解释软边界橙虚线、等值线停线灰虚线、制图绕行蓝点划线。
+  auto lineSym = [](const QString &color, double widthMm, const QString &style) {
+    QVariantMap props;
+    props.insert(QStringLiteral("line_color"), color);
+    props.insert(QStringLiteral("line_width"), QString::number(widthMm));
+    props.insert(QStringLiteral("line_style"), style);
+    return QgsLineSymbol::createSimple(props).release();
+  };
+  QgsCategoryList cats;
+  const auto add = [&cats, &lineSym](const char *type, const QString &color,
+                                     double w, const QString &style,
+                                     const QString &title) {
+    cats.append(QgsRendererCategory(QString::fromLatin1(type),
+                                    lineSym(color, w, style), title));
+  };
+  // 入库 type 已被 storageTypeForSemantic 归一化；两种历史拼写同收。
+  add("direction_line", QStringLiteral("#C0392B"), 0.7, QStringLiteral("solid"),
+      QObject::tr("物源方向线"));
+  add("direction_guide", QStringLiteral("#C0392B"), 0.7, QStringLiteral("dash"),
+      QObject::tr("方向引导"));
+  add("break_line", QStringLiteral("#24303E"), 0.55, QStringLiteral("solid"),
+      QObject::tr("打断线"));
+  add("hard_barrier", QStringLiteral("#24303E"), 0.55, QStringLiteral("solid"),
+      QObject::tr("硬屏障"));
+  add("interpretive_boundary", QStringLiteral("#F29900"), 0.5,
+      QStringLiteral("dash"), QObject::tr("解释软边界"));
+  add("contour_stop", QStringLiteral("#5D6E80"), 0.45, QStringLiteral("dash"),
+      QObject::tr("等值线停线"));
+  add("cartographic_detour", QStringLiteral("#1B73D0"), 0.5,
+      QStringLiteral("dash dot"), QObject::tr("制图绕行线"));
+  // 未标语义/旧 type=line 与 all-other 桶：常规细墨线。
+  cats.append(QgsRendererCategory(QStringLiteral("line"),
+                                  lineSym(QStringLiteral("#24303E"), 0.3,
+                                          QStringLiteral("solid")),
+                                  QObject::tr("约束线")));
+  cats.append(QgsRendererCategory(QVariant(),
+                                  lineSym(QStringLiteral("#24303E"), 0.3,
+                                          QStringLiteral("solid")),
+                                  QObject::tr("约束线")));
+  layer->setRenderer(
+      new QgsCategorizedSymbolRenderer(QStringLiteral("type"), cats));
+}
+
+void QgisStyleService::applyContourLayerStyle(QgsVectorLayer *layer)
+{
+  if (!layer || !layer->isValid())
+    return;
+  if (layer->geometryType() != Qgis::GeometryType::Line)
+    return;
+  QVariantMap props;
+  props.insert(QStringLiteral("line_color"), QStringLiteral("#5D6E80"));
+  props.insert(QStringLiteral("line_width"), QStringLiteral("0.25"));
+  layer->setRenderer(
+      new QgsSingleSymbolRenderer(QgsLineSymbol::createSimple(props).release()));
+
+  if (layer->fields().lookupField(QStringLiteral("ELEV")) < 0)
+    return; // 无高程字段：只换线型
+  QgsPalLayerSettings lbl;
+  lbl.fieldName = QStringLiteral("ELEV");
+  lbl.isExpression = false;
+  QgsTextFormat fmt;
+  fmt.setSize(7.0);
+  fmt.setSizeUnit(Qgis::RenderUnit::Points);
+  fmt.setColor(QColor(QStringLiteral("#5D6E80")));
+  QgsTextBufferSettings buffer;
+  buffer.setEnabled(true);
+  buffer.setSize(0.6);
+  buffer.setColor(Qt::white);
+  fmt.setBuffer(buffer);
+  lbl.setFormat(fmt);
+  layer->setLabeling(new QgsVectorLayerSimpleLabeling(lbl));
+  layer->setLabelsEnabled(true);
+}
+
 // ---- C2（wave/deepen-perf）：相界地质语义符号 --------------------------------
 
 void QgisStyleService::applyFaciesBoundaryStyle(QgsVectorLayer *layer)

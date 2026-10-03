@@ -37,8 +37,17 @@ public:
   QString copyForEditing(const QString &layerId, const QStringList &references,
                          QString *error);
   bool saveEditingVersion(const QString &draftId, QString *error);
+  // role: "direction" | "barrier" | "auto"（auto 无法判定时返回错误，
+  // 调用侧应询问用户后重试）。
   bool importConstraints(const QString &horizon, const QString &path,
-                         QString *error);
+                         const QString &role, QString *error);
+  bool importConstraints(const QString &horizon, const QString &path,
+                         QString *error) {
+    return importConstraints(horizon, path, QStringLiteral("auto"), error);
+  }
+  // 测区范围/成图边界：面矢量导入为共享置顶层（00_Data，无层位绑定），
+  // 返回 true 即已上图；structural_idw 的 boundaryLayerId 从其声明取。
+  bool importBoundaryLayer(const QString &path, QString *error);
   bool generateFactor(const QString &horizon, const QString &factorId,
                       const QVariantMap &params, QString *error);
   bool generateContours(const QString &horizon, const QString &layerId,
@@ -83,7 +92,6 @@ private:
   QPointer<RemotePredictionService> m_remote;
   QString m_dir;
   RemotePredictionRequest m_request;
-  bool m_importing = false;
   mutable QString m_logVersion;
   mutable LasDoc m_logCache;
 };

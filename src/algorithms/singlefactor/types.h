@@ -65,6 +65,9 @@ struct ConstraintLine
   double softRadius = 0; // <=0 → 自动，且不读取显示缓冲
   double displayBuffer = 0; // 只参与制图显示/停线，不扩大数值缺失
   double cartographicBuffer = 0;
+  // 上游 BLK_MODE 原文（constraint_semantics.py 阻断语义）：
+  // "full_block"=硬隔断，"display_only"=仅停线，其余非阻断词=忽略。
+  std::string blockMode = "full_block";
   std::string unit;
 };
 

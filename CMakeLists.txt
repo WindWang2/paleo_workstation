@@ -109,6 +109,10 @@ find_path(GDAL_INCLUDE_DIR gdal.h HINTS
   PATHS /usr/include /usr/include/gdal REQUIRED)
 find_library(GDAL_LIB gdal HINTS
   "${QGIS_PREFIX}/lib" "${QGIS_PREFIX}/usr/lib" PATHS /usr/lib REQUIRED)
+find_path(GEOS_INCLUDE_DIR geos_c.h HINTS
+  "${QGIS_PREFIX}/include" "${QGIS_PREFIX}/usr/include" PATHS /usr/include REQUIRED)
+find_library(GEOS_C_LIB geos_c HINTS
+  "${QGIS_PREFIX}/lib" "${QGIS_PREFIX}/usr/lib" PATHS /usr/lib REQUIRED)
 
 # ============================================================================
 # 4-Tier Dependency Architecture (ARCH-03 / P1-05)
@@ -286,8 +290,8 @@ endif()
 # catalog↔metadata 互有 include（datacatalog→atomicfile / mapversionstore→datacatalog），
 # 同层环合并为 paleo_store。paleo_core 降为 INTERFACE 伞，旧链接方零改动。
 add_library(paleo_deps INTERFACE)
-target_link_libraries(paleo_deps INTERFACE paleo_qgis_core_deps ${GDAL_LIB})
-target_include_directories(paleo_deps INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR})
+target_link_libraries(paleo_deps INTERFACE paleo_qgis_core_deps ${GDAL_LIB} ${GEOS_C_LIB})
+target_include_directories(paleo_deps INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_INCLUDE_DIR} ${GEOS_INCLUDE_DIR})
 
 # ---- 数据层 ----
 add_library(paleo_domain STATIC
@@ -319,6 +323,13 @@ add_library(paleo_algorithms STATIC
   src/algorithms/singlefactor/buffertransition.cpp
   src/algorithms/singlefactor/regionalcontours.cpp
   src/algorithms/singlefactor/contouravoidance.cpp
+  src/algorithms/singlefactor/wellacquisition.cpp    # 上游 _extract_current_wells 移植
+  src/algorithms/singlefactor/structural.cpp         # 上游 structural_idw 面核（GEOS C API）
+  src/algorithms/singlefactor/constraintparse.cpp    # 约束线 params_json 共享解析
+  src/algorithms/singlefactor/structuralalgorithm.cpp
+  src/algorithms/singlefactor/cartographicsmooth.cpp # 上游制图平滑折线辅助（纯数学）
+  src/algorithms/singlefactor/fieldcontours.cpp      # 上游 field_contours/contour_work_field 移植
+  src/algorithms/singlefactor/contourlevels.cpp      # 上游等值线级别助手（_nice_number 等）
 )
 target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 
@@ -405,6 +416,7 @@ target_link_libraries(paleo_linkage PUBLIC paleo_deps paleo_services paleo_qgis 
 add_library(paleo_workflow STATIC
   src/workflow/mappingworkbench.cpp
   src/workflow/workflows.cpp
+  src/workflow/constraintimport.cpp                 # WS-C：约束 SHP 角色化导入（方向/打断）
   src/workflow/folderimport.cpp                    # W2 文件夹/单文件导入编排
   src/workflow/projectopen.cpp                     # W2 打开/新建工程编排
   src/workflow/registration.cpp                    # W3 临时配准编排
@@ -635,11 +647,14 @@ add_paleo_test(tst_singlefactor_avoidance LIBS paleo_algorithms)
 add_paleo_test(tst_constraint_draw LIBS paleo_ui)
 add_paleo_test(tst_singlefactor_perf LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_contours LIBS paleo_qgis)
+add_paleo_test(tst_singlefactor_fieldcontours LIBS paleo_workflow)
 add_paleo_test(tst_singlefactor_contourbudget LIBS paleo_algorithms paleo_qgis)
 add_paleo_test(tst_singlefactor_guilatency LIBS paleo_algorithms paleo_services)
 add_paleo_test(tst_singlefactor_faults LIBS paleo_workflow)
 add_paleo_test(tst_singlefactor_asynccontour LIBS paleo_workflow)
 add_paleo_test(tst_singlefactor_parity LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_acquisition LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_structural LIBS paleo_workflow)
 add_paleo_test(tst_singlefactor_parity_completion LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_contract LIBS paleo_domain)
 add_paleo_test(tst_singlefactor_samples LIBS paleo_algorithms)

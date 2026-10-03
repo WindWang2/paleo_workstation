@@ -477,7 +477,9 @@ private slots:
     QVERIFY2(f.constraints.addConstraint("D61", "LINESTRING(50 0,50 100)",
                                          "line", -1, &error),
              qPrintable(error));
-    QVERIFY2(!f.latest("constraint_snapshot").isEmpty(), qPrintable(error));
+    // 逐笔绘制不出快照版本（避免一条线一个「约束过程·vN」刷屏）；
+    // 快照在使用点 generateFactor 前置步骤产生。
+    QVERIFY(f.latest("constraint_snapshot").isEmpty());
     auto params = QVariantMap{
         {"pointsLayerId", d.layerId}, {"field", "z"}, {"cellSize", 10}};
     QVERIFY2(f.work.generateFactor("D61", "sandthick", params, &error),
@@ -639,6 +641,66 @@ private slots:
     QVERIFY(
         page.findChild<QTreeWidget *>("workbenchResults")->topLevelItemCount() >
         0);
+  }
+  void constraintImportLocalCrsAndVerbatimRoundTrip() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const QString base =
+        QFileInfo(QString::fromUtf8(__FILE__)).dir().filePath(
+            "fixtures/singlefactor/structural_synthetic");
+    // LOCAL_CS（无大地基准的工程直角米制 CRS）与工程局部网格等价，
+    // 不再被坐标门拒绝。
+    QVERIFY2(f.work.importConstraints("D61", base + "/directions.shp", "auto",
+                                      &error),
+             qPrintable(error));
+    QVERIFY2(f.work.importConstraints("D61", base + "/barriers.shp", "auto",
+                                      &error),
+             qPrintable(error));
+    const auto rows = f.constraints.loadConstraints("D61");
+    QCOMPARE(rows.size(), 8);
+    QStringList types;
+    QVariantList params;
+    for (const auto &row : rows) {
+      types << row.value("type").toString();
+      params << QJsonDocument::fromJson(
+                    row.value("params_json").toString().toUtf8())
+                    .object()
+                    .toVariantMap();
+    }
+    QCOMPARE(types.mid(0, 4),
+             QStringList(4, QStringLiteral("direction_line")));
+    QCOMPARE(types.mid(4, 4), QStringList(4, QStringLiteral("break_line")));
+    QCOMPARE(params.at(0).toMap().value("semantic").toString(),
+             QStringLiteral("direction_guide"));
+    QCOMPARE(params.at(4).toMap().value("semantic").toString(),
+             QStringLiteral("hard_barrier"));
+    QCOMPARE(params.at(1).toMap().value("ratio").toDouble(), 8.0);
+    QVERIFY(!params.at(3).toMap().value("enabled").toBool());
+    QCOMPARE(params.at(5).toMap().value("blockMode").toString(),
+             QStringLiteral("full_block"));
+    QCOMPARE(params.at(6).toMap().value("blockMode").toString(),
+             QStringLiteral("soft"));
+    QVERIFY(!params.at(7).toMap().value("enabled").toBool());
+    // generic 回导：快照里的 type+params_json 两列原样回写（不是 "line"）。
+    const auto snapshot = f.latest("constraint_snapshot");
+    QVERIFY(!snapshot.isEmpty());
+    QVERIFY2(f.work.importConstraints(
+                 "D62", f.work.declaration(snapshot).source, "auto", &error),
+             qPrintable(error));
+    const auto roundTrip = f.constraints.loadConstraints("D62");
+    QCOMPARE(roundTrip.size(), 8);
+    QCOMPARE(roundTrip.at(0).value("type").toString(),
+             QStringLiteral("direction_line"));
+    const auto rt = QJsonDocument::fromJson(
+                        roundTrip.at(0).value("params_json").toString().toUtf8())
+                        .object()
+                        .toVariantMap();
+    QCOMPARE(rt.value("semantic").toString(),
+             QStringLiteral("direction_guide"));
+    QCOMPARE(rt.value("ratio").toDouble(), 3.0);
+    QCOMPARE(roundTrip.at(6).value("type").toString(),
+             QStringLiteral("break_line"));
   }
 };
 int main(int argc, char **argv) {

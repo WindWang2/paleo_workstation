@@ -16,3 +16,10 @@
 numpy==2.5.3 --hash=sha256:b0521d0f4aebb6e06189451025fa17a913287b13c03d5fe05c017333b654ea5b
 scipy==1.18.1 --hash=sha256:ac0333bdf38309aa3dcbe7e3fa7ea29e7a2c37c6ea306a757b700ded8e4596ad
 shapely==2.1.2 --hash=sha256:21952dc00df38a2c28375659b07a3979d22641aeb104751e769c3ee825aadecf
+#
+# Structural (end-to-end) goldens — run_structural_reference.py — use a second
+# venv where shapely is built from the sdist against GEOS 3.15.0 (the GEOS Paleo
+# links), see README "End-to-end structural_idw reference":
+# shapely==2.1.2 sdist shapely-2.1.2.tar.gz
+#   sha256: 2ed4ecb28320a433db18a5bf029986aa8afcfd740745e78847e330d5d94922a9
+#   build: GEOS_CONFIG=/usr/bin/geos-config (GEOS 3.15.0) pip install --no-binary shapely

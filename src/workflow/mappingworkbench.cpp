@@ -9,6 +9,8 @@
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
 #include "../qgis/qgisprojectservice.h"
+#include "../qgis/qgisstyleservice.h"
+#include "constraintimport.h"
 #include "derivedassets.h"
 #include "workflows.h"
 #include <QDateTime>
@@ -17,14 +19,17 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
 #include <QUuid>
 #include <cmath>
 #include <gdal.h>
 #include <limits>
+#include <qgscoordinatereferencesystem.h>
 #include <qgsgeometry.h>
 #include <qgsmaplayer.h>
+#include <qgsunittypes.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
 #include <qgsvectorlayer.h>
@@ -36,6 +41,19 @@ void fail(QString *error, const QString &text) {
 }
 QString uid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 QString filePath(const QString &source) { return source.section('|', 0, 0); }
+// 无大地基准的工程/局部直角米制 CRS（LOCAL_CS / ENGCRS，均映射到
+// Qgis::CrsType::Engineering）与本工程局部网格等价；带基准的投影或
+// 地理 CRS 仍拒绝。约束线与测区边界导入共用同一坐标门。
+bool isLocalGridCrs(const QgsCoordinateReferenceSystem &c) {
+  return c.isValid() && !c.isGeographic() &&
+         c.mapUnits() == Qgis::DistanceUnit::Meters &&
+         c.type() == Qgis::CrsType::Engineering;
+}
+bool acceptsLocalGrid(const QgsCoordinateReferenceSystem &c) {
+  const auto local = QgsCoordinateReferenceSystem::fromWkt(
+      DataCatalog::localGridCrsWkt());
+  return c == local || isLocalGridCrs(c);
+}
 bool writeJson(const QString &path, const QVariant &value, QString *error) {
   QSaveFile f(path);
   const auto bytes = QJsonDocument::fromVariant(value).toJson();
@@ -59,27 +77,10 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
           &MappingWorkbench::styleLayer);
   connect(m_layers, &QgisLayerService::layerDeclared, this,
           &MappingWorkbench::changed);
-  connect(m_constraints, &ConstraintWorkflow::constraintAdded, this,
-          [this](const QString &addedId) {
-            if (m_importing || !m_catalog || !m_catalog->isOpen())
-              return;
-            // A drawn geometry is already committed by ConstraintWorkflow.
-            // Capture the horizon from its newest record, not the UI's possibly
-            // changed selection.
-            const auto rows = m_constraints->loadConstraints();
-            if (rows.isEmpty())
-              return;
-            QString h;
-            for (const auto &row : rows)
-              if (row.value("id").toString() == addedId)
-                h = row.value("horizon").toString();
-            if (h.isEmpty())
-              return;
-            QString error;
-            snapshotConstraints(h, {}, &error);
-            if (!error.isEmpty())
-              emit errorOccurred(error);
-          });
+  // 不在 constraintAdded 上自动快照：每画一条线出一个「约束过程·vN」版本
+  // 会刷屏图层树。快照只在使用点做——generateFactor/importConstraints
+  // 前置 snapshotConstraints（谱系语义：被计算的约束状态）；实时显示走
+  // constraints.<horizon> 声明图层（直读 store，reload 即新）。
 }
 void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   cancelPrediction();
@@ -845,12 +846,21 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
   return id;
 }
 bool MappingWorkbench::importConstraints(const QString &h, const QString &path,
-                                         QString *error) {
+                                         const QString &role, QString *error) {
   if (!ready(h, error))
     return false;
-  const auto geometries =
-      MappingArtifactWriter::constraintGeometries(path, error);
-  if (geometries.isEmpty())
+  // 与既有导入同一坐标门：约束几何必须落在本工程局部米制网格。
+  {
+    QgsVectorLayer probe(path, QStringLiteral("constraints"),
+                         QStringLiteral("ogr"));
+    if (probe.isValid() && !acceptsLocalGrid(probe.crs())) {
+      fail(error, tr("约束线必须采用本工程的局部米制坐标；请先完成配准"));
+      return false;
+    }
+  }
+  const auto records =
+      paleo::readConstraintImportFeatures(path, role, nullptr, error);
+  if (records.isEmpty())
     return false;
   // Copy the entire source into a managed GPKG (including shapefile sidecars).
   QgsVectorLayer source(path, "constraints", "ogr");
@@ -864,19 +874,17 @@ bool MappingWorkbench::importConstraints(const QString &h, const QString &path,
              error, "|layername=features");
   if (inputId.isEmpty())
     return false;
-  m_importing = true;
   QStringList created;
   bool ok = true;
-  for (const auto &wkt : geometries) {
+  for (const auto &record : records) {
     QString cid;
-    if (!m_constraints->addConstraint(h, wkt.toString(), "line", -1, error,
-                                      &cid)) {
+    if (!m_constraints->addConstraint(h, record.wkt, record.type, -1, error,
+                                      &cid, record.params)) {
       ok = false;
       break;
     }
     created << cid;
   }
-  m_importing = false;
   if (!ok) {
     if (auto *store = m_constraints->constraintStore())
       for (const auto &cid : created)
@@ -887,6 +895,65 @@ bool MappingWorkbench::importConstraints(const QString &h, const QString &path,
   return !snapshotConstraints(h, {versionForLayer(inputId).id}, error)
               .isEmpty();
 }
+
+// 测区范围/成图边界导入（WS-B/WS-C）：面图层快照进 artifacts/layers/，
+// 声明为 horizon 无关的 00_Data 共享层（图层树布局器置顶）。layerId 按
+// 文件名稳定——同名重导是原位更新（declare upsert 换源重挂），不同名
+// 边界并存供切换。
+bool MappingWorkbench::importBoundaryLayer(const QString &path,
+                                           QString *error) {
+  if (!m_catalog || !m_catalog->isOpen() || m_dir.isEmpty()) {
+    fail(error, tr("请先打开可写工程"));
+    return false;
+  }
+  QgsVectorLayer source(path, QStringLiteral("boundary"), QStringLiteral("ogr"));
+  if (!source.isValid()) {
+    fail(error, tr("边界文件无法读取：%1").arg(path));
+    return false;
+  }
+  if (source.geometryType() != Qgis::GeometryType::Polygon) {
+    fail(error, tr("测区边界必须是面图层（多边形）"));
+    return false;
+  }
+  if (!acceptsLocalGrid(source.crs())) {
+    fail(error, tr("测区边界必须采用本工程的局部米制坐标；请先完成配准"));
+    return false;
+  }
+  QDir().mkpath(m_dir + "/artifacts/layers");
+  const QString copy = QDir(m_dir).filePath(
+      QStringLiteral("artifacts/layers/boundary-%1.gpkg").arg(uid().left(8)));
+  if (!MappingArtifactWriter::vectorSnapshot(&source, copy, error))
+    return false;
+
+  QString stem = QFileInfo(path).completeBaseName();
+  stem.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_-]")),
+               QStringLiteral("_"));
+  LayerDeclaration decl;
+  decl.layerId = QStringLiteral("boundary.%1").arg(
+      stem.isEmpty() ? uid().left(8) : stem);
+  decl.horizon.clear();          // 共享层——不随层位切换释放
+  decl.type = QStringLiteral("vector");
+  decl.source = copy;
+  decl.group = QStringLiteral("00_Data");
+  decl.title = QFileInfo(path).completeBaseName();
+  if (decl.title.isEmpty())
+    decl.title = tr("测区边界");
+  if (!m_layers->declare(decl, error))
+    return false;
+  auto *layer = qobject_cast<QgsVectorLayer *>(
+      m_layers->instantiate(decl.layerId, error));
+  if (!layer)
+    return false;
+  QgisStyleService::applyBoundaryLayerStyle(layer);
+  layer->triggerRepaint();
+  emit changed();
+  if (m_project && !m_project->projectPath().isEmpty() &&
+      !m_project->writeProject())
+    emit errorOccurred(tr("边界已导入，但工程视图保存失败：%1")
+                           .arg(m_project->lastErrors().join("；")));
+  return true;
+}
+
 bool MappingWorkbench::generateFactor(const QString &h, const QString &factor,
                                       const QVariantMap &params,
                                       QString *error) {
@@ -907,20 +974,26 @@ bool MappingWorkbench::generateFactor(const QString &h, const QString &factor,
     if (!snapshot.isEmpty())
       options.insert("pointsLayerId", snapshot);
   }
-  if (auto *samples = m_layers->instantiate(
-          options.value("pointsLayerId").toString(), error)) {
-    const auto extent = samples->extent();
-    const double cell = options.value("cellSize", 100).toDouble();
-    if (!std::isfinite(cell) || cell <= 0 ||
-        std::ceil(std::max(extent.width() * 1.2, cell * 2) / cell) *
-                std::ceil(std::max(extent.height() * 1.2, cell * 2) / cell) >
-            4 * 1024 * 1024) {
-      fail(error,
-           tr("单因素网格超过 400 万像元，请增大网格间距或缩小输入范围"));
+  // structural_idw 按格网分辨率成图，没有 cellSize 契约——跳过像元数闸门
+  //（其域规模由边界多边形 + GRID_RESOLUTION 控制，引擎自限）。
+  const bool structural =
+      options.value("method").toString() == QLatin1String("structural_idw");
+  if (!structural) {
+    if (auto *samples = m_layers->instantiate(
+            options.value("pointsLayerId").toString(), error)) {
+      const auto extent = samples->extent();
+      const double cell = options.value("cellSize", 100).toDouble();
+      if (!std::isfinite(cell) || cell <= 0 ||
+          std::ceil(std::max(extent.width() * 1.2, cell * 2) / cell) *
+                  std::ceil(std::max(extent.height() * 1.2, cell * 2) / cell) >
+              4 * 1024 * 1024) {
+        fail(error,
+             tr("单因素网格超过 400 万像元，请增大网格间距或缩小输入范围"));
+        return false;
+      }
+    } else
       return false;
-    }
-  } else
-    return false;
+  }
   if (!m_constraints->generateFactor(h, factor, options, error))
     return false;
   const auto id = QStringLiteral("factor.%1.%2").arg(h, factor);
@@ -991,6 +1064,13 @@ bool MappingWorkbench::setLabelMode(const QString &id, int mode,
   return true;
 }
 void MappingWorkbench::styleLayer(const QString &id) {
+  // 约束线图层（constraints.<层位>）按 type 语义分类渲染——方向线/打断线
+  // /软边界等在图面可辨（版本目录不入册，mapping_product 分支管不着）。
+  if (id.startsWith(QLatin1String("constraints."))) {
+    if (auto *v = qobject_cast<QgsVectorLayer *>(m_layers->layer(id)))
+      QgisStyleService::applyConstraintLayerStyle(v);
+    return;
+  }
   const auto v = versionForLayer(id);
   if (!v.extra.value("mapping_product").toBool())
     return;
@@ -1023,8 +1103,15 @@ void MappingWorkbench::styleLayer(const QString &id) {
     FactorStyleWriter::applyTo(qobject_cast<QgsRasterLayer *>(layer),
                                v.extra.value("factor_id").toString());
   if (styledKind.startsWith(QLatin1String("constraint")) || analysisRaster ||
-      cartographic || styledKind == QLatin1String("contour_lines"))
+      cartographic || styledKind == QLatin1String("contour_lines")) {
+    // 等值线（分析与制图绕行两族）：细灰线 + ELEV 标注——制图绕行仍
+    // 挂 ELEV，同线型同标注规约。
+    if ((styledKind == QLatin1String("contour_lines") ||
+         styledKind == QLatin1String("single_factor_cartographic_contour")))
+      if (auto *vector = qobject_cast<QgsVectorLayer *>(layer))
+        QgisStyleService::applyContourLayerStyle(vector);
     return;
+  }
   MappingArtifactWriter::applyFaciesStyle(layer,
                                           v.extra.value("facies").toList());
   if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {

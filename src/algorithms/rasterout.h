@@ -23,4 +23,10 @@ namespace PaleoRasterOut
   GDALDatasetH createByteRaster( const QString &outPath, int nCols, int nRows,
                                  const double geoTransform[6],
                                  const QgsCoordinateReferenceSystem &crs );
+
+  // 结构面引擎的 Float64 写口（与上游 trend grid 精度对齐）；nodata 写波段。
+  GDALDatasetH createDoubleRaster( const QString &outPath, int nCols, int nRows,
+                                   const double geoTransform[6],
+                                   const QgsCoordinateReferenceSystem &crs,
+                                   double nodata );
 }

@@ -388,7 +388,7 @@ private slots:
     QVERIFY( d != nullptr );
     QCOMPARE( d->horizon, QStringLiteral( "T1" ) );
     QCOMPARE( d->type, QStringLiteral( "vector" ) );
-    QCOMPARE( d->group, QStringLiteral( "02_Constraints" ) );
+    QCOMPARE( d->group, QStringLiteral( "03_Constraints" ) );
     QVERIFY( d->source.startsWith( QStringLiteral( "memory|" ) ) );
     QVERIFY( d->source.contains( QStringLiteral( "LINESTRING(0 0, 10 0)" ) ) );
     QVERIFY( d->source.contains( QStringLiteral( "LINESTRING(0 0, 0 10)" ) ) );

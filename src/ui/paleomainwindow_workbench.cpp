@@ -24,6 +24,7 @@
 #include <QDialog>
 #include <QDockWidget>
 #include <QFileDialog>
+#include <QInputDialog>
 #include <QLabel>
 #include <QMenu>
 #include <QPointer>
@@ -76,6 +77,23 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     m_decorMgr->setNorthArrowEnabled(true);
     m_decorMgr->setScaleBarEnabled(true);
   }
+  // WS-C5：约束页「导入边界…」——面图层进 00_Data 共享置顶区（图层树
+  // 布局器摆位），structural_idw 的 boundaryLayerId 从其声明选择。
+  if (constraint)
+    connect(constraint, &ConstraintPage::boundaryImportRequested, this,
+            [this, workbench]() {
+              const auto path = QFileDialog::getOpenFileName(
+                  this, tr("导入测区边界面图层"), QString(),
+                  tr("矢量文件 (*.gpkg *.geojson *.json *.shp)"));
+              if (path.isEmpty())
+                return;
+              QString error;
+              if (workbench->importBoundaryLayer(path, &error))
+                statusBar()->showMessage(tr("测区边界已导入"), 8000);
+              else
+                statusBar()->showMessage(
+                    error.isEmpty() ? tr("测区边界导入失败") : error, 15000);
+            });
   auto legend = [this, workbench](const QString &id = QString()) {
     if (!m_decorMgr)
       return;
@@ -509,7 +527,22 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
                 tr("矢量文件 (*.gpkg *.geojson *.json *.shp)"));
             if (path.isEmpty())
               return;
-            ok = workbench->importConstraints(h, path, &error);
+            ok = workbench->importConstraints(h, path, QStringLiteral("auto"),
+                                              &error);
+            // auto 判定失败 → 询问用户角色后重试（方向线 / 打断线）。
+            if (!ok && error.contains(tr("无法判断约束线类型"))) {
+              const QString choice = QInputDialog::getItem(
+                  this, tr("约束线类型"), tr("无法自动判断，请选择约束线类型："),
+                  {tr("方向线"), tr("打断线")}, 0, false, &ok);
+              if (ok)
+                ok = workbench->importConstraints(
+                    h, path,
+                    choice == tr("方向线") ? QStringLiteral("direction")
+                                          : QStringLiteral("barrier"),
+                    &error);
+              else
+                return;
+            }
           } else if (action == "draw") {
             if (constraint) {
               constraint->drawConstraintRequested(h, "line", -1);

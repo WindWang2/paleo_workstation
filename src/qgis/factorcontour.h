@@ -24,4 +24,17 @@ bool generateContours( const QString &rasterPath, const QString &outputGpkg,
 bool generateFixedContours( const QString &rasterPath, const QString &outputGpkg,
                             const QVector<double> &levels, QString *error = nullptr );
 
+// WS-C part2：structural_idw 面 → 上游 field_contours 提取（不走 GDAL 等值线，
+// 不许静默降级）。输入 = Float64 栅格 + <stem>.structural.json 侧卡。
+// levels 非空 → 显式级别（覆盖间距）；否则 interval<=0 → 自动（上游
+// ContourExtractDialog 自适应规则），interval>0 → 用户间距。
+// levelsUsed 回传实际级别（可空）。
+bool generateStructuralContours( const QString &rasterPath,
+                                 const QString &structuralJsonPath,
+                                 const QString &outputGpkg,
+                                 const QVector<double> &levels,
+                                 double interval,
+                                 QVector<double> *levelsUsed = nullptr,
+                                 QString *error = nullptr );
+
 } // namespace FactorContourService

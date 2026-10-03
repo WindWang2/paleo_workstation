@@ -180,6 +180,14 @@ class ConstraintWorkflow : public QObject
                                  const SingleFactorDefinition &def, const QVariantMap &params,
                                  QString *error);
 
+    // WS-C：method=structural_idw（上游 Drawing structural_idw 移植，
+    // paleo:paleo_structural_idw）。boundaryLayerId 必填，cellSize 不需要；
+    // 发布同 local_direction_idw 旁路约定，另复制 .structural.json 并把参与
+    // 井点落成 samples.<层位>.<因素> 点图层。
+    bool generateStructuralFactor(const QString &horizon, const QString &factorId,
+                                  const SingleFactorDefinition &def, const QVariantMap &params,
+                                  QString *error);
+
     // 三个单因素引擎共用的收尾：样式 best-effort 落盘 + factor 栅格声明 +
     // C4 资产关联补盖 + factorGenerated（声明失败不发成功信号）。
     bool declareFactorResult(QgisLayerService *layers, const QString &horizon,
@@ -279,21 +287,26 @@ class ConstraintWorkflow : public QObject
 
     // 分析场等值线：准备在调用线程，GDAL 可在任务线程，发布回到 catalog 所属线程。
     // fixedLevels 为真时用 levels（空级别直接拒绝）；否则要求正间距。
+    // structural（algorithm_id=paleo:paleo_structural_idw）走上游 field_contours
+    // 提取：interval<=0 = 自动级别（对话框自适应规则），不降级到 GDAL 等值线。
     struct AnalysisContourJob
     {
         bool prepared = false;
         bool ok = false;
         bool fixedLevels = false;
+        bool structural = false;
         quint64 generation = 0;
         QString error;
         QString horizon;
         QString factorLayerId;
         QString factorId;
         QString rasterPath;
+        QString structuralPath;
         QString analysisSha;
         QStringList parentPaths;
         double interval = 0.0;
         QVector<double> levels;
+        QVector<double> resolvedLevels;
         QString outputPath;
     };
     bool prepareAnalysisContourJob(const QString &horizon, const QString &factorLayerId,

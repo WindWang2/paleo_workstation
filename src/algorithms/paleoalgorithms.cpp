@@ -2,6 +2,7 @@
 #include "paleoalgorithms.h"
 #include "rasterout.h"
 #include "singlefactor/localdirectionalgorithm.h"
+#include "singlefactor/structuralalgorithm.h"
 #include "../catalog/datacatalog.h"
 #include "domain/singlefactorrequest.h"
 
@@ -147,6 +148,18 @@ GDALDatasetH PaleoRasterOut::createByteRaster( const QString &outPath, int nCols
                                                const QgsCoordinateReferenceSystem &crs )
 {
   return createGTiff( outPath, nCols, nRows, GDT_Byte, geoTransform, crs );
+}
+
+GDALDatasetH PaleoRasterOut::createDoubleRaster( const QString &outPath, int nCols, int nRows,
+                                                 const double geoTransform[6],
+                                                 const QgsCoordinateReferenceSystem &crs,
+                                                 double nodata )
+{
+  GDALDatasetH ds = createGTiff( outPath, nCols, nRows, GDT_Float64, geoTransform, crs );
+  if ( !ds )
+    return nullptr;
+  GDALSetRasterNoDataValue( GDALGetRasterBand( ds, 1 ), nodata );
+  return ds;
 }
 
 // ---------------------------------------------------------------------------
@@ -1138,6 +1151,7 @@ void PaleoProvider::loadAlgorithms()
   addAlgorithm( new PaleoDistanceTransformAlgorithm() ); // welldist 绕障引擎（distancetransform.cpp，C5）
   addAlgorithm( new ConstraintIDWAlgorithm() );
   addAlgorithm( new LocalDirectionIdwAlgorithm() );
+  addAlgorithm( new StructuralIdwAlgorithm() ); // 上游默认法 structural_idw（区域方向核）
   addAlgorithm( new SurferIdwAlgorithm() );
   addAlgorithm( new CartographicWorkAlgorithm() );
   addAlgorithm( new FaciesFusionAlgorithm() );

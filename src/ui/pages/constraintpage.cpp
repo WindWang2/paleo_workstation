@@ -12,6 +12,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QJsonDocument>
@@ -23,7 +24,6 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScrollArea>
-#include <QSpinBox>
 #include <QShowEvent>
 #include <QSpinBox>
 #include <QTableWidget>
@@ -174,6 +174,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   method->addItem( tr( "SGS 实现族" ), QStringLiteral( "sgs" ) );
   method->addItem( tr( "Surfer IDW（断层绕行）" ), QStringLiteral( "surfer_idw" ) );
   method->addItem( tr( "原约束 IDW" ), QStringLiteral( "legacy" ) );
+  // WS-C5：上游移植的结构化 IDW（方向线+打断约束+测区边界域）。
+  method->addItem( tr( "结构 IDW（测区边界）" ), QStringLiteral( "structural_idw" ) );
   method->setAccessibleName( tr( "成图方法" ) );
   lay->addWidget( method );
 
@@ -186,6 +188,45 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   coverage->addItem( tr( "域内外推" ), QStringLiteral( "domain_extrapolation" ) );
   coverage->setAccessibleName( tr( "覆盖方式" ) );
   lay->addWidget( coverage );
+
+  // WS-C5：结构 IDW 专属行——成图边界（面图层，上游 data_mode=current_layers
+  // 必选）+ 格网分辨率 + 导入入口。method=structural_idw 时展开
+  //（updateEngineRows 管可见性，默认隐藏）。
+  auto *boundaryCaption = caption( tr( "成图边界" ), content );
+  boundaryCaption->setObjectName( QStringLiteral( "factorBoundaryCaption" ) );
+  lay->addWidget( boundaryCaption );
+  auto *boundaryRow = new QWidget( this );
+  boundaryRow->setObjectName( QStringLiteral( "factorBoundaryRow" ) );
+  auto *boundaryLay = new QHBoxLayout( boundaryRow );
+  boundaryLay->setContentsMargins( 0, 0, 0, 0 );
+  boundaryLay->setSpacing( 4 );
+  auto *boundary = new QComboBox( boundaryRow );
+  boundary->setObjectName( QStringLiteral( "factorBoundaryCombo" ) );
+  boundary->setAccessibleName( tr( "成图边界面图层" ) );
+  auto *boundaryImport = new QPushButton( tr( "导入…" ), boundaryRow );
+  boundaryImport->setObjectName( QStringLiteral( "factorBoundaryImportButton" ) );
+  boundaryImport->setAccessibleName( tr( "导入测区边界面图层" ) );
+  boundaryImport->setToolTip( tr( "把面图层（SHP/GPKG）导入为测区边界" ) );
+  boundaryLay->addWidget( boundary, 1 );
+  boundaryLay->addWidget( boundaryImport, 0 );
+  lay->addWidget( boundaryRow );
+  connect( boundaryImport, &QPushButton::clicked, this,
+           &ConstraintPage::boundaryImportRequested );
+  auto *gridCaption = caption( tr( "格网分辨率" ), content );
+  gridCaption->setObjectName( QStringLiteral( "factorGridCaption" ) );
+  lay->addWidget( gridCaption );
+  auto *gridRes = new QSpinBox( this );
+  gridRes->setObjectName( QStringLiteral( "factorGridResolutionSpin" ) );
+  gridRes->setRange( 16, 8192 );
+  gridRes->setValue( 339 );
+  gridRes->setToolTip( tr( "沿成图边界最长边的结点数（上游默认 339）" ) );
+  gridRes->setAccessibleName( tr( "结构 IDW 格网分辨率" ) );
+  useMono( gridRes );
+  lay->addWidget( gridRes );
+  boundaryCaption->setVisible( false );
+  boundaryRow->setVisible( false );
+  gridCaption->setVisible( false );
+  gridRes->setVisible( false );
 
   auto *advanced = new CollapsibleSection( tr( "高级参数" ), content );
   advanced->setObjectName( QStringLiteral( "factorAdvancedSection" ) );
@@ -361,7 +402,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
 
   connect( generate, &QPushButton::clicked, this,
            [this, horizons, field, cell, factors, topCombo, baseCombo, method, coverage, power, cluster,
-             variogramModel, nugget, sill, rangeSpin, azimuth, maxPoints, realizations, seed] {
+             variogramModel, nugget, sill, rangeSpin, azimuth, maxPoints, realizations, seed,
+             boundary, gridRes] {
     const int r = checkedRow( factors );
     if ( r < 0 )
       return;
@@ -396,6 +438,17 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
           params.insert( QStringLiteral( "seed" ), seed->value() );
         }
       }
+      // 结构 IDW：边界图层（必选）+ 格网分辨率；覆盖方式→extendToBoundary。
+      if ( methodId == QLatin1String( "structural_idw" ) )
+      {
+        params.insert( QStringLiteral( "boundaryLayerId" ),
+                       boundary ? boundary->currentData().toString() : QString() );
+        params.insert( QStringLiteral( "gridResolution" ),
+                       gridRes ? gridRes->value() : 339 );
+        params.insert( QStringLiteral( "extendToBoundary" ),
+                       coverage->currentData().toString()
+                           == QLatin1String( "domain_extrapolation" ) );
+      }
     }
     // 主线6：等厚引擎参数——顶/底构造面图层随 payload（空即工作流侧拒绝）。
     if ( def.processingAlgId == QLatin1String( "paleo:paleo_isopach" ) )
@@ -409,7 +462,9 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   lay->addWidget( caption( tr( "等值线间距" ), this ) );
   auto *interval = new QDoubleSpinBox( this );
   interval->setObjectName( QStringLiteral( "contourIntervalSpin" ) );
-  interval->setRange( 0.01, 1.0e9 );
+  // 0 = 自动等值距（structural_idw 因素的上游自适应步长规则）。
+  interval->setRange( 0.0, 1.0e9 );
+  interval->setSpecialValueText( tr( "自动（按数据自适应步长）" ) );
   interval->setDecimals( 2 );
   interval->setValue( 20.0 );
   interval->setSuffix( tr( " m" ) );
@@ -502,6 +557,10 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
                  property( kFactorGenProp ).toMap().value( factorIdOfRow( factors, newRow ) ).toString();
              if ( !newLayer.isEmpty() )
                emit factorVisibilityRequested( newLayer, true );
+             // structural_idw 因素的等值线默认自动等值距（0）。
+             if ( auto *spin = child<QDoubleSpinBox>( this, "contourIntervalSpin" ) )
+               if ( checkedFactorIsStructural() )
+                 spin->setValue( 0.0 );
              updateFactorActionStates();
            } );
   // ---- m2(B) 双区 end ------------------------------------------------------
@@ -806,9 +865,35 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   if ( auto *spinBox = child<QDoubleSpinBox>( this, "factorCellSizeSpin" ) )
     connect( spinBox, qOverload<double>( &QDoubleSpinBox::valueChanged ), this, [mark]( double ) { mark(); } );
   if ( auto *combo = child<QComboBox>( this, "factorMethodCombo" ) )
-    connect( combo, qOverload<int>( &QComboBox::currentIndexChanged ), this, [mark]( int ) { mark(); } );
+    connect( combo, qOverload<int>( &QComboBox::currentIndexChanged ), this,
+             [this, mark]( int ) {
+               mark();
+               // 结构 IDW 默认铺满测区边界（上游默认）——联动覆盖选项。
+               auto *method = child<QComboBox>( this, "factorMethodCombo" );
+               auto *coverage = child<QComboBox>( this, "factorCoverageCombo" );
+               if ( method && coverage
+                    && method->currentData().toString()
+                           == QLatin1String( "structural_idw" ) )
+               {
+                 const int idx = coverage->findData(
+                     QStringLiteral( "domain_extrapolation" ) );
+                 if ( idx >= 0 )
+                   coverage->setCurrentIndex( idx );
+               }
+               updateEngineRows();
+               updateFactorActionStates();
+             } );
   if ( auto *combo = child<QComboBox>( this, "factorCoverageCombo" ) )
     connect( combo, qOverload<int>( &QComboBox::currentIndexChanged ), this, [mark]( int ) { mark(); } );
+  if ( auto *combo = child<QComboBox>( this, "factorBoundaryCombo" ) )
+    connect( combo, qOverload<int>( &QComboBox::currentIndexChanged ), this,
+             [this, mark]( int ) {
+               mark();
+               updateFactorActionStates(); // 边界必选门随选择刷新
+             } );
+  if ( auto *spin = child<QSpinBox>( this, "factorGridResolutionSpin" ) )
+    connect( spin, qOverload<int>( &QSpinBox::valueChanged ), this,
+             [mark]( int ) { mark(); } );
   if ( auto *horizons = child<QComboBox>( this, "horizonCombo" ) )
     connect( horizons, qOverload<int>( &QComboBox::currentIndexChanged ), this, [this]( int ) { refreshConstraintList(); } );
 
@@ -877,9 +962,11 @@ void ConstraintPage::bindLayerService( QObject *layers )
     return;
   }
   setProperty( kLayersProp, QVariant::fromValue( static_cast<QObject *>( svc ) ) );
-  // layerDeclared（任何来源——重开工程/重算）里 factor.* 声明 → 状态列刷新。
+  // layerDeclared（任何来源——重开工程/重算/边界导入）里 factor.* 声明 →
+  // 状态列刷新；任何声明都刷引擎行（边界/构造面清单随声明补齐）。
   connect( svc, &QgisLayerService::layerDeclared, this,
            [this]( const QString &layerId ) {
+             updateEngineRows();
              if ( !layerId.startsWith( QStringLiteral( "factor." ) ) )
                return;
              // "factor.<horizon>.<factorId>" → 尾段 factorId。
@@ -947,6 +1034,31 @@ QString ConstraintPage::checkedFactorLayerId() const
   return property( kFactorGenProp ).toMap().value( factorIdOfRow( factors, r ) ).toString();
 }
 
+// structural 判定 = 已声明因素栅格的 .structural.json 侧卡存在（该引擎
+// 必落侧卡，其它引擎不会产出同名文件）。
+bool ConstraintPage::checkedFactorIsStructural() const
+{
+  const QString layerId = checkedFactorLayerId();
+  if ( layerId.isEmpty() )
+    return false;
+  auto *svc = qobject_cast<QgisLayerService *>(
+      property( kLayersProp ).value<QObject *>() );
+  if ( !svc )
+    return false;
+  const QVector<LayerDeclaration> declared = svc->declared();
+  for ( const LayerDeclaration &d : declared )
+  {
+    if ( d.layerId != layerId )
+      continue;
+    const QString path = d.source.section( QLatin1Char( '|' ), 0, 0 );
+    const int dot = path.lastIndexOf( QLatin1Char( '.' ) );
+    if ( dot < 0 )
+      return false;
+    return QFileInfo::exists( path.left( dot ) + QStringLiteral( ".structural.json" ) );
+  }
+  return false;
+}
+
 void ConstraintPage::updateEngineRows()
 {
   // 等厚引擎行：勾选因素的 processingAlgId 是 isopach 时展开并按当前层位
@@ -979,6 +1091,56 @@ void ConstraintPage::updateEngineRows()
     if ( auto *widget = findChild<QWidget *>( name ) )
       widget->setVisible( interpolant );
   }
+
+  // WS-C5：结构 IDW 专属行——成图边界（面图层）+ 格网分辨率。
+  auto *method = child<QComboBox>( this, "factorMethodCombo" );
+  auto *boundaryCombo = child<QComboBox>( this, "factorBoundaryCombo" );
+  const QString methodId = method ? method->currentData().toString() : QString();
+  const bool structural =
+      interpolant && methodId == QLatin1String( "structural_idw" );
+  for ( const QString &name :
+        { QStringLiteral( "factorBoundaryCaption" ), QStringLiteral( "factorBoundaryRow" ),
+          QStringLiteral( "factorGridCaption" ), QStringLiteral( "factorGridResolutionSpin" ) } )
+  {
+    if ( auto *widget = findChild<QWidget *>( name ) )
+      widget->setVisible( structural );
+  }
+  // 结构 IDW 按格网分辨率成图，没有 cellSize 契约——禁用并说明（DESIGN
+  // 禁用即告原因）。
+  if ( auto *cell = child<QDoubleSpinBox>( this, "factorCellSizeSpin" ) )
+  {
+    cell->setEnabled( !structural );
+    cell->setToolTip( structural
+                          ? tr( "结构 IDW 按格网分辨率成图，不使用像元大小" )
+                          : QString() );
+  }
+  if ( structural && boundaryCombo )
+  {
+    // 边界清单：boundary.* 声明前置，其后其它矢量图层——任一已声明矢量
+    // 层均可作边界，面几何由算法侧校验。
+    const QString keep = boundaryCombo->currentData().toString();
+    boundaryCombo->blockSignals( true );
+    boundaryCombo->clear();
+    if ( auto *svc = qobject_cast<QgisLayerService *>(
+             property( kLayersProp ).value<QObject *>() ) )
+    {
+      const QVector<LayerDeclaration> declared = svc->declared();
+      for ( int pass = 0; pass < 2; ++pass )
+        for ( const LayerDeclaration &d : declared )
+        {
+          if ( d.type.compare( QStringLiteral( "vector" ), Qt::CaseInsensitive ) != 0 )
+            continue;
+          const bool dedicated = d.layerId.startsWith( QStringLiteral( "boundary." ) );
+          if ( ( pass == 0 ) != dedicated )
+            continue;
+          boundaryCombo->addItem( d.title.isEmpty() ? d.layerId : d.title, d.layerId );
+        }
+    }
+    const int idx = boundaryCombo->findData( keep );
+    boundaryCombo->setCurrentIndex( idx >= 0 ? idx : 0 );
+    boundaryCombo->blockSignals( false );
+  }
+
   row->setVisible( isopach );
   if ( !isopach )
     return;
@@ -1065,6 +1227,17 @@ void ConstraintPage::updateFactorActionStates()
   {
     generate->setEnabled( true );
     generate->setToolTip( QString() );
+    // 结构 IDW：成图边界必选（上游 data_mode=current_layers 契约）——
+    // 未选即禁用并说明，不静默退化成井点包络域。
+    auto *method = child<QComboBox>( this, "factorMethodCombo" );
+    auto *boundaryCombo = child<QComboBox>( this, "factorBoundaryCombo" );
+    if ( method && boundaryCombo
+         && method->currentData().toString() == QLatin1String( "structural_idw" )
+         && boundaryCombo->currentData().toString().isEmpty() )
+    {
+      generate->setEnabled( false );
+      generate->setToolTip( tr( "请先选择或导入成图边界面图层" ) );
+    }
   }
   const QString layerId = checkedFactorLayerId();
   auto *mode = child<QComboBox>( this, "factorContourModeCombo" );

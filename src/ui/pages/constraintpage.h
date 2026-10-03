@@ -47,6 +47,8 @@ class ConstraintPage : public QWidget
     void noteFactorLayer(const QString &factorId, const QString &layerId);
     // 当前勾选行因素的已生成 layerId（未勾选或未生成 → 空串）。
     QString checkedFactorLayerId() const;
+    // 勾选因素是 structural_idw 产物（其栅格带 .structural.json 侧卡）。
+    bool checkedFactorIsStructural() const;
     // 长计算进行时禁用生成/等值线，并说明原因。取消按钮在忙时可用。
     void setRunBusy(bool busy);
     void noteRunStage(const QString &stage, int percent);
@@ -57,6 +59,9 @@ class ConstraintPage : public QWidget
     // ---- m2(B) ----
     void generateFactorRequested(const QString &factorId, const QString &horizon,
                                  const QVariantMap &params);
+    // WS-C5：测区边界面图层导入入口（结构 IDW 边界行的「导入…」按钮）。
+    // 壳侧接文件对话框 → MappingWorkbench::importBoundaryLayer。
+    void boundaryImportRequested();
     void contourRequested(const QString &factorLayerId, double interval);
     void interpretiveContourRequested(const QString &factorLayerId, const QVector<double> &levels);
     void runCancelRequested();

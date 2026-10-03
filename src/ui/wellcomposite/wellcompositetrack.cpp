@@ -632,7 +632,8 @@ void TextTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     // 绘制文字
     painter.setPen(QColor(QStringLiteral("#24303E")));
     QString fullText = it.category.isEmpty() ? it.text : QStringLiteral("[%1] %2").arg(it.category, it.text);
-    painter.drawText(blockRect.adjusted(4, 2, -4, -2), Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap, fullText);
+    const QRectF textRect = m_keepTextVisible ? blockRect.intersected(bodyRect) : blockRect;
+    painter.drawText(textRect.adjusted(4, 2, -4, -2), Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap, fullText);
   }
 
   painter.restore();

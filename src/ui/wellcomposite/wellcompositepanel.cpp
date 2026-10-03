@@ -1,5 +1,10 @@
 // 层：视图
 #include "wellcompositepanel.h"
+#include "../../workflow/wellfaciesworkflow.h"
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QSignalBlocker>
 #include "../paleoviewport.h"
 #include "curveconfigdialog.h"
 #include "wellpositionlegendwidget.h"
@@ -43,6 +48,10 @@
 
 namespace WellComposite
 {
+namespace { WellCompositePanel::FaciesWorkflowFactory s_faciesFactory; }
+void WellCompositePanel::setFaciesWorkflowFactory(FaciesWorkflowFactory factory) {
+  s_faciesFactory = std::move(factory);
+}
 
 WellCompositePanel::WellCompositePanel(QWidget *parent)
   : QWidget(parent)
@@ -56,6 +65,7 @@ WellCompositePanel::WellCompositePanel(QWidget *parent)
   // D1：登记进活跃面板表并挂接默认 sink（壳 attachWorkflows 先于预览页建立；
   // sink 迟装时由 setDefault 补挂）。
   WellCompositeDerivedSink::registerPanel(this);
+  if (s_faciesFactory) bindFaciesWorkflow(s_faciesFactory(this));
 }
 
 WellCompositePanel::~WellCompositePanel()
@@ -134,6 +144,8 @@ void WellCompositePanel::setupUi()
                "padding: 2px 7px; font-size: 8pt; color: %3; }"
                "QToolButton:hover { background: %4; border-color: %5; }"
                "QToolButton:pressed { background: %2; }"
+               "QToolButton:disabled { color: %5; }"
+               "QToolButton#btnPredictFacies:enabled { color: %7; }"
                "QToolButton:checked { background: %6; border-color: %7; color: %7; }")
         .arg(t.surface.name(), t.border.name(), t.text.name(),
              t.surfaceAlt.name(), t.textDisabled.name(),
@@ -207,6 +219,55 @@ void WellCompositePanel::setupUi()
   PaleoTheme::applyThemedStyleSheet(m_btnConfigCurves, themedBtnStyle);
   topLay->addWidget(m_btnConfigCurves);
 
+  m_faciesModel = new QComboBox(topBar);
+  m_faciesModel->setObjectName(QStringLiteral("faciesPredictionModel"));
+  m_faciesModel->setAccessibleName(tr("测井相预测模型"));
+  m_faciesModel->setMinimumContentsLength(12);
+  m_faciesModel->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+  topLay->addWidget(m_faciesModel);
+  const auto faciesButton = [&](const QString &name, const QString &text) {
+    auto *button = new QToolButton(topBar); button->setObjectName(name);
+    button->setText(text); button->setAccessibleName(text);
+    PaleoTheme::applyThemedStyleSheet(button, themedBtnStyle); topLay->addWidget(button); return button;
+  };
+  m_btnPredictFacies = faciesButton(QStringLiteral("btnPredictFacies"), tr("预测相"));
+  m_btnPredictFacies->setEnabled(false);
+  m_btnPredictFacies->setToolTip(tr("测井相预测服务尚未连接"));
+  m_btnCancelFacies = faciesButton(QStringLiteral("btnCancelFacies"), tr("停止等待"));
+  m_btnCancelFacies->setEnabled(false); m_btnCancelFacies->setToolTip(tr("没有正在等待的预测"));
+  m_btnShowFacies = faciesButton(QStringLiteral("btnShowPredictedFacies"), tr("显示预测相"));
+  m_btnShowFacies->setCheckable(true); m_btnShowFacies->setChecked(true); m_btnShowFacies->setEnabled(false);
+  m_btnShowFacies->setToolTip(tr("先运行测井相预测"));
+  m_btnRefreshFacies = faciesButton(QStringLiteral("btnRefreshFaciesModels"), tr("刷新模型"));
+  m_btnRefreshFacies->setToolTip(tr("获取网络服务当前可调用的模型及输入要求"));
+  m_btnFaciesService = faciesButton(QStringLiteral("btnFaciesService"), tr("预测服务"));
+  m_btnFaciesService->setToolTip(tr("设置测井相预测服务地址与 API 密钥"));
+  connect(m_btnPredictFacies, &QToolButton::clicked, this, &WellCompositePanel::faciesPredictionRequested);
+  connect(m_btnCancelFacies, &QToolButton::clicked, this, &WellCompositePanel::faciesCancelRequested);
+  connect(m_btnRefreshFacies, &QToolButton::clicked, this, &WellCompositePanel::faciesModelsRequested);
+  connect(m_faciesModel, &QComboBox::currentIndexChanged, this, [this] {
+    emit faciesModelSelected(m_faciesModel->currentData().toString());
+  });
+  connect(m_btnShowFacies, &QToolButton::toggled, this, [this](bool visible) {
+    if (m_predictionTrack) m_predictionTrack->setVisible(visible);
+    if (m_confidenceTrack) m_confidenceTrack->setVisible(visible);
+    m_canvas->updateAll();
+  });
+  connect(m_btnFaciesService, &QToolButton::clicked, this, [this] {
+    if (!m_faciesWorkflow) return;
+    const auto config = m_faciesWorkflow->config();
+    QDialog dialog(this); dialog.setWindowTitle(tr("测井相预测服务"));
+    auto *form = new QFormLayout(&dialog); form->setContentsMargins(16,16,16,16); form->setSpacing(8);
+    QLineEdit url(config.baseUrl.toString()), key(QString::fromUtf8(config.apiKey));
+    key.setEchoMode(QLineEdit::Password);
+    form->addRow(tr("服务地址"), &url); form->addRow(tr("API 密钥"), &key);
+    QDialogButtonBox buttons(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+    form->addRow(&buttons);
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() == QDialog::Accepted) emit faciesConfigurationRequested(url.text().trimmed(), key.text().trimmed());
+  });
+
   // ---- D4.x 导出菜单 ----
   m_btnExport = new QToolButton(topBar);
   m_btnExport->setObjectName(QStringLiteral("btnCompExport"));
@@ -274,6 +335,10 @@ void WellCompositePanel::setupUi()
   topLay->addWidget(m_lblStatus);
 
   rootLay->addWidget(new PaleoToolRow(topBar, this));
+  m_faciesStatus = new QLabel(this);
+  m_faciesStatus->setObjectName(QStringLiteral("lblFaciesPredictionStatus"));
+  m_faciesStatus->setWordWrap(true);
+  rootLay->addWidget(m_faciesStatus);
 
   // 中央综合柱状图画布
   m_canvas = new WellCompositeCanvas(this);
@@ -479,10 +544,10 @@ bool WellCompositePanel::loadComprehensiveXml(const QString &xmlPath)
 }
 
 void WellCompositePanel::applyComprehensiveData(const ComprehensiveWellData &data,
-                                                const QString &xmlPath)
+                                                const QString &xmlPath, bool reference)
 {
   m_data = data;
-  setWellName(data.wellName, true); // 综合柱状图 XML 只出现在辅助资料里，井名是参考井
+  setWellName(data.wellName, reference);
   setupTracksFromData(data);
   if (m_legendWidget)
     m_legendWidget->setWellData(data);
@@ -499,7 +564,16 @@ void WellCompositePanel::applyComprehensiveData(const ComprehensiveWellData &dat
   loadSidecar();
   restoreSessionState();
   emit wellLoaded(data.wellName);
+  emit faciesDataChanged(m_data);
   emit comprehensiveXmlLoaded(true);
+}
+
+bool WellCompositePanel::loadWellData(const ComprehensiveWellData &data, const QString &sourcePath, bool reference)
+{
+  ++m_xmlLoadSeq;
+  if (data.isEmpty()) return false;
+  applyComprehensiveData(data, sourcePath, reference);
+  return true;
 }
 
 bool WellCompositePanel::loadComprehensiveXmlAsync(const QString &xmlPath,
@@ -539,12 +613,19 @@ bool WellCompositePanel::loadComprehensiveXmlAsync(const QString &xmlPath,
 bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<CurveData> &curves,
                                        const QVector<FormationInterval> &formations)
 {
+  ++m_xmlLoadSeq;
+  m_data = {};
+  m_editSession.reset();
+  clearFaciesPrediction();
   m_canvas->clearTracks();
   setWellName(wellName);
   clearDepthTables(); // D1：换井复位（LAS 路径无井斜/时深表，保持禁用态）
 
   if (curves.isEmpty() && formations.isEmpty())
+  {
+    emit faciesDataChanged(m_data);
     return false;
+  }
 
   // 计算深度跨度
   double minD = 1e9, maxD = -1e9;
@@ -675,6 +756,7 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
   const QList<TrackSpec> mem = WellCompositeStore::loadSessionTracks(m_projectName, m_wellName);
   restoreSessionState();
   m_canvas->setScaleRatio(m_scaleCombo->currentText());
+  emit faciesDataChanged(m_data);
   return true;
 }
 
@@ -855,6 +937,67 @@ void WellCompositePanel::syncSessionToTracks()
         sc->setIntervals(doc.stratigraphyIntervals);
     }
   }
+  m_canvas->updateAll();
+  emit faciesDataChanged(doc);
+}
+
+void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
+  if (!workflow || m_faciesWorkflow) return;
+  m_faciesWorkflow = workflow;
+  connect(this, &WellCompositePanel::faciesDataChanged, workflow, &WellFaciesWorkflow::setData);
+  connect(this, &WellCompositePanel::faciesPredictionRequested, workflow, &WellFaciesWorkflow::run);
+  connect(this, &WellCompositePanel::faciesCancelRequested, workflow, &WellFaciesWorkflow::cancel);
+  connect(this, &WellCompositePanel::faciesModelsRequested, workflow, &WellFaciesWorkflow::refreshModels);
+  connect(this, &WellCompositePanel::faciesModelSelected, workflow, &WellFaciesWorkflow::selectModel);
+  connect(this, &WellCompositePanel::faciesConfigurationRequested, workflow, [workflow](const QString &url, const QString &key) {
+    WellFaciesConfig config; config.baseUrl = QUrl(url); config.apiKey = key.toUtf8(); workflow->configure(config);
+  });
+  connect(workflow, &WellFaciesWorkflow::modelsChanged, this, [this](const QVariantList &models) {
+    QSignalBlocker block(m_faciesModel); m_faciesModel->clear();
+    for (const auto &v : models) {
+      const auto m = v.toMap(); m_faciesModel->addItem(m.value("name").toString(), m.value("id"));
+      m_faciesModel->setItemData(m_faciesModel->count()-1, m.value("requirements"), Qt::ToolTipRole);
+      if (m.value("selected").toBool()) m_faciesModel->setCurrentIndex(m_faciesModel->count()-1);
+    }
+  });
+  connect(workflow, &WellFaciesWorkflow::availabilityChanged, this, [this](bool ready, const QString &reason) {
+    m_btnPredictFacies->setEnabled(ready);
+    const QString requirements = m_faciesModel->currentData(Qt::ToolTipRole).toString();
+    m_faciesModel->setToolTip(requirements);
+    m_btnPredictFacies->setToolTip(ready ? tr("提交当前井的对应井段预测相：%1").arg(requirements) : reason);
+    m_faciesStatus->setText(ready ? tr("可预测：%1").arg(requirements) : reason);
+  });
+  connect(workflow, &WellFaciesWorkflow::busyChanged, this, [this](bool busy) {
+    m_btnCancelFacies->setEnabled(busy);
+    m_btnCancelFacies->setToolTip(busy ? tr("停止本地等待，服务端已受理任务继续执行") : tr("没有正在等待的预测"));
+    m_faciesModel->setEnabled(!busy); m_btnFaciesService->setEnabled(!busy); m_btnRefreshFacies->setEnabled(!busy);
+  });
+  connect(workflow, &WellFaciesWorkflow::statusChanged, m_faciesStatus, &QLabel::setText);
+  connect(workflow, &WellFaciesWorkflow::resultReady, this, &WellCompositePanel::showFaciesPrediction);
+  connect(workflow, &WellFaciesWorkflow::resultCleared, this, &WellCompositePanel::clearFaciesPrediction);
+  workflow->setData(m_data);
+}
+void WellCompositePanel::clearFaciesPrediction() {
+  for (int i=m_canvas->trackCount()-1; i>=0; --i) {
+    const auto track = m_canvas->tracks().at(i);
+    if (track == m_predictionTrack || track == m_confidenceTrack) m_canvas->removeTrack(i);
+  }
+  m_predictionTrack.reset(); m_confidenceTrack.reset(); m_btnShowFacies->setEnabled(false);
+  m_btnShowFacies->setToolTip(tr("先运行测井相预测"));
+}
+void WellCompositePanel::showFaciesPrediction(const WellFaciesResult &result) {
+  clearFaciesPrediction();
+  auto labels = std::make_shared<TextTrack>(tr("预测相"), 120.0);
+  labels->setIntervals(result.intervals);
+  labels->setKeepTextVisible(true);
+  auto confidence = std::make_shared<CurveTrack>(tr("预测置信度"), 140.0);
+  confidence->addCurve(result.confidence);
+  m_predictionTrack = labels; m_confidenceTrack = confidence;
+  labels->setVisible(m_btnShowFacies->isChecked()); confidence->setVisible(m_btnShowFacies->isChecked());
+  m_canvas->addTrack(labels); m_canvas->addTrack(confidence);
+  m_btnShowFacies->setEnabled(true);
+  m_btnShowFacies->setToolTip(tr("显示或隐藏预测相和置信度；模型 %1 %2；任务 %3")
+                            .arg(result.modelName, result.modelVersion, result.jobId));
   m_canvas->updateAll();
 }
 

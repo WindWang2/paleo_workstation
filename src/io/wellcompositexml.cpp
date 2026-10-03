@@ -288,6 +288,7 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
 
         FormationInterval fi;
         fi.name = row.at(2).trimmed();
+        fi.unitType = row.at(1).trimmed();
         fi.topDepth = row.at(3).trimmed().toFloat();
         fi.bottomDepth = row.at(6).trimmed().toFloat();
         fi.color = formColors.at(outData.formationIntervals.size() % formColors.size());
@@ -682,7 +683,7 @@ QByteArray writeComprehensiveWellXml(const ComprehensiveWellData &data, const QS
     {
       xml += QStringLiteral("<Row>");
       writeCell(xml, 0, data.wellName);
-      writeCell(xml, 1, QStringLiteral("地层单位"));
+      writeCell(xml, 1, fi.unitType.isEmpty() ? QStringLiteral("地层单位") : fi.unitType);
       writeCell(xml, 2, fi.name);
       writeCellF(xml, QString::number(fi.topDepth, 'f', 2));
       writeCell(xml, 3, QString());

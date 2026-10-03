@@ -162,6 +162,7 @@ public:
   void setIntervals(const QVector<TextInterval> &intervals) { m_intervals = intervals; }
   void addInterval(const TextInterval &interval) { m_intervals.append(interval); }
   QVector<TextInterval> intervals() const { return m_intervals; }
+  void setKeepTextVisible(bool keep) { m_keepTextVisible = keep; }
 
   void paintHeader(QPainter &painter, const QRectF &headerRect, double currentDepth) override;
   void paintBody(QPainter &painter, const QRectF &bodyRect,
@@ -170,6 +171,7 @@ public:
 private:
   qreal m_width = 110.0;
   QVector<TextInterval> m_intervals;
+  bool m_keepTextVisible = false;
 };
 
 // 3. 地层道 (FormationTrack)

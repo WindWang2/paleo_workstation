@@ -1,0 +1,6 @@
+target_sources(paleo_domain PRIVATE src/domain/welllogfacies.cpp)
+target_sources(paleo_ai PRIVATE src/ai/wellfaciesservice.cpp)
+target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(paleo_ai PUBLIC paleo_domain Qt6::Network)
+target_sources(paleo_workflow PRIVATE src/workflow/wellfaciesworkflow.cpp)
+add_paleo_test(tst_wellfacies LIBS paleo_ui paleo_io)

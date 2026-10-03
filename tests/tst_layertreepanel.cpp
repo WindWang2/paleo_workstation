@@ -1,3 +1,4 @@
+#include "../src/qgis/layervocabulary.h"
 #include <QtTest>
 #include <QAction>
 #include <QGuiApplication>
@@ -608,7 +609,7 @@ class TestLayerTreePanel : public QObject
       QSignalSpy spy(&panel, &LayerTreePanel::mappingPageRequested);
 
       auto *pred = mkLayer("预测层", "02_Prediction");
-      auto *cons = mkLayer("约束层", "03_Constraints");
+      auto *cons = mkLayer("约束层", PaleoLayerVocabulary::kConstraintsGroup.toUtf8().constData());
       auto *sing = mkLayer("单因素层", "04_SingleFactor");
       auto *map = mkLayer("编图层", "05_PaleoMap");
       auto *ref = mkLayer("参考层", "06_Reference");

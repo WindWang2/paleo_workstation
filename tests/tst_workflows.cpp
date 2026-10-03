@@ -1,3 +1,4 @@
+#include "../src/qgis/layervocabulary.h"
 #include <QtTest>
 #include <QFile>
 #include <QSignalSpy>
@@ -388,7 +389,7 @@ private slots:
     QVERIFY( d != nullptr );
     QCOMPARE( d->horizon, QStringLiteral( "T1" ) );
     QCOMPARE( d->type, QStringLiteral( "vector" ) );
-    QCOMPARE( d->group, QStringLiteral( "03_Constraints" ) );
+    QCOMPARE( d->group, PaleoLayerVocabulary::kConstraintsGroup );
     QVERIFY( d->source.startsWith( QStringLiteral( "memory|" ) ) );
     QVERIFY( d->source.contains( QStringLiteral( "LINESTRING(0 0, 10 0)" ) ) );
     QVERIFY( d->source.contains( QStringLiteral( "LINESTRING(0 0, 0 10)" ) ) );
@@ -585,7 +586,7 @@ private slots:
     // memory-sourced constraint decl must NOT count as a missing file.
     QVERIFY( f.layers.declare( decl( QStringLiteral( "constraints.T1" ), QStringLiteral( "T1" ),
                                      QStringLiteral( "vector" ), QStringLiteral( "memory|LINESTRING(0 0, 1 1)" ),
-                                     QStringLiteral( "02_Constraints" ) ), &err ) );
+                                     PaleoLayerVocabulary::kConstraintsGroup ), &err ) );
 
     f.store.markLayerBusy( QStringLiteral( "ok.T1" ), QStringLiteral( "task-1" ),
                            QStringLiteral( "exporting" ) );

@@ -1,3 +1,4 @@
+#include "../src/qgis/layervocabulary.h"
 #include <QtTest>
 #include <QDir>
 #include <QFile>
@@ -545,7 +546,7 @@ class TestMapping : public QObject
         consDecl.horizon = QStringLiteral( "D61" );
         consDecl.type = QStringLiteral( "vector" );
         consDecl.source = f.dir.filePath( QStringLiteral( "cons.geojson" ) );
-        consDecl.group = QStringLiteral( "02_Constraints" );
+        consDecl.group = PaleoLayerVocabulary::kConstraintsGroup;
         QVERIFY2( f.layers.declare( consDecl, &err ), qPrintable( err ) );
 
         QSignalSpy doneSpy( &f.mapping, &MappingWorkflow::chainDone );
@@ -1441,7 +1442,7 @@ class TestMapping : public QObject
         consDecl.horizon = QStringLiteral( "D61" );
         consDecl.type = QStringLiteral( "vector" );
         consDecl.source = f.dir.filePath( QStringLiteral( "cons.geojson" ) );
-        consDecl.group = QStringLiteral( "02_Constraints" );
+        consDecl.group = PaleoLayerVocabulary::kConstraintsGroup;
         QVERIFY2( f.layers.declare( consDecl, &err ), qPrintable( err ) );
 
         // 等厚链不再产相面（§5C）；相多边形声明走 ComposePage 的转面路径，

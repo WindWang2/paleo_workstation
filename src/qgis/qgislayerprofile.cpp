@@ -197,7 +197,7 @@ bool QgisLayerProfileService::stageTreeVisibility(const QStringList &groups,
     // "01_Prediction" 等历史组名经 profileContains 折算，不再表外隐藏。
     bool visible = PaleoLayerVocabulary::profileContains(groups, decl.group);
     if (!visible && mergeActiveHorizonConstraints
-        && PaleoLayerVocabulary::canonicalize(decl.group) == QStringLiteral("03_Constraints")
+        && PaleoLayerVocabulary::canonicalize(decl.group) == PaleoLayerVocabulary::kConstraintsGroup
         && m_layerService && decl.horizon == activeHorizon)
     {
       visible = true; // predict 档案并入当前层位约束图层

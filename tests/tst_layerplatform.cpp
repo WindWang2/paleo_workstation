@@ -108,8 +108,8 @@ class ProfileFixture
           decl(QStringLiteral("base.boundary"), QString(), QStringLiteral("01_Base")),
           decl(QStringLiteral("base.wells"), QString(), QStringLiteral("01_Base")),
           decl(QStringLiteral("pred.facies"), QStringLiteral("T1"), QStringLiteral("02_Prediction")),
-          decl(QStringLiteral("con.prov"), QStringLiteral("T1"), QStringLiteral("03_Constraints")),
-          decl(QStringLiteral("con.points"), QStringLiteral("T2"), QStringLiteral("03_Constraints")),
+          decl(QStringLiteral("con.prov"), QStringLiteral("T1"), PaleoLayerVocabulary::kConstraintsGroup),
+          decl(QStringLiteral("con.points"), QStringLiteral("T2"), PaleoLayerVocabulary::kConstraintsGroup),
           decl(QStringLiteral("sf.thickness"), QString(), QStringLiteral("04_SingleFactor")),
           decl(QStringLiteral("pm.facies"), QString(), QStringLiteral("05_PaleoMap")),
           decl(QStringLiteral("ref.topo"), QString(), QStringLiteral("06_Reference")),
@@ -186,11 +186,11 @@ class TestLayerPlatform : public QObject
                             QStringLiteral("02_Prediction")}));
       QCOMPARE(QgisLayerProfileService::defaultProfileGroups(QStringLiteral("constraint")),
                QStringList({QStringLiteral("00_Data"), QStringLiteral("01_Base"),
-                            QStringLiteral("03_Constraints"),
+                            PaleoLayerVocabulary::kConstraintsGroup,
                             QStringLiteral("04_SingleFactor")}));
       QCOMPARE(QgisLayerProfileService::defaultProfileGroups(QStringLiteral("compose")),
                QStringList({QStringLiteral("00_Data"), QStringLiteral("01_Base"),
-                            QStringLiteral("03_Constraints"),
+                            PaleoLayerVocabulary::kConstraintsGroup,
                             QStringLiteral("04_SingleFactor"), QStringLiteral("05_PaleoMap"),
                             QStringLiteral("06_Reference")}));
       QCOMPARE(QgisLayerProfileService::defaultProfileGroups(QStringLiteral("validate")),
@@ -444,7 +444,7 @@ class TestLayerPlatform : public QObject
       // 同名树组节点按组内结果同步勾选态
       QVERIFY(root->findGroup(QStringLiteral("01_Base"))->itemVisibilityChecked());
       QVERIFY(!root->findGroup(QStringLiteral("02_Prediction"))->itemVisibilityChecked());
-      QVERIFY(root->findGroup(QStringLiteral("03_Constraints"))->itemVisibilityChecked());
+      QVERIFY(root->findGroup(PaleoLayerVocabulary::kConstraintsGroup)->itemVisibilityChecked());
       QVERIFY(!root->findGroup(QStringLiteral("07_Validation"))->itemVisibilityChecked());
     }
 
@@ -510,7 +510,7 @@ class TestLayerPlatform : public QObject
       QVERIFY(!fx.layerSvc.isInstantiated(QStringLiteral("con.points")));
       // 显式补一个 T2 约束层回树里（按需实例化语义）
       QVERIFY(fx.layerSvc.instantiate(QStringLiteral("con.points")));
-      moveIntoGroup(root, QStringLiteral("03_Constraints"),
+      moveIntoGroup(root, PaleoLayerVocabulary::kConstraintsGroup,
                     fx.layerSvc.layer(QStringLiteral("con.points"))->id());
 
       QVERIFY(fx.profile.applyPageProfile(QStringLiteral("predict")));

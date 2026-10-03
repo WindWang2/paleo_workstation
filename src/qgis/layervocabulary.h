@@ -22,11 +22,13 @@
 namespace PaleoLayerVocabulary
 {
 
+inline const QString kConstraintsGroup = QStringLiteral("03_Constraints");
+
 // canonical 七组（固定顺序；01_Base 底图 → 07_Validation 验证叠加）。
 inline QStringList canonicalGroups()
 {
   return {QStringLiteral("01_Base"),     QStringLiteral("02_Prediction"),
-          QStringLiteral("03_Constraints"), QStringLiteral("04_SingleFactor"),
+          kConstraintsGroup, QStringLiteral("04_SingleFactor"),
           QStringLiteral("05_PaleoMap"),  QStringLiteral("06_Reference"),
           QStringLiteral("07_Validation")};
 }
@@ -43,7 +45,7 @@ inline QString canonicalize(const QString &group)
   if (group == QLatin1String("01_Prediction") || group == QLatin1String("03_Predict"))
     return QStringLiteral("02_Prediction");
   if (group == QLatin1String("02_Constraints"))
-    return QStringLiteral("03_Constraints");
+    return kConstraintsGroup;
   if (group == QLatin1String("03_Composite"))
     return QStringLiteral("05_PaleoMap");
   return group;
@@ -54,7 +56,7 @@ inline QStringList groupFamily(const QString &canonical)
 {
   if (canonical == QLatin1String("02_Prediction"))
     return {canonical, QStringLiteral("01_Prediction"), QStringLiteral("03_Predict")};
-  if (canonical == QLatin1String("03_Constraints"))
+  if (canonical == kConstraintsGroup)
     return {canonical, QStringLiteral("02_Constraints")};
   if (canonical == QLatin1String("05_PaleoMap"))
     return {canonical, QStringLiteral("03_Composite")};
@@ -91,10 +93,10 @@ inline QStringList profileGroupsForPage(const QString &pageId)
   if (pageId == QLatin1String("predict"))
     return {data, QStringLiteral("01_Base"), QStringLiteral("02_Prediction")};
   if (pageId == QLatin1String("constraint"))
-    return {data, QStringLiteral("01_Base"), QStringLiteral("03_Constraints"),
+    return {data, QStringLiteral("01_Base"), kConstraintsGroup,
             QStringLiteral("04_SingleFactor")};
   if (pageId == QLatin1String("compose"))
-    return {data, QStringLiteral("01_Base"), QStringLiteral("03_Constraints"),
+    return {data, QStringLiteral("01_Base"), kConstraintsGroup,
             QStringLiteral("04_SingleFactor"), QStringLiteral("05_PaleoMap"),
             QStringLiteral("06_Reference")};
   if (pageId == QLatin1String("validate"))
@@ -111,7 +113,7 @@ inline QString pageForGroup(const QString &group, QString *reason = nullptr)
     reason->clear();
   if (canonical == QLatin1String("02_Prediction"))
     return QStringLiteral("predict");
-  if (canonical == QLatin1String("03_Constraints") || canonical == QLatin1String("04_SingleFactor"))
+  if (canonical == kConstraintsGroup || canonical == QLatin1String("04_SingleFactor"))
     return QStringLiteral("constraint");
   if (canonical == QLatin1String("05_PaleoMap") || canonical == QLatin1String("06_Reference"))
     return QStringLiteral("compose");

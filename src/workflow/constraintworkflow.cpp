@@ -1,4 +1,5 @@
 // 层：功能
+#include "../qgis/layervocabulary.h"
 #include "workflows.h"
 #include "workflows_internal.h"
 
@@ -297,7 +298,7 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
     decl.type = QStringLiteral( "vector" );
     decl.source = QStringLiteral( "%1|layername=constraints|subset=horizon='%2'" )
                       .arg( cs->gpkgPath(), horizon );
-    decl.group = QStringLiteral( "03_Constraints" );
+    decl.group = PaleoLayerVocabulary::kConstraintsGroup;
     if ( !layers->declare( decl, error ) )
     {
       cs->remove( c.id );
@@ -337,7 +338,7 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
   decl.horizon = horizon;
   decl.type = QStringLiteral( "vector" );
   decl.source = QStringLiteral( "memory|%1" ).arg( wkts.join( QLatin1Char( '|' ) ) );
-  decl.group = QStringLiteral( "03_Constraints" );
+  decl.group = PaleoLayerVocabulary::kConstraintsGroup;
   if ( !layers->declare( decl, error ) )
   {
     m_inMemoryConstraints.removeLast();
@@ -529,7 +530,7 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
       decl.type = QStringLiteral( "vector" );
       decl.source = QStringLiteral( "%1|layername=constraints|subset=horizon='%2'" )
                         .arg( cs->gpkgPath(), horizon );
-      decl.group = QStringLiteral( "03_Constraints" );
+      decl.group = PaleoLayerVocabulary::kConstraintsGroup;
       layers->declare( decl );
     }
     else
@@ -549,7 +550,7 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
         decl.type = QStringLiteral( "vector" );
         decl.source = QStringLiteral( "%1|layername=constraints|subset=horizon='%2'" )
                           .arg( cs->gpkgPath(), h );
-        decl.group = QStringLiteral( "03_Constraints" );
+        decl.group = PaleoLayerVocabulary::kConstraintsGroup;
         layers->declare( decl );
       }
     }

@@ -1,4 +1,5 @@
 // 层：测试壳
+#include "../src/qgis/layervocabulary.h"
 #include <QtTest>
 #include <QDir>
 
@@ -291,7 +292,7 @@ private slots:
     stop.horizon = QStringLiteral( "T1" );
     stop.type = QStringLiteral( "vector" );
     stop.source = linesPath + QStringLiteral( "|layername=lines" );
-    stop.group = QStringLiteral( "03_Constraints" );
+    stop.group = PaleoLayerVocabulary::kConstraintsGroup;
     QVERIFY2( f.layers.declare( stop, &err ), qPrintable( err ) );
 
     ConstraintWorkflow wf( &f.proc, &f.layers );
@@ -399,7 +400,7 @@ private slots:
     stop.horizon = QStringLiteral( "T1" );
     stop.type = QStringLiteral( "vector" );
     stop.source = linesPath + QStringLiteral( "|layername=lines" );
-    stop.group = QStringLiteral( "03_Constraints" );
+    stop.group = PaleoLayerVocabulary::kConstraintsGroup;
     QVERIFY2( f.layers.declare( stop, &err ), qPrintable( err ) );
 
     ConstraintWorkflow wf( &f.proc, &f.layers );

@@ -1,3 +1,4 @@
+#include "../src/qgis/layervocabulary.h"
 #include <QtTest>
 #include <QApplication>
 #include <QComboBox>
@@ -85,7 +86,7 @@ class TestPanels : public QObject
         d.horizon = QStringLiteral("T1");
         d.type = QStringLiteral("vector");
         d.source = QStringLiteral("memory|c%1").arg(i);
-        d.group = QStringLiteral("02_Constraints");
+        d.group = PaleoLayerVocabulary::kConstraintsGroup;
         QVERIFY2(m->upsert(d), qPrintable(d.layerId));
       }
     }

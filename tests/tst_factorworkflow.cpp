@@ -1,3 +1,4 @@
+#include "../src/qgis/layervocabulary.h"
 #include <QtTest>
 #include <QDir>
 #include <QFile>
@@ -1097,7 +1098,7 @@ class TestFactorWorkflow : public QObject
       QVERIFY( writeLineGpkg( linesPath, 3857, lines ) );
       QVERIFY2( f.layers.declare( decl( QStringLiteral( "constraints.T1" ), QStringLiteral( "T1" ),
                                         QStringLiteral( "vector" ), layerUri( linesPath, QStringLiteral( "lines" ) ),
-                                        QStringLiteral( "03_Constraints" ) ),
+                                        PaleoLayerVocabulary::kConstraintsGroup ),
                                   &err ),
                 qPrintable( err ) );
 
@@ -1438,7 +1439,7 @@ class TestFactorWorkflow : public QObject
                               { { "stop-cross", "contour_stop", 499000.0, 4000200.0, 501000.0, 4000200.0 } } ) );
       QVERIFY2( crossing.layers.declare(
                     decl( QStringLiteral( "constraints.T1" ), QStringLiteral( "T1" ), QStringLiteral( "vector" ),
-                          layerUri( linesPath, QStringLiteral( "lines" ) ), QStringLiteral( "03_Constraints" ) ),
+                          layerUri( linesPath, QStringLiteral( "lines" ) ), PaleoLayerVocabulary::kConstraintsGroup ),
                     &err ),
                 qPrintable( err ) );
       QSignalSpy crossSpy( &crossingWf, &ConstraintWorkflow::interpretiveContoursGenerated );
@@ -1497,7 +1498,7 @@ class TestFactorWorkflow : public QObject
                               { { "stop-far", "contour_stop", 0.0, 9000000.0, 10.0, 9000000.0 } } ) );
       QVERIFY2( open.layers.declare(
                     decl( QStringLiteral( "constraints.T1" ), QStringLiteral( "T1" ), QStringLiteral( "vector" ),
-                          layerUri( farPath, QStringLiteral( "lines" ) ), QStringLiteral( "03_Constraints" ) ),
+                          layerUri( farPath, QStringLiteral( "lines" ) ), PaleoLayerVocabulary::kConstraintsGroup ),
                     &err ),
                 qPrintable( err ) );
       QSignalSpy interpretive( &wf, &ConstraintWorkflow::interpretiveContoursGenerated );
@@ -1593,7 +1594,7 @@ class TestFactorWorkflow : public QObject
               stopY + 115.0 } } ) );
       QVERIFY2( f.layers.declare( decl( QStringLiteral( "constraints.T1" ), QStringLiteral( "T1" ),
                                         QStringLiteral( "vector" ), layerUri( linesPath, QStringLiteral( "lines" ) ),
-                                        QStringLiteral( "03_Constraints" ) ),
+                                        PaleoLayerVocabulary::kConstraintsGroup ),
                                   &err ),
                 qPrintable( err ) );
       ConstraintWorkflow wf( &f.proc, &f.layers );

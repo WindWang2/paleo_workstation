@@ -473,32 +473,7 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
     }
 
     // D2.10 同目录叠加
-    {
-      const auto siblings = PreviewMapStates::siblingMappableAssets(
-          cat, abs, [this](const CatalogVersion &v) { return m_doc->absolutePathForVersion(v); });
-      QVector<QPair<QString, QString>> others;
-      for (const auto &sib : siblings)
-        if (sib.first != assetId)
-          others.append(sib);
-      if (!others.isEmpty())
-      {
-        auto *overlayBtn = new QToolButton(page);
-        overlayBtn->setObjectName(QStringLiteral("siblingOverlayButton"));
-        overlayBtn->setText(tr("同目录叠加"));
-        overlayBtn->setToolTip(tr("把同目录下的相图/配准图片/层位栅格叠加到本预览"));
-        overlayBtn->setPopupMode(QToolButton::InstantPopup);
-        auto *menu = new QMenu(overlayBtn);
-        for (const auto &sib : others)
-        {
-          QAction *act = menu->addAction(sib.second);
-          QObject::connect(act, &QAction::triggered, host, [this, page, sib, host]() {
-            addSiblingOverlayLayer(page, sib.first, sib.second, host);
-          });
-        }
-        overlayBtn->setMenu(menu);
-        page->addToolBarWidget(overlayBtn);
-      }
-    }
+    addSiblingOverlayButton(cat, abs, assetId, page, host);
 
     QTimer::singleShot(100, page, [page, vlayer]() {
       if (vlayer && !vlayer->extent().isEmpty())

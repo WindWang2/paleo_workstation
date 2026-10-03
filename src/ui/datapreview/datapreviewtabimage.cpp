@@ -133,24 +133,7 @@ QWidget *DataPreviewTabs::buildImageReferenceContent(
       rasterRaw->setParent(host);
       page->addMapLayer(rasterRaw, asset.displayName, abs);
       // D2.11 大图（>50MB 无金字塔）提示：降级仍可用。
-      const QString bigHint = PreviewRasterAnalysis::bigRasterHint(rasterRaw);
-      if (!bigHint.isEmpty())
-      {
-        lay->addWidget(PreviewMapStates::buildBigRasterHintBar(bigHint, host));
-        // B3：消费侧预热（同层位栅格页口径——.ovr 完成后重载层刷新）。
-        if (m_doc)
-        {
-          QPointer<QgsRasterLayer> rasterGuard(rasterRaw);
-          connect(m_doc, &PreviewDocService::rasterPyramidFinished, host,
-                  [rasterGuard, assetId](const QString &doneId, bool ok) {
-                    if (doneId != assetId || !ok || !rasterGuard)
-                      return;
-                    rasterGuard->reload();
-                    rasterGuard->triggerRepaint();
-                  });
-          m_doc->ensureRasterPyramidVersion(assetId);
-        }
-      }
+      addRasterPyramidHint(m_doc, rasterRaw, assetId, host, lay);
       lay->addWidget(page, 1);
       lay->addWidget(caption8(tr("已按配准边车 %1 上图（RGB 影像原色）")
                                   .arg(QFileInfo(worldFile).fileName()),

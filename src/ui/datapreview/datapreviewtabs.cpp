@@ -1433,6 +1433,34 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
 
 // ---- D2.10 同目录组图：叠一层同目录可地图化资产（geojson/带配准图片/
 // 层位栅格）。不支持的类型如实跳过，不造假层。----
+void DataPreviewTabs::addSiblingOverlayButton(DataCatalog *catalog, const QString &sourcePath,
+                                               const QString &assetId, PreviewMapPage *page, QWidget *owner)
+{
+  const auto siblings = PreviewMapStates::siblingMappableAssets(
+      catalog, sourcePath, [this](const CatalogVersion &v) { return m_doc->absolutePathForVersion(v); });
+  QVector<QPair<QString, QString>> others;
+  for (const auto &sib : siblings)
+    if (sib.first != assetId)
+      others.append(sib);
+  if (others.isEmpty())
+    return;
+  auto *overlayBtn = new QToolButton(page);
+  overlayBtn->setObjectName(QStringLiteral("siblingOverlayButton"));
+  overlayBtn->setText(tr("同目录叠加"));
+  overlayBtn->setToolTip(tr("把同目录下的相图/配准图片/层位栅格叠加到本预览"));
+  overlayBtn->setPopupMode(QToolButton::InstantPopup);
+  auto *menu = new QMenu(overlayBtn);
+  for (const auto &sib : others)
+  {
+    QAction *act = menu->addAction(sib.second);
+    QObject::connect(act, &QAction::triggered, owner, [this, page, sib, owner]() {
+      addSiblingOverlayLayer(page, sib.first, sib.second, owner);
+    });
+  }
+  overlayBtn->setMenu(menu);
+  page->addToolBarWidget(overlayBtn);
+}
+
 void DataPreviewTabs::addSiblingOverlayLayer(PreviewMapPage *page, const QString &sibAssetId,
                                              const QString &sibName, QWidget *owner)
 {

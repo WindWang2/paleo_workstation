@@ -22,6 +22,7 @@
 
 import re
 import shutil
+import tempfile
 import sys
 from pathlib import Path
 
@@ -73,17 +74,19 @@ def scan(root: Path):
 
 def selftest():
     # 规则自检：正例/反例各一，扫描器自身坏掉不能静默变绿。
-    fake = Path("/tmp/uipolish_selftest/src/ui")
+    # Windows CI：无 /tmp、默认编码 cp1252——用系统临时目录 + 显式 utf-8。
+    fake = Path(tempfile.gettempdir()) / "uipolish_selftest" / "src" / "ui"
     if fake.parent.parent.exists():
         shutil.rmtree(fake.parent.parent)
     fake.mkdir(parents=True)
     (fake / "ok.cpp").write_text(
         'l->setStyleSheet(PaleoTheme::mutedCaptionStyleSheet());\n'
-        'c.setPen(QPen(QColor("#DFE5EC"), 1.0));  // 数据符号色不在规则面\n')
+        'c.setPen(QPen(QColor("#DFE5EC"), 1.0));  // 数据符号色不在规则面\n',
+        encoding="utf-8")
     (fake / "bad.cpp").write_text(
         'w->setStyleSheet(\n    QStringLiteral("color: #5D6E80;"));\n'
         'auto *a = new QPropertyAnimation(w, "pos");\n'
-        'tree->setAnimated(true);\n')
+        'tree->setAnimated(true);\n', encoding="utf-8")
     v = scan(fake.parent.parent)
     keys = sorted(k for k, _ in v)
     ok = keys == ["src/ui/bad.cpp:motion", "src/ui/bad.cpp:motion",
@@ -122,7 +125,7 @@ def main():
 
     baseline = set()
     if baseline_path.exists():
-        for ln in baseline_path.read_text().splitlines():
+        for ln in baseline_path.read_text(encoding="utf-8").splitlines():
             ln = ln.strip()
             if ln and not ln.startswith("#"):
                 baseline.add(ln)

@@ -133,6 +133,23 @@ class TestLayerTreePanel : public QObject
       QVERIFY(panel.findChild<QToolButton *>(QStringLiteral("layerTreeMoveDownButton")));
       QVERIFY(panel.findChild<QAction *>(QStringLiteral("layerTreeMoveToTopAction")));
 
+      // 工具条图标化契约：六个按钮走 QToolButton::IconOnly + QGIS 主题图标
+      //（图标缺失时按钮回退文本显示——契约断言的是「图标资源可解析」）。
+      for (const QString &name :
+           {QStringLiteral("layerTreeAddGroupButton"),
+            QStringLiteral("layerTreeRemoveSelectedButton"),
+            QStringLiteral("layerTreeExpandAllButton"),
+            QStringLiteral("layerTreeCollapseAllButton"),
+            QStringLiteral("layerTreeMoveUpButton"),
+            QStringLiteral("layerTreeMoveDownButton")})
+      {
+        auto *btn = panel.findChild<QToolButton *>(name);
+        QVERIFY2(btn, qPrintable(name));
+        QCOMPARE(btn->toolButtonStyle(), Qt::ToolButtonIconOnly);
+        QVERIFY2(!btn->icon().isNull(), qPrintable(name));
+        QVERIFY2(!btn->toolTip().isEmpty(), qPrintable(name)); // 图标按钮必须留文字线索
+      }
+
       auto *filterEdit = panel.findChild<QLineEdit *>(QStringLiteral("layerTreeFilterEdit"));
       QVERIFY(filterEdit);
       QVERIFY2(filterEdit->placeholderText().contains(QString::fromUtf8("筛选图层")),

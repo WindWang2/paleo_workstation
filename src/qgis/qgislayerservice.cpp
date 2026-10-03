@@ -3,11 +3,14 @@
 
 #include "qgisprojectservice.h"
 #include "qgiseditingservice.h"
+#include "layervocabulary.h"
 #include "mappingartifactwriter.h"
 
 #include <QSet>
 #include <QtGlobal>
 
+#include <qgslayertree.h>
+#include <qgslayertreegroup.h>
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
@@ -28,6 +31,47 @@ namespace
     if (svc)
       return svc->project();
     return QgsProject::instance();
+  }
+
+  // 归位路径：声明图层按「地层大组（decl.horizon 非空）⊃ 工作流子组
+  //（decl.group，"/" 分隔子路径）」摆树——实例化即归组，不再根上平铺。
+  // horizon 为空（层位无关层，如地震/井位）退为根上工作流组；两段皆空
+  // 才落根（与原 addMapLayer 默认行为等价）。
+  QgsLayerTreeGroup *groupForPath(QgsLayerTreeGroup *root, const QStringList &segments)
+  {
+    QgsLayerTreeGroup *cur = root;
+    for (const QString &seg : segments)
+    {
+      if (seg.isEmpty())
+        continue;
+      // 只认直接子节点（findGroup 递归——用户在别支下自建的同名组会误归位）。
+      QgsLayerTreeGroup *hit = nullptr;
+      for (QgsLayerTreeNode *child : cur->children())
+        if (QgsLayerTree::isGroup(child) && child->name() == seg)
+          hit = QgsLayerTree::toGroup(child);
+      cur = hit ? hit : cur->addGroup(seg);
+    }
+    return cur;
+  }
+
+  // 释放/摘除后收空壳：只剪我们自己摆出来的组——树组内已无后代图层
+  //（findLayers 递归）才摘；用户往组里拖的手工层会阻止剪枝。
+  void pruneEmptyRootGroup(QgsProject *proj, const QString &groupName)
+  {
+    if (!proj || groupName.isEmpty())
+      return;
+    QgsLayerTree *root = proj->layerTreeRoot();
+    if (!root)
+      return;
+    for (QgsLayerTreeNode *child : root->children())
+    {
+      if (QgsLayerTree::isGroup(child) && child->name() == groupName
+          && QgsLayerTree::toGroup(child)->findLayers().isEmpty())
+      {
+        root->removeChildNode(child);
+        return;
+      }
+    }
   }
 } // namespace
 
@@ -171,13 +215,23 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   MappingArtifactWriter::restoreRasterCrs(layer.get());
 
   // QgsProject takes ownership; keep only the raw pointer in the instance map.
-  QgsMapLayer *added = proj->addMapLayer(layer.get());
+  // addToLegend=false：树节点不由工程默认摆（根顶平铺），随即按声明归组。
+  QgsMapLayer *added = proj->addMapLayer(layer.get(), false);
   if (!added)
   {
     setError(error, QStringLiteral("QgsProject refused layer '%1'").arg(layerId));
     return nullptr;
   }
   layer.release();
+
+  // 归组：地层大组 ⊃ 工作流子组（旧组名经 canonicalize 折算——树上只见
+  // canonical 组名；组内 insertLayer(0) 顶置，与原根顶落位同序语义）。
+  QStringList groupPath;
+  if (!decl->horizon.isEmpty())
+    groupPath << decl->horizon;
+  const QString canonGroup = PaleoLayerVocabulary::canonicalize(decl->group);
+  groupPath << canonGroup.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+  groupForPath(proj->layerTreeRoot(), groupPath)->insertLayer(0, added);
   if (!decl->title.isEmpty())
     added->setName(decl->title); // 显示名优先 title，机器名仍在 paleoLayerId
   added->setCustomProperty(QStringLiteral("paleoLayerId"), decl->layerId);
@@ -239,6 +293,9 @@ void QgisLayerService::releaseHorizon(const QString &horizon)
       proj->removeMapLayer(l); // project-owned: removal deletes the layer
     }
   }
+  // 自动摆出来的地层大组：释放后整组无后代图层即摘掉（手工拖进来的层
+  // 会阻止剪枝）——否则切换几次层位，树里攒一串空历史层位组。
+  pruneEmptyRootGroup(proj, horizon);
   emit horizonReleased(horizon);
 }
 

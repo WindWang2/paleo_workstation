@@ -5,6 +5,9 @@
 #include <qgsapplication.h>
 #include <qgscoordinatereferencesystem.h>
 #include <qgscoordinatetransform.h>
+#include <qgslayertree.h>
+#include <qgslayertreegroup.h>
+#include <qgslayertreelayer.h>
 #include <qgsmapcanvas.h>
 #include <qgsmaplayer.h>
 #include <qgsmapsettings.h>
@@ -62,6 +65,11 @@ private slots:
   {
     // Tests share the QgsProject singleton via the null-projectSvc fallback.
     QgsProject::instance()->removeAllMapLayers();
+    // 组节点不随图层注册表清空——逐节点摘掉（分组归位后测试间不互染）。
+    QgsLayerTree *root = QgsProject::instance()->layerTreeRoot();
+    const auto kids = root->children();
+    for (QgsLayerTreeNode *n : kids)
+      root->removeChildNode(n);
   }
 
   // (a) declare 3 layers on 2 horizons → all()==3, forHorizon splits correctly
@@ -387,6 +395,83 @@ private slots:
     QVERIFY(!svc.isEditingAnyLayer(&editingName));
     QCOMPARE(svc.layer(QStringLiteral("facies.T1")), nullptr);
     QVERIFY(!svc.isInstantiated(QStringLiteral("facies.T1")));
+  }
+
+  // (j) 声明图层归组：地层大组 ⊃ 工作流子组——horizon 非空的声明层落在
+  //     <层位>/<canonical 组> 路径下（"/" 子路径嵌套、旧组名折算）；horizon
+  //     为空的层位无关层落根上工作流组；释放层位后空壳地层组摘除。
+  void instantiatePlacesLayersUnderHorizonGroup()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+    QVERIFY(manifest.open());
+    QgisLayerService svc(nullptr, &manifest);
+
+    LayerDeclaration deep = decl(QStringLiteral("carto.T1"), QStringLiteral("T1"));
+    deep.group = QStringLiteral("04_SingleFactor/Cartographic"); // "/" 子路径嵌套
+    LayerDeclaration alias = decl(QStringLiteral("faults.T1"), QStringLiteral("T1"));
+    alias.group = QStringLiteral("02_Constraints"); // 旧组名 → canonical 03_Constraints
+    LayerDeclaration shared = decl(QStringLiteral("wells"), QString());
+    shared.group = QStringLiteral("00_Data"); // 层位无关 → 根上工作流组
+    QVERIFY(svc.declare(decl(QStringLiteral("facies.T1"), QStringLiteral("T1"))));
+    QVERIFY(svc.declare(deep));
+    QVERIFY(svc.declare(alias));
+    QVERIFY(svc.declare(shared));
+
+    QCOMPARE(svc.instantiateHorizon(QStringLiteral("T1")), 3);
+    QVERIFY(svc.instantiate(QStringLiteral("wells")));
+
+    QgsLayerTree *root = QgsProject::instance()->layerTreeRoot();
+    auto *t1 = root->findGroup(QStringLiteral("T1"));
+    QVERIFY2(t1, "horizon group must exist at root");
+    auto *sfGrp = t1->findGroup(QStringLiteral("04_SingleFactor"));
+    QVERIFY2(sfGrp, "workflow subgroup must nest under horizon group");
+    QVERIFY(sfGrp->findLayer(svc.layer(QStringLiteral("facies.T1"))->id()));
+    auto *carto = sfGrp->findGroup(QStringLiteral("Cartographic"));
+    QVERIFY2(carto, "subpath segment must nest a level deeper");
+    QVERIFY(carto->findLayer(svc.layer(QStringLiteral("carto.T1"))->id()));
+    auto *cons = t1->findGroup(QStringLiteral("03_Constraints"));
+    QVERIFY2(cons, "legacy group name must canonicalize on placement");
+    QVERIFY(cons->findLayer(svc.layer(QStringLiteral("faults.T1"))->id()));
+    QVERIFY(!t1->findGroup(QStringLiteral("02_Constraints")));
+
+    auto *data = root->findGroup(QStringLiteral("00_Data"));
+    QVERIFY2(data, "horizon-agnostic layer lands in root workflow group");
+    QVERIFY(data->findLayer(svc.layer(QStringLiteral("wells"))->id()));
+
+    // 释放层位：T1 壳组摘除；agnostic 组与图层存活。
+    svc.releaseHorizon(QStringLiteral("T1"));
+    QVERIFY(!root->findGroup(QStringLiteral("T1")));
+    QVERIFY(root->findGroup(QStringLiteral("00_Data")));
+    QCOMPARE(QgsProject::instance()->mapLayers().size(), 1);
+  }
+
+  // (k) 地层组里混进手工层：releaseHorizon 只摘自动层——组因尚有后代
+  //     图层而保留（剪枝守卫，防把用户手工层连锅端）。
+  void releaseKeepsHorizonGroupHoldingManualLayers()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+    QVERIFY(manifest.open());
+    QgisLayerService svc(nullptr, &manifest);
+    QVERIFY(svc.declare(decl(QStringLiteral("facies.T1"), QStringLiteral("T1"))));
+    QCOMPARE(svc.instantiateHorizon(QStringLiteral("T1")), 1);
+
+    QgsLayerTree *root = QgsProject::instance()->layerTreeRoot();
+    auto *t1 = root->findGroup(QStringLiteral("T1"));
+    QVERIFY(t1);
+    // 用户手工层拖进地层组（无 paleoLayerId —— release 的精确 horizon
+    // 匹配不碰它，但它在树结构上挡剪枝）。
+    auto *manual = new QgsVectorLayer(QStringLiteral("Point"),
+                                      QStringLiteral("手工层"), QStringLiteral("memory"));
+    QgsProject::instance()->addMapLayer(manual, false);
+    t1->insertLayer(-1, manual);
+
+    svc.releaseHorizon(QStringLiteral("T1"));
+    QVERIFY(root->findGroup(QStringLiteral("T1")));
+    QCOMPARE(QgsProject::instance()->mapLayers().size(), 1);
   }
 };
 

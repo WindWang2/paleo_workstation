@@ -2,6 +2,7 @@
 #include "layertreepanel.h"
 
 #include "../paleoemptystate.h"
+#include "../paleoicons.h"
 #include "../paleotheme.h"
 #include "../paleoviewport.h"
 
@@ -176,6 +177,8 @@ QWidget *LayerTreePanel::buildToolbar()
 
   m_addGroupAction = acts->actionAddGroup(this);
   m_addGroupAction->setText(tr("添加组"));
+  m_addGroupAction->setIcon(
+      PaleoIcons::qgisTheme(QStringLiteral("mActionAddGroup.svg")));
 
   auto *removeAction = acts->actionRemoveGroupOrLayer(this);
   // 主线5 消歧：明确动作对象是「图层树的图层/组」，不是画布上选中的要素
@@ -190,6 +193,8 @@ QWidget *LayerTreePanel::buildToolbar()
   m_removeAction = new QAction(tr("删除所选图层/组"), this);
   m_removeAction->setObjectName(QStringLiteral("layerTreeRemoveSelectedAction"));
   m_removeAction->setToolTip(removeAction->toolTip());
+  m_removeAction->setIcon(
+      PaleoIcons::qgisTheme(QStringLiteral("mActionRemove.svg")));
   // goal/ui-experience-polish：Delete 键直达删除（桌面列表惯例；QAction 挂
   // 键后菜单/工具条按钮同步显示快捷键提示）。
   m_removeAction->setShortcut(Qt::Key_Delete);
@@ -223,6 +228,8 @@ QWidget *LayerTreePanel::buildToolbar()
   // 列表序即绘制序：序号越小越靠上，也越后画（盖住下面的图层）。
   m_moveUpAction = new QAction(tr("上移"), this);
   m_moveUpAction->setObjectName(QStringLiteral("layerTreeMoveUpAction"));
+  m_moveUpAction->setIcon(
+      PaleoIcons::qgisTheme(QStringLiteral("mActionArrowUp.svg")));
   connect(m_moveUpAction, &QAction::triggered, this, [this]() {
     const int from = currentNodeIndex();
     if (from > 0)
@@ -230,6 +237,8 @@ QWidget *LayerTreePanel::buildToolbar()
   });
   m_moveDownAction = new QAction(tr("下移"), this);
   m_moveDownAction->setObjectName(QStringLiteral("layerTreeMoveDownAction"));
+  m_moveDownAction->setIcon(
+      PaleoIcons::qgisTheme(QStringLiteral("mActionArrowDown.svg")));
   connect(m_moveDownAction, &QAction::triggered, this, [this]() {
     int count = 0;
     const int from = currentNodeIndex(&count);
@@ -246,9 +255,13 @@ QWidget *LayerTreePanel::buildToolbar()
   lay->addWidget(mkButton(QStringLiteral("layerTreeMoveDownButton"), m_moveDownAction));
 
   auto *expandAct = new QAction(tr("展开全部"), this);
+  expandAct->setIcon(
+      PaleoIcons::qgisTheme(QStringLiteral("mActionExpandTree.svg")));
   connect(expandAct, &QAction::triggered, m_view, &QgsLayerTreeView::expandAllNodes);
   lay->addWidget(mkButton(QStringLiteral("layerTreeExpandAllButton"), expandAct));
   auto *collapseAct = new QAction(tr("折叠全部"), this);
+  collapseAct->setIcon(
+      PaleoIcons::qgisTheme(QStringLiteral("mActionCollapseTree.svg")));
   connect(collapseAct, &QAction::triggered, m_view, &QgsLayerTreeView::collapseAllNodes);
   lay->addWidget(mkButton(QStringLiteral("layerTreeCollapseAllButton"), collapseAct));
 

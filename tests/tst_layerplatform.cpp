@@ -51,8 +51,8 @@ static LayerDeclaration decl(const QString &layerId, const QString &horizon,
   return d;
 }
 
-// 把（addMapLayer 落在树根的）图层节点挪进同名树组 —— instantiate() 只落树根
-// 不建组，组匹配是声明驱动的，但组节点勾选态同步需要真实的组节点。
+// 把图层节点挪进指定的树根组 —— instantiate() 现已按「地层/工作流组」归位，
+// 本夹具要在树根上自建同名组验证组勾选态同步，先把节点挪过来。
 static void moveIntoGroup(QgsLayerTree *root, const QString &groupName,
                           const QString &layerId)
 {

@@ -27,10 +27,12 @@ class QMenu;
 // 面板只渲染 + 发意图信号；显示/隐藏/排序/重命名/删除直接落在
 // QgsLayerTreeModel/View（唯一图层状态源），面板不自建可见性台账。
 //
-// 结构：顶部工具条（添加组/删除选中/上移/下移/展开全部/折叠全部/筛选输入框）+
-// QgsLayerTreeView（保留 AllowNodeReorder/Rename/ChangeVisibility 三 flag）
-// + 右键菜单（上移/下移/置顶 + QgsLayerTreeViewDefaultActions + Paleo 自加项）+
-// 空态 label（随工程图层集显隐）。
+// 结构：顶部工具条（图标按钮：添加组/删除选中/上移/下移/展开全部/折叠全部
+// + 筛选输入框）+ QgsLayerTreeView（保留 AllowNodeReorder/Rename/ChangeVisibility
+// 三 flag）+ 右键菜单（上移/下移/置顶 + QgsLayerTreeViewDefaultActions +
+// Paleo 自加项）+ 空态 label（随工程图层集显隐）。
+// 声明图层由 QgisLayerService::instantiate 按「地层大组 ⊃ 工作流子组」归位
+//（decl.horizon 为空退为根上工作流组）；面板不自建第二套分组台账。
 // 列表越靠上绘制越靠上：上移减小序号，置顶落到所在组的第 0 位（根上即全图最上）。
 class LayerTreePanel : public QWidget
 {

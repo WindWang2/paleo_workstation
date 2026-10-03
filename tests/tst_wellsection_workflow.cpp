@@ -369,6 +369,42 @@ private slots:
     QVERIFY(!wells[0].curve("GR")); // 只取了 RT
   }
 
+  // #128：同步/早退路径在 request()/requestSeismic() 返回之前就 emit——
+  // 接收方必须能在发射当下判定「这是当前代」。壳层据 currentGeneration()
+  // 过滤（旧壳层用返回值赋给 lastGen，同步那一发被当陈旧丢掉）。
+  void generationIsCurrentAtSyncEmit() {
+    DataCatalog cat;
+    WellSectionWorkflow wf(&cat);
+    bool sectionCurrent = false, seismicCurrent = false;
+    int sectionHits = 0, seismicHits = 0;
+    connect(&wf, &WellSectionWorkflow::sectionReady, this,
+            [&](int gen, const QVector<wellsection::Well> &, const QStringList &) {
+              ++sectionHits;
+              sectionCurrent = gen == wf.currentGeneration();
+            });
+    connect(&wf, &WellSectionWorkflow::seismicReady, this,
+            [&](int gen, const wellsection::SeismicStrip &) {
+              ++seismicHits;
+              seismicCurrent = gen == wf.currentSeismicGeneration();
+            });
+    const int g = wf.request({QStringLiteral("nope")}, {});
+    QCOMPARE(sectionHits, 1); // 无任务服务 → 同步发射
+    QVERIFY(sectionCurrent);
+    QCOMPARE(g, wf.currentGeneration());
+    const auto wells = QVector<wellsection::Well>{
+        gridWell(QStringLiteral("A1"), 1000, 2000, true),
+        gridWell(QStringLiteral("A2"), 1001, 2000, true)};
+    wf.requestSeismic(wells, {}); // 无体 → 早退同步发射
+    QCOMPARE(seismicHits, 1);
+    QVERIFY(seismicCurrent);
+    // cancel()（工程切换 #124）作废两条当前代。
+    const int sg = wf.currentSeismicGeneration();
+    wf.cancel();
+    QVERIFY(wf.currentGeneration() != g);
+    QVERIFY(wf.currentSeismicGeneration() != sg);
+    disconnect(&wf, nullptr, this, nullptr);
+  }
+
   void seismicStatusPaths() {
     DataCatalog cat;
     WellSectionWorkflow wf(&cat);

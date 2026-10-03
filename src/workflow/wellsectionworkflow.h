@@ -45,7 +45,14 @@ public:
   int request(const QStringList &wellIds, const QStringList &mnemonics); // 返回世代号
   int requestSeismic(const QVector<wellsection::Well> &wells,
                      const SeismicSource &source);
+  // 取消在途取数并作废当前世代（两条世代号都 +1）：之后到达的旧结果一律
+  // 不等于 currentGeneration()，被接收方丢弃。
   void cancel();
+  // #128：当前世代。接收方按它过滤 sectionReady/seismicReady——不要用
+  // request()/requestSeismic() 的返回值：无任务服务或早退路径会在 return
+  // 之前就同步 emit，调用方此时还没来得及记下返回值。
+  int currentGeneration() const { return m_generation; }
+  int currentSeismicGeneration() const { return m_seismicGeneration; }
 signals:
   void sectionReady(int generation, const QVector<wellsection::Well> &wells,
                     const QStringList &warnings);

@@ -30,6 +30,7 @@ TaskPanel::TaskPanel(PaleoProjectStore *store, PaleoTaskService *tasks,
   auto *countLabel = new QLabel(this);
   countLabel->setObjectName(QStringLiteral("busyCountLabel"));
   topRow->addWidget(countLabel, 1);
+  m_count = countLabel;
   auto *clearBtn = new QPushButton(tr("清除已完成"), this);
   clearBtn->setObjectName(QStringLiteral("clearFinishedBtn"));
   topRow->addWidget(clearBtn);
@@ -46,10 +47,12 @@ TaskPanel::TaskPanel(PaleoProjectStore *store, PaleoTaskService *tasks,
   list->setColumnWidth(1, 220);
   list->setColumnWidth(2, 120);
   lay->addWidget(list, 1);
+  m_list = list;
 
   auto *empty = new QLabel(tr("（无运行中的任务）"), this);
   empty->setObjectName(QStringLiteral("busyEmptyHint"));
   lay->addWidget(empty);
+  m_empty = empty;
 
   if (m_tasks)
   {
@@ -91,7 +94,7 @@ void TaskPanel::hideEvent(QHideEvent *event)
 
 QTreeWidgetItem *TaskPanel::rowForTask(qint64 id)
 {
-  auto *list = findChild<QTreeWidget *>(QStringLiteral("busyList"));
+  QTreeWidget *list = m_list;
   if (!list)
     return nullptr;
   auto it = m_taskRows.constFind(id);
@@ -105,8 +108,8 @@ QTreeWidgetItem *TaskPanel::rowForTask(qint64 id)
 
 void TaskPanel::updateTaskRow(QTreeWidgetItem *row, PaleoTask *task)
 {
-  auto *list = findChild<QTreeWidget *>(QStringLiteral("busyList"));
-  if (!row || !task)
+  QTreeWidget *list = m_list;
+  if (!row || !task || !list)
     return;
 
   row->setText(0, task->layerId().isEmpty() ? QStringLiteral("—")
@@ -180,7 +183,7 @@ void TaskPanel::updateTaskRow(QTreeWidgetItem *row, PaleoTask *task)
 
 void TaskPanel::rebuildBusyRows()
 {
-  auto *list = findChild<QTreeWidget *>(QStringLiteral("busyList"));
+  QTreeWidget *list = m_list;
   if (!list)
     return;
 
@@ -222,15 +225,15 @@ void TaskPanel::rebuildBusyRows()
     else
       ++it;
 
-  auto *count = findChild<QLabel *>(QStringLiteral("busyCountLabel"));
+  QLabel *count = m_count;
   if (count)
     count->setText(tr("忙图层：%1").arg(unowned));
 }
 
 void TaskPanel::refresh()
 {
-  auto *list = findChild<QTreeWidget *>(QStringLiteral("busyList"));
-  auto *empty = findChild<QLabel *>(QStringLiteral("busyEmptyHint"));
+  QTreeWidget *list = m_list;
+  QLabel *empty = m_empty;
   if (!list || !empty)
     return;
 

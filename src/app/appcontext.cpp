@@ -237,46 +237,43 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   // versionCtl 同一编辑服务实例。
   m_layerSvc->setEditingService(m_editSvc);
 
+  // #152/#153 工程生命周期中枢：
+  //   * 打开闸门：锁/只读决策在 QgisProjectService 读新工程**之前**做——锁冲突
+  //     时用户点「取消」，旧工程（含它的锁、路径、图层）原样保留；
+  //   * projectAboutToClose：旧工程仍完整时开新任务会话（在途任务全部取消，
+  //     JobRunner/finished 槽据 Cancelled 丢弃旧工程结果）；面板各自接同一信号
+  //     清工程作用域状态（PaleoMainWindow::resetProjectScopedState）；
+  //   * projectClosed：释放锁与 sqlite 句柄、回落可写默认。
+  m_projectSvc->setOpenGate([this](const QString &projectDir, bool creating, QString *error,
+                                   bool *cancelled) {
+    return acquireProjectLock(projectDir, creating, error, cancelled);
+  });
+  connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this]() {
+    if (m_taskSvc)
+      m_taskSvc->beginNewSession();
+  });
+  connect(m_projectSvc, &QgisProjectService::projectClosed, this,
+          [this]() { releaseProjectSession(); });
+
   // ensureManifest-on-open: first point a per-project path is derivable.
   connect(m_projectSvc, &QgisProjectService::projectOpened, this,
           [this](const QString &qgzPath) {
+            // #152：锁已由打开闸门（acquireProjectLock）在 read() 之前取好；
+            // 这里只接管。同目录重开时闸门复用现有锁（QLockFile 同进程不可
+            // 重入，先放后取会在窗口期丢锁）。无闸门结果（理论不可达）时
+            // 兜底按旧语义就地取锁。
             const QFileInfo fi(qgzPath);
-            m_projectLock = std::make_unique<ProjectDirLock>(fi.absolutePath());
-            QString lockErr;
-            const bool lockRefused = !m_projectLock->tryLock(&lockErr);
-            if (lockRefused)
+            if (m_pendingLock)
+              m_projectLock = std::move(m_pendingLock);
+            else if (!m_pendingLockReuse || !m_projectLock)
             {
-              qWarning() << "AppContext: project lock refused:" << lockErr;
-              QgsMessageLog::logMessage(
-                  tr("工程已被另一个实例锁定（%1），当前以只读模式打开——"
-                     "导入/保存/图层清单/版本登记都会被拒绝")
-                      .arg(lockErr),
-                  QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
-
-              const bool isHeadless = (QGuiApplication::platformName() == QStringLiteral("offscreen") ||
-                                       QGuiApplication::platformName() == QStringLiteral("minimal") ||
-                                       !qobject_cast<QApplication*>(QCoreApplication::instance()));
-              if (!isHeadless)
-              {
-                QMessageBox box;
-                box.setIcon(QMessageBox::Warning);
-                box.setWindowTitle(tr("工程已被另一个实例锁定"));
-                box.setText(tr("工程目录正被另一个 Paleo 实例编辑：\n%1\n\n同一工程同时只允许一个写实例。\n是否以只读模式继续打开？").arg(lockErr));
-                auto *btnReadOnly = box.addButton(tr("只读打开"), QMessageBox::AcceptRole);
-                auto *btnCancel = box.addButton(tr("取消"), QMessageBox::RejectRole);
-                box.setDefaultButton(btnReadOnly);
-                box.exec();
-                if (box.clickedButton() == btnCancel)
-                {
-                  QMetaObject::invokeMethod(this, [this]() {
-                    if (m_projectSvc && m_projectSvc->project())
-                      m_projectSvc->project()->clear();
-                    closeProject();
-                  }, Qt::QueuedConnection);
-                  return;
-                }
-              }
+              auto lock = std::make_unique<ProjectDirLock>(fi.absolutePath());
+              QString lockErr;
+              if (!lock->tryLock(&lockErr))
+                qWarning() << "AppContext: project lock refused:" << lockErr;
+              m_projectLock = std::move(lock);
             }
+            m_pendingLockReuse = false;
             // T4 单写实例降级：锁失败 = 真只读。四个落盘面全部接线——
             // catalog（save/mutator 回滚）、工程存储（gpkg/qgz/journal）、
             // 图层清单（manifest sqlite）、版本库（map_versions）。读面照常。
@@ -483,8 +480,87 @@ bool AppContext::isProjectReadOnly() const
   return m_projectLock && !m_projectLock->isHeld();
 }
 
+bool AppContext::acquireProjectLock(const QString &projectDir, bool creating, QString *error,
+                                    bool *cancelled)
+{
+  m_pendingLock.reset();
+  m_pendingLockReuse = false;
+  auto candidate = std::make_unique<ProjectDirLock>(projectDir);
+  if (m_projectLock && m_projectLock->isHeld() &&
+      m_projectLock->lockPath() == candidate->lockPath())
+  {
+    m_pendingLockReuse = true; // 同目录重开：沿用已持有的锁
+    return true;
+  }
+  QString lockErr;
+  if (candidate->tryLock(&lockErr))
+  {
+    m_pendingLock = std::move(candidate);
+    return true;
+  }
+  if (creating)
+  {
+    if (error)
+      *error = tr("工程目录已被另一个实例锁定（%1），创建被拒绝").arg(lockErr);
+    return false;
+  }
+
+  qWarning() << "AppContext: project lock refused:" << lockErr;
+  bool readOnly = true; // 无头/测试：自动只读降级（既有语义）
+  if (m_lockConflictResolver)
+    readOnly = m_lockConflictResolver(lockErr);
+  else
+  {
+    const bool isHeadless = (QGuiApplication::platformName() == QStringLiteral("offscreen") ||
+                             QGuiApplication::platformName() == QStringLiteral("minimal") ||
+                             !qobject_cast<QApplication *>(QCoreApplication::instance()));
+    if (!isHeadless)
+    {
+      QMessageBox box;
+      box.setIcon(QMessageBox::Warning);
+      box.setWindowTitle(tr("工程已被另一个实例锁定"));
+      box.setText(tr("工程目录正被另一个 Paleo 实例编辑：\n%1\n\n同一工程同时只允许一个写实例。\n是否以只读模式继续打开？").arg(lockErr));
+      auto *btnReadOnly = box.addButton(tr("只读打开"), QMessageBox::AcceptRole);
+      auto *btnCancel = box.addButton(tr("取消"), QMessageBox::RejectRole);
+      box.setDefaultButton(btnReadOnly);
+      box.exec();
+      readOnly = box.clickedButton() != btnCancel;
+    }
+  }
+  if (!readOnly)
+  {
+    // 取消：什么都不动——不读新工程、不发 projectAboutToClose，当前工程与
+    // 它的锁原样保留（#152 旧实现此时已释放旧锁并清空工程）。
+    if (cancelled)
+      *cancelled = true;
+    if (error)
+      *error = tr("已取消打开：工程被另一个实例锁定（%1）").arg(lockErr);
+    return false;
+  }
+  QgsMessageLog::logMessage(
+      tr("工程已被另一个实例锁定（%1），当前以只读模式打开——"
+         "导入/保存/图层清单/版本登记都会被拒绝")
+          .arg(lockErr),
+      QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+  m_pendingLock = std::move(candidate); // 未持有 = 只读
+  return true;
+}
+
 void AppContext::closeProject()
 {
+  // 经工程服务关闭：发 projectAboutToClose（面板清状态、在途任务取消）→
+  // 清 QgsProject → projectClosed → releaseProjectSession()。工程服务已无
+  // 工程时直接释放会话资源（幂等）。
+  if (m_projectSvc && !m_projectSvc->projectPath().isEmpty())
+    m_projectSvc->closeProject();
+  else
+    releaseProjectSession();
+}
+
+void AppContext::releaseProjectSession()
+{
+  m_pendingLock.reset();
+  m_pendingLockReuse = false;
   // #80：关闭工程即释放本线程持有的 project.sqlite 句柄（Windows 上旧句柄
   // 会阻止删除/移动刚关闭的工程目录）。
   if (!m_metaPath.isEmpty())
@@ -674,6 +750,16 @@ void AppContext::refreshWellsLayer(bool zoomOnGrowth)
   }
 }
 
+bool AppContext::drainTasks(int timeoutMs)
+{
+  if (!m_taskSvc)
+    return true;
+  const bool ok = m_taskSvc->shutdown(timeoutMs);
+  if (!ok)
+    qWarning("AppContext: task workers did not drain before teardown");
+  return ok;
+}
+
 AppContext::~AppContext()
 {
   // Services embed Qgs* objects whose destruction can touch providers —
@@ -682,10 +768,11 @@ AppContext::~AppContext()
   // them to ~QObject (which runs after this body).
   //
   // H-2：先排空任务池——worker 闭包捕获的是服务裸指针（DataImportService*、
-  // workflow* 等），必须在任何依赖对象析构之前让 worker 全部退出（泵事件：
-  // worker 可能正 BlockingQueuedConnection 回主线程读写 catalog）。
-  if (m_taskSvc && !m_taskSvc->shutdown())
-    qWarning("AppContext: task workers did not drain before teardown");
+  // workflow* 等），必须在任何依赖对象析构之前让 worker 全部退出。泵事件让
+  // worker 排队回主线程的回包落地（导入链的旧 catInvoke BlockingQueued 已移除）。
+  // 正常 GUI 退出时 main() 已先经 drainTasks() 在主窗口析构前排空（#163），
+  // 这里是幂等兜底。
+  drainTasks();
   // 再按创建的逆序删除：后建者（workflow/linkage）依赖先建者（store/services），
   // 依赖方先走。children() 是创建顺序，正序删除会让 m_taskSvc/m_store 先于
   // DataImportService 等依赖方析构。

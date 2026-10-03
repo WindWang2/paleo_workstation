@@ -75,6 +75,9 @@ class WellCorrelationPanel : public QWidget
                        const QVector<float> &values,
                        const QString &curveName = QString());
     void clearWellCurves();
+    // #156：工程切换——清空井集/曲线/LAS 快照，在途 LAS 解析取消且迟到结果
+    // 作废（世代号逐键 +1）。新工程的井集由壳从 catalog 重新灌入。
+    void resetProject();
     bool hasCurves() const { return !m_columns.isEmpty() && anyTracks(); }
     int curveItemCount(const QString &wellId) const; // rendered track pixmap items
 

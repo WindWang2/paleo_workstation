@@ -46,9 +46,56 @@ QgsProject *QgisProjectService::project() const
   return m_project;
 }
 
+bool QgisProjectService::runGate( const QString &projectDir, bool creating )
+{
+  if ( !m_openGate )
+    return true;
+  QString err;
+  bool cancelled = false;
+  if ( m_openGate( projectDir, creating, &err, &cancelled ) )
+    return true;
+  m_lastOpenCancelled = cancelled;
+  m_errors << ( err.isEmpty() ? ( cancelled ? tr( "打开已取消" )
+                                            : tr( "工程被打开闸门拒绝: %1" ).arg( projectDir ) )
+                              : err );
+  return false;
+}
+
+void QgisProjectService::notifyAboutToClose()
+{
+  if ( !m_path.isEmpty() )
+    emit projectAboutToClose();
+}
+
+// 已发 projectAboutToClose 后 read() 失败：QgsProject::read() 先 clear()，
+// 旧工程内容已不在——把服务落到「无工程」而不是保留旧路径（否则保存会
+// 把空工程写回旧 .qgz，同 #152 的覆盖路径）。无论之前是否有工程都发
+// projectClosed：闸门可能已为新目录取了锁，接线方据此释放。
+void QgisProjectService::failAfterClose()
+{
+  if ( !m_path.isEmpty() )
+  {
+    m_path.clear();
+    ++m_sessionId;
+  }
+  emit projectClosed();
+}
+
+void QgisProjectService::closeProject()
+{
+  if ( m_path.isEmpty() )
+    return;
+  emit projectAboutToClose();
+  m_project->clear();
+  m_path.clear();
+  ++m_sessionId;
+  emit projectClosed();
+}
+
 bool QgisProjectService::openProject( const QString &qgzPath )
 {
   m_errors.clear();
+  m_lastOpenCancelled = false;
 
   if ( qgzPath.isEmpty() || !QFile::exists( qgzPath ) )
   {
@@ -83,7 +130,13 @@ bool QgisProjectService::openProject( const QString &qgzPath )
     for ( const QString &m : missingMembers( dir, pf ) )
       m_errors << tr( "project member missing: %1" ).arg( m ); // 如实报，不拦开
   }
-  else
+
+  // #152：锁/只读决策在任何落盘（清单收养）与 read() 之前——拒绝或用户
+  // 取消时当前工程、路径、锁全部原样保留。
+  if ( !runGate( QFileInfo( qgzFile ).absolutePath(), false ) )
+    return false;
+
+  if ( !qgzPath.endsWith( QLatin1String( ".paleo" ) ) )
   {
     // .qgz 直开：旁有 .paleo → 校验束成员；旁无 → 收养（写一份清单），
     // 老工程静默升级。校验失败只进 lastErrors——束检查不拦可用工程。
@@ -110,14 +163,17 @@ bool QgisProjectService::openProject( const QString &qgzPath )
     }
   }
 
+  notifyAboutToClose();
   if ( !m_project->read( qgzFile ) )
   {
     const QString err = m_project->error();
     m_errors << ( err.isEmpty() ? tr( "Failed to read project: %1" ).arg( qgzFile ) : err );
+    failAfterClose();
     return false;
   }
 
   m_path = qgzFile;
+  ++m_sessionId;
   emit projectOpened( m_path );
   return true;
 }
@@ -125,6 +181,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
 bool QgisProjectService::createProject( const QString &qgzPath )
 {
   m_errors.clear();
+  m_lastOpenCancelled = false;
 
   if ( qgzPath.isEmpty() )
   {
@@ -133,22 +190,38 @@ bool QgisProjectService::createProject( const QString &qgzPath )
   }
 
   const QString projectDir = QFileInfo( qgzPath ).absolutePath();
-  ProjectDirLock lockCheck( projectDir );
-  QString lockErr;
-  if ( !lockCheck.tryLock( &lockErr ) )
+  if ( m_openGate )
   {
-    m_errors << tr( "工程目录已被另一个实例锁定（%1），创建被拒绝" ).arg( lockErr );
-    return false;
+    // 闸门（AppContext）负责取锁并在 projectOpened 时接管——不在这里
+    // 取锁再放，避免「检查-释放-再取」之间被别的实例抢走。
+    if ( !runGate( projectDir, true ) )
+      return false;
   }
-  lockCheck.unlock();
+  else
+  {
+    ProjectDirLock lockCheck( projectDir );
+    QString lockErr;
+    if ( !lockCheck.tryLock( &lockErr ) )
+    {
+      m_errors << tr( "工程目录已被另一个实例锁定（%1），创建被拒绝" ).arg( lockErr );
+      return false;
+    }
+    lockCheck.unlock();
+  }
 
+  notifyAboutToClose();
   m_project->clear();
   m_path = qgzPath;
 
   // Materialize the file immediately so the path is authoritative from t=0 and
   // later saveAll() cycles always have an existing .qgz to back up.
   if ( !writeProject() )
+  {
+    const QStringList errs = m_errors;
+    failAfterClose();
+    m_errors = errs;
     return false;
+  }
 
   // 工程清单随新建落盘（PROJECT_FILE_DESIGN）：.qgz + project.paleo 双件。
   // 清单写失败不拦工程创建——如实进 lastErrors。
@@ -159,6 +232,7 @@ bool QgisProjectService::createProject( const QString &qgzPath )
       m_errors << tr( "project manifest write failed: %1" ).arg( werr );
   }
 
+  ++m_sessionId;
   emit projectOpened( m_path );
   return true;
 }

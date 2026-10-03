@@ -9,6 +9,7 @@
 #include <QPointer>
 #include <QThread>
 #include <QThreadPool>
+#include <QTimer>
 
 namespace
 {
@@ -32,7 +33,9 @@ public:
     QString error;
     try
     {
-      if (m_work)
+      // 排队期间已被取消（工程切换 beginNewSession / 用户取消）：不跑 work，
+      // 直接落 Cancelled——旧工程的任务不该在新工程里开始读写。
+      if (m_work && !t->cancelRequested())
         error = m_work(t);
     }
     catch (const std::exception &e)
@@ -199,8 +202,9 @@ bool PaleoTaskService::shutdown(int timeoutMs, bool pumpEvents)
   if (!pumpEvents || !QCoreApplication::instance() ||
       QThread::currentThread() != QCoreApplication::instance()->thread())
     return m_pool->waitForDone(timeoutMs);
-  // 主线程排空：worker 可能正 BlockingQueuedConnection 回主线程（catalog
-  // 读写），只阻塞等待会互锁到超时——等待期间泵事件让它们落地。
+  // 主线程排空：等待期间泵事件，让 worker 排队回主线程的回包落地；若仍有
+  // 调用方 BlockingQueued 回主线程，只阻塞等待会互锁到超时（导入链的旧
+  // catInvoke 已移除，此处是通用兜底）。
   QElapsedTimer clock;
   clock.start();
   while (!m_pool->waitForDone(20))
@@ -212,12 +216,12 @@ bool PaleoTaskService::shutdown(int timeoutMs, bool pumpEvents)
   return true;
 }
 
-PaleoTask *PaleoTaskService::start(const QString &title,
-                                   std::function<QString(PaleoTask *)> work,
-                                   const QString &layerId, bool quiet)
+PaleoTask *PaleoTaskService::createTask(const QString &title,
+                                        const QString &layerId, bool quiet)
 {
   auto *task = new PaleoTask(m_nextId++, title, layerId, this);
   task->m_quiet = quiet; // taskAdded 同步发射——必须在 emit 前落位
+  task->m_session = m_session;
   m_tasks.append(task);
   if (m_store && !layerId.isEmpty())
     m_store->markLayerBusy(layerId, QStringLiteral("task-%1").arg(task->id()),
@@ -226,6 +230,14 @@ PaleoTask *PaleoTaskService::start(const QString &title,
           [this, task]() { onTaskFinished(task); });
   emit taskAdded(task);
   emit tasksChanged();
+  return task;
+}
+
+PaleoTask *PaleoTaskService::start(const QString &title,
+                                   std::function<QString(PaleoTask *)> work,
+                                   const QString &layerId, bool quiet)
+{
+  PaleoTask *task = createTask(title, layerId, quiet);
   m_pool->start(new TaskRunner(task, std::move(work)));
   return task;
 }
@@ -235,19 +247,26 @@ PaleoTask *PaleoTaskService::start(const QString &title,
                                    const QString &layerId, PaleoTask::Priority priority,
                                    bool quiet)
 {
-  auto *task = new PaleoTask(m_nextId++, title, layerId, this);
-  task->m_quiet = quiet; // taskAdded 同步发射——必须在 emit 前落位
-  m_tasks.append(task);
-  if (m_store && !layerId.isEmpty())
-    m_store->markLayerBusy(layerId, QStringLiteral("task-%1").arg(task->id()),
-                           title);
-  connect(task, &PaleoTask::finished, this,
-          [this, task]() { onTaskFinished(task); });
-  emit taskAdded(task);
-  emit tasksChanged();
+  PaleoTask *task = createTask(title, layerId, quiet);
   // QThreadPool 优先级：数值大者先出队（D4.6 预取 Low 不挡用户点击 High）。
   m_pool->start(new TaskRunner(task, std::move(work)), static_cast<int>(priority));
   return task;
+}
+
+quint64 PaleoTaskService::beginNewSession()
+{
+  ++m_session;
+  for (PaleoTask *t : m_tasks)
+    if (t->running())
+      t->requestCancel();
+  return m_session;
+}
+
+void PaleoTaskService::setRetention(int maxFinished, int quietLingerMs)
+{
+  m_maxFinished = maxFinished;
+  m_quietLingerMs = quietLingerMs;
+  pruneFinished();
 }
 
 int PaleoTaskService::maxWorkerThreads() const
@@ -273,7 +292,51 @@ void PaleoTaskService::onTaskFinished(PaleoTask *task)
 {
   if (m_store && !task->layerId().isEmpty())
     m_store->markLayerFree(task->layerId());
+  // #164：quiet 任务（切片/解码/预取）每次交互一条，终态后短暂停留供任务页
+  // 显示「完成/已取消」，随后自动移除——否则注册表与任务页行数无界增长。
+  if (task->quiet() && m_quietLingerMs >= 0)
+  {
+    const QPointer<PaleoTask> guard(task);
+    QTimer::singleShot(m_quietLingerMs, this, [this, guard]() {
+      if (guard && !guard->running())
+        removeTask(guard.data());
+    });
+  }
+  pruneFinished();
   emit tasksChanged();
+}
+
+void PaleoTaskService::removeTask(PaleoTask *task)
+{
+  const int i = m_tasks.indexOf(task);
+  if (i < 0 || task->running())
+    return;
+  m_tasks.removeAt(i);
+  task->deleteLater();
+  emit tasksChanged();
+}
+
+void PaleoTaskService::pruneFinished()
+{
+  if (m_maxFinished < 0)
+    return;
+  int finished = 0;
+  for (const PaleoTask *t : m_tasks)
+    if (!t->running() && !t->quiet())
+      ++finished;
+  // m_tasks 按创建序——从头删最旧的终态非 quiet 任务。
+  for (int i = 0; i < m_tasks.size() && finished > m_maxFinished;)
+  {
+    PaleoTask *t = m_tasks[i];
+    if (!t->running() && !t->quiet())
+    {
+      m_tasks.removeAt(i);
+      t->deleteLater();
+      --finished;
+    }
+    else
+      ++i;
+  }
 }
 
 void PaleoTaskService::clearFinished()

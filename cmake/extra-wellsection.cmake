@@ -3,6 +3,7 @@
 target_sources(paleo_domain PRIVATE src/domain/wellsection.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/wellsectionworkflow.cpp)
 target_sources(paleo_store PRIVATE src/metadata/wellsectionstore.cpp)
+target_sources(paleo_qgis PRIVATE src/qgis/wellsectionmapband.cpp)
 target_link_libraries(paleo_store PUBLIC paleo_domain)
 target_sources(paleo_ui PRIVATE
   src/ui/wellsection/wellsectionstyle.cpp

@@ -387,6 +387,36 @@ private slots:
                 .isEmpty());
   }
 
+  // ---- 选井 PCA 序（平面选井一键成剖面的井序）----
+  void orderWellsByPositionRules() {
+    QVector<Well> pos;
+    const double xs[3] = {300.0, 0.0, 100.0};
+    const char *names[3] = {"A", "B", "C"};
+    for (int i = 0; i < 3; ++i) {
+      Well w;
+      w.id = QLatin1String(names[i]);
+      w.x = xs[i];
+      w.y = i * 5.0;
+      pos << w;
+    }
+    // 主轴近 x：按 x 升序。
+    QCOMPARE(orderWellsByPosition({"A", "B", "C"}, pos),
+             QStringList({"B", "C", "A"}));
+    // 子集 + 乱序输入。
+    QCOMPARE(orderWellsByPosition({"A", "B"}, pos), QStringList({"B", "A"}));
+    // 缺坐标井保原相对序排末。
+    Well nox;
+    nox.id = QStringLiteral("D");
+    pos << nox;
+    QCOMPARE(orderWellsByPosition({"D", "A", "B"}, pos),
+             QStringList({"B", "A", "D"}));
+    // 井位全缺 → 原序。
+    QCOMPARE(orderWellsByPosition({"A", "B"}, {nox, nox}),
+             QStringList({"A", "B"}));
+    // 单井无从定轴 → 原序。
+    QCOMPARE(orderWellsByPosition({"A"}, pos), QStringList({"A"}));
+  }
+
   // ---- 栅状图自动布点（最小交叉启发式）----
   void fencePlanning() {
     // 3×2 井网（x 步 100 跨 200、y 步 80——PCA 主轴 = x 向）。

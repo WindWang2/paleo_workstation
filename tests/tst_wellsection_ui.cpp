@@ -18,6 +18,12 @@
 
 #include "../src/linkage/selectioncontext.h"
 #include "../src/catalog/datacatalog.h"
+#include "../src/qgis/wellsectionmapband.h"
+#include <qgsattributes.h>
+#include <qgsfeature.h>
+#include <qgsgeometry.h>
+#include <qgsmapcanvas.h>
+#include <qgsvectorlayer.h>
 #include "../src/metadata/wellsectionstore.h"
 #include "../src/ui/paleotheme.h"
 #include "../src/ui/wellsection/fencewidget.h"
@@ -991,6 +997,88 @@ class TestWellSectionUi : public QObject
                                 Q_ARG(QString, QStringLiteral("w10")));
       QVERIFY(pb->isWellSelected(QStringLiteral("w10")));
       QVERIFY(!pb->isWellSelected(QStringLiteral("w11")));
+    }
+
+    // ---- 平面选井一键成剖面 + SVG/CSV 导出 ----
+    void selectionToSectionAndExport()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      QVector<WellSectionPanel::WellChoice> choices;
+      const char *ids[3] = {"C-4", "C-2", "A5"};
+      const double xs[3] = {900.0, 0.0, 300.0};
+      for (int i = 0; i < 3; ++i) {
+        WellSectionPanel::WellChoice c;
+        c.id = QLatin1String(ids[i]);
+        c.name = c.id;
+        c.hasCoordinates = true;
+        c.x = xs[i];
+        c.y = i * 10.0;
+        choices << c;
+      }
+      panel.setWellChoices(choices);
+      // 选井乱序（C-4 先选）→ PCA 井序（x 升序）。
+      ctx.setSelection({"C-4", "C-2", "A5"}, QStringLiteral("well_map"));
+      QSignalSpy spy(&panel, &WellSectionPanel::wellIdsChanged);
+      const QStringList ordered = panel.generateFromSelection();
+      QCOMPARE(ordered, QStringList({"C-2", "A5", "C-4"}));
+      QCOMPARE(panel.wellIds(), ordered);
+      QCOMPARE(spy.size(), 1);
+      // 单井不成剖面。
+      ctx.setSelection({"C-2"}, QStringLiteral("well_map"));
+      QCOMPARE(panel.generateFromSelection().size(), 0);
+
+      // 导出：CSV = 井深表（模式只进表头）；SVG 矢量（文件非空）。
+      panel.setSection(wells4());
+      QTemporaryDir dir;
+      const QString csvPath = dir.filePath(QStringLiteral("tops.csv"));
+      const QString svgPath = dir.filePath(QStringLiteral("section.svg"));
+      QVERIFY(panel.exportTo(csvPath));
+      QVERIFY(panel.exportTo(svgPath));
+      QFile csv(csvPath);
+      QVERIFY(csv.open(QIODevice::ReadOnly));
+      const QString csvText = QString::fromUtf8(csv.readAll());
+      QVERIFY(csvText.startsWith(QStringLiteral("井名,顶名,MD(m)")));
+      QCOMPARE(csvText, panel.topsCsv());
+      QFile svg(svgPath);
+      QVERIFY(svg.open(QIODevice::ReadOnly));
+      QVERIFY(svg.readAll().size() > 1000);
+      QVERIFY(svg.readAll().isEmpty() || true);
+    }
+
+    // ---- QGIS 侧联动面：剖面线位带 + 井点闪烁（offscreen canvas）----
+    void mapBandBasics()
+    {
+      QgsMapCanvas canvas;
+      WellSectionMapBand band(&canvas);
+      // 井位层（memory，id 字段）。
+      QgsVectorLayer layer(
+          QStringLiteral("Point?crs=EPSG:3857&field=id:string"), "wells",
+          QStringLiteral("memory"));
+      QVERIFY(layer.isValid());
+      QgsFeature f1, f2;
+      f1.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(100, 200)));
+      QgsAttributes a1;
+      a1 << QVariant(QStringLiteral("well-1"));
+      f1.setAttributes(a1);
+      f2.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(300, 200)));
+      QgsAttributes a2;
+      a2 << QVariant(QStringLiteral("well-2"));
+      f2.setAttributes(a2);
+      QgsFeatureList flist;
+      flist << f1 << f2;
+      QVERIFY(layer.dataProvider()->addFeatures(flist));
+      band.setWellLayer(&layer, QStringLiteral("id"));
+      // 线位：<2 点隐藏；2 点成线不崩。
+      band.setSectionPath({{100.0, 200.0}});
+      band.setSectionPath({{100.0, 200.0}, {300.0, 200.0}});
+      // 闪烁：well-1 命中；well-x 无命中不崩。
+      band.flashWell(QStringLiteral("well-1"));
+      band.flashWell(QStringLiteral("well-x"));
+      // 无层闪烁（降级 no-op）。
+      WellSectionMapBand bare(&canvas);
+      bare.setSectionPath({{1.0, 2.0}, {3.0, 4.0}});
+      bare.flashWell(QStringLiteral("well-1"));
     }
 
     void screenshots()

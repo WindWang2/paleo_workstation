@@ -21,6 +21,7 @@
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSettings>
+#include <QSvgGenerator>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -112,6 +113,10 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
 
   m_wellsBtn = mkBtn("wellSectionWellsButton", "mIconPointLayer.svg",
                      tr("选择连井的井与顺序"));
+  m_fromSelBtn = mkBtn("wellSectionFromSelectionButton", "mActionSelect.svg",
+                       tr("用地图/图层树选中的井生成剖面（按井位排序）"));
+  connect(m_fromSelBtn, &QToolButton::clicked, this,
+          [this] { generateFromSelection(); });
   m_tracksBtn = mkBtn("wellSectionTracksButton", "mActionFilterTableFields.svg",
                       tr("设置显示的井道与参与连井的分层"));
   m_themeBtn = mkBtn("wellSectionThemeButton", "propertyicons/symbology.svg",
@@ -265,7 +270,8 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
   connect(m_exportBtn, &QToolButton::clicked, this, [this] {
     const QString path = QFileDialog::getSaveFileName(
         this, tr("导出剖面图"), QString(),
-        tr("PNG 图片 (*.png);;PDF 文档 (*.pdf)"));
+        tr("PNG 图片 (*.png);;PDF 文档 (*.pdf);;SVG 矢量图 (*.svg);;"
+           "层位井深表 CSV (*.csv)"));
     if (!path.isEmpty())
       exportTo(path);
   });
@@ -695,6 +701,36 @@ QImage WellSectionPanel::renderImage(double scale) const
 
 bool WellSectionPanel::exportTo(const QString &path) const
 {
+  if (path.endsWith(QLatin1String(".csv"), Qt::CaseInsensitive))
+  {
+    // 层位井深表：MD 值不随基准面模式变（拉平不变量），模式只进表头标记。
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+      return false;
+    const QByteArray bytes = topsCsv().toUtf8();
+    return file.write(bytes) == bytes.size();
+  }
+  if (path.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive))
+  {
+    QSvgGenerator gen;
+    gen.setFileName(path);
+    const double w = m_st.sceneWidth();
+    const double headerH = m_header ? m_header->headerHeight()
+                                    : wellsectionui::HeaderWidget::kHeight;
+    const double h = headerH + m_st.sceneHeight();
+    gen.setSize(QSize(qMax(1, int(std::ceil(w))), qMax(1, int(std::ceil(h)))));
+    gen.setViewBox(QRect(0, 0, int(w), int(h)));
+    gen.setTitle(tr("连井剖面"));
+    QPainter p(&gen);
+    if (!p.isActive())
+      return false;
+    p.setRenderHint(QPainter::Antialiasing);
+    m_header->paintContents(&p, 0.0);
+    m_scene->render(&p, QRectF(0, headerH, w, m_st.sceneHeight()),
+                    QRectF(0, 0, w, m_st.sceneHeight()));
+    p.end();
+    return true;
+  }
   if (path.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive))
   {
     const double w = m_st.sceneWidth();
@@ -1007,6 +1043,46 @@ void WellSectionPanel::openWellsDialog()
   rebuildItems();
   emit wellIdsChanged(m_ids);
   emit dataRequested(m_ids, m_tpl.mnemonics());
+}
+
+QStringList WellSectionPanel::generateFromSelection()
+{
+  if (!m_ctx)
+    return {};
+  const QStringList selected = m_ctx->selectedIds();
+  // 平面/树选中 ∩ 可选井（保选择序）。
+  QStringList usable;
+  for (const QString &id : selected) {
+    for (const auto &c : m_choices)
+      if (c.id == id) {
+        usable << id;
+        break;
+      }
+  }
+  if (usable.size() < 2)
+    return {}; // 一口井不成剖面（用户可手选）
+  // 井位 PCA 序（缺坐标保选序排末）。
+  QVector<wellsection::Well> positioned;
+  for (const auto &c : m_choices)
+    if (c.hasCoordinates) {
+      wellsection::Well w;
+      w.id = c.id;
+      w.x = c.x;
+      w.y = c.y;
+      positioned << w;
+    }
+  const QStringList ordered =
+      wellsection::orderWellsByPosition(usable, positioned);
+  if (ordered == m_ids)
+    return ordered;
+  m_ids = ordered;
+  m_wells.clear();
+  clearStrip();
+  rebuildFiltered();
+  rebuildItems();
+  emit wellIdsChanged(m_ids);
+  emit dataRequested(m_ids, m_tpl.mnemonics());
+  return ordered;
 }
 
 void WellSectionPanel::openTracksDialog()

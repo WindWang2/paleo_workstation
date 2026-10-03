@@ -403,6 +403,70 @@ FencePlan planFence(const QVector<Well> &wells, int targetSections) {
   return plan;
 }
 
+QStringList orderWellsByPosition(const QStringList &ids,
+                                 const QVector<Well> &wellsWithCoords) {
+  QVector<const Well *> byId;
+  byId.resize(wellsWithCoords.size());
+  for (int i = 0; i < wellsWithCoords.size(); ++i)
+    byId[i] = &wellsWithCoords[i];
+  const auto locate = [&](const QString &id) -> const Well * {
+    for (const Well *w : byId)
+      if (w->id == id)
+        return w;
+    return nullptr;
+  };
+  QVector<QPair<double, int>> keyed; // (投影, 输入序)
+  QVector<int> tail;                 // 缺坐标（保原序排末）
+  for (int i = 0; i < ids.size(); ++i) {
+    const Well *w = locate(ids.at(i));
+    if (!w || !w->hasCoordinates()) {
+      tail << i;
+      continue;
+    }
+    keyed << qMakePair(qQNaN(), i);
+  }
+  double cx = 0, cy = 0;
+  int n = 0;
+  for (const QString &id : ids) {
+    const Well *w = locate(id);
+    if (!w || !w->hasCoordinates())
+      continue;
+    cx += w->x;
+    cy += w->y;
+    ++n;
+  }
+  if (n < 2)
+    return ids; // 无从定轴 → 原序
+  cx /= n;
+  cy /= n;
+  double sxx = 0, sxy = 0, syy = 0;
+  for (const QString &id : ids) {
+    const Well *w = locate(id);
+    if (!w || !w->hasCoordinates())
+      continue;
+    const double dx = w->x - cx, dy = w->y - cy;
+    sxx += dx * dx;
+    sxy += dx * dy;
+    syy += dy * dy;
+  }
+  const double theta = 0.5 * std::atan2(2 * sxy, sxx - syy);
+  const double ux = std::cos(theta), uy = std::sin(theta);
+  for (auto &k : keyed) {
+    const Well *w = locate(ids.at(k.second));
+    k.first = (w->x - cx) * ux + (w->y - cy) * uy;
+  }
+  std::sort(keyed.begin(), keyed.end(),
+            [](const QPair<double, int> &a, const QPair<double, int> &b) {
+              return a.first < b.first;
+            });
+  QStringList out;
+  for (const auto &k : keyed)
+    out << ids.at(k.second);
+  for (int i : tail)
+    out << ids.at(i);
+  return out;
+}
+
 QVector<double> wellPathFractions(const QVector<Well> &wells) {
   QVector<double> out;
   if (wells.isEmpty())

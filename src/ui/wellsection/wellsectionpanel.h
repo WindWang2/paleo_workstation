@@ -38,6 +38,9 @@ class WellSectionPanel : public QWidget
     void setMnemonicChoices(const QStringList &mnemonics);
     // 程序化恢复：发 dataRequested，不发 wellIdsChanged。
     void setWellIds(const QStringList &ids);
+    // 平面/图层树选井 → PCA 井序一键成剖面（用户动作：发 wellIdsChanged）。
+    // 返回实际采纳的井序（空 = 选井不可用/未选中）。
+    QStringList generateFromSelection();
     QStringList wellIds() const { return m_ids; }
     // 数据回填：按回复顺序接管井集；地震开且 ≥2 井时发 seismicRequested。
     void setSection(const QVector<wellsection::Well> &wells);
@@ -166,6 +169,7 @@ class WellSectionPanel : public QWidget
     wellsectionui::FaultOverlayItem *m_faultItem = nullptr;
 
     QToolButton *m_wellsBtn = nullptr;
+    QToolButton *m_fromSelBtn = nullptr;
     QToolButton *m_tracksBtn = nullptr;
     QToolButton *m_themeBtn = nullptr;
     QToolButton *m_flattenBtn = nullptr;

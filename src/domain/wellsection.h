@@ -125,6 +125,11 @@ struct FencePlan {
 // 任一井缺坐标 / 井数 <2 / target <1 → status 说明。
 FencePlan planFence(const QVector<Well> &wells, int targetSections);
 
+// 平面/图层树选井 → 剖面井序：井位 PCA 主轴投影升序（缺坐标井保持
+// 原相对序排末）。wellsWithCoords 只需 id/x/y（tops/曲线不参与）。
+QStringList orderWellsByPosition(const QStringList &ids,
+                                 const QVector<Well> &wellsWithCoords);
+
 // 断层投绘：along ∈ [0,1] 井路径累计长分数，depth 为深度 m（z 向下正）。
 // 由断面 mesh ∩ 井径 curtain 求得（workflow 编排，渲染归视图）。
 struct FaultTracePoint {

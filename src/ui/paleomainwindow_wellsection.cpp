@@ -8,6 +8,8 @@
 #include "domain/faultset.h"
 #include "domain/wellsection.h"
 #include "linkage/seismicmaplink.h"
+#include "qgis/qgiscanvascontroller.h"
+#include "qgis/wellsectionmapband.h"
 #include "metadata/faultsetstore.h"
 #include "metadata/paleoprojectstore.h"
 #include "metadata/wellsectionstore.h"
@@ -21,6 +23,8 @@
 
 #include <QTimer>
 #include <qgsmessagelog.h>
+#include <qgsproject.h>
+#include <qgsvectorlayer.h>
 
 #include <memory>
 
@@ -231,6 +235,40 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
           });
   connect(m_previewDoc->catalog(), &DataCatalog::changed, debounce,
           qOverload<>(&QTimer::start));
+
+  // 剖面-平面联动：剖面线位高亮（井序连线）+ 点名反向闪烁。线位随
+  // 井集/井序/取数回填刷新；闪烁经 well 层 fid 解析。
+  WellSectionMapBand *band = nullptr;
+  if (m_canvasCtl)
+  {
+    band = new WellSectionMapBand(m_canvasCtl->canvas(), this);
+    // well 层解析：QgsProject 里 id/name 双查（refreshWellsLayer 声明的
+    // layerId = "wells"）。
+    band->setWellLayer(
+        qobject_cast<QgsVectorLayer *>(
+            QgsProject::instance()->mapLayer(QStringLiteral("wells"))),
+        QStringLiteral("id"));
+  }
+  const auto syncBand = [panel, band] {
+    if (!band)
+      return;
+    QVector<QPair<double, double>> path;
+    for (const wellsection::Well &w : panel->wells())
+      if (w.hasCoordinates())
+        path.push_back({w.x, w.y});
+    band->setSectionPath(path);
+  };
+  connect(panel, &WellSectionPanel::wellIdsChanged, this,
+          [syncBand](const QStringList &) { syncBand(); });
+  connect(panel, &WellSectionPanel::wellClicked, this,
+          [band](const QString &id) {
+            if (band)
+              band->flashWell(id);
+          });
+  // sectionReady 回填后井位才可读——同步进现有回填槽。
+  connect(wf, &WellSectionWorkflow::sectionReady, this,
+          [syncBand](int, const QVector<wellsection::Well> &,
+                     const QStringList &) { syncBand(); });
 
   // 栅状图（fence）：面板入口 → 单实例窗（交点井联动在部件内部接线）。
   connect(panel, &WellSectionPanel::fenceRequested, this,

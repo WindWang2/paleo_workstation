@@ -397,6 +397,11 @@ private slots:
       QgisProjectService maker;
       QVERIFY( maker.createProject( qgzB ) );
     }
+    // createProject 会顺带写 project.paleo（.qgz + 清单双件）；删掉它，B 就是
+    // 「旁无清单的裸 .qgz」——这样才能断言「闸门先于清单收养」（取消时不落盘）。
+    const QString manifestB = dB.filePath( QStringLiteral( "project.paleo" ) );
+    QFile::remove( manifestB );
+    QVERIFY( !QFile::exists( manifestB ) );
     QgisProjectService svc;
     QVERIFY( svc.createProject( qgzA ) );
     const quint64 s0 = svc.sessionId();
@@ -416,7 +421,7 @@ private slots:
     QCOMPARE( opened.count(), 0 );
     QCOMPARE( svc.projectPath(), qgzA ); // 仍是旧工程，保存仍写回 A
     QCOMPARE( svc.sessionId(), s0 );
-    QVERIFY( !QFile::exists( dB.filePath( QStringLiteral( "project.paleo" ) ) ) ); // 闸门先于清单收养
+    QVERIFY( !QFile::exists( manifestB ) ); // 闸门先于清单收养
 
     // 闸门放行：aboutToClose 先于 projectOpened，会话号自增
     QStringList order;
@@ -431,6 +436,7 @@ private slots:
     QCOMPARE( order, ( QStringList{ QStringLiteral( "about:" ) + qgzA,
                                     QStringLiteral( "opened:" ) + qgzB } ) );
     QVERIFY( svc.sessionId() > s0 );
+    QVERIFY( QFile::exists( manifestB ) ); // 放行后才收养（写清单）
   }
 
   void closeProjectClearsAndRefusesWrite()

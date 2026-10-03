@@ -468,6 +468,7 @@ add_library(paleo_workflow STATIC
   src/workflow/mappingworkflow.cpp                 # 厚度→约束IDW→相多边形链路
   src/workflow/mapexport.cpp                       # 层位图 PDF 导出
   src/workflow/layouttemplatelibrary.cpp            # 版式模板库编排（qpt→catalog 版本 + 库表）
+  src/workflow/horizonbatchexport.cpp               # 按层位组批量出图（快照换图+登记 OUTPUT）
   src/workflow/mapbook.cpp                         # 地图册：AOI 格序列 + 模板变量（纯编排）
   src/workflow/mapbookqueue.cpp                    # 地图册：批量导出队列（任务服务 + 逐版记账）
   src/workflow/mapversioncontroller.cpp            # 保存版本/发布编排
@@ -762,6 +763,7 @@ add_paleo_test(tst_layoutdesigner_full LIBS paleo_ui)
 add_paleo_test(tst_standardelements LIBS paleo_qgis) # 方向25：标准图件元素工厂 + 三类内容模板骨架
 add_paleo_test(tst_layoutpersistence LIBS paleo_qgis) # 方向25：布局随工程 QGZ round-trip
 add_paleo_test(tst_layouttemplatelibrary LIBS paleo_workflow) # 方向25：模板库（qpt→catalog 版本 + 库表）
+add_paleo_test(tst_horizonbatchexport LIBS paleo_workflow) # 方向25：按层位组批量出图 + catalog 登记
 # ---- wave/data-foundation ----
 add_paleo_test(tst_catalog LIBS paleo_store)
 add_paleo_test(tst_projectparsers LIBS paleo_io)

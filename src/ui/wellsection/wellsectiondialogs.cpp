@@ -625,10 +625,16 @@ void WellSectionTracksDialog::storeTrack(int row)
   t.width = m_width->value();
   if (t.kind == wellsection::TrackKind::Curve)
   {
-    wellsection::CurveStyle c1 = t.curves.isEmpty()
-                                     ? wellsection::CurveStyle{}
-                                     : t.curves.first();
-    c1.mnemonic = m_curve1->currentText().trimmed(); // label 保留（表单无此字段）
+    // label 表单无此字段——三条曲线都在截断前取既有项保 label。
+    const wellsection::CurveStyle keep1 = t.curves.isEmpty()
+                                              ? wellsection::CurveStyle{}
+                                              : t.curves.first();
+    const wellsection::CurveStyle keep2 =
+        t.curves.size() > 1 ? t.curves.at(1) : wellsection::CurveStyle{};
+    const wellsection::CurveStyle keep3 =
+        t.curves.size() > 2 ? t.curves.at(2) : wellsection::CurveStyle{};
+    wellsection::CurveStyle c1 = keep1;
+    c1.mnemonic = m_curve1->currentText().trimmed();
     c1.min = m_min1->value();
     c1.max = m_max1->value();
     c1.logScale = m_log1->isChecked();
@@ -636,10 +642,7 @@ void WellSectionTracksDialog::storeTrack(int row)
     t.curves = {c1};
     if (m_curve2On->isChecked())
     {
-      // label 保留（表单无此字段——从既有项取初值，开关往返不丢）。
-      wellsection::CurveStyle c2 = t.curves.size() > 1
-                                       ? t.curves.at(1)
-                                       : wellsection::CurveStyle{};
+      wellsection::CurveStyle c2 = keep2;
       c2.mnemonic = m_curve2->currentText().trimmed();
       c2.min = m_min2->value();
       c2.max = m_max2->value();
@@ -648,10 +651,7 @@ void WellSectionTracksDialog::storeTrack(int row)
       t.curves << c2;
       if (m_curve3On->isChecked())
       {
-        // label 保留（同曲线 2）。
-        wellsection::CurveStyle c3 = t.curves.size() > 2
-                                         ? t.curves.at(2)
-                                         : wellsection::CurveStyle{};
+        wellsection::CurveStyle c3 = keep3;
         c3.mnemonic = m_curve3->currentText().trimmed();
         c3.min = m_min3->value();
         c3.max = m_max3->value();

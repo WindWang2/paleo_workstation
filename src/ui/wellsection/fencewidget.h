@@ -16,6 +16,7 @@
 class DataCatalog;
 class PaleoTaskService;
 class WellSectionWorkflow;
+class FaultSetStore;
 class QListWidget;
 class QTabWidget;
 class QLabel;
@@ -34,8 +35,13 @@ class WellSectionFenceWidget : public QWidget
         SelectionContext *selection = nullptr;   // 可空
         PaleoTaskService *tasks = nullptr;       // 可空 → 同步取数
         metadata::WellSectionStore *store = nullptr; // 可空 → 不持久化
+        FaultSetStore *faultStore = nullptr;     // 可空 → 断层投绘降级
         QVector<WellSectionPanel::WellChoice> choices;
     };
+
+  public:
+    // 井选项刷新（catalog 变更后壳层调用；预览/手工编辑用新井集）。
+    void setChoices(const QVector<WellSectionPanel::WellChoice> &choices);
 
     explicit WellSectionFenceWidget(const Params &params,
                                     QWidget *parent = nullptr);

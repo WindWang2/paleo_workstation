@@ -316,8 +316,11 @@ void WellSectionFenceWidget::rebuild()
         SectionCtl ctl;
         ctl.wf = new WellSectionWorkflow(m_params.catalog, this);
         ctl.wf->setTaskService(m_params.tasks);
+        ctl.wf->setFaultSetStore(m_params.faultStore);
         ctl.panel = new WellSectionPanel(m_params.selection, this);
         ctl.panel->setWellChoices(m_params.choices);
+        if (m_params.faultStore)
+            ctl.panel->setFaultsAvailable(true, QString());
 
         const int index = i;
         connect(ctl.panel, &WellSectionPanel::dataRequested, this,
@@ -336,6 +339,17 @@ void WellSectionFenceWidget::rebuild()
                     sec.panel->setBusy(false);
                     sec.panel->setSection(wells);
                     sec.panel->setWarnings(warnings);
+                });
+        // 断层投绘（fence 剖面同样可用；同步取）。
+        connect(ctl.panel, &WellSectionPanel::faultsRequested, this,
+                [this, index] {
+                    if (index >= m_sections.size())
+                        return;
+                    const auto fp =
+                        m_sections[index].wf->faultProjection(
+                            m_sections[index].panel->wells());
+                    m_sections[index].panel->setFaultTraces(fp.traces,
+                                                            fp.status);
                 });
         // 用户在剖面内改井序/移除 → 权威态同步 + 落库 + 列表刷新。
         connect(ctl.panel, &WellSectionPanel::wellIdsChanged, this,
@@ -423,13 +437,31 @@ void WellSectionFenceWidget::saveToStore()
     m_persistedIds = m_wellIds;
 }
 
+void WellSectionFenceWidget::setChoices(
+    const QVector<WellSectionPanel::WellChoice> &choices)
+{
+    QStringList was, now;
+    for (const auto &c : m_params.choices)
+        was << c.id;
+    for (const auto &c : choices)
+        now << c.id;
+    if (was == now)
+        return; // 井集无变化
+    m_params.choices = choices;
+    for (auto &sec : m_sections)
+        sec.panel->setWellChoices(choices);
+    static_cast<FencePreview *>(m_preview)->setModel(choices, m_wellIds);
+}
+
 void WellSectionFenceWidget::setStore(metadata::WellSectionStore *store)
 {
     if (m_params.store == store)
         return;
+    // 换库方向：从新工程读（不是把旧工程井集写进新库——轮 2 修正）。
     m_params.store = store;
-    m_persistedIds.clear(); // 换库后首存不等值短路失效，强制重写
-    saveToStore();
+    m_persistedIds.clear();
+    loadFromStore();
+    rebuild();
 }
 
 void WellSectionFenceWidget::loadFromStore()

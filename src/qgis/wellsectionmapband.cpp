@@ -90,7 +90,8 @@ void WellSectionMapBand::flashWell(const QString &wellId)
   if (idx < 0)
     return;
   QgsFeatureRequest req;
-  req.setFilterExpression(QStringLiteral("%1 = '%2'").arg(
+  // quotedValue 自带引号——外层不能再包一层（轮 2：双重引号永不命中）。
+  req.setFilterExpression(QStringLiteral("%1 = %2").arg(
       QgsExpression::quotedColumnRef(m_idField),
       QgsExpression::quotedValue(wellId)));
   req.setSubsetOfAttributes(QgsAttributeList{idx});

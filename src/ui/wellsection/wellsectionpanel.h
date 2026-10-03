@@ -124,6 +124,9 @@ class WellSectionPanel : public QWidget
     void updateHighlight();
     void syncGapToolTips();    // 缝 tooltip 随状态（reason）刷新
     void clearStrip();
+    // 井对 id 间接寻址的改接（菜单动作重建安全）。
+    void toggleLinkForPair(const QString &aId, const QString &bId,
+                           const QString &topName, bool connect);
     void moveWell(int from, int to); // 用户拖排
     void removeWellAt(int index);    // 用户右键移除
     void rebuildGapWidths();         // 间距模式/井集/gapPx 变化后重算逐缝宽

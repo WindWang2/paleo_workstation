@@ -66,13 +66,27 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
 
   // 剖面编辑产物落库（井序 + 连线改接；每次落盘版本 +1——Oracle #2）。
   // 无工程库（store 空/未开工程）时编辑仅驻内存。
-  WellSectionMapBand *band = nullptr; // 前置声明给 bindStores 用（见下）
+
   const auto rebindFenceStore = [this]() {
     // 换工程：打开中的栅状图换到新 store（否则继续写旧工程的库）。
     if (m_wellSectionFence)
       m_wellSectionFence->setStore(m_wellSectionStore);
   };
-  const auto bindStores = [this, wf, panel, store, &band, rebindFenceStore] {
+  // band 是窗口成员（attach 中创建）——lambda 逃逸出栈帧不能按引用捕
+  // 获局部变量（轮 2 High：catalog 去抖后调 bindStores 会解引用死栈槽）。
+  // 井位层解析：本仓约定 customProperty("paleoLayerId") 扫描（QGIS 自动
+  // 生成的 layer id 不是 "wells"——按 id 查恒空，轮 2 修正）。
+  const auto resolveWellLayer = [this]() -> QgsVectorLayer * {
+    const auto layers = QgsProject::instance()->mapLayers();
+    for (auto it = layers.cbegin(); it != layers.cend(); ++it)
+      if (auto *vl = qobject_cast<QgsVectorLayer *>(it.value()))
+        if (vl->customProperty(QStringLiteral("paleoLayerId")).toString() ==
+            QStringLiteral("wells"))
+          return vl;
+    return nullptr;
+  };
+  const auto bindStores = [this, wf, panel, store, rebindFenceStore,
+                           resolveWellLayer] {
     if (!store)
       return;
     delete m_wellSectionStore; // 换工程释放旧实例（非 QObject，无父子回收）
@@ -85,24 +99,21 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
           QStringLiteral("Paleo"));
     // 断层投绘供数：断面 mesh ∩ 井径 curtain（换工程重绑）。
     delete m_wellSectionFaultStore;
-    m_wellSectionFaultStore =
-        new FaultSetStore(store->metaDbPath(), store);
+    m_wellSectionFaultStore = new FaultSetStore(store->metaDbPath(), store);
     if (!m_wellSectionFaultStore->open(&storeErr))
       QgsMessageLog::logMessage(
           tr("断层解释库打开失败：%1").arg(storeErr),
           QStringLiteral("Paleo"));
     wf->setFaultSetStore(m_wellSectionFaultStore);
     paleo::fault::FaultSet probe;
-    bool has = m_wellSectionFaultStore->load(probe, &storeErr) &&
-               probe.faultCount() > 0;
+    const bool has = m_wellSectionFaultStore->load(probe, &storeErr) &&
+                     probe.faultCount() > 0;
     panel->setFaultsAvailable(has,
                               has ? QString() : tr("工程内无断层解释"));
-    // 井位层随工程重建——重解析（首启/换工程后联动不失效）。
-    if (band)
-      band->setWellLayer(
-          qobject_cast<QgsVectorLayer *>(
-              QgsProject::instance()->mapLayer(QStringLiteral("wells"))),
-          QStringLiteral("id"));
+    // 井位层随工程重建——重解析（band 成员可能晚于首调创建，null 安全）。
+    if (m_wellSectionBand)
+      m_wellSectionBand->setWellLayer(resolveWellLayer(),
+                                      QStringLiteral("id"));
     rebindFenceStore();
   };
   bindStores();
@@ -239,7 +250,10 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
   };
   connect(debounce, &QTimer::timeout, this,
           [this, wf, panel, catalogPath, lastGen, restoreWells, toChoices] {
-            panel->setWellChoices(toChoices(wf->wellChoices()));
+            const auto freshChoices = toChoices(wf->wellChoices());
+            panel->setWellChoices(freshChoices);
+            if (m_wellSectionFence) // 栅格井选项随 catalog 刷新
+              m_wellSectionFence->setChoices(freshChoices);
             const QString path = m_previewDoc->catalog()->catalogPath();
             if (path != *catalogPath)
             {
@@ -258,16 +272,12 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
 
   // 剖面-平面联动：剖面线位高亮（井序连线）+ 点名反向闪烁。线位随
   // 井集/井序/取数回填刷新；闪烁经 well 层 fid 解析。
-  if (m_canvasCtl)
+  if (m_canvasCtl && !m_wellSectionBand)
   {
-    band = new WellSectionMapBand(m_canvasCtl->canvas(), this);
-    // well 层解析：QgsProject 里 id/name 双查（refreshWellsLayer 声明的
-    // layerId = "wells"）。
-    band->setWellLayer(
-        qobject_cast<QgsVectorLayer *>(
-            QgsProject::instance()->mapLayer(QStringLiteral("wells"))),
-        QStringLiteral("id"));
+    m_wellSectionBand = new WellSectionMapBand(m_canvasCtl->canvas(), this);
+    bindStores(); // 首次解析井位层（band 就位后）
   }
+  WellSectionMapBand *const band = m_wellSectionBand;
   const auto syncBand = [panel, band] {
     if (!band)
       return;
@@ -303,6 +313,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
             fp.selection = m_selection;
             fp.tasks = taskSvc;
             fp.store = m_wellSectionStore;
+            fp.faultStore = m_wellSectionFaultStore;
             fp.choices = toChoices(wf->wellChoices());
             auto *fence = new WellSectionFenceWidget(fp, this);
             fence->setAttribute(Qt::WA_DeleteOnClose);

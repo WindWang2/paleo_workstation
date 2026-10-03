@@ -385,6 +385,16 @@ private slots:
     // 单井 → 空。
     QVERIFY(gapWidthsFor({w1}, SpacingMode::Proportional, 300, 48, 600)
                 .isEmpty());
+    // 全零距离（同平台井）：退化等距，防 NaN 毒化布局。
+    Well z1, z2, z3;
+    z1.x = 50; z1.y = 50;
+    z2.x = 50; z2.y = 50;
+    z3.x = 50; z3.y = 50;
+    const auto zeros =
+        gapWidthsFor({z1, z2, z3}, SpacingMode::Proportional, 300, 48, 600);
+    QCOMPARE(zeros, QVector<double>({150.0, 150.0}));
+    for (double g : zeros)
+      QVERIFY(std::isfinite(g));
   }
 
   // ---- 选井 PCA 序（平面选井一键成剖面的井序）----

@@ -613,6 +613,20 @@ void WellSectionPanel::setLinkOverrides(
     g->update();
 }
 
+// 井对 id 定位目标缝（菜单动作经 id 间接寻址——重建后仍指对缝）。
+void WellSectionPanel::toggleLinkForPair(const QString &aId,
+                                         const QString &bId,
+                                         const QString &topName, bool connect)
+{
+  for (int i = 0; i + 1 < m_st.wells.size(); ++i)
+    if ((m_st.wells[i].id == aId && m_st.wells[i + 1].id == bId) ||
+        (m_st.wells[i].id == bId && m_st.wells[i + 1].id == aId))
+    {
+      toggleLink(i, topName, connect);
+      return;
+    }
+}
+
 void WellSectionPanel::toggleLink(int gap, const QString &topName,
                                   bool connect)
 {
@@ -856,14 +870,18 @@ void WellSectionPanel::rebuildItems()
           });
       gap->setLinkMenuCallback([this](int gapIndex, const QString &top,
                                       bool connected) {
+        // 菜单动作捕获井对 id（非缝号）——非模态 popup 到触发之间若发生
+        // 重建，按 id 重定位目标缝，不误改别缝。
+        const QString aId = m_st.wells.value(gapIndex).id;
+        const QString bId = m_st.wells.value(gapIndex + 1).id;
         auto *menu = new QMenu(this);
         menu->setObjectName(QStringLiteral("wellSectionLinkMenu"));
         QAction *act = menu->addAction(
             connected ? tr("断开 %1 连线").arg(top)
                       : tr("重连 %1 连线").arg(top));
         connect(act, &QAction::triggered, this,
-                [this, gapIndex, top, connected] {
-                  toggleLink(gapIndex, top, !connected);
+                [this, aId, bId, top, connected] {
+                  toggleLinkForPair(aId, bId, top, !connected);
                 });
         menu->setAttribute(Qt::WA_DeleteOnClose);
         // 非模态 popup（不嵌事件循环——exec 期间 rebuildItems 可能删除

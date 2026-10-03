@@ -1186,8 +1186,9 @@ void HeaderWidget::paintContents(QPainter *p, double xOffset) const
   {
     const int at = qMin(m_insertAt, m_st->wells.size() - 1);
     const double ix = at == m_insertAt
-                          ? m_st->columnLeft(at) - m_st->gapPx * 0.5
-                          : m_st->columnRight(at) + m_st->gapPx * 0.5;
+                          ? m_st->columnLeft(at) -
+                                m_st->gapWidth(qMax(0, at - 1)) * 0.5
+                          : m_st->columnRight(at) + m_st->gapWidth(at) * 0.5;
     p->fillRect(QRectF(ix - 1 - xOffset, 0, 3, HH),
                 PaleoTheme::tokens().primary);
   }
@@ -1359,8 +1360,10 @@ void View::mouseMoveEvent(QMouseEvent *e)
                  QString::number(md, 'f', 1) + QStringLiteral(" m");
   if (!zoneName.isEmpty())
     text += tr(" · 层段 %1").arg(zoneName);
-  emit hoverChanged(text);
+  // 先派 base（连线 hoverLeave 清空提示）再上报——否则从连线移入井柱的
+  // 一拍里旧提示会覆盖井读数。
   QGraphicsView::mouseMoveEvent(e);
+  emit hoverChanged(text);
 }
 
 void View::leaveEvent(QEvent *e)

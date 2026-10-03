@@ -40,8 +40,29 @@
 若同时指定 `PALEO_WELL_FACIES_SCREENSHOT`，可保存面板截图；未开启 LIVE 时
 截图使用本地测试服务器的结果，日志会明确标注该来源。
 
+批量验证本机的 XML 综合柱状图（不上传原始资料、不调用外网）：
+
+```sh
+QT_QPA_PLATFORM=offscreen \
+PALEO_WELL_FACIES_TEST_DIR=/path/to/xml-directory \
+PALEO_WELL_FACIES_TEST_REPORT=/path/to/report.json \
+build/tst_wellfacies realReferenceDirectory
+```
+
+逐口输出井名、可用状态、有效点数和不可用原因；对两种井入口检查按钮状态。
+符合条件的井通过本地 HTTP 测试服务验证预测道和置信度道的显示。
+测试目录和报告路径均为可选配置，未提供目录时跳过批量测试。
+
 2026-10-03 验证：新功能、测井回归及层检查 9/9 通过；无 ORT 的
 `paleo_ai` 构建通过。真实参考井 HZ26-6-1 的恩平组 3089–3356 m
 输入校验通过（2670 点），`GET /models` 成功，但 `POST /predict`
 返回 HTTP 500、`INTERNAL: 服务内部错误`，真实推理结果尚未验证。
 测试工区既有的 HZ28-6-1 没有当前模型要求的恩平组，不能提交给该模型。
+
+同日补充验证 `/home/kevin/projects/Download_backup/excel/` 的 57 份综合柱状图：
+17 口井可用、40 口井不可用，57 个数据案例全部通过。
+不可用原因：23 口无恩平组、9 口无 GR、6 口目标井段有无效 GR、
+1 口缺少段/岩性覆盖、1 口无段井道。
+全部 17 口可用井均在辅助井和测区井入口通过本地测试服务验证结果显示；
+真实服务对 HZ19-1-1A（5827 点）和 XJ24-6-2D（4429 点）的推理请求
+均返回 HTTP 500 / INTERNAL，真实预测结果仍未验证。

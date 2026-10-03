@@ -4,6 +4,7 @@
 #include "ui/paleotheme.h"
 #include "ui/wellcomposite/wellcompositepanel.h"
 #include "workflow/wellfaciesworkflow.h"
+#include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QPainter>
@@ -170,8 +171,19 @@ public:
 class TestWellFacies : public QObject {
   Q_OBJECT
   QTemporaryDir m_cacheHome;
+  QJsonArray m_referenceReport;
 private slots:
   void initTestCase() { qputenv("XDG_DATA_HOME", m_cacheHome.path().toUtf8()); }
+  void cleanupTestCase() {
+    const QString report =
+        qEnvironmentVariable("PALEO_WELL_FACIES_TEST_REPORT");
+    if (report.isEmpty())
+      return;
+    QFile file(report);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    const auto bytes = QJsonDocument(m_referenceReport).toJson();
+    QCOMPARE(file.write(bytes), bytes.size());
+  }
   void inputContract() {
     auto d = well();
     auto input = prepareWellFaciesInput(d, model());
@@ -422,6 +434,81 @@ private slots:
     QTest::qWait(150);
     QCOMPARE(server.predictCount, 1);
     QCOMPARE(done.size(), 0);
+  }
+  void realReferenceDirectory_data() {
+    QTest::addColumn<QString>("path");
+    const QString directory =
+        qEnvironmentVariable("PALEO_WELL_FACIES_TEST_DIR");
+    if (directory.isEmpty()) {
+      QTest::newRow("not-configured") << QString();
+      return;
+    }
+    const QDir dir(directory);
+    const auto files = dir.entryInfoList({"*.xml"}, QDir::Files, QDir::Name);
+    QVERIFY2(!files.isEmpty(),
+             "No XML reference wells found in test directory");
+    for (const auto &file : files)
+      QTest::newRow(qPrintable(file.fileName())) << file.absoluteFilePath();
+  }
+  void realReferenceDirectory() {
+    QFETCH(QString, path);
+    if (path.isEmpty())
+      QSKIP("Set PALEO_WELL_FACIES_TEST_DIR for batch reference-well QA.");
+    ComprehensiveWellData data;
+    QString error;
+    QVERIFY2(parseComprehensiveWellXml(path, data, &error), qPrintable(error));
+    const auto input = prepareWellFaciesInput(data, model());
+    QJsonObject entry{{"file", QFileInfo(path).fileName()},
+                      {"wellName", data.wellName},
+                      {"eligible", input.ready()},
+                      {"rows", input.rows.size()},
+                      {"reason", input.reason}};
+    if (input.ready()) {
+      entry.insert("top",
+                   input.rows.first().toObject().value(QStringLiteral("深度")));
+      entry.insert("bottom",
+                   input.rows.last().toObject().value(QStringLiteral("深度")));
+    }
+    m_referenceReport.append(entry);
+    qInfo().noquote() << QJsonDocument(entry).toJson(QJsonDocument::Compact);
+
+    // 模型要求与线上当前模型一致；批量传输只调用本地测试服务器。
+    Server server;
+    server.queued = m_referenceReport.size() % 2 == 0;
+    WellCompositePanel panel;
+    auto *workflow = new WellFaciesWorkflow(&panel);
+    panel.bindFaciesWorkflow(workflow);
+    QSignalSpy models(workflow, &WellFaciesWorkflow::modelsChanged),
+        done(workflow, &WellFaciesWorkflow::resultReady);
+    workflow->configure(server.config(), false);
+    QTRY_VERIFY(models.size() >= 2);
+    auto *run = panel.findChild<QToolButton *>("btnPredictFacies");
+    QVERIFY(run);
+    for (bool reference : {true, false}) {
+      QVERIFY(panel.loadWellData(data, path, reference));
+      QCOMPARE(panel.isReferenceWell(), reference);
+      QCOMPARE(run->isEnabled(), input.ready());
+      if (!input.ready()) {
+        QCOMPARE(run->toolTip(), input.reason);
+        continue;
+      }
+      done.clear();
+      run->click();
+      QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 10000);
+      const auto result = qvariant_cast<WellFaciesResult>(done.first()[0]);
+      QCOMPARE(result.confidence.depths.size(), input.rows.size());
+      QVERIFY(!result.intervals.isEmpty());
+      QCOMPARE(panel.currentData().faciesIntervals.size(),
+               data.faciesIntervals.size());
+      QVERIFY(panel.findChild<QToolButton *>("btnShowPredictedFacies")
+                  ->isEnabled());
+      int tracks = 0;
+      for (const auto &track : panel.canvas()->tracks())
+        if (track->title() == QStringLiteral("预测相") ||
+            track->title() == QStringLiteral("预测置信度"))
+          ++tracks;
+      QCOMPARE(tracks, 2);
+    }
   }
   void realReferenceWell() {
     const QString path = qEnvironmentVariable("PALEO_WELL_FACIES_TEST_XML");

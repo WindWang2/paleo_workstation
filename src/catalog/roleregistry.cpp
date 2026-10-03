@@ -69,6 +69,16 @@ namespace
     add(QStringLiteral("other"), QStringLiteral("seismic_survey"), false,
         QStringLiteral("其他"),
         QStringLiteral("兜底角色。"));
+
+    // 方向 34：计划井（planned）正式登记进词表。planned 是虚拟部署实体
+    // （井位建议，非实井）——只挂部署依据类附件，不参与任何计算输入；
+    // 实体本体由 WellSitingWorkflow 创建，id 前缀 "planned"。
+    add(QStringLiteral("siting_note"), QStringLiteral("planned"), false,
+        QStringLiteral("部署依据"),
+        QStringLiteral("计划井的部署依据/论证附件（覆盖诊断报告、方案对比等）。"));
+    add(QStringLiteral("other"), QStringLiteral("planned"), false,
+        QStringLiteral("其他"),
+        QStringLiteral("兜底角色。"));
     return t;
   }
 } // namespace

@@ -382,6 +382,7 @@ add_library(paleo_algorithms STATIC
   src/algorithms/singlefactor/structuralalgorithm.cpp
   src/algorithms/singlefactor/cartographicsmooth.cpp # 上游制图平滑折线辅助（纯数学）
   src/algorithms/singlefactor/fieldcontours.cpp      # 上游 field_contours/contour_work_field 移植
+  src/algorithms/frameworksuggester.cpp              # 方向28：井间格架建议核（只出候选，不写库）
   src/algorithms/singlefactor/contourlevels.cpp      # 上游等值线级别助手（_nice_number 等）
 )
 target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)

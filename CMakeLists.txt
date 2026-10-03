@@ -397,6 +397,7 @@ add_library(paleo_qgis STATIC
   src/qgis/qgisstyleservice.cpp
   src/qgis/qgislayoutservice.cpp
   src/qgis/layoutexport.cpp                         # 层位图/设计器导出核心（QgsLayoutExporter 封装）
+  src/qgis/standardelements.cpp                     # 标准图件元素工厂 + 三类内置内容模板骨架（方向 25）
   src/qgis/mapbooklayout.cpp                        # 地图册：逐格/蒙太奇/索引页版面构建 + 落盘回读校验
   src/qgis/manifestprojection.cpp
   src/qgis/factorstylewriter.cpp                    # m2(B)：单因素色带 .qml 落盘
@@ -756,6 +757,8 @@ add_paleo_test(tst_layoutexport LIBS paleo_ui)
 add_paleo_test(tst_mapbook LIBS paleo_ui)              # goal/mapbook-reporting：格序列/模板/蒙太奇/批量队列
 add_paleo_test(tst_layoutundo LIBS paleo_ui)
 add_paleo_test(tst_layoutdesigner_full LIBS paleo_ui)
+add_paleo_test(tst_standardelements LIBS paleo_qgis) # 方向25：标准图件元素工厂 + 三类内容模板骨架
+add_paleo_test(tst_layoutpersistence LIBS paleo_qgis) # 方向25：布局随工程 QGZ round-trip
 # ---- wave/data-foundation ----
 add_paleo_test(tst_catalog LIBS paleo_store)
 add_paleo_test(tst_projectparsers LIBS paleo_io)

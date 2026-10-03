@@ -11,6 +11,7 @@
 
 #include <qgslayertree.h>
 #include <qgslayertreegroup.h>
+#include <qgslayertreelayer.h>
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
@@ -297,6 +298,48 @@ void QgisLayerService::releaseHorizon(const QString &horizon)
   // 会阻止剪枝）——否则切换几次层位，树里攒一串空历史层位组。
   pruneEmptyRootGroup(proj, horizon);
   emit horizonReleased(horizon);
+}
+
+void QgisLayerService::reconcileTreeGrouping()
+{
+  QgsProject *proj = resolveProject(m_projectSvc);
+  QgsLayerTree *root = proj ? proj->layerTreeRoot() : nullptr;
+  if (!root || !m_manifest)
+    return;
+  QVector<LayerDeclaration> decls;
+  if (!m_manifest->readAll(&decls, nullptr))
+    return;
+  QHash<QString, QStringList> pathById;
+  pathById.reserve(decls.size());
+  for (const LayerDeclaration &d : decls)
+  {
+    QStringList path;
+    if (!d.horizon.isEmpty())
+      path << d.horizon;
+    path << PaleoLayerVocabulary::canonicalize(d.group)
+                .split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    if (!path.isEmpty())
+      pathById.insert(d.layerId, path);
+  }
+
+  // 只搬树根直挂的声明图层：嵌在用户自建组里的位置是用户排版，不重排；
+  // 无 paleoLayerId 的手工层本来就不归清单管。
+  const QList<QgsLayerTreeNode *> kids = root->children();
+  for (QgsLayerTreeNode *n : kids)
+  {
+    if (!QgsLayerTree::isLayer(n))
+      continue;
+    auto *ln = QgsLayerTree::toLayer(n);
+    QgsMapLayer *l = ln ? ln->layer() : nullptr;
+    if (!l)
+      continue;
+    const auto it = pathById.constFind(
+        l->customProperty(QStringLiteral("paleoLayerId")).toString());
+    if (it == pathById.constEnd())
+      continue;
+    if (root->takeChild(ln)) // take 不删节点——插入目标组接管
+      groupForPath(root, it.value())->insertChildNode(0, ln);
+  }
 }
 
 bool QgisLayerService::tryDeclared(QVector<LayerDeclaration> *out, QString *error) const

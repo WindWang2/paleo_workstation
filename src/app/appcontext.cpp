@@ -351,6 +351,11 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
                         << embedded.size() << "declarations from .qgz projection";
             }
 
+            // 图层树分组调和（一次性搬迁）：.qgz 读档恢复的声明图层平铺在
+            // 树根——归组在 instantiate 时发生，存量节点不过该路径。只搬根
+            // 直挂声明层；用户自建组里的排版保持原样。
+            m_layerSvc->reconcileTreeGrouping();
+
             m_styleSvc->setStylesRoot(fi.absoluteDir().filePath(QStringLiteral("styles")));
             // 工程级参数（AREA_PARAMETERS）：project_area.json → 层位名单/
             // 分类规则/SEG-Y 偏移/ONNX 网格/标定层位。必须在 importSvc/

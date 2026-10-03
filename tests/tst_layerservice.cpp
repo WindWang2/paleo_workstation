@@ -473,6 +473,59 @@ private slots:
     QVERIFY(root->findGroup(QStringLiteral("T1")));
     QCOMPARE(QgsProject::instance()->mapLayers().size(), 1);
   }
+
+  // (l) 存量平铺调和：根上直挂的声明图层被搬进「地层/工作流组」；嵌在
+  //     用户自建组里的声明层视为用户排版，原地不动；无声明手工层不动。
+  void reconcileMovesFlatDeclaredLayersOnly()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+    QVERIFY(manifest.open());
+    QgisLayerService svc(nullptr, &manifest);
+    QVERIFY(svc.declare(decl(QStringLiteral("facies.T1"), QStringLiteral("T1"))));
+    QVERIFY(svc.declare(decl(QStringLiteral("facies.T2"), QStringLiteral("T2"))));
+
+    QgsLayerTree *root = QgsProject::instance()->layerTreeRoot();
+
+    // 模拟 .qgz 读档态：声明层平铺树根（不经 instantiate 归组路径）。
+    auto *flat = new QgsVectorLayer(QStringLiteral("Point"),
+                                    QStringLiteral("平铺层"), QStringLiteral("memory"));
+    flat->setCustomProperty(QStringLiteral("paleoLayerId"),
+                            QStringLiteral("facies.T1"));
+    QgsProject::instance()->addMapLayer(flat);
+    QVERIFY(root->findLayer(flat->id())->parent() == root);
+
+    // 用户自建组里的声明层 = 排版结果——调和不动它。
+    auto *grouped = new QgsVectorLayer(QStringLiteral("Point"),
+                                       QStringLiteral("用户排版层"), QStringLiteral("memory"));
+    grouped->setCustomProperty(QStringLiteral("paleoLayerId"),
+                               QStringLiteral("facies.T2"));
+    QgsProject::instance()->addMapLayer(grouped, false);
+    auto *userGroup = root->addGroup(QStringLiteral("我的排版"));
+    userGroup->insertLayer(-1, grouped);
+
+    // 无声明手工层：不归清单管。
+    auto *manual = new QgsVectorLayer(QStringLiteral("Point"),
+                                      QStringLiteral("手工层"), QStringLiteral("memory"));
+    QgsProject::instance()->addMapLayer(manual);
+
+    svc.reconcileTreeGrouping();
+
+    auto *t1 = root->findGroup(QStringLiteral("T1"));
+    QVERIFY2(t1, "flat declared layer must land under horizon group");
+    auto *sfGrp = t1->findGroup(QStringLiteral("04_SingleFactor"));
+    QVERIFY(sfGrp);
+    QVERIFY(sfGrp->findLayer(flat->id()));
+    QVERIFY2(userGroup->findLayer(grouped->id()),
+             "user-grouped declared layer stays put");
+    QVERIFY(root->findLayer(manual->id())->parent() == root);
+
+    // 幂等：二次调和零搬迁。
+    svc.reconcileTreeGrouping();
+    QVERIFY(sfGrp->findLayer(flat->id()));
+    QCOMPARE(QgsProject::instance()->mapLayers().size(), 3);
+  }
 };
 
 int main(int argc, char *argv[])

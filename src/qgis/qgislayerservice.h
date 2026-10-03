@@ -38,6 +38,11 @@ class QgisLayerService : public QObject
     QgsMapLayer *instantiate(const QString &layerId, QString *error = nullptr);
     int instantiateHorizon(const QString &horizon);              // count materialized
     void releaseHorizon(const QString &horizon);                 // drop instances (manifest keeps decl)
+
+    // 一次性调和存量树：把根上直挂的声明图层搬进「地层/工作流组」路径——
+    // .qgz 读档恢复的平铺节点不过 instantiate()，工程打开后调用一次。
+    // 只动根直挂层；嵌在用户自建组里的位置是用户排版，不重排。
+    void reconcileTreeGrouping();
     QgsMapLayer *layer(const QString &layerId) const;            // instantiated only, nullptr otherwise
     bool isInstantiated(const QString &layerId) const;
     bool isEditingAnyLayer(QString *layerName = nullptr) const;

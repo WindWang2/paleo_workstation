@@ -24,3 +24,8 @@ git clone https://github.com/WindWang2/paleo_workstation.git && cd paleo_worksta
 | `clean-vendor [dep]` | 清 vendor 构建物（留下载包） |
 
 构建/依赖/升级细节见 [BUILDING.md](BUILDING.md)；架构与评审决策见 [docs/PALEO_QGIS_PLAN.md](docs/PALEO_QGIS_PLAN.md)。
+
+构建与测试并行度上限为 8：`cmake --build build -j8`、
+`ctest --test-dir build -j8 --output-on-failure`（Windows ctest 串行）。
+独立 worktree 的 vendor symlink 与 `QGIS_PREFIX` 接线见
+[BUILDING.md 的 worktree 说明](BUILDING.md#独立-worktree-开发)。

@@ -46,3 +46,9 @@ PALEO_UNITY_BUILD）见 BUILDING.md。
 用户要求限制编译资源占用，不要用 `$(nproc)`。
 依赖来源：尽量不依赖系统库，尽量自编译 vendored——superbuild 首选 /
 钉哈希闭包加速档 / 系统包仅兜底（政策全文 BUILDING.md「依赖来源策略」）。
+
+## Worktree 开发
+独立分支使用独立 worktree/build；基线按任务明确指定的 master/origin/master
+选择，保留主 checkout 的未提交改动。gitignored vendor 依赖不随 worktree
+复制，共享依赖接线和显式 QGIS_PREFIX 命令见 BUILDING.md「独立 worktree 开发」。
+默认分支前缀 codex/，任务指定名字优先；仅推工作分支、提 PR，不自行合并。

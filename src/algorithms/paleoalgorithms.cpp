@@ -1138,6 +1138,7 @@ void PaleoProvider::loadAlgorithms()
   addAlgorithm( new PaleoDistanceTransformAlgorithm() ); // welldist 绕障引擎（distancetransform.cpp，C5）
   addAlgorithm( new ConstraintIDWAlgorithm() );
   addAlgorithm( new LocalDirectionIdwAlgorithm() );
+  addAlgorithm( new SurferIdwAlgorithm() );
   addAlgorithm( new CartographicWorkAlgorithm() );
   addAlgorithm( new FaciesFusionAlgorithm() );
   addAlgorithm( new GeologicalSmoothingAlgorithm() );

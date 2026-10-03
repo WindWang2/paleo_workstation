@@ -3,6 +3,7 @@
 #include "localdirectionalgorithm.h"
 #include "../paleoalgorithms.h"
 #include "../rasterout.h"
+#include "faultpath.h"
 #include "localidw.h"
 #include "samples.h"
 #include "support.h"
@@ -932,6 +933,348 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
   qc.insert( QStringLiteral( "crs_mode" ), crsModeName );
   qc.insert( QStringLiteral( "counts" ), counts );
   qc.insert( QStringLiteral( "unsupported" ), unsupported );
+  qc.insert( QStringLiteral( "parameters" ),
+             parametersForHash( prepared.input, grid, surface, fieldName, cellSize, extentSource, crsModeName ) );
+  writeJson( qcPath, qc );
+  if ( feedback )
+    feedback->setProgress( 100 );
+  guard.keep = true;
+
+  QVariantMap out;
+  out.insert( QStringLiteral( "OUTPUT" ), outPath );
+  out.insert( QStringLiteral( "SUPPORT" ), supportPath );
+  out.insert( QStringLiteral( "QC" ), qcPath );
+  out.insert( QStringLiteral( "FINITE_CELLS" ), surface.finiteCells );
+  out.insert( QStringLiteral( "NODATA_CELLS" ), surface.nodataCells );
+  out.insert( QStringLiteral( "EXTRAPOLATED_CELLS" ), surface.extrapolatedCells );
+  out.insert( QStringLiteral( "BARRIER_CELLS" ), surface.barrierCells );
+  out.insert( QStringLiteral( "EXTENT_SOURCE" ), extentSource );
+  out.insert( QStringLiteral( "CRS_MODE" ), crsModeName );
+  return out;
+}
+
+QString SurferIdwAlgorithm::shortHelpString() const
+{
+  return QStringLiteral(
+      "Standard global IDW with optional anisotropy. Finite hard barriers lengthen the "
+      "shortest visible path instead of dropping occluded wells (fault-path metric). "
+      "well_supported keeps MIN/MAX/SEARCH_RADIUS; domain_extrapolation uses all reachable "
+      "wells. Other constraint semantics are recorded and do not change this raster. "
+      "A geographic CRS is rejected. Output contract matches paleo_local_direction_idw." );
+}
+
+void SurferIdwAlgorithm::initAlgorithm( const QVariantMap & )
+{
+  addParameter( new QgsProcessingParameterFeatureSource(
+      QStringLiteral( "INPUT" ), QStringLiteral( "Wells (point layer)" ),
+      QList<int>() << static_cast<int>( Qgis::ProcessingSourceType::VectorPoint ) ) );
+  addParameter( new QgsProcessingParameterField(
+      QStringLiteral( "FIELD" ), QStringLiteral( "Numeric field" ), QVariant(), QStringLiteral( "INPUT" ),
+      Qgis::ProcessingFieldParameterDataType::Numeric ) );
+  addParameter( new QgsProcessingParameterFeatureSource(
+      QStringLiteral( "CONSTRAINTS" ), QStringLiteral( "Constraint lines (optional)" ),
+      QList<int>() << static_cast<int>( Qgis::ProcessingSourceType::VectorLine ), QVariant(), true ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "CELL_SIZE" ), QStringLiteral( "Cell size (map units)" ),
+      Qgis::ProcessingNumberParameterType::Double, 1.0 ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "POWER" ), QStringLiteral( "IDW power (finite and > 0)" ),
+      Qgis::ProcessingNumberParameterType::Double, 2.0 ) );
+  addParameter( new QgsProcessingParameterString(
+      QStringLiteral( "COVERAGE" ), QStringLiteral( "well_supported or domain_extrapolation" ),
+      QStringLiteral( "well_supported" ) ) );
+  addParameter( new QgsProcessingParameterBoolean(
+      QStringLiteral( "LOCAL_GRID" ), QStringLiteral( "Allow an empty CRS as a local engineering grid" ),
+      false ) );
+  addParameter( new QgsProcessingParameterBoolean(
+      QStringLiteral( "PERCENT_TO_FRACTION" ), QStringLiteral( "Convert percent values to fractions" ), false ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "MIN_POINTS" ), QStringLiteral( "Minimum samples (well_supported only)" ),
+      Qgis::ProcessingNumberParameterType::Integer, 3 ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "MAX_POINTS" ), QStringLiteral( "Smooth truncation count (0 = no cap)" ),
+      Qgis::ProcessingNumberParameterType::Integer, 12 ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "SEARCH_RADIUS" ), QStringLiteral( "Search radius (0 = step*60 default)" ),
+      Qgis::ProcessingNumberParameterType::Double, 0.0 ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "ANISOTROPY_RATIO" ), QStringLiteral( "Anisotropy ratio (>=1, 1 = off)" ),
+      Qgis::ProcessingNumberParameterType::Double, 1.0 ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "ANISOTROPY_ANGLE" ), QStringLiteral( "Anisotropy angle in degrees" ),
+      Qgis::ProcessingNumberParameterType::Double, 0.0 ) );
+  addParameter( new QgsProcessingParameterString(
+      QStringLiteral( "VALUE_UNIT" ), QStringLiteral( "Value unit (optional)" ), QString(), false, true ) );
+  addParameter( new QgsProcessingParameterExtent(
+      QStringLiteral( "EXTENT" ), QStringLiteral( "Output extent (optional)" ), QVariant(), true ) );
+  addParameter( new QgsProcessingParameterRasterDestination(
+      QStringLiteral( "OUTPUT" ), QStringLiteral( "Analysis raster" ) ) );
+}
+
+QVariantMap SurferIdwAlgorithm::processAlgorithm( const QVariantMap &parameters,
+                                                  QgsProcessingContext &context,
+                                                  QgsProcessingFeedback *feedback )
+{
+  if ( feedback )
+    feedback->setProgress( 0 );
+  std::unique_ptr<QgsProcessingFeatureSource> source(
+      parameterAsSource( parameters, QStringLiteral( "INPUT" ), context ) );
+  if ( !source )
+    throw QgsProcessingException( invalidSourceError( parameters, QStringLiteral( "INPUT" ) ) );
+  const QString fieldName = parameterAsString( parameters, QStringLiteral( "FIELD" ), context );
+  const int fieldIdx = source->fields().lookupField( fieldName );
+  if ( fieldIdx < 0 )
+    throw QgsProcessingException( QStringLiteral( "Z field '%1' not found on INPUT layer" ).arg( fieldName ) );
+  const double cellSize = parameterAsDouble( parameters, QStringLiteral( "CELL_SIZE" ), context );
+  if ( !( cellSize > 0.0 ) || !std::isfinite( cellSize ) )
+    throw QgsProcessingException( QStringLiteral( "CELL_SIZE must be > 0" ) );
+  const double power = parameterAsDouble( parameters, QStringLiteral( "POWER" ), context );
+  if ( !( power > 0.0 ) || !std::isfinite( power ) )
+    throw QgsProcessingException( QStringLiteral( "POWER 必须为有限正数" ) );
+  const QString coverageText = parameterAsString( parameters, QStringLiteral( "COVERAGE" ), context );
+  sf::CoverageMode coverage = sf::CoverageMode::WellSupported;
+  if ( coverageText == QLatin1String( "well_supported" ) || coverageText.isEmpty() )
+    coverage = sf::CoverageMode::WellSupported;
+  else if ( coverageText == QLatin1String( "domain_extrapolation" ) )
+    coverage = sf::CoverageMode::DomainExtrapolation;
+  else
+    throw QgsProcessingException( QStringLiteral( "未知 coverageMode：%1" ).arg( coverageText ) );
+
+  const QgsCoordinateReferenceSystem crs = source->sourceCrs();
+  const bool localGrid = parameterAsBool( parameters, QStringLiteral( "LOCAL_GRID" ), context );
+  sf::CrsMode crsMode = sf::CrsMode::Projected;
+  QString crsModeName = QStringLiteral( "projected" );
+  if ( crs.isGeographic() )
+    throw QgsProcessingException( QStringLiteral( "经纬度必须先投影" ) );
+  if ( !crs.isValid() )
+  {
+    if ( !localGrid )
+      throw QgsProcessingException(
+          QStringLiteral( "缺少投影坐标系。空坐标系只能在显式局部工程网下计算" ) );
+    crsMode = sf::CrsMode::LocalEngineering;
+    crsModeName = QStringLiteral( "local_engineering" );
+  }
+  const QString outPath = parameterAsOutputLayer( parameters, QStringLiteral( "OUTPUT" ), context );
+  if ( outPath.isEmpty() )
+    throw QgsProcessingException( QStringLiteral( "Invalid OUTPUT raster destination" ) );
+
+  std::vector<sf::Sample> rows;
+  {
+    QgsFeatureIterator it = source->getFeatures( QgsFeatureRequest() );
+    QgsFeature feature;
+    int sequence = 0;
+    while ( it.nextFeature( feature ) )
+    {
+      if ( feedback && feedback->isCanceled() )
+        throw QgsProcessingException( QStringLiteral( "Canceled" ) );
+      if ( !feature.hasGeometry() || feature.geometry().isEmpty() )
+        continue;
+      const QgsGeometry geometry = feature.geometry();
+      const QgsPointXY point =
+          geometry.isMultipart() ? geometry.asMultiPoint().value( 0 ) : geometry.asPoint();
+      sf::Sample sample;
+      sample.stableRowId = feature.id() >= 0
+                               ? std::to_string( static_cast<long long>( feature.id() ) )
+                               : ( "row-" + std::to_string( ++sequence ) );
+      sample.wellId = sample.stableRowId;
+      sample.x = point.x();
+      sample.y = point.y();
+      bool ok = false;
+      const double z = feature.attribute( fieldIdx ).toDouble( &ok );
+      sample.value = ok ? z : std::numeric_limits<double>::quiet_NaN();
+      rows.push_back( std::move( sample ) );
+    }
+  }
+  if ( rows.empty() )
+    throw QgsProcessingException( QStringLiteral( "INPUT contains no usable point features" ) );
+  if ( feedback )
+    feedback->setProgress( 10 );
+
+  std::unique_ptr<QgsProcessingFeatureSource> constraints(
+      parameterAsSource( parameters, QStringLiteral( "CONSTRAINTS" ), context ) );
+  const ParsedConstraints parsed = readConstraintLines( constraints.get(), crs, context );
+  if ( feedback )
+    feedback->setProgress( 20 );
+
+  QString extentSource = QStringLiteral( "input_padded" );
+  QgsRectangle extent;
+  const QVariant extentValue = parameters.value( QStringLiteral( "EXTENT" ) );
+  if ( extentValue.isValid() && !extentValue.isNull() && !extentValue.toString().trimmed().isEmpty() )
+  {
+    extent = parameterAsExtent( parameters, QStringLiteral( "EXTENT" ), context );
+    if ( !extent.isFinite() || extent.isEmpty() )
+      throw QgsProcessingException( QStringLiteral( "EXTENT 无效" ) );
+    extentSource = QStringLiteral( "explicit" );
+  }
+  else
+  {
+    const QgsRectangle raw = source->sourceExtent();
+    const double xPad = raw.width() > 0.0 ? raw.width() * 0.1 : cellSize;
+    const double yPad = raw.height() > 0.0 ? raw.height() * 0.1 : cellSize;
+    extent = QgsRectangle( raw.xMinimum() - xPad, raw.yMinimum() - yPad, raw.xMaximum() + xPad,
+                           raw.yMaximum() + yPad );
+  }
+  const PaleoAlgoGuards::GridDims dims = PaleoAlgoGuards::gridDimsForExtent( extent, cellSize );
+  sf::GridSpec grid;
+  grid.cols = dims.cols;
+  grid.rows = dims.rows;
+  grid.originX = extent.xMinimum();
+  grid.originY = extent.yMaximum();
+  grid.pixelWidth = cellSize;
+  grid.pixelHeight = -cellSize;
+  if ( crs.isValid() )
+  {
+    const QString name = crs.authid().isEmpty() ? crs.description() : crs.authid();
+    grid.crs = ( name.isEmpty() ? QStringLiteral( "projected" ) : name ).toUtf8().toStdString();
+  }
+  else
+  {
+    grid.crs = "local_engineering";
+  }
+
+  sf::SamplePrepRequest request;
+  request.rows = std::move( rows );
+  request.crs = crsMode;
+  request.valueUnit =
+      parameterAsString( parameters, QStringLiteral( "VALUE_UNIT" ), context ).toUtf8().toStdString();
+  request.percentToFraction = parameterAsBool( parameters, QStringLiteral( "PERCENT_TO_FRACTION" ), context );
+  sf::SamplePrepResult prepared = sf::prepareSamples( request );
+  if ( prepared.status != sf::Status::Ok )
+    throw QgsProcessingException(
+        utf8( prepared.message.empty() ? std::string( "样本准备失败" ) : prepared.message ) );
+  prepared.input.constraints = parsed.lines;
+  prepared.input.ignored = parsed.ignored;
+  prepared.input.domain = { gridExtentPolygon( grid ) };
+  std::string budgetError;
+  if ( !sf::gridBudgetOk( grid, static_cast<int>( prepared.input.samples.size() ), &budgetError ) )
+    throw QgsProcessingException( utf8( budgetError ) );
+  if ( feedback )
+    feedback->setProgress( 25 );
+
+  // 断层绕行：硬屏障线进 FaultPathMetric，其余语义只入 QC 记录。
+  std::vector<sf::FaultLine> faults;
+  for ( const sf::ConstraintLine &line : prepared.input.constraints )
+  {
+    if ( !line.enabled || line.semantic != sf::Semantic::HardBarrier || line.points.size() < 2 )
+      continue;
+    sf::FaultLine fault;
+    fault.points = line.points;
+    faults.push_back( std::move( fault ) );
+  }
+
+  sf::SurferIdwOptions options;
+  options.power = power;
+  const bool globalSearch = coverage == sf::CoverageMode::DomainExtrapolation;
+  const double searchRadiusParam = parameterAsDouble( parameters, QStringLiteral( "SEARCH_RADIUS" ), context );
+  const int minPointsParam = parameterAsInt( parameters, QStringLiteral( "MIN_POINTS" ), context );
+  const int maxPointsParam = parameterAsInt( parameters, QStringLiteral( "MAX_POINTS" ), context );
+  options.minPoints = globalSearch ? 1 : minPointsParam;
+  options.maxPoints = globalSearch ? 0 : maxPointsParam;
+  if ( !globalSearch )
+    options.searchRadius = searchRadiusParam > 0.0 && std::isfinite( searchRadiusParam )
+                               ? searchRadiusParam
+                               : cellSize * 60.0;
+  options.anisotropyRatio = parameterAsDouble( parameters, QStringLiteral( "ANISOTROPY_RATIO" ), context );
+  options.anisotropyAngleDegrees =
+      parameterAsDouble( parameters, QStringLiteral( "ANISOTROPY_ANGLE" ), context );
+  if ( !( options.anisotropyRatio > 0.0 ) || !std::isfinite( options.anisotropyRatio ) )
+    throw QgsProcessingException( QStringLiteral( "ANISOTROPY_RATIO 必须为有限正数" ) );
+
+  std::vector<sf::Point2> wellXy;
+  std::vector<double> wellValues;
+  wellXy.reserve( prepared.input.samples.size() );
+  wellValues.reserve( prepared.input.samples.size() );
+  for ( const sf::Sample &sample : prepared.input.samples )
+  {
+    wellXy.push_back( sf::Point2{ sample.x, sample.y } );
+    wellValues.push_back( sample.value );
+  }
+  const std::size_t cellCount =
+      static_cast<std::size_t>( grid.cols ) * static_cast<std::size_t>( grid.rows );
+  std::vector<sf::Point2> queries;
+  queries.reserve( cellCount );
+  for ( int row = 0; row < grid.rows; ++row )
+    for ( int col = 0; col < grid.cols; ++col )
+      queries.push_back( sf::cellCenter( grid, col, row ) );
+
+  sf::Control control;
+  control.cancelled = [feedback]() { return feedback && feedback->isCanceled(); };
+  control.progress = [feedback]( double fraction ) {
+    if ( feedback )
+      feedback->setProgress( 25.0 + 55.0 * std::clamp( fraction, 0.0, 1.0 ) );
+  };
+  const sf::SurferIdwResult result = sf::interpolateGlobalIdw( queries, wellXy, wellValues, options, faults, &control );
+  if ( result.status != sf::Status::Ok )
+  {
+    if ( result.status == sf::Status::Cancelled )
+      throw QgsProcessingException( QStringLiteral( "Canceled" ) );
+    throw QgsProcessingException(
+        utf8( result.message.empty() ? std::string( sf::statusName( result.status ) ) : result.message ) );
+  }
+  if ( result.values.size() != cellCount )
+    throw QgsProcessingException( QStringLiteral( "结果网格尺寸不一致" ) );
+
+  std::vector<std::uint8_t> marks( cellCount, std::uint8_t{ 0 } );
+  int finiteCells = 0;
+  const std::uint8_t coveredMark = globalSearch ? std::uint8_t{ 2 } : std::uint8_t{ 1 };
+  for ( std::size_t i = 0; i < cellCount; ++i )
+  {
+    if ( std::isfinite( result.values[i] ) )
+    {
+      marks[i] = coveredMark;
+      ++finiteCells;
+    }
+  }
+
+  sf::SurfaceResult surface;
+  surface.values = result.values;
+  surface.marks = marks;
+  surface.finiteCells = finiteCells;
+  surface.nodataCells = static_cast<int>( cellCount ) - finiteCells;
+  surface.extrapolatedCells = globalSearch ? finiteCells : 0;
+  surface.barrierCells = 0;
+  surface.resolved.power = power;
+  surface.resolved.coverage = coverage;
+  surface.resolved.minPoints = options.minPoints;
+  surface.resolved.maxPoints = options.maxPoints;
+  surface.resolved.searchRadius = options.searchRadius;
+  surface.resolved.supportedRadius = options.searchRadius ? *options.searchRadius : 1e9;
+  surface.resolved.spacing = sf::meanNearestSpacing( wellXy );
+  surface.resolved.step = cellSize;
+  surface.resolved.span = std::hypot( extent.width(), extent.height() );
+  surface.resolved.tolerance = 1e-9;
+  surface.resolved.valueUnit = request.valueUnit;
+  surface.resolved.algorithmId = "paleo:paleo_surfer_idw";
+  surface.resolved.algorithmVersion = "1.0.0";
+  surface.resolved.semanticProfile = "paleo_surfer_idw_v1";
+  surface.resolved.hardBarrierModel = "fault_path_metric_v1";
+
+  OutputGuard guard;
+  const QString supportPath = sidecarPath( outPath, QStringLiteral( ".support.tif" ) );
+  const QString qcPath = sidecarPath( outPath, QStringLiteral( ".qc.json" ) );
+  guard.paths << outPath << supportPath << qcPath;
+  if ( feedback )
+    feedback->setProgress( 80 );
+  writeFloatGrid( outPath, grid, surface.values, crs, "analysis", "paleo:paleo_surfer_idw" );
+  writeSupportGrid( supportPath, grid, surface.marks, crs );
+
+  QVariantMap counts;
+  counts.insert( QStringLiteral( "finite" ), surface.finiteCells );
+  counts.insert( QStringLiteral( "nodata" ), surface.nodataCells );
+  counts.insert( QStringLiteral( "extrapolated" ), surface.extrapolatedCells );
+  counts.insert( QStringLiteral( "barrier" ), surface.barrierCells );
+  counts.insert( QStringLiteral( "original" ), prepared.input.originalCount );
+  counts.insert( QStringLiteral( "valid" ), prepared.input.validCount );
+  counts.insert( QStringLiteral( "missing" ), prepared.input.missingCount );
+  counts.insert( QStringLiteral( "out_of_range" ), prepared.input.outOfRangeCount );
+  counts.insert( QStringLiteral( "duplicate_extra" ), prepared.input.duplicateExtraRows );
+  counts.insert( QStringLiteral( "conflict" ), prepared.input.conflictRows );
+  QVariantMap qc;
+  qc.insert( QStringLiteral( "schema_version" ), 1 );
+  qc.insert( QStringLiteral( "value_source" ), QStringLiteral( "analysis" ) );
+  qc.insert( QStringLiteral( "extent_source" ), extentSource );
+  qc.insert( QStringLiteral( "crs_mode" ), crsModeName );
+  qc.insert( QStringLiteral( "counts" ), counts );
   qc.insert( QStringLiteral( "parameters" ),
              parametersForHash( prepared.input, grid, surface, fieldName, cellSize, extentSource, crsModeName ) );
   writeJson( qcPath, qc );

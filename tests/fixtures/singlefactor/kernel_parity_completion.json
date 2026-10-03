@@ -1,0 +1,524 @@
+{
+  "schema": "paleo_singlefactor_kernel_golden_completion_v1",
+  "referenceRevision": "27fdb998a32d7a7f50d7e6ef0d2ebb3a5d06378f",
+  "note": "Direction-23 completion goldens: corridor projection, fault-path distances, partition labels.",
+  "cases": [
+    {
+      "kind": "corridor_projection",
+      "name": "corridor_bend_projection",
+      "line": {
+        "points": [
+          [
+            0.0,
+            1.0
+          ],
+          [
+            6.0,
+            1.0
+          ],
+          [
+            6.0,
+            3.0
+          ]
+        ],
+        "ratio": 8.0,
+        "influence_radius": 3.0,
+        "core_radius": 1.0,
+        "extend_mode": "none"
+      },
+      "queries": [
+        [
+          3.0,
+          1.0
+        ],
+        [
+          6.0,
+          2.0
+        ],
+        [
+          3.0,
+          3.0
+        ],
+        [
+          4.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.5
+        ],
+        [
+          6.5,
+          3.5
+        ],
+        [
+          3.0,
+          4.05
+        ],
+        [
+          3.0,
+          1.9
+        ]
+      ],
+      "expected": [
+        {
+          "s": 3.0,
+          "n": 0.0,
+          "tx": 1.0,
+          "ty": 0.0,
+          "distance": 0.0,
+          "g": 1.0
+        },
+        {
+          "s": 7.0,
+          "n": 0.0,
+          "tx": 0.0,
+          "ty": 1.0,
+          "distance": 0.0,
+          "g": 1.0
+        },
+        {
+          "s": 3.0,
+          "n": 2.0,
+          "tx": 1.0,
+          "ty": 0.0,
+          "distance": 2.0,
+          "g": 0.18242552380635632
+        },
+        {
+          "s": 4.0,
+          "n": -1.0,
+          "tx": 1.0,
+          "ty": 0.0,
+          "distance": 1.0,
+          "g": 1.0
+        },
+        {
+          "s": 0.0,
+          "n": 0.5,
+          "tx": 1.0,
+          "ty": 0.0,
+          "distance": 0.5,
+          "g": 1.0
+        },
+        {
+          "s": 8.0,
+          "n": -0.5,
+          "tx": 0.0,
+          "ty": 1.0,
+          "distance": 0.7071067811865476,
+          "g": 1.0
+        },
+        {
+          "s": 3.0,
+          "n": 3.05,
+          "tx": 1.0,
+          "ty": 0.0,
+          "distance": 3.05,
+          "g": 0.0
+        },
+        {
+          "s": 3.0,
+          "n": 0.8999999999999999,
+          "tx": 1.0,
+          "ty": 0.0,
+          "distance": 0.8999999999999999,
+          "g": 1.0
+        }
+      ]
+    },
+    {
+      "kind": "faultpath_distance",
+      "name": "faultpath_straight_wall",
+      "wells": [
+        [
+          2.0,
+          5.0
+        ],
+        [
+          8.0,
+          5.0
+        ],
+        [
+          5.0,
+          9.0
+        ]
+      ],
+      "barrier": [
+        [
+          5.0,
+          0.0
+        ],
+        [
+          5.0,
+          10.0
+        ]
+      ],
+      "queries": [
+        [
+          4.0,
+          5.0
+        ],
+        [
+          6.0,
+          5.0
+        ],
+        [
+          4.5,
+          6.0
+        ],
+        [
+          5.0,
+          5.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "distances": [
+        [
+          2.0,
+          10.929971432267578,
+          4.123105625617661
+        ],
+        [
+          10.929971432267575,
+          2.0,
+          4.123105625617661
+        ],
+        [
+          2.692582403567252,
+          9.86208079354488,
+          3.0413812651491097
+        ],
+        [
+          3.0,
+          3.0,
+          4.0
+        ],
+        [
+          5.385164807134504,
+          10.830951902061024,
+          10.295630140987
+        ]
+      ]
+    },
+    {
+      "kind": "partition_labels",
+      "name": "partition_free_end_wall",
+      "cols": 12,
+      "rows": 10,
+      "wells": [
+        [
+          2.0,
+          5.0
+        ],
+        [
+          10.0,
+          5.0
+        ],
+        [
+          2.0,
+          8.0
+        ],
+        [
+          10.0,
+          2.0
+        ]
+      ],
+      "barrier": [
+        [
+          6.0,
+          3.0
+        ],
+        [
+          6.0,
+          7.0
+        ]
+      ],
+      "boundary": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          12.0,
+          0.0
+        ],
+        [
+          12.0,
+          10.0
+        ],
+        [
+          0.0,
+          10.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "probes": [
+        [
+          2,
+          4
+        ],
+        [
+          9,
+          4
+        ],
+        [
+          5,
+          8
+        ],
+        [
+          5,
+          1
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          11,
+          9
+        ],
+        [
+          2,
+          8
+        ],
+        [
+          10,
+          2
+        ]
+      ],
+      "result": {
+        "local": {
+          "region_count": 1,
+          "probe_same_region": [
+            [
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true
+            ],
+            [
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true
+            ],
+            [
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true
+            ],
+            [
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true
+            ],
+            [
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true
+            ],
+            [
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true
+            ],
+            [
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true
+            ],
+            [
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              true
+            ]
+          ],
+          "well_same_region": [
+            [
+              true,
+              true,
+              true,
+              true
+            ],
+            [
+              true,
+              true,
+              true,
+              true
+            ],
+            [
+              true,
+              true,
+              true,
+              true
+            ],
+            [
+              true,
+              true,
+              true,
+              true
+            ]
+          ],
+          "extension_count": 0
+        },
+        "interpretation": {
+          "region_count": 2,
+          "probe_same_region": [
+            [
+              true,
+              false,
+              true,
+              true,
+              true,
+              false,
+              true,
+              false
+            ],
+            [
+              false,
+              true,
+              false,
+              false,
+              false,
+              true,
+              false,
+              true
+            ],
+            [
+              true,
+              false,
+              true,
+              true,
+              true,
+              false,
+              true,
+              false
+            ],
+            [
+              true,
+              false,
+              true,
+              true,
+              true,
+              false,
+              true,
+              false
+            ],
+            [
+              true,
+              false,
+              true,
+              true,
+              true,
+              false,
+              true,
+              false
+            ],
+            [
+              false,
+              true,
+              false,
+              false,
+              false,
+              true,
+              false,
+              true
+            ],
+            [
+              true,
+              false,
+              true,
+              true,
+              true,
+              false,
+              true,
+              false
+            ],
+            [
+              false,
+              true,
+              false,
+              false,
+              false,
+              true,
+              false,
+              true
+            ]
+          ],
+          "well_same_region": [
+            [
+              true,
+              false,
+              true,
+              false
+            ],
+            [
+              false,
+              true,
+              false,
+              true
+            ],
+            [
+              true,
+              false,
+              true,
+              false
+            ],
+            [
+              false,
+              true,
+              false,
+              true
+            ]
+          ],
+          "extension_count": 2
+        }
+      }
+    }
+  ]
+}

@@ -737,6 +737,28 @@ void FactorPageTests::typedDrawEntries()
   QCOMPARE( spy.at( 1 ).at( 1 ).toString(), QStringLiteral( "line" ) );
   QCOMPARE( spy.at( 1 ).at( 2 ).toString(), QStringLiteral( "break_line" ) );
 
+  // 方向23：其余三语义入口 + 已绘约束线编辑面（顶点编辑/删除）就位。
+  auto *soft = page.findChild<QPushButton *>(QStringLiteral("softBoundaryButton"));
+  auto *stop = page.findChild<QPushButton *>(QStringLiteral("contourStopButton"));
+  auto *detour = page.findChild<QPushButton *>(QStringLiteral("cartographicDetourButton"));
+  QVERIFY( soft && stop && detour );
+  soft->click();
+  stop->click();
+  detour->click();
+  QCOMPARE( spy.count(), 5 );
+  QCOMPARE( spy.at( 2 ).at( 2 ).toString(), QStringLiteral( "interpretive_boundary" ) );
+  QCOMPARE( spy.at( 3 ).at( 2 ).toString(), QStringLiteral( "contour_stop" ) );
+  QCOMPARE( spy.at( 4 ).at( 2 ).toString(), QStringLiteral( "cartographic_detour" ) );
+
+  auto *vertexEdit = page.findChild<QPushButton *>(QStringLiteral("constraintVertexEditButton"));
+  auto *removeButton = page.findChild<QPushButton *>(QStringLiteral("constraintDeleteButton"));
+  QVERIFY( vertexEdit && removeButton );
+  QVERIFY( !removeButton->isEnabled() ); // 未选约束行时删除禁用
+  QSignalSpy editSpy( &page, &ConstraintPage::editConstraintVerticesRequested );
+  vertexEdit->click();
+  QCOMPARE( editSpy.count(), 1 );
+  QCOMPARE( editSpy.at( 0 ).at( 0 ).toString(), QStringLiteral( "D61" ) );
+
   // 旧绘制链共存（drawButton → drawConstraintRequested，tst_panels 详测，此处冒烟）。
   QSignalSpy legacy( &page, &ConstraintPage::drawConstraintRequested );
   page.findChild<QPushButton *>(QStringLiteral("drawButton"))->click();

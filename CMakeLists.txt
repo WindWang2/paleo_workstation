@@ -174,6 +174,16 @@ if(QGIS_PREFIX)
   # OSGeo4W installs SQLite, GDAL, GEOS and other public QGIS header
   # dependencies in the prefix's shared include directory.
   target_include_directories(paleo_qgis_core_deps INTERFACE "${QGIS_PREFIX}/include")
+  # 非 OSGeo4W 布局（本机 vcpkg 依赖根与 QGIS prefix 分离）下这些头在
+  # GDAL/GEOS 的 include 根里：qgsstyle.h 直接 #include <sqlite3.h>，任何
+  # 只链 paleo_qgis_iface 的目标（tst_boot / tst_polygonize / selfcheck）
+  # 都要跟着拿到，否则编译期报 C1083。
+  if(GDAL_INCLUDE_DIR)
+    target_include_directories(paleo_qgis_core_deps INTERFACE "${GDAL_INCLUDE_DIR}")
+  endif()
+  if(GEOS_INCLUDE_DIR)
+    target_include_directories(paleo_qgis_core_deps INTERFACE "${GEOS_INCLUDE_DIR}")
+  endif()
   # 默认运行时 prefix 随构建钉住：裸跑（无 QGIS_PREFIX_PATH env）时
   # provider/srs.db 仍解析到二进制实际链接的 vendor prefix，不静默回落
   # 系统栈（链接与运行资源栈分裂）。env/CLI 覆盖语义不变。

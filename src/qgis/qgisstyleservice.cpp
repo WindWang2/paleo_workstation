@@ -11,6 +11,7 @@
 #include <qgscategorizedsymbolrenderer.h>
 #include <qgsexpression.h>
 #include <qgsfillsymbol.h>
+#include <qgslinesymbol.h>
 #include <qgsmaplayer.h>
 #include <qgsmarkersymbol.h>
 #include <qgsmarkersymbollayer.h> // QgsSimpleMarkerSymbolLayer（QGIS 4 无独立头）
@@ -213,6 +214,20 @@ QStringList QgisStyleService::availableStyles() const
   for (const QString &f : files)
     refs << QFileInfo(f).completeBaseName(); // basename without .qml
   return refs;
+}
+
+void QgisStyleService::applyTrajectoryLayerStyle(QgsVectorLayer *layer)
+{
+  if (!layer)
+    return;
+  QVariantMap props;
+  props.insert(QStringLiteral("name"), QStringLiteral("line"));
+  props.insert(QStringLiteral("line_color"), QStringLiteral("#24303E"));
+  props.insert(QStringLiteral("line_width"), QStringLiteral("0.6"));
+  props.insert(QStringLiteral("capstyle"), QStringLiteral("round"));
+  props.insert(QStringLiteral("joinstyle"), QStringLiteral("round"));
+  layer->setRenderer(
+      new QgsSingleSymbolRenderer(QgsLineSymbol::createSimple(props).release()));
 }
 
 void QgisStyleService::applyWellLayerStyle(QgsVectorLayer *layer)

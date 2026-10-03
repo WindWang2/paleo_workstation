@@ -18,6 +18,8 @@
 #include "../src/workflow/propertymodelworkflow.h"
 
 #include <cmath>
+#include <numbers>
+#include <set>
 
 using namespace paleo::stratgrid;
 
@@ -167,6 +169,7 @@ private slots:
   void relativeSurfacePathsResolveForParents();
   void rasterWithoutGeoreferenceIsRejected();
   void requestFromCatalogBuildsWellsAndHorizons();
+  void deviatedWellUsesTrajectoryStations();
 };
 
 void TestPropWorkflow::wktSegmentsAndFaultSet()
@@ -671,6 +674,7 @@ void TestPropWorkflow::requestFromCatalogBuildsWellsAndHorizons()
   QVERIFY(req.faults.empty());
   QCOMPARE(static_cast<int>(req.wells.size()), 1);
   QCOMPARE(req.wells[0].wellId, QStringLiteral("W-A"));
+  QCOMPARE(req.trajectoryWellCount, 0); // 无测斜链接 → 全直井路径（迁移不变面）
   QCOMPARE(req.wells[0].curveName, QStringLiteral("GR"));
   QCOMPARE(req.wells[0].stations.size(), static_cast<std::size_t>(2));
   QCOMPARE(req.wells[0].stations[0].x, 15.0);
@@ -699,6 +703,178 @@ void TestPropWorkflow::requestFromCatalogBuildsWellsAndHorizons()
   const PropertyGridSlice slice = PropertyModelWorkflow::gridSlice(out.volume, 2, 0, &err);
   QCOMPARE(slice.width, out.volume.grid.ni);
   QCOMPARE(slice.height, out.volume.grid.nj);
+}
+
+// goal/well-trajectory 轮4：requestFromCatalog 定向井站表走真实轨迹——
+// z=TVD（<MD）、x/y=井口+位移；轨迹跨多个网格柱而直井恒一柱（穿层段语义）；
+// 粗化代表柱随轨迹位移（columnJ > 直井）。
+void TestPropWorkflow::deviatedWellUsesTrajectoryStations()
+{
+  QTemporaryDir tmp;
+  const QString c3Path = tmp.filePath(QStringLiteral("C3.tif"));
+  const QString d72Path = tmp.filePath(QStringLiteral("D72.tif"));
+  // 井口柱 (0,0) 挖死（nodata）：直井全落在死柱无值；定向井轨迹南移
+  // 逃出死柱仍有值——「真实轨迹相交」的语义判别器。
+  QVERIFY(writeFlat(c3Path, 4, 0.0f, 0.0f));
+  QVERIFY(writeFlat(d72Path, 4, 40.0f));
+
+  DataCatalog cat;
+  QVERIFY(cat.open(tmp.path()));
+  QString catErr;
+  auto addHorizon = [&](const QString &id, const QString &display, const QString &path) {
+    CatalogAsset asset;
+    asset.id = id;
+    asset.type = QStringLiteral("horizon");
+    asset.format = QStringLiteral("tif");
+    asset.displayName = display;
+    if (!cat.addAsset(asset, &catErr))
+      return false;
+    CatalogVersion ver;
+    ver.id = id + QStringLiteral("-v");
+    ver.assetId = id;
+    ver.stage = QStringLiteral("RAW");
+    ver.managed = false;
+    ver.path = path;
+    ver.fileName = QFileInfo(path).fileName();
+    return cat.addVersion(ver, &catErr);
+  };
+  QVERIFY2(addHorizon(QStringLiteral("hz-c3"), QStringLiteral("C3.dat"), c3Path), qPrintable(catErr));
+  QVERIFY2(addHorizon(QStringLiteral("hz-d72"), QStringLiteral("D72.dat"), d72Path), qPrintable(catErr));
+
+  // W-D 定向（有测斜）；W-V 直井（同井口同曲线，无测斜）。
+  const QString lasD = tmp.filePath(QStringLiteral("D.las"));
+  const QString lasV = tmp.filePath(QStringLiteral("V.las"));
+  QVERIFY(writeLas(lasD, QStringLiteral("GR"),
+                   QStringLiteral("0.0 6.0\n20.0 6.0\n40.0 6.0\n")));
+  QVERIFY(writeLas(lasV, QStringLiteral("GR"),
+                   QStringLiteral("0.0 6.0\n20.0 6.0\n40.0 6.0\n")));
+  // 井口 (5,35)：writeFlat 北向上栅格 y∈[0,40]（originY=40、dy=-10）。
+  QVERIFY2(addWellLog(&cat, QStringLiteral("W-D"), QStringLiteral("las-d"), lasD, true, 5.0, 35.0, &catErr),
+           qPrintable(catErr));
+  QVERIFY2(addWellLog(&cat, QStringLiteral("W-V"), QStringLiteral("las-v"), lasV, true, 5.0, 35.0, &catErr),
+           qPrintable(catErr));
+
+  // 测斜：0-40m MD 0°→90°（方位 180°=正南，北向位移为负）——轨迹向南
+  // 穿出井口柱且留在栅格内。
+  CatalogAsset dev;
+  dev.id = QStringLiteral("ast-dev");
+  dev.type = QStringLiteral("well_deviation");
+  dev.format = QStringLiteral("dat");
+  dev.displayName = QStringLiteral("W-D.deviation.dat");
+  QVERIFY2(cat.addAsset(dev, &catErr), qPrintable(catErr));
+  CatalogVersion devVer;
+  devVer.id = QStringLiteral("ver-dev");
+  devVer.assetId = dev.id;
+  devVer.stage = QStringLiteral("RAW");
+  devVer.managed = false;
+  devVer.path = tmp.filePath(QStringLiteral("W-D.deviation.dat"));
+  devVer.fileName = QStringLiteral("W-D.deviation.dat");
+  QVERIFY2(cat.addVersion(devVer, &catErr), qPrintable(catErr));
+  {
+    QFile f(devVer.path);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QVERIFY(f.write("# Well : W-D\n0 0 0\n20 45 180\n40 90 180\n") > 0);
+    f.close();
+  }
+  EntityAssetLink devLink;
+  devLink.entityType = QStringLiteral("well");
+  devLink.entityId = QStringLiteral("W-D");
+  devLink.assetId = dev.id;
+  devLink.role = QStringLiteral("trajectory");
+  devLink.isPrimary = true;
+  QVERIFY2(cat.addLink(devLink, &catErr), qPrintable(catErr));
+
+  PropertyModelWorkflow wf(&cat, tmp.path());
+  QString err;
+  const PropertyModelRequest req = wf.requestFromCatalog(
+      QStringLiteral("C3"), QStringLiteral("D72"), QStringLiteral("GR"), 4,
+      Aggregator::ThicknessWeightedMean, 2.0, &err);
+  QVERIFY2(err.isEmpty(), qPrintable(err));
+  QCOMPARE(static_cast<int>(req.wells.size()), 2);
+  QCOMPARE(req.trajectoryWellCount, 1);
+
+  const WellCurve *deviated = nullptr;
+  const WellCurve *vertical = nullptr;
+  for (const WellCurve &w : req.wells)
+  {
+    if (w.wellId == QLatin1String("W-D"))
+      deviated = &w;
+    else if (w.wellId == QLatin1String("W-V"))
+      vertical = &w;
+  }
+  QVERIFY(deviated != nullptr);
+  QVERIFY(vertical != nullptr);
+
+  // 直井面不变：2 站，x/y 恒井口，z=MD。
+  QCOMPARE(vertical->stations.size(), static_cast<std::size_t>(2));
+  QCOMPARE(vertical->stations[0].x, 5.0);
+  QCOMPARE(vertical->stations[0].y, 35.0);
+  QCOMPARE(vertical->stations[1].z, 40.0);
+
+  // 定向井：端点 + 中间站（3 站）。闭式：0→90° 段 β=π/2、RF=4/π，
+  // 全段 Δtvd = 20·(1+0)·4/π = 80/π；两段各半（角度线性 45° 中站）。
+  QCOMPARE(deviated->stations.size(), static_cast<std::size_t>(3));
+  QCOMPARE(deviated->stations.front().md, 0.0);
+  QCOMPARE(deviated->stations.back().md, 40.0);
+  const double kPi = std::numbers::pi;
+  // 0→20 段（0°→45°）：cos β = cos45 → RF = 2/(π/4)·tan(π/8)。
+  const double beta1 = kPi / 4.0;
+  const double rf1 = (2.0 / beta1) * std::tan(beta1 / 2.0);
+  const double tvd20 = 10.0 * (1.0 + std::cos(kPi / 4.0)) * rf1;
+  QVERIFY(std::fabs(deviated->stations[1].z - tvd20) < 1e-9);
+  // 20→40 段（45°→90°）同狗腿角。
+  const double tvd40 = tvd20 + 10.0 * (std::cos(kPi / 4.0) + 0.0) * rf1;
+  QVERIFY(std::fabs(deviated->stations[2].z - tvd40) < 1e-9);
+  QVERIFY(deviated->stations[2].z < 40.0); // TVD < MD（定向语义）
+  const double north40 = -(10.0 * (0.0 + std::sin(kPi / 4.0)) * rf1 +
+                           10.0 * (std::sin(kPi / 4.0) + 1.0) * rf1);
+  QVERIFY(std::fabs(deviated->stations[2].y - (35.0 + north40)) < 1e-9);
+  QCOMPARE(deviated->stations[2].x, 5.0); // 方位正南：x 不动
+
+  // 穿柱语义（10m 网格、北向上 originY=40、dy=-10）：轨迹跨多柱，直井恒一柱。
+  auto columnsOf = [](const WellCurve &w) {
+    std::set<std::pair<int, int>> out;
+    for (const WellStation &s : w.stations)
+      out.insert({static_cast<int>(std::floor(s.x / 10.0)),
+                  static_cast<int>(std::floor((40.0 - s.y) / 10.0))});
+    return out;
+  };
+  QCOMPARE(columnsOf(*vertical).size(), std::size_t(1));
+  QVERIFY(columnsOf(*deviated).size() >= std::size_t(3));
+
+  // 粗化：井口柱死亡——直井（全 MD 在死柱）无值；定向井轨迹南移进活柱，
+  // 浅层（TVD 0-20 内）有值且为曲线常值 6（穿层段 = 真实轨迹相交）。
+  SurfaceGrid top, bot;
+  QVERIFY(PropertyModelWorkflow::loadSurface(c3Path, &top, &err));
+  QVERIFY(PropertyModelWorkflow::loadSurface(d72Path, &bot, &err));
+  ZoneGrid grid;
+  QVERIFY(buildZoneGrid(top, bot, 4, &grid, &err));
+  UpscaleTable table;
+  QVERIFY(upscaleWells(grid, req.wells, Aggregator::ThicknessWeightedMean, &table, &err));
+  QVERIFY(!grid.columnLive(0, 0)); // 井口柱确死（fixture 前提）
+  int idxD = -1, idxV = -1;
+  for (std::size_t w = 0; w < req.wells.size(); ++w)
+  {
+    if (req.wells[w].wellId == QLatin1String("W-D"))
+      idxD = static_cast<int>(w);
+    else if (req.wells[w].wellId == QLatin1String("W-V"))
+      idxV = static_cast<int>(w);
+  }
+  QVERIFY(idxD >= 0 && idxV >= 0);
+  // 浅层（TVD 0-10m）：造斜起始段仍在井口死柱内——两口井都无值（不虚给）。
+  const LayerValue &shallowD = table.at(idxD, 0);
+  const LayerValue &shallowV = table.at(idxV, 0);
+  QVERIFY(!shallowV.hasValue);
+  QVERIFY(!shallowD.hasValue);
+  // 中层（TVD 10-20m）：直井全 MD 在死柱仍无值；定向井轨迹南移进活柱
+  // ——有值、均匀曲线的厚度加权均值 6、代表柱离开井口柱。
+  const LayerValue &cellV = table.at(idxV, 1);
+  const LayerValue &cellD = table.at(idxD, 1);
+  QVERIFY(!cellV.hasValue);            // 直井：井口死柱独占 → 无值
+  QVERIFY(cellD.hasValue);             // 定向井：轨迹逃出死柱 → 有值（真实相交）
+  QCOMPARE(cellD.value, 6.0);
+  QVERIFY(cellD.columnJ >= 1);         // 代表柱已离开井口柱
+  QVERIFY(cellD.supportLength > 0.0);
 }
 
 int main(int argc, char *argv[])

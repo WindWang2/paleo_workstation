@@ -8,10 +8,12 @@
 #include <QHash>
 
 #include <algorithm>
+#include <cmath>
 
-// 已决 well_log 的只读并集。只走 LasParser::parseHeader（遇 ~A 即停），
-// 不读数据体、不写 catalog。wellLogFiles 与 wellCurveIndex 各扫一次，
-// 告警来自同一套判定。
+// 已决 well_log 的只读并集。wellLogFiles/wellCurveIndex 只走
+// LasParser::parseHeader（遇 ~A 即停），不读数据体、不写 catalog——例外是
+// readCurveTvd（goal/well-trajectory：按列读数据体 + 轨迹逐点 MD→TVD）。
+// wellLogFiles 与 wellCurveIndex 各扫一次，告警来自同一套判定。
 
 namespace
 {
@@ -230,4 +232,78 @@ QVector<WellCurveRef> WellLogSet::wellCurveIndex(const DataCatalog *catalog,
   Prepared scanned = prepare(catalog, projectDir, wellId, warnings);
   disambiguateAcrossFiles(scanned.items);
   return refsFromItems(scanned.items);
+}
+
+bool WellLogSet::readCurveTvd(const WellCurveRef &ref,
+                              const paleo::WellDeviationSurvey *survey,
+                              WellCurveTvdSamples *out, QString *error)
+{
+  if (error)
+    error->clear();
+  if (!out)
+  {
+    if (error)
+      *error = QStringLiteral("输出参数为空");
+    return false;
+  }
+  *out = WellCurveTvdSamples{};
+  if (ref.path.isEmpty() || ref.column < 1)
+  {
+    if (error)
+      *error = QStringLiteral("曲线引用无效（列 %1）").arg(ref.column);
+    return false;
+  }
+
+  QStringList names;
+  QList<LasCurve> curves;
+  QString perr;
+  if (!LasParser::parse(ref.path, names, curves, &perr))
+  {
+    if (error)
+      *error = QStringLiteral("%1: %2").arg(ref.path, perr);
+    return false;
+  }
+  if (ref.column >= curves.size())
+  {
+    if (error)
+      *error = QStringLiteral("%1: 列 %2 越界（共 %3 列）")
+                   .arg(ref.path, QString::number(ref.column),
+                        QString::number(curves.size()));
+    return false;
+  }
+
+  const LasCurve &depths = curves.at(0);
+  const LasCurve &values = curves.at(ref.column);
+  double scale = 1.0;
+  const QString unit = depths.unit.trimmed().toUpper();
+  if (unit == QLatin1String("FT") || unit == QLatin1String("F"))
+    scale = 0.3048;
+  else if (unit != QLatin1String("M") && !unit.isEmpty())
+  {
+    if (error)
+      *error = QStringLiteral("%1: 深度单位未知（%2），不猜折算")
+                   .arg(ref.path, depths.unit.trimmed());
+    return false;
+  }
+
+  out->path = ref.path;
+  out->versionId = ref.sourceVersionId;
+  out->column = ref.column;
+  const int n = qMin(depths.values.size(), values.values.size());
+  for (int i = 0; i < n; ++i)
+  {
+    const double md = depths.values.at(i) * scale;
+    if (!std::isfinite(md))
+      continue;
+    out->md.append(md);
+    out->values.append(values.values.at(i));
+    out->tvd.append(survey && survey->isValid() ? survey->tvdAt(md) : md);
+  }
+  if (out->md.isEmpty())
+  {
+    if (error)
+      *error = QStringLiteral("%1: 无有限深度样本").arg(ref.path);
+    return false;
+  }
+  return true;
 }

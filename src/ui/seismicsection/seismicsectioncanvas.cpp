@@ -1310,13 +1310,27 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 if (wx < vp.left() - 60 || wx > vp.right() + 60)
                     continue;
 
-                // D5.3 井轨迹：底有投影时画斜轨迹线，否则垂直简化
+                // D5.3 井轨迹：底有投影时画斜轨迹线，否则垂直简化；
+                // goal/well-trajectory：测斜折线（≥2 顶点）优先于两点简化。
                 double wxBot = wx;
+                QPolygonF trajPoly;
                 for (const WellTrajectory &t : m_wellTrajectories) {
-                    if (t.wellId == well.wellId) {
-                        wxBot = traceToPixelX(t.bottomTracePos);
+                    if (t.wellId != well.wellId)
+                        continue;
+                    wxBot = traceToPixelX(t.bottomTracePos);
+                    if (t.vertices.size() < 2)
                         break;
+                    const double wellTopYv = timeToPixelY(m_t0Ms);
+                    for (const TrajVertex &v : t.vertices) {
+                        if (!std::isfinite(v.twtMs) || v.twtMs <= 0.0)
+                            continue; // 未对齐顶点不画（诚实面，不猜时间）
+                        const double vy = std::max(
+                            timeToPixelY(v.twtMs),
+                            static_cast<double>(vp.top()) - 5.0);
+                        trajPoly.append(QPointF(traceToPixelX(v.tracePos),
+                                                std::max(vy, wellTopYv)));
                     }
+                    break;
                 }
 
                 // Draw wellbore trajectory line (halo under neutral ink, 主题 token)
@@ -1330,11 +1344,18 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                     timeToPixelY(std::isfinite(bottomTwt) ? bottomTwt : m_t0Ms),
                     static_cast<double>(vp.bottom()));
 
-                p.setPen(QPen(tok.onPrimary, 4.0));
-                p.drawLine(QPointF(wx, wellTopY), QPointF(wxBot, wellBotY));
+                if (trajPoly.size() >= 2) {
+                    p.setPen(QPen(tok.onPrimary, 4.0));
+                    p.drawPolyline(trajPoly);
+                    p.setPen(QPen(tok.text, 2.0));
+                    p.drawPolyline(trajPoly);
+                } else {
+                    p.setPen(QPen(tok.onPrimary, 4.0));
+                    p.drawLine(QPointF(wx, wellTopY), QPointF(wxBot, wellBotY));
 
-                p.setPen(QPen(tok.text, 2.0));
-                p.drawLine(QPointF(wx, wellTopY), QPointF(wxBot, wellBotY));
+                    p.setPen(QPen(tok.text, 2.0));
+                    p.drawLine(QPointF(wx, wellTopY), QPointF(wxBot, wellBotY));
+                }
 
                 // D5.4 合成记录 overlay：井位旁的合成道（红波形 + 褶积振幅）
                 for (const SyntheticOverlay &syn : m_syntheticOverlays) {

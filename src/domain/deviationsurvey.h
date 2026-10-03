@@ -1,0 +1,79 @@
+// 层：数据
+#pragma once
+
+#include <QString>
+#include <QVector>
+
+#include <optional>
+
+// domain/deviationsurvey — 测斜站表 → 三维轨迹（最小曲率法，行业标准）。
+//
+// 站点契约：MD(米) + 井斜角(°, [0,180]) + 方位角(°, 井北起顺时针)。站表按
+// MD 排序后须严格递增；位移分量 north/east 相对井口（正北/正东），tvd 为
+// 垂深（正下）。单分支井——侧钻/分支显式拒绝（递延，见 docs/progress）。
+//
+// 最小曲率（每段，站 1→站 2，弧长 ΔMD）：
+//   cos β = cos i1·cos i2 + sin i1·sin i2·cos(ΔA)      （全狗腿角，含方位）
+//   RF    = (2/β)·tan(β/2)                              （β→0 时 RF→1）
+//   Δtvd   = ΔMD/2 · (cos i1 + cos i2) · RF
+//   Δnorth = ΔMD/2 · (sin i1·cos A1 + sin i2·cos A2) · RF
+//   Δeast  = ΔMD/2 · (sin i1·sin A1 + sin i2·sin A2) · RF
+//
+// 插值：站间任意 MD 视为「自站 1 起、终点角度按狗腿弧长线性内插」的子段，
+// 同一公式重算（t=1 时与整段增量恒等）。首站前按首站姿态直线（井口锚
+// (0,0,0)@MD0）；末站后按末站姿态直线延伸。水平段（cos i → 0）外延无垂深
+// 增量，tvdToMd 对无解段返回端站 MD（诚实面，不外推猜值）。
+
+namespace paleo
+{
+
+struct DeviationStation
+{
+  double md = 0.0;
+  double inclinationDeg = 0.0;
+  double azimuthDeg = 0.0;
+};
+
+struct TrajectoryPoint
+{
+  double md = 0.0;
+  double tvd = 0.0;
+  double north = 0.0; // 相对井口北向位移（米）
+  double east = 0.0;  // 相对井口东向位移（米）
+};
+
+class WellDeviationSurvey
+{
+public:
+  // 无效站表返回 nullopt 并写 error（空表 / 非有限值 / MD<0 / 井斜越界 /
+  // 排序后 MD 重复）。方位角任意有限值（内部归一到 [0,360)）。
+  static std::optional<WellDeviationSurvey> fromStations(
+      QVector<DeviationStation> stations, QString *error = nullptr);
+
+  bool isValid() const { return !m_stations.isEmpty(); }
+  bool isEmpty() const { return m_stations.isEmpty(); }
+
+  // 全站井斜≈0：垂井语义（tvdAt≡MD、位移≡0）。
+  bool isVertical() const;
+
+  const QVector<DeviationStation> &stations() const { return m_stations; }
+  // 站点累计位置（与 stations 同长同序；含首站前直线锚定）。
+  const QVector<TrajectoryPoint> &points() const { return m_points; }
+  double totalDepth() const; // 末站 MD；空表 NaN
+
+  TrajectoryPoint pointAt(double md) const;
+  double tvdAt(double md) const { return pointAt(md).tvd; }
+  double northAt(double md) const { return pointAt(md).north; }
+  double eastAt(double md) const { return pointAt(md).east; }
+
+  // tvdAt 的数值反解（站间二分同一最小曲率正函数，往返双精度收敛）；
+  // 表前/表后沿端站姿态直线反解。非单调垂深（井斜>90° 上翘段）收敛到
+  // 命中区间内的一个解；水平段（垂深不增）返回段首 MD。
+  double tvdToMd(double tvd) const;
+
+private:
+  QVector<DeviationStation> m_stations;
+  QVector<TrajectoryPoint> m_points;
+};
+
+} // namespace paleo

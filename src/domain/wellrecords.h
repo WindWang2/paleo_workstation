@@ -39,7 +39,21 @@ struct TimeDepthTable
   QVector<TdRow> rows;
 };
 
-// XML 内容嗅探：判 .xml 是井口还是测井（SpreadsheetML/WITSML 启发）。
+// 井斜 dev/*.dat：MD 井斜角 方位角（三列全有效才成站）；'#' 跳过，
+// 井名取 '# Well : A1'（缺行为空，导入侧回退文件名主名）。
+struct DeviationStationRecord
+{
+  double md = 0.0;
+  double inclinationDeg = 0.0;
+  double azimuthDeg = 0.0;
+};
+struct DeviationTable
+{
+  QString wellName;
+  QVector<DeviationStationRecord> stations;
+};
+
+// XML 内容嗅探：判 .xml 是井口/测井/井斜（SpreadsheetML/WITSML 启发）。
 // 纯函数——domain/projectclassifier 消费（自 io/wellfileparsers 下沉）。
-enum class WellXmlKind { Unknown, WellHead, WellLog };
+enum class WellXmlKind { Unknown, WellHead, WellLog, WellDeviation };
 WellXmlKind sniffWellXml(const QByteArray &content);

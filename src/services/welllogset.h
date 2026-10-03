@@ -5,11 +5,15 @@
 #include <QStringList>
 #include <QVector>
 
+#include "../domain/deviationsurvey.h"
+
 class DataCatalog;
 
 // 一口井的已决 well_log 文件集，以及跨文件曲线并集。
-// 文件本体仍在 LAS；这里只读 ~C 头（LasParser::parseHeader），不读数据体、不写 catalog。
-// 调用方在 catalog 所属线程使用。catalog 为空、未打开，或 wellId 为空 → 空结果。
+// 文件本体仍在 LAS；这里只读 ~C 头（LasParser::parseHeader），不读数据体、不写 catalog
+// ——例外：readCurveTvd 是按列读数据体的读值面（goal/well-trajectory 轮3），
+// 溯源/别名协议与其余头扫描面不动。调用方在 catalog 所属线程使用。
+// catalog 为空、未打开，或 wellId 为空 → 空结果。
 
 struct WellLogFile
 {
@@ -59,4 +63,22 @@ public:
                                               const QString &projectDir,
                                               const QString &wellId,
                                               WellLogWarnings *warnings = nullptr);
+
+  // ---- MD/TVD 域读法（goal/well-trajectory 轮3）----
+  // 读指定曲线列的数据体，深度列逐点经测斜轨迹映射 TVD（多文件井每条 ref
+  // 自带 path/versionId——逐文件各自映射天然成立）。survey 为空指针或无效
+  // → tvd 恒等 md（直井显式语义，调用方决定是否传表）。深度列单位 ft 自动
+  // 折米；未知单位如实报错不猜。NaN 样值保留（缺失段不插值是消费面契约）。
+  struct WellCurveTvdSamples
+  {
+    QString path;
+    QString versionId;
+    int column = -1;
+    QVector<double> md;    // 米
+    QVector<double> tvd;   // 米（survey 空时 ≡ md）
+    QVector<double> values;
+  };
+  static bool readCurveTvd(const WellCurveRef &ref,
+                           const paleo::WellDeviationSurvey *survey,
+                           WellCurveTvdSamples *out, QString *error = nullptr);
 };

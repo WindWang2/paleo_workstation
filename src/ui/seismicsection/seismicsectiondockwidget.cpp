@@ -2205,6 +2205,17 @@ void SeismicSectionDockWidget::computeWellTrajectories(const std::vector<glm::dv
             t.bottomTracePos = ProjectPointOntoPolyline(mapPolyline, bottom);
             t.topTwtMs = 0.0;
             t.bottomTwtMs = m_canvas->timeDepthModel().DepthToTwtMs(well.totalDepth);
+            // goal/well-trajectory：测斜站逐点投影成折线（twt 用 workbench
+            // 逐站校准值；未对齐站回退画布时深模型，再不行顶点不画）。
+            const TimeDepthModel &td = m_canvas->timeDepthModel();
+            for (const WellTrajSample &s : well.trajectory) {
+                SeismicSectionCanvas::TrajVertex v;
+                v.tracePos = ProjectPointOntoPolyline(mapPolyline, {s.x, s.y});
+                v.twtMs = std::isfinite(s.twtMs) && s.twtMs > 0.0
+                              ? s.twtMs
+                              : (s.tvd > 0.0 ? td.DepthToTwtMs(s.tvd) : s.twtMs);
+                t.vertices.push_back(v);
+            }
             trajectories.push_back(t);
         }
     }

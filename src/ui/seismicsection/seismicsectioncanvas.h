@@ -120,7 +120,13 @@ public:
     QString noDataReason() const { return m_noDataReason; }
 
     // ---- D5 井震与任意线 ----
-    // 井轨迹（顶/底剖面位置对；空 = 垂直简化）
+    // 井轨迹（顶/底剖面位置对；空 = 垂直简化）。
+    // goal/well-trajectory：vertices 非空（≥2）时按测斜折线画，优先于两点简化。
+    struct TrajVertex
+    {
+        double tracePos = 0.0; // 折线顶点的剖面横向位置（trace 分数）
+        double twtMs = 0.0;
+    };
     struct WellTrajectory
     {
         QString wellId;
@@ -128,6 +134,7 @@ public:
         double bottomTracePos = 0.0;
         double topTwtMs = 0.0;
         double bottomTwtMs = 0.0;
+        std::vector<TrajVertex> vertices; // 测斜站逐点投影（空 = 无测斜）
     };
     void setWellTrajectories(const std::vector<WellTrajectory> &traj);
     const std::vector<WellTrajectory> &wellTrajectories() const { return m_wellTrajectories; }

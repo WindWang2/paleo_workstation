@@ -93,6 +93,8 @@ ProjectClassification classifyProjectImport(const QString &path, const QByteArra
       return {QStringLiteral("well_head"), ext, QStringLiteral("input")};
     if (kind == WellXmlKind::WellLog)
       return {QStringLiteral("well_log"), ext, QStringLiteral("input")};
+    if (kind == WellXmlKind::WellDeviation)
+      return {QStringLiteral("well_deviation"), ext, QStringLiteral("input")};
     // 判不出 → 参考（§3）
   }
   return classifyProjectPath(path);
@@ -104,10 +106,11 @@ QStringList projectClassifierTypes()
   // "reference" 是确认表伪类型，其余全部可由分类器产出。
   return {QStringLiteral("well_head"),        QStringLiteral("well_log"),
           QStringLiteral("well_stratification"), QStringLiteral("time_depth"),
-          QStringLiteral("horizon"),          QStringLiteral("seismic"),
-          QStringLiteral("tabular"),          QStringLiteral("geojson"),
-          QStringLiteral("document"),         QStringLiteral("image_reference"),
-          QStringLiteral("reference"),        QStringLiteral("unknown")};
+          QStringLiteral("well_deviation"),    QStringLiteral("horizon"),
+          QStringLiteral("seismic"),           QStringLiteral("tabular"),
+          QStringLiteral("geojson"),           QStringLiteral("document"),
+          QStringLiteral("image_reference"),   QStringLiteral("reference"),
+          QStringLiteral("unknown")};
 }
 
 bool isClassifierType(const QString &type)

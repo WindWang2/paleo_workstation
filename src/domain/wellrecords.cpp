@@ -9,7 +9,7 @@ WellXmlKind sniffWellXml(const QByteArray &content)
 {
   QXmlStreamReader xml(content);
   bool hasLogElement = false, hasCurveInfo = false, hasLogData = false;
-  bool hasNamedSheet = false, rootSeen = false;
+  bool hasNamedSheet = false, hasDeviationSheet = false, rootSeen = false;
   bool rootIsWitsml = false;
   QString rootTag;
   QSet<QString> tags;
@@ -49,6 +49,11 @@ WellXmlKind sniffWellXml(const QByteArray &content)
           const QString v = a.value().toString().trimmed().toLower();
           if (kSheetNames.contains(v))
             hasNamedSheet = true;
+          // 井斜工作表（io/wellcompositexml collectSheetRows 用前缀匹配，
+          // 这里同口径：测井曲线表优先级更高，先判 hasNamedSheet）。
+          if (v.startsWith(QString::fromUtf8("井斜")) ||
+              v.startsWith(QLatin1String("deviation")))
+            hasDeviationSheet = true;
         }
       }
     }
@@ -60,6 +65,11 @@ WellXmlKind sniffWellXml(const QByteArray &content)
                          (rootIsWitsml && hasCurveInfo && hasLogData) || hasNamedSheet;
   if (isWellLog)
     return WellXmlKind::WellLog;
+
+  // 井斜站表 XML（SpreadsheetML「井斜*」工作表）：综合柱状图（带曲线表）
+  // 上面已判 WellLog，此处只接独立井斜文件。
+  if (hasDeviationSheet)
+    return WellXmlKind::WellDeviation;
 
   // 井口：出现 well/wellbore 元素并带 x/y（或经纬度）子元素/属性。
   if (tags.contains(QLatin1String("well")) || tags.contains(QLatin1String("wellbore")) ||

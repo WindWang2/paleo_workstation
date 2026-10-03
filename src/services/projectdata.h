@@ -5,6 +5,9 @@
 #include <QVector>
 
 #include "../catalog/entityview.h"
+#include "../domain/deviationsurvey.h"
+
+#include <optional>
 
 class LayerManifest;
 
@@ -87,6 +90,10 @@ class ProjectDataFacade : public QObject
     QVector<ProjectWell> wells() const;
     QVector<WellTop> topsFor(const QString &wellId) const;      // empty when unlinked
     QVector<TdSample> tdTableFor(const QString &wellId) const;  // empty when unlinked — callers must not fabricate times
+    // 主 trajectory 链接（primary、非 unresolved）的测斜站表 → 三维轨迹。
+    // 无链接/文件不可读/站表无效 → nullopt（直井回退是显式语义：调用方保持
+    // 原垂直路径，绝不虚构造斜）；失败原因记 lastError。
+    std::optional<paleo::WellDeviationSurvey> trajectoryFor(const QString &wellId) const;
     HorizonRasterInfo horizonRasterDecl(const QString &horizon) const;
 
     QString lastError() const { return m_lastError; }

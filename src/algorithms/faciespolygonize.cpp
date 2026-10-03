@@ -1271,6 +1271,17 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   prov.insert( QStringLiteral( "arcs" ), graph.arcs.size() );
   prov.insert( QStringLiteral( "conflated_arcs" ), conflated );
   prov.insert( QStringLiteral( "input" ), src );
+  // 方向35：格网口径戳——演化跨期对比用同一格网/坐标域自证同源。
+  // gt/cols/rows 是被多边形化栅格的原口径（north-up geotransform）。
+  QJsonObject gridStamp;
+  gridStamp.insert( QStringLiteral( "cols" ), cols );
+  gridStamp.insert( QStringLiteral( "rows" ), rows );
+  QJsonArray gtArray;
+  for ( const double v : gt )
+    gtArray.append( v );
+  gridStamp.insert( QStringLiteral( "geotransform" ), gtArray );
+  gridStamp.insert( QStringLiteral( "crs_wkt" ), wkt );
+  prov.insert( QStringLiteral( "grid" ), gridStamp );
   QJsonArray steps;
   steps.append( QStringLiteral( "recode" ) );
   if ( slivers > 0 )

@@ -177,6 +177,8 @@ QWidget *LayerTreePanel::buildToolbar()
 
   m_addGroupAction = acts->actionAddGroup(this);
   m_addGroupAction->setText(tr("添加组"));
+  m_addGroupAction->setIcon(
+      PaleoIcons::qgisTheme(QStringLiteral("mActionAddGroup.svg")));
 
   auto *removeAction = acts->actionRemoveGroupOrLayer(this);
   // 主线5 消歧：明确动作对象是「图层树的图层/组」，不是画布上选中的要素

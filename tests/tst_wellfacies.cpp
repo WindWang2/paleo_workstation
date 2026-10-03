@@ -232,18 +232,30 @@ private slots:
     interval.bottomDepth = 1100;
     interval.text = QStringLiteral("河口坝");
     track.setIntervals({interval});
-    track.setKeepTextVisible(true);
-    QImage image(100, 200, QImage::Format_RGB32);
-    image.fill(Qt::white);
-    QPainter painter(&image);
-    track.paintBody(painter, QRectF(0, 0, 100, 200), 1010, 1020, 20);
-    painter.end();
-    int ink = 0;
-    for (int y = 60; y < 140; ++y)
-      for (int x = 10; x < 90; ++x)
-        if (image.pixelColor(x, y).lightness() < 120)
-          ++ink;
-    QVERIFY(ink > 20);
+    // 视口 [1010,1020] m 完全落在区间 [1000,1100] 内：区间矩形中心在视口外，
+    // 不 keepTextVisible 时文字画到视口外 → 中部无墨；keep 时文字收进可见段。
+    // #131/#151：旧阈值 ink > 20 依赖 CJK 字体——CI runner 无 CJK 字体时
+    // 「河口坝」渲染成缺字框，墨点恰好 = 20（本机 DejaVu-only fontconfig 复现），
+    // 断言随字体环境翻转。改为相对判别：keep 必须比不 keep 多出明显墨迹，
+    // 与字体/字形无关。
+    const auto inkFor = [&](bool keep) {
+      track.setKeepTextVisible(keep);
+      QImage image(100, 200, QImage::Format_RGB32);
+      image.fill(Qt::white);
+      QPainter painter(&image);
+      track.paintBody(painter, QRectF(0, 0, 100, 200), 1010, 1020, 20);
+      painter.end();
+      int ink = 0;
+      for (int y = 60; y < 140; ++y)
+        for (int x = 10; x < 90; ++x)
+          if (image.pixelColor(x, y).lightness() < 120)
+            ++ink;
+      return ink;
+    };
+    const int hidden = inkFor(false);
+    const int visible = inkFor(true);
+    QVERIFY2(visible >= hidden + 8,
+             qPrintable(QStringLiteral("keep=%1 nokeep=%2").arg(visible).arg(hidden)));
   }
   void resultContract() {
     auto input = prepareWellFaciesInput(well(), model());

@@ -1,5 +1,9 @@
 # paleo-dev.ps1 — Windows sibling of ./paleo-dev (§44.1).
-# Verbs: bootstrap | build | test | selfcheck | clean-vendor <dep>
+# Verbs: bootstrap [fetch-only] | build | test | selfcheck | clean-vendor <dep>
+#   bootstrap fetch-only : 只取依赖（OSGeo4W + ORT），不编译不自检——CI 用它让
+#                          编译错误落在 Build 步骤而不是 Vendor 步骤（#134）。
+#   build                : $env:CI 已设时 ninja -k 0，一次暴露全部编译错误。
+#   test                 : $env:PALEO_CTEST_ARGS 透传给 ctest（如 "-LE perf"）。
 # Binary-vendor route: OSGeo4W qgis-devel-4.2.x + dep closure, MSVC v14x /MD.
 param(
   [Parameter(Mandatory=$true, Position=0)][string]$Verb,
@@ -120,17 +124,22 @@ switch ($Verb) {
     }
 
     Enter-VendorEnvironment
-    & $PSCommandPath build
-    if ($LASTEXITCODE -ne 0) { throw 'Windows bootstrap build failed' }
-    & $PSCommandPath selfcheck
-    if ($LASTEXITCODE -ne 0) { throw 'Windows bootstrap selfcheck failed' }
+    if ($Arg -eq 'fetch-only') {
+      Write-Host "== fetch-only: skip build/selfcheck (run 'build' then 'selfcheck') =="
+    } else {
+      & $PSCommandPath build
+      if ($LASTEXITCODE -ne 0) { throw 'Windows bootstrap build failed' }
+      & $PSCommandPath selfcheck
+      if ($LASTEXITCODE -ne 0) { throw 'Windows bootstrap selfcheck failed' }
+    }
   }
   'build' {
     Enter-MsvcEnvironment
     Enter-VendorEnvironment
     cmake -S $Root -B $Build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')"
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
-    cmake --build $Build
+    # CI 上 -k 0：ninja 不在第一个错误处停，一轮暴露全部 MSVC 编译错误（#134）。
+    if ($env:CI) { cmake --build $Build -- -k 0 } else { cmake --build $Build }
     if ($LASTEXITCODE -ne 0) { throw 'CMake build failed' }
     # vendored onnxruntime.dll 拷进 build（应用目录在 DLL 搜索序中永远
     # 第一）：PATH 排序压不住 OSGeo4W 自带的 1.17.1（qgis 依赖链的解析
@@ -148,12 +157,14 @@ switch ($Verb) {
     $logDir = Join-Path $Vendor 'logs'
     New-Item -ItemType Directory -Force $logDir | Out-Null
     $log = Join-Path $logDir 'ctest.log'
-    ctest --test-dir $Build --output-on-failure 2>&1 | Tee-Object -FilePath $log
+    $ctestExtra = @()
+    if ($env:PALEO_CTEST_ARGS) { $ctestExtra = $env:PALEO_CTEST_ARGS.Trim() -split '\s+' }
+    ctest --test-dir $Build --output-on-failure @ctestExtra 2>&1 | Tee-Object -FilePath $log
     if ($LASTEXITCODE -ne 0) {
       # ctest 的 --output-on-failure 在 Windows runner 上回收不到子进程
       # 输出；失败测试逐个直跑，QtTest 的 FAIL/Loc 行直落日志与控制台
       # （控制台可见性：日志文件在 artifact 里，排障不应多一跳）。
-      $names = & ctest --test-dir $Build --rerun-failed -N 2>$null |
+      $names = & ctest --test-dir $Build --rerun-failed -N @ctestExtra 2>$null |
         ForEach-Object { if ($_ -match 'Test\s+#\d+:\s+(\S+)') { $Matches[1] } }
       foreach ($n in $names) {
         # 有些 ctest 项不是可执行文件（layering 是 python 脚本）——跳过，
@@ -193,5 +204,5 @@ switch ($Verb) {
       if (Test-Path $target) { Remove-Item -Recurse -Force $target; Write-Host "removed $target" }
     }
   }
-  default { throw "unknown verb '$Verb' — bootstrap|build|test|selfcheck|clean-vendor" }
+  default { throw "unknown verb '$Verb' — bootstrap [fetch-only]|build|test|selfcheck|clean-vendor" }
 }

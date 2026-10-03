@@ -16,6 +16,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if(MSVC)
   add_compile_definitions(NOMINMAX)
   add_compile_options(/utf-8 /W4)
+else()
+  # #134：MSVC 把花括号窄化（int→double 等）当硬错误 C2397，GCC/Clang 默认
+  # 只告警——Linux 绿、Windows 红。这里升为错误，让 Linux CI 提前暴露。
+  add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Werror=narrowing>)
 endif()
 
 # ---- 编译缓存 launcher（devex T6）：ccache/sccache 任一在 PATH 即启用 ----

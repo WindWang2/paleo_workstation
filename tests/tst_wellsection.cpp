@@ -431,7 +431,7 @@ private slots:
       }
     // 单条带：全部井，按 u 单调。
     const auto one = planFence(grid, 1);
-    QVERIFY(one.status.isEmpty());
+    QVERIFY(one.ok());
     QCOMPARE(one.sections.size(), 1);
     QCOMPARE(one.sections[0].wellIds.size(), 6);
     QCOMPARE(one.sections[0].wellIds.front(), QStringLiteral("w00"));
@@ -439,7 +439,7 @@ private slots:
     // 两条带：各 3 口；井不重复、全覆盖；条带内 u 单调（奇数带倒序——
     // 剪草机端点相接）。
     const auto two = planFence(grid, 2);
-    QVERIFY(two.status.isEmpty());
+    QVERIFY(two.ok());
     QCOMPARE(two.sections.size(), 2);
     QCOMPARE(two.sections[0].wellIds.size(), 3);
     QCOMPARE(two.sections[1].wellIds.size(), 3);
@@ -455,9 +455,10 @@ private slots:
              QStringList({"w12", "w11", "w10"})); // 剪草机倒序
     // 退化：缺坐标 / 井数不足。
     Well nox;
-    QVERIFY(!planFence({grid[0], nox}, 2).status.isEmpty());
-    QVERIFY(!planFence({grid[0]}, 1).status.isEmpty());
-    QVERIFY(!planFence({}, 3).status.isEmpty());
+    QCOMPARE(planFence({grid[0], nox}, 2).status,
+             FencePlan::Status::MissingCoords);
+    QCOMPARE(planFence({grid[0]}, 1).status, FencePlan::Status::TooFewWells);
+    QCOMPARE(planFence({}, 3).status, FencePlan::Status::TooFewWells);
   }
 
   // ---- 井路径累计长分数（断层投绘横向映射）----

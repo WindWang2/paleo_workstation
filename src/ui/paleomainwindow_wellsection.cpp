@@ -66,9 +66,16 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
 
   // 剖面编辑产物落库（井序 + 连线改接；每次落盘版本 +1——Oracle #2）。
   // 无工程库（store 空/未开工程）时编辑仅驻内存。
-  const auto bindStores = [this, wf, panel, store] {
+  WellSectionMapBand *band = nullptr; // 前置声明给 bindStores 用（见下）
+  const auto rebindFenceStore = [this]() {
+    // 换工程：打开中的栅状图换到新 store（否则继续写旧工程的库）。
+    if (m_wellSectionFence)
+      m_wellSectionFence->setStore(m_wellSectionStore);
+  };
+  const auto bindStores = [this, wf, panel, store, &band, rebindFenceStore] {
     if (!store)
       return;
+    delete m_wellSectionStore; // 换工程释放旧实例（非 QObject，无父子回收）
     m_wellSectionStore =
         new metadata::WellSectionStore(store->metaDbPath(), store);
     QString storeErr;
@@ -90,6 +97,13 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
                probe.faultCount() > 0;
     panel->setFaultsAvailable(has,
                               has ? QString() : tr("工程内无断层解释"));
+    // 井位层随工程重建——重解析（首启/换工程后联动不失效）。
+    if (band)
+      band->setWellLayer(
+          qobject_cast<QgsVectorLayer *>(
+              QgsProject::instance()->mapLayer(QStringLiteral("wells"))),
+          QStringLiteral("id"));
+    rebindFenceStore();
   };
   bindStores();
   connect(panel, &WellSectionPanel::faultsRequested, this,
@@ -214,7 +228,13 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
         ids << id;
     panel->setLinkOverrides(overrides);
     if (ids.isEmpty())
-      return; // 空恢复不触发空请求/忙碌闪动
+    {
+      // 新工程无存档：旧工程井集滞留显示会与空改接集混合——显式清空
+      //（不发数据请求/忙碌闪动）。
+      if (!panel->wellIds().isEmpty())
+        panel->setSection({});
+      return;
+    }
     panel->setWellIds(ids);
   };
   connect(debounce, &QTimer::timeout, this,
@@ -238,7 +258,6 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
 
   // 剖面-平面联动：剖面线位高亮（井序连线）+ 点名反向闪烁。线位随
   // 井集/井序/取数回填刷新；闪烁经 well 层 fid 解析。
-  WellSectionMapBand *band = nullptr;
   if (m_canvasCtl)
   {
     band = new WellSectionMapBand(m_canvasCtl->canvas(), this);

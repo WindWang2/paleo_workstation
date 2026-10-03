@@ -413,6 +413,32 @@ private slots:
                         {QStringLiteral("well-1")}, {}, &err);
     QCOMPARE(rec.version, 1);
     QCOMPARE(reopened.load(QStringLiteral("default"), &err).version, 2);
+
+    // 分隔符转义：井 id/顶名含 , ; | \ 时 round-trip 不坏行。
+    metadata::WellSectionStore escStore(dbPath);
+    QVector<metadata::WellSectionLinkOverride> weird;
+    weird << metadata::WellSectionLinkOverride{
+        QStringLiteral("well,a"), QStringLiteral("well;b"),
+        QStringLiteral("顶|名\\反斜杠"), false};
+    const auto escRec = escStore.save(
+        QStringLiteral("default"),
+        {QStringLiteral("well,a"), QStringLiteral("well;b"),
+         QStringLiteral("w|3"), QStringLiteral("w;4")},
+        weird, &err);
+    QVERIFY(escRec.valid());
+    QCOMPARE(escRec.version, 3); // default 节第三次落盘
+    const auto escBack =
+        escStore.load(QStringLiteral("default"), &err);
+    QCOMPARE(escBack.wellIds,
+             QStringList({QStringLiteral("well,a"),
+                          QStringLiteral("well;b"), QStringLiteral("w|3"),
+                          QStringLiteral("w;4")}));
+    QCOMPARE(escBack.linkOverrides.size(), 1);
+    QCOMPARE(escBack.linkOverrides[0].leftWellId, QStringLiteral("well,a"));
+    QCOMPARE(escBack.linkOverrides[0].topName,
+             QStringLiteral("顶|名\\反斜杠"));
+    QVERIFY(!escBack.linkOverrides[0].connected);
+
   }
 
   // 断层投绘：FaultSetStore 断面 mesh ∩ 井径 curtain → FaultTrace 集。

@@ -1044,17 +1044,25 @@ SectionCut intersectSurfaceWithPolyline(const paleo::fault::FaultSurfaceMesh &me
                 dot(Vec3{s.b.x - a.x, s.b.y - a.y, 0}, horizontal) / (segLen * segLen);
             if ((tA < 0.0 && tB < 0.0) || (tA > 1.0 && tB > 1.0))
                 continue;
-            for (double t : {tA, tB}) {
-                const double tc = std::max(0.0, std::min(1.0, t));
-                const Vec3 p = s.a + (s.b - s.a) * ((tB - tA) != 0.0
-                                                        ? (tc - tA) / (tB - tA)
-                                                        : 0.0);
+            const auto emitHit = [&](double tc, const Vec3 &p) {
                 SectionHit hit;
                 hit.traceFrac = (cumLen[i - 1] + tc * segLen) / total;
                 hit.x = p.x;
                 hit.y = p.y;
                 hit.z = p.z;
                 cut.hits.push_back(hit);
+            };
+            if (std::fabs(tB - tA) < 1e-12) {
+                // 竖直切边（两端同 traceFrac）：双端点各自取样——钳位重建
+                // 会把两端塌成同一点丢 s.b 深度。
+                const double tc = std::max(0.0, std::min(1.0, tA));
+                emitHit(tc, s.a);
+                emitHit(tc, s.b);
+            } else {
+                for (double t : {tA, tB}) {
+                    const double tc = std::max(0.0, std::min(1.0, t));
+                    emitHit(tc, s.a + (s.b - s.a) * ((tc - tA) / (tB - tA)));
+                }
             }
         }
     }

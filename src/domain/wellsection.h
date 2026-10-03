@@ -115,8 +115,10 @@ struct FenceSection {
   QStringList wellIds;
 };
 struct FencePlan {
+  enum class Status { Ok, MissingCoords, TooFewWells };
   QVector<FenceSection> sections;
-  QString status; // 空 = 正常
+  Status status = Status::Ok; // 结构化状态——用户文案由视图层 tr() 出
+  bool ok() const { return status == Status::Ok && !sections.isEmpty(); }
 };
 
 // 自动布点（最小交叉启发式）：井位 PCA 主轴 (u,v)；按 v 等分

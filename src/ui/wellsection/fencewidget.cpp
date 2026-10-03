@@ -277,9 +277,13 @@ void WellSectionFenceWidget::autoPlan(int targetSections)
             w.y = c.y;
             wells << w;
         }
-    const wellsection::FencePlan plan = wellsection::planFence(wells, targetSections);
-    if (!plan.status.isEmpty()) {
-        m_hint->setText(plan.status);
+    const wellsection::FencePlan plan =
+        wellsection::planFence(wells, targetSections);
+    if (!plan.ok()) {
+        m_hint->setText(
+            plan.status == wellsection::FencePlan::Status::MissingCoords
+                ? tr("井位坐标不全，无法自动布点")
+                : tr("两口以上的井才能组成栅状图"));
         return;
     }
     QVector<QStringList> sections;
@@ -340,6 +344,10 @@ void WellSectionFenceWidget::rebuild()
                         m_wellIds[index] = ids;
                         m_list->item(index)->setText(
                             tr("剖面 %1（%2 口井）").arg(index + 1).arg(ids.size()));
+                        m_tabs->setTabText(
+                            index, tr("剖面 %1（%2 口井）")
+                                       .arg(index + 1)
+                                       .arg(ids.size()));
                         saveToStore();
                         emit sectionsChanged();
                     }
@@ -415,21 +423,37 @@ void WellSectionFenceWidget::saveToStore()
     m_persistedIds = m_wellIds;
 }
 
+void WellSectionFenceWidget::setStore(metadata::WellSectionStore *store)
+{
+    if (m_params.store == store)
+        return;
+    m_params.store = store;
+    m_persistedIds.clear(); // 换库后首存不等值短路失效，强制重写
+    saveToStore();
+}
+
 void WellSectionFenceWidget::loadFromStore()
 {
     if (!m_params.store)
         return;
     QString err;
-    const QStringList ids = m_params.store->sectionIds(&err);
+    // 按 n 升序收全部 fence-n 节（节号有洞也继续——save 侧失败可能留洞）。
+    QVector<QPair<int, QStringList>> rows;
+    for (const QString &id : m_params.store->sectionIds(&err))
+        if (id.startsWith(QLatin1String("fence-"))) {
+            const int n = id.mid(QLatin1String("fence-").size()).toInt();
+            if (n < 1)
+                continue;
+            const auto rec = m_params.store->load(id, &err);
+            if (!rec.wellIds.isEmpty())
+                rows << qMakePair(n, rec.wellIds);
+        }
+    std::sort(rows.begin(), rows.end(),
+              [](const QPair<int, QStringList> &a,
+                 const QPair<int, QStringList> &b) { return a.first < b.first; });
     QVector<QStringList> sections;
-    int at = 1;
-    while (ids.contains(QStringLiteral("fence-%1").arg(at))) {
-        const auto rec =
-            m_params.store->load(QStringLiteral("fence-%1").arg(at), &err);
-        if (!rec.wellIds.isEmpty())
-            sections << rec.wellIds;
-        ++at;
-    }
+    for (const auto &row : rows)
+        sections << row.second;
     m_wellIds = sections;
     m_persistedIds = sections;
 }

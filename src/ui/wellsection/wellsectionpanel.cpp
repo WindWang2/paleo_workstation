@@ -537,8 +537,7 @@ void WellSectionPanel::setFaultsEnabled(bool on)
     const QSignalBlocker b(m_faultBtn); // 程序化同步不发 clicked
     m_faultBtn->setChecked(on);
   }
-  panelSettings().setValue(QStringLiteral("wellSection/faults"), on);
-  syncToolbarState();
+  syncToolbarState(); // 设置持久化只在按钮 clicked（用户路径）
   if (on && m_wells.size() >= 2)
     emit faultsRequested();
   else if (!on)
@@ -867,7 +866,9 @@ void WellSectionPanel::rebuildItems()
                   toggleLink(gapIndex, top, !connected);
                 });
         menu->setAttribute(Qt::WA_DeleteOnClose);
-        menu->exec(QCursor::pos());
+        // 非模态 popup（不嵌事件循环——exec 期间 rebuildItems 可能删除
+        // 本 GapItem，回到已析构栈帧是 UB）。
+        menu->popup(QCursor::pos());
       });
       m_scene->addItem(gap);
       m_gapItems << gap;
@@ -1007,6 +1008,12 @@ void WellSectionPanel::moveWell(int from, int to)
   emit wellIdsChanged(m_ids);
   if (m_seismicOn && m_wells.size() >= 2)
     emit seismicRequested();
+  // 井径变了：旧投绘的 along 映射已失真——先清后按需重求。
+  if (m_faultsOn) {
+    setFaultTraces({}, QString());
+    if (m_wells.size() >= 2)
+      emit faultsRequested();
+  }
 }
 
 void WellSectionPanel::removeWellAt(int index)
@@ -1024,6 +1031,11 @@ void WellSectionPanel::removeWellAt(int index)
   emit wellIdsChanged(m_ids);
   if (m_seismicOn && m_wells.size() >= 2)
     emit seismicRequested();
+  if (m_faultsOn) {
+    setFaultTraces({}, QString());
+    if (m_wells.size() >= 2)
+      emit faultsRequested();
+  }
 }
 
 void WellSectionPanel::openWellsDialog()

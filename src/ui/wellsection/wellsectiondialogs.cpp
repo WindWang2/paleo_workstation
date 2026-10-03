@@ -636,7 +636,10 @@ void WellSectionTracksDialog::storeTrack(int row)
     t.curves = {c1};
     if (m_curve2On->isChecked())
     {
-      wellsection::CurveStyle c2;
+      // label 保留（表单无此字段——从既有项取初值，开关往返不丢）。
+      wellsection::CurveStyle c2 = t.curves.size() > 1
+                                       ? t.curves.at(1)
+                                       : wellsection::CurveStyle{};
       c2.mnemonic = m_curve2->currentText().trimmed();
       c2.min = m_min2->value();
       c2.max = m_max2->value();
@@ -645,7 +648,10 @@ void WellSectionTracksDialog::storeTrack(int row)
       t.curves << c2;
       if (m_curve3On->isChecked())
       {
-        wellsection::CurveStyle c3;
+        // label 保留（同曲线 2）。
+        wellsection::CurveStyle c3 = t.curves.size() > 2
+                                         ? t.curves.at(2)
+                                         : wellsection::CurveStyle{};
         c3.mnemonic = m_curve3->currentText().trimmed();
         c3.min = m_min3->value();
         c3.max = m_max3->value();

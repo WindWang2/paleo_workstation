@@ -349,17 +349,22 @@ void WellSectionWorkflow::attachFaciesSegments(
     QVector<wellsection::Well> &wells) const {
   if (!m_catalog || wells.isEmpty())
     return;
-  const CatalogVersion *best = nullptr;
+  // versionsForAsset 按值返回临时容器——迭代器/指针不能跨循环存活，
+  // 拷贝持有再比较（UAF 防线）。
+  CatalogVersion best;
+  bool has = false;
   for (const CatalogAsset &a : m_catalog->assets()) {
     if (a.type != QLatin1String("well_facies_intervals"))
       continue;
     for (const CatalogVersion &v : m_catalog->versionsForAsset(a.id))
-      if (!best || v.versionNumber > best->versionNumber)
-        best = &v;
+      if (!has || v.versionNumber > best.versionNumber) {
+        best = v;
+        has = true;
+      }
   }
-  if (!best)
+  if (!has)
     return;
-  QFile file(DataCatalog::resolvedVersionPath(projectDir(), *best));
+  QFile file(DataCatalog::resolvedVersionPath(projectDir(), best));
   if (!file.open(QIODevice::ReadOnly))
     return;
   const QJsonObject root =

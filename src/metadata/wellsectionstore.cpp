@@ -11,6 +11,73 @@
 
 namespace
 {
+// 井 id/顶名是任意用户文本：入库前转义分隔符（\ 前缀），读回反转义。
+// 未转义的旧行按原文读（向后兼容：安全名恒等）。
+QString escapeField(const QString &in)
+{
+    QString out;
+    out.reserve(in.size());
+    for (const QChar c : in) {
+        if (c == QLatin1Char('\\') || c == QLatin1Char(';') ||
+            c == QLatin1Char('|') || c == QLatin1Char(','))
+            out += QLatin1Char('\\');
+        out += c;
+    }
+    return out;
+}
+QString unescapeField(const QString &in)
+{
+    QString out;
+    out.reserve(in.size());
+    bool esc = false;
+    for (const QChar c : in) {
+        if (esc) {
+            out += c;
+            esc = false;
+            continue;
+        }
+        if (c == QLatin1Char('\\')) {
+            esc = true;
+            continue;
+        }
+        out += c;
+    }
+    if (esc)
+        out += QLatin1Char('\\'); // 尾悬挂反斜杠按原文保
+    return out;
+}
+// 按未转义 sep 切分，**保留转义序列原文**（反斜杠不剥——内层分隔符的
+// 转义要留给下一层；单元格再各自 unescapeField）。空段丢弃。
+QStringList splitEscaped(const QString &in, QChar sep)
+{
+    QStringList out;
+    QString cur;
+    bool esc = false;
+    for (const QChar c : in) {
+        if (esc) {
+            cur += c;
+            esc = false;
+            continue;
+        }
+        if (c == QLatin1Char('\\')) {
+            cur += c; // 反斜杠随格保留（内层转义不提前剥）
+            esc = true;
+            continue;
+        }
+        if (c == sep) {
+            if (!cur.isEmpty())
+                out << cur;
+            cur.clear();
+            continue;
+        }
+        cur += c;
+    }
+    if (esc)
+        cur += QLatin1Char('\\');
+    if (!cur.isEmpty())
+        out << cur;
+    return out;
+}
 QString connectionNameFor(const QString &path)
 {
     return QStringLiteral("paleo_wellsection_") + QString::number(qHash(path));
@@ -48,12 +115,14 @@ int versionOf(const QString &path, const QString &sectionId, QString *error)
     QSqlQuery q(QSqlDatabase::database(connectionNameFor(path)));
     q.prepare(QStringLiteral("SELECT version FROM well_section_edits WHERE section_id = ?"));
     q.addBindValue(sectionId);
-    if (!q.exec() || !q.next())
+    if (!q.exec())
     {
-        if (error && q.lastError().isValid())
-            *error = q.lastError().text();
-        return 0;
+        // 连接级失败 ≠ 无行：返回 -1，save 拒写（防版本被压回 1）。
+        setError(error, q.lastError().text());
+        return -1;
     }
+    if (!q.next())
+        return 0;
     return q.value(0).toInt();
 }
 } // namespace
@@ -104,21 +173,31 @@ WellSectionRecord WellSectionStore::save(
         if (!ensureOpen(m_dbPath, err))
             return {};
         // 写队列内读改写：版本号严格递增（round-trip 的推进口径）。
-        const int version = versionOf(m_dbPath, sectionId, err) + 1;
+        const int current = versionOf(m_dbPath, sectionId, err);
+        if (current < 0)
+            return {};
+        const int version = current + 1;
         QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
         q.prepare(QStringLiteral(
             "INSERT OR REPLACE INTO well_section_edits "
             "(section_id, well_ids, link_overrides, version, updated_utc) "
             "VALUES (?, ?, ?, ?, ?)"));
         q.addBindValue(sectionId);
-        // 空 join 是 null QString（QSql 绑成 NULL 撞 NOT NULL）——钉空串。
-        const QString wellIdsCsv = wellIds.join(QLatin1Char(','));
+        // 空 join 是 null QString（QSql 绑成 NULL 撞 NOT NULL）——钉空串；
+        // 字段先转义（id/顶名可含分隔符）。
+        QStringList escapedIds;
+        escapedIds.reserve(wellIds.size());
+        for (const QString &id : wellIds)
+            escapedIds << escapeField(id);
+        const QString wellIdsCsv = escapedIds.join(QLatin1Char(','));
         q.addBindValue(wellIdsCsv.isNull() ? QStringLiteral("") : wellIdsCsv);
         QStringList rows;
         rows.reserve(links.size());
         for (const WellSectionLinkOverride &o : links)
             rows << QStringLiteral("%1;%2;%3;%4")
-                        .arg(o.leftWellId, o.rightWellId, o.topName,
+                        .arg(escapeField(o.leftWellId),
+                             escapeField(o.rightWellId),
+                             escapeField(o.topName),
                              o.connected ? QStringLiteral("1")
                                          : QStringLiteral("0"));
         const QString linksCsv = rows.join(QLatin1Char('|'));
@@ -182,18 +261,20 @@ WellSectionRecord WellSectionStore::load(const QString &sectionId,
     }
     if (!q.next())
         return rec; // 新工程：无行 → version 0
-    rec.wellIds = q.value(0).toString().split(QLatin1Char(','),
-                                              Qt::SkipEmptyParts);
-    for (const QString &row : q.value(1).toString().split(
-             QLatin1Char('|'), Qt::SkipEmptyParts))
+    for (const QString &cell :
+         splitEscaped(q.value(0).toString(), QLatin1Char(',')))
+        rec.wellIds << unescapeField(cell);
+    for (const QString &row :
+         splitEscaped(q.value(1).toString(), QLatin1Char('|')))
     {
-        const QStringList parts = row.split(QLatin1Char(';'));
+        const QStringList parts =
+            splitEscaped(row, QLatin1Char(';'));
         if (parts.size() != 4)
-            continue;
+            continue; // 坏行跳过（转义后不应出现；未转义旧库的脏名行）
         WellSectionLinkOverride o;
-        o.leftWellId = parts.at(0);
-        o.rightWellId = parts.at(1);
-        o.topName = parts.at(2);
+        o.leftWellId = unescapeField(parts.at(0));
+        o.rightWellId = unescapeField(parts.at(1));
+        o.topName = unescapeField(parts.at(2));
         o.connected = parts.at(3) == QLatin1String("1");
         rec.linkOverrides.push_back(o);
     }

@@ -123,6 +123,11 @@ QVector<double> gapWidthsFor(const QVector<Well> &wells, SpacingMode mode,
   double sum = 0.0;
   for (double d : dist)
     sum += d;
+  if (!(sum > 1e-12)) {
+    // 全零距离（同平台井/重复坐标）：比例无意义，退化等距防 NaN 毒化布局。
+    out.fill(qBound(minGap, totalGap / gaps, maxGap), gaps);
+    return out;
+  }
   for (int i = 0; i < gaps; ++i)
     out[i] = qBound(minGap, totalGap * dist[i] / sum, maxGap);
   return out;
@@ -312,12 +317,12 @@ FencePlan planFence(const QVector<Well> &wells, int targetSections) {
   FencePlan plan;
   for (const Well &w : wells)
     if (!w.hasCoordinates()) {
-      plan.status = QStringLiteral("井位坐标不全，无法自动布点");
+      plan.status = FencePlan::Status::MissingCoords;
       return plan;
     }
   const int n = wells.size();
   if (n < 2) {
-    plan.status = QStringLiteral("两口以上的井才能组成栅状图");
+    plan.status = FencePlan::Status::TooFewWells;
     return plan;
   }
   if (targetSections < 1)
@@ -399,7 +404,7 @@ FencePlan planFence(const QVector<Well> &wells, int targetSections) {
     plan.sections.removeAt(i);
   }
   if (plan.sections.isEmpty())
-    plan.status = QStringLiteral("栅状图布点失败");
+    plan.status = FencePlan::Status::TooFewWells;
   return plan;
 }
 
@@ -457,7 +462,9 @@ QStringList orderWellsByPosition(const QStringList &ids,
   }
   std::sort(keyed.begin(), keyed.end(),
             [](const QPair<double, int> &a, const QPair<double, int> &b) {
-              return a.first < b.first;
+              if (a.first != b.first)
+                return a.first < b.first;
+              return a.second < b.second; // 投影重合保输入序（确定性）
             });
   QStringList out;
   for (const auto &k : keyed)

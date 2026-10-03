@@ -45,6 +45,8 @@ class WellSectionFenceWidget : public QWidget
     void autoPlan(int targetSections);
     // 手工指定/整体替换：每条 = 有序井 id 集；空条目忽略；空集 → 清空。
     void setSections(const QVector<QStringList> &sections);
+    // 换工程重绑存储（壳层调用；落库目标跟随新 project.sqlite）。
+    void setStore(metadata::WellSectionStore *store);
 
     // ---- 测试钩子 ----
     int sectionCount() const { return m_sections.size(); }

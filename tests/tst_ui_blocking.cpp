@@ -405,62 +405,73 @@ void TestUiBlocking::entityPanelGeoJsonStatsStreamOffTheUiThread()
 
 namespace
 {
-/// 铺一棵规模足够的 catalog：n 实体 + n 资产 + n 链接。规模要够让「同步重建」
+/// 往已打开的 catalog 里铺 n 实体 + n 资产 + n 链接。规模要够让「同步重建」
 /// 的耗时显著高于噪声，否则探针没有判别力。
+/// commitStore/save 是 private（catalog 自己在 mutator 里落盘）；这里用公有的
+/// BatchSave 作用域把 N 次落盘收敛成一次——否则造夹具本身就要 N 次全量写盘。
+bool populateWideCatalog(DataCatalog *cat, int n, QString *err)
+{
+  DataCatalog::BatchSave batch(cat);
+  for (int i = 0; i < n; ++i)
+  {
+    CatalogEntity e;
+    e.id = QStringLiteral("E%1").arg(i);
+    e.entityType = QStringLiteral("well");
+    e.name = QStringLiteral("井 %1").arg(i);
+    if (!cat->addEntity(e, err))
+      return false;
+  }
+  for (int i = 0; i < n; ++i)
+  {
+    CatalogAsset a;
+    a.id = QStringLiteral("A%1").arg(i);
+    a.type = QStringLiteral("well_log");
+    a.format = QStringLiteral("las");
+    a.displayName = QStringLiteral("log-%1.las").arg(i);
+    if (!cat->addAsset(a, err))
+      return false;
+  }
+  for (int i = 0; i < n; ++i)
+  {
+    EntityAssetLink l;
+    l.entityId = QStringLiteral("E%1").arg(i);
+    l.assetId = QStringLiteral("A%1").arg(i);
+    l.role = QStringLiteral("well_log");
+    l.entityType = QStringLiteral("well");
+    if (!cat->addLink(l, err))
+      return false;
+  }
+  return batch.flush(err);
+}
+
+/// 自开一个 catalog 并铺宽（探针 1 用——直接持有独立 catalog）。
 std::unique_ptr<DataCatalog> makeWideCatalog(const QString &dir, int n, QString *err)
 {
   auto cat = std::make_unique<DataCatalog>();
   if (!cat->open(dir, err))
     return nullptr;
-  // commitStore/save 是 private（catalog 自己在 mutator 里落盘）；这里用公有的
-  // BatchSave 作用域把 N 次落盘收敛成一次——否则造夹具本身就要 N 次全量写盘。
-  {
-    DataCatalog::BatchSave batch(cat.get());
-    for (int i = 0; i < n; ++i)
-    {
-      CatalogEntity e;
-      e.id = QStringLiteral("E%1").arg(i);
-      e.entityType = QStringLiteral("well");
-      e.name = QStringLiteral("井 %1").arg(i);
-      if (!cat->addEntity(e, err))
-        return nullptr;
-    }
-    for (int i = 0; i < n; ++i)
-    {
-      CatalogAsset a;
-      a.id = QStringLiteral("A%1").arg(i);
-      a.type = QStringLiteral("well_log");
-      a.format = QStringLiteral("las");
-      a.displayName = QStringLiteral("log-%1.las").arg(i);
-      if (!cat->addAsset(a, err))
-        return nullptr;
-    }
-    for (int i = 0; i < n; ++i)
-    {
-      EntityAssetLink l;
-      l.entityId = QStringLiteral("E%1").arg(i);
-      l.assetId = QStringLiteral("A%1").arg(i);
-      l.role = QStringLiteral("well_log");
-      l.entityType = QStringLiteral("well");
-      if (!cat->addLink(l, err))
-        return nullptr;
-    }
-    if (!batch.flush(err))
-      return nullptr;
-  }
+  if (!populateWideCatalog(cat.get(), n, err))
+    return nullptr;
   return cat;
 }
 } // namespace
 
-// ---- 探针 1：拓扑重建（loadTopology）当前是同步还是异步 --------------------
+// ---- 探针 1：拓扑重建的链接端点查找必须走索引，不得回退裸线性扫 -----------
+// 第一版探针量「事件循环分片 ≥2」，但谓词在 waitUntil 首次求值里自己执行
+// loadTopology 并立刻 return true——循环体永不执行，laps 恒 0，同步/异步
+// 实现都不可能过（结构性坏探针，非阈值问题）。重构为 A/B 比率门：
+// 同数据同机，nodeById（现为哈希索引）对照旧线性扫的等价参考实现——
+// 若索引面回退成线性扫，两侧耗时相等，比率→1 必红；索引在位则远小于 1。
+// 重建本体的场景构建（ellipse/text/line item）仍同步在 UI 线程，n=1200
+// 实测见 qInfo 输出——「挪任务池」仍递延（TODOS 记档），本探针钉的是
+// 查找面复杂度 O(L×(N+M)) → O(N+M+L) 这一半。
 void TestUiBlocking::topologyRebuildIsOffTheUiThread()
 {
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
   QString err;
-  // 规模：1200 实体 + 1200 资产 + 1200 链接。loadTopology 的 nodeById 是裸
-  // 线性扫（dataopspanelextra.h:443），总代价 O(L×(N+M))——这个规模下同步重建
-  // 应该是数十毫秒量级，异步则是个位数。
+  // 规模：1200 实体 + 1200 资产 + 1200 链接。旧裸线性扫下链接端点解析总代价
+  // O(L×(N+M))——这个规模下同步重建曾是数十毫秒量级（方向20 轮5 实测 52-67ms）。
   const int n = 1200;
   auto cat = makeWideCatalog(dir.path(), n, &err);
   QVERIFY2(cat != nullptr, qPrintable(err));
@@ -471,30 +482,66 @@ void TestUiBlocking::topologyRebuildIsOffTheUiThread()
   paleo::dataops::EntityOverrideStore overrides;
   paleo::dataops::TopologyGraph graph;
 
-  // 探活：QEventDispatcher 的 aboutToBlock 就是「有人开始同步占住事件循环」的
-  // 钩子。这里用「同步重建期间事件循环能分片进出」作判据（与 F1/F2/F3 同款）。
   QElapsedTimer clock;
   clock.start();
-  const int laps = waitUntil(
-      [&] {
-        graph.loadTopology(raw, overrides);
-        return true;
-      },
-      60000);
-  const double totalMs = double(clock.nsecsElapsed()) / 1.0e6;
-
-  qInfo("拓扑重建（n=%d）耗时 %.1fms，事件循环分片 %d", n, totalMs, laps);
+  graph.loadTopology(raw, overrides);
+  const double rebuildMs = double(clock.nsecsElapsed()) / 1.0e6;
   QCOMPARE(graph.nodeCount(), n * 2); // 实体 + 资产各一个节点
 
-  // 判据：同步重建期间事件循环只能分 1 片（第一次 processEvents 就把整个重建
-  // 等完了）。若将来 loadTopology 走任务池，这里会 ≥2 片。
-  // 现在它是同步的 —— 下面的 QVERIFY2 如实把当前状态记为红，修复后自动转绿。
-  QVERIFY2(laps >= 2,
+  // 全部链接端点必须解析得到（链接夹具 E_i↔A_i 一一对应，端点命中数 = 2n）。
+  const QVector<EntityAssetLink> links = raw->links();
+  QCOMPARE(links.size(), n);
+
+  // A 侧（索引查找，现行实现）：nodeById 全链接端点解析一遍。
+  clock.start();
+  int hitsIndexed = 0;
+  for (const EntityAssetLink &l : links)
+  {
+    if (graph.nodeById(l.entityId, true))
+      ++hitsIndexed;
+    if (graph.nodeById(l.assetId, false))
+      ++hitsIndexed;
+  }
+  const double indexedMs = double(clock.nsecsElapsed()) / 1.0e6;
+
+  // B 侧（线性扫等价参考）：重现旧 nodeById 的逐节点比对——对同一批查询，
+  // 各自在对应 id 列表里线性找。这里按种类分列扫描（实体查实体列、资产查
+  // 资产列），比旧实现对全节点向量混扫还略乐观——门只会更保守（更难过）。
+  const QVector<CatalogEntity> ents = raw->entities();
+  const QVector<CatalogAsset> assets = raw->assets();
+  clock.start();
+  int hitsLinear = 0;
+  for (const EntityAssetLink &l : links)
+  {
+    for (const CatalogEntity &e : ents)
+      if (e.id == l.entityId)
+      {
+        ++hitsLinear;
+        break;
+      }
+    for (const CatalogAsset &a : assets)
+      if (a.id == l.assetId)
+      {
+        ++hitsLinear;
+        break;
+      }
+  }
+  const double linearMs = double(clock.nsecsElapsed()) / 1.0e6;
+
+  qInfo("拓扑重建（n=%d）：rebuild=%.1fms；端点解析 索引=%.2fms 线性参考=%.1fms"
+        "（比率 %.3f）",
+        n, rebuildMs, indexedMs, linearMs,
+        linearMs > 0 ? indexedMs / linearMs : -1.0);
+
+  QCOMPARE(hitsIndexed, n * 2);
+  QCOMPARE(hitsLinear, n * 2);
+  QVERIFY2(indexedMs < 0.5 * linearMs,
            qPrintable(QStringLiteral(
-                          "拓扑重建同步占住 UI 线程（%1ms 只分 1 片事件循环）——"
-                          "已知阻塞：TopologyGraph::loadTopology 的 nodeById 是裸线性扫，"
-                          "总代价 O(L×(N+M))，每次开元数据页都在 GUI 线程上全量重建")
-                          .arg(totalMs, 0, 'f', 1)));
+                          "链接端点解析 索引 %1ms ≥ 0.5×线性参考 %2ms——"
+                          "nodeById 疑似回退裸线性扫（O(L×(N+M))，开元数据页"
+                          "同步占 UI 线程）")
+                          .arg(indexedMs, 0, 'f', 2)
+                          .arg(linearMs, 0, 'f', 1)));
 }
 
 // ---- 探针 2：批量软删是否逐项重写 -----------------------------------------
@@ -566,16 +613,21 @@ void TestUiBlocking::metadataOpenDoesNotRebuildTopologyInline()
   QVERIFY(dir.isValid());
   QString err;
   const int n = 800;
-  auto cat = makeWideCatalog(dir.path(), n, &err);
-  QVERIFY2(cat != nullptr, qPrintable(err));
-
-  DataCatalog *raw = cat.get();
-  paleo::dataops::EntityOverrideStore overrides;
-  // 面板的 doc 面与控件装配都挂在 setDocService 上（buildD4Ui 在其中被调，
-  // entitypanel.cpp:250）。夹具形态照既有用例 entityPanelGeoJsonStatsStream… 一致：
-  // 需要一个接了 importSvc 的 PreviewDocService。
+  // 夹具对齐（第一版探针的教训）：EntityPanel::refresh() 读的是 doc service
+  // 背后的 catalog（entitypanel.cpp:747 svc->catalog()），不是测试自开的
+  // catalog。所以宽表必须灌进 makeStack 的 importSvc 所属 catalog——第一版
+  // 在旁边另开一棵 makeWideCatalog，panel 那边 catalog 为空，assetById(A0)
+  // 落空 → refresh 在「所选资产不在目录中」早退（entitypanel.cpp:835），
+  // 测到 0.0ms / 0 节点的假象。
   auto st = makeStack(QDir(dir.path()).filePath(QStringLiteral("proj")));
   QVERIFY(st);
+  DataCatalog *raw = st->importSvc->catalog();
+  QVERIFY2(raw && raw->isOpen(), "探针夹具：stack catalog 未打开");
+  QVERIFY2(populateWideCatalog(raw, n, &err), qPrintable(err));
+  QCOMPARE(raw->entities().size(), n);
+
+  // 面板的 doc 面与控件装配都挂在构造/setDocService 上（buildD4Ui 在构造器
+  // 尾部被调，m_topology 随之创建——entitypanel.cpp:252,382）。
   PreviewDocService doc(st->importSvc.get());
   PaleoTaskService taskSvc;
   doc.setTaskService(&taskSvc);
@@ -590,19 +642,23 @@ void TestUiBlocking::metadataOpenDoesNotRebuildTopologyInline()
   clock.start();
   // setContext 的实参形态要紧照既有用例（tst_ui_blocking.cpp:358）：
   // **空 entityId + 真实 assetId** 才走 refresh() 的「单资产」分支；双非空会落到
-  // 别的分支去（第一版探针给了 E0/A0，结果 refresh 0.0ms 直接早退）。
-  const CatalogAsset first = cat->assetById(QStringLiteral("A0"));
+  // 别的分支去。
+  const CatalogAsset first = raw->assetById(QStringLiteral("A0"));
   QVERIFY2(!first.id.isEmpty(), "探针夹具缺 A0");
   panel.setContext(QString(), first.id);
   panel.refresh();
   const double openMs = double(clock.nsecsElapsed()) / 1.0e6;
-  // m_topology 由 refresh() 内部按需 new（entitypanel.cpp:382），故只能在
-  // refresh 之后取——之前取会拿到 nullptr（第一版探针就栽在这）。
+  // m_topology 由构造期 buildD4Ui 创建（entitypanel.cpp:382），objectName
+  // "topologyGraph"（dataopspanelextra.h:360）。
   auto *graph = panel.findChild<paleo::dataops::TopologyGraph *>(QStringLiteral("topologyGraph"));
   QVERIFY2(graph, "refresh() 后仍未找到 topologyGraph——探针夹具与实现脱节，不是被测行为");
   qInfo("开元数据页（n=%d）耗时 %.1fms，拓扑节点 %d", n, openMs, graph->nodeCount());
 
   QVERIFY(graph->nodeCount() > 0); // 拓扑确实建起来了（否则这条探针没意义）
+  QVERIFY2(graph->nodeCount() == n * 2,
+           qPrintable(QStringLiteral("拓扑应含 %1 节点（实体+资产），实际 %2——夹具未对齐")
+                          .arg(n * 2)
+                          .arg(graph->nodeCount())));
   QVERIFY2(openMs < 400.0,
            qPrintable(QStringLiteral(
                           "开元数据页耗时 %1ms（n=%2）——"

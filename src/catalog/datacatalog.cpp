@@ -479,31 +479,35 @@ bool DataCatalog::commitStore(QString *error)
       clearDirty();
       return false;
     };
-    for (const QString &id : m_dirtyEntities)
-    {
-      const int row = m_idx.entityRow(id);
-      if (row < 0)
-        continue;
+    // 脏行按行号升序写。QSet 迭代是哈希序（进程间随机）——新行将按该随机序
+    // 进 sqlite 拿 rowid，重开（loadTables ORDER BY rowid）后表序 ≠ 内存表序，
+    // 「表序最先」语义（versionBySha256 首命中、entities(type) 列表序）随进程
+    // 抖动。升序 upsert 让增量落盘与 rewritePrimary 一样忠实序列化内存表序。
+    const auto dirtyRows = [this](const QSet<QString> &ids,
+                                  int (CatalogIndex::*rowOf)(const QString &) const) {
+      QVector<int> rows;
+      rows.reserve(ids.size());
+      for (const QString &id : ids)
+      {
+        const int row = (m_idx.*rowOf)(id);
+        if (row >= 0)
+          rows.append(row);
+      }
+      std::sort(rows.begin(), rows.end());
+      return rows;
+    };
+    for (const int row : dirtyRows(m_dirtyEntities, &CatalogIndex::entityRow))
       if (!m_store->upsertEntity(m_entities.at(row), error))
         return failTxn();
-    }
-    for (const QString &id : m_dirtyAssets)
-    {
-      const int row = m_idx.assetRow(id);
-      if (row < 0)
-        continue;
+    for (const int row : dirtyRows(m_dirtyAssets, &CatalogIndex::assetRow))
       if (!m_store->upsertAsset(m_assets.at(row), error))
         return failTxn();
-    }
-    for (const QString &id : m_dirtyVersions)
-    {
-      const int row = m_idx.versionRow(id);
-      if (row < 0)
-        continue;
+    for (const int row : dirtyRows(m_dirtyVersions, &CatalogIndex::versionRow))
       if (!m_store->upsertVersion(m_versions.at(row), error))
         return failTxn();
-    }
-    for (int ord : m_dirtyLinkOrds)
+    QList<int> dirtyLinkOrds = m_dirtyLinkOrds.values();
+    std::sort(dirtyLinkOrds.begin(), dirtyLinkOrds.end());
+    for (const int ord : dirtyLinkOrds)
     {
       if (ord < 0 || ord >= m_links.size())
         continue;

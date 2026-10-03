@@ -1,7 +1,7 @@
 # 任务框架统一 + 巨型文件拆分（JobRunner）
 
-状态：**轮 0 勘察定案 + 轮 1 框架 + 轮 2 迁移 propertymodelworkflow 完成**。
-`tst_jobrunner` 11/11、`tst_propworkflow` 15/15 绿。轮 3–5 未开始。
+状态：**轮 0–3 完成**（框架 + 2 处迁移面）。`tst_jobrunner` 11/11、
+`tst_propworkflow` 15/15、`tst_factorworkflow` 21/21 绿。轮 4–5 未开始。
 未跑完的 Oracle 不记为通过。
 
 ## 范围
@@ -393,3 +393,97 @@ include（glm/saribbon/sbm/segyio），症状同样是后续 TU 报 QGIS 头找�
 configure 一次即恢复**。已在 skill `paleo-workstation-windows-build-env` 记录。
 
 
+
+## 轮 3：三组单因素作业的统一异步面
+
+### 形态
+
+`ConstraintWorkflow` 上新增统一面，9 个 `prepare*`/`compute*`/`publish*`
+**一行未改**（它们是既有契约，既有测试直接钉它们）：
+
+```cpp
+using ConstraintJobVariant = std::variant<LocalDirectionJob, AnalysisContourJob,
+                                          InterpretiveContourJob>;
+enum class ConstraintJobKind { LocalDirection, AnalysisContour, InterpretiveContour };
+struct ConstraintJob { ConstraintJobKind kind; ConstraintJobVariant payload;
+                       QString title; std::function<QString(double)> stageOf; };
+
+bool prepareConstraintJob(ConstraintJob &, const QVariantMap &params, QString * = nullptr);
+bool computeConstraintJob(ConstraintJob &, const std::function<bool()> &, const std::function<void(double)> & = {});
+bool publishConstraintJob(const ConstraintJob &, QString * = nullptr);
+static QStringList constraintJobTempPaths(const ConstraintJob &);
+PaleoTask *startConstraintJob(paleo::jobs::JobRunner<ConstraintJob> &, ConstraintJob, QObject * = nullptr);
+```
+
+用 `variant` 是因为三组 job 的中间产物路径各不相同（本方向最需要收敛的
+「同一协议写三遍」那部分正是这些路径的分派）。`kind` 即分派索引。
+
+### 收敛掉的重复
+
+| 重复项 | 现状 | 收敛后 |
+|--------|------|--------|
+| 忙则互斥 | 三处各判 `m_factorTask && running()` | 框架 `busy()` |
+| 取消接线 | 三处各连 `runCancelRequested` → `requestCancel` | 框架 `requestCancel()` |
+| 进度节流 | 三处各写一遍 50ms 节流 | 框架统一（`stageOf` 只留阶段词表映射） |
+| 阶段词表 | 局部方向自映射 prepare/geometry/encode，另两处各一份 | `stageOf` 声明式，阈值原样保留 |
+| 临时产物清理 | **三处逐字复制的 `dropTemp` lambda** | 一条共用判据（仍只清 `paleo-sf-` 前缀） |
+| publish 临界区注释 | 三处各写一遍「发布是临界区」 | 框架一处（commit 段不接受取消） |
+
+### 两个设计错误（实测打出来的）
+
+1. **这 9 个 prepare/compute/publish 是非静态成员函数**（要访问 catalog /
+   layers / projectStore），我第一版把统一面的三个辅助函数声明成了 `static`，
+   编译报 C2352。改为非静态成员，并在 compute/commit 的 lambda 里捕获 `this`。
+2. `QVariant` 没有 `toVector()`——levels 需从 `QVariantList` 逐元素 `toDouble()`
+   转换。
+
+### 实测输出
+
+```text
+$ ctest --test-dir build -R '^tst_(workflows|factorworkflow)$'
+1/2 Test #30: tst_workflows ....................   Passed  121.95 sec
+2/2 Test #35: tst_factorworkflow ...............   Passed  194.69 sec
+100% tests passed, 0 tests failed out of 2
+```
+
+新加 3 条统一面断言（`unifiedJobRunsAnalysisContourThroughRunner` /
+`unifiedJobRejectsWhenBusy` / `unifiedJobCancelSkipsPublish`），加断言后
+`Totals: 21 passed, 0 failed, 1 skipped`。第一条与既有
+`contourDeclaresVectorLayer` **同口径**比对（声明存在、类型 vector、组
+`04_SingleFactor/Contours`、成果信号三段参数）——这是「统一面与裸接口行为
+等价」的直接证据。
+
+三项门禁全绿。`/W4` 零新警告。
+
+### 修正对任务书的第三处基线偏差：拆分边界与编译成本
+
+- `ConstraintWorkflow` 单独约 **2860 行**，超出任务书定的 1500 行阈值 →
+  轮 4 需二次拆分（约束 CRUD 与因子生成 / 三段式作业面）。已记入拆分边界表。
+- **`workflows.cpp` 单 TU 编译需 12 分钟以上**（4000 行 + 大量 QGIS 头），
+  `-j1` 如此。拆分恰好解决这个——两者互为因果，轮 4 的收益比原计划大。
+
+### 拆分边界（轮 4 实测，替代轮 0 的估计）
+
+`workflows.cpp` 4086 行的实测分布：
+
+| 区段 | 行区间 | 行数 |
+|------|--------|------|
+| 头部（include + 词表 + 辅助） | 1–437 | ~437 |
+| `PredictionWorkflow` | 438–755 | ~320 |
+| `ConstraintWorkflow` | 756–3620 | ~2860 |
+| `CompositionWorkflow` | 3621–4070 | ~450 |
+| `ValidationWorkflow` | 4071–4086 | ~200 |
+
+`datapreviewtabs.cpp` 5249 行的实测分布（**与轮 0 估计差异很大**）：
+
+| 区段 | 行区间 | 行数 |
+|------|--------|------|
+| tab 容器 + 公共装配 | 1–2300 | ~2300 |
+| **`buildContent`（一个函数）** | 2301–4867 | **~2567** |
+| 井体构建 + 回包槽 | 4868–5249 | ~380 |
+
+真正的巨兽是 `buildContent` **这一个函数**（占全文件 49%），比整个
+`workflows.cpp` 的三分之二还大。它内部有天然切分线（按 `asset.type`）：
+document / well_log / well_head / horizon / seismic / image_reference /
+geojson / 兜底参考。轮 4 按这些切点拆构建器文件，`openAsset` 调度表集中到
+`datapreviewtabs.cpp` 顶部。

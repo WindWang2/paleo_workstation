@@ -8,6 +8,7 @@
 #include <QVector>
 #include <functional>
 #include <memory>
+#include <variant>
 #include "../algorithms/singlefactor/types.h"
 #include "../domain/types.h"
 #include "../metadata/paleoprojectstore.h"
@@ -20,7 +21,12 @@ class PaleoOnnxService;
 class ConstraintStore;
 class ProjectDataFacade;
 class DataCatalog;
+class PaleoTask;
 struct ValidationIssue;
+namespace paleo::jobs {
+template <class JobT>
+class JobRunner;
+} // namespace paleo::jobs
 
 struct WorkflowExecutionContext
 {
@@ -335,6 +341,43 @@ class ConstraintWorkflow : public QObject
     bool computeInterpretiveContourJob(InterpretiveContourJob *job,
                                        const std::function<bool()> &cancelled = {});
     bool publishInterpretiveContourJob(const InterpretiveContourJob &job, QString *error = nullptr);
+
+    // ---- 方向20：三组作业的统一异步面 ---------------------------------
+    // 上面 9 个 prepare/compute/publish 是同一协议的三次重造（各自实现忙则
+    // 互斥、取消接线、进度回包、临时产物清理、失败诚实）。它们一行未改——
+    // 下面的统一面是**新增的等价入口**，把这三组接到 JobRunner 上。
+    //
+    // 三种 job 的字段并不相同（各自有各自的中间产物路径），故用 variant 容纳：
+    // variant 索引即 Kind，compute 段据此分派，commit 段同理。
+    using ConstraintJobVariant = std::variant<LocalDirectionJob, AnalysisContourJob,
+                                              InterpretiveContourJob>;
+    enum class ConstraintJobKind { LocalDirection, AnalysisContour, InterpretiveContour };
+
+    struct ConstraintJob
+    {
+        ConstraintJobKind kind = ConstraintJobKind::LocalDirection;
+        ConstraintJobVariant payload;
+        // 任务标题（现状各调用点的标题文案原样搬过来，避免改 i18n 面）。
+        QString title;
+        // 进度阶段词表：现状各调用点自带的 prepare/geometry/encode 映射在此
+        // 声明式表达，由框架统一节流后经 reportStage 上任务面板。
+        std::function<QString(double)> stageOf;
+    };
+
+    // 各自 job 的三段入口（owner 线程 / worker / owner 线程）。非静态：它们要
+    // 访问 catalog、layers、projectStore。
+    bool prepareConstraintJob(ConstraintJob &job, const QVariantMap &params,
+                              QString *error = nullptr);
+    bool computeConstraintJob(ConstraintJob &job, const std::function<bool()> &cancelled,
+                              const std::function<void(double)> &progress = {});
+    bool publishConstraintJob(const ConstraintJob &job, QString *error = nullptr);
+    // 未成功发布时的临时产物路径（框架 cleanup 钩子用）。
+    static QStringList constraintJobTempPaths(const ConstraintJob &job);
+
+    // owner 线程（catalog 所属线程）调用。runner 与本对象同线程。
+    // 返回 nullptr 表示「忙则拒绝」或任务服务缺席——调用方据此走各自老路径。
+    PaleoTask *startConstraintJob(paleo::jobs::JobRunner<ConstraintJob> &runner,
+                                  ConstraintJob job, QObject *progressSink = nullptr);
 
     DataCatalog *catalog() const;
     QString projectDir() const { return m_projectDir; }

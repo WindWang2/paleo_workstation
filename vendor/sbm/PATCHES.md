@@ -108,6 +108,17 @@ inline/xline 计数由文件内容决定，`inlCount * xlCount`（int）可回�
 读取却抛 EISDIR 的拒绝策略保持不变；原调用方的打开/检查顺序、错误原因、
 CRC/截断与指纹降级逻辑保留。`SgyIndexService.cpp` 不直接读取文件，无同构块。
 
+## P12 · `src/Data/Sgy/SgyCoordinateMapper.cpp` — 中心化最小二乘仿射拟合（#135）
+
+上游 `Fit()` 用未中心化的原始 inline/xline 累加 3×3 法方程、Cramer 法则求解：
+inline/xline ~1e3、投影坐标 ~1e5..1e6 时行列式只有 O(1e2) 而余子式乘积
+O(1e20)，灾难性抵消——精确仿射的 2×4 测网拟出 rms=2 m（FMA 收缩下 6404 m，
+与 CI 逐位一致），5×5 测网被 25 m 门限误拒（`tst_crossplot_samples` 恒红根因）。
+补丁：先对 inline/xline/x/y 去均值，在中心化 2×2 Gram 系统上解斜率、由均值
+回推截距；退化判据改为相对量 `det > 1e-9·sii·sjj`；残差在中心化坐标系计算。
+公开接口/字段语义（a..f、rms/max、拒绝文案）不变。回归：`tests/tst_sgycoordmapper.cpp`。
+宜回馈上游。
+
 ## 编译层适配（非源码补丁）
 
 - `paleo_sbm` 目标加 `-fno-char8_t`（MSVC `/Zc:char8_t-`）：上游 30 处

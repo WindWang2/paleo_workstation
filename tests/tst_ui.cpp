@@ -988,7 +988,8 @@ class TestUiShell : public QObject
       };
       for (const char *name : {"correlationPanel", "editingToolbar",
                                "releasePanel", "attributeTablePanel", "processingButton",
-                               "statusCatalogError"})
+                               "statusCatalogError", "wellSectionDock",
+                               "wellSectionPanel"})
         QCOMPARE(namedCount(name), 1);
       auto *host = m_win->findChild<QWidget *>(QStringLiteral("rightPanelHost"));
       QVERIFY(host);
@@ -999,13 +1000,53 @@ class TestUiShell : public QObject
       QCOMPARE(m_win->findChildren<QDockWidget *>().size(), docksAfterFirst);
       for (const char *name : {"correlationPanel", "editingToolbar",
                                "releasePanel", "attributeTablePanel", "processingButton",
-                               "statusCatalogError"})
+                               "statusCatalogError", "wellSectionDock",
+                               "wellSectionPanel"})
         QCOMPARE(namedCount(name), 1);
       QCOMPARE(static_cast<QStackedLayout *>(host->layout())->count(), 5);
 
       // 不崩的直接证据：二次调用后窗口照常响应页切换。
       m_win->showPage(QStringLiteral("data"));
       QCOMPARE(m_win->currentPage(), QStringLiteral("data"));
+    }
+
+    // goal/wellsection 装配：ribbon 动作 `ribbonWellSectionAction` 触发 →
+    // wellSectionDock 现；数据页收；编图页按用户意愿恢复。
+    void wellSectionDockRibbonAndPageVisibility()
+    {
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                             m_ctx->compositionWf(), m_ctx->validationWf(),
+                             m_ctx->importSvc(), m_ctx->seismicLink(),
+                             m_ctx->processingSvc(), m_ctx->store(),
+                             m_ctx->editingSvc(), m_ctx->layoutSvc(),
+                             m_ctx->taskSvc());
+      auto *dock =
+          m_win->findChild<QDockWidget *>(QStringLiteral("wellSectionDock"));
+      auto *panel =
+          m_win->findChild<QWidget *>(QStringLiteral("wellSectionPanel"));
+      QVERIFY(dock);
+      QVERIFY(panel);
+      QVERIFY(dock->isAncestorOf(panel)); // dock 内层有 scrollHost 包装
+      m_win->show();
+      QTest::qWait(10);
+      auto *act =
+          m_win->findChild<QAction *>(QStringLiteral("ribbonWellSectionAction"));
+      QVERIFY(act);
+      // 三页共享的「连井分析」ribbon 面板在位。
+      for (const char *name : {"ribbonPanel.constraint.correlation",
+                               "ribbonPanel.predict.correlation",
+                               "ribbonPanel.compose.correlation"})
+        QVERIFY2(m_win->findChild<QWidget *>(QLatin1String(name)), name);
+
+      m_win->showPage(QStringLiteral("constraint"));
+      dock->setVisible(false);
+      act->trigger();
+      QVERIFY(dock->isVisible());
+
+      m_win->showPage(QStringLiteral("data"));
+      QVERIFY(!dock->isVisible());
+      m_win->showPage(QStringLiteral("constraint"));
+      QVERIFY(dock->isVisible()); // 用户意愿保留 → 编图页恢复
     }
 
     // 页作用域工具面（用户裁决）：数字化/编辑工具只属于编图链三页

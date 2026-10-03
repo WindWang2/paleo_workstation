@@ -119,6 +119,18 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
   QAction *corrAct = bottomAction(
       corrPanel, tr("测井对比"), icon("mActionElevationProfile.svg"),
       tr("在底部面板对比多口井的测井曲线与分层"), "ribbonCorrelationAction");
+  // 连井剖面 dock 开关（三个编图页共用同一 QAction）。
+  QAction *wellSectionAct = nullptr;
+  if (m_wellSectionDock)
+  {
+    wellSectionAct = newAction(tr("连井剖面"), icon("mLayoutItemElevationProfile.svg"),
+                               tr("按地层连井：多井对比、分层连线与井间地震"),
+                               "ribbonWellSectionAction");
+    connect(wellSectionAct, &QAction::triggered, this, [this] {
+      m_wellSectionDock->setVisible(true);
+      m_wellSectionDock->raise();
+    });
+  }
   QAction *attrAct = bottomAction(findChild<QWidget *>(QStringLiteral("attributeTablePanel")),
                                   tr("属性表"), icon("mActionOpenTable.svg"),
                                   tr("在底部面板打开图层属性表"), "ribbonAttributeTableAction");
@@ -294,6 +306,9 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       });
       large(cp, pSeismic2d);
     }
+    if (wellSectionAct)
+      large(panel(cat, tr("连井分析"), "ribbonPanel.predict.correlation"),
+            wellSectionAct);
     addEditingPanel(cat, editTb);
     navPanel(cat);
     large(panel(cat, tr("结果"), "ribbonPanel.predict.result"), toValidate);
@@ -332,8 +347,12 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     large(ip, mirrored(constraint, "runIdwButton", tr("计算单因素"), icon("mActionStart.svg"),
                        "ribbonRunIdw"),
           true);
-    if (corrAct)
-      large(panel(cat, tr("连井分析"), "ribbonPanel.constraint.correlation"), corrAct);
+    if (wellSectionAct || corrAct)
+    {
+      SARibbonPanel *cp = panel(cat, tr("连井分析"), "ribbonPanel.constraint.correlation");
+      large(cp, wellSectionAct); // 连井剖面排在测井对比之前
+      large(cp, corrAct);
+    }
     addEditingPanel(cat, editTb);
     navPanel(cat);
     large(panel(cat, tr("结果"), "ribbonPanel.constraint.result"), toValidate);
@@ -351,6 +370,9 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     small(p, mirrored(compose, "polygonizeButton", tr("转为相多边形"),
                       icon("mActionCapturePolygon.svg"), "ribbonPolygonize"));
     large(p, paramsAct);
+    if (wellSectionAct)
+      large(panel(cat, tr("连井分析"), "ribbonPanel.compose.correlation"),
+            wellSectionAct);
     addEditingPanel(cat, editTb);
     navPanel(cat);
 

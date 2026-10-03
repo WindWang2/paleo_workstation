@@ -20,6 +20,11 @@ public:
   bool setCalibration(const QString &wellId, bool constant, double velocity,
                       double shiftMs, QString *error);
   std::vector<seismic::SectionWellInfo> sectionWells();
+  // MD 域时深：逐井校正优先（常速校正 → 常速模型），否则主时深表 MD 列严格表；
+  // shift 为校正时间平移。false = 无可用时深，status 写原因
+  // （「无时深表」/「时深表无序或有效样点不足」）。
+  bool mdTimeDepth(const QString &wellId, seismic::TimeDepthModel *model,
+                   double *shiftMs, QString *status);
   std::vector<glm::dvec2> wellRoute(const QStringList &ids, QString *error);
   bool save(const QString &name, const std::vector<glm::dvec2> &route,
             const QString &seismicPath, const QString &horizon, QString *error);

@@ -102,6 +102,29 @@ QVariantList SectionWorkbench::wells() {
   }
   return result;
 }
+bool SectionWorkbench::mdTimeDepth(const QString &wellId,
+                                   seismic::TimeDepthModel *model,
+                                   double *shiftMs, QString *status) {
+  syncProject();
+  const auto c = calibration(wellId);
+  bool ok = false;
+  const auto m = modelFor(wellId, true, &ok);
+  if (!ok) {
+    if (status)
+      *status = m_data.tdTableFor(wellId).isEmpty()
+                    ? tr("无时深表")
+                    : tr("时深表无序或有效样点不足");
+    return false;
+  }
+  if (model)
+    *model = m;
+  if (shiftMs)
+    *shiftMs = c.value("shift").toDouble();
+  if (status)
+    *status =
+        c.value("constant").toBool() ? tr("常速校正") : tr("时深表");
+  return true;
+}
 std::vector<glm::dvec2> SectionWorkbench::wellRoute(const QStringList &ids,
                                                     QString *error) {
   syncProject();

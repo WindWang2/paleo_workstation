@@ -23,6 +23,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   if (m_seismicTaskSvc)
     dock->setTaskService(m_seismicTaskSvc.get());
   auto *workbench = new SectionWorkbench(m_previewDoc->catalog(), this);
+  m_sectionWorkbench = workbench; // 连井剖面共享逐井时深校正
   auto *setup = new SectionSetupDialog(this);
   auto route = std::make_shared<std::vector<glm::dvec2>>();
   auto routeHorizon = std::make_shared<QString>();

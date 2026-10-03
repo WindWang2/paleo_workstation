@@ -41,6 +41,7 @@
 #include "dialogs/folderconfirm.h"
 #include "typedconstraintdrawcontroller.h" // ---- m2(B)：物源线/展布线/控制点（块内接线用）----
 #include "correlationpanel.h"
+#include "wellsection/wellsectionpanel.h"
 #include "datapreview/datapreviewtabs.h"
 #include "../catalog/datacatalog.h"
 #include "horizonchipbar.h"
@@ -693,6 +694,16 @@ void PaleoMainWindow::buildShell()
               qWarning() << "horizon layer declare failed:" << decl.layerId << err;
           });
 
+  // ---- 连井剖面 dock（地层对比图件；默认隐藏，显隐随页规则同底栏）----
+  m_wellSectionDock = new PaleoDockWidget(tr("连井剖面"), this);
+  m_wellSectionDock->setObjectName(QStringLiteral("wellSectionDock"));
+  m_wellSectionPanel = new WellSectionPanel(m_selection, m_wellSectionDock);
+  m_wellSectionPanel->setObjectName(QStringLiteral("wellSectionPanel"));
+  m_wellSectionDock->setWidget(m_wellSectionPanel);
+  addDockWidget(Qt::BottomDockWidgetArea, m_wellSectionDock);
+  m_wellSectionDock->setUserWantsVisible(false);
+  m_wellSectionDock->setProgrammaticVisible(false);
+
   // ---- seismic 3D viewport dock ----
   m_seismic3dDock = new QDockWidget(tr("三维地震视口 (3D)"), this);
   m_seismic3dDock->setObjectName(QStringLiteral("seismic3dDock"));
@@ -1097,6 +1108,8 @@ void PaleoMainWindow::showPage(const QString &pageId)
       m_leftDock->setProgrammaticVisible(false);
     if (m_bottomDock)
       m_bottomDock->setProgrammaticVisible(false);
+    if (m_wellSectionDock)
+      m_wellSectionDock->setProgrammaticVisible(false);
   }
   else
   {
@@ -1105,6 +1118,8 @@ void PaleoMainWindow::showPage(const QString &pageId)
     // W2：任务驱动露出的底栏（m_bottomDockAutoShown）不随切页收回。
     if (m_bottomDock && (m_bottomDock->userWantsVisible() || m_bottomDockAutoShown))
       m_bottomDock->setProgrammaticVisible(true);
+    if (m_wellSectionDock && m_wellSectionDock->userWantsVisible())
+      m_wellSectionDock->setProgrammaticVisible(true);
   }
 
   // 图层平台：页面档案——不同页面激活不同图层组（QgsMapThemeCollection，

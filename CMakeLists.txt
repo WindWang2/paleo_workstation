@@ -919,6 +919,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-well-logset.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-well-trajectory.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-wellcomposite.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-wellsection.cmake"
 )
 foreach(_f IN LISTS _paleo_extra_manifest)
   if(EXISTS "${_f}")

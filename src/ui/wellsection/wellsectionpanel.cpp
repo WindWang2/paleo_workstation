@@ -1,0 +1,829 @@
+// 层：视图
+#include "wellsectionpanel.h"
+
+#include "domain/mappinghorizons.h"
+#include "linkage/selectioncontext.h"
+#include "ui/paleoicons.h"
+#include "ui/paleotheme.h"
+#include "wellsectiondialogs.h"
+
+#include <QActionGroup>
+#include <QFileDialog>
+#include <QGraphicsScene>
+#include <QGridLayout>
+#include <QHBoxLayout>
+#include <QJsonDocument>
+#include <QLabel>
+#include <QMenu>
+#include <QPainter>
+#include <QPdfWriter>
+#include <QPushButton>
+#include <QScrollBar>
+#include <QSettings>
+#include <QTimer>
+#include <QToolButton>
+#include <QVBoxLayout>
+
+#include <QtNumeric>
+#include <cmath>
+
+namespace {
+QSettings panelSettings() { return QSettings(QStringLiteral("paleo"),
+                                             QStringLiteral("paleo")); }
+} // namespace
+
+WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
+    : QWidget(parent), m_ctx(ctx)
+{
+  // 用户设置恢复（读是自由的；写只在用户动作里发生）。
+  {
+    QSettings s = panelSettings();
+    m_themeId = s.value(QStringLiteral("wellSection/theme"),
+                        QStringLiteral("classic")).toString();
+    m_highlightOn =
+        s.value(QStringLiteral("wellSection/highlight"), true).toBool();
+    m_seismicOn =
+        s.value(QStringLiteral("wellSection/seismic"), false).toBool();
+    const QByteArray tj =
+        s.value(QStringLiteral("wellSection/template")).toByteArray();
+    if (!tj.isEmpty())
+      m_tpl = wellsection::SectionTemplate::fromJson(
+          QJsonDocument::fromJson(tj).object());
+    else
+      m_tpl = wellsection::SectionTemplate::defaults();
+  }
+  m_st.theme = wellsection::SectionTheme::byId(m_themeId);
+  m_st.tpl = m_tpl;
+
+  m_scene = new QGraphicsScene(this);
+  m_scene->setBackgroundBrush(m_st.theme.paper);
+  m_view = new wellsectionui::View(&m_st, m_scene, this);
+  m_view->setObjectName(QStringLiteral("wellSectionView"));
+  m_view->setAccessibleName(tr("连井剖面画布"));
+  m_header = new wellsectionui::HeaderWidget(&m_st, this);
+  m_header->setObjectName(QStringLiteral("wellSectionHeader"));
+
+  // ---- 工具行（QWidget + HBox，不用 QToolBar::addWidget——销毁序雷区）----
+  auto *bar = new QWidget(this);
+  bar->setObjectName(QStringLiteral("wellSectionToolBar"));
+  PaleoTheme::applyThemedStyleSheet(bar, [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral(
+               "#wellSectionToolBar { background: %1; border-bottom: 1px solid "
+               "%2; }")
+               .arg(t.surfaceAlt.name(), t.border.name()) +
+           PaleoTheme::toolButtonStyleSheet();
+  });
+  auto *barLay = new QHBoxLayout(bar);
+  barLay->setContentsMargins(4, 2, 4, 2); // spacing.xs
+  barLay->setSpacing(4);
+
+  const auto mkBtn = [bar, barLay](const char *obj, const char *icon,
+                                   const QString &tip) {
+    auto *b = new QToolButton(bar);
+    b->setObjectName(QLatin1String(obj));
+    b->setIcon(PaleoIcons::qgisTheme(QLatin1String(icon)));
+    b->setIconSize(QSize(18, 18));
+    b->setAutoRaise(true);
+    b->setToolTip(tip);
+    b->setAccessibleName(tip);
+    barLay->addWidget(b);
+    return b;
+  };
+
+  m_wellsBtn = mkBtn("wellSectionWellsButton", "mIconPointLayer.svg",
+                     tr("选择连井的井与顺序"));
+  m_tracksBtn = mkBtn("wellSectionTracksButton", "mActionFilterTableFields.svg",
+                      tr("设置显示的井道与参与连井的分层"));
+  m_themeBtn = mkBtn("wellSectionThemeButton", "propertyicons/symbology.svg",
+                     tr("剖面显示主题与高亮"));
+  m_flattenBtn = mkBtn("wellSectionFlattenButton", "mActionAlignTop.svg",
+                       tr("按某一分层拉平剖面"));
+  m_seismicBtn = mkBtn("wellSectionSeismicButton", "mIconRasterLayer.svg",
+                       tr("井间叠加地震剖面（按时深关系自适应缩放）"));
+  m_seismicBtn->setCheckable(true);
+  // 恢复的开/关态落到按钮上（信号用 clicked——setChecked 不触发）。
+  if (m_seismicOn)
+  {
+    m_st.seismicOn = true;
+    m_st.gapPx = qBound(m_st.minGap(), m_st.gapPx, m_st.maxGap());
+  }
+  m_fitBtn = mkBtn("wellSectionFitButton", "mActionZoomFullExtent.svg",
+                   tr("适应窗口（Ctrl+滚轮纵向缩放，Ctrl+Shift+滚轮调整井间距）"));
+  m_exportBtn = mkBtn("wellSectionExportButton", "mActionSaveMapAsImage.svg",
+                      tr("导出剖面图（PNG/PDF）"));
+  barLay->addStretch(1);
+  m_status = new QLabel(bar);
+  m_status->setObjectName(QStringLiteral("wellSectionStatus"));
+  PaleoTheme::applyThemedStyleSheet(
+      m_status, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+  barLay->addWidget(m_status);
+
+  // 主题菜单：三套预设单选 + 高亮开关。
+  m_themeMenu = new QMenu(m_themeBtn);
+  {
+    auto *grp = new QActionGroup(m_themeMenu);
+    grp->setExclusive(true);
+    for (const wellsection::SectionTheme &t : wellsection::SectionTheme::presets())
+    {
+      QAction *a = m_themeMenu->addAction(t.name);
+      a->setObjectName(QStringLiteral("wellSectionTheme_%1").arg(t.id));
+      a->setCheckable(true);
+      a->setData(t.id);
+      grp->addAction(a);
+      const QString id = t.id;
+      connect(a, &QAction::triggered, this,
+              [this, id] { applyThemeFromMenu(id); });
+    }
+    m_themeMenu->addSeparator();
+    m_highlightAct = m_themeMenu->addAction(tr("高亮当前地层"));
+    m_highlightAct->setObjectName(QStringLiteral("wellSectionHighlightAction"));
+    m_highlightAct->setCheckable(true);
+    // 用户点选才写设置（triggered 不响应程序化 setChecked）。
+    connect(m_highlightAct, &QAction::triggered, this, [this](bool on) {
+      setHighlightEnabled(on);
+      panelSettings().setValue(QStringLiteral("wellSection/highlight"), on);
+    });
+  }
+  m_themeBtn->setMenu(m_themeMenu);
+  m_themeBtn->setPopupMode(QToolButton::InstantPopup);
+
+  // 拉平菜单：不拉平 + 剖面全部顶名。
+  m_flattenMenu = new QMenu(m_flattenBtn);
+  connect(m_flattenMenu, &QMenu::aboutToShow, this, [this] {
+    m_flattenMenu->clear();
+    QAction *off = m_flattenMenu->addAction(tr("不拉平"));
+    off->setCheckable(true);
+    off->setChecked(m_flattenTop.isEmpty());
+    connect(off, &QAction::triggered, this,
+            [this] { setFlattenTop(QString()); });
+    for (const QString &name : wellsection::orderedTopNames(m_st.wells))
+    {
+      QAction *a = m_flattenMenu->addAction(name);
+      a->setCheckable(true);
+      a->setChecked(name == m_flattenTop);
+      connect(a, &QAction::triggered, this,
+              [this, name] { setFlattenTop(name); });
+    }
+  });
+  m_flattenBtn->setMenu(m_flattenMenu);
+  m_flattenBtn->setPopupMode(QToolButton::InstantPopup);
+  m_flattenBtn->setCheckable(true); // 拉平期间按钮呈按下态
+
+  connect(m_wellsBtn, &QToolButton::clicked, this,
+          [this] { openWellsDialog(); });
+  connect(m_tracksBtn, &QToolButton::clicked, this,
+          [this] { openTracksDialog(); });
+  // 用户点击才写设置并发起地震请求（clicked 不响应程序化 setChecked）。
+  connect(m_seismicBtn, &QToolButton::clicked, this, [this](bool on) {
+    m_seismicOn = on;
+    m_st.seismicOn = on;
+    m_st.gapPx = qBound(m_st.minGap(), m_st.gapPx, m_st.maxGap());
+    panelSettings().setValue(QStringLiteral("wellSection/seismic"), on);
+    syncGapToolTips();
+    applyLayout(); // 地震开时井间距下限变大
+    if (on && m_wells.size() >= 2)
+      emit seismicRequested();
+  });
+  connect(m_fitBtn, &QToolButton::clicked, this, [this] { fitToView(); });
+  connect(m_exportBtn, &QToolButton::clicked, this, [this] {
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("导出剖面图"), QString(),
+        tr("PNG 图片 (*.png);;PDF 文档 (*.pdf)"));
+    if (!path.isEmpty())
+      exportTo(path);
+  });
+
+  // ---- 版头 + 视图 + 空态（同格叠加）----
+  connect(m_view->horizontalScrollBar(), &QScrollBar::valueChanged, m_header,
+          &wellsectionui::HeaderWidget::setScrollOffset);
+  connect(m_view, &wellsectionui::View::depthZoomRequested, this,
+          [this](double f, double anchorDepth, int vpY) {
+            m_autofit = false;
+            m_st.pxPerMeter = qBound(0.02, m_st.pxPerMeter * f, 40.0);
+            ++m_st.curveVersion;
+            applyLayout();
+            const double newY =
+                (anchorDepth - m_st.window.top) * m_st.pxPerMeter;
+            m_view->verticalScrollBar()->setValue(int(newY - vpY));
+          });
+  connect(m_view, &wellsectionui::View::gapZoomRequested, this,
+          [this](double f) {
+            m_autofit = false;
+            m_st.gapPx = qBound(m_st.minGap(), m_st.gapPx * f,
+                                m_st.maxGap());
+            applyLayout();
+          });
+  // resize 里重布局会把 LayoutRequest 递归进 posted 事件投递——refit
+  // 挪到事件循环下一拍，且连发 resize 合并成一次（拉伸不抖、不堆重绘）。
+  connect(m_view, &wellsectionui::View::viewportResized, this, [this] {
+    if (m_refitPending || !m_autofit || m_st.wells.isEmpty())
+      return;
+    m_refitPending = true;
+    QTimer::singleShot(0, this, [this] {
+      m_refitPending = false;
+      if (m_autofit && !m_st.wells.isEmpty())
+        fitToView();
+    });
+  });
+  connect(m_view, &wellsectionui::View::hoverChanged, this,
+          [this](const QString &text) {
+            m_hoverText = text;
+            updateStatus();
+          });
+  const auto selectAt = [this](int i) {
+    if (i < 0 || i >= m_wells.size())
+      return;
+    m_selectedId = m_wells[i].id;
+    m_st.selected = i;
+    m_header->update();
+    m_view->viewport()->update();
+    if (m_ctx)
+      m_ctx->setSelection({m_selectedId}, QStringLiteral("wellsection"));
+    emit wellClicked(m_selectedId);
+  };
+  connect(m_view, &wellsectionui::View::columnClicked, this, selectAt);
+  connect(m_header, &wellsectionui::HeaderWidget::wellClicked, this, selectAt);
+  connect(m_header, &wellsectionui::HeaderWidget::reorderRequested, this,
+          [this](int from, int to) { moveWell(from, to); });
+  connect(m_header, &wellsectionui::HeaderWidget::removeRequested, this,
+          [this](int i) { removeWellAt(i); });
+
+  auto *lay = new QVBoxLayout(this);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->setSpacing(0);
+  lay->addWidget(bar);
+  lay->addWidget(m_header);
+  auto *cell = new QGridLayout;
+  cell->setContentsMargins(0, 0, 0, 0);
+  cell->setSpacing(0);
+  cell->addWidget(m_view, 0, 0);
+
+  m_empty = new QWidget(this);
+  m_empty->setObjectName(QStringLiteral("wellSectionEmpty"));
+  PaleoTheme::applyThemedStyleSheet(m_empty, [] {
+    return QStringLiteral("#wellSectionEmpty { background: %1; }")
+        .arg(PaleoTheme::tokens().surface.name());
+  });
+  auto *emptyLay = new QVBoxLayout(m_empty);
+  auto *emptyLabel = new QLabel(tr("选择两口以上的井，按地层建立连井剖面"),
+                                m_empty);
+  emptyLabel->setObjectName(QStringLiteral("wellSectionEmptyLabel"));
+  emptyLabel->setAlignment(Qt::AlignCenter);
+  PaleoTheme::applyThemedStyleSheet(
+      emptyLabel, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+  auto *pick = new QPushButton(tr("选择井"), m_empty);
+  pick->setObjectName(QStringLiteral("wellSectionEmptyPickButton"));
+  connect(pick, &QPushButton::clicked, this, [this] { openWellsDialog(); });
+  emptyLay->addStretch(1);
+  emptyLay->addWidget(emptyLabel, 0, Qt::AlignHCenter);
+  emptyLay->addSpacing(8);
+  emptyLay->addWidget(pick, 0, Qt::AlignHCenter);
+  emptyLay->addStretch(1);
+  cell->addWidget(m_empty, 0, 0);
+  lay->addLayout(cell, 1);
+
+  m_header->setVisible(false);
+
+  if (m_ctx)
+  {
+    connect(m_ctx, &SelectionContext::selectionChanged, this,
+            [this](const QStringList &ids, const QString &origin) {
+              if (origin != QLatin1String("wellsection"))
+                updateSelection(ids, origin);
+            });
+    connect(m_ctx, &SelectionContext::activeHorizonChanged, this,
+            [this](const QString &) {
+              updateHighlight();
+              ensureActiveIntervalVisible();
+            });
+  }
+  syncToolbarState();
+  updateStatus();
+}
+
+void WellSectionPanel::setWellChoices(const QVector<WellChoice> &choices)
+{
+  m_choices = choices;
+}
+
+void WellSectionPanel::setMnemonicChoices(const QStringList &mnemonics)
+{
+  m_mnemonicChoices = mnemonics;
+}
+
+void WellSectionPanel::setWellIds(const QStringList &ids)
+{
+  // 程序化恢复：发数据请求但不发 wellIdsChanged（持久化只记用户改动）。
+  m_ids = ids;
+  m_wells.clear();
+  clearStrip();
+  rebuildFiltered();
+  rebuildItems();
+  emit dataRequested(m_ids, m_tpl.mnemonics());
+}
+
+void WellSectionPanel::setSection(const QVector<wellsection::Well> &wells)
+{
+  m_wells = wells;
+  m_ids.clear();
+  for (const auto &w : m_wells)
+    m_ids << w.id;
+  clearStrip();
+  rebuildFiltered();
+  rebuildItems();
+  m_empty->setVisible(m_wells.isEmpty() && !m_busy);
+  m_header->setVisible(!m_wells.isEmpty());
+  updateHighlight();
+  updateStatus();
+  if (m_autofit)
+    fitToView();
+  else
+    applyLayout();
+  syncToolbarState();
+  if (m_seismicOn && m_wells.size() >= 2)
+    emit seismicRequested();
+}
+
+void WellSectionPanel::setSeismicStrip(const wellsection::SeismicStrip &strip)
+{
+  if (strip.gaps.size() != m_wells.size() - 1)
+    return; // 与当前井集不符 → 丢弃
+  m_st.strip = strip;
+  ++m_st.stripVersion;
+  syncGapToolTips();
+  for (auto *g : m_gapItems)
+    g->update();
+  m_view->viewport()->update();
+}
+
+void WellSectionPanel::setSeismicAvailable(bool available,
+                                           const QString &reason)
+{
+  m_seismicAvailable = available;
+  m_seismicReason = reason;
+  syncToolbarState();
+}
+
+void WellSectionPanel::setBusy(bool busy)
+{
+  m_busy = busy;
+  m_empty->setVisible(m_wells.isEmpty() && !m_busy);
+  updateStatus();
+}
+
+void WellSectionPanel::setWarnings(const QStringList &warnings)
+{
+  m_warnings = warnings;
+  updateStatus();
+}
+
+void WellSectionPanel::setSectionTemplate(const wellsection::SectionTemplate &t)
+{
+  const bool mnemonicsChanged = t.mnemonics() != m_tpl.mnemonics();
+  m_tpl = t;
+  rebuildFiltered();
+  applyLayout();
+  m_header->update();
+  if (mnemonicsChanged)
+    emit dataRequested(m_ids, m_tpl.mnemonics());
+}
+
+void WellSectionPanel::setThemeId(const QString &id)
+{
+  m_themeId = wellsection::SectionTheme::byId(id).id;
+  m_st.theme = wellsection::SectionTheme::byId(m_themeId);
+  m_scene->setBackgroundBrush(m_st.theme.paper);
+  applyLayout();
+  m_header->update();
+  syncToolbarState();
+}
+
+void WellSectionPanel::setHighlightEnabled(bool on)
+{
+  m_highlightOn = on;
+  if (m_highlightAct)
+  {
+    const QSignalBlocker b(m_highlightAct); // 程序化同步不发 triggered
+    m_highlightAct->setChecked(on);
+  }
+  updateHighlight();
+  updateStatus();
+}
+
+void WellSectionPanel::setSeismicEnabled(bool on)
+{
+  if (m_seismicOn == on)
+    return;
+  m_seismicOn = on;
+  m_st.seismicOn = on;
+  if (m_seismicBtn)
+  {
+    const QSignalBlocker b(m_seismicBtn); // 程序化同步不发 clicked
+    m_seismicBtn->setChecked(on);
+  }
+  m_st.gapPx = qBound(m_st.minGap(), m_st.gapPx, m_st.maxGap());
+  syncGapToolTips();
+  applyLayout();
+  if (on && m_wells.size() >= 2)
+    emit seismicRequested();
+}
+
+void WellSectionPanel::setFlattenTop(const QString &top)
+{
+  m_flattenTop = top;
+  rebuildFiltered();
+  applyLayout();
+  if (m_autofit)
+    fitToView();
+  syncToolbarState();
+}
+
+void WellSectionPanel::fitToView()
+{
+  m_autofit = true;
+  const int vh = m_view->viewport()->height();
+  const int vw = m_view->viewport()->width();
+  const double span = m_st.window.base - m_st.window.top;
+  const double ppm = (vh > 4 && span > 0) ? vh / span : m_st.pxPerMeter;
+  if (ppm != m_st.pxPerMeter)
+  {
+    m_st.pxPerMeter = ppm;
+    ++m_st.curveVersion; // 曲线几何变了才重建路径——只拉宽不动路径
+  }
+  const int n = m_st.wells.size();
+  if (n >= 2 && vw > 0)
+  {
+    const double g =
+        (vw - 2.0 * m_st.margin - n * m_st.columnWidth()) / (n - 1);
+    m_st.gapPx = qBound(m_st.minGap(), g, m_st.maxGap());
+  }
+  applyLayout();
+  m_view->verticalScrollBar()->setValue(0);
+  m_view->horizontalScrollBar()->setValue(0);
+}
+
+QImage WellSectionPanel::renderImage(double scale) const
+{
+  const double w = m_st.sceneWidth();
+  const double bodyH = m_st.sceneHeight();
+  const double headerH = m_header ? m_header->headerHeight()
+                                  : wellsectionui::HeaderWidget::kHeight;
+  const double h = headerH + bodyH;
+  QImage img(qMax(1, int(std::ceil(w * scale))),
+             qMax(1, int(std::ceil(h * scale))),
+             QImage::Format_ARGB32_Premultiplied);
+  img.fill(m_st.theme.paper);
+  QPainter p(&img);
+  p.setRenderHint(QPainter::Antialiasing);
+  p.scale(scale, scale);
+  m_header->paintContents(&p, 0.0);
+  m_scene->render(&p, QRectF(0, headerH, w, bodyH), QRectF(0, 0, w, bodyH));
+  return img;
+}
+
+bool WellSectionPanel::exportTo(const QString &path) const
+{
+  if (path.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive))
+  {
+    const double w = m_st.sceneWidth();
+    const double headerH = m_header ? m_header->headerHeight()
+                                    : wellsectionui::HeaderWidget::kHeight;
+    const double h = headerH + m_st.sceneHeight();
+    QPdfWriter writer(path);
+    writer.setResolution(96); // 1 图素 = 1/96 in → 页按图幅定制
+    writer.setPageSize(QPageSize(QSizeF(w * 72.0 / 96.0, h * 72.0 / 96.0),
+                                 QPageSize::Point));
+    QPainter p(&writer);
+    if (!p.isActive())
+      return false;
+    p.setRenderHint(QPainter::Antialiasing);
+    m_header->paintContents(&p, 0.0);
+    m_scene->render(&p, QRectF(0, headerH, w, m_st.sceneHeight()),
+                    QRectF(0, 0, w, m_st.sceneHeight()));
+    return true;
+  }
+  return renderImage(1.0).save(path);
+}
+
+// ---- 测试钩子 ----
+int WellSectionPanel::linkCount() const
+{
+  int n = 0;
+  for (int i = 0; i + 1 < m_st.wells.size(); ++i)
+    n += wellsection::links(m_st.wells[i], m_st.wells[i + 1]).size();
+  return n;
+}
+
+QString WellSectionPanel::highlightedFormation() const
+{
+  if (m_st.activeTop.isEmpty())
+    return QString();
+  for (const auto &w : m_st.wells)
+    if (std::isfinite(w.topMd(m_st.activeTop)))
+      return m_st.activeTop;
+  return QString();
+}
+
+bool WellSectionPanel::isWellSelected(const QString &id) const
+{
+  return !id.isEmpty() && m_selectedId == id;
+}
+
+qreal WellSectionPanel::topLineY(const QString &wellId,
+                                 const QString &top) const
+{
+  for (int i = 0; i < m_st.wells.size(); ++i)
+    if (m_st.wells[i].id == wellId)
+    {
+      const double md = m_st.wells[i].topMd(top);
+      return std::isfinite(md) ? m_st.yForMd(i, md) : qQNaN();
+    }
+  return qQNaN();
+}
+
+QString WellSectionPanel::gapReason(int gap) const
+{
+  return (gap >= 0 && gap < m_st.strip.gaps.size())
+             ? m_st.strip.gaps[gap].reason
+             : QString();
+}
+
+QString WellSectionPanel::statusText() const
+{
+  return m_status ? m_status->text() : QString();
+}
+
+// ---- 内部 ----
+void WellSectionPanel::rebuildFiltered()
+{
+  m_st.wells = wellsection::filterTops(m_wells, m_tpl);
+  m_st.offsets.clear();
+  for (const auto &w : m_st.wells)
+    m_st.offsets << wellsection::flattenOffset(w, m_flattenTop);
+  m_st.window = wellsection::depthWindow(m_st.wells, m_flattenTop);
+  m_st.zoneOrder = wellsection::orderedTopNames(m_st.wells);
+  m_st.tpl = m_tpl;
+  m_st.seismicOn = m_seismicOn;
+  m_st.selected = -1;
+  for (int i = 0; i < m_st.wells.size(); ++i)
+    if (m_st.wells[i].id == m_selectedId)
+      m_st.selected = i;
+  ++m_st.curveVersion; // 井集/偏移/窗口可能变 → 曲线路径重建
+  updateHighlight();
+}
+
+void WellSectionPanel::rebuildItems()
+{
+  // 井集变化才重建项；布局参数变化只走 relayout。
+  for (auto *it : m_colItems)
+    delete it;
+  for (auto *it : m_gapItems)
+    delete it;
+  m_colItems.clear();
+  m_gapItems.clear();
+  for (int i = 0; i < m_st.wells.size(); ++i)
+  {
+    auto *col = new wellsectionui::ColumnItem(&m_st, i);
+    m_scene->addItem(col);
+    m_colItems << col;
+    if (i + 1 < m_st.wells.size())
+    {
+      auto *gap = new wellsectionui::GapItem(&m_st, i);
+      gap->setZValue(-1); // 缝内容不压列框
+      m_scene->addItem(gap);
+      m_gapItems << gap;
+    }
+  }
+  applyLayout();
+}
+
+void WellSectionPanel::syncGapToolTips()
+{
+  // 缝 tooltip 随状态变（缝无效原因），paint 里不改 item 状态。
+  for (int i = 0; i < m_gapItems.size(); ++i)
+  {
+    const wellsection::SeismicGap *g =
+        i < m_st.strip.gaps.size() ? &m_st.strip.gaps[i] : nullptr;
+    m_gapItems[i]->setToolTip(
+        (m_st.seismicOn && g && !g->valid()) ? g->reason : QString());
+  }
+}
+
+void WellSectionPanel::applyLayout()
+{
+  ++m_st.layoutVersion;
+  for (auto *it : m_colItems)
+    it->relayout();
+  for (auto *it : m_gapItems)
+    it->relayout();
+  const QRectF r(0, 0, m_st.sceneWidth(), m_st.sceneHeight());
+  if (m_scene->sceneRect() != r)
+    m_scene->setSceneRect(r);
+  syncGapToolTips();
+  if (m_header)
+    m_header->relayout(); // 道宽/模板可能改题注行数 → 动态版头高
+}
+
+void WellSectionPanel::updateStatus()
+{
+  if (!m_status)
+    return;
+  if (m_busy)
+  {
+    m_status->setText(tr("正在读取测井…"));
+    m_status->setToolTip(QString());
+  }
+  else if (!m_hoverText.isEmpty())
+    m_status->setText(m_hoverText);
+  else if (!m_warnings.isEmpty())
+  {
+    m_status->setText(tr("%1 条提示").arg(m_warnings.size()));
+    m_status->setToolTip(m_warnings.join(QLatin1Char('\n')));
+  }
+  else if (m_wells.size() == 1)
+  {
+    m_status->setText(tr("再选一口井即可连井"));
+    m_status->setToolTip(QString());
+  }
+  else if (m_wells.size() >= 2)
+  {
+    QString s = tr("%1 口井").arg(m_wells.size());
+    if (!highlightedFormation().isEmpty())
+    {
+      s += tr(" · 高亮 %1").arg(m_st.activeTop);
+      if (!m_st.baseTop.isEmpty())
+        s += QStringLiteral("–%1").arg(m_st.baseTop);
+    }
+    m_status->setText(s);
+    m_status->setToolTip(QString());
+  }
+  else
+  {
+    m_status->setText(QString());
+    m_status->setToolTip(QString());
+  }
+}
+
+void WellSectionPanel::updateSelection(const QStringList &ids,
+                                       const QString &)
+{
+  QString pick;
+  for (const QString &id : ids)
+    if (m_ids.contains(id))
+    {
+      pick = id;
+      break;
+    }
+  m_selectedId = pick;
+  m_st.selected = -1;
+  for (int i = 0; i < m_st.wells.size(); ++i)
+    if (m_st.wells[i].id == pick)
+      m_st.selected = i;
+  m_header->update();
+  m_view->viewport()->update();
+}
+
+void WellSectionPanel::updateHighlight()
+{
+  const QString active =
+      (m_highlightOn && m_ctx) ? m_ctx->activeHorizon() : QString();
+  m_st.activeTop = active;
+  m_st.baseTop = active.isEmpty() ? QString() : baseHorizonFor(active);
+  for (auto *it : m_colItems)
+    it->update();
+  for (auto *it : m_gapItems)
+    it->update();
+  m_view->viewport()->update();
+  updateStatus(); // 状态行带「高亮 X–Y」
+}
+
+void WellSectionPanel::clearStrip()
+{
+  m_st.strip = wellsection::SeismicStrip();
+  ++m_st.stripVersion;
+}
+
+void WellSectionPanel::moveWell(int from, int to)
+{
+  if (from < 0 || from >= m_wells.size() || to < 0 || to >= m_wells.size() ||
+      from == to)
+    return;
+  m_wells.move(from, to);
+  m_ids.move(from, to);
+  clearStrip();
+  rebuildFiltered();
+  applyLayout(); // 井集数量未变：不重建项
+  emit wellIdsChanged(m_ids);
+  if (m_seismicOn && m_wells.size() >= 2)
+    emit seismicRequested();
+}
+
+void WellSectionPanel::removeWellAt(int index)
+{
+  if (index < 0 || index >= m_wells.size())
+    return;
+  m_wells.removeAt(index);
+  m_ids.removeAt(index);
+  clearStrip();
+  rebuildFiltered();
+  rebuildItems();
+  m_empty->setVisible(m_wells.isEmpty() && !m_busy);
+  m_header->setVisible(!m_wells.isEmpty());
+  updateStatus();
+  emit wellIdsChanged(m_ids);
+  if (m_seismicOn && m_wells.size() >= 2)
+    emit seismicRequested();
+}
+
+void WellSectionPanel::openWellsDialog()
+{
+  WellSectionWellsDialog dlg(m_choices, m_ids,
+                             m_ctx ? m_ctx->selectedIds() : QStringList(),
+                             this);
+  if (dlg.exec() != QDialog::Accepted)
+    return;
+  const QStringList ids = dlg.selectedIds();
+  if (ids == m_ids)
+    return;
+  m_ids = ids;
+  m_wells.clear();
+  clearStrip();
+  rebuildFiltered();
+  rebuildItems();
+  emit wellIdsChanged(m_ids);
+  emit dataRequested(m_ids, m_tpl.mnemonics());
+}
+
+void WellSectionPanel::openTracksDialog()
+{
+  WellSectionTracksDialog dlg(m_tpl, m_mnemonicChoices, this);
+  dlg.setTopNames(wellsection::orderedTopNames(m_wells));
+  if (dlg.exec() != QDialog::Accepted)
+    return;
+  applyTemplateFromDialog(dlg.result());
+}
+
+void WellSectionPanel::applyThemeFromMenu(const QString &id)
+{
+  setThemeId(id);
+  panelSettings().setValue(QStringLiteral("wellSection/theme"), m_themeId);
+}
+
+void WellSectionPanel::applyTemplateFromDialog(
+    const wellsection::SectionTemplate &t)
+{
+  setSectionTemplate(t);
+  panelSettings().setValue(
+      QStringLiteral("wellSection/template"),
+      QJsonDocument(m_tpl.toJson()).toJson(QJsonDocument::Compact));
+}
+
+void WellSectionPanel::syncToolbarState()
+{
+  if (m_seismicBtn)
+  {
+    m_seismicBtn->setEnabled(m_seismicAvailable);
+    m_seismicBtn->setToolTip(
+        m_seismicAvailable
+            ? tr("井间叠加地震剖面（按时深关系自适应缩放）")
+            : (m_seismicReason.isEmpty()
+                   ? tr("先在「数据管理」导入带坐标的地震体")
+                   : m_seismicReason));
+    const QSignalBlocker b(m_seismicBtn); // 恢复态同步不触发用户路径
+    m_seismicBtn->setChecked(m_seismicOn);
+  }
+  if (m_flattenBtn)
+    m_flattenBtn->setChecked(!m_flattenTop.isEmpty());
+  if (m_themeMenu)
+    for (QAction *a : m_themeMenu->actions())
+      if (a->isCheckable() && !a->data().isNull())
+        a->setChecked(a->data().toString() == m_themeId);
+  if (m_highlightAct)
+    m_highlightAct->setChecked(m_highlightOn);
+}
+
+void WellSectionPanel::ensureActiveIntervalVisible()
+{
+  if (m_st.activeTop.isEmpty())
+    return;
+  for (int i = 0; i < m_st.wells.size(); ++i)
+  {
+    const auto iv = wellsection::formationInterval(m_st.wells[i],
+                                                   m_st.activeTop,
+                                                   m_st.baseTop);
+    if (!iv.valid())
+      continue;
+    const double y0 = m_st.yForMd(i, iv.topMd);
+    const double y1 = iv.hasBase() ? m_st.yForMd(i, iv.baseMd) : y0;
+    const QRectF vis =
+        m_view->mapToScene(m_view->viewport()->rect()).boundingRect();
+    if (y1 < vis.top() || y0 > vis.bottom())
+    {
+      const double yMid = (y0 + y1) * 0.5;
+      m_view->verticalScrollBar()->setValue(
+          int(yMid - m_view->viewport()->height() * 0.5));
+    }
+    return; // 只看第一口有该层的井
+  }
+}

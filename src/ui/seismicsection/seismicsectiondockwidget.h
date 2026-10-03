@@ -60,6 +60,7 @@ public:
                         const std::vector<glm::dvec2> &mapCoords = {});
 
     void setTimeOriginMs(double value) { m_timeOriginMs = value; }
+    double timeOriginMs() const { return m_timeOriginMs; }
     void setTaskService(SeismicTaskService *service) {
       m_taskService = service;
     }

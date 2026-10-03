@@ -766,6 +766,10 @@ PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &to
     const QVector<double> &depth = curves.at(0).values;
     const QVector<double> &vals = curves.at(ref.column).values;
     const int n = static_cast<int>(std::min(depth.size(), vals.size()));
+    // #166：深度道单位 → 米制 MD（轨迹/层位都是米）。FT 族 ×0.3048；
+    // 空/未知单位沿用旧口径按米处理。
+    const double unitScale = LasParser::depthUnitToMeters(curves.at(0).unit);
+    const double mdScale = unitScale > 0.0 ? unitScale : 1.0;
     struct Sample
     {
       double md = 0;
@@ -776,7 +780,7 @@ PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &to
     bool anyFinite = false;
     for (int i = 0; i < n; ++i)
     {
-      const double md = depth.at(i);
+      const double md = depth.at(i) * mdScale;
       if (!std::isfinite(md))
         continue;
       const double value = vals.at(i);

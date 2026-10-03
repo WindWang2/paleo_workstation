@@ -10,7 +10,7 @@
 | feat(algorithms) | 公式核库 `src/algorithms/petrophys.{h,cpp}`：Vsh 四变体（线性/Larionov 年轻·老/Clavier，共用 IGR 钳 [0,1]）+ 孔隙度三法（密度/中子 %→v/v/声波 Wyllie 含 Cp）+ Archie（a/m/n/Rw 显式，φ 曲线或密度内联）+ 深度线性重采样（不外推/缺失不跨接）+ QC（curveStats 样本标准差/anomalyIntervals NaN 断段）。逐条公式注释出处（Larionov 1969/Clavier 1971/Wyllie 1956/Archie 1942，AK04 转引）。数值单测 16 例（解析常数 python 预算，容差写因由） |
 | feat(algorithms) | 曲线计算器 `src/algorithms/curveexpr.{h,cpp}`：递归下降自研（vendor/系统零表达式库）——四则/^ 右结合（-2^2=−4）/比较/逻辑/where·min·max·clamp·ln 等函数/科学计数；NaN 三值逻辑（比较遇 null → NaN 非 false）；除零 IEEE 如实。编译一次逐井复用。测试 10 例（null 传播 4 路 + 报错路径 9 断言含 offset） |
 | feat(io) | LAS 写出器 `src/io/laswriter.{h,cpp}`：本仓首个 LAS 出向路径（~V/~W/~C/~A 完整 2.0，QSaveFile 原子落盘，NaN→NULL token 与读侧 NaN 语义闭环）；解析器契约零改动 |
-| feat(services) | 批处理 `PetroPhysTaskService`（petrophyscomputeservice.{h,cpp}）：井集→LasCache 载入→逐井公式/表达式→QC→产物 LAS 经 `PaleoProjectStore::enqueueWrite` 单写者队列落盘→任务终态后服务线程 catalog DERIVED 登记（asset `petrophys_<公式>_<井id>`，parent=源 RAW 版本，extra 记参数/基线实取值/统计/QC）。井间协作取消（部分成果如实交付并登记）、井粒度单调进度、`resolveWellLas`（well 实体→well_log 主链接→currentVersion）。测试 8 例：解析断言批/产物读回闭环/catalog 四表断言/写队列信号证据/进度单调/40 井中途取消/表达式双井含未知曲线失败路径/QC 数值/Archie 内联/解析缺井 |
+| feat(services) | 批处理 `PetroPhysTaskService`（petrophyscomputeservice.{h,cpp}）：井集→LasCache 载入→逐井公式/表达式→QC→产物 LAS 经 `PaleoProjectStore::enqueueWrite` 单写者队列落盘→任务终态后服务线程 catalog DERIVED 登记（asset `petrophys_<公式>_<助记符>_<井id>`，parent=源 RAW 版本，extra 记参数/基线实取值/统计/QC）。井间协作取消（部分成果如实交付并登记）、井粒度单调进度、`resolveWellLas`（well 实体→well_log 主链接→currentVersion）。测试 8 例：解析断言批/产物读回闭环/catalog 四表断言/写队列信号证据/进度单调/40 井中途取消/表达式双井含未知曲线失败路径/QC 数值/Archie 内联/解析缺井 |
 | feat(ui) | 参数面板 `src/ui/correlation/petrophyspanel.{h,cpp}`（表单→意图信号，文献预填值 tooltip 注出处；Rw 必填不臆造）+ `WellCorrelationPanel::mergeComputedCurves`（结果曲线进曲线集，上轨由勾选驱动）+ 壳层编排（paleomainwindow_attach：井集解析→批任务→DERIVED 登记→曲线并回）。offscreen 面板测试 6 例 |
 | test(perf) | `tst_petrophysperf`：20 井 × 15,580 行（A1.Las 同形状）批跑实测 + A1 真文件冒烟（脱敏桩全空列 → 诚实全 NaN 传播断言） |
 
@@ -33,7 +33,7 @@
    登记推迟到任务终态服务线程（catalog 非线程安全，worker 不碰）。取消时
    已完成井产物保留并登记（部分成果如实交付），batch 标 cancelled。
 6. **登记形态**：外链产物（managed=false + sha256，seismic 派生同例）；
-   asset `petrophys_<公式短名>_<井id>`（幂等复用）；type well_log/format
+   asset `petrophys_<公式短名>_<输出助记符小写>_<井id>`（幂等复用；重算追加版本、versionNumber 递增、产物重名追加 `_2/_3…` 不覆盖旧版本、井链接去重，#157）；type well_log/format
    las——既有井资产面（曲线浏览/连井重导入路径）天然可见；link role
    well_log 非主（不抢源 LAS 主链接）；version parent 回指源 RAW。
 7. **Archie φ 来源双路**：显式曲线名（canonical 等价匹配）或 ρma/ρf 密度

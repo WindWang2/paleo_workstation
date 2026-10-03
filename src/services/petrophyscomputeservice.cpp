@@ -13,6 +13,7 @@
 #include "catalog/datacatalog.h"
 #include "io/lasalias.h"
 #include "io/lascache.h"
+#include "io/lasparser.h"
 #include "io/laswriter.h"
 #include "metadata/paleoprojectstore.h"
 #include "paleotaskservice.h"
@@ -401,6 +402,19 @@ bool depthUsable(const QVector<double> &depth)
   return true;
 }
 
+// #166：把副文件深度乘以该系数即换到 driver 深度单位。两边单位都可识别 →
+// 换算比；单位字面相同（含都为空）→ 1；否则 NaN（未知，调用方按同单位处理并告警）。
+double depthFactorToDriver(const QString &fileUnit, const QString &driverUnit)
+{
+  const double f = LasParser::depthUnitToMeters(fileUnit);
+  const double d = LasParser::depthUnitToMeters(driverUnit);
+  if (f > 0.0 && d > 0.0)
+    return f / d;
+  if (fileUnit.trimmed().compare(driverUnit.trimmed(), Qt::CaseInsensitive) == 0)
+    return 1.0;
+  return kNan;
+}
+
 // 源深度须已通过 depthUsable。网格点在源范围外为 NaN，不外推。
 double sampleAt(const QVector<double> &depth, const QVector<double> &values, double t)
 {
@@ -525,8 +539,28 @@ bool loadWellCurves(const PetroPhysTaskService::WellRef &well, const WellMergePl
     std::stable_sort(pieces.begin(), pieces.end(),
                      [](const CurvePiece &a, const CurvePiece &b) { return a.column < b.column; });
     const LasDoc doc = LasCache::shared().load(path);
-    const bool usable = doc.ok && !doc.curves.isEmpty() && depthUsable(doc.curves.at(0).values);
-    const QVector<double> srcDepth = usable ? doc.curves.at(0).values : QVector<double>();
+    // #166：副文件深度换到 driver 深度单位后再插值（M/FT 混用的 logset 不错位）；
+    // 降序深度（STEP<0）先整体反转，而非静默判不可用全 NaN。
+    QVector<double> srcDepth = doc.ok && !doc.curves.isEmpty() ? doc.curves.at(0).values
+                                                               : QVector<double>();
+    const bool descending = srcDepth.size() > 1 && srcDepth.first() > srcDepth.last();
+    if (descending)
+      std::reverse(srcDepth.begin(), srcDepth.end());
+    if (!srcDepth.isEmpty())
+    {
+      const QString fileUnit = doc.curves.at(0).unit;
+      const double factor = depthFactorToDriver(fileUnit, driver.curves.at(0).unit);
+      if (std::isnan(factor))
+        qWarning("petrophys merge: depth unit '%s' of %s vs driver '%s' unknown — assuming same unit",
+                 qPrintable(fileUnit), qPrintable(path), qPrintable(driver.curves.at(0).unit));
+      else if (factor != 1.0)
+        for (double &d : srcDepth)
+          d *= factor;
+    }
+    const bool usable = depthUsable(srcDepth);
+    if (!usable && doc.ok)
+      qWarning("petrophys merge: depth of %s is not strictly monotonic/finite — curves left NaN",
+               qPrintable(path));
     for (const CurvePiece &piece : pieces)
     {
       LasCurve curve;
@@ -537,8 +571,11 @@ bool loadWellCurves(const PetroPhysTaskService::WellRef &well, const WellMergePl
         const LasCurve &src = doc.curves.at(piece.column);
         curve.unit = src.unit;
         curve.descr = src.descr;
+        QVector<double> srcValues = src.values;
+        if (descending)
+          std::reverse(srcValues.begin(), srcValues.end());
         for (int i = 0; i < n; ++i)
-          curve.values[i] = sampleAt(srcDepth, src.values, grid.at(i));
+          curve.values[i] = sampleAt(srcDepth, srcValues, grid.at(i));
       }
       merged.append(curve);
     }
@@ -920,8 +957,12 @@ QString PetroPhysTaskService::registerComputedCurveAsset(DataCatalog *catalog,
                                                          const WellResult &r,
                                                          QString *error)
 {
-  const QString id = QStringLiteral("petrophys_%1_%2")
-                         .arg(formulaKey(req.formula), sanitizeToken(well.wellId));
+  // #157：资产身份 = 公式 + 输出助记符 + 井。同井同公式换助记符（VSH→VSHX）
+  // 是另一条曲线，不能挤进同一资产把前者顶掉。
+  const QString id = QStringLiteral("petrophys_%1_%2_%3")
+                         .arg(formulaKey(req.formula),
+                              sanitizeToken(req.outputMnemonic.trimmed().toLower()),
+                              sanitizeToken(well.wellId));
   const CatalogEntity ent = catalog->entityById(well.wellId);
   const QString wellName = ent.id.isEmpty() ? well.wellId : ent.name;
 
@@ -946,7 +987,11 @@ QString PetroPhysTaskService::registerComputedCurveAsset(DataCatalog *catalog,
   v.id = QStringLiteral("ver_") + QUuid::createUuid().toString(QUuid::WithoutBraces);
   v.assetId = id;
   v.stage = QStringLiteral("DERIVED");
-  v.versionNumber = 1;
+  // #157：同资产重算 = 新版本，版本号单调递增（不再恒为 1）。
+  int maxVersion = 0;
+  for (const CatalogVersion &old : catalog->versionsForAsset(id))
+    maxVersion = std::max(maxVersion, old.versionNumber);
+  v.versionNumber = maxVersion + 1;
   v.managed = false; // 外链产物文件（seismic 派生资产同例），sha256 为凭
   v.path = QFileInfo(r.productPath).absoluteFilePath();
   v.sourceUri = well.lasPath;
@@ -1001,6 +1046,13 @@ QString PetroPhysTaskService::registerComputedCurveAsset(DataCatalog *catalog,
     link.entityId = well.wellId;
     link.note = QStringLiteral("petrophysics derived");
   }
+  // #157：重算只加版本——同 (井, 资产, 角色) 的链接已在就不再重复累积。
+  bool linked = false;
+  for (const EntityAssetLink &l : catalog->linksForAsset(id))
+    if (l.entityType == link.entityType && l.entityId == link.entityId && l.role == link.role &&
+        l.unresolved == link.unresolved)
+      linked = true;
+  if (!linked)
   {
     QString e;
     if (!catalog->addLink(link, &e))
@@ -1127,10 +1179,15 @@ PaleoTask *PetroPhysTaskService::startBatch(
               wo.wellName = well.wellId.startsWith(QStringLiteral("well-"))
                                 ? well.wellId.mid(5)
                                 : well.wellId;
-              const QString path = QStringLiteral("%1/%2_%3_%4.las")
+              // #157：不覆盖既有产物——旧版本（managed=false、sha256 为凭）仍指向
+              // 它；重名时追加 _2、_3… 序号另起文件。
+              const QString base = QStringLiteral("%1/%2_%3_%4")
                                        .arg(outDir, sanitizeToken(well.wellId),
                                             formulaKey(request->formula),
                                             sanitizeToken(request->outputMnemonic));
+              QString path = base + QStringLiteral(".las");
+              for (int k = 2; QFileInfo::exists(path); ++k)
+                path = QStringLiteral("%1_%2.las").arg(base).arg(k);
               QString writeErr;
               bool writeOk = false;
               if (store)

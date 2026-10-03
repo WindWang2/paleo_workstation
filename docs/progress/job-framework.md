@@ -1,7 +1,10 @@
 # 任务框架统一 + 巨型文件拆分（JobRunner）
 
-状态：**轮 0–3 完成**（框架 + 2 处迁移面）。`tst_jobrunner` 11/11、
-`tst_propworkflow` 15/15、`tst_factorworkflow` 21/21 绿。轮 4–5 未开始。
+状态：**框架、2 处迁移面及 workflow/预览拆分已落地**。下文轮 0–4 的行号、
+文件规模、Windows 环境故障及测试数均为当轮历史快照；不能当作当前路径索引。
+现行路径与审查结果见文末 2026-10-03 对账。历史 `tst_jobrunner` 11/11、
+`tst_propworkflow` 15/15、`tst_factorworkflow` 21/21 绿。轮 4 的拆分代码与轮 5 的探针已进入 master，旧窗口
+未执行的测试由文末本轮 Linux 基线/重构对照补齐。
 未跑完的 Oracle 不记为通过。
 
 ## 范围
@@ -203,8 +206,8 @@ public:
 | 2 | `tst_jobrunner` 5 条框架断言 | **通过** | 11/11 PASS，见「轮 1 实测」 |
 | 3 | 拆分后既有测试原样绿 | **通过** | `workflows.cpp` 拆 4 刀后 `tst_workflows`/`tst_factorworkflow`/`tst_composeworkflow`/`tst_propworkflow` 全绿；`datapreviewtabs.cpp` 拆 5 刀后 `tst_previewdoc`/`tst_previewmap_tools`/`tst_previewmap_identify` 全绿，且 `tst_ui_blocking` 每刀后**逐用例完全一致** |
 | 4 | `datapreviewtabs` 拆后预览测试全绿 + 分发覆盖 | **通过** | 5 刀已切 + 共享内部头；`tst_previewdoc` 46.30s / `tst_previewmap_tools` 4.64s / `tst_previewmap_identify` 4.80s 全绿。**分发覆盖断言本就存在**：`tst_datapreview::everyTypeOpensContent()` 逐一 openAsset 9 种类型并断言各自特征控件（well_log 的 curveCombo / tops 的 wellCombo+topsTable / well_head 的井下拉 / horizon 的 showOnMapBtn / seismic 的测线选择 / image / document 内嵌 / geojson 统计 / 未知类型兜底） |
-| 5 | 探测面每条绿或红进 TODOS | **通过** | 3 条新探针：🔴 拓扑重建（如实红，已记 TODOS）· 🟢 批量软删（绿，且推翻了我的 O(N²) 假设）· 🟡 元数据打开（夹具未对齐，标为不可信而非伪绿）；「连接诊断」经全库勘察确认**不存在真实入口**（已记） |
-| 6 | 文件规模断言（单文件 ≤1500 行） | **部分达成** | `workflows.cpp` 4295→153 ✓ · `datapreviewtabs.cpp` 5249→1595 ✓（均达标）· **`constraintworkflow.cpp` 3862 行 ✗**（仍超阈值，需按「约束 CRUD / 单因素作业面」二次拆分） |
+| 5 | 探测面每条绿或红进 TODOS | **历史已记档；非全绿** | 3 条新探针：🔴 拓扑重建（如实红，已记 TODOS）· 🟢 批量软删（绿，且推翻了我的 O(N²) 假设）· 🔴 元数据打开（夹具未对齐，2026-10-03 确认为 nodeCount 断言失败）；「连接诊断」经全库勘察确认**不存在真实入口**（已记） |
+| 6 | 文件规模断言（单文件 ≤1500 行） | **部分达成（历史快照）** | `workflows.cpp` 4295→153 ✓；`datapreviewtabs.cpp` 5249→1595，仍大于 1500。约束 CRUD / 作业面已二次拆分，但 `constraintfactorjobs.cpp` 与预览内部头仍超过此目标，不能记为全部达标。 |
 | 7 | 全账 + 本文档收口 | 进行中 | 轮 0–5 已记账 |
 
 ## 轮 1：JobRunner 框架 + tst_jobrunner
@@ -522,3 +525,125 @@ geojson / 兜底参考。轮 4 按这些切点拆构建器文件，`openAsset` �
 **因此 Oracle 4 的直接执行证据受限**：`everyTypeOpensContent` 本身没跑过，
 但它是**既有测试**、本方向未改动其断言，且 `tst_datapreview` 在 fault-surface
 上同样跑不起来。拆分后能跑通的四个预览侧测试全绿。
+
+
+## 2026-10-03：master 基线与全库去重/文档/测试对账
+
+基线为 `3b22a9c`，工作目录 `/home/kevin/projects/paleo_workstation-refactor`，
+分支 `refactor/dedup-docs-tests`。主仓当时已有两处未提交 UI 探针修复，
+本 worktree 从提交创建，未带入这些修改。共享 gitignored prefix/ONNX 依赖，
+独立 RelWithDebInfo/Ninja 构建目录；所有构建/ctest 并行度 ≤8。
+以下是本轮审查现状，上文 Windows/DLL 受限及单体行号均保留为历史证据。
+
+### 去重结果与保留边界
+
+| 主题 | 当前落点 | 真实消费者与保持的契约 |
+|---|---|---|
+| 等值线发布 | `src/workflow/constraintfactorjobs.cpp` 私有 `analysisShaMatches` / `contourMetadata` / `cartographicHashParameters` / `inheritMockFlag` | SHA 比较 4 处、等值线元数据 2 处、制图 QC 指纹 2 处、mock 继承 6 处；generation、declared-path、报错、清理顺序与 fixedLevels 门保持 |
+| 失败文案赋值 | `src/workflow/workflowerrors_internal.h::setError` | workflows_internal 的拆分消费者及 depthconversion/propertymodel/faultsurface 共用；只引 QString，避免三套独立 workflow 为一个赋值 helper 引入 GDAL/ONNX/QGIS 头闭包 |
+| 约束组 | `src/qgis/layervocabulary.h` 的 `kConstraintsGroup` | CRUD 四产点、workbench、树排序/档案及普通夹具引用 03_Constraints 常量；词表冻结值断言保持独立字面量，旧 02_Constraints 输入/兼容断言保留 |
+| 栅格预览 | `datapreviewtabs_internal.h::addRasterPyramidHint` | horizon/image 两处；原提示条时机、任务信号、QPointer 与 host 生命周期保持 |
+| 同目录叠加 | `DataPreviewTabs::addSiblingOverlayButton` | geojson/horizon 两处；菜单项顺序、objectName、tr 上下文、连接归属保持 |
+| SEG-Y | `vendor/sbm/src/Data/Sgy/SgyRegularFile.h::IsRegularFile` | IndexCache 两处、SequentialScan 四处；普通文件非抛异常守卫统一，各路径打开/检查顺序及错误原因仍由调用方保留；IndexService 不直接读文件，非重复点 |
+| 欧氏井距 | `src/algorithms/welldistance_internal.h` | welldist 与 distance_transform 无屏障分支，共用点收集与逐行计算；坐标/浮点运算顺序、取消/失败关 GDAL、进度与成功关闭时机保持 |
+| workflow 夹具 | `tests/helpers/workflowfixture.h` | workflows/factorworkflow/asynccontour/faults/geostat 五套同序真实栈；前两套共用三点 GeoJSON 与 DERIVED 断言助手 |
+| preview 夹具 | `tests/helpers/previewfixture.h` | datapreview/previewmap_assets/previewmap_perf 三套同序真实栈与 staging；前两套共用 importAll；删除仅作构造临时量的 metaPath 成员 |
+| 测试链接 | CMake `tst_jobrunner` / `tst_propmodelperf` | jobrunner 用 services + ui_deps（QgsApplication 需要 QtWidgets），移除 paleo_qgis 静态库依赖；propmodelperf 的 io 已由 workflow 传递，不重复列；测试标签、沙箱、注册不变 |
+
+既有跨 TU helper 已集中在 `workflows_internal.h` 与约束专用
+`constraintworkflow_internal.h`；setError 经前者包含的轻量
+`workflowerrors_internal.h` 单点定义。inversionworkflow 的 bool setError 还承担
+返回 false 的短路语义，保留其不同签名。wellsLayerIdFor 只有一个定义，hashParams 是局部值。
+未找到点名五件内 sf:: 内外双套同功能实现。host+QVBoxLayout、loadingLabel、
+stateLabel 等已由集中构建入口/内部头复用，未再造抽象。清掉 preview 内部头与
+geostat 测试的重复 include；本轮扫描未发现 `src/` 永久 `#if 0` 块。
+
+SHA 字节读取本已有 catalog 的 `sha256FileHex` 单点实现。
+PreviewDocService 经 `verifyExternalVersionSha` 复用它，并额外处理 managed/空 SHA、
+会话缓存、大小写兼容与下游 stale；分析场守卫比较计算前后的快照 SHA（大小写精确，
+代次/路径保护）；structural sidecar 读取由 `qgis/factorcontour.cpp::generateStructuralContours`
+校验 JSON、FieldContourSurface 与栅格尺寸；发布时虽记录 structural_sha256，
+读取路径尚未复验此 SHA（递延项见 TODOS.md），不能把结构校验误报成完整性复验。
+这些拒绝/放行策略不同，未把它们塞进一个带策略开关的通用校验器。
+
+constraintstore 的锁/元数据写夹具、previewdoc 的 store 路径/销毁次序与上述栈
+不相同，保留；previewmap 工具/画布测试的 CRS、要素数量和所有权也不强合并。
+没有合并测试文件、删除用例或调整任何预算/容差。改动测试的 void 函数清单及
+QtTest 断言数与 master 对照一致；测试注册仍为 243 项。
+
+### 拆分文件覆盖核对（调用面审查，不代表分支覆盖率）
+
+| 被测文件 | 现有证据 |
+|---|---|
+| validationworkflow.cpp | tst_workflows 的缺源/重复层位/busy 验证，tst_mapping 的域/残差链 |
+| compositionworkflow.cpp | tst_workflows / tst_composeworkflow 的融合、分相、声明与拒绝路径 |
+| predictionworkflow.cpp | tst_workflows / tst_onnxworkflow / tst_mapping 的处理/ONNX/声明链 |
+| constraintworkflow.cpp | tst_constraintstore / tst_workflows 的约束 CRUD、持久化与 IDW |
+| constraintfactorjobs.cpp | tst_factorworkflow / tst_singlefactor_asynccontour / tst_singlefactor_faults / tst_geostat_workflow 的三段发布、陈旧/取消/被改写守卫与成果 |
+| datapreviewtabgeojson.cpp | tst_datapreview::everyTypeOpensContent 与 previewmap_assets 的图例/标注/TOC |
+| datapreviewtabhorizon.cpp | 同上 + 版本切换、等值线、统计、极值、剖面与缓存 |
+| datapreviewtabimage.cpp | previewmap_assets 的有/无 world file 两路，datapreview 类型覆盖 |
+| datapreviewtabseismic.cpp | datapreview 的解码任务服务、井震/失败原因与测线选择 |
+| datapreviewtabwelllog.cpp | datapreview 的曲线/单位/缩放/多井，UI blocking 的异步读 LAS 探针 |
+| jobrunner.h/.cpp | tst_jobrunner 的 owner/worker 线程、陈旧、取消、异常、失败清理、prepare 拒绝、busy 与同步兜底 |
+
+点名 11 组均有调用面证据（JobRunner 头/实现合计一组），无整组未测者。仍建议另补轻量回归：两个资产页的
+同目录菜单实际触发叠加（不只测 sibling 枚举）、金字塔完成后 host 已销毁/其他
+asset 信号隔离，以及 structural sidecar 被改写后的拒绝与清理组合。现有小夹具
+不触发 >50MB 金字塔门，不能把类型覆盖等同于此分支已测。
+
+规模限制也如实保留：constraintfactorjobs.cpp 3580 行、datapreviewtabs.cpp 1627 行、
+datapreviewtabs_internal.h 1553 行仍超过方向20 的 1500 行目标；本 PR 不放宽预算、
+不为凑行数再次合并/分裂文件。FaultSurface 与 layout 的 JobRunner 迁移、调用级
+分层审计及首次 configure include 根因仍递延。
+
+### 实际验证与失败归属
+
+所有构建均为 `cmake --build build -j8`，基线全量及最终代码重编均零 error。
+以下计数是 CTest 套件数，不是 QtTest 函数数；QSKIP 真工区用例没有被当成已执行。
+
+| 执行 | 实际结果 | 本 worktree 的日志 |
+|---|---|---|
+| 动手前 master `3b22a9c` 全量 `ctest --test-dir build -j8 --output-on-failure` | 238/243，通过项保持；5 红，660.00s | `build/refactor-baseline-ctest.log` |
+| 等值线 helper，6 组相关测试 + layering/strict | 8/8 | `build/refactor-workflow-ctest.log` |
+| 约束组/预览/SEG-Y + 8 门禁 | 22/22 | `build/refactor-groups-preview-segy-ctest.log` |
+| 欧氏井距/共享夹具 + 8 门禁 | 17/17 | `build/refactor-fixtures-algorithms-ctest.log` |
+| JobRunner/属性建模性能链接集 | 2/2 | `build/refactor-link-ctest.log` |
+| 追加错误赋值收口，8 组相关测试 + layering 三项 | 11/11 | `build/refactor-errors-ctest.log` |
+| 首次重构全量 `ctest --test-dir build -j8 --output-on-failure` | 238/243；启动比率探针本轮红，catalog 本轮绿，744.68s | `build/refactor-final-ctest.log` |
+| 启动探针隔离 `ctest --test-dir build -j1 -R '^tst_startup_trace$' --output-on-failure` | 1/1，16.24s；没有改门限/断言 | `build/refactor-startup-recheck.log` |
+| 最终代码再次全量，同一 `-j8` 命令 | 239/243；4 个基线红，525.14s，无新增失败 | `build/refactor-final2-ctest.log` |
+| layering ×3、ui_invariants ×3、i18n ×2 | 8/8；最终全量也全过 | `build/refactor-final-gates.log` |
+
+基线失败的五个可执行文件在改源前保存在 `build/refactor-master-tests/`，
+BASE_COMMIT 记录完整 `3b22a9c` SHA；隔离 CTest 沿用原环境/沙箱/超时。
+这比使用主仓后续被其他会话修过的二进制更能证明原基线归属。
+
+| 红项/波动 | 原基线与隔离复核 | 最终代码结果与处理 |
+|---|---|---|
+| `tst_ui_blocking` | topology 的 laps ≥2 与 metadata 的 nodeCount >0 两断言失败；保留 master 二进制复跑同样 7 过/2 败 | 两条仍红（7 过/2 败）；原探针/预算一字未改。后续 master 的 `41feecf` 另行修复，不属于本 PR |
+| `tst_singlefactor_perf` | 原 L 中位 21671ms；保留 master 二进制隔离复跑 20089ms，均超 15000ms | 最终 L 18980ms，同一道预算失败；不改门限，不由本轮引入 |
+| `tst_perf_catalog` | SHA 查询重开后实际 ver-2/期望 ver-1；保留 master 二进制隔离复跑同一断言红 | 两次重构全量均绿；这是结果/顺序差异，不能只叫性能噪声。后续 master 的 `e8da8cf` 已修行序，本轮只记录历史对照 |
+| `tst_cache_las` | 原 cold 3.929ms/disk 3.014ms；保留 master 隔离 cold 3.865ms/disk 2.470ms，均不满足 disk <0.5×cold | 最终 cold 2.859ms/disk 1.806ms，同一比率断言红；属于任务书列举之外的已证实基线红，发布例外需确认 |
+| `tst_wellcomposite_visual` | 原与保留 master 隔离均 17/48 点超容差（允许 4，色差门 22）；vendored 字体已注册、Fusion 已钉，具体渲染根因未定 | 最终仍同样 17/48；不重生成 golden、不调容差，额外基线红的发布例外需确认 |
+| `tst_startup_trace` | 动手前全量通过 | 首次重构全量两条比率/判别力断言失败；隔离复跑及最终全量均过。与共享机器负载相符，没有据此改实现或预算 |
+
+隔离四项复核日志为 `build/refactor-master-recheck.log`；L 性能单独隔离日志为
+`build/refactor-master-perf-recheck.log`。UI 探针使用 QtTest 的文件输出，另存
+`build/refactor-master-ui-blocking-result.txt` 与 `build/refactor-final2-ui-blocking-result.txt`。
+两次全量耗时受共享机器负载影响，不用它们宣称重构带来性能提升。
+
+`git diff --check` 每次提交前均过。13 个改动测试文件的 void 函数清单、QtTest
+断言数量对照原基线一致；注册仍为 243 项，标签、环境、沙箱与超时属性未变。
+初次 configure 的 JSON inventory 尚无未构建可执行文件的 command 字段，
+命令注册由未变的 add_paleo_test/target 名称及 CMake diff 核对，而不是把缺字段当作一致。
+未改 `.github`/CI/ruleset、安全策略、vendor/qgis 补丁或 wellsection；未新增文档。
+
+初轮 native 对抗、测试与维护性审查未找到新运行时缺陷；CRS 文档对无效非空
+crs 的表述及 correlation 同步状态残留已修。审查为本机同模型覆盖，未运行外部
+模型进程；未测菜单激活/大栅格生命周期等可选补强仍如上列明。最终复核单独记录
+在交付/PR 中，不用基线红或静态审查声称全绿、百分比分支覆盖率或跨模型验证。
+
+任务期间 `origin/master` 前进到 `2ce97f8`（catalog 行序、UI 探针修复、include 去重、
+TODOS 对账）；本分支保留指定 `3b22a9c` 基线的行为/测试，账本明确后续修复归属。
+TODOS 同时保留已进入 master 的修复注记，避免本 PR 合入后重新标回未修。

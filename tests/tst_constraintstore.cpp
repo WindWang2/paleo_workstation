@@ -1,3 +1,4 @@
+#include "../src/qgis/layervocabulary.h"
 #include <QtTest>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -182,7 +183,7 @@ private slots:
           QCOMPARE( d.source, expectedSource );
           QCOMPARE( d.horizon, QStringLiteral( "T1" ) );
           QCOMPARE( d.type, QStringLiteral( "vector" ) );
-          QCOMPARE( d.group, QStringLiteral( "03_Constraints" ) );
+          QCOMPARE( d.group, PaleoLayerVocabulary::kConstraintsGroup );
           break;
         }
       }

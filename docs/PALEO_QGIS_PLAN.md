@@ -6,6 +6,13 @@
 适用范围：Paleo Workbench C++ 主程序 / QGIS Vendor 集成层
 核心原则：QGIS 负责 GIS，Paleo Workbench 负责地质业务。
 
+**2026-10-03 实现对账**：本文的「建议/最终/应该」保留为目标架构；当前落点
+以 `AGENTS.md`、`BUILDING.md` 与 `docs/progress/` 交付账本为准。
+五页现行文案为「数据管理 → 预测编图 → 单因素图 → 智能编图 → 验证」
+（DESIGN.md / #43），下文旧文案是最初的业务模块名。
+QGIS 工程/层树/画布、约束 CRUD、预测/融合/验证、布局导出已有实现；
+仍需专家/真工区验收的项继续列在 TODOS.md，不能由计划条目推定已完成。
+
 结合当前界面设计，系统已经形成较清晰的业务主链：
 数据管理 → 智能预测 → 约束与单因素 → 综合编图 → 验证
 
@@ -907,6 +914,12 @@ Published
 
 ## 24. 后台任务
 
+**现行实现注记（2026-10-03）**：应用任务由 `services/paleotaskservice`
+调度 QThreadPool，`services/jobrunner.{h,cpp}` 承载 prepare/compute/publish
+协议（owner 线程准备/发布，worker 计算、协作取消、代次丢弃）。
+属性建模与三组单因素作业已接 JobRunner；断层成面、布局导出保留各自三段式，
+尚未全部迁入统一 runner。下述 QgsTaskManager 是目标映射，不能作为现行接线说明。
+
 插值、Raster 操作、预测结果导入、图件导出等操作不能阻塞 UI。
 统一接入：`QgsTask`
 
@@ -929,6 +942,12 @@ Export C6 Map         Queued
 ```
 
 ## 25. 推荐 C++ 模块划分
+
+现行 workflow 的实现已按预测/约束 CRUD/单因素作业/融合/验证拆为
+`predictionworkflow.cpp`、`constraintworkflow.cpp`、`constraintfactorjobs.cpp`、
+`compositionworkflow.cpp`、`validationworkflow.cpp`；`workflows.cpp` 保留共用装配。
+数据预览的五类正文分别在 `ui/datapreview/datapreviewtab{geojson,horizon,image,seismic,welllog}.cpp`，
+共用视图工具在 `datapreviewtabs_internal.h`。具体覆盖对账见任务框架交付账本。
 
 建议最终形成：
 
@@ -1389,7 +1408,7 @@ repo 根单一可发现入口脚本（薄壳转发，不遮蔽底层工具；逃
 
 ```
 ./paleo-dev bootstrap     # 唯一公开入口：preflight → vendor 构建 → 尾跑 selfcheck
-./paleo-dev build         # 增量构建（ninja + ccache + qgis_core/gui/analysis UNITY_BUILD 默认开）
+./paleo-dev build         # 增量构建（ninja + ccache；主构建 unity 是显式实验档）
 ./paleo-dev test          # QT_QPA_PLATFORM=offscreen ctest，本地/CI 同一路径
 ./paleo-dev selfcheck     # §44.1 自检 + map.png（通常由 bootstrap 尾跑，单独跑用于诊断）
 ./paleo-dev clean-vendor [dep]  # 删 dep 的 stamp+build 子目录；无参 = 清全部 vendor 构建缓存（保留下载源包）
@@ -1418,6 +1437,8 @@ repo 根单一可发现入口脚本（薄壳转发，不遮蔽底层工具；逃
 - `CMAKE_EXPORT_COMPILE_COMMANDS=ON` 默认开 → clangd/IDE 即插即用。
 - 增量构建预算：改动单个 app 源文件 → 链接完成 ≤ 60s（P0 脊线代码量下）。
 - 渲染测试统一 `QT_QPA_PLATFORM=offscreen`（经 `paleo-dev test`），headless CI 无需 X。
+- 构建/测试并行度均不超过 8（`cmake --build build -j8`、`ctest -j8`）；
+  Windows ctest 串行。独立 worktree 的 vendor 接线见 BUILDING.md。
 
 ### 44.7 DX 度量（Pass 8）
 
@@ -1472,9 +1493,10 @@ STAGE          | DEV DOES                          | STATUS
   `src/selfcheck`（测试壳）同豁免。
 - **机械执行**：`tools/check_layering.py`（include 归一化 + io/metadata
   白名单 + QtWidgets 词表禁令含 `class Q…;` 前向声明 + 头三行 `// 层：`
-  标记硬检查），ctest 项 `layering`/`layering_selftest`；合法残留收敛走
-  `tools/layering-baseline.txt`（只缩不涨）。已知上限：单一 `paleo_core`
-  静态库下护栏只挡 include 层。
+  标记硬检查），ctest 项 `layering`/`layering_strict`/`layering_selftest`；
+  `tools/layering-baseline.txt` 已归零，strict 下非空或可收缩均失败。
+  各模块编为 `paleo_<模块>` 静态库，`paleo_core` 是 INTERFACE 兼容伞。
+  已知上限：护栏只挡 include 层，不能识别不带 include 的违规调用。
 
 ## NOT in scope（本次评审决议）
 

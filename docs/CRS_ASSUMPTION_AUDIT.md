@@ -21,7 +21,7 @@ SEG-Y 道头坐标全部是同一局部测网米）与该假设完全自洽，**
 |---|---|---|
 | **CRS 定义**（唯一事实源） | WKT2 `ENGCRS`（工程基准、米、无椭球→无到 EPSG:4326 的坐标操作） | `DataCatalog::localGridCrsWkt()`，src/catalog/datacatalog.h:186-200 |
 | **每次打开强制钉** | project CRS + canvas destinationCrs 都设为局部米 CRS；.qgz 里带来的任何 CRS 被覆盖 | `QgisCanvasController::applyLocalCrs`，src/qgis/qgiscanvascontroller.cpp:67-80（102-116：建 bridge 前先钉，防首层 CRS 快照泄漏） |
-| **派生栅格 SRS** | 层位时间/厚度栅格写局部 ENGCRS | src/io/horizonbinner.cpp:320-324、src/workflow/mappingworkflow.cpp:252、src/workflow/workflows.cpp:296-313（ONNX 栅格：crs 参数无效时落局部） |
+| **派生栅格 SRS** | 层位时间/厚度栅格写局部 ENGCRS | src/io/horizonbinner.cpp、src/workflow/mappingworkflow.cpp、src/workflow/workflows_internal.h 的 writeOnnxRaster（ONNX 栅格：非空 crs 有效时写显式投影，无效时留空 SRS；仅空 crs 才回落到声明栅格投影，再回落到局部网格） |
 | **矢量导出** | 井位 GeoJSON 写 legacy `crs` 成员=ENGCRS WKT（不投 4326） | `DataCatalog::writeWellsGeoJson`，src/catalog/datacatalog.cpp:877-882 |
 | **源 CRS 只是标签** | 导入面把源文件里的 EPSG:4326 记为标签（domain/types.h:42），UI 明示「源文件里的 EPSG:4326 只是标签，不会画到地图上」 | src/domain/types.h:42、src/ui/paleomainwindow.cpp:112 |
 | **联动链无坐标变换** | map↔well↔seismic 选择联动传 id/画布坐标，不做任何 QgsCoordinateTransform——单 CRS 下正确 | src/linkage/selectioncontext.cpp、wellmaplink.cpp、threewaylocator.cpp（全文无 transform/crs 调用） |

@@ -108,6 +108,28 @@
 
 namespace paleo::datapreview_detail {
 
+// 大图提示与概览预热（层位/配准影像共用）。保留提示条插入时机及 host 生命周期。
+inline void addRasterPyramidHint(PreviewDocService *doc, QgsRasterLayer *raster,
+                                 const QString &assetId, QWidget *host, QVBoxLayout *layout)
+{
+  const QString bigHint = PreviewRasterAnalysis::bigRasterHint(raster);
+  if (bigHint.isEmpty())
+    return;
+  layout->addWidget(PreviewMapStates::buildBigRasterHintBar(bigHint, host));
+  if (doc)
+  {
+    QPointer<QgsRasterLayer> rasterGuard(raster);
+    QObject::connect(doc, &PreviewDocService::rasterPyramidFinished, host,
+                     [rasterGuard, assetId](const QString &doneId, bool ok) {
+                       if (doneId != assetId || !ok || !rasterGuard)
+                         return;
+                       rasterGuard->reload();
+                       rasterGuard->triggerRepaint();
+                     });
+    doc->ensureRasterPyramidVersion(assetId);
+  }
+}
+
 // token 色 → QSS 大写 #RRGGBB（与 paleotheme 内部 qssHex 同口径，逐字节可比）。
 inline QString qssHex(const QColor &c)
 {

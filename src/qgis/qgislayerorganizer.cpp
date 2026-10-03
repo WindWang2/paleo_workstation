@@ -123,7 +123,7 @@ int QgisLayerOrganizer::groupRank( const QString &group )
   static const QStringList topDown = {
       QStringLiteral( "07_Validation" ),    QStringLiteral( "06_Reference" ),
       QStringLiteral( "05_PaleoMap" ),      QStringLiteral( "04_SingleFactor" ),
-      QStringLiteral( "03_Constraints" ),   QStringLiteral( "02_Prediction" ),
+      PaleoLayerVocabulary::kConstraintsGroup,   QStringLiteral( "02_Prediction" ),
       QStringLiteral( "01_Base" ),          QStringLiteral( "00_Data" ) };
   const int idx = topDown.indexOf( root );
   const int base = idx < 0 ? int( topDown.size() ) * 10 : idx * 10;

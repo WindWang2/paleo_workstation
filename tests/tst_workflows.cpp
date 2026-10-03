@@ -1,3 +1,5 @@
+#include "helpers/workflowfixture.h"
+#include "../src/qgis/layervocabulary.h"
 #include <QtTest>
 #include <QFile>
 #include <QSignalSpy>
@@ -28,58 +30,17 @@
 // "constraints.<h>" declaration, ConstraintIDW declares "factor.<h>.idw",
 // FaciesFusion declares "composite.<h>", and validation reports missing
 // sources / busy layers / duplicate horizon names.
+
+using paleo::tests::initFixture;
+using paleo::tests::writePointsGeoJson;
+using paleo::tests::derivedVersionRegistered;
+
 class TestWorkflows : public QObject
 {
   Q_OBJECT
 
 private:
-  // Full real-service stack on one temp dir. Declaration order matters:
-  // `dir` must precede `manifest` (its path feeds the ctor), and `projectSvc`
-  // must precede `layers`/`proc` for the pointer bindings.
-  // T26（wave3/derived-publish）：catalog 进 fixture——四个写出产物的路径
-  // 都要求绑定，产物落 artifacts/derived 并登记 DERIVED 版本。
-  struct Fixture
-  {
-    QTemporaryDir dir;
-    DataCatalog catalog;
-    QgisProjectService projectSvc;
-    PaleoProjectStore store;
-    LayerManifest manifest{ dir.filePath( QStringLiteral( "project.sqlite" ) ) };
-    QgisLayerService layers{ &projectSvc, &manifest };
-    QgisProcessingService proc{ &store };
-  };
-
-  static bool initFixture( Fixture &f )
-  {
-    if ( !f.dir.isValid() )
-      return false;
-    if ( !f.catalog.open( f.dir.path() ) )
-      return false;
-    if ( !f.projectSvc.createProject( f.dir.filePath( QStringLiteral( "proj.qgz" ) ) ) )
-      return false;
-    if ( !f.manifest.open() )
-      return false;
-    return true;
-  }
-
-  // T26 断言助手：声明的图层源在 artifacts/derived 下，且 catalog 里有该资产
-  // 类型指向此文件的 DERIVED 版本（sha 非空）。
-  static bool derivedVersionRegistered( DataCatalog &catalog, const QString &assetType,
-                                        const QString &absolutePath )
-  {
-    for ( const CatalogAsset &a : catalog.assets() )
-    {
-      if ( a.type != assetType )
-        continue;
-      for ( const CatalogVersion &v : catalog.versionsForAsset( a.id ) )
-        if ( absolutePath.contains( QStringLiteral( "artifacts/derived/" ) ) &&
-             absolutePath.endsWith( QLatin1Char( '/' ) + v.fileName ) &&
-             absolutePath.contains( v.id ) && !v.sha256.isEmpty() )
-          return true;
-    }
-    return false;
-  }
-
+  using Fixture = paleo::tests::WorkflowFixture;
   // Write a w x h Float32 GTiff; returns "" on failure (same pattern as
   // tst_algorithms.cpp).
   static QString makeRaster( const QString &path, int w, int h, const QVector<float> &px )
@@ -96,23 +57,6 @@ private:
                                      w, h, GDT_Float32, 0, 0 );
     GDALClose( ds );
     return err == CE_None ? path : QString();
-  }
-
-  // Three points with a numeric z field, matching the IDW fixture in
-  // tst_algorithms.cpp — written as GeoJSON so the "ogr" provider (used by
-  // QgisLayerService::instantiate for type "vector") can load it.
-  static bool writePointsGeoJson( const QString &path )
-  {
-    QFile f( path );
-    if ( !f.open( QIODevice::WriteOnly ) )
-      return false;
-    f.write( "{\"type\":\"FeatureCollection\",\"features\":["
-             "{\"type\":\"Feature\",\"properties\":{\"z\":0.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[0.0,0.0]}},"
-             "{\"type\":\"Feature\",\"properties\":{\"z\":8.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[4.0,0.0]}},"
-             "{\"type\":\"Feature\",\"properties\":{\"z\":4.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[0.0,4.0]}}"
-             "]}" );
-    f.close();
-    return QFile::exists( path ) && QFileInfo( path ).size() > 0;
   }
 
   static LayerDeclaration decl( const QString &layerId, const QString &horizon,
@@ -388,7 +332,7 @@ private slots:
     QVERIFY( d != nullptr );
     QCOMPARE( d->horizon, QStringLiteral( "T1" ) );
     QCOMPARE( d->type, QStringLiteral( "vector" ) );
-    QCOMPARE( d->group, QStringLiteral( "03_Constraints" ) );
+    QCOMPARE( d->group, PaleoLayerVocabulary::kConstraintsGroup );
     QVERIFY( d->source.startsWith( QStringLiteral( "memory|" ) ) );
     QVERIFY( d->source.contains( QStringLiteral( "LINESTRING(0 0, 10 0)" ) ) );
     QVERIFY( d->source.contains( QStringLiteral( "LINESTRING(0 0, 0 10)" ) ) );
@@ -585,7 +529,7 @@ private slots:
     // memory-sourced constraint decl must NOT count as a missing file.
     QVERIFY( f.layers.declare( decl( QStringLiteral( "constraints.T1" ), QStringLiteral( "T1" ),
                                      QStringLiteral( "vector" ), QStringLiteral( "memory|LINESTRING(0 0, 1 1)" ),
-                                     QStringLiteral( "02_Constraints" ) ), &err ) );
+                                     PaleoLayerVocabulary::kConstraintsGroup ), &err ) );
 
     f.store.markLayerBusy( QStringLiteral( "ok.T1" ), QStringLiteral( "task-1" ),
                            QStringLiteral( "exporting" ) );

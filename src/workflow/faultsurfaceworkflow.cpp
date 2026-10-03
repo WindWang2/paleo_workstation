@@ -1,5 +1,6 @@
 // 层：功能
 #include "faultsurfaceworkflow.h"
+#include "workflowerrors_internal.h"
 
 #include "../metadata/faultsetstore.h"
 
@@ -10,11 +11,7 @@
 namespace paleo::faultsurf {
 namespace {
 
-void setError(QString *error, const QString &text)
-{
-    if (error)
-        *error = text;
-}
+using paleo::workflow_detail::setError;
 
 } // namespace
 

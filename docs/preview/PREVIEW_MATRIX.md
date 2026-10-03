@@ -43,11 +43,11 @@ core 的 `QgsMapDecoration` + `renderComplete(QPainter*)` 钩子——自研件�
 
 1. **`QgsColorRampShader` 空 itemList**：Continuous 模式也必须先
    `classifyColorRamp()`，否则 `shade()` 全返回 false、像元全透明——画布一片
-   白（datapreviewtabs.cpp:2500 已有注释）。本轮统一走
+   白（旧 datapreviewtabs.cpp:2500 为拆分前快照）。现行统一走
    `previewrasteranalysis.h` 的 `applyPseudoColorRenderer()` 安全出口。
 2. **预览层一律不注册 QgsProject**：私有 `QgsRasterLayer`/`QgsVectorLayer`
    父子挂在预览页宿主上，画布只引用裸指针（horizon 分支既有约定，
-   datapreviewtabs.cpp:2517 注释）。预览绝不污染主图图层树/实例表。
+   现位于 datapreviewtabhorizon.cpp 的 buildHorizonContent）。预览绝不污染主图图层树/实例表。
 3. **工程 CRS 是 datum-free 局部网格**：
    `DataCatalog::localGridCrsWkt()`（qgiscanvascontroller.cpp:91 同源）——
    预览画布 destinationCrs 钉同一 WKT；栅格层 CRS 与画布 CRS 不一致时

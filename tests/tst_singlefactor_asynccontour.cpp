@@ -1,4 +1,6 @@
 // 层：测试壳
+#include "helpers/workflowfixture.h"
+#include "../src/qgis/layervocabulary.h"
 #include <QtTest>
 #include <QDir>
 
@@ -27,27 +29,15 @@
 #include "../src/workflow/workflows.h"
 
 // 分析等值线与解释性等值线的准备 / 计算 / 发布。不测性能。
+
+using paleo::tests::initFixture;
+
 class TestSingleFactorAsyncContour : public QObject
 {
   Q_OBJECT
 
 private:
-  struct Fixture
-  {
-    QTemporaryDir dir;
-    DataCatalog catalog;
-    QgisProjectService projectSvc;
-    PaleoProjectStore store;
-    LayerManifest manifest{ dir.filePath( QStringLiteral( "project.sqlite" ) ) };
-    QgisLayerService layers{ &projectSvc, &manifest };
-    QgisProcessingService proc{ &store };
-  };
-
-  static bool initFixture( Fixture &f )
-  {
-    return f.dir.isValid() && f.catalog.open( f.dir.path() ) &&
-           f.projectSvc.createProject( f.dir.filePath( QStringLiteral( "proj.qgz" ) ) ) && f.manifest.open();
-  }
+  using Fixture = paleo::tests::WorkflowFixture;
 
   static OGRSpatialReferenceH makeSpatialRef( int epsg )
   {
@@ -291,7 +281,7 @@ private slots:
     stop.horizon = QStringLiteral( "T1" );
     stop.type = QStringLiteral( "vector" );
     stop.source = linesPath + QStringLiteral( "|layername=lines" );
-    stop.group = QStringLiteral( "03_Constraints" );
+    stop.group = PaleoLayerVocabulary::kConstraintsGroup;
     QVERIFY2( f.layers.declare( stop, &err ), qPrintable( err ) );
 
     ConstraintWorkflow wf( &f.proc, &f.layers );
@@ -399,7 +389,7 @@ private slots:
     stop.horizon = QStringLiteral( "T1" );
     stop.type = QStringLiteral( "vector" );
     stop.source = linesPath + QStringLiteral( "|layername=lines" );
-    stop.group = QStringLiteral( "03_Constraints" );
+    stop.group = PaleoLayerVocabulary::kConstraintsGroup;
     QVERIFY2( f.layers.declare( stop, &err ), qPrintable( err ) );
 
     ConstraintWorkflow wf( &f.proc, &f.layers );

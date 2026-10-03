@@ -253,25 +253,7 @@ QWidget *DataPreviewTabs::buildHorizonContent(
     return host;
   }
   // D2.11 大图（>50MB 无金字塔）提示条：降级仍可用（低清先行 + 全图照渲）。
-  const QString bigHint = PreviewRasterAnalysis::bigRasterHint(raster.get());
-  if (!bigHint.isEmpty())
-  {
-    lay->addWidget(PreviewMapStates::buildBigRasterHintBar(bigHint, host));
-    // B3（wave/deepen-perf）：消费侧预热——quiet 任务后台建瓦片金字塔 +
-    // GDAL 外部 .ovr 概览；完成后重载层 + 刷新画布，本会话后续渲染走概览。
-    if (m_doc)
-    {
-      QPointer<QgsRasterLayer> rasterGuard(raster.get());
-      connect(m_doc, &PreviewDocService::rasterPyramidFinished, host,
-              [this, rasterGuard, assetId](const QString &doneId, bool ok) {
-                if (doneId != assetId || !ok || !rasterGuard)
-                  return;
-                rasterGuard->reload(); // 重开数据源——让 provider 发现 .ovr
-                rasterGuard->triggerRepaint();
-              });
-      m_doc->ensureRasterPyramidVersion(assetId);
-    }
-  }
+  addRasterPyramidHint(m_doc, raster.get(), assetId, host, lay);
 
   // ---- P2 地图正文：统一 PreviewMapPage（D1.x 框架全套） ----
   auto *page = new PreviewMapPage(host);
@@ -477,35 +459,7 @@ QWidget *DataPreviewTabs::buildHorizonContent(
   page->setProfileEnabled(true); // D1.3：栅格内容才开剖面工具
 
   // ---- D2.10 同目录组图：同目录可地图化资产一键叠加 ----
-  {
-    const auto siblings = PreviewMapStates::siblingMappableAssets(
-        cat, tifPath, [this](const CatalogVersion &v) { return m_doc->absolutePathForVersion(v); });
-    // 排除自身。
-    QVector<QPair<QString, QString>> others;
-    for (const auto &sib : siblings)
-      if (sib.first != assetId)
-        others.append(sib);
-    if (!others.isEmpty())
-    {
-      auto *overlayBtn = new QToolButton(page);
-      overlayBtn->setObjectName(QStringLiteral("siblingOverlayButton"));
-      overlayBtn->setText(tr("同目录叠加"));
-      overlayBtn->setToolTip(tr("把同目录下的相图/配准图片/层位栅格叠加到本预览"));
-      overlayBtn->setPopupMode(QToolButton::InstantPopup);
-      auto *menu = new QMenu(overlayBtn);
-      for (const auto &sib : others)
-      {
-        const QString sibAssetId = sib.first;
-        const QString sibName = sib.second;
-        QAction *act = menu->addAction(sibName);
-        QObject::connect(act, &QAction::triggered, host, [this, page, sibAssetId, sibName, host]() {
-          addSiblingOverlayLayer(page, sibAssetId, sibName, host);
-        });
-      }
-      overlayBtn->setMenu(menu);
-      page->addToolBarWidget(overlayBtn);
-    }
-  }
+  addSiblingOverlayButton(cat, tifPath, assetId, page, host);
 
   lay->addWidget(page, 1);
 

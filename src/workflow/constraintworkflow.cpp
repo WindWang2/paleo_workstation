@@ -1,4 +1,5 @@
 // 层：功能
+#include "../qgis/layervocabulary.h"
 #include "workflows.h"
 #include "workflows_internal.h"
 
@@ -70,9 +71,9 @@ using namespace paleo::constraint_detail;
 //
 // 共享面已就位（workflows_internal.h）：setError / stampLayerAssetLink /
 // derivedRegistrarOf / outputPathOf / isFileBackedSource / stamp 与 ORT 工区
-// 网格辅助。仍留在 workflows.cpp 匿名命名空间的是**本段独占**的 fileStem /
-// sameFile / catalogPathMatches / removeIfPresent / readJsonObject——它们没有
-// 第二个消费者，不进共享头。
+// 网格辅助。约束作业的 fileStem / sameFile / catalogPathMatches /
+// removeIfPresent / readJsonObject 单点定义在 constraintworkflow_internal.h，
+// 供约束编排与拆分作业复用；不再在 TU 内重复实现。
 
 
 // ---------------------------------------------------------------------------
@@ -297,7 +298,7 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
     decl.type = QStringLiteral( "vector" );
     decl.source = QStringLiteral( "%1|layername=constraints|subset=horizon='%2'" )
                       .arg( cs->gpkgPath(), horizon );
-    decl.group = QStringLiteral( "03_Constraints" );
+    decl.group = PaleoLayerVocabulary::kConstraintsGroup;
     if ( !layers->declare( decl, error ) )
     {
       cs->remove( c.id );
@@ -337,7 +338,7 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
   decl.horizon = horizon;
   decl.type = QStringLiteral( "vector" );
   decl.source = QStringLiteral( "memory|%1" ).arg( wkts.join( QLatin1Char( '|' ) ) );
-  decl.group = QStringLiteral( "03_Constraints" );
+  decl.group = PaleoLayerVocabulary::kConstraintsGroup;
   if ( !layers->declare( decl, error ) )
   {
     m_inMemoryConstraints.removeLast();
@@ -529,7 +530,7 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
       decl.type = QStringLiteral( "vector" );
       decl.source = QStringLiteral( "%1|layername=constraints|subset=horizon='%2'" )
                         .arg( cs->gpkgPath(), horizon );
-      decl.group = QStringLiteral( "03_Constraints" );
+      decl.group = PaleoLayerVocabulary::kConstraintsGroup;
       layers->declare( decl );
     }
     else
@@ -549,7 +550,7 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
         decl.type = QStringLiteral( "vector" );
         decl.source = QStringLiteral( "%1|layername=constraints|subset=horizon='%2'" )
                           .arg( cs->gpkgPath(), h );
-        decl.group = QStringLiteral( "03_Constraints" );
+        decl.group = PaleoLayerVocabulary::kConstraintsGroup;
         layers->declare( decl );
       }
     }

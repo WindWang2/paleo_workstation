@@ -39,7 +39,8 @@
 - **显示序 = 树序**：`QgsLayerTreeMapCanvasBridge` 既已接管画布序；
   `layertreepanel::currentLayerGroup` 对 `paleoHorizon` 组回退 decl.group
   （层位组不是编图组，跳页仍按声明组）。
-- 旧组名产点不改：`02_Constraints`/`01_Prediction`/`03_Predict`/
+- 当时旧组名兼容口径（历史快照）：`02_Constraints` 为旧数据输入别名，
+  当前约束产点已统一为 `03_Constraints`；`01_Prediction`/`03_Predict`/
   `03_Composite` 经 `PaleoLayerVocabulary::canonicalize` 在消费面折算；
   约束声明产点本波已写 canonical `03_Constraints`。
 
@@ -110,10 +111,13 @@ syntheticGolden / enpingGolden）与 `tst_singlefactor_fieldcontours`
 （syntheticGolden / enpingGolden / structuralContoursEndToEnd）全过。
 `compare_structural.py` 独立脚本复核 dump：ok=true。
 
-## 验证矩阵（build-sb，vendored QGIS）
+## 验证矩阵（build-sb，vendored QGIS；当轮历史快照）
+
+下列执行记录保留原样。当前构建/测试资源纪律统一为最多 `-j8`，不再沿用
+历史 `nproc` 写法；当前红项对照见 docs/progress/job-framework.md 文末。
 
 - 全量 `ctest -j$(nproc)`：234/238；2 个真实回归已修（tst_workflows /
-  tst_constraintstore 断言仍写 `02_Constraints`，产点已迁 canonical——
+  当时 tst_constraintstore 断言仍写 `02_Constraints`，产点已迁 canonical——
   断言改 03）；2 个环境性波动见「已知」。
 - 图层树：`tst_layerorganizer` 8 例（置顶/层位序/组内秩/占位组/剪枝/
   归位保勾选引用/拖拽不接管/手动层透明）、`tst_layertreepanel`、
@@ -136,3 +140,7 @@ syntheticGolden / enpingGolden）与 `tst_singlefactor_fieldcontours`
 - 等值线标注避让只在本层标注间（per-layer PAL）——跨层标注可视觉相碰，
   但压盖序正确；这是「标注随图层」语义的固有边界。
 - Enping 包与黄金值不入库；无 env 时 enpingGolden 两测试 QSKIP。
+
+2026-10-03 对账：当前约束组单点定义为 `PaleoLayerVocabulary::kConstraintsGroup`
+（`03_Constraints`）；新夹具与产点均用该常量，`02_Constraints` 仅保留在
+canonicalize/groupFamily 与旧数据兼容用例。上文旧断言/修复过程为历史快照。

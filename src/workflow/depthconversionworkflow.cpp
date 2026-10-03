@@ -1,5 +1,6 @@
 // 层：功能
 #include "depthconversionworkflow.h"
+#include "workflowerrors_internal.h"
 
 #include "../catalog/datacatalog.h"
 #include "../io/horizonbinner.h"
@@ -23,11 +24,7 @@
 namespace
 {
 
-void setError(QString *error, const QString &text)
-{
-  if (error)
-    *error = text;
-}
+using paleo::workflow_detail::setError;
 
 // ---- 栅格读取（同厚度链 readGrid 口径：整幅 Float32 + geotransform）----------
 struct GridSpec

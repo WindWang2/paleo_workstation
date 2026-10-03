@@ -1,3 +1,10 @@
+## 仓库开发约定
+
+仓库分层、测试布线与资源纪律见 `AGENTS.md`；架构以
+`docs/PALEO_QGIS_PLAN.md` 为准，视觉决策先读 `DESIGN.md`，递延项见 `TODOS.md`。
+构建/测试并行度不超过 `-j8`（Windows ctest 串行）；使用独立 worktree/build，
+gitignored vendor 接线见 `BUILDING.md`「独立 worktree 开发」。任务指定的分支名优先。
+
 ## gstack (REQUIRED — global install)
 
 **Before doing ANY work, verify gstack is installed:**

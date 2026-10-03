@@ -5,6 +5,7 @@
 // 绕障=约束线）。实现见 paleoalgorithms.h 类注。
 #include "paleoalgorithms.h"
 #include "rasterout.h"
+#include "welldistance_internal.h"
 
 #include <qgsprocessingparameters.h>
 #include <qgsprocessingutils.h>
@@ -91,22 +92,7 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
     throw QgsProcessingException( QStringLiteral( "Invalid OUTPUT raster destination" ) );
 
   // ---- gather well points ---------------------------------------------------
-  std::vector<QgsPointXY> wells;
-  {
-    QgsFeatureIterator it = source->getFeatures( QgsFeatureRequest() );
-    QgsFeature f;
-    while ( it.nextFeature( f ) )
-    {
-      if ( feedback && feedback->isCanceled() )
-        throw QgsProcessingException( QStringLiteral( "Canceled" ) );
-      if ( !f.hasGeometry() || f.geometry().isEmpty() )
-        continue;
-      const QgsGeometry g = f.geometry();
-      wells.push_back( g.isMultipart() ? g.asMultiPoint().value( 0 ) : g.asPoint() );
-    }
-  }
-  if ( wells.empty() )
-    throw QgsProcessingException( QStringLiteral( "INPUT contains no usable point features" ) );
+  const auto wells = paleo::well_distance_detail::gatherWellPoints(source.get(), feedback);
 
   // ---- break_line barriers（typed 语义与 ConstraintIDW 一致：仅 break_line
   //      阻断；direction_line/旧 shape 词对距离面不参与）---------------------
@@ -192,37 +178,8 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
   if ( !hasBarriers )
   {
     // ---- exact Euclidean（与 paleo:paleo_welldist 同口径）-------------------
-    QVector<float> rowBuf( nCols );
-    for ( int r = 0; r < nRows; ++r )
-    {
-      if ( feedback && feedback->isCanceled() )
-      {
-        GDALClose( outDs );
-        throw QgsProcessingException( QStringLiteral( "Canceled" ) );
-      }
-      const double y = extent.yMaximum() - ( r + 0.5 ) * cellSize;
-      for ( int c = 0; c < nCols; ++c )
-      {
-        const double x = extent.xMinimum() + ( c + 0.5 ) * cellSize;
-        double best2 = std::numeric_limits<double>::infinity();
-        for ( const QgsPointXY &w : wells )
-        {
-          const double dx = w.x() - x, dy = w.y() - y;
-          const double d2 = dx * dx + dy * dy;
-          if ( d2 < best2 )
-            best2 = d2;
-        }
-        rowBuf[c] = static_cast<float>( std::sqrt( best2 ) );
-      }
-      if ( GDALRasterIO( outBand, GF_Write, 0, r, nCols, 1, rowBuf.data(),
-                         nCols, 1, GDT_Float32, 0, 0 ) != CE_None )
-      {
-        GDALClose( outDs );
-        throw QgsProcessingException( QStringLiteral( "GDAL write failed at row %1" ).arg( r ) );
-      }
-      if ( feedback )
-        feedback->setProgress( 100.0 * static_cast<double>( r + 1 ) / nRows );
-    }
+    paleo::well_distance_detail::writeEuclideanDistances(
+        outDs, nCols, nRows, extent, cellSize, wells, feedback);
     GDALClose( outDs );
     QVariantMap out;
     out.insert( QStringLiteral( "OUTPUT" ), outPath );

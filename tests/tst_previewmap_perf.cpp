@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 
+#include "helpers/previewfixture.h"
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/metadata/layermanifest.h"
@@ -24,19 +25,14 @@
 // 命中（D6.2）、低清快照预算（D6.1）、identify 空间索引复用（D6.4）。
 // 墙钟断言按 fixture 量级放宽（CI 共享机负载抖动），测量值用 qInfo 落盘
 // 记录（selfcheck 口径：能看到数字，而不是只有红绿）。
+
+using paleo::tests::preview::makeStack;
+using paleo::tests::preview::fixture;
+using paleo::tests::preview::stage;
+
 class TestPreviewMapPerf : public QObject
 {
   Q_OBJECT
-
-  struct Stack
-  {
-    QgisProjectService projectSvc;
-    std::unique_ptr<LayerManifest> manifest;
-    std::unique_ptr<QgisLayerService> layerSvc;
-    std::unique_ptr<PaleoProjectStore> store;
-    std::unique_ptr<DataImportService> importSvc;
-    std::unique_ptr<DataPreviewTabs> preview;
-  };
 
   private slots:
     void initTestCase() { QVERIFY(QgisRuntime::isInitialized()); }
@@ -47,52 +43,7 @@ class TestPreviewMapPerf : public QObject
     void identifyIndexReused();
     void profileSamplingUnderBudget();
 
-  private:
-    static std::unique_ptr<Stack> makeStack(const QString &projectDir);
-    static QString fixture(const QString &name);
-    static QString stage(const QTemporaryDir &tmp, const QString &dir, const QString &name,
-                         const QString &asName = QString());
 };
-
-std::unique_ptr<TestPreviewMapPerf::Stack> TestPreviewMapPerf::makeStack(const QString &projectDir)
-{
-  if (!QDir().mkpath(projectDir))
-    return nullptr;
-  auto s = std::make_unique<Stack>();
-  const QString metaPath = QDir(projectDir).filePath(QStringLiteral("metadata/project.sqlite"));
-  if (!s->projectSvc.createProject(QDir(projectDir).filePath(QStringLiteral("proj.qgz"))))
-    return nullptr;
-  s->manifest = std::make_unique<LayerManifest>(metaPath);
-  if (!s->manifest->open())
-    return nullptr;
-  s->layerSvc = std::make_unique<QgisLayerService>(&s->projectSvc, s->manifest.get());
-  s->store = std::make_unique<PaleoProjectStore>();
-  s->importSvc = std::make_unique<DataImportService>(s->store.get());
-  QObject::connect(s->importSvc.get(), &DataImportService::layerDeclared,
-                   s->layerSvc.get(), [layerSvc = s->layerSvc.get()](const LayerDeclaration &decl) {
-                     QString err;
-                     layerSvc->declare(decl, &err);
-                   });
-  s->importSvc->setProjectDir(projectDir);
-  s->preview = std::make_unique<DataPreviewTabs>();
-  s->preview->setImportService(s->importSvc.get());
-  return s;
-}
-
-QString TestPreviewMapPerf::fixture(const QString &name)
-{
-  return QStringLiteral(PROJECT_FIXTURE_DIR) + QLatin1Char('/') + name;
-}
-
-QString TestPreviewMapPerf::stage(const QTemporaryDir &tmp, const QString &dir,
-                                  const QString &name, const QString &asName)
-{
-  const QString d = tmp.filePath(dir);
-  if (!QDir().mkpath(d))
-    return QString();
-  const QString dst = QDir(d).filePath(asName.isEmpty() ? name : asName);
-  return QFile::copy(fixture(name), dst) ? dst : QString();
-}
 
 void TestPreviewMapPerf::firstOpenUnderBudget()
 {

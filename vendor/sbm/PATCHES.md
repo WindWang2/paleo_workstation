@@ -101,6 +101,13 @@ inline/xline 计数由文件内容决定，`inlCount * xlCount`（int）可回�
   分配前拒绝超限尺寸并给出错误，所有行列下标改为 `size_t` 运算。
 - 回归：`tests/tst_seismic_engine.cpp::timeSliceGridOverflowRejected`。
 
+## P11 · `src/Data/Sgy/SgyRegularFile.h` — 普通文件读取守卫收口
+
+`SgyIndexCache.cpp` 与 `SgySequentialScan.cpp` 的六处非抛异常
+`is_regular_file(path, error_code)` 统一经 `IsRegularFile`。POSIX 目录可打开、
+读取却抛 EISDIR 的拒绝策略保持不变；原调用方的打开/检查顺序、错误原因、
+CRC/截断与指纹降级逻辑保留。`SgyIndexService.cpp` 不直接读取文件，无同构块。
+
 ## 编译层适配（非源码补丁）
 
 - `paleo_sbm` 目标加 `-fno-char8_t`（MSVC `/Zc:char8_t-`）：上游 30 处

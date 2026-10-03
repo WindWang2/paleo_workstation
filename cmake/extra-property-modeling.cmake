@@ -15,6 +15,6 @@ target_compile_definitions(tst_upscale PRIVATE
 add_paleo_test(tst_propfill LIBS paleo_algorithms)
 add_paleo_test(tst_propworkflow LIBS paleo_workflow)
 add_paleo_test(tst_propmodelpanel LIBS paleo_ui)
-add_paleo_test(tst_propmodelperf LIBS paleo_workflow paleo_io)
+add_paleo_test(tst_propmodelperf LIBS paleo_workflow)
 target_compile_definitions(tst_propmodelperf PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")

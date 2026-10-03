@@ -166,6 +166,8 @@ class DataPreviewTabs : public QWidget
 
     // D2.10 同目录组图：把另一资产的地图层叠进本预览页（geojson/带配准
     // 图片/层位栅格；不支持的类型如实跳过）。
+    void addSiblingOverlayButton(DataCatalog *catalog, const QString &sourcePath,
+                                  const QString &assetId, PreviewMapPage *page, QWidget *owner);
     void addSiblingOverlayLayer(PreviewMapPage *page, const QString &sibAssetId,
                                 const QString &sibName, QWidget *owner);
 

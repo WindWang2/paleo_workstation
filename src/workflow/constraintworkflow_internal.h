@@ -24,7 +24,7 @@
 
 namespace paleo::constraint_detail
 {
-/// 本段独占的内部辅助（无第二个消费者，故不进 workflows_internal.h）。
+/// 约束编排/作业内部辅助；保持在约束专用头，不扩大通用 workflow 依赖面。
 /// 与拆分前逐字一致，仅去一级缩进。
 inline QString fileStem( const QString &path )
 {

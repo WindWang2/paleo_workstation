@@ -9,7 +9,9 @@
 ```
 
 - **TTHW 目标：vendor 引导完成后，首次绿色测试 2–5 分钟**（configure+build+
-  ctest，8 核基线机；全套测试数以 `ctest -N` 为准，不在此写死，实测 ~48s，余量给增量编译）。
+  ctest，8 核基线机）。早期 wave-4 的 ~48s 是当时 62 项测试的历史数据，
+  不代表当前全量；测试数以 `ctest -N` 为准。2026-10-03 的 243 项基线含既有红项，
+  不能声称 TTHW 全绿目标已达成，当前对照见 `docs/progress/job-framework.md` 文末。
 - 引导本身（一次性）：binary 加速档 ~10min（OSGeo4W / deb 闭包 / onnxruntime
   pin）；superbuild 首选路 ≤2h、磁盘 ≥60GB（启用步骤见
   `vendor/superbuild/README.md`，政策见下「依赖来源策略」）。
@@ -69,6 +71,34 @@ vendor 路径对照（按策略优先级）：
 | OSGeo4W（Windows CI） | bootstrap 注入（`apps/qgis` 布局） | `./paleo-dev.ps1 bootstrap` |
 | 发行版系统包（仅兜底） | 不需要（系统路径即可） | 发行版包管理器 |
 
+## 独立 worktree 开发
+
+从明确的基线建分支；`master` 与 `origin/master` 不一致时先确认要用哪一个。
+主 checkout 的未提交改动不会复制到 worktree。通常使用 `codex/<主题>`，
+任务指定的 `refactor/`、`goal/` 等分支名优先。每个 worktree 使用自己的 `build/`。
+
+gitignored 依赖不会随 worktree 出现。本机共享已准备的依赖时，以主仓绝对路径
+建立 symlink（以下主仓路径按实际位置替换；不要在共享 prefix 中清理或重建）：
+
+```bash
+git worktree add ../paleo_workstation-refactor -b refactor/dedup-docs-tests master
+cd ../paleo_workstation-refactor
+ln -s /home/kevin/projects/paleo_workstation/vendor/superbuild/prefix vendor/superbuild/prefix
+ln -s /home/kevin/projects/paleo_workstation/vendor/onnxruntime vendor/onnxruntime
+if [ -d /home/kevin/projects/paleo_workstation/vendor/prefix ]; then
+  ln -s /home/kevin/projects/paleo_workstation/vendor/prefix vendor/prefix
+fi
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DQGIS_PREFIX=/home/kevin/projects/paleo_workstation/vendor/superbuild/prefix
+cmake --build build -j8
+ctest --test-dir build -j8 --output-on-failure
+```
+
+新 worktree 首次 configure 若漏 glm/saribbon/sbm/segyio 的 include，再跑同一条
+configure（已知接线问题，见 TODOS.md）。QScintilla 缺头 warning 在不包含
+QGIS 代码编辑器头的 Linux 构建中允许降级；Windows 使用已有 `CMAKE_PREFIX_PATH`
+前缀或显式 `-DQSCINTILLA_INCLUDE_DIR=<安装目录>/include` 提供头，详见任务框架历史账本。
+
 ## 平台 × 版本矩阵
 
 | 平台 | 状态 | 依赖来源 |
@@ -93,7 +123,8 @@ QGIS 4.2.x · Qt ≥6.6 · GDAL · PROJ · GEOS · QCA-qt6 · QtKeychain-qt6 · 
   `LD_LIBRARY_PATH`。
 - **并行安全**：每个 ctest 项自动获得独立 `XDG_CONFIG_HOME`/`XDG_DATA_HOME`/
   `HOME` 沙箱（`build/ctest-home/<test>/`），QSettings 不再互踩真实用户配置
-  ——`ctest -j$(nproc)` 默认安全。**已知边界：Windows NativeFormat 走注册表
+  ——Linux 可用 `ctest -j8`；构建和测试并行度一律不超过 8，不用 `$(nproc)`。
+  **已知边界：Windows NativeFormat 走注册表
   不受 env 控制**，Windows 侧保持串行 ctest。
 - **层护栏**：`ctest -R layering`（提示）/`layering_strict`（防回升闸门：
   baseline 非空或可收缩即红）/`layering_selftest`（扫描器自检）。

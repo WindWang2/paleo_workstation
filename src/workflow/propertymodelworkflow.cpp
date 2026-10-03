@@ -1,5 +1,6 @@
 // 层：功能
 #include "propertymodelworkflow.h"
+#include "workflowerrors_internal.h"
 
 #include "../catalog/datacatalog.h"
 #include "../io/lasparser.h"
@@ -26,11 +27,7 @@
 namespace
 {
 
-void setError(QString *error, const QString &text)
-{
-  if (error)
-    *error = text;
-}
+using paleo::workflow_detail::setError;
 
 QString num(double v) { return QString::number(v, 'g', 17); }
 

@@ -1,4 +1,5 @@
 // 层：功能
+#include "../qgis/layervocabulary.h"
 #include "mappingworkbench.h"
 #include "../domain/faciescatalog.h"
 #include "../domain/mappinghorizons.h"
@@ -366,7 +367,7 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
   const auto id = QStringLiteral("product.%1").arg(st.versionId);
   const auto group =
       kind.contains("prediction")   ? QStringLiteral("02_Prediction")
-      : kind.contains("constraint") ? QStringLiteral("03_Constraints")
+      : kind.contains("constraint") ? PaleoLayerVocabulary::kConstraintsGroup
                                     : QStringLiteral("05_PaleoMap");
   extra.insert("mapping_product", true);
   extra.insert("layer_id", id);

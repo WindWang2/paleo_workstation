@@ -1,6 +1,10 @@
-# Goal-Loop Prompts — 11 个方向（自治迭代任务包）
+# Goal-Loop Prompts — 23 个方向（自治迭代任务包）
 
 第一批 01–05 已发 fleet 并落地（PR #70–#73 全合）。第二批 06–11 为追加方向。
+
+本目录保存四批 01–23 的任务书快照；目录名为 `goal-loop-prompts/`，
+编号文件与下表一一对应。表中「新增」「在飞」是任务书发出时的状态，
+当前交付与递延以 `docs/progress/` 对应账本及 `TODOS.md` 为准。
 
 每个 .md 是一个完整的 /goal-loop 开放 prompt：交给一个自治 agent 会话直接执行。
 协议与既有 wave 一致（见 `.goal-loop-ledger*.md` 先例）：worktree 分支 → 迭代账本 →
@@ -8,13 +12,16 @@ Oracle 验收 → push + `gh pr create`。全自动，无人工确认，不等 C
 
 ## 通用纪律（所有 prompt 均含，此处统一说明）
 
-- **基线**：本地 `master` HEAD（含 vendor 收口：构建期 prefix 烧进二进制、ctest 注入
-  `QGIS_PREFIX_PATH`、vendored .so 全 `$ORIGIN`）。
+- **基线**：任务指定的 `master` 或 `origin/master` HEAD（未指定时用最新 `origin/master`；
+  本地/远程不一致时明确记录所选 commit）。含 vendor 收口：构建期 prefix 烧进二进制、ctest 注入
+  `QGIS_PREFIX_PATH`、vendored .so 全 `$ORIGIN`。
 - **worktree**：必须自建独立 worktree 分支开发（`git worktree add .worktrees/<slug>
-  -b goal/<name>-<日期>`，从最新 `origin/master` 起），禁在主 checkout 写代码。
+  -b goal/<name>-<日期>`，从上述基线起），禁在主 checkout 写代码。
+  gitignored vendor 依赖需另行接线，见 BUILDING.md「独立 worktree 开发」。
 - **构建**：`QGIS_PREFIX_PATH=<repo>/vendor/superbuild/prefix cmake -S . -B build
   -DCMAKE_BUILD_TYPE=RelWithDebInfo`；增量 `cmake --build build -j8`。
   本机工具链偶发 ld/gcc 崩溃——重试续传即可，坏 `.o` 删后重编。
+- **资源**：构建/测试并行度均不超过 8，`ctest --test-dir build -j8`；Windows ctest 串行。
 - **ledger**：worktree 根建 `.goal-loop-ledger-<slug>.md`，每轮记「改动/验证/判定/下一步」。
 - **分层护栏**：src/ 文件头三行 `// 层：<词表>`（新顶层模块先 `scripts/new_module.sh`
   登记）；`tools/check_layering.py` + `--strict` 必须绿。

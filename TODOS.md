@@ -25,14 +25,17 @@
 
 - **What:** 克里金体系深化、完整 SFPKG 导入、外委 XML/XLSX 批量读取、
   参考工程全部历史制图策略、时深域转换、监督分类、打印排版、
-  完整 Python GUI 嵌入，以及有限断层路径距离 `FaultPathMetric`。
+  完整 Python GUI 嵌入。有限断层路径距离 `FaultPathMetric` 已由
+  `src/algorithms/singlefactor/faultpath.{h,cpp}` 落地，并接入 localdirectionalgorithm；
+  回归为 `tst_singlefactor_faultpath` / `tst_singlefactor_parity_completion`，从未实现项勾销。
 - **Why:** 本次交付只做 C++ 局部方向 IDW、软边界、井群权重、硬屏障栅格连通、
   真实数值等值线和显式制图工作场。上游井数超过 80 等条件下的各向异性路径
   会退成 IDW，不能把 UI 标签当成克里金。
-- **Pros:** P0/P1 保持可复算的分析场语义；**Cons:** 路径绕距、历史闭环补接
+- **Pros:** P0/P1 保持可复算的分析场语义；**Cons:** 历史闭环补接
   和批量外委格式要另立项。
 - **Context:** `docs/designs/single-factor-native-integration-plan.md` 第 1 节
-  与第 7.3 节。硬屏障模型是 `grid_connectivity_v1`，不是 `FaultPathMetric`。
+  与第 7.3 节（原方向历史快照）。当前 `localidw.h` 的旧核仍为
+  `grid_connectivity_v1`，生产局部方向作业已能使用独立的 FaultPathMetric 绕行核；两者不混称。
 - **Effort:** human: L / CC: L
 - **Priority:** P2
 - **Depends on:** 单因素原生 P0 分析场进入目标基线
@@ -53,7 +56,7 @@
 
 - **What:** V1 只做等比例 IJK 格架 + 井曲线粗化 + 断层竖帘阻断的 IDW。
   未做 pillar/断块错位网格、Y 型断层、沉积相带/对象建模、序贯高斯模拟，
-  也未做变差函数克里金。壳层「属性建模」dock 已接（fixes 分支）。
+  也未做变差函数克里金。壳层「属性建模」dock 已接并进入 master。
 - **Why:** 断块网格和随机模拟是另一立项。斜井测斜表、断层棒投影也未做。
 - **Pros:** 等比例格架和 IDW 已能出 DERIVED 属性体；**Cons:** 斜井轨迹、
   断距错位和相控仍要另做。
@@ -79,6 +82,49 @@
 - **Depends on:** goal/horizon-autotrack 已落核/2D 闭环/GeoTIFF 上图管线
 
 # TODOS — paleo_workstation
+
+2026-10-03 本次对账补注：新约束声明的 `03_Constraints` 收口到
+`PaleoLayerVocabulary::kConstraintsGroup`；预测/融合的旧产点值及独立兼容断言保持。
+末尾 QScintilla 的「没有接线」是旧轮 2 现场记录，随后的 master 注记已关闭 Linux 阻塞；
+现行 CMake 有 `QSCINTILLA_INCLUDE_DIR` 探测与传播，Windows 真机验证继续递延。
+分层补强条目的「单一 paleo_core 静态库」是旧背景；当前各模块已拆为静态库，
+paleo_core 是 INTERFACE 兼容伞，include 检查仍不能发现不带 include 的违规调用，
+调用级补强继续递延（现行模块契约见 AGENTS.md）。
+首次 configure 漏 glm/saribbon/sbm/segyio include 仍成立，再 configure 一次恢复；
+共享 prefix 的 symlink 与显式 QGIS_PREFIX 见 BUILDING.md，根因修复另立项。
+
+本次 `refactor/dedup-docs-tests` 从指定基线 `3b22a9c` 创建，保留原测试/行为；
+该基线两条探针的红项证据见任务框架账本。文末「已修」来自任务期间另行进入
+master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR 的零漂移改动。
+
+
+## P2 — 结构侧卡 SHA 复验（2026-10-03 去重审查）
+
+- **What:** `constraintfactorjobs.cpp::generateStructuralFactor` 发布记录
+  `structural_sha256`，`prepareAnalysisContourJob` 读取 structural_path 并检存在，
+  `qgis/factorcontour.cpp::generateStructuralContours` 检 JSON/FieldContourSurface/尺寸，
+  尚未比较记录的侧卡 SHA。不要把这些结构检查称为字节完整性复验。
+- **Why:** 内容被改写但格式/尺寸仍合法时，侧卡可影响结构等值线；当前 raster SHA
+  守卫只能保护栅格字节。本次保持行为，后续以独立修复加入 prepare/publish 复验。
+- **Context:** `tests/tst_singlefactor_fieldcontours.cpp` / `tst_factorworkflow.cpp`；
+  建议补合法但被改写的侧卡拒绝及临时产物清理用例，不放宽原阈值。
+- **Effort:** human: S / CC: S；**Depends on:** 三段作业侧卡快照契约。
+
+## P2 — master 验证红项对账（2026-10-03 去重审查）
+
+- **What:** `3b22a9c` 全量基线及保留的同提交二进制隔离复跑确认：
+  `tst_perf_catalog::entitySeqAndShaLookupsAfterReload` 的 SHA 查询有 ver-2/ver-1
+  结果差异（另行进入 master 的 `e8da8cf` 已修，本次原基线结果仅作历史对照）；
+  `tst_cache_las::secondOpenUnder5ms` 未满足磁盘命中耗时 <0.5×冷解析的比率；
+  `tst_wellcomposite_visual::testGoldenImageSampling` 有 17/48 抽样点超容差，门限为 4。
+  `tst_singlefactor_perf::proposedBudgets` 的 L 中位数超 15000ms，master 隔离复跑为 20089ms。
+- **Why:** 这些失败已在重构前出现，需要单独定位；缓存/视觉两项是任务书列举之外
+  的基线红。零漂移 PR 不改断言、预算、golden 或相关行为，发布例外需明确确认。
+- **Context:** `tests/tst_perf_catalog.cpp:587`、`tests/tst_cache_las.cpp:75`、
+  `tests/tst_wellcomposite_visual.cpp:533`、`tests/tst_singlefactor_perf.cpp:213`；
+  完整基线/重构结果和日志名见 `docs/progress/job-framework.md` 文末。
+- **Effort:** human: M / CC: M；**Depends on:** 同一 vendored prefix/Qt 环境复核。
+
 
 ## P3 — 交会分类后续（from goal/crossplot-facies，2026-10-02）
 
@@ -117,9 +163,9 @@
 - **Context:** `docs/PROJECT_AREA_PLAN.md` 第 3 节。触发条件：资产数量或列表查询变慢。**2026-09-30 对账（wave/deepen-perf B4）**：10k/100k 夹具实测查询面零劣化（entityById/linksForEntity/列表/计数全 O(1)，打开 10k 136ms / 100k 1408ms 线性）——触发条件未达，记档收工（数据 docs/perf/BASELINE.md §6）；**新发现** mutator 写路径超线性（10k 6.2s→100k 949.7s，疑二次）另立条目。
 - **Effort:** human: M / CC: S
 - **Priority:** P3
-- **Depends on:** catalog.json 受管 RAW 已能往返
+- **Depends on:** 受管 RAW 已能往返（现行持久层为 catalog.sqlite，JSON 为旧数据迁移入口）
 
-## P3 — catalog mutator 写路径超线性 profiling（from wave/deepen-perf B4, 2026-09-30）
+## ~~P3 — catalog mutator 写路径超线性 profiling（from wave/deepen-perf B4, 2026-09-30）~~（2026-10-01 已关闭）
 
 - **What:** catalog.json 写路径（BatchSave/导入灌库）规模超线性：10k 资产 6.2s、100k 949.7s（≈153×，疑二次——疑与全量重扫/重序列化次数有关）。
 - **Why:** 查询面已 O(1)（邻接索引），写面成为 >50k 资产目录的下一瓶颈。
@@ -128,7 +174,7 @@
 - **Context:** 夹具 `makeSyntheticCatalogDir`（tst_catalog_scale，`PALEO_CATALOG_SCALE` 门控）。触发条件：资产 >50k 或实测导入超分钟。
 - **Effort:** human: M / CC: M
 - **Priority:** P3
-- **Depends on:** catalog.sqlite 条目（如届时已落，写路径一并设计）
+- **Depends on:** 无；SQLite 持久层已落，写路径修复证据见下
 - **2026-10-01 关闭（WP2 goal/data-io-catalog-closure）**：根因=六 mutator 的
   全表快照 COW detach（O(N)/次）+ markStale/nextEntityId/sha/快照查询面线性扫；
   修复=精确 undo 回滚 + 索引化（语义等价由测试钉死）。同机 A/B（RelWithDebInfo）：
@@ -220,8 +266,8 @@
 
 ## P3 — 设计评审递延（from /plan-design-review, 2026-09-25）
 
-- **暗色模式**：DESIGN.md token 结构已支持；需重配全部语义色并验证 canvas 符号在暗底可读性。触发条件：V1 完成且用户提出需求。
-- **简化版编图 composer**：仅图例/比例尺/指北针/图签的聚焦 UI，替代完整 QgsLayout 设计器（D12 的兜底方案）。触发条件：V1 编图页实测显示完整设计器过载。工作量级：月级（重复 src/app 代码），勿投机先建。
+- ~~**暗色模式**~~：2026-09-29 已交付双主题 token/运行时切换与对比度校核；数据符号色与柱状图纸面按 DESIGN.md 豁免。入口 `src/ui/paleotheme.cpp`，回归 `tests/tst_uxtheme.cpp`；不再列为未实现。
+- ~~**简化版编图 composer**~~：2026-09-30 D4 评估已结案，不建第二套 composer；标准导出 + 裁剪设计器满足当前流程。唯一图签缺口继续由上方「标准导出流图签块」跟踪，见 `docs/progress/deepen-perf.md`。
 
 ## P3 — project_area 计划递延（from /autoplan Eng + DX review, 2026-09-26）
 
@@ -265,6 +311,10 @@
 - **SBM 未 vendor 面**：`Mesh/`（CgalHorizonMeshBuilder，GPL/LGPL 双许可 CGAL 可选）、`Model/`、`Data/HorizonTextReader`（层位面三维渲染/文本导入——现阶段层位走 QGIS 图层，暂不引）。`Engine/SdkC.h` C ABI 已随库编译但未导出消费方。Effort: S / Priority: P3
 
 ## Completed
+
+本节及下方 wave 决策记录的 commit、行号、性能值、测试数量与分支同步状态是
+各次交付的历史快照；2026-10-03 现状与基线对账见 `docs/progress/job-framework.md`
+末节，开发环境和八路资源纪律以 BUILDING.md 为准。
 
 - **2026-09-26 · project_area 数据底座 + D61 编图链**（p1/p2 双包并入 master）：catalog 实体/资产/版本/显式关联 + SHA-256 受管 RAW；分类器与井口/分层/时深解析；D61 装箱时间栅格；SEG-Y 道索引单测线解码；9 类数据页预览；读侧 facade、D61→D62 厚度→凸包约束 IDW→相多边形；TD 残差验证、三视图联动、PDF 导出、8 层位 chip、版本状态机。`424e185` `f3d9b83` `c994d21`
 - **2026-09-26 · 集成接缝 + 清单读错误诚实化**：ComposePage 经 `layerDeclared` 信号跟随新声明；生产路径全改 `tryDeclared`/错误通道（清单损坏不再被当成空清单）。`fdd2f99` `217502a`

@@ -110,7 +110,10 @@ class ComposePage;
 class ValidatePage;
 class WellCorrelationPanel;
 class WellSectionPanel;
-namespace metadata { class WellSectionStore; }
+namespace metadata {
+class WellSectionStore;
+}
+class FaultSetStore;
 class WellSectionWorkflow;
 class SectionWorkbench;
 class QCloseEvent;
@@ -307,6 +310,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     WellSectionPanel *m_wellSectionPanel = nullptr;
     WellSectionWorkflow *m_wellSectionWf = nullptr;
     metadata::WellSectionStore *m_wellSectionStore = nullptr;
+    FaultSetStore *m_wellSectionFaultStore = nullptr;
 
     QgisCanvasController *m_canvasCtl;
     QgisProjectService *m_projectSvc;

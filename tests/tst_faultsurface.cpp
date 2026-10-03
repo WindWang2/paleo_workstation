@@ -90,6 +90,7 @@ private slots:
     void sectionCutOnUnpickedInline();
     void partialDepthMeshDoesNotCurtainTheColumn();
     void hundredByTwoHundredUnderThreeSeconds();
+    void polylineCurtainCut();
 };
 
 void TestFaultSurface::planarDipAndTopology()
@@ -318,6 +319,60 @@ void TestFaultSurface::hundredByTwoHundredUnderThreeSeconds()
     QVERIFY2(topo.ok, qPrintable(topo.message));
     qInfo("fault-surface perf: %lld ms for %d x %d (budget 3000 ms, ratio %f)",
           static_cast<long long>(elapsed), kSections, kPoints, double(elapsed) / 3000.0);
+}
+
+// ---- 任意折线 curtain 求交（连井剖面断层投绘）----
+// 倾斜平面 mesh（z = x/10，x∈[0,100]、y∈[-50,50]），竖直 curtain 沿
+// x=50 的折线切过：交点 z 全为 5，along 随折线累计长分数推进。
+void TestFaultSurface::polylineCurtainCut()
+{
+    paleo::fault::FaultSurfaceMesh mesh;
+    // 四角两三角形：A(0,-50,0) B(100,-50,10) C(100,50,10) D(0,50,0)。
+    mesh.vertices = {
+        {0, -50, 0, QStringLiteral("s1"), 0},
+        {100, -50, 10, QStringLiteral("s1"), 1},
+        {100, 50, 10, QStringLiteral("s2"), 0},
+        {0, 50, 0, QStringLiteral("s2"), 1},
+    };
+    mesh.triangles = {{0, 1, 2}, {0, 2, 3}};
+    QVector<QPair<double, double>> path;
+    path << qMakePair(50.0, -100.0) << qMakePair(50.0, 100.0);
+
+    const SectionCut cut = intersectSurfaceWithPolyline(mesh, path);
+    QVERIFY2(cut.ok(), qPrintable(cut.message));
+    QVERIFY(cut.hits.size() >= 2);
+    QVERIFY(cut.hits.first().traceFrac <= cut.hits.last().traceFrac); // 排序
+    // 折线总长 200，起点 y=-100：y=-50 → 0.25；y=50 → 0.75。
+    QCOMPARE(qRound(cut.hits.first().traceFrac * 10000.0), 2500);
+    QCOMPARE(qRound(cut.hits.last().traceFrac * 10000.0), 7500);
+    for (const SectionHit &h : cut.hits)
+        QCOMPARE(qRound(h.z * 10.0), 50); // z = 5（0.1 斜率 × x=50）
+
+    // 不穿过（折线远离 mesh）→ NoIntersection 且 hits 清空。
+    QVector<QPair<double, double>> far;
+    far << qMakePair(500.0, -100.0) << qMakePair(500.0, 100.0);
+    const SectionCut miss = intersectSurfaceWithPolyline(mesh, far);
+    QCOMPARE(miss.status, SurfaceBuildStatus::NoIntersection);
+    QVERIFY(miss.hits.isEmpty());
+
+    // 退化折线拒绝。
+    const SectionCut bad = intersectSurfaceWithPolyline(
+        mesh, {qMakePair(1.0, 1.0)});
+    QCOMPARE(bad.status, SurfaceBuildStatus::BadSection);
+
+    // 折线多段：中间拐点也切出连续交线（两段折线拼接覆盖 mesh 跨度）。
+    QVector<QPair<double, double>> bent;
+    bent << qMakePair(20.0, -100.0) << qMakePair(20.0, 0.0)
+         << qMakePair(80.0, 0.0) << qMakePair(80.0, 100.0);
+    const SectionCut bentCut = intersectSurfaceWithPolyline(mesh, bent);
+    QVERIFY2(bentCut.ok(), qPrintable(bentCut.message));
+    // 深度沿线从 2（x=20）过渡到 8（x=80），单调不回跳。
+    double prevZ = -1e9;
+    for (const SectionHit &h : bentCut.hits)
+    {
+        QVERIFY(h.z >= prevZ - 1e-9);
+        prevZ = h.z;
+    }
 }
 
 QTEST_MAIN(TestFaultSurface)

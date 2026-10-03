@@ -385,6 +385,20 @@ private slots:
     QVERIFY(gapWidthsFor({w1}, SpacingMode::Proportional, 300, 48, 600)
                 .isEmpty());
   }
+
+  // ---- 井路径累计长分数（断层投绘横向映射）----
+  void wellPathFractionRules() {
+    Well a, b, c;
+    a.x = 0;   a.y = 0;
+    b.x = 100; b.y = 0;
+    c.x = 100; c.y = 100;
+    const auto fr = wellPathFractions({a, b, c});
+    QCOMPARE(fr, QVector<double>({0.0, 0.5, 1.0})); // 100 + 100 均段
+    QCOMPARE(wellPathFractions({a}).size(), 0);     // 单井无路径
+    Well nox;                                        // 缺坐标 → 整体退化
+    QCOMPARE(wellPathFractions({a, nox}).size(), 0);
+    QCOMPARE(wellPathFractions({}).size(), 0);
+  }
 };
 
 QTEST_APPLESS_MAIN(TestWellSection)

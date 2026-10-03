@@ -56,6 +56,13 @@ class WellSectionPanel : public QWidget
     void setHighlightEnabled(bool on);
     bool seismicEnabled() const { return m_seismicOn; }
     void setSeismicEnabled(bool on); // on + ≥2 井 → seismicRequested
+    // 断层投绘开关：on + ≥2 井 → faultsRequested（数据由壳层接 workflow）。
+    bool faultsEnabled() const { return m_faultsOn; }
+    void setFaultsEnabled(bool on);
+    // 投绘结果回填：status 非空 = 无线可画（按钮 tooltip/状态行提示）。
+    void setFaultTraces(const QVector<wellsection::FaultTrace> &traces,
+                        const QString &status);
+    void setFaultsAvailable(bool available, const QString &reason);
     QString flattenTop() const { return m_datum.flattenTop; }
     void setFlattenTop(const QString &top); // "" = 不拉平（糖接口：切 Flatten）
     wellsection::Datum datum() const { return m_datum; }
@@ -90,10 +97,12 @@ class WellSectionPanel : public QWidget
     // 测试钩子：列左缘 x / 第 i 缝宽（比例井距模式的断言面）。
     qreal columnX(int i) const { return m_st.columnLeft(i); }
     qreal gapWidthAt(int i) const { return m_st.gapWidth(i); }
+    int faultTraceCount() const { return m_st.faultTraces.size(); }
 
   signals:
     void dataRequested(const QStringList &wellIds, const QStringList &mnemonics);
     void seismicRequested();
+    void faultsRequested();
     // 仅用户驱动（选井/拖排/移除）——持久化钩子。
     void wellIdsChanged(const QStringList &wellIds);
     // 仅用户驱动（连线断开/重连）——持久化钩子（store 版本推进）。
@@ -132,6 +141,10 @@ class WellSectionPanel : public QWidget
     bool m_seismicOn = false;
     bool m_seismicAvailable = false;
     QString m_seismicReason;
+    bool m_faultsOn = false;
+    bool m_faultsAvailable = false;
+    QString m_faultsReason;
+    QString m_faultStatus; // 最近一次投绘状态（空 = 正常出线）
     bool m_busy = false;
     bool m_autofit = true;
     bool m_refitPending = false; // resize 触发的 refit 合并标志（0ms singleShot）
@@ -147,6 +160,7 @@ class WellSectionPanel : public QWidget
     wellsectionui::HeaderWidget *m_header = nullptr;
     QVector<wellsectionui::ColumnItem *> m_colItems;
     QVector<wellsectionui::GapItem *> m_gapItems;
+    wellsectionui::FaultOverlayItem *m_faultItem = nullptr;
 
     QToolButton *m_wellsBtn = nullptr;
     QToolButton *m_tracksBtn = nullptr;
@@ -154,6 +168,7 @@ class WellSectionPanel : public QWidget
     QToolButton *m_flattenBtn = nullptr;
     QToolButton *m_spacingBtn = nullptr;
     QToolButton *m_seismicBtn = nullptr;
+    QToolButton *m_faultBtn = nullptr;
     QToolButton *m_fitBtn = nullptr;
     QToolButton *m_exportBtn = nullptr;
     QLabel *m_status = nullptr;

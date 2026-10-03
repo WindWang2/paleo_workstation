@@ -40,6 +40,7 @@
     "metadata/paleoprojectstore.h",
     "metadata/mapversionstore.h",
     "metadata/releasestore.h",
-    "metadata/wellsectionstore.h"
+    "metadata/wellsectionstore.h",
+    "metadata/faultsetstore.h"
   ]
 }

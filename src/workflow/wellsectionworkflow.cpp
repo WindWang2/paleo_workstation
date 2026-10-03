@@ -1,9 +1,12 @@
 // 层：功能
 #include "wellsectionworkflow.h"
+#include "algorithms/faultsurface/faultsurface.h"
 #include "catalog/datacatalog.h"
+#include "domain/faultset.h"
 #include "io/lasalias.h"
 #include "io/lascache.h"
 #include "io/lasdoc.h"
+#include "metadata/faultsetstore.h"
 #include "sectionworkbench.h"
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
@@ -83,6 +86,57 @@ void WellSectionWorkflow::setSeismicTaskService(
 }
 void WellSectionWorkflow::setSectionWorkbench(SectionWorkbench *wb) {
   m_workbench = wb;
+}
+
+void WellSectionWorkflow::setFaultSetStore(FaultSetStore *store) {
+  m_faultStore = store;
+}
+
+WellSectionWorkflow::FaultProjection WellSectionWorkflow::faultProjection(
+    const QVector<wellsection::Well> &wells) const {
+  FaultProjection out;
+  if (!m_faultStore) {
+    out.status = tr("工程未打开，断层解释不可用");
+    return out;
+  }
+  if (wells.size() < 2) {
+    out.status = tr("两口以上的井才能投绘断层");
+    return out;
+  }
+  paleo::fault::FaultSet set;
+  QString err;
+  if (!m_faultStore->load(set, &err)) {
+    out.status = err.isEmpty() ? tr("断层解释读取失败") : err;
+    return out;
+  }
+  if (set.faultCount() == 0) {
+    out.status = tr("工程内无断层解释");
+    return out;
+  }
+  QVector<QPair<double, double>> path;
+  for (const wellsection::Well &w : wells) {
+    if (!w.hasCoordinates()) {
+      out.status = tr("井位坐标不全，断层未投绘");
+      return out;
+    }
+    path.push_back({w.x, w.y});
+  }
+  for (const paleo::fault::Fault &f : set.faults()) {
+    if (!f.visible || f.surface.isEmpty())
+      continue;
+    const paleo::faultsurf::SectionCut cut =
+        paleo::faultsurf::intersectSurfaceWithPolyline(f.surface, path);
+    if (!cut.ok())
+      continue;
+    wellsection::FaultTrace trace;
+    trace.faultName = f.name;
+    for (const paleo::faultsurf::SectionHit &h : cut.hits)
+      trace.points.push_back({h.traceFrac, h.z});
+    out.traces.push_back(trace);
+  }
+  if (out.traces.isEmpty())
+    out.status = tr("断面不穿过剖面井径");
+  return out;
 }
 
 QString WellSectionWorkflow::projectDir() const {

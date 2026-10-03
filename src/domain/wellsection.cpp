@@ -308,6 +308,28 @@ QString TopsTable::csv() const {
 }
 
 
+QVector<double> wellPathFractions(const QVector<Well> &wells) {
+  QVector<double> out;
+  if (wells.isEmpty())
+    return out;
+  for (const Well &w : wells)
+    if (!w.hasCoordinates())
+      return QVector<double>();
+  QVector<double> cum(wells.size(), 0.0);
+  double total = 0.0;
+  for (int i = 1; i < wells.size(); ++i) {
+    const double dx = wells[i].x - wells[i - 1].x;
+    const double dy = wells[i].y - wells[i - 1].y;
+    total += std::sqrt(dx * dx + dy * dy);
+    cum[i] = total;
+  }
+  if (!(total > 1e-9))
+    return QVector<double>();
+  for (double c : cum)
+    out << c / total;
+  return out;
+}
+
 QVector<LithoInterval> inferSandShale(const Curve &gr, double cutoff,
                                       double minThicknessM) {
   const int n = qMin(gr.depths.size(), gr.values.size());

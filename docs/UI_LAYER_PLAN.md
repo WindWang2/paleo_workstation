@@ -26,7 +26,7 @@
 
 - `src/{domain,catalog,io,services,workflow,algorithms}` 无 QtWidgets 依赖（已验证）。`linkage` 例外：`threewaylocator.h` 持有 `QTabWidget*`/`WellCorrelationPanel*`/`ValidatePage*` 成员——语义上依赖 QtWidgets，由 W3b 消除，不计入「现状合规」。
 - 页面板 → workflow 走信号的方向是对的（`PredictPage::runRequested` 等），保留。
-- 类型只读豁免：视图可 include 数据层的纯类型头（`domain/types.h`、catalog DTO）与 **metadata 只读门面白名单**：`metadata/layermanifest.h`、`metadata/paleoprojectstore.h`、`metadata/mapversionstore.h`、`metadata/releasestore.h`、`metadata/wellsectionstore.h`（连井剖面编辑产物落库；当前 ui 合法引用：`paleomainwindow.cpp:21,23,24`、`pagepanels.cpp:13`、`taskpanel.cpp:3`、`releasepanel.{h,cpp}:6,3`）。禁止的是解析入口与写路径（`metadata/paleoprojectfile.h` 上黑名单）。
+- 类型只读豁免：视图可 include 数据层的纯类型头（`domain/types.h`、catalog DTO）与 **metadata 只读门面白名单**：`metadata/layermanifest.h`、`metadata/paleoprojectstore.h`、`metadata/mapversionstore.h`、`metadata/releasestore.h`、`metadata/wellsectionstore.h`（连井剖面编辑产物落库）、`metadata/faultsetstore.h`（连井剖面断层投绘供数；当前 ui 合法引用：`paleomainwindow.cpp:21,23,24`、`pagepanels.cpp:13`、`taskpanel.cpp:3`、`releasepanel.{h,cpp}:6,3`）。禁止的是解析入口与写路径（`metadata/paleoprojectfile.h` 上黑名单）。
 
 ## 2. 现状违规清单（实测，二轮补齐）
 
@@ -122,7 +122,7 @@ src/
 ### W6 — 边界护栏 + 文档
 1. `tools/check_layering.py`：
    - include 路径先**规范化成仓库相对路径**再匹配（`../../io/ingestplan.h`、`../io/x.h`、`io/x.h` 归一为 `io/x.h`），防 `../` 前缀绕过。
-   - 正向：`src/ui/**` include 黑名单 = `io/lasparser.h` `io/segyreader.h` `io/segysectiongrid.h` `io/wellfileparsers.h` `io/timedeptool.h` `io/geojsonaffine.h` `io/projectclassifier.h` `io/arearules.h` `io/dataimportservice.h` `algorithms/` `metadata/paleoprojectfile.h`。metadata 白名单（`layermanifest.h`/`paleoprojectstore.h`/`mapversionstore.h`/`releasestore.h`/`wellsectionstore.h`）见 §1.1，白名单外的 `metadata/*` 一律失败。
+   - 正向：`src/ui/**` include 黑名单 = `io/lasparser.h` `io/segyreader.h` `io/segysectiongrid.h` `io/wellfileparsers.h` `io/timedeptool.h` `io/geojsonaffine.h` `io/projectclassifier.h` `io/arearules.h` `io/dataimportservice.h` `algorithms/` `metadata/paleoprojectfile.h`。metadata 白名单（`layermanifest.h`/`paleoprojectstore.h`/`mapversionstore.h`/`releasestore.h`/`wellsectionstore.h`/`faultsetstore.h`）见 §1.1，白名单外的 `metadata/*` 一律失败。
    - 反向：`src/{domain,catalog,io,metadata,services,workflow,linkage,algorithms,ai,qgis}/**` 出现 `../ui/` include 即失败；以上全部目录（含 `workflow`/`linkage`/`ai`/`algorithms`）出现 QtWidgets 痕迹即失败——**词表制**覆盖 `#include <QtWidgets…>`、`#include <QWidget>` 等单类头、`class Q…;` 前向声明三类写法（否则 threewaylocator.h 式 `class QTabWidget;` 漏检）；仅 `qgis` 豁免 QtWidgets，不豁免 `ui/`。`src/app`、`src/selfcheck` 不扫描——组装根/测试壳按契约允许 ui/ 依赖，此豁免在检查器中以注释注明 by design。
    - `io/` 正向规则改**白名单制**：`src/ui/**` 只允许 include `io/lasdoc.h`（及后续逐头显式放行的门面头），其余 `io/*` 一律失败——枚举黑名单挡不住 `ingestplan.h`/`horizonbinner.h`/`constraintstore.h` 这类漏网头。metadata 同理白名单（§1.1 五头）。
    - 层标记检查：每个 `src/` 文件头三行内必须有 `// 层：<六值词表之一>`，缺失即失败（W5c 的硬执行面，防注释腐烂）。**原子落地**：层标记添加与检查器启用必须同一 commit，否则 ctest 中途红。

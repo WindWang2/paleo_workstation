@@ -1,5 +1,7 @@
 #include "catalog/datacatalog.h"
+#include "domain/faultset.h"
 #include "domain/seismic/sgyvolume.h"
+#include "metadata/faultsetstore.h"
 #include "metadata/wellsectionstore.h"
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
@@ -411,6 +413,63 @@ private slots:
                         {QStringLiteral("well-1")}, {}, &err);
     QCOMPARE(rec.version, 1);
     QCOMPARE(reopened.load(QStringLiteral("default"), &err).version, 2);
+  }
+
+  // 断层投绘：FaultSetStore 断面 mesh ∩ 井径 curtain → FaultTrace 集。
+  void faultProjectionFromStore() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    FaultSetStore fstore(
+        QDir(dir.path()).filePath(QStringLiteral("f.project.sqlite")));
+    QString err;
+    QVERIFY2(fstore.open(&err), qPrintable(err));
+
+    paleo::fault::FaultSet set;
+    const QString fid = set.addFault(QStringLiteral("F1"));
+    paleo::fault::FaultSurfaceMesh mesh;
+    // 倾斜平面：x∈[0,100]、y∈[-50,50]、z=x/10（x=20→2，x=80→8）。
+    mesh.vertices = {{0, -50, 0, QString(), -1},
+                     {100, -50, 10, QString(), -1},
+                     {100, 50, 10, QString(), -1},
+                     {0, 50, 0, QString(), -1}};
+    mesh.triangles = {{0, 1, 2}, {0, 2, 3}};
+    QVERIFY(set.setSurface(fid, mesh));
+    QVERIFY(fstore.save(set, &err));
+
+    DataCatalog cat;
+    WellSectionWorkflow wf(&cat);
+    // 无 store → 状态提示。
+    const auto none = wf.faultProjection({});
+    QVERIFY(!none.status.isEmpty());
+    QVERIFY(none.traces.isEmpty());
+
+    wf.setFaultSetStore(&fstore);
+    auto mk = [](const QString &id, double x) {
+      wellsection::Well w;
+      w.id = id;
+      w.x = x;
+      w.y = 0;
+      return w;
+    };
+    const auto fp = wf.faultProjection({mk("w1", 20), mk("w2", 80)});
+    QCOMPARE(fp.status, QString());
+    QCOMPARE(fp.traces.size(), 1);
+    QCOMPARE(fp.traces[0].faultName, QStringLiteral("F1"));
+    QVERIFY(fp.traces[0].points.size() >= 2);
+    QCOMPARE(fp.traces[0].points.first().along, 0.0);
+    QCOMPARE(fp.traces[0].points.last().along, 1.0);
+    QCOMPARE(qRound(fp.traces[0].points.first().depth * 10), 20); // x=20→2
+    QCOMPARE(qRound(fp.traces[0].points.last().depth * 10), 80);  // x=80→8
+    // 井位远离断面 → 状态「不穿过」。
+    const auto miss = wf.faultProjection({mk("a", 200), mk("b", 300)});
+    QVERIFY(miss.traces.isEmpty());
+    QVERIFY(!miss.status.isEmpty());
+    // 缺坐标 → 状态提示。
+    wellsection::Well nox;
+    nox.id = QStringLiteral("n");
+    const auto bad = wf.faultProjection({mk("w1", 20), nox});
+    QVERIFY(bad.traces.isEmpty());
+    QVERIFY(!bad.status.isEmpty());
   }
 
   void workbenchCalibration() {

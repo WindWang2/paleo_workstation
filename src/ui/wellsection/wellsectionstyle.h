@@ -74,6 +74,7 @@ struct SectionTheme {
   bool zoneFill = false;     // 层段底色（zoneColor 55% 透明）
   QColor sand, sandDots;     // 砂岩充填 + 点纹（sand 透明 = 只描轮廓）
   QColor lithoSand, lithoShale;
+  QColor fault;              // 断层投绘线（缺省 classic #B33A3A）
   bool seismicGray = true;   // true = 灰阶，false = 红白蓝
   qreal seismicOpacity = 0.85;
   static QVector<SectionTheme> presets();         // classic/colored/print

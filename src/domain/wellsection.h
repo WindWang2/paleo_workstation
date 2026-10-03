@@ -95,6 +95,21 @@ enum class SpacingMode { Equal, Proportional };
 QVector<double> gapWidthsFor(const QVector<Well> &wells, SpacingMode mode,
                              double totalGap, double minGap, double maxGap);
 
+// 各井在井口连线上的累计长分数（0..1，首井 0 末井 1）；任一井缺坐标 →
+// 空（调用方按等距退化）。断层投绘横向映射的节点。
+QVector<double> wellPathFractions(const QVector<Well> &wells);
+
+// 断层投绘：along ∈ [0,1] 井路径累计长分数，depth 为深度 m（z 向下正）。
+// 由断面 mesh ∩ 井径 curtain 求得（workflow 编排，渲染归视图）。
+struct FaultTracePoint {
+  double along = 0;
+  double depth = 0;
+};
+struct FaultTrace {
+  QString faultName;
+  QVector<FaultTracePoint> points;
+};
+
 // 顶名按地层序归并：首井顶序为底，后续井把新名插在「该井最近的、已在
 // 表中的较浅名」之后（没有则插最前）。确定性输出。
 QStringList orderedTopNames(const QVector<Well> &wells);

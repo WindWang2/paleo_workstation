@@ -9,6 +9,7 @@
 #include <memory>
 
 class DataCatalog;
+class FaultSetStore;
 class PaleoTask;
 class PaleoTaskService;
 class SectionWorkbench;
@@ -46,6 +47,15 @@ public:
   int requestSeismic(const QVector<wellsection::Well> &wells,
                      const SeismicSource &source);
   void cancel();
+  // ---- 断层投绘（goal/wellsection-deep）----
+  void setFaultSetStore(FaultSetStore *store); // 可空 → 状态提示
+  // 断面 mesh ∩ 井径 curtain（同步；几何量小）。traces 按井序沿井口连线，
+  // status 空 = 正常出线。
+  struct FaultProjection {
+    QVector<wellsection::FaultTrace> traces;
+    QString status;
+  };
+  FaultProjection faultProjection(const QVector<wellsection::Well> &wells) const;
 signals:
   void sectionReady(int generation, const QVector<wellsection::Well> &wells,
                     const QStringList &warnings);
@@ -62,6 +72,7 @@ private:
   QPointer<PaleoTaskService> m_tasks;
   QPointer<seismic::SeismicTaskService> m_seismicTasks;
   QPointer<SectionWorkbench> m_workbench;
+  FaultSetStore *m_faultStore = nullptr; // 拥有方为壳层（非 QObject）
   int m_generation = 0;
   int m_seismicGeneration = 0;
   QPointer<PaleoTask> m_sectionTask;

@@ -5,8 +5,10 @@
 #include "paleomainwindow.h"
 
 #include "catalog/datacatalog.h"
+#include "domain/faultset.h"
 #include "domain/wellsection.h"
 #include "linkage/seismicmaplink.h"
+#include "metadata/faultsetstore.h"
 #include "metadata/paleoprojectstore.h"
 #include "metadata/wellsectionstore.h"
 #include "seismicsection/seismicsectiondockwidget.h"
@@ -59,7 +61,9 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
 
   // 剖面编辑产物落库（井序 + 连线改接；每次落盘版本 +1——Oracle #2）。
   // 无工程库（store 空/未开工程）时编辑仅驻内存。
-  if (store) {
+  const auto bindStores = [this, wf, panel, store] {
+    if (!store)
+      return;
     m_wellSectionStore =
         new metadata::WellSectionStore(store->metaDbPath(), store);
     QString storeErr;
@@ -67,7 +71,29 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
       QgsMessageLog::logMessage(
           tr("连井剖面编辑库打开失败：%1").arg(storeErr),
           QStringLiteral("Paleo"));
-  }
+    // 断层投绘供数：断面 mesh ∩ 井径 curtain（换工程重绑）。
+    delete m_wellSectionFaultStore;
+    m_wellSectionFaultStore =
+        new FaultSetStore(store->metaDbPath(), store);
+    if (!m_wellSectionFaultStore->open(&storeErr))
+      QgsMessageLog::logMessage(
+          tr("断层解释库打开失败：%1").arg(storeErr),
+          QStringLiteral("Paleo"));
+    wf->setFaultSetStore(m_wellSectionFaultStore);
+    paleo::fault::FaultSet probe;
+    bool has = m_wellSectionFaultStore->load(probe, &storeErr) &&
+               probe.faultCount() > 0;
+    panel->setFaultsAvailable(has,
+                              has ? QString() : tr("工程内无断层解释"));
+  };
+  bindStores();
+  connect(panel, &WellSectionPanel::faultsRequested, this,
+          [wf, panel, this] {
+            // 每次请求现读 store（最近落盘的断层解释即时可见）。
+            const WellSectionWorkflow::FaultProjection fp =
+                wf->faultProjection(panel->wells());
+            panel->setFaultTraces(fp.traces, fp.status);
+          });
 
   auto lastGen = std::make_shared<int>(0);
   auto lastSeismicGen = std::make_shared<int>(0);
@@ -162,14 +188,13 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
   auto *debounce = new QTimer(this);
   debounce->setSingleShot(true);
   debounce->setInterval(300);
-  const auto restoreWells = [this, wf, panel, store]() {
+  const auto restoreWells = [this, wf, panel, store, bindStores]() {
     QStringList saved;
     QVector<wellsection::LinkOverride> overrides;
-    if (m_wellSectionStore && store)
+    if (store)
     {
-      m_wellSectionStore->rebind(store->metaDbPath(), store);
+      bindStores(); // 换工程：编辑库 + 断层库一并重绑（旧实例由 bind 释放）
       QString err;
-      m_wellSectionStore->open(&err);
       const metadata::WellSectionRecord rec =
           m_wellSectionStore->load(QString::fromLatin1(kSectionId), &err);
       saved = rec.wellIds;

@@ -30,6 +30,9 @@ struct RenderState {
   int selected = -1;                   // 选中井序号（-1 无）
   QStringList zoneOrder;               // orderedTopNames → zoneFill 取色序
   QVector<wellsection::LinkOverride> linkOverrides; // 连线断开/重连（用户编辑）
+  QVector<wellsection::FaultTrace> faultTraces; // 断层投绘（数据来自 workflow）
+  QVector<double> pathFractions;      // 井路径累计长分数（断层横向映射节点）
+  bool faultsOn = false;
   int margin = 16;
   double gapPx = 96.0;                 // 等距缝宽 / 比例模式的平均缝宽
   QVector<double> gapWidths;           // 比例模式逐缝宽；空 = 全 gapPx（等距）
@@ -145,6 +148,26 @@ class GapItem : public QGraphicsItem
     mutable QRect m_imgRect;
     mutable quint64 m_imgKeyLayout = ~quint64(0), m_imgKeyStrip = ~quint64(0);
     mutable QString m_imgKeyTheme;
+};
+
+// 断层投绘覆盖项（全幅）：trace 的 along（井路径长分数）经井节点映射到
+// 列中心 x，深度经缝内插基准面偏移映射到 y（与地震缝同一插值口径）。
+class FaultOverlayItem : public QGraphicsItem
+{
+  public:
+    explicit FaultOverlayItem(RenderState *st);
+    void relayout() { prepareGeometryChange(); update(); }
+    QRectF boundingRect() const override;
+    void paint(QPainter *p, const QStyleOptionGraphicsItem *option,
+               QWidget *widget) override;
+
+  private:
+    // 井路径分数 → 场景 x（节点 = 列中心；分数缺失/越界 → NaN）。
+    double xForAlong(double along) const;
+    // 场景 x 处的基准面偏移（缝两端线性内插）。
+    double offsetAtX(double x) const;
+
+    RenderState *m_st;
 };
 
 // 吸顶版头（视图上方 QWidget，非场景项）：上行井名（点击选中、拖排、

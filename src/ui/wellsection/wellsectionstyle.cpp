@@ -330,6 +330,7 @@ QVector<SectionTheme> SectionTheme::presets()
   classic.lithoShale = QColor(QStringLiteral("#8C8C8C"));
   classic.seismicGray = true;
   classic.seismicOpacity = 0.85;
+  classic.fault = QColor(QStringLiteral("#B33A3A"));
 
   SectionTheme colored = classic;
   colored.id = QStringLiteral("colored");
@@ -353,6 +354,7 @@ QVector<SectionTheme> SectionTheme::presets()
   print.lithoShale = QColor(QStringLiteral("#FFFFFF"));
   print.seismicGray = true;
   print.seismicOpacity = 0.7;
+  print.fault = QColor(QStringLiteral("#000000"));
 
   return {classic, colored, print};
 }

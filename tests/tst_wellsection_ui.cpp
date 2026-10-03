@@ -447,6 +447,36 @@ class TestWellSectionUi : public QObject
               QStringLiteral("A5"));
     }
 
+    // ---- 断层投绘开关 ----
+    void faultToggleAndOverlay()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      panel.setSection(wells4());
+      QVERIFY(!panel.faultsEnabled());
+      // 数据回填（壳层接 workflow 的路径）：开关关闭时也可预置数据。
+      QVector<wellsection::FaultTrace> traces;
+      wellsection::FaultTrace t;
+      t.faultName = QStringLiteral("F1");
+      t.points = {{0.0, 1900.0}, {1.0, 1980.0}};
+      traces << t;
+      panel.setFaultTraces(traces, QString());
+      QCOMPARE(panel.faultTraceCount(), 1);
+      // 用户开 → 发 faultsRequested；关 → 清数据不发。
+      QSignalSpy spy(&panel, &WellSectionPanel::faultsRequested);
+      panel.setFaultsEnabled(true);
+      QCOMPARE(spy.size(), 1);
+      QCOMPARE(panel.faultTraceCount(), 1);
+      panel.setFaultsEnabled(false);
+      QCOMPARE(spy.size(), 1); // 关不发请求
+      QCOMPARE(panel.faultTraceCount(), 0); // 清空
+      // 井集变化 + 开关开 → 重新请求。
+      panel.setFaultsEnabled(true);
+      spy.clear();
+      panel.setSection(wells4());
+      QCOMPARE(spy.size(), 1);
+    }
+
     // 版头点名 → SelectionContext「wellsection」源选中 + wellClicked；
     // 外部源选中回写高亮态。
     void selectionRoundTrip()

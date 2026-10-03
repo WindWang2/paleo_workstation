@@ -30,6 +30,7 @@
 
 #include "Data/Sgy/SgyFileReader.h"
 #include "Data/Sgy/SgyIo.h"
+#include "Data/Sgy/SgyRegularFile.h"
 
 namespace seismic {
 namespace {
@@ -266,8 +267,7 @@ bool LoadCheckpoint(const std::filesystem::path& checkpointPath,
     // POSIX opens a *directory* successfully; the istreambuf read below then
     // throws std::__ios_failure (EISDIR) and kills the scan. A non-regular
     // checkpoint simply means "nothing to resume from".
-    std::error_code regularCheck;
-    if(!std::filesystem::is_regular_file(checkpointPath, regularCheck)) {
+    if(!IsRegularFile(checkpointPath)) {
         reason = "checkpoint is not a regular file";
         return false;
     }
@@ -374,10 +374,9 @@ public:
         }
         return true;
 #else
-        std::error_code regularError;
         // POSIX opens a directory successfully; a later read would throw
         // std::__ios_failure instead of failing cleanly.
-        if(!std::filesystem::is_regular_file(path, regularError)) {
+        if(!IsRegularFile(path)) {
             errorMessage = "cannot open the SEG-Y source.";
             return false;
         }
@@ -558,9 +557,8 @@ bool ScanSegySequentially(const std::filesystem::path& path,
         std::vector<unsigned char> pairs;
         {
             std::ifstream pairIn(pairPath, std::ios::binary);
-            std::error_code pairStatError;
             // is_regular_file: POSIX opens directories fine; the read would throw.
-            if(!pairIn || !std::filesystem::is_regular_file(pairPath, pairStatError)) {
+            if(!pairIn || !IsRegularFile(pairPath)) {
                 ok = false;
                 failReason = "checkpoint pair file is missing";
             } else {
@@ -582,9 +580,8 @@ bool ScanSegySequentially(const std::filesystem::path& path,
         std::vector<unsigned char> coords;
         if(ok) {
             std::ifstream coordIn(coordPath, std::ios::binary);
-            std::error_code coordStatError;
             // is_regular_file: POSIX opens directories fine; the read would throw.
-            if(!coordIn || !std::filesystem::is_regular_file(coordPath, coordStatError)) {
+            if(!coordIn || !IsRegularFile(coordPath)) {
                 ok = false;
                 failReason = "checkpoint coordinate file is missing";
             } else {

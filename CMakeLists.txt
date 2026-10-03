@@ -596,7 +596,7 @@ function(paleo_test_sandbox name)
   set(_home ${CMAKE_BINARY_DIR}/ctest-home/${name})
   file(MAKE_DIRECTORY "${_home}/config" "${_home}/data" "${_home}/cache" "${_home}/tmp")
   set_tests_properties(${name} PROPERTIES ENVIRONMENT
-    "QT_QPA_PLATFORM=offscreen;XDG_CONFIG_HOME=${_home}/config;XDG_DATA_HOME=${_home}/data;XDG_CACHE_HOME=${_home}/cache;HOME=${_home};TMPDIR=${_home}/tmp;TEMP=${_home}/tmp;TMP=${_home}/tmp")
+    "QT_QPA_PLATFORM=offscreen;PALEO_WELL_FACIES_NO_KEYCHAIN=1;XDG_CONFIG_HOME=${_home}/config;XDG_DATA_HOME=${_home}/data;XDG_CACHE_HOME=${_home}/cache;HOME=${_home};TMPDIR=${_home}/tmp;TEMP=${_home}/tmp;TMP=${_home}/tmp")
   if(QGIS_PREFIX)
     # vendor 构建下测试资源/provider 也走构建所链的 prefix（与二进制
     # RUNPATH 一致），不借系统 /usr 栈——裸 ctest 即全 vendored。

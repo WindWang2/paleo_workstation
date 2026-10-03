@@ -201,4 +201,71 @@ WellSectionRecord WellSectionStore::load(const QString &sectionId,
     return rec;
 }
 
+QStringList WellSectionStore::sectionIds(QString *error) const
+{
+    QStringList out;
+    if (m_dbPath.isEmpty())
+    {
+        setError(error, QStringLiteral("WellSectionStore 未绑定工程库路径"));
+        return out;
+    }
+    if (!ensureOpen(m_dbPath, error))
+        return out;
+    QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+    if (!q.exec(QStringLiteral("SELECT section_id FROM well_section_edits "
+                               "ORDER BY section_id")))
+    {
+        setError(error, q.lastError().text());
+        return out;
+    }
+    while (q.next())
+        out << q.value(0).toString();
+    return out;
+}
+
+bool WellSectionStore::remove(const QString &sectionId, QString *error)
+{
+    if (m_readOnly)
+    {
+        setError(error, QStringLiteral("WellSectionStore 只读（工程被其他实例锁定）"));
+        return false;
+    }
+    if (m_dbPath.isEmpty())
+    {
+        setError(error, QStringLiteral("WellSectionStore 未绑定工程库路径"));
+        return false;
+    }
+    const auto doRemove = [&](QString *err) -> bool {
+        if (!ensureOpen(m_dbPath, err))
+            return false;
+        QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+        q.prepare(QStringLiteral(
+            "DELETE FROM well_section_edits WHERE section_id = ?"));
+        q.addBindValue(sectionId);
+        if (!q.exec())
+        {
+            setError(err, q.lastError().text());
+            return false;
+        }
+        return true;
+    };
+    if (m_store)
+    {
+        const PaleoProjectStore::WriteResult result = m_store->enqueueWrite(
+            [&doRemove]() -> PaleoProjectStore::WriteResult {
+                QString err;
+                return doRemove(&err)
+                           ? PaleoProjectStore::WriteResult{true, QString()}
+                           : PaleoProjectStore::WriteResult{false, err};
+            });
+        if (!result.ok)
+        {
+            setError(error, result.error);
+            return false;
+        }
+        return true;
+    }
+    return doRemove(error);
+}
+
 } // namespace metadata

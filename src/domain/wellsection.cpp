@@ -308,6 +308,101 @@ QString TopsTable::csv() const {
 }
 
 
+FencePlan planFence(const QVector<Well> &wells, int targetSections) {
+  FencePlan plan;
+  for (const Well &w : wells)
+    if (!w.hasCoordinates()) {
+      plan.status = QStringLiteral("井位坐标不全，无法自动布点");
+      return plan;
+    }
+  const int n = wells.size();
+  if (n < 2) {
+    plan.status = QStringLiteral("两口以上的井才能组成栅状图");
+    return plan;
+  }
+  if (targetSections < 1)
+    targetSections = 1;
+  targetSections = qMin(targetSections, n / 2);
+
+  // PCA 主轴：2x2 协方差的最大特征向量（闭式解）。
+  double cx = 0, cy = 0;
+  for (const Well &w : wells) {
+    cx += w.x;
+    cy += w.y;
+  }
+  cx /= n;
+  cy /= n;
+  double sxx = 0, sxy = 0, syy = 0;
+  for (const Well &w : wells) {
+    const double dx = w.x - cx, dy = w.y - cy;
+    sxx += dx * dx;
+    sxy += dx * dy;
+    syy += dy * dy;
+  }
+  // 对称 2x2 特征向量：theta = 0.5*atan2(2sxy, sxx−syy)。
+  const double theta = 0.5 * std::atan2(2 * sxy, sxx - syy);
+  const double ux = std::cos(theta), uy = std::sin(theta);
+  const double vx = -uy, vy = ux; // 垂直向（条带分割方向）
+
+  // 按 v 排序等分条带（余数摊前几带），条带内按 u 单调。
+  QVector<int> byV(n);
+  for (int i = 0; i < n; ++i)
+    byV[i] = i;
+  const auto projV = [&](int i) {
+    return (wells[i].x - cx) * vx + (wells[i].y - cy) * vy;
+  };
+  const auto projU = [&](int i) {
+    return (wells[i].x - cx) * ux + (wells[i].y - cy) * uy;
+  };
+  std::sort(byV.begin(), byV.end(), [&](int a, int b) {
+    const double va = projV(a), vb = projV(b);
+    if (va != vb)
+      return va < vb;
+    const double ua = projU(a), ub = projU(b);
+    if (ua != ub)
+      return ua < ub;
+    return wells[a].id < wells[b].id; // 投影重合时确定性输出
+  });
+  const int base = n / targetSections;
+  const int extra = n % targetSections;
+  int at = 0;
+  for (int b = 0; b < targetSections; ++b) {
+    const int count = base + (b < extra ? 1 : 0);
+    QVector<int> band(byV.mid(at, count));
+    at += count;
+    std::sort(band.begin(), band.end(), [&](int a, int c) {
+      const double ua = projU(a), uc = projU(c);
+      if (ua != uc)
+        return ua < uc;
+      return wells[a].id < wells[c].id; // 投影重合时确定性输出
+    });
+    FenceSection sec;
+    sec.id = QString::number(b + 1);
+    // 剪草机：奇数条带（0 起）倒序——相邻条带走线端点相接不交叉。
+    if (b % 2 == 1)
+      std::reverse(band.begin(), band.end());
+    for (int idx : band)
+      sec.wellIds << wells[idx].id;
+    plan.sections.push_back(sec);
+  }
+  // <2 井条带并入邻带（优先前带；首带并入后带）。
+  for (int i = 0; i < plan.sections.size();) {
+    if (plan.sections[i].wellIds.size() >= 2) {
+      ++i;
+      continue;
+    }
+    const QStringList lone = plan.sections[i].wellIds;
+    if (i > 0)
+      plan.sections[i - 1].wellIds << lone;
+    else if (i + 1 < plan.sections.size())
+      plan.sections[i + 1].wellIds = lone + plan.sections[i + 1].wellIds;
+    plan.sections.removeAt(i);
+  }
+  if (plan.sections.isEmpty())
+    plan.status = QStringLiteral("栅状图布点失败");
+  return plan;
+}
+
 QVector<double> wellPathFractions(const QVector<Well> &wells) {
   QVector<double> out;
   if (wells.isEmpty())

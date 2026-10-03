@@ -311,6 +311,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     WellSectionWorkflow *m_wellSectionWf = nullptr;
     metadata::WellSectionStore *m_wellSectionStore = nullptr;
     FaultSetStore *m_wellSectionFaultStore = nullptr;
+    class WellSectionFenceWidget *m_wellSectionFence = nullptr;
 
     QgisCanvasController *m_canvasCtl;
     QgisProjectService *m_projectSvc;

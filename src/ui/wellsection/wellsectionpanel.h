@@ -46,6 +46,8 @@ class WellSectionPanel : public QWidget
     void setSeismicStrip(const wellsection::SeismicStrip &strip);
     void setSeismicAvailable(bool available, const QString &reason);
     void setBusy(bool busy);
+    // 程序化选中某井（栅状图交点井联动用；不发 wellClicked/ctx 回声）。
+    void selectWell(const QString &wellId);
     void setWarnings(const QStringList &warnings);
     wellsection::SectionTemplate sectionTemplate() const { return m_tpl; }
     // 仅应用不换数据请求语义：mnemonics 变了才发 dataRequested。
@@ -103,6 +105,7 @@ class WellSectionPanel : public QWidget
     void dataRequested(const QStringList &wellIds, const QStringList &mnemonics);
     void seismicRequested();
     void faultsRequested();
+    void fenceRequested(); // 打开栅状图（剖面网）——壳层装配 WellSectionFenceWidget
     // 仅用户驱动（选井/拖排/移除）——持久化钩子。
     void wellIdsChanged(const QStringList &wellIds);
     // 仅用户驱动（连线断开/重连）——持久化钩子（store 版本推进）。
@@ -169,6 +172,7 @@ class WellSectionPanel : public QWidget
     QToolButton *m_spacingBtn = nullptr;
     QToolButton *m_seismicBtn = nullptr;
     QToolButton *m_faultBtn = nullptr;
+    QToolButton *m_fenceBtn = nullptr;
     QToolButton *m_fitBtn = nullptr;
     QToolButton *m_exportBtn = nullptr;
     QLabel *m_status = nullptr;

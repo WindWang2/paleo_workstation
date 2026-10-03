@@ -531,6 +531,30 @@ private slots:
     QVERIFY(wells[1].facies[0].baseMd > wells[1].facies[0].topMd);
   }
 
+  // 栅状图多节：sectionIds 发现 + remove 收尾（条数收缩清尾行）。
+  void fenceStoreSections() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString dbPath = QDir(dir.path()).filePath(QStringLiteral(
+        "f.project.sqlite"));
+    metadata::WellSectionStore store(dbPath);
+    QString err;
+    QVERIFY2(store.open(&err), qPrintable(err));
+    store.save(QStringLiteral("default"), {QStringLiteral("well-1")}, {}, &err);
+    store.save(QStringLiteral("fence-1"), {QStringLiteral("well-1"),
+                                           QStringLiteral("well-2")}, {}, &err);
+    store.save(QStringLiteral("fence-2"), {QStringLiteral("well-3")}, {}, &err);
+    const QStringList ids = store.sectionIds(&err);
+    QCOMPARE(ids, QStringList({QStringLiteral("default"),
+                               QStringLiteral("fence-1"),
+                               QStringLiteral("fence-2")}));
+    QVERIFY(store.remove(QStringLiteral("fence-2"), &err));
+    const QStringList after = store.sectionIds(&err);
+    QVERIFY(!after.contains(QStringLiteral("fence-2")));
+    QCOMPARE(store.load(QStringLiteral("fence-2"), &err).version, 0);
+    QVERIFY(store.remove(QStringLiteral("fence-2"), &err)); // 无该节幂等
+  }
+
   void workbenchCalibration() {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());

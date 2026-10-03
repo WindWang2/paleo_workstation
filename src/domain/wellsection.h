@@ -108,6 +108,23 @@ QVector<double> gapWidthsFor(const QVector<Well> &wells, SpacingMode mode,
 // 空（调用方按等距退化）。断层投绘横向映射的节点。
 QVector<double> wellPathFractions(const QVector<Well> &wells);
 
+// ---- 栅状图（fence）布点 ----
+// 一条剖面 = 有序井 id 集（井口连线即剖面线）。
+struct FenceSection {
+  QString id;            // "1"、"2"…（store 节 id 前缀 fence-）
+  QStringList wellIds;
+};
+struct FencePlan {
+  QVector<FenceSection> sections;
+  QString status; // 空 = 正常
+};
+
+// 自动布点（最小交叉启发式）：井位 PCA 主轴 (u,v)；按 v 等分
+// targetSections 条带，条带内按 u 单调走线（剪草机式：奇偶条带方向
+// 交替——相邻条带端点相接、走线互不交叉）；<2 井条带并入邻带。
+// 任一井缺坐标 / 井数 <2 / target <1 → status 说明。
+FencePlan planFence(const QVector<Well> &wells, int targetSections);
+
 // 断层投绘：along ∈ [0,1] 井路径累计长分数，depth 为深度 m（z 向下正）。
 // 由断面 mesh ∩ 井径 curtain 求得（workflow 编排，渲染归视图）。
 struct FaultTracePoint {

@@ -1,4 +1,5 @@
 #include "domain/wellsection.h"
+#include <QSet>
 #include <QtTest>
 #include <cmath>
 
@@ -384,6 +385,49 @@ private slots:
     // 单井 → 空。
     QVERIFY(gapWidthsFor({w1}, SpacingMode::Proportional, 300, 48, 600)
                 .isEmpty());
+  }
+
+  // ---- 栅状图自动布点（最小交叉启发式）----
+  void fencePlanning() {
+    // 3×2 井网（x 步 100 跨 200、y 步 80——PCA 主轴 = x 向）。
+    QVector<Well> grid;
+    for (int row = 0; row < 2; ++row)
+      for (int col = 0; col < 3; ++col) {
+        Well w;
+        w.id = QStringLiteral("w%1%2").arg(row).arg(col);
+        w.x = col * 100.0;
+        w.y = row * 80.0;
+        grid << w;
+      }
+    // 单条带：全部井，按 u 单调。
+    const auto one = planFence(grid, 1);
+    QVERIFY(one.status.isEmpty());
+    QCOMPARE(one.sections.size(), 1);
+    QCOMPARE(one.sections[0].wellIds.size(), 6);
+    QCOMPARE(one.sections[0].wellIds.front(), QStringLiteral("w00"));
+    QCOMPARE(one.sections[0].wellIds.last(), QStringLiteral("w12"));
+    // 两条带：各 3 口；井不重复、全覆盖；条带内 u 单调（奇数带倒序——
+    // 剪草机端点相接）。
+    const auto two = planFence(grid, 2);
+    QVERIFY(two.status.isEmpty());
+    QCOMPARE(two.sections.size(), 2);
+    QCOMPARE(two.sections[0].wellIds.size(), 3);
+    QCOMPARE(two.sections[1].wellIds.size(), 3);
+    QStringList all;
+    for (const auto &sec : two.sections)
+      all << sec.wellIds;
+    QCOMPARE(all.size(), 6);
+    QSet<QString> uniq(all.begin(), all.end());
+    QCOMPARE(uniq.size(), 6); // 无交点（条带互斥）
+    QCOMPARE(two.sections[0].wellIds,
+             QStringList({"w00", "w01", "w02"})); // v 小的带，u 升序
+    QCOMPARE(two.sections[1].wellIds,
+             QStringList({"w12", "w11", "w10"})); // 剪草机倒序
+    // 退化：缺坐标 / 井数不足。
+    Well nox;
+    QVERIFY(!planFence({grid[0], nox}, 2).status.isEmpty());
+    QVERIFY(!planFence({grid[0]}, 1).status.isEmpty());
+    QVERIFY(!planFence({}, 3).status.isEmpty());
   }
 
   // ---- 井路径累计长分数（断层投绘横向映射）----

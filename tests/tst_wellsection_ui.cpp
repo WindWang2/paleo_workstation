@@ -13,10 +13,14 @@
 #include <QSignalSpy>
 #include <QSpinBox>
 #include <QToolButton>
+#include <QTemporaryDir>
 #include <QWheelEvent>
 
 #include "../src/linkage/selectioncontext.h"
+#include "../src/catalog/datacatalog.h"
+#include "../src/metadata/wellsectionstore.h"
 #include "../src/ui/paleotheme.h"
+#include "../src/ui/wellsection/fencewidget.h"
 #include "../src/ui/wellsection/wellsectiondialogs.h"
 #include "../src/ui/wellsection/wellsectionpanel.h"
 
@@ -931,6 +935,64 @@ class TestWellSectionUi : public QObject
     // 截图件产（不断言）：/tmp/wellsection-shots/{classic,colored,print,
     // highlight_D61,seismic,seismic_reflectors,seismic_colored,
     // panel_light}.png
+    // ---- 栅状图：自动布点 + 交点井同帧联动（Oracle #3）+ 落库恢复 ----
+    void fencePlanAndSharedWellSync()
+    {
+      // 4 井网格 2×2（坐标），跨条带共享 w10（手工指定两节都含它）。
+      QVector<WellSectionPanel::WellChoice> choices;
+      const char *ids[4] = {"w00", "w01", "w10", "w11"};
+      for (int i = 0; i < 4; ++i) {
+        WellSectionPanel::WellChoice c;
+        c.id = QLatin1String(ids[i]);
+        c.name = c.id;
+        c.hasCoordinates = true;
+        c.x = (i % 2) * 300.0;
+        c.y = (i / 2) * 200.0;
+        choices << c;
+      }
+      QTemporaryDir dir;
+      metadata::WellSectionStore store(
+          QDir(dir.path()).filePath(QStringLiteral("t.project.sqlite")));
+      QString err;
+      QVERIFY(store.open(&err));
+
+      WellSectionFenceWidget::Params fp;
+      fp.choices = choices;
+      fp.store = &store;
+      WellSectionFenceWidget fence(fp);
+      QVERIFY(fence.sectionCount() == 0); // 新库无栅格节
+      // 自动布点：2 条带 → 各 2 口，井不重复。
+      fence.autoPlan(2);
+      QCOMPARE(fence.sectionCount(), 2);
+      QCOMPARE(fence.sectionWellIds(0).size(), 2);
+      QSet<QString> planned;
+      for (int i = 0; i < 2; ++i) {
+        const QStringList ids = fence.sectionWellIds(i);
+        planned.unite(QSet<QString>(ids.begin(), ids.end()));
+      }
+      QCOMPARE(planned.size(), 4);
+      // 手工指定：两节共享 w10（交点井）。
+      fence.setSections({QStringList({"w00", "w10"}),
+                         QStringList({"w10", "w11"})});
+      QCOMPARE(fence.sectionCount(), 2);
+      // 落库 round-trip：新部件同 store 恢复两节。
+      WellSectionFenceWidget reopened(fp);
+      QCOMPARE(reopened.sectionCount(), 2);
+      QCOMPARE(reopened.sectionWellIds(0),
+               QStringList({"w00", "w10"}));
+      QCOMPARE(reopened.sectionWellIds(1),
+               QStringList({"w10", "w11"}));
+
+      // 同帧联动：剖面 A 点名 w10 → 剖面 B 立即选中（selectWell 直连）。
+      auto *pa = fence.sectionPanel(0);
+      auto *pb = fence.sectionPanel(1);
+      QVERIFY(pa && pb);
+      QMetaObject::invokeMethod(pa, "wellClicked",
+                                Q_ARG(QString, QStringLiteral("w10")));
+      QVERIFY(pb->isWellSelected(QStringLiteral("w10")));
+      QVERIFY(!pb->isWellSelected(QStringLiteral("w11")));
+    }
+
     void screenshots()
     {
       QDir().mkpath(QStringLiteral("/tmp/wellsection-shots"));

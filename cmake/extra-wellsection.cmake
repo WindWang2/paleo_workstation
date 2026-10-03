@@ -9,6 +9,7 @@ target_sources(paleo_ui PRIVATE
   src/ui/wellsection/wellsectionscene.cpp
   src/ui/wellsection/wellsectionpanel.cpp
   src/ui/wellsection/wellsectiondialogs.cpp
+  src/ui/wellsection/fencewidget.cpp
   src/ui/paleomainwindow_wellsection.cpp)
 
 add_paleo_test(tst_wellsection LIBS paleo_domain)

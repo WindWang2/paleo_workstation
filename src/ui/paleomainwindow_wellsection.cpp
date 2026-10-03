@@ -14,6 +14,7 @@
 #include "seismicsection/seismicsectiondockwidget.h"
 #include "services/previewdoc.h"
 #include "services/seismictaskservice.h"
+#include "wellsection/fencewidget.h"
 #include "wellsection/wellsectionpanel.h"
 #include "workflow/sectionworkbench.h"
 #include "workflow/wellsectionworkflow.h"
@@ -230,6 +231,31 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
           });
   connect(m_previewDoc->catalog(), &DataCatalog::changed, debounce,
           qOverload<>(&QTimer::start));
+
+  // 栅状图（fence）：面板入口 → 单实例窗（交点井联动在部件内部接线）。
+  connect(panel, &WellSectionPanel::fenceRequested, this,
+          [this, wf, taskSvc, toChoices] {
+            if (m_wellSectionFence)
+            {
+              m_wellSectionFence->raise();
+              m_wellSectionFence->activateWindow();
+              return;
+            }
+            WellSectionFenceWidget::Params fp;
+            fp.catalog = m_previewDoc ? m_previewDoc->catalog() : nullptr;
+            fp.selection = m_selection;
+            fp.tasks = taskSvc;
+            fp.store = m_wellSectionStore;
+            fp.choices = toChoices(wf->wellChoices());
+            auto *fence = new WellSectionFenceWidget(fp, this);
+            fence->setAttribute(Qt::WA_DeleteOnClose);
+            fence->setWindowFlags(Qt::Window);
+            fence->resize(1100, 700);
+            m_wellSectionFence = fence;
+            connect(fence, &QObject::destroyed, this,
+                    [this] { m_wellSectionFence = nullptr; });
+            fence->show();
+          });
 
   // 初始装配同恢复路径。
   panel->setWellChoices(toChoices(wf->wellChoices()));

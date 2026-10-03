@@ -61,6 +61,10 @@ public:
     // 读回；库中无行 → version 0 + 空集（新工程首用）。
     WellSectionRecord load(const QString &sectionId,
                            QString *error = nullptr) const;
+    // 全部节 id（栅状图多节发现用；升序）。
+    QStringList sectionIds(QString *error = nullptr) const;
+    // 删节（栅状图条数收缩时清尾行）；无该节 → true。
+    bool remove(const QString &sectionId, QString *error = nullptr);
 
 private:
     QString m_dbPath;

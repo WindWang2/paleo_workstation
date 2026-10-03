@@ -130,6 +130,10 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
     m_st.seismicOn = true;
     m_st.gapPx = qBound(m_st.minGap(), m_st.gapPx, m_st.maxGap());
   }
+  m_fenceBtn = mkBtn("wellSectionFenceButton", "mActionAddMap.svg",
+                    tr("栅状图（多剖面井网，交点井联动）"));
+  connect(m_fenceBtn, &QToolButton::clicked, this,
+          [this] { emit fenceRequested(); });
   m_fitBtn = mkBtn("wellSectionFitButton", "mActionZoomFullExtent.svg",
                    tr("适应窗口（Ctrl+滚轮纵向缩放，Ctrl+Shift+滚轮调整井间距）"));
   m_exportBtn = mkBtn("wellSectionExportButton", "mActionSaveMapAsImage.svg",
@@ -437,6 +441,19 @@ void WellSectionPanel::setSeismicAvailable(bool available,
   m_seismicAvailable = available;
   m_seismicReason = reason;
   syncToolbarState();
+}
+
+void WellSectionPanel::selectWell(const QString &wellId)
+{
+  if (wellId.isEmpty() || !m_ids.contains(wellId))
+    return;
+  m_selectedId = wellId;
+  m_st.selected = -1;
+  for (int i = 0; i < m_st.wells.size(); ++i)
+    if (m_st.wells[i].id == wellId)
+      m_st.selected = i;
+  m_header->update();
+  m_view->viewport()->update();
 }
 
 void WellSectionPanel::setBusy(bool busy)

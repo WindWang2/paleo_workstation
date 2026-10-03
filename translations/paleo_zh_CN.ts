@@ -1076,6 +1076,66 @@
         <source>%1 等值线</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>先保存或取消约束编辑，再绘制新约束</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>缺少约束 id</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>批量编辑仅允许同一层位的约束</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束参数 JSON 无效：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>方向角仅适用于非空约束折线，范围为 0–360 度</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>闭合约束线没有唯一方向角</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>找不到约束 %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束编辑尚未接入 store 同步会话</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>批量修改约束参数</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>修改约束方向角失败</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>修改约束编辑缓冲区失败</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束参数未写入 store</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>删除约束</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>删除约束未写入 store</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束语义改型仅适用于线要素</source>
+        <translation type="unfinished" />
+    </message>
 </context>
 <context>
     <name>CurveBrowser</name>
@@ -11119,6 +11179,50 @@ SHA-256：%2</source>
         <source>Paleo 上次异常退出</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>约束层位或资产缺失</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>无法打开约束资产</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>无法开始约束快照事务</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束身份字段缺失</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束快照身份无效或重复</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束快照会覆盖其他要素身份</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束快照几何无效</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束快照包含不支持的字段类型：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>写入约束快照失败：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>删除约束快照要素失败</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>提交约束快照失败</source>
+        <translation type="unfinished" />
+    </message>
 </context>
 <context>
     <name>QgisEditingService</name>
@@ -11161,6 +11265,22 @@ SHA-256：%2</source>
         <location filename="../src/qgis/qgiseditingservice.cpp" line="129"/>
         <source>%1 is invalid: %2%3</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>工程处于只读模式或 store 不可用</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>图层为只读或编辑资产不可用</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束编辑资产缺失或未连接到工程 store</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>编辑 store 已不可用</source>
+        <translation type="unfinished" />
     </message>
 </context>
 <context>
@@ -16377,6 +16497,61 @@ SHA-256：%2</source>
         <location filename="../src/services/seismictaskservice.cpp" line="401"/>
         <source>正在进行全卷道头扫描与几何提取...</source>
         <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>QgisConstraintEditSession</name>
+    <message>
+        <source>约束编辑图层已不可用</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束几何</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束编辑不能新增无语义要素或改动层位</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束编辑不能改动要素身份</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束编辑需要可写的工程 constraint store</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束图层与 store 的层位范围不一致</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>无法建立约束编辑工作副本：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>无法开始约束工作副本编辑</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束编辑图层移除时恢复失败：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束 store 已不可用</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束编辑未保存：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>无法结束约束编辑缓冲区</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>无法结束约束编辑缓冲区，恢复失败：%1</source>
+        <translation type="unfinished" />
     </message>
 </context>
 </TS>

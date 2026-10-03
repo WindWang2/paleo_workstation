@@ -393,6 +393,7 @@ add_library(paleo_qgis STATIC
   src/qgis/qgislayerservice.cpp
   src/qgis/qgiscanvascontroller.cpp
   src/qgis/qgiseditingservice.cpp
+  src/qgis/qgisconstrainteditsession.cpp
   src/qgis/qgisprocessingservice.cpp
   src/qgis/qgisstyleservice.cpp
   src/qgis/qgislayoutservice.cpp
@@ -411,7 +412,7 @@ add_library(paleo_qgis STATIC
   src/qgis/previewrendercache.cpp                   # P2 D6.2/D6.6 渲染结果缓存（内存 LRU + QTemporaryDir PNG）
   src/qgis/seismicsectiontool.cpp
 )
-target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms)
+target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io)
 
 add_library(paleo_io STATIC
   src/io/dataimportservice.cpp

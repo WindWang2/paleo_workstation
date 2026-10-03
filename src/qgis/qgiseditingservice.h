@@ -2,10 +2,14 @@
 #pragma once
 #include <QObject>
 #include <QString>
+#include <QHash>
+#include <QPointer>
+#include <memory>
 
 class QgsVectorLayer;
 class QgsGeometry;
 class PaleoProjectStore;
+class QgisConstraintEditSession;
 
 // qgis/ — QgisEditingService wraps QgsVectorLayer edit sessions.
 // Rules: an edit session marks the layer busy in PaleoProjectStore (tool
@@ -16,6 +20,11 @@ class QgisEditingService : public QObject
   Q_OBJECT
   public:
     explicit QgisEditingService(PaleoProjectStore *store, QObject *parent = nullptr);
+    ~QgisEditingService() override;
+    void setUndoDepth(int depth);
+    int undoDepth() const { return m_undoDepth; }
+    QString availabilityError(const QgsVectorLayer *layer) const;
+    static bool isConstraintLayer(const QgsVectorLayer *layer);
 
     bool beginEdit(QgsVectorLayer *layer, QString *error = nullptr);   // startEditing + markBusy("edit")
     bool commitEdit(QgsVectorLayer *layer, QString *error = nullptr);  // commitChanges via store queue
@@ -32,7 +41,12 @@ class QgisEditingService : public QObject
     void editStarted(const QString &layerId);
     void editCommitted(const QString &layerId);
     void editRolledBack(const QString &layerId);
+    void availabilityChanged();
+    void editFailed(const QString &reason);
 
   private:
-    PaleoProjectStore *m_store;
+    QPointer<PaleoProjectStore> m_store;
+    int m_undoDepth = 100;
+    QHash<QgsVectorLayer *, std::shared_ptr<QgisConstraintEditSession>> m_constraintSessions;
+    QHash<QgsVectorLayer *, QMetaObject::Connection> m_constraintLifetimeConnections;
 };

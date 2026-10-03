@@ -133,6 +133,7 @@ class ConstraintWorkflow : public QObject
                        const QVariantMap &lineParams = {});
     // 把逐线语义和半径写进 params_json。重开后 loadConstraints 读回同一份。
     bool updateConstraintLine(const QString &id, const QVariantMap &lineParams, QString *error = nullptr);
+    bool updateConstraintLines(const QStringList &ids, const QVariantMap &patch, QString *error = nullptr);
     // 语义切换（五种 Semantic 词表）：改写 type 列 + params_json.semantic，
     // 其余逐线参数原样保留。走 updateConstraintLine 同一持久化通道。
     bool switchConstraintSemantic(const QString &constraintId, const QString &semantic,

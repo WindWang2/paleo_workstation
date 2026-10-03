@@ -22,6 +22,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScrollArea>
+#include <QSpinBox>
 #include <QShowEvent>
 #include <QSpinBox>
 #include <QTableWidget>
@@ -168,6 +169,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   auto *method = new QComboBox( content );
   method->setObjectName( QStringLiteral( "factorMethodCombo" ) );
   method->addItem( tr( "本地方向插值" ), QStringLiteral( "local_direction_idw" ) );
+  method->addItem( tr( "克里金（各向异性）" ), QStringLiteral( "kriging" ) );
+  method->addItem( tr( "SGS 实现族" ), QStringLiteral( "sgs" ) );
   method->addItem( tr( "原约束 IDW" ), QStringLiteral( "legacy" ) );
   method->setAccessibleName( tr( "成图方法" ) );
   lay->addWidget( method );
@@ -248,6 +251,78 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   adv->addWidget( caption( tr( "软边界半径" ), advanced->container() ) );
   adv->addWidget( softRadius );
 
+  // 方向18：克里金/SGS 参数——变差函数模型 + 变程/块金/拱高数值输入（0=自动
+  // 拟合）+ 走向方位（-1=自动全向）。仅 method=kriging/sgs 时消费这些值。
+  auto *variogramModel = new QComboBox( advanced->container() );
+  variogramModel->setObjectName( QStringLiteral( "factorVariogramModelCombo" ) );
+  variogramModel->addItem( tr( "球状模型" ), QStringLiteral( "spherical" ) );
+  variogramModel->addItem( tr( "指数模型" ), QStringLiteral( "exponential" ) );
+  variogramModel->addItem( tr( "高斯模型" ), QStringLiteral( "gaussian" ) );
+  variogramModel->setAccessibleName( tr( "变差函数模型" ) );
+  adv->addWidget( caption( tr( "变差函数模型" ), advanced->container() ) );
+  adv->addWidget( variogramModel );
+  auto *nugget = new QDoubleSpinBox( advanced->container() );
+  nugget->setObjectName( QStringLiteral( "factorNuggetSpin" ) );
+  nugget->setRange( 0.0, 1.0e12 );
+  nugget->setDecimals( 4 );
+  nugget->setSpecialValueText( tr( "自动" ) );
+  nugget->setToolTip( tr( "块金。0 表示随变程/拱高一起自动拟合。" ) );
+  useMono( nugget );
+  adv->addWidget( caption( tr( "块金" ), advanced->container() ) );
+  adv->addWidget( nugget );
+  auto *sill = new QDoubleSpinBox( advanced->container() );
+  sill->setObjectName( QStringLiteral( "factorSillSpin" ) );
+  sill->setRange( 0.0, 1.0e12 );
+  sill->setDecimals( 4 );
+  sill->setSpecialValueText( tr( "自动" ) );
+  sill->setToolTip( tr( "拱高（不含块金）。0 表示自动拟合。" ) );
+  useMono( sill );
+  adv->addWidget( caption( tr( "拱高" ), advanced->container() ) );
+  adv->addWidget( sill );
+  auto *rangeSpin = new QDoubleSpinBox( advanced->container() );
+  rangeSpin->setObjectName( QStringLiteral( "factorRangeSpin" ) );
+  rangeSpin->setRange( 0.0, 1.0e12 );
+  rangeSpin->setDecimals( 4 );
+  rangeSpin->setSpecialValueText( tr( "自动" ) );
+  rangeSpin->setToolTip( tr( "变程（实用变程口径）。0 表示自动拟合。" ) );
+  useMono( rangeSpin );
+  adv->addWidget( caption( tr( "变程" ), advanced->container() ) );
+  adv->addWidget( rangeSpin );
+  auto *azimuth = new QDoubleSpinBox( advanced->container() );
+  azimuth->setObjectName( QStringLiteral( "factorAzimuthSpin" ) );
+  azimuth->setRange( -1.0, 360.0 );
+  azimuth->setDecimals( 1 );
+  azimuth->setValue( -1.0 );
+  azimuth->setSpecialValueText( tr( "自动（各向同性）" ) );
+  azimuth->setToolTip( tr( "走向方位（度，从北顺时针）。长变程方向；自动则全向拟合。" ) );
+  useMono( azimuth );
+  adv->addWidget( caption( tr( "走向方位" ), advanced->container() ) );
+  adv->addWidget( azimuth );
+  auto *maxPoints = new QSpinBox( advanced->container() );
+  maxPoints->setObjectName( QStringLiteral( "factorKrigingMaxPointsSpin" ) );
+  maxPoints->setRange( 4, 64 );
+  maxPoints->setValue( 16 );
+  maxPoints->setToolTip( tr( "克里金/SGS 局部邻域的最近点数上限。" ) );
+  useMono( maxPoints );
+  adv->addWidget( caption( tr( "邻域点数" ), advanced->container() ) );
+  adv->addWidget( maxPoints );
+  auto *realizations = new QSpinBox( advanced->container() );
+  realizations->setObjectName( QStringLiteral( "factorSgsRealizationsSpin" ) );
+  realizations->setRange( 1, 16 );
+  realizations->setValue( 4 );
+  realizations->setToolTip( tr( "SGS 实现数。产物栅格为实现均值，离散度见旁路标准差场。" ) );
+  useMono( realizations );
+  adv->addWidget( caption( tr( "SGS 实现数" ), advanced->container() ) );
+  adv->addWidget( realizations );
+  auto *seed = new QSpinBox( advanced->container() );
+  seed->setObjectName( QStringLiteral( "factorSgsSeedSpin" ) );
+  seed->setRange( 0, 2147483647 );
+  seed->setValue( 42 );
+  seed->setToolTip( tr( "SGS 随机种子。同种子逐位可复现。" ) );
+  useMono( seed );
+  adv->addWidget( caption( tr( "SGS 种子" ), advanced->container() ) );
+  adv->addWidget( seed );
+
   // 主线6：等厚引擎（strathick）专属行——顶/底构造面栅格选择。默认隐藏，
   // 勾选等厚引擎因素时展开（updateEngineRows 管可见性）。
   auto *surfaceRow = new QWidget( this );
@@ -283,7 +358,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   connect( cancel, &QPushButton::clicked, this, &ConstraintPage::runCancelRequested );
 
   connect( generate, &QPushButton::clicked, this,
-           [this, horizons, field, cell, factors, topCombo, baseCombo, method, coverage, power, cluster] {
+           [this, horizons, field, cell, factors, topCombo, baseCombo, method, coverage, power, cluster,
+             variogramModel, nugget, sill, rangeSpin, azimuth, maxPoints, realizations, seed] {
     const int r = checkedRow( factors );
     if ( r < 0 )
       return;
@@ -304,6 +380,20 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
       params.insert( QStringLiteral( "coverage" ), coverage->currentData().toString() );
       params.insert( QStringLiteral( "power" ), power->value() );
       params.insert( QStringLiteral( "wellClusterLocality" ), cluster->isChecked() );
+      if ( methodId == QLatin1String( "kriging" ) || methodId == QLatin1String( "sgs" ) )
+      {
+        params.insert( QStringLiteral( "variogramModel" ), variogramModel->currentData().toString() );
+        params.insert( QStringLiteral( "nugget" ), nugget->value() );
+        params.insert( QStringLiteral( "sill" ), sill->value() );
+        params.insert( QStringLiteral( "range" ), rangeSpin->value() );
+        params.insert( QStringLiteral( "azimuth" ), azimuth->value() );
+        params.insert( QStringLiteral( "maxPoints" ), maxPoints->value() );
+        if ( methodId == QLatin1String( "sgs" ) )
+        {
+          params.insert( QStringLiteral( "realizations" ), realizations->value() );
+          params.insert( QStringLiteral( "seed" ), seed->value() );
+        }
+      }
     }
     // 主线6：等厚引擎参数——顶/底构造面图层随 payload（空即工作流侧拒绝）。
     if ( def.processingAlgId == QLatin1String( "paleo:paleo_isopach" ) )

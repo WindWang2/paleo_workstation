@@ -1084,7 +1084,8 @@ class TestFactorWorkflow : public QObject
       ConstraintWorkflow wf( &f.proc, &f.layers );
       wf.setCatalog( &f.catalog, f.dir.path() );
       QVariantMap params;
-      params.insert( QStringLiteral( "method" ), QStringLiteral( "kriging" ) );
+      // 方向18 起 kriging/sgs 是合法方法——未知样本改用不存在的词
+      params.insert( QStringLiteral( "method" ), QStringLiteral( "magic_wand" ) );
       params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
       QVERIFY( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ) );
       QVERIFY2( err.contains( QStringLiteral( "未知" ) ), qPrintable( err ) );

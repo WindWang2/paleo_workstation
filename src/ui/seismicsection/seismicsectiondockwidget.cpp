@@ -35,6 +35,7 @@
 #include "catalog/datacatalog.h"
 #include "workflow/derivedassets.h"
 #include "workflow/inversionworkflow.h"
+#include "workflow/wellimpedancetwt.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -2373,39 +2374,26 @@ void SeismicSectionDockWidget::setupInversionPanelUi(QWidget *parent) {
 }
 
 namespace {
-// 井 AC×DEN → TWT 域阻抗散样（公共深度轴并集、Z=ρ·(1e6/DT)、t=TD(d)）。
+// #125：井 AC×DEN → TWT 域阻抗散样。TWT 取曲线自带的逐井时间轴（SectionWorkbench
+// 按该井时深表/常速近似 + 平移算好，与剖面井叠加同口径），不用画布全局模型重算；
+// 时深无效的井返回 false（调用方跳过并提示），不补默认速度。
+bool wellTimeDepthTable(const WellCurveItem *ac, const WellCurveItem *den,
+                        std::vector<double> *tdDepthM, std::vector<double> *tdTwtMs)
+{
+    std::vector<std::pair<double, double>> pairs;
+    paleo::inv::appendTimeDepthPairs(ac->depthsM, ac->twtMs, &pairs);
+    paleo::inv::appendTimeDepthPairs(den->depthsM, den->twtMs, &pairs);
+    return paleo::inv::buildTimeDepthTable(std::move(pairs), tdDepthM, tdTwtMs);
+}
+
 bool wellImpedanceTwt(const WellCurveItem *ac, const WellCurveItem *den,
-                      const TimeDepthModel &td,
                       std::vector<double> *twtMs, std::vector<float> *impedance)
 {
-    std::vector<double> depths = ac->depthsM;
-    depths.insert(depths.end(), den->depthsM.begin(), den->depthsM.end());
-    std::sort(depths.begin(), depths.end());
-    depths.erase(std::unique(depths.begin(), depths.end()), depths.end());
-    auto interp = [](const std::vector<double> &xs, const std::vector<float> &ys,
-                     double x) -> double {
-        if (x <= xs.front())
-            return ys.front();
-        if (x >= xs.back())
-            return ys.back();
-        const auto it = std::upper_bound(xs.begin(), xs.end(), x);
-        const size_t hi = size_t(it - xs.begin());
-        const size_t lo = hi - 1;
-        const double f = (x - xs[lo]) / (xs[hi] - xs[lo]);
-        return double(ys[lo]) + f * (double(ys[hi]) - double(ys[lo]));
-    };
-    for (double d : depths) {
-        const double dt = interp(ac->depthsM, ac->values, d);
-        const double denV = interp(den->depthsM, den->values, d);
-        if (!(dt > 1e-6) || !(denV > 0.0))
-            continue;
-        const double t = td.DepthToTwtMs(d);
-        if (!std::isfinite(t) || t <= 0.0)
-            continue;
-        twtMs->push_back(t);
-        impedance->push_back(float(denV * (1e6 / dt)));
-    }
-    return twtMs->size() >= 2;
+    std::vector<double> tdD, tdT;
+    if (!wellTimeDepthTable(ac, den, &tdD, &tdT))
+        return false;
+    return paleo::inv::wellImpedanceTwt(ac->depthsM, ac->values, den->depthsM, den->values, tdD, tdT,
+                                        twtMs, impedance);
 }
 } // namespace
 
@@ -2442,9 +2430,13 @@ void SeismicSectionDockWidget::extractWaveletFromNearestWell() {
         return;
     }
 
-    // 时深表：井震标定侧的画布模型按 10m 采样（checkshot/常速都覆盖）。
-    const TimeDepthModel &td = m_canvas->timeDepthModel();
-    const double maxDepth = std::max(ac->depthsM.back(), den->depthsM.back());
+    // 时深表（#125）：取该井曲线自带的逐井 TWT（含时间平移），不用画布全局模型。
+    std::vector<double> tdDepthM, tdTwtMs;
+    if (!wellTimeDepthTable(ac, den, &tdDepthM, &tdTwtMs)) {
+        if (m_invPanel)
+            m_invPanel->showResult(false, tr("井 %1 缺有效时深（未对齐），不能提取子波").arg(best->wellId));
+        return;
+    }
     paleo::inv::InversionWorkflow wf;
     paleo::inv::WaveletJobRequest req;
     req.wellId = best->wellId;
@@ -2454,10 +2446,8 @@ void SeismicSectionDockWidget::extractWaveletFromNearestWell() {
     req.acUsPerM = ac->values;
     req.denDepthsM = den->depthsM;
     req.denValues = den->values;
-    for (double d = 0.0; d <= maxDepth; d += 10.0) {
-        req.tdDepthM.push_back(d);
-        req.tdTimeMs.push_back(td.DepthToTwtMs(d));
-    }
+    req.tdDepthM = std::move(tdDepthM);
+    req.tdTimeMs = std::move(tdTwtMs);
     req.seismicPath = m_session.sourceSgyPath;
     req.parentVersionId = m_catalogVersionId;
 
@@ -2517,8 +2507,8 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
 
     // 低频井输入：候选井 AC×DEN → TWT 阻抗散样（无层位 → 全局趋势回退，
     // 语义如实记入产物 extra.layersUsed）。
-    const TimeDepthModel &td = m_canvas->timeDepthModel();
     std::vector<paleo::inv::InversionWorkflow::LowFreqWellInput> wells;
+    QStringList skippedNoTd;
     for (const SectionWellInfo &w : m_candidateWells) {
         const WellCurveItem *ac = nullptr;
         const WellCurveItem *den = nullptr;
@@ -2535,8 +2525,10 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
         lw.wellId = w.wellId;
         lw.x = w.surfaceX;
         lw.y = w.surfaceY;
-        if (!wellImpedanceTwt(ac, den, td, &lw.twtMs, &lw.impedance))
+        if (!wellImpedanceTwt(ac, den, &lw.twtMs, &lw.impedance)) {
+            skippedNoTd << w.wellId; // 缺有效逐井时深：不参与低频模型（#125）
             continue;
+        }
         wells.push_back(std::move(lw));
     }
 
@@ -2586,7 +2578,7 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
             m_invPanel->updateProgress(m_invTask->stagePercent() < 0 ? 0 : m_invTask->stagePercent(),
                                        m_invTask->stage());
     });
-    connect(m_invTask, &PaleoTask::finished, this, [this, gen, job]() {
+    connect(m_invTask, &PaleoTask::finished, this, [this, gen, job, skippedNoTd]() {
         if (!m_invPanel || !m_invTask)
             return;
         if (gen != m_invGeneration) {
@@ -2625,7 +2617,13 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
                 .arg(job->req.lowCutHz)
                 .arg(job->req.method == QStringLiteral("sparse")
                          ? tr("平均残差能量比 %1").arg(job->meanResidualEnergyRatio, 0, 'f', 3)
-                         : tr("低频方差占比 %1").arg(job->meanLowFreqVarianceFraction, 0, 'f', 3)));
+                         : tr("低频方差占比 %1").arg(job->meanLowFreqVarianceFraction, 0, 'f', 3))
+                + (job->wavelet.amplitudeScale > 0.0
+                       ? QString()
+                       : tr("｜子波无振幅标定（旧资产/解析子波），道振幅按反射系数直接使用"))
+                + (skippedNoTd.isEmpty()
+                       ? QString()
+                       : tr("｜缺有效时深未参与低频模型：%1").arg(skippedNoTd.join(QStringLiteral("、")))));
     });
 }
 

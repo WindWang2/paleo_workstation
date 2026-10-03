@@ -14,7 +14,10 @@ class PaleoTaskService;
 class DataCatalog;
 class QLabel;
 class QTabWidget;
+class QVBoxLayout;
 struct CatalogAsset;
+struct CatalogVersion;
+struct EntityAssetLink;
 class QgsProject;
 class QgsMapCanvas;
 class PreviewMapPage;
@@ -108,6 +111,13 @@ class DataPreviewTabs : public QWidget
     QPointer<QWidget> m_detailsHost;
     QHash<QString, QPointer<QWidget>> m_detailsOfAsset;
     QWidget *buildContent(const QString &assetId, QWidget *page);
+    // 方向20 轮4：buildContent 的「seismic」分支按资产类型析出到
+    // datapreviewtabseismic.cpp。输入全是 buildContent 已算好的局部量（不重算）。
+    QWidget *buildSeismicContent(DataCatalog *cat, const CatalogAsset &asset,
+                                 const CatalogVersion &v, const QString &abs,
+                                 const QString &assetId,
+                                 const QVector<EntityAssetLink> &links,
+                                 QWidget *host, QVBoxLayout *lay);
     QWidget *buildSurveyAreaContent(QWidget *page);
     void rebuildAssetTab(const QString &assetId); // 「重试」/PDF 转换完成后重建内容
     void focusWellIfNeeded(const QString &assetId, QWidget *page);

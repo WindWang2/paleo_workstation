@@ -53,13 +53,22 @@ ContourLevelPlan finalizePlan( double lo, double hi, double start, double end,
     std::swap( plan.start, plan.end );
   if ( !( plan.step > 0 ) )
   {
-    // 上游不会走到这里（step>0 已由 suggest 保证）；防御：空级别列。
+    // 自动路径不会走到这里（step>0 已由 suggest 保证）；用户间距小到 spin 取整为 0
+    // （如 1e-300）→ 视同「级别数无穷」，按间距过小拒绝（#149）。
+    plan.tooManyLevels = true;
+    plan.estimatedLevels = std::numeric_limits<double>::infinity();
     return plan;
   }
-  const int count =
-      static_cast<int>( std::floor( std::max( 0.0, plan.end - plan.start ) /
-                                        plan.step +
-                                    1e-10 ) );
+  // #149：先用 double 估计条数并设上限，避免 double→int 溢出（UB）与巨量分配。
+  const double estimated =
+      estimateContourLevelCount( std::max( 0.0, plan.end - plan.start ), plan.step );
+  plan.estimatedLevels = estimated;
+  if ( !( estimated <= static_cast<double>( kMaxContourLevels ) ) )
+  {
+    plan.tooManyLevels = true;
+    return plan;
+  }
+  const int count = static_cast<int>( estimated ) - 1;
   plan.levels.reserve( static_cast<std::size_t>( count ) + 1 );
   for ( int i = 0; i <= count; ++i )
     plan.levels.push_back( spinRound( plan.start + i * plan.step, plan.decimals ) );
@@ -67,6 +76,13 @@ ContourLevelPlan finalizePlan( double lo, double hi, double start, double end,
 }
 
 } // namespace
+
+double estimateContourLevelCount( double span, double step )
+{
+  if ( !( step > 0.0 ) || !std::isfinite( step ) || !std::isfinite( span ) )
+    return std::numeric_limits<double>::infinity();
+  return std::floor( std::max( 0.0, span ) / step + 1e-10 ) + 1.0;
+}
 
 double niceContourNumber( double value, bool roundUp )
 {
@@ -202,7 +218,7 @@ bool intervalContourLevels( const std::vector<double> &grid,
   const double start = spinRound( suggested.start, decimals );
   const double end = spinRound( suggested.end, decimals );
   *plan = finalizePlan( lo, hi, start, end, interval );
-  return plan->step > 0;
+  return plan->step > 0 && !plan->tooManyLevels;
 }
 
 } // namespace paleo::singlefactor

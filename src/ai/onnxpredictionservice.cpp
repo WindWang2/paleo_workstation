@@ -187,13 +187,12 @@ void PaleoOnnxService::setModelRoot( const QString &dir )
     const QString canonical = rootInfo.canonicalFilePath();
     nextRoot = QDir::cleanPath( canonical.isEmpty() ? rootInfo.absoluteFilePath() : canonical );
   }
-  if ( nextRoot == m_modelRoot )
-    return;
-
   // Sessions belong to one project's model directory. Drop the whole pool as
   // soon as that directory changes, even when the next project has a
-  // same-named model.
+  // same-named model. m_modelRoot 的读写都在锁内（#144）。
   QMutexLocker lock( &m_mutex );
+  if ( nextRoot == m_modelRoot )
+    return;
   for ( PoolEntry *e : m_pool )
     delete e->session;
   qDeleteAll( m_pool );
@@ -205,23 +204,109 @@ void PaleoOnnxService::setModelRoot( const QString &dir )
   m_lastMeta = OnnxModelMeta();
   m_lastPoolHit = false;
   m_modelRoot = nextRoot;
+  // 注册表属于旧模型目录：一并清空（调用方随后 setModelRegistry 新目录的扫描）。
+  m_registryActive = false;
+  m_registryError.clear();
+  m_registryOk.clear();
+  m_registryRejected.clear();
+}
+
+void PaleoOnnxService::setModelRegistry( const ModelRegistryScan &scan )
+{
+  QMutexLocker lock( &m_mutex );
+  m_registryActive = scan.manifestFound;
+  m_registryError = scan.manifestError;
+  m_registryOk.clear();
+  m_registryRejected.clear();
+  for ( const ModelRegistryEntry &e : scan.entries )
+  {
+    if ( e.name.isEmpty() )
+      continue;
+    if ( e.status == ModelRegistryEntry::Status::Ok )
+      m_registryOk.insert( e.name, e );
+    else
+      m_registryRejected.insert( e.name, ModelRegistry::statusLabel( e.status ) +
+                                           QStringLiteral( "：" ) + e.detail );
+  }
+}
+
+QString PaleoOnnxService::resolveModelPathLocked( const QString &name, QString *reason,
+                                                  QString *pinnedSha ) const
+{
+  if ( pinnedSha )
+    pinnedSha->clear();
+  // 名字只能是单个路径段（#145：拒绝 ../、绝对路径与分隔符，模型不出 models/）。
+  if ( !ModelRegistry::isSafeModelName( name ) )
+  {
+    if ( reason )
+      *reason = tr( "非法模型名 '%1'（只允许单段文件名，不含路径分隔符或 ..）" ).arg( name );
+    return QString();
+  }
+  if ( m_registryActive )
+  {
+    if ( !m_registryError.isEmpty() )
+    {
+      if ( reason )
+        *reason = tr( "模型 manifest 损坏，拒绝加载任何模型：%1" ).arg( m_registryError );
+      return QString();
+    }
+    const auto it = m_registryOk.constFind( name );
+    if ( it == m_registryOk.constEnd() )
+    {
+      if ( reason )
+        *reason = m_registryRejected.contains( name )
+                    ? tr( "模型 '%1' 在注册表中不可用（%2）" ).arg( name, m_registryRejected.value( name ) )
+                    : tr( "模型 '%1' 未在 models/manifest.json 登记" ).arg( name );
+      return QString();
+    }
+    if ( pinnedSha )
+      *pinnedSha = it->sha256Pinned;
+    const QFileInfo info( it->absolutePath );
+    const QString canonical = info.canonicalFilePath();
+    return QDir::cleanPath( canonical.isEmpty() ? info.absoluteFilePath() : canonical );
+  }
+  return normalizedModelPathIn( m_modelRoot, name ); // 无 manifest：开发降级
 }
 
 QString PaleoOnnxService::normalizedModelPath( const QString &name ) const
 {
+  QString root;
+  {
+    QMutexLocker lock( &m_mutex );
+    root = m_modelRoot;
+  }
+  return normalizedModelPathIn( root, name );
+}
+
+QString PaleoOnnxService::normalizedModelPathIn( const QString &root, const QString &name )
+{
   QString file = name;
   if ( !file.endsWith( QLatin1String( ".onnx" ) ) )
     file += QLatin1String( ".onnx" );
-  const QFileInfo modelInfo( QDir( m_modelRoot ).absoluteFilePath( file ) );
+  const QFileInfo modelInfo( QDir( root ).absoluteFilePath( file ) );
   const QString canonical = modelInfo.canonicalFilePath();
   return QDir::cleanPath( canonical.isEmpty() ? modelInfo.absoluteFilePath() : canonical );
 }
 
 QStringList PaleoOnnxService::availableModels() const
 {
-  if ( m_modelRoot.isEmpty() )
+  QString root;
+  {
+    QMutexLocker lock( &m_mutex );
+    root = m_modelRoot;
+    if ( m_registryActive )
+    {
+      // #145：有 manifest 时只暴露注册表 Ok 条目（manifest 损坏 → 空）。
+      if ( !m_registryError.isEmpty() )
+        return {};
+      QStringList names = m_registryOk.keys();
+      names.sort();
+      return names;
+    }
+  }
+  if ( root.isEmpty() )
     return {};
-  const QDir dir( m_modelRoot );
+  const QDir dir( root );
   const QStringList files = dir.entryList( { QStringLiteral( "*.onnx" ) },
                                            QDir::Files, QDir::Name );
   QStringList names;
@@ -262,7 +347,6 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
   QString file = name;
   if ( !file.endsWith( QLatin1String( ".onnx" ) ) )
     file += QLatin1String( ".onnx" );
-  const QString path = normalizedModelPath( name );
 
   const auto finishFail = [this, error]( OnnxLoadStatus status, const QString &msg ) {
     QMutexLocker lock( &m_mutex );
@@ -274,6 +358,16 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
     return status;
   };
 
+  QString path;
+  QString pinnedSha;
+  QString resolveErr;
+  {
+    QMutexLocker lock( &m_mutex );
+    path = resolveModelPathLocked( name, &resolveErr, &pinnedSha );
+  }
+  if ( path.isEmpty() )
+    return finishFail( OnnxLoadStatus::NotFound, resolveErr );
+
   if ( !QFileInfo::exists( path ) )
     return finishFail( OnnxLoadStatus::NotFound, tr( "Model not found: %1" ).arg( path ) );
 
@@ -281,6 +375,11 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
   if ( sha.isEmpty() )
     return finishFail( OnnxLoadStatus::NotFound,
                        tr( "Model not readable: %1" ).arg( path ) );
+  // #145：加载时复核钉哈希（扫描后文件被替换同样拒绝；池命中也不例外）。
+  if ( !pinnedSha.isEmpty() && pinnedSha.compare( sha, Qt::CaseInsensitive ) != 0 )
+    return finishFail( OnnxLoadStatus::NotFound,
+                       tr( "模型 '%1' 钉哈希不符：manifest %2 vs 实测 %3（模型可能被替换）" )
+                         .arg( name, pinnedSha, sha ) );
 
   OnnxModelMeta nextMeta;
   QString emitName;
@@ -483,8 +582,8 @@ bool PaleoOnnxService::isModelLoaded( const QString &name ) const
   QMutexLocker lock( &m_mutex );
   if ( !m_active || m_loadedPath.isEmpty() )
     return false;
-  const QString path = normalizedModelPath( name );
-  return QFileInfo::exists( path ) && path == m_loadedPath;
+  const QString path = resolveModelPathLocked( name, nullptr ); // 锁内：不可再调加锁版
+  return !path.isEmpty() && QFileInfo::exists( path ) && path == m_loadedPath;
 }
 
 OnnxLoadStatus PaleoOnnxService::lastLoadStatus() const
@@ -545,6 +644,44 @@ OnnxTensor PaleoOnnxService::runTensor( const QString &inputName, const QVector<
     if ( error )
       *error = failMsg;
     emit inferenceFailed( failedModel, failMsg );
+    return {};
+  }
+  return result;
+}
+
+OnnxTensor PaleoOnnxService::runTensorOn( const QString &model, const QString &inputName,
+                                          const QVector<float> &input,
+                                          const QVector<int64_t> &shape, QString *error )
+{
+  if ( error )
+    error->clear();
+  QString failMsg;
+  OnnxTensor result;
+  {
+    QMutexLocker lock( &m_mutex );
+    QString resolveErr;
+    const QString path = resolveModelPathLocked( model, &resolveErr );
+    PoolEntry *entry = path.isEmpty() ? nullptr : m_pool.value( path );
+    if ( !entry || !entry->session )
+    {
+      failMsg = !resolveErr.isEmpty()
+                  ? resolveErr
+                  : tr( "模型 '%1' 的会话不在池中（未加载、已被淘汰或模型目录已切换）" ).arg( model );
+    }
+    else
+    {
+      entry->lru = ++m_lruCounter; // 使用中的会话刷新 LRU，降低被并发加载淘汰的概率
+      const QByteArray inNameUtf8 = inputName.toUtf8();
+      if ( !runFirstOutput( entry->session, inNameUtf8, input, shape, &result, &failMsg ) &&
+           failMsg.isEmpty() )
+        failMsg = tr( "推理失败（模型 '%1'）" ).arg( model );
+    }
+  }
+  if ( !failMsg.isEmpty() )
+  {
+    if ( error )
+      *error = failMsg;
+    emit inferenceFailed( model, failMsg );
     return {};
   }
   return result;

@@ -14,6 +14,7 @@
 #include <QSize>
 #include <QSpinBox>
 #include <QTemporaryDir>
+#include <QThread>
 #include <cmath>
 
 #include "../src/catalog/datacatalog.h"
@@ -518,6 +519,73 @@ class TestMapBook : public QObject
       QCOMPARE( result.registeredIds.size(), 2 );
       for ( const QString &id : result.registeredIds )
         QCOMPARE( catalog.assetById( id ).format, QStringLiteral( "png" ) );
+    }
+
+    // #148：异步 start() 必须在导出器所属线程出版面并登记 catalog（旧实现在 worker
+    // 上跑 run()：catalog checkWriteThread 拒绝跨线程写 → 每版 register 失败）。
+    void asyncStartRendersAndRegistersOnOwnerThread()
+    {
+      QTemporaryDir dir;
+      QVERIFY2( dir.isValid(), qPrintable( dir.errorString() ) );
+      DataCatalog catalog;
+      QVERIFY2( catalog.open( dir.path() ), qPrintable( catalog.openError() ) );
+
+      QgsProject project;
+      PaleoTaskService tasks;
+      PaleoMapBookQueue::Exporter exporter( &tasks, &project );
+
+      PaleoMapBookQueue::Request request;
+      request.book = QStringLiteral( "book_async" );
+      request.outputDir = dir.path();
+      request.tiles = grid3x3().mid( 0, 3 );
+      request.dpi = 120.0;
+      request.catalog = &catalog;
+      request.projectDir = dir.path();
+
+      QThread *const owner = QThread::currentThread();
+      int offThreadProgress = 0;
+      connect( &exporter, &PaleoMapBookQueue::Exporter::progress, &exporter,
+               [&offThreadProgress, owner]( int, int, const QString & ) {
+                 if ( QThread::currentThread() != owner )
+                   ++offThreadProgress;
+               }, Qt::DirectConnection );
+      QSignalSpy finishedSpy( &exporter, &PaleoMapBookQueue::Exporter::finished );
+      PaleoTask *task = exporter.start( request );
+      QVERIFY( task );
+      QVERIFY( exporter.busy() );
+      QVERIFY( !exporter.start( request ) ); // 一次只跑一册
+      QVERIFY( finishedSpy.wait( 60000 ) );
+      QTRY_VERIFY_WITH_TIMEOUT( task->isFinished(), 10000 );
+
+      const PaleoMapBookQueue::Result result = exporter.lastResult();
+      QCOMPARE( offThreadProgress, 0 );
+      QCOMPARE( result.failed, 0 );
+      QCOMPARE( result.succeeded, 3 );
+      QCOMPARE( result.registeredIds.size(), 3 );
+      for ( const QString &id : result.registeredIds )
+        QCOMPARE( catalog.assetById( id ).format, QStringLiteral( "png" ) );
+      QCOMPARE( task->state(), PaleoTask::State::Succeeded );
+      QVERIFY( !exporter.busy() );
+    }
+
+    void runOffOwnerThreadIsRejected()
+    {
+      QTemporaryDir dir;
+      QgsProject project;
+      PaleoMapBookQueue::Exporter exporter( nullptr, &project );
+      PaleoMapBookQueue::Request request;
+      request.book = QStringLiteral( "book_x" );
+      request.outputDir = dir.path();
+      request.tiles = grid3x3().mid( 0, 1 );
+      PaleoMapBookQueue::Result result;
+      QThread *worker = QThread::create( [&]() { result = exporter.run( nullptr, request ); } );
+      worker->start();
+      QVERIFY( worker->wait( 30000 ) );
+      delete worker;
+      QCOMPARE( result.succeeded, 0 );
+      QVERIFY( !result.failures.isEmpty() );
+      QCOMPARE( result.failures.constFirst().stage, QStringLiteral( "prepare" ) );
+      QVERIFY( !QDir( dir.filePath( QStringLiteral( "book_x" ) ) ).exists() );
     }
 
     void panelOnlyEmitsSignals()

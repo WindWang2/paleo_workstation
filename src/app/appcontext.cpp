@@ -402,6 +402,8 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               // 模型注册表如实扫描（范围5）：未装模型静默降级；manifest 在而
               // 坏/缺文件/指纹不符 → 消息日志逐条说明，不报错轰炸。
               const ModelRegistryScan registry = ModelRegistry::scan(modelsDir);
+              // #145：扫描结果门控模型可见性与加载（只放行 status==Ok；加载时复核钉哈希）。
+              m_onnxSvc->setModelRegistry(registry);
               if (!registry.manifestFound)
                 QgsMessageLog::logMessage(
                   tr("未装模型：%1 无 manifest.json——AI 辅助按无模型降级").arg(modelsDir),

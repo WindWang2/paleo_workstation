@@ -120,6 +120,7 @@ class TestLabelZOrder : public QObject
     void labelsStackWithLayerParallel();
     void labelsStackWithLayerSequential();
     void nativeLabelsStayOnTop();
+    void unlabeledMiddleLayerNeverCoversTopGeometry();
 
   private:
     void runStackFixture(bool parallel, bool expectCovered);
@@ -307,6 +308,70 @@ void TestLabelZOrder::labelsStackWithLayerSequential()
 void TestLabelZOrder::nativeLabelsStayOnTop()
 {
   runStackFixture(true, false); // 属性全关 → 原生标注置顶，不受补丁与否影响
+}
+
+// #123：旧 renderAboveLabels 维护器会给「带标注层之上的无标注层」设该标志，
+// QGIS 把这类层整张图像合成在所有普通层之后——中层不透明面盖住上层要素
+// （原生复现：上层 645 个像素 → 0）。现实现只钉 labelsWithLayer、并清掉
+// renderAboveLabels：不论 QGIS 是否打补丁，几何必须严格按图层树序合成。
+void TestLabelZOrder::unlabeledMiddleLayerNeverCoversTopGeometry()
+{
+  QgsProject proj;
+  QgsVectorLayer *bottom = mkPointLayer(&proj, QStringLiteral("bottom"), {QPointF(100, 100)});
+  enableBigLabel(bottom);
+  QgsVectorLayer *middle = mkRectLayer(&proj, QStringLiteral("middle"), QgsRectangle(20, 20, 180, 180));
+  QgsVectorLayer *top = mkRectLayer(&proj, QStringLiteral("top"), QgsRectangle(40, 40, 80, 80));
+  auto *blue = new QgsFillSymbol();
+  blue->setColor(Qt::blue);
+  top->setRenderer(new QgsSingleSymbolRenderer(blue));
+  enableBigLabel(top); // 上层带标注、中层无标注、下层带标注——issue 的三层混合序
+  // 旧工程残留：中层带着 renderAboveLabels 读进来，维护器必须清掉。
+  middle->setCustomProperty(kLegacy, true);
+
+  QgisLabelZOrder z(&proj);
+  for (QgsMapLayer *l : proj.mapLayers())
+    QVERIFY2(!l->customProperty(kLegacy).isValid(), qPrintable(l->name()));
+
+  for (const bool parallel : {true, false})
+  {
+    QgsMapSettings ms;
+    ms.setDestinationCrs(QgsCoordinateReferenceSystem(QStringLiteral("EPSG:4326")));
+    ms.setExtent(QgsRectangle(0, 0, 200, 200));
+    ms.setOutputSize(QSize(200, 200));
+    ms.setOutputDpi(96);
+    ms.setBackgroundColor(Qt::white);
+    ms.setLayers({top, middle, bottom}); // 顶在前
+    ms.setFlag(Qgis::MapSettingsFlag::DrawLabeling, true);
+    ms.setFlag(Qgis::MapSettingsFlag::Antialiasing, false);
+    QImage img;
+    if (parallel)
+    {
+      QgsMapRendererParallelJob job(ms);
+      job.start();
+      job.waitForFinished();
+      img = job.renderedImage();
+    }
+    else
+    {
+      QgsMapRendererSequentialJob job(ms);
+      job.start();
+      job.waitForFinished();
+      img = job.renderedImage();
+    }
+    QVERIFY(!img.isNull());
+    // 上层蓝面范围：地图 (40..80, 40..80) → 像素 x 40..80, y 120..160（y 轴翻转）。
+    int bluePixels = 0;
+    for (int y = 122; y <= 158; ++y)
+      for (int x = 42; x <= 78; ++x)
+      {
+        const QColor px(img.pixel(x, y));
+        if (px.blue() > 200 && px.red() < 80 && px.green() < 80)
+          ++bluePixels;
+      }
+    QVERIFY2(bluePixels > 200,
+             qPrintable(QStringLiteral("top geometry covered by unlabeled middle layer "
+                                       "(parallel=%1 bluePixels=%2)").arg(parallel).arg(bluePixels)));
+  }
 }
 
 int main(int argc, char *argv[])

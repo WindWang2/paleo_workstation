@@ -111,7 +111,7 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
       return fail( tr( "no ONNX service bound; cannot run '%1'" ).arg( algorithmId ) );
     if ( model.isEmpty() )
       return fail( tr( "onnx algorithm id '%1' carries no model name" ).arg( algorithmId ) );
-    if ( !onnx->isModelLoaded( model ) && !onnx->loadModel( model, error ) )
+    if ( onnx->loadModelMeta( model, nullptr, error ) != OnnxLoadStatus::Ok )
       return fail( ( error && !error->isEmpty() )
                        ? *error
                        : tr( "failed to load ONNX model '%1'" ).arg( model ) );
@@ -138,7 +138,8 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
     if ( inputName.isEmpty() )
       inputName = QStringLiteral( "x" );
 
-    const OnnxTensor tensor = onnx->runTensor( inputName, input, shape, error );
+    // #144：绑定模型名推理，并发任务换活动模型不影响本次。
+    const OnnxTensor tensor = onnx->runTensorOn( model, inputName, input, shape, error );
     if ( tensor.values.isEmpty() )
       return fail( ( error && !error->isEmpty() )
                        ? *error

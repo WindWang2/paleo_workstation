@@ -354,6 +354,8 @@ add_library(paleo_domain STATIC
   src/domain/arearules.cpp                          # 工程级参数 seam（docs/AREA_PARAMETERS.md）
   src/domain/seismic/nicestep.cpp
   src/domain/seismic/timedepthmodel.cpp
+  src/domain/sequenceframework.cpp                  # 方向28：层序格架模型（单元/标志层 + JSON）
+  src/domain/frameworkdiagnostics.cpp               # 方向28：格架一致性诊断（悬空/空洞/重名/无归属）
   src/domain/seismic/sectionwellprojector.cpp
   # sgy*.h 为指向 paleo_sbm 的转发头；实现随 vendor 库编译。
 )

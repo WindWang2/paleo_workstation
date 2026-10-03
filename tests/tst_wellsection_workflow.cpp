@@ -1,5 +1,6 @@
 #include "catalog/datacatalog.h"
 #include "domain/seismic/sgyvolume.h"
+#include "metadata/wellsectionstore.h"
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
 #include "workflow/sectionworkbench.h"
@@ -350,6 +351,66 @@ private slots:
                  wells[0],
                  wellsection::Datum{wellsection::DatumMode::Elevation, QString()}),
              25.5);
+  }
+
+  // 井序/连线改接 round-trip 写回 project.sqlite 且版本号正确推进（Oracle #2）。
+  void sectionStoreRoundTrip() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString dbPath = QDir(dir.path()).filePath(QStringLiteral(
+        "test.project.sqlite"));
+    metadata::WellSectionStore store(dbPath);
+    QString err;
+    QVERIFY2(store.open(&err), qPrintable(err));
+
+    // 新库无行 → version 0。
+    auto rec = store.load(QStringLiteral("default"), &err);
+    QVERIFY(err.isEmpty());
+    QCOMPARE(rec.version, 0);
+    QVERIFY(!rec.valid());
+
+    // 首存：井序 + 断开的连线；version 1。
+    QVector<metadata::WellSectionLinkOverride> links;
+    links << metadata::WellSectionLinkOverride{
+        QStringLiteral("well-1"), QStringLiteral("well-2"),
+        QStringLiteral("A"), false};
+    rec = store.save(QStringLiteral("default"),
+                     {QStringLiteral("well-2"), QStringLiteral("well-1"),
+                      QStringLiteral("well-3")},
+                     links, &err);
+    QVERIFY2(rec.valid(), qPrintable(err));
+    QCOMPARE(rec.version, 1);
+
+    // 重开新实例读回：井序逐位一致，改接集一致。
+    metadata::WellSectionStore reopened(dbPath);
+    rec = reopened.load(QStringLiteral("default"), &err);
+    QVERIFY(rec.valid());
+    QCOMPARE(rec.version, 1);
+    QCOMPARE(rec.wellIds,
+             QStringList({QStringLiteral("well-2"), QStringLiteral("well-1"),
+                          QStringLiteral("well-3")}));
+    QCOMPARE(rec.linkOverrides.size(), 1);
+    QCOMPARE(rec.linkOverrides[0].leftWellId, QStringLiteral("well-1"));
+    QCOMPARE(rec.linkOverrides[0].rightWellId, QStringLiteral("well-2"));
+    QCOMPARE(rec.linkOverrides[0].topName, QStringLiteral("A"));
+    QVERIFY(!rec.linkOverrides[0].connected);
+
+    // 再存（重排井序 + 重连）→ version 2；旧值被替换非追加。
+    links[0].connected = true;
+    rec = reopened.save(QStringLiteral("default"),
+                        {QStringLiteral("well-3"), QStringLiteral("well-1")},
+                        links, &err);
+    QCOMPARE(rec.version, 2);
+    auto rec2 = reopened.load(QStringLiteral("default"), &err);
+    QCOMPARE(rec2.version, 2);
+    QCOMPARE(rec2.wellIds.size(), 2);
+    QVERIFY(rec2.linkOverrides[0].connected);
+
+    // 多节互不干扰：另一节 id 各自版本从 1 起。
+    rec = reopened.save(QStringLiteral("fence-1"),
+                        {QStringLiteral("well-1")}, {}, &err);
+    QCOMPARE(rec.version, 1);
+    QCOMPARE(reopened.load(QStringLiteral("default"), &err).version, 2);
   }
 
   void workbenchCalibration() {

@@ -61,6 +61,14 @@ class WellSectionPanel : public QWidget
     wellsection::Datum datum() const { return m_datum; }
     // 基准面三模式（井深/海拔/拉平）：只改视图偏移与轴标签，井数据不动。
     void setDatum(const wellsection::Datum &d);
+    // 井距模式：等距 / 按井口距离比例（视图偏好，QSettings 持久化）。
+    wellsection::SpacingMode spacingMode() const { return m_spacing; }
+    void setSpacingMode(wellsection::SpacingMode mode);
+    // 层位连线改接（用户编辑产物；井对无序键，井序重排不失效）。
+    QVector<wellsection::LinkOverride> linkOverrides() const { return m_linkOverrides; }
+    void setLinkOverrides(const QVector<wellsection::LinkOverride> &overrides);
+    // 用户右键断开/重连某缝某顶（gap = 左井序号）。
+    void toggleLink(int gap, const QString &topName, bool connect);
     void fitToView();
     // 版头 + 全幅图体导出到 paper 底图（scale 缩放像素）。
     QImage renderImage(double scale = 1.0) const;
@@ -79,12 +87,17 @@ class WellSectionPanel : public QWidget
     QString statusText() const;
     double pxPerMeter() const { return m_st.pxPerMeter; }
     qreal gapWidth() const { return m_st.gapPx; }
+    // 测试钩子：列左缘 x / 第 i 缝宽（比例井距模式的断言面）。
+    qreal columnX(int i) const { return m_st.columnLeft(i); }
+    qreal gapWidthAt(int i) const { return m_st.gapWidth(i); }
 
   signals:
     void dataRequested(const QStringList &wellIds, const QStringList &mnemonics);
     void seismicRequested();
     // 仅用户驱动（选井/拖排/移除）——持久化钩子。
     void wellIdsChanged(const QStringList &wellIds);
+    // 仅用户驱动（连线断开/重连）——持久化钩子（store 版本推进）。
+    void linkOverridesChanged(const QVector<wellsection::LinkOverride> &overrides);
     void wellClicked(const QString &wellId);
 
   private:
@@ -98,6 +111,7 @@ class WellSectionPanel : public QWidget
     void clearStrip();
     void moveWell(int from, int to); // 用户拖排
     void removeWellAt(int index);    // 用户右键移除
+    void rebuildGapWidths();         // 间距模式/井集/gapPx 变化后重算逐缝宽
     void openWellsDialog();
     void openTracksDialog();
     void applyThemeFromMenu(const QString &id); // 用户动作 → 写设置
@@ -125,6 +139,8 @@ class WellSectionPanel : public QWidget
     QString m_hoverText;
     QString m_selectedId;
     wellsection::Datum m_datum; // 基准面（默认井深；空 flattenTop 的 Flatten 视作 Depth）
+    wellsection::SpacingMode m_spacing = wellsection::SpacingMode::Equal;
+    QVector<wellsection::LinkOverride> m_linkOverrides;
 
     QGraphicsScene *m_scene = nullptr;
     wellsectionui::View *m_view = nullptr;
@@ -136,6 +152,7 @@ class WellSectionPanel : public QWidget
     QToolButton *m_tracksBtn = nullptr;
     QToolButton *m_themeBtn = nullptr;
     QToolButton *m_flattenBtn = nullptr;
+    QToolButton *m_spacingBtn = nullptr;
     QToolButton *m_seismicBtn = nullptr;
     QToolButton *m_fitBtn = nullptr;
     QToolButton *m_exportBtn = nullptr;
@@ -144,4 +161,5 @@ class WellSectionPanel : public QWidget
     QAction *m_highlightAct = nullptr;
     QMenu *m_themeMenu = nullptr;
     QMenu *m_flattenMenu = nullptr;
+    QMenu *m_spacingMenu = nullptr;
 };

@@ -6,6 +6,8 @@
 
 #include <QApplication>
 #include <QGraphicsScene>
+#include <QGraphicsSceneEvent>
+#include <QLineF>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
@@ -108,21 +110,26 @@ int RenderState::columnAtX(double x) const
   if (wells.isEmpty())
     return -1;
   const double cw = columnWidth();
-  const double rel = x - margin;
-  if (rel < 0)
-    return -1;
-  const int i = int(rel / (cw + gapPx));
-  if (i < 0 || i >= wells.size())
-    return -1;
-  return (rel - i * (cw + gapPx) <= cw) ? i : -1;
+  double left = margin;
+  for (int i = 0; i < wells.size(); ++i)
+  {
+    if (x < left)
+      return -1;
+    if (x <= left + cw)
+      return i;
+    left += cw + gapWidth(i);
+  }
+  return -1;
 }
 
 double RenderState::sceneWidth() const
 {
   if (wells.isEmpty())
     return 2.0 * margin;
-  return 2.0 * margin + wells.size() * columnWidth() +
-         (wells.size() - 1) * gapPx;
+  double w = 2.0 * margin + wells.size() * columnWidth();
+  for (int i = 0; i + 1 < wells.size(); ++i)
+    w += gapWidth(i);
+  return w;
 }
 
 // ---------------------------------------------------------------------------
@@ -499,11 +506,14 @@ void ColumnItem::paintLithologyTrack(QPainter *p, const QRectF &trackRect,
 GapItem::GapItem(RenderState *st, int index) : m_st(st), m_index(index)
 {
   setFlag(QGraphicsItem::ItemUsesExtendedStyleOption);
+  // 连线拾取：hover 高亮/提示 + 右键断开重连（左键留给列选中）。
+  setAcceptHoverEvents(true);
+  setAcceptedMouseButtons(Qt::RightButton);
 }
 
 QRectF GapItem::boundingRect() const
 {
-  return {m_st->columnRight(m_index), 0.0, m_st->gapPx,
+  return {m_st->columnRight(m_index), 0.0, m_st->gapWidth(m_index),
           m_st->sceneHeight()};
 }
 
@@ -529,7 +539,17 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
   if (seismicDrawn)
     paintSeismic(p, exposed, *gap);
 
-  const auto lks = wellsection::links(a, b);
+  // 连线分 Effective/断开两组：断开画细虚线示意（可右键重连），不参与
+  // 层段带/高亮带的闭合几何。
+  const QVector<wellsection::Link> allLks = wellsection::links(a, b);
+  QVector<wellsection::Link> lks;   // 连接中的
+  QVector<wellsection::Link> broken; // 用户断开的
+  for (const auto &lk : allLks) {
+    if (wellsection::linkConnected(m_st->linkOverrides, a.id, b.id, lk.name))
+      lks.push_back(lk);
+    else
+      broken.push_back(lk);
+  }
   // 地震底图上描线先铺一圈纸面光晕，连线不被波形吃掉。
   const auto stroke = [&](const QPainterPath &path, const QPen &pen) {
     if (seismicDrawn)
@@ -580,12 +600,23 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
   }
 
   // 4. 分层连线（S 形贝塞尔或直线）；高亮两界的名字不画灰线——
-  //    随后只画主色 2px 边界，避免灰线与蓝线并肩。
+  //    随后只画主色 2px 边界，避免灰线与蓝线并肩。hover 中的连线加粗。
   for (const auto &lk : lks)
   {
     if (&lk == la || &lk == lb)
       continue;
-    stroke(linkPath(lk), QPen(m_st->theme.link, m_st->theme.linkWidth));
+    QPen pen(m_st->theme.link, m_st->theme.linkWidth);
+    if (lk.name == m_hoverLink)
+      pen.setWidthF(pen.widthF() + 1.2);
+    stroke(linkPath(lk), pen);
+  }
+  // 4b. 断开的连线：细虚线示意断点（右键可重连）。
+  for (const auto &lk : broken)
+  {
+    QPen pen(m_st->theme.frame, 1.0, Qt::DashLine);
+    if (lk.name == m_hoverLink)
+      pen.setWidthF(pen.widthF() + 1.0);
+    stroke(linkPath(lk), pen);
   }
   // 5. 高亮边界（主色 2px，沿同一连线几何）。
   const QPen hiPen(highlightColor(), 2.0);
@@ -625,6 +656,116 @@ QPainterPath GapItem::linkPath(const wellsection::Link &lk) const
   return path;
 }
 
+// 连线命中：路径上采样最近距离（贝塞尔重几何不必精确解析），阈值 6px。
+QString GapItem::hitLink(const QPointF &pt) const
+{
+  const wellsection::Well &a = m_st->wells[m_index];
+  const wellsection::Well &b = m_st->wells[m_index + 1];
+  const double x0 = m_st->columnRight(m_index);
+  const double x1 = m_st->columnLeft(m_index + 1);
+  QString best;
+  double bestDist = 6.0;
+  for (const auto &lk : wellsection::links(a, b))
+  {
+    const double yl = m_st->yForMd(m_index, lk.leftMd);
+    const double yr = m_st->yForMd(m_index + 1, lk.rightMd);
+    const bool curved = m_st->theme.curvedLinks;
+    QPointF prev(x0, yl);
+    for (int s = 1; s <= 16; ++s)
+    {
+      const double t = double(s) / 16.0;
+      QPointF cur;
+      if (curved)
+      {
+        const double mt = 1.0 - t;
+        const double mx = (x0 + x1) * 0.5;
+        cur.setX(mt * mt * mt * x0 + 3.0 * mt * mt * t * mx +
+                 3.0 * mt * t * t * mx + t * t * t * x1);
+        cur.setY(mt * mt * mt * yl + 3.0 * mt * mt * t * yl +
+                 3.0 * mt * t * t * yr + t * t * t * yr);
+      }
+      else
+      {
+        cur.setX(x0 + (x1 - x0) * t);
+        cur.setY(yl + (yr - yl) * t);
+      }
+      // 线段 prev→cur 到点的距离（点到线段投影）。
+      const QPointF d = cur - prev;
+      const double len2 = QPointF::dotProduct(d, d);
+      double u = len2 > 0.0
+                     ? QPointF::dotProduct(pt - prev, d) / len2
+                     : 0.0;
+      u = qBound(0.0, u, 1.0);
+      const QPointF proj = prev + u * d;
+      const double dist = QLineF(pt, proj).length();
+      if (dist < bestDist)
+      {
+        bestDist = dist;
+        best = lk.name;
+      }
+      prev = cur;
+    }
+  }
+  return best;
+}
+
+void GapItem::hoverMoveEvent(QGraphicsSceneHoverEvent *e)
+{
+  const QString name = hitLink(e->pos());
+  if (name == m_hoverLink)
+    return; // 无变化不重画
+  m_hoverLink = name;
+  update();
+  if (m_linkHover)
+  {
+    if (name.isEmpty())
+      m_linkHover(QString());
+    else
+    {
+      const wellsection::Well &a = m_st->wells[m_index];
+      const wellsection::Well &b = m_st->wells[m_index + 1];
+      const bool connected = wellsection::linkConnected(
+          m_st->linkOverrides, a.id, b.id, name);
+      m_linkHover(QObject::tr("连线 %1：%2 ↔ %3（%4，右键%5）")
+                      .arg(name, a.name, b.name,
+                           connected ? QObject::tr("已连接") : QObject::tr("已断开"),
+                           connected ? QObject::tr("断开") : QObject::tr("重连")));
+    }
+  }
+  QGraphicsItem::hoverMoveEvent(e);
+}
+
+void GapItem::hoverLeaveEvent(QGraphicsSceneHoverEvent *e)
+{
+  if (!m_hoverLink.isEmpty())
+  {
+    m_hoverLink.clear();
+    update();
+    if (m_linkHover)
+      m_linkHover(QString());
+  }
+  QGraphicsItem::hoverLeaveEvent(e);
+}
+
+void GapItem::mousePressEvent(QGraphicsSceneMouseEvent *e)
+{
+  if (e->button() == Qt::RightButton)
+  {
+    const QString name = hitLink(e->pos());
+    if (!name.isEmpty() && m_linkMenu)
+    {
+      const wellsection::Well &a = m_st->wells[m_index];
+      const wellsection::Well &b = m_st->wells[m_index + 1];
+      m_linkMenu(m_index, name,
+                 wellsection::linkConnected(m_st->linkOverrides, a.id, b.id,
+                                            name));
+      e->accept();
+      return;
+    }
+  }
+  QGraphicsItem::mousePressEvent(e);
+}
+
 void GapItem::paintSeismic(QPainter *p, const QRectF &exposed,
                            const wellsection::SeismicGap &gap)
 {
@@ -633,7 +774,7 @@ void GapItem::paintSeismic(QPainter *p, const QRectF &exposed,
   const double offA = m_st->offsets.value(m_index, 0.0);
   const double offB = m_st->offsets.value(m_index + 1, 0.0);
   const double x0 = m_st->columnRight(m_index);
-  const double gapW = m_st->gapPx;
+  const double gapW = m_st->gapWidth(m_index);
 
   // 设备分辨率渲染：exposed 场景区 → 设备像素 rect。
   const QTransform xf = p->deviceTransform();

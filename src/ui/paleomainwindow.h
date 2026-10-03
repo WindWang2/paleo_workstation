@@ -110,6 +110,7 @@ class ComposePage;
 class ValidatePage;
 class WellCorrelationPanel;
 class WellSectionPanel;
+namespace metadata { class WellSectionStore; }
 class WellSectionWorkflow;
 class SectionWorkbench;
 class QCloseEvent;
@@ -296,13 +297,16 @@ class PaleoMainWindow : public SARibbonMainWindow
     void syncSeismicVolumeToDocks();
     void attachSections(SeismicMapLink *link);
     // 连井剖面（well correlation section）：attachWorkflows 内
-    // attachSections 之后、m_seismicTaskSvc 就位后调用。
-    void attachWellSection(PaleoTaskService *taskSvc);
+    // attachSections 之后、m_seismicTaskSvc 就位后调用。store 供剖面编辑
+    // 产物落 project.sqlite（井序/连线改接版本化）。
+    void attachWellSection(PaleoTaskService *taskSvc,
+                           PaleoProjectStore *store = nullptr);
     SeismicMapLink *m_sectionLink = nullptr;
     SectionWorkbench *m_sectionWorkbench = nullptr; // attachSections 持有（this 父子）
     PaleoDockWidget *m_wellSectionDock = nullptr;
     WellSectionPanel *m_wellSectionPanel = nullptr;
     WellSectionWorkflow *m_wellSectionWf = nullptr;
+    metadata::WellSectionStore *m_wellSectionStore = nullptr;
 
     QgisCanvasController *m_canvasCtl;
     QgisProjectService *m_projectSvc;

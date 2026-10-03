@@ -71,6 +71,30 @@ struct Link {
 };
 QVector<Link> links(const Well &left, const Well &right);
 
+// 连线改接（用户编辑产物）：井对无序（makeLinkOverride 归一键序），井序
+// 重排不失效。overrides 只记显式改动的键；缺省（无条目）= 连接。
+struct LinkOverride {
+  QString leftWellId, rightWellId, topName;
+  bool connected = false;
+  bool operator==(const LinkOverride &o) const {
+    return leftWellId == o.leftWellId && rightWellId == o.rightWellId &&
+           topName == o.topName && connected == o.connected;
+  }
+};
+LinkOverride makeLinkOverride(const QString &aId, const QString &bId,
+                              const QString &topName, bool connected);
+// 井对+顶名当前是否连接：显式条目优先，缺省 true。
+bool linkConnected(const QVector<LinkOverride> &overrides, const QString &aId,
+                   const QString &bId, const QString &topName);
+
+// 井距模式：等距 = 均一缝宽；比例 = 相邻井地图距离加权分摊总缝宽
+//（缺坐标井段用其余段中位距离，全缺退化等距）。
+enum class SpacingMode { Equal, Proportional };
+// n 井 → n−1 缝宽：等距全 totalGap/(n−1)；比例按距离分摊，逐缝夹取
+// [minGap, maxGap]。井数 <2 → 空。
+QVector<double> gapWidthsFor(const QVector<Well> &wells, SpacingMode mode,
+                             double totalGap, double minGap, double maxGap);
+
 // 顶名按地层序归并：首井顶序为底，后续井把新名插在「该井最近的、已在
 // 表中的较浅名」之后（没有则插最前）。确定性输出。
 QStringList orderedTopNames(const QVector<Well> &wells);

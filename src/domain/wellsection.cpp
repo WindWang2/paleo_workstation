@@ -59,6 +59,75 @@ QVector<Link> links(const Well &left, const Well &right) {
   return out;
 }
 
+LinkOverride makeLinkOverride(const QString &aId, const QString &bId,
+                              const QString &topName, bool connected) {
+  LinkOverride o;
+  o.topName = topName;
+  o.connected = connected;
+  if (aId <= bId) {
+    o.leftWellId = aId;
+    o.rightWellId = bId;
+  } else {
+    o.leftWellId = bId;
+    o.rightWellId = aId;
+  }
+  return o;
+}
+
+bool linkConnected(const QVector<LinkOverride> &overrides, const QString &aId,
+                   const QString &bId, const QString &topName) {
+  const QString lo = qMin(aId, bId), hi = qMax(aId, bId);
+  for (const LinkOverride &o : overrides)
+    if (o.leftWellId == lo && o.rightWellId == hi && o.topName == topName)
+      return o.connected;
+  return true;
+}
+
+QVector<double> gapWidthsFor(const QVector<Well> &wells, SpacingMode mode,
+                             double totalGap, double minGap, double maxGap) {
+  const int gaps = wells.size() - 1;
+  QVector<double> out;
+  if (gaps < 1)
+    return out;
+  out.fill(0.0, gaps);
+  if (mode == SpacingMode::Equal || totalGap <= 0.0) {
+    out.fill(qBound(minGap, totalGap / gaps, maxGap), gaps);
+    return out;
+  }
+  // 相邻井地图距离（勾股；缺坐标段先记 NaN）。
+  QVector<double> dist(gaps, qQNaN());
+  int known = 0;
+  for (int i = 0; i < gaps; ++i)
+    if (wells[i].hasCoordinates() && wells[i + 1].hasCoordinates()) {
+      const double dx = wells[i + 1].x - wells[i].x;
+      const double dy = wells[i + 1].y - wells[i].y;
+      dist[i] = std::sqrt(dx * dx + dy * dy);
+      ++known;
+    }
+  if (known == 0) {
+    out.fill(qBound(minGap, totalGap / gaps, maxGap), gaps);
+    return out;
+  }
+  // 缺段用已知段中位距离补（保守：非零、抗离群）。
+  if (known < gaps) {
+    QVector<double> sorted;
+    for (double d : dist)
+      if (std::isfinite(d))
+        sorted << d;
+    std::sort(sorted.begin(), sorted.end());
+    const double med = sorted.isEmpty() ? 1.0 : sorted.at(sorted.size() / 2);
+    for (double &d : dist)
+      if (!std::isfinite(d))
+        d = qMax(1e-6, med);
+  }
+  double sum = 0.0;
+  for (double d : dist)
+    sum += d;
+  for (int i = 0; i < gaps; ++i)
+    out[i] = qBound(minGap, totalGap * dist[i] / sum, maxGap);
+  return out;
+}
+
 QStringList orderedTopNames(const QVector<Well> &wells) {
   QStringList out;
   for (const Well &w : wells) {

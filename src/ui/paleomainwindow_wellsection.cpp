@@ -5,7 +5,10 @@
 #include "paleomainwindow.h"
 
 #include "catalog/datacatalog.h"
+#include "domain/wellsection.h"
 #include "linkage/seismicmaplink.h"
+#include "metadata/paleoprojectstore.h"
+#include "metadata/wellsectionstore.h"
 #include "seismicsection/seismicsectiondockwidget.h"
 #include "services/previewdoc.h"
 #include "services/seismictaskservice.h"
@@ -13,24 +16,36 @@
 #include "workflow/sectionworkbench.h"
 #include "workflow/wellsectionworkflow.h"
 
-#include <QSettings>
 #include <QTimer>
 #include <qgsmessagelog.h>
 
 #include <memory>
 
 namespace {
-// 井集按工区持久化：key = wellSection/wells/<catalogPath 清洗>。
-QString wellsKey(const QString &catalogPath)
-{
-  QString k = catalogPath;
-  k.replace(QLatin1Char('/'), QLatin1Char('_'));
-  k.replace(QLatin1Char('\\'), QLatin1Char('_'));
-  return QStringLiteral("wellSection/wells/%1").arg(k);
+// 连井剖面编辑产物在 project.sqlite 的节 id（单剖面 dock）。
+constexpr char kSectionId[] = "default";
+
+QVector<metadata::WellSectionLinkOverride>
+toStoreOverrides(const QVector<wellsection::LinkOverride> &in) {
+  QVector<metadata::WellSectionLinkOverride> out;
+  out.reserve(in.size());
+  for (const wellsection::LinkOverride &o : in)
+    out.push_back({o.leftWellId, o.rightWellId, o.topName, o.connected});
+  return out;
+}
+
+QVector<wellsection::LinkOverride>
+fromStoreOverrides(const QVector<metadata::WellSectionLinkOverride> &in) {
+  QVector<wellsection::LinkOverride> out;
+  out.reserve(in.size());
+  for (const metadata::WellSectionLinkOverride &o : in)
+    out.push_back({o.leftWellId, o.rightWellId, o.topName, o.connected});
+  return out;
 }
 } // namespace
 
-void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc)
+void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
+                                        PaleoProjectStore *store)
 {
   if (!m_wellSectionPanel || !m_previewDoc || !m_previewDoc->catalog())
     return;
@@ -42,16 +57,41 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc)
     wf->setSeismicTaskService(m_seismicTaskSvc.get());
   wf->setSectionWorkbench(m_sectionWorkbench);
 
+  // 剖面编辑产物落库（井序 + 连线改接；每次落盘版本 +1——Oracle #2）。
+  // 无工程库（store 空/未开工程）时编辑仅驻内存。
+  if (store) {
+    m_wellSectionStore =
+        new metadata::WellSectionStore(store->metaDbPath(), store);
+    QString storeErr;
+    if (!m_wellSectionStore->open(&storeErr))
+      QgsMessageLog::logMessage(
+          tr("连井剖面编辑库打开失败：%1").arg(storeErr),
+          QStringLiteral("Paleo"));
+  }
+
   auto lastGen = std::make_shared<int>(0);
   auto lastSeismicGen = std::make_shared<int>(0);
   auto catalogPath =
       std::make_shared<QString>(m_previewDoc->catalog()->catalogPath());
 
-  // 井集持久化：用户改动（选井/拖排/移除）才写。
+  // 井集/连线改接持久化：用户改动才写（程序化恢复不发这两个信号）。
+  const auto saveSectionEdits = [this, panel] {
+    if (!m_wellSectionStore)
+      return;
+    QString err;
+    const metadata::WellSectionRecord rec =
+        m_wellSectionStore->save(QString::fromLatin1(kSectionId), panel->wellIds(),
+                                 toStoreOverrides(panel->linkOverrides()),
+                                 &err);
+    if (!rec.valid())
+      QgsMessageLog::logMessage(tr("连井剖面编辑保存失败：%1").arg(err),
+                                QStringLiteral("Paleo"));
+  };
   connect(panel, &WellSectionPanel::wellIdsChanged, this,
-          [catalogPath](const QStringList &ids) {
-            QSettings(QStringLiteral("paleo"), QStringLiteral("paleo"))
-                .setValue(wellsKey(*catalogPath), ids);
+          [saveSectionEdits](const QStringList &) { saveSectionEdits(); });
+  connect(panel, &WellSectionPanel::linkOverridesChanged, this,
+          [saveSectionEdits](const QVector<wellsection::LinkOverride> &) {
+            saveSectionEdits();
           });
 
   connect(panel, &WellSectionPanel::dataRequested, this,
@@ -117,16 +157,24 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc)
     return out;
   };
 
-  // catalog 变更：300ms 去抖 → 刷新井选项；换工区 → 按 catalogPath 恢复
-  // 井集；同工区数据变化 → 有井即重取。
+  // catalog 变更：300ms 去抖 → 刷新井选项；换工区 → 重绑编辑库并按
+  // 落库行恢复井序/连线改接；同工区数据变化 → 有井即重取。
   auto *debounce = new QTimer(this);
   debounce->setSingleShot(true);
   debounce->setInterval(300);
-  const auto restoreWells = [wf, panel, catalogPath]() {
-    QStringList saved =
-        QSettings(QStringLiteral("paleo"), QStringLiteral("paleo"))
-            .value(wellsKey(*catalogPath))
-            .toStringList();
+  const auto restoreWells = [this, wf, panel, store]() {
+    QStringList saved;
+    QVector<wellsection::LinkOverride> overrides;
+    if (m_wellSectionStore && store)
+    {
+      m_wellSectionStore->rebind(store->metaDbPath(), store);
+      QString err;
+      m_wellSectionStore->open(&err);
+      const metadata::WellSectionRecord rec =
+          m_wellSectionStore->load(QString::fromLatin1(kSectionId), &err);
+      saved = rec.wellIds;
+      overrides = fromStoreOverrides(rec.linkOverrides);
+    }
     QSet<QString> existing;
     for (const auto &c : wf->wellChoices())
       existing.insert(c.id);
@@ -134,6 +182,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc)
     for (const QString &id : saved)
       if (existing.contains(id))
         ids << id;
+    panel->setLinkOverrides(overrides);
     if (ids.isEmpty())
       return; // 空恢复不触发空请求/忙碌闪动
     panel->setWellIds(ids);

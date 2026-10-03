@@ -19,7 +19,7 @@ Deferred work lives in `TODOS.md`.
 | 数据 | `src/domain` `src/catalog` `src/io` `src/metadata` `src/services` `src/algorithms` | 无 QtWidgets；无 `ui/` include |
 | 功能 | `src/workflow` `src/linkage` `src/ai` | 无 QtWidgets；无 `ui/` include；不建应用对话框/页 |
 | QGIS 封装 | `src/qgis` | QtWidgets 豁免（QGIS 接口所需）；无 `ui/` include |
-| 视图 | `src/ui/**` | `io/*` 白名单仅 `lasdoc.h`；`metadata/*` 白名单四头（layermanifest/paleoprojectstore/mapversionstore/releasestore）；无 `algorithms/*` |
+| 视图 | `src/ui/**` | `io/*` 白名单仅 `lasdoc.h`；`metadata/*` 白名单五头（layermanifest/paleoprojectstore/mapversionstore/releasestore/wellsectionstore）；无 `algorithms/*` |
 | 组装根 | `src/app` | 唯一允许 include `ui/` 的非视图目录（by design） |
 | 测试壳 | `src/selfcheck` | 同 by design 豁免 |
 

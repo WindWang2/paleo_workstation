@@ -8,6 +8,7 @@
 #include "wellsectiondialogs.h"
 
 #include <QActionGroup>
+#include <QCursor>
 #include <QFileDialog>
 #include <QGraphicsScene>
 #include <QGridLayout>
@@ -54,6 +55,11 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
     if (m_datum.mode == wellsection::DatumMode::Flatten)
       m_datum.flattenTop = s.value(QStringLiteral("wellSection/datumTop"))
                                .toString();
+    m_spacing = s.value(QStringLiteral("wellSection/spacing"),
+                        int(wellsection::SpacingMode::Equal))
+                      .toInt() == int(wellsection::SpacingMode::Proportional)
+                    ? wellsection::SpacingMode::Proportional
+                    : wellsection::SpacingMode::Equal;
     const QByteArray tj =
         s.value(QStringLiteral("wellSection/template")).toByteArray();
     if (!tj.isEmpty())
@@ -196,6 +202,29 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
   m_flattenBtn->setMenu(m_flattenMenu);
   m_flattenBtn->setPopupMode(QToolButton::InstantPopup);
   m_flattenBtn->setCheckable(true); // 非井深模式期间按钮呈按下态
+
+  // 井距菜单：等距 / 按井口距离比例（缺坐标段用中位距离）。
+  m_spacingBtn = mkBtn("wellSectionSpacingButton", "mActionDecorationGrid.svg",
+                       tr("井距：等距 / 按井口距离比例"));
+  m_spacingMenu = new QMenu(m_spacingBtn);
+  {
+    const auto addSpacing = [this](const QString &title,
+                                   wellsection::SpacingMode mode) {
+      QAction *a = m_spacingMenu->addAction(title);
+      a->setCheckable(true);
+      a->setChecked(m_spacing == mode);
+      connect(a, &QAction::triggered, this, [this, mode] {
+        setSpacingMode(mode);
+        panelSettings().setValue(QStringLiteral("wellSection/spacing"),
+                                 int(mode));
+      });
+    };
+    addSpacing(tr("等距"), wellsection::SpacingMode::Equal);
+    addSpacing(tr("按井口距离比例"), wellsection::SpacingMode::Proportional);
+  }
+  m_spacingBtn->setMenu(m_spacingMenu);
+  m_spacingBtn->setPopupMode(QToolButton::InstantPopup);
+  m_spacingBtn->setCheckable(true);
 
   connect(m_wellsBtn, &QToolButton::clicked, this,
           [this] { openWellsDialog(); });
@@ -486,6 +515,65 @@ void WellSectionPanel::applyDatumFromMenu(const wellsection::Datum &d)
   s.setValue(QStringLiteral("wellSection/datumTop"), m_datum.flattenTop);
 }
 
+void WellSectionPanel::setSpacingMode(wellsection::SpacingMode mode)
+{
+  if (m_spacing == mode)
+    return;
+  m_spacing = mode;
+  rebuildGapWidths();
+  if (m_autofit)
+    fitToView();
+  else
+    applyLayout();
+  syncToolbarState();
+}
+
+void WellSectionPanel::setLinkOverrides(
+    const QVector<wellsection::LinkOverride> &overrides)
+{
+  m_linkOverrides = overrides;
+  m_st.linkOverrides = overrides;
+  for (auto *g : m_gapItems)
+    g->update();
+}
+
+void WellSectionPanel::toggleLink(int gap, const QString &topName,
+                                  bool connect)
+{
+  if (gap < 0 || gap + 1 >= m_st.wells.size() || topName.isEmpty())
+    return;
+  const QString a = m_st.wells[gap].id;
+  const QString b = m_st.wells[gap + 1].id;
+  const wellsection::LinkOverride key =
+      wellsection::makeLinkOverride(a, b, topName, connect);
+  // upsert：同键替换（保留向量序稳定，便于 round-trip 对比）。
+  bool replaced = false;
+  for (wellsection::LinkOverride &o : m_linkOverrides)
+    if (o.leftWellId == key.leftWellId && o.rightWellId == key.rightWellId &&
+        o.topName == key.topName)
+    {
+      o.connected = key.connected;
+      replaced = true;
+      break;
+    }
+  if (!replaced)
+    m_linkOverrides.push_back(key);
+  m_st.linkOverrides = m_linkOverrides;
+  for (auto *g : m_gapItems)
+    g->update();
+  emit linkOverridesChanged(m_linkOverrides);
+}
+
+void WellSectionPanel::rebuildGapWidths()
+{
+  m_st.gapWidths =
+      m_spacing == wellsection::SpacingMode::Proportional
+          ? wellsection::gapWidthsFor(m_st.wells, m_spacing,
+                                      (m_st.wells.size() - 1) * m_st.gapPx,
+                                      m_st.minGap(), m_st.maxGap())
+          : QVector<double>();
+}
+
 QString WellSectionPanel::topsCsv() const
 {
   return wellsection::topsTable(m_st.wells, m_datum).csv();
@@ -563,7 +651,11 @@ int WellSectionPanel::linkCount() const
 {
   int n = 0;
   for (int i = 0; i + 1 < m_st.wells.size(); ++i)
-    n += wellsection::links(m_st.wells[i], m_st.wells[i + 1]).size();
+    for (const wellsection::Link &lk :
+         wellsection::links(m_st.wells[i], m_st.wells[i + 1]))
+      if (wellsection::linkConnected(m_linkOverrides, m_st.wells[i].id,
+                                     m_st.wells[i + 1].id, lk.name))
+        ++n;
   return n;
 }
 
@@ -615,6 +707,7 @@ void WellSectionPanel::rebuildFiltered()
     m_st.offsets << wellsection::datumOffset(w, m_datum);
   m_st.window = wellsection::depthWindow(m_st.wells, m_datum);
   m_st.datum = m_datum;
+  m_st.linkOverrides = m_linkOverrides;
   m_st.zoneOrder = wellsection::orderedTopNames(m_st.wells);
   m_st.tpl = m_tpl;
   m_st.seismicOn = m_seismicOn;
@@ -644,6 +737,27 @@ void WellSectionPanel::rebuildItems()
     {
       auto *gap = new wellsectionui::GapItem(&m_st, i);
       gap->setZValue(-1); // 缝内容不压列框
+      // 连线拾取回调（item 非 QObject）：hover 提示进状态行、右键菜单
+      // 走面板的改接路径（信号 + 持久化钩子在面板侧）。
+      gap->setLinkHoverCallback(
+          [this](const QString &text) {
+            m_hoverText = text;
+            updateStatus();
+          });
+      gap->setLinkMenuCallback([this](int gapIndex, const QString &top,
+                                      bool connected) {
+        auto *menu = new QMenu(this);
+        menu->setObjectName(QStringLiteral("wellSectionLinkMenu"));
+        QAction *act = menu->addAction(
+            connected ? tr("断开 %1 连线").arg(top)
+                      : tr("重连 %1 连线").arg(top));
+        connect(act, &QAction::triggered, this,
+                [this, gapIndex, top, connected] {
+                  toggleLink(gapIndex, top, !connected);
+                });
+        menu->setAttribute(Qt::WA_DeleteOnClose);
+        menu->exec(QCursor::pos());
+      });
       m_scene->addItem(gap);
       m_gapItems << gap;
     }
@@ -665,6 +779,7 @@ void WellSectionPanel::syncGapToolTips()
 
 void WellSectionPanel::applyLayout()
 {
+  rebuildGapWidths(); // gapPx/井集/间距模式可能变 → 逐缝宽重算
   ++m_st.layoutVersion;
   for (auto *it : m_colItems)
     it->relayout();
@@ -852,6 +967,14 @@ void WellSectionPanel::syncToolbarState()
   }
   if (m_flattenBtn)
     m_flattenBtn->setChecked(m_datum.mode != wellsection::DatumMode::Depth);
+  if (m_spacingMenu)
+    for (QAction *a : m_spacingMenu->actions())
+      if (a->isCheckable())
+        a->setChecked((a->text() == tr("等距")) ==
+                      (m_spacing == wellsection::SpacingMode::Equal));
+  if (m_spacingBtn)
+    m_spacingBtn->setChecked(
+        m_spacing == wellsection::SpacingMode::Proportional);
   if (m_themeMenu)
     for (QAction *a : m_themeMenu->actions())
       if (a->isCheckable() && !a->data().isNull())

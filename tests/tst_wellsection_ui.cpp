@@ -389,6 +389,64 @@ class TestWellSectionUi : public QObject
       QVERIFY(std::fabs(p2.topLineY("A5", "D53") - yD) <= 0.5);
     }
 
+    // ---- 井距比例/等距切换 + 层位连线断开重连 ----
+    void spacingAndLinkEditing()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      wells[1].x = 150.0; // 第二段井距拉开（首段 ~192、次段 ~466）
+      panel.resize(1400, 720);
+      panel.setSection(wells);
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      panel.fitToView();
+      QCOMPARE(panel.spacingMode(), wellsection::SpacingMode::Equal);
+      const qreal x0 = panel.columnX(0), x1 = panel.columnX(1),
+                 x2 = panel.columnX(2), x3 = panel.columnX(3);
+      QVERIFY(std::fabs((x1 - x0) - (x2 - x1)) <= 0.5); // 等距均一
+
+      // 比例：宽缝变宽、窄缝变窄，总跨不变（预算守恒）。
+      panel.setSpacingMode(wellsection::SpacingMode::Proportional);
+      const qreal p1 = panel.columnX(1), p2 = panel.columnX(2),
+                 p3 = panel.columnX(3);
+      QVERIFY(panel.gapWidthAt(1) > panel.gapWidthAt(0) + 1.0);
+      QVERIFY(std::fabs(p3 - x3) <= 0.5);
+      // 切回等距：位置复原（模式切换不变形）。
+      panel.setSpacingMode(wellsection::SpacingMode::Equal);
+      QVERIFY(std::fabs(panel.columnX(1) - x1) <= 0.5);
+      QVERIFY(std::fabs(panel.columnX(2) - x2) <= 0.5);
+
+      // 连线：断开 → 计数降、信号发；重连 → 恢复（同键 upsert 不追加）。
+      const int total = panel.linkCount();
+      QVERIFY(total > 0);
+      QSignalSpy spy(&panel, &WellSectionPanel::linkOverridesChanged);
+      panel.toggleLink(0, QStringLiteral("D61"), false);
+      QCOMPARE(panel.linkCount(), total - 1);
+      QCOMPARE(spy.size(), 1);
+      QCOMPARE(panel.linkOverrides().size(), 1);
+      panel.toggleLink(0, QStringLiteral("D61"), true);
+      QCOMPARE(panel.linkCount(), total);
+      QCOMPARE(panel.linkOverrides().size(), 1); // upsert
+      QCOMPARE(spy.size(), 2);
+      // 另一缝另一顶独立断开。
+      panel.toggleLink(1, QStringLiteral("D53"), false);
+      QCOMPARE(panel.linkCount(), total - 1);
+      QCOMPARE(panel.linkOverrides().size(), 2);
+      QCOMPARE(spy.size(), 3);
+      // 程序化恢复（store 读回路径）：不改计数、不发信号。
+      QVector<wellsection::LinkOverride> restored;
+      restored << wellsection::makeLinkOverride(
+          QStringLiteral("C-2"), QStringLiteral("A5"),
+          QStringLiteral("D62"), false);
+      panel.setLinkOverrides(restored);
+      QCOMPARE(spy.size(), 3);
+      QCOMPARE(panel.linkCount(), total - 1);
+      // 井序无关键：井对从任一方向查都命中（C-2/A5 断开 D62）。
+      QVERIFY(panel.linkOverrides().first().leftWellId ==
+              QStringLiteral("A5"));
+    }
+
     // 版头点名 → SelectionContext「wellsection」源选中 + wellClicked；
     // 外部源选中回写高亮态。
     void selectionRoundTrip()

@@ -326,6 +326,65 @@ private slots:
     QCOMPARE(csv.count(QLatin1Char('\n')), 5);
     QVERIFY(csv.contains(QStringLiteral("W1,A,1000.25")));
   }
+
+  // ---- 连线改接（井对无序键；缺省连接）----
+  void linkOverrideRules() {
+    const auto a = makeLinkOverride("B", "A", "T1", false); // 归一键序
+    QCOMPARE(a.leftWellId, QStringLiteral("A"));
+    QCOMPARE(a.rightWellId, QStringLiteral("B"));
+    const auto b = makeLinkOverride("A", "B", "T1", false);
+    QCOMPARE(a, b);
+    QVector<LinkOverride> o = {a};
+    QVERIFY(!linkConnected(o, "A", "B", "T1"));
+    QVERIFY(!linkConnected(o, "B", "A", "T1")); // 无序查询
+    QVERIFY(linkConnected(o, "A", "B", "T2"));  // 其它顶缺省连接
+    QVERIFY(linkConnected(o, "A", "C", "T1"));  // 其它井对缺省连接
+    QVERIFY(linkConnected({}, "A", "B", "T1")); // 空表全连接
+    // 重连：同键 upsert 后恢复连接。
+    o[0].connected = true;
+    QVERIFY(linkConnected(o, "A", "B", "T1"));
+  }
+
+  // ---- 井距模式（等距 / 按井口距离比例）----
+  void spacingGapWidths() {
+    Well w1, w2, w3, w4;
+    w1.x = 0;   w1.y = 0;
+    w2.x = 100; w2.y = 0;
+    w3.x = 300; w3.y = 0; // 距 w2 = 200（两倍于 w1-w2）
+    w4.x = 300; w4.y = 0; // 与 w3 同点 → 距离 0（夹 minGap 保护）
+    const QVector<Well> ws3 = {w1, w2, w3};
+    const QVector<Well> ws4 = {w1, w2, w3, w4};
+
+    // 等距：均分。
+    const auto eq = gapWidthsFor(ws3, SpacingMode::Equal, 300, 48, 600);
+    QCOMPARE(eq, QVector<double>({150.0, 150.0}));
+    // 比例：100:200 → 100:200。
+    const auto pr = gapWidthsFor(ws3, SpacingMode::Proportional, 300, 48, 600);
+    QCOMPARE(pr.size(), 2);
+    QVERIFY(std::fabs(pr[0] - 100.0) < 1e-9);
+    QVERIFY(std::fabs(pr[1] - 200.0) < 1e-9);
+    // 零距段夹 minGap；总宽超上限夹 maxGap。
+    const auto cl = gapWidthsFor(ws4, SpacingMode::Proportional, 3000, 48, 600);
+    QCOMPARE(cl, QVector<double>({600.0, 600.0, 48.0}));
+    // 全缺坐标 → 等距退化。
+    Well n1, n2;
+    const auto de = gapWidthsFor({n1, n2}, SpacingMode::Proportional, 200, 48,
+                                 600);
+    QCOMPARE(de, QVector<double>({200.0}));
+    // 缺坐标段用中位距离补：前两段 100/200，后两段缺 → 中位=200，
+    // 距离 [100,200,200,200]，预算 350 → 50/100/100/100。
+    Well nox; // 无坐标
+    const auto mix = gapWidthsFor({w1, w2, w3, nox, w4},
+                                  SpacingMode::Proportional, 350, 48, 600);
+    QCOMPARE(mix.size(), 4);
+    QVERIFY(std::fabs(mix[0] - 50.0) < 1e-9);
+    QVERIFY(std::fabs(mix[1] - 100.0) < 1e-9);
+    QVERIFY(std::fabs(mix[2] - 100.0) < 1e-9);
+    QVERIFY(std::fabs(mix[3] - 100.0) < 1e-9);
+    // 单井 → 空。
+    QVERIFY(gapWidthsFor({w1}, SpacingMode::Proportional, 300, 48, 600)
+                .isEmpty());
+  }
 };
 
 QTEST_APPLESS_MAIN(TestWellSection)

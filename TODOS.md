@@ -1,3 +1,14 @@
+## P3 — 连井剖面后续（from goal/wellsection, 2026-10-03）
+
+- **What:** 连井剖面只走 MD 深度域（分层/LAS/时深表 MD 列）；岩性道是 GR 截断推断的砂/泥二分，不读解释岩性；
+  道模板/主题是用户级 QSettings，井集按 catalog 路径分工区存，均不进工程文件；井间距等距，不按实际井距。
+- **Why:** 首版先打通按地层连井 + 井间地震 + 编图层位高亮；TVD 域、解释岩性数据源、模板随工程走都需要额外数据契约。
+- **Pros:** 不编造岩性/时深，缺时深的井间段如实标原因；**Cons:** 斜井连井有 MD 失真，岩性道分辨力有限。
+- **Context:** src/domain/wellsection.*、src/workflow/wellsectionworkflow.*、src/ui/wellsection/。
+- **Effort:** human: M / CC: M
+- **Priority:** P3
+- **Depends on:** WellLogSet::readCurveTvd（TVD 域）、解释岩性 catalog 角色
+
 ## P3 — 断面 Y 型 / 分叉与自动生长（from goal/fault-surface, 2026-10-02）
 
 - **What:** 成面只接受沿走向单调的单支断棒条带。同一剖面上 trace 与纵向

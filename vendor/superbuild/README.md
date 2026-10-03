@@ -68,6 +68,26 @@ vendoring 成为首选；`vendor/fetch-deps.sh`（deb 闭包）/ OSGeo4W 降为�
 - **ONNX Runtime**：不进 superbuild——`vendor/manifest.json` 的 GitHub release
   pin（SHA256）与两条 QGIS 路线正交。
 
+## 补丁（patches/）
+
+- **`qgis-4.2.2-labels-with-layer.patch`** — Paleo「标注随图层 z 序」。
+  QGIS 原生把所有标注放在渲染末尾统一绘制（永远置顶），下层的井位/顶点
+  标注会「穿透」压在它们之上的多边形与栅格。补丁给地图渲染任务加了按层
+  开关：图层自定义属性 `rendering/labelsWithLayer=true` 时，该层注册到
+  一个独占的 `QgsDefaultLabelingEngine`（`LayerRenderJob::layerLabelingEngine`），
+  层渲染完成后立即把标注画进该层自己的渲染目标（image/picture/目标
+  painter），合成顺序因此严格按图层树。选择性掩膜的标注**源**层（文本
+  mask / label mask source set）与 staged render（GeoPDF 导出）引擎保持
+  共享引擎不变。补丁在 `qgsmaprendererjob.h` 里留下宏
+  `QGIS_PALEO_LABELS_WITH_LAYER` 作编译期探测。
+  由 `ExternalProject_Add(qgis PATCH_COMMAND ...)` 经
+  `patches/apply-patch.cmake` 幂等应用（marker 已在则跳过；打不上即
+  FATAL_ERROR）。
+  **降级契约**：binary 兜底路线（`vendor/fetch-deps.sh` deb 闭包 /
+  OSGeo4W / 发行版包）的 QGIS **没有**此补丁——Paleo 侧必须
+  `#ifdef QGIS_PALEO_LABELS_WITH_LAYER` 探测并对未打补丁的构建优雅降级
+  （此时 `rendering/labelsWithLayer` 是无害的空属性，标注回到原生置顶）。
+
 ## Qt LGPL 条目（决策 D-QT）
 
 Qt 以动态链接方式使用（发行版共享库 / OSGeo4W 同源），不静态链接、不裁剪

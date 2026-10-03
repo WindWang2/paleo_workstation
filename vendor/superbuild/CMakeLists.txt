@@ -115,9 +115,20 @@ ExternalProject_Add(gdal
   BUILD_ALWAYS OFF)
 
 # ---- QGIS（裁剪开关直通；analysis/gui 是 Paleo 的链接面）----
+# PATCH_COMMAND：应用 patches/qgis-4.2.2-labels-with-layer.patch——Paleo 的
+# 「标注随图层 z 序」依赖它（图层自定义属性 rendering/labelsWithLayer）。
+# apply-patch.cmake 幂等（marker 已在则跳过，打不上即报错）。二进制兜底
+# 路线（deb 闭包/OSGeo4W/发行版包）没有此补丁，Paleo 侧须优雅降级
+# （宏 QGIS_PALEO_LABELS_WITH_LAYER 探测，见 README「补丁」）。
 ExternalProject_Add(qgis
   URL "${QGIS_URL}"
   URL_HASH SHA256=45c3a85b359ec1acd11725a9af8c66b90ee7ca0e85f14df18ed9792f1b9becf0
+  PATCH_COMMAND ${CMAKE_COMMAND}
+                -DPATCH_SOURCE_DIR=<SOURCE_DIR>
+                -DPATCH_FILE=${CMAKE_CURRENT_SOURCE_DIR}/patches/qgis-4.2.2-labels-with-layer.patch
+                -DMARKER_FILE=src/core/maprenderer/qgsmaprendererjob.h
+                -DMARKER=QGIS_PALEO_LABELS_WITH_LAYER
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/patches/apply-patch.cmake
   CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${SUPERBUILD_PREFIX}
              -DCMAKE_BUILD_TYPE=Release
              -DCMAKE_PREFIX_PATH=${SUPERBUILD_PREFIX}

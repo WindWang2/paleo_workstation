@@ -13,6 +13,7 @@ class QgisRuntime;
 class QgisCanvasController;
 class QgisProjectService;
 class QgisLayerService;
+class QgisLayerOrganizer;
 class QgisProcessingService;
 class QgisEditingService;
 class QgisStyleService;
@@ -135,6 +136,7 @@ class AppContext : public QObject
     QgsRectangle m_lastWellsExtent; // D6 zoom：上次井点范围（空 = 尚无井点）
     PaleoProjectStore *m_store = nullptr;
     LayerManifest *m_manifest = nullptr;
+    QgisLayerOrganizer *m_layerOrganizer = nullptr; // 图层树布局器（置顶共享+层位组）
     DataImportService *m_import = nullptr;
     QgisLayoutService *m_layoutSvc = nullptr;
     PredictionWorkflow *m_predictionWf = nullptr;

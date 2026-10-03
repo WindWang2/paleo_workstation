@@ -23,12 +23,12 @@ class QTimer;
 class QgisCanvasController;
 class QgisProjectService;
 class QgisLayerService;
+class QgisLabelZOrder;
 class QgisLayerProfileService;
 class ToolAvailabilityService;
 class SelectionContext;
 class QgsMapLayer;
 class LayerTreePanel;
-class LayerProfileBar;
 class LayerPropertiesDialog;
 class QgsLayoutItemMap;
 class QgsRubberBand;
@@ -316,8 +316,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     bool m_bottomDockAutoShown = false; // W2：任务驱动的自动露出（恢复用）
     // ---- wave/layer-platform：左 dock 图层平台（面板 + 档案工具条 + 服务） ----
     LayerTreePanel *m_layerPanel = nullptr;
-    LayerProfileBar *m_profileBar = nullptr;
     QgisLayerProfileService *m_profileSvc = nullptr;
+    QgisLabelZOrder *m_labelZOrder = nullptr; // 标注随图层 z 序（labelsWithLayer 打标器）
     LayerPropertiesDialog *m_layerProps = nullptr;
     bool m_profileReplayQueued = false; // 层位切换后的页面档案重放去抖旗标
     seismic::SeismicSectionDockWidget *m_seismicSectionDock = nullptr;

@@ -46,7 +46,7 @@
 #include "horizonchipbar.h"
 #include "layers/layertreepanel.h"
 #include "layers/layerpropertiesdialog.h"
-#include "layers/layerprofilebar.h"
+#include "../qgis/qgislabelzorder.h"
 #include "../qgis/qgislayerprofile.h"
 #include "layoutdesignershell.h"
 #include "webviewpanel.h"
@@ -585,13 +585,10 @@ void PaleoMainWindow::buildShell()
         m_projectSvc->project(), m_canvasCtl ? m_canvasCtl->canvas() : nullptr,
         m_layerSvc, m_leftDock);
     m_profileSvc->setLayerTreeModel(m_layerPanel->layerTreeModel());
-    m_profileBar = new LayerProfileBar(m_profileSvc, m_leftDock);
-    // 主题应用失败等面板内提示落到状态栏（用户可见反馈回路）。
-    connect(m_profileBar, &LayerProfileBar::statusMessage, this,
-            [this](const QString &text) {
-              if (statusBar())
-                statusBar()->showMessage(text, 8000);
-            });
+    // 标注随图层 z 序：井位等标注默认会被 PAL 引擎画在所有层之上；
+    // 该维护器给每层打 rendering/labelsWithLayer（vendored QGIS 补丁），
+    // 让标注跟本层一起出图、被上层盖住。未打补丁的 QGIS 上属性为空值，无碍。
+    m_labelZOrder = new QgisLabelZOrder(m_projectSvc->project(), this);
     connect(m_layerPanel, &LayerTreePanel::propertiesRequested, m_layerProps,
             &LayerPropertiesDialog::openLayerProperties);
     connect(m_layerPanel, &LayerTreePanel::mappingPageRequested, this,
@@ -623,7 +620,6 @@ void PaleoMainWindow::buildShell()
     auto *layerLayout = new QVBoxLayout(layerHost);
     layerLayout->setContentsMargins(0, 0, 0, 0);
     layerLayout->setSpacing(0);
-    layerLayout->addWidget(new PaleoToolRow(m_profileBar, layerHost));
     layerLayout->addWidget(m_layerPanel, 1);
     m_leftDock->setWidget(layerHost);
   }
@@ -1112,13 +1108,9 @@ void PaleoMainWindow::showPage(const QString &pageId)
   }
 
   // 图层平台：页面档案——不同页面激活不同图层组（QgsMapThemeCollection，
-  // data 页 no-op）；档案工具条同步当前页指示。
+  // data 页 no-op）。
   if (m_profileSvc)
-  {
     m_profileSvc->applyPageProfile(pageId);
-    if (m_profileBar)
-      m_profileBar->setCurrentPage(pageId);
-  }
 
 
   // 页作用域工具面：编辑命令组只在编图链三页的 ribbon 里。落到非编辑页

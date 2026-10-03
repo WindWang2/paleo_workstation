@@ -1,0 +1,183 @@
+--- a/src/core/maprenderer/qgsmaprendererjob.h
++++ b/src/core/maprenderer/qgsmaprendererjob.h
+@@ -16,6 +16,13 @@
+ #ifndef QGSMAPRENDERERJOB_H
+ #define QGSMAPRENDERERJOB_H
+ 
++// Paleo vendor patch: opt-in per-layer labeling. When a map layer carries the
++// custom property "rendering/labelsWithLayer" = true, its labels are rendered
++// together with the layer's own content (into the layer's render target)
++// instead of in the shared on-top label pass. Paleo uses this to keep labels
++// stacked in layer-tree order. This macro marks patched builds.
++#define QGIS_PALEO_LABELS_WITH_LAYER 1
++
+ #include "qgis_core.h"
+ #include "qgis_sip.h"
+ #include "qgslabelsink.h"
+@@ -125,6 +132,14 @@
+     //! Whether layer should be rendered above labels
+     bool renderAboveLabels = false;
+ 
++    /**
++     * Paleo labelsWithLayer: per-layer labeling engine. When set, this layer's
++     * label providers register here (not on the shared engine) and the engine
++     * is run right after the layer's renderer finishes, onto the layer's own
++     * render target. Owned by the job; the render context only borrows it.
++     */
++    std::unique_ptr< QgsLabelingEngine > layerLabelingEngine;
++
+     QgsWeakMapLayerPointer layer;
+ 
+     /**
+--- a/src/core/maprenderer/qgsmaprendererjob.cpp
++++ b/src/core/maprenderer/qgsmaprendererjob.cpp
+@@ -91,6 +91,7 @@
+   cached = other.cached;
+   layer = other.layer;
+   renderAboveLabels = other.renderAboveLabels;
++  layerLabelingEngine = std::move( other.layerLabelingEngine );
+   completed = other.completed;
+   renderingTime = other.renderingTime;
+   estimatedRenderingTime = other.estimatedRenderingTime;
+@@ -151,6 +152,8 @@
+   other.firstPassJob = nullptr;
+ 
+   picture = std::move( other.picture );
++
++  layerLabelingEngine = std::move( other.layerLabelingEngine );
+ }
+ 
+ bool LayerRenderJob::imageCanBeComposed() const
+@@ -539,6 +542,29 @@
+   return { std::move( picture ), painter };
+ }
+ 
++// Paleo labelsWithLayer: returns TRUE when the layer's labels act as a
++// selective masking source for other layers' symbol layers (text mask or
++// label mask source set -- the same sources prepareSecondPassJobs collects
++// via QgsVectorLayerUtils::collectObjectsMaskedByLabelsFromLayer). Such layers
++// must keep the shared labeling engine so their labels still generate the
++// mask images the second pass needs.
++static bool paleoLabelsAreMaskSource( QgsMapLayer *layer, const QgsMapSettings &settings )
++{
++  QgsVectorLayer *vl = qobject_cast<QgsVectorLayer *>( layer );
++  if ( !vl || !vl->labeling() )
++    return false;
++
++  QVector<QgsVectorLayer *> allVectorLayers;
++  const QList<QgsMapLayer *> layers = settings.layers();
++  allVectorLayers.reserve( layers.size() );
++  for ( QgsMapLayer *l : layers )
++  {
++    if ( QgsVectorLayer *v = qobject_cast<QgsVectorLayer *>( l ) )
++      allVectorLayers << v;
++  }
++  return !QgsVectorLayerUtils::collectObjectsMaskedByLabelsFromLayer( vl, settings.selectiveMaskingSourceSets(), allVectorLayers ).isEmpty();
++}
++
+ std::vector<LayerRenderJob> QgsMapRendererJob::prepareJobs( QPainter *painter, QgsLabelingEngine *labelingEngine2, bool deferredPainterSet )
+ {
+   std::vector< LayerRenderJob > layerJobs;
+@@ -614,11 +640,24 @@
+ 
+     QgsVectorLayer *vl = qobject_cast<QgsVectorLayer *>( ml );
+ 
++    // Paleo labelsWithLayer: opt-in per-layer labeling -- this layer's labels
++    // are drawn together with its own render target, so layers stacked above
++    // it cover them. The staged render engine (GeoPDF/layout exports) keeps
++    // its own label orchestration, and layers whose labels are selective
++    // masking sources keep the shared engine (their label masks live in the
++    // shared label job's mask paint devices).
++    const bool useLayerLabelingEngine = labelingEngine2
++                                        && !dynamic_cast<QgsStagedRenderLabelingEngine *>( labelingEngine2 )
++                                        && ml->customProperty( u"rendering/labelsWithLayer"_s ).toBool()
++                                        && !paleoLabelsAreMaskSource( ml, mSettings );
++
+     // Force render of layers that are being edited
+     // or if there's a labeling engine that needs the layer to register features
+     if ( mCache )
+     {
+-      const bool requiresLabeling = ( labelingEngine2 && QgsPalLabeling::staticWillUseLayer( ml ) ) && requiresLabelRedraw;
++      // per-layer engines bake labels into the layer image, so the shared
++      // label redraw flag must not force a cache clear for them
++      const bool requiresLabeling = ( labelingEngine2 && !useLayerLabelingEngine && QgsPalLabeling::staticWillUseLayer( ml ) ) && requiresLabelRedraw;
+       if ( ( vl && vl->isEditable() ) || requiresLabeling )
+       {
+         mCache->clearCacheImage( ml->id() );
+@@ -636,7 +675,20 @@
+     if ( !ml->customProperty( u"_noset_layer_expression_context"_s ).toBool() )
+       job.context()->expressionContext().appendScope( QgsExpressionContextUtils::layerScope( ml ) );
+     job.context()->setPainter( painter );
+-    job.context()->setLabelingEngine( labelingEngine2 );
++    if ( useLayerLabelingEngine )
++    {
++      auto layerEngine = std::make_unique<QgsDefaultLabelingEngine>();
++      layerEngine->setMapSettings( mSettings );
++      // engine rules must be prepared on the main thread, like the shared
++      // engine's prepare() call in prepareLabelingJob()
++      layerEngine->prepare( *job.context() );
++      job.layerLabelingEngine = std::move( layerEngine );
++      job.context()->setLabelingEngine( job.layerLabelingEngine.get() );
++    }
++    else
++    {
++      job.context()->setLabelingEngine( labelingEngine2 );
++    }
+     job.context()->setLabelSink( labelSink() );
+     job.context()->setCoordinateTransform( ct );
+     job.context()->setExtent( r1 );
+@@ -1064,6 +1116,12 @@
+     // associate first pass job with second pass job
+     job2.firstPassJob = &job;
+ 
++    // Paleo labelsWithLayer: the second pass renders only symbol layers --
++    // detach the copied per-layer engine so the second-pass renderer does not
++    // register a duplicate label provider on the first pass job's engine.
++    if ( job.layerLabelingEngine )
++      job2.context()->setLabelingEngine( nullptr );
++
+     if ( !forceVector || job2.maskRequiresLayerRasterization )
+     {
+       job2.context()->setPainter( allocateImageAndPainter( job.layerId, job2.img, job2.context() ) );
+--- a/src/core/maprenderer/qgsmaprendererparalleljob.cpp
++++ b/src/core/maprenderer/qgsmaprendererparalleljob.cpp
+@@ -384,6 +384,12 @@
+     QThread::sleep( 1 );
+ #endif
+     job.completed = job.renderer->render();
++
++    // Paleo labelsWithLayer: draw this layer's labels into its own render
++    // target right after its content, so layers stacked above cover them.
++    // Second pass jobs never carry a per-layer engine.
++    if ( job.layerLabelingEngine && !job.context()->renderingStopped() && job.context()->painter() )
++      drawLabeling( *job.context(), job.layerLabelingEngine.get(), job.context()->painter() );
+   }
+   catch ( QgsException &e )
+   {
+--- a/src/core/maprenderer/qgsmaprenderercustompainterjob.cpp
++++ b/src/core/maprenderer/qgsmaprenderercustompainterjob.cpp
+@@ -328,6 +328,12 @@
+ 
+       job.completed = job.renderer->render();
+ 
++      // Paleo labelsWithLayer: draw this layer's labels with it (into its
++      // image/picture or straight onto the destination painter), so layers
++      // stacked above cover them.
++      if ( job.layerLabelingEngine && !job.context()->renderingStopped() && job.context()->painter() )
++        drawLabeling( *job.context(), job.layerLabelingEngine.get(), job.context()->painter() );
++
+       if ( job.picture )
+       {
+         job.renderer->renderContext()->painter()->end();
+@@ -441,6 +447,11 @@
+ 
+         job.completed = job.renderer->render();
+ 
++        // Paleo labelsWithLayer: no-op for second pass jobs (they never carry
++        // a per-layer engine), kept symmetric with the first pass loop.
++        if ( job.layerLabelingEngine && !job.context()->renderingStopped() && job.context()->painter() )
++          drawLabeling( *job.context(), job.layerLabelingEngine.get(), job.context()->painter() );
++
+         if ( job.picture )
+         {
+           job.renderer->renderContext()->painter()->end();

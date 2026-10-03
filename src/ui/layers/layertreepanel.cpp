@@ -2,6 +2,7 @@
 #include "layertreepanel.h"
 
 #include "../paleoemptystate.h"
+#include "../paleoicons.h"
 #include "../paleotheme.h"
 #include "../paleoviewport.h"
 
@@ -187,7 +188,9 @@ QWidget *LayerTreePanel::buildToolbar()
   // 删除走守卫包装（工具条按钮与右键菜单共用同一 QAction 实例——C6）：
   // 编辑会话中的图层先收尾（保存/放弃）再删——直接删会把未提交的编辑随
   // 图层析构静默丢弃。
-  m_removeAction = new QAction(tr("删除所选图层/组"), this);
+  m_removeAction = new QAction(
+      PaleoIcons::qgisTheme(QStringLiteral("mActionRemoveLayer.svg")),
+      tr("删除所选图层/组"), this);
   m_removeAction->setObjectName(QStringLiteral("layerTreeRemoveSelectedAction"));
   m_removeAction->setToolTip(removeAction->toolTip());
   // goal/ui-experience-polish：Delete 键直达删除（桌面列表惯例；QAction 挂
@@ -210,25 +213,32 @@ QWidget *LayerTreePanel::buildToolbar()
     removeAction->trigger();
   });
 
+  // 图标化工具条：文字进 tooltip/accessibleName，按钮只显示图标（与连井剖面工具条同款）。
   auto mkButton = [bar](const QString &objectName, QAction *action) {
     auto *btn = new QToolButton(bar);
     btn->setObjectName(objectName);
     btn->setDefaultAction(action);
+    btn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    btn->setIconSize(QSize(18, 18));
+    btn->setAutoRaise(true);
     btn->setToolTip(action->text());
+    btn->setAccessibleName(action->text());
     return btn;
   };
   lay->addWidget(mkButton(QStringLiteral("layerTreeAddGroupButton"), m_addGroupAction));
   lay->addWidget(mkButton(QStringLiteral("layerTreeRemoveSelectedButton"), m_removeAction));
 
   // 列表序即绘制序：序号越小越靠上，也越后画（盖住下面的图层）。
-  m_moveUpAction = new QAction(tr("上移"), this);
+  m_moveUpAction = new QAction(
+      PaleoIcons::qgisTheme(QStringLiteral("mActionArrowUp.svg")), tr("上移"), this);
   m_moveUpAction->setObjectName(QStringLiteral("layerTreeMoveUpAction"));
   connect(m_moveUpAction, &QAction::triggered, this, [this]() {
     const int from = currentNodeIndex();
     if (from > 0)
       moveCurrentNode(from - 1);
   });
-  m_moveDownAction = new QAction(tr("下移"), this);
+  m_moveDownAction = new QAction(
+      PaleoIcons::qgisTheme(QStringLiteral("mActionArrowDown.svg")), tr("下移"), this);
   m_moveDownAction->setObjectName(QStringLiteral("layerTreeMoveDownAction"));
   connect(m_moveDownAction, &QAction::triggered, this, [this]() {
     int count = 0;
@@ -245,10 +255,14 @@ QWidget *LayerTreePanel::buildToolbar()
   lay->addWidget(mkButton(QStringLiteral("layerTreeMoveUpButton"), m_moveUpAction));
   lay->addWidget(mkButton(QStringLiteral("layerTreeMoveDownButton"), m_moveDownAction));
 
-  auto *expandAct = new QAction(tr("展开全部"), this);
+  auto *expandAct = new QAction(
+      PaleoIcons::qgisTheme(QStringLiteral("mActionExpandTree.svg")),
+      tr("展开全部"), this);
   connect(expandAct, &QAction::triggered, m_view, &QgsLayerTreeView::expandAllNodes);
   lay->addWidget(mkButton(QStringLiteral("layerTreeExpandAllButton"), expandAct));
-  auto *collapseAct = new QAction(tr("折叠全部"), this);
+  auto *collapseAct = new QAction(
+      PaleoIcons::qgisTheme(QStringLiteral("mActionCollapseTree.svg")),
+      tr("折叠全部"), this);
   connect(collapseAct, &QAction::triggered, m_view, &QgsLayerTreeView::collapseAllNodes);
   lay->addWidget(mkButton(QStringLiteral("layerTreeCollapseAllButton"), collapseAct));
 
@@ -472,10 +486,13 @@ QString LayerTreePanel::currentLayerGroup() const
   if (!layer)
     return QString();
   // 优先树上所属组节点名；树根直挂层再看 decl.group。
+  // 例外：布局器建的层位组（paleoHorizon 属性）不是编图组——层位组内
+  // 图层的所属页仍由 decl.group 决定。
   if (QgsLayerTreeLayer *node = model->rootGroup()->findLayer(layer->id()))
   {
     QgsLayerTreeNode *parent = node->parent();
-    if (parent && parent != model->rootGroup() && QgsLayerTree::isGroup(parent))
+    if (parent && parent != model->rootGroup() && QgsLayerTree::isGroup(parent)
+        && !parent->customProperty(QStringLiteral("paleoHorizon")).isValid())
       return parent->name();
   }
   const QString paleoId =

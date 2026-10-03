@@ -14,11 +14,16 @@
 
 #include <cstdio>
 
-// P0 spine service — owns a QgsProject per service instance. We deliberately
-// use `new QgsProject()` rather than the QgsProject::instance() singleton:
-// the singleton is global mutable state shared with any other QGIS consumer in
-// the process (tests, server-mode hooks), while this service's contract is to
-// own one project's open/save lifecycle (§37 manifest projections included).
+// P0 spine service — owns a QgsProject per service instance. The project is
+// created with `new QgsProject()` (service owns its open/save lifecycle,
+// §37 manifest projections included), then registered via
+// QgsProject::setInstance(): vendored QGIS internals hardcode the singleton
+// in places that cannot be wired — e.g. QgsLayerTreeModel::dropMimeData
+// deserializes dragged nodes with QgsProject::instance(), so an unregistered
+// singleton leaves InternalMove layer references dangling (rows render, but
+// layer() is null → dragged layers/groups draw blank on canvas). Owning the
+// singleton also makes every `project ? project : QgsProject::instance()`
+// fallback across src/ resolve to the real project instead of a phantom.
 //
 // Write contract (§41.2): never write the .qgz in place. writeProject() writes
 // a sibling temp file then renames it over the target, so a crash mid-write
@@ -31,6 +36,7 @@ QgisProjectService::QgisProjectService( QObject *parent )
   : QObject( parent )
   , m_project( new QgsProject( this ) )
 {
+  QgsProject::setInstance( m_project );
 }
 
 QgisProjectService::~QgisProjectService() = default;

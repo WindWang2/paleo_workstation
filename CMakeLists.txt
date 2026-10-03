@@ -354,6 +354,8 @@ add_library(paleo_qgis STATIC
   src/qgis/factorstylewriter.cpp                    # m2(B)：单因素色带 .qml 落盘
   src/qgis/factorcontour.cpp                        # m2(B)：等值线 GDAL C API
   src/qgis/qgislayerprofile.cpp                     # 页面档案：QgsMapThemeCollection 封装 + 组档案表
+  src/qgis/qgislabelzorder.cpp                      # 标注随图层 z 序：给每层钉 rendering/labelsWithLayer（vendored QGIS 补丁）
+  src/qgis/qgislayerorganizer.cpp                   # 图层树布局器：00_Data 置顶共享 + 层位组 + 组秩归位
   src/qgis/previewmapcanvas.cpp                     # P2 D1.1 预览画布封装（私有层容器+CRS+历史栈+渐进渲染）
   src/qgis/previewmaptools.cpp                      # P2 D1.2 预览工具注册表（量测/identify/剖面线）
   src/qgis/previewrasteranalysis.cpp                # P2 D2.2/D5.x 预览栅格分析（统计/拉伸/直方图/剖面/极值）
@@ -474,7 +476,6 @@ add_library(paleo_ui STATIC
   src/ui/constraintdrawcontroller.cpp
   src/ui/layers/layertreepanel.cpp                 # 图层树面板
   src/ui/layers/layerpropertiesdialog.cpp          # 原生属性壳 + 业务页
-  src/ui/layers/layerprofilebar.cpp                # 档案工具条
   src/ui/seismic3d/seismiccameracontroller.cpp     # 3D 视口相机/渲染器
   src/ui/seismic3d/seismicslicerenderer.cpp
   src/ui/seismic3d/volumeframerenderer.cpp
@@ -863,9 +864,11 @@ target_compile_definitions(tst_staleness PRIVATE
 # 图层树面板 + 属性对话框 + 页面档案服务（QgsMapThemeCollection 封装）+
 # 档案工具条。QgsLayerTree/主题是唯一图层可见性状态源，Paleo 只做业务接线。
 add_paleo_test(tst_layerplatform LIBS paleo_qgis)     # 档案应用/主题往返 .qgz/生命周期/层位时序
+add_paleo_test(tst_labelzorder LIBS paleo_qgis)     # 标注随图层 z 序：labelsWithLayer 打标 + 像素回归
+add_paleo_test(tst_dragtop_render LIBS paleo_qgis)  # 拖拽到树顶后画布渲染回归（bridge 序+标注带）
+add_paleo_test(tst_layerorganizer LIBS paleo_qgis)  # 图层树布局器：置顶共享/层位组/组秩/树层双绑
 add_paleo_test(tst_layertreepanel LIBS paleo_ui)    # 筛选/组级显隐/复制图层/objectName 兼容
 add_paleo_test(tst_layerproperties LIBS paleo_ui)   # 矢量/栅格/缺源三类 + 业务页字段
-add_paleo_test(tst_layerprofilebar LIBS paleo_ui)   # 主题下拉/保存/管理对话框/页指示
 
 # ---- 并行开发挂点 ----
 # 各并行方向的新增源文件/测试一律放 cmake/extra-<方向>.cmake，内容为：

@@ -12,6 +12,7 @@
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgislayerservice.h"
+#include "../qgis/qgislayerorganizer.h" // 图层树布局器：置顶共享 + 层位组
 #include "../qgis/qgisprocessingservice.h"
 #include "../qgis/qgiseditingservice.h"
 #include "../qgis/qgisstyleservice.h"
@@ -134,6 +135,9 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   // object, same pointer the layer service holds) when a project opens.
   m_manifest = new LayerManifest(QString());
   m_layerSvc = new QgisLayerService(m_projectSvc, m_manifest, this);
+  // 图层树布局器：声明驱动摆放（测区/测井置顶共享，层位构成组）。须在
+  // 首个 instantiate 之前建好——legendLayersAdded 归位与图层上图同步发生。
+  m_layerOrganizer = new QgisLayerOrganizer(m_projectSvc, m_layerSvc, this);
 
   // §37: every project write embeds the full declared layer set so
   // uninstantiated declarations survive the .qgz projection. The provider is
@@ -465,6 +469,11 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             }
             if (m_faultCtl->faultSet().faultCount() > 0)
               m_faultCtl->ensureMapLayer(m_projectSvc->project()->crs().authid());
+
+            // 图层树规整：manifest/目录都重绑完后跑一次全量归位——旧工程
+            // 的平铺树收成「置顶共享 + 层位组」，未实例化层位补齐占位组。
+            if (m_layerOrganizer)
+              m_layerOrganizer->reorganize();
           });
   StartupTrace::mark(QStringLiteral("services_ready")); // 服务装配完（簇1 仪表）
 }

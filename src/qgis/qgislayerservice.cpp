@@ -170,6 +170,12 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
 
   MappingArtifactWriter::restoreRasterCrs(layer.get());
 
+  // paleoLayerId/显示名在 addMapLayer 之前落——legendLayersAdded 在注册期
+  // 即发（图层树布局器此刻归位，须已能认出声明归属）。
+  if (!decl->title.isEmpty())
+    layer->setName(decl->title); // 显示名优先 title，机器名仍在 paleoLayerId
+  layer->setCustomProperty(QStringLiteral("paleoLayerId"), decl->layerId);
+
   // QgsProject takes ownership; keep only the raw pointer in the instance map.
   QgsMapLayer *added = proj->addMapLayer(layer.get());
   if (!added)
@@ -178,9 +184,6 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
     return nullptr;
   }
   layer.release();
-  if (!decl->title.isEmpty())
-    added->setName(decl->title); // 显示名优先 title，机器名仍在 paleoLayerId
-  added->setCustomProperty(QStringLiteral("paleoLayerId"), decl->layerId);
   // 主线5：创建时间元数据——首次实例化时刻落图层自定义属性（QGIS 随 .qgz
   // 持久化；复用实例不刷新时间）。属性面板业务字段「创建时间」读此值。
   if (!added->customProperty(QStringLiteral("paleoCreatedAt")).isValid())

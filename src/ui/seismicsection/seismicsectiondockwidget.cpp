@@ -33,6 +33,7 @@
 #include <QVBoxLayout>
 
 #include "domain/seismic/sectionaxis.h"
+#include "domain/seismic/welltracelocate.h" // #129 井口 XY → 井旁道
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "catalog/datacatalog.h"
 #include "workflow/derivedassets.h"
@@ -2359,25 +2360,33 @@ void SeismicSectionDockWidget::showWellSideTrace() {
         QMessageBox::warning(this, tr("井旁道"), tr("地震体无道头索引，无法把井口坐标换算到测网。"));
         return;
     }
+    // 换算/覆盖/吸附/取列统一走 domain/seismic/welltracelocate（tst_welltracelocate
+    // 以 IL 步长 2、XL 步长 4、旋转测网钉住）；覆盖余量按实际线距的半步。
     const SgyCoordinateMapper mapper = SgyCoordinateMapper::Fit(*m_volume->Index());
-    double ilF = 0.0, xlF = 0.0;
-    if (!mapper.valid() || !mapper.MapXY(best->surfaceX, best->surfaceY, ilF, xlF)) {
-        QMessageBox::warning(this, tr("井旁道"),
-                             tr("测网坐标拟合不可用：%1").arg(QString::fromStdString(mapper.Describe())));
-        return;
-    }
-    if (!mapper.InCoverage(best->surfaceX, best->surfaceY, 0.5)) {
+    const seismic::WellTraceLocation loc =
+        seismic::locateWellTrace(*m_volume->Index(), mapper, best->surfaceX, best->surfaceY);
+    if (!loc.ok && loc.outOfCoverage) {
         QMessageBox::information(this, tr("井旁道"),
                                  tr("井 %1 井口 (%2, %3) 在测网覆盖范围外（连续解 IL %4 / XL %5），不取井旁道。")
                                      .arg(best->wellName)
                                      .arg(best->surfaceX, 0, 'f', 1)
                                      .arg(best->surfaceY, 0, 'f', 1)
-                                     .arg(ilF, 0, 'f', 1)
-                                     .arg(xlF, 0, 'f', 1));
+                                     .arg(loc.inlineF, 0, 'f', 1)
+                                     .arg(loc.xlineF, 0, 'f', 1));
         return;
     }
-    const int il = m_volume->FindNearestInlineValue(float(ilF));
-    const int xl = m_volume->FindNearestXlineValue(float(xlF));
+    if (!loc.ok && !mapper.valid()) {
+        QMessageBox::warning(this, tr("井旁道"),
+                             tr("测网坐标拟合不可用：%1").arg(QString::fromStdString(mapper.Describe())));
+        return;
+    }
+    if (!loc.ok) {
+        QMessageBox::warning(this, tr("井旁道"),
+                             tr("井口无法定位到测网道：%1").arg(QString::fromStdString(loc.error)));
+        return;
+    }
+    const int il = loc.inlineNo;
+    const int xl = loc.xlineNo;
 
     // 提取该 IL 剖面再取井列（同步——单剖面读取毫秒级）
     SgySliceImage slice;
@@ -2386,10 +2395,9 @@ void SeismicSectionDockWidget::showWellSideTrace() {
         QMessageBox::warning(this, tr("井旁道"), tr("道提取失败：%1").arg(QString::fromStdString(err)));
         return;
     }
-    // 列 = xl 在体实际线号表中的位置（#147 同口径：线距可 >1）。
-    const int col = sectionColumnForLine(
-        int(m_volume->XlineValues().size()) == slice.width ? m_volume->XlineValues() : std::vector<int>{},
-        m_volume->XlineMin(), xl);
+    // 列 = xl 在体实际线号表中的位置（#147 同口径：线距可 >1）；剖面宽度须与
+    // 线号表一致，否则列轴对不上——如实拒绝，不按单位线距猜。
+    const int col = int(m_volume->XlineValues().size()) == slice.width ? loc.column : -1;
     if (col < 0 || col >= slice.width) {
         QMessageBox::warning(this, tr("井旁道"), tr("XL %1 不在 IL %2 剖面列轴上").arg(xl).arg(il));
         return;

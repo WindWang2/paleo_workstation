@@ -697,7 +697,7 @@ PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &to
     }
     if (hit < 0)
       continue;
-    const WellCurveRef ref = curveIndex.at(hit);
+    const WellCurveRef &ref = curveIndex.at(hit);
     if (ref.column < 1 || ref.path.isEmpty())
       continue;
 

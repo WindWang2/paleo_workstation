@@ -7,7 +7,6 @@
 #include <QTemporaryDir>
 
 #include <qgsapplication.h>
-#include <qgsapplication.h>
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
 
@@ -16,6 +15,7 @@
 
 #include <gdal.h>
 
+#include "helpers/workflowfixture.h"
 #include "../src/catalog/datacatalog.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
@@ -30,36 +30,15 @@
 // - 择优诚实面：样本不足阈值 → extra["method_actual"]="idw"；不超阈 → "kriging"；
 // - 参数经 QC/参数指纹/extra 往返（读回断言）；
 // - 取消诚实：compute 取消即失败、无输出。
+
+using paleo::tests::initFixture;
+
 class GeostatWorkflowTests : public QObject
 {
   Q_OBJECT
 
   private:
-    struct Fixture
-    {
-      QTemporaryDir dir;
-      DataCatalog catalog;
-      QgisProjectService projectSvc;
-      PaleoProjectStore store;
-      LayerManifest manifest{ dir.filePath( QStringLiteral( "project.sqlite" ) ) };
-      QgisLayerService layers{ &projectSvc, &manifest };
-      QgisProcessingService proc{ &store };
-
-      QString projectDir() const { return dir.path(); }
-    };
-
-    static bool initFixture( Fixture &f )
-    {
-      if ( !f.dir.isValid() )
-        return false;
-      if ( !f.catalog.open( f.dir.path() ) )
-        return false;
-      if ( !f.projectSvc.createProject( f.dir.filePath( QStringLiteral( "proj.qgz" ) ) ) )
-        return false;
-      if ( !f.manifest.open() )
-        return false;
-      return true;
-    }
+    using Fixture = paleo::tests::WorkflowFixture;
 
     // 井点 GeoJSON：n×n 规则井网 + z 值（对角梯度），供克里金全链。
     static bool writeWells( const QString &path, int side )

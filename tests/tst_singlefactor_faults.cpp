@@ -21,6 +21,7 @@
 #include <unistd.h>
 #endif
 
+#include "helpers/workflowfixture.h"
 #include "../src/catalog/datacatalog.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/metastore.h"
@@ -115,34 +116,14 @@ struct ModeRestore
     QSKIP( paleoSkipMessage.constData() ); \
   } while ( false )
 
+using paleo::tests::initFixture;
+
 class TestSingleFactorFaults : public QObject
 {
   Q_OBJECT
 
 private:
-  struct Fixture
-  {
-    QTemporaryDir dir;
-    DataCatalog catalog;
-    QgisProjectService projectSvc;
-    PaleoProjectStore store;
-    LayerManifest manifest{ dir.filePath( QStringLiteral( "project.sqlite" ) ) };
-    QgisLayerService layers{ &projectSvc, &manifest };
-    QgisProcessingService proc{ &store };
-  };
-
-  static bool initFixture( Fixture &f )
-  {
-    if ( !f.dir.isValid() )
-      return false;
-    if ( !f.catalog.open( f.dir.path() ) )
-      return false;
-    if ( !f.projectSvc.createProject( f.dir.filePath( QStringLiteral( "proj.qgz" ) ) ) )
-      return false;
-    if ( !f.manifest.open() )
-      return false;
-    return true;
-  }
+  using Fixture = paleo::tests::WorkflowFixture;
 
   static LayerDeclaration decl( const QString &layerId, const QString &horizon, const QString &type,
                                 const QString &source, const QString &group = QStringLiteral( "00_Test" ) )

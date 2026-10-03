@@ -1,3 +1,4 @@
+#include "helpers/workflowfixture.h"
 #include "../src/qgis/layervocabulary.h"
 #include <QtTest>
 #include <QDir>
@@ -53,50 +54,17 @@
 // generateFactor 声明进 04_SingleFactor（layerId/group/type/styleRef）、
 // 重生成幂等、色带 .qml 落盘且可被 QgisStyleService::applyStyle 应用、
 // 等值线产出真 LineString vector layer（gdal:contour 不可用 → GDAL C API 降级）。
+
+using paleo::tests::initFixture;
+using paleo::tests::writePointsGeoJson;
+using paleo::tests::derivedVersionRegistered;
+
 class TestFactorWorkflow : public QObject
 {
   Q_OBJECT
 
   private:
-    // 与 tst_workflows 同构的真实服务栈（临时目录）。
-    struct Fixture
-    {
-      QTemporaryDir dir;
-      DataCatalog catalog;
-      QgisProjectService projectSvc;
-      PaleoProjectStore store;
-      LayerManifest manifest{ dir.filePath( QStringLiteral( "project.sqlite" ) ) };
-      QgisLayerService layers{ &projectSvc, &manifest };
-      QgisProcessingService proc{ &store };
-    };
-
-    static bool initFixture( Fixture &f )
-    {
-      if ( !f.dir.isValid() )
-        return false;
-      if ( !f.catalog.open( f.dir.path() ) )
-        return false;
-      if ( !f.projectSvc.createProject( f.dir.filePath( QStringLiteral( "proj.qgz" ) ) ) )
-        return false;
-      if ( !f.manifest.open() )
-        return false;
-      return true;
-    }
-
-    // 三个 z 值井点（tst_workflows 同款 fixture），wells.* 前缀供生成链解析。
-    static bool writePointsGeoJson( const QString &path )
-    {
-      QFile f( path );
-      if ( !f.open( QIODevice::WriteOnly ) )
-        return false;
-      f.write( "{\"type\":\"FeatureCollection\",\"features\":["
-               "{\"type\":\"Feature\",\"properties\":{\"z\":0.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[0.0,0.0]}},"
-               "{\"type\":\"Feature\",\"properties\":{\"z\":8.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[4.0,0.0]}},"
-               "{\"type\":\"Feature\",\"properties\":{\"z\":4.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[0.0,4.0]}}"
-               "]}" );
-      f.close();
-      return QFile::exists( path ) && QFileInfo( path ).size() > 0;
-    }
+    using Fixture = paleo::tests::WorkflowFixture;
 
     static LayerDeclaration decl( const QString &layerId, const QString &horizon,
                                   const QString &type, const QString &source,
@@ -118,22 +86,6 @@ class TestFactorWorkflow : public QObject
         if ( d.layerId == layerId )
           return new LayerDeclaration( d );
       return nullptr;
-    }
-
-    static bool derivedVersionRegistered( DataCatalog &catalog, const QString &assetType,
-                                          const QString &absolutePath )
-    {
-      for ( const CatalogAsset &a : catalog.assets() )
-      {
-        if ( a.type != assetType )
-          continue;
-        for ( const CatalogVersion &v : catalog.versionsForAsset( a.id ) )
-          if ( absolutePath.contains( QStringLiteral( "artifacts/derived/" ) ) &&
-               absolutePath.endsWith( QLatin1Char( '/' ) + v.fileName ) &&
-               absolutePath.contains( v.id ) && !v.sha256.isEmpty() )
-            return true;
-      }
-      return false;
     }
 
     // 标准前置：井点声明 + 绑 catalog 的 ConstraintWorkflow。

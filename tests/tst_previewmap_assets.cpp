@@ -2,6 +2,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
+#include "helpers/previewfixture.h"
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/metadata/layermanifest.h"
@@ -52,19 +53,16 @@
 // horizon 地图页（等值线/统计/直方图/版本切换/极值）、geojson（图例/标注/
 // TOC 快调）、image（world file 上图/未配准引导）、井位落图（D2.6/D2.8）、
 // 测区全景框架化、TOC 状态记忆、全表模式、剖面导出、状态页辅助件。
+
+using paleo::tests::preview::makeStack;
+using paleo::tests::preview::fixture;
+using paleo::tests::preview::stage;
+using paleo::tests::preview::importAll;
+using paleo::tests::preview::Imported;
+
 class TestPreviewMapAssets : public QObject
 {
   Q_OBJECT
-
-  struct Stack
-  {
-    QgisProjectService projectSvc;
-    std::unique_ptr<LayerManifest> manifest;
-    std::unique_ptr<QgisLayerService> layerSvc;
-    std::unique_ptr<PaleoProjectStore> store;
-    std::unique_ptr<DataImportService> importSvc;
-    std::unique_ptr<DataPreviewTabs> preview;
-  };
 
   private slots:
     void initTestCase() { QVERIFY(QgisRuntime::isInitialized()); }
@@ -97,79 +95,7 @@ class TestPreviewMapAssets : public QObject
     void documentTabNotMapFramework();
     void wellHeadMapLabelToggleWorks();
 
-  private:
-    static std::unique_ptr<Stack> makeStack(const QString &projectDir);
-    static QString fixture(const QString &name);
-    static QString stage(const QTemporaryDir &tmp, const QString &dir, const QString &name,
-                          const QString &asName = QString());
-    struct Imported
-    {
-      QString wellHead, las, tops, td, d61, sgy, png, pdf, geojson, sgySource;
-    };
-    static Imported importAll(Stack &st, const QTemporaryDir &tmp);
 };
-
-std::unique_ptr<TestPreviewMapAssets::Stack> TestPreviewMapAssets::makeStack(const QString &projectDir)
-{
-  if (!QDir().mkpath(projectDir))
-    return nullptr;
-  auto s = std::make_unique<Stack>();
-  const QString metaPath = QDir(projectDir).filePath(QStringLiteral("metadata/project.sqlite"));
-  if (!s->projectSvc.createProject(QDir(projectDir).filePath(QStringLiteral("proj.qgz"))))
-    return nullptr;
-  s->manifest = std::make_unique<LayerManifest>(metaPath);
-  if (!s->manifest->open())
-    return nullptr;
-  s->layerSvc = std::make_unique<QgisLayerService>(&s->projectSvc, s->manifest.get());
-  s->store = std::make_unique<PaleoProjectStore>();
-  s->importSvc = std::make_unique<DataImportService>(s->store.get());
-  QObject::connect(s->importSvc.get(), &DataImportService::layerDeclared,
-                   s->layerSvc.get(), [layerSvc = s->layerSvc.get()](const LayerDeclaration &decl) {
-                     QString err;
-                     layerSvc->declare(decl, &err);
-                   });
-  s->importSvc->setProjectDir(projectDir);
-  s->preview = std::make_unique<DataPreviewTabs>();
-  s->preview->setImportService(s->importSvc.get());
-  return s;
-}
-
-QString TestPreviewMapAssets::fixture(const QString &name)
-{
-  return QStringLiteral(PROJECT_FIXTURE_DIR) + QLatin1Char('/') + name;
-}
-
-QString TestPreviewMapAssets::stage(const QTemporaryDir &tmp, const QString &dir,
-                                    const QString &name, const QString &asName)
-{
-  const QString d = tmp.filePath(dir);
-  if (!QDir().mkpath(d))
-    return QString();
-  const QString dst = QDir(d).filePath(asName.isEmpty() ? name : asName);
-  return QFile::copy(fixture(name), dst) ? dst : QString();
-}
-
-TestPreviewMapAssets::Imported TestPreviewMapAssets::importAll(Stack &st, const QTemporaryDir &tmp)
-{
-  Imported out;
-  QString err;
-  out.wellHead = st.importSvc->importProjectFile(fixture(QStringLiteral("ExportWellHead.dat")), &err);
-  out.las = st.importSvc->importProjectFile(fixture(QStringLiteral("A1.Las")), &err);
-  const QString topsPath = stage(tmp, QString::fromUtf8("井分层"), QStringLiteral("DC.dat"));
-  out.tops = st.importSvc->importProjectFile(topsPath, &err);
-  const QString tdPath = stage(tmp, QString::fromUtf8("时深"), QStringLiteral("A1_TD.dat"));
-  out.td = st.importSvc->importProjectFile(tdPath, &err);
-  const QString d61Path = stage(tmp, QString::fromUtf8("层位"), QStringLiteral("D61_sample.dat"),
-                                QStringLiteral("D61.dat"));
-  out.d61 = st.importSvc->importProjectFile(d61Path, &err);
-  out.sgySource = tmp.filePath(QStringLiteral("vol.sgy"));
-  QFile::copy(fixture(QStringLiteral("mini_seismic.sgy")), out.sgySource);
-  out.sgy = st.importSvc->importProjectFile(out.sgySource, &err);
-  out.png = st.importSvc->importProjectFile(fixture(QStringLiteral("tiny.png")), &err);
-  out.pdf = st.importSvc->importProjectFile(fixture(QStringLiteral("tiny.pdf")), &err);
-  out.geojson = st.importSvc->importProjectFile(fixture(QStringLiteral("facies.geojson")), &err);
-  return out;
-}
 
 // ---------------- horizon（D2.1/2.2/2.3/2.9 + D5.x） ----------------
 

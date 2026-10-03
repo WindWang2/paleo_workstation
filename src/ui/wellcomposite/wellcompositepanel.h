@@ -5,9 +5,12 @@
 #include <QLabel>
 #include <QToolButton>
 #include <QWidget>
+#include <QPointer>
 
 #include <limits>
 #include <memory>
+#include <functional>
+#include "domain/welllogfacies.h"
 
 #include "wellcompositecanvas.h"
 #include "domain/wellcompositemodel.h"
@@ -28,6 +31,7 @@
 //   D2.11 深度读数条；D2.12 gap 阈值；D3.14 编辑模式工具条。
 
 class PaleoTaskService; // F2：两段式 XML 任务池（全局作用域——勿入 WellComposite）
+class WellFaciesWorkflow;
 
 namespace WellComposite
 {
@@ -43,12 +47,19 @@ class WellCompositePanel : public QWidget
 public:
   explicit WellCompositePanel(QWidget *parent = nullptr);
   ~WellCompositePanel() override;
+  // 组装根注入功能层；面板只发意图、接收可用性与绘图数据。
+  using FaciesWorkflowFactory = std::function<WellFaciesWorkflow *(QObject *)>;
+  static void setFaciesWorkflowFactory(FaciesWorkflowFactory factory);
+  void bindFaciesWorkflow(WellFaciesWorkflow *workflow);
+  void showFaciesPrediction(const WellFaciesResult &result);
 
   WellCompositeCanvas *canvas() const { return m_canvas; }
   WellPositionLegendWidget *legendWidget() const { return m_legendWidget; }
 
   // 加载并装配中国石油标准综合柱状图 XML (SpreadsheetML)
   bool loadComprehensiveXml(const QString &xmlPath);
+  // 已解析的完整井数据共用入口；测区井可携带曲线、段与岩性，参考井同样适用。
+  bool loadWellData(const ComprehensiveWellData &data, const QString &sourcePath = {}, bool reference = false);
   // F2（goal/perf-systematize 簇2）：两段式——XML 在任务池解析（综合图可含
   // 数 MB 曲线数据，同步解析阻塞 UI 线程），结果 GUI 线程装配并发射
   // comprehensiveXmlLoaded(ok)；无任务服务时同步执行、返回前信号已发
@@ -130,6 +141,12 @@ public:
   QLabel *readoutLabel() const { return m_lblReadout; }
 
 signals:
+  void faciesDataChanged(const WellComposite::ComprehensiveWellData &data);
+  void faciesPredictionRequested();
+  void faciesCancelRequested();
+  void faciesModelsRequested();
+  void faciesModelSelected(const QString &id);
+  void faciesConfigurationRequested(const QString &url, const QString &key);
   void wellLoaded(const QString &wellName);
   // F2（goal/perf-systematize 簇2）：两段式 XML 装配终态（含同步路径；
   // ok=false = 解析失败——页面侧据此换装失败面）。
@@ -161,10 +178,11 @@ private slots:
   void onMarkerMoved(const QString &name, double newDepth); // D3.1 接编辑栈
 
 private:
+  void clearFaciesPrediction();
   void setupUi();
   void setupTracksFromData(const ComprehensiveWellData &data);
   // F2：已解析数据的 GUI 线程装配（同步/异步路径共用；不碰文件）。
-  void applyComprehensiveData(const ComprehensiveWellData &data, const QString &xmlPath);
+  void applyComprehensiveData(const ComprehensiveWellData &data, const QString &xmlPath, bool reference = true);
   void rebuildLegendData();
   void syncSessionToTracks(); // 编辑会话数据 → 画布道重同步
   void refreshTwtLabels();    // D1：时深表 → 深度标尺道 TWT 副刻度
@@ -215,6 +233,12 @@ private:
   QToolButton *m_btnSaveDerived = nullptr; // D1：保存派生版本（→壳 DERIVED 登记）
   QLabel *m_lblStatus = nullptr;
   QLabel *m_lblReadout = nullptr;       // D2.11
+  QToolButton *m_btnPredictFacies = nullptr, *m_btnCancelFacies = nullptr;
+  QToolButton *m_btnFaciesService = nullptr, *m_btnRefreshFacies = nullptr, *m_btnShowFacies = nullptr;
+  QComboBox *m_faciesModel = nullptr;
+  QLabel *m_faciesStatus = nullptr;
+  QPointer<WellFaciesWorkflow> m_faciesWorkflow;
+  std::shared_ptr<WellTrack> m_predictionTrack, m_confidenceTrack;
 
   WellCompositeCanvas *m_canvas = nullptr;
   WellPositionLegendWidget *m_legendWidget = nullptr;

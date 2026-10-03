@@ -1,5 +1,7 @@
 // 层：组装根
 #include "appcontext.h"
+#include "../workflow/wellfaciesworkflow.h"
+#include "../ui/wellcomposite/wellcompositepanel.h"
 #include "crossplotcontroller.h"
 #include "../io/dataimportservice.h" // catalog() — attachMapping 的 OUTPUT 登记
 #include "../io/wellcompositexml.h" // D1：wellcomposite 序列化/深度表解析注入（wave/deepen-perf）
@@ -52,6 +54,9 @@ int main(int argc, char *argv[])
   // 这里已解析出的路径）。
   QCoreApplication::setApplicationName(QStringLiteral("paleo_workbench"));
   QCoreApplication::setOrganizationName(QStringLiteral("paleo"));
+  WellComposite::WellCompositePanel::setFaciesWorkflowFactory([](QObject *parent) {
+    return new WellFaciesWorkflow(parent);
+  });
   const CrashReport::SessionStart session = CrashReport::installCrashHandler(
       QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
   StartupTrace::mark(QStringLiteral("pre_qt_ready"));

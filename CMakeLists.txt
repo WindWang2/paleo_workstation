@@ -276,7 +276,7 @@ else()
   set(PALEO_HAVE_ORT FALSE)
   add_library(paleo_ai STATIC src/ai/remotepredictionservice.cpp)
   target_link_libraries(paleo_ai PUBLIC Qt6::Core Qt6::Gui) # 无 ORT 时为空壳，消费方链接名不变
-  message(STATUS "onnxruntime not vendored — ai/ service excluded (run ./paleo-dev bootstrap)")
+  message(STATUS "onnxruntime not vendored — local ONNX inference disabled; remote services remain available (run ./paleo-dev bootstrap for ONNX)")
 endif()
 
 # ---- 模块化分层库（按 UI_LAYER_PLAN 层契约拆分）----
@@ -874,6 +874,7 @@ add_paleo_test(tst_layerprofilebar LIBS paleo_ui)   # 主题下拉/保存/管理
 # 禁止直接改本文件的模块源列表——并行分支在此汇合零冲突。
 # 显式清单登记替代隐式 GLOB，根治构建目录漂移与测试漏注（P1-14 / TEST-01）
 set(_paleo_extra_manifest
+  "${CMAKE_SOURCE_DIR}/cmake/extra-well-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-catalog-sqlite.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-crossplot-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-data.cmake"

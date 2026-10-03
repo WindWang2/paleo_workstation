@@ -65,6 +65,7 @@ struct FormationInterval
   QString name;
   QString code;
   QColor color = QColor(QStringLiteral("#FFE082"));
+  QString unitType; // 原始井道类型（组/段），预测输入不得把组冒充段。
 };
 
 // 地层系统组组合道区间数据 (系 | 统 | 组)

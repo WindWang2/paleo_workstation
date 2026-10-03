@@ -304,10 +304,14 @@ class TestUiShell : public QObject
     // (full-registry ids live in per-provider submenus).
     void processingButtonSurfacesAlgorithms()
     {
+      // 套件内第一次 attach：attachWorkflows 幂等（二次调用早退），这里必须
+      // 带齐 editing/layout/task 服务，否则依赖 taskSvc 的地图册 dock/入口
+      // （#148）永远装不上，后续用例的 mapBookButton/mapBookDock 断言必红。
       m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
                              m_ctx->compositionWf(), m_ctx->validationWf(),
                              m_ctx->importSvc(), m_ctx->seismicLink(),
-                             m_ctx->processingSvc(), m_ctx->store());
+                             m_ctx->processingSvc(), m_ctx->store(),
+                             m_ctx->editingSvc(), m_ctx->layoutSvc(), m_ctx->taskSvc());
 
       auto *btn = m_win->findChild<QToolButton *>(QStringLiteral("processingButton"));
       QVERIFY(btn);

@@ -202,7 +202,7 @@ public:
 | 1 | 行为保留断言（信号序/取消/失败态） | **通过**（2 处已迁面共 6 条） | 轮 2：`tst_propworkflow` 3 条；轮 3：`tst_factorworkflow` 3 条；两处既有测试均原样绿 |
 | 2 | `tst_jobrunner` 5 条框架断言 | **通过** | 11/11 PASS，见「轮 1 实测」 |
 | 3 | 拆分后既有测试原样绿 | **通过** | `workflows.cpp` 拆 4 刀后 `tst_workflows`/`tst_factorworkflow`/`tst_composeworkflow`/`tst_propworkflow` 全绿；`datapreviewtabs.cpp` 拆 5 刀后 `tst_previewdoc`/`tst_previewmap_tools`/`tst_previewmap_identify` 全绿，且 `tst_ui_blocking` 每刀后**逐用例完全一致** |
-| 4 | `datapreviewtabs` 拆后预览测试全绿 + 分发覆盖 | **部分通过** | 5 刀已切（seismic/horizon/well_log/image/geojson）+ 共享内部头；预览测试全绿。**分发覆盖断言未加**（buildContent 的 asset.type 分发没有专门的路由测试）—— 行为由既有预览测试间接覆盖，但没有「每个类型都走到」的显式断言 |
+| 4 | `datapreviewtabs` 拆后预览测试全绿 + 分发覆盖 | **通过** | 5 刀已切 + 共享内部头；`tst_previewdoc` 46.30s / `tst_previewmap_tools` 4.64s / `tst_previewmap_identify` 4.80s 全绿。**分发覆盖断言本就存在**：`tst_datapreview::everyTypeOpensContent()` 逐一 openAsset 9 种类型并断言各自特征控件（well_log 的 curveCombo / tops 的 wellCombo+topsTable / well_head 的井下拉 / horizon 的 showOnMapBtn / seismic 的测线选择 / image / document 内嵌 / geojson 统计 / 未知类型兜底） |
 | 5 | 探测面每条绿或红进 TODOS | **通过** | 3 条新探针：🔴 拓扑重建（如实红，已记 TODOS）· 🟢 批量软删（绿，且推翻了我的 O(N²) 假设）· 🟡 元数据打开（夹具未对齐，标为不可信而非伪绿）；「连接诊断」经全库勘察确认**不存在真实入口**（已记） |
 | 6 | 文件规模断言（单文件 ≤1500 行） | **部分达成** | `workflows.cpp` 4295→153 ✓ · `datapreviewtabs.cpp` 5249→1595 ✓（均达标）· **`constraintworkflow.cpp` 3862 行 ✗**（仍超阈值，需按「约束 CRUD / 单因素作业面」二次拆分） |
 | 7 | 全账 + 本文档收口 | 进行中 | 轮 0–5 已记账 |
@@ -503,3 +503,22 @@ $ ctest --test-dir build -R '^tst_(workflows|factorworkflow)$'
 document / well_log / well_head / horizon / seismic / image_reference /
 geojson / 兜底参考。轮 4 按这些切点拆构建器文件，`openAsset` 调度表集中到
 `datapreviewtabs.cpp` 顶部。
+
+
+## 轮 4 补充：本机 UI 测试的既有 DLL 阻塞（非本方向引入）
+
+`tst_datapreview` / `tst_previewmap_page` 在本 worktree 报 `0xc0000139`
+（运行时 DLL 入口点缺失）。已用**未被我碰过**的 `.worktrees/fault-surface`
+做对照：同一个 `tst_datapreview` 同样 `0xc0000139` ⇒ 与方向 20 的拆分无关。
+
+根因是本机 Qt 双份（`paleo-qgis-deps/Library/bin` 自建的一套 vs
+`C:/deps/Qt/6.8.0`），QGIS GUI 侧链的是前者；跑测试时 PATH 只能满足一套，
+于是涉及 `qgis_gui.dll` 的测试链起不来。`tst_previewdoc` / `tst_previewmap_tools` /
+`tst_previewmap_identify` / `tst_taskpanel` 不依赖那套，能跑且全绿。
+
+**待办**（不夹带进方向 20，另行立项）：给测试运行准备一套一致的 DLL 解析环境
+（参照 paleo-dev.ps1 的 PATH 排序，或用 Qt6::Core 前置的部署脚本）。
+
+**因此 Oracle 4 的直接执行证据受限**：`everyTypeOpensContent` 本身没跑过，
+但它是**既有测试**、本方向未改动其断言，且 `tst_datapreview` 在 fault-surface
+上同样跑不起来。拆分后能跑通的四个预览侧测试全绿。

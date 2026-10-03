@@ -7,6 +7,8 @@
 #include <QStringList>
 #include <QVector>
 
+#include "modelregistry.h"
+
 // ai/ — PaleoOnnxService wraps the vendored ONNX Runtime C++ API (ET4 spike
 // proven: onnxruntime-linux-x64-1.30.0 under vendor/onnxruntime).
 // In-process inference only; model files pinned per-horizon under models/.
@@ -46,8 +48,13 @@ class PaleoOnnxService : public QObject
     explicit PaleoOnnxService(QObject *parent = nullptr);
     ~PaleoOnnxService() override;
 
-    void setModelRoot(const QString &dir);         // models/<name>.onnx
-    QStringList availableModels() const;            // *.onnx basenames
+    void setModelRoot(const QString &dir);         // models/<name>.onnx（清空注册表）
+    // #145：模型注册表门控。manifest 存在 → 只有 status==Ok 的条目可见/可加载，
+    // 按条目 file 解析路径并在加载时复核钉哈希；manifest 损坏 → 全部拒绝。
+    // 无 manifest（manifestFound=false）→ 开发降级：按目录枚举 *.onnx。
+    // 须在 setModelRoot 之后调用（同一 models 目录的扫描结果）。
+    void setModelRegistry(const ModelRegistryScan &scan);
+    QStringList availableModels() const;            // 注册表 Ok 名；无 manifest 时 *.onnx basenames
     // 兼容原签名；内部走会话池（同指纹二次加载瞬时命中）。
     bool loadModel(const QString &name, QString *error = nullptr);
     // 详细版：成功时 *meta 填指纹/输入签名/warmup 计时。
@@ -69,8 +76,18 @@ class PaleoOnnxService : public QObject
                        const QVector<int64_t> &shape, QString *error = nullptr);
 
     // Same as run(), plus the output tensor's shape so callers can write a grid.
+    // 注意：在「当前活动模型」上推理——并发任务可能已把活动模型换掉（#144）；
+    // 多步推理的调用方应改用 runTensorOn(model, ...)。
     OnnxTensor runTensor(const QString &inputName, const QVector<float> &input,
                          const QVector<int64_t> &shape, QString *error = nullptr);
+
+    // #144：模型绑定的推理——只在 name 对应的池内会话上 Run，不读写全局活动模型。
+    // 会话不在池中（未加载/被 LRU 淘汰/模型目录已换）→ 明确失败，不会静默落到别的模型。
+    // 与 loadModelMeta(name, &meta) 搭配：meta 由调用方持有，不再经 loadedModelMeta()
+    // 读取「最近一次加载」的全局状态。
+    OnnxTensor runTensorOn(const QString &model, const QString &inputName,
+                           const QVector<float> &input, const QVector<int64_t> &shape,
+                           QString *error = nullptr);
 
     static QString vendorRuntimeDir();              // vendor/onnxruntime resolved path
     static bool runtimeAvailable();                 // libonnxruntime found in vendor tree
@@ -82,7 +99,16 @@ class PaleoOnnxService : public QObject
     void inferenceFailed(const QString &model, const QString &error);
 
   private:
-    QString normalizedModelPath(const QString &name) const;
+    QString normalizedModelPath(const QString &name) const;   // 加锁读 m_modelRoot
+    static QString normalizedModelPathIn(const QString &root, const QString &name);
+    // 调用方持锁：name → 模型文件绝对路径（注册表优先）；不可用 → 空串 + *reason。
+    // *pinnedSha 返回注册表钉哈希（可空）。
+    QString resolveModelPathLocked(const QString &name, QString *reason,
+                                   QString *pinnedSha = nullptr) const;
+    bool m_registryActive = false;                  // manifest 存在（含损坏）
+    QString m_registryError;                        // manifest 损坏原因（非空 → 全拒绝）
+    QHash<QString, ModelRegistryEntry> m_registryOk;   // name → Ok 条目
+    QHash<QString, QString> m_registryRejected;        // name → 拒绝原因（诚实报错）
     struct PoolEntry;                               // Ort::Session* + meta + LRU 戳（cpp 内定义）
     QString m_modelRoot;
     QString m_loaded;

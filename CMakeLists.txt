@@ -695,6 +695,7 @@ add_paleo_test(tst_singlefactor_regional LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_avoidance LIBS paleo_algorithms)
 add_paleo_test(tst_constraint_draw LIBS paleo_ui)
 add_paleo_test(tst_singlefactor_perf LIBS paleo_algorithms)
+add_paleo_test(tst_contourlevels LIBS paleo_algorithms)   # #149 级别数上限
 add_paleo_test(tst_singlefactor_contours LIBS paleo_qgis)
 add_paleo_test(tst_singlefactor_fieldcontours LIBS paleo_workflow)
 add_paleo_test(tst_singlefactor_contourbudget LIBS paleo_algorithms paleo_qgis)

@@ -3,11 +3,14 @@
 
 #include <QColor>
 #include <QDir>
+
+#include <algorithm>
 #include <QFileInfo>
 #include <QHash>
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <qgsarrowsymbollayer.h>
 #include <qgscategorizedsymbolrenderer.h>
 #include <qgsexpression.h>
 #include <qgsfillsymbol.h>
@@ -16,8 +19,8 @@
 #include <qgsmarkersymbol.h>
 #include <qgsmarkersymbollayer.h> // QgsSimpleMarkerSymbolLayer（QGIS 4 无独立头）
 #include <qgspallabeling.h>
+#include <qgsrulebasedrenderer.h>
 #include <qgssinglesymbolrenderer.h>
-#include <qgssymbollayer.h>
 #include <qgsvectorlayer.h>
 #include <qgsvectorlayerlabeling.h>
 
@@ -523,4 +526,72 @@ void QgisStyleService::applyWellCategoryStyle(QgsVectorLayer *layer, const QStri
   cats.append(QgsRendererCategory(QVariant(), wellCategorySymbol(QString()), genericTitle));
   layer->setRenderer(
       new QgsCategorizedSymbolRenderer(layer->fields().field(fieldIdx).name(), cats));
+}
+
+// ---- 方向35：演化迁移矢量符号 -----------------------------------------------
+
+namespace
+{
+
+// 箭头线符号（进积/退积配色由调用侧给）。直线单头箭头，毫米单位。
+std::unique_ptr<QgsLineSymbol> migrationArrowSymbol(const QColor &color, double shaftMm)
+{
+  QgsArrowSymbolLayer *arrow = new QgsArrowSymbolLayer();
+  arrow->setIsCurved(false);
+  arrow->setIsRepeated(false);
+  arrow->setArrowStartWidth(shaftMm);            // 杆（起点）宽
+  arrow->setArrowWidth(std::max(shaftMm * 2.0, 0.4)); // 头部张开宽
+  arrow->setArrowWidthUnit(Qgis::RenderUnit::Millimeters);
+  arrow->setArrowStartWidthUnit(Qgis::RenderUnit::Millimeters);
+  arrow->setHeadLength(std::max(shaftMm * 3.0, 0.6));
+  arrow->setHeadLengthUnit(Qgis::RenderUnit::Millimeters);
+  arrow->setHeadThickness(std::max(shaftMm * 3.0, 0.6));
+  arrow->setHeadThicknessUnit(Qgis::RenderUnit::Millimeters);
+  arrow->setColor(color);
+  std::unique_ptr<QgsLineSymbol> symbol = std::make_unique<QgsLineSymbol>();
+  symbol->changeSymbolLayer(0, arrow);
+  return symbol;
+}
+
+} // namespace
+
+void QgisStyleService::applyMigrationVectorStyle(QgsVectorLayer *layer)
+{
+  if (!layer || !layer->isValid())
+    return;
+  if (layer->geometryType() != Qgis::GeometryType::Line)
+    return;
+  const bool hasKind = layer->fields().lookupField(QStringLiteral("vector_kind")) >= 0;
+  const bool hasAdvance = layer->fields().lookupField(QStringLiteral("advance")) >= 0;
+  if (!hasKind || !hasAdvance)
+  {
+    // 缺字段：只给中性灰箭头，不接管语义分色（字段口径是数据侧契约）。
+    layer->setRenderer(new QgsSingleSymbolRenderer(
+        migrationArrowSymbol(QColor(QStringLiteral("#5D6E80")), 0.25).release()));
+    return;
+  }
+
+  // 进积蓝 / 退积红（地图域数据符号；前缘细、质心粗）。
+  const QColor advanceColor(QStringLiteral("#1565B8"));
+  const QColor retreatColor(QStringLiteral("#C62828"));
+  auto *renderer = new QgsRuleBasedRenderer(
+      migrationArrowSymbol(QColor(QStringLiteral("#5D6E80")), 0.25).release());
+  QgsRuleBasedRenderer::Rule *root = renderer->rootRule();
+  const auto addRule = [&root](std::unique_ptr<QgsLineSymbol> symbol, const QString &filter,
+                               const QString &label) {
+    root->appendChild(new QgsRuleBasedRenderer::Rule(symbol.release(), 0, 0, filter, label));
+  };
+  addRule(migrationArrowSymbol(advanceColor, 0.8),
+          QStringLiteral("vector_kind = 'centroid' AND advance = 1"),
+          QObject::tr("进积（质心）"));
+  addRule(migrationArrowSymbol(retreatColor, 0.8),
+          QStringLiteral("vector_kind = 'centroid' AND advance = 0"),
+          QObject::tr("退积（质心）"));
+  addRule(migrationArrowSymbol(advanceColor, 0.25),
+          QStringLiteral("vector_kind = 'front' AND advance = 1"),
+          QObject::tr("进积（前缘）"));
+  addRule(migrationArrowSymbol(retreatColor, 0.25),
+          QStringLiteral("vector_kind = 'front' AND advance = 0"),
+          QObject::tr("退积（前缘）"));
+  layer->setRenderer(renderer);
 }

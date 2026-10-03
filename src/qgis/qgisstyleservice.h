@@ -46,12 +46,19 @@ class QgisStyleService : public QObject
     static void applyFaciesBoundaryStyle(QgsVectorLayer *layer);
 
     // ---- C3（wave/deepen-perf）：井类别符号（Q/HS 1011—2016 表 K.1）------
-    // 数据字段驱动的探井符号全集映射：categoryField 有值域时按 12 类探井
-    // 分/renderer 分类渲染（wellCategoryDefinitions() 给词面/符号描述）；
+    // 数据字段驱动的探井符号全集映射：categoryField 有值域时按 12 类探井分
+    ///renderer 分类渲染（wellCategoryDefinitions() 给词面/符号描述）；
     // 字段缺失或空 → 回落通用「探井」符号（外细环+实心盘，盘≈0.73 外径，
     // 与测区全景 styleSurveyWellLayer 同图式）。类别词面归一化见
     // normalizeWellCategory()（中文词/英文 id 同收）。
     static void applyWellCategoryStyle(QgsVectorLayer *layer, const QString &categoryField);
+
+    // ---- 方向35：演化迁移矢量符号 ------------------------------------------
+    // 迁移矢量图层（evolution.vectors.<层位>）的箭头场渲染：进积蓝、退积红
+    //（地图域数据符号——物源/展布线同调性的既有红蓝惯例，不属 UI token），
+    // 前缘采样矢量细、质心汇总矢量粗。字段 vector_kind（front/centroid）与
+    // advance（1 进 / 0 退）缺失 → 单一灰箭头（不接管语义分色）。
+    static void applyMigrationVectorStyle(QgsVectorLayer *layer);
     // 类别词表（存储 id + 显示名 + 符号构成说明），固定顺序 = 表 K.1 序。
     static QVariantList wellCategoryDefinitions();
     // 常见类别写法 → 规范存储 id（未知 → 原样返回；空 → 空）。

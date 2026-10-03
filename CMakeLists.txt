@@ -975,6 +975,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-b.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-c.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-d.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-evolution.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-faultinterp.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-fault-surface.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-geostat.cmake"

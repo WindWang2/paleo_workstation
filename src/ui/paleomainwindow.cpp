@@ -45,6 +45,7 @@
 #include "datapreview/datapreviewtabs.h"
 #include "../catalog/datacatalog.h"
 #include "horizonchipbar.h"
+#include "evolution/evolutionplayerpanel.h"
 #include "layers/layertreepanel.h"
 #include "layers/layerpropertiesdialog.h"
 #include "../qgis/qgislabelzorder.h"
@@ -417,6 +418,17 @@ void PaleoMainWindow::buildShell()
           });
   chipsLay->addWidget(chips);
   chipsLay->addStretch(1);
+  // 方向35：多期演化动览——步进序 = mappingHorizons()，定格导出为 intent
+  //（壳侧在 attachMappingExport 接画布抓帧与 OUTPUT 资产登记）。
+  auto *player = new EvolutionPlayerPanel(m_selection, m_layerSvc, chipsRow);
+  player->setObjectName(QStringLiteral("evolutionPlayer"));
+  player->setAccessibleName(tr("演化动览"));
+  connect(player, &EvolutionPlayerPanel::horizonSwitchRefused, this,
+          [this](const QString &reason) {
+            if (statusBar())
+              statusBar()->showMessage(reason, 8000);
+          });
+  chipsLay->addWidget(player);
   canvasLay->addWidget(chipsRow);
   if (m_canvasCtl)
   {

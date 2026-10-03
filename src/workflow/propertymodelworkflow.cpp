@@ -3,6 +3,7 @@
 
 #include "../catalog/datacatalog.h"
 #include "../io/lasparser.h"
+#include "../services/jobrunner.h"
 #include "../services/projectdata.h"
 #include "../services/welllogset.h"
 #include "derivedassets.h"
@@ -631,6 +632,65 @@ PropertyModelWorkflow::run(const PropertyModelRequest &request,
   if (progress)
     progress(1.0, QStringLiteral("完成"));
   return computed.out;
+}
+
+PaleoTask *PropertyModelWorkflow::startJob(paleo::jobs::JobRunner<PropertyModelJob> &runner,
+                                          const PropertyModelRequest &request,
+                                          double overlayAlpha, QObject *progressSink,
+                                          std::shared_ptr<PropertyModelJob> *started)
+{
+  using paleo::jobs::JobRunner;
+
+  auto job = std::make_shared<PropertyModelJob>();
+  job->request = request;
+  job->overlayAlpha = overlayAlpha;
+
+  JobRunner<PropertyModelJob>::Callbacks cb;
+
+  // prepare：owner 线程抓输入快照。本迁移点的输入已经是调用方在 owner 线程
+  // 抓好的 request（requestFromCatalog 读 catalog，属 owner 线程操作），
+  // 故 prepare 只做一次浅拷贝落位，不重复触碰 catalog。
+  cb.prepare = [](PropertyModelJob &j, QString *) { return true; };
+
+  // compute：worker 线程纯计算。取消点在 progress 回调里（现状语义：fraction
+  // < 1 时返回 false 表示取消），由框架的 CancelFn 统一判定。
+  //
+  // progressSink 约定：属性建模面板，按名调它的 updateProgress 槽。用字符串
+  // 签名 + invokeMethod，功能层因此不必 include 视图层头（层契约）。
+  auto *sink = progressSink;
+  cb.compute = [this, sink](PropertyModelJob &j, const paleo::jobs::CancelFn &,
+                            const paleo::jobs::ProgressFn &) {
+    j.computed = runCompute(j.request, [sink](double fraction, const QString &stage) {
+      if (sink)
+      {
+        const int pct = fraction <= 0.0
+                            ? 0
+                            : (fraction >= 1.0 ? 100 : static_cast<int>(fraction * 100.0 + 0.5));
+        QMetaObject::invokeMethod(sink, "updateProgress", Qt::QueuedConnection,
+                                  Q_ARG(int, pct), Q_ARG(QString, stage));
+      }
+      return true; // 取消判定交给框架的 CancelFn，不在这里私自决定
+    });
+    // runCompute 的失败串在 computed.error 上；框架据此走失败通道。
+    return j.computed.ok;
+  };
+
+  // commit：owner 线程登记。DerivedAssetRegistrar 的 stage+commit 属 #106
+  // owner-thread 写守卫面，框架已断言线程亲和——这条断言正把 #80 的纪律变机制。
+  cb.commit = [this](PropertyModelJob &j, QString *) {
+    const bool ok = commitComputed(&j.computed);
+    j.registered = ok;
+    return ok;
+  };
+
+  // 取消/陈旧：不进 commit（现状「发布是临界区」）。没有临时目录要清理——
+  // 属性体的 staging 由 registrar 托管，未 commit 的 staging 随请求作用域释放。
+  // 取消态的 UI 文案由调用方按 reason 呈现（现状是「已取消」）。
+  PaleoTask *task = runner.start(QStringLiteral("属性建模"), job, cb, QString(),
+                                 /*quiet=*/true);
+  if (started)
+    *started = task ? job : nullptr;
+  return task;
 }
 
 PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &topHorizon,

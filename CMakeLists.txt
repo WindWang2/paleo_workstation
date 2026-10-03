@@ -434,6 +434,7 @@ add_library(paleo_services STATIC
   src/services/algoparamschema.cpp                  # m2：算法参数 schema 注册表
   src/services/projectdata.cpp                      # 读侧门面（catalog.json + LayerManifest）
   src/services/paleotaskservice.cpp                 # D1/D2 异步任务框架
+  src/services/jobrunner.cpp                        # 方向20：统一三段式 JobRunner（作业框架）
   src/services/seismicmapping.cpp                   # 测网几何↔inline/xline/CDP
   src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排
   src/services/crashreport.cpp                      # 致命信号 fd 落盘 + .running 旗标
@@ -454,6 +455,11 @@ add_library(paleo_workflow STATIC
   src/workflow/mappingworkbench.cpp
   src/workflow/workflows.cpp
   src/workflow/constraintimport.cpp                 # WS-C：约束 SHP 角色化导入（方向/打断）
+  src/workflow/validationworkflow.cpp                # 方向20 轮4：④验证（按类边界析出）
+  src/workflow/compositionworkflow.cpp               # 方向20 轮4：③综合编图（按类边界析出）
+  src/workflow/predictionworkflow.cpp              # 方向20 轮4：①智能预测（按类边界析出）
+  src/workflow/constraintworkflow.cpp              # 方向20 轮4：②约束与单因素（按类边界析出）
+  src/workflow/constraintfactorjobs.cpp            # 方向20 轮4：②的单因素作业面（二次拆分）
   src/workflow/folderimport.cpp                    # W2 文件夹/单文件导入编排
   src/workflow/projectopen.cpp                     # W2 打开/新建工程编排
   src/workflow/registration.cpp                    # W3 临时配准编排
@@ -505,6 +511,11 @@ add_library(paleo_ui STATIC
   src/ui/layout/layoutundostack.cpp
   src/ui/layout/mapbookpanel.cpp                    # goal/mapbook-reporting：批量参数面板（只发信号）
   src/ui/datapreview/datapreviewtabs.cpp           # §4 data-page preview tabs
+  src/ui/datapreview/datapreviewtabseismic.cpp     # 方向20 轮4：seismic 预览分支析出
+  src/ui/datapreview/datapreviewtabhorizon.cpp      # 方向20 轮4：horizon 预览分支析出
+  src/ui/datapreview/datapreviewtabwelllog.cpp      # 方向20 轮4：well_log 预览分支析出
+  src/ui/datapreview/datapreviewtabimage.cpp         # 方向20 轮4：image_reference 分支析出
+  src/ui/datapreview/datapreviewtabgeojson.cpp        # 方向20 轮4：geojson 分支析出
   src/ui/datapreview/previewmappage.cpp            # P2 D1.x/D3.x 预览地图组合页（工具条/状态条/侧栏/鹰眼/书签）
   src/ui/datapreview/previewtocpanel.cpp           # P2 D4.x 迷你 TOC + 符号快调 + 图例
   src/ui/datapreview/previewidentifypanel.cpp      # P2 D7.x identify 结果面板 + 全表模式
@@ -671,6 +682,7 @@ add_paleo_test(tst_projectsvc LIBS paleo_qgis)              # metadata,qgis
 add_paleo_test(tst_layerservice LIBS paleo_qgis)            # catalog,metadata,qgis
 add_paleo_test(tst_canvas_tools LIBS paleo_services paleo_qgis) # metadata,qgis,services
 add_paleo_test(tst_domain LIBS paleo_domain)
+add_paleo_test(tst_jobrunner LIBS paleo_services paleo_qgis)  # 方向20：JobRunner 三段式框架断言
 add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
 add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）

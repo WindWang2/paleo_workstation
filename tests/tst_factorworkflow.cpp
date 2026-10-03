@@ -33,10 +33,19 @@
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisstyleservice.h"
+#include "../src/services/jobrunner.h"
+#include "../src/services/paleotaskservice.h"
 #include "../src/services/singlefactordef.h"
 #include "../src/workflow/workflows.h"
 #include "../src/workflow/mapversioncontroller.h"
 #include "../src/metadata/mapversionstore.h"
+
+#include <QCoreApplication>
+#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QThread>
+#include <functional>
+#include <memory>
 
 // m2(B) 单因素图页 — 真实栈（tst_workflows 模式：临时 manifest+catalog+真实
 // QGIS 引导）。覆盖：注册表 processingAlgId 在运行时可用（algorithmIds 核实）、
@@ -423,6 +432,171 @@ class TestFactorWorkflow : public QObject
                 "paleo:paleo_local_direction_idw must be registered" );
       QVERIFY2( ids.contains( QStringLiteral( "paleo:paleo_cartographic_work" ) ),
                 "paleo:paleo_cartographic_work must be registered" );
+    }
+
+    // =======================================================================
+    // 方向20：三组作业统一异步面（ConstraintWorkflow::startConstraintJob）
+    //
+    // 上面那些用例钉的是 9 个 prepare*/compute*/publish* 裸接口（契约未动）。
+    // 这里钉统一面本身：分派正确性、忙则拒绝、取消后 publish 不执行。
+    // =======================================================================
+
+    // 泵事件直到 pred 成立（commit 段经 QueuedConnection 排在 owner 线程）。
+    static bool pumpUntil( const std::function<bool()> &pred, int timeoutMs = 120000 )
+    {
+      QElapsedTimer clock;
+      clock.start();
+      while ( !pred() )
+      {
+        if ( clock.elapsed() > timeoutMs )
+          return false;
+        QCoreApplication::processEvents( QEventLoop::AllEvents, 10 );
+        QThread::msleep( 2 );
+      }
+      return true;
+    }
+
+    // 断言 1：统一面把分析等值线组接上框架，行为与直接调 publish* 等价
+    void unifiedJobRunsAnalysisContourThroughRunner()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      QVERIFY2( setupWells( f, &err ), qPrintable( err ) );
+
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QVariantMap params;
+      params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+      QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ),
+                                   params, &err ),
+                qPrintable( err ) );
+
+      // 构造一份分析等值线 job（prepare 仍按现状在 owner 线程做）。
+      ConstraintWorkflow::ConstraintJob job;
+      job.kind = ConstraintWorkflow::ConstraintJobKind::AnalysisContour;
+      job.payload = ConstraintWorkflow::AnalysisContourJob{};
+      QVariantMap spec;
+      spec.insert( QStringLiteral( "kind" ), QStringLiteral( "analysis_contour" ) );
+      spec.insert( QStringLiteral( "horizon" ), QStringLiteral( "T1" ) );
+      spec.insert( QStringLiteral( "factorLayerId" ), QStringLiteral( "factor.T1.sandthick" ) );
+      spec.insert( QStringLiteral( "interval" ), 1.0 );
+      job.title = QStringLiteral( "等值线 T1" );
+      QVERIFY2( wf.prepareConstraintJob( job, spec, &err ), qPrintable( err ) );
+      QCOMPARE( job.kind, ConstraintWorkflow::ConstraintJobKind::AnalysisContour );
+
+      QObject dispatcher;
+      PaleoTaskService svc( nullptr, &dispatcher );
+      paleo::jobs::JobRunner<ConstraintWorkflow::ConstraintJob> runner( &dispatcher );
+      runner.setTaskService( &svc );
+      QSignalSpy contours( &wf, &ConstraintWorkflow::contoursGenerated );
+
+      PaleoTask *task = wf.startConstraintJob( runner, job );
+      QVERIFY2( task, "统一面应受理任务" );
+      QVERIFY( pumpUntil( [&] { return contours.count() > 0; } ) );
+
+      // 与 contourDeclaresVectorLayer 同口径：声明、图层类型、组全一致
+      QCOMPARE( contours.count(), 1 );
+      QCOMPARE( contours.at( 0 ).at( 0 ).toString(), QStringLiteral( "T1" ) );
+      QCOMPARE( contours.at( 0 ).at( 2 ).toString(), QStringLiteral( "contours.T1.sandthick" ) );
+      const LayerDeclaration *d = findDecl( f.layers, QStringLiteral( "contours.T1.sandthick" ) );
+      QVERIFY2( d != nullptr, "统一面产出的等值线声明缺失" );
+      QCOMPARE( d->type, QStringLiteral( "vector" ) );
+      QCOMPARE( d->group, QStringLiteral( "04_SingleFactor/Contours" ) );
+      delete d;
+
+      QVERIFY( !runner.busy() );
+      svc.shutdown( 3000, false );
+    }
+
+    // 断言 2：忙则拒绝（现状 m_factorTask 互斥的等价物）
+    void unifiedJobRejectsWhenBusy()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      QVERIFY2( setupWells( f, &err ), qPrintable( err ) );
+
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QVariantMap params;
+      params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+      QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ),
+                                   params, &err ),
+                qPrintable( err ) );
+
+      ConstraintWorkflow::ConstraintJob job;
+      job.kind = ConstraintWorkflow::ConstraintJobKind::AnalysisContour;
+      job.payload = ConstraintWorkflow::AnalysisContourJob{};
+      QVariantMap spec;
+      spec.insert( QStringLiteral( "kind" ), QStringLiteral( "analysis_contour" ) );
+      spec.insert( QStringLiteral( "horizon" ), QStringLiteral( "T1" ) );
+      spec.insert( QStringLiteral( "factorLayerId" ), QStringLiteral( "factor.T1.sandthick" ) );
+      spec.insert( QStringLiteral( "interval" ), 1.0 );
+      job.title = QStringLiteral( "等值线 T1" );
+      QVERIFY2( wf.prepareConstraintJob( job, spec, &err ), qPrintable( err ) );
+
+      QObject dispatcher;
+      PaleoTaskService svc( nullptr, &dispatcher );
+      paleo::jobs::JobRunner<ConstraintWorkflow::ConstraintJob> runner( &dispatcher );
+      runner.setTaskService( &svc );
+      QSignalSpy contours( &wf, &ConstraintWorkflow::contoursGenerated );
+
+      PaleoTask *first = wf.startConstraintJob( runner, job );
+      QVERIFY( first );
+      // 立刻再起一代：忙则必须拒绝
+      PaleoTask *second = wf.startConstraintJob( runner, job );
+      QVERIFY2( !second, "忙则必须拒绝第二代" );
+
+      QVERIFY( pumpUntil( [&] { return contours.count() > 0; } ) );
+      QVERIFY( pumpUntil( [&] { return !runner.busy(); } ) );
+      // 拒绝的那一代不产生额外成果
+      QCOMPARE( contours.count(), 1 );
+      svc.shutdown( 3000, false );
+    }
+
+    // 断言 3：取消后 publish 不执行、不发成果信号
+    void unifiedJobCancelSkipsPublish()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      QVERIFY2( setupWells( f, &err ), qPrintable( err ) );
+
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QVariantMap params;
+      params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+      QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ),
+                                   params, &err ),
+                qPrintable( err ) );
+
+      ConstraintWorkflow::ConstraintJob job;
+      job.kind = ConstraintWorkflow::ConstraintJobKind::AnalysisContour;
+      job.payload = ConstraintWorkflow::AnalysisContourJob{};
+      QVariantMap spec;
+      spec.insert( QStringLiteral( "kind" ), QStringLiteral( "analysis_contour" ) );
+      spec.insert( QStringLiteral( "horizon" ), QStringLiteral( "T1" ) );
+      spec.insert( QStringLiteral( "factorLayerId" ), QStringLiteral( "factor.T1.sandthick" ) );
+      spec.insert( QStringLiteral( "interval" ), 1.0 );
+      job.title = QStringLiteral( "等值线 T1" );
+      QVERIFY2( wf.prepareConstraintJob( job, spec, &err ), qPrintable( err ) );
+
+      QObject dispatcher;
+      PaleoTaskService svc( nullptr, &dispatcher );
+      paleo::jobs::JobRunner<ConstraintWorkflow::ConstraintJob> runner( &dispatcher );
+      runner.setTaskService( &svc );
+      QSignalSpy contours( &wf, &ConstraintWorkflow::contoursGenerated );
+
+      PaleoTask *task = wf.startConstraintJob( runner, job );
+      QVERIFY( task );
+      runner.requestCancel();
+      QVERIFY( pumpUntil( [&] { return !runner.busy(); } ) );
+
+      // 取消终态；publish 未执行 → 无成果信号、无等值线声明
+      QCOMPARE( task->state(), PaleoTask::State::Cancelled );
+      QCOMPARE( contours.count(), 0 );
+      svc.shutdown( 3000, false );
     }
 
     void styleWriterPresets()
@@ -1507,7 +1681,19 @@ int main( int argc, char *argv[] )
   QgsApplication::processingRegistry(); // ensure registry alive
   GDALAllRegister();
   TestFactorWorkflow tc;
-  const int rc = QTest::qExec( &tc, argc, argv );
+  // ctest 无控制台下 QtTest 结果走 OutputDebugString，失败时看不到是哪条红；
+  // 追加 -o 让结果落盘（方向20 迁移调试用）。
+  QByteArray logPath = QByteArray( QT_TESTCASE_BUILDDIR ) + "/tst_factorworkflow-result.txt";
+  QList<QByteArray> forwarded;
+  forwarded << QByteArray( argv[0] );
+  for ( int i = 1; i < argc; ++i )
+    forwarded << QByteArray( argv[i] );
+  forwarded << QByteArray( "-o" ) << logPath + ",txt";
+  QList<char *> cargv;
+  cargv.reserve( forwarded.size() );
+  for ( QByteArray &a : forwarded )
+    cargv << a.data();
+  const int rc = QTest::qExec( &tc, cargv.size(), cargv.data() );
   QgsApplication::exitQgis();
   return rc;
 }

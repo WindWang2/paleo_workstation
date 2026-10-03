@@ -456,6 +456,9 @@ void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
 
   connect(m_propModelPanel, &PropertyModelPanel::cancelRequested, this, [this]() {
     m_propModelCancel = true;
+    // 方向20：取消经框架传播（会同时置本代 cancel 标志与任务自身的取消位）。
+    // 同步兜底路径没有任务，靠 m_propModelCancel 那个布尔的原逻辑仍有效。
+    m_propModelRunner.requestCancel();
     if (m_propModelTask)
       m_propModelTask->requestCancel();
   });
@@ -494,36 +497,19 @@ void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
 
             m_propModelRunning = true;
             m_propModelCancel = false;
+            m_propModelJob.reset(); // 新一代：别让 UI 段读到上一代的登记结果
             m_propModelPanel->setBusy(true);
 
             if (m_taskSvc)
             {
-              // #85：重计算段（格架/粗化/IDW）跑任务池 worker，不再占 GUI
-              // 线程。catalog 登记（#106 owner-thread 写守卫）与切片/叠置
-              // 留在 finished 回包——回包在 GUI 线程执行。
-              m_propModelTask = m_taskSvc->start(
-                  tr("属性建模：%1").arg(curve),
-                  [this, req](PaleoTask *task) -> QString {
-                    PropertyModelPanel *panel = m_propModelPanel;
-                    m_propModelComputed = m_propModelWf->runCompute(
-                        req, [task, panel](double fraction, const QString &stage) {
-                          task->reportStage(stage, static_cast<int>(fraction * 100.0));
-                          if (panel)
-                            QMetaObject::invokeMethod(
-                                panel,
-                                [panel, fraction, stage] {
-                                  panel->updateProgress(
-                                      static_cast<int>(fraction * 100.0), stage);
-                                },
-                                Qt::QueuedConnection);
-                          return !task->cancelRequested();
-                        });
-                    if (!m_propModelComputed.ok)
-                      return m_propModelComputed.error.isEmpty()
-                                 ? tr("属性建模失败")
-                                 : m_propModelComputed.error;
-                    return QString();
-                  });
+              // #85 + 方向20：重计算段（格架/粗化/IDW）跑任务池 worker，不再占
+              // GUI 线程。catalog 登记（#106 owner-thread 写守卫）与切片/叠置
+              // 留在 commit 段——框架把它排在 owner 线程执行并在入口断言线程
+              // 亲和，#80 的纪律由此变成机制。忙则拒绝由框架 busy() 门控承担
+              // （原 m_propModelRunning 布尔的等价物）。
+              m_propModelRunner.setTaskService(m_taskSvc);
+              m_propModelTask = m_propModelWf->startJob(m_propModelRunner, req, overlayAlpha,
+                                                        m_propModelPanel, &m_propModelJob);
               if (m_propModelTask)
                 connect(m_propModelTask.data(), &PaleoTask::finished, this,
                         [this, overlayAlpha] { finishPropertyModelRun(overlayAlpha); });
@@ -552,11 +538,22 @@ void PaleoMainWindow::finishPropertyModelRun(double overlayAlpha)
   if (!m_propModelWf || !m_propModelPanel)
     return;
 
-  // finished 回包/同步兜底都在 GUI 线程：catalog 登记（DerivedAssetRegistrar
-  // 的 owner-thread 写守卫）与 UI 更新在这里做。
+  // finished 回包/同步兜底都在 GUI 线程。方向20 起 catalog 登记由 JobRunner 的
+  // commit 段完成（且已断言 owner 线程），本函数只负责把结果呈到 UI——不要再
+  // 无条件调 commitComputed，那会二次登记同一份 staging。
+  //
+  // 判据用 job->registered（commit 段成功时置位），不拿 runner.busy() 判：commit
+  // 段在发 finished 之前就 clearTask() 了，busy() 会误判成「没登记过」。
+  // 同步兜底路径（无任务池）压根不建 job，故仍需直连登记。
   PropertyModelOutput out;
-  if (!cancelled && m_propModelComputed.ok)
-    m_propModelWf->commitComputed(&m_propModelComputed);
+  if (m_propModelJob)
+  {
+    m_propModelComputed = m_propModelJob->computed; // 共享同一份，commit 已回填
+  }
+  else if (!cancelled && m_propModelComputed.ok)
+  {
+    m_propModelWf->commitComputed(&m_propModelComputed); // 无池兜底：同步直连
+  }
   out = m_propModelComputed.out;
   if (cancelled)
   {

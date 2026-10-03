@@ -15,6 +15,11 @@
 #include "../domain/faultset.h"
 
 class DataCatalog;
+class PaleoTask;
+namespace paleo::jobs {
+template <class JobT>
+class JobRunner;
+} // namespace paleo::jobs
 
 // workflow/ — 属性建模编排（goal/property-modeling）。
 // 视图只发意图；本层读层位栅格、建地层格架、粗化井曲线、按断层阻断做
@@ -98,6 +103,39 @@ public:
   // catalog owner 线程调用。成功 → computed.out 回填 path/assetId/versionId
   // 并 emit modelStored；失败 → out.ok=false/out.error + emit modelFailed。
   bool commitComputed(PropertyModelComputed *computed);
+
+  // ---- 方向 20：JobRunner 迁移面 ----------------------------------------
+  // 上面那对 runCompute/commitComputed 是同一条三段式协议的裸写形态：自己接
+  // 任务池、自己查忙、自己判取消、自己排 finished 回包。startJob() 把同一契约
+  // 接到统一框架上，行为等价点：
+  //   * 忙则拒绝（现状 m_propModelRunning 布尔的等价物 → 框架 busy() 门控）；
+  //   * 取消在 compute 的进度回调里生效、commit 不执行（现状「发布是临界区」）；
+  //   * 失败态经既有通道上 UI：失败串落到 job.error，commit 段读到后由调用方
+  //     照旧 emit modelFailed / showResult(false, why)；
+  //   * 任务服务缺席时退化同步直连（现状无池兜底路径原样保留）。
+  //
+  // Job 结构体复用 PropertyModelComputed（它已经是「输入快照 + 中间产物 +
+  // 失败态」的完整形态），另挂 request/overlayAlpha 供 UI 段取用。
+  struct PropertyModelJob
+  {
+    PropertyModelRequest request;
+    PropertyModelComputed computed;
+    double overlayAlpha = 1.0;
+    // 已登记标记。commit 段（成功时）置 true——UI 段据此判定「commit 已跑过」，
+    // 不再二次登记。比拿 runner.busy() 判更可靠：commit 段在发 finished 之前
+    // 就 clearTask() 了。
+    bool registered = false;
+  };
+
+  // owner 线程（catalog 所属线程）调用。runner 由调用方持有并与本对象同线程。
+  // 返回 nullptr 表示「已有计算在进行」或任务服务缺席——两者与现状的拒绝/退化
+  // 语义一一对应，调用方据此走各自的老路径。
+  // started 非空时回填本代 job（shared_ptr，与 commit 段共享同一份），供 UI 段
+  // 读登记结果。
+  PaleoTask *startJob(paleo::jobs::JobRunner<PropertyModelJob> &runner,
+                      const PropertyModelRequest &request, double overlayAlpha,
+                      QObject *progressSink = nullptr,
+                      std::shared_ptr<PropertyModelJob> *started = nullptr);
 
   static bool loadSurface(const QString &path, paleo::stratgrid::SurfaceGrid *out,
                           QString *error = nullptr);

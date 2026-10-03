@@ -398,9 +398,10 @@ add_library(paleo_store STATIC
   src/metadata/releasestore.cpp
   src/metadata/mapversionstore.cpp                  # 版本/发布状态机落表（meta sqlite）
   src/metadata/metastore.cpp                        # project.sqlite user_version 门
+  src/catalog/frameworkstore.cpp                    # 方向28：格架落库（catalog 资产 + 受管版本）
   src/metadata/projectlock.cpp                      # 两实例同开一工程写互斥（QLockFile）
 )
-target_link_libraries(paleo_store PUBLIC paleo_deps)
+target_link_libraries(paleo_store PUBLIC paleo_deps paleo_domain)
 
 # ---- QGIS 封装层 ----
 add_library(paleo_qgis STATIC

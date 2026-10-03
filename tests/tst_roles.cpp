@@ -94,8 +94,15 @@ void TestRoles::forEntityFiltersByEntityType()
 
   // 无词表的实体类型与空类型 → 如实空集。
   QVERIFY(reg.forEntity(QStringLiteral("auxiliary")).isEmpty());
-  QVERIFY(reg.forEntity(QStringLiteral("sequence_boundary")).isEmpty());
   QVERIFY(reg.forEntity(QString()).isEmpty());
+  // sequence_boundary 自方向 28「格架先行」起有词表了：格架资产对本界面的
+  // 归属角色 framework_unit（建议阶段 OUTPUT）。原先的「无词表 → 空集」
+  // 断言因此改为钉住这段词表本身——实体类型语义未变（导入期 sb-<NAME>
+  // 建实体与 extra["pending"] 行为一行未动）。
+  const QVector<RoleDef> sbDefs = reg.forEntity(QStringLiteral("sequence_boundary"));
+  QCOMPARE(sbDefs.size(), 1);
+  QCOMPARE(sbDefs.first().role, QStringLiteral("framework_unit"));
+  QCOMPARE(sbDefs.first().stageDefault, QStringLiteral("OUTPUT"));
 }
 
 void TestRoles::unknownRoleIsNotFound()

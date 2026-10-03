@@ -69,6 +69,15 @@ namespace
     add(QStringLiteral("other"), QStringLiteral("seismic_survey"), false,
         QStringLiteral("其他"),
         QStringLiteral("兜底角色。"));
+
+    // sequence_boundary 段（方向 28「格架先行」）：格架资产对本层序界面的
+    // 归属。手工追加而非走上面的 add()——该角色建议阶段是 OUTPUT（格架是
+    // 解释成果，不是 RAW 采集件）。既有 sequence_boundary 语义不变：本段
+    // 只加挂接角色，不改写实体类型与导入期行为。
+    t.append(RoleDef{QStringLiteral("framework_unit"),
+                     {QStringLiteral("sequence_boundary")}, 0, false,
+                     QStringLiteral("格架单元"), QStringLiteral("OUTPUT"),
+                     QStringLiteral("层序格架单元对该层序界面的归属（格架资产版本见 catalog/frameworkstore）。")});
     return t;
   }
 } // namespace

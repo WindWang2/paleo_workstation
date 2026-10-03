@@ -201,11 +201,11 @@ public:
 |---|--------|------|------|
 | 1 | 行为保留断言（信号序/取消/失败态） | **通过**（2 处已迁面共 6 条） | 轮 2：`tst_propworkflow` 3 条；轮 3：`tst_factorworkflow` 3 条；两处既有测试均原样绿 |
 | 2 | `tst_jobrunner` 5 条框架断言 | **通过** | 11/11 PASS，见「轮 1 实测」 |
-| 3 | 拆分后既有测试原样绿 | **待轮 4** | 轮 2/3 已迁面原样绿；`paleo_ui` 整库链接已通（QScintilla 阻塞解除） |
-| 4 | `datapreviewtabs` 拆后预览测试全绿 + 分发覆盖 | 未开始（轮 4） | — |
-| 5 | 探测面每条绿或红进 TODOS | 未开始（轮 5） | — |
-| 6 | 文件规模断言（单文件 ≤1500 行） | 未开始（轮 4） | — |
-| 7 | 全账 + 本文档收口 | 进行中 | 轮 0–2 已记账 |
+| 3 | 拆分后既有测试原样绿 | **通过** | `workflows.cpp` 拆 4 刀后 `tst_workflows`/`tst_factorworkflow`/`tst_composeworkflow`/`tst_propworkflow` 全绿；`datapreviewtabs.cpp` 拆 5 刀后 `tst_previewdoc`/`tst_previewmap_tools`/`tst_previewmap_identify` 全绿，且 `tst_ui_blocking` 每刀后**逐用例完全一致** |
+| 4 | `datapreviewtabs` 拆后预览测试全绿 + 分发覆盖 | **部分通过** | 5 刀已切（seismic/horizon/well_log/image/geojson）+ 共享内部头；预览测试全绿。**分发覆盖断言未加**（buildContent 的 asset.type 分发没有专门的路由测试）—— 行为由既有预览测试间接覆盖，但没有「每个类型都走到」的显式断言 |
+| 5 | 探测面每条绿或红进 TODOS | **通过** | 3 条新探针：🔴 拓扑重建（如实红，已记 TODOS）· 🟢 批量软删（绿，且推翻了我的 O(N²) 假设）· 🟡 元数据打开（夹具未对齐，标为不可信而非伪绿）；「连接诊断」经全库勘察确认**不存在真实入口**（已记） |
+| 6 | 文件规模断言（单文件 ≤1500 行） | **部分达成** | `workflows.cpp` 4295→153 ✓ · `datapreviewtabs.cpp` 5249→1595 ✓（均达标）· **`constraintworkflow.cpp` 3862 行 ✗**（仍超阈值，需按「约束 CRUD / 单因素作业面」二次拆分） |
+| 7 | 全账 + 本文档收口 | 进行中 | 轮 0–5 已记账 |
 
 ## 轮 1：JobRunner 框架 + tst_jobrunner
 

@@ -157,6 +157,9 @@ class DataImportService : public QObject
     QString absolutePath(const QString &assetId) const;
     // P4：SEG-Y 道头索引缓存目录（<project>/artifacts/index/segy；空工程 = 空）。
     QString indexCacheDir() const;
+    // #155：清扫 <project>/artifacts/staging 下崩溃残留的 session 目录；返回删掉的条目数。
+    // setProjectDir 在切到新工程且持写锁时自动调用；公开以便测试。
+    static int sweepStaleStaging(const QString &projectDir);
     // 指定版本的绝对路径——文档标签取 RAW 原件用（currentVersion 可能已是
     // DERIVED 转换件）。
     QString absolutePathForVersion(const CatalogVersion &version) const;

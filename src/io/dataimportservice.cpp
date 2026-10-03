@@ -168,6 +168,7 @@ void DataImportService::setProjectDir(const QString &dir)
   m_pdfPending.clear();
   m_pdfErrors.clear();
 
+  const bool projectChanged = QDir::cleanPath(m_projectDir) != QDir::cleanPath(dir);
   m_projectDir = dir;
   ++m_catalogEpoch; // 在途 session 的产出不得提交进新工程
   // wave/io-perf-cache：工程级缓存根统一接线（P4）。
@@ -192,6 +193,38 @@ void DataImportService::setProjectDir(const QString &dir)
     qWarning("DataImportService: catalog open failed: %s", qPrintable(err));
     emit catalogOpenFailed(err);
   }
+  // #155：上次进程崩溃残留的 artifacts/staging/<uuid> 无人回收。只在真正
+  // 切到另一工程、且本实例拿到写锁（无别的进程在用该工程）时清扫——本进程
+  // 的在途 session 都属于旧工程目录，同目录重设不扫。
+  else if (projectChanged && !m_catalog->isLockedReadOnly())
+    sweepStaleStaging(dir);
+}
+
+int DataImportService::sweepStaleStaging(const QString &projectDir)
+{
+  if (projectDir.trimmed().isEmpty())
+    return 0;
+  QDir staging(projectDir + QStringLiteral("/artifacts/staging"));
+  if (!staging.exists())
+    return 0;
+  int removed = 0;
+  const QStringList entries =
+      staging.entryList(QDir::Dirs | QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot);
+  for (const QString &e : entries)
+  {
+    const QString path = staging.filePath(e);
+    const bool ok = QFileInfo(path).isDir() ? QDir(path).removeRecursively()
+                                            : QFile::remove(path);
+    if (ok)
+      ++removed;
+    else
+      qWarning("DataImportService: cannot remove stale staging %s", qPrintable(path));
+  }
+  if (removed > 0)
+    qWarning("DataImportService: swept %d stale staging entr%s under %s", removed,
+             removed == 1 ? "y" : "ies", qPrintable(staging.path()));
+  QDir().rmdir(staging.path()); // 空了顺手收掉（非空失败无妨）
+  return removed;
 }
 
 QString DataImportService::indexCacheDir() const
@@ -2034,8 +2067,12 @@ int DataImportService::attachResolvableLinks(DataCatalog *cat, const CatalogAsse
   }
   // 批次结算：落盘失败如实透给调用方（dedup 路径只记 qWarning，不中断）。
   QString berr;
-  if (!batch.flush(&berr) && !berr.isEmpty())
-    setError(error, berr);
+  if (!batch.flush(&berr))
+  {
+    // #169：结算失败时批内改动已回滚，不能再报「已补上关联」。
+    setError(error, berr.isEmpty() ? QStringLiteral("catalog 落盘失败") : berr);
+    return 0;
+  }
   return attached;
 }
 

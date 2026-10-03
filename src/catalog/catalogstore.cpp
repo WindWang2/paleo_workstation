@@ -20,6 +20,12 @@
 
 namespace
 {
+  // catalog.sqlite 的 user_version 版本域独立于 project.sqlite 的
+  // MetaStore::kUserVersion：早期构建复用 project 版本门，把 catalog 文件
+  // 标成了 1/2——兼容常量取 2 放行存量库。今后 project schema 推进不再
+  // 影响 catalog；catalog 自身的 schema 演进以 meta 表 schema_epoch 为准。
+  constexpr int kCatalogUserVersion = 2;
+
   void setError(QString *error, const QString &text)
   {
     if (error)
@@ -1002,7 +1008,8 @@ bool CatalogStore::attachWritable(QString *error)
   m_connectionName = connectionNameFor(this, m_sqlitePath, false);
   bool opened = false;
   {
-    QSqlDatabase db = MetaStore::openConnection(m_sqlitePath, m_connectionName, error, false);
+    QSqlDatabase db = MetaStore::openConnection(m_sqlitePath, m_connectionName, error, false,
+                                                kCatalogUserVersion);
     opened = db.isValid() && db.isOpen();
     if (opened && !applyWritablePragmas(db, error))
       opened = false;
@@ -1090,7 +1097,8 @@ bool CatalogStore::connectPrimary(bool readOnly, QString *error)
   QString local;
   bool opened = false;
   {
-    QSqlDatabase db = MetaStore::openConnection(m_sqlitePath, m_connectionName, &local, readOnly);
+    QSqlDatabase db = MetaStore::openConnection(m_sqlitePath, m_connectionName, &local,
+                                                readOnly, kCatalogUserVersion);
     opened = db.isValid() && db.isOpen();
   }
   if (!opened)
@@ -1234,7 +1242,8 @@ bool CatalogStore::recover(const QString &primaryError, Tables *out, QString *er
     bool loadedOk = false;
     Tables loaded;
     {
-      QSqlDatabase db = MetaStore::openConnection(tmp, name, &localErr, false);
+      QSqlDatabase db = MetaStore::openConnection(tmp, name, &localErr, false,
+                                                  kCatalogUserVersion);
       if (!db.isValid() || !db.isOpen())
       {
         // 打开失败：下面 forget。localErr 已填。

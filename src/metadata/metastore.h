@@ -24,8 +24,13 @@ namespace MetaStore
   // readOnly（#80，单写实例降级 §6）：以 QSQLITE_OPEN_READONLY 打开；文件不存在
   // 时拒开（不 mkpath、不建库）；user_version 只读校验（未来版本仍拒开），
   // 不推进。调用方须为只读连接使用独立连接名（与可写连接互不复用）。
+  //
+  // userVersion：版本门的「当前版本」常量。project.sqlite 系 store 用默认
+  // kUserVersion；catalog.sqlite 走自己的版本域（catalogstore.cpp），
+  // 不与 project schema 推进耦合。
   QSqlDatabase openConnection(const QString &path, const QString &connectionName,
-                              QString *error, bool readOnly = false);
+                              QString *error, bool readOnly = false,
+                              int userVersion = kUserVersion);
 
   // #80：关闭并从 QtSql 注册表移除「当前线程拥有、databaseName 指向 path」的
   // 全部命名连接（工程切换/关闭时调用，避免句柄常驻与同路径陈旧连接复用）。
@@ -36,6 +41,6 @@ namespace MetaStore
   int readUserVersion(QSqlDatabase &db, QString *error = nullptr);
 
   // 门本体：db 必须已 open。按上述规则检查/推进；拒绝或执行失败 → false +
-  // *error（调用方应让 open 整体失败，不得继续建表）。
-  bool ensureUserVersion(QSqlDatabase &db, QString *error);
+  // *error（调用方应让 open 整体失败，不得继续建表）。userVersion 语义同上。
+  bool ensureUserVersion(QSqlDatabase &db, QString *error, int userVersion = kUserVersion);
 }

@@ -3,6 +3,8 @@
 #include <QSignalSpy>
 #include <QThreadPool>
 #include <QDirIterator>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 
 #include <algorithm>
 #include <atomic>
@@ -1614,40 +1616,41 @@ private slots:
     QVERIFY(QDir(s->stagingRoot).exists()); // 受管字节在暂存根
     QCOMPARE(cat->assets().size(), assetsBefore);
 
-    // catalog 目录置只读：原子写（临时文件 + rename）在 save() 处失败。
-    const QString catDir = QFileInfo(cat->catalogPath()).absolutePath();
-    QVERIFY(QDir(catDir).exists());
-    const auto oldPerm = QFile::permissions(catDir);
-    QVERIFY(QFile::setPermissions(catDir, QFileDevice::ReadOwner | QFileDevice::ExeOwner));
+    // 落盘失败注入：SQLite/WAL 只写已持有 fd 的库文件，目录只读挡不住——
+    // 用第二连接占写锁（BEGIN IMMEDIATE），catalog 提交撞 SQLITE_BUSY。
+    const QString sqlitePath = cat->sqliteCatalogPath();
+    QVERIFY(QFile::exists(sqlitePath));
+    const QString lockName = QStringLiteral("tst_import_lock_%1")
+                                 .arg(reinterpret_cast<quintptr>(this));
     {
-      QFile probe(QDir(catDir).filePath(QStringLiteral(".probe")));
-      if (probe.open(QIODevice::WriteOnly))
-      {
-        probe.close();
-        probe.remove();
-        QFile::setPermissions(catDir, oldPerm);
-        QSKIP("目录权限不生效（root 运行？）——无法制造落盘失败");
-      }
+      QSqlDatabase lock = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), lockName);
+      lock.setDatabaseName(sqlitePath);
+      QVERIFY(lock.open());
+      QSqlQuery begin(lock);
+      QVERIFY(begin.exec(QStringLiteral("BEGIN IMMEDIATE")));
+      QSignalSpy importedSpy(&svc, &DataImportService::imported);
+      QSignalSpy failedSpy(&svc, &DataImportService::importFailed);
+      QString cerr;
+      const auto st = svc.commitImport(*s, &cerr);
+      QVERIFY(begin.exec(QStringLiteral("ROLLBACK")));
+      lock.close();
+      lock = QSqlDatabase();
+      QSqlDatabase::removeDatabase(lockName);
+
+      QCOMPARE(st, DataImportService::CommitStatus::Failed);
+      QVERIFY2(!cerr.isEmpty(), "catalog write failure was swallowed");
+      QCOMPARE(s->error, cerr);
+      QCOMPARE(s->fileResult.outcome, DataImportService::ImportOutcome::Failed);
+      QVERIFY(s->fileResult.assetId.isEmpty());
+      QCOMPARE(importedSpy.count(), 0);
+      QVERIFY(failedSpy.count() >= 1);
+      QCOMPARE(cat->assets().size(), assetsBefore);
+      QCOMPARE(cat->catalogRevision(), revBefore);
+      QCOMPARE(countFiles(rawRoot), rawFilesBefore); // 落位的字节已撤回
+      QVERIFY(!QDir(s->stagingRoot).exists());
     }
-    QSignalSpy importedSpy(&svc, &DataImportService::imported);
-    QSignalSpy failedSpy(&svc, &DataImportService::importFailed);
-    QString cerr;
-    const auto st = svc.commitImport(*s, &cerr);
-    QFile::setPermissions(catDir, oldPerm);
 
-    QCOMPARE(st, DataImportService::CommitStatus::Failed);
-    QVERIFY2(!cerr.isEmpty(), "catalog write failure was swallowed");
-    QCOMPARE(s->error, cerr);
-    QCOMPARE(s->fileResult.outcome, DataImportService::ImportOutcome::Failed);
-    QVERIFY(s->fileResult.assetId.isEmpty());
-    QCOMPARE(importedSpy.count(), 0);
-    QVERIFY(failedSpy.count() >= 1);
-    QCOMPARE(cat->assets().size(), assetsBefore);
-    QCOMPARE(cat->catalogRevision(), revBefore);
-    QCOMPARE(countFiles(rawRoot), rawFilesBefore); // 落位的字节已撤回
-    QVERIFY(!QDir(s->stagingRoot).exists());
-
-    // 同步入口同口径：权限恢复后同一文件照常入库。
+    // 同步入口同口径：写锁释放后同一文件照常入库。
     QString err;
     QVERIFY2(!svc.importProjectFile(las, &err).isEmpty(), qPrintable(err));
     QCOMPARE(cat->assets().size(), assetsBefore + 1);

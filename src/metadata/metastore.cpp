@@ -20,14 +20,14 @@ namespace MetaStore
 {
 
 QSqlDatabase openConnection(const QString &path, const QString &connectionName, QString *error,
-                            bool readOnly)
+                            bool readOnly, int userVersion)
 {
   if (readOnly && !QFileInfo::exists(path))
   {
     // 只读实例不在被锁目录里建库（#80）。
-    setError(error, QStringLiteral("project.sqlite %1 does not exist (read-only instance does not "
+    setError(error, QStringLiteral("%1 %2 does not exist (read-only instance does not "
                                    "create it)")
-                        .arg(path));
+                        .arg(QFileInfo(path).fileName(), path));
     return {};
   }
   QSqlDatabase db = QSqlDatabase::contains(connectionName)
@@ -63,20 +63,21 @@ QSqlDatabase openConnection(const QString &path, const QString &connectionName, 
     const int v = readUserVersion(db, error);
     if (v < 0)
       return {};
-    if (v > kUserVersion)
+    if (v > userVersion)
     {
       setError(error,
-               QStringLiteral("project.sqlite schema user_version %1 is newer than this build "
-                              "supports (%2); refusing to open — upgrade the application")
+               QStringLiteral("%1 schema user_version %2 is newer than this build "
+                              "supports (%3); refusing to open — upgrade the application")
+                   .arg(QFileInfo(path).fileName())
                    .arg(v)
-                   .arg(kUserVersion));
+                   .arg(userVersion));
       return {};
     }
     return db;
   }
   // A rejected future schema leaves its connection in Qt's registry. Always
   // recheck the gate before allowing a store to create or alter any tables.
-  if (!ensureUserVersion(db, error))
+  if (!ensureUserVersion(db, error, userVersion))
     return {};
   return db;
 }
@@ -117,28 +118,29 @@ int readUserVersion(QSqlDatabase &db, QString *error)
   return q.value(0).toInt();
 }
 
-bool ensureUserVersion(QSqlDatabase &db, QString *error)
+bool ensureUserVersion(QSqlDatabase &db, QString *error, int userVersion)
 {
   const int v = readUserVersion(db, error);
   if (v < 0)
     return false;
-  if (v == kUserVersion)
+  if (v == userVersion)
     return true;
-  if (v > kUserVersion)
+  if (v > userVersion)
   {
     setError(error,
-             QStringLiteral("project.sqlite schema user_version %1 is newer than this build "
-                            "supports (%2); refusing to open — upgrade the application")
+             QStringLiteral("%1 schema user_version %2 is newer than this build "
+                            "supports (%3); refusing to open — upgrade the application")
+                 .arg(QFileInfo(db.databaseName()).fileName())
                  .arg(v)
-                 .arg(kUserVersion));
+                 .arg(userVersion));
     return false;
   }
-  // v < kUserVersion（含 0）：新库/遗留库 → 推进到当前版本。
+  // v < userVersion（含 0）：新库/遗留库 → 推进到当前版本。
   QSqlQuery q(db);
-  if (!q.exec(QStringLiteral("PRAGMA user_version = %1").arg(kUserVersion)))
+  if (!q.exec(QStringLiteral("PRAGMA user_version = %1").arg(userVersion)))
   {
     setError(error, QStringLiteral("cannot set PRAGMA user_version to %1: %2")
-                            .arg(kUserVersion)
+                            .arg(userVersion)
                             .arg(q.lastError().text()));
     return false;
   }

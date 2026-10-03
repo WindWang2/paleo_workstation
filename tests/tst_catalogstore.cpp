@@ -614,7 +614,9 @@ void TestCatalogStore::goldenJsonMigratesFieldForField()
   QCOMPARE(probe.links, 2);
   QCOMPARE(probe.journalMode.trimmed().toLower(), QStringLiteral("wal"));
   QCOMPARE(probe.synchronous, 2);
-  QCOMPARE(probe.userVersion, 1);
+  // catalog.sqlite 的 user_version 走独立版本域（kCatalogUserVersion=2）：
+  // 早期构建曾被 project.sqlite 版本门误标 1/2，2 是兼容存量的当前值。
+  QCOMPARE(probe.userVersion, 2);
 
   {
     CatalogStore store;

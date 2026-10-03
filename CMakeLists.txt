@@ -342,6 +342,7 @@ add_library(paleo_domain STATIC
   src/domain/wellrecords.cpp                        # 井文本记录类型 + XML 嗅探（自 io 下沉）
   src/domain/projectclassifier.cpp                  # §3 path/extension classifier + xml sniff
   src/domain/arearules.cpp                          # 工程级参数 seam（docs/AREA_PARAMETERS.md）
+  src/domain/wellsitingplan.cpp                     # 方向34：布井方案纯值类型（指标快照往返）
   src/domain/seismic/nicestep.cpp
   src/domain/seismic/timedepthmodel.cpp
   src/domain/seismic/sectionwellprojector.cpp
@@ -386,6 +387,7 @@ add_library(paleo_store STATIC
   src/metadata/releasestore.cpp
   src/metadata/mapversionstore.cpp                  # 版本/发布状态机落表（meta sqlite）
   src/metadata/metastore.cpp                        # project.sqlite user_version 门
+  src/metadata/wellsitingstore.cpp                  # 方向34：布井方案集单行文档表
   src/metadata/projectlock.cpp                      # 两实例同开一工程写互斥（QLockFile）
 )
 target_link_libraries(paleo_store PUBLIC paleo_deps)

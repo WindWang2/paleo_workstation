@@ -17,10 +17,10 @@ ctest 83/83（验收清单 19 项全过，含新增 tst_ingestplan）+ check_lay
   `lasAt` 签名未动（跨方向消费面零扰动）。
 - 实测（tst_previewdoc，60k 行 × 6 曲线 ≈ 3.5MB 合成 LAS）：header-only
   **0-1ms** vs 全量 **~1160ms**——头部解析与数据行数解耦。
-- **接缝（UI 方向待接线）**：`datapreviewtabs.cpp:1922`（单井曲线页）与
-  `correlationpanel.cpp:546/558`（连井剖面）仍在 GUI 线程同步 `lasAt`——
-  切换面 = 先 `lasHeaderAt` 铺曲线名，再 `requestLas` 补数据、结果挂
-  `lasReady`。
+- **接缝（已接线，2026-10-03 对账）**：旧 `datapreviewtabs.cpp:1922` 是
+  拆分前快照，现行单井页在 `datapreviewtabwelllog.cpp::buildWellLogContent`
+  先铺头部再 `requestLas`，`datapreviewtabs.cpp::onLasReady` 填正文；
+  correlation 的异步消费已在 wave/deepen-perf B1 交付，详见该方向账本。
 
 ### T2 文件夹导入解阻
 - **plan 期搬出 GUI**：`IngestCatalogSource` 只读面（ingestplan.h）两个实现

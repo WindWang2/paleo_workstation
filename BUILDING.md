@@ -9,7 +9,9 @@
 ```
 
 - **TTHW 目标：vendor 引导完成后，首次绿色测试 2–5 分钟**（configure+build+
-  ctest，8 核基线机；全套测试数以 `ctest -N` 为准，不在此写死，实测 ~48s，余量给增量编译）。
+  ctest，8 核基线机）。早期 wave-4 的 ~48s 是当时 62 项测试的历史数据，
+  不代表当前全量；测试数以 `ctest -N` 为准。2026-10-03 的 243 项基线含既有红项，
+  不能声称 TTHW 全绿目标已达成，当前对照见 `docs/progress/job-framework.md` 文末。
 - 引导本身（一次性）：binary 加速档 ~10min（OSGeo4W / deb 闭包 / onnxruntime
   pin）；superbuild 首选路 ≤2h、磁盘 ≥60GB（启用步骤见
   `vendor/superbuild/README.md`，政策见下「依赖来源策略」）。

@@ -27,6 +27,10 @@ tst_ui/tst_panels/tst_composeworkflow/tst_rehydrate/tst_threeway 五个
 | src/workflow/workflows.cpp | 78 | 45 | −42% |
 | src/ui/paleomainwindow.cpp | 78 | 37 | −53% |
 
+此表为 wave/devex-infra 当轮测量快照（测试数与路径均非当前索引）。
+`workflows.cpp` 已拆到五个 workflow 实现文件，现行链接集依然按产品模块 DAG
+取最小闭包，拆 TU 不会自动缩小同一模块静态库的 relink 面。
+
 链上样本（link line 上 paleo 静态档案数）：tst_ui=13（伞式样本）、
 tst_domain=3、tst_crashreport=8、tst_linkage=9、tst_catalog=1。
 
@@ -37,6 +41,13 @@ tst_domain=3、tst_crashreport=8、tst_linkage=9、tst_catalog=1。
 
 附带收益：每测试打 `LABELS`（按 LIBS 首模块），`ctest -L io` /
 `-LE core` 可分步筛选；`ctest -j4` 全套 27.8s（改前串行 ~48s）。
+
+2026-10-03 追加对账：`tst_jobrunner` 不引用 QgisLayer/ProjectService，仅需
+JobRunner 服务与 QgsApplication 的 QtWidgets 依赖；LIBS 改为
+`paleo_services paleo_ui_deps`，移除 `paleo_qgis` 静态库 relink 边。
+`tst_propmodelperf` 的 `paleo_io` 已在 workflow 传递闭包，去掉显式重复项，
+闭包和 relink 面本身不变。两项保留 LIBS 首模块，因此标签口径保持。
+其余点名套件消费真实 QGIS/IO/Workflow/UI 栈，未为了字面短而更换链接归属。
 
 ## T2 ctest 并行竞态根治
 

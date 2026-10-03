@@ -25,14 +25,17 @@
 
 - **What:** 克里金体系深化、完整 SFPKG 导入、外委 XML/XLSX 批量读取、
   参考工程全部历史制图策略、时深域转换、监督分类、打印排版、
-  完整 Python GUI 嵌入，以及有限断层路径距离 `FaultPathMetric`。
+  完整 Python GUI 嵌入。有限断层路径距离 `FaultPathMetric` 已由
+  `src/algorithms/singlefactor/faultpath.{h,cpp}` 落地，并接入 localdirectionalgorithm；
+  回归为 `tst_singlefactor_faultpath` / `tst_singlefactor_parity_completion`，从未实现项勾销。
 - **Why:** 本次交付只做 C++ 局部方向 IDW、软边界、井群权重、硬屏障栅格连通、
   真实数值等值线和显式制图工作场。上游井数超过 80 等条件下的各向异性路径
   会退成 IDW，不能把 UI 标签当成克里金。
-- **Pros:** P0/P1 保持可复算的分析场语义；**Cons:** 路径绕距、历史闭环补接
+- **Pros:** P0/P1 保持可复算的分析场语义；**Cons:** 历史闭环补接
   和批量外委格式要另立项。
 - **Context:** `docs/designs/single-factor-native-integration-plan.md` 第 1 节
-  与第 7.3 节。硬屏障模型是 `grid_connectivity_v1`，不是 `FaultPathMetric`。
+  与第 7.3 节（原方向历史快照）。当前 `localidw.h` 的旧核仍为
+  `grid_connectivity_v1`，生产局部方向作业已能使用独立的 FaultPathMetric 绕行核；两者不混称。
 - **Effort:** human: L / CC: L
 - **Priority:** P2
 - **Depends on:** 单因素原生 P0 分析场进入目标基线
@@ -53,7 +56,7 @@
 
 - **What:** V1 只做等比例 IJK 格架 + 井曲线粗化 + 断层竖帘阻断的 IDW。
   未做 pillar/断块错位网格、Y 型断层、沉积相带/对象建模、序贯高斯模拟，
-  也未做变差函数克里金。壳层「属性建模」dock 已接（fixes 分支）。
+  也未做变差函数克里金。壳层「属性建模」dock 已接并进入 master。
 - **Why:** 断块网格和随机模拟是另一立项。斜井测斜表、断层棒投影也未做。
 - **Pros:** 等比例格架和 IDW 已能出 DERIVED 属性体；**Cons:** 斜井轨迹、
   断距错位和相控仍要另做。
@@ -79,6 +82,49 @@
 - **Depends on:** goal/horizon-autotrack 已落核/2D 闭环/GeoTIFF 上图管线
 
 # TODOS — paleo_workstation
+
+2026-10-03 本次对账补注：新约束声明的 `03_Constraints` 收口到
+`PaleoLayerVocabulary::kConstraintsGroup`；预测/融合的旧产点值及独立兼容断言保持。
+末尾 QScintilla 的「没有接线」是旧轮 2 现场记录，随后的 master 注记已关闭 Linux 阻塞；
+现行 CMake 有 `QSCINTILLA_INCLUDE_DIR` 探测与传播，Windows 真机验证继续递延。
+分层补强条目的「单一 paleo_core 静态库」是旧背景；当前各模块已拆为静态库，
+paleo_core 是 INTERFACE 兼容伞，include 检查仍不能发现不带 include 的违规调用，
+调用级补强继续递延（现行模块契约见 AGENTS.md）。
+首次 configure 漏 glm/saribbon/sbm/segyio include 仍成立，再 configure 一次恢复；
+共享 prefix 的 symlink 与显式 QGIS_PREFIX 见 BUILDING.md，根因修复另立项。
+
+本次 `refactor/dedup-docs-tests` 从指定基线 `3b22a9c` 创建，保留原测试/行为；
+该基线两条探针的红项证据见任务框架账本。文末「已修」来自任务期间另行进入
+master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR 的零漂移改动。
+
+
+## P2 — 结构侧卡 SHA 复验（2026-10-03 去重审查）
+
+- **What:** `constraintfactorjobs.cpp::generateStructuralFactor` 发布记录
+  `structural_sha256`，`prepareAnalysisContourJob` 读取 structural_path 并检存在，
+  `qgis/factorcontour.cpp::generateStructuralContours` 检 JSON/FieldContourSurface/尺寸，
+  尚未比较记录的侧卡 SHA。不要把这些结构检查称为字节完整性复验。
+- **Why:** 内容被改写但格式/尺寸仍合法时，侧卡可影响结构等值线；当前 raster SHA
+  守卫只能保护栅格字节。本次保持行为，后续以独立修复加入 prepare/publish 复验。
+- **Context:** `tests/tst_singlefactor_fieldcontours.cpp` / `tst_factorworkflow.cpp`；
+  建议补合法但被改写的侧卡拒绝及临时产物清理用例，不放宽原阈值。
+- **Effort:** human: S / CC: S；**Depends on:** 三段作业侧卡快照契约。
+
+## P2 — master 验证红项对账（2026-10-03 去重审查）
+
+- **What:** `3b22a9c` 全量基线及保留的同提交二进制隔离复跑确认：
+  `tst_perf_catalog::entitySeqAndShaLookupsAfterReload` 的 SHA 查询有 ver-2/ver-1
+  结果差异（另行进入 master 的 `e8da8cf` 已修，本次原基线结果仅作历史对照）；
+  `tst_cache_las::secondOpenUnder5ms` 未满足磁盘命中耗时 <0.5×冷解析的比率；
+  `tst_wellcomposite_visual::testGoldenImageSampling` 有 17/48 抽样点超容差，门限为 4。
+  `tst_singlefactor_perf::proposedBudgets` 的 L 中位数超 15000ms，master 隔离复跑为 20089ms。
+- **Why:** 这些失败已在重构前出现，需要单独定位；缓存/视觉两项是任务书列举之外
+  的基线红。零漂移 PR 不改断言、预算、golden 或相关行为，发布例外需明确确认。
+- **Context:** `tests/tst_perf_catalog.cpp:587`、`tests/tst_cache_las.cpp:75`、
+  `tests/tst_wellcomposite_visual.cpp:533`、`tests/tst_singlefactor_perf.cpp:213`；
+  完整基线/重构结果和日志名见 `docs/progress/job-framework.md` 文末。
+- **Effort:** human: M / CC: M；**Depends on:** 同一 vendored prefix/Qt 环境复核。
+
 
 ## P3 — 交会分类后续（from goal/crossplot-facies，2026-10-02）
 
@@ -117,9 +163,9 @@
 - **Context:** `docs/PROJECT_AREA_PLAN.md` 第 3 节。触发条件：资产数量或列表查询变慢。**2026-09-30 对账（wave/deepen-perf B4）**：10k/100k 夹具实测查询面零劣化（entityById/linksForEntity/列表/计数全 O(1)，打开 10k 136ms / 100k 1408ms 线性）——触发条件未达，记档收工（数据 docs/perf/BASELINE.md §6）；**新发现** mutator 写路径超线性（10k 6.2s→100k 949.7s，疑二次）另立条目。
 - **Effort:** human: M / CC: S
 - **Priority:** P3
-- **Depends on:** catalog.json 受管 RAW 已能往返
+- **Depends on:** 受管 RAW 已能往返（现行持久层为 catalog.sqlite，JSON 为旧数据迁移入口）
 
-## P3 — catalog mutator 写路径超线性 profiling（from wave/deepen-perf B4, 2026-09-30）
+## ~~P3 — catalog mutator 写路径超线性 profiling（from wave/deepen-perf B4, 2026-09-30）~~（2026-10-01 已关闭）
 
 - **What:** catalog.json 写路径（BatchSave/导入灌库）规模超线性：10k 资产 6.2s、100k 949.7s（≈153×，疑二次——疑与全量重扫/重序列化次数有关）。
 - **Why:** 查询面已 O(1)（邻接索引），写面成为 >50k 资产目录的下一瓶颈。
@@ -128,7 +174,7 @@
 - **Context:** 夹具 `makeSyntheticCatalogDir`（tst_catalog_scale，`PALEO_CATALOG_SCALE` 门控）。触发条件：资产 >50k 或实测导入超分钟。
 - **Effort:** human: M / CC: M
 - **Priority:** P3
-- **Depends on:** catalog.sqlite 条目（如届时已落，写路径一并设计）
+- **Depends on:** 无；SQLite 持久层已落，写路径修复证据见下
 - **2026-10-01 关闭（WP2 goal/data-io-catalog-closure）**：根因=六 mutator 的
   全表快照 COW detach（O(N)/次）+ markStale/nextEntityId/sha/快照查询面线性扫；
   修复=精确 undo 回滚 + 索引化（语义等价由测试钉死）。同机 A/B（RelWithDebInfo）：
@@ -220,8 +266,8 @@
 
 ## P3 — 设计评审递延（from /plan-design-review, 2026-09-25）
 
-- **暗色模式**：DESIGN.md token 结构已支持；需重配全部语义色并验证 canvas 符号在暗底可读性。触发条件：V1 完成且用户提出需求。
-- **简化版编图 composer**：仅图例/比例尺/指北针/图签的聚焦 UI，替代完整 QgsLayout 设计器（D12 的兜底方案）。触发条件：V1 编图页实测显示完整设计器过载。工作量级：月级（重复 src/app 代码），勿投机先建。
+- ~~**暗色模式**~~：2026-09-29 已交付双主题 token/运行时切换与对比度校核；数据符号色与柱状图纸面按 DESIGN.md 豁免。入口 `src/ui/paleotheme.cpp`，回归 `tests/tst_uxtheme.cpp`；不再列为未实现。
+- ~~**简化版编图 composer**~~：2026-09-30 D4 评估已结案，不建第二套 composer；标准导出 + 裁剪设计器满足当前流程。唯一图签缺口继续由上方「标准导出流图签块」跟踪，见 `docs/progress/deepen-perf.md`。
 
 ## P3 — project_area 计划递延（from /autoplan Eng + DX review, 2026-09-26）
 
@@ -236,7 +282,7 @@
 
 ## P3 — autoplan pass-2 递延（2026-09-26）
 
-- **人工验收清单（非代码）**：~~下次真机启动~~ 2026-10-01 真机已启动（master `c891dde`，真工区 `~/projects/paleo_project/data/project_area` 打开渲染正常）。**已验**：① `.running` 崩溃旗标生命周期闭环——强杀残留→下次脏检出、干净退出自清 pid 旗标；历史残留 `.running-*` 不自动清、`.running` 兜底常脏（与 issue #41 同族）。② 966MB SEG-Y 取数路径实测：索引缓存命中 open 271–275ms、IL 64ms/热 63ms、时间片 59/30ms、64³ 体窗 46ms、对角剖面 97ms——无冻结级时长，异步 IO 无需追加排期。③ QWebEngineView 真机探针（同 `AA_ShareOpenGLContexts`，xcb/XWayland）：渲染 OK、WebGL OK、QtWebEngineProcess/沙箱正常；GBM 不可用→Chromium 自动回落 Vulkan；外网 TLS 被本机网络拦（非缺陷）。**观测**：966MB 索引首发时 cache publish 两连败（verify-fail → ENOENT）第三次成功自愈——`ensureLegacyGlobalCacheDir` 护栏覆盖不全，记给 audit-issues 归属。**剩余人工项**：文件夹导入确认对话框手测 + Web 服务 dock 点开目检。触发条件：真机有人。Effort: S / Priority: P2
+- **人工验收清单（非代码）**：~~下次真机启动~~ 2026-10-01 真机已启动（master `c891dde`，真工区 `~/projects/paleo_project/data/project_area` 打开渲染正常）。**已验**：① `.running` 崩溃旗标生命周期闭环——强杀残留→下次脏检出、干净退出自清 pid 旗标；历史残留 `.running-*` 不自动清、`.running` 兜底常脏（与 issue #41 同族）。② 966MB SEG-Y 取数路径实测：索引缓存命中 open 271–275ms、IL 64ms/热 63ms、时间片 59/30ms、64³ 体窗 46ms、对角剖面 97ms——无冻结级时长，异步 IO 无需追加排期。③ QWebEngineView 真机探针（同 `AA_ShareOpenGLContexts`，xcb/XWayland）：渲染 OK、WebGL OK、QtWebEngineProcess/沙箱正常；GBM 不可用→Chromium 自动回落 Vulkan；外网 TLS 被本机网络拦（非缺陷）。**观测**：966MB 索引首发时 cache publish 两连败（verify-fail → ENOENT）第三次成功自愈——`ensureLegacyGlobalCacheDir` 护栏覆盖不全，记给 audit-issues 归属。**2026-10-03 交叉注记**：goal/data-perf 线①（`4dd7808`）已修同族根因——checkpoint 发布降级 best-effort、发布前预建目录、`ReplaceFileAtomically` 3 次退避重试、temp 回读校验区分打不开/读失败/字节不符各一次有界重试；该观测属修复前行为，真机复验仍递延。**剩余人工项**：文件夹导入确认对话框手测 + Web 服务 dock 点开目检。触发条件：真机有人。Effort: S / Priority: P2
 - ~~**「重新定位文件」恢复路径**~~ — 已落地：`relocateVersionSource`（流式 SHA-256 复验、不一致拒解、同 SHA 追加外链版本）+ 预览「重新定位文件…」入口（wave-4 `2c1c8e1`）。
 - **第二工区参数化接缝**：~~外置 seam~~ 已落地——`AreaRules`（层序名单/分类器目录规则/SEG-Y 四偏移/ONNX 网格门，经 `project_area.json` 覆盖，默认=本工区值；`docs/AREA_PARAMETERS.md`，wave-4 `8fc7bb2`）。**遗留**：真接第二个工区时按该文档走通一遍验证 seam 完备性。触发条件：接入第二个工区。Effort: M / Priority: P3
 - **Onto 层位/边界文件的命名规范**：文件名不在 8 个层序界面时产未决层位实体、不进编图 chip——属已交付行为；名单经 `AreaRules.sequenceBoundaries` 可配（wave-4），命名规范文档化随第二工区处理。触发条件：新层序命名。Effort: S / Priority: P4
@@ -248,7 +294,7 @@
 - ~~**大 LAS 同步 `lasAt` 的 UI 线程延迟悬崖**~~ — 已落地（wave/deepen-perf B1）：correlation 链路改 PaleoTaskService quiet 异步 + per-well 世代号 + 同井协作取消，59MB 调用点阻塞 442ms→0ms（见 docs/progress/deepen-perf.md）。
 - ~~**文件夹导入扫描期进度 UX**~~ — 已落地（wave/deepen-perf B2）：队列整体进度/ETA/全部取消 + `FolderImportQueueAdapter` 生产 runner（GAPS G-2.3 收口）。
 - **include 级护栏的调用级补强**：单一 `paleo_core` 静态库下 `check_layering.py` 只挡 include 挡不住「不带 include 直接 new」；若要挡需 clang 插件或拆库。触发条件：发现绕过 include 的违规实例。Effort: M / Priority: P4
-- **图层平台 · 旧组名词表迁移**：`workflows.cpp` 产层仍用 `01_Prediction`/`02_Constraints`/`03_Predict`/`03_Composite`/`00_Data`，页面档案表（`QgisLayerProfileService`）按 canonical 词表（`02_Prediction`/`03_Constraints`/`05_PaleoMap`/`07_Validation`…）匹配，旧组名层在档案应用时按表外隐藏。触发条件：编图链产出层迁移到 canonical 组。Effort: S / Priority: P2
+- **图层平台 · 旧组名词表迁移**：~~`workflows.cpp` 产层仍用 `01_Prediction`/`02_Constraints`/`03_Predict`/`03_Composite`/`00_Data`，页面档案表（`QgisLayerProfileService`）按 canonical 词表（`02_Prediction`/`03_Constraints`/`05_PaleoMap`/`07_Validation`…）匹配，旧组名层在档案应用时按表外隐藏。~~ **已解决（mapping 主线1，2026-10-03 对账）**：词表收口到 `src/qgis/layervocabulary.h`——canonicalize()/groupFamily()/profileContains() 在全部消费面（档案摆树、树面板跳页、页面清单）吸收旧名，旧 .qgz 的 `01_Prediction` 产层不再被表外隐藏；旧名产点按决策保留（历史 .qgz 层引用稳定，新声明面用 canonical；structural 链新产层已直接用 `03_Constraints`）。
 - **图层平台 · 主题重命名**：QgsMapThemeCollection 无 rename API，档案工具条管理对话框已注记「重命名暂未支持」。触发条件：QGIS 提供 rename 或 `QgisLayerProfileService` 增加记录复制通道。Effort: S / Priority: P3
 - ~~**图层平台 · layerId↔assetId 关联面**~~ — 已落地（wave/deepen-perf C4）：七个产物出口 commit 后盖图层自定义属性 `paleoAssetId`（随 .qgz 持久化）+ catalog extra `manifest_layer_id` 权威反链；`LayerPropertiesDialog::assetIdForLayer()` 业务页开闸。catalog 显式关联表（schema 级）仍按原触发条件递延；首跑盖章缺口（层未实例化则盖不上）由 extra 反链兜底 + 重跑幂等补章。
 - ~~**图层平台 · 图层创建时间**~~ — 已落地核实（wave/deepen-perf C4 对账）：`paleoCreatedAt` 盖章链基线已存在，业务页显示正常，无需 schema 变更。
@@ -265,6 +311,10 @@
 - **SBM 未 vendor 面**：`Mesh/`（CgalHorizonMeshBuilder，GPL/LGPL 双许可 CGAL 可选）、`Model/`、`Data/HorizonTextReader`（层位面三维渲染/文本导入——现阶段层位走 QGIS 图层，暂不引）。`Engine/SdkC.h` C ABI 已随库编译但未导出消费方。Effort: S / Priority: P3
 
 ## Completed
+
+本节及下方 wave 决策记录的 commit、行号、性能值、测试数量与分支同步状态是
+各次交付的历史快照；2026-10-03 现状与基线对账见 `docs/progress/job-framework.md`
+末节，开发环境和八路资源纪律以 BUILDING.md 为准。
 
 - **2026-09-26 · project_area 数据底座 + D61 编图链**（p1/p2 双包并入 master）：catalog 实体/资产/版本/显式关联 + SHA-256 受管 RAW；分类器与井口/分层/时深解析；D61 装箱时间栅格；SEG-Y 道索引单测线解码；9 类数据页预览；读侧 facade、D61→D62 厚度→凸包约束 IDW→相多边形；TD 残差验证、三视图联动、PDF 导出、8 层位 chip、版本状态机。`424e185` `f3d9b83` `c994d21`
 - **2026-09-26 · 集成接缝 + 清单读错误诚实化**：ComposePage 经 `layerDeclared` 信号跟随新声明；生产路径全改 `tryDeclared`/错误通道（清单损坏不再被当成空清单）。`fdd2f99` `217502a`
@@ -340,9 +390,12 @@ P1 单井综合柱状图深度升级（D1–D8 全量交付）。逐项决策与
 - **2026-10-02 · 时深转换与速度建模（goal/time-depth-velocity-20261002）**：速度模型核 `src/algorithms/velocitymodel`（层间平均=插值语义锚点位级精确不外推 / V0-k 线性速度函数=TWT 域 2 参数 Gauss-Newton+闭合式可外推；power-2 IDW 空间查询命中即取；JSON 序列化无时间戳幂等；结点二分）；`DepthConversionWorkflow` 编排（catalog tops/time_depth/well_head 关联收集→velocity_model DERIVED 存档→层位时间栅格→depth_raster DERIVED+`depth.<H>` 声明，测网号域透传）；层树右键「转换为深度域…」意图信号+壳接线；剖面左缘深度标尺反投影修正（去常速近似）。真机实测：20 井 9666 结点建模 107ms、层位面 60ms/面（4.3 Mcells/s）、8 面共 489ms、剖面深度轴逐样 298ms。新增测试 4 处 35 用例；详见 docs/progress/time-depth.md。**递延**：TVDSS/KB 基准换算（井位表有 KB 列待确认口径）；V0-k 层段化/三参数与模型对比编辑 UI；时深转换对话框（模型选择/覆盖预览）；地震体整体时深转换（深部重采样）单独立项。
 
 - **已知阻塞：paleo_ui 全量编译缺 QScintilla 头**（2026-10-03 方向20 轮2 撞出，环境问题非代码问题）：`include/qgis/qgscodeeditor.h(30)` 新引入 `#include <Qsci/qsciapis.h>`（该头于 2026-10-02 00:18 随 QGIS 更新加入），而 QScintilla 头只在 `C:/deps/qscintilla-install/include`，`CMakeLists.txt` 与 `cmake/*.cmake` **没有 QScintilla 接线**——`CMAKE_PREFIX_PATH` 含该前缀但不会变成编译期 `-I`。症状是 `layerpropertiesdialog.cpp` 等与 QGIS 代码编辑器无关的 TU 报 C1083。**待定方案**：(a) 给 QGIS 依赖补 QScintilla include/lib 接线；(b) 在不需要代码编辑器的 TU 上断开 `qgscodeeditor.h` 的传递包含。修前 `paleo_ui` 无法全量链接，既有 worktree 靠陈旧 obj 躲过。另：新 worktree **首次** configure 会漏 4 条 `vendor/` include（glm/saribbon/sbm/segyio），**再 configure 一次即恢复**。
+  **2026-10-03 Linux 侧对账（全量收口会话）**：a9ca57b 已在 `cmake/` 补 QScintilla 头前缀接线（warning-only 兜底是 Windows 车道预期行为）；本机（CachyOS / vendored superbuild `build-sb/`）`paleo_ui` 全量编译链接绿（tst_ui_blocking 等链 QGIS 的测试目标全过）——该条目仅剩 Windows 真机验证一件。
 
-- **已知阻塞：GUI 线程探测面扩展的三条探针（方向20 轮5 实测）**：`tst_ui_blocking` 新增三条探针，覆盖任务书点名的另三个面。实测结果如实记账——**探测先于修复，红的不调阈值**：
-  - 🔴 `topologyRebuildIsOffTheUiThread`（**如实红**）：`TopologyGraph::loadTopology`（`src/ui/pages/dataopspanelextra.h:376`）实测 **67.4ms / n=1200 实体+1200 资产+1200 链接，事件循环分片 0**——同步占住 UI 线程。根因是 `nodeById`（同文件 :443）是裸线性扫，总代价 **O(L×(N+M))**；而 `EntityPanel::refresh()` 每次开元数据页都无条件调它（`entitypanel.cpp:1147`）。**待修**：nodeById 加 QHash 索引（改动小、收益直接），或把 loadTopology 整体挪进任务池。
-  - 🟢 `batchSoftDeleteDoesNotRewritePerItem`（**绿**）：逐项软删 40 项耗时 114.8ms，`recycle_bin.json` **实测落盘 0 次**——探针假设的「每项一次全量重写」在当前实现下**不成立**（`save()` 在没有变更时是幂等短路）。故批量软删的 O(N²) 放大风险**未证实**，探针作为回归门保留（若将来 save 改成非幂等即红）。
-  - 🟡 `metadataOpenDoesNotRebuildTopologyInline`（**夹具未对齐，暂不可信**）：实测 0.0ms / 拓扑 0 节点——`EntityPanel::refresh()` 在我的实参形态下早退，没进「单资产」分支。已试过两种形态（`E0/A0` 双非空、`("", A0)`）均 0 节点，**未定位到正确入口**。待补齐后再判红绿。
-  - ⚪ **「连接诊断」在本代码库中不存在**：`diagnos` 的两处命中一处是 `DataCatalog::roleDiagnosis`（O(1) 词表校验，纳秒级），另一处是 `qgislayerservice.cpp:124` 英文注释里的单词 "misdiagnose"。全库无网络/数据库连通性检查、无 QGIS 数据源巡检。**该探测项无对应真实入口**，不是遗漏。
+- **已修（2026-10-03 全量收口）：GUI 线程探测面三条探针**（原方向20 轮5 实测记账）：
+  - ✅ `topologyRebuildIsOffTheUiThread`（原红）：**已修**——`TopologyGraph::nodeById` 由裸线性扫改 QHash 索引（实体/资产各一张 id→行号表，`dataopspanelextra.h`），loadTopology 总代价 O(L×(N+M))→O(N+M+L)。实测 n=1200：端点解析 索引 0.14ms vs 旧线性扫等价参考 5.3ms（比率 0.027）。探针同时重构为 A/B 比率门（原「事件循环分片 ≥2」判据是结构性坏探针：谓词首评即真，循环体永不执行，laps 恒 0，同步/异步都不可能过）；场景构建（~6000 QGraphicsItem）仍同步在 UI 线程、n=1200 实测 ~24ms，「挪任务池」继续递延（收益已从 52-67ms 降到 ~24ms，优先级下调）。
+  - 🟢 `batchSoftDeleteDoesNotRewritePerItem`（绿，保持）：逐项软删 40 项 `recycle_bin.json` 落盘 0 次（save 无变更幂等短路）。作为回归门保留。
+  - ✅ `metadataOpenDoesNotRebuildTopologyInline`（原夹具未对齐）：**夹具已修**——第一版探针在 panel 旁另开一棵 `makeWideCatalog`，而 `EntityPanel::refresh()` 读的是 doc service 背后的 catalog（entitypanel.cpp svc->catalog()），stack catalog 为空 → `assetById(A0)` 落空早退，测到 0.0ms/0 节点假象。现灌库函数（populateWideCatalog）直接灌进 makeStack 的 importSvc catalog，`setContext("", A0)+refresh()` 走真实单资产分支：n=800 实测 15.0ms、拓扑 1600 节点、400ms 门内真绿。
+  - ⚪ **「连接诊断」在本代码库中不存在**（原记，维持）：全库无网络/数据库连通性检查、无 QGIS 数据源巡检；`diagnos` 两处命中一为 O(1) 词表校验、一为注释单词。该探测项无对应真实入口。
+  - **同会话另修**（探针验证过程中牵出）：`DataCatalog::commitStore` 增量落盘原按 QSet 哈希序（进程间随机）迭代脏行 upsert，新行按随机序进 sqlite 拿 rowid——重开后 `ORDER BY rowid` 的表序 ≠ 内存表序，`versionBySha256`「表序最先」语义随进程抖动（tst_perf_catalog `entitySeqAndShaLookupsAfterReload` 因此并行偶发红，实为确定性 50% 概率 bug，本机隔离可复现）。修复：脏行按行号升序落盘（与 rewritePrimary 同样忠实序列化内存表序）。
+  - **观察未复现（记档）**：tst_ui_blocking `comprehensiveXmlSubmitIsInstantWhileParsingInPool` 在本会话 19 次执行中 1 次红——异步路径 `currentData().lithologyIntervals.size()` = 299999（期望 300000）。代码面排查：`applyComprehensiveData` 先 `m_data = data` 后发信号（GUI 线程顺序无竞态）、解析器整读非分块、writer/fixture 均确定性；后 15 连跑全绿未复现。XML 解析路径与本轮全部改动无关。留观；再复现时优先查池线程→GUI 交接的 shared_ptr 写读序。

@@ -7,6 +7,16 @@
 **Status**: Completed, Empirically Verified & Re-Checked Against Source Code  
 **Normative Standards**: `AGENTS.md`, `docs/UI_LAYER_PLAN.md`, `docs/PALEO_QGIS_PLAN.md`, `tools/check_layering.py --strict`, ISO C++17 Standard  
 
+**2026-10-03 snapshot note:** This is the 2026-10-01 audit record, not a current
+open-issue list. Its file positions, C++17 reference, test counts and severity
+claims remain historical evidence; current code uses C++20 and registers 243
+CTest suites. The old `src/workflow/workflows.cpp` has been split into
+`validationworkflow.cpp`, `compositionworkflow.cpp`, `predictionworkflow.cpp`,
+`constraintworkflow.cpp` and `constraintfactorjobs.cpp`, with private helpers in
+`workflows_internal.h` / `constraintworkflow_internal.h`. Use `TODOS.md` and
+`docs/progress/job-framework.md` for current reconciliation and test evidence;
+this refactor does not reopen or independently revalidate every audit claim.
+
 ---
 
 ## 1. Executive Summary & Audit Scorecard

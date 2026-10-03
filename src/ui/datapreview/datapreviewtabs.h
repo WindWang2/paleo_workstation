@@ -111,6 +111,13 @@ class DataPreviewTabs : public QWidget
     QPointer<QWidget> m_detailsHost;
     QHash<QString, QPointer<QWidget>> m_detailsOfAsset;
     QWidget *buildContent(const QString &assetId, QWidget *page);
+    // 方向20 轮4：buildContent 的「well_log」分支析出到 datapreviewtabwelllog.cpp。
+    QWidget *buildWellLogContent(DataCatalog *cat, const CatalogAsset &asset,
+                                 const CatalogVersion &v, const QString &abs,
+                                 const QString &assetId,
+                                 const QVector<QPair<QString, QString>> &wells, bool auxOnly,
+                                 const QVector<EntityAssetLink> &links,
+                                 QWidget *host, QVBoxLayout *lay);
     // 方向20 轮4：buildContent 的「horizon」分支析出到 datapreviewtabhorizon.cpp。
     QWidget *buildHorizonContent(DataCatalog *cat, const CatalogAsset &asset,
                                  const CatalogVersion &v, const QString &assetId,

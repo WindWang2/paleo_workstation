@@ -1,6 +1,8 @@
 // 层：功能
 #pragma once
 
+#include "workflowerrors_internal.h"
+
 #include <QDateTime>
 #include <QMetaType>
 #include <QString>
@@ -33,13 +35,6 @@ class DerivedAssetRegistrar;
 #endif
 
 namespace paleo::workflow_detail {
-
-/// 三段式各段统一的失败文案落点：*error 非空才写。
-inline void setError( QString *error, const QString &text )
-{
-  if ( error )
-    *error = text;
-}
 
 /// 结果图层 id ↔ 资产 id 的互链（写在 QgsMapLayer 的自定义属性上）。
 /// QgisLayerService/QgsMapLayer 只在 .cpp 侧可见，故这里只前向声明。

@@ -679,4 +679,3 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
   emit factorDone( horizon, decl.layerId );
   return true;
 }
-

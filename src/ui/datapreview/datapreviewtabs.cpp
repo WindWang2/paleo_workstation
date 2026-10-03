@@ -974,6 +974,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     }
   }
 
+  if (asset.type == QLatin1String("well_log") && !auxOnly)
     return buildWellLogContent(cat, asset, v, abs, assetId, wells, auxOnly,
                               links, host, lay);
 
@@ -1067,10 +1068,13 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     return host;
   }
 
+  if (asset.type == QLatin1String("horizon"))
     return buildHorizonContent(cat, asset, v, assetId, linkedBoundary, host, lay);
 
+  if (asset.type == QLatin1String("seismic"))
     return buildSeismicContent(cat, asset, v, abs, assetId, links, host, lay);
 
+  if (asset.type == QLatin1String("image_reference"))
     return buildImageReferenceContent(cat, asset, v, abs, assetId, host, lay);
 
   if (asset.type == QLatin1String("document"))

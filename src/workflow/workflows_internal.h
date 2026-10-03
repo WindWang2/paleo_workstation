@@ -295,4 +295,3 @@ inline QString writeOnnxRaster( const QString &path, const QVector<float> &value
 }
 #endif
 } // namespace paleo::workflow_detail
-

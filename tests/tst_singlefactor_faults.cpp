@@ -340,7 +340,7 @@ void TestSingleFactorFaults::readOnlyArtifactsLeavePriorVersion()
   {
     // root（POSIX）忽略目录 mode 位，chmod 挡不住写——此时跳过而非伪通过。
     // Windows 无 geteuid，按「非特权」处理（只读属性对普通用户有效）。
-    const bool elevated = false;
+    bool elevated = false;
 #ifndef Q_OS_WIN
     elevated = (::geteuid() == 0);
 #endif

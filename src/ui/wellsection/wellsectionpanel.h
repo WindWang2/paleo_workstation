@@ -56,12 +56,17 @@ class WellSectionPanel : public QWidget
     void setHighlightEnabled(bool on);
     bool seismicEnabled() const { return m_seismicOn; }
     void setSeismicEnabled(bool on); // on + ≥2 井 → seismicRequested
-    QString flattenTop() const { return m_flattenTop; }
-    void setFlattenTop(const QString &top); // "" = 不拉平
+    QString flattenTop() const { return m_datum.flattenTop; }
+    void setFlattenTop(const QString &top); // "" = 不拉平（糖接口：切 Flatten）
+    wellsection::Datum datum() const { return m_datum; }
+    // 基准面三模式（井深/海拔/拉平）：只改视图偏移与轴标签，井数据不动。
+    void setDatum(const wellsection::Datum &d);
     void fitToView();
     // 版头 + 全幅图体导出到 paper 底图（scale 缩放像素）。
     QImage renderImage(double scale = 1.0) const;
     bool exportTo(const QString &path) const; // .png / .pdf
+    // 层位井深表 CSV 文本（基准面模式列在表头；MD 值不随模式变）。
+    QString topsCsv() const;
 
     // ---- 测试钩子 ----
     int linkCount() const;
@@ -96,6 +101,7 @@ class WellSectionPanel : public QWidget
     void openWellsDialog();
     void openTracksDialog();
     void applyThemeFromMenu(const QString &id); // 用户动作 → 写设置
+    void applyDatumFromMenu(const wellsection::Datum &d); // 用户动作 → 写设置
     void applyTemplateFromDialog(const wellsection::SectionTemplate &t);
     void syncToolbarState();
     void ensureActiveIntervalVisible();
@@ -118,7 +124,7 @@ class WellSectionPanel : public QWidget
     QStringList m_warnings;
     QString m_hoverText;
     QString m_selectedId;
-    QString m_flattenTop; // 空 = 不拉平
+    wellsection::Datum m_datum; // 基准面（默认井深；空 flattenTop 的 Flatten 视作 Depth）
 
     QGraphicsScene *m_scene = nullptr;
     wellsectionui::View *m_view = nullptr;

@@ -39,10 +39,12 @@ struct TimeDepth {
   double twtAt(double md) const;
 };
 
-// 剖面上的一口井。tops 按 MD 升序（仅含有限 MD 的分层）。
+// 剖面上的一口井。tops 按 MD 升序（仅含有限 MD 的分层）。kb 为补心海拔
+// （米，海平面以上为正；缺数据 = 0 → 海拔模式退化为井深模式）。
 struct Well {
   QString id, name;
   double x = qQNaN(), y = qQNaN();
+  double kb = 0.0;
   double totalDepth = qQNaN();
   QVector<Top> tops;
   QVector<Curve> curves;
@@ -76,14 +78,31 @@ QStringList orderedTopNames(const QVector<Well> &wells);
 // 拉平偏移 = 该井 flattenTop 的 MD；空名或缺该顶 → 0。
 double flattenOffset(const Well &w, const QString &flattenTop);
 
+// 基准面：显示深 = MD − datumOffset（井数据永不因模式改写）。
+// Depth = 井口起算原样；Elevation = 补心海拔归零（各井按 kb 挂齐，
+// kb 缺省 0 时与 Depth 等价）；Flatten = 指定标志层顶归零（其余层按
+// 相对高程重排）。模式切换仅改视图偏移与轴标签——拉平不变量的落点。
+enum class DatumMode { Depth = 0, Elevation = 1, Flatten = 2 };
+struct Datum {
+  DatumMode mode = DatumMode::Depth;
+  QString flattenTop; // Flatten 模式的基准层名（空 → 视作 Depth）
+  bool operator==(const Datum &o) const {
+    return mode == o.mode && flattenTop == o.flattenTop;
+  }
+  bool operator!=(const Datum &o) const { return !(*this == o); }
+};
+double datumOffset(const Well &w, const Datum &d);
+QString datumLabel(DatumMode mode); // 轴/表头用：「井深 m」/「海拔 m」/「拉平 m」
+
 struct DepthWindow {
   double top = 0.0;
   double base = 100.0;
 };
-// 显示深度窗口（显示深 = MD − 拉平偏移）：各井 [首顶, 末顶] 的并集；
+// 显示深度窗口（显示深 = MD − 基准面偏移）：各井 [首顶, 末顶] 的并集；
 // 全井无顶 → 有限曲线深度范围的并集；仍无 → {0,100}。两端外扩
 // max(5 m, 4% 跨度)，保证 top < base（最小 1 m）。
 DepthWindow depthWindow(const QVector<Well> &wells, const QString &flattenTop);
+DepthWindow depthWindow(const QVector<Well> &wells, const Datum &datum);
 
 // 地层厚度段：顶 = activeTop，底 = baseTop（须 > 顶，否则无底）。
 struct Interval {
@@ -105,6 +124,16 @@ struct LithoInterval {
 };
 QVector<LithoInterval> inferSandShale(const Curve &gr, double cutoff,
                                       double minThicknessM = 0.5);
+
+// 层位井深表（导出 CSV 用）：每井每顶一行 [井名, 顶名, MD]。
+// 基准面模式只进首行标记（井名, 顶名两列后附 datumLabel 列），井深数值
+// 不随模式变——模式切换前后 MD 列逐行相等是拉平不变量。
+struct TopsTable {
+  QStringList header;
+  QVector<QStringList> rows;
+  QString csv() const; // UTF-8；含逗号/引号/换行的格加引号转义
+};
+TopsTable topsTable(const QVector<Well> &wells, const Datum &datum);
 
 // 井间地震缝：reason 非空 = 不可绘（文字填缝）。values 行主序
 // [sample*columns + column]，NaN 无效。column 0 = 左井端。

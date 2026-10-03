@@ -44,6 +44,16 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
         s.value(QStringLiteral("wellSection/highlight"), true).toBool();
     m_seismicOn =
         s.value(QStringLiteral("wellSection/seismic"), false).toBool();
+    const int mode = s.value(QStringLiteral("wellSection/datumMode"),
+                             int(wellsection::DatumMode::Depth)).toInt();
+    m_datum.mode = mode == int(wellsection::DatumMode::Elevation)
+                       ? wellsection::DatumMode::Elevation
+                       : (mode == int(wellsection::DatumMode::Flatten)
+                              ? wellsection::DatumMode::Flatten
+                              : wellsection::DatumMode::Depth);
+    if (m_datum.mode == wellsection::DatumMode::Flatten)
+      m_datum.flattenTop = s.value(QStringLiteral("wellSection/datumTop"))
+                               .toString();
     const QByteArray tj =
         s.value(QStringLiteral("wellSection/template")).toByteArray();
     if (!tj.isEmpty())
@@ -54,6 +64,7 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
   }
   m_st.theme = wellsection::SectionTheme::byId(m_themeId);
   m_st.tpl = m_tpl;
+  m_st.datum = m_datum;
 
   m_scene = new QGraphicsScene(this);
   m_scene->setBackgroundBrush(m_st.theme.paper);
@@ -98,7 +109,7 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
   m_themeBtn = mkBtn("wellSectionThemeButton", "propertyicons/symbology.svg",
                      tr("剖面显示主题与高亮"));
   m_flattenBtn = mkBtn("wellSectionFlattenButton", "mActionAlignTop.svg",
-                       tr("按某一分层拉平剖面"));
+                       tr("基准面：井深 / 海拔 / 按分层拉平"));
   m_seismicBtn = mkBtn("wellSectionSeismicButton", "mIconRasterLayer.svg",
                        tr("井间叠加地震剖面（按时深关系自适应缩放）"));
   m_seismicBtn->setCheckable(true);
@@ -148,27 +159,43 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
   m_themeBtn->setMenu(m_themeMenu);
   m_themeBtn->setPopupMode(QToolButton::InstantPopup);
 
-  // 拉平菜单：不拉平 + 剖面全部顶名。
+  // 基准面菜单：井深 / 海拔（补心） / 按分层拉平（任一标志层）。
+  // 模式切换只改视图偏移与轴标签，井深数据永不改写（拉平不变量）。
   m_flattenMenu = new QMenu(m_flattenBtn);
   connect(m_flattenMenu, &QMenu::aboutToShow, this, [this] {
     m_flattenMenu->clear();
-    QAction *off = m_flattenMenu->addAction(tr("不拉平"));
-    off->setCheckable(true);
-    off->setChecked(m_flattenTop.isEmpty());
-    connect(off, &QAction::triggered, this,
-            [this] { setFlattenTop(QString()); });
+    const auto addMode = [this](const QString &title,
+                                wellsection::DatumMode mode) {
+      QAction *a = m_flattenMenu->addAction(title);
+      a->setCheckable(true);
+      a->setChecked(m_datum.mode == mode);
+      connect(a, &QAction::triggered, this, [this, mode] {
+        wellsection::Datum d = m_datum;
+        d.mode = mode;
+        if (mode != wellsection::DatumMode::Flatten)
+          d.flattenTop.clear();
+        applyDatumFromMenu(d);
+      });
+      return a;
+    };
+    addMode(tr("井深（MD）"), wellsection::DatumMode::Depth);
+    addMode(tr("海拔（补心基准）"), wellsection::DatumMode::Elevation);
+    m_flattenMenu->addSeparator();
     for (const QString &name : wellsection::orderedTopNames(m_st.wells))
     {
-      QAction *a = m_flattenMenu->addAction(name);
+      QAction *a = m_flattenMenu->addAction(tr("拉平于 %1").arg(name));
       a->setCheckable(true);
-      a->setChecked(name == m_flattenTop);
-      connect(a, &QAction::triggered, this,
-              [this, name] { setFlattenTop(name); });
+      a->setChecked(m_datum.mode == wellsection::DatumMode::Flatten &&
+                    m_datum.flattenTop == name);
+      connect(a, &QAction::triggered, this, [this, name] {
+        applyDatumFromMenu(
+            wellsection::Datum{wellsection::DatumMode::Flatten, name});
+      });
     }
   });
   m_flattenBtn->setMenu(m_flattenMenu);
   m_flattenBtn->setPopupMode(QToolButton::InstantPopup);
-  m_flattenBtn->setCheckable(true); // 拉平期间按钮呈按下态
+  m_flattenBtn->setCheckable(true); // 非井深模式期间按钮呈按下态
 
   connect(m_wellsBtn, &QToolButton::clicked, this,
           [this] { openWellsDialog(); });
@@ -431,12 +458,37 @@ void WellSectionPanel::setSeismicEnabled(bool on)
 
 void WellSectionPanel::setFlattenTop(const QString &top)
 {
-  m_flattenTop = top;
+  setDatum(top.isEmpty()
+               ? wellsection::Datum{wellsection::DatumMode::Depth, QString()}
+               : wellsection::Datum{wellsection::DatumMode::Flatten, top});
+}
+
+void WellSectionPanel::setDatum(const wellsection::Datum &d)
+{
+  wellsection::Datum nd = d;
+  if (nd.mode == wellsection::DatumMode::Flatten && nd.flattenTop.isEmpty())
+    nd.mode = wellsection::DatumMode::Depth; // 空 flattenTop 视作井深
+  if (nd == m_datum)
+    return;
+  m_datum = nd;
   rebuildFiltered();
   applyLayout();
   if (m_autofit)
     fitToView();
   syncToolbarState();
+}
+
+void WellSectionPanel::applyDatumFromMenu(const wellsection::Datum &d)
+{
+  setDatum(d);
+  QSettings s = panelSettings();
+  s.setValue(QStringLiteral("wellSection/datumMode"), int(m_datum.mode));
+  s.setValue(QStringLiteral("wellSection/datumTop"), m_datum.flattenTop);
+}
+
+QString WellSectionPanel::topsCsv() const
+{
+  return wellsection::topsTable(m_st.wells, m_datum).csv();
 }
 
 void WellSectionPanel::fitToView()
@@ -560,8 +612,9 @@ void WellSectionPanel::rebuildFiltered()
   m_st.wells = wellsection::filterTops(m_wells, m_tpl);
   m_st.offsets.clear();
   for (const auto &w : m_st.wells)
-    m_st.offsets << wellsection::flattenOffset(w, m_flattenTop);
-  m_st.window = wellsection::depthWindow(m_st.wells, m_flattenTop);
+    m_st.offsets << wellsection::datumOffset(w, m_datum);
+  m_st.window = wellsection::depthWindow(m_st.wells, m_datum);
+  m_st.datum = m_datum;
   m_st.zoneOrder = wellsection::orderedTopNames(m_st.wells);
   m_st.tpl = m_tpl;
   m_st.seismicOn = m_seismicOn;
@@ -649,6 +702,10 @@ void WellSectionPanel::updateStatus()
   else if (m_wells.size() >= 2)
   {
     QString s = tr("%1 口井").arg(m_wells.size());
+    if (m_datum.mode == wellsection::DatumMode::Elevation)
+      s += tr(" · 海拔基准");
+    else if (m_datum.mode == wellsection::DatumMode::Flatten)
+      s += tr(" · 拉平于 %1").arg(m_datum.flattenTop);
     if (!highlightedFormation().isEmpty())
     {
       s += tr(" · 高亮 %1").arg(m_st.activeTop);
@@ -794,7 +851,7 @@ void WellSectionPanel::syncToolbarState()
     m_seismicBtn->setChecked(m_seismicOn);
   }
   if (m_flattenBtn)
-    m_flattenBtn->setChecked(!m_flattenTop.isEmpty());
+    m_flattenBtn->setChecked(m_datum.mode != wellsection::DatumMode::Depth);
   if (m_themeMenu)
     for (QAction *a : m_themeMenu->actions())
       if (a->isCheckable() && !a->data().isNull())

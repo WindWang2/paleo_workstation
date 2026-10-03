@@ -20,6 +20,7 @@ struct RenderState {
   QVector<wellsection::Well> wells;    // tops 已按模板过滤
   QVector<double> offsets;             // 每井拉平偏移（与 wells 等长）
   wellsection::DepthWindow window;     // 显示深度窗口
+  wellsection::Datum datum;            // 基准面（深度道轴标签随模式切换）
   wellsection::SectionTemplate tpl;
   wellsection::SectionTheme theme;
   wellsection::SeismicStrip strip;

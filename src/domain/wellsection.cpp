@@ -87,13 +87,41 @@ double flattenOffset(const Well &w, const QString &flattenTop) {
   return std::isfinite(md) ? md : 0.0;
 }
 
+double datumOffset(const Well &w, const Datum &d) {
+  switch (d.mode) {
+  case DatumMode::Flatten:
+    return flattenOffset(w, d.flattenTop);
+  case DatumMode::Elevation:
+    return std::isfinite(w.kb) ? w.kb : 0.0;
+  case DatumMode::Depth:
+    break;
+  }
+  return 0.0;
+}
+
+QString datumLabel(DatumMode mode) {
+  switch (mode) {
+  case DatumMode::Elevation:
+    return QStringLiteral("海拔 m");
+  case DatumMode::Flatten:
+    return QStringLiteral("拉平 m");
+  case DatumMode::Depth:
+    break;
+  }
+  return QStringLiteral("井深 m");
+}
+
 DepthWindow depthWindow(const QVector<Well> &wells, const QString &flattenTop) {
+  return depthWindow(wells, Datum{DatumMode::Flatten, flattenTop});
+}
+
+DepthWindow depthWindow(const QVector<Well> &wells, const Datum &datum) {
   double top = qQNaN(), base = qQNaN();
   bool anyTops = false;
   for (const Well &w : wells)
     anyTops = anyTops || !w.tops.isEmpty();
   for (const Well &w : wells) {
-    const double off = flattenOffset(w, flattenTop);
+    const double off = datumOffset(w, datum);
     double lo = qQNaN(), hi = qQNaN();
     if (anyTops) {
       for (const Top &t : w.tops) {
@@ -155,6 +183,61 @@ Interval formationInterval(const Well &w, const QString &activeTop,
   }
   return out;
 }
+
+namespace {
+QString csvCell(const QString &s) {
+  if (!s.contains(QLatin1Char(',')) && !s.contains(QLatin1Char('"')) &&
+      !s.contains(QLatin1Char('\n')) && !s.contains(QLatin1Char('\r')))
+    return s;
+  QString out;
+  out.reserve(s.size() + 2);
+  out += QLatin1Char('"');
+  for (const QChar c : s) {
+    if (c == QLatin1Char('"'))
+      out += QLatin1Char('"');
+    out += c;
+  }
+  out += QLatin1Char('"');
+  return out;
+}
+} // namespace
+
+TopsTable topsTable(const QVector<Well> &wells, const Datum &datum) {
+  TopsTable t;
+  if (datum.mode == DatumMode::Flatten && !datum.flattenTop.isEmpty())
+    t.header = {QStringLiteral("井名"), QStringLiteral("顶名"),
+                QStringLiteral("MD(m)"),
+                QStringLiteral("基准面"), datum.flattenTop};
+  else
+    t.header = {QStringLiteral("井名"), QStringLiteral("顶名"),
+                QStringLiteral("MD(m)"), QStringLiteral("基准面"),
+                datumLabel(datum.mode)};
+  t.rows.reserve(wells.size() * 8);
+  for (const Well &w : wells)
+    for (const Top &top : w.tops) {
+      if (!std::isfinite(top.md))
+        continue;
+      t.rows.push_back({w.name, top.name,
+                        QString::number(top.md, 'f', 2)});
+    }
+  return t;
+}
+
+QString TopsTable::csv() const {
+  QStringList lines;
+  QStringList head;
+  for (const QString &h : header)
+    head << csvCell(h);
+  lines << head.join(QLatin1Char(','));
+  for (const QStringList &r : rows) {
+    QStringList cells;
+    for (const QString &c : r)
+      cells << csvCell(c);
+    lines << cells.join(QLatin1Char(','));
+  }
+  return lines.join(QLatin1Char('\n')) + QLatin1Char('\n');
+}
+
 
 QVector<LithoInterval> inferSandShale(const Curve &gr, double cutoff,
                                       double minThicknessM) {

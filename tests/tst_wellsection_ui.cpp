@@ -330,6 +330,65 @@ class TestWellSectionUi : public QObject
                         panel.topLineY("C-4", "D61")) > 1.0);
     }
 
+    // ---- 基准面三模式（Oracle #1：模式切换只动视图，井深表逐行不变）----
+    void datumModesInvariant()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      const double kbs[4] = {30.0, 12.0, -8.0, 22.0};
+      for (int i = 0; i < wells.size(); ++i)
+        wells[i].kb = kbs[i];
+      panel.setSection(wells);
+      const QStringList csvDepth = panel.topsCsv().split(QLatin1Char('\n'));
+
+      // 井深 → 拉平 D61：基准层同高（其余层按相对高程重排）。
+      const double diffBefore = panel.topLineY("C-2", "D61") -
+                                panel.topLineY("C-4", "D61");
+      QVERIFY(std::fabs(diffBefore) > 1.0);
+      panel.setDatum({wellsection::DatumMode::Flatten,
+                      QStringLiteral("D61")});
+      const double ref = panel.topLineY("C-2", "D61");
+      for (const char *id : {"C-2", "A5", "C-1", "C-4"})
+        QVERIFY(std::fabs(panel.topLineY(QLatin1String(id),
+                                         QStringLiteral("D61")) -
+                          ref) <= 0.5);
+      QVERIFY(panel.statusText().contains(QStringLiteral("拉平于")));
+      // 拉平不变量：井深表数据行（非表头）逐行相等。
+      const QStringList csvFlat = panel.topsCsv().split(QLatin1Char('\n'));
+      QCOMPARE(csvFlat.size(), csvDepth.size());
+      for (int i = 1; i < csvFlat.size(); ++i)
+        QCOMPARE(csvFlat.at(i), csvDepth.at(i));
+
+      // 海拔（补心）：状态行标记 + 数据行不变 + 井顶深不动。
+      panel.setDatum({wellsection::DatumMode::Elevation, QString()});
+      QVERIFY(panel.statusText().contains(QStringLiteral("海拔基准")));
+      const QStringList csvElev = panel.topsCsv().split(QLatin1Char('\n'));
+      for (int i = 1; i < csvElev.size(); ++i)
+        QCOMPARE(csvElev.at(i), csvDepth.at(i));
+      QCOMPARE(panel.wells()[0].topMd(QStringLiteral("D61")),
+               wells[0].topMd(QStringLiteral("D61")));
+
+      // 回井深：起伏差恢复；空 flattenTop 的 Flatten 视作井深。
+      panel.setDatum({wellsection::DatumMode::Depth, QString()});
+      const double diffAfter = panel.topLineY("C-2", "D61") -
+                               panel.topLineY("C-4", "D61");
+      QVERIFY(std::fabs(diffAfter - diffBefore) <= 0.5);
+      panel.setDatum({wellsection::DatumMode::Flatten, QString()});
+      QVERIFY(std::fabs(panel.topLineY("C-2", "D61") -
+                        panel.topLineY("C-4", "D61") - diffBefore) <= 0.5);
+
+      // 统一 kb：海拔模式与井深模式几何全等（等价平移）。
+      auto uniform = wells4();
+      for (auto &w : uniform)
+        w.kb = 12.0;
+      WellSectionPanel p2(&ctx);
+      p2.setSection(uniform);
+      const double yD = p2.topLineY("A5", "D53");
+      p2.setDatum({wellsection::DatumMode::Elevation, QString()});
+      QVERIFY(std::fabs(p2.topLineY("A5", "D53") - yD) <= 0.5);
+    }
+
     // 版头点名 → SelectionContext「wellsection」源选中 + wellClicked；
     // 外部源选中回写高亮态。
     void selectionRoundTrip()

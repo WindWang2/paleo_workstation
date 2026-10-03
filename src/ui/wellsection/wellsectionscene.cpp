@@ -413,8 +413,16 @@ void ColumnItem::paintDepthTrack(QPainter *p, const QRectF &trackRect,
   const double yTop = m_st->yForMd(m_index, mdLo);
   const double yBot = m_st->yForMd(m_index, mdHi);
   const int target = qMax(4, int((yBot - yTop) / 60.0));
-  const auto ticks = seismic::NiceStep::GenerateTicks(
-      mdLo, mdHi, yTop, yBot, target, QStringLiteral("%.0f"), true);
+  // 海拔模式：轴标 = kb − MD（补心海拔基准，向上为正）——刻度取整在
+  // 海拔空间做，井深/拉平模式照旧在 MD 空间取整。
+  const auto ticks = m_st->datum.mode == wellsection::DatumMode::Elevation
+                         ? seismic::NiceStep::GenerateTicks(
+                               m_st->wells[m_index].kb - mdHi,
+                               m_st->wells[m_index].kb - mdLo, yBot, yTop,
+                               target, QStringLiteral("%.0f"), true)
+                         : seismic::NiceStep::GenerateTicks(
+                               mdLo, mdHi, yTop, yBot, target,
+                               QStringLiteral("%.0f"), true);
 
   QFont mono = PaleoTheme::monoFont();
   mono.setPointSize(PaleoTheme::kLabelPt);
@@ -851,7 +859,15 @@ void HeaderWidget::paintContents(QPainter *p, double xOffset) const
       }
       else
       {
-        QStringList ls = wrapCaption(tr.displayTitle(), twIn, cfm);
+        // 深度道题注随基准面模式（海拔模式轴标是 kb−MD）。
+        QString title = tr.displayTitle();
+        if (tr.kind == wellsection::TrackKind::Depth &&
+            m_st->datum.mode == wellsection::DatumMode::Elevation)
+          title = QObject::tr("海拔/m");
+        if (tr.kind == wellsection::TrackKind::Depth &&
+            m_st->datum.mode == wellsection::DatumMode::Flatten)
+          title = QObject::tr("拉平/m");
+        QStringList ls = wrapCaption(title, twIn, cfm);
         QColor col = m_st->theme.text;
         if (tr.kind == wellsection::TrackKind::Curve && !tr.curves.isEmpty())
         {

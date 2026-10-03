@@ -259,6 +259,73 @@ private slots:
     QVERIFY(qMetaTypeId<QVector<wellsection::Well>>() >= 0);
     QVERIFY(qMetaTypeId<wellsection::SeismicStrip>() >= 0);
   }
+
+  // ---- 基准面三模式（Oracle #1：拉平不变量）----
+  void datumModes() {
+    Well w1, w2;
+    w1.kb = 100.0;
+    w1.tops = {{"A", 1000}, {"B", 2000}};
+    w2.kb = 80.0;
+    w2.tops = {{"A", 950}, {"B", 1950}};
+    const QVector<Well> ws = {w1, w2};
+
+    // 井深：零偏移；海拔：各自 kb；拉平：各自基准顶 MD（缺顶/空名 → 0）。
+    for (const Well &w : ws) {
+      QCOMPARE(datumOffset(w, Datum{DatumMode::Depth, QString()}), 0.0);
+      QCOMPARE(datumOffset(w, Datum{DatumMode::Elevation, QString()}), w.kb);
+      QCOMPARE(datumOffset(w, Datum{DatumMode::Flatten, "A"}),
+               flattenOffset(w, "A"));
+      QCOMPARE(datumOffset(w, Datum{DatumMode::Flatten, "Z"}), 0.0);
+      QCOMPARE(datumOffset(w, Datum{DatumMode::Flatten, QString()}), 0.0);
+    }
+    // 拉平 A：两井 A 顶显示深同为 0；并集 [0,1000] span 1000 → pad 40。
+    const auto flat = depthWindow(ws, Datum{DatumMode::Flatten, "A"});
+    QCOMPARE(flat.top, -40.0);
+    QCOMPARE(flat.base, 1040.0);
+    // 海拔：显示并集 [870,1900] span 1030 → pad 41.2。
+    const auto elev = depthWindow(ws, Datum{DatumMode::Elevation, QString()});
+    QCOMPARE(elev.top, 870.0 - 41.2);
+    QCOMPARE(elev.base, 1900.0 + 41.2);
+    // 旧 QString 重载委托新口径（Flatten）。
+    QCOMPARE(depthWindow(ws, QString("A")).top, flat.top);
+    QCOMPARE(datumLabel(DatumMode::Depth), QStringLiteral("井深 m"));
+    QCOMPARE(datumLabel(DatumMode::Elevation), QStringLiteral("海拔 m"));
+    QCOMPARE(datumLabel(DatumMode::Flatten), QStringLiteral("拉平 m"));
+  }
+
+  void topsTableInvariant() {
+    Well w1, w2;
+    w1.name = "W1";
+    w1.kb = 100.0;
+    w1.tops = {{"A", 1000.25}, {"B", 2000}};
+    w2.name = "W2";
+    w2.tops = {{"A", 950}, {"B", 1950}};
+    const QVector<Well> ws = {w1, w2};
+    QVector<TopsTable> tables;
+    tables << topsTable(ws, Datum{DatumMode::Depth, QString()})
+           << topsTable(ws, Datum{DatumMode::Elevation, QString()})
+           << topsTable(ws, Datum{DatumMode::Flatten, "A"});
+    // 行数一致（2 井 × 2 顶），MD 列逐行相等——模式切换不改井深表数值
+    //（拉平不变量：仅视图基准变化）。
+    for (const TopsTable &t : tables)
+      QCOMPARE(t.rows.size(), 4);
+    for (int r = 0; r < 4; ++r)
+      for (int i = 1; i < tables.size(); ++i) {
+        QCOMPARE(tables[i].rows[r][0], tables[0].rows[r][0]); // 井名
+        QCOMPARE(tables[i].rows[r][1], tables[0].rows[r][1]); // 顶名
+        QCOMPARE(tables[i].rows[r][2], tables[0].rows[r][2]); // MD
+      }
+    // 表头标记随模式；拉平带层名。
+    QCOMPARE(tables[0].header.at(3), QStringLiteral("基准面"));
+    QCOMPARE(tables[0].header.at(4), QStringLiteral("井深 m"));
+    QCOMPARE(tables[1].header.at(4), QStringLiteral("海拔 m"));
+    QCOMPARE(tables[2].header.at(4), QStringLiteral("A"));
+    // CSV：表头 + 4 行 + 末换行；数值 f2。
+    const QString csv = tables[0].csv();
+    QVERIFY(csv.endsWith(QLatin1Char('\n')));
+    QCOMPARE(csv.count(QLatin1Char('\n')), 5);
+    QVERIFY(csv.contains(QStringLiteral("W1,A,1000.25")));
+  }
 };
 
 QTEST_APPLESS_MAIN(TestWellSection)

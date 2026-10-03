@@ -320,6 +320,38 @@ private slots:
     QCOMPARE(w3.tops.size(), 1);
   }
 
+  // 补心海拔链路：catalog 实体 kb → ProjectWell → wellsection::Well
+  //（海拔基准面的取数前提；缺数据井 kb=0，海拔模式退化为井深模式）。
+  void kbPropagation() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataCatalog cat;
+    QString err;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    CatalogEntity e;
+    e.id = QStringLiteral("well-1");
+    e.entityType = QStringLiteral("well");
+    e.name = QStringLiteral("A1");
+    e.hasSurface = true;
+    e.surfaceX = 100;
+    e.surfaceY = 0;
+    e.coordinateStatus = QStringLiteral("untransformed");
+    e.kb = 25.5;
+    QVERIFY2(cat.addEntity(e), "addEntity");
+    WellSectionWorkflow wf(&cat);
+    QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+    wf.request({QStringLiteral("well-1")}, {});
+    QCOMPARE(spy.size(), 1);
+    const auto wells = spy[0][1].value<QVector<wellsection::Well>>();
+    QCOMPARE(wells.size(), 1);
+    QCOMPARE(wells[0].kb, 25.5);
+    // 井深表/偏移走 datum（Elevation → 25.5）。
+    QCOMPARE(wellsection::datumOffset(
+                 wells[0],
+                 wellsection::Datum{wellsection::DatumMode::Elevation, QString()}),
+             25.5);
+  }
+
   void workbenchCalibration() {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());

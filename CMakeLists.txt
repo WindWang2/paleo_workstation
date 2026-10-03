@@ -371,6 +371,7 @@ add_library(paleo_algorithms STATIC
   src/algorithms/singlefactor/cartographicsmooth.cpp # 上游制图平滑折线辅助（纯数学）
   src/algorithms/singlefactor/fieldcontours.cpp      # 上游 field_contours/contour_work_field 移植
   src/algorithms/singlefactor/contourlevels.cpp      # 上游等值线级别助手（_nice_number 等）
+  src/algorithms/wellsiting/wellsiting.cpp           # 方向34：井网覆盖诊断/候选/评估纯核
 )
 target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 
@@ -692,6 +693,7 @@ add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
 add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）
 add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
+add_paleo_test(tst_wellsiting_kernel LIBS paleo_algorithms)  # 方向34：井网辅助纯核（Oracle 1/3）
 add_paleo_test(tst_singlefactor_corridor LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_partition LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_faultpath LIBS paleo_algorithms)

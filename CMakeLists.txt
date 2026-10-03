@@ -441,6 +441,7 @@ target_link_libraries(paleo_linkage PUBLIC paleo_deps paleo_services paleo_qgis 
 add_library(paleo_workflow STATIC
   src/workflow/mappingworkbench.cpp
   src/workflow/workflows.cpp
+  src/workflow/validationworkflow.cpp                # 方向20 轮4：④验证（按类边界析出）
   src/workflow/folderimport.cpp                    # W2 文件夹/单文件导入编排
   src/workflow/projectopen.cpp                     # W2 打开/新建工程编排
   src/workflow/registration.cpp                    # W3 临时配准编排

@@ -115,12 +115,12 @@
 namespace paleo::datapreview_detail {
 
 // token 色 → QSS 大写 #RRGGBB（与 paleotheme 内部 qssHex 同口径，逐字节可比）。
-QString qssHex(const QColor &c)
+inline QString qssHex(const QColor &c)
 {
   return c.name().toUpper();
 }
 
-QLabel *caption8(const QString &text, QWidget *parent)
+inline QLabel *caption8(const QString &text, QWidget *parent)
 {
   auto *l = new QLabel(text, parent);
   QFont f = l->font();
@@ -130,7 +130,7 @@ QLabel *caption8(const QString &text, QWidget *parent)
   return l;
 }
 
-QLabel *stateLabel(const QString &text, QWidget *parent)
+inline QLabel *stateLabel(const QString &text, QWidget *parent)
 {
   auto *l = new QLabel(text, parent);
   l->setAlignment(Qt::AlignCenter);
@@ -140,7 +140,7 @@ QLabel *stateLabel(const QString &text, QWidget *parent)
   return l;
 }
 
-QLabel *warnLabel(const QString &text, QWidget *parent)
+inline QLabel *warnLabel(const QString &text, QWidget *parent)
 {
   auto *l = new QLabel(text, parent);
   PaleoTheme::applyThemedStyleSheet(l, [] {
@@ -152,7 +152,7 @@ QLabel *warnLabel(const QString &text, QWidget *parent)
 
 // 「用系统程序打开」兜底行：按钮 + 就地错误文本（打开失败时浮现）。
 // 预览页不再常驻——只在无内嵌预览或需开原件（office 转换件）时用。
-QWidget *makeOpenExternalRow(const QString &absPath, QWidget *parent)
+inline QWidget *makeOpenExternalRow(const QString &absPath, QWidget *parent)
 {
   auto *row = new QWidget(parent);
   auto *rl = new QHBoxLayout(row);
@@ -176,12 +176,12 @@ QWidget *makeOpenExternalRow(const QString &absPath, QWidget *parent)
 }
 
 // DESIGN.md mono：数值/坐标/深度一律 JetBrains Mono 9pt tnum。
-QFont monoFont()
+inline QFont monoFont()
 {
   return PaleoTheme::monoFont(); // wave3/ux-consistency：共用注册/vendor 路径
 }
 
-QLabel *valueLabel(const QString &text, QWidget *parent, bool mono = false)
+inline QLabel *valueLabel(const QString &text, QWidget *parent, bool mono = false)
 {
   auto *v = new QLabel(text, parent);
   PaleoTheme::applyThemedStyleSheet(v, [] {
@@ -197,7 +197,7 @@ QLabel *valueLabel(const QString &text, QWidget *parent, bool mono = false)
 
 // 预览页内工具条（测区全景 / GeoJSON 相图共用）：surface-alt 底 + 安静按钮组；
 // checked = chip 语义（primary 描边 + 浮起面底，同 ribbonStyleSheet checked 范式）。
-void stylePreviewToolBar(QWidget *bar)
+inline void stylePreviewToolBar(QWidget *bar)
 {
   bar->setObjectName(QStringLiteral("previewToolBar"));
   PaleoTheme::applyThemedStyleSheet(bar, [] {
@@ -216,7 +216,7 @@ void stylePreviewToolBar(QWidget *bar)
   });
 }
 
-void setNumericItem(QTableWidgetItem *it)
+inline void setNumericItem(QTableWidgetItem *it)
 {
   it->setFont(monoFont());
   it->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -350,7 +350,7 @@ static std::unique_ptr<QgsSymbol> createFaciesSymbol(Qgis::GeometryType geomType
 // ---- P2 地图化辅助（井位落图 D2.6/D2.8、等值线 D2.1）----
 
 // 工程局部网格内存点层（井位/分层顶点；私有层不进 QgsProject）。
-QgsVectorLayer *makeMemoryPointLayer( const QString &name, QWidget *owner )
+inline QgsVectorLayer *makeMemoryPointLayer( const QString &name, QWidget *owner )
 {
   const QString wkt = DataCatalog::localGridCrsWkt();
   auto *vl = new QgsVectorLayer(
@@ -361,7 +361,7 @@ QgsVectorLayer *makeMemoryPointLayer( const QString &name, QWidget *owner )
   return vl;
 }
 
-void addMemoryPoint( QgsVectorLayer *vl, double x, double y, const QString &name,
+inline void addMemoryPoint( QgsVectorLayer *vl, double x, double y, const QString &name,
                      const QString &role )
 {
   if ( !vl )
@@ -375,7 +375,7 @@ void addMemoryPoint( QgsVectorLayer *vl, double x, double y, const QString &name
 }
 
 // 井名标注（name 字段直排 + 白晕缓冲）。井位/分层顶点/测区全景共用。
-void applyPointNameLabels( QgsVectorLayer *vl )
+inline void applyPointNameLabels( QgsVectorLayer *vl )
 {
   if ( !vl )
     return;
@@ -399,7 +399,7 @@ void applyPointNameLabels( QgsVectorLayer *vl )
 }
 
 // 点层符号：普通井 #1B73D0 空心圆 + 高亮井加粗描边 + 名称标注开关。
-void stylePointLayer( QgsVectorLayer *vl, bool withLabels )
+inline void stylePointLayer( QgsVectorLayer *vl, bool withLabels )
 {
   if ( !vl )
     return;
@@ -429,7 +429,7 @@ void stylePointLayer( QgsVectorLayer *vl, bool withLabels )
 // 通用「探井」图式（TJLBD1-5）——外细圆环 + 内实心圆盘靶标（圆盘≈0.73
 // 外径，与环间留细缝）。规范默认黑墨；彩色工作图用应用蓝 #1B73D0。
 // 全景是固定内容画布，井位层只有「井位」一种符号。
-void styleSurveyWellLayer( QgsVectorLayer *vl )
+inline void styleSurveyWellLayer( QgsVectorLayer *vl )
 {
   if ( !vl )
     return;
@@ -452,7 +452,7 @@ void styleSurveyWellLayer( QgsVectorLayer *vl )
 
 // 等值线层（D2.1/D5.7）：FactorContourService 产出的 GPKG → 线符号 +
 // ELEV 标注（density：0=关 1=稀疏 2=全部）。
-QgsVectorLayer *makeContourLayer( const QString &gpkgPath, QWidget *owner, int density )
+inline QgsVectorLayer *makeContourLayer( const QString &gpkgPath, QWidget *owner, int density )
 {
   auto *vl = new QgsVectorLayer( gpkgPath + QStringLiteral( "|layername=contours" ),
                                  QObject::tr( "等值线" ), QStringLiteral( "ogr" ) );
@@ -493,7 +493,7 @@ QgsVectorLayer *makeContourLayer( const QString &gpkgPath, QWidget *owner, int d
 // 相字段分类渲染（geojson 预览与 D2.10 同目录叠加共用；D2.4 图例的
 // category 数据也从渲染器读回）。
 // 测井点只用一套圆点。相的差别放在文字上，不放在标记颜色上。
-std::unique_ptr<QgsSymbol> unifiedWellPointSymbol()
+inline std::unique_ptr<QgsSymbol> unifiedWellPointSymbol()
 {
   QVariantMap props;
   props[QStringLiteral( "name" )] = QStringLiteral( "circle" );
@@ -504,7 +504,7 @@ std::unique_ptr<QgsSymbol> unifiedWellPointSymbol()
   return QgsMarkerSymbol::createSimple( props );
 }
 
-QString firstExistingField( QgsVectorLayer *vlayer, std::initializer_list<QString> names )
+inline QString firstExistingField( QgsVectorLayer *vlayer, std::initializer_list<QString> names )
 {
   if ( !vlayer )
     return {};
@@ -517,7 +517,7 @@ QString firstExistingField( QgsVectorLayer *vlayer, std::initializer_list<QStrin
   return {};
 }
 
-void applyFaciesRendererToLayer( QgsVectorLayer *vlayer, const QString &fieldName )
+inline void applyFaciesRendererToLayer( QgsVectorLayer *vlayer, const QString &fieldName )
 {
   if ( !vlayer || !vlayer->isValid() || fieldName.isEmpty() )
     return;
@@ -1454,7 +1454,7 @@ private:
   QString m_tieLabel;
 };
 
-QString catalogProjectDir(const DataCatalog *cat)
+inline QString catalogProjectDir(const DataCatalog *cat)
 {
   if (!cat)
     return {};
@@ -1465,7 +1465,7 @@ QString catalogProjectDir(const DataCatalog *cat)
   return path.left(path.size() - tail.size());
 }
 
-bool sameFilePath(const QString &a, const QString &b)
+inline bool sameFilePath(const QString &a, const QString &b)
 {
   if (a.isEmpty() || b.isEmpty())
     return false;
@@ -1473,7 +1473,7 @@ bool sameFilePath(const QString &a, const QString &b)
 }
 
 // 当前文件体优先；兄弟文件只认本次任务带回且解析成功的文档。
-const QList<LasCurve> *lasBodyFor(const QString &path, const QString &currentPath,
+inline const QList<LasCurve> *lasBodyFor(const QString &path, const QString &currentPath,
                                   const QList<LasCurve> &current,
                                   const QHash<QString, LasDoc> &siblings)
 {
@@ -1492,7 +1492,7 @@ const QList<LasCurve> *lasBodyFor(const QString &path, const QString &currentPat
   return nullptr;
 }
 
-WellComposite::CurveData compositeCurve(const QString &name, const QString &unit,
+inline WellComposite::CurveData compositeCurve(const QString &name, const QString &unit,
                                        const QVector<double> &depths,
                                        const QVector<double> &values, int colorIndex)
 {

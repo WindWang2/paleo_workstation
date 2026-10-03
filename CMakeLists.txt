@@ -768,6 +768,7 @@ add_paleo_test(tst_segy_lines LIBS paleo_io)
 target_compile_definitions(tst_segy_lines PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_seismic_core LIBS paleo_domain)
+add_paleo_test(tst_sgycoordmapper LIBS paleo_domain)  # #135 仿射拟合数值稳定性（中心化最小二乘）
 add_paleo_test(tst_seismic_index LIBS paleo_services)
 add_paleo_test(tst_dataperf_index LIBS paleo_services) # 方向21：索引缓存发布修复回归面
 add_paleo_test(tst_coldstart LIBS paleo_io) # 方向21：数据路径冷启动分段（catalog/索引/LAS 首触 vs 二触）

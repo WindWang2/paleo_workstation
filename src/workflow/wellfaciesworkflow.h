@@ -23,6 +23,8 @@ signals:
 
 private:
   void updateInput(bool restoreCache = true);
+  void loadKeyFromKeychain();
+  int m_configGeneration = 0; // configure() 递增：迟到的钥匙串读结果不覆盖新配置
   QString cachePath() const;
   WellFaciesService m_service;
   WellFaciesConfig m_config;

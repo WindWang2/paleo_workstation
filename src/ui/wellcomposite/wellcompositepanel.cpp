@@ -1,6 +1,7 @@
 // 层：视图
 #include "wellcompositepanel.h"
 #include "../../workflow/wellfaciesworkflow.h"
+#include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -259,13 +260,18 @@ void WellCompositePanel::setupUi()
     QDialog dialog(this); dialog.setWindowTitle(tr("测井相预测服务"));
     auto *form = new QFormLayout(&dialog); form->setContentsMargins(16,16,16,16); form->setSpacing(8);
     QLineEdit url(config.baseUrl.toString()), key(QString::fromUtf8(config.apiKey));
+    url.setPlaceholderText(tr("https://服务地址"));
     key.setEchoMode(QLineEdit::Password);
+    // #133：只接受 https；内网 http 服务须显式勾选并接受明文风险。
+    QCheckBox insecure(tr("允许不加密的 HTTP（API 密钥与井数据将明文传输）"));
+    insecure.setChecked(config.allowInsecureHttp);
     form->addRow(tr("服务地址"), &url); form->addRow(tr("API 密钥"), &key);
+    form->addRow(QString(), &insecure);
     QDialogButtonBox buttons(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
     form->addRow(&buttons);
     connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    if (dialog.exec() == QDialog::Accepted) emit faciesConfigurationRequested(url.text().trimmed(), key.text().trimmed());
+    if (dialog.exec() == QDialog::Accepted) emit faciesConfigurationRequested(url.text().trimmed(), key.text().trimmed(), insecure.isChecked());
   });
 
   // ---- D4.x 导出菜单 ----
@@ -949,8 +955,8 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
   connect(this, &WellCompositePanel::faciesCancelRequested, workflow, &WellFaciesWorkflow::cancel);
   connect(this, &WellCompositePanel::faciesModelsRequested, workflow, &WellFaciesWorkflow::refreshModels);
   connect(this, &WellCompositePanel::faciesModelSelected, workflow, &WellFaciesWorkflow::selectModel);
-  connect(this, &WellCompositePanel::faciesConfigurationRequested, workflow, [workflow](const QString &url, const QString &key) {
-    WellFaciesConfig config; config.baseUrl = QUrl(url); config.apiKey = key.toUtf8(); workflow->configure(config);
+  connect(this, &WellCompositePanel::faciesConfigurationRequested, workflow, [workflow](const QString &url, const QString &key, bool allowInsecureHttp) {
+    WellFaciesConfig config; config.baseUrl = QUrl(url); config.apiKey = key.toUtf8(); config.allowInsecureHttp = allowInsecureHttp; workflow->configure(config);
   });
   connect(workflow, &WellFaciesWorkflow::modelsChanged, this, [this](const QVariantList &models) {
     QSignalBlocker block(m_faciesModel); m_faciesModel->clear();

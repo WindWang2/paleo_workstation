@@ -199,9 +199,9 @@ public:
 
 | # | Oracle | 状态 | 证据 |
 |---|--------|------|------|
-| 1 | 行为保留断言（信号序/取消/失败态） | **部分通过**（1/4 组已迁） | 轮 2：`tst_propworkflow` 3 条异步断言 + 11 个既有用例原样绿 |
+| 1 | 行为保留断言（信号序/取消/失败态） | **通过**（2 处已迁面共 6 条） | 轮 2：`tst_propworkflow` 3 条；轮 3：`tst_factorworkflow` 3 条；两处既有测试均原样绿 |
 | 2 | `tst_jobrunner` 5 条框架断言 | **通过** | 11/11 PASS，见「轮 1 实测」 |
-| 3 | 拆分后既有测试原样绿 | **部分通过** | 轮 2 已迁面的既有测试原样绿；拆分发生在轮 4 |
+| 3 | 拆分后既有测试原样绿 | **待轮 4** | 轮 2/3 已迁面原样绿；`paleo_ui` 整库链接已通（QScintilla 阻塞解除） |
 | 4 | `datapreviewtabs` 拆后预览测试全绿 + 分发覆盖 | 未开始（轮 4） | — |
 | 5 | 探测面每条绿或红进 TODOS | 未开始（轮 5） | — |
 | 6 | 文件规模断言（单文件 ≤1500 行） | 未开始（轮 4） | — |
@@ -379,14 +379,30 @@ FAILED: CMakeFiles/paleo_ui.dir/src/ui/layers/layerpropertiesdialog.cpp.obj
 - 既有 worktree（`fault-surface`）能编出 `paleo_ui.lib`，靠的是它没重编这个 TU
   的陈旧 obj，不代表配置正确。
 
-**处置**：这是环境/构建配置问题，**不在本 PR 修**——按方向 20 的禁区「重构不改
-行为、不夹带无关改动」，修它属于另一个主题（要么给 QGIS 依赖补 QScintilla 的
-include 接线，要么把 `qgscodeeditor.h` 从不需要它的 TU 里断开）。
+**处置（已解决）**：修在**独立分支** `fix/qgis-qscintilla-include`（提交
+`d43123f`，37 行纯新增），**刻意不夹带进方向 20**——它属于环境修复而非本方向的
+重构。做法与 QGIS 既有探测同风格：`QSCINTILLA_PREFIX` 走 cache/env 解析，未给出
+时从既有 `CMAKE_PREFIX_PATH` 逐个前缀自动发现（不给调用方增加传参负担），再挂到
+`paleo_qgis_core_deps`（传播 QGIS 头的同一目标）。只需头不需链库——已核实 QGIS 头
+里 Qsci 只以继承基类与 `INDIC_MAX` 编译期常量的形式出现（0 处 `Qsci::` 调用）。
 
-**对本轮结论的影响**：无。迁移改动的两个 TU 均已在本轮成功编译成 obj
-（`propertymodelworkflow.cpp.obj` 09:47、`paleomainwindow_attach.cpp.obj` 09:51），
-且迁移的运行期行为由 `tst_propworkflow` 15/15 绿证明。**但 `paleo_ui` 的完整
-链接未验证**——故 Oracle 1 记为「部分通过」而非「通过」。
+阻塞解除的实测证据（移植到 jobframe 的已配置 build 上增量验证）：
+
+```text
+$ cmake -S . -B build
+-- QScintilla headers: C:/deps/qscintilla-install/include
+-- Configuring done (3.5s)
+
+$ cmake --build build -j1 --target paleo_ui
+[272/273] Linking CXX static library paleo_ui.lib     # 33m01s
+
+$ ls -la --time-style=+%H:%M build/CMakeFiles/paleo_ui.dir/src/ui/layers/layerpropertiesdialog.cpp.obj
+1275421 12:18 .../layerpropertiesdialog.cpp.obj      # 正是此前失败的那个 TU
+$ ls -la build/paleo_ui.lib
+219982748 12:22 build/paleo_ui.lib
+```
+
+故 `paleo_ui` 整库链接已验证，方向 20 第一次拿到该层完整的编译证据。
 
 顺带记一个 configure 坑：新 worktree 的**首次** configure 会漏掉 4 条 `vendor/`
 include（glm/saribbon/sbm/segyio），症状同样是后续 TU 报 QGIS 头找不到。**再

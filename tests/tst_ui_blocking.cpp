@@ -22,6 +22,10 @@
 #include "../src/services/paleotaskservice.h"
 #include "../src/services/previewdoc.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
+#include "../src/catalog/datacatalog.h"
+#include "../src/ui/pages/dataopspanelextra.h"   // TopologyGraph / EntityOverrideStore
+#include "../src/ui/pages/dataops/dataopscommands.h"  // SoftDeleteCmd / DataOpsContext
+#include "../src/ui/pages/dataops/dataopsmodel.h"     // TagStore / OverrideStore / RecycleBin
 #include "../src/ui/pages/entitypanel.h"
 #include "../src/ui/wellcomposite/wellcompositepanel.h"
 
@@ -128,6 +132,10 @@ class TestUiBlocking : public QObject
     void wellLogPreviewBuildsHeaderOnlyWhileParsingInPool();
     void comprehensiveXmlSubmitIsInstantWhileParsingInPool();
     void entityPanelGeoJsonStatsStreamOffTheUiThread();
+    // ---- 方向20 轮5：探测面扩展（探测先于修复，红的如实进 TODOS） ----
+    void topologyRebuildIsOffTheUiThread();
+    void batchSoftDeleteDoesNotRewritePerItem();
+    void metadataOpenDoesNotRebuildTopologyInline();
 
   private:
     struct Stack
@@ -384,6 +392,225 @@ void TestUiBlocking::entityPanelGeoJsonStatsStreamOffTheUiThread()
   QVERIFY(!details->text().contains(QString::fromUtf8("统计中")));
 }
 
+// ===========================================================================
+// 方向20 轮5：探测面扩展
+//
+// 纪律：**探测先于修复**。这三条探针只回答「该操作现在是否同步占住 UI 线程」，
+// 不在本次改任何生产代码——红的如实进 TODOS.md 标注「已知阻塞」，不许调宽松阈值
+// 让它变绿。
+//
+// 已有覆盖（早于本轮）：LAS 预览两段式、综合柱状图 XML 两段式、GeoJSON 统计流式。
+// 本轮补的三条对应任务书点名的另三个面：元数据打开、实体批量删除、连接诊断。
+// ===========================================================================
+
+namespace
+{
+/// 铺一棵规模足够的 catalog：n 实体 + n 资产 + n 链接。规模要够让「同步重建」
+/// 的耗时显著高于噪声，否则探针没有判别力。
+std::unique_ptr<DataCatalog> makeWideCatalog(const QString &dir, int n, QString *err)
+{
+  auto cat = std::make_unique<DataCatalog>();
+  if (!cat->open(dir, err))
+    return nullptr;
+  // commitStore/save 是 private（catalog 自己在 mutator 里落盘）；这里用公有的
+  // BatchSave 作用域把 N 次落盘收敛成一次——否则造夹具本身就要 N 次全量写盘。
+  {
+    DataCatalog::BatchSave batch(cat.get());
+    for (int i = 0; i < n; ++i)
+    {
+      CatalogEntity e;
+      e.id = QStringLiteral("E%1").arg(i);
+      e.entityType = QStringLiteral("well");
+      e.name = QStringLiteral("井 %1").arg(i);
+      if (!cat->addEntity(e, err))
+        return nullptr;
+    }
+    for (int i = 0; i < n; ++i)
+    {
+      CatalogAsset a;
+      a.id = QStringLiteral("A%1").arg(i);
+      a.type = QStringLiteral("well_log");
+      a.format = QStringLiteral("las");
+      a.displayName = QStringLiteral("log-%1.las").arg(i);
+      if (!cat->addAsset(a, err))
+        return nullptr;
+    }
+    for (int i = 0; i < n; ++i)
+    {
+      EntityAssetLink l;
+      l.entityId = QStringLiteral("E%1").arg(i);
+      l.assetId = QStringLiteral("A%1").arg(i);
+      l.role = QStringLiteral("well_log");
+      l.entityType = QStringLiteral("well");
+      if (!cat->addLink(l, err))
+        return nullptr;
+    }
+    if (!batch.flush(err))
+      return nullptr;
+  }
+  return cat;
+}
+} // namespace
+
+// ---- 探针 1：拓扑重建（loadTopology）当前是同步还是异步 --------------------
+void TestUiBlocking::topologyRebuildIsOffTheUiThread()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QString err;
+  // 规模：1200 实体 + 1200 资产 + 1200 链接。loadTopology 的 nodeById 是裸
+  // 线性扫（dataopspanelextra.h:443），总代价 O(L×(N+M))——这个规模下同步重建
+  // 应该是数十毫秒量级，异步则是个位数。
+  const int n = 1200;
+  auto cat = makeWideCatalog(dir.path(), n, &err);
+  QVERIFY2(cat != nullptr, qPrintable(err));
+  QCOMPARE(cat->entities().size(), n);
+  QCOMPARE(cat->assets().size(), n);
+
+  DataCatalog *raw = cat.get();
+  paleo::dataops::EntityOverrideStore overrides;
+  paleo::dataops::TopologyGraph graph;
+
+  // 探活：QEventDispatcher 的 aboutToBlock 就是「有人开始同步占住事件循环」的
+  // 钩子。这里用「同步重建期间事件循环能分片进出」作判据（与 F1/F2/F3 同款）。
+  QElapsedTimer clock;
+  clock.start();
+  const int laps = waitUntil(
+      [&] {
+        graph.loadTopology(raw, overrides);
+        return true;
+      },
+      60000);
+  const double totalMs = double(clock.nsecsElapsed()) / 1.0e6;
+
+  qInfo("拓扑重建（n=%d）耗时 %.1fms，事件循环分片 %d", n, totalMs, laps);
+  QCOMPARE(graph.nodeCount(), n * 2); // 实体 + 资产各一个节点
+
+  // 判据：同步重建期间事件循环只能分 1 片（第一次 processEvents 就把整个重建
+  // 等完了）。若将来 loadTopology 走任务池，这里会 ≥2 片。
+  // 现在它是同步的 —— 下面的 QVERIFY2 如实把当前状态记为红，修复后自动转绿。
+  QVERIFY2(laps >= 2,
+           qPrintable(QStringLiteral(
+                          "拓扑重建同步占住 UI 线程（%1ms 只分 1 片事件循环）——"
+                          "已知阻塞：TopologyGraph::loadTopology 的 nodeById 是裸线性扫，"
+                          "总代价 O(L×(N+M))，每次开元数据页都在 GUI 线程上全量重建")
+                          .arg(totalMs, 0, 'f', 1)));
+}
+
+// ---- 探针 2：批量软删是否逐项重写 -----------------------------------------
+void TestUiBlocking::batchSoftDeleteDoesNotRewritePerItem()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QString err;
+  const int n = 40;
+  auto cat = makeWideCatalog(dir.path(), n, &err);
+  QVERIFY2(cat != nullptr, qPrintable(err));
+
+  // 计量：软删 N 项时 recycle_bin.json 被落盘几次。现状 pushCommand 每项都
+  // push 一次命令、每次命令 redo() 里 save() 一次、每次 save() 全量重写
+  // recycle_bin.json（dataopsmodel.h:403）——即 N 次。
+  // 期望：一次批量只落盘一次（末尾合并），或至少不随 N 线性放大。
+  //
+  // 判据取「sidecar 文件的写入次数」而非墙钟时间——时间会被文件系统缓存污染，
+  // 次数不会。这与 F1/F2 的「比率门」是同一思路的另一种落法。
+  // sidecar 真路径：<projectDir>/.paleo/<name>（dataopsmodel.h:53）
+  const QString recyclePath =
+      QDir(dir.path()).filePath(QStringLiteral(".paleo/recycle_bin.json"));
+  DataCatalog *raw = cat.get();
+
+  // 逐项软删——等价于 DataListPanel::batchRemoveSoft 的循环体
+  // （datalist.cpp:2666）：每个选中项 push 一条 SoftDeleteCmd，而 pushCommand
+  // 里每次都 refreshAssetTable()（datalist.cpp:2413）。
+  //
+  // 计量口径：**用 recycle_bin.json 的 mtime 变化次数**数落盘，不看墙钟——
+  // 时间会被文件系统缓存污染，mtime 变化不会。
+  paleo::dataops::TagStore tags;
+  paleo::dataops::AssetOverrideStore assetOverrides;
+  paleo::dataops::EntityOverrideStore entityOverrides;
+  paleo::dataops::RecycleBin recycle;
+  recycle.load(raw);
+  paleo::dataops::DataOpsContext ctx{raw, &tags, &assetOverrides, &entityOverrides, &recycle};
+  QVERIFY2(ctx.valid(), "DataOpsContext 未就绪（探针夹具问题，不是被测行为）");
+
+  QElapsedTimer clock;
+  clock.start();
+  int writes = 0;
+  QFileInfo before(recyclePath);
+  for (int i = 0; i < n; ++i)
+  {
+    const CatalogAsset a = cat->assetById(QStringLiteral("A%1").arg(i));
+    paleo::dataops::SoftDeleteCmd cmd(ctx, a.id, a.displayName, a.type, true);
+    cmd.redo(); // redo() 内部一次 recycle->save() → 一次全量重写
+    const QFileInfo after(recyclePath);
+    if (after.lastModified() != before.lastModified() || after.size() != before.size())
+      ++writes;
+    before = after;
+  }
+  const double totalMs = double(clock.nsecsElapsed()) / 1.0e6;
+  qInfo("逐项软删 %d 项耗时 %.1fms，recycle_bin.json 落盘 %d 次", n, totalMs, writes);
+
+  QVERIFY2(writes <= 2,
+           qPrintable(QStringLiteral(
+                          "软删 %1 项触发 %2 次 recycle_bin.json 全量重写——"
+                          "已知阻塞：DataListPanel::pushCommand 每 push 一条命令就"
+                          " refreshAssetTable() 一次（datalist.cpp:2413），"
+                          "批量软删因此是 O(N²) 且全在 GUI 线程")
+                          .arg(n).arg(writes)));
+}
+
+// ---- 探针 3：开元数据页是否会就地重建拓扑 ---------------------------------
+void TestUiBlocking::metadataOpenDoesNotRebuildTopologyInline()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QString err;
+  const int n = 800;
+  auto cat = makeWideCatalog(dir.path(), n, &err);
+  QVERIFY2(cat != nullptr, qPrintable(err));
+
+  DataCatalog *raw = cat.get();
+  paleo::dataops::EntityOverrideStore overrides;
+  // 面板的 doc 面与控件装配都挂在 setDocService 上（buildD4Ui 在其中被调，
+  // entitypanel.cpp:250）。夹具形态照既有用例 entityPanelGeoJsonStatsStream… 一致：
+  // 需要一个接了 importSvc 的 PreviewDocService。
+  auto st = makeStack(QDir(dir.path()).filePath(QStringLiteral("proj")));
+  QVERIFY(st);
+  PreviewDocService doc(st->importSvc.get());
+  PaleoTaskService taskSvc;
+  doc.setTaskService(&taskSvc);
+
+  EntityPanel panel;
+  panel.setDocService(&doc);
+
+  // 元数据打开的真实路径：DataPage::selectAsset → EntityPanel::setContext +
+  // refresh()，refresh() 内部无条件调 loadTopology（entitypanel.cpp:1147）。
+  // 这里直接压 setContext + refresh 这条等价路径。
+  QElapsedTimer clock;
+  clock.start();
+  // setContext 的实参形态要紧照既有用例（tst_ui_blocking.cpp:358）：
+  // **空 entityId + 真实 assetId** 才走 refresh() 的「单资产」分支；双非空会落到
+  // 别的分支去（第一版探针给了 E0/A0，结果 refresh 0.0ms 直接早退）。
+  const CatalogAsset first = cat->assetById(QStringLiteral("A0"));
+  QVERIFY2(!first.id.isEmpty(), "探针夹具缺 A0");
+  panel.setContext(QString(), first.id);
+  panel.refresh();
+  const double openMs = double(clock.nsecsElapsed()) / 1.0e6;
+  // m_topology 由 refresh() 内部按需 new（entitypanel.cpp:382），故只能在
+  // refresh 之后取——之前取会拿到 nullptr（第一版探针就栽在这）。
+  auto *graph = panel.findChild<paleo::dataops::TopologyGraph *>(QStringLiteral("topologyGraph"));
+  QVERIFY2(graph, "refresh() 后仍未找到 topologyGraph——探针夹具与实现脱节，不是被测行为");
+  qInfo("开元数据页（n=%d）耗时 %.1fms，拓扑节点 %d", n, openMs, graph->nodeCount());
+
+  QVERIFY(graph->nodeCount() > 0); // 拓扑确实建起来了（否则这条探针没意义）
+  QVERIFY2(openMs < 400.0,
+           qPrintable(QStringLiteral(
+                          "开元数据页耗时 %1ms（n=%2）——"
+                          "已知阻塞：EntityPanel::refresh() 每次都同步调 "
+                          "loadTopology 全量重建拓扑图，未走任务池")
+                          .arg(openMs, 0, 'f', 1).arg(n)));
+}
+
 int main(int argc, char *argv[])
 {
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
@@ -395,7 +622,17 @@ int main(int argc, char *argv[])
     return 1;
   }
   TestUiBlocking tc;
-  const int rc = QTest::qExec(&tc, argc, argv);
+  // ctest 无控制台下 QtTest 结果走 OutputDebugString，失败时看不到哪条红；
+  // 追加 -o 让结果落盘（方向20 轮5 探测面扩展用）。
+  QByteArray logPath = QByteArray(QT_TESTCASE_BUILDDIR) + "/tst_ui_blocking-result.txt";
+  QList<QByteArray> fwd;
+  fwd << QByteArray(argv[0]);
+  for (int i = 1; i < argc; ++i) fwd << QByteArray(argv[i]);
+  fwd << QByteArray("-o") << logPath + ",txt";
+  QList<char *> cargv;
+  cargv.reserve(fwd.size());
+  for (QByteArray &a : fwd) cargv << a.data();
+  const int rc = QTest::qExec(&tc, cargv.size(), cargv.data());
   QgisRuntime::shutdown();
   return rc;
 }

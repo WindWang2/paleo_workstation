@@ -2,7 +2,12 @@
 #include "workflows.h"
 #include "workflows_internal.h"
 
+#include "../algorithms/geostat/kriging.h"     // KrigingParams / KrigingResult（方向18）
+#include "../algorithms/geostat/sgs.h"         // SgsParams / SgsResult（方向18）
+#include "../algorithms/geostat/variogram.h"   // 变差函数模型（方向18）
+#include "../algorithms/rasterout.h"          // PaleoRasterOut / createFloatRaster
 #include "../catalog/datacatalog.h"
+#include "../algorithms/singlefactor/cartographicworkfile.h"
 #include "../domain/arearules.h"
 #include "../domain/singlefactorrequest.h"  // 制图工作场不进融合/分相
 #include "../io/constraintstore.h"
@@ -33,6 +38,9 @@
 
 #include <qgscoordinatereferencesystem.h>
 #include <qgsfield.h>
+#include <qgsfeature.h>
+#include <qgsfeatureiterator.h>
+#include <qgsfeaturerequest.h>
 #include <qgsgeometry.h>
 #include <qgsmaplayer.h>
 #include <qgsrasterlayer.h>
@@ -437,7 +445,7 @@ bool ConstraintWorkflow::switchConstraintSemantic( const QString &constraintId, 
 {
   if ( !knownConstraintSemantic( semantic ) )
   {
-    setError( error, tr( "未知约束语义：%1" ).arg( semantic ) );
+    paleo::workflow_detail::setError( error, tr( "未知约束语义：%1" ).arg( semantic ) );
     return false;
   }
   // 读回既有逐线参数，只换语义，不动半径等用户设置。
@@ -460,7 +468,7 @@ bool ConstraintWorkflow::switchConstraintSemantic( const QString &constraintId, 
   }
   if ( !found )
   {
-    setError( error, tr( "找不到约束 %1" ).arg( constraintId ) );
+    paleo::workflow_detail::setError( error, tr( "找不到约束 %1" ).arg( constraintId ) );
     return false;
   }
   lineParams.insert( QStringLiteral( "semantic" ), semantic );
@@ -471,7 +479,7 @@ bool ConstraintWorkflow::removeConstraint( const QString &constraintId, QString 
 {
   if ( constraintId.trimmed().isEmpty() )
   {
-    setError( error, tr( "缺少约束 id" ) );
+    paleo::workflow_detail::setError( error, tr( "缺少约束 id" ) );
     return false;
   }
   ConstraintStore *cs = constraintStore();
@@ -484,7 +492,7 @@ bool ConstraintWorkflow::removeConstraint( const QString &constraintId, QString 
         } );
     if ( removed == m_inMemoryConstraints.end() )
     {
-      setError( error, tr( "找不到约束 %1" ).arg( constraintId ) );
+      paleo::workflow_detail::setError( error, tr( "找不到约束 %1" ).arg( constraintId ) );
       return false;
     }
     m_inMemoryConstraints.erase( removed, m_inMemoryConstraints.end() );
@@ -502,7 +510,7 @@ bool ConstraintWorkflow::removeConstraint( const QString &constraintId, QString 
   }
   if ( !found )
   {
-    setError( error, tr( "找不到约束 %1" ).arg( constraintId ) );
+    paleo::workflow_detail::setError( error, tr( "找不到约束 %1" ).arg( constraintId ) );
     return false;
   }
   if ( !cs->remove( constraintId, error ) )
@@ -1622,12 +1630,12 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
 {
   if ( !job )
   {
-    setError( error, tr( "缺少地质统计任务" ) );
+    paleo::workflow_detail::setError( error, tr( "缺少地质统计任务" ) );
     return false;
   }
   if ( method != QLatin1String( "kriging" ) && method != QLatin1String( "sgs" ) )
   {
-    setError( error, tr( "未知地质统计方法：%1" ).arg( method ) );
+    paleo::workflow_detail::setError( error, tr( "未知地质统计方法：%1" ).arg( method ) );
     return false;
   }
   *job = GeostatJob();
@@ -1641,14 +1649,14 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
   QgisLayerService *layers = m_layers.data();
   if ( !proc || !layers )
   {
-    setError( error, tr( "constraint workflow is not bound to services" ) );
+    paleo::workflow_detail::setError( error, tr( "constraint workflow is not bound to services" ) );
     return false;
   }
   bool known = false;
   const SingleFactorDefinition def = SingleFactorRegistry::byId( factorId, &known );
   if ( !known )
   {
-    setError( error, tr( "未知单因素 id：%1" ).arg( factorId ) );
+    paleo::workflow_detail::setError( error, tr( "未知单因素 id：%1" ).arg( factorId ) );
     return false;
   }
   job->field = params.value( QStringLiteral( "field" ), def.defaultParams.value( QStringLiteral( "field" ) ) ).toString();
@@ -1656,26 +1664,26 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
                       .toDouble();
   if ( job->field.isEmpty() )
   {
-    setError( error, tr( "插值字段为空" ) );
+    paleo::workflow_detail::setError( error, tr( "插值字段为空" ) );
     return false;
   }
   if ( !( job->cellSize > 0.0 ) )
   {
-    setError( error, tr( "像元大小必须是正数" ) );
+    paleo::workflow_detail::setError( error, tr( "像元大小必须是正数" ) );
     return false;
   }
   const QString overridePoints = params.value( QStringLiteral( "pointsLayerId" ) ).toString();
   const QString pointsId = overridePoints.isEmpty() ? wellsLayerIdFor( layers, horizon ) : overridePoints;
   if ( pointsId.isEmpty() )
   {
-    setError( error, tr( "层位 %1 没有井点图层" ).arg( horizon ) );
+    paleo::workflow_detail::setError( error, tr( "层位 %1 没有井点图层" ).arg( horizon ) );
     return false;
   }
   QVector<LayerDeclaration> declared;
   QString manifestErr;
   if ( !layers->tryDeclared( &declared, &manifestErr ) )
   {
-    setError( error, manifestErr.isEmpty() ? tr( "无法读取图层清单" ) : manifestErr );
+    paleo::workflow_detail::setError( error, manifestErr.isEmpty() ? tr( "无法读取图层清单" ) : manifestErr );
     return false;
   }
   for ( const LayerDeclaration &d : declared )
@@ -1688,7 +1696,7 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
   }
   if ( job->wellUri.isEmpty() )
   {
-    setError( error, tr( "井点图层 %1 没有数据源" ).arg( pointsId ) );
+    paleo::workflow_detail::setError( error, tr( "井点图层 %1 没有数据源" ).arg( pointsId ) );
     return false;
   }
   job->parentPaths << job->wellUri.section( QLatin1Char( '|' ), 0, 0 );
@@ -2060,13 +2068,13 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
   if ( !job.ok || job.outputPath.isEmpty() )
   {
     discardTemp();
-    setError( error, job.error.isEmpty() ? tr( "地质统计计算未返回输出路径" ) : job.error );
+    paleo::workflow_detail::setError( error, job.error.isEmpty() ? tr( "地质统计计算未返回输出路径" ) : job.error );
     return false;
   }
   if ( job.generation != m_publishGeneration )
   {
     discardTemp();
-    setError( error, tr( "发布代次已变，丢弃这次地质统计成果" ) );
+    paleo::workflow_detail::setError( error, tr( "发布代次已变，丢弃这次地质统计成果" ) );
     return false;
   }
   bool known = false;
@@ -2074,22 +2082,22 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
   if ( !known )
   {
     discardTemp();
-    setError( error, tr( "未知单因素 id：%1" ).arg( job.factorId ) );
+    paleo::workflow_detail::setError( error, tr( "未知单因素 id：%1" ).arg( job.factorId ) );
     return false;
   }
   QgisLayerService *layers = m_layers.data();
   if ( !layers )
   {
     discardTemp();
-    setError( error, tr( "constraint workflow is not bound to a layer service" ) );
+    paleo::workflow_detail::setError( error, tr( "constraint workflow is not bound to a layer service" ) );
     return false;
   }
   QString regErr;
-  DerivedAssetRegistrar registrar = derivedRegistrarOf( this, &regErr );
+  DerivedAssetRegistrar registrar = paleo::workflow_detail::derivedRegistrarOf( this, &regErr );
   if ( !registrar.isBound() )
   {
     discardTemp();
-    setError( error, regErr );
+    paleo::workflow_detail::setError( error, regErr );
     return false;
   }
   const DerivedStaging st = registrar.stage(
@@ -2098,7 +2106,7 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
   if ( !st.isValid() )
   {
     discardTemp();
-    setError( error, regErr );
+    paleo::workflow_detail::setError( error, regErr );
     return false;
   }
   const QString stagedSupport = job.supportPath.isEmpty() ? QString()
@@ -2113,19 +2121,19 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
   if ( job.generation != m_publishGeneration )
   {
     discard();
-    setError( error, tr( "发布代次已变，丢弃这次地质统计成果" ) );
+    paleo::workflow_detail::setError( error, tr( "发布代次已变，丢弃这次地质统计成果" ) );
     return false;
   }
   if ( !QFile::copy( job.qcPath, stagedQc ) )
   {
     discard();
-    setError( error, tr( "地质统计 QC 无法写入成果目录" ) );
+    paleo::workflow_detail::setError( error, tr( "地质统计 QC 无法写入成果目录" ) );
     return false;
   }
   if ( !stagedSupport.isEmpty() && !QFile::copy( job.supportPath, stagedSupport ) )
   {
     discard();
-    setError( error, tr( "地质统计旁路文件无法写入成果目录" ) );
+    paleo::workflow_detail::setError( error, tr( "地质统计旁路文件无法写入成果目录" ) );
     return false;
   }
   QString jsonErr;
@@ -2134,7 +2142,7 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
   if ( hashParams.isEmpty() )
   {
     discard();
-    setError( error, jsonErr.isEmpty() ? tr( "地质统计成果缺少参数指纹输入" ) : jsonErr );
+    paleo::workflow_detail::setError( error, jsonErr.isEmpty() ? tr( "地质统计成果缺少参数指纹输入" ) : jsonErr );
     return false;
   }
   QStringList parentIds = registrar.parentVersionIdsFor( job.parentPaths );
@@ -2151,7 +2159,7 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
   if ( !hash.ok )
   {
     discard();
-    setError( error, hash.error.isEmpty() ? tr( "参数指纹计算失败" ) : hash.error );
+    paleo::workflow_detail::setError( error, hash.error.isEmpty() ? tr( "参数指纹计算失败" ) : hash.error );
     return false;
   }
   QString shaErr;
@@ -2163,20 +2171,20 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
     if ( supportSha.isEmpty() )
     {
       discard();
-      setError( error, shaErr.isEmpty() ? tr( "旁路文件 sha256 计算失败" ) : shaErr );
+      paleo::workflow_detail::setError( error, shaErr.isEmpty() ? tr( "旁路文件 sha256 计算失败" ) : shaErr );
       return false;
     }
   }
   if ( qcSha.isEmpty() )
   {
     discard();
-    setError( error, shaErr.isEmpty() ? tr( "QC sha256 计算失败" ) : shaErr );
+    paleo::workflow_detail::setError( error, shaErr.isEmpty() ? tr( "QC sha256 计算失败" ) : shaErr );
     return false;
   }
   if ( job.generation != m_publishGeneration )
   {
     discard();
-    setError( error, tr( "发布代次已变，丢弃这次地质统计成果" ) );
+    paleo::workflow_detail::setError( error, tr( "发布代次已变，丢弃这次地质统计成果" ) );
     return false;
   }
   const QDir projectDir( registrar.projectDir() );
@@ -2230,7 +2238,7 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
   if ( !registrar.commitExternal( st, job.outputPath, parentIds, algorithmId, extra, &commitErr ) )
   {
     discard();
-    setError( error, commitErr );
+    paleo::workflow_detail::setError( error, commitErr );
     return false;
   }
   discardTemp();
@@ -2248,7 +2256,7 @@ bool ConstraintWorkflow::generateGeostatFactor( const QString &horizon, const QS
     return false;
   if ( !computeGeostatJob( &job ) )
   {
-    setError( error, job.error );
+    paleo::workflow_detail::setError( error, job.error );
     return false;
   }
   return publishGeostatJob( job, error );
@@ -2265,7 +2273,7 @@ bool ConstraintWorkflow::generateSurferIdwFactor( const QString &horizon, const 
     return false;
   if ( !computeLocalDirectionJob( &job ) )
   {
-    setError( error, job.error );
+    paleo::workflow_detail::setError( error, job.error );
     return false;
   }
   return publishLocalDirectionJob( job, error );
@@ -2513,7 +2521,7 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
   if ( !declaredFactorPathMatches( layers, job.factorLayerId, job.rasterPath ) )
   {
     discardTemp();
-    setError( error, tr( "分析场在等值线期间被改写，丢弃这次等值线" ) );
+    paleo::workflow_detail::setError( error, tr( "分析场在等值线期间被改写，丢弃这次等值线" ) );
     return false;
   }
   QString regErr;
@@ -3177,7 +3185,7 @@ bool ConstraintWorkflow::prepareInterpretiveContourJob( const QString &horizon, 
                                                       QStringLiteral( "gdal" ) );
     if ( !analysis->isValid() )
     {
-      setError( error, tr( "分析场无法读取" ) );
+      paleo::workflow_detail::setError( error, tr( "分析场无法读取" ) );
       return false;
     }
     const paleo::singlefactor::CartographicConstraintParse parsed =
@@ -3186,7 +3194,7 @@ bool ConstraintWorkflow::prepareInterpretiveContourJob( const QString &horizon, 
     {
       const QString fallback = frozenConstraints ? tr( "约束快照无法读取" )
                                                  : tr( "无法加载约束图层 %1" ).arg( constraintLayerId );
-      setError( error, parsed.error.isEmpty() ? fallback : parsed.error );
+      paleo::workflow_detail::setError( error, parsed.error.isEmpty() ? fallback : parsed.error );
       return false;
     }
     constraintLines = std::move( parsed.lines );
@@ -3386,7 +3394,7 @@ bool ConstraintWorkflow::publishInterpretiveContourJob( const InterpretiveContou
   if ( !declaredFactorPathMatches( layers, job.factorLayerId, job.rasterPath ) )
   {
     discardTemp();
-    setError( error, tr( "分析场在制图期间被改写，丢弃工作场" ) );
+    paleo::workflow_detail::setError( error, tr( "分析场在制图期间被改写，丢弃工作场" ) );
     return false;
   }
   QString regErr;
@@ -3491,7 +3499,7 @@ bool ConstraintWorkflow::publishInterpretiveContourJob( const InterpretiveContou
   {
     removeIfPresent( stagedQc );
     discardTemp();
-    setError( error, tr( "分析场在制图期间被改写，丢弃工作场" ) );
+    paleo::workflow_detail::setError( error, tr( "分析场在制图期间被改写，丢弃工作场" ) );
     return false;
   }
 

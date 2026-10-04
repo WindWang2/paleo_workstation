@@ -180,4 +180,4 @@ void StorageGovernanceDialog::setProgress(int done, int total, const QString &pa
   m_progress->setRange(0, total); m_progress->setValue(done);
   m_status->setText(tr("已处理 %1：%2").arg(done).arg(path));
 }
-void StorageGovernanceDialog::setMessage(const QString &text) { m_status->setText(text); }
+void StorageGovernanceDialog::setMessage(const QString &message) { m_status->setText(message); }

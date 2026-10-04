@@ -65,10 +65,13 @@ case "$verb" in
     fi
     # ctest 默认并行到核数（T2：每测试有独立 XDG 沙箱，并行安全）；
     # 传 --parallel/-j 或 RERUN 语义时用户参数照传。
+    mkdir -p "$BUILD_DIR/Testing/qtest-first-run"
     if [ "$#" -eq 0 ]; then
-      QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure -j "$(nproc 2>/dev/null || echo 4)"
+      QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure \
+        --output-junit "$BUILD_DIR/Testing/ctest-junit.xml" -j "$(nproc 2>/dev/null || echo 4)"
     else
-      QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure "$@"
+      QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure \
+        --output-junit "$BUILD_DIR/Testing/ctest-junit.xml" "$@"
     fi
     ;;
   selfcheck)

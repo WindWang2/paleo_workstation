@@ -131,11 +131,15 @@ jobs:
           path: vendor/logs/
       # #150/#151：失败现场——ctest 完整日志、QtTest 落盘结果、黄金图当前渲染/差分。
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
           name: test-logs-linux
+          retention-days: 14
           if-no-files-found: ignore
           path: |
+            build/Testing/qtest-first-run/
+            build/Testing/qtest-first-run-initial/
+            build/Testing/ctest-junit.xml
             build/Testing/Temporary/LastTest*.log
             build/**/*-result.txt
             build/golden-out/
@@ -219,11 +223,15 @@ jobs:
           name: selfcheck-windows
           path: vendor/logs/
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
           name: test-logs-windows
+          retention-days: 14
           if-no-files-found: ignore
           path: |
+            build/Testing/qtest-first-run/
+            build/Testing/qtest-first-run-initial/
+            build/Testing/ctest-junit.xml
             build/Testing/Temporary/LastTest*.log
             build/**/*-result.txt
             build/golden-out/

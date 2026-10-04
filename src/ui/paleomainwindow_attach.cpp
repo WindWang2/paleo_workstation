@@ -1630,6 +1630,7 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
               }
               const QString methodId = params.value(QStringLiteral("method")).toString();
               const bool taskPool = methodId == QLatin1String("local_direction_idw")
+                                 || methodId == QLatin1String("local_direction_kriging")
                                  || methodId == QLatin1String("surfer_idw");
               if (!taskPool || !m_taskSvc)
               {

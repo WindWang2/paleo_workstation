@@ -28,3 +28,8 @@ endif()
 add_paleo_test(tst_singlefactor_kriging LIBS paleo_algorithms)
 add_paleo_test(tst_io_sfpkg LIBS paleo_io)
 add_paleo_test(tst_io_outsource LIBS paleo_io)
+
+target_sources(paleo_domain PRIVATE
+  src/domain/singlefactorstrategy.cpp)
+
+add_paleo_test(tst_singlefactor_strategy LIBS paleo_domain)

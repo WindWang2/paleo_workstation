@@ -6,6 +6,7 @@
 #include "cartographicworkfile.h"
 #include "constraintparse.h"
 #include "faultpath.h"
+#include "krigingsurface.h"
 #include "localidw.h"
 #include "samples.h"
 #include "structural.h"
@@ -135,6 +136,15 @@ QVariantMap parametersForHash( const sf::PreparedInput &input, const sf::GridSpe
   parameters.insert( QStringLiteral( "supported_min_points" ), resolved.supportedMinPoints );
   parameters.insert( QStringLiteral( "min_points" ), resolved.minPoints );
   parameters.insert( QStringLiteral( "max_points" ), resolved.maxPoints );
+  // 方向41：实际执行的引擎与变差函数（回落时 method_actual 如实切回 IDW）。
+  parameters.insert( QStringLiteral( "method_actual" ), utf8( resolved.methodActual ) );
+  parameters.insert( QStringLiteral( "variogram_model" ), utf8( resolved.variogramModel ) );
+  parameters.insert( QStringLiteral( "nugget" ), resolved.nugget );
+  parameters.insert( QStringLiteral( "sill" ), resolved.sill );
+  parameters.insert( QStringLiteral( "range" ), resolved.range );
+  parameters.insert( QStringLiteral( "variogram_azimuth" ), resolved.variogramAzimuthDeg );
+  parameters.insert( QStringLiteral( "variogram_anisotropy_ratio" ), resolved.variogramAnisotropyRatio );
+  parameters.insert( QStringLiteral( "kriging_max_points" ), resolved.krigingMaxPoints );
   parameters.insert( QStringLiteral( "value_unit" ), utf8( resolved.valueUnit ) );
   parameters.insert( QStringLiteral( "field" ), field );
   parameters.insert( QStringLiteral( "cell_size" ), cellSize );
@@ -474,6 +484,28 @@ void LocalDirectionIdwAlgorithm::initAlgorithm( const QVariantMap & )
   addParameter( new QgsProcessingParameterNumber(
       QStringLiteral( "SEARCH_RADIUS" ), QStringLiteral( "Search radius (0 = automatic)" ),
       Qgis::ProcessingNumberParameterType::Double, 0.0 ) );
+  // 方向41：同一插值面上的克里金开关与变差参数。
+  addParameter( new QgsProcessingParameterString(
+      QStringLiteral( "METHOD" ), QStringLiteral( "local_direction_idw or kriging" ),
+      QStringLiteral( "local_direction_idw" ) ) );
+  addParameter( new QgsProcessingParameterString(
+      QStringLiteral( "VARIAGRAM_MODEL" ), QStringLiteral( "spherical | exponential | gaussian" ),
+      QStringLiteral( "spherical" ) ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "NUGGET" ), QStringLiteral( "Nugget (0 = automatic fit)" ),
+      Qgis::ProcessingNumberParameterType::Double, 0.0 ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "SILL" ), QStringLiteral( "Partial sill (0 = automatic fit)" ),
+      Qgis::ProcessingNumberParameterType::Double, 0.0 ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "RANGE" ), QStringLiteral( "Variogram range (0 = automatic fit)" ),
+      Qgis::ProcessingNumberParameterType::Double, 0.0 ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "VARIAGRAM_AZIMUTH" ), QStringLiteral( "Range azimuth in degrees (-1 = omnidirectional)" ),
+      Qgis::ProcessingNumberParameterType::Double, -1.0 ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "KRIGING_MAX_POINTS" ), QStringLiteral( "Kriging neighbourhood K (0 = all samples)" ),
+      Qgis::ProcessingNumberParameterType::Integer, 16 ) );
   addParameter( new QgsProcessingParameterString(
       QStringLiteral( "VALUE_UNIT" ), QStringLiteral( "Value unit (optional)" ), QString(), false, true ) );
   addParameter( new QgsProcessingParameterExtent(
@@ -640,12 +672,41 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
   resolved.minPoints = parameterAsInt( parameters, QStringLiteral( "MIN_POINTS" ), context );
   resolved.maxPoints = parameterAsInt( parameters, QStringLiteral( "MAX_POINTS" ), context );
   resolved.valueUnit = request.valueUnit;
+  // 方向41：克里金请求与变差参数（METHOD=kriging 时生效）。
+  const QString methodText = parameterAsString( parameters, QStringLiteral( "METHOD" ), context );
+  bool krigingRequested = false;
+  if ( methodText.isEmpty() || methodText == QLatin1String( "local_direction_idw" ) )
+    krigingRequested = false;
+  else if ( methodText == QLatin1String( "kriging" ) )
+    krigingRequested = true;
+  else
+    throw QgsProcessingException( QStringLiteral( "未知 METHOD：%1（只接受 local_direction_idw / kriging）" )
+                                      .arg( methodText ) );
+  const QString variogramModel = parameterAsString( parameters, QStringLiteral( "VARIAGRAM_MODEL" ), context );
+  if ( krigingRequested )
+  {
+    if ( variogramModel != QLatin1String( "spherical" ) && variogramModel != QLatin1String( "exponential" ) &&
+         variogramModel != QLatin1String( "gaussian" ) )
+      throw QgsProcessingException(
+          QStringLiteral( "未知 VARIAGRAM_MODEL：%1（只接受 spherical / exponential / gaussian）" )
+              .arg( variogramModel ) );
+    resolved.variogramModel = variogramModel.toStdString();
+    resolved.nugget = parameterAsDouble( parameters, QStringLiteral( "NUGGET" ), context );
+    resolved.sill = parameterAsDouble( parameters, QStringLiteral( "SILL" ), context );
+    resolved.range = parameterAsDouble( parameters, QStringLiteral( "RANGE" ), context );
+    resolved.variogramAzimuthDeg = parameterAsDouble( parameters, QStringLiteral( "VARIAGRAM_AZIMUTH" ), context );
+    resolved.krigingMaxPoints = parameterAsInt( parameters, QStringLiteral( "KRIGING_MAX_POINTS" ), context );
+    resolved.methodActual = "kriging";
+  }
   const double searchRadius = parameterAsDouble( parameters, QStringLiteral( "SEARCH_RADIUS" ), context );
   if ( searchRadius > 0.0 && std::isfinite( searchRadius ) )
     resolved.searchRadius = searchRadius;
   const std::string resolveError = sf::resolveParameters( prepared.input, grid, &resolved );
   if ( !resolveError.empty() )
     throw QgsProcessingException( utf8( resolveError ) );
+  // resolveParameters 只管自动半径/方向余弦，这里再钉一次实际引擎标记。
+  if ( krigingRequested )
+    resolved.methodActual = "kriging";
   std::string budgetError;
   if ( !sf::gridBudgetOk( grid, static_cast<int>( prepared.input.samples.size() ), &budgetError ) )
     throw QgsProcessingException( utf8( budgetError ) );
@@ -658,7 +719,10 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
     if ( feedback )
       feedback->setProgress( 25.0 + 55.0 * std::clamp( fraction, 0.0, 1.0 ) );
   };
-  const sf::SurfaceResult surface = sf::evaluateLocalIdw( prepared.input, grid, resolved, control );
+  // 方向41：同一插值面出真克里金；克里金不成立时内部如实回落 IDW 并带原因。
+  const sf::SurfaceResult surface = krigingRequested
+                                        ? sf::evaluateLocalKriging( prepared.input, grid, resolved, control )
+                                        : sf::evaluateLocalIdw( prepared.input, grid, resolved, control );
   if ( surface.status != sf::Status::Ok )
   {
     if ( surface.status == sf::Status::Cancelled )
@@ -676,7 +740,8 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
   guard.paths << outPath << supportPath << qcPath;
   if ( feedback )
     feedback->setProgress( 80 );
-  writeFloatGrid( outPath, grid, surface.values, crs, "analysis", "paleo:paleo_local_direction_idw" );
+  // 栅格内的 algorithm 标记只认实际执行的引擎（回落时是 local_direction_idw）。
+  writeFloatGrid( outPath, grid, surface.values, crs, "analysis", surface.resolved.algorithmId.c_str() );
   writeSupportGrid( supportPath, grid, surface.marks, crs );
 
   QVariantMap counts;
@@ -684,6 +749,9 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
   counts.insert( QStringLiteral( "nodata" ), surface.nodataCells );
   counts.insert( QStringLiteral( "extrapolated" ), surface.extrapolatedCells );
   counts.insert( QStringLiteral( "barrier" ), surface.barrierCells );
+  counts.insert( QStringLiteral( "kriging" ), surface.krigingCells );
+  counts.insert( QStringLiteral( "idw_fallback" ), surface.idwFallbackCells );
+  counts.insert( QStringLiteral( "variogram_fallback" ), surface.variogramFallbacks );
   counts.insert( QStringLiteral( "original" ), prepared.input.originalCount );
   counts.insert( QStringLiteral( "valid" ), prepared.input.validCount );
   counts.insert( QStringLiteral( "missing" ), prepared.input.missingCount );
@@ -700,11 +768,34 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
     item.insert( QStringLiteral( "reason" ), utf8( region.reason ) );
     unsupported << item;
   }
+  // 诚实面：请求的引擎与实际执行的引擎分开记；未消费的输入逐条列在 issues。
+  QVariantList issueList;
+  for ( const std::string &issue : surface.issues )
+    issueList << utf8( issue );
+  QVariantMap variogram;
+  variogram.insert( QStringLiteral( "model" ), utf8( surface.resolved.variogramModel ) );
+  variogram.insert( QStringLiteral( "nugget" ), surface.resolved.nugget );
+  variogram.insert( QStringLiteral( "sill" ), surface.resolved.sill );
+  variogram.insert( QStringLiteral( "range" ), surface.resolved.range );
+  variogram.insert( QStringLiteral( "azimuth" ), surface.resolved.variogramAzimuthDeg );
+  variogram.insert( QStringLiteral( "anisotropy_ratio" ), surface.resolved.variogramAnisotropyRatio );
+  variogram.insert( QStringLiteral( "fit_r2" ), surface.resolved.variogramFitR2 );
+  variogram.insert( QStringLiteral( "fit_rmse" ), surface.resolved.variogramFitRmse );
+  variogram.insert( QStringLiteral( "used_lags" ), surface.resolved.variogramUsedLags );
   QVariantMap qc;
   qc.insert( QStringLiteral( "schema_version" ), 1 );
   qc.insert( QStringLiteral( "value_source" ), QStringLiteral( "analysis" ) );
   qc.insert( QStringLiteral( "extent_source" ), extentSource );
   qc.insert( QStringLiteral( "crs_mode" ), crsModeName );
+  qc.insert( QStringLiteral( "method_requested" ),
+             krigingRequested ? QStringLiteral( "kriging" ) : QStringLiteral( "local_direction_idw" ) );
+  qc.insert( QStringLiteral( "method_actual" ), utf8( surface.resolved.methodActual ) );
+  qc.insert( QStringLiteral( "algorithm_id" ), utf8( surface.resolved.algorithmId ) );
+  qc.insert( QStringLiteral( "semantic_profile" ), utf8( surface.resolved.semanticProfile ) );
+  if ( !surface.resolved.fallbackReason.empty() )
+    qc.insert( QStringLiteral( "fallback_reason" ), utf8( surface.resolved.fallbackReason ) );
+  qc.insert( QStringLiteral( "variogram" ), variogram );
+  qc.insert( QStringLiteral( "issues" ), issueList );
   qc.insert( QStringLiteral( "counts" ), counts );
   qc.insert( QStringLiteral( "unsupported" ), unsupported );
   qc.insert( QStringLiteral( "parameters" ),

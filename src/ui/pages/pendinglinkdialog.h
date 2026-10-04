@@ -110,7 +110,7 @@ class PendingLinkDialog : public QDialog
     }
 
   signals:
-    void applyRequested(const QVector<int> &linkIndexes);
+    void applyRequested(const QVector<int> &linkIndexes); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
   private:
     QVector<paleo::assetops::PendingProposal> m_proposals;

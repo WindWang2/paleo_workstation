@@ -165,7 +165,7 @@ class VersionTableDialog : public QDialog
     }
 
   signals:
-    void rollbackRequested(const QString &versionId);
+    void rollbackRequested(const QString &versionId); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
   private:
     static QString shortSha(const QString &sha)

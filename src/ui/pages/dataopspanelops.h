@@ -314,11 +314,11 @@ public:
   }
 
 signals:
-  void restoreRequested(const QStringList &assetIds);
+  void restoreRequested(const QStringList &assetIds); // NOLINT(readability-inconsistent-declaration-parameter-name)
   void restoreAllRequested();
   void purgeAllRequested();
   // 方向 30：物理删除（catalog + 磁盘双清，二次确认在对话框内完成）。
-  void purgeRequested(const QStringList &assetIds);
+  void purgeRequested(const QStringList &assetIds); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
 private:
   static QString sizeText(qint64 bytes)

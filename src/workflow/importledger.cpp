@@ -144,7 +144,7 @@ bool ImportLedger::record(const LedgerBatch &batch, QString *error)
     const QVariantMap m = b.toVariant();
     for (auto it = m.constBegin(); it != m.constEnd(); ++it)
     {
-      const QVariant v = it.value();
+      const QVariant &v = it.value();
       if (v.type() == QVariant::List)
       {
         QJsonArray a;

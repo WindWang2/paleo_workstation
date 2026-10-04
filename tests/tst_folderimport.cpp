@@ -631,12 +631,16 @@ void folderConfirmEstimateForceImportAndErrorReport()
     QVERIFY(!stageFixture(tmp, QStringLiteral("src_area"),
                           QStringLiteral("A1.Las")).isEmpty());
     // 坏文件一：读不了（权限）——拷贝阶段即失败，行结局 Failed + 原因。
+    // Windows 权限位无 unreadable 语义（readonly 属性不拦读、setPermissions
+    // 只认写位），该场景仅 POSIX 侧覆盖；Windows 由 broken.Las 兜底未决行。
+#ifndef Q_OS_WIN
     const QString unreadable =
         stageFixture(tmp, QStringLiteral("src_area"), QStringLiteral("A1.Las"),
                      QStringLiteral("unreadable.Las"));
     QVERIFY(!unreadable.isEmpty());
     QVERIFY(QFile::setPermissions(unreadable, QFile::Permissions{})); // 零权限——不可读
     QVERIFY(!QFile(unreadable).open(QIODevice::ReadOnly)); // 不可读已生效
+#endif
     // 坏文件二：损坏 LAS——不静默跳过，如实入库为未决（解析不出井名）。
     const QString broken = QDir(tmp.filePath(QStringLiteral("src_area")))
                                .filePath(QStringLiteral("broken.Las"));
@@ -670,9 +674,11 @@ void folderConfirmEstimateForceImportAndErrorReport()
       seen.insert(QFileInfo(r.path).fileName());
     QVERIFY(seen.contains(QStringLiteral("ExportWellHead.dat")));
     QVERIFY(seen.contains(QStringLiteral("A1.Las")));
+#ifndef Q_OS_WIN
     QVERIFY(seen.contains(QStringLiteral("unreadable.Las")));
+#endif
     QVERIFY(seen.contains(QStringLiteral("broken.Las")));
-    QCOMPARE(seen.size(), 4);
+    QCOMPARE(seen.size(), seen.contains(QStringLiteral("unreadable.Las")) ? 4 : 3);
 
     using Outcome = FolderRowResult::Outcome;
     Outcome headOutcome = Outcome::Skipped, lasOutcome = Outcome::Skipped,
@@ -698,8 +704,11 @@ void folderConfirmEstimateForceImportAndErrorReport()
     }
     QCOMPARE(headOutcome, Outcome::Imported);
     QCOMPARE(lasOutcome, Outcome::Imported);
-    QCOMPARE(unreadableOutcome, Outcome::Failed);
-    QVERIFY(!unreadableMsg.isEmpty()); // 坏文件逐条原因列报
+    if (seen.contains(QStringLiteral("unreadable.Las")))
+    {
+      QCOMPARE(unreadableOutcome, Outcome::Failed);
+      QVERIFY(!unreadableMsg.isEmpty()); // 坏文件逐条原因列报
+    }
     QCOMPARE(brokenOutcome, Outcome::Unresolved); // 损坏不猜——未决如实
 
     // 好文件全入库：catalog 里有井口与 LAS 资产，井 A1 已建。
@@ -734,7 +743,7 @@ void folderConfirmEstimateForceImportAndErrorReport()
         QVERIFY(!lr.message.isEmpty());
       }
     }
-    QCOMPARE(ledgerFailed, 1);
+    QCOMPARE(ledgerFailed, seen.contains(QStringLiteral("unreadable.Las")) ? 1 : 0);
     QVERIFY(QFile::exists(QDir(projectDir).filePath(
         QStringLiteral(".paleo/import_ledger.json"))));
 

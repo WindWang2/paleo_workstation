@@ -433,7 +433,7 @@ public:
 
 signals:
   void saveRequested();
-  void deleteRequested(const QString &name);
+  void deleteRequested(const QString &name); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
 private:
   QTreeWidget *m_list = nullptr;

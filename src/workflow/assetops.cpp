@@ -349,6 +349,9 @@ PurgeOutcome purgeAssets(DataCatalog *cat, const QString &projectDir,
       if (!QFile::exists(abs))
         continue;
       const qint64 sz = QFileInfo(abs).size();
+      // 受管资产按只读纪律落盘；Windows 下 FILE_ATTRIBUTE_READONLY 拦截
+      // 删除——先还写位再删（POSIX 靠目录写权，此处幂等）。
+      QFile::setPermissions(abs, QFile::permissions(abs) | QFileDevice::WriteOwner);
       if (QFile::remove(abs))
         out.bytesFreed += sz;
       else

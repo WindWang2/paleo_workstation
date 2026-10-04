@@ -4,6 +4,7 @@
 #include "algorithms/evolution/compare.h"
 #include "algorithms/evolution/types.h"
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 
@@ -169,7 +170,12 @@ void TestEvolutionKernel::syntheticDisplacement()
   QVERIFY( change->boundarySamples > 0 );
   QVERIFY( std::fabs( change->boundaryMedianShift - 40.0 ) < 1e-3 );
   QVERIFY( std::fabs( change->boundaryAdvanceRatio - 1.0 ) < 1e-3 );
-  QVERIFY( std::fabs( change->boundaryMedianAzimuthDeg ) < 1.0 ); // 北 = 0°
+  // 北 = 0°：方位角按环绕角断言（359.9° 与 0.1° 同为近北——纯北位移的
+  // dx 浮点残差可正可负，归一化后落在 360 邻域而非负值域）。
+  const double az = change->boundaryMedianAzimuthDeg;
+  const double northDist = std::min( std::fabs( az ), std::fabs( 360.0 - az ) );
+  QVERIFY2( northDist < 1.0,
+            qPrintable( QStringLiteral( "azimuth=%1" ).arg( az ) ) );
   QVERIFY( std::fabs( change->boundaryResultant - 1.0 ) < 1e-3 );
 
   QCOMPARE( result.boundaryField.size(), static_cast<std::size_t>( change->boundarySamples ) );

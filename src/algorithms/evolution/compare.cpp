@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numbers> // std::numbers::pi——M_PI 在 MSVC <cmath> 下不定义
 #include <map>
 #include <set>
 
@@ -446,7 +447,7 @@ EvolutionResult compareFacies( const FaciesCoverage &earlier, const FaciesCovera
           magnitudes.empty() ? kNaN : static_cast<double>( advances ) / magnitudes.size();
       if ( !magnitudes.empty() )
       {
-        double azimuth = std::atan2( sumDx, sumDy ) * 180.0 / M_PI;
+        double azimuth = std::atan2( sumDx, sumDy ) * 180.0 / std::numbers::pi;
         if ( azimuth < 0 )
           azimuth += 360.0;
         change.boundaryMedianAzimuthDeg = azimuth;

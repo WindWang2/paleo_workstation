@@ -3,6 +3,7 @@
 #include "workflows_internal.h"
 
 #include "../algorithms/evolution/compare.h"
+#include "../catalog/datacatalog.h"
 #include "../domain/mappinghorizons.h"
 #include "../domain/singlefactorrequest.h" // 制图工作场不进跨期对比
 #include "../io/faciescoveragereader.h"

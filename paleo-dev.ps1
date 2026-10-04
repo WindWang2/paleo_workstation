@@ -159,27 +159,36 @@ switch ($Verb) {
     $env:PYTHONUTF8 = '1'
     $logDir = Join-Path $Vendor 'logs'
     New-Item -ItemType Directory -Force $logDir | Out-Null
+    $firstRunDir = Join-Path $Build 'Testing/qtest-first-run'
+    New-Item -ItemType Directory -Force $firstRunDir | Out-Null
+    $junit = Join-Path $Build 'Testing/ctest-junit.xml'
     $log = Join-Path $logDir 'ctest.log'
     $ctestExtra = @()
     if ($env:PALEO_CTEST_ARGS) { $ctestExtra = $env:PALEO_CTEST_ARGS.Trim() -split '\s+' }
-    ctest --test-dir $Build --output-on-failure @ctestExtra 2>&1 | Tee-Object -FilePath $log
-    if ($LASTEXITCODE -ne 0) {
+    ctest --test-dir $Build --output-on-failure --output-junit $junit @ctestExtra 2>&1 | Tee-Object -FilePath $log
+    $ctestExit = $LASTEXITCODE
+    if ($ctestExit -ne 0) {
       # ctest 的 --output-on-failure 在 Windows runner 上回收不到子进程
-      # 输出；失败测试逐个直跑，QtTest 的 FAIL/Loc 行直落日志与控制台
-      # （控制台可见性：日志文件在 artifact 里，排障不应多一跳）。
-      $names = & ctest --test-dir $Build --rerun-failed -N @ctestExtra 2>$null |
-        ForEach-Object { if ($_ -match 'Test\s+#\d+:\s+(\S+)') { $Matches[1] } }
+      # 输出；失败测试逐个直跑，QtTest 的 FAIL/Loc 行直落日志与控制台。
+      # 与 Linux gate 对齐：崩溃/abort 不按一次性环境抖动放行。
+      $crashPattern = '\*\*\*Exception|Subprocess aborted|Child aborted|Subprocess killed|Illegal|SegFault'
+      if (Select-String -Path $log -Pattern $crashPattern -Quiet) {
+        throw 'CTest failed (crash-class failure)'
+      }
+      $names = @( & ctest --test-dir $Build --rerun-failed -N @ctestExtra 2>$null |
+        ForEach-Object { if ($_ -match 'Test\s+#\d+:\s+(\S+)') { $Matches[1] } } )
+      $rerunFailed = $false
+      $unhandled = $names.Count -eq 0
       foreach ($n in $names) {
-        # 有些 ctest 项不是可执行文件（layering 是 python 脚本）——跳过，
-        # 否则 & 不存在的 .exe 会终止整个直跑循环。
+        # 有些 ctest 项不是可执行文件（layering 是 python 脚本）；未处理的
+        # 失败项必须保留红，不能把它误当成可重跑通过。
         $exe = Join-Path $Build "$n.exe"
-        if (-not (Test-Path $exe)) { continue }
+        if (-not (Test-Path $exe)) { $unhandled = $true; continue }
         "=== $n (direct run) ===" | Tee-Object -FilePath $log -Append
         # QtTest 在无控制台的 Windows 上把结果走 OutputDebugString，
         # stdout 重定向收不到——用 -o 落文件再回放（崩溃栈仍走 stderr）。
         $qtout = Join-Path $logDir "$n.qtout.txt"
-        # 直跑复现 ctest 环境（该测试的 ENVIRONMENT 属性 + 工作目录=构建目录），
-        # 否则「ctest 红、直跑绿」的环境性失败看不到 FAIL 行（tst_import 先例）。
+        # 直跑复现 ctest 环境（该测试的 ENVIRONMENT 属性 + 工作目录=构建目录）。
         $saved = @{}
         try {
           $json = & ctest --test-dir $Build -R "^$([regex]::Escape($n))`$" --show-only=json-v1 2>$null | Out-String | ConvertFrom-Json
@@ -196,19 +205,22 @@ switch ($Verb) {
             }
           }
         } catch { "  (ctest env 解析失败：$_)" | Tee-Object -FilePath $log -Append }
+        $rerunExit = 1
         Push-Location $Build
         try {
           & $exe -o "$qtout,txt" 2>&1 | Tee-Object -FilePath $log -Append
+          $rerunExit = $LASTEXITCODE
         } finally {
           Pop-Location
           foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k], 'Process') }
         }
+        if ($rerunExit -ne 0) { $rerunFailed = $true }
         if (Test-Path $qtout) {
           Get-Content $qtout | Tee-Object -FilePath $log -Append
           Remove-Item $qtout -Force
         }
       }
-      throw 'CTest failed'
+      if ($rerunFailed -or $unhandled) { throw 'CTest failed' }
     }
   }
   'selfcheck' {

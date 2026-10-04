@@ -84,6 +84,13 @@ class WellSectionTracksDialog : public QDialog
     QDoubleSpinBox *m_max2;
     QCheckBox *m_log2;
     QToolButton *m_color2;
+    QCheckBox *m_curve3On;
+    QWidget *m_curve3Row;
+    QComboBox *m_curve3;
+    QDoubleSpinBox *m_min3;
+    QDoubleSpinBox *m_max3;
+    QCheckBox *m_log3;
+    QToolButton *m_color3;
     QCheckBox *m_sandFill;
     QDoubleSpinBox *m_cutoff;
     // 岩性道表单。

@@ -991,4 +991,103 @@ bool segmentIntersectsMesh(double ax, double ay, double az, double bx, double by
     return segmentIntersectsTriangles(ax, ay, az, bx, by, bz, tris);
 }
 
+SectionCut intersectSurfaceWithPolyline(const paleo::fault::FaultSurfaceMesh &mesh,
+                                        const QVector<QPair<double, double>> &xyPolyline)
+{
+    SectionCut cut;
+    if (xyPolyline.size() < 2) {
+        cut.status = SurfaceBuildStatus::BadSection;
+        cut.message = QStringLiteral("折线少于两个点");
+        return cut;
+    }
+    // 逐折线段建竖直面切 mesh；交线段端点（=断面三角形边与面的交点）即
+    // 投绘采样点，投影到折线得累计长分数 traceFrac，z 为深度。
+    double scale = 1;
+    for (const auto &v : mesh.vertices)
+        scale = std::max(scale, 1.0 + std::fabs(v.x) + std::fabs(v.y) + std::fabs(v.z));
+    const double tol = 1e-6 * scale;
+
+    QVector<double> cumLen(xyPolyline.size(), 0.0);
+    double total = 0.0;
+    for (int i = 1; i < xyPolyline.size(); ++i) {
+        const double dx = xyPolyline[i].first - xyPolyline[i - 1].first;
+        const double dy = xyPolyline[i].second - xyPolyline[i - 1].second;
+        total += std::sqrt(dx * dx + dy * dy);
+        cumLen[i] = total;
+    }
+    if (!(total > 1e-9)) {
+        cut.status = SurfaceBuildStatus::BadSection;
+        cut.message = QStringLiteral("折线在地图上没有长度");
+        return cut;
+    }
+
+    for (int i = 1; i < xyPolyline.size(); ++i) {
+        const Vec3 a{xyPolyline[i - 1].first, xyPolyline[i - 1].second, 0.0};
+        const Vec3 b{xyPolyline[i].first, xyPolyline[i].second, 0.0};
+        const Vec3 horizontal{b.x - a.x, b.y - a.y, 0};
+        const double segLen = len(horizontal);
+        if (!(segLen > 1e-9))
+            continue;
+        const Vec3 normal = cross(horizontal, Vec3{0, 0, 1});
+        HorizonPlane plane;
+        plane.nx = normal.x;
+        plane.ny = normal.y;
+        plane.nz = normal.z;
+        plane.d = normal.x * a.x + normal.y * a.y + normal.z * a.z;
+        // 交线段裁剪到本折线段范围（井径两端截断断层线）：两端投影参数
+        // 同侧在外 → 整段丢弃；否则端点钳到 [0,1] 边界（边界交点即剖面
+        // 端处的断层深度）。
+        for (const Seg &s : meshPlaneSegments(mesh, plane)) {
+            const double tA =
+                dot(Vec3{s.a.x - a.x, s.a.y - a.y, 0}, horizontal) / (segLen * segLen);
+            const double tB =
+                dot(Vec3{s.b.x - a.x, s.b.y - a.y, 0}, horizontal) / (segLen * segLen);
+            if ((tA < 0.0 && tB < 0.0) || (tA > 1.0 && tB > 1.0))
+                continue;
+            const auto emitHit = [&](double tc, const Vec3 &p) {
+                SectionHit hit;
+                hit.traceFrac = (cumLen[i - 1] + tc * segLen) / total;
+                hit.x = p.x;
+                hit.y = p.y;
+                hit.z = p.z;
+                cut.hits.push_back(hit);
+            };
+            if (std::fabs(tB - tA) < 1e-12) {
+                // 竖直切边（两端同 traceFrac）：双端点各自取样——钳位重建
+                // 会把两端塌成同一点丢 s.b 深度。
+                const double tc = std::max(0.0, std::min(1.0, tA));
+                emitHit(tc, s.a);
+                emitHit(tc, s.b);
+            } else {
+                for (double t : {tA, tB}) {
+                    const double tc = std::max(0.0, std::min(1.0, t));
+                    emitHit(tc, s.a + (s.b - s.a) * ((tc - tA) / (tB - tA)));
+                }
+            }
+        }
+    }
+    std::sort(cut.hits.begin(), cut.hits.end(),
+              [](const SectionHit &l, const SectionHit &r) {
+                  return l.traceFrac < r.traceFrac;
+              });
+    // 近重合点去重（相邻切口的共享端点）。
+    QVector<SectionHit> dedup;
+    for (const SectionHit &h : cut.hits) {
+        if (!dedup.isEmpty()) {
+            const SectionHit &last = dedup.back();
+            if (std::fabs(last.traceFrac - h.traceFrac) * total < tol &&
+                std::fabs(last.z - h.z) < tol)
+                continue;
+        }
+        dedup.push_back(h);
+    }
+    cut.hits = dedup;
+    if (cut.hits.size() < 2) {
+        cut.status = SurfaceBuildStatus::NoIntersection;
+        cut.message = QStringLiteral("断面不穿过该折线");
+        cut.hits.clear();
+    }
+    return cut;
+}
+
 } // namespace paleo::faultsurf

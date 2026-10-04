@@ -931,7 +931,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   stack->addWidget(validatePage);
 
   attachSections(seismicLink);
-  attachWellSection(taskSvc); // 连井剖面 dock ← workflow（m_seismicTaskSvc 已在上方就位）
+  attachWellSection(taskSvc, store); // 连井剖面 dock ← workflow + 编辑产物落库（store）
   attachWellCompositeDerived(this, m_previewDoc ? m_previewDoc->catalog() : nullptr);
   WellCorrelationPanel *corrPanel = nullptr;
   if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))

@@ -30,19 +30,29 @@
 
 ## P2 — 单因素原生算法后续（from goal/single-factor-native, 2026-10-02）
 
-- **What:** 克里金体系深化、完整 SFPKG 导入、外委 XML/XLSX 批量读取、
-  参考工程全部历史制图策略、时深域转换、监督分类、打印排版、
-  完整 Python GUI 嵌入。有限断层路径距离 `FaultPathMetric` 已由
-  `src/algorithms/singlefactor/faultpath.{h,cpp}` 落地，并接入 localdirectionalgorithm；
-  回归为 `tst_singlefactor_faultpath` / `tst_singlefactor_parity_completion`，从未实现项勾销。
-- **Why:** 本次交付只做 C++ 局部方向 IDW、软边界、井群权重、硬屏障栅格连通、
-  真实数值等值线和显式制图工作场。上游井数超过 80 等条件下的各向异性路径
-  会退成 IDW，不能把 UI 标签当成克里金。
-- **Pros:** P0/P1 保持可复算的分析场语义；**Cons:** 历史闭环补接
-  和批量外委格式要另立项。
-- **Context:** `docs/designs/single-factor-native-integration-plan.md` 第 1 节
-  与第 7.3 节（原方向历史快照）。当前 `localidw.h` 的旧核仍为
-  `grid_connectivity_v1`，生产局部方向作业已能使用独立的 FaultPathMetric 绕行核；两者不混称。
+- **What:** 剩余项：协克里金/带约束 OK（把方向线/软边界耦合进克里金权重）、
+  变差函数逐硬隔断分量拟合、SFPKG 写出与 ZIP64、外委表的曲线统计
+  （mean/median/min/max + 深度区间）与因素自动发现、制图策略包进 UI、
+  时深域转换、监督分类、打印排版、完整 Python GUI 嵌入。
+  已完成（原 P2 条目）：有限断层路径距离 `FaultPathMetric`
+  （`src/algorithms/singlefactor/faultpath.{h,cpp}`，回归 `tst_singlefactor_faultpath`）；
+  变差函数/普通克里金核（方向18 `src/algorithms/geostat/`）；
+  克里金接入本地方向插值面（方向41 `krigingsurface.{h,cpp}` +
+  `geostat::KrigingSolver`，`method=local_direction_kriging`，
+  回落记 `method_actual`，回归 `tst_singlefactor_kriging`）；
+  完整 SFPKG 读取（`src/io/sfpkgreader.*`，回归 `tst_io_sfpkg`）；
+  外委 XML/XLSX 批量读取（`src/io/outsourceworkbook.*`，回归 `tst_io_outsource`）；
+  可枚举历史制图策略参数包词表
+  （`src/domain/singlefactorstrategy.*`，回归 `tst_singlefactor_strategy`）。
+- **Why:** 「井数 >80 各向异性路径退成 IDW、UI 标签不得冒充克里金」已在本地引擎侧
+  解决：克里金不再回落成 IDW 冒充，回落时 `method_actual`/`fallback_reason`
+  如实写进血缘与 QC；剩余项各需独立契约。
+- **Pros:** 沿用 local_direction_idw 插值面复算语义，克里金与 IDW 共用一套
+  成图域/硬屏障/井控标记；**Cons:** 协克里金、逐分量拟合、SFPKG 写出仍要另做。
+- **Context:** `docs/progress/sf-kriging.md`（方向41 全文口径与递延）、
+  `docs/progress/geostat-methods.md`（克里金核口径）。
+  当前 `localidw.h` 的旧核仍为 `grid_connectivity_v1`，生产局部方向作业已能使用
+  独立的 FaultPathMetric 绕行核；两者不混称。
 - **Effort:** human: L / CC: L
 - **Priority:** P2
 - **Depends on:** 单因素原生 P0 分析场进入目标基线

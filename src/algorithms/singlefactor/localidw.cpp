@@ -1,6 +1,8 @@
 // 层：数据
 #include "localidw.h"
 
+#include "../geostat/kriging.h"
+
 #include "curvekernel.h"
 #include "partition.h"
 #include "support.h"
@@ -9,6 +11,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <memory>
 #include <utility>
 
 // 层：数据
@@ -46,7 +49,28 @@ struct Engine
   std::vector<SoftTerm> soft;
   ClusterModel clusters;
   ResolvedParameters params;
+  // 方向41：methodActual=="kriging" 时为非空（分量样本预建邻域索引）。
+  // 空 = 纯 IDW 权重路径；病态格回落时仍用同一 IDW 权重公式。
+  std::unique_ptr<geostat::KrigingSolver> solver;
 };
+
+// 变差函数参数 → geostat 模型（各向异性 ratio<1 或不设方位即各向同性）。
+geostat::VariogramModel variogramModelOf( const ResolvedParameters &params )
+{
+  geostat::VariogramModel model;
+  if ( params.variogramModel == "exponential" )
+    model.type = geostat::VariogramModelType::Exponential;
+  else if ( params.variogramModel == "gaussian" )
+    model.type = geostat::VariogramModelType::Gaussian;
+  else
+    model.type = geostat::VariogramModelType::Spherical;
+  model.nugget = params.nugget;
+  model.sill = params.sill;
+  model.range = params.range;
+  model.anisotropyRatio = params.variogramAnisotropyRatio >= 1.0 ? params.variogramAnisotropyRatio : 1.0;
+  model.azimuthDeg = params.variogramAzimuthDeg >= 0.0 ? params.variogramAzimuthDeg : 0.0;
+  return model;
+}
 
 bool badSamples( const std::vector<Sample> &samples, std::string *message )
 {
@@ -161,11 +185,28 @@ Engine makeEngine( const std::vector<Sample> &wells, const ResolvedParameters &p
     engine.soft.push_back( std::move( term ) );
   }
   engine.clusters = buildClusters( wells, params.clusterSpan );
+  if ( params.methodActual == "kriging" && !wells.empty() )
+  {
+    std::vector<geostat::Sample> geostatSamples;
+    geostatSamples.reserve( wells.size() );
+    for ( const Sample &sample : wells )
+      geostatSamples.push_back( geostat::Sample{ sample.x, sample.y, sample.value } );
+    geostat::KrigingParams krigingParams;
+    krigingParams.maxPoints = params.krigingMaxPoints;
+    krigingParams.minPoints = params.krigingMinPoints;
+    if ( params.searchRadius )
+      krigingParams.searchRadius = *params.searchRadius;
+    auto solver = std::make_unique<geostat::KrigingSolver>( geostatSamples, variogramModelOf( params ),
+                                                            krigingParams );
+    if ( solver->valid() )
+      engine.solver = std::move( solver );
+  }
   return engine;
 }
 
 void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, std::vector<double> &values,
-                    std::vector<double> &influence )
+                    std::vector<double> &influence, int *krigingCells = nullptr,
+                    int *idwFallbackCells = nullptr )
 {
   const int nQuery = static_cast<int>( queries.size() );
   const int nWell = static_cast<int>( engine.wells.size() );
@@ -201,6 +242,21 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
   for ( int q = 0; q < nQuery; ++q )
   {
     const Point2 query = queries[static_cast<std::size_t>( q )];
+    bool krigingUnavailable = false;
+    if ( engine.solver )
+    {
+      const geostat::KrigingPointResult point = engine.solver->solveAt( query.x, query.y );
+      if ( point.ok )
+      {
+        values[static_cast<std::size_t>( q )] = point.estimate;
+        if ( krigingCells )
+          ++( *krigingCells );
+        continue;
+      }
+      // 方程奇异/病态（或半径闸不足）：落到下面的 IDW 权重。只有在确实给出
+      // 有限 IDW 值时才算一次「回落」，两种都无值的格保持 NaN 不计数。
+      krigingUnavailable = true;
+    }
     double nearest = std::numeric_limits<double>::infinity();
     for ( int w = 0; w < nWell; ++w )
     {
@@ -311,6 +367,8 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
     }
     if ( exactCount > 0 )
       value = exactSum / static_cast<double>( exactCount );
+    if ( krigingUnavailable && idwFallbackCells && std::isfinite( value ) )
+      ++( *idwFallbackCells );
     values[static_cast<std::size_t>( q )] = value;
   }
 }
@@ -410,7 +468,13 @@ QueryResult evaluateAt( const PreparedInput &input, std::span<const Point2> quer
                                queryPoints.begin() + static_cast<std::ptrdiff_t>( start + count ) );
     std::vector<double> values;
     std::vector<double> influence;
-    evaluateBatch( engine, batch, values, influence );
+    // 点查询面也给克里金回落计数：QueryResult 没有专门字段，落进 issues 如实说明
+    //（否则带 kriging 标签的调用方拿到「部分克里金 + 部分 IDW」的混合值而无标记）。
+    int krigingCells = 0;
+    int idwFallbackCells = 0;
+    evaluateBatch( engine, batch, values, influence, &krigingCells, &idwFallbackCells );
+    result.krigingCells += krigingCells;
+    result.idwFallbackCells += idwFallbackCells;
     for ( std::size_t i = 0; i < count; ++i )
     {
       result.values[start + i] = values[i];
@@ -418,6 +482,11 @@ QueryResult evaluateAt( const PreparedInput &input, std::span<const Point2> quer
     }
     done += static_cast<int>( count );
     report( control, total ? static_cast<double>( done ) / static_cast<double>( total ) : 1 );
+  }
+  if ( result.idwFallbackCells > 0 )
+  {
+    result.issues.push_back( "kriging_point_fallback " + std::to_string( result.idwFallbackCells ) +
+                             "（这些查询点没解出克里金值，用同参数 IDW 权重给出）" );
   }
   result.status = Status::Ok;
   return result;
@@ -617,7 +686,7 @@ SurfaceResult evaluateLocalIdw( const PreparedInput &input, const GridSpec &grid
       }
       std::vector<double> values;
       std::vector<double> influence;
-      evaluateBatch( engine, batch, values, influence );
+      evaluateBatch( engine, batch, values, influence, &result.krigingCells, &result.idwFallbackCells );
       for ( std::size_t i = 0; i < count; ++i )
       {
         const std::size_t index = static_cast<std::size_t>( indices[start + i] );

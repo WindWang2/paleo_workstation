@@ -73,33 +73,117 @@ bool solveOrdinaryKriging( const std::vector<std::uint32_t> &neighborhood,
 
 void clampParams( KrigingParams *params )
 {
-  params->maxPoints = std::clamp( params->maxPoints, 1, 64 );
-  params->minPoints = std::clamp( params->minPoints, 1, params->maxPoints );
+  if ( params->maxPoints > 0 )
+  {
+    params->maxPoints = std::clamp( params->maxPoints, 1, 64 );
+    params->minPoints = std::clamp( params->minPoints, 1, params->maxPoints );
+  }
+  else
+  {
+    // maxPoints <= 0 =「分量内全部样本」口径（singlefactor 面的远场行为依赖它）。
+    // minPoints 只用于半径模式覆盖闸，与 K 无关。
+    params->minPoints = std::max( params->minPoints, 1 );
+  }
   if ( params->searchRadius < 0 )
     params->searchRadius = 0;
 }
 
+bool modelUsable( const VariogramModel &model )
+{
+  return model.range > 0 && std::isfinite( model.range ) && model.nugget >= 0 &&
+         model.sill >= 0 && std::isfinite( model.nugget ) && std::isfinite( model.sill );
+}
+
+// 邻域索引 + 参数的公共核：KrigingSolver（按分量重复查询）与 ordinaryKriging
+// （全场扫描）共用，避免两套邻域/求解口径漂移。
+struct SolverCore
+{
+  detail::NeighborIndex index;
+  VariogramModel model;
+  KrigingParams params;
+  int merged = 0;
+  bool valid = false;
+
+  SolverCore( const std::vector<Sample> &samples, const VariogramModel &variogram,
+              const KrigingParams &krigingParams )
+    : model( variogram )
+  {
+    params = krigingParams;
+    clampParams( &params );
+    std::vector<Sample> deduped = detail::dedupeSamples( samples, &merged );
+    if ( deduped.empty() || !modelUsable( model ) )
+      return;
+    index = detail::NeighborIndex::build( deduped );
+    valid = true;
+  }
+
+  bool neighborhood( double x, double y, std::vector<std::uint32_t> *out ) const
+  {
+    out->clear();
+    if ( !valid )
+      return false;
+    const int k = params.maxPoints > 0 ? params.maxPoints : static_cast<int>( index.size() );
+    index.queryNearest( x, y, k, params.searchRadius, out );
+    if ( params.searchRadius > 0 && static_cast<int>( out->size() ) < params.minPoints )
+      return false; // 半径模式覆盖闸：不足即 nodata
+    return !out->empty();
+  }
+};
+
 } // namespace
+
+struct KrigingSolver::Impl
+{
+  explicit Impl( const std::vector<Sample> &samples, const VariogramModel &model,
+                 const KrigingParams &params )
+    : core( samples, model, params )
+  {
+  }
+  SolverCore core;
+};
+
+KrigingSolver::KrigingSolver( const std::vector<Sample> &samples, const VariogramModel &model,
+                              const KrigingParams &params )
+  : m_impl( std::make_unique<Impl>( samples, model, params ) )
+{
+}
+
+KrigingSolver::~KrigingSolver() = default;
+KrigingSolver::KrigingSolver( KrigingSolver && ) noexcept = default;
+KrigingSolver &KrigingSolver::operator=( KrigingSolver && ) noexcept = default;
+
+bool KrigingSolver::valid() const
+{
+  return m_impl && m_impl->core.valid;
+}
+
+int KrigingSolver::sampleCount() const
+{
+  return m_impl && m_impl->core.valid ? static_cast<int>( m_impl->core.index.size() ) : 0;
+}
+
+int KrigingSolver::mergedDuplicates() const
+{
+  return m_impl ? m_impl->core.merged : 0;
+}
+
+KrigingPointResult KrigingSolver::solveAt( double x, double y ) const
+{
+  KrigingPointResult result;
+  if ( !m_impl )
+    return result;
+  std::vector<std::uint32_t> neighborhood;
+  if ( !m_impl->core.neighborhood( x, y, &neighborhood ) )
+    return result;
+  solveOrdinaryKriging( neighborhood, m_impl->core.index, x, y, m_impl->core.model, &result );
+  return result;
+}
 
 KrigingPointResult ordinaryKrigingAt( double x, double y, const std::vector<Sample> &samples,
                                       const VariogramModel &model, const KrigingParams &params )
 {
-  KrigingPointResult result;
-  KrigingParams clamped = params;
-  clampParams( &clamped );
-  int merged = 0;
-  const std::vector<Sample> deduped = detail::dedupeSamples( samples, &merged );
-  if ( deduped.empty() )
-    return result;
-  const detail::NeighborIndex index = detail::NeighborIndex::build( deduped );
-  std::vector<std::uint32_t> neighborhood;
-  index.queryNearest( x, y, clamped.maxPoints, clamped.searchRadius, &neighborhood );
-  if ( static_cast<int>( neighborhood.size() ) < clamped.minPoints && clamped.searchRadius > 0 )
-    return result; // 半径模式覆盖闸：不足即 nodata
-  if ( neighborhood.empty() )
-    return result;
-  solveOrdinaryKriging( neighborhood, index, x, y, model, &result );
-  return result;
+  const KrigingSolver solver( samples, model, params );
+  return solver.solveAt( x, y );
 }
 
 KrigingResult ordinaryKriging( const std::vector<Sample> &samples, const GridSpec &grid,
@@ -123,16 +207,14 @@ KrigingResult ordinaryKriging( const std::vector<Sample> &samples, const GridSpe
     result.message = "variogram model invalid (range > 0, nugget/sill >= 0)";
     return result;
   }
-  KrigingParams clamped = params;
-  clampParams( &clamped );
 
-  const std::vector<Sample> deduped = detail::dedupeSamples( samples, &result.mergedDuplicates );
-  if ( deduped.empty() )
+  SolverCore core( samples, model, params );
+  result.mergedDuplicates = core.merged;
+  if ( !core.valid )
   {
     result.message = "no finite samples";
     return result;
   }
-  const detail::NeighborIndex index = detail::NeighborIndex::build( deduped );
   const std::size_t total = static_cast<std::size_t>( cells );
   result.estimate.assign( total, std::numeric_limits<double>::quiet_NaN() );
   result.variance.assign( total, std::numeric_limits<double>::quiet_NaN() );
@@ -145,17 +227,12 @@ KrigingResult ordinaryKriging( const std::vector<Sample> &samples, const GridSpe
     for ( int column = 0; column < grid.cols; ++column )
     {
       const std::size_t cell = static_cast<std::size_t>( row ) * grid.cols + column;
-      index.queryNearest( grid.cellCenterX( column ), grid.cellCenterY( row ),
-                          clamped.maxPoints, clamped.searchRadius, &neighborhood );
-      bool covered = true;
-      if ( clamped.searchRadius > 0 && static_cast<int>( neighborhood.size() ) < clamped.minPoints )
-        covered = false; // 半径模式覆盖闸
-      if ( covered && !neighborhood.empty() )
+      if ( core.neighborhood( grid.cellCenterX( column ), grid.cellCenterY( row ), &neighborhood ) )
       {
         KrigingPointResult point;
-        if ( solveOrdinaryKriging( neighborhood, index,
+        if ( solveOrdinaryKriging( neighborhood, core.index,
                                    grid.cellCenterX( column ), grid.cellCenterY( row ),
-                                   model, &point ) )
+                                   core.model, &point ) )
         {
           result.estimate[cell] = point.estimate;
           result.variance[cell] = point.variance;

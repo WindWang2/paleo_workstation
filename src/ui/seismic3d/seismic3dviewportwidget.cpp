@@ -189,9 +189,13 @@ void Seismic3DViewportWidget::paintGL() {
     const glm::mat4 view = camera_.BuildViewMatrix();
     const glm::mat4 model = glm::mat4(1.0f);
 
-    sliceRenderer_.Render(this, view, proj, model);
-    frameRenderer_.Render(this, view, proj, model);
-    horizonRenderer_.Render(this, view, proj, model);
+    // #158：体被清空（工程切换到无地震工程）后不再画旧体留在 GPU 缓冲里的
+    // 切片/外框/层位——这三类缓冲都只能由已加载体生成。
+    if (volume_ && volume_->IsLoaded()) {
+        sliceRenderer_.Render(this, view, proj, model);
+        frameRenderer_.Render(this, view, proj, model);
+        horizonRenderer_.Render(this, view, proj, model);
+    }
     faultRenderer_.Render(this, view, proj);
 
     // D3.10 帧率读数（debug 开关；半秒滚动均值）
@@ -273,6 +277,8 @@ void Seismic3DViewportWidget::setVolume(std::shared_ptr<SgyVolume> volume) {
         }
         doneCurrent();
         update();
+    } else if (!volume_) {
+        update(); // 清空：重画一帧（paintGL 跳过体相关渲染）
     }
     emit volumeLoaded();
 }

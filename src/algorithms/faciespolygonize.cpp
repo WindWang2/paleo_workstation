@@ -1202,7 +1202,7 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   for ( int i = 0; i < raw.size(); ++i )
   {
     const float v = raw.at( i );
-    if ( std::isnan( v ) || ( hasNd && static_cast<double>( v ) == nd ) )
+    if ( std::isnan( v ) || ( hasNd && v == static_cast<float>( nd ) ) ) // #165：float 口径
       grid[i] = kNodata;
     else
     {

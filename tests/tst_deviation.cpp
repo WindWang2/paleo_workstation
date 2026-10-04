@@ -53,6 +53,10 @@ private slots:
   void azimuthTurnUsesFullDogleg();
   // 首站前/末站后外延语义 + 站点表覆盖 md 区间时 pointAt 边界站恒等。
   void extensionAndBoundaries();
+  // #168：站间取点沿最小曲率圆弧（起点直井、终点 12°/90°：圆弧在正东竖直面内）。
+  void interiorPointFollowsArc();
+  // #126：上翘井（井斜>90°）TVD→MD 反解满足正向换算，多解取首次到达。
+  void tvdToMdUpDipWell();
 };
 
 void tst_deviation::verticalSurveyIsIdentity()
@@ -260,6 +264,58 @@ void tst_deviation::extensionAndBoundaries()
   QVERIFY(hz.has_value());
   QCOMPARE(hz->tvdAt(500.0), hz->points().constLast().tvd);
   QCOMPARE(hz->tvdToMd(hz->points().constLast().tvd + 50.0), 100.0);
+}
+
+void tst_deviation::interiorPointFollowsArc()
+{
+  QVector<DeviationStation> stations;
+  appendStations(stations, {0.0, 0.0, 0.0, 1000.0, 0.0, 0.0, 1100.0, 12.0, 90.0});
+  QString err;
+  auto survey = WellDeviationSurvey::fromStations(stations, &err);
+  QVERIFY2(survey.has_value(), qPrintable(err));
+  const double beta = 12.0 * kPi / 180.0;
+  const double r = 100.0 / beta;
+  for (double md = 1005.0; md < 1100.0; md += 5.0)
+  {
+    const TrajectoryPoint p = survey->pointAt(md);
+    const double phi = (md - 1000.0) / 100.0 * beta;
+    QVERIFY2(std::fabs(p.north) < 1e-9, qPrintable(QStringLiteral("md=%1 N=%2").arg(md).arg(p.north)));
+    QVERIFY(std::fabs(p.east - r * (1.0 - std::cos(phi))) < 1e-9);
+    QVERIFY(std::fabs(p.tvd - (1000.0 + r * std::sin(phi))) < 1e-9);
+  }
+  // 端站连续：站间取点趋近站点存储值。
+  const TrajectoryPoint end = survey->points().constLast();
+  const TrajectoryPoint near = survey->pointAt(1100.0 - 1e-7);
+  QVERIFY(std::fabs(near.east - end.east) < 1e-6);
+  QVERIFY(std::fabs(near.tvd - end.tvd) < 1e-6);
+}
+
+void tst_deviation::tvdToMdUpDipWell()
+{
+  QVector<DeviationStation> stations;
+  appendStations(stations, {0.0, 0.0, 0.0, 1000.0, 60.0, 0.0, 2000.0, 120.0, 0.0});
+  QString err;
+  auto survey = WellDeviationSurvey::fromStations(stations, &err);
+  QVERIFY2(survey.has_value(), qPrintable(err));
+  // 旧代码：tvdToMd(tvdAt(1500)) 返回 2000（tvdAt(2000)=826.99，差 ~128 m）。
+  for (double md = 50.0; md < 2600.0; md += 50.0)
+  {
+    const double target = survey->tvdAt(md);
+    const double back = survey->tvdToMd(target);
+    QVERIFY2(std::isfinite(back), qPrintable(QStringLiteral("md=%1").arg(md)));
+    QVERIFY2(std::fabs(survey->tvdAt(back) - target) < 1e-6,
+             qPrintable(QStringLiteral("md=%1 target=%2 back=%3 tvd(back)=%4")
+                            .arg(md).arg(target).arg(back).arg(survey->tvdAt(back))));
+    QVERIFY(back <= md + 1e-6); // 首次到达：不晚于原 MD
+  }
+  // 最深点之后的上翘段：同一垂深首次出现在造斜下行段，取浅的那个 MD。
+  const double t2000 = survey->tvdAt(2000.0);
+  const double first = survey->tvdToMd(t2000);
+  QVERIFY(first < 1500.0);
+  QVERIFY(std::fabs(survey->tvdAt(first) - t2000) < 1e-6);
+  // 比最深点还深：不可达 → 最深点 MD（井斜 90° 处，1000 + 30/60·1000 = 1500）。
+  const double unreachable = survey->tvdToMd(5000.0);
+  QVERIFY2(std::fabs(unreachable - 1500.0) < 1e-6, qPrintable(QString::number(unreachable)));
 }
 
 QTEST_MAIN(tst_deviation)

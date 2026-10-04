@@ -101,9 +101,13 @@ SparseSpikeResult sparseSpikeInversion(const float *trace, int n, double sampleI
   std::vector<double> w(wl);
   for (int j = 0; j < wl; ++j)
     w[std::size_t(j)] = double(wavelet.samples[std::size_t(j)]);
+  // 振幅标定（#141）：道振幅 / k = 反射系数量纲。
+  const double ampK = resolveAmplitudeScale(options.amplitudeScale, &wavelet,
+                                            &result.amplitudeCalibrated);
+  result.amplitudeScaleUsed = ampK;
   std::vector<double> s(std::size_t(n), 0.0);
   for (int i = 0; i < n; ++i)
-    s[std::size_t(i)] = std::isnan(trace[i]) ? 0.0 : double(trace[i]);
+    s[std::size_t(i)] = std::isnan(trace[i]) ? 0.0 : double(trace[i]) / ampK;
   const double energyS = dot(s, s);
   if (!(energyS > 0.0))
   {
@@ -193,6 +197,26 @@ SparseSpikeResult sparseSpikeInversion(const float *trace, int n, double sampleI
     result.reflectivity[std::size_t(i)] =
         std::isnan(trace[i]) ? kNan : float(x[std::size_t(i)]);
 
+  {
+    int nonzero = 0, clamped = 0;
+    for (double v : x)
+    {
+      if (v != 0.0)
+      {
+        ++nonzero;
+        if (std::fabs(v) > kMaxReflectivity)
+          ++clamped;
+      }
+    }
+    result.clampedFraction = nonzero > 0 ? double(clamped) / double(nonzero) : 0.0;
+    if (result.clampedFraction > options.maxClampedFraction)
+    {
+      result.reason = "反射系数超出物理范围的比例过高（地震振幅未标定？提供 amplitudeScale "
+                      "或使用井旁道提取的子波）";
+      return result;
+    }
+  }
+
   // 递推阻抗：种子 = 低频首样（有限）；无低频 → 1.0（相对口径）。
   double seed = 1.0;
   bool hasLow = false;
@@ -217,7 +241,8 @@ SparseSpikeResult sparseSpikeInversion(const float *trace, int n, double sampleI
       result.impedance[std::size_t(i)] = kNan;
       continue;
     }
-    double r = std::clamp(double(result.reflectivity[std::size_t(i)]), -0.45, 0.45);
+    double r = std::clamp(double(result.reflectivity[std::size_t(i)]), -kMaxReflectivity,
+                          kMaxReflectivity);
     if (i > 0)
       z = z * (1.0 + r) / (1.0 - r);
     result.impedance[std::size_t(i)] =

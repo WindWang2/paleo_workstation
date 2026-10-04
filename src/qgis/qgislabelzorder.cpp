@@ -2,7 +2,10 @@
 #include "qgislabelzorder.h"
 
 #include <qgsmaplayer.h>
+#include <qgsmaprendererjob.h> // QGIS_PALEO_LABELS_WITH_LAYER（补丁版才定义）
 #include <qgsproject.h>
+
+#include <QtGlobal>
 
 namespace
 {
@@ -16,6 +19,16 @@ QgisLabelZOrder::QgisLabelZOrder( QgsProject *project, QObject *parent )
   : QObject( parent )
   , m_project( project )
 {
+#ifndef QGIS_PALEO_LABELS_WITH_LAYER
+  // #138 优雅降级留痕：apt/OSGeo4W 二进制路的 QGIS 没有 labelsWithLayer 补丁，
+  // 属性写了也不生效，标注回到 QGIS 原生「永远置顶」。进程内只提示一次。
+  static bool s_warned = false;
+  if ( !s_warned )
+  {
+    s_warned = true;
+    qInfo( "QgisLabelZOrder: QGIS 未打 labelsWithLayer 补丁，标注不随图层 z 序（原生置顶）" );
+  }
+#endif
   if ( !m_project )
     return;
 

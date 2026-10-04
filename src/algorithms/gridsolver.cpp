@@ -142,8 +142,18 @@ inline bool cellOf(const GridGeometry &g, double x, double y, int *row, int *col
   const double rf = (g.originY - y) / g.dy;
   if (!(cf >= 0.0) || !(rf >= 0.0))
     return false;
-  const int c = static_cast<int>(cf);
-  const int r = static_cast<int>(rf);
+  int c = static_cast<int>(cf);
+  int r = static_cast<int>(rf);
+  // #162：东/南边界闭区间——x == originX + cols·dx（或 y == 底边）的点归最后一列/行。
+  // geometryForExtent 取散点精确包围盒，跨度为像元整数倍时 maxX/minY 上的点恰好
+  // 落在该边界；半开区间会把整列/整行数据静默丢弃。容差只吸收浮点舍入。
+  const auto onFarEdge = [](double f, int n) {
+    return f <= static_cast<double>(n) * (1.0 + 1e-12) + 1e-9;
+  };
+  if (c >= g.cols && onFarEdge(cf, g.cols))
+    c = g.cols - 1;
+  if (r >= g.rows && onFarEdge(rf, g.rows))
+    r = g.rows - 1;
   if (c >= g.cols || r >= g.rows)
     return false;
   *row = r;

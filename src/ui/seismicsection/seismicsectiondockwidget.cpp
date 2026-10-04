@@ -32,9 +32,13 @@
 #include <QMenu>
 #include <QVBoxLayout>
 
+#include "domain/seismic/sectionaxis.h"
+#include "domain/seismic/welltracelocate.h" // #129 井口 XY → 井旁道
+#include "domain/seismic/sgycoordinatemapper.h"
 #include "catalog/datacatalog.h"
 #include "workflow/derivedassets.h"
 #include "workflow/inversionworkflow.h"
+#include "workflow/wellimpedancetwt.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -483,8 +487,8 @@ namespace {
 class WellSideTraceWidget : public QWidget {
 public:
     WellSideTraceWidget(const SectionWellInfo *well, int col, const SgySliceImage &slice,
-                        float dtMs, QWidget *parent)
-        : QWidget(parent), m_well(well), m_dtMs(dtMs > 0.01f ? dtMs : 2.0f)
+                        float dtMs, double t0Ms, QWidget *parent)
+        : QWidget(parent), m_well(well), m_dtMs(dtMs > 0.01f ? dtMs : 2.0f), m_t0Ms(t0Ms)
     {
         const int h = slice.height;
         m_trace.reserve(std::size_t(h));
@@ -536,7 +540,9 @@ protected:
         // 分层刻度（右缘）
         p.setFont(QFont(QStringLiteral("Noto Sans SC"), 7));
         for (const WellTopItem &top : m_well->tops) {
-            const double frac = std::clamp(top.twtMs / double(m_trace.size() * m_dtMs), 0.0, 1.0);
+            // 道首样 TWT = 记录延迟 t0（#146 同口径）
+            const double frac = std::clamp((top.twtMs - m_t0Ms) / double(m_trace.size() * m_dtMs),
+                                           0.0, 1.0);
             const double py = y0 + frac * (y1 - y0);
             p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.4));
             p.drawLine(QPointF(width() - 46.0, py), QPointF(width() - 6.0, py));
@@ -549,6 +555,7 @@ private:
     const SectionWellInfo *m_well = nullptr;
     std::vector<float> m_trace;
     float m_dtMs = 2.0f;
+    double m_t0Ms = 0.0;
 };
 
 
@@ -1255,11 +1262,17 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
                 ref.type = type;
                 ref.index = index;
                 if (type == SgySliceType::Inline)
-                    ref.colMin = vol->XlineMin(), ref.colMax = vol->XlineMax();
+                    ref.colMin = vol->XlineMin(), ref.colMax = vol->XlineMax(),
+                    ref.colLines = vol->XlineValues();
                 else if (type == SgySliceType::Xline)
-                    ref.colMin = vol->InlineMin(), ref.colMax = vol->InlineMax();
+                    ref.colMin = vol->InlineMin(), ref.colMax = vol->InlineMax(),
+                    ref.colLines = vol->InlineValues();
                 else
                     ref.colMin = vol->XlineMin(), ref.colMax = vol->XlineMax();
+                // 列轴长度与切片列数不符（理论上不会）→ 不用轴表，避免错位映射。
+                if (!ref.colLines.empty() && int(ref.colLines.size()) != image->width)
+                    ref.colLines.clear();
+                ref.t0Ms = origin; // #146：剖面时间原点（记录延迟）
                 guard->m_canvas->setSectionRef(ref);
                 if (type != SgySliceType::Time)
                     guard->m_lastSlice = *image;
@@ -1872,14 +1885,21 @@ void SeismicSectionDockWidget::addPickFromCanvas(int traceCol, double twtMs) {
     const float dtMs = m_volume->SampleIntervalUs() > 0
         ? m_volume->SampleIntervalUs() / 1000.0f : 2.0f;
     SeismicPick pick;
-    pick.sampleIndex = qRound(twtMs / dtMs);
-    pick.twtMs = pick.sampleIndex * double(dtMs);
+    // #146：画布 TWT 含记录延迟 t0，样点号相对剖面首样。
+    pick.sampleIndex = sectionSampleForTwt(twtMs, ref.t0Ms, dtMs);
+    if (pick.sampleIndex < 0)
+        return;
+    pick.twtMs = sectionTwtForSample(pick.sampleIndex, ref.t0Ms, dtMs);
+    // #147：列 → 实际测线号（非单位线距不能 colMin+col）。
+    int lineNo = 0;
+    if (!sectionLineForColumn(ref.colLines, ref.colMin, traceCol, &lineNo))
+        return;
     if (ref.type == SgySliceType::Inline) {
         pick.inlineNo = ref.index;
-        pick.xlineNo = ref.colMin + traceCol;
+        pick.xlineNo = lineNo;
     } else if (ref.type == SgySliceType::Xline) {
         pick.xlineNo = ref.index;
-        pick.inlineNo = ref.colMin + traceCol;
+        pick.inlineNo = lineNo;
     } else {
         return; // 时间切片不拾取（水平向无 TWT 概念）
     }
@@ -2085,18 +2105,22 @@ void SeismicSectionDockWidget::runTracking() {
                                                 : p.xlineNo == ref.index;
     };
     const auto colOf = [ref](const SeismicPick &p) {
-        return ref.type == SgySliceType::Inline ? p.xlineNo - ref.colMin
-                                                : p.inlineNo - ref.colMin;
+        return sectionColumnForLine(ref.colLines, ref.colMin,
+                                    ref.type == SgySliceType::Inline ? p.xlineNo : p.inlineNo);
     };
     const QString interpreter = seed->interpreter;
     const QString horizon = seed->horizonName;
+    const double dtMsSeed = m_volume && m_volume->SampleIntervalUs() > 0
+        ? m_volume->SampleIntervalUs() / 1000.0 : 2.0;
     QList<QPair<int, int>> seeds;
     for (const SeismicPick &p : m_session.picks)
         if (p.horizonName == horizon && p.confidence == 1.0f && onSection(p))
         {
             const int col = colOf(p);
-            if (col >= 0 && col < m_lastSlice.width)
-                seeds.append({col, p.sampleIndex});
+            // #146：种子样点按 TWT 重算（旧会话 sampleIndex 可能未扣记录延迟）。
+            const int sample = sectionSampleForTwt(p.twtMs, ref.t0Ms, dtMsSeed);
+            if (col >= 0 && col < m_lastSlice.width && sample >= 0 && sample < m_lastSlice.height)
+                seeds.append({col, sample});
         }
     if (seeds.isEmpty())
         return;
@@ -2106,9 +2130,12 @@ void SeismicSectionDockWidget::runTracking() {
     if (m_pickPanel)
         m_pickPanel->setTrackingActive(true);
     QPointer<SeismicSectionDockWidget> guard(this); // 注入共享服务时迟到回调守卫
+    SeismicTrackOptions trackOptions = m_trackOptions;
+    trackOptions.columnLines = ref.colLines; // #147
+    trackOptions.startTimeMs = ref.t0Ms;     // #146
     m_trackTask = m_taskService->startHorizonTracking(
         m_lastSlice, ref.type, ref.index, ref.colMin, ref.colMax, seeds,
-        m_trackOptions, interpreter, horizon, dtMs,
+        trackOptions, interpreter, horizon, dtMs,
         [this, guard, ref, horizon, colOf, onSection](bool ok, const QList<SeismicPick> &picks,
                                                       const SeismicTrackReport &report,
                                                       const QString &error) {
@@ -2327,9 +2354,39 @@ void SeismicSectionDockWidget::showWellSideTrace() {
     for (const SectionWellInfo &w : m_candidateWells)
         if (std::abs(w.offsetDistanceM) < std::abs(best->offsetDistanceM))
             best = &w;
-    // 井口 → 最近测线格
-    const int il = m_volume->FindNearestInlineValue(best->surfaceY);
-    const int xl = m_volume->FindNearestXlineValue(best->surfaceX);
+    // 井口 XY → 测网 (IL, XL)（#129：FindNearest* 的参数是测线号，不能直接喂米制坐标；
+    // 先经道头拟合的测网仿射换算，再吸附到体的实际线号）。
+    if (!m_volume->Index()) {
+        QMessageBox::warning(this, tr("井旁道"), tr("地震体无道头索引，无法把井口坐标换算到测网。"));
+        return;
+    }
+    // 换算/覆盖/吸附/取列统一走 domain/seismic/welltracelocate（tst_welltracelocate
+    // 以 IL 步长 2、XL 步长 4、旋转测网钉住）；覆盖余量按实际线距的半步。
+    const SgyCoordinateMapper mapper = SgyCoordinateMapper::Fit(*m_volume->Index());
+    const seismic::WellTraceLocation loc =
+        seismic::locateWellTrace(*m_volume->Index(), mapper, best->surfaceX, best->surfaceY);
+    if (!loc.ok && loc.outOfCoverage) {
+        QMessageBox::information(this, tr("井旁道"),
+                                 tr("井 %1 井口 (%2, %3) 在测网覆盖范围外（连续解 IL %4 / XL %5），不取井旁道。")
+                                     .arg(best->wellName)
+                                     .arg(best->surfaceX, 0, 'f', 1)
+                                     .arg(best->surfaceY, 0, 'f', 1)
+                                     .arg(loc.inlineF, 0, 'f', 1)
+                                     .arg(loc.xlineF, 0, 'f', 1));
+        return;
+    }
+    if (!loc.ok && !mapper.valid()) {
+        QMessageBox::warning(this, tr("井旁道"),
+                             tr("测网坐标拟合不可用：%1").arg(QString::fromStdString(mapper.Describe())));
+        return;
+    }
+    if (!loc.ok) {
+        QMessageBox::warning(this, tr("井旁道"),
+                             tr("井口无法定位到测网道：%1").arg(QString::fromStdString(loc.error)));
+        return;
+    }
+    const int il = loc.inlineNo;
+    const int xl = loc.xlineNo;
 
     // 提取该 IL 剖面再取井列（同步——单剖面读取毫秒级）
     SgySliceImage slice;
@@ -2338,13 +2395,20 @@ void SeismicSectionDockWidget::showWellSideTrace() {
         QMessageBox::warning(this, tr("井旁道"), tr("道提取失败：%1").arg(QString::fromStdString(err)));
         return;
     }
-    const int col = std::clamp(xl - m_volume->XlineMin(), 0, slice.width - 1);
+    // 列 = xl 在体实际线号表中的位置（#147 同口径：线距可 >1）；剖面宽度须与
+    // 线号表一致，否则列轴对不上——如实拒绝，不按单位线距猜。
+    const int col = int(m_volume->XlineValues().size()) == slice.width ? loc.column : -1;
+    if (col < 0 || col >= slice.width) {
+        QMessageBox::warning(this, tr("井旁道"), tr("XL %1 不在 IL %2 剖面列轴上").arg(xl).arg(il));
+        return;
+    }
 
     QDialog dlg(this);
     dlg.setWindowTitle(tr("井旁道 · %1（IL %2 / XL %3）").arg(best->wellName).arg(il).arg(xl));
     dlg.setMinimumSize(300, 520);
     auto *lay = new QVBoxLayout(&dlg);
-    auto *trace = new class WellSideTraceWidget(best, col, slice, m_canvas->sampleIntervalMs(), &dlg);
+    auto *trace = new class WellSideTraceWidget(best, col, slice, m_canvas->sampleIntervalMs(),
+                                                 m_timeOriginMs, &dlg);
     lay->addWidget(trace, 1);
     auto *btnClose = new QToolButton(&dlg);
     btnClose->setText(tr("关闭"));
@@ -2373,39 +2437,26 @@ void SeismicSectionDockWidget::setupInversionPanelUi(QWidget *parent) {
 }
 
 namespace {
-// 井 AC×DEN → TWT 域阻抗散样（公共深度轴并集、Z=ρ·(1e6/DT)、t=TD(d)）。
+// #125：井 AC×DEN → TWT 域阻抗散样。TWT 取曲线自带的逐井时间轴（SectionWorkbench
+// 按该井时深表/常速近似 + 平移算好，与剖面井叠加同口径），不用画布全局模型重算；
+// 时深无效的井返回 false（调用方跳过并提示），不补默认速度。
+bool wellTimeDepthTable(const WellCurveItem *ac, const WellCurveItem *den,
+                        std::vector<double> *tdDepthM, std::vector<double> *tdTwtMs)
+{
+    std::vector<std::pair<double, double>> pairs;
+    paleo::inv::appendTimeDepthPairs(ac->depthsM, ac->twtMs, &pairs);
+    paleo::inv::appendTimeDepthPairs(den->depthsM, den->twtMs, &pairs);
+    return paleo::inv::buildTimeDepthTable(std::move(pairs), tdDepthM, tdTwtMs);
+}
+
 bool wellImpedanceTwt(const WellCurveItem *ac, const WellCurveItem *den,
-                      const TimeDepthModel &td,
                       std::vector<double> *twtMs, std::vector<float> *impedance)
 {
-    std::vector<double> depths = ac->depthsM;
-    depths.insert(depths.end(), den->depthsM.begin(), den->depthsM.end());
-    std::sort(depths.begin(), depths.end());
-    depths.erase(std::unique(depths.begin(), depths.end()), depths.end());
-    auto interp = [](const std::vector<double> &xs, const std::vector<float> &ys,
-                     double x) -> double {
-        if (x <= xs.front())
-            return ys.front();
-        if (x >= xs.back())
-            return ys.back();
-        const auto it = std::upper_bound(xs.begin(), xs.end(), x);
-        const size_t hi = size_t(it - xs.begin());
-        const size_t lo = hi - 1;
-        const double f = (x - xs[lo]) / (xs[hi] - xs[lo]);
-        return double(ys[lo]) + f * (double(ys[hi]) - double(ys[lo]));
-    };
-    for (double d : depths) {
-        const double dt = interp(ac->depthsM, ac->values, d);
-        const double denV = interp(den->depthsM, den->values, d);
-        if (!(dt > 1e-6) || !(denV > 0.0))
-            continue;
-        const double t = td.DepthToTwtMs(d);
-        if (!std::isfinite(t) || t <= 0.0)
-            continue;
-        twtMs->push_back(t);
-        impedance->push_back(float(denV * (1e6 / dt)));
-    }
-    return twtMs->size() >= 2;
+    std::vector<double> tdD, tdT;
+    if (!wellTimeDepthTable(ac, den, &tdD, &tdT))
+        return false;
+    return paleo::inv::wellImpedanceTwt(ac->depthsM, ac->values, den->depthsM, den->values, tdD, tdT,
+                                        twtMs, impedance);
 }
 } // namespace
 
@@ -2442,9 +2493,13 @@ void SeismicSectionDockWidget::extractWaveletFromNearestWell() {
         return;
     }
 
-    // 时深表：井震标定侧的画布模型按 10m 采样（checkshot/常速都覆盖）。
-    const TimeDepthModel &td = m_canvas->timeDepthModel();
-    const double maxDepth = std::max(ac->depthsM.back(), den->depthsM.back());
+    // 时深表（#125）：取该井曲线自带的逐井 TWT（含时间平移），不用画布全局模型。
+    std::vector<double> tdDepthM, tdTwtMs;
+    if (!wellTimeDepthTable(ac, den, &tdDepthM, &tdTwtMs)) {
+        if (m_invPanel)
+            m_invPanel->showResult(false, tr("井 %1 缺有效时深（未对齐），不能提取子波").arg(best->wellId));
+        return;
+    }
     paleo::inv::InversionWorkflow wf;
     paleo::inv::WaveletJobRequest req;
     req.wellId = best->wellId;
@@ -2454,10 +2509,8 @@ void SeismicSectionDockWidget::extractWaveletFromNearestWell() {
     req.acUsPerM = ac->values;
     req.denDepthsM = den->depthsM;
     req.denValues = den->values;
-    for (double d = 0.0; d <= maxDepth; d += 10.0) {
-        req.tdDepthM.push_back(d);
-        req.tdTimeMs.push_back(td.DepthToTwtMs(d));
-    }
+    req.tdDepthM = std::move(tdDepthM);
+    req.tdTimeMs = std::move(tdTwtMs);
     req.seismicPath = m_session.sourceSgyPath;
     req.parentVersionId = m_catalogVersionId;
 
@@ -2517,8 +2570,8 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
 
     // 低频井输入：候选井 AC×DEN → TWT 阻抗散样（无层位 → 全局趋势回退，
     // 语义如实记入产物 extra.layersUsed）。
-    const TimeDepthModel &td = m_canvas->timeDepthModel();
     std::vector<paleo::inv::InversionWorkflow::LowFreqWellInput> wells;
+    QStringList skippedNoTd;
     for (const SectionWellInfo &w : m_candidateWells) {
         const WellCurveItem *ac = nullptr;
         const WellCurveItem *den = nullptr;
@@ -2535,8 +2588,10 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
         lw.wellId = w.wellId;
         lw.x = w.surfaceX;
         lw.y = w.surfaceY;
-        if (!wellImpedanceTwt(ac, den, td, &lw.twtMs, &lw.impedance))
+        if (!wellImpedanceTwt(ac, den, &lw.twtMs, &lw.impedance)) {
+            skippedNoTd << w.wellId; // 缺有效逐井时深：不参与低频模型（#125）
             continue;
+        }
         wells.push_back(std::move(lw));
     }
 
@@ -2586,7 +2641,7 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
             m_invPanel->updateProgress(m_invTask->stagePercent() < 0 ? 0 : m_invTask->stagePercent(),
                                        m_invTask->stage());
     });
-    connect(m_invTask, &PaleoTask::finished, this, [this, gen, job]() {
+    connect(m_invTask, &PaleoTask::finished, this, [this, gen, job, skippedNoTd]() {
         if (!m_invPanel || !m_invTask)
             return;
         if (gen != m_invGeneration) {
@@ -2625,7 +2680,13 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
                 .arg(job->req.lowCutHz)
                 .arg(job->req.method == QStringLiteral("sparse")
                          ? tr("平均残差能量比 %1").arg(job->meanResidualEnergyRatio, 0, 'f', 3)
-                         : tr("低频方差占比 %1").arg(job->meanLowFreqVarianceFraction, 0, 'f', 3)));
+                         : tr("低频方差占比 %1").arg(job->meanLowFreqVarianceFraction, 0, 'f', 3))
+                + (job->wavelet.amplitudeScale > 0.0
+                       ? QString()
+                       : tr("｜子波无振幅标定（旧资产/解析子波），道振幅按反射系数直接使用"))
+                + (skippedNoTd.isEmpty()
+                       ? QString()
+                       : tr("｜缺有效时深未参与低频模型：%1").arg(skippedNoTd.join(QStringLiteral("、")))));
     });
 }
 

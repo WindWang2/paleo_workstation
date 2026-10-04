@@ -23,25 +23,49 @@ namespace
   // 见 wave/io-perf-cache D2.3 自愈测试）。
   constexpr int kHeaderSize = 36;
 
-  quint32 crc32Bytes(const QByteArray &data)
+  // 标准 CRC-32（IEEE 802.3 反射多项式 0xEDB88320），slicing-by-8 表驱动。
+  // 输出与逐字节查表实现逐位一致（磁盘格式不变）；吞吐约 4-6×——磁盘命中
+  // 路径对整个 payload 做校验，逐字节版在 ~600KB 级 payload 上占 ~1ms，
+  // 是二次打开（D1.1）的主要固定开销。表用函数内 static 初始化（线程安全）。
+  struct Crc32Tables
   {
-    // 标准 CRC-32（IEEE 802.3 多项式），表驱动。
-    static quint32 table[256];
-    static bool init = false;
-    if (!init)
+    quint32 t[8][256];
+    Crc32Tables()
     {
       for (quint32 i = 0; i < 256; ++i)
       {
         quint32 c = i;
         for (int k = 0; k < 8; ++k)
           c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
-        table[i] = c;
+        t[0][i] = c;
       }
-      init = true;
+      for (quint32 i = 0; i < 256; ++i)
+        for (int s = 1; s < 8; ++s)
+          t[s][i] = (t[s - 1][i] >> 8) ^ t[0][t[s - 1][i] & 0xFFu];
     }
+  };
+
+  quint32 crc32Bytes(const QByteArray &data)
+  {
+    static const Crc32Tables tables;
+    const auto &T = tables.t;
+    const uchar *p = reinterpret_cast<const uchar *>(data.constData());
+    qsizetype n = data.size();
     quint32 crc = 0xFFFFFFFFu;
-    for (char b : data)
-      crc = table[(crc ^ static_cast<uchar>(b)) & 0xFFu] ^ (crc >> 8);
+    while (n >= 8)
+    {
+      const quint32 lo = crc ^ (quint32(p[0]) | (quint32(p[1]) << 8) |
+                                (quint32(p[2]) << 16) | (quint32(p[3]) << 24));
+      const quint32 hi = quint32(p[4]) | (quint32(p[5]) << 8) |
+                         (quint32(p[6]) << 16) | (quint32(p[7]) << 24);
+      crc = T[7][lo & 0xFFu] ^ T[6][(lo >> 8) & 0xFFu] ^ T[5][(lo >> 16) & 0xFFu] ^
+            T[4][lo >> 24] ^ T[3][hi & 0xFFu] ^ T[2][(hi >> 8) & 0xFFu] ^
+            T[1][(hi >> 16) & 0xFFu] ^ T[0][hi >> 24];
+      p += 8;
+      n -= 8;
+    }
+    while (n-- > 0)
+      crc = T[0][(crc ^ *p++) & 0xFFu] ^ (crc >> 8);
     return crc ^ 0xFFFFFFFFu;
   }
 

@@ -394,4 +394,18 @@ class DataCatalog : public QObject
     QSet<QString> m_dirtyAssets;
     QSet<QString> m_dirtyVersions;
     QSet<int> m_dirtyLinkOrds;
+    // #169：最外层批次开始时的内存快照。批次结算落盘失败 → 回滚到此，避免
+    // 「内存有、盘上无、脏集已清永不再写」的分叉。四表 COW，拍照近乎零成本。
+    struct BatchSnapshot
+    {
+      QVector<CatalogEntity> entities;
+      QVector<CatalogAsset> assets;
+      QVector<CatalogVersion> versions;
+      QVector<EntityAssetLink> links;
+      int assetSeq = 0, versionSeq = 0;
+      CatalogIndex idx;
+      QSet<QString> dirtyEntities, dirtyAssets, dirtyVersions;
+      QSet<int> dirtyLinkOrds;
+    };
+    std::unique_ptr<BatchSnapshot> m_batchSnapshot;
 };

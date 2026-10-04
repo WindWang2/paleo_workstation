@@ -144,7 +144,9 @@ private slots:
   void petrophys_expressionPrefersRealRhobOverDen();
   void petrophys_expressionDrivesOnAliasedRhob();
   void propertymodel_requestUsesUnion();
+  void propertymodel_ftDepthConvertedToMeters();
   void sectionworkbench_showsNonPrimaryCurve();
+  void propertymodel_horizonPickUsesCommitOrderAcrossAssets();
 };
 
 void TestWellLogConsumers::petrophys_readsRtFromNonPrimaryFile()
@@ -428,6 +430,45 @@ void TestWellLogConsumers::propertymodel_requestUsesUnion()
   QVERIFY(std::fabs(req.wells[0].curve[2].value - 10.5) < 1e-6);
 }
 
+// #166：深度道 FT 的曲线进属性建模须换成米制 MD（旧代码把 3280.84 ft 当 3280.84 m）。
+void TestWellLogConsumers::propertymodel_ftDepthConvertedToMeters()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString fileFt = dir.filePath(QStringLiteral("ft.las"));
+  {
+    QFile f(fileFt);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream ts(&f);
+    ts << "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nNULL. -999.25:\n";
+    ts << "~Curve\nDEPT.FT :\nRT. :\n~ASCII\n";
+    ts << "3280.8399 8.5\n3284.1207 9.5\n3287.4016 10.5\n"; // 1000/1001/1002 m
+  }
+  DataCatalog catalog;
+  QVERIFY(catalog.open(dir.path()));
+  QString err;
+  QVERIFY2(addHorizon(&catalog, QStringLiteral("hz-top"), QStringLiteral("TOP"),
+                      dir.filePath(QStringLiteral("TOP.tif")), &err),
+           qPrintable(err));
+  QVERIFY2(addHorizon(&catalog, QStringLiteral("hz-bot"), QStringLiteral("BOT"),
+                      dir.filePath(QStringLiteral("BOT.tif")), &err),
+           qPrintable(err));
+  QVERIFY2(addWellLogs(&catalog, QStringLiteral("well-F"), 15, 25,
+                       {{QStringLiteral("ast-f"), QStringLiteral("ver-f"), fileFt, true, 0}},
+                       &err),
+           qPrintable(err));
+  PropertyModelWorkflow wf(&catalog, dir.path());
+  const PropertyModelRequest req = wf.requestFromCatalog(
+      QStringLiteral("TOP"), QStringLiteral("BOT"), QStringLiteral("RT"), 1,
+      paleo::stratgrid::Aggregator::ThicknessWeightedMean, 2.0, &err);
+  QVERIFY2(err.isEmpty(), qPrintable(err));
+  QCOMPARE(static_cast<int>(req.wells.size()), 1);
+  QCOMPARE(static_cast<int>(req.wells[0].curve.size()), 3);
+  QVERIFY2(std::fabs(req.wells[0].curve[0].md - 1000.0) < 1e-3,
+           qPrintable(QString::number(req.wells[0].curve[0].md)));
+  QVERIFY(std::fabs(req.wells[0].curve[2].md - 1002.0) < 1e-3);
+}
+
 void TestWellLogConsumers::sectionworkbench_showsNonPrimaryCurve()
 {
   QTemporaryDir dir;
@@ -466,6 +507,53 @@ void TestWellLogConsumers::sectionworkbench_showsNonPrimaryCurve()
   }
   QVERIFY2(sawSp, qPrintable(names.join(QLatin1Char(','))));
   QCOMPARE(names.size(), 2);
+}
+
+// #127 同型（findHorizonRaster）：同名层位两份资产——早建资产有 v2、后建资产只有 v1。
+// 跨资产比 versionNumber 会永远选早建资产；应按提交序选后建的那份。
+void TestWellLogConsumers::propertymodel_horizonPickUsesCommitOrderAcrossAssets()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString las = dir.filePath(QStringLiteral("a.las"));
+  QVERIFY(writeLas(las, {{QStringLiteral("DEPT"), {1000, 1001}}, {QStringLiteral("RT"), {1, 2}}}));
+  DataCatalog catalog;
+  QVERIFY(catalog.open(dir.path()));
+  QString err;
+  QVERIFY2(addHorizon(&catalog, QStringLiteral("hz-old"), QStringLiteral("TOP"),
+                      dir.filePath(QStringLiteral("TOP_old_v1.tif")), &err),
+           qPrintable(err));
+  {
+    const QString p2 = dir.filePath(QStringLiteral("TOP_old_v2.tif"));
+    QFile f(p2);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("x");
+    f.close();
+    CatalogVersion v2;
+    v2.id = QStringLiteral("hz-old-v2");
+    v2.assetId = QStringLiteral("hz-old");
+    v2.stage = QStringLiteral("RAW");
+    v2.versionNumber = 2;
+    v2.managed = false;
+    v2.path = QFileInfo(p2).absoluteFilePath();
+    v2.fileName = QStringLiteral("TOP.tif");
+    QVERIFY2(catalog.addVersion(v2, &err), qPrintable(err));
+  }
+  const QString newest = dir.filePath(QStringLiteral("TOP_new_v1.tif"));
+  QVERIFY2(addHorizon(&catalog, QStringLiteral("hz-new"), QStringLiteral("TOP"), newest, &err),
+           qPrintable(err));
+  QVERIFY2(addHorizon(&catalog, QStringLiteral("hz-bot"), QStringLiteral("BOT"),
+                      dir.filePath(QStringLiteral("BOT.tif")), &err),
+           qPrintable(err));
+  QVERIFY2(addWellLogs(&catalog, QStringLiteral("well-H"), 15, 25,
+                       {{QStringLiteral("ast-h"), QStringLiteral("ver-h"), las, true, 0}}, &err),
+           qPrintable(err));
+  PropertyModelWorkflow wf(&catalog, dir.path());
+  const PropertyModelRequest req = wf.requestFromCatalog(
+      QStringLiteral("TOP"), QStringLiteral("BOT"), QStringLiteral("RT"), 1,
+      paleo::stratgrid::Aggregator::ThicknessWeightedMean, 2.0, &err);
+  QVERIFY2(err.isEmpty(), qPrintable(err));
+  QCOMPARE(QFileInfo(req.topPath).fileName(), QStringLiteral("TOP_new_v1.tif"));
 }
 
 QTEST_MAIN(TestWellLogConsumers)

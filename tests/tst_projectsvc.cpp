@@ -385,6 +385,81 @@ private slots:
     lockC.unlock();
     QVERIFY( !lockC.isHeld() );
   }
+
+  // ---- #152/#153：打开闸门 + aboutToClose/closed 生命周期 ----
+  void openGateCancelKeepsCurrentProject()
+  {
+    QTemporaryDir dA, dB;
+    QVERIFY( dA.isValid() && dB.isValid() );
+    const QString qgzA = dA.filePath( QStringLiteral( "a.qgz" ) );
+    const QString qgzB = dB.filePath( QStringLiteral( "b.qgz" ) );
+    {
+      QgisProjectService maker;
+      QVERIFY( maker.createProject( qgzB ) );
+    }
+    // createProject 会顺带写 project.paleo（.qgz + 清单双件）；删掉它，B 就是
+    // 「旁无清单的裸 .qgz」——这样才能断言「闸门先于清单收养」（取消时不落盘）。
+    const QString manifestB = dB.filePath( QStringLiteral( "project.paleo" ) );
+    QFile::remove( manifestB );
+    QVERIFY( !QFile::exists( manifestB ) );
+    QgisProjectService svc;
+    QVERIFY( svc.createProject( qgzA ) );
+    const quint64 s0 = svc.sessionId();
+
+    QSignalSpy about( &svc, &QgisProjectService::projectAboutToClose );
+    QSignalSpy opened( &svc, &QgisProjectService::projectOpened );
+    QStringList gateDirs;
+    svc.setOpenGate( [&gateDirs]( const QString &dir, bool, QString *, bool *cancelled ) {
+      gateDirs << dir;
+      *cancelled = true;
+      return false;
+    } );
+    QVERIFY( !svc.openProject( qgzB ) );
+    QVERIFY( svc.lastOpenCancelled() );
+    QCOMPARE( gateDirs, QStringList{ QFileInfo( qgzB ).absolutePath() } );
+    QCOMPARE( about.count(), 0 );      // 旧工程未被宣告关闭
+    QCOMPARE( opened.count(), 0 );
+    QCOMPARE( svc.projectPath(), qgzA ); // 仍是旧工程，保存仍写回 A
+    QCOMPARE( svc.sessionId(), s0 );
+    QVERIFY( !QFile::exists( manifestB ) ); // 闸门先于清单收养
+
+    // 闸门放行：aboutToClose 先于 projectOpened，会话号自增
+    QStringList order;
+    connect( &svc, &QgisProjectService::projectAboutToClose, this, [&] {
+      order << QStringLiteral( "about:" ) + svc.projectPath();
+    } );
+    connect( &svc, &QgisProjectService::projectOpened, this,
+             [&]( const QString &p ) { order << QStringLiteral( "opened:" ) + p; } );
+    svc.setOpenGate( []( const QString &, bool, QString *, bool * ) { return true; } );
+    QVERIFY( svc.openProject( qgzB ) );
+    QVERIFY( !svc.lastOpenCancelled() );
+    QCOMPARE( order, ( QStringList{ QStringLiteral( "about:" ) + qgzA,
+                                    QStringLiteral( "opened:" ) + qgzB } ) );
+    QVERIFY( svc.sessionId() > s0 );
+    QVERIFY( QFile::exists( manifestB ) ); // 放行后才收养（写清单）
+  }
+
+  void closeProjectClearsAndRefusesWrite()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const QString qgz = dir.filePath( QStringLiteral( "c.qgz" ) );
+    QgisProjectService svc;
+    QVERIFY( svc.createProject( qgz ) );
+    const qint64 sizeBefore = QFileInfo( qgz ).size();
+    QSignalSpy about( &svc, &QgisProjectService::projectAboutToClose );
+    QSignalSpy closed( &svc, &QgisProjectService::projectClosed );
+    const quint64 s0 = svc.sessionId();
+    svc.closeProject();
+    QCOMPARE( about.count(), 1 );
+    QCOMPARE( closed.count(), 1 );
+    QVERIFY( svc.projectPath().isEmpty() );
+    QVERIFY( svc.sessionId() > s0 );
+    QVERIFY( !svc.writeProject() ); // 无工程 → 拒写，不覆盖任何 .qgz
+    QCOMPARE( QFileInfo( qgz ).size(), sizeBefore );
+    svc.closeProject(); // 幂等
+    QCOMPARE( closed.count(), 1 );
+  }
 };
 
 int main( int argc, char *argv[] )

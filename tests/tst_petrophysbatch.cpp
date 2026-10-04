@@ -7,7 +7,10 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTextStream>
+#include <QCryptographicHash>
+#include <QSet>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -76,6 +79,64 @@ PetroPhysTaskService::FormulaParams vshParams()
   return p;
 }
 
+// 一口井：实体 + 若干 well_log 资产（RAW 外链），首个为主链接。
+bool addWellWithLogs(DataCatalog *cat, const QString &wellId, const QStringList &paths,
+                     QString *err)
+{
+  CatalogEntity e;
+  e.id = wellId;
+  e.entityType = QStringLiteral("well");
+  e.name = wellId.mid(5);
+  if (!cat->addEntity(e, err))
+    return false;
+  for (int i = 0; i < paths.size(); ++i)
+  {
+    CatalogAsset a;
+    a.id = cat->nextAssetId();
+    a.type = QStringLiteral("well_log");
+    a.format = QStringLiteral("las");
+    a.displayName = QFileInfo(paths.at(i)).fileName();
+    if (!cat->addAsset(a, err))
+      return false;
+    CatalogVersion v;
+    v.id = cat->nextVersionId();
+    v.assetId = a.id;
+    v.stage = QStringLiteral("RAW");
+    v.versionNumber = 1;
+    v.managed = false;
+    v.path = QFileInfo(paths.at(i)).absoluteFilePath();
+    v.fileName = QFileInfo(paths.at(i)).fileName();
+    if (!cat->addVersion(v, err))
+      return false;
+    EntityAssetLink l;
+    l.entityType = QStringLiteral("well");
+    l.entityId = wellId;
+    l.assetId = a.id;
+    l.role = QStringLiteral("well_log");
+    l.isPrimary = i == 0;
+    l.ordinal = i;
+    if (!cat->addLink(l, err))
+      return false;
+  }
+  return true;
+}
+
+// 跑一次批处理并等终态。
+bool runBatch(PetroPhysTaskService &svc, const PetroPhysTaskService::BatchRequest &r,
+              DataCatalog *catalog, const QString &outDir, PetroPhysTaskService::BatchResult *out)
+{
+  bool done = false;
+  PaleoTask *task = svc.startBatch(r, catalog, outDir,
+                                   [&](bool, const PetroPhysTaskService::BatchResult &res) {
+                                     done = true;
+                                     *out = res;
+                                   });
+  if (!task)
+    return false;
+  QSignalSpy finishedSpy(task, &PaleoTask::finished);
+  return finishedSpy.wait(30000) && done;
+}
+
 } // namespace
 
 // 服务面断言口径：数值核正确性已在 tst_petrophys/tst_curveexpr 证明，本测
@@ -93,6 +154,8 @@ private slots:
   void testQcBandAndStats();
   void testArchieInlineDensity();
   void testResolveWellLas();
+  void testRerunAndNewMnemonicKeepCatalogConsistent();
+  void testMergeNormalizesDepthUnitAndDescendingFile();
 };
 
 void TestPetroPhysBatch::testValidationRejects()
@@ -261,7 +324,7 @@ void TestPetroPhysBatch::testBatchComputeProductAndCatalog()
     // catalog DERIVED 可查：资产/版本/父链/井链接
     QVERIFY2(!w.assetId.isEmpty(), qPrintable(w.error));
     QCOMPARE(w.assetId,
-             QStringLiteral("petrophys_vsh_lin_%1").arg(w.wellId));
+             QStringLiteral("petrophys_vsh_lin_vsh_%1").arg(w.wellId));
     const CatalogAsset asset = catalog.assetById(w.assetId);
     QCOMPARE(asset.type, QStringLiteral("well_log"));
     const auto versions = catalog.versionsForAsset(w.assetId);
@@ -596,6 +659,124 @@ void TestPetroPhysBatch::testResolveWellLas()
   QVERIFY(refs.first().lasPath.contains(QStringLiteral("r1.las")));
   QCOMPARE(missing.size(), 1);
   QVERIFY(missing.first().contains(QStringLiteral("well-Ghost")));
+}
+
+// #157：VSH → VSH（重算）→ VSHX。旧代码：1 资产 3 版本 vnum 全 1、首版 sha 失配
+// （产物被覆盖）、3 条重复链接、VSH 被 VSHX 顶掉。
+void TestPetroPhysBatch::testRerunAndNewMnemonicKeepCatalogConsistent()
+{
+  QTemporaryDir dir;
+  const QString projDir = dir.path();
+  QDir(projDir).mkpath(QStringLiteral("out"));
+  const QString las = projDir + QStringLiteral("/A.las");
+  QVERIFY(makeHandLas(las, grWellCurves(10)));
+  DataCatalog catalog;
+  QVERIFY(catalog.open(projDir));
+  QString err;
+  QVERIFY2(addWellWithLogs(&catalog, QStringLiteral("well-A"), {las}, &err), qPrintable(err));
+
+  PaleoProjectStore store;
+  PaleoTaskService tasks(&store);
+  PetroPhysTaskService svc(&tasks, &store);
+  PetroPhysTaskService::BatchRequest r;
+  r.wells.append({QStringLiteral("well-A"), las, QString()});
+  r.formula = Formula::VshGrLinear;
+  r.params = vshParams();
+  const QString outDir = projDir + QStringLiteral("/out");
+  for (const QString &mnem : {QStringLiteral("VSH"), QStringLiteral("VSH"), QStringLiteral("VSHX")})
+  {
+    r.outputMnemonic = mnem;
+    PetroPhysTaskService::BatchResult res;
+    QVERIFY(runBatch(svc, r, &catalog, outDir, &res));
+    QCOMPARE(res.wells.size(), 1);
+    QVERIFY2(res.wells.at(0).ok, qPrintable(res.wells.at(0).error));
+    QVERIFY2(!res.wells.at(0).assetId.isEmpty(), qPrintable(res.wells.at(0).error));
+  }
+
+  const QString vshId = QStringLiteral("petrophys_vsh_lin_vsh_well-A");
+  const QString vshxId = QStringLiteral("petrophys_vsh_lin_vshx_well-A");
+  QVERIFY(!catalog.assetById(vshId).id.isEmpty());
+  QVERIFY(!catalog.assetById(vshxId).id.isEmpty());
+  const auto vshVersions = catalog.versionsForAsset(vshId);
+  QCOMPARE(vshVersions.size(), 2);
+  QList<int> numbers;
+  QSet<QString> paths;
+  for (const CatalogVersion &v : vshVersions)
+  {
+    numbers.append(v.versionNumber);
+    paths.insert(v.path);
+  }
+  std::sort(numbers.begin(), numbers.end());
+  QCOMPARE(numbers, (QList<int>{1, 2}));
+  QCOMPARE(paths.size(), 2); // 重算另起文件，不覆盖旧版本
+  QCOMPARE(catalog.versionsForAsset(vshxId).size(), 1);
+  // 每个版本的 sha 都仍与盘上文件一致。
+  for (const QString &id : {vshId, vshxId})
+    for (const CatalogVersion &v : catalog.versionsForAsset(id))
+    {
+      QFile f(v.path);
+      QVERIFY2(f.open(QIODevice::ReadOnly), qPrintable(v.path));
+      QCOMPARE(QString::fromLatin1(QCryptographicHash::hash(f.readAll(), QCryptographicHash::Sha256).toHex()),
+               v.sha256);
+    }
+  QCOMPARE(catalog.linksForAsset(vshId).size(), 1);
+  QCOMPARE(catalog.linksForAsset(vshxId).size(), 1);
+}
+
+// #166：driver 为 M；副文件 FT 且降序（STEP<0）。旧代码：FT 原值当米插值 →
+// 全落在范围外，且降序直接判不可用 → 副曲线全 NaN。
+void TestPetroPhysBatch::testMergeNormalizesDepthUnitAndDescendingFile()
+{
+  QTemporaryDir dir;
+  const QString projDir = dir.path();
+  const QString fileA = projDir + QStringLiteral("/A_m.las");
+  const QString fileB = projDir + QStringLiteral("/B_ft.las");
+  {
+    QFile f(fileA);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream ts(&f);
+    ts << "~V\nVERS. 2.0:\nWRAP. NO:\n~W\nNULL. -999.25:\n~C\nDEPT.M :\nGR.API :\n~A\n";
+    for (int i = 0; i <= 4; ++i)
+      ts << QString::number(1000.0 + i, 'f', 4) << " " << (40 + i) << "\n";
+  }
+  {
+    // 1000..1004 m 对应的英尺值，降序写出；NPHI 线性随深度 0.20 + 0.01*(m-1000)
+    QFile f(fileB);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream ts(&f);
+    ts << "~V\nVERS. 2.0:\nWRAP. NO:\n~W\nNULL. -999.25:\n~C\nDEPT.FT :\nNPHI.V/V :\n~A\n";
+    for (int i = 9; i >= -2; --i) // 999 … 1004.5 m
+    {
+      const double m = 1000.0 + 0.5 * i;
+      ts << QString::number(m / 0.3048, 'f', 6) << " "
+         << QString::number(0.20 + 0.01 * (m - 1000.0), 'f', 6) << "\n";
+    }
+  }
+  DataCatalog catalog;
+  QVERIFY(catalog.open(projDir));
+  QString err;
+  QVERIFY2(addWellWithLogs(&catalog, QStringLiteral("well-U"), {fileA, fileB}, &err),
+           qPrintable(err));
+
+  PaleoProjectStore store;
+  PaleoTaskService tasks(&store);
+  PetroPhysTaskService svc(&tasks, &store);
+  PetroPhysTaskService::BatchRequest r;
+  r.wells.append({QStringLiteral("well-U"), QFileInfo(fileA).absoluteFilePath(), QString()});
+  // 表达式引用两份文件的曲线 → driver 取主文件 A（米制网格），NPHI 从 B 并入。
+  r.formula = Formula::Expression;
+  r.expression = QStringLiteral("NPHI + 0 * GR");
+  r.outputMnemonic = QStringLiteral("PHIN");
+  r.writeProduct = false;
+  PetroPhysTaskService::BatchResult res;
+  QVERIFY(runBatch(svc, r, &catalog, QString(), &res));
+  QCOMPARE(res.wells.size(), 1);
+  QVERIFY2(res.wells.at(0).ok, qPrintable(res.wells.at(0).error));
+  const QVector<double> &vals = res.wells.at(0).values;
+  QCOMPARE(vals.size(), 5);
+  for (int i = 0; i <= 4; ++i)
+    QVERIFY2(std::isfinite(vals.at(i)) && std::fabs(vals.at(i) - (0.20 + 0.01 * i)) < 1e-4,
+             qPrintable(QStringLiteral("row %1: %2").arg(i).arg(vals.at(i))));
 }
 
 QTEST_MAIN(TestPetroPhysBatch)

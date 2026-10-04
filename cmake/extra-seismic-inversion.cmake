@@ -18,6 +18,9 @@ add_paleo_test(tst_inversion_bandlimit LIBS paleo_algorithms)
 
 add_paleo_test(tst_inversion_sparse LIBS paleo_algorithms)
 
+# #125：反演/子波井输入的逐井时深口径（header-only 助手 workflow/wellimpedancetwt.h）。
+add_paleo_test(tst_inversion_welltd LIBS paleo_algorithms)
+
 target_sources(paleo_workflow PRIVATE
   src/workflow/inversionworkflow.cpp)
 

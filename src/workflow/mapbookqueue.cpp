@@ -9,6 +9,10 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QObject>
+#include <QPointer>
+#include <QSemaphore>
+#include <QThread>
+#include <QTimer>
 #include <QVariantMap>
 
 #include "../catalog/datacatalog.h"
@@ -151,46 +155,158 @@ QString Result::summary() const
     .arg( total ).arg( succeeded ).arg( failed ).arg( cancelled );
 }
 
+struct Exporter::RunState
+{
+  Request request;
+  Result result;
+  QVector<QString> tileFiles;
+  QString titlePattern;
+  QString footerPattern;
+  PaleoLayoutExport::Format qgisFormat = PaleoLayoutExport::Format::Png;
+};
+
+// 异步一册的共享账：state 只在所属线程读写；done/stopError 是与监视任务
+// （worker）之间唯一的交接面（信号量提供 happens-before）。
+struct Exporter::AsyncRun
+{
+  RunState state;
+  QPointer<PaleoTask> task;
+  int next = 0;
+  bool prepared = false;
+  QSemaphore done;              // 所属线程收尾时 release(1)
+  QString monitorError;         // release 前写好，监视任务 acquire 后读
+};
+
 Exporter::Exporter( PaleoTaskService *tasks, QgsProject *project, QObject *parent )
   : QObject( parent ), m_tasks( tasks ), m_project( project )
 {
 }
 
+Exporter::~Exporter()
+{
+  // 析构时还在跑：放开监视任务（它持有 shared_ptr，不会悬空）。
+  if ( m_async )
+  {
+    m_async->monitorError = QObject::tr( "地图册导出器已销毁，导出中止" );
+    m_async->done.release( 1 );
+    m_async.reset();
+  }
+}
+
 PaleoTask *Exporter::start( const Request &request )
 {
-  if ( !m_tasks )
+  if ( !m_tasks || m_async )
     return nullptr;
-  const Request copy = request;
-  return m_tasks->start(
-    QObject::tr( "地图册批量导出：%1" ).arg( copy.book ),
-    [this, copy]( PaleoTask *task ) -> QString {
-      const Result result = run( task, copy );
-      m_last = result;
-      task->reportDetail( result.summary() );
-      emit finished( result );
-      // 任务终态口径：一版都没出才算任务失败；部分失败不算（失败明细在
-      // Result/manifest 里留账，不谎报也不拖死整队）。
-      if ( result.succeeded == 0 && result.total > 0 )
-        return QObject::tr( "全部 %1 版导出失败（明细见 manifest）" ).arg( result.total );
-      return QString();
+  auto async = std::make_shared<AsyncRun>();
+  async->state.request = request;
+
+  // 监视任务：worker 上只等待所属线程的完成信号；取消后立即收尾（主线程会在
+  // 下一版边界看到同一个取消标志并停下）——不碰 QGIS/catalog，不会死锁。
+  PaleoTask *task = m_tasks->start(
+    QObject::tr( "地图册批量导出：%1" ).arg( request.book ),
+    [async]( PaleoTask *t ) -> QString {
+      while ( !async->done.tryAcquire( 1, 50 ) )
+      {
+        if ( t->cancelRequested() )
+          return QObject::tr( "已取消（已出的版保留，明细见 manifest）" );
+      }
+      return async->monitorError;
     },
     QString(), false );
+  async->task = task;
+  m_async = async;
+
+  // prepare 失败也走异步收尾，保证 finished 在 start() 返回后才发出。
+  async->prepared = prepareRun( async->state, task );
+  QTimer::singleShot( 0, this, &Exporter::asyncStep );
+  return task;
+}
+
+void Exporter::asyncStep()
+{
+  const std::shared_ptr<AsyncRun> async = m_async;
+  if ( !async )
+    return;
+  RunState &state = async->state;
+  PaleoTask *task = async->task.data();
+  const bool prepared = async->prepared;
+  const int total = state.request.tiles.size();
+  if ( prepared && async->next < total )
+  {
+    // 任务行被清走（QPointer 置空）视同取消。
+    bool keepGoing = true;
+    if ( !async->task )
+    {
+      state.result.cancelled += total - async->next;
+      keepGoing = false;
+    }
+    else
+    {
+      keepGoing = exportTileAt( state, async->next, task );
+    }
+    ++async->next;
+    if ( keepGoing && async->next < total )
+    {
+      QTimer::singleShot( 0, this, &Exporter::asyncStep ); // 让出事件循环：界面不冻结
+      return;
+    }
+  }
+
+  if ( prepared )
+    finishRun( state, task );
+  const Result result = state.result;
+  m_last = result;
+  m_async.reset();
+  if ( task )
+    task->reportDetail( result.summary() );
+  // 任务终态口径：一版都没出才算任务失败；部分失败不算（失败明细在
+  // Result/manifest 里留账，不谎报也不拖死整队）。
+  if ( !prepared )
+    async->monitorError = result.failures.isEmpty() ? QObject::tr( "地图册导出准备失败" )
+                                                    : result.failures.constFirst().error;
+  else if ( result.succeeded == 0 && result.total > 0 && result.cancelled < result.total )
+    async->monitorError = result.failures.isEmpty()
+                            ? QObject::tr( "全部 %1 版导出失败（明细见 manifest）" ).arg( result.total )
+                            : QObject::tr( "全部 %1 版导出失败：%2" )
+                                .arg( result.total )
+                                .arg( result.failures.constFirst().error );
+  async->done.release( 1 );
+  emit finished( result );
 }
 
 Result Exporter::run( PaleoTask *task, const Request &request )
 {
-  Result result;
+  RunState state;
+  state.request = request;
+  if ( !prepareRun( state, task ) )
+    return state.result;
+  for ( int i = 0; i < request.tiles.size(); ++i )
+    if ( !exportTileAt( state, i, task ) )
+      break;
+  finishRun( state, task );
+  return state.result;
+}
+
+bool Exporter::prepareRun( RunState &state, PaleoTask *task )
+{
+  const Request &request = state.request;
+  Result &result = state.result;
+  result = Result();
   result.total = request.tiles.size();
-  QVector<QString> tileFiles( request.tiles.size(), QString() );
+  state.tileFiles = QVector<QString>( request.tiles.size(), QString() );
 
   const auto bail = [&result, task]( const QString &stage, const QString &message ) {
     result.failed = result.total;
     result.failures.append( Failure{ -1, QStringLiteral( "*" ), stage, message } );
     if ( task )
       task->reportDetail( message );
-    return result;
+    return false;
   };
 
+  // #148：版面/渲染用主线程 QgsProject，catalog 只收所属线程写入——跨线程直接拒绝。
+  if ( QThread::currentThread() != thread() )
+    return bail( QStringLiteral( "prepare" ),
+                 QObject::tr( "地图册导出必须在导出器所属线程（GUI 线程）执行" ) );
   if ( !m_project )
     return bail( QStringLiteral( "prepare" ), QObject::tr( "未绑定 QgsProject（版面需要工程上下文）" ) );
   if ( request.book.isEmpty() || !DataCatalog::isSafePathSegment( request.book ) )
@@ -204,11 +320,11 @@ Result Exporter::run( PaleoTask *task, const Request &request )
   // 模板变量预检：引用了变量表以外的名字就整批拒绝，避免跑到第 N 版才发现
   // 标题印不出来（workflow/mapbook 的严格替换语义，这里只提前一步）。
   const QStringList known = PaleoMapBook::variableNames();
-  const QString titlePattern = request.titlePattern.isEmpty() ? defaultTitlePattern()
-                                                              : request.titlePattern;
-  const QString footerPattern = request.footerPattern.isEmpty() ? defaultFooterPattern()
-                                                                 : request.footerPattern;
-  for ( const QString &pattern : { titlePattern, footerPattern } )
+  state.titlePattern = request.titlePattern.isEmpty() ? defaultTitlePattern()
+                                                      : request.titlePattern;
+  state.footerPattern = request.footerPattern.isEmpty() ? defaultFooterPattern()
+                                                        : request.footerPattern;
+  for ( const QString &pattern : { state.titlePattern, state.footerPattern } )
   {
     QString refsError;
     const QStringList refs = PaleoMapBook::referencedVariables( pattern, &refsError );
@@ -232,100 +348,110 @@ Result Exporter::run( PaleoTask *task, const Request &request )
     return bail( QStringLiteral( "prepare" ),
                  QObject::tr( "无法创建索引目录：%1" ).arg( indexPath( request ) ) );
 
-  const PaleoLayoutExport::Format qgisFormat =
-      request.format == Format::Png ? PaleoLayoutExport::Format::Png
-                                    : PaleoLayoutExport::Format::Pdf;
+  state.qgisFormat = request.format == Format::Png ? PaleoLayoutExport::Format::Png
+                                                   : PaleoLayoutExport::Format::Pdf;
+  return true;
+}
 
-  for ( int i = 0; i < request.tiles.size(); ++i )
+bool Exporter::exportTileAt( RunState &state, int i, PaleoTask *task )
+{
+  const Request &request = state.request;
+  Result &result = state.result;
+
+  // 协作式取消 + 预演上限：两者都只停未出的版，已出的保留。
+  if ( task && task->cancelRequested() )
   {
-    // 协作式取消 + 预演上限：两者都只停未出的版，已出的保留。
-    if ( task && task->cancelRequested() )
-    {
-      result.cancelled += request.tiles.size() - i;
-      break;
-    }
-    if ( request.previewLimit >= 0 && i >= request.previewLimit )
-    {
-      result.cancelled += request.tiles.size() - i;
-      break;
-    }
-
-    const PaleoMapBook::Tile &tile = request.tiles.at( i );
-    const QVariantMap vars = PaleoMapBook::tileVariables(
-      PaleoMapBook::TileContext{ tile, request.book, request.horizon, request.crs, request.date } );
-
-    QString templateError;
-    const QString title = PaleoMapBook::applyVariables( titlePattern, vars, &templateError );
-    QString footer;
-    if ( templateError.isEmpty() )
-      footer = PaleoMapBook::applyVariables( footerPattern, vars, &templateError );
-    if ( !templateError.isEmpty() )
-    {
-      // 严格替换失败（引用了未定义变量）：留账后继续下一版。
-      result.failed += 1;
-      result.failures.append(
-        Failure{ tile.index, tile.name, QStringLiteral( "template" ), templateError } );
-      continue;
-    }
-
-    PaleoMapBookLayout::TileSpec spec;
-    spec.title = title;
-    spec.footer = footer;
-    spec.extent = QgsRectangle( tile.extent.xMin, tile.extent.yMin,
-                                tile.extent.xMax, tile.extent.yMax );
-    spec.layers = request.layers;
-    spec.landscape = request.landscape;
-
-    QString buildError;
-    QgsPrintLayout *layout = PaleoMapBookLayout::buildTileLayout( m_project, spec, &buildError );
-    if ( !layout )
-    {
-      result.failed += 1;
-      result.failures.append( Failure{ tile.index, tile.name, QStringLiteral( "layout" ),
-                                       buildError.isEmpty() ? QObject::tr( "版面构建失败" )
-                                                            : buildError } );
-      continue;
-    }
-
-    const auto rendered = PaleoMapBookLayout::renderLayout( layout, pagePath( request, tile ),
-                                                             qgisFormat, request.dpi );
-    delete layout;
-    if ( !rendered.ok )
-    {
-      result.failed += 1;
-      result.failures.append( Failure{ tile.index, tile.name, QStringLiteral( "export" ),
-                                       rendered.error } );
-      continue;
-    }
-
-    // 产物登记（可选）：受管副本进 catalog，登记失败同版失败留账。
-    if ( request.catalog && !request.projectDir.isEmpty() )
-    {
-      QString sha, managed, registerError;
-      // 格式必须如实入库（registerMapPdfAsset 缺省会把 format 印成 pdf）。
-      const QString assetId = registerMapPdfAsset( request.catalog, request.projectDir,
-                                                   rendered.path, &sha, &managed, &registerError,
-                                                   extensionFor( request.format ) );
-      if ( assetId.isEmpty() )
-      {
-        result.failed += 1;
-        result.failures.append( Failure{ tile.index, tile.name, QStringLiteral( "register" ),
-                                         registerError.isEmpty() ? QObject::tr( "产物登记失败" )
-                                                                 : registerError } );
-        continue;
-      }
-      result.registered << managed;
-      result.registeredIds << assetId;
-    }
-
-    tileFiles[i] = rendered.path;
-    result.files << rendered.path;
-    result.succeeded += 1;
-
-    if ( task )
-      task->reportBytes( result.succeeded + result.failed, request.tiles.size() );
-    emit progress( result.succeeded + result.failed, request.tiles.size(), tile.name );
+    result.cancelled += request.tiles.size() - i;
+    return false;
   }
+  if ( request.previewLimit >= 0 && i >= request.previewLimit )
+  {
+    result.cancelled += request.tiles.size() - i;
+    return false;
+  }
+
+  const PaleoMapBook::Tile &tile = request.tiles.at( i );
+  const QVariantMap vars = PaleoMapBook::tileVariables(
+    PaleoMapBook::TileContext{ tile, request.book, request.horizon, request.crs, request.date } );
+
+  QString templateError;
+  const QString title = PaleoMapBook::applyVariables( state.titlePattern, vars, &templateError );
+  QString footer;
+  if ( templateError.isEmpty() )
+    footer = PaleoMapBook::applyVariables( state.footerPattern, vars, &templateError );
+  if ( !templateError.isEmpty() )
+  {
+    // 严格替换失败（引用了未定义变量）：留账后继续下一版。
+    result.failed += 1;
+    result.failures.append(
+      Failure{ tile.index, tile.name, QStringLiteral( "template" ), templateError } );
+    return true;
+  }
+
+  PaleoMapBookLayout::TileSpec spec;
+  spec.title = title;
+  spec.footer = footer;
+  spec.extent = QgsRectangle( tile.extent.xMin, tile.extent.yMin,
+                              tile.extent.xMax, tile.extent.yMax );
+  spec.layers = request.layers;
+  spec.landscape = request.landscape;
+
+  QString buildError;
+  QgsPrintLayout *layout = PaleoMapBookLayout::buildTileLayout( m_project, spec, &buildError );
+  if ( !layout )
+  {
+    result.failed += 1;
+    result.failures.append( Failure{ tile.index, tile.name, QStringLiteral( "layout" ),
+                                     buildError.isEmpty() ? QObject::tr( "版面构建失败" )
+                                                          : buildError } );
+    return true;
+  }
+
+  const auto rendered = PaleoMapBookLayout::renderLayout( layout, pagePath( request, tile ),
+                                                           state.qgisFormat, request.dpi );
+  delete layout;
+  if ( !rendered.ok )
+  {
+    result.failed += 1;
+    result.failures.append( Failure{ tile.index, tile.name, QStringLiteral( "export" ),
+                                     rendered.error } );
+    return true;
+  }
+
+  // 产物登记（可选）：受管副本进 catalog，登记失败同版失败留账。
+  if ( request.catalog && !request.projectDir.isEmpty() )
+  {
+    QString sha, managed, registerError;
+    // 格式必须如实入库（registerMapPdfAsset 缺省会把 format 印成 pdf）。
+    const QString assetId = registerMapPdfAsset( request.catalog, request.projectDir,
+                                                 rendered.path, &sha, &managed, &registerError,
+                                                 extensionFor( request.format ) );
+    if ( assetId.isEmpty() )
+    {
+      result.failed += 1;
+      result.failures.append( Failure{ tile.index, tile.name, QStringLiteral( "register" ),
+                                       registerError.isEmpty() ? QObject::tr( "产物登记失败" )
+                                                               : registerError } );
+      return true;
+    }
+    result.registered << managed;
+    result.registeredIds << assetId;
+  }
+
+  state.tileFiles[i] = rendered.path;
+  result.files << rendered.path;
+  result.succeeded += 1;
+
+  if ( task )
+    task->reportBytes( result.succeeded + result.failed, request.tiles.size() );
+  emit progress( result.succeeded + result.failed, request.tiles.size(), tile.name );
+  return true;
+}
+
+void Exporter::finishRun( RunState &state, PaleoTask *task )
+{
+  const Request &request = state.request;
+  Result &result = state.result;
 
   // 报告装配最小面：目录索引页（一页列全册条目），失败只记账不回退已成版面。
   if ( request.withIndexPage && result.succeeded > 0 && !( task && task->cancelRequested() ) )
@@ -334,7 +460,7 @@ Result Exporter::run( PaleoTask *task, const Request &request )
     for ( int i = 0; i < request.tiles.size(); ++i )
     {
       const PaleoMapBook::Tile &tile = request.tiles.at( i );
-      const QString file = tileFiles.at( i );
+      const QString file = state.tileFiles.at( i );
       if ( file.isEmpty() )
         continue;
       entries << QStringLiteral( "%1  %2  %3" )
@@ -348,7 +474,7 @@ Result Exporter::run( PaleoTask *task, const Request &request )
     if ( indexLayout )
     {
       const auto rendered = PaleoMapBookLayout::renderLayout( indexLayout, indexPath( request ),
-                                                              qgisFormat, request.dpi );
+                                                              state.qgisFormat, request.dpi );
       delete indexLayout;
       if ( rendered.ok )
         result.indexPage = rendered.path;
@@ -364,11 +490,9 @@ Result Exporter::run( PaleoTask *task, const Request &request )
   }
 
   QString manifestError;
-  if ( !writeManifest( request, result, tileFiles, &result.manifest, &manifestError ) )
+  if ( !writeManifest( request, result, state.tileFiles, &result.manifest, &manifestError ) )
     result.failures.append( Failure{ -1, QStringLiteral( "*" ), QStringLiteral( "manifest" ),
                                      manifestError } );
-
-  return result;
 }
 
 } // namespace PaleoMapBookQueue

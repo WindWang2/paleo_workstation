@@ -17,6 +17,8 @@ target_sources(paleo_workflow PRIVATE
   src/workflow/surfacegridding.cpp    # 层位散点网格化 + 等厚/体积面运算编排
 )
 
+add_paleo_test(tst_surfacegridding_thread LIBS paleo_workflow) # #122 worker 登记回 catalog 所属线程
+
 target_sources(paleo_ui PRIVATE
   src/ui/dialogs/griddingdialog.cpp     # 网格化/面运算参数表 + 体积报告（视图件）
 )

@@ -61,6 +61,7 @@ private slots:
   void gridConversionConstantVelocity();
   void gridConversionTwoWellsSpatialBlend();
   void gridConversionIdempotentAndCounts();
+  void gridConversionNonFloatRepresentableNodata();
 };
 
 // 用例1：恒速 2500 m/s（k=0 极限 + 层间平均同值）——z = v·twt/2000 解析。
@@ -305,6 +306,25 @@ void TestVelocityModel::gridConversionIdempotentAndCounts()
                        r1.depthM.size() * sizeof(float)), 0);
   // z(800) = 600 + (800−500)·(1500−600)/(1200−500) = 600 + 270000/700 ≈ 985.714。
   QVERIFY(qAbs(r1.depthM[1] - (600.0 + 300.0 * 900.0 / 700.0)) < 1e-3);
+}
+
+// #165：nodata = 1e30（ZMAP/Petrel 惯用，非 float 可表示）。落盘像元是 (float)1e30，
+// 旧代码 float 与 double 比较永不相等 → 当有效 TWT 参与换算。
+void TestVelocityModel::gridConversionNonFloatRepresentableNodata()
+{
+  const auto c = well(QStringLiteral("W1"), 50.0, 50.0, {{1000.0, 1250.0}, {2000.0, 2500.0}});
+  const VelocityModel m = VelocityModel::fit({c}, ModelType::V0kLinear);
+  const int rows = 1, cols = 3;
+  const double gt[6] = {0.0, 100.0, 0.0, 100.0, 0.0, -100.0};
+  for (const double nd : {1e30, -1e30, -99999.9})
+  {
+    QVector<float> t(rows * cols, 1600.0f);
+    t[1] = static_cast<float>(nd);
+    const DepthGridResult r = convertTimeGridToDepth(m, t, rows, cols, gt, nd);
+    QCOMPARE(r.nodataCells, 1);
+    QCOMPARE(r.convertedCells, 2);
+    QVERIFY(qIsNaN(r.depthM[1]));
+  }
 }
 
 QTEST_MAIN(TestVelocityModel)

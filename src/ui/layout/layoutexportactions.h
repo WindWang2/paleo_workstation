@@ -1,17 +1,27 @@
 // 层：视图
 #pragma once
+#include <QDomDocument>
+#include <QHash>
 #include <QObject>
 #include <QPointer>
 #include <QString>
 #include <QStringList>
+#include <QVariantMap>
 
 #include <functional>
+#include <memory>
+
+#include <qgscoordinatereferencesystem.h>
+#include <qgscoordinatetransformcontext.h>
+#include <qgsfeature.h>
 
 #include "../../qgis/layoutexport.h" // Format/PageRange/ExportOutcome + 导出核心
 
 class QAction;
 class QStatusBar;
 class QgsLayout;
+class QgsProject;
+class PaleoTask;
 class PaleoTaskService;
 
 // ui/layout — Task C: export actions for the bespoke layout designer shell.
@@ -62,17 +72,48 @@ class PaleoLayoutExportActions : public QObject
     ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format format,
                                 double dpi, const PageRange &range );
 
-    // #85：注入任务服务后 action 导出走 worker——版面先存 XML 快照（GUI
-    // 线程、毫秒级），worker 重建私有 QgsLayout 再跑导出器，1200dpi 多页
-    // 不再卡主线程/泵事件。快照语义：导出内容是点击时刻的版面，编辑中的
-    // 后续改动不进该次导出。未注入时保持同步旧路径（测试壳/无服务宿主）。
+    // #85/#161：注入任务服务后 action 导出走 worker。GUI 线程只做序列化
+    // （版面 XML + 工程/图层 XML 快照，毫秒级）；worker 用快照重建一个
+    // **私有** QgsProject（图层/图层树/地图主题都在 worker 上新建、归 worker
+    // 线程所有）和私有 QgsPrintLayout 再跑导出器——渲染作业的
+    // createMapRenderer() 只碰 worker 自己的图层，不再与 GUI 线程上的活图层/
+    // 样式/工程切换并发（#161）。快照语义：导出内容是点击时刻的版面与样式。
+    // 未注入时保持同步旧路径（测试壳/无服务宿主）。
     void setTaskService( PaleoTaskService *service );
 
-    // 任务池导出路径（对话框之外的可测缝）：snapshot → worker 重建导出，
-    // 完成时 emit exportFinished + 状态条/打开文件夹由 finished 回包处理。
-    // 返回 false = 无任务服务或版面为空（调用方回退同步路径）。
+    // 任务池导出路径（对话框之外的可测缝）。返回值：
+    //   true  = 已受理——要么已排队（完成时 exportFinished + 状态条回包），
+    //           要么因已有导出进行中被拒（立即 exportFinished(outPath,false)）；
+    //   false = 无法隔离/无任务服务/版面为空，调用方应回退同步路径；
+    //           fallbackReason（可空）写入原因。
     bool exportLayoutAsync( QgsLayout *layout, const QString &outPath, Format format,
-                            double dpi, const PageRange &range );
+                            double dpi, const PageRange &range,
+                            QString *fallbackReason = nullptr );
+
+    //! 本实例是否有任务池导出在跑（期间导出动作禁用、再次导出被拒）。
+    bool exportInFlight() const { return m_inFlight; }
+
+    // #161 工程隔离快照：GUI 线程 capture，worker 线程 rebuild。值语义——
+    // 抓取后与源工程/图层再无共享对象（QDomDocument 由本快照独占）。
+    struct ProjectSnapshot
+    {
+        QDomDocument xml; //!< <qgis><projectlayers/><layertree/><visibility-presets/></qgis>
+        QHash<QString, QgsFeatureList> memoryFeatures; //!< memory 图层的要素（XML 不含要素）
+        QgsCoordinateReferenceSystem crs;
+        QgsCoordinateTransformContext transformContext;
+        QString ellipsoid;
+        QString title;
+        QString homePath;
+        QVariantMap customVariables;
+    };
+    // 失败（插件图层、带未提交编辑的图层、序列化失败）返回 false + reason：
+    // 这些情形无法在 worker 上忠实重现，调用方回退 GUI 线程同步导出。
+    static bool captureProjectSnapshot( const QgsProject *project, ProjectSnapshot &out,
+                                        QString *reason = nullptr );
+    // 在**调用线程**新建私有工程并按快照重建；返回的工程及其图层都归调用
+    // 线程所有。失败返回 nullptr + error。
+    static std::unique_ptr<QgsProject> rebuildProject( const ProjectSnapshot &snapshot,
+                                                       QString *error = nullptr );
 
     // UI wiring. The providers are only consulted by the action handlers —
     // exportLayout() itself takes its layout explicitly.
@@ -97,7 +138,9 @@ class PaleoLayoutExportActions : public QObject
     bool m_openFolderEnabled = false;
 
     PaleoTaskService *m_taskSvc = nullptr;
-    // worker 导出结果暂存：worker 写、finished 回包（GUI）读。
-    ExportOutcome m_pendingOutcome;
+    // #161：结果按任务携带（shared_ptr 进 work 与 finished 回包），不再有
+    // worker 写 GUI 对象成员的单槽；m_inFlight 只在 GUI 线程读写。
+    bool m_inFlight = false;
+    void setInFlight( bool inFlight );
     void reportExportOutcome( const ExportOutcome &outcome );
 };

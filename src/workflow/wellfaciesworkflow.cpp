@@ -1,5 +1,6 @@
 // 层：功能
 #include "wellfaciesworkflow.h"
+#include "ai/wellfacieskeystore.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -11,6 +12,7 @@
 WellFaciesWorkflow::WellFaciesWorkflow(QObject *parent) : QObject(parent) {
   m_config = WellFaciesConfig::load();
   m_service.configure(m_config);
+  loadKeyFromKeychain();
   connect(
       &m_service, &WellFaciesService::modelsReady, this,
       [this](const QVector<WellFaciesModel> &models) {
@@ -72,13 +74,65 @@ WellFaciesWorkflow::WellFaciesWorkflow(QObject *parent) : QObject(parent) {
                                        .arg(file.errorString()));
       });
 }
+void WellFaciesWorkflow::loadKeyFromKeychain() {
+  if (!WellFaciesKeyStore::available())
+    return;
+  // 旧版 JSON 里的明文密钥：迁入钥匙串，成功后改写 JSON 去掉密钥。
+  if (!m_config.apiKey.isEmpty() &&
+      !qEnvironmentVariableIsSet("PALEO_WELL_FACIES_API_KEY")) {
+    const WellFaciesConfig legacy = m_config;
+    WellFaciesKeyStore::write(this, legacy.apiKey,
+                              [legacy](bool ok, const QString &) {
+                                QString ignored;
+                                if (ok && legacy.baseUrl.isValid())
+                                  legacy.save(&ignored, false);
+                              });
+    return;
+  }
+  if (!m_config.apiKey.isEmpty())
+    return;
+  const int generation = m_configGeneration;
+  WellFaciesKeyStore::read(
+      this, [this, generation](bool found, const QByteArray &key,
+                               const QString &error) {
+        if (generation != m_configGeneration || !m_config.apiKey.isEmpty())
+          return;
+        if (!found) {
+          if (!error.isEmpty())
+            qWarning("well-facies: keychain read failed: %s", qPrintable(error));
+          return;
+        }
+        m_config.apiKey = key;
+        m_service.configure(m_config);
+        updateInput();
+      });
+}
 void WellFaciesWorkflow::configure(const WellFaciesConfig &config,
                                    bool persist) {
   QString error;
-  if (persist && !config.save(&error)) {
+  const bool useKeychain = persist && WellFaciesKeyStore::available();
+  if (persist && !config.save(&error, !useKeychain)) {
     emit statusChanged(error);
     return;
   }
+  if (useKeychain)
+    WellFaciesKeyStore::write(this, config.apiKey,
+                              [this, config](bool ok, const QString &err) {
+                                if (ok)
+                                  return;
+                                // 钥匙串写失败：回落文件（POSIX 0600）并如实告知。
+                                QString fileError;
+                                config.save(&fileError, true);
+                                emit statusChanged(
+                                    tr("API 密钥未能写入系统钥匙串（%1），已改存本机"
+                                       "配置文件（仅当前用户可读写）")
+                                        .arg(err));
+                              });
+  if (config.allowInsecureHttp &&
+      config.baseUrl.scheme() == QLatin1String("http") &&
+      !WellFaciesConfig::isLoopbackHost(config.baseUrl.host()))
+    emit statusChanged(tr("警告：已允许不加密的 HTTP，API 密钥与井数据将明文传输"));
+  ++m_configGeneration;
   cancel();
   m_config = config;
   m_service.configure(config);

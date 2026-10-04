@@ -204,6 +204,12 @@ class PreviewDocService : public QObject
     QHash<QString, LasDoc> lasSiblingDocs(const QString &key) const;
     // 释放该 key 的世代号；进行中的解析请求取消——结果没人等了。
     void releaseLas(const QString &key);
+    // #154：工程切换前清空所有按 assetId 键控的会话缓存（SEG-Y 索引读者、
+    // SHA 已验集、金字塔状态、LAS 兄弟文档）并取消在途解码/解析/预热任务。
+    // assetId（ast-N）在不同工程间会重复——不清会把旧工程的读者/已验结论
+    // 套到新工程同名资产上。世代号不清零而是逐键 +1：迟到的旧代结果与新
+    // 工程的第一代请求不会撞号。
+    void resetProjectState();
 
     // ---- B3（wave/deepen-perf）：栅格金字塔版本预热（quiet 异步）----
     // 对资产当前版本的栅格（受管 tif/png/jpg；horizon DERIVED tif 同口径）

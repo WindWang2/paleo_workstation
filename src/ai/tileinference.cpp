@@ -49,6 +49,24 @@ QVector<InferenceTile> planInferenceTiles( int gridRows, int gridCols,
   return tiles;
 }
 
+int sanitizeModelInput( QVector<float> &data, QVector<bool> *valid )
+{
+  if ( valid )
+    *valid = QVector<bool>( data.size(), true );
+  int bad = 0;
+  for ( qsizetype k = 0; k < data.size(); ++k )
+  {
+    if ( !std::isfinite( data[k] ) )
+    {
+      data[k] = 0.0f;
+      if ( valid )
+        ( *valid )[k] = false;
+      ++bad;
+    }
+  }
+  return bad;
+}
+
 void softmaxGrid( const QVector<float> &logits, int classes, int rows, int cols,
                   const QVector<bool> &valid, TileClassGrid *out )
 {
@@ -59,16 +77,28 @@ void softmaxGrid( const QVector<float> &logits, int classes, int rows, int cols,
   out->argmax = QVector<quint8>( pixels, 255 );
   out->confidence = QVector<float>( pixels, 0.0f );
   out->probMax = QVector<float>( pixels, 0.0f );
-  if ( classes < 1 || pixels < 1 || logits.size() != classes * pixels )
-    return; // 尺寸不符 → 全 255（无数据）；调用方按契约先验形状
+  if ( classes < 1 || classes > kMaxTileClasses || pixels < 1 ||
+       logits.size() != qsizetype( classes ) * pixels )
+    return; // 尺寸不符/类数越界 → 全 255（无数据）；调用方按契约先验形状
   const double lnC = classes > 1 ? std::log( double( classes ) ) : 1.0;
   for ( int p = 0; p < pixels; ++p )
   {
     if ( valid.size() == pixels && !valid[p] )
       continue; // 无数据：argmax 保持 255
     double cmax = -std::numeric_limits<double>::infinity();
+    bool finite = true;
     for ( int c = 0; c < classes; ++c )
-      cmax = std::max( cmax, double( logits[c * pixels + p] ) );
+    {
+      const double v = double( logits[c * pixels + p] );
+      if ( !std::isfinite( v ) )
+      {
+        finite = false;
+        break;
+      }
+      cmax = std::max( cmax, v );
+    }
+    if ( !finite )
+      continue; // 非有限 logit：如实无数据（255/置信 0），不默认类 0
     double sum = 0.0;
     std::vector<double> expv( classes > 0 ? classes : 1, 0.0 );
     for ( int c = 0; c < classes; ++c )
@@ -155,12 +185,13 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
   result->inferenceMs = 0;
   result->elapsedMs = 0;
 
-  if ( !onnx->isModelLoaded( req.model ) && !onnx->loadModel( req.model, error ) )
+  // #144：加载与元数据一次取全（不读「最近一次加载」的全局 meta），推理绑定模型名。
+  OnnxModelMeta meta;
+  if ( onnx->loadModelMeta( req.model, &meta, error ) != OnnxLoadStatus::Ok )
     return fail( error && !error->isEmpty()
                    ? *error
                    : QObject::tr( "cannot load ONNX model '%1'" ).arg( req.model ) );
 
-  const OnnxModelMeta meta = onnx->loadedModelMeta();
   // 输入签名门：4 维、N=1（或动态）、C=1（或动态）——tile 读域按 H×W 喂入。
   if ( meta.inputShape.size() != 4 ||
        ( meta.inputShape[0] > 1 ) || ( meta.inputShape[1] > 1 ) )
@@ -205,18 +236,14 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
                      .arg( tile.cols )
                      .arg( meta.inputShape[3] ) );
 
-    QVector<bool> valid( expected, true );
-    for ( qsizetype k = 0; k < expected; ++k )
-    {
-      if ( std::isnan( data[k] ) )
-        valid[k] = false;
-    }
+    QVector<bool> valid;
+    sanitizeModelInput( data, &valid ); // #143：NaN/Inf 不进 ORT，输出端按掩膜置 255
 
     QString runErr;
     QElapsedTimer inferClock;
     inferClock.start();
     const OnnxTensor out =
-      onnx->runTensor( meta.inputName, data, { 1, 1, tile.rows, tile.cols }, &runErr );
+      onnx->runTensorOn( req.model, meta.inputName, data, { 1, 1, tile.rows, tile.cols }, &runErr );
     const qint64 tileMs = inferClock.elapsed();
     result->inferenceMs += tileMs;
     if ( !runErr.isEmpty() )
@@ -239,6 +266,10 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
                      .arg( tile.cols ) );
 
     const int classes = int( out.shape[1] );
+    if ( classes > kMaxTileClasses )
+      return fail( QObject::tr( "模型输出 %1 类超过上限 %2（类号 255 保留为无数据）" )
+                     .arg( classes )
+                     .arg( kMaxTileClasses ) );
     if ( grid.classes == 0 )
     {
       grid.classes = classes;

@@ -14,19 +14,20 @@ HiddenTrackBar::HiddenTrackBar(QWidget *parent)
 {
   setObjectName(QStringLiteral("wellCompositeHiddenBar"));
   auto *lay = new QHBoxLayout(this);
-  lay->setContentsMargins(8, 2, 8, 2);
-  lay->setSpacing(4);
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+  lay->setSpacing(PaleoTheme::tokens().spacingXs);
   // rebuild() 动态填充；样式遵循 DESIGN.md chip（胶囊、surface 底、text-muted）
   PaleoTheme::applyThemedStyleSheet(this, [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
-        "HiddenTrackBar { background: %1; border-top: 1px solid %2; }"
-        "QToolButton { background: %3; border: 1px solid %2; border-radius: 9px;"
-        " padding: 1px 10px; color: %4; font-size: 8pt; }"
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+        "QWidget#wellCompositeHiddenBar { background: %1; border-top: 1px solid %2; }"
+        "QToolButton { background: %3; border: 1px solid %2; border-radius: %7px;"
+        " padding: {spacing.xs}px {spacing.md}px; color: %4; font-size: {typography.label}pt; }"
         "QToolButton:hover { border-color: %5; color: %6; }"
-        "QLabel { color: %4; font-size: 8pt; }")
+        "QLabel { color: %4; font-size: {typography.label}pt; }"))
         .arg(t.surfaceAlt.name(), t.border.name(), t.surface.name(),
-             t.textMuted.name(), t.primary.name(), t.primaryText.name());
+             t.textMuted.name(), t.primary.name(), t.primaryText.name())
+        .arg(PaleoTheme::chipRadius(PaleoTheme::bodyFont(t.labelPt)));
   });
   hide();
 }

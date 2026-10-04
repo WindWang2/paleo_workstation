@@ -1,0 +1,14 @@
+Test project /home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/build
+    Start  80: tst_catalog
+1/2 Test  #80: tst_catalog ......................   Passed    8.39 sec
+    Start 122: tst_startup_trace
+2/2 Test #122: tst_startup_trace ................   Passed   11.85 sec
+
+100% tests passed out of 2
+
+Label Time Summary:
+perf        =  11.85 sec*proc (1 test)
+services    =  11.85 sec*proc (1 test)
+store       =   8.39 sec*proc (1 test)
+
+Total Test time (real) =  20.25 sec

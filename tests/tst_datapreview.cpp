@@ -6,6 +6,7 @@
 #include <QTemporaryDir>
 
 #include "helpers/previewfixture.h"
+#include "helpers/visualcapture.h"
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/metadata/layermanifest.h"
@@ -61,6 +62,7 @@ private slots:
   void missingExternalSourceShowsState();
   void horizonTabOffersShowOnMap();
   void everyTypeOpensContent();
+  void captureSynchronousLoadingState();
   void topsTimeColumnStaysBlank();
   void multiWellTabComboAndTitle();
   void otherAssetDoesNotChangeChosenWell();
@@ -96,6 +98,7 @@ void TestDataPreview::emptyStateBeforeAnyTab()
   QVERIFY(empty->isVisible() || !empty->isHidden()); // 未开标签时可见
   QCOMPARE(empty->text(), QStringLiteral("还没有打开的预览 — 从顶部导入数据，再在左侧列表选择一条数据"));
   QCOMPARE(pv.tabCount(), 0);
+  QVERIFY(paleo::tests::captureVisual(&pv, QStringLiteral("preview-empty")));
 }
 
 void TestDataPreview::reselectFocusesExistingTab()
@@ -332,6 +335,49 @@ void TestDataPreview::everyTypeOpensContent()
   QCOMPARE(viewStack->currentIndex(), 0); // 切换回相图地图画布
 
   QCOMPARE(st->preview->tabCount(), 9);
+  const QStringList names{"log", "tops", "timedepth", "wellhead", "horizon",
+                          "seismic", "image", "document", "geojson"};
+  if (!qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty())
+    for (int i = 0; i < tabs->count(); ++i)
+    {
+      tabs->setCurrentIndex(i);
+      QVERIFY(paleo::tests::captureVisual(st->preview.get(),
+          QStringLiteral("preview-") + names[i]));
+      if (i == 0)
+      {
+        auto *single = tabs->widget(i)->findChild<QToolButton *>(QStringLiteral("btnSingleView"));
+        QVERIFY(single);
+        single->click();
+        QVERIFY(paleo::tests::captureVisual(st->preview.get(), QStringLiteral("preview-log-single")));
+      }
+    }
+}
+
+void TestDataPreview::captureSynchronousLoadingState()
+{
+  if (qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty())
+    QSKIP("Optional live synchronous loading evidence");
+  for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark})
+  {
+    PaleoTheme::applyTheme(theme);
+    QTemporaryDir tmp;
+    auto st = makeStack(tmp.filePath("proj"));
+    QFile file(tmp.filePath("loading.geojson"));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("{ not json");
+    file.close();
+    QString error;
+    const QString id = st->importSvc->importProjectFile(file.fileName(), &error);
+    QVERIFY2(!id.isEmpty(), qPrintable(error));
+    st->preview->resize(1100, 700);
+    st->preview->show();
+    QTest::qWait(100);
+    paleo::tests::LoadingVisualCapture capture(st->preview.get(),
+        theme == PaleoTheme::Theme::Light ? "preview-loading-light" : "preview-loading-dark");
+    st->preview->openAsset(id);
+    QVERIFY2(capture.saved, "Actual loading label did not show before synchronous read");
+  }
+  PaleoTheme::applyLightTheme();
 }
 
 void TestDataPreview::topsTimeColumnStaysBlank()
@@ -455,6 +501,7 @@ void TestDataPreview::loadingFailureAndRetryStates()
   QVERIFY(state->text().contains(QStringLiteral("bad.geojson")));
   QVERIFY2(page->findChild<QPushButton *>(QStringLiteral("retryBtn")),
            "failure state must offer 重试");
+  QVERIFY(paleo::tests::captureVisual(st->preview.get(), QStringLiteral("preview-error")));
 }
 
 // 「重试」重建该标签：受管文件修好后再点，内容回来。

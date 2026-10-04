@@ -22,9 +22,9 @@ PaleoEmptyStateLabel::PaleoEmptyStateLabel(const QString &text, QWidget *host,
       const QColor fg = m_kind == Kind::Error    ? t.errorText
                         : m_kind == Kind::Degraded ? t.warningText
                                                     : t.textMuted;
-      return QStringLiteral(
-                 "background: rgba(%1,%2,%3,0.9); color: %4; padding: 12px 16px;"
-                 " border: 1px solid %5; border-radius: 8px;")
+      return PaleoTheme::metricStyleSheet(QStringLiteral(
+                 "background: rgba(%1,%2,%3,0.9); color: %4; padding: {spacing.md}px {spacing.md}px;"
+                 " border: 1px solid %5; border-radius: {rounded.md}px;"))
           .arg(t.surface.red())
           .arg(t.surface.green())
           .arg(t.surface.blue())

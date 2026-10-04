@@ -1,4 +1,6 @@
 // 层：视图
+// token 例外：DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。（tools/ui-token-exceptions.json 精确计数）。
+#include "ui/paleotheme.h"
 #include "wellcompositetrack.h"
 #include "patterncatalog.h"
 #include "../../domain/faciescatalog.h"
@@ -21,8 +23,8 @@ void WellTrack::paintHeaderChrome(QPainter &painter, const QRectF &headerRect,
   painter.save();
   painter.setClipRect(headerRect);
 
-  painter.fillRect(headerRect, QColor(QStringLiteral("#F5F7FA")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.fillRect(headerRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).surfaceAlt);
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(headerRect.topRight(), headerRect.bottomRight());
   painter.drawLine(headerRect.bottomLeft(), headerRect.bottomRight());
 
@@ -34,16 +36,16 @@ void WellTrack::paintHeaderChrome(QPainter &painter, const QRectF &headerRect,
                                                : headerRect.height();
   const QRectF titleBand(headerRect.left() + 2, headerRect.top() + 4,
                          headerRect.width() - 4, titleBandH - 6);
-  painter.setPen(QColor(QStringLiteral("#24303E")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
   QFont fTitle = painter.font();
-  fTitle.setPointSize(9);
+  fTitle.setPointSize(PaleoTheme::tokens().bodyPt);
   fTitle.setBold(true);
   painter.setFont(fTitle);
   painter.drawText(titleBand, Qt::AlignCenter | Qt::TextWrapAnywhere,
                    elideTitle(painter, title(), titleBand.width()));
 
   QFont fSub = painter.font();
-  fSub.setPointSize(8);
+  fSub.setPointSize(PaleoTheme::tokens().labelPt);
   fSub.setBold(false);
   painter.setFont(fSub);
 
@@ -472,24 +474,24 @@ void DepthScaleTrack::paintHeader(QPainter &painter, const QRectF &headerRect, d
   painter.setClipRect(headerRect);
 
   // 背景
-  painter.fillRect(headerRect, QColor(QStringLiteral("#F5F7FA")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.fillRect(headerRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).surfaceAlt);
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(headerRect.topRight(), headerRect.bottomRight());
   painter.drawLine(headerRect.bottomLeft(), headerRect.bottomRight());
 
   // 标头标题
-  painter.setPen(QColor(QStringLiteral("#24303E")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
   QFont fTitle = painter.font();
-  fTitle.setPointSize(9);
+  fTitle.setPointSize(PaleoTheme::tokens().bodyPt);
   fTitle.setBold(true);
   painter.setFont(fTitle);
   const QString unitSuffix = m_depthUnitLabel.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(m_depthUnitLabel);
   painter.drawText(headerRect.adjusted(2, 6, -2, -24), Qt::AlignCenter, title() + unitSuffix);
 
   // 比例尺标识（如 1:500）
-  painter.setPen(QColor(QStringLiteral("#5D6E80")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).textMuted);
   QFont fRatio = painter.font();
-  fRatio.setPointSize(8);
+  fRatio.setPointSize(PaleoTheme::tokens().labelPt);
   fRatio.setBold(false);
   painter.setFont(fRatio);
   painter.drawText(headerRect.adjusted(2, headerRect.height() - 22, -2, -4),
@@ -500,7 +502,7 @@ void DepthScaleTrack::paintHeader(QPainter &painter, const QRectF &headerRect, d
   {
     painter.setPen(QColor(QStringLiteral("#9AA7B4")));
     QFont fUnit = painter.font();
-    fUnit.setPointSize(7);
+    fUnit.setPointSize(PaleoTheme::tokens().labelPt);
     painter.setFont(fUnit);
     painter.drawText(headerRect.adjusted(2, headerRect.height() - 8, -2, -1),
                      Qt::AlignCenter, m_depthUnitLabel);
@@ -516,8 +518,8 @@ void DepthScaleTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   painter.setClipRect(bodyRect);
 
   // 背景
-  painter.fillRect(bodyRect, QColor(QStringLiteral("#FFFFFF")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.fillRect(bodyRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
 
   const double minPixelSpacing = 36.0;
@@ -535,9 +537,9 @@ void DepthScaleTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   const double minorStep = majorStep / 5.0;
 
   QFont numFont = painter.font();
-  numFont.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("Noto Sans SC"), QStringLiteral("monospace")});
+  numFont = PaleoTheme::monoFont(numFont.pointSize());
   numFont.setStyleHint(QFont::TypeWriter);
-  numFont.setPointSize(8);
+  numFont.setPointSize(PaleoTheme::tokens().labelPt);
   painter.setFont(numFont);
 
   // 绘制次刻度与主刻度
@@ -550,7 +552,7 @@ void DepthScaleTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
 
     if (isMajor)
     {
-      painter.setPen(QColor(QStringLiteral("#24303E")));
+      painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
       painter.drawLine(QPointF(bodyRect.right() - 8, y), QPointF(bodyRect.right(), y));
 
       const QString lbl = QString::number(static_cast<int>(std::round(d)));
@@ -570,7 +572,7 @@ void DepthScaleTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   {
     painter.setPen(QColor(m_highContrast ? QStringLiteral("#24303E") : QStringLiteral("#5D6E80")));
     QFont twtFont = painter.font();
-    twtFont.setPointSize(7);
+    twtFont.setPointSize(PaleoTheme::tokens().labelPt);
     painter.setFont(twtFont);
     for (const auto &pair : m_twtLabels)
     {
@@ -604,12 +606,12 @@ void TextTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
 {
   painter.save();
   painter.setClipRect(bodyRect);
-  painter.fillRect(bodyRect, QColor(QStringLiteral("#FFFFFF")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.fillRect(bodyRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
 
   QFont textFont = painter.font();
-  textFont.setPointSize(8);
+  textFont.setPointSize(PaleoTheme::tokens().labelPt);
   painter.setFont(textFont);
 
   for (const auto &it : m_intervals)
@@ -630,7 +632,7 @@ void TextTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     painter.drawLine(blockRect.bottomLeft(), blockRect.bottomRight());
 
     // 绘制文字
-    painter.setPen(QColor(QStringLiteral("#24303E")));
+    painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
     QString fullText = it.category.isEmpty() ? it.text : QStringLiteral("[%1] %2").arg(it.category, it.text);
     const QRectF textRect = m_keepTextVisible ? blockRect.intersected(bodyRect) : blockRect;
     painter.drawText(textRect.adjusted(4, 2, -4, -2), Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap, fullText);
@@ -659,11 +661,11 @@ void FormationTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   painter.save();
   painter.setClipRect(bodyRect);
   painter.fillRect(bodyRect, QColor(QStringLiteral("#FAFAFA")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
 
   QFont font = painter.font();
-  font.setPointSize(8);
+  font.setPointSize(PaleoTheme::tokens().labelPt);
   font.setBold(true);
   painter.setFont(font);
 
@@ -680,7 +682,7 @@ void FormationTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     painter.fillRect(blockRect, it.color);
 
     // 上下实线界线
-    painter.setPen(QPen(QColor(QStringLiteral("#24303E")), 1.0));
+    painter.setPen(QPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text, 1.0));
     painter.drawLine(blockRect.topLeft(), blockRect.topRight());
     painter.drawLine(blockRect.bottomLeft(), blockRect.bottomRight());
 
@@ -714,12 +716,12 @@ void LithologyTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
 {
   painter.save();
   painter.setClipRect(bodyRect);
-  painter.fillRect(bodyRect, QColor(QStringLiteral("#FFFFFF")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.fillRect(bodyRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
 
   QFont font = painter.font();
-  font.setPointSize(8);
+  font.setPointSize(PaleoTheme::tokens().labelPt);
   painter.setFont(font);
 
   for (const auto &it : m_intervals)
@@ -774,12 +776,12 @@ void CoreTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
 {
   painter.save();
   painter.setClipRect(bodyRect);
-  painter.fillRect(bodyRect, QColor(QStringLiteral("#FFFFFF")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.fillRect(bodyRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
 
   QFont font = painter.font();
-  font.setPointSize(8);
+  font.setPointSize(PaleoTheme::tokens().labelPt);
   painter.setFont(font);
 
   for (const auto &b : m_barrels)
@@ -814,7 +816,7 @@ void CoreTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     // 百分比文字
     if (barrelRect.height() >= 14.0)
     {
-      painter.setPen(QColor(QStringLiteral("#24303E")));
+      painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
       const QRectF rateTextRect(barLeft, barrelRect.top(), barWidth, barrelRect.height());
       painter.drawText(rateTextRect, Qt::AlignCenter, QStringLiteral("%1%").arg(qRound(rate)));
     }
@@ -843,7 +845,7 @@ void ImageTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   painter.save();
   painter.setClipRect(bodyRect);
   painter.fillRect(bodyRect, QColor(QStringLiteral("#FAFAFA")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
 
   for (const auto &item : m_items)
@@ -968,15 +970,15 @@ void CurveTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double
   painter.save();
   painter.setClipRect(headerRect);
 
-  painter.fillRect(headerRect, QColor(QStringLiteral("#F5F7FA")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.fillRect(headerRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).surfaceAlt);
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(headerRect.topRight(), headerRect.bottomRight());
   painter.drawLine(headerRect.bottomLeft(), headerRect.bottomRight());
 
   // 主标题
-  painter.setPen(QColor(QStringLiteral("#24303E")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
   QFont fTitle = painter.font();
-  fTitle.setPointSize(9);
+  fTitle.setPointSize(PaleoTheme::tokens().bodyPt);
   fTitle.setBold(true);
   painter.setFont(fTitle);
   painter.drawText(QRectF(headerRect.left() + 2, headerRect.top() + 2, headerRect.width() - 4, 16),
@@ -988,9 +990,9 @@ void CurveTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double
   {
     const qreal slotH = (headerRect.height() - 20) / static_cast<qreal>(count);
     QFont fCurve = painter.font();
-    fCurve.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("Noto Sans SC"), QStringLiteral("monospace")});
+    fCurve = PaleoTheme::monoFont(fCurve.pointSize());
     fCurve.setStyleHint(QFont::TypeWriter);
-    fCurve.setPointSize(8);
+    fCurve.setPointSize(PaleoTheme::tokens().labelPt);
     fCurve.setBold(false);
     painter.setFont(fCurve);
 
@@ -1039,7 +1041,7 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
 {
   painter.save();
   painter.setClipRect(bodyRect);
-  painter.fillRect(bodyRect, QColor(QStringLiteral("#FFFFFF")));
+  painter.fillRect(bodyRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
 
   // D4.11/D1.7 网格系统：密度可配（0 无 / 1 两分 / 2 四分 / 3 十分含次网格），
   // 次网格（1/10）仅在密度 3 时叠加；重叠网格开关关闭时完全不画。
@@ -1112,7 +1114,7 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
         const float normX = qBound(0.0f, (v - minVal) / valSpan, 1.0f);
         const qreal x = bodyRect.left() + normX * bodyRect.width();
         const qreal y = bodyRect.top() + (d - topDepth) * pxPerMeter;
-        painter.drawEllipse(QPointF(x, y), 3.0, 3.0);
+        painter.drawEllipse(QPointF(x, y), PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
       }
     }
     else if (c.mode == CurveDisplayMode::Histogram)
@@ -1136,7 +1138,7 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   }
 
   // 右侧分界线
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
 
   painter.restore();
@@ -1161,8 +1163,8 @@ void SymbolTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
 {
   painter.save();
   painter.setClipRect(bodyRect);
-  painter.fillRect(bodyRect, QColor(QStringLiteral("#FFFFFF")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.fillRect(bodyRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
 
   for (const auto &sym : m_items)
@@ -1259,8 +1261,8 @@ void StratigraphyCompoundTrack::paintHeader(QPainter &painter, const QRectF &hea
   painter.setClipRect(headerRect);
 
   // 背景
-  painter.fillRect(headerRect, QColor(QStringLiteral("#F5F7FA")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.fillRect(headerRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).surfaceAlt);
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(headerRect.topRight(), headerRect.bottomRight());
   painter.drawLine(headerRect.bottomLeft(), headerRect.bottomRight());
 
@@ -1269,12 +1271,12 @@ void StratigraphyCompoundTrack::paintHeader(QPainter &painter, const QRectF &hea
 
   // 顶层合并道头：「地层」
   const QRectF topRect(headerRect.left(), headerRect.top(), headerRect.width(), topH);
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(topRect.bottomLeft(), topRect.bottomRight());
 
-  painter.setPen(QColor(QStringLiteral("#24303E")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
   QFont fTitle = painter.font();
-  fTitle.setPointSize(9);
+  fTitle.setPointSize(PaleoTheme::tokens().bodyPt);
   fTitle.setBold(true);
   painter.setFont(fTitle);
   painter.drawText(topRect, Qt::AlignCenter, title());
@@ -1288,15 +1290,15 @@ void StratigraphyCompoundTrack::paintHeader(QPainter &painter, const QRectF &hea
   const QRectF rSer(rSys.right(), headerRect.top() + topH, col2W, botH);
   const QRectF rForm(rSer.right(), headerRect.top() + topH, col3W, botH);
 
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(rSys.topRight(), rSys.bottomRight());
   painter.drawLine(rSer.topRight(), rSer.bottomRight());
 
   QFont fSub = painter.font();
-  fSub.setPointSize(8);
+  fSub.setPointSize(PaleoTheme::tokens().labelPt);
   fSub.setBold(true);
   painter.setFont(fSub);
-  painter.setPen(QColor(QStringLiteral("#5D6E80"))); // text-muted
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).textMuted); // text-muted
 
   painter.drawText(rSys, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "系"));
   painter.drawText(rSer, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "统"));
@@ -1310,7 +1312,7 @@ void StratigraphyCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyR
 {
   painter.save();
   painter.setClipRect(bodyRect);
-  painter.fillRect(bodyRect, QColor(QStringLiteral("#FFFFFF")));
+  painter.fillRect(bodyRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
 
   const qreal col1W = m_systemWidth;
   const qreal col2W = m_seriesWidth;
@@ -1321,13 +1323,13 @@ void StratigraphyCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyR
   const qreal col3X = col2X + col2W;
 
   // 绘制竖向分割线
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(QPointF(col2X, bodyRect.top()), QPointF(col2X, bodyRect.bottom()));
   painter.drawLine(QPointF(col3X, bodyRect.top()), QPointF(col3X, bodyRect.bottom()));
   painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
 
   QFont fBody = painter.font();
-  fBody.setPointSize(8);
+  fBody.setPointSize(PaleoTheme::tokens().labelPt);
   fBody.setBold(true);
   painter.setFont(fBody);
 
@@ -1366,7 +1368,7 @@ void StratigraphyCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyR
     const QRectF textBox = box.intersected(bodyRect);
     if (textBox.height() >= 16.0 && !grp.name.isEmpty())
     {
-      painter.setPen(QColor(QStringLiteral("#24303E")));
+      painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
       QString dt = grp.name;
       if (textBox.height() >= 45.0 && col1W <= 42.0)
       {
@@ -1413,7 +1415,7 @@ void StratigraphyCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyR
     const QRectF textBox = box.intersected(bodyRect);
     if (textBox.height() >= 16.0 && !grp.name.isEmpty())
     {
-      painter.setPen(QColor(QStringLiteral("#24303E")));
+      painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
       QString dt = grp.name;
       if (textBox.height() >= 45.0 && col2W <= 46.0)
       {
@@ -1434,7 +1436,7 @@ void StratigraphyCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyR
     const QRectF box(col3X, y0, col3W, qMax<qreal>(4.0, y1 - y0));
 
     painter.fillRect(box, it.formationColor);
-    painter.setPen(QPen(QColor(QStringLiteral("#24303E")), 1.0));
+    painter.setPen(QPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text, 1.0));
     painter.drawLine(box.topLeft(), box.topRight());
     painter.drawLine(box.bottomLeft(), box.bottomRight());
 
@@ -1557,8 +1559,8 @@ void FaciesCompoundTrack::paintHeader(QPainter &painter, const QRectF &headerRec
   painter.setClipRect(headerRect);
 
   // 背景
-  painter.fillRect(headerRect, QColor(QStringLiteral("#F5F7FA")));
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.fillRect(headerRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).surfaceAlt);
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(headerRect.topRight(), headerRect.bottomRight());
   painter.drawLine(headerRect.bottomLeft(), headerRect.bottomRight());
 
@@ -1567,12 +1569,12 @@ void FaciesCompoundTrack::paintHeader(QPainter &painter, const QRectF &headerRec
 
   // 顶层合并道头：「沉积相」
   const QRectF topRect(headerRect.left(), headerRect.top(), headerRect.width(), topH);
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(topRect.bottomLeft(), topRect.bottomRight());
 
-  painter.setPen(QColor(QStringLiteral("#24303E")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
   QFont fTitle = painter.font();
-  fTitle.setPointSize(9);
+  fTitle.setPointSize(PaleoTheme::tokens().bodyPt);
   fTitle.setBold(true);
   painter.setFont(fTitle);
   painter.drawText(topRect, Qt::AlignCenter, title());
@@ -1586,15 +1588,15 @@ void FaciesCompoundTrack::paintHeader(QPainter &painter, const QRectF &headerRec
   const QRectF rSub(rMaj.right(), headerRect.top() + topH, col2W, botH);
   const QRectF rMic(rSub.right(), headerRect.top() + topH, col3W, botH);
 
-  painter.setPen(QColor(QStringLiteral("#DFE5EC")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(rMaj.topRight(), rMaj.bottomRight());
   painter.drawLine(rSub.topRight(), rSub.bottomRight());
 
   QFont fSub = painter.font();
-  fSub.setPointSize(8);
+  fSub.setPointSize(PaleoTheme::tokens().labelPt);
   fSub.setBold(true);
   painter.setFont(fSub);
-  painter.setPen(QColor(QStringLiteral("#5D6E80"))); // text-muted
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).textMuted); // text-muted
 
   painter.drawText(rMaj, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "相"));
   painter.drawText(rSub, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "亚"));
@@ -1608,7 +1610,7 @@ void FaciesCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
 {
   painter.save();
   painter.setClipRect(bodyRect);
-  painter.fillRect(bodyRect, QColor(QStringLiteral("#FFFFFF")));
+  painter.fillRect(bodyRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
 
   const qreal col1W = m_majorWidth;
   const qreal col2W = m_subWidth;
@@ -1625,7 +1627,7 @@ void FaciesCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
 
   QFont fBody = painter.font();
-  fBody.setPointSize(9);
+  fBody.setPointSize(PaleoTheme::tokens().bodyPt);
   fBody.setBold(true);
   painter.setFont(fBody);
 
@@ -1664,7 +1666,7 @@ void FaciesCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     const QRectF textBox = box.intersected(bodyRect);
     if (textBox.height() >= 16.0 && !grp.name.isEmpty())
     {
-      painter.setPen(QColor(QStringLiteral("#24303E")));
+      painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
       QString dt = grp.name;
       if (textBox.height() >= 45.0 && col1W <= 52.0)
       {
@@ -1712,7 +1714,7 @@ void FaciesCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     const QRectF textBox = box.intersected(bodyRect);
     if (textBox.height() >= 16.0 && !grp.sub.isEmpty())
     {
-      painter.setPen(QColor(QStringLiteral("#24303E")));
+      painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
       QString dt = grp.sub;
       if (textBox.height() >= 55.0 && col2W <= 56.0)
       {
@@ -1738,7 +1740,7 @@ void FaciesCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     painter.fillRect(box, brush);
 
     // 上下边界线
-    painter.setPen(QPen(QColor(QStringLiteral("#24303E")), 1.0));
+    painter.setPen(QPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text, 1.0));
     painter.drawLine(box.topLeft(), box.topRight());
     painter.drawLine(box.bottomLeft(), box.bottomRight());
 
@@ -1758,7 +1760,7 @@ void FaciesCompoundTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
 
       painter.fillRect(pill, QColor(255, 255, 255, 220));
       painter.setPen(QPen(QColor(QStringLiteral("#B0BEC5")), 0.8));
-      painter.drawRoundedRect(pill, 3.0, 3.0);
+      painter.drawRoundedRect(pill, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
 
       painter.setPen(QColor(QStringLiteral("#1A237E")));
       painter.drawText(pill, Qt::AlignCenter, it.microFacies);

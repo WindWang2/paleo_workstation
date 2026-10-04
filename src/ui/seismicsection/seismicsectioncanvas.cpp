@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。（tools/ui-token-exceptions.json 精确计数）。
 #include "ui/seismicsection/seismicsectioncanvas.h"
 #include "domain/seismic/sectionaxis.h"
 
@@ -1136,9 +1137,9 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
     const auto &tok = PaleoTheme::tokens();
     const QRect vp = viewportRect();
     QFont monoFont = PaleoTheme::monoFont();
-    monoFont.setPointSize(PaleoTheme::kLabelPt);
+    monoFont.setPointSize(PaleoTheme::tokens().labelPt);
     QFont bodyFont = PaleoTheme::bodyFont();
-    bodyFont.setPointSize(PaleoTheme::kLabelPt);
+    bodyFont.setPointSize(PaleoTheme::tokens().labelPt);
 
     // 1. Clear background
     p.fillRect(rect(), tok.surface);
@@ -1283,7 +1284,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
 
                 p.setBrush(tok.surface);
                 p.setPen(QPen(tok.border, 1.0));
-                p.drawRoundedRect(tagRect, 3.0, 3.0);
+                p.drawRoundedRect(tagRect, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
 
                 p.setPen(tok.text);
                 p.drawText(tagRect, Qt::AlignCenter, wellTag);
@@ -1364,7 +1365,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                         continue;
                     if (!syn.ok) {
                         // 降级注记：写明原因（如「密度曲线缺失」）
-                        p.setFont(QFont(QStringLiteral("Noto Sans SC"), 7));
+                        p.setFont(PaleoTheme::bodyFont(PaleoTheme::tokens().labelPt));
                         p.setPen(QColor(QStringLiteral("#F29900")));
                         p.drawText(QRectF(wx + 8.0, wellTopY + 4.0, 150.0, 30.0),
                                    Qt::AlignLeft | Qt::TextWordWrap,
@@ -1410,7 +1411,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
 
                         p.setBrush(tok.surfaceAltRaised);
                         p.setPen(QPen(tok.border, 1.0));
-                        p.drawRoundedRect(tagRect, 3.0, 3.0);
+                        p.drawRoundedRect(tagRect, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
 
                         p.setPen(tok.text);
                         p.drawText(tagRect, Qt::AlignCenter, tagText);
@@ -1677,7 +1678,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
 
                     p.setBrush(tok.surfaceAltRaised);
                     p.setPen(QPen(tok.border, 1.0));
-                    p.drawRoundedRect(badge, 4.0, 4.0);
+                    p.drawRoundedRect(badge, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
 
                     p.setPen(tok.text);
                     p.drawText(badge, Qt::AlignCenter, pinText);
@@ -1833,7 +1834,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
         const QRectF colorBarRect(barLeft, barTop, barW, barH);
         p.setBrush(grad);
         p.setPen(QPen(tok.border, 1.0));
-        p.drawRoundedRect(colorBarRect, 2.0, 2.0);
+        p.drawRoundedRect(colorBarRect, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
 
         // Labels next to the bar
         p.setFont(monoFont);
@@ -1865,9 +1866,9 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
         // Peak / Trough text annotations（色=数据符号色，不属 chrome token）
         p.setFont(bodyFont);
         if (m_colorMap == SectionColorMapType::RedWhiteBlue) {
-            p.setPen(QColor(220, 38, 38));
+            p.setPen(PaleoTheme::tokens().textMuted);
             p.drawText(QRectF(colorBarX, barTop - 13, m_rightMargin - 6, 12), Qt::AlignRight, tr("波峰+"));
-            p.setPen(QColor(25, 118, 210));
+            p.setPen(PaleoTheme::tokens().textMuted);
             p.drawText(QRectF(colorBarX, barBottom + 3, m_rightMargin - 6, 12), Qt::AlignRight, tr("波谷-"));
         }
     }
@@ -1884,7 +1885,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
         const auto depthTicks = NiceStep::GenerateTicks(std::min(minDepth, maxDepth),
                                                          std::max(minDepth, maxDepth),
                                                          m_topMargin, height(), 8, QStringLiteral("%.0f"));
-        p.setPen(QColor(QStringLiteral("#5D6E80")));
+        p.setPen(PaleoTheme::tokens().textMuted);
         p.drawText(QRect(depthAxisX, m_topMargin - 16, m_rightMargin - 8, 14),
                    Qt::AlignLeft, tr("深度(m)"));
         for (const auto &tk : depthTicks) {
@@ -1895,9 +1896,9 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
             const double py = timeToPixelY(twt);
             if (py < m_topMargin || py > height())
                 continue;
-            p.setPen(QColor(QStringLiteral("#43A047")));
+            p.setPen(PaleoTheme::tokens().successText);
             p.drawLine(QPointF(depthAxisX, py), QPointF(depthAxisX + 4.0, py));
-            p.setPen(QColor(QStringLiteral("#5D6E80")));
+            p.setPen(PaleoTheme::tokens().textMuted);
             p.drawText(QRectF(depthAxisX + 5.0, py - 6.0, 26.0, 12.0), Qt::AlignLeft,
                        QStringLiteral("%1").arg(qRound(tk.value)));
         }

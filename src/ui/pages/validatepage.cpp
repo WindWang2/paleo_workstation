@@ -349,9 +349,10 @@ void ValidatePage::fillResidualTable(QTableWidget *resTable, const QVariantList 
     // 状态胶囊 + 数值 mono 面：残差数字右对齐等宽（DESIGN.md mono token）。
     auto *cell = new QWidget(resTable);
     auto *hl = new QHBoxLayout(cell);
-    hl->setContentsMargins(4, 1, 4, 1);
-    hl->setSpacing(4);
-    hl->addWidget(PaleoTheme::capsuleLabel(word, residualCapsule(status), cell));
+    // 原生表行高拥有纵向留白，单元格不叠加上下 padding。
+    hl->setContentsMargins(PaleoTheme::tokens().spacingXs, 0, PaleoTheme::tokens().spacingXs, 0);
+    hl->setSpacing(PaleoTheme::tokens().spacingXs);
+    hl->addWidget(PaleoTheme::capsuleLabel(word, residualCapsule(status), cell, true));
     if (m.contains(QStringLiteral("residual_ms")))
     {
       auto *num = new QLabel(tr("%1 ms").arg(residualMs, 0, 'f', 1), cell);

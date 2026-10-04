@@ -1,3 +1,4 @@
+#include "../src/ui/paleoicons.h"
 #include "../src/qgis/layervocabulary.h"
 #include <QtTest>
 #include <QAction>
@@ -155,6 +156,91 @@ class TestLayerTreePanel : public QObject
       QVERIFY(filterEdit);
       QVERIFY2(filterEdit->placeholderText().contains(QString::fromUtf8("筛选图层")),
                "占位文案钉死：筛选图层…");
+    }
+
+    void actionIconResourceContract()
+    {
+      // 方向 29：保留六按钮原契约，并覆盖所有静态命名动作 SVG。
+      const QStringList resources{
+        QStringLiteral("3d.svg"),
+        QStringLiteral("grid.svg"),
+        QStringLiteral("mActionAdd.svg"),
+        QStringLiteral("mActionAddGroup.svg"),
+        QStringLiteral("mActionAddMap.svg"),
+        QStringLiteral("mActionAddTable.svg"),
+        QStringLiteral("mActionAddWmsLayer.svg"),
+        QStringLiteral("mActionAlignTop.svg"),
+        QStringLiteral("mActionArrowDown.svg"),
+        QStringLiteral("mActionArrowLeft.svg"),
+        QStringLiteral("mActionArrowRight.svg"),
+        QStringLiteral("mActionArrowUp.svg"),
+        QStringLiteral("mActionAtlasSettings.svg"),
+        QStringLiteral("mActionCancelEdits.svg"),
+        QStringLiteral("mActionCaptureLine.svg"),
+        QStringLiteral("mActionCapturePoint.svg"),
+        QStringLiteral("mActionCapturePolygon.svg"),
+        QStringLiteral("mActionCollapseTree.svg"),
+        QStringLiteral("mActionDeleteSelected.svg"),
+        QStringLiteral("mActionEditCopy.svg"),
+        QStringLiteral("mActionElevationProfile.svg"),
+        QStringLiteral("mActionExpandTree.svg"),
+        QStringLiteral("mActionFileExit.svg"),
+        QStringLiteral("mActionFileNew.svg"),
+        QStringLiteral("mActionFileOpen.svg"),
+        QStringLiteral("mActionFileSave.svg"),
+        QStringLiteral("mActionFileSaveAs.svg"),
+        QStringLiteral("mActionFilter2.svg"),
+        QStringLiteral("mActionFilterTableFields.svg"),
+        QStringLiteral("mActionFolder.svg"),
+        QStringLiteral("mActionHistory.svg"),
+        QStringLiteral("mActionIdentify.svg"),
+        QStringLiteral("mActionMapSettings.svg"),
+        QStringLiteral("mActionMeasure.svg"),
+        QStringLiteral("mActionMeasureArea.svg"),
+        QStringLiteral("mActionMoveFeature.svg"),
+        QStringLiteral("mActionNewBookmark.svg"),
+        QStringLiteral("mActionNewLayout.svg"),
+        QStringLiteral("mActionNewPage.svg"),
+        QStringLiteral("mActionOpenTable.svg"),
+        QStringLiteral("mActionOptions.svg"),
+        QStringLiteral("mActionPan.svg"),
+        QStringLiteral("mActionRedo.svg"),
+        QStringLiteral("mActionRefresh.svg"),
+        QStringLiteral("mActionRemoveLayer.svg"),
+        QStringLiteral("mActionReshape.svg"),
+        QStringLiteral("mActionSaveAsPDF.svg"),
+        QStringLiteral("mActionSaveEdits.svg"),
+        QStringLiteral("mActionSaveMapAsImage.svg"),
+        QStringLiteral("mActionSelectRectangle.svg"),
+        QStringLiteral("mActionSharing.svg"),
+        QStringLiteral("mActionSharingExport.svg"),
+        QStringLiteral("mActionShowAllLayers.svg"),
+        QStringLiteral("mActionStart.svg"),
+        QStringLiteral("mActionUndo.svg"),
+        QStringLiteral("mActionVertexTool.svg"),
+        QStringLiteral("mActionZoomFullExtent.svg"),
+        QStringLiteral("mActionZoomIn.svg"),
+        QStringLiteral("mActionZoomOut.svg"),
+        QStringLiteral("mActionZoomToSelected.svg"),
+        QStringLiteral("mIconFolderHome.svg"),
+        QStringLiteral("mIconFolderOpen.svg"),
+        QStringLiteral("mIconLineLayer.svg"),
+        QStringLiteral("mIconPointLayer.svg"),
+        QStringLiteral("mIconPolygonLayer.svg"),
+        QStringLiteral("mIconRasterLayer.svg"),
+        QStringLiteral("mIconTopologicalEditing.svg"),
+        QStringLiteral("mIconWarning.svg"),
+        QStringLiteral("mLayoutItemElevationProfile.svg"),
+        QStringLiteral("processingAlgorithm.svg"),
+        QStringLiteral("processingModel.svg"),
+        QStringLiteral("propertyicons/symbology.svg"),
+      };
+      for (const QString &name : resources)
+      {
+        const QIcon icon = PaleoIcons::qgisTheme(name);
+        QVERIFY2(!icon.isNull(), qPrintable(name));
+        QVERIFY2(!icon.pixmap(24, 24).isNull(), qPrintable(name));
+      }
     }
 
     // ---- 空态随工程图层集显隐 ----

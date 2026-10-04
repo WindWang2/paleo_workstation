@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。（tools/ui-token-exceptions.json 精确计数）。
 #include "seismic3dcolormap.h"
 
 #include <QColor>

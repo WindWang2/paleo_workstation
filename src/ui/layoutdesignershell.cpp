@@ -1,4 +1,6 @@
 // 层：视图
+#include "ui/paleoicons.h"
+#include "paleotheme.h"
 #include "layoutdesignershell.h"
 
 #include "layout/layoutexportactions.h"
@@ -337,8 +339,8 @@ void PaleoLayoutDesignerShell::buildChrome()
   auto *navigator = new QWidget( m_statusBar );
   navigator->setObjectName( QStringLiteral( "pageNavigator" ) );
   auto *navLay = new QHBoxLayout( navigator );
-  navLay->setContentsMargins( 6, 0, 6, 0 );
-  navLay->setSpacing( 4 ); // DESIGN.md spacing.xs
+  navLay->setContentsMargins(PaleoTheme::tokens().spacingSm, 0, PaleoTheme::tokens().spacingSm, 0);
+  navLay->setSpacing(PaleoTheme::tokens().spacingXs); // DESIGN.md spacing.xs
 
   auto *prevButton = new QToolButton( navigator );
   prevButton->setDefaultAction( m_prevPageAction );
@@ -405,7 +407,7 @@ void PaleoLayoutDesignerShell::buildItemsMenu()
     QgsLayoutItemAbstractGuiMetadata *metadata = QgsGui::layoutItemGuiRegistry()->itemMetadata( metadataId );
     if ( !metadata )
       continue;
-    QAction *a = menu->addAction( metadata->creationIcon(), tr( "添加 %1" ).arg( metadata->visibleName() ) );
+    QAction *a = menu->addAction( PaleoIcons::themed(metadata->creationIcon()), tr( "添加 %1" ).arg( metadata->visibleName() ) );
     a->setObjectName( QStringLiteral( "menuAddItem_%1" ).arg( metadataId ) );
     connect( a, &QAction::triggered, this, [this, metadataId]() { m_palette->requestItem( metadataId ); } );
   }

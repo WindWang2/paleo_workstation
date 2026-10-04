@@ -70,6 +70,13 @@ class CatalogStore
     bool upsertAsset(const CatalogAsset &a, QString *error);
     bool upsertVersion(const CatalogVersion &v, QString *error);
     bool upsertLink(int ord, const EntityAssetLink &l, QString *error);
+    // 增量删除面（DataCatalog::removeAsset）。同事务内调用次序约定：先
+    // upsert 后 delete（净效果 = 已删）。
+    bool deleteAsset(const QString &id, QString *error);
+    bool deleteVersion(const QString &id, QString *error);
+    // 链接行按 ord 主键存储——删除中间行会让后续 ord 整体位移，增量
+    // upsert 表达不了，只能整表重写（链接表是行数级，成本可接受）。
+    bool replaceAllLinks(const QVector<EntityAssetLink> &links, QString *error);
     bool writeMeta(const Meta &meta, QString *error);
     bool commit(QString *error);
     void rollback();

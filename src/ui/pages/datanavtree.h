@@ -85,13 +85,13 @@ public:
 
 signals:
   // D3.1/D3.4：资产（可能多个）拖到实体节点 = 挂接（未决）/ 转移（已决）。
-  void assetsDroppedOnEntity(const QStringList &assetIds, const QString &entityId);
+  void assetsDroppedOnEntity(const QStringList &assetIds, const QString &entityId); // NOLINT(readability-inconsistent-declaration-parameter-name)
   // D3.5：资产拖到标签节点 = 打标签。
-  void assetsDroppedOnTag(const QStringList &assetIds, const QString &tag);
+  void assetsDroppedOnTag(const QStringList &assetIds, const QString &tag); // NOLINT(readability-inconsistent-declaration-parameter-name)
   // D3.2：外部文件/目录拖入（绝对路径列表）。
-  void externalFilesDropped(const QStringList &paths);
+  void externalFilesDropped(const QStringList &paths); // NOLINT(readability-inconsistent-declaration-parameter-name)
   // D3.3：拖源启动（预览区/标签栏宿主可监听 drag 提前量；本信号带 id 集）。
-  void assetDragStarted(const QStringList &assetIds);
+  void assetDragStarted(const QStringList &assetIds); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
 protected:
   void startDrag(Qt::DropActions supportedActions) override

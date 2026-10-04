@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：透明度色带使用固定灰白棋盘作合成参照，灰色为无停靠点的插值值。（tools/ui-token-exceptions.json 精确计数）。
 #include "seismic3dtfeditor.h"
 
 #include "../paleotheme.h"
@@ -182,7 +183,7 @@ void Seismic3DTfEditorWidget::paintEvent(QPaintEvent * /*event*/)
 
     // 角标：0=负峰 / 1=正峰（label 8pt、muted）
     QFont f = PaleoTheme::monoFont();
-    f.setPointSize(8);
+    f.setPointSize(PaleoTheme::tokens().labelPt);
     p.setFont(f);
     p.setPen(QPen(t.textMuted, 1));
     p.drawText(cr.adjusted(2, 0, 0, 0), Qt::AlignLeft | Qt::AlignTop,

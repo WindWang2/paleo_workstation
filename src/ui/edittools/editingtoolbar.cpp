@@ -409,9 +409,9 @@ void PaleoEditingToolbar::buildUi()
   // DESIGN.md ribbon-button：icon-over-text。图标 = vendor QGIS default
   // 主题 svg（qrc 解析，安装路径无关）；QGIS 缺的语义走 PaleoIcons 自绘。
   mToolBar->setToolButtonStyle( Qt::ToolButtonTextUnderIcon );
-  mToolBar->setIconSize( QSize( 18, 18 ) ); // 9pt 正文的密度比，非 QGIS 24px
+  mToolBar->setIconSize(PaleoIcons::toolbarSize()); // 9pt 正文的密度比，非 QGIS 24px
   if ( QLayout *toolLayout = mToolBar->layout() )
-    toolLayout->setSpacing( 4 ); // spacing xs (DESIGN.md toolbar button gap)
+    toolLayout->setSpacing(PaleoTheme::tokens().spacingXs); // spacing xs (DESIGN.md toolbar button gap)
 
   mLayerCombo = new QComboBox( this );
   mLayerCombo->setPlaceholderText( tr( "选择可编辑图层" ) );
@@ -497,7 +497,7 @@ void PaleoEditingToolbar::buildUi()
   // delete together. State mirrors QgsProject::topologicalEditing so it
   // persists in the .qgz; toggling also pushes live into an armed vertex tool.
   mActionTopological = newToolAction( tr( "拓扑" ), tr( "拓扑编辑：共边节点随选区节点一起动/增/删" ),
-                                      QStringLiteral( "mActionTopologicalEditing.svg" ) );
+                                      QStringLiteral( "mIconTopologicalEditing.svg" ) );
   connect( mActionTopological, &QAction::toggled, this, [this]( bool on ) {
     QgsProject *project = mProject ? mProject.data() : QgsProject::instance();
     if ( project && project->topologicalEditing() != on )
@@ -511,7 +511,7 @@ void PaleoEditingToolbar::buildUi()
   // 参与层必须可写（native 语义），undo 按层各一步。持久化走工程自定义属性
   // paleo/crossLayerTopologicalEditing（随 .qgz）。仅在拓扑编辑开启时可用。
   mActionCrossLayerTopo = newToolAction( tr( "跨层" ), tr( "跨层拓扑：共点节点延伸到同 CRS 的其他编辑层（各层 undo 独立）" ),
-                                         QStringLiteral( "mActionTopologicalEditing.svg" ) );
+                                         QStringLiteral( "mIconTopologicalEditing.svg" ) );
   mActionCrossLayerTopo->setObjectName( QStringLiteral( "actionCrossLayerTopo" ) );
   connect( mActionCrossLayerTopo, &QAction::toggled, this, [this]( bool on ) {
     QgsProject *project = mProject ? mProject.data() : QgsProject::instance();
@@ -570,8 +570,8 @@ void PaleoEditingToolbar::buildUi()
   } );
 
   auto *layout = new QHBoxLayout( this );
-  layout->setContentsMargins( 8, 8, 8, 8 ); // spacing sm (panel padding)
-  layout->setSpacing( 8 );
+  layout->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm); // spacing sm (panel padding)
+  layout->setSpacing(PaleoTheme::tokens().spacingSm);
   layout->addWidget( mLayerCombo );
   layout->addWidget( mToolBar );
   layout->addStretch( 1 );

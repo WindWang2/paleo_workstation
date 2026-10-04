@@ -1,4 +1,5 @@
 // 层：视图
+#include "paleotheme.h"
 #include "attributetablepanel.h"
 
 #include "../qgis/qgiseditingservice.h"
@@ -35,8 +36,8 @@ AttributeTablePanel::AttributeTablePanel(
   setAccessibleName(tr("属性表面板"));
   setAccessibleDescription(tr("查看所选图层的要素属性表"));
   auto *lay = new QVBoxLayout(this);
-  lay->setContentsMargins(6, 6, 6, 6);
-  lay->setSpacing(4);
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
   auto *picker = new QComboBox(this);
   picker->setObjectName(QStringLiteral("attrLayerPicker"));
@@ -76,7 +77,7 @@ void AttributeTablePanel::buildEditRow()
   row->setObjectName(QStringLiteral("attrEditRow"));
   auto *lay = new QHBoxLayout(row);
   lay->setContentsMargins(0, 0, 0, 0);
-  lay->setSpacing(4);
+  lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
   auto mkButton = [this, row](const QString &objectName, const QString &text,
                               bool (AttributeTablePanel::*slot)()) {

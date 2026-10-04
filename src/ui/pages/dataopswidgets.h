@@ -33,7 +33,7 @@ namespace paleo::dataops
 class FlowLayout : public QLayout
 {
 public:
-  explicit FlowLayout(QWidget *parent, int margin = 0, int spacing = 4)
+  explicit FlowLayout(QWidget *parent, int margin = 0, int spacing = PaleoTheme::tokens().spacingXs)
     : QLayout(parent)
   {
     setContentsMargins(margin, margin, margin, margin);
@@ -112,8 +112,8 @@ public:
     hide(); // 0/1 选中不占位（单选即正常态）
     PaleoTheme::applyThemedStyleSheet(this, [] {
       const auto &t = PaleoTheme::tokens();
-      return QStringLiteral("background: %1; color: %2; border: 1px solid %3;"
-                            "border-radius: 8px; padding: 0 8px; font-size: 8pt;")
+      return PaleoTheme::metricStyleSheet(QStringLiteral("background: %1; color: %2; border: 1px solid %3;"
+                            "border-radius: {rounded.md}px; padding: 0 {spacing.sm}px; font-size: {typography.label}pt;"))
           .arg(t.primary.name().toUpper(), t.onPrimary.name().toUpper(),
                t.primary.name().toUpper());
     });
@@ -141,16 +141,16 @@ public:
     setObjectName(QStringLiteral("filterChipBar"));
     auto *lay = new QHBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 0);
-    lay->setSpacing(4);
+    lay->setSpacing(PaleoTheme::tokens().spacingXs);
     m_chips = new QWidget(this);
     m_chips->setObjectName(QStringLiteral("filterChipsHost"));
     m_chips->setMinimumWidth(0);
-    m_chipsLay = new FlowLayout(m_chips, 0, 4);
+    m_chipsLay = new FlowLayout(m_chips, 0, PaleoTheme::tokens().spacingXs);
     lay->addWidget(m_chips, 1);
     m_clear = new QPushButton(tr("清空全部"), this);
     m_clear->setObjectName(QStringLiteral("filterClearAllButton"));
     m_clear->setFlat(true);
-    m_clear->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 0 4px;"));
+    m_clear->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt; padding: 0 {spacing.xs}px;")));
     connect(m_clear, &QPushButton::clicked, this, [this] { emit clearAllRequested(); });
     lay->addWidget(m_clear);
   }
@@ -173,10 +173,11 @@ public:
       // chip 胶囊（DESIGN.md chip token：surface 底、border 边、全圆角）。
       PaleoTheme::applyThemedStyleSheet(chip, [] {
         const auto &t = PaleoTheme::tokens();
-        return QStringLiteral("background: %1; color: %2; border: 1px solid %3;"
-                              "border-radius: 9999px; padding: 1px 10px; font-size: 8pt;")
+        return PaleoTheme::metricStyleSheet(QStringLiteral("background: %1; color: %2; border: 1px solid %3;"
+                              "border-radius: %4px; padding: {spacing.xs}px {spacing.md}px; font-size: {typography.label}pt;"))
             .arg(t.surface.name().toUpper(), t.textMuted.name().toUpper(),
-                 t.border.name().toUpper());
+                 t.border.name().toUpper())
+            .arg(PaleoTheme::chipRadius(PaleoTheme::bodyFont(t.labelPt)));
       });
       chip->setToolTip(tr("点击删除该条件；右键取反"));
       chip->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -226,17 +227,17 @@ public:
     setMinimumWidth(0);
     auto *lay = new QVBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 0);
-    lay->setSpacing(2);
+    lay->setSpacing(PaleoTheme::tokens().spacingXs);
     auto *row1 = new QWidget(this);
     row1->setMinimumWidth(0);
     auto *r1 = new QHBoxLayout(row1);
     r1->setContentsMargins(0, 0, 0, 0);
-    r1->setSpacing(4);
+    r1->setSpacing(PaleoTheme::tokens().spacingXs);
     auto *row2 = new QWidget(this);
     row2->setMinimumWidth(0);
     auto *r2 = new QHBoxLayout(row2);
     r2->setContentsMargins(0, 0, 0, 0);
-    r2->setSpacing(4);
+    r2->setSpacing(PaleoTheme::tokens().spacingXs);
     lay->addWidget(row1);
     lay->addWidget(row2);
 
@@ -430,7 +431,7 @@ public:
     setObjectName(QStringLiteral("pendingQuickBar"));
     auto *lay = new QHBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 0);
-    lay->setSpacing(4);
+    lay->setSpacing(PaleoTheme::tokens().spacingXs);
     // 宽度契约（D9）：无 caption——按钮自带文字即语义，tooltip 给细节。
     const struct
     {
@@ -447,7 +448,7 @@ public:
       auto *btn = new QPushButton(tr(k.text), this);
       btn->setObjectName(QLatin1String(k.name));
       btn->setCheckable(true);
-      btn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 8px;"));
+      btn->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt; padding: {spacing.xs}px {spacing.sm}px;")));
       // 徽标文本随计数刷新（「未挂接 (12)」）。
       connect(btn, &QPushButton::toggled, this, [this, btn, d = k.dim](bool on) {
         btn->setProperty("dim", int(d));
@@ -495,7 +496,7 @@ public:
     setObjectName(QStringLiteral("tagCloud"));
     auto *lay = new QVBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 0);
-    lay->setSpacing(2);
+    lay->setSpacing(PaleoTheme::tokens().spacingXs);
     auto *cap = new QLabel(tr("标签"), this);
     PaleoTheme::applyThemedStyleSheet(cap,
                                       [] { return PaleoTheme::mutedCaptionStyleSheet(); });
@@ -503,7 +504,7 @@ public:
     m_host = new QWidget(this);
     m_host->setObjectName(QStringLiteral("tagCloudHost"));
     m_host->setMinimumWidth(0);
-    m_flow = new FlowLayout(m_host, 0, 4);
+    m_flow = new FlowLayout(m_host, 0, PaleoTheme::tokens().spacingXs);
     lay->addWidget(m_host);
     m_empty = new QLabel(tr("尚无标签 — 选中资产后右键「打标签」"), this);
     m_empty->setObjectName(QStringLiteral("tagCloudEmpty"));
@@ -534,14 +535,16 @@ public:
       PaleoTheme::applyThemedStyleSheet(chip, [active = (tc.first == activeTag)] {
         const auto &t = PaleoTheme::tokens();
         if (active)
-          return QStringLiteral(
+          return PaleoTheme::metricStyleSheet(QStringLiteral(
                      "background: %1; color: %2; border: 1px solid %1;"
-                     "border-radius: 9999px; padding: 1px 10px; font-size: 8pt;")
-              .arg(t.primary.name().toUpper(), t.onPrimary.name().toUpper());
-        return QStringLiteral("background: %1; color: %2; border: 1px solid %3;"
-                              "border-radius: 9999px; padding: 1px 10px; font-size: 8pt;")
+                     "border-radius: %3px; padding: {spacing.xs}px {spacing.md}px; font-size: {typography.label}pt;"))
+              .arg(t.primary.name().toUpper(), t.onPrimary.name().toUpper())
+              .arg(PaleoTheme::chipRadius(PaleoTheme::bodyFont(t.labelPt)));
+        return PaleoTheme::metricStyleSheet(QStringLiteral("background: %1; color: %2; border: 1px solid %3;"
+                              "border-radius: %4px; padding: {spacing.xs}px {spacing.md}px; font-size: {typography.label}pt;"))
             .arg(t.surface.name().toUpper(), t.textMuted.name().toUpper(),
-                 t.border.name().toUpper());
+                 t.border.name().toUpper())
+            .arg(PaleoTheme::chipRadius(PaleoTheme::bodyFont(t.labelPt)));
       });
       chip->setToolTip(tr("点击按此标签过滤"));
       connect(chip, &QPushButton::clicked, this,
@@ -571,8 +574,8 @@ public:
   {
     setObjectName(QStringLiteral("filterEmptyState"));
     auto *lay = new QVBoxLayout(this);
-    lay->setContentsMargins(12, 12, 12, 12);
-    lay->setSpacing(6);
+    lay->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd);
+    lay->setSpacing(PaleoTheme::tokens().spacingSm);
     m_text = new QLabel(this);
     m_text->setObjectName(QStringLiteral("filterEmptyText"));
     m_text->setWordWrap(true);
@@ -583,7 +586,7 @@ public:
     auto *row = new QWidget(this);
     auto *rl = new QHBoxLayout(row);
     rl->setContentsMargins(0, 0, 0, 0);
-    rl->setSpacing(4);
+    rl->setSpacing(PaleoTheme::tokens().spacingXs);
     m_relax = new QPushButton(tr("放宽条件"), row);
     m_relax->setObjectName(QStringLiteral("filterRelaxButton"));
     connect(m_relax, &QPushButton::clicked, this, [this] { emit relaxRequested(); });

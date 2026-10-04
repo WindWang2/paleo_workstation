@@ -80,7 +80,7 @@ namespace
                                                        "或用上方按钮导入单个文件")
                                         : text);
     it->setFlags(Qt::NoItemFlags);
-    it->setForeground(PaleoTheme::tokens().textMuted); // text-muted（现取随主题）
+    PaleoTheme::setItemTextColor(it, PaleoTheme::ItemTextColor::Muted); // text-muted（现取随主题）
     it->setTextAlignment(Qt::AlignCenter);                // T31 居中提示
     t->setItem(0, 0, it);
     t->setSpan(0, 0, 1, t->columnCount());
@@ -92,7 +92,7 @@ namespace
   {
     auto *it = new QTableWidgetItem(text);
     it->setFlags(Qt::NoItemFlags);
-    it->setForeground(PaleoTheme::tokens().textMuted); // text-muted（现取随主题）
+    PaleoTheme::setItemTextColor(it, PaleoTheme::ItemTextColor::Muted); // text-muted（现取随主题）
     return it;
   }
 
@@ -269,7 +269,7 @@ DataListPanel::DataListPanel(QWidget *parent)
     w->setMinimumWidth(0);
     auto *l = new QVBoxLayout(w);
     l->setContentsMargins(0, 0, 0, 0);
-    l->setSpacing(8);
+    l->setSpacing(PaleoTheme::tokens().spacingSm);
     return w;
   };
   QWidget *importSection = section("dataImportSection");
@@ -310,7 +310,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   header->setMinimumWidth(0);
   auto *hl = new QHBoxLayout(header);
   hl->setContentsMargins(0, 0, 0, 0);
-  hl->setSpacing(4);
+  hl->setSpacing(PaleoTheme::tokens().spacingXs);
   hl->addWidget(caption(tr("数据列表"), header));
   hl->addStretch(1);
 
@@ -321,7 +321,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   expandBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionExpandTree.svg")));
   if (expandBtn->icon().isNull())
     expandBtn->setText(QStringLiteral("▼"));
-  expandBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 4px;"));
+  expandBtn->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt; padding: {spacing.xs}px {spacing.xs}px;")));
   hl->addWidget(expandBtn);
 
   auto *collapseBtn = new QToolButton(header);
@@ -331,7 +331,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   collapseBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionCollapseTree.svg")));
   if (collapseBtn->icon().isNull())
     collapseBtn->setText(QStringLiteral("▶"));
-  collapseBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 4px;"));
+  collapseBtn->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt; padding: {spacing.xs}px {spacing.xs}px;")));
   hl->addWidget(collapseBtn);
 
   auto *btnGroup = new QButtonGroup(header);
@@ -340,12 +340,12 @@ DataListPanel::DataListPanel(QWidget *parent)
   treeBtn->setText(tr("树形"));
   treeBtn->setCheckable(true);
   treeBtn->setChecked(true);
-  treeBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 6px;"));
+  treeBtn->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt; padding: {spacing.xs}px {spacing.sm}px;")));
   auto *tableBtn = new QToolButton(header);
   tableBtn->setObjectName(QStringLiteral("listViewButton"));
   tableBtn->setText(tr("列表"));
   tableBtn->setCheckable(true);
-  tableBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 6px;"));
+  tableBtn->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt; padding: {spacing.xs}px {spacing.sm}px;")));
   btnGroup->addButton(treeBtn, 0);
   btnGroup->addButton(tableBtn, 1);
   hl->addWidget(treeBtn);
@@ -357,7 +357,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   searchRow->setMinimumWidth(0);
   auto *srl = new QHBoxLayout(searchRow);
   srl->setContentsMargins(0, 0, 0, 0);
-  srl->setSpacing(4);
+  srl->setSpacing(PaleoTheme::tokens().spacingXs);
 
   auto *search = new QLineEdit(searchRow);
   search->setObjectName(QStringLiteral("assetSearchEdit"));
@@ -401,7 +401,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   filterBar->hide();
   auto *fl = new QHBoxLayout(filterBar);
   fl->setContentsMargins(0, 0, 0, 0);
-  fl->setSpacing(4);
+  fl->setSpacing(PaleoTheme::tokens().spacingXs);
   auto *filterText = new QLabel(tr("只显示未决资产"), filterBar);
   PaleoTheme::applyThemedStyleSheet(filterText, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   fl->addWidget(filterText);
@@ -606,7 +606,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   advanced->setObjectName(QStringLiteral("dataListAdvancedOptions"));
   auto *advancedLayout = new QVBoxLayout(advanced);
   advancedLayout->setContentsMargins(0, 0, 0, 0);
-  advancedLayout->setSpacing(4);
+  advancedLayout->setSpacing(PaleoTheme::tokens().spacingXs);
   for (const char *name : {"dataListHeader", "dataOpsToolbar", "dataViewModeRow"})
     if (auto *row = findChild<QWidget *>(QLatin1String(name))) {
       listLay->removeWidget(row);
@@ -873,8 +873,9 @@ void DataListPanel::refreshAssetTable()
     stack->setContentsMargins(0, 0, 0, 0);
     auto *browse = new QWidget(cell);
     auto *bl = new QHBoxLayout(browse);
-    bl->setContentsMargins(4, 1, 4, 1);
-    bl->setSpacing(4);
+    // 保持原生表格既定行高；纵向留白由行控制，单元格不重复叠加。
+    bl->setContentsMargins(PaleoTheme::tokens().spacingXs, 0, PaleoTheme::tokens().spacingXs, 0);
+    bl->setSpacing(PaleoTheme::tokens().spacingXs);
     if (!resolved.isEmpty())
     {
       auto *names = new QLabel(resolved.join(QStringLiteral("、")), browse);
@@ -899,9 +900,9 @@ void DataListPanel::refreshAssetTable()
       // #FFF4E0/#24303E/#F29900——token 活体，随主题出暗色变体）。
       PaleoTheme::applyThemedStyleSheet(badge, [] {
         const auto &t = PaleoTheme::tokens();
-        return QStringLiteral(
+        return PaleoTheme::metricStyleSheet(QStringLiteral(
                    "background: %1; color: %2; border: 1px solid %3;"
-                   "border-radius: 3px; padding: 0 6px;")
+                   "border-radius: {rounded.sm}px; padding: 0 {spacing.sm}px;"))
             .arg(t.warningBg.name().toUpper(), t.text.name().toUpper(),
                  t.warning.name().toUpper());
       });
@@ -933,8 +934,8 @@ void DataListPanel::refreshAssetTable()
       // 确认条：资产名 + 选中的实体名同时写出（§4），不弹模态对话框。
       auto *confirmStrip = new QWidget(cell);
       auto *cf = new QHBoxLayout(confirmStrip);
-      cf->setContentsMargins(4, 1, 4, 1);
-      cf->setSpacing(4);
+      cf->setContentsMargins(PaleoTheme::tokens().spacingXs, 0, PaleoTheme::tokens().spacingXs, 0);
+      cf->setSpacing(PaleoTheme::tokens().spacingXs);
       auto *confirmText = new QLabel(confirmStrip);
       confirmText->setObjectName(QStringLiteral("attachConfirmText"));
       confirmText->setWordWrap(true);
@@ -1308,7 +1309,7 @@ void DataListPanel::refreshAssetTree()
       }
       if (l.unresolved)
       {
-        sub->setForeground(0, PaleoTheme::tokens().warning); // 待复核色（现取随主题）
+        PaleoTheme::setItemTextColor(sub, 0, PaleoTheme::ItemTextColor::Warning); // 待复核色（现取随主题）
         sub->setText(1, tr("未决关联"));
       }
     }
@@ -1828,15 +1829,15 @@ void DataListPanel::buildDataOpsUi()
   toolbar->setMinimumWidth(0);
   auto *tl = new QHBoxLayout(toolbar);
   tl->setContentsMargins(0, 0, 0, 0);
-  tl->setSpacing(4);
+  tl->setSpacing(PaleoTheme::tokens().spacingXs);
   m_undoBtn = new QPushButton(tr("撤销"), toolbar);
   m_undoBtn->setObjectName(QStringLiteral("dataUndoButton"));
   m_undoBtn->setEnabled(false);
-  m_undoBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 8px;"));
+  m_undoBtn->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt; padding: {spacing.xs}px {spacing.sm}px;")));
   m_redoBtn = new QPushButton(tr("重做"), toolbar);
   m_redoBtn->setObjectName(QStringLiteral("dataRedoButton"));
   m_redoBtn->setEnabled(false);
-  m_redoBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 8px;"));
+  m_redoBtn->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt; padding: {spacing.xs}px {spacing.sm}px;")));
   m_undoBtn->setMaximumWidth(150); // 长操作名截断（tooltip 全文）
   m_redoBtn->setMaximumWidth(150);
   connect(m_undoBtn, &QPushButton::clicked, this, &DataListPanel::undoOp);
@@ -1852,7 +1853,7 @@ void DataListPanel::buildDataOpsUi()
   sortBox->addItem(tr("按类型"), int(TreeSortKind::Type));
   sortBox->addItem(tr("按大小"), int(TreeSortKind::Size));
   sortBox->setCurrentIndex(qMax(0, sortBox->findData(int(m_treeSort))));
-  sortBox->setStyleSheet(QStringLiteral("font-size: 8pt;"));
+  sortBox->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt;")));
   sortBox->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
   sortBox->setMinimumContentsLength(2);
   sortBox->setMinimumWidth(0);
@@ -1865,7 +1866,7 @@ void DataListPanel::buildDataOpsUi()
   colBtn->setText(tr("列"));
   colBtn->setObjectName(QStringLiteral("columnConfigButton"));
   colBtn->setToolTip(tr("配置列（显隐/顺序）"));
-  colBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 6px;"));
+  colBtn->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt; padding: {spacing.xs}px {spacing.sm}px;")));
   connect(colBtn, &QToolButton::clicked, this, &DataListPanel::openColumnConfig);
   tl->addWidget(colBtn);
   tl->addStretch(1);
@@ -1876,7 +1877,7 @@ void DataListPanel::buildDataOpsUi()
   modeRow->setMinimumWidth(0);
   auto *ml = new QHBoxLayout(modeRow);
   ml->setContentsMargins(0, 0, 0, 0);
-  ml->setSpacing(4);
+  ml->setSpacing(PaleoTheme::tokens().spacingXs);
   if (auto *btnGroup = findChild<QButtonGroup *>())
   {
     if (auto *header = findChild<QWidget *>(QStringLiteral("dataListHeader")))
@@ -1905,7 +1906,7 @@ void DataListPanel::buildDataOpsUi()
       btn->setObjectName(QLatin1String(m.name));
       btn->setText(tr(m.text));
       btn->setCheckable(true);
-      btn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 6px;"));
+      btn->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt; padding: {spacing.xs}px {spacing.sm}px;")));
       btnGroup->addButton(btn, m.id);
       ml->addWidget(btn);
     }
@@ -1950,7 +1951,7 @@ void DataListPanel::buildDataOpsUi()
   filterWrap->setObjectName(QStringLiteral("filterWrap"));
   auto *fw = new QVBoxLayout(filterWrap);
   fw->setContentsMargins(0, 0, 0, 0);
-  fw->setSpacing(4);
+  fw->setSpacing(PaleoTheme::tokens().spacingXs);
   m_filterBar = new FilterBar(filterWrap);
   fw->addWidget(m_filterBar);
   m_chipBar = new FilterChipBar(filterWrap);

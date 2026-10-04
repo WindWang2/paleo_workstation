@@ -1,0 +1,39 @@
+********* Start testing of TestUiShell *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+QINFO  : TestUiShell::initTestCase() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QWARN  : TestUiShell::initTestCase() QOpenGLWidget is not supported on this platform.
+PASS   : TestUiShell::initTestCase()
+QWARN  : TestUiShell::supplementalVisualPolishSnapshots() This plugin does not support propagateSizeHints()
+QINFO  : TestUiShell::supplementalVisualPolishSnapshots() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestUiShell::supplementalVisualPolishSnapshots() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+PASS   : TestUiShell::supplementalVisualPolishSnapshots()
+proj_as_proj_string: Object type not exportable to PROJ
+proj_as_proj_string: Object type not exportable to PROJ
+proj_get_ellipsoid: CRS has no geodetic CRS
+proj_get_ellipsoid: Object is not a CRS or GeodeticReferenceFrame
+proj_as_proj_string: Object type not exportable to PROJ
+proj_as_proj_string: Object type not exportable to PROJ
+proj_get_ellipsoid: CRS has no geodetic CRS
+proj_get_ellipsoid: Object is not a CRS or GeodeticReferenceFrame
+proj_as_proj_string: Object type not exportable to PROJ
+proj_as_proj_string: Object type not exportable to PROJ
+proj_get_ellipsoid: CRS has no geodetic CRS
+proj_get_ellipsoid: Object is not a CRS or GeodeticReferenceFrame
+proj_get_celestial_body_name: CRS has no geodetic CRS
+proj_as_proj_string: Object type not exportable to PROJ
+proj_as_proj_string: Object type not exportable to PROJ
+proj_get_ellipsoid: CRS has no geodetic CRS
+proj_get_ellipsoid: Object is not a CRS or GeodeticReferenceFrame
+proj_get_celestial_body_name: CRS has no geodetic CRS
+QWARN  : TestUiShell::mappingWorkbenchCanvasRibbonAndReferences() This plugin does not support propagateSizeHints()
+QINFO  : TestUiShell::mappingWorkbenchCanvasRibbonAndReferences() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestUiShell::mappingWorkbenchCanvasRibbonAndReferences() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestUiShell::mappingWorkbenchCanvasRibbonAndReferences() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestUiShell::mappingWorkbenchCanvasRibbonAndReferences() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+Warning 1: DeprecationWarning: 'Memory' driver is deprecated since GDAL 3.11. Use 'MEM' onwards. Further messages of this type will be suppressed.
+PASS   : TestUiShell::mappingWorkbenchCanvasRibbonAndReferences()
+PASS   : TestUiShell::cleanupTestCase()
+Totals: 4 passed, 0 failed, 0 skipped, 0 blacklisted, 20382ms
+********* Finished testing of TestUiShell *********
+Warning 1: Unable to save auxiliary information in /tmp/paleo-kWqVkD/artifacts/derived/ast-4/ver-4/result.gpkg.aux.xml.
+Warning 1: Unable to save auxiliary information in /tmp/paleo-kWqVkD/artifacts/derived/ast-4/ver-4/result.gpkg.aux.xml.

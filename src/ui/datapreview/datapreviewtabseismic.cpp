@@ -201,10 +201,10 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   // 普通页签选中 = 深字 + 加粗（同预览主标签栏范式），不用 primary 蓝字。
   PaleoTheme::applyThemedStyleSheet(modeTabs, [] {
     const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
-    return QStringLiteral(
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
         "QTabWidget::pane { border: 1px solid %1; background: %2; }"
-        "QTabBar::tab { background: %3; color: %4; padding: 4px 12px; border: 1px solid %1; border-bottom: none; }"
-        "QTabBar::tab:selected { background: %2; color: %5; font-weight: 600; }")
+        "QTabBar::tab { background: %3; color: %4; padding: {spacing.xs}px {spacing.md}px; border: 1px solid %1; border-bottom: none; }"
+        "QTabBar::tab:selected { background: %2; color: %5; font-weight: 600; }"))
         .arg(qssHex(t.border), qssHex(t.surface), qssHex(t.surfaceAlt),
              qssHex(t.textMuted), qssHex(t.text));
   });
@@ -213,8 +213,8 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   auto *w2d = new QWidget(modeTabs);
   w2d->setObjectName(QStringLiteral("seismic2DContainer"));
   auto *lay2d = new QVBoxLayout(w2d);
-  lay2d->setContentsMargins(8, 8, 8, 8);
-  lay2d->setSpacing(4);
+  lay2d->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  lay2d->setSpacing(PaleoTheme::tokens().spacingXs);
   lay2d->addWidget(caption8(tr("选择一条测线解码"), w2d));
   lay2d->addWidget(bar);
   lay2d->addWidget(tieCaption);
@@ -276,13 +276,13 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   auto *wTime = new QWidget(modeTabs);
   wTime->setObjectName(QStringLiteral("seismicTimeSliceContainer"));
   auto *layTime = new QVBoxLayout(wTime);
-  layTime->setContentsMargins(8, 8, 8, 8);
-  layTime->setSpacing(4);
+  layTime->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  layTime->setSpacing(PaleoTheme::tokens().spacingXs);
 
   auto *timeBar = new QWidget(wTime);
   auto *timeBarLay = new QHBoxLayout(timeBar);
   timeBarLay->setContentsMargins(0, 0, 0, 0);
-  timeBarLay->setSpacing(8);
+  timeBarLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *lblTimeTitle = caption8(tr("水平时间切片 (TWT)"), timeBar);
   timeBarLay->addWidget(lblTimeTitle);
@@ -290,7 +290,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   auto *lblTimeIndex = new QLabel(tr("时间采样:"), timeBar);
   {
     QFont f = lblTimeIndex->font();
-    f.setPointSize(PaleoTheme::kLabelPt);
+    f.setPointSize(PaleoTheme::tokens().labelPt);
     lblTimeIndex->setFont(f);
   }
   PaleoTheme::applyThemedStyleSheet(lblTimeIndex,
@@ -303,7 +303,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   timeBarLay->addWidget(sliderTime);
 
   QFont mono8 = PaleoTheme::monoFont();
-  mono8.setPointSize(PaleoTheme::kLabelPt);
+  mono8.setPointSize(PaleoTheme::tokens().labelPt);
 
   auto *spinTime = new QSpinBox(timeBar);
   spinTime->setObjectName(QStringLiteral("timeSliceSpin"));
@@ -324,11 +324,11 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   // 时间片/转码区按钮统一走一份活体样式（原 8.5pt + 浅色字面量收口）。
   PaleoTheme::applyThemedStyleSheet(timeBar, [] {
     const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
-    return QStringLiteral(
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
         "QToolButton { background: transparent; border: 1px solid %1;"
-        " border-radius: 4px; padding: 2px 8px; font-size: 8pt; color: %2; }"
+        " border-radius: {rounded.sm}px; padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.label}pt; color: %2; }"
         "QToolButton:hover { background: %3; border-color: %4; }"
-        "QToolButton:disabled { color: %4; }")
+        "QToolButton:disabled { color: %4; }"))
         .arg(qssHex(t.border), qssHex(t.text), qssHex(t.surfaceAltRaised),
              qssHex(t.textDisabled));
   });

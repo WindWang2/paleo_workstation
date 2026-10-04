@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。（tools/ui-token-exceptions.json 精确计数）。
 #include "wellcompositecanvas.h"
 #include "../paleotheme.h"
 
@@ -35,14 +36,14 @@ WellCompositeCanvas::WellCompositeCanvas(QWidget *parent)
   // 滚动条样式（chrome，跟随主题）
   const auto sbStyleBuilder = [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
                "QScrollBar:vertical { width: 10px; background: %1; margin: 0; }"
-               "QScrollBar::handle:vertical { background: %2; border-radius: 5px; min-height: 20px; }"
+               "QScrollBar::handle:vertical { background: %2; border-radius: {rounded.sm}px; min-height: 20px; }"
                "QScrollBar::handle:vertical:hover { background: %3; }"
                "QScrollBar:horizontal { height: 10px; background: %1; margin: 0; }"
-               "QScrollBar::handle:horizontal { background: %2; border-radius: 5px; min-width: 20px; }"
+               "QScrollBar::handle:horizontal { background: %2; border-radius: {rounded.sm}px; min-width: 20px; }"
                "QScrollBar::handle:horizontal:hover { background: %3; }"
-               "QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }")
+               "QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }"))
         .arg(t.surfaceAlt.name(), t.border.name(), t.textDisabled.name());
   };
   PaleoTheme::applyThemedStyleSheet(m_vScrollBar, sbStyleBuilder);
@@ -747,8 +748,8 @@ void WellCompositeHeader::paintEvent(QPaintEvent * /*event*/)
   p.setRenderHint(QPainter::TextAntialiasing, true);
 
   // D3.14 编辑模式视觉区分：道头底色染橙
-  p.fillRect(rect(), m_canvas->editMode() ? QColor(255, 244, 224) : QColor(QStringLiteral("#F5F7FA")));
-  p.setPen(QColor(QStringLiteral("#DFE5EC")));
+  p.fillRect(rect(), m_canvas->editMode() ? PaleoTheme::tokens(PaleoTheme::Theme::Light).warningBg : PaleoTheme::tokens(PaleoTheme::Theme::Light).surfaceAlt);
+  p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   p.drawLine(rect().bottomLeft(), rect().bottomRight());
 
   const QList<int> vis = m_canvas->visibleTrackIndices();
@@ -791,7 +792,7 @@ void WellCompositeHeader::paintEvent(QPaintEvent * /*event*/)
     const QString dragTitle = m_canvas->tracks().at(
         visIdx.value(qBound(0, m_canvas->m_headerDragIndex, visIdx.size() - 1)))->title();
     QFont f = p.font();
-    f.setPointSize(8);
+    f.setPointSize(PaleoTheme::tokens().labelPt);
     f.setBold(true);
     p.setFont(f);
     const QRectF ghost(qBound(0.0, insertX + 4.0, qMax(0.0, width() - 110.0)), 4, 106, 18);
@@ -995,14 +996,14 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
   p.setRenderHint(QPainter::Antialiasing, true);
   p.setRenderHint(QPainter::TextAntialiasing, true);
 
-  p.fillRect(rect(), QColor(QStringLiteral("#FFFFFF")));
+  p.fillRect(rect(), PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
 
   // D7.5 空态：无道可画时给出原因而非空白
   if (m_canvas->trackCount() == 0)
   {
-    p.setPen(QColor(QStringLiteral("#5D6E80")));
+    p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).textMuted);
     QFont hintFont = p.font();
-    hintFont.setPointSize(10);
+    hintFont.setPointSize(PaleoTheme::tokens().bodyPt);
     p.setFont(hintFont);
     p.drawText(rect(), Qt::AlignCenter,
                QStringLiteral("未加载井数据\n从数据页打开 LAS 曲线或综合柱状图 XML 后此处渲染道"));
@@ -1043,7 +1044,7 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
       p.setPen(QPen(QColor(242, 153, 0, 140), 1.0, Qt::DotLine));
       p.drawRect(bandRect);
       QFont gf = p.font();
-      gf.setPointSize(7);
+      gf.setPointSize(PaleoTheme::tokens().labelPt);
       p.setFont(gf);
       p.setPen(QColor(QStringLiteral("#B45309")));
       p.drawText(bandRect.adjusted(60, 2, -4, -2), Qt::AlignRight | Qt::AlignTop,
@@ -1068,7 +1069,7 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
 
     // 名签（左端小旗）
     QFont mf = p.font();
-    mf.setPointSize(7);
+    mf.setPointSize(PaleoTheme::tokens().labelPt);
     p.setFont(mf);
     const QString label = markers.at(i).second;
     const QRectF flagRect(0, y - 8, qMax<qreal>(34.0, label.size() * 7.0 + 8), 15);
@@ -1090,7 +1091,7 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
 
     // 右端文字旗
     QFont pf = p.font();
-    pf.setPointSize(7);
+    pf.setPointSize(PaleoTheme::tokens().labelPt);
     p.setFont(pf);
     const QString text = pins.at(i).text.isEmpty() ? tr("钉注") : pins.at(i).text;
     const qreal flagW = qMin<qreal>(150.0, text.size() * 7.0 + 14);
@@ -1112,7 +1113,7 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
     const double dTop = m_canvas->yToDepth(rb.top());
     const double dBot = m_canvas->yToDepth(rb.bottom());
     QFont lf = p.font();
-    lf.setPointSize(7);
+    lf.setPointSize(PaleoTheme::tokens().labelPt);
     p.setFont(lf);
     p.setPen(QColor(QStringLiteral("#1B73D0")));
     p.drawText(rb.adjusted(4, -14, -4, -2), Qt::AlignLeft,
@@ -1133,14 +1134,14 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
 
     const QString dStr = QStringLiteral("%1 m").arg(QString::number(hDepth, 'f', 1));
     QFont font = p.font();
-    font.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("monospace")});
+    font = PaleoTheme::monoFont(font.pointSize());
     font.setStyleHint(QFont::TypeWriter);
-    font.setPointSize(8);
+    font.setPointSize(PaleoTheme::tokens().labelPt);
     p.setFont(font);
 
     const QRectF badgeRect(2, crossY - 8, 48, 16);
-    p.fillRect(badgeRect, QColor(QStringLiteral("#24303E")));
-    p.setPen(QColor(QStringLiteral("#FFFFFF")));
+    p.fillRect(badgeRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
+    p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
     p.drawText(badgeRect, Qt::AlignCenter, dStr);
 
     p.restore();
@@ -1155,13 +1156,13 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
     const QRectF cardRect(width() - cardW - 10, height() - cardH - 10, cardW, cardH);
 
     p.fillRect(cardRect, QColor(255, 255, 255, 235));
-    p.setPen(QColor(QStringLiteral("#DFE5EC")));
-    p.drawRoundedRect(cardRect, 4.0, 4.0);
+    p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
+    p.drawRoundedRect(cardRect, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
 
     QFont cardFont = p.font();
-    cardFont.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("monospace")});
+    cardFont = PaleoTheme::monoFont(cardFont.pointSize());
     cardFont.setStyleHint(QFont::TypeWriter);
-    cardFont.setPointSize(8);
+    cardFont.setPointSize(PaleoTheme::tokens().labelPt);
     p.setFont(cardFont);
 
     const double ppm = m_canvas->pxPerMeter();
@@ -1171,7 +1172,7 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
                                                   : QString::number(metersPerCm, 'f', 0);
     const QString scaleText = tr("比例尺: %1 (1cm≈%2m)")
                                   .arg(m_canvas->scaleRatio(), mCmStr);
-    p.setPen(QColor(QStringLiteral("#24303E")));
+    p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
     p.drawText(QRectF(cardRect.left() + 8, cardRect.top() + 3, cardW - 16, 15),
                Qt::AlignLeft | Qt::AlignVCenter, scaleText);
 
@@ -1180,7 +1181,7 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
                                   .arg(QString::number(topDepth, 'f', 1))
                                   .arg(QString::number(bottomDepth, 'f', 1))
                                   .arg(QString::number(visibleDepthSpan, 'f', 1));
-    p.setPen(QColor(QStringLiteral("#5D6E80")));
+    p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).textMuted);
     p.drawText(QRectF(cardRect.left() + 8, cardRect.top() + 19, cardW - 16, 15),
                Qt::AlignLeft | Qt::AlignVCenter, rangeText);
     p.restore();

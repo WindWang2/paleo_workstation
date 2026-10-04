@@ -28,11 +28,11 @@ PropertyModelPanel::PropertyModelPanel(QWidget *parent)
 void PropertyModelPanel::buildUi()
 {
   auto *lay = new QVBoxLayout(this);
-  lay->setContentsMargins(8, 8, 8, 8);
-  lay->setSpacing(8);
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  lay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *form = new QFormLayout();
-  form->setSpacing(8);
+  form->setSpacing(PaleoTheme::tokens().spacingSm);
   m_top = new QLineEdit();
   m_top->setObjectName(QStringLiteral("propTopEdit"));
   m_top->setPlaceholderText(tr("上层面位，如 C3"));
@@ -66,7 +66,7 @@ void PropertyModelPanel::buildUi()
   lay->addLayout(form);
 
   auto *row = new QHBoxLayout();
-  row->setSpacing(8);
+  row->setSpacing(PaleoTheme::tokens().spacingSm);
   m_build = new QToolButton(this);
   m_build->setObjectName(QStringLiteral("propBuildButton"));
   m_build->setText(tr("建立属性体"));
@@ -91,7 +91,7 @@ void PropertyModelPanel::buildUi()
   lay->addLayout(row);
 
   auto *alphaRow = new QHBoxLayout();
-  alphaRow->setSpacing(8);
+  alphaRow->setSpacing(PaleoTheme::tokens().spacingSm);
   alphaRow->addWidget(new QLabel(tr("叠加")));
   m_alpha = new QSlider(Qt::Horizontal);
   m_alpha->setObjectName(QStringLiteral("propAlphaSlider"));

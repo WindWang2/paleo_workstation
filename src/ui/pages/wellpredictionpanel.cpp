@@ -1,5 +1,6 @@
 // 层：视图
 #include "wellpredictionpanel.h"
+#include "../paleotheme.h"
 #include "../../domain/faciescatalog.h"
 #include "../wellcomposite/wellcompositecanvas.h"
 #include <QComboBox>
@@ -19,8 +20,8 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
   setObjectName("wellPredictionPanel");
   setAutoFillBackground(true);
   auto *layout = new QVBoxLayout(this);
-  layout->setContentsMargins(8, 8, 8, 8);
-  layout->setSpacing(8);
+  layout->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  layout->setSpacing(PaleoTheme::tokens().spacingSm);
   auto *bar = new QHBoxLayout;
   layout->addLayout(bar);
   bar->addWidget(new QLabel(tr("井"), this));
@@ -35,6 +36,9 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
   m_save->setObjectName("saveWellPrediction");
   m_status = new QLabel(this);
   m_status->setWordWrap(true);
+  PaleoTheme::applyThemedStyleSheet(m_status, [] {
+    return PaleoTheme::mutedCaptionStyleSheet();
+  });
   layout->addWidget(m_status);
   auto *split = new QSplitter(this);
   layout->addWidget(split, 1);
@@ -43,7 +47,7 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
   auto *right = new QWidget(split);
   right->setAutoFillBackground(true);
   auto *rl = new QVBoxLayout(right);
-  rl->setContentsMargins(8, 0, 0, 0);
+  rl->setContentsMargins(PaleoTheme::tokens().spacingSm, 0, 0, 0);
   m_intervals = new QTableWidget(0, 3, right);
   m_intervals->setObjectName("predictionIntervals");
   m_intervals->setHorizontalHeaderLabels(

@@ -30,9 +30,7 @@ namespace
 
   // DESIGN.md tokens (colors / typography).
   // DESIGN.md token 出口（调用时现取——随主题翻转；checked/selected 专用 primary）。
-  QColor kText() { return PaleoTheme::tokens().text; }
   QColor kTextMuted() { return PaleoTheme::tokens().textMuted; }
-  QColor kPrimary() { return PaleoTheme::tokens().primary; }
 
   // 9pt body / 8pt secondary labels, OS-DPI-friendly pointSize.
   QFont pointFont(int pt)
@@ -47,10 +45,9 @@ namespace
   // without the vendored face.
   QFont mnemonicFont()
   {
-    QFont f(QStringLiteral("JetBrains Mono"));
-    f.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("monospace")});
+    QFont f = PaleoTheme::monoFont();
     f.setStyleHint(QFont::TypeWriter);
-    f.setPointSize(9);
+    f.setPointSize(PaleoTheme::tokens().bodyPt);
     return f;
   }
 
@@ -79,7 +76,7 @@ CurveBrowser::CurveBrowser(QWidget *parent)
   // well the checks act on. Hidden until a well is set.
   m_wellLabel = new QLabel(this);
   m_wellLabel->setObjectName(QStringLiteral("wellLabel"));
-  m_wellLabel->setFont(pointFont(8));
+  m_wellLabel->setFont(pointFont(PaleoTheme::tokens().labelPt));
   PaleoTheme::applyThemedStyleSheet(m_wellLabel, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   m_wellLabel->setVisible(false);
   lay->addWidget(m_wellLabel, 0, 0);
@@ -99,7 +96,7 @@ CurveBrowser::CurveBrowser(QWidget *parent)
   m_list->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
   m_list->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
   m_list->header()->setSectionResizeMode(2, QHeaderView::Stretch);
-  m_list->header()->setFont(pointFont(8));         // 8pt muted caption row
+  m_list->header()->setFont(pointFont(PaleoTheme::tokens().labelPt));         // 8pt muted caption row
   QPalette headerPal = m_list->header()->palette();
   headerPal.setColor(QPalette::WindowText, kTextMuted());
   m_list->header()->setPalette(headerPal);
@@ -110,7 +107,7 @@ CurveBrowser::CurveBrowser(QWidget *parent)
   m_emptyLabel = new QLabel(tr("导入 LAS 后选择曲线"), this);
   m_emptyLabel->setObjectName(QStringLiteral("browserEmptyLabel"));
   m_emptyLabel->setAlignment(Qt::AlignCenter);
-  m_emptyLabel->setFont(pointFont(9));
+  m_emptyLabel->setFont(pointFont(PaleoTheme::tokens().bodyPt));
   PaleoTheme::applyThemedStyleSheet(m_emptyLabel, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   m_emptyLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
   lay->addWidget(m_emptyLabel, 1, 0);
@@ -140,11 +137,11 @@ void CurveBrowser::setCurves(const QString &wellId, const QList<LasCurve> &curve
       const bool on = keepChecked.contains(c.name); // survivors keep their state
       row->setCheckState(0, on ? Qt::Checked : Qt::Unchecked);
       row->setFont(0, mnemonicFont());
-      row->setForeground(0, on ? kPrimary() : kText());
-      row->setFont(1, pointFont(8));
-      row->setForeground(1, kTextMuted());
-      row->setFont(2, pointFont(9));
-      row->setForeground(2, kTextMuted());
+      PaleoTheme::setItemTextColor(row, 0, on ? PaleoTheme::ItemTextColor::Primary : PaleoTheme::ItemTextColor::Normal);
+      row->setFont(1, pointFont(PaleoTheme::tokens().labelPt));
+      PaleoTheme::setItemTextColor(row, 1, PaleoTheme::ItemTextColor::Muted);
+      row->setFont(2, pointFont(PaleoTheme::tokens().bodyPt));
+      PaleoTheme::setItemTextColor(row, 2, PaleoTheme::ItemTextColor::Muted);
       const QString tip = rowToolTip(c);
       if (!tip.isEmpty())
       {
@@ -214,7 +211,7 @@ void CurveBrowser::onItemChanged(QTreeWidgetItem *item, int column)
     // the only place primary is allowed (selection/checked state). Blocked
     // so the recolor cannot re-enter as a second toggle.
     QSignalBlocker block(m_list);
-    item->setForeground(0, on ? kPrimary() : kText());
+    PaleoTheme::setItemTextColor(item, 0, on ? PaleoTheme::ItemTextColor::Primary : PaleoTheme::ItemTextColor::Normal);
   }
   emit mnemonicToggled(m_wellId, mnemonic, on);
 }

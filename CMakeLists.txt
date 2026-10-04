@@ -689,9 +689,13 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_i18n.py)
   add_test(NAME i18n_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_i18n.py --selftest)
+  add_test(NAME ui_tokens COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_tokens.py)
+  add_test(NAME ui_tokens_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_tokens.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
-                       i18n i18n_selftest
+                       i18n i18n_selftest ui_tokens ui_tokens_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()
 

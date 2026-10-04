@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：编图参考地图固定纸面与地质预览色样。（tools/ui-token-exceptions.json 精确计数）。
 #include "../domain/faciescatalog.h"
 #include "../domain/singlefactorrequest.h"
 #include "../linkage/selectioncontext.h"

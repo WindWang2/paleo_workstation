@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：QGIS 测区轮廓与透明填充，不改变地图符号色。（tools/ui-token-exceptions.json 精确计数）。
 #include "datapreviewtabs.h"
 #include "../paleoviewport.h"
 
@@ -144,7 +145,7 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
 {
   auto *lay = new QVBoxLayout(this);
   lay->setContentsMargins(0, 0, 0, 0);
-  lay->setSpacing(4);
+  lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
   m_tabs = new QTabWidget(this);
   m_tabs->setObjectName(QStringLiteral("dataPreviewTabs"));
@@ -154,11 +155,11 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   // dock 面板样式（DESIGN.md）：无工作流蓝下划线，安静边框；活体跟随主题。
   PaleoTheme::applyThemedStyleSheet(m_tabs, [] {
     const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
-    return QStringLiteral(
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
         "QTabWidget::pane { border: 1px solid %1; background: %2; top: -1px; }"
-        "QTabBar::tab { padding: 4px 10px; color: %3; border: 1px solid %1;"
+        "QTabBar::tab { padding: {spacing.xs}px {spacing.md}px; color: %3; border: 1px solid %1;"
         " border-bottom: none; background: %2; }"
-        "QTabBar::tab:selected { color: %4; font-weight: 600; }")
+        "QTabBar::tab:selected { color: %4; font-weight: 600; }"))
         .arg(qssHex(t.border), qssHex(t.surface), qssHex(t.textMuted), qssHex(t.text));
   });
   connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int index) {
@@ -341,7 +342,7 @@ void DataPreviewTabs::openSurveyArea()
   pageLay->setSpacing(0);
 
   QWidget *content = buildSurveyAreaContent(page);
-  pageLay->addWidget(content ? content : stateLabel(tr("无法生成测区地图"), page), 1);
+  pageLay->addWidget(content ? content : stateLabel(tr("无法生成测区地图"), page, true), 1);
 
   const int idx = m_tabs->addTab(page, PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")), tr("测区全景地图"));
   m_pageOfAsset.insert(key, page);
@@ -360,18 +361,18 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   // 顶部快捷控制条（遵照 DESIGN.md 设计规范；token 活体样式见 stylePreviewToolBar）
   auto *topBar = new QWidget(w);
   auto *tbLay = new QHBoxLayout(topBar);
-  tbLay->setContentsMargins(8, 4, 8, 4);
-  tbLay->setSpacing(8);
+  tbLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+  tbLay->setSpacing(PaleoTheme::tokens().spacingSm);
   stylePreviewToolBar(topBar);
 
   auto *lblTitle = new QLabel(tr("测区全景地图 (QGIS 画布)"), topBar);
   PaleoTheme::applyThemedStyleSheet(lblTitle, [] {
-    return QStringLiteral("font-weight: 600; color: %1; font-size: 9pt;")
+    return PaleoTheme::metricStyleSheet(QStringLiteral("font-weight: 600; color: %1; font-size: {typography.body}pt;"))
         .arg(qssHex(PaleoTheme::tokens().text));
   });
   tbLay->addWidget(lblTitle);
 
-  tbLay->addSpacing(8);
+  tbLay->addSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *btnFull = new QToolButton(topBar);
   btnFull->setObjectName(QStringLiteral("btnSurveyFullExtent"));
@@ -563,7 +564,7 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   auto *crsLabel = new QLabel(extentStr, topBar);
   crsLabel->setObjectName(QStringLiteral("surveyAreaExtentLabel"));
   QFont crsFont = PaleoTheme::monoFont();
-  crsFont.setPointSize(PaleoTheme::kLabelPt);
+  crsFont.setPointSize(PaleoTheme::tokens().labelPt);
   crsLabel->setFont(crsFont);
   PaleoTheme::applyThemedStyleSheet(crsLabel,
                                     [] { return PaleoTheme::mutedCaptionStyleSheet(); });
@@ -740,9 +741,9 @@ QWidget *DataPreviewTabs::failureState(const QString &assetId, const QString &re
   auto *box = new QWidget(parent);
   auto *l = new QVBoxLayout(box);
   l->setContentsMargins(0, 0, 0, 0);
-  l->setSpacing(4);
+  l->setSpacing(PaleoTheme::tokens().spacingXs);
   l->addStretch(1);
-  l->addWidget(stateLabel(tr("读取失败\n%1\n%2").arg(reason, name), box));
+  l->addWidget(stateLabel(tr("读取失败\n%1\n%2").arg(reason, name), box, true));
   auto *btn = new QPushButton(tr("重试"), box);
   btn->setObjectName(QStringLiteral("retryBtn"));
   connect(btn, &QPushButton::clicked, box,
@@ -819,7 +820,7 @@ void DataPreviewTabs::rebuildAssetTab(const QString &assetId)
   loading->repaint(); // 「正在读取」先可见，随后同步读
   QWidget *content = buildContent(assetId, page);
   loading->setVisible(false); // 保留在树里，便于测试/诊断读取中态
-  pageLay->addWidget(content ? content : stateLabel(tr("无法生成预览"), page), 1);
+  pageLay->addWidget(content ? content : stateLabel(tr("无法生成预览"), page, true), 1);
   updateTabTitle(assetId);
 }
 
@@ -837,7 +838,7 @@ void DataPreviewTabs::openAsset(const QString &assetId)
   const QString displayName = m_doc->catalog()->assetById(assetId).displayName;
   QWidget *page = new QWidget(this);
   auto *pageLay = new QVBoxLayout(page);
-  pageLay->setContentsMargins(8, 8, 8, 8);
+  pageLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
 
   QLabel *loading = loadingLabel(displayName.isEmpty() ? assetId : displayName, page);
   pageLay->addWidget(loading, 1);
@@ -851,7 +852,7 @@ void DataPreviewTabs::openAsset(const QString &assetId)
 
   QWidget *content = buildContent(assetId, page);
   loading->setVisible(false); // 读取完成；隐藏但保留节点便于测试断言该状态
-  pageLay->addWidget(content ? content : stateLabel(tr("无法生成预览"), page), 1);
+  pageLay->addWidget(content ? content : stateLabel(tr("无法生成预览"), page, true), 1);
   updateTabTitle(assetId);
   focusWellIfNeeded(assetId, page);
 }
@@ -957,14 +958,14 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   QWidget *host = new QWidget(this);
   auto *lay = new QVBoxLayout(host);
   lay->setContentsMargins(0, 0, 0, 0);
-  lay->setSpacing(8);
+  lay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   // 外链/受管缺失态（§4：「找不到源文件」+路径）。外链版本（wave4）多给一个
   // 「重新定位文件…」出口——服务层流式 SHA-256 复验，内容一致才重接，不一致
   // 如实拒绝；受管文件缺失不是这条恢复路径能解的，不给按钮、只留文案。
   if (abs.isEmpty() || !QFile::exists(abs))
   {
-    lay->addWidget(stateLabel(tr("找不到源文件\n%1").arg(abs.isEmpty() ? v.path : abs), host), 1);
+    lay->addWidget(stateLabel(tr("找不到源文件\n%1").arg(abs.isEmpty() ? v.path : abs), host, true), 1);
     if (!sourceVersion.managed && m_doc)
     {
       auto *btn = new QPushButton(tr("重新定位文件…"), host);
@@ -993,7 +994,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     QString verr;
     if (!m_doc->verifyExternalSha(assetId, sourceVersion, &verr))
     {
-      lay->addWidget(stateLabel(verr, host), 1);
+      lay->addWidget(stateLabel(verr, host, true), 1);
       return host;
     }
   }
@@ -1120,7 +1121,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         case PreviewDocService::DocPdfState::Failed:
           lay->addWidget(
               stateLabel(tr("无 PDF 预览：%1").arg(m_doc->documentPdfError(assetId)),
-                         host),
+                         host, true),
               1);
           lay->addWidget(makeOpenExternalRow(abs, host));
           break;
@@ -1131,7 +1132,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     }
     else
     {
-      lay->addWidget(stateLabel(tr("无法生成 PDF 预览"), host), 1);
+      lay->addWidget(stateLabel(tr("无法生成 PDF 预览"), host, true), 1);
       lay->addWidget(makeOpenExternalRow(abs, host));
     }
 
@@ -1155,7 +1156,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       else
       {
         lay->addWidget(
-            stateLabel(tr("PDF 转换件无法加载\n%1").arg(pdfAbs), host), 1);
+            stateLabel(tr("PDF 转换件无法加载\n%1").arg(pdfAbs), host, true), 1);
         lay->addWidget(makeOpenExternalRow(abs, host));
       }
     }
@@ -1258,7 +1259,7 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
     auto *holder = new QWidget(parent);
     auto *hl = new QVBoxLayout(holder);
     hl->setContentsMargins(0, 0, 0, 0);
-    hl->setSpacing(8);
+    hl->setSpacing(PaleoTheme::tokens().spacingSm);
     // §4：层名、MD、TVD、X、Y；Time 列为空就显示空，不填 -99999，也不填假时间。
     auto *table = new QTableWidget(0, 6, holder);
     table->setObjectName(QStringLiteral("topsTable"));
@@ -1366,11 +1367,11 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
     auto *holder = new QWidget(parent);
     auto *hl = new QVBoxLayout(holder);
     hl->setContentsMargins(0, 0, 0, 0);
-    hl->setSpacing(8);
+    hl->setSpacing(PaleoTheme::tokens().spacingSm);
     auto *info = new QWidget(holder);
     auto *grid = new QVBoxLayout(info);
     grid->setContentsMargins(0, 0, 0, 0);
-    grid->setSpacing(4);
+    grid->setSpacing(PaleoTheme::tokens().spacingXs);
     const auto addRow = [&](const QString &k, const QString &val, bool mono = false,
                             bool muted = false) {
       auto *row = new QWidget(info);

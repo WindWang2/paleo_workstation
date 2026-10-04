@@ -62,6 +62,13 @@ class QgisStyleService : public QObject
     // 见 normalizeWellCategory()（中文词/英文 id 同收）。符号统一挂比例尺
     // 缩放（@map_scale 数据定义尺寸：1:25万 6mm → 1:250万 3mm）。
     static void applyWellCategoryStyle(QgsVectorLayer *layer, const QString &categoryField);
+
+    // ---- 方向35：演化迁移矢量符号 ------------------------------------------
+    // 迁移矢量图层（evolution.vectors.<层位>）的箭头场渲染：进积蓝、退积红
+    //（地图域数据符号——物源/展布线同调性的既有红蓝惯例，不属 UI token），
+    // 前缘采样矢量细、质心汇总矢量粗。字段 vector_kind（front/centroid）与
+    // advance（1 进 / 0 退）缺失 → 单一灰箭头（不接管语义分色）。
+    static void applyMigrationVectorStyle(QgsVectorLayer *layer);
     // 类别词表（存储 id + 显示名 + 符号构成说明），固定顺序 = 表 K.1 序。
     static QVariantList wellCategoryDefinitions();
     // 常见类别写法 → 规范存储 id（未知 → 原样返回；空 → 空）。

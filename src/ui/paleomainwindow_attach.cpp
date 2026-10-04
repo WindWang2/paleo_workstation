@@ -16,6 +16,7 @@
 #include "../services/toolavailability.h"
 #include "../linkage/selectioncontext.h"
 #include "layers/layertreepanel.h"
+#include "evolution/evolutionplayerpanel.h"
 #include "../workflow/depthconversionworkflow.h"
 #include "../workflow/propertymodelworkflow.h"
 #include "../workflow/faultinterpretationcontroller.h"
@@ -55,6 +56,7 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QTemporaryFile>
 #include <QFileInfo>
 
 #include <memory>
@@ -3255,6 +3257,56 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
                                          .arg(pdf, sha));
             if (m_refreshPublishGate) m_refreshPublishGate();
           });
+
+  // 方向35：演化动览「定格导出」——当前帧（activeHorizon 的画布现状）抓 PNG
+  // 落 catalog OUTPUT 受管资产（PNG 须显式登记为 png，不冒充 pdf）。catalog
+  // 缺席（无工程数据目录）→ 如实拒绝，不落无主文件。
+  if (auto *player = findChild<EvolutionPlayerPanel *>(QStringLiteral("evolutionPlayer")))
+  {
+    connect(player, &EvolutionPlayerPanel::frameExportRequested, this,
+            [this, catalog](const QString &h) {
+              const auto note = [this](const QString &text) {
+                if (statusBar())
+                  statusBar()->showMessage(text, 8000);
+              };
+              if (h.isEmpty())
+              {
+                note(tr("动览尚未定格到任何层位"));
+                return;
+              }
+              if (!m_canvasCtl || !m_canvasCtl->canvas())
+              {
+                note(tr("画布不可用，无法抓帧"));
+                return;
+              }
+              const QString projectDir =
+                  m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
+                               : QString();
+              if (!catalog || projectDir.isEmpty())
+              {
+                note(tr("未打开工程数据目录，演化帧无法登记为导出资产"));
+                return;
+              }
+              QTemporaryFile tmp(QStringLiteral("XXXXXX.png"));
+              if (!tmp.open() || !m_canvasCtl->canvas()->grab().toImage().save(tmp.fileName(), "PNG"))
+              {
+                note(tr("演化帧抓取失败"));
+                return;
+              }
+              QString sha, managedPath, regErr;
+              const QString assetId = registerMapPdfAsset(catalog, projectDir, tmp.fileName(),
+                                                          &sha, &managedPath, &regErr,
+                                                          QStringLiteral("png"));
+              if (assetId.isEmpty())
+              {
+                note(regErr.isEmpty() ? tr("演化帧资产登记失败") : regErr);
+                QgsMessageLog::logMessage(regErr, QStringLiteral("Paleo"),
+                                          Qgis::MessageLevel::Warning);
+                return;
+              }
+              note(tr("演化帧已登记：%1").arg(managedPath.isEmpty() ? h : managedPath));
+            });
+  }
 
   // 保存版本：commit + 版本号递增（undo 清空在 controller 内，§1223）；
 }

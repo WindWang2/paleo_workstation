@@ -141,12 +141,12 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
           [this] { emit batchFigureExportRequested(); });
 
   auto *layoutRow = new QHBoxLayout();
-  layoutRow->setSpacing(4); // xs
+  layoutRow->setSpacing(PaleoTheme::tokens().spacingXs); // xs
   layoutRow->addWidget(openLayout, 1);
   layoutRow->addWidget(deleteLayout, 1);
   lay->addLayout(layoutRow);
   lay->addWidget(batchExport);
-  lay->addSpacing(16);
+  lay->addSpacing(PaleoTheme::tokens().spacingMd);
 
   lay->addWidget(caption(tr("单因素图层"), this));
   auto *list = new QListWidget(this);

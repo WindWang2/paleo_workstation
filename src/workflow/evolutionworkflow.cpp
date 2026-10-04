@@ -462,8 +462,8 @@ int EvolutionWorkflow::analyzeSequence( QStringList *failures, QString *error )
   int analyzed = 0;
   for ( int i = 0; i + 1 < horizons.size(); ++i )
   {
-    const QString later = horizons.at( i );       // 浅 = 新
-    const QString earlier = horizons.at( i + 1 ); // 深 = 老
+    const QString &later = horizons.at( i );       // 浅 = 新
+    const QString &earlier = horizons.at( i + 1 ); // 深 = 老
     QString pairError;
     if ( !analyzePair( earlier, later, QVariantMap(), &pairError ) )
     {

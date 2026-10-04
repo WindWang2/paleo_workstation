@@ -17,6 +17,7 @@
 #include <qgsexpression.h>
 #include <qgsfillsymbol.h>
 #include <qgslinesymbol.h>
+#include <qgslinesymbollayer.h> // QgsSimpleLineSymbolLayer（相变渐变带层）
 #include <qgsmaplayer.h>
 #include <qgsmarkersymbol.h>
 #include <qgsmarkersymbollayer.h> // QgsSimpleMarkerSymbolLayer（QGIS 4 无独立头）
@@ -504,21 +505,68 @@ void QgisStyleService::applyFaciesBoundaryStyle(QgsVectorLayer *layer)
 
   // 面填充走低透明度中性色——相多边形主要承载边界语义，不与栅格因素图
   // 抢视觉（地图域 QGIS 样式，DESIGN.md 例外条款；克制规范）。
-  auto boundaryFill = [](const QString &outlineColor, double outlineWidthMm) {
+  auto boundaryFill = [](const QString &outlineColor, double outlineWidthMm,
+                         const QString &outlineStyle = QStringLiteral("solid")) {
     QVariantMap props;
     props.insert(QStringLiteral("color"), QStringLiteral("188,199,209,60"));
     props.insert(QStringLiteral("outline_color"), outlineColor);
     props.insert(QStringLiteral("outline_width"), QString::number(outlineWidthMm));
+    props.insert(QStringLiteral("outline_style"), outlineStyle);
     return QgsFillSymbol::createSimple(props).release();
   };
 
+  // 相变（方向 39）：点线 crisp 边（= 方向 31 facies_transitional 线型）之上
+  // 叠半透明渐变带层——带宽 data-defined 绑 transition_width 字段（图层
+  // CRS 地图单位，渐变带是地质体宽度）；无带/NULL/0 或字段缺失时线型
+  // data-defined 落 no（不画带，诚实：无渐变范围不渲染带）。
+  auto faciesChangeFill = [boundaryFill](bool withBandField) {
+    QgsFillSymbol *sym = boundaryFill(QStringLiteral("#5D6E80"), 0.26,
+                                      QStringLiteral("dot"));
+    if (!withBandField)
+      return sym;
+    QVariantMap bandProps;
+    bandProps.insert(QStringLiteral("line_color"), QStringLiteral("93,110,128,90"));
+    bandProps.insert(QStringLiteral("line_width"), QStringLiteral("0"));
+    bandProps.insert(QStringLiteral("line_style"), QStringLiteral("no"));
+    auto *band = static_cast<QgsSimpleLineSymbolLayer *>(
+        QgsSimpleLineSymbolLayer::create(bandProps));
+    band->setWidthUnit(Qgis::RenderUnit::MapUnits);
+    band->setDataDefinedProperty(
+        QgsSymbolLayer::Property::StrokeWidth,
+        QgsProperty::fromExpression(QStringLiteral("coalesce(\"transition_width\", 0)")));
+    band->setDataDefinedProperty(
+        QgsSymbolLayer::Property::StrokeStyle,
+        QgsProperty::fromExpression(
+            QStringLiteral("if(coalesce(\"transition_width\", 0) > 0, 'solid', 'no')")));
+    sym->insertSymbolLayer(1, band); // 填充描边之上叠加半透明带（alpha 90）
+    return sym;
+  };
+
+  // 三类新图式复用方向 31 相界线型（geopatterns LineDef 调性，同色
+  // #5D6E80 以线型/宽度区分——确定界实线/端部不确定虚线/渐变界点线）：
+  //   整合接触 conformable = 细实线（facies_definite）；
+  //   尖灭 pinchout = 虚线（端部不确定，沿 facies_inferred 惯例）；
+  //   相变 facies_change = 点线 + 可选渐变带（facies_transitional）。
+  const bool hasBandField =
+      layer->fields().lookupField(QStringLiteral("transition_width")) >= 0;
   QgsCategoryList cats;
+  cats.append(QgsRendererCategory(
+      QStringLiteral("conformable"), boundaryFill(QStringLiteral("#5D6E80"), 0.5),
+      QObject::tr("整合接触")));
+  cats.append(QgsRendererCategory(
+      QStringLiteral("pinchout"),
+      boundaryFill(QStringLiteral("#5D6E80"), 0.5, QStringLiteral("dash")),
+      QObject::tr("尖灭")));
+  cats.append(QgsRendererCategory(
+      QStringLiteral("facies_change"), faciesChangeFill(hasBandField),
+      QObject::tr("相变")));
   // 断层切割（首发单类型）：断层红粗描边（#D71414，resources/geology/faults
   // 调性；resources/geology/boundaries/bnd_fault_line.svg 同族图式）。
   cats.append(QgsRendererCategory(
       QStringLiteral("fault_cut"), boundaryFill(QStringLiteral("#D71414"), 1.0),
       QObject::tr("断层切割")));
-  // 其余/未分类：常规细灰边（含空串——未标类型的相界落这一类）。
+  // 其余/未分类：常规细灰边（含空串——未标类型的相界落这一类；表外值同
+  // 落 all-other 桶走中性样式，不猜类）。
   const QString normalTitle = QObject::tr("常规相界");
   cats.append(QgsRendererCategory(
       QStringLiteral(""), boundaryFill(QStringLiteral("#5D6E80"), 0.26), normalTitle));

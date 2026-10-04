@@ -46,6 +46,9 @@
 #include "pages/datalist.h" // B2：listPanel()->importQueuePanel() 需完整类型
 #include "constraintdrawcontroller.h"
 #include "typedconstraintdrawcontroller.h" // m2(B)：物源线/展布线/控制点类型化捕获
+#include "pages/wellsitingpanel.h"   // 方向34：布井辅助面板
+#include "maptools/sitingpicktool.h"      // 方向34：地图布点拾取工具
+#include "../workflow/wellsitingworkflow.h" // 方向34：井网辅助编排
 
 #include <QDateTime>
 #include <QDir>
@@ -2969,4 +2972,100 @@ void PaleoMainWindow::attachMappingVersions(ComposePage *composePage,
             if (m_refreshPublishGate) m_refreshPublishGate();
           });
 
+}
+
+// ---------------------------------------------------------------------------
+// 方向34：井网辅助接线（验证页双页签 + 地图布点 + 导出）
+// ---------------------------------------------------------------------------
+void PaleoMainWindow::attachWellSiting(WellSitingWorkflow *wf)
+{
+  m_wellSitingWf = wf;
+  if (!wf)
+    return;
+
+  // 幂等：页签已建则只刷面板（重挂工程作用域数据）。过滤器注入与
+  // plannedWellsChanged→refreshAssetTable 连接也在守卫内——二次调用不叠加。
+  if (!m_wellSitingPanel)
+  {
+    // M2 可见性统一：数据页「计划井」组与 siting 文档 retired 面一致——
+    // siting 面删的计划井不滞留数据页；变化即刷资产树（公共槽）。
+    if (auto *listPanel = findChild<DataListPanel *>())
+    {
+      listPanel->setPlannedVisibilityFilter(
+          [wf](const QString &id) { return !wf->isPlannedRetired(id); });
+      connect(wf, &WellSitingWorkflow::plannedWellsChanged, listPanel,
+              [listPanel]() { listPanel->refreshAssetTable(); });
+    }
+
+    auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost"));
+    auto *stack = host ? static_cast<QStackedLayout *>(host->layout()) : nullptr;
+    if (!stack)
+      return;
+    const int idx = paleo::pagesinternal::kPageIds.indexOf(QStringLiteral("validate"));
+    if (idx < 0 || idx >= stack->count())
+      return;
+    QLayoutItem *taken = stack->takeAt(idx);
+    QWidget *validatePage = taken ? taken->widget() : nullptr;
+    delete taken;
+    if (!validatePage)
+      return;
+
+    auto *tabs = new QTabWidget(host);
+    tabs->setObjectName(QStringLiteral("validatePageTabs"));
+    tabs->addTab(validatePage, tr("验证"));
+    auto *panel = new WellSitingPanel(wf, tabs);
+    m_wellSitingPanel = panel;
+    tabs->addTab(panel, tr("布井辅助"));
+    stack->insertWidget(idx, tabs);
+    // 页签不变页义：验证页 ribbon/图层档案映射仍按 "validate" 走。
+
+    // 地图布点意图 → 装拾取工具；拾取点回调面板入 catalog 计划井。
+    connect(panel, &WellSitingPanel::mapPlacementRequested, this, [this]() {
+      if (!m_canvasCtl || !m_wellSitingPanel)
+        return;
+      auto *tool = new PaleoSitingPickTool(m_canvasCtl->canvas());
+      connect(tool, &PaleoSitingPickTool::pointPicked, this,
+              [this](double x, double y) {
+                if (m_wellSitingPanel)
+                  m_wellSitingPanel->placePlannedAt(x, y);
+              });
+      m_canvasCtl->setMapTool(tool);
+      statusBar()->showMessage(tr("在地图上单击放置计划井（Esc 取消）"), 8000);
+    });
+
+    // 导出：面板只报场景，文件对话框由壳统一管。
+    connect(panel, &WellSitingPanel::exportRequested, this,
+            [this](const QString &kind, const QString &scenarioId) {
+              if (!m_wellSitingWf)
+                return;
+              if (kind == QLatin1String("csv"))
+              {
+                const QString path = QFileDialog::getSaveFileName(
+                    this, tr("导出方案点位表"), QString(), tr("CSV 表 (*.csv)"));
+                if (path.isEmpty())
+                  return;
+                QString err;
+                if (!m_wellSitingWf->exportScenarioCsv(scenarioId, path, &err))
+                  QMessageBox::warning(this, tr("导出方案点位表"), err);
+                else
+                  statusBar()->showMessage(tr("已导出：%1").arg(path), 8000);
+              }
+              else if (kind == QLatin1String("chart"))
+              {
+                const QString path = QFileDialog::getSaveFileName(
+                    this, tr("导出覆盖对比图"), QString(), tr("PNG 图 (*.png)"));
+                if (path.isEmpty())
+                  return;
+                QString err;
+                if (!m_wellSitingWf->exportComparisonChart(path, &err))
+                  QMessageBox::warning(this, tr("导出覆盖对比图"), err);
+                else
+                  statusBar()->showMessage(tr("已导出：%1").arg(path), 8000);
+              }
+            });
+  }
+  else
+  {
+    m_wellSitingPanel->reloadFromWorkflow();
+  }
 }

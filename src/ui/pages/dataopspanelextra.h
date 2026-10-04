@@ -500,6 +500,7 @@ public:
     m_type->addItem(tr("辅助资料"), QStringLiteral("auxiliary"));
     m_type->addItem(tr("地震工区"), QStringLiteral("seismic_survey"));
     m_type->addItem(tr("层序界面"), QStringLiteral("sequence_boundary"));
+    m_type->addItem(tr("计划井（布井候选）"), QStringLiteral("planned"));
     form->addRow(tr("类型:"), m_type);
     m_name = new QLineEdit(this);
     m_name->setObjectName(QStringLiteral("entityNameEdit"));
@@ -529,7 +530,10 @@ public:
     connect(box, &QDialogButtonBox::rejected, this, &QDialog::reject);
     lay->addWidget(box);
     connect(m_type, &QComboBox::currentIndexChanged, this, [this] {
-      m_coordRow->setVisible(m_type->currentData().toString() == QLatin1String("well"));
+      // 井与计划井都有井口坐标（局部米制网格）；计划井是虚拟部署实体，
+      // 绝不进入单因素/编图/剖面计算输入（方向 34 隔离红线）。
+      const QString t = m_type->currentData().toString();
+      m_coordRow->setVisible(t == QLatin1String("well") || t == QLatin1String("planned"));
     });
     m_coordRow->setVisible(true);
   }

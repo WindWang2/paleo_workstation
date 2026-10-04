@@ -1,6 +1,8 @@
 // 层：功能
 #pragma once
 #include <QString>
+#include <QDateTime>
+#include <QMetaType>
 #include <QStringList>
 #include <QVector>
 
@@ -75,6 +77,13 @@ struct PurgeOutcome
 PurgeOutcome purgeAssets(DataCatalog *cat, const QString &projectDir,
                          const QStringList &assetIds);
 
+struct PurgeFileExpectation { QString path; qint64 sizeBytes = -1; QDateTime modified; };
+// Shared physical purge phase, worker-safe: no live catalog. Retained references
+// protect shared paths; resolvedVersionPath enforces containment/symlink safety.
+PurgeOutcome purgeManagedFiles(const QString &projectDir, const QStringList &paths,
+                               const QVector<CatalogVersion> &retained,
+                               const QVector<PurgeFileExpectation> &expected = {});
+
 // ---- 未决链接批量归位（与导入同一判据，不猜）----
 struct PendingProposal
 {
@@ -98,3 +107,5 @@ int applyPendingResolutions(DataCatalog *cat, const QVector<int> &linkIndexes,
                             QString *error = nullptr);
 
 } // namespace paleo::assetops
+
+Q_DECLARE_METATYPE(paleo::assetops::PurgeOutcome)

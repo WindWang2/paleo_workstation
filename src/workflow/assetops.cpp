@@ -1,5 +1,6 @@
 // 层：功能
 #include "assetops.h"
+#include "../io/pathcanon.h"
 
 #include "../catalog/datacatalog.h"
 
@@ -338,36 +339,51 @@ PurgeOutcome purgeAssets(DataCatalog *cat, const QString &projectDir,
     return out;
   }
 
-  // catalog 已提交——现在清磁盘（best-effort，残留如实报）。
-  QSet<QString> prunedDirs;
+  QStringList paths;
   for (const Target &t : targets)
-  {
-    if (!doomed.contains(t.assetId))
-      continue;
-    for (const QString &abs : t.managedFiles)
-    {
-      if (!QFile::exists(abs))
-        continue;
-      const qint64 sz = QFileInfo(abs).size();
-      // 受管资产按只读纪律落盘；Windows 下 FILE_ATTRIBUTE_READONLY 拦截
-      // 删除——先还写位再删（POSIX 靠目录写权，此处幂等）。
-      QFile::setPermissions(abs, QFile::permissions(abs) | QFileDevice::WriteOwner);
-      if (QFile::remove(abs))
-        out.bytesFreed += sz;
-      else
-        out.leftoverFiles << abs;
-      prunedDirs.insert(QFileInfo(abs).absolutePath());
+    if (doomed.contains(t.assetId)) paths.append(t.managedFiles);
+  const auto files = purgeManagedFiles(projectDir, paths, cat->versions());
+  out.bytesFreed = files.bytesFreed;
+  out.leftoverFiles = files.leftoverFiles;
+  out.purgedAssetIds = doomed;
+  return out;
+}
+
+PurgeOutcome purgeManagedFiles(const QString &projectDir, const QStringList &paths,
+                               const QVector<CatalogVersion> &retained,
+                               const QVector<PurgeFileExpectation> &expected)
+{
+  PurgeOutcome out;
+  QSet<QString> referenced, seen, prunedDirs;
+  for (const auto &v : retained)
+    referenced.insert(PathCanon::canonicalize(v.path, v.managed ? projectDir : QString()));
+  QHash<QString, PurgeFileExpectation> expectations;
+  for (const auto &f : expected) expectations.insert(f.path, f);
+  for (const auto &path : paths) {
+    CatalogVersion probe; probe.path = QDir(projectDir).relativeFilePath(path);
+    const QString safe = DataCatalog::resolvedVersionPath(projectDir, probe);
+    const QString canonical = PathCanon::canonicalize(path);
+    if (safe.isEmpty()) { out.leftoverFiles << path; continue; }
+    if (seen.contains(canonical) || referenced.contains(canonical)) continue;
+    seen.insert(canonical);
+    const QFileInfo fi(safe);
+    if (!fi.exists()) continue;
+    const qint64 bytes = fi.size();
+    if (expectations.contains(path)) {
+      const auto expectedFile = expectations.value(path);
+      if (bytes != expectedFile.sizeBytes || fi.lastModified() != expectedFile.modified) {
+        out.leftoverFiles << safe; continue;
+      }
     }
-    out.purgedAssetIds << t.assetId; // catalog 行已删；文件残留另列
+    QFile::setPermissions(safe, QFile::permissions(safe) | QFileDevice::WriteOwner);
+    if (QFile::remove(safe)) out.bytesFreed += bytes;
+    else out.leftoverFiles << safe;
+    prunedDirs.insert(fi.absolutePath());
   }
-  // 版本目录 / 资产目录：只删空目录（rmdir 对非空目录失败即停，安全）。
-  for (const QString &dir : prunedDirs)
-  {
+  for (const auto &dir : prunedDirs) {
     QString d = dir;
-    for (int i = 0; i < 2 && !d.isEmpty(); ++i) // {version} 层 + {asset} 层
-    {
-      if (!QDir(d).rmdir(QStringLiteral(".")))
-        break;
+    for (int i = 0; i < 2 && !d.isEmpty(); ++i) {
+      if (!QDir(d).rmdir(QStringLiteral("."))) break;
       d = QFileInfo(d).absolutePath();
     }
   }

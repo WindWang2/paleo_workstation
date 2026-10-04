@@ -1,5 +1,6 @@
 // 层：视图
 #include "datalist.h"
+#include "assetentitychoicemodel.h"
 #include "pageshared.h"
 #include "../paleotheme.h"
 #include "../paleoicons.h"
@@ -21,6 +22,9 @@
 #include "pendinglinkdialog.h"
 #include "importledgerdialog.h"
 #include "../dialogs/cataloghealthdialog.h"
+#include "../dialogs/storagegovernancedialog.h"
+#include "../../workflow/storagegovernancecontroller.h"
+#include <QTimer>
 #include "../../workflow/assetops.h"
 #include "../../workflow/importledger.h"
 #include <algorithm>
@@ -263,11 +267,13 @@ namespace
 void DataListPanel::setDocService(PreviewDocService *doc)
 {
   m_doc = doc;
+  m_storageController->setCatalog(doc ? doc->catalog() : nullptr);
 }
 
 DataListPanel::DataListPanel(QWidget *parent)
   : QWidget(parent)
 {
+  m_storageController = new StorageGovernanceController(this);
   setMinimumWidth(0);
   auto *lay = panelLayout(this);
 
@@ -323,6 +329,12 @@ DataListPanel::DataListPanel(QWidget *parent)
   healthBtn->setToolTip(tr("检查缺失文件 / SHA 失配 / 未决链接 / 孤立实体等"));
   healthBtn->setAccessibleName(tr("工区体检"));
   connect(healthBtn, &QPushButton::clicked, this, &DataListPanel::showHealthCheck);
+  auto *storage = new QPushButton(tr("存储治理台"), importSection);
+  storage->setObjectName(QStringLiteral("storageGovernanceButton"));
+  storage->setAccessibleName(storage->text());
+  storage->setToolTip(tr("汇总体积、扫描未引用文件、预览回收过时版本"));
+  connect(storage, &QPushButton::clicked, this, &DataListPanel::showStorageGovernance);
+  importLay->addWidget(storage);
   importLay->addWidget(healthBtn);
   lay->addWidget(importSection);
 
@@ -424,8 +436,12 @@ DataListPanel::DataListPanel(QWidget *parent)
     if (m_tree)
       m_tree->collapseAll();
   });
-  connect(search, &QLineEdit::textChanged, this, [this] { applyListFilter(); });
-  connect(typeFilter, &QComboBox::currentIndexChanged, this, [this] { applyListFilter(); });
+  connect(search, &QLineEdit::textChanged, this, [this] {
+    m_filter.clearDim(paleo::dataops::FilterDim::Search); applyListFilter();
+  });
+  connect(typeFilter, &QComboBox::currentIndexChanged, this, [this] {
+    m_filter.clearDim(paleo::dataops::FilterDim::Type); applyListFilter();
+  });
 
   // T31「查看未决」过滤条：过滤开启时露出一行，带「清除过滤」。
   auto *filterBar = new QWidget(listSection);
@@ -521,6 +537,39 @@ DataListPanel::DataListPanel(QWidget *parent)
   m_viewStack->addWidget(m_tree);  // 0: 树形
   m_viewStack->addWidget(table);   // 1: 列表
   listLay->addWidget(m_viewStack, 1);
+  auto *pager = new QWidget(listSection);
+  pager->setObjectName(QStringLiteral("assetPager"));
+  pager->setAccessibleName(tr("资产分页"));
+  auto *pl = new QHBoxLayout(pager);
+  pl->setContentsMargins(0, 0, 0, 0);
+  pl->setSpacing(PaleoTheme::tokens().spacingXs);
+  auto *previous = new QPushButton(tr("上一页"), pager);
+  previous->setObjectName(QStringLiteral("assetPreviousPage"));
+  previous->setAccessibleName(previous->text());
+  auto *next = new QPushButton(tr("下一页"), pager);
+  next->setObjectName(QStringLiteral("assetNextPage"));
+  next->setAccessibleName(next->text());
+  auto *pageLabel = new QLabel(pager);
+  pageLabel->setObjectName(QStringLiteral("assetPageLabel"));
+  pageLabel->setAccessibleName(tr("资产分页位置"));
+  pl->addWidget(previous);
+  pl->addWidget(pageLabel, 1);
+  pl->addWidget(next);
+  listLay->addWidget(pager);
+  pager->hide();
+  connect(m_viewStack, &QStackedWidget::currentChanged, this, [this, pager](int mode) {
+    pager->setVisible(m_rows.size() > 200 && mode != 3);
+  });
+  connect(previous, &QPushButton::clicked, this, [this] { --m_assetPage; applyListFilter(); });
+  connect(next, &QPushButton::clicked, this, [this] { ++m_assetPage; applyListFilter(); });
+  table->horizontalHeader()->setSortIndicatorShown(false);
+  connect(table->horizontalHeader(), &QHeaderView::sectionClicked, this, [this, table](int column) {
+    m_assetSortAscending = column == m_assetSortColumn ? !m_assetSortAscending : true;
+    m_assetSortColumn = column;
+    table->horizontalHeader()->setSortIndicatorShown(true);
+    table->horizontalHeader()->setSortIndicator(column, m_assetSortAscending ? Qt::AscendingOrder : Qt::DescendingOrder);
+    applyListFilter();
+  });
   lay->addWidget(listSection, 1);
 
   const auto handleTreeActivation = [this](QTreeWidgetItem *item, int) {
@@ -674,10 +723,13 @@ DataListPanel::DataListPanel(QWidget *parent)
     // P3 D1：多选中不逐个开预览（批量打开走「打开预览」动作）；程序化多选
     //（selectAssetsForEntities）保持旧行为——首个命中行激活。
     const QList<QTableWidgetItem *> sel = table->selectedItems();
+    for (const auto &row : m_pageRows)
+      m_pageSelection.remove(row.assetId);
+    m_pageSelection.unite(paleo::dataops::selectedAssetIds(table));
     refreshSelectionBadge(); // 空选/多选都刷新（徽标隐藏 = 0/1 选中）
     if (sel.isEmpty())
       return;
-    if (!m_progSelect && sel.size() > 1)
+    if (!m_progSelect && paleo::dataops::selectedAssetIds(table).size() > 1)
       return;
     const QString assetId = sel.front()->data(Qt::UserRole).toString();
     if (!assetId.isEmpty())
@@ -730,6 +782,11 @@ bool DataListPanel::eventFilter(QObject *watched, QEvent *event)
   }
   if (event && event->type() == QEvent::Resize)
   {
+    if (m_rows.size() > 200 && watched == findChild<QTableWidget *>(QStringLiteral("assetTable")))
+      if (!property("paleo.pageResizeQueued").toBool()) {
+        setProperty("paleo.pageResizeQueued", true);
+        QTimer::singleShot(0, this, [this] { setProperty("paleo.pageResizeQueued", false); applyListFilter(); });
+      }
     if (watched == m_tree || (m_tree && watched == m_tree->viewport()))
     {
       const int w = (watched == m_tree && event)
@@ -766,16 +823,62 @@ bool DataListPanel::eventFilter(QObject *watched, QEvent *event)
 void DataListPanel::refreshAssetTable()
 {
   auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
-  if (!table)
+  if (!table || !m_doc)
     return;
-  PreviewDocService *svc = m_doc;
-  if (!svc)
-    return;
-  DataCatalog *cat = svc->catalog();
-  // P3：stores 装载（会话变化清栈 D5.6）+ D1.10 选中快照（重建后还原）。
   loadStoresForCatalog();
   m_selKeep.snapshot(m_tree, table);
-  const QVector<EntityAssetLink> allLinks = cat->links();
+  m_pageSelection.unite(m_selKeep.ids());
+  DataCatalog *cat = m_doc->catalog();
+  for (auto *model : m_entityChoiceModels) model->deleteLater();
+  m_entityChoiceModels.clear();
+  rebuildRowSnapshot();
+  m_tableDirty = true;
+  QSet<QString> live;
+  for (const auto &row : m_rows)
+    live.insert(row.assetId);
+  m_pageSelection.intersect(live);
+  // 类型下拉按当前资产类型集重建（保留原选择）。
+  if (auto *typeFilter = findChild<QComboBox *>(QStringLiteral("assetTypeFilter")))
+  {
+    const QString keep = typeFilter->currentData().toString();
+    QStringList types;
+    for (const CatalogAsset &a : cat->assets())
+      if (!a.type.isEmpty() && !types.contains(a.type))
+        types << a.type;
+    types.sort();
+    const QSignalBlocker block(typeFilter);
+    typeFilter->clear();
+    typeFilter->addItem(tr("所有类型"), QString());
+    for (const QString &t : types)
+    {
+      QString label = t;
+      if (t == QLatin1String("well_log")) label = tr("测井曲线 (well_log)");
+      else if (t == QLatin1String("well_head")) label = tr("井位/井身 (well_head)");
+      else if (t == QLatin1String("tops")) label = tr("井分层 (tops)");
+      else if (t == QLatin1String("time_depth")) label = tr("时深关系 (time_depth)");
+      else if (t == QLatin1String("seismic")) label = tr("地震数据 (seismic)");
+      else if (t == QLatin1String("horizon")) label = tr("层位解释 (horizon)");
+      else if (t == QLatin1String("boundary")) label = tr("边界/相图 (boundary)");
+      else if (t == QLatin1String("auxiliary") || t == QLatin1String("reference")) label = tr("辅助/综合图 (auxiliary)");
+      typeFilter->addItem(label, t);
+    }
+    typeFilter->setCurrentIndex(qMax(0, typeFilter->findData(keep)));
+  }
+  refreshTagCloud();
+  updatePendingCounts();
+  refreshChipBar();
+  refreshUndoButtons();
+  applyListFilter();
+  refreshSelectionBadge();
+}
+
+void DataListPanel::renderAssetPage()
+{
+  auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
+  if (!table || !m_doc)
+    return;
+  const QSignalBlocker block(table);
+  DataCatalog *cat = m_doc->catalog();
   // T28 undo 库：attach 落档（含被降级的前主关联 + 挂前 note），撤销消费；
   // note 记忆独立长存（撤销后未决徽标 tooltip 从这里恢复——catalog 无 note
   // 写回 API，A 包接缝，UI 层保管）。随工程 sidecar 持久，跨 open() 存活。
@@ -796,30 +899,10 @@ void DataListPanel::refreshAssetTable()
       w->deleteLater();
     }
   table->setRowCount(0);
-  // T31「查看未决」：过滤开启时只留仍有未决链接的资产行。
-  const bool unresolvedOnly =
-      property("paleo.page.filterUnresolved").toBool();
-  m_rows.clear();
-  for (const CatalogAsset &a : cat->assets())
+  const bool unresolvedOnly = property("paleo.page.filterUnresolved").toBool();
+  for (const auto &row : m_pageRows)
   {
-    // D1.6 软删资产不出现在列表（可回收清单里恢复）。
-    if (m_recycle.isRemoved(a.id))
-      continue;
-    if (unresolvedOnly)
-    {
-      bool anyUnresolved = false;
-      for (const EntityAssetLink &l : allLinks)
-        if (l.assetId == a.id && l.unresolved)
-        {
-          anyUnresolved = true;
-          break;
-        }
-      if (!anyUnresolved)
-        continue;
-    }
-    // P3 行快照（过滤/排序/导出/分组的统一输入；单遍装配）。
-    m_rows.append(paleo::dataops::buildAssetRow(cat, a, m_tags, m_typeOv, m_recycle,
-                                                m_entityOv));
+    const CatalogAsset a = cat->assetById(row.assetId);
     const int r = table->rowCount();
     table->insertRow(r);
     auto *nameItem = new QTableWidgetItem(a.displayName);
@@ -843,11 +926,8 @@ void DataListPanel::refreshAssetTable()
     QString unresolvedRole, unresolvedEntityType; // 本资产第一条未决链接的身份
     const UndoRecord *undoRecord = nullptr;       // 本资产可撤销的挂接记录
     QString promotableRole, promotableEntityId;   // 已决非主链接（「设为主版本」）
-    for (int i = 0; i < allLinks.size(); ++i)
+    for (const EntityAssetLink &l : cat->linksForAsset(a.id))
     {
-      const EntityAssetLink &l = allLinks.at(i);
-      if (l.assetId != a.id)
-        continue;
       if (l.unresolved)
       {
         if (unresolvedRole.isEmpty())
@@ -946,9 +1026,16 @@ void DataListPanel::refreshAssetTable()
       combo->setObjectName(QStringLiteral("resolveEntityCombo"));
       combo->setAccessibleName(tr("挂到实体"));
       const bool isWell = unresolvedEntityType == QLatin1String("well");
-      combo->addItem(isWell ? tr("（选择井）") : tr("（选择实体）"), QString());
-      for (const CatalogEntity &e : cat->entities(unresolvedEntityType))
-        combo->addItem(e.name.isEmpty() ? e.id : e.name, e.id);
+      auto *choices = m_entityChoiceModels.value(unresolvedEntityType);
+      if (!choices) {
+        choices = new AssetEntityChoiceModel(cat->entities(unresolvedEntityType),
+          isWell ? tr("（选择井）") : tr("（选择实体）"), this);
+        m_entityChoiceModels.insert(unresolvedEntityType, choices);
+      }
+      combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+      combo->setMinimumContentsLength(8);
+      combo->setMaxVisibleItems(20);
+      combo->setModel(choices);
       combo->setCurrentIndex(0);
       combo->setMinimumWidth(72);
       bl->addWidget(combo, 1);
@@ -1153,50 +1240,13 @@ void DataListPanel::refreshAssetTable()
     bl->addStretch(1);
     table->setCellWidget(r, 2, cell);
   }
-  refreshAssetEmptyState(
-      table, unresolvedOnly ? tr("没有未决资产 — 全部资产都已挂接") : QString());
-
-  // 类型下拉按当前资产类型集重建（保留原选择）。
-  if (auto *typeFilter = findChild<QComboBox *>(QStringLiteral("assetTypeFilter")))
-  {
-    const QString keep = typeFilter->currentData().toString();
-    QStringList types;
-    for (const CatalogAsset &a : cat->assets())
-      if (!a.type.isEmpty() && !types.contains(a.type))
-        types << a.type;
-    types.sort();
-    const QSignalBlocker block(typeFilter);
-    typeFilter->clear();
-    typeFilter->addItem(tr("所有类型"), QString());
-    for (const QString &t : types)
-    {
-      QString label = t;
-      if (t == QLatin1String("well_log")) label = tr("测井曲线 (well_log)");
-      else if (t == QLatin1String("well_head")) label = tr("井位/井身 (well_head)");
-      else if (t == QLatin1String("tops")) label = tr("井分层 (tops)");
-      else if (t == QLatin1String("time_depth")) label = tr("时深关系 (time_depth)");
-      else if (t == QLatin1String("seismic")) label = tr("地震数据 (seismic)");
-      else if (t == QLatin1String("horizon")) label = tr("层位解释 (horizon)");
-      else if (t == QLatin1String("boundary")) label = tr("边界/相图 (boundary)");
-      else if (t == QLatin1String("auxiliary") || t == QLatin1String("reference")) label = tr("辅助/综合图 (auxiliary)");
-      typeFilter->addItem(label, t);
-    }
-    typeFilter->setCurrentIndex(qMax(0, typeFilter->findData(keep)));
-  }
+  refreshAssetEmptyState(table, unresolvedOnly ? tr("没有未决资产 — 全部资产都已挂接") : QString());
+  m_selKeep.snapshotIds(m_pageSelection);
+  m_selKeep.restoreTable(table);
   refreshAssetTree();
-  // P3：D1.10 选择还原（静默——不发激活信号）+ 计数/标签云/徽标刷新。
-  {
-    const QSignalBlocker b(table);
-    m_selKeep.restoreTable(table);
-  }
   m_selKeep.restoreTree(m_tree);
-  refreshSelectionBadge();
-  refreshTagCloud();
-  updatePendingCounts();
-  refreshChipBar();
-  refreshUndoButtons();
-  applyListFilter();
 }
+
 void DataListPanel::refreshAssetTree()
 {
   if (!m_tree)
@@ -1208,6 +1258,38 @@ void DataListPanel::refreshAssetTree()
   DataCatalog *cat = svc->catalog();
   if (!cat)
     return;
+
+  if (m_rows.size() > 200)
+  {
+    // 树、图标、分组共享当前页；实体节点保留井选中与激活语义。
+    auto *survey = new QTreeWidgetItem(m_tree);
+    survey->setText(0, tr("测区")); survey->setData(0, Qt::UserRole, QStringLiteral("survey_area"));
+    survey->setData(0, Qt::UserRole + 2, QStringLiteral("survey_area"));
+    QHash<QString, QTreeWidgetItem *> entityNodes;
+    for (const auto &row : m_pageRows)
+    {
+      QTreeWidgetItem *parent = nullptr;
+      QString wellId;
+      for (const auto &link : cat->linksForAsset(row.assetId))
+        if (!link.unresolved && !link.entityId.isEmpty()) {
+          const auto entity = cat->entityById(link.entityId);
+          parent = entityNodes.value(entity.id);
+          if (!parent) {
+            parent = new QTreeWidgetItem(m_tree); parent->setText(0, m_entityOv.displayName(entity));
+            parent->setData(0, Qt::UserRole + 1, entity.id);
+            parent->setData(0, Qt::UserRole + 2, entity.entityType);
+            parent->setExpanded(true); entityNodes.insert(entity.id, parent);
+          }
+          if (entity.entityType == QLatin1String("well")) wellId = entity.id;
+          break;
+        }
+      auto *item = parent ? new QTreeWidgetItem(parent) : new QTreeWidgetItem(m_tree);
+      item->setText(0, row.displayName); item->setText(1, row.effectiveType);
+      item->setData(0, Qt::UserRole, row.assetId); item->setData(0, Qt::UserRole + 1, wellId);
+      item->setData(0, Qt::UserRole + 2, QStringLiteral("asset"));
+    }
+    return;
+  }
 
   // 0. 测区 (Survey Area) — 首项显示，双击打开测区全景地图 (QGIS 画布)
   auto *surveyRoot = new QTreeWidgetItem(m_tree);
@@ -1687,6 +1769,35 @@ void DataListPanel::applyListFilter()
     visibleIds.insert(row.assetId);
     ++shown;
   }
+  QVector<AssetRowInfo> filtered;
+  for (const auto &row : m_rows)
+    if (visibleIds.contains(row.assetId))
+      filtered.append(row);
+  const QString sortField = m_assetSortColumn == 1 ? QStringLiteral("type")
+                           : m_assetSortColumn == 2 ? QStringLiteral("entity") : QStringLiteral("name");
+  if (m_assetSortColumn >= 0) sortAssetRows(&filtered, sortField, m_assetSortAscending);
+  m_filteredRows = filtered;
+  const bool paged = m_rows.size() > 200;
+  const int pageSize = qMax(1, table->viewport()->height() / qMax(1, table->verticalHeader()->defaultSectionSize()));
+  const int pages = qMax(1, int((filtered.size() + pageSize - 1) / pageSize));
+  m_assetPage = qBound(0, m_assetPage, pages - 1);
+  auto pageRows = paged ? filtered.mid(m_assetPage * pageSize, pageSize) : m_rows;
+  if (!paged && m_assetSortColumn >= 0) sortAssetRows(&pageRows, sortField, m_assetSortAscending);
+  bool samePage = pageRows.size() == m_pageRows.size();
+  for (int i = 0; samePage && i < pageRows.size(); ++i)
+    samePage = pageRows.at(i).assetId == m_pageRows.at(i).assetId;
+  m_pageRows = pageRows;
+  if (m_tableDirty || !samePage) { renderAssetPage(); m_tableDirty = false; }
+  table->setProperty("paleo.totalAssets", m_rows.size());
+  table->setProperty("paleo.pageSize", pageSize);
+  if (auto *pager = findChild<QWidget *>(QStringLiteral("assetPager")))
+    pager->setVisible(paged && (!m_viewStack || m_viewStack->currentIndex() != 3));
+  if (auto *label = findChild<QLabel *>(QStringLiteral("assetPageLabel")))
+    label->setText(tr("第 %1 / %2 页 · %3 项").arg(m_assetPage + 1).arg(pages).arg(shown));
+  if (auto *btn = findChild<QPushButton *>(QStringLiteral("assetPreviousPage")))
+    btn->setEnabled(m_assetPage > 0);
+  if (auto *btn = findChild<QPushButton *>(QStringLiteral("assetNextPage")))
+    btn->setEnabled(m_assetPage + 1 < pages);
   const int total = int(m_rows.size());
   for (int r = 0; r < table->rowCount(); ++r)
   {
@@ -1742,9 +1853,9 @@ void DataListPanel::applyListFilter()
     for (const AssetRowInfo &row : m_rows)
       if (visibleIds.contains(row.assetId))
         vis.append(row);
-    m_iconView->loadRows(vis);
+    m_iconView->loadRows(paged ? m_pageRows : vis);
     if (m_groupTree)
-      m_groupTree->loadRows(vis);
+      m_groupTree->loadRows(paged ? m_pageRows : vis);
   }
   if (m_virtualView)
   {
@@ -1780,8 +1891,18 @@ void DataListPanel::selectAssetsForEntities(const QStringList &entityIds)
     for (const EntityAssetLink &l : svc->catalog()->linksForEntity(eid))
       if (!l.unresolved)
         wanted.insert(l.assetId);
-  if (wanted.isEmpty())
-    return;
+  QSet<QString> live;
+  for (const auto &row : m_rows) live.insert(row.assetId);
+  wanted.intersect(live);
+  if (wanted.isEmpty()) return;
+  if (m_rows.size() > 200)
+  {
+    QString first = *wanted.constBegin();
+    for (const auto &row : m_filteredRows)
+      if (wanted.contains(row.assetId)) { first = row.assetId; break; }
+    selectAssetInViews(first);
+    m_pageSelection = wanted;
+  }
   // 一次应用整份选中（QTableView::selectRow 是单点替换语义，逐行调会互相
   // 顶掉）；选中变化照发 itemSelectionChanged → assetActivated 首个命中行。
   QItemSelection sel;
@@ -1804,12 +1925,31 @@ void DataListPanel::selectAssetsForEntities(const QStringList &entityIds)
   table->selectionModel()->select(
       sel, QItemSelectionModel::Select | QItemSelectionModel::Rows);
   m_progSelect = false;
+  if (m_rows.size() > 200) m_pageSelection.unite(wanted);
   if (firstHit)
     table->scrollToItem(firstHit);
 }
 void DataListPanel::selectAssetInViews(const QString &assetId)
 {
   auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
+  if (table && m_rows.size() > 200)
+  {
+    bool live = false;
+    for (const auto &row : m_rows) if (row.assetId == assetId) { live = true; break; }
+    if (!live) return;
+    m_pageSelection = {assetId};
+    { const QSignalBlocker block(table); table->clearSelection(); }
+    if (m_tree) { const QSignalBlocker block(m_tree); m_tree->clearSelection(); }
+    for (int i = 0; i < m_filteredRows.size(); ++i)
+      if (m_filteredRows.at(i).assetId == assetId)
+      {
+        const int pageSize = table->property("paleo.pageSize").toInt();
+        m_assetPage = i / qMax(1, pageSize);
+        m_pageSelection = {assetId};
+        applyListFilter();
+        break;
+      }
+  }
   if (table)
   {
     for (int r = 0; r < table->rowCount(); ++r)
@@ -2288,30 +2428,30 @@ void DataListPanel::refreshChipBar()
   if (m_filterBar)
   {
     // 维度词表（下拉候选）。
-    QStringList types, statuses, roles, entities, tags;
+    QSet<QString> types, statuses, roles, entities, tags;
     for (const paleo::dataops::AssetRowInfo &r : m_rows)
     {
       if (!types.contains(r.effectiveType) && !r.effectiveType.isEmpty())
-        types << r.effectiveType;
+        types.insert(r.effectiveType);
       if (!statuses.contains(r.status))
-        statuses << r.status;
+        statuses.insert(r.status);
       for (const QString &ro : r.roles)
         if (!roles.contains(ro))
-          roles << ro;
+          roles.insert(ro);
       for (const QString &en : r.entityNames)
         if (!entities.contains(en))
-          entities << en;
+          entities.insert(en);
       for (const QString &t : r.tags)
         if (!tags.contains(t))
-          tags << t;
+          tags.insert(t);
     }
-    types.sort(); statuses.sort(); roles.sort(); entities.sort();
-    m_filterBar->setValueVocabulary(paleo::dataops::FilterDim::Type, types);
+    const auto sorted = [](const QSet<QString> &set) { QStringList list = set.values(); list.sort(); return list; };
+    m_filterBar->setValueVocabulary(paleo::dataops::FilterDim::Type, sorted(types));
     m_filterBar->setValueVocabulary(paleo::dataops::FilterDim::Status,
                                     {QStringLiteral("RAW"), QStringLiteral("DERIVED")});
-    m_filterBar->setValueVocabulary(paleo::dataops::FilterDim::Role, roles);
-    m_filterBar->setValueVocabulary(paleo::dataops::FilterDim::Entity, entities);
-    m_filterBar->setValueVocabulary(paleo::dataops::FilterDim::Tag, tags);
+    m_filterBar->setValueVocabulary(paleo::dataops::FilterDim::Role, sorted(roles));
+    m_filterBar->setValueVocabulary(paleo::dataops::FilterDim::Entity, sorted(entities));
+    m_filterBar->setValueVocabulary(paleo::dataops::FilterDim::Tag, sorted(tags));
     m_filterBar->reloadPresets();
   }
 }
@@ -2328,6 +2468,8 @@ void DataListPanel::loadStoresForCatalog()
   {
     // D5.6：项目会话切换 → 命令栈/历史清空（旧工程的命令对新 catalog 无意义）。
     m_lastCatalogPath = path;
+    m_pageSelection.clear();
+    m_assetPage = 0;
     if (m_opStack)
       m_opStack->clear();
     if (m_history)
@@ -2353,11 +2495,13 @@ void DataListPanel::rebuildRowSnapshot()
   if (!cat)
     return;
   const bool unresolvedOnly = property("paleo.page.filterUnresolved").toBool();
-  for (const CatalogAsset &a : cat->assets())
+  const auto assets = cat->assets();
+  m_rows.reserve(assets.size());
+  for (const CatalogAsset &a : assets)
   {
     if (m_recycle.isRemoved(a.id))
       continue;
-    AssetRowInfo row = buildAssetRow(cat, a, m_tags, m_typeOv, m_recycle, m_entityOv);
+    AssetRowInfo row = buildAssetRow(cat, a, m_tags, m_typeOv, m_recycle, m_entityOv, assets.size() <= 200);
     if (unresolvedOnly && !row.unresolved)
       continue;
     m_rows.append(row);
@@ -2367,7 +2511,7 @@ void DataListPanel::rebuildRowSnapshot()
 QSet<QString> DataListPanel::currentAssetSelection() const
 {
   using namespace paleo::dataops;
-  QSet<QString> out = selectedAssetIds(m_tree);
+  QSet<QString> out = selectedAssetIds(m_tree) + m_pageSelection;
   if (auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable")))
     out += selectedAssetIds(table);
   if (m_iconView)
@@ -2560,6 +2704,12 @@ void DataListPanel::setTreeSort(paleo::dataops::TreeSortKind kind)
 void DataListPanel::selectAllVisibleAssets()
 {
   using namespace paleo::dataops;
+  if (m_rows.size() > 200) {
+    m_pageSelection.clear();
+    for (const auto &row : m_filteredRows) m_pageSelection.insert(row.assetId);
+    m_selKeep.snapshotIds(m_pageSelection);
+    renderAssetPage();
+  }
   if (auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable")))
     selectAllVisible(table);
   // 树/图标视图同步全选（可见项）。
@@ -2570,6 +2720,11 @@ void DataListPanel::selectAllVisibleAssets()
 void DataListPanel::invertAssetSelection()
 {
   using namespace paleo::dataops;
+  if (m_rows.size() > 200) {
+    QSet<QString> inverted;
+    for (const auto &row : m_filteredRows) if (!m_pageSelection.contains(row.assetId)) inverted.insert(row.assetId);
+    m_pageSelection = inverted; renderAssetPage(); refreshSelectionBadge(); return;
+  }
   if (auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable")))
     invertSelection(table);
 }
@@ -2982,131 +3137,81 @@ void DataListPanel::refreshHealthReportInDialog()
   m_healthDlg->setReport(m_healthBase, m_healthRecycleCount, m_healthRecycleBytes);
 }
 
-void DataListPanel::showHealthCheck()
+void DataListPanel::showStorageGovernance()
 {
-  using namespace paleo::dataops;
-  DataCatalog *cat = m_ctx.cat;
-  if (!cat || !cat->isOpen())
-  {
-    emit statusMessage(tr("工程未打开，无法体检"));
-    return;
-  }
-  const QString pd = projectDirFor(cat);
-  CatalogHealthDialog dlg(this);
-  m_healthDlg = &dlg;
-
-  // 快速面：stat + 内存查询（毫秒级，GUI 直算）；回收站积压随行并入。
-  const auto quickScan = [&]() {
-    m_shaCancelled = true; // 重扫打断在途 SHA 校验
-    m_shaRunning = false;
-    dlg.setVerifyRunning(false);
-    QString err;
-    m_healthBase = paleo::health::buildCatalogHealth(cat, pd, &err);
-    if (!err.isEmpty())
-    {
-      m_healthBase = paleo::health::HealthReport();
-      emit statusMessage(tr("体检失败：%1").arg(err));
-    }
-    m_healthRecycleCount = 0;
-    m_healthRecycleBytes = 0;
-    for (const RecycleEntry &e : m_recycle.entries())
-    {
-      ++m_healthRecycleCount;
-      for (const CatalogVersion &v : cat->versionsForAsset(e.assetId))
-      {
-        if (!v.managed)
-          continue;
-        const QString abs = DataCatalog::resolvedVersionPath(pd, v);
-        if (!abs.isEmpty())
-        {
-          const QFileInfo fi(abs);
-          if (fi.exists())
-            m_healthRecycleBytes += fi.size();
-        }
-      }
-    }
-    refreshHealthReportInDialog();
-    dlg.setShaState(QString());
-  };
-
-  connect(&dlg, &CatalogHealthDialog::refreshRequested, this, quickScan);
-  connect(&dlg, &CatalogHealthDialog::verifyShaRequested, this, [&] {
-    m_shaTargets.clear();
-    for (const CatalogVersion &v : cat->versions())
-      if (!v.managed && !v.sha256.isEmpty() && !v.path.isEmpty())
-        m_shaTargets.append(v);
-    m_shaIdx = 0;
-    m_shaCancelled = false;
-    m_shaRunning = true;
-    dlg.setVerifyRunning(true);
-    if (m_shaTargets.isEmpty())
-    {
-      m_shaRunning = false;
-      dlg.setVerifyRunning(false);
-      dlg.setShaState(tr("没有带 SHA 留底的外链版本——无需校验。"));
-      return;
-    }
-    dlg.setShaState(tr("外链 SHA 校验：0/%1…").arg(m_shaTargets.size()));
-    // 分步推进：每步一个版本，事件循环呼吸间可响应取消。
-    QMetaObject::invokeMethod(this, &DataListPanel::runShaVerifyStep,
-                              Qt::QueuedConnection);
+  if (!m_ctx.cat || !m_ctx.cat->isOpen()) { emit statusMessage(tr("工程未打开，无法扫描存储")); return; }
+  if (m_storageDialog) { m_storageDialog->raise(); m_storageDialog->activateWindow(); return; }
+  auto *dialog = new StorageGovernanceDialog(this);
+  dialog->setAttribute(Qt::WA_DeleteOnClose);
+  m_storageDialog = dialog;
+  auto *controller = m_storageController;
+  connect(dialog, &StorageGovernanceDialog::scanRequested, controller, &StorageGovernanceController::scan);
+  connect(dialog, &StorageGovernanceDialog::cancelRequested, controller, &StorageGovernanceController::cancel);
+  connect(dialog, &QDialog::finished, controller, &StorageGovernanceController::cancel);
+  connect(dialog, &StorageGovernanceDialog::previewRequested, controller, &StorageGovernanceController::requestPreview);
+  connect(dialog, &StorageGovernanceDialog::confirmRequested, controller, &StorageGovernanceController::confirmPreview);
+  connect(dialog, &StorageGovernanceDialog::verifyShaRequested, controller, &StorageGovernanceController::verifySha);
+  connect(controller, &StorageGovernanceController::reportReady, dialog, &StorageGovernanceDialog::setReport);
+  connect(controller, &StorageGovernanceController::previewReady, dialog, &StorageGovernanceDialog::setPreview);
+  connect(controller, &StorageGovernanceController::stateChanged, dialog, &StorageGovernanceDialog::setBusy);
+  connect(controller, &StorageGovernanceController::progress, dialog, &StorageGovernanceDialog::setProgress);
+  connect(controller, &StorageGovernanceController::message, dialog, &StorageGovernanceDialog::setMessage);
+  connect(controller, &StorageGovernanceController::shaReady, dialog,
+    [dialog](const auto &issues, bool complete) {
+      dialog->setMessage(complete ? tr("外链 SHA 复验完成：%1 个不一致版本。").arg(issues.size())
+                                 : tr("外链 SHA 复验未完成；结果仅覆盖已扫部分。"));
+    });
+  connect(controller, &StorageGovernanceController::cleanupFinished, dialog, [this, dialog](const auto &outcome) {
+    dialog->setMessage(tr("回收完成：实际释放 %1 B；残留文件 %2 个。请重新扫描。%3")
+      .arg(outcome.bytesFreed).arg(outcome.leftoverFiles.size()).arg(outcome.leftoverFiles.join(QStringLiteral("\n"))));
+    refreshAssetTable();
   });
-  connect(&dlg, &CatalogHealthDialog::cancelVerifyRequested, this,
-          [&] { m_shaCancelled = true; });
-  connect(&dlg, &CatalogHealthDialog::jumpToVersion, this, [&](const QString &versionId) {
-    dlg.accept();
-    emit versionActivated(versionId);
-  });
-  connect(&dlg, &CatalogHealthDialog::jumpToAsset, this, [&](const QString &assetId) {
-    dlg.accept(); // 收起对话框让跳转立即可见（重开体检是廉价操作）
-    emit assetActivated(assetId); // 壳接预览标签 + 选中（与列表双击同一出口）
-  });
-  connect(&dlg, &CatalogHealthDialog::jumpToEntity, this, [&](const QString &entityId) {
-    dlg.accept();
-    emit entitiesFocusRequested(QStringList{entityId});
-  });
-
-  quickScan();
-  dlg.exec();
-  m_shaCancelled = true;
-  m_shaRunning = false;
-  m_healthDlg = nullptr;
+  dialog->setBusy(controller->busy(), controller->cancellable());
+  dialog->open();
+  controller->scan();
 }
 
-void DataListPanel::runShaVerifyStep()
+void DataListPanel::showHealthCheck()
 {
-  if (!m_healthDlg || !m_shaRunning)
-    return;
-  if (m_shaCancelled || m_shaIdx >= m_shaTargets.size())
-  {
-    const bool done = !m_shaCancelled;
-    m_shaRunning = false;
-    m_healthDlg->setVerifyRunning(false);
-    m_healthDlg->setShaState(
-        done ? tr("外链 SHA 校验完成：共 %1 个版本。").arg(m_shaTargets.size())
-             : tr("外链 SHA 校验已取消（已扫 %1/%2——结果只是已扫部分）。")
-                   .arg(m_shaIdx)
-                   .arg(m_shaTargets.size()));
-    m_healthBase.shaVerifyComplete = done;
+  DataCatalog *cat = m_ctx.cat;
+  if (!cat || !cat->isOpen()) { emit statusMessage(tr("工程未打开，无法体检")); return; }
+  CatalogHealthDialog dlg(this);
+  StorageGovernanceController controller;
+  controller.setCatalog(cat);
+  m_healthDlg = &dlg;
+  const auto quickScan = [&] {
+    QStringList ids;
+    for (const auto &entry : m_recycle.entries()) ids << entry.assetId;
+    m_healthRecycleCount = ids.size();
+    dlg.setShaState(tr("体检中；目录检查在后台执行，SHA 尚未复验。"));
+    controller.healthScan(ids);
+  };
+  connect(&dlg, &CatalogHealthDialog::refreshRequested, &controller, quickScan);
+  connect(&dlg, &CatalogHealthDialog::verifyShaRequested, &controller, &StorageGovernanceController::verifySha);
+  connect(&dlg, &CatalogHealthDialog::cancelVerifyRequested, &controller, &StorageGovernanceController::cancel);
+  connect(&controller, &StorageGovernanceController::stateChanged, &dlg, [&dlg](bool busy, bool) { dlg.setVerifyRunning(busy); });
+  connect(&controller, &StorageGovernanceController::progress, &dlg, [&dlg](int n, int total, const QString &path) {
+    dlg.setShaState(tr("后台检查 %1/%2：%3").arg(n).arg(total).arg(path));
+  });
+  connect(&controller, &StorageGovernanceController::healthReady, &dlg, [&](const auto &report, qint64 bytes, bool complete) {
+    m_healthBase = report; m_healthRecycleBytes = bytes;
     refreshHealthReportInDialog();
-    return;
-  }
-  const CatalogVersion v = m_shaTargets.at(m_shaIdx);
-  const QVector<paleo::health::HealthIssue> issues =
-      paleo::health::verifyExternalShas({v});
-  if (!issues.isEmpty())
-  {
-    for (const paleo::health::HealthIssue &i : issues)
-      m_healthBase.issues.append(i);
-    m_healthBase.shaVerifyComplete = false; // 进行中段按未完成展示
+    dlg.setShaState(complete ? tr("目录体检完成；外链 SHA 尚未复验。") : tr("体检未完成，结果仅覆盖已扫部分。"));
+  });
+  connect(&controller, &StorageGovernanceController::shaReady, &dlg, [&](const auto &issues, bool complete) {
+    m_healthBase.issues.erase(std::remove_if(m_healthBase.issues.begin(), m_healthBase.issues.end(),
+      [](const auto &issue) { return issue.kind == paleo::health::IssueKind::ShaMismatch; }), m_healthBase.issues.end());
+    m_healthBase.issues += issues; m_healthBase.shaVerifyComplete = complete;
     refreshHealthReportInDialog();
-  }
-  ++m_shaIdx;
-  m_healthDlg->setShaState(tr("外链 SHA 校验：%1/%2…")
-                               .arg(m_shaIdx)
-                               .arg(m_shaTargets.size()));
-  QMetaObject::invokeMethod(this, &DataListPanel::runShaVerifyStep,
-                            Qt::QueuedConnection);
+    dlg.setShaState(complete ? tr("外链 SHA 复验完成。") : tr("外链 SHA 复验已取消，未扫完。"));
+  });
+  connect(&dlg, &CatalogHealthDialog::jumpToVersion, this, [&](const QString &versionId) {
+    dlg.accept();
+    emit versionActivated(versionId); // #199 体检 stale 版本定位——分支重写时补回
+  });
+  connect(&dlg, &CatalogHealthDialog::jumpToAsset, this, [&](const QString &id) { dlg.accept(); emit assetActivated(id); });
+  connect(&dlg, &CatalogHealthDialog::jumpToEntity, this, [&](const QString &id) { dlg.accept(); emit entitiesFocusRequested({id}); });
+  quickScan(); dlg.exec(); controller.cancel(); m_healthDlg = nullptr;
 }
 
 // ---- D1.7 导出清单 -------------------------------------------------------------
@@ -3389,7 +3494,7 @@ void DataListPanel::openGroupConfig()
   for (const AssetRowInfo &r : m_rows)
     if (visible.contains(r.assetId))
       shown.append(r);
-  m_groupTree->loadRows(shown);
+  m_groupTree->loadRows(m_rows.size() > 200 ? m_pageRows : shown);
 }
 
 // ---- D1.3 上下文菜单 --------------------------------------------------------------

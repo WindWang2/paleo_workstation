@@ -2203,6 +2203,134 @@ void SeismicSectionDockWidget::cancelTracking() {
         m_trackTask->requestCancel();
 }
 
+// ---- goal/horizon-3d 层位 3D 体传播 ---------------------------------------
+
+SeismicSectionDockWidget::PropagationReadiness
+SeismicSectionDockWidget::propagationReadiness(QString *reason) const {
+    if (!m_volume || !m_volume->IsLoaded()) {
+        if (reason)
+            *reason = tr("无可用地震体（先加载 SEG-Y）");
+        return PropagationReadiness::NoVolume;
+    }
+    const SectionRef ref = m_canvas ? m_canvas->sectionRef() : SectionRef{};
+    if (!ref.valid || ref.type != SgySliceType::Inline) {
+        if (reason)
+            *reason = tr("3D 传播需以 inline 剖面为种子剖面（当前非 inline 切片/任意线）");
+        return PropagationReadiness::NotInlineSection;
+    }
+    const QString horizon = m_pickPanel ? m_pickPanel->currentHorizon() : QString();
+    const auto hasSeed = [ref, horizon](const SeismicPick &p) {
+        return p.inlineNo == ref.index &&
+               (horizon.isEmpty() || p.horizonName == horizon) &&
+               p.confidence == 1.0f; // 手动拾取为种子（机器拾取不自带起点权威）
+    };
+    for (const SeismicPick &p : m_session.picks)
+        if (hasSeed(p)) {
+            if (reason)
+                reason->clear();
+            return PropagationReadiness::Ready;
+        }
+    if (reason)
+        *reason = tr("种子剖面无当前层位的手动拾取（先 Ctrl+左键 拾取）");
+    return PropagationReadiness::NoSeeds;
+}
+
+void SeismicSectionDockWidget::runVolumePropagation() {
+    // goal/horizon-3d：种子剖面（当前 inline）手动拾取 → IL 全体滑窗扩散
+    // → 层位面资产（DERIVED 锚源体版本）+ GeoTIFF 上图声明。结果不进会话
+    // 拾取表——全体拾取集是图件级对象，非单剖面编辑对象（QC 走报告/图层）。
+    if (m_propTask)
+        return; // 在途中不重复触发（取消走 cancelVolumePropagation）
+    QString reason;
+    if (propagationReadiness(&reason) != PropagationReadiness::Ready) {
+        if (m_pickPanel)
+            m_pickPanel->showTrackError(reason);
+        emit propagationFinished(false);
+        return;
+    }
+    const SectionRef ref = m_canvas->sectionRef();
+    const QString horizon = m_pickPanel && !m_pickPanel->currentHorizon().isEmpty()
+                                ? m_pickPanel->currentHorizon()
+                                : QStringLiteral("H1");
+    QString interpreter;
+    const double dtMsSeed = m_volume->SampleIntervalUs() > 0
+                                ? m_volume->SampleIntervalUs() / 1000.0 : 2.0;
+    SeismicTaskService::VolumePropagationRequest req;
+    req.seedInline = ref.index;
+    for (const SeismicPick &p : m_session.picks) {
+        if (p.inlineNo != ref.index ||
+            (!horizon.isEmpty() && p.horizonName != horizon) ||
+            p.confidence != 1.0f)
+            continue;
+        // #146：种子样点按 TWT 重算（旧会话 sampleIndex 可能未扣记录延迟）
+        const int sample = sectionSampleForTwt(p.twtMs, ref.t0Ms, dtMsSeed);
+        if (sample >= 0 && sample < m_volume->SampleCount())
+            req.seeds.append({p.xlineNo, sample}); // 种子域 = (xline 线号, 采样)
+        if (interpreter.isEmpty())
+            interpreter = p.interpreter;
+    }
+    if (req.seeds.isEmpty()) {
+        if (m_pickPanel)
+            m_pickPanel->showTrackError(tr("种子拾取无法换算到采样域（TWT 越界）"));
+        emit propagationFinished(false);
+        return;
+    }
+    req.windowSamples = m_trackOptions.windowSamples;
+    req.maxSearchSamples = m_trackOptions.maxSearchSamples;
+    req.correlationThreshold = m_trackOptions.correlationThreshold;
+    req.dipHistoryPicks = m_trackOptions.dipHistoryPicks;
+    req.startTimeMs = ref.t0Ms; // #146 记录延迟入 TWT 域
+    req.interpreter = interpreter.isEmpty() ? tr("解释") : interpreter;
+    req.horizonName = horizon;
+
+    if (m_pickPanel)
+        m_pickPanel->setPropagateActive(true);
+    QPointer<SeismicSectionDockWidget> guard(this); // 迟到回调守卫（同 runTracking）
+    m_propTask = m_taskService->startVolumePropagation(
+        m_volume, req,
+        [this, guard, horizon](bool ok, const QList<SeismicPick> &picks,
+                               const SeismicTrackReport &report,
+                               const QString &error) {
+            if (!guard)
+                return; // dock 已亡：丢弃
+            m_propTask = nullptr;
+            if (m_pickPanel) {
+                m_pickPanel->setPropagateActive(false);
+                if (ok)
+                    m_pickPanel->showTrackReport(report);
+                else if (!error.isEmpty())
+                    m_pickPanel->showTrackError(error);
+            }
+            if (!ok) {
+                emit propagationFinished(false);
+                return;
+            }
+            // DERIVED 资产登记（catalog 未注入 = 无登记上下文，如实报出）
+            if (m_catalog) {
+                LayerDeclaration decl;
+                QString err;
+                const QString path = SeismicTaskService::registerPropagatedHorizonAsset(
+                    m_catalog, m_catalogAssetId, m_catalogVersionId, horizon,
+                    picks, m_interpretationDir, &err, &decl);
+                if (!path.isEmpty()) {
+                    if (!decl.layerId.isEmpty())
+                        emit horizonLayerDeclared(decl); // 上图（app 装配接 declare）
+                } else if (m_pickPanel) {
+                    m_pickPanel->showTrackError(tr("层位资产登记失败：%1").arg(err));
+                }
+            } else if (m_pickPanel) {
+                m_pickPanel->showTrackError(
+                    tr("传播完成，但 catalog 未注入——层位面未登记上图"));
+            }
+            emit propagationFinished(true);
+        });
+}
+
+void SeismicSectionDockWidget::cancelVolumePropagation() {
+    if (m_propTask)
+        m_propTask->requestCancel();
+}
+
 // ---- D5 井震与任意线 -----------------------------------------------------------
 
 void SeismicSectionDockWidget::setCandidateWells(const std::vector<SectionWellInfo> &wells) {

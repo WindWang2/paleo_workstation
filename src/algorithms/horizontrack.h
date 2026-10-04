@@ -11,8 +11,9 @@
 //
 // 算法（波形互相关主干，选型与因由见 .goal-loop-ledger-horizon-autotrack.md）：
 //   · 模板 = 种子道窗（固定，抗漂移——归一化相关对位置不敏感，候选窗滑动
-//     即可匹配大倾角同相轴）；倾角引导为隐式：搜索窗中心跟随前一道拾取
-//     位置，半径 maxSearchSamples 即逐道最大跳跃/倾角约束。
+//     即可匹配大倾角同相轴）；倾角引导默认隐式：搜索窗中心跟随前一道拾取
+//     位置，半径 maxSearchSamples 即逐道最大跳跃/倾角约束。goal/horizon-3d
+//     增显式引导（TrackOptions::dipHistoryPicks，第三判据，见其注释）。
 //   · 归一化互相关（零均值 Pearson）= 匹配分与置信度的基。
 //
 // 置信度语义（钉死）：
@@ -36,6 +37,8 @@ enum class StopReason
   CorrelationLoss,  // 最佳相关低于阈值（同相轴丢失/断层位移越界）
   CoherenceGate,    // 相关合格但候选被相干门槛尽数拒绝（断层判据）
   Cancelled,        // 取消谓词触发（部分结果如实返回）
+  ReadFailure,      // 滑窗取数失败（goal/horizon-3d：剖面供应器 nullptr）——
+                    // 已得拾取如实保留，传播中止（读错误非数据属性，不越错误续扫）
   Invalid           // 输入几何/种子非法（结果为空）
 };
 
@@ -45,6 +48,14 @@ struct TrackOptions
   int maxSearchSamples = 12;         // 逐道搜索半径 = 最大跳跃/倾角约束
   double correlationThreshold = 0.6; // 低于阈值的道不接受并停追
   double coherenceThreshold = 0.0;   // 相干门（<= 0 = 关闭）
+  // 显式倾角引导（goal/horizon-3d，第三判据）：>= 2 时启用——最近
+  // dipHistoryPicks 个拾取做最小二乘斜率估计，下一道搜索窗中心 = 前沿
+  // 位置 + 斜率预测（趋势 ± maxSearchSamples，可达跳幅上界 2×搜索半径）。
+  // 不替换阈值/相干门：接受判据仍是相关 + 相干，倾角只移动搜索窗（陡倾角
+  // 趋势不被平坦邻轴抢走中心）。估计失败（可用拾取 < 2 / |斜率| >
+  // 2·maxSearchSamples——预测窗可达上界外，趋势无从验证）如实回落现行
+  // 隐式行为（中心 = 前一道位置，斜率 0）。
+  int dipHistoryPicks = 0;
 };
 
 struct SeedPoint
@@ -115,5 +126,19 @@ PropagateResult propagateVolume(const float *volume, int nIl, int nXl, int nS,
                                 const TrackOptions &options,
                                 int maxInlineStep = 0,
                                 const std::function<bool()> &cancelled = nullptr);
+
+// ---- 3D 面扩散——滑窗取数面（goal/horizon-3d）----------------------------------
+// IL 剖面供应器：入参 il 为 0 基 IL 索引，返回该剖面道主序缓冲首址
+// （与全量体布局同构 xl*nS）；nullptr = 该剖面读取失败（传播以
+// StopReason::ReadFailure 中止，已得拾取保留）。供应器只需保证任意时刻
+// 至多两枚相邻剖面存活（种子剖面阶段 1 枚；扫掠阶段 prev+cur 各 1 枚），
+// 且取数按 IL 从种子向两侧单调推进——服务层据此做 IL 滑窗调度，不全体驻留。
+using SectionProvider = std::function<const float *(int il)>;
+
+PropagateResult propagateVolumeWindowed(
+    int nIl, int nXl, int nS, const SectionProvider &sectionAt,
+    int seedIl, const std::vector<SeedPoint> &seeds,
+    const TrackOptions &options, int maxInlineStep = 0,
+    const std::function<bool()> &cancelled = nullptr);
 
 } // namespace paleo::hztrack

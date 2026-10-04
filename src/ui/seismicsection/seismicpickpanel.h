@@ -8,6 +8,7 @@
 #include "services/seismictaskservice.h"
 
 class QComboBox;
+class QCheckBox;
 class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
@@ -37,11 +38,16 @@ public:
     void setTrackingActive(bool active);
     void showTrackReport(const SeismicTrackReport &report);
     void showTrackError(const QString &error);
+    // goal/horizon-3d — 3D 体传播在途态 + 可用性（禁用必须带 reason tooltip，
+    // DESIGN.md §组件）
+    void setPropagateActive(bool active);
+    void setPropagateEnabled(bool enabled, const QString &disabledReason);
 
 signals:
     void sessionChanged();          // 模型变更（画布叠加/自动保存由 dock 响应）
     void locateRequested(int pickId);
     void trackRequested();          // 以选中拾取为种子追踪（D4.2）
+    void propagateRequested();      // goal/horizon-3d：种子剖面沿 IL 全体扩散
 
 private:
     void buildUi();
@@ -54,6 +60,7 @@ private:
     void onDeleteSelected();
     void onRenameSelected();
     void onTrackClicked();
+    void onPropagateClicked();
 
     SeismicSectionDockWidget *dock_ = nullptr;
     QTableWidget *table_ = nullptr;
@@ -62,7 +69,9 @@ private:
     QLineEdit *editHorizon_ = nullptr;
     QSpinBox *spinTrackWindow_ = nullptr;
     QDoubleSpinBox *spinTrackThreshold_ = nullptr;
+    QCheckBox *chkDipGuide_ = nullptr;  // goal/horizon-3d：显式倾角引导开关
     QToolButton *btnTrack_ = nullptr;      // goal/horizon-autotrack：在途切「取消」
+    QToolButton *btnProp3D_ = nullptr;     // goal/horizon-3d：3D 传播（在途切「取消」）
     QLabel *lblTrackSummary_ = nullptr;    // goal/horizon-autotrack：覆盖率/置信度/停因
     QToolButton *btnUndo_ = nullptr;
     QToolButton *btnRedo_ = nullptr;

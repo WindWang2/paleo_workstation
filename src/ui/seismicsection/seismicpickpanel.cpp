@@ -3,6 +3,7 @@
 
 #include "../paleotheme.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
@@ -93,6 +94,14 @@ void SeismicPickPanel::buildUi()
     row2->addWidget(spinTrackThreshold_);
     btnTrack_ = mkBtn(tr("▶ 追踪同相轴"), tr("以选中拾取（或最后拾取）为种子，局部互相关沿同相轴双向追踪"));
     row2->addWidget(btnTrack_);
+    // goal/horizon-3d — 显式倾角引导（第三判据，追踪/传播共用；关 = 现行
+    // 隐式行为）+ 3D 体传播入口（在途切「取消」；进度/取消走任务面板）
+    chkDipGuide_ = new QCheckBox(tr("倾角引导"));
+    chkDipGuide_->setToolTip(tr("最近拾取的最小二乘斜率预测下一道搜索窗中心（陡倾角不被平坦邻轴抢走）；估计失败自动回落"));
+    row2->addWidget(chkDipGuide_);
+    btnProp3D_ = mkBtn(tr("◈ 3D 传播"), tr("种子剖面沿 inline 全体扩散成层位面（滑窗调度，进度/取消走任务面板）"));
+    btnProp3D_->setObjectName(QStringLiteral("btnPropagate3D"));
+    row2->addWidget(btnProp3D_);
     lblTrackSummary_ = new QLabel();
     lblTrackSummary_->setObjectName(QStringLiteral("trackSummaryLabel"));
     PaleoTheme::applyThemedStyleSheet(lblTrackSummary_, [] {
@@ -158,6 +167,7 @@ void SeismicPickPanel::buildUi()
     connect(btnSave, &QToolButton::clicked, this, &SeismicPickPanel::onSaveSession);
     connect(btnLoad, &QToolButton::clicked, this, &SeismicPickPanel::onLoadSession);
     connect(btnTrack_, &QToolButton::clicked, this, &SeismicPickPanel::onTrackClicked);
+    connect(btnProp3D_, &QToolButton::clicked, this, &SeismicPickPanel::onPropagateClicked);
     connect(btnUndo_, &QToolButton::clicked, this, [this]() {
         if (undoStack_)
             undoStack_->undo();
@@ -207,6 +217,16 @@ void SeismicPickPanel::refreshFromSession()
     {
         btnUndo_->setEnabled(undoStack_->canUndo());
         btnRedo_->setEnabled(undoStack_->canRedo());
+    }
+
+    // goal/horizon-3d — 拾取集变化即刷新 3D 传播可用性（种子 = 手动拾取）
+    if (dock_)
+    {
+        QString reason;
+        setPropagateEnabled(
+            dock_->propagationReadiness(&reason) ==
+                SeismicSectionDockWidget::PropagationReadiness::Ready,
+            reason);
     }
 }
 
@@ -321,9 +341,49 @@ void SeismicPickPanel::onTrackClicked()
     if (!sel.isEmpty())
         seedId = table_->item(sel.first().row(), 0)->text().toInt();
     dock_->setTrackSeedPick(seedId);
+    // goal/horizon-3d：倾角引导开关透传（开 = 8 拾取历史的最小二乘斜率）
     dock_->setTrackOptions({spinTrackWindow_->value(), 12,
-                            spinTrackThreshold_->value()});
+                            spinTrackThreshold_->value(), {}, 0.0,
+                            chkDipGuide_->isChecked() ? 8 : 0});
     emit trackRequested();
+}
+
+void SeismicPickPanel::onPropagateClicked()
+{
+    // goal/horizon-3d：传播在途 → 按钮即取消；参数与追踪行共用
+    if (dock_ && dock_->propagationActive())
+    {
+        dock_->cancelVolumePropagation();
+        return;
+    }
+    dock_->setTrackOptions({spinTrackWindow_->value(), 12,
+                            spinTrackThreshold_->value(), {}, 0.0,
+                            chkDipGuide_->isChecked() ? 8 : 0});
+    emit propagateRequested();
+}
+
+void SeismicPickPanel::setPropagateActive(bool active)
+{
+    if (btnProp3D_)
+    {
+        btnProp3D_->setText(active ? tr("■ 取消传播") : tr("◈ 3D 传播"));
+        btnProp3D_->setToolTip(active ? tr("取消在途体传播任务")
+                                      : tr("种子剖面沿 inline 全体扩散成层位面（滑窗调度，进度/取消走任务面板）"));
+    }
+    if (active && lblTrackSummary_)
+        lblTrackSummary_->setText(tr("体传播中…（进度见任务面板）"));
+}
+
+void SeismicPickPanel::setPropagateEnabled(bool enabled, const QString &disabledReason)
+{
+    if (!btnProp3D_)
+        return;
+    // 在途时按钮保持可用（取消必须可达）；禁用态带 reason tooltip（DESIGN.md）
+    const bool active = dock_ && dock_->propagationActive();
+    btnProp3D_->setEnabled(enabled || active);
+    btnProp3D_->setToolTip(active ? tr("取消在途体传播任务")
+                                  : (enabled ? tr("种子剖面沿 inline 全体扩散成层位面（滑窗调度，进度/取消走任务面板）")
+                                             : disabledReason));
 }
 
 void SeismicPickPanel::setTrackingActive(bool active)

@@ -90,7 +90,7 @@ namespace
   // 开发区块 4 类（oil_prod/gas_prod/water_injection/water_prod——表 K.1 之外
   // 的开发区块图式，按行业惯例近似：生产井实心盘+中心白点、注水井蓝盘白
   // 箭头，色源同 resources/geology/catalog.json 井型表）。未知 id → 通用
-  //「探井」。全部类别统一挂比例尺缩放（见 wellScaleExpression）。
+  //「探井」。全部类别统一挂 @map_scale 数据定义尺寸（函数尾，比例尺缩放）。
   QgsMarkerSymbol *wellCategorySymbol(const QString &id)
   {
     const QString ink = QStringLiteral("#333333");
@@ -733,8 +733,8 @@ bool QgisStyleService::restoreSymbolOverride(QgsVectorLayer *layer)
   if (!layer)
     return false;
   const QVariant prop = layer->customProperty(kSymbolSemanticsKey);
-  if (!prop.isValid() || prop.type() != QVariant::Map)
-    return false;
+  if (prop.userType() != QMetaType::QVariantMap)
+    return false; // 无覆盖/老工程异构值：不重放（保持 .qgs 原样 renderer）
   const QVariantMap semantics = prop.toMap();
   return applySymbolOverride(layer, semantics.value(QStringLiteral("family")).toString(),
                              semantics.value(QStringLiteral("id")).toString());

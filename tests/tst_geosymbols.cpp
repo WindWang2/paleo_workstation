@@ -358,6 +358,7 @@ private slots:
     QCOMPARE(svgBack->svgFilePath(),
              QStringLiteral(":/geology/textures/tex_conglomerate_pebble.svg"));
     QCOMPARE(svgBack->patternWidth(), 14.0);
+    QCOMPARE(svgBack->angle(), 0.0); // 旋转默认值保持（词表未设旋转档）
     QVERIFY(svgBack->svgFilePath().startsWith(QLatin1String(":/"))); // 不落机器路径
 
     // customProperty 语义锚：family/id/version 齐且版本=当前词表锚。

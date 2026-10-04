@@ -188,6 +188,17 @@ if(QGIS_PREFIX)
   target_compile_definitions(paleo_qgis_core_deps INTERFACE
     PALEO_QGIS_PREFIX_DEFAULT="${PALEO_QGIS_RUNTIME_PREFIX}")
 endif()
+# QGIS 公有头直接 include <sqlite3.h>（qgsstyle.h:19）与 GDAL/GEOS 头，但
+# 「OSGeo4W 把它们放在 prefix include」这一假设在本机不成立——依赖闭包是
+# vcpkg 装的，根在 paleo-qgis-deps/Library/include。只链 paleo_qgis_iface 的
+# 目标（tst_boot / tst_polygonize / paleo_selfcheck）因此拿不到该头。
+# 传播已找到的依赖根，与 paleo_deps 的口径对齐。
+if(GDAL_INCLUDE_DIR)
+  target_include_directories(paleo_qgis_core_deps INTERFACE "${GDAL_INCLUDE_DIR}")
+endif()
+if(GEOS_INCLUDE_DIR)
+  target_include_directories(paleo_qgis_core_deps INTERFACE "${GEOS_INCLUDE_DIR}")
+endif()
 target_link_libraries(paleo_qgis_core_deps INTERFACE
   ${QGIS_CORE_LIB} ${QGIS_ANALYSIS_LIB} paleo_qt_core)
 
@@ -967,6 +978,7 @@ add_paleo_test(tst_layerproperties LIBS paleo_ui)   # 矢量/栅格/缺源三类
 # 禁止直接改本文件的模块源列表——并行分支在此汇合零冲突。
 # 显式清单登记替代隐式 GLOB，根治构建目录漂移与测试漏注（P1-14 / TEST-01）
 set(_paleo_extra_manifest
+  "${CMAKE_SOURCE_DIR}/cmake/extra-batch.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-well-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-catalog-sqlite.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-crossplot-facies.cmake"

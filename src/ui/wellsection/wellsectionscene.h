@@ -7,6 +7,7 @@
 #include <QGraphicsView>
 #include <QImage>
 #include <QWidget>
+#include <functional>
 
 // ui/wellsection — 剖面渲染核：面板持有一份渲染状态（过滤后的井集、
 // 拉平偏移、深度窗口、模板、主题、高亮、地震缝、布局版本），列项与
@@ -20,6 +21,7 @@ struct RenderState {
   QVector<wellsection::Well> wells;    // tops 已按模板过滤
   QVector<double> offsets;             // 每井拉平偏移（与 wells 等长）
   wellsection::DepthWindow window;     // 显示深度窗口
+  wellsection::Datum datum;            // 基准面（深度道轴标签随模式切换）
   wellsection::SectionTemplate tpl;
   wellsection::SectionTheme theme;
   wellsection::SeismicStrip strip;
@@ -27,15 +29,28 @@ struct RenderState {
   QString activeTop, baseTop;          // 高亮地层段（activeTop 空 = 无高亮）
   int selected = -1;                   // 选中井序号（-1 无）
   QStringList zoneOrder;               // orderedTopNames → zoneFill 取色序
+  QVector<wellsection::LinkOverride> linkOverrides; // 连线断开/重连（用户编辑）
+  QVector<wellsection::FaultTrace> faultTraces; // 断层投绘（数据来自 workflow）
+  QVector<double> pathFractions;      // 井路径累计长分数（断层横向映射节点）
+  bool faultsOn = false;
   int margin = 16;
-  double gapPx = 96.0;
+  double gapPx = 96.0;                 // 等距缝宽 / 比例模式的平均缝宽
+  QVector<double> gapWidths;           // 比例模式逐缝宽；空 = 全 gapPx（等距）
   double pxPerMeter = 1.0;
   quint64 layoutVersion = 0;           // 几何/井集/模板变更递增（缓存键）
   quint64 curveVersion = 0;            // 曲线几何变更递增（px/m、偏移、数据、模板）——gapPx 不属其中
   quint64 stripVersion = 0;            // 地震缝数据变更递增（缓存键）
 
   double columnWidth() const { return tpl.columnWidth(); }
-  double columnLeft(int i) const { return margin + i * (columnWidth() + gapPx); }
+  double gapWidth(int i) const {
+    return gapWidths.isEmpty() ? gapPx : gapWidths.value(i, gapPx);
+  }
+  double columnLeft(int i) const {
+    double x = margin;
+    for (int k = 0; k < i; ++k)
+      x += columnWidth() + gapWidth(k);
+    return x;
+  }
   double columnRight(int i) const { return columnLeft(i) + columnWidth(); }
   double minGap() const { return seismicOn ? 140.0 : 48.0; }
   double maxGap() const { return 600.0; }
@@ -77,6 +92,8 @@ class ColumnItem : public QGraphicsItem
     void paintLithologyTrack(QPainter *p, const QRectF &trackRect,
                              const QRectF &exposed,
                              const wellsection::TrackSpec &tr);
+    void paintFaciesTrack(QPainter *p, const QRectF &trackRect,
+                          const QRectF &exposed);
 
     RenderState *m_st;
     int m_index;
@@ -89,6 +106,8 @@ class ColumnItem : public QGraphicsItem
 
 // 井间缝（两列之间）：地震 → 层段带 → 高亮带 → 分层连线；带 reason
 // 的缝画灰字说明（tooltip 由面板在状态变更时挂，paint 不改自身状态）。
+// 连线可拾取：hover 高亮 + 提示（linkHovered），右键请求断开/重连菜单
+//（linkMenuRequested——item 非 QObject，回调由面板注入）。
 class GapItem : public QGraphicsItem
 {
   public:
@@ -98,6 +117,19 @@ class GapItem : public QGraphicsItem
     QRectF boundingRect() const override;
     void paint(QPainter *p, const QStyleOptionGraphicsItem *option,
                QWidget *widget) override;
+    // (gap 序号, 顶名, 当前是否连接)；面板弹菜单/执行改接。
+    void setLinkMenuCallback(std::function<void(int, const QString &, bool)> cb) {
+      m_linkMenu = std::move(cb);
+    }
+    // 空串 = 离开；text 为面板要显示的 hover 提示。
+    void setLinkHoverCallback(std::function<void(const QString &)> cb) {
+      m_linkHover = std::move(cb);
+    }
+
+  protected:
+    void hoverMoveEvent(QGraphicsSceneHoverEvent *e) override;
+    void hoverLeaveEvent(QGraphicsSceneHoverEvent *e) override;
+    void mousePressEvent(QGraphicsSceneMouseEvent *e) override;
 
   private:
     void paintSeismic(QPainter *p, const QRectF &exposed,
@@ -105,14 +137,39 @@ class GapItem : public QGraphicsItem
     // 连线几何：主题 curvedLinks 时走 S 形贝塞尔，否则直线；层段带/
     // 高亮带/高亮边界共用同一路径（填充与线型不走两套几何）。
     QPainterPath linkPath(const wellsection::Link &lk) const;
+    // 命中最近连线（阈值内）；空名 = 未命中。坐标为 item 局部。
+    QString hitLink(const QPointF &p) const;
 
     RenderState *m_st;
     int m_index;
+    QString m_hoverLink; // hover 中的连线顶名
+    std::function<void(int, const QString &, bool)> m_linkMenu;
+    std::function<void(const QString &)> m_linkHover;
     // 缝内地震图缓存：(exposed, layoutVersion, stripVersion, theme.id)。
     mutable QImage m_img;
     mutable QRect m_imgRect;
     mutable quint64 m_imgKeyLayout = ~quint64(0), m_imgKeyStrip = ~quint64(0);
     mutable QString m_imgKeyTheme;
+};
+
+// 断层投绘覆盖项（全幅）：trace 的 along（井路径长分数）经井节点映射到
+// 列中心 x，深度经缝内插基准面偏移映射到 y（与地震缝同一插值口径）。
+class FaultOverlayItem : public QGraphicsItem
+{
+  public:
+    explicit FaultOverlayItem(RenderState *st);
+    void relayout() { prepareGeometryChange(); update(); }
+    QRectF boundingRect() const override;
+    void paint(QPainter *p, const QStyleOptionGraphicsItem *option,
+               QWidget *widget) override;
+
+  private:
+    // 井路径分数 → 场景 x（节点 = 列中心；分数缺失/越界 → NaN）。
+    double xForAlong(double along) const;
+    // 场景 x 处的基准面偏移（缝两端线性内插）。
+    double offsetAtX(double x) const;
+
+    RenderState *m_st;
 };
 
 // 吸顶版头（视图上方 QWidget，非场景项）：上行井名（点击选中、拖排、

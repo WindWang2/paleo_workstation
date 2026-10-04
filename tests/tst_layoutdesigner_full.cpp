@@ -15,6 +15,7 @@
 #include "../src/ui/layout/layoutexportactions.h"
 #include "../src/ui/layout/layoutitempalette.h"
 #include "../src/ui/layout/layoutitempanel.h"
+#include "../src/ui/layout/layoutitemtree.h"
 #include "../src/ui/layout/layouttemplates.h"
 #include "../src/ui/layout/layoutundostack.h"
 #include "../src/qgis/qgisruntime.h"
@@ -23,6 +24,8 @@
 #include <qgslayout.h>
 #include <qgslayoutitemguiregistry.h>
 #include <qgslayoutitemlabel.h>
+#include <qgslayoutitemmap.h>
+#include <qgslayoutitemmapgrid.h>
 #include <qgslayoutitempage.h>
 #include <qgslayoutitemregistry.h>
 #include <qgslayoutitemscalebar.h>
@@ -30,6 +33,7 @@
 #include <qgslayoutpagecollection.h>
 #include <qgslayoutpoint.h>
 #include <qgslayoutsize.h>
+#include <qgslayoutsnapper.h>
 #include <qgslayoutundostack.h>
 #include <qgslayoutview.h>
 #include <qgsprintlayout.h>
@@ -138,9 +142,15 @@ class TestLayoutDesignerFull : public QObject
       {
         QVERIFY2( shell.findChild<QAction *>( QString::fromLatin1( name ) ) != nullptr, name );
       }
+      // 内置模板两级（方向 25）：页面规格 N 项 + 图件模板子菜单（三类 × 4 规格）。
       QMenu *builtins = shell.findChild<QMenu *>( QStringLiteral( "menuBuiltinTemplates" ) );
       QVERIFY( builtins != nullptr );
-      QCOMPARE( builtins->actions().size(), PaleoLayoutTemplates::builtinKeys().size() );
+      QCOMPARE( builtins->actions().size(),
+                PaleoLayoutTemplates::builtinKeys().size() + 1 ); // + 图件模板子菜单
+      QMenu *figures = shell.findChild<QMenu *>( QStringLiteral( "menuFigureTemplates" ) );
+      QVERIFY( figures != nullptr );
+      QCOMPARE( figures->actions().size(), PaleoLayoutTemplates::figureBuiltinKeys().size() );
+      QCOMPARE( PaleoLayoutTemplates::figureBuiltinKeys().size(), 12 );
 
       // Items menu mirrors the palette's add entries + page properties.
       QMenu *items = iface->itemsMenu();
@@ -472,6 +482,168 @@ class TestLayoutDesignerFull : public QObject
       QVERIFY2( qAbs( page->pageSize().width() - 1189.0 ) < 0.5,
                 qPrintable( QString::number( page->pageSize().width() ) ) );
       QVERIFY( qAbs( page->pageSize().height() - 841.0 ) < 0.5 );
+    }
+
+    // --- 方向 25：图件内容模板（代码骨架，不依赖 docs/templates）----------------
+
+    void figureBuiltinActionAppliesSkeleton()
+    {
+      std::unique_ptr<QgsPrintLayout> layout( makeLayout() );
+      PaleoLayoutDesignerShell shell( layout.get() );
+
+      QAction *facies =
+          shell.findChild<QAction *>( QStringLiteral( "actionApplyBuiltin_facies@a3_portrait" ) );
+      QVERIFY( facies != nullptr );
+      facies->trigger();
+      QTest::qWait( 10 );
+
+      // 页面规格 + 骨架元素 + 插图（沉积相图独有）。
+      QgsLayoutItemPage *page = layout->pageCollection()->page( 0 );
+      QVERIFY( page != nullptr );
+      QVERIFY( qAbs( page->pageSize().width() - 297.0 ) < 0.5 ); // A3 竖
+      QVERIFY( qAbs( page->pageSize().height() - 420.0 ) < 0.5 );
+      QList<QgsLayoutItemMap *> maps;
+      layout->layoutItems( maps );
+      QCOMPARE( maps.size(), 2 ); // map + inset
+      auto *mainMap = qobject_cast<QgsLayoutItemMap *>(
+          layout->itemById( QStringLiteral( "map" ) ) );
+      QVERIFY( mainMap != nullptr );
+      QVERIFY( mainMap->grids()->size() == 1 ); // 主图带坐标网格（插图不带）
+      QVERIFY( qobject_cast<QgsLayoutItemMap *>( layout->itemById( QStringLiteral( "inset" ) ) )
+                   ->overviews()
+                   ->size() == 1 );
+
+      // 标题 = 图件种类名。
+      QList<QgsLayoutItemLabel *> labels;
+      layout->layoutItems( labels );
+      bool sawTitle = false;
+      for ( QgsLayoutItemLabel *label : labels )
+      {
+        if ( label->id() == QLatin1String( "title" ) &&
+             label->text() == QStringLiteral( "沉积相图" ) )
+          sawTitle = true;
+      }
+      QVERIFY( sawTitle );
+    }
+
+    // --- 方向 25：Items 菜单标准图件元素 --------------------------------------
+
+    void standardElementsMenuAddsFactories()
+    {
+      std::unique_ptr<QgsPrintLayout> layout( makeLayout() );
+      PaleoLayoutDesignerShell shell( layout.get() );
+
+      // 无地图项：菜单动作守卫（不崩、不加项）。
+      shell.findChild<QAction *>( QStringLiteral( "actionAddStandardScaleBar" ) )->trigger();
+      QList<QgsLayoutItem *> items;
+      layout->layoutItems( items );
+      QCOMPARE( items.size(), 1 ); // 只剩页面项
+
+      // 加地图项后逐类添加。
+      QgsLayoutItem *mapItem = nullptr;
+      QVERIFY( PaleoLayoutItemPalette::addItemNow( guiId( QgsLayoutItemRegistry::LayoutMap ),
+                                                   layout.get(), &mapItem ) );
+      for ( const char *name : { "actionAddStandardScaleBar", "actionAddStandardLegend",
+                                 "actionAddStandardNorthArrow", "actionAddStandardGrid",
+                                 "actionAddStandardTitleBlock" } )
+        shell.findChild<QAction *>( QString::fromLatin1( name ) )->trigger();
+      QTest::qWait( 10 );
+
+      layout->layoutItems( items );
+      QStringList ids;
+      for ( QgsLayoutItem *item : items )
+        ids << item->id();
+      for ( const char *id : { "scalebar", "legend", "northArrow", "title", "subtitle",
+                               "signature" } )
+        QVERIFY2( ids.contains( QString::fromLatin1( id ) ), id );
+      auto *map = qobject_cast<QgsLayoutItemMap *>( mapItem );
+      QVERIFY( map );
+      QCOMPARE( map->grids()->size(), 1 ); // 坐标网格挂在地图项上
+
+      // 加完即选：面板宿主新加的标题项。
+      PaleoLayoutItemPanel *panel = shell.findChild<PaleoLayoutItemPanel *>();
+      QCOMPARE( panel->item()->id(), QStringLiteral( "title" ) );
+    }
+
+    // --- 方向 25 M6：元素树双向选中 -------------------------------------------
+
+    void itemTreeSelectionSync()
+    {
+      std::unique_ptr<QgsPrintLayout> layout( makeLayout() );
+      PaleoLayoutDesignerShell shell( layout.get() );
+      auto *tree = shell.findChild<PaleoLayoutItemTree *>();
+      QVERIFY( tree != nullptr );
+
+      QgsLayoutItem *first = nullptr;
+      QgsLayoutItem *second = nullptr;
+      QVERIFY( PaleoLayoutItemPalette::addItemNow( guiId( QgsLayoutItemRegistry::LayoutLabel ),
+                                                   layout.get(), &first ) );
+      QVERIFY( PaleoLayoutItemPalette::addItemNow( guiId( QgsLayoutItemRegistry::LayoutLabel ),
+                                                   layout.get(), &second ) );
+
+      // 树 → 版面：模拟树内激活（外部选中路径）。
+      emit tree->itemActivated( second );
+      QVERIFY( second->isSelected() );
+      QCOMPARE( shell.findChild<PaleoLayoutItemPanel *>()->item(), second );
+
+      // 版面 → 树：壳选 first，树高亮同步。
+      shell.designerInterface()->selectItems( { first } );
+      QCOMPARE( tree->currentItem(), first );
+
+      // 双击 → 属性面板。
+      emit tree->itemShowOptions( first );
+      QCOMPARE( shell.findChild<PaleoLayoutItemPanel *>()->item(), first );
+    }
+
+    // --- 方向 25 M6：对齐/分布 + 吸附开关 --------------------------------------
+
+    void alignDistributeAndSnapping()
+    {
+      std::unique_ptr<QgsPrintLayout> layout( makeLayout() );
+      PaleoLayoutDesignerShell shell( layout.get() );
+
+      // 守卫：选中不足不动作、不崩。
+      shell.findChild<QAction *>( QStringLiteral( "actionAlignLeft" ) )->trigger();
+      shell.findChild<QAction *>( QStringLiteral( "actionDistributeHSpace" ) )->trigger();
+
+      QList<QgsLayoutItem *> labels;
+      for ( int i = 0; i < 3; ++i )
+      {
+        QgsLayoutItem *created = nullptr;
+        QVERIFY( PaleoLayoutItemPalette::addItemNow( guiId( QgsLayoutItemRegistry::LayoutLabel ),
+                                                     layout.get(), &created ) );
+        created->attemptMove( QgsLayoutPoint( 10 + 30 * i, 20 + 15 * i,
+                                              Qgis::LayoutUnit::Millimeters ) );
+        labels << created;
+      }
+
+      // 左对齐（2 项足够）：前两项左边对齐。
+      shell.designerInterface()->selectItems( { labels[0], labels[1] } );
+      shell.findChild<QAction *>( QStringLiteral( "actionAlignLeft" ) )->trigger();
+      QVERIFY( qAbs( labels[0]->mapToScene( labels[0]->rect().topLeft() ).x() -
+                     labels[1]->mapToScene( labels[1]->rect().topLeft() ).x() ) < 0.01 );
+
+      // 左边缘等距分布（3 项，位置互异）：相邻左边缘间距一致。
+      // 先把对齐步的两项拉开（完全重合是分布的退化输入）。
+      labels[1]->attemptMove( QgsLayoutPoint( 45, 35, Qgis::LayoutUnit::Millimeters ) );
+      labels[2]->attemptMove( QgsLayoutPoint( 85, 50, Qgis::LayoutUnit::Millimeters ) );
+      shell.designerInterface()->selectItems( labels );
+      QCOMPARE( layout->selectedLayoutItems().size(), 3 );
+      shell.findChild<QAction *>( QStringLiteral( "actionDistributeLeft" ) )->trigger();
+      const double l0 = labels[0]->mapToScene( labels[0]->rect().topLeft() ).x();
+      const double l1 = labels[1]->mapToScene( labels[1]->rect().topLeft() ).x();
+      const double l2 = labels[2]->mapToScene( labels[2]->rect().topLeft() ).x();
+      QVERIFY( qAbs( ( l1 - l0 ) - ( l2 - l1 ) ) < 0.01 );
+
+      // 吸附开关拨到 snapper。
+      QAction *grid = shell.findChild<QAction *>( QStringLiteral( "actionSnapToGrid" ) );
+      QVERIFY( grid && grid->isCheckable() );
+      QVERIFY( !layout->snapper().snapToGrid() );
+      grid->trigger();
+      QVERIFY( layout->snapper().snapToGrid() );
+      QAction *items = shell.findChild<QAction *>( QStringLiteral( "actionSnapToItems" ) );
+      QVERIFY( items->isChecked() );
+      QVERIFY( layout->snapper().snapToItems() ); // 默认开
     }
 };
 

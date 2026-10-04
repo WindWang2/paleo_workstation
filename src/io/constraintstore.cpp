@@ -3,6 +3,7 @@
 
 #include <gdal.h>
 #include <ogr_api.h>
+#include <ogr_geometry.h>
 #include <cpl_conv.h>
 #include <cpl_error.h>
 
@@ -10,6 +11,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QPointer>
+#include <QSet>
+#include <memory>
 
 #include <mutex>
 #include <vector>
@@ -271,6 +274,7 @@ QVector<QVariantMap> ConstraintStore::load(const QString &horizon) const
     }
 
     QVariantMap map;
+    map.insert(QStringLiteral("fid"), static_cast<qlonglong>(OGR_F_GetFID(feat)));
     if (idIdx >= 0)
     {
       const char *idStr = OGR_F_GetFieldAsString(feat, idIdx);
@@ -314,12 +318,9 @@ QVector<QVariantMap> ConstraintStore::load(const QString &horizon) const
     OGRGeometryH geom = OGR_F_GetGeometryRef(feat);
     if (geom)
     {
-      char *pszWkt = nullptr;
-      if (OGR_G_ExportToWkt(geom, &pszWkt) == OGRERR_NONE && pszWkt)
-      {
-        wktStr = QString::fromUtf8(pszWkt);
-        CPLFree(pszWkt);
-      }
+      OGRWktOptions options(17, false);
+      options.format = OGRWktFormat::G; // round-trip every binary64 coordinate
+      wktStr = QString::fromStdString(OGRGeometry::FromHandle(geom)->exportToWkt(options));
     }
     map.insert(QStringLiteral("wkt"), wktStr);
 
@@ -491,4 +492,103 @@ bool ConstraintStore::remove(const QString &id, QString *error)
     return false;
   }
   return true;
+}
+
+bool ConstraintStore::replaceHorizon(const QString &horizon, const QVector<QVariantMap> &rows,
+                                     QString *error)
+{
+  const WriteFn write = [&]() -> PaleoProjectStore::WriteResult {
+    ensureGdalRegistered();
+    if (horizon.isEmpty() || !QFile::exists(m_gpkgPath))
+      return {false, QObject::tr("约束层位或资产缺失")};
+    std::unique_ptr<void, decltype(&GDALClose)> ds(
+        GDALOpenEx(m_gpkgPath.toUtf8().constData(), GDAL_OF_UPDATE | GDAL_OF_VECTOR,
+                   nullptr, nullptr, nullptr), GDALClose);
+    if (!ds)
+      return {false, QObject::tr("无法打开约束资产")};
+    OGRLayerH layer = GDALDatasetGetLayerByName(ds.get(), "constraints");
+    if (!layer || GDALDatasetStartTransaction(ds.get(), FALSE) != OGRERR_NONE)
+      return {false, QObject::tr("无法开始约束快照事务")};
+    const auto fail = [&](const QString &reason) -> PaleoProjectStore::WriteResult {
+      GDALDatasetRollbackTransaction(ds.get());
+      return {false, reason};
+    };
+    OGRFeatureDefnH def = OGR_L_GetLayerDefn(layer);
+    const int horizonIndex = OGR_FD_GetFieldIndex(def, "horizon");
+    const int idIndex = OGR_FD_GetFieldIndex(def, "id");
+    if (horizonIndex < 0 || idIndex < 0)
+      return fail(QObject::tr("约束身份字段缺失"));
+
+    QSet<qlonglong> keep;
+    QSet<QString> ids;
+    for (const QVariantMap &row : rows)
+    {
+      const qlonglong fid = row.value(QStringLiteral("fid"), -1).toLongLong();
+      const QString id = row.value(QStringLiteral("id")).toString();
+      if (fid < 0 || id.isEmpty() || keep.contains(fid) || ids.contains(id) ||
+          row.value(QStringLiteral("horizon")).toString() != horizon)
+        return fail(QObject::tr("约束快照身份无效或重复"));
+      keep.insert(fid);
+      ids.insert(id);
+      std::unique_ptr<void, decltype(&OGR_F_Destroy)> feature(OGR_L_GetFeature(layer, fid), OGR_F_Destroy);
+      const bool exists = bool(feature);
+      if (exists && (QString::fromUtf8(OGR_F_GetFieldAsString(feature.get(), horizonIndex)) != horizon ||
+                     QString::fromUtf8(OGR_F_GetFieldAsString(feature.get(), idIndex)) != id))
+        return fail(QObject::tr("约束快照会覆盖其他要素身份"));
+      if (!exists)
+      {
+        feature.reset(OGR_F_Create(def));
+        OGR_F_SetFID(feature.get(), fid);
+      }
+      QByteArray bytes = row.value(QStringLiteral("wkt")).toString().toUtf8();
+      char *wkt = bytes.data();
+      OGRGeometryH geometry = nullptr;
+      const OGRErr parsed = OGR_G_CreateFromWkt(&wkt, nullptr, &geometry);
+      std::unique_ptr<void, decltype(&OGR_G_DestroyGeometry)> ownedGeometry(geometry, OGR_G_DestroyGeometry);
+      if (parsed != OGRERR_NONE || !geometry || OGR_F_SetGeometry(feature.get(), geometry) != OGRERR_NONE)
+        return fail(QObject::tr("约束快照几何无效"));
+      // Preserve schema scalar fields and binary64 precision during rollback.
+      for (int i = 0; i < OGR_FD_GetFieldCount(def); ++i)
+      {
+        const QString name = QString::fromUtf8(OGR_Fld_GetNameRef(OGR_FD_GetFieldDefn(def, i)));
+        if (!row.contains(name))
+          continue;
+        const QVariant value = row.value(name);
+        if (value.isNull())
+          OGR_F_SetFieldNull(feature.get(), i);
+        else
+        {
+          switch (OGR_Fld_GetType(OGR_FD_GetFieldDefn(def, i)))
+          {
+            case OFTInteger: OGR_F_SetFieldInteger(feature.get(), i, value.toInt()); break;
+            case OFTInteger64: OGR_F_SetFieldInteger64(feature.get(), i, value.toLongLong()); break;
+            case OFTReal: OGR_F_SetFieldDouble(feature.get(), i, value.toDouble()); break;
+            case OFTString: OGR_F_SetFieldString(feature.get(), i, value.toString().toUtf8().constData()); break;
+            default: return fail(QObject::tr("约束快照包含不支持的字段类型：%1").arg(name));
+          }
+        }
+      }
+      if ((exists ? OGR_L_SetFeature(layer, feature.get()) : OGR_L_CreateFeature(layer, feature.get())) != OGRERR_NONE)
+        return fail(QObject::tr("写入约束快照失败：%1").arg(QString::fromUtf8(CPLGetLastErrorMsg())));
+    }
+    QList<qlonglong> remove;
+    OGR_L_ResetReading(layer);
+    while (OGRFeatureH raw = OGR_L_GetNextFeature(layer))
+    {
+      std::unique_ptr<void, decltype(&OGR_F_Destroy)> feature(raw, OGR_F_Destroy);
+      const qlonglong fid = OGR_F_GetFID(raw);
+      if (QString::fromUtf8(OGR_F_GetFieldAsString(raw, horizonIndex)) == horizon && !keep.contains(fid))
+        remove.append(fid);
+    }
+    for (qlonglong fid : remove)
+      if (OGR_L_DeleteFeature(layer, fid) != OGRERR_NONE)
+        return fail(QObject::tr("删除约束快照要素失败"));
+    if (GDALDatasetCommitTransaction(ds.get()) != OGRERR_NONE)
+      return fail(QObject::tr("提交约束快照失败"));
+    return {true, QString()};
+  };
+  const auto result = m_enqueue ? m_enqueue(write) : write();
+  if (!result.ok && error)
+    *error = result.error;
+  return result.ok;
 }

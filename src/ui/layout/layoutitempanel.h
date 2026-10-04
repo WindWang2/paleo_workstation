@@ -81,6 +81,12 @@ class PaleoLayoutItemPanel : public QWidget
     // buttons carry the §35 reason tooltip for the disabled case).
     void applyScalebarPreset( int preset );
 
+    // 地图内容绑定（方向 25 M3）：只对 QgsLayoutItemMap 生效，其余项 no-op。
+    //   snapshot=true  锁定快照——停止跟随主题，把当前有效层集（存储层集，
+    //                  为空时取工程图层树勾选层）钉为显式层集
+    //   snapshot=false 实时跟随——恢复 followVisibilityPreset（主题名不动）
+    bool applyMapContentBinding( bool snapshot );
+
   signals:
     // Coarse-grained: emitted whenever the hosted item changes (native widget
     // edit, panel action, or direct item API call), and with nullptr when the
@@ -102,6 +108,8 @@ class PaleoLayoutItemPanel : public QWidget
     QLabel *m_horizonValue = nullptr;
     QPushButton *m_applyHorizonButton = nullptr;
     QPushButton *m_presetButtons[3] = {};
+    QPushButton *m_mapSnapshotButton = nullptr;
+    QPushButton *m_mapLiveButton = nullptr;
 };
 
 // Lets QSignalSpy / queued connections carry itemChanged(QgsLayoutItem*) args;

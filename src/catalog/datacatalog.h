@@ -23,14 +23,16 @@ class CatalogStore;
 //
 // 实体类型：well（稳定 id+井名）、seismic_survey（打开时从道头冻结
 // 角点/inline/crossline 范围/采样间隔/起始时间）、sequence_boundary（层序界面）、
-// auxiliary（扫描图、文档、未配准 GeoJSON 等辅助资料）。
+// auxiliary（扫描图、文档、未配准 GeoJSON 等辅助资料）、
+// planned（方向 34 计划井：surface 坐标 + 部署依据；虚拟实体，绝不进入
+// 单因素/编图/剖面等计算输入——计算侧一律按 entityType=="well" 过滤）。
 // D12（pass-2）：uwi/aliases 遗留字段已剥离——井身份只走 name；旧 catalog
 // 里的 "uwi"/"aliases" 键装载时静默忽略，不回写。
 
 struct CatalogEntity
 {
   QString id;
-  QString entityType;   // "well" | "seismic_survey" | "sequence_boundary" | "auxiliary"
+  QString entityType;   // "well" | "seismic_survey" | "sequence_boundary" | "auxiliary" | "planned"
   QString name;
 
   // §3 井坐标：surface_x/y 是原始坐标（本工区=局部测网米），在真投影参数出现前

@@ -40,6 +40,13 @@ void PaleoDrawConstraintTool::deactivate()
 
 void PaleoDrawConstraintTool::keyPressEvent( QKeyEvent *e )
 {
+  if (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter)
+  {
+    finishCapture();
+    e->accept();
+    return;
+  }
+
   if ( e->key() == Qt::Key_Escape )
     emit drawAborted(); // §42.15: owner deactivates the tool via unsetMapTool()
   QgsMapToolCapture::keyPressEvent( e ); // Esc → stopCapturing(), e->ignore()
@@ -122,6 +129,13 @@ void PaleoDrawPolygonTool::deactivate()
 
 void PaleoDrawPolygonTool::keyPressEvent( QKeyEvent *e )
 {
+  if (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter)
+  {
+    finishCapture();
+    e->accept();
+    return;
+  }
+
   if ( e->key() == Qt::Key_Escape )
     emit drawAborted(); // §42.15: owner deactivates the tool via unsetMapTool()
   QgsMapToolCapture::keyPressEvent( e ); // Esc → stopCapturing(), e->ignore()
@@ -197,18 +211,33 @@ PaleoDrawRectTool::PaleoDrawRectTool( QgsMapCanvas *canvas, QgsAdvancedDigitizin
 
 void PaleoDrawRectTool::activate()
 {
+  m_shapePreview = std::make_unique<PaleoShapePreview>(mCanvas);
   QgsMapToolCapture::activate();
   startCapturing(); // capture-mode state machine live ahead of the first corner
 }
 
 void PaleoDrawRectTool::deactivate()
 {
+  m_shapePreview.reset();
   stopCapturing(); // drop rubber bands + capture curve (idempotent)
   QgsMapToolCapture::deactivate();
 }
 
 void PaleoDrawRectTool::keyPressEvent( QKeyEvent *e )
 {
+  if (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter)
+  {
+    const QgsGeometry geometry = m_shapePreview ? m_shapePreview->current() : QgsGeometry();
+    if (!geometry.isNull())
+    {
+      stopCapturing();
+      m_shapePreview->clear();
+      emit constraintDrawn(geometry.asWkt(17));
+    }
+    e->accept();
+    return;
+  }
+
   if ( e->key() == Qt::Key_Escape )
     emit drawAborted(); // §42.15: owner deactivates the tool via unsetMapTool()
   QgsMapToolCapture::keyPressEvent( e ); // Esc → stopCapturing(), e->ignore()
@@ -216,6 +245,7 @@ void PaleoDrawRectTool::keyPressEvent( QKeyEvent *e )
 
 void PaleoDrawRectTool::cadCanvasReleaseEvent( QgsMapMouseEvent *e )
 {
+  e->snapPoint();
   if ( e->button() == Qt::RightButton )
   {
     if ( size() >= 1 )
@@ -240,44 +270,50 @@ void PaleoDrawRectTool::cadCanvasReleaseEvent( QgsMapMouseEvent *e )
     emitRectangle();
 }
 
-void PaleoDrawRectTool::emitRectangle( const QgsPointXY *eventCorner )
+void PaleoDrawRectTool::cadCanvasMoveEvent(QgsMapMouseEvent *e)
 {
-  const QgsCompoundCurve *curve = captureCurve();
-  if ( !curve || size() < 1 )
+  e->snapPoint();
+  QgsMapToolCapture::cadCanvasMoveEvent(e);
+  m_shapePreview->update(QStringLiteral("rect"), captureCurve(), currentVectorLayer(), e);
+}
+
+void PaleoDrawRectTool::emitRectangle(const QgsPointXY *cursor)
+{
+  const auto geometry = PaleoShapePreview::geometry(QStringLiteral("rect"), captureCurve(),
+      currentVectorLayer(), mCanvas, cursor);
+  if (geometry.isNull())
     return;
+  stopCapturing();
+  m_shapePreview->clear();
+  emit constraintDrawn(geometry.asWkt(17));
+}
 
-  // captureCurve() stores coordinates in the current vector layer's CRS when
-  // one is set; the signal contract is canvas CRS, so reproject if they differ.
-  std::unique_ptr<QgsCurve> canvasCurve( curve->clone() );
-  if ( !CaptureHelpers::transformToCanvas( *canvasCurve, currentVectorLayer(), mCanvas ) )
-  {
-    emit messageEmitted( tr( "无法将约束矩形转换到地图坐标" ), Qgis::MessageLevel::Warning );
+void PaleoDrawConstraintTool::finishCapture()
+{
+  if (size() < 2 || !captureCurve())
     return;
-  }
+  lineCaptured(captureCurve()->clone());
+  stopCapturing();
+}
 
-  QgsPointSequence vertices;
-  canvasCurve->points( vertices );
-  if ( vertices.isEmpty() )
+void PaleoDrawConstraintTool::canvasDoubleClickEvent(QgsMapMouseEvent *e)
+{
+  if (e->button() == Qt::LeftButton)
+    finishCapture();
+}
+
+void PaleoDrawPolygonTool::finishCapture()
+{
+  if (size() < 3 || !captureCurve())
     return;
+  QgsCurvePolygon polygon;
+  polygon.setExteriorRing(captureCurve()->clone());
+  polygonCaptured(&polygon);
+  stopCapturing();
+}
 
-  const QgsPointXY c1( vertices.constFirst().x(), vertices.constFirst().y() );
-  QgsPointXY c2;
-  if ( eventCorner )
-    c2 = *eventCorner; // right-click cursor position, already canvas CRS
-  else if ( vertices.size() >= 2 )
-    c2 = QgsPointXY( vertices.at( 1 ).x(), vertices.at( 1 ).y() );
-  else
-    return; // fewer than two corners resolve — not a rectangle yet
-
-  const double xmin = std::min( c1.x(), c2.x() );
-  const double xmax = std::max( c1.x(), c2.x() );
-  const double ymin = std::min( c1.y(), c2.y() );
-  const double ymax = std::max( c1.y(), c2.y() );
-
-  QgsPolygon rect;
-  rect.setExteriorRing( new QgsLineString( QVector<QgsPoint> {
-      QgsPoint( xmin, ymin ), QgsPoint( xmax, ymin ), QgsPoint( xmax, ymax ),
-      QgsPoint( xmin, ymax ), QgsPoint( xmin, ymin ) } ) );
-  emit constraintDrawn( rect.asWkt() );
-  stopCapturing(); // clean capture state/rubber band (idempotent)
+void PaleoDrawPolygonTool::canvasDoubleClickEvent(QgsMapMouseEvent *e)
+{
+  if (e->button() == Qt::LeftButton)
+    finishCapture();
 }

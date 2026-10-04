@@ -17,6 +17,8 @@ class QComboBox;
 class QLabel;
 class QAction;
 class QgisEditingService;
+class QSpinBox;
+class QgsRubberBand;
 
 // ui/edittools/ — PaleoEditingToolbar: the 「编辑」 toolbar host.
 //
@@ -80,6 +82,7 @@ class PaleoEditingToolbar : public QWidget
     PaleoUndoStack *undoStack() const { return mUndoStack.get(); }
 
     // Action surface (for host wiring and tests).
+    QAction *actionEditMode() const { return mActionEditMode; }
     QAction *actionSelect() const { return mActionSelect; }
     QAction *actionAddFeature() const { return mActionAddFeature; } // menu: 点/线/面
     QAction *actionAddPoint() const { return mActionAddPoint; }
@@ -101,6 +104,8 @@ class PaleoEditingToolbar : public QWidget
     QAction *actionUndo() const { return mActionUndo; }
     QAction *actionRedo() const { return mActionRedo; }
 
+    QSpinBox *snapToleranceSpin() const { return mSnapTolerance; }
+    QSpinBox *undoDepthSpin() const { return mUndoDepth; }
     QToolBar *toolBar() const { return mToolBar; }
     QComboBox *layerCombo() const { return mLayerCombo; }
     QLabel *stateLabel() const { return mStateLabel; }
@@ -130,6 +135,7 @@ class PaleoEditingToolbar : public QWidget
     void refreshCombo();                        // rebuild from mLayers ∩ filter
     void updateActionStates();                  // enable/disable + reason tooltips
     void updateStateLabel();
+    void updateEditHighlight();
     void onEditToolTriggered();                 // shared: auto-start editing + install
     QgsVectorLayer *editableTarget() const;     // current layer passing gates
 
@@ -151,6 +157,11 @@ class PaleoEditingToolbar : public QWidget
     QComboBox *mLayerCombo = nullptr;
     QLabel *mStateLabel = nullptr;
     QAction *mActionSelect = nullptr;
+    QAction *mActionEditMode = nullptr;
+    QSpinBox *mSnapTolerance = nullptr;
+    QSpinBox *mUndoDepth = nullptr;
+    std::unique_ptr<QgsRubberBand> mEditHighlight;
+    QList<QMetaObject::Connection> mHighlightConnections;
     QAction *mActionAddFeature = nullptr;
     QAction *mActionAddPoint = nullptr;
     QAction *mActionAddLine = nullptr;

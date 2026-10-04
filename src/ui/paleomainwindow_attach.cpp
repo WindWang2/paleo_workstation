@@ -21,6 +21,7 @@
 #include "../workflow/propertymodelworkflow.h"
 #include "../workflow/faultinterpretationcontroller.h"
 #include "propertymodel/propertymodelpanel.h"
+#include "faciesmapping/faciesmappingpanel.h"
 #include "../workflow/workflows.h"
 #include "../domain/arearules.h"
 #include "../domain/projectclassifier.h"
@@ -36,6 +37,7 @@
 #include "../workflow/registration.h"
 #include "../workflow/mappingworkflow.h"
 #include "../workflow/mapexport.h"
+#include "../workflow/horizonbatchexport.h" // 方向 25 M4：按层位组批量出图
 #include "../workflow/mapversioncontroller.h"
 #include "locator/paleolocatorfilters.h"
 #include "releasepanel.h"
@@ -47,6 +49,9 @@
 #include "pages/datalist.h" // B2：listPanel()->importQueuePanel() 需完整类型
 #include "constraintdrawcontroller.h"
 #include "typedconstraintdrawcontroller.h" // m2(B)：物源线/展布线/控制点类型化捕获
+#include "pages/wellsitingpanel.h"   // 方向34：布井辅助面板
+#include "maptools/sitingpicktool.h"      // 方向34：地图布点拾取工具
+#include "../workflow/wellsitingworkflow.h" // 方向34：井网辅助编排
 
 #include <QDateTime>
 #include <QDir>
@@ -110,6 +115,7 @@
 #include <QMap>
 #include <QMenu>
 #include <QMessageBox>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QShortcut>
 #include <QToolButton>
@@ -124,6 +130,7 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QUndoStack>
 
 #include <memory>
 
@@ -441,6 +448,181 @@ void PaleoMainWindow::attachDepthConversion(DepthConversionWorkflow *depth)
   });
 }
 
+
+// ---- goal/facies-automapping：证据合成 + QA 报告面板 --------------------
+// 同 attachPropertyModel 形态：面板只发意图，链路在 FaciesMappingWorkflow
+//（约束装配/优势相/相界/合成/QA/登记全在功能层）。幂等：dock 已建则只
+// 更新 workflow 指针。
+void PaleoMainWindow::attachFaciesMapping(FaciesMappingWorkflow *wf)
+{
+  if (wf)
+    m_faciesMappingWf = wf;
+  if (m_faciesMappingDock)
+    return;
+
+  m_faciesMappingPanel = new FaciesMappingPanel(this);
+  m_faciesMappingDock = new QDockWidget(tr("相图合成"), this);
+  m_faciesMappingDock->setObjectName(QStringLiteral("faciesMappingDock"));
+  m_faciesMappingDock->setWidget(m_faciesMappingPanel);
+  addDockWidget(Qt::RightDockWidgetArea, m_faciesMappingDock);
+  if (m_rightDock)
+    tabifyDockWidget(m_rightDock, m_faciesMappingDock);
+  m_faciesMappingDock->hide();
+
+  connect(m_faciesMappingPanel, &FaciesMappingPanel::cancelRequested, this, [this]() {
+    m_faciesMappingRunner.requestCancel();
+    if (m_faciesMappingTask)
+      m_faciesMappingTask->requestCancel();
+  });
+
+  // QA 行点击 → 画布定位（问题逐条可定位；无画布时状态栏如实说明）。
+  connect(m_faciesMappingPanel, &FaciesMappingPanel::issueSelected, this,
+          [this](const QString &regionId, double x, double y) {
+            if (m_canvasCtl)
+            {
+              m_canvasCtl->zoomToPoint(x, y);
+              if (statusBar())
+                statusBar()->showMessage(tr("已定位到问题单元 %1").arg(regionId), 5000);
+            }
+            else if (statusBar())
+            {
+              statusBar()->showMessage(
+                  tr("画布不可用——问题单元 %1 位于 (%2, %3)").arg(regionId).arg(x).arg(y),
+                  8000);
+            }
+          });
+
+  connect(m_faciesMappingPanel, &FaciesMappingPanel::generateRequested, this,
+          [this](const QString &horizon, double wellWeight, double factorWeight,
+                 double predictionWeight, double assignThreshold, double minRegionArea,
+                 double minIslandArea, double wellCoverageRadius) {
+            if (!m_faciesMappingWf || m_faciesMappingRunning || !m_faciesMappingPanel)
+              return;
+            if (horizon.isEmpty())
+            {
+              m_faciesMappingPanel->showResult(false, tr("需要层位"));
+              return;
+            }
+
+            FaciesMappingWorkflow::DraftFaciesRequest request;
+            request.horizon = horizon;
+            request.wellWeight = wellWeight;
+            request.factorWeight = factorWeight;
+            request.predictionWeight = predictionWeight;
+            request.assignThreshold = assignThreshold;
+            request.minRegionArea = minRegionArea;
+            request.minIslandArea = minIslandArea;
+            request.wellCoverageRadius = wellCoverageRadius;
+            QString err;
+            if (!m_faciesMappingWf->assembleConstraintInputs(&request, &err))
+            {
+              m_faciesMappingPanel->showResult(false, err);
+              if (statusBar())
+                statusBar()->showMessage(tr("草稿相图失败：%1").arg(err), 8000);
+              return;
+            }
+
+            m_faciesMappingRunning = true;
+            m_faciesMappingPanel->setBusy(true);
+            if (m_taskSvc)
+            {
+              // JobRunner 三段式：compute 在任务池 worker，commit 回 owner 线程
+              //（catalog 登记线程亲和由框架断言）。
+              m_faciesMappingRunner.setTaskService(m_taskSvc);
+              m_faciesMappingJob.reset();
+              m_faciesMappingTask = m_faciesMappingWf->startJob(
+                  m_faciesMappingRunner, request, m_faciesMappingPanel, &m_faciesMappingJob);
+              if (m_faciesMappingTask)
+                connect(m_faciesMappingTask.data(), &PaleoTask::finished, this,
+                        [this] { finishFaciesMappingRun(); });
+              else
+                m_faciesMappingRunning = false;
+              return;
+            }
+
+            // 无任务池（未接线壳/旧测试）：同步直跑，不泵事件。
+            auto computed = m_faciesMappingWf->runCompute(
+                request, [this](double fraction, const QString &stage) {
+                  if (m_faciesMappingPanel)
+                    m_faciesMappingPanel->updateProgress(
+                        static_cast<int>(fraction * 100.0), stage);
+                  return true;
+                });
+            if (!computed.ok)
+            {
+              m_faciesMappingRunning = false;
+              m_faciesMappingPanel->showResult(false, computed.error);
+              return;
+            }
+            if (!m_faciesMappingWf->commitComputed(request, &computed))
+            {
+              m_faciesMappingRunning = false;
+              m_faciesMappingPanel->showResult(false, computed.error);
+              return;
+            }
+            m_faciesMappingJob = std::make_shared<FaciesMappingWorkflow::DraftFaciesJob>();
+            m_faciesMappingJob->computed = std::move(computed);
+            finishFaciesMappingRun();
+          });
+}
+
+void PaleoMainWindow::finishFaciesMappingRun()
+{
+  m_faciesMappingRunning = false;
+  const bool cancelled =
+      m_faciesMappingTask && m_faciesMappingTask->state() == PaleoTask::State::Cancelled;
+  m_faciesMappingTask = nullptr;
+  if (!m_faciesMappingPanel)
+    return;
+
+  // 三段式 commit 段成功时结果已在 job 里回填；同步兜底路径由调用方先行
+  // commit 再进这里（同 finishPropertyModelRun 的判据口径）。
+  const FaciesMappingWorkflow::DraftFaciesComputed *computed =
+      m_faciesMappingJob ? &m_faciesMappingJob->computed : nullptr;
+  if (cancelled)
+  {
+    m_faciesMappingPanel->showResult(false, tr("已取消"));
+    return;
+  }
+  if (!computed || !computed->ok)
+  {
+    const QString why = computed ? computed->error : tr("无计算结果");
+    m_faciesMappingPanel->showResult(false, why);
+    if (statusBar())
+      statusBar()->showMessage(tr("草稿相图失败：%1").arg(why), 8000);
+    return;
+  }
+
+  // QA 报告行喂表：工作流给的 issue 结构 → 面板行（视图不读文件、不判几何）。
+  QList<FaciesMappingPanel::QaRow> rows;
+  rows.reserve(static_cast<int>(computed->qaIssues.size()));
+  for (const paleo::faciesmapping::FaciesQaIssue &issue : computed->qaIssues)
+  {
+    FaciesMappingPanel::QaRow row;
+    row.type = QString::fromLatin1(paleo::faciesmapping::faciesQaIssueName(issue.type));
+    QStringList ids;
+    for (const std::string &id : issue.regionIds)
+      ids << QString::fromStdString(id);
+    row.regionIds = ids.join(QLatin1Char(';'));
+    QStringList related;
+    for (const std::string &id : issue.relatedIds)
+      related << QString::fromStdString(id);
+    row.related = related.join(QLatin1Char(';'));
+    row.metric = issue.metric;
+    row.x = issue.location.x;
+    row.y = issue.location.y;
+    rows.append(row);
+  }
+  m_faciesMappingPanel->setQaRows(rows);
+  const int regionCount = computed->extra.value(QStringLiteral("region_count")).toInt();
+  const int issues = static_cast<int>(computed->qaIssues.size());
+  m_faciesMappingPanel->showResult(
+      true, tr("草稿相图完成：%1 个单元 · %2 条 QA 问题").arg(regionCount).arg(issues));
+  if (statusBar())
+    statusBar()->showMessage(
+        tr("草稿相图完成：%1 个单元，QA 问题 %2 条").arg(regionCount).arg(issues), 8000);
+}
+
 void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
                                            paleo::fault::FaultInterpretationController *faults)
 {
@@ -751,7 +933,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   stack->addWidget(validatePage);
 
   attachSections(seismicLink);
-  attachWellSection(taskSvc); // 连井剖面 dock ← workflow（m_seismicTaskSvc 已在上方就位）
+  attachWellSection(taskSvc, store); // 连井剖面 dock ← workflow + 编辑产物落库（store）
   attachWellCompositeDerived(this, m_previewDoc ? m_previewDoc->catalog() : nullptr);
   WellCorrelationPanel *corrPanel = nullptr;
   if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
@@ -1815,10 +1997,52 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
               });
     }
+    connect(constraintPage, &ConstraintPage::constraintSelectionChanged, this,
+            [this](const QString &horizon, const QStringList &ids) {
+      if (!m_layerSvc)
+        return;
+      auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("constraints.%1").arg(horizon)));
+      if (!layer)
+        return;
+      QgsFeatureIds selection;
+      QgsFeature feature;
+      auto features = layer->getFeatures();
+      while (features.nextFeature(feature))
+        if (ids.contains(feature.attribute(QStringLiteral("id")).toString()))
+          selection.insert(feature.id());
+      layer->selectByIds(selection);
+    });
+    const auto beginConstraintEdit = [this, constraintPage](const QString &horizon) -> QgsVectorLayer * {
+      if (!m_layerSvc)
+        return nullptr;
+      auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("constraints.%1").arg(horizon)));
+      auto *toolbar = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar"));
+      if (!layer || !toolbar)
+        return nullptr;
+      toolbar->refreshFromProject();
+      toolbar->setCurrentLayer(layer);
+      if (toolbar->currentLayer() != layer || !toolbar->startEditing())
+        return nullptr;
+      connect(layer->undoStack(), &QUndoStack::indexChanged, constraintPage,
+              &ConstraintPage::refreshConstraintList, Qt::UniqueConnection);
+      connect(toolbar, &PaleoEditingToolbar::editingStopped, constraintPage,
+              &ConstraintPage::refreshConstraintList, Qt::UniqueConnection);
+      return layer;
+    };
+    connect(constraintPage, &ConstraintPage::constraintParametersRequested, this,
+            [constraint, constraintPage, beginConstraintEdit](const QString &horizon, const QStringList &ids, const QVariantMap &patch) {
+      QString error;
+      const bool ok = beginConstraintEdit(horizon) && constraint->updateConstraintLines(ids, patch, &error);
+      if (!ok)
+        if (auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+          status->setText(error.isEmpty() ? tr("约束编辑不可用，请检查编辑会话与资产状态") : error);
+    });
     // ---- 方向23：已绘约束线编辑面 ----
     // 删除：store 落盘删除 + 已实例化的 constraints.<horizon> 图层重载。
     connect(constraintPage, &ConstraintPage::constraintDeleteRequested, this,
-            [this, constraint, constraintPage](const QString &horizon, const QString &id) {
+            [this, constraint, constraintPage, beginConstraintEdit](const QString &horizon, const QString &id) {
+              if (!beginConstraintEdit(horizon))
+                return;
               QString err;
               if (!constraint->removeConstraint(id, &err))
               {
@@ -1833,7 +2057,8 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 {
                   if (auto *vl = qobject_cast<QgsVectorLayer *>(layer))
                   {
-                    vl->reload();
+                    if (!vl->isEditable())
+                      vl->reload();
                     vl->triggerRepaint();
                   }
                 }
@@ -1842,7 +2067,9 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
             });
     // 语义切换：走 updateConstraintLine 同一持久化通道（type 列 + params_json）。
     connect(constraintPage, &ConstraintPage::constraintSemanticChangeRequested, this,
-            [constraint](const QString &, const QString &id, const QString &semantic) {
+            [constraint, beginConstraintEdit](const QString &horizon, const QString &id, const QString &semantic) {
+              if (!beginConstraintEdit(horizon))
+                return;
               QString err;
               if (!constraint->switchConstraintSemantic(id, semantic, &err))
                 QgsMessageLog::logMessage(err.isEmpty() ? tr("切换约束语义失败") : err,
@@ -1851,31 +2078,17 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
     // 顶点编辑：约束表是可写 GPKG（非派生只读），直接进编辑会话 + 顶点工具，
     // 撤销/重做走编辑条的原生 undo 栈；提交后约束页重读列表。
     connect(constraintPage, &ConstraintPage::editConstraintVerticesRequested, this,
-            [this, constraint, constraintPage](const QString &horizon) {
-              if (!m_layerSvc || !m_canvasCtl)
-                return;
-              const QString layerId = QStringLiteral("constraints.%1").arg(horizon);
-              QgsMapLayer *layer = m_layerSvc->instantiate(layerId);
-              auto *vl = qobject_cast<QgsVectorLayer *>(layer);
-              if (!vl)
-              {
-                QgsMessageLog::logMessage(tr("约束图层不可用：%1").arg(layerId),
-                                          QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
-                return;
-              }
-              auto *editTb = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar"));
-              if (editTb)
-              {
-                editTb->refreshFromProject();
-                editTb->setCurrentLayer(vl);
-                editTb->actionVertexEdit()->trigger();
-                connect(editTb, &PaleoEditingToolbar::editingStopped, constraintPage,
-                        &ConstraintPage::refreshConstraintList, Qt::UniqueConnection);
-                if (editTb->isEditing() && editTb->currentLayer() == vl)
-                  return;
-              }
-              m_canvasCtl->canvas()->setCurrentLayer(vl);
-            });
+            [this, beginConstraintEdit, constraintPage](const QString &horizon) {
+      auto *layer = beginConstraintEdit(horizon);
+      auto *toolbar = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar"));
+      if (!layer || !toolbar)
+        return;
+      if (layer->selectedFeatureCount() == 0)
+        layer->selectAll();
+      toolbar->actionVertexEdit()->trigger();
+      connect(toolbar, &PaleoEditingToolbar::editingStopped, constraintPage,
+              &ConstraintPage::refreshConstraintList, Qt::UniqueConnection);
+    });
     // ---- m2(B) end ----
   }
 }
@@ -2004,45 +2217,145 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
     // ---- m2(C): 在布局设计器中打开（layoutdesignershell 公共入口）---------
     // 打开（或新建）本层位的版面：优先复用导出同名布局 "<h>_map"；新空布局
     // 没有地图项时主题钉定自然跳过（设计器里由模板/手工补地图项）。
+    // 方向 25 M6：openLayoutDesigner(name) 同时服务版面库的按名打开。
+    const auto openLayoutDesigner = [this, layoutSvc](const QString &name) {
+      if (!layoutSvc)
+      {
+        QgsMessageLog::logMessage(tr("布局服务未接入 — 无法打开图件设计器"),
+                                  QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+        return;
+      }
+      if (!m_projectSvc || m_projectSvc->projectPath().isEmpty())
+      {
+        QgsMessageLog::logMessage(tr("无打开工程 — 无法打开图件设计器"),
+                                  QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+        return;
+      }
+      QString err;
+      QgsLayout *layout = layoutSvc->layout(name);
+      if (!layout)
+        layout = layoutSvc->createLayout(name, &err);
+      if (!layout)
+      {
+        QgsMessageLog::logMessage(
+            err.isEmpty() ? tr("创建布局失败：%1").arg(name) : err,
+            QStringLiteral("Paleo"), Qgis::MessageLevel::Critical);
+        return;
+      }
+      // 版面地图项钉本页主题（m1 setLayoutMapTheme 接缝）。
+      if (QgsLayoutItemMap *mapItem =
+              qobject_cast<QgsLayoutItemMap *>(layout->itemById(QStringLiteral("map"))))
+        pinLayoutTheme(mapItem, QStringLiteral("compose"));
+      auto *shell = new PaleoLayoutDesignerShell(layout, this);
+      shell->setTaskService(m_taskSvc); // #85：导出走任务池 worker
+      shell->setAttribute(Qt::WA_DeleteOnClose);
+      shell->setModal(false);
+      shell->show();
+    };
     connect(composePage, &ComposePage::layoutDesignerRequested, this,
-            [this, layoutSvc]() {
-              if (!layoutSvc)
-              {
-                QgsMessageLog::logMessage(tr("布局服务未接入 — 无法打开图件设计器"),
-                                          QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
-                return;
-              }
-              if (!m_projectSvc || m_projectSvc->projectPath().isEmpty())
-              {
-                QgsMessageLog::logMessage(tr("无打开工程 — 无法打开图件设计器"),
-                                          QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
-                return;
-              }
+            [this, openLayoutDesigner]() {
               const QString h = m_selection ? m_selection->activeHorizon() : QString();
-              const QString name = h.isEmpty() ? tr("编图布局")
-                                               : QStringLiteral("%1_map").arg(h);
-              QString err;
-              QgsLayout *layout = layoutSvc->layout(name);
-              if (!layout)
-                layout = layoutSvc->createLayout(name, &err);
-              if (!layout)
+              openLayoutDesigner(h.isEmpty() ? tr("编图布局")
+                                             : QStringLiteral("%1_map").arg(h));
+            });
+
+    // ---- 方向 25 M6：版面库（打开/删除/批量出图）----------------------------
+    const auto refreshLayoutNames = [composePage, layoutSvc]() {
+      composePage->setLayoutNames(layoutSvc ? layoutSvc->layoutNames() : QStringList());
+    };
+    refreshLayoutNames();
+    if (layoutSvc)
+    {
+      connect(layoutSvc, &QgisLayoutService::layoutAdded, composePage, refreshLayoutNames);
+      connect(layoutSvc, &QgisLayoutService::layoutRemoved, composePage, refreshLayoutNames);
+    }
+    connect(composePage, &ComposePage::layoutOpenRequested, this,
+            [openLayoutDesigner](const QString &name) { openLayoutDesigner(name); });
+    connect(composePage, &ComposePage::layoutDeleteRequested, this,
+            [this, composePage, layoutSvc, refreshLayoutNames](const QString &name) {
+              if (!layoutSvc || name.isEmpty())
+                return;
+              const auto choice = QMessageBox::question(
+                  this, tr("删除版面"),
+                  tr("删除版面「%1」？随工程保存的布局将一并移除。").arg(name),
+                  QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel);
+              if (choice != QMessageBox::Ok)
+                return;
+              if (!layoutSvc->removeLayout(name))
+                QMessageBox::warning(this, tr("删除失败"), tr("无法删除版面「%1」。").arg(name));
+              refreshLayoutNames();
+            });
+    connect(composePage, &ComposePage::batchFigureExportRequested, this,
+            [this, composePage, layoutSvc]() {
+              // 骨架版面：活动层位版面优先，退第一个现存版面；都没有 → 提示。
+              const QString h = m_selection ? m_selection->activeHorizon() : QString();
+              QString skeletonName = h.isEmpty() ? QString()
+                                                 : QStringLiteral("%1_map").arg(h);
+              QgsPrintLayout *skeleton = skeletonName.isEmpty()
+                                             ? nullptr
+                                             : qobject_cast<QgsPrintLayout *>(
+                                                   layoutSvc ? layoutSvc->layout(skeletonName)
+                                                             : nullptr);
+              if (!skeleton && layoutSvc)
               {
-                QgsMessageLog::logMessage(
-                    err.isEmpty() ? tr("创建布局失败：%1").arg(name) : err,
-                    QStringLiteral("Paleo"), Qgis::MessageLevel::Critical);
+                const QStringList names = layoutSvc->layoutNames();
+                if (!names.isEmpty())
+                {
+                  skeletonName = names.first();
+                  skeleton =
+                      qobject_cast<QgsPrintLayout *>(layoutSvc->layout(skeletonName));
+                }
+              }
+              if (!skeleton)
+              {
+                QMessageBox::information(
+                    this, tr("批量出图"),
+                    tr("先在设计器里准备一个版面（作为批量出图的骨架）。"));
                 return;
               }
-              // 版面地图项钉本页主题（m1 setLayoutMapTheme 接缝）。
-              if (QgsLayoutItemMap *mapItem =
-                      qobject_cast<QgsLayoutItemMap *>(layout->itemById(QStringLiteral("map"))))
-                pinLayoutTheme(mapItem, QStringLiteral("compose"));
-              auto *shell = new PaleoLayoutDesignerShell(layout, this);
-              shell->setTaskService(m_taskSvc); // #85：导出走任务池 worker
-              shell->setAttribute(Qt::WA_DeleteOnClose);
-              shell->setModal(false);
-              shell->show();
+              if (!m_layerSvc)
+                return;
+              DataCatalog *catalog = m_previewDoc ? m_previewDoc->catalog() : nullptr;
+              const QString projectDir =
+                  m_projectSvc && !m_projectSvc->projectPath().isEmpty()
+                      ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
+                      : QString();
+              if (!catalog || projectDir.isEmpty())
+              {
+                QMessageBox::warning(this, tr("批量出图"),
+                                     tr("需要打开工程（catalog 受管区）再批量出图。"));
+                return;
+              }
+
+              PaleoHorizonBatchExport::Request request;
+              request.layout = skeleton;
+              request.projectName = QFileInfo(projectDir).fileName();
+              request.horizonLayers =
+                  PaleoHorizonBatchExport::resolveHorizonLayers(m_layerSvc);
+              request.catalog = catalog;
+              request.projectDir = projectDir;
+              request.dpi = 300.0;
+              request.format = PaleoHorizonBatchExport::Format::Pdf;
+
+              // 同步核心 + 模态忙等（复用无任务池导出路径的口径）。
+              QProgressDialog progress(tr("正在按层位组批量出图…"), QString(), 0, 0, this);
+              progress.setWindowTitle(tr("批量出图"));
+              progress.setWindowModality(Qt::WindowModal);
+              progress.setMinimumDuration(0);
+              QCoreApplication::processEvents();
+              const auto result = PaleoHorizonBatchExport::run(request);
+              progress.cancel();
+
+              QStringList lines{result.summary()};
+              for (const auto &outcome : result.horizons)
+                lines << (outcome.ok ? tr("· %1 → %2").arg(outcome.horizon, outcome.file)
+                                     : tr("· %1 失败：%2").arg(outcome.horizon, outcome.error));
+              QMessageBox::information(this, tr("批量出图"), lines.join(QLatin1Char('\n')));
+              if (auto *status = composePage->findChild<QLabel *>(
+                      QStringLiteral("statusLabel")))
+                status->setText(result.summary());
             });
-    // ---- m2(C) end ----
+    // ---- 方向 25 M6 end ----
   }
 }
 
@@ -3021,4 +3334,100 @@ void PaleoMainWindow::attachMappingVersions(ComposePage *composePage,
             if (m_refreshPublishGate) m_refreshPublishGate();
           });
 
+}
+
+// ---------------------------------------------------------------------------
+// 方向34：井网辅助接线（验证页双页签 + 地图布点 + 导出）
+// ---------------------------------------------------------------------------
+void PaleoMainWindow::attachWellSiting(WellSitingWorkflow *wf)
+{
+  m_wellSitingWf = wf;
+  if (!wf)
+    return;
+
+  // 幂等：页签已建则只刷面板（重挂工程作用域数据）。过滤器注入与
+  // plannedWellsChanged→refreshAssetTable 连接也在守卫内——二次调用不叠加。
+  if (!m_wellSitingPanel)
+  {
+    // M2 可见性统一：数据页「计划井」组与 siting 文档 retired 面一致——
+    // siting 面删的计划井不滞留数据页；变化即刷资产树（公共槽）。
+    if (auto *listPanel = findChild<DataListPanel *>())
+    {
+      listPanel->setPlannedVisibilityFilter(
+          [wf](const QString &id) { return !wf->isPlannedRetired(id); });
+      connect(wf, &WellSitingWorkflow::plannedWellsChanged, listPanel,
+              [listPanel]() { listPanel->refreshAssetTable(); });
+    }
+
+    auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost"));
+    auto *stack = host ? static_cast<QStackedLayout *>(host->layout()) : nullptr;
+    if (!stack)
+      return;
+    const int idx = paleo::pagesinternal::kPageIds.indexOf(QStringLiteral("validate"));
+    if (idx < 0 || idx >= stack->count())
+      return;
+    QLayoutItem *taken = stack->takeAt(idx);
+    QWidget *validatePage = taken ? taken->widget() : nullptr;
+    delete taken;
+    if (!validatePage)
+      return;
+
+    auto *tabs = new QTabWidget(host);
+    tabs->setObjectName(QStringLiteral("validatePageTabs"));
+    tabs->addTab(validatePage, tr("验证"));
+    auto *panel = new WellSitingPanel(wf, tabs);
+    m_wellSitingPanel = panel;
+    tabs->addTab(panel, tr("布井辅助"));
+    stack->insertWidget(idx, tabs);
+    // 页签不变页义：验证页 ribbon/图层档案映射仍按 "validate" 走。
+
+    // 地图布点意图 → 装拾取工具；拾取点回调面板入 catalog 计划井。
+    connect(panel, &WellSitingPanel::mapPlacementRequested, this, [this]() {
+      if (!m_canvasCtl || !m_wellSitingPanel)
+        return;
+      auto *tool = new PaleoSitingPickTool(m_canvasCtl->canvas());
+      connect(tool, &PaleoSitingPickTool::pointPicked, this,
+              [this](double x, double y) {
+                if (m_wellSitingPanel)
+                  m_wellSitingPanel->placePlannedAt(x, y);
+              });
+      m_canvasCtl->setMapTool(tool);
+      statusBar()->showMessage(tr("在地图上单击放置计划井（Esc 取消）"), 8000);
+    });
+
+    // 导出：面板只报场景，文件对话框由壳统一管。
+    connect(panel, &WellSitingPanel::exportRequested, this,
+            [this](const QString &kind, const QString &scenarioId) {
+              if (!m_wellSitingWf)
+                return;
+              if (kind == QLatin1String("csv"))
+              {
+                const QString path = QFileDialog::getSaveFileName(
+                    this, tr("导出方案点位表"), QString(), tr("CSV 表 (*.csv)"));
+                if (path.isEmpty())
+                  return;
+                QString err;
+                if (!m_wellSitingWf->exportScenarioCsv(scenarioId, path, &err))
+                  QMessageBox::warning(this, tr("导出方案点位表"), err);
+                else
+                  statusBar()->showMessage(tr("已导出：%1").arg(path), 8000);
+              }
+              else if (kind == QLatin1String("chart"))
+              {
+                const QString path = QFileDialog::getSaveFileName(
+                    this, tr("导出覆盖对比图"), QString(), tr("PNG 图 (*.png)"));
+                if (path.isEmpty())
+                  return;
+                QString err;
+                if (!m_wellSitingWf->exportComparisonChart(path, &err))
+                  QMessageBox::warning(this, tr("导出覆盖对比图"), err);
+                else
+                  statusBar()->showMessage(tr("已导出：%1").arg(path), 8000);
+              }
+            });
+  }
+  else
+  {
+    m_wellSitingPanel->reloadFromWorkflow();
+  }
 }

@@ -2,11 +2,14 @@
 // token 例外：DESIGN 数据符号例外：纸面地层/岩性图未知值的灰色占位符号。（tools/ui-token-exceptions.json 精确计数）。
 #include "wellsectionscene.h"
 
+#include "domain/faciesclassification.h"
 #include "domain/seismic/nicestep.h"
 #include "ui/paleotheme.h"
 
 #include <QApplication>
 #include <QGraphicsScene>
+#include <QGraphicsSceneEvent>
+#include <QLineF>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
@@ -109,21 +112,26 @@ int RenderState::columnAtX(double x) const
   if (wells.isEmpty())
     return -1;
   const double cw = columnWidth();
-  const double rel = x - margin;
-  if (rel < 0)
-    return -1;
-  const int i = int(rel / (cw + gapPx));
-  if (i < 0 || i >= wells.size())
-    return -1;
-  return (rel - i * (cw + gapPx) <= cw) ? i : -1;
+  double left = margin;
+  for (int i = 0; i < wells.size(); ++i)
+  {
+    if (x < left)
+      return -1;
+    if (x <= left + cw)
+      return i;
+    left += cw + gapWidth(i);
+  }
+  return -1;
 }
 
 double RenderState::sceneWidth() const
 {
   if (wells.isEmpty())
     return 2.0 * margin;
-  return 2.0 * margin + wells.size() * columnWidth() +
-         (wells.size() - 1) * gapPx;
+  double w = 2.0 * margin + wells.size() * columnWidth();
+  for (int i = 0; i + 1 < wells.size(); ++i)
+    w += gapWidth(i);
+  return w;
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +198,9 @@ void ColumnItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
         break;
       case wellsection::TrackKind::Lithology:
         paintLithologyTrack(p, trRect, exposed, tr);
+        break;
+      case wellsection::TrackKind::Facies:
+        paintFaciesTrack(p, trRect, exposed);
         break;
     }
     x += tw;
@@ -414,8 +425,16 @@ void ColumnItem::paintDepthTrack(QPainter *p, const QRectF &trackRect,
   const double yTop = m_st->yForMd(m_index, mdLo);
   const double yBot = m_st->yForMd(m_index, mdHi);
   const int target = qMax(4, int((yBot - yTop) / 60.0));
-  const auto ticks = seismic::NiceStep::GenerateTicks(
-      mdLo, mdHi, yTop, yBot, target, QStringLiteral("%.0f"), true);
+  // 海拔模式：轴标 = kb − MD（补心海拔基准，向上为正）——刻度取整在
+  // 海拔空间做，井深/拉平模式照旧在 MD 空间取整。
+  const auto ticks = m_st->datum.mode == wellsection::DatumMode::Elevation
+                         ? seismic::NiceStep::GenerateTicks(
+                               m_st->wells[m_index].kb - mdHi,
+                               m_st->wells[m_index].kb - mdLo, yBot, yTop,
+                               target, QStringLiteral("%.0f"), true)
+                         : seismic::NiceStep::GenerateTicks(
+                               mdLo, mdHi, yTop, yBot, target,
+                               QStringLiteral("%.0f"), true);
 
   QFont mono = PaleoTheme::monoFont();
   mono.setPointSize(PaleoTheme::tokens().labelPt);
@@ -486,17 +505,52 @@ void ColumnItem::paintLithologyTrack(QPainter *p, const QRectF &trackRect,
   }
 }
 
+void ColumnItem::paintFaciesTrack(QPainter *p, const QRectF &trackRect,
+                                  const QRectF &exposed)
+{
+  const wellsection::Well &w = m_st->wells[m_index];
+  if (w.facies.isEmpty())
+    return;
+  QFont f = p->font();
+  f.setPointSize(PaleoTheme::kLabelPt);
+  const QFontMetricsF fm(f);
+  for (const wellsection::FaciesSegment &seg : w.facies)
+  {
+    const double y0 = m_st->yForMd(m_index, seg.topMd);
+    const double y1 = m_st->yForMd(m_index, seg.baseMd);
+    if (y1 < exposed.top() || y0 > exposed.bottom())
+      continue;
+    const QRectF band(trackRect.left(), y0, trackRect.width(), y1 - y0);
+    // 12 色 Wheel（crossplot 数据符号色同源）+ 描边，段高足够时标类号。
+    const auto cc = paleo::crossplot::classColor(seg.classId);
+    QColor fill(cc.red, cc.green, cc.blue, 200);
+    p->fillRect(band, fill);
+    p->setPen(QPen(m_st->theme.frame, 0.5));
+    p->drawRect(band);
+    if (band.height() >= fm.height() + 4 && band.width() > 14)
+    {
+      p->setFont(f);
+      p->setPen(m_st->theme.text);
+      p->drawText(band, Qt::AlignCenter | Qt::TextSingleLine,
+                  QString::number(seg.classId));
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // GapItem — 井间缝
 // ---------------------------------------------------------------------------
 GapItem::GapItem(RenderState *st, int index) : m_st(st), m_index(index)
 {
   setFlag(QGraphicsItem::ItemUsesExtendedStyleOption);
+  // 连线拾取：hover 高亮/提示 + 右键断开重连（左键留给列选中）。
+  setAcceptHoverEvents(true);
+  setAcceptedMouseButtons(Qt::RightButton);
 }
 
 QRectF GapItem::boundingRect() const
 {
-  return {m_st->columnRight(m_index), 0.0, m_st->gapPx,
+  return {m_st->columnRight(m_index), 0.0, m_st->gapWidth(m_index),
           m_st->sceneHeight()};
 }
 
@@ -522,7 +576,17 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
   if (seismicDrawn)
     paintSeismic(p, exposed, *gap);
 
-  const auto lks = wellsection::links(a, b);
+  // 连线分 Effective/断开两组：断开画细虚线示意（可右键重连），不参与
+  // 层段带/高亮带的闭合几何。
+  const QVector<wellsection::Link> allLks = wellsection::links(a, b);
+  QVector<wellsection::Link> lks;   // 连接中的
+  QVector<wellsection::Link> broken; // 用户断开的
+  for (const auto &lk : allLks) {
+    if (wellsection::linkConnected(m_st->linkOverrides, a.id, b.id, lk.name))
+      lks.push_back(lk);
+    else
+      broken.push_back(lk);
+  }
   // 地震底图上描线先铺一圈纸面光晕，连线不被波形吃掉。
   const auto stroke = [&](const QPainterPath &path, const QPen &pen) {
     if (seismicDrawn)
@@ -573,12 +637,23 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
   }
 
   // 4. 分层连线（S 形贝塞尔或直线）；高亮两界的名字不画灰线——
-  //    随后只画主色 2px 边界，避免灰线与蓝线并肩。
+  //    随后只画主色 2px 边界，避免灰线与蓝线并肩。hover 中的连线加粗。
   for (const auto &lk : lks)
   {
     if (&lk == la || &lk == lb)
       continue;
-    stroke(linkPath(lk), QPen(m_st->theme.link, m_st->theme.linkWidth));
+    QPen pen(m_st->theme.link, m_st->theme.linkWidth);
+    if (lk.name == m_hoverLink)
+      pen.setWidthF(pen.widthF() + 1.2);
+    stroke(linkPath(lk), pen);
+  }
+  // 4b. 断开的连线：细虚线示意断点（右键可重连）。
+  for (const auto &lk : broken)
+  {
+    QPen pen(m_st->theme.frame, 1.0, Qt::DashLine);
+    if (lk.name == m_hoverLink)
+      pen.setWidthF(pen.widthF() + 1.0);
+    stroke(linkPath(lk), pen);
   }
   // 5. 高亮边界（主色 2px，沿同一连线几何）。
   const QPen hiPen(highlightColor(), 2.0);
@@ -618,6 +693,116 @@ QPainterPath GapItem::linkPath(const wellsection::Link &lk) const
   return path;
 }
 
+// 连线命中：路径上采样最近距离（贝塞尔重几何不必精确解析），阈值 6px。
+QString GapItem::hitLink(const QPointF &pt) const
+{
+  const wellsection::Well &a = m_st->wells[m_index];
+  const wellsection::Well &b = m_st->wells[m_index + 1];
+  const double x0 = m_st->columnRight(m_index);
+  const double x1 = m_st->columnLeft(m_index + 1);
+  QString best;
+  double bestDist = 6.0;
+  for (const auto &lk : wellsection::links(a, b))
+  {
+    const double yl = m_st->yForMd(m_index, lk.leftMd);
+    const double yr = m_st->yForMd(m_index + 1, lk.rightMd);
+    const bool curved = m_st->theme.curvedLinks;
+    QPointF prev(x0, yl);
+    for (int s = 1; s <= 16; ++s)
+    {
+      const double t = double(s) / 16.0;
+      QPointF cur;
+      if (curved)
+      {
+        const double mt = 1.0 - t;
+        const double mx = (x0 + x1) * 0.5;
+        cur.setX(mt * mt * mt * x0 + 3.0 * mt * mt * t * mx +
+                 3.0 * mt * t * t * mx + t * t * t * x1);
+        cur.setY(mt * mt * mt * yl + 3.0 * mt * mt * t * yl +
+                 3.0 * mt * t * t * yr + t * t * t * yr);
+      }
+      else
+      {
+        cur.setX(x0 + (x1 - x0) * t);
+        cur.setY(yl + (yr - yl) * t);
+      }
+      // 线段 prev→cur 到点的距离（点到线段投影）。
+      const QPointF d = cur - prev;
+      const double len2 = QPointF::dotProduct(d, d);
+      double u = len2 > 0.0
+                     ? QPointF::dotProduct(pt - prev, d) / len2
+                     : 0.0;
+      u = qBound(0.0, u, 1.0);
+      const QPointF proj = prev + u * d;
+      const double dist = QLineF(pt, proj).length();
+      if (dist < bestDist)
+      {
+        bestDist = dist;
+        best = lk.name;
+      }
+      prev = cur;
+    }
+  }
+  return best;
+}
+
+void GapItem::hoverMoveEvent(QGraphicsSceneHoverEvent *e)
+{
+  const QString name = hitLink(e->pos());
+  if (name == m_hoverLink)
+    return; // 无变化不重画
+  m_hoverLink = name;
+  update();
+  if (m_linkHover)
+  {
+    if (name.isEmpty())
+      m_linkHover(QString());
+    else
+    {
+      const wellsection::Well &a = m_st->wells[m_index];
+      const wellsection::Well &b = m_st->wells[m_index + 1];
+      const bool connected = wellsection::linkConnected(
+          m_st->linkOverrides, a.id, b.id, name);
+      m_linkHover(QObject::tr("连线 %1：%2 ↔ %3（%4，右键%5）")
+                      .arg(name, a.name, b.name,
+                           connected ? QObject::tr("已连接") : QObject::tr("已断开"),
+                           connected ? QObject::tr("断开") : QObject::tr("重连")));
+    }
+  }
+  QGraphicsItem::hoverMoveEvent(e);
+}
+
+void GapItem::hoverLeaveEvent(QGraphicsSceneHoverEvent *e)
+{
+  if (!m_hoverLink.isEmpty())
+  {
+    m_hoverLink.clear();
+    update();
+    if (m_linkHover)
+      m_linkHover(QString());
+  }
+  QGraphicsItem::hoverLeaveEvent(e);
+}
+
+void GapItem::mousePressEvent(QGraphicsSceneMouseEvent *e)
+{
+  if (e->button() == Qt::RightButton)
+  {
+    const QString name = hitLink(e->pos());
+    if (!name.isEmpty() && m_linkMenu)
+    {
+      const wellsection::Well &a = m_st->wells[m_index];
+      const wellsection::Well &b = m_st->wells[m_index + 1];
+      m_linkMenu(m_index, name,
+                 wellsection::linkConnected(m_st->linkOverrides, a.id, b.id,
+                                            name));
+      e->accept();
+      return;
+    }
+  }
+  QGraphicsItem::mousePressEvent(e);
+}
+
 void GapItem::paintSeismic(QPainter *p, const QRectF &exposed,
                            const wellsection::SeismicGap &gap)
 {
@@ -626,7 +811,7 @@ void GapItem::paintSeismic(QPainter *p, const QRectF &exposed,
   const double offA = m_st->offsets.value(m_index, 0.0);
   const double offB = m_st->offsets.value(m_index + 1, 0.0);
   const double x0 = m_st->columnRight(m_index);
-  const double gapW = m_st->gapPx;
+  const double gapW = m_st->gapWidth(m_index);
 
   // 设备分辨率渲染：exposed 场景区 → 设备像素 rect。
   const QTransform xf = p->deviceTransform();
@@ -704,6 +889,117 @@ void GapItem::paintSeismic(QPainter *p, const QRectF &exposed,
 }
 
 // ---------------------------------------------------------------------------
+// FaultOverlayItem — 断层投绘（全幅覆盖）
+// ---------------------------------------------------------------------------
+FaultOverlayItem::FaultOverlayItem(RenderState *st) : m_st(st)
+{
+  setFlag(QGraphicsItem::ItemUsesExtendedStyleOption);
+  setZValue(5); // 断层线压在连线/地震之上
+}
+
+QRectF FaultOverlayItem::boundingRect() const
+{
+  return {0.0, 0.0, m_st->sceneWidth(), m_st->sceneHeight()};
+}
+
+double FaultOverlayItem::xForAlong(double along) const
+{
+  const int n = m_st->wells.size();
+  if (n < 2 || m_st->pathFractions.size() != n)
+    return qQNaN();
+  const double cw = m_st->columnWidth();
+  if (along <= m_st->pathFractions.first())
+    return m_st->columnLeft(0) + cw * 0.5;
+  if (along >= m_st->pathFractions.last())
+    return m_st->columnLeft(n - 1) + cw * 0.5;
+  for (int i = 0; i + 1 < n; ++i)
+    if (along <= m_st->pathFractions[i + 1])
+    {
+      const double f = (along - m_st->pathFractions[i]) /
+                       (m_st->pathFractions[i + 1] - m_st->pathFractions[i]);
+      return m_st->columnLeft(i) + cw * 0.5 +
+             f * (m_st->columnLeft(i + 1) - m_st->columnLeft(i));
+    }
+  return qQNaN();
+}
+
+double FaultOverlayItem::offsetAtX(double x) const
+{
+  const int n = m_st->wells.size();
+  if (n == 0)
+    return 0.0;
+  if (n == 1)
+    return m_st->offsets.value(0, 0.0);
+  const double cw = m_st->columnWidth();
+  for (int i = 0; i + 1 < n; ++i)
+  {
+    const double xl = m_st->columnLeft(i) + cw * 0.5;
+    const double xr = m_st->columnLeft(i + 1) + cw * 0.5;
+    if (x <= xr || i + 2 == n)
+    {
+      const double f = qBound(0.0, (x - xl) / (xr - xl), 1.0);
+      return m_st->offsets.value(i, 0.0) +
+             f * (m_st->offsets.value(i + 1, 0.0) -
+                  m_st->offsets.value(i, 0.0));
+    }
+  }
+  return m_st->offsets.last();
+}
+
+void FaultOverlayItem::paint(QPainter *p,
+                             const QStyleOptionGraphicsItem *option, QWidget *)
+{
+  if (!m_st->faultsOn || m_st->faultTraces.isEmpty())
+    return;
+  const QRectF exposed = option->exposedRect.intersected(boundingRect());
+  if (exposed.isEmpty())
+    return;
+  p->setClipRect(exposed);
+  QFont f = p->font();
+  f.setPointSize(PaleoTheme::kLabelPt);
+  for (const wellsection::FaultTrace &trace : m_st->faultTraces)
+  {
+    QPainterPath path;
+    bool started = false;
+    double firstY = 0.0, firstX = 0.0;
+    for (const wellsection::FaultTracePoint &pt : trace.points)
+    {
+      const double x = xForAlong(pt.along);
+      if (!std::isfinite(x))
+        continue;
+      const double y = m_st->yForDisplay(pt.depth - offsetAtX(x));
+      if (!std::isfinite(y))
+        continue;
+      if (!started)
+      {
+        path.moveTo(x, y);
+        started = true;
+        firstX = x;
+        firstY = y;
+      }
+      else
+        path.lineTo(x, y);
+    }
+    if (!started)
+      continue;
+    // 纸面光晕打底（地震底图上保持可读），再描断层主色。
+    QColor halo = m_st->theme.paper;
+    halo.setAlpha(190);
+    p->strokePath(path, QPen(halo, 4.0));
+    p->strokePath(path, QPen(m_st->theme.fault, 1.8));
+    // 断层名（首个样点旁）。
+    if (firstY > exposed.top() + 10 && firstY < exposed.bottom() - 4)
+    {
+      p->setFont(f);
+      p->setPen(m_st->theme.fault);
+      p->drawText(QRectF(firstX - 40, firstY - 16, 80, 14),
+                  Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine,
+                  trace.faultName);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // HeaderWidget — 吸顶版头
 // ---------------------------------------------------------------------------
 HeaderWidget::HeaderWidget(RenderState *st, QWidget *parent)
@@ -736,13 +1032,18 @@ int HeaderWidget::headerHeight() const
   {
     const double w = qBound(24, tr.width, 200) - 4.0;
     int n;
-    if (tr.kind == wellsection::TrackKind::Curve && tr.curves.size() == 2)
+    if (tr.kind == wellsection::TrackKind::Curve && tr.curves.size() >= 2)
     {
+      // N 曲线子格各自行数折算（子格高度为格高 1/N，行数上取整折 N 倍）。
       n = 0;
       for (const auto &cs : tr.curves)
-        n += wrapCaption(cs.label.isEmpty() ? cs.mnemonic : cs.label, w, fm)
-                 .size() +
-             wrapCaption(scaleOf(cs), w, fm).size();
+        n += qCeil(double(wrapCaption(cs.label.isEmpty() ? cs.mnemonic
+                                                         : cs.label,
+                                     w, fm)
+                               .size() +
+                           wrapCaption(scaleOf(cs), w, fm)
+                               .size()) /
+                   double(tr.curves.size()));
     }
     else
     {
@@ -834,11 +1135,12 @@ void HeaderWidget::paintContents(QPainter *p, double xOffset) const
       p->save();
       p->setClipRect(cell.adjusted(1, 1, -1, -1));
       p->setFont(cellFont);
-      if (tr.kind == wellsection::TrackKind::Curve && tr.curves.size() == 2)
+      if (tr.kind == wellsection::TrackKind::Curve && tr.curves.size() >= 2)
       {
-        // 双曲线道：上下两个等分子格，各自标名+刻度（用曲线色，不重叠）。
-        const double subH = cell.height() / 2;
-        for (int c = 0; c < 2; ++c)
+        // 多曲线道：N 个等分子格，各自标名+刻度（用曲线色，不重叠）。
+        const int n = tr.curves.size();
+        const double subH = cell.height() / n;
+        for (int c = 0; c < n; ++c)
         {
           const wellsection::CurveStyle &cs = tr.curves[c];
           const QRectF sub(cell.left(), cell.top() + c * subH, cell.width(),
@@ -852,7 +1154,15 @@ void HeaderWidget::paintContents(QPainter *p, double xOffset) const
       }
       else
       {
-        QStringList ls = wrapCaption(tr.displayTitle(), twIn, cfm);
+        // 深度道题注随基准面模式（海拔模式轴标是 kb−MD）。
+        QString title = tr.displayTitle();
+        if (tr.kind == wellsection::TrackKind::Depth &&
+            m_st->datum.mode == wellsection::DatumMode::Elevation)
+          title = QObject::tr("海拔/m");
+        if (tr.kind == wellsection::TrackKind::Depth &&
+            m_st->datum.mode == wellsection::DatumMode::Flatten)
+          title = QObject::tr("拉平/m");
+        QStringList ls = wrapCaption(title, twIn, cfm);
         QColor col = m_st->theme.text;
         if (tr.kind == wellsection::TrackKind::Curve && !tr.curves.isEmpty())
         {
@@ -877,8 +1187,9 @@ void HeaderWidget::paintContents(QPainter *p, double xOffset) const
   {
     const int at = qMin(m_insertAt, m_st->wells.size() - 1);
     const double ix = at == m_insertAt
-                          ? m_st->columnLeft(at) - m_st->gapPx * 0.5
-                          : m_st->columnRight(at) + m_st->gapPx * 0.5;
+                          ? m_st->columnLeft(at) -
+                                m_st->gapWidth(qMax(0, at - 1)) * 0.5
+                          : m_st->columnRight(at) + m_st->gapWidth(at) * 0.5;
     p->fillRect(QRectF(ix - 1 - xOffset, 0, 3, HH),
                 PaleoTheme::tokens().primary);
   }
@@ -1050,8 +1361,10 @@ void View::mouseMoveEvent(QMouseEvent *e)
                  QString::number(md, 'f', 1) + QStringLiteral(" m");
   if (!zoneName.isEmpty())
     text += tr(" · 层段 %1").arg(zoneName);
-  emit hoverChanged(text);
+  // 先派 base（连线 hoverLeave 清空提示）再上报——否则从连线移入井柱的
+  // 一拍里旧提示会覆盖井读数。
   QGraphicsView::mouseMoveEvent(e);
+  emit hoverChanged(text);
 }
 
 void View::leaveEvent(QEvent *e)

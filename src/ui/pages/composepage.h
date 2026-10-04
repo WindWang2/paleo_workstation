@@ -5,6 +5,7 @@
 #include <QVariantMap>
 #include <QWidget>
 
+class QListWidget;
 class CompositionWorkflow;
 class QgisLayerService;
 
@@ -42,6 +43,10 @@ class ComposePage : public QWidget
     // 的 facies.* 矢量层。
     void setFaciesEditTarget(const QString &layerId);
 
+    // 方向 25 M6：版面库——壳喂当前工程的版面名单（layoutSvc->layoutNames()），
+    // 页面只列不查；选中行的打开/删除意图走信号，批量出图走整页动作。
+    void setLayoutNames(const QStringList &names);
+
   signals:
     void fuseRequested(const QStringList &factorLayerIds);
     // rasterLayerId is a declared raster; minArea/simplifyTolerance are map units.
@@ -62,7 +67,15 @@ class ComposePage : public QWidget
     // m2(C)：参考图叠加意图（06_Reference 组声明图层的勾选/取消）。
     void referenceVisibilityRequested(const QString &layerId, bool visible);
 
+    // 方向 25 M6：版面库意图（选中行的名字随信号走；页面不持布局指针）。
+    void layoutOpenRequested(const QString &layoutName);
+    void layoutDeleteRequested(const QString &layoutName);
+    // 批量出图（按层位组一键每层一幅）——骨架版面由壳解析（活动层位版面优先）。
+    void batchFigureExportRequested();
+
   private:
     // 相属性区目标层 UI 同步（标签 + 保存按钮使能/reason tooltip）。
     void updateFaciesTargetUi(const QString &layerId);
+
+    QListWidget *m_layoutList = nullptr;
 };

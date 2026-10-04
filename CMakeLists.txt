@@ -188,6 +188,17 @@ if(QGIS_PREFIX)
   target_compile_definitions(paleo_qgis_core_deps INTERFACE
     PALEO_QGIS_PREFIX_DEFAULT="${PALEO_QGIS_RUNTIME_PREFIX}")
 endif()
+# QGIS 公有头直接 include <sqlite3.h>（qgsstyle.h:19）与 GDAL/GEOS 头，但
+# 「OSGeo4W 把它们放在 prefix include」这一假设在本机不成立——依赖闭包是
+# vcpkg 装的，根在 paleo-qgis-deps/Library/include。只链 paleo_qgis_iface 的
+# 目标（tst_boot / tst_polygonize / paleo_selfcheck）因此拿不到该头。
+# 传播已找到的依赖根，与 paleo_deps 的口径对齐。
+if(GDAL_INCLUDE_DIR)
+  target_include_directories(paleo_qgis_core_deps INTERFACE "${GDAL_INCLUDE_DIR}")
+endif()
+if(GEOS_INCLUDE_DIR)
+  target_include_directories(paleo_qgis_core_deps INTERFACE "${GEOS_INCLUDE_DIR}")
+endif()
 target_link_libraries(paleo_qgis_core_deps INTERFACE
   ${QGIS_CORE_LIB} ${QGIS_ANALYSIS_LIB} paleo_qt_core)
 
@@ -350,6 +361,7 @@ add_library(paleo_domain STATIC
   src/domain/wellrecords.cpp                        # 井文本记录类型 + XML 嗅探（自 io 下沉）
   src/domain/projectclassifier.cpp                  # §3 path/extension classifier + xml sniff
   src/domain/arearules.cpp                          # 工程级参数 seam（docs/AREA_PARAMETERS.md）
+  src/domain/wellsitingplan.cpp                     # 方向34：布井方案纯值类型（指标快照往返）
   src/domain/seismic/nicestep.cpp
   src/domain/seismic/timedepthmodel.cpp
   src/domain/seismic/sectionwellprojector.cpp
@@ -379,6 +391,7 @@ add_library(paleo_algorithms STATIC
   src/algorithms/singlefactor/cartographicsmooth.cpp # 上游制图平滑折线辅助（纯数学）
   src/algorithms/singlefactor/fieldcontours.cpp      # 上游 field_contours/contour_work_field 移植
   src/algorithms/singlefactor/contourlevels.cpp      # 上游等值线级别助手（_nice_number 等）
+  src/algorithms/wellsiting/wellsiting.cpp           # 方向34：井网覆盖诊断/候选/评估纯核
 )
 target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 
@@ -392,7 +405,9 @@ add_library(paleo_store STATIC
   src/metadata/layermanifest.cpp
   src/metadata/releasestore.cpp
   src/metadata/mapversionstore.cpp                  # 版本/发布状态机落表（meta sqlite）
+  src/metadata/layouttemplatestore.cpp              # 版式模板库语义索引（方向 25；catalog 存内容）
   src/metadata/metastore.cpp                        # project.sqlite user_version 门
+  src/metadata/wellsitingstore.cpp                  # 方向34：布井方案集单行文档表
   src/metadata/projectlock.cpp                      # 两实例同开一工程写互斥（QLockFile）
 )
 target_link_libraries(paleo_store PUBLIC paleo_deps)
@@ -405,10 +420,14 @@ add_library(paleo_qgis STATIC
   src/qgis/qgislayerservice.cpp
   src/qgis/qgiscanvascontroller.cpp
   src/qgis/qgiseditingservice.cpp
+  src/qgis/qgisconstrainteditsession.cpp
   src/qgis/qgisprocessingservice.cpp
   src/qgis/qgisstyleservice.cpp
+  src/qgis/geopatterns.cpp                           # 方向31：地质符号语义注册表（花纹/线型词表 + 符号构造）
+  src/qgis/semanticlegend.cpp                        # 方向31：语义图例自动生成（渲染器类目→swatch+词面，增删/renderer 联动）
   src/qgis/qgislayoutservice.cpp
   src/qgis/layoutexport.cpp                         # 层位图/设计器导出核心（QgsLayoutExporter 封装）
+  src/qgis/standardelements.cpp                     # 标准图件元素工厂 + 三类内置内容模板骨架（方向 25）
   src/qgis/mapbooklayout.cpp                        # 地图册：逐格/蒙太奇/索引页版面构建 + 落盘回读校验
   src/qgis/manifestprojection.cpp
   src/qgis/factorstylewriter.cpp                    # m2(B)：单因素色带 .qml 落盘
@@ -423,7 +442,7 @@ add_library(paleo_qgis STATIC
   src/qgis/previewrendercache.cpp                   # P2 D6.2/D6.6 渲染结果缓存（内存 LRU + QTemporaryDir PNG）
   src/qgis/seismicsectiontool.cpp
 )
-target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms)
+target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io)
 
 add_library(paleo_io STATIC
   src/io/dataimportservice.cpp
@@ -478,11 +497,14 @@ add_library(paleo_workflow STATIC
   src/workflow/registration.cpp                    # W3 临时配准编排
   src/workflow/mappingworkflow.cpp                 # 厚度→约束IDW→相多边形链路
   src/workflow/mapexport.cpp                       # 层位图 PDF 导出
+  src/workflow/layouttemplatelibrary.cpp            # 版式模板库编排（qpt→catalog 版本 + 库表）
+  src/workflow/horizonbatchexport.cpp               # 按层位组批量出图（快照换图+登记 OUTPUT）
   src/workflow/mapbook.cpp                         # 地图册：AOI 格序列 + 模板变量（纯编排）
   src/workflow/mapbookqueue.cpp                    # 地图册：批量导出队列（任务服务 + 逐版记账）
   src/workflow/mapversioncontroller.cpp            # 保存版本/发布编排
   src/workflow/aiassistworkflow.cpp
   src/workflow/derivedassets.cpp                   # 派生产物 + DERIVED 版本登记
+  src/workflow/wellsitingworkflow.cpp               # 方向34：井网辅助编排（诊断/候选/方案/planned）
   src/workflow/assetops.cpp                        # 方向30：版本回滚/对比 + 物理清理 + 未决归位
   src/workflow/importledger.cpp                    # 方向30：文件夹导入批次台账（sidecar 持久化）
 )
@@ -490,6 +512,7 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 
 # ---- 视图层 ----
 add_library(paleo_ui STATIC
+  src/ui/symbols/symbolpickerpanel.cpp             # 方向31：符号选择器面板（花纹/线型浏览 + 语义过滤）
   src/ui/pages/mappingworkbenchpage.cpp
   src/ui/paleomainwindow_workbench.cpp
   src/ui/paleomainwindow.cpp
@@ -497,6 +520,7 @@ add_library(paleo_ui STATIC
   src/ui/ribbonpanels.cpp                          # W4 ribbon 命令组构建迁出
   src/ui/pages/datalist.cpp                        # W5 数据页·列表侧
   src/ui/pages/entitypanel.cpp                     # W5 数据页·实体视图侧
+  src/ui/pages/wellsitingpanel.cpp                 # 方向34：布井辅助面板（验证页页签）
   src/ui/pages/datapage.cpp                        # W5 DataPage 兼容薄壳
   src/ui/pages/predictpage.cpp                     # W5b ①智能预测
   src/ui/pages/constraintpage.cpp                  # W5b ②约束与单因素
@@ -506,6 +530,7 @@ add_library(paleo_ui STATIC
   src/ui/locator/paleolocatorfilters.cpp
   src/ui/layoutdesignershell.cpp
   src/ui/maptools/paleomaptools.cpp
+  src/ui/maptools/sitingpicktool.cpp               # 方向34：地图布点拾取工具
   src/ui/maptools/paleoshapetools.cpp              # wave/shapetools
   src/ui/correlationpanel.cpp
   src/ui/correlation/correlationtrack.cpp          # wave/correlation
@@ -524,6 +549,7 @@ add_library(paleo_ui STATIC
   src/ui/layout/layoutexportactions.cpp
   src/ui/layout/layouttemplates.cpp
   src/ui/layout/layoutundostack.cpp
+  src/ui/layout/layoutitemtree.cpp                 # 方向25：元素树（原生 QgsLayoutModel 视图）
   src/ui/layout/mapbookcontroller.cpp               # #148：地图册面板 ↔ 批量导出队列接线
   src/ui/layout/mapbookpanel.cpp                    # goal/mapbook-reporting：批量参数面板（只发信号）
   src/ui/datapreview/datapreviewtabs.cpp           # §4 data-page preview tabs
@@ -719,6 +745,7 @@ add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
 add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）
 add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
+add_paleo_test(tst_wellsiting_kernel LIBS paleo_algorithms)  # 方向34：井网辅助纯核（Oracle 1/3）
 add_paleo_test(tst_singlefactor_corridor LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_partition LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_faultpath LIBS paleo_algorithms)
@@ -742,7 +769,12 @@ add_paleo_test(tst_singlefactor_contract LIBS paleo_domain)
 add_paleo_test(tst_singlefactor_samples LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_store LIBS paleo_io)
 add_paleo_test(tst_services2 LIBS paleo_qgis)               # algorithms,metadata,qgis
+add_paleo_test(tst_geosymbols LIBS paleo_qgis paleo_domain) # 方向31：花纹/线型词表+入口（qrc 资源在 paleo_domain）
+add_paleo_test(tst_semanticlegend LIBS paleo_qgis paleo_domain) # 方向31：图例自动生成 + 增删/renderer 联动
+add_paleo_test(tst_symbolpicker LIBS paleo_ui paleo_qgis paleo_domain) # 方向31：符号选择器面板（缩略/过滤/patternPicked）
 add_paleo_test(tst_workflows LIBS paleo_workflow)
+add_paleo_test(tst_wellsiting_workflow LIBS paleo_workflow)  # 方向34：井网辅助编排（Oracle 2/4）
+add_paleo_test(tst_wellsiting_panel LIBS paleo_ui)         # 方向34：布井辅助面板（视图锚点/意图信号）
 add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）
 add_paleo_test(tst_ui)                                      # 伞式（app 面全栈，兼容样本）
 add_paleo_test(tst_panels)                                  # 伞式（全栈，兼容样本）
@@ -775,6 +807,7 @@ add_paleo_test(tst_las LIBS paleo_io)
 add_paleo_test(tst_lasperf LIBS paleo_io)    # 方向21：LAS 读面比率门探针（同进程参照实现）
 add_paleo_test(tst_snapshot_dedup LIBS paleo_io) # #84：快照/活对象 dedup 复核同一语义（真重哈希）
 add_paleo_test(tst_constraintstore LIBS paleo_workflow)
+add_paleo_test(tst_constraintediting LIBS paleo_ui)
 add_paleo_test(tst_shapetools LIBS paleo_ui)
 add_paleo_test(tst_edittools LIBS paleo_ui)
 add_paleo_test(tst_correlation_full LIBS paleo_ui)
@@ -789,6 +822,10 @@ add_paleo_test(tst_layoutexport LIBS paleo_ui)
 add_paleo_test(tst_mapbook LIBS paleo_ui)              # goal/mapbook-reporting：格序列/模板/蒙太奇/批量队列
 add_paleo_test(tst_layoutundo LIBS paleo_ui)
 add_paleo_test(tst_layoutdesigner_full LIBS paleo_ui)
+add_paleo_test(tst_standardelements LIBS paleo_qgis) # 方向25：标准图件元素工厂 + 三类内容模板骨架
+add_paleo_test(tst_layoutpersistence LIBS paleo_qgis) # 方向25：布局随工程 QGZ round-trip
+add_paleo_test(tst_layouttemplatelibrary LIBS paleo_workflow) # 方向25：模板库（qpt→catalog 版本 + 库表）
+add_paleo_test(tst_horizonbatchexport LIBS paleo_workflow) # 方向25：按层位组批量出图 + catalog 登记
 # ---- wave/data-foundation ----
 add_paleo_test(tst_catalog LIBS paleo_store)
 add_paleo_test(tst_projectparsers LIBS paleo_io)
@@ -984,6 +1021,7 @@ add_paleo_test(tst_layerproperties LIBS paleo_ui)   # 矢量/栅格/缺源三类
 # 禁止直接改本文件的模块源列表——并行分支在此汇合零冲突。
 # 显式清单登记替代隐式 GLOB，根治构建目录漂移与测试漏注（P1-14 / TEST-01）
 set(_paleo_extra_manifest
+  "${CMAKE_SOURCE_DIR}/cmake/extra-batch.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-well-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-catalog-sqlite.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-crossplot-facies.cmake"
@@ -993,6 +1031,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-c.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-d.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-evolution.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-facies-automapping.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-faultinterp.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-fault-surface.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-geostat.cmake"

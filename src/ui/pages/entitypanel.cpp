@@ -583,11 +583,14 @@ void EntityPanel::beginCreateEntity()
   CatalogEntity e;
   e.entityType = dlg.chosenType();
   e.name = name;
-  e.hasSurface = dlg.chosenType() == QLatin1String("well");
+  e.hasSurface = e.entityType == QLatin1String("well") ||
+                 e.entityType == QLatin1String("planned"); // 计划井带井口坐标
   e.surfaceX = dlg.chosenX();
   e.surfaceY = dlg.chosenY();
   e.id = m_ctx.cat->nextEntityId(e.entityType == QLatin1String("well")
                                      ? QStringLiteral("well")
+                                 : e.entityType == QLatin1String("planned")
+                                     ? QStringLiteral("planned")
                                      : QStringLiteral("aux"));
   if (m_stack)
   {
@@ -1179,6 +1182,8 @@ void EntityPanel::refresh()
       kindText = tr("地震工区");
     else if (view.entity.entityType == QLatin1String("sequence_boundary"))
       kindText = tr("层序界面");
+    else if (view.entity.entityType == QLatin1String("planned"))
+      kindText = tr("计划井（布井候选）");
     header->setText(QStringLiteral("%1  (%2)").arg(title, kindText));
 
     // 1. 基本信息

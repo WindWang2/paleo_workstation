@@ -1,5 +1,9 @@
 // 层：QGIS 封装
 #include "qgiseditingservice.h"
+#include "qgisconstrainteditsession.h"
+#include <QUndoStack>
+#include <QFileInfo>
+#include <algorithm>
 
 #include "../metadata/paleoprojectstore.h"
 
@@ -34,6 +38,45 @@ QgisEditingService::QgisEditingService(PaleoProjectStore *store, QObject *parent
   : QObject(parent)
   , m_store(store)
 {
+  if (m_store)
+    connect(m_store, &PaleoProjectStore::readOnlyChanged, this, &QgisEditingService::availabilityChanged);
+}
+
+QgisEditingService::~QgisEditingService()
+{
+  const auto sessions = m_constraintSessions;
+  for (auto it = sessions.cbegin(); it != sessions.cend(); ++it)
+    rollbackEdit(it.key());
+}
+
+void QgisEditingService::setUndoDepth(int depth)
+{
+  m_undoDepth = std::clamp(depth, 1, 10000);
+}
+
+bool QgisEditingService::isConstraintLayer(const QgsVectorLayer *layer)
+{
+  return layer && layer->customProperty(QStringLiteral("paleoLayerId")).toString()
+      .startsWith(QLatin1String("constraints."));
+}
+
+QString QgisEditingService::availabilityError(const QgsVectorLayer *layer) const
+{
+  if (!m_store || m_store->isReadOnly())
+    return tr("工程处于只读模式或 store 不可用");
+  if (!layer || !layer->isValid() || layer->readOnly() || !layer->supportsEditing())
+    return tr("图层为只读或编辑资产不可用");
+  if (isConstraintLayer(layer))
+  {
+    const QString path = QFileInfo(layer->source().section(QLatin1Char('|'), 0, 0)).canonicalFilePath();
+    const QString storePath = QFileInfo(m_store->gpkgPath()).canonicalFilePath();
+    if (storePath.isEmpty() || (!m_constraintSessions.contains(const_cast<QgsVectorLayer *>(layer)) && path != storePath))
+      return tr("约束编辑资产缺失或未连接到工程 store");
+  }
+  QString busy;
+  if (!layer->isEditable() && m_store->layerBusy(busyKey(layer), &busy))
+    return busy;
+  return {};
 }
 
 bool QgisEditingService::beginEdit(QgsVectorLayer *layer, QString *error)
@@ -43,17 +86,54 @@ bool QgisEditingService::beginEdit(QgsVectorLayer *layer, QString *error)
     setError(error, tr("cannot begin an edit session on a null layer"));
     return false;
   }
+  const QString unavailable = availabilityError(layer);
+  if (!unavailable.isEmpty())
+  {
+    setError(error, unavailable);
+    return false;
+  }
   if (layer->isEditable())
   {
     setError(error, tr("layer '%1' already has an active edit session").arg(layer->id()));
     return false;
   }
-  if (!layer->startEditing())
+  QString busy;
+  if (m_store->layerBusy(busyKey(layer), &busy))
+  {
+    setError(error, busy);
+    return false;
+  }
+  layer->undoStack()->setUndoLimit(m_undoDepth);
+  if (!isConstraintLayer(layer) && !layer->startEditing())
   {
     setError(error, tr("startEditing failed for layer '%1'").arg(layer->id()));
     return false;
   }
 
+  if (isConstraintLayer(layer))
+  {
+    auto session = std::make_shared<QgisConstraintEditSession>(layer, m_store,
+        [this](const QString &reason) { emit editFailed(reason); });
+    QString reason;
+    if (!session->initialize(&reason))
+    {
+      layer->rollBack();
+      setError(error, reason);
+      return false;
+    }
+    m_constraintSessions.insert(layer, session);
+    const QString key = busyKey(layer);
+    const QString id = layer->id();
+    m_constraintLifetimeConnections.insert(layer, connect(layer, &QObject::destroyed, this, [this, layer, key, id] {
+      m_constraintLifetimeConnections.remove(layer);
+      const bool hadSession = m_constraintSessions.remove(layer) > 0;
+      if (hadSession && m_store)
+      {
+        m_store->markLayerFree(key);
+        emit editRolledBack(id);
+      }
+    }));
+  }
   m_store->markLayerBusy(busyKey(layer), QStringLiteral("edit"), tr("editing in progress"));
   emit editStarted(layer->id());
   return true;
@@ -65,6 +145,26 @@ bool QgisEditingService::commitEdit(QgsVectorLayer *layer, QString *error)
   {
     setError(error, tr("cannot commit an edit session on a null layer"));
     return false;
+  }
+
+  if (!m_store)
+  {
+    setError(error, tr("编辑 store 已不可用"));
+    return false;
+  }
+  if (auto session = m_constraintSessions.value(layer))
+  {
+    QString reason;
+    if (!session->finish(true, &reason))
+    {
+      setError(error, reason);
+      return false;
+    }
+    disconnect(m_constraintLifetimeConnections.take(layer));
+    m_constraintSessions.remove(layer);
+    m_store->markLayerFree(busyKey(layer));
+    emit editCommitted(layer->id());
+    return true;
   }
 
   // §41.2 single-writer discipline: the provider flush runs inside the store's
@@ -79,9 +179,9 @@ bool QgisEditingService::commitEdit(QgsVectorLayer *layer, QString *error)
       return {true, QString()};
     });
 
-  // Freed on success AND on failure: a stale busy mark would gate the layer
-  // out of every tool permanently ("editing in progress" must not stick).
-  m_store->markLayerFree(busyKey(layer));
+  // Failed commits retain the session and its busy mark for retry/rollback.
+  if (res.ok)
+    m_store->markLayerFree(busyKey(layer));
 
   if (!res.ok)
   {
@@ -97,8 +197,18 @@ bool QgisEditingService::rollbackEdit(QgsVectorLayer *layer)
   if (!layer)
     return false;
 
-  const bool ok = layer->rollBack();
-  m_store->markLayerFree(busyKey(layer)); // freed regardless of rollBack outcome
+  QString error;
+  auto session = m_constraintSessions.value(layer);
+  const bool ok = session ? session->finish(false, &error) : layer->rollBack();
+  if (ok)
+  {
+    disconnect(m_constraintLifetimeConnections.take(layer));
+    m_constraintSessions.remove(layer);
+    if (m_store)
+      m_store->markLayerFree(busyKey(layer));
+  }
+  else if (!error.isEmpty())
+    emit editFailed(error);
   if (ok)
     emit editRolledBack(layer->id());
   return ok;

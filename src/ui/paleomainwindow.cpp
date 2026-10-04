@@ -69,6 +69,7 @@
 #include "domain/seismic/sgyvolume.h"
 
 #include <qgsmapcanvas.h>
+#include <qgssnappingutils.h>
 #include <qgsproject.h>
 #include <qgslayout.h> // ---- m2(C)：设计器/导出的版面地图项主题钉定 ----
 #include <qgslayoutitemmap.h>
@@ -104,6 +105,7 @@
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QSpinBox>
 #include <QListWidget>
 #include <QMap>
 #include <QMenu>
@@ -1392,8 +1394,16 @@ void PaleoMainWindow::onProjectOpened()
   // 捕捉配置镜像进工程（QGIS_NATIVE_ADOPTION）：随 .qgz 持久化；画布侧
   // 配置在 canvas() 创建时已装到 snappingUtils（同一 nativeSnappingConfig）。
   if (m_projectSvc && m_projectSvc->project())
-    m_projectSvc->project()->setSnappingConfig(
-        QgisCanvasController::nativeSnappingConfig());
+  {
+    auto config = m_projectSvc->project()->snappingConfig();
+    if (!config.enabled() || config.units() != Qgis::MapToolUnit::Pixels)
+      config = QgisCanvasController::nativeSnappingConfig();
+    m_projectSvc->project()->setSnappingConfig(config);
+    if (m_canvasCtl)
+      m_canvasCtl->canvas()->snappingUtils()->setConfig(config);
+    if (auto *toolbar = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+      toolbar->snapToleranceSpin()->setValue(qRound(config.tolerance()));
+  }
 
   restoreCanvasExtent(); // per-project display state from the .qgz
 

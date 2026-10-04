@@ -312,6 +312,7 @@ WellSectionTracksDialog::WellSectionTracksDialog(
   addAction(tr("曲线"), wellsection::TrackKind::Curve);
   addAction(tr("深度"), wellsection::TrackKind::Depth);
   addAction(tr("岩性"), wellsection::TrackKind::Lithology);
+  addAction(tr("相代码充填"), wellsection::TrackKind::Facies);
   addBtn->setMenu(addMenu);
   auto *removeBtn = new QToolButton(this);
   removeBtn->setObjectName(QStringLiteral("wellSectionTrackRemoveButton"));
@@ -401,6 +402,38 @@ WellSectionTracksDialog::WellSectionTracksDialog(
           [this] { pickSwatch(m_color2, this, tr("曲线颜色")); });
   c2f->addRow(tr("颜色"), m_color2);
   cf->addRow(m_curve2Row);
+
+  m_curve3On = new QCheckBox(tr("叠加第三条"), m_curveForm);
+  m_curve3On->setObjectName(QStringLiteral("wellSectionCurve3On"));
+  cf->addRow(QString(), m_curve3On);
+  m_curve3Row = new QWidget(m_curveForm);
+  auto *c3f = new QFormLayout(m_curve3Row);
+  c3f->setContentsMargins(0, 0, 0, 0);
+  m_curve3 = new QComboBox(m_curve3Row);
+  m_curve3->setObjectName(QStringLiteral("wellSectionCurve3"));
+  m_curve3->setEditable(true);
+  m_curve3->addItems(m_mnemonics);
+  c3f->addRow(tr("曲线3"), m_curve3);
+  m_min3 = new QDoubleSpinBox(m_curve3Row);
+  m_min3->setObjectName(QStringLiteral("wellSectionCurve3Min"));
+  m_min3->setRange(-1e6, 1e6);
+  m_min3->setDecimals(3);
+  c3f->addRow(tr("最小"), m_min3);
+  m_max3 = new QDoubleSpinBox(m_curve3Row);
+  m_max3->setObjectName(QStringLiteral("wellSectionCurve3Max"));
+  m_max3->setRange(-1e6, 1e6);
+  m_max3->setDecimals(3);
+  c3f->addRow(tr("最大"), m_max3);
+  m_log3 = new QCheckBox(tr("对数坐标"), m_curve3Row);
+  m_log3->setObjectName(QStringLiteral("wellSectionCurve3Log"));
+  c3f->addRow(QString(), m_log3);
+  m_color3 = new QToolButton(m_curve3Row);
+  m_color3->setObjectName(QStringLiteral("wellSectionCurve3Color"));
+  m_color3->setFixedSize(40, 22);
+  connect(m_color3, &QToolButton::clicked, this,
+          [this] { pickSwatch(m_color3, this, tr("曲线颜色")); });
+  c3f->addRow(tr("颜色"), m_color3);
+  cf->addRow(m_curve3Row);
   form->addRow(m_curveForm);
 
   m_lithoForm = new QWidget(this);
@@ -496,6 +529,8 @@ WellSectionTracksDialog::WellSectionTracksDialog(
   connect(box, &QDialogButtonBox::rejected, this, &QDialog::reject);
   connect(m_curve2On, &QCheckBox::toggled, this,
           [this](bool on) { m_curve2Row->setVisible(on); });
+  connect(m_curve3On, &QCheckBox::toggled, this,
+          [this](bool on) { m_curve3Row->setVisible(on); });
   const auto filterSync = [this] {
     m_topList->setEnabled(m_filterCustom->isChecked());
   };
@@ -559,6 +594,18 @@ void WellSectionTracksDialog::loadTrack(int row)
       m_log2->setChecked(c2.logScale);
       setSwatch(m_color2, c2.color);
     }
+    const bool three = t.curves.size() > 2;
+    m_curve3On->setChecked(three);
+    m_curve3Row->setVisible(three);
+    if (three)
+    {
+      const auto &c3 = t.curves.at(2);
+      m_curve3->setCurrentText(c3.mnemonic);
+      m_min3->setValue(c3.min);
+      m_max3->setValue(c3.max);
+      m_log3->setChecked(c3.logScale);
+      setSwatch(m_color3, c3.color);
+    }
     m_sandFill->setChecked(t.sandFill);
     m_cutoff->setValue(t.cutoff);
   }
@@ -579,10 +626,16 @@ void WellSectionTracksDialog::storeTrack(int row)
   t.width = m_width->value();
   if (t.kind == wellsection::TrackKind::Curve)
   {
-    wellsection::CurveStyle c1 = t.curves.isEmpty()
-                                     ? wellsection::CurveStyle{}
-                                     : t.curves.first();
-    c1.mnemonic = m_curve1->currentText().trimmed(); // label 保留（表单无此字段）
+    // label 表单无此字段——三条曲线都在截断前取既有项保 label。
+    const wellsection::CurveStyle keep1 = t.curves.isEmpty()
+                                              ? wellsection::CurveStyle{}
+                                              : t.curves.first();
+    const wellsection::CurveStyle keep2 =
+        t.curves.size() > 1 ? t.curves.at(1) : wellsection::CurveStyle{};
+    const wellsection::CurveStyle keep3 =
+        t.curves.size() > 2 ? t.curves.at(2) : wellsection::CurveStyle{};
+    wellsection::CurveStyle c1 = keep1;
+    c1.mnemonic = m_curve1->currentText().trimmed();
     c1.min = m_min1->value();
     c1.max = m_max1->value();
     c1.logScale = m_log1->isChecked();
@@ -590,13 +643,23 @@ void WellSectionTracksDialog::storeTrack(int row)
     t.curves = {c1};
     if (m_curve2On->isChecked())
     {
-      wellsection::CurveStyle c2;
+      wellsection::CurveStyle c2 = keep2;
       c2.mnemonic = m_curve2->currentText().trimmed();
       c2.min = m_min2->value();
       c2.max = m_max2->value();
       c2.logScale = m_log2->isChecked();
       c2.color = swatchColor(m_color2, QColor(QStringLiteral("#2B59C3")));
       t.curves << c2;
+      if (m_curve3On->isChecked())
+      {
+        wellsection::CurveStyle c3 = keep3;
+        c3.mnemonic = m_curve3->currentText().trimmed();
+        c3.min = m_min3->value();
+        c3.max = m_max3->value();
+        c3.logScale = m_log3->isChecked();
+        c3.color = swatchColor(m_color3, QColor(QStringLiteral("#1F7A4D")));
+        t.curves << c3;
+      }
     }
     t.sandFill = m_sandFill->isChecked();
     t.cutoff = m_cutoff->value();

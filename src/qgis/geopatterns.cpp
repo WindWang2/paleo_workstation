@@ -225,6 +225,17 @@ QString titleFor(const QString &id)
   return id;
 }
 
+QString familyOf(const QString &id)
+{
+  if (findLithology(id))
+    return QStringLiteral("lithology");
+  if (findFacies(id))
+    return QStringLiteral("facies");
+  if (findLine(id))
+    return QStringLiteral("line");
+  return QString();
+}
+
 QString textureResourcePath(const QString &patternId)
 {
   if (const PatternDef *d = findLithology(patternId))

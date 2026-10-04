@@ -18,6 +18,7 @@
 #include <qgsmarkersymbol.h>
 #include <qgsmarkersymbollayer.h> // QgsSimpleMarkerSymbolLayer（QGIS 4 无独立头）
 #include <qgspallabeling.h>
+#include <qgsproject.h>
 #include <qgsproperty.h>
 #include <qgssinglesymbolrenderer.h>
 #include <qgssymbollayer.h>
@@ -670,4 +671,81 @@ void QgisStyleService::applyFaultLineLayerStyle(QgsVectorLayer *layer,
       QgsRendererCategory(QVariant(), GeoPatterns::faultLineSymbol(QString()), otherTitle));
   layer->setRenderer(new QgsCategorizedSymbolRenderer(
       layer->fields().field(fieldIdx).name(), cats));
+}
+
+// ---- 方向 31 批 5：样式版本语义（符号覆盖随工程持久化）------------------------
+
+namespace
+{
+  constexpr const char *kSymbolSemanticsKey = "paleo/symbolSemantics";
+}
+
+int QgisStyleService::symbolTableVersion()
+{
+  return 1;
+}
+
+bool QgisStyleService::applySymbolOverride(QgsVectorLayer *layer, const QString &family,
+                                           const QString &patternId)
+{
+  if (!layer || !layer->isValid() || patternId.isEmpty())
+    return false;
+  // 词表命中校验（familyOf 精确族匹配，跨族 id 不收）+ 几何类型匹配
+  //（面花纹不挂线层、线型不挂面层）。
+  if (GeoPatterns::familyOf(patternId) != family)
+    return false;
+  if (family == QLatin1String("lithology"))
+  {
+    if (layer->geometryType() != Qgis::GeometryType::Polygon)
+      return false;
+    layer->setRenderer(new QgsSingleSymbolRenderer(
+        GeoPatterns::lithologyFillSymbol(patternId)));
+  }
+  else if (family == QLatin1String("facies"))
+  {
+    if (layer->geometryType() != Qgis::GeometryType::Polygon)
+      return false;
+    layer->setRenderer(
+        new QgsSingleSymbolRenderer(GeoPatterns::faciesFillSymbol(patternId)));
+  }
+  else if (family == QLatin1String("line"))
+  {
+    if (layer->geometryType() != Qgis::GeometryType::Line)
+      return false;
+    std::unique_ptr<QgsLineSymbol> sym(GeoPatterns::lineSymbolFor(patternId));
+    if (!sym)
+      return false;
+    layer->setRenderer(new QgsSingleSymbolRenderer(sym.release()));
+  }
+  else
+    return false;
+
+  QVariantMap semantics;
+  semantics.insert(QStringLiteral("family"), family);
+  semantics.insert(QStringLiteral("id"), patternId);
+  semantics.insert(QStringLiteral("version"), symbolTableVersion());
+  layer->setCustomProperty(kSymbolSemanticsKey, semantics);
+  return true;
+}
+
+bool QgisStyleService::restoreSymbolOverride(QgsVectorLayer *layer)
+{
+  if (!layer)
+    return false;
+  const QVariant prop = layer->customProperty(kSymbolSemanticsKey);
+  if (!prop.isValid() || prop.type() != QVariant::Map)
+    return false;
+  const QVariantMap semantics = prop.toMap();
+  return applySymbolOverride(layer, semantics.value(QStringLiteral("family")).toString(),
+                             semantics.value(QStringLiteral("id")).toString());
+}
+
+void QgisStyleService::restoreAllSymbolOverrides(QgsProject *project)
+{
+  if (!project)
+    return;
+  const auto layers = project->mapLayers();
+  for (auto it = layers.cbegin(); it != layers.cend(); ++it)
+    if (auto *vector = qobject_cast<QgsVectorLayer *>(it.value()))
+      restoreSymbolOverride(vector);
 }

@@ -7,6 +7,7 @@
 class QgsMapLayer;
 class QgsVectorLayer;
 class QgsMarkerSymbol;
+class QgsProject;
 
 // qgis/ — QgisStyleService applies named styles to layers.
 // Style refs resolve to .qml files under vendor share or project styles/ dir.
@@ -75,6 +76,25 @@ class QgisStyleService : public QObject
     // → 断层红实线挂齿/推测虚线分类渲染；Line 专属；缺字段不接管。
     static void applyFaultLineLayerStyle(QgsVectorLayer *layer,
                                          const QString &kindField);
+
+    // ---- 方向 31 批 5：样式版本语义（符号覆盖随工程持久化）--------------
+    // 图层级覆盖记 customProperty paleo/symbolSemantics = JSON
+    // {family: lithology|facies|line, id, version}；family/id 锚 GeoPatterns
+    // 词表（跨版本稳定 id），version = 词表版本锚（资源语义大改时递增，
+    // 老工程读老版本不静默换图式）。SVG 资源走 qrc（不落机器绝对路径），
+    // renderer 由 .qgs/.qgz 原生保存，customProperty 供语义重放/审计。
+
+    // 挂单符号语义覆盖（选择器 patternPicked 的落点）并写版本锚；几何
+    // 类型不匹配/词表未命中 → 不动渲染器、不写属性（返回 false）。
+    static bool applySymbolOverride(QgsVectorLayer *layer, const QString &family,
+                                    const QString &patternId);
+    // 工程重开后按 customProperty 重放覆盖（幂等；无属性/词表已失配 →
+    // 返回 false 并保持 .qgs 原样 renderer）。
+    static bool restoreSymbolOverride(QgsVectorLayer *layer);
+    // 全工程重放（打开工程后调一次）。
+    static void restoreAllSymbolOverrides(QgsProject *project);
+    // 词表版本锚（resources/geology 语义表大改时递增）。
+    static int symbolTableVersion();
 
   private:
     QString m_stylesRoot;

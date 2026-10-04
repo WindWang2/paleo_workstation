@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QTemporaryDir>
 
 #include <qgsapplication.h>
 #include <qgscategorizedsymbolrenderer.h>
@@ -301,6 +302,89 @@ private slots:
           ++textured;
       }
     QVERIFY(textured > preview.width() * preview.height() / 10);
+  }
+
+  // 符号覆盖（语义 id + 版本锚）与渲染器一起随工程保存重开——Oracle 1：
+  // 花纹 round-trip 逐字段一致（SVG path/尺寸），且路径始终锚 qrc（不落
+  // 机器绝对路径）。断层线型（两层结构）同口径验证。
+  void symbolOverrideRoundTrip()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString projectPath = dir.filePath(QStringLiteral("roundtrip.qgs"));
+
+    QgsProject project;
+    QgsVectorLayer *lith = new QgsVectorLayer(
+        QStringLiteral("Polygon?field=lith:string&crs=EPSG:4326"),
+        QStringLiteral("岩性覆盖"), QStringLiteral("memory"));
+    QVERIFY(lith->isValid());
+    QVERIFY(QgisStyleService::applySymbolOverride(lith, QStringLiteral("lithology"),
+                                                  QStringLiteral("conglomerate")));
+    // 族不匹配/几何不匹配/未知 id → 拒绝且不动渲染器。
+    QgsVectorLayer *reject = new QgsVectorLayer(
+        QStringLiteral("Polygon?crs=EPSG:4326"), QStringLiteral("r"), QStringLiteral("memory"));
+    QVERIFY(!QgisStyleService::applySymbolOverride(reject, QStringLiteral("lithology"),
+                                                   QStringLiteral("fluvial"))); // 跨族
+    QVERIFY(!QgisStyleService::applySymbolOverride(reject, QStringLiteral("line"),
+                                                   QStringLiteral("fault_normal"))); // 面层
+    QVERIFY(!QgisStyleService::applySymbolOverride(reject, QStringLiteral("lithology"),
+                                                   QStringLiteral("mystery"))); // 词表外
+    QgsVectorLayer *fault = new QgsVectorLayer(
+        QStringLiteral("LineString?crs=EPSG:4326"), QStringLiteral("断层覆盖"),
+        QStringLiteral("memory"));
+    QVERIFY(QgisStyleService::applySymbolOverride(fault, QStringLiteral("line"),
+                                                  QStringLiteral("fault_reverse")));
+    project.addMapLayer(lith);
+    project.addMapLayer(fault);
+    QVERIFY(project.write(projectPath));
+
+    // 重开：renderer DOM 原生恢复 + customProperty 语义锚恢复。
+    QgsProject reloaded;
+    QVERIFY(reloaded.read(projectPath));
+    QgsVectorLayer *lithBack = qobject_cast<QgsVectorLayer *>(
+        reloaded.mapLayer(lith->id()));
+    QgsVectorLayer *faultBack = qobject_cast<QgsVectorLayer *>(
+        reloaded.mapLayer(fault->id()));
+    QVERIFY(lithBack != nullptr);
+    QVERIFY(faultBack != nullptr);
+
+    // 花纹：SVG fill 逐字段（path/宽度）一致，路径仍为 qrc。
+    auto *lithRenderer =
+        dynamic_cast<QgsSingleSymbolRenderer *>(lithBack->renderer());
+    QVERIFY(lithRenderer != nullptr);
+    auto *svgBack =
+        dynamic_cast<QgsSVGFillSymbolLayer *>(lithRenderer->symbol()->symbolLayer(0));
+    QVERIFY(svgBack != nullptr);
+    QCOMPARE(svgBack->svgFilePath(),
+             QStringLiteral(":/geology/textures/tex_conglomerate_pebble.svg"));
+    QCOMPARE(svgBack->patternWidth(), 14.0);
+    QVERIFY(svgBack->svgFilePath().startsWith(QLatin1String(":/"))); // 不落机器路径
+
+    // customProperty 语义锚：family/id/version 齐且版本=当前词表锚。
+    const QVariantMap semantics =
+        lithBack->customProperty("paleo/symbolSemantics").toMap();
+    QCOMPARE(semantics.value(QStringLiteral("family")).toString(),
+             QStringLiteral("lithology"));
+    QCOMPARE(semantics.value(QStringLiteral("id")).toString(),
+             QStringLiteral("conglomerate"));
+    QCOMPARE(semantics.value(QStringLiteral("version")).toInt(),
+             QgisStyleService::symbolTableVersion());
+
+    // 断层线型：两层结构（线+齿）重开保持。
+    auto *faultRenderer =
+        dynamic_cast<QgsSingleSymbolRenderer *>(faultBack->renderer());
+    QVERIFY(faultRenderer != nullptr);
+    QCOMPARE(faultRenderer->symbol()->symbolLayerCount(), 2);
+
+    // 语义重放幂等：restore 后符号结构不变（再 round-trip 稳定）。
+    QVERIFY(QgisStyleService::restoreSymbolOverride(lithBack));
+    auto *restored = dynamic_cast<QgsSingleSymbolRenderer *>(lithBack->renderer());
+    QVERIFY(restored != nullptr);
+    auto *svgRestored =
+        dynamic_cast<QgsSVGFillSymbolLayer *>(restored->symbol()->symbolLayer(0));
+    QVERIFY(svgRestored != nullptr);
+    QCOMPARE(svgRestored->svgFilePath(), svgBack->svgFilePath());
+    QCOMPARE(svgRestored->patternWidth(), svgBack->patternWidth());
   }
 };
 

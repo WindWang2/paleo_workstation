@@ -36,6 +36,8 @@ QVariantList lineStyleDefinitions();
 
 // id → 显示名（词面走翻译面；未知 → 原 id 返回，不吞数据）。
 QString titleFor(const QString &id);
+// id → 族（lithology/facies/line；未知 → 空串）。覆盖持久化的族校验用。
+QString familyOf(const QString &id);
 // 花纹 id → qrc 资源全路径（:/geology/...；线型/未知 → 空串）。
 QString textureResourcePath(const QString &patternId);
 // 岩性词面归一化：中文词面/粒级写法/英文 id → 规范 id；未知原样；空→空。

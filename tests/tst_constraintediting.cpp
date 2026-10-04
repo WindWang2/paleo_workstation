@@ -516,13 +516,16 @@ private slots:
     f.layer.reset();
     QVERIFY(!f.project.layerBusy("constraints.T1"));
     QCOMPARE(f.store.load("T1"), original);
+    // Windows 不能重命名被打开的文件（POSIX 只是碰巧允许）：先释放图层句柄
+    // 再挪走 gpkg；重建的图层指向缺失路径（无效图层），beginEdit 必须拒绝。
+    const QString missing = f.store.gpkgPath()+".away";
+    QVERIFY(QFile::rename(f.store.gpkgPath(), missing));
     f.layer = std::make_unique<QgsVectorLayer>(f.store.gpkgPath()+"|layername=constraints", "constraints", "ogr");
     f.layer->setSubsetString("horizon='T1'");
     f.layer->setCustomProperty("paleoLayerId", "constraints.T1");
-    const QString missing = f.store.gpkgPath()+".away";
-    QVERIFY(QFile::rename(f.store.gpkgPath(), missing));
     QVERIFY(!f.edits.beginEdit(f.layer.get(), &f.error));
     QVERIFY(!f.layer->isEditable());
+    f.layer.reset(); // 释放对缺失路径的探测句柄，再改回（同理 Windows）
     QVERIFY(QFile::rename(missing, f.store.gpkgPath()));
   }
   void rejectedBranchCanRedoTheCorrectCommand()

@@ -1232,8 +1232,20 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
               [this, importSvc](const QString &assetId, const QVariantMap &params) {
                 applyProvisionalRegistration(importSvc, assetId, params);
               });
+      connect(dataPage, &DataPage::versionActivated, preview, &DataPreviewTabs::openVersion);
+      connect(preview, &DataPreviewTabs::versionContextChanged, dataPage, &DataPage::focusVersion);
       connect(dataPage, &DataPage::assetActivated, preview, &DataPreviewTabs::openAsset);
-      connect(dataPage, &DataPage::assetActivated, dataPage, &DataPage::selectAsset);
+      connect(dataPage, &DataPage::assetActivated, dataPage,
+              [preview, dataPage](const QString &assetId) {
+                dataPage->selectAsset(assetId);
+                // 已有预览可能保留历史版本；列表重选不能用 latest 覆盖它。
+                auto *tabs = preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+                if (tabs && preview->assetIdAt(tabs->currentIndex()) == assetId)
+                {
+                  const QString vid = preview->versionIdAt(tabs->currentIndex());
+                  if (!vid.isEmpty()) dataPage->focusVersion(assetId, vid);
+                }
+              });
       connect(dataPage, &DataPage::assetWellActivated, preview, &DataPreviewTabs::openAssetForWell);
       connect(dataPage, &DataPage::seismicLineActivated, preview,
               [preview](const QString &aid, const QString &mode) {
@@ -1247,11 +1259,15 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
       if (auto *inner = preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs")))
       {
         connect(inner, &QTabWidget::currentChanged, this, [preview, dataPage](int idx) {
-          if (idx >= 0 && preview && dataPage)
+          if (idx >= 0 && preview && dataPage && !preview->property("paleo.versionNavigation").toBool())
           {
             const QString aid = preview->assetIdAt(idx);
             if (!aid.isEmpty())
-              dataPage->selectAsset(aid);
+            {
+              const QString vid = preview->versionIdAt(idx);
+              if (!vid.isEmpty()) dataPage->focusVersion(aid, vid);
+              else dataPage->selectAsset(aid);
+            }
           }
         });
       }

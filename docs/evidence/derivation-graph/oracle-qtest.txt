@@ -1,0 +1,26 @@
+********* Start testing of TestDerivationGraph *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+QINFO  : TestDerivationGraph::initTestCase() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+PASS   : TestDerivationGraph::initTestCase()
+PASS   : TestDerivationGraph::chainAndExactVersionPreview()
+QINFO  : TestDerivationGraph::realShellRestoresHistoricalVersionOnReselection() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QWARN  : TestDerivationGraph::realShellRestoresHistoricalVersionOnReselection() QOpenGLWidget is not supported on this platform.
+PASS   : TestDerivationGraph::realShellRestoresHistoricalVersionOnReselection()
+PASS   : TestDerivationGraph::historicalOfficePreviewIsHonest()
+PASS   : TestDerivationGraph::forkMergeSelectionAndDedup()
+QWARN  : TestDerivationGraph::staleReasonFiltersAndLiveTheme() This plugin does not support propagateSizeHints()
+QINFO  : TestDerivationGraph::staleReasonFiltersAndLiveTheme() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDerivationGraph::staleReasonFiltersAndLiveTheme() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDerivationGraph::staleReasonFiltersAndLiveTheme() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QWARN  : TestDerivationGraph::staleReasonFiltersAndLiveTheme() This plugin does not support propagateSizeHints()
+QINFO  : TestDerivationGraph::staleReasonFiltersAndLiveTheme() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+PASS   : TestDerivationGraph::staleReasonFiltersAndLiveTheme()
+QINFO  : TestDerivationGraph::largeGraphHonestCountsAndDepthControl() 240-version default build/render sample ns: 5872767
+QINFO  : TestDerivationGraph::largeGraphHonestCountsAndDepthControl() 80-node capped scene paint sample ns: 15192073
+PASS   : TestDerivationGraph::largeGraphHonestCountsAndDepthControl()
+QWARN  : TestDerivationGraph::cyclesMissingSourcesAndEmptyStates() This plugin does not support propagateSizeHints()
+PASS   : TestDerivationGraph::cyclesMissingSourcesAndEmptyStates()
+PASS   : TestDerivationGraph::entityScopeAndExternalKind()
+PASS   : TestDerivationGraph::cleanupTestCase()
+Totals: 10 passed, 0 failed, 0 skipped, 0 blacklisted, 1593ms
+********* Finished testing of TestDerivationGraph *********

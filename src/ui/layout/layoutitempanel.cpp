@@ -174,7 +174,7 @@ PaleoLayoutItemPanel::PaleoLayoutItemPanel( QWidget *parent )
   // 地图内容绑定（方向 25 M3）：快照（锁定当前层集）/ 实时（跟随图层树主题）。
   auto *bindingCaption = new QLabel( tr( "地图内容" ), business );
   auto *bindingRow = new QHBoxLayout();
-  bindingRow->setSpacing( 4 ); // DESIGN spacing.xs
+  bindingRow->setSpacing(PaleoTheme::tokens().spacingXs); // DESIGN spacing.xs
   m_mapSnapshotButton = new QPushButton( tr( "锁定快照" ), business );
   m_mapSnapshotButton->setObjectName( QStringLiteral( "mapSnapshotButton" ) );
   connect( m_mapSnapshotButton, &QPushButton::clicked, this,

@@ -152,7 +152,7 @@ void TestTimeDepthPerf::realAreaTimeDepthProfile()
   for (const auto &w : model.wells())
     knots += w.knots.size();
   qInfo("BASELINE td_real_model_build_ms = %.0f (%d wells, %d knots)",
-        buildMs, model.wells().size(), knots);
+        buildMs, int(model.wells().size()), knots);
 
   // ---- 层位面转换吞吐（全部 8 个真实层位） ----
   const auto horizonFiles = QDir(area + QStringLiteral("/层位"))

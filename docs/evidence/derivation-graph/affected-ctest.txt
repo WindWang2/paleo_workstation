@@ -1,0 +1,184 @@
+Test project /home/kevin/projects/paleo_workstation/.worktrees/derivation-graph/build
+      Start 110: tst_previewmap_assets
+      Start 112: tst_datapreview
+      Start  81: tst_edittools
+      Start 149: tst_relocate
+      Start  86: tst_mapbook
+      Start  85: tst_layoutexport
+      Start 116: tst_previewdoc
+      Start  79: tst_constraintediting
+ 1/86 Test #149: tst_relocate .....................   Passed    0.98 sec
+      Start  88: tst_layoutdesigner_full
+ 2/86 Test  #81: tst_edittools ....................   Passed    1.39 sec
+      Start 183: tst_evolutionplayer
+ 3/86 Test  #85: tst_layoutexport .................   Passed    1.50 sec
+      Start 178: tst_wellcomposite_shell
+ 4/86 Test #116: tst_previewdoc ...................   Passed    2.03 sec
+      Start 133: tst_chips
+ 5/86 Test #183: tst_evolutionplayer ..............   Passed    0.71 sec
+      Start  87: tst_layoutundo
+ 6/86 Test  #79: tst_constraintediting ............   Passed    2.45 sec
+      Start 152: tst_staleness
+ 7/86 Test #133: tst_chips ........................   Passed    0.65 sec
+      Start  84: tst_layoutitempanel
+ 8/86 Test  #87: tst_layoutundo ...................   Passed    0.73 sec
+      Start 231: tst_seismic_3dviz
+ 9/86 Test #152: tst_staleness ....................   Passed    0.61 sec
+      Start 230: tst_seismic_3dui
+10/86 Test  #88: tst_layoutdesigner_full ..........   Passed    2.16 sec
+      Start 174: tst_correlation_async
+11/86 Test  #84: tst_layoutitempanel ..............   Passed    0.99 sec
+      Start  28: tst_constraint_draw
+12/86 Test  #86: tst_mapbook ......................   Passed    3.99 sec
+      Start 158: tst_layerproperties
+13/86 Test  #28: tst_constraint_draw ..............   Passed    0.84 sec
+      Start  60: tst_layoutshell
+14/86 Test  #60: tst_layoutshell ..................   Passed    0.81 sec
+      Start 109: tst_previewmap_page
+15/86 Test #174: tst_correlation_async ............   Passed    2.37 sec
+      Start  66: tst_drawctl
+16/86 Test #158: tst_layerproperties ..............   Passed    1.68 sec
+      Start 229: tst_seismic_sectionui
+17/86 Test  #66: tst_drawctl ......................   Passed    0.69 sec
+      Start 232: tst_seismic_interpret
+18/86 Test #178: tst_wellcomposite_shell ..........   Passed    5.04 sec
+      Start  83: tst_layoutpalette
+19/86 Test #232: tst_seismic_interpret ............   Passed    0.65 sec
+      Start 176: tst_pyramid_consume
+20/86 Test #109: tst_previewmap_page ..............   Passed    1.50 sec
+      Start  51: tst_wellsiting_panel
+21/86 Test  #83: tst_layoutpalette ................   Passed    0.87 sec
+      Start  80: tst_shapetools
+22/86 Test  #51: tst_wellsiting_panel .............   Passed    0.62 sec
+      Start 279: tst_wellsection_ui
+23/86 Test #230: tst_seismic_3dui .................   Passed    4.43 sec
+      Start 157: tst_layertreepanel
+24/86 Test #231: tst_seismic_3dviz ................   Passed    4.71 sec
+      Start 271: tst_wellcomposite_visual
+25/86 Test #176: tst_pyramid_consume ..............   Passed    0.86 sec
+      Start  55: tst_mappingpages
+26/86 Test  #80: tst_shapetools ...................   Passed    0.91 sec
+      Start 189: tst_faultsectionui
+27/86 Test #157: tst_layertreepanel ...............   Passed    0.92 sec
+      Start 117: tst_wellcomposite
+28/86 Test  #55: tst_mappingpages .................   Passed    1.10 sec
+      Start 175: tst_importqueue_progress
+29/86 Test #271: tst_wellcomposite_visual .........   Passed    1.35 sec
+      Start 272: tst_wellcomposite_multiwell
+30/86 Test #229: tst_seismic_sectionui ............   Passed    3.27 sec
+      Start 180: tst_derivationgraph
+31/86 Test #279: tst_wellsection_ui ...............   Passed    1.59 sec
+      Start  44: tst_services2
+32/86 Test #117: tst_wellcomposite ................   Passed    0.71 sec
+      Start  61: tst_maptools
+33/86 Test #189: tst_faultsectionui ...............   Passed    0.83 sec
+      Start 269: tst_wellcomposite_depth
+34/86 Test #272: tst_wellcomposite_multiwell ......   Passed    0.70 sec
+      Start 103: tst_seismic_3d
+35/86 Test #269: tst_wellcomposite_depth ..........   Passed    0.68 sec
+      Start  48: tst_symbolpicker
+36/86 Test  #61: tst_maptools .....................   Passed    0.78 sec
+      Start 274: tst_wellcomposite_a11y
+37/86 Test #180: tst_derivationgraph ..............   Passed    1.20 sec
+      Start 268: tst_wellcomposite_framework
+38/86 Test  #44: tst_services2 ....................   Passed    1.10 sec
+      Start 270: tst_wellcomposite_editing
+39/86 Test  #48: tst_symbolpicker .................   Passed    0.64 sec
+      Start  63: tst_decorations
+40/86 Test #274: tst_wellcomposite_a11y ...........   Passed    0.70 sec
+      Start 119: tst_webviewpanel
+41/86 Test #268: tst_wellcomposite_framework ......   Passed    0.54 sec
+      Start 161: tst_wellfacies
+42/86 Test #103: tst_seismic_3d ...................   Passed    1.22 sec
+      Start  73: tst_attrpanel
+43/86 Test #270: tst_wellcomposite_editing ........   Passed    0.66 sec
+      Start 222: tst_propmodelpanel
+44/86 Test  #63: tst_decorations ..................   Passed    0.67 sec
+      Start 276: tst_welltopseditor_ui
+45/86 Test #112: tst_datapreview ..................   Passed   11.24 sec
+      Start   7: i18n
+46/86 Test #175: tst_importqueue_progress .........   Passed    2.46 sec
+      Start  59: tst_locator
+47/86 Test #276: tst_welltopseditor_ui ............   Passed    0.50 sec
+      Start 120: tst_uxtheme
+48/86 Test  #73: tst_attrpanel ....................   Passed    0.85 sec
+      Start 258: tst_dockmanager
+49/86 Test #119: tst_webviewpanel .................   Passed    1.16 sec
+      Start  70: tst_sequenceframework_ui
+50/86 Test  #59: tst_locator ......................   Passed    0.71 sec
+      Start 131: tst_taskservice
+51/86 Test #222: tst_propmodelpanel ...............   Passed    1.29 sec
+      Start 136: tst_seismicmapping
+52/86 Test  #70: tst_sequenceframework_ui .........   Passed    0.47 sec
+      Start 262: tst_welllog_ui
+53/86 Test #120: tst_uxtheme ......................   Passed    0.89 sec
+      Start   9: ui_tokens
+54/86 Test #136: tst_seismicmapping ...............   Passed    0.54 sec
+      Start 160: tst_batchjobpanel
+55/86 Test #262: tst_welllog_ui ...................   Passed    0.44 sec
+      Start 104: tst_seismic_section
+56/86 Test #161: tst_wellfacies ...................   Passed    2.03 sec
+      Start 233: tst_seismic_welltie
+57/86 Test #258: tst_dockmanager ..................   Passed    1.07 sec
+      Start 236: tst_seismicattrui
+58/86 Test #160: tst_batchjobpanel ................   Passed    0.40 sec
+      Start  62: tst_correlation
+59/86 Test #104: tst_seismic_section ..............   Passed    0.40 sec
+      Start 114: tst_cataloghealth
+60/86 Test #131: tst_taskservice ..................   Passed    1.12 sec
+      Start  71: tst_releasepanel
+61/86 Test #236: tst_seismicattrui ................   Passed    0.46 sec
+      Start 247: tst_inversion_panel
+62/86 Test #233: tst_seismic_welltie ..............   Passed    0.50 sec
+      Start 216: tst_petrophyspanel
+63/86 Test #114: tst_cataloghealth ................   Passed    0.32 sec
+      Start  72: tst_taskpanel
+64/86 Test #247: tst_inversion_panel ..............   Passed    0.42 sec
+65/86 Test #216: tst_petrophyspanel ...............   Passed    0.41 sec
+      Start 167: tst_crossplotpanel
+      Start 192: tst_faultsurfaceview
+66/86 Test  #71: tst_releasepanel .................   Passed    0.44 sec
+      Start 172: tst_seismic_realarea
+67/86 Test  #62: tst_correlation ..................   Passed    0.58 sec
+      Start   1: layering
+68/86 Test  #72: tst_taskpanel ....................   Passed    0.46 sec
+      Start   2: layering_strict
+69/86 Test #172: tst_seismic_realarea .............   Passed    0.34 sec
+      Start   8: i18n_selftest
+70/86 Test   #9: ui_tokens ........................   Passed    1.45 sec
+      Start  10: ui_tokens_selftest
+71/86 Test   #8: i18n_selftest ....................   Passed    0.07 sec
+      Start   3: layering_selftest
+72/86 Test #192: tst_faultsurfaceview .............   Passed    0.41 sec
+73/86 Test #167: tst_crossplotpanel ...............   Passed    0.43 sec
+74/86 Test  #10: ui_tokens_selftest ...............   Passed    0.07 sec
+75/86 Test #110: tst_previewmap_assets ............   Passed   14.07 sec
+76/86 Test   #3: layering_selftest ................   Passed    0.04 sec
+77/86 Test   #7: i18n .............................   Passed    2.86 sec
+78/86 Test   #1: layering .........................   Passed    0.55 sec
+79/86 Test   #2: layering_strict ..................   Passed    0.32 sec
+      Start 150: tst_ui_blocking
+80/86 Test #150: tst_ui_blocking ..................   Passed    9.90 sec
+      Start 227: tst_seismic_baseline
+81/86 Test #227: tst_seismic_baseline .............   Passed    5.84 sec
+      Start  82: tst_correlation_full
+82/86 Test  #82: tst_correlation_full .............   Passed    4.71 sec
+      Start 111: tst_previewmap_perf
+83/86 Test #111: tst_previewmap_perf ..............   Passed    2.93 sec
+      Start 234: tst_seismic_budgets
+84/86 Test #234: tst_seismic_budgets ..............   Passed    1.70 sec
+      Start 273: tst_wellcomposite_perf
+85/86 Test #273: tst_wellcomposite_perf ...........   Passed    0.48 sec
+      Start 173: tst_mem_budget
+86/86 Test #173: tst_mem_budget ...................   Passed    0.38 sec
+
+100% tests passed out of 86
+
+Label Time Summary:
+golden      =   1.35 sec*proc (1 test)
+perf        =  21.23 sec*proc (6 tests)
+qgis        =   1.10 sec*proc (1 test)
+services    =   2.35 sec*proc (2 tests)
+ui          = 129.70 sec*proc (76 tests)
+
+Total Test time (real) =  40.15 sec

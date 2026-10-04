@@ -159,25 +159,20 @@ QVector<Issue> validate(const QVector<WellTopRecord> &rows, const ValidationCont
       for (const auto &c : sentinelCols)
         if (c.has && c.v <= -99998.5)
           issues.append({IssueKind::SentinelValue, i,
-                         QStringLiteral("第 %1 行（%2）：%3 列值 %4 命中缺失哨兵域"
-                                        "（≤ -99999）——缺失请清空单元格")
+                         QStringLiteral("第 %1 行（%2）：%3 列值 %4 进入缺失哨兵域"
+                                        "（-99999 邻域）——缺失请清空单元格")
                              .arg(QString::number(i + 1), r.topName,
                                   QString::fromLatin1(c.col),
                                   QString::number(c.v, 'f', 3))});
     }
   }
 
-  // 2) 同井叠置：层名重复 / 同深。
+  // 2) 同井叠置：层名重复 / 同深。同深按 MD 排序后相邻链式比对
+  //（容差 1e-6 与 sameTop 一致——量化分桶在桶边界会漏检恰好差 1e-6 的对）。
   {
     QHash<QString, QVector<int>> byName;
-    QHash<qint64, QVector<int>> byDepth; // MD 按 1e-6 量化
     for (int i = 0; i < rows.size(); ++i)
-    {
-      const WellTopRecord &r = rows.at(i);
-      byName[topKey(r.topName)].append(i);
-      if (r.hasMd)
-        byDepth[qRound64(r.md / kEps)].append(i);
-    }
+      byName[topKey(rows.at(i).topName)].append(i);
     for (auto it = byName.constBegin(); it != byName.constEnd(); ++it)
     {
       if (it.value().size() <= 1)
@@ -189,16 +184,33 @@ QVector<Issue> validate(const QVector<WellTopRecord> &rows, const ValidationCont
                                 QString::number(it.value().front() + 1),
                                 QString::number(it.value().size()))});
     }
-    for (auto it = byDepth.constBegin(); it != byDepth.constEnd(); ++it)
+
+    QVector<QPair<double, int>> byMd; // (MD, 行号)
+    for (int i = 0; i < rows.size(); ++i)
+      if (rows.at(i).hasMd)
+        byMd.append({rows.at(i).md, i});
+    std::sort(byMd.begin(), byMd.end(),
+              [](const auto &a, const auto &b) { return a.first < b.first; });
+    int groupStart = 0;
+    for (int k = 1; k <= byMd.size(); ++k)
     {
-      if (it.value().size() <= 1)
+      const bool inGroup =
+          k < byMd.size() && byMd.at(k).first - byMd.at(k - 1).first <= kEps;
+      if (inGroup)
         continue;
-      for (int i : it.value())
-        issues.append({IssueKind::SameDepth, i,
-                       QStringLiteral("第 %1 行（%2）：MD %3 与第 %4 行相同")
-                           .arg(QString::number(i + 1), rows.at(i).topName,
-                                depthText(rows.at(i)),
-                                QString::number(it.value().front() + 1))});
+      if (k - groupStart > 1) // 链式同深组：组内相邻两两 ≤kEps
+      {
+        const int first = byMd.at(groupStart).second;
+        for (int g = groupStart; g < k; ++g)
+        {
+          const int i = byMd.at(g).second;
+          issues.append({IssueKind::SameDepth, i,
+                         QStringLiteral("第 %1 行（%2）：MD %3 与第 %4 行相同")
+                             .arg(QString::number(i + 1), rows.at(i).topName,
+                                  depthText(rows.at(i)), QString::number(first + 1))});
+        }
+      }
+      groupStart = k;
     }
   }
 
@@ -278,6 +290,9 @@ QVector<Issue> validate(const QVector<WellTopRecord> &rows, const ValidationCont
     }
   }
 
+  std::stable_sort(issues.begin(), issues.end(),
+                  [](const Issue &a, const Issue &b)
+                  { return a.rowIndex < b.rowIndex; });
   return issues;
 }
 

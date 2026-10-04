@@ -1,6 +1,7 @@
 // 层：视图
 #include "welltopsmergedialog.h"
 
+#include "../../domain/welltopsedit.h"
 #include "../paleotheme.h"
 
 #include <QBrush>
@@ -14,11 +15,16 @@
 
 namespace
 {
+// 冲突按全字段判定（sameValues 含 X/Y/Z/Time）——值列必须展示全部字段，
+// 否则用户被要求裁决一个看不见差异的冲突（评审轮 2 Medium）。
 QString valueText(const WellTopRecord &r)
 {
-  return QStringLiteral("MD %1 · TVD %2")
-      .arg(r.hasMd ? QString::number(r.md, 'f', 3) : QStringLiteral("空"),
-           r.hasTvd ? QString::number(r.tvd, 'f', 3) : QStringLiteral("空"));
+  auto f = [](bool has, double v) {
+    return has ? WellTopsEdit::formatDepth(v) : QStringLiteral("空");
+  };
+  return QStringLiteral("MD %1 TVD %2\nX %3 Y %4 Z %5 T %6")
+      .arg(f(r.hasMd, r.md), f(r.hasTvd, r.tvd), f(r.hasX, r.x), f(r.hasY, r.y),
+           f(r.hasX && r.hasY, r.z), f(r.hasTime, r.timeMs));
 }
 } // namespace
 
@@ -30,7 +36,7 @@ WellTopsMergeDialog::WellTopsMergeDialog(const QVector<WellTopsEdit::MergeRow> &
   setObjectName(QStringLiteral("wellTopsMergeDialog"));
   setWindowTitle(tr("合并再导入分层"));
   setModal(true);
-  resize(760, 460);
+  resize(900, 480);
 
   auto *root = new QVBoxLayout(this);
   auto *intro = new QLabel(

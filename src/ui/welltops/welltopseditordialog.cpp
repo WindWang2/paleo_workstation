@@ -16,6 +16,7 @@
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -285,6 +286,7 @@ void WellTopsEditorDialog::reloadAll()
   m_assetLabel->setText(tr("%1 · %2 行").arg(m_displayName.isEmpty() ? m_assetId : m_displayName,
                                              QString::number(m_allRows.size())));
   m_currentWell = m_wellCombo->currentText();
+  m_pendingMergeNote.clear(); // 重载即回到磁盘真值——旧合并溯源作废
   m_baseline = WellTopsEditorWorkflow::rowsForWell(m_allRows, m_wellCombo->currentText());
   fillTableFrom(m_baseline);
   m_filling = false;
@@ -405,6 +407,13 @@ QVector<WellTopRecord> WellTopsEditorDialog::collectRows(QString *error) const
         return QVector<WellTopRecord>();
       }
     }
+    if (dummyHas && (!r.hasX || !r.hasY)) // Z 与 X/Y 同列组：单独的 Z 保存即丢
+    {
+      if (error)
+        *error = tr("第 %1 行：Z 有值但 X/Y 缺失——三列同组写出，请补 X/Y 或清空 Z")
+                     .arg(QString::number(row + 1));
+      return QVector<WellTopRecord>();
+    }
     out.append(r);
   }
   return out;
@@ -477,6 +486,20 @@ void WellTopsEditorDialog::onWellChanged()
 
 void WellTopsEditorDialog::onInsertRow()
 {
+  if (m_wellCombo->count() == 0)
+  {
+    // 空文件死胡同（评审轮 2）：无井可选时先问井名，播下第一行。
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, tr("新井名"),
+                                               tr("为首个分层行输入井名："),
+                                               QLineEdit::Normal, QString(), &ok)
+                            .trimmed();
+    if (!ok || name.isEmpty())
+      return;
+    m_wellCombo->addItem(name);
+    m_wellCombo->setCurrentIndex(0); // 触发 onWellChanged：基线=空、表=空
+    m_currentWell = name;
+  }
   int row = m_table->currentRow() + 1;
   if (row <= 0)
     row = m_table->rowCount();
@@ -568,15 +591,28 @@ void WellTopsEditorDialog::refreshRowStatus(int row)
     if (!parseNumericCell(text, c.has, c.v))
       badNumber = true;
   }
+  if (dummyHas && (!current.hasX || !current.hasY)) // Z 有值而 X/Y 空——保存被拦
+    badNumber = true;
 
   const WellTopRecord *baselineRec = nullptr;
   if (!current.topName.isEmpty())
+  {
+    // 基线含同名重复行时按「第 n 次出现」对位——首见匹配会把第二行错标已改。
+    int ordinal = 0;
+    for (int r = 0; r < row; ++r)
+      if (m_table->item(r, ColTopName) &&
+          m_table->item(r, ColTopName)->text().trimmed().toUpper() ==
+              current.topName.trimmed().toUpper())
+        ++ordinal;
+    int seen = 0;
     for (const WellTopRecord &b : m_baseline)
-      if (b.topName.trimmed().toUpper() == current.topName.trimmed().toUpper())
+      if (b.topName.trimmed().toUpper() == current.topName.trimmed().toUpper() &&
+          seen++ == ordinal)
       {
         baselineRec = &b;
         break;
       }
+  }
 
   const auto &tk = PaleoTheme::tokens();
   m_filling = true; // 改状态单元格不再触发 itemChanged

@@ -20,6 +20,7 @@
 #include "../workflow/propertymodelworkflow.h"
 #include "../workflow/faultinterpretationcontroller.h"
 #include "propertymodel/propertymodelpanel.h"
+#include "welltops/welltopseditordialog.h" // 方向 32：分层编辑器（topsEditRequested 接壳）
 #include "../workflow/workflows.h"
 #include "../domain/arearules.h"
 #include "../domain/projectclassifier.h"
@@ -904,6 +905,19 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
               }
               runHorizonGridding(this, const_cast<DataCatalog *>(catalogConst), projectDir,
                                  taskSvc, m_layerSvc, gpkg, assetId);
+            });
+    // 方向 32：井分层右键「编辑分层…」→ 版本化编辑对话框（GUI 线程单事务）。
+    connect(dataPage->listPanel(), &DataListPanel::topsEditRequested, this,
+            [this, catalogConst, projectDir](const QString &assetId)
+            {
+              if (projectDir.isEmpty())
+              {
+                statusBar()->showMessage(tr("先打开工程再编辑分层（新版本需要受管目录）"));
+                return;
+              }
+              WellTopsEditorDialog dlg(const_cast<DataCatalog *>(catalogConst), projectDir,
+                                       assetId, this);
+              dlg.exec();
             });
     // 图层树栅格「面运算（等厚/体积）…」。
     if (m_layerPanel)

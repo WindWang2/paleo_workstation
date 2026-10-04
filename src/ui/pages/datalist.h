@@ -125,6 +125,8 @@ class DataListPanel : public QWidget
     void assetActivated(const QString &assetId); // 列表选中 → 预览标签打开
     // goal/gridding-surface-ops：层位散点 → 网格化参数表（壳接线异步任务）。
     void gridHorizonRequested(const QString &assetId);
+    // 方向 32：井分层资产的编辑入口（壳接 WellTopsEditorDialog）。
+    void topsEditRequested(const QString &assetId);
     // 树节点关联井选中 → 预览打开并定位到该井
     void assetWellActivated(const QString &assetId, const QString &wellId);
     void seismicLineActivated(const QString &assetId, const QString &mode);

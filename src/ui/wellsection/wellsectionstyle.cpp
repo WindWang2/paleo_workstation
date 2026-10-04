@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。（tools/ui-token-exceptions.json 精确计数）。
 #include "wellsectionstyle.h"
 
 #include "domain/mappinghorizons.h"

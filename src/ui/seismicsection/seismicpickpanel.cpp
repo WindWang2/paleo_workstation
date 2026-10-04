@@ -54,8 +54,8 @@ void SeismicPickPanel::setUndoStack(QUndoStack *stack)
 void SeismicPickPanel::buildUi()
 {
     auto *lay = new QVBoxLayout(this);
-    lay->setContentsMargins(6, 4, 6, 4);
-    lay->setSpacing(4);
+    lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+    lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
     // 行 1：解释者（D4.9）+ 层位名 + undo/redo（D4.6）
     auto *row1 = new QHBoxLayout();
@@ -185,9 +185,9 @@ void SeismicPickPanel::refreshFromSession()
         table_->setItem(row, 2, new QTableWidgetItem(QString::number(p.xlineNo)));
         table_->setItem(row, 3, new QTableWidgetItem(QString::number(p.twtMs, 'f', 1)));
         auto *conf = new QTableWidgetItem(QString::number(p.confidence, 'f', 2));
-        conf->setForeground(p.confidence >= 0.75 ? QBrush(QColor(0x43A047))
-                            : (p.confidence >= 0.5 ? QBrush(QColor(0xF29900))
-                                                   : QBrush(QColor(0xE53935))));
+        PaleoTheme::setItemTextColor(conf, p.confidence >= 0.75 ? PaleoTheme::ItemTextColor::Success
+                            : (p.confidence >= 0.5 ? PaleoTheme::ItemTextColor::Warning
+                                                  : PaleoTheme::ItemTextColor::Error));
         table_->setItem(row, 4, conf);
         table_->setItem(row, 5, new QTableWidgetItem(p.interpreter));
         table_->setItem(row, 6, new QTableWidgetItem(p.horizonName));

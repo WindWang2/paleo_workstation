@@ -36,7 +36,7 @@ inline QLabel *caption(const QString &text, QWidget *parent)
 {
   auto *l = new QLabel(text, parent);
   QFont f = l->font();
-  f.setPointSize(8);
+  f.setPointSize(PaleoTheme::tokens().labelPt);
   l->setFont(f);
   l->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
   // Register live: captions already on screen must follow theme changes.
@@ -56,7 +56,7 @@ public:
   {
     auto *lay = new QVBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 0);
-    lay->setSpacing(4);
+    lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
     m_toggle = new QToolButton(this);
     m_toggle->setText(QStringLiteral("▼  ") + title);
@@ -65,18 +65,18 @@ public:
     m_toggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
     PaleoTheme::applyThemedStyleSheet(m_toggle, [] {
       const auto &t = PaleoTheme::tokens();
-      return QStringLiteral(
+      return PaleoTheme::metricStyleSheet(QStringLiteral(
                  "QToolButton { "
                  "  font-weight: 600; "
-                 "  font-size: 8pt; "
+                 "  font-size: {typography.label}pt; "
                  "  color: %1; "
                  "  background: %2; "
                  "  border: 1px solid %3; "
-                 "  border-radius: 4px; "
-                 "  padding: 4px 8px; "
+                 "  border-radius: {rounded.sm}px; "
+                 "  padding: {spacing.xs}px {spacing.sm}px; "
                  "  text-align: left; "
                  "} "
-                 "QToolButton:hover { background: %4; }")
+                 "QToolButton:hover { background: %4; }"))
           .arg(t.text.name().toUpper(), t.surfaceAltRaised.name().toUpper(),
                t.border.name().toUpper(),
                t.surfaceAlt.name().toUpper());
@@ -85,8 +85,8 @@ public:
 
     m_container = new QWidget(this);
     auto *cl = new QVBoxLayout(m_container);
-    cl->setContentsMargins(4, 2, 4, 4);
-    cl->setSpacing(4);
+    cl->setContentsMargins(PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs);
+    cl->setSpacing(PaleoTheme::tokens().spacingXs);
 
     lay->addWidget(m_toggle);
     lay->addWidget(m_container);
@@ -117,13 +117,13 @@ inline void markPrimaryButton(QPushButton *btn)
   btn->setAutoDefault(true);
   PaleoTheme::applyThemedStyleSheet(btn, [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
                "QPushButton { "
                "  background: %1; color: %2; border: 1px solid %1; "
-               "  border-radius: 4px; padding: 4px 12px; font-weight: 600; "
+               "  border-radius: {rounded.sm}px; padding: {spacing.xs}px {spacing.md}px; font-weight: 600; "
                "} "
                "QPushButton:hover { background: %3; border-color: %3; } "
-               "QPushButton:disabled { background: %4; color: %5; border-color: %4; }")
+               "QPushButton:disabled { background: %4; color: %5; border-color: %4; }"))
         .arg(t.primary.name().toUpper(), t.onPrimary.name().toUpper(),
              t.primaryHover.name().toUpper(), t.surfaceAltRaised.name().toUpper(),
              t.textDisabled.name().toUpper()) + PaleoTheme::focusRingStyleSheet();
@@ -133,8 +133,8 @@ inline void markPrimaryButton(QPushButton *btn)
 inline QVBoxLayout *panelLayout(QWidget *page)
 {
   auto *lay = new QVBoxLayout(page);
-  lay->setContentsMargins(8, 8, 8, 8); // spacing.sm
-  lay->setSpacing(8);
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm); // spacing.sm
+  lay->setSpacing(PaleoTheme::tokens().spacingSm);
   return lay;
 }
 

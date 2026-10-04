@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：纸面地层/岩性图未知值的灰色占位符号。（tools/ui-token-exceptions.json 精确计数）。
 #include "wellsectionscene.h"
 
 #include "domain/faciesclassification.h"
@@ -436,7 +437,7 @@ void ColumnItem::paintDepthTrack(QPainter *p, const QRectF &trackRect,
                                QStringLiteral("%.0f"), true);
 
   QFont mono = PaleoTheme::monoFont();
-  mono.setPointSize(PaleoTheme::kLabelPt);
+  mono.setPointSize(PaleoTheme::tokens().labelPt);
   p->setFont(mono);
   const QFontMetricsF fm(mono);
   const QColor faint = m_st->theme.frame;
@@ -665,7 +666,7 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
   if (m_st->seismicOn && gap && !gap->valid() && !gap->reason.isEmpty())
   {
     QFont f = p->font();
-    f.setPointSize(PaleoTheme::kLabelPt);
+    f.setPointSize(PaleoTheme::tokens().labelPt);
     p->setFont(f);
     p->setPen(QColor(QStringLiteral("#7A7A7A")));
     const QRectF tr2(x0 + 4, qMax(24.0, exposed.top() + 8.0),
@@ -1021,7 +1022,7 @@ int HeaderWidget::headerHeight() const
   // 题注行高 = 各道换行后最大行数 × lineSpacing + 8；版头 = 名行 + 题注行，
   // 不低于 kHeight。
   QFont f;
-  f.setPointSize(PaleoTheme::kLabelPt);
+  f.setPointSize(PaleoTheme::tokens().labelPt);
   const QFontMetricsF fm(f);
   const auto scaleOf = [](const wellsection::CurveStyle &c) {
     return scaleText(c.min, c.max);
@@ -1081,7 +1082,7 @@ void HeaderWidget::paintContents(QPainter *p, double xOffset) const
   QFont nameFont = p->font();
   nameFont.setPointSize(PaleoTheme::kTitlePt);
   QFont cellFont = nameFont;
-  cellFont.setPointSize(PaleoTheme::kLabelPt);
+  cellFont.setPointSize(PaleoTheme::tokens().labelPt);
   const QFontMetricsF cfm(cellFont);
 
   const auto scaleOf = [](const wellsection::CurveStyle &c) {

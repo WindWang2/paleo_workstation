@@ -1,0 +1,12 @@
+********* Start testing of TestWellSectionUi *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+QINFO  : TestWellSectionUi::initTestCase() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+PASS   : TestWellSectionUi::initTestCase()
+QWARN  : TestWellSectionUi::screenshots() This plugin does not support propagateSizeHints()
+QWARN  : TestWellSectionUi::screenshots() This plugin does not support propagateSizeHints()
+QINFO  : TestWellSectionUi::screenshots() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestWellSectionUi::screenshots() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+PASS   : TestWellSectionUi::screenshots()
+PASS   : TestWellSectionUi::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 727ms
+********* Finished testing of TestWellSectionUi *********

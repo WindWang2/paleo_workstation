@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：剖面曲线颜色编辑器的初始/回退色，写入曲线配置。（tools/ui-token-exceptions.json 精确计数）。
 #include "wellsectiondialogs.h"
 
 #include "ui/paleotheme.h"
@@ -93,7 +94,7 @@ WellSectionWellsDialog::WellSectionWellsDialog(
                  Qt::ItemIsDragEnabled);
     it->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
     if (!c.hasCoordinates)
-      it->setForeground(PaleoTheme::tokens().textMuted);
+      PaleoTheme::setItemTextColor(it, PaleoTheme::ItemTextColor::Muted);
     return it;
   };
   QSet<QString> inCurrent;

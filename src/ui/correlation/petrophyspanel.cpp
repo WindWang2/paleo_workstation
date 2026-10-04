@@ -32,8 +32,8 @@ PetroPhysPanel::PetroPhysPanel(QWidget *parent) : QWidget(parent)
 void PetroPhysPanel::buildUi()
 {
   auto *lay = new QVBoxLayout(this);
-  lay->setContentsMargins(6, 4, 6, 4); // spacing.xs/sm（SeismicAttrPanel 同口径）
-  lay->setSpacing(4);
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs); // spacing.xs/sm（SeismicAttrPanel 同口径）
+  lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
   // 行 1：公式 + 动作（主色文案 = DESIGN.md ribbon-button 惯例）
   auto *row1 = new QHBoxLayout();
@@ -93,7 +93,7 @@ void PetroPhysPanel::buildUi()
   params->setObjectName(QStringLiteral("petrophysParamsHost"));
   auto *form = new QFormLayout(params);
   form->setContentsMargins(0, 0, 0, 0);
-  form->setSpacing(4);
+  form->setSpacing(PaleoTheme::tokens().spacingXs);
   form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
 
   auto mkSpin = [this, params](const QString &name, double lo, double hi, int dec,
@@ -113,7 +113,7 @@ void PetroPhysPanel::buildUi()
   auto *grRow = new QWidget(params);
   auto *grLay = new QHBoxLayout(grRow);
   grLay->setContentsMargins(0, 0, 0, 0);
-  grLay->setSpacing(4);
+  grLay->setSpacing(PaleoTheme::tokens().spacingXs);
   m_chkGrAuto = new QCheckBox(tr("井内极值"), grRow);
   m_chkGrAuto->setObjectName(QStringLiteral("petrophysGrAuto"));
   m_chkGrAuto->setChecked(true);
@@ -134,7 +134,7 @@ void PetroPhysPanel::buildUi()
   auto *rhoRow = new QWidget(params);
   auto *rhoLay = new QHBoxLayout(rhoRow);
   rhoLay->setContentsMargins(0, 0, 0, 0);
-  rhoLay->setSpacing(4);
+  rhoLay->setSpacing(PaleoTheme::tokens().spacingXs);
   m_spinRhoMa = mkSpin(QStringLiteral("petrophysRhoMa"), 1.8, 3.5, 3, 2.65, 0.01,
                        tr("骨架密度 ρma（g/cm³）：砂岩 2.65 / 灰岩 2.71 / 白云岩 "
                           "2.87（AK04 ch.3 文献值）"));
@@ -156,7 +156,7 @@ void PetroPhysPanel::buildUi()
   auto *dtRow = new QWidget(params);
   auto *dtLay = new QHBoxLayout(dtRow);
   dtLay->setContentsMargins(0, 0, 0, 0);
-  dtLay->setSpacing(4);
+  dtLay->setSpacing(PaleoTheme::tokens().spacingXs);
   m_spinDtMa = mkSpin(QStringLiteral("petrophysDtMa"), 40.0, 250.0, 1, 182.0, 1.0,
                       tr("骨架声波 Δtma：砂岩 182 µs/m（55.5 µs/ft）、灰岩 156 "
                          "（Wyllie 1956；AK04 ch.3）——单位须与曲线一致"));
@@ -174,7 +174,7 @@ void PetroPhysPanel::buildUi()
   auto *archRow = new QWidget(params);
   auto *archLay = new QHBoxLayout(archRow);
   archLay->setContentsMargins(0, 0, 0, 0);
-  archLay->setSpacing(4);
+  archLay->setSpacing(PaleoTheme::tokens().spacingXs);
   m_spinA = mkSpin(QStringLiteral("petrophysArchieA"), 0.1, 2.0, 2, 1.0, 0.01,
                    tr("Archie a：经典 1.0 / Humble 0.62（AK04 ch.6）"));
   m_spinM = mkSpin(QStringLiteral("petrophysArchieM"), 1.0, 3.0, 2, 2.0, 0.05,
@@ -210,7 +210,7 @@ void PetroPhysPanel::buildUi()
   auto *outRow = new QWidget(params);
   auto *outLay = new QHBoxLayout(outRow);
   outLay->setContentsMargins(0, 0, 0, 0);
-  outLay->setSpacing(4);
+  outLay->setSpacing(PaleoTheme::tokens().spacingXs);
   m_editOutMnemonic = new QLineEdit(outRow);
   m_editOutMnemonic->setObjectName(QStringLiteral("petrophysOutMnemonic"));
   m_editOutMnemonic->setFixedWidth(80);

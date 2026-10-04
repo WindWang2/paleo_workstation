@@ -1,0 +1,65 @@
+********* Start testing of TestDataPreview *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : TestDataPreview::initTestCase()
+QWARN  : TestDataPreview::emptyStateBeforeAnyTab() This plugin does not support propagateSizeHints()
+QINFO  : TestDataPreview::emptyStateBeforeAnyTab() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::emptyStateBeforeAnyTab() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+PASS   : TestDataPreview::emptyStateBeforeAnyTab()
+QWARN  : TestDataPreview::everyTypeOpensContent() catalog: "角色与实体类型不符: horizon 于 sequence_boundary"
+QWARN  : TestDataPreview::everyTypeOpensContent() catalog: "角色与实体类型不符: horizon 于 sequence_boundary"
+QWARN  : TestDataPreview::everyTypeOpensContent() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::everyTypeOpensContent() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::everyTypeOpensContent() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::everyTypeOpensContent() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::everyTypeOpensContent() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::everyTypeOpensContent() catalog: "未知角色: reference"
+proj_get_celestial_body_name: CRS has no geodetic CRS
+QWARN  : TestDataPreview::everyTypeOpensContent() QOpenGLWidget is not supported on this platform.
+QWARN  : TestDataPreview::everyTypeOpensContent() This plugin does not support propagateSizeHints()
+QWARN  : TestDataPreview::everyTypeOpensContent() This plugin does not support propagateSizeHints()
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QWARN  : TestDataPreview::everyTypeOpensContent() This plugin does not support propagateSizeHints()
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::everyTypeOpensContent() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+PASS   : TestDataPreview::everyTypeOpensContent()
+QWARN  : TestDataPreview::loadingFailureAndRetryStates() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::loadingFailureAndRetryStates() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::loadingFailureAndRetryStates() This plugin does not support propagateSizeHints()
+QWARN  : TestDataPreview::loadingFailureAndRetryStates() This plugin does not support propagateSizeHints()
+QINFO  : TestDataPreview::loadingFailureAndRetryStates() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestDataPreview::loadingFailureAndRetryStates() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+PASS   : TestDataPreview::loadingFailureAndRetryStates()
+QINFO  : TestDataPreview::captureSynchronousLoadingState() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QWARN  : TestDataPreview::captureSynchronousLoadingState() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::captureSynchronousLoadingState() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::captureSynchronousLoadingState() This plugin does not support propagateSizeHints()
+QWARN  : TestDataPreview::captureSynchronousLoadingState() This plugin does not support propagateSizeHints()
+QWARN  : TestDataPreview::captureSynchronousLoadingState() QWidget::repaint: Recursive repaint detected
+QINFO  : TestDataPreview::captureSynchronousLoadingState() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QWARN  : TestDataPreview::captureSynchronousLoadingState() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::captureSynchronousLoadingState() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::captureSynchronousLoadingState() This plugin does not support propagateSizeHints()
+QWARN  : TestDataPreview::captureSynchronousLoadingState() This plugin does not support propagateSizeHints()
+QWARN  : TestDataPreview::captureSynchronousLoadingState() QWidget::repaint: Recursive repaint detected
+QINFO  : TestDataPreview::captureSynchronousLoadingState() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+PASS   : TestDataPreview::captureSynchronousLoadingState()
+PASS   : TestDataPreview::cleanupTestCase()
+Totals: 6 passed, 0 failed, 0 skipped, 0 blacklisted, 71410ms
+********* Finished testing of TestDataPreview *********

@@ -15,6 +15,7 @@
 #include <QToolButton>
 #include <QTemporaryDir>
 #include <QWheelEvent>
+#include "helpers/visualcapture.h"
 
 #include "../src/linkage/selectioncontext.h"
 #include "../src/catalog/datacatalog.h"
@@ -1129,6 +1130,7 @@ class TestWellSectionUi : public QObject
       panel.setSeismicStrip(stripR);
       QVERIFY(panel.grab().save(
           QStringLiteral("/tmp/wellsection-shots/panel_light.png")));
+      QVERIFY(paleo::tests::captureVisual(&panel, QStringLiteral("wellsection"), QSize(1400, 720)));
     }
 };
 

@@ -26,6 +26,12 @@
 #include "../src/ui/pages/pageshared.h"
 #include "../src/ui/paleoemptystate.h"
 #include "../src/ui/paleoicons.h"
+#include <QTreeWidget>
+#include <QListWidget>
+#include "../src/ui/datapreview/previewhistogramwidget.h"
+#include "../src/ui/datapreview/previewprofilepanel.h"
+#include "../src/ui/seismic3d/seismic3dfallback.h"
+#include "../src/ui/wellcomposite/hiddentrackbar.h"
 
 // wave3/ux-consistency T32 — DESIGN.md token 的代码出口（PaleoTheme）契约：
 // vendor 字体注册、mono/正文字体、2px #1B73D0 焦点环、状态胶囊 token、
@@ -38,6 +44,121 @@ class TestUxTheme : public QObject
     void initTestCase()
     {
       QVERIFY2(PaleoTheme::ensureApplicationFonts(), "vendored fonts must register");
+    }
+
+    void previewChartsAndFallbackFollowLiveTheme()
+    {
+      PreviewHistogramWidget histogram(false);
+      histogram.resize(640, 340);
+      PreviewProfilePanel profile;
+      profile.resize(640, 340);
+      auto *chart = profile.findChild<QWidget *>("profileChart");
+      QVERIFY(chart);
+      seismic::Seismic3DFallbackWidget fallback;
+      fallback.resize(1000, 400);
+      histogram.show();
+      profile.show();
+      fallback.show();
+      for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark,
+                               PaleoTheme::Theme::Light})
+      {
+        PaleoTheme::applyTheme(theme);
+        const auto &t = PaleoTheme::tokens();
+        QTRY_COMPARE(histogram.grab().toImage().pixelColor(1, 200), t.surface);
+        QTRY_COMPARE(chart->grab().toImage().pixelColor(1, 100), t.surface);
+        QTRY_COMPARE(fallback.grab().toImage().pixelColor(1, 100), t.surfaceAlt);
+      }
+    }
+
+    void hiddenTrackCapsulesRenderRoundedAcrossThemes()
+    {
+      WellComposite::HiddenTrackBar bar;
+      WellComposite::TrackSpec track;
+      track.title = QStringLiteral("GR");
+      track.visible = false;
+      bar.setTracks({track});
+      bar.resize(240, 60);
+      bar.show();
+      auto *chip = bar.findChild<QToolButton *>();
+      QVERIFY(chip);
+      QSignalSpy restoreSpy(&bar, &WellComposite::HiddenTrackBar::trackRestoreRequested);
+      for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark,
+                               PaleoTheme::Theme::Light})
+      {
+        PaleoTheme::applyTheme(theme);
+        const auto &t = PaleoTheme::tokens();
+        QTRY_COMPARE(bar.grab().toImage().pixelColor(1, bar.height() / 2), t.surfaceAlt);
+        const auto image = bar.grab().toImage();
+        const auto origin = chip->mapTo(&bar, QPoint(0, 0));
+        // A 9999px QSS radius renders a rectangular border in Qt. The true
+        // capsule leaves its corner showing the surrounding bar instead.
+        QCOMPARE(image.pixelColor(origin), t.surfaceAlt);
+        QCOMPARE(image.pixelColor(origin + QPoint(chip->width() / 2, 2)), t.surface);
+      }
+      QCOMPARE(restoreSpy.count(), 0);
+    }
+
+    void designGeometryTemplatesAndStableDataColor()
+    {
+      QCOMPARE(PaleoTheme::tokens().spacingXs, 4);
+      QCOMPARE(PaleoTheme::tokens().spacingSm, 8);
+      QCOMPARE(PaleoTheme::tokens().spacingMd, 16);
+      QCOMPARE(PaleoTheme::tokens().radiusSm, 4);
+      QCOMPARE(PaleoTheme::tokens().radiusMd, 8);
+      QCOMPARE(PaleoTheme::metricStyleSheet(QStringLiteral(
+          "padding: {spacing.xs}px {spacing.sm}px; border-radius: {rounded.md}px;"
+          " font-size: {typography.label}pt;")), QStringLiteral(
+          "padding: 4px 8px; border-radius: 8px; font-size: 8pt;"));
+      PreviewProfilePanel profile;
+      const QColor dataColor(QStringLiteral("#7B1FA2"));
+      profile.setProfiles({{QStringLiteral("domain series"), dataColor,
+                           {{0, 1, true}, {10, 2, true}}, {}, {}}});
+      PaleoTheme::applyDarkTheme();
+      QCOMPARE(PaleoTheme::dataHaloColor(dataColor), PaleoTheme::tokens().text);
+      QCOMPARE(profile.series().first().color, dataColor);
+      PaleoTheme::applyLightTheme();
+      QVERIFY(!PaleoTheme::dataHaloColor(dataColor).isValid());
+      QCOMPARE(profile.series().first().color, dataColor);
+    }
+
+    void nativeRowCapsulesFitBothDensitiesAcrossThemes()
+    {
+      QWidget root;
+      auto *layout = new QVBoxLayout(&root);
+      auto *table = new QTableWidget(4, 1, &root);
+      layout->addWidget(table);
+      const QList<PaleoTheme::CapsuleKind> kinds{PaleoTheme::CapsuleKind::Success,
+          PaleoTheme::CapsuleKind::Warning, PaleoTheme::CapsuleKind::Error,
+          PaleoTheme::CapsuleKind::Neutral};
+      for (int row = 0; row < kinds.size(); ++row)
+      {
+        auto *cell = new QWidget(table);
+        auto *rowLayout = new QHBoxLayout(cell);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        rowLayout->addWidget(PaleoTheme::capsuleLabel(QStringLiteral("状态文字"), kinds[row], cell, true));
+        table->setCellWidget(row, 0, cell);
+      }
+      root.resize(400, 200);
+      root.show();
+      for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark})
+      {
+        PaleoTheme::applyTheme(theme);
+        for (const auto density : {PaleoTheme::Density::Comfort, PaleoTheme::Density::Compact})
+        {
+          PaleoTheme::applyDensityToViewTree(&root, density);
+          QTest::qWait(10);
+          for (int row = 0; row < kinds.size(); ++row)
+          {
+            auto *label = table->cellWidget(row, 0)->findChild<QLabel *>("statusCapsule");
+            QVERIFY(label);
+            QCOMPARE(table->rowHeight(row), PaleoTheme::tableRowHeight(density));
+            QVERIFY2(label->minimumSizeHint().height() <= label->height(),
+                     qPrintable(QStringLiteral("capsule needs %1px but native row provides %2px")
+                         .arg(label->minimumSizeHint().height()).arg(label->height())));
+          }
+        }
+      }
+      PaleoTheme::applyLightTheme();
     }
 
     // ---- goal/ui-experience-polish：密度切换与条目视图统一 QSS ----
@@ -481,6 +602,81 @@ class TestUxTheme : public QObject
       QVERIFY(qRed(img.pixel(4, 4)) > 150);
       QCOMPARE(qAlpha(img.pixel(0, 0)), 0);
       PaleoTheme::applyLightTheme();
+    }
+
+    void itemTextRolesFollowThemeWithoutBusinessSignals()
+    {
+      QTreeWidget tree;
+      tree.setColumnCount(2);
+      auto *row = new QTreeWidgetItem(&tree, {"A1", "待复核"});
+      row->setCheckState(0, Qt::Checked);
+      PaleoTheme::setItemTextColor(row, 0, PaleoTheme::ItemTextColor::Muted);
+      PaleoTheme::setItemTextColor(row, 1, PaleoTheme::ItemTextColor::Warning);
+      QTableWidget table(1, 1);
+      auto *cell = new QTableWidgetItem("0.25");
+      table.setItem(0, 0, cell);
+      PaleoTheme::setItemTextColor(cell, PaleoTheme::ItemTextColor::Error);
+      QListWidget list;
+      auto *well = new QListWidgetItem("A2", &list);
+      well->setCheckState(Qt::Checked);
+      well->setData(Qt::UserRole, "ref");
+      PaleoTheme::setItemTextColor(well, PaleoTheme::ItemTextColor::Warning);
+      QSignalSpy listSignals(&list, &QListWidget::itemChanged);
+      QSignalSpy treeSignals(&tree, &QTreeWidget::itemChanged);
+      QSignalSpy tableSignals(&table, &QTableWidget::cellChanged);
+      for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark, PaleoTheme::Theme::Light})
+      {
+        PaleoTheme::applyTheme(theme);
+        QCOMPARE(row->foreground(0).color(), PaleoTheme::tokens().textMuted);
+        QCOMPARE(row->foreground(1).color(), PaleoTheme::tokens().warningText);
+        QCOMPARE(cell->foreground().color(), PaleoTheme::tokens().errorText);
+        QCOMPARE(row->checkState(0), Qt::Checked);
+        QCOMPARE(cell->text(), QStringLiteral("0.25"));
+        QCOMPARE(well->foreground().color(), PaleoTheme::tokens().warningText);
+        QCOMPARE(well->checkState(), Qt::Checked);
+        QCOMPARE(well->data(Qt::UserRole).toString(), QStringLiteral("ref"));
+      }
+      QCOMPARE(listSignals.count(), 0);
+      QCOMPARE(treeSignals.count(), 0);
+      QCOMPARE(tableSignals.count(), 0);
+      const QColor dataColor(QStringLiteral("#7B1FA2"));
+      const QIcon sample = PaleoIcons::dataLine(dataColor);
+      for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark})
+      {
+        PaleoTheme::applyTheme(theme);
+        QCOMPARE(sample.pixmap(24, 24).toImage().pixelColor(12, 12), dataColor);
+        QVERIFY(!PaleoIcons::inactive().pixmap(24, 24).isNull());
+      }
+      PaleoTheme::applyLightTheme();
+    }
+
+    void existingIconsFollowThemeAndDpr()
+    {
+      PaleoTheme::applyLightTheme();
+      const QIcon icon = PaleoIcons::qgisTheme(QStringLiteral("mActionPan.svg"));
+      QVERIFY(!icon.isNull());
+      const QImage light = icon.pixmap(QSize(24, 24), 2.0).toImage();
+      QCOMPARE(light.devicePixelRatio(), 2.0);
+      PaleoTheme::applyDarkTheme();
+      const QImage dark = icon.pixmap(QSize(24, 24), 2.0).toImage();
+      QCOMPARE(dark.size(), light.size());
+      QVERIFY(dark != light); // 同一个 QIcon，运行中切换即更新。
+      QCOMPARE(PaleoIcons::themed(icon).cacheKey(), icon.cacheKey());
+      const QImage disabled = icon.pixmap(QSize(24, 24), QIcon::Disabled).toImage()
+                                     .convertToFormat(QImage::Format_ARGB32);
+      for (int y = 0; y < disabled.height(); ++y)
+        for (int x = 0; x < disabled.width(); ++x)
+          if (qAlpha(disabled.pixel(x, y)) > 200)
+          {
+            // QPixmap premultiplied alpha 往返允许一个量化等级。
+            const QColor actual = disabled.pixelColor(x, y);
+            const QColor expected = PaleoTheme::tokens().textDisabled;
+            QVERIFY(qAbs(actual.red() - expected.red()) <= 1);
+            QVERIFY(qAbs(actual.green() - expected.green()) <= 1);
+            QVERIFY(qAbs(actual.blue() - expected.blue()) <= 1);
+          }
+      PaleoTheme::applyLightTheme();
+      QCOMPARE(icon.pixmap(QSize(24, 24), 2.0).toImage(), light);
     }
 
     // 空态卡片共享组件：objectName 三态 + 样式随主题活体重算。

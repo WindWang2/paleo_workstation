@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QEvent>
 #include <QFont>
+#include <QFontMetrics>
 #include <QFontDatabase>
 #include <QHeaderView>
 #include <QList>
@@ -14,6 +15,13 @@
 #include <QStyle>
 #include <QStyleFactory>
 #include <QTableView>
+#include <QTableWidget>
+#include <QListWidget>
+#include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
+#include <QSignalBlocker>
+#include <cmath>
+#include <utility>
 
 // qrc 对象住在静态库 paleo_core 里——链接器不会自动拉入无引用的目标文件，
 // 显式引用其初始化符号把字体资源钉进每个最终二进制。
@@ -187,6 +195,48 @@ namespace PaleoTheme
     return theme == Theme::Dark ? kDark : kLight;
   }
 
+  QString metricStyleSheet(QString sheet, Theme theme)
+  {
+    const auto &t = tokens(theme);
+    const std::pair<const char *, int> metrics[] = {
+      {"{spacing.xs}", t.spacingXs}, {"{spacing.sm}", t.spacingSm},
+      {"{spacing.md}", t.spacingMd}, {"{spacing.lg}", t.spacingLg},
+      {"{spacing.xl}", t.spacingXl}, {"{spacing.2xl}", t.spacing2xl},
+      {"{rounded.sm}", t.radiusSm}, {"{rounded.md}", t.radiusMd},
+      {"{rounded.lg}", t.radiusLg}, {"{rounded.full}", t.radiusFull},
+      {"{typography.body}", t.bodyPt}, {"{typography.label}", t.labelPt},
+      {"{typography.title}", t.titlePt}, {"{typography.display}", t.displayPt},
+      {"{typography.mono}", t.monoPt},
+    };
+    for (const auto &metric : metrics)
+      sheet.replace(QLatin1String(metric.first), QString::number(metric.second));
+    sheet.replace(QStringLiteral("{font.mono}"), monoFont().family());
+    sheet.replace(QStringLiteral("{font.body}"), bodyFont().family());
+    return sheet;
+  }
+
+  int chipRadius(const QFont &font)
+  {
+    const auto &t = tokens();
+    // Two 1px border edges are raster geometry, not spacing tokens.
+    return qMin(t.radiusFull, (QFontMetrics(font).height() + 2 * t.spacingXs + 2) / 2);
+  }
+
+  QColor dataHaloColor(const QColor &dataColor, Theme theme)
+  {
+    const auto luminance = [](const QColor &color) {
+      const auto linear = [](double c) {
+        return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * linear(color.redF()) + 0.7152 * linear(color.greenF()) +
+             0.0722 * linear(color.blueF());
+    };
+    const auto &t = tokens(theme);
+    const double a = luminance(dataColor), b = luminance(t.surface);
+    const double contrast = (qMax(a, b) + 0.05) / (qMin(a, b) + 0.05);
+    return contrast < 3.0 ? t.text : QColor();
+  }
+
   bool ensureApplicationFonts()
   {
     bool all = true;
@@ -206,22 +256,22 @@ namespace PaleoTheme
     return all;
   }
 
-  QFont bodyFont()
+  QFont bodyFont(int pointSize)
   {
     QFont f;
     // DESIGN.md 退化链：vendor → 平台 CJK → 微软雅黑。
     f.setFamilies({QStringLiteral("Noto Sans SC"),
                    QStringLiteral("Noto Sans CJK SC"),
                    QStringLiteral("Microsoft YaHei UI")});
-    f.setPointSize(kBodyPt);
+    f.setPointSize(pointSize);
     return f;
   }
 
-  QFont monoFont()
+  QFont monoFont(int pointSize)
   {
     QFont f;
     f.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("monospace")});
-    f.setPointSize(kMonoPt);
+    f.setPointSize(pointSize);
     f.setStyleHint(QFont::TypeWriter);
     f.setFeature(QFont::Tag("tnum"), 1);
     return f;
@@ -243,21 +293,29 @@ namespace PaleoTheme
   QString capsuleStyleSheet(CapsuleKind kind, Theme theme)
   {
     const CapsuleColors c = capsuleColors(kind, tokens(theme));
-    QString css = QStringLiteral(
-                      "background: %1; color: %2; border-radius: 4px; padding: 1px 8px;")
+    QString css = metricStyleSheet(QStringLiteral(
+                      "background: %1; color: %2; border-radius: {rounded.sm}px; padding: {spacing.xs}px {spacing.sm}px;"))
                       .arg(qssHex(c.bg), qssHex(c.fg));
     if (c.hasBorder)
       css += QStringLiteral(" border: 1px solid %1;").arg(qssHex(tokens(theme).border));
     return css;
   }
 
-  QLabel *capsuleLabel(const QString &text, CapsuleKind kind, QWidget *parent)
+  QLabel *capsuleLabel(const QString &text, CapsuleKind kind, QWidget *parent, bool nativeRow)
   {
     auto *l = new QLabel(text, parent);
     l->setObjectName(QStringLiteral("statusCapsule"));
     l->setProperty("capsuleKind", static_cast<int>(kind));
+    if (nativeRow)
+      l->setFont(bodyFont(tokens().labelPt)); // 标签层级，容纳既定 compact 行高与边框。
     // 活体注册：运行时切主题胶囊随 Relay 重算（不再停留构造时配色）。
-    applyThemedStyleSheet(l, [kind] { return capsuleStyleSheet(kind); });
+    applyThemedStyleSheet(l, [kind, nativeRow] {
+      QString style = capsuleStyleSheet(kind);
+      // 表格既定行高拥有纵向留白；再次叠加胶囊 padding 会裁掉紧凑行的文字。
+      if (nativeRow)
+        style += metricStyleSheet(QStringLiteral(" padding: 0 {spacing.sm}px;"));
+      return style;
+    });
     l->setAlignment(Qt::AlignCenter);
     return l;
   }
@@ -303,6 +361,86 @@ namespace PaleoTheme
     return p;
   }
 
+  namespace
+  {
+    // 视图专用元数据位，与地质数据/编辑角色分离。
+    constexpr int kItemTextColorRole = Qt::UserRole + 20929;
+    QColor itemTextColor(ItemTextColor role)
+    {
+      const auto &t = tokens();
+      switch (role)
+      {
+        case ItemTextColor::Muted: return t.textMuted;
+        case ItemTextColor::Primary: return t.primaryText;
+        case ItemTextColor::Success: return t.successText;
+        case ItemTextColor::Warning: return t.warningText;
+        case ItemTextColor::Error: return t.errorText;
+        case ItemTextColor::Normal: return t.text;
+      }
+      return t.text;
+    }
+    void refreshItemTextColors()
+    {
+      for (QWidget *widget : QApplication::allWidgets())
+      {
+        if (auto *tree = qobject_cast<QTreeWidget *>(widget))
+        {
+          const QSignalBlocker blocker(tree);
+          for (QTreeWidgetItemIterator it(tree); *it; ++it)
+            for (int column = 0; column < tree->columnCount(); ++column)
+            {
+              const auto role = (*it)->data(column, kItemTextColorRole);
+              if (role.isValid())
+                (*it)->setForeground(column, itemTextColor(static_cast<ItemTextColor>(role.toInt())));
+            }
+        }
+        else if (auto *list = qobject_cast<QListWidget *>(widget))
+        {
+          const QSignalBlocker blocker(list);
+          for (int row = 0; row < list->count(); ++row)
+          {
+            auto *item = list->item(row);
+            const auto role = item->data(kItemTextColorRole);
+            if (role.isValid())
+              item->setForeground(itemTextColor(static_cast<ItemTextColor>(role.toInt())));
+          }
+        }
+        else if (auto *table = qobject_cast<QTableWidget *>(widget))
+        {
+          const QSignalBlocker blocker(table);
+          for (int row = 0; row < table->rowCount(); ++row)
+            for (int column = 0; column < table->columnCount(); ++column)
+              if (auto *item = table->item(row, column))
+              {
+                const auto role = item->data(kItemTextColorRole);
+                if (role.isValid())
+                  item->setForeground(itemTextColor(static_cast<ItemTextColor>(role.toInt())));
+              }
+        }
+      }
+    }
+  }
+
+  void setItemTextColor(QTreeWidgetItem *item, int column, ItemTextColor role)
+  {
+    const QSignalBlocker blocker(item->treeWidget());
+    item->setData(column, kItemTextColorRole, static_cast<int>(role));
+    item->setForeground(column, itemTextColor(role));
+  }
+  void setItemTextColor(QTableWidgetItem *item, ItemTextColor role)
+  {
+    const QSignalBlocker blocker(item->tableWidget());
+    item->setData(kItemTextColorRole, static_cast<int>(role));
+    item->setForeground(itemTextColor(role));
+  }
+
+  void setItemTextColor(QListWidgetItem *item, ItemTextColor role)
+  {
+    const QSignalBlocker blocker(item->listWidget());
+    item->setData(kItemTextColorRole, static_cast<int>(role));
+    item->setForeground(itemTextColor(role));
+  }
+
   void applyTheme(Theme theme)
   {
     ensureApplicationFonts();
@@ -316,6 +454,7 @@ namespace PaleoTheme
                        focusRingStyleSheet(theme));
     // 活体样式统一重算（palette 事件不保证送达隐藏子控件——见 relay 注释）。
     ThemedStyleSheetRelay::instance()->reapplyAll();
+    refreshItemTextColors();
   }
 
   void applyLightTheme() { applyTheme(Theme::Light); }
@@ -339,15 +478,15 @@ namespace PaleoTheme
   QString shellStyleSheet(Theme theme)
   {
     const ThemeTokens &t = tokens(theme);
-    return QStringLiteral(
+    return metricStyleSheet(QStringLiteral(
                "QMainWindow { background: %1; }"
                "QMainWindow::separator { width: 6px; height: 6px; background: %4; }"
                "QMainWindow::separator:hover { background: %3; }"
-               "QDockWidget::title { background: %1; color: %2; padding: 6px 10px; }"
+               "QDockWidget::title { background: %1; color: %2; padding: {spacing.sm}px {spacing.md}px; }"
                "QStatusBar { background: %1; color: %3; }"
                "QWidget#mapInteractionContext { background: %1; color: %3;"
                " border-bottom: 1px solid %4; }"
-               "QWidget#horizonChipRow { background: %5; border-bottom: 1px solid %4; }")
+               "QWidget#horizonChipRow { background: %5; border-bottom: 1px solid %4; }"))
                .arg(qssHex(t.surfaceAlt), qssHex(t.text), qssHex(t.textMuted),
                     qssHex(t.border), qssHex(t.surface))
         // 条目视图三件套（选中/hover/斑马纹/密度 padding）统一出口——
@@ -359,16 +498,16 @@ namespace PaleoTheme
   {
     const ThemeTokens &t = tokens(theme);
     // 不重画 QGIS 图标/箭头/复选指示器，也不覆盖地图和地质纸面画布。
-    return QStringLiteral(
+    return metricStyleSheet(QStringLiteral(
         "QLabel, QCheckBox, QRadioButton { color: %2; }"
         "QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled { color: %6; }"
         "QPushButton { background: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 4px; padding: 4px 8px; }"
+        " border-radius: {rounded.sm}px; padding: {spacing.xs}px {spacing.sm}px; }"
         "QPushButton:hover { background: %4; }"
         "QPushButton:pressed, QPushButton:checked { background: %4; border-color: %5; }"
         "QPushButton:disabled { color: %6; background: %4; }"
         "QLineEdit, QComboBox { background: %1; color: %2;"
-        " border: 1px solid %3; border-radius: 4px; padding: 2px 8px; }"
+        " border: 1px solid %3; border-radius: {rounded.sm}px; padding: {spacing.xs}px {spacing.sm}px; }"
         "QLineEdit:disabled, QComboBox:disabled {"
         " color: %6; background: %4; }"
         "QAbstractSpinBox QLineEdit { border: none; padding: 0; background: transparent; }"
@@ -376,18 +515,18 @@ namespace PaleoTheme
         " border: 1px solid %3; selection-background-color: %7; selection-color: %8; }"
         "QTableView { gridline-color: %3; }"
         "QHeaderView::section { background: %4; color: %2; border: none;"
-        " border-right: 1px solid %3; border-bottom: 1px solid %3; padding: 4px 8px; }"
+        " border-right: 1px solid %3; border-bottom: 1px solid %3; padding: {spacing.xs}px {spacing.sm}px; }"
         "QTableCornerButton::section { background: %4; border: 1px solid %3; }"
-        "QGroupBox { border: 1px solid %3; border-radius: 4px; margin-top: 8px;"
-        " padding-top: 8px; }"
-        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; color: %2; }"
+        "QGroupBox { border: 1px solid %3; border-radius: {rounded.sm}px; margin-top: {spacing.sm}px;"
+        " padding-top: {spacing.sm}px; }"
+        "QGroupBox::title { subcontrol-origin: margin; left: {spacing.sm}px; padding: 0 {spacing.xs}px; color: %2; }"
         "QTabWidget::pane { border: 1px solid %3; background: %1; }"
         "QTabWidget > QTabBar::tab { background: %4; color: %5; border: 1px solid %3;"
-        " padding: 4px 8px; border-top-left-radius: 4px; border-top-right-radius: 4px; }"
+        " padding: {spacing.xs}px {spacing.sm}px; border-top-left-radius: {rounded.sm}px; border-top-right-radius: {rounded.sm}px; }"
         "QTabWidget > QTabBar::tab:selected { background: %1; color: %2; border-bottom-color: %1; }"
         "QTabWidget > QTabBar::tab:hover { color: %2; }"
         "QTabWidget > QTabBar::tab:disabled { color: %6; }"
-        "QToolTip { background: %1; color: %2; border: 1px solid %3; padding: 4px 8px; }")
+        "QToolTip { background: %1; color: %2; border: 1px solid %3; padding: {spacing.xs}px {spacing.sm}px; }"))
         .arg(qssHex(t.surface), qssHex(t.text), qssHex(t.border),
              qssHex(t.surfaceAltRaised), qssHex(t.textMuted), qssHex(t.textDisabled),
              qssHex(t.primary), qssHex(t.onPrimary));
@@ -396,13 +535,13 @@ namespace PaleoTheme
   QString toolButtonStyleSheet(Theme theme)
   {
     const ThemeTokens &t = tokens(theme);
-    return QStringLiteral(
+    return metricStyleSheet(QStringLiteral(
         "QToolButton { background: %1; color: %2; border: 1px solid %3;"
-        " border-radius: 4px; padding: 2px 8px; font-size: 9pt; }"
+        " border-radius: {rounded.sm}px; padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.body}pt; }"
         "QToolButton:hover { background: %4; }"
         "QToolButton:pressed { background: %4; border-color: %5; }"
         "QToolButton:checked { background: %4; border-color: %5; color: %2; }"
-        "QToolButton:disabled { color: %6; border-color: %3; background: %1; }")
+        "QToolButton:disabled { color: %6; border-color: %3; background: %1; }"))
         .arg(qssHex(t.surface), qssHex(t.text), qssHex(t.border),
              qssHex(t.surfaceAltRaised), qssHex(t.textMuted), qssHex(t.textDisabled))
         + focusRingStyleSheet(theme);
@@ -413,11 +552,11 @@ namespace PaleoTheme
     const ThemeTokens &t = tokens(theme);
     // 树/列表行高走 padding；表行高走 verticalHeader（applyDensityToViewTree），
     // 不给 QTableView::item 加 padding 以免平移单元格内嵌件。
-    return QStringLiteral(
+    return metricStyleSheet(QStringLiteral(
                "QAbstractItemView { alternate-background-color: %1; }"
-               "QTreeView::item, QListView::item { padding: %2px 3px; }"
+               "QTreeView::item, QListView::item { padding: %2px {spacing.xs}px; }"
                "QAbstractItemView::item:hover { background: %1; }"
-               "QAbstractItemView::item:selected { background: %3; color: %4; }")
+               "QAbstractItemView::item:selected { background: %3; color: %4; }"))
         .arg(qssHex(t.surfaceAltRaised))
         .arg(itemViewPaddingY(density))
         .arg(qssHex(t.primary))
@@ -461,6 +600,7 @@ namespace PaleoTheme
     qApp->setStyleSheet(controlStyleSheet() + itemViewStyleSheet() +
                        focusRingStyleSheet());
     ThemedStyleSheetRelay::instance()->reapplyAll();
+    refreshItemTextColors();
   }
 
   void applyDensityToViewTree(QWidget *root, Density density)
@@ -482,12 +622,12 @@ namespace PaleoTheme
 
   QString mutedCaptionStyleSheet(Theme theme)
   {
-    return QStringLiteral("color: %1; font-size: 8pt;").arg(qssHex(tokens(theme).textMuted));
+    return metricStyleSheet(QStringLiteral("color: %1; font-size: {typography.label}pt;")).arg(qssHex(tokens(theme).textMuted));
   }
 
   QString sectionTitleStyleSheet(Theme theme)
   {
-    return QStringLiteral("font-size: 12pt; font-weight: 600; color: %1;")
+    return metricStyleSheet(QStringLiteral("font-size: {typography.title}pt; font-weight: 600; color: %1;"))
         .arg(qssHex(tokens(theme).text));
   }
 
@@ -577,7 +717,7 @@ namespace PaleoTheme
   QString ribbonStyleSheet(Theme theme)
   {
     const ThemeTokens &t = tokens(theme);
-    return QStringLiteral(
+    return metricStyleSheet(QStringLiteral(
                // office2021 模板把 hover 字色设成按下底色（浅灰字）——改回正文色。
                "SARibbonToolButton:hover { color: %1; }"
                // 选中态（活动地图工具 / 开着的过滤）：primary 描边 + 浮起面底。
@@ -588,16 +728,18 @@ namespace PaleoTheme
                // primaryText（暗色提亮，保证深底对比度）。
                "SARibbonToolButton[paleoRun=\"true\"] { color: %5; }"
                "SARibbonToolButton[paleoRun=\"true\"]:disabled { color: %4; }"
-               "SARibbonPanelLabel { font-size: 8pt; color: %8; }"
+               "SARibbonPanelLabel { font-size: {typography.label}pt; color: %8; }"
                "SARibbonSeparatorWidget { color: %6; background: transparent;"
-               " border: none; border-left: 1px solid %6; margin: 4px 0; }"
-               "SARibbonTabBar::tab { font-size: 9pt; color: %8;"
+               " border: none; border-left: 1px solid %6; margin: {spacing.xs}px 0; }"
+               "SARibbonTabBar::tab { font-size: {typography.body}pt; color: %8;"
                " border: none; border-bottom: 2px solid transparent; }"
                "SARibbonTabBar::tab:selected { color: %5; border-bottom: 2px solid %5; }"
-               "SARibbonButtonGroupWidget > QToolButton { padding: 0 6px; }"
-               "SARibbonPanel QComboBox { border: 1px solid %6; border-radius: 4px;"
-               " background: %7; color: %1; padding: 1px 6px; min-width: 132px; }"
-               "SARibbonPanel QLabel#ribbonEditState { color: %8; }")
+               "SARibbonButtonGroupWidget > QToolButton { padding: 0 {spacing.sm}px; }"
+               // 固定高度标题行的搜索框不能叠加正文输入框的纵向 padding。
+               "QWidget#locatorSlot QLineEdit { padding: 0 {spacing.sm}px; }"
+               "SARibbonPanel QComboBox { border: 1px solid %6; border-radius: {rounded.sm}px;"
+               " background: %7; color: %1; padding: {spacing.xs}px {spacing.sm}px; min-width: 132px; }"
+               "SARibbonPanel QLabel#ribbonEditState { color: %8; }"))
         .arg(qssHex(t.text), qssHex(t.primary), qssHex(t.surfaceAltRaised),
              qssHex(t.textDisabled), qssHex(t.primaryText), qssHex(t.border),
              qssHex(t.surface), qssHex(t.textMuted));

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="2"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="20"
+	timestamp="2026-10-04T16:26:38"
+	>
+	<testcase name="tst_catalog" classname="tst_catalog" time="8.38829" status="run">
+		<properties>
+			<property name="cmake_labels" value="store"/>
+		</properties>
+		<system-out>********* Start testing of TestCatalog *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : TestCatalog::initTestCase()
+PASS   : TestCatalog::roundTripsThroughJson()
+PASS   : TestCatalog::normalizesWellName()
+PASS   : TestCatalog::resolvesWellByName()
+PASS   : TestCatalog::ambiguousNameYieldsBothCandidates()
+PASS   : TestCatalog::unresolvedLinkRoundTripsWithEmptyEntityId()
+PASS   : TestCatalog::resolvedLinkStillNeedsEntityId()
+PASS   : TestCatalog::currentVersionPicksHighestNumber()
+PASS   : TestCatalog::managedPathLayout()
+PASS   : TestCatalog::unsafePathSegmentsRejected()
+PASS   : TestCatalog::versionBySha256FindsStored()
+PASS   : TestCatalog::managedPathRejectsSymlinksAndTraversal()
+QWARN  : TestCatalog::managedCatalogLoadRejectsEscape() catalog: skipping version ver-1 with unsafe path segment: managed path segment: ..
+PASS   : TestCatalog::managedCatalogLoadRejectsEscape()
+PASS   : TestCatalog:...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="tst_startup_trace" classname="tst_startup_trace" time="11.8533" status="run">
+		<properties>
+			<property name="cmake_labels" value="perf;services"/>
+		</properties>
+		<system-out>********* Start testing of StartupTraceTests *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : StartupTraceTests::initTestCase()
+PASS   : StartupTraceTests::markRecordsSegmentsInOrder()
+PASS   : StartupTraceTests::adjacentDuplicateMarkCollapsed()
+PASS   : StartupTraceTests::jsonShapeIsStable()
+PASS   : StartupTraceTests::resetClearsState()
+PASS   : StartupTraceTests::realStartupProducesCompleteTrace()
+PASS   : StartupTraceTests::realStartupRatioGatesHold()
+QINFO  : StartupTraceTests::injectedDegradationMustTripGate() qgis share: healthy=0.165 degraded=0.614 (x3.7)
+QINFO  : StartupTraceTests::injectedDegradationMustTripGate() absolute gate on degraded run: ratio=0.614 gate=0.220 TRIPPED
+PASS   : StartupTraceTests::injectedDegradationMustTripGate()
+PASS   : StartupTraceTests::cleanupTestCase()
+Totals: 9 passed, 0 failed, 0 skipped, 0 blacklisted, 11636ms
+********* Finished testing of StartupTraceT...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+</testsuite>

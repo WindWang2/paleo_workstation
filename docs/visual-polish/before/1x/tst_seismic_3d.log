@@ -1,0 +1,12 @@
+********* Start testing of TestSeismic3D *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : TestSeismic3D::initTestCase()
+QINFO  : TestSeismic3D::captureNativeVolumeEvidence() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestSeismic3D::captureNativeVolumeEvidence() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestSeismic3D::captureNativeVolumeEvidence() Native evidence DPR 1.5 size QSize(1699, 849)
+QINFO  : TestSeismic3D::captureNativeVolumeEvidence() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestSeismic3D::captureNativeVolumeEvidence() Native evidence DPR 1.5 size QSize(1699, 849)
+PASS   : TestSeismic3D::captureNativeVolumeEvidence()
+PASS   : TestSeismic3D::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 2431ms
+********* Finished testing of TestSeismic3D *********

@@ -378,14 +378,17 @@ private slots:
     QCOMPARE(faultRenderer->symbol()->symbolLayerCount(), 2);
 
     // 语义重放幂等：restore 后符号结构不变（再 round-trip 稳定）。
+    // setRenderer 销毁旧渲染器——先快照字段值，restore 后旧 svgBack 已悬垂。
+    const QString expectedSvgPath = svgBack->svgFilePath();
+    const double expectedPatternWidth = svgBack->patternWidth();
     QVERIFY(QgisStyleService::restoreSymbolOverride(lithBack));
     auto *restored = dynamic_cast<QgsSingleSymbolRenderer *>(lithBack->renderer());
     QVERIFY(restored != nullptr);
     auto *svgRestored =
         dynamic_cast<QgsSVGFillSymbolLayer *>(restored->symbol()->symbolLayer(0));
     QVERIFY(svgRestored != nullptr);
-    QCOMPARE(svgRestored->svgFilePath(), svgBack->svgFilePath());
-    QCOMPARE(svgRestored->patternWidth(), svgBack->patternWidth());
+    QCOMPARE(svgRestored->svgFilePath(), expectedSvgPath);
+    QCOMPARE(svgRestored->patternWidth(), expectedPatternWidth);
   }
 };
 

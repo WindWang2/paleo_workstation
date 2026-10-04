@@ -85,7 +85,7 @@ void WellCompositePanel::setupUi()
 {
   auto *rootLay = new QVBoxLayout(this);
   rootLay->setContentsMargins(0, 0, 0, 0);
-  rootLay->setSpacing(4);
+  rootLay->setSpacing(PaleoTheme::tokens().spacingXs);
 
   // 置顶工具栏
   auto *topBar = new QWidget(this);
@@ -97,8 +97,8 @@ void WellCompositePanel::setupUi()
         .arg(t.surface.name(), t.border.name());
   });
   auto *topLay = new QHBoxLayout(topBar);
-  topLay->setContentsMargins(8, 6, 8, 6);
-  topLay->setSpacing(8);
+  topLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  topLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   // 井名 Badge（样式由 setWellName 统一收口，此处仅占位）
   m_lblWellName = new QLabel(topBar);
@@ -108,7 +108,7 @@ void WellCompositePanel::setupUi()
   // 比例尺选择（可编辑，且随着放大/缩小联动动态更新）
   auto *lblScaleTitle = new QLabel(tr("比例尺:"), topBar);
   PaleoTheme::applyThemedStyleSheet(lblScaleTitle, [] {
-    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral(" font-size: 8pt;");
+    return PaleoTheme::mutedCaptionStyleSheet() + PaleoTheme::metricStyleSheet(QStringLiteral(" font-size: {typography.label}pt;"));
   });
   topLay->addWidget(lblScaleTitle);
 
@@ -121,9 +121,9 @@ void WellCompositePanel::setupUi()
   m_scaleCombo->setCurrentText(QStringLiteral("1:500"));
   PaleoTheme::applyThemedStyleSheet(m_scaleCombo, [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
-               "QComboBox { border: 1px solid %1; border-radius: 4px; padding: 2px 6px; font-size: 8pt; background: %2; }"
-               "QComboBox:hover { border-color: %3; }")
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+               "QComboBox { border: 1px solid %1; border-radius: {rounded.sm}px; padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.label}pt; background: %2; }"
+               "QComboBox:hover { border-color: %3; }"))
         .arg(t.border.name(), t.surface.name(), t.primary.name());
   });
   topLay->addWidget(m_scaleCombo);
@@ -131,7 +131,7 @@ void WellCompositePanel::setupUi()
   // 缩放控制组
   auto *lblZoomTitle = new QLabel(tr("深度缩放:"), topBar);
   PaleoTheme::applyThemedStyleSheet(lblZoomTitle, [] {
-    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral(" font-size: 8pt; margin-left: 6px;");
+    return PaleoTheme::mutedCaptionStyleSheet() + PaleoTheme::metricStyleSheet(QStringLiteral(" font-size: {typography.label}pt; margin-left: {spacing.sm}px;"));
   });
   topLay->addWidget(lblZoomTitle);
 
@@ -140,14 +140,14 @@ void WellCompositePanel::setupUi()
   // 描边/字，同 ribbonStyleSheet）——主题化收口递延债清偿。
   const auto themedBtnStyle = [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
-               "QToolButton { background: %1; border: 1px solid %2; border-radius: 4px; "
-               "padding: 2px 7px; font-size: 8pt; color: %3; }"
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+               "QToolButton { background: %1; border: 1px solid %2; border-radius: {rounded.sm}px; "
+               "padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.label}pt; color: %3; }"
                "QToolButton:hover { background: %4; border-color: %5; }"
                "QToolButton:pressed { background: %2; }"
                "QToolButton:disabled { color: %5; }"
                "QToolButton#btnPredictFacies:enabled { color: %7; }"
-               "QToolButton:checked { background: %6; border-color: %7; color: %7; }")
+               "QToolButton:checked { background: %6; border-color: %7; color: %7; }"))
         .arg(t.surface.name(), t.border.name(), t.text.name(),
              t.surfaceAlt.name(), t.textDisabled.name(),
              t.surfaceAltRaised.name(), t.primaryText.name());
@@ -164,7 +164,7 @@ void WellCompositePanel::setupUi()
   m_lblZoom->setObjectName(QStringLiteral("lblCompZoomFactor"));
   PaleoTheme::applyThemedStyleSheet(m_lblZoom, [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral("QLabel { color: %1; font-size: 8pt; min-width: 65px; }")
+    return PaleoTheme::metricStyleSheet(QStringLiteral("QLabel { color: %1; font-size: {typography.label}pt; min-width: 65px; }"))
         .arg(t.text.name());
   });
   m_lblZoom->setAlignment(Qt::AlignCenter);
@@ -258,7 +258,7 @@ void WellCompositePanel::setupUi()
     if (!m_faciesWorkflow) return;
     const auto config = m_faciesWorkflow->config();
     QDialog dialog(this); dialog.setWindowTitle(tr("测井相预测服务"));
-    auto *form = new QFormLayout(&dialog); form->setContentsMargins(16,16,16,16); form->setSpacing(8);
+    auto *form = new QFormLayout(&dialog); form->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd); form->setSpacing(PaleoTheme::tokens().spacingSm);
     QLineEdit url(config.baseUrl.toString()), key(QString::fromUtf8(config.apiKey));
     url.setPlaceholderText(tr("https://服务地址"));
     key.setEchoMode(QLineEdit::Password);
@@ -325,9 +325,9 @@ void WellCompositePanel::setupUi()
   m_lblReadout = new QLabel(QStringLiteral("— m"), topBar);
   m_lblReadout->setObjectName(QStringLiteral("lblCompReadout"));
   PaleoTheme::applyThemedStyleSheet(m_lblReadout, [] {
-    return QStringLiteral(
-        "QLabel { font-family: 'JetBrains Mono, monospace'; font-size: 12pt; color: %1;"
-        " font-weight: 500; padding: 0 6px; }")
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+        "QLabel { font-family: '{font.mono}'; font-size: {typography.title}pt; color: %1;"
+        " font-weight: 500; padding: 0 {spacing.sm}px; }"))
         .arg(PaleoTheme::tokens().text.name());
   });
   topLay->addWidget(m_lblReadout);
@@ -336,7 +336,7 @@ void WellCompositePanel::setupUi()
   m_lblStatus = new QLabel(tr("就绪 | 支持按住拖拽漫游，Ctrl+滚轮缩放"), topBar);
   m_lblStatus->setObjectName(QStringLiteral("lblStatus"));
   PaleoTheme::applyThemedStyleSheet(m_lblStatus, [] {
-    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral(" font-size: 8pt;");
+    return PaleoTheme::mutedCaptionStyleSheet() + PaleoTheme::metricStyleSheet(QStringLiteral(" font-size: {typography.label}pt;"));
   });
   topLay->addWidget(m_lblStatus);
 
@@ -486,13 +486,13 @@ void WellCompositePanel::setWellName(const QString &name, bool reference)
   // 参考井徽章 = warning 胶囊语义（辅助资料、待区分）。
   const auto neutralBadgeStyle = [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
-               "background: %1; color: %2; font-weight: bold; border-radius: 4px; padding: 2px 8px; font-size: 9pt;")
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+               "background: %1; color: %2; font-weight: bold; border-radius: {rounded.sm}px; padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.body}pt;"))
         .arg(t.surfaceAltRaised.name(), t.text.name());
   };
   const auto referenceBadgeStyle = [] {
     return PaleoTheme::capsuleStyleSheet(PaleoTheme::CapsuleKind::Warning) +
-           QStringLiteral(" font-weight: bold; padding: 2px 8px; font-size: 9pt;");
+           PaleoTheme::metricStyleSheet(QStringLiteral(" font-weight: bold; padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.body}pt;"));
   };
 
   if (name.isEmpty())
@@ -1186,7 +1186,7 @@ void WellCompositePanel::onIntervalSelected(double top, double bottom)
   auto *lay = new QVBoxLayout(&dlg);
   auto *edit = new QPlainTextEdit(&dlg);
   edit->setReadOnly(true);
-  edit->setFont(QFont(QStringLiteral("JetBrains Mono, monospace")));
+  edit->setFont(PaleoTheme::monoFont());
   edit->setPlainText(rep.toTsv());
   lay->addWidget(edit, 1);
 

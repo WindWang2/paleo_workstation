@@ -1,0 +1,16 @@
+src/ui/datapreview/datapreviewtabs_internal.h:1429:    p.drawRoundedRect(QRectF(barX, barTop, barW, barH), 2.0, 2.0);
+src/ui/decorations/paleodecorations.cpp:142:  painter->drawRoundedRect(QRectF(margin-6, margin-6, s+12, s+28),4,4);
+src/ui/decorations/paleodecorations.cpp:249:  painter->drawRoundedRect( QRectF( x, y, pillW, pillH ), pillH / 2.0, pillH / 2.0 );
+src/ui/decorations/paleodecorations.cpp:460:  p->drawRoundedRect(QRectF(x,y,width,16+row*(facies.size()+1)),4,4);
+src/ui/seismicsection/seismicsectioncanvas.cpp:1286:                p.drawRoundedRect(tagRect, 3.0, 3.0);
+src/ui/seismicsection/seismicsectioncanvas.cpp:1413:                        p.drawRoundedRect(tagRect, 3.0, 3.0);
+src/ui/seismicsection/seismicsectioncanvas.cpp:1680:                    p.drawRoundedRect(badge, 4.0, 4.0);
+src/ui/seismicsection/seismicsectioncanvas.cpp:1836:        p.drawRoundedRect(colorBarRect, 2.0, 2.0);
+src/ui/seismic3d/seismic3dviewportwidget.cpp:247:                p.drawRoundedRect(box, 4, 4);
+src/ui/pages/dataopswidgets.h:36:  explicit FlowLayout(QWidget *parent, int margin = 0, int spacing = 4)
+src/ui/pages/dataopswidgets.h:42:  ~FlowLayout() override
+src/ui/pages/dataopswidgets.h:148:    m_chipsLay = new FlowLayout(m_chips, 0, 4);
+src/ui/pages/dataopswidgets.h:506:    m_flow = new FlowLayout(m_host, 0, 4);
+src/ui/wellcomposite/wellcompositecanvas.cpp:1159:    p.drawRoundedRect(cardRect, 4.0, 4.0);
+src/ui/wellcomposite/wellpositionlegendwidget.cpp:204:  p.drawRoundedRect(baseRect, 3.0, 3.0);
+src/ui/wellcomposite/wellcompositetrack.cpp:1761:      painter.drawRoundedRect(pill, 3.0, 3.0);

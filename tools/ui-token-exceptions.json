@@ -1,0 +1,2452 @@
+[
+  {
+    "file": "src/ui/correlation/horizonmarkers.cpp",
+    "rule": "hex",
+    "source": "const QColor kDefaultMarkerColor(QStringLiteral(\"#F29900\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地层关联标记的默认待复核语义色。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabhorizon.cpp",
+    "rule": "rgb",
+    "source": "lowsBand->setColor(QColor(21, 118, 210));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：QGIS 极值点高/低两组地质数据符号。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabhorizon.cpp",
+    "rule": "rgb",
+    "source": "peaksBand->setColor(QColor(217, 38, 38));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：QGIS 极值点高/低两组地质数据符号。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs.cpp",
+    "rule": "hex",
+    "source": "boundaryBand->setStrokeColor(QColor(QStringLiteral(\"#1B73D0\")));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：QGIS 测区轮廓与透明填充，不改变地图符号色。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs.cpp",
+    "rule": "rgb",
+    "source": "boundaryBand->setColor(QColor(27, 115, 208, 16));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：QGIS 测区轮廓与透明填充，不改变地图符号色。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": ": createFaciesSymbol( vlayer->geometryType(), QColor( QStringLiteral( \"#CFD8DC\" ) ) );",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#80CBC4\")),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#81D4FA\")),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#A5D6A7\")),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#B0BEC5\")),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#B39DDB\"))",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#CE93D8\")),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#FFAB91\")),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#FFCC80\")),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#FFE082\")),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#FFF59D\")),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QStringLiteral(\"#00838F\"),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QStringLiteral(\"#1B73D0\"),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QStringLiteral(\"#388E3C\")",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QStringLiteral(\"#5D6E80\"),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QStringLiteral(\"#7B1FA2\"),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QStringLiteral(\"#C2185B\"),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QStringLiteral(\"#E65100\"),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "QStringLiteral(\"#F57C00\"),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "addCurve(name, unit, values, depths, QColor(QStringLiteral(\"#1B73D0\")), true);",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "disk[QStringLiteral( \"color\" )] = QStringLiteral( \"#1B73D0\" );",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "fmt.setColor( QColor( QStringLiteral( \"#24303E\" ) ) );",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "props[QStringLiteral( \"color\" )] = QStringLiteral( \"#24303E\" );",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "props[QStringLiteral( \"line_color\" )] = QStringLiteral( \"#5D6E80\" );",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "props[QStringLiteral( \"outline_color\" )] = QStringLiteral( \"#1B73D0\" );",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "props[QStringLiteral( \"outline_color\" )] = QStringLiteral( \"#FFFFFF\" );",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#00796B\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#0288D1\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#2E7D32\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#455A64\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#4DD0E1\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#7B1FA2\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#80CBC4\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#80DEEA\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#81D4FA\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#90CAF9\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#A5D6A7\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#B2DFDB\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#D32F2F\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#D7CCC8\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#DCEDC8\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#E65100\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#E6EE9C\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#FFAB91\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#FFB74D\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#FFCC80\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#FFD54F\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#FFE082\"));",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#FFE57F\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#FFF176\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#FFF59D\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "ring[QStringLiteral( \"outline_color\" )] = QStringLiteral( \"#1B73D0\" );",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "hex",
+    "source": "txtFmt.setColor( QColor( QStringLiteral( \"#24303E\" ) ) );",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "qt-color",
+    "source": "buf.setColor( Qt::white );",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "rgb",
+    "source": "grad.setColorAt(0.0, QColor(220, 38, 38));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "rgb",
+    "source": "grad.setColorAt(0.5, QColor(255, 255, 255));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "rule": "rgb",
+    "source": "grad.setColorAt(1.0, QColor(25, 118, 210));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabwelllog.cpp",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#80CBC4\")), QColor(QStringLiteral(\"#80DEEA\")),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：关联分层区间填色，作为综合井图数据。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabwelllog.cpp",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#90CAF9\")), QColor(QStringLiteral(\"#B39DDB\"))};",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：关联分层区间填色，作为综合井图数据。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabwelllog.cpp",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#C8E6C9\")), QColor(QStringLiteral(\"#A5D6A7\")),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：关联分层区间填色，作为综合井图数据。"
+  },
+  {
+    "file": "src/ui/datapreview/datapreviewtabwelllog.cpp",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#FFE082\")), QColor(QStringLiteral(\"#FFF59D\")),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：关联分层区间填色，作为综合井图数据。"
+  },
+  {
+    "file": "src/ui/datapreview/previewmappage.cpp",
+    "rule": "hex",
+    "source": "m_viewportBand->setStrokeColor( QColor( QStringLiteral( \"#1B73D0\" ) ) );",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：预览地图固定纸面与视口位置符号（透明蓝），避免背景改变数据读图基准。"
+  },
+  {
+    "file": "src/ui/datapreview/previewmappage.cpp",
+    "rule": "qt-color",
+    "source": "m_canvas->setCanvasColor( Qt::white );",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：预览地图固定纸面与视口位置符号（透明蓝），避免背景改变数据读图基准。"
+  },
+  {
+    "file": "src/ui/datapreview/previewmappage.cpp",
+    "rule": "rgb",
+    "source": "m_viewportBand->setColor( QColor( 27, 115, 208, 30 ) );",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：预览地图固定纸面与视口位置符号（透明蓝），避免背景改变数据读图基准。"
+  },
+  {
+    "file": "src/ui/datapreview/previewprofilepanel.cpp",
+    "rule": "hex",
+    "source": "QColor( QStringLiteral( \"#1B73D0\" ) ), QColor( QStringLiteral( \"#E65100\" ) ),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：多剖面系列色保持固定，低对比度仅添加中性轮廓。"
+  },
+  {
+    "file": "src/ui/datapreview/previewprofilepanel.cpp",
+    "rule": "hex",
+    "source": "QColor( QStringLiteral( \"#7B1FA2\" ) ), QColor( QStringLiteral( \"#00838F\" ) ),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：多剖面系列色保持固定，低对比度仅添加中性轮廓。"
+  },
+  {
+    "file": "src/ui/datapreview/previewprofilepanel.cpp",
+    "rule": "hex",
+    "source": "QColor( QStringLiteral( \"#C2185B\" ) ), QColor( QStringLiteral( \"#388E3C\" ) ),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：多剖面系列色保持固定，低对比度仅添加中性轮廓。"
+  },
+  {
+    "file": "src/ui/datapreview/previewtocpanel.cpp",
+    "rule": "hex",
+    "source": "m_colorBtn->setProperty( \"color\", QColor( QStringLiteral( \"#1B73D0\" ) ) );",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：矢量符号编辑器的默认颜色，写入 QGIS renderer。"
+  },
+  {
+    "file": "src/ui/edittools/vertexeditortools.cpp",
+    "rule": "rgb",
+    "source": "QColor dragMarkerColor() { return QColor( 255, 0, 0 ); }",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：QGIS 顶点编辑的白色顶点与红色拖拽标记（原有覆盖符号）。"
+  },
+  {
+    "file": "src/ui/edittools/vertexeditortools.cpp",
+    "rule": "rgb",
+    "source": "QColor idleMarkerColor() { return QColor( 255, 255, 255 ); }",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：QGIS 顶点编辑的白色顶点与红色拖拽标记（原有覆盖符号）。"
+  },
+  {
+    "file": "src/ui/pages/mappingworkbenchpage.cpp",
+    "rule": "hex",
+    "source": "m_facies->setItem(i, 2, new QTableWidgetItem(\"#97B4CE\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地质相模型表格中可编辑的颜色值。"
+  },
+  {
+    "file": "src/ui/paleomainwindow.cpp",
+    "rule": "hex",
+    "source": "band->setStrokeColor(QColor(QStringLiteral(\"#1B73D0\")));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：QGIS 测区空间覆盖的蓝色描边/透明填充。"
+  },
+  {
+    "file": "src/ui/paleomainwindow.cpp",
+    "rule": "rgb",
+    "source": "band->setColor(QColor(27, 115, 208, 60));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：QGIS 测区空间覆盖的蓝色描边/透明填充。"
+  },
+  {
+    "file": "src/ui/paleomainwindow_sections.cpp",
+    "rule": "hex",
+    "source": "band->setColor(QColor(\"#1B73D0\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：剖面路径的 QGIS 地图橡皮筋描边。"
+  },
+  {
+    "file": "src/ui/paleomainwindow_workbench.cpp",
+    "rule": "hex",
+    "source": "{\"color\", \"#9AA7B4\"}};",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：编图参考地图固定纸面与地质预览色样。"
+  },
+  {
+    "file": "src/ui/paleomainwindow_workbench.cpp",
+    "rule": "qt-color",
+    "source": "canvas->setCanvasColor(Qt::white);",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：编图参考地图固定纸面与地质预览色样。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "cmap.setStops({stop(0.0f, QColor(10, 10, 30)), stop(0.35f, QColor(183, 28, 28)),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "cmap.setStops({stop(0.0f, QColor(21, 101, 192)), stop(0.25f, QColor(0, 172, 193)),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "cmap.setStops({stop(0.0f, QColor(216, 27, 216)), stop(0.5f, QColor(255, 255, 255)),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "cmap.setStops({stop(0.0f, QColor(220, 38, 38)), stop(0.5f, QColor(255, 255, 255)),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "cmap.setStops({stop(0.0f, QColor(25, 118, 210)), stop(0.5f, QColor(255, 255, 255)),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "cmap.setStops({stop(0.0f, QColor(255, 138, 25)), stop(0.5f, QColor(255, 255, 255)),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "cmap.setStops({stop(0.0f, QColor(255, 255, 255)), stop(0.5f, QColor(255, 255, 255)),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "cmap.setStops({stop(0.0f, QColor(255, 255, 255)), stop(1.0f, QColor(0, 0, 0))});",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "stop(0.5f, QColor(56, 142, 60)), stop(0.75f, QColor(251, 192, 45)),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "stop(0.7f, QColor(251, 192, 45)), stop(1.0f, QColor(255, 255, 255))});",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "stop(1.0f, QColor(0, 172, 193))});",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "stop(1.0f, QColor(20, 20, 24))});",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "stop(1.0f, QColor(220, 38, 38))});",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "stop(1.0f, QColor(25, 118, 210))});",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
+    "rule": "rgb",
+    "source": "stop(1.0f, QColor(46, 160, 67))});",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtf.cpp",
+    "rule": "rgb",
+    "source": "stop(0.34f, QColor(120, 160, 210), 0.0f),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtf.cpp",
+    "rule": "rgb",
+    "source": "stop(0.52f, QColor(255, 255, 255), 0.04f),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtf.cpp",
+    "rule": "rgb",
+    "source": "stop(0.5f, QColor(140, 140, 150), 0.3f),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtf.cpp",
+    "rule": "rgb",
+    "source": "stop(0.5f, QColor(255, 255, 255), 0.16f),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtf.cpp",
+    "rule": "rgb",
+    "source": "stop(0.66f, QColor(226, 150, 150), 0.0f),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtf.cpp",
+    "rule": "rgb",
+    "source": "stop(1.0f, QColor(220, 38, 38), 0.28f)});",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtf.cpp",
+    "rule": "rgb",
+    "source": "stop(1.0f, QColor(220, 38, 38), 0.85f)});",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtf.cpp",
+    "rule": "rgb",
+    "source": "stop(1.0f, QColor(220, 38, 38), 0.92f)});",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtf.cpp",
+    "rule": "rgb",
+    "source": "stop(1.0f, QColor(255, 255, 255), 1.0f)});",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtf.cpp",
+    "rule": "rgb",
+    "source": "tf.setStops({stop(0.0f, QColor(20, 20, 24), 0.0f),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtf.cpp",
+    "rule": "rgb",
+    "source": "tf.setStops({stop(0.0f, QColor(25, 118, 210), 0.0f),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtf.cpp",
+    "rule": "rgb",
+    "source": "tf.setStops({stop(0.0f, QColor(25, 118, 210), 0.28f),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtf.cpp",
+    "rule": "rgb",
+    "source": "tf.setStops({stop(0.0f, QColor(25, 118, 210), 0.85f),",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtfeditor.cpp",
+    "rule": "rgb",
+    "source": "light ? QColor(255, 255, 255) : QColor(224, 224, 224));",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：透明度色带使用固定灰白棋盘作合成参照，灰色为无停靠点的插值值。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dtfeditor.cpp",
+    "rule": "rgb",
+    "source": "return QColor(128, 128, 128);",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：透明度色带使用固定灰白棋盘作合成参照，灰色为无停靠点的插值值。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dviewpanel.cpp",
+    "rule": "hex",
+    "source": "lines << QStringLiteral(\"0.00 #1976d2\\n0.50 #ffffff\\n1.00 #dc2626\");",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：井轨迹配色与色带编辑示例字符串，保存为数据样式。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dviewpanel.cpp",
+    "rule": "rgb",
+    "source": "QColor(243, 156, 18), QColor(142, 68, 173), QColor(0, 172, 193),",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：井轨迹配色与色带编辑示例字符串，保存为数据样式。"
+  },
+  {
+    "file": "src/ui/seismic3d/seismic3dviewpanel.cpp",
+    "rule": "rgb",
+    "source": "QColor(46, 134, 193), QColor(231, 76, 60), QColor(39, 174, 96),",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：井轨迹配色与色带编辑示例字符串，保存为数据样式。"
+  },
+  {
+    "file": "src/ui/seismic3d/volumeframerenderer.cpp",
+    "rule": "packed-color",
+    "source": "const QColor c = top.color.isValid() ? top.color : QColor(0x1B73D0);",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：体框架上地层位置的缺省蓝色数据标记，非面板文字。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "hex",
+    "source": "p.fillRect(vp, QColor(QStringLiteral(\"#FFFFFF\")));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "hex",
+    "source": "p.setBrush(QColor(QStringLiteral(\"#1B73D0\")));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QColor(QStringLiteral(\"#24303E\")));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QColor(QStringLiteral(\"#F29900\")));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 2.0));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QPen(curve.color.isValid() ? curve.color : QColor(QStringLiteral(\"#43A047\")), 1.5));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "qt-color",
+    "source": "img.fill(Qt::white);",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "qt-color",
+    "source": "p.setPen(QPen(QColor(Qt::white), 3.0));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "qt-color",
+    "source": "p.setPen(QPen(QColor(Qt::white), 4.6));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "rgb",
+    "source": ": (pick.confidence >= 0.5 ? QColor(242, 153, 0) : QColor(229, 57, 53));",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "rgb",
+    "source": "? QColor(67, 160, 71)",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "rgb",
+    "source": "QBrush fillBrush(QColor(24, 30, 40));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "rgb",
+    "source": "QPen wavePen(QColor(30, 38, 48), 1.0);",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "rgb",
+    "source": "p.setPen(QPen(QColor(220, 38, 38), 1.4));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "rgb",
+    "source": "p.setPen(QPen(QColor(223, 229, 236), 1.0));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "rgb",
+    "source": "p.setPen(QPen(QColor(229, 57, 53), 2.2));",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "rgb",
+    "source": "p.setPen(QPen(QColor(229, 57, 53), 2.6));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "rgb",
+    "source": "p.setPen(QPen(QColor(229, 57, 53, 180), 2.0, Qt::DashLine));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "rgb",
+    "source": "p.setPen(QPen(QColor(242, 153, 0), 2.0, Qt::DashLine));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectiondockwidget.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 1.4));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：井旁道的分层位置标记，与数据图像使用原有蓝色。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "return QColor(QStringLiteral(\"#ECEFF1\"));",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"三叠系\", \"#812B92\", kTriassicSeries, 3},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"上三叠统\", \"#812B92\"}, {\"中三叠统\", \"#9A45A7\"}, {\"下三叠统\", \"#B360BC\"}};",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"上侏罗统\", \"#33B679\"}, {\"中侏罗统\", \"#41C087\"}, {\"下侏罗统\", \"#53CA9C\"}};",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"上奥陶统\", \"#009270\"}, {\"中奥陶统\", \"#25A37E\"}, {\"下奥陶统\", \"#4AB58C\"}};",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"上新统\", \"#FCE97F\"}, {\"中新统\", \"#FFE27B\"}, {\"早中新统\", \"#FFE97B\"}};",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"上泥盆统\", \"#CB8C37\"}, {\"中泥盆统\", \"#D0A04E\"}, {\"下泥盆统\", \"#D5B465\"}};",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"上白垩统\", \"#7FC64E\"}, {\"下白垩统\", \"#83BB68\"}};",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"中元古界\", \"#FEC9E4\", kPrecambrianSeries + 3, 3},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"乐平统\", \"#F04028\"}, {\"瓜德鲁普统\", \"#F45B41\"}, {\"乌拉尔统\", \"#F8765A\"}};",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"二叠系\", \"#F04028\", kPermianSeries, 3},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"侏罗系\", \"#33B679\", kJurassicSeries, 3},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"全新统\", \"#F9F97F\"}, {\"更新统\", \"#F7F980\"}};",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"古元古界\", \"#FEE9F6\", kPrecambrianSeries + 6, 3},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"古近系\", \"#FDB46C\", kPaleogene, 3},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"埃迪卡拉系\", \"#FE95C9\"}, {\"成冰系\", \"#FEC9E4\"}, {\"拉伸系\", \"#FEDCF0\"},",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"奥陶系\", \"#009270\", kOrdovicianSeries, 3},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"宾夕法尼亚亚系\", \"#97CDE0\"}, {\"密西西比亚系\", \"#9DD0E3\"}};",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"寒武系\", \"#7FA056\", kCambrianSeries, 5},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"延展系\", \"#FEE9F6\"}, {\"盖层系\", \"#FEF0FA\"}, {\"固结系\", \"#FEF6FD\"},",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"志留系\", \"#B3E1B6\", kSilurianSeries, 4},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"新元古界\", \"#FE95C9\", kPrecambrianSeries, 3},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"新近系\", \"#FCE97F\", kNeogene, 3},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"普里多利统\", \"#B3E1B6\"}, {\"罗德洛统\", \"#AFE0B4\"}, {\"温洛克统\", \"#ACDFB2\"}, {\"兰多维列统\", \"#A9DEB0\"}};",
+    "count": 4,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"泥盆系\", \"#CB8C37\", kDevonianSeries, 3},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"渐新统\", \"#FDC57A\"}, {\"始新统\", \"#FDB46C\"}, {\"古新统\", \"#FD9A52\"}};",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"白垩系\", \"#7FC64E\", kCretaceous, 2},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"石炭系\", \"#97CDE0\", kCarboniferousSeries, 2},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"第四系\", \"#F9F97F\", kQuaternary, 2},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"芙蓉统\", \"#7FA056\"}, {\"第十统\", \"#8BAA66\"}, {\"第九统\", \"#97B476\"}, {\"幸运统\", \"#A3BE86\"}, {\"第二统\", \"#AFC896\"}};",
+    "count": 5,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/chronostratcolors.cpp",
+    "rule": "hex",
+    "source": "{\"造山系\", \"#F9F1E8\"}, {\"层侵系\", \"#F9F6F1\"}, {\"成铁系\", \"#FAFBF7\"}};",
+    "count": 3,
+    "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
+  },
+  {
+    "file": "src/ui/wellcomposite/exportengine.cpp",
+    "rule": "hex",
+    "source": "e.swatch = QColor(QStringLiteral(\"#B45309\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：输出井柱状图/图例的固定纸面与数据标记。"
+  },
+  {
+    "file": "src/ui/wellcomposite/exportengine.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QColor(QStringLiteral(\"#9AA7B4\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：输出井柱状图/图例的固定纸面与数据标记。"
+  },
+  {
+    "file": "src/ui/wellcomposite/exportengine.cpp",
+    "rule": "qt-color",
+    "source": "img.fill(Qt::white);",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：输出井柱状图/图例的固定纸面与数据标记。"
+  },
+  {
+    "file": "src/ui/wellcomposite/exportengine.cpp",
+    "rule": "qt-color",
+    "source": "p.fillRect(legendRect, Qt::white);",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：输出井柱状图/图例的固定纸面与数据标记。"
+  },
+  {
+    "file": "src/ui/wellcomposite/multiwellview.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QPen(QColor(QStringLiteral(\"#B45309\")), 1.4, Qt::DashDotLine));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：参考井地层关联线的琥珀色数据叠加。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"andesite\", {QStringLiteral(\"安山岩\")}, \"#EDEFF1\", \"#455A64\", \"火成岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"anhydrite\", {QStringLiteral(\"硬石膏\")}, \"#FBF3DF\", \"#92400E\", \"蒸发岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"argillaceous_sandstone\", {QStringLiteral(\"泥质砂岩\")}, \"#FAF0D8\", \"#9E7C2E\", \"碎屑岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"basalt\", {QStringLiteral(\"玄武岩\")}, \"#E3E7EA\", \"#37474F\", \"火成岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"bioclastic_limestone\", {QStringLiteral(\"生物灰岩\"), QStringLiteral(\"生物碎屑\")}, \"#D9F0F4\", \"#006064\", \"碳酸盐岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"breccia\", {QStringLiteral(\"角砾岩\"), QStringLiteral(\"角砾\")}, \"#F6EBD9\", \"#5D4037\", \"碎屑岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"calcirudite\", {QStringLiteral(\"灰砾岩\"), QStringLiteral(\"砾屑灰岩\")}, \"#E2F1F3\", \"#00838F\", \"碳酸盐岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"carbonaceous_mudstone\", {QStringLiteral(\"碳质泥岩\"), QStringLiteral(\"炭质\")}, \"#E5E7E5\", \"#263238\", \"有机岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"chalk\", {QStringLiteral(\"白垩\"), QStringLiteral(\"白垩系灰岩\")}, \"#F5FDFE\", \"#455A64\", \"碳酸盐岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"chert\", {QStringLiteral(\"硅质岩\"), QStringLiteral(\"燧石\")}, \"#ECEFF1\", \"#37474F\", \"其他\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"coal\", {QStringLiteral(\"煤\")}, \"#CFD8DC\", \"#212121\", \"有机岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"coarse_sandstone\", {QStringLiteral(\"粗砂岩\"), QStringLiteral(\"含砾砂岩\")}, \"#FFF3C4\", \"#EF6C00\", \"碎屑岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"conglomerate\", {QStringLiteral(\"砾岩\"), QStringLiteral(\"砾\")}, \"#FFF8E1\", \"#6D4C41\", \"碎屑岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"diatomite\", {QStringLiteral(\"硅藻土\")}, \"#F7F9F8\", \"#78909C\", \"其他\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"dolomite\", {QStringLiteral(\"白云岩\"), QStringLiteral(\"云岩\")}, \"#F3E5F5\", \"#6A1B9A\", \"碳酸盐岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"dolomitic_limestone\", {QStringLiteral(\"白云质灰岩\")}, \"#EDF0F8\", \"#4527A0\", \"碳酸盐岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"fine_sandstone\", {QStringLiteral(\"细砂岩\")}, \"#FFFDE7\", \"#F57F17\", \"碎屑岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"glauconitic_sandstone\", {QStringLiteral(\"海绿石砂岩\"), QStringLiteral(\"绿砂\")}, \"#E8F5E9\", \"#2E7D32\", \"碎屑岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"granite\", {QStringLiteral(\"花岗岩\"), QStringLiteral(\"基岩\")}, \"#F1EDE9\", \"#616161\", \"火成岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"gypsum\", {QStringLiteral(\"石膏\"), QStringLiteral(\"膏岩\")}, \"#FDF6E3\", \"#B45309\", \"蒸发岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"ironstone\", {QStringLiteral(\"铁质岩\"), QStringLiteral(\"赤铁矿层\")}, \"#FBE9E7\", \"#B71C1C\", \"其他\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"limestone\", {QStringLiteral(\"灰岩\"), QStringLiteral(\"石灰岩\")}, \"#E0F7FA\", \"#00838F\", \"碳酸盐岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"marl\", {QStringLiteral(\"泥灰岩\"), QStringLiteral(\"泥灰\")}, \"#EDF2F0\", \"#546E7A\", \"碳酸盐岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"mudstone\", {QStringLiteral(\"泥岩\"), QStringLiteral(\"泥\")}, \"#ECEFF1\", \"#546E7A\", \"碎屑岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"oil_shale\", {QStringLiteral(\"油页岩\")}, \"#EFEBE9\", \"#4E342E\", \"有机岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"oolitic_limestone\", {QStringLiteral(\"鲕粒灰岩\"), QStringLiteral(\"鲕状\")}, \"#DFF4F8\", \"#00695C\", \"碳酸盐岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"phosphorite\", {QStringLiteral(\"磷块岩\"), QStringLiteral(\"磷矿\")}, \"#EDE7F6\", \"#5E35B1\", \"其他\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"pyroclastic\", {QStringLiteral(\"火山碎屑岩\")}, \"#EAE9E5\", \"#4E342E\", \"火成岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"reef_limestone\", {QStringLiteral(\"礁灰岩\"), QStringLiteral(\"礁\")}, \"#C8ECF2\", \"#004D40\", \"碳酸盐岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"rhyolite\", {QStringLiteral(\"流纹岩\")}, \"#F4F5F7\", \"#546E7A\", \"火成岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"salt_rock\", {QStringLiteral(\"盐岩\"), QStringLiteral(\"石盐\")}, \"#FFF8F9\", \"#C2185B\", \"蒸发岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"sandstone\", {QStringLiteral(\"砂岩\"), QStringLiteral(\"砂\")}, \"#FFF9C4\", \"#F57F17\", \"碎屑岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"sandy_mudstone\", {QStringLiteral(\"砂质泥岩\"), QStringLiteral(\"含砂泥岩\")}, \"#F1F0E4\", \"#6D6E2A\", \"碎屑岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"shale\", {QStringLiteral(\"页岩\"), QStringLiteral(\"页理\")}, \"#E0E7EB\", \"#37474F\", \"碎屑岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"shoal_grainstone\", {QStringLiteral(\"颗粒滩\"), QStringLiteral(\"滩灰岩\"), QStringLiteral(\"滩\")}, \"#E8F6FA\", \"#0277BD\", \"碳酸盐岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"siltstone\", {QStringLiteral(\"粉砂岩\"), QStringLiteral(\"粉砂\")}, \"#FFFDE7\", \"#8D6E63\", \"碎屑岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"tuff\", {QStringLiteral(\"凝灰岩\"), QStringLiteral(\"凝灰\")}, \"#ECEFF1\", \"#5D4037\", \"火成岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "add(\"tuffaceous_sandstone\", {QStringLiteral(\"凝灰质砂岩\")}, \"#F1F2EA\", \"#6D4C41\", \"火成岩\");",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "drawNewPattern(p, key, fg.isValid() ? fg : QColor(QStringLiteral(\"#455A64\")), size);",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/patterncatalog.cpp",
+    "rule": "hex",
+    "source": "pm.fill(bg.isValid() ? bg : QColor(QStringLiteral(\"#FFFFFF\")));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。"
+  },
+  {
+    "file": "src/ui/wellcomposite/trackconfigdialog.cpp",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#0288D1\")), QColor(QStringLiteral(\"#7B1FA2\"))}},",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：曲线样式预设编辑器的数据色值，使用者选择后写入曲线配置。"
+  },
+  {
+    "file": "src/ui/wellcomposite/trackconfigdialog.cpp",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#1B73D0\")), QColor(QStringLiteral(\"#F29900\"))}},",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：曲线样式预设编辑器的数据色值，使用者选择后写入曲线配置。"
+  },
+  {
+    "file": "src/ui/wellcomposite/trackconfigdialog.cpp",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#64B5F6\")), QColor(QStringLiteral(\"#BA68C8\"))}},",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：曲线样式预设编辑器的数据色值，使用者选择后写入曲线配置。"
+  },
+  {
+    "file": "src/ui/wellcomposite/trackconfigdialog.cpp",
+    "rule": "hex",
+    "source": "{QColor(QStringLiteral(\"#000000\")), QColor(QStringLiteral(\"#E53935\")),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：曲线样式预设编辑器的数据色值，使用者选择后写入曲线配置。"
+  },
+  {
+    "file": "src/ui/wellcomposite/trackconfigdialog.cpp",
+    "rule": "hex",
+    "source": "{QColor(QStringLiteral(\"#2E7D32\")), QColor(QStringLiteral(\"#D32F2F\")),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：曲线样式预设编辑器的数据色值，使用者选择后写入曲线配置。"
+  },
+  {
+    "file": "src/ui/wellcomposite/trackconfigdialog.cpp",
+    "rule": "hex",
+    "source": "{QColor(QStringLiteral(\"#66BB6A\")), QColor(QStringLiteral(\"#EF7777\")),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：曲线样式预设编辑器的数据色值，使用者选择后写入曲线配置。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "hex",
+    "source": ": QColor(QStringLiteral(\"#B45309\")),",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QColor(QStringLiteral(\"#1B73D0\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QColor(QStringLiteral(\"#92400E\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QColor(QStringLiteral(\"#B45309\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 1.0, Qt::DashLine));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 1.0, Qt::DotLine));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 1.5));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 2.0));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QPen(dragging ? QColor(QStringLiteral(\"#E53935\"))",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "qt-color",
+    "source": "p.setPen(Qt::white);",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "rgb",
+    "source": "p.fillRect(bandRect, QColor(242, 153, 0, 26));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "rgb",
+    "source": "p.fillRect(cardRect, QColor(255, 255, 255, 235));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "rgb",
+    "source": "p.fillRect(flagRect, QColor(27, 115, 208, 215));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "rgb",
+    "source": "p.fillRect(ghost, QColor(27, 115, 208, 200));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "rgb",
+    "source": "p.fillRect(rb, QColor(27, 115, 208, 30));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "rule": "rgb",
+    "source": "p.setPen(QPen(QColor(242, 153, 0, 140), 1.0, Qt::DotLine));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "QColor bg = baseBg.isValid() ? baseBg : QColor(QStringLiteral(\"#ECEFF1\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "QColor bg = baseBg.isValid() ? baseBg : QColor(QStringLiteral(\"#FFE082\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "QColor fg = QColor(QStringLiteral(\"#455A64\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "QColor fg = QColor(QStringLiteral(\"#E65100\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "bg = QColor(QStringLiteral(\"#FFE082\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#006064\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#00838F\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#212121\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#2E7D32\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#33691E\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#37474F\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#4E342E\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#546E7A\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#5D4037\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#6A1B9A\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#6D4C41\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#8D6E63\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#BF360C\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#D84315\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#E65100\"));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#F57F17\"));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "fg = QColor(QStringLiteral(\"#F9A825\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#80DEEA\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#B0BEC5\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#C8E6C9\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#CFD8DC\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#D7CCC8\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#E0F7FA\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#E6EE9C\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#ECEFF1\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#F3E5F5\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#FFCC80\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#FFE082\"));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#FFE0B2\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#FFF176\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#FFF8E1\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#FFF9C4\"));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#FFFDE7\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.fillRect(QRectF(barLeft, barrelRect.top() + 2, recWidth, barrelRect.height() - 4), QColor(QStringLiteral(\"#43A047\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.fillRect(bodyRect, QColor(QStringLiteral(\"#FAFAFA\")));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.fillRect(imgRect, QColor(QStringLiteral(\"#E0E0E0\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setBrush(QColor(QStringLiteral(\"#1976D2\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setBrush(QColor(QStringLiteral(\"#D32F2F\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setBrush(QColor(QStringLiteral(\"#DBEAFE\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setBrush(QColor(QStringLiteral(\"#E1BEE7\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setBrush(QColor(QStringLiteral(\"#E8F5E9\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setBrush(QColor(QStringLiteral(\"#FEF3C7\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setBrush(QColor(QStringLiteral(\"#FFEBEE\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QColor(QStringLiteral(\"#1A237E\")));",
+    "count": 3,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QColor(QStringLiteral(\"#1B5E20\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QColor(QStringLiteral(\"#263238\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QColor(QStringLiteral(\"#757575\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QColor(QStringLiteral(\"#9AA7B4\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QColor(QStringLiteral(\"#B0BEC5\")));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QColor(isUnit ? QStringLiteral(\"#5D6E80\") : QStringLiteral(\"#455A64\")));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QColor(m_highContrast ? QStringLiteral(\"#24303E\") : QStringLiteral(\"#5D6E80\")));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QColor(m_highContrast ? QStringLiteral(\"#5D6E80\") : QStringLiteral(\"#9AA7B4\")));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#2563EB\")), 1.5));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#2E7D32\")), 1.5));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#546E7A\")), 1.4));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#78909C\")), 1.0));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#78909C\")), 1.0, Qt::SolidLine));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#78909C\")), 1.2));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#7B1FA2\")), 1.5));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#90A4AE\")), 1.0));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#B0BEC5\")), 0.8));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#CFD8DC\")), 1.0, Qt::DashLine));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#D32F2F\")), 1.5));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#D32F2F\")), 2.0));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#D97706\")), 1.5));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QPen(isMinor ? QColor(QStringLiteral(\"#F8FAFB\")) : QColor(QStringLiteral(\"#F1F3F5\")),",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "si.seriesColor = QColor(QStringLiteral(\"#C8E6C9\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "si.seriesColor = QColor(QStringLiteral(\"#FFA726\"));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "si.seriesColor = QColor(QStringLiteral(\"#FFCC80\"));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "si.seriesColor = QColor(QStringLiteral(\"#FFD54F\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "si.seriesColor = QColor(QStringLiteral(\"#FFE082\"));",
+    "count": 2,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "si.seriesColor = QColor(QStringLiteral(\"#FFF59D\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "si.systemColor = QColor(QStringLiteral(\"#E8F5E9\"));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "si.systemColor = QColor(QStringLiteral(\"#FFF3E0\"));",
+    "count": 4,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "hex",
+    "source": "si.systemColor = QColor(QStringLiteral(\"#FFF9C4\"));",
+    "count": 4,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "qt-color",
+    "source": "tile.fill(baseBg.isValid() ? baseBg : Qt::white);",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "rgb",
+    "source": "painter.fillRect(pill, QColor(255, 255, 255, 220));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "rule": "rgb",
+    "source": "painter.fillRect(tagRect, QColor(255, 255, 255, 180));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellpositionlegendwidget.cpp",
+    "rule": "hex",
+    "source": "{tr(\"含水层\"), tr(\"高水淹低电阻纯水层\"), QColor(QStringLiteral(\"#1976D2\"))},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：岩性/相/解释符号的白底图例样张与油气水层标准色，比例尺 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellpositionlegendwidget.cpp",
+    "rule": "hex",
+    "source": "{tr(\"差油层\"), tr(\"低丰度/弱显示含油储集层\"), QColor(QStringLiteral(\"#FF7043\"))},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：岩性/相/解释符号的白底图例样张与油气水层标准色，比例尺 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellpositionlegendwidget.cpp",
+    "rule": "hex",
+    "source": "{tr(\"干层\"), tr(\"物性极差致密未充注层段\"), QColor(QStringLiteral(\"#78909C\"))},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：岩性/相/解释符号的白底图例样张与油气水层标准色，比例尺 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellpositionlegendwidget.cpp",
+    "rule": "hex",
+    "source": "{tr(\"气层\"), tr(\"高电阻强声波异常天然气层\"), QColor(QStringLiteral(\"#F57C00\"))},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：岩性/相/解释符号的白底图例样张与油气水层标准色，比例尺 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellpositionlegendwidget.cpp",
+    "rule": "hex",
+    "source": "{tr(\"油层\"), tr(\"高含油饱和度工业油流层段\"), QColor(QStringLiteral(\"#D32F2F\"))},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：岩性/相/解释符号的白底图例样张与油气水层标准色，比例尺 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellpositionlegendwidget.cpp",
+    "rule": "hex",
+    "source": "{tr(\"油水同层\"), tr(\"过渡带油水混合流体产出层\"), QColor(QStringLiteral(\"#7B1FA2\"))},",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：岩性/相/解释符号的白底图例样张与油气水层标准色，比例尺 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/wellpositionlegendwidget.cpp",
+    "rule": "qt-color",
+    "source": "lineImg.fill(Qt::white);",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：岩性/相/解释符号的白底图例样张与油气水层标准色，比例尺 chrome 已转 token。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectiondialogs.cpp",
+    "rule": "hex",
+    "source": "c.color = QColor(QStringLiteral(\"#333333\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：剖面曲线颜色编辑器的初始/回退色，写入曲线配置。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectiondialogs.cpp",
+    "rule": "hex",
+    "source": "c2.color = swatchColor(m_color2, QColor(QStringLiteral(\"#2B59C3\")));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：剖面曲线颜色编辑器的初始/回退色，写入曲线配置。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectiondialogs.cpp",
+    "rule": "qt-color",
+    "source": "QColorDialog::getColor(swatchColor(btn, Qt::black), parent, title);",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：剖面曲线颜色编辑器的初始/回退色，写入曲线配置。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionscene.cpp",
+    "rule": "hex",
+    "source": "col = QColor(QStringLiteral(\"#7A7A7A\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：纸面地层/岩性图未知值的灰色占位符号。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionscene.cpp",
+    "rule": "hex",
+    "source": "p->setPen(QColor(QStringLiteral(\"#7A7A7A\")));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：纸面地层/岩性图未知值的灰色占位符号。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#D6E8CE\")), QColor(QStringLiteral(\"#CFE3F2\")),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#D8E4BC\")), QColor(QStringLiteral(\"#FCE8CD\"))};",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#E0D5EC\")), QColor(QStringLiteral(\"#F2D1DE\")),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "QColor(QStringLiteral(\"#F5D6C6\")), QColor(QStringLiteral(\"#F3E5AB\")),",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "classic.frame = QColor(QStringLiteral(\"#3A3A3A\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "classic.link = QColor(QStringLiteral(\"#8C8C8C\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "classic.lithoSand = QColor(QStringLiteral(\"#B5B5B5\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "classic.lithoShale = QColor(QStringLiteral(\"#8C8C8C\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "classic.paper = QColor(QStringLiteral(\"#FFFFFF\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "classic.sand = QColor(QStringLiteral(\"#EDE84A\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "classic.sandDots = QColor(QStringLiteral(\"#8A8400\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "classic.text = QColor(QStringLiteral(\"#222222\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "colored.link = QColor(QStringLiteral(\"#5E5E5E\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "grc.color = QColor(QStringLiteral(\"#333333\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "print.frame = QColor(QStringLiteral(\"#000000\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "print.link = QColor(QStringLiteral(\"#000000\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "print.lithoSand = QColor(QStringLiteral(\"#FFFFFF\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "print.lithoShale = QColor(QStringLiteral(\"#FFFFFF\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "rd.color = QColor(QStringLiteral(\"#D7263D\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "hex",
+    "source": "rs.color = QColor(QStringLiteral(\"#2B59C3\"));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "rgb",
+    "source": "print.sand = QColor(0, 0, 0, 0);",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionstyle.cpp",
+    "rule": "rgb",
+    "source": "print.sandDots = QColor(0, 0, 0, 0);",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：连井剖面的岩性、相色与打印纹理预设。"
+  }
+]

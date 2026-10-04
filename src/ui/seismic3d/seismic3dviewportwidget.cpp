@@ -175,8 +175,9 @@ void Seismic3DViewportWidget::showEvent(QShowEvent *event) {
 }
 
 void Seismic3DViewportWidget::paintGL() {
-    // Elegant dark slate background for scientific 3D seismic display
-    glClearColor(0.12f, 0.14f, 0.17f, 1.0f);
+    // UI 背景跟随主题；地震振幅色标与数据几何颜色保持不变。
+    const auto &t = PaleoTheme::tokens();
+    glClearColor(t.surfaceAlt.redF(), t.surfaceAlt.greenF(), t.surfaceAlt.blueF(), 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glEnable(GL_DEPTH_TEST);
@@ -207,8 +208,13 @@ void Seismic3DViewportWidget::paintGL() {
     }
     const bool needOverlay = fpsVisible_ || wellLabelsVisible_;
     if (needOverlay) {
+        // 标注是屏幕叠加层，不继承地震切片的深度/裁剪状态。
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+        // 切片上传使用字节对齐 1；Qt 字形位图按默认四字节行步长上传。
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
         QPainter p(this);
-        p.setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
+        p.setFont(PaleoTheme::monoFont(PaleoTheme::tokens().labelPt));
         if (wellLabelsVisible_ && volume_ && volume_->IsLoaded()) {
             // D7.3 井名标注：井口（或轨迹首点）投影到屏幕 + 半透明底卡
             const float hScale = SeismicSliceRenderer::HorizontalScale();
@@ -218,7 +224,7 @@ void Seismic3DViewportWidget::paintGL() {
                 return ((v - static_cast<float>(lo)) / range - 0.5f) * scale;
             };
             QFont labelFont = PaleoTheme::bodyFont();
-            labelFont.setPointSize(PaleoTheme::kLabelPt);
+            labelFont.setPointSize(PaleoTheme::tokens().labelPt);
             p.setFont(labelFont);
             for (const Seismic3DWell &well : wellsForLabels_) {
                 float il = static_cast<float>(well.inlineNo);
@@ -240,19 +246,21 @@ void Seismic3DViewportWidget::paintGL() {
                                      (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * height());
                 const QString text = well.name;
                 const QFontMetrics fm(labelFont);
-                const QRect box = fm.boundingRect(text).adjusted(-3, -2, 3, 2)
+                const QRect box = fm.boundingRect(text).adjusted(-t.spacingXs, -t.spacingXs, t.spacingXs, t.spacingXs)
                                        .translated(screen.toPoint());
                 p.setPen(Qt::NoPen);
-                p.setBrush(QColor(255, 255, 255, 200));
-                p.drawRoundedRect(box, 4, 4);
+                QColor labelCard = PaleoTheme::tokens().surface;
+                labelCard.setAlpha(200);
+                p.setBrush(labelCard);
+                p.drawRoundedRect(box, t.radiusSm, t.radiusSm);
                 p.setPen(QPen(PaleoTheme::tokens().text, 1));
                 p.drawText(box, Qt::AlignCenter, text);
             }
         }
         if (fpsVisible_) {
-            p.setFont(QFont(QStringLiteral("JetBrains Mono"), 8));
-            p.setPen(QColor(95, 165, 240));
-            p.drawText(rect().adjusted(6, 4, -6, -4), Qt::AlignTop | Qt::AlignRight,
+            p.setFont(PaleoTheme::monoFont(PaleoTheme::tokens().labelPt));
+            p.setPen(PaleoTheme::tokens().primaryText);
+            p.drawText(rect().adjusted(t.spacingSm, t.spacingXs, -t.spacingSm, -t.spacingXs), Qt::AlignTop | Qt::AlignRight,
                        QStringLiteral("%1 fps").arg(fps_, 0, 'f', 1));
         }
         p.end();

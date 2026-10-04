@@ -335,6 +335,87 @@ private:
   bool m_remove = true;
 };
 
+// ---- 方向 30：批量恢复（一条命令一次落盘，整组可撤销）-----------------------
+// N 条 SoftDeleteCmd 恢复会落 N 次 recycle_bin.json；批量恢复收编成单命令：
+// redo/undo 各自循环 + 单次 save()，与 RecycleBin::save() 幂等语义一致。
+class BatchRestoreCmd : public DataOpCommand
+{
+public:
+  BatchRestoreCmd(DataOpsContext ctx, QStringList assetIds,
+                  QVector<std::pair<QString, RecycleEntry>> entries)
+    : m_ctx(ctx), m_ids(std::move(assetIds)), m_entries(std::move(entries))
+  {
+  }
+  void redo() override
+  {
+    if (!m_ctx.valid())
+      return;
+    for (const QString &id : m_ids)
+      m_ctx.recycle->restore(id);
+    m_ctx.recycle->save();
+  }
+  void undo() override
+  {
+    if (!m_ctx.valid())
+      return;
+    for (const auto &kv : m_entries)
+      m_ctx.recycle->remove(kv.first, kv.second.type, kv.second.displayName,
+                            kv.second.reason);
+    m_ctx.recycle->save();
+  }
+  QString text() const override
+  {
+    return QObject::tr("批量恢复 %1 项").arg(m_ids.size());
+  }
+  QByteArray id() const override { return "batchrestore"; }
+
+private:
+  DataOpsContext m_ctx;
+  QStringList m_ids;
+  QVector<std::pair<QString, RecycleEntry>> m_entries; // undo 需要的原条目（含原因）
+};
+
+// ---- 方向 30：批量软删（一条命令一次落盘，整组可撤销）-----------------------
+// 与 BatchRestoreCmd 同理：N 条 SoftDeleteCmd 会落 N 次 recycle_bin.json
+//（tst_ui_blocking 探针的非空转门槛），批量移除收编成单命令。
+class BatchRemoveCmd : public DataOpCommand
+{
+public:
+  BatchRemoveCmd(DataOpsContext ctx, QStringList assetIds,
+                 QVector<std::pair<QString, RecycleEntry>> entries, QString reason)
+    : m_ctx(ctx), m_ids(std::move(assetIds)), m_entries(std::move(entries))
+    , m_reason(std::move(reason))
+  {
+  }
+  void redo() override
+  {
+    if (!m_ctx.valid())
+      return;
+    for (const auto &kv : m_entries)
+      m_ctx.recycle->remove(kv.first, kv.second.type, kv.second.displayName, m_reason);
+    m_ctx.recycle->save();
+  }
+  void undo() override
+  {
+    if (!m_ctx.valid())
+      return;
+    for (const QString &id : m_ids)
+      m_ctx.recycle->restore(id);
+    m_ctx.recycle->save();
+  }
+  QString text() const override
+  {
+    return QObject::tr("批量移除 %1 项（软删）").arg(m_ids.size());
+  }
+  QByteArray id() const override { return "batchremove"; }
+
+private:
+  DataOpsContext m_ctx;
+  QStringList m_ids;
+  QVector<std::pair<QString, RecycleEntry>> m_entries;
+  QString m_reason;
+};
+
 // ---- 实体改名 / 坐标注释（D4.1/D4.2，override 落盘）------------------------
 class EntityEditCmd : public DataOpCommand
 {

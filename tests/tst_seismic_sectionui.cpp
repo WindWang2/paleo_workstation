@@ -31,6 +31,7 @@
 #include "../src/ui/seismicsection/seismicsectioncanvas.h"
 #include "../src/ui/seismicsection/seismicsectiondockwidget.h"
 #include "uipolish_capture.h"
+#include "helpers/visualcapture.h"
 
 using namespace seismic;
 
@@ -153,6 +154,24 @@ private slots:
     SeismicSectionDockWidget dock;
     uipolish::capturePanel(&dock, QStringLiteral("seismicsection_empty"),
                            QSize(900, 650));
+  }
+
+  void captureTokenSectionEvidence()
+  {
+    if (qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty())
+      QSKIP("Optional populated section visual evidence");
+    SeismicSectionCanvas canvas;
+    canvas.setSectionData(makeSection(64, 256), 2.0f);
+    SectionWellInfo well;
+    well.wellName = "合成井 A1";
+    well.isWithinBuffer = true;
+    well.tracePosition = 32;
+    well.totalDepth = 250;
+    well.calibrated = true;
+    well.bottomTwtMs = 450;
+    canvas.setWells({well});
+    canvas.setShowWells(true);
+    QVERIFY(paleo::tests::captureVisual(&canvas, "section-data", QSize(1100, 700)));
   }
 
   // ---- D2.2 显示三模：密度 / wiggle / 混合渲染互异 ----

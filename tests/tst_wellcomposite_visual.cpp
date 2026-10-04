@@ -1,3 +1,4 @@
+#include "helpers/visualcapture.h"
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
@@ -452,6 +453,25 @@ private slots:
     QVERIFY(p.testRenderHint(QPainter::Antialiasing));
     QVERIFY(p.testRenderHint(QPainter::TextAntialiasing));
     p.end();
+  }
+
+  void captureTokenPaperEvidence()
+  {
+    if (qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty())
+      QSKIP("Optional native geological paper evidence");
+    const auto d = syntheticWell();
+    WellCompositePanel panel;
+    panel.setProjectName("VisualPaper");
+    QVERIFY(panel.loadLasCurves(d.wellName, d.continuousCurves, d.formationIntervals));
+    auto litho = std::make_shared<LithologyTrack>(QStringLiteral("岩性"), 80.0);
+    litho->setIntervals(d.lithologyIntervals);
+    panel.canvas()->addTrack(litho);
+    auto facies = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
+    facies->setIntervals(d.faciesIntervals);
+    panel.canvas()->addTrack(facies);
+    panel.canvas()->setMarkerLines(d.standardHorizons);
+    panel.canvas()->setScaleRatio(QStringLiteral("自适应"));
+    QVERIFY(paleo::tests::captureVisual(&panel, "well-paper", QSize(1200, 700)));
   }
 
   // ---- D8.2 黄金图像素抽样 ----

@@ -1,4 +1,6 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：地质相模型表格中可编辑的颜色值。（tools/ui-token-exceptions.json 精确计数）。
+#include "ui/paleotheme.h"
 #include "mappingworkbenchpage.h"
 #include "pageshared.h"
 #include <qgscollapsiblegroupbox.h>
@@ -35,11 +37,11 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   // wheel between nested ranges when the parameter groups are expanded.
   auto *body = this;
   auto *layout = new QVBoxLayout(body);
-  layout->setContentsMargins(8, 8, 8, 8);
-  layout->setSpacing(8);
+  layout->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  layout->setSpacing(PaleoTheme::tokens().spacingSm);
   m_heading = new QLabel(body);
   QFont title = m_heading->font();
-  title.setPointSize(12);
+  title.setPointSize(PaleoTheme::tokens().titlePt);
   title.setBold(true);
   m_heading->setFont(title);
   m_heading->setTextFormat(Qt::PlainText);
@@ -212,7 +214,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_message->setObjectName("workbenchMessage");
   m_message->hide();
   m_message->setTextInteractionFlags(Qt::TextSelectableByMouse);
-  layout->addSpacing(8);
+  layout->addSpacing(PaleoTheme::tokens().spacingSm);
   layout->addWidget(paleo::pagesinternal::caption(tr("图件与版本"), body));
   m_results = new QTreeWidget(body);
   m_results->setObjectName("workbenchResults");

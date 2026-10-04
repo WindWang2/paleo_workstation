@@ -639,6 +639,9 @@ function(paleo_test_sandbox name)
   endif()
 endfunction()
 
+set(PALEO_QTEST_FIRST_RUN_DIR "${CMAKE_BINARY_DIR}/Testing/qtest-first-run")
+file(MAKE_DIRECTORY "${PALEO_QTEST_FIRST_RUN_DIR}")
+
 # ---- 跨方向契约：add_paleo_test(name [LIBS ...]) ----
 # 单参旧式调用零改动可用（回退 paleo_core 伞）——cmake/extra-*.cmake 里
 # 四个并行方向都是旧式调用，勿破坏。新式 LIBS 给最小链接集（链接瘦身 T1：
@@ -654,7 +657,8 @@ function(add_paleo_test name)
   add_executable(${name} tests/${name}.cpp)
   target_link_libraries(${name} PRIVATE ${_libs} Qt6::Test)
   target_compile_definitions(${name} PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
-  add_test(NAME ${name} COMMAND ${name})
+  add_test(NAME ${name} COMMAND ${name}
+           -o "${PALEO_QTEST_FIRST_RUN_DIR}/${name}.txt,txt")
   paleo_test_sandbox(${name})
   set(_label core)
   foreach(_l IN LISTS _libs)
@@ -894,13 +898,15 @@ target_link_libraries(paleo_seismic_demo PRIVATE paleo_core)
 add_executable(tst_boot tests/tst_boot.cpp)
 target_link_libraries(tst_boot PRIVATE paleo_qgis_iface Qt6::Test)
 target_compile_definitions(tst_boot PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
-add_test(NAME boot COMMAND tst_boot)
+add_test(NAME boot COMMAND tst_boot
+         -o "${PALEO_QTEST_FIRST_RUN_DIR}/boot.txt,txt")
 paleo_test_sandbox(boot)
 
 add_executable(tst_polygonize tests/tst_polygonize.cpp spikes/polygonize/paleopolygonize.cpp)
 target_link_libraries(tst_polygonize PRIVATE paleo_qgis_iface Qt6::Test ${GDAL_LIB})
 target_include_directories(tst_polygonize PRIVATE ${GDAL_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/spikes/polygonize)
-add_test(NAME polygonize COMMAND tst_polygonize)
+add_test(NAME polygonize COMMAND tst_polygonize
+         -o "${PALEO_QTEST_FIRST_RUN_DIR}/polygonize.txt,txt")
 paleo_test_sandbox(polygonize)
 
 # ---- wave3/model-hardening (数据模型与测试基建加固) ----

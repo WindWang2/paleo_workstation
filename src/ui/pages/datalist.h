@@ -23,6 +23,9 @@
 class PreviewDocService;
 class QStackedWidget;
 class CatalogHealthDialog;
+class StorageGovernanceController;
+class StorageGovernanceDialog;
+class AssetEntityChoiceModel;
 
 namespace paleo::dataops
 {
@@ -123,6 +126,7 @@ class DataListPanel : public QWidget
     void showRecycleBin();               // D1.6 可回收清单对话框
     // ---- 方向 30：工区数据管线与健康管理 ----
     void showImportLedger();             // 导入台账查看器（批次 + 行级结局）
+    void showStorageGovernance();
     void showHealthCheck();              // 资产体检对话框（快速面 + SHA 复验）
     void showVersionTable();             // 单资产版本面对话框（对比 + 回滚）
     void resolvePendingLinks();          // 未决链接批量归位（恰好一候选才挂）
@@ -173,6 +177,16 @@ class DataListPanel : public QWidget
     std::function<bool(const QString &id)> m_plannedVisible;
     void buildDataOpsUi();          // P3 增量 UI（过滤条/队列/视图页）
     void refreshAssetTree();
+    void renderAssetPage();
+    StorageGovernanceController *m_storageController = nullptr;
+    QPointer<StorageGovernanceDialog> m_storageDialog;
+    QHash<QString, AssetEntityChoiceModel *> m_entityChoiceModels;
+    QVector<paleo::dataops::AssetRowInfo> m_pageRows, m_filteredRows;
+    QSet<QString> m_pageSelection;
+    int m_assetPage = 0;
+    int m_assetSortColumn = -1;
+    bool m_tableDirty = true;
+    bool m_assetSortAscending = true;
     void rebuildRowSnapshot();      // m_rows 装配（stores + catalog）
     void refreshSelectionBadge();
     void refreshTagCloud();
@@ -184,13 +198,7 @@ class DataListPanel : public QWidget
 
     // ---- 方向 30：体检/版本面辅助 ----
     QVector<paleo::dataops::VersionRow> versionRowsForAsset(const QString &assetId) const;
-    // SHA 分步校验：每步一个外链版本（事件循环呼吸间推进，可取消）。
-    void runShaVerifyStep();
-    CatalogHealthDialog *m_healthDlg = nullptr;   // 会话内指向栈上对话框
-    QVector<CatalogVersion> m_shaTargets;
-    int m_shaIdx = 0;
-    bool m_shaRunning = false;
-    bool m_shaCancelled = false;
+    CatalogHealthDialog *m_healthDlg = nullptr;
     paleo::health::HealthReport m_healthBase;
     int m_healthRecycleCount = 0;
     qint64 m_healthRecycleBytes = 0;

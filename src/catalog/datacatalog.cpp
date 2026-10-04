@@ -1,5 +1,6 @@
 // 层：数据
 #include "datacatalog.h"
+#include "purgelease.h"
 
 #include "catalogstore.h"
 
@@ -139,6 +140,10 @@ void DataCatalog::resetThreadViolationCount()
 
 bool DataCatalog::checkWriteThread(const char *what, QString *error) const
 {
+  if (!m_staging && CatalogPurgeLease::isHeld(catalogPath())) {
+    setError(error, tr("文件回收提交中，请等待回收完成后再修改目录。"));
+    return false;
+  }
   // staging 副本归单个 worker 独占（无线程亲和）；活 catalog 只认所属线程。
   if (m_staging || !thread() || QThread::currentThread() == thread())
     return true;
@@ -303,6 +308,10 @@ bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
 
 bool DataCatalog::open(const QString &projectDir, QString *error)
 {
+  if (CatalogPurgeLease::isHeld(QDir(projectDir).absoluteFilePath(QStringLiteral("artifacts/metadata/catalog.json")))) {
+    setError(error, tr("文件回收提交中，请等待回收完成后再打开工程。"));
+    return false;
+  }
   ++m_mutationSeq; // 重开 = 整表替换
   m_isOpen = false;
   m_openError.clear();
@@ -608,6 +617,7 @@ void DataCatalog::beginBatch()
     snap->linksFullRewrite = m_linksFullRewrite;
     m_batchSnapshot = std::move(snap);
   }
+  if (m_batchDepth == 0) m_batchAborted = false;
   ++m_batchDepth;
 }
 
@@ -618,9 +628,11 @@ bool DataCatalog::endBatch(QString *error)
   if (--m_batchDepth > 0)
     return true; // 嵌套批次：只有最外层结算
   std::unique_ptr<BatchSnapshot> snap = std::move(m_batchSnapshot);
-  if (!m_batchDirty)
+  const bool aborted = m_batchAborted;
+  m_batchAborted = false;
+  if (!m_batchDirty && !aborted)
     return true;
-  if (save(error)) // 成功时 commitStore 才清 m_batchDirty
+  if (!aborted && save(error)) // 成功时 commitStore 才清 m_batchDirty
     return true;
   // #169：落盘失败——commitStore 已清脏集，批内改动若留在内存就永远不会
   // 再写盘（重开即静默丢失）。回滚内存到批次开始时，让内存与盘一致。
@@ -665,6 +677,13 @@ bool DataCatalog::BatchSave::flush(QString *error)
     return true;
   m_done = true;
   return m_catalog->endBatch(error);
+}
+
+void DataCatalog::BatchSave::abort()
+{
+  if (m_done || !m_catalog) return;
+  m_catalog->m_batchAborted = true;
+  flush();
 }
 
 bool DataCatalog::addEntity(const CatalogEntity &e, QString *error)
@@ -1031,7 +1050,11 @@ bool DataCatalog::setLinkPrimary(int index, QString *error)
 // ---- 方向 30：物理删除资产（回收站「物理删除」的 catalog 面）----
 bool DataCatalog::removeAsset(const QString &assetId, QString *error)
 {
-  if (!checkWriteThread("removeAsset", error))
+  return removeAssets({assetId}, error);
+}
+bool DataCatalog::removeAssets(const QStringList &assetIds, QString *error)
+{
+  if (!checkWriteThread("removeAssets", error))
     return false;
   if (!ensureOpen(error))
     return false;
@@ -1041,20 +1064,22 @@ bool DataCatalog::removeAsset(const QString &assetId, QString *error)
                         "staging copy does not support removeAsset (journal has no delete op)"));
     return false;
   }
-  const CatalogAsset target = assetById(assetId);
-  if (target.id.isEmpty())
-  {
-    setError(error, QStringLiteral("asset not found: %1").arg(assetId));
-    return false;
-  }
+  const QSet<QString> selected(assetIds.begin(), assetIds.end());
+  if (selected.isEmpty()) return true;
+  for (const QString &assetId : selected)
+    if (assetById(assetId).id.isEmpty()) {
+      setError(error, QStringLiteral("asset not found: %1").arg(assetId));
+      return false;
+    }
   // 血缘保护：待删版本被他资产的版本列为 parentVersionIds → 拒绝。
   // 同资产互引不拦（随资产一起删）。
-  const QVector<CatalogVersion> doomedVersions = versionsForAsset(assetId);
+  QVector<CatalogVersion> doomedVersions;
+  for (const auto &v : m_versions) if (selected.contains(v.assetId)) doomedVersions.append(v);
   for (const CatalogVersion &v : doomedVersions)
     for (const QString &cid : m_idx.childVersionIds(v.id))
     {
       const int row = m_idx.versionRow(cid);
-      if (row < 0 || m_versions.at(row).assetId == assetId)
+      if (row < 0 || selected.contains(m_versions.at(row).assetId))
         continue;
       setError(error, QStringLiteral("version %1 (v%2) is referenced as parent by "
                                      "asset %3 — delete the derived asset first")
@@ -1069,17 +1094,17 @@ bool DataCatalog::removeAsset(const QString &assetId, QString *error)
   const QVector<EntityAssetLink> prevLinks = m_links;
   const CatalogIndex prevIdx = m_idx;
   const bool prevLinksFullRewrite = m_linksFullRewrite;
-  for (int i = m_links.size() - 1; i >= 0; --i)
-    if (m_links.at(i).assetId == assetId)
-      m_links.removeAt(i);
-  for (int i = m_versions.size() - 1; i >= 0; --i)
-    if (m_versions.at(i).assetId == assetId)
-      m_versions.removeAt(i);
-  for (int i = m_assets.size() - 1; i >= 0; --i)
-    if (m_assets.at(i).id == assetId)
-      m_assets.removeAt(i);
+  // Compact once: interleaved bulk removals must not repeatedly shift tails.
+  m_links.erase(std::remove_if(m_links.begin(), m_links.end(),
+    [&](const auto &l) { return selected.contains(l.assetId); }), m_links.end());
+  m_versions.erase(std::remove_if(m_versions.begin(), m_versions.end(),
+    [&](const auto &v) { return selected.contains(v.assetId); }), m_versions.end());
+  m_assets.erase(std::remove_if(m_assets.begin(), m_assets.end(),
+    [&](const auto &a) { return selected.contains(a.id); }), m_assets.end());
   m_idx.rebuild(m_entities, m_assets, m_versions, m_links);
-  m_removedAssets.insert(assetId);
+  const auto previousRemovedAssets = m_removedAssets;
+  const auto previousRemovedVersions = m_removedVersions;
+  m_removedAssets.unite(selected);
   for (const CatalogVersion &v : doomedVersions)
     m_removedVersions.insert(v.id);
   m_linksFullRewrite = true;
@@ -1092,9 +1117,8 @@ bool DataCatalog::removeAsset(const QString &assetId, QString *error)
   m_versions = prevVersions;
   m_links = prevLinks;
   m_idx = prevIdx;
-  m_removedAssets.remove(assetId);
-  for (const CatalogVersion &v : doomedVersions)
-    m_removedVersions.remove(v.id);
+  m_removedAssets = previousRemovedAssets;
+  m_removedVersions = previousRemovedVersions;
   m_linksFullRewrite = prevLinksFullRewrite;
   return false;
 }
@@ -1132,6 +1156,40 @@ CatalogVersion DataCatalog::versionBySha256(const QString &sha256) const
   return CatalogVersion();
 }
 
+bool DataCatalog::removeStaleVersions(const QStringList &versionIds, QString *error)
+{
+  if (!checkWriteThread("removeStaleVersions", error) || !ensureOpen(error))
+    return false;
+  if (m_staging || versionIds.isEmpty()) {
+    setError(error, QStringLiteral("stale removal requires a live catalog and selected versions"));
+    return false;
+  }
+  const QSet<QString> selected(versionIds.begin(), versionIds.end());
+  for (const QString &id : selected) {
+    const CatalogVersion v = versionById(id);
+    if (v.id.isEmpty() || v.stage != QLatin1String("DERIVED") || !v.extra.value(QStringLiteral("stale")).toBool()) {
+      setError(error, QStringLiteral("version is not stale DERIVED: %1").arg(id));
+      return false;
+    }
+    for (const QString &child : m_idx.childVersionIds(id))
+      if (!selected.contains(child)) {
+        setError(error, QStringLiteral("version %1 is referenced by retained version %2").arg(id, child));
+        return false;
+      }
+  }
+  const auto previous = m_versions;
+  const auto previousRemoved = m_removedVersions;
+  m_versions.erase(std::remove_if(m_versions.begin(), m_versions.end(),
+    [&](const auto &v) { return selected.contains(v.id); }), m_versions.end());
+  m_removedVersions.unite(selected);
+  m_idx.rebuild(m_entities, m_assets, m_versions, m_links);
+  if (save(error)) { ++m_mutationSeq; return true; }
+  m_versions = previous;
+  m_removedVersions = previousRemoved;
+  m_idx.rebuild(m_entities, m_assets, m_versions, m_links);
+  return false;
+}
+
 QString DataCatalog::resolvedVersionPath(const QString &projectDir, const CatalogVersion &version)
 {
   if (version.path.isEmpty()) return QString();
@@ -1162,7 +1220,7 @@ QString DataCatalog::resolvedVersionPath(const QString &projectDir, const Catalo
   return current;
 }
 
-QString DataCatalog::sha256FileHex(const QString &path, QString *error)
+QString DataCatalog::sha256FileHex(const QString &path, QString *error, const std::function<bool()> &cancelled)
 {
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly))
@@ -1175,8 +1233,13 @@ QString DataCatalog::sha256FileHex(const QString &path, QString *error)
   // stack when this runs on the QTest main thread.
   char buf[64 << 10];
   qint64 n = 0;
-  while ((n = f.read(buf, sizeof(buf))) > 0)
+  while ((n = f.read(buf, sizeof(buf))) > 0) {
+    if (cancelled && cancelled()) {
+      setError(error, QStringLiteral("SHA verification cancelled"));
+      return QString();
+    }
     hash.addData(QByteArrayView(buf, static_cast<qsizetype>(n)));
+  }
   if (n < 0)
   {
     setError(error, QStringLiteral("read error on %1").arg(path));

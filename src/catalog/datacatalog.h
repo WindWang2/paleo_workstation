@@ -1,5 +1,6 @@
 // 层：数据
 #pragma once
+#include <functional>
 #include <QObject>
 #include <QPair>
 #include <QSet>
@@ -193,6 +194,7 @@ class DataCatalog : public QObject
         BatchSave(const BatchSave &) = delete;
         BatchSave &operator=(const BatchSave &) = delete;
         bool flush(QString *error = nullptr); // 立即结算一次；幂等
+        void abort(); // 回滚整个外层批次；嵌套作用域结算时统一生效
       private:
         DataCatalog *m_catalog = nullptr;
         bool m_done = false;
@@ -228,6 +230,10 @@ class DataCatalog : public QObject
     // 受管字节不在此职责内——调用方（workflow/assetops purgeAssets）在提交
     // 成功后清理。staging 副本拒绝（journal 无删除 op，重放不了）。
     bool removeAsset(const QString &assetId, QString *error = nullptr);
+    bool removeAssets(const QStringList &assetIds, QString *error = nullptr);
+    // Governance mutator: exact stale DERIVED versions only, one atomic save.
+    // Retained descendants block removal; asset/link identities remain intact.
+    bool removeStaleVersions(const QStringList &versionIds, QString *error = nullptr);
 
     // SHA-256 已在库（dedup，§3）：返回第一个匹配版本；sha 为空或无匹配回空版本。
     CatalogVersion versionBySha256(const QString &sha256) const;
@@ -241,7 +247,8 @@ class DataCatalog : public QObject
     bool verifyExternalVersionSha(const CatalogVersion &version, QString *error = nullptr) const;
 
     // 流式计算文件 SHA-256（导入与外链校验共用）；失败回空串 + error。
-    static QString sha256FileHex(const QString &path, QString *error = nullptr);
+    static QString sha256FileHex(const QString &path, QString *error = nullptr,
+                                const std::function<bool()> &cancelled = {});
 
     // 受管路径段合法性（§3）：非空、不是 "." 或含 ".."、不含 /、\\、NUL 与
     // 其他控制字符。任一不满足即非法段。
@@ -364,6 +371,7 @@ class DataCatalog : public QObject
     bool commitStore(QString *error);
     void beginBatch();
     bool endBatch(QString *error = nullptr);
+    bool m_batchAborted = false;
     // markDownstreamStale/addVersion 共用的内存段标记：只写 m_versions，
     // 不落盘；返回实际改动的版本数（已是同一标记的不计）。
     // undo 非空时，每个被改行在改前压入 (行号, 原版本拷贝)——调用方在

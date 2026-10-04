@@ -33,10 +33,26 @@ HealthReport buildCatalogHealth(DataCatalog *cat, const QString &projectDir,
     return report;
   }
 
+  return buildCatalogHealth(healthSnapshot(cat), projectDir);
+}
+HealthSnapshot healthSnapshot(DataCatalog *cat) {
+  if (!cat || !cat->isOpen()) return {};
+  return {cat->assets(), cat->entities(), cat->versions(), cat->links(), cat->invalidRoleLinks()};
+}
+HealthReport buildCatalogHealth(const HealthSnapshot &s, const QString &projectDir,
+                                const std::function<bool(int, int, const QString &)> &progress) {
+  HealthReport report;
+  QHash<QString, CatalogAsset> assets;
+  QSet<QString> linkedEntities, versionedAssets;
+  for (const auto &a : s.assets) assets.insert(a.id, a);
+  for (const auto &l : s.links) if (!l.entityId.isEmpty()) linkedEntities.insert(l.entityId);
+  for (const auto &v : s.versions) versionedAssets.insert(v.assetId);
+  int done = 0;
   // ---- 缺失文件（版本级扫描，含历史版本）----
-  for (const CatalogVersion &v : cat->versions())
+  for (const CatalogVersion &v : s.versions)
   {
-    const CatalogAsset a = cat->assetById(v.assetId);
+    if (progress && !progress(done++, s.versions.size(), v.fileName)) return report;
+    const CatalogAsset a = assets.value(v.assetId);
     const QString subject = a.displayName.isEmpty() ? v.assetId : a.displayName;
 
     QString abs;
@@ -77,9 +93,10 @@ HealthReport buildCatalogHealth(DataCatalog *cat, const QString &projectDir,
   }
 
   // ---- 未决链接 ----
-  for (const EntityAssetLink &l : cat->unresolvedLinks())
+  for (const EntityAssetLink &l : s.links)
   {
-    const CatalogAsset a = cat->assetById(l.assetId);
+    if (!l.unresolved) continue;
+    const CatalogAsset a = assets.value(l.assetId);
     HealthIssue i = makeIssue(IssueKind::PendingLink,
                               a.displayName.isEmpty() ? l.assetId : a.displayName,
                               l.note);
@@ -88,9 +105,9 @@ HealthReport buildCatalogHealth(DataCatalog *cat, const QString &projectDir,
   }
 
   // ---- 角色词表违例链接 ----
-  for (const EntityAssetLink &l : cat->invalidRoleLinks())
+  for (const EntityAssetLink &l : s.invalidRoles)
   {
-    const CatalogAsset a = cat->assetById(l.assetId);
+    const CatalogAsset a = assets.value(l.assetId);
     HealthIssue i = makeIssue(
         IssueKind::InvalidRoleLink, a.displayName.isEmpty() ? l.assetId : a.displayName,
         QStringLiteral("role=%1 entity=%2 %3").arg(l.role, l.entityType, l.note));
@@ -99,9 +116,9 @@ HealthReport buildCatalogHealth(DataCatalog *cat, const QString &projectDir,
   }
 
   // ---- 孤立实体（零链接）----
-  for (const CatalogEntity &e : cat->entities())
+  for (const CatalogEntity &e : s.entities)
   {
-    if (cat->linksForEntity(e.id).isEmpty())
+    if (!linkedEntities.contains(e.id))
     {
       HealthIssue i = makeIssue(IssueKind::OrphanEntity,
                                 e.name.isEmpty() ? e.id : e.name,
@@ -112,9 +129,9 @@ HealthReport buildCatalogHealth(DataCatalog *cat, const QString &projectDir,
   }
 
   // ---- 无版本资产 ----
-  for (const CatalogAsset &a : cat->assets())
+  for (const CatalogAsset &a : s.assets)
   {
-    if (cat->versionsForAsset(a.id).isEmpty())
+    if (!versionedAssets.contains(a.id))
     {
       HealthIssue i = makeIssue(IssueKind::NoVersionAsset,
                                 a.displayName.isEmpty() ? a.id : a.displayName,
@@ -124,12 +141,14 @@ HealthReport buildCatalogHealth(DataCatalog *cat, const QString &projectDir,
     }
   }
 
+  report.fileScanComplete = true;
   return report;
 }
 
 QVector<HealthIssue> verifyExternalShas(
     const QVector<CatalogVersion> &versions,
-    const std::function<bool(int, int, const QString &)> &progress)
+    const std::function<bool(int, int, const QString &)> &progress,
+    const std::function<bool()> &cancelled)
 {
   QVector<HealthIssue> issues;
   QVector<CatalogVersion> targets;
@@ -151,7 +170,8 @@ QVector<HealthIssue> verifyExternalShas(
     if (!fi.exists())
       continue; // 缺文件已由快速面报——SHA 段不重复计
     QString serr;
-    const QString actual = DataCatalog::sha256FileHex(v.path, &serr);
+    const QString actual = DataCatalog::sha256FileHex(v.path, &serr, cancelled);
+    if (cancelled && cancelled()) break;
     if (actual.isEmpty())
     {
       HealthIssue i = makeIssue(IssueKind::ShaMismatch,

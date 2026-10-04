@@ -1,6 +1,7 @@
 // 层：数据
 #pragma once
 #include <QString>
+#include "../catalog/datacatalog.h"
 #include <QVector>
 #include <functional>
 
@@ -53,7 +54,8 @@ struct HealthReport
   QVector<HealthIssue> issues;
   // SHA 复验段被取消时 false——ShaMismatch 计数只是已扫部分的召回，
   // UI 需如实标「未扫完」。
-  bool shaVerifyComplete = true;
+  bool shaVerifyComplete = false;
+  bool fileScanComplete = false;
 
   int count(IssueKind kind) const
   {
@@ -66,6 +68,16 @@ struct HealthReport
   bool isEmpty() const { return issues.isEmpty(); }
 };
 
+struct HealthSnapshot {
+  QVector<CatalogAsset> assets;
+  QVector<CatalogEntity> entities;
+  QVector<CatalogVersion> versions;
+  QVector<EntityAssetLink> links, invalidRoles;
+};
+HealthSnapshot healthSnapshot(DataCatalog *cat);
+HealthReport buildCatalogHealth(const HealthSnapshot &snapshot, const QString &projectDir,
+                                const std::function<bool(int, int, const QString &)> &progress = {});
+
 // cat 为空/未开 → 空报告 + *error（UI 据此显示「工程未打开」而不是假绿灯）。
 HealthReport buildCatalogHealth(DataCatalog *cat, const QString &projectDir,
                                 QString *error = nullptr);
@@ -76,6 +88,7 @@ HealthReport buildCatalogHealth(DataCatalog *cat, const QString &projectDir,
 // 资产表，不回查 catalog）。progress(已验数, 总数, 文件名) 返回 false = 取消。
 QVector<HealthIssue> verifyExternalShas(const QVector<CatalogVersion> &versions,
                                         const std::function<bool(int, int,
-                                                                 const QString &)> &progress = {});
+                                                                 const QString &)> &progress = {},
+                                        const std::function<bool()> &cancelled = {});
 
 } // namespace paleo::health

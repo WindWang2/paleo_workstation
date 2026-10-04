@@ -51,6 +51,7 @@ CatalogHealthDialog::CatalogHealthDialog(QWidget *parent)
 {
   setObjectName(QStringLiteral("catalogHealthDialog"));
   setWindowTitle(tr("工区资产体检"));
+  setAccessibleName(windowTitle());
   setModal(true);
   resize(760, 480);
 
@@ -93,6 +94,14 @@ CatalogHealthDialog::CatalogHealthDialog(QWidget *parent)
   m_verifyBtn = new QPushButton(tr("校验外链 SHA-256"), row);
   m_verifyBtn->setObjectName(QStringLiteral("healthVerifyButton"));
   m_closeBtn = new QPushButton(tr("关闭"), row);
+  m_closeBtn->setObjectName(QStringLiteral("healthCloseButton"));
+  m_closeBtn->setAccessibleName(m_closeBtn->text());
+  m_refreshBtn->setAccessibleName(m_refreshBtn->text());
+  m_verifyBtn->setAccessibleName(m_verifyBtn->text());
+  m_categories->setAccessibleName(tr("体检问题分类"));
+  m_issues->setAccessibleName(tr("体检问题明细"));
+  m_summary->setAccessibleName(tr("体检汇总"));
+  m_shaState->setAccessibleName(tr("后台检查进度"));
   rl->addWidget(m_refreshBtn);
   rl->addWidget(m_verifyBtn);
   rl->addStretch(1);
@@ -230,6 +239,8 @@ void CatalogHealthDialog::fillIssueTable()
           : tr("共 %1 条问题；当前分类 %2 条。双击问题行可跳到对应资产。")
                 .arg(total)
                 .arg(n));
+  if (!m_report.fileScanComplete)
+    m_summary->setText(tr("目录体检未完成；问题清单仅覆盖已扫部分。"));
   if (!m_report.shaVerifyComplete)
     m_summary->setText(m_summary->text() + tr("（外链 SHA 校验未扫完，结果只是已扫部分）"));
 }

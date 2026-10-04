@@ -468,7 +468,7 @@ inline AssetRowInfo buildAssetRow(DataCatalog *cat, const CatalogAsset &a,
                                   const TagStore &tags,
                                   const AssetOverrideStore &overrides,
                                   const RecycleBin &bin,
-                                  const EntityOverrideStore &entityOverrides)
+                                  const EntityOverrideStore &entityOverrides, bool statFile = true)
 {
   AssetRowInfo row;
   row.assetId = a.id;
@@ -484,7 +484,9 @@ inline AssetRowInfo buildAssetRow(DataCatalog *cat, const CatalogAsset &a,
   row.fileName = v.fileName.isEmpty() ? a.displayName : v.fileName;
   row.currentVersionNo = v.versionNumber > 0 ? v.versionNumber : 1;
   row.versionCount = cat->versionsForAsset(a.id).size();
-  if (!v.path.isEmpty())
+  if (!statFile)
+    row.sizeBytes = -1; // 未读取文件大小，不能显示成零。
+  if (statFile && !v.path.isEmpty())
   {
     // 外链 = 绝对路径直接 stat；受管 = DataCatalog::resolvedVersionPath
     // （含 symlink 祖先安全校验）拼工程目录。

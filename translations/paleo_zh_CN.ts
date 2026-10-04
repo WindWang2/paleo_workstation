@@ -412,6 +412,31 @@
         <source>（外链 SHA 校验未扫完，结果只是已扫部分）</source>
         <translation type="unfinished"></translation>
     </message>
+<message>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="101"/>
+        <source>体检问题分类</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="102"/>
+        <source>体检问题明细</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="103"/>
+        <source>体检汇总</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="104"/>
+        <source>后台检查进度</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="243"/>
+        <source>目录体检未完成；问题清单仅覆盖已扫部分。</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ComposePage</name>
@@ -2385,6 +2410,16 @@
         <source>井点 GeoJSON 写入失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
+<message>
+        <location filename="../src/catalog/datacatalog.cpp" line="144"/>
+        <source>文件回收提交中，请等待回收完成后再修改目录。</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/catalog/datacatalog.cpp" line="312"/>
+        <source>文件回收提交中，请等待回收完成后再打开工程。</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>DataImportService</name>
@@ -3653,6 +3688,106 @@
     <message>
         <location filename="../src/ui/pages/datalist.cpp" line="3543"/>
         <source>井 (</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="3138"/>
+        <source>工程未打开，无法扫描存储</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="538"/>
+        <source>资产分页</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="332"/>
+        <source>存储治理台</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="335"/>
+        <source>汇总体积、扫描未引用文件、预览回收过时版本</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="542"/>
+        <source>上一页</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="545"/>
+        <source>下一页</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="550"/>
+        <source>资产分页位置</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="1457"/>
+        <source>计划井 (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="1458"/>
+        <source>布井候选（不进实井计算）</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="1792"/>
+        <source>第 %1 / %2 页 · %3 项</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="3157"/>
+        <source>外链 SHA 复验完成：%1 个不一致版本。</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="3158"/>
+        <source>外链 SHA 复验未完成；结果仅覆盖已扫部分。</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="3161"/>
+        <source>回收完成：实际释放 %1 B；残留文件 %2 个。请重新扫描。%3</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="3182"/>
+        <source>体检中；目录检查在后台执行，SHA 尚未复验。</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="3190"/>
+        <source>后台检查 %1/%2：%3</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="3195"/>
+        <source>目录体检完成；外链 SHA 尚未复验。</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="3195"/>
+        <source>体检未完成，结果仅覆盖已扫部分。</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="3202"/>
+        <source>外链 SHA 复验完成。</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="3202"/>
+        <source>外链 SHA 复验已取消，未扫完。</source>
+        <translation type="unfinished"></translation>
+    </message>
+<message>
+        <location filename="../src/ui/pages/datalist.cpp" line="3544"/>
+        <source>编辑分层…</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -22110,6 +22245,353 @@ SHA-256：%2</source>
     <message>
         <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1379"/>
         <source>波谷-</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>StorageGovernance</name>
+    <message>
+        <location filename="../src/services/storagegovernance.cpp" line="53"/>
+        <source>工程未打开</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/storagegovernance.cpp" line="64"/>
+        <source>受管版本目录未覆盖：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/storagegovernance.cpp" line="119"/>
+        <source>扫描未完成或存在未覆盖目录，请重新扫描</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/storagegovernance.cpp" line="124"/>
+        <source>版本未列为 stale：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/storagegovernance.cpp" line="128"/>
+        <source>版本 %1 仍被 %2 引用</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/storagegovernance.cpp" line="140"/>
+        <source>文件大小未知：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/storagegovernance.cpp" line="152"/>
+        <source>所选文件已不在未引用清单中</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/storagegovernance.cpp" line="157"/>
+        <source>预览无效</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/storagegovernance.cpp" line="161"/>
+        <source>已取消，未执行任何回收动作</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/services/storagegovernance.cpp" line="164"/>
+        <source>预览后文件变化或路径不安全：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>StorageGovernanceController</name>
+    <message>
+        <location filename="../src/workflow/storagegovernancecontroller.cpp" line="50"/>
+        <source>存储扫描完成；SHA 尚未复验。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/storagegovernancecontroller.cpp" line="51"/>
+        <source>扫描未完成或结果已过期；回收不可用，请重新扫描。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/storagegovernancecontroller.cpp" line="67"/>
+        <source>目录已变化，请重新扫描。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/storagegovernancecontroller.cpp" line="73"/>
+        <source>预览已过期，请重新扫描并预览。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/storagegovernancecontroller.cpp" line="85"/>
+        <source>已取消，未执行任何回收动作。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/storagegovernancecontroller.cpp" line="88"/>
+        <source>目录已变化，未执行回收。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/storagegovernancecontroller.cpp" line="135"/>
+        <source>回收文件阶段未启动，请重新扫描残留文件。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/storagegovernancecontroller.cpp" line="136"/>
+        <source>目录已提交，正在回收文件；此阶段不能取消。</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>StorageGovernanceDialog</name>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="55"/>
+        <source>未知</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="55"/>
+        <source>%1 B</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="66"/>
+        <source>存储治理台</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="72"/>
+        <source>尚未扫描；受管目录覆盖与 SHA 复验分别报告。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="73"/>
+        <source>存储汇总</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="76"/>
+        <source>存储治理分类</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="77"/>
+        <source>按实体汇总体积</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="78"/>
+        <source>按类型汇总体积</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="79"/>
+        <source>未引用文件清单</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="80"/>
+        <source>过时衍生版本清单</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="81"/>
+        <source>按实体</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="81"/>
+        <source>按类型</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="82"/>
+        <source>未引用文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="82"/>
+        <source>过时衍生版本</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="85"/>
+        <source>存储治理状态</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="89"/>
+        <source>存储治理进度</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="95"/>
+        <source>扫描存储</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="96"/>
+        <source>预览选中项回收…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="97"/>
+        <source>扫描完整后，选中未引用文件或过时版本，再查看数量、体积与影响版本。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="98"/>
+        <source>复验外链 SHA</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="99"/>
+        <source>取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="101"/>
+        <source>关闭</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="115"/>
+        <source>未挂接实体</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="116"/>
+        <source>实体</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="116"/>
+        <source>身份</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="26"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="116"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="119"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="122"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="127"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="152"/>
+        <source>体积</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="119"/>
+        <source>资产类型</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="122"/>
+        <source>未被任何版本引用的文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="124"/>
+        <source>未记录原因</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="127"/>
+        <source>资产</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="127"/>
+        <source>版本</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="127"/>
+        <source>过时原因</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="128"/>
+        <source>版本逻辑体积 %1；大小未知 %2 个版本。按实体去重链接计量，多实体共享会重复计入。
+扫描范围：%3；未覆盖：%4。未引用文件仅表示没有版本引用，未判断用途。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="131"/>
+        <source>无</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="131"/>
+        <source>扫描未完成</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="137"/>
+        <source>确认回收预览</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="143"/>
+        <source>未引用文件 %1 个；过时版本 %2 个；影响版本 %3 个；拟释放 %4。
+外链源与保留版本共享的文件不会回收。确认后删除不可撤销。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="146"/>
+        <source>回收预览汇总</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="148"/>
+        <source>回收预览明细</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="151"/>
+        <source>版本记录 %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="152"/>
+        <source>回收对象</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="154"/>
+        <source>回收阻断原因</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="157"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="159"/>
+        <source>确认回收</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="161"/>
+        <source>按预览执行回收</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="161"/>
+        <source>预览为空、未完成或有引用阻断，不能回收</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="163"/>
+        <source>取消回收</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="165"/>
+        <source>回收确认操作</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="180"/>
+        <source>已处理 %1：%2</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

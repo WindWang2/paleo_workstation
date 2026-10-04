@@ -14,6 +14,13 @@ QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text);
 
 QVector<WellTopRecord> parseWellTopsText(const QByteArray &text);
 
+// 井分层文本写侧（方向 32 编辑落库）：parseWellTopsText 的逆。
+// 列序 井名 层名 MD X Y Z TVD Time(ms)；缺失值写 -99999.000；
+// 数值用自适应小数位（3..9 位中最短的往返精确表示，超出退化 'g' 17）——
+// fixture 精度（3 位）逐字节风格一致，更高精度导入件不丢位。
+// parse(write(x)) 记录级恒等（Z 列无判空标志，仅当 X/Y 有效时写出）。
+QByteArray writeWellTopsText(const QVector<WellTopRecord> &tops);
+
 TimeDepthTable parseTimeDepthText(const QByteArray &text);
 
 // 井斜站表文本：MD 井斜角 方位角；'# Well : <名>' 取井名（缺省空）。

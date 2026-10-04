@@ -1,6 +1,8 @@
 // 层：数据
 #include "wellfileparsers.h"
 
+#include "../domain/welltopsedit.h"
+
 #include "encodingdetect.h"
 
 #include <QFile>
@@ -117,6 +119,37 @@ QVector<WellTopRecord> parseWellTopsText(const QByteArray &text)
     tops.append(r);
   }
   return tops;
+}
+
+QByteArray writeWellTopsText(const QVector<WellTopRecord> &tops)
+{
+  const QString kNull = QStringLiteral("-99999.000");
+  const int kNumW = 14, kNameW = 13; // 列宽对齐 fixture 风格（解析按空白切，仅美观）
+  auto padNum = [](const QString &s) {
+    // 超宽值（如 'g',17 长串）不再负数补空——至少留一个空格分隔。
+    return QString(s.size() >= 14 ? 1 : 14 - s.size(), QLatin1Char(' ')) + s;
+  };
+  auto padName = [&](const QString &s) {
+    return s + QString(qMax(1, kNameW - s.size()), QLatin1Char(' '));
+  };
+  auto num = [&](bool has, double v) {
+    return padNum(has ? WellTopsEdit::formatDepth(v) : kNull);
+  };
+
+  QString out;
+  out.reserve(tops.size() * 96 + 128);
+  out += QStringLiteral("#WellTops File From Paleo\r\n");
+  out += QStringLiteral("#WellName    Name         MD           X            Y            Z            TVD          Time(ms)\r\n");
+  for (const WellTopRecord &r : tops)
+  {
+    // Z 列无判空标志（解析器 t.size()>=6 组内独立解析）：X/Y 任一有效即写出 z
+    // ——半坐标组（X 有效 Y 哨兵）的 z 是真实值，整组写哨兵会静默丢（轮 3 M2）。
+    const bool hasXy = r.hasX || r.hasY;
+    out += padName(r.wellName) + padName(r.topName) + num(r.hasMd, r.md) +
+           num(r.hasX, r.x) + num(r.hasY, r.y) + num(hasXy, r.z) +
+           num(r.hasTvd, r.tvd) + num(r.hasTime, r.timeMs) + QStringLiteral("\r\n");
+  }
+  return out.toUtf8();
 }
 
 TimeDepthTable parseTimeDepthText(const QByteArray &text)

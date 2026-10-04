@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="19"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="35"
+	timestamp="2026-10-04T16:30:41"
+	>
+	<testcase name="layering" classname="layering" time="0.160297" status="run">
+		<properties/>
+		<system-out>检查通过：无层违规。
+</system-out>
+	</testcase>
+	<testcase name="layering_strict" classname="layering_strict" time="0.167557" status="run">
+		<properties/>
+		<system-out>检查通过：无层违规。
+</system-out>
+	</testcase>
+	<testcase name="layering_selftest" classname="layering_selftest" time="0.0461267" status="run">
+		<properties/>
+		<system-out>检查通过：无层违规。
+检查通过：无层违规。
+FAIL src/io/bad.cpp:2 [qtwidgets-include] #include &lt;QWidget&gt;
+
+1 处层违规。合法残留须逐行列入 tools/layering-baseline.txt（格式 &lt;path&gt;:&lt;rule&gt;），修代码后删除对应行——baseline 只缩不涨。
+FAIL src/io/bad.cpp:2 [qtwidgets-include] #include &lt;QWidget&gt;
+
+1 处层违规。合法残留须逐行列入 tools/layering-baseline.txt（格式 &lt;path&gt;:&lt;rule&gt;），修代码后删除对应行——baseline 只缩不涨。
+检查通过：无层违规。
+
+--strict：baseline 非空（1 条）——已归零的残留清单禁止回升，请修代码而非加表项。
+NOTE baseline 可收缩：src/io/bad.cpp:qtwidgets-include（对应违规已修复，请删除该行）
+
+检查通过；baseline 有 1 条可收缩（非失败）。
+NOTE baseline 可收缩：src/io/bad.cpp:qtwidgets-include（对应违规已修复，请删除该行）
+
+--strict：baseline 有 1 条可收缩——对应违规已修复，删除这些行后再合入。
+selft...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ui_invariants" classname="ui_invariants" time="0.095599" status="run">
+		<properties/>
+		<system-out>ui invariants: clean (violations=0, baseline=0)
+</system-out>
+	</testcase>
+	<testcase name="ui_invariants_strict" classname="ui_invariants_strict" time="0.0849733" status="run">
+		<properties/>
+		<system-out>ui invariants: clean (violations=0, baseline=0)
+</system-out>
+	</testcase>
+	<testcase name="ui_invariants_selftest" classname="ui_invariants_selftest" time="0.0376168" status="run">
+		<properties/>
+		<system-out>selftest: PASS ['src/ui/bad.cpp:motion', 'src/ui/bad.cpp:motion', 'src/ui/bad.cpp:qss-hex']
+</system-out>
+	</testcase>
+	<testcase name="i18n" classname="i18n" time="0.928475" status="run">
+		<properties/>
+		<system-out>i18n 检查通过：文案入口无裸字面量。
+</system-out>
+	</testcase>
+	<testcase name="i18n_selftest" classname="i18n_selftest" time="0.0738946" status="run">
+		<properties/>
+		<system-out></system-out>
+	</testcase>
+	<testcase name="ui_tokens" classname="ui_tokens" time="0.58349" status="run">
+		<properties/>
+		<system-out>{"candidates": 487, "byRule": {"hex": 390, "rgb": 80, "qt-color": 16, "packed-color": 1}, "exceptions": 487, "violations": 0, "staleExceptions": []}
+</system-out>
+	</testcase>
+	<testcase name="ui_tokens_selftest" classname="ui_tokens_selftest" time="0.064714" status="run">
+		<properties/>
+		<system-out>UI token scanner selftest passed
+</system-out>
+	</testcase>
+	<testcase name="tst_ui" classname="tst_ui" time="21.3522" status="run">
+		<properties>
+			<property name="cmake_labels" value="core"/>
+		</properties>
+		<system-out>********* Start testing of TestUiShell *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+QINFO  : TestUiShell::initTestCase() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QWARN  : TestUiShell::initTestCase() QOpenGLWidget is not supported on this platform.
+PASS   : TestUiShell::initTestCase()
+PASS   : TestUiShell::windowMeetsMinSize()
+PASS   : TestUiShell::pageShortcutsTabCycleAndDensityToggle()
+PASS   : TestUiShell::focusRingScrollButtonsAndStatusMono()
+QINFO  : TestUiShell::ribbonThemePreservesBaseStyles() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestUiShell::ribbonThemePreservesBaseStyles() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestUiShell::ribbonThemePreservesBaseStyles() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+PASS   : TestUiShell::ribbonThemePreservesBaseStyles()
+PASS   : TestUiShell::w...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="tst_previewmap_canvas" classname="tst_previewmap_canvas" time="1.40579" status="run">
+		<properties>
+			<property name="cmake_labels" value="qgis"/>
+		</properties>
+		<system-out>********* Start testing of TestPreviewMapCanvas *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : TestPreviewMapCanvas::initTestCase()
+PASS   : TestPreviewMapCanvas::defaultsToLocalGridCrs()
+PASS   : TestPreviewMapCanvas::canvasIsChildWidget()
+PASS   : TestPreviewMapCanvas::addLayerGoesOnTop()
+PASS   : TestPreviewMapCanvas::removeAndMoveLayers()
+PASS   : TestPreviewMapCanvas::visibilityGatesCanvasLayerList()
+PASS   : TestPreviewMapCanvas::opacityAndBlendApplyToLayer()
+PASS   : TestPreviewMapCanvas::layersNeverRegisteredInProject()
+proj_get_celestial_body_name: CRS has no geodetic CRS
+PASS   : TestPreviewMapCanvas::zoomHistoryBackForward()
+PASS   : TestPreviewMapCanvas::historyDeduplicatesIdenticalExtents()
+PASS   : TestPreviewMapCanvas::fullExtentCombinesVisibleLayers()
+PASS   : TestPreviewMapCanvas::zoomToLayerGrowsSlightly()
+PASS   : TestPreviewMapCanvas::renderSnapshotProducesImage()
+QWARN  :...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="tst_previewmap_tools" classname="tst_previewmap_tools" time="1.30418" status="run">
+		<properties>
+			<property name="cmake_labels" value="qgis"/>
+		</properties>
+		<system-out>********* Start testing of TestPreviewMapTools *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : TestPreviewMapTools::initTestCase()
+QWARN  : TestPreviewMapTools::registryHasBuiltinTools() This plugin does not support propagateSizeHints()
+PASS   : TestPreviewMapTools::registryHasBuiltinTools()
+QWARN  : TestPreviewMapTools::displayNamesAreChinese() This plugin does not support propagateSizeHints()
+PASS   : TestPreviewMapTools::displayNamesAreChinese()
+QWARN  : TestPreviewMapTools::activateIsMutuallyExclusive() This plugin does not support propagateSizeHints()
+PASS   : TestPreviewMapTools::activateIsMutuallyExclusive()
+QWARN  : TestPreviewMapTools::activateUnknownToolFails() This plugin does not support propagateSizeHints()
+PASS   : TestPreviewMapTools::activateUnknownToolFails()
+QWARN  : TestPreviewMapTools::cancelToDefaultLandsOnPan() This plugin does not support propagateSizeHints()
+PASS   : Te...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="tst_previewmap_identify" classname="tst_previewmap_identify" time="1.19777" status="run">
+		<properties>
+			<property name="cmake_labels" value="qgis"/>
+		</properties>
+		<system-out>********* Start testing of TestPreviewIdentify *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : TestPreviewIdentify::initTestCase()
+PASS   : TestPreviewIdentify::pointIdentifyHitsVectorFeature()
+PASS   : TestPreviewIdentify::pointIdentifyMissIsEmpty()
+PASS   : TestPreviewIdentify::pointIdentifyRespectsTolerance()
+PASS   : TestPreviewIdentify::rectIdentifyReturnsMultiple()
+PASS   : TestPreviewIdentify::rectIdentifyCapsPerLayer()
+PASS   : TestPreviewIdentify::spatialIndexIsCachedPerLayer()
+PASS   : TestPreviewIdentify::indexClearedWhenLayerDestroyed()
+PASS   : TestPreviewIdentify::rasterPointGivesNearestAndBilinear()
+PASS   : TestPreviewIdentify::rasterPointOutsideExtentIsMiss()
+PASS   : TestPreviewIdentify::pointIdentifyAcrossMixedLayers()
+PASS   : TestPreviewIdentify::rectIdentifyEmptyRectIsEmpty()
+PASS   : TestPreviewIdentify::cleanupTestCase()
+Totals: 13 passed, 0 failed, 0 skipped, 0 blackli...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="tst_previewmap_page" classname="tst_previewmap_page" time="1.78085" status="run">
+		<properties>
+			<property name="cmake_labels" value="ui"/>
+		</properties>
+		<system-out>********* Start testing of TestPreviewMapPage *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : TestPreviewMapPage::initTestCase()
+PASS   : TestPreviewMapPage::toolBarButtonsExist()
+PASS   : TestPreviewMapPage::toolActionActivationIsExclusive()
+PASS   : TestPreviewMapPage::toolVisibleHidesActionAndFallsBackToPan()
+PASS   : TestPreviewMapPage::panIsActiveByDefault()
+PASS   : TestPreviewMapPage::errorStateShowsPageAndClears()
+proj_get_celestial_body_name: CRS has no geodetic CRS
+QWARN  : TestPreviewMapPage::renderLabelReflectsCompletion() This plugin does not support propagateSizeHints()
+QWARN  : TestPreviewMapPage::renderLabelReflectsCompletion() This plugin does not support propagateSizeHints()
+PASS   : TestPreviewMapPage::renderLabelReflectsCompletion()
+QWARN  : TestPreviewMapPage::scaleLabelFormatted() This plugin does not support propagateSizeHints()
+QWARN  : TestPreviewMapPage::scaleLabelFor...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="tst_previewmap_assets" classname="tst_previewmap_assets" time="30.4618" status="run">
+		<properties>
+			<property name="cmake_labels" value="ui"/>
+		</properties>
+		<system-out>********* Start testing of TestPreviewMapAssets *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : TestPreviewMapAssets::initTestCase()
+QWARN  : TestPreviewMapAssets::horizonPageCarriesFramework() catalog: "角色与实体类型不符: horizon 于 sequence_boundary"
+QWARN  : TestPreviewMapAssets::horizonPageCarriesFramework() catalog: "角色与实体类型不符: horizon 于 sequence_boundary"
+QWARN  : TestPreviewMapAssets::horizonPageCarriesFramework() catalog: "未知角色: reference"
+QWARN  : TestPreviewMapAssets::horizonPageCarriesFramework() catalog: "未知角色: reference"
+QWARN  : TestPreviewMapAssets::horizonPageCarriesFramework() catalog: "未知角色: reference"
+QWARN  : TestPreviewMapAssets::horizonPageCarriesFramework() catalog: "未知角色: reference"
+QWARN  : TestPreviewMapAssets::horizonPageCarriesFramework() catalog: "未知角色: reference"
+QWARN  : TestPreviewMapAssets::...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="tst_previewmap_perf" classname="tst_previewmap_perf" time="4.73246" status="run">
+		<properties>
+			<property name="cmake_labels" value="perf;ui"/>
+		</properties>
+		<system-out>********* Start testing of TestPreviewMapPerf *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : TestPreviewMapPerf::initTestCase()
+QWARN  : TestPreviewMapPerf::firstOpenUnderBudget() catalog: "角色与实体类型不符: horizon 于 sequence_boundary"
+QWARN  : TestPreviewMapPerf::firstOpenUnderBudget() catalog: "角色与实体类型不符: horizon 于 sequence_boundary"
+proj_get_celestial_body_name: CRS has no geodetic CRS
+QINFO  : TestPreviewMapPerf::firstOpenUnderBudget() PERF first-open(ms): 158
+PASS   : TestPreviewMapPerf::firstOpenUnderBudget()
+QWARN  : TestPreviewMapPerf::renderCacheHitOnReopen() catalog: "角色与实体类型不符: horizon 于 sequence_boundary"
+QWARN  : TestPreviewMapPerf::renderCacheHitOnReopen() catalog: "角色与实体类型不符: horizon 于 sequence_boundary"
+QWARN  : TestPreviewMapPerf::renderCacheHitOnReopen() This plugin does not support propagateSizeHints(...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="tst_datapreview" classname="tst_datapreview" time="29.6927" status="run">
+		<properties>
+			<property name="cmake_labels" value="ui"/>
+		</properties>
+		<system-out>********* Start testing of TestDataPreview *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : TestDataPreview::initTestCase()
+PASS   : TestDataPreview::emptyStateBeforeAnyTab()
+QWARN  : TestDataPreview::reselectFocusesExistingTab() catalog: "角色与实体类型不符: horizon 于 sequence_boundary"
+QWARN  : TestDataPreview::reselectFocusesExistingTab() catalog: "角色与实体类型不符: horizon 于 sequence_boundary"
+QWARN  : TestDataPreview::reselectFocusesExistingTab() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::reselectFocusesExistingTab() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::reselectFocusesExistingTab() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::reselectFocusesExistingTab() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::reselectFocusesExistingTab() catalog: "未知角色: reference"
+QWARN  : TestDataPreview::resele...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="tst_layertreepanel" classname="tst_layertreepanel" time="1.49445" status="run">
+		<properties>
+			<property name="cmake_labels" value="ui"/>
+		</properties>
+		<system-out>********* Start testing of TestLayerTreePanel *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : TestLayerTreePanel::initTestCase()
+PASS   : TestLayerTreePanel::captureEvidence()
+QWARN  : TestLayerTreePanel::deleteKeyRemovesCurrentLayer() This plugin does not support propagateSizeHints()
+QWARN  : TestLayerTreePanel::deleteKeyRemovesCurrentLayer() This plugin does not support propagateSizeHints()
+PASS   : TestLayerTreePanel::deleteKeyRemovesCurrentLayer()
+PASS   : TestLayerTreePanel::objectNamesContract()
+PASS   : TestLayerTreePanel::actionIconResourceContract()
+PASS   : TestLayerTreePanel::emptyStateTogglesWithProjectLayers()
+PASS   : TestLayerTreePanel::newLayersGetExpandedLegendNodes()
+PASS   : TestLayerTreePanel::moveUpDownAndPinToTop()
+PASS   : TestLayerTreePanel::filterMatchesNameIdAndPaleoLayerId()
+PASS   : TestLayerTreePanel::groupVisibilityRecursesToChildren()
+PASS   : TestLayerTreePanel:...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+</testsuite>

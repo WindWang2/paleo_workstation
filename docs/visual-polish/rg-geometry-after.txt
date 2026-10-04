@@ -1,0 +1,16 @@
+src/ui/decorations/paleodecorations.cpp:154:  painter->drawRoundedRect(QRectF(margin-6, margin-6, s+12, s+28), PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
+src/ui/decorations/paleodecorations.cpp:262:  painter->drawRoundedRect( QRectF( x, y, pillW, pillH ), pillH / 2.0, pillH / 2.0 );
+src/ui/decorations/paleodecorations.cpp:473:  p->drawRoundedRect(QRectF(x,y,width,16+row*(facies.size()+1)), PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
+src/ui/pages/dataopswidgets.h:36:  explicit FlowLayout(QWidget *parent, int margin = 0, int spacing = PaleoTheme::tokens().spacingXs)
+src/ui/pages/dataopswidgets.h:42:  ~FlowLayout() override
+src/ui/pages/dataopswidgets.h:148:    m_chipsLay = new FlowLayout(m_chips, 0, PaleoTheme::tokens().spacingXs);
+src/ui/pages/dataopswidgets.h:507:    m_flow = new FlowLayout(m_host, 0, PaleoTheme::tokens().spacingXs);
+src/ui/seismic3d/seismic3dviewportwidget.cpp:255:                p.drawRoundedRect(box, t.radiusSm, t.radiusSm);
+src/ui/datapreview/datapreviewtabs_internal.h:1449:    p.drawRoundedRect(QRectF(barX, barTop, barW, barH), PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
+src/ui/seismicsection/seismicsectioncanvas.cpp:1287:                p.drawRoundedRect(tagRect, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
+src/ui/seismicsection/seismicsectioncanvas.cpp:1414:                        p.drawRoundedRect(tagRect, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
+src/ui/seismicsection/seismicsectioncanvas.cpp:1681:                    p.drawRoundedRect(badge, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
+src/ui/seismicsection/seismicsectioncanvas.cpp:1837:        p.drawRoundedRect(colorBarRect, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
+src/ui/wellcomposite/wellcompositetrack.cpp:1763:      painter.drawRoundedRect(pill, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
+src/ui/wellcomposite/wellpositionlegendwidget.cpp:205:  p.drawRoundedRect(baseRect, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
+src/ui/wellcomposite/wellcompositecanvas.cpp:1160:    p.drawRoundedRect(cardRect, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);

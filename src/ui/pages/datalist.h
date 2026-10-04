@@ -17,8 +17,11 @@
 #include "dataopsundo.h"
 #include "datanavtree.h"
 
+#include "../../services/cataloghealth.h"
+
 class PreviewDocService;
 class QStackedWidget;
+class CatalogHealthDialog;
 
 namespace paleo::dataops
 {
@@ -34,6 +37,7 @@ class FilterEmptyState;
 class SelectionBadge;
 class HighlightDelegate;
 class OperationsHistory;
+struct VersionRow;
 } // namespace paleo::dataops
 
 // ui/pages/datalist — 数据管理页的「导入 + 列表」侧（W5：自 DataPage 分家；
@@ -109,6 +113,11 @@ class DataListPanel : public QWidget
     void batchOpenPreview();             // D1.8 前几项进标签
     void batchAddTag();                  // D2.4 选中打标签
     void showRecycleBin();               // D1.6 可回收清单对话框
+    // ---- 方向 30：工区数据管线与健康管理 ----
+    void showImportLedger();             // 导入台账查看器（批次 + 行级结局）
+    void showHealthCheck();              // 资产体检对话框（快速面 + SHA 复验）
+    void showVersionTable();             // 单资产版本面对话框（对比 + 回滚）
+    void resolvePendingLinks();          // 未决链接批量归位（恰好一候选才挂）
     // ---- 单资产操作 ----
     void detachSingleAssetLink();        // 解挂（首个选中资产的已决链接）
     void setPrimaryForSelection();       // 设为主版本
@@ -162,6 +171,20 @@ class DataListPanel : public QWidget
     void registerCommands();        // D6.2 命令登记
     QTreeWidgetItem *treeItemForAsset(const QString &assetId) const;
     void refreshUndoButtons();      // D5.2 撤销/重做按钮文案与可用态
+
+    // ---- 方向 30：体检/版本面辅助 ----
+    QVector<paleo::dataops::VersionRow> versionRowsForAsset(const QString &assetId) const;
+    // SHA 分步校验：每步一个外链版本（事件循环呼吸间推进，可取消）。
+    void runShaVerifyStep();
+    CatalogHealthDialog *m_healthDlg = nullptr;   // 会话内指向栈上对话框
+    QVector<CatalogVersion> m_shaTargets;
+    int m_shaIdx = 0;
+    bool m_shaRunning = false;
+    bool m_shaCancelled = false;
+    paleo::health::HealthReport m_healthBase;
+    int m_healthRecycleCount = 0;
+    qint64 m_healthRecycleBytes = 0;
+    void refreshHealthReportInDialog();
   public:
     void applyEntityDrop(const QStringList &assetIds, const QString &entityId); // D3.1/D3.4（拖放核心，批量挂接共用）
   private:

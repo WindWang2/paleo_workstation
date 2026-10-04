@@ -46,20 +46,6 @@ namespace
     return PaleoLayerVocabulary::pageForGroup(group, reason);
   }
 
-  // 灰显 indicator 图标：text-disabled 灰实心圆点（现取随主题）——
-  // 「未激活」是状态语义，不占交互蓝，不属装饰色约束。
-  QIcon greyDotIcon()
-  {
-    QPixmap pm(12, 12);
-    pm.fill(Qt::transparent);
-    QPainter p(&pm);
-    p.setRenderHint(QPainter::Antialiasing);
-    p.setPen(Qt::NoPen);
-    p.setBrush(PaleoTheme::tokens().textDisabled);
-    p.drawEllipse(2, 2, 8, 8);
-    return QIcon(pm);
-  }
-
   // offscreen（测试/CI）无窗口系统：QFileDialog 一律跳过——硬纪律。
   bool noFileDialogs()
   {
@@ -78,7 +64,7 @@ LayerTreePanel::LayerTreePanel(QgsProject *project, QgsMapCanvas *canvas,
         .arg(PaleoTheme::tokens().surface.name().toUpper());
   });
   QFont base = font();
-  base.setPointSizeF(9.0);
+  base.setPointSizeF(PaleoTheme::tokens().bodyPt);
   setFont(base);
 
   m_view = new QgsLayerTreeView(this);
@@ -169,8 +155,8 @@ QWidget *LayerTreePanel::buildToolbar()
 {
   auto *bar = new QWidget(this);
   auto *lay = new QHBoxLayout(bar);
-  lay->setContentsMargins(8, 8, 8, 8); // DESIGN.md sm=8
-  lay->setSpacing(4);                  // DESIGN.md xs=4（工具栏按钮间距）
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm); // DESIGN.md sm=8
+  lay->setSpacing(PaleoTheme::tokens().spacingXs);                  // DESIGN.md xs=4（工具栏按钮间距）
 
   // 复用 QgsLayerTreeViewDefaultActions 的现成动作（工具条 + 右键菜单共用）。
   auto *acts = m_view->defaultActions();
@@ -221,7 +207,7 @@ QWidget *LayerTreePanel::buildToolbar()
     btn->setObjectName(objectName);
     btn->setDefaultAction(action);
     btn->setToolButtonStyle(Qt::ToolButtonIconOnly);
-    btn->setIconSize(QSize(18, 18));
+    btn->setIconSize(PaleoIcons::toolbarSize());
     btn->setAutoRaise(true);
     btn->setToolTip(action->text());
     btn->setAccessibleName(action->text());
@@ -697,7 +683,7 @@ void LayerTreePanel::refreshIndicators()
     if (!layer->isValid())
     {
       auto *ind = new QgsLayerTreeViewIndicator(m_view);
-      ind->setIcon(style()->standardIcon(QStyle::SP_MessageBoxWarning));
+      ind->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mIconWarning.svg")));
       ind->setToolTip(tr("图层源不可用"));
       m_view->addIndicator(node, ind);
     }
@@ -712,7 +698,7 @@ void LayerTreePanel::refreshIndicators()
         if (!d.horizon.isEmpty() && d.horizon != activeHorizon)
         {
           auto *ind = new QgsLayerTreeViewIndicator(m_view);
-          ind->setIcon(greyDotIcon());
+          ind->setIcon(PaleoIcons::inactive());
           ind->setToolTip(tr("该图层属于层位 %1（未激活）").arg(d.horizon));
           m_view->addIndicator(node, ind);
         }

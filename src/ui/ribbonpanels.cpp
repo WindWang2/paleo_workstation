@@ -241,7 +241,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     }
 
     SARibbonPanel *sp = panel(cat, tr("地震视口"), "ribbonPanel.data.seismic");
-    QAction *seismic3dAct = newAction(tr("三维视口"), icon("mIcon3D.svg"),
+    QAction *seismic3dAct = newAction(tr("三维视口"), icon("3d.svg"),
                                       tr("打开三维地震体立体视口"), "ribbonActionSeismic3D");
     connect(seismic3dAct, &QAction::triggered, this, [this] {
       syncSeismicVolumeToDocks();
@@ -281,7 +281,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       SARibbonPanel *cp = panel(cat, tr("叠加对照"), "ribbonPanel.predict.compare");
       large(cp, corrAct);
       large(cp, attrAct);
-      QAction *pSeismic3d = newAction(tr("三维地震"), icon("mIcon3D.svg"),
+      QAction *pSeismic3d = newAction(tr("三维地震"), icon("3d.svg"),
                                       tr("打开三维地震立体视口"), "ribbonPredictSeismic3D");
       connect(pSeismic3d, &QAction::triggered, this, [this] {
         syncSeismicVolumeToDocks();

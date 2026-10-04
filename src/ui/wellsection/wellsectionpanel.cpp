@@ -75,15 +75,15 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
            PaleoTheme::toolButtonStyleSheet();
   });
   auto *barLay = new QHBoxLayout(bar);
-  barLay->setContentsMargins(4, 2, 4, 2); // spacing.xs
-  barLay->setSpacing(4);
+  barLay->setContentsMargins(PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs); // spacing.xs
+  barLay->setSpacing(PaleoTheme::tokens().spacingXs);
 
   const auto mkBtn = [bar, barLay](const char *obj, const char *icon,
                                    const QString &tip) {
     auto *b = new QToolButton(bar);
     b->setObjectName(QLatin1String(obj));
     b->setIcon(PaleoIcons::qgisTheme(QLatin1String(icon)));
-    b->setIconSize(QSize(18, 18));
+    b->setIconSize(PaleoIcons::toolbarSize());
     b->setAutoRaise(true);
     b->setToolTip(tip);
     b->setAccessibleName(tip);
@@ -277,7 +277,7 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
   connect(pick, &QPushButton::clicked, this, [this] { openWellsDialog(); });
   emptyLay->addStretch(1);
   emptyLay->addWidget(emptyLabel, 0, Qt::AlignHCenter);
-  emptyLay->addSpacing(8);
+  emptyLay->addSpacing(PaleoTheme::tokens().spacingSm);
   emptyLay->addWidget(pick, 0, Qt::AlignHCenter);
   emptyLay->addStretch(1);
   cell->addWidget(m_empty, 0, 0);

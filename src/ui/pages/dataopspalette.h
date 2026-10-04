@@ -48,8 +48,8 @@ public:
     setModal(true);
     resize(480, 360);
     auto *lay = new QVBoxLayout(this);
-    lay->setContentsMargins(8, 8, 8, 8);
-    lay->setSpacing(6);
+    lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+    lay->setSpacing(PaleoTheme::tokens().spacingSm);
     m_edit = new QLineEdit(this);
     m_edit->setObjectName(QStringLiteral("paletteInput"));
     m_edit->setPlaceholderText(tr("搜索资产 / 实体 / 动作 / 过滤器…"));
@@ -198,8 +198,8 @@ public:
     m_conflicts->setWordWrap(true);
     m_conflicts->hide();
     PaleoTheme::applyThemedStyleSheet(m_conflicts, [] {
-      return QStringLiteral("color: %1; padding: 4px;")
-          .arg(PaleoTheme::tokens().error.name().toUpper());
+      return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; padding: {spacing.xs}px;"))
+          .arg(PaleoTheme::tokens().errorText.name().toUpper());
     });
     lay->addWidget(m_conflicts);
     auto *box = new QDialogButtonBox(QDialogButtonBox::Close, this);

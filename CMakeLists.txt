@@ -452,6 +452,7 @@ add_library(paleo_services STATIC
   src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排
   src/services/crashreport.cpp                      # 致命信号 fd 落盘 + .running 旗标
   src/services/startuptrace.cpp                     # goal/perf-systematize 簇1：启动分段仪表
+  src/services/cataloghealth.cpp                    # 方向30：工区资产体检（快速面 + 外链 SHA 复验）
 )
 target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
 
@@ -484,6 +485,8 @@ add_library(paleo_workflow STATIC
   src/workflow/aiassistworkflow.cpp
   src/workflow/derivedassets.cpp                   # 派生产物 + DERIVED 版本登记
   src/workflow/welltopseditorworkflow.cpp           # 方向 32：分层编辑版本化提交/回滚/合并编排
+  src/workflow/assetops.cpp                        # 方向30：版本回滚/对比 + 物理清理 + 未决归位
+  src/workflow/importledger.cpp                    # 方向30：文件夹导入批次台账（sidecar 持久化）
 )
 target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store paleo_io paleo_services paleo_domain paleo_ai)
 
@@ -540,6 +543,7 @@ add_library(paleo_ui STATIC
   src/ui/dialogs/folderconfirm.cpp                 # W2 文件夹导入确认表
   src/ui/welltops/welltopseditordialog.cpp          # 方向 32：分层表编辑器
   src/ui/welltops/welltopsmergedialog.cpp           # 方向 32：导入融合逐行取舍
+  src/ui/dialogs/cataloghealthdialog.cpp           # 方向30：工区体检对话框（分类计数 + 跳转意图）
   src/ui/webviewpanel.cpp                          # embedded web shell (lazy, degradable)
   src/ui/wellcomposite/wellcompositetrack.cpp      # ResFormStar 多道综合柱状图
   src/ui/wellcomposite/wellcompositecanvas.cpp
@@ -697,9 +701,13 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_i18n.py)
   add_test(NAME i18n_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_i18n.py --selftest)
+  add_test(NAME ui_tokens COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_tokens.py)
+  add_test(NAME ui_tokens_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_tokens.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
-                       i18n i18n_selftest
+                       i18n i18n_selftest ui_tokens ui_tokens_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()
 
@@ -832,6 +840,9 @@ target_compile_definitions(tst_datapreview PRIVATE
 add_paleo_test(tst_folderimport LIBS paleo_workflow paleo_ui)
 target_compile_definitions(tst_folderimport PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+# ---- 方向 30：工区数据管线与健康管理 ----
+add_paleo_test(tst_cataloghealth LIBS paleo_services)   # 体检召回（缺失/SHA/未决/孤立/无版本）
+add_paleo_test(tst_assetops LIBS paleo_workflow)        # 版本回滚/对比 + 物理清理 + 未决归位
 add_paleo_test(tst_previewdoc LIBS paleo_services paleo_qgis)
 target_compile_definitions(tst_previewdoc PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")

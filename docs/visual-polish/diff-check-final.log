@@ -1,0 +1,3 @@
+Commands: git diff --cached --check; git diff dda2faa58c8804f195e8af28c69fec29ccf38379 --check
+Both exits: 0
+Includes all staged artifacts and the complete task diff.

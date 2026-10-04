@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="4"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="202"
+	timestamp="2026-10-04T16:06:30"
+	>
+	<testcase name="tst_singlefactor_perf" classname="tst_singlefactor_perf" time="166.51" status="run">
+		<properties>
+			<property name="cmake_labels" value="algorithms;perf"/>
+		</properties>
+		<system-out>********* Start testing of SingleFactorPerfTests *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : SingleFactorPerfTests::initTestCase()
+QINFO  : SingleFactorPerfTests::proposedBudgets() single-factor perf S=1942ms scale1024=6669ms L=13728ms wells200=3111ms cellRatio=3.43 wellRatio=1.60 cancelMedian=1ms cancelMax=2ms rssDeltaKiB=0
+PASS   : SingleFactorPerfTests::proposedBudgets()
+PASS   : SingleFactorPerfTests::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 166291ms
+********* Finished testing of SingleFactorPerfTests *********
+</system-out>
+	</testcase>
+	<testcase name="tst_startup_trace" classname="tst_startup_trace" time="11.8441" status="run">
+		<properties>
+			<property name="cmake_labels" value="perf;services"/>
+		</properties>
+		<system-out>********* Start testing of StartupTraceTests *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : StartupTraceTests::initTestCase()
+PASS   : StartupTraceTests::markRecordsSegmentsInOrder()
+PASS   : StartupTraceTests::adjacentDuplicateMarkCollapsed()
+PASS   : StartupTraceTests::jsonShapeIsStable()
+PASS   : StartupTraceTests::resetClearsState()
+PASS   : StartupTraceTests::realStartupProducesCompleteTrace()
+PASS   : StartupTraceTests::realStartupRatioGatesHold()
+QINFO  : StartupTraceTests::injectedDegradationMustTripGate() qgis share: healthy=0.160 degraded=0.612 (x3.8)
+QINFO  : StartupTraceTests::injectedDegradationMustTripGate() absolute gate on degraded run: ratio=0.612 gate=0.220 TRIPPED
+PASS   : StartupTraceTests::injectedDegradationMustTripGate()
+PASS   : StartupTraceTests::cleanupTestCase()
+Totals: 9 passed, 0 failed, 0 skipped, 0 blacklisted, 11617ms
+********* Finished testing of StartupTraceT...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="tst_seismic_baseline" classname="tst_seismic_baseline" time="5.52006" status="run">
+		<properties>
+			<property name="cmake_labels" value="perf;ui"/>
+		</properties>
+		<system-out>********* Start testing of TestSeismicBaseline *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+QINFO  : TestSeismicBaseline::initTestCase() baseline fixture: /home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/build/seismic_perf/perf_big.sgy (220.2 MiB)
+PASS   : TestSeismicBaseline::initTestCase()
+QINFO  : TestSeismicBaseline::indexColdFullScan() BASELINE index_cold_full_scan = 81.0 ms
+QINFO  : TestSeismicBaseline::indexColdFullScan() BASELINE index_traces = 53261.0 traces
+PASS   : TestSeismicBaseline::indexColdFullScan()
+QINFO  : TestSeismicBaseline::indexWarmCache() BASELINE index_warm_cache = 4.0 ms
+PASS   : TestSeismicBaseline::indexWarmCache()
+[index] strategy=cache traces=53261 wall=3.838 ms | window=4194304 queue=2 checkpoint=/home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/build/ctest-home/tst_seismic_baseline/cache/paleo_workstation/index-cache/scan-checkpoints...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="tst_inversion_perf" classname="tst_inversion_perf" time="19.0507" status="run">
+		<properties>
+			<property name="cmake_labels" value="workflow"/>
+		</properties>
+		<system-out>********* Start testing of TestInversionPerf *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : TestInversionPerf::initTestCase()
+QINFO  : TestInversionPerf::volumeBudget() inversion perf: 2427 ms for 262144 traces (budget 90000 ms, ratio "0.027" )
+PASS   : TestInversionPerf::volumeBudget()
+QINFO  : TestInversionPerf::parallelSpeedup() inversion threads 1 : 12447 ms
+QINFO  : TestInversionPerf::parallelSpeedup() inversion threads 4 : 3273 ms
+QINFO  : TestInversionPerf::parallelSpeedup() inversion speedup (1→4 threads): "3.80"
+PASS   : TestInversionPerf::parallelSpeedup()
+PASS   : TestInversionPerf::cleanupTestCase()
+Totals: 4 passed, 0 failed, 0 skipped, 0 blacklisted, 18768ms
+********* Finished testing of TestInversionPerf *********
+</system-out>
+	</testcase>
+</testsuite>

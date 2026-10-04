@@ -205,7 +205,7 @@ public:
     setResizeMode(QListView::Adjust);
     setIconSize(QSize(28, 28));
     setSelectionMode(QAbstractItemView::ExtendedSelection);
-    setSpacing(6);
+    setSpacing(PaleoTheme::tokens().spacingSm);
     setWordWrap(true);
   }
   void loadRows(const QVector<AssetRowInfo> &rows)

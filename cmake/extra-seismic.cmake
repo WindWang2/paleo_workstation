@@ -104,3 +104,8 @@ target_compile_definitions(tst_horizontrackperf PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
   PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
   PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")
+
+# goal/horizon-3d — 体传播服务面：单种子全覆盖/取消无半成品/顶替静默/
+# 空态报因/DERIVED 锚源登记/直接成格留洞/RSS 比率门/传播比率门
+# （数值核滑窗/倾角引导面在 tst_horizontrack）
+add_paleo_test(tst_horizontracksvc LIBS paleo_services)

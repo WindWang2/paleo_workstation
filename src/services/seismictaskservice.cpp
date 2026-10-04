@@ -1929,7 +1929,7 @@ KernelTrackOutput runKernelTracking(
   const std::vector<float> section = traceMajorSection(slice);
   const paleo::hztrack::TrackOptions kernelOptions{
       options.windowSamples, options.maxSearchSamples,
-      options.correlationThreshold, 0.0};
+      options.correlationThreshold, 0.0, options.dipHistoryPicks};
   std::vector<paleo::hztrack::TrackResult> runs;
   runs.reserve(static_cast<std::size_t>(seeds.size()));
   bool sawCancel = false;
@@ -2106,6 +2106,265 @@ PaleoTask *SeismicTaskService::startHorizonTracking(
   return task;
 }
 
+PaleoTask *SeismicTaskService::startVolumePropagation(
+    std::shared_ptr<const SgyVolume> volume,
+    const VolumePropagationRequest &request,
+    std::function<void(bool ok, const QList<SeismicPick> &picks,
+                       const SeismicTrackReport &report,
+                       const QString &error)> onFinished)
+{
+  const auto failNow = [onFinished](const QString &why) {
+    if (onFinished)
+      onFinished(false, {}, SeismicTrackReport{}, why);
+  };
+  if (!taskService_)
+  {
+    failNow(QStringLiteral("PaleoTaskService not set"));
+    return nullptr;
+  }
+  if (!volume || !volume->IsLoaded())
+  {
+    failNow(tr("地震体未加载（先完成体加载）"));
+    return nullptr;
+  }
+  if (request.seeds.isEmpty())
+  {
+    failNow(tr("无种子（先在种子剖面手动拾取）"));
+    return nullptr;
+  }
+  const std::vector<int> &ilAxis = volume->InlineValues();
+  const std::vector<int> &xlAxis = volume->XlineValues();
+  const int nS = volume->SampleCount();
+  if (ilAxis.empty() || xlAxis.empty() || nS <= 0)
+  {
+    failNow(tr("体测网轴为空"));
+    return nullptr;
+  }
+  const auto ilIt = std::find(ilAxis.begin(), ilAxis.end(), request.seedInline);
+  if (ilIt == ilAxis.end())
+  {
+    failNow(tr("inline %1 不在本体内（无最近线替代）").arg(request.seedInline));
+    return nullptr;
+  }
+  const int seedIlIdx = int(ilIt - ilAxis.begin());
+  std::vector<paleo::hztrack::SeedPoint> kernelSeeds;
+  kernelSeeds.reserve(std::size_t(request.seeds.size()));
+  for (const QPair<int, int> &s : request.seeds)
+  {
+    const auto xlIt = std::find(xlAxis.begin(), xlAxis.end(), s.first);
+    if (xlIt == xlAxis.end())
+    {
+      failNow(tr("种子 crossline %1 不在本体内（无最近线替代）").arg(s.first));
+      return nullptr;
+    }
+    if (s.second < 0 || s.second >= nS)
+    {
+      failNow(tr("种子采样 %1 越界（体采样 0..%2）").arg(s.second).arg(nS - 1));
+      return nullptr;
+    }
+    kernelSeeds.push_back({int(xlIt - xlAxis.begin()), s.second});
+  }
+
+  // 内存闸（诚实面）：滑窗工作集 = 种子 + 扫掠相邻 2 剖面 ×（行主序像 +
+  // 道主序副本两份当量）——超预算如实拒绝并报数，不 OOM 硬扛
+  const qint64 sectionBytes =
+      qint64(volume->XlineCount()) * qint64(nS) * 4;
+  const qint64 workingSetBytes = sectionBytes * 6;
+  const qint64 budgetBytes =
+      request.workingSetBudgetBytes > 0
+          ? request.workingSetBudgetBytes
+          : std::min<qint64>(totalRamBytes() / 4,
+                             qint64(2) * 1024 * 1024 * 1024);
+  if (workingSetBytes > budgetBytes)
+  {
+    failNow(tr("内存超限：滑窗工作集约 %1 MB 超预算 %2 MB（剖面 %3 道 × %4 采样）")
+                .arg(workingSetBytes / (1024 * 1024))
+                .arg(budgetBytes / (1024 * 1024))
+                .arg(volume->XlineCount())
+                .arg(nS));
+    return nullptr;
+  }
+
+  // 同体顶替：旧在途传播取消 + 静默标志（回调丢弃，cancelled≠failed 口径
+  // 同切片顶替 A3）
+  const QString pathKey = QString::fromStdString(volume->Path().string());
+  if (PaleoTask *old = inFlightPropagation_.value(pathKey))
+  {
+    const auto oldFlag = propagationSuperseded_.value(pathKey);
+    if (oldFlag)
+      oldFlag->store(true);
+    old->requestCancel();
+  }
+  const auto superseded = std::make_shared<std::atomic_bool>(false);
+  propagationSuperseded_.insert(pathKey, superseded);
+
+  const QString title = tr("层位体传播（IL%1，%2 种子）")
+                            .arg(request.seedInline)
+                            .arg(request.seeds.size());
+  const paleo::hztrack::TrackOptions kernelOptions{
+      request.windowSamples, request.maxSearchSamples,
+      request.correlationThreshold, 0.0, request.dipHistoryPicks};
+  const int maxInlineStep = request.maxInlineStep;
+  const double dtMs = double(volume->SampleIntervalUs()) / 1000.0;
+  const double startTimeMs = request.startTimeMs;
+  const QString interpreter = request.interpreter;
+  const QString horizonName = request.horizonName;
+  auto picksOut = std::make_shared<QList<SeismicPick>>();
+  auto reportOut = std::make_shared<SeismicTrackReport>();
+
+  auto work = [volume, seedIlIdx, kernelSeeds, kernelOptions, maxInlineStep,
+               dtMs, startTimeMs, interpreter, horizonName, picksOut,
+               reportOut](PaleoTask *task) -> QString {
+    const std::vector<int> &ilAxis = volume->InlineValues();
+    const std::vector<int> &xlAxis = volume->XlineValues();
+    const int nIl = int(ilAxis.size());
+    const int nXl = int(xlAxis.size());
+    const int nS = volume->SampleCount();
+
+    // IL 滑窗供应器：至多 2 枚剖面驻留（道主序副本；行主序像即取即弃），
+    // 按种子向两侧单调取数——体不全体驻留（Oracle#5 内存边界）
+    struct SlidingSections
+    {
+      std::shared_ptr<const SgyVolume> vol;
+      const std::vector<int> *ilAxis;
+      PaleoTask *task;
+      qint64 fetches = 0;
+      qint64 totalFetchBudget = 0;
+      int lastFailedIl = -1;
+      QString lastError;
+      struct Slot
+      {
+        int il = -1;
+        std::vector<float> traceMajor;
+      } a, b; // a = 最近取用
+      const float *section(int il)
+      {
+        if (a.il == il)
+          return a.traceMajor.data();
+        if (b.il == il)
+          return b.traceMajor.data();
+        SgySliceImage img;
+        std::string err;
+        const auto progress = [this](int, int) {
+          return !(task && task->cancelRequested());
+        };
+        if (!vol->ExtractSlice(SgySliceType::Inline,
+                               (*ilAxis)[static_cast<std::size_t>(il)], img,
+                               err, progress))
+        {
+          lastFailedIl = il;
+          lastError = QString::fromStdString(err);
+          return nullptr;
+        }
+        b = std::move(a);
+        a.il = il;
+        a.traceMajor = traceMajorSection(img);
+        ++fetches;
+        if (task && totalFetchBudget > 0)
+          task->reportBytes(std::min(fetches, totalFetchBudget),
+                            totalFetchBudget);
+        return a.traceMajor.data();
+      }
+    } provider{volume, &ilAxis, task};
+    const int spanL = maxInlineStep > 0
+                          ? std::min(maxInlineStep, seedIlIdx)
+                          : seedIlIdx;
+    const int spanR = maxInlineStep > 0
+                          ? std::min(maxInlineStep, nIl - 1 - seedIlIdx)
+                          : nIl - 1 - seedIlIdx;
+    provider.totalFetchBudget = 1 + spanL + spanR;
+
+    const paleo::hztrack::PropagateResult r = paleo::hztrack::propagateVolumeWindowed(
+        nIl, nXl, nS,
+        [&provider](int il) { return provider.section(il); },
+        seedIlIdx, kernelSeeds, kernelOptions, maxInlineStep,
+        [task]() { return task && task->cancelRequested(); });
+    if (task && task->cancelRequested())
+      return QString(); // 取消不发布半成品
+    if (r.stopReason == paleo::hztrack::StopReason::ReadFailure)
+    {
+      const QString where = provider.lastFailedIl >= 0
+          ? QObject::tr("IL %1").arg(ilAxis[static_cast<std::size_t>(
+                                             provider.lastFailedIl)])
+          : QObject::tr("未知剖面");
+      return QObject::tr("剖面读取失败（%1）：%2")
+          .arg(where,
+               provider.lastError.isEmpty()
+                   ? QObject::tr("读取错误")
+                   : provider.lastError);
+    }
+    if (r.stopReason == paleo::hztrack::StopReason::Invalid)
+      return QObject::tr("传播输入无效（种子/几何）");
+
+    SeismicTrackReport report;
+    report.coveredTraces = int(r.picks.size());
+    report.totalTraces = nIl * nXl;
+    double confSum = 0.0;
+    picksOut->reserve(int(r.picks.size()));
+    for (const paleo::hztrack::VolumePick &p : r.picks)
+    {
+      SeismicPick pick;
+      pick.inlineNo = ilAxis[static_cast<std::size_t>(p.il)];
+      pick.xlineNo = xlAxis[static_cast<std::size_t>(p.xl)];
+      pick.sampleIndex = p.sample;
+      pick.twtMs = startTimeMs + double(p.sample) * dtMs;
+      pick.confidence = p.confidence;
+      pick.interpreter = interpreter;
+      pick.horizonName = horizonName;
+      picksOut->append(pick);
+      confSum += p.confidence;
+    }
+    report.meanConfidence =
+        r.picks.empty() ? 0.0f : float(confSum / double(r.picks.size()));
+    report.ilMin = r.picks.empty() ? 0 : ilAxis[static_cast<std::size_t>(r.ilMin)];
+    report.ilMax = r.picks.empty() ? 0 : ilAxis[static_cast<std::size_t>(r.ilMax)];
+    switch (r.stopReason)
+    {
+    case paleo::hztrack::StopReason::Completed:
+      report.stopSummary = r.picks.empty()
+          ? QObject::tr("前沿空（种子剖面追踪失败）")
+          : QObject::tr("到达体边界（IL %1..%2）").arg(report.ilMin).arg(report.ilMax);
+      break;
+    case paleo::hztrack::StopReason::CorrelationLoss:
+      report.stopSummary = r.picks.empty()
+          ? QObject::tr("种子剖面即失相关（无拾取）")
+          : QObject::tr("前沿相关丢失（IL 覆盖 %1..%2，部分覆盖如实保留）")
+                .arg(report.ilMin)
+                .arg(report.ilMax);
+      break;
+    default:
+      report.stopSummary = trackStopText(r.stopReason);
+      break;
+    }
+    *reportOut = report;
+    if (task && provider.totalFetchBudget > 0)
+      task->reportBytes(provider.totalFetchBudget, provider.totalFetchBudget);
+    return QString();
+  };
+
+  // 长任务：任务中心可见（进度/取消走既有任务面板）
+  PaleoTask *task = startBounded(title, work, QString(), /*quiet=*/false);
+  inFlightPropagation_.insert(pathKey, task);
+  connect(task, &PaleoTask::finished, this,
+          [this, task, superseded, picksOut, reportOut, onFinished, pathKey]() {
+            if (inFlightPropagation_.value(pathKey) == task)
+              inFlightPropagation_.remove(pathKey);
+            if (propagationSuperseded_.value(pathKey) == superseded)
+              propagationSuperseded_.remove(pathKey);
+            if (superseded->load())
+              return; // 被顶替：静默丢弃（不报取消不报错）
+            if (!onFinished)
+              return;
+            if (task->state() == PaleoTask::State::Succeeded)
+              onFinished(true, *picksOut, *reportOut, QString());
+            else if (task->state() == PaleoTask::State::Cancelled)
+              onFinished(false, {}, SeismicTrackReport{}, tr("体传播已取消"));
+            else
+              onFinished(false, {}, SeismicTrackReport{}, task->errorText());
+          });
+  return task;
+}
+
 SeismicHorizonGrid SeismicTaskService::gridPicks(const QList<SeismicPick> &picks)
 {
   SeismicHorizonGrid grid;
@@ -2180,25 +2439,17 @@ SeismicHorizonGrid SeismicTaskService::gridPicks(const QList<SeismicPick> &picks
   return grid;
 }
 
-QString SeismicTaskService::registerHorizonAsset(
-    DataCatalog *catalog, const QString &seismicAssetId,
-    const QString &seismicVersionId, const QString &horizonName,
-    const QList<SeismicPick> &picks, const QString &outputDir,
-    QString *error, LayerDeclaration *layerOut)
+namespace {
+
+// goal/horizon-3d — 层位资产文件体（CSV + 可选层位栅格 GeoTIFF +
+// LayerDeclaration 回填）：registerHorizonAsset（IDW 网格化拾取）与
+// registerPropagatedHorizonAsset（直接成格前沿）共用——同一文件格式与
+// 上图管线，不开平行格式。返回 CSV 路径（空 = 失败，error 已填）。
+QString writeHorizonAssetFiles(const SeismicHorizonGrid &grid,
+                               const QString &horizonName,
+                               const QString &outputDir, QString *error,
+                               LayerDeclaration *layerOut)
 {
-  if (!catalog || picks.isEmpty())
-  {
-    if (error)
-      *error = QStringLiteral("catalog 未设置或拾取集为空");
-    return QString();
-  }
-  const SeismicHorizonGrid grid = gridPicks(picks);
-  if (!grid.isValid())
-  {
-    if (error)
-      *error = QStringLiteral("拾取网格化失败");
-    return QString();
-  }
   QDir().mkpath(outputDir);
   const QString fileName = QStringLiteral("%1_%2_horizon.csv")
                                .arg(QFileInfo(outputDir).fileName() == QStringLiteral("interpretation")
@@ -2281,7 +2532,18 @@ QString SeismicTaskService::registerHorizonAsset(
     layerOut->group = QStringLiteral("00_Data");
     layerOut->title = QStringLiteral("%1（地震追踪层位）").arg(horizonName);
   }
+  return filePath;
+}
 
+// goal/horizon-3d — DERIVED 版本登记体（parentVersionIds 锚源体版本）：
+// 两类层位资产共用。返回登记后的版本路径（空 = 失败）。
+QString registerHorizonVersionEntry(
+    DataCatalog *catalog, const QString &seismicAssetId,
+    const QString &seismicVersionId, const QString &horizonName,
+    const QString &filePath, int pickCount, const QString &origin,
+    QString *error)
+{
+  const QString fileName = QFileInfo(filePath).fileName();
   // DERIVED 版本登记（外链托管：解释产物在工程 interpretation/ 目录）
   CatalogAsset asset;
   asset.id = QStringLiteral("seis_horizon_%1_%2").arg(seismicAssetId).arg(horizonName);
@@ -2301,8 +2563,8 @@ QString SeismicTaskService::registerHorizonAsset(
   v.sha256 = sha256OfFile(filePath);
   v.fileName = fileName;
   v.parentVersionIds = QStringList{seismicVersionId};
-  v.extra.insert(QStringLiteral("origin"), QStringLiteral("seismic-interpretation"));
-  v.extra.insert(QStringLiteral("pickCount"), picks.size());
+  v.extra.insert(QStringLiteral("origin"), origin);
+  v.extra.insert(QStringLiteral("pickCount"), pickCount);
   if (!catalog->addVersion(v))
   {
     // 版本可能已存在（重复登记）——按 (asset, version) 幂等返回路径
@@ -2314,6 +2576,129 @@ QString SeismicTaskService::registerHorizonAsset(
     return QString();
   }
   return filePath;
+}
+
+} // namespace
+
+QString SeismicTaskService::registerHorizonAsset(
+    DataCatalog *catalog, const QString &seismicAssetId,
+    const QString &seismicVersionId, const QString &horizonName,
+    const QList<SeismicPick> &picks, const QString &outputDir,
+    QString *error, LayerDeclaration *layerOut)
+{
+  if (!catalog || picks.isEmpty())
+  {
+    if (error)
+      *error = QStringLiteral("catalog 未设置或拾取集为空");
+    return QString();
+  }
+  const SeismicHorizonGrid grid = gridPicks(picks);
+  if (!grid.isValid())
+  {
+    if (error)
+      *error = QStringLiteral("拾取网格化失败");
+    return QString();
+  }
+  const QString filePath =
+      writeHorizonAssetFiles(grid, horizonName, outputDir, error, layerOut);
+  if (filePath.isEmpty())
+    return QString();
+  return registerHorizonVersionEntry(catalog, seismicAssetId,
+                                     seismicVersionId, horizonName, filePath,
+                                     picks.size(),
+                                     QStringLiteral("seismic-interpretation"),
+                                     error);
+}
+
+SeismicHorizonGrid SeismicTaskService::gridPropagated(const QList<SeismicPick> &picks)
+{
+  SeismicHorizonGrid grid;
+  if (picks.isEmpty())
+    return grid;
+  // 轴推导与 gridPicks 同式（同轴最小间隔为步）
+  int ilMin = picks.first().inlineNo, ilMax = ilMin;
+  int xlMin = picks.first().xlineNo, xlMax = xlMin;
+  for (const SeismicPick &p : picks)
+  {
+    ilMin = std::min(ilMin, p.inlineNo); ilMax = std::max(ilMax, p.inlineNo);
+    xlMin = std::min(xlMin, p.xlineNo); xlMax = std::max(xlMax, p.xlineNo);
+  }
+  const auto axisStep = [](QList<int> values) {
+    std::sort(values.begin(), values.end());
+    values.erase(std::unique(values.begin(), values.end()), values.end());
+    if (values.size() < 2)
+      return 1;
+    int step = values[1] - values[0];
+    for (int i = 2; i < values.size(); ++i)
+      step = std::min(step, values[i] - values[i - 1]);
+    return std::max(1, step);
+  };
+  QList<int> ils, xls;
+  for (const SeismicPick &p : picks)
+  {
+    ils << p.inlineNo;
+    xls << p.xlineNo;
+  }
+  grid.inlineStep = axisStep(ils);
+  grid.xlineStep = axisStep(xls);
+  grid.inlineMin = ilMin;
+  grid.inlineCount = (ilMax - ilMin) / grid.inlineStep + 1;
+  grid.xlineMin = xlMin;
+  grid.xlineCount = (xlMax - xlMin) / grid.xlineStep + 1;
+  const std::size_t n = std::size_t(grid.inlineCount) * grid.xlineCount;
+  grid.twtMs.assign(n, std::numeric_limits<double>::quiet_NaN());
+  grid.confidence.assign(n, 0.0f);
+
+  // 直接落格：拾取线号恰在格点上（规则测网恒成立；不规则网落不进格的
+  // 拾取如实跳过，不臆造最近格归属）。同格点取最高置信。
+  for (const SeismicPick &p : picks)
+  {
+    const int di = p.inlineNo - grid.inlineMin;
+    const int dx = p.xlineNo - grid.xlineMin;
+    if (di % grid.inlineStep != 0 || dx % grid.xlineStep != 0)
+      continue;
+    const int gi = di / grid.inlineStep;
+    const int gx = dx / grid.xlineStep;
+    if (gi < 0 || gi >= grid.inlineCount || gx < 0 || gx >= grid.xlineCount)
+      continue;
+    const std::size_t at = std::size_t(gi) * grid.xlineCount + gx;
+    if (!std::isfinite(grid.twtMs[at]) || p.confidence > grid.confidence[at])
+    {
+      grid.twtMs[at] = p.twtMs;
+      grid.confidence[at] = p.confidence;
+    }
+  }
+  return grid;
+}
+
+QString SeismicTaskService::registerPropagatedHorizonAsset(
+    DataCatalog *catalog, const QString &seismicAssetId,
+    const QString &seismicVersionId, const QString &horizonName,
+    const QList<SeismicPick> &picks, const QString &outputDir,
+    QString *error, LayerDeclaration *layerOut)
+{
+  if (!catalog || picks.isEmpty())
+  {
+    if (error)
+      *error = QStringLiteral("catalog 未设置或拾取集为空");
+    return QString();
+  }
+  const SeismicHorizonGrid grid = gridPropagated(picks);
+  if (!grid.isValid())
+  {
+    if (error)
+      *error = QStringLiteral("体传播拾取成格失败");
+    return QString();
+  }
+  const QString filePath =
+      writeHorizonAssetFiles(grid, horizonName, outputDir, error, layerOut);
+  if (filePath.isEmpty())
+    return QString();
+  return registerHorizonVersionEntry(catalog, seismicAssetId,
+                                     seismicVersionId, horizonName, filePath,
+                                     picks.size(),
+                                     QStringLiteral("seismic-propagation"),
+                                     error);
 }
 
 QString SeismicTaskService::registerFaultAsset(

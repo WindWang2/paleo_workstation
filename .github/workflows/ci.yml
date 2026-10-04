@@ -130,20 +130,25 @@ jobs:
           name: selfcheck-linux
           path: vendor/logs/
       # #150/#151：失败现场——ctest 完整日志、QtTest 落盘结果、黄金图当前渲染/差分。
+      - name: Stage test diagnostics
+        if: always()
+        shell: bash
+        run: |
+          if [ -d build ]; then
+            mkdir -p build/Testing/result-files
+            find build -type f -name '*-result.txt' ! -path 'build/Testing/*' \
+              -exec cp -f {} build/Testing/result-files/ \;
+            if [ -d build/golden-out ]; then
+              cp -a build/golden-out build/Testing/
+            fi
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-logs-linux
           retention-days: 14
           if-no-files-found: ignore
-          path: |
-            build/Testing/qtest-first-run/
-            build/Testing/qtest-first-run-initial/
-            build/Testing/ctest-junit.xml
-            build/Testing/Temporary/LastTest*.log
-            build/**/*-result.txt
-            build/golden-out/
-            build/**/golden-out/
+          path: build/Testing/
 
   # #136 / #81 余项：墙钟预算类（ctest -L perf）单独、串行、非阻断；阈值不动，
   # 结果作 artifact 做趋势跟踪。红了不拖累合并门禁，但在 run 页面可见。
@@ -222,16 +227,27 @@ jobs:
         with:
           name: selfcheck-windows
           path: vendor/logs/
+      - name: Stage test diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          $build = Join-Path $PWD 'build'
+          if (Test-Path $build) {
+            $testing = Join-Path $build 'Testing'
+            $resultDir = Join-Path $testing 'result-files'
+            New-Item -ItemType Directory -Force $resultDir | Out-Null
+            Get-ChildItem -Path $build -Recurse -File -Filter '*-result.txt' |
+              Where-Object { $_.FullName -notlike "$testing*" } |
+              Copy-Item -Destination $resultDir -Force
+            $golden = Join-Path $build 'golden-out'
+            if (Test-Path $golden) {
+              Copy-Item -Path $golden -Destination $testing -Recurse -Force
+            }
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-logs-windows
           retention-days: 14
           if-no-files-found: ignore
-          path: |
-            build/Testing/qtest-first-run/
-            build/Testing/qtest-first-run-initial/
-            build/Testing/ctest-junit.xml
-            build/Testing/Temporary/LastTest*.log
-            build/**/*-result.txt
-            build/golden-out/
+          path: build/Testing/

@@ -193,7 +193,7 @@ void DepthRuler::paint(QPainter *painter, const QStyleOptionGraphicsItem *option
   // --- unit tag: small "m"/"ft" heading the label column (8pt, muted) -----
   {
     QFont f = painter->font();
-    f.setPointSize(8);
+    f.setPointSize(PaleoTheme::tokens().labelPt);
     painter->setFont(f);
     painter->setPen(QPen(kTextMuted(), 1.0));
     painter->drawText(QRectF(2.0, 0.0, m_labelWidth - 4.0, 11.0),
@@ -233,10 +233,10 @@ void DepthRuler::paint(QPainter *painter, const QStyleOptionGraphicsItem *option
   // The Monospace style hint keeps the fallback fixed-pitch where the
   // vendor font is absent (CI/offscreen).
   QFont mono;
-  mono.setFamilies({QStringLiteral("JetBrains Mono")});
+  mono = PaleoTheme::monoFont(mono.pointSize());
   mono.setStyleHint(QFont::Monospace);
   mono.setFeature(QFont::Tag("tnum"), 1);
-  mono.setPointSize(7);
+  mono.setPointSize(PaleoTheme::tokens().labelPt);
   painter->setFont(mono);
   painter->setPen(QPen(kTextMuted(), 1.0));
 

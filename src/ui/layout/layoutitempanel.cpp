@@ -1,4 +1,5 @@
 // 层：视图
+#include "ui/paleotheme.h"
 #include "layoutitempanel.h"
 
 #include <QGridLayout>
@@ -102,8 +103,8 @@ PaleoLayoutItemPanel::PaleoLayoutItemPanel( QWidget *parent )
   setWindowTitle( tr( "项属性" ) );
 
   auto *root = new QVBoxLayout( this );
-  root->setContentsMargins( 8, 8, 8, 8 ); // DESIGN spacing.sm panel padding
-  root->setSpacing( 8 );
+  root->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm); // DESIGN spacing.sm panel padding
+  root->setSpacing(PaleoTheme::tokens().spacingSm);
 
   // --- native host / placeholder pages -------------------------------------
 
@@ -126,9 +127,9 @@ PaleoLayoutItemPanel::PaleoLayoutItemPanel( QWidget *parent )
   auto *business = new QgsCollapsibleGroupBox( tr( "层位联动" ), this );
   business->setObjectName( QStringLiteral( "horizonLinkGroup" ) );
   auto *grid = new QGridLayout( business );
-  grid->setContentsMargins( 8, 8, 8, 8 );
-  grid->setHorizontalSpacing( 8 );
-  grid->setVerticalSpacing( 4 );
+  grid->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  grid->setHorizontalSpacing( PaleoTheme::tokens().spacingSm );
+  grid->setVerticalSpacing( PaleoTheme::tokens().spacingXs );
 
   auto *horizonLabel = new QLabel( tr( "当前活动层位" ), business );
   m_horizonValue = new QLabel( business );
@@ -145,7 +146,7 @@ PaleoLayoutItemPanel::PaleoLayoutItemPanel( QWidget *parent )
 
   auto *presetCaption = new QLabel( tr( "比例尺预设" ), business );
   auto *presetRow = new QHBoxLayout();
-  presetRow->setSpacing( 4 ); // DESIGN spacing.xs
+  presetRow->setSpacing(PaleoTheme::tokens().spacingXs); // DESIGN spacing.xs
   const struct
   {
       const char *objectName;

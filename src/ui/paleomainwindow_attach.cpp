@@ -722,7 +722,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   dataProps->setObjectName(QStringLiteral("dataPropertiesPage"));
   {
     auto *pl = new QVBoxLayout(dataProps);
-    pl->setContentsMargins(8, 8, 8, 8); // spacing.sm
+    pl->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm); // spacing.sm
     auto *previewDetails = new QWidget(dataProps);
     previewDetails->setObjectName(QStringLiteral("previewDetailsHost"));
     auto *detailsLayout = new QVBoxLayout(previewDetails);

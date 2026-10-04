@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：地层关联标记的默认待复核语义色。（tools/ui-token-exceptions.json 精确计数）。
 #include "horizonmarkers.h"
 
 #include "../paleotheme.h"
@@ -413,7 +414,7 @@ void HorizonMarkerSet::rebuild(QGraphicsScene *scene, QGraphicsItem *parent,
       if (!host)
         scene->addItem(label);
       QFont f = label->font();
-      f.setPointSizeF(8.0); // DESIGN.md label size
+      f.setPointSizeF(PaleoTheme::tokens().labelPt); // DESIGN.md label size
       label->setFont(f);
       label->setBrush(PaleoTheme::tokens().text);
       label->setData(CorrelationItemRoles::HorizonMarker, m.name); // reap key

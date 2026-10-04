@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：曲线样式预设编辑器的数据色值，使用者选择后写入曲线配置。（tools/ui-token-exceptions.json 精确计数）。
 #include "trackconfigdialog.h"
 
 #include <QCheckBox>

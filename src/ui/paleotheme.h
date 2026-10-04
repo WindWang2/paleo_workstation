@@ -7,6 +7,9 @@
 #include <functional>
 
 class QFont;
+class QTreeWidgetItem;
+class QTableWidgetItem;
+class QListWidgetItem;
 class QLabel;
 class QPalette;
 class QWidget;
@@ -62,9 +65,32 @@ namespace PaleoTheme
     QColor success, warning, error;
     QColor successBg, warningBg, errorBg;     // status-tag 底色（capsule）
     QColor successText, warningText, errorText; // 胶囊文字色（浅色=深色变体保 AA）
+    // DESIGN.md spacing / rounded / typography，双主题共享同一几何规格。
+    int spacingXs = 4, spacingSm = 8, spacingMd = 16;
+    int spacingLg = 24, spacingXl = 32, spacing2xl = 48;
+    int radiusSm = 4, radiusMd = 8, radiusLg = 12, radiusFull = 9999;
+    int bodyPt = kBodyPt, labelPt = kLabelPt, titlePt = kTitlePt;
+    int displayPt = kDisplayPt, monoPt = kMonoPt;
   };
   // theme 省略 = 当前主题（缺省实参在调用点求值，暗色下自动取暗色阶）。
   const ThemeTokens &tokens(Theme theme = currentTheme());
+
+  // QSS 几何模板用 {spacing.xs}/{rounded.md}/{typography.label} 等名称，
+  // 在颜色 .arg() 前解析；数值只取上述 DESIGN.md token。
+  QString metricStyleSheet(QString sheet, Theme theme = currentTheme());
+  // Qt QSS 不会自动裁剪 rounded.full；按文字、spacing.xs 和 1px 边框
+  // 得到胶囊半高，避免过大的半径被 Qt 当作直角。不是新增圆角 token。
+  int chipRadius(const QFont &font);
+
+  // 数据色不随主题改写；与当前面低于 3:1 时用 text token 描一像素轮廓。
+  // 无需轮廓返回无效 QColor。只影响画笔，不修改曲线/符号的存储颜色。
+  QColor dataHaloColor(const QColor &dataColor, Theme theme = currentTheme());
+
+  // 项文字只保存语义角色；换主题重着色，不改复选状态或发业务信号。
+  enum class ItemTextColor { Normal, Muted, Primary, Success, Warning, Error };
+  void setItemTextColor(QTreeWidgetItem *item, int column, ItemTextColor role);
+  void setItemTextColor(QTableWidgetItem *item, ItemTextColor role);
+  void setItemTextColor(QListWidgetItem *item, ItemTextColor role);
 
   // 启动时注册 vendor 字体（resources/fonts，qrc 前缀 :/paleo/fonts）。
   // 返回是否全部注册成功；单个失败记 qWarning 并继续（降级到系统字体，
@@ -72,9 +98,9 @@ namespace PaleoTheme
   bool ensureApplicationFonts();
 
   // 正文字体：Noto Sans SC 9pt，退化链 Noto Sans CJK SC / Microsoft YaHei UI。
-  QFont bodyFont();
+  QFont bodyFont(int pointSize = kBodyPt);
   // 数字面字体：JetBrains Mono 9pt（tnum），退化 monospace。
-  QFont monoFont();
+  QFont monoFont(int pointSize = kMonoPt);
 
   // 全局 2px 键盘焦点环（DESIGN.md focus-ring token）——覆盖可聚焦
   // 控件的 :focus 边框，替代 Fusion 虚线框。拼进主窗/应用样式表。
@@ -87,7 +113,9 @@ namespace PaleoTheme
   QString capsuleStyleSheet(CapsuleKind kind, Theme theme = currentTheme());
   // 造一个胶囊 QLabel：objectName "statusCapsule"，property "capsuleKind"
   // 存枚举 int（测试可断言），居中对齐，样式走 capsuleStyleSheet。
-  QLabel *capsuleLabel(const QString &text, CapsuleKind kind, QWidget *parent);
+  // nativeRow：原生固定行高拥有纵向留白，胶囊只保留水平 padding。
+  QLabel *capsuleLabel(const QString &text, CapsuleKind kind, QWidget *parent,
+                       bool nativeRow = false);
 
   // 应用主题（DESIGN.md 双主题规范）：Fusion + 显式 palette + vendor 字体
   // + body 字体——不跟随系统深色模式（SA::setEnableSystemDarkModeAutoSwitch

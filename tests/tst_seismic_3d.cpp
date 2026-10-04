@@ -1,3 +1,4 @@
+#include "helpers/visualcapture.h"
 #include <QtTest>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
@@ -9,6 +10,8 @@
 #include <QTemporaryDir>
 #include <QToolButton>
 #include <QtEndian>
+#include <qgsapplication.h>
+#include "../src/qgis/qgisruntime.h"
 
 #include <algorithm>
 
@@ -39,6 +42,7 @@ private slots:
     void viewPanelAsyncSliceLoading();
     void steppedSurveySnapsInitialSlices();
     void openGLHeadlessRender();
+    void captureNativeVolumeEvidence();
 
 private:
     std::shared_ptr<SgyVolume> loadFixtureVolume();
@@ -320,6 +324,45 @@ void TestSeismic3D::steppedSurveySnapsInitialSlices() {
     QVERIFY(std::find(ils.begin(), ils.end(), panel.currentInline()) != ils.end());
 }
 
+void TestSeismic3D::captureNativeVolumeEvidence()
+{
+    if (qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty())
+        QSKIP("Optional native GL evidence");
+    PaleoTheme::pinRenderEnvironment();
+    auto volume = loadFixtureVolume();
+    QVERIFY(volume);
+    Seismic3DViewPanel panel;
+    // The dense existing display bar is checked at its desktop viewport.
+    panel.setFixedSize(1700, 850);
+    panel.show();
+    panel.setVolume(volume);
+    Seismic3DWell well;
+    well.name = "合成井 A1";
+    well.inlineNo = volume->InlineValues().at(volume->InlineValues().size() / 2);
+    well.xlineNo = volume->XlineValues().at(volume->XlineValues().size() / 2);
+    QTRY_VERIFY_WITH_TIMEOUT(panel.viewport()->isValid(), 5000);
+    QTest::qWait(300);
+    well.inlineNo = (volume->InlineMin() + volume->InlineMax()) / 2;
+    well.xlineNo = (volume->XlineMin() + volume->XlineMax()) / 2;
+    well.trajectory = {{float(well.inlineNo), float(well.xlineNo), 0.5f},
+                       {float(well.inlineNo), float(well.xlineNo), 0.8f}};
+    panel.setWells({well});
+    panel.setWellLabelsVisible(true);
+    QTest::qWait(100);
+    const QString dir = qEnvironmentVariable("PALEO_VISUAL_CAPTURE");
+    QVERIFY(QDir().mkpath(dir));
+    for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark}) {
+        PaleoTheme::applyTheme(theme);
+        QTest::qWait(300);
+        const QString suffix = theme == PaleoTheme::Theme::Light ? "-light.png" : "-dark.png";
+        QVERIFY(panel.grab().save(dir + "/seismic-3d" + suffix));
+        // QOpenGLWidget's native overlay is not included by QWidget::grab on
+        // this compositor. Capture the actual framebuffer separately.
+        QVERIFY(panel.viewport()->grabFramebuffer().save(dir + "/seismic-3d-viewport" + suffix));
+        qInfo() << "Native evidence DPR" << panel.devicePixelRatioF() << "size" << panel.size();
+    }
+}
+
 void TestSeismic3D::openGLHeadlessRender() {
     QSurfaceFormat format;
     format.setVersion(3, 3);
@@ -410,5 +453,21 @@ void TestSeismic3D::openGLHeadlessRender() {
     context.doneCurrent();
 }
 
-QTEST_MAIN(TestSeismic3D)
+int main(int argc, char **argv)
+{
+    // The optional native screenshot includes QGIS theme icons. Bootstrap the
+    // same resource runtime as the application before constructing its panel.
+    if (!qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty()) {
+        QgsApplication::setPrefixPath(QgisRuntime::defaultPrefixPath(), true);
+        QgsApplication app(argc, argv, true);
+        QgsApplication::initQgis();
+        TestSeismic3D test;
+        const int result = QTest::qExec(&test, argc, argv);
+        QgsApplication::exitQgis();
+        return result;
+    }
+    QApplication app(argc, argv);
+    TestSeismic3D test;
+    return QTest::qExec(&test, argc, argv);
+}
 #include "tst_seismic_3d.moc"

@@ -1,0 +1,19 @@
+{
+  "gitCommit": "dda2faa58c8804f195e8af28c69fec29ccf38379",
+  "productionDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "binariesSha256": {
+    "tst_ui": "ce2f3ecda72e711519f2ee8c159a6bc2b3bfd617a2fab80470c4891d4fff3349"
+  },
+  "scale": "2",
+  "backend": "Qt offscreen widgets; seismic-3d uses X11 / software OpenGL",
+  "images": [
+    "control-filters-dark.png",
+    "control-filters-light.png",
+    "control-hidden-tracks-dark.png",
+    "control-hidden-tracks-light.png",
+    "control-selection-dark.png",
+    "control-selection-light.png",
+    "control-tags-dark.png",
+    "control-tags-light.png"
+  ]
+}

@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：剖面路径的 QGIS 地图橡皮筋描边。（tools/ui-token-exceptions.json 精确计数）。
 #include "linkage/seismicmaplink.h"
 #include "linkage/selectioncontext.h"
 #include "paleoicons.h"

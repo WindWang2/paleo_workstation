@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。（tools/ui-token-exceptions.json 精确计数）。
 #include "seismic3dtf.h"
 
 #include <QColor>

@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：体框架上地层位置的缺省蓝色数据标记，非面板文字。（tools/ui-token-exceptions.json 精确计数）。
 #include "volumeframerenderer.h"
 
 #include <algorithm>
@@ -9,6 +10,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include "seismicslicerenderer.h"
+#include "../paleotheme.h"
 
 namespace seismic {
 
@@ -29,11 +31,16 @@ float NormalizeF(float value, int minValue, int maxValue, float scale) {
     return ((value - static_cast<float>(minValue)) / range - 0.5f) * scale;
 }
 
+glm::vec3 FrameInk() {
+    const QColor ink = PaleoTheme::tokens().textMuted;
+    return {ink.redF(), ink.greenF(), ink.blueF()};
+}
+
 void AddLine(
     std::vector<LineVertex> &vertices,
     const glm::vec3 &a,
     const glm::vec3 &b,
-    const glm::vec3 &color = glm::vec3(0.60f, 0.68f, 0.78f)) {
+    const glm::vec3 &color = FrameInk()) {
     vertices.push_back({a, color});
     vertices.push_back({b, color});
 }
@@ -283,7 +290,13 @@ void VolumeFrameRenderer::Render(
     gl->glDisable(GL_CULL_FACE);
     gl->glBindVertexArray(vao_);
     gl->glLineWidth(1.0f);
-    gl->glDrawArrays(GL_LINES, 0, vertexCount_);
+    // Bounding frame is UI chrome; geological overlay vertex colours stay unchanged.
+    const auto ink = FrameInk();
+    gl->glDisableVertexAttribArray(1);
+    program_->setAttributeValue(1, ink.r, ink.g, ink.b);
+    gl->glDrawArrays(GL_LINES, 0, frameVertexCount_);
+    gl->glEnableVertexAttribArray(1);
+    gl->glDrawArrays(GL_LINES, frameVertexCount_, vertexCount_ - frameVertexCount_);
     gl->glBindVertexArray(0);
     gl->glEnable(GL_CULL_FACE);
 

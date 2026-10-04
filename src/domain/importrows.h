@@ -30,6 +30,10 @@ struct FolderPreviewRow
   bool typeEditable = true;
   QStringList typeVocab;
   qint64 sizeBytes = -1;     // 源文件字节（T2 大小估算；族项 = 主件；未知 = -1）
+  // 归位预览（方向 30）：plan 期身份匹配的可读结论——「井 A1（既有）」「新井」
+  // 「未决（B9）」「歧义: …」等。导入前给确认表预显；入库后被行结果的实体列
+  // 覆盖。纯展示串，视图不再回查 plan。
+  QString entityPreview;
 };
 
 // 导入行结果（两阶段导入 / 单行重导 / plan 执行共用口径）。

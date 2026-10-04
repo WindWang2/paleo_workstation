@@ -1,0 +1,47 @@
+[0/2] Re-checking globbed directories...
+[1/5] Automatic MOC for target tst_ui
+[2/4] Building CXX object CMakeFiles/tst_ui.dir/tests/tst_ui.cpp.o
+In file included from /home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgsattributes.h:25,
+                 from /home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgsfeature.h:23,
+                 from /home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgsexpressioncontext.h:21,
+                 from /home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgsexpressioncontextgenerator.h:19,
+                 from /home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgslayoutobject.h:22,
+                 from /home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgslayoutitem.h:22,
+                 from /home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgslayoutexporter.h:24,
+                 from /home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgslayoutdesignerinterface.h:21,
+                 from /home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/tests/../src/ui/layoutdesignershell.h:7,
+                 from /home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/tests/tst_ui.cpp:39:
+/home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgsvariantutils.h:70:78: warning: ‘Type’ is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+   70 |     static QMetaType::Type variantTypeToMetaType( QVariant::Type variantType ) SIP_SKIP;
+      |                                                                              ^
+In file included from /usr/include/qt6/QtCore/qabstractitemmodel.h:13,
+                 from /usr/include/qt6/QtCore/QtCore:24,
+                 from /usr/include/qt6/QtTest/QtTestDepends:3,
+                 from /usr/include/qt6/QtTest/QtTest:3,
+                 from /home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/tests/tst_ui.cpp:1:
+/usr/include/qt6/QtCore/qvariant.h:149:70: note: declared here
+  149 |     enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+      |                                                                      ^~~~
+/home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgsvariantutils.h:84:75: warning: ‘Type’ is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+   84 |     static QVariant::Type metaTypeToVariantType( QMetaType::Type metaType ) SIP_SKIP;
+      |                                                                           ^
+/usr/include/qt6/QtCore/qvariant.h:149:70: note: declared here
+  149 |     enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+      |                                                                      ^~~~
+/home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgsvariantutils.h:47:121: warning: ‘Type’ is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+   47 |     Q_DECL_DEPRECATED static QString typeToDisplayString( QVariant::Type type, QVariant::Type subType = QVariant::Type::Invalid ) SIP_DEPRECATED;
+      |                                                                                                                         ^~~~~~~
+/usr/include/qt6/QtCore/qvariant.h:149:70: note: declared here
+  149 |     enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+      |                                                                      ^~~~
+In file included from /home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgsvectorlayer.h:37,
+                 from /home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgspointlocator.h:36,
+                 from /home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgsmapmouseevent.h:20,
+                 from /home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/tests/tst_ui.cpp:87:
+/home/kevin/projects/paleo_workstation/vendor/superbuild/prefix/include/qgis/qgsvectordataprovider.h:463:189: warning: ‘Type’ is deprecated: Use QMetaType::Type instead. [-Wdeprecated-declarations]
+  463 |           const QString &typeDesc, const QString &typeName, QVariant::Type type, int minLen = 0, int maxLen = 0, int minPrec = 0, int maxPrec = 0, QVariant::Type subType = QVariant::Type::Invalid
+      |                                                                                                                                                                                             ^~~~~~~
+/usr/include/qt6/QtCore/qvariant.h:149:70: note: declared here
+  149 |     enum QT_DEPRECATED_VERSION_X_6_0("Use QMetaType::Type instead.") Type
+      |                                                                      ^~~~
+[3/4] Linking CXX executable tst_ui

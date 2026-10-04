@@ -1,4 +1,5 @@
 // 层：视图
+#include "ui/paleoicons.h"
 #include "layoutitempalette.h"
 #include "../paleotheme.h"
 
@@ -128,14 +129,14 @@ PaleoLayoutItemPalette::PaleoLayoutItemPalette( QWidget *parent )
   ensureDefaultItemMetadataRegistered();
 
   auto *vbox = new QVBoxLayout( this );
-  vbox->setContentsMargins( 8, 8, 8, 8 ); // DESIGN.md spacing.sm
-  vbox->setSpacing( 16 );                 // DESIGN.md spacing.md
+  vbox->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm); // DESIGN.md spacing.sm
+  vbox->setSpacing(PaleoTheme::tokens().spacingMd);                 // DESIGN.md spacing.md
 
   // --- page properties entry (own signal: LayoutPage has no GUI metadata)
   auto *pageButton = new QToolButton( this );
   pageButton->setObjectName( QStringLiteral( "btnPageProperties" ) );
   pageButton->setText( tr( "页面属性" ) );
-  pageButton->setIcon( QgsApplication::getThemeIcon( QStringLiteral( "/mActionPageSetup.svg" ) ) );
+  pageButton->setIcon( PaleoIcons::qgisTheme( QStringLiteral( "mActionNewPage.svg" ) ) );
   pageButton->setToolButtonStyle( Qt::ToolButtonTextUnderIcon );
   pageButton->setToolTip( tr( "打开当前版面的页面设置" ) );
   connect( pageButton, &QToolButton::clicked, this, &PaleoLayoutItemPalette::pagePropertiesRequested );
@@ -197,7 +198,7 @@ bool PaleoLayoutItemPalette::ensureDefaultItemMetadataRegistered()
     registry->addLayoutItemGuiMetadata( new QgsLayoutItemGuiMetadata(
       QgsLayoutItemRegistry::LayoutTextTable,
       QCoreApplication::translate( "PaleoLayoutItemPalette", "Text Table" ),
-      QgsApplication::getThemeIcon( QStringLiteral( "/mActionAddTable.svg" ) ),
+      PaleoIcons::qgisTheme( QStringLiteral( "mActionAddTable.svg" ) ),
       nullptr, // no per-item config widget: generic frame handling applies
       nullptr, // default rectangular rubber band
       QString(), false, QgsLayoutItemAbstractGuiMetadata::Flags(),
@@ -343,18 +344,18 @@ QWidget *PaleoLayoutItemPalette::buildGroup( const QString &objectName, const QS
 
   auto *vbox = new QVBoxLayout( group );
   vbox->setContentsMargins( 0, 0, 0, 0 );
-  vbox->setSpacing( 4 ); // DESIGN.md spacing.xs
+  vbox->setSpacing(PaleoTheme::tokens().spacingXs); // DESIGN.md spacing.xs
 
   auto *caption = new QLabel( title, group );
   QFont captionFont = caption->font();
-  captionFont.setPointSizeF( 8.0 ); // DESIGN.md typography.label (pointSize, DPI-aware)
+  captionFont.setPointSizeF(PaleoTheme::tokens().labelPt); // DESIGN.md typography.label (pointSize, DPI-aware)
   caption->setFont( captionFont );
   // DESIGN.md text-muted——PaleoTheme 现取（随主题翻转，活体注册）。
   PaleoTheme::applyThemedStyleSheet( caption, [] { return PaleoTheme::mutedCaptionStyleSheet(); } );
   vbox->addWidget( caption );
 
   auto *grid = new QGridLayout();
-  grid->setSpacing( 4 ); // DESIGN.md spacing.xs
+  grid->setSpacing(PaleoTheme::tokens().spacingXs); // DESIGN.md spacing.xs
   vbox->addLayout( grid );
 
   const int columns = 3;
@@ -380,7 +381,7 @@ QWidget *PaleoLayoutItemPalette::buildGroup( const QString &objectName, const QS
     {
       QgsLayoutItemAbstractGuiMetadata *metadata = QgsGui::layoutItemGuiRegistry()->itemMetadata( metadataId );
       button->setText( localizedItemName( metadata->visibleName() ) );
-      button->setIcon( metadata->creationIcon() );
+      button->setIcon( PaleoIcons::themed(metadata->creationIcon()) );
       button->setToolTip( tr( "添加%1" ).arg( localizedItemName( metadata->visibleName() ) ) );
       const int emittedId = metadataId;
       connect( button, &QToolButton::clicked, this,

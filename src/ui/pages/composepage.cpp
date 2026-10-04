@@ -93,12 +93,12 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   connect(publish, &QPushButton::clicked, this, [this] { emit publishRequested(); });
 
   auto *toolRow1 = new QHBoxLayout();
-  toolRow1->setSpacing(4); // xs
+  toolRow1->setSpacing(PaleoTheme::tokens().spacingXs); // xs
   toolRow1->addWidget(exportPdf, 1);
   toolRow1->addWidget(openDesigner, 1);
   lay->addLayout(toolRow1);
   auto *toolRow2 = new QHBoxLayout();
-  toolRow2->setSpacing(4);
+  toolRow2->setSpacing(PaleoTheme::tokens().spacingXs);
   toolRow2->addWidget(saveVersion, 1);
   toolRow2->addWidget(publish, 1);
   lay->addLayout(toolRow2);
@@ -109,7 +109,7 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   publishState->setAccessibleName(tr("版本发布状态"));
   publishState->setWordWrap(true);
   lay->addWidget(publishState);
-  lay->addSpacing(16); // spacing.md between groups
+  lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md between groups
 
   // ---- 方向 25 M6：版面库（工程内的版面名单，设计器非孤岛入口）----------
   lay->addWidget(caption(tr("版面库"), this));
@@ -247,7 +247,7 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   });
 
   // ---- m2(C)：相属性区（矢量化产物要素的三字段编辑 → 保存意图信号）----
-  lay->addSpacing(16); // spacing.md between groups
+  lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md between groups
   auto *attrSection = new CollapsibleSection(tr("相属性"), this);
   attrSection->setObjectName(QStringLiteral("faciesAttrArea"));
   {
@@ -333,7 +333,7 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   lay->addWidget(attrSection);
 
   // ---- m2(C)：参考图区（06_Reference 组声明图层勾选叠加）----
-  lay->addSpacing(16); // spacing.md between groups
+  lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md between groups
   auto *refSection = new CollapsibleSection(tr("参考图"), this);
   refSection->setObjectName(QStringLiteral("referenceArea"));
   {

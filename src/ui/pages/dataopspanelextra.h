@@ -105,7 +105,7 @@ public:
     setObjectName(QStringLiteral("versionTimeline"));
     auto *lay = new QVBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 0);
-    lay->setSpacing(4);
+    lay->setSpacing(PaleoTheme::tokens().spacingXs);
     auto *head = new QWidget(this);
     auto *hl = new QHBoxLayout(head);
     hl->setContentsMargins(0, 0, 0, 0);
@@ -125,7 +125,7 @@ public:
     auto *host = new QWidget(m_scroll);
     m_cardsLay = new QVBoxLayout(host);
     m_cardsLay->setContentsMargins(0, 0, 0, 0);
-    m_cardsLay->setSpacing(4);
+    m_cardsLay->setSpacing(PaleoTheme::tokens().spacingXs);
     m_cardsLay->addStretch(1);
     m_scroll->setWidget(host);
     lay->addWidget(m_scroll, 1);
@@ -169,14 +169,14 @@ public:
       // 卡片：border + surface 底（DESIGN.md 面板直角/卡片 8px 圆角）。
       PaleoTheme::applyThemedStyleSheet(w, [] {
         const auto &t = PaleoTheme::tokens();
-        return QStringLiteral("QLabel { color: %2; } QWidget#versionCard { background: %1;"
-                              " border: 1px solid %3; border-radius: 8px; }")
+        return PaleoTheme::metricStyleSheet(QStringLiteral("QLabel { color: %2; } QWidget#versionCard { background: %1;"
+                              " border: 1px solid %3; border-radius: {rounded.md}px; }"))
             .arg(t.surface.name().toUpper(), t.text.name().toUpper(),
                  t.border.name().toUpper());
       });
       auto *l = new QVBoxLayout(w);
-      l->setContentsMargins(8, 6, 8, 6);
-      l->setSpacing(2);
+      l->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+      l->setSpacing(PaleoTheme::tokens().spacingXs);
       auto *row1 = new QWidget(w);
       auto *r1 = new QHBoxLayout(row1);
       r1->setContentsMargins(0, 0, 0, 0);
@@ -189,7 +189,7 @@ public:
       PaleoTheme::applyThemedStyleSheet(tag, [derived] {
         const auto &t = PaleoTheme::tokens();
         return QStringLiteral("color: %1; font-weight: 600;")
-            .arg((derived ? t.warning : t.success).name().toUpper());
+            .arg((derived ? t.warningText : t.successText).name().toUpper());
       });
       r1->addWidget(tag);
       r1->addStretch(1);
@@ -232,7 +232,7 @@ public:
         bits << card.created.toString(QStringLiteral("yyyy-MM-dd"));
       meta->setText(bits.join(QStringLiteral(" · ")));
       PaleoTheme::applyThemedStyleSheet(meta, [] {
-        return QStringLiteral("color: %1; font-size: 8pt;")
+        return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; font-size: {typography.label}pt;"))
             .arg(PaleoTheme::tokens().textMuted.name().toUpper());
       });
       l->addWidget(meta);
@@ -241,7 +241,7 @@ public:
         auto *src = new QLabel(tr("来源：%1").arg(card.sourceSummary), w);
         src->setToolTip(card.path);
         PaleoTheme::applyThemedStyleSheet(src, [] {
-          return QStringLiteral("color: %1; font-size: 8pt;")
+          return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; font-size: {typography.label}pt;"))
               .arg(PaleoTheme::tokens().textMuted.name().toUpper());
         });
         l->addWidget(src);
@@ -493,7 +493,7 @@ public:
     setModal(true);
     auto *lay = new QVBoxLayout(this);
     auto *form = new QFormLayout();
-    form->setSpacing(6);
+    form->setSpacing(PaleoTheme::tokens().spacingSm);
     m_type = new QComboBox(this);
     m_type->setObjectName(QStringLiteral("entityTypeCombo"));
     m_type->addItem(tr("井"), QStringLiteral("well"));
@@ -616,7 +616,7 @@ public:
     m_err->setObjectName(QStringLiteral("entityEditError"));
     m_err->hide();
     PaleoTheme::applyThemedStyleSheet(m_err, [] {
-      return QStringLiteral("color: %1;").arg(PaleoTheme::tokens().error.name().toUpper());
+      return QStringLiteral("color: %1;").arg(PaleoTheme::tokens().errorText.name().toUpper());
     });
     lay->addWidget(m_err);
     auto *box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);

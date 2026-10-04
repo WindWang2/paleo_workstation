@@ -361,6 +361,7 @@ QString InversionWorkflow::publishWaveletJob(const WaveletJob &job, DerivedAsset
     extra.insert(QStringLiteral("dominantFreqHz"), job.wavelet.dominantFreqHz());
     extra.insert(QStringLiteral("sampleIntervalMs"), job.wavelet.sampleIntervalMs);
     extra.insert(QStringLiteral("t0Ms"), job.wavelet.t0Ms);
+    extra.insert(QStringLiteral("amplitudeScale"), job.wavelet.amplitudeScale);
     extra.insert(QStringLiteral("lengthSamples"), job.wavelet.sampleCount());
     extra.insert(QStringLiteral("spikeCount"), int(job.spikes.size()));
     extra.insert(QStringLiteral("sourceSeismic"), job.req.seismicPath);
@@ -632,6 +633,12 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
     header.insert(QStringLiteral("hasLowFreq"), job->hasLowFreq);
     header.insert(QStringLiteral("lowFreqLayersUsed"), job->lowFreq.layersUsed);
     header.insert(QStringLiteral("waveletDominantHz"), job->wavelet.dominantFreqHz());
+    // 振幅标定口径（#141）：子波资产自带 amplitudeScale 时反演按其把道振幅换成
+    // 反射系数；旧资产/解析子波无标定，结果如实标 amplitudeCalibrated=false。
+    header.insert(QStringLiteral("amplitudeCalibrated"), job->wavelet.amplitudeScale > 0.0);
+    header.insert(QStringLiteral("amplitudeScale"),
+                  job->wavelet.amplitudeScale > 0.0 ? job->wavelet.amplitudeScale : 1.0);
+    header.insert(QStringLiteral("failedTraces"), job->failedTraces);
     header.insert(QStringLiteral("sourceSeismic"), job->req.seismicPath);
     header.insert(QStringLiteral("frequencyBand"),
                   QStringLiteral("低频模型 0–%1Hz + 地震带限（不含带外高频，如实口径）")

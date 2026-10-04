@@ -1,4 +1,7 @@
 #include <QtTest>
+#include <QThread>
+#include <QElapsedTimer>
+#include <QSignalSpy>
 #include <QFile>
 #include <QFileInfo>
 #include <QTemporaryDir>
@@ -238,6 +241,95 @@ private slots:
     QVERIFY( lock3.tryLock() );
     QVERIFY( lock3.isHeld() );
     lock3.unlock();
+  }
+
+  // ---- #152：锁冲突时用户「取消」——当前工程、锁、可写态原样保留 ----
+  void lockConflictCancelKeepsCurrentProjectAndLock()
+  {
+    QTemporaryDir dA, dB;
+    QVERIFY( dA.isValid() && dB.isValid() );
+    const QString qgzA = dA.filePath( QStringLiteral( "a.qgz" ) );
+    const QString qgzB = dB.filePath( QStringLiteral( "b.qgz" ) );
+    {
+      QgisProjectService svc;
+      QVERIFY( svc.createProject( qgzA ) );
+      QVERIFY( svc.createProject( qgzB ) );
+    }
+    AppContext other( QStringLiteral( "/usr" ) ); // 另一个「实例」持有 B
+    QVERIFY( other.ready() );
+    QVERIFY( other.projectSvc()->openProject( qgzB ) );
+    QVERIFY( !other.isProjectReadOnly() );
+
+    AppContext ctx( QStringLiteral( "/usr" ) );
+    QVERIFY( ctx.ready() );
+    QVERIFY( ctx.projectSvc()->openProject( qgzA ) );
+    QVERIFY( !ctx.isProjectReadOnly() );
+    // 同目录重开：复用已持有的锁，不降级只读（QLockFile 同进程不可重入）
+    QVERIFY( ctx.projectSvc()->openProject( qgzA ) );
+    QVERIFY( !ctx.isProjectReadOnly() );
+
+    int asked = 0;
+    ctx.setLockConflictResolver( [&asked]( const QString & ) {
+      ++asked;
+      return false; // 用户点「取消」
+    } );
+    QSignalSpy about( ctx.projectSvc(), &QgisProjectService::projectAboutToClose );
+    QVERIFY( !ctx.projectSvc()->openProject( qgzB ) );
+    QCOMPARE( asked, 1 );
+    QVERIFY( ctx.projectSvc()->lastOpenCancelled() );
+    QCOMPARE( about.count(), 0 );
+    QCOMPARE( ctx.projectSvc()->projectPath(), qgzA );
+    QVERIFY( !ctx.isProjectReadOnly() );
+    QVERIFY( ctx.store() && !ctx.store()->isReadOnly() );
+    {
+      ProjectDirLock probe( dA.path() ); // A 的锁仍在 ctx 手里
+      QVERIFY( !probe.tryLock() );
+    }
+    // 保存仍写 A，B 不被空工程覆盖
+    const QDateTime bBefore = QFileInfo( qgzB ).lastModified();
+    QVERIFY( ctx.projectSvc()->writeProject() );
+    QCOMPARE( QFileInfo( qgzB ).lastModified(), bBefore );
+
+    // 选「只读打开」：切到 B 只读，A 的锁随切换释放
+    ctx.setLockConflictResolver( []( const QString & ) { return true; } );
+    QVERIFY( ctx.projectSvc()->openProject( qgzB ) );
+    QVERIFY( ctx.isProjectReadOnly() );
+    {
+      ProjectDirLock probe( dA.path() );
+      QVERIFY( probe.tryLock() );
+    }
+  }
+
+  // ---- #153：projectAboutToClose 开新任务会话，在途任务被取消 ----
+  void projectSwitchCancelsInFlightTasks()
+  {
+    QTemporaryDir dA, dB;
+    QVERIFY( dA.isValid() && dB.isValid() );
+    const QString qgzA = dA.filePath( QStringLiteral( "a.qgz" ) );
+    const QString qgzB = dB.filePath( QStringLiteral( "b.qgz" ) );
+    {
+      QgisProjectService svc;
+      QVERIFY( svc.createProject( qgzA ) );
+      QVERIFY( svc.createProject( qgzB ) );
+    }
+    AppContext ctx( QStringLiteral( "/usr" ) );
+    QVERIFY( ctx.ready() && ctx.taskSvc() );
+    QVERIFY( ctx.projectSvc()->openProject( qgzA ) );
+    std::atomic_bool started{ false };
+    PaleoTask *t = ctx.taskSvc()->start( QStringLiteral( "old" ), [&started]( PaleoTask *task ) {
+      started.store( true );
+      QElapsedTimer c;
+      c.start();
+      while ( !task->cancelRequested() && c.elapsed() < 5000 )
+        QThread::msleep( 2 );
+      return QString();
+    } );
+    QTRY_VERIFY_WITH_TIMEOUT( started.load(), 3000 );
+    const quint64 s0 = ctx.taskSvc()->session();
+    QVERIFY( ctx.projectSvc()->openProject( qgzB ) );
+    QVERIFY( ctx.taskSvc()->session() > s0 );
+    QTRY_VERIFY_WITH_TIMEOUT( !t->running(), 3000 );
+    QCOMPARE( t->state(), PaleoTask::State::Cancelled );
   }
 };
 

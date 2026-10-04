@@ -771,6 +771,56 @@ private slots:
     QCOMPARE(sha256OfFile(recovered), sha256OfFile(fixture(QStringLiteral("A1.Las"))));
   }
 
+  // #155：上次提交「rename 落位后、applyJournal 前」崩溃留下的受管孤儿 +
+  // staging 残留。重开工程后导入必须成功落到不冲突路径，staging 被清扫。
+  void orphanedManagedFilesFromCrashedCommitDoNotBlockImport()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    const QString orphanDir = QDir(projectDir).filePath(QStringLiteral("artifacts/raw/ast-1/ver-1"));
+    const QString staleStaging =
+        QDir(projectDir).filePath(QStringLiteral("artifacts/staging/dead-session/raw/ast-1/ver-1"));
+    QVERIFY(QDir().mkpath(orphanDir));
+    QVERIFY(QDir().mkpath(staleStaging));
+    QVERIFY(QFile::copy(fixture(QStringLiteral("A1.Las")), QDir(orphanDir).filePath(QStringLiteral("A1.Las"))));
+    QVERIFY(QFile::copy(fixture(QStringLiteral("A1.Las")), QDir(staleStaging).filePath(QStringLiteral("A1.Las"))));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    QVERIFY(!QDir(QDir(projectDir).filePath(QStringLiteral("artifacts/staging/dead-session"))).exists());
+    DataImportService &svc = *stack->importSvc;
+    QString err;
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+      const DataImportService::ImportResult res =
+          svc.importProjectFileEx(fixture(QStringLiteral("A1.Las")), &err);
+      if (attempt == 0)
+      {
+        QVERIFY2(res.outcome == DataImportService::ImportOutcome::Imported, qPrintable(err));
+        QVERIFY(res.assetId != QLatin1String("ast-1"));
+        const QString path = svc.absolutePath(res.assetId);
+        QVERIFY(QFileInfo::exists(path));
+        QVERIFY(!path.contains(QStringLiteral("/ast-1/ver-1/")));
+      }
+      else
+      {
+        QCOMPARE(res.outcome, DataImportService::ImportOutcome::AlreadyStored);
+      }
+    }
+    // 孤儿不删（只跳号），留给人工核对。
+    QVERIFY(QFileInfo::exists(QDir(orphanDir).filePath(QStringLiteral("A1.Las"))));
+  }
+
+  void sweepStaleStagingRemovesLeftovers()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.path();
+    QCOMPARE(DataImportService::sweepStaleStaging(projectDir), 0);
+    QVERIFY(QDir().mkpath(QDir(projectDir).filePath(QStringLiteral("artifacts/staging/a/raw"))));
+    QVERIFY(QDir().mkpath(QDir(projectDir).filePath(QStringLiteral("artifacts/staging/b"))));
+    QCOMPARE(DataImportService::sweepStaleStaging(projectDir), 2);
+    QVERIFY(!QDir(QDir(projectDir).filePath(QStringLiteral("artifacts/staging"))).exists());
+  }
+
   void missingDerivedHorizonCanBeRebuilt()
   {
     QTemporaryDir tmp;

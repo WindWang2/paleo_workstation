@@ -2,6 +2,7 @@
 #pragma once
 #include <QObject>
 #include <QString>
+#include <functional>
 #include <memory>
 #include <qgsrectangle.h>
 
@@ -101,7 +102,21 @@ class AppContext : public QObject
     // setReadOnly/setLockedReadOnly 接线在本组装根）；UI 态反映经信号
     // projectReadOnlyChanged（壳侧可绑标题「（只读）」/禁用保存动作）。
     bool isProjectReadOnly() const;
+    // 关闭当前工程（经 QgisProjectService::closeProject：aboutToClose → 清
+    // 工程 → projectClosed → 释放锁/句柄）。
     void closeProject();
+
+    // #152 锁冲突决策钩子（测试/嵌入方用）：返回 true = 只读打开，false =
+    // 取消打开（当前工程保持不变）。未设置时 GUI 弹框询问、无头自动只读。
+    void setLockConflictResolver(std::function<bool(const QString &lockError)> resolver)
+    {
+      m_lockConflictResolver = std::move(resolver);
+    }
+
+    // #163：排空任务池（取消在途任务并等待 worker 退出，等待期间泵事件）。
+    // main() 在 QApplication::exec() 返回后、主窗口析构前调用——worker 闭包
+    // 可能引用主窗口持有的对象。幂等；析构函数也会兜底调用。
+    bool drainTasks(int timeoutMs = 10000);
 
   signals:
     void projectReadOnlyChanged(bool readOnly);
@@ -117,6 +132,10 @@ class AppContext : public QObject
     // goal/well-trajectory：井底位移轨迹线层（surface→TD 投影）。无任何
     // 已决测斜时不写文件不声明层（诚实空，同 wells 的约定）。
     void refreshWellTrajectoriesLayer();
+    // #152 打开闸门：在读新工程前为 projectDir 取锁（或复用/降级只读/取消）。
+    bool acquireProjectLock(const QString &projectDir, bool creating, QString *error,
+                            bool *cancelled);
+    void releaseProjectSession();
 
     bool m_ready = false;
     QgisProjectService *m_projectSvc = nullptr;
@@ -154,5 +173,8 @@ class AppContext : public QObject
     paleo::fault::FaultInterpretationController *m_faultCtl = nullptr;
     PaleoTaskService *m_taskSvc = nullptr;
     std::unique_ptr<ProjectDirLock> m_projectLock;
+    std::unique_ptr<ProjectDirLock> m_pendingLock; // 闸门已取、projectOpened 接管
+    bool m_pendingLockReuse = false;               // 闸门判定同目录复用现锁
+    std::function<bool(const QString &)> m_lockConflictResolver;
     bool m_lastReadOnlyNotified = false; // 上次广播的只读态（去重）
 };

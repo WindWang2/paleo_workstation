@@ -64,6 +64,16 @@ def git_changed_files(base):
         print(f"FAIL git merge-base {base}: {mb.stderr.strip()}", file=sys.stderr)
         sys.exit(2)
     ref = mb.stdout.strip()
+    head = sh(["git", "rev-parse", "HEAD"]).stdout.strip()
+    if ref == head:
+        # #137：直推 master 时 origin/master == HEAD，merge-base 就是 HEAD 本身，
+        # 旧逻辑 diff 为空 → 永远「无改动」静默空跑。回退到 HEAD~1（首提交无父
+        # 时只看工作区），并把实际 base 打印出来，日志可审计。
+        parent = sh(["git", "rev-parse", "--verify", "--quiet", "HEAD~1"])
+        if parent.returncode == 0 and parent.stdout.strip():
+            print(f"check-tidy：merge-base({base}, HEAD) == HEAD，回退 base=HEAD~1")
+            ref = parent.stdout.strip()
+    print(f"check-tidy：base {base} -> {ref[:12]}")
     committed = sh(["git", "diff", "--name-only", f"{ref}..HEAD"])
     worktree = sh(["git", "diff", "--name-only"])
     files = set()

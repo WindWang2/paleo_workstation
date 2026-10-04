@@ -14,12 +14,14 @@
 #include <QSize>
 #include <QSpinBox>
 #include <QTemporaryDir>
+#include <QThread>
 #include <cmath>
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/qgis/mapbooklayout.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/services/paleotaskservice.h"
+#include "../src/ui/layout/mapbookcontroller.h"
 #include "../src/ui/layout/mapbookpanel.h"
 #include "../src/workflow/mapbook.h"
 #include "../src/workflow/mapbookqueue.h"
@@ -33,6 +35,7 @@
 #include <qgsprintlayout.h>
 #include <qgsproject.h>
 #include <qgsrectangle.h>
+#include <qgsvectorlayer.h>
 
 // goal/mapbook-reporting 契约测试：AOI 网格序列 → 逐格版面 → 批量导出队列，
 // offscreen 全链可测，产物落盘后回读校验（文件头/尺寸/非空），不是看截图。
@@ -520,6 +523,73 @@ class TestMapBook : public QObject
         QCOMPARE( catalog.assetById( id ).format, QStringLiteral( "png" ) );
     }
 
+    // #148：异步 start() 必须在导出器所属线程出版面并登记 catalog（旧实现在 worker
+    // 上跑 run()：catalog checkWriteThread 拒绝跨线程写 → 每版 register 失败）。
+    void asyncStartRendersAndRegistersOnOwnerThread()
+    {
+      QTemporaryDir dir;
+      QVERIFY2( dir.isValid(), qPrintable( dir.errorString() ) );
+      DataCatalog catalog;
+      QVERIFY2( catalog.open( dir.path() ), qPrintable( catalog.openError() ) );
+
+      QgsProject project;
+      PaleoTaskService tasks;
+      PaleoMapBookQueue::Exporter exporter( &tasks, &project );
+
+      PaleoMapBookQueue::Request request;
+      request.book = QStringLiteral( "book_async" );
+      request.outputDir = dir.path();
+      request.tiles = grid3x3().mid( 0, 3 );
+      request.dpi = 120.0;
+      request.catalog = &catalog;
+      request.projectDir = dir.path();
+
+      QThread *const owner = QThread::currentThread();
+      int offThreadProgress = 0;
+      connect( &exporter, &PaleoMapBookQueue::Exporter::progress, &exporter,
+               [&offThreadProgress, owner]( int, int, const QString & ) {
+                 if ( QThread::currentThread() != owner )
+                   ++offThreadProgress;
+               }, Qt::DirectConnection );
+      QSignalSpy finishedSpy( &exporter, &PaleoMapBookQueue::Exporter::finished );
+      PaleoTask *task = exporter.start( request );
+      QVERIFY( task );
+      QVERIFY( exporter.busy() );
+      QVERIFY( !exporter.start( request ) ); // 一次只跑一册
+      QVERIFY( finishedSpy.wait( 60000 ) );
+      QTRY_VERIFY_WITH_TIMEOUT( task->isFinished(), 10000 );
+
+      const PaleoMapBookQueue::Result result = exporter.lastResult();
+      QCOMPARE( offThreadProgress, 0 );
+      QCOMPARE( result.failed, 0 );
+      QCOMPARE( result.succeeded, 3 );
+      QCOMPARE( result.registeredIds.size(), 3 );
+      for ( const QString &id : result.registeredIds )
+        QCOMPARE( catalog.assetById( id ).format, QStringLiteral( "png" ) );
+      QCOMPARE( task->state(), PaleoTask::State::Succeeded );
+      QVERIFY( !exporter.busy() );
+    }
+
+    void runOffOwnerThreadIsRejected()
+    {
+      QTemporaryDir dir;
+      QgsProject project;
+      PaleoMapBookQueue::Exporter exporter( nullptr, &project );
+      PaleoMapBookQueue::Request request;
+      request.book = QStringLiteral( "book_x" );
+      request.outputDir = dir.path();
+      request.tiles = grid3x3().mid( 0, 1 );
+      PaleoMapBookQueue::Result result;
+      QThread *worker = QThread::create( [&]() { result = exporter.run( nullptr, request ); } );
+      worker->start();
+      QVERIFY( worker->wait( 30000 ) );
+      delete worker;
+      QCOMPARE( result.succeeded, 0 );
+      QVERIFY( !result.failures.isEmpty() );
+      QCOMPARE( result.failures.constFirst().stage, QStringLiteral( "prepare" ) );
+      QVERIFY( !QDir( dir.filePath( QStringLiteral( "book_x" ) ) ).exists() );
+    }
+
     void panelOnlyEmitsSignals()
     {
       QTemporaryDir dir;
@@ -567,6 +637,72 @@ class TestMapBook : public QObject
       panel.setProgress( 2, 12 );
       QCOMPARE( panel.findChild<QProgressBar *>( QStringLiteral( "mapbookProgress" ) )->value(), 2 );
       panel.setBusy( false );
+    }
+
+    // #148 主窗接线的可测核：控制器把面板参数拼成 Request 交给 Exporter；
+    // 工程关闭（resetProject）时在途一册被取消、迟到结果作废、面板回待命；
+    // 之后同一控制器可在新工程上照常出下一册。
+    void controllerResetsOnProjectCloseAndRunsNextBatch()
+    {
+      QTemporaryDir dir;
+      QVERIFY2( dir.isValid(), qPrintable( dir.errorString() ) );
+      QgsProject project;
+      auto *mem = new QgsVectorLayer( QStringLiteral( "Point?crs=EPSG:3857" ), QStringLiteral( "pts" ),
+                                      QStringLiteral( "memory" ) );
+      QVERIFY( mem->isValid() );
+      project.addMapLayer( mem );
+
+      PaleoTaskService tasks;
+      PaleoMapBookPanel panel;
+      PaleoMapBookController ctl( &panel, &tasks );
+      ctl.setProjectProvider( [&project]() { return &project; } );
+      const QString projectDir = dir.path();
+      ctl.setProjectDirProvider( [projectDir]() { return projectDir; } );
+      ctl.setLayersProvider( [mem]() { return QList<QgsMapLayer *>{ mem }; } );
+
+      panel.setBookName( QStringLiteral( "book_ctl" ) );
+      panel.setOutputDir( dir.path() );
+      panel.setArea( workArea() );
+      panel.setGrid( 3, 3 );
+      QPushButton *start = panel.findChild<QPushButton *>( QStringLiteral( "mapbookStart" ) );
+      QVERIFY( start );
+
+      QSignalSpy done( &ctl, &PaleoMapBookController::batchFinished );
+      QVERIFY( ctl.startBatch() );
+      QVERIFY( ctl.busy() );
+      QVERIFY( !start->isEnabled() );
+      QPointer<PaleoTask> first = ctl.currentTask();
+      QVERIFY( first );
+      QVERIFY( !ctl.startBatch() ); // 一次只跑一册
+
+      // 工程即将关闭：在任何一版落盘之前（asyncStep 还没轮到）重置。
+      const quint64 generation = ctl.generation();
+      ctl.resetProject();
+      QCOMPARE( ctl.generation(), generation + 1 );
+      QVERIFY( !ctl.busy() );
+      QVERIFY( start->isEnabled() );
+      QVERIFY( first->cancelRequested() );
+      QTRY_VERIFY_WITH_TIMEOUT( first->isFinished(), 10000 );
+      QCOMPARE( first->state(), PaleoTask::State::Cancelled );
+      // 旧一册的 Exporter 收尾后自删；它的结果不回显、不发 batchFinished。
+      QTRY_COMPARE_WITH_TIMEOUT( ctl.findChildren<PaleoMapBookQueue::Exporter *>().size(), 0, 10000 );
+      QCOMPARE( done.count(), 0 );
+      PaleoMapBookQueue::Request probe;
+      probe.book = QStringLiteral( "book_ctl" );
+      probe.outputDir = dir.path();
+      probe.format = PaleoMapBookQueue::Format::Png;
+      QVERIFY( !QFile::exists( PaleoMapBookQueue::pagePath( probe, grid3x3().constFirst() ) ) );
+
+      // 新工程（同一控制器）照常出一册。
+      panel.setBookName( QStringLiteral( "book_ctl2" ) );
+      panel.setGrid( 2, 1 );
+      QVERIFY( ctl.startBatch() );
+      QVERIFY( done.wait( 60000 ) );
+      const auto result = done.constFirst().constFirst().value<PaleoMapBookQueue::Result>();
+      QCOMPARE( result.succeeded, 2 );
+      QCOMPARE( result.failed, 0 );
+      QVERIFY( !ctl.busy() );
+      QVERIFY( start->isEnabled() );
     }
 };
 

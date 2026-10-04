@@ -63,6 +63,10 @@ struct SectionRef
     int index = 0;
     int colMin = 0;
     int colMax = 0;
+    // #147：列轴 = 体的实际线号表（步长可 >1）；空 → colMin+col。换算走 sectionaxis.h。
+    std::vector<int> colLines;
+    // #146：剖面首样 TWT（记录延迟）；样点 ↔ TWT 换算基准。
+    double t0Ms = 0.0;
     bool valid = false;
 };
 

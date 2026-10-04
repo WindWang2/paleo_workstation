@@ -2,6 +2,7 @@
 #pragma once
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 class QProcess;
 
@@ -30,7 +31,10 @@ class PythonEnvService : public QObject
   public slots:
     // step 标签随 stepFinished 回传，供编排层对号入座。
     void createVenv(const QString &name);
-    void installRequirements(const QString &name, const QString &requirementsPath);
+    // extraPipArgs 追加在 `pip install` 之后（MAMCL 锁文件路线传
+    // --require-hashes --only-binary=:all:，#142）。
+    void installRequirements(const QString &name, const QString &requirementsPath,
+                             const QStringList &extraPipArgs = {});
     // 用基底解释器的 zipfile 模块解包（Qt 无内建 zip 解压）。
     void extractZip(const QString &zipPath, const QString &destDir);
 

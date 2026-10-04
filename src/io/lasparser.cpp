@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <vector>
 
@@ -214,9 +215,17 @@ bool LasParser::parse(const QString &path, QStringList &curveNames,
   QList<LasCurve> cols;
 
   QTextStream in(&f);
-  while (!in.atEnd())
+  bool hitEof = false;
+  while (!hitEof && !in.atEnd())
   {
-    const QString line = in.readLine().trimmed();
+    QString line = in.readLine();
+    // #167：DOS 文件尾 Ctrl-Z（0x1A）= EOF，与 parseAsciiRows 同口径。
+    if (const qsizetype sub = line.indexOf(QChar(0x1A)); sub >= 0)
+    {
+      line.truncate(sub);
+      hitEof = true;
+    }
+    line = line.trimmed();
     if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
       continue;
 
@@ -584,6 +593,18 @@ bool LasParser::scanSections(const QByteArray &raw, SectionMap *out, QList<LasIs
   return true;
 }
 
+double LasParser::depthUnitToMeters(const QString &unit)
+{
+  const QString u = unit.trimmed().toUpper();
+  if (u == QLatin1String("M") || u == QLatin1String("METER") || u == QLatin1String("METRE") ||
+      u == QLatin1String("METERS") || u == QLatin1String("METRES"))
+    return 1.0;
+  if (u == QLatin1String("FT") || u == QLatin1String("F") || u == QLatin1String("FEET") ||
+      u == QLatin1String("FOOT"))
+    return 0.3048;
+  return 0.0;
+}
+
 QList<LasCurve> LasParser::parseAsciiRows(const QByteArray &raw, qint64 asciiOffset,
                                           const QStringList &names, double nullValue,
                                           qint64 rowFrom, qint64 rowTo, qint64 *rowsTotal,
@@ -595,8 +616,12 @@ QList<LasCurve> LasParser::parseAsciiRows(const QByteArray &raw, qint64 asciiOff
     cols.append({n, QString(), QString(), {}});
 
   const int nCurves = cols.size();
-  const qint64 n = raw.size();
   qint64 i = qMax<qint64>(0, asciiOffset);
+  // #167：DOS 文件尾 Ctrl-Z（0x1A）= EOF——其后（含该行）不是数据。
+  qint64 n = raw.size();
+  if (i < n)
+    if (const void *sub = std::memchr(raw.constData() + i, 0x1A, static_cast<std::size_t>(n - i)))
+      n = static_cast<const char *>(sub) - raw.constData();
   qint64 row = 0;
   QVector<bool> sawFinite(nCurves, false);
   qint64 truncatedRows = 0;
@@ -641,10 +666,14 @@ QList<LasCurve> LasParser::parseAsciiRows(const QByteArray &raw, qint64 asciiOff
     qint64 eol = i;
     while (eol < n && lineBase[eol] != '\n' && lineBase[eol] != '\r')
       ++eol;
-    if (eol > i)
+    qint64 firstTok = i;
+    while (firstTok < eol && (lineBase[firstTok] == ' ' || lineBase[firstTok] == '\t'))
+      ++firstTok;
+    // #167：纯空白行与空行同义（不出数据行）——否则补满 NaN 成「深度也是 NaN」的幽灵行。
+    if (firstTok < eol)
     {
       int col = 0;
-      qint64 p = i;
+      qint64 p = firstTok;
       while (p < eol && col < nCurves)
       {
         while (p < eol && (lineBase[p] == ' ' || lineBase[p] == '\t'))

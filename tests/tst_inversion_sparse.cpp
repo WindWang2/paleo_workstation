@@ -103,6 +103,9 @@ private slots:
   void iterationCapHonest();
   // 退化输入：空子波 / dt 不匹配 / 零能量道 / >30% 缺失 → 显式失败。
   void invalidInputsFail();
+  // #141：道振幅 ×1000 + 子波 amplitudeScale → 阻抗与未缩放一致（<1%）；
+  // 未标定 → 反射系数越界比例高，显式失败（旧实现静默发散到 2 倍真值）。
+  void amplitudeCalibrationScaleInvariant();
 };
 
 void TestInversionSparse::recoversSparseReflectivity()
@@ -253,6 +256,37 @@ void TestInversionSparse::invalidInputsFail()
     hole[std::size_t(i * 2)] = std::numeric_limits<float>::quiet_NaN();
   r = sparseSpikeInversion(hole.data(), kN, kDt, w, nullptr);
   QVERIFY(!r.ok);
+}
+
+void TestInversionSparse::amplitudeCalibrationScaleInvariant()
+{
+  const std::vector<ReflSpike> spikes = sparseSpikes();
+  const Wavelet w = makeRicker(30.0, kDt, 128.0);
+  const std::vector<float> trace = synth(spikes, w);
+  const std::vector<float> low(std::size_t(kN), 6500.0f);
+  std::vector<float> scaled = trace;
+  for (float &v : scaled)
+    v *= 1000.0f;
+  Wavelet wk = w;
+  wk.amplitudeScale = 1000.0;
+
+  SparseSpikeOptions opt;
+  opt.lambda = 0.02; // 反射系数单位（标定后）
+  const SparseSpikeResult ref = sparseSpikeInversion(trace.data(), kN, kDt, w, low.data(), opt);
+  const SparseSpikeResult cal = sparseSpikeInversion(scaled.data(), kN, kDt, wk, low.data(), opt);
+  QVERIFY2(ref.ok && cal.ok, (ref.reason + cal.reason).c_str());
+  QVERIFY(cal.amplitudeCalibrated);
+  for (int i = 0; i < kN; ++i)
+  {
+    const double a = ref.impedance[std::size_t(i)], b = cal.impedance[std::size_t(i)];
+    QVERIFY2(std::fabs(a - b) <= 0.01 * std::fabs(a),
+             qPrintable(QString("样 %1：%2 vs %3").arg(i).arg(a).arg(b)));
+  }
+
+  const SparseSpikeResult uncal = sparseSpikeInversion(scaled.data(), kN, kDt, w, low.data());
+  QVERIFY2(!uncal.ok, "未标定的千倍振幅不应静默产出阻抗");
+  QVERIFY(!uncal.reason.empty());
+  QVERIFY(uncal.clampedFraction > 0.05);
 }
 
 QTEST_MAIN(TestInversionSparse)

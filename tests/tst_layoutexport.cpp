@@ -22,6 +22,10 @@
 #include <qgslayoutsize.h>
 #include <qgsprintlayout.h>
 #include <qgsproject.h>
+#include <qgsgeometry.h>
+#include <qgslayertree.h>
+#include <qgslayoutitemmap.h>
+#include <qgsvectorlayer.h>
 
 // Task C contract tests: PaleoLayoutExportActions (export core + actions) and
 // PaleoLayoutTemplates (template save/load + builtin page-size library), over
@@ -426,6 +430,162 @@ class TestLayoutExport : public QObject
       QVERIFY( !bare.exportLayoutAsync( nullptr, QStringLiteral( "/tmp/nosvc.png" ),
                                         PaleoLayoutExportActions::Format::Png, 96.0,
                                         PaleoLayoutExportActions::PageRange() ) );
+    }
+
+    // #161：结果按任务携带 + 进行中互斥。第一次故意写进不可写路径，
+    // 进行中立刻再导一次 → 第二次被拒（不新建任务、立即报失败、路径是它
+    // 自己的）；第一次完成后报的是它自己的失败，第三次正常成功。
+    // 旧实现：第二次也起任务（tasks()==2），两次结果共用 m_pendingOutcome 单槽。
+    void asyncExportOutcomePerTaskAndBusyRejected()
+    {
+      PaleoTaskService tasks;
+      PaleoLayoutExportActions exports;
+      exports.setTaskService( &tasks );
+
+      QgsProject project;
+      QgsPrintLayout layout( &project );
+      layout.initializeDefaults();
+      addLabel( &layout, QStringLiteral( "BUSY" ) );
+
+      QTemporaryDir dir;
+      QVERIFY( dir.isValid() );
+      QFile blocker( dir.filePath( QStringLiteral( "notadir" ) ) );
+      QVERIFY( blocker.open( QIODevice::WriteOnly ) );
+      blocker.close();
+      const QString badPath = dir.filePath( QStringLiteral( "notadir/first.png" ) ); // 父路径是文件
+      const QString secondPath = dir.filePath( QStringLiteral( "second.png" ) );
+      const QString thirdPath = dir.filePath( QStringLiteral( "third.png" ) );
+
+      QSignalSpy spy( &exports, &PaleoLayoutExportActions::exportFinished );
+      QVERIFY( exports.exportLayoutAsync( &layout, badPath, PaleoLayoutExportActions::Format::Png,
+                                          96.0, PaleoLayoutExportActions::PageRange() ) );
+      QVERIFY( exports.exportInFlight() );
+      QVERIFY( !exports.exportPngAction()->isEnabled() );
+
+      QVERIFY( exports.exportLayoutAsync( &layout, secondPath, PaleoLayoutExportActions::Format::Png,
+                                          96.0, PaleoLayoutExportActions::PageRange() ) );
+      QCOMPARE( tasks.tasks().size(), 1 ); // 被拒：没有第二个任务
+      QCOMPARE( spy.count(), 1 );           // 拒绝即时回报
+      QCOMPARE( spy.at( 0 ).at( 0 ).toString(), secondPath );
+      QCOMPARE( spy.at( 0 ).at( 1 ).toBool(), false );
+
+      QVERIFY2( spy.wait( 30000 ), "first export never reported" );
+      QCOMPARE( spy.count(), 2 );
+      QCOMPARE( spy.at( 1 ).at( 0 ).toString(), badPath );
+      QCOMPARE( spy.at( 1 ).at( 1 ).toBool(), false );
+      QVERIFY( !exports.exportInFlight() );
+      QVERIFY( exports.exportPngAction()->isEnabled() );
+      QVERIFY( !QFile::exists( secondPath ) );
+
+      QVERIFY( exports.exportLayoutAsync( &layout, thirdPath, PaleoLayoutExportActions::Format::Png,
+                                          96.0, PaleoLayoutExportActions::PageRange() ) );
+      QVERIFY2( spy.wait( 30000 ), "third export never reported" );
+      QCOMPARE( spy.count(), 3 );
+      QCOMPARE( spy.at( 2 ).at( 0 ).toString(), thirdPath );
+      QCOMPARE( spy.at( 2 ).at( 1 ).toBool(), true );
+      QVERIFY( QFile::exists( thirdPath ) );
+    }
+
+    // #161：工程快照与活工程零共享——重建出的私有工程图层 id 相同但对象
+    // 不同，memory 图层要素随快照带过去，图层树结构一致；抓快照后从活工程
+    // 删图层/改要素不影响重建结果。
+    void projectSnapshotIsIsolated()
+    {
+      QgsProject live;
+      auto *mem = new QgsVectorLayer( QStringLiteral( "Point?crs=EPSG:4326&field=name:string" ),
+                                      QStringLiteral( "wells" ), QStringLiteral( "memory" ) );
+      QVERIFY( mem->isValid() );
+      for ( int i = 0; i < 3; ++i )
+      {
+        QgsFeature f( mem->fields() );
+        f.setAttribute( 0, QStringLiteral( "w%1" ).arg( i ) );
+        f.setGeometry( QgsGeometry::fromPointXY( QgsPointXY( 110 + i, 30 + i ) ) );
+        QVERIFY( mem->dataProvider()->addFeature( f ) );
+      }
+      live.addMapLayer( mem, false );
+      QgsLayerTreeGroup *group = live.layerTreeRoot()->addGroup( QStringLiteral( "井位" ) );
+      group->addLayer( mem );
+      const QString memId = mem->id();
+
+      PaleoLayoutExportActions::ProjectSnapshot snap;
+      QString reason;
+      QVERIFY2( PaleoLayoutExportActions::captureProjectSnapshot( &live, snap, &reason ), qPrintable( reason ) );
+
+      // 抓完快照后活工程变化（GUI 线程照常编辑/删图层）
+      live.removeMapLayer( memId );
+      QVERIFY( !live.mapLayer( memId ) );
+
+      QString error;
+      std::unique_ptr<QgsProject> priv = PaleoLayoutExportActions::rebuildProject( snap, &error );
+      QVERIFY2( priv, qPrintable( error ) );
+      auto *copy = qobject_cast<QgsVectorLayer *>( priv->mapLayer( memId ) );
+      QVERIFY( copy );
+      QVERIFY( copy->isValid() );
+      QCOMPARE( copy->featureCount(), 3LL );
+      QCOMPARE( copy->name(), QStringLiteral( "wells" ) );
+      QgsLayerTreeGroup *privGroup = priv->layerTreeRoot()->findGroup( QStringLiteral( "井位" ) );
+      QVERIFY( privGroup );
+      QVERIFY( privGroup->findLayer( memId ) );
+      QCOMPARE( privGroup->findLayer( memId )->layer(), copy );
+
+      // 有未提交编辑的图层不能忠实重现 → 诚实拒绝，调用方回退同步。
+      auto *editing = new QgsVectorLayer( QStringLiteral( "Point?crs=EPSG:4326" ),
+                                          QStringLiteral( "editing" ), QStringLiteral( "memory" ) );
+      live.addMapLayer( editing );
+      QVERIFY( editing->startEditing() );
+      QgsFeature f( editing->fields() );
+      f.setGeometry( QgsGeometry::fromPointXY( QgsPointXY( 1, 1 ) ) );
+      QVERIFY( editing->addFeature( f ) );
+      QVERIFY( !PaleoLayoutExportActions::captureProjectSnapshot( &live, snap, &reason ) );
+      QVERIFY( !reason.isEmpty() );
+      editing->rollBack();
+    }
+
+    // #161：带地图项的版面经任务池导出——导出启动后立刻从活工程删掉地图
+    // 引用的图层（模拟 GUI 线程并发改工程），worker 只渲染私有副本，导出
+    // 照常成功且出图非空白。
+    void asyncExportSurvivesLiveLayerRemoval()
+    {
+      PaleoTaskService tasks;
+      PaleoLayoutExportActions exports;
+      exports.setTaskService( &tasks );
+
+      QgsProject live;
+      auto *mem = new QgsVectorLayer( QStringLiteral( "Polygon?crs=EPSG:3857" ),
+                                      QStringLiteral( "box" ), QStringLiteral( "memory" ) );
+      QgsFeature f( mem->fields() );
+      f.setGeometry( QgsGeometry::fromRect( QgsRectangle( 0, 0, 1000, 1000 ) ) );
+      QVERIFY( mem->dataProvider()->addFeature( f ) );
+      mem->updateExtents();
+      live.addMapLayer( mem );
+      live.setCrs( QgsCoordinateReferenceSystem( QStringLiteral( "EPSG:3857" ) ) );
+
+      QgsPrintLayout layout( &live );
+      layout.initializeDefaults();
+      auto *map = new QgsLayoutItemMap( &layout );
+      map->attemptMove( QgsLayoutPoint( 10, 10, Qgis::LayoutUnit::Millimeters ) );
+      map->attemptResize( QgsLayoutSize( 100, 100, Qgis::LayoutUnit::Millimeters ) );
+      map->setCrs( live.crs() );
+      map->setLayers( { mem } );
+      map->setKeepLayerSet( true );
+      map->setExtent( QgsRectangle( -100, -100, 1100, 1100 ) );
+      layout.addLayoutItem( map );
+
+      QTemporaryDir dir;
+      QVERIFY( dir.isValid() );
+      const QString path = dir.filePath( QStringLiteral( "map.png" ) );
+      QSignalSpy spy( &exports, &PaleoLayoutExportActions::exportFinished );
+      QVERIFY( exports.exportLayoutAsync( &layout, path, PaleoLayoutExportActions::Format::Png,
+                                          96.0, PaleoLayoutExportActions::PageRange() ) );
+      live.removeMapLayer( mem ); // 活图层删除——worker 不得再碰它
+
+      QVERIFY2( spy.wait( 30000 ), "export never reported" );
+      QCOMPARE( spy.at( 0 ).at( 1 ).toBool(), true );
+      QImage img( path );
+      QVERIFY( !img.isNull() );
+      // 地图框中心落在多边形里：默认单符号填充不是纯白
+      const QPoint centre( img.width() * 60 / 297, img.height() * 60 / 210 );
+      QVERIFY2( img.pixelColor( centre ) != QColor( Qt::white ), "map item rendered blank" );
     }
 
   private:

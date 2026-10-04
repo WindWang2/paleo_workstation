@@ -92,6 +92,7 @@ class TestDepthConversion : public QObject
 private slots:
   void fullChainBuildsModelAndConvertsHorizon();
   void repeatedBuildAndConversionAreIdempotent();
+  void latestModelPathUsesCommitOrderAcrossAssets();
 };
 
 void TestDepthConversion::fullChainBuildsModelAndConvertsHorizon()
@@ -319,6 +320,46 @@ void TestDepthConversion::repeatedBuildAndConversionAreIdempotent()
   QVERIFY(!depth1.isEmpty() && !depth2.isEmpty());
   QCOMPARE(readFile(depth1), readFile(depth2)); // 像元位级幂等 → 文件字节一致
 }
+
+// #127：层间平均 v1、v2 后再建 V0-k v1——最新应是后建的 V0-k（旧代码跨资产比
+// versionNumber，永远选层间平均 v2）。重开 catalog 后结论不变（行序稳定）。
+void TestDepthConversion::latestModelPathUsesCommitOrderAcrossAssets()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  QString err;
+  QString newest;
+  {
+    DataCatalog cat;
+    QVERIFY2(cat.open(tmp.path(), &err), qPrintable(err));
+    DerivedAssetRegistrar registrar(&cat, tmp.path());
+    const auto model = [&](const QString &name) {
+      const DerivedStaging st =
+          registrar.stage(QStringLiteral("velocity_model"), name, QStringLiteral("model.json"), &err);
+      if (!st.isValid())
+        return QString();
+      QFile f(st.absolutePath);
+      if (!f.open(QIODevice::WriteOnly))
+        return QString();
+      f.write("{}");
+      f.close();
+      if (!registrar.commit(st, {}, QStringLiteral("probe"), {}, &err))
+        return QString();
+      return st.absolutePath;
+    };
+    QVERIFY2(!model(QStringLiteral("layer-average")).isEmpty(), qPrintable(err));
+    QVERIFY2(!model(QStringLiteral("layer-average")).isEmpty(), qPrintable(err));
+    newest = model(QStringLiteral("v0k"));
+    QVERIFY2(!newest.isEmpty(), qPrintable(err));
+    QCOMPARE(QFileInfo(DepthConversionWorkflow::latestModelPath(&cat, tmp.path())).canonicalFilePath(),
+             QFileInfo(newest).canonicalFilePath());
+  }
+  DataCatalog reopened;
+  QVERIFY2(reopened.open(tmp.path(), &err), qPrintable(err));
+  QCOMPARE(QFileInfo(DepthConversionWorkflow::latestModelPath(&reopened, tmp.path())).canonicalFilePath(),
+           QFileInfo(newest).canonicalFilePath());
+}
+
 
 int main(int argc, char *argv[])
 {

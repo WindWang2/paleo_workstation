@@ -305,6 +305,39 @@ private slots:
   }
 
   // ---- D3.2 面板：切片拖动联动滑杆（真实 GL 视口 + 合成鼠标事件）----
+  // #158：切到无地震的工程（壳层 setVolume(nullptr)）——体清空、切片控件
+  // 禁用；重新装体后恢复可用。
+  void panelClearVolumeDisablesSliceControls()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("clear.sgy");
+    QVERIFY(writeTestSegy(sgy, 6, 6, 64));
+    auto volume = std::make_shared<SgyVolume>();
+    std::string err;
+    QVERIFY(volume->Load(sgy.toStdString(), err));
+
+    Seismic3DViewPanel panel;
+    panel.resize(800, 600);
+    panel.show();
+    panel.setVolume(volume);
+    auto *slider = panel.findChild<QSlider *>(QStringLiteral("inlineSlider"));
+    QVERIFY(slider);
+    QVERIFY(slider->isEnabled());
+    QVERIFY(panel.volume());
+
+    panel.setVolume(nullptr);
+    QVERIFY(!panel.volume());
+    QVERIFY(!slider->isEnabled());
+    for (const char *name : {"xlineSlider", "timeSlider", "inlineSpin", "xlineSpin", "timeSpin"})
+    {
+      auto *w = panel.findChild<QWidget *>(QLatin1String(name));
+      QVERIFY2(w && !w->isEnabled(), name);
+    }
+
+    panel.setVolume(volume);
+    QVERIFY(slider->isEnabled());
+  }
+
   void panelSliceDragLinkage()
   {
     QTemporaryDir dir;

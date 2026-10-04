@@ -1,6 +1,7 @@
 // 层：数据
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -39,12 +40,25 @@ bool contourGridValueRange( const std::vector<double> &grid,
 //     取整），end<start 时交换
 //   count = floor((end-start)/step + 1e-10)，levels[i]=start+i*step 各按
 //     decimals 格式化（repr(float) 等价的十进制四舍五入）
+// #149：单次成图的等值级别数上限。间距过小（如 0~5000 值域配 1e-5 间距 → 5 亿级）
+// 会分配数 GB 并让逐级追线卡死，甚至 vector::reserve 抛 length_error 直接崩溃。
+// 1 万条已远超任何可读的等值线图（上游默认目标 10 条），正常间距不受影响。
+inline constexpr std::size_t kMaxContourLevels = 10000;
+
+// 级别数估计（double 运算，不做 double→int 转换）：floor(span/step+1e-10)+1。
+// step<=0 或非有限 → +inf。
+double estimateContourLevelCount( double span, double step );
+
 struct ContourLevelPlan
 {
   double valueMin = 0, valueMax = 0; // 有效值域（未规整）
   double start = 0, end = 0, step = 0; // spin 回读值
   int decimals = 2;
   std::vector<double> levels;
+  // #149：级别数超过 kMaxContourLevels → levels 为空、tooManyLevels=true，
+  // estimatedLevels 给出本应生成的条数（供「间距过小」报错）。
+  bool tooManyLevels = false;
+  double estimatedLevels = 0;
 };
 
 // 自动（interval<=0）：suggest(target_levels=10) → spin 取整 → 级别列。
@@ -55,6 +69,8 @@ bool autoContourLevels( const std::vector<double> &grid,
 
 // 用户间距（interval>0）：start/end 沿用自动 spin 值，step = interval 按其
 // 自身 decimals 规则取整，级别 decimals 由该 step 重算。
+// 级别数超过 kMaxContourLevels → 返回 false 且 plan->tooManyLevels=true（不抛异常、
+// 不分配大内存）。
 bool intervalContourLevels( const std::vector<double> &grid,
                             const std::vector<std::uint8_t> &validMask,
                             double interval, ContourLevelPlan *plan );

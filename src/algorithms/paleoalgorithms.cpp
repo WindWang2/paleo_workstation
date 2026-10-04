@@ -87,7 +87,9 @@ bool sameGrid( const GridInfo &a, const GridInfo &b )
 // Is v a "no data" cell for this band? Honors the band nodata flag plus NaN.
 inline bool isNoData( float v, bool hasNodata, double nodata )
 {
-  return std::isnan( v ) || ( hasNodata && static_cast<double>( v ) == nodata );
+  // #165：Float32 读入的像元须与 float 化的 nodata 比较——1e30/-99999.9 等
+  // 非 float 可表示的 nodata 落盘后是 (float)nodata，与 double 永不相等。
+  return std::isnan( v ) || ( hasNodata && v == static_cast<float>( nodata ) );
 }
 
 void bandNodata( GDALRasterBandH band, bool &hasNodata, double &nodata )

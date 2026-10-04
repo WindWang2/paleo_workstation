@@ -6,6 +6,8 @@
 #include <QStringList>
 #include <QVector>
 
+#include <memory>
+
 #include "mapbook.h"
 
 class DataCatalog;
@@ -29,6 +31,15 @@ class QgsProject;
 //
 // 线程池纪律（禁区：不自建线程池）：异步一律经 PaleoTaskService；本类只是
 // 编排与记账，不碰 QGIS 画图（画图在 qgis/mapbooklayout）、不碰 QtWidgets。
+//
+// 线程模型（#148）：QgsPrintLayout 构建/QgsLayoutExporter 渲染要用主线程的
+// QgsProject 与图层，DataCatalog 只接受所属线程写入——这些都只能在 Exporter
+// 所属线程（GUI 线程）做。因此 start() 不再把 run() 扔进 worker：逐版导出在
+// 所属线程上用事件循环分步推进（每版一个事件轮次，界面不冻结、取消可在版间
+// 生效）；PaleoTaskService 里只挂一个「监视」任务承载任务页行、进度与取消，
+// 它在 worker 上只等待完成信号，绝不触碰 QGIS/catalog。监视任务在取消后立即
+// 收尾（不等主线程），所以 shutdown 即便不泵事件也不会死锁。
+// run() 是同步核心，且只允许在所属线程调用（跨线程调用直接 prepare 失败）。
 namespace PaleoMapBookQueue
 {
 
@@ -99,23 +110,38 @@ class Exporter : public QObject
 
   public:
     explicit Exporter( PaleoTaskService *tasks, QgsProject *project, QObject *parent = nullptr );
+    ~Exporter() override;
 
-    // 异步：经任务服务排队（返回 nullptr = 未绑定任务服务）。
+    // 异步：任务页挂监视任务，逐版导出在本对象所属线程分步执行（见上「线程模型」）。
+    // 返回 nullptr = 未绑定任务服务，或已有一册在导出（一次只跑一册）。
     PaleoTask *start( const Request &request );
 
-    // 同步核心：worker 与测试共用这一条路径；task 可为 nullptr（无取消语义）。
+    // 同步核心：异步分步与测试共用同一组阶段函数；task 可为 nullptr（无取消语义）。
+    // 只能在本对象所属线程调用。
     Result run( PaleoTask *task, const Request &request );
 
+    bool busy() const { return static_cast<bool>( m_async ); }
     Result lastResult() const { return m_last; }
 
   signals:
     void progress( int done, int total, const QString &tile );
     void finished( const Result &result );
 
+  public:
+    struct RunState; // 定义在 .cpp（含 QGIS 层类型）
+    struct AsyncRun;
+
   private:
+    bool prepareRun( RunState &state, PaleoTask *task );
+    // 返回 false = 该在此处停（取消/预演上限），剩余版已记 cancelled。
+    bool exportTileAt( RunState &state, int i, PaleoTask *task );
+    void finishRun( RunState &state, PaleoTask *task );
+    void asyncStep();
+
     PaleoTaskService *m_tasks = nullptr;
     QgsProject *m_project = nullptr;
     Result m_last;
+    std::shared_ptr<AsyncRun> m_async; // 仅所属线程读写
 };
 
 } // namespace PaleoMapBookQueue

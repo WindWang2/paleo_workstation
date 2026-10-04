@@ -23,6 +23,9 @@
 //   · manifest 存在但坏 JSON → manifestError 如实记录。
 //   · 条目缺必填（name/file）→ 该条 ManifestInvalid，其余条目不受牵连。
 //   · 文件缺失 → FileMissing；钉哈希不符 → FingerprintMismatch。
+//   · #145 路径约束：name 必须是单个路径段；file 必须是相对路径、不含 ..
+//     段、canonical 后仍位于 models/ 内（防符号链接逃逸）→ 否则 ManifestInvalid。
+//   · 重名 name：后出现的条目 ManifestInvalid（不静默覆盖）。
 
 struct ModelRegistryEntry
 {
@@ -70,4 +73,8 @@ class ModelRegistry
   public:
     static ModelRegistryScan scan( const QString &modelsDir );
     static QString statusLabel( ModelRegistryEntry::Status s );
+    // 单段文件名：非空、无 / \\、不是 . / ..、非绝对路径。
+    static bool isSafeModelName( const QString &name );
+    // file 相对 modelsDir 且不出目录（词法检查；canonical 检查在 scan 内）。
+    static bool isSafeRelativeFile( const QString &file );
 };

@@ -53,6 +53,8 @@
 #include "webviewpanel.h"
 #include "edittools/editingtoolbar.h"
 #include "layout/layoutexportactions.h" // ---- m2(C)：导出前版面地图项钉主题 ----
+#include "layout/mapbookcontroller.h" // #148：工程关闭时 resetProject
+#include "layout/mapbookpanel.h"
 #include "../qgis/qgislayerprofile.h" // ---- m2(C)：setLayoutMapTheme（m1 接缝）----
 #include "../qgis/qgislayoutservice.h"
 #include "../qgis/qgiseditingservice.h"
@@ -327,6 +329,8 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
 
   if (m_projectSvc)
   {
+    connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this,
+            [this] { resetProjectScopedState(); });
     connect(m_projectSvc, &QgisProjectService::projectOpened, this,
             [this](const QString &) { onProjectOpened(); });
     // 窗口标题/修改标记：dirty → [*] 显示，保存/改名 → 刷新工程名。
@@ -530,7 +534,7 @@ void PaleoMainWindow::buildShell()
         return;
       // §38 blocking-error contract: a failed open surfaces as a dialog, not
       // a silent no-op on the startup page.
-      if (!m_projectSvc->openProject(p))
+      if (!m_projectSvc->openProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
         QMessageBox::critical(this, tr("打开工程失败"),
                               m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
@@ -542,7 +546,7 @@ void PaleoMainWindow::buildShell()
           this, tr("新建工程"), QString(), tr("Paleo 工程 (*.qgz)"));
       if (p.isEmpty())
         return;
-      if (!m_projectSvc->createProject(p))
+      if (!m_projectSvc->createProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
         QMessageBox::critical(this, tr("新建工程失败"),
                               m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
@@ -565,7 +569,7 @@ void PaleoMainWindow::buildShell()
       const QString p = item ? item->data(Qt::UserRole).toString() : QString();
       if (p.isEmpty() || !m_projectSvc)
         return;
-      if (!m_projectSvc->openProject(p))
+      if (!m_projectSvc->openProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
         QMessageBox::critical(this, tr("打开工程失败"),
                               m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
@@ -1389,6 +1393,9 @@ void PaleoMainWindow::onProjectOpened()
 
   restoreCanvasExtent(); // per-project display state from the .qgz
 
+  // #156：测井对比井集来自 catalog（不再只由本会话的导入事件填充）。
+  refreshCorrelationWells(QString(), /*loadAllLas=*/true);
+
   // 工程级参数驱动的层位 UI（AreaRules 已在 AppContext::projectOpened 装载）：
   // chip 条按新词表重建；标定层位相关文案重写。
   if (auto *bar = findChild<HorizonChipBar *>())
@@ -1668,6 +1675,69 @@ void PaleoMainWindow::applyProvisionalRegistration(DataImportService *svc,
             });
   }
   m_registrationWf->applyProvisionalRegistration(assetId, params);
+}
+
+void PaleoMainWindow::resetProjectScopedState()
+{
+  // 属性建模：作业取消（任务已随任务会话取消，这里同步收 UI 忙态的入口；
+  // jobCompleted 到达时 finishPropertyModelRun 按「已取消」收尾）。
+  m_propModelCancel = true;
+  m_propModelRunner.requestCancel();
+  if (m_factorTask && m_factorTask->running())
+    m_factorTask->requestCancel();
+
+  // #154：预览标签全部关闭 + PreviewDoc 按 assetId 的会话缓存清空。
+  if (m_previewTabs)
+    m_previewTabs->closeAllTabs();
+  if (m_previewDoc)
+    m_previewDoc->resetProjectState();
+
+  // #156：测井对比井集/曲线/在途 LAS 清空；新工程打开后从 catalog 重灌。
+  if (m_corrPanel)
+    m_corrPanel->resetProject();
+
+  // #158：3D 视图与剖面 dock 的地震体清空；新工程若有地震，打开后由
+  // syncSeismicVolumeToDocks 重新装载。
+  if (m_seismic3dPanel)
+    m_seismic3dPanel->setVolume(nullptr);
+  if (m_sectionLink)
+    m_sectionLink->setActiveVolume(nullptr);
+  else if (m_seismicSectionDock)
+    m_seismicSectionDock->setVolume(nullptr);
+
+  // #148：地图册在途一册取消（下一版边界停，不再碰旧工程图层），迟到结果
+  // 作废；范围清空，新工程下次打开面板时按画布范围重新预填。
+  if (m_mapBookCtl)
+    m_mapBookCtl->resetProject();
+  if (m_mapBookPanel)
+  {
+    m_mapBookPanel->setArea(PaleoMapBook::Area());
+    m_mapBookPanel->setOutputDir(QString());
+  }
+}
+
+void PaleoMainWindow::refreshCorrelationWells(const QString &loadLasForAssetId,
+                                              bool loadAllLas)
+{
+  if (!m_corrPanel || !m_previewDoc)
+    return;
+  QList<QPair<QString, QString>> wells;
+  const QStringList ids = m_previewDoc->assetIds(QStringLiteral("well_log"));
+  for (const QString &id : ids)
+    wells.append({id, m_previewDoc->assetSource(id)});
+  m_corrPanel->setWells(wells);
+  const QString root = m_projectSvc && !m_projectSvc->projectPath().isEmpty()
+                           ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
+                           : QString();
+  // LAS 资产把 GR 曲线拉进井列（任务服务在场时是 quiet 异步解析）。
+  for (const QString &id : ids)
+  {
+    if (!loadAllLas && id != loadLasForAssetId)
+      continue;
+    const QString src = m_previewDoc->assetSource(id);
+    if (src.endsWith(QLatin1String(".las"), Qt::CaseInsensitive))
+      m_corrPanel->loadWellLas(id, QDir(root).absoluteFilePath(src), QStringLiteral("GR"));
+  }
 }
 
 void PaleoMainWindow::syncSeismicVolumeToDocks()

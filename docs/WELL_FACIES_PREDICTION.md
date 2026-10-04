@@ -4,10 +4,30 @@
 「预测相」「停止等待」「显示预测相」「刷新模型」「预测服务」。
 参考井不需要关联测区井号或井位坐标即可运行相预测。
 
-首次使用在「预测服务」填入服务地址和 API 密钥。缺省地址为
-`http://118.178.238.153:3100/api/v1`；密钥保存在本机
-`~/.config/paleo/well-facies.json`（仅当前用户可读写），不进入仓库或工程。
-也可用 `PALEO_WELL_FACIES_URL`、`PALEO_WELL_FACIES_API_KEY` 环境变量覆盖。
+首次使用在「预测服务」填入服务地址和 API 密钥。**没有缺省地址**（#133：
+不再硬编码任何第三方地址），请向服务提供方索取正式地址。
+
+传输安全（#133）：
+
+- 只接受 `https://`。`http://` 仅对本机回环（`localhost` / `127.x` / `::1`）
+  放行，便于本地调试服务。
+- 内网只有 http 的部署，须在「预测服务」勾选「允许不加密的 HTTP」（或设
+  `PALEO_WELL_FACIES_ALLOW_INSECURE_HTTP=1`）——此时 API 密钥与整井曲线明文
+  过网，状态栏给出警告。不建议用于公网地址。
+- 不跟随重定向；响应体超过 64 MiB 即中止。
+
+密钥存储：
+
+- 构建找到 Qt6Keychain（QGIS 的既有依赖；Linux 装 `qtkeychain-qt6-dev`）时，
+  密钥存入系统钥匙串（Windows 凭据管理器 / Secret Service(libsecret、KWallet) /
+  macOS 钥匙串），`~/.config/paleo/well-facies.json` 只存地址与开关；旧版 JSON
+  里的明文密钥在首次启动时自动迁入钥匙串并从 JSON 删除。
+- 构建未带 Qt6Keychain，或钥匙串写入失败时，回落为 JSON 明文存储：POSIX 下
+  权限 0600（仅当前用户可读写）；**Windows 下文件权限不提供同等保护**，请依赖
+  用户目录 ACL，或改用环境变量。
+- 也可用 `PALEO_WELL_FACIES_URL`、`PALEO_WELL_FACIES_API_KEY` 环境变量覆盖
+  （环境变量里的密钥不会写入钥匙串或文件）。`PALEO_WELL_FACIES_NO_KEYCHAIN=1`
+  可关闭钥匙串（ctest 沙箱默认设置）。
 
 模型要求从 `GET /models` 获取。按钮按选中模型检查曲线、段、岩性、地层组、
 连续深度和窗口点数；不可用时面板和 tooltip 给出具体原因。

@@ -30,7 +30,8 @@ bool ProjectOpenWorkflow::openPath(const QString &path)
   {
     if (!m_projSvc->openProject(fi.absoluteFilePath()))
     {
-      emit openFailed(tr("打开工程失败"),
+      if (!m_projSvc->lastOpenCancelled()) // #152：锁冲突时用户取消 → 不报错
+        emit openFailed(tr("打开工程失败"),
                       m_projSvc->lastErrors().join(QLatin1Char('\n')), true);
       return false;
     }
@@ -44,7 +45,8 @@ bool ProjectOpenWorkflow::openPath(const QString &path)
     {
       if (!m_projSvc->openProject(paleo))
       {
-        emit openFailed(tr("打开工程失败"),
+        if (!m_projSvc->lastOpenCancelled()) // #152：锁冲突时用户取消 → 不报错
+          emit openFailed(tr("打开工程失败"),
                         m_projSvc->lastErrors().join(QLatin1Char('\n')), true);
         return false;
       }
@@ -60,7 +62,8 @@ bool ProjectOpenWorkflow::openPath(const QString &path)
           QFile::exists(qgz) ? qgz : QDir(dir).filePath(qgzFiles.first());
       if (!m_projSvc->openProject(adopt))
       {
-        emit openFailed(tr("打开工程失败"),
+        if (!m_projSvc->lastOpenCancelled()) // #152：锁冲突时用户取消 → 不报错
+          emit openFailed(tr("打开工程失败"),
                         m_projSvc->lastErrors().join(QLatin1Char('\n')), true);
         return false;
       }
@@ -68,7 +71,8 @@ bool ProjectOpenWorkflow::openPath(const QString &path)
     }
     if (!m_projSvc->createProject(qgz))
     {
-      emit openFailed(tr("新建工程失败"),
+      if (!m_projSvc->lastOpenCancelled()) // #152：锁冲突时用户取消 → 不报错
+        emit openFailed(tr("新建工程失败"),
                       m_projSvc->lastErrors().join(QLatin1Char('\n')), true);
       return false;
     }

@@ -106,6 +106,9 @@ TrackResult trackSection(const float *section, int nTraces, int nSamples,
   const int seedTop = std::max(0, seed.sample - winLen / 2);
   const int seedBottom = std::min(nSamples - 1, seedTop + winLen - 1);
   const int seedWinLen = seedBottom - seedTop + 1;
+  // 锚点 = 种子在模板窗内的真实偏移（#139）：贴顶/贴底缩窗后不再是窗中心，
+  // 拾取样点与下一道窗顶都按锚点换算，否则整条层位被吸向窗中心。
+  const int anchor = seed.sample - seedTop;
   if (seedWinLen < 4)
   {
     invalidate();
@@ -153,7 +156,7 @@ TrackResult trackSection(const float *section, int nTraces, int nSamples,
             normalizedCorrelation(seedWave.data(), candTrace + s, seedWinLen);
         if (corr > bestUngated)
           bestUngated = corr;
-        const int centerSample = s + seedWinLen / 2;
+        const int centerSample = s + anchor;
         bool pass = true;
         const float factor =
             coherence
@@ -180,7 +183,7 @@ TrackResult trackSection(const float *section, int nTraces, int nSamples,
       result.picks.push_back(
           {col, bestSample,
            float(std::clamp(bestGated, 0.0, 1.0)) * bestFactor});
-      prevTop = bestSample - seedWinLen / 2;
+      prevTop = bestSample - anchor;
     }
   }
   std::sort(result.picks.begin(), result.picks.end(),
@@ -302,6 +305,8 @@ PropagateResult propagateVolume(const float *volume, int nIl, int nXl, int nS,
           continue; // 死列不复生（不跨空外推）
         const int prevTop = std::max(
             0, std::min(prevSample - winLen / 2, nS - winLen));
+        // 模板窗贴顶/贴底被钳位时，前沿样点在窗内的偏移不再是 winLen/2（#139）。
+        const int anchor = prevSample - prevTop;
         const float *tmpl = prevSection +
                             static_cast<std::size_t>(xl) * nS + prevTop;
         double bestCorr = -2.0;
@@ -318,7 +323,7 @@ PropagateResult propagateVolume(const float *volume, int nIl, int nXl, int nS,
           if (corr > bestCorr)
           {
             bestCorr = corr;
-            bestSample = s + winLen / 2;
+            bestSample = s + anchor;
           }
         }
         if (bestSample >= 0 && bestCorr >= options.correlationThreshold)

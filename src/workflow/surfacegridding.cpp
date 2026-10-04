@@ -14,6 +14,12 @@
 #include <gdal.h>
 #include <cpl_conv.h>
 
+#include <QDir>
+#include <QMetaObject>
+#include <QPointer>
+#include <QThread>
+#include <QUuid>
+
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -66,7 +72,7 @@ bool readFloatRaster(const QString &path, RasterGrid *grid, std::vector<float> *
   }
   // 落盘 nodata（-9999 族）→ 核内 NaN 语义。
   for (float &v : *out)
-    if (std::isnan(v) || (grid->hasNodata && double(v) == grid->nodata))
+    if (std::isnan(v) || (grid->hasNodata && v == static_cast<float>(grid->nodata))) // #165
       v = std::numeric_limits<float>::quiet_NaN();
   return true;
 }
@@ -300,17 +306,6 @@ QString SurfaceGriddingWorkflow::gridHorizonText(const QString &horizon,
   b.xlineMin = scatter.xlineMin;
   b.xlineMax = scatter.xlineMax;
 
-  DerivedAssetRegistrar registrar(m_catalog, m_projectDir);
-  const DerivedStaging st = registrar.stage(
-      QStringLiteral("gridded_surface"),
-      QStringLiteral("%1 网格化面（最小曲率）").arg(horizon),
-      QStringLiteral("GRID_%1_MINCURV.tif").arg(horizon));
-  if (!st.isValid())
-    return fail(QStringLiteral("派生资产落位失败（%1 网格化面）").arg(horizon));
-  QString writeErr;
-  if (!writeHorizonGeoTiff(b, st.absolutePath, &writeErr))
-    return fail(QStringLiteral("写出 GeoTIFF 失败：%1").arg(writeErr));
-
   QVariantMap extra;
   extra.insert(QStringLiteral("algorithm"), QStringLiteral("min_curvature"));
   extra.insert(QStringLiteral("tension"), opt.tension);
@@ -329,24 +324,103 @@ QString SurfaceGriddingWorkflow::gridHorizonText(const QString &horizon,
     extra.insert(QStringLiteral("cvRms"), o.cvRms);
     extra.insert(QStringLiteral("cvFolds"), o.cvFolds);
   }
-  // 父版本不伪造：散点文本源头资产在壳侧（本接口只见文本）——provenance
-  // 走 sourceUri（surfacegridding/<层位>），与厚度井位层同口径。
-  QString commitErr;
-  if (!registrar.commit(st, {},
-                        QStringLiteral("surfacegridding/%1").arg(horizon), extra, &commitErr))
-    return fail(QStringLiteral("版本登记失败：%1").arg(commitErr));
-  if (stage)
-    stage(QStringLiteral("publish"), 100);
-
-  o.tifPath = st.absolutePath;
-  o.assetId = st.assetId;
-  o.versionId = st.versionId;
   o.layerId = QStringLiteral("gridded.%1").arg(horizon);
   o.title = QStringLiteral("%1 网格化面（最小曲率）").arg(horizon);
+
+  // ---- 线程纪律（#122）：DataCatalog 是单线程写对象（threadViolation 守卫），
+  // stage/commit 必须在其所属线程执行。同线程（同步调用/测试）直接登记；
+  // 任务线程只把 GeoTIFF 写进 artifacts/staging 临时目录，再把登记排队回
+  // catalog 所属线程（publishGridded 收进受管路径 + commit + rasterReady）。
+  // 排队而非 BlockingQueued：GUI 线程若在等任务收尾也不会死锁；登记失败经
+  // griddingFailed 回报（此时任务本身已返回成功，Outcome 不含 asset/version）。
+  if (QThread::currentThread() == m_catalog->thread())
+  {
+    QString pubErr = publishGridded(horizon, b, QString(), extra, &o);
+    if (!pubErr.isEmpty())
+      return pubErr; // publishGridded 已 emit griddingFailed
+    if (stage)
+      stage(QStringLiteral("publish"), 100);
+    if (outcome)
+      *outcome = o;
+    return QString();
+  }
+
+  const QString tmpDir = QDir(m_projectDir)
+                             .filePath(QStringLiteral("artifacts/staging/grid-%1")
+                                           .arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+  if (!QDir().mkpath(tmpDir))
+    return fail(QStringLiteral("无法创建网格化临时目录：%1").arg(tmpDir));
+  const QString tmpTif = QDir(tmpDir).filePath(QStringLiteral("GRID_%1_MINCURV.tif").arg(horizon));
+  QString writeErr;
+  if (!writeHorizonGeoTiff(b, tmpTif, &writeErr))
+  {
+    QDir(tmpDir).removeRecursively();
+    return fail(QStringLiteral("写出 GeoTIFF 失败：%1").arg(writeErr));
+  }
+  const QPointer<SurfaceGriddingWorkflow> self(this);
+  const bool queued = QMetaObject::invokeMethod(
+      m_catalog,
+      [self, horizon, b, tmpTif, tmpDir, extra, o]() mutable
+      {
+        if (self)
+          self->publishGridded(horizon, b, tmpTif, extra, &o);
+        QDir(tmpDir).removeRecursively();
+      },
+      Qt::QueuedConnection);
+  if (!queued)
+  {
+    QDir(tmpDir).removeRecursively();
+    return fail(QStringLiteral("无法把版本登记排队回数据目录线程"));
+  }
+  if (stage)
+    stage(QStringLiteral("publish"), 100);
   if (outcome)
-    *outcome = o;
-  // 声明走信号排队回 GUI 线程（manifest 写队列纪律）。
-  emit rasterReady(o.layerId, o.tifPath, o.title, horizon);
+    *outcome = o; // tifPath/assetId/versionId 由 owner 线程登记后经 rasterReady 回报
+  return QString();
+}
+
+// owner 线程登记：tmpTif 为空时就地写受管路径，否则把临时产物收进受管路径。
+QString SurfaceGriddingWorkflow::publishGridded(const QString &horizon, const BinnedHorizon &b,
+                                                const QString &tmpTif, const QVariantMap &extra,
+                                                Outcome *o)
+{
+  const auto fail = [this, &horizon](const QString &msg)
+  {
+    emit griddingFailed(horizon, msg);
+    return msg;
+  };
+  if (!m_catalog)
+    return fail(QStringLiteral("网格化未绑定数据目录（catalog）——派生产物无法登记到工程"));
+  DerivedAssetRegistrar registrar(m_catalog, m_projectDir);
+  const DerivedStaging st = registrar.stage(
+      QStringLiteral("gridded_surface"),
+      QStringLiteral("%1 网格化面（最小曲率）").arg(horizon),
+      QStringLiteral("GRID_%1_MINCURV.tif").arg(horizon));
+  if (!st.isValid())
+    return fail(QStringLiteral("派生资产落位失败（%1 网格化面）").arg(horizon));
+  QString commitErr;
+  bool ok = false;
+  // 父版本不伪造：散点文本源头资产在壳侧（本接口只见文本）——provenance
+  // 走 sourceUri（surfacegridding/<层位>），与厚度井位层同口径。
+  const QString sourceUri = QStringLiteral("surfacegridding/%1").arg(horizon);
+  if (tmpTif.isEmpty())
+  {
+    QString writeErr;
+    if (!writeHorizonGeoTiff(b, st.absolutePath, &writeErr))
+      return fail(QStringLiteral("写出 GeoTIFF 失败：%1").arg(writeErr));
+    ok = registrar.commit(st, {}, sourceUri, extra, &commitErr);
+  }
+  else
+  {
+    ok = registrar.commitExternal(st, tmpTif, {}, sourceUri, extra, &commitErr);
+  }
+  if (!ok)
+    return fail(QStringLiteral("版本登记失败：%1").arg(commitErr));
+  o->tifPath = st.absolutePath;
+  o->assetId = st.assetId;
+  o->versionId = st.versionId;
+  // 声明走信号回 GUI 线程（manifest 写队列纪律）。
+  emit rasterReady(o->layerId, o->tifPath, o->title, horizon);
   return QString();
 }
 

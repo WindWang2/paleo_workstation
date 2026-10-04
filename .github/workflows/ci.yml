@@ -6,6 +6,9 @@ name: ci
 #   - 不拆 per-module 测试 job：GB 级 QGIS 依赖在 runner 间流转不划算
 #     （apt 装一轮 6min+），用 ctest LABELS -L/-LE 在同机分步替代。
 #   - ccache：launcher 由 CMakeLists 检测，CI 只管缓存与安装。
+#   - #136/#81：perf 标签（墙钟预算）不进必过门禁（-LE perf），单独跑在
+#     非阻断的 linux-perf job，JUnit/日志作 artifact 做趋势。
+#   - #138：apt QGIS 版本钉死，单一来源 vendor/deb-closure.lock（tools/ci_apt_qgis.sh）。
 env:
   CMAKE_BUILD_PARALLEL_LEVEL: 2
 
@@ -33,14 +36,8 @@ jobs:
       # 升级 = 有意变更：改此包名 + 本地同步跑一轮收录新告警。
       - name: Pin clang-tidy
         run: sudo apt-get update && sudo apt-get install -y clang-tidy-20 python3
-      - name: Install QGIS/Qt headers (configure 需要 find_package 全绿才有 compile_commands)
-        run: |
-          sudo apt-get install -y ca-certificates curl gnupg
-          sudo install -d -m 755 /etc/apt/keyrings
-          sudo curl -fsSL https://download.qgis.org/downloads/qgis-archive-keyring.gpg -o /etc/apt/keyrings/qgis-archive-keyring.gpg
-          printf 'Types: deb\nURIs: https://qgis.org/debian\nSuites: resolute\nArchitectures: amd64\nComponents: main\nSigned-By: /etc/apt/keyrings/qgis-archive-keyring.gpg\n' | sudo tee /etc/apt/sources.list.d/qgis.sources
-          sudo apt-get update
-          sudo apt-get install -y qgis qgis-providers libqgis-dev qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev qt6-webengine-dev qt6-pdf-dev libgdal-dev
+      - name: Install QGIS/Qt headers (configure 需要 find_package 全绿才有 compile_commands；QGIS 钉版本 #138)
+        run: tools/ci_apt_qgis.sh qtkeychain-qt6-dev
       - name: Configure (compile_commands.json only)
         run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       # .cpp 内 Q_OBJECT 类靠 `#include "*.moc"`（AUTOMOC 产物）；只 configure
@@ -51,10 +48,27 @@ jobs:
           targets=$(cmake --build build --target help | grep -oE '[A-Za-z0-9_-]+_autogen' | sort -u)
           echo "autogen targets: $targets"
           cmake --build build --target $targets
-      - name: clang-tidy gate (changed src/ TUs vs merge-base)
+      # #137：直推 master 时 origin/master == HEAD，旧的 --base origin/master
+      # 永远「无改动」。push 用 event.before（新分支首推的全零 SHA / 不可达时
+      # 回退 HEAD~1），PR 用目标分支；check_tidy.py 自身也在 merge-base==HEAD
+      # 时回退 HEAD~1，并打印实际 base。
+      - name: clang-tidy gate (changed src/ TUs vs push-before / PR base)
         env:
           PALEO_CLANG_TIDY: clang-tidy-20
-        run: python3 tools/check_tidy.py --base origin/master
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PR_BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ] && [ -n "$PR_BASE_REF" ]; then
+            base="origin/$PR_BASE_REF"
+          elif [ -n "$PUSH_BEFORE" ] && ! printf '%s' "$PUSH_BEFORE" | grep -qE '^0+$' \
+               && git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null; then
+            base="$PUSH_BEFORE"
+          else
+            base="HEAD~1"
+          fi
+          echo "tidy base: $base ($(git rev-parse --short "$base" 2>/dev/null || echo '?'))"
+          python3 tools/check_tidy.py --base "$base"
       - name: Source gates (layering / ui invariants / i18n，按脚本位置定位源码根)
         run: |
           python3 tools/check_layering.py --strict
@@ -69,15 +83,8 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install QGIS 4.2 development packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ca-certificates curl gnupg
-          sudo install -d -m 755 /etc/apt/keyrings
-          sudo curl -fsSL https://download.qgis.org/downloads/qgis-archive-keyring.gpg -o /etc/apt/keyrings/qgis-archive-keyring.gpg
-          printf 'Types: deb\nURIs: https://qgis.org/debian\nSuites: resolute\nArchitectures: amd64\nComponents: main\nSigned-By: /etc/apt/keyrings/qgis-archive-keyring.gpg\n' | sudo tee /etc/apt/sources.list.d/qgis.sources
-          sudo apt-get update
-          sudo apt-get install -y qgis qgis-providers libqgis-dev qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev qt6-webengine-dev qt6-pdf-dev libgdal-dev libproj-dev libgeos-dev ccache
+      - name: Install QGIS 4.2 development packages (QGIS 钉版本 #138)
+        run: tools/ci_apt_qgis.sh libproj-dev libgeos-dev ccache qtkeychain-qt6-dev
       - name: Cache ccache
         uses: actions/cache@v4
         with:
@@ -94,6 +101,7 @@ jobs:
       - name: Vendor dependencies
         run: ./paleo-dev bootstrap
       - name: Build
+        id: build
         run: ./paleo-dev build
       - name: Test (headless, isolated-module labels first)
         env:
@@ -102,13 +110,17 @@ jobs:
         # 并行轮失败时串行重跑失败项一次：QGIS 栈建/计时类在 -j 负载下
         # 有环境性抖动（本地串行全绿）；重跑仍挂才算真失败。::warning 留痕。
         # #81：崩溃（SegFault/abort）不重跑，直接判红——见 tools/ci_ctest_gate.sh。
-        run: tools/ci_ctest_gate.sh -LE core
+        # #136：perf 标签不进必过门禁，见 linux-perf job。
+        run: tools/ci_ctest_gate.sh -LE 'core|perf'
+      # #81：上一步红时这一步也要跑（旧行为：core 段在 master 上从未执行过）。
       - name: Test (full-stack umbrella tests)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:
           QT_QPA_PLATFORM: offscreen
           LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
-        run: tools/ci_ctest_gate.sh -L core
+        run: tools/ci_ctest_gate.sh -L core -LE perf
       - name: Selfcheck
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:
           QT_QPA_PLATFORM: offscreen
         run: ./paleo-dev selfcheck
@@ -117,6 +129,67 @@ jobs:
         with:
           name: selfcheck-linux
           path: vendor/logs/
+      # #150/#151：失败现场——ctest 完整日志、QtTest 落盘结果、黄金图当前渲染/差分。
+      - name: Stage test diagnostics
+        if: always()
+        shell: bash
+        run: |
+          if [ -d build ]; then
+            mkdir -p build/Testing/result-files
+            find build -type f -name '*-result.txt' ! -path 'build/Testing/*' \
+              -exec cp -f {} build/Testing/result-files/ \;
+            if [ -d build/golden-out ]; then
+              cp -a build/golden-out build/Testing/
+            fi
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-logs-linux
+          retention-days: 14
+          if-no-files-found: ignore
+          path: build/Testing/
+
+  # #136 / #81 余项：墙钟预算类（ctest -L perf）单独、串行、非阻断；阈值不动，
+  # 结果作 artifact 做趋势跟踪。红了不拖累合并门禁，但在 run 页面可见。
+  linux-perf:
+    runs-on: ubuntu-26.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install QGIS 4.2 development packages (QGIS 钉版本 #138)
+        run: tools/ci_apt_qgis.sh libproj-dev libgeos-dev ccache qtkeychain-qt6-dev
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-ccache-perf-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-perf-
+            ${{ runner.os }}-ccache-
+      - name: Cache vendor artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/onnxruntime
+          key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}
+      - name: Vendor dependencies
+        run: ./paleo-dev bootstrap
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - name: Build + run perf tests (serial)
+        env:
+          QT_QPA_PLATFORM: offscreen
+          LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
+        run: tools/ci_perf.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-results-linux
+          if-no-files-found: ignore
+          path: |
+            build/perf-results/
+            build/Testing/Temporary/LastTest*.log
 
   windows:
     runs-on: windows-latest
@@ -129,19 +202,52 @@ jobs:
             vendor/onnxruntime
             vendor/cache
           key: ${{ runner.os }}-vendor-${{ hashFiles('vendor/manifest.json') }}
+      # #134：Vendor 只取依赖；编译错误落在 Build 步骤（CI 下 ninja -k 0 一次暴露全部错误）。
       - name: Vendor dependencies (OSGeo4W route per docs/phase0/et0-vendor-comparison.md)
         shell: pwsh
-        run: ./paleo-dev.ps1 bootstrap
+        run: ./paleo-dev.ps1 bootstrap fetch-only
       - name: Build (MSVC + vendored QGIS)
+        id: build
         shell: pwsh
         run: ./paleo-dev.ps1 build
-      - name: Test (headless；Windows NativeFormat 走注册表，QSettings 沙箱不适用，保持串行)
+      - name: Selfcheck
         shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
+        run: ./paleo-dev.ps1 selfcheck
+      - name: Test (headless；Windows NativeFormat 走注册表，QSettings 沙箱不适用，保持串行)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PALEO_CTEST_ARGS: -LE perf # #136：墙钟预算类不进必过门禁
         run: ./paleo-dev.ps1 test
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: selfcheck-windows
           path: vendor/logs/
+      - name: Stage test diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          $build = Join-Path $PWD 'build'
+          if (Test-Path $build) {
+            $testing = Join-Path $build 'Testing'
+            $resultDir = Join-Path $testing 'result-files'
+            New-Item -ItemType Directory -Force $resultDir | Out-Null
+            Get-ChildItem -Path $build -Recurse -File -Filter '*-result.txt' |
+              Where-Object { $_.FullName -notlike "$testing*" } |
+              Copy-Item -Destination $resultDir -Force
+            $golden = Join-Path $build 'golden-out'
+            if (Test-Path $golden) {
+              Copy-Item -Path $golden -Destination $testing -Recurse -Force
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-logs-windows
+          retention-days: 14
+          if-no-files-found: ignore
+          path: build/Testing/

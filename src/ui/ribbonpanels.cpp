@@ -389,6 +389,15 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
         b->setAccessibleName(tr("打开图件设计器"));
       }
     }
+    if (QAction *mapBook = findChild<QAction *>(QStringLiteral("ribbonMapBookAction")))
+    {
+      large(op, mapBook);
+      if (auto *b = PaleoRibbon::buttonFor(op, mapBook))
+      {
+        b->setObjectName(QStringLiteral("mapBookButton"));
+        b->setAccessibleName(tr("打开地图册批量导出"));
+      }
+    }
 
     SARibbonPanel *vp = panel(cat, tr("版本"), "ribbonPanel.compose.version");
     large(vp, mirrored(compose, "saveVersionButton", tr("保存版本"), icon("mActionFileSaveAs.svg"),

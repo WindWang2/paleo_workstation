@@ -259,7 +259,7 @@ public:
 
 signals:
   // moc uses _t1/_t2 in the generated definition; public names describe the payload.
-  void versionActivated(const QString &versionId);
+  void versionActivated(const QString &versionId); // NOLINT(readability-inconsistent-declaration-parameter-name)
   void diffRequested(const QString &versionIdA, const QString &versionIdB); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
 private:

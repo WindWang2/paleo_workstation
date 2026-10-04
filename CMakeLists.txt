@@ -348,6 +348,7 @@ add_library(paleo_domain STATIC
   src/domain/types.cpp
   src/domain/wellcompositemodel.cpp
   src/domain/wellrecords.cpp                        # 井文本记录类型 + XML 嗅探（自 io 下沉）
+  src/domain/welltopsedit.cpp                       # 方向 32：分层校验/差异/合并/批量纯函数
   src/domain/projectclassifier.cpp                  # §3 path/extension classifier + xml sniff
   src/domain/arearules.cpp                          # 工程级参数 seam（docs/AREA_PARAMETERS.md）
   src/domain/seismic/nicestep.cpp
@@ -482,6 +483,7 @@ add_library(paleo_workflow STATIC
   src/workflow/mapversioncontroller.cpp            # 保存版本/发布编排
   src/workflow/aiassistworkflow.cpp
   src/workflow/derivedassets.cpp                   # 派生产物 + DERIVED 版本登记
+  src/workflow/welltopseditorworkflow.cpp           # 方向 32：分层编辑版本化提交/回滚/合并编排
 )
 target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store paleo_io paleo_services paleo_domain paleo_ai)
 
@@ -536,6 +538,8 @@ add_library(paleo_ui STATIC
   src/ui/datapreview/previewhistogramwidget.cpp    # P2 D2.3/D5.8 直方图小图
   src/ui/datapreview/previewmapstates.cpp          # P2 D1.7/D2.x 状态页 + 会话记忆
   src/ui/dialogs/folderconfirm.cpp                 # W2 文件夹导入确认表
+  src/ui/welltops/welltopseditordialog.cpp          # 方向 32：分层表编辑器
+  src/ui/welltops/welltopsmergedialog.cpp           # 方向 32：导入融合逐行取舍
   src/ui/webviewpanel.cpp                          # embedded web shell (lazy, degradable)
   src/ui/wellcomposite/wellcompositetrack.cpp      # ResFormStar 多道综合柱状图
   src/ui/wellcomposite/wellcompositecanvas.cpp
@@ -994,6 +998,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-well-logset.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-well-trajectory.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-wellcomposite.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-welltops.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-wellsection.cmake"
 )
 foreach(_f IN LISTS _paleo_extra_manifest)

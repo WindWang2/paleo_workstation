@@ -270,7 +270,7 @@ void PaleoDockManager::updateDrag()
     const bool active = allowed && targets[i].adjusted(-8, -8, 8, 8).contains(pos);
     auto *guide = m_guides[i];
     guide->setGeometry(QRect(m_window->mapToGlobal(targets[i].topLeft()), targets[i].size()));
-    const QString style = QStringLiteral("QLabel { background: %1; color: %2; border: 1px solid %3; border-radius: 4px; }")
+    const QString style = PaleoTheme::metricStyleSheet(QStringLiteral("QLabel { background: %1; color: %2; border: 1px solid %3; border-radius: {rounded.sm}px; }"))
                           .arg((active ? t.primary : t.surface).name(),
                                (active ? t.onPrimary : t.text).name(), t.border.name());
     if (guide->styleSheet() != style)

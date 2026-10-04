@@ -199,7 +199,7 @@ void writeFolderRowResult(QTableWidget *table, int row, const FolderRowResult &r
     // 失败行的「重试」：按当前下拉类型只重导这一行。
     auto *cell = new QWidget(table);
     auto *hl = new QHBoxLayout(cell);
-    hl->setContentsMargins(4, 0, 4, 0);
+    hl->setContentsMargins(PaleoTheme::tokens().spacingXs, 0, PaleoTheme::tokens().spacingXs, 0);
     auto *msg = new QLabel(text, cell);
     msg->setWordWrap(true);
     auto *retry = new QPushButton(QObject::tr("重试"), cell);
@@ -397,7 +397,7 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
   // error token（语义红——失败明细是状态不是装饰；活体随主题）。
   PaleoTheme::applyThemedStyleSheet(errorReport, [] {
     return QStringLiteral("color: %1;")
-        .arg(PaleoTheme::tokens().error.name().toUpper());
+        .arg(PaleoTheme::tokens().errorText.name().toUpper());
   });
   errorReport->hide();
   lay->addWidget(errorReport);

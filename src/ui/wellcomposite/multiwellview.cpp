@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：参考井地层关联线的琥珀色数据叠加。（tools/ui-token-exceptions.json 精确计数）。
 #include "../paleotheme.h"
 #include "multiwellview.h"
 
@@ -89,7 +90,7 @@ MultiWellView::MultiWellView(QWidget *parent)
   setObjectName(QStringLiteral("wellCompositeMultiWellView"));
   auto *lay = new QGridLayout(this);
   lay->setContentsMargins(0, 0, 0, 0);
-  lay->setSpacing(4);
+  lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
   m_overlay = new CorrelationOverlay(this);
   m_overlay->hide();
@@ -153,8 +154,8 @@ void MultiWellView::relayout()
     placeholder->setAlignment(Qt::AlignCenter);
     PaleoTheme::applyThemedStyleSheet(placeholder, [] {
       const auto &t = PaleoTheme::tokens();
-      return QStringLiteral(
-          "color: %1; border: 1px dashed %2; border-radius: 4px; font-size: 9pt;")
+      return PaleoTheme::metricStyleSheet(QStringLiteral(
+          "color: %1; border: 1px dashed %2; border-radius: {rounded.sm}px; font-size: {typography.body}pt;"))
           .arg(t.textDisabled.name(), t.border.name());
     });
     lay->addWidget(placeholder, row, col);
@@ -398,8 +399,8 @@ WellSelectionDialog::WellSelectionDialog(const QStringList &wells, const QString
     const bool ref = referenceWells.contains(w);
     item->setCheckState(m_selected.contains(w) ? Qt::Checked : Qt::Unchecked);
     // D7.10 参考井/测区井视觉语义保持：琥珀/蓝
-    item->setForeground(ref ? QBrush(QColor(QStringLiteral("#92400E")))
-                            : QBrush(QColor(QStringLiteral("#1B73D0"))));
+    PaleoTheme::setItemTextColor(item, ref ? PaleoTheme::ItemTextColor::Warning
+                                         : PaleoTheme::ItemTextColor::Primary);
     item->setData(Qt::UserRole, ref ? QStringLiteral("ref") : QStringLiteral("survey"));
   }
   root->addWidget(m_list, 1);

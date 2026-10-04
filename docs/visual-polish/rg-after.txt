@@ -1,0 +1,461 @@
+src/ui/wellcomposite/trackconfigdialog.cpp:32:     {QColor(QStringLiteral("#2E7D32")), QColor(QStringLiteral("#D32F2F")),
+src/ui/wellcomposite/trackconfigdialog.cpp:33:      QColor(QStringLiteral("#0288D1")), QColor(QStringLiteral("#7B1FA2"))}},
+src/ui/wellcomposite/trackconfigdialog.cpp:35:     {QColor(QStringLiteral("#000000")), QColor(QStringLiteral("#E53935")),
+src/ui/wellcomposite/trackconfigdialog.cpp:36:      QColor(QStringLiteral("#1B73D0")), QColor(QStringLiteral("#F29900"))}},
+src/ui/wellcomposite/trackconfigdialog.cpp:38:     {QColor(QStringLiteral("#66BB6A")), QColor(QStringLiteral("#EF7777")),
+src/ui/wellcomposite/trackconfigdialog.cpp:39:      QColor(QStringLiteral("#64B5F6")), QColor(QStringLiteral("#BA68C8"))}},
+src/ui/paleotheme.h:36:  inline const QColor kColorPrimary = QColor(QStringLiteral("#1B73D0"));
+src/ui/paleotheme.h:37:  inline const QColor kColorOnPrimary = QColor(QStringLiteral("#FFFFFF"));
+src/ui/paleotheme.h:38:  inline const QColor kColorPrimaryHover = QColor(QStringLiteral("#1565B8"));
+src/ui/paleotheme.h:39:  inline const QColor kColorSurface = QColor(QStringLiteral("#FFFFFF"));
+src/ui/paleotheme.h:40:  inline const QColor kColorSurfaceAlt = QColor(QStringLiteral("#EDF1F5"));
+src/ui/paleotheme.h:41:  inline const QColor kColorBorder = QColor(QStringLiteral("#DFE5EC"));
+src/ui/paleotheme.h:42:  inline const QColor kColorText = QColor(QStringLiteral("#24303E"));
+src/ui/paleotheme.h:43:  inline const QColor kColorTextMuted = QColor(QStringLiteral("#5D6E80"));
+src/ui/paleotheme.h:44:  inline const QColor kColorTextDisabled = QColor(QStringLiteral("#9AA7B4"));
+src/ui/paleotheme.h:45:  inline const QColor kColorSuccess = QColor(QStringLiteral("#43A047"));
+src/ui/paleotheme.h:46:  inline const QColor kColorWarning = QColor(QStringLiteral("#F29900"));
+src/ui/paleotheme.h:47:  inline const QColor kColorError = QColor(QStringLiteral("#E53935"));
+src/ui/horizonchipbar.cpp:21:               "QToolButton { border-radius: %8px; padding: {spacing.xs}px {spacing.md}px;"
+src/ui/wellcomposite/wellcompositecanvas.cpp:770:        p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 2.0));
+src/ui/wellcomposite/wellcompositecanvas.cpp:788:    p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 2.0));
+src/ui/wellcomposite/wellcompositecanvas.cpp:810:    p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.5));
+src/ui/wellcomposite/wellcompositecanvas.cpp:1049:      p.setPen(QColor(QStringLiteral("#B45309")));
+src/ui/wellcomposite/wellcompositecanvas.cpp:1065:    p.setPen(QPen(dragging ? QColor(QStringLiteral("#E53935"))
+src/ui/wellcomposite/wellcompositecanvas.cpp:1066:                           : QColor(QStringLiteral("#B45309")),
+src/ui/wellcomposite/wellcompositecanvas.cpp:1077:    p.setPen(QColor(QStringLiteral("#92400E")));
+src/ui/wellcomposite/wellcompositecanvas.cpp:1089:    p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0, Qt::DotLine));
+src/ui/wellcomposite/wellcompositecanvas.cpp:1109:    p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0, Qt::DashLine));
+src/ui/wellcomposite/wellcompositecanvas.cpp:1118:    p.setPen(QColor(QStringLiteral("#1B73D0")));
+src/ui/wellcomposite/wellcompositecanvas.cpp:1132:    p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0, Qt::DashLine));
+src/ui/seismic3d/seismic3dcolormap.cpp:133:            ? qRgba(48, 49, 49, 255) // NaN=缺失（DESIGN.md #303131）
+src/ui/webviewpanel.cpp:18:// DESIGN.md tokens: status/fallback text uses text-muted #5D6E80.
+src/ui/paleomainwindow_wellsection.cpp:46:  // #128：结果按 workflow 的当前世代过滤（wf->currentGeneration()），不记
+src/ui/paleomainwindow_wellsection.cpp:146:              // #124：工区身份变了——先作废在途代并清空面板，再按新工区
+src/ui/paleomainwindow_wellsection.cpp:164:  // #124：工程即将切换——作废在途取数/井间缝（迟到结果按世代丢弃）并清空
+src/ui/seismic3d/seismic3dcolormap.h:41:    // 用 LUT 重算切片 rgba（NaN → #303131 深灰，同 2D 语义）
+src/ui/seismic3d/seismic3dviewpanel.cpp:427:    // #158：换体/清体先中止旧体在途的切片读取（结果按槽位句柄丢弃）。
+src/ui/seismic3d/seismic3dviewpanel.cpp:871:            lines << QStringLiteral("0.00 #1976d2\n0.50 #ffffff\n1.00 #dc2626");
+src/ui/layers/layerpropertiesdialog.cpp:188:        // 到 #5D6E80）——不落颜色字面量。
+src/ui/wellcomposite/hiddentrackbar.cpp:24:        "QToolButton { background: %3; border: 1px solid %2; border-radius: %7px;"
+src/ui/wellcomposite/multiwellview.cpp:37:    p.setPen(QPen(QColor(QStringLiteral("#B45309")), 1.4, Qt::DashDotLine));
+src/ui/seismic3d/seismic3dviewportwidget.cpp:193:    // #158：体被清空（工程切换到无地震工程）后不再画旧体留在 GPU 缓冲里的
+src/ui/wellcomposite/wellpositionlegendwidget.cpp:520:      {tr("油层"), tr("高含油饱和度工业油流层段"), QColor(QStringLiteral("#D32F2F"))},
+src/ui/wellcomposite/wellpositionlegendwidget.cpp:521:      {tr("差油层"), tr("低丰度/弱显示含油储集层"), QColor(QStringLiteral("#FF7043"))},
+src/ui/wellcomposite/wellpositionlegendwidget.cpp:522:      {tr("气层"), tr("高电阻强声波异常天然气层"), QColor(QStringLiteral("#F57C00"))},
+src/ui/wellcomposite/wellpositionlegendwidget.cpp:523:      {tr("油水同层"), tr("过渡带油水混合流体产出层"), QColor(QStringLiteral("#7B1FA2"))},
+src/ui/wellcomposite/wellpositionlegendwidget.cpp:524:      {tr("含水层"), tr("高水淹低电阻纯水层"), QColor(QStringLiteral("#1976D2"))},
+src/ui/wellcomposite/wellpositionlegendwidget.cpp:525:      {tr("干层"), tr("物性极差致密未充注层段"), QColor(QStringLiteral("#78909C"))},
+src/ui/wellcomposite/patterncatalog.cpp:42:  add("sandstone", {QStringLiteral("砂岩"), QStringLiteral("砂")}, "#FFF9C4", "#F57F17", "碎屑岩");
+src/ui/wellcomposite/patterncatalog.cpp:43:  add("fine_sandstone", {QStringLiteral("细砂岩")}, "#FFFDE7", "#F57F17", "碎屑岩");
+src/ui/wellcomposite/patterncatalog.cpp:44:  add("coarse_sandstone", {QStringLiteral("粗砂岩"), QStringLiteral("含砾砂岩")}, "#FFF3C4", "#EF6C00", "碎屑岩");
+src/ui/wellcomposite/patterncatalog.cpp:45:  add("siltstone", {QStringLiteral("粉砂岩"), QStringLiteral("粉砂")}, "#FFFDE7", "#8D6E63", "碎屑岩");
+src/ui/wellcomposite/patterncatalog.cpp:46:  add("mudstone", {QStringLiteral("泥岩"), QStringLiteral("泥")}, "#ECEFF1", "#546E7A", "碎屑岩");
+src/ui/wellcomposite/patterncatalog.cpp:47:  add("shale", {QStringLiteral("页岩"), QStringLiteral("页理")}, "#E0E7EB", "#37474F", "碎屑岩");
+src/ui/wellcomposite/patterncatalog.cpp:48:  add("sandy_mudstone", {QStringLiteral("砂质泥岩"), QStringLiteral("含砂泥岩")}, "#F1F0E4", "#6D6E2A", "碎屑岩");
+src/ui/wellcomposite/patterncatalog.cpp:49:  add("argillaceous_sandstone", {QStringLiteral("泥质砂岩")}, "#FAF0D8", "#9E7C2E", "碎屑岩");
+src/ui/wellcomposite/patterncatalog.cpp:50:  add("conglomerate", {QStringLiteral("砾岩"), QStringLiteral("砾")}, "#FFF8E1", "#6D4C41", "碎屑岩");
+src/ui/wellcomposite/patterncatalog.cpp:51:  add("breccia", {QStringLiteral("角砾岩"), QStringLiteral("角砾")}, "#F6EBD9", "#5D4037", "碎屑岩");
+src/ui/wellcomposite/patterncatalog.cpp:52:  add("glauconitic_sandstone", {QStringLiteral("海绿石砂岩"), QStringLiteral("绿砂")}, "#E8F5E9", "#2E7D32", "碎屑岩");
+src/ui/wellcomposite/patterncatalog.cpp:55:  add("limestone", {QStringLiteral("灰岩"), QStringLiteral("石灰岩")}, "#E0F7FA", "#00838F", "碳酸盐岩");
+src/ui/wellcomposite/patterncatalog.cpp:56:  add("oolitic_limestone", {QStringLiteral("鲕粒灰岩"), QStringLiteral("鲕状")}, "#DFF4F8", "#00695C", "碳酸盐岩");
+src/ui/wellcomposite/patterncatalog.cpp:57:  add("bioclastic_limestone", {QStringLiteral("生物灰岩"), QStringLiteral("生物碎屑")}, "#D9F0F4", "#006064", "碳酸盐岩");
+src/ui/wellcomposite/patterncatalog.cpp:58:  add("reef_limestone", {QStringLiteral("礁灰岩"), QStringLiteral("礁")}, "#C8ECF2", "#004D40", "碳酸盐岩");
+src/ui/wellcomposite/patterncatalog.cpp:59:  add("chalk", {QStringLiteral("白垩"), QStringLiteral("白垩系灰岩")}, "#F5FDFE", "#455A64", "碳酸盐岩");
+src/ui/wellcomposite/patterncatalog.cpp:60:  add("marl", {QStringLiteral("泥灰岩"), QStringLiteral("泥灰")}, "#EDF2F0", "#546E7A", "碳酸盐岩");
+src/ui/wellcomposite/patterncatalog.cpp:61:  add("dolomite", {QStringLiteral("白云岩"), QStringLiteral("云岩")}, "#F3E5F5", "#6A1B9A", "碳酸盐岩");
+src/ui/wellcomposite/patterncatalog.cpp:62:  add("dolomitic_limestone", {QStringLiteral("白云质灰岩")}, "#EDF0F8", "#4527A0", "碳酸盐岩");
+src/ui/wellcomposite/patterncatalog.cpp:63:  add("calcirudite", {QStringLiteral("灰砾岩"), QStringLiteral("砾屑灰岩")}, "#E2F1F3", "#00838F", "碳酸盐岩");
+src/ui/wellcomposite/patterncatalog.cpp:65:  add("shoal_grainstone", {QStringLiteral("颗粒滩"), QStringLiteral("滩灰岩"), QStringLiteral("滩")}, "#E8F6FA", "#0277BD", "碳酸盐岩");
+src/ui/wellcomposite/patterncatalog.cpp:68:  add("gypsum", {QStringLiteral("石膏"), QStringLiteral("膏岩")}, "#FDF6E3", "#B45309", "蒸发岩");
+src/ui/wellcomposite/patterncatalog.cpp:69:  add("anhydrite", {QStringLiteral("硬石膏")}, "#FBF3DF", "#92400E", "蒸发岩");
+src/ui/wellcomposite/patterncatalog.cpp:70:  add("salt_rock", {QStringLiteral("盐岩"), QStringLiteral("石盐")}, "#FFF8F9", "#C2185B", "蒸发岩");
+src/ui/wellcomposite/patterncatalog.cpp:73:  add("coal", {QStringLiteral("煤")}, "#CFD8DC", "#212121", "有机岩");
+src/ui/wellcomposite/patterncatalog.cpp:74:  add("oil_shale", {QStringLiteral("油页岩")}, "#EFEBE9", "#4E342E", "有机岩");
+src/ui/wellcomposite/patterncatalog.cpp:75:  add("carbonaceous_mudstone", {QStringLiteral("碳质泥岩"), QStringLiteral("炭质")}, "#E5E7E5", "#263238", "有机岩");
+src/ui/wellcomposite/patterncatalog.cpp:78:  add("tuff", {QStringLiteral("凝灰岩"), QStringLiteral("凝灰")}, "#ECEFF1", "#5D4037", "火成岩");
+src/ui/wellcomposite/patterncatalog.cpp:79:  add("tuffaceous_sandstone", {QStringLiteral("凝灰质砂岩")}, "#F1F2EA", "#6D4C41", "火成岩");
+src/ui/wellcomposite/patterncatalog.cpp:80:  add("basalt", {QStringLiteral("玄武岩")}, "#E3E7EA", "#37474F", "火成岩");
+src/ui/wellcomposite/patterncatalog.cpp:81:  add("andesite", {QStringLiteral("安山岩")}, "#EDEFF1", "#455A64", "火成岩");
+src/ui/wellcomposite/patterncatalog.cpp:82:  add("rhyolite", {QStringLiteral("流纹岩")}, "#F4F5F7", "#546E7A", "火成岩");
+src/ui/wellcomposite/patterncatalog.cpp:83:  add("granite", {QStringLiteral("花岗岩"), QStringLiteral("基岩")}, "#F1EDE9", "#616161", "火成岩");
+src/ui/wellcomposite/patterncatalog.cpp:84:  add("pyroclastic", {QStringLiteral("火山碎屑岩")}, "#EAE9E5", "#4E342E", "火成岩");
+src/ui/wellcomposite/patterncatalog.cpp:87:  add("phosphorite", {QStringLiteral("磷块岩"), QStringLiteral("磷矿")}, "#EDE7F6", "#5E35B1", "其他");
+src/ui/wellcomposite/patterncatalog.cpp:88:  add("chert", {QStringLiteral("硅质岩"), QStringLiteral("燧石")}, "#ECEFF1", "#37474F", "其他");
+src/ui/wellcomposite/patterncatalog.cpp:89:  add("ironstone", {QStringLiteral("铁质岩"), QStringLiteral("赤铁矿层")}, "#FBE9E7", "#B71C1C", "其他");
+src/ui/wellcomposite/patterncatalog.cpp:90:  add("diatomite", {QStringLiteral("硅藻土")}, "#F7F9F8", "#78909C", "其他");
+src/ui/wellcomposite/patterncatalog.cpp:308:  pm.fill(bg.isValid() ? bg : QColor(QStringLiteral("#FFFFFF")));
+src/ui/wellcomposite/patterncatalog.cpp:311:  drawNewPattern(p, key, fg.isValid() ? fg : QColor(QStringLiteral("#455A64")), size);
+src/ui/decorations/paleodecorations.cpp:239:  // 配准图层存在期间绘制，平时不出现。白字在 #F29900 上只有 2.1:1
+src/ui/correlationpanel.h:78:    // #156：工程切换——清空井集/曲线/LAS 快照，在途 LAS 解析取消且迟到结果
+src/ui/wellcomposite/chronostratcolors.cpp:29:    {"全新统", "#F9F97F"}, {"更新统", "#F7F980"}};
+src/ui/wellcomposite/chronostratcolors.cpp:31:    {"上新统", "#FCE97F"}, {"中新统", "#FFE27B"}, {"早中新统", "#FFE97B"}};
+src/ui/wellcomposite/chronostratcolors.cpp:33:    {"渐新统", "#FDC57A"}, {"始新统", "#FDB46C"}, {"古新统", "#FD9A52"}};
+src/ui/wellcomposite/chronostratcolors.cpp:35:    {"上白垩统", "#7FC64E"}, {"下白垩统", "#83BB68"}};
+src/ui/wellcomposite/chronostratcolors.cpp:37:    {"上侏罗统", "#33B679"}, {"中侏罗统", "#41C087"}, {"下侏罗统", "#53CA9C"}};
+src/ui/wellcomposite/chronostratcolors.cpp:39:    {"上三叠统", "#812B92"}, {"中三叠统", "#9A45A7"}, {"下三叠统", "#B360BC"}};
+src/ui/wellcomposite/chronostratcolors.cpp:41:    {"乐平统", "#F04028"}, {"瓜德鲁普统", "#F45B41"}, {"乌拉尔统", "#F8765A"}};
+src/ui/wellcomposite/chronostratcolors.cpp:43:    {"宾夕法尼亚亚系", "#97CDE0"}, {"密西西比亚系", "#9DD0E3"}};
+src/ui/wellcomposite/chronostratcolors.cpp:45:    {"上泥盆统", "#CB8C37"}, {"中泥盆统", "#D0A04E"}, {"下泥盆统", "#D5B465"}};
+src/ui/wellcomposite/chronostratcolors.cpp:47:    {"普里多利统", "#B3E1B6"}, {"罗德洛统", "#AFE0B4"}, {"温洛克统", "#ACDFB2"}, {"兰多维列统", "#A9DEB0"}};
+src/ui/wellcomposite/chronostratcolors.cpp:49:    {"上奥陶统", "#009270"}, {"中奥陶统", "#25A37E"}, {"下奥陶统", "#4AB58C"}};
+src/ui/wellcomposite/chronostratcolors.cpp:51:    {"芙蓉统", "#7FA056"}, {"第十统", "#8BAA66"}, {"第九统", "#97B476"}, {"幸运统", "#A3BE86"}, {"第二统", "#AFC896"}};
+src/ui/wellcomposite/chronostratcolors.cpp:53:    {"埃迪卡拉系", "#FE95C9"}, {"成冰系", "#FEC9E4"}, {"拉伸系", "#FEDCF0"},
+src/ui/wellcomposite/chronostratcolors.cpp:54:    {"延展系", "#FEE9F6"}, {"盖层系", "#FEF0FA"}, {"固结系", "#FEF6FD"},
+src/ui/wellcomposite/chronostratcolors.cpp:55:    {"造山系", "#F9F1E8"}, {"层侵系", "#F9F6F1"}, {"成铁系", "#FAFBF7"}};
+src/ui/wellcomposite/chronostratcolors.cpp:58:    {"第四系", "#F9F97F", kQuaternary, 2},
+src/ui/wellcomposite/chronostratcolors.cpp:59:    {"新近系", "#FCE97F", kNeogene, 3},
+src/ui/wellcomposite/chronostratcolors.cpp:60:    {"古近系", "#FDB46C", kPaleogene, 3},
+src/ui/wellcomposite/chronostratcolors.cpp:61:    {"白垩系", "#7FC64E", kCretaceous, 2},
+src/ui/wellcomposite/chronostratcolors.cpp:62:    {"侏罗系", "#33B679", kJurassicSeries, 3},
+src/ui/wellcomposite/chronostratcolors.cpp:63:    {"三叠系", "#812B92", kTriassicSeries, 3},
+src/ui/wellcomposite/chronostratcolors.cpp:64:    {"二叠系", "#F04028", kPermianSeries, 3},
+src/ui/wellcomposite/chronostratcolors.cpp:65:    {"石炭系", "#97CDE0", kCarboniferousSeries, 2},
+src/ui/wellcomposite/chronostratcolors.cpp:66:    {"泥盆系", "#CB8C37", kDevonianSeries, 3},
+src/ui/wellcomposite/chronostratcolors.cpp:67:    {"志留系", "#B3E1B6", kSilurianSeries, 4},
+src/ui/wellcomposite/chronostratcolors.cpp:68:    {"奥陶系", "#009270", kOrdovicianSeries, 3},
+src/ui/wellcomposite/chronostratcolors.cpp:69:    {"寒武系", "#7FA056", kCambrianSeries, 5},
+src/ui/wellcomposite/chronostratcolors.cpp:70:    {"新元古界", "#FE95C9", kPrecambrianSeries, 3},
+src/ui/wellcomposite/chronostratcolors.cpp:71:    {"中元古界", "#FEC9E4", kPrecambrianSeries + 3, 3},
+src/ui/wellcomposite/chronostratcolors.cpp:72:    {"古元古界", "#FEE9F6", kPrecambrianSeries + 6, 3},
+src/ui/wellcomposite/chronostratcolors.cpp:113:    return QColor(QStringLiteral("#ECEFF1")); // 未识别：中性灰，不臆造
+src/ui/wellcomposite/chronostratcolors.cpp:132:  return QColor(QStringLiteral("#ECEFF1"));
+src/ui/wellcomposite/wellcompositetrack.cpp:58:    painter.setPen(QColor(isUnit ? QStringLiteral("#5D6E80") : QStringLiteral("#455A64")));
+src/ui/wellcomposite/wellcompositetrack.cpp:161:  QColor bg = baseBg.isValid() ? baseBg : QColor(QStringLiteral("#ECEFF1"));
+src/ui/wellcomposite/wellcompositetrack.cpp:162:  QColor fg = QColor(QStringLiteral("#455A64"));
+src/ui/wellcomposite/wellcompositetrack.cpp:169:      if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFFDE7"));
+src/ui/wellcomposite/wellcompositetrack.cpp:170:      fg = QColor(QStringLiteral("#8D6E63"));
+src/ui/wellcomposite/wellcompositetrack.cpp:175:      if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFF8E1"));
+src/ui/wellcomposite/wellcompositetrack.cpp:176:      fg = QColor(QStringLiteral("#6D4C41"));
+src/ui/wellcomposite/wellcompositetrack.cpp:181:      if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFF9C4")); // 砂岩浅黄
+src/ui/wellcomposite/wellcompositetrack.cpp:182:      fg = QColor(QStringLiteral("#F57F17"));
+src/ui/wellcomposite/wellcompositetrack.cpp:188:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#ECEFF1")); // 泥岩浅灰
+src/ui/wellcomposite/wellcompositetrack.cpp:189:    fg = QColor(QStringLiteral("#546E7A"));
+src/ui/wellcomposite/wellcompositetrack.cpp:194:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#E0F7FA")); // 灰岩天青蓝
+src/ui/wellcomposite/wellcompositetrack.cpp:195:    fg = QColor(QStringLiteral("#00838F"));
+src/ui/wellcomposite/wellcompositetrack.cpp:200:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#F3E5F5")); // 白云岩淡紫
+src/ui/wellcomposite/wellcompositetrack.cpp:201:    fg = QColor(QStringLiteral("#6A1B9A"));
+src/ui/wellcomposite/wellcompositetrack.cpp:206:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#CFD8DC"));
+src/ui/wellcomposite/wellcompositetrack.cpp:207:    fg = QColor(QStringLiteral("#212121"));
+src/ui/wellcomposite/wellcompositetrack.cpp:372:  QColor bg = baseBg.isValid() ? baseBg : QColor(QStringLiteral("#FFE082"));
+src/ui/wellcomposite/wellcompositetrack.cpp:373:  QColor fg = QColor(QStringLiteral("#E65100"));
+src/ui/wellcomposite/wellcompositetrack.cpp:383:      bg = QColor(QStringLiteral("#FFE082"));
+src/ui/wellcomposite/wellcompositetrack.cpp:384:    fg = QColor(QStringLiteral("#E65100"));
+src/ui/wellcomposite/wellcompositetrack.cpp:394:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFE082"));
+src/ui/wellcomposite/wellcompositetrack.cpp:395:    fg = QColor(QStringLiteral("#E65100"));
+src/ui/wellcomposite/wellcompositetrack.cpp:400:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFF176"));
+src/ui/wellcomposite/wellcompositetrack.cpp:401:    fg = QColor(QStringLiteral("#F57F17"));
+src/ui/wellcomposite/wellcompositetrack.cpp:406:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFF9C4"));
+src/ui/wellcomposite/wellcompositetrack.cpp:407:    fg = QColor(QStringLiteral("#F9A825"));
+src/ui/wellcomposite/wellcompositetrack.cpp:412:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#C8E6C9"));
+src/ui/wellcomposite/wellcompositetrack.cpp:413:    fg = QColor(QStringLiteral("#2E7D32"));
+src/ui/wellcomposite/wellcompositetrack.cpp:418:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFE0B2"));
+src/ui/wellcomposite/wellcompositetrack.cpp:419:    fg = QColor(QStringLiteral("#D84315"));
+src/ui/wellcomposite/wellcompositetrack.cpp:424:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#E6EE9C"));
+src/ui/wellcomposite/wellcompositetrack.cpp:425:    fg = QColor(QStringLiteral("#33691E"));
+src/ui/wellcomposite/wellcompositetrack.cpp:430:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#B0BEC5"));
+src/ui/wellcomposite/wellcompositetrack.cpp:431:    fg = QColor(QStringLiteral("#37474F"));
+src/ui/wellcomposite/wellcompositetrack.cpp:436:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#80DEEA"));
+src/ui/wellcomposite/wellcompositetrack.cpp:437:    fg = QColor(QStringLiteral("#006064"));
+src/ui/wellcomposite/wellcompositetrack.cpp:442:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFCC80"));
+src/ui/wellcomposite/wellcompositetrack.cpp:443:    fg = QColor(QStringLiteral("#BF360C"));
+src/ui/wellcomposite/wellcompositetrack.cpp:448:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFE082"));
+src/ui/wellcomposite/wellcompositetrack.cpp:449:    fg = QColor(QStringLiteral("#5D4037"));
+src/ui/wellcomposite/wellcompositetrack.cpp:454:    if (!baseBg.isValid()) bg = QColor(QStringLiteral("#D7CCC8"));
+src/ui/wellcomposite/wellcompositetrack.cpp:455:    fg = QColor(QStringLiteral("#4E342E"));
+src/ui/wellcomposite/wellcompositetrack.cpp:503:    painter.setPen(QColor(QStringLiteral("#9AA7B4")));
+src/ui/wellcomposite/wellcompositetrack.cpp:565:      painter.setPen(QColor(m_highContrast ? QStringLiteral("#5D6E80") : QStringLiteral("#9AA7B4")));
+src/ui/wellcomposite/wellcompositetrack.cpp:573:    painter.setPen(QColor(m_highContrast ? QStringLiteral("#24303E") : QStringLiteral("#5D6E80")));
+src/ui/wellcomposite/wellcompositetrack.cpp:630:    painter.setPen(QPen(QColor(QStringLiteral("#CFD8DC")), 1.0, Qt::DashLine));
+src/ui/wellcomposite/wellcompositetrack.cpp:663:  painter.fillRect(bodyRect, QColor(QStringLiteral("#FAFAFA")));
+src/ui/wellcomposite/wellcompositetrack.cpp:692:      painter.setPen(QColor(QStringLiteral("#1A237E")));
+src/ui/wellcomposite/wellcompositetrack.cpp:741:    painter.setPen(QPen(QColor(QStringLiteral("#78909C")), 1.0, Qt::SolidLine));
+src/ui/wellcomposite/wellcompositetrack.cpp:750:      painter.setPen(QColor(QStringLiteral("#263238")));
+src/ui/wellcomposite/wellcompositetrack.cpp:798:    painter.setPen(QPen(QColor(QStringLiteral("#2E7D32")), 1.5));
+src/ui/wellcomposite/wellcompositetrack.cpp:799:    painter.setBrush(QColor(QStringLiteral("#E8F5E9")));
+src/ui/wellcomposite/wellcompositetrack.cpp:803:    painter.setPen(QColor(QStringLiteral("#1B5E20")));
+src/ui/wellcomposite/wellcompositetrack.cpp:814:    painter.fillRect(QRectF(barLeft, barrelRect.top() + 2, recWidth, barrelRect.height() - 4), QColor(QStringLiteral("#43A047")));
+src/ui/wellcomposite/wellcompositetrack.cpp:847:  painter.fillRect(bodyRect, QColor(QStringLiteral("#FAFAFA")));
+src/ui/wellcomposite/wellcompositetrack.cpp:867:      painter.fillRect(imgRect, QColor(QStringLiteral("#E0E0E0")));
+src/ui/wellcomposite/wellcompositetrack.cpp:868:      painter.setPen(QColor(QStringLiteral("#757575")));
+src/ui/wellcomposite/wellcompositetrack.cpp:871:    painter.setPen(QColor(QStringLiteral("#B0BEC5")));
+src/ui/wellcomposite/wellcompositetrack.cpp:1054:      painter.setPen(QPen(isMinor ? QColor(QStringLiteral("#F8FAFB")) : QColor(QStringLiteral("#F1F3F5")),
+src/ui/wellcomposite/wellcompositetrack.cpp:1182:      painter.setPen(QPen(QColor(QStringLiteral("#D32F2F")), 2.0));
+src/ui/wellcomposite/wellcompositetrack.cpp:1186:      painter.setPen(QPen(QColor(QStringLiteral("#D32F2F")), 1.5));
+src/ui/wellcomposite/wellcompositetrack.cpp:1196:      painter.setBrush(QColor(QStringLiteral("#D32F2F")));
+src/ui/wellcomposite/wellcompositetrack.cpp:1201:      painter.setPen(QPen(QColor(QStringLiteral("#D32F2F")), 1.5));
+src/ui/wellcomposite/wellcompositetrack.cpp:1202:      painter.setBrush(QColor(QStringLiteral("#FFEBEE")));
+src/ui/wellcomposite/wellcompositetrack.cpp:1208:      painter.setBrush(QColor(QStringLiteral("#1976D2")));
+src/ui/wellcomposite/wellcompositetrack.cpp:1213:      painter.setPen(QPen(QColor(QStringLiteral("#7B1FA2")), 1.5));
+src/ui/wellcomposite/wellcompositetrack.cpp:1214:      painter.setBrush(QColor(QStringLiteral("#E1BEE7")));
+src/ui/wellcomposite/wellcompositetrack.cpp:1225:      painter.setPen(QPen(QColor(QStringLiteral("#D97706")), 1.5));
+src/ui/wellcomposite/wellcompositetrack.cpp:1226:      painter.setBrush(QColor(QStringLiteral("#FEF3C7")));
+src/ui/wellcomposite/wellcompositetrack.cpp:1234:      painter.setPen(QPen(QColor(QStringLiteral("#2563EB")), 1.5));
+src/ui/wellcomposite/wellcompositetrack.cpp:1235:      painter.setBrush(QColor(QStringLiteral("#DBEAFE")));
+src/ui/wellcomposite/wellcompositetrack.cpp:1364:    painter.setPen(QPen(QColor(QStringLiteral("#78909C")), 1.0));
+src/ui/wellcomposite/wellcompositetrack.cpp:1411:    painter.setPen(QPen(QColor(QStringLiteral("#90A4AE")), 1.0));
+src/ui/wellcomposite/wellcompositetrack.cpp:1446:      painter.setPen(QColor(QStringLiteral("#1A237E")));
+src/ui/wellcomposite/wellcompositetrack.cpp:1476:        si.systemColor = QColor(QStringLiteral("#FFF9C4"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1477:        si.seriesColor = QColor(QStringLiteral("#FFF59D"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1483:        si.systemColor = QColor(QStringLiteral("#FFF9C4"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1484:        si.seriesColor = QColor(QStringLiteral("#FFE082"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1490:        si.systemColor = QColor(QStringLiteral("#FFF9C4"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1491:        si.seriesColor = QColor(QStringLiteral("#FFD54F"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1497:        si.systemColor = QColor(QStringLiteral("#FFF3E0"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1498:        si.seriesColor = QColor(QStringLiteral("#FFCC80"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1504:        si.systemColor = QColor(QStringLiteral("#FFF3E0"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1505:        si.seriesColor = QColor(QStringLiteral("#FFA726"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1511:        si.systemColor = QColor(QStringLiteral("#FFF3E0"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1512:        si.seriesColor = QColor(QStringLiteral("#FFA726"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1518:        si.systemColor = QColor(QStringLiteral("#FFF9C4"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1519:        si.seriesColor = QColor(QStringLiteral("#FFE082"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1525:        si.systemColor = QColor(QStringLiteral("#FFF3E0"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1526:        si.seriesColor = QColor(QStringLiteral("#FFCC80"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1532:        si.systemColor = QColor(QStringLiteral("#E8F5E9"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1533:        si.seriesColor = QColor(QStringLiteral("#C8E6C9"));
+src/ui/wellcomposite/wellcompositetrack.cpp:1623:  // 绘制竖向分割线（#DFE5EC 在白底上近乎不可见，加深一档）
+src/ui/wellcomposite/wellcompositetrack.cpp:1624:  painter.setPen(QColor(QStringLiteral("#B0BEC5")));
+src/ui/wellcomposite/wellcompositetrack.cpp:1662:    painter.setPen(QPen(QColor(QStringLiteral("#546E7A")), 1.4));
+src/ui/wellcomposite/wellcompositetrack.cpp:1710:    painter.setPen(QPen(QColor(QStringLiteral("#78909C")), 1.2));
+src/ui/wellcomposite/wellcompositetrack.cpp:1762:      painter.setPen(QPen(QColor(QStringLiteral("#B0BEC5")), 0.8));
+src/ui/wellcomposite/wellcompositetrack.cpp:1765:      painter.setPen(QColor(QStringLiteral("#1A237E")));
+src/ui/paleomainwindow.h:149:    // #153/#154/#156/#158：工程即将关闭/切换（QgisProjectService::
+src/ui/paleomainwindow.h:154:    // #156：测井对比井集 = catalog 全部 well_log（打开工程与导入后都走这里）。
+src/ui/paleomainwindow.h:366:    // #148：地图册批量导出（「智能编图 › 图件输出 › 地图册」），工程关闭时
+src/ui/correlation/horizonmarkers.cpp:42:  const QColor kDefaultMarkerColor(QStringLiteral("#F29900")); // DESIGN.md warning
+src/ui/wellcomposite/wellcompositepanel.cpp:265:    // #133：只接受 https；内网 http 服务须显式勾选并接受明文风险。
+src/ui/paleotheme.cpp:56:      /*.primary =*/hx("#1B73D0"),        /*.onPrimary =*/hx("#FFFFFF"),
+src/ui/paleotheme.cpp:57:      /*.primaryHover =*/hx("#1565B8"),   /*.primaryText =*/hx("#1B73D0"),
+src/ui/paleotheme.cpp:58:      /*.focusRing =*/hx("#1B73D0"),      /*.surface =*/hx("#FFFFFF"),
+src/ui/paleotheme.cpp:59:      /*.surfaceAlt =*/hx("#EDF1F5"),     /*.surfaceAltRaised =*/hx("#EDF1F5"),
+src/ui/paleotheme.cpp:60:      /*.border =*/hx("#DFE5EC"),         /*.text =*/hx("#24303E"),
+src/ui/paleotheme.cpp:61:      /*.textMuted =*/hx("#5D6E80"),      /*.textDisabled =*/hx("#9AA7B4"),
+src/ui/paleotheme.cpp:62:      /*.placeholder =*/hx("#5D6E80"),    /*.success =*/hx("#43A047"),
+src/ui/paleotheme.cpp:63:      /*.warning =*/hx("#F29900"),        /*.error =*/hx("#E53935"),
+src/ui/paleotheme.cpp:64:      /*.successBg =*/hx("#E8F5E9"),      /*.warningBg =*/hx("#FFF4E0"),
+src/ui/paleotheme.cpp:65:      /*.errorBg =*/hx("#FDEBEB"),        /*.successText =*/hx("#2E7D32"),
+src/ui/paleotheme.cpp:66:      /*.warningText =*/hx("#9A5B00"),    /*.errorText =*/hx("#C62828"),
+src/ui/paleotheme.cpp:71:  // #5FA5F0。surfaceAltRaised = 暗色下比 surfaceAlt 略浮起一档的面
+src/ui/paleotheme.cpp:74:      /*.primary =*/hx("#1B73D0"),        /*.onPrimary =*/hx("#FFFFFF"),
+src/ui/paleotheme.cpp:75:      /*.primaryHover =*/hx("#2F82DD"),   /*.primaryText =*/hx("#5FA5F0"),
+src/ui/paleotheme.cpp:76:      /*.focusRing =*/hx("#5FA5F0"),      /*.surface =*/hx("#252C36"),
+src/ui/paleotheme.cpp:77:      /*.surfaceAlt =*/hx("#1B212A"),     /*.surfaceAltRaised =*/hx("#2A313B"),
+src/ui/paleotheme.cpp:78:      /*.border =*/hx("#3B4552"),         /*.text =*/hx("#E4EAF2"),
+src/ui/paleotheme.cpp:79:      /*.textMuted =*/hx("#A3B1BF"),      /*.textDisabled =*/hx("#66717E"),
+src/ui/paleotheme.cpp:80:      /*.placeholder =*/hx("#A3B1BF"),    /*.success =*/hx("#5CB860"),
+src/ui/paleotheme.cpp:81:      /*.warning =*/hx("#FFB74D"),        /*.error =*/hx("#F76A61"),
+src/ui/paleotheme.cpp:82:      /*.successBg =*/hx("#1F3524"),      /*.warningBg =*/hx("#3A2E15"),
+src/ui/paleotheme.cpp:83:      /*.errorBg =*/hx("#3A1D1D"),        /*.successText =*/hx("#5CB860"),
+src/ui/paleotheme.cpp:84:      /*.warningText =*/hx("#FFB74D"),    /*.errorText =*/hx("#F76A61"),
+src/ui/paleotheme.cpp:111:    // 统一大写 #RRGGBB——浅色历史值（#EDF1F5 等）全部大写，逐字节可比。
+src/ui/paleotheme.cpp:549:               "QTreeView::item, QListView::item { padding: %2px {spacing.xs}px; }"
+src/ui/paleotheme.cpp:655:    "accent": "#EDF1F5",
+src/ui/paleotheme.cpp:656:    "accent-hover": "#DFE5EC",
+src/ui/paleotheme.cpp:657:    "tab-accent": "#1B73D0",
+src/ui/paleotheme.cpp:658:    "tab-accent-hover": "#9AA7B4",
+src/ui/paleotheme.cpp:659:    "content-bg": "#FFFFFF",
+src/ui/paleotheme.cpp:660:    "content-hover-bg": "#EDF1F5",
+src/ui/paleotheme.cpp:661:    "content-pressed-bg": "#DFE5EC",
+src/ui/paleotheme.cpp:662:    "text-color": "#24303E",
+src/ui/paleotheme.cpp:663:    "subtitle": "#5D6E80",
+src/ui/paleotheme.cpp:664:    "separator": "#DFE5EC",
+src/ui/paleotheme.cpp:665:    "border-color": "#DFE5EC",
+src/ui/paleotheme.cpp:666:    "input-border": "#DFE5EC",
+src/ui/paleotheme.cpp:667:    "input-focus": "#1B73D0",
+src/ui/paleotheme.cpp:668:    "selection-bg": "#DFE5EC",
+src/ui/paleotheme.cpp:669:    "menu-border": "#DFE5EC",
+src/ui/paleotheme.cpp:670:    "close-bg": "#E53935",
+src/ui/paleotheme.cpp:671:    "close-bg-pressed": "#FDEBEB",
+src/ui/paleotheme.cpp:672:    "sys-button-hover": "#EDF1F5",
+src/ui/paleotheme.cpp:673:    "sys-button-pressed": "#DFE5EC",
+src/ui/paleotheme.cpp:674:    "white": "#FFFFFF",
+src/ui/paleotheme.cpp:675:    "black": "#24303E"
+src/ui/paleotheme.cpp:683:    "accent": "#1B212A",
+src/ui/paleotheme.cpp:684:    "accent-hover": "#2A313B",
+src/ui/paleotheme.cpp:685:    "tab-accent": "#5FA5F0",
+src/ui/paleotheme.cpp:686:    "tab-accent-hover": "#66717E",
+src/ui/paleotheme.cpp:687:    "content-bg": "#252C36",
+src/ui/paleotheme.cpp:688:    "content-hover-bg": "#2A313B",
+src/ui/paleotheme.cpp:689:    "content-pressed-bg": "#3B4552",
+src/ui/paleotheme.cpp:690:    "text-color": "#E4EAF2",
+src/ui/paleotheme.cpp:691:    "subtitle": "#A3B1BF",
+src/ui/paleotheme.cpp:692:    "separator": "#3B4552",
+src/ui/paleotheme.cpp:693:    "border-color": "#3B4552",
+src/ui/paleotheme.cpp:694:    "input-border": "#3B4552",
+src/ui/paleotheme.cpp:695:    "input-focus": "#5FA5F0",
+src/ui/paleotheme.cpp:696:    "selection-bg": "#2A313B",
+src/ui/paleotheme.cpp:697:    "menu-border": "#3B4552",
+src/ui/paleotheme.cpp:698:    "close-bg": "#F76A61",
+src/ui/paleotheme.cpp:699:    "close-bg-pressed": "#3A1D1D",
+src/ui/paleotheme.cpp:700:    "sys-button-hover": "#2A313B",
+src/ui/paleotheme.cpp:701:    "sys-button-pressed": "#3B4552",
+src/ui/paleotheme.cpp:702:    "white": "#FFFFFF",
+src/ui/paleotheme.cpp:703:    "black": "#24303E"
+src/ui/seismicsection/seismicsectioncanvas.h:66:    // #147：列轴 = 体的实际线号表（步长可 >1）；空 → colMin+col。换算走 sectionaxis.h。
+src/ui/seismicsection/seismicsectioncanvas.h:68:    // #146：剖面首样 TWT（记录延迟）；样点 ↔ TWT 换算基准。
+src/ui/seismicsection/seismicsectioncanvas.h:182:    // 琥珀色虚线：派生交线待复核，和拾取棒 #E53935 分开。
+src/ui/taskpanel.h:41:    // #164：子控件构造时缓存——refresh 每行一次 findChild 是 O(子对象数)，
+src/ui/paleomainwindow_sections.cpp:33:  band->setColor(QColor("#1B73D0"));
+src/ui/wellcomposite/exportengine.cpp:173:    e.swatch = QColor(QStringLiteral("#B45309"));
+src/ui/wellcomposite/exportengine.cpp:219:      painter.setPen(QColor(QStringLiteral("#9AA7B4")));
+src/ui/datapreview/previewprofilepanel.cpp:29:        QColor( QStringLiteral( "#1B73D0" ) ), QColor( QStringLiteral( "#E65100" ) ),
+src/ui/datapreview/previewprofilepanel.cpp:30:        QColor( QStringLiteral( "#7B1FA2" ) ), QColor( QStringLiteral( "#00838F" ) ),
+src/ui/datapreview/previewprofilepanel.cpp:31:        QColor( QStringLiteral( "#C2185B" ) ), QColor( QStringLiteral( "#388E3C" ) ),
+src/ui/datapreview/previewprofilepanel.cpp:91:      //（有序列时不画）。#5D6E80 = DESIGN.md text-muted（chart 笔色出口）。
+src/ui/datapreview/datapreviewtabs.h:85:    // #154：关闭全部标签（含测区全景）并释放各资产的服务侧缓存——工程切换
+src/ui/paleomainwindow_attach.cpp:68:#include "layout/mapbookcontroller.h" // #148：地图册面板 ↔ 批量导出队列
+src/ui/paleomainwindow_attach.cpp:508:              // GUI 线程。catalog 登记（#106 owner-thread 写守卫）与切片/叠置
+src/ui/paleomainwindow_attach.cpp:521:              // #163：进度经任务对象回主线程（任务属服务，服务排空前不析构），
+src/ui/paleomainwindow_attach.cpp:529:              // #159：收尾接 jobCompleted（commit/drop 执行完之后发），而不是
+src/ui/paleomainwindow_attach.cpp:559:  // drop 都已执行完（#159）。catalog 登记由 JobRunner 的 commit 段完成（已断言
+src/ui/paleomainwindow_attach.cpp:1182:              // (#156：井集与工程打开同一来源——catalog 全部 well_log)。
+src/ui/paleomainwindow_attach.cpp:2563:  // #148 地图册批量导出：面板挂右侧 dock（与属性建模同区 tab），入口在
+src/ui/paleomainwindow_attach.cpp:2689:    m_mapBookCtl->setCatalog(catalog); // #148：逐版产物登记进 catalog
+src/ui/datapreview/previewmappage.cpp:78:      m_viewportBand->setStrokeColor( QColor( QStringLiteral( "#1B73D0" ) ) );
+src/ui/datapreview/previewmappage.cpp:400:  // 底，同 PaleoTheme::ribbonStyleSheet 的 checked 范式）。#E2E8F0/#E1EFFE
+src/ui/datapreview/datapreviewtabgeojson.cpp:292:  // 经纬度与工程测网不同空间：阻断级提示用 error token（原 #D32F2F + 11px）。
+src/ui/datapreview/datapreviewtabwelllog.cpp:366:        QColor(QStringLiteral("#FFE082")), QColor(QStringLiteral("#FFF59D")),
+src/ui/datapreview/datapreviewtabwelllog.cpp:367:        QColor(QStringLiteral("#C8E6C9")), QColor(QStringLiteral("#A5D6A7")),
+src/ui/datapreview/datapreviewtabwelllog.cpp:368:        QColor(QStringLiteral("#80CBC4")), QColor(QStringLiteral("#80DEEA")),
+src/ui/datapreview/datapreviewtabwelllog.cpp:369:        QColor(QStringLiteral("#90CAF9")), QColor(QStringLiteral("#B39DDB"))};
+src/ui/correlation/horizonmarkers.h:38:      QColor color;                       // data symbol — default orange #F29900
+src/ui/seismicsection/seismicsectioncanvas.cpp:1002:                // NaN: Dark neutral gray per DESIGN.md (#303131)
+src/ui/seismicsection/seismicsectioncanvas.cpp:1168:            p.fillRect(vp, QColor(QStringLiteral("#FFFFFF")));
+src/ui/seismicsection/seismicsectioncanvas.cpp:1187:            p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 2.0));
+src/ui/seismicsection/seismicsectioncanvas.cpp:1189:            p.setBrush(QColor(QStringLiteral("#1B73D0")));
+src/ui/seismicsection/seismicsectioncanvas.cpp:1198:            p.setPen(QColor(QStringLiteral("#24303E")));
+src/ui/seismicsection/seismicsectioncanvas.cpp:1369:                        p.setPen(QColor(QStringLiteral("#F29900")));
+src/ui/seismicsection/seismicsectioncanvas.cpp:1450:                            p.setPen(QPen(curve.color.isValid() ? curve.color : QColor(QStringLiteral("#43A047")), 1.5));
+src/ui/seismicsection/seismicsectioncanvas.cpp:1542:    // 断面交线：#F29900 虚线（DESIGN warning，派生结果待复核），叠在拾取棒之上。
+src/ui/datapreview/previewhistogramwidget.cpp:193:    // 拉伸界内 #1B73D0 着色；界外灰（截掉的尾巴一目了然）。
+src/ui/pages/pageshared.h:110:// 主操作按钮（DESIGN.md：primary #1B73D0 三用途之一 = 主按钮）——primary
+src/ui/layout/mapbookcontroller.h:19:// ui/layout — PaleoMapBookController：地图册面板 ↔ 批量导出队列的接线（#148）。
+src/ui/layout/mapbookcontroller.h:26:// 工程生命周期（#152 中枢）：宿主在 projectAboutToClose 调 resetProject()——
+src/ui/pages/mappingworkbenchpage.cpp:351:    m_facies->setItem(i, 2, new QTableWidgetItem("#97B4CE"));
+src/ui/layout/layoutexportactions.h:75:    // #85/#161：注入任务服务后 action 导出走 worker。GUI 线程只做序列化
+src/ui/layout/layoutexportactions.h:80:    // 样式/工程切换并发（#161）。快照语义：导出内容是点击时刻的版面与样式。
+src/ui/layout/layoutexportactions.h:96:    // #161 工程隔离快照：GUI 线程 capture，worker 线程 rebuild。值语义——
+src/ui/layout/layoutexportactions.h:141:    // #161：结果按任务携带（shared_ptr 进 work 与 finished 回包），不再有
+src/ui/wellsection/wellsectionstyle.cpp:68:  grc.color = QColor(QStringLiteral("#333333"));
+src/ui/wellsection/wellsectionstyle.cpp:93:  rd.color = QColor(QStringLiteral("#D7263D"));
+src/ui/wellsection/wellsectionstyle.cpp:100:  rs.color = QColor(QStringLiteral("#2B59C3"));
+src/ui/wellsection/wellsectionstyle.cpp:321:  classic.paper = QColor(QStringLiteral("#FFFFFF"));
+src/ui/wellsection/wellsectionstyle.cpp:322:  classic.frame = QColor(QStringLiteral("#3A3A3A"));
+src/ui/wellsection/wellsectionstyle.cpp:323:  classic.text = QColor(QStringLiteral("#222222"));
+src/ui/wellsection/wellsectionstyle.cpp:324:  classic.link = QColor(QStringLiteral("#8C8C8C"));
+src/ui/wellsection/wellsectionstyle.cpp:328:  classic.sand = QColor(QStringLiteral("#EDE84A"));
+src/ui/wellsection/wellsectionstyle.cpp:329:  classic.sandDots = QColor(QStringLiteral("#8A8400"));
+src/ui/wellsection/wellsectionstyle.cpp:330:  classic.lithoSand = QColor(QStringLiteral("#B5B5B5"));
+src/ui/wellsection/wellsectionstyle.cpp:331:  classic.lithoShale = QColor(QStringLiteral("#8C8C8C"));
+src/ui/wellsection/wellsectionstyle.cpp:338:  colored.link = QColor(QStringLiteral("#5E5E5E"));
+src/ui/wellsection/wellsectionstyle.cpp:346:  print.frame = QColor(QStringLiteral("#000000"));
+src/ui/wellsection/wellsectionstyle.cpp:347:  print.link = QColor(QStringLiteral("#000000"));
+src/ui/wellsection/wellsectionstyle.cpp:353:  print.lithoSand = QColor(QStringLiteral("#FFFFFF"));
+src/ui/wellsection/wellsectionstyle.cpp:354:  print.lithoShale = QColor(QStringLiteral("#FFFFFF"));
+src/ui/wellsection/wellsectionstyle.cpp:374:      QColor(QStringLiteral("#F5D6C6")), QColor(QStringLiteral("#F3E5AB")),
+src/ui/wellsection/wellsectionstyle.cpp:375:      QColor(QStringLiteral("#D6E8CE")), QColor(QStringLiteral("#CFE3F2")),
+src/ui/wellsection/wellsectionstyle.cpp:376:      QColor(QStringLiteral("#E0D5EC")), QColor(QStringLiteral("#F2D1DE")),
+src/ui/wellsection/wellsectionstyle.cpp:377:      QColor(QStringLiteral("#D8E4BC")), QColor(QStringLiteral("#FCE8CD"))};
+src/ui/pages/dataopswidgets.h:177:                              "border-radius: %4px; padding: {spacing.xs}px {spacing.md}px; font-size: {typography.label}pt;"))
+src/ui/pages/dataopswidgets.h:540:                     "border-radius: %3px; padding: {spacing.xs}px {spacing.md}px; font-size: {typography.label}pt;"))
+src/ui/pages/dataopswidgets.h:544:                              "border-radius: %4px; padding: {spacing.xs}px {spacing.md}px; font-size: {typography.label}pt;"))
+src/ui/datapreview/datapreviewtabs_internal.h:249:    return QColor(QStringLiteral("#2E7D32")); // Forest Green (Standard Gamma Ray)
+src/ui/datapreview/datapreviewtabs_internal.h:251:    return QColor(QStringLiteral("#0288D1")); // Cyan/Light Blue (Acoustic Sonic)
+src/ui/datapreview/datapreviewtabs_internal.h:253:    return QColor(QStringLiteral("#D32F2F")); // Red (Bulk Density)
+src/ui/datapreview/datapreviewtabs_internal.h:255:    return QColor(QStringLiteral("#E65100")); // Orange (Neutron Porosity)
+src/ui/datapreview/datapreviewtabs_internal.h:257:    return QColor(QStringLiteral("#7B1FA2")); // Purple (Deep Resistivity)
+src/ui/datapreview/datapreviewtabs_internal.h:259:    return QColor(QStringLiteral("#00796B")); // Teal (Spontaneous Potential)
+src/ui/datapreview/datapreviewtabs_internal.h:261:    return QColor(QStringLiteral("#455A64")); // Slate (Caliper)
+src/ui/datapreview/datapreviewtabs_internal.h:264:    QStringLiteral("#1B73D0"),
+src/ui/datapreview/datapreviewtabs_internal.h:265:    QStringLiteral("#E65100"),
+src/ui/datapreview/datapreviewtabs_internal.h:266:    QStringLiteral("#7B1FA2"),
+src/ui/datapreview/datapreviewtabs_internal.h:267:    QStringLiteral("#00838F"),
+src/ui/datapreview/datapreviewtabs_internal.h:268:    QStringLiteral("#C2185B"),
+src/ui/datapreview/datapreviewtabs_internal.h:269:    QStringLiteral("#5D6E80"),
+src/ui/datapreview/datapreviewtabs_internal.h:270:    QStringLiteral("#F57C00"),
+src/ui/datapreview/datapreviewtabs_internal.h:271:    QStringLiteral("#388E3C")
+src/ui/datapreview/datapreviewtabs_internal.h:280:    return QColor(QStringLiteral("#4DD0E1"));
+src/ui/datapreview/datapreviewtabs_internal.h:282:    return QColor(QStringLiteral("#80DEEA"));
+src/ui/datapreview/datapreviewtabs_internal.h:284:    return QColor(QStringLiteral("#81D4FA"));
+src/ui/datapreview/datapreviewtabs_internal.h:286:    return QColor(QStringLiteral("#FFF59D"));
+src/ui/datapreview/datapreviewtabs_internal.h:288:    return QColor(QStringLiteral("#FFD54F"));
+src/ui/datapreview/datapreviewtabs_internal.h:290:    return QColor(QStringLiteral("#FFE082"));
+src/ui/datapreview/datapreviewtabs_internal.h:292:    return QColor(QStringLiteral("#FFE57F"));
+src/ui/datapreview/datapreviewtabs_internal.h:294:    return QColor(QStringLiteral("#DCEDC8"));
+src/ui/datapreview/datapreviewtabs_internal.h:296:    return QColor(QStringLiteral("#FFF176"));
+src/ui/datapreview/datapreviewtabs_internal.h:298:    return QColor(QStringLiteral("#FFE082"));
+src/ui/datapreview/datapreviewtabs_internal.h:300:    return QColor(QStringLiteral("#E6EE9C"));
+src/ui/datapreview/datapreviewtabs_internal.h:302:    return QColor(QStringLiteral("#B2DFDB"));
+src/ui/datapreview/datapreviewtabs_internal.h:304:    return QColor(QStringLiteral("#FFE082"));
+src/ui/datapreview/datapreviewtabs_internal.h:306:    return QColor(QStringLiteral("#FFAB91"));
+src/ui/datapreview/datapreviewtabs_internal.h:308:    return QColor(QStringLiteral("#FFB74D"));
+src/ui/datapreview/datapreviewtabs_internal.h:310:    return QColor(QStringLiteral("#A5D6A7"));
+src/ui/datapreview/datapreviewtabs_internal.h:312:    return QColor(QStringLiteral("#80CBC4"));
+src/ui/datapreview/datapreviewtabs_internal.h:314:    return QColor(QStringLiteral("#90CAF9"));
+src/ui/datapreview/datapreviewtabs_internal.h:316:    return QColor(QStringLiteral("#D7CCC8"));
+src/ui/datapreview/datapreviewtabs_internal.h:318:    return QColor(QStringLiteral("#FFCC80"));
+src/ui/datapreview/datapreviewtabs_internal.h:321:    QColor(QStringLiteral("#81D4FA")),
+src/ui/datapreview/datapreviewtabs_internal.h:322:    QColor(QStringLiteral("#FFE082")),
+src/ui/datapreview/datapreviewtabs_internal.h:323:    QColor(QStringLiteral("#A5D6A7")),
+src/ui/datapreview/datapreviewtabs_internal.h:324:    QColor(QStringLiteral("#FFAB91")),
+src/ui/datapreview/datapreviewtabs_internal.h:325:    QColor(QStringLiteral("#CE93D8")),
+src/ui/datapreview/datapreviewtabs_internal.h:326:    QColor(QStringLiteral("#FFF59D")),
+src/ui/datapreview/datapreviewtabs_internal.h:327:    QColor(QStringLiteral("#80CBC4")),
+src/ui/datapreview/datapreviewtabs_internal.h:328:    QColor(QStringLiteral("#B0BEC5")),
+src/ui/datapreview/datapreviewtabs_internal.h:329:    QColor(QStringLiteral("#FFCC80")),
+src/ui/datapreview/datapreviewtabs_internal.h:330:    QColor(QStringLiteral("#B39DDB"))
+src/ui/datapreview/datapreviewtabs_internal.h:411:  fmt.setColor( QColor( QStringLiteral( "#24303E" ) ) );
+src/ui/datapreview/datapreviewtabs_internal.h:421:// 点层符号：普通井 #1B73D0 空心圆 + 高亮井加粗描边 + 名称标注开关。
+src/ui/datapreview/datapreviewtabs_internal.h:430:  props[QStringLiteral( "outline_color" )] = QStringLiteral( "#1B73D0" );
+src/ui/datapreview/datapreviewtabs_internal.h:450:// 外径，与环间留细缝）。规范默认黑墨；彩色工作图用应用蓝 #1B73D0。
+src/ui/datapreview/datapreviewtabs_internal.h:459:  ring[QStringLiteral( "outline_color" )] = QStringLiteral( "#1B73D0" );
+src/ui/datapreview/datapreviewtabs_internal.h:465:  disk[QStringLiteral( "color" )] = QStringLiteral( "#1B73D0" );
+src/ui/datapreview/datapreviewtabs_internal.h:483:  props[QStringLiteral( "line_color" )] = QStringLiteral( "#5D6E80" );
+src/ui/datapreview/datapreviewtabs_internal.h:496:    fmt.setColor( QColor( QStringLiteral( "#24303E" ) ) );
+src/ui/datapreview/datapreviewtabs_internal.h:520:  props[QStringLiteral( "color" )] = QStringLiteral( "#24303E" );
+src/ui/datapreview/datapreviewtabs_internal.h:521:  props[QStringLiteral( "outline_color" )] = QStringLiteral( "#FFFFFF" );
+src/ui/datapreview/datapreviewtabs_internal.h:567:            : createFaciesSymbol( vlayer->geometryType(), QColor( QStringLiteral( "#CFD8DC" ) ) );
+src/ui/datapreview/datapreviewtabs_internal.h:603:  txtFmt.setColor( QColor( QStringLiteral( "#24303E" ) ) );
+src/ui/datapreview/datapreviewtabs_internal.h:711:    addCurve(name, unit, values, depths, QColor(QStringLiteral("#1B73D0")), true);
+src/ui/paleomainwindow_workbench.cpp:141:                            {"color", "#9AA7B4"}};
+src/ui/wellsection/wellsectiondialogs.cpp:598:      c2.color = swatchColor(m_color2, QColor(QStringLiteral("#2B59C3")));
+src/ui/wellsection/wellsectiondialogs.cpp:628:    c.color = QColor(QStringLiteral("#333333"));
+src/ui/datapreview/previewtocpanel.cpp:170:    m_colorBtn->setProperty( "color", QColor( QStringLiteral( "#1B73D0" ) ) );
+src/ui/paleomainwindow.cpp:57:#include "layout/mapbookcontroller.h" // #148：工程关闭时 resetProject
+src/ui/paleomainwindow.cpp:536:      if (!m_projectSvc->openProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
+src/ui/paleomainwindow.cpp:548:      if (!m_projectSvc->createProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
+src/ui/paleomainwindow.cpp:571:      if (!m_projectSvc->openProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
+src/ui/paleomainwindow.cpp:824:    // 「工程坐标 · 米 · 未投影」（DESIGN.md 状态文字 #5D6E80，次级文案同色）。
+src/ui/paleomainwindow.cpp:1260:  // 闪烁定位（T29 spec ~300–500ms）：#1B73D0 半透明多边形橡皮带盖住图层
+src/ui/paleomainwindow.cpp:1269:  band->setColor(QColor(27, 115, 208, 60)); // #1B73D0 @ ~24% 填充透明度
+src/ui/paleomainwindow.cpp:1270:  band->setStrokeColor(QColor(QStringLiteral("#1B73D0")));
+src/ui/paleomainwindow.cpp:1388:  // #156：测井对比井集来自 catalog（不再只由本会话的导入事件填充）。
+src/ui/paleomainwindow.cpp:1681:  // #154：预览标签全部关闭 + PreviewDoc 按 assetId 的会话缓存清空。
+src/ui/paleomainwindow.cpp:1687:  // #156：测井对比井集/曲线/在途 LAS 清空；新工程打开后从 catalog 重灌。
+src/ui/paleomainwindow.cpp:1691:  // #158：3D 视图与剖面 dock 的地震体清空；新工程若有地震，打开后由
+src/ui/paleomainwindow.cpp:1700:  // #148：地图册在途一册取消（下一版边界停，不再碰旧工程图层），迟到结果
+src/ui/pages/validatepage.cpp:86:  // 状态字+颜色（通过 #43A047 / 超过阈值 #F29900 / 未计算 #5D6E80）。
+src/ui/wellsection/wellsectionscene.cpp:596:    p->setPen(QColor(QStringLiteral("#7A7A7A")));
+src/ui/wellsection/wellsectionscene.cpp:867:          col = QColor(QStringLiteral("#7A7A7A"));
+src/ui/seismicsection/seismicsectiondockwidget.cpp:37:#include "domain/seismic/welltracelocate.h" // #129 井口 XY → 井旁道
+src/ui/seismicsection/seismicsectiondockwidget.cpp:544:            // 道首样 TWT = 记录延迟 t0（#146 同口径）
+src/ui/seismicsection/seismicsectiondockwidget.cpp:548:            p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.4));
+src/ui/seismicsection/seismicsectiondockwidget.cpp:1276:                ref.t0Ms = origin; // #146：剖面时间原点（记录延迟）
+src/ui/seismicsection/seismicsectiondockwidget.cpp:1889:    // #146：画布 TWT 含记录延迟 t0，样点号相对剖面首样。
+src/ui/seismicsection/seismicsectiondockwidget.cpp:1894:    // #147：列 → 实际测线号（非单位线距不能 colMin+col）。
+src/ui/seismicsection/seismicsectiondockwidget.cpp:2121:            // #146：种子样点按 TWT 重算（旧会话 sampleIndex 可能未扣记录延迟）。
+src/ui/seismicsection/seismicsectiondockwidget.cpp:2135:    trackOptions.columnLines = ref.colLines; // #147
+src/ui/seismicsection/seismicsectiondockwidget.cpp:2136:    trackOptions.startTimeMs = ref.t0Ms;     // #146
+src/ui/seismicsection/seismicsectiondockwidget.cpp:2358:    // 井口 XY → 测网 (IL, XL)（#129：FindNearest* 的参数是测线号，不能直接喂米制坐标；
+src/ui/seismicsection/seismicsectiondockwidget.cpp:2399:    // 列 = xl 在体实际线号表中的位置（#147 同口径：线距可 >1）；剖面宽度须与
+src/ui/seismicsection/seismicsectiondockwidget.cpp:2441:// #125：井 AC×DEN → TWT 域阻抗散样。TWT 取曲线自带的逐井时间轴（SectionWorkbench
+src/ui/seismicsection/seismicsectiondockwidget.cpp:2497:    // 时深表（#125）：取该井曲线自带的逐井 TWT（含时间平移），不用画布全局模型。
+src/ui/seismicsection/seismicsectiondockwidget.cpp:2593:            skippedNoTd << w.wellId; // 缺有效逐井时深：不参与低频模型（#125）
+src/ui/pages/datalist.cpp:437:  // 这里不再自写 ::item:selected（原 #E6F0FA 与全局三分叉，已收敛）。
+src/ui/pages/datalist.cpp:899:      // #FFF4E0/#24303E/#F29900——token 活体，随主题出暗色变体）。
+src/ui/datapreview/datapreviewtabs.cpp:107:// surface #FFFFFF、border #DFE5EC、text #24303E、text-muted #5D6E80、8pt captions；
+src/ui/datapreview/datapreviewtabs.cpp:108:// 数值列 JetBrains Mono 9pt 右对齐；语义色 #F29900(警告)/#E53935(失败)。
+src/ui/datapreview/datapreviewtabs.cpp:117:// 「坐标无效」「没有坐标」，仍 text-muted（#5D6E80）。
+src/ui/datapreview/datapreviewtabs.cpp:544:  boundaryBand->setColor(QColor(27, 115, 208, 16)); // #1B73D0 浅蓝半透明填充
+src/ui/datapreview/datapreviewtabs.cpp:545:  boundaryBand->setStrokeColor(QColor(QStringLiteral("#1B73D0"))); // 边界线
+src/ui/datapreview/datapreviewtabs.cpp:1417:    // T27：坐标状态行中文化 + text-muted（计划 §4：这些状态仍用 #5D6E80）。

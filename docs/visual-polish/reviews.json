@@ -1,0 +1,86 @@
+{
+  "baseGitCommit": "dda2faa58c8804f195e8af28c69fec29ccf38379",
+  "productionDiffSha256": "39b4edc67acebc230cf4901544197f5361b5d63e666c925d5362c81c291ed161",
+  "cleanRounds": [
+    {
+      "round": 1,
+      "completedAt": "2026-10-04T16:39:02.121364+08:00",
+      "productionDiffSha256": "39b4edc67acebc230cf4901544197f5361b5d63e666c925d5362c81c291ed161",
+      "scope": "完整任务 diff；机械守恒仅为辅助，结合逐文件代码与真实画面复核",
+      "focus": "全量生产 diff：token 替换、主题/图标出口、图表/纸面/GL、固定行与六维边界",
+      "dimensions": {
+        "token": "DESIGN 既有间距、圆角、字阶与颜色出口；精确白名单只含数据/纸面色。668→0，无陈旧例外。",
+        "structure": "逐文件 diff 复核，控件/布局顺序和业务 connect 不变；新增 item 私有视觉 role 带 QSignalBlocker；GL 只调整 chrome 与叠加绘制状态。",
+        "i18n": "生产翻译源串守恒；i18n / selftest 通过，无新产品文案。",
+        "screenshots": "91 个修改文件均有画面索引；298 对真实原图、16 份生产 source provenance 匹配；HiDPI 抽查及原生 GL 字形/色带/固定行复核。",
+        "layering": "91 个生产修改仅在 src/ui，原有首三行视图层头保持；三项分层闸门通过，无 vendor / 数据 / 功能层变更。",
+        "deadStyles": "已核对模板名称、QString.arg 顺序、QFrame 外框限定与 HiddenTrackBar objectName；真实 chip 像素和 Light→Dark→Light 测试通过。"
+      },
+      "high": 0,
+      "medium": 0,
+      "low": [
+        {
+          "id": "QGIS-narrow-style-sidebar",
+          "baselineExisting": true
+        },
+        {
+          "id": "well-paper-single-toolbar",
+          "baselineExisting": true
+        },
+        {
+          "id": "asset-table-capped-columns",
+          "baselineExisting": true
+        }
+      ],
+      "evidence": [
+        "token-after.json",
+        "semantic-diff.json",
+        "screenshots.json",
+        "provenance.json",
+        "tests-oracle-final.xml",
+        "native-gl-final.log"
+      ]
+    },
+    {
+      "round": 2,
+      "completedAt": "2026-10-04T16:39:02.121364+08:00",
+      "productionDiffSha256": "39b4edc67acebc230cf4901544197f5361b5d63e666c925d5362c81c291ed161",
+      "scope": "完整任务 diff；机械守恒仅为辅助，结合逐文件代码与真实画面复核",
+      "focus": "再次全量交叉复核：实现与契约/取证脚本、原图 provenance、源文件索引、既有测试守恒和六维边界",
+      "dimensions": {
+        "token": "DESIGN 既有间距、圆角、字阶与颜色出口；精确白名单只含数据/纸面色。668→0，无陈旧例外。",
+        "structure": "逐文件 diff 复核，控件/布局顺序和业务 connect 不变；新增 item 私有视觉 role 带 QSignalBlocker；GL 只调整 chrome 与叠加绘制状态。",
+        "i18n": "生产翻译源串守恒；i18n / selftest 通过，无新产品文案。",
+        "screenshots": "91 个修改文件均有画面索引；298 对真实原图、16 份生产 source provenance 匹配；HiDPI 抽查及原生 GL 字形/色带/固定行复核。",
+        "layering": "91 个生产修改仅在 src/ui，原有首三行视图层头保持；三项分层闸门通过，无 vendor / 数据 / 功能层变更。",
+        "deadStyles": "已核对模板名称、QString.arg 顺序、QFrame 外框限定与 HiddenTrackBar objectName；真实 chip 像素和 Light→Dark→Light 测试通过。"
+      },
+      "high": 0,
+      "medium": 0,
+      "low": [
+        {
+          "id": "QGIS-narrow-style-sidebar",
+          "baselineExisting": true
+        },
+        {
+          "id": "well-paper-single-toolbar",
+          "baselineExisting": true
+        },
+        {
+          "id": "asset-table-capped-columns",
+          "baselineExisting": true
+        }
+      ],
+      "evidence": [
+        "token-after.json",
+        "semantic-diff.json",
+        "screenshots.json",
+        "provenance.json",
+        "tests-oracle-final.xml",
+        "native-gl-final.log"
+      ]
+    }
+  ],
+  "note": "调整期发现和修复的 Medium 不算干净轮次；两轮均在最终绿色验收之后完成，没有生产源码后续修改。",
+  "artifactOnlyFollowup": "三份可读 XML 去除一行尾空格；原字节 gzip 归档与哈希保留。生产 diff 完全不变；完整暂存 diff 检查重验。"
+}

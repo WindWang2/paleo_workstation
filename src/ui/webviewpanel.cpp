@@ -48,7 +48,7 @@ WebViewPanel::WebViewPanel(QWidget *parent)
   // Page 0 — status/fallback surface (placeholder or error + external open).
   auto *statusPage = new QWidget(this);
   auto *lay = new QVBoxLayout(statusPage);
-  lay->setContentsMargins(12, 12, 12, 12);
+  lay->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd);
   lay->addStretch(1);
   m_statusLabel = new QLabel(tr("还没有打开的 web 服务"), statusPage);
   m_statusLabel->setObjectName(QStringLiteral("webStatus"));

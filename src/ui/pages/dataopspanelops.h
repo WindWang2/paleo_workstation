@@ -269,7 +269,7 @@ public:
   }
 
 signals:
-  void restoreRequested(const QStringList &assetIds);
+  void restoreRequested(const QStringList &assetIds); // NOLINT(readability-inconsistent-declaration-parameter-name)
   void restoreAllRequested();
   void purgeAllRequested();
 
@@ -405,7 +405,7 @@ public:
     m_warn->setObjectName(QStringLiteral("roleEditWarn"));
     m_warn->setWordWrap(true);
     PaleoTheme::applyThemedStyleSheet(m_warn, [] {
-      return QStringLiteral("color: %1;").arg(PaleoTheme::tokens().warning.name().toUpper());
+      return QStringLiteral("color: %1;").arg(PaleoTheme::tokens().warningText.name().toUpper());
     });
     lay->addWidget(m_warn);
     auto *box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);

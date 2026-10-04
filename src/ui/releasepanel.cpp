@@ -30,7 +30,7 @@ ReleasePanel::ReleasePanel(QWidget *parent)
   setAccessibleDescription(
       tr("管理地图发布：创建发布快照、比较两个版本的图层差异"));
   auto *lay = new QVBoxLayout(this);
-  lay->setContentsMargins(8, 8, 8, 8);
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
 
   auto *title = new QLabel(tr("发布管理"), this);
   QFont f = title->font();
@@ -192,7 +192,7 @@ void ReleasePanel::refresh()
   const auto showEmptyGuidance = [list](const QString &text) {
     auto *it = new QTreeWidgetItem(list, {text}); // 构造即挂树
     it->setFlags(Qt::NoItemFlags);
-    it->setForeground(0, PaleoTheme::tokens().textMuted);
+    PaleoTheme::setItemTextColor(it, 0, PaleoTheme::ItemTextColor::Muted);
     it->setFirstColumnSpanned(true);
   };
 

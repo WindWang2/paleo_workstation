@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。（tools/ui-token-exceptions.json 精确计数）。
 #pragma once
 
 // 方向20 轮4：datapreviewtabs.cpp 按资产类型拆分后的跨 TU 内部辅助。
@@ -140,18 +141,21 @@ inline QLabel *caption8(const QString &text, QWidget *parent)
 {
   auto *l = new QLabel(text, parent);
   QFont f = l->font();
-  f.setPointSize(PaleoTheme::kLabelPt);
+  f.setPointSize(PaleoTheme::tokens().labelPt);
   l->setFont(f);
   PaleoTheme::applyThemedStyleSheet(l, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   return l;
 }
 
-inline QLabel *stateLabel(const QString &text, QWidget *parent)
+inline QLabel *stateLabel(const QString &text, QWidget *parent, bool error = false)
 {
   auto *l = new QLabel(text, parent);
   l->setAlignment(Qt::AlignCenter);
   l->setWordWrap(true);
-  PaleoTheme::applyThemedStyleSheet(l, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+  PaleoTheme::applyThemedStyleSheet(l, [error] {
+    return error ? QStringLiteral("color: %1;").arg(qssHex(PaleoTheme::tokens().errorText))
+                 : PaleoTheme::mutedCaptionStyleSheet();
+  });
   l->setObjectName(QStringLiteral("stateText"));
   return l;
 }
@@ -160,7 +164,7 @@ inline QLabel *warnLabel(const QString &text, QWidget *parent)
 {
   auto *l = new QLabel(text, parent);
   PaleoTheme::applyThemedStyleSheet(l, [] {
-    return QStringLiteral("color: %1;").arg(qssHex(PaleoTheme::tokens().warning));
+    return QStringLiteral("color: %1;").arg(qssHex(PaleoTheme::tokens().warningText));
   });
   l->setWordWrap(true);
   return l;
@@ -173,7 +177,7 @@ inline QWidget *makeOpenExternalRow(const QString &absPath, QWidget *parent)
   auto *row = new QWidget(parent);
   auto *rl = new QHBoxLayout(row);
   rl->setContentsMargins(0, 0, 0, 0);
-  rl->setSpacing(8);
+  rl->setSpacing(PaleoTheme::tokens().spacingSm);
   auto *btn = new QPushButton(QObject::tr("用系统程序打开"), row);
   btn->setObjectName(QStringLiteral("openExternalBtn"));
   auto *openErr = warnLabel(QString(), row);
@@ -218,14 +222,14 @@ inline void stylePreviewToolBar(QWidget *bar)
   bar->setObjectName(QStringLiteral("previewToolBar"));
   PaleoTheme::applyThemedStyleSheet(bar, [] {
     const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
-    return QStringLiteral(
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
         "QWidget#previewToolBar { background: %1; border-bottom: 1px solid %2; }"
         "QWidget#previewToolBar QToolButton { background: %3; border: 1px solid %2;"
-        " border-radius: 4px; padding: 4px 8px; font-size: 8pt; color: %4; }"
+        " border-radius: {rounded.sm}px; padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.label}pt; color: %4; }"
         "QWidget#previewToolBar QToolButton:hover { background: %5; border-color: %6; }"
         "QWidget#previewToolBar QToolButton:pressed { background: %2; }"
         "QWidget#previewToolBar QToolButton:checked { background: %5;"
-        " border-color: %7; color: %8; font-weight: 500; }")
+        " border-color: %7; color: %8; font-weight: 500; }"))
         .arg(qssHex(t.surfaceAlt), qssHex(t.border), qssHex(t.surface),
              qssHex(t.text), qssHex(t.surfaceAltRaised), qssHex(t.textDisabled),
              qssHex(t.primary), qssHex(t.primaryText));
@@ -400,9 +404,9 @@ inline void applyPointNameLabels( QgsVectorLayer *vl )
   pal.fieldName = QStringLiteral( "name" );
   pal.isExpression = false;
   QgsTextFormat fmt;
-  QFont font( QStringLiteral( "Noto Sans SC" ), 9, QFont::Medium );
+  QFont font = PaleoTheme::bodyFont(PaleoTheme::tokens().bodyPt); font.setWeight(QFont::Medium);
   fmt.setFont( font );
-  fmt.setSize( 9.0 );
+  fmt.setSize(PaleoTheme::tokens().bodyPt);
   fmt.setSizeUnit( Qgis::RenderUnit::Points );
   fmt.setColor( QColor( QStringLiteral( "#24303E" ) ) );
   QgsTextBufferSettings buf;
@@ -485,9 +489,9 @@ inline QgsVectorLayer *makeContourLayer( const QString &gpkgPath, QWidget *owner
     pal.fieldName = QStringLiteral( "ELEV" );
     pal.isExpression = false;
     QgsTextFormat fmt;
-    QFont font( QStringLiteral( "Noto Sans SC" ), 8 );
+    QFont font = PaleoTheme::bodyFont(PaleoTheme::tokens().labelPt);
     fmt.setFont( font );
-    fmt.setSize( 8.0 );
+    fmt.setSize(PaleoTheme::tokens().labelPt);
     fmt.setSizeUnit( Qgis::RenderUnit::Points );
     fmt.setColor( QColor( QStringLiteral( "#24303E" ) ) );
     QgsTextBufferSettings buf;
@@ -592,9 +596,9 @@ inline void applyFaciesRendererToLayer( QgsVectorLayer *vlayer, const QString &f
     palSettings.isExpression = false;
   }
   QgsTextFormat txtFmt;
-  QFont font( QStringLiteral( "Noto Sans SC" ), 9, QFont::Medium );
+  QFont font = PaleoTheme::bodyFont(PaleoTheme::tokens().bodyPt); font.setWeight(QFont::Medium);
   txtFmt.setFont( font );
-  txtFmt.setSize( 9.0 );
+  txtFmt.setSize(PaleoTheme::tokens().bodyPt);
   txtFmt.setSizeUnit( Qgis::RenderUnit::Points );
   txtFmt.setColor( QColor( QStringLiteral( "#24303E" ) ) );
   QgsTextBufferSettings buf;
@@ -1032,11 +1036,11 @@ protected:
     const int rowHeight = 18;
 
     QFont fName = font();
-    fName.setPointSize(8);
+    fName.setPointSize(PaleoTheme::tokens().labelPt);
     fName.setBold(true);
 
     QFont fMono = PaleoTheme::monoFont();
-    fMono.setPointSize(8);
+    fMono.setPointSize(PaleoTheme::tokens().labelPt);
 
     for (const CurveData &c : m_curves)
     {
@@ -1050,14 +1054,14 @@ protected:
 
       // Curve Name
       p.setFont(fName);
-      p.setPen(c.color);
+      p.setPen(PaleoTheme::tokens().text);
       const QString nameStr = c.name;
       p.drawText(curX, curY + rowHeight - 4, nameStr);
       curX += fontMetrics().horizontalAdvance(nameStr) + 4;
 
       // Scale range & unit: e.g. "0–150 API"
       p.setFont(fMono);
-      p.setPen(QColor(QStringLiteral("#5D6E80")));
+      p.setPen(PaleoTheme::tokens().textMuted);
       QString scaleStr;
       if (!std::isnan(c.hoverValue))
       {
@@ -1090,22 +1094,22 @@ protected:
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
 
-    p.fillRect(rect(), Qt::white);
+    p.fillRect(rect(), PaleoTheme::tokens().surface);
 
     const QRect pRect = plotRect();
     const int kRulerW = pRect.left();
 
     // Draw ruler background
     const QRect rulerRect(0, pRect.top(), kRulerW, pRect.height());
-    p.fillRect(rulerRect, QColor(QStringLiteral("#F8FAFC")));
-    p.setPen(QColor(QStringLiteral("#DFE5EC")));
+    p.fillRect(rulerRect, PaleoTheme::tokens().surfaceAlt);
+    p.setPen(PaleoTheme::tokens().border);
     p.drawLine(kRulerW, pRect.top(), kRulerW, pRect.bottom());
 
     // Ruler title "MD (m)"
     QFont fCaption = font();
-    fCaption.setPointSize(8);
+    fCaption.setPointSize(PaleoTheme::tokens().labelPt);
     p.setFont(fCaption);
-    p.setPen(QColor(QStringLiteral("#5D6E80")));
+    p.setPen(PaleoTheme::tokens().textMuted);
     p.drawText(QRect(2, 4, kRulerW - 4, pRect.top() - 4), Qt::AlignCenter | Qt::AlignVCenter,
                QStringLiteral("MD (m)"));
 
@@ -1122,14 +1126,14 @@ protected:
 
     if (totalPoints == 0)
     {
-      p.setPen(QColor(QStringLiteral("#5D6E80")));
+      p.setPen(PaleoTheme::tokens().textMuted);
       p.drawText(pRect, Qt::AlignCenter, m_emptyText);
       return;
     }
 
     if (visibleCurves == 0)
     {
-      p.setPen(QColor(QStringLiteral("#5D6E80")));
+      p.setPen(PaleoTheme::tokens().textMuted);
       p.drawText(pRect, Qt::AlignCenter, tr("未勾选任何曲线 — 在上方选择要显示的曲线"));
       return;
     }
@@ -1154,7 +1158,7 @@ protected:
 
     const double firstTick = std::ceil(dTop / niceInterval) * niceInterval;
     QFont fMono = PaleoTheme::monoFont();
-    fMono.setPointSize(8);
+    fMono.setPointSize(PaleoTheme::tokens().labelPt);
 
     p.setFont(fMono);
     for (double d = firstTick; d <= dBottom; d += niceInterval)
@@ -1163,18 +1167,18 @@ protected:
       if (y < pRect.top() || y > pRect.bottom())
         continue;
 
-      p.setPen(QColor(QStringLiteral("#9AA7B4")));
+      p.setPen(PaleoTheme::tokens().textMuted);
       p.drawLine(kRulerW - 5, y, kRulerW, y);
 
-      p.setPen(QPen(QColor(QStringLiteral("#F0F4F8")), 1, Qt::DashLine));
+      p.setPen(QPen(PaleoTheme::tokens().surfaceAltRaised, 1, Qt::DashLine));
       p.drawLine(pRect.left(), y, pRect.right(), y);
 
-      p.setPen(QColor(QStringLiteral("#5D6E80")));
+      p.setPen(PaleoTheme::tokens().textMuted);
       const QString dText = QString::number(d, 'f', (niceInterval < 1.0 ? 1 : 0));
       p.drawText(QRect(2, y - 8, kRulerW - 9, 16), Qt::AlignRight | Qt::AlignVCenter, dText);
     }
 
-    p.setPen(QPen(QColor(QStringLiteral("#F0F4F8")), 1, Qt::DotLine));
+    p.setPen(QPen(PaleoTheme::tokens().surfaceAltRaised, 1, Qt::DotLine));
     for (int i = 1; i <= 3; ++i)
     {
       const int vx = pRect.left() + (pRect.width() * i) / 4;
@@ -1196,7 +1200,8 @@ protected:
         return pRect.left() + f * pRect.width();
       };
 
-      p.setPen(QPen(c.color, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+      const QPen dataPen(c.color, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+      const QColor halo = PaleoTheme::dataHaloColor(c.color);
 
       bool first = true;
       QPointF prev;
@@ -1213,7 +1218,15 @@ protected:
 
         const QPointF mapped(mapX(v), yAtDepth(d));
         if (!first)
+        {
+          if (halo.isValid())
+          {
+            p.setPen(QPen(halo, dataPen.widthF() + 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            p.drawLine(prev, mapped);
+          }
+          p.setPen(dataPen);
           p.drawLine(prev, mapped);
+        }
         prev = mapped;
         first = false;
       }
@@ -1227,14 +1240,14 @@ protected:
       const int hy = yAtDepth(m_hoverDepth);
       if (hy >= pRect.top() && hy <= pRect.bottom())
       {
-        p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1, Qt::DashLine));
+        p.setPen(QPen(PaleoTheme::tokens().primaryText, 1, Qt::DashLine));
         p.drawLine(pRect.left(), hy, pRect.right(), hy);
 
         const QString hText = QString::number(m_hoverDepth, 'f', 1);
         p.setFont(fMono);
         const QRect badgeRect(2, hy - 8, kRulerW - 4, 16);
-        p.fillRect(badgeRect, QColor(QStringLiteral("#24303E")));
-        p.setPen(Qt::white);
+        p.fillRect(badgeRect, PaleoTheme::tokens().text);
+        p.setPen(PaleoTheme::tokens().surface);
         p.drawText(badgeRect, Qt::AlignCenter, hText);
       }
     }
@@ -1341,10 +1354,10 @@ protected:
   {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
-    p.fillRect(rect(), Qt::white);
+    p.fillRect(rect(), PaleoTheme::tokens().surface);
     if (m_img.isNull())
     {
-      p.setPen(QColor(QStringLiteral("#5D6E80")));
+      p.setPen(PaleoTheme::tokens().textMuted);
       p.drawText(rect(), Qt::AlignCenter,
                  m_error.isEmpty() ? QObject::tr("尚未解码剖面") : m_error);
       return;
@@ -1360,14 +1373,18 @@ protected:
 
     // 1. 左侧时间刻度轴 (TWT ms 时间剖面)
     const QRect leftRuler(0, topMargin, leftMargin, dst.height());
-    p.fillRect(leftRuler, QColor(QStringLiteral("#F5F7FA")));
-    p.setPen(QColor(QStringLiteral("#DFE5EC")));
+    p.fillRect(leftRuler, PaleoTheme::tokens().surfaceAlt);
+    p.setPen(PaleoTheme::tokens().border);
     p.drawLine(leftMargin, topMargin, leftMargin, dst.bottom());
 
-    QFont monoFont(QStringLiteral("JetBrains Mono"), 7);
-    QFont bodyFont(QStringLiteral("Noto Sans SC"), 7);
+    QFont monoFont = PaleoTheme::monoFont();
+    monoFont.setPointSize(PaleoTheme::tokens().labelPt);
+    QFont bodyFont = PaleoTheme::bodyFont();
+    bodyFont.setPointSize(PaleoTheme::tokens().labelPt);
+    const int monoHeight = QFontMetrics(monoFont).height();
+    const int labelHeight = QFontMetrics(bodyFont).height();
     p.setFont(bodyFont);
-    p.setPen(QColor(QStringLiteral("#5D6E80")));
+    p.setPen(PaleoTheme::tokens().textMuted);
     p.drawText(QRect(2, 4, leftMargin - 4, 18), Qt::AlignCenter, QStringLiteral("TWT (ms)"));
 
     if (m_dtMs > 0.0 && m_img.height() > 0)
@@ -1378,10 +1395,10 @@ protected:
       for (const auto &tk : ticks)
       {
         if (tk.pixelPos < topMargin || tk.pixelPos > dst.bottom()) continue;
-        p.setPen(QColor(QStringLiteral("#5D6E80")));
+        p.setPen(PaleoTheme::tokens().textMuted);
         p.drawLine(QPointF(leftMargin - 6.0, tk.pixelPos), QPointF(leftMargin, tk.pixelPos));
-        p.setPen(QColor(QStringLiteral("#24303E")));
-        p.drawText(QRectF(2, tk.pixelPos - 7.0, leftMargin - 10, 14), Qt::AlignRight | Qt::AlignVCenter, QString::number(qRound(tk.value)));
+        p.setPen(PaleoTheme::tokens().text);
+        p.drawText(QRectF(2, tk.pixelPos - monoHeight / 2.0, leftMargin - 10, monoHeight), Qt::AlignRight | Qt::AlignVCenter, QString::number(qRound(tk.value)));
       }
     }
 
@@ -1396,7 +1413,8 @@ protected:
       if (yFrac >= 0.0 && yFrac <= 1.0)
       {
         const int y = dst.top() + qRound(yFrac * dst.height());
-        p.setPen(QPen(QColor(QStringLiteral("#24303E")), 1.5));
+        // Data tie on the amplitude image: retain its light-canvas ink in both themes.
+        p.setPen(QPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text, 1.5));
         p.drawLine(dst.left(), y, dst.right(), y);
         p.setFont(bodyFont);
         p.drawText(QRect(dst.left() + 4, y - 16, dst.width() - 8, 14), Qt::AlignLeft,
@@ -1406,18 +1424,20 @@ protected:
 
     // 4. 右侧振幅色标 (Color Bar)
     const QRect rightBarRect(dst.right(), 0, rightMargin, height());
-    p.fillRect(rightBarRect, QColor(QStringLiteral("#F5F7FA")));
-    p.setPen(QColor(QStringLiteral("#DFE5EC")));
+    p.fillRect(rightBarRect, PaleoTheme::tokens().surfaceAlt);
+    p.setPen(PaleoTheme::tokens().border);
     p.drawLine(dst.right(), 0, dst.right(), height());
 
-    p.setFont(QFont(QStringLiteral("Noto Sans SC"), 7, QFont::Bold));
-    p.setPen(QColor(QStringLiteral("#24303E")));
-    p.drawText(QRect(dst.right(), 4, rightMargin, 16), Qt::AlignCenter, tr("色标"));
+    QFont colorBarFont = bodyFont;
+    colorBarFont.setBold(true);
+    p.setFont(colorBarFont);
+    p.setPen(PaleoTheme::tokens().text);
+    p.drawText(QRect(dst.right(), 4, rightMargin, labelHeight), Qt::AlignCenter, tr("色标"));
 
     const int barW = 10;
     const int barX = dst.right() + 6;
-    const int barTop = topMargin + 8;
-    const int barH = std::max(20, dst.height() - 24);
+    const int barTop = topMargin + labelHeight + PaleoTheme::tokens().spacingXs;
+    const int barH = std::max(20, dst.height() - labelHeight - PaleoTheme::tokens().spacingLg);
 
     QLinearGradient grad(barX, barTop, barX, barTop + barH);
     grad.setColorAt(0.0, QColor(220, 38, 38));   // Red Peak
@@ -1425,12 +1445,12 @@ protected:
     grad.setColorAt(1.0, QColor(25, 118, 210));  // Blue Trough
 
     p.setBrush(grad);
-    p.setPen(QPen(QColor(QStringLiteral("#DFE5EC")), 1.0));
-    p.drawRoundedRect(QRectF(barX, barTop, barW, barH), 2.0, 2.0);
+    p.setPen(QPen(PaleoTheme::tokens().border, 1.0));
+    p.drawRoundedRect(QRectF(barX, barTop, barW, barH), PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
 
     // 刻度值
     p.setFont(monoFont);
-    p.setPen(QColor(QStringLiteral("#24303E")));
+    p.setPen(PaleoTheme::tokens().text);
     const QString maxStr = m_maxAmp >= 1000.0f
         ? QStringLiteral("+%1k").arg(m_maxAmp / 1000.0f, 0, 'f', 0)
         : QStringLiteral("+%1").arg(qRound(m_maxAmp));
@@ -1439,23 +1459,23 @@ protected:
         : QStringLiteral("-%1").arg(qRound(m_maxAmp));
 
     p.drawLine(QPointF(barX + barW, barTop), QPointF(barX + barW + 3, barTop));
-    p.drawText(QRectF(barX + barW + 4, barTop - 6, rightMargin - barW - 10, 12), Qt::AlignLeft | Qt::AlignVCenter, maxStr);
+    p.drawText(QRectF(barX + barW + 4, barTop - monoHeight / 2.0, rightMargin - barW - 10, monoHeight), Qt::AlignLeft | Qt::AlignVCenter, maxStr);
 
     const double midY = barTop + barH * 0.5;
     p.drawLine(QPointF(barX + barW, midY), QPointF(barX + barW + 3, midY));
-    p.drawText(QRectF(barX + barW + 4, midY - 6, rightMargin - barW - 10, 12), Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("0"));
+    p.drawText(QRectF(barX + barW + 4, midY - monoHeight / 2.0, rightMargin - barW - 10, monoHeight), Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("0"));
 
     p.drawLine(QPointF(barX + barW, barTop + barH), QPointF(barX + barW + 3, barTop + barH));
-    p.drawText(QRectF(barX + barW + 4, barTop + barH - 6, rightMargin - barW - 10, 12), Qt::AlignLeft | Qt::AlignVCenter, minStr);
+    p.drawText(QRectF(barX + barW + 4, barTop + barH - monoHeight / 2.0, rightMargin - barW - 10, monoHeight), Qt::AlignLeft | Qt::AlignVCenter, minStr);
 
-    p.setFont(QFont(QStringLiteral("Noto Sans SC"), 7));
-    p.setPen(QColor(220, 38, 38));
-    p.drawText(QRectF(dst.right(), barTop - 12, rightMargin - 4, 10), Qt::AlignRight, tr("波峰+"));
-    p.setPen(QColor(25, 118, 210));
-    p.drawText(QRectF(dst.right(), barTop + barH + 2, rightMargin - 4, 10), Qt::AlignRight, tr("波谷-"));
+    p.setFont(bodyFont);
+    p.setPen(PaleoTheme::tokens().textMuted);
+    p.drawText(QRectF(dst.right(), barTop - labelHeight - PaleoTheme::tokens().spacingXs, rightMargin - 4, labelHeight), Qt::AlignRight, tr("波峰+"));
+    p.setPen(PaleoTheme::tokens().textMuted);
+    p.drawText(QRectF(dst.right(), barTop + barH + PaleoTheme::tokens().spacingXs, rightMargin - 4, labelHeight), Qt::AlignRight, tr("波谷-"));
 
     // 5. 顶部说明条
-    p.setPen(QColor(QStringLiteral("#5D6E80")));
+    p.setPen(PaleoTheme::tokens().textMuted);
     p.setFont(bodyFont);
     p.drawText(QRect(leftMargin + 4, 4, dst.width() - 8, 18), Qt::AlignLeft | Qt::AlignVCenter, m_caption);
   }

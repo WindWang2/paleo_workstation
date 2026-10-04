@@ -1,0 +1,20 @@
+{
+  "gitCommit": "dda2faa58c8804f195e8af28c69fec29ccf38379",
+  "productionDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "binariesSha256": {
+    "tst_ui": "be1c09bb883ec3458a59dc53778bfcfd9ad445238b4f19bbadcc52fca94becaf",
+    "tst_seismic_3d": "5e3efc307ce0b29741065a22c68e4fb1ccafcb0ea83153efec4e8ce45853bef5"
+  },
+  "scale": "2",
+  "backend": "Qt offscreen widgets; seismic-3d uses X11 / software OpenGL",
+  "images": [
+    "mapping-decorations-dark.png",
+    "mapping-decorations-light.png",
+    "seismic-3d-dark.png",
+    "seismic-3d-light.png",
+    "seismic-3d-viewport-dark.png",
+    "seismic-3d-viewport-light.png",
+    "web-empty-dark.png",
+    "web-empty-light.png"
+  ]
+}

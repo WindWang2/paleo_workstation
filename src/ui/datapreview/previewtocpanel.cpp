@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：矢量符号编辑器的默认颜色，写入 QGIS renderer。（tools/ui-token-exceptions.json 精确计数）。
 #include "previewtocpanel.h"
 
 #include "previewmapstates.h"
@@ -43,8 +44,8 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
   : QWidget( parent )
 {
   auto *lay = new QVBoxLayout( this );
-  lay->setContentsMargins( 6, 6, 6, 6 );
-  lay->setSpacing( 4 );
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
   auto *title = new QLabel( QObject::tr( "图层" ), this );
   PaleoTheme::applyThemedStyleSheet(
@@ -105,7 +106,7 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
   {
     auto *page = new QWidget( m_quickPanel );
     auto *form = new QFormLayout( page );
-    form->setContentsMargins( 0, 4, 0, 4 );
+    form->setContentsMargins(0, PaleoTheme::tokens().spacingXs, 0, PaleoTheme::tokens().spacingXs);
 
     m_rampCombo = new QComboBox( page );
     m_rampCombo->setObjectName( QStringLiteral( "tocRampCombo" ) );
@@ -154,7 +155,7 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
   {
     auto *page = new QWidget( m_quickPanel );
     auto *form = new QFormLayout( page );
-    form->setContentsMargins( 0, 4, 0, 4 );
+    form->setContentsMargins(0, PaleoTheme::tokens().spacingXs, 0, PaleoTheme::tokens().spacingXs);
 
     m_fieldCombo = new QComboBox( page );
     m_fieldCombo->setObjectName( QStringLiteral( "tocFieldCombo" ) );
@@ -184,7 +185,7 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
   {
     auto *box = new QWidget( this );
     auto *form = new QFormLayout( box );
-    form->setContentsMargins( 0, 4, 0, 4 );
+    form->setContentsMargins(0, PaleoTheme::tokens().spacingXs, 0, PaleoTheme::tokens().spacingXs);
 
     m_opacitySlider = new QSlider( Qt::Horizontal, box );
     m_opacitySlider->setObjectName( QStringLiteral( "tocOpacitySlider" ) );
@@ -209,7 +210,7 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
     auto *row = new QWidget( this );
     auto *rowLay = new QHBoxLayout( row );
     rowLay->setContentsMargins( 0, 0, 0, 0 );
-    rowLay->setSpacing( 6 );
+    rowLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
     m_attrTableBtn = new QPushButton( QObject::tr( "属性表" ), row );
     m_attrTableBtn->setObjectName( QStringLiteral( "tocAttrTableBtn" ) );
@@ -237,7 +238,7 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
   m_legendBox = new QWidget( this );
   m_legendBox->setObjectName( QStringLiteral( "previewLegendBox" ) );
   auto *legendLay = new QVBoxLayout( m_legendBox );
-  legendLay->setContentsMargins( 0, 6, 0, 0 );
+  legendLay->setContentsMargins(0, PaleoTheme::tokens().spacingSm, 0, 0);
   auto *legendTitle = new QLabel( QObject::tr( "图例" ), m_legendBox );
   PaleoTheme::applyThemedStyleSheet(
       legendTitle, [] { return PaleoTheme::sectionTitleStyleSheet(); } );
@@ -411,8 +412,8 @@ void PreviewTocPanel::setLegendEntries( const QVector<LegendEntry> &entries )
   m_legendEntries = entries;
   QString html;
   for ( const LegendEntry &e : entries )
-    html += QStringLiteral( "<p style=\"margin:1px 0;\"><span style=\""
-                            "background-color:%1;color:%1;\">&nbsp;&nbsp;&nbsp;</span> %2</p>" )
+    html += PaleoTheme::metricStyleSheet(QStringLiteral( "<p style=\"margin:{spacing.xs}px 0;\"><span style=\""
+                            "background-color:%1;color:%1;\">&nbsp;&nbsp;&nbsp;</span> %2</p>" ))
                 .arg( e.color.name(), e.name.toHtmlEscaped() );
   m_legendContent->setText( html );
   m_legendBox->setVisible( !entries.isEmpty() );

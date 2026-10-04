@@ -19,7 +19,7 @@ namespace
   QFont mono8()
   {
     QFont f = PaleoTheme::monoFont();
-    f.setPointSize( 8 );
+    f.setPointSize(PaleoTheme::tokens().labelPt);
     return f;
   }
 }
@@ -33,18 +33,18 @@ PreviewHistogramWidget::PreviewHistogramWidget( bool compact, QWidget *parent )
 
   auto *lay = new QVBoxLayout( this );
   lay->setContentsMargins( 0, 0, 0, 0 );
-  lay->setSpacing( 4 );
+  lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
   if ( !compact )
   {
     auto *bar = new QWidget( this );
     auto *barLay = new QHBoxLayout( bar );
     barLay->setContentsMargins( 0, 0, 0, 0 );
-    barLay->setSpacing( 8 );
+    barLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
     auto *binsLbl = new QLabel( QObject::tr( "分箱" ), bar );
     PaleoTheme::applyThemedStyleSheet( binsLbl, [] {
-      return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral( " font-size: 8pt;" );
+      return PaleoTheme::mutedCaptionStyleSheet();
     } );
     barLay->addWidget( binsLbl );
     m_binsSpin = new QSpinBox( bar );
@@ -104,10 +104,16 @@ bool PreviewHistogramWidget::logScale() const
 
 QRect PreviewHistogramWidget::plotRect() const
 {
-  const int top = m_compact ? 14 : 24;
-  const int left = 8;
-  const int right = width() - 8;
-  const int bottom = height() - 18;
+  const auto &t = PaleoTheme::tokens();
+  const int labelHeight = QFontMetrics(mono8()).height();
+  const int controlsBottom = m_binsSpin ? m_binsSpin->parentWidget()->geometry().bottom() + 1 : 0;
+  // Reserve the actual control and text heights: the old fixed top overlapped
+  // the title/peak count with the toolbar, especially at HiDPI.
+  const int top = controlsBottom + t.spacingXs + labelHeight + t.spacingXs +
+                  (m_title.isEmpty() ? 0 : labelHeight + t.spacingXs);
+  const int left = t.spacingSm;
+  const int right = width() - t.spacingSm;
+  const int bottom = height() - labelHeight - t.spacingSm;
   if ( right - left < 20 || bottom - top < 20 )
     return QRect();
   return QRect( left, top, right - left, bottom - top );
@@ -145,27 +151,30 @@ void PreviewHistogramWidget::paintEvent( QPaintEvent * )
 {
   QPainter p( this );
   p.setRenderHint( QPainter::Antialiasing, true );
-  p.fillRect( rect(), Qt::white );
+  p.fillRect( rect(), PaleoTheme::tokens().surface );
 
   const QRect pr = plotRect();
   if ( !m_title.isEmpty() )
   {
-    p.setPen( QColor( QStringLiteral( "#5D6E80" ) ) );
+    p.setPen( PaleoTheme::tokens().textMuted );
     QFont f = font();
-    f.setPointSize( 8 );
+    f.setPointSize(PaleoTheme::tokens().labelPt);
     p.setFont( f );
-    p.drawText( QRect( 8, 2, width() - 16, m_compact ? 12 : 20 ), Qt::AlignLeft,
+    const auto &t = PaleoTheme::tokens();
+    const int controlsBottom = m_binsSpin ? m_binsSpin->parentWidget()->geometry().bottom() + 1 : 0;
+    p.drawText( QRect( t.spacingSm, controlsBottom + t.spacingXs,
+                      width() - 2 * t.spacingSm, QFontMetrics(f).height() ), Qt::AlignLeft,
                 m_title );
   }
   if ( !m_histogram.valid || pr.isNull() )
   {
-    p.setPen( QColor( QStringLiteral( "#5D6E80" ) ) );
+    p.setPen( PaleoTheme::tokens().textMuted );
     p.drawText( rect(), Qt::AlignCenter, QObject::tr( "无直方图数据" ) );
     return;
   }
 
   // 轴
-  p.setPen( QColor( QStringLiteral( "#DFE5EC" ) ) );
+  p.setPen( PaleoTheme::tokens().border );
   p.drawRect( pr );
 
   const int bins = m_histogram.bins;
@@ -185,17 +194,17 @@ void PreviewHistogramWidget::paintEvent( QPaintEvent * )
     const double binCenter = m_histogram.lo + binValWidth * ( i + 0.5 );
     const bool inStretch = !m_hasStretch ||
                            ( binCenter >= m_stretchLo && binCenter <= m_stretchHi );
-    QColor col = inStretch ? QColor( QStringLiteral( "#1B73D0" ) )
-                           : QColor( QStringLiteral( "#9AA7B4" ) );
+    QColor col = inStretch ? PaleoTheme::tokens().primary
+                           : PaleoTheme::tokens(PaleoTheme::Theme::Light).textDisabled;
     if ( i == m_hoverBin )
-      col = col.darker( 130 );
+      col = PaleoTheme::tokens().primaryHover;
     p.fillRect( bar, col );
   }
 
   // 拉伸界竖线（红虚线）
   if ( m_hasStretch && m_histogram.hi > m_histogram.lo )
   {
-    p.setPen( QPen( QColor( QStringLiteral( "#E53935" ) ), 1, Qt::DashLine ) );
+    p.setPen( QPen( PaleoTheme::tokens().errorText, 1, Qt::DashLine ) );
     const auto xOf = [&]( double value ) {
       return pr.left() + ( ( value - m_histogram.lo ) / ( m_histogram.hi - m_histogram.lo ) ) * pr.width();
     };
@@ -209,13 +218,15 @@ void PreviewHistogramWidget::paintEvent( QPaintEvent * )
 
   // 轴标注（mono，DESIGN.md tnum）
   p.setFont( mono8() );
-  p.setPen( QColor( QStringLiteral( "#5D6E80" ) ) );
-  p.drawText( QRect( pr.left(), pr.bottom() + 2, pr.width(), 14 ), Qt::AlignLeft,
+  p.setPen( PaleoTheme::tokens().textMuted );
+  const int labelHeight = QFontMetrics(mono8()).height();
+  p.drawText( QRect( pr.left(), pr.bottom() + PaleoTheme::tokens().spacingXs, pr.width(), labelHeight ), Qt::AlignLeft,
               QString::number( m_histogram.lo, 'f', 1 ) );
-  p.drawText( QRect( pr.left(), pr.bottom() + 2, pr.width(), 14 ), Qt::AlignRight,
+  p.drawText( QRect( pr.left(), pr.bottom() + PaleoTheme::tokens().spacingXs, pr.width(), labelHeight ), Qt::AlignRight,
               QString::number( m_histogram.hi, 'f', 1 ) );
   // 纵轴峰值计数
-  p.drawText( QRect( pr.left(), pr.top() - 14, pr.width(), 12 ), Qt::AlignLeft,
+  p.drawText( QRect( pr.left(), pr.top() - labelHeight - PaleoTheme::tokens().spacingXs,
+                    pr.width(), labelHeight ), Qt::AlignLeft,
               QString::number( qint64( maxV ), 'f', m_log ? 1 : 0 ) );
 }
 

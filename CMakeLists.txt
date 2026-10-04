@@ -524,6 +524,7 @@ add_library(paleo_workflow STATIC
   src/workflow/wellsitingworkflow.cpp               # 方向34：井网辅助编排（诊断/候选/方案/planned）
   src/workflow/assetops.cpp                        # 方向30：版本回滚/对比 + 物理清理 + 未决归位
   src/workflow/importledger.cpp                    # 方向30：文件夹导入批次台账（sidecar 持久化）
+  src/workflow/boundaryeditrules.cpp               # 方向39：相界类型编辑规则（赋类/带域/开放端）
 )
 target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store paleo_io paleo_services paleo_domain paleo_ai)
 
@@ -795,6 +796,7 @@ add_paleo_test(tst_geosymbols LIBS paleo_qgis paleo_domain) # 方向31：花纹/
 add_paleo_test(tst_semanticlegend LIBS paleo_qgis paleo_domain) # 方向31：图例自动生成 + 增删/renderer 联动
 add_paleo_test(tst_symbolpicker LIBS paleo_ui paleo_qgis paleo_domain) # 方向31：符号选择器面板（缩略/过滤/patternPicked）
 add_paleo_test(tst_workflows LIBS paleo_workflow)
+add_paleo_test(tst_boundaryeditrules LIBS paleo_workflow) # 方向39：相界类型编辑规则（纯语义面）
 add_paleo_test(tst_wellsiting_workflow LIBS paleo_workflow)  # 方向34：井网辅助编排（Oracle 2/4）
 add_paleo_test(tst_wellsiting_panel LIBS paleo_ui)         # 方向34：布井辅助面板（视图锚点/意图信号）
 add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）

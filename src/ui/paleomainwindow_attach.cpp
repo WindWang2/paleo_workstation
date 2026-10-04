@@ -2226,6 +2226,49 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
               }
             });
 
+    // ---- 方向 39: 相界边界核查 → faciesqa 引擎（只接不重写）----------------
+    connect(composePage, &ComposePage::boundaryQaRequested, this,
+            [this, compose, composePage](const QString &layerId) {
+              if (!compose)
+                return;
+              auto *status =
+                  composePage->findChild<QLabel *>(QStringLiteral("statusLabel"));
+              QString err;
+              const QVariantList issues = compose->runFaciesBoundaryQa(layerId, &err);
+              if (!err.isEmpty())
+              {
+                if (status)
+                  status->setText(err);
+                QgsMessageLog::logMessage(err, QStringLiteral("Paleo"),
+                                          Qgis::MessageLevel::Warning);
+                return;
+              }
+              if (issues.isEmpty())
+              {
+                if (status)
+                  status->setText(tr("边界核查通过：%1 无核查项").arg(layerId));
+                return;
+              }
+              // 报告有名有因：状态栏给条数 + 首条，全量逐条进消息日志。
+              QStringList lines;
+              for (const QVariant &v : issues)
+              {
+                const QVariantMap row = v.toMap();
+                lines << tr("【%1】要素 %2：%3")
+                             .arg(row.value(QStringLiteral("name")).toString(),
+                                  row.value(QStringLiteral("regionIds")).toStringList()
+                                      .join(QStringLiteral(",")),
+                                  row.value(QStringLiteral("reason")).toString());
+              }
+              for (const QString &line : lines)
+                QgsMessageLog::logMessage(
+                    tr("边界核查 %1：%2").arg(layerId, line), QStringLiteral("Paleo"),
+                    Qgis::MessageLevel::Warning);
+              if (status)
+                status->setText(tr("边界核查：%1 项核查项（%2；全部见消息日志）")
+                                    .arg(QString::number(issues.size()), lines.first()));
+            });
+
     // ---- m2(C): 参考图勾选 → instantiate + 图层树节点勾选/取消 ------------
     connect(composePage, &ComposePage::referenceVisibilityRequested, this,
             [this](const QString &layerId, bool visible) {

@@ -8,11 +8,10 @@
 // 相变/断层切割影响编辑行为与图面表达。存储值进相多边形图层 boundary_kind
 // 字段（saveFaciesAttributes 词表），显示名供页面/图例使用。
 //
-// 落地节奏 = 「先单类型跑通」：词表全集在此冻结，激活子集（activeKinds）
-// 当前只有断层切割——编辑钩子（页面下拉 + 属性回写）与符号映射
-//（QgisStyleService::applyFaciesBoundaryStyle 的 fault_cut 类目）按激活
-// 子集开放；其余类型词面保留、UI 不放开（地质专家参与的类型差异化编辑
-// 行为属后续轮次，见 TODOS 该条 Depends on）。
+// 落地节奏 = 「先单类型跑通 → 四类全激活」：词表全集在此冻结。方向 39
+//（goal/boundary-kinds）把整合接触/尖灭/相变三类补齐差异化行为——图面
+//（QgisStyleService::applyFaciesBoundaryStyle 四类目）、编辑语义
+//（boundaryeditrules 规则门禁）、QA（faciesqa 按类型核查）。
 // 层：功能
 namespace BoundarySemantics
 {
@@ -30,10 +29,17 @@ inline QStringList kinds()
            QString::fromLatin1( kFaciesChange ), QString::fromLatin1( kFaultCut ) };
 }
 
-// 当前激活的编辑/符号子集（单类型跑通；扩类型时在此登记）。
+// 当前激活的编辑/符号子集（四类全开——方向 39 起各类型均有差异化图面与
+// 编辑语义）。
 inline QStringList activeKinds()
 {
-  return { QString::fromLatin1( kFaultCut ) };
+  return kinds();
+}
+
+// 表内值判定（UI 回读/属性校验用；表外值如实判 false，不猜类）。
+inline bool isKnownKind( const QString &kind )
+{
+  return kinds().contains( kind );
 }
 
 // 显示名（未知/空 → 原样返回）。

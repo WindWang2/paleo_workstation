@@ -182,6 +182,16 @@ if(QGIS_PREFIX)
   # OSGeo4W installs SQLite, GDAL, GEOS and other public QGIS header
   # dependencies in the prefix's shared include directory.
   target_include_directories(paleo_qgis_core_deps INTERFACE "${QGIS_PREFIX}/include")
+  # 非 OSGeo4W 布局（本机 vcpkg 依赖根与 QGIS prefix 分离）下这些头在
+  # GDAL/GEOS 的 include 根里：qgsstyle.h 直接 #include <sqlite3.h>，任何
+  # 只链 paleo_qgis_iface 的目标（tst_boot / tst_polygonize / selfcheck）
+  # 都要跟着拿到，否则编译期报 C1083。
+  if(GDAL_INCLUDE_DIR)
+    target_include_directories(paleo_qgis_core_deps INTERFACE "${GDAL_INCLUDE_DIR}")
+  endif()
+  if(GEOS_INCLUDE_DIR)
+    target_include_directories(paleo_qgis_core_deps INTERFACE "${GEOS_INCLUDE_DIR}")
+  endif()
   # 默认运行时 prefix 随构建钉住：裸跑（无 QGIS_PREFIX_PATH env）时
   # provider/srs.db 仍解析到二进制实际链接的 vendor prefix，不静默回落
   # 系统栈（链接与运行资源栈分裂）。env/CLI 覆盖语义不变。
@@ -364,6 +374,8 @@ add_library(paleo_domain STATIC
   src/domain/wellsitingplan.cpp                     # 方向34：布井方案纯值类型（指标快照往返）
   src/domain/seismic/nicestep.cpp
   src/domain/seismic/timedepthmodel.cpp
+  src/domain/sequenceframework.cpp                  # 方向28：层序格架模型（单元/标志层 + JSON）
+  src/domain/frameworkdiagnostics.cpp               # 方向28：格架一致性诊断（悬空/空洞/重名/无归属）
   src/domain/seismic/sectionwellprojector.cpp
   # sgy*.h 为指向 paleo_sbm 的转发头；实现随 vendor 库编译。
 )
@@ -390,6 +402,7 @@ add_library(paleo_algorithms STATIC
   src/algorithms/singlefactor/structuralalgorithm.cpp
   src/algorithms/singlefactor/cartographicsmooth.cpp # 上游制图平滑折线辅助（纯数学）
   src/algorithms/singlefactor/fieldcontours.cpp      # 上游 field_contours/contour_work_field 移植
+  src/algorithms/frameworksuggester.cpp              # 方向28：井间格架建议核（只出候选，不写库）
   src/algorithms/singlefactor/contourlevels.cpp      # 上游等值线级别助手（_nice_number 等）
   src/algorithms/wellsiting/wellsiting.cpp           # 方向34：井网覆盖诊断/候选/评估纯核
 )
@@ -407,10 +420,11 @@ add_library(paleo_store STATIC
   src/metadata/mapversionstore.cpp                  # 版本/发布状态机落表（meta sqlite）
   src/metadata/layouttemplatestore.cpp              # 版式模板库语义索引（方向 25；catalog 存内容）
   src/metadata/metastore.cpp                        # project.sqlite user_version 门
+  src/catalog/frameworkstore.cpp                    # 方向28：格架落库（catalog 资产 + 受管版本）
   src/metadata/wellsitingstore.cpp                  # 方向34：布井方案集单行文档表
   src/metadata/projectlock.cpp                      # 两实例同开一工程写互斥（QLockFile）
 )
-target_link_libraries(paleo_store PUBLIC paleo_deps)
+target_link_libraries(paleo_store PUBLIC paleo_deps paleo_domain)
 
 # ---- QGIS 封装层 ----
 add_library(paleo_qgis STATIC
@@ -469,6 +483,7 @@ add_library(paleo_services STATIC
   src/services/seismicmapping.cpp                   # 测网几何↔inline/xline/CDP
   src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排
   src/services/crashreport.cpp                      # 致命信号 fd 落盘 + .running 旗标
+  src/services/frameworkservice.cpp                 # 方向28：格架读侧门面 + 建议/诊断编排
   src/services/startuptrace.cpp                     # goal/perf-systematize 簇1：启动分段仪表
   src/services/cataloghealth.cpp                    # 方向30：工区资产体检（快速面 + 外链 SHA 复验）
 )
@@ -572,6 +587,8 @@ add_library(paleo_ui STATIC
   src/ui/wellcomposite/wellcompositepanel.cpp
   src/ui/wellcomposite/curveconfigdialog.cpp
   src/ui/wellcomposite/wellpositionlegendwidget.cpp
+  src/ui/sequenceframeworkcolumn.cpp               # 方向28：格架柱状视图（层级色带）
+  src/ui/sequenceframeworkpanel.cpp                # 方向28：格架树/标志层/诊断/建议面板
   src/ui/horizonchipbar.cpp                        # 8层位chip条（阶段E）
   src/ui/releasepanel.cpp
   src/ui/taskpanel.cpp
@@ -769,6 +786,7 @@ add_paleo_test(tst_singlefactor_contract LIBS paleo_domain)
 add_paleo_test(tst_singlefactor_samples LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_store LIBS paleo_io)
 add_paleo_test(tst_services2 LIBS paleo_qgis)               # algorithms,metadata,qgis
+add_paleo_test(tst_sequenceframework LIBS paleo_services)  # 方向28：格架 CRUD/诊断/建议（零写入）断言
 add_paleo_test(tst_geosymbols LIBS paleo_qgis paleo_domain) # 方向31：花纹/线型词表+入口（qrc 资源在 paleo_domain）
 add_paleo_test(tst_semanticlegend LIBS paleo_qgis paleo_domain) # 方向31：图例自动生成 + 增删/renderer 联动
 add_paleo_test(tst_symbolpicker LIBS paleo_ui paleo_qgis paleo_domain) # 方向31：符号选择器面板（缩略/过滤/patternPicked）
@@ -798,6 +816,7 @@ add_paleo_test(tst_drawctl LIBS paleo_ui)
 add_paleo_test(tst_procdialog LIBS paleo_qgis)
 add_paleo_test(tst_rehydrate)                               # 伞式（app 面全栈，兼容样本）
 add_paleo_test(tst_release LIBS paleo_store)
+add_paleo_test(tst_sequenceframework_ui LIBS paleo_ui)  # 方向28：格架面板/柱状视图无头断言
 add_paleo_test(tst_releasepanel LIBS paleo_ui)
 add_paleo_test(tst_taskpanel LIBS paleo_ui)
 add_paleo_test(tst_attrpanel LIBS paleo_ui)

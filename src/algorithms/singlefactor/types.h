@@ -149,6 +149,26 @@ struct ResolvedParameters
   std::string algorithmVersion = "1.0.0";
   std::string semanticProfile = "paleo_local_idw_v1";
   std::string valueUnit;
+  // ---- 克里金面（方向41：method=kriging 走 evaluateLocalKriging）----
+  // range <= 0 → 用样本自动拟合变差函数（实验变差 + 最小二乘）；拟合失败
+  // 或有效样本不足时如实回落 IDW，理由写 fallbackReason，不冒充克里金。
+  // nugget > 0 时普通克里金是平滑器，采样点不再精确通过（数学事实，见
+  // krigingsurface.h 头注释）；要精确通过必须 nugget=0。
+  std::string variogramModel = "spherical"; // spherical | exponential | gaussian
+  double nugget = 0;
+  double sill = 0;
+  double range = 0;
+  double variogramAzimuthDeg = -1;     // <0 = 全向拟合；>=0 = 双方向拟合各向异性
+  double variogramAnisotropyRatio = 0; // <=0 = 用方位拟合结果；>=1 显式覆盖
+  int krigingMaxPoints = 16;           // 0 = 分量内全部样本
+  int krigingMinPoints = 1;
+  double variogramFitR2 = 0;   // 自动拟合的拟合优度（可负；未拟合时为 0）
+  double variogramFitRmse = 0; // 同上
+  int variogramUsedLags = 0;
+  // 实际执行的引擎（"local_direction_idw" | "kriging"）与回落原因（空 = 未回落）。
+  // UI/QC/血缘只认这个字段，不认请求标签。
+  std::string methodActual = "local_direction_idw";
+  std::string fallbackReason;
 };
 
 struct PreparedInput
@@ -197,6 +217,11 @@ struct SurfaceResult
   int nodataCells = 0;
   int extrapolatedCells = 0;
   int barrierCells = 0;
+  // 方向41：克里金诊断。krigingCells + idwFallbackCells = 有限像元数（克里金面）。
+  int krigingCells = 0;
+  int idwFallbackCells = 0;
+  // 变差函数不能支撑克里金时整面回落 IDW 的数量（0 或 1，占位给血缘）。
+  int variogramFallbacks = 0;
 };
 
 struct QueryResult

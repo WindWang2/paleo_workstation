@@ -18,6 +18,7 @@
 #include "pages/constraintpage.h"
 #include "pages/mappingworkbenchpage.h"
 #include "pages/predictpage.h"
+#include "pages/pageshared.h"
 #include "pages/wellpredictionpanel.h"
 #include "paleomainwindow.h"
 #include "paleoribbon.h"
@@ -52,7 +53,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     return;
   auto *host = findChild<QWidget *>("rightPanelHost");
   auto *stack = host ? qobject_cast<QStackedLayout *>(host->layout()) : nullptr;
-  if (!stack || stack->count() < 5)
+  if (!stack || stack->count() < paleo::pagesinternal::kPageIds.size())
     return;
   setProperty("workbenchAttached", true);
   if (auto *chips = findChild<HorizonChipBar *>())
@@ -63,14 +64,15 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
   int current = stack->currentIndex();
   const QStringList modes{"predict", "constraint", "compose"};
   for (int i = 0; i < modes.size(); ++i) {
-    auto *old = stack->widget(i + 1);
+    const int index = paleo::pagesinternal::kPageIds.indexOf(modes[i]);
+    auto *old = stack->widget(index);
     stack->removeWidget(old);
     auto *tabs = new QTabWidget(host);
     tabs->setObjectName("workbenchTabs." + modes[i]);
     auto *page = new MappingWorkbenchPage(modes[i], workbench, tabs);
     tabs->addTab(page, tr("编图流程"));
     tabs->addTab(old, tr("高级工具"));
-    stack->insertWidget(i + 1, tabs);
+    stack->insertWidget(index, tabs);
     pages << page;
   }
   stack->setCurrentIndex(current);

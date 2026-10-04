@@ -75,6 +75,7 @@ private:
   bool m_userWantsVisible = true;
 };
 
+class StratigraphicWebPage;
 class QStackedWidget;
 class QSplitter;
 class DataPreviewTabs;
@@ -125,8 +126,8 @@ class QCloseEvent;
 class QContextMenuEvent;
 class QPoint;
 
-// ui/ — PaleoMainWindow: the five-page workflow shell (§42), Ribbon 形态。
-// 顶部 = SARibbon：「文件」应用按钮 + 五个页签（数据管理 | 预测编图 | 单因素图 |
+// ui/ — PaleoMainWindow: the six-page workflow shell (§42), Ribbon 形态。
+// 顶部 = SARibbon：「文件」应用按钮 + 六个页签（数据管理 | 地层对比 | 预测编图 | 单因素图 |
 // 智能编图 | 验证，页签 = 工作流页）+ 右侧全局按钮组（搜索/处理算法/面板/
 // Web 服务）+ 快速访问栏（保存/撤销/重做）。
 // 中央：数据管理页 = 「数据列表」上 +「数据预览」下的竖向分栏；其余四页 =
@@ -146,7 +147,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     ~PaleoMainWindow() override;
     void addDockWidget(Qt::DockWidgetArea area, QDockWidget *dock);
 
-    // Page ids: "data" | "predict" | "constraint" | "compose" | "validate" (+ "startup")
+    // Page ids: "data" | "correlation" | "predict" | "constraint" | "compose" | "validate" (+ "startup")
     void showPage(const QString &pageId);
     QString currentPage() const { return m_currentPage; }
     // 页 id 的 ribbon 页签（objectName "ribbonCategory.<pageId>"）；未知 id → nullptr。
@@ -266,6 +267,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 页签内的命令组依赖页面板与服务，由 buildRibbonPanels 在 attachWorkflows
     // 末尾填充。
     void buildRibbon();
+    void restoreCorrelationDocks();
     void buildRibbonPanels(DataPage *data, PredictPage *predict, ConstraintPage *constraint,
                            ComposePage *compose, ValidatePage *validate,
                            PaleoEditingToolbar *editTb, WellCorrelationPanel *corrPanel);
@@ -347,8 +349,11 @@ class PaleoMainWindow : public SARibbonMainWindow
     // validationDone 连接在验证跑完后调它（残差覆盖是门的一条腿）。
     std::function<void()> m_refreshPublishGate;
 
+    StratigraphicWebPage *m_stratigraphicWebPage = nullptr;
+    QList<QPointer<QDockWidget>> m_correlationHiddenDocks;
+    QByteArray m_beforeCorrelationWindowState;
     QStackedWidget *m_centerStack = nullptr;   // page0=startup, page1=workspace
-    QStackedWidget *m_workspaceStack = nullptr; // page0=画布面（chip 条+画布），page1=数据面
+    QStackedWidget *m_workspaceStack = nullptr; // page0=画布面，page1=数据面，page2=地层对比
     PaleoDockWidget *m_dataListDock = nullptr;
     QWidget *m_dataListHost = nullptr;
     DataPreviewTabs *m_previewTabs = nullptr;

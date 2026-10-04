@@ -502,6 +502,7 @@ add_library(paleo_linkage STATIC
 target_link_libraries(paleo_linkage PUBLIC paleo_deps paleo_services paleo_qgis paleo_domain)
 
 add_library(paleo_workflow STATIC
+  src/workflow/stratigraphicwebsession.cpp
   src/workflow/mappingworkbench.cpp
   src/workflow/workflows.cpp
   src/workflow/constraintimport.cpp                 # WS-C：约束 SHP 角色化导入（方向/打断）
@@ -533,6 +534,7 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 
 # ---- 视图层 ----
 add_library(paleo_ui STATIC
+  src/ui/pages/stratigraphicwebpage.cpp
   src/ui/symbols/symbolpickerpanel.cpp             # 方向31：符号选择器面板（花纹/线型浏览 + 语义过滤）
   src/ui/pages/mappingworkbenchpage.cpp
   src/ui/paleomainwindow_workbench.cpp
@@ -913,6 +915,7 @@ target_compile_definitions(tst_previewdoc PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_wellcomposite LIBS paleo_ui)
 add_paleo_test(tst_smoke_realdata LIBS paleo_workflow) # real-data smoke; skips unless PALEO_REAL_PROJECT_AREA is set
+add_paleo_test(tst_stratigraphicweb LIBS paleo_ui)
 add_paleo_test(tst_webviewpanel LIBS paleo_ui)   # offscreen: engine unavailable → fallback, host survives
 # ---- wave3/ux-consistency ----
 # (fonts qrc + theme singleton live in paleo_core below; UI-domain tests here)

@@ -230,14 +230,16 @@ private slots:
     TextInterval interval;
     interval.topDepth = 1000;
     interval.bottomDepth = 1100;
-    interval.text = QStringLiteral("河口坝");
+    // 用拉丁字母标签：本用例测「文字收进可见段」的几何，不测 CJK 字形；
+    // CI runner 无 CJK 字体，「河口坝」的缺字形墨点数随字体环境漂移（实测 4～73）。
+    interval.text = QStringLiteral("MouthBar");
     track.setIntervals({interval});
     // 视口 [1010,1020] m 完全落在区间 [1000,1100] 内：区间矩形中心在视口外，
     // 不 keepTextVisible 时文字画到视口外 → 中部无墨；keep 时文字收进可见段。
     // #131/#151：旧阈值 ink > 20 依赖 CJK 字体——CI runner 无 CJK 字体时
-    // 「河口坝」渲染成缺字框，墨点恰好 = 20（本机 DejaVu-only fontconfig 复现），
-    // 断言随字体环境翻转。改为相对判别：keep 必须比不 keep 多出明显墨迹，
-    // 与字体/字形无关。
+    // 「河口坝」渲染成缺字框（DejaVu-only 本机 20 点、CI runner 实测仅 4 点
+    // lightness<120）。改为相对判别 + 「非白即墨」：keep 必须比不 keep 多出
+    // 明显墨迹，抗锯齿的细缺字框也计入，与字体/字形无关。
     const auto inkFor = [&](bool keep) {
       track.setKeepTextVisible(keep);
       QImage image(100, 200, QImage::Format_RGB32);
@@ -248,7 +250,7 @@ private slots:
       int ink = 0;
       for (int y = 60; y < 140; ++y)
         for (int x = 10; x < 90; ++x)
-          if (image.pixelColor(x, y).lightness() < 120)
+          if (image.pixelColor(x, y).lightness() < 245) // 任何非白（含抗锯齿缺字框）都算墨
             ++ink;
       return ink;
     };

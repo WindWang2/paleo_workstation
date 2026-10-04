@@ -1113,6 +1113,9 @@ QVariantMap SurferIdwAlgorithm::processAlgorithm( const QVariantMap &parameters,
   surface.resolved.algorithmVersion = "1.0.0";
   surface.resolved.semanticProfile = "paleo_surfer_idw_v1";
   surface.resolved.hardBarrierModel = "fault_path_metric_v1";
+  // 与 local_direction_idw 共用 parametersForHash：实际引擎名必须如实标成
+  // surfer_idw，否则 QC 的 method_actual 会冒充本地方向 IDW。
+  surface.resolved.methodActual = "surfer_idw";
 
   OutputGuard guard;
   const QString supportPath = sidecarPath( outPath, QStringLiteral( ".support.tif" ) );

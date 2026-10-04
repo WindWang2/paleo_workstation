@@ -194,6 +194,11 @@ bool zipExtractBytes( const QByteArray &archive, const QString &entryName, QByte
   // deflate：raw inflate（-MAX_WBITS），按中央目录给出的未压缩长度预分配。
   if ( item->uncompressedSize > static_cast<std::uint64_t>( kMaxArchiveBytes ) )
     return fail( QStringLiteral( "条目「%1」解压后大小超过上限" ).arg( entryName ) );
+  if ( item->uncompressedSize == 0 )
+  {
+    out->clear(); // 空条目：inflate 零输出缓冲会返回 Z_BUF_ERROR，这里直接给空
+    return true;
+  }
   z_stream stream;
   std::memset( &stream, 0, sizeof( stream ) );
   if ( inflateInit2( &stream, -MAX_WBITS ) != Z_OK )

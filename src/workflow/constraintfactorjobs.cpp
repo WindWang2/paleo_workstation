@@ -902,12 +902,17 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
   extra.insert( QStringLiteral( "engine_id" ), job.engineId );
   extra.insert( QStringLiteral( "method_actual" ),
                 actualMethod.isEmpty() ? QStringLiteral( "local_direction_idw" ) : actualMethod );
-  extra.insert( QStringLiteral( "variogram" ), qc.value( QStringLiteral( "variogram" ) ) );
-  extra.insert( QStringLiteral( "issues" ), qc.value( QStringLiteral( "issues" ) ) );
+  if ( qc.contains( QStringLiteral( "variogram" ) ) )
+    extra.insert( QStringLiteral( "variogram" ), qc.value( QStringLiteral( "variogram" ) ) );
+  if ( qc.contains( QStringLiteral( "issues" ) ) )
+    extra.insert( QStringLiteral( "issues" ), qc.value( QStringLiteral( "issues" ) ) );
   if ( !fallbackReason.isEmpty() )
     extra.insert( QStringLiteral( "fallback_reason" ), fallbackReason );
-  extra.insert( QStringLiteral( "kriging_cells" ), counts.value( QStringLiteral( "kriging" ) ) );
-  extra.insert( QStringLiteral( "idw_fallback_cells" ), counts.value( QStringLiteral( "idw_fallback" ) ) );
+  // 计数只在 QC 里有对应键时写（旧工程 QC 没有 kriging/idw_fallback 计数）。
+  if ( counts.contains( QStringLiteral( "kriging" ) ) )
+    extra.insert( QStringLiteral( "kriging_cells" ), counts.value( QStringLiteral( "kriging" ) ) );
+  if ( counts.contains( QStringLiteral( "idw_fallback" ) ) )
+    extra.insert( QStringLiteral( "idw_fallback_cells" ), counts.value( QStringLiteral( "idw_fallback" ) ) );
   extra.insert( QStringLiteral( "extent_source" ), qc.value( QStringLiteral( "extent_source" ) ) );
   extra.insert( QStringLiteral( "crs_mode" ), qc.value( QStringLiteral( "crs_mode" ) ) );
   extra.insert( QStringLiteral( "support_path" ), projectDir.relativeFilePath( stagedSupport ) );
